@@ -19,21 +19,6 @@ namespace Genesis.RoomScan
         [SerializeField, Range(2f, 12f)] private float renderDistance = 8f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
 
-        private sealed class RetiredPublication
-        {
-            public readonly MerkabaPublicationBuffer Buffer;
-            public readonly GraphicsFence ProtectingFence;
-            public bool ReleaseSupported;
-
-            public RetiredPublication(MerkabaPublicationBuffer buffer,
-                GraphicsFence protectingFence, bool releaseSupported)
-            {
-                Buffer = buffer;
-                ProtectingFence = protectingFence;
-                ReleaseSupported = releaseSupported;
-            }
-        }
-
         private MerkabaGrid _grid;
         private Material _material;
         private MaterialPropertyBlock _drawProperties;
@@ -50,14 +35,10 @@ namespace Genesis.RoomScan
         private bool _resizeMigrationPending;
         private MerkabaPublicationBuffer _replacementPublication;
         private uint _replacementRequirement;
-        private GraphicsFence _migrationFence;
-        private GraphicsFence _latestSourceUseFence;
-        private bool _migrationFenceValid;
-        private bool _latestSourceUseFenceValid;
-        private bool _sourceRetirementUnsafe;
         private bool _publicationResizeDisabled;
+        private bool _destroyed;
         private ShadowCastingMode _shadowCastingMode = ShadowCastingMode.On;
-        private readonly List<RetiredPublication> _retiredPublications = new();
+        private readonly List<MerkabaPublicationBuffer> _retiredPublications = new();
 
         private const float StatusSampleIntervalSeconds = 1f;
 
@@ -130,9 +111,10 @@ namespace Genesis.RoomScan
 
         private void OnDestroy()
         {
+            _destroyed = true;
             _replacementPublication.Release();
-            foreach (RetiredPublication retired in _retiredPublications)
-                retired.Buffer.Release();
+            foreach (MerkabaPublicationBuffer retired in _retiredPublications)
+                retired.Release();
             _retiredPublications.Clear();
             if (_material != null) Destroy(_material);
         }
@@ -151,8 +133,6 @@ namespace Genesis.RoomScan
                 return;
             }
 
-            TryCommitPublicationReplacement();
-            ReleaseRetiredBuffers();
             RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null || !scanner.IsScanning)
                 _grid.ClearIntegrationResidencyDemand();
@@ -188,9 +168,6 @@ namespace Genesis.RoomScan
             if (drawsMerkaba)
                 MerkabaGpuTimestamps.EndGraphics(
                     MerkabaGpuStage.MerkabaDraw);
-            if (_resizeMigrationPending && drawsMerkaba)
-                RecordLatestSourceUseFence();
-
             MerkabaGpuTimestamps.CaptureRenderMetrics(_grid, cpuDirtyGroups,
                 gpuQueueSubmitted);
             MerkabaGpuTimestamps.EndFrame();
@@ -439,11 +416,12 @@ namespace Genesis.RoomScan
 
         private void BeginExceptionalResizeMigration()
         {
-            if (!SystemInfo.supportsGraphicsFence)
+            if (!SystemInfo.supportsAsyncGPUReadback)
             {
                 _publicationResizeDisabled = true;
-                Logger.Error("Merkaba publication growth requires graphics fences; " +
-                             "retaining the last valid publication until teardown.");
+                _requestedResizeRequirement = 0u;
+                Logger.Error("Merkaba publication growth requires asynchronous GPU " +
+                             "readback; retaining the last valid publication.");
                 return;
             }
 
@@ -463,123 +441,74 @@ namespace Genesis.RoomScan
 
             _replacementRequirement = required;
             _resizeMigrationPending = true;
-            topologyCompute.SetBuffer(_migrateKernel, SourcePrimitiveRecordBanksId,
-                _grid.PrimitiveRecordBanksBuffer);
-            topologyCompute.SetBuffer(_migrateKernel, SourcePublishedBanksId,
-                _grid.PublishedBankBuffer);
-            topologyCompute.SetBuffer(_migrateKernel, PrimitiveRecordBanksId,
-                _replacementPublication.Records);
-            topologyCompute.SetBuffer(_migrateKernel, PrimitiveCountsId,
-                _grid.PrimitiveCountBuffer);
-            topologyCompute.SetInt(ResidentCapacityId, _grid.ResidentSlotCapacity);
-            topologyCompute.SetInt(SourcePrimitiveCapacityId,
-                _grid.PublicationPrimitiveCapacity);
-            topologyCompute.SetInt(PrimitiveCapacityId,
-                _replacementPublication.CapacityPerChunk);
-            topologyCompute.Dispatch(_migrateKernel,
-                _grid.ResidentSlotCapacity,
-                Mathf.CeilToInt(_grid.PublicationPrimitiveCapacity / 64f), 1);
-
             try
             {
-                _migrationFence = CreatePublicationFence();
-                _migrationFenceValid = true;
-                _latestSourceUseFence = _migrationFence;
-                _latestSourceUseFenceValid = true;
-                _sourceRetirementUnsafe = false;
+                topologyCompute.SetBuffer(_migrateKernel,
+                    SourcePrimitiveRecordBanksId,
+                    _grid.PrimitiveRecordBanksBuffer);
+                topologyCompute.SetBuffer(_migrateKernel, SourcePublishedBanksId,
+                    _grid.PublishedBankBuffer);
+                topologyCompute.SetBuffer(_migrateKernel, PrimitiveRecordBanksId,
+                    _replacementPublication.Records);
+                topologyCompute.SetBuffer(_migrateKernel, PrimitiveCountsId,
+                    _grid.PrimitiveCountBuffer);
+                topologyCompute.SetInt(ResidentCapacityId,
+                    _grid.ResidentSlotCapacity);
+                topologyCompute.SetInt(SourcePrimitiveCapacityId,
+                    _grid.PublicationPrimitiveCapacity);
+                topologyCompute.SetInt(PrimitiveCapacityId,
+                    _replacementPublication.CapacityPerChunk);
+                topologyCompute.Dispatch(_migrateKernel,
+                    _grid.ResidentSlotCapacity,
+                    Mathf.CeilToInt(_grid.PublicationPrimitiveCapacity / 64f), 1);
+
+                // This four-byte readback is only a nonblocking completion token for
+                // the scanner-owned replacement buffer. The source remains live.
+                AsyncGPUReadback.Request(_replacementPublication.Records,
+                    sizeof(uint), 0, CompleteResizeMigration);
             }
             catch (Exception exception)
             {
-                _publicationResizeDisabled = true;
-                _sourceRetirementUnsafe = true;
-                Logger.Error("Merkaba publication migration fence failed; retaining " +
-                             $"source and replacement until teardown: {exception.Message}");
+                FailResizeMigration(exception.Message);
             }
         }
 
-        private static GraphicsFence CreatePublicationFence() =>
-            Graphics.CreateGraphicsFence(
-                GraphicsFenceType.AsyncQueueSynchronisation,
-                SynchronisationStageFlags.AllGPUOperations);
-
-        private void RecordLatestSourceUseFence()
+        private void CompleteResizeMigration(AsyncGPUReadbackRequest request)
         {
-            if (!SystemInfo.supportsGraphicsFence)
+            if (_destroyed || !_resizeMigrationPending) return;
+            if (request.hasError || !_replacementPublication.IsValid)
             {
-                _sourceRetirementUnsafe = true;
+                FailResizeMigration("asynchronous completion token failed");
                 return;
             }
+
             try
             {
-                _latestSourceUseFence = CreatePublicationFence();
-                _latestSourceUseFenceValid = true;
+                MerkabaPublicationBuffer retired =
+                    _grid.CommitPublicationReplacement(_replacementPublication,
+                        _replacementRequirement);
+                _replacementPublication = default;
+                _resizeMigrationPending = false;
+                _requestedResizeRequirement = 0u;
+                // Prior generations may still be referenced by queued Quest draws.
+                // Publication growth is exceptional; retain them until teardown.
+                _retiredPublications.Add(retired);
             }
             catch (Exception exception)
             {
-                _sourceRetirementUnsafe = true;
-                Logger.Error("Merkaba source-use fence failed; retaining the source " +
-                             $"publication until teardown: {exception.Message}");
+                FailResizeMigration(exception.Message);
             }
         }
 
-        private void TryCommitPublicationReplacement()
+        private void FailResizeMigration(string reason)
         {
-            if (!_resizeMigrationPending || !_migrationFenceValid ||
-                _publicationResizeDisabled)
-                return;
-
-            bool migrationPassed;
-            try
-            {
-                migrationPassed = _migrationFence.passed;
-            }
-            catch (Exception exception)
-            {
-                _publicationResizeDisabled = true;
-                _sourceRetirementUnsafe = true;
-                Logger.Error("Merkaba publication migration fence cannot be polled; " +
-                             $"retaining both generations until teardown: {exception.Message}");
-                return;
-            }
-            if (!migrationPassed || !_replacementPublication.IsValid) return;
-
-            MerkabaPublicationBuffer retired =
-                _grid.CommitPublicationReplacement(_replacementPublication,
-                    _replacementRequirement);
-            _replacementPublication = default;
+            _publicationResizeDisabled = true;
             _resizeMigrationPending = false;
             _requestedResizeRequirement = 0u;
-            GraphicsFence protectingFence = _latestSourceUseFenceValid
-                ? _latestSourceUseFence : _migrationFence;
-            bool releaseSupported = !_sourceRetirementUnsafe &&
-                                    (_latestSourceUseFenceValid ||
-                                     _migrationFenceValid);
-            _retiredPublications.Add(new RetiredPublication(retired,
-                protectingFence, releaseSupported));
-            _migrationFenceValid = false;
-            _latestSourceUseFenceValid = false;
-            _sourceRetirementUnsafe = false;
-        }
-
-        private void ReleaseRetiredBuffers()
-        {
-            for (int index = _retiredPublications.Count - 1; index >= 0; index--)
-            {
-                RetiredPublication retired = _retiredPublications[index];
-                if (!retired.ReleaseSupported) continue;
-                try
-                {
-                    if (!retired.ProtectingFence.passed) continue;
-                    retired.Buffer.Release();
-                    _retiredPublications.RemoveAt(index);
-                }
-                catch (Exception exception)
-                {
-                    retired.ReleaseSupported = false;
-                    Logger.Error("Merkaba retired-publication fence cannot be polled; " +
-                                 $"retaining its buffer until teardown: {exception.Message}");
-                }
-            }
+            // A submitted migration may still reference the replacement. Keep both
+            // generations alive until teardown and resume source publication work.
+            Logger.Error("Merkaba publication migration failed; retaining source " +
+                         $"and replacement until teardown: {reason}");
         }
     }
 }

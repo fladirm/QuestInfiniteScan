@@ -300,7 +300,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void Cut5Publication_UsesFencePowerOfTwoGrowthAndGeometryOnlyRecords()
+        public void Cut5ePublication_UsesAsyncCompletionAndRetainsGpuGenerations()
         {
             int maximum = MerkabaConstants.KernelsPerChunk *
                           MerkabaCanonicalGeometry.MaximumActivePrimitiveCount;
@@ -314,15 +314,48 @@ namespace Genesis.RoomScan.Tests
             string renderer = File.ReadAllText(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
                 "MerkabaGridRenderer.cs");
-            Assert.That(renderer, Does.Contain("GraphicsFence ProtectingFence"));
-            Assert.That(renderer, Does.Contain(
-                "GraphicsFenceType.AsyncQueueSynchronisation"));
-            Assert.That(renderer, Does.Contain(
-                "SynchronisationStageFlags.AllGPUOperations"));
+            Assert.That(renderer, Does.Not.Contain("GraphicsFence"));
+            Assert.That(renderer, Does.Not.Contain("AsyncQueueSynchronisation"));
+            Assert.That(renderer, Does.Not.Contain(".passed"));
+            Assert.That(renderer, Does.Not.Contain("WaitForCompletion"));
             Assert.That(renderer, Does.Not.Contain("ReleaseAfterFrame"));
             Assert.That(renderer, Does.Not.Contain("Time.frameCount +"));
-            Assert.That(renderer, Does.Not.Contain(
-                "AsyncGPUReadback.Request(_replacementPublication"));
+            Assert.That(renderer, Does.Contain(
+                "SystemInfo.supportsAsyncGPUReadback"));
+            Assert.That(renderer, Does.Contain(
+                "AsyncGPUReadback.Request(_replacementPublication.Records"));
+            Assert.That(renderer, Does.Contain(
+                "sizeof(uint), 0, CompleteResizeMigration"));
+
+            int migrationStart = renderer.IndexOf(
+                "private void BeginExceptionalResizeMigration()",
+                StringComparison.Ordinal);
+            int failureStart = renderer.IndexOf(
+                "private void FailResizeMigration(string reason)",
+                StringComparison.Ordinal);
+            Assert.That(migrationStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(failureStart, Is.GreaterThan(migrationStart));
+            string migrationLifecycle = renderer.Substring(migrationStart);
+            string failure = renderer.Substring(failureStart);
+            Assert.That(migrationLifecycle, Does.Not.Contain(".Release()"),
+                "submitted publication generations live until OnDestroy");
+            Assert.That(renderer, Does.Contain("_retiredPublications.Add(retired)"));
+            Assert.That(failure, Does.Contain("_publicationResizeDisabled = true"));
+            Assert.That(failure, Does.Contain("_resizeMigrationPending = false"));
+            Assert.That(failure, Does.Not.Contain(
+                "_replacementPublication = default"));
+            Assert.That(renderer, Does.Contain("if (!_resizeMigrationPending)"));
+            Assert.That(renderer, Does.Contain(
+                "_grid.FlushCpuPublicationDirtySlots()"));
+
+            string gpuGrid = File.ReadAllText(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGrid.Gpu.cs");
+            Assert.That(renderer, Does.Contain(
+                "_grid.CommitPublicationReplacement(_replacementPublication"));
+            Assert.That(gpuGrid, Does.Contain(
+                "foreach (ResidentPage page in _resident.Values)"));
+            Assert.That(gpuGrid, Does.Contain(
+                "MarkPublicationSlotDirty(page.Slot)"));
 
             string topology = File.ReadAllText(
                 AssetDatabase.GetAssetPath(LoadCompute("MerkabaTopology.compute")));
