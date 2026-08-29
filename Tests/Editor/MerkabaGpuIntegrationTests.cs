@@ -616,8 +616,8 @@ namespace Genesis.RoomScan.Tests
             string pump = Slice(storage, "private void PumpStorage()",
                 "private void ApplySampledCounters");
             Assert.That(world, Does.Contain("M8_COUNTER_EVICTION_NEEDED"));
-            Assert.That(world, Does.Contain(
-                "InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u"));
+            Assert.That(eviction, Does.Contain(
+                "_M8Counters[M8_COUNTER_EVICTION_NEEDED] = 1u"));
             Assert.That(eviction, Does.Contain(
                 "_M8Counters[M8_COUNTER_EVICTION_NEEDED] = 0u"));
             Assert.That(pump.IndexOf("SelectEvictionVictims",
@@ -633,14 +633,19 @@ namespace Genesis.RoomScan.Tests
             string compute = Source("Runtime/Shaders/MerkabaWorld.compute");
             string grid = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
             string prepare = Slice(compute, "void PrepareEvictionSelection",
-                "bool M8TryReserveCleanEviction");
+                "void SelectEvictionVictims");
             string select = Slice(compute, "void SelectEvictionVictims",
                 "void GatherWritebackBatch");
             Assert.That(prepare, Does.Contain(
                 "256u - freeCount : 0u"));
-            Assert.That(select, Does.Contain("M8TryReserveCleanEviction"));
+            Assert.That(prepare, Does.Contain(
+                "M8_COUNTER_EVICTION_CLEAN_TICKET] = 0u"));
+            Assert.That(select, Does.Contain(
+                "M8_COUNTER_EVICTION_CLEAN_TICKET"));
             Assert.That(select, Does.Contain(
                 "M8_COUNTER_EVICTION_CLEAN_BUDGET"));
+            Assert.That(compute, Does.Not.Contain(
+                "M8TryReserveCleanEviction"));
             Assert.That(select, Does.Contain("if (queueIndex >= 32u)"));
             Assert.That(select, Does.Contain(
                 "MERKABA_REF_EVICTING, expected"));
@@ -818,7 +823,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(prepare, Does.Not.Contain(
                 "M8_COUNTER_TOUCHED_TILE_COUNT] = 0u"));
             Assert.That(finalize, Does.Contain(
-                "M8_COUNTER_OBSERVATION_COMPLETED] != 0u"));
+                "uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED]"));
             Assert.That(finalize, Does.Contain(": 0u;"));
         }
 
@@ -842,8 +847,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(install, Does.Contain(
                 "state.flags & MERKABA_NEEDS_CARVE_FLAG"));
             Assert.That(retry, Does.Contain("_waitingForDependency"));
-            Assert.That(retry, Does.Contain("ObservationDependencyVersion"));
-            Assert.That(retry, Does.Contain("_retryDependencyVersion"));
+            Assert.That(retry, Does.Contain("ResidencyEpoch"));
+            Assert.That(retry, Does.Contain("_attemptResidencyEpoch"));
             Assert.That(submit, Does.Contain("bool newObservation ="));
             Assert.That(submit, Does.Contain("else\n                    ConfigureAttempt();"));
             Assert.That(Regex.Matches(submit, @"_observationToken\s*=").Count,
@@ -873,6 +878,114 @@ namespace Genesis.RoomScan.Tests
             Assert.That(mutationCount, Is.EqualTo(1));
             Assert.That(loaded.OccupancyEvidence,
                 Is.EqualTo(evidenceBefore - MerkabaConstants.FreeEvidenceScale));
+        }
+
+        [Test]
+        public void PhysicalTileAllocation_UsesOneBatchReservationAndOneLedger()
+        {
+            string address = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string resolve = Slice(integration, "void ResolveSurfaceTiles",
+                "void QueueResolvedSurfaceCandidates");
+            string retry = Slice(integration, "void RetryPendingNewTiles",
+                "void PrepareIntegrateArgs");
+            string prepare = Slice(world, "void PrepareNewTileDispatchArgs",
+                "void ResetObservationCounters");
+            string initialize = Slice(world, "void InitializeNewTiles",
+                "void ResetClaimQueueCounts");
+            string prepareLoad = Slice(world, "void PrepareLoadedTiles",
+                "groupshared uint gLoadSlot");
+
+            Assert.That(address, Does.Not.Contain("M8TryPopPhysicalTile"));
+            Assert.That(resolve, Does.Contain("_M8PendingNewTileRefs"));
+            Assert.That(resolve, Does.Not.Contain("_M8ClaimQueue"));
+            Assert.That(retry, Does.Contain("_M8PendingNewTileRefsRead"));
+            Assert.That(retry, Does.Contain("uint2(tileRefIndex, 0u)"));
+            Assert.That(prepare, Does.Contain(
+                "reservationCount = min(pendingClaims, freeCount)"));
+            Assert.That(prepare, Does.Contain(
+                "M8_COUNTER_FREE_TILE_COUNT] = reservationBase"));
+            Assert.That(initialize, Does.Contain(
+                "_M8FreeTileStackRead[reservationBase + groupId.x]"));
+            Assert.That(prepareLoad, Does.Contain("gLoadNeedCount"));
+            Assert.That(prepareLoad, Does.Contain(
+                "gLoadReservationCount = min(gLoadNeedCount, freeCount)"));
+            Assert.That(prepareLoad, Does.Not.Contain(
+                "if (id >= _M8StreamBatchCount) return"));
+
+            foreach ((uint pending, uint free) in new[]
+                     {
+                         (64u, 32768u), (128u, 32768u), (256u, 32768u),
+                         (300u, 100u), (32u, 0u)
+                     })
+            {
+                uint reserved = Math.Min(pending, free);
+                uint first = free - reserved;
+                Assert.That(reserved, Is.EqualTo(Math.Min(pending, free)));
+                Assert.That(first + reserved, Is.EqualTo(free));
+                Assert.That(reserved, Is.LessThanOrEqualTo(pending));
+            }
+        }
+
+        [Test]
+        public void ResidencyRetryEpoch_IsCapturedAtAttemptSubmitAndGpuOwned()
+        {
+            string address = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string storage = Source(
+                "Runtime/Merkaba/MerkabaGrid.Storage.cs");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string submit = Slice(integrator,
+                "internal bool TrySubmitObservationAttempt()",
+                "private bool CanRetryPreparedObservation()");
+            string retire = Slice(integrator,
+                "internal bool TryRetireObservationAttempt()",
+                "internal bool TrySubmitObservationAttempt()");
+            string retry = Slice(integrator,
+                "private bool CanRetryPreparedObservation()",
+                "private bool ObservationTimedOut()");
+            string apply = Slice(storage, "private void ApplySampledCounters",
+                "private void BeginLoadAddressReadback");
+
+            Assert.That(address, Does.Contain(
+                "#define M8_COUNTER_RESIDENCY_EPOCH 66u"));
+            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(66));
+            Assert.That(world, Does.Contain("M8SignalResidencyChange"));
+            Assert.That(submit, Does.Contain(
+                "_attemptResidencyEpoch = _grid.ResidencyEpoch"));
+            Assert.That(retire, Does.Not.Contain(
+                "_attemptResidencyEpoch ="));
+            Assert.That(retry, Does.Contain(
+                "_grid.ResidencyEpoch != _attemptResidencyEpoch"));
+            Assert.That(apply, Does.Contain(
+                "_residencyEpoch = values[CounterResidencyEpoch]"));
+            Assert.That(storage, Does.Not.Contain(
+                "_dependencySampleInitialized"));
+        }
+
+        [Test]
+        public void FailedObservation_RollsBackOnlyStillClaimedNewTiles()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string finalize = Slice(integration, "void FinalizeObservation",
+                "\n}") + "\n}";
+            string cleanup = Slice(world,
+                "void ClearTouchedSurfaceCandidates",
+                "void PrepareEvictionSelection");
+
+            Assert.That(finalize, Does.Contain(
+                "M8_COUNTER_CLEANUP_PENDING_COUNT"));
+            Assert.That(finalize, Does.Contain("failure != 0u"));
+            Assert.That(cleanup, Does.Contain(
+                "MERKABA_REF_CLAIMED_NEW, MERKABA_REF_EMPTY"));
+            Assert.That(cleanup, Does.Not.Contain("M8StoreKernelState"));
+            Assert.That(cleanup, Does.Not.Contain("M8PushPhysicalTile"));
+            Assert.That(cleanup, Does.Not.Contain("MERKABA_REF_COLD_ON_SSD"));
         }
 
         [Test]

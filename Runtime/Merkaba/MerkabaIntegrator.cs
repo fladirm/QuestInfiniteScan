@@ -44,7 +44,7 @@ namespace Genesis.RoomScan
         private bool _waitingForDependency;
         private uint _attemptSequence;
         private uint _attemptToken;
-        private uint _retryDependencyVersion;
+        private uint _attemptResidencyEpoch;
 
         private readonly bool[] _cameraAvailable = new bool[2];
         private readonly Vector3[] _cameraPosition = new Vector3[2];
@@ -272,11 +272,11 @@ namespace Genesis.RoomScan
             }
 
             _waitingForDependency = true;
-            _retryDependencyVersion = _grid.ObservationDependencyVersion;
             Logger.Info("Merkaba observation attempt unresolved " +
                         $"observation={_observationToken} " +
                         $"attempt={_attemptToken} " +
-                        $"dependencyVersion={_retryDependencyVersion}");
+                        $"attemptResidencyEpoch={_attemptResidencyEpoch} " +
+                        $"currentResidencyEpoch={_grid.ResidencyEpoch}");
             return false;
         }
 
@@ -294,6 +294,8 @@ namespace Genesis.RoomScan
             }
             else if (!CanRetryPreparedObservation())
                 return false;
+
+            _attemptResidencyEpoch = _grid.ResidencyEpoch;
 
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 observation");
@@ -380,6 +382,7 @@ namespace Genesis.RoomScan
                             $"observation={_observationToken} " +
                             $"attempt={_attemptToken} " +
                             $"depthVersion={_observationDepthVersion} " +
+                            $"residencyEpoch={_attemptResidencyEpoch} " +
                             $"retry={!newObservation}");
 
                 // Completion is sampled by the fixed SSD control pump. Until its
@@ -399,8 +402,7 @@ namespace Genesis.RoomScan
             if (!_observationPrepared || _attemptInFlight) return false;
             if (ObservationTimedOut()) return true;
             return _waitingForDependency &&
-                   _grid.ObservationDependencyVersion !=
-                   _retryDependencyVersion;
+                   _grid.ResidencyEpoch != _attemptResidencyEpoch;
         }
 
         private bool ObservationTimedOut() =>
@@ -427,7 +429,7 @@ namespace Genesis.RoomScan
             _attemptInFlight = false;
             _attemptToken = 0u;
             _waitingForDependency = false;
-            _retryDependencyVersion = 0u;
+            _attemptResidencyEpoch = 0u;
             ReleaseOwnedObservation();
             if (failureReason != 0u)
             {
@@ -660,7 +662,7 @@ namespace Genesis.RoomScan
             _attemptInFlight = false;
             _attemptToken = 0u;
             _waitingForDependency = false;
-            _retryDependencyVersion = 0u;
+            _attemptResidencyEpoch = 0u;
             ReleaseOwnedObservation();
             _readyCameraSlot = -1;
             IntegrationCount = 0;

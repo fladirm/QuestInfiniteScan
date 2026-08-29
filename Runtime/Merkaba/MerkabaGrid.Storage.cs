@@ -44,12 +44,7 @@ namespace Genesis.RoomScan
         private uint _completedObservationToken;
         private uint _completedObservationFailure;
         private uint _completedAttemptToken;
-        private uint _observationDependencyVersion;
-        private bool _dependencySampleInitialized;
-        private uint _sampledHotTiles;
-        private uint _sampledColdTiles;
-        private uint _sampledFreeTiles;
-        private uint _sampledLoadsInstalled;
+        private uint _residencyEpoch;
         private readonly uint[] _streamControlWord = new uint[1];
         private readonly double[] _loadLatencies = new double[64];
         private readonly double[] _writeLatencies = new double[64];
@@ -85,8 +80,7 @@ namespace Genesis.RoomScan
         internal uint CompletedObservationFailure =>
             _completedObservationFailure;
         internal uint CompletedAttemptToken => _completedAttemptToken;
-        internal uint ObservationDependencyVersion =>
-            _observationDependencyVersion;
+        internal uint ResidencyEpoch => _residencyEpoch;
 
         private void EnsureStorage()
         {
@@ -117,10 +111,7 @@ namespace Genesis.RoomScan
             _completedObservationToken = 0u;
             _completedObservationFailure = 0u;
             _completedAttemptToken = 0u;
-            _observationDependencyVersion = 0u;
-            _dependencySampleInitialized = false;
-            _sampledHotTiles = _sampledColdTiles = _sampledFreeTiles = 0u;
-            _sampledLoadsInstalled = 0u;
+            _residencyEpoch = 0u;
             _loadLatencyCount = _loadLatencyCursor = 0;
             _writeLatencyCount = _writeLatencyCursor = 0;
             _loadIoStartedAt = _writeIoStartedAt = 0.0;
@@ -217,26 +208,7 @@ namespace Genesis.RoomScan
         {
             uint hotTiles = values[CounterHotTileCount];
             uint coldTiles = values[CounterColdTileCount];
-            uint freeTiles = values[CounterFreeTileCount];
-            uint loadsInstalled = values[CounterLoadsInstalled];
-            if (_dependencySampleInitialized &&
-                (hotTiles != _sampledHotTiles ||
-                 coldTiles != _sampledColdTiles ||
-                 freeTiles != _sampledFreeTiles ||
-                 loadsInstalled != _sampledLoadsInstalled))
-            {
-                unchecked
-                {
-                    _observationDependencyVersion++;
-                    if (_observationDependencyVersion == 0u)
-                        _observationDependencyVersion = 1u;
-                }
-            }
-            _dependencySampleInitialized = true;
-            _sampledHotTiles = hotTiles;
-            _sampledColdTiles = coldTiles;
-            _sampledFreeTiles = freeTiles;
-            _sampledLoadsInstalled = loadsInstalled;
+            _residencyEpoch = values[CounterResidencyEpoch];
             M8BlockCount = ToInt(values[CounterBlockCount]);
             M8ChunkCount = ToInt(values[CounterChunkCount]);
             M8HotTileCount = ToInt(hotTiles);

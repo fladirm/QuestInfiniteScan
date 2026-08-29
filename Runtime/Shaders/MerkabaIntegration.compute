@@ -449,24 +449,18 @@ void ResolveSurfaceTiles(uint id : SV_DispatchThreadID)
             InterlockedOr(
                 _M8ChunkPresence[M8ChunkPresenceL1Index(chunkIndex, d1)],
                 1u << d0, ignored);
-            uint physicalSlot = 0u;
-            if (M8TryPopPhysicalTile(physicalSlot))
-            {
-                uint queueIndex;
-                InterlockedAdd(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT],
-                    1u, queueIndex);
-                if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                    _M8ClaimQueue[MERKABA_M8_CLAIM_TILE_OFFSET + queueIndex] =
-                        uint2(tileRefIndex, physicalSlot);
-            }
+            uint pendingIndex;
+            InterlockedAdd(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
+                1u, pendingIndex);
+            if (pendingIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                _M8PendingNewTileRefs[pendingIndex] = tileRefIndex;
             else
             {
-                uint pendingIndex;
-                InterlockedAdd(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
-                    1u, pendingIndex);
-                if (pendingIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                    _M8PendingNewTileRefs[pendingIndex] = tileRefIndex;
-                _M8Counters[M8_COUNTER_TILE_STARVATION] = 1u;
+                InterlockedCompareExchange(
+                    _M8ChunkTileRefs[tileRefIndex],
+                    MERKABA_REF_CLAIMED_NEW, MERKABA_REF_EMPTY, prior);
+                InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
+                    M8_OBSERVATION_FAILURE_PHYSICAL_CAPACITY, ignored);
             }
         }
         return;
@@ -554,14 +548,12 @@ void RetryPendingNewTiles(uint id : SV_DispatchThreadID)
     if (id >= count) return;
     uint tileRefIndex = _M8PendingNewTileRefsRead[id];
     if (_M8ChunkTileRefsRead[tileRefIndex] != MERKABA_REF_CLAIMED_NEW) return;
-    uint physicalSlot = 0u;
-    if (!M8TryPopPhysicalTile(physicalSlot)) return;
     uint queueIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT], 1u,
         queueIndex);
     if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         _M8ClaimQueue[MERKABA_M8_CLAIM_TILE_OFFSET + queueIndex] =
-            uint2(tileRefIndex, physicalSlot);
+            uint2(tileRefIndex, 0u);
 }
 
 [numthreads(1, 1, 1)]
@@ -913,11 +905,17 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
             _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u)
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
     }
-    _M8ObservationDispatchArgs[0] =
-        _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u
+    uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
+    uint failure = _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
+    uint touchedCount = completed != 0u
         ? min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
-            MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-        : 0u;
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    uint pendingCount = completed != 0u && failure != 0u
+        ? min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    _M8Counters[M8_COUNTER_CLEANUP_TOUCHED_COUNT] = touchedCount;
+    _M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT] = pendingCount;
+    _M8ObservationDispatchArgs[0] = max(touchedCount, pendingCount);
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
     _M8Counters[M8_COUNTER_ATTEMPT_COMPLETED_TOKEN] = _M8AttemptToken;

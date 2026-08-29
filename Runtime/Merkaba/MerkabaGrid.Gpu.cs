@@ -46,6 +46,7 @@ namespace Genesis.RoomScan
         internal const int CounterCarveBitsRetired = 63;
         internal const int CounterColdCarveTilesRequested = 64;
         internal const int CounterUnresolvedCarveTiles = 65;
+        internal const int CounterResidencyEpoch = 66;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;

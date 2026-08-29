@@ -89,6 +89,11 @@
 #define M8_COUNTER_CARVE_BITS_RETIRED 63u
 #define M8_COUNTER_COLD_CARVE_TILES_REQUESTED 64u
 #define M8_COUNTER_UNRESOLVED_CARVE_TILES 65u
+#define M8_COUNTER_RESIDENCY_EPOCH 66u
+#define M8_COUNTER_NEW_TILE_RESERVATION_BASE 67u
+#define M8_COUNTER_EVICTION_CLEAN_TICKET 68u
+#define M8_COUNTER_CLEANUP_TOUCHED_COUNT 69u
+#define M8_COUNTER_CLEANUP_PENDING_COUNT 70u
 #define M8_COUNTER_COUNT 72u
 
 #define M8_OBSERVATION_FAILURE_SURFACE_CAPACITY 1u
@@ -96,6 +101,7 @@
 #define M8_OBSERVATION_FAILURE_CHUNK_CAPACITY 4u
 #define M8_OBSERVATION_FAILURE_HASH_CAPACITY 8u
 #define M8_OBSERVATION_FAILURE_TIMEOUT 16u
+#define M8_OBSERVATION_FAILURE_PHYSICAL_CAPACITY 32u
 
 struct KernelState
 {
@@ -257,6 +263,11 @@ void M8CounterIncrement(uint counter)
     InterlockedAdd(_M8Counters[counter], 1u, ignored);
 }
 
+void M8SignalResidencyChange()
+{
+    M8CounterIncrement(M8_COUNTER_RESIDENCY_EPOCH);
+}
+
 bool M8IsHotRef(uint tileRef)
 {
     return tileRef >= 1u && tileRef <= MERKABA_M8_PHYSICAL_TILE_CAPACITY;
@@ -267,46 +278,15 @@ uint M8PhysicalSlot(uint tileRef)
     return tileRef - 1u;
 }
 
-bool M8TryPopPhysicalTile(out uint physicalSlot)
-{
-    physicalSlot = 0u;
-    [unroll]
-    for (uint attempt = 0u; attempt < 16u; attempt++)
-    {
-        uint available = _M8Counters[M8_COUNTER_FREE_TILE_COUNT];
-        if (available == 0u)
-        {
-            uint ignoredSignal;
-            InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
-                ignoredSignal);
-            return false;
-        }
-        uint previous;
-        InterlockedCompareExchange(
-            _M8Counters[M8_COUNTER_FREE_TILE_COUNT], available,
-            available - 1u, previous);
-        if (previous != available) continue;
-        if (available <= 256u)
-        {
-            uint ignoredSignal;
-            InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
-                ignoredSignal);
-        }
-        physicalSlot = _M8FreeTileStackRead[available - 1u];
-        return true;
-    }
-    uint ignoredSignal;
-    InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
-        ignoredSignal);
-    return false;
-}
-
 void M8PushPhysicalTile(uint physicalSlot)
 {
     uint previous;
     InterlockedAdd(_M8Counters[M8_COUNTER_FREE_TILE_COUNT], 1u, previous);
     if (previous < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+    {
         _M8FreeTileStack[previous] = physicalSlot;
+        M8SignalResidencyChange();
+    }
 }
 
 uint M8HashEntryIndex(uint bucket, uint slot)
