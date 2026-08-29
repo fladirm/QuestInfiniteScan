@@ -468,7 +468,8 @@ namespace Genesis.RoomScan
             if (state.OccupancyEvidence < MerkabaConstants.MinimumEvidence ||
                 state.OccupancyEvidence > MerkabaConstants.MaximumEvidence ||
                 state.ColorConfidence > MerkabaConstants.MaximumColorConfidence ||
-                (state.Flags & ~MerkabaConstants.OccupiedFlag) != 0)
+                (state.Flags & ~(MerkabaConstants.OccupiedFlag |
+                                 MerkabaConstants.NeedsCarveFlag)) != 0)
                 throw new InvalidDataException("M8 KernelState is out of range.");
         }
 

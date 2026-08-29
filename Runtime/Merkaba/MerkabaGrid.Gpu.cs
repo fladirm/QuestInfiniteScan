@@ -17,7 +17,7 @@ namespace Genesis.RoomScan
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
         internal const int VisiblePrimitiveCapacity = 1_048_576;
-        internal const int CounterCount = 64;
+        internal const int CounterCount = 72;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -34,6 +34,13 @@ namespace Genesis.RoomScan
         internal const int CounterLoadsInstalled = 46;
         internal const int CounterAttemptToken = 56;
         internal const int CounterAttemptCompletedToken = 57;
+        internal const int CounterCarveClassifiedFree = 58;
+        internal const int CounterCarveClassifiedSurface = 59;
+        internal const int CounterCarveClassifiedUnknown = 60;
+        internal const int CounterCarveEvidenceDecrements = 61;
+        internal const int CounterCarveOccupiedToFree = 62;
+        internal const int CounterCarveBitsRetired = 63;
+        internal const int CounterColdCarveTilesRequested = 64;
 
         private bool _gpuReady;
         private int _gpuGeneration;

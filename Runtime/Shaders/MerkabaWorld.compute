@@ -25,6 +25,8 @@
 
 #include "MerkabaWorld.hlsl"
 
+#define MERKABA_OCCUPIED_FLAG 1u
+
 RWStructuredBuffer<uint> _M8ClearUInts;
 RWStructuredBuffer<int4> _M8ClearInt4s;
 RWStructuredBuffer<uint> _M8ClearBlockArgs;
@@ -81,7 +83,7 @@ void InitializeFreeTileStack(uint id : SV_DispatchThreadID)
             MERKABA_M8_PHYSICAL_TILE_CAPACITY;
 }
 
-[numthreads(64, 1, 1)]
+[numthreads(128, 1, 1)]
 void ResetWorldCounters(uint id : SV_DispatchThreadID)
 {
     if (id < M8_COUNTER_COUNT) _M8Counters[id] = 0u;
@@ -251,6 +253,13 @@ void ResetObservationCounters(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_CARVE_QUERY_TILES] = 0u;
     _M8Counters[M8_COUNTER_CARVE_ACTIVE_KERNELS] = 0u;
     _M8Counters[M8_COUNTER_CARVE_QUERY_BLOCKS] = 0u;
+    _M8Counters[M8_COUNTER_CARVE_CLASSIFIED_FREE] = 0u;
+    _M8Counters[M8_COUNTER_CARVE_CLASSIFIED_SURFACE] = 0u;
+    _M8Counters[M8_COUNTER_CARVE_CLASSIFIED_UNKNOWN] = 0u;
+    _M8Counters[M8_COUNTER_CARVE_EVIDENCE_DECREMENTS] = 0u;
+    _M8Counters[M8_COUNTER_CARVE_OCCUPIED_TO_FREE] = 0u;
+    _M8Counters[M8_COUNTER_CARVE_BITS_RETIRED] = 0u;
+    _M8Counters[M8_COUNTER_COLD_CARVE_TILES_REQUESTED] = 0u;
     _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] = 0u;
     _M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] = 0u;
@@ -514,13 +523,12 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
             uint wordIndex = M8TileWordIndex(gLoadSlot, kernelLocal >> 5u);
             uint bit = 1u << (kernelLocal & 31u);
             uint ignored;
-            if ((state.flags & 1u) != 0u)
+            if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
             {
                 InterlockedOr(_M8TileBits[wordIndex].x, bit, ignored);
                 InterlockedAdd(gLoadOccupied, 1u, ignored);
             }
-            if ((state.flags & 1u) != 0u ||
-                state.evidence > MERKABA_EXPORT_KNOWN_FREE)
+            if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) != 0u)
             {
                 InterlockedOr(_M8TileBits[wordIndex].y, bit, ignored);
                 InterlockedAdd(gLoadCarve, 1u, ignored);

@@ -26,6 +26,7 @@ namespace Genesis.RoomScan
         public const float MinimumSurfaceQuality = 0.25f;
 
         public const uint OccupiedFlag = 1u << 0;
+        public const uint NeedsCarveFlag = 1u << 1;
 
         private static readonly int3[] NeighboursValue = BuildNeighbours();
 

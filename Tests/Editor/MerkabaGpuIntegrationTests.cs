@@ -82,7 +82,7 @@ namespace Genesis.RoomScan.Tests
                 262144L * 64 * 4, 262144L * 9 * 4,
                 stateBank, stateBank, stateBank, stateBank,
                 32768L * 16 * 16, 32768L * 2 * 16,
-                32768L * 4, 64L * 4,
+                32768L * 4, (long)MerkabaGrid.CounterCount * 4,
                 (8192L + 262144L + 32768L) * 8,
                 32768L * 4, 262144L * 16, 4,
                 2097152L * 16, 1048576L * 4,
@@ -93,7 +93,7 @@ namespace Genesis.RoomScan.Tests
             };
             Assert.That(allBuffers, Has.Length.EqualTo(35));
             Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(440895032L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(440895064L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -393,18 +393,104 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ScanDrawAndWarmShareTheEightLaneRadixQueryMath()
+        public void ScanUsesConservativeDistanceAndExactDepthIsTheOnlySensorGate()
         {
             string spatial = Source("Runtime/Shaders/MerkabaSpatial.hlsl");
             string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
             string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
             Assert.That(spatial, Does.Contain("MerkabaM8PlaneChildMask"));
             Assert.That(spatial, Does.Contain("MerkabaM8DistanceChildMask"));
             Assert.That(scan, Does.Contain("M8ScanChildMask"));
-            Assert.That(scan, Does.Contain("MerkabaM8PlaneChildMask"));
+            Assert.That(scan, Does.Contain("MerkabaM8DistanceChildMask"));
+            Assert.That(scan, Does.Not.Contain("MerkabaM8PlaneChildMask"));
+            Assert.That(scan, Does.Not.Contain("_M8ScanPlanes"));
+            Assert.That(scan, Does.Not.Contain("M8ScanEyeChildMask"));
+            Assert.That(integrator, Does.Not.Contain("WriteFrustumPlanes"));
+            Assert.That(integrator, Does.Not.Contain(
+                "GeometryUtility.CalculateFrustumPlanes"));
             Assert.That(frame, Does.Contain("M8DrawChildMask"));
             Assert.That(frame, Does.Contain("MerkabaM8PlaneChildMask"));
             Assert.That(scan, Does.Not.Contain("TileIntersectsScan"));
+        }
+
+        [Test]
+        public void CarveMembership_IsCanonicalPersistentAndLoadDerivedOnlyFromFlag()
+        {
+            string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            string compute = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            Assert.That(world, Does.Contain(
+                "#define MERKABA_NEEDS_CARVE_FLAG 2u"));
+
+            string surface = Slice(integration,
+                "void IntegrateSurfaceCandidates", "uint M8ScanChildMask");
+            Assert.That(surface, Does.Contain(
+                "state.flags |= MERKABA_NEEDS_CARVE_FLAG"));
+
+            string carve = Slice(integration, "void IntegrateCarveTiles",
+                "void FinalizeObservation");
+            Assert.That(carve, Does.Contain("UpdateOccupancy"));
+            Assert.That(carve, Does.Contain(
+                "state.flags &= ~MERKABA_NEEDS_CARVE_FLAG"));
+            Assert.That(carve, Does.Contain(
+                "state.evidence <= MERKABA_EXPORT_KNOWN_FREE"));
+            Assert.That(carve, Does.Not.Contain("M8FindOrClaimBlock"));
+            Assert.That(carve, Does.Not.Contain("M8FindOrClaimChunk"));
+            Assert.That(Regex.Matches(carve, @"\breturn;"), Has.Count.EqualTo(1));
+            Assert.That(carve.IndexOf("return;", StringComparison.Ordinal),
+                Is.LessThan(carve.IndexOf(
+                    "GroupMemoryBarrierWithGroupSync();",
+                    StringComparison.Ordinal)));
+
+            string install = Slice(compute, "void InstallLoadedTiles",
+                "void FailLoadedTiles");
+            Assert.That(install, Does.Contain(
+                "state.flags & MERKABA_NEEDS_CARVE_FLAG"));
+            Assert.That(install, Does.Not.Contain(
+                "state.evidence > MERKABA_EXPORT_KNOWN_FREE"));
+        }
+
+        [Test]
+        public void StereoSurfaceClassification_PrecedesFreeAndCarveStatsAreReduced()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string fuse = Slice(integration, "void FuseDepth",
+                "bool IsExcluded");
+            Assert.That(fuse.IndexOf("if (eyeKind == 2)",
+                    StringComparison.Ordinal),
+                Is.LessThan(fuse.IndexOf("else if (kind == 0 || (kind == 1",
+                    StringComparison.Ordinal)));
+
+            string carve = Slice(integration, "groupshared uint gCarveStats",
+                "void FinalizeObservation");
+            Assert.That(carve, Does.Contain("FlushCarveStat"));
+            Assert.That(carve, Does.Contain(
+                "M8_COUNTER_CARVE_CLASSIFIED_FREE"));
+            Assert.That(carve, Does.Contain(
+                "M8_COUNTER_CARVE_CLASSIFIED_SURFACE"));
+            Assert.That(carve, Does.Contain(
+                "M8_COUNTER_CARVE_CLASSIFIED_UNKNOWN"));
+            Assert.That(carve, Does.Not.Contain(
+                "M8CounterIncrement(M8_COUNTER_CARVE_ACTIVE_KERNELS)"));
+
+            string reset = Slice(
+                Source("Runtime/Shaders/MerkabaWorld.compute"),
+                "void ResetObservationCounters", "void ClearTouchedSurfaceCandidates");
+            foreach (string counter in new[]
+                     {
+                         "M8_COUNTER_CARVE_CLASSIFIED_FREE",
+                         "M8_COUNTER_CARVE_CLASSIFIED_SURFACE",
+                         "M8_COUNTER_CARVE_CLASSIFIED_UNKNOWN",
+                         "M8_COUNTER_CARVE_EVIDENCE_DECREMENTS",
+                         "M8_COUNTER_CARVE_OCCUPIED_TO_FREE",
+                         "M8_COUNTER_CARVE_BITS_RETIRED",
+                         "M8_COUNTER_COLD_CARVE_TILES_REQUESTED"
+                     })
+                Assert.That(reset, Does.Contain(counter), counter);
         }
 
         [Test]

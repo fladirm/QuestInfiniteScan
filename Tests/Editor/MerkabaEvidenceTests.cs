@@ -26,6 +26,7 @@ namespace Genesis.RoomScan.Tests
             for (int index = 0; index < 24; index++)
                 state.Apply(MerkabaObservationKind.Surface, 1f, Blue);
             Assert.That(state.IsOccupied, Is.True);
+            Assert.That(state.NeedsCarve, Is.True);
             Assert.That(state.OccupancyEvidence, Is.GreaterThan(weakEvidence));
             Assert.That(state.ColorConfidence, Is.GreaterThan(weakConfidence));
             Assert.That(state.Color.b, Is.GreaterThan(state.Color.r));
@@ -42,6 +43,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(state.IsOccupied, Is.False);
             Assert.That(state.OccupancyEvidence,
                 Is.LessThanOrEqualTo(MerkabaConstants.OccupiedOffThreshold));
+            Assert.That(state.NeedsCarve, Is.True,
+                "ordinary FREE keeps the corrective membership active");
+
+            while (state.OccupancyEvidence >
+                   MerkabaConstants.ExportKnownFreeThreshold)
+                state.Apply(MerkabaObservationKind.Free, 1f, default);
+            Assert.That(state.NeedsCarve, Is.False,
+                "strong known FREE retires corrective membership");
         }
 
         [Test]
@@ -71,6 +80,17 @@ namespace Genesis.RoomScan.Tests
             Assert.That(state.PackedColor, Is.EqualTo(before.PackedColor));
             Assert.That(state.ColorConfidence, Is.EqualTo(before.ColorConfidence));
             Assert.That(state.Flags, Is.EqualTo(before.Flags));
+        }
+
+        [Test]
+        public void FreeOnNeverObservedState_DoesNotCreateCarveMembership()
+        {
+            KernelState state = default;
+            state.Apply(MerkabaObservationKind.Free, 1f, default);
+            Assert.That(state.IsOccupied, Is.False);
+            Assert.That(state.NeedsCarve, Is.False);
+            Assert.That(state.PackedColor, Is.Zero);
+            Assert.That(state.ColorConfidence, Is.Zero);
         }
     }
 }

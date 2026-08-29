@@ -25,6 +25,8 @@ namespace Genesis.RoomScan
         public uint Flags;
 
         public readonly bool IsOccupied => (Flags & MerkabaConstants.OccupiedFlag) != 0;
+        public readonly bool NeedsCarve =>
+            (Flags & MerkabaConstants.NeedsCarveFlag) != 0;
         public readonly Color32 Color => UnpackColor(PackedColor);
 
         internal bool Apply(MerkabaObservationKind kind, float quality, Color32 observedColor)
@@ -40,6 +42,7 @@ namespace Genesis.RoomScan
                     AddEvidence(Mathf.Max(1,
                         Mathf.RoundToInt(quality * quality * MerkabaConstants.SurfaceEvidenceScale)));
                     AccumulateColor(observedColor, quality);
+                    Flags |= MerkabaConstants.NeedsCarveFlag;
                     break;
 
                 case MerkabaObservationKind.Free:
@@ -57,6 +60,9 @@ namespace Genesis.RoomScan
 
             if (occupiedAfter) Flags |= MerkabaConstants.OccupiedFlag;
             else Flags &= ~MerkabaConstants.OccupiedFlag;
+            if (kind == MerkabaObservationKind.Free && !occupiedAfter &&
+                OccupancyEvidence <= MerkabaConstants.ExportKnownFreeThreshold)
+                Flags &= ~MerkabaConstants.NeedsCarveFlag;
             return occupiedBefore != occupiedAfter;
         }
 

@@ -80,8 +80,15 @@ namespace Genesis.RoomScan
             internal uint SurfaceTilesAllocated;
             internal uint ScanColdMisses;
             internal uint CarveQueryBlocks;
-            internal uint CarveQueryTiles;
-            internal uint CarveActiveKernels;
+            internal uint CarveCandidateTiles;
+            internal uint CarveKernelsEvaluated;
+            internal uint CarveClassifiedFree;
+            internal uint CarveClassifiedSurface;
+            internal uint CarveClassifiedUnknown;
+            internal uint CarveEvidenceDecrements;
+            internal uint CarveOccupiedToFree;
+            internal uint CarveBitsRetired;
+            internal uint ColdCarveTilesRequested;
             internal uint LoadRequests;
             internal uint WritebackTiles;
             internal uint FailedReads;
@@ -423,8 +430,8 @@ namespace Genesis.RoomScan
                     sample.UnresolvedSurfaceTiles = values[12];
                     sample.SurfaceTilesAllocated = values[13];
                     sample.ScanColdMisses = values[14];
-                    sample.CarveQueryTiles = values[17];
-                    sample.CarveActiveKernels = values[18];
+                    sample.CarveCandidateTiles = values[17];
+                    sample.CarveKernelsEvaluated = values[18];
                     sample.LoadRequests = values[19];
                     sample.VisibleTiles = values[21];
                     sample.LogicalPrimitives = values[22];
@@ -444,6 +451,13 @@ namespace Genesis.RoomScan
                     sample.WritebackTiles = values[49];
                     sample.ObservationFailure = values[52];
                     sample.FailedObservations = values[53];
+                    sample.CarveClassifiedFree = values[58];
+                    sample.CarveClassifiedSurface = values[59];
+                    sample.CarveClassifiedUnknown = values[60];
+                    sample.CarveEvidenceDecrements = values[61];
+                    sample.CarveOccupiedToFree = values[62];
+                    sample.CarveBitsRetired = values[63];
+                    sample.ColdCarveTilesRequested = values[64];
                 }
                 sample.PendingReadbacks--;
                 TryLogMetrics(sample);
@@ -608,8 +622,15 @@ namespace Genesis.RoomScan
                         $"surfaceTilesAllocated={sample.SurfaceTilesAllocated} " +
                         $"scanColdMisses={sample.ScanColdMisses} " +
                         $"carveQueryBlocks={sample.CarveQueryBlocks} " +
-                        $"carveQueryTiles={sample.CarveQueryTiles} " +
-                        $"carveActiveKernels={sample.CarveActiveKernels} " +
+                        $"carveCandidateTiles={sample.CarveCandidateTiles} " +
+                        $"carveKernelsEvaluated={sample.CarveKernelsEvaluated} " +
+                        $"carveClassifiedFree={sample.CarveClassifiedFree} " +
+                        $"carveClassifiedSurface={sample.CarveClassifiedSurface} " +
+                        $"carveClassifiedUnknown={sample.CarveClassifiedUnknown} " +
+                        $"evidenceDecrements={sample.CarveEvidenceDecrements} " +
+                        $"occupiedToFreeTransitions={sample.CarveOccupiedToFree} " +
+                        $"carveBitsRetired={sample.CarveBitsRetired} " +
+                        $"coldCarveTilesRequested={sample.ColdCarveTilesRequested} " +
                         $"loadRequests={sample.LoadRequests} " +
                         $"loadBytesPerSecond={sample.LoadBytesPerSecond:F0} " +
                         $"loadLatencyP50={sample.LoadLatencyP50Ms:F2}ms " +

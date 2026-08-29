@@ -66,7 +66,6 @@ float _MerkabaCameraExposure;
 int _M8AbortObservation;
 uint _M8AttemptToken;
 
-float4 _M8ScanPlanes[12];
 float3 _M8ScanCameraWorld;
 int3 _M8ScanCenterBlock;
 int _M8ScanBlockRadius;
@@ -353,11 +352,13 @@ void PrepareResolveArgs(uint id : SV_DispatchThreadID)
     _M8ObservationDispatchArgs[2] = 1u;
 }
 
-void RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
+bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     bool scanRequest)
 {
-    M8QueueColdTileLoad(tileRefIndex, chunkIndex, tileLocal);
-    if (scanRequest) M8CounterIncrement(M8_COUNTER_SCAN_COLD_MISSES);
+    bool queued = M8QueueColdTileLoad(tileRefIndex, chunkIndex, tileLocal);
+    if (scanRequest && queued)
+        M8CounterIncrement(M8_COUNTER_SCAN_COLD_MISSES);
+    return queued;
 }
 
 bool CandidateAt(uint id, out MerkabaM8Address address)
@@ -604,6 +605,7 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     UpdateOccupancy(physicalSlot, kernelLocal, state,
         max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE)));
+    state.flags |= MERKABA_NEEDS_CARVE_FLAG;
     if (_MerkabaCameraAvailable != 0)
     {
         float2 cameraUv = ProjectCameraUv(worldPosition);
@@ -620,25 +622,11 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
 }
 
-uint M8ScanEyeChildMask(int3 parentMin, int parentSpan, uint eye)
-{
-    uint support = 255u;
-    [unroll]
-    for (uint plane = 0u; plane < 6u; plane++)
-        support &= MerkabaM8PlaneChildMask(parentMin, parentSpan,
-            _M8ScanPlanes[eye * 6u + plane], _MerkabaGridToWorld,
-            MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
-    return support;
-}
-
 uint M8ScanChildMask(int3 parentMin, int parentSpan)
 {
-    uint stereo = M8ScanEyeChildMask(parentMin, parentSpan, 0u) |
-        M8ScanEyeChildMask(parentMin, parentSpan, 1u);
-    uint distance = MerkabaM8DistanceChildMask(parentMin, parentSpan,
+    return MerkabaM8DistanceChildMask(parentMin, parentSpan,
         _MerkabaMaxUpdateDistance, _M8ScanCameraWorld, _MerkabaGridToWorld,
         _MerkabaWorldToGrid, MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
-    return stereo & distance;
 }
 
 groupshared uint gScanBlockRef;
@@ -745,7 +733,10 @@ void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                 uint tileRef = _M8ChunkTileRefs[tileRefIndex];
                 if (tileRef == MERKABA_REF_COLD_ON_SSD)
                 {
-                    RequestColdTile(tileRefIndex, chunkIndex, tileLocal, true);
+                    if (RequestColdTile(tileRefIndex, chunkIndex, tileLocal,
+                        true))
+                        M8CounterIncrement(
+                            M8_COUNTER_COLD_CARVE_TILES_REQUESTED);
                     continue;
                 }
                 if (!M8IsHotRef(tileRef)) continue;
@@ -778,6 +769,28 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
     _M8CarveDispatchArgs[2] = 1u;
 }
 
+groupshared uint gCarveStats[7];
+
+bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
+{
+    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
+    uint bit = 1u << (kernelLocal & 31u);
+    uint previous;
+    InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previous);
+    if ((previous & bit) == 0u) return false;
+    uint ignored;
+    InterlockedAdd(_M8TileRecords[M8TileMetaIndex(physicalSlot)].w,
+        0xffffffffu, ignored);
+    return true;
+}
+
+void FlushCarveStat(uint counterIndex, uint value)
+{
+    if (value == 0u) return;
+    uint ignored;
+    InterlockedAdd(_M8Counters[counterIndex], value, ignored);
+}
+
 [numthreads(64, 1, 1)]
 void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
@@ -789,49 +802,87 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     uint kernelLocal = groupId.y * 64u + thread;
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
     uint bit = 1u << (kernelLocal & 31u);
-    if ((_M8TileBits[wordIndex].y & bit) == 0u) return;
-    M8CounterIncrement(M8_COUNTER_CARVE_ACTIVE_KERNELS);
+    if (thread < 7u) gCarveStats[thread] = 0u;
+    GroupMemoryBarrierWithGroupSync();
 
-    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
-    if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
-        (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)
+    if ((_M8TileBits[wordIndex].y & bit) != 0u)
     {
-        uint previous;
-        InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previous);
-        if ((previous & bit) != 0u)
+        uint ignored;
+        InterlockedAdd(gCarveStats[0], 1u, ignored);
+        KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+        bool occupiedBefore =
+            (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
+        bool alreadyStrongFree = !occupiedBefore &&
+            state.evidence <= MERKABA_EXPORT_KNOWN_FREE;
+        if (alreadyStrongFree)
         {
-            uint ignored;
-            InterlockedAdd(
-                _M8TileRecords[M8TileMetaIndex(physicalSlot)].w,
-                0xffffffffu, ignored);
+            if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) != 0u)
+            {
+                state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
+                M8StoreKernelState(physicalSlot, kernelLocal, state);
+                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+            }
+            if (RetireCarveActive(physicalSlot, kernelLocal))
+                InterlockedAdd(gCarveStats[6], 1u, ignored);
         }
-        return;
+        else
+        {
+            int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
+            float3 worldPosition = mul(_MerkabaGridToWorld,
+                float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+            int observationKind = 0;
+            float quality = 0.0;
+            if (!IsExcluded(worldPosition))
+                FuseDepth(worldPosition, observationKind, quality);
+
+            if (observationKind == 1)
+            {
+                InterlockedAdd(gCarveStats[1], 1u, ignored);
+                int evidenceBefore = state.evidence;
+                UpdateOccupancy(physicalSlot, kernelLocal, state,
+                    -max(1, (int)round(quality * quality *
+                        MERKABA_FREE_SCALE)));
+                bool occupiedAfter =
+                    (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
+                if (state.evidence < evidenceBefore)
+                    InterlockedAdd(gCarveStats[4], 1u, ignored);
+                if (occupiedBefore && !occupiedAfter)
+                    InterlockedAdd(gCarveStats[5], 1u, ignored);
+                if (!occupiedAfter &&
+                    state.evidence <= MERKABA_EXPORT_KNOWN_FREE)
+                {
+                    state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
+                    if (RetireCarveActive(physicalSlot, kernelLocal))
+                        InterlockedAdd(gCarveStats[6], 1u, ignored);
+                }
+                M8StoreKernelState(physicalSlot, kernelLocal, state);
+                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+            }
+            else if (observationKind == 2)
+            {
+                InterlockedAdd(gCarveStats[2], 1u, ignored);
+                if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) == 0u)
+                {
+                    state.flags |= MERKABA_NEEDS_CARVE_FLAG;
+                    M8StoreKernelState(physicalSlot, kernelLocal, state);
+                    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+                }
+            }
+            else
+                InterlockedAdd(gCarveStats[3], 1u, ignored);
+        }
     }
 
-    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
-    float3 worldPosition = mul(_MerkabaGridToWorld,
-        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
-    if (IsExcluded(worldPosition)) return;
-    int kind = 0;
-    float quality = 0.0;
-    FuseDepth(worldPosition, kind, quality);
-    if (kind != 1) return;
-    UpdateOccupancy(physicalSlot, kernelLocal, state,
-        -max(1, (int)round(quality * quality * MERKABA_FREE_SCALE)));
-    M8StoreKernelState(physicalSlot, kernelLocal, state);
-    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
-    if (state.evidence <= MERKABA_EXPORT_KNOWN_FREE &&
-        (state.flags & MERKABA_OCCUPIED_FLAG) == 0u)
+    GroupMemoryBarrierWithGroupSync();
+    if (thread == 0u)
     {
-        uint previous;
-        InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previous);
-        if ((previous & bit) != 0u)
-        {
-            uint ignored;
-            InterlockedAdd(
-                _M8TileRecords[M8TileMetaIndex(physicalSlot)].w,
-                0xffffffffu, ignored);
-        }
+        FlushCarveStat(M8_COUNTER_CARVE_ACTIVE_KERNELS, gCarveStats[0]);
+        FlushCarveStat(M8_COUNTER_CARVE_CLASSIFIED_FREE, gCarveStats[1]);
+        FlushCarveStat(M8_COUNTER_CARVE_CLASSIFIED_SURFACE, gCarveStats[2]);
+        FlushCarveStat(M8_COUNTER_CARVE_CLASSIFIED_UNKNOWN, gCarveStats[3]);
+        FlushCarveStat(M8_COUNTER_CARVE_EVIDENCE_DECREMENTS, gCarveStats[4]);
+        FlushCarveStat(M8_COUNTER_CARVE_OCCUPIED_TO_FREE, gCarveStats[5]);
+        FlushCarveStat(M8_COUNTER_CARVE_BITS_RETIRED, gCarveStats[6]);
     }
 }
 

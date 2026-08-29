@@ -63,8 +63,6 @@ namespace Genesis.RoomScan
         private Task _cameraCopyRetirementTask = Task.CompletedTask;
         private Texture2D _dummyCameraTexture;
         private readonly Vector4[] _exclusionPositions = new Vector4[64];
-        private readonly Vector4[] _scanPlanes = new Vector4[12];
-        private readonly Plane[] _frustumScratch = new Plane[6];
 
         public readonly List<Transform> ExclusionZones = new();
         public int IntegrationCount { get; private set; }
@@ -518,20 +516,8 @@ namespace Genesis.RoomScan
             compute.SetInt("_M8ScanBlockSide", side);
             compute.SetVector("_M8ScanCameraWorld", observationOrigin);
 
-            WriteFrustumPlanes(_depthCapture.Proj[0] * _depthCapture.View[0], 0);
-            WriteFrustumPlanes(_depthCapture.Proj[1] * _depthCapture.View[1], 6);
-            compute.SetVectorArray("_M8ScanPlanes", _scanPlanes);
             command.DispatchComputeProfiled(compute, _queryCarveKernel,
                 side * side * side, 1, 1);
-        }
-
-        private void WriteFrustumPlanes(Matrix4x4 matrix, int offset)
-        {
-            GeometryUtility.CalculateFrustumPlanes(matrix, _frustumScratch);
-            for (int i = 0; i < 6; i++)
-                _scanPlanes[offset + i] = new Vector4(
-                    _frustumScratch[i].normal.x, _frustumScratch[i].normal.y,
-                    _frustumScratch[i].normal.z, _frustumScratch[i].distance);
         }
 
         private void AcquireCameraObservation()

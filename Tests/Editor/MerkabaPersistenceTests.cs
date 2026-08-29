@@ -29,8 +29,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(restored.Tiles[1].Address.BlockCoord,
                 Is.EqualTo(new int3(1, 0, 3)));
             Assert.That(restored.Tiles[0].States[17].IsOccupied, Is.True);
+            Assert.That(restored.Tiles[0].States[17].NeedsCarve, Is.True);
             Assert.That(restored.Tiles[1].States[500].OccupancyEvidence,
                 Is.LessThan(0));
+            Assert.That(restored.Tiles[1].States[500].NeedsCarve, Is.False);
         }
 
         [Test]
