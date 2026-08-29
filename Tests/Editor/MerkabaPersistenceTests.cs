@@ -71,6 +71,23 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void ExplicitLoadUsesAllEightHashSlotsAndRejectsGpuOverflow()
+        {
+            string gpu = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaGrid.Gpu.cs"));
+            string storage = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaGrid.Storage.cs"));
+            Assert.That(gpu, Does.Contain(
+                "MerkabaSpatial.HashSlotsPerBucket * 2 +"));
+            Assert.That(gpu, Does.Contain(
+                "hierarchyPublicationRounds"));
+            Assert.That(storage, Does.Contain("ReadWorldCountersAsync"));
+            Assert.That(storage, Does.Contain("CounterHashFull"));
+        }
+
+        [Test]
         public async Task OverlayIndexReturnsNewestExactTileGeneration()
         {
             string directory = Path.Combine(Path.GetTempPath(),

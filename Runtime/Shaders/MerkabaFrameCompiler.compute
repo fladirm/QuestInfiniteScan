@@ -86,6 +86,8 @@ void ResetFrame(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED] = 0u;
     _M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING] = 0u;
     _M8Counters[M8_COUNTER_PRIMITIVES_REJECTED] = 0u;
+    _M8Counters[M8_COUNTER_VISIBLE_SAFE_COUNT] =
+        MERKABA_M8_VISIBLE_PRIMITIVE_CAPACITY;
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
     _M8FrameDispatchArgs[0] = 0u;
     _M8FrameDispatchArgs[1] = 8u;
@@ -250,10 +252,11 @@ void CompileVisiblePrimitives(uint3 groupId : SV_GroupID,
 
     uint activeMask = 0u;
     [unroll]
-    for (uint direction = 0u; direction < MERKABA_DIRECTION_COUNT; direction++)
+    for (uint topologyDirection = 0u;
+         topologyDirection < MERKABA_DIRECTION_COUNT; topologyDirection++)
     {
-        uint first = direction * MERKABA_PRIMITIVES_PER_DIRECTION;
-        activeMask |= (neighbourMask & (1u << direction)) == 0u
+        uint first = topologyDirection * MERKABA_PRIMITIVES_PER_DIRECTION;
+        activeMask |= (neighbourMask & (1u << topologyDirection)) == 0u
             ? 1u << first : 14u << first;
     }
     uint beforeFacing = countbits(activeMask);
@@ -280,6 +283,8 @@ void CompileVisiblePrimitives(uint3 groupId : SV_GroupID,
     if (baseIndex + survivingCount > MERKABA_M8_VISIBLE_PRIMITIVE_CAPACITY)
     {
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
+        InterlockedMin(_M8Counters[M8_COUNTER_VISIBLE_SAFE_COUNT],
+            baseIndex, ignored);
         return;
     }
     uint rgb = state.packedColor & 0x00ffffffu;
@@ -299,12 +304,10 @@ void CompileVisiblePrimitives(uint3 groupId : SV_GroupID,
 [numthreads(1, 1, 1)]
 void FinalizeDrawArgs(uint id : SV_DispatchThreadID)
 {
-    uint logical = _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES];
-    if (logical > MERKABA_M8_VISIBLE_PRIMITIVE_CAPACITY)
-    {
-        logical = MERKABA_M8_VISIBLE_PRIMITIVE_CAPACITY;
-        _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
-    }
+    uint logical = min(
+        _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
+        _M8Counters[M8_COUNTER_VISIBLE_SAFE_COUNT]);
+    _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES] = logical;
     _M8DrawArgs[0] = 3u;
     _M8DrawArgs[1] = logical * 2u;
     _M8DrawArgs[2] = 0u;

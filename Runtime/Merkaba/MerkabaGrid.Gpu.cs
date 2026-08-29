@@ -23,6 +23,9 @@ namespace Genesis.RoomScan
         internal const int CounterChunkCount = 1;
         internal const int CounterHotTileCount = 2;
         internal const int CounterColdTileCount = 3;
+        internal const int CounterBlockOverflow = 7;
+        internal const int CounterChunkOverflow = 8;
+        internal const int CounterHashFull = 38;
         internal const int CounterOccupiedKernelCount = 42;
 
         private bool _gpuReady;
@@ -425,7 +428,10 @@ namespace Genesis.RoomScan
         internal void RegisterLoadedTileAddresses(int count)
         {
             worldCompute.SetInt(StreamBatchCountId, count);
-            for (int round = 0; round < 4; round++)
+            const int hierarchyPublicationRounds = 2;
+            for (int round = 0; round <
+                 MerkabaSpatial.HashSlotsPerBucket * 2 +
+                 hierarchyPublicationRounds; round++)
             {
                 worldCompute.Dispatch(_registerLoadedTileAddressesKernel,
                     DivideRoundUp(count, 64), 1, 1);

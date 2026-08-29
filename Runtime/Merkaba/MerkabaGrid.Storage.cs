@@ -33,6 +33,7 @@ namespace Genesis.RoomScan
         private Task _writebackStorageTask;
         private int _writebackBatchCount;
         private bool _flushAllDirty;
+        private bool _storageWriteDisabled;
         private TaskCompletionSource<bool> _flushCompletion;
         private uint _issuedObservationToken;
         private uint _completedObservationToken;
@@ -87,6 +88,7 @@ namespace Genesis.RoomScan
             _writebackStorageTask = null;
             _writebackBatchCount = 0;
             _flushAllDirty = false;
+            _storageWriteDisabled = false;
             _flushCompletion = null;
             _issuedObservationToken = 0u;
             _completedObservationToken = 0u;
@@ -107,7 +109,8 @@ namespace Genesis.RoomScan
             if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
                 return;
             _nextStreamPoll = Time.unscaledTime + 0.05f;
-            if (!_writebackReadbackPending && _writebackStorageTask == null)
+            if (!_storageWriteDisabled && !_writebackReadbackPending &&
+                _writebackStorageTask == null)
                 SelectEvictionVictims(_flushAllDirty);
             _streamCounterPending = true;
             int generation = _gpuGeneration;
@@ -227,6 +230,7 @@ namespace Genesis.RoomScan
                         new IOException("M8 SSD writeback failed."));
                     _flushCompletion = null;
                     _flushAllDirty = false;
+                    _storageWriteDisabled = true;
                     FailWritebackBatch(_writebackBatchCount);
                 }
                 else
@@ -308,7 +312,10 @@ namespace Genesis.RoomScan
                         Logger.Error("M8 writeback staging readback failed; " +
                                      "EVICTING tiles are retained.");
                         if (generation == _gpuGeneration)
+                        {
+                            _storageWriteDisabled = true;
                             FailWritebackBatch(count);
+                        }
                         return;
                     }
                     var raw = request.GetData<Raw16>();
@@ -401,6 +408,9 @@ namespace Genesis.RoomScan
         internal Task FlushAllDirtyTilesAsync()
         {
             EnsureGpuResources();
+            if (_storageWriteDisabled)
+                return Task.FromException(new IOException(
+                    "M8 SSD writeback is disabled after a prior storage failure."));
             if (_flushCompletion != null) return _flushCompletion.Task;
             _flushAllDirty = true;
             _flushCompletion = new TaskCompletionSource<bool>();
@@ -454,10 +464,41 @@ namespace Genesis.RoomScan
                 RegisterLoadedTileAddresses(count);
                 await Task.Yield();
             }
+            uint[] counters = await ReadWorldCountersAsync();
+            ulong addressedTiles = (ulong)counters[CounterHotTileCount] +
+                counters[CounterColdTileCount];
+            if (counters[CounterBlockOverflow] != 0u ||
+                counters[CounterChunkOverflow] != 0u ||
+                counters[CounterHashFull] != 0u ||
+                addressedTiles != (ulong)snapshot.Tiles.Count)
+            {
+                ClearGpuWorldForNewScan();
+                throw new InvalidDataException(
+                    "M8 snapshot exceeds block/chunk/hash capacity or did not " +
+                    "register every logical tile.");
+            }
             _streamControlWord[0] = occupiedCount;
             _m8Counters.SetData(_streamControlWord, 0,
                 CounterOccupiedKernelCount, 1);
             M8OccupiedKernelCount = ToInt(occupiedCount);
+        }
+
+        private Task<uint[]> ReadWorldCountersAsync()
+        {
+            int generation = _gpuGeneration;
+            var completion = new TaskCompletionSource<uint[]>();
+            AsyncGPUReadback.Request(_m8Counters, request =>
+            {
+                if (generation != _gpuGeneration)
+                    completion.TrySetException(new InvalidOperationException(
+                        "M8 world changed while reading explicit operation state."));
+                else if (request.hasError)
+                    completion.TrySetException(new IOException(
+                        "M8 counter readback failed during explicit Load."));
+                else
+                    completion.TrySetResult(request.GetData<uint>().ToArray());
+            });
+            return completion.Task;
         }
 
         internal static uint CountOccupiedStates(MerkabaSessionSnapshot snapshot)

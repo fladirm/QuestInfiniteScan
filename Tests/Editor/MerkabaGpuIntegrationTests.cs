@@ -158,6 +158,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Contain("uint survivingCount = countbits(survivingMask)"));
             Assert.That(frame, Does.Contain(
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
+            Assert.That(frame, Does.Contain(
+                "M8_COUNTER_VISIBLE_SAFE_COUNT"));
+            Assert.That(frame, Does.Contain("InterlockedMin"));
             Assert.That(frame, Does.Contain("logical * 2u"));
             Assert.That(renderer, Does.Not.Contain("Graphics.DrawProceduralIndirect("));
             Assert.That(renderer.Split(new[] { "DrawProceduralIndirectProfiled(" },
@@ -260,6 +263,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(failure, Does.Contain("M8_COUNTER_STORAGE_BACKPRESSURE"));
             Assert.That(failure, Does.Not.Contain("M8PushPhysicalTile"));
             Assert.That(failure, Does.Not.Contain("MERKABA_REF_COLD_ON_SSD"));
+            string storage = Source("Runtime/Merkaba/MerkabaGrid.Storage.cs");
+            Assert.That(storage, Does.Contain("_storageWriteDisabled = true"));
+            Assert.That(storage, Does.Contain(
+                "if (!_storageWriteDisabled &&"));
         }
 
         [Test]
