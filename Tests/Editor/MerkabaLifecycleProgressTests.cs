@@ -37,13 +37,138 @@ namespace Genesis.RoomScan.Tests
             int retire = teardown.IndexOf("RetireSubmittedGpuWorkAsync()",
                 StringComparison.Ordinal);
             int release = teardown.IndexOf(
-                "ReleaseOwnedResourcesAfterGpuRetirement()",
+                "release?.Invoke()",
                 StringComparison.Ordinal);
             Assert.That(quiesce, Is.GreaterThanOrEqualTo(0));
             Assert.That(suspend, Is.GreaterThan(quiesce));
             Assert.That(retire, Is.GreaterThan(suspend));
             Assert.That(release, Is.GreaterThan(retire));
-            Assert.That(teardown, Does.Contain("if (_destroyed) return;"));
+            Assert.That(teardown, Does.Not.Contain("if (_destroyed) return;"));
+            int capture = teardown.IndexOf(
+                "CaptureOwnedGpuResourceRelease()", StringComparison.Ordinal);
+            Assert.That(capture, Is.GreaterThan(quiesce));
+            Assert.That(capture, Is.LessThan(suspend));
+        }
+
+        [Test]
+        public void PreSuspensionStorageCallbacksCannotSubmitAfterQuiesce()
+        {
+            string storage = Source(
+                "Runtime/Merkaba/MerkabaGrid.Storage.cs");
+            string gpu = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
+            string pump = Slice(storage, "private void PumpStorage()",
+                "private void ApplySampledCounters");
+            int callbackGate = pump.IndexOf(
+                "if (!GpuSubmissionAllowed) return;",
+                pump.IndexOf("AsyncGPUReadback.Request", StringComparison.Ordinal),
+                StringComparison.Ordinal);
+            Assert.That(callbackGate, Is.GreaterThanOrEqualTo(0));
+            foreach (string submission in new[]
+                     {
+                         "BeginLoadAddressReadback()",
+                         "BeginWritebackReadback(",
+                         "SelectEvictionVictims("
+                     })
+            {
+                Assert.That(pump.IndexOf(submission, StringComparison.Ordinal),
+                    Is.GreaterThan(callbackGate), submission);
+            }
+
+            foreach ((string begin, string end) in new[]
+                     {
+                         ("private void BeginLoadAddressReadback()",
+                          "private void CompleteStorageTasks()"),
+                         ("private void CompleteStorageTasks()",
+                          "private void SubmitLoadedTiles("),
+                         ("private void SubmitLoadedTiles(",
+                          "private void UploadLoadAddresses("),
+                         ("private void BeginWritebackReadback(",
+                          "internal void CaptureStorageMetrics(")
+                     })
+            {
+                Assert.That(Slice(storage, begin, end),
+                    Does.Contain("GpuSubmissionAllowed"), begin);
+            }
+            string acknowledge = Slice(storage,
+                "private void AcknowledgeLoadRequests()",
+                "private void BeginWritebackReadback(");
+            Assert.That(acknowledge, Does.Contain("_loadAcknowledgePending"));
+            Assert.That(acknowledge.IndexOf("GpuSubmissionAllowed",
+                    StringComparison.Ordinal),
+                Is.LessThan(acknowledge.IndexOf("SetData",
+                    StringComparison.Ordinal)));
+            Assert.That(storage, Does.Contain(
+                "_deferredWritebackFailureCount"));
+
+            string beginQuiesce = Slice(gpu,
+                "internal void BeginGpuSubmissionQuiesce()",
+                "internal void ResumeGpuSubmission()");
+            Assert.That(beginQuiesce, Does.Contain(
+                "_gpuSubmissionSuspended = true"));
+            foreach (string method in new[]
+                     {
+                         "internal void SelectEvictionVictims",
+                         "internal void AcknowledgeWritebackBatch",
+                         "internal void FailWritebackBatch",
+                         "internal void InstallLoadedTiles",
+                         "internal void FailLoadedTiles",
+                         "internal void RegisterLoadedTileAddresses"
+                     })
+            {
+                int start = gpu.IndexOf(method, StringComparison.Ordinal);
+                int next = gpu.IndexOf("\n        internal ", start + 1,
+                    StringComparison.Ordinal);
+                string body = next > start
+                    ? gpu.Substring(start, next - start)
+                    : gpu.Substring(start);
+                Assert.That(body, Does.Contain(
+                    "if (!GpuSubmissionAllowed) return;"), method);
+            }
+        }
+
+        [Test]
+        public void RetiredCapturedResourcesReleaseEvenAfterOwnerDestruction()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string teardown = Slice(scanner,
+                "private async Task DisableTeardownCoreAsync",
+                "private Action CaptureOwnedGpuResourceRelease()");
+            Assert.That(teardown, Does.Contain(
+                "await _grid.RetireSubmittedGpuWorkAsync()"));
+            Assert.That(teardown, Does.Contain("release?.Invoke()"));
+            Assert.That(teardown, Does.Not.Contain("if (_destroyed) return"));
+            Assert.That(teardown, Does.Contain(
+                "if (!ReferenceEquals(_grid, null))"));
+
+            foreach (string path in new[]
+                     {
+                         "Runtime/Core/DepthCapture.cs",
+                         "Runtime/Merkaba/MerkabaIntegrator.cs",
+                         "Runtime/Merkaba/MerkabaGridRenderer.cs"
+                     })
+            {
+                string capture = Slice(Source(path),
+                    "internal Action CaptureOwnedGpuResourceRelease()",
+                    "\n        }") + "\n        }";
+                Assert.That(capture, Does.Contain("if (this != null)"), path);
+                Assert.That(capture, Does.Contain(
+                    "UnityEngine.Object.Destroy"), path);
+            }
+            string gridCapture = Slice(
+                Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),
+                "internal Action CaptureOwnedGpuResourceRelease()",
+                "internal void ReleaseOwnedResourcesAfterGpuRetirement()");
+            Assert.That(gridCapture, Does.Contain("if (this != null)"));
+            Assert.That(gridCapture, Does.Contain("buffer?.Release()"));
+            string aggregateCapture = Slice(scanner,
+                "private Action CaptureOwnedGpuResourceRelease()",
+                "private uint NextLifecycleGeneration()");
+            Assert.That(aggregateCapture, Does.Not.Contain("_renderer != null"));
+            Assert.That(aggregateCapture, Does.Not.Contain("_depthCapture != null"));
+            Assert.That(aggregateCapture, Does.Not.Contain("_integrator != null"));
+            Assert.That(aggregateCapture, Does.Not.Contain("_grid != null"));
+            Assert.That(aggregateCapture, Does.Contain(
+                "!ReferenceEquals(_grid, null)"));
         }
 
         [Test]

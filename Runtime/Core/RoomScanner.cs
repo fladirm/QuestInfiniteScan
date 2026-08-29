@@ -388,12 +388,12 @@ namespace Genesis.RoomScan
             _integrator?.BeginObservationQuiesce();
             try
             {
-                if (_integrator != null)
+                if (!ReferenceEquals(_integrator, null))
                     await _integrator.FinishCurrentObservationAsync();
-                Task depthRetirement = _depthCapture != null
+                Task depthRetirement = !ReferenceEquals(_depthCapture, null)
                     ? _depthCapture.RetireSubmittedDepthCopiesAsync()
                     : Task.CompletedTask;
-                Task cameraRetirement = _integrator != null
+                Task cameraRetirement = !ReferenceEquals(_integrator, null)
                     ? _integrator.RetireSubmittedCameraCopiesAsync()
                     : Task.CompletedTask;
                 await Task.WhenAll(depthRetirement, cameraRetirement);
@@ -452,23 +452,38 @@ namespace Genesis.RoomScan
             {
                 await prior;
                 if (!await QuiesceScanningAsync()) return;
+                // Capture the exact stable set only after observation and
+                // capture-copy retirement, but before the final grid marker.
+                Action release = CaptureOwnedGpuResourceRelease();
                 _grid?.BeginGpuSubmissionQuiesce();
-                if (_grid != null)
+                if (!ReferenceEquals(_grid, null))
                     await _grid.RetireSubmittedGpuWorkAsync();
-                // Unity can destroy the component while this asynchronous GPU
-                // retirement is pending. In that case retain the resources for
-                // process teardown; never call Release on potentially live work.
-                if (_destroyed) return;
-                _renderer?.ReleaseOwnedResourcesAfterGpuRetirement();
-                _depthCapture?.ReleaseOwnedResourcesAfterGpuRetirement();
-                _integrator?.ReleaseOwnedResourcesAfterGpuRetirement();
-                _grid?.ReleaseOwnedResourcesAfterGpuRetirement();
+                release?.Invoke();
             }
             catch (Exception exception)
             {
                 Logger.Error("Scanner resource teardown retained GPU resources " +
                              "because retirement was not proven: " + exception);
             }
+        }
+
+        private Action CaptureOwnedGpuResourceRelease()
+        {
+            Action rendererRelease = !ReferenceEquals(_renderer, null)
+                ? _renderer.CaptureOwnedGpuResourceRelease() : null;
+            Action depthRelease = !ReferenceEquals(_depthCapture, null)
+                ? _depthCapture.CaptureOwnedGpuResourceRelease() : null;
+            Action integratorRelease = !ReferenceEquals(_integrator, null)
+                ? _integrator.CaptureOwnedGpuResourceRelease() : null;
+            Action gridRelease = !ReferenceEquals(_grid, null)
+                ? _grid.CaptureOwnedGpuResourceRelease() : null;
+            return () =>
+            {
+                rendererRelease?.Invoke();
+                depthRelease?.Invoke();
+                integratorRelease?.Invoke();
+                gridRelease?.Invoke();
+            };
         }
 
         private uint NextLifecycleGeneration()

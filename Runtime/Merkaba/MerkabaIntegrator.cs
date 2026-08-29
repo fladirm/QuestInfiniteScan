@@ -142,6 +142,28 @@ namespace Genesis.RoomScan
             _initialized = false;
         }
 
+        internal Action CaptureOwnedGpuResourceRelease()
+        {
+            UnityEngine.Object[] captured =
+            {
+                _cameraFrameCopies[0], _cameraFrameCopies[1],
+                _dummyCameraTexture
+            };
+            bool released = false;
+            return () =>
+            {
+                if (released) return;
+                released = true;
+                if (this != null)
+                {
+                    ReleaseOwnedResourcesAfterGpuRetirement();
+                    return;
+                }
+                foreach (UnityEngine.Object resource in captured)
+                    if (resource != null) UnityEngine.Object.Destroy(resource);
+            };
+        }
+
         private bool Initialize()
         {
             if (_initialized) return true;
@@ -216,6 +238,8 @@ namespace Genesis.RoomScan
             Quaternion rotation, Vector2 focalLength, Vector2 principalPoint,
             Vector2 sensorResolution, Vector2 currentResolution)
         {
+            if (!ReferenceEquals(_grid, null) &&
+                _grid.GpuSubmissionSuspended) return;
             int slot = _cameraObservationHeld && _heldCameraSlot >= 0
                 ? 1 - _heldCameraSlot
                 : _readyCameraSlot >= 0 ? _readyCameraSlot : 0;
@@ -258,7 +282,8 @@ namespace Genesis.RoomScan
 
         internal bool TrySubmitObservationAttempt()
         {
-            if (!Initialize() || _attemptInFlight)
+            if (_grid == null || _grid.GpuSubmissionSuspended ||
+                !Initialize() || _attemptInFlight)
                 return false;
             bool newObservation = !_observationPrepared;
             if (newObservation)

@@ -23,7 +23,7 @@ namespace Genesis.RoomScan
         private int _compileKernel;
         private int _finalizeKernel;
         private bool _initialized;
-        private bool _gpuSubmissionSuspended;
+        private volatile bool _gpuSubmissionSuspended;
         private bool _statusReadbackPending;
         private float _nextStatusReadback;
         private readonly Vector4[] _drawPlanes = new Vector4[12];
@@ -101,11 +101,28 @@ namespace Genesis.RoomScan
             _statusReadbackPending = false;
         }
 
+        internal Action CaptureOwnedGpuResourceRelease()
+        {
+            Material captured = _material;
+            bool released = false;
+            return () =>
+            {
+                if (released) return;
+                released = true;
+                if (this != null)
+                    ReleaseOwnedResourcesAfterGpuRetirement();
+                else if (captured != null)
+                    UnityEngine.Object.Destroy(captured);
+            };
+        }
+
         internal static bool TryGetActive(Camera camera,
             out MerkabaGridRenderer renderer)
         {
             renderer = _active;
             return renderer != null && renderer._initialized &&
+                   !renderer._gpuSubmissionSuspended &&
+                   !renderer._grid.GpuSubmissionSuspended &&
                    renderer.isActiveAndEnabled && camera == Camera.main;
         }
 
@@ -159,7 +176,8 @@ namespace Genesis.RoomScan
 
         private void LateUpdate()
         {
-            if (_gpuSubmissionSuspended) return;
+            if (_gpuSubmissionSuspended || _grid == null ||
+                _grid.GpuSubmissionSuspended) return;
             Camera camera = Camera.main;
             if (camera == null || !Initialize())
             {
@@ -205,8 +223,13 @@ namespace Genesis.RoomScan
         internal void RecordRenderPass(RasterCommandBuffer command)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
-            if (!_gpuSubmissionSuspended && _initialized && _material != null &&
-                scanOpacity > 0.001f)
+            if (_gpuSubmissionSuspended || _grid == null ||
+                _grid.GpuSubmissionSuspended)
+            {
+                MerkabaGpuTimestamps.CancelUnsubmittedFrame();
+                return;
+            }
+            if (_initialized && _material != null && scanOpacity > 0.001f)
                 command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
                     _material, 0, MeshTopology.Triangles, _grid.M8DrawArgs, 0);
             MerkabaGpuTimestamps.RecordProfileEnd(command);
@@ -294,7 +317,8 @@ namespace Genesis.RoomScan
 
         private void RequestStatusIfDue()
         {
-            if (_statusReadbackPending || Time.unscaledTime < _nextStatusReadback)
+            if (_grid == null || _grid.GpuSubmissionSuspended ||
+                _statusReadbackPending || Time.unscaledTime < _nextStatusReadback)
                 return;
             _statusReadbackPending = true;
             _nextStatusReadback = Time.unscaledTime + 1f;

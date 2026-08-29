@@ -474,6 +474,28 @@ namespace Genesis.RoomScan
             Logger.Info("DepthCapture: GPU resources released");
         }
 
+        internal Action CaptureOwnedGpuResourceRelease()
+        {
+            UnityEngine.Object[] captured =
+            {
+                _normTex, _dilationA, _dilationB,
+                _ownedRawDepth[0], _ownedRawDepth[1], _filteredDepthTex
+            };
+            bool released = false;
+            return () =>
+            {
+                if (released) return;
+                released = true;
+                if (this != null)
+                {
+                    ReleaseOwnedResourcesAfterGpuRetirement();
+                    return;
+                }
+                foreach (UnityEngine.Object resource in captured)
+                    if (resource != null) UnityEngine.Object.Destroy(resource);
+            };
+        }
+
         private void Update()
         {
             float t = Time.unscaledTime;

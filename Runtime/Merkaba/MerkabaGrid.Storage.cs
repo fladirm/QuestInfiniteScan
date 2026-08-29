@@ -30,9 +30,11 @@ namespace Genesis.RoomScan
         private MerkabaTileAddress[] _loadAddresses;
         private Task<MerkabaTileSnapshot[]> _loadStorageTask;
         private bool _loadInstallStatusPending;
+        private bool _loadAcknowledgePending;
         private bool _writebackReadbackPending;
         private Task _writebackStorageTask;
         private int _writebackBatchCount;
+        private int _deferredWritebackFailureCount;
         private bool _flushAllDirty;
         private TaskCompletionSource<bool> _flushCompletion;
         private IProgress<OperationWorkProgress> _flushProgress;
@@ -101,9 +103,11 @@ namespace Genesis.RoomScan
             _loadAddressReadbackPending = false;
             _evictionSelectionPendingSample = false;
             _loadInstallStatusPending = false;
+            _loadAcknowledgePending = false;
             _writebackReadbackPending = false;
             _writebackStorageTask = null;
             _writebackBatchCount = 0;
+            _deferredWritebackFailureCount = 0;
             _flushAllDirty = false;
             _flushCompletion = null;
             _flushProgress = null;
@@ -128,7 +132,8 @@ namespace Genesis.RoomScan
 
         private void PumpStorage()
         {
-            if (!_gpuReady) return;
+            if (!GpuSubmissionAllowed) return;
+            SubmitDeferredStorageControl();
             CompleteStorageTasks();
             UpdateStorageRates();
             if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
@@ -152,6 +157,10 @@ namespace Genesis.RoomScan
                 if (values[CounterAttemptCompletedToken] != 0u)
                     _completedAttemptToken =
                         values[CounterAttemptCompletedToken];
+                // Accounting above is CPU-only. A callback issued before
+                // quiesce must never enqueue readback/compute/upload work after
+                // the retirement marker.
+                if (!GpuSubmissionAllowed) return;
                 if (!_loadAddressReadbackPending && _loadStorageTask == null &&
                     !_loadInstallStatusPending &&
                     _loadRequestCursor != _observedLoadRequestCount)
@@ -237,6 +246,7 @@ namespace Genesis.RoomScan
 
         private void BeginLoadAddressReadback()
         {
+            if (!GpuSubmissionAllowed) return;
             uint available = _observedLoadRequestCount - _loadRequestCursor;
             uint queueIndex = _loadRequestCursor & LoadRequestMask;
             uint contiguous = (uint)LoadRequestCapacity - queueIndex;
@@ -271,6 +281,7 @@ namespace Genesis.RoomScan
 
         private void CompleteStorageTasks()
         {
+            if (!GpuSubmissionAllowed) return;
             if (_loadStorageTask != null && _loadStorageTask.IsCompleted)
             {
                 Task<MerkabaTileSnapshot[]> task = _loadStorageTask;
@@ -335,6 +346,11 @@ namespace Genesis.RoomScan
 
         private void SubmitLoadedTiles(MerkabaTileSnapshot[] tiles)
         {
+            if (!GpuSubmissionAllowed)
+            {
+                _loadStorageTask = Task.FromResult(tiles);
+                return;
+            }
             var addresses = new MerkabaTileAddress[tiles.Length];
             var states = new KernelState[tiles.Length *
                 MerkabaSpatial.KernelsPerTile];
@@ -379,18 +395,26 @@ namespace Genesis.RoomScan
 
         private void UploadLoadAddresses(MerkabaTileAddress[] addresses)
         {
+            if (!GpuSubmissionAllowed) return;
             _m8LoadStagingAddresses.SetData(addresses, 0, 0,
                 addresses.Length);
         }
 
         private void AcknowledgeLoadRequests()
         {
+            if (!GpuSubmissionAllowed)
+            {
+                _loadAcknowledgePending = true;
+                return;
+            }
             _streamControlWord[0] = _loadRequestCursor;
             _m8LoadRequestReadCount.SetData(_streamControlWord);
+            _loadAcknowledgePending = false;
         }
 
         private void BeginWritebackReadback(int count)
         {
+            if (!GpuSubmissionAllowed) return;
             _writebackReadbackPending = true;
             int rawCount = count * (MerkabaSpatial.KernelsPerTile + 1);
             int generation = _gpuGeneration;
@@ -409,7 +433,11 @@ namespace Genesis.RoomScan
                             _flushCompletion = null;
                             _flushAllDirty = false;
                             _flushProgress = null;
-                            FailWritebackBatch(count);
+                            if (GpuSubmissionAllowed)
+                                FailWritebackBatch(count);
+                            else
+                                _deferredWritebackFailureCount = Math.Max(
+                                    _deferredWritebackFailureCount, count);
                             _nextStreamPoll = 0f;
                         }
                         return;
@@ -445,6 +473,16 @@ namespace Genesis.RoomScan
                     _writeIoStartedAt = Time.realtimeSinceStartupAsDouble;
                     _writebackStorageTask = _ssdStore.AppendAsync(tiles);
                 });
+        }
+
+        private void SubmitDeferredStorageControl()
+        {
+            if (!GpuSubmissionAllowed) return;
+            if (_loadAcknowledgePending) AcknowledgeLoadRequests();
+            if (_deferredWritebackFailureCount <= 0) return;
+            int count = _deferredWritebackFailureCount;
+            _deferredWritebackFailureCount = 0;
+            FailWritebackBatch(count);
         }
 
         internal void CaptureStorageMetrics(out float loadBytesPerSecond,
@@ -505,6 +543,9 @@ namespace Genesis.RoomScan
             IProgress<OperationWorkProgress> progress = null)
         {
             EnsureGpuResources();
+            if (!GpuSubmissionAllowed)
+                return Task.FromException(new InvalidOperationException(
+                    "Cannot flush M8 tiles while GPU submission is quiesced."));
             if (_flushCompletion != null) return _flushCompletion.Task;
             _flushAllDirty = true;
             _flushProgress = progress;
@@ -586,6 +627,9 @@ namespace Genesis.RoomScan
             for (int offset = 0; offset < snapshot.Tiles.Count;
                  offset += StreamBatchCapacity)
             {
+                if (!GpuSubmissionAllowed)
+                    throw new InvalidOperationException(
+                        "M8 Load was interrupted by GPU quiesce.");
                 int count = Math.Min(StreamBatchCapacity,
                     snapshot.Tiles.Count - offset);
                 var addresses = new MerkabaTileAddress[count];
@@ -618,6 +662,9 @@ namespace Genesis.RoomScan
                     "register every logical tile.");
             }
             _streamControlWord[0] = occupiedCount;
+            if (!GpuSubmissionAllowed)
+                throw new InvalidOperationException(
+                    "M8 Load was interrupted by GPU quiesce.");
             _m8Counters.SetData(_streamControlWord, 0,
                 CounterOccupiedKernelCount, 1);
             M8OccupiedKernelCount = ToInt(occupiedCount);
@@ -625,6 +672,9 @@ namespace Genesis.RoomScan
 
         private Task<uint[]> ReadWorldCountersAsync()
         {
+            if (!GpuSubmissionAllowed)
+                return Task.FromException<uint[]>(new InvalidOperationException(
+                    "Cannot read M8 operation state while GPU submission is quiesced."));
             int generation = _gpuGeneration;
             var completion = new TaskCompletionSource<uint[]>();
             AsyncGPUReadback.Request(_m8Counters, request =>

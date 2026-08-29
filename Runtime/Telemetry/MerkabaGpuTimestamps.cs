@@ -400,7 +400,7 @@ namespace Genesis.RoomScan
         {
             SampleMetrics sample = RecordingMetrics();
             if (sample == null || grid == null || grid.M8Counters == null ||
-                sample.MetricsCaptureRequested)
+                grid.GpuSubmissionSuspended || sample.MetricsCaptureRequested)
                 return;
             sample.MetricsCaptureRequested = true;
             grid.CaptureStorageMetrics(out sample.LoadBytesPerSecond,

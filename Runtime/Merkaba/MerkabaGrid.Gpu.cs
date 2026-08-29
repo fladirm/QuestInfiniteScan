@@ -10,7 +10,7 @@ namespace Genesis.RoomScan
 {
     public sealed partial class MerkabaGrid
     {
-        private bool _gpuSubmissionSuspended;
+        private volatile bool _gpuSubmissionSuspended;
         private Task _gpuRetirementTask = Task.CompletedTask;
         [Header("M8 GPU World")]
         [SerializeField] private ComputeShader worldCompute;
@@ -46,6 +46,10 @@ namespace Genesis.RoomScan
         internal const int CounterCarveBitsRetired = 63;
         internal const int CounterColdCarveTilesRequested = 64;
         internal const int CounterUnresolvedCarveTiles = 65;
+
+        internal bool GpuSubmissionAllowed =>
+            _gpuReady && !_gpuSubmissionSuspended;
+        internal bool GpuSubmissionSuspended => _gpuSubmissionSuspended;
 
         private bool _gpuReady;
         private int _gpuGeneration;
@@ -175,6 +179,9 @@ namespace Genesis.RoomScan
 
         internal void EnsureGpuResources()
         {
+            if (_gpuSubmissionSuspended)
+                throw new InvalidOperationException(
+                    "M8 GPU resources cannot initialize while quiesced.");
             if (_gpuReady) return;
             if (worldCompute == null)
                 throw new InvalidOperationException(
@@ -396,6 +403,7 @@ namespace Genesis.RoomScan
 
         internal void SelectEvictionVictims(bool allDirty)
         {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(EvictAllDirtyId, allDirty ? 1 : 0);
             worldCompute.SetInt(SafeEpochId, 3);
             worldCompute.Dispatch(_prepareEvictionSelectionKernel, 1, 1, 1);
@@ -407,18 +415,21 @@ namespace Genesis.RoomScan
 
         internal void AcknowledgeWritebackBatch(int count)
         {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
             worldCompute.Dispatch(_acknowledgeWritebackBatchKernel, 1, 1, 1);
         }
 
         internal void FailWritebackBatch(int count)
         {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
             worldCompute.Dispatch(_failWritebackBatchKernel, 1, 1, 1);
         }
 
         internal void InstallLoadedTiles(int count)
         {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
             worldCompute.Dispatch(_prepareLoadedTilesKernel, 1, 1, 1);
             worldCompute.Dispatch(_installLoadedTilesKernel, count, 1, 1);
@@ -426,12 +437,14 @@ namespace Genesis.RoomScan
 
         internal void FailLoadedTiles(int count)
         {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
             worldCompute.Dispatch(_failLoadedTilesKernel, 1, 1, 1);
         }
 
         internal void RegisterLoadedTileAddresses(int count)
         {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
             // At most 32 unique addresses participate. In the legal worst
             // case CLAIMED/colliding blocks serialize one address per round;
@@ -457,12 +470,14 @@ namespace Genesis.RoomScan
         internal void RecordHashBenchmark(CommandBuffer command)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
+            if (!GpuSubmissionAllowed) return;
             command.DispatchComputeProfiled(worldCompute, _benchmarkHashKernel,
                 MerkabaSpatial.BlockCapacity / 256, 1, 1);
         }
 
         internal uint ResetObservationGpuCounters()
         {
+            if (!GpuSubmissionAllowed) return 0u;
             unchecked
             {
                 _issuedObservationToken++;
@@ -477,6 +492,7 @@ namespace Genesis.RoomScan
         internal uint RecordResetObservationGpuCounters(CommandBuffer command)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
+            if (!GpuSubmissionAllowed) return 0u;
             unchecked
             {
                 _issuedObservationToken++;
@@ -489,19 +505,31 @@ namespace Genesis.RoomScan
             return _issuedObservationToken;
         }
 
-        internal void PublishClaimedBlocks() =>
+        internal void PublishClaimedBlocks()
+        {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.Dispatch(_publishNewBlocksKernel, 1, 1, 1);
+        }
 
-        internal void RecordPublishClaimedBlocks(CommandBuffer command) =>
+        internal void RecordPublishClaimedBlocks(CommandBuffer command)
+        {
+            if (!GpuSubmissionAllowed) return;
             command.DispatchComputeProfiled(worldCompute,
                 _publishNewBlocksKernel, _m8ObservationDispatchArgs);
+        }
 
-        internal void PublishClaimedChunks() =>
+        internal void PublishClaimedChunks()
+        {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.Dispatch(_publishNewChunksKernel, 1, 1, 1);
+        }
 
-        internal void RecordPublishClaimedChunks(CommandBuffer command) =>
+        internal void RecordPublishClaimedChunks(CommandBuffer command)
+        {
+            if (!GpuSubmissionAllowed) return;
             command.DispatchComputeProfiled(worldCompute,
                 _publishNewChunksKernel, _m8ObservationDispatchArgs);
+        }
 
         internal void PublishClaimedBlocksAndChunks()
         {
@@ -509,23 +537,36 @@ namespace Genesis.RoomScan
             PublishClaimedChunks();
         }
 
-        internal void RecordInitializeClaimedTiles(CommandBuffer command) =>
+        internal void RecordInitializeClaimedTiles(CommandBuffer command)
+        {
+            if (!GpuSubmissionAllowed) return;
             command.DispatchComputeProfiled(worldCompute,
                 _initializeNewTilesKernel, _m8ObservationDispatchArgs);
+        }
 
-        internal void ResetClaimQueues() =>
+        internal void ResetClaimQueues()
+        {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.Dispatch(_resetClaimQueuesKernel, 1, 1, 1);
+        }
 
-        internal void RecordResetClaimQueues(CommandBuffer command) =>
+        internal void RecordResetClaimQueues(CommandBuffer command)
+        {
+            if (!GpuSubmissionAllowed) return;
             command.DispatchComputeProfiled(worldCompute,
                 _resetClaimQueuesKernel, 1, 1, 1);
+        }
 
-        internal void RecordPrepareNewTileDispatch(CommandBuffer command) =>
+        internal void RecordPrepareNewTileDispatch(CommandBuffer command)
+        {
+            if (!GpuSubmissionAllowed) return;
             command.DispatchComputeProfiled(worldCompute,
                 _prepareNewTileDispatchKernel, 1, 1, 1);
+        }
 
         internal void ClearTouchedSurfaceCandidates()
         {
+            if (!GpuSubmissionAllowed) return;
             worldCompute.SetBuffer(_clearTouchedCandidatesKernel,
                 "_M8TouchedTileQueue", _m8TouchedTileQueue);
             worldCompute.DispatchIndirect(_clearTouchedCandidatesKernel,
@@ -534,6 +575,7 @@ namespace Genesis.RoomScan
 
         internal void RecordClearTouchedSurfaceCandidates(CommandBuffer command)
         {
+            if (!GpuSubmissionAllowed) return;
             command.SetComputeBufferParam(worldCompute,
                 _clearTouchedCandidatesKernel, "_M8TouchedTileQueue",
                 _m8TouchedTileQueue);
@@ -566,7 +608,7 @@ namespace Genesis.RoomScan
 
         internal void ClearGpuWorldForNewScan()
         {
-            if (!_gpuReady) return;
+            if (!GpuSubmissionAllowed) return;
             _gpuGeneration++;
             worldCompute.Dispatch(_prepareAllocatedClearKernel, 1, 1, 1);
             worldCompute.DispatchIndirect(_clearAllocatedBlocksKernel,
@@ -616,7 +658,7 @@ namespace Genesis.RoomScan
 
         private void Update()
         {
-            if (!_gpuSubmissionSuspended) PumpStorage();
+            if (GpuSubmissionAllowed) PumpStorage();
         }
 
         private static int ToInt(uint value) =>
@@ -650,6 +692,23 @@ namespace Genesis.RoomScan
                     completion.TrySetResult(true);
             });
             return _gpuRetirementTask;
+        }
+
+        internal Action CaptureOwnedGpuResourceRelease()
+        {
+            ComputeBuffer[] captured = _allGpuBuffers.ToArray();
+            bool released = false;
+            return () =>
+            {
+                if (released) return;
+                released = true;
+                if (this != null)
+                {
+                    ReleaseOwnedResourcesAfterGpuRetirement();
+                    return;
+                }
+                foreach (ComputeBuffer buffer in captured) buffer?.Release();
+            };
         }
 
         internal void ReleaseOwnedResourcesAfterGpuRetirement() =>
