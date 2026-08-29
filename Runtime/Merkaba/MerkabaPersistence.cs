@@ -106,18 +106,29 @@ namespace Genesis.RoomScan
             {
                 MerkabaSessionSnapshot snapshot = await _grid
                     .ReadCheckpointSnapshotAsync();
-                if (snapshot.AnchorUuid != Guid.Empty &&
-                    RoomAnchorManager.Instance != null)
+                if (snapshot.AnchorUuid != Guid.Empty)
                 {
                     Report(ScanOperationKind.Load,
                         ScanOperationStage.LocalizingAnchor, -1f,
                         "Localizing saved anchor");
-                    Matrix4x4? localized = await RoomAnchorManager.Instance
+                    RoomAnchorManager anchorManager = RoomAnchorManager.Instance;
+                    if (anchorManager == null)
+                        throw new InvalidOperationException(
+                            "Saved M8 world requires its spatial anchor, but " +
+                            "RoomAnchorManager is unavailable.");
+                    Matrix4x4? localized = await anchorManager
                         .LoadSpatialAnchorAsync(snapshot.AnchorUuid);
-                    if (localized.HasValue && RoomSpaceRoot.Instance != null)
-                        await RoomSpaceRoot.WaitForBindAsync();
-                    else if (!localized.HasValue)
-                        Logger.Warning("M8 load anchor did not localize; using current world frame.");
+                    if (!localized.HasValue)
+                        throw new InvalidOperationException(
+                            "Saved M8 spatial anchor could not be localized.");
+                    if (RoomSpaceRoot.Instance == null)
+                        throw new InvalidOperationException(
+                            "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
+                            "is unavailable.");
+                    if (!await RoomSpaceRoot.WaitForBindAsync())
+                        throw new InvalidOperationException(
+                            "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
+                            "did not bind.");
                 }
                 Report(ScanOperationKind.Load,
                     ScanOperationStage.ApplyingState, 0.75f,

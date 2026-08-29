@@ -15,6 +15,12 @@
 #define MERKABA_M8_LOAD_REQUEST_MASK 262143u
 #define MERKABA_M8_SURFACE_CANDIDATE_CAPACITY 2097152u
 #define MERKABA_EXPORT_KNOWN_FREE -512
+#define MERKABA_M8_CHUNK_PRESENCE_STRIDE 9u
+#define MERKABA_M8_OWNER_CHUNK_OFFSET MERKABA_M8_BLOCK_CAPACITY
+#define MERKABA_M8_CLAIM_BLOCK_OFFSET 0u
+#define MERKABA_M8_CLAIM_CHUNK_OFFSET MERKABA_M8_BLOCK_CAPACITY
+#define MERKABA_M8_CLAIM_TILE_OFFSET \
+    (MERKABA_M8_BLOCK_CAPACITY + MERKABA_M8_CHUNK_CAPACITY)
 
 #define M8_COUNTER_BLOCK_COUNT 0u
 #define M8_COUNTER_CHUNK_COUNT 1u
@@ -70,6 +76,8 @@
 #define M8_COUNTER_EVICTION_NEEDED 51u
 #define M8_COUNTER_OBSERVATION_FAILURE 52u
 #define M8_COUNTER_FAILED_OBSERVATIONS 53u
+#define M8_COUNTER_FREE_TILE_COUNT 54u
+#define M8_COUNTER_EVICTION_CLEAN_BUDGET 55u
 #define M8_COUNTER_COUNT 64u
 
 #define M8_OBSERVATION_FAILURE_SURFACE_CAPACITY 1u
@@ -99,41 +107,98 @@ struct M8TileAddress
 };
 
 RWStructuredBuffer<M8HashEntry> _M8HashEntries;
-RWStructuredBuffer<int4> _M8BlockCoords;
+StructuredBuffer<M8HashEntry> _M8HashEntriesRead;
+RWStructuredBuffer<uint4> _M8OwnerRecords;
+StructuredBuffer<uint4> _M8OwnerRecordsRead;
 RWStructuredBuffer<uint> _M8BlockChunkRefs;
+StructuredBuffer<uint> _M8BlockChunkRefsRead;
 RWStructuredBuffer<uint> _M8BlockPresenceL0;
 RWStructuredBuffer<uint> _M8BlockPresenceL1;
 RWStructuredBuffer<uint> _M8BlockPresenceL2;
+StructuredBuffer<uint> _M8BlockPresenceL0Read;
+StructuredBuffer<uint> _M8BlockPresenceL1Read;
+StructuredBuffer<uint> _M8BlockPresenceL2Read;
 
-RWStructuredBuffer<uint2> _M8ChunkOwners;
 RWStructuredBuffer<uint> _M8ChunkTileRefs;
-RWStructuredBuffer<uint> _M8ChunkPresenceL0;
-RWStructuredBuffer<uint> _M8ChunkPresenceL1;
+StructuredBuffer<uint> _M8ChunkTileRefsRead;
+RWStructuredBuffer<uint> _M8ChunkPresence;
+StructuredBuffer<uint> _M8ChunkPresenceRead;
 
 RWStructuredBuffer<KernelState> _M8KernelStates0;
 RWStructuredBuffer<KernelState> _M8KernelStates1;
 RWStructuredBuffer<KernelState> _M8KernelStates2;
 RWStructuredBuffer<KernelState> _M8KernelStates3;
-RWStructuredBuffer<uint> _M8OccupiedBits;
-RWStructuredBuffer<uint> _M8CarveActiveBits;
-RWStructuredBuffer<uint> _M8SurfaceCandidateBits;
-RWStructuredBuffer<uint4> _M8TileMeta;
-RWStructuredBuffer<uint4> _M8TileRuntime;
+StructuredBuffer<KernelState> _M8KernelStates0Read;
+StructuredBuffer<KernelState> _M8KernelStates1Read;
+StructuredBuffer<KernelState> _M8KernelStates2Read;
+StructuredBuffer<KernelState> _M8KernelStates3Read;
+RWStructuredBuffer<uint4> _M8TileBits;
+StructuredBuffer<uint4> _M8TileBitsRead;
+RWStructuredBuffer<uint4> _M8TileRecords;
+StructuredBuffer<uint4> _M8TileRecordsRead;
 RWStructuredBuffer<uint> _M8FreeTileStack;
-RWStructuredBuffer<int> _M8FreeTileCount;
+StructuredBuffer<uint> _M8FreeTileStackRead;
 RWStructuredBuffer<uint> _M8Counters;
+StructuredBuffer<uint> _M8CountersRead;
 
-RWStructuredBuffer<uint2> _M8NewBlockQueue;
-RWStructuredBuffer<uint2> _M8NewChunkQueue;
-RWStructuredBuffer<uint2> _M8NewTileQueue;
+RWStructuredBuffer<uint2> _M8ClaimQueue;
+StructuredBuffer<uint2> _M8ClaimQueueRead;
 RWStructuredBuffer<uint> _M8PendingNewTileRefs;
+StructuredBuffer<uint> _M8PendingNewTileRefsRead;
 RWStructuredBuffer<M8TileAddress> _M8LoadRequests;
-RWStructuredBuffer<uint> _M8LoadRequestReadCount;
+StructuredBuffer<uint> _M8LoadRequestReadCount;
 RWStructuredBuffer<uint2> _M8WritebackQueue;
+StructuredBuffer<uint2> _M8WritebackQueueRead;
 RWStructuredBuffer<uint4> _M8WritebackStaging;
 RWStructuredBuffer<M8TileAddress> _M8LoadStagingAddresses;
-RWStructuredBuffer<KernelState> _M8LoadStagingStates;
-RWStructuredBuffer<uint> _M8StreamStatus;
+StructuredBuffer<M8TileAddress> _M8LoadStagingAddressesRead;
+StructuredBuffer<KernelState> _M8LoadStagingStates;
+
+uint M8ChunkPresenceL0Index(uint chunkIndex)
+{
+    return chunkIndex * MERKABA_M8_CHUNK_PRESENCE_STRIDE;
+}
+
+uint M8ChunkPresenceL1Index(uint chunkIndex, uint d1)
+{
+    return M8ChunkPresenceL0Index(chunkIndex) + 1u + d1;
+}
+
+uint M8TileWordIndex(uint physicalSlot, uint word)
+{
+    return physicalSlot * MERKABA_M8_TILE_WORDS + word;
+}
+
+uint M8TileMetaIndex(uint physicalSlot)
+{
+    return physicalSlot * 2u;
+}
+
+uint M8TileRuntimeIndex(uint physicalSlot)
+{
+    return physicalSlot * 2u + 1u;
+}
+
+uint4 M8LoadTileMetaRead(uint physicalSlot)
+{
+    return _M8TileRecordsRead[M8TileMetaIndex(physicalSlot)];
+}
+
+uint4 M8LoadTileRuntimeRead(uint physicalSlot)
+{
+    return _M8TileRecordsRead[M8TileRuntimeIndex(physicalSlot)];
+}
+
+uint2 M8LoadChunkOwnerRead(uint chunkIndex)
+{
+    return _M8OwnerRecordsRead[MERKABA_M8_OWNER_CHUNK_OFFSET +
+        chunkIndex].xy;
+}
+
+int3 M8LoadBlockCoordRead(uint blockIndex)
+{
+    return asint(_M8OwnerRecordsRead[blockIndex].xyz);
+}
 
 uint M8BankStateIndex(uint physicalSlot, uint kernelLocal)
 {
@@ -150,6 +215,18 @@ KernelState M8LoadKernelState(uint physicalSlot, uint kernelLocal)
     else if (bank == 1u) state = _M8KernelStates1[index];
     else if (bank == 2u) state = _M8KernelStates2[index];
     else state = _M8KernelStates3[index];
+    return state;
+}
+
+KernelState M8LoadKernelStateRead(uint physicalSlot, uint kernelLocal)
+{
+    uint index = M8BankStateIndex(physicalSlot, kernelLocal);
+    uint bank = physicalSlot >> MERKABA_M8_TILE_BANK_SHIFT;
+    KernelState state = (KernelState)0;
+    if (bank == 0u) state = _M8KernelStates0Read[index];
+    else if (bank == 1u) state = _M8KernelStates1Read[index];
+    else if (bank == 2u) state = _M8KernelStates2Read[index];
+    else state = _M8KernelStates3Read[index];
     return state;
 }
 
@@ -182,30 +259,43 @@ uint M8PhysicalSlot(uint tileRef)
 bool M8TryPopPhysicalTile(out uint physicalSlot)
 {
     physicalSlot = 0u;
-    int previous;
-    InterlockedAdd(_M8FreeTileCount[0], -1, previous);
-    if (previous <= 256)
+    [unroll]
+    for (uint attempt = 0u; attempt < 16u; attempt++)
     {
-        uint ignoredSignal;
-        InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
-            ignoredSignal);
+        uint available = _M8Counters[M8_COUNTER_FREE_TILE_COUNT];
+        if (available == 0u)
+        {
+            uint ignoredSignal;
+            InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
+                ignoredSignal);
+            return false;
+        }
+        uint previous;
+        InterlockedCompareExchange(
+            _M8Counters[M8_COUNTER_FREE_TILE_COUNT], available,
+            available - 1u, previous);
+        if (previous != available) continue;
+        if (available <= 256u)
+        {
+            uint ignoredSignal;
+            InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
+                ignoredSignal);
+        }
+        physicalSlot = _M8FreeTileStackRead[available - 1u];
+        return true;
     }
-    if (previous <= 0)
-    {
-        int ignored;
-        InterlockedAdd(_M8FreeTileCount[0], 1, ignored);
-        return false;
-    }
-    physicalSlot = _M8FreeTileStack[(uint)(previous - 1)];
-    return true;
+    uint ignoredSignal;
+    InterlockedExchange(_M8Counters[M8_COUNTER_EVICTION_NEEDED], 1u,
+        ignoredSignal);
+    return false;
 }
 
 void M8PushPhysicalTile(uint physicalSlot)
 {
-    int previous;
-    InterlockedAdd(_M8FreeTileCount[0], 1, previous);
-    if (previous >= 0 && previous < (int)MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-        _M8FreeTileStack[(uint)previous] = physicalSlot;
+    uint previous;
+    InterlockedAdd(_M8Counters[M8_COUNTER_FREE_TILE_COUNT], 1u, previous);
+    if (previous < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+        _M8FreeTileStack[previous] = physicalSlot;
 }
 
 uint M8HashEntryIndex(uint bucket, uint slot)
@@ -225,7 +315,7 @@ bool M8FindBlock(int3 blockCoord, out uint blockIndex)
         for (uint slot = 0u; slot < MERKABA_M8_HASH_SLOTS_PER_BUCKET; slot++)
         {
             uint entryIndex = M8HashEntryIndex(bucket, slot);
-            M8HashEntry entry = _M8HashEntries[entryIndex];
+            M8HashEntry entry = _M8HashEntriesRead[entryIndex];
             if (entry.blockRef != MERKABA_REF_EMPTY &&
                 entry.blockRef != MERKABA_REF_CLAIMED_NEW &&
                 all(entry.blockCoord == blockCoord))
@@ -315,12 +405,13 @@ bool M8FindOrClaimBlock(int3 blockCoord, out uint blockIndex,
         return false;
     }
     _M8HashEntries[firstEmpty].blockCoord = blockCoord;
-    _M8BlockCoords[allocated] = int4(blockCoord, 0);
+    _M8OwnerRecords[allocated] = uint4(asuint(blockCoord), 0u);
     uint queueIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT], 1u,
         queueIndex);
     if (queueIndex < MERKABA_M8_BLOCK_CAPACITY)
-        _M8NewBlockQueue[queueIndex] = uint2(firstEmpty, allocated);
+        _M8ClaimQueue[MERKABA_M8_CLAIM_BLOCK_OFFSET + queueIndex] =
+            uint2(firstEmpty, allocated);
     blockIndex = allocated;
     return false;
 }
@@ -362,93 +453,86 @@ bool M8FindOrClaimChunk(uint blockIndex, uint chunkLocal,
         chunkIndex = 0u;
         return false;
     }
-    _M8ChunkOwners[allocated] = uint2(blockIndex, chunkLocal);
+    _M8OwnerRecords[MERKABA_M8_OWNER_CHUNK_OFFSET + allocated] =
+        uint4(blockIndex, chunkLocal, 0u, 0u);
     uint queueIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT], 1u,
         queueIndex);
     if (queueIndex < MERKABA_M8_CHUNK_CAPACITY)
-        _M8NewChunkQueue[queueIndex] = uint2(refIndex, allocated);
+        _M8ClaimQueue[MERKABA_M8_CLAIM_CHUNK_OFFSET + queueIndex] =
+            uint2(refIndex, allocated);
     chunkIndex = allocated;
     return false;
 }
 
-bool M8FindTile(int3 globalCoord, out uint physicalSlot,
-    out MerkabaM8Address address, out uint tileRefIndex, out uint tileRef)
+bool M8TryOccupiedTileRef(uint tileRef, uint kernelLocal, out bool occupied)
 {
-    physicalSlot = 0u;
-    tileRefIndex = 0u;
-    tileRef = MERKABA_REF_EMPTY;
-    address = MerkabaAddressOf(globalCoord);
-    uint blockIndex = 0u;
-    if (!M8FindBlock(address.blockCoord, blockIndex))
-    {
-        physicalSlot = 0u; tileRefIndex = 0u; tileRef = MERKABA_REF_EMPTY;
-        return false;
-    }
-    uint chunkRef = _M8BlockChunkRefs[blockIndex *
-        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY ||
-        chunkRef >= MERKABA_REF_EVICTING)
-    {
-        physicalSlot = 0u; tileRefIndex = 0u; tileRef = chunkRef;
-        return false;
-    }
-    uint chunkIndex = chunkRef - 1u;
-    tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
-        address.tileLocal;
-    tileRef = _M8ChunkTileRefs[tileRefIndex];
-    if (!M8IsHotRef(tileRef))
-    {
-        physicalSlot = 0u;
-        return false;
-    }
-    physicalSlot = M8PhysicalSlot(tileRef);
+    occupied = false;
+    if (tileRef == MERKABA_REF_EMPTY) return true;
+    if (!M8IsHotRef(tileRef)) return false;
+    uint physicalSlot = M8PhysicalSlot(tileRef);
+    uint word = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
+    occupied = (_M8TileBitsRead[word].x &
+        (1u << (kernelLocal & 31u))) != 0u;
     return true;
 }
 
-// Missing logical paths are exact empty. Existing non-HOT payload is unresolved
-// and must never be interpreted as empty topology.
-bool M8TryOccupiedExact(int3 globalCoord, out bool occupied)
+// Missing logical paths are exact empty. Existing non-HOT payload is unresolved.
+// The block hash is touched only when the body-diagonal step crosses an M8 block.
+bool M8TryOccupiedNeighbour(MerkabaM8Address currentAddress,
+    uint currentPhysicalSlot, uint currentChunkIndex, uint currentBlockIndex,
+    int3 neighbourStep, out bool occupied)
 {
     occupied = false;
-    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
-    uint blockIndex = 0u;
-    if (!M8FindBlock(address.blockCoord, blockIndex))
+    int3 localSigned = int3(currentAddress.local) + neighbourStep;
+    bool sameBlock = all(localSigned >= 0) && all(localSigned < 256);
+    int3 blockCoord = currentAddress.blockCoord;
+    if (!sameBlock)
+    {
+        if (localSigned.x < 0) { blockCoord.x--; localSigned.x += 256; }
+        else if (localSigned.x >= 256) { blockCoord.x++; localSigned.x -= 256; }
+        if (localSigned.y < 0) { blockCoord.y--; localSigned.y += 256; }
+        else if (localSigned.y >= 256) { blockCoord.y++; localSigned.y -= 256; }
+        if (localSigned.z < 0) { blockCoord.z--; localSigned.z += 256; }
+        else if (localSigned.z >= 256) { blockCoord.z++; localSigned.z -= 256; }
+    }
+    MerkabaM8Address neighbourAddress = MerkabaAddressFromBlockLocal(
+        blockCoord, uint3(localSigned));
+
+    if (sameBlock &&
+        neighbourAddress.chunkLocal == currentAddress.chunkLocal &&
+        neighbourAddress.tileLocal == currentAddress.tileLocal)
+    {
+        uint word = M8TileWordIndex(currentPhysicalSlot,
+            neighbourAddress.kernelLocal >> 5u);
+        occupied = (_M8TileBitsRead[word].x &
+            (1u << (neighbourAddress.kernelLocal & 31u))) != 0u;
         return true;
-    uint chunkRef = _M8BlockChunkRefs[blockIndex *
-        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY)
-    {
-        return true;
     }
-    if (chunkRef == MERKABA_REF_CLAIMED_NEW)
+
+    uint chunkIndex = currentChunkIndex;
+    if (neighbourAddress.chunkLocal != currentAddress.chunkLocal || !sameBlock)
     {
-        return false;
+        uint blockIndex = currentBlockIndex;
+        if (!sameBlock && !M8FindBlock(blockCoord, blockIndex)) return true;
+        uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
+            MERKABA_M8_BLOCK_CHUNK_COUNT + neighbourAddress.chunkLocal];
+        if (chunkRef == MERKABA_REF_EMPTY) return true;
+        if (chunkRef == MERKABA_REF_CLAIMED_NEW) return false;
+        chunkIndex = chunkRef - 1u;
     }
-    uint chunkIndex = chunkRef - 1u;
-    uint tileRef = _M8ChunkTileRefs[chunkIndex *
-        MERKABA_M8_TILES_PER_CHUNK + address.tileLocal];
-    if (tileRef == MERKABA_REF_EMPTY)
-    {
-        return true;
-    }
-    if (!M8IsHotRef(tileRef))
-    {
-        return false;
-    }
-    uint physicalSlot = M8PhysicalSlot(tileRef);
-    uint word = physicalSlot * MERKABA_M8_TILE_WORDS +
-        (address.kernelLocal >> 5u);
-    occupied = (_M8OccupiedBits[word] &
-        (1u << (address.kernelLocal & 31u))) != 0u;
-    return true;
+
+    uint tileRef = _M8ChunkTileRefsRead[chunkIndex *
+        MERKABA_M8_TILES_PER_CHUNK + neighbourAddress.tileLocal];
+    return M8TryOccupiedTileRef(tileRef, neighbourAddress.kernelLocal,
+        occupied);
 }
 
 M8TileAddress M8LogicalAddress(uint chunkIndex, uint tileLocal)
 {
-    uint2 owner = _M8ChunkOwners[chunkIndex];
+    uint2 owner = M8LoadChunkOwnerRead(chunkIndex);
     M8TileAddress address;
-    address.blockCoord = _M8BlockCoords[owner.x].xyz;
+    address.blockCoord = M8LoadBlockCoordRead(owner.x);
     address.localAddress = owner.y | (tileLocal << 9u);
     return address;
 }
@@ -493,7 +577,34 @@ bool M8QueueColdTileLoad(uint tileRefIndex, uint chunkIndex, uint tileLocal)
 
 int3 M8GlobalKernelCoord(uint physicalSlot, uint kernelLocal)
 {
-    uint4 meta = _M8TileMeta[physicalSlot];
+    uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
+    M8TileAddress address = M8LogicalAddress(meta.x, meta.y);
+    uint chunkLocal = address.localAddress & 0x1ffu;
+    uint tileLocal = (address.localAddress >> 9u) & 0x3fu;
+    uint d4 = (chunkLocal >> 6u) & 7u;
+    uint d3 = (chunkLocal >> 3u) & 7u;
+    uint d2 = chunkLocal & 7u;
+    uint d1 = (tileLocal >> 3u) & 7u;
+    uint d0 = tileLocal & 7u;
+    uint3 kernel = uint3(kernelLocal & 7u,
+        (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+    uint3 local;
+    local.x = (((d4 >> 0u) & 1u) << 7u) |
+        (((d3 >> 0u) & 1u) << 6u) | (((d2 >> 0u) & 1u) << 5u) |
+        (((d1 >> 0u) & 1u) << 4u) | (((d0 >> 0u) & 1u) << 3u) | kernel.x;
+    local.y = (((d4 >> 1u) & 1u) << 7u) |
+        (((d3 >> 1u) & 1u) << 6u) | (((d2 >> 1u) & 1u) << 5u) |
+        (((d1 >> 1u) & 1u) << 4u) | (((d0 >> 1u) & 1u) << 3u) | kernel.y;
+    local.z = (((d4 >> 2u) & 1u) << 7u) |
+        (((d3 >> 2u) & 1u) << 6u) | (((d2 >> 2u) & 1u) << 5u) |
+        (((d1 >> 2u) & 1u) << 4u) | (((d0 >> 2u) & 1u) << 3u) | kernel.z;
+    return address.blockCoord * MERKABA_M8_BLOCK_KERNEL_SPAN + int3(local);
+}
+
+
+int3 M8GlobalKernelCoordRead(uint physicalSlot, uint kernelLocal)
+{
+    uint4 meta = M8LoadTileMetaRead(physicalSlot);
     M8TileAddress address = M8LogicalAddress(meta.x, meta.y);
     uint chunkLocal = address.localAddress & 0x1ffu;
     uint tileLocal = (address.localAddress >> 9u) & 0x3fu;

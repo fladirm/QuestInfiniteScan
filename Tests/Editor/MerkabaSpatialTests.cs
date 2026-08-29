@@ -46,6 +46,7 @@ namespace Genesis.RoomScan.Tests
         [TestCase(-1, -1, 255)]
         [TestCase(-256, -1, 0)]
         [TestCase(-257, -2, 255)]
+        [TestCase(int.MinValue, -8388608, 0)]
         [TestCase(255, 0, 255)]
         [TestCase(256, 1, 0)]
         public void SignedFloorDivision_IsMathematical(int value, int block,
@@ -95,6 +96,7 @@ namespace Genesis.RoomScan.Tests
             string hlsl = File.ReadAllText(path);
             StringAssert.Contains("1664525u * v + 1013904223u", hlsl);
             StringAssert.Contains("magnitude >> 8u", hlsl);
+            StringAssert.DoesNotContain("magnitude + 255u", hlsl);
             StringAssert.DoesNotContain("value /", hlsl);
             StringAssert.DoesNotContain("uint64", hlsl);
             StringAssert.DoesNotContain("% MERKABA_M8_HASH_BUCKET_COUNT", hlsl);

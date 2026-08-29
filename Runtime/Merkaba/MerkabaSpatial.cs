@@ -29,6 +29,22 @@ namespace Genesis.RoomScan
         public const int HashBucketMask = HashBucketCount - 1;
         public const int HashSlotsPerBucket = 4;
         public const int HashEntryCount = HashBucketCount * HashSlotsPerBucket;
+        public const int OwnerChunkOffset = BlockCapacity;
+        public const int OwnerRecordCount = BlockCapacity + ChunkCapacity;
+        public const int ChunkPresenceStride = 9;
+        public const int ChunkPresenceWordCount =
+            ChunkCapacity * ChunkPresenceStride;
+        public const int TileWordCount = 16;
+        public const int TileBitRecordCount =
+            PhysicalTileCapacity * TileWordCount;
+        public const int TileRecordStride = 2;
+        public const int TileRecordCount =
+            PhysicalTileCapacity * TileRecordStride;
+        public const int ClaimBlockOffset = 0;
+        public const int ClaimChunkOffset = BlockCapacity;
+        public const int ClaimTileOffset = BlockCapacity + ChunkCapacity;
+        public const int ClaimRecordCount =
+            BlockCapacity + ChunkCapacity + PhysicalTileCapacity;
 
         public const uint EmptyRef = 0u;
         public const uint ClaimedNewRef = 0xffffffffu;

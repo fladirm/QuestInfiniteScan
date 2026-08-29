@@ -281,7 +281,8 @@ namespace Genesis.RoomScan
             InstallLoadedTiles(tiles.Length);
             _loadInstallStatusPending = true;
             int generation = _gpuGeneration;
-            AsyncGPUReadback.Request(_m8StreamStatus, tiles.Length * sizeof(uint),
+            AsyncGPUReadback.Request(_m8LoadStagingAddresses,
+                tiles.Length * 16,
                 0, request =>
                 {
                     _loadInstallStatusPending = false;
@@ -289,9 +290,9 @@ namespace Genesis.RoomScan
                     bool complete = !request.hasError;
                     if (complete)
                     {
-                        var statuses = request.GetData<uint>();
+                        var statuses = request.GetData<Raw16>();
                         for (int index = 0; index < statuses.Length; index++)
-                            complete &= statuses[index] != 0u;
+                            complete &= (statuses[index].W & 0x80000000u) != 0u;
                     }
                     if (complete)
                     {

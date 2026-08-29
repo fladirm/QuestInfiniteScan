@@ -193,4 +193,143 @@ float3 MerkabaCanonicalPrimitivePosition(uint primitiveId, uint corner)
     return corner == 0u ? a : (corner == 1u ? b : c);
 }
 
+void MerkabaCanonicalPrimitiveFacing(uint primitiveId,
+    out float3 primitiveCenterOffset, out float3 orientedNormal)
+{
+    primitiveCenterOffset = 0.0;
+    orientedNormal = float3(0, 0, 1);
+    switch (primitiveId)
+    {
+        case 0u:
+            primitiveCenterOffset = float3(-1, -1, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, -1);
+            break;
+        case 1u:
+            primitiveCenterOffset = float3(-2, -1, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, -1);
+            break;
+        case 2u:
+            primitiveCenterOffset = float3(-1, -2, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, -1);
+            break;
+        case 3u:
+            primitiveCenterOffset = float3(-2, -2, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, 1);
+            break;
+        case 4u:
+            primitiveCenterOffset = float3(1, -1, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, -1);
+            break;
+        case 5u:
+            primitiveCenterOffset = float3(2, -2, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, 1);
+            break;
+        case 6u:
+            primitiveCenterOffset = float3(1, -2, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, -1);
+            break;
+        case 7u:
+            primitiveCenterOffset = float3(2, -1, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, -1);
+            break;
+        case 8u:
+            primitiveCenterOffset = float3(-1, 1, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, -1);
+            break;
+        case 9u:
+            primitiveCenterOffset = float3(-2, 2, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, 1);
+            break;
+        case 10u:
+            primitiveCenterOffset = float3(-1, 2, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, -1);
+            break;
+        case 11u:
+            primitiveCenterOffset = float3(-2, 1, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, -1);
+            break;
+        case 12u:
+            primitiveCenterOffset = float3(1, 1, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, -1);
+            break;
+        case 13u:
+            primitiveCenterOffset = float3(2, 1, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, -1);
+            break;
+        case 14u:
+            primitiveCenterOffset = float3(1, 2, -2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, -1);
+            break;
+        case 15u:
+            primitiveCenterOffset = float3(2, 2, -1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, 1);
+            break;
+        case 16u:
+            primitiveCenterOffset = float3(-1, -1, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, 1);
+            break;
+        case 17u:
+            primitiveCenterOffset = float3(-2, -2, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, -1);
+            break;
+        case 18u:
+            primitiveCenterOffset = float3(-1, -2, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, 1);
+            break;
+        case 19u:
+            primitiveCenterOffset = float3(-2, -1, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, 1);
+            break;
+        case 20u:
+            primitiveCenterOffset = float3(1, -1, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, 1);
+            break;
+        case 21u:
+            primitiveCenterOffset = float3(2, -1, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, 1);
+            break;
+        case 22u:
+            primitiveCenterOffset = float3(1, -2, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, 1);
+            break;
+        case 23u:
+            primitiveCenterOffset = float3(2, -2, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, -1);
+            break;
+        case 24u:
+            primitiveCenterOffset = float3(-1, 1, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, 1);
+            break;
+        case 25u:
+            primitiveCenterOffset = float3(-2, 1, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, -1, 1);
+            break;
+        case 26u:
+            primitiveCenterOffset = float3(-1, 2, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, 1);
+            break;
+        case 27u:
+            primitiveCenterOffset = float3(-2, 2, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, -1);
+            break;
+        case 28u:
+            primitiveCenterOffset = float3(1, 1, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, 1);
+            break;
+        case 29u:
+            primitiveCenterOffset = float3(2, 2, 1) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, 1, -1);
+            break;
+        case 30u:
+            primitiveCenterOffset = float3(1, 2, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(-1, 1, 1);
+            break;
+        case 31u:
+            primitiveCenterOffset = float3(2, 1, 2) * (MERKABA_CANONICAL_UNIT / 3.0);
+            orientedNormal = float3(1, -1, 1);
+            break;
+        default: break;
+    }
+}
+
 #endif

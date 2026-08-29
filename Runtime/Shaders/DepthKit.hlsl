@@ -17,7 +17,8 @@ uniform float4 gsDepthZParams; // (near, far, 0, 0)
 
 float3 gsDepthEyePos(int eye = 0)
 {
-    return gsDepthViewInv[eye]._m03_m13_m23;
+    return float3(gsDepthViewInv[eye][0][3],
+        gsDepthViewInv[eye][1][3], gsDepthViewInv[eye][2][3]);
 }
 
 float gsDepthSample(float2 uv, int eye = 0)

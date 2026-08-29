@@ -188,6 +188,27 @@ namespace Genesis.RoomScan
             return math.normalize(math.cross(b - a, c - a));
         }
 
+        public static float3 PrimitiveCentroid(int primitiveId)
+        {
+            if ((uint)primitiveId >= PrimitiveCount)
+                throw new ArgumentOutOfRangeException(nameof(primitiveId));
+            CanonicalPrimitive primitive = PrimitivesValue[primitiveId];
+            return (VerticesValue[primitive.Vertex0].Position +
+                    VerticesValue[primitive.Vertex1].Position +
+                    VerticesValue[primitive.Vertex2].Position) / 3f;
+        }
+
+        public static float3 PrimitiveFacingNormal(int primitiveId)
+        {
+            if ((uint)primitiveId >= PrimitiveCount)
+                throw new ArgumentOutOfRangeException(nameof(primitiveId));
+            CanonicalPrimitive primitive = PrimitivesValue[primitiveId];
+            float3 a = VerticesValue[primitive.Vertex0].Coordinate;
+            float3 b = VerticesValue[primitive.Vertex1].Coordinate;
+            float3 c = VerticesValue[primitive.Vertex2].Coordinate;
+            return math.cross(b - a, c - a);
+        }
+
 #if UNITY_EDITOR
         internal static string BuildGeneratedHlsl()
         {
@@ -236,6 +257,35 @@ namespace Genesis.RoomScan
             text.Append("        default: break;\n")
                 .Append("    }\n")
                 .Append("    return corner == 0u ? a : (corner == 1u ? b : c);\n}\n\n")
+                .Append("void MerkabaCanonicalPrimitiveFacing(uint primitiveId,\n")
+                .Append("    out float3 primitiveCenterOffset, out float3 orientedNormal)\n{\n")
+                .Append("    primitiveCenterOffset = 0.0;\n")
+                .Append("    orientedNormal = float3(0, 0, 1);\n")
+                .Append("    switch (primitiveId)\n    {\n");
+            for (int index = 0; index < PrimitivesValue.Length; index++)
+            {
+                CanonicalPrimitive primitive = PrimitivesValue[index];
+                int3 a = VerticesValue[primitive.Vertex0].Coordinate;
+                int3 b = VerticesValue[primitive.Vertex1].Coordinate;
+                int3 c = VerticesValue[primitive.Vertex2].Coordinate;
+                int3 sum = a + b + c;
+                int3 edge0 = b - a;
+                int3 edge1 = c - a;
+                int3 oriented = new(
+                    edge0.y * edge1.z - edge0.z * edge1.y,
+                    edge0.z * edge1.x - edge0.x * edge1.z,
+                    edge0.x * edge1.y - edge0.y * edge1.x);
+                text.Append("        case ").Append(index).Append("u:\n")
+                    .Append("            primitiveCenterOffset = float3(").Append(sum.x)
+                    .Append(", ").Append(sum.y).Append(", ").Append(sum.z)
+                    .Append(") * (MERKABA_CANONICAL_UNIT / 3.0);\n")
+                    .Append("            orientedNormal = float3(")
+                    .Append(oriented.x).Append(", ").Append(oriented.y)
+                    .Append(", ").Append(oriented.z).Append(");\n")
+                    .Append("            break;\n");
+            }
+            text.Append("        default: break;\n")
+                .Append("    }\n}\n\n")
                 .Append("#endif\n");
             return text.ToString();
         }

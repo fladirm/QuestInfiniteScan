@@ -177,10 +177,15 @@ namespace Genesis.RoomScan
         {
             compute.SetBuffer(kernel, "_M8SurfaceCandidates",
                 _grid.M8SurfaceCandidates);
+            compute.SetBuffer(kernel, "_M8SurfaceCandidatesRead",
+                _grid.M8SurfaceCandidates);
             compute.SetBuffer(kernel, "_M8SurfaceQueue", _grid.M8SurfaceQueue);
+            compute.SetBuffer(kernel, "_M8SurfaceQueueRead",
+                _grid.M8SurfaceQueue);
             compute.SetBuffer(kernel, "_M8TouchedTileQueue",
                 _grid.M8TouchedTileQueue);
             compute.SetBuffer(kernel, "_M8CarveTiles", _grid.M8CarveTiles);
+            compute.SetBuffer(kernel, "_M8CarveTilesRead", _grid.M8CarveTiles);
             compute.SetBuffer(kernel, "_M8ObservationDispatchArgs",
                 _grid.M8ObservationDispatchArgs);
             compute.SetBuffer(kernel, "_M8CarveDispatchArgs",

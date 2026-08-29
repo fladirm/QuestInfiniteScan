@@ -1,8 +1,5 @@
 #pragma kernel ClearUInts
 #pragma kernel ClearInt4s
-#pragma kernel ClearUInt2s
-#pragma kernel ClearKernelStates
-#pragma kernel ClearUInt4s
 #pragma kernel InitializeFreeTileStack
 #pragma kernel ResetWorldCounters
 #pragma kernel PrepareAllocatedClearArgs
@@ -15,10 +12,12 @@
 #pragma kernel ResetClaimQueueCounts
 #pragma kernel PrepareNewTileDispatchArgs
 #pragma kernel ClearTouchedSurfaceCandidates
+#pragma kernel PrepareEvictionSelection
 #pragma kernel SelectEvictionVictims
 #pragma kernel GatherWritebackBatch
 #pragma kernel AcknowledgeWritebackBatch
 #pragma kernel FailWritebackBatch
+#pragma kernel PrepareLoadedTiles
 #pragma kernel InstallLoadedTiles
 #pragma kernel FailLoadedTiles
 #pragma kernel RegisterLoadedTileAddresses
@@ -28,9 +27,6 @@
 
 RWStructuredBuffer<uint> _M8ClearUInts;
 RWStructuredBuffer<int4> _M8ClearInt4s;
-RWStructuredBuffer<uint2> _M8ClearUInt2s;
-RWStructuredBuffer<KernelState> _M8ClearKernelStates;
-RWStructuredBuffer<uint4> _M8ClearUInt4s;
 RWStructuredBuffer<uint> _M8ClearBlockArgs;
 RWStructuredBuffer<uint> _M8ClearChunkArgs;
 RWStructuredBuffer<uint> _M8ObservationDispatchArgs;
@@ -76,34 +72,13 @@ void ClearInt4s(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
 }
 
 [numthreads(256, 1, 1)]
-void ClearUInt2s(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
-{
-    uint index = M8LinearIndex(groupId, thread);
-    if (index < _M8ClearCount) _M8ClearUInt2s[index] = 0u;
-}
-
-[numthreads(256, 1, 1)]
-void ClearKernelStates(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
-{
-    uint index = M8LinearIndex(groupId, thread);
-    if (index >= _M8ClearCount) return;
-    KernelState state = (KernelState)0;
-    _M8ClearKernelStates[index] = state;
-}
-
-[numthreads(256, 1, 1)]
-void ClearUInt4s(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
-{
-    uint index = M8LinearIndex(groupId, thread);
-    if (index < _M8ClearCount) _M8ClearUInt4s[index] = 0u;
-}
-
-[numthreads(256, 1, 1)]
 void InitializeFreeTileStack(uint id : SV_DispatchThreadID)
 {
     if (id < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         _M8FreeTileStack[id] = id;
-    if (id == 0u) _M8FreeTileCount[0] = (int)MERKABA_M8_PHYSICAL_TILE_CAPACITY;
+    if (id == 0u)
+        _M8Counters[M8_COUNTER_FREE_TILE_COUNT] =
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY;
 }
 
 [numthreads(64, 1, 1)]
@@ -117,13 +92,13 @@ void ResetWorldCounters(uint id : SV_DispatchThreadID)
 [numthreads(1, 1, 1)]
 void PrepareAllocatedClearArgs(uint id : SV_DispatchThreadID)
 {
-    uint blocks = min(_M8Counters[M8_COUNTER_BLOCK_COUNT],
+    uint blocks = min(_M8CountersRead[M8_COUNTER_BLOCK_COUNT],
         MERKABA_M8_BLOCK_CAPACITY);
     _M8ClearBlockArgs[0] = min(max(blocks, 1u), MERKABA_M8_MAX_DISPATCH_X);
     _M8ClearBlockArgs[1] = max(1u, (blocks + MERKABA_M8_MAX_DISPATCH_X - 1u) /
         MERKABA_M8_MAX_DISPATCH_X);
     _M8ClearBlockArgs[2] = 1u;
-    uint chunks = min(_M8Counters[M8_COUNTER_CHUNK_COUNT],
+    uint chunks = min(_M8CountersRead[M8_COUNTER_CHUNK_COUNT],
         MERKABA_M8_CHUNK_CAPACITY);
     _M8ClearChunkArgs[0] = min(max(chunks, 1u), MERKABA_M8_MAX_DISPATCH_X);
     _M8ClearChunkArgs[1] = max(1u, (chunks + MERKABA_M8_MAX_DISPATCH_X - 1u) /
@@ -141,7 +116,7 @@ void ClearAllocatedBlocks(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint blockIndex = M8ClearGroupIndex(groupId);
-    uint count = min(_M8Counters[M8_COUNTER_BLOCK_COUNT],
+    uint count = min(_M8CountersRead[M8_COUNTER_BLOCK_COUNT],
         MERKABA_M8_BLOCK_CAPACITY);
     if (blockIndex >= count) return;
     for (uint local = thread; local < MERKABA_M8_BLOCK_CHUNK_COUNT;
@@ -151,7 +126,7 @@ void ClearAllocatedBlocks(uint3 groupId : SV_GroupID,
     if (thread < 8u) _M8BlockPresenceL1[blockIndex * 8u + thread] = 0u;
     if (thread == 0u)
     {
-        _M8BlockCoords[blockIndex] = 0;
+        _M8OwnerRecords[blockIndex] = 0u;
         _M8BlockPresenceL0[blockIndex] = 0u;
     }
 }
@@ -161,37 +136,35 @@ void ClearAllocatedChunks(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint chunkIndex = M8ClearGroupIndex(groupId);
-    uint count = min(_M8Counters[M8_COUNTER_CHUNK_COUNT],
+    uint count = min(_M8CountersRead[M8_COUNTER_CHUNK_COUNT],
         MERKABA_M8_CHUNK_CAPACITY);
     if (chunkIndex >= count) return;
     _M8ChunkTileRefs[chunkIndex * MERKABA_M8_TILES_PER_CHUNK + thread] = 0u;
-    if (thread < 8u) _M8ChunkPresenceL1[chunkIndex * 8u + thread] = 0u;
+    if (thread < MERKABA_M8_CHUNK_PRESENCE_STRIDE)
+        _M8ChunkPresence[M8ChunkPresenceL0Index(chunkIndex) + thread] = 0u;
     if (thread == 0u)
-    {
-        _M8ChunkOwners[chunkIndex] = 0u;
-        _M8ChunkPresenceL0[chunkIndex] = 0u;
-    }
+        _M8OwnerRecords[MERKABA_M8_OWNER_CHUNK_OFFSET + chunkIndex] = 0u;
 }
 
 [numthreads(64, 1, 1)]
 void PublishNewBlocks(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT],
+    uint count = min(_M8CountersRead[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT],
         MERKABA_M8_BLOCK_CAPACITY);
     if (id >= count) return;
-    uint2 claim = _M8NewBlockQueue[id];
+    uint2 claim = _M8ClaimQueueRead[MERKABA_M8_CLAIM_BLOCK_OFFSET + id];
     _M8HashEntries[claim.x].blockRef = claim.y + 1u;
 }
 
 [numthreads(64, 1, 1)]
 void PublishNewChunks(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT],
+    uint count = min(_M8CountersRead[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT],
         MERKABA_M8_CHUNK_CAPACITY);
     if (id >= count) return;
-    uint2 claim = _M8NewChunkQueue[id];
+    uint2 claim = _M8ClaimQueueRead[MERKABA_M8_CLAIM_CHUNK_OFFSET + id];
     uint chunkIndex = claim.y;
-    uint2 owner = _M8ChunkOwners[chunkIndex];
+    uint2 owner = M8LoadChunkOwnerRead(chunkIndex);
     uint chunkLocal = owner.y;
     uint d4 = (chunkLocal >> 6u) & 7u;
     uint d3 = (chunkLocal >> 3u) & 7u;
@@ -209,10 +182,7 @@ void PublishNewChunks(uint id : SV_DispatchThreadID)
 void InitializeNewTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
-    uint count = min(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    if (groupId.x >= count) return;
-    uint2 claim = _M8NewTileQueue[groupId.x];
+    uint2 claim = _M8ClaimQueueRead[MERKABA_M8_CLAIM_TILE_OFFSET + groupId.x];
     uint physicalSlot = claim.y;
     [unroll]
     for (uint lane = thread; lane < MERKABA_M8_KERNELS_PER_TILE; lane += 64u)
@@ -222,10 +192,7 @@ void InitializeNewTiles(uint3 groupId : SV_GroupID,
     }
     if (thread < MERKABA_M8_TILE_WORDS)
     {
-        uint word = physicalSlot * MERKABA_M8_TILE_WORDS + thread;
-        _M8OccupiedBits[word] = 0u;
-        _M8CarveActiveBits[word] = 0u;
-        _M8SurfaceCandidateBits[word] = 0u;
+        _M8TileBits[M8TileWordIndex(physicalSlot, thread)] = 0u;
     }
     DeviceMemoryBarrierWithGroupSync();
     if (thread == 0u)
@@ -233,15 +200,15 @@ void InitializeNewTiles(uint3 groupId : SV_GroupID,
         uint refIndex = claim.x;
         uint chunkIndex = refIndex / MERKABA_M8_TILES_PER_CHUNK;
         uint tileLocal = refIndex % MERKABA_M8_TILES_PER_CHUNK;
-        _M8TileMeta[physicalSlot] = uint4(chunkIndex, tileLocal, 0u, 0u);
-        _M8TileRuntime[physicalSlot] = uint4(0u, 1u,
+        _M8TileRecords[M8TileMetaIndex(physicalSlot)] =
+            uint4(chunkIndex, tileLocal, 0u, 0u);
+        _M8TileRecords[M8TileRuntimeIndex(physicalSlot)] = uint4(0u, 1u,
             _M8Counters[M8_COUNTER_FRAME_EPOCH], 0u);
-        uint d1 = (tileLocal >> 3u) & 7u;
-        uint d0 = tileLocal & 7u;
-        uint ignored;
-        InterlockedOr(_M8ChunkPresenceL0[chunkIndex], 1u << d1, ignored);
-        InterlockedOr(_M8ChunkPresenceL1[chunkIndex * 8u + d1],
-            1u << d0, ignored);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if (thread == 0u)
+    {
+        uint refIndex = claim.x;
         _M8ChunkTileRefs[refIndex] = physicalSlot + 1u;
         M8CounterIncrement(M8_COUNTER_HOT_TILE_COUNT);
         M8CounterIncrement(M8_COUNTER_SURFACE_TILES_ALLOCATED);
@@ -302,10 +269,40 @@ void ClearTouchedSurfaceCandidates(uint3 groupId : SV_GroupID,
 {
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u) return;
     uint physicalSlot = _M8TouchedTileQueue[groupId.x];
-    _M8SurfaceCandidateBits[physicalSlot * MERKABA_M8_TILE_WORDS + thread] = 0u;
-    if (thread == 0u) _M8TileRuntime[physicalSlot].x = 0u;
+    _M8TileBits[M8TileWordIndex(physicalSlot, thread)].z = 0u;
+    if (thread == 0u)
+        _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].x = 0u;
     if (groupId.x == 0u && thread == 0u)
         _M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT] = 0u;
+}
+
+[numthreads(1, 1, 1)]
+void PrepareEvictionSelection(uint id : SV_DispatchThreadID)
+{
+    uint freeCount = min(_M8Counters[M8_COUNTER_FREE_TILE_COUNT],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    _M8Counters[M8_COUNTER_EVICTION_CLEAN_BUDGET] =
+        _M8EvictAllDirty == 0u && freeCount < 256u ? 256u - freeCount : 0u;
+    _M8Counters[M8_COUNTER_EVICTION_NEEDED] = 0u;
+    uint cursor = _M8Counters[M8_COUNTER_EVICTION_CURSOR];
+    _M8Counters[M8_COUNTER_EVICTION_CURSOR] =
+        (cursor + 256u) & (MERKABA_M8_PHYSICAL_TILE_CAPACITY - 1u);
+}
+
+bool M8TryReserveCleanEviction()
+{
+    [unroll]
+    for (uint attempt = 0u; attempt < 16u; attempt++)
+    {
+        uint available = _M8Counters[M8_COUNTER_EVICTION_CLEAN_BUDGET];
+        if (available == 0u) return false;
+        uint previous;
+        InterlockedCompareExchange(
+            _M8Counters[M8_COUNTER_EVICTION_CLEAN_BUDGET], available,
+            available - 1u, previous);
+        if (previous == available) return true;
+    }
+    return false;
 }
 
 [numthreads(256, 1, 1)]
@@ -313,17 +310,10 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
 {
     if (id >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
     uint cursor = _M8Counters[M8_COUNTER_EVICTION_CURSOR];
-    if (id == 0u)
-    {
-        _M8Counters[M8_COUNTER_EVICTION_NEEDED] = 0u;
-        _M8Counters[M8_COUNTER_EVICTION_CURSOR] =
-            (cursor + 256u) & (MERKABA_M8_PHYSICAL_TILE_CAPACITY - 1u);
-    }
-    if (_M8EvictAllDirty == 0u && _M8FreeTileCount[0] >= 256) return;
     uint physicalSlot = (cursor + id) &
         (MERKABA_M8_PHYSICAL_TILE_CAPACITY - 1u);
-    uint4 meta = _M8TileMeta[physicalSlot];
-    uint4 runtime = _M8TileRuntime[physicalSlot];
+    uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
+    uint4 runtime = _M8TileRecords[M8TileRuntimeIndex(physicalSlot)];
     uint tileRefIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
     uint expected = physicalSlot + 1u;
     if (_M8ChunkTileRefs[tileRefIndex] != expected) return;
@@ -334,10 +324,17 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
     if (runtime.y == 0u)
     {
         if (_M8EvictAllDirty != 0u) return;
+        if (!M8TryReserveCleanEviction()) return;
         uint prior;
         InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex], expected,
             MERKABA_REF_COLD_ON_SSD, prior);
-        if (prior != expected) return;
+        if (prior != expected)
+        {
+            uint ignoredBudget;
+            InterlockedAdd(_M8Counters[M8_COUNTER_EVICTION_CLEAN_BUDGET],
+                1u, ignoredBudget);
+            return;
+        }
         M8PushPhysicalTile(physicalSlot);
         uint ignored;
         InterlockedAdd(_M8Counters[M8_COUNTER_HOT_TILE_COUNT], 0xffffffffu,
@@ -346,13 +343,18 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
         return;
     }
 
-    uint queueIndex;
-    InterlockedAdd(_M8Counters[M8_COUNTER_WRITEBACK_COUNT], 1u, queueIndex);
-    if (queueIndex >= 32u) return;
     uint prior;
     InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex], expected,
         MERKABA_REF_EVICTING, prior);
     if (prior != expected) return;
+    uint queueIndex;
+    InterlockedAdd(_M8Counters[M8_COUNTER_WRITEBACK_COUNT], 1u, queueIndex);
+    if (queueIndex >= 32u)
+    {
+        InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex],
+            MERKABA_REF_EVICTING, expected, prior);
+        return;
+    }
     _M8WritebackQueue[queueIndex] = uint2(physicalSlot, tileRefIndex);
     M8CounterIncrement(M8_COUNTER_WRITEBACK_TILES);
 }
@@ -362,12 +364,12 @@ void GatherWritebackBatch(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint item = groupId.x;
-    uint count = min(_M8Counters[M8_COUNTER_WRITEBACK_COUNT], 32u);
+    uint count = min(_M8CountersRead[M8_COUNTER_WRITEBACK_COUNT], 32u);
     if (item >= count) return;
-    uint physicalSlot = _M8WritebackQueue[item].x;
+    uint physicalSlot = _M8WritebackQueueRead[item].x;
     if (thread == 0u)
     {
-        uint4 meta = _M8TileMeta[physicalSlot];
+        uint4 meta = M8LoadTileMetaRead(physicalSlot);
         M8TileAddress address = M8LogicalAddress(meta.x, meta.y);
         _M8WritebackStaging[item * (MERKABA_M8_KERNELS_PER_TILE + 1u)] =
             uint4(asuint(address.blockCoord), address.localAddress);
@@ -375,7 +377,7 @@ void GatherWritebackBatch(uint3 groupId : SV_GroupID,
     for (uint kernelLocal = thread; kernelLocal < MERKABA_M8_KERNELS_PER_TILE;
          kernelLocal += 64u)
     {
-        KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+        KernelState state = M8LoadKernelStateRead(physicalSlot, kernelLocal);
         _M8WritebackStaging[item * (MERKABA_M8_KERNELS_PER_TILE + 1u) +
             1u + kernelLocal] = uint4(asuint(state.evidence), state.packedColor,
                 state.colorConfidence, state.flags);
@@ -387,13 +389,13 @@ void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
 {
     if (id >= _M8StreamBatchCount) return;
     if (id == 0u) _M8Counters[M8_COUNTER_WRITEBACK_COUNT] = 0u;
-    uint2 queued = _M8WritebackQueue[id];
+    uint2 queued = _M8WritebackQueueRead[id];
     uint physicalSlot = queued.x;
     uint prior;
     InterlockedCompareExchange(_M8ChunkTileRefs[queued.y],
         MERKABA_REF_EVICTING, MERKABA_REF_COLD_ON_SSD, prior);
     if (prior != MERKABA_REF_EVICTING) return;
-    _M8TileRuntime[physicalSlot].y = 0u;
+    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 0u;
     M8PushPhysicalTile(physicalSlot);
     uint ignored;
     InterlockedAdd(_M8Counters[M8_COUNTER_HOT_TILE_COUNT], 0xffffffffu,
@@ -407,12 +409,12 @@ void FailWritebackBatch(uint id : SV_DispatchThreadID)
     uint count = min(_M8StreamBatchCount, 32u);
     if (id < count)
     {
-        uint2 queued = _M8WritebackQueue[id];
+        uint2 queued = _M8WritebackQueueRead[id];
         uint prior;
         InterlockedCompareExchange(_M8ChunkTileRefs[queued.y],
             MERKABA_REF_EVICTING, queued.x + 1u, prior);
         if (prior == MERKABA_REF_EVICTING)
-            _M8TileRuntime[queued.x].y = 1u;
+            _M8TileRecords[M8TileRuntimeIndex(queued.x)].y = 1u;
     }
     if (id == 0u)
     {
@@ -423,8 +425,60 @@ void FailWritebackBatch(uint id : SV_DispatchThreadID)
     }
 }
 
+#define M8_LOAD_LOCAL_MASK 0x00007fffu
+#define M8_LOAD_SLOT_SHIFT 15u
+#define M8_LOAD_INSTALL_BIT 0x40000000u
+#define M8_LOAD_READY_BIT 0x80000000u
+
+[numthreads(32, 1, 1)]
+void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
+{
+    if (id >= _M8StreamBatchCount) return;
+    M8TileAddress address = _M8LoadStagingAddresses[id];
+    uint localAddress = address.localAddress & M8_LOAD_LOCAL_MASK;
+    uint encodedAddress = localAddress;
+    uint blockIndex;
+    if (M8FindBlock(address.blockCoord, blockIndex))
+    {
+        uint chunkLocal = localAddress & 0x1ffu;
+        uint tileLocal = (localAddress >> 9u) & 0x3fu;
+        uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
+            MERKABA_M8_BLOCK_CHUNK_COUNT + chunkLocal];
+        if (chunkRef != MERKABA_REF_EMPTY &&
+            chunkRef < MERKABA_REF_EVICTING)
+        {
+            uint chunkIndex = chunkRef - 1u;
+            uint refIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
+                tileLocal;
+            uint tileRef = _M8ChunkTileRefs[refIndex];
+            if (M8IsHotRef(tileRef))
+            {
+                uint physicalSlot = M8PhysicalSlot(tileRef);
+                uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
+                if (meta.x == chunkIndex && meta.y == tileLocal)
+                    encodedAddress |= M8_LOAD_READY_BIT;
+            }
+            else if (tileRef == MERKABA_REF_LOADING)
+            {
+                uint physicalSlot;
+                if (M8TryPopPhysicalTile(physicalSlot))
+                {
+                    _M8TileRecords[M8TileMetaIndex(physicalSlot)] =
+                        uint4(chunkIndex, tileLocal, 0u, 0u);
+                    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)] =
+                        uint4(0u, 0u,
+                            _M8Counters[M8_COUNTER_FRAME_EPOCH], 0u);
+                    encodedAddress |= (physicalSlot << M8_LOAD_SLOT_SHIFT) |
+                        M8_LOAD_INSTALL_BIT | M8_LOAD_READY_BIT;
+                }
+            }
+        }
+    }
+    _M8LoadStagingAddresses[id].localAddress = encodedAddress;
+}
+
 groupshared uint gLoadSlot;
-groupshared uint gLoadReady;
+groupshared uint gLoadInstall;
 groupshared uint gLoadOccupied;
 groupshared uint gLoadCarve;
 
@@ -433,84 +487,58 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint item = groupId.x;
-    if (item >= _M8StreamBatchCount) return;
-    M8TileAddress address = _M8LoadStagingAddresses[item];
     if (thread == 0u)
     {
-        gLoadReady = 0u;
+        uint encodedAddress =
+            _M8LoadStagingAddressesRead[item].localAddress;
+        gLoadInstall = (encodedAddress & M8_LOAD_INSTALL_BIT) != 0u
+            ? 1u : 0u;
+        gLoadSlot = (encodedAddress >> M8_LOAD_SLOT_SHIFT) & 0x7fffu;
         gLoadOccupied = 0u;
         gLoadCarve = 0u;
-        uint blockIndex;
-        if (M8FindBlock(address.blockCoord, blockIndex))
-        {
-            uint chunkLocal = address.localAddress & 0x1ffu;
-            uint tileLocal = (address.localAddress >> 9u) & 0x3fu;
-            uint chunkRef = _M8BlockChunkRefs[blockIndex *
-                MERKABA_M8_BLOCK_CHUNK_COUNT + chunkLocal];
-            if (chunkRef != 0u && chunkRef < MERKABA_REF_EVICTING)
-            {
-                uint chunkIndex = chunkRef - 1u;
-                uint refIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
-                    tileLocal;
-                uint tileRef = _M8ChunkTileRefs[refIndex];
-                if (M8IsHotRef(tileRef))
-                {
-                    uint4 meta = _M8TileMeta[M8PhysicalSlot(tileRef)];
-                    if (meta.x == chunkIndex && meta.y == tileLocal)
-                        gLoadReady = 2u;
-                }
-                else if (tileRef == MERKABA_REF_LOADING &&
-                    M8TryPopPhysicalTile(gLoadSlot))
-                {
-                    _M8TileMeta[gLoadSlot] = uint4(chunkIndex, tileLocal, 0u, 0u);
-                    _M8TileRuntime[gLoadSlot] = uint4(0u, 0u,
-                        _M8Counters[M8_COUNTER_FRAME_EPOCH], 0u);
-                    gLoadReady = 1u;
-                }
-            }
-        }
-        _M8StreamStatus[item] = gLoadReady;
     }
     GroupMemoryBarrierWithGroupSync();
-    if (gLoadReady != 1u) return;
 
-    if (thread < MERKABA_M8_TILE_WORDS)
-    {
-        uint wordIndex = gLoadSlot * MERKABA_M8_TILE_WORDS + thread;
-        _M8OccupiedBits[wordIndex] = 0u;
-        _M8CarveActiveBits[wordIndex] = 0u;
-        _M8SurfaceCandidateBits[wordIndex] = 0u;
-    }
+    if (gLoadInstall != 0u && thread < MERKABA_M8_TILE_WORDS)
+        _M8TileBits[M8TileWordIndex(gLoadSlot, thread)] = 0u;
     DeviceMemoryBarrierWithGroupSync();
-    for (uint kernelLocal = thread; kernelLocal < MERKABA_M8_KERNELS_PER_TILE;
-         kernelLocal += 64u)
+    if (gLoadInstall != 0u)
     {
-        KernelState state = _M8LoadStagingStates[item *
-            MERKABA_M8_KERNELS_PER_TILE + kernelLocal];
-        M8StoreKernelState(gLoadSlot, kernelLocal, state);
-        uint wordIndex = gLoadSlot * MERKABA_M8_TILE_WORDS +
-            (kernelLocal >> 5u);
-        uint bit = 1u << (kernelLocal & 31u);
-        uint ignored;
-        if ((state.flags & 1u) != 0u)
+        for (uint kernelLocal = thread;
+             kernelLocal < MERKABA_M8_KERNELS_PER_TILE;
+             kernelLocal += 64u)
         {
-            InterlockedOr(_M8OccupiedBits[wordIndex], bit, ignored);
-            InterlockedAdd(gLoadOccupied, 1u, ignored);
-        }
-        if ((state.flags & 1u) != 0u ||
-            state.evidence > MERKABA_EXPORT_KNOWN_FREE)
-        {
-            InterlockedOr(_M8CarveActiveBits[wordIndex], bit, ignored);
-            InterlockedAdd(gLoadCarve, 1u, ignored);
+            KernelState state = _M8LoadStagingStates[item *
+                MERKABA_M8_KERNELS_PER_TILE + kernelLocal];
+            M8StoreKernelState(gLoadSlot, kernelLocal, state);
+            uint wordIndex = M8TileWordIndex(gLoadSlot, kernelLocal >> 5u);
+            uint bit = 1u << (kernelLocal & 31u);
+            uint ignored;
+            if ((state.flags & 1u) != 0u)
+            {
+                InterlockedOr(_M8TileBits[wordIndex].x, bit, ignored);
+                InterlockedAdd(gLoadOccupied, 1u, ignored);
+            }
+            if ((state.flags & 1u) != 0u ||
+                state.evidence > MERKABA_EXPORT_KNOWN_FREE)
+            {
+                InterlockedOr(_M8TileBits[wordIndex].y, bit, ignored);
+                InterlockedAdd(gLoadCarve, 1u, ignored);
+            }
         }
     }
     AllMemoryBarrierWithGroupSync();
-    if (thread == 0u)
+    if (thread == 0u && gLoadInstall != 0u)
     {
-        uint4 meta = _M8TileMeta[gLoadSlot];
+        uint4 meta = _M8TileRecords[M8TileMetaIndex(gLoadSlot)];
         meta.z = gLoadOccupied;
         meta.w = gLoadCarve;
-        _M8TileMeta[gLoadSlot] = meta;
+        _M8TileRecords[M8TileMetaIndex(gLoadSlot)] = meta;
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if (thread == 0u && gLoadInstall != 0u)
+    {
+        uint4 meta = _M8TileRecords[M8TileMetaIndex(gLoadSlot)];
         uint refIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
         _M8ChunkTileRefs[refIndex] = gLoadSlot + 1u;
         uint ignored;
@@ -525,12 +553,12 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
 void FailLoadedTiles(uint id : SV_DispatchThreadID)
 {
     if (id >= _M8StreamBatchCount) return;
-    M8TileAddress address = _M8LoadStagingAddresses[id];
+    M8TileAddress address = _M8LoadStagingAddressesRead[id];
     uint blockIndex;
     if (!M8FindBlock(address.blockCoord, blockIndex)) return;
     uint chunkLocal = address.localAddress & 0x1ffu;
     uint tileLocal = (address.localAddress >> 9u) & 0x3fu;
-    uint chunkRef = _M8BlockChunkRefs[blockIndex *
+    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
         MERKABA_M8_BLOCK_CHUNK_COUNT + chunkLocal];
     if (chunkRef == 0u || chunkRef >= MERKABA_REF_EVICTING) return;
     uint refIndex = (chunkRef - 1u) * MERKABA_M8_TILES_PER_CHUNK + tileLocal;
@@ -545,7 +573,8 @@ void FailLoadedTiles(uint id : SV_DispatchThreadID)
 void RegisterLoadedTileAddresses(uint id : SV_DispatchThreadID)
 {
     if (id >= _M8StreamBatchCount) return;
-    M8TileAddress address = _M8LoadStagingAddresses[id];
+    M8TileAddress address = _M8LoadStagingAddressesRead[id];
+    address.localAddress &= M8_LOAD_LOCAL_MASK;
     uint blockIndex;
     uint failureReason;
     if (!M8FindOrClaimBlock(address.blockCoord, blockIndex,
@@ -564,8 +593,9 @@ void RegisterLoadedTileAddresses(uint id : SV_DispatchThreadID)
         uint d1 = (tileLocal >> 3u) & 7u;
         uint d0 = tileLocal & 7u;
         uint ignored;
-        InterlockedOr(_M8ChunkPresenceL0[chunkIndex], 1u << d1, ignored);
-        InterlockedOr(_M8ChunkPresenceL1[chunkIndex * 8u + d1],
+        InterlockedOr(_M8ChunkPresence[M8ChunkPresenceL0Index(chunkIndex)],
+            1u << d1, ignored);
+        InterlockedOr(_M8ChunkPresence[M8ChunkPresenceL1Index(chunkIndex, d1)],
             1u << d0, ignored);
         InterlockedAdd(_M8Counters[M8_COUNTER_COLD_TILE_COUNT], 1u, ignored);
     }

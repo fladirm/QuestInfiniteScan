@@ -35,9 +35,10 @@ void MerkabaFloorDivMod256(int value, out int quotient, out uint remainder)
     bool negative = value < 0;
     uint magnitude = negative ? (~bits + 1u) : bits;
     uint magnitudeRemainder = magnitude & 255u;
+    uint magnitudeWhole = magnitude >> 8u;
     quotient = negative
-        ? -(int)((magnitude + 255u) >> 8u)
-        : (int)(magnitude >> 8u);
+        ? -(int)magnitudeWhole - (magnitudeRemainder != 0u ? 1 : 0)
+        : (int)magnitudeWhole;
     remainder = negative && magnitudeRemainder != 0u
         ? 256u - magnitudeRemainder
         : magnitudeRemainder;
@@ -50,26 +51,32 @@ uint MerkabaOctantDigit(uint3 local, uint bit)
         (((local.z >> bit) & 1u) << 2u);
 }
 
-MerkabaM8Address MerkabaAddressOf(int3 globalCoord)
+MerkabaM8Address MerkabaAddressFromBlockLocal(int3 blockCoord, uint3 local)
 {
     MerkabaM8Address address = (MerkabaM8Address)0;
-    MerkabaFloorDivMod256(globalCoord.x, address.blockCoord.x,
-        address.local.x);
-    MerkabaFloorDivMod256(globalCoord.y, address.blockCoord.y,
-        address.local.y);
-    MerkabaFloorDivMod256(globalCoord.z, address.blockCoord.z,
-        address.local.z);
-    address.d4 = MerkabaOctantDigit(address.local, 7u);
-    address.d3 = MerkabaOctantDigit(address.local, 6u);
-    address.d2 = MerkabaOctantDigit(address.local, 5u);
-    address.d1 = MerkabaOctantDigit(address.local, 4u);
-    address.d0 = MerkabaOctantDigit(address.local, 3u);
+    address.blockCoord = blockCoord;
+    address.local = local;
+    address.d4 = MerkabaOctantDigit(local, 7u);
+    address.d3 = MerkabaOctantDigit(local, 6u);
+    address.d2 = MerkabaOctantDigit(local, 5u);
+    address.d1 = MerkabaOctantDigit(local, 4u);
+    address.d0 = MerkabaOctantDigit(local, 3u);
     address.chunkLocal = (address.d4 << 6u) |
         (address.d3 << 3u) | address.d2;
     address.tileLocal = (address.d1 << 3u) | address.d0;
-    uint3 kernel = address.local & 7u;
+    uint3 kernel = local & 7u;
     address.kernelLocal = kernel.x + 8u * (kernel.y + 8u * kernel.z);
     return address;
+}
+
+MerkabaM8Address MerkabaAddressOf(int3 globalCoord)
+{
+    int3 blockCoord;
+    uint3 local;
+    MerkabaFloorDivMod256(globalCoord.x, blockCoord.x, local.x);
+    MerkabaFloorDivMod256(globalCoord.y, blockCoord.y, local.y);
+    MerkabaFloorDivMod256(globalCoord.z, blockCoord.z, local.z);
+    return MerkabaAddressFromBlockLocal(blockCoord, local);
 }
 
 uint3 MerkabaPcg3d(int3 blockCoord)

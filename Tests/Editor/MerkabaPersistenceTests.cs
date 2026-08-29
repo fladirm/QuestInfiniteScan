@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -35,6 +36,7 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void CheckpointContainsOnlySparse8192ByteTilePayloads()
         {
+            Assert.That(Marshal.SizeOf<MerkabaTileAddress>(), Is.EqualTo(16));
             MerkabaSessionSnapshot snapshot = Fixture();
             byte[] bytes = Write(snapshot);
             int expected = 108 + snapshot.Tiles.Count *
@@ -71,7 +73,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ExplicitLoadUsesAllEightHashSlotsAndRejectsGpuOverflow()
+        public void ExplicitLoadUsesBatchBoundedConvergenceAndRejectsGpuOverflow()
         {
             string gpu = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
@@ -80,11 +82,61 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
                 "MerkabaGrid.Storage.cs"));
             Assert.That(gpu, Does.Contain(
+                "boundedConvergenceRounds = LoadRegistrationRoundLimit(count)"));
+            Assert.That(gpu, Does.Not.Contain("hierarchyPublicationRounds"));
+            Assert.That(gpu, Does.Not.Contain(
                 "MerkabaSpatial.HashSlotsPerBucket * 2 +"));
-            Assert.That(gpu, Does.Contain(
-                "hierarchyPublicationRounds"));
             Assert.That(storage, Does.Contain("ReadWorldCountersAsync"));
             Assert.That(storage, Does.Contain("CounterHashFull"));
+            Assert.That(storage, Does.Contain(
+                "addressedTiles != (ulong)snapshot.Tiles.Count"));
+        }
+
+        [Test]
+        public void LoadRegistrationBound_ConvergesThirtyTwoSerializedClaims()
+        {
+            int count = MerkabaGrid.StreamBatchCapacity;
+            int blocks = 0;
+            int chunks = 0;
+            int tiles = 0;
+            int rounds = MerkabaGrid.LoadRegistrationRoundLimit(count);
+            Assert.That(rounds, Is.EqualTo(34));
+
+            for (int round = 0; round < rounds; round++)
+            {
+                int blocksBefore = blocks;
+                int chunksBefore = chunks;
+                tiles = chunksBefore;
+                chunks = blocksBefore;
+                blocks = Math.Min(count, blocksBefore + 1);
+            }
+
+            Assert.That(blocks, Is.EqualTo(count));
+            Assert.That(chunks, Is.EqualTo(count));
+            Assert.That(tiles, Is.EqualTo(count));
+        }
+
+        [Test]
+        public void AnchoredResumeFailsClosedBeforeRegisteringTheM8World()
+        {
+            string persistence = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaPersistence.cs"));
+            int anchored = persistence.IndexOf(
+                "if (snapshot.AnchorUuid != Guid.Empty)",
+                StringComparison.Ordinal);
+            int loadWorld = persistence.IndexOf(
+                "await _grid.LoadStoredSnapshotAsync(snapshot)",
+                StringComparison.Ordinal);
+            Assert.That(anchored, Is.GreaterThanOrEqualTo(0));
+            Assert.That(loadWorld, Is.GreaterThan(anchored));
+            string gate = persistence.Substring(anchored, loadWorld - anchored);
+            Assert.That(gate, Does.Contain("RoomAnchorManager is unavailable"));
+            Assert.That(gate, Does.Contain("could not be localized"));
+            Assert.That(gate, Does.Contain("RoomSpaceRoot.Instance == null"));
+            Assert.That(gate, Does.Contain("is unavailable."));
+            Assert.That(gate, Does.Contain("did not bind"));
+            Assert.That(gate, Does.Not.Contain("using current world frame"));
         }
 
         [Test]

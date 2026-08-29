@@ -36,9 +36,6 @@ namespace Genesis.RoomScan
 
         private int _clearUIntKernel;
         private int _clearInt4Kernel;
-        private int _clearUInt2Kernel;
-        private int _clearKernelStatesKernel;
-        private int _clearUInt4Kernel;
         private int _initializeFreeTilesKernel;
         private int _resetCountersKernel;
         private int _prepareAllocatedClearKernel;
@@ -51,40 +48,34 @@ namespace Genesis.RoomScan
         private int _resetClaimQueuesKernel;
         private int _prepareNewTileDispatchKernel;
         private int _clearTouchedCandidatesKernel;
+        private int _prepareEvictionSelectionKernel;
         private int _selectEvictionVictimsKernel;
         private int _gatherWritebackBatchKernel;
         private int _acknowledgeWritebackBatchKernel;
         private int _failWritebackBatchKernel;
+        private int _prepareLoadedTilesKernel;
         private int _installLoadedTilesKernel;
         private int _failLoadedTilesKernel;
         private int _registerLoadedTileAddressesKernel;
         private int _benchmarkHashKernel;
 
         private ComputeBuffer _m8HashEntries;
-        private ComputeBuffer _m8BlockCoords;
+        private ComputeBuffer _m8OwnerRecords;
         private ComputeBuffer _m8BlockChunkRefs;
         private ComputeBuffer _m8BlockPresenceL0;
         private ComputeBuffer _m8BlockPresenceL1;
         private ComputeBuffer _m8BlockPresenceL2;
-        private ComputeBuffer _m8ChunkOwners;
         private ComputeBuffer _m8ChunkTileRefs;
-        private ComputeBuffer _m8ChunkPresenceL0;
-        private ComputeBuffer _m8ChunkPresenceL1;
+        private ComputeBuffer _m8ChunkPresence;
         private ComputeBuffer _m8KernelStates0;
         private ComputeBuffer _m8KernelStates1;
         private ComputeBuffer _m8KernelStates2;
         private ComputeBuffer _m8KernelStates3;
-        private ComputeBuffer _m8OccupiedBits;
-        private ComputeBuffer _m8CarveActiveBits;
-        private ComputeBuffer _m8SurfaceCandidateBits;
-        private ComputeBuffer _m8TileMeta;
-        private ComputeBuffer _m8TileRuntime;
+        private ComputeBuffer _m8TileBits;
+        private ComputeBuffer _m8TileRecords;
         private ComputeBuffer _m8FreeTileStack;
-        private ComputeBuffer _m8FreeTileCount;
         private ComputeBuffer _m8Counters;
-        private ComputeBuffer _m8NewBlockQueue;
-        private ComputeBuffer _m8NewChunkQueue;
-        private ComputeBuffer _m8NewTileQueue;
+        private ComputeBuffer _m8ClaimQueue;
         private ComputeBuffer _m8PendingNewTileRefs;
         private ComputeBuffer _m8LoadRequests;
         private ComputeBuffer _m8LoadRequestReadCount;
@@ -102,37 +93,28 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8WritebackStaging;
         private ComputeBuffer _m8LoadStagingAddresses;
         private ComputeBuffer _m8LoadStagingStates;
-        private ComputeBuffer _m8StreamStatus;
         private ComputeBuffer _m8HashBenchmarkOutput;
 
         private readonly List<ComputeBuffer> _allGpuBuffers = new();
 
         internal ComputeShader WorldCompute => worldCompute;
         internal ComputeBuffer M8HashEntries => _m8HashEntries;
-        internal ComputeBuffer M8BlockCoords => _m8BlockCoords;
+        internal ComputeBuffer M8OwnerRecords => _m8OwnerRecords;
         internal ComputeBuffer M8BlockChunkRefs => _m8BlockChunkRefs;
         internal ComputeBuffer M8BlockPresenceL0 => _m8BlockPresenceL0;
         internal ComputeBuffer M8BlockPresenceL1 => _m8BlockPresenceL1;
         internal ComputeBuffer M8BlockPresenceL2 => _m8BlockPresenceL2;
-        internal ComputeBuffer M8ChunkOwners => _m8ChunkOwners;
         internal ComputeBuffer M8ChunkTileRefs => _m8ChunkTileRefs;
-        internal ComputeBuffer M8ChunkPresenceL0 => _m8ChunkPresenceL0;
-        internal ComputeBuffer M8ChunkPresenceL1 => _m8ChunkPresenceL1;
+        internal ComputeBuffer M8ChunkPresence => _m8ChunkPresence;
         internal ComputeBuffer M8KernelStates0 => _m8KernelStates0;
         internal ComputeBuffer M8KernelStates1 => _m8KernelStates1;
         internal ComputeBuffer M8KernelStates2 => _m8KernelStates2;
         internal ComputeBuffer M8KernelStates3 => _m8KernelStates3;
-        internal ComputeBuffer M8OccupiedBits => _m8OccupiedBits;
-        internal ComputeBuffer M8CarveActiveBits => _m8CarveActiveBits;
-        internal ComputeBuffer M8SurfaceCandidateBits => _m8SurfaceCandidateBits;
-        internal ComputeBuffer M8TileMeta => _m8TileMeta;
-        internal ComputeBuffer M8TileRuntime => _m8TileRuntime;
+        internal ComputeBuffer M8TileBits => _m8TileBits;
+        internal ComputeBuffer M8TileRecords => _m8TileRecords;
         internal ComputeBuffer M8FreeTileStack => _m8FreeTileStack;
-        internal ComputeBuffer M8FreeTileCount => _m8FreeTileCount;
         internal ComputeBuffer M8Counters => _m8Counters;
-        internal ComputeBuffer M8NewBlockQueue => _m8NewBlockQueue;
-        internal ComputeBuffer M8NewChunkQueue => _m8NewChunkQueue;
-        internal ComputeBuffer M8NewTileQueue => _m8NewTileQueue;
+        internal ComputeBuffer M8ClaimQueue => _m8ClaimQueue;
         internal ComputeBuffer M8PendingNewTileRefs => _m8PendingNewTileRefs;
         internal ComputeBuffer M8LoadRequests => _m8LoadRequests;
         internal ComputeBuffer M8SurfaceCandidates => _m8SurfaceCandidates;
@@ -149,7 +131,6 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8WritebackStaging => _m8WritebackStaging;
         internal ComputeBuffer M8LoadStagingAddresses => _m8LoadStagingAddresses;
         internal ComputeBuffer M8LoadStagingStates => _m8LoadStagingStates;
-        internal ComputeBuffer M8StreamStatus => _m8StreamStatus;
 
         internal bool GpuReady => _gpuReady;
         internal Matrix4x4 GridToWorldMatrix => transform.localToWorldMatrix;
@@ -161,10 +142,6 @@ namespace Genesis.RoomScan
 
         private static readonly int ClearUIntsId = Shader.PropertyToID("_M8ClearUInts");
         private static readonly int ClearInt4sId = Shader.PropertyToID("_M8ClearInt4s");
-        private static readonly int ClearUInt2sId = Shader.PropertyToID("_M8ClearUInt2s");
-        private static readonly int ClearKernelStatesId =
-            Shader.PropertyToID("_M8ClearKernelStates");
-        private static readonly int ClearUInt4sId = Shader.PropertyToID("_M8ClearUInt4s");
         private static readonly int ClearCountId = Shader.PropertyToID("_M8ClearCount");
         private static readonly int LinearGroupsXId =
             Shader.PropertyToID("_M8LinearGroupsX");
@@ -193,7 +170,7 @@ namespace Genesis.RoomScan
             {
                 CacheWorldKernels();
                 _m8HashEntries = Allocate(MerkabaSpatial.HashEntryCount, 16);
-                _m8BlockCoords = Allocate(MerkabaSpatial.BlockCapacity, 16);
+                _m8OwnerRecords = Allocate(MerkabaSpatial.OwnerRecordCount, 16);
                 _m8BlockChunkRefs = Allocate(checked(MerkabaSpatial.BlockCapacity *
                     MerkabaSpatial.BlockChunkCount), sizeof(uint));
                 _m8BlockPresenceL0 = Allocate(MerkabaSpatial.BlockCapacity, sizeof(uint));
@@ -201,35 +178,24 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8BlockPresenceL2 = Allocate(checked(MerkabaSpatial.BlockCapacity * 64),
                     sizeof(uint));
-                _m8ChunkOwners = Allocate(MerkabaSpatial.ChunkCapacity, sizeof(uint) * 2);
                 _m8ChunkTileRefs = Allocate(checked(MerkabaSpatial.ChunkCapacity *
                     MerkabaSpatial.TilesPerChunk), sizeof(uint));
-                _m8ChunkPresenceL0 = Allocate(MerkabaSpatial.ChunkCapacity, sizeof(uint));
-                _m8ChunkPresenceL1 = Allocate(checked(MerkabaSpatial.ChunkCapacity * 8),
-                    sizeof(uint));
+                _m8ChunkPresence = Allocate(
+                    MerkabaSpatial.ChunkPresenceWordCount, sizeof(uint));
 
                 int bankStateCount = checked(MerkabaSpatial.PhysicalTileBankCapacity *
                     MerkabaSpatial.KernelsPerTile);
-                int physicalWordCount = checked(MerkabaSpatial.PhysicalTileCapacity * 16);
                 _m8KernelStates0 = Allocate(bankStateCount, 16);
                 _m8KernelStates1 = Allocate(bankStateCount, 16);
                 _m8KernelStates2 = Allocate(bankStateCount, 16);
                 _m8KernelStates3 = Allocate(bankStateCount, 16);
-                _m8OccupiedBits = Allocate(physicalWordCount, sizeof(uint));
-                _m8CarveActiveBits = Allocate(physicalWordCount, sizeof(uint));
-                _m8SurfaceCandidateBits = Allocate(physicalWordCount, sizeof(uint));
-                _m8TileMeta = Allocate(MerkabaSpatial.PhysicalTileCapacity, 16);
-                _m8TileRuntime = Allocate(MerkabaSpatial.PhysicalTileCapacity, 16);
+                _m8TileBits = Allocate(MerkabaSpatial.TileBitRecordCount, 16);
+                _m8TileRecords = Allocate(MerkabaSpatial.TileRecordCount, 16);
                 _m8FreeTileStack = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
-                _m8FreeTileCount = Allocate(1, sizeof(int));
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
 
-                _m8NewBlockQueue = Allocate(MerkabaSpatial.BlockCapacity,
-                    sizeof(uint) * 2);
-                _m8NewChunkQueue = Allocate(MerkabaSpatial.ChunkCapacity,
-                    sizeof(uint) * 2);
-                _m8NewTileQueue = Allocate(MerkabaSpatial.PhysicalTileCapacity,
+                _m8ClaimQueue = Allocate(MerkabaSpatial.ClaimRecordCount,
                     sizeof(uint) * 2);
                 _m8PendingNewTileRefs = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
@@ -259,7 +225,6 @@ namespace Genesis.RoomScan
                 _m8LoadStagingAddresses = Allocate(StreamBatchCapacity, 16);
                 _m8LoadStagingStates = Allocate(StreamBatchCapacity *
                     MerkabaSpatial.KernelsPerTile, 16);
-                _m8StreamStatus = Allocate(StreamBatchCapacity, sizeof(uint));
                 _m8HashBenchmarkOutput = Allocate(MerkabaSpatial.BlockCapacity, 16);
 
                 BindWorldBuffers(worldCompute, _initializeFreeTilesKernel);
@@ -274,10 +239,12 @@ namespace Genesis.RoomScan
                 BindWorldBuffers(worldCompute, _resetClaimQueuesKernel);
                 BindWorldBuffers(worldCompute, _prepareNewTileDispatchKernel);
                 BindWorldBuffers(worldCompute, _clearTouchedCandidatesKernel);
+                BindWorldBuffers(worldCompute, _prepareEvictionSelectionKernel);
                 BindWorldBuffers(worldCompute, _selectEvictionVictimsKernel);
                 BindWorldBuffers(worldCompute, _gatherWritebackBatchKernel);
                 BindWorldBuffers(worldCompute, _acknowledgeWritebackBatchKernel);
                 BindWorldBuffers(worldCompute, _failWritebackBatchKernel);
+                BindWorldBuffers(worldCompute, _prepareLoadedTilesKernel);
                 BindWorldBuffers(worldCompute, _installLoadedTilesKernel);
                 BindWorldBuffers(worldCompute, _failLoadedTilesKernel);
                 BindWorldBuffers(worldCompute, _registerLoadedTileAddressesKernel);
@@ -306,9 +273,6 @@ namespace Genesis.RoomScan
         {
             _clearUIntKernel = worldCompute.FindKernel("ClearUInts");
             _clearInt4Kernel = worldCompute.FindKernel("ClearInt4s");
-            _clearUInt2Kernel = worldCompute.FindKernel("ClearUInt2s");
-            _clearKernelStatesKernel = worldCompute.FindKernel("ClearKernelStates");
-            _clearUInt4Kernel = worldCompute.FindKernel("ClearUInt4s");
             _initializeFreeTilesKernel = worldCompute.FindKernel("InitializeFreeTileStack");
             _resetCountersKernel = worldCompute.FindKernel("ResetWorldCounters");
             _prepareAllocatedClearKernel = worldCompute.FindKernel(
@@ -333,6 +297,8 @@ namespace Genesis.RoomScan
             _clearTouchedCandidatesKernel = worldCompute.FindProfiledKernel(
                 "ClearTouchedSurfaceCandidates",
                 MerkabaGpuStage.SurfaceIntegration);
+            _prepareEvictionSelectionKernel =
+                worldCompute.FindKernel("PrepareEvictionSelection");
             _selectEvictionVictimsKernel =
                 worldCompute.FindKernel("SelectEvictionVictims");
             _gatherWritebackBatchKernel =
@@ -341,6 +307,7 @@ namespace Genesis.RoomScan
                 worldCompute.FindKernel("AcknowledgeWritebackBatch");
             _failWritebackBatchKernel =
                 worldCompute.FindKernel("FailWritebackBatch");
+            _prepareLoadedTilesKernel = worldCompute.FindKernel("PrepareLoadedTiles");
             _installLoadedTilesKernel = worldCompute.FindKernel("InstallLoadedTiles");
             _failLoadedTilesKernel = worldCompute.FindKernel("FailLoadedTiles");
             _registerLoadedTileAddressesKernel =
@@ -360,49 +327,62 @@ namespace Genesis.RoomScan
         internal void BindWorldBuffers(ComputeShader shader, int kernel)
         {
             shader.SetBuffer(kernel, "_M8HashEntries", _m8HashEntries);
-            shader.SetBuffer(kernel, "_M8BlockCoords", _m8BlockCoords);
+            shader.SetBuffer(kernel, "_M8HashEntriesRead", _m8HashEntries);
+            shader.SetBuffer(kernel, "_M8OwnerRecords", _m8OwnerRecords);
+            shader.SetBuffer(kernel, "_M8OwnerRecordsRead", _m8OwnerRecords);
             shader.SetBuffer(kernel, "_M8BlockChunkRefs", _m8BlockChunkRefs);
+            shader.SetBuffer(kernel, "_M8BlockChunkRefsRead", _m8BlockChunkRefs);
             shader.SetBuffer(kernel, "_M8BlockPresenceL0", _m8BlockPresenceL0);
             shader.SetBuffer(kernel, "_M8BlockPresenceL1", _m8BlockPresenceL1);
             shader.SetBuffer(kernel, "_M8BlockPresenceL2", _m8BlockPresenceL2);
-            shader.SetBuffer(kernel, "_M8ChunkOwners", _m8ChunkOwners);
+            shader.SetBuffer(kernel, "_M8BlockPresenceL0Read", _m8BlockPresenceL0);
+            shader.SetBuffer(kernel, "_M8BlockPresenceL1Read", _m8BlockPresenceL1);
+            shader.SetBuffer(kernel, "_M8BlockPresenceL2Read", _m8BlockPresenceL2);
             shader.SetBuffer(kernel, "_M8ChunkTileRefs", _m8ChunkTileRefs);
-            shader.SetBuffer(kernel, "_M8ChunkPresenceL0", _m8ChunkPresenceL0);
-            shader.SetBuffer(kernel, "_M8ChunkPresenceL1", _m8ChunkPresenceL1);
+            shader.SetBuffer(kernel, "_M8ChunkTileRefsRead", _m8ChunkTileRefs);
+            shader.SetBuffer(kernel, "_M8ChunkPresence", _m8ChunkPresence);
+            shader.SetBuffer(kernel, "_M8ChunkPresenceRead", _m8ChunkPresence);
             shader.SetBuffer(kernel, "_M8KernelStates0", _m8KernelStates0);
             shader.SetBuffer(kernel, "_M8KernelStates1", _m8KernelStates1);
             shader.SetBuffer(kernel, "_M8KernelStates2", _m8KernelStates2);
             shader.SetBuffer(kernel, "_M8KernelStates3", _m8KernelStates3);
-            shader.SetBuffer(kernel, "_M8OccupiedBits", _m8OccupiedBits);
-            shader.SetBuffer(kernel, "_M8CarveActiveBits", _m8CarveActiveBits);
-            shader.SetBuffer(kernel, "_M8SurfaceCandidateBits",
-                _m8SurfaceCandidateBits);
-            shader.SetBuffer(kernel, "_M8TileMeta", _m8TileMeta);
-            shader.SetBuffer(kernel, "_M8TileRuntime", _m8TileRuntime);
+            shader.SetBuffer(kernel, "_M8KernelStates0Read", _m8KernelStates0);
+            shader.SetBuffer(kernel, "_M8KernelStates1Read", _m8KernelStates1);
+            shader.SetBuffer(kernel, "_M8KernelStates2Read", _m8KernelStates2);
+            shader.SetBuffer(kernel, "_M8KernelStates3Read", _m8KernelStates3);
+            shader.SetBuffer(kernel, "_M8TileBits", _m8TileBits);
+            shader.SetBuffer(kernel, "_M8TileBitsRead", _m8TileBits);
+            shader.SetBuffer(kernel, "_M8TileRecords", _m8TileRecords);
+            shader.SetBuffer(kernel, "_M8TileRecordsRead", _m8TileRecords);
             shader.SetBuffer(kernel, "_M8FreeTileStack", _m8FreeTileStack);
-            shader.SetBuffer(kernel, "_M8FreeTileCount", _m8FreeTileCount);
+            shader.SetBuffer(kernel, "_M8FreeTileStackRead", _m8FreeTileStack);
             shader.SetBuffer(kernel, "_M8Counters", _m8Counters);
-            shader.SetBuffer(kernel, "_M8NewBlockQueue", _m8NewBlockQueue);
-            shader.SetBuffer(kernel, "_M8NewChunkQueue", _m8NewChunkQueue);
-            shader.SetBuffer(kernel, "_M8NewTileQueue", _m8NewTileQueue);
+            shader.SetBuffer(kernel, "_M8CountersRead", _m8Counters);
+            shader.SetBuffer(kernel, "_M8ClaimQueue", _m8ClaimQueue);
+            shader.SetBuffer(kernel, "_M8ClaimQueueRead", _m8ClaimQueue);
             shader.SetBuffer(kernel, "_M8PendingNewTileRefs", _m8PendingNewTileRefs);
+            shader.SetBuffer(kernel, "_M8PendingNewTileRefsRead",
+                _m8PendingNewTileRefs);
             shader.SetBuffer(kernel, "_M8LoadRequests", _m8LoadRequests);
             shader.SetBuffer(kernel, "_M8LoadRequestReadCount",
                 _m8LoadRequestReadCount);
             shader.SetBuffer(kernel, "_M8WritebackQueue", _m8WritebackQueue);
+            shader.SetBuffer(kernel, "_M8WritebackQueueRead", _m8WritebackQueue);
             shader.SetBuffer(kernel, "_M8WritebackStaging",
                 _m8WritebackStaging);
             shader.SetBuffer(kernel, "_M8LoadStagingAddresses",
                 _m8LoadStagingAddresses);
+            shader.SetBuffer(kernel, "_M8LoadStagingAddressesRead",
+                _m8LoadStagingAddresses);
             shader.SetBuffer(kernel, "_M8LoadStagingStates",
                 _m8LoadStagingStates);
-            shader.SetBuffer(kernel, "_M8StreamStatus", _m8StreamStatus);
         }
 
         internal void SelectEvictionVictims(bool allDirty)
         {
             worldCompute.SetInt(EvictAllDirtyId, allDirty ? 1 : 0);
             worldCompute.SetInt(SafeEpochId, 3);
+            worldCompute.Dispatch(_prepareEvictionSelectionKernel, 1, 1, 1);
             worldCompute.Dispatch(_selectEvictionVictimsKernel,
                 DivideRoundUp(MerkabaSpatial.PhysicalTileCapacity, 256), 1, 1);
             worldCompute.Dispatch(_gatherWritebackBatchKernel,
@@ -424,6 +404,7 @@ namespace Genesis.RoomScan
         internal void InstallLoadedTiles(int count)
         {
             worldCompute.SetInt(StreamBatchCountId, count);
+            worldCompute.Dispatch(_prepareLoadedTilesKernel, 1, 1, 1);
             worldCompute.Dispatch(_installLoadedTilesKernel, count, 1, 1);
         }
 
@@ -436,16 +417,25 @@ namespace Genesis.RoomScan
         internal void RegisterLoadedTileAddresses(int count)
         {
             worldCompute.SetInt(StreamBatchCountId, count);
-            const int hierarchyPublicationRounds = 2;
-            for (int round = 0; round <
-                 MerkabaSpatial.HashSlotsPerBucket * 2 +
-                 hierarchyPublicationRounds; round++)
+            // At most 32 unique addresses participate. In the legal worst
+            // case CLAIMED/colliding blocks serialize one address per round;
+            // two final rounds then publish its chunk and tile path. Explicit
+            // Load verifies the final tile count and all capacity flags.
+            int boundedConvergenceRounds = LoadRegistrationRoundLimit(count);
+            for (int round = 0; round < boundedConvergenceRounds; round++)
             {
                 worldCompute.Dispatch(_registerLoadedTileAddressesKernel,
                     DivideRoundUp(count, 64), 1, 1);
                 PublishClaimedBlocksAndChunks();
                 ResetClaimQueues();
             }
+        }
+
+        internal static int LoadRegistrationRoundLimit(int count)
+        {
+            if (count <= 0 || count > StreamBatchCapacity)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            return checked(count + 2);
         }
 
         internal void RecordHashBenchmark(CommandBuffer command)
@@ -538,24 +528,12 @@ namespace Genesis.RoomScan
         private void InitializeGpuWorld()
         {
             ClearInt4(_m8HashEntries, MerkabaSpatial.HashEntryCount);
-            ClearInt4(_m8BlockCoords, MerkabaSpatial.BlockCapacity);
             ClearUInt(_m8BlockChunkRefs, _m8BlockChunkRefs.count);
             ClearUInt(_m8BlockPresenceL0, _m8BlockPresenceL0.count);
             ClearUInt(_m8BlockPresenceL1, _m8BlockPresenceL1.count);
             ClearUInt(_m8BlockPresenceL2, _m8BlockPresenceL2.count);
-            ClearUInt2(_m8ChunkOwners, _m8ChunkOwners.count);
             ClearUInt(_m8ChunkTileRefs, _m8ChunkTileRefs.count);
-            ClearUInt(_m8ChunkPresenceL0, _m8ChunkPresenceL0.count);
-            ClearUInt(_m8ChunkPresenceL1, _m8ChunkPresenceL1.count);
-            ClearStates(_m8KernelStates0, _m8KernelStates0.count);
-            ClearStates(_m8KernelStates1, _m8KernelStates1.count);
-            ClearStates(_m8KernelStates2, _m8KernelStates2.count);
-            ClearStates(_m8KernelStates3, _m8KernelStates3.count);
-            ClearUInt(_m8OccupiedBits, _m8OccupiedBits.count);
-            ClearUInt(_m8CarveActiveBits, _m8CarveActiveBits.count);
-            ClearUInt(_m8SurfaceCandidateBits, _m8SurfaceCandidateBits.count);
-            ClearUInt4(_m8TileMeta, _m8TileMeta.count);
-            ClearUInt4(_m8TileRuntime, _m8TileRuntime.count);
+            ClearUInt(_m8ChunkPresence, _m8ChunkPresence.count);
             ClearUInt(_m8Counters, _m8Counters.count);
             ClearUInt(_m8LoadRequestReadCount, 1);
             ClearUInt(_m8FrameDispatchArgs, _m8FrameDispatchArgs.count);
@@ -607,25 +585,6 @@ namespace Genesis.RoomScan
             DispatchLinear(_clearInt4Kernel, count);
         }
 
-        private void ClearUInt2(ComputeBuffer buffer, int count)
-        {
-            worldCompute.SetBuffer(_clearUInt2Kernel, ClearUInt2sId, buffer);
-            DispatchLinear(_clearUInt2Kernel, count);
-        }
-
-        private void ClearUInt4(ComputeBuffer buffer, int count)
-        {
-            worldCompute.SetBuffer(_clearUInt4Kernel, ClearUInt4sId, buffer);
-            DispatchLinear(_clearUInt4Kernel, count);
-        }
-
-        private void ClearStates(ComputeBuffer buffer, int count)
-        {
-            worldCompute.SetBuffer(_clearKernelStatesKernel,
-                ClearKernelStatesId, buffer);
-            DispatchLinear(_clearKernelStatesKernel, count);
-        }
-
         private void DispatchLinear(int kernel, int count)
         {
             int groups = DivideRoundUp(count, 256);
@@ -650,27 +609,22 @@ namespace Genesis.RoomScan
             foreach (ComputeBuffer buffer in _allGpuBuffers) buffer?.Release();
             _allGpuBuffers.Clear();
             _m8HashEntries = null;
-            _m8BlockCoords = null;
+            _m8OwnerRecords = null;
             _m8BlockChunkRefs = null;
             _m8BlockPresenceL0 = null;
             _m8BlockPresenceL1 = null;
             _m8BlockPresenceL2 = null;
-            _m8ChunkOwners = null;
             _m8ChunkTileRefs = null;
-            _m8ChunkPresenceL0 = null;
-            _m8ChunkPresenceL1 = null;
+            _m8ChunkPresence = null;
             _m8KernelStates0 = null;
             _m8KernelStates1 = null;
             _m8KernelStates2 = null;
             _m8KernelStates3 = null;
-            _m8OccupiedBits = null;
-            _m8CarveActiveBits = null;
-            _m8SurfaceCandidateBits = null;
-            _m8TileMeta = null;
-            _m8TileRuntime = null;
+            _m8TileBits = null;
+            _m8TileRecords = null;
             _m8FreeTileStack = null;
-            _m8FreeTileCount = null;
             _m8Counters = null;
+            _m8ClaimQueue = null;
             _m8LoadRequestReadCount = null;
             _m8HashBenchmarkOutput = null;
             ResetStorageRuntimeState();

@@ -114,6 +114,8 @@ namespace Genesis.RoomScan
                 _grid.BindWorldBuffers(frameCompilerCompute, kernel);
                 frameCompilerCompute.SetBuffer(kernel, VisibleTilesId,
                     _grid.M8VisibleTiles);
+                frameCompilerCompute.SetBuffer(kernel, "_M8VisibleTilesRead",
+                    _grid.M8VisibleTiles);
                 frameCompilerCompute.SetBuffer(kernel, VisiblePrimitivesId,
                     _grid.M8VisiblePrimitives);
                 frameCompilerCompute.SetBuffer(kernel, FrameDispatchArgsId,
@@ -207,10 +209,11 @@ namespace Genesis.RoomScan
             }
             WritePlanes(leftProjection * leftView, 0);
             WritePlanes(rightProjection * rightView, 6);
-            _eyePositions[0] = leftView.inverse.GetColumn(3);
-            _eyePositions[1] = rightView.inverse.GetColumn(3);
-
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            _eyePositions[0] = worldToGrid.MultiplyPoint3x4(
+                leftView.inverse.GetColumn(3));
+            _eyePositions[1] = worldToGrid.MultiplyPoint3x4(
+                rightView.inverse.GetColumn(3));
             Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
                 camera.transform.position);
             var global = new Unity.Mathematics.int3(
@@ -227,7 +230,9 @@ namespace Genesis.RoomScan
                 _grid.GridToWorldMatrix);
             frameCompilerCompute.SetMatrix(WorldToGridId, worldToGrid);
             frameCompilerCompute.SetVectorArray("_M8DrawPlanes", _drawPlanes);
-            frameCompilerCompute.SetVectorArray("_M8EyePositions", _eyePositions);
+            frameCompilerCompute.SetVectorArray("_M8EyeGridPositions", _eyePositions);
+            frameCompilerCompute.SetFloat("_M8GridWindingSign",
+                _grid.GridToWorldMatrix.determinant < 0f ? -1f : 1f);
             frameCompilerCompute.SetVector("_M8CameraWorld",
                 camera.transform.position);
             frameCompilerCompute.SetFloat("_M8RenderDistance", renderDistance);
