@@ -260,6 +260,7 @@ namespace Genesis.RoomScan
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _persistence != null && await _persistence.LoadAsync();
+                if (success) _renderer?.MarkCanonicalReadoutDirty();
                 return success;
             }
             finally
@@ -366,7 +367,11 @@ namespace Genesis.RoomScan
                 ProvideColorFrame();
         }
 
-        private void OnIntegrated() => Integrated?.Invoke();
+        private void OnIntegrated()
+        {
+            _renderer?.MarkCanonicalReadoutDirty();
+            Integrated?.Invoke();
+        }
 
         internal Task<bool> QuiesceScanningAsync()
         {

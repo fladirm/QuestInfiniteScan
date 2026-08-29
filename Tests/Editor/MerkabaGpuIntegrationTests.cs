@@ -21,7 +21,7 @@ namespace Genesis.RoomScan.Tests
             ComputeShader integration = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 Package + "Runtime/Shaders/MerkabaIntegration.compute");
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                Package + "Runtime/Shaders/MerkabaFrameCompiler.compute");
+                Package + "Runtime/Shaders/MerkabaReadout.compute");
             Assert.That(world, Is.Not.Null);
             Assert.That(integration, Is.Not.Null);
             Assert.That(frame, Is.Not.Null);
@@ -49,14 +49,26 @@ namespace Genesis.RoomScan.Tests
                 Assert.DoesNotThrow(() => integration.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
                      {
-                         "ResetFrame", "QueryM8Frame",
-                         "CompileVisiblePrimitives", "FinalizeDrawArgs"
+                         "ResetReadoutBuild", "QueryM8Readout",
+                         "PrepareReadoutBuild", "CompileReadoutVertices",
+                         "FinalizeReadout"
                      })
                 Assert.DoesNotThrow(() => frame.FindKernel(kernel), kernel);
         }
 
         [Test]
-        public void PhysicalBuffers_AreAtMostSixtyFourMiBAndTilesNeverCrossBanks()
+        public void SetupWizard_WiresTheCurrentReadoutAsset()
+        {
+            string wizard = Source("Editor/RoomScanSetupWizard.cs");
+            Assert.That(wizard, Does.Contain(
+                "AssignAsset(renderer, \"readoutCompute\""));
+            Assert.That(wizard, Does.Contain(
+                "Runtime/Shaders/MerkabaReadout.compute"));
+            Assert.That(wizard, Does.Not.Contain("MerkabaFrameCompiler"));
+        }
+
+        [Test]
+        public void PhysicalBuffers_RespectQuestLimitAndTilesNeverCrossBanks()
         {
             long stateBank = (long)MerkabaSpatial.PhysicalTileBankCapacity *
                 MerkabaSpatial.KernelsPerTile * 16;
@@ -87,13 +99,15 @@ namespace Genesis.RoomScan.Tests
                 32768L * 4, 262144L * 16, 4,
                 2097152L * 16, 1048576L * 4,
                 32768L * 4, 32768L * 4, 12, 32768L * 4,
-                1048576L * 16, 12, 16, 12, 32L * 8,
+                (long)MerkabaGrid.ReadoutVertexCapacity * 16, 12, 16, 12,
+                32L * 8,
                 32L * 513 * 16, 32L * 16, 32L * 512 * 16,
                 8192L * 16
             };
             Assert.That(allBuffers, Has.Length.EqualTo(35));
-            Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(440895064L));
+            Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
+            Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(524781144L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -107,6 +121,21 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
                            MerkabaSpatial.ChunkCapacity +
                            MerkabaSpatial.PhysicalTileCapacity));
+        }
+
+        [Test]
+        public void M8CounterAbi_UsesEverySlotExactlyOnce()
+        {
+            string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            MatchCollection matches = Regex.Matches(world,
+                @"^#define M8_COUNTER_(?!COUNT)[A-Z0-9_]+ (\d+)u$",
+                RegexOptions.Multiline);
+            int[] slots = matches.Cast<Match>()
+                .Select(match => int.Parse(match.Groups[1].Value))
+                .OrderBy(value => value).ToArray();
+            Assert.That(slots, Has.Length.EqualTo(MerkabaGrid.CounterCount));
+            Assert.That(slots, Is.EqualTo(
+                Enumerable.Range(0, MerkabaGrid.CounterCount).ToArray()));
         }
 
         [Test]
@@ -157,7 +186,7 @@ namespace Genesis.RoomScan.Tests
         public void FrameTopology_HashesOnlyAcrossAnM8Boundary()
         {
             string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
-            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string neighbour = Slice(world, "bool M8TryOccupiedNeighbour",
                 "M8TileAddress M8LogicalAddress");
             Assert.That(frame, Does.Contain("M8TryOccupiedNeighbour"));
@@ -271,18 +300,21 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void FrameCompiler_UsesOneAtomicPerKernelAndOneSpiDraw()
+        public void ReadoutBuild_EmitsDrawReadyVerticesAndOneSpiDraw()
         {
-            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
             string feature = Source("Runtime/Merkaba/MerkabaRenderFeature.cs");
             Assert.That(frame, Does.Contain("uint survivingCount = countbits(survivingMask)"));
             Assert.That(frame, Does.Contain(
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
             Assert.That(frame, Does.Contain(
-                "M8_COUNTER_VISIBLE_SAFE_COUNT"));
-            Assert.That(frame, Does.Contain("InterlockedMin"));
-            Assert.That(frame, Does.Contain("logical * 2u"));
+                "MERKABA_M8_READOUT_TRIANGLE_CAPACITY"));
+            Assert.That(frame, Does.Contain(
+                "logical * MERKABA_VERTICES_PER_PRIMITIVE"));
+            Assert.That(frame, Does.Contain("_M8DrawArgs[1] = 2u"));
+            Assert.That(frame, Does.Contain("MerkabaReadoutVertex"));
+            Assert.That(frame, Does.Contain("vertex.gridPosition"));
             Assert.That(renderer, Does.Not.Contain("Graphics.DrawProceduralIndirect("));
             Assert.That(renderer.Split(new[] { "DrawProceduralIndirectProfiled(" },
                 StringSplitOptions.None).Length - 1, Is.EqualTo(1));
@@ -292,20 +324,22 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void BackfaceCompiler_UsesTheExactCanonicalRasterWinding()
+        public void ReadoutFacingGuard_UsesTheExactCanonicalRasterWinding()
         {
-            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
             Assert.That(frame, Does.Contain("MerkabaCanonicalPrimitiveFacing"));
             Assert.That(frame, Does.Contain("_M8EyeGridPositions"));
             Assert.That(frame, Does.Contain("_M8GridWindingSign"));
+            Assert.That(frame, Does.Contain(
+                "_M8ReadoutTranslationGuardGrid * length(guardedNormal)"));
             Assert.That(frame, Does.Not.Contain(
                 "cross(worldB - worldA, worldC - worldA)"));
             Assert.That(frame, Does.Not.Contain(
                 "MerkabaCanonicalPrimitivePosition(primitiveId, 0u)"));
             Assert.That(shader, Does.Contain("Cull Back"));
-            Assert.That(shader, Does.Contain(
-                "primitiveId, input.vertexID"));
+            Assert.That(shader, Does.Not.Contain(
+                "MerkabaCanonicalPrimitivePosition"));
             for (int primitive = 0;
                  primitive < MerkabaCanonicalGeometry.PrimitiveCount;
                  primitive++)
@@ -324,24 +358,83 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void WarmQuery_ContainsDrawAndAddsOneM8BlockMargin()
         {
-            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
             Assert.That(renderer, Does.Contain(
                 "renderDistance + MerkabaSpatial.BlockWorldSize"));
             Assert.That(frame, Does.Contain("_M8WarmDistance"));
             Assert.That(frame, Does.Contain("_M8RenderDistance"));
             Assert.That(frame, Does.Contain("if (!inDraw ||"));
+            Assert.That(frame, Does.Contain("M8_COUNTER_READOUT_UNRESOLVED"));
         }
 
         [Test]
-        public void LiveVertexPath_ReadsOnlyFrameRecordAndCanonicalPosition()
+        public void LiveVertexPath_ReadsOnlyDrawReadyReadoutVertex()
         {
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
-            Assert.That(shader, Does.Contain("_M8VisiblePrimitives"));
-            Assert.That(shader, Does.Contain("MerkabaCanonicalPrimitivePosition"));
+            Assert.That(shader, Does.Contain(
+                "_M8ReadoutVertices[input.vertexID]"));
+            Assert.That(shader, Does.Not.Contain(
+                "MerkabaCanonicalPrimitivePosition"));
+            Assert.That(shader, Does.Not.Contain("primitiveId"));
             Assert.That(shader, Does.Not.Contain("_M8KernelStates"));
             Assert.That(shader, Does.Not.Contain("ResidentSlot"));
             Assert.That(shader, Does.Not.Contain("PublishedBank"));
+        }
+
+        [Test]
+        public void ReadoutCache_IsDisposableCadencedAndSingleBuffered()
+        {
+            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string gpu = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
+
+            Assert.That(renderer, Does.Contain("readoutBuildHz = 15f"));
+            Assert.That(renderer, Does.Contain(
+                "_canonicalDirty || coverageDirty || residencyChanged"));
+            Assert.That(renderer, Does.Contain("MarkCanonicalReadoutDirty"));
+            Assert.That(scanner, Does.Contain(
+                "_renderer?.MarkCanonicalReadoutDirty()"));
+            Assert.That(renderer, Does.Contain(
+                "Graphics.ExecuteCommandBuffer(command)"));
+            Assert.That(renderer, Does.Not.Contain(
+                "Graphics.ExecuteCommandBufferAsync"));
+            Assert.That(renderer, Does.Not.Contain("GraphicsFence"));
+            Assert.That(renderer + gpu, Does.Not.Contain("ReadoutBank"));
+            Assert.That(renderer + gpu, Does.Not.Contain("ReadoutChunk"));
+            Assert.That(gpu, Does.Contain(
+                "_m8ReadoutVertices = Allocate(ReadoutVertexCapacity, 16)"));
+            Assert.That(MerkabaGrid.CounterReadoutUnresolved, Is.EqualTo(50));
+            Assert.That(MerkabaGrid.CounterReadoutBuildStatus, Is.EqualTo(71));
+
+            string reset = Slice(readout, "void ResetReadoutBuild",
+                "groupshared uint gFrameBlockRef");
+            string prepare = Slice(readout, "void PrepareReadoutBuild",
+                "bool PrimitiveFrontFacingEitherEye");
+            Assert.That(reset, Does.Not.Contain("_M8DrawArgs"));
+            Assert.That(prepare, Does.Contain("MERKABA_READOUT_SKIPPED"));
+            Assert.That(prepare, Does.Contain("_M8FrameDispatchArgs[0] = 0u"));
+        }
+
+        [Test]
+        public void ReadoutVertexAbi_MaterializesCanonicalGeometryWithoutFallbackState()
+        {
+            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
+            Assert.That(MerkabaGrid.ReadoutTriangleCapacity,
+                Is.EqualTo(2_097_152));
+            Assert.That(MerkabaGrid.ReadoutVertexCapacity,
+                Is.EqualTo(6_291_456));
+            Assert.That((long)MerkabaGrid.ReadoutVertexCapacity * 16,
+                Is.EqualTo(96L * 1024 * 1024));
+            Assert.That(readout, Does.Contain("struct MerkabaReadoutVertex"));
+            Assert.That(readout, Does.Contain(
+                "MerkabaCanonicalPrimitivePosition(\n                    primitiveId, corner)"));
+            Assert.That(readout, Does.Contain("hasRgb << 24u"));
+            Assert.That(readout, Does.Not.Contain("half3(0.55h"));
+            Assert.That(shader, Does.Contain("half3(0.55h, 0.16h, 0.42h)"));
+            Assert.That(shader, Does.Contain("packedColor >> 24u"));
         }
 
         [Test]
@@ -397,7 +490,7 @@ namespace Genesis.RoomScan.Tests
         {
             string spatial = Source("Runtime/Shaders/MerkabaSpatial.hlsl");
             string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
-            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string integrator = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
             Assert.That(spatial, Does.Contain("MerkabaM8PlaneChildMask"));
@@ -495,11 +588,11 @@ namespace Genesis.RoomScan.Tests
         public void Quest3M8Queries_UseOneSixtyFourLaneGroupPerBlock()
         {
             string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
-            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string scanQuery = Slice(scan, "groupshared uint gScanBlockRef",
                 "void PrepareCarveArgs");
             string frameQuery = Slice(frame, "groupshared uint gFrameBlockRef",
-                "void PrepareFrameCompilerArgs");
+                "void PrepareReadoutBuild");
 
             foreach (string query in new[] { scanQuery, frameQuery })
             {
@@ -519,7 +612,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(scan, Does.Not.Contain(
                 "[numthreads(1, 1, 1)]\nvoid QueryCarveTiles"));
             Assert.That(frame, Does.Not.Contain(
-                "[numthreads(1, 1, 1)]\nvoid QueryM8Frame"));
+                "[numthreads(1, 1, 1)]\nvoid QueryM8Readout"));
         }
 
         [Test]
@@ -527,7 +620,7 @@ namespace Genesis.RoomScan.Tests
         {
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
             string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
-            string frame = Source("Runtime/Shaders/MerkabaFrameCompiler.compute");
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
                 RegexOptions.Multiline), Has.Count.EqualTo(42));
@@ -538,18 +631,18 @@ namespace Genesis.RoomScan.Tests
                 .OrderBy(name => name).ToArray();
             Assert.That(serial, Is.EqualTo(new[]
             {
-                "FinalizeDrawArgs",
                 "FinalizeObservation",
+                "FinalizeReadout",
                 "PrepareAllocatedClearArgs",
                 "PrepareCarveArgs",
                 "PrepareEvictionSelection",
-                "PrepareFrameCompilerArgs",
                 "PrepareIntegrateArgs",
                 "PrepareNewTileDispatchArgs",
+                "PrepareReadoutBuild",
                 "PrepareResolveArgs",
                 "ResetClaimQueueCounts",
-                "ResetFrame",
-                "ResetObservationCounters"
+                "ResetObservationCounters",
+                "ResetReadoutBuild"
             }));
             foreach (string kernel in serial)
             {

@@ -23,7 +23,7 @@ namespace Genesis.RoomScan.Tests
                 "SurfaceIntegration",
                 "CarveIntegration",
                 "WorldQuery",
-                "FrameCompile",
+                "ReadoutBuild",
                 "MerkabaDraw",
                 "Count"
             }));
@@ -35,11 +35,11 @@ namespace Genesis.RoomScan.Tests
         {
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
-                "MerkabaFrameCompiler.compute");
-            int query = frame.FindProfiledKernel("QueryM8Frame",
+                "MerkabaReadout.compute");
+            int query = frame.FindProfiledKernel("QueryM8Readout",
                 MerkabaGpuStage.WorldQuery);
-            int compile = frame.FindProfiledKernel("CompileVisiblePrimitives",
-                MerkabaGpuStage.FrameCompile);
+            int compile = frame.FindProfiledKernel("CompileReadoutVertices",
+                MerkabaGpuStage.ReadoutBuild);
             using var command = new CommandBuffer();
             using var arguments = new ComputeBuffer(4, sizeof(uint),
                 ComputeBufferType.IndirectArguments);
@@ -62,7 +62,7 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(new[]
                     {
                         MerkabaGpuStage.WorldQuery,
-                        MerkabaGpuStage.FrameCompile,
+                        MerkabaGpuStage.ReadoutBuild,
                         MerkabaGpuStage.MerkabaDraw
                     }));
             }
@@ -77,8 +77,8 @@ namespace Genesis.RoomScan.Tests
         {
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
-                "MerkabaFrameCompiler.compute");
-            int query = frame.FindProfiledKernel("QueryM8Frame",
+                "MerkabaReadout.compute");
+            int query = frame.FindProfiledKernel("QueryM8Readout",
                 MerkabaGpuStage.WorldQuery);
             using var command = new CommandBuffer();
 

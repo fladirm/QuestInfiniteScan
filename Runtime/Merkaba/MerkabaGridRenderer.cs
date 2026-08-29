@@ -1,18 +1,25 @@
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Serialization;
 
 namespace Genesis.RoomScan
 {
-    /// <summary>GPU M8 Q_DRAW/Q_WARM frame compiler and one indirect SPI draw.</summary>
+    /// <summary>Disposable GPU readout rebuilt from M8 and drawn once per XR frame.</summary>
     [DisallowMultipleComponent]
     public sealed class MerkabaGridRenderer : MonoBehaviour
     {
         private static MerkabaGridRenderer _active;
 
-        [SerializeField] private ComputeShader frameCompilerCompute;
+        [FormerlySerializedAs("frameCompilerCompute")]
+        [SerializeField] private ComputeShader readoutCompute;
         [SerializeField] private Shader renderShader;
         [SerializeField, Range(2f, 12f)] private float renderDistance = 8f;
+        [SerializeField, Range(5f, 30f)] private float readoutBuildHz = 15f;
+        [SerializeField, Range(0f, 60f)]
+        private float readoutAngularGuardDegrees = 30f;
+        [SerializeField, Range(0f, 1f)]
+        private float readoutTranslationGuard = 0.25f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
 
         private MerkabaGrid _grid;
@@ -26,7 +33,17 @@ namespace Genesis.RoomScan
         private volatile bool _gpuSubmissionSuspended;
         private bool _statusReadbackPending;
         private float _nextStatusReadback;
+        private float _nextReadoutBuild;
+        private bool _canonicalDirty = true;
+        private bool _hasPublishedCoverage;
+        private bool _awaitingResidencyChange;
+        private uint _readoutRevision;
+        private uint _buildResidencyEpoch;
+        private Vector3 _publishedGridPosition;
+        private Vector3 _publishedGridForward;
+        private Vector3 _publishedGridUp;
         private readonly Vector4[] _drawPlanes = new Vector4[12];
+        private readonly Vector4[] _dependencyPlanes = new Vector4[12];
         private readonly Vector4[] _eyePositions = new Vector4[2];
         private readonly Plane[] _frustumScratch = new Plane[6];
 
@@ -52,8 +69,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaWorldToGrid");
         private static readonly int VisibleTilesId =
             Shader.PropertyToID("_M8VisibleTiles");
-        private static readonly int VisiblePrimitivesId =
-            Shader.PropertyToID("_M8VisiblePrimitives");
+        private static readonly int ReadoutVerticesId =
+            Shader.PropertyToID("_M8ReadoutVertices");
         private static readonly int FrameDispatchArgsId =
             Shader.PropertyToID("_M8FrameDispatchArgs");
         private static readonly int DrawArgsId = Shader.PropertyToID("_M8DrawArgs");
@@ -62,7 +79,11 @@ namespace Genesis.RoomScan
         private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
         private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
 
-        private void Awake() => _grid = GetComponent<MerkabaGrid>();
+        private void Awake()
+        {
+            _grid = GetComponent<MerkabaGrid>();
+            if (_grid != null) _grid.Cleared += MarkCanonicalReadoutDirty;
+        }
 
         private void OnEnable()
         {
@@ -78,7 +99,10 @@ namespace Genesis.RoomScan
         private void OnDestroy()
         {
             if (_active == this) _active = null;
+            if (_grid != null) _grid.Cleared -= MarkCanonicalReadoutDirty;
         }
+
+        internal void MarkCanonicalReadoutDirty() => _canonicalDirty = true;
 
         internal void SuspendGpuSubmission()
         {
@@ -99,6 +123,9 @@ namespace Genesis.RoomScan
             _material = null;
             _initialized = false;
             _statusReadbackPending = false;
+            _canonicalDirty = true;
+            _hasPublishedCoverage = false;
+            _awaitingResidencyChange = false;
         }
 
         internal Action CaptureOwnedGpuResourceRelease()
@@ -129,46 +156,46 @@ namespace Genesis.RoomScan
         private bool Initialize()
         {
             if (_initialized) return true;
-            if (_grid == null || frameCompilerCompute == null || renderShader == null)
+            if (_grid == null || readoutCompute == null || renderShader == null)
             {
-                Logger.Error("Merkaba frame compiler assets are not wired.");
+                Logger.Error("Merkaba readout assets are not wired.");
                 enabled = false;
                 return false;
             }
             _grid.EnsureGpuResources();
-            _resetKernel = frameCompilerCompute.FindProfiledKernel(
-                "ResetFrame", MerkabaGpuStage.WorldQuery);
-            _queryKernel = frameCompilerCompute.FindProfiledKernel(
-                "QueryM8Frame", MerkabaGpuStage.WorldQuery);
-            _prepareKernel = frameCompilerCompute.FindProfiledKernel(
-                "PrepareFrameCompilerArgs", MerkabaGpuStage.FrameCompile);
-            _compileKernel = frameCompilerCompute.FindProfiledKernel(
-                "CompileVisiblePrimitives", MerkabaGpuStage.FrameCompile);
-            _finalizeKernel = frameCompilerCompute.FindProfiledKernel(
-                "FinalizeDrawArgs", MerkabaGpuStage.FrameCompile);
+            _resetKernel = readoutCompute.FindProfiledKernel(
+                "ResetReadoutBuild", MerkabaGpuStage.WorldQuery);
+            _queryKernel = readoutCompute.FindProfiledKernel(
+                "QueryM8Readout", MerkabaGpuStage.WorldQuery);
+            _prepareKernel = readoutCompute.FindProfiledKernel(
+                "PrepareReadoutBuild", MerkabaGpuStage.ReadoutBuild);
+            _compileKernel = readoutCompute.FindProfiledKernel(
+                "CompileReadoutVertices", MerkabaGpuStage.ReadoutBuild);
+            _finalizeKernel = readoutCompute.FindProfiledKernel(
+                "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
             foreach (int kernel in new[]
                      {
                          _resetKernel, _queryKernel, _prepareKernel,
                          _compileKernel, _finalizeKernel
                      })
             {
-                _grid.BindWorldBuffers(frameCompilerCompute, kernel);
-                frameCompilerCompute.SetBuffer(kernel, VisibleTilesId,
+                _grid.BindWorldBuffers(readoutCompute, kernel);
+                readoutCompute.SetBuffer(kernel, VisibleTilesId,
                     _grid.M8VisibleTiles);
-                frameCompilerCompute.SetBuffer(kernel, "_M8VisibleTilesRead",
+                readoutCompute.SetBuffer(kernel, "_M8VisibleTilesRead",
                     _grid.M8VisibleTiles);
-                frameCompilerCompute.SetBuffer(kernel, VisiblePrimitivesId,
-                    _grid.M8VisiblePrimitives);
-                frameCompilerCompute.SetBuffer(kernel, FrameDispatchArgsId,
+                readoutCompute.SetBuffer(kernel, ReadoutVerticesId,
+                    _grid.M8ReadoutVertices);
+                readoutCompute.SetBuffer(kernel, FrameDispatchArgsId,
                     _grid.M8FrameDispatchArgs);
-                frameCompilerCompute.SetBuffer(kernel, DrawArgsId,
+                readoutCompute.SetBuffer(kernel, DrawArgsId,
                     _grid.M8DrawArgs);
             }
             _material = new Material(renderShader)
             {
                 name = "Merkaba M8 Readout"
             };
-            _material.SetBuffer(VisiblePrimitivesId, _grid.M8VisiblePrimitives);
+            _material.SetBuffer(ReadoutVerticesId, _grid.M8ReadoutVertices);
             ApplyOpacityState();
             _initialized = true;
             return true;
@@ -185,26 +212,48 @@ namespace Genesis.RoomScan
                 return;
             }
 
-            ConfigureFrame(camera);
+            _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
+            MerkabaGpuTimestamps.TryBeginFrame(
+                _readoutRevision == 0u ? 1u : _readoutRevision);
+            GetCoveragePose(camera, out Vector3 gridPosition,
+                out Vector3 gridForward, out Vector3 gridUp);
+            bool coverageDirty = !_hasPublishedCoverage ||
+                Vector3.Distance(gridPosition, _publishedGridPosition) >
+                    readoutTranslationGuard * 0.5f ||
+                Vector3.Angle(gridForward, _publishedGridForward) >
+                    readoutAngularGuardDegrees * 0.5f ||
+                Vector3.Angle(gridUp, _publishedGridUp) >
+                    readoutAngularGuardDegrees * 0.5f;
+            bool residencyChanged = _awaitingResidencyChange &&
+                _grid.ResidencyEpoch != _buildResidencyEpoch;
+            if ((_canonicalDirty || coverageDirty || residencyChanged) &&
+                Time.unscaledTime >= _nextReadoutBuild)
+                SubmitReadoutBuild(camera, gridPosition, gridForward, gridUp);
+
+            MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
+            RequestStatusIfDue();
+        }
+
+        private void SubmitReadoutBuild(Camera camera, Vector3 gridPosition,
+            Vector3 gridForward, Vector3 gridUp)
+        {
+            int querySide = ConfigureReadout(camera);
             CommandBuffer command = CommandBufferPool.Get(
-                "Merkaba M8 frame compiler");
+                "Merkaba M8 readout build");
             bool submitted = false;
             try
             {
                 if (MerkabaGpuTimestamps.IsRecording)
                     _grid.RecordHashBenchmark(command);
-                int querySide = Mathf.CeilToInt((renderDistance +
-                    MerkabaSpatial.BlockWorldSize) /
-                    MerkabaSpatial.BlockWorldSize) * 2 + 3;
-                command.DispatchComputeProfiled(frameCompilerCompute,
+                command.DispatchComputeProfiled(readoutCompute,
                     _resetKernel, 1, 1, 1);
-                command.DispatchComputeProfiled(frameCompilerCompute,
+                command.DispatchComputeProfiled(readoutCompute,
                     _queryKernel, querySide * querySide * querySide, 1, 1);
-                command.DispatchComputeProfiled(frameCompilerCompute,
+                command.DispatchComputeProfiled(readoutCompute,
                     _prepareKernel, 1, 1, 1);
-                command.DispatchComputeProfiled(frameCompilerCompute,
+                command.DispatchComputeProfiled(readoutCompute,
                     _compileKernel, _grid.M8FrameDispatchArgs);
-                command.DispatchComputeProfiled(frameCompilerCompute,
+                command.DispatchComputeProfiled(readoutCompute,
                     _finalizeKernel, 1, 1, 1);
                 Graphics.ExecuteCommandBuffer(command);
                 submitted = true;
@@ -215,9 +264,21 @@ namespace Genesis.RoomScan
                     MerkabaGpuTimestamps.CancelUnsubmittedFrame();
                 CommandBufferPool.Release(command);
             }
-            _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
-            MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
-            RequestStatusIfDue();
+            if (!submitted) return;
+            unchecked
+            {
+                _readoutRevision++;
+                if (_readoutRevision == 0u) _readoutRevision = 1u;
+            }
+            _canonicalDirty = false;
+            _hasPublishedCoverage = true;
+            _awaitingResidencyChange = true;
+            _buildResidencyEpoch = _grid.ResidencyEpoch;
+            _publishedGridPosition = gridPosition;
+            _publishedGridForward = gridForward;
+            _publishedGridUp = gridUp;
+            _nextReadoutBuild = Time.unscaledTime +
+                1f / Mathf.Max(1f, readoutBuildHz);
         }
 
         internal void RecordRenderPass(RasterCommandBuffer command)
@@ -236,7 +297,7 @@ namespace Genesis.RoomScan
             MerkabaGpuTimestamps.CompleteFrameSubmission(true);
         }
 
-        private void ConfigureFrame(Camera camera)
+        private int ConfigureReadout(Camera camera)
         {
             Matrix4x4 leftView;
             Matrix4x4 rightView;
@@ -256,13 +317,16 @@ namespace Genesis.RoomScan
                 leftView = rightView = camera.worldToCameraMatrix;
                 leftProjection = rightProjection = camera.projectionMatrix;
             }
-            WritePlanes(leftProjection * leftView, 0);
-            WritePlanes(rightProjection * rightView, 6);
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            Matrix4x4 leftEyeToWorld = leftView.inverse;
+            Matrix4x4 rightEyeToWorld = rightView.inverse;
+            WriteExpandedPlanes(leftProjection * leftView, leftEyeToWorld, 0);
+            WriteExpandedPlanes(rightProjection * rightView,
+                rightEyeToWorld, 6);
             _eyePositions[0] = worldToGrid.MultiplyPoint3x4(
-                leftView.inverse.GetColumn(3));
+                (Vector3)leftEyeToWorld.GetColumn(3));
             _eyePositions[1] = worldToGrid.MultiplyPoint3x4(
-                rightView.inverse.GetColumn(3));
+                (Vector3)rightEyeToWorld.GetColumn(3));
             Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
                 camera.transform.position);
             var global = new Unity.Mathematics.int3(
@@ -275,30 +339,110 @@ namespace Genesis.RoomScan
                 MerkabaSpatial.BlockWorldSize) + 1;
             int side = radius * 2 + 1;
 
-            frameCompilerCompute.SetMatrix(GridToWorldId,
+            readoutCompute.SetMatrix(GridToWorldId,
                 _grid.GridToWorldMatrix);
-            frameCompilerCompute.SetMatrix(WorldToGridId, worldToGrid);
-            frameCompilerCompute.SetVectorArray("_M8DrawPlanes", _drawPlanes);
-            frameCompilerCompute.SetVectorArray("_M8EyeGridPositions", _eyePositions);
-            frameCompilerCompute.SetFloat("_M8GridWindingSign",
+            readoutCompute.SetMatrix(WorldToGridId, worldToGrid);
+            readoutCompute.SetVectorArray("_M8DrawPlanes", _drawPlanes);
+            readoutCompute.SetVectorArray("_M8DependencyPlanes",
+                _dependencyPlanes);
+            readoutCompute.SetVectorArray("_M8EyeGridPositions", _eyePositions);
+            readoutCompute.SetFloat("_M8GridWindingSign",
                 _grid.GridToWorldMatrix.determinant < 0f ? -1f : 1f);
-            frameCompilerCompute.SetVector("_M8CameraWorld",
+            readoutCompute.SetFloat("_M8ReadoutTranslationGuardGrid",
+                readoutTranslationGuard * MaxAxisScale(worldToGrid));
+            readoutCompute.SetVector("_M8CameraWorld",
                 camera.transform.position);
-            frameCompilerCompute.SetFloat("_M8RenderDistance", renderDistance);
-            frameCompilerCompute.SetFloat("_M8WarmDistance", warmDistance);
-            frameCompilerCompute.SetInts("_M8QueryCenterBlock", centerBlock.x,
+            readoutCompute.SetFloat("_M8RenderDistance", renderDistance);
+            readoutCompute.SetFloat("_M8WarmDistance", warmDistance);
+            readoutCompute.SetFloat("_M8DependencyDistance",
+                renderDistance + MaxNeighbourWorldDistance(
+                    _grid.GridToWorldMatrix));
+            readoutCompute.SetInts("_M8QueryCenterBlock", centerBlock.x,
                 centerBlock.y, centerBlock.z);
-            frameCompilerCompute.SetInt("_M8QueryBlockRadius", radius);
-            frameCompilerCompute.SetInt("_M8QueryBlockSide", side);
+            readoutCompute.SetInt("_M8QueryBlockRadius", radius);
+            readoutCompute.SetInt("_M8QueryBlockSide", side);
+            return side;
         }
 
-        private void WritePlanes(Matrix4x4 matrix, int offset)
+        private void WriteExpandedPlanes(Matrix4x4 viewProjection,
+            Matrix4x4 eyeToWorld, int offset)
         {
-            GeometryUtility.CalculateFrustumPlanes(matrix, _frustumScratch);
+            GeometryUtility.CalculateFrustumPlanes(viewProjection,
+                _frustumScratch);
+            Vector3 eye = (Vector3)eyeToWorld.GetColumn(3);
+            Vector3 right = ((Vector3)eyeToWorld.GetColumn(0)).normalized;
+            Vector3 up = ((Vector3)eyeToWorld.GetColumn(1)).normalized;
+            Vector3 forward = -((Vector3)eyeToWorld.GetColumn(2)).normalized;
+            Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
+            Vector3 gridAxisX = gridToWorld.MultiplyVector(Vector3.right);
+            Vector3 gridAxisY = gridToWorld.MultiplyVector(Vector3.up);
+            Vector3 gridAxisZ = gridToWorld.MultiplyVector(Vector3.forward);
             for (int i = 0; i < 6; i++)
-                _drawPlanes[offset + i] = new Vector4(
-                    _frustumScratch[i].normal.x, _frustumScratch[i].normal.y,
-                    _frustumScratch[i].normal.z, _frustumScratch[i].distance);
+            {
+                Vector3 normal = _frustumScratch[i].normal.normalized;
+                float distance = _frustumScratch[i].distance;
+                if (i < 4)
+                {
+                    Vector3 axis = i < 2 ? up : right;
+                    normal = ExpandSideNormal(normal, axis, forward,
+                        readoutAngularGuardDegrees);
+                    distance = -Vector3.Dot(normal, eye);
+                }
+                distance += readoutTranslationGuard;
+                float topologyHalo = MerkabaConstants.LatticeStep *
+                    (Mathf.Abs(Vector3.Dot(normal, gridAxisX)) +
+                     Mathf.Abs(Vector3.Dot(normal, gridAxisY)) +
+                     Mathf.Abs(Vector3.Dot(normal, gridAxisZ)));
+                _drawPlanes[offset + i] = new Vector4(normal.x, normal.y,
+                    normal.z, distance);
+                _dependencyPlanes[offset + i] = new Vector4(normal.x,
+                    normal.y, normal.z, distance + topologyHalo);
+            }
+        }
+
+        private static Vector3 ExpandSideNormal(Vector3 normal, Vector3 axis,
+            Vector3 forward, float angle)
+        {
+            Vector3 positive = Quaternion.AngleAxis(angle, axis) * normal;
+            Vector3 negative = Quaternion.AngleAxis(-angle, axis) * normal;
+            float positiveFacing = Vector3.Dot(positive, forward);
+            float negativeFacing = Vector3.Dot(negative, forward);
+            if (positiveFacing >= 0f && negativeFacing >= 0f)
+                return positiveFacing <= negativeFacing ? positive : negative;
+            if (positiveFacing >= 0f) return positive;
+            if (negativeFacing >= 0f) return negative;
+            return normal;
+        }
+
+        private void GetCoveragePose(Camera camera, out Vector3 gridPosition,
+            out Vector3 gridForward, out Vector3 gridUp)
+        {
+            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            gridPosition = worldToGrid.MultiplyPoint3x4(
+                camera.transform.position);
+            gridForward = worldToGrid.MultiplyVector(
+                camera.transform.forward).normalized;
+            gridUp = worldToGrid.MultiplyVector(camera.transform.up).normalized;
+        }
+
+        private static float MaxAxisScale(Matrix4x4 matrix) => Mathf.Max(
+            matrix.MultiplyVector(Vector3.right).magnitude,
+            matrix.MultiplyVector(Vector3.up).magnitude,
+            matrix.MultiplyVector(Vector3.forward).magnitude);
+
+        private static float MaxNeighbourWorldDistance(Matrix4x4 matrix)
+        {
+            float maximum = 0f;
+            for (int z = -1; z <= 1; z += 2)
+            for (int y = -1; y <= 1; y += 2)
+            for (int x = -1; x <= 1; x += 2)
+            {
+                Vector3 offset = new Vector3(x, y, z) *
+                    MerkabaConstants.LatticeStep;
+                maximum = Mathf.Max(maximum,
+                    matrix.MultiplyVector(offset).magnitude);
+            }
+            return maximum;
         }
 
         private void ApplyOpacityState()
@@ -333,6 +477,10 @@ namespace Genesis.RoomScan
                 VisibleChunkCount = ToInt(counters[28]);
                 VisibleSurfaceKernelCount = ToInt(counters[29]);
                 RenderPrimitiveOverflow = counters[23] != 0u;
+                uint readoutStatus = counters[
+                    MerkabaGrid.CounterReadoutBuildStatus];
+                if (readoutStatus == 2u || readoutStatus == 3u)
+                    _awaitingResidencyChange = false;
             });
         }
 

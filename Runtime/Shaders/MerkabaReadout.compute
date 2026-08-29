@@ -1,8 +1,8 @@
-#pragma kernel ResetFrame
-#pragma kernel QueryM8Frame
-#pragma kernel PrepareFrameCompilerArgs
-#pragma kernel CompileVisiblePrimitives
-#pragma kernel FinalizeDrawArgs
+#pragma kernel ResetReadoutBuild
+#pragma kernel QueryM8Readout
+#pragma kernel PrepareReadoutBuild
+#pragma kernel CompileReadoutVertices
+#pragma kernel FinalizeReadout
 
 #include "MerkabaCanonicalGeometry.generated.hlsl"
 #include "MerkabaWorld.hlsl"
@@ -11,26 +11,29 @@
 #define MERKABA_HALF_SUPPORT 0.025
 #define MERKABA_OCCUPIED_FLAG 1u
 
-struct VisiblePrimitiveRecord
+struct MerkabaReadoutVertex
 {
-    int3 globalKernelCoord;
-    uint packed;
+    float3 gridPosition;
+    uint packedColor;
 };
 
 RWStructuredBuffer<uint> _M8VisibleTiles;
 StructuredBuffer<uint> _M8VisibleTilesRead;
-RWStructuredBuffer<VisiblePrimitiveRecord> _M8VisiblePrimitives;
+RWStructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices;
 RWStructuredBuffer<uint> _M8FrameDispatchArgs;
 RWStructuredBuffer<uint> _M8DrawArgs;
 
 float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 float4 _M8DrawPlanes[12];
+float4 _M8DependencyPlanes[12];
 float3 _M8EyeGridPositions[2];
 float _M8GridWindingSign;
+float _M8ReadoutTranslationGuardGrid;
 float3 _M8CameraWorld;
 float _M8RenderDistance;
 float _M8WarmDistance;
+float _M8DependencyDistance;
 int3 _M8QueryCenterBlock;
 int _M8QueryBlockRadius;
 int _M8QueryBlockSide;
@@ -60,12 +63,31 @@ uint M8EyeFrustumChildMask(int3 parentMin, int parentSpan, uint eye)
     return support;
 }
 
+uint M8EyeDependencyChildMask(int3 parentMin, int parentSpan, uint eye)
+{
+    uint support = 255u;
+    [unroll]
+    for (uint plane = 0u; plane < 6u; plane++)
+        support &= MerkabaM8PlaneChildMask(parentMin, parentSpan,
+            _M8DependencyPlanes[eye * 6u + plane], _MerkabaGridToWorld,
+            MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
+    return support;
+}
+
 uint M8DrawChildMask(int3 parentMin, int parentSpan)
 {
     uint stereo = M8EyeFrustumChildMask(parentMin, parentSpan, 0u) |
         M8EyeFrustumChildMask(parentMin, parentSpan, 1u);
     return stereo & M8DistanceChildMask(parentMin, parentSpan,
         _M8RenderDistance);
+}
+
+uint M8DependencyChildMask(int3 parentMin, int parentSpan)
+{
+    uint stereo = M8EyeDependencyChildMask(parentMin, parentSpan, 0u) |
+        M8EyeDependencyChildMask(parentMin, parentSpan, 1u);
+    return stereo & M8DistanceChildMask(parentMin, parentSpan,
+        _M8DependencyDistance);
 }
 
 void M8RequestWarmLoad(uint tileRefIndex, uint chunkIndex, uint tileLocal,
@@ -76,7 +98,7 @@ void M8RequestWarmLoad(uint tileRefIndex, uint chunkIndex, uint tileLocal,
 }
 
 [numthreads(1, 1, 1)]
-void ResetFrame(uint id : SV_DispatchThreadID)
+void ResetReadoutBuild(uint id : SV_DispatchThreadID)
 {
     _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES] = 0u;
@@ -88,27 +110,26 @@ void ResetFrame(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED] = 0u;
     _M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING] = 0u;
     _M8Counters[M8_COUNTER_PRIMITIVES_REJECTED] = 0u;
-    _M8Counters[M8_COUNTER_VISIBLE_SAFE_COUNT] =
-        MERKABA_M8_VISIBLE_PRIMITIVE_CAPACITY;
+    _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
+        MERKABA_READOUT_BUILDING;
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
     _M8FrameDispatchArgs[0] = 0u;
     _M8FrameDispatchArgs[1] = 8u;
     _M8FrameDispatchArgs[2] = 1u;
-    _M8DrawArgs[0] = 3u;
-    _M8DrawArgs[1] = 0u;
-    _M8DrawArgs[2] = 0u;
-    _M8DrawArgs[3] = 0u;
 }
 
 groupshared uint gFrameBlockRef;
 groupshared int3 gFrameBlockMin;
 groupshared uint gFrameWarm4;
 groupshared uint gFrameDraw4;
+groupshared uint gFrameDependency4;
 groupshared uint gFrameWarm3[8];
 groupshared uint gFrameDraw3[8];
+groupshared uint gFrameDependency3[8];
 
 [numthreads(64, 1, 1)]
-void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
+void QueryM8Readout(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
 {
     uint linearBlockIndex = groupId.x;
     if (thread == 0u)
@@ -116,6 +137,7 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         gFrameBlockRef = 0u;
         gFrameWarm4 = 0u;
         gFrameDraw4 = 0u;
+        gFrameDependency4 = 0u;
         uint side = (uint)_M8QueryBlockSide;
         if (linearBlockIndex < side * side * side)
         {
@@ -138,6 +160,8 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                     gFrameWarm4 = M8DistanceChildMask(gFrameBlockMin, 256,
                         _M8WarmDistance);
                     gFrameDraw4 = M8DrawChildMask(gFrameBlockMin, 256);
+                    gFrameDependency4 = M8DependencyChildMask(
+                        gFrameBlockMin, 256);
                     M8CounterIncrement(M8_COUNTER_HASH_HIT_BLOCKS);
                 }
             }
@@ -149,6 +173,7 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         uint d4ForMask = thread;
         gFrameWarm3[d4ForMask] = 0u;
         gFrameDraw3[d4ForMask] = 0u;
+        gFrameDependency3[d4ForMask] = 0u;
         if (gFrameBlockRef != 0u)
         {
             uint maskBlockIndex = gFrameBlockRef - 1u;
@@ -162,6 +187,9 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                 gFrameDraw3[d4ForMask] =
                     ((gFrameDraw4 >> d4ForMask) & 1u) != 0u
                     ? M8DrawChildMask(min4ForMask, 128) : 0u;
+                gFrameDependency3[d4ForMask] =
+                    ((gFrameDependency4 >> d4ForMask) & 1u) != 0u
+                    ? M8DependencyChildMask(min4ForMask, 128) : 0u;
             }
         }
     }
@@ -181,7 +209,11 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
     uint warm2 = M8DistanceChildMask(min3, 64, _M8WarmDistance);
     bool drawPath3 = ((gFrameDraw4 >> d4) & 1u) != 0u &&
         ((gFrameDraw3[d4] >> d3) & 1u) != 0u;
+    bool dependencyPath3 = ((gFrameDependency4 >> d4) & 1u) != 0u &&
+        ((gFrameDependency3[d4] >> d3) & 1u) != 0u;
     uint draw2 = drawPath3 ? M8DrawChildMask(min3, 64) : 0u;
+    uint dependency2 = dependencyPath3
+        ? M8DependencyChildMask(min3, 64) : 0u;
     uint support2 = (_M8BlockPresenceL2Read[blockIndex * 64u +
         d4 * 8u + d3] & 255u) & warm2;
     while (support2 != 0u)
@@ -195,7 +227,11 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
         uint warm1 = M8DistanceChildMask(min2, 32, _M8WarmDistance);
         bool drawPath2 = drawPath3 && ((draw2 >> d2) & 1u) != 0u;
+        bool dependencyPath2 = dependencyPath3 &&
+            ((dependency2 >> d2) & 1u) != 0u;
         uint draw1 = drawPath2 ? M8DrawChildMask(min2, 32) : 0u;
+        uint dependency1 = dependencyPath2
+            ? M8DependencyChildMask(min2, 32) : 0u;
         uint support1 =
             (_M8ChunkPresenceRead[M8ChunkPresenceL0Index(chunkIndex)] &
             255u) & warm1;
@@ -207,7 +243,11 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
             int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
             uint warm0 = M8DistanceChildMask(min1, 16, _M8WarmDistance);
             bool drawPath1 = drawPath2 && ((draw1 >> d1) & 1u) != 0u;
+            bool dependencyPath1 = dependencyPath2 &&
+                ((dependency1 >> d1) & 1u) != 0u;
             uint draw0 = drawPath1 ? M8DrawChildMask(min1, 16) : 0u;
+            uint dependency0 = dependencyPath1
+                ? M8DependencyChildMask(min1, 16) : 0u;
             uint support0 =
                 (_M8ChunkPresenceRead[
                     M8ChunkPresenceL1Index(chunkIndex, d1)] & 255u) & warm0;
@@ -219,16 +259,22 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                 uint tileRefIndex = chunkIndex * 64u + tileLocal;
                 uint tileRef = _M8ChunkTileRefs[tileRefIndex];
                 bool inDraw = drawPath1 && ((draw0 >> d0) & 1u) != 0u;
+                bool inDependency = dependencyPath1 &&
+                    ((dependency0 >> d0) & 1u) != 0u;
                 if (tileRef == MERKABA_REF_COLD_ON_SSD)
                 {
                     M8RequestWarmLoad(tileRefIndex, chunkIndex, tileLocal,
                         inDraw);
+                    if (inDependency)
+                        M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
                     continue;
                 }
                 if (!M8IsHotRef(tileRef))
                 {
                     if (inDraw)
                         M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
+                    if (inDependency)
+                        M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
                     continue;
                 }
                 uint physicalSlot = M8PhysicalSlot(tileRef);
@@ -250,8 +296,17 @@ void QueryM8Frame(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
 }
 
 [numthreads(1, 1, 1)]
-void PrepareFrameCompilerArgs(uint id : SV_DispatchThreadID)
+void PrepareReadoutBuild(uint id : SV_DispatchThreadID)
 {
+    if (_M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u)
+    {
+        _M8FrameDispatchArgs[0] = 0u;
+        _M8FrameDispatchArgs[1] = 8u;
+        _M8FrameDispatchArgs[2] = 1u;
+        _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
+            MERKABA_READOUT_SKIPPED;
+        return;
+    }
     _M8FrameDispatchArgs[0] = min(
         _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
@@ -267,15 +322,17 @@ bool PrimitiveFrontFacingEitherEye(int3 globalCoord, uint primitiveId)
     MerkabaCanonicalPrimitiveFacing(primitiveId, primitiveCenterOffset,
         orientedNormal);
     float3 center = kernelCenter + primitiveCenterOffset;
-    float leftFacing = dot(orientedNormal, _M8EyeGridPositions[0] - center) *
-        _M8GridWindingSign;
-    float rightFacing = dot(orientedNormal, _M8EyeGridPositions[1] - center) *
-        _M8GridWindingSign;
-    return leftFacing > 0.0 || rightFacing > 0.0;
+    float3 guardedNormal = orientedNormal * _M8GridWindingSign;
+    float leftFacing = dot(guardedNormal,
+        _M8EyeGridPositions[0] - center);
+    float rightFacing = dot(guardedNormal,
+        _M8EyeGridPositions[1] - center);
+    return max(leftFacing, rightFacing) +
+        _M8ReadoutTranslationGuardGrid * length(guardedNormal) > 0.0;
 }
 
 [numthreads(64, 1, 1)]
-void CompileVisiblePrimitives(uint3 groupId : SV_GroupID,
+void CompileReadoutVertices(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint visibleCount = min(_M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
@@ -303,6 +360,10 @@ void CompileVisiblePrimitives(uint3 groupId : SV_GroupID,
             kMerkabaBodyDiagonalOffsets[direction], occupied))
         {
             M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
+            M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
+            uint failureStatus;
+            InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
+                MERKABA_READOUT_FAILED, failureStatus);
             return;
         }
         if (occupied) neighbourMask |= 1u << direction;
@@ -338,36 +399,61 @@ void CompileVisiblePrimitives(uint3 groupId : SV_GroupID,
     uint baseIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
         survivingCount, baseIndex);
-    if (baseIndex + survivingCount > MERKABA_M8_VISIBLE_PRIMITIVE_CAPACITY)
+    if (baseIndex + survivingCount >
+        MERKABA_M8_READOUT_TRIANGLE_CAPACITY)
     {
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
-        InterlockedMin(_M8Counters[M8_COUNTER_VISIBLE_SAFE_COUNT],
-            baseIndex, ignored);
+        InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
+            MERKABA_READOUT_FAILED, ignored);
         return;
     }
     uint rgb = state.packedColor & 0x00ffffffu;
     uint hasRgb = state.colorConfidence > 0u ? 1u : 0u;
-    uint output = baseIndex;
+    uint outputVertex = baseIndex * MERKABA_VERTICES_PER_PRIMITIVE;
     while (survivingMask != 0u)
     {
         uint primitiveId = (uint)firstbitlow(survivingMask);
         survivingMask &= survivingMask - 1u;
-        VisiblePrimitiveRecord record;
-        record.globalKernelCoord = globalCoord;
-        record.packed = primitiveId | (hasRgb << 5u) | (rgb << 6u);
-        _M8VisiblePrimitives[output++] = record;
+        uint packedColor = rgb | (hasRgb << 24u);
+        [unroll]
+        for (uint corner = 0u; corner < MERKABA_VERTICES_PER_PRIMITIVE;
+             corner++)
+        {
+            MerkabaReadoutVertex vertex;
+            vertex.gridPosition = (float3)globalCoord *
+                MERKABA_LATTICE_STEP + MerkabaCanonicalPrimitivePosition(
+                    primitiveId, corner);
+            vertex.packedColor = packedColor;
+            _M8ReadoutVertices[outputVertex++] = vertex;
+        }
     }
 }
 
 [numthreads(1, 1, 1)]
-void FinalizeDrawArgs(uint id : SV_DispatchThreadID)
+void FinalizeReadout(uint id : SV_DispatchThreadID)
 {
+    uint status = _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS];
+    if (status == MERKABA_READOUT_SKIPPED) return;
+    if (status == MERKABA_READOUT_FAILED ||
+        _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
+        _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u)
+    {
+        _M8DrawArgs[0] = 0u;
+        _M8DrawArgs[1] = 2u;
+        _M8DrawArgs[2] = 0u;
+        _M8DrawArgs[3] = 0u;
+        _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
+            MERKABA_READOUT_FAILED;
+        return;
+    }
     uint logical = min(
         _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-        _M8Counters[M8_COUNTER_VISIBLE_SAFE_COUNT]);
+        MERKABA_M8_READOUT_TRIANGLE_CAPACITY);
     _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES] = logical;
-    _M8DrawArgs[0] = 3u;
-    _M8DrawArgs[1] = logical * 2u;
+    _M8DrawArgs[0] = logical * MERKABA_VERTICES_PER_PRIMITIVE;
+    _M8DrawArgs[1] = 2u;
     _M8DrawArgs[2] = 0u;
     _M8DrawArgs[3] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
+        MERKABA_READOUT_PUBLISHED;
 }

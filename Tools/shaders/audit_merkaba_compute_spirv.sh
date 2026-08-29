@@ -26,7 +26,7 @@ alias_bases=(
 
 kernel_count=0
 for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
-  MerkabaFrameCompiler.compute; do
+  MerkabaReadout.compute; do
   shader="$shader_dir/$shader_name"
   while read -r _ _ kernel; do
     spv="$audit_dir/$kernel.spv"

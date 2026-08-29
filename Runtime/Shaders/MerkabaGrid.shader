@@ -26,17 +26,13 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "MerkabaCanonicalGeometry.generated.hlsl"
-
-            #define MERKABA_LATTICE_STEP 0.025
-
-            struct VisiblePrimitiveRecord
+            struct MerkabaReadoutVertex
             {
-                int3 globalKernelCoord;
-                uint packed;
+                float3 gridPosition;
+                uint packedColor;
             };
 
-            StructuredBuffer<VisiblePrimitiveRecord> _M8VisiblePrimitives;
+            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices;
             float4x4 _MerkabaGridToWorld;
 
             CBUFFER_START(UnityPerMaterial)
@@ -66,24 +62,15 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 Varyings output;
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-#if UNITY_ANY_INSTANCING_ENABLED
-                uint logicalPrimitive = unity_InstanceID;
-#else
-                uint logicalPrimitive = input.proceduralInstanceID;
-#endif
-                VisiblePrimitiveRecord record =
-                    _M8VisiblePrimitives[logicalPrimitive];
-                uint primitiveId = record.packed & 31u;
-                float3 localPosition = (float3)record.globalKernelCoord *
-                    MERKABA_LATTICE_STEP + MerkabaCanonicalPrimitivePosition(
-                        primitiveId, input.vertexID);
+                MerkabaReadoutVertex vertex =
+                    _M8ReadoutVertices[input.vertexID];
                 float3 worldPosition = mul(_MerkabaGridToWorld,
-                    float4(localPosition, 1.0)).xyz;
+                    float4(vertex.gridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);
-                uint rgb = (record.packed >> 6u) & 0x00ffffffu;
+                uint rgb = vertex.packedColor & 0x00ffffffu;
                 output.color = half3(rgb & 255u, (rgb >> 8u) & 255u,
                     (rgb >> 16u) & 255u) / 255.0h;
-                output.hasRgb = (record.packed >> 5u) & 1u;
+                output.hasRgb = (vertex.packedColor >> 24u) & 1u;
                 return output;
             }
 

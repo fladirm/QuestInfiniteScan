@@ -20,7 +20,9 @@ namespace Genesis.RoomScan
         internal const int LoadRequestCapacity = 262144;
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
-        internal const int VisiblePrimitiveCapacity = 1_048_576;
+        internal const int ReadoutTriangleCapacity = 2_097_152;
+        internal const int ReadoutVertexCapacity =
+            ReadoutTriangleCapacity * MerkabaCanonicalGeometry.VerticesPerPrimitive;
         internal const int CounterCount = 72;
 
         internal const int CounterBlockCount = 0;
@@ -47,6 +49,8 @@ namespace Genesis.RoomScan
         internal const int CounterColdCarveTilesRequested = 64;
         internal const int CounterUnresolvedCarveTiles = 65;
         internal const int CounterResidencyEpoch = 66;
+        internal const int CounterReadoutUnresolved = 50;
+        internal const int CounterReadoutBuildStatus = 71;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
@@ -106,7 +110,7 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8CarveTiles;
         private ComputeBuffer _m8CarveDispatchArgs;
         private ComputeBuffer _m8VisibleTiles;
-        private ComputeBuffer _m8VisiblePrimitives;
+        private ComputeBuffer _m8ReadoutVertices;
         private ComputeBuffer _m8FrameDispatchArgs;
         private ComputeBuffer _m8DrawArgs;
         private ComputeBuffer _m8ObservationDispatchArgs;
@@ -144,7 +148,7 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8CarveTiles => _m8CarveTiles;
         internal ComputeBuffer M8CarveDispatchArgs => _m8CarveDispatchArgs;
         internal ComputeBuffer M8VisibleTiles => _m8VisibleTiles;
-        internal ComputeBuffer M8VisiblePrimitives => _m8VisiblePrimitives;
+        internal ComputeBuffer M8ReadoutVertices => _m8ReadoutVertices;
         internal ComputeBuffer M8FrameDispatchArgs => _m8FrameDispatchArgs;
         internal ComputeBuffer M8DrawArgs => _m8DrawArgs;
         internal ComputeBuffer M8ObservationDispatchArgs => _m8ObservationDispatchArgs;
@@ -235,7 +239,7 @@ namespace Genesis.RoomScan
                     ComputeBufferType.IndirectArguments);
                 _m8VisibleTiles = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
-                _m8VisiblePrimitives = Allocate(VisiblePrimitiveCapacity, 16);
+                _m8ReadoutVertices = Allocate(ReadoutVertexCapacity, 16);
                 _m8FrameDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
                 _m8DrawArgs = Allocate(4, sizeof(uint),

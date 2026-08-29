@@ -218,8 +218,8 @@ namespace Genesis.RoomScan.Editor
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute");
             AssignAsset(grid, "worldCompute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaWorld.compute");
-            AssignAsset(renderer, "frameCompilerCompute",
-                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaFrameCompiler.compute");
+            AssignAsset(renderer, "readoutCompute",
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaReadout.compute");
             AssignAsset(renderer, "renderShader",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader");
         }

@@ -5,7 +5,7 @@ using UnityEngine.Rendering.Universal;
 
 namespace Genesis.RoomScan
 {
-    /// <summary>One URP raster pass for the frame-compiled Merkaba readout.</summary>
+    /// <summary>One URP raster pass for the cached Merkaba readout stream.</summary>
     public sealed class MerkabaRenderFeature : ScriptableRendererFeature
     {
         private sealed class PassData

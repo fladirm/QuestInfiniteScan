@@ -94,9 +94,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output)"));
             Assert.That(source, Does.Contain(
-                "uint logicalPrimitive = unity_InstanceID"));
-            Assert.That(source, Does.Contain(
-                "_M8VisiblePrimitives[logicalPrimitive]"));
+                "_M8ReadoutVertices[input.vertexID]"));
+            Assert.That(source, Does.Not.Contain("logicalPrimitive"));
+            Assert.That(source, Does.Not.Contain("primitiveId"));
             Assert.That(source, Does.Not.Contain(
                 "_MerkabaPrimitiveCapacityPerChunk"));
             Assert.That(source, Does.Not.Contain(

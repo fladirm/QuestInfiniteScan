@@ -12,7 +12,7 @@ namespace Genesis.RoomScan
         SurfaceIntegration,
         CarveIntegration,
         WorldQuery,
-        FrameCompile,
+        ReadoutBuild,
         MerkabaDraw,
         Count
     }
@@ -104,6 +104,8 @@ namespace Genesis.RoomScan
             internal uint RejectedPrimitives;
             internal uint LateColdMisses;
             internal uint RenderPrimitiveOverflow;
+            internal uint ReadoutUnresolved;
+            internal uint ReadoutBuildStatus;
             internal uint ObservationFailure;
             internal uint FailedObservations;
             internal float LoadBytesPerSecond;
@@ -120,7 +122,7 @@ namespace Genesis.RoomScan
             "SURFACE_INTEGRATION",
             "CARVE_INTEGRATION",
             "M8_WORLD_QUERY",
-            "M8_FRAME_COMPILE",
+            "M8_READOUT_BUILD",
             "MERKABA_DRAW"
         };
         private static readonly Dictionary<(ulong Shader, int Kernel), TimingEntry>
@@ -458,6 +460,8 @@ namespace Genesis.RoomScan
                     sample.CarveOccupiedToFree = values[62];
                     sample.CarveBitsRetired = values[63];
                     sample.ColdCarveTilesRequested = values[64];
+                    sample.ReadoutUnresolved = values[50];
+                    sample.ReadoutBuildStatus = values[71];
                 }
                 sample.PendingReadbacks--;
                 TryLogMetrics(sample);
@@ -648,11 +652,15 @@ namespace Genesis.RoomScan
                         $"visibleTiles={sample.VisibleTiles} " +
                         $"occupiedKernelsConsidered={sample.OccupiedKernelsConsidered} " +
                         $"primitivesBeforeFacing={sample.PrimitivesBeforeFacing} " +
-                        $"logicalVisiblePrimitives={sample.LogicalPrimitives} " +
-                        $"rawSPIInstances={sample.LogicalPrimitives * 2u} " +
+                        $"logicalReadoutTriangles={sample.LogicalPrimitives} " +
+                        $"readoutVertices={sample.LogicalPrimitives * 3u} " +
+                        $"rawEyeInstances={(sample.LogicalPrimitives > 0u ? 2u : 0u)} " +
+                        $"stereoVertexInvocations={sample.LogicalPrimitives * 6u} " +
                         $"primitivesRejectedBothEyes={sample.RejectedPrimitives} " +
                         $"lateDrawColdMisses={sample.LateColdMisses} " +
                         $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow} " +
+                        $"readoutUnresolved={sample.ReadoutUnresolved} " +
+                        $"readoutBuildStatus={sample.ReadoutBuildStatus} " +
                         $"observationFailure=0x{sample.ObservationFailure:x} " +
                         $"failedObservations={sample.FailedObservations}");
         }
