@@ -428,10 +428,10 @@ bool MerkabaReadoutSurfacePatch(uint neighbourMask, out int3 patch0,
             tangent0.x = 1;
             tangent1.y = signDirection.z;
         }
-        patch0 = normal - tangent0 - tangent1;
-        patch1 = normal + tangent0 - tangent1;
-        patch2 = normal + tangent0 + tangent1;
-        patch3 = normal - tangent0 + tangent1;
+        patch0 = -normal - tangent0 - tangent1;
+        patch1 = -normal + tangent0 - tangent1;
+        patch2 = -normal + tangent0 + tangent1;
+        patch3 = -normal - tangent0 + tangent1;
         triangleCount = 2u;
         return true;
     }
