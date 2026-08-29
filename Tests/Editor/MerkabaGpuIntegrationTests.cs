@@ -99,15 +99,17 @@ namespace Genesis.RoomScan.Tests
                 32768L * 4, 262144L * 16, 4,
                 2097152L * 16, 1048576L * 4,
                 32768L * 4, 32768L * 4, 12, 32768L * 4,
-                (long)MerkabaGrid.ReadoutVertexCapacity * 16, 12, 16, 12,
+                (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
+                (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
+                12, 16, 12,
                 32L * 8,
                 32L * 513 * 16, 32L * 16, 32L * 512 * 16,
                 8192L * 16
             };
-            Assert.That(allBuffers, Has.Length.EqualTo(35));
+            Assert.That(allBuffers, Has.Length.EqualTo(36));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(524781144L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(625444440L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -305,7 +307,10 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
             string feature = Source("Runtime/Merkaba/MerkabaRenderFeature.cs");
-            Assert.That(frame, Does.Contain("uint survivingCount = countbits(survivingMask)"));
+            Assert.That(frame, Does.Contain(
+                "MerkabaReadoutCubeTriangle(neighbourMask, triangleIndex"));
+            Assert.That(frame, Does.Contain(
+                "for (uint triangleIndex = 0u; triangleIndex < 12u;"));
             Assert.That(frame, Does.Contain(
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
             Assert.That(frame, Does.Contain(
@@ -373,7 +378,11 @@ namespace Genesis.RoomScan.Tests
         {
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
             Assert.That(shader, Does.Contain(
-                "_M8ReadoutVertices[input.vertexID]"));
+                "_M8ReadoutVertices0[input.vertexID]"));
+            Assert.That(shader, Does.Contain(
+                "_M8ReadoutVertices1["));
+            Assert.That(shader, Does.Contain(
+                "input.vertexID - 6291456u"));
             Assert.That(shader, Does.Not.Contain(
                 "MerkabaCanonicalPrimitivePosition"));
             Assert.That(shader, Does.Not.Contain("primitiveId"));
@@ -404,7 +413,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer + gpu, Does.Not.Contain("ReadoutBank"));
             Assert.That(renderer + gpu, Does.Not.Contain("ReadoutChunk"));
             Assert.That(gpu, Does.Contain(
-                "_m8ReadoutVertices = Allocate(ReadoutVertexCapacity, 16)"));
+                "_m8ReadoutVertices0 = Allocate("));
+            Assert.That(gpu, Does.Contain(
+                "_m8ReadoutVertices1 = Allocate("));
             Assert.That(MerkabaGrid.CounterReadoutUnresolved, Is.EqualTo(50));
             Assert.That(MerkabaGrid.CounterReadoutBuildStatus, Is.EqualTo(71));
 
@@ -423,14 +434,20 @@ namespace Genesis.RoomScan.Tests
             string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
             Assert.That(MerkabaGrid.ReadoutTriangleCapacity,
+                Is.EqualTo(4_194_304));
+            Assert.That(MerkabaGrid.ReadoutTriangleCapacityPerBuffer,
                 Is.EqualTo(2_097_152));
-            Assert.That(MerkabaGrid.ReadoutVertexCapacity,
+            Assert.That(MerkabaGrid.ReadoutVertexCapacityPerBuffer,
                 Is.EqualTo(6_291_456));
-            Assert.That((long)MerkabaGrid.ReadoutVertexCapacity * 16,
+            Assert.That((long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
                 Is.EqualTo(96L * 1024 * 1024));
             Assert.That(readout, Does.Contain("struct MerkabaReadoutVertex"));
             Assert.That(readout, Does.Contain(
-                "MerkabaCanonicalPrimitivePosition(\n                    primitiveId, corner)"));
+                "MerkabaReadoutCubeTriangle(neighbourMask, triangleIndex"));
+            Assert.That(readout, Does.Contain(
+                "_M8ReadoutVertices0[outputVertex + corner] = vertex"));
+            Assert.That(readout, Does.Contain(
+                "_M8ReadoutVertices1[outputVertex + corner] = vertex"));
             Assert.That(readout, Does.Contain("hasRgb << 24u"));
             Assert.That(readout, Does.Not.Contain("half3(0.55h"));
             Assert.That(shader, Does.Contain("half3(0.55h, 0.16h, 0.42h)"));

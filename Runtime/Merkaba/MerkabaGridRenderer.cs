@@ -69,8 +69,10 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaWorldToGrid");
         private static readonly int VisibleTilesId =
             Shader.PropertyToID("_M8VisibleTiles");
-        private static readonly int ReadoutVerticesId =
-            Shader.PropertyToID("_M8ReadoutVertices");
+        private static readonly int ReadoutVertices0Id =
+            Shader.PropertyToID("_M8ReadoutVertices0");
+        private static readonly int ReadoutVertices1Id =
+            Shader.PropertyToID("_M8ReadoutVertices1");
         private static readonly int FrameDispatchArgsId =
             Shader.PropertyToID("_M8FrameDispatchArgs");
         private static readonly int DrawArgsId = Shader.PropertyToID("_M8DrawArgs");
@@ -184,8 +186,10 @@ namespace Genesis.RoomScan
                     _grid.M8VisibleTiles);
                 readoutCompute.SetBuffer(kernel, "_M8VisibleTilesRead",
                     _grid.M8VisibleTiles);
-                readoutCompute.SetBuffer(kernel, ReadoutVerticesId,
-                    _grid.M8ReadoutVertices);
+                readoutCompute.SetBuffer(kernel, ReadoutVertices0Id,
+                    _grid.M8ReadoutVertices0);
+                readoutCompute.SetBuffer(kernel, ReadoutVertices1Id,
+                    _grid.M8ReadoutVertices1);
                 readoutCompute.SetBuffer(kernel, FrameDispatchArgsId,
                     _grid.M8FrameDispatchArgs);
                 readoutCompute.SetBuffer(kernel, DrawArgsId,
@@ -195,7 +199,10 @@ namespace Genesis.RoomScan
             {
                 name = "Merkaba M8 Readout"
             };
-            _material.SetBuffer(ReadoutVerticesId, _grid.M8ReadoutVertices);
+            _material.SetBuffer(ReadoutVertices0Id,
+                _grid.M8ReadoutVertices0);
+            _material.SetBuffer(ReadoutVertices1Id,
+                _grid.M8ReadoutVertices1);
             ApplyOpacityState();
             _initialized = true;
             return true;

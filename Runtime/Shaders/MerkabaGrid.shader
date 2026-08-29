@@ -32,7 +32,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 uint packedColor;
             };
 
-            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices;
+            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices0;
+            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices1;
             float4x4 _MerkabaGridToWorld;
 
             CBUFFER_START(UnityPerMaterial)
@@ -62,8 +63,12 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 Varyings output;
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                MerkabaReadoutVertex vertex =
-                    _M8ReadoutVertices[input.vertexID];
+                MerkabaReadoutVertex vertex;
+                if (input.vertexID < 6291456u)
+                    vertex = _M8ReadoutVertices0[input.vertexID];
+                else
+                    vertex = _M8ReadoutVertices1[
+                        input.vertexID - 6291456u];
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(vertex.gridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);

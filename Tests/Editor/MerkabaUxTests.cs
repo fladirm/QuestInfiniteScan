@@ -94,7 +94,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output)"));
             Assert.That(source, Does.Contain(
-                "_M8ReadoutVertices[input.vertexID]"));
+                "_M8ReadoutVertices0[input.vertexID]"));
+            Assert.That(source, Does.Contain(
+                "_M8ReadoutVertices1["));
+            Assert.That(source, Does.Contain(
+                "input.vertexID - 6291456u"));
             Assert.That(source, Does.Not.Contain("logicalPrimitive"));
             Assert.That(source, Does.Not.Contain("primitiveId"));
             Assert.That(source, Does.Not.Contain(
