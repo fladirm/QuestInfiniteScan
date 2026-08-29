@@ -15,7 +15,7 @@ namespace Genesis.RoomScan
 {
     /// <summary>
     /// Captures stereo depth from the AR occlusion subsystem, computes world-space normals,
-    /// runs optional bilateral filtering guided by the passthrough RGB feed, and produces
+    /// runs mandatory true-stereo RGB-D refinement, and produces
     /// dilated depth textures consumed by <see cref="MerkabaIntegrator"/> for reversible
     /// surface/free-space evidence integration.
     /// </summary>
@@ -26,15 +26,12 @@ namespace Genesis.RoomScan
 
         [SerializeField] private ComputeShader depthNormalCompute;
         [SerializeField] private ComputeShader depthDilationCompute;
-        [SerializeField] private ComputeShader bilateralFilterCompute;
+        [SerializeField] private ComputeShader stereoRgbdRefineCompute;
 
-        [Header("Bilateral Depth Filter")]
-        [Tooltip("Edge-preserving depth denoising guided by passthrough RGB. Smooths flat surfaces while keeping object boundaries sharp.")]
-        [SerializeField] private bool enableBilateralFilter = true;
-        [SerializeField, Range(1f, 8f)] private float sigmaSpatial = 3.0f;
-        [SerializeField, Range(0.01f, 0.5f)] private float sigmaColor = 0.1f;
-        [SerializeField, Range(0.001f, 0.1f)] private float sigmaDepth = 0.02f;
-        [SerializeField, Range(1, 5)] private int filterRadius = 2;
+        [Header("True-stereo RGB-D refinement")]
+        [Tooltip("Bounded metric search around Environment Depth, validated by both PCA eyes and the opposite depth eye.")]
+        [SerializeField, Range(0.005f, 0.05f)]
+        private float depthSearchRadius = 0.025f;
 
         [Header("Dilation")]
         [SerializeField, Range(0, 12)] private int dilationSteps = 8;
@@ -51,9 +48,9 @@ namespace Genesis.RoomScan
         public Matrix4x4[] Proj => _proj;
         /// <summary>Inverse projection matrices (per-eye).</summary>
         public Matrix4x4[] ProjInv => _projInv;
-        /// <summary>Per-eye view matrices (tracking-space to depth-camera-space).</summary>
+        /// <summary>Per-eye view matrices (Unity world to depth-camera space).</summary>
         public Matrix4x4[] View => _view;
-        /// <summary>Inverse view matrices (per-eye), mapping depth-camera-space back to tracking-space.</summary>
+        /// <summary>Inverse view matrices (per-eye), mapping depth-camera space to Unity world.</summary>
         public Matrix4x4[] ViewInv => _viewInv;
         /// <summary>Near and far clip distances (x = near, y = far) for the current depth frame.</summary>
         public Vector2 Planes => _planes;
@@ -79,16 +76,61 @@ namespace Genesis.RoomScan
         private static readonly int InputProjectionDepthID =
             Shader.PropertyToID("gsInputProjectionDepth");
 
-        // Bilateral filter property IDs
-        private static readonly int BilSrcDepthID = Shader.PropertyToID("_SrcDepth");
-        private static readonly int BilRGBGuideID = Shader.PropertyToID("_RGBGuide");
-        private static readonly int BilDstDepthID = Shader.PropertyToID("_DstDepth");
-        private static readonly int BilDepthWID = Shader.PropertyToID("_DepthW");
-        private static readonly int BilDepthHID = Shader.PropertyToID("_DepthH");
-        private static readonly int BilSigmaSpatialID = Shader.PropertyToID("_SigmaSpatial");
-        private static readonly int BilSigmaColorID = Shader.PropertyToID("_SigmaColor");
-        private static readonly int BilSigmaDepthID = Shader.PropertyToID("_SigmaDepth");
-        private static readonly int BilFilterRadiusID = Shader.PropertyToID("_FilterRadius");
+        private static readonly int RefineSrcDepthId =
+            Shader.PropertyToID("_SrcDepth");
+        private static readonly int RefineDstDepthId =
+            Shader.PropertyToID("_DstDepth");
+        private static readonly int RefineDepthWidthId =
+            Shader.PropertyToID("_DepthW");
+        private static readonly int RefineDepthHeightId =
+            Shader.PropertyToID("_DepthH");
+        private static readonly int RefineNearFarId =
+            Shader.PropertyToID("_DepthNearFar");
+        private static readonly int RefineDepthProjId =
+            Shader.PropertyToID("_DepthProj");
+        private static readonly int RefineDepthProjInvId =
+            Shader.PropertyToID("_DepthProjInv");
+        private static readonly int RefineDepthViewId =
+            Shader.PropertyToID("_DepthView");
+        private static readonly int RefineDepthViewInvId =
+            Shader.PropertyToID("_DepthViewInv");
+        private static readonly int RefineSearchRadiusId =
+            Shader.PropertyToID("_DepthSearchRadius");
+        private static readonly int[] RefineCameraRgbId =
+        {
+            Shader.PropertyToID("_MerkabaCameraRgbLeft"),
+            Shader.PropertyToID("_MerkabaCameraRgbRight")
+        };
+        private static readonly int[] RefineCameraPositionId =
+        {
+            Shader.PropertyToID("_MerkabaCameraPositionLeft"),
+            Shader.PropertyToID("_MerkabaCameraPositionRight")
+        };
+        private static readonly int[] RefineCameraInverseRotationId =
+        {
+            Shader.PropertyToID("_MerkabaCameraInverseRotationLeft"),
+            Shader.PropertyToID("_MerkabaCameraInverseRotationRight")
+        };
+        private static readonly int[] RefineCameraFocalLengthId =
+        {
+            Shader.PropertyToID("_MerkabaCameraFocalLengthLeft"),
+            Shader.PropertyToID("_MerkabaCameraFocalLengthRight")
+        };
+        private static readonly int[] RefineCameraPrincipalPointId =
+        {
+            Shader.PropertyToID("_MerkabaCameraPrincipalPointLeft"),
+            Shader.PropertyToID("_MerkabaCameraPrincipalPointRight")
+        };
+        private static readonly int[] RefineCameraSensorResolutionId =
+        {
+            Shader.PropertyToID("_MerkabaCameraSensorResolutionLeft"),
+            Shader.PropertyToID("_MerkabaCameraSensorResolutionRight")
+        };
+        private static readonly int[] RefineCameraCurrentResolutionId =
+        {
+            Shader.PropertyToID("_MerkabaCameraCurrentResolutionLeft"),
+            Shader.PropertyToID("_MerkabaCameraCurrentResolutionRight")
+        };
 
         /// <summary>True once a valid depth frame has been received from the AR occlusion subsystem.</summary>
         public static bool DepthAvailable { get; private set; }
@@ -110,8 +152,7 @@ namespace Genesis.RoomScan
         private ComputeKernelHelper _monoConvertKernel;
         private ComputeKernelHelper _initDilateKernel;
         private ComputeKernelHelper _dilateStepKernel;
-        private ComputeKernelHelper _bilateralKernel;
-        private bool _hasBilateralKernel;
+        private ComputeKernelHelper _stereoRgbdRefineKernel;
 
         private readonly RenderTexture[] _ownedRawDepth = new RenderTexture[2];
         private readonly Matrix4x4[,] _ownedProj = new Matrix4x4[2, 2];
@@ -120,6 +161,8 @@ namespace Genesis.RoomScan
         private readonly Matrix4x4[,] _ownedViewInv = new Matrix4x4[2, 2];
         private readonly Vector2[] _ownedPlanes = new Vector2[2];
         private readonly int[] _ownedVersions = new int[2];
+        private readonly long[] _ownedTimestampNs = new long[2];
+        private readonly SensorClockMapper _depthClock = new();
         private int _requestedDepthSlot = -1;
         private int _readyDepthSlot = -1;
         private int _heldDepthSlot = -1;
@@ -136,14 +179,10 @@ namespace Genesis.RoomScan
         /// <summary>Depth texture after jump-flood dilation, used by the integrator to fill holes near voxel boundaries.</summary>
         public RenderTexture DilatedDepthTex => _dilatedDepth;
 
-        private RenderTexture _filteredDepthTex;
-        private Texture _rgbGuide;
+        private RenderTexture _refinedDepthTex;
 
         private AROcclusionManager _arOcclusionManager;
-        private Unity.XR.CoreUtils.XROrigin _xrOrigin;
-        private Transform _trackingSpaceTransform;
         private Camera _mainCam;
-        private bool _started;
         private int _frameCount;
         private int _preprocessedFrameCount;
         private int _latestRawFrameVersion;
@@ -162,10 +201,11 @@ namespace Genesis.RoomScan
         internal ulong CopySubmittedEpoch => _copySubmittedEpoch;
         internal ulong CopyRetiredEpoch => _copyRetiredEpoch;
         internal bool OwnedDepthSnapshotReady => _readyDepthSlot >= 0;
+        internal double TimestampMappingUncertaintySeconds =>
+            _depthClock.UncertaintySeconds;
         internal RenderTexture OwnedRawDepthSnapshot => _readyDepthSlot >= 0
             ? _ownedRawDepth[_readyDepthSlot]
             : _heldDepthSlot >= 0 ? _ownedRawDepth[_heldDepthSlot] : null;
-        internal Texture RGBGuide => _rgbGuide;
         public bool HasUnprocessedFrame => DepthAvailable &&
             _readyDepthSlot >= 0 && _heldDepthSlot < 0 &&
             _ownedRawDepth[_readyDepthSlot] != null &&
@@ -177,24 +217,7 @@ namespace Genesis.RoomScan
         /// <summary>Raised only after an integration consumer preprocesses the latest frame.</summary>
         public event Action Updated;
 
-        /// <summary>
-        /// Provide the scanner-owned RGB observation as edge guide for bilateral depth filtering.
-        /// </summary>
-        public void SetRGBGuide(Texture tex) => _rgbGuide = tex;
-
         private static readonly Vector3 ScaleFlipZ = new(1, 1, -1);
-
-        /// <summary>
-        /// Convert a pose from XR tracking space to Unity world space.
-        /// Required because MRUK's world-lock may offset TrackingSpace from the XROrigin root.
-        /// </summary>
-        public Pose TrackingToWorld(Pose trackingPose)
-        {
-            if (_trackingSpaceTransform == null) return trackingPose;
-            return new Pose(
-                _trackingSpaceTransform.TransformPoint(trackingPose.position),
-                _trackingSpaceTransform.rotation * trackingPose.rotation);
-        }
 
         private void Awake()
         {
@@ -219,9 +242,6 @@ namespace Genesis.RoomScan
             if (!_arOcclusionManager)
                 throw new Exception("[RoomScan] AROcclusionManager not found in scene");
 
-            _xrOrigin = FindAnyObjectByType<Unity.XR.CoreUtils.XROrigin>();
-            CacheTrackingSpaceTransform();
-
             _normKernel = new ComputeKernelHelper(depthNormalCompute, "DepthNorm");
             _projectionDepthCopyKernel = new ComputeKernelHelper(depthNormalCompute,
                 "CopyProjectionDepthArray");
@@ -237,49 +257,18 @@ namespace Genesis.RoomScan
             MerkabaGpuTimestamps.RegisterKernel(depthDilationCompute,
                 _dilateStepKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess,
                 "DilateDepthStep");
-            if (bilateralFilterCompute != null)
-            {
-                _bilateralKernel = new ComputeKernelHelper(bilateralFilterCompute, "BilateralFilter");
-                _hasBilateralKernel = true;
-                MerkabaGpuTimestamps.RegisterKernel(bilateralFilterCompute,
-                    _bilateralKernel.KernelIndex,
-                    MerkabaGpuStage.DepthPreprocess, "BilateralFilter");
-            }
+            if (stereoRgbdRefineCompute == null)
+                throw new Exception("[RoomScan] StereoRgbdRefine compute is required");
+            _stereoRgbdRefineKernel = new ComputeKernelHelper(
+                stereoRgbdRefineCompute, "StereoRgbdRefine");
+            MerkabaGpuTimestamps.RegisterKernel(stereoRgbdRefineCompute,
+                _stereoRgbdRefineKernel.KernelIndex,
+                MerkabaGpuStage.DepthPreprocess, "StereoRgbdRefine");
 
             // Disable occlusion manager initially, enable after permission is confirmed
             _arOcclusionManager.enabled = false;
             CheckPermissionAndEnable();
 
-            _started = true;
-        }
-
-        /// <summary>
-        /// Resolves the TrackingSpace transform — the parent of the XR cameras that
-        /// MRUK world-lock can reposition each frame. Using this instead of the XROrigin
-        /// root ensures depth-to-world conversion includes the world-lock offset.
-        /// </summary>
-        private void CacheTrackingSpaceTransform()
-        {
-            // Prefer OVRCameraRig.trackingSpace (most reliable on Meta devices)
-            var ovrRig = FindAnyObjectByType<OVRCameraRig>();
-            if (ovrRig != null && ovrRig.trackingSpace != null)
-            {
-                _trackingSpaceTransform = ovrRig.trackingSpace;
-                Logger.Info($"DepthCapture: using OVRCameraRig.trackingSpace '{_trackingSpaceTransform.name}'");
-                return;
-            }
-
-            // Fallback: XROrigin.CameraFloorOffsetObject
-            if (_xrOrigin != null && _xrOrigin.CameraFloorOffsetObject != null)
-            {
-                _trackingSpaceTransform = _xrOrigin.CameraFloorOffsetObject.transform;
-                Logger.Info($"DepthCapture: using XROrigin.CameraFloorOffsetObject '{_trackingSpaceTransform.name}'");
-                return;
-            }
-
-            // Last resort: XROrigin root (pre-fix behaviour)
-            _trackingSpaceTransform = _xrOrigin != null ? _xrOrigin.transform : null;
-            Logger.Warning("DepthCapture: no TrackingSpace found, falling back to XROrigin root");
         }
 
         private void EnsureARSession()
@@ -359,6 +348,11 @@ namespace Genesis.RoomScan
         /// </summary>
         public void StartDepthCapture()
         {
+            if (!_captureActive)
+            {
+                _depthClock.Reset();
+                _depthClock.TryCaptureAnchor();
+            }
             _captureActive = true;
             if (!_permissionReady || _arOcclusionManager == null) return;
             if (!_arOcclusionManager.enabled)
@@ -379,6 +373,30 @@ namespace Genesis.RoomScan
                 ? 1 - _heldDepthSlot
                 : _readyDepthSlot >= 0 ? 1 - _readyDepthSlot : 0;
             _depthFrameRequested = true;
+            return true;
+        }
+
+        internal bool TryGetReadyFrameUnixTime(out double unixSeconds,
+            out long timestampNs)
+        {
+            if (_readyDepthSlot < 0)
+            {
+                unixSeconds = 0.0;
+                timestampNs = 0;
+                return false;
+            }
+            timestampNs = _ownedTimestampNs[_readyDepthSlot];
+            if (!_depthClock.IsReady)
+                _depthClock.TryCaptureAnchor();
+            return _depthClock.TryMapXrNanoseconds(timestampNs,
+                out unixSeconds);
+        }
+
+        internal bool DiscardReadyDepthFrame()
+        {
+            if (_readyDepthSlot < 0 || _heldDepthSlot >= 0) return false;
+            _processedRawFrameVersion = _ownedVersions[_readyDepthSlot];
+            _readyDepthSlot = -1;
             return true;
         }
 
@@ -442,6 +460,7 @@ namespace Genesis.RoomScan
             _heldDepthSlot = -1;
             _depthTex = null;
             _processedRawFrameVersion = _latestRawFrameVersion;
+            _depthClock.Reset();
         }
 
         private void OnDestroy()
@@ -463,7 +482,7 @@ namespace Genesis.RoomScan
                 if (_ownedRawDepth[slot]) Destroy(_ownedRawDepth[slot]);
                 _ownedRawDepth[slot] = null;
             }
-            if (_filteredDepthTex) { Destroy(_filteredDepthTex); _filteredDepthTex = null; }
+            if (_refinedDepthTex) { Destroy(_refinedDepthTex); _refinedDepthTex = null; }
             _dilatedDepth = null;
             _depthTex = null;
             _depthFrameRequested = false;
@@ -479,7 +498,7 @@ namespace Genesis.RoomScan
             UnityEngine.Object[] captured =
             {
                 _normTex, _dilationA, _dilationB,
-                _ownedRawDepth[0], _ownedRawDepth[1], _filteredDepthTex
+                _ownedRawDepth[0], _ownedRawDepth[1], _refinedDepthTex
             };
             bool released = false;
             return () =>
@@ -517,9 +536,19 @@ namespace Genesis.RoomScan
             if (_frameCount <= 3 || _frameCount % 100 == 0)
                 Logger.Info($"OnDepthFrame #{_frameCount}, textures={args.externalTextures.Count}");
 
+            double hostSeconds = Time.realtimeSinceStartupAsDouble;
+            long timestampNs;
+            if (!args.TryGetTimestamp(out timestampNs))
+            {
+                if (!Application.isEditor) return;
+                timestampNs = (long)Math.Round(hostSeconds * 1_000_000_000.0);
+            }
+            if (!_depthClock.IsReady && !_depthClock.TryCaptureAnchor()) return;
             if (!_depthFrameRequested || _requestedDepthSlot < 0) return;
-            if (Application.isEditor) HandleEditorSimulation(args);
-            else HandleDeviceDepth(args);
+            if (Application.isEditor)
+                HandleEditorSimulation(args, timestampNs);
+            else
+                HandleDeviceDepth(args, timestampNs);
         }
 
         /// <summary>
@@ -527,26 +556,11 @@ namespace Genesis.RoomScan
         /// consume it. Intermediate sensor frames are intentionally never filtered,
         /// normalised, or dilated.
         /// </summary>
-        public bool ConsumeLatestDepthFrame()
-        {
-            CommandBuffer command = CommandBufferPool.Get(
-                "Merkaba depth preprocess");
-            try
-            {
-                bool consumed = ConsumeLatestDepthFrame(command);
-                if (consumed) Graphics.ExecuteCommandBuffer(command);
-                return consumed;
-            }
-            finally
-            {
-                CommandBufferPool.Release(command);
-            }
-        }
-
-        internal bool ConsumeLatestDepthFrame(CommandBuffer command)
+        internal bool ConsumeLatestDepthFrame(CommandBuffer command,
+            StereoCameraFrame cameraFrame)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
-            if (!DepthAvailable || _readyDepthSlot < 0 ||
+            if (!cameraFrame.IsValid || !DepthAvailable || _readyDepthSlot < 0 ||
                 _heldDepthSlot >= 0 ||
                 _ownedRawDepth[_readyDepthSlot] == null ||
                 !ShouldPreprocessFrame(_ownedVersions[_readyDepthSlot],
@@ -564,7 +578,7 @@ namespace Genesis.RoomScan
             }
             _planes = _ownedPlanes[_heldDepthSlot];
             _depthTex = _ownedRawDepth[_heldDepthSlot];
-            ApplyBilateralFilter(command);
+            ApplyStereoRgbdRefinement(command, cameraFrame);
             SetGlobalShaderProperties();
             ComputeNormals(command);
             ComputeDilation(command);
@@ -597,7 +611,8 @@ namespace Genesis.RoomScan
             return result;
         }
 
-        private void HandleEditorSimulation(AROcclusionFrameEventArgs args)
+        private void HandleEditorSimulation(AROcclusionFrameEventArgs args,
+            long timestampNs)
         {
             if (args.externalTextures.Count == 0) return;
             Texture rawDepth = args.externalTextures[0].texture;
@@ -622,6 +637,7 @@ namespace Genesis.RoomScan
 
             _ownedPlanes[_requestedDepthSlot] = new Vector2(_mainCam.nearClipPlane,
                 _mainCam.farClipPlane);
+            _ownedTimestampNs[_requestedDepthSlot] = timestampNs;
 
             EnsureOwnedRawDepth(_requestedDepthSlot, rawDepth.width, rawDepth.height);
 
@@ -634,7 +650,8 @@ namespace Genesis.RoomScan
             MarkOwnedDepthSnapshotReady();
         }
 
-        private void HandleDeviceDepth(AROcclusionFrameEventArgs args)
+        private void HandleDeviceDepth(AROcclusionFrameEventArgs args,
+            long timestampNs)
         {
             if (args.externalTextures.Count == 0) return;
             Texture rawDepth = args.externalTextures[0].texture;
@@ -659,18 +676,14 @@ namespace Genesis.RoomScan
                 Pose pose = poses[i];
                 Matrix4x4 depthFrameMat = Matrix4x4.TRS(pose.position, pose.rotation, ScaleFlipZ);
 
-                Matrix4x4 worldToTracking = _trackingSpaceTransform != null
-                    ? _trackingSpaceTransform.worldToLocalMatrix
-                    : Matrix4x4.identity;
-
                 _ownedView[_requestedDepthSlot, i] =
-                    depthFrameMat.inverse * worldToTracking;
-                _ownedViewInv[_requestedDepthSlot, i] = Matrix4x4.Inverse(
-                    _ownedView[_requestedDepthSlot, i]);
+                    depthFrameMat.inverse;
+                _ownedViewInv[_requestedDepthSlot, i] = depthFrameMat;
             }
 
             _ownedPlanes[_requestedDepthSlot] = new Vector2(
                 depthPlanes.nearZ, depthPlanes.farZ);
+            _ownedTimestampNs[_requestedDepthSlot] = timestampNs;
             TryLatchDepthSnapshot(rawDepth);
         }
 
@@ -734,27 +747,22 @@ namespace Genesis.RoomScan
             _ownedVersions[slot] = _latestRawFrameVersion;
         }
 
-        private bool _loggedBilateralSkip;
-        private void ApplyBilateralFilter(CommandBuffer command)
+        private void ApplyStereoRgbdRefinement(CommandBuffer command,
+            StereoCameraFrame cameraFrame)
         {
-            if (!enableBilateralFilter || !_hasBilateralKernel || _rgbGuide == null || _depthTex == null)
-            {
-                if (!_loggedBilateralSkip && enableBilateralFilter && _hasBilateralKernel && _rgbGuide == null)
-                {
-                    _loggedBilateralSkip = true;
-                    Logger.Info("Bilateral depth filter skipped — no RGB guide (camera unavailable). " +
-                              "Depth will be noisier at edges.");
-                }
-                return;
-            }
+            if (!cameraFrame.IsValid || _depthTex == null)
+                throw new InvalidOperationException(
+                    "Depth refinement requires a complete stereo PCA pair.");
 
             int w = _depthTex.width;
             int h = _depthTex.height;
 
-            if (_filteredDepthTex == null || _filteredDepthTex.width != w || _filteredDepthTex.height != h)
+            if (_refinedDepthTex == null || _refinedDepthTex.width != w ||
+                _refinedDepthTex.height != h)
             {
-                if (_filteredDepthTex) Destroy(_filteredDepthTex);
-                _filteredDepthTex = new RenderTexture(w, h, 0, GraphicsFormat.R16_UNorm, 1)
+                if (_refinedDepthTex) Destroy(_refinedDepthTex);
+                _refinedDepthTex = new RenderTexture(w, h, 0,
+                    GraphicsFormat.R16_UNorm, 1)
                 {
                     dimension = TextureDimension.Tex2DArray,
                     volumeDepth = 2,
@@ -762,23 +770,53 @@ namespace Genesis.RoomScan
                     filterMode = FilterMode.Point,
                     wrapMode = TextureWrapMode.Clamp
                 };
-                _filteredDepthTex.Create();
+                _refinedDepthTex.Create();
             }
 
-            var cs = bilateralFilterCompute;
-            _bilateralKernel.Set(command, BilSrcDepthID, _depthTex);
-            _bilateralKernel.Set(command, BilRGBGuideID, _rgbGuide);
-            _bilateralKernel.Set(command, BilDstDepthID, _filteredDepthTex);
-            command.SetComputeIntParam(cs, BilDepthWID, w);
-            command.SetComputeIntParam(cs, BilDepthHID, h);
-            command.SetComputeFloatParam(cs, BilSigmaSpatialID, sigmaSpatial);
-            command.SetComputeFloatParam(cs, BilSigmaColorID, sigmaColor);
-            command.SetComputeFloatParam(cs, BilSigmaDepthID, sigmaDepth);
-            command.SetComputeIntParam(cs, BilFilterRadiusID, filterRadius);
+            ComputeShader shader = stereoRgbdRefineCompute;
+            _stereoRgbdRefineKernel.Set(command, RefineSrcDepthId, _depthTex);
+            _stereoRgbdRefineKernel.Set(command, RefineDstDepthId,
+                _refinedDepthTex);
+            command.SetComputeIntParam(shader, RefineDepthWidthId, w);
+            command.SetComputeIntParam(shader, RefineDepthHeightId, h);
+            command.SetComputeVectorParam(shader, RefineNearFarId, _planes);
+            command.SetComputeMatrixArrayParam(shader, RefineDepthProjId, _proj);
+            command.SetComputeMatrixArrayParam(shader, RefineDepthProjInvId,
+                _projInv);
+            command.SetComputeMatrixArrayParam(shader, RefineDepthViewId, _view);
+            command.SetComputeMatrixArrayParam(shader, RefineDepthViewInvId,
+                _viewInv);
+            command.SetComputeFloatParam(shader, RefineSearchRadiusId,
+                depthSearchRadius);
+            BindStereoCamera(command, shader, cameraFrame.Left, 0);
+            BindStereoCamera(command, shader, cameraFrame.Right, 1);
+            _stereoRgbdRefineKernel.DispatchFit(command, w, h, 2);
 
-            _bilateralKernel.DispatchFit(command, w, h, 2);
+            _depthTex = _refinedDepthTex;
+        }
 
-            _depthTex = _filteredDepthTex;
+        private void BindStereoCamera(CommandBuffer command,
+            ComputeShader shader, CameraFrameDescriptor frame, int eye)
+        {
+            if (!frame.IsValid || frame.Eye != (StereoEye)eye)
+                throw new ArgumentException("Stereo PCA eye mismatch.",
+                    nameof(frame));
+            command.SetComputeTextureParam(shader,
+                _stereoRgbdRefineKernel.KernelIndex,
+                RefineCameraRgbId[eye], frame.Texture);
+            command.SetComputeVectorParam(shader, RefineCameraPositionId[eye],
+                frame.WorldPose.position);
+            command.SetComputeMatrixParam(shader,
+                RefineCameraInverseRotationId[eye],
+                Matrix4x4.Rotate(frame.WorldPose.rotation).inverse);
+            command.SetComputeVectorParam(shader,
+                RefineCameraFocalLengthId[eye], frame.FocalLength);
+            command.SetComputeVectorParam(shader,
+                RefineCameraPrincipalPointId[eye], frame.PrincipalPoint);
+            command.SetComputeVectorParam(shader,
+                RefineCameraSensorResolutionId[eye], frame.SensorResolution);
+            command.SetComputeVectorParam(shader,
+                RefineCameraCurrentResolutionId[eye], frame.CurrentResolution);
         }
 
         private void SetGlobalShaderProperties()

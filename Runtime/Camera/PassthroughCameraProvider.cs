@@ -9,69 +9,40 @@ using UnityEngine.Android;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// Camera provider backed by Meta's PassthroughCameraAccess (Quest 3+).
-    /// Provides intrinsics, extrinsics, and RGB frames from the headset cameras.
-    ///
-    /// <para>
-    /// PCA discovery is <b>scene-wide</b> (not GameObject-local): if the Meta XR
-    /// Building Block already dropped a <see cref="PassthroughCameraAccess"/>
-    /// onto an OVRCameraRig, the provider re-uses it. Without scene-wide find
-    /// we ended up with two PCA components fighting over the single native
-    /// camera handle — first session worked, subsequent sessions stuck because
-    /// PCA self-disables when <c>Play()</c> fails.
-    /// </para>
+    /// Fixed true-stereo PCA provider. One exact Meta camera instance is owned
+    /// or borrowed for each physical eye; a scan observation is exposed only
+    /// when both image descriptors match the owned depth timestamp.
     /// </summary>
-    public class PassthroughCameraProvider : MonoBehaviour, ICameraProvider
+    [DefaultExecutionOrder(-80)]
+    public sealed class PassthroughCameraProvider : MonoBehaviour, ICameraProvider
     {
-        /// <summary>The Horizon OS permission required by PCA on Quest 3+.</summary>
-        public const string CameraPermissionId = "horizonos.permission.HEADSET_CAMERA";
+        public const string CameraPermissionId =
+            "horizonos.permission.HEADSET_CAMERA";
 
-        [SerializeField] private PassthroughCameraAccess.CameraPositionType cameraPosition =
-            PassthroughCameraAccess.CameraPositionType.Left;
-        [SerializeField] private Vector2Int requestedResolution = new(1280, 960);
+        [SerializeField] private Vector2Int requestedResolution =
+            new(1280, 960);
         [SerializeField] private int maxFramerate = 30;
 
-        private PassthroughCameraAccess _pca;
-        private bool _ownsPca;
+        private readonly PassthroughCameraAccess[] _pca =
+            new PassthroughCameraAccess[2];
+        private readonly bool[] _ownsPca = new bool[2];
+        private readonly CameraFrameDescriptor[] _latest =
+            new CameraFrameDescriptor[2];
+        private readonly long[] _latestTimestampTicks = new long[2];
+        private readonly uint[] _sequence = new uint[2];
+        private bool _captureRequested;
 
-        internal PassthroughCameraAccess CameraAccess => _pca;
-        internal bool OwnsCameraAccess => _ownsPca;
+        internal PassthroughCameraAccess CameraAccess(StereoEye eye) =>
+            _pca[(int)eye];
+        internal bool OwnsCameraAccess(StereoEye eye) =>
+            _ownsPca[(int)eye];
 
-        /// <inheritdoc />
-        public bool IsReady => _pca != null && _pca.IsPlaying && _pca.IsUpdatedThisFrame;
+        public bool IsReady => _captureRequested &&
+                               _latest[0].IsValid && _latest[1].IsValid;
 
-        /// <inheritdoc />
-        public bool IsPlaying => _pca != null && _pca.IsPlaying;
+        public bool IsPlaying => _captureRequested &&
+                                 IsEyePlaying(0) && IsEyePlaying(1);
 
-        /// <inheritdoc />
-        public Texture CurrentFrame => _pca != null && _pca.IsPlaying ? _pca.GetTexture() : null;
-
-        /// <inheritdoc />
-        public Pose CameraPose =>
-            _pca != null && _pca.IsPlaying ? _pca.GetCameraPose() : Pose.identity;
-
-        /// <inheritdoc />
-        public Vector2 FocalLength =>
-            _pca != null && _pca.IsPlaying ? _pca.Intrinsics.FocalLength : Vector2.one;
-
-        /// <inheritdoc />
-        public Vector2 PrincipalPoint =>
-            _pca != null && _pca.IsPlaying ? _pca.Intrinsics.PrincipalPoint : Vector2.zero;
-
-        /// <inheritdoc />
-        public Vector2 SensorResolution =>
-            _pca != null && _pca.IsPlaying ? _pca.Intrinsics.SensorResolution : new Vector2(1280, 960);
-
-        /// <inheritdoc />
-        public Vector2 CurrentResolution =>
-            _pca != null && _pca.IsPlaying
-                ? new Vector2(_pca.CurrentResolution.x, _pca.CurrentResolution.y)
-                : new Vector2(1280, 960);
-
-        /// <summary>
-        /// True when the user has granted the Horizon OS HEADSET_CAMERA
-        /// permission. Always true outside Android device builds.
-        /// </summary>
         public static bool HasCameraPermission
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -81,122 +52,225 @@ namespace Genesis.RoomScan
 #endif
         }
 
-        /// <summary>
-        /// Requests the HEADSET_CAMERA permission and resolves once the user
-        /// accepts, denies, or dismisses the system dialog. Always resolves
-        /// <c>true</c> outside Android device builds (no permission to request).
-        /// Resolves <c>true</c> immediately if already granted.
-        /// </summary>
         public static Task<bool> RequestCameraPermissionAsync()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (Permission.HasUserAuthorizedPermission(CameraPermissionId))
                 return Task.FromResult(true);
 
-            var tcs = new TaskCompletionSource<bool>();
+            var completion = new TaskCompletionSource<bool>();
             var callbacks = new PermissionCallbacks();
-            callbacks.PermissionGranted += _ => tcs.TrySetResult(true);
-            callbacks.PermissionDenied  += _ => tcs.TrySetResult(false);
-            callbacks.PermissionDeniedAndDontAskAgain += _ => tcs.TrySetResult(false);
+            callbacks.PermissionGranted += _ => completion.TrySetResult(true);
+            callbacks.PermissionDenied += _ => completion.TrySetResult(false);
+            callbacks.PermissionDeniedAndDontAskAgain += _ =>
+                completion.TrySetResult(false);
             try
             {
                 Permission.RequestUserPermission(CameraPermissionId, callbacks);
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                Logger.Error($"PassthroughCameraProvider: permission request failed: {ex.Message}");
-                tcs.TrySetResult(false);
+                Logger.Error("PassthroughCameraProvider: permission request " +
+                             "failed: " + exception.Message);
+                completion.TrySetResult(false);
             }
-            return tcs.Task;
+            return completion.Task;
 #else
             return Task.FromResult(true);
 #endif
         }
 
-        /// <inheritdoc />
         public void StartCapture()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (!Permission.HasUserAuthorizedPermission(CameraPermissionId))
             {
-                // Defensive: if the caller hasn't already gone through
-                // RequestCameraPermissionAsync, kick the dialog now. PCA's
-                // own OnEnable also coroutine-polls until granted, so this
-                // is layered safety, not a single source of truth.
                 Logger.Info("Requesting HEADSET_CAMERA permission");
                 Permission.RequestUserPermission(CameraPermissionId);
             }
 #endif
-
-            // Scene-wide find: re-use the PCA from the Meta XR Building Block
-            // (typically attached to OVRCameraRig). Falling back to a
-            // GameObject-local AddComponent here was the bug that caused two
-            // PCAs to race for the camera handle — PCA's native side allows
-            // exactly one instance per camera position, so the second one
-            // self-disables and from then on neither one plays.
-            if (_pca == null)
-            {
-                _ownsPca = false;
-                _pca = FindAnyObjectByType<PassthroughCameraAccess>(FindObjectsInactive.Include);
-                if (_pca == null)
-                {
-                    Logger.Warning("PassthroughCameraProvider: no PassthroughCameraAccess in scene — " +
-                                   "creating a provider-owned instance. Prefer letting Meta's Building Block place it on the OVRCameraRig.");
-                    _pca = CreateOwnedPca();
-                    _ownsPca = true;
-                }
-                else
-                {
-                    Logger.Info($"PassthroughCameraProvider: adopted existing PassthroughCameraAccess on '{_pca.gameObject.name}'.");
-                }
-            }
-
-            // A scene/building-block PCA may already own the active native
-            // camera stream before scanner START. Borrow it as-is: bouncing
-            // enabled would stop/restart cam2bridge, and MaxFramerate cannot be
-            // changed while PCA is running. A faster producer is valid because
-            // the scanner consumes RGB only on its own integration cadence.
-            if (_pca.enabled || _pca.IsPlaying)
-                return;
-
-            // An inactive PCA can be configured safely before it is enabled.
-            // This also handles restarting a provider-owned PCA after STOP.
-            ApplyConfiguration(_pca);
-            _pca.enabled = true;
+            ResetSamples();
+            DiscoverExactCameras();
+            for (int eye = 0; eye < 2; eye++) StartEye(eye);
+            _captureRequested = true;
         }
 
-        /// <inheritdoc />
         public void StopCapture()
         {
-            // A scene/building-block PCA is shared infrastructure. Its native
-            // lifetime is not owned by this provider and scanner STOP must not
-            // interrupt it.
-            if (_ownsPca && _pca != null)
-                _pca.enabled = false;
+            _captureRequested = false;
+            for (int eye = 0; eye < 2; eye++)
+            {
+                if (_ownsPca[eye] && _pca[eye] != null)
+                    _pca[eye].enabled = false;
+            }
+            ResetSamples();
         }
 
-        private PassthroughCameraAccess CreateOwnedPca()
+        public StereoFrameMatch TryGetSynchronizedFrame(
+            double depthUnixSeconds, double maximumSkewSeconds,
+            out StereoCameraFrame frame)
         {
-            // Keep the host inactive until configuration is complete so PCA's
-            // OnEnable cannot start the native stream with default settings.
-            var host = new GameObject("[RoomScan] Passthrough Camera Access");
+            frame = default;
+            if (!IsReady || !double.IsFinite(depthUnixSeconds) ||
+                maximumSkewSeconds <= 0.0)
+                return StereoFrameMatch.Waiting;
+
+            return MatchFrames(_latest[0], _latest[1], depthUnixSeconds,
+                maximumSkewSeconds, out frame);
+        }
+
+        internal static StereoFrameMatch MatchFrames(
+            CameraFrameDescriptor leftSource,
+            CameraFrameDescriptor rightSource, double depthUnixSeconds,
+            double maximumSkewSeconds, out StereoCameraFrame frame)
+        {
+            frame = default;
+            if (!leftSource.IsValid || !rightSource.IsValid ||
+                leftSource.Eye != StereoEye.Left ||
+                rightSource.Eye != StereoEye.Right ||
+                !double.IsFinite(depthUnixSeconds) ||
+                maximumSkewSeconds <= 0.0)
+                return StereoFrameMatch.Waiting;
+
+            double leftSeconds = leftSource.TimestampUnixSeconds;
+            double rightSeconds = rightSource.TimestampUnixSeconds;
+
+            double minimum = Math.Min(depthUnixSeconds,
+                Math.Min(leftSeconds, rightSeconds));
+            double maximum = Math.Max(depthUnixSeconds,
+                Math.Max(leftSeconds, rightSeconds));
+            double skew = maximum - minimum;
+            if (skew <= maximumSkewSeconds)
+            {
+                frame = new StereoCameraFrame(leftSource, rightSource, skew);
+                return StereoFrameMatch.Ready;
+            }
+
+            // The native textures expose only their latest images. Once either
+            // stream has advanced past this depth window, no later image can
+            // form a valid pair with it, so the depth frame must be dropped.
+            if (leftSeconds > depthUnixSeconds + maximumSkewSeconds ||
+                rightSeconds > depthUnixSeconds + maximumSkewSeconds)
+                return StereoFrameMatch.DepthExpired;
+
+            return StereoFrameMatch.Waiting;
+        }
+
+        private void Update()
+        {
+            if (!_captureRequested) return;
+            CaptureMetadata(0);
+            CaptureMetadata(1);
+        }
+
+        private void CaptureMetadata(int eye)
+        {
+            PassthroughCameraAccess camera = _pca[eye];
+            if (camera == null || !camera.IsPlaying ||
+                !camera.IsUpdatedThisFrame || camera.Timestamp == default)
+                return;
+
+            long ticks = camera.Timestamp.Ticks - DateTime.UnixEpoch.Ticks;
+            if (ticks <= 0 || ticks == _latestTimestampTicks[eye]) return;
+            Texture texture = camera.GetTexture();
+            if (texture == null) return;
+
+            double sensorSeconds = ticks / (double)TimeSpan.TicksPerSecond;
+            unchecked
+            {
+                _sequence[eye]++;
+                if (_sequence[eye] == 0u) _sequence[eye] = 1u;
+            }
+            StereoEye stereoEye = (StereoEye)eye;
+            _latest[eye] = new CameraFrameDescriptor(texture,
+                camera.GetCameraPose(), camera.Intrinsics.FocalLength,
+                camera.Intrinsics.PrincipalPoint,
+                camera.Intrinsics.SensorResolution,
+                new Vector2(camera.CurrentResolution.x,
+                    camera.CurrentResolution.y), sensorSeconds,
+                _sequence[eye], stereoEye);
+            _latestTimestampTicks[eye] = ticks;
+        }
+
+        private void DiscoverExactCameras()
+        {
+            PassthroughCameraAccess[] cameras = FindObjectsByType<
+                PassthroughCameraAccess>(FindObjectsInactive.Include);
+            foreach (PassthroughCameraAccess camera in cameras)
+            {
+                int eye = camera.CameraPosition ==
+                    PassthroughCameraAccess.CameraPositionType.Left ? 0 : 1;
+                if (_pca[eye] == null)
+                {
+                    _pca[eye] = camera;
+                    _ownsPca[eye] = false;
+                }
+                else if (_pca[eye] != camera)
+                    throw new InvalidOperationException(
+                        "Multiple PCA producers target the same physical " +
+                        $"{(StereoEye)eye} eye. True-stereo capture fails closed.");
+            }
+
+            for (int eye = 0; eye < 2; eye++)
+            {
+                if (_pca[eye] != null) continue;
+                StereoEye stereoEye = (StereoEye)eye;
+                Logger.Info("PassthroughCameraProvider: creating scanner-owned " +
+                            $"{stereoEye} PCA instance");
+                _pca[eye] = CreateOwnedPca(stereoEye);
+                _ownsPca[eye] = true;
+            }
+        }
+
+        private void StartEye(int eye)
+        {
+            PassthroughCameraAccess camera = _pca[eye];
+            if (camera == null) return;
+            if (camera.enabled || camera.IsPlaying)
+            {
+                Logger.Info("PassthroughCameraProvider: adopted existing " +
+                            $"{(StereoEye)eye} PCA on '{camera.gameObject.name}'");
+                return;
+            }
+            ApplyConfiguration(camera, (StereoEye)eye);
+            camera.enabled = true;
+        }
+
+        private PassthroughCameraAccess CreateOwnedPca(StereoEye eye)
+        {
+            var host = new GameObject($"[RoomScan] PCA {eye}");
             host.transform.SetParent(transform, false);
             host.SetActive(false);
-
-            var pca = host.AddComponent<PassthroughCameraAccess>();
-            pca.enabled = false;
-            ApplyConfiguration(pca);
-
+            var camera = host.AddComponent<PassthroughCameraAccess>();
+            camera.enabled = false;
+            ApplyConfiguration(camera, eye);
             host.SetActive(true);
-            pca.enabled = true;
-            return pca;
+            camera.enabled = true;
+            return camera;
         }
 
-        private void ApplyConfiguration(PassthroughCameraAccess pca)
+        private void ApplyConfiguration(PassthroughCameraAccess camera,
+            StereoEye eye)
         {
-            pca.CameraPosition = cameraPosition;
-            pca.RequestedResolution = requestedResolution;
-            pca.MaxFramerate = maxFramerate;
+            camera.CameraPosition = eye == StereoEye.Left
+                ? PassthroughCameraAccess.CameraPositionType.Left
+                : PassthroughCameraAccess.CameraPositionType.Right;
+            camera.RequestedResolution = requestedResolution;
+            camera.MaxFramerate = maxFramerate;
         }
+
+        private bool IsEyePlaying(int eye) =>
+            _pca[eye] != null && _pca[eye].IsPlaying;
+
+        private void ResetSamples()
+        {
+            for (int eye = 0; eye < 2; eye++)
+            {
+                _latest[eye] = default;
+                _latestTimestampTicks[eye] = 0;
+                _sequence[eye] = 0u;
+            }
+        }
+
     }
 }

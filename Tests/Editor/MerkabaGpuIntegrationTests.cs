@@ -22,9 +22,14 @@ namespace Genesis.RoomScan.Tests
                 Package + "Runtime/Shaders/MerkabaIntegration.compute");
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 Package + "Runtime/Shaders/MerkabaReadout.compute");
+            ComputeShader stereoRgbd = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+                Package + "Runtime/Shaders/StereoRgbdRefine.compute");
             Assert.That(world, Is.Not.Null);
             Assert.That(integration, Is.Not.Null);
             Assert.That(frame, Is.Not.Null);
+            Assert.That(stereoRgbd, Is.Not.Null);
+            Assert.DoesNotThrow(() => stereoRgbd.FindKernel(
+                "StereoRgbdRefine"));
             foreach (string kernel in new[]
                      {
                          "PublishNewBlocks", "PublishNewChunks",
@@ -65,6 +70,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(wizard, Does.Contain(
                 "Runtime/Shaders/MerkabaReadout.compute"));
             Assert.That(wizard, Does.Not.Contain("MerkabaFrameCompiler"));
+            Assert.That(wizard, Does.Contain(
+                "AssignAsset(depth, \"stereoRgbdRefineCompute\""));
+            Assert.That(wizard, Does.Contain(
+                "Runtime/Shaders/StereoRgbdRefine.compute"));
+            Assert.That(wizard, Does.Not.Contain("BilateralDepthFilter"));
         }
 
         [Test]
@@ -694,7 +704,7 @@ namespace Genesis.RoomScan.Tests
         {
             string depth = Source("Runtime/Shaders/DepthNormals.compute") +
                 Source("Runtime/Shaders/DepthDilation.compute") +
-                Source("Runtime/Shaders/BilateralDepthFilter.compute");
+                Source("Runtime/Shaders/StereoRgbdRefine.compute");
             Assert.That(Regex.Matches(depth, @"^#pragma kernel ",
                 RegexOptions.Multiline), Has.Count.EqualTo(6));
             Assert.That(Regex.Matches(depth,
@@ -784,7 +794,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 42"));
+            Assert.That(audit, Does.Contain("kernel_count != 43"));
         }
 
         [Test]
@@ -843,7 +853,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(world, Does.Contain(
                 "out uint failureReason"));
             string failureReason = Slice(integration,
-                "uint M8ObservationFailureReason()", "float2 ProjectCameraUv");
+                "uint M8ObservationFailureReason()", "bool ObserveDepthEye");
             Assert.That(failureReason, Does.Not.Contain(
                 "M8_COUNTER_BLOCK_OVERFLOW"));
             Assert.That(failureReason, Does.Not.Contain(

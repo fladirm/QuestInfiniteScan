@@ -1,0 +1,239 @@
+// One bounded true-stereo RGB-D refinement pass. Environment Depth supplies
+// the metric prior; independently calibrated PCA L/R correspondence validates
+// and refines it. A pixel without all four-stream support becomes invalid.
+
+#pragma kernel StereoRgbdRefine
+
+SamplerState gsBilinearClampSampler;
+SamplerState gsPointClampSampler;
+
+#include "MerkabaStereoCamera.hlsl"
+
+Texture2DArray<float> _SrcDepth;
+RWTexture2DArray<float> _DstDepth;
+
+uint _DepthW;
+uint _DepthH;
+float2 _DepthNearFar;
+float4x4 _DepthProj[2];
+float4x4 _DepthProjInv[2];
+float4x4 _DepthView[2];
+float4x4 _DepthViewInv[2];
+float _DepthSearchRadius;
+
+#define RGBD_HYPOTHESIS_RADIUS 2
+#define RGBD_CENSUS_SAMPLES 4u
+#define RGBD_MAX_CENSUS_MISMATCH 3u
+
+float ProjectionToLinear(float depth)
+{
+    float nearPlane = _DepthNearFar.x;
+    float farPlane = _DepthNearFar.y;
+    return farPlane * nearPlane /
+        max(farPlane - depth * (farPlane - nearPlane), 1e-8);
+}
+
+float LinearToProjection(float linearDepth)
+{
+    float nearPlane = _DepthNearFar.x;
+    float farPlane = _DepthNearFar.y;
+    return saturate(farPlane / (farPlane - nearPlane) -
+        (farPlane * nearPlane) /
+        ((farPlane - nearPlane) * max(linearDepth, 1e-8)));
+}
+
+float3 DepthUvToWorld(uint eye, float2 uv, float linearDepth)
+{
+    float depth = LinearToProjection(linearDepth);
+    float4 clip = float4(float3(uv, depth) * 2.0 - 1.0, 1.0);
+    float4 view = mul(_DepthProjInv[eye], clip);
+    float4 world = mul(_DepthViewInv[eye], view);
+    return world.xyz / world.w;
+}
+
+bool WorldToDepth(uint eye, float3 worldPosition, out float2 uv,
+    out float linearDepth)
+{
+    float4 view = mul(_DepthView[eye], float4(worldPosition, 1.0));
+    float4 clip = mul(_DepthProj[eye], view);
+    if (view.z >= -0.001 || clip.w <= 0.0)
+    {
+        uv = -1.0;
+        linearDepth = 0.0;
+        return false;
+    }
+    uv = clip.xy / clip.w * 0.5 + 0.5;
+    linearDepth = abs(view.z);
+    return all(uv > 0.005) && all(uv < 0.995);
+}
+
+float CameraLuma(uint eye, float2 uv)
+{
+    float3 rgb = MerkabaSampleCameraRgb(eye, uv);
+    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
+}
+
+uint CameraCensus4(uint eye, float2 uv)
+{
+    float center = CameraLuma(eye, uv);
+    float2 resolution = eye == 0u
+        ? _MerkabaCameraCurrentResolutionLeft
+        : _MerkabaCameraCurrentResolutionRight;
+    float2 texel = 1.0 / max(resolution, 1.0);
+    const int2 offsets[4] =
+    {
+        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1)
+    };
+    uint descriptor = 0u;
+    [unroll]
+    for (uint sampleIndex = 0u;
+         sampleIndex < RGBD_CENSUS_SAMPLES; sampleIndex++)
+    {
+        float neighbour = CameraLuma(eye,
+            uv + float2(offsets[sampleIndex]) * texel);
+        descriptor |= (neighbour >= center ? 1u : 0u) << sampleIndex;
+    }
+    return descriptor;
+}
+
+bool StereoCandidateCost(uint sourceEye, float3 worldPosition,
+    float priorLinear, float candidateLinear, out float cost)
+{
+    uint otherEye = 1u - sourceEye;
+    float2 otherDepthUv;
+    float predictedOther;
+    if (!WorldToDepth(otherEye, worldPosition, otherDepthUv,
+            predictedOther))
+    {
+        cost = 0.0;
+        return false;
+    }
+
+    float observedOtherProjection = _SrcDepth.SampleLevel(
+        gsPointClampSampler, float3(otherDepthUv, otherEye), 0);
+    if (observedOtherProjection <= 0.0 || observedOtherProjection >= 1.0)
+    {
+        cost = 0.0;
+        return false;
+    }
+    float observedOther = ProjectionToLinear(observedOtherProjection);
+    float stereoMargin = max(0.012, 0.006 * candidateLinear);
+    float depthDifference = abs(predictedOther - observedOther);
+    if (depthDifference > stereoMargin)
+    {
+        cost = 0.0;
+        return false;
+    }
+
+    float2 leftUv = MerkabaProjectCameraUv(0u, worldPosition);
+    float2 rightUv = MerkabaProjectCameraUv(1u, worldPosition);
+    float2 leftMargin = 2.0 /
+        max(_MerkabaCameraCurrentResolutionLeft, 1.0);
+    float2 rightMargin = 2.0 /
+        max(_MerkabaCameraCurrentResolutionRight, 1.0);
+    if (any(leftUv <= leftMargin) || any(leftUv >= 1.0 - leftMargin) ||
+        any(rightUv <= rightMargin) || any(rightUv >= 1.0 - rightMargin))
+    {
+        cost = 0.0;
+        return false;
+    }
+
+    float3 leftRgb = MerkabaSampleCameraRgb(0u, leftUv);
+    float3 rightRgb = MerkabaSampleCameraRgb(1u, rightUv);
+    float3 leftChromaticity = leftRgb /
+        max(leftRgb.r + leftRgb.g + leftRgb.b, 0.01);
+    float3 rightChromaticity = rightRgb /
+        max(rightRgb.r + rightRgb.g + rightRgb.b, 0.01);
+    float3 chromaticityDelta = abs(leftChromaticity - rightChromaticity);
+    float chromaticityDifference = chromaticityDelta.x +
+        chromaticityDelta.y + chromaticityDelta.z;
+    if (chromaticityDifference > 0.35)
+    {
+        cost = 0.0;
+        return false;
+    }
+
+    uint censusLeft = CameraCensus4(0u, leftUv);
+    uint censusRight = CameraCensus4(1u, rightUv);
+    uint mismatch = countbits(censusLeft ^ censusRight);
+    if (mismatch > RGBD_MAX_CENSUS_MISMATCH)
+    {
+        cost = 0.0;
+        return false;
+    }
+
+    float normalizedDepth = depthDifference / stereoMargin;
+    float normalizedPrior = abs(candidateLinear - priorLinear) /
+        max(_DepthSearchRadius, 0.001);
+    cost = (float)mismatch / (float)RGBD_CENSUS_SAMPLES +
+        chromaticityDifference * 0.5 + normalizedDepth * 0.25 +
+        normalizedPrior * 0.125;
+    return true;
+}
+
+[numthreads(8, 8, 1)]
+void StereoRgbdRefine(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _DepthW || id.y >= _DepthH) return;
+    uint eye = id.z;
+
+    float centerDepth = _SrcDepth[uint3(id.xy, eye)];
+    if (centerDepth <= 0.0 || centerDepth >= 1.0)
+    {
+        _DstDepth[id] = 0.0;
+        return;
+    }
+    float centerLinear = ProjectionToLinear(centerDepth);
+    float metricSigma = max(0.006, centerLinear * 0.004);
+    float inverseMetricSigma2 = -0.5 / (metricSigma * metricSigma);
+    float weightSum = 0.0;
+    float linearDepthSum = 0.0;
+    [unroll]
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        [unroll]
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int2 neighbourPixel = int2(id.xy) + int2(dx, dy);
+            neighbourPixel = clamp(neighbourPixel, int2(0, 0),
+                int2((int)_DepthW - 1, (int)_DepthH - 1));
+            float neighbourDepth = _SrcDepth[
+                uint3(neighbourPixel, eye)];
+            if (neighbourDepth <= 0.0 || neighbourDepth >= 1.0) continue;
+            float neighbourLinear = ProjectionToLinear(neighbourDepth);
+            float spatialDistance2 = (float)(dx * dx + dy * dy);
+            float depthDifference = centerLinear - neighbourLinear;
+            float weight = exp(-0.5 * spatialDistance2 +
+                depthDifference * depthDifference * inverseMetricSigma2);
+            weightSum += weight;
+            linearDepthSum += neighbourLinear * weight;
+        }
+    }
+
+    float priorLinear = weightSum > 1e-8
+        ? linearDepthSum / weightSum : centerLinear;
+    float2 sourceUv = (float2(id.xy) + 0.5) /
+        float2(_DepthW, _DepthH);
+    float bestCost = 1e20;
+    float bestLinear = 0.0;
+    [unroll]
+    for (int hypothesis = -RGBD_HYPOTHESIS_RADIUS;
+         hypothesis <= RGBD_HYPOTHESIS_RADIUS; hypothesis++)
+    {
+        float candidateLinear = max(_DepthNearFar.x,
+            priorLinear + (float)hypothesis * _DepthSearchRadius /
+                (float)RGBD_HYPOTHESIS_RADIUS);
+        float3 worldPosition = DepthUvToWorld(eye, sourceUv,
+            candidateLinear);
+        float candidateCost;
+        if (StereoCandidateCost(eye, worldPosition, priorLinear,
+                candidateLinear, candidateCost) && candidateCost < bestCost)
+        {
+            bestCost = candidateCost;
+            bestLinear = candidateLinear;
+        }
+    }
+
+    _DstDepth[id] = bestLinear > 0.0
+        ? LinearToProjection(bestLinear) : 0.0;
+}

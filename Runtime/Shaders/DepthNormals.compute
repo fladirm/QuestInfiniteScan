@@ -36,11 +36,11 @@ void DepthNorm(uint3 id : SV_DispatchThreadID)
 
     float2 sizeF = (float2)size;
     float3 centerWorld = gsDepthNDCtoWorld(float3(
-        (float2)baseCoord / sizeF, centerDepth), id.z);
+        ((float2)baseCoord + 0.5) / sizeF, centerDepth), id.z);
     float3 horizontalWorld = gsDepthNDCtoWorld(float3(
-        (float2)horizontalCoord / sizeF, horizontalDepth), id.z);
+        ((float2)horizontalCoord + 0.5) / sizeF, horizontalDepth), id.z);
     float3 verticalWorld = gsDepthNDCtoWorld(float3(
-        (float2)verticalCoord / sizeF, verticalDepth), id.z);
+        ((float2)verticalCoord + 0.5) / sizeF, verticalDepth), id.z);
     float3 horizontalDerivative = horizontalWorld - centerWorld;
     float3 verticalDerivative = verticalWorld - centerWorld;
     float orientation = (horizontalCoord.x - baseCoord.x) *

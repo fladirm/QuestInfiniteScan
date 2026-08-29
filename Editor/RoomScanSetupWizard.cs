@@ -212,8 +212,8 @@ namespace Genesis.RoomScan.Editor
                 "Packages/com.genesis.roomscan/Runtime/Shaders/DepthNormals.compute");
             AssignAsset(depth, "depthDilationCompute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/DepthDilation.compute");
-            AssignAsset(depth, "bilateralFilterCompute",
-                "Packages/com.genesis.roomscan/Runtime/Shaders/BilateralDepthFilter.compute");
+            AssignAsset(depth, "stereoRgbdRefineCompute",
+                "Packages/com.genesis.roomscan/Runtime/Shaders/StereoRgbdRefine.compute");
             AssignAsset(integrator, "compute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute");
             AssignAsset(grid, "worldCompute",

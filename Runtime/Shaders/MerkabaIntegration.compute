@@ -15,6 +15,7 @@
 
 #include "DepthKit.hlsl"
 #include "MerkabaCanonicalGeometry.generated.hlsl"
+#include "MerkabaStereoCamera.hlsl"
 #include "MerkabaWorld.hlsl"
 
 #define MERKABA_LATTICE_STEP 0.025
@@ -54,15 +55,6 @@ float3 _MerkabaExclusionHeads[64];
 #define EXCLUSION_BOTTOM 1.7
 #define EXCLUSION_RADIUS 0.6
 
-Texture2D<float4> _MerkabaCameraRgb;
-int _MerkabaCameraAvailable;
-float3 _MerkabaCameraPosition;
-float4x4 _MerkabaCameraInverseRotation;
-float2 _MerkabaCameraFocalLength;
-float2 _MerkabaCameraPrincipalPoint;
-float2 _MerkabaCameraSensorResolution;
-float2 _MerkabaCameraCurrentResolution;
-float _MerkabaCameraExposure;
 int _M8AbortObservation;
 uint _M8AttemptToken;
 
@@ -79,29 +71,6 @@ uint M8ObservationFailureReason()
     if (_M8AbortObservation != 0)
         reason |= M8_OBSERVATION_FAILURE_TIMEOUT;
     return reason;
-}
-
-float2 ProjectCameraUv(float3 worldPosition)
-{
-    float3 local = mul(_MerkabaCameraInverseRotation,
-        float4(worldPosition - _MerkabaCameraPosition, 1.0)).xyz;
-    float2 cameraUv = float2(-1.0, -1.0);
-    if (local.z > 0.001)
-    {
-        float2 sensorPoint = float2(
-            local.x / local.z * _MerkabaCameraFocalLength.x +
-                _MerkabaCameraPrincipalPoint.x,
-            local.y / local.z * _MerkabaCameraFocalLength.y +
-                _MerkabaCameraPrincipalPoint.y);
-        float2 scale = _MerkabaCameraCurrentResolution /
-            _MerkabaCameraSensorResolution;
-        scale /= max(scale.x, scale.y);
-        float2 cropMin = _MerkabaCameraSensorResolution *
-            (1.0 - scale) * 0.5;
-        float2 cropSize = _MerkabaCameraSensorResolution * scale;
-        cameraUv = (sensorPoint - cropMin) / cropSize;
-    }
-    return cameraUv;
 }
 
 uint PackRgb(uint r, uint g, uint b)
@@ -588,14 +557,17 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
         float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
 
     float quality = 0.0;
+    float2 eyeSurfaceQuality = 0.0;
     [unroll]
     for (uint eye = 0u; eye < 2u; eye++)
     {
         int kind = 0;
         float eyeQuality = 0.0;
-        if (ObserveDepthEye(eye, worldPosition, kind, eyeQuality) &&
-            kind == 2 && eyeQuality > quality)
-            quality = eyeQuality;
+        if (ObserveDepthEye(eye, worldPosition, kind, eyeQuality) && kind == 2)
+        {
+            eyeSurfaceQuality[eye] = eyeQuality;
+            quality = max(quality, eyeQuality);
+        }
     }
     if (quality < MERKABA_MIN_SURFACE_QUALITY) return;
 
@@ -603,17 +575,28 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     UpdateOccupancy(physicalSlot, kernelLocal, state,
         max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE)));
     state.flags |= MERKABA_NEEDS_CARVE_FLAG;
-    if (_MerkabaCameraAvailable != 0)
+    float3 weightedRgb = 0.0;
+    float rgbWeight = 0.0;
+    [unroll]
+    for (uint cameraEye = 0u; cameraEye < 2u; cameraEye++)
     {
-        float2 cameraUv = ProjectCameraUv(worldPosition);
+        // The RGB-D refinement already proved that this metric hit has valid
+        // L/R PCA correspondence. Both physical cameras therefore contribute
+        // to canonical color even when only one depth projection lands inside
+        // this lattice kernel's narrow SURFACE band.
+        float eyeQuality = max(eyeSurfaceQuality[cameraEye], quality * 0.5);
+        float2 cameraUv = MerkabaProjectCameraUv(cameraEye, worldPosition);
         if (cameraUv.x > 0.02 && cameraUv.x < 0.98 &&
             cameraUv.y > 0.02 && cameraUv.y < 0.98)
         {
-            float3 rgb = _MerkabaCameraRgb.SampleLevel(gsBilinearClampSampler,
-                cameraUv, 0).rgb * _MerkabaCameraExposure;
-            AccumulateColor(state, rgb, quality);
+            weightedRgb += MerkabaSampleCameraRgb(cameraEye, cameraUv) *
+                eyeQuality;
+            rgbWeight += eyeQuality;
         }
     }
+    if (rgbWeight > 0.0)
+        AccumulateColor(state, weightedRgb / rgbWeight,
+            min(1.0, rgbWeight));
     M8StoreKernelState(physicalSlot, kernelLocal, state);
     EnsureCarveActive(physicalSlot, kernelLocal);
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;

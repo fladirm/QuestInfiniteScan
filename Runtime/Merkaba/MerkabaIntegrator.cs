@@ -15,7 +15,6 @@ namespace Genesis.RoomScan
     {
         [SerializeField] private ComputeShader compute;
         [SerializeField, Range(1f, 8f)] private float maxUpdateDistance = 5f;
-        [SerializeField, Range(1f, 10f)] private float cameraExposure = 3f;
         [SerializeField, Min(0)] private int warmupIntegrations = 3;
 
         private const double HeldObservationTimeoutSeconds = 10.0;
@@ -46,14 +45,21 @@ namespace Genesis.RoomScan
         private uint _attemptToken;
         private uint _attemptResidencyEpoch;
 
-        private readonly bool[] _cameraAvailable = new bool[2];
-        private readonly Vector3[] _cameraPosition = new Vector3[2];
-        private readonly Quaternion[] _cameraRotation = new Quaternion[2];
-        private readonly Vector2[] _cameraFocalLength = new Vector2[2];
-        private readonly Vector2[] _cameraPrincipalPoint = new Vector2[2];
-        private readonly Vector2[] _cameraSensorResolution = new Vector2[2];
-        private readonly Vector2[] _cameraCurrentResolution = new Vector2[2];
-        private readonly RenderTexture[] _cameraFrameCopies = new RenderTexture[2];
+        private const int CameraEyeCount = 2;
+        private const int CameraObservationSlots = 2;
+        private readonly bool[] _cameraPairAvailable =
+            new bool[CameraObservationSlots];
+        private readonly Vector3[] _cameraPosition = new Vector3[4];
+        private readonly Quaternion[] _cameraRotation = new Quaternion[4];
+        private readonly Vector2[] _cameraFocalLength = new Vector2[4];
+        private readonly Vector2[] _cameraPrincipalPoint = new Vector2[4];
+        private readonly Vector2[] _cameraSensorResolution = new Vector2[4];
+        private readonly Vector2[] _cameraCurrentResolution = new Vector2[4];
+        private readonly uint[] _cameraSequence = new uint[4];
+        private readonly double[] _cameraTimestampUnixSeconds = new double[4];
+        private readonly double[] _cameraMaximumSkewSeconds =
+            new double[CameraObservationSlots];
+        private readonly RenderTexture[] _cameraFrameCopies = new RenderTexture[4];
         private int _readyCameraSlot = -1;
         private int _heldCameraSlot = -1;
         private bool _cameraObservationHeld;
@@ -61,7 +67,6 @@ namespace Genesis.RoomScan
         private ulong _cameraCopyRetiredEpoch;
         private int _lastCameraCopySlot = -1;
         private Task _cameraCopyRetirementTask = Task.CompletedTask;
-        private Texture2D _dummyCameraTexture;
         private readonly Vector4[] _exclusionPositions = new Vector4[64];
 
         public readonly List<Transform> ExclusionZones = new();
@@ -77,7 +82,8 @@ namespace Genesis.RoomScan
             {
                 int slot = _readyCameraSlot >= 0
                     ? _readyCameraSlot : _heldCameraSlot;
-                return slot >= 0 ? _cameraFrameCopies[slot] : null;
+                return slot >= 0
+                    ? _cameraFrameCopies[CameraResourceIndex(slot, 0)] : null;
             }
         }
         internal bool CameraFrameAvailable
@@ -86,9 +92,11 @@ namespace Genesis.RoomScan
             {
                 int slot = _readyCameraSlot >= 0
                     ? _readyCameraSlot : _heldCameraSlot;
-                return slot >= 0 && _cameraAvailable[slot];
+                return slot >= 0 && _cameraPairAvailable[slot];
             }
         }
+        internal bool HasReadyStereoCameraFrame =>
+            _readyCameraSlot >= 0 && _cameraPairAvailable[_readyCameraSlot];
         public event Action Integrated;
 
         private static readonly int GridToWorldId =
@@ -101,23 +109,41 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaExclusionCount");
         private static readonly int ExclusionHeadsId =
             Shader.PropertyToID("_MerkabaExclusionHeads");
-        private static readonly int CameraRgbId = Shader.PropertyToID("_MerkabaCameraRgb");
-        private static readonly int CameraAvailableId =
-            Shader.PropertyToID("_MerkabaCameraAvailable");
-        private static readonly int CameraPositionId =
-            Shader.PropertyToID("_MerkabaCameraPosition");
-        private static readonly int CameraInverseRotationId =
-            Shader.PropertyToID("_MerkabaCameraInverseRotation");
-        private static readonly int CameraFocalLengthId =
-            Shader.PropertyToID("_MerkabaCameraFocalLength");
-        private static readonly int CameraPrincipalPointId =
-            Shader.PropertyToID("_MerkabaCameraPrincipalPoint");
-        private static readonly int CameraSensorResolutionId =
-            Shader.PropertyToID("_MerkabaCameraSensorResolution");
-        private static readonly int CameraCurrentResolutionId =
-            Shader.PropertyToID("_MerkabaCameraCurrentResolution");
-        private static readonly int CameraExposureId =
-            Shader.PropertyToID("_MerkabaCameraExposure");
+        private static readonly int[] CameraRgbId =
+        {
+            Shader.PropertyToID("_MerkabaCameraRgbLeft"),
+            Shader.PropertyToID("_MerkabaCameraRgbRight")
+        };
+        private static readonly int[] CameraPositionId =
+        {
+            Shader.PropertyToID("_MerkabaCameraPositionLeft"),
+            Shader.PropertyToID("_MerkabaCameraPositionRight")
+        };
+        private static readonly int[] CameraInverseRotationId =
+        {
+            Shader.PropertyToID("_MerkabaCameraInverseRotationLeft"),
+            Shader.PropertyToID("_MerkabaCameraInverseRotationRight")
+        };
+        private static readonly int[] CameraFocalLengthId =
+        {
+            Shader.PropertyToID("_MerkabaCameraFocalLengthLeft"),
+            Shader.PropertyToID("_MerkabaCameraFocalLengthRight")
+        };
+        private static readonly int[] CameraPrincipalPointId =
+        {
+            Shader.PropertyToID("_MerkabaCameraPrincipalPointLeft"),
+            Shader.PropertyToID("_MerkabaCameraPrincipalPointRight")
+        };
+        private static readonly int[] CameraSensorResolutionId =
+        {
+            Shader.PropertyToID("_MerkabaCameraSensorResolutionLeft"),
+            Shader.PropertyToID("_MerkabaCameraSensorResolutionRight")
+        };
+        private static readonly int[] CameraCurrentResolutionId =
+        {
+            Shader.PropertyToID("_MerkabaCameraCurrentResolutionLeft"),
+            Shader.PropertyToID("_MerkabaCameraCurrentResolutionRight")
+        };
         private static readonly int AbortObservationId =
             Shader.PropertyToID("_M8AbortObservation");
         private static readonly int AttemptTokenId =
@@ -137,8 +163,6 @@ namespace Genesis.RoomScan
                     Destroy(_cameraFrameCopies[slot]);
                 _cameraFrameCopies[slot] = null;
             }
-            if (_dummyCameraTexture != null) Destroy(_dummyCameraTexture);
-            _dummyCameraTexture = null;
             _initialized = false;
         }
 
@@ -147,7 +171,7 @@ namespace Genesis.RoomScan
             UnityEngine.Object[] captured =
             {
                 _cameraFrameCopies[0], _cameraFrameCopies[1],
-                _dummyCameraTexture
+                _cameraFrameCopies[2], _cameraFrameCopies[3]
             };
             bool released = false;
             return () =>
@@ -234,24 +258,42 @@ namespace Genesis.RoomScan
                 _grid.M8CarveDispatchArgs);
         }
 
-        public void SetCameraData(Texture frame, Vector3 position,
-            Quaternion rotation, Vector2 focalLength, Vector2 principalPoint,
-            Vector2 sensorResolution, Vector2 currentResolution)
+        internal bool SetStereoCameraData(StereoCameraFrame frame)
         {
             if (!ReferenceEquals(_grid, null) &&
-                _grid.GpuSubmissionSuspended) return;
+                _grid.GpuSubmissionSuspended) return false;
+            if (!frame.IsValid) return false;
             int slot = _cameraObservationHeld && _heldCameraSlot >= 0
                 ? 1 - _heldCameraSlot
                 : _readyCameraSlot >= 0 ? _readyCameraSlot : 0;
-            _cameraAvailable[slot] = frame != null;
-            if (frame != null) CopyCameraFrame(frame, slot);
-            _cameraPosition[slot] = position;
-            _cameraRotation[slot] = rotation;
-            _cameraFocalLength[slot] = focalLength;
-            _cameraPrincipalPoint[slot] = principalPoint;
-            _cameraSensorResolution[slot] = sensorResolution;
-            _cameraCurrentResolution[slot] = currentResolution;
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba true-stereo PCA snapshot");
+            try
+            {
+                StoreCameraEye(command, slot, 0, frame.Left);
+                StoreCameraEye(command, slot, 1, frame.Right);
+                // Both PCA native-texture update events were queued by MRUK
+                // before this command buffer. The two copies and all later M8
+                // work share the graphics queue, so publication needs no CPU
+                // fence or readback.
+                Graphics.ExecuteCommandBuffer(command);
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+            }
+
+            _cameraPairAvailable[slot] = true;
+            _cameraMaximumSkewSeconds[slot] = frame.MaximumSkewSeconds;
             _readyCameraSlot = slot;
+            unchecked
+            {
+                _cameraCopySubmittedEpoch++;
+                if (_cameraCopySubmittedEpoch == 0u)
+                    _cameraCopySubmittedEpoch = 1u;
+            }
+            _lastCameraCopySlot = CameraResourceIndex(slot, 1);
+            return true;
         }
 
         internal bool TryRetireObservationAttempt()
@@ -289,7 +331,8 @@ namespace Genesis.RoomScan
             if (newObservation)
             {
                 if (!DepthCapture.DepthAvailable ||
-                    !_depthCapture.HasUnprocessedFrame)
+                    !_depthCapture.HasUnprocessedFrame ||
+                    !HasReadyStereoCameraFrame)
                     return false;
             }
             else if (!CanRetryPreparedObservation())
@@ -308,7 +351,8 @@ namespace Genesis.RoomScan
                 if (newObservation)
                 {
                     AcquireCameraObservation();
-                    bool consumed = _depthCapture.ConsumeLatestDepthFrame(command);
+                    bool consumed = _depthCapture.ConsumeLatestDepthFrame(
+                        command, HeldStereoCameraFrame());
                     if (!consumed || _depthCapture.DepthTex == null ||
                         _depthCapture.NormTex == null ||
                         _depthCapture.DilatedDepthTex == null)
@@ -511,27 +555,28 @@ namespace Genesis.RoomScan
 
         private void BindCamera(int kernel)
         {
-            bool available = _cameraObservationHeld && _heldCameraSlot >= 0 &&
-                             _cameraAvailable[_heldCameraSlot];
-            Texture cameraTexture = available
-                ? _cameraFrameCopies[_heldCameraSlot] : DummyCameraTexture();
-            compute.SetTexture(kernel, CameraRgbId, cameraTexture);
-            compute.SetInt(CameraAvailableId, available ? 1 : 0);
-            int slot = _heldCameraSlot;
-            compute.SetVector(CameraPositionId, slot >= 0
-                ? _cameraPosition[slot] : Vector3.zero);
-            compute.SetMatrix(CameraInverseRotationId,
-                Matrix4x4.Rotate(slot >= 0
-                    ? _cameraRotation[slot] : Quaternion.identity).inverse);
-            compute.SetVector(CameraFocalLengthId, slot >= 0
-                ? _cameraFocalLength[slot] : Vector2.one);
-            compute.SetVector(CameraPrincipalPointId, slot >= 0
-                ? _cameraPrincipalPoint[slot] : Vector2.zero);
-            compute.SetVector(CameraSensorResolutionId, slot >= 0
-                ? _cameraSensorResolution[slot] : Vector2.one);
-            compute.SetVector(CameraCurrentResolutionId, slot >= 0
-                ? _cameraCurrentResolution[slot] : Vector2.one);
-            compute.SetFloat(CameraExposureId, cameraExposure);
+            if (!_cameraObservationHeld || _heldCameraSlot < 0 ||
+                !_cameraPairAvailable[_heldCameraSlot])
+                throw new InvalidOperationException(
+                    "M8 observation cannot bind an incomplete stereo PCA pair.");
+            for (int eye = 0; eye < CameraEyeCount; eye++)
+            {
+                int resource = CameraResourceIndex(_heldCameraSlot, eye);
+                compute.SetTexture(kernel, CameraRgbId[eye],
+                    _cameraFrameCopies[resource]);
+                compute.SetVector(CameraPositionId[eye],
+                    _cameraPosition[resource]);
+                compute.SetMatrix(CameraInverseRotationId[eye],
+                    Matrix4x4.Rotate(_cameraRotation[resource]).inverse);
+                compute.SetVector(CameraFocalLengthId[eye],
+                    _cameraFocalLength[resource]);
+                compute.SetVector(CameraPrincipalPointId[eye],
+                    _cameraPrincipalPoint[resource]);
+                compute.SetVector(CameraSensorResolutionId[eye],
+                    _cameraSensorResolution[resource]);
+                compute.SetVector(CameraCurrentResolutionId[eye],
+                    _cameraCurrentResolution[resource]);
+            }
         }
 
         private void DispatchCarveQuery(CommandBuffer command)
@@ -559,28 +604,34 @@ namespace Genesis.RoomScan
 
         private void AcquireCameraObservation()
         {
+            if (_readyCameraSlot < 0 ||
+                !_cameraPairAvailable[_readyCameraSlot])
+                throw new InvalidOperationException(
+                    "A complete synchronized PCA pair is required.");
             _cameraObservationHeld = true;
             _heldCameraSlot = _readyCameraSlot;
             _readyCameraSlot = -1;
-            bool available = _heldCameraSlot >= 0 &&
-                             _cameraAvailable[_heldCameraSlot];
-            _depthCapture.SetRGBGuide(available
-                ? _cameraFrameCopies[_heldCameraSlot] : null);
         }
 
         private void ReleaseOwnedObservation()
         {
             _depthCapture?.ReleaseConsumedObservation();
-            _depthCapture?.SetRGBGuide(null);
+            if (_heldCameraSlot >= 0)
+                _cameraPairAvailable[_heldCameraSlot] = false;
             _cameraObservationHeld = false;
             _heldCameraSlot = -1;
         }
 
-        private void CopyCameraFrame(Texture frame, int slot)
+        private void StoreCameraEye(CommandBuffer command, int slot, int eye,
+            CameraFrameDescriptor frame)
         {
-            int width = Mathf.Max(1, frame.width);
-            int height = Mathf.Max(1, frame.height);
-            RenderTexture owned = _cameraFrameCopies[slot];
+            if (frame.Eye != (StereoEye)eye)
+                throw new ArgumentException("Stereo PCA eye mismatch.",
+                    nameof(frame));
+            int resource = CameraResourceIndex(slot, eye);
+            int width = Mathf.Max(1, frame.Texture.width);
+            int height = Mathf.Max(1, frame.Texture.height);
+            RenderTexture owned = _cameraFrameCopies[resource];
             if (owned == null || owned.width != width || owned.height != height)
             {
                 if (owned != null) Destroy(owned);
@@ -592,20 +643,49 @@ namespace Genesis.RoomScan
                     wrapMode = TextureWrapMode.Clamp
                 };
                 owned.Create();
-                _cameraFrameCopies[slot] = owned;
+                _cameraFrameCopies[resource] = owned;
             }
-            Graphics.Blit(frame, owned);
-            unchecked
+            command.Blit(frame.Texture, owned);
+            _cameraPosition[resource] = frame.WorldPose.position;
+            _cameraRotation[resource] = frame.WorldPose.rotation;
+            _cameraFocalLength[resource] = frame.FocalLength;
+            _cameraPrincipalPoint[resource] = frame.PrincipalPoint;
+            _cameraSensorResolution[resource] = frame.SensorResolution;
+            _cameraCurrentResolution[resource] = frame.CurrentResolution;
+            _cameraSequence[resource] = frame.Sequence;
+            _cameraTimestampUnixSeconds[resource] =
+                frame.TimestampUnixSeconds;
+        }
+
+        private static int CameraResourceIndex(int slot, int eye) =>
+            slot * CameraEyeCount + eye;
+
+        private StereoCameraFrame HeldStereoCameraFrame()
+        {
+            if (!_cameraObservationHeld || _heldCameraSlot < 0 ||
+                !_cameraPairAvailable[_heldCameraSlot])
+                return default;
+            CameraFrameDescriptor Frame(int eye)
             {
-                _cameraCopySubmittedEpoch++;
-                if (_cameraCopySubmittedEpoch == 0u)
-                    _cameraCopySubmittedEpoch = 1u;
+                int resource = CameraResourceIndex(_heldCameraSlot, eye);
+                return new CameraFrameDescriptor(_cameraFrameCopies[resource],
+                    new Pose(_cameraPosition[resource],
+                        _cameraRotation[resource]),
+                    _cameraFocalLength[resource],
+                    _cameraPrincipalPoint[resource],
+                    _cameraSensorResolution[resource],
+                    _cameraCurrentResolution[resource],
+                    _cameraTimestampUnixSeconds[resource],
+                    _cameraSequence[resource], (StereoEye)eye);
             }
-            _lastCameraCopySlot = slot;
+            return new StereoCameraFrame(Frame(0), Frame(1),
+                _cameraMaximumSkewSeconds[_heldCameraSlot]);
         }
 
         internal void BeginObservationQuiesce()
         {
+            if (_readyCameraSlot >= 0)
+                _cameraPairAvailable[_readyCameraSlot] = false;
             _readyCameraSlot = -1;
         }
 
@@ -642,16 +722,6 @@ namespace Genesis.RoomScan
             return _cameraCopyRetirementTask;
         }
 
-        private Texture2D DummyCameraTexture()
-        {
-            if (_dummyCameraTexture != null) return _dummyCameraTexture;
-            _dummyCameraTexture = new Texture2D(1, 1,
-                TextureFormat.RGBA32, false, true);
-            _dummyCameraTexture.SetPixel(0, 0, Color.black);
-            _dummyCameraTexture.Apply(false, true);
-            return _dummyCameraTexture;
-        }
-
         public void Clear()
         {
             _grid?.Clear();
@@ -664,6 +734,8 @@ namespace Genesis.RoomScan
             _waitingForDependency = false;
             _attemptResidencyEpoch = 0u;
             ReleaseOwnedObservation();
+            if (_readyCameraSlot >= 0)
+                _cameraPairAvailable[_readyCameraSlot] = false;
             _readyCameraSlot = -1;
             IntegrationCount = 0;
         }

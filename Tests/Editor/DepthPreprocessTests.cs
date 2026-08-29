@@ -109,7 +109,7 @@ namespace Genesis.RoomScan.Tests
         {
             string source = RuntimeSource("Runtime/Core/DepthCapture.cs");
             string callback = Slice(source, "private void OnDepthFrame(",
-                "public bool ConsumeLatestDepthFrame()");
+                "internal bool ConsumeLatestDepthFrame(CommandBuffer command,");
             int requestGuard = callback.IndexOf(
                 "if (!_depthFrameRequested || _requestedDepthSlot < 0) return;",
                 StringComparison.Ordinal);
@@ -118,11 +118,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(callback, Does.Not.Contain("ComputeNormals()"));
             Assert.That(callback, Does.Not.Contain("ComputeDilation()"));
 
-            string consume = Slice(source, "public bool ConsumeLatestDepthFrame()",
+            string consume = Slice(source,
+                "internal bool ConsumeLatestDepthFrame(CommandBuffer command,",
                 "public void ReleaseConsumedObservation()");
             Assert.That(consume, Does.Contain(
                 "_depthTex = _ownedRawDepth[_heldDepthSlot];"));
-            Assert.That(consume, Does.Contain("ApplyBilateralFilter(command);"));
+            Assert.That(consume, Does.Contain(
+                "ApplyStereoRgbdRefinement(command, cameraFrame);"));
             Assert.That(consume, Does.Contain("ComputeNormals(command);"));
             Assert.That(consume, Does.Contain("ComputeDilation(command);"));
             Assert.That(consume, Does.Contain("_heldDepthSlot = _readyDepthSlot;"));
@@ -131,63 +133,171 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("private Texture _rawDepthTex"));
             Assert.That(source, Does.Contain("CopyProjectionDepthArray"));
             Assert.That(source, Does.Contain("GraphicsFormat.R32_SFloat"));
+            Assert.That(source, Does.Not.Contain("ApplyBilateralFilter"));
+            Assert.That(source, Does.Not.Contain("RGBGuide"));
         }
 
         [Test]
-        public void ObservationCadence_LatchesPcaCopyAndMatchingMetadataOnce()
+        public void ObservationCadence_LatchesTrueStereoPcaAndMetadataOnce()
         {
             var host = new GameObject("PCA snapshot test");
             DepthCapture depth = host.AddComponent<DepthCapture>();
             MerkabaIntegrator integrator = host.AddComponent<MerkabaIntegrator>();
-            var external = new Texture2D(4, 4, TextureFormat.RGBA32, false);
-            external.Apply(false, false);
-            RenderTexture owned = null;
-            Texture2D dummy = null;
-            Vector3 sampledPosition = new(1f, 2f, 3f);
+            var left = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            var right = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            left.Apply(false, false);
+            right.Apply(false, false);
+            Vector3 leftPosition = new(1f, 2f, 3f);
+            Vector3 rightPosition = new(4f, 5f, 6f);
             try
             {
                 typeof(MerkabaIntegrator).GetField("_depthCapture",
                         BindingFlags.Instance | BindingFlags.NonPublic)
                     ?.SetValue(integrator, depth);
-                integrator.SetCameraData(external, sampledPosition,
-                    Quaternion.Euler(4f, 5f, 6f), new Vector2(7f, 8f),
-                    new Vector2(9f, 10f), new Vector2(11f, 12f),
-                    new Vector2(13f, 14f));
-                owned = integrator.OwnedCameraFrame;
-                Assert.That(owned, Is.Not.Null);
-                Assert.That(owned, Is.Not.SameAs(external));
+                var leftFrame = new CameraFrameDescriptor(left,
+                    new Pose(leftPosition, Quaternion.Euler(1f, 2f, 3f)),
+                    new Vector2(7f, 8f), new Vector2(9f, 10f),
+                    new Vector2(11f, 12f), new Vector2(13f, 14f),
+                    2.0, 1u, StereoEye.Left);
+                var rightFrame = new CameraFrameDescriptor(right,
+                    new Pose(rightPosition, Quaternion.Euler(4f, 5f, 6f)),
+                    new Vector2(17f, 18f), new Vector2(19f, 20f),
+                    new Vector2(21f, 22f), new Vector2(23f, 24f),
+                    2.001, 1u, StereoEye.Right);
+                Assert.That(integrator.SetStereoCameraData(
+                    new StereoCameraFrame(leftFrame, rightFrame, 0.001)),
+                    Is.True);
+                RenderTexture[] owned = PrivateField<RenderTexture[]>(integrator,
+                    "_cameraFrameCopies");
+                Assert.That(owned[0], Is.Not.Null);
+                Assert.That(owned[1], Is.Not.Null);
+                Assert.That(owned[0], Is.Not.SameAs(left));
+                Assert.That(owned[1], Is.Not.SameAs(right));
                 Assert.That(integrator.CameraFrameAvailable, Is.True);
-                Assert.That(depth.RGBGuide, Is.Null,
-                    "The ready B snapshot is not the active guide until promoted to A.");
                 Vector3[] positions = PrivateField<Vector3[]>(integrator,
                     "_cameraPosition");
-                Assert.That(positions[0], Is.EqualTo(sampledPosition));
+                Assert.That(positions[0], Is.EqualTo(leftPosition));
+                Assert.That(positions[1], Is.EqualTo(rightPosition));
                 Assert.That(typeof(MerkabaIntegrator).GetField("_pendingCameraFrame",
                     BindingFlags.Instance | BindingFlags.NonPublic), Is.Null,
-                    "The producer-owned PCA texture must not be retained.");
+                    "No producer-owned PCA texture may be retained as hidden state.");
 
                 string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
                 string update = Slice(scanner, "private void Update()",
                     "private void OnDisable()");
-                Assert.That(update, Does.Not.Contain("ProvideColorFrame();"));
+                Assert.That(update, Does.Contain("TryGetSynchronizedFrame("));
+                Assert.That(update, Does.Contain("SetStereoCameraData(cameraFrame)"));
+                Assert.That(update, Does.Contain("DepthExpired"));
                 string arm = Slice(scanner, "private void ArmNextObservation()",
                     "private void OnIntegrated()");
-                Assert.That(arm, Does.Contain(
-                    "if (_depthCapture.RequestNextDepthFrame())"));
-                Assert.That(arm.IndexOf("RequestNextDepthFrame()",
-                        StringComparison.Ordinal),
-                    Is.LessThan(arm.IndexOf("ProvideColorFrame();",
-                        StringComparison.Ordinal)));
+                Assert.That(arm, Does.Contain("RequestNextDepthFrame()"));
+                Assert.That(arm, Does.Not.Contain("ProvideColorFrame"));
             }
             finally
             {
-                dummy = PrivateField<Texture2D>(integrator, "_dummyCameraTexture");
-                if (RenderTexture.active == owned) RenderTexture.active = null;
-                if (owned != null) UnityEngine.Object.DestroyImmediate(owned);
-                if (dummy != null) UnityEngine.Object.DestroyImmediate(dummy);
-                UnityEngine.Object.DestroyImmediate(external);
+                RenderTexture[] owned = PrivateField<RenderTexture[]>(integrator,
+                    "_cameraFrameCopies");
+                foreach (RenderTexture texture in owned)
+                    if (texture != null) UnityEngine.Object.DestroyImmediate(texture);
+                UnityEngine.Object.DestroyImmediate(left);
+                UnityEngine.Object.DestroyImmediate(right);
                 UnityEngine.Object.DestroyImmediate(host);
             }
+        }
+
+        [Test]
+        public void TrueStereoRgbdContract_IsFailClosedAndWorldReprojected()
+        {
+            string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
+            string update = Slice(scanner, "private void Update()",
+                "private void OnDisable()");
+            Assert.That(update, Does.Contain("TryGetReadyFrameUnixTime("));
+            Assert.That(update, Does.Contain("TryGetSynchronizedFrame("));
+            Assert.That(update, Does.Contain("DepthExpired"));
+            Assert.That(update.IndexOf("SetStereoCameraData(cameraFrame)",
+                    StringComparison.Ordinal),
+                Is.LessThan(update.IndexOf("TrySubmitObservationAttempt()",
+                    update.IndexOf("SetStereoCameraData(cameraFrame)",
+                        StringComparison.Ordinal), StringComparison.Ordinal)));
+
+            string refine = RuntimeSource(
+                "Runtime/Shaders/StereoRgbdRefine.compute");
+            Assert.That(refine, Does.Contain("MerkabaProjectCameraUv(0u"));
+            Assert.That(refine, Does.Contain("MerkabaProjectCameraUv(1u"));
+            Assert.That(refine, Does.Contain("WorldToDepth(otherEye"));
+            Assert.That(refine, Does.Contain("countbits(censusLeft ^ censusRight)"));
+            Assert.That(refine, Does.Contain("_DstDepth[id] = 0.0;"));
+            Assert.That(refine, Does.Contain("RGBD_HYPOTHESIS_RADIUS 2"));
+            Assert.That(refine, Does.Not.Contain("same UV"));
+
+            string integration = RuntimeSource(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            Assert.That(integration, Does.Contain(
+                "MerkabaProjectCameraUv(cameraEye, worldPosition)"));
+            Assert.That(integration, Does.Contain(
+                "eyeSurfaceQuality[cameraEye]"));
+            Assert.That(integration, Does.Not.Contain(
+                "Texture2D<float4> _MerkabaCameraRgb;"));
+            Assert.That(integration, Does.Not.Contain("CameraExposure"),
+                "Canonical RGB must store measured PCA color, not presentation exposure.");
+
+            string depth = RuntimeSource("Runtime/Core/DepthCapture.cs");
+            string devicePose = Slice(depth, "private void HandleDeviceDepth(",
+                "internal bool TryLatchDepthSnapshot(");
+            Assert.That(devicePose, Does.Contain(
+                "Matrix4x4.TRS(pose.position, pose.rotation, ScaleFlipZ)"));
+            Assert.That(devicePose, Does.Not.Contain("worldToTracking"));
+            Assert.That(devicePose, Does.Not.Contain("XROrigin"));
+            string provider = RuntimeSource(
+                "Runtime/Camera/PassthroughCameraProvider.cs");
+            Assert.That(provider, Does.Contain("camera.GetCameraPose()"));
+            Assert.That(provider, Does.Not.Contain("TrackingToWorld"));
+        }
+
+        [Test]
+        public void SensorClockMapper_BracketsXrTimeIntoPcaUnixDomain()
+        {
+            double[] xr = { 100.000, 100.002 };
+            int index = 0;
+            DateTime utc = DateTime.UnixEpoch.AddSeconds(200.0);
+            var mapper = new SensorClockMapper(() => xr[index++], () => utc);
+
+            Assert.That(mapper.TryCaptureAnchor(), Is.True);
+            Assert.That(mapper.UncertaintySeconds,
+                Is.EqualTo(0.0010001).Within(1e-9));
+            Assert.That(mapper.TryMapXrNanoseconds(100_001_000_000L,
+                out double mapped), Is.True);
+            Assert.That(mapped, Is.EqualTo(200.0).Within(1e-6));
+        }
+
+        [Test]
+        public void SensorClockMapper_RejectsUncertainAnchor()
+        {
+            double[] xr = { 100.0, 100.02 };
+            int index = 0;
+            var mapper = new SensorClockMapper(() => xr[index++],
+                () => DateTime.UnixEpoch.AddSeconds(200.0));
+
+            Assert.That(mapper.TryCaptureAnchor(), Is.False);
+            Assert.That(mapper.IsReady, Is.False);
+            Assert.That(mapper.TryMapXrNanoseconds(100_001_000_000L,
+                out _), Is.False);
+        }
+
+        [Test]
+        public void ReadyDepth_RetriesClockAnchorBeforeFailClosedPairing()
+        {
+            string depth = RuntimeSource("Runtime/Core/DepthCapture.cs");
+            string readyTime = Slice(depth,
+                "internal bool TryGetReadyFrameUnixTime(",
+                "internal bool DiscardReadyDepthFrame()");
+            int retry = readyTime.IndexOf("_depthClock.TryCaptureAnchor();",
+                StringComparison.Ordinal);
+            int map = readyTime.IndexOf("_depthClock.TryMapXrNanoseconds(",
+                StringComparison.Ordinal);
+
+            Assert.That(retry, Is.GreaterThanOrEqualTo(0));
+            Assert.That(map, Is.GreaterThan(retry));
         }
 
         [Test]

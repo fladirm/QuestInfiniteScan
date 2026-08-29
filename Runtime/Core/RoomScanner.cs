@@ -27,6 +27,8 @@ namespace Genesis.RoomScan
         public static RoomScanner Instance { get; private set; }
 
         [SerializeField, Range(5f, 30f)] private float integrationHz = 15f;
+        [SerializeField, Range(0.005f, 0.05f)]
+        private float maximumRgbdSkewSeconds = 1f / 30f;
         [SerializeField] private LogLevel logLevel = LogLevel.Info;
 
         private DepthCapture _depthCapture;
@@ -49,6 +51,10 @@ namespace Genesis.RoomScan
         private bool _resumeAfterPause;
         private bool _disableRequested;
         private bool _destroyed;
+        private long _acceptedRgbdObservations;
+        private long _expiredDepthFrames;
+        private double _maximumRgbdSkewSeconds;
+        private float _lastRgbdLogTime;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -123,6 +129,7 @@ namespace Genesis.RoomScan
         {
             MerkabaGpuTimestamps.Poll();
             if (!IsScanning) return;
+            LogRgbdPairing();
             _integrator.TryRetireObservationAttempt();
             if (_integrator.HasPendingObservation)
             {
@@ -132,6 +139,44 @@ namespace Genesis.RoomScan
             }
             if (Time.time - _lastIntegrationTime < IntegrationInterval) return;
             if (!_depthCapture.HasUnprocessedFrame) return;
+
+            if (!_integrator.HasReadyStereoCameraFrame)
+            {
+                if (!_depthCapture.TryGetReadyFrameUnixTime(
+                        out double depthUnixSeconds, out _))
+                    return;
+                double clockUncertainty =
+                    _depthCapture.TimestampMappingUncertaintySeconds;
+                double availableSkew = maximumRgbdSkewSeconds -
+                    clockUncertainty;
+                if (availableSkew <= 0.0)
+                {
+                    _expiredDepthFrames++;
+                    _depthCapture.DiscardReadyDepthFrame();
+                    ArmNextObservation();
+                    return;
+                }
+                StereoFrameMatch match = _cameraProvider.TryGetSynchronizedFrame(
+                    depthUnixSeconds, availableSkew,
+                    out StereoCameraFrame cameraFrame);
+                if (match == StereoFrameMatch.Waiting) return;
+                if (match == StereoFrameMatch.DepthExpired)
+                {
+                    _expiredDepthFrames++;
+                    _depthCapture.DiscardReadyDepthFrame();
+                    ArmNextObservation();
+                    return;
+                }
+                cameraFrame = new StereoCameraFrame(cameraFrame.Left,
+                    cameraFrame.Right, cameraFrame.MaximumSkewSeconds +
+                    clockUncertainty);
+                if (!_integrator.SetStereoCameraData(cameraFrame)) return;
+                _acceptedRgbdObservations++;
+                _maximumRgbdSkewSeconds = Math.Max(
+                    _maximumRgbdSkewSeconds,
+                    cameraFrame.MaximumSkewSeconds);
+            }
+
             if (_integrator.TrySubmitObservationAttempt())
             {
                 _lastIntegrationTime = Time.time;
@@ -191,10 +236,15 @@ namespace Genesis.RoomScan
                     .RequestCameraPermissionAsync();
                 if (!StartIsCurrent(generation)) return;
                 if (!cameraPermission)
-                    Logger.Warning("HEADSET_CAMERA permission denied; scanning continues without RGB.");
-                else
-                    _cameraProvider?.StartCapture();
+                    throw new InvalidOperationException(
+                        "True-stereo scan requires HEADSET_CAMERA permission " +
+                        "for both PCA eyes.");
+                _cameraProvider?.StartCapture();
                 _depthCapture.StartDepthCapture();
+                _acceptedRgbdObservations = 0L;
+                _expiredDepthFrames = 0L;
+                _maximumRgbdSkewSeconds = 0.0;
+                _lastRgbdLogTime = Time.unscaledTime;
                 _lastIntegrationTime = Time.time;
                 IsScanning = true;
                 ScanLifecycle = ScanLifecycleState.Running;
@@ -343,28 +393,20 @@ namespace Genesis.RoomScan
                 await RoomSpaceRoot.WaitForBindAsync(5f);
         }
 
-        private void ProvideColorFrame()
-        {
-            if (_cameraProvider != null && _cameraProvider.IsReady)
-            {
-                Texture frame = _cameraProvider.CurrentFrame;
-                if (frame != null)
-                {
-                    Pose pose = _depthCapture.TrackingToWorld(_cameraProvider.CameraPose);
-                    _integrator.SetCameraData(frame, pose.position, pose.rotation,
-                        _cameraProvider.FocalLength, _cameraProvider.PrincipalPoint,
-                        _cameraProvider.SensorResolution, _cameraProvider.CurrentResolution);
-                    return;
-                }
-            }
-            _integrator.SetCameraData(null, Vector3.zero, Quaternion.identity,
-                Vector2.one, Vector2.zero, Vector2.one, Vector2.one);
-        }
+        private void ArmNextObservation() =>
+            _depthCapture.RequestNextDepthFrame();
 
-        private void ArmNextObservation()
+        private void LogRgbdPairing()
         {
-            if (_depthCapture.RequestNextDepthFrame())
-                ProvideColorFrame();
+            float now = Time.unscaledTime;
+            if (now - _lastRgbdLogTime < 5f) return;
+            _lastRgbdLogTime = now;
+            Logger.Info("TrueStereo RGB-D: " +
+                        $"paired={_acceptedRgbdObservations}, " +
+                        $"expiredDepth={_expiredDepthFrames}, " +
+                        $"maxSkewMs={_maximumRgbdSkewSeconds * 1000.0:F2}, " +
+                        $"clockUncertaintyMs=" +
+                        $"{_depthCapture.TimestampMappingUncertaintySeconds * 1000.0:F2}");
         }
 
         private void OnIntegrated()

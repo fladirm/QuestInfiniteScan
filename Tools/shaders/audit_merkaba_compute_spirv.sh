@@ -26,7 +26,7 @@ alias_bases=(
 
 kernel_count=0
 for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
-  MerkabaReadout.compute; do
+  MerkabaReadout.compute StereoRgbdRefine.compute; do
   shader="$shader_dir/$shader_name"
   while read -r _ _ kernel; do
     spv="$audit_dir/$kernel.spv"
@@ -46,7 +46,16 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
           if (read_only[variable]) count++
         print count + 0
       }' "$assembly")
-    writable=$((total - readonly))
+    writable_buffers=$((total - readonly))
+    writable_images=$(awk '
+      $3 == "OpTypeImage" && $9 == "2" { storage_image[$1] = 1 }
+      $3 == "OpTypePointer" && $4 == "UniformConstant" &&
+        storage_image[$5] { storage_pointer[$1] = 1 }
+      $3 == "OpVariable" && $5 == "UniformConstant" &&
+        storage_pointer[$4] { count++ }
+      END { print count + 0 }
+    ' "$assembly")
+    writable=$((writable_buffers + writable_images))
     if (( writable > 8 )); then
       echo "FAIL: $kernel has $writable writable storage bindings (>8)" >&2
       exit 1
@@ -63,15 +72,15 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
       fi
     done
 
-    printf '%-38s storage=%2d writable=%d readonly=%2d\n' \
-      "$kernel" "$total" "$writable" "$readonly"
+    printf '%-38s buffers=%2d writable=%d images=%d readonly=%2d\n' \
+      "$kernel" "$total" "$writable" "$writable_images" "$readonly"
     kernel_count=$((kernel_count + 1))
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 42 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 42" >&2
+if (( kernel_count != 43 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 43" >&2
   exit 1
 fi
 
-echo "PASS: 42 Quest compute kernels validate; writable storage <= 8; no RW/read alias pair"
+echo "PASS: 43 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

@@ -35,8 +35,11 @@ namespace Genesis.RoomScan.Tests
             provider.StartCapture();
 
             Assert.That(borrowed.enabled, Is.True);
-            Assert.That(provider.CameraAccess, Is.SameAs(borrowed));
-            Assert.That(provider.OwnsCameraAccess, Is.False);
+            Assert.That(provider.CameraAccess(StereoEye.Right),
+                Is.SameAs(borrowed));
+            Assert.That(provider.OwnsCameraAccess(StereoEye.Right), Is.False);
+            Assert.That(provider.CameraAccess(StereoEye.Left), Is.Not.Null);
+            Assert.That(provider.OwnsCameraAccess(StereoEye.Left), Is.True);
         }
 
         [Test]
@@ -66,21 +69,31 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void OwnedPca_IsConfiguredBeforeEnable()
+        public void OwnedStereoPca_IsConfiguredBeforeEnable()
         {
             PassthroughCameraProvider provider = CreateProvider();
 
             provider.StartCapture();
 
-            PassthroughCameraAccess owned = provider.CameraAccess;
-            Assert.That(owned, Is.Not.Null);
-            Assert.That(provider.OwnsCameraAccess, Is.True);
-            Assert.That(owned.CameraPosition,
+            PassthroughCameraAccess left = provider.CameraAccess(StereoEye.Left);
+            PassthroughCameraAccess right = provider.CameraAccess(StereoEye.Right);
+            Assert.That(left, Is.Not.Null);
+            Assert.That(right, Is.Not.Null);
+            Assert.That(provider.OwnsCameraAccess(StereoEye.Left), Is.True);
+            Assert.That(provider.OwnsCameraAccess(StereoEye.Right), Is.True);
+            Assert.That(left.CameraPosition,
                 Is.EqualTo(PassthroughCameraAccess.CameraPositionType.Left));
-            Assert.That(owned.RequestedResolution, Is.EqualTo(new Vector2Int(1280, 960)));
-            Assert.That(owned.MaxFramerate, Is.EqualTo(30),
+            Assert.That(right.CameraPosition,
+                Is.EqualTo(PassthroughCameraAccess.CameraPositionType.Right));
+            Assert.That(left.RequestedResolution,
+                Is.EqualTo(new Vector2Int(1280, 960)));
+            Assert.That(right.RequestedResolution,
+                Is.EqualTo(new Vector2Int(1280, 960)));
+            Assert.That(left.MaxFramerate, Is.EqualTo(30),
                 "Meta rejects MaxFramerate writes while enabled, so this value proves configuration preceded enable.");
-            Assert.That(owned.enabled, Is.True);
+            Assert.That(right.MaxFramerate, Is.EqualTo(30));
+            Assert.That(left.enabled, Is.True);
+            Assert.That(right.enabled, Is.True);
         }
 
         [Test]
@@ -88,11 +101,13 @@ namespace Genesis.RoomScan.Tests
         {
             PassthroughCameraProvider provider = CreateProvider();
             provider.StartCapture();
-            PassthroughCameraAccess owned = provider.CameraAccess;
+            PassthroughCameraAccess left = provider.CameraAccess(StereoEye.Left);
+            PassthroughCameraAccess right = provider.CameraAccess(StereoEye.Right);
 
             provider.StopCapture();
 
-            Assert.That(owned.enabled, Is.False);
+            Assert.That(left.enabled, Is.False);
+            Assert.That(right.enabled, Is.False);
         }
 
         [Test]
@@ -100,16 +115,105 @@ namespace Genesis.RoomScan.Tests
         {
             PassthroughCameraProvider provider = CreateProvider();
             provider.StartCapture();
-            PassthroughCameraAccess first = provider.CameraAccess;
+            PassthroughCameraAccess firstLeft =
+                provider.CameraAccess(StereoEye.Left);
+            PassthroughCameraAccess firstRight =
+                provider.CameraAccess(StereoEye.Right);
 
             provider.StartCapture();
 
-            Assert.That(provider.CameraAccess, Is.SameAs(first));
+            Assert.That(provider.CameraAccess(StereoEye.Left),
+                Is.SameAs(firstLeft));
+            Assert.That(provider.CameraAccess(StereoEye.Right),
+                Is.SameAs(firstRight));
             Assert.That(Object.FindObjectsByType<PassthroughCameraAccess>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None), Has.Length.EqualTo(1));
-            Assert.That(first.enabled, Is.True);
-            Assert.That(first.MaxFramerate, Is.EqualTo(30));
+                FindObjectsInactive.Include), Has.Length.EqualTo(2));
+            Assert.That(firstLeft.enabled, Is.True);
+            Assert.That(firstRight.enabled, Is.True);
+            Assert.That(firstLeft.MaxFramerate, Is.EqualTo(30));
+            Assert.That(firstRight.MaxFramerate, Is.EqualTo(30));
         }
+
+        [Test]
+        public void Pairing_RequiresBothEyesInsideOneDepthWindow()
+        {
+            var leftTexture = new Texture2D(2, 2);
+            var rightTexture = new Texture2D(2, 2);
+            try
+            {
+                CameraFrameDescriptor left = Descriptor(leftTexture,
+                    StereoEye.Left, 100.000);
+                CameraFrameDescriptor right = Descriptor(rightTexture,
+                    StereoEye.Right, 100.010);
+                StereoFrameMatch match = PassthroughCameraProvider.MatchFrames(
+                    left, right, 100.005, 0.020, out StereoCameraFrame frame);
+
+                Assert.That(match, Is.EqualTo(StereoFrameMatch.Ready));
+                Assert.That(frame.IsValid, Is.True);
+                Assert.That(frame.MaximumSkewSeconds,
+                    Is.EqualTo(0.010).Within(1e-9));
+                Assert.That(frame.Left.Eye, Is.EqualTo(StereoEye.Left));
+                Assert.That(frame.Right.Eye, Is.EqualTo(StereoEye.Right));
+            }
+            finally
+            {
+                Object.DestroyImmediate(leftTexture);
+                Object.DestroyImmediate(rightTexture);
+            }
+        }
+
+        [Test]
+        public void Pairing_DropsDepthAfterEitherPcaPassesItsWindow()
+        {
+            var leftTexture = new Texture2D(2, 2);
+            var rightTexture = new Texture2D(2, 2);
+            try
+            {
+                CameraFrameDescriptor left = Descriptor(leftTexture,
+                    StereoEye.Left, 100.050);
+                CameraFrameDescriptor right = Descriptor(rightTexture,
+                    StereoEye.Right, 100.010);
+                StereoFrameMatch match = PassthroughCameraProvider.MatchFrames(
+                    left, right, 100.000, 0.020, out StereoCameraFrame frame);
+
+                Assert.That(match,
+                    Is.EqualTo(StereoFrameMatch.DepthExpired));
+                Assert.That(frame.IsValid, Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(leftTexture);
+                Object.DestroyImmediate(rightTexture);
+            }
+        }
+
+        [Test]
+        public void DuplicatePhysicalEyeProducer_FailsClosed()
+        {
+            CreateEnabledBorrowedPca();
+            var duplicateHost = new GameObject("Duplicate right PCA");
+            duplicateHost.SetActive(false);
+            var duplicate = duplicateHost.AddComponent<PassthroughCameraAccess>();
+            duplicate.enabled = false;
+            duplicate.CameraPosition =
+                PassthroughCameraAccess.CameraPositionType.Right;
+            PassthroughCameraProvider provider = CreateProvider();
+            try
+            {
+                Assert.Throws<System.InvalidOperationException>(
+                    provider.StartCapture);
+            }
+            finally
+            {
+                Object.DestroyImmediate(duplicateHost);
+            }
+        }
+
+        private static CameraFrameDescriptor Descriptor(Texture texture,
+            StereoEye eye, double unixSeconds) => new(texture,
+            new Pose(Vector3.zero, Quaternion.identity), Vector2.one,
+            Vector2.zero, new Vector2(2f, 2f), new Vector2(2f, 2f),
+            unixSeconds, 1u, eye);
 
         private PassthroughCameraProvider CreateProvider()
         {
