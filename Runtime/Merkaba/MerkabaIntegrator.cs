@@ -332,12 +332,13 @@ namespace Genesis.RoomScan
                 command.DispatchComputeProfiled(compute, _queueResolvedKernel,
                     _grid.M8ObservationDispatchArgs);
 
+                // Q_SCAN must resolve the whole corrective working set before
+                // either SURFACE or FREE mutates this immutable observation.
+                DispatchCarveQuery(command);
                 command.DispatchComputeProfiled(compute,
                     _prepareIntegrateKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(compute,
                     _integrateSurfaceKernel, _grid.M8ObservationDispatchArgs);
-
-                DispatchCarveQuery(command);
                 command.DispatchComputeProfiled(compute, _prepareCarveKernel,
                     1, 1, 1);
                 command.DispatchComputeProfiled(compute, _integrateCarveKernel,

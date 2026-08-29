@@ -11,7 +11,7 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaPersistenceTests
     {
         [Test]
-        public void V2SparseTiles_RoundTripDeterministicallyAcrossNegativeBlocks()
+        public void V3SparseTiles_RoundTripDeterministicallyAcrossNegativeBlocks()
         {
             MerkabaSessionSnapshot source = Fixture();
             byte[] first = Write(source);
@@ -20,6 +20,7 @@ namespace Genesis.RoomScan.Tests
                 restored = MerkabaPersistence.ReadSnapshot(stream);
             byte[] second = Write(restored);
 
+            Assert.That(BitConverter.ToInt32(first, 4), Is.EqualTo(3));
             Assert.That(second, Is.EqualTo(first));
             Assert.That(restored.AnchorUuid, Is.EqualTo(source.AnchorUuid));
             Assert.That(restored.IntegrationCount, Is.EqualTo(47));
@@ -30,6 +31,14 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(new int3(1, 0, 3)));
             Assert.That(restored.Tiles[0].States[17].IsOccupied, Is.True);
             Assert.That(restored.Tiles[0].States[17].NeedsCarve, Is.True);
+            KernelState pendingCorrection = restored.Tiles[0].States[23];
+            Assert.That(pendingCorrection.OccupancyEvidence, Is.Zero);
+            Assert.That(pendingCorrection.PackedColor, Is.Zero);
+            Assert.That(pendingCorrection.ColorConfidence, Is.Zero);
+            Assert.That(pendingCorrection.IsOccupied, Is.False);
+            Assert.That(pendingCorrection.NeedsCarve, Is.True);
+            Assert.That(restored.Tiles[0].States[24], Is.EqualTo(default(KernelState)));
+            Assert.That(restored.Tiles[0].States[24].NeedsCarve, Is.False);
             Assert.That(restored.Tiles[1].States[500].OccupancyEvidence,
                 Is.LessThan(0));
             Assert.That(restored.Tiles[1].States[500].NeedsCarve, Is.False);
@@ -48,10 +57,10 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void GreenfieldReaderRejectsOldFormatVersion()
+        public void GreenfieldV3ReaderRejectsV2Checkpoint()
         {
             byte[] bytes = Write(Fixture());
-            Buffer.BlockCopy(BitConverter.GetBytes(1), 0, bytes, 4, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(2), 0, bytes, 4, 4);
             using var stream = new MemoryStream(bytes, false);
             Assert.Throws<InvalidDataException>(() =>
                 MerkabaPersistence.ReadSnapshot(stream));
@@ -221,6 +230,10 @@ namespace Genesis.RoomScan.Tests
             var negative = new KernelState[MerkabaSpatial.KernelsPerTile];
             negative[17].Apply(MerkabaObservationKind.Surface, 1f,
                 new Color32(12, 34, 56, 255));
+            negative[23] = new KernelState
+            {
+                Flags = MerkabaConstants.NeedsCarveFlag
+            };
             var positive = new KernelState[MerkabaSpatial.KernelsPerTile];
             for (int index = 0; index < 3; index++)
                 positive[500].Apply(MerkabaObservationKind.Free, 1f, default);

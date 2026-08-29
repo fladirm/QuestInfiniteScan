@@ -267,6 +267,7 @@ void ResetObservationCounters(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
+    _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
     _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 0u;
     _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = 0u;
     _M8Counters[M8_COUNTER_OBSERVATION_TOKEN] = _M8ObservationToken;

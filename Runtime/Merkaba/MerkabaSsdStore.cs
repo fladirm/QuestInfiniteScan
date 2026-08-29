@@ -24,7 +24,7 @@ namespace Genesis.RoomScan
     {
         internal const uint CheckpointMagic = 0x384D4B4Du; // MKM8
         internal const uint OverlayMagic = 0x474C384Du;    // M8LG
-        internal const int FormatVersion = 2;
+        internal const int FormatVersion = 3;
         internal const int TilePayloadBytes =
             MerkabaSpatial.KernelsPerTile * 16;
         internal const int TileRecordHeaderBytes = 28;

@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Genesis.RoomScan
 {
-    /// <summary>Greenfield V2 sparse-M8 persistence. No dense legacy format exists.</summary>
+    /// <summary>Greenfield V3 sparse-M8 persistence. No legacy reader exists.</summary>
     [DisallowMultipleComponent]
     public sealed class MerkabaPersistence : MonoBehaviour
     {
@@ -65,7 +65,7 @@ namespace Genesis.RoomScan
             }
             catch (Exception exception)
             {
-                Logger.Error("Merkaba V2 save failed: " + exception);
+                Logger.Error("Merkaba V3 save failed: " + exception);
                 SetStatus("Save failed: " + exception.Message);
                 return false;
             }
@@ -118,7 +118,7 @@ namespace Genesis.RoomScan
             }
             catch (Exception exception)
             {
-                Logger.Error("Merkaba V2 load failed: " + exception);
+                Logger.Error("Merkaba V3 load failed: " + exception);
                 SetStatus("Load failed: " + exception.Message);
                 return false;
             }

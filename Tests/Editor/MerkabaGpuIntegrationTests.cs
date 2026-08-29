@@ -750,6 +750,150 @@ namespace Genesis.RoomScan.Tests
                 "M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u"));
         }
 
+        [Test]
+        public void ColdCarveDependency_GatesAllCanonicalMutationAndCompletion()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            string prepareResolve = Slice(integration,
+                "void PrepareResolveArgs", "bool RequestColdTile");
+            string query = Slice(integration, "void QueryCarveTiles",
+                "void PrepareCarveArgs");
+            string prepareSurface = Slice(integration,
+                "void PrepareIntegrateArgs", "void IntegrateSurfaceCandidates");
+            string prepareCarve = Slice(integration,
+                "void PrepareCarveArgs", "groupshared uint gCarveStats");
+            string finalize = Slice(integration, "void FinalizeObservation",
+                "\n}") + "\n}";
+
+            Assert.That(world, Does.Contain(
+                "#define M8_COUNTER_UNRESOLVED_CARVE_TILES 65u"));
+            Assert.That(MerkabaGrid.CounterUnresolvedCarveTiles, Is.EqualTo(65));
+            Assert.That(prepareResolve, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u"));
+            Assert.That(query, Does.Contain(
+                "tileRef == MERKABA_REF_COLD_ON_SSD"));
+            Assert.That(query, Does.Contain("RequestColdTile"));
+            Assert.That(Regex.Matches(query,
+                @"M8CounterIncrement\(\s*M8_COUNTER_UNRESOLVED_CARVE_TILES\)"),
+                Has.Count.EqualTo(2));
+            Assert.That(query, Does.Contain("if (!M8IsHotRef(tileRef))"));
+            Assert.That(prepareSurface, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u"));
+            Assert.That(prepareCarve, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u"));
+            Assert.That(prepareCarve, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u"));
+            Assert.That(finalize, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u"));
+
+            int queryDispatch = integrator.IndexOf("DispatchCarveQuery(command)",
+                StringComparison.Ordinal);
+            int surfaceGate = integrator.IndexOf("_prepareIntegrateKernel",
+                integrator.IndexOf("internal bool TrySubmitObservationAttempt()",
+                    StringComparison.Ordinal), StringComparison.Ordinal);
+            int surfaceMutation = integrator.IndexOf("_integrateSurfaceKernel",
+                surfaceGate, StringComparison.Ordinal);
+            Assert.That(queryDispatch, Is.LessThan(surfaceGate));
+            Assert.That(queryDispatch, Is.LessThan(surfaceMutation));
+        }
+
+        [Test]
+        public void CarveQueueIsAttemptLocalWhileSurfaceDedupSurvivesRetry()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string prepare = Slice(integration, "void PrepareResolveArgs",
+                "bool RequestColdTile");
+            string finalize = Slice(integration, "void FinalizeObservation",
+                "\n}") + "\n}";
+
+            Assert.That(prepare, Does.Contain(
+                "M8_COUNTER_CARVE_TILE_COUNT] = 0u"));
+            Assert.That(prepare, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u"));
+            Assert.That(prepare, Does.Not.Contain(
+                "M8_COUNTER_SURFACE_QUEUE_COUNT] = 0u"));
+            Assert.That(prepare, Does.Not.Contain(
+                "M8_COUNTER_TOUCHED_TILE_COUNT] = 0u"));
+            Assert.That(finalize, Does.Contain(
+                "M8_COUNTER_OBSERVATION_COMPLETED] != 0u"));
+            Assert.That(finalize, Does.Contain(": 0u;"));
+        }
+
+        [Test]
+        public void LoadedNeedsCarveTile_RetriesTheSameImmutableObservationOnce()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string install = Slice(world, "void InstallLoadedTiles",
+                "void FailLoadedTiles");
+            string retry = Slice(integrator,
+                "private bool CanRetryPreparedObservation()",
+                "private bool ObservationTimedOut()");
+            string submit = Slice(integrator,
+                "internal bool TrySubmitObservationAttempt()",
+                "private bool CanRetryPreparedObservation()");
+
+            Assert.That(install, Does.Contain(
+                "state.flags & MERKABA_NEEDS_CARVE_FLAG"));
+            Assert.That(retry, Does.Contain("_waitingForDependency"));
+            Assert.That(retry, Does.Contain("ObservationDependencyVersion"));
+            Assert.That(retry, Does.Contain("_retryDependencyVersion"));
+            Assert.That(submit, Does.Contain("bool newObservation ="));
+            Assert.That(submit, Does.Contain("else\n                    ConfigureAttempt();"));
+            Assert.That(Regex.Matches(submit, @"_observationToken\s*=").Count,
+                Is.EqualTo(1));
+            Assert.That(submit.IndexOf("DispatchCarveQuery(command)",
+                    StringComparison.Ordinal),
+                Is.LessThan(submit.IndexOf("_integrateSurfaceKernel",
+                    StringComparison.Ordinal)));
+            Assert.That(integration, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_CARVE_TILES"));
+
+            const uint observationToken = 91u;
+            uint tokenAfterRetry = observationToken;
+            var loaded = new KernelState();
+            loaded.Apply(MerkabaObservationKind.Surface, 1f,
+                new Color32(4, 8, 12, 255));
+            int evidenceBefore = loaded.OccupancyEvidence;
+            int mutationCount = 0;
+            foreach (uint unresolvedCarveTiles in new[] { 1u, 0u })
+            {
+                bool mutationAllowed = unresolvedCarveTiles == 0u;
+                if (!mutationAllowed) continue;
+                loaded.Apply(MerkabaObservationKind.Free, 1f, default);
+                mutationCount++;
+            }
+            Assert.That(tokenAfterRetry, Is.EqualTo(observationToken));
+            Assert.That(mutationCount, Is.EqualTo(1));
+            Assert.That(loaded.OccupancyEvidence,
+                Is.EqualTo(evidenceBefore - MerkabaConstants.FreeEvidenceScale));
+        }
+
+        [Test]
+        public void ZeroCarveHotTile_DoesNotRefreshItsResidencyEpoch()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string query = Slice(integration, "void QueryCarveTiles",
+                "void PrepareCarveArgs");
+            int zeroCarve = query.IndexOf(
+                "_M8TileRecords[M8TileMetaIndex(physicalSlot)].w == 0u",
+                StringComparison.Ordinal);
+            int residencyTouch = query.IndexOf(
+                "_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =",
+                StringComparison.Ordinal);
+            Assert.That(zeroCarve, Is.GreaterThanOrEqualTo(0));
+            Assert.That(residencyTouch, Is.GreaterThan(zeroCarve));
+        }
+
         private static string Source(string relative) =>
             File.ReadAllText(Path.GetFullPath(Package + relative));
 

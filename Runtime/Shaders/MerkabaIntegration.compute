@@ -340,6 +340,10 @@ void PrepareResolveArgs(uint id : SV_DispatchThreadID)
 {
     _M8Counters[M8_COUNTER_ATTEMPT_TOKEN] = _M8AttemptToken;
     _M8Counters[M8_COUNTER_ATTEMPT_COMPLETED_TOKEN] = 0u;
+    // CARVE discovery is attempt-local. Surface candidates remain latched for
+    // the immutable observation until one fully-resident attempt commits it.
+    _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
+    _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
         MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
     uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
@@ -571,6 +575,7 @@ void PrepareIntegrateArgs(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
     _M8ObservationDispatchArgs[0] =
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
+        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
         completed == 0u && failure == 0u
         ? (count + 63u) / 64u : 0u;
     _M8ObservationDispatchArgs[1] = 1u;
@@ -737,14 +742,21 @@ void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                         true))
                         M8CounterIncrement(
                             M8_COUNTER_COLD_CARVE_TILES_REQUESTED);
+                    M8CounterIncrement(
+                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
                     continue;
                 }
-                if (!M8IsHotRef(tileRef)) continue;
+                if (!M8IsHotRef(tileRef))
+                {
+                    M8CounterIncrement(
+                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
+                    continue;
+                }
                 uint physicalSlot = M8PhysicalSlot(tileRef);
-                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =
-                    _M8Counters[M8_COUNTER_FRAME_EPOCH];
                 if (_M8TileRecords[M8TileMetaIndex(physicalSlot)].w == 0u)
                     continue;
+                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =
+                    _M8Counters[M8_COUNTER_FRAME_EPOCH];
                 uint queueIndex;
                 InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
                     1u, queueIndex);
@@ -763,6 +775,8 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     _M8CarveDispatchArgs[0] =
         _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
+        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
+        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u
         ? count : 0u;
     _M8CarveDispatchArgs[1] = 8u;
@@ -898,12 +912,15 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
             _M8Counters[M8_COUNTER_FAILED_OBSERVATIONS] += 1u;
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
         }
-        else if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u)
+        else if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u)
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
     }
-    _M8ObservationDispatchArgs[0] = min(
-        _M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    _M8ObservationDispatchArgs[0] =
+        _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u
+        ? min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+        : 0u;
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
     _M8Counters[M8_COUNTER_ATTEMPT_COMPLETED_TOKEN] = _M8AttemptToken;
