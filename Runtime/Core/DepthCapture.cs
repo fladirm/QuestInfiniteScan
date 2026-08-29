@@ -444,31 +444,16 @@ namespace Genesis.RoomScan
             _processedRawFrameVersion = _latestRawFrameVersion;
         }
 
-        private void OnApplicationPause(bool paused)
-        {
-            if (_started && paused && _captureActive)
-                RoomScanner.Instance?.StopScanning();
-        }
-
-        private void OnDisable()
-        {
-            if (_arOcclusionManager != null && _subscribed)
-            {
-                _arOcclusionManager.frameReceived -= OnDepthFrame;
-                _subscribed = false;
-            }
-        }
-
         private void OnDestroy()
         {
-            ReleaseResources();
+            if (Instance == this) Instance = null;
         }
 
         /// <summary>
         /// Destroys GPU textures (normals, dilation, filtered depth) to free memory.
         /// Textures are lazily recreated when the next depth frame arrives.
         /// </summary>
-        public void ReleaseResources()
+        internal void ReleaseOwnedResourcesAfterGpuRetirement()
         {
             if (_normTex) { Destroy(_normTex); _normTex = null; }
             if (_dilationA) { Destroy(_dilationA); _dilationA = null; }

@@ -129,12 +129,17 @@ namespace Genesis.RoomScan
             _depthCapture = GetComponent<DepthCapture>();
         }
 
-        private void OnDestroy()
+        internal void ReleaseOwnedResourcesAfterGpuRetirement()
         {
             for (int slot = 0; slot < _cameraFrameCopies.Length; slot++)
+            {
                 if (_cameraFrameCopies[slot] != null)
                     Destroy(_cameraFrameCopies[slot]);
+                _cameraFrameCopies[slot] = null;
+            }
             if (_dummyCameraTexture != null) Destroy(_dummyCameraTexture);
+            _dummyCameraTexture = null;
+            _initialized = false;
         }
 
         private bool Initialize()
@@ -423,7 +428,11 @@ namespace Genesis.RoomScan
                 if (!_observationPrepared) break;
                 if (!_attemptInFlight)
                     TrySubmitObservationAttempt();
-                if (_observationPrepared) await System.Threading.Tasks.Task.Yield();
+                if (_observationPrepared)
+                {
+                    _grid?.PumpStorageForLifecycleRetirement();
+                    await System.Threading.Tasks.Task.Yield();
+                }
             }
         }
 

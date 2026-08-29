@@ -35,6 +35,9 @@ namespace Genesis.RoomScan
         private int _writebackBatchCount;
         private bool _flushAllDirty;
         private TaskCompletionSource<bool> _flushCompletion;
+        private IProgress<OperationWorkProgress> _flushProgress;
+        private int _flushCompletedTiles;
+        private int _flushTotalTiles = -1;
         private uint _issuedObservationToken;
         private uint _completedObservationToken;
         private uint _completedObservationFailure;
@@ -103,6 +106,9 @@ namespace Genesis.RoomScan
             _writebackBatchCount = 0;
             _flushAllDirty = false;
             _flushCompletion = null;
+            _flushProgress = null;
+            _flushCompletedTiles = 0;
+            _flushTotalTiles = -1;
             _issuedObservationToken = 0u;
             _completedObservationToken = 0u;
             _completedObservationFailure = 0u;
@@ -150,11 +156,18 @@ namespace Genesis.RoomScan
                     !_loadInstallStatusPending &&
                     _loadRequestCursor != _observedLoadRequestCount)
                     BeginLoadAddressReadback();
-                uint writebackCount = Math.Min(values[20],
+                uint rawWritebackCount = values[20];
+                uint writebackCount = Math.Min(rawWritebackCount,
                     (uint)StreamBatchCapacity);
                 if (writebackCount > 0u && !_writebackReadbackPending &&
                     _writebackStorageTask == null)
                 {
+                    if (_flushAllDirty && _flushTotalTiles < 0)
+                    {
+                        _flushTotalTiles = checked(_flushCompletedTiles +
+                            (int)rawWritebackCount);
+                        ReportFlushProgress();
+                    }
                     _evictionSelectionPendingSample = false;
                     BeginWritebackReadback((int)writebackCount);
                 }
@@ -165,9 +178,13 @@ namespace Genesis.RoomScan
                     if (_flushAllDirty && !_writebackReadbackPending &&
                         _writebackStorageTask == null)
                     {
+                        if (_flushTotalTiles < 0)
+                            _flushTotalTiles = _flushCompletedTiles;
+                        ReportFlushProgress(true);
                         _flushAllDirty = false;
                         _flushCompletion?.TrySetResult(true);
                         _flushCompletion = null;
+                        _flushProgress = null;
                     }
                 }
                 else if (!_writebackReadbackPending &&
@@ -180,6 +197,11 @@ namespace Genesis.RoomScan
                     _nextStreamPoll = 0f;
                 }
             });
+        }
+
+        internal void PumpStorageForLifecycleRetirement()
+        {
+            if (!_gpuSubmissionSuspended) PumpStorage();
         }
 
         private void ApplySampledCounters(Unity.Collections.NativeArray<uint> values)
@@ -291,6 +313,7 @@ namespace Genesis.RoomScan
                         new IOException("M8 SSD writeback failed."));
                     _flushCompletion = null;
                     _flushAllDirty = false;
+                    _flushProgress = null;
                     FailWritebackBatch(_writebackBatchCount);
                     _nextStreamPoll = 0f;
                 }
@@ -298,6 +321,12 @@ namespace Genesis.RoomScan
                 {
                     _writeBytesTotal += (ulong)_writebackBatchCount *
                         MerkabaSsdStore.TilePayloadBytes;
+                    if (_flushAllDirty)
+                    {
+                        _flushCompletedTiles = checked(_flushCompletedTiles +
+                            _writebackBatchCount);
+                        ReportFlushProgress();
+                    }
                     AcknowledgeWritebackBatch(_writebackBatchCount);
                 }
                 _writebackBatchCount = 0;
@@ -379,6 +408,7 @@ namespace Genesis.RoomScan
                                 "M8 writeback staging readback failed."));
                             _flushCompletion = null;
                             _flushAllDirty = false;
+                            _flushProgress = null;
                             FailWritebackBatch(count);
                             _nextStreamPoll = 0f;
                         }
@@ -471,31 +501,53 @@ namespace Genesis.RoomScan
             return (float)(sorted[index] * 1000.0);
         }
 
-        internal Task FlushAllDirtyTilesAsync()
+        internal Task FlushAllDirtyTilesAsync(
+            IProgress<OperationWorkProgress> progress = null)
         {
             EnsureGpuResources();
             if (_flushCompletion != null) return _flushCompletion.Task;
             _flushAllDirty = true;
+            _flushProgress = progress;
+            _flushCompletedTiles = 0;
+            _flushTotalTiles = -1;
             _flushCompletion = new TaskCompletionSource<bool>();
             _nextStreamPoll = 0f;
+            _flushProgress?.Report(OperationWorkProgress.Indeterminate(
+                ScanOperationStage.FlushingTiles,
+                "Counting dirty canonical tiles"));
             return _flushCompletion.Task;
         }
 
+        private void ReportFlushProgress(bool complete = false)
+        {
+            if (_flushProgress == null) return;
+            int total = Math.Max(0, _flushTotalTiles);
+            int completed = complete ? total : Math.Min(_flushCompletedTiles,
+                total);
+            _flushProgress.Report(new OperationWorkProgress(
+                ScanOperationStage.FlushingTiles, completed, total,
+                total == 0 ? "No dirty canonical tiles" :
+                $"Flushed {completed}/{total} canonical tiles"));
+        }
+
         internal async Task<MerkabaSessionSnapshot> CaptureStoredSnapshotAsync(
-            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount)
+            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount,
+            IProgress<OperationWorkProgress> progress = null)
         {
             EnsureStorage();
             return await _ssdStore.ReadCanonicalSnapshotAsync(anchorUuid,
-                anchorAtSave, integrationCount);
+                anchorAtSave, integrationCount, progress);
         }
 
-        internal async Task PublishCheckpointAsync(MerkabaSessionSnapshot snapshot)
+        internal async Task PublishCheckpointAsync(MerkabaSessionSnapshot snapshot,
+            IProgress<OperationWorkProgress> progress = null)
         {
             EnsureStorage();
-            await _ssdStore.PublishCheckpointAsync(snapshot);
+            await _ssdStore.PublishCheckpointAsync(snapshot, progress);
         }
 
-        internal async Task<MerkabaSessionSnapshot> ReadCheckpointSnapshotAsync()
+        internal async Task<MerkabaSessionSnapshot> ReadCheckpointSnapshotAsync(
+            IProgress<OperationWorkProgress> progress = null)
         {
             EnsureStorage();
             MerkabaSessionSnapshot snapshot = await Task.Run(() =>
@@ -503,18 +555,34 @@ namespace Genesis.RoomScan
                 using var stream = new FileStream(_ssdStore.CheckpointPath,
                     FileMode.Open, FileAccess.Read, FileShare.Read,
                     1024 * 1024, FileOptions.SequentialScan);
-                return MerkabaSsdStore.ReadCheckpoint(stream);
+                return MerkabaSsdStore.ReadCheckpoint(stream, progress);
             });
-            await _ssdStore.RebuildIndexAsync();
+            await _ssdStore.RebuildIndexAsync(progress);
             return snapshot;
         }
 
-        internal async Task LoadStoredSnapshotAsync(MerkabaSessionSnapshot snapshot)
+        internal async Task LoadStoredSnapshotAsync(MerkabaSessionSnapshot snapshot,
+            IProgress<OperationWorkProgress> progress = null)
         {
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
             EnsureGpuResources();
             ClearGpuWorldForNewScan();
-            uint occupiedCount = CountOccupiedStates(snapshot);
+            int batches = DivideRoundUp(snapshot.Tiles.Count,
+                StreamBatchCapacity);
+            int totalWork = checked(snapshot.Tiles.Count + batches);
+            uint occupiedCount = 0u;
+            for (int tileIndex = 0; tileIndex < snapshot.Tiles.Count; tileIndex++)
+            {
+                foreach (KernelState state in snapshot.Tiles[tileIndex].States)
+                    if (state.IsOccupied) occupiedCount++;
+                if ((tileIndex + 1) % StreamBatchCapacity == 0 ||
+                    tileIndex + 1 == snapshot.Tiles.Count)
+                    progress?.Report(new OperationWorkProgress(
+                        ScanOperationStage.ApplyingState, tileIndex + 1,
+                        totalWork, $"Validated {tileIndex + 1}/" +
+                        $"{snapshot.Tiles.Count} tiles"));
+            }
+            int completedBatches = 0;
             for (int offset = 0; offset < snapshot.Tiles.Count;
                  offset += StreamBatchCapacity)
             {
@@ -526,7 +594,16 @@ namespace Genesis.RoomScan
                 UploadLoadAddresses(addresses);
                 RegisterLoadedTileAddresses(count);
                 await Task.Yield();
+                completedBatches++;
+                progress?.Report(new OperationWorkProgress(
+                    ScanOperationStage.ApplyingState,
+                    snapshot.Tiles.Count + completedBatches, totalWork,
+                    $"Registered {completedBatches}/{batches} M8 batches"));
             }
+            if (totalWork == 0)
+                progress?.Report(new OperationWorkProgress(
+                    ScanOperationStage.ApplyingState, 0, 0,
+                    "Registered empty M8 world"));
             uint[] counters = await ReadWorldCountersAsync();
             ulong addressedTiles = (ulong)counters[CounterHotTileCount] +
                 counters[CounterColdTileCount];

@@ -28,6 +28,7 @@ namespace Genesis.RoomScan
         internal const int TilePayloadBytes =
             MerkabaSpatial.KernelsPerTile * 16;
         internal const int TileRecordHeaderBytes = 28;
+        internal const int CheckpointHeaderBytes = 108;
 
         private readonly object _gate = new();
         private readonly Dictionary<MerkabaTileAddress, Location> _index = new();
@@ -75,21 +76,40 @@ namespace Genesis.RoomScan
             get { lock (_gate) return _index.Count; }
         }
 
-        internal Task RebuildIndexAsync() => Task.Run(RebuildIndex);
+        internal Task RebuildIndexAsync(
+            IProgress<OperationWorkProgress> progress = null) =>
+            Task.Run(() => RebuildIndex(progress));
 
-        internal void RebuildIndex()
+        internal void RebuildIndex(IProgress<OperationWorkProgress> progress = null)
         {
             var rebuilt = new Dictionary<MerkabaTileAddress, Location>();
+            long checkpointBytes = File.Exists(CheckpointPath)
+                ? new FileInfo(CheckpointPath).Length : 0L;
+            long overlayBytes = File.Exists(OverlayPath)
+                ? new FileInfo(OverlayPath).Length : 0L;
+            long totalBytes = checkpointBytes + overlayBytes;
+            long completedBase = 0L;
             if (File.Exists(CheckpointPath))
-                ScanCheckpoint(CheckpointPath, rebuilt);
+            {
+                ScanCheckpoint(CheckpointPath, rebuilt, bytes =>
+                    ReportBytes(progress, ScanOperationStage.RebuildingStorageIndex,
+                        completedBase + bytes, totalBytes,
+                        "Rebuilding checkpoint tile index"));
+                completedBase += checkpointBytes;
+            }
             if (File.Exists(OverlayPath) &&
                 new FileInfo(OverlayPath).Length > 0)
-                ScanOverlay(OverlayPath, rebuilt);
+                ScanOverlay(OverlayPath, rebuilt, bytes =>
+                    ReportBytes(progress, ScanOperationStage.RebuildingStorageIndex,
+                        completedBase + bytes, totalBytes,
+                        "Rebuilding overlay tile index"));
             lock (_gate)
             {
                 _index.Clear();
                 foreach (var pair in rebuilt) _index.Add(pair.Key, pair.Value);
             }
+            ReportBytes(progress, ScanOperationStage.RebuildingStorageIndex,
+                totalBytes, totalBytes, $"Indexed {rebuilt.Count} canonical tiles");
         }
 
         internal Task AppendAsync(IReadOnlyList<MerkabaTileSnapshot> tiles) =>
@@ -184,7 +204,8 @@ namespace Genesis.RoomScan
         });
 
         internal Task<MerkabaSessionSnapshot> ReadCanonicalSnapshotAsync(
-            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount) =>
+            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount,
+            IProgress<OperationWorkProgress> progress = null) =>
             Task.Run(() =>
             {
                 var snapshot = new MerkabaSessionSnapshot
@@ -196,15 +217,29 @@ namespace Genesis.RoomScan
                 List<MerkabaTileAddress> addresses;
                 lock (_gate) addresses = new List<MerkabaTileAddress>(_index.Keys);
                 addresses.Sort();
-                foreach (MerkabaTileAddress address in addresses)
+                for (int index = 0; index < addresses.Count; index++)
+                {
+                    MerkabaTileAddress address = addresses[index];
                     snapshot.Tiles.Add(ReadOne(address));
+                    if (ShouldReport(index + 1, addresses.Count, 32))
+                        progress?.Report(new OperationWorkProgress(
+                            ScanOperationStage.CapturingState, index + 1,
+                            addresses.Count,
+                            $"Captured {index + 1}/{addresses.Count} canonical tiles"));
+                }
+                if (addresses.Count == 0)
+                    progress?.Report(new OperationWorkProgress(
+                        ScanOperationStage.CapturingState, 0, 0,
+                        "Canonical snapshot is empty"));
                 return snapshot;
             });
 
-        internal Task PublishCheckpointAsync(MerkabaSessionSnapshot snapshot) =>
-            Task.Run(() => PublishCheckpoint(snapshot));
+        internal Task PublishCheckpointAsync(MerkabaSessionSnapshot snapshot,
+            IProgress<OperationWorkProgress> progress = null) =>
+            Task.Run(() => PublishCheckpoint(snapshot, progress));
 
-        internal void PublishCheckpoint(MerkabaSessionSnapshot snapshot)
+        internal void PublishCheckpoint(MerkabaSessionSnapshot snapshot,
+            IProgress<OperationWorkProgress> progress = null)
         {
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
             Directory.CreateDirectory(_directory);
@@ -213,12 +248,18 @@ namespace Genesis.RoomScan
                        FileAccess.Write, FileShare.None, 1024 * 1024,
                        FileOptions.WriteThrough))
             {
-                WriteCheckpoint(stream, snapshot);
+                WriteCheckpoint(stream, snapshot, progress);
                 stream.Flush(true);
             }
+            progress?.Report(new OperationWorkProgress(
+                ScanOperationStage.PublishingFile, 0, 1,
+                "Publishing durable checkpoint"));
             MerkabaFilePublishing.Publish(temporary, CheckpointPath);
             if (File.Exists(OverlayPath)) File.Delete(OverlayPath);
             RebuildIndex();
+            progress?.Report(new OperationWorkProgress(
+                ScanOperationStage.PublishingFile, 1, 1,
+                "Checkpoint published"));
         }
 
         internal void Clear()
@@ -230,7 +271,8 @@ namespace Genesis.RoomScan
         }
 
         internal static void WriteCheckpoint(Stream destination,
-            MerkabaSessionSnapshot snapshot)
+            MerkabaSessionSnapshot snapshot,
+            IProgress<OperationWorkProgress> progress = null)
         {
             if (destination == null || !destination.CanWrite)
                 throw new ArgumentException("Checkpoint destination is not writable.",
@@ -249,6 +291,12 @@ namespace Genesis.RoomScan
             for (int i = 0; i < 16; i++) writer.Write(snapshot.AnchorAtSave[i]);
             writer.Write(snapshot.IntegrationCount);
             writer.Write(snapshot.Tiles.Count);
+            long totalBytes = checked(CheckpointHeaderBytes +
+                (long)snapshot.Tiles.Count *
+                (TileRecordHeaderBytes + TilePayloadBytes));
+            progress?.Report(new OperationWorkProgress(
+                ScanOperationStage.WritingFile, CheckpointHeaderBytes,
+                totalBytes, "Writing checkpoint header"));
             MerkabaTileAddress previous = default;
             for (int index = 0; index < snapshot.Tiles.Count; index++)
             {
@@ -262,11 +310,18 @@ namespace Genesis.RoomScan
                 writer.Write(TilePayloadBytes);
                 writer.Write(Crc32(tile.States));
                 WriteStates(writer, tile.States);
+                if (ShouldReport(index + 1, snapshot.Tiles.Count, 32))
+                    progress?.Report(new OperationWorkProgress(
+                        ScanOperationStage.WritingFile,
+                        CheckpointHeaderBytes + (long)(index + 1) *
+                        (TileRecordHeaderBytes + TilePayloadBytes), totalBytes,
+                        $"Wrote {index + 1}/{snapshot.Tiles.Count} tile records"));
             }
             writer.Flush();
         }
 
-        internal static MerkabaSessionSnapshot ReadCheckpoint(Stream source)
+        internal static MerkabaSessionSnapshot ReadCheckpoint(Stream source,
+            IProgress<OperationWorkProgress> progress = null)
         {
             if (source == null || !source.CanRead)
                 throw new ArgumentException("Checkpoint source is not readable.",
@@ -274,6 +329,12 @@ namespace Genesis.RoomScan
             using var reader = new BinaryReader(source, Encoding.UTF8, true);
             ReadCheckpointHeader(reader, out MerkabaSessionSnapshot snapshot,
                 out int tileCount);
+            long totalBytes = source.CanSeek ? source.Length :
+                checked(CheckpointHeaderBytes + (long)tileCount *
+                    (TileRecordHeaderBytes + TilePayloadBytes));
+            progress?.Report(new OperationWorkProgress(
+                ScanOperationStage.ReadingFile, CheckpointHeaderBytes,
+                totalBytes, "Read checkpoint header"));
             MerkabaTileAddress previous = default;
             for (int index = 0; index < tileCount; index++)
             {
@@ -295,6 +356,12 @@ namespace Genesis.RoomScan
                     Generation = generation,
                     States = states
                 });
+                if (ShouldReport(index + 1, tileCount, 32))
+                    progress?.Report(new OperationWorkProgress(
+                        ScanOperationStage.ReadingFile,
+                        CheckpointHeaderBytes + (long)(index + 1) *
+                        (TileRecordHeaderBytes + TilePayloadBytes), totalBytes,
+                        $"Read {index + 1}/{tileCount} tile records"));
             }
             if (source.CanSeek && source.Position != source.Length)
                 throw new InvalidDataException("M8 checkpoint has trailing bytes.");
@@ -325,20 +392,27 @@ namespace Genesis.RoomScan
         }
 
         private static void ScanCheckpoint(string path,
-            IDictionary<MerkabaTileAddress, Location> index)
+            IDictionary<MerkabaTileAddress, Location> index,
+            Action<long> reportBytes = null)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
             using var reader = new BinaryReader(stream, Encoding.UTF8, true);
             ReadCheckpointHeader(reader, out _, out int tileCount);
+            reportBytes?.Invoke(stream.Position);
             for (int item = 0; item < tileCount; item++)
+            {
                 ScanRecord(path, stream, reader, index);
+                if (ShouldReport(item + 1, tileCount, 32))
+                    reportBytes?.Invoke(stream.Position);
+            }
             if (stream.Position != stream.Length)
                 throw new InvalidDataException("M8 checkpoint has trailing bytes.");
         }
 
         private static void ScanOverlay(string path,
-            IDictionary<MerkabaTileAddress, Location> index)
+            IDictionary<MerkabaTileAddress, Location> index,
+            Action<long> reportBytes = null)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite, 1024 * 1024, FileOptions.SequentialScan);
@@ -346,8 +420,15 @@ namespace Genesis.RoomScan
             if (reader.ReadUInt32() != OverlayMagic ||
                 reader.ReadInt32() != FormatVersion)
                 throw new InvalidDataException("Unsupported M8 overlay log.");
+            reportBytes?.Invoke(stream.Position);
+            int item = 0;
             while (stream.Position < stream.Length)
+            {
                 ScanRecord(path, stream, reader, index);
+                item++;
+                if ((item & 31) == 0 || stream.Position == stream.Length)
+                    reportBytes?.Invoke(stream.Position);
+            }
         }
 
         private static void ScanRecord(string path, Stream stream,
@@ -454,6 +535,16 @@ namespace Genesis.RoomScan
                         ? 0xedb88320u : 0u);
             }
         }
+
+        private static void ReportBytes(IProgress<OperationWorkProgress> progress,
+            ScanOperationStage stage, long completed, long total, string text)
+        {
+            progress?.Report(new OperationWorkProgress(stage, completed, total,
+                text));
+        }
+
+        private static bool ShouldReport(int completed, int total, int interval) =>
+            completed == total || completed % interval == 0;
 
         private static void ValidateTile(MerkabaTileSnapshot tile)
         {

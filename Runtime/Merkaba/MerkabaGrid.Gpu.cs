@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -8,6 +10,8 @@ namespace Genesis.RoomScan
 {
     public sealed partial class MerkabaGrid
     {
+        private bool _gpuSubmissionSuspended;
+        private Task _gpuRetirementTask = Task.CompletedTask;
         [Header("M8 GPU World")]
         [SerializeField] private ComputeShader worldCompute;
 
@@ -609,10 +613,46 @@ namespace Genesis.RoomScan
         private static int DivideRoundUp(int value, int divisor) =>
             (value + divisor - 1) / divisor;
 
-        private void Update() => PumpStorage();
+        private void Update()
+        {
+            if (!_gpuSubmissionSuspended) PumpStorage();
+        }
 
         private static int ToInt(uint value) =>
             value > int.MaxValue ? int.MaxValue : (int)value;
+
+        internal void BeginGpuSubmissionQuiesce() =>
+            _gpuSubmissionSuspended = true;
+
+        internal void ResumeGpuSubmission() => _gpuSubmissionSuspended = false;
+
+        internal Task RetireSubmittedGpuWorkAsync()
+        {
+            _gpuSubmissionSuspended = true;
+            if (!_gpuReady || _m8Counters == null) return Task.CompletedTask;
+            if (!_gpuRetirementTask.IsCompleted) return _gpuRetirementTask;
+            if (!SystemInfo.supportsAsyncGPUReadback)
+                return Task.FromException(new NotSupportedException(
+                    "Quest GPU teardown requires asynchronous retirement."));
+            int generation = _gpuGeneration;
+            var completion = new TaskCompletionSource<bool>();
+            _gpuRetirementTask = completion.Task;
+            AsyncGPUReadback.Request(_m8Counters, sizeof(uint), 0, request =>
+            {
+                if (generation != _gpuGeneration)
+                    completion.TrySetException(new IOException(
+                        "M8 GPU generation changed before retirement."));
+                else if (request.hasError)
+                    completion.TrySetException(new IOException(
+                        "M8 GPU retirement marker failed."));
+                else
+                    completion.TrySetResult(true);
+            });
+            return _gpuRetirementTask;
+        }
+
+        internal void ReleaseOwnedResourcesAfterGpuRetirement() =>
+            ReleaseGpuResources();
 
         private void ReleaseGpuResources()
         {

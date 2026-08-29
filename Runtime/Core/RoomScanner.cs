@@ -40,8 +40,15 @@ namespace Genesis.RoomScan
         private DebugMenuController _debugMenu;
         private float _lastIntegrationTime;
         private ScanOperationState _operation = ScanOperationState.Idle;
+        private readonly ScanOperationProgressTracker _operationProgress = new();
         private Task<bool> _quiesceTask;
+        private Task _pauseTransitionTask = Task.CompletedTask;
+        private Task _disableTeardownTask = Task.CompletedTask;
         private uint _lifecycleGeneration;
+        private bool _applicationPaused;
+        private bool _resumeAfterPause;
+        private bool _disableRequested;
+        private bool _destroyed;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -132,10 +139,28 @@ namespace Genesis.RoomScan
             }
         }
 
-        private void OnDisable() => StopScanning();
+        private void OnEnable() => _disableRequested = false;
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused && !_applicationPaused)
+                _resumeAfterPause = IsScanning || IsScanStarting;
+            _applicationPaused = paused;
+            Task prior = _pauseTransitionTask;
+            _pauseTransitionTask = ApplyApplicationPauseAsync(prior, paused);
+        }
+
+        private void OnDisable()
+        {
+            _disableRequested = true;
+            _resumeAfterPause = false;
+            BeginDisableTeardown();
+        }
 
         private void OnDestroy()
         {
+            _destroyed = true;
+            BeginDisableTeardown();
             if (_integrator != null) _integrator.Integrated -= OnIntegrated;
             if (Instance == this) Instance = null;
         }
@@ -143,6 +168,11 @@ namespace Genesis.RoomScan
         public async Task StartScanningAsync()
         {
             if (IsScanning || IsScanStarting) return;
+            if (_disableTeardownTask != null && !_disableTeardownTask.IsCompleted)
+                await _disableTeardownTask;
+            if (_destroyed || _disableRequested || !isActiveAndEnabled) return;
+            _grid?.ResumeGpuSubmission();
+            _renderer?.ResumeGpuSubmission();
             if (ScanLifecycle == ScanLifecycleState.Quiescing &&
                 !await QuiesceScanningAsync())
                 return;
@@ -196,15 +226,47 @@ namespace Genesis.RoomScan
         public async Task<bool> SaveAsync()
         {
             if (IsBusy) return false;
-            if (!await QuiesceScanningAsync()) return false;
-            return _persistence != null && await _persistence.SaveAsync();
+            if (!TryBeginOperation(ScanOperationKind.Save,
+                    ScanOperationStage.SynchronizingScan,
+                    "Retiring current scan observation")) return false;
+            bool success = false;
+            try
+            {
+                if (!await QuiesceScanningAsync()) return false;
+                ReportOperation(ScanOperationKind.Save,
+                    ScanOperationStage.SynchronizingScan, 1L, 1L,
+                    "Scan synchronized");
+                success = _persistence != null && await _persistence.SaveAsync();
+                return success;
+            }
+            finally
+            {
+                FinishOperation(ScanOperationKind.Save, success,
+                    _persistence?.LastStatus ?? "Save unavailable");
+            }
         }
 
         public async Task<bool> LoadAsync()
         {
             if (IsBusy) return false;
-            if (!await QuiesceScanningAsync()) return false;
-            return _persistence != null && await _persistence.LoadAsync();
+            if (!TryBeginOperation(ScanOperationKind.Load,
+                    ScanOperationStage.SynchronizingScan,
+                    "Retiring current scan observation")) return false;
+            bool success = false;
+            try
+            {
+                if (!await QuiesceScanningAsync()) return false;
+                ReportOperation(ScanOperationKind.Load,
+                    ScanOperationStage.SynchronizingScan, 1L, 1L,
+                    "Scan synchronized");
+                success = _persistence != null && await _persistence.LoadAsync();
+                return success;
+            }
+            finally
+            {
+                FinishOperation(ScanOperationKind.Load, success,
+                    _persistence?.LastStatus ?? "Load unavailable");
+            }
         }
 
         public async Task NewClearAsync()
@@ -220,8 +282,24 @@ namespace Genesis.RoomScan
         public async Task<bool> ExportGlbAsync()
         {
             if (IsBusy) return false;
-            if (!await QuiesceScanningAsync()) return false;
-            return _exporter != null && await _exporter.ExportGlbAsync();
+            if (!TryBeginOperation(ScanOperationKind.ExportGlb,
+                    ScanOperationStage.SynchronizingScan,
+                    "Retiring current scan observation")) return false;
+            bool success = false;
+            try
+            {
+                if (!await QuiesceScanningAsync()) return false;
+                ReportOperation(ScanOperationKind.ExportGlb,
+                    ScanOperationStage.SynchronizingScan, 1L, 1L,
+                    "Scan synchronized");
+                success = _exporter != null && await _exporter.ExportGlbAsync();
+                return success;
+            }
+            finally
+            {
+                FinishOperation(ScanOperationKind.ExportGlb, success,
+                    _exporter?.LastStatus ?? "Export unavailable");
+            }
         }
 
         public async void ClearAllDataAsync(Action onComplete = null)
@@ -338,6 +416,61 @@ namespace Genesis.RoomScan
             }
         }
 
+        private async Task ApplyApplicationPauseAsync(Task prior, bool paused)
+        {
+            try
+            {
+                await prior;
+                if (paused)
+                {
+                    await QuiesceScanningAsync();
+                    return;
+                }
+                if (!_resumeAfterPause || _applicationPaused ||
+                    _disableRequested || _destroyed || !isActiveAndEnabled)
+                    return;
+                _resumeAfterPause = false;
+                await StartScanningAsync();
+            }
+            catch (Exception exception)
+            {
+                Logger.Error("Application pause lifecycle failed: " + exception);
+            }
+        }
+
+        private void BeginDisableTeardown()
+        {
+            if (_disableTeardownTask != null && !_disableTeardownTask.IsCompleted)
+                return;
+            _renderer?.SuspendGpuSubmission();
+            _disableTeardownTask = DisableTeardownCoreAsync(_pauseTransitionTask);
+        }
+
+        private async Task DisableTeardownCoreAsync(Task prior)
+        {
+            try
+            {
+                await prior;
+                if (!await QuiesceScanningAsync()) return;
+                _grid?.BeginGpuSubmissionQuiesce();
+                if (_grid != null)
+                    await _grid.RetireSubmittedGpuWorkAsync();
+                // Unity can destroy the component while this asynchronous GPU
+                // retirement is pending. In that case retain the resources for
+                // process teardown; never call Release on potentially live work.
+                if (_destroyed) return;
+                _renderer?.ReleaseOwnedResourcesAfterGpuRetirement();
+                _depthCapture?.ReleaseOwnedResourcesAfterGpuRetirement();
+                _integrator?.ReleaseOwnedResourcesAfterGpuRetirement();
+                _grid?.ReleaseOwnedResourcesAfterGpuRetirement();
+            }
+            catch (Exception exception)
+            {
+                Logger.Error("Scanner resource teardown retained GPU resources " +
+                             "because retirement was not proven: " + exception);
+            }
+        }
+
         private uint NextLifecycleGeneration()
         {
             unchecked
@@ -356,26 +489,39 @@ namespace Genesis.RoomScan
             ScanOperationStage stage, string statusText)
         {
             if (_operation.Busy) return false;
+            _operationProgress.Begin(kind);
             SetOperation(new ScanOperationState(kind, stage, -1f, true,
                 statusText));
             return true;
         }
 
         internal void ReportOperation(ScanOperationKind kind,
-            ScanOperationStage stage, float progress01, string statusText)
+            ScanOperationStage stage, long completed, long total,
+            string statusText)
         {
             if (!_operation.Busy || _operation.Kind != kind) return;
-            SetOperation(new ScanOperationState(kind, stage, progress01, true,
+            float progress = _operationProgress.Report(kind, stage,
+                completed, total);
+            SetOperation(new ScanOperationState(kind, stage, progress, true,
                 statusText));
         }
+
+        internal void ReportOperation(ScanOperationKind kind,
+            OperationWorkProgress progress) => ReportOperation(kind,
+            progress.Stage, progress.Completed, progress.Total, progress.Text);
 
         internal void FinishOperation(ScanOperationKind kind, bool success,
             string statusText)
         {
             if (_operation.Kind != kind) return;
+            if (!success && (string.IsNullOrWhiteSpace(statusText) ||
+                statusText.IndexOf("fail", StringComparison.OrdinalIgnoreCase) < 0))
+                statusText = "Failed: " + (string.IsNullOrWhiteSpace(statusText)
+                    ? kind.ToString() : statusText);
             SetOperation(new ScanOperationState(kind, success
                     ? ScanOperationStage.Complete : ScanOperationStage.Failed,
-                success ? 1f : 0f, false, statusText));
+                success ? 1f : _operationProgress.LastDeterminate, false,
+                statusText));
         }
 
         private void SetOperation(ScanOperationState operation)

@@ -36,25 +36,16 @@ namespace Genesis.RoomScan
         public async Task<bool> SaveAsync()
         {
             if (IsBusy || _grid == null) return false;
-            if (_scanner != null && !_scanner.TryBeginOperation(
-                    ScanOperationKind.Save, ScanOperationStage.SynchronizingScan,
-                    "Synchronizing scan"))
-                return false;
             IsBusy = true;
-            bool succeeded = false;
             SetStatus("Saving…");
             try
             {
-                Report(ScanOperationKind.Save,
-                    ScanOperationStage.SynchronizingScan, -1f,
-                    "Scan quiesced");
                 if (_integrator != null && _integrator.HasPendingObservation)
                     throw new InvalidOperationException(
                         "Save requires RoomScanner quiesce before persistence.");
-                Report(ScanOperationKind.Save,
-                    ScanOperationStage.CapturingState, 0.2f,
-                    "Flushing dirty M8 tiles");
-                await _grid.FlushAllDirtyTilesAsync();
+                IProgress<OperationWorkProgress> progress = ProgressFor(
+                    ScanOperationKind.Save);
+                await _grid.FlushAllDirtyTilesAsync(progress);
 
                 Guid anchorUuid = Guid.Empty;
                 Matrix4x4 anchorAtSave = Matrix4x4.identity;
@@ -66,16 +57,10 @@ namespace Genesis.RoomScan
                 }
                 MerkabaSessionSnapshot snapshot = await _grid
                     .CaptureStoredSnapshotAsync(anchorUuid, anchorAtSave,
-                        _integrator != null ? _integrator.IntegrationCount : 0);
-                Report(ScanOperationKind.Save,
-                    ScanOperationStage.WritingFile, 0.55f,
-                    "Writing sparse M8 checkpoint");
-                await _grid.PublishCheckpointAsync(snapshot);
-                Report(ScanOperationKind.Save,
-                    ScanOperationStage.PublishingFile, 0.95f,
-                    "Publishing checkpoint");
+                        _integrator != null ? _integrator.IntegrationCount : 0,
+                        progress);
+                await _grid.PublishCheckpointAsync(snapshot, progress);
                 SetStatus($"Saved {snapshot.Tiles.Count} M8 tiles");
-                succeeded = true;
                 return true;
             }
             catch (Exception exception)
@@ -87,8 +72,6 @@ namespace Genesis.RoomScan
             finally
             {
                 IsBusy = false;
-                _scanner?.FinishOperation(ScanOperationKind.Save, succeeded,
-                    LastStatus);
                 StatusChanged?.Invoke();
             }
         }
@@ -96,22 +79,19 @@ namespace Genesis.RoomScan
         public async Task<bool> LoadAsync()
         {
             if (IsBusy || _grid == null || !SavedSessionExists) return false;
-            if (_scanner != null && !_scanner.TryBeginOperation(
-                    ScanOperationKind.Load, ScanOperationStage.ReadingFile,
-                    "Reading sparse M8 checkpoint"))
-                return false;
             IsBusy = true;
-            bool succeeded = false;
             SetStatus("Loading…");
             try
             {
+                IProgress<OperationWorkProgress> progress = ProgressFor(
+                    ScanOperationKind.Load);
                 MerkabaSessionSnapshot snapshot = await _grid
-                    .ReadCheckpointSnapshotAsync();
+                    .ReadCheckpointSnapshotAsync(progress);
                 if (snapshot.AnchorUuid != Guid.Empty)
                 {
-                    Report(ScanOperationKind.Load,
-                        ScanOperationStage.LocalizingAnchor, -1f,
-                        "Localizing saved anchor");
+                    progress.Report(OperationWorkProgress.Indeterminate(
+                        ScanOperationStage.LocalizingAnchor,
+                        "Localizing saved anchor"));
                     RoomAnchorManager anchorManager = RoomAnchorManager.Instance;
                     if (anchorManager == null)
                         throw new InvalidOperationException(
@@ -131,13 +111,9 @@ namespace Genesis.RoomScan
                             "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
                             "did not bind.");
                 }
-                Report(ScanOperationKind.Load,
-                    ScanOperationStage.ApplyingState, 0.75f,
-                    "Registering sparse M8 world");
-                await _grid.LoadStoredSnapshotAsync(snapshot);
+                await _grid.LoadStoredSnapshotAsync(snapshot, progress);
                 _integrator?.RestoreIntegrationCount(snapshot.IntegrationCount);
                 SetStatus($"Loaded {snapshot.Tiles.Count} M8 tiles");
-                succeeded = true;
                 return true;
             }
             catch (Exception exception)
@@ -149,8 +125,6 @@ namespace Genesis.RoomScan
             finally
             {
                 IsBusy = false;
-                _scanner?.FinishOperation(ScanOperationKind.Load, succeeded,
-                    LastStatus);
                 StatusChanged?.Invoke();
             }
         }
@@ -183,9 +157,9 @@ namespace Genesis.RoomScan
             StatusChanged?.Invoke();
         }
 
-        private void Report(ScanOperationKind kind, ScanOperationStage stage,
-            float progress, string text) => _scanner?.ReportOperation(kind,
-            stage, progress, text);
+        private IProgress<OperationWorkProgress> ProgressFor(
+            ScanOperationKind kind) => new Progress<OperationWorkProgress>(value =>
+            _scanner?.ReportOperation(kind, value));
     }
 
     internal static class MerkabaFilePublishing

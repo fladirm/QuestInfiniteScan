@@ -23,6 +23,7 @@ namespace Genesis.RoomScan
         private int _compileKernel;
         private int _finalizeKernel;
         private bool _initialized;
+        private bool _gpuSubmissionSuspended;
         private bool _statusReadbackPending;
         private float _nextStatusReadback;
         private readonly Vector4[] _drawPlanes = new Vector4[12];
@@ -63,7 +64,10 @@ namespace Genesis.RoomScan
 
         private void Awake() => _grid = GetComponent<MerkabaGrid>();
 
-        private void OnEnable() => _active = this;
+        private void OnEnable()
+        {
+            if (!_gpuSubmissionSuspended) _active = this;
+        }
 
         private void OnDisable()
         {
@@ -74,7 +78,27 @@ namespace Genesis.RoomScan
         private void OnDestroy()
         {
             if (_active == this) _active = null;
+        }
+
+        internal void SuspendGpuSubmission()
+        {
+            _gpuSubmissionSuspended = true;
+            if (_active == this) _active = null;
+            MerkabaGpuTimestamps.CloseIncompleteFrame();
+        }
+
+        internal void ResumeGpuSubmission()
+        {
+            _gpuSubmissionSuspended = false;
+            if (isActiveAndEnabled) _active = this;
+        }
+
+        internal void ReleaseOwnedResourcesAfterGpuRetirement()
+        {
             if (_material != null) Destroy(_material);
+            _material = null;
+            _initialized = false;
+            _statusReadbackPending = false;
         }
 
         internal static bool TryGetActive(Camera camera,
@@ -135,6 +159,7 @@ namespace Genesis.RoomScan
 
         private void LateUpdate()
         {
+            if (_gpuSubmissionSuspended) return;
             Camera camera = Camera.main;
             if (camera == null || !Initialize())
             {
@@ -180,7 +205,8 @@ namespace Genesis.RoomScan
         internal void RecordRenderPass(RasterCommandBuffer command)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
-            if (_initialized && _material != null && scanOpacity > 0.001f)
+            if (!_gpuSubmissionSuspended && _initialized && _material != null &&
+                scanOpacity > 0.001f)
                 command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
                     _material, 0, MeshTopology.Triangles, _grid.M8DrawArgs, 0);
             MerkabaGpuTimestamps.RecordProfileEnd(command);

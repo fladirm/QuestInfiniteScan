@@ -36,17 +36,25 @@ namespace Genesis.RoomScan
         private const uint BinaryChunkType = 0x004E4942u;
         internal static MerkabaGlbResult Write(Stream destination,
             IReadOnlyList<MerkabaKernelSnapshot> occupiedKernels,
-            Action onGeometryReadyForWriting = null)
+            IProgress<OperationWorkProgress> progress = null)
         {
             if (destination == null || !destination.CanWrite)
                 throw new ArgumentException("GLB destination must be writable.", nameof(destination));
             if (occupiedKernels == null) throw new ArgumentNullException(nameof(occupiedKernels));
 
             var occupied = new HashSet<int3>();
-            foreach (MerkabaKernelSnapshot kernel in occupiedKernels)
+            long geometryWorkTotal = checked((long)occupiedKernels.Count * 2L);
+            for (int kernelIndex = 0; kernelIndex < occupiedKernels.Count;
+                 kernelIndex++)
             {
+                MerkabaKernelSnapshot kernel = occupiedKernels[kernelIndex];
                 if (!kernel.State.IsOccupied || !occupied.Add(kernel.Coord))
                     throw new InvalidDataException("GLB input contains duplicate/non-occupied kernels.");
+                if ((kernelIndex + 1) % 1024 == 0 ||
+                    kernelIndex + 1 == occupiedKernels.Count)
+                    Report(progress, ScanOperationStage.BuildingMerkabaGeometry,
+                        kernelIndex + 1, geometryWorkTotal,
+                        $"Indexed {kernelIndex + 1}/{occupiedKernels.Count} shell kernels");
             }
 
             long primitiveCount = 0;
@@ -54,8 +62,10 @@ namespace Genesis.RoomScan
                 float.PositiveInfinity);
             Vector3 maximum = new(float.NegativeInfinity, float.NegativeInfinity,
                 float.NegativeInfinity);
-            foreach (MerkabaKernelSnapshot kernel in occupiedKernels)
+            for (int kernelIndex = 0; kernelIndex < occupiedKernels.Count;
+                 kernelIndex++)
             {
+                MerkabaKernelSnapshot kernel = occupiedKernels[kernelIndex];
                 foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
                              kernel.Coord, occupied.Contains))
                 {
@@ -72,6 +82,13 @@ namespace Genesis.RoomScan
                         maximum = Vector3.Max(maximum, converted);
                     }
                 }
+                if ((kernelIndex + 1) % 1024 == 0 ||
+                    kernelIndex + 1 == occupiedKernels.Count)
+                    Report(progress, ScanOperationStage.BuildingMerkabaGeometry,
+                        (long)occupiedKernels.Count + kernelIndex + 1,
+                        geometryWorkTotal,
+                        $"Measured geometry for {kernelIndex + 1}/" +
+                        $"{occupiedKernels.Count} shell kernels");
             }
             int vertexCount = CheckedVertexCountForPrimitiveCount(primitiveCount);
             int indexCount = vertexCount;
@@ -99,7 +116,6 @@ namespace Genesis.RoomScan
             if (totalLength > uint.MaxValue)
                 throw new InvalidDataException("GLB exceeds the 4 GiB container limit.");
 
-            onGeometryReadyForWriting?.Invoke();
             long start = destination.CanSeek ? destination.Position : 0;
             using var writer = new BinaryWriter(destination, new UTF8Encoding(false), true);
             writer.Write(GlbMagic);
@@ -111,30 +127,52 @@ namespace Genesis.RoomScan
             for (int i = jsonBytes.Length; i < paddedJsonLength; i++) writer.Write((byte)0x20);
             writer.Write((uint)binaryLength);
             writer.Write(BinaryChunkType);
+            long binaryHeaderBytes = 12L + 8L + paddedJsonLength + 8L;
+            Report(progress, ScanOperationStage.WritingFile,
+                binaryHeaderBytes, totalLength, "Wrote GLB header");
 
+            long passBytes = 0L;
             VisitVertices(occupiedKernels, occupied, (position, _, _) =>
             {
                 Vector3 value = Convert(position);
                 writer.Write(value.x); writer.Write(value.y); writer.Write(value.z);
-            });
+                passBytes += 12L;
+            }, _ => Report(progress, ScanOperationStage.WritingFile,
+                binaryHeaderBytes + passBytes, totalLength,
+                "Writing POSITION data"));
+            passBytes = 0L;
             VisitVertices(occupiedKernels, occupied, (_, normal, _) =>
             {
                 Vector3 value = Convert(normal).normalized;
                 writer.Write(value.x); writer.Write(value.y); writer.Write(value.z);
-            });
+                passBytes += 12L;
+            }, _ => Report(progress, ScanOperationStage.WritingFile,
+                binaryHeaderBytes + positionsLength + passBytes, totalLength,
+                "Writing NORMAL data"));
+            passBytes = 0L;
             VisitVertices(occupiedKernels, occupied, (_, _, color) =>
             {
                 writer.Write(color.r); writer.Write(color.g); writer.Write(color.b);
                 writer.Write((byte)255);
-            });
+                passBytes += 4L;
+            }, _ => Report(progress, ScanOperationStage.WritingFile,
+                binaryHeaderBytes + positionsLength + normalsLength + passBytes,
+                totalLength, "Writing COLOR_0 data"));
             for (uint triangle = 0; triangle < (uint)indexCount; triangle += 3)
             {
                 // Mirroring X changes handedness; reverse every source triangle.
                 writer.Write(triangle);
                 writer.Write(triangle + 2);
                 writer.Write(triangle + 1);
+                if ((triangle & 0x3ffffu) == 0u)
+                    Report(progress, ScanOperationStage.WritingFile,
+                        binaryHeaderBytes + indicesOffset +
+                        (long)(triangle + 3u) * 4L, totalLength,
+                        "Writing triangle indices");
             }
             writer.Flush();
+            Report(progress, ScanOperationStage.WritingFile, totalLength,
+                totalLength, "GLB bytes written");
             long written = destination.CanSeek ? destination.Position - start : totalLength;
             if (written != totalLength)
                 throw new InvalidDataException($"GLB length mismatch: {written} != {totalLength}.");
@@ -165,20 +203,36 @@ namespace Genesis.RoomScan
 
         private static void VisitVertices(
             IReadOnlyList<MerkabaKernelSnapshot> occupiedKernels,
-            HashSet<int3> occupied, Action<Vector3, Vector3, Color32> visitor)
+            HashSet<int3> occupied, Action<Vector3, Vector3, Color32> visitor,
+            Action<int> kernelCompleted)
         {
-            foreach (MerkabaKernelSnapshot kernel in occupiedKernels)
-            foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
-                         kernel.Coord, occupied.Contains))
-            for (int vertex = 0;
-                 vertex < MerkabaCanonicalGeometry.VerticesPerPrimitive; vertex++)
+            for (int kernelIndex = 0; kernelIndex < occupiedKernels.Count;
+                 kernelIndex++)
             {
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId,
-                    vertex, out float3 local, out float3 normal);
-                float3 position = MerkabaConstants.WorldCenter(kernel.Coord) + local;
-                visitor(position, normal, kernel.State.Color);
+                MerkabaKernelSnapshot kernel = occupiedKernels[kernelIndex];
+                foreach (int primitiveId in
+                         MerkabaCanonicalGeometry.VisiblePrimitives(
+                             kernel.Coord, occupied.Contains))
+                for (int vertex = 0;
+                     vertex < MerkabaCanonicalGeometry.VerticesPerPrimitive;
+                     vertex++)
+                {
+                    MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId,
+                        vertex, out float3 local, out float3 normal);
+                    float3 position = MerkabaConstants.WorldCenter(kernel.Coord) +
+                                      local;
+                    visitor(position, normal, kernel.State.Color);
+                }
+                if (kernelIndex + 1 == occupiedKernels.Count ||
+                    (kernelIndex + 1) % 1024 == 0)
+                    kernelCompleted?.Invoke(kernelIndex + 1);
             }
         }
+
+        private static void Report(IProgress<OperationWorkProgress> progress,
+            ScanOperationStage stage, long completed, long total, string text) =>
+            progress?.Report(new OperationWorkProgress(stage, completed, total,
+                text));
 
         private static Vector3 Convert(Vector3 unity) =>
             new(-unity.x, unity.y, unity.z);

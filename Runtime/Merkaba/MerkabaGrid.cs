@@ -23,7 +23,6 @@ namespace Genesis.RoomScan
 
         private void OnDestroy()
         {
-            ReleaseGpuResources();
             if (Instance == this) Instance = null;
         }
 

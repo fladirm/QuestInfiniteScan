@@ -50,15 +50,15 @@ namespace Genesis.RoomScan
 
         internal static MerkabaExportShellResult Build(
             MerkabaSessionSnapshot snapshot,
-            IProgress<ExportShellProgress> progress = null)
+            IProgress<OperationWorkProgress> progress = null)
         {
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
-            ReportBuildingEvidence(progress);
             var occupied = new HashSet<int3>();
             var strongFree = new HashSet<int3>();
             var realStates = new Dictionary<int3, KernelState>();
-            foreach (MerkabaTileSnapshot tile in snapshot.Tiles)
+            for (int tileIndex = 0; tileIndex < snapshot.Tiles.Count; tileIndex++)
             {
+                MerkabaTileSnapshot tile = snapshot.Tiles[tileIndex];
                 if (tile?.States == null ||
                     tile.States.Length != MerkabaSpatial.KernelsPerTile)
                     throw new InvalidOperationException(
@@ -70,42 +70,50 @@ namespace Genesis.RoomScan
                         tile.Address.LocalAddress, index);
                     AddEvidence(coord, state, occupied, strongFree, realStates);
                 }
+                ReportEvery(progress, ScanOperationStage.BuildingExportEvidence,
+                    tileIndex + 1, snapshot.Tiles.Count, 32,
+                    $"Read export evidence from {tileIndex + 1}/" +
+                    $"{snapshot.Tiles.Count} tiles");
             }
+            if (snapshot.Tiles.Count == 0)
+                progress?.Report(new OperationWorkProgress(
+                    ScanOperationStage.BuildingExportEvidence, 0, 0,
+                    "Export evidence is empty"));
             return Build(occupied, strongFree, realStates, progress);
         }
 
         internal static MerkabaExportShellResult Build(
             IReadOnlyDictionary<int3, KernelState> evidence,
-            IProgress<ExportShellProgress> progress = null)
+            IProgress<OperationWorkProgress> progress = null)
         {
             if (evidence == null) throw new ArgumentNullException(nameof(evidence));
-            ReportBuildingEvidence(progress);
             var occupied = new HashSet<int3>();
             var strongFree = new HashSet<int3>();
             var realStates = new Dictionary<int3, KernelState>();
+            int evidenceIndex = 0;
             foreach (KeyValuePair<int3, KernelState> pair in evidence)
+            {
                 AddEvidence(pair.Key, pair.Value, occupied, strongFree, realStates);
+                evidenceIndex++;
+                ReportEvery(progress, ScanOperationStage.BuildingExportEvidence,
+                    evidenceIndex, evidence.Count, 1024,
+                    $"Read {evidenceIndex}/{evidence.Count} evidence states");
+            }
             return Build(occupied, strongFree, realStates, progress);
         }
 
         private static MerkabaExportShellResult Build(HashSet<int3> occupied,
             HashSet<int3> strongFree,
             Dictionary<int3, KernelState> realStates,
-            IProgress<ExportShellProgress> progress)
+            IProgress<OperationWorkProgress> progress)
         {
             if (occupied.Count == 0)
                 throw new InvalidOperationException(
                     "The Merkaba grid has no occupied kernels.");
 
-            progress?.Report(new ExportShellProgress(
-                ScanOperationStage.HealingTinyHoles, 0.38f,
-                "Healing tiny unknown holes"));
-            HashSet<int3> healed = CloseOnce(occupied, strongFree);
+            HashSet<int3> healed = CloseOnce(occupied, strongFree, progress);
 
-            progress?.Report(new ExportShellProgress(
-                ScanOperationStage.ExtractingMerkabaShell, 0.62f,
-                "Extracting observed Merkaba shell"));
-            HashSet<int3> shell = SelectShell(healed, strongFree);
+            HashSet<int3> shell = SelectShell(healed, strongFree, progress);
             if (shell.Count == 0)
                 throw new InvalidOperationException(
                     "Evidence-aware export shell contains no kernels.");
@@ -114,8 +122,9 @@ namespace Genesis.RoomScan
             sortedShell.Sort(CompareCoords);
             var kernels = new List<MerkabaKernelSnapshot>(sortedShell.Count);
             int syntheticSelected = 0;
-            foreach (int3 coord in sortedShell)
+            for (int index = 0; index < sortedShell.Count; index++)
             {
+                int3 coord = sortedShell[index];
                 KernelState state;
                 if (realStates.TryGetValue(coord, out KernelState real))
                 {
@@ -127,6 +136,9 @@ namespace Genesis.RoomScan
                     syntheticSelected++;
                 }
                 kernels.Add(new MerkabaKernelSnapshot(coord, state));
+                ReportEvery(progress, ScanOperationStage.PreparingExportColors,
+                    index + 1, sortedShell.Count, 1024,
+                    $"Prepared {index + 1}/{sortedShell.Count} shell colors");
             }
 
             int3[] healedSorted = Sorted(healed);
@@ -136,14 +148,23 @@ namespace Genesis.RoomScan
         }
 
         private static HashSet<int3> CloseOnce(HashSet<int3> occupied,
-            HashSet<int3> strongFree)
+            HashSet<int3> strongFree,
+            IProgress<OperationWorkProgress> progress)
         {
             var dilated = new HashSet<int3>();
+            int processed = 0;
             foreach (int3 coord in occupied)
-            foreach (int3 offset in ClosingOffsets)
-                dilated.Add(coord + offset);
+            {
+                foreach (int3 offset in ClosingOffsets)
+                    dilated.Add(coord + offset);
+                processed++;
+                ReportEvery(progress, ScanOperationStage.DilatingShell,
+                    processed, occupied.Count, 1024,
+                    $"Dilated {processed}/{occupied.Count} occupied kernels");
+            }
 
             var closed = new HashSet<int3>();
+            processed = 0;
             foreach (int3 candidate in dilated)
             {
                 bool retained = true;
@@ -154,6 +175,10 @@ namespace Genesis.RoomScan
                     break;
                 }
                 if (retained) closed.Add(candidate);
+                processed++;
+                ReportEvery(progress, ScanOperationStage.HealingTinyHoles,
+                    processed, dilated.Count, 1024,
+                    $"Tested {processed}/{dilated.Count} closing candidates");
             }
 
             var healed = new HashSet<int3>(occupied);
@@ -165,12 +190,6 @@ namespace Genesis.RoomScan
             }
             return healed;
         }
-
-        private static void ReportBuildingEvidence(
-            IProgress<ExportShellProgress> progress) =>
-            progress?.Report(new ExportShellProgress(
-                ScanOperationStage.BuildingExportEvidence, 0.2f,
-                "Building export evidence"));
 
         private static void AddEvidence(int3 coord, KernelState state,
             HashSet<int3> occupied, HashSet<int3> strongFree,
@@ -190,13 +209,15 @@ namespace Genesis.RoomScan
         }
 
         private static HashSet<int3> SelectShell(HashSet<int3> healed,
-            HashSet<int3> strongFree)
+            HashSet<int3> strongFree,
+            IProgress<OperationWorkProgress> progress)
         {
             var selected = new HashSet<int3>();
             var unvisited = new HashSet<int3>(healed);
             int3[] seeds = Sorted(healed);
             var queue = new Queue<int3>();
             var component = new List<int3>();
+            int visited = 0;
 
             foreach (int3 seed in seeds)
             {
@@ -207,6 +228,11 @@ namespace Genesis.RoomScan
                 {
                     int3 coord = queue.Dequeue();
                     component.Add(coord);
+                    visited++;
+                    ReportEvery(progress,
+                        ScanOperationStage.ExtractingMerkabaShell, visited,
+                        healed.Count, 1024,
+                        $"Traversed {visited}/{healed.Count} healed kernels");
                     foreach (int3 offset in MerkabaConstants.Neighbours)
                     {
                         int3 neighbour = coord + offset;
@@ -231,6 +257,17 @@ namespace Genesis.RoomScan
                 }
             }
             return selected;
+        }
+
+        private static void ReportEvery(
+            IProgress<OperationWorkProgress> progress,
+            ScanOperationStage stage, int completed, int total, int interval,
+            string text)
+        {
+            if (progress == null ||
+                (completed != total && completed % interval != 0)) return;
+            progress.Report(new OperationWorkProgress(stage, completed, total,
+                text));
         }
 
         private static bool Touches(int3 coord, HashSet<int3> set)

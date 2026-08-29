@@ -175,11 +175,6 @@ namespace Genesis.RoomScan
                 _pca.enabled = false;
         }
 
-        private void OnDestroy()
-        {
-            StopCapture();
-        }
-
         private PassthroughCameraAccess CreateOwnedPca()
         {
             // Keep the host inactive until configuration is complete so PCA's

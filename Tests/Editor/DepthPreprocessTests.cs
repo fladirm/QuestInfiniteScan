@@ -251,12 +251,14 @@ namespace Genesis.RoomScan.Tests
             string begin = Slice(depth, "internal void BeginQuiesceDepthCapture()",
                 "internal Task RetireSubmittedDepthCopiesAsync()");
             string complete = Slice(depth, "internal void CompleteDepthCaptureStop()",
-                "private void OnApplicationPause");
+                "private void OnDestroy()");
             Assert.That(begin, Does.Not.Contain("_arOcclusionManager.enabled = false"));
             Assert.That(complete, Does.Contain("_arOcclusionManager.enabled = false"));
             Assert.That(depth, Does.Not.Contain("WaitForCompletion"));
             Assert.That(depth, Does.Not.Contain("Thread.Sleep"));
             Assert.That(depth, Does.Not.Contain("Task.Delay"));
+            Assert.That(depth, Does.Not.Contain("OnApplicationPause"),
+                "RoomScanner is the sole pause lifecycle authority.");
         }
 
         [Test]

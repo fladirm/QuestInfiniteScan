@@ -128,7 +128,7 @@ namespace Genesis.RoomScan.Tests
                 "if (snapshot.AnchorUuid != Guid.Empty)",
                 StringComparison.Ordinal);
             int loadWorld = persistence.IndexOf(
-                "await _grid.LoadStoredSnapshotAsync(snapshot)",
+                "await _grid.LoadStoredSnapshotAsync(snapshot, progress)",
                 StringComparison.Ordinal);
             Assert.That(anchored, Is.GreaterThanOrEqualTo(0));
             Assert.That(loadWorld, Is.GreaterThan(anchored));

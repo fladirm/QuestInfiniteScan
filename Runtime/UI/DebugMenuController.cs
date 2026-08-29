@@ -177,9 +177,10 @@ namespace Genesis.RoomScan.UI
         private void RefreshOperation(ScanOperationState operation)
         {
             if (_operationPanel == null) return;
-            _operationPanel.style.display = operation.Busy
+            bool hasOperation = operation.Kind != ScanOperationKind.None;
+            _operationPanel.style.display = hasOperation
                 ? DisplayStyle.Flex : DisplayStyle.None;
-            if (!operation.Busy) return;
+            if (!hasOperation) return;
 
             Set(_operationStage, operation.StatusText);
             bool indeterminate = operation.IsIndeterminate;
