@@ -1,13 +1,15 @@
 using System;
 using Meta.XR;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
     /// <summary>
-    /// Coherent four-stream Quest capture. Native/external images are copied only
-    /// GPU-to-GPU into leased rings; metadata pairing fails closed by timestamp,
-    /// calibration epoch, pose validity, and eye identity.
+    /// Coherent four-stream Quest capture. PCA images stay borrowed metadata until
+    /// one requested owned depth snapshot has a valid timestamp match. Exactly that
+    /// RGB pair is then copied GPU-to-GPU and the coherent frame remains held until
+    /// the renderer accepts it. The four sensor leaves remain independent query input.
     /// </summary>
     [DefaultExecutionOrder(-30)]
     public sealed class SigmaRigBridge : MonoBehaviour
@@ -26,16 +28,21 @@ namespace Genesis.RoomScan.SigmaPrism
         [SerializeField, Min(1f)] private float maxRgbDepthDeltaMilliseconds = 35f;
         [SerializeField, Min(0.1f)] private float maxClockUncertaintyMilliseconds = 5f;
         [SerializeField, Range(5, 24)] private int gpuRingSlots = 8;
-        [SerializeField, Range(3, 24)] private int metadataQueueCapacity = 10;
 
         private readonly RigIntrinsics[] _sessionIntrinsics = new RigIntrinsics[4];
         private readonly bool[] _hasSessionIntrinsics = new bool[4];
         private GpuTextureRing _rgbLeftRing;
         private GpuTextureRing _rgbRightRing;
         private GpuTextureRing _depthRing;
-        private RigFrameSynchronizer _synchronizer;
         private RigClockMapper _clockMapper;
         private StereoRigFrameLease _latestFrame;
+        private GpuTextureLease _pendingDepthOwner;
+        private GpuImageView _pendingDepthLeft;
+        private GpuImageView _pendingDepthRight;
+        private Vector2Int _pendingDepthResolution;
+        private Vector2 _pendingDepthNearFar;
+        private BorrowedRgbDescriptor _latestRgbLeft;
+        private BorrowedRgbDescriptor _latestRgbRight;
         private bool _captureRequested;
         private bool _ownsLeft;
         private bool _ownsRight;
@@ -46,6 +53,12 @@ namespace Genesis.RoomScan.SigmaPrism
         private long _lastRgbRightTimestampNs;
         private long _rgbLeftSequence;
         private long _rgbRightSequence;
+        private long _coherentSequence;
+        private long _acceptedFrames;
+        private long _rejectedSamples;
+        private long _lastRgbDeltaNanoseconds;
+        private long _lastRgbDepthDeltaNanoseconds;
+        private RigFrameRejectionReason _lastPairingRejection;
         private float _lastDiagnosticLog;
         private long _localRejections;
         private RigFrameRejectionReason _lastLocalRejection;
@@ -56,8 +69,9 @@ namespace Genesis.RoomScan.SigmaPrism
         public ulong CombinedCalibrationSignature => _combinedCalibrationSignature;
         public RigFrameRejectionReason LastLocalRejection => _lastLocalRejection;
         public long LocalRejectionCount => _localRejections;
-        public RigCaptureDiagnosticSnapshot PairingDiagnostics =>
-            _synchronizer != null ? _synchronizer.Diagnostics : default;
+        public RigCaptureDiagnosticSnapshot PairingDiagnostics => new(
+            _acceptedFrames, _rejectedSamples, _lastPairingRejection,
+            _lastRgbDeltaNanoseconds, _lastRgbDepthDeltaNanoseconds);
 
         public bool TryAcquireLatest(out StereoRigFrameLease frame)
         {
@@ -67,6 +81,21 @@ namespace Genesis.RoomScan.SigmaPrism
                 return false;
             }
             frame = _latestFrame.Retain();
+            return true;
+        }
+
+        /// <summary>
+        /// Releases only the bridge's ready/held owner after the renderer has created
+        /// and published a retained prediction lease for this exact source sequence.
+        /// </summary>
+        internal bool AcknowledgeConsumed(long sequence)
+        {
+            if (_latestFrame == null || _latestFrame.Sequence != sequence)
+                return false;
+            StereoRigFrameLease consumed = _latestFrame;
+            _latestFrame = null;
+            consumed.Dispose();
+            ArmNextObservation();
             return true;
         }
 
@@ -91,23 +120,29 @@ namespace Genesis.RoomScan.SigmaPrism
                 depthCapture.RawStereoFrameReceived += OnRawStereoDepthFrame;
                 _subscribedDepth = true;
             }
+            else if (depthCapture == null)
+            {
+                ReportLocalRejection(RigFrameRejectionReason.MissingTexture);
+            }
 
-            Logger.Info("Sigma-PRISM-16 rig capture requested: RGB-L/R + DEPTH-L/R GPU rings");
+            ArmNextObservation();
+            Logger.Info("Sigma-PRISM-16 rig capture requested: demand-driven " +
+                        "RGB-L/R + DEPTH-L/R owned snapshots");
         }
 
         public void StopCapture()
         {
-            if (!_captureRequested && _synchronizer == null)
-                return;
             _captureRequested = false;
             if (depthCapture != null && _subscribedDepth)
             {
                 depthCapture.RawStereoFrameReceived -= OnRawStereoDepthFrame;
                 _subscribedDepth = false;
             }
-            _synchronizer?.Flush(RigFrameRejectionReason.Stale);
+            DiscardPendingDepth(RigFrameRejectionReason.None);
             _latestFrame?.Dispose();
             _latestFrame = null;
+            _latestRgbLeft = default;
+            _latestRgbRight = default;
 
             // Adopted Building-Block/provider cameras are shared infrastructure.
             if (_ownsLeft && leftCameraAccess != null)
@@ -121,11 +156,14 @@ namespace Genesis.RoomScan.SigmaPrism
             if (!_captureRequested)
                 return;
 
-            CaptureRgb(leftCameraAccess, RigEye.Left, ref _lastRgbLeftTimestampNs,
-                ref _rgbLeftSequence, _rgbLeftRing);
-            CaptureRgb(rightCameraAccess, RigEye.Right, ref _lastRgbRightTimestampNs,
-                ref _rgbRightSequence, _rgbRightRing);
-            PublishAvailableFrames();
+            CaptureRgbMetadata(leftCameraAccess, RigEye.Left,
+                ref _lastRgbLeftTimestampNs, ref _rgbLeftSequence,
+                ref _latestRgbLeft);
+            CaptureRgbMetadata(rightCameraAccess, RigEye.Right,
+                ref _lastRgbRightTimestampNs, ref _rgbRightSequence,
+                ref _latestRgbRight);
+            TryPublishPendingDepth();
+            ArmNextObservation();
 
             if (Time.unscaledTime - _lastDiagnosticLog >= 5f)
             {
@@ -133,6 +171,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 RigCaptureDiagnosticSnapshot diagnostics = PairingDiagnostics;
                 Logger.Info($"Sigma-PRISM-16 capture: coherent={diagnostics.AcceptedFrames}, " +
                     $"pairReject={diagnostics.RejectedSamples}, localReject={_localRejections}, " +
+                    $"held={_latestFrame != null}, depthReady={_pendingDepthOwner != null}, " +
                     $"last={diagnostics.LastRejection | _lastLocalRejection}, " +
                     $"rgbDeltaMs={diagnostics.LastRgbDeltaNanoseconds / 1_000_000f:F2}, " +
                     $"rgbDepthDeltaMs={diagnostics.LastRgbDepthDeltaNanoseconds / 1_000_000f:F2}, " +
@@ -143,11 +182,9 @@ namespace Genesis.RoomScan.SigmaPrism
         private void OnDestroy()
         {
             StopCapture();
-            _synchronizer?.Dispose();
             _rgbLeftRing?.Dispose();
             _rgbRightRing?.Dispose();
             _depthRing?.Dispose();
-            _synchronizer = null;
             _rgbLeftRing = null;
             _rgbRightRing = null;
             _depthRing = null;
@@ -155,21 +192,19 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void EnsureRuntimeObjects()
         {
-            _rgbLeftRing ??= new GpuTextureRing("Sigma-PRISM-16 RGB Left", gpuRingSlots);
-            _rgbRightRing ??= new GpuTextureRing("Sigma-PRISM-16 RGB Right", gpuRingSlots);
-            _depthRing ??= new GpuTextureRing("Sigma-PRISM-16 Stereo Depth", gpuRingSlots,
-                UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SFloat,
+            _rgbLeftRing ??= new GpuTextureRing("Sigma-PRISM-16 RGB Left",
+                gpuRingSlots);
+            _rgbRightRing ??= new GpuTextureRing("Sigma-PRISM-16 RGB Right",
+                gpuRingSlots);
+            _depthRing ??= new GpuTextureRing("Sigma-PRISM-16 Stereo Depth",
+                gpuRingSlots, GraphicsFormat.R32_SFloat,
                 GpuTextureCopyMode.ProjectionDepthArray);
-            int boundedMetadataQueue = Mathf.Max(3,
-                Mathf.Min(metadataQueueCapacity, gpuRingSlots - 2));
-            _synchronizer ??= new RigFrameSynchronizer(maxRgbDeltaMilliseconds,
-                maxRgbDepthDeltaMilliseconds, maxClockUncertaintyMilliseconds,
-                boundedMetadataQueue);
             _clockMapper ??= RigClockMapper.CreateRuntime();
         }
 
-        private void CaptureRgb(PassthroughCameraAccess access, RigEye eye,
-            ref long lastTimestampNs, ref long sequence, GpuTextureRing ring)
+        private void CaptureRgbMetadata(PassthroughCameraAccess access,
+            RigEye eye, ref long lastTimestampNs, ref long sequence,
+            ref BorrowedRgbDescriptor destination)
         {
             if (access == null || !access.IsPlaying || !access.IsUpdatedThisFrame)
                 return;
@@ -203,31 +238,40 @@ namespace Genesis.RoomScan.SigmaPrism
                 ReportLocalRejection(RigFrameRejectionReason.CalibrationMismatch);
                 return;
             }
-            if (_calibrationEpoch == 0u)
-                return;
 
-            if (!ring.TryCopy(source, out GpuTextureLease lease,
-                    out RigFrameRejectionReason rejection))
+            long sampleSequence = ++sequence;
+            var descriptor = new BorrowedRgbDescriptor(source, eye,
+                sampleSequence, timestamp, access.GetCameraPose(), intrinsics);
+            if (!descriptor.IsValid)
             {
-                ReportLocalRejection(rejection);
+                ReportLocalRejection(RigFrameRejectionReason.MissingPose |
+                                     RigFrameRejectionReason.MissingTexture);
                 return;
             }
-
+            destination = descriptor;
             lastTimestampNs = timestamp.SourceNanoseconds;
-            long sampleSequence = ++sequence;
-            var view = new GpuImageView(RigStreamKind.Rgb, eye, lease.Texture, 0,
-                sampleSequence, timestamp, access.GetCameraPose(), intrinsics,
-                lease.GraphicsFormat);
-            _synchronizer.AddRgb(new RgbRigSample(lease, view, _calibrationEpoch));
         }
 
         private void OnRawStereoDepthFrame(RawStereoDepthFrame raw)
         {
-            if (!_captureRequested || !raw.IsValid)
+            if (!_captureRequested)
                 return;
+            if (!raw.IsValid)
+            {
+                ReportLocalRejection(RigFrameRejectionReason.MissingTexture |
+                                     RigFrameRejectionReason.MissingTimestamp);
+                ArmNextObservation();
+                return;
+            }
+            if (_pendingDepthOwner != null || _latestFrame != null)
+            {
+                ReportLocalRejection(RigFrameRejectionReason.Stale);
+                return;
+            }
             if (!_clockMapper.IsValid && !_clockMapper.TryCaptureAnchor())
             {
                 ReportLocalRejection(RigFrameRejectionReason.ClockMappingUncertain);
+                ArmNextObservation();
                 return;
             }
             if (!_clockMapper.TryMapXrTimestamp(raw.TimestampNanoseconds,
@@ -235,15 +279,18 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 ReportLocalRejection(RigFrameRejectionReason.MissingTimestamp |
                                      RigFrameRejectionReason.ClockMappingUncertain);
+                ArmNextObservation();
                 return;
             }
 
-            Vector2Int resolution = new(raw.StereoTexture.width, raw.StereoTexture.height);
+            Vector2Int resolution = new(raw.StereoTexture.width,
+                raw.StereoTexture.height);
             if (!_hasSessionIntrinsics[2] &&
                 !FreezeSessionIntrinsics(2,
                     RigCalibrationMath.FromDepthFov(raw.LeftFov, resolution)))
             {
                 ReportLocalRejection(RigFrameRejectionReason.InvalidIntrinsics);
+                ArmNextObservation();
                 return;
             }
             if (!_hasSessionIntrinsics[3] &&
@@ -251,6 +298,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     RigCalibrationMath.FromDepthFov(raw.RightFov, resolution)))
             {
                 ReportLocalRejection(RigFrameRejectionReason.InvalidIntrinsics);
+                ArmNextObservation();
                 return;
             }
             RigIntrinsics leftIntrinsics = _sessionIntrinsics[2];
@@ -259,37 +307,140 @@ namespace Genesis.RoomScan.SigmaPrism
                 resolution != rightIntrinsics.ImageResolution)
             {
                 ReportLocalRejection(RigFrameRejectionReason.CalibrationMismatch);
+                ArmNextObservation();
                 return;
             }
             if (_calibrationEpoch == 0u)
+            {
+                ArmNextObservation();
                 return;
+            }
 
-            if (!_depthRing.TryCopy(raw.StereoTexture, out GpuTextureLease lease,
+            if (!_depthRing.TryCopy(raw.StereoTexture,
+                    out GpuTextureLease lease,
                     out RigFrameRejectionReason rejection))
             {
                 ReportLocalRejection(rejection);
+                ArmNextObservation();
                 return;
             }
 
-            var left = new GpuImageView(RigStreamKind.Depth, RigEye.Left, lease.Texture,
-                0, raw.Sequence, timestamp, raw.WorldFromLeft, leftIntrinsics,
-                lease.GraphicsFormat, RigDepthEncoding.ProjectionDepth01, raw.NearFar);
-            var right = new GpuImageView(RigStreamKind.Depth, RigEye.Right, lease.Texture,
-                1, raw.Sequence, timestamp, raw.WorldFromRight, rightIntrinsics,
-                lease.GraphicsFormat, RigDepthEncoding.ProjectionDepth01, raw.NearFar);
-            _synchronizer.AddDepth(new StereoDepthRigSample(lease, left, right,
-                _calibrationEpoch, resolution, raw.NearFar));
-            PublishAvailableFrames();
+            var left = new GpuImageView(RigStreamKind.Depth, RigEye.Left,
+                lease.Texture, 0, raw.Sequence, timestamp, raw.WorldFromLeft,
+                leftIntrinsics, lease.GraphicsFormat,
+                RigDepthEncoding.ProjectionDepth01, raw.NearFar);
+            var right = new GpuImageView(RigStreamKind.Depth, RigEye.Right,
+                lease.Texture, 1, raw.Sequence, timestamp, raw.WorldFromRight,
+                rightIntrinsics, lease.GraphicsFormat,
+                RigDepthEncoding.ProjectionDepth01, raw.NearFar);
+            if (!left.IsValid || !right.IsValid)
+            {
+                lease.Dispose();
+                ReportLocalRejection(
+                    RigFrameRejectionReason.StereoDepthContractMismatch);
+                ArmNextObservation();
+                return;
+            }
+
+            _pendingDepthOwner = lease;
+            _pendingDepthLeft = left;
+            _pendingDepthRight = right;
+            _pendingDepthResolution = resolution;
+            _pendingDepthNearFar = raw.NearFar;
         }
 
-        private void PublishAvailableFrames()
+        private void TryPublishPendingDepth()
         {
-            while (_synchronizer != null && _synchronizer.TryDequeue(out StereoRigFrameLease frame))
+            if (_pendingDepthOwner == null || _latestFrame != null ||
+                !_latestRgbLeft.IsValid || !_latestRgbRight.IsValid)
+                return;
+
+            RigLatestSnapshotMatchResult match = RigLatestSnapshotMatcher.Match(
+                _latestRgbLeft.Timestamp, _latestRgbRight.Timestamp,
+                _pendingDepthLeft.Timestamp,
+                MillisecondsToNanoseconds(maxRgbDeltaMilliseconds),
+                MillisecondsToNanoseconds(maxRgbDepthDeltaMilliseconds),
+                MillisecondsToNanoseconds(maxClockUncertaintyMilliseconds));
+            _lastRgbDeltaNanoseconds = match.RgbDeltaNanoseconds;
+            _lastRgbDepthDeltaNanoseconds = match.RgbDepthDeltaNanoseconds;
+            _lastPairingRejection = match.Rejection;
+            if (match.Disposition == RigLatestSnapshotMatch.Waiting)
+                return;
+            if (match.Disposition == RigLatestSnapshotMatch.DiscardDepth)
             {
-                StereoRigFrameLease previous = _latestFrame;
-                _latestFrame = frame;
-                previous?.Dispose();
+                DiscardPendingDepth(match.Rejection);
+                ArmNextObservation();
+                return;
             }
+
+            if (!GpuTextureRing.TryCopyPair(_rgbLeftRing,
+                    _latestRgbLeft.Texture, _rgbRightRing,
+                    _latestRgbRight.Texture, out GpuTextureLease leftLease,
+                    out GpuTextureLease rightLease,
+                    out RigFrameRejectionReason rejection))
+            {
+                ReportLocalRejection(rejection);
+                if ((rejection & RigFrameRejectionReason.RingExhausted) == 0)
+                {
+                    DiscardPendingDepth(rejection);
+                    ArmNextObservation();
+                }
+                return;
+            }
+
+            GpuTextureLease depthLease = _pendingDepthOwner;
+            try
+            {
+                GpuImageView rgbLeft = _latestRgbLeft.ToOwned(leftLease);
+                GpuImageView rgbRight = _latestRgbRight.ToOwned(rightLease);
+                var health = new RigPairingHealth(match.RgbDeltaNanoseconds,
+                    match.RgbDepthDeltaNanoseconds,
+                    match.ClockUncertaintyNanoseconds);
+                _latestFrame = new StereoRigFrameLease(++_coherentSequence,
+                    _calibrationEpoch, leftLease, rgbLeft, rightLease, rgbRight,
+                    depthLease, _pendingDepthLeft, _pendingDepthRight,
+                    _pendingDepthResolution, _pendingDepthNearFar, health);
+                leftLease = null;
+                rightLease = null;
+                depthLease = null;
+                _pendingDepthOwner = null;
+                ClearPendingDepthMetadata();
+                _acceptedFrames++;
+                _lastPairingRejection = RigFrameRejectionReason.None;
+            }
+            finally
+            {
+                leftLease?.Dispose();
+                rightLease?.Dispose();
+                depthLease?.Dispose();
+            }
+        }
+
+        private void ArmNextObservation()
+        {
+            if (!_captureRequested || _latestFrame != null ||
+                _pendingDepthOwner != null || depthCapture == null)
+                return;
+            depthCapture.RequestNextDepthFrame();
+        }
+
+        private void DiscardPendingDepth(RigFrameRejectionReason reason)
+        {
+            _pendingDepthOwner?.Dispose();
+            _pendingDepthOwner = null;
+            ClearPendingDepthMetadata();
+            if (reason == RigFrameRejectionReason.None)
+                return;
+            _rejectedSamples++;
+            _lastPairingRejection = reason;
+        }
+
+        private void ClearPendingDepthMetadata()
+        {
+            _pendingDepthLeft = default;
+            _pendingDepthRight = default;
+            _pendingDepthResolution = default;
+            _pendingDepthNearFar = default;
         }
 
         private bool FreezeSessionIntrinsics(int index, RigIntrinsics intrinsics)
@@ -306,15 +457,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     return true;
             }
 
-            ulong combined = RigCalibrationMath.CombineSignatures(
+            _combinedCalibrationSignature = RigCalibrationMath.CombineSignatures(
                 _sessionIntrinsics[0].Signature, _sessionIntrinsics[1].Signature,
                 _sessionIntrinsics[2].Signature, _sessionIntrinsics[3].Signature);
-            _combinedCalibrationSignature = combined;
             _calibrationEpoch = 1u;
-            _synchronizer?.Flush(RigFrameRejectionReason.CalibrationMismatch);
-            _latestFrame?.Dispose();
-            _latestFrame = null;
-            Logger.Info($"Sigma-PRISM-16 immutable rig calibration frozen, signature=0x{combined:x16}");
+            Logger.Info("Sigma-PRISM-16 immutable rig calibration frozen, " +
+                        $"signature=0x{_combinedCalibrationSignature:x16}");
             return true;
         }
 
@@ -323,23 +471,26 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (assigned != null && assigned.CameraPosition != eye)
             {
-                Logger.Error($"Sigma-PRISM-16 {eye} PCA reference points to {assigned.CameraPosition}; ignoring it.");
+                Logger.Error($"Sigma-PRISM-16 {eye} PCA reference points to " +
+                             $"{assigned.CameraPosition}; ignoring it.");
                 assigned = null;
                 owns = false;
             }
 
             if (assigned == null)
             {
-                PassthroughCameraAccess[] all = FindObjectsByType<PassthroughCameraAccess>(
-                    FindObjectsInactive.Include);
+                PassthroughCameraAccess[] all =
+                    FindObjectsByType<PassthroughCameraAccess>(
+                        FindObjectsInactive.Include);
                 foreach (PassthroughCameraAccess candidate in all)
                 {
                     if (candidate.CameraPosition != eye)
                         continue;
                     if (assigned != null)
                     {
-                        Logger.Error($"Sigma-PRISM-16 found duplicate {eye} PassthroughCameraAccess instances; " +
-                                     "capture fails closed until the scene is fixed.");
+                        Logger.Error($"Sigma-PRISM-16 found duplicate {eye} " +
+                                     "PassthroughCameraAccess instances; capture " +
+                                     "fails closed until the scene is fixed.");
                         return null;
                     }
                     assigned = candidate;
@@ -378,6 +529,50 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             _localRejections++;
             _lastLocalRejection = reason;
+        }
+
+        private static long MillisecondsToNanoseconds(float milliseconds) =>
+            (long)Math.Round(milliseconds * 1_000_000.0);
+
+        private readonly struct BorrowedRgbDescriptor
+        {
+            internal BorrowedRgbDescriptor(Texture texture, RigEye eye,
+                long sourceSequence, RigTimestamp timestamp,
+                Pose worldFromCamera, RigIntrinsics intrinsics)
+            {
+                Texture = texture;
+                Eye = eye;
+                SourceSequence = sourceSequence;
+                Timestamp = timestamp;
+                WorldFromCamera = worldFromCamera;
+                Intrinsics = intrinsics;
+            }
+
+            internal Texture Texture { get; }
+            internal RigEye Eye { get; }
+            internal long SourceSequence { get; }
+            internal RigTimestamp Timestamp { get; }
+            internal Pose WorldFromCamera { get; }
+            internal RigIntrinsics Intrinsics { get; }
+            internal bool IsValid => Texture != null && Timestamp.IsValid &&
+                Intrinsics.IsValid && IsFinite(WorldFromCamera);
+
+            internal GpuImageView ToOwned(GpuTextureLease lease) => new(
+                RigStreamKind.Rgb, Eye, lease.Texture, 0, SourceSequence,
+                Timestamp, WorldFromCamera, Intrinsics, lease.GraphicsFormat);
+
+            private static bool IsFinite(Pose pose) =>
+                float.IsFinite(pose.position.x) &&
+                float.IsFinite(pose.position.y) &&
+                float.IsFinite(pose.position.z) &&
+                float.IsFinite(pose.rotation.x) &&
+                float.IsFinite(pose.rotation.y) &&
+                float.IsFinite(pose.rotation.z) &&
+                float.IsFinite(pose.rotation.w) &&
+                pose.rotation.x * pose.rotation.x +
+                pose.rotation.y * pose.rotation.y +
+                pose.rotation.z * pose.rotation.z +
+                pose.rotation.w * pose.rotation.w > 0.5f;
         }
     }
 }

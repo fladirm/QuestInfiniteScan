@@ -57,6 +57,130 @@ namespace Genesis.RoomScan.SigmaPrism
         StereoDepthContractMismatch = 1u << 15
     }
 
+    internal enum RigLatestSnapshotMatch : byte
+    {
+        Waiting = 0,
+        Ready = 1,
+        DiscardDepth = 2
+    }
+
+    internal readonly struct RigLatestSnapshotMatchResult
+    {
+        internal RigLatestSnapshotMatchResult(RigLatestSnapshotMatch disposition,
+            RigFrameRejectionReason rejection, long rgbDeltaNanoseconds,
+            long rgbDepthDeltaNanoseconds, long clockUncertaintyNanoseconds)
+        {
+            Disposition = disposition;
+            Rejection = rejection;
+            RgbDeltaNanoseconds = rgbDeltaNanoseconds;
+            RgbDepthDeltaNanoseconds = rgbDepthDeltaNanoseconds;
+            ClockUncertaintyNanoseconds = clockUncertaintyNanoseconds;
+        }
+
+        internal RigLatestSnapshotMatch Disposition { get; }
+        internal RigFrameRejectionReason Rejection { get; }
+        internal long RgbDeltaNanoseconds { get; }
+        internal long RgbDepthDeltaNanoseconds { get; }
+        internal long ClockUncertaintyNanoseconds { get; }
+    }
+
+    /// <summary>
+    /// Lossless pre-admission match for the latest two PCA descriptors and one owned
+    /// depth snapshot. It only decides capture eligibility; the four sensor leaves
+    /// remain separate inputs to the generated query program.
+    /// </summary>
+    internal static class RigLatestSnapshotMatcher
+    {
+        internal static RigLatestSnapshotMatchResult Match(
+            RigTimestamp left, RigTimestamp right, RigTimestamp depth,
+            long maximumRgbDeltaNanoseconds,
+            long maximumRgbDepthDeltaNanoseconds,
+            long maximumClockUncertaintyNanoseconds)
+        {
+            if (!left.IsValid || !right.IsValid || !depth.IsValid)
+                return new RigLatestSnapshotMatchResult(
+                    RigLatestSnapshotMatch.Waiting,
+                    RigFrameRejectionReason.MissingTimestamp,
+                    long.MaxValue, long.MaxValue, long.MaxValue);
+
+            long uncertainty = Math.Max(depth.MappingUncertaintyNanoseconds,
+                Math.Max(left.MappingUncertaintyNanoseconds,
+                    right.MappingUncertaintyNanoseconds));
+            if (uncertainty > maximumClockUncertaintyNanoseconds)
+                return new RigLatestSnapshotMatchResult(
+                    RigLatestSnapshotMatch.DiscardDepth,
+                    RigFrameRejectionReason.ClockMappingUncertain,
+                    long.MaxValue, long.MaxValue, uncertainty);
+
+            long rgbDelta = left.AbsoluteDeltaNanoseconds(right);
+            long midpoint = left.UnixNanoseconds +
+                (right.UnixNanoseconds - left.UnixNanoseconds) / 2L;
+            long depthDelta = AbsoluteDelta(midpoint, depth.UnixNanoseconds);
+            RigFrameRejectionReason mismatch = RigFrameRejectionReason.None;
+            if (rgbDelta > maximumRgbDeltaNanoseconds)
+                mismatch |= RigFrameRejectionReason.RgbPairDeltaExceeded;
+            if (depthDelta > maximumRgbDepthDeltaNanoseconds)
+                mismatch |= RigFrameRejectionReason.RgbDepthDeltaExceeded;
+            if (mismatch == RigFrameRejectionReason.None)
+                return new RigLatestSnapshotMatchResult(
+                    RigLatestSnapshotMatch.Ready,
+                    RigFrameRejectionReason.None, rgbDelta, depthDelta,
+                    uncertainty);
+
+            // PCA exposes only its latest mutable images. Once either eye has moved
+            // beyond every timestamp that could satisfy both exact windows, this
+            // owned depth snapshot can never form a coherent future triplet.
+            long latestRgb = Math.Max(left.UnixNanoseconds,
+                right.UnixNanoseconds);
+            long expiryMargin = SaturatingAdd(maximumRgbDepthDeltaNanoseconds,
+                maximumRgbDeltaNanoseconds / 2L);
+            long expiry = SaturatingAdd(depth.UnixNanoseconds, expiryMargin);
+            return new RigLatestSnapshotMatchResult(
+                latestRgb > expiry
+                    ? RigLatestSnapshotMatch.DiscardDepth
+                    : RigLatestSnapshotMatch.Waiting,
+                latestRgb > expiry
+                    ? mismatch | RigFrameRejectionReason.Stale
+                    : mismatch,
+                rgbDelta, depthDelta, uncertainty);
+        }
+
+        private static long AbsoluteDelta(long first, long second)
+        {
+            long delta = first - second;
+            return delta == long.MinValue ? long.MaxValue : Math.Abs(delta);
+        }
+
+        private static long SaturatingAdd(long first, long second)
+        {
+            if (second > 0L && first > long.MaxValue - second)
+                return long.MaxValue;
+            if (second < 0L && first < long.MinValue - second)
+                return long.MinValue;
+            return first + second;
+        }
+    }
+
+    public readonly struct RigCaptureDiagnosticSnapshot
+    {
+        internal RigCaptureDiagnosticSnapshot(long accepted, long rejected,
+            RigFrameRejectionReason lastRejection, long lastRgbDeltaNs,
+            long lastRgbDepthDeltaNs)
+        {
+            AcceptedFrames = accepted;
+            RejectedSamples = rejected;
+            LastRejection = lastRejection;
+            LastRgbDeltaNanoseconds = lastRgbDeltaNs;
+            LastRgbDepthDeltaNanoseconds = lastRgbDepthDeltaNs;
+        }
+
+        public long AcceptedFrames { get; }
+        public long RejectedSamples { get; }
+        public RigFrameRejectionReason LastRejection { get; }
+        public long LastRgbDeltaNanoseconds { get; }
+        public long LastRgbDepthDeltaNanoseconds { get; }
+    }
+
     /// <summary>
     /// A source timestamp plus its normalized Unix-realtime estimate. The source value is
     /// never overwritten: diagnostics can distinguish native PCA realtime from depth XrTime.

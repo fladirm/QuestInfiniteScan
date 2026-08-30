@@ -2282,10 +2282,12 @@ namespace Genesis.RoomScan.Tests
             const uint revision = 43u;
             var frame = new SigmaNativeFrameGpu
             {
-                Identity = U4(revision, 7u, 1u, 0u),
+                Identity = U4(revision, 7u, 1u,
+                    (uint)SigmaNativeColdReason.PageFault),
                 Disposition = U4(
                     (uint)SigmaNativeFrameDisposition.Faulted,
-                    0u, 0u, (uint)SigmaNativeColdReason.PageFault),
+                    0x00000802u, 0u,
+                    (uint)SigmaNativeColdReason.PageFault),
                 Publication = U4(42u, 0u, 0u, 0u),
             };
 
@@ -2295,7 +2297,14 @@ namespace Genesis.RoomScan.Tests
 
             Assert.That(disposition,
                 Is.EqualTo(SigmaFrameCompletionDisposition.Faulted));
-            StringAssert.Contains("fault 0x00000003", error);
+            StringAssert.Contains("fault mask=0x00000802", error);
+            StringAssert.Contains("reason=PageFault (3)", error);
+            SigmaRuntimeTelemetrySnapshot telemetry =
+                SigmaRuntimeTelemetrySnapshot.From(revision, 42u,
+                    disposition, frame, default);
+            Assert.That(telemetry.FaultMask, Is.EqualTo(0x00000802u));
+            Assert.That(telemetry.ColdReason,
+                Is.EqualTo((uint)SigmaNativeColdReason.PageFault));
         }
 
         [Test]

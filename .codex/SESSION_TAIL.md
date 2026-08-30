@@ -2,29 +2,28 @@
 
 ## Exchange 1 — user
 
-Directed a narrow fix for the first live blocker: valid publication must not stop
-because `Disposition.w` contains a nonzero certificate-delta count.  Fence
-timeouts are currently only evidence that Quest cannot keep up; do not implement
-a watchdog/retry workaround before reducing the measured slow kernels.  Also
-confirmed that this repository keeps `DEPTH_L`, `DEPTH_R`, `RGB_L` and `RGB_R` as
-four separate exact query inputs rather than pre-fusing a world voxel.
+Asked whether reconstruction already runs as an independent 15 Hz scan beside a
+72 Hz XR readout, as in SimpleScanner, or whether every XR frame drives scanning.
 
 ## Exchange 1 — assistant
 
-Corrected the host tagged-receipt interpretation without changing shaders or the
-16-dispatch graph.  `FAULTED` alone interprets `Disposition.w` as a fault receipt;
-`PUBLISHED` exposes it as `CertificateDeltaCount`.  Expected revision remains an
-independent completion reservation.  Focused tests pass 3/3 and the complete
-SigmaNativeFrame corpus passes 30/30.
+Source and Quest-log audit showed no explicit 15 Hz scheduler. The bridge admitted
+the next strictly newer coherent frame as soon as the renderer consumed the prior
+one; after reconstruction faulted, accepted capture ran at about 25 Hz. Published-
+carrier preview was an XR-frame draw, but scan prediction/admission was still
+triggered from renderer `LateUpdate`, allowing native GPU work to starve XR.
 
 ## Exchange 2 — user
 
-Requested the full test/build checkpoint, commit and push, with the resulting APK
-installed on Quest but not launched.
+Directed a donor-shaped 15 Hz scheduler, required the rule and the known prior
+failure cause in spec/run controls, forbade ontology or unrelated changes, and
+requested commit/push plus a new APK.
 
 ## Exchange 2 — assistant
 
-Complete Unity EditMode/Vulkan passes 97/97.  Release APK SHA-256
-`ab0a979421bc8173c893b516bfaf27c8d54883369cf72eddab3330af4aa13cb7`
-builds and installs successfully.  The next exact action after this checkpoint is
-measured optimization of the slowest native kernels; N5R/S4-09 remain unopened.
+Implemented fixed 15 Hz admission in `RoomScanner`, gated on an empty pending/in-
+flight native pipeline, and moved sensor transfer out of renderer `LateUpdate` so
+immutable-root preview remains XR-cadenced. Missed ticks never catch up. The run
+records revision-52 warm-segment exhaustion separately from GPU-starvation fence
+warnings. Focused cadence/rig tests pass 16/16 and full Unity Vulkan passes 100/100;
+the next action is checkpoint/push then same-SHA Release build/install.

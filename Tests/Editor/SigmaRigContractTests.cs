@@ -121,5 +121,121 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(16f).Within(0.02f));
             Assert.That(grazing.AreaSquareMeters, Is.GreaterThan(near.AreaSquareMeters));
         }
+
+        [Test]
+        public void DepthIngressArmsExactlyOneFutureOwnedSnapshot()
+        {
+            var host = new GameObject("Depth ingress demand gate");
+            try
+            {
+                var capture = host.AddComponent<DepthCapture>();
+                capture.StartDepthCapture();
+
+                Assert.That(capture.RequestNextDepthFrame(), Is.True);
+                Assert.That(capture.RequestNextDepthFrame(), Is.False,
+                    "A second provider callback may not be admitted while one " +
+                    "owned snapshot request is outstanding.");
+
+                capture.StopDepthCapture();
+                Assert.That(capture.RequestNextDepthFrame(), Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void FixedScanCadenceIsFifteenHertzAndNeverCatchesUp()
+        {
+            double first = RoomScanner.NextScanAdmissionTime(100.0, 15f);
+            Assert.That(first, Is.EqualTo(100.0 + 1.0 / 15.0)
+                .Within(1e-12));
+
+            // A late successful close starts one fresh interval from its actual
+            // submission time; elapsed ticks are not replayed as a burst.
+            double late = RoomScanner.NextScanAdmissionTime(101.0, 15f);
+            Assert.That(late, Is.EqualTo(101.0 + 1.0 / 15.0)
+                .Within(1e-12));
+            Assert.That(late - first, Is.EqualTo(1.0).Within(1e-12));
+        }
+
+        [TestCase(true, false, true, false, 0, false, true)]
+        [TestCase(true, false, true, false, 1, false, false)]
+        [TestCase(true, false, true, false, 0, true, false)]
+        [TestCase(true, false, true, true, 0, false, false)]
+        [TestCase(true, false, false, false, 0, false, false)]
+        public void ScanAdmissionRequiresAnEmptyTerminalNativePipeline(
+            bool initialized, bool disposed, bool running, bool faulted,
+            int pending, bool inFlight, bool expected)
+        {
+            Assert.That(SigmaInverseController.ScheduledObservationReady(
+                initialized, disposed, running, faulted, pending, inFlight),
+                Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void LatestPcaPairMatchesOwnedDepthWithoutFusingFourLeaves()
+        {
+            RigLatestSnapshotMatchResult result =
+                RigLatestSnapshotMatcher.Match(
+                    TimestampAtMilliseconds(1_000),
+                    TimestampAtMilliseconds(1_012),
+                    TimestampAtMilliseconds(1_008, 1),
+                    20_000_000L, 35_000_000L, 5_000_000L);
+            RigLatestSnapshotMatchResult reversed =
+                RigLatestSnapshotMatcher.Match(
+                    TimestampAtMilliseconds(1_012),
+                    TimestampAtMilliseconds(1_000),
+                    TimestampAtMilliseconds(1_008, 1),
+                    20_000_000L, 35_000_000L, 5_000_000L);
+
+            Assert.That(result.Disposition,
+                Is.EqualTo(RigLatestSnapshotMatch.Ready));
+            Assert.That(result.Rejection,
+                Is.EqualTo(RigFrameRejectionReason.None));
+            Assert.That(result.RgbDeltaNanoseconds, Is.EqualTo(12_000_000L));
+            Assert.That(result.RgbDepthDeltaNanoseconds, Is.EqualTo(2_000_000L));
+            Assert.That(reversed.Disposition, Is.EqualTo(result.Disposition));
+            Assert.That(reversed.RgbDeltaNanoseconds,
+                Is.EqualTo(result.RgbDeltaNanoseconds));
+            Assert.That(reversed.RgbDepthDeltaNanoseconds,
+                Is.EqualTo(result.RgbDepthDeltaNanoseconds));
+        }
+
+        [Test]
+        public void LatestPcaPairWaitsThenExpiresAnUnmatchableDepthSnapshot()
+        {
+            RigLatestSnapshotMatchResult waiting =
+                RigLatestSnapshotMatcher.Match(
+                    TimestampAtMilliseconds(1_000),
+                    TimestampAtMilliseconds(1_060),
+                    TimestampAtMilliseconds(1_030),
+                    20_000_000L, 35_000_000L, 5_000_000L);
+            RigLatestSnapshotMatchResult expired =
+                RigLatestSnapshotMatcher.Match(
+                    TimestampAtMilliseconds(1_090),
+                    TimestampAtMilliseconds(1_100),
+                    TimestampAtMilliseconds(1_030),
+                    20_000_000L, 35_000_000L, 5_000_000L);
+
+            Assert.That(waiting.Disposition,
+                Is.EqualTo(RigLatestSnapshotMatch.Waiting));
+            Assert.That(expired.Disposition,
+                Is.EqualTo(RigLatestSnapshotMatch.DiscardDepth));
+            Assert.That(expired.Rejection & RigFrameRejectionReason.Stale,
+                Is.EqualTo(RigFrameRejectionReason.Stale));
+            Assert.That(expired.Rejection &
+                RigFrameRejectionReason.RgbDepthDeltaExceeded,
+                Is.EqualTo(RigFrameRejectionReason.RgbDepthDeltaExceeded));
+        }
+
+        private static RigTimestamp TimestampAtMilliseconds(long milliseconds,
+            long uncertaintyMilliseconds = 0L)
+        {
+            long nanoseconds = milliseconds * 1_000_000L;
+            return new RigTimestamp(RigClockDomain.UnixRealtime, nanoseconds,
+                nanoseconds, uncertaintyMilliseconds * 1_000_000L);
+        }
     }
 }

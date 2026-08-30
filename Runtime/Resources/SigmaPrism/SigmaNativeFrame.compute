@@ -153,6 +153,25 @@ uint _NativeProvenanceReceipt[8];
 #define SIGMA_N4_ACTIVE_INDEX_MASK 0x3fffffffu
 #define SIGMA_N4_ACTIVE_CHILD_SHIFT 30u
 #define SIGMA_N4_CANONICAL_IMAGE_MAX_LOG2 17u
+
+// Execution-fault receipts.  Identity.w remains the cold-reason enum; these
+// bits identify the exact fail-closed invariant without changing physical
+// state, ordering, or the publication ABI.
+#define SIGMA_N4_FAULT_PAGE_VALIDATION 0x00000001u
+#define SIGMA_N4_FAULT_CANONICAL_COORDINATE 0x00000002u
+#define SIGMA_N4_FAULT_CANONICAL_WITNESS 0x00000004u
+#define SIGMA_N4_FAULT_COMPONENT_ANCHOR 0x00000008u
+#define SIGMA_N4_FAULT_COMPONENT_PACK 0x00000010u
+#define SIGMA_N4_FAULT_LOGICAL_PAGE 0x00000020u
+#define SIGMA_N4_FAULT_SELECTED_COORDINATE 0x00000040u
+#define SIGMA_N4_FAULT_MUTATION_CAPACITY 0x00000080u
+#define SIGMA_N4_FAULT_LOGICAL_EXTENT 0x00000100u
+#define SIGMA_N4_FAULT_CERTIFICATE_MEET 0x00000200u
+#define SIGMA_N4_FAULT_REFINEMENT_KEY 0x00000400u
+#define SIGMA_N4_FAULT_SOURCE_LOCATOR 0x00000800u
+#define SIGMA_N4_FAULT_REFINEMENT_MAPPING 0x00001000u
+#define SIGMA_N4_FAULT_RELOCATION 0x00002000u
+#define SIGMA_N4_FAULT_REFINEMENT_APPEND 0x00004000u
 #define SIGMA_N4_LOGICAL_CAPACITY_MAX_LOG2 19u
 #define SIGMA_N4_INVALID 0xffffffffu
 #define SIGMA_N4_CANONICAL_RUN_CAPACITY 16384u
@@ -925,9 +944,19 @@ uint SigmaN4PublishSupportLocator(uint footprint)
     uint2 support = _NativeCloseScratch[
         footprint * SIGMA_N4_FOOTPRINT_EVIDENCE_WORDS +
         SIGMA_N4_FOOTPRINT_SUPPORT];
-    return support.y < SIGMA_PAGE_SAMPLE_COUNT
+    return support.x < _NativeTargetPageCapacity &&
+        support.y < SIGMA_PAGE_SAMPLE_COUNT
         ? support.x * SIGMA_PAGE_SAMPLE_COUNT + support.y :
             SIGMA_N4_INVALID;
+}
+
+bool SigmaN4PublishSourceSampleInRange(uint sourceSlot, uint sourceSample)
+{
+    if (sourceSlot >= _NativeTargetPageCapacity ||
+        sourceSample >= SIGMA_PAGE_SAMPLE_COUNT)
+        return false;
+    return sourceSample <
+        _NativeSourcePageMetadata[sourceSlot].activeSampleCount;
 }
 
 bool SigmaN4PublishChartCore(uint footprint, bool representativeOnly,
@@ -1133,6 +1162,8 @@ bool SigmaN4PublishStructuralCertificateCompatible(uint left, uint right)
 bool SigmaN4PublishMeetParentCertificateCore(uint footprint, uint sourceSlot,
     uint sourceSample, bool apply)
 {
+    if (!SigmaN4PublishSourceSampleInRange(sourceSlot, sourceSample))
+        return false;
     uint parent = SigmaCarrierRepresentationAddress(sourceSlot, sourceSample,
         SIGMA_REPRESENTATION_CERTIFICATE);
     uint fresh = _NativeFootprintCertificateOffset +
@@ -1396,12 +1427,19 @@ void SigmaN4PublishBuildRefinementGroups(uint threadIndex)
             uint sourceSlot = supportRecord.x / SIGMA_PAGE_SAMPLE_COUNT;
             uint sourceSample = supportRecord.x -
                 sourceSlot * SIGMA_PAGE_SAMPLE_COUNT;
-            uint sourceAddress = SigmaCarrierRepresentationAddress(sourceSlot,
-                sourceSample, SIGMA_REPRESENTATION_GAUGE_PLAN);
-            uint4 sourcePlan = _NativeSourceCarrierRepresentation[sourceAddress];
+            bool sourceValid = SigmaN4PublishSourceSampleInRange(sourceSlot,
+                sourceSample);
+            uint4 sourcePlan = 0u;
+            if (sourceValid)
+            {
+                uint sourceAddress = SigmaCarrierRepresentationAddress(
+                    sourceSlot, sourceSample,
+                    SIGMA_REPRESENTATION_GAUGE_PLAN);
+                sourcePlan = _NativeSourceCarrierRepresentation[sourceAddress];
+            }
             uint2 leaderMeta = _NativeCloseScratch[SigmaN4PublishImageAddress(
                 SIGMA_N4_RADIX_TEMP_IMAGE, activeIndex)];
-            structural = structural && sourceSlot < _NativeTargetPageCapacity &&
+            structural = structural && sourceValid &&
                 (sourcePlan.y & SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE) != 0u &&
                 sourcePlan.x < 62u && leaderMeta.x <
                     _NativeCanonicalComponentCapacity;
@@ -1688,7 +1726,8 @@ void SigmaN4PublishApplyRefinementCertificateMeets(uint threadIndex)
                     // are mutated in between. A mismatch here is an internal
                     // publication fault, never a new scheduling choice.
                     uint ignored;
-                    InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                    InterlockedOr(SigmaN4PublishFault,
+                        SIGMA_N4_FAULT_CERTIFICATE_MEET, ignored);
                 }
             }
         }
@@ -1721,8 +1760,18 @@ uint4 SigmaN4PublishCoordinate(uint footprint, uint image, out uint level,
     uint component;
     uint4 transformed = SigmaN4PublishTransformedCoordinate(footprint, image,
         component, level, valid);
+    if (valid == 0u || component >= _NativeCanonicalComponentCapacity)
+    {
+        valid = 0u;
+        return 0u;
+    }
     uint anchor = _NativeCloseScratch[
         SigmaN4PublishComponentAddress(component, 2u + image)].x;
+    if (anchor >= _NativeFootprintCount)
+    {
+        valid = 0u;
+        return 0u;
+    }
     uint anchorComponent;
     uint anchorLevel;
     uint4 anchorCoordinate = SigmaN4PublishTransformedCoordinate(anchor,
@@ -1797,7 +1846,8 @@ int SigmaN4PublishCompareCoordinateKey(uint left, uint leftImage, uint right,
     if (valid == 0u)
     {
         uint ignored;
-        InterlockedOr(SigmaN4PublishFault, 0x00000002u, ignored);
+        InterlockedOr(SigmaN4PublishFault,
+            SIGMA_N4_FAULT_CANONICAL_COORDINATE, ignored);
         return 0;
     }
     if (leftLevel != rightLevel)
@@ -1871,7 +1921,8 @@ int SigmaN4PublishCompareSelectedCoordinateKey(uint left, uint right,
     if (valid == 0u)
     {
         uint ignored;
-        InterlockedOr(SigmaN4PublishFault, 0x00000004u, ignored);
+        InterlockedOr(SigmaN4PublishFault,
+            SIGMA_N4_FAULT_CANONICAL_WITNESS, ignored);
         return 0;
     }
     if (leftMeta.x != rightMeta.x)
@@ -3244,7 +3295,8 @@ void SigmaN4PublishBuildComponentOrder(uint threadIndex,
                             _NativeCloseScratch[SigmaN4PublishComponentAddress(
                                 priorComponent, packSource)], addValid);
                         if (addValid == 0u)
-                            InterlockedOr(SigmaN4PublishFault, 0x00000010u);
+                            InterlockedOr(SigmaN4PublishFault,
+                                SIGMA_N4_FAULT_COMPONENT_PACK);
                     }
                     _NativeCloseScratch[SigmaN4PublishComponentAddress(
                         component, freshTarget)] = freshValue;
@@ -3389,7 +3441,15 @@ bool SigmaN4PublishCurrentEqual(uint footprint, uint sourceSlot, uint sample,
     out bool gaugeEqual, out bool certificateEqual)
 {
     stateEqual = true;
+    gaugeEqual = true;
     certificateEqual = true;
+    if (!SigmaN4PublishSourceSampleInRange(sourceSlot, sample))
+    {
+        stateEqual = false;
+        gaugeEqual = false;
+        certificateEqual = false;
+        return false;
+    }
     [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
     {
@@ -3424,6 +3484,8 @@ bool SigmaN4PublishAppendRefinementChild(uint activeIndex, uint child,
     uint support = supportRecord.x;
     uint sourceSlot = support / SIGMA_PAGE_SAMPLE_COUNT;
     uint sourceSample = support - sourceSlot * SIGMA_PAGE_SAMPLE_COUNT;
+    if (!SigmaN4PublishSourceSampleInRange(sourceSlot, sourceSample))
+        return false;
     uint parentRepresentation = SigmaCarrierRepresentationAddress(sourceSlot,
         sourceSample, 0u);
     uint4 parentCoordinate = _NativeSourceCarrierRepresentation[
@@ -3510,7 +3572,9 @@ bool SigmaN4PublishAppendRelocation(uint sourceSlot, uint sourceSample,
 {
     uint page = logical / SIGMA_PAGE_SAMPLE_COUNT;
     uint sample = logical - page * SIGMA_PAGE_SAMPLE_COUNT;
-    if (page >= _NativePagePlanCapacity) return false;
+    if (page >= _NativePagePlanCapacity ||
+        !SigmaN4PublishSourceSampleInRange(sourceSlot, sourceSample))
+        return false;
     uint plan = SigmaN4PublishPlanAddress(page, 0u);
     uint2 planSource = _NativeCloseScratch[plan];
     uint2 planTarget = _NativeCloseScratch[plan + 1u];
@@ -3600,8 +3664,7 @@ bool SigmaN4PublishSourceLogical(uint logical, out uint sourceSlot,
     level = 0u;
     if (page >= _NativePagePlanCapacity) return false;
     sourceSlot = _NativeCloseScratch[SigmaN4PublishPlanAddress(page, 0u)].y;
-    if (sourceSlot == SIGMA_N4_INVALID || sourceSample >=
-        _NativeSourcePageMetadata[sourceSlot].activeSampleCount)
+    if (!SigmaN4PublishSourceSampleInRange(sourceSlot, sourceSample))
         return false;
     uint representation = SigmaCarrierRepresentationAddress(sourceSlot,
         sourceSample, 0u);
@@ -3621,6 +3684,8 @@ bool SigmaN4PublishRefinementChildKey(uint activeIndex, uint child,
         SigmaN4PublishActiveSupportAddress(activeIndex, 0u)].x;
     uint sourceSlot = support / SIGMA_PAGE_SAMPLE_COUNT;
     uint sourceSample = support - sourceSlot * SIGMA_PAGE_SAMPLE_COUNT;
+    if (!SigmaN4PublishSourceSampleInRange(sourceSlot, sourceSample))
+        return false;
     uint representation = SigmaCarrierRepresentationAddress(sourceSlot,
         sourceSample, 0u);
     uint4 parentCoordinate = _NativeSourceCarrierRepresentation[
@@ -3826,7 +3891,8 @@ uint SigmaN4PublishBuildRefinementTargetPlan(uint threadIndex,
                             coordinate, level))
                     {
                         uint ignored;
-                        InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                        InterlockedOr(SigmaN4PublishFault,
+                            SIGMA_N4_FAULT_REFINEMENT_KEY, ignored);
                         continue;
                     }
                     SigmaNativeStateDeltaGpu key =
@@ -3853,7 +3919,7 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
     uint safeChildCount = childCountValid ? childCount : 0u;
     bool planActive = safeChildCount != 0u;
     if (threadIndex == 0u && !childCountValid)
-        SigmaN4PublishFault = 1u;
+        SigmaN4PublishFault = SIGMA_N4_FAULT_REFINEMENT_KEY;
     uint logicalRounds = (logicalCapacity + 255u) / 256u;
     uint childRounds = (_NativeMutationCapacity + 255u) / 256u;
 
@@ -3886,7 +3952,8 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
             if (!sourceValid)
             {
                 uint ignored;
-                InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_SOURCE_LOCATOR, ignored);
             }
         }
     }
@@ -4015,7 +4082,8 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
             if (valid == 0u)
             {
                 uint ignored;
-                InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_REFINEMENT_MAPPING, ignored);
             }
         }
     }
@@ -4067,7 +4135,8 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
             if (valid == 0u)
             {
                 uint ignored;
-                InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_REFINEMENT_MAPPING, ignored);
             }
         }
     }
@@ -4099,7 +4168,8 @@ uint SigmaN4PublishCompleteRefinementTargetPlan(uint threadIndex,
                         receipt.y))
                 {
                     uint ignored;
-                    InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                    InterlockedOr(SigmaN4PublishFault,
+                        SIGMA_N4_FAULT_RELOCATION, ignored);
                 }
             }
         }
@@ -4123,10 +4193,16 @@ uint SigmaN4PublishPrepareRefinementCandidates(uint threadIndex,
         {
             uint source = _NativeCloseScratch[
                 SigmaN4PublishPlanAddress(page, 0u)].y;
-            if (source != SIGMA_N4_INVALID)
+            if (source < _NativeTargetPageCapacity)
                 localExtent = max(localExtent,
                     page * SIGMA_PAGE_SAMPLE_COUNT +
                     _NativeSourcePageMetadata[source].activeSampleCount);
+            else if (source != SIGMA_N4_INVALID)
+            {
+                uint ignored;
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_SOURCE_LOCATOR, ignored);
+            }
         }
     }
     SigmaN4PublishWide[threadIndex] = uint2(localExtent, 0u);
@@ -4168,7 +4244,8 @@ uint SigmaN4PublishPrepareRefinementCandidates(uint threadIndex,
                         coordinate, level))
                 {
                     uint ignored;
-                    InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                    InterlockedOr(SigmaN4PublishFault,
+                        SIGMA_N4_FAULT_REFINEMENT_KEY, ignored);
                     continue;
                 }
                 SigmaNativeStateDeltaGpu key = (SigmaNativeStateDeltaGpu)0;
@@ -4217,7 +4294,8 @@ int SigmaN4PublishCompareRefinementCandidates(uint left, uint right,
         rightKey.Changed.x, leftKey.Coordinate, leftKey.Changed.x, valid);
     if (valid == 0u)
     {
-        InterlockedOr(_NativeCounters[0u].z, 1u);
+        InterlockedOr(_NativeCounters[0u].z,
+            SIGMA_N4_FAULT_REFINEMENT_KEY);
         return 0;
     }
     if (leftLess != rightLess) return leftLess ? -1 : 1;
@@ -4307,7 +4385,9 @@ void SigmaN4PublishScanRefinementBlock(uint block, uint oldExtent,
         _NativeGaugeDeltas[logical].Witness = uint4(
             observed ? activeIndex + 1u : 0u,
             refinement, sourceSlot, sourceSample);
-        if (!sourceValid) InterlockedOr(_NativeCounters[0u].z, 1u);
+        if (!sourceValid)
+            InterlockedOr(_NativeCounters[0u].z,
+                SIGMA_N4_FAULT_SOURCE_LOCATOR);
     }
     uint fresh = 0u;
     if (blockActive && logical < _NativeFootprintCount)
@@ -4481,7 +4561,8 @@ void SigmaN4PublishMapOldTarget(uint logical, uint oldExtent,
         uint2(prefix | (observed ? 0x40000000u : 0u) |
             (refined ? 0x80000000u : 0u), target);
     if (valid == 0u)
-        InterlockedOr(_NativeCounters[0u].z, 1u);
+        InterlockedOr(_NativeCounters[0u].z,
+            SIGMA_N4_FAULT_SOURCE_LOCATOR);
 }
 
 void SigmaN4PublishMapRefinementChild(uint position, uint oldExtent,
@@ -4526,7 +4607,8 @@ void SigmaN4PublishMapRefinementChild(uint position, uint oldExtent,
     else
         _NativeCloseScratch[address].y = target;
     if (valid == 0u)
-        InterlockedOr(_NativeCounters[0u].z, 1u);
+        InterlockedOr(_NativeCounters[0u].z,
+            SIGMA_N4_FAULT_REFINEMENT_MAPPING);
 }
 
 // CUT-E crosses real global synchronization boundaries through a fixed dispatch
@@ -4988,7 +5070,8 @@ void SigmaN4PublishMaterializeSelected(uint position)
             ? uint2(level, component)
             : uint2(SIGMA_N4_INVALID, SIGMA_N4_INVALID);
         if (valid == 0u)
-            InterlockedOr(_NativeCounters[0u].z, 0x00000002u);
+            InterlockedOr(_NativeCounters[0u].z,
+                SIGMA_N4_FAULT_CANONICAL_COORDINATE);
     }
     _NativeCloseScratch[SigmaN4PublishImageAddress(
         SIGMA_N4_RADIX_WORK_IMAGE, position)] = selected;
@@ -5318,7 +5401,8 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
                     receipt.y))
             {
                 uint ignored;
-                InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_RELOCATION, ignored);
             }
         }
     }
@@ -5379,7 +5463,8 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
                     if (!emitted)
                     {
                         uint ignored;
-                        InterlockedOr(SigmaN4PublishFault, 1u, ignored);
+                        InterlockedOr(SigmaN4PublishFault,
+                            SIGMA_N4_FAULT_REFINEMENT_APPEND, ignored);
                     }
                     continue;
                 }
@@ -5397,7 +5482,8 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
             uint page = logical / SIGMA_PAGE_SAMPLE_COUNT;
             uint sample = logical - page * SIGMA_PAGE_SAMPLE_COUNT;
             if (page >= _NativePagePlanCapacity) {
-                InterlockedOr(SigmaN4PublishFault, 0x00000020u);
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_LOGICAL_PAGE);
                 continue;
             }
             uint valid = 1u;
@@ -5414,21 +5500,29 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
                 uint supportSlot = support / SIGMA_PAGE_SAMPLE_COUNT;
                 uint supportSample = support -
                     supportSlot * SIGMA_PAGE_SAMPLE_COUNT;
-                uint representation = SigmaCarrierRepresentationAddress(
-                    supportSlot, supportSample, 0u);
-                uint4 sourcePlan = _NativeSourceCarrierRepresentation[
-                    representation + SIGMA_REPRESENTATION_GAUGE_PLAN];
-                coordinate = _NativeSourceCarrierRepresentation[
-                    representation + SIGMA_REPRESENTATION_GAUGE_COORDINATE];
-                level = sourcePlan.x;
-                valid &= (sourcePlan.y &
-                    SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE) != 0u ? 1u : 0u;
+                if (!SigmaN4PublishSourceSampleInRange(supportSlot,
+                        supportSample))
+                    valid = 0u;
+                else
+                {
+                    uint representation = SigmaCarrierRepresentationAddress(
+                        supportSlot, supportSample, 0u);
+                    uint4 sourcePlan = _NativeSourceCarrierRepresentation[
+                        representation + SIGMA_REPRESENTATION_GAUGE_PLAN];
+                    coordinate = _NativeSourceCarrierRepresentation[
+                        representation +
+                            SIGMA_REPRESENTATION_GAUGE_COORDINATE];
+                    level = sourcePlan.x;
+                    valid &= (sourcePlan.y &
+                        SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE) != 0u ? 1u : 0u;
+                }
             }
             if (support == SIGMA_N4_INVALID)
                 coordinate.xy = SigmaQ48AddChecked(coordinate.xy,
                     packCursor, valid);
             if (valid == 0u) {
-                InterlockedOr(SigmaN4PublishFault, 0x00000040u);
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_SELECTED_COORDINATE);
                 continue;
             }
             uint plan = SigmaN4PublishPlanAddress(page, 0u);
@@ -5438,9 +5532,19 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
             bool gaugeEqual = false;
             bool certificateEqual = false;
             if (support != SIGMA_N4_INVALID)
-                SigmaN4PublishCurrentEqual(footprint, planSource.y, sample,
-                    coordinate, level, exactZEmpty, stateEqual, gaugeEqual,
-                    certificateEqual);
+            {
+                uint supportSlot = support / SIGMA_PAGE_SAMPLE_COUNT;
+                uint supportSample = support -
+                    supportSlot * SIGMA_PAGE_SAMPLE_COUNT;
+                if (SigmaN4PublishSourceSampleInRange(supportSlot,
+                        supportSample))
+                    SigmaN4PublishCurrentEqual(footprint, supportSlot,
+                        supportSample, coordinate, level, exactZEmpty,
+                        stateEqual, gaugeEqual, certificateEqual);
+                else
+                    InterlockedOr(SigmaN4PublishFault,
+                        SIGMA_N4_FAULT_SOURCE_LOCATOR);
+            }
             if (stateEqual && gaugeEqual && certificateEqual)
                 continue;
             uint flags = SIGMA_NATIVE_DELTA_RESOLVED |
@@ -5454,7 +5558,8 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
             InterlockedAdd(_NativeCounters[0u].y, 1u, mutation);
             if (mutation >= _NativeMutationCapacity)
             {
-                InterlockedOr(SigmaN4PublishFault, 0x00000080u);
+                InterlockedOr(SigmaN4PublishFault,
+                    SIGMA_N4_FAULT_MUTATION_CAPACITY);
                 continue;
             }
             _NativeStateDeltas[mutation] = SigmaN4PublishBuildDelta(footprint,
@@ -5462,10 +5567,19 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
                     planSource.y), flags, certificateOffset, exactZEmpty);
             SigmaNativeGaugeDeltaGpu gauge;
             gauge.Coordinate = coordinate;
-            gauge.Prior = support == SIGMA_N4_INVALID ? 0u :
-                _NativeSourceCarrierRepresentation[
-                    SigmaCarrierRepresentationAddress(planSource.y, sample,
-                        SIGMA_REPRESENTATION_GAUGE_PLAN)];
+            gauge.Prior = 0u;
+            if (support != SIGMA_N4_INVALID)
+            {
+                uint supportSlot = support / SIGMA_PAGE_SAMPLE_COUNT;
+                uint supportSample = support -
+                    supportSlot * SIGMA_PAGE_SAMPLE_COUNT;
+                if (SigmaN4PublishSourceSampleInRange(supportSlot,
+                        supportSample))
+                    gauge.Prior = _NativeSourceCarrierRepresentation[
+                        SigmaCarrierRepresentationAddress(supportSlot,
+                            supportSample,
+                            SIGMA_REPRESENTATION_GAUGE_PLAN)];
+            }
             gauge.Next = uint4(level,
                 SIGMA_NATIVE_GAUGE_CELL_FLAGS_ACTIVE |
                 SIGMA_NATIVE_GAUGE_CELL_FLAGS_NORMALIZED,
@@ -5519,7 +5633,8 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
             SIGMA_N4_COMPONENT_SCAN_IMAGE, componentCount - 1u)].x;
     uint targetExtent = oldExtent + totalFresh;
     if (targetExtent < oldExtent)
-        InterlockedOr(SigmaN4PublishFault, 0x00000100u);
+        InterlockedOr(SigmaN4PublishFault,
+            SIGMA_N4_FAULT_LOGICAL_EXTENT);
     [loop]
     for (uint targetPageRound = 0u; targetPageRound < pageRounds;
          ++targetPageRound)
@@ -5601,11 +5716,17 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
             extent > SigmaN4PublishLogicalCapacity() ||
             mutationCount > _NativeMutationCapacity)
         {
+            uint faultReceipt = SigmaN4PublishFault;
+            if (extent > SigmaN4PublishLogicalCapacity())
+                faultReceipt |= SIGMA_N4_FAULT_LOGICAL_EXTENT;
+            if (mutationCount > _NativeMutationCapacity)
+                faultReceipt |= SIGMA_N4_FAULT_MUTATION_CAPACITY;
+            frame.Identity.w = SIGMA_NATIVE_COLD_REASON_PAGE_FAULT;
             frame.Disposition = uint4(
-                SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED, 0u, 0u,
+                SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED, faultReceipt, 0u,
                 SIGMA_NATIVE_COLD_REASON_PAGE_FAULT);
             _NativeCounters[0u].w = 1u;
-            _NativeCounters[0u].z = SigmaN4PublishFault;
+            _NativeCounters[0u].z = faultReceipt;
             touchedCount = 0u;
         }
         else if (mutationCount == 0u)
@@ -5656,20 +5777,25 @@ void PrepareNativePage(uint3 groupId : SV_GroupID,
     if (word < SIGMA_PAGE_LANE_COUNT)
     {
         uint sample = word / SIGMA_FRAME_LANE_COUNT;
-        _TargetCarrierState[targetSlot * SIGMA_PAGE_LANE_COUNT + word] =
-            sourceSlot == SIGMA_N4_INVALID || sample >= plan2.x ? 0u :
-                _NativeSourceCarrierState[
-                    sourceSlot * SIGMA_PAGE_LANE_COUNT + word];
+        uint2 value = 0u;
+        if (sample < plan2.x &&
+            SigmaN4PublishSourceSampleInRange(sourceSlot, sample))
+            value = _NativeSourceCarrierState[
+                sourceSlot * SIGMA_PAGE_LANE_COUNT + word];
+        _TargetCarrierState[targetSlot * SIGMA_PAGE_LANE_COUNT + word] = value;
     }
     uint representationWords = SIGMA_PAGE_SAMPLE_COUNT *
         SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
     if (word < representationWords)
     {
         uint sample = word / SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+        uint4 value = 0u;
+        if (sample < plan2.x &&
+            SigmaN4PublishSourceSampleInRange(sourceSlot, sample))
+            value = _NativeSourceCarrierRepresentation[
+                sourceSlot * representationWords + word];
         _TargetCarrierRepresentation[targetSlot * representationWords + word] =
-            sourceSlot == SIGMA_N4_INVALID || sample >= plan2.x ? 0u :
-                _NativeSourceCarrierRepresentation[
-                    sourceSlot * representationWords + word];
+            value;
     }
 }
 
@@ -5777,15 +5903,18 @@ void CloseAndPublishNativeRevision(uint3 threadId : SV_GroupThreadID)
                     SIGMA_NATIVE_CERTIFICATE_FLAGS_VALID) != 0u ? 1u : 0u;
         }
         if (valid == 0u)
-            InterlockedOr(SigmaN4PublishFault, 1u);
+            InterlockedOr(SigmaN4PublishFault,
+                SIGMA_N4_FAULT_PAGE_VALIDATION);
     }
     GroupMemoryBarrierWithGroupSync();
     if (SigmaN4PublishFault != 0u)
     {
         if (threadIndex == 0u)
         {
+            frame.Identity.w = SIGMA_NATIVE_COLD_REASON_PAGE_FAULT;
             frame.Disposition = uint4(
-                SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED, 0u, 0u,
+                SIGMA_NATIVE_FRAME_DISPOSITION_FAULTED,
+                SigmaN4PublishFault, 0u,
                 SIGMA_NATIVE_COLD_REASON_PAGE_FAULT);
             _NativeFrames[0u] = frame;
             SigmaNativeWriteCompletionFrame(frame,

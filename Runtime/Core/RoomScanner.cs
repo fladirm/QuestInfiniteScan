@@ -41,6 +41,9 @@ namespace Genesis.RoomScan
         [SerializeField] private ScanRenderMode renderMode = ScanRenderMode.Carrier;
         [SerializeField, Range(0.2f, 5f)] private float wireThickness = 1.5f;
 
+        [Header("Scan cadence")]
+        [SerializeField, Range(5f, 30f)] private float scanHz = 15f;
+
         [Header("Logging")]
         [SerializeField] private LogLevel logLevel = LogLevel.Info;
 
@@ -56,6 +59,7 @@ namespace Genesis.RoomScan
         private Task _startTask = Task.CompletedTask;
         private uint _lifecycleGeneration;
         private bool _resourcesReleased;
+        private double _nextScanAdmissionTime;
 
         public ScanLifecycleState ScanLifecycle { get; private set; } =
             ScanLifecycleState.Stopped;
@@ -132,6 +136,23 @@ namespace Genesis.RoomScan
             Logger.Info("Σ-PRISM-16 Quest shell ready; scanner awaits Start.");
         }
 
+        private void Update()
+        {
+            if (ScanLifecycle != ScanLifecycleState.Running ||
+                _sigmaInverse == null || _sigmaRenderer == null ||
+                !_sigmaInverse.CanAcceptScheduledObservation)
+                return;
+
+            double now = Time.realtimeSinceStartupAsDouble;
+            if (now < _nextScanAdmissionTime ||
+                !_sigmaRenderer.TryScheduleLatestObservation())
+                return;
+
+            // Match the donor's fixed-cadence admission: missed ticks never queue
+            // or catch up. The immutable published-root draw remains XR-cadenced.
+            _nextScanAdmissionTime = NextScanAdmissionTime(now, scanHz);
+        }
+
         private void OnDisable()
         {
             StopScanning();
@@ -195,6 +216,7 @@ namespace Genesis.RoomScan
                 foreach (IRoomScanModule module in _modules ?? Array.Empty<IRoomScanModule>())
                     module.OnScanStarted();
 
+                _nextScanAdmissionTime = Time.realtimeSinceStartupAsDouble;
                 ScanLifecycle = ScanLifecycleState.Running;
                 Logger.Info("StartScanning — Σ-PRISM-16 synchronized capture, exact " +
                             "dual-eye inverse and intrinsic singular topology active.");
@@ -233,8 +255,12 @@ namespace Genesis.RoomScan
             }
 
             ScanLifecycle = ScanLifecycleState.Stopped;
+            _nextScanAdmissionTime = 0.0;
             Logger.Info("Σ-PRISM-16 sensor ingress stopped; no old persistence path invoked.");
         }
+
+        internal static double NextScanAdmissionTime(double submittedAt,
+            float frequencyHz) => submittedAt + 1.0 / Math.Max(1.0, frequencyHz);
 
         public void ToggleScanning()
         {

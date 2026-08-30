@@ -2134,6 +2134,30 @@ segment/page count while query-visible work stays fixed may not increase the hot
 count. SSD page-fault, encode, eviction and rehydrate submissions are cold and may
 not be inserted into every warm frame.
 
+### 28.1.1 Fixed scan admission and independent XR readout
+
+Sensor reconstruction admission and immutable-root presentation have independent
+cadences. During S4-08 the scanner admits at most one new coherent observation per
+`1/15 s`. The 15 Hz value is an execution scheduler bound, not physical time,
+confidence, evidence weight or part of canonical bytes. A new observation is
+eligible only when the preceding admitted observation has reached its terminal GPU
+disposition and no unsubmitted observation is pending. When the close takes longer
+than one interval, effective scan cadence falls below 15 Hz; missed ticks are
+discarded and may never produce a catch-up burst or queued historical replay.
+
+The coherent capture bridge owns at most one ready observation across this gate.
+Repeated provider callbacks with the same timestamp remain inadmissible, and an
+observation is released only after the scan scheduler has transferred its retained
+lease into the native close. No CPU pixel work, synchronous readback or additional
+dispatch is introduced by cadence control.
+
+Presentation reads the latest immutable published root on every XR frame at the
+active display cadence, independently of whether a 15 Hz scan tick is due, busy,
+unresolved, unchanged or absent. A scan stop or skipped/busy scan tick does not
+invalidate the published root or its disposable readout. Scan and readout may share
+the device GPU, but scan backlog may not be used to starve XR presentation; scheduler
+backpressure drops elapsed opportunities rather than accumulating submissions.
+
 Final warm scan fixtures may exercise at most 24 distinct hot GPU entry points;
 the final eye-pair fixture may exercise at most 6. These sanity limits do not
 authorize one serial generic interpreter kernel. Generated kernels remain
@@ -2229,7 +2253,7 @@ N3R/N4R recovery admitted-frame wall         <= 1800 ms
 Final S4‑08 acceptance has distinct hot/cold/readout contracts:
 
 ```text
-stable exact no-change revisit at 30 Hz ingress
+stable exact no-change revisit at fixed 15 Hz scan ingress
     admitted-frame proof wall                 <= 33.3 ms
     state/gauge deltas and cloned pages       0
 

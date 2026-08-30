@@ -213,8 +213,20 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void LateUpdate()
         {
-            if (!_running || !_initialized)
+            if (!_initialized)
                 return;
+            RenderDirectCarrierPreview();
+        }
+
+        /// <summary>
+        /// Transfers at most one held coherent observation into the scan query.
+        /// RoomScanner owns the fixed 15 Hz admission clock; this method never
+        /// schedules itself from XR presentation cadence.
+        /// </summary>
+        internal bool TryScheduleLatestObservation()
+        {
+            if (!_running || !_initialized || !_carrier.IsInitialized)
+                return false;
             if (_carrier.IsInitialized &&
                 _rigBridge.TryAcquireLatest(out StereoRigFrameLease source))
             {
@@ -222,14 +234,18 @@ namespace Genesis.RoomScan.SigmaPrism
                 {
                     if (source.Sequence != _lastSourceSequence &&
                         TryRender(source))
+                    {
                         _lastSourceSequence = source.Sequence;
+                        _rigBridge.AcknowledgeConsumed(source.Sequence);
+                        return true;
+                    }
                 }
                 finally
                 {
                     source.Dispose();
                 }
             }
-            RenderDirectCarrierPreview();
+            return false;
         }
 
         internal bool TryRender(StereoRigFrameLease source)

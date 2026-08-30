@@ -19,6 +19,45 @@ Updated: 2026-08-30 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
+## N4R fixed-cadence scan scheduler closure
+
+The current WIP adopts only the proven SimpleScanner execution cadence, not its
+world representation. `RoomScanner` admits at most one coherent four-stream
+observation every `1/15 s`, and only when `SigmaInverseController` has neither a
+pending prediction nor an in-flight native close. A successful late submission
+sets a fresh deadline from its actual submission time, so elapsed ticks cannot
+form a catch-up queue. `SigmaRigBridge` continues to hold exactly one coherent
+owned observation across the gate and rejects repeated provider timestamps.
+
+`SigmaRenderer` no longer consumes sensor observations from its XR `LateUpdate`.
+That method draws the latest immutable carrier root every XR frame, including
+between scan ticks and after sensor scan stop. The scheduler invokes the retained
+prediction/inverse transfer separately at 15 Hz or slower under backpressure. No
+S16/`Sigma_2` rule, generated relation, shader, resource ABI, buffer owner, kernel
+or native dispatch changed; `HotDispatchCount` remains 16.
+
+The prior Quest stop is now recorded without conflation: revision 52 failed page
+validation after revisions 1--51 had consumed 228737 of 229376 warm-segment
+logical sample slots, and root-last retained root 51. The simultaneous 4--9 FPS
+plus fence/KGSL warnings were GPU-starvation evidence. This cadence cut prevents
+queued scan submissions but does not claim to solve the remaining kernel cost or
+N5 residency.
+
+Actual evidence over the current source:
+
+```text
+focused cadence/four-stream contract corpus                 16/16 PASS
+complete Unity EditMode/Vulkan                             100/100 PASS
+generator --check / UAV / git diff --check          PASS / PASS / PASS
+generated semantic expression/IR shape                         unchanged
+HotDispatchCount                                                16
+```
+
+N4R remains WIP. The exact next action is a Release Android/Vulkan build from the
+checkpoint SHA, streamed Quest install without launch, then a user-directed live
+capture proving admitted scan cadence, independent XR presentation and the still-
+open per-kernel performance/page-capacity evidence. N5R and S4-09 remain unopened.
+
 ## N4R completion-disposition correction and installed Quest build
 
 The first post-publication Quest capture exposed a host-only tagged-receipt

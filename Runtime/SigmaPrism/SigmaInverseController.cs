@@ -104,6 +104,20 @@ namespace Genesis.RoomScan.SigmaPrism
         public SigmaRuntimeTelemetrySnapshot RuntimeTelemetry =>
             _runtimeTelemetry;
 
+        // Donor-shaped observation ownership: the fixed 15 Hz scheduler may
+        // transfer one new coherent frame only after the prior native close has
+        // reached its terminal GPU fence. No historical scan queue is admitted.
+        internal bool CanAcceptScheduledObservation =>
+            ScheduledObservationReady(_initialized, _disposed, _running,
+                _completionFaulted, _pendingIngress.Count,
+                HasInFlightIngress());
+
+        internal static bool ScheduledObservationReady(bool initialized,
+            bool disposed, bool running, bool completionFaulted,
+            int pendingCount, bool hasInFlight) =>
+            initialized && !disposed && running && !completionFaulted &&
+            pendingCount == 0 && !hasInFlight;
+
         public void OnModuleInitialize(RoomScanner scanner)
         {
             if (_initialized)
@@ -1181,8 +1195,9 @@ namespace Genesis.RoomScan.SigmaPrism
             if (state == SigmaNativeFrameDisposition.Faulted)
             {
                 error = $"Sigma frame revision {expectedRevision} reported " +
-                    "publication " +
-                    $"fault 0x{frame.Disposition.W:x8}.";
+                    $"publication fault mask=0x{frame.Disposition.Y:x8}, " +
+                    $"reason={(SigmaNativeColdReason)frame.Disposition.W} " +
+                    $"({frame.Disposition.W}).";
                 return SigmaFrameCompletionDisposition.Faulted;
             }
             if (state == SigmaNativeFrameDisposition.Published)

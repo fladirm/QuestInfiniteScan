@@ -104,7 +104,7 @@ namespace Genesis.RoomScan.SigmaPrism
             UnresolvedConstraintCount = disposition ==
                 SigmaFrameCompletionDisposition.Unresolved ? 1u : 0u;
             FaultMask = disposition == SigmaFrameCompletionDisposition.Faulted
-                ? frame.Disposition.W : 0u;
+                ? frame.Disposition.Y : 0u;
             ColdReason = frame.Identity.W;
             NativeCloseDispatches = SigmaNativeFrameGraph.HotDispatchCount;
             Timing = timing;

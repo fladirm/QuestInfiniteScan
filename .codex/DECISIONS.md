@@ -527,3 +527,21 @@ branch/chart decisions remain in Git history only.
 - Every CUT-E pass is timestamped by the existing GPU query instrumentation and
   reported independently. Final state/gauge/certificate visibility remains one
   root-last exchange.
+
+## ADR-S451 — Scan admission is fixed at 15 Hz; immutable-root readout is XR-cadenced
+
+- The cadence is execution policy only. It changes no `Psi`, S16, relation,
+  evidence, chi/kappa, certificate or canonical byte semantics.
+- `RoomScanner` owns one fixed `1/15 s` admission gate. It transfers a coherent
+  observation only when no prediction is pending and no native close is in flight.
+  A late success starts one fresh interval; elapsed ticks are discarded rather
+  than replayed.
+- `SigmaRigBridge` holds at most one coherent owned observation at the gate. The
+  provider cannot turn display-frequency callbacks or duplicate timestamps into
+  repeated scan work.
+- `SigmaRenderer` presents the latest immutable published carrier every XR frame.
+  Sensor admission is no longer driven from its `LateUpdate`, and stopping or
+  backpressuring scan does not invalidate the published-root readout.
+- This decision adds no dispatch, buffer, readback, CPU physical authority or
+  fallback. It bounds submission backlog but does not waive the N4 kernel timing
+  or resident-capacity gates.

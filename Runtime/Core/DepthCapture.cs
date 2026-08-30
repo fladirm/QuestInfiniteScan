@@ -27,9 +27,11 @@ namespace Genesis.RoomScan
         private AROcclusionManager _occlusion;
         private bool _permissionReady;
         private bool _captureRequested;
+        private bool _frameRequested;
         private bool _subscribed;
         private bool _started;
         private long _frameSequence;
+        private long _lastDeliveredTimestampNs;
         private float _lastDiagnosticTime;
         private Texture _borrowedDepth;
 
@@ -75,9 +77,22 @@ namespace Genesis.RoomScan
             SubscribeAndRun();
         }
 
+        /// <summary>
+        /// Arms exactly one future valid native depth snapshot. Intermediate provider
+        /// callbacks are deliberately ignored before any GPU copy is requested.
+        /// </summary>
+        public bool RequestNextDepthFrame()
+        {
+            if (!_captureRequested || _frameRequested)
+                return false;
+            _frameRequested = true;
+            return true;
+        }
+
         public void StopDepthCapture()
         {
             _captureRequested = false;
+            _frameRequested = false;
             StopProvider();
         }
 
@@ -86,6 +101,7 @@ namespace Genesis.RoomScan
             // The provider owns the native texture. Never Destroy it here.
             _borrowedDepth = null;
             DepthAvailable = false;
+            _frameRequested = false;
         }
 
         private void OnApplicationPause(bool paused)
@@ -121,12 +137,15 @@ namespace Genesis.RoomScan
                 : null;
             Logger.Info($"DepthCapture: frames={_frameSequence}, " +
                 $"available={DepthAvailable}, requested={_captureRequested}, " +
+                $"frameRequested={_frameRequested}, " +
                 $"running={subsystem?.running}");
         }
 
         private void OnDepthFrame(AROcclusionFrameEventArgs args)
         {
             long sequence = ++_frameSequence;
+            if (!_captureRequested || !_frameRequested)
+                return;
             if (args.externalTextures.Count < 1)
             {
                 DepthAvailable = false;
@@ -143,8 +162,15 @@ namespace Genesis.RoomScan
                 return;
             }
 
+            // Some providers repeat the same native image at display cadence. Keep
+            // the request armed until a strictly newer owned observation can be made.
+            if (timestampNs <= _lastDeliveredTimestampNs)
+                return;
+
             _borrowedDepth = texture;
             DepthAvailable = true;
+            _lastDeliveredTimestampNs = timestampNs;
+            _frameRequested = false;
 
             // ARFoundation supplies the per-eye poses at the depth-frame timestamp.
             // SigmaRigBridge freezes intrinsics once per calibration epoch and copies

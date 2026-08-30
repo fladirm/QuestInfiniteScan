@@ -117,65 +117,19 @@ namespace Genesis.RoomScan.SigmaPrism
             out RigFrameRejectionReason rejection)
         {
             lease = null;
-            rejection = RigFrameRejectionReason.None;
-            if (_disposed || source == null)
-            {
-                rejection = RigFrameRejectionReason.MissingTexture;
+            if (!TrySelectSlot(source, out int selected, out rejection))
                 return false;
-            }
-            if (_completionFault != null)
-            {
-                rejection = RigFrameRejectionReason.GpuCopyFailed;
-                return false;
-            }
-
-            if (!IsSupportedDimension(source) || source.width <= 0 ||
-                source.height <= 0)
-            {
-                rejection = RigFrameRejectionReason.UnsupportedTexture;
-                return false;
-            }
-
-            int selected = -1;
-            for (int offset = 0; offset < _slots.Length; offset++)
-            {
-                int index = (_cursor + offset) % _slots.Length;
-                Slot slot = _slots[index];
-                if (slot.References != 0)
-                    continue;
-                SigmaGpuCompletionStatus status = PollCompletion(slot,
-                    out string completionError);
-                if (status == SigmaGpuCompletionStatus.Faulted)
-                {
-                    LatchCompletionFault(slot, completionError);
-                    rejection = RigFrameRejectionReason.GpuCopyFailed;
-                    return false;
-                }
-                if (status != SigmaGpuCompletionStatus.Complete)
-                    continue;
-                selected = index;
-                break;
-            }
-
-            if (selected < 0)
-            {
-                rejection = RigFrameRejectionReason.RingExhausted;
-                return false;
-            }
 
             Slot target = _slots[selected];
+            CommandBuffer command = CommandBufferPool.Get($"{_name} Copy");
             try
             {
                 EnsureCompatibleTarget(target, source, selected);
-                CopyOnGpu(source, target.Texture);
-                target.Completion = SigmaGpuCompletion.InsertAfterGraphicsWork();
-                target.HasCompletion = true;
-                target.CompletionFaulted = false;
-
-                target.Generation = NextGeneration(target.Generation);
-                target.References = 1;
-                _cursor = (selected + 1) % _slots.Length;
-                lease = new GpuTextureLease(this, selected, target.Generation);
+                RecordCopyOnGpu(command, source, target.Texture);
+                SigmaGpuCompletionTicket completion =
+                    SigmaGpuCompletion.RecordAfterAllWork(command);
+                Graphics.ExecuteCommandBuffer(command);
+                CommitSubmittedSlot(target, selected, completion, out lease);
                 return true;
             }
             catch (Exception exception)
@@ -186,6 +140,77 @@ namespace Genesis.RoomScan.SigmaPrism
                 Logger.Warning($"{_name}: GPU frame copy failed: {exception.Message}");
                 rejection = RigFrameRejectionReason.GpuCopyFailed;
                 return false;
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+            }
+        }
+
+        /// <summary>
+        /// Copies one coherent stereo RGB pair in a single graphics submission and
+        /// records one completion point after both external-image reads.
+        /// </summary>
+        internal static bool TryCopyPair(GpuTextureRing leftRing,
+            Texture leftSource, GpuTextureRing rightRing, Texture rightSource,
+            out GpuTextureLease leftLease, out GpuTextureLease rightLease,
+            out RigFrameRejectionReason rejection)
+        {
+            leftLease = null;
+            rightLease = null;
+            rejection = RigFrameRejectionReason.None;
+            if (leftRing == null || rightRing == null ||
+                ReferenceEquals(leftRing, rightRing))
+            {
+                rejection = RigFrameRejectionReason.MissingTexture;
+                return false;
+            }
+            if (!leftRing.TrySelectSlot(leftSource, out int leftSlot,
+                    out rejection) ||
+                !rightRing.TrySelectSlot(rightSource, out int rightSlot,
+                    out rejection))
+                return false;
+
+            Slot leftTarget = leftRing._slots[leftSlot];
+            Slot rightTarget = rightRing._slots[rightSlot];
+            CommandBuffer command = CommandBufferPool.Get(
+                "Sigma-PRISM-16 Coherent RGB Pair Copy");
+            try
+            {
+                leftRing.EnsureCompatibleTarget(leftTarget, leftSource, leftSlot);
+                rightRing.EnsureCompatibleTarget(rightTarget, rightSource,
+                    rightSlot);
+                leftRing.RecordCopyOnGpu(command, leftSource,
+                    leftTarget.Texture);
+                rightRing.RecordCopyOnGpu(command, rightSource,
+                    rightTarget.Texture);
+                SigmaGpuCompletionTicket completion =
+                    SigmaGpuCompletion.RecordAfterAllWork(command);
+                Graphics.ExecuteCommandBuffer(command);
+                leftRing.CommitSubmittedSlot(leftTarget, leftSlot, completion,
+                    out leftLease);
+                rightRing.CommitSubmittedSlot(rightTarget, rightSlot, completion,
+                    out rightLease);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                leftTarget.CompletionFaulted = true;
+                rightTarget.CompletionFaulted = true;
+                string error = $"Coherent RGB copy submission could not be fenced: " +
+                               exception.Message;
+                leftRing.LatchCompletionFault(leftTarget, error);
+                rightRing.LatchCompletionFault(rightTarget, error);
+                leftLease?.Dispose();
+                rightLease?.Dispose();
+                leftLease = null;
+                rightLease = null;
+                rejection = RigFrameRejectionReason.GpuCopyFailed;
+                return false;
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
             }
         }
 
@@ -234,6 +259,64 @@ namespace Genesis.RoomScan.SigmaPrism
             if (slot.Generation != generation || slot.References <= 0 || slot.Texture == null)
                 throw new ObjectDisposedException(nameof(GpuTextureLease));
             return slot;
+        }
+
+        private bool TrySelectSlot(Texture source, out int selected,
+            out RigFrameRejectionReason rejection)
+        {
+            selected = -1;
+            rejection = RigFrameRejectionReason.None;
+            if (_disposed || source == null)
+            {
+                rejection = RigFrameRejectionReason.MissingTexture;
+                return false;
+            }
+            if (_completionFault != null)
+            {
+                rejection = RigFrameRejectionReason.GpuCopyFailed;
+                return false;
+            }
+            if (!IsSupportedDimension(source) || source.width <= 0 ||
+                source.height <= 0)
+            {
+                rejection = RigFrameRejectionReason.UnsupportedTexture;
+                return false;
+            }
+
+            for (int offset = 0; offset < _slots.Length; offset++)
+            {
+                int index = (_cursor + offset) % _slots.Length;
+                Slot slot = _slots[index];
+                if (slot.References != 0)
+                    continue;
+                SigmaGpuCompletionStatus status = PollCompletion(slot,
+                    out string completionError);
+                if (status == SigmaGpuCompletionStatus.Faulted)
+                {
+                    LatchCompletionFault(slot, completionError);
+                    rejection = RigFrameRejectionReason.GpuCopyFailed;
+                    return false;
+                }
+                if (status != SigmaGpuCompletionStatus.Complete)
+                    continue;
+                selected = index;
+                return true;
+            }
+
+            rejection = RigFrameRejectionReason.RingExhausted;
+            return false;
+        }
+
+        private void CommitSubmittedSlot(Slot target, int selected,
+            SigmaGpuCompletionTicket completion, out GpuTextureLease lease)
+        {
+            target.Completion = completion;
+            target.HasCompletion = true;
+            target.CompletionFaulted = false;
+            target.Generation = NextGeneration(target.Generation);
+            target.References = 1;
+            _cursor = (selected + 1) % _slots.Length;
+            lease = new GpuTextureLease(this, selected, target.Generation);
         }
 
         private static SigmaGpuCompletionStatus PollCompletion(Slot slot,
@@ -371,7 +454,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 ? source.graphicsFormat
                 : _fallbackFormat;
 
-        private void CopyOnGpu(Texture source, RenderTexture target)
+        private void RecordCopyOnGpu(CommandBuffer command, Texture source,
+            RenderTexture target)
         {
             if (_copyMode == GpuTextureCopyMode.ProjectionDepthArray)
             {
@@ -379,14 +463,15 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (slices < 2)
                     throw new InvalidOperationException(
                         "Quest environment depth did not expose both array layers.");
-                _imageCopyCompute.SetInts("_Resolution", source.width,
-                    source.height);
-                _imageCopyCompute.SetInt("_SliceCount", slices);
-                _imageCopyCompute.SetTexture(_copyDepthArrayKernel,
-                    "_SourceProjectionDepth", source);
-                _imageCopyCompute.SetTexture(_copyDepthArrayKernel,
-                    "_TargetProjectionDepth", target);
-                _imageCopyCompute.Dispatch(_copyDepthArrayKernel,
+                command.SetComputeIntParams(_imageCopyCompute, "_Resolution",
+                    source.width, source.height);
+                command.SetComputeIntParam(_imageCopyCompute, "_SliceCount",
+                    slices);
+                command.SetComputeTextureParam(_imageCopyCompute,
+                    _copyDepthArrayKernel, "_SourceProjectionDepth", source);
+                command.SetComputeTextureParam(_imageCopyCompute,
+                    _copyDepthArrayKernel, "_TargetProjectionDepth", target);
+                command.DispatchCompute(_imageCopyCompute, _copyDepthArrayKernel,
                     Math.Max(1, (source.width + 7) / 8),
                     Math.Max(1, (source.height + 7) / 8), slices);
                 return;
@@ -397,7 +482,7 @@ namespace Genesis.RoomScan.SigmaPrism
                              source.graphicsFormat == target.graphicsFormat;
             if (exactCopy)
             {
-                Graphics.CopyTexture(source, target);
+                command.CopyTexture(source, target);
                 return;
             }
             // Passthrough camera textures can be external/format-less on Horizon OS.
@@ -408,10 +493,11 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 int slices = Math.Min(GetVolumeDepth(source), target.volumeDepth);
                 for (int slice = 0; slice < slices; slice++)
-                    Graphics.Blit(source, target, slice, slice);
+                    command.Blit(source, target, Vector2.one, Vector2.zero,
+                        slice, slice);
                 return;
             }
-            Graphics.Blit(source, target);
+            command.Blit(source, target);
         }
 
         private static uint NextGeneration(uint current) => current == uint.MaxValue ? 1u : current + 1u;
