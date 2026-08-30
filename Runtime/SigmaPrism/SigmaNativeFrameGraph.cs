@@ -233,7 +233,8 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_contract,
                 "_NativeLinearDispatchWidth", footprintGrid.x);
             command.DispatchComputeProfiled(_contract, _contractNative,
-                footprintGrid.x, footprintGrid.y, 1);
+                "ContractNativeQuery.FOOTPRINT", footprintGrid.x,
+                footprintGrid.y, 1);
 
             BindRelation(command, slot, 1);
             command.SetKeyword(_query, _boundaryVariant, true);
@@ -243,11 +244,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeLinearDispatchWidth",
                 SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
-                slot.Counters, 2u * 4u * sizeof(uint));
+                "EvaluateNativeRelation.BOUNDARY", slot.Counters,
+                2u * 4u * sizeof(uint));
 
             command.SetKeyword(_contract, _tileCloseVariant, true);
             command.DispatchComputeProfiled(_contract, _contractNative,
-                slot.TileCapacity, 1, 1);
+                "ContractNativeQuery.TILE_CLOSE", slot.TileCapacity, 1, 1);
             command.SetKeyword(_contract, _tileCloseVariant, false);
 
             // The same hyperdimensional collective now verifies both the fresh
@@ -259,7 +261,8 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetKeyword(_query, _globalCloseVariant, true);
             command.SetComputeIntParam(_query, "_NativeRelationMode", 2);
             command.DispatchComputeProfiled(_query, _evaluateRelation,
-                slot.Counters, 3u * sizeof(uint) * 4u);
+                "EvaluateNativeRelation.GLOBAL_CLOSE", slot.Counters,
+                3u * sizeof(uint) * 4u);
             command.SetKeyword(_query, _globalCloseVariant, false);
 
             command.DispatchComputeProfiled(_frame, _prepareCanonicalSeed,

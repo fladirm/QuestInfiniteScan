@@ -170,7 +170,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _previousTrackingTimestampNs = 0L;
             _frameLatency.Reset();
             if (profileNextCanonicalSubmission)
-                SigmaGpuKernelTelemetry.RequestSingleSubmission();
+                SigmaGpuKernelTelemetry.RequestSubmissionSeries(32, 2);
         }
 
         public void OnScanStopped()

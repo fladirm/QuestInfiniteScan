@@ -106,7 +106,7 @@
       "GroupMemoryBarrierWithGroupSync",
       "DeviceMemoryBarrierWithGroupSync"
     ],
-    "rule": "runtime and UAV/shared-derived values may predicate payload only; they may not alter synchronization count or skip a synchronization point",
+    "rule": "lane-varying values may predicate payload only; a runtime phase may skip synchronization only after lane zero broadcasts one workgroup-uniform phase receipt through an unconditional whole-group barrier",
     "runtime_control_symbols": [
       "SigmaN4PublishCount",
       "componentCount",
@@ -120,7 +120,12 @@
     ],
     "proved_workgroup_uniform_symbols": [
       "SigmaN4PublishCount",
-      "SigmaN4PublishFault"
+      "SigmaN4PublishFault",
+      "SigmaN4PublishCarry"
+    ],
+    "uniform_phase_skips": [
+      "zero-child refinement run sort",
+      "zero-supported tile support sort and meet"
     ],
     "forbidden": [
       "while(changed)",
@@ -206,14 +211,14 @@
   "performance_budget_ms": {
     "depth_pose_preparation": 2.0,
     "BuildNativeObservation": 8.0,
-    "ContractNativeQuery:FOOTPRINT": 12.0,
+    "ContractNativeQuery:FOOTPRINT": 8.0,
     "EvaluateNativeRelation:BOUNDARY": 3.0,
-    "ContractNativeQuery:TILE_CLOSE": 6.0,
+    "ContractNativeQuery:TILE_CLOSE": 5.0,
     "EvaluateNativeRelation:GLOBAL_CLOSE": 2.0,
-    "canonical_seed_runs_select_total": 8.0,
-    "PrepareNativeComponentOrder": 4.0,
-    "refinement_total": 3.0,
-    "revision_page_scatter_publish_total": 3.0,
+    "canonical_and_component_order_total": 5.0,
+    "PrepareNativeRefinementScan_warm": 2.5,
+    "PrepareNativeRefinementProof": 4.0,
+    "revision_page_scatter_publish_total": 3.5,
     "typical_native_graph": 40.0,
     "warm_p95_native_graph_hard": 50.0
   }

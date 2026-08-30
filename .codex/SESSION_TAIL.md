@@ -2,30 +2,30 @@
 
 ## Exchange 1 — user
 
-Audited WIP `ad01eee` and accepted its observation batching, generated exact
-dyadic/D4 lowering, weighted TILE forest and smaller canonical runs. Identified a
-real dispatch-12/13 race: GaugeDelta simultaneously owned refinement scheduling
-and terminal mutation output. Required one immutable CloseScratch refinement
-arena, output-only State/Gauge at PrepareRevision, focused closure, 100-repeat
-permutation proof and a fresh Quest profile before any next optimization.
+Bound the N4.1R implementation to the Quest 3 / Adreno 740 production contract:
+exact packed Q16.48, <=8 UAVs, <=128 MiB per buffer, 64-byte scratch alignment,
+<=65535 direct dispatch dimensions, 14 entrypoints/exactly 16 native dispatches,
+and no capacity-sized work after raw ingress. Required the previously specified
+Observation, FOOTPRINT, TILE and RefinementScan cuts through physical Quest
+evidence, with N5R unopened.
 
 ## Exchange 1 — assistant
 
-Implemented the ownership cut without adding a buffer, ABI, kernel or dispatch.
-The full-frame CloseScratch is 94.047 MiB. Formerly failing four-child,
->4-observation, mixed-level and page-spill fixtures pass; the focused closure is
-7/7 including 100 permutation repeats. Generator, UAV, Quest graph and 16/16
-SPIR-V gates pass.
+Implemented the CUT A-E WIP without a new kernel, dispatch, buffer or ABI. Local
+gates pass: Unity Vulkan 111/111, generator/check, diff, <=8 UAVs, 14/16 graph and
+16/16 Vulkan 1.1 SPIR-V/spirv-val. Current LDS is Frame 28928, FOOTPRINT 17920,
+TILE 15372, BOUNDARY 27984 and GLOBAL_CLOSE 31184 bytes.
 
 ## Exchange 2 — user
 
-Required preserving `ad01eee`, fixing only refinement ownership first, then
-profiling Quest before observation/TILE/GLOBAL/canonical performance cuts.
+Requested the measured result and an immediate commit/push checkpoint.
 
 ## Exchange 2 — assistant
 
-Confirmed the current corpus as 77/77 non-Frame, 25/25 unaffected Frame and the
-seven isolated CUT-E assertions 7/7, total 109/109 across clean Vulkan process
-shards. The same-process immediate TILE->Frame fixture ordering artefact is
-recorded explicitly. Exact next action is code-graph/control checkpoint,
-commit/push, then a fresh 16-timestamp Quest profile; N5 remains unopened.
+Physical Quest revision 1 measured FOOTPRINT 133.9806 ms, RefinementScan
+52.5162 ms, BuildObservation 25.4787 ms, TILE_CLOSE 14.2876 ms and total timed
+compute 249.6790 ms. Revision/root advanced 1 through 49; revision 50 produced
+the preserved logical-extent PageFault 0x00000100 and retained root 49. There was
+no KGSL/MMU/device-lost/fence-timeout event. The checkpoint is explicitly WIP:
+correctness/lifecycle evidence passed, but the <50 ms N4.1R performance gate did
+not.

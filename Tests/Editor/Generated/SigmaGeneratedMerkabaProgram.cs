@@ -822,13 +822,13 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-8";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "06db8622964bb92168ed739ae94735fb53a5f6b1c2b327e85357ecbc0d2ad46a";
+        internal const string ProgramFingerprint = "51fac6049c73db81983310dbb152820889ca5ddca3f6c75b77e7d644124469d7";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "6def503b287bad94639f7970e6588fb2d3e1a8d39c5c67d3a48fd8669a79af6b";
+        internal const string GeneratorSourceInputFingerprint = "706d1593ed562b9c34c198e5721e2e824ec65f22767bf4faef82e324a5d28eee";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
         internal const string IQInputFingerprint = "4c811586dc37d02991815629990c9410da3840364d35373008fdba4c2afdeb68";
@@ -1120,6 +1120,21 @@ namespace Genesis.RoomScan.SigmaPrism
             4, 4, -4, -4, -2, 6, -2, -2, 6, -2, -2, -2, 0, 0, 0, 0,
         };
 
+        // Exact nonzero execution schedules. Dense table order remains the
+        // semantic reference; skipping zero terms preserves accumulation order.
+        internal static readonly byte[] ShadowNonzeroOffsets =
+            { 0, 14, 28, 42, 56 };
+        internal static readonly byte[] ShadowNonzeroAddresses =
+            { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
+        internal static readonly sbyte[] ShadowNonzeroNumerators =
+            { -6, 2, -4, 2, -4, 4, -2, 2, -4, 4, -2, 4, -2, 6, 2, -6, -4, 2, 4, -4, -2, 2, 4, -4, -2, 4, 6, -2, 2, 2, 4, -6, -4, -4, -2, 2, 4, 4, 6, -4, -2, -2, 2, 2, 4, 2, 4, 4, 6, -6, -4, -4, -2, -4, -2, -2 };
+        internal static readonly byte[] DualNonzeroOffsets =
+            { 0, 0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 56 };
+        internal static readonly byte[] DualNonzeroAxes =
+            { 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3 };
+        internal static readonly sbyte[] DualNonzeroNumerators =
+            { -6, 2, 2, 2, 2, -6, 2, 2, -4, -4, 4, 4, 2, 2, -6, 2, -4, 4, -4, 4, 4, -4, -4, 4, -2, -2, -2, 6, 2, 2, 2, -6, -4, 4, 4, -4, 4, -4, 4, -4, -2, -2, 6, -2, 4, 4, -4, -4, -2, 6, -2, -2, 6, -2, -2, -2 };
+
         // P_visible = VisibleProjectorNumerator256 / 256.
         internal static readonly sbyte[] VisibleProjectorNumerator256 =
         {
@@ -1312,6 +1327,24 @@ namespace Genesis.RoomScan.SigmaPrism
             return ShadowNumerator4[(address << 2) + axis];
         }
 
+        internal static int ShadowNonzeroCount(int axis) =>
+            ShadowNonzeroOffsets[axis + 1] - ShadowNonzeroOffsets[axis];
+
+        internal static int ShadowNonzeroAddress(int axis, int ordinal) =>
+            ShadowNonzeroAddresses[ShadowNonzeroOffsets[axis] + ordinal];
+
+        internal static int ShadowNonzeroNumerator(int axis, int ordinal) =>
+            ShadowNonzeroNumerators[ShadowNonzeroOffsets[axis] + ordinal];
+
+        internal static int DualNonzeroCount(int address) =>
+            DualNonzeroOffsets[address + 1] - DualNonzeroOffsets[address];
+
+        internal static int DualNonzeroAxis(int address, int ordinal) =>
+            DualNonzeroAxes[DualNonzeroOffsets[address] + ordinal];
+
+        internal static int DualNonzeroNumerator(int address, int ordinal) =>
+            DualNonzeroNumerators[DualNonzeroOffsets[address] + ordinal];
+
         // Exact generated lowering for the only coefficients in the Merkaba
         // shadow/dual frames: 0,+/-2,+/-4,+/-6 divided by 4 or 64.  Quotient and
         // remainder are formed before the factor of three, so this has exactly
@@ -1363,10 +1396,13 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int axis = 0; axis < 4; ++axis)
             {
                 long sum = 0L;
-                for (int address = 0; address < 16; ++address)
+                for (int item = 0; item < ShadowNonzeroCount(axis); ++item)
+                {
+                    int address = ShadowNonzeroAddress(axis, item);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        MultiplyMerkabaShadowCoefficient(state[address],
-                            address, axis));
+                        MultiplyMerkabaDyadic(state[address],
+                            ShadowNonzeroNumerator(axis, item), 2));
+                }
                 output[axis] = sum;
             }
             return output;
@@ -1382,10 +1418,13 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int address = 0; address < 16; ++address)
             {
                 long sum = 0L;
-                for (int axis = 0; axis < 4; ++axis)
+                for (int item = 0; item < DualNonzeroCount(address); ++item)
+                {
+                    int axis = DualNonzeroAxis(address, item);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        MultiplyMerkabaDualCoefficient(shadow[axis], address,
-                            axis));
+                        MultiplyMerkabaDyadic(shadow[axis],
+                            DualNonzeroNumerator(address, item), 6));
+                }
                 lanes[address] = sum;
             }
             return SigmaS16.FromArray(lanes);

@@ -1285,6 +1285,26 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
 
     GroupMemoryBarrierWithGroupSync();
 
+    // BuildNativeObservation no longer clears the complete 126400-record
+    // canonical arena.  Each realized global root is the unique owner of its
+    // record and initializes it before any membership append can observe it.
+    [loop]
+    for (uint rootNode = threadIndex; rootNode < nodeCapacity;
+         rootNode += 256u)
+    {
+        uint parent = _NativeCloseScratch[
+            SigmaN4GlobalParentAddress(rootNode)].x;
+        if (parent != rootNode ||
+            rootNode >= _NativeCanonicalComponentCapacity)
+            continue;
+        [unroll]
+        for (uint word = 0u; word < SIGMA_N4_COMPONENT_WORDS; ++word)
+            _NativeCloseScratch[SigmaN4GlobalCanonicalComponentAddress(
+                rootNode, word)] = word == 0u
+                    ? uint2(0u, SIGMA_N4_INVALID) : 0u;
+    }
+    DeviceMemoryBarrierWithGroupSync();
+
     // Transient root membership is execution routing for canonical anchor
     // reduction. Append order never reaches a witness or canonical byte.
     [loop]

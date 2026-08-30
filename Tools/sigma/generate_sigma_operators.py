@@ -2384,6 +2384,33 @@ def render_merkaba_cs(descriptor: dict) -> str:
     orbit_representative_values = ", ".join(
         str(value) for value in orbit_representatives)
     adjacent_frame_values = ", ".join(str(value) for value in adjacent_frames)
+    shadow_matrix = [descriptor["shadowNumerator4"][address * 4:
+                     address * 4 + 4] for address in range(LANES)]
+    shadow_offsets = [0]
+    shadow_addresses = []
+    shadow_numerators = []
+    for axis in range(4):
+        for address in range(LANES):
+            numerator = shadow_matrix[address][axis]
+            if numerator != 0:
+                shadow_addresses.append(address)
+                shadow_numerators.append(numerator)
+        shadow_offsets.append(len(shadow_addresses))
+    dual_offsets = [0]
+    dual_axes = []
+    dual_numerators = []
+    for address in range(LANES):
+        for axis, numerator in enumerate(shadow_matrix[address]):
+            if numerator != 0:
+                dual_axes.append(axis)
+                dual_numerators.append(numerator)
+        dual_offsets.append(len(dual_axes))
+    shadow_offset_values = ", ".join(str(value) for value in shadow_offsets)
+    shadow_address_values = ", ".join(str(value) for value in shadow_addresses)
+    shadow_numerator_values = ", ".join(str(value) for value in shadow_numerators)
+    dual_offset_values = ", ".join(str(value) for value in dual_offsets)
+    dual_axis_values = ", ".join(str(value) for value in dual_axes)
+    dual_numerator_values = ", ".join(str(value) for value in dual_numerators)
     stitch_bracket_fingerprint = int(
         proofs["constructiveStitchExpressionFingerprint"][:16], 16)
     expression_fingerprints = ",\n".join(
@@ -3327,6 +3354,21 @@ namespace Genesis.RoomScan.SigmaPrism
         // p(address) = ShadowNumerator4 / 4.
 {cs_array('ShadowNumerator4', 'sbyte', descriptor['shadowNumerator4'])}
 
+        // Exact nonzero execution schedules. Dense table order remains the
+        // semantic reference; skipping zero terms preserves accumulation order.
+        internal static readonly byte[] ShadowNonzeroOffsets =
+            {{ {shadow_offset_values} }};
+        internal static readonly byte[] ShadowNonzeroAddresses =
+            {{ {shadow_address_values} }};
+        internal static readonly sbyte[] ShadowNonzeroNumerators =
+            {{ {shadow_numerator_values} }};
+        internal static readonly byte[] DualNonzeroOffsets =
+            {{ {dual_offset_values} }};
+        internal static readonly byte[] DualNonzeroAxes =
+            {{ {dual_axis_values} }};
+        internal static readonly sbyte[] DualNonzeroNumerators =
+            {{ {dual_numerator_values} }};
+
         // P_visible = VisibleProjectorNumerator256 / 256.
 {cs_array('VisibleProjectorNumerator256', 'sbyte', descriptor['visibleProjectorNumerator256'])}
 
@@ -3494,6 +3536,24 @@ namespace Genesis.RoomScan.SigmaPrism
             return ShadowNumerator4[(address << 2) + axis];
         }}
 
+        internal static int ShadowNonzeroCount(int axis) =>
+            ShadowNonzeroOffsets[axis + 1] - ShadowNonzeroOffsets[axis];
+
+        internal static int ShadowNonzeroAddress(int axis, int ordinal) =>
+            ShadowNonzeroAddresses[ShadowNonzeroOffsets[axis] + ordinal];
+
+        internal static int ShadowNonzeroNumerator(int axis, int ordinal) =>
+            ShadowNonzeroNumerators[ShadowNonzeroOffsets[axis] + ordinal];
+
+        internal static int DualNonzeroCount(int address) =>
+            DualNonzeroOffsets[address + 1] - DualNonzeroOffsets[address];
+
+        internal static int DualNonzeroAxis(int address, int ordinal) =>
+            DualNonzeroAxes[DualNonzeroOffsets[address] + ordinal];
+
+        internal static int DualNonzeroNumerator(int address, int ordinal) =>
+            DualNonzeroNumerators[DualNonzeroOffsets[address] + ordinal];
+
         // Exact generated lowering for the only coefficients in the Merkaba
         // shadow/dual frames: 0,+/-2,+/-4,+/-6 divided by 4 or 64.  Quotient and
         // remainder are formed before the factor of three, so this has exactly
@@ -3545,10 +3605,13 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int axis = 0; axis < 4; ++axis)
             {{
                 long sum = 0L;
-                for (int address = 0; address < 16; ++address)
+                for (int item = 0; item < ShadowNonzeroCount(axis); ++item)
+                {{
+                    int address = ShadowNonzeroAddress(axis, item);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        MultiplyMerkabaShadowCoefficient(state[address],
-                            address, axis));
+                        MultiplyMerkabaDyadic(state[address],
+                            ShadowNonzeroNumerator(axis, item), 2));
+                }}
                 output[axis] = sum;
             }}
             return output;
@@ -3564,10 +3627,13 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int address = 0; address < 16; ++address)
             {{
                 long sum = 0L;
-                for (int axis = 0; axis < 4; ++axis)
+                for (int item = 0; item < DualNonzeroCount(address); ++item)
+                {{
+                    int axis = DualNonzeroAxis(address, item);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        MultiplyMerkabaDualCoefficient(shadow[axis], address,
-                            axis));
+                        MultiplyMerkabaDyadic(shadow[axis],
+                            DualNonzeroNumerator(address, item), 6));
+                }}
                 lanes[address] = sum;
             }}
             return SigmaS16.FromArray(lanes);
@@ -5602,6 +5668,35 @@ def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
         f"{value}u" for value in orbit_representatives)
     adjacent_frame_values = ", ".join(
         f"{value}u" for value in adjacent_frames)
+    shadow_matrix = [descriptor["shadowNumerator4"][address * 4:
+                     address * 4 + 4] for address in range(LANES)]
+    shadow_offsets = [0]
+    shadow_addresses = []
+    shadow_numerators = []
+    for axis in range(4):
+        for address in range(LANES):
+            numerator = shadow_matrix[address][axis]
+            if numerator != 0:
+                shadow_addresses.append(address)
+                shadow_numerators.append(numerator)
+        shadow_offsets.append(len(shadow_addresses))
+    dual_offsets = [0]
+    dual_axes = []
+    dual_numerators = []
+    for address in range(LANES):
+        for axis, numerator in enumerate(shadow_matrix[address]):
+            if numerator != 0:
+                dual_axes.append(axis)
+                dual_numerators.append(numerator)
+        dual_offsets.append(len(dual_axes))
+    shadow_offset_values = ", ".join(f"{value}u" for value in shadow_offsets)
+    shadow_address_values = ", ".join(
+        f"{value}u" for value in shadow_addresses)
+    shadow_numerator_values = ", ".join(
+        str(value) for value in shadow_numerators)
+    dual_offset_values = ", ".join(f"{value}u" for value in dual_offsets)
+    dual_axis_values = ", ".join(f"{value}u" for value in dual_axes)
+    dual_numerator_values = ", ".join(str(value) for value in dual_numerators)
     opcode_macros = "\n".join(
         f"#define SIGMA_MERKABA_IR_{name} {index}u"
         for index, name in enumerate(ir["opcodes"]))
@@ -5708,6 +5803,18 @@ static const int SIGMA_MERKABA_DIFFRACTION[256] = {{ {diffraction} }};
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = {{ {metric} }};
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = {{ -1, -3, -7, -15 }};
 static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = {{ {shadow} }};
+static const uint SIGMA_MERKABA_SHADOW_NONZERO_OFFSET[5] =
+    {{ {shadow_offset_values} }};
+static const uint SIGMA_MERKABA_SHADOW_NONZERO_ADDRESS[56] =
+    {{ {shadow_address_values} }};
+static const int SIGMA_MERKABA_SHADOW_NONZERO_NUMERATOR[56] =
+    {{ {shadow_numerator_values} }};
+static const uint SIGMA_MERKABA_DUAL_NONZERO_OFFSET[17] =
+    {{ {dual_offset_values} }};
+static const uint SIGMA_MERKABA_DUAL_NONZERO_AXIS[56] =
+    {{ {dual_axis_values} }};
+static const int SIGMA_MERKABA_DUAL_NONZERO_NUMERATOR[56] =
+    {{ {dual_numerator_values} }};
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = {{ {visible} }};
 static const uint4 SIGMA_MERKABA_IR_NODE_A[{len(ir['nodes'])}] = {{
     {node_a}
@@ -5806,6 +5913,42 @@ int SigmaMerkabaShadowNumerator(uint address, uint axis)
     return SIGMA_MERKABA_SHADOW_NUMERATOR4[address * 4u + axis];
 }}
 
+uint SigmaMerkabaShadowNonzeroCount(uint axis)
+{{
+    return SIGMA_MERKABA_SHADOW_NONZERO_OFFSET[axis + 1u] -
+        SIGMA_MERKABA_SHADOW_NONZERO_OFFSET[axis];
+}}
+
+uint SigmaMerkabaShadowNonzeroAddress(uint axis, uint ordinal)
+{{
+    return SIGMA_MERKABA_SHADOW_NONZERO_ADDRESS[
+        SIGMA_MERKABA_SHADOW_NONZERO_OFFSET[axis] + ordinal];
+}}
+
+int SigmaMerkabaShadowNonzeroNumerator(uint axis, uint ordinal)
+{{
+    return SIGMA_MERKABA_SHADOW_NONZERO_NUMERATOR[
+        SIGMA_MERKABA_SHADOW_NONZERO_OFFSET[axis] + ordinal];
+}}
+
+uint SigmaMerkabaDualNonzeroCount(uint address)
+{{
+    return SIGMA_MERKABA_DUAL_NONZERO_OFFSET[address + 1u] -
+        SIGMA_MERKABA_DUAL_NONZERO_OFFSET[address];
+}}
+
+uint SigmaMerkabaDualNonzeroAxis(uint address, uint ordinal)
+{{
+    return SIGMA_MERKABA_DUAL_NONZERO_AXIS[
+        SIGMA_MERKABA_DUAL_NONZERO_OFFSET[address] + ordinal];
+}}
+
+int SigmaMerkabaDualNonzeroNumerator(uint address, uint ordinal)
+{{
+    return SIGMA_MERKABA_DUAL_NONZERO_NUMERATOR[
+        SIGMA_MERKABA_DUAL_NONZERO_OFFSET[address] + ordinal];
+}}
+
 // Exact compiled lowering for 0,+/-2,+/-4,+/-6 divided by 4 or 64.  It
 // preserves one nearest-even rounding of the complete product.  In particular,
 // factor three is applied to quotient/remainder before the single rounding; it
@@ -5893,10 +6036,14 @@ void SigmaMerkabaEvaluateShadow(uint2 state[16], out uint2 shadow[4],
     {{
         uint2 sum = uint2(0u, 0u);
         [unroll]
-        for (uint address = 0u; address < 16u; ++address)
+        for (uint item = 0u; item < 14u; ++item)
+        {{
+            uint address = SigmaMerkabaShadowNonzeroAddress(axis, item);
             sum = SigmaQ48AddChecked(sum,
-                SigmaMerkabaMultiplyShadowCoefficient(state[address], address,
-                    axis, valid), valid);
+                SigmaMerkabaMultiplyDyadic(state[address],
+                    SigmaMerkabaShadowNonzeroNumerator(axis, item), 2u,
+                    valid), valid);
+        }}
         shadow[axis] = sum;
     }}
 }}
@@ -5908,11 +6055,17 @@ void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
     for (uint address = 0u; address < 16u; ++address)
     {{
         uint2 sum = uint2(0u, 0u);
+        uint count = SigmaMerkabaDualNonzeroCount(address);
         [unroll]
-        for (uint axis = 0u; axis < 4u; ++axis)
+        for (uint item = 0u; item < 4u; ++item)
+        {{
+            if (item >= count) continue;
+            uint axis = SigmaMerkabaDualNonzeroAxis(address, item);
             sum = SigmaQ48AddChecked(sum,
-                SigmaMerkabaMultiplyDualCoefficient(shadow[axis], address,
-                    axis, valid), valid);
+                SigmaMerkabaMultiplyDyadic(shadow[axis],
+                    SigmaMerkabaDualNonzeroNumerator(address, item), 6u,
+                    valid), valid);
+        }}
         state[address] = sum;
     }}
 }}

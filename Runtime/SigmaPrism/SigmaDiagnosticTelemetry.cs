@@ -105,6 +105,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 SigmaFrameCompletionDisposition.Unresolved ? 1u : 0u;
             FaultMask = disposition == SigmaFrameCompletionDisposition.Faulted
                 ? frame.Disposition.Y : 0u;
+            TouchedPageCount = disposition ==
+                SigmaFrameCompletionDisposition.Published
+                ? frame.Publication.Z : 0u;
+            TargetExtent = disposition ==
+                SigmaFrameCompletionDisposition.Published
+                ? frame.Publication.W : frame.Publication.Z;
             ColdReason = frame.Identity.W;
             NativeCloseDispatches = SigmaNativeFrameGraph.HotDispatchCount;
             Timing = timing;
@@ -129,6 +135,8 @@ namespace Genesis.RoomScan.SigmaPrism
         public uint CertificateDeltaCount { get; }
         public uint UnresolvedConstraintCount { get; }
         public uint FaultMask { get; }
+        public uint TouchedPageCount { get; }
+        public uint TargetExtent { get; }
         public uint ColdReason { get; }
         public int NativeCloseDispatches { get; }
         public SigmaRuntimeTimingTelemetry Timing { get; }
@@ -149,6 +157,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 .Append(" gaugeDeltas=").Append(GaugeDeltaCount)
                 .Append(" certificateDeltas=").Append(CertificateDeltaCount)
                 .Append(" unresolved=").Append(UnresolvedConstraintCount)
+                .Append(" touchedPages=").Append(TouchedPageCount)
+                .Append(" targetExtent=").Append(TargetExtent)
                 .Append(" coldReason=").Append(ColdReason)
                 .Append(" fault=0x").Append(FaultMask.ToString("X8"))
                 .Append(" nativeCloseDispatches=")

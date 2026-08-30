@@ -105,12 +105,31 @@ race test, and the production graph uses one explicitly fenced command buffer.
 Missing current canonical scratch bindings in those direct TILE/GLOBAL fixtures
 were corrected. This is not Quest acceptance and no device timing is claimed.
 
-The four LDS values over 16 KiB remain explicit occupancy risks. Exact next
-action after the standalone Cut-1 checkpoint is one fresh Quest profile with all
-16 timestamps. Only that measured profile may select the next observation,
-FOOTPRINT/TILE, GLOBAL_CLOSE or canonical performance cut. Target remains
-`<=40 ms` typical and `<50 ms` warm ordinary informative p95. N5R and S4-09 remain
-unopened.
+The first physical Quest profile of the cardinality cuts is now recorded. The
+installed Release APK executed the exact 16-dispatch native graph at 320x320 and
+reported the four additional pose/depth preparation timestamps separately:
+
+```text
+ContractNativeQuery.FOOTPRINT                 133.9806 ms
+PrepareNativeRefinementScan                    52.5162 ms
+BuildNativeObservation                         25.4787 ms
+ContractNativeQuery.TILE_CLOSE                 14.2876 ms
+PrepareNativeRefinementProof                    9.3548 ms
+EvaluateNativeRelation.GLOBAL_CLOSE             4.2490 ms
+remaining timed stages                         9.8121 ms
+full 20-dispatch timestamp checksum           249.6790 ms
+```
+
+Revision/root advanced monotonically from 1 through 49. Revision 50 then
+reported the preserved `SIGMA_N4_FAULT_LOGICAL_EXTENT`/PageFault receipt
+`0x00000100`; root-last retained root 49. No KGSL/MMU/device-lost/fence-timeout
+event occurred in this run. Capture correctly entered held backpressure after the
+terminal fault rather than overwriting owned ingress. This is correctness/lifecycle
+evidence, not performance acceptance: the `<=40 ms` typical / `<50 ms` p95 gate
+is still missed by 6.24x. The checkpoint is WIP and the next cut is restricted to
+the measured FOOTPRINT, RefinementScan, Observation and TILE paths; canonical,
+component-order and BOUNDARY work remain frozen unless new timestamps prove a
+regression. N5R and S4-09 remain unopened.
 
 ## N4 resident-capacity safety and frozen N5R persistence design
 

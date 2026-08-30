@@ -38,6 +38,11 @@ namespace Genesis.RoomScan.SigmaPrism
             internal double MaximumNanoseconds;
         }
 
+        private sealed class SeriesAggregate
+        {
+            internal readonly List<double> TotalNanoseconds = new();
+        }
+
         private static readonly Dictionary<(ulong Entity, int Kernel), Entry>
             EntriesByKernel = new();
         private static readonly List<Entry> DispatchSequence = new();
@@ -46,6 +51,12 @@ namespace Genesis.RoomScan.SigmaPrism
         private static State _state;
         private static uint _revision;
         private static bool _warningLogged;
+        private static int _seriesRemaining;
+        private static int _seriesWarmupRemaining;
+        private static int _seriesRequestedSamples;
+        private static readonly Dictionary<string, SeriesAggregate>
+            SeriesByKernel = new(StringComparer.Ordinal);
+        private static readonly List<double> SeriesSubmissionNanoseconds = new();
 #if UNITY_EDITOR
         private static bool _testTimingAvailable;
         internal static Action<ulong, int, int, int, int>
@@ -62,6 +73,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _state = State.Idle;
             _revision = 0u;
             _warningLogged = false;
+            ResetSeries();
 #if UNITY_EDITOR
             _testTimingAvailable = false;
             DirectDispatchObservedForTests = null;
@@ -94,8 +106,22 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal static bool RequestSingleSubmission()
         {
+            return RequestSubmissionSeries(1, 0);
+        }
+
+        internal static bool RequestSubmissionSeries(int sampleCount,
+            int warmupCount)
+        {
             if (_state != State.Idle)
                 return false;
+            if (sampleCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(sampleCount));
+            if (warmupCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(warmupCount));
+            ResetSeries();
+            _seriesRequestedSamples = sampleCount;
+            _seriesWarmupRemaining = warmupCount;
+            _seriesRemaining = checked(sampleCount + warmupCount);
             _state = State.Armed;
             return true;
         }
@@ -117,6 +143,7 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 Warn("Release Vulkan timestamp query pool is unavailable");
                 _state = State.Idle;
+                ResetSeries();
                 return false;
             }
             _revision = revision;
@@ -176,15 +203,23 @@ namespace Genesis.RoomScan.SigmaPrism
             DispatchSequence.Clear();
             _state = State.Idle;
             _revision = 0u;
+            ResetSeries();
         }
 
         internal static void DispatchComputeProfiled(this CommandBuffer command,
             ComputeShader shader, int kernel, int x, int y, int z)
         {
+            DispatchComputeProfiled(command, shader, kernel, null, x, y, z);
+        }
+
+        internal static void DispatchComputeProfiled(this CommandBuffer command,
+            ComputeShader shader, int kernel, string profileName,
+            int x, int y, int z)
+        {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
             ValidateDirectDispatchDimensions(x, y, z);
-            bool timed = Observe(shader, kernel, x, y, z);
+            bool timed = Observe(shader, kernel, profileName, x, y, z);
             RecordDispatchEvent(command, timed, true);
             command.DispatchCompute(shader, kernel, x, y, z);
             RecordDispatchEvent(command, timed, false);
@@ -194,11 +229,19 @@ namespace Genesis.RoomScan.SigmaPrism
             ComputeShader shader, int kernel, GraphicsBuffer arguments,
             uint offset)
         {
+            DispatchComputeProfiled(command, shader, kernel, null, arguments,
+                offset);
+        }
+
+        internal static void DispatchComputeProfiled(this CommandBuffer command,
+            ComputeShader shader, int kernel, string profileName,
+            GraphicsBuffer arguments, uint offset)
+        {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
             if (arguments == null)
                 throw new ArgumentNullException(nameof(arguments));
-            bool timed = Observe(shader, kernel, -1, -1, -1);
+            bool timed = Observe(shader, kernel, profileName, -1, -1, -1);
             RecordDispatchEvent(command, timed, true);
             command.DispatchCompute(shader, kernel, arguments, offset);
             RecordDispatchEvent(command, timed, false);
@@ -248,16 +291,19 @@ namespace Genesis.RoomScan.SigmaPrism
                     $"nativeRevision={capturedRevision}, " +
                     $"expected={DispatchSequence.Count}, actual={dispatchCount}, " +
                     $"overflow={overflow}");
-                Finish();
+                CancelSingleSubmission();
                 return;
             }
-            LogResults(dispatchCount, timestampPeriod, validBits);
+            bool retain = _seriesWarmupRemaining == 0;
+            LogResults(dispatchCount, timestampPeriod, validBits, retain);
+            if (_seriesWarmupRemaining > 0)
+                _seriesWarmupRemaining--;
             Finish();
 #endif
         }
 
         private static bool Observe(ComputeShader shader, int kernel,
-            int x, int y, int z)
+            string profileName, int x, int y, int z)
         {
             if (shader == null)
                 throw new ArgumentNullException(nameof(shader));
@@ -270,6 +316,8 @@ namespace Genesis.RoomScan.SigmaPrism
             if (!EntriesByKernel.TryGetValue((entity, kernel), out Entry entry))
                 throw new InvalidOperationException(
                     $"Compute kernel {shader.name}#{kernel} was not registered.");
+            if (!string.IsNullOrWhiteSpace(profileName))
+                entry = new Entry(shader.name + '.' + profileName);
             if (DispatchSequence.Count >= MaximumTimedDispatches)
                 throw new InvalidOperationException(
                     $"Timestamp capture exceeds {MaximumTimedDispatches} " +
@@ -293,7 +341,7 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         private static void LogResults(int dispatchCount,
-            double timestampPeriod, int validBits)
+            double timestampPeriod, int validBits, bool retainForSeries)
         {
             ulong mask = validBits >= 64
                 ? ulong.MaxValue : (1UL << validBits) - 1UL;
@@ -316,6 +364,20 @@ namespace Genesis.RoomScan.SigmaPrism
                 aggregate.MaximumNanoseconds = Math.Max(
                     aggregate.MaximumNanoseconds, nanoseconds);
                 checksum += nanoseconds;
+            }
+            if (retainForSeries)
+            {
+                foreach (KeyValuePair<Entry, Aggregate> item in totals)
+                {
+                    if (!SeriesByKernel.TryGetValue(item.Key.Name,
+                        out SeriesAggregate series))
+                    {
+                        series = new SeriesAggregate();
+                        SeriesByKernel.Add(item.Key.Name, series);
+                    }
+                    series.TotalNanoseconds.Add(item.Value.TotalNanoseconds);
+                }
+                SeriesSubmissionNanoseconds.Add(checksum);
             }
             var ranked = new List<KeyValuePair<Entry, Aggregate>>(totals);
             ranked.Sort((left, right) => right.Value.TotalNanoseconds
@@ -342,8 +404,73 @@ namespace Genesis.RoomScan.SigmaPrism
         private static void Finish()
         {
             DispatchSequence.Clear();
-            _state = State.Idle;
             _revision = 0u;
+            if (_seriesRemaining > 0)
+                _seriesRemaining--;
+            if (_seriesRemaining > 0)
+            {
+                _state = State.Armed;
+                return;
+            }
+            _state = State.Idle;
+            if (SeriesSubmissionNanoseconds.Count != 0)
+                LogSeriesResults();
+            ResetSeries();
+        }
+
+        private static void LogSeriesResults()
+        {
+            var ranked = new List<KeyValuePair<string, SeriesAggregate>>(
+                SeriesByKernel);
+            ranked.Sort((left, right) => Percentile(right.Value.TotalNanoseconds,
+                0.95).CompareTo(Percentile(left.Value.TotalNanoseconds, 0.95)));
+            for (int index = 0; index < ranked.Count; ++index)
+            {
+                IReadOnlyList<double> samples = ranked[index].Value.TotalNanoseconds;
+                Logger.Info($"Sigma gpu-series rank={index + 1} " +
+                    $"kernel={ranked[index].Key} samples={samples.Count} " +
+                    $"p50={Percentile(samples, 0.50) / 1000.0:F1}us " +
+                    $"p95={Percentile(samples, 0.95) / 1000.0:F1}us " +
+                    $"maximum={Maximum(samples) / 1000.0:F1}us");
+            }
+            double totalP50Ms = Percentile(SeriesSubmissionNanoseconds, 0.50) /
+                1_000_000.0;
+            double totalP95Ms = Percentile(SeriesSubmissionNanoseconds, 0.95) /
+                1_000_000.0;
+            double totalMaximumMs = Maximum(SeriesSubmissionNanoseconds) /
+                1_000_000.0;
+            Logger.Info($"Sigma gpu-series submissions=" +
+                $"{SeriesSubmissionNanoseconds.Count}/" +
+                $"{_seriesRequestedSamples} total-p50=" +
+                $"{totalP50Ms:F3}ms total-p95={totalP95Ms:F3}ms " +
+                $"total-max={totalMaximumMs:F3}ms");
+        }
+
+        private static double Percentile(IReadOnlyList<double> source,
+            double percentile)
+        {
+            var sorted = new List<double>(source);
+            sorted.Sort();
+            int index = Math.Max(0, Math.Min(sorted.Count - 1,
+                (int)Math.Ceiling(percentile * sorted.Count) - 1));
+            return sorted[index];
+        }
+
+        private static double Maximum(IReadOnlyList<double> source)
+        {
+            double result = 0.0;
+            for (int index = 0; index < source.Count; ++index)
+                result = Math.Max(result, source[index]);
+            return result;
+        }
+
+        private static void ResetSeries()
+        {
+            _seriesRemaining = 0;
+            _seriesWarmupRemaining = 0;
+            _seriesRequestedSamples = 0;
+            SeriesByKernel.Clear();
+            SeriesSubmissionNanoseconds.Clear();
         }
 
         private static void CancelNative()

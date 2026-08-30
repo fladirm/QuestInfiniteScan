@@ -138,6 +138,125 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void QuestCardinalityCutsRetainTheirBoundedOwnership()
+        {
+            string graph = ReadAssetSource(
+                "SigmaNativeFrameGraph t:MonoScript");
+            foreach (string label in new[]
+            {
+                "ContractNativeQuery.FOOTPRINT",
+                "EvaluateNativeRelation.BOUNDARY",
+                "ContractNativeQuery.TILE_CLOSE",
+                "EvaluateNativeRelation.GLOBAL_CLOSE",
+            })
+                Assert.That(graph, Does.Contain(label), label);
+
+            string frame = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeFrame")));
+            string observation = Slice(frame, "void BuildNativeObservation(",
+                "uint SigmaN4PublishTileHeaderAddress");
+            Assert.That(observation, Does.Not.Contain(
+                "linearThread < _NativeCanonicalComponentCapacity"));
+            Assert.That(frame, Does.Contain(
+                "SigmaNativeSampleBoundaryCorner"));
+            Assert.That(frame, Does.Not.Contain(
+                "SigmaNativeManifestationBoundaryEnvelope"));
+
+            string refinementSort = Slice(frame,
+                "void SigmaN4PublishSortRefinementRun",
+                "void SigmaN4PublishScanRefinementBlock");
+            Assert.That(refinementSort, Does.Contain(
+                "if (SigmaN4PublishCarry.y == 0u)"));
+            string refinementBlock = Slice(frame,
+                "void SigmaN4PublishScanRefinementBlock",
+                "void SigmaN4PublishFinishRefinementBlockScan");
+            Assert.That(refinementBlock, Does.Contain("countbits("));
+            Assert.That(refinementBlock, Does.Not.Contain(
+                "for (uint stride = 1u; stride < 256u"));
+
+            string contract = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeContract")));
+            Assert.That(contract, Does.Contain("SigmaN4TileSupportedCount"));
+            Assert.That(contract, Does.Contain(
+                "SigmaN4TileRejectDistinctChartOverlaps"));
+            Assert.That(contract, Does.Not.Contain(
+                "SigmaN4TilePackedChartHasDistinctOverlap"));
+            string reduceAnd = Slice(contract,
+                "uint SigmaNativeFreshReduceAnd",
+                "uint SigmaNativeFreshReduceOr");
+            Assert.That(Count(reduceAnd,
+                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(2));
+            string reduceOr = Slice(contract,
+                "uint SigmaNativeFreshReduceOr",
+                "void SigmaNativeFreshLiftSource");
+            Assert.That(Count(reduceOr,
+                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void CornerFirstBoundaryEnvelopePreservesExactSideUnion()
+        {
+            var random = new System.Random(0x434f524e);
+            long[] adversarial =
+            {
+                long.MinValue + 4, -(1L << 60), -65, -1, 0, 1, 63,
+                1L << 60, long.MaxValue - 4,
+            };
+            int[][] sideCorners =
+            {
+                new[] { 0, 2 }, new[] { 1, 3 },
+                new[] { 0, 1 }, new[] { 2, 3 },
+            };
+
+            for (int fixture = 0; fixture < 256; ++fixture)
+            {
+                var lower = new long[2, 4, 3];
+                var upper = new long[2, 4, 3];
+                for (int eye = 0; eye < 2; ++eye)
+                    for (int corner = 0; corner < 4; ++corner)
+                        for (int axis = 0; axis < 3; ++axis)
+                        {
+                            long left = adversarial[random.Next(
+                                adversarial.Length)];
+                            long right = adversarial[random.Next(
+                                adversarial.Length)];
+                            lower[eye, corner, axis] = Math.Min(left, right);
+                            upper[eye, corner, axis] = Math.Max(left, right);
+                        }
+
+                for (int side = 0; side < 4; ++side)
+                    for (int axis = 0; axis < 3; ++axis)
+                    {
+                        int first = sideCorners[side][0];
+                        int second = sideCorners[side][1];
+                        long oldLeftLower = Math.Min(lower[0, first, axis],
+                            lower[0, second, axis]);
+                        long oldLeftUpper = Math.Max(upper[0, first, axis],
+                            upper[0, second, axis]);
+                        long oldRightLower = Math.Min(lower[1, first, axis],
+                            lower[1, second, axis]);
+                        long oldRightUpper = Math.Max(upper[1, first, axis],
+                            upper[1, second, axis]);
+                        long oldLower = Math.Max(oldLeftLower, oldRightLower);
+                        long oldUpper = Math.Min(oldLeftUpper, oldRightUpper);
+
+                        long cachedLower = Math.Max(
+                            Math.Min(lower[0, first, axis],
+                                lower[0, second, axis]),
+                            Math.Min(lower[1, first, axis],
+                                lower[1, second, axis]));
+                        long cachedUpper = Math.Min(
+                            Math.Max(upper[0, first, axis],
+                                upper[0, second, axis]),
+                            Math.Max(upper[1, first, axis],
+                                upper[1, second, axis]));
+                        Assert.That(cachedLower, Is.EqualTo(oldLower));
+                        Assert.That(cachedUpper, Is.EqualTo(oldUpper));
+                    }
+            }
+        }
+
+        [Test]
         public void LiveScratchOwnsOneFullFrameArenaAndOneTerminalJournal()
         {
             using var resources = new SigmaNativeFrameResources(
