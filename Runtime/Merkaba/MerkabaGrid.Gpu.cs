@@ -26,7 +26,7 @@ namespace Genesis.RoomScan
         internal const int ReadoutVertexCapacityPerBuffer =
             ReadoutTriangleCapacityPerBuffer *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
-        internal const int CounterCount = 88;
+        internal const int CounterCount = 96;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -44,7 +44,7 @@ namespace Genesis.RoomScan
         internal const int CounterSurfaceTilesAllocated = 13;
         internal const int CounterScanColdMisses = 14;
         internal const int CounterCarveCandidateTiles = 17;
-        internal const int CounterCarveKernelsEvaluated = 18;
+        internal const int CounterCarveActiveKernels = 18;
         internal const int CounterLoadRequests = 19;
         internal const int CounterVisibleTiles = 21;
         internal const int CounterLogicalPrimitives = 22;
@@ -90,6 +90,14 @@ namespace Genesis.RoomScan
         internal const int CounterSurfaceReplacement = 85;
         internal const int CounterSameObservationConflict = 86;
         internal const int CounterReadoutEmittedTriangles = 87;
+        internal const int CounterCarveCheapInvalidProjectionDepth = 88;
+        internal const int CounterCarveCheapNotInFront = 89;
+        internal const int CounterCarveCheapOutsideRayTube = 90;
+        internal const int CounterCarveCheapOutsideOuterAttention = 91;
+        internal const int CounterCarveCheapSurfaceEndpoint = 92;
+        internal const int CounterCarveKernelsEvaluated = 93;
+        internal const int CounterCarveExactIncidenceReject = 94;
+        internal const int CounterCarveExactDilationReject = 95;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;

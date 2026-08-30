@@ -222,11 +222,9 @@ float3 MerkabaDepthEyePosition(uint eye)
         gsDepthViewInv[eye][1][3], gsDepthViewInv[eye][2][3]);
 }
 
-float MerkabaMutationAttention(float3 worldSurface, float3 surfaceNormal,
-    out float radialPosition)
+float MerkabaMutationAttentionFromRadial(float3 worldSurface,
+    float3 surfaceNormal, float radialPosition)
 {
-    if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
-        return 0.0;
     float3 origin = (MerkabaDepthEyePosition(0u) +
         MerkabaDepthEyePosition(1u)) * 0.5;
     float3 ray = worldSurface - origin;
@@ -240,6 +238,15 @@ float MerkabaMutationAttention(float3 worldSurface, float3 surfaceNormal,
         radialPosition) / (_MerkabaMutationOuterRadius -
         MERKABA_MUTATION_INNER_RADIUS));
     return transition * transition * (3.0 - 2.0 * transition);
+}
+
+float MerkabaMutationAttention(float3 worldSurface, float3 surfaceNormal,
+    out float radialPosition)
+{
+    if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
+        return 0.0;
+    return MerkabaMutationAttentionFromRadial(worldSurface, surfaceNormal,
+        radialPosition);
 }
 
 uint MerkabaPackMeasurementPixel(uint2 pixel)
@@ -499,35 +506,113 @@ float MerkabaFreeDistanceWeight(float clearance)
         (MERKABA_FREE_FULL_CLEARANCE - MERKABA_HALF_SUPPORT));
 }
 
-bool ObserveFrozenJointRay(int3 globalCoord, float3 worldPosition,
-    out int kind, out float evidenceWeight, out int3 replacementCoord,
-    out float radialPosition)
+#define MERKABA_CHEAP_RAY_CANDIDATE 0u
+#define MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH 1u
+#define MERKABA_CHEAP_RAY_NOT_IN_FRONT 2u
+#define MERKABA_CHEAP_RAY_OUTSIDE_TUBE 3u
+#define MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION 4u
+
+#define MERKABA_EXACT_REJECT_NONE 0u
+#define MERKABA_EXACT_REJECT_INCIDENCE 1u
+#define MERKABA_EXACT_REJECT_DILATION 2u
+#define MERKABA_EXACT_REJECT_OTHER 3u
+
+uint CheapFrozenRayGate(int3 globalCoord, float3 worldPosition,
+    out uint2 pixel, out float3 worldSurface, out int3 surfaceKernel,
+    out float radialPosition, out bool surfaceEndpoint)
 {
-    kind = 0;
-    evidenceWeight = 0.0;
-    replacementCoord = 0;
+    pixel = 0u;
+    worldSurface = 0.0;
+    surfaceKernel = 0;
     radialPosition = 2.0;
+    surfaceEndpoint = false;
+    if (IsExcluded(worldPosition))
+        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
     float3 viewPosition = mul(gsDepthView[0],
         float4(worldPosition, 1.0)).xyz;
-    if (viewPosition.z > -0.05) return false;
+    if (viewPosition.z > -0.05)
+        return MERKABA_CHEAP_RAY_NOT_IN_FRONT;
     float3 ndc = gsDepthWorldToNDC(worldPosition);
     if (ndc.x < 0.01 || ndc.x > 0.99 || ndc.y < 0.01 || ndc.y > 0.99)
-        return false;
-    uint2 pixel = min((uint2)(ndc.xy * (float2)gsDepthTexSize),
+        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
+    pixel = min((uint2)(ndc.xy * (float2)gsDepthTexSize),
         gsDepthTexSize - 1u);
-    float3 worldSurface;
-    int3 surfaceKernel;
-    float3 surfaceNormal;
-    float quality;
-    if (!TrySurfaceMeasurement(pixel, worldSurface, surfaceKernel,
-            surfaceNormal, quality))
-        return false;
-
-    float attention = MerkabaMutationAttention(worldSurface, surfaceNormal,
-        radialPosition);
+    if (pixel.x > MERKABA_MEASUREMENT_PIXEL_MASK ||
+        pixel.y > MERKABA_MEASUREMENT_PIXEL_MASK)
+        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
+    float depthNdc = gsDepthTex.Load(int3(pixel, 0));
+    if (depthNdc <= 0.0 || depthNdc >= 1.0)
+        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
+    float2 uv = ((float2)pixel + 0.5) / (float2)gsDepthTexSize;
+    worldSurface = gsDepthNDCtoWorld(float3(uv, depthNdc));
+    if (IsExcluded(worldSurface))
+        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
+    float3 eyeToSurface = worldSurface - gsDepthEyePos();
+    float measuredDistance = length(eyeToSurface);
+    if (measuredDistance <= 0.05 ||
+        measuredDistance > _MerkabaMaxUpdateDistance)
+        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
+    float3 gridSurface = mul(_MerkabaWorldToGrid,
+        float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
+    surfaceKernel = MerkabaNearestKernel(gridSurface);
+    surfaceEndpoint = all(globalCoord == surfaceKernel);
 
     // gsDepthTex is defined on the frozen reference depth-eye raster. The
     // endpoint is joint four-stream truth, but its exact ray origin is eye 0.
+    float3 rayOrigin = MerkabaDepthEyePosition(0u);
+    float3 measuredRay = worldSurface - rayOrigin;
+    float rayDistance = length(measuredRay);
+    if (rayDistance <= 0.001)
+        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
+    if (!surfaceEndpoint)
+    {
+        float3 rayDirection = measuredRay / rayDistance;
+        float3 originToKernel = worldPosition - rayOrigin;
+        float kernelDistance = dot(originToKernel, rayDirection);
+        if (kernelDistance <= 0.0)
+            return MERKABA_CHEAP_RAY_NOT_IN_FRONT;
+        float3 closestOnRay = rayOrigin + rayDirection * kernelDistance;
+        float perpendicularDistance = distance(worldPosition, closestOnRay);
+        if (perpendicularDistance > MERKABA_HALF_SUPPORT ||
+            kernelDistance >= rayDistance - MERKABA_HALF_SUPPORT)
+            return MERKABA_CHEAP_RAY_OUTSIDE_TUBE;
+    }
+
+    if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition) ||
+        radialPosition >= _MerkabaMutationOuterRadius)
+        return MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION;
+    return MERKABA_CHEAP_RAY_CANDIDATE;
+}
+
+bool ExactFrozenRayClassify(int3 globalCoord, float3 worldPosition,
+    uint2 pixel, float3 worldSurface, int3 surfaceKernel,
+    float radialPosition, out int kind, out float evidenceWeight,
+    out int3 replacementCoord, out uint rejection)
+{
+    kind = 0;
+    evidenceWeight = 0.0;
+    replacementCoord = surfaceKernel;
+    rejection = MERKABA_EXACT_REJECT_OTHER;
+    float3 surfaceNormal = gsDepthNormalTex.Load(int3(pixel, 0)).xyz;
+    if (dot(surfaceNormal, surfaceNormal) < 0.25) return false;
+    float3 eyeToSurface = worldSurface - gsDepthEyePos();
+    float measuredEyeDistance = length(eyeToSurface);
+    if (measuredEyeDistance <= 0.05 ||
+        measuredEyeDistance > _MerkabaMaxUpdateDistance)
+        return false;
+    float normalFacing = -dot(eyeToSurface, surfaceNormal) /
+        measuredEyeDistance;
+    float distanceFactor = saturate(1.0 - measuredEyeDistance /
+        _MerkabaMaxUpdateDistance);
+    float quality = distanceFactor * saturate(normalFacing);
+    float attention = MerkabaMutationAttentionFromRadial(worldSurface,
+        surfaceNormal, radialPosition);
+    if (attention <= 0.0)
+    {
+        rejection = MERKABA_EXACT_REJECT_INCIDENCE;
+        return false;
+    }
+
     float3 rayOrigin = MerkabaDepthEyePosition(0u);
     float3 measuredRay = worldSurface - rayOrigin;
     float measuredDistance = length(measuredRay);
@@ -540,13 +625,11 @@ bool ObserveFrozenJointRay(int3 globalCoord, float3 worldPosition,
     float perpendicularDistance = distance(worldPosition, closestOnRay);
     if (perpendicularDistance > MERKABA_HALF_SUPPORT) return false;
     float clearance = measuredDistance - kernelDistance;
-    replacementCoord = surfaceKernel;
-    if (attention <= 0.0)
-        return false;
     if (all(globalCoord == surfaceKernel))
     {
         kind = 2;
         evidenceWeight = quality * quality;
+        rejection = MERKABA_EXACT_REJECT_NONE;
     }
     else if (kernelDistance < measuredDistance - MERKABA_HALF_SUPPORT)
     {
@@ -555,10 +638,14 @@ bool ObserveFrozenJointRay(int3 globalCoord, float3 worldPosition,
         if (dilatedDepth <= 0.0 || dilatedDepth >= 1.0 ||
             gsDepthNDCToLinear(jointDepth) >=
             gsDepthNDCToLinear(dilatedDepth) + MERKABA_DEPTH_DISPARITY)
+        {
+            rejection = MERKABA_EXACT_REJECT_DILATION;
             return false;
+        }
         kind = 1;
         evidenceWeight = quality * quality *
             MerkabaFreeDistanceWeight(clearance) * attention;
+        rejection = MERKABA_EXACT_REJECT_NONE;
     }
     else
         return false;
@@ -1370,11 +1457,12 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
         _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u
         ? count : 0u;
-    _M8CarveDispatchArgs[1] = 8u;
+    _M8CarveDispatchArgs[1] = 1u;
     _M8CarveDispatchArgs[2] = 1u;
 }
 
-groupshared uint gCarveStats[16];
+groupshared uint gCarveWords[16];
+groupshared uint gCarveStats[23];
 
 bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
 {
@@ -1396,113 +1484,158 @@ void FlushCarveStat(uint counterIndex, uint value)
     InterlockedAdd(_M8Counters[counterIndex], value, ignored);
 }
 
-[numthreads(64, 1, 1)]
+void RecordCheapCarveResult(uint gate, bool surfaceEndpoint)
+{
+    uint ignored;
+    if (gate == MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH)
+        InterlockedAdd(gCarveStats[15], 1u, ignored);
+    else if (gate == MERKABA_CHEAP_RAY_NOT_IN_FRONT)
+        InterlockedAdd(gCarveStats[16], 1u, ignored);
+    else if (gate == MERKABA_CHEAP_RAY_OUTSIDE_TUBE)
+        InterlockedAdd(gCarveStats[17], 1u, ignored);
+    else if (gate == MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION)
+        InterlockedAdd(gCarveStats[18], 1u, ignored);
+    if (surfaceEndpoint)
+        InterlockedAdd(gCarveStats[19], 1u, ignored);
+}
+
+void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
+{
+    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
+    uint bit = 1u << (kernelLocal & 31u);
+    uint ignored;
+    InterlockedAdd(gCarveStats[0], 1u, ignored);
+    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+    bool occupiedBefore = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
+    bool alreadyStrongFree = !occupiedBefore &&
+        state.evidence <= MERKABA_EXPORT_KNOWN_FREE;
+    if (alreadyStrongFree)
+    {
+        if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) != 0u)
+        {
+            state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
+            M8StoreKernelState(physicalSlot, kernelLocal, state);
+            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+        }
+        if (RetireCarveActive(physicalSlot, kernelLocal))
+            InterlockedAdd(gCarveStats[6], 1u, ignored);
+        return;
+    }
+
+    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
+    float3 worldPosition = mul(_MerkabaGridToWorld,
+        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    int observationKind = 0;
+    float evidenceWeight = 0.0;
+    int3 replacementCoord = 0;
+    float radialPosition = 2.0;
+    bool currentSurfaceCandidate = (_M8TileBits[wordIndex].z & bit) != 0u;
+    if (currentSurfaceCandidate)
+    {
+        ObserveFrozenSurfaceWinner(physicalSlot, kernelLocal,
+            observationKind, evidenceWeight, replacementCoord,
+            radialPosition);
+    }
+    else
+    {
+        uint2 pixel;
+        float3 worldSurface;
+        int3 surfaceKernel;
+        bool surfaceEndpoint;
+        uint gate = CheapFrozenRayGate(globalCoord, worldPosition, pixel,
+            worldSurface, surfaceKernel, radialPosition, surfaceEndpoint);
+        RecordCheapCarveResult(gate, surfaceEndpoint);
+        if (gate == MERKABA_CHEAP_RAY_CANDIDATE)
+        {
+            InterlockedAdd(gCarveStats[20], 1u, ignored);
+            uint rejection;
+            bool classified = ExactFrozenRayClassify(globalCoord,
+                worldPosition, pixel,
+                worldSurface, surfaceKernel, radialPosition,
+                observationKind, evidenceWeight, replacementCoord,
+                rejection);
+            if (!classified)
+            {
+                InterlockedAdd(gCarveStats[3], 1u, ignored);
+                if (rejection == MERKABA_EXACT_REJECT_INCIDENCE)
+                    InterlockedAdd(gCarveStats[21], 1u, ignored);
+                else if (rejection == MERKABA_EXACT_REJECT_DILATION)
+                    InterlockedAdd(gCarveStats[22], 1u, ignored);
+            }
+        }
+    }
+
+    if (observationKind == 1)
+    {
+        InterlockedAdd(gCarveStats[1], 1u, ignored);
+        uint radialBin = min(7u,
+            (uint)floor(saturate(radialPosition) * 8.0));
+        InterlockedAdd(gCarveStats[7u + radialBin], 1u, ignored);
+        int evidenceBefore = state.evidence;
+        int decrement = max(1, (int)round(evidenceWeight *
+            MERKABA_FREE_SCALE));
+        if (occupiedBefore && evidenceBefore - decrement <=
+            MERKABA_OCCUPIED_OFF)
+        {
+            bool replacementOccupied = false;
+            bool replacementResolved = M8TryOccupiedExactForCarve(
+                replacementCoord, replacementOccupied);
+            if (!replacementResolved || !replacementOccupied)
+                decrement = min(decrement, max(0,
+                    evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));
+        }
+        if (decrement > 0)
+            UpdateOccupancy(physicalSlot, kernelLocal, state, -decrement);
+        bool occupiedAfter = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
+        if (state.evidence < evidenceBefore)
+            InterlockedAdd(gCarveStats[4], 1u, ignored);
+        if (occupiedBefore && !occupiedAfter)
+            InterlockedAdd(gCarveStats[5], 1u, ignored);
+        if (!occupiedAfter && state.evidence <= MERKABA_EXPORT_KNOWN_FREE)
+        {
+            state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
+            if (RetireCarveActive(physicalSlot, kernelLocal))
+                InterlockedAdd(gCarveStats[6], 1u, ignored);
+        }
+        if (state.evidence != evidenceBefore)
+        {
+            M8StoreKernelState(physicalSlot, kernelLocal, state);
+            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+        }
+    }
+    else if (observationKind == 2)
+    {
+        InterlockedAdd(gCarveStats[2], 1u, ignored);
+        if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) == 0u)
+        {
+            state.flags |= MERKABA_NEEDS_CARVE_FLAG;
+            M8StoreKernelState(physicalSlot, kernelLocal, state);
+            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+        }
+    }
+}
+
+[numthreads(128, 1, 1)]
 void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint physicalSlot = _M8CarveTilesRead[groupId.x];
-    uint kernelLocal = groupId.y * 64u + thread;
-    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
-    uint bit = 1u << (kernelLocal & 31u);
-    if (thread < 16u) gCarveStats[thread] = 0u;
+    if (thread < 16u)
+    {
+        uint wordIndex = M8TileWordIndex(physicalSlot, thread);
+        gCarveWords[thread] = _M8TileBits[wordIndex].y;
+    }
+    if (thread < 23u) gCarveStats[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();
 
-    if ((_M8TileBits[wordIndex].y & bit) != 0u)
+    [unroll]
+    for (uint batch = 0u; batch < 4u; batch++)
     {
-        uint ignored;
-        InterlockedAdd(gCarveStats[0], 1u, ignored);
-        KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
-        bool occupiedBefore =
-            (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
-        bool alreadyStrongFree = !occupiedBefore &&
-            state.evidence <= MERKABA_EXPORT_KNOWN_FREE;
-        if (alreadyStrongFree)
-        {
-            if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) != 0u)
-            {
-                state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
-                M8StoreKernelState(physicalSlot, kernelLocal, state);
-                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
-            }
-            if (RetireCarveActive(physicalSlot, kernelLocal))
-                InterlockedAdd(gCarveStats[6], 1u, ignored);
-        }
-        else
-        {
-            int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
-            float3 worldPosition = mul(_MerkabaGridToWorld,
-                float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
-            int observationKind = 0;
-            float evidenceWeight = 0.0;
-            int3 replacementCoord = 0;
-            float radialPosition = 2.0;
-            bool currentSurfaceCandidate =
-                (_M8TileBits[wordIndex].z & bit) != 0u;
-            if (currentSurfaceCandidate)
-            {
-                ObserveFrozenSurfaceWinner(physicalSlot, kernelLocal,
-                    observationKind, evidenceWeight, replacementCoord,
-                    radialPosition);
-            }
-            else if (!IsExcluded(worldPosition))
-                ObserveFrozenJointRay(globalCoord, worldPosition,
-                    observationKind, evidenceWeight, replacementCoord,
-                    radialPosition);
-
-            if (observationKind == 1)
-            {
-                InterlockedAdd(gCarveStats[1], 1u, ignored);
-                uint radialBin = min(7u,
-                    (uint)floor(saturate(radialPosition) * 8.0));
-                InterlockedAdd(gCarveStats[7u + radialBin], 1u, ignored);
-                int evidenceBefore = state.evidence;
-                int decrement = max(1, (int)round(evidenceWeight *
-                    MERKABA_FREE_SCALE));
-                if (occupiedBefore && evidenceBefore - decrement <=
-                    MERKABA_OCCUPIED_OFF)
-                {
-                    bool replacementOccupied = false;
-                    bool replacementResolved = M8TryOccupiedExactForCarve(
-                        replacementCoord, replacementOccupied);
-                    if (!replacementResolved || !replacementOccupied)
-                        decrement = min(decrement, max(0,
-                            evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));
-                }
-                if (decrement > 0)
-                    UpdateOccupancy(physicalSlot, kernelLocal, state,
-                        -decrement);
-                bool occupiedAfter =
-                    (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
-                if (state.evidence < evidenceBefore)
-                    InterlockedAdd(gCarveStats[4], 1u, ignored);
-                if (occupiedBefore && !occupiedAfter)
-                    InterlockedAdd(gCarveStats[5], 1u, ignored);
-                if (!occupiedAfter &&
-                    state.evidence <= MERKABA_EXPORT_KNOWN_FREE)
-                {
-                    state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
-                    if (RetireCarveActive(physicalSlot, kernelLocal))
-                        InterlockedAdd(gCarveStats[6], 1u, ignored);
-                }
-                if (state.evidence != evidenceBefore)
-                {
-                    M8StoreKernelState(physicalSlot, kernelLocal, state);
-                    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
-                }
-            }
-            else if (observationKind == 2)
-            {
-                InterlockedAdd(gCarveStats[2], 1u, ignored);
-                if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) == 0u)
-                {
-                    state.flags |= MERKABA_NEEDS_CARVE_FLAG;
-                    M8StoreKernelState(physicalSlot, kernelLocal, state);
-                    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
-                }
-            }
-            else
-                InterlockedAdd(gCarveStats[3], 1u, ignored);
-        }
+        uint kernelLocal = thread + batch * 128u;
+        uint word = gCarveWords[kernelLocal >> 5u];
+        uint bit = 1u << (kernelLocal & 31u);
+        if ((word & bit) != 0u)
+            IntegrateCarveKernel(physicalSlot, kernelLocal);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -1519,8 +1652,22 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
         for (uint radialBin = 0u; radialBin < 8u; radialBin++)
             FlushCarveStat(M8_COUNTER_CARVE_FREE_RADIAL_0 + radialBin,
                 gCarveStats[7u + radialBin]);
-        FlushCarveStat(M8_COUNTER_SAME_OBSERVATION_CONFLICT,
+        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_INVALID_PROJECTION_DEPTH,
             gCarveStats[15]);
+        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_NOT_IN_FRONT,
+            gCarveStats[16]);
+        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_OUTSIDE_RAY_TUBE,
+            gCarveStats[17]);
+        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_OUTSIDE_OUTER_ATTENTION,
+            gCarveStats[18]);
+        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_SURFACE_ENDPOINT,
+            gCarveStats[19]);
+        FlushCarveStat(M8_COUNTER_CARVE_EXACT_EVALUATIONS,
+            gCarveStats[20]);
+        FlushCarveStat(M8_COUNTER_CARVE_EXACT_INCIDENCE_REJECT,
+            gCarveStats[21]);
+        FlushCarveStat(M8_COUNTER_CARVE_EXACT_DILATION_REJECT,
+            gCarveStats[22]);
     }
 }
 

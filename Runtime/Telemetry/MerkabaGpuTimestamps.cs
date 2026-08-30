@@ -102,7 +102,15 @@ namespace Genesis.RoomScan
             internal uint ScanColdMisses;
             internal uint CarveQueryBlocks;
             internal uint CarveCandidateTiles;
+            internal uint CarveActiveKernels;
             internal uint CarveKernelsEvaluated;
+            internal uint CarveCheapInvalidProjectionDepth;
+            internal uint CarveCheapNotInFront;
+            internal uint CarveCheapOutsideRayTube;
+            internal uint CarveCheapOutsideOuterAttention;
+            internal uint CarveCheapSurfaceEndpoint;
+            internal uint CarveExactIncidenceReject;
+            internal uint CarveExactDilationReject;
             internal uint CarveClassifiedFree;
             internal uint CarveClassifiedSurface;
             internal uint CarveClassifiedUnknown;
@@ -564,8 +572,24 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterScanColdMisses];
                     sample.CarveCandidateTiles = values[
                         MerkabaGrid.CounterCarveCandidateTiles];
+                    sample.CarveActiveKernels = values[
+                        MerkabaGrid.CounterCarveActiveKernels];
                     sample.CarveKernelsEvaluated = values[
                         MerkabaGrid.CounterCarveKernelsEvaluated];
+                    sample.CarveCheapInvalidProjectionDepth = values[
+                        MerkabaGrid.CounterCarveCheapInvalidProjectionDepth];
+                    sample.CarveCheapNotInFront = values[
+                        MerkabaGrid.CounterCarveCheapNotInFront];
+                    sample.CarveCheapOutsideRayTube = values[
+                        MerkabaGrid.CounterCarveCheapOutsideRayTube];
+                    sample.CarveCheapOutsideOuterAttention = values[
+                        MerkabaGrid.CounterCarveCheapOutsideOuterAttention];
+                    sample.CarveCheapSurfaceEndpoint = values[
+                        MerkabaGrid.CounterCarveCheapSurfaceEndpoint];
+                    sample.CarveExactIncidenceReject = values[
+                        MerkabaGrid.CounterCarveExactIncidenceReject];
+                    sample.CarveExactDilationReject = values[
+                        MerkabaGrid.CounterCarveExactDilationReject];
                     sample.LoadRequests = values[
                         MerkabaGrid.CounterLoadRequests];
                     sample.VisibleTiles = values[
@@ -916,15 +940,35 @@ namespace Genesis.RoomScan
                         $"surfaceTilesAllocated={sample.SurfaceTilesAllocated} " +
                         $"scanColdMisses={sample.ScanColdMisses} " +
                         $"carveQueryBlocks={sample.CarveQueryBlocks} " +
-                        $"carveCandidateTiles={sample.CarveCandidateTiles} " +
-                        $"carveKernelsEvaluated={sample.CarveKernelsEvaluated} " +
+                        $"carveCandidateTiles={sample.CarveCandidateTiles}");
+            Logger.Info($"Merkaba metrics-carve-gate revision={sample.Revision} " +
+                        $"valid={sample.ReadbackValid} " +
+                        $"carveActiveKernels={sample.CarveActiveKernels} " +
+                        $"cheapInvalidProjectionDepth=" +
+                        $"{sample.CarveCheapInvalidProjectionDepth} " +
+                        $"cheapNotInFront={sample.CarveCheapNotInFront} " +
+                        $"cheapOutsideRayTube=" +
+                        $"{sample.CarveCheapOutsideRayTube} " +
+                        $"cheapOutsideOuterAttention=" +
+                        $"{sample.CarveCheapOutsideOuterAttention} " +
+                        $"cheapSurfaceEndpoint=" +
+                        $"{sample.CarveCheapSurfaceEndpoint}");
+            Logger.Info($"Merkaba metrics-carve-exact revision={sample.Revision} " +
+                        $"valid={sample.ReadbackValid} " +
+                        $"exactCarveEvaluations={sample.CarveKernelsEvaluated} " +
                         $"carveClassifiedFree={sample.CarveClassifiedFree} " +
                         $"carveClassifiedSurface={sample.CarveClassifiedSurface} " +
                         $"carveClassifiedUnknown={sample.CarveClassifiedUnknown} " +
+                        $"exactIncidenceReject=" +
+                        $"{sample.CarveExactIncidenceReject} " +
+                        $"exactDilationReject=" +
+                        $"{sample.CarveExactDilationReject} " +
                         $"evidenceDecrements={sample.CarveEvidenceDecrements} " +
                         $"occupiedToFreeTransitions={sample.CarveOccupiedToFree} " +
                         $"carveBitsRetired={sample.CarveBitsRetired} " +
-                        $"carveFreeRadial=[{string.Join(",", sample.CarveFreeRadial)}] " +
+                        $"carveFreeRadial=[{string.Join(",", sample.CarveFreeRadial)}]");
+            Logger.Info($"Merkaba metrics-authority revision={sample.Revision} " +
+                        $"valid={sample.ReadbackValid} " +
                         $"jointAcceptedCenter={sample.JointAcceptedCenter} " +
                         $"jointAcceptedMid={sample.JointAcceptedMid} " +
                         $"jointAcceptedEdge={sample.JointAcceptedEdge} " +

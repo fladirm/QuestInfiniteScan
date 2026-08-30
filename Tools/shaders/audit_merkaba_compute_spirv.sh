@@ -49,6 +49,18 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
       fi
     fi
 
+    if [[ "$kernel" == "IntegrateCarveTiles" ]]; then
+      if ! grep -Eq 'OpExecutionMode .* LocalSize 128 1 1' "$assembly"; then
+        echo "FAIL: $kernel is not the frozen 128-lane tile workgroup" >&2
+        exit 1
+      fi
+      barrier_count=$(grep -c 'OpControlBarrier' "$assembly" || true)
+      if (( barrier_count != 2 )); then
+        echo "FAIL: $kernel must contain exactly two tile-group barriers" >&2
+        exit 1
+      fi
+    fi
+
     total=$(awk '/OpVariable .* StorageBuffer$/ { count++ }
       END { print count + 0 }' "$assembly")
     readonly=$(awk '

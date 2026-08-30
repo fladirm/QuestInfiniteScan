@@ -2,6 +2,15 @@ using UnityEngine;
 
 namespace Genesis.RoomScan
 {
+    public enum MerkabaCheapCarveGateResult : byte
+    {
+        Candidate,
+        InvalidProjectionDepth,
+        NotInFront,
+        OutsideRayTube,
+        OutsideOuterAttention
+    }
+
     /// <summary>One already-projected depth relation used by production and test integration.</summary>
     public readonly struct MerkabaObservationInput
     {
@@ -131,6 +140,29 @@ namespace Genesis.RoomScan
             kernelAlong > 0f &&
             kernelAlong < endpointDistance - MerkabaConstants.HalfSupport &&
             perpendicularDistance <= MerkabaConstants.HalfSupport;
+
+        /// <summary>
+        /// CPU oracle for the necessary-only C1 gate. Candidate is deliberately
+        /// an over-include: only the exact classifier may decide SURFACE/FREE.
+        /// </summary>
+        public static MerkabaCheapCarveGateResult CheapFrozenRayGate(
+            bool projectionDepthValid, bool outsideExclusions,
+            bool kernelInFront, bool isSurfaceEndpoint, float kernelAlong,
+            float endpointDistance, float perpendicularDistance,
+            bool insideOuterAttention)
+        {
+            if (!projectionDepthValid || !outsideExclusions ||
+                !IsFinitePositive(endpointDistance))
+                return MerkabaCheapCarveGateResult.InvalidProjectionDepth;
+            if (!kernelInFront || kernelAlong <= 0f)
+                return MerkabaCheapCarveGateResult.NotInFront;
+            if (!isSurfaceEndpoint && !InsideFrozenFreeRayTube(kernelAlong,
+                    endpointDistance, perpendicularDistance))
+                return MerkabaCheapCarveGateResult.OutsideRayTube;
+            return insideOuterAttention
+                ? MerkabaCheapCarveGateResult.Candidate
+                : MerkabaCheapCarveGateResult.OutsideOuterAttention;
+        }
 
         private static bool IsFinitePositive(float value) =>
             value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);

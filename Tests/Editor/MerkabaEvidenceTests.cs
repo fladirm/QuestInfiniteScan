@@ -233,6 +233,69 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void CheapCarveGate_ContainsEveryExactSurfaceOrFreeCase()
+        {
+            var random = new System.Random(0x5134);
+            for (int iteration = 0; iteration < 10000; iteration++)
+            {
+                bool surface = (iteration & 7) == 0;
+                float endpoint = 0.051f + (float)random.NextDouble() * 4.9f;
+                float along = surface
+                    ? endpoint
+                    : 0.001f + (float)random.NextDouble() *
+                      Mathf.Max(0.001f, endpoint -
+                          MerkabaConstants.HalfSupport - 0.001f);
+                float perpendicular = (float)random.NextDouble() *
+                    MerkabaConstants.HalfSupport;
+                MerkabaObservationResult exact = MerkabaObservation.Classify(
+                    Input(replacementSurfaceValid: true,
+                        isReplacementKernel: surface,
+                        kernelDistance: along,
+                        measuredDistance: endpoint));
+                if (exact.Kind == MerkabaObservationKind.Unknown) continue;
+                MerkabaCheapCarveGateResult gate =
+                    MerkabaObservation.CheapFrozenRayGate(
+                        projectionDepthValid: true,
+                        outsideExclusions: true,
+                        kernelInFront: true,
+                        isSurfaceEndpoint: surface,
+                        kernelAlong: along,
+                        endpointDistance: endpoint,
+                        perpendicularDistance: perpendicular,
+                        insideOuterAttention: true);
+                Assert.That(gate,
+                    Is.EqualTo(MerkabaCheapCarveGateResult.Candidate),
+                    $"iteration={iteration} kind={exact.Kind}");
+            }
+        }
+
+        [Test]
+        public void CheapCarveGate_BoundariesAreConservativeAndExact()
+        {
+            const float endpoint = 2f;
+            float half = MerkabaConstants.HalfSupport;
+            Assert.That(MerkabaObservation.CheapFrozenRayGate(true, true,
+                true, false, 1f, endpoint, half, true),
+                Is.EqualTo(MerkabaCheapCarveGateResult.Candidate));
+            Assert.That(MerkabaObservation.CheapFrozenRayGate(true, true,
+                true, false, endpoint - half, endpoint, 0f, true),
+                Is.EqualTo(MerkabaCheapCarveGateResult.OutsideRayTube));
+            Assert.That(MerkabaObservation.CheapFrozenRayGate(true, true,
+                true, true, endpoint, endpoint, 0f, true),
+                Is.EqualTo(MerkabaCheapCarveGateResult.Candidate));
+            Assert.That(MerkabaObservation.CheapFrozenRayGate(true, true,
+                true, false, 1f, endpoint, half + 1e-5f, true),
+                Is.EqualTo(MerkabaCheapCarveGateResult.OutsideRayTube));
+            Assert.That(MerkabaObservation.CheapFrozenRayGate(true, true,
+                true, false, 1f, endpoint, 0f, false),
+                Is.EqualTo(
+                    MerkabaCheapCarveGateResult.OutsideOuterAttention));
+            Assert.That(MerkabaObservation.CheapFrozenRayGate(true, true,
+                false, false, -0.01f, endpoint, 0f, true),
+                Is.EqualTo(MerkabaCheapCarveGateResult.NotInFront));
+        }
+
+        [Test]
         public void ReplacementEndpoint_OwnsSurfaceAndOnlyForegroundIsFree()
         {
             MerkabaObservationResult endpoint = MerkabaObservation.Classify(
