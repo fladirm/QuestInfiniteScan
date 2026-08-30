@@ -1,6 +1,6 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-08-30 (Europe/Prague)
+Updated: 2026-08-31 (Europe/Prague)
 
 ## Authority
 
@@ -180,10 +180,46 @@ FOOTPRINT production packing                8x16 / 128 / 8.960 KiB frozen
 algebra/D4/certificate/refinement/canonical source changes            0
 ```
 
-The exact next action is a local exact-source checkpoint, Release Android/Vulkan
-build from that SHA, installation and >=32-publication Quest capture. The new
-physical gate is ordinary warm transaction p95 `<90 ms`; R1/R2 remain frozen
-unless that same-SHA aperture profile misses it. N5R/S4-09 remain unopened.
+The physical aperture checkpoint measured total p50/p95 `118.509/130.917 ms`,
+with `PrepareNativeRefinementScan` at `49.627/58.323 ms`; this authorized only
+the normative R1/R2 correction. The current source implements that correction
+without changing the aperture or any S16/D4/certificate/refinement semantics:
+
+```text
+component run capacity                                  256 -> 1024
+ComponentOrder ownership                         one 1024-entry run/WG
+ComponentOrder indirect groups                     ceil(orderItems/1024)
+RefinementScan rank ownership                 one actual component/thread
+component binary-search high bound                    componentCount
+warm childCount==0 refinement work                              absent
+warm fresh block prefix                    serial exact <=192 blocks, lane 0
+cold/refinement prefix path                                  unchanged
+new kernel / dispatch / buffer owner                         0 / 0 / 0
+```
+
+The complete shader/ABI/resource/binding/test review covered the full
+`SigmaNativeFrame.compute` program, included ABI/math/generated helpers, all frame
+kernel bindings/dispatches and directly affected fixtures before the edit. Current
+pre-device evidence is:
+
+```text
+focused GlobalClose -> page-boundary same-process pair             2 / 2 PASS
+complete SigmaNativeFrameTests                                    36 / 36 PASS
+complete Unity Vulkan EditMode                                  113 / 113 PASS
+generator/check                                                        PASS
+Quest graph/name/thread/sync/UAV contract                   14 / 16 / <=8 PASS
+Vulkan 1.1 SPIR-V / spirv-val                                   16 / 16 PASS
+git diff --check                                                        PASS
+```
+
+The first cold 1024-run Vulkan PSO compilation exceeded a 180-second test timeout;
+the compiled pipeline was persisted, and the identical same-process pair then
+passed in 0.77 seconds (page-boundary fixture 0.19 seconds). This is recorded as
+compile evidence, not a semantic failure. The exact next action is an exact-source
+commit, Release Android/Vulkan build from that SHA, installation and at least 32
+warm informative Quest publications. Product acceptance is total p95 `<90 ms`.
+Only if total p95 remains >=90 ms and RefinementScan p95 remains >18 ms is the
+prescribed 4096 run-capacity fallback permitted. N5R/S4-09 remain unopened.
 
 ## N4 resident-capacity safety and frozen N5R persistence design
 

@@ -173,6 +173,36 @@ namespace Genesis.RoomScan.Tests
             Assert.That(refinementBlock, Does.Contain("countbits("));
             Assert.That(refinementBlock, Does.Not.Contain(
                 "for (uint stride = 1u; stride < 256u"));
+            Assert.That(frame, Does.Contain(
+                "#define SIGMA_N4_COMPONENT_RUN_CAPACITY 1024u"));
+            string componentBound = Slice(frame,
+                "uint SigmaN4PublishComponentCellRunBound",
+                "void SigmaN4PublishRankComponentAt");
+            Assert.That(componentBound, Does.Contain(
+                "uint componentCount = _NativeCounters[1u].x"));
+            Assert.That(componentBound, Does.Contain(
+                "if (begin >= componentCount) return 0u"));
+            string componentRank = Slice(frame,
+                "void SigmaN4PublishRankComponentAt",
+                "int SigmaN4PublishCompareSignedDyadic");
+            Assert.That(componentRank, Does.Contain(
+                "if (position >= componentCount) return"));
+            string componentOrder = Slice(frame,
+                "void PrepareNativeComponentOrder(",
+                "void PrepareNativeRefinementScan(");
+            Assert.That(componentOrder, Does.Contain(
+                "local < SIGMA_N4_COMPONENT_RUN_CAPACITY"));
+            Assert.That(componentOrder, Does.Contain(
+                "SigmaN4PublishFinishRefinementMember("));
+            string refinementFinish = Slice(frame,
+                "void SigmaN4PublishFinishRefinementBlockScan",
+                "uint SigmaN4PublishRefinedInclusive");
+            Assert.That(refinementFinish, Does.Contain(
+                "if (SigmaN4PublishCarry.x == 0u)"));
+            Assert.That(refinementFinish, Does.Contain(
+                "for (uint block = 0u; block < footprintBlocks; ++block)"));
+            Assert.That(refinementFinish, Does.Contain(
+                "_NativeCloseScratch[address].y = runningFresh"));
 
             string contract = File.ReadAllText(AssetDatabase.GetAssetPath(
                 LoadShader("SigmaNativeContract")));
@@ -316,6 +346,11 @@ namespace Genesis.RoomScan.Tests
                     native.RefinementChildOrderCapacity));
                 Assert.That((long)native.CloseScratch.count * sizeof(uint) * 2,
                     Is.LessThanOrEqualTo(128L * 1024L * 1024L));
+                using var minimum = new SigmaNativeFrameSlotResources(1,
+                    Vector2Int.one);
+                Assert.That(minimum.CanonicalImageStride,
+                    Is.GreaterThanOrEqualTo(
+                        SigmaNativeFrameSlotResources.ComponentRunCapacity));
             }
             finally
             {

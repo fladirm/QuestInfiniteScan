@@ -38,6 +38,7 @@ namespace Genesis.RoomScan.SigmaPrism
         // by the following fixed graph stages; no workgroup owns a 16K/world
         // interpreter on Quest.
         internal const int CanonicalRunCapacity = 1024;
+        internal const int ComponentRunCapacity = 1024;
         internal const int RefinementRunCapacity = 4096;
         internal const int ObservationFootprintsPerGroup = 32;
         internal const int ContractFootprintsPerGroup = 8;
@@ -109,8 +110,9 @@ namespace Genesis.RoomScan.SigmaPrism
             // rank and transient component id.  Full 320x320 happens to fit
             // both domains in the same 131072 stride; small exact fixtures must
             // obey the same alias-free ABI rather than relying on that accident.
-            CanonicalImageStride = NextPowerOfTwo(Math.Max(FootprintCapacity,
-                CanonicalComponentCapacity));
+            CanonicalImageStride = NextPowerOfTwo(Math.Max(
+                Math.Max(FootprintCapacity, CanonicalComponentCapacity),
+                ComponentRunCapacity));
             CanonicalRankScratchOffset = checked(CanonicalImageScratchOffset +
                 CanonicalImageStride * 10);
             // Dispatch 12 owns this immutable refinement schedule.  Dispatch 13

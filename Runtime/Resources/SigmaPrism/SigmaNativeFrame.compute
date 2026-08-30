@@ -180,7 +180,7 @@ uint _NativeProvenanceReceipt[8];
 #define SIGMA_N4_INVALID 0xffffffffu
 #define SIGMA_N4_CANONICAL_RUN_CAPACITY 1024u
 #define SIGMA_N4_CANONICAL_MERGE_FANIN 10u
-#define SIGMA_N4_COMPONENT_RUN_CAPACITY 256u
+#define SIGMA_N4_COMPONENT_RUN_CAPACITY 1024u
 #define SIGMA_N4_REFINEMENT_RUN_CAPACITY 4096u
 #define SIGMA_N4_ANCHOR_LOCATOR_MASK 0x0001ffffu
 #define SIGMA_N4_OBSERVATION_TEAMS_PER_GROUP 32u
@@ -2648,9 +2648,11 @@ void SigmaN4PublishSortComponentRun(uint run, uint threadIndex)
 uint SigmaN4PublishComponentCellRunBound(uint run, uint2 key, bool upper)
 {
     uint begin = run * SIGMA_N4_COMPONENT_RUN_CAPACITY;
+    uint componentCount = _NativeCounters[1u].x;
+    if (begin >= componentCount) return 0u;
     uint low = begin;
     uint high = min(begin + SIGMA_N4_COMPONENT_RUN_CAPACITY,
-        _NativeCanonicalImageStride);
+        componentCount);
     [loop]
     while (low < high)
     {
@@ -2670,9 +2672,7 @@ uint SigmaN4PublishComponentCellRunBound(uint run, uint2 key, bool upper)
 void SigmaN4PublishRankComponentAt(uint position)
 {
     uint componentCount = _NativeCounters[1u].x;
-    if (position >= SigmaN4PublishComponentRunCount() *
-            SIGMA_N4_COMPONENT_RUN_CAPACITY)
-        return;
+    if (position >= componentCount) return;
     uint run = position / SIGMA_N4_COMPONENT_RUN_CAPACITY;
     uint2 entry = _NativeCloseScratch[SigmaN4PublishImageAddress(
         SIGMA_N4_COMPONENT_LIST_IMAGE, position)];
@@ -3998,24 +3998,31 @@ void SigmaN4PublishScanRefinementBlock(uint block, uint oldExtent,
     GroupMemoryBarrierWithGroupSync();
     if (blockActive && threadIndex < 4u)
     {
-        uint2 refinedBits = 0u;
         uint2 freshBits = 0u;
         uint laneBase = threadIndex * 64u;
+        if (childCount != 0u)
+        {
+            uint2 refinedBits = 0u;
+            [loop]
+            for (uint bit = 0u; bit < 32u; ++bit)
+            {
+                refinedBits.x |=
+                    (SigmaN4PublishWide[laneBase + bit].x & 1u) << bit;
+                refinedBits.y |=
+                    (SigmaN4PublishWide[laneBase + 32u + bit].x & 1u) << bit;
+            }
+            if (block < logicalBlocks)
+                _NativeCloseScratch[SigmaN4PublishRefinedBitsetAddress(
+                    block * 4u + threadIndex)] = refinedBits;
+        }
         [loop]
         for (uint bit = 0u; bit < 32u; ++bit)
         {
-            refinedBits.x |= (SigmaN4PublishWide[laneBase + bit].x & 1u)
-                << bit;
-            refinedBits.y |=
-                (SigmaN4PublishWide[laneBase + 32u + bit].x & 1u) << bit;
             freshBits.x |= (SigmaN4PublishWide[laneBase + bit].y & 1u)
                 << bit;
             freshBits.y |=
                 (SigmaN4PublishWide[laneBase + 32u + bit].y & 1u) << bit;
         }
-        if (childCount != 0u && block < logicalBlocks)
-            _NativeCloseScratch[SigmaN4PublishRefinedBitsetAddress(
-                block * 4u + threadIndex)] = refinedBits;
         if (block < footprintBlocks)
             _NativeCloseScratch[SigmaN4PublishFreshBitsetAddress(
                 block * 4u + threadIndex)] = freshBits;
@@ -4058,6 +4065,25 @@ void SigmaN4PublishFinishRefinementBlockScan(uint oldExtent, uint childCount,
 {
     uint logicalBlocks = (oldExtent + 255u) / 256u;
     uint footprintBlocks = (_NativeCounters[3u].x + 255u) / 256u;
+    // Carry.x is childCount broadcast by lane zero through the unconditional
+    // kernel-entry barrier, so this complete phase skip is workgroup-uniform.
+    if (SigmaN4PublishCarry.x == 0u)
+    {
+        if (threadIndex == 0u)
+        {
+            uint runningFresh = 0u;
+            [loop]
+            for (uint block = 0u; block < footprintBlocks; ++block)
+            {
+                uint address = SigmaN4PublishFreshBlockAddress(block);
+                uint count = _NativeCloseScratch[address].x;
+                _NativeCloseScratch[address].y = runningFresh;
+                runningFresh += count;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+        return;
+    }
     uint refinementBlocks = childCount == 0u ? 0u : logicalBlocks;
     uint activeBlocks = max(refinementBlocks, footprintBlocks);
     uint chunk = (max(activeBlocks, 1u) + 255u) / 256u;
@@ -5149,9 +5175,12 @@ void PrepareNativeRefinementProof(uint3 dispatchThreadId : SV_DispatchThreadID,
     SigmaN4PublishLoadStageState(threadIndex);
     if (threadIndex == 0u)
     {
-        uint activeBlocks = max(1u,
-            (max(activeCount, memberCount) + 255u) / 256u);
-        _NativeCounters[2u] = uint4(activeBlocks, 1u, 1u, activeCount);
+        uint orderItems = max(activeCount, memberCount);
+        uint componentOrderGroups = max(1u,
+            (orderItems + SIGMA_N4_COMPONENT_RUN_CAPACITY - 1u) /
+                SIGMA_N4_COMPONENT_RUN_CAPACITY);
+        _NativeCounters[2u] = uint4(componentOrderGroups, 1u, 1u,
+            activeCount);
         _NativeCounters[3u].z = 0u;
     }
     SigmaN4PublishStoreStageState(threadIndex);
@@ -5165,10 +5194,16 @@ void PrepareNativeComponentOrder(uint3 groupId : SV_GroupID,
     uint run = groupId.x;
     uint begin = run * SIGMA_N4_COMPONENT_RUN_CAPACITY;
     SigmaN4PublishBeginWideStage(threadIndex);
-    uint memberPosition = begin + threadIndex;
-    if (memberPosition < _NativeCounters[1u].w)
-        SigmaN4PublishFinishRefinementMember(
-            SigmaN4PublishLoadRefinementMember(memberPosition));
+    [loop]
+    for (uint memberLocal = threadIndex;
+         memberLocal < SIGMA_N4_COMPONENT_RUN_CAPACITY;
+         memberLocal += 256u)
+    {
+        uint memberPosition = begin + memberLocal;
+        if (memberPosition < _NativeCounters[1u].w)
+            SigmaN4PublishFinishRefinementMember(
+                SigmaN4PublishLoadRefinementMember(memberPosition));
+    }
     [loop]
     for (uint local = threadIndex; local < SIGMA_N4_COMPONENT_RUN_CAPACITY;
          local += 256u)
