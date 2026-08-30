@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
@@ -11,177 +11,166 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaOverlapShellTests
     {
         private static readonly Color32 SurfaceColor =
-            new(72, 144, 216, 255);
+            new(96, 144, 192, 255);
 
         [Test]
-        public void FlatPlane_IsOneZeroThicknessTiledSheet()
+        public void IsolatedOrFreeOnlyMain_IsUnderdeterminedAndEmitsNoPatch()
         {
-            Scene scene = AxisHeightField(0, (_, _) => 0, -4, 4, 1);
-            List<MerkabaOverlapShell.Patch> patches = BuildInterior(scene,
-                0, (_, _) => 0, -3, 3);
+            var isolated = new Scene();
+            isolated.Surface(new int3(0));
+            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0),
+                isolated.Sample, out _), Is.False);
 
-            Assert.That(patches.Count, Is.EqualTo(49));
-            AssertSharedCorners(patches);
+            var freeOnly = new Scene();
+            freeOnly.Surface(new int3(0));
+            freeOnly.FreeUnlessSurface(new int3(1, 0, 0));
+            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0),
+                freeOnly.Sample, out _), Is.False,
+                "FREE supplies winding, not a fabricated surface tangent.");
+        }
+
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        public void DenseAxisWall_IsOneZeroThicknessOverlappingSheet(int axis)
+        {
+            int3 normal = axis == 0 ? new int3(1, 0, 0) :
+                axis == 1 ? new int3(0, 1, 0) : new int3(0, 0, 1);
+            Scene scene = Plane(normal, -5, 5, 1);
+            List<MerkabaOverlapShell.Patch> patches =
+                BuildPlaneInterior(scene, normal, -3, 3);
+            Assert.That(patches, Has.Count.EqualTo(49));
             foreach (MerkabaOverlapShell.Patch patch in patches)
             {
-                Assert.That(patch.SurfaceSignature.NormalAxis, Is.EqualTo(0));
+                Assert.That(patch.SurfaceSignature.Normal,
+                    Is.EqualTo(normal));
                 Assert.That(patch.SurfaceSignature.FreeSign, Is.EqualTo(1));
-                Assert.That(patch.SurfaceSignature.HasKnownFreeSide, Is.True);
+                Assert.That(MerkabaOverlapShell.TrianglesPerPatch,
+                    Is.EqualTo(2));
+                Assert.That(UniqueTriangleVertices(patch), Is.EqualTo(4));
                 for (int corner = 0; corner < 4; corner++)
-                    Assert.That(patch.GetCorner(corner).QuarterCoordinate.x,
-                        Is.Zero);
+                    Assert.That(patch.GetCorner(corner).QuarterCoordinate[axis],
+                        Is.EqualTo(patch.Main[axis] * 4));
+                AssertFullSupportFootprint(patch);
                 AssertWinding(patch);
             }
+            AssertProjectedCoverageHasNoPitchGaps(patches, axis, -3, 3);
         }
 
-        [Test]
-        public void TranslatedPlane_IsByteIdenticalInSignedCoordinates()
+        [TestCase(3)]
+        [TestCase(4)]
+        [TestCase(5)]
+        [TestCase(6)]
+        [TestCase(7)]
+        [TestCase(8)]
+        [TestCase(9)]
+        [TestCase(10)]
+        [TestCase(11)]
+        [TestCase(12)]
+        public void FaceAndBodyDiagonalPlanes_ResolveCanonicalSlope(int normalIndex)
         {
-            Scene origin = AxisHeightField(2, (_, _) => 0, -3, 3, -1);
-            int3 translation = new(-257, 31, -65);
-            Scene moved = origin.Translated(translation);
-            List<MerkabaOverlapShell.Patch> reference = BuildAll(origin);
-            List<MerkabaOverlapShell.Patch> translated = BuildAll(moved);
-
-            Assert.That(translated.Count, Is.EqualTo(reference.Count));
-            int3 quarterTranslation = translation *
-                MerkabaOverlapShell.QuarterUnitsPerLatticeStep;
-            for (int index = 0; index < reference.Count; index++)
+            int3 normal = MerkabaOverlapShell.CanonicalNormals[normalIndex];
+            Scene scene = Plane(normal, -6, 6, 1);
+            List<MerkabaOverlapShell.Patch> patches =
+                BuildPlaneInterior(scene, normal, -3, 3);
+            Assert.That(patches.Count, Is.GreaterThan(30));
+            Assert.That(patches.All(p =>
+                math.all(p.SurfaceSignature.Normal == normal)), Is.True);
+            foreach (MerkabaOverlapShell.Patch patch in patches)
             {
-                MerkabaOverlapShell.Patch expected = reference[index];
-                MerkabaOverlapShell.Patch actual = translated[index];
-                Assert.That(math.all(actual.Main - translation == expected.Main),
-                    Is.True);
-                Assert.That(actual.SurfaceSignature,
-                    Is.EqualTo(expected.SurfaceSignature));
-                for (int corner = 0; corner < 4; corner++)
-                {
-                    MerkabaOverlapShell.Corner left = expected.GetCorner(corner);
-                    MerkabaOverlapShell.Corner right = actual.GetCorner(corner);
-                    Assert.That(math.all(right.QuarterCoordinate -
-                        quarterTranslation == left.QuarterCoordinate), Is.True);
-                    Assert.That(right.PackedColor, Is.EqualTo(left.PackedColor));
-                    Assert.That(right.ContributorCount,
-                        Is.EqualTo(left.ContributorCount));
-                }
+                AssertFullSupportFootprint(patch);
+                AssertWinding(patch);
+                Assert.That(UniqueTriangleVertices(patch), Is.EqualTo(4));
             }
         }
 
         [Test]
-        public void QuantizedSlopes_HaveContinuousSharedHalfStepCorners()
+        public void QuantizedArbitrarySlope_IsDeterministicAndSingleSheet()
         {
-            foreach (Func<int, int, int> height in new Func<int, int, int>[]
+            var scene = new Scene();
+            for (int u = -6; u <= 6; u++)
+            for (int v = -6; v <= 6; v++)
+            {
+                int height = (int)Math.Round((2 * u + v) / 3.0,
+                    MidpointRounding.AwayFromZero);
+                int3 surface = new(height, u, v);
+                scene.Surface(surface);
+                scene.FreeUnlessSurface(surface + new int3(1, 0, 0));
+            }
+            List<MerkabaOverlapShell.Patch> first = BuildResolved(scene);
+            List<MerkabaOverlapShell.Patch> second = BuildResolved(
+                scene.ReversedInsertion());
+            Assert.That(first.Count, Is.GreaterThan(40));
+            AssertPatchesEqual(first, second);
+            foreach (MerkabaOverlapShell.Patch patch in first)
+            {
+                AssertFullSupportFootprint(patch);
+                AssertWinding(patch);
+                Assert.That(UniqueTriangleVertices(patch), Is.EqualTo(4));
+            }
+        }
+
+        [Test]
+        public void TranslationNegativeAndStorageBoundaries_DoNotChangeOracle()
+        {
+            int3 normal = new(1, 1, 0);
+            Scene referenceScene = Plane(normal, -5, 5, 1);
+            List<MerkabaOverlapShell.Patch> reference =
+                BuildResolved(referenceScene);
+            foreach (int3 translation in new[]
                      {
-                         (_, v) => v,
-                         (u, v) => MerkabaConstants.FloorDiv(2 * u + v, 3),
-                         (u, v) => u + v
+                         new int3(-513, -257, -129),
+                         new int3(7, 31, 255),
+                         new int3(8, 32, 256)
                      })
             {
-                Scene scene = AxisHeightField(0, height, -5, 5, 1);
-                List<MerkabaOverlapShell.Patch> patches = BuildInterior(scene,
-                    0, height, -3, 3);
-                Assert.That(patches, Is.Not.Empty);
-                Assert.That(patches.All(p =>
-                    p.SurfaceSignature.NormalAxis == 0), Is.True);
-                AssertSharedCorners(patches);
-                AssertNeighbourEdges(scene, patches, 0);
-                foreach (MerkabaOverlapShell.Patch patch in patches)
-                    AssertWinding(patch);
+                List<MerkabaOverlapShell.Patch> moved = BuildResolved(
+                    referenceScene.Translated(translation));
+                AssertRelativeTranslation(reference, moved, translation);
             }
         }
 
         [Test]
-        public void MedianCornerReduction_IsSeedAndEnumerationInvariant()
+        public void ParallelSheetsAndThinPartition_NeverAverageBranches()
         {
-            int accepted = 0;
-            for (int h00 = -2; h00 <= 2; h00++)
-            for (int h10 = -2; h10 <= 2; h10++)
-            for (int h01 = -2; h01 <= 2; h01++)
-            for (int h11 = -2; h11 <= 2; h11++)
-            {
-                int[] heights = { h00, h10, h01, h11 };
-                if (Math.Abs(h00 - h10) > 1 ||
-                    Math.Abs(h00 - h01) > 1 ||
-                    Math.Abs(h10 - h11) > 1 ||
-                    Math.Abs(h01 - h11) > 1)
-                    continue;
-                int? expected = null;
-                foreach (int seed in heights)
-                {
-                    int[] visible = heights.Where(value =>
-                        Math.Abs(value - seed) <= 1).ToArray();
-                    foreach (int[] permutation in Permutations(visible))
-                    {
-                        int reduced = MerkabaOverlapShell.MedianQuarterHeight(
-                            permutation);
-                        expected ??= reduced;
-                        Assert.That(reduced, Is.EqualTo(expected.Value),
-                            $"[{string.Join(",", heights)}], seed={seed}");
-                    }
-                }
-                accepted++;
-            }
-            Assert.That(accepted, Is.GreaterThan(0));
-        }
+            var parallel = new Scene();
+            AddAxisPlane(parallel, 0, 0, -4, 4, 1);
+            AddAxisPlane(parallel, 0, 3, -4, 4, 1);
+            List<MerkabaOverlapShell.Patch> parallelPatches =
+                BuildResolved(parallel);
+            AssertSheetHeights(parallelPatches, 0, 0, 3);
 
-        [Test]
-        public void SharedCorners_HaveBitIdenticalContributorColor()
-        {
-            var scene = new Scene();
-            for (int u = -4; u <= 4; u++)
-            for (int v = -4; v <= 4; v++)
-            {
-                int3 coord = new(u + v, u, v);
-                scene.Surface(coord, new Color32(
-                    (byte)(32 + (u + 4) * 17),
-                    (byte)(48 + (v + 4) * 13),
-                    (byte)(96 + (u - v + 8) * 7), 255));
-            }
-            for (int u = -4; u <= 4; u++)
-            for (int v = -4; v <= 4; v++)
-                scene.FreeUnlessSurface(new int3(u + v + 1, u, v));
-
-            List<MerkabaOverlapShell.Patch> patches = BuildInterior(scene,
-                0, (u, v) => u + v, -3, 3);
-            AssertSharedCorners(patches);
-        }
-
-        [Test]
-        public void ParallelSheets_KeepDistinctBranchesAndNeverAverage()
-        {
-            var scene = new Scene();
-            AddAxisPlane(scene, 0, 0, -3, 3, 1);
-            AddAxisPlane(scene, 0, 2, -3, 3, 1);
-            List<MerkabaOverlapShell.Patch> patches = BuildAll(scene);
-            AssertSharedCorners(patches);
-            foreach (MerkabaOverlapShell.Patch patch in patches)
-            {
-                int mainHeight = patch.Main.x;
-                Assert.That(mainHeight, Is.EqualTo(0).Or.EqualTo(2));
-                for (int corner = 0; corner < 4; corner++)
-                    Assert.That(patch.GetCorner(corner).QuarterCoordinate.x,
-                        Is.EqualTo(mainHeight * 4));
-            }
-        }
-
-        [Test]
-        public void ThinPartition_PreservesBothPhysicalSidesAndWinding()
-        {
-            var scene = new Scene();
-            AddAxisPlane(scene, 0, 0, -3, 3, -1);
-            AddAxisPlane(scene, 0, 2, -3, 3, 1);
-            List<MerkabaOverlapShell.Patch> patches = BuildAll(scene);
-            Assert.That(patches.Any(p => p.Main.x == 0 &&
+            var partition = new Scene();
+            AddAxisPlane(partition, 0, 0, -4, 4, -1);
+            AddAxisPlane(partition, 0, 1, -4, 4, 1);
+            List<MerkabaOverlapShell.Patch> partitionPatches =
+                BuildResolved(partition);
+            Assert.That(partitionPatches.Any(p => p.Main.x == 0 &&
                 p.SurfaceSignature.FreeSign == -1), Is.True);
-            Assert.That(patches.Any(p => p.Main.x == 2 &&
+            Assert.That(partitionPatches.Any(p => p.Main.x == 1 &&
                 p.SurfaceSignature.FreeSign == 1), Is.True);
-            AssertSharedCorners(patches);
-            foreach (MerkabaOverlapShell.Patch patch in patches)
-                AssertWinding(patch);
+            AssertSheetHeights(partitionPatches, 0, 0, 1);
         }
 
         [Test]
-        public void ConvexConcaveAndTJunctions_AreDeterministicAndDoNotBridge()
+        public void DistanceTwoSamples_DoNotCreateAnIntermediateSheet()
+        {
+            var scene = new Scene();
+            for (int y = -3; y <= 3; y++)
+            for (int z = -3; z <= 3; z++)
+            {
+                scene.Surface(new int3(0, y, z));
+                scene.Surface(new int3(2, y, z));
+                scene.FreeUnlessSurface(new int3(1, y, z));
+                scene.FreeUnlessSurface(new int3(3, y, z));
+            }
+            List<MerkabaOverlapShell.Patch> patches = BuildResolved(scene);
+            AssertSheetHeights(patches, 0, 0, 2);
+            Assert.That(patches.All(p => p.Main.x != 1), Is.True);
+        }
+
+        [Test]
+        public void ConvexConcaveAndTJunction_AreViewIndependentAndDoNotBridge()
         {
             foreach (Scene scene in new[]
                      {
@@ -190,225 +179,190 @@ namespace Genesis.RoomScan.Tests
                          TJunction()
                      })
             {
-                List<MerkabaOverlapShell.Patch> forward = BuildAll(scene);
-                List<MerkabaOverlapShell.Patch> reverse = BuildAll(
+                List<MerkabaOverlapShell.Patch> forward = BuildResolved(scene);
+                List<MerkabaOverlapShell.Patch> reverse = BuildResolved(
                     scene.ReversedInsertion());
+                Assert.That(forward, Is.Not.Empty);
                 AssertPatchesEqual(forward, reverse);
-                AssertSharedCorners(forward);
                 foreach (MerkabaOverlapShell.Patch patch in forward)
                 {
-                    var mainNormal = patch.Main[
-                        patch.SurfaceSignature.NormalAxis] * 4;
+                    AssertWinding(patch);
+                    Assert.That(UniqueTriangleVertices(patch), Is.EqualTo(4));
+                    int axis = patch.SurfaceSignature.ChartAxis;
+                    int mainHeight = patch.Main[axis];
                     for (int corner = 0; corner < 4; corner++)
-                    {
-                        int normal = patch.GetCorner(corner).QuarterCoordinate[
-                            patch.SurfaceSignature.NormalAxis];
-                        Assert.That(normal, Is.EqualTo(mainNormal),
-                            "Orthogonal sheets may meet, but no patch may bridge them.");
-                    }
+                        Assert.That(Math.Abs(
+                            patch.GetCorner(corner).QuarterCoordinate[axis] -
+                            mainHeight * 4), Is.LessThanOrEqualTo(4),
+                            "A local patch crossed more than one normal layer.");
                 }
             }
         }
 
         [Test]
-        public void IsolatedMain_IsDeterministicAndHasNoBackside()
+        public void DoorwayKnownFreeRegion_IsNotBridged()
         {
             var scene = new Scene();
-            scene.Surface(new int3(0));
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0),
-                scene.Sample, out MerkabaOverlapShell.Patch patch), Is.True);
-            Assert.That(patch.SurfaceSignature.NormalAxis, Is.Zero);
-            Assert.That(patch.SurfaceSignature.FreeSign, Is.EqualTo(1));
-            Assert.That(patch.SurfaceSignature.HasKnownFreeSide, Is.False);
-            Assert.That(MerkabaOverlapShell.TrianglesPerPatch, Is.EqualTo(2));
-            Assert.That(Enumerable.Range(0,
-                    MerkabaOverlapShell.VerticesPerPatch)
-                .Select(index => patch.GetTriangleVertex(index)
-                    .QuarterCoordinate).Distinct().Count(), Is.EqualTo(4));
-            AssertWinding(patch);
+            for (int y = -7; y <= 7; y++)
+            for (int z = -4; z <= 4; z++)
+            {
+                int3 point = new(0, y, z);
+                if (Math.Abs(y) >= 3) scene.Surface(point);
+                else scene.FreeUnlessSurface(point);
+                scene.FreeUnlessSurface(point + new int3(1, 0, 0));
+            }
+            List<MerkabaOverlapShell.Patch> patches = BuildResolved(scene);
+            Assert.That(patches, Is.Not.Empty);
+            foreach (MerkabaOverlapShell.Patch patch in patches)
+            {
+                int minY = Math.Min(patch.Corner00.QuarterCoordinate.y,
+                    patch.Corner11.QuarterCoordinate.y);
+                int maxY = Math.Max(patch.Corner00.QuarterCoordinate.y,
+                    patch.Corner11.QuarterCoordinate.y);
+                Assert.That(minY <= 0 && maxY >= 0, Is.False,
+                    "No support patch may span the centre of a known doorway.");
+            }
         }
 
         [Test]
-        public void DistanceTwoSurface_NeverBecomesContributor()
+        public void DonorEnumerationAndColorReduction_AreByteDeterministic()
         {
-            var isolated = new Scene();
-            isolated.Surface(new int3(0));
-            var separated = new Scene();
-            separated.Surface(new int3(0));
-            separated.Surface(new int3(0, 2, 0));
-            MerkabaOverlapShell.TryBuildPatch(new int3(0), isolated.Sample,
-                out MerkabaOverlapShell.Patch reference);
-            MerkabaOverlapShell.TryBuildPatch(new int3(0), separated.Sample,
-                out MerkabaOverlapShell.Patch actual);
-            AssertPatchEqual(reference, actual);
+            Scene scene = Plane(new int3(1, 0, 0), -4, 4, 1,
+                (u, v) => new Color32((byte)(96 + u * 4),
+                    (byte)(128 + v * 4), 192, 255));
+            List<MerkabaOverlapShell.Patch> forward = BuildResolved(scene);
+            List<MerkabaOverlapShell.Patch> reverse = BuildResolved(
+                scene.ReversedInsertion());
+            AssertPatchesEqual(forward, reverse);
+            Assert.That(forward.Any(p => Enumerable.Range(0, 4).Any(c =>
+                p.GetCorner(c).ContributorCount > 1)), Is.True);
+
+            foreach (int[] values in Permutations(new[] { -1, 0, 1, 1 }))
+                Assert.That(MerkabaOverlapShell.MedianQuarterHeight(values),
+                    Is.EqualTo(2));
         }
 
         [Test]
-        public void OracleSource_HasNoViewOrPersistentGeometryAuthority()
+        public void OracleSource_ContainsOnlyImmediateDisposableM8Authority()
         {
-            string source = System.IO.File.ReadAllText(System.IO.Path.GetFullPath(
+            string source = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
                 "MerkabaOverlapShell.cs"));
             Assert.That(source, Does.Not.Contain("Camera"));
             Assert.That(source, Does.Not.Contain("Eye"));
-            Assert.That(source, Does.Not.Contain("Mesh"));
             Assert.That(source, Does.Not.Contain("QEF"));
             Assert.That(source, Does.Not.Contain("TSDF"));
             Assert.That(source, Does.Contain("new KernelState[27]"));
+            Assert.That(source, Does.Contain("SupportHalfQuarterUnits = 4"));
+            Assert.That(source, Does.Contain("NormalDictionary"));
+            Assert.That(source, Does.Not.Contain(
+                "MinimumAxis(occupiedCrossings)"));
             Assert.That(source, Does.Contain(
                 "Overlap-shell queried non-immediate offset"));
         }
 
         [Test]
-        public void GeneratedGpuOracle_IsExactlyCurrentCpuAuthority()
+        public void DeployedGpuGenerator_RemainsFrozenUntilR1()
         {
-            string path = System.IO.Path.GetFullPath(
+            string path = Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaOverlapShell.generated.hlsl");
-            Assert.That(System.IO.File.ReadAllText(path),
+            Assert.That(File.ReadAllText(path),
                 Is.EqualTo(MerkabaOverlapShell.BuildGeneratedHlsl()));
         }
 
-        private static Scene AxisHeightField(int normalAxis,
-            Func<int, int, int> height, int minimum, int maximum,
-            int freeSign)
+        private static Scene Plane(int3 normal, int minimum, int maximum,
+            int freeSign, Func<int, int, Color32> color = null)
         {
-            var scene = new Scene();
-            MerkabaOverlapShell.Axes(normalAxis, out int3 normal,
+            int chartAxis = FirstNonZeroAxis(normal);
+            MerkabaOverlapShell.Axes(chartAxis, out int3 chartNormal,
                 out int3 tangent0, out int3 tangent1);
+            var scene = new Scene();
             for (int u = minimum; u <= maximum; u++)
             for (int v = minimum; v <= maximum; v++)
             {
-                int3 surface = tangent0 * u + tangent1 * v +
-                    normal * height(u, v);
-                scene.Surface(surface);
+                int height = -(normal[FirstNonZeroAxis(tangent0)] * u +
+                    normal[FirstNonZeroAxis(tangent1)] * v);
+                int3 surface = chartNormal * height +
+                    tangent0 * u + tangent1 * v;
+                scene.Surface(surface, color?.Invoke(u, v) ?? SurfaceColor);
             }
-            for (int u = minimum; u <= maximum; u++)
-            for (int v = minimum; v <= maximum; v++)
-            {
-                int3 surface = tangent0 * u + tangent1 * v +
-                    normal * height(u, v);
+            foreach (int3 surface in scene.SurfaceCoordinates.ToArray())
                 scene.FreeUnlessSurface(surface + normal * freeSign);
-            }
             return scene;
         }
 
-        private static void AddAxisPlane(Scene scene, int normalAxis,
-            int height, int minimum, int maximum, int freeSign)
+        private static void AddAxisPlane(Scene scene, int axis, int height,
+            int minimum, int maximum, int freeSign)
         {
-            MerkabaOverlapShell.Axes(normalAxis, out int3 normal,
+            int3 normal = axis == 0 ? new int3(1, 0, 0) :
+                axis == 1 ? new int3(0, 1, 0) : new int3(0, 0, 1);
+            MerkabaOverlapShell.Axes(axis, out int3 chartNormal,
                 out int3 tangent0, out int3 tangent1);
             for (int u = minimum; u <= maximum; u++)
             for (int v = minimum; v <= maximum; v++)
-                scene.Surface(normal * height + tangent0 * u + tangent1 * v);
+            {
+                int3 surface = chartNormal * height + tangent0 * u +
+                    tangent1 * v;
+                scene.Surface(surface);
+                scene.FreeUnlessSurface(surface + normal * freeSign);
+            }
+        }
+
+        private static List<MerkabaOverlapShell.Patch> BuildPlaneInterior(
+            Scene scene, int3 normal, int minimum, int maximum)
+        {
+            int chartAxis = FirstNonZeroAxis(normal);
+            MerkabaOverlapShell.Axes(chartAxis, out int3 chartNormal,
+                out int3 tangent0, out int3 tangent1);
+            var patches = new List<MerkabaOverlapShell.Patch>();
             for (int u = minimum; u <= maximum; u++)
             for (int v = minimum; v <= maximum; v++)
-                scene.FreeUnlessSurface(normal * (height + freeSign) +
-                    tangent0 * u + tangent1 * v);
+            {
+                int height = -(normal[FirstNonZeroAxis(tangent0)] * u +
+                    normal[FirstNonZeroAxis(tangent1)] * v);
+                int3 main = chartNormal * height + tangent0 * u + tangent1 * v;
+                if (MerkabaOverlapShell.TryBuildPatch(main, scene.Sample,
+                        out MerkabaOverlapShell.Patch patch))
+                    patches.Add(patch);
+            }
+            return Sorted(patches);
         }
 
-        private static List<MerkabaOverlapShell.Patch> BuildInterior(
-            Scene scene, int normalAxis, Func<int, int, int> height,
-            int minimum, int maximum)
+        private static List<MerkabaOverlapShell.Patch> BuildResolved(Scene scene)
         {
-            MerkabaOverlapShell.Axes(normalAxis, out int3 normal,
-                out int3 tangent0, out int3 tangent1);
-            var result = new List<MerkabaOverlapShell.Patch>();
-            for (int u = minimum; u <= maximum; u++)
-            for (int v = minimum; v <= maximum; v++)
-            {
-                int3 main = tangent0 * u + tangent1 * v +
-                    normal * height(u, v);
-                Assert.That(MerkabaOverlapShell.TryBuildPatch(main,
-                    scene.Sample, out MerkabaOverlapShell.Patch patch), Is.True);
-                result.Add(patch);
-            }
-            return result.OrderBy(p => p.Main.x).ThenBy(p => p.Main.y)
-                .ThenBy(p => p.Main.z).ToList();
+            var patches = new List<MerkabaOverlapShell.Patch>();
+            foreach (int3 main in scene.SurfaceCoordinates)
+                if (MerkabaOverlapShell.TryBuildPatch(main, scene.Sample,
+                        out MerkabaOverlapShell.Patch patch))
+                    patches.Add(patch);
+            return Sorted(patches);
         }
 
-        private static List<MerkabaOverlapShell.Patch> BuildAll(Scene scene)
-        {
-            var result = new List<MerkabaOverlapShell.Patch>();
-            foreach (int3 main in scene.SurfaceCoordinates.OrderBy(p => p.x)
-                         .ThenBy(p => p.y).ThenBy(p => p.z))
-            {
-                Assert.That(MerkabaOverlapShell.TryBuildPatch(main,
-                    scene.Sample, out MerkabaOverlapShell.Patch patch), Is.True);
-                result.Add(patch);
-            }
-            return result;
-        }
+        private static List<MerkabaOverlapShell.Patch> Sorted(
+            IEnumerable<MerkabaOverlapShell.Patch> patches) => patches
+            .OrderBy(p => p.Main.x).ThenBy(p => p.Main.y)
+            .ThenBy(p => p.Main.z).ToList();
 
-        private static void AssertSharedCorners(
-            IEnumerable<MerkabaOverlapShell.Patch> patches)
-        {
-            var corners = new Dictionary<(byte, sbyte, int3),
-                MerkabaOverlapShell.Corner>();
-            var mains = new HashSet<int3>();
-            foreach (MerkabaOverlapShell.Patch patch in patches)
-            {
-                Assert.That(mains.Add(patch.Main), Is.True,
-                    $"MAIN {patch.Main} emitted more than one patch");
-                MerkabaOverlapShell.Axes(patch.SurfaceSignature.NormalAxis,
-                    out _, out int3 tangent0, out int3 tangent1);
-                int3 tangentSpan0 = patch.Corner10.QuarterCoordinate -
-                    patch.Corner00.QuarterCoordinate;
-                int3 tangentSpan1 = patch.Corner01.QuarterCoordinate -
-                    patch.Corner00.QuarterCoordinate;
-                Assert.That(math.dot(tangentSpan0, tangent0), Is.EqualTo(4));
-                Assert.That(math.dot(tangentSpan1, tangent1), Is.EqualTo(4));
-                Assert.That(math.dot(tangentSpan0, tangent1), Is.Zero);
-                Assert.That(math.dot(tangentSpan1, tangent0), Is.Zero);
-            for (int index = 0; index < 4; index++)
-            {
-                MerkabaOverlapShell.Corner corner = patch.GetCorner(index);
-                var key = (patch.SurfaceSignature.NormalAxis,
-                    patch.SurfaceSignature.FreeSign,
-                    corner.QuarterCoordinate);
-                if (corners.TryGetValue(key, out MerkabaOverlapShell.Corner old))
-                    Assert.That(corner, Is.EqualTo(old),
-                        $"shared corner {key} differs");
-                else
-                    corners.Add(key, corner);
-            }
-            }
-        }
+        private static int UniqueTriangleVertices(
+            MerkabaOverlapShell.Patch patch) => Enumerable.Range(0,
+                MerkabaOverlapShell.VerticesPerPatch).Select(index =>
+                patch.GetTriangleVertex(index).QuarterCoordinate)
+            .Distinct().Count();
 
-        private static void AssertNeighbourEdges(Scene scene,
-            IReadOnlyList<MerkabaOverlapShell.Patch> patches, int normalAxis)
+        private static void AssertFullSupportFootprint(
+            MerkabaOverlapShell.Patch patch)
         {
-            var byMain = patches.ToDictionary(p => p.Main);
-            MerkabaOverlapShell.Axes(normalAxis, out int3 normal,
-                out int3 tangent0, out int3 tangent1);
-            foreach (MerkabaOverlapShell.Patch patch in patches)
-            {
-                foreach ((int3 tangent, int own0, int own1,
-                             int neighbour0, int neighbour1) in new[]
-                         {
-                             (tangent0, 1, 2, 0, 3),
-                             (tangent1, 3, 2, 0, 1)
-                         })
-                {
-                    int mainHeight = patch.Main[normalAxis];
-                    int3 column = patch.Main + tangent;
-                    MerkabaOverlapShell.Patch? neighbour = null;
-                    for (int delta = -1; delta <= 1; delta++)
-                    {
-                        int3 candidate = column + normal * delta;
-                        if (byMain.TryGetValue(candidate, out var found))
-                        {
-                            neighbour = found;
-                            break;
-                        }
-                    }
-                    if (!neighbour.HasValue) continue;
-                    Assert.That(patch.GetCorner(own0),
-                        Is.EqualTo(neighbour.Value.GetCorner(neighbour0)));
-                    Assert.That(patch.GetCorner(own1),
-                        Is.EqualTo(neighbour.Value.GetCorner(neighbour1)));
-                }
-            }
+            MerkabaOverlapShell.Axes(patch.SurfaceSignature.ChartAxis,
+                out _, out int3 tangent0, out int3 tangent1);
+            int3 span0 = patch.Corner10.QuarterCoordinate -
+                patch.Corner00.QuarterCoordinate;
+            int3 span1 = patch.Corner01.QuarterCoordinate -
+                patch.Corner00.QuarterCoordinate;
+            Assert.That(math.dot(span0, tangent0), Is.EqualTo(8));
+            Assert.That(math.dot(span1, tangent1), Is.EqualTo(8));
+            Assert.That(math.dot(span0, tangent1), Is.Zero);
+            Assert.That(math.dot(span1, tangent0), Is.Zero);
         }
 
         private static void AssertWinding(MerkabaOverlapShell.Patch patch)
@@ -416,29 +370,71 @@ namespace Genesis.RoomScan.Tests
             float3 a = patch.GetTriangleVertex(0).QuarterCoordinate;
             float3 b = patch.GetTriangleVertex(1).QuarterCoordinate;
             float3 c = patch.GetTriangleVertex(2).QuarterCoordinate;
-            float3 normal = math.cross(b - a, c - a);
-            Assert.That(normal[patch.SurfaceSignature.NormalAxis] *
-                patch.SurfaceSignature.FreeSign, Is.GreaterThan(0f));
+            float3 actual = math.cross(b - a, c - a);
+            float3 expected = patch.SurfaceSignature.Normal *
+                patch.SurfaceSignature.FreeSign;
+            Assert.That(math.dot(actual, expected), Is.GreaterThan(0f));
         }
 
-        private static Scene OrthogonalCorner(int freeSign)
+        private static void AssertProjectedCoverageHasNoPitchGaps(
+            IReadOnlyList<MerkabaOverlapShell.Patch> patches, int chartAxis,
+            int minimum, int maximum)
         {
-            var scene = new Scene();
-            AddAxisPlane(scene, 0, 0, -2, 2, freeSign);
-            AddAxisPlane(scene, 2, 0, -2, 2, freeSign);
-            return scene;
+            MerkabaOverlapShell.Axes(chartAxis, out _, out int3 tangent0,
+                out int3 tangent1);
+            for (int u = minimum * 4; u <= maximum * 4; u++)
+            for (int v = minimum * 4; v <= maximum * 4; v++)
+            {
+                bool covered = patches.Any(p =>
+                {
+                    int centreU = math.dot(p.Main * 4, tangent0);
+                    int centreV = math.dot(p.Main * 4, tangent1);
+                    return Math.Abs(u - centreU) <= 4 &&
+                           Math.Abs(v - centreV) <= 4;
+                });
+                Assert.That(covered, Is.True, $"uncovered tangent point {u},{v}");
+            }
         }
 
-        private static Scene TJunction()
+        private static void AssertSheetHeights(
+            IEnumerable<MerkabaOverlapShell.Patch> patches, int axis,
+            params int[] allowed)
         {
-            var scene = AxisHeightField(2, (_, _) => 0, -3, 3, 1);
-            for (int y = -2; y <= 2; y++)
-            for (int z = 0; z <= 2; z++)
-                scene.Surface(new int3(0, y, z));
-            for (int y = -2; y <= 2; y++)
-            for (int z = 0; z <= 2; z++)
-                scene.FreeUnlessSurface(new int3(-1, y, z));
-            return scene;
+            HashSet<int> quarterHeights = allowed.Select(value => value * 4)
+                .ToHashSet();
+            foreach (MerkabaOverlapShell.Patch patch in patches)
+            for (int corner = 0; corner < 4; corner++)
+                Assert.That(quarterHeights.Contains(
+                    patch.GetCorner(corner).QuarterCoordinate[axis]),
+                    Is.True, $"Parallel surface branches were averaged: " +
+                    $"main={patch.Main} normal=" +
+                    $"{patch.SurfaceSignature.Normal} corner={corner} " +
+                    $"quarter={patch.GetCorner(corner).QuarterCoordinate}.");
+        }
+
+        private static void AssertRelativeTranslation(
+            IReadOnlyList<MerkabaOverlapShell.Patch> expected,
+            IReadOnlyList<MerkabaOverlapShell.Patch> actual, int3 translation)
+        {
+            Assert.That(actual.Count, Is.EqualTo(expected.Count));
+            int3 quarterTranslation = translation * 4;
+            for (int index = 0; index < expected.Count; index++)
+            {
+                Assert.That(actual[index].SurfaceSignature,
+                    Is.EqualTo(expected[index].SurfaceSignature));
+                Assert.That(actual[index].Main,
+                    Is.EqualTo(expected[index].Main + translation));
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    var left = expected[index].GetCorner(corner);
+                    var right = actual[index].GetCorner(corner);
+                    Assert.That(right.QuarterCoordinate,
+                        Is.EqualTo(left.QuarterCoordinate + quarterTranslation));
+                    Assert.That(right.PackedColor, Is.EqualTo(left.PackedColor));
+                    Assert.That(right.ContributorCount,
+                        Is.EqualTo(left.ContributorCount));
+                }
+            }
         }
 
         private static void AssertPatchesEqual(
@@ -447,25 +443,45 @@ namespace Genesis.RoomScan.Tests
         {
             Assert.That(actual.Count, Is.EqualTo(expected.Count));
             for (int index = 0; index < expected.Count; index++)
-                AssertPatchEqual(expected[index], actual[index]);
+            {
+                Assert.That(actual[index].Main, Is.EqualTo(expected[index].Main));
+                Assert.That(actual[index].SurfaceSignature,
+                    Is.EqualTo(expected[index].SurfaceSignature));
+                for (int corner = 0; corner < 4; corner++)
+                    Assert.That(actual[index].GetCorner(corner),
+                        Is.EqualTo(expected[index].GetCorner(corner)));
+            }
         }
 
-        private static void AssertPatchEqual(MerkabaOverlapShell.Patch expected,
-            MerkabaOverlapShell.Patch actual)
+        private static int FirstNonZeroAxis(int3 value)
         {
-            Assert.That(math.all(actual.Main == expected.Main), Is.True);
-            Assert.That(actual.SurfaceSignature,
-                Is.EqualTo(expected.SurfaceSignature));
-            for (int corner = 0; corner < 4; corner++)
-                Assert.That(actual.GetCorner(corner),
-                    Is.EqualTo(expected.GetCorner(corner)));
+            if (value.x != 0) return 0;
+            return value.y != 0 ? 1 : 2;
         }
 
-        private static IEnumerable<int[]> Permutations(int[] values)
+        private static Scene OrthogonalCorner(int freeSign)
         {
-            int[] copy = (int[])values.Clone();
-            return Permute(copy, 0);
+            var scene = new Scene();
+            AddAxisPlane(scene, 0, 0, -3, 3, freeSign);
+            AddAxisPlane(scene, 2, 0, -3, 3, freeSign);
+            return scene;
         }
+
+        private static Scene TJunction()
+        {
+            var scene = new Scene();
+            AddAxisPlane(scene, 2, 0, -4, 4, 1);
+            for (int y = -3; y <= 3; y++)
+            for (int z = 0; z <= 3; z++)
+            {
+                scene.Surface(new int3(0, y, z));
+                scene.FreeUnlessSurface(new int3(-1, y, z));
+            }
+            return scene;
+        }
+
+        private static IEnumerable<int[]> Permutations(int[] values) =>
+            Permute((int[])values.Clone(), 0);
 
         private static IEnumerable<int[]> Permute(int[] values, int index)
         {

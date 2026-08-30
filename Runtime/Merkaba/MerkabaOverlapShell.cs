@@ -12,35 +12,41 @@ namespace Genesis.RoomScan
     internal static class MerkabaOverlapShell
     {
         internal const int QuarterUnitsPerLatticeStep = 4;
+        // Kept only until R1 regenerates the currently deployed GPU oracle.
         internal const int HalfStepQuarterUnits = 2;
+        internal const int SupportHalfQuarterUnits = 4;
         internal const int CornersPerPatch = 4;
         internal const int TrianglesPerPatch = 2;
         internal const int VerticesPerPatch = 6;
 
         internal readonly struct Signature : IEquatable<Signature>
         {
-            internal readonly byte NormalAxis;
+            internal readonly byte NormalIndex;
+            internal readonly byte ChartAxis;
             internal readonly sbyte FreeSign;
-            internal readonly bool HasKnownFreeSide;
+            internal readonly int3 Normal;
 
-            internal Signature(int normalAxis, int freeSign,
-                bool hasKnownFreeSide)
+            internal Signature(int normalIndex, int chartAxis, int freeSign,
+                int3 normal)
             {
-                NormalAxis = (byte)normalAxis;
+                NormalIndex = (byte)normalIndex;
+                ChartAxis = (byte)chartAxis;
                 FreeSign = (sbyte)freeSign;
-                HasKnownFreeSide = hasKnownFreeSide;
+                Normal = normal;
             }
 
             public bool Equals(Signature other) =>
-                NormalAxis == other.NormalAxis &&
+                NormalIndex == other.NormalIndex &&
+                ChartAxis == other.ChartAxis &&
                 FreeSign == other.FreeSign &&
-                HasKnownFreeSide == other.HasKnownFreeSide;
+                math.all(Normal == other.Normal);
 
             public override bool Equals(object obj) =>
                 obj is Signature other && Equals(other);
 
             public override int GetHashCode() => HashCode.Combine(
-                NormalAxis, FreeSign, HasKnownFreeSide);
+                NormalIndex, ChartAxis, FreeSign,
+                Normal.x, Normal.y, Normal.z);
         }
 
         internal readonly struct Corner : IEquatable<Corner>
@@ -124,6 +130,33 @@ namespace Genesis.RoomScan
             }
         }
 
+        private readonly struct Branch
+        {
+            internal readonly int NormalIndex;
+            internal readonly int3 Normal;
+            internal readonly int ChartAxis;
+            internal readonly int FreeSign;
+            internal readonly int TangentSupport;
+            internal readonly int NormalResidual;
+            internal readonly int FreeCoherence;
+
+            internal Branch(int normalIndex, int3 normal, int chartAxis,
+                int freeSign, int tangentSupport, int normalResidual,
+                int freeCoherence)
+            {
+                NormalIndex = normalIndex;
+                Normal = normal;
+                ChartAxis = chartAxis;
+                FreeSign = freeSign;
+                TangentSupport = tangentSupport;
+                NormalResidual = normalResidual;
+                FreeCoherence = freeCoherence;
+            }
+
+            internal Signature Signature => new(NormalIndex, ChartAxis,
+                FreeSign, Normal);
+        }
+
         private sealed class LocalWindow
         {
             private readonly int3 _main;
@@ -156,6 +189,15 @@ namespace Genesis.RoomScan
 
         private static readonly byte[] ForwardOrder = { 0, 1, 2, 0, 2, 3 };
         private static readonly byte[] ReverseOrder = { 0, 2, 1, 0, 3, 2 };
+        private static readonly int3[] NormalDictionary =
+        {
+            new(1, 0, 0), new(0, 1, 0), new(0, 0, 1),
+            new(1, 1, 0), new(1, -1, 0),
+            new(1, 0, 1), new(1, 0, -1),
+            new(0, 1, 1), new(0, 1, -1),
+            new(1, 1, 1), new(1, 1, -1),
+            new(1, -1, 1), new(1, -1, -1)
+        };
 
         internal static bool TryBuildPatch(int3 main,
             Func<int3, KernelState> sample, out Patch patch)
@@ -168,58 +210,149 @@ namespace Genesis.RoomScan
                 return false;
             }
 
-            Signature signature = DeriveSignature(window);
-            Axes(signature.NormalAxis, out int3 normal,
+            if (!TryDeriveSignature(window, out Signature signature))
+            {
+                patch = default;
+                return false;
+            }
+            Axes(signature.ChartAxis, out int3 chartNormal,
                 out int3 tangent0, out int3 tangent1);
-            Corner corner00 = BuildCorner(window, signature, normal,
+            Corner corner00 = BuildCorner(window, signature, chartNormal,
                 tangent0, tangent1, -1, -1);
-            Corner corner10 = BuildCorner(window, signature, normal,
+            Corner corner10 = BuildCorner(window, signature, chartNormal,
                 tangent0, tangent1, 1, -1);
-            Corner corner11 = BuildCorner(window, signature, normal,
+            Corner corner11 = BuildCorner(window, signature, chartNormal,
                 tangent0, tangent1, 1, 1);
-            Corner corner01 = BuildCorner(window, signature, normal,
+            Corner corner01 = BuildCorner(window, signature, chartNormal,
                 tangent0, tangent1, -1, 1);
             patch = new Patch(main, signature, corner00, corner10,
                 corner11, corner01);
             return true;
         }
 
-        internal static Signature DeriveSignature(int3 main,
-            Func<int3, KernelState> sample)
+        internal static bool TryDeriveSignature(int3 main,
+            Func<int3, KernelState> sample, out Signature signature)
         {
             if (sample == null) throw new ArgumentNullException(nameof(sample));
-            return DeriveSignature(new LocalWindow(main, sample));
+            return TryDeriveSignature(new LocalWindow(main, sample),
+                out signature);
         }
 
-        private static Signature DeriveSignature(LocalWindow window)
+        private static bool TryDeriveSignature(LocalWindow window,
+            out Signature signature)
         {
-            int3 freeMoment = default;
-            int3 occupiedCrossings = default;
+            bool found = false;
+            bool tied = false;
+            Branch best = default;
+            for (int index = 0; index < NormalDictionary.Length; index++)
+            {
+                if (!TryEvaluateBranch(window, index, out Branch candidate))
+                    continue;
+                int comparison = found ? CompareBranch(candidate, best) : 1;
+                if (comparison > 0)
+                {
+                    best = candidate;
+                    found = true;
+                    tied = false;
+                }
+                else if (comparison == 0 &&
+                         !math.all(candidate.Normal == best.Normal))
+                    tied = true;
+            }
+            if (!found || tied)
+            {
+                signature = default;
+                return false;
+            }
+            signature = best.Signature;
+            return true;
+        }
+
+        private static bool TryEvaluateBranch(LocalWindow window,
+            int normalIndex, out Branch branch)
+        {
+            int3 normal = NormalDictionary[normalIndex];
+            int chartAxis = FirstNonZeroAxis(normal);
+            Axes(chartAxis, out int3 chartNormal,
+                out int3 tangent0, out int3 tangent1);
+            FreeSide(window, normal, out int positiveFree,
+                out int negativeFree);
+            if (positiveFree == negativeFree)
+            {
+                branch = default;
+                return false;
+            }
+            int freeSign = positiveFree > negativeFree ? 1 : -1;
+            int freeCoherence = Math.Abs(positiveFree - negativeFree);
+            int support = 0;
+            int residual = 0;
+            Span<int2> tangentDirections = stackalloc int2[8];
+            for (int v = -1; v <= 1; v++)
+            for (int u = -1; u <= 1; u++)
+            {
+                if (u == 0 && v == 0) continue;
+                int3 tangentOffset = tangent0 * u + tangent1 * v;
+                if (!TrySelectColumnContributor(window, normal, chartNormal,
+                        freeSign, tangentOffset, out Contributor contributor,
+                        out int contributorResidual))
+                    continue;
+                tangentDirections[support] = new int2(u, v);
+                support++;
+                int normalSquared = math.dot(normal, normal);
+                residual += contributorResidual * contributorResidual *
+                    (6 / normalSquared);
+            }
+            if (support < 2 || !HasNonCollinearSupport(
+                    tangentDirections[..support]))
+            {
+                branch = default;
+                return false;
+            }
+            branch = new Branch(normalIndex, normal, chartAxis, freeSign,
+                support, residual, freeCoherence);
+            return true;
+        }
+
+        private static int CompareBranch(Branch left, Branch right)
+        {
+            int support = left.TangentSupport.CompareTo(right.TangentSupport);
+            if (support != 0) return support;
+            int residual = right.NormalResidual.CompareTo(left.NormalResidual);
+            if (residual != 0) return residual;
+            return left.FreeCoherence.CompareTo(right.FreeCoherence);
+        }
+
+        private static bool HasNonCollinearSupport(ReadOnlySpan<int2> support)
+        {
+            for (int first = 0; first < support.Length; first++)
+            for (int second = first + 1; second < support.Length; second++)
+                if (support[first].x * support[second].y -
+                    support[first].y * support[second].x != 0)
+                    return true;
+            return false;
+        }
+
+        private static void FreeSide(LocalWindow window, int3 normal,
+            out int positive, out int negative)
+        {
+            positive = 0;
+            negative = 0;
             for (int z = -1; z <= 1; z++)
             for (int y = -1; y <= 1; y++)
             for (int x = -1; x <= 1; x++)
             {
                 int3 offset = new(x, y, z);
-                if (math.all(offset == 0)) continue;
-                KernelState state = window.At(offset);
-                if (state.OccupancyEvidence < 0)
-                    freeMoment += offset;
-                if (state.IsOccupied)
-                    occupiedCrossings += math.abs(offset);
+                int signedDistance = math.dot(offset, normal);
+                int evidence = window.At(offset).OccupancyEvidence;
+                if (evidence >= 0 || signedDistance == 0) continue;
+                int weight = -evidence * Math.Abs(signedDistance);
+                if (signedDistance > 0) positive += weight;
+                else negative += weight;
             }
-
-            // Occupied neighbours choose only the height-field chart. FREE
-            // evidence chooses its side; an unevenly observed FREE layer must
-            // never rotate the tangent lattice at a sheet edge.
-            int chartAxis = MinimumAxis(occupiedCrossings);
-            int signedFree = freeMoment[chartAxis];
-            bool knownFree = signedFree != 0;
-            return new Signature(chartAxis, knownFree && signedFree < 0
-                ? -1 : 1, knownFree);
         }
 
         private static Corner BuildCorner(LocalWindow window,
-            Signature signature, int3 normal, int3 tangent0, int3 tangent1,
+            Signature signature, int3 chartNormal, int3 tangent0, int3 tangent1,
             int tangentSign0, int tangentSign1)
         {
             var contributors = new List<Contributor>(4);
@@ -229,8 +362,9 @@ namespace Genesis.RoomScan
                 int3 tangentOffset =
                     (u == 0 ? default : tangent0 * tangentSign0) +
                     (v == 0 ? default : tangent1 * tangentSign1);
-                if (TrySelectColumnContributor(window, signature, normal,
-                        tangentOffset, out Contributor contributor))
+                if (TrySelectColumnContributor(window, signature.Normal,
+                        chartNormal, signature.FreeSign, tangentOffset,
+                        out Contributor contributor, out _))
                     contributors.Add(contributor);
             }
 
@@ -246,9 +380,9 @@ namespace Genesis.RoomScan
 
             int3 quarter = window.Global(default) *
                 QuarterUnitsPerLatticeStep +
-                tangent0 * (tangentSign0 * HalfStepQuarterUnits) +
-                tangent1 * (tangentSign1 * HalfStepQuarterUnits);
-            quarter[signature.NormalAxis] = quarterHeight;
+                tangent0 * (tangentSign0 * SupportHalfQuarterUnits) +
+                tangent1 * (tangentSign1 * SupportHalfQuarterUnits);
+            quarter[signature.ChartAxis] = quarterHeight;
 
             uint packedColor = ReduceColor(contributors, lower, upper,
                 out int colorContributorCount);
@@ -286,49 +420,81 @@ namespace Genesis.RoomScan
         }
 
         private static bool TrySelectColumnContributor(LocalWindow window,
-            Signature signature, int3 normal, int3 tangentOffset,
-            out Contributor selected)
+            int3 normal, int3 chartNormal, int freeSign, int3 tangentOffset,
+            out Contributor selected, out int selectedResidual)
         {
             selected = default;
+            selectedResidual = 0;
             bool found = false;
-            int columnFreeMoment = 0;
-            for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
-            {
-                KernelState state = window.At(tangentOffset +
-                    normal * normalOffset);
-                if (state.OccupancyEvidence < 0)
-                    columnFreeMoment += normalOffset;
-            }
-            bool mainColumn = math.all(tangentOffset == 0);
-            if (!mainColumn && signature.HasKnownFreeSide &&
-                columnFreeMoment != 0 &&
-                Math.Sign(columnFreeMoment) != signature.FreeSign)
+            ColumnFreeSide(window, normal, chartNormal, tangentOffset,
+                out int positiveFree, out int negativeFree);
+            if (positiveFree != negativeFree &&
+                (positiveFree > negativeFree ? 1 : -1) != freeSign)
                 return false;
 
             for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
             {
-                int3 offset = tangentOffset + normal * normalOffset;
+                int3 offset = tangentOffset + chartNormal * normalOffset;
                 KernelState state = window.At(offset);
-                // Immediate +/-1 columns have no intervening lattice site;
-                // a FREE separator therefore cannot be hidden between MAIN
-                // and this candidate.
                 if (!state.IsOccupied) continue;
+                if (HasKnownFreeSeparator(window, tangentOffset, chartNormal,
+                        normalOffset))
+                    continue;
+                int residual = Math.Abs(math.dot(offset, normal));
+                if (residual > math.dot(normal, normal)) continue;
+                int chartAxis = FirstNonZeroAxis(normal);
                 var candidate = new Contributor(window.Global(offset), state,
-                    window.Global(offset)[signature.NormalAxis]);
-                if (!found || Math.Abs(normalOffset) < Math.Abs(
-                        selected.NormalCoordinate -
-                        window.Global(default)[signature.NormalAxis]) ||
-                    (Math.Abs(normalOffset) == Math.Abs(
-                        selected.NormalCoordinate -
-                        window.Global(default)[signature.NormalAxis]) &&
-                     MerkabaConstants.LexicographicallyLess(candidate.Coord,
-                         selected.Coord)))
+                    window.Global(offset)[chartAxis]);
+                int selectedOffset = selected.NormalCoordinate -
+                    window.Global(default)[chartAxis];
+                if (!found ||
+                    Math.Abs(normalOffset) < Math.Abs(selectedOffset) ||
+                    (Math.Abs(normalOffset) == Math.Abs(selectedOffset) &&
+                     (residual < selectedResidual ||
+                      (residual == selectedResidual &&
+                       MerkabaConstants.LexicographicallyLess(candidate.Coord,
+                           selected.Coord)))))
                 {
                     selected = candidate;
+                    selectedResidual = residual;
                     found = true;
                 }
             }
             return found;
+        }
+
+        private static void ColumnFreeSide(LocalWindow window, int3 normal,
+            int3 chartNormal, int3 tangentOffset, out int positive,
+            out int negative)
+        {
+            positive = 0;
+            negative = 0;
+            for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
+            {
+                int3 offset = tangentOffset + chartNormal * normalOffset;
+                int evidence = window.At(offset).OccupancyEvidence;
+                int signedDistance = math.dot(offset, normal);
+                if (evidence >= 0 || signedDistance == 0) continue;
+                int weight = -evidence * Math.Abs(signedDistance);
+                if (signedDistance > 0) positive += weight;
+                else negative += weight;
+            }
+        }
+
+        private static bool HasKnownFreeSeparator(LocalWindow window,
+            int3 tangentOffset, int3 chartNormal, int normalOffset)
+        {
+            if (normalOffset > 0)
+                for (int step = 0; step < normalOffset; step++)
+                    if (window.At(tangentOffset + chartNormal * step)
+                            .OccupancyEvidence < 0)
+                        return true;
+            if (normalOffset < 0)
+                for (int step = 0; step > normalOffset; step--)
+                    if (window.At(tangentOffset + chartNormal * step)
+                            .OccupancyEvidence < 0)
+                        return true;
+            return false;
         }
 
         private static uint ReduceColor(List<Contributor> contributors,
@@ -380,11 +546,14 @@ namespace Genesis.RoomScan
             return 0;
         }
 
-        private static int MinimumAxis(int3 value)
+        private static int FirstNonZeroAxis(int3 value)
         {
-            if (value.x <= value.y && value.x <= value.z) return 0;
-            return value.y <= value.z ? 1 : 2;
+            if (value.x != 0) return 0;
+            return value.y != 0 ? 1 : 2;
         }
+
+        internal static ReadOnlySpan<int3> CanonicalNormals =>
+            NormalDictionary;
 
         internal static void Axes(int normalAxis, out int3 normal,
             out int3 tangent0, out int3 tangent1)
