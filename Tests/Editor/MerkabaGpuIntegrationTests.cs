@@ -123,7 +123,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers, Has.Length.EqualTo(41));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(696878792L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(696878796L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -204,7 +204,7 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string neighbour = Slice(frame,
                 "bool M8TryLoadReadoutNeighbourState",
-                "M8OverlapSignature M8DeriveOverlapSignature");
+                "uint M8PatchPrefix");
             Assert.That(frame, Does.Contain(
                 "M8TryLoadReadoutNeighbourState"));
             Assert.That(frame, Does.Not.Contain("M8TryOccupiedExact"));
@@ -494,6 +494,8 @@ namespace Genesis.RoomScan.Tests
         public void ReadoutBuild_EmitsDrawReadyVerticesAndOneSpiDraw()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string generated = Source(
+                "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
             string feature = Source("Runtime/Merkaba/MerkabaRenderFeature.cs");
             Assert.That(frame, Does.Contain(
@@ -507,7 +509,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Contain("[numthreads(8, 8, 2)]"));
             Assert.That(frame, Does.Contain(
                 "M8TryLoadReadoutNeighbourState"));
-            Assert.That(frame, Does.Contain("M8BuildOverlapPatch"));
+            Assert.That(frame, Does.Contain("M8TryBuildOverlapPatch"));
+            Assert.That(generated, Does.Contain(
+                "bool M8TryBuildOverlapPatch"));
             Assert.That(frame, Does.Contain(
                 "M8_OVERLAP_TRIANGLES_PER_PATCH"));
             Assert.That(frame, Does.Contain("M8StoreReadoutVertex"));
@@ -537,14 +541,18 @@ namespace Genesis.RoomScan.Tests
         public void ReadoutSkinWinding_IsFreeSideCanonicalAndViewIndependent()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string generated = Source(
+                "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
-            Assert.That(frame, Does.Contain(
-                "signature.freeSign = signedFree < 0 ? -1 : 1"));
-            Assert.That(frame, Does.Contain("M8OverlapTriangleCorner("));
-            Assert.That(frame, Does.Not.Contain("_M8EyeGridPositions"));
-            Assert.That(frame, Does.Not.Contain("_M8GridWindingSign"));
-            Assert.That(frame, Does.Not.Contain("opposite0"));
-            Assert.That(frame, Does.Not.Contain("swapWinding"));
+            Assert.That(generated, Does.Contain(
+                "freeSign = positiveFree > negativeFree ? 1 : -1"));
+            Assert.That(generated, Does.Contain("M8OverlapTriangleCorner("));
+            Assert.That(frame + generated,
+                Does.Not.Contain("_M8EyeGridPositions"));
+            Assert.That(frame + generated,
+                Does.Not.Contain("_M8GridWindingSign"));
+            Assert.That(frame + generated, Does.Not.Contain("opposite0"));
+            Assert.That(frame + generated, Does.Not.Contain("swapWinding"));
             Assert.That(shader, Does.Contain("Cull Off"));
             Assert.That(shader, Does.Not.Contain(
                 "MerkabaCanonicalPrimitivePosition"));
@@ -554,6 +562,8 @@ namespace Genesis.RoomScan.Tests
         public void ReadoutSkin_UsesOneTileGroupAndImmediateOverlapHalo()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string preflight = Slice(frame, "void PreflightReadout",
+                "void PrepareReadoutEmit");
             string compile = Slice(frame, "void EmitReadoutVertices",
                 "void FinalizeReadout");
             Assert.That(frame, Does.Contain(
@@ -566,7 +576,15 @@ namespace Genesis.RoomScan.Tests
                 "kernelBatch < 4u"));
             Assert.That(frame, Does.Contain(
                 "_M8FrameDispatchArgs[1] = 1u"));
-            Assert.That(frame, Does.Contain("M8OccupiedPrefix"));
+            Assert.That(frame, Does.Contain("M8PatchPrefix"));
+            Assert.That(frame, Does.Contain("gM8ShellPatchValidWords"));
+            Assert.That(frame, Does.Contain("M8ResolveOverlapPatchMask"));
+            Assert.That(frame, Does.Contain(
+                "M8_COUNTER_READOUT_UNDERDETERMINED_KERNELS"));
+            Assert.That(preflight, Does.Contain(
+                "M8ResolveOverlapPatchMask(thread)"));
+            Assert.That(compile, Does.Contain(
+                "M8ResolveOverlapPatchMask(thread)"));
             Assert.That(frame, Does.Contain(
                 "GroupMemoryBarrierWithGroupSync()"));
             Assert.That(frame, Does.Not.Contain("evenVertex"));
@@ -586,6 +604,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(mainPath, Does.Not.Contain("InterlockedAdd"));
             Assert.That(Regex.Matches(compile,
                 "M8LoadOverlapHalo\\("), Has.Count.EqualTo(1));
+
+            const int haloBytes = 1000 * 3 * sizeof(uint);
+            const int bitsetBytes = 16 * 3 * sizeof(uint);
+            const int scalarAndOriginBytes = 9 * sizeof(uint);
+            int groupsharedBytes = haloBytes + bitsetBytes +
+                scalarAndOriginBytes;
+            Assert.That(groupsharedBytes, Is.EqualTo(12_228));
+            Assert.That(groupsharedBytes, Is.LessThanOrEqualTo(16 * 1024));
         }
 
         [Test]
@@ -705,6 +731,8 @@ namespace Genesis.RoomScan.Tests
         public void ReadoutVertexAbi_MaterializesQuarterLatticeOverlapShell()
         {
             string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string generated = Source(
+                "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
             Assert.That(MerkabaGrid.ReadoutTriangleCapacity,
                 Is.EqualTo(4_194_304));
@@ -721,12 +749,12 @@ namespace Genesis.RoomScan.Tests
                 "_M8ReadoutVertices0[outputVertex + corner] = vertex"));
             Assert.That(readout, Does.Contain(
                 "_M8ReadoutVertices1[outputVertex + corner] = vertex"));
-            Assert.That(readout, Does.Contain(
+            Assert.That(readout + generated, Does.Contain(
                 "corner.quarterCoordinate"));
-            Assert.That(readout, Does.Contain(
+            Assert.That(generated, Does.Contain(
                 "M8_OVERLAP_QUARTERS_PER_STEP"));
-            Assert.That(readout, Does.Contain("M8ReduceOverlapColor"));
-            Assert.That(readout, Does.Contain("M8_SHELL_NEUTRAL_COLOR"));
+            Assert.That(generated, Does.Contain("M8ReduceOverlapColor"));
+            Assert.That(generated, Does.Contain("0x00a0a0a0u"));
             Assert.That(readout, Does.Not.Contain("MerkabaReadoutCubeTriangle"));
             Assert.That(readout, Does.Not.Contain("half3(0.55h"));
             Assert.That(shader, Does.Contain("half3(0.55h, 0.16h, 0.42h)"));

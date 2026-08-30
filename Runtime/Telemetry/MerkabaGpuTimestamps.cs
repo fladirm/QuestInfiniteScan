@@ -135,6 +135,7 @@ namespace Genesis.RoomScan
             internal uint RenderPrimitiveOverflow;
             internal uint ReadoutUnresolved;
             internal uint ReadoutBuildStatus;
+            internal uint ReadoutUnderdeterminedKernels;
             internal uint ObservationFailure;
             internal uint FailedObservations;
             internal readonly uint[] CarveFreeRadial = new uint[8];
@@ -645,6 +646,8 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterReadoutUnresolved];
                     sample.ReadoutBuildStatus = values[
                         MerkabaGrid.CounterReadoutBuildStatus];
+                    sample.ReadoutUnderdeterminedKernels = values[
+                        MerkabaGrid.CounterReadoutUnderdeterminedKernels];
                     for (int radialBin = 0; radialBin < 8; radialBin++)
                         sample.CarveFreeRadial[radialBin] = values[
                             MerkabaGrid.CounterCarveFreeRadialBase + radialBin];
@@ -1013,6 +1016,8 @@ namespace Genesis.RoomScan
                         $"lateDrawColdMisses={sample.LateColdMisses} " +
                         $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow} " +
                         $"readoutUnresolved={sample.ReadoutUnresolved} " +
+                        $"readoutUnderdeterminedKernels=" +
+                        $"{sample.ReadoutUnderdeterminedKernels} " +
                         $"readoutBuildStatus={sample.ReadoutBuildStatus} " +
                         $"observationFailure=0x{sample.ObservationFailure:x} " +
                         $"failedObservations={sample.FailedObservations}");

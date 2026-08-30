@@ -262,13 +262,25 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void DeployedGpuGenerator_RemainsFrozenUntilR1()
+        public void GeneratedGpuOracle_IsExactlyTheResolvedR0Authority()
         {
             string path = Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaOverlapShell.generated.hlsl");
-            Assert.That(File.ReadAllText(path),
+            string generated = File.ReadAllText(path);
+            Assert.That(generated,
                 Is.EqualTo(MerkabaOverlapShell.BuildGeneratedHlsl()));
+            Assert.That(generated, Does.Contain(
+                "#define M8_OVERLAP_NORMAL_COUNT 13u"));
+            Assert.That(generated, Does.Contain(
+                "M8_OVERLAP_SUPPORT_HALF_QUARTERS 4"));
+            Assert.That(generated, Does.Contain(
+                "bool M8TryBuildOverlapPatch"));
+            Assert.That(generated, Does.Contain(
+                "if (!found || tied)"));
+            Assert.That(generated, Does.Not.Contain("M8OverlapMinimumAxis"));
+            Assert.That(generated, Does.Not.Contain(
+                "M8_OVERLAP_HALF_STEP_QUARTERS"));
         }
 
         private static Scene Plane(int3 normal, int minimum, int maximum,

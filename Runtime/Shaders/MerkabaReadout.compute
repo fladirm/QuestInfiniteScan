@@ -7,7 +7,6 @@
 #pragma kernel FinalizeReadout
 
 #include "MerkabaWorld.hlsl"
-#include "MerkabaOverlapShell.generated.hlsl"
 
 #define MERKABA_LATTICE_STEP 0.025
 #define MERKABA_HALF_SUPPORT 0.025
@@ -111,6 +110,7 @@ void ResetReadoutBuild(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_PRIMITIVES_REJECTED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_UNDERDETERMINED_KERNELS] = 0u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
         MERKABA_READOUT_BUILDING;
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
@@ -318,20 +318,19 @@ void PrepareReadoutBuild(uint id : SV_DispatchThreadID)
 #define M8_SHELL_HALO_PLANE 100
 #define M8_SHELL_HALO_COUNT 1000
 #define M8_SHELL_GROUP_THREADS 128u
-#define M8_SHELL_NEUTRAL_COLOR 0x00a0a0a0u
 
 groupshared int gM8ShellEvidence[M8_SHELL_HALO_COUNT];
 groupshared uint gM8ShellOccupied[M8_SHELL_HALO_COUNT];
 groupshared uint gM8ShellStateTokens[M8_SHELL_HALO_COUNT];
 groupshared uint gM8ShellOccupiedWords[MERKABA_M8_TILE_WORDS];
-groupshared uint gM8ShellWordPrefixes[MERKABA_M8_TILE_WORDS];
+groupshared uint gM8ShellPatchValidWords[MERKABA_M8_TILE_WORDS];
+groupshared uint gM8ShellPatchPrefixes[MERKABA_M8_TILE_WORDS];
 groupshared uint gM8ShellUnresolved;
 groupshared uint gM8ShellPhysicalSlot;
 groupshared uint gM8ShellChunkIndex;
 groupshared uint gM8ShellBlockIndex;
 groupshared uint gM8ShellOccupiedCount;
-groupshared uint gM8ShellBaseTriangle;
-groupshared uint gM8ShellOutputValid;
+groupshared uint gM8ShellValidPatchCount;
 groupshared int3 gM8ShellTileOrigin;
 
 uint M8ShellHaloIndex(int3 haloCoord)
@@ -344,6 +343,8 @@ uint M8ShellIndex(int3 mainHaloCoord, int3 offset)
 {
     return M8ShellHaloIndex(mainHaloCoord + offset);
 }
+
+#include "MerkabaOverlapShell.generated.hlsl"
 
 // Missing logical paths are exact empty. Existing non-HOT payload is unresolved.
 // The sparse lookup happens once per cooperatively loaded halo sample, never
@@ -405,232 +406,13 @@ bool M8TryLoadReadoutNeighbourState(MerkabaM8Address currentAddress,
     return true;
 }
 
-M8OverlapSignature M8DeriveOverlapSignature(int3 mainHaloCoord)
-{
-    int3 freeMoment = int3(0, 0, 0);
-    int3 occupiedCrossings = int3(0, 0, 0);
-    [unroll]
-    for (int z = -1; z <= 1; z++)
-    [unroll]
-    for (int y = -1; y <= 1; y++)
-    [unroll]
-    for (int x = -1; x <= 1; x++)
-    {
-        int3 offset = int3(x, y, z);
-        if (all(offset == 0)) continue;
-        uint sampleIndex = M8ShellIndex(mainHaloCoord, offset);
-        if (gM8ShellEvidence[sampleIndex] < 0) freeMoment += offset;
-        if (gM8ShellOccupied[sampleIndex] != 0u)
-            occupiedCrossings += abs(offset);
-    }
-
-    M8OverlapSignature signature;
-    signature.normalAxis = M8OverlapMinimumAxis(occupiedCrossings);
-    int signedFree = freeMoment[signature.normalAxis];
-    signature.hasKnownFreeSide = signedFree != 0 ? 1u : 0u;
-    signature.freeSign = signedFree < 0 ? -1 : 1;
-    return signature;
-}
-
-bool M8TryOverlapContributor(int3 mainHaloCoord,
-    M8OverlapSignature signature, int3 normal, int3 tangentOffset,
-    out int selectedHeight, out uint selectedStateToken)
-{
-    int columnFreeMoment = 0;
-    [unroll]
-    for (int freeOffset = -1; freeOffset <= 1; freeOffset++)
-    {
-        uint sampleIndex = M8ShellIndex(mainHaloCoord,
-            tangentOffset + normal * freeOffset);
-        if (gM8ShellEvidence[sampleIndex] < 0)
-            columnFreeMoment += freeOffset;
-    }
-
-    bool mainColumn = all(tangentOffset == 0);
-    if (!mainColumn && signature.hasKnownFreeSide != 0u &&
-        columnFreeMoment != 0 &&
-        (columnFreeMoment < 0 ? -1 : 1) != signature.freeSign)
-    {
-        selectedHeight = 0;
-        selectedStateToken = 0u;
-        return false;
-    }
-
-    bool found = false;
-    int selectedDistance = 2;
-    selectedHeight = 0;
-    selectedStateToken = 0u;
-    [unroll]
-    for (int surfaceOffset = -1; surfaceOffset <= 1; surfaceOffset++)
-    {
-        uint sampleIndex = M8ShellIndex(mainHaloCoord,
-            tangentOffset + normal * surfaceOffset);
-        if (gM8ShellOccupied[sampleIndex] == 0u) continue;
-        int distance = abs(surfaceOffset);
-        // Iteration order -1,0,+1 is the exact lexicographic tie break.
-        if (!found || distance < selectedDistance)
-        {
-            found = true;
-            selectedDistance = distance;
-            selectedHeight = surfaceOffset;
-            selectedStateToken = gM8ShellStateTokens[sampleIndex];
-        }
-    }
-    return found;
-}
-
-void M8AccumulateOverlapColor(int height, uint stateToken,
-    int lowerHeight, int upperHeight, inout uint red, inout uint green,
-    inout uint blue, inout uint alpha, inout uint total)
-{
-    if (height < lowerHeight || height > upperHeight || stateToken == 0u)
-        return;
-    uint stateIndex = stateToken - 1u;
-    KernelState state = M8LoadKernelStateRead(stateIndex >> 9u,
-        stateIndex & 511u);
-    uint weight = min(state.colorConfidence, 65535u);
-    if (weight == 0u) return;
-    uint color = state.packedColor;
-    red += (color & 255u) * weight;
-    green += ((color >> 8u) & 255u) * weight;
-    blue += ((color >> 16u) & 255u) * weight;
-    alpha += ((color >> 24u) & 255u) * weight;
-    total += weight;
-}
-
-uint M8ReduceOverlapColor(int4 heights, uint4 stateTokens,
-    uint count, int lowerHeight, int upperHeight)
-{
-    uint red = 0u;
-    uint green = 0u;
-    uint blue = 0u;
-    uint alpha = 0u;
-    uint total = 0u;
-    if (count > 0u) M8AccumulateOverlapColor(heights.x, stateTokens.x,
-        lowerHeight, upperHeight, red, green, blue, alpha, total);
-    if (count > 1u) M8AccumulateOverlapColor(heights.y, stateTokens.y,
-        lowerHeight, upperHeight, red, green, blue, alpha, total);
-    if (count > 2u) M8AccumulateOverlapColor(heights.z, stateTokens.z,
-        lowerHeight, upperHeight, red, green, blue, alpha, total);
-    if (count > 3u) M8AccumulateOverlapColor(heights.w, stateTokens.w,
-        lowerHeight, upperHeight, red, green, blue, alpha, total);
-    if (total == 0u) return M8_SHELL_NEUTRAL_COLOR;
-    float inverseTotal = rcp((float)total);
-    uint4 reduced = (uint4)floor(float4(red, green, blue, alpha) *
-        inverseTotal + 0.5);
-    return reduced.x | (reduced.y << 8u) | (reduced.z << 16u) |
-        (reduced.w << 24u);
-}
-
-void M8AppendOverlapContributor(int height, uint stateToken,
-    inout int4 heights, inout uint4 stateTokens, inout uint count)
-{
-    if (count == 0u) { heights.x = height; stateTokens.x = stateToken; }
-    else if (count == 1u) { heights.y = height; stateTokens.y = stateToken; }
-    else if (count == 2u) { heights.z = height; stateTokens.z = stateToken; }
-    else { heights.w = height; stateTokens.w = stateToken; }
-    count++;
-}
-
-void M8CollectOverlapContributor(int3 mainHaloCoord,
-    M8OverlapSignature signature, int3 normal, int3 tangentOffset,
-    inout int4 heights, inout uint4 stateTokens, inout uint count)
-{
-    int height = 0;
-    uint stateToken = 0u;
-    if (M8TryOverlapContributor(mainHaloCoord, signature, normal,
-            tangentOffset, height, stateToken))
-        M8AppendOverlapContributor(height, stateToken, heights, stateTokens,
-            count);
-}
-
-M8OverlapCorner M8BuildOverlapCorner(int3 globalCoord,
-    int3 mainHaloCoord, M8OverlapSignature signature, int3 normal,
-    int3 tangent0, int3 tangent1, int tangentSign0, int tangentSign1)
-{
-    int4 heights = int4(0, 0, 0, 0);
-    uint4 stateTokens = uint4(0u, 0u, 0u, 0u);
-    uint contributorCount = 0u;
-
-    M8CollectOverlapContributor(mainHaloCoord, signature, normal,
-        int3(0, 0, 0), heights, stateTokens, contributorCount);
-    M8CollectOverlapContributor(mainHaloCoord, signature, normal,
-        tangent0 * tangentSign0, heights, stateTokens, contributorCount);
-    M8CollectOverlapContributor(mainHaloCoord, signature, normal,
-        tangent1 * tangentSign1, heights, stateTokens, contributorCount);
-    M8CollectOverlapContributor(mainHaloCoord, signature, normal,
-        tangent0 * tangentSign0 + tangent1 * tangentSign1,
-        heights, stateTokens, contributorCount);
-
-    int lowerHeight = 0;
-    int upperHeight = 0;
-    M8OverlapMedianBand(heights, contributorCount,
-        lowerHeight, upperHeight);
-
-    M8OverlapCorner corner;
-    corner.quarterCoordinate =
-        globalCoord * M8_OVERLAP_QUARTERS_PER_STEP +
-        tangent0 * (tangentSign0 * M8_OVERLAP_HALF_STEP_QUARTERS) +
-        tangent1 * (tangentSign1 * M8_OVERLAP_HALF_STEP_QUARTERS);
-    int quarterHeight = M8OverlapMedianQuarterHeight(heights,
-        contributorCount);
-    if (signature.normalAxis == 0u)
-        corner.quarterCoordinate.x = globalCoord.x *
-            M8_OVERLAP_QUARTERS_PER_STEP + quarterHeight;
-    else if (signature.normalAxis == 1u)
-        corner.quarterCoordinate.y = globalCoord.y *
-            M8_OVERLAP_QUARTERS_PER_STEP + quarterHeight;
-    else
-        corner.quarterCoordinate.z = globalCoord.z *
-            M8_OVERLAP_QUARTERS_PER_STEP + quarterHeight;
-    corner.packedColor = M8ReduceOverlapColor(heights, stateTokens,
-        contributorCount, lowerHeight, upperHeight);
-    return corner;
-}
-
-struct M8OverlapPatch
-{
-    M8OverlapSignature signature;
-    M8OverlapCorner corner00;
-    M8OverlapCorner corner10;
-    M8OverlapCorner corner11;
-    M8OverlapCorner corner01;
-};
-
-M8OverlapPatch M8BuildOverlapPatch(int3 globalCoord, int3 mainHaloCoord)
-{
-    M8OverlapPatch patch;
-    patch.signature = M8DeriveOverlapSignature(mainHaloCoord);
-    int3 normal;
-    int3 tangent0;
-    int3 tangent1;
-    M8OverlapAxes(patch.signature.normalAxis, normal, tangent0, tangent1);
-    patch.corner00 = M8BuildOverlapCorner(globalCoord, mainHaloCoord,
-        patch.signature, normal, tangent0, tangent1, -1, -1);
-    patch.corner10 = M8BuildOverlapCorner(globalCoord, mainHaloCoord,
-        patch.signature, normal, tangent0, tangent1, 1, -1);
-    patch.corner11 = M8BuildOverlapCorner(globalCoord, mainHaloCoord,
-        patch.signature, normal, tangent0, tangent1, 1, 1);
-    patch.corner01 = M8BuildOverlapCorner(globalCoord, mainHaloCoord,
-        patch.signature, normal, tangent0, tangent1, -1, 1);
-    return patch;
-}
-
-M8OverlapCorner M8OverlapPatchCorner(M8OverlapPatch patch, uint index)
-{
-    if (index == 0u) return patch.corner00;
-    if (index == 1u) return patch.corner10;
-    if (index == 2u) return patch.corner11;
-    return patch.corner01;
-}
-
-uint M8OccupiedPrefix(uint kernelLocal)
+uint M8PatchPrefix(uint kernelLocal)
 {
     uint wordIndex = kernelLocal >> 5u;
     uint bitIndex = kernelLocal & 31u;
     uint belowMask = bitIndex == 0u ? 0u : ((1u << bitIndex) - 1u);
-    return gM8ShellWordPrefixes[wordIndex] + countbits(
-        gM8ShellOccupiedWords[wordIndex] & belowMask);
+    return gM8ShellPatchPrefixes[wordIndex] + countbits(
+        gM8ShellPatchValidWords[wordIndex] & belowMask);
 }
 
 void M8StoreReadoutVertex(uint outputTriangle, uint corner,
@@ -705,6 +487,54 @@ void M8LoadOverlapHalo(uint physicalSlot,
     }
 }
 
+void M8ResolveOverlapPatchMask(uint thread)
+{
+    if (thread < MERKABA_M8_TILE_WORDS)
+    {
+        gM8ShellPatchValidWords[thread] = 0u;
+        gM8ShellPatchPrefixes[thread] = 0u;
+    }
+    if (thread == 0u) gM8ShellValidPatchCount = 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll]
+    for (uint kernelBatch = 0u; kernelBatch < 4u; kernelBatch++)
+    {
+        uint kernelLocal = thread + kernelBatch * M8_SHELL_GROUP_THREADS;
+        uint word = kernelLocal >> 5u;
+        uint bit = 1u << (kernelLocal & 31u);
+        if ((gM8ShellOccupiedWords[word] & bit) == 0u) continue;
+        int3 tileLocal = int3(kernelLocal & 7u,
+            (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+        M8OverlapPatch patch;
+        if (!M8TryBuildOverlapPatch(gM8ShellTileOrigin + tileLocal,
+                tileLocal + 1, patch))
+            continue;
+        uint ignored;
+        InterlockedOr(gM8ShellPatchValidWords[word], bit, ignored);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (thread < MERKABA_M8_TILE_WORDS)
+    {
+        uint prefix = 0u;
+        [unroll]
+        for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; word++)
+        {
+            if (word >= thread) break;
+            prefix += countbits(gM8ShellPatchValidWords[word]);
+        }
+        gM8ShellPatchPrefixes[thread] = prefix;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (thread == 0u)
+        gM8ShellValidPatchCount =
+            gM8ShellPatchPrefixes[MERKABA_M8_TILE_WORDS - 1u] +
+            countbits(gM8ShellPatchValidWords[
+                MERKABA_M8_TILE_WORDS - 1u]);
+    GroupMemoryBarrierWithGroupSync();
+}
+
 [numthreads(8, 8, 2)]
 void PreflightReadout(uint3 groupId : SV_GroupID,
     uint3 groupThreadId : SV_GroupThreadID, uint thread : SV_GroupIndex)
@@ -713,13 +543,17 @@ void PreflightReadout(uint3 groupId : SV_GroupID,
     M8LoadOverlapHalo(visibleTile.x, groupThreadId, thread,
         MERKABA_READOUT_FAILED);
     if (gM8ShellUnresolved != 0u) return;
+    M8ResolveOverlapPatchMask(thread);
 
     if (thread != 0u) return;
     uint primitiveCount =
-        gM8ShellOccupiedCount * M8_OVERLAP_TRIANGLES_PER_PATCH;
+        gM8ShellValidPatchCount * M8_OVERLAP_TRIANGLES_PER_PATCH;
     uint ignored;
     InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED],
         gM8ShellOccupiedCount, ignored);
+    InterlockedAdd(
+        _M8Counters[M8_COUNTER_READOUT_UNDERDETERMINED_KERNELS],
+        gM8ShellOccupiedCount - gM8ShellValidPatchCount, ignored);
     InterlockedAdd(_M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING],
         primitiveCount, ignored);
     uint baseTriangle;
@@ -772,29 +606,17 @@ void EmitReadoutVertices(uint3 groupId : SV_GroupID,
     uint2 visibleTile = _M8VisibleTilesRead[groupId.x];
     M8LoadOverlapHalo(visibleTile.x, groupThreadId, thread,
         MERKABA_READOUT_EMIT_FAILED);
-    bool haloResolved = gM8ShellUnresolved == 0u;
-
-    if (thread < MERKABA_M8_TILE_WORDS)
-    {
-        uint prefix = 0u;
-        [unroll]
-        for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; word++)
-        {
-            if (word >= thread) break;
-            prefix += countbits(gM8ShellOccupiedWords[word]);
-        }
-        gM8ShellWordPrefixes[thread] = prefix;
-    }
-    if (haloResolved && thread == 0u)
+    if (gM8ShellUnresolved != 0u) return;
+    M8ResolveOverlapPatchMask(thread);
+    if (thread == 0u)
     {
         uint ignored;
         InterlockedAdd(
             _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES],
-            gM8ShellOccupiedCount * M8_OVERLAP_TRIANGLES_PER_PATCH,
+            gM8ShellValidPatchCount * M8_OVERLAP_TRIANGLES_PER_PATCH,
             ignored);
     }
     GroupMemoryBarrierWithGroupSync();
-    if (!haloResolved) return;
 
     [unroll]
     for (uint kernelBatch = 0u; kernelBatch < 4u; kernelBatch++)
@@ -802,15 +624,16 @@ void EmitReadoutVertices(uint3 groupId : SV_GroupID,
         uint kernelLocal = thread + kernelBatch * M8_SHELL_GROUP_THREADS;
         uint word = kernelLocal >> 5u;
         uint bit = 1u << (kernelLocal & 31u);
-        if ((gM8ShellOccupiedWords[word] & bit) == 0u) continue;
+        if ((gM8ShellPatchValidWords[word] & bit) == 0u) continue;
 
         int3 tileLocal = int3(kernelLocal & 7u,
             (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
         int3 globalCoord = gM8ShellTileOrigin + tileLocal;
-        M8OverlapPatch patch = M8BuildOverlapPatch(globalCoord,
-            tileLocal + 1);
+        M8OverlapPatch patch;
+        if (!M8TryBuildOverlapPatch(globalCoord, tileLocal + 1, patch))
+            continue;
         uint outputTriangle = visibleTile.y +
-            M8OccupiedPrefix(kernelLocal) *
+            M8PatchPrefix(kernelLocal) *
             M8_OVERLAP_TRIANGLES_PER_PATCH;
 
         uint cornerIndex = M8OverlapTriangleCorner(
