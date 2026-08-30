@@ -1185,47 +1185,19 @@ namespace Genesis.RoomScan.Tests
             }
             long[] inputs = values.Distinct().ToArray();
 
-            // The generated sparse schedules are a lowering of the dense
-            // semantic matrix, not a second operator. They enumerate every
-            // nonzero coefficient once and in the original accumulation order.
+            // The generated matrix has two all-zero endpoint rows and a dense
+            // 14x4 interior. The hot lowering therefore uses fixed address
+            // 1..14 and axis 0..3 loops with no runtime sparse schedule.
             for (int axis = 0; axis < 4; ++axis)
             {
-                int ordinal = 0;
                 for (int address = 0; address < 16; ++address)
                 {
                     int dense = SigmaGeneratedMerkabaProgram.ShadowNumerator(
                         address, axis);
-                    if (dense == 0)
-                        continue;
-                    Assert.That(SigmaGeneratedMerkabaProgram
-                        .ShadowNonzeroAddress(axis, ordinal),
-                        Is.EqualTo(address));
-                    Assert.That(SigmaGeneratedMerkabaProgram
-                        .ShadowNonzeroNumerator(axis, ordinal),
-                        Is.EqualTo(dense));
-                    ++ordinal;
+                    Assert.That(dense == 0,
+                        Is.EqualTo(address == 0 || address == 15),
+                        $"address={address} axis={axis}");
                 }
-                Assert.That(SigmaGeneratedMerkabaProgram
-                    .ShadowNonzeroCount(axis), Is.EqualTo(ordinal));
-            }
-            for (int address = 0; address < 16; ++address)
-            {
-                int ordinal = 0;
-                for (int axis = 0; axis < 4; ++axis)
-                {
-                    int dense = SigmaGeneratedMerkabaProgram.ShadowNumerator(
-                        address, axis);
-                    if (dense == 0)
-                        continue;
-                    Assert.That(SigmaGeneratedMerkabaProgram
-                        .DualNonzeroAxis(address, ordinal), Is.EqualTo(axis));
-                    Assert.That(SigmaGeneratedMerkabaProgram
-                        .DualNonzeroNumerator(address, ordinal),
-                        Is.EqualTo(dense));
-                    ++ordinal;
-                }
-                Assert.That(SigmaGeneratedMerkabaProgram
-                    .DualNonzeroCount(address), Is.EqualTo(ordinal));
             }
             for (int fixture = 0; fixture < 128; ++fixture)
             {
@@ -1243,7 +1215,25 @@ namespace Genesis.RoomScan.Tests
                             SigmaGeneratedMerkabaProgram
                                 .MultiplyMerkabaShadowCoefficient(
                                     lanes[address], address, axis));
-                    Assert.That(sparse[axis], Is.EqualTo(dense));
+                    Assert.That(sparse[axis], Is.EqualTo(dense),
+                        $"shadow fixture={fixture} axis={axis}");
+                }
+
+                long[] shadowInput = Enumerable.Range(0, 4)
+                    .Select(_ => (long)random.Next(-1 << 20, 1 << 20))
+                    .ToArray();
+                SigmaS16 lifted = SigmaGeneratedMerkabaProgram
+                    .LiftMerkabaShadow(shadowInput);
+                for (int address = 0; address < 16; ++address)
+                {
+                    long dense = 0L;
+                    for (int axis = 0; axis < 4; ++axis)
+                        dense = SigmaNumericDomain.QAdd(dense,
+                            SigmaGeneratedMerkabaProgram
+                                .MultiplyMerkabaDualCoefficient(
+                                    shadowInput[axis], address, axis));
+                    Assert.That(lifted[address], Is.EqualTo(dense),
+                        $"dual fixture={fixture} address={address}");
                 }
             }
             var packedInputs = inputs.Select(value => new UInt4

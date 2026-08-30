@@ -40,6 +40,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int CanonicalRunCapacity = 1024;
         internal const int RefinementRunCapacity = 4096;
         internal const int ObservationFootprintsPerGroup = 32;
+        internal const int ContractFootprintsPerGroup = 8;
         internal const int SupportLocatorCapacity =
             SigmaCarrier.MaximumPagesPerSegment * SigmaCarrier.SamplesPerPage;
 

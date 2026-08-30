@@ -185,12 +185,12 @@ namespace Genesis.RoomScan.Tests
                 "uint SigmaNativeFreshReduceAnd",
                 "uint SigmaNativeFreshReduceOr");
             Assert.That(Count(reduceAnd,
-                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(2));
+                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(3));
             string reduceOr = Slice(contract,
                 "uint SigmaNativeFreshReduceOr",
                 "void SigmaNativeFreshLiftSource");
             Assert.That(Count(reduceOr,
-                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(2));
+                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(3));
         }
 
         [Test]

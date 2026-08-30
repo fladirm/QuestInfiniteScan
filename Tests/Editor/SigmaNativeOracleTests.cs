@@ -783,7 +783,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(contract, Does.Contain(
                 "#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)\n" +
                 "[numthreads(256, 1, 1)]\n#else\n" +
-                "[numthreads(256, 1, 1)]\n#endif\n" +
+                "[numthreads(128, 1, 1)]\n#endif\n" +
                 "void ContractNativeQuery"));
             Assert.That(contract, Does.Not.Contain("SigmaNativeContractOne"));
             Assert.That(contract, Does.Not.Contain("_NativeReverseKeys"));
@@ -791,6 +791,10 @@ namespace Genesis.RoomScan.Tests
                 "SigmaNativeFreshLiftFootprint(active ? footprint : 0u,"));
             Assert.That(contract, Does.Contain(
                 "SigmaNativeFreshFinalize(groupThreadId.x)"));
+            Assert.That(contract, Does.Not.Contain(
+                "SigmaMerkabaShadowNonzero"));
+            Assert.That(contract, Does.Not.Contain(
+                "SigmaMerkabaDualNonzero"));
             Assert.That(contract, Does.Not.Contain(
                 "for (uint freshBranch"));
             Assert.That(queryOracle, Does.Not.Contain("for (uint action"));
@@ -1976,7 +1980,9 @@ namespace Genesis.RoomScan.Tests
             shader.SetInt("_NativeFreshPriorStateOffset", 0);
             shader.SetInt("_NativeCompletionRecordIndex", 0);
             shader.SetInt("_NativeFootprintCount", count);
-            int groupCount = (count + 15) / 16 + 1;
+            int groupCount = (count +
+                SigmaNativeFrameSlotResources.ContractFootprintsPerGroup - 1) /
+                SigmaNativeFrameSlotResources.ContractFootprintsPerGroup + 1;
             shader.SetInt("_NativeLinearDispatchWidth", groupCount);
             shader.SetInt("_NativeFootprintStateOffset",
                 scratch.FootprintStateOffset);

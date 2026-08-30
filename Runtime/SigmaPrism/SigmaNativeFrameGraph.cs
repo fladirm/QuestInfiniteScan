@@ -226,7 +226,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_contract, "_NativeFreshBranchCount",
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount);
             int footprintTeamGroups = checked(
-                (slot.FootprintCapacity + 15) / 16 + 1);
+                (slot.FootprintCapacity +
+                    SigmaNativeFrameSlotResources.ContractFootprintsPerGroup -
+                    1) /
+                    SigmaNativeFrameSlotResources.ContractFootprintsPerGroup +
+                1);
             Vector2Int footprintGrid =
                 SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(
                     footprintTeamGroups);
