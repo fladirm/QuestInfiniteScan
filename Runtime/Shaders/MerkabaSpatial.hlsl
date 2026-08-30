@@ -187,4 +187,28 @@ uint MerkabaM8PlaneChildMask(int3 parentMin, int parentSpan, float4 plane,
     return mask;
 }
 
+uint MerkabaM8KernelPlaneChildMask(int3 parentMin, int parentSpan,
+    float4 plane)
+{
+    int childSpan = parentSpan / 2;
+    float3 parentCenter = (float3)parentMin + (parentSpan - 1) * 0.5;
+    float childOffset = parentSpan * 0.25;
+    // A child covers its kernel centres plus one full half-support radius.
+    float childExtent = (childSpan + 1) * 0.5;
+    float base = dot(plane.xyz, parentCenter) + plane.w;
+    float radius = childExtent * (abs(plane.x) + abs(plane.y) +
+        abs(plane.z));
+    uint mask = 0u;
+    [unroll]
+    for (uint child = 0u; child < 8u; child++)
+    {
+        float score = base + ((child & 1u) != 0u ? childOffset :
+            -childOffset) * plane.x +
+            ((child & 2u) != 0u ? childOffset : -childOffset) * plane.y +
+            ((child & 4u) != 0u ? childOffset : -childOffset) * plane.z;
+        if (score + radius >= 0.0) mask |= 1u << child;
+    }
+    return mask;
+}
+
 #endif

@@ -702,7 +702,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ScanUsesConservativeDistanceAndExactDepthIsTheOnlySensorGate()
+        public void ScanBroadPhaseUsesConservativeFrozenMutationCoverage()
         {
             string spatial = Source("Runtime/Shaders/MerkabaSpatial.hlsl");
             string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
@@ -713,10 +713,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(spatial, Does.Contain("MerkabaM8DistanceChildMask"));
             Assert.That(scan, Does.Contain("M8ScanChildMask"));
             Assert.That(scan, Does.Contain("MerkabaM8DistanceChildMask"));
-            Assert.That(scan, Does.Not.Contain("MerkabaM8PlaneChildMask"));
-            Assert.That(scan, Does.Not.Contain("_M8ScanPlanes"));
+            Assert.That(scan, Does.Contain("MerkabaM8KernelPlaneChildMask"));
+            Assert.That(scan, Does.Contain("_M8ScanCoveragePlanes"));
             Assert.That(scan, Does.Not.Contain("M8ScanEyeChildMask"));
-            Assert.That(integrator, Does.Not.Contain("WriteFrustumPlanes"));
+            Assert.That(integrator, Does.Contain(
+                "MerkabaMutationCoverage.WriteGridPlanes"));
             Assert.That(integrator, Does.Not.Contain(
                 "GeometryUtility.CalculateFrustumPlanes"));
             Assert.That(frame, Does.Contain("M8DrawChildMask"));
@@ -832,10 +833,14 @@ namespace Genesis.RoomScan.Tests
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
+            string constants = Source(
+                "Runtime/Merkaba/MerkabaConstants.cs");
             Assert.That(integration, Does.Contain(
                 "#define MERKABA_MUTATION_INNER_RADIUS (1.0 / 3.0)"));
+            Assert.That(constants, Does.Contain(
+                "MutationOuterRadius = 2f / 3f"));
             Assert.That(integration, Does.Contain(
-                "#define MERKABA_MUTATION_OUTER_RADIUS (2.0 / 3.0)"));
+                "radialPosition >= _MerkabaMutationOuterRadius"));
             string radial = Slice(integration,
                 "bool TryMerkabaDepthRadialPosition",
                 "float3 MerkabaDepthEyePosition");

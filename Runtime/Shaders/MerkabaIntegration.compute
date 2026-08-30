@@ -33,7 +33,6 @@
 // Frozen from the Quest 3S centre/mid/edge calibration on 2026-08-30:
 // full authority in the central third, deterministic fade to zero at 2/3.
 #define MERKABA_MUTATION_INNER_RADIUS (1.0 / 3.0)
-#define MERKABA_MUTATION_OUTER_RADIUS (2.0 / 3.0)
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_DEPTH_DISPARITY 0.5
 #define MERKABA_SURFACE_QUEUE_CAPACITY 1048576u
@@ -76,6 +75,7 @@ RWStructuredBuffer<uint> _M8CarveDispatchArgs;
 float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 float _MerkabaMaxUpdateDistance;
+float _MerkabaMutationOuterRadius;
 
 Texture2D<float4> gsDilatedDepth;
 
@@ -93,6 +93,7 @@ float3 _M8ScanCameraWorld;
 int3 _M8ScanCenterBlock;
 int _M8ScanBlockRadius;
 int _M8ScanBlockSide;
+float4 _M8ScanCoveragePlanes[8];
 
 uint M8ObservationFailureReason()
 {
@@ -232,10 +233,10 @@ float MerkabaMutationAttention(float3 worldSurface, float3 surfaceNormal,
     if (rayLength <= 0.001) return 0.0;
     float incidence = -dot(ray / rayLength, surfaceNormal);
     if (incidence < MERKABA_REVISION_MIN_INCIDENCE ||
-        radialPosition >= MERKABA_MUTATION_OUTER_RADIUS)
+        radialPosition >= _MerkabaMutationOuterRadius)
         return 0.0;
-    float transition = saturate((MERKABA_MUTATION_OUTER_RADIUS -
-        radialPosition) / (MERKABA_MUTATION_OUTER_RADIUS -
+    float transition = saturate((_MerkabaMutationOuterRadius -
+        radialPosition) / (_MerkabaMutationOuterRadius -
         MERKABA_MUTATION_INNER_RADIUS));
     return transition * transition * (3.0 - 2.0 * transition);
 }
@@ -1185,9 +1186,14 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
 
 uint M8ScanChildMask(int3 parentMin, int parentSpan)
 {
-    return MerkabaM8DistanceChildMask(parentMin, parentSpan,
+    uint support = MerkabaM8DistanceChildMask(parentMin, parentSpan,
         _MerkabaMaxUpdateDistance, _M8ScanCameraWorld, _MerkabaGridToWorld,
         _MerkabaWorldToGrid, MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
+    [unroll]
+    for (uint plane = 0u; plane < 8u; plane++)
+        support &= MerkabaM8KernelPlaneChildMask(parentMin, parentSpan,
+            _M8ScanCoveragePlanes[plane]);
+    return support;
 }
 
 groupshared uint gScanBlockRef;

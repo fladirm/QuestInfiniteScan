@@ -234,6 +234,136 @@ namespace Genesis.RoomScan.Tests
             Assert.That(intersectingChildren, Is.GreaterThan(0));
         }
 
+        [Test]
+        public void MutationCoverageGridPlanes_NeverRejectExactFrozenRayTube()
+        {
+            var random = new System.Random(0x5c1a);
+            var planes = new Vector4[MerkabaMutationCoverage.PlaneCount];
+            int accepted = 0;
+            for (int iteration = 0; iteration < 512; iteration++)
+            {
+                Quaternion rigRotation = Quaternion.Euler(
+                    RandomVector(random, -170f, 170f));
+                Vector3 rigPosition = RandomVector(random, -8f, 8f);
+                Vector3 eyeOffset = rigRotation * Vector3.right * 0.032f;
+                var views = new[]
+                {
+                    Matrix4x4.TRS(rigPosition - eyeOffset, rigRotation,
+                        Vector3.one).inverse,
+                    Matrix4x4.TRS(rigPosition + eyeOffset, rigRotation,
+                        Vector3.one).inverse
+                };
+                Matrix4x4 projection = Matrix4x4.Perspective(86f, 1.08f,
+                    0.05f, 8f);
+                var projections = new[] { projection, projection };
+                float scale = Mathf.Lerp(0.8f, 1.2f,
+                    (float)random.NextDouble());
+                Matrix4x4 gridToWorld = Matrix4x4.TRS(
+                    RandomVector(random, -5f, 5f),
+                    Quaternion.Euler(RandomVector(random, -180f, 180f)),
+                    Vector3.one * scale);
+                MerkabaMutationCoverage.WriteGridPlanes(views, projections,
+                    gridToWorld, planes);
+
+                float depth = Mathf.Lerp(0.6f, 4.5f,
+                    (float)random.NextDouble());
+                Vector3 localEndpoint = new(
+                    Mathf.Lerp(-0.28f, 0.28f,
+                        (float)random.NextDouble()) * depth,
+                    Mathf.Lerp(-0.28f, 0.28f,
+                        (float)random.NextDouble()) * depth,
+                    -depth);
+                Vector3 endpoint = rigPosition + rigRotation * localEndpoint;
+                if (!InsideExactOuterCoverage(endpoint, views, projections))
+                    continue;
+
+                Vector3 rayOrigin = (Vector3)views[0].inverse.GetColumn(3);
+                Vector3 ray = endpoint - rayOrigin;
+                float rayLength = ray.magnitude;
+                Vector3 rayDirection = ray / rayLength;
+                float along = Mathf.Lerp(0.15f, 0.82f,
+                    (float)random.NextDouble()) * rayLength;
+                Vector3 candidateWorld = rayOrigin + rayDirection * along;
+                Vector3 candidateGrid = gridToWorld.inverse.MultiplyPoint3x4(
+                    candidateWorld) / MerkabaConstants.LatticeStep;
+                int3 kernel = new(
+                    Mathf.RoundToInt(candidateGrid.x),
+                    Mathf.RoundToInt(candidateGrid.y),
+                    Mathf.RoundToInt(candidateGrid.z));
+                Vector3 kernelWorld = gridToWorld.MultiplyPoint3x4(
+                    (Vector3)(float3)kernel * MerkabaConstants.LatticeStep);
+                float kernelAlong = Vector3.Dot(kernelWorld - rayOrigin,
+                    rayDirection);
+                float perpendicular = Vector3.Distance(kernelWorld,
+                    rayOrigin + rayDirection * kernelAlong);
+                if (kernelAlong <= 0f ||
+                    kernelAlong >= rayLength - MerkabaConstants.HalfSupport ||
+                    perpendicular > MerkabaConstants.HalfSupport)
+                    continue;
+
+                foreach (int span in new[] { 16, 32, 64, 128, 256 })
+                {
+                    int3 parentMin = new(
+                        MerkabaConstants.FloorDiv(kernel.x, span) * span,
+                        MerkabaConstants.FloorDiv(kernel.y, span) * span,
+                        MerkabaConstants.FloorDiv(kernel.z, span) * span);
+                    uint child = (uint)((kernel.x - parentMin.x >= span / 2 ? 1 : 0) |
+                        (kernel.y - parentMin.y >= span / 2 ? 2 : 0) |
+                        (kernel.z - parentMin.z >= span / 2 ? 4 : 0));
+                    uint mask = MutationPlaneChildMask(parentMin, span, planes);
+                    Assert.That(mask & (1u << (int)child), Is.Not.Zero,
+                        $"iteration={iteration} span={span} kernel={kernel}");
+                }
+                accepted++;
+            }
+            Assert.That(accepted, Is.GreaterThan(300));
+        }
+
+        private static bool InsideExactOuterCoverage(Vector3 world,
+            Matrix4x4[] views, Matrix4x4[] projections)
+        {
+            for (int eye = 0; eye < 2; eye++)
+            {
+                Vector4 clip = projections[eye] * views[eye] *
+                    new Vector4(world.x, world.y, world.z, 1f);
+                if (clip.w <= 0f) return false;
+                float radial = Mathf.Max(Mathf.Abs(clip.x / clip.w),
+                    Mathf.Abs(clip.y / clip.w));
+                if (radial >= MerkabaConstants.MutationOuterRadius)
+                    return false;
+            }
+            return true;
+        }
+
+        private static uint MutationPlaneChildMask(int3 parentMin,
+            int parentSpan, Vector4[] planes)
+        {
+            uint mask = 255u;
+            int childSpan = parentSpan / 2;
+            Vector3 center = (Vector3)(float3)parentMin +
+                Vector3.one * ((parentSpan - 1) * 0.5f);
+            float offset = parentSpan * 0.25f;
+            float extent = (childSpan + 1) * 0.5f;
+            foreach (Vector4 plane in planes)
+            {
+                uint planeMask = 0u;
+                float radius = extent * (Mathf.Abs(plane.x) +
+                    Mathf.Abs(plane.y) + Mathf.Abs(plane.z));
+                for (uint child = 0u; child < 8u; child++)
+                {
+                    float score = Vector3.Dot((Vector3)plane, center) +
+                        plane.w +
+                        ((child & 1u) != 0u ? offset : -offset) * plane.x +
+                        ((child & 2u) != 0u ? offset : -offset) * plane.y +
+                        ((child & 4u) != 0u ? offset : -offset) * plane.z;
+                    if (score + radius >= 0f)
+                        planeMask |= 1u << (int)child;
+                }
+                mask &= planeMask;
+            }
+            return mask;
+        }
+
         private static Plane[] Frustum(Vector3 position, Quaternion rotation)
         {
             Matrix4x4 view = Matrix4x4.TRS(position, rotation,

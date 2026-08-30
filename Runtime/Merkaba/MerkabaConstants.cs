@@ -25,6 +25,7 @@ namespace Genesis.RoomScan
         public const int EvidenceConfidenceLimit =
             EvidenceConfirmationCount * SurfaceEvidenceScale;
         public const float FreeFullClearance = 3f * SupportSize;
+        public const float MutationOuterRadius = 2f / 3f;
         public const int MaximumColorConfidence = 65535;
         public const uint NeutralPackedColor = 0xffa0a0a0u;
         public const float MinimumSurfaceQuality = 0.25f;

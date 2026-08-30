@@ -70,6 +70,8 @@ namespace Genesis.RoomScan
         private int _lastCameraCopySlot = -1;
         private Task _cameraCopyRetirementTask = Task.CompletedTask;
         private readonly Vector4[] _exclusionPositions = new Vector4[64];
+        private readonly Vector4[] _scanCoveragePlanes =
+            new Vector4[MerkabaMutationCoverage.PlaneCount];
 
         public readonly List<Transform> ExclusionZones = new();
         public int IntegrationCount { get; private set; }
@@ -107,6 +109,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaWorldToGrid");
         private static readonly int MaxDistanceId =
             Shader.PropertyToID("_MerkabaMaxUpdateDistance");
+        private static readonly int MutationOuterRadiusId =
+            Shader.PropertyToID("_MerkabaMutationOuterRadius");
         private static readonly int ExclusionCountId =
             Shader.PropertyToID("_MerkabaExclusionCount");
         private static readonly int ExclusionHeadsId =
@@ -551,6 +555,13 @@ namespace Genesis.RoomScan
             compute.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
             compute.SetMatrix(WorldToGridId, _grid.GridToWorldMatrix.inverse);
             compute.SetFloat(MaxDistanceId, maxUpdateDistance);
+            compute.SetFloat(MutationOuterRadiusId,
+                MerkabaConstants.MutationOuterRadius);
+            MerkabaMutationCoverage.WriteGridPlanes(_depthCapture.View,
+                _depthCapture.Proj, _grid.GridToWorldMatrix,
+                _scanCoveragePlanes);
+            compute.SetVectorArray("_M8ScanCoveragePlanes",
+                _scanCoveragePlanes);
             ConfigureAttempt();
 
             int exclusionCount = Mathf.Min(ExclusionZones.Count,
