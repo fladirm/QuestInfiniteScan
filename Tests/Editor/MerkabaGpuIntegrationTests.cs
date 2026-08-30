@@ -119,7 +119,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers, Has.Length.EqualTo(36));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(625444440L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(625444508L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -311,8 +311,12 @@ namespace Genesis.RoomScan.Tests
                 "alongError <= MERKABA_SUPPORT_SIZE"));
             Assert.That(route, Does.Contain(
                 "MERKABA_SURFACE_ROUTE_UNRESOLVED"));
-            Assert.That(route, Does.Contain(
-                "incidence >= MERKABA_REVISION_MIN_INCIDENCE"));
+            Assert.That(route, Does.Contain("MerkabaMutationAttention"));
+            string attention = Slice(integration,
+                "float MerkabaMutationAttention",
+                "int MerkabaPackSurfaceRoute");
+            Assert.That(attention, Does.Contain(
+                "incidence < MERKABA_REVISION_MIN_INCIDENCE"));
             Assert.That(route, Does.Contain(
                 "targetCoord = revision ? nearestKernel : bestOwner"));
 
@@ -710,6 +714,109 @@ namespace Genesis.RoomScan.Tests
                          "M8_COUNTER_COLD_CARVE_TILES_REQUESTED"
                      })
                 Assert.That(reset, Does.Contain(counter), counter);
+        }
+
+        [Test]
+        public void DepthAttention_GatesRevisionAndFreeButNeverDiscovery()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_MUTATION_INNER_RADIUS (1.0 / 3.0)"));
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_MUTATION_OUTER_RADIUS (2.0 / 3.0)"));
+            string radial = Slice(integration,
+                "bool TryMerkabaDepthRadialPosition",
+                "float3 MerkabaDepthEyePosition");
+            Assert.That(radial, Does.Contain(
+                "for (uint eye = 0u; eye < 2u; eye++)"));
+            Assert.That(radial, Does.Contain("gsDepthProj[eye]"));
+            Assert.That(radial, Does.Contain("gsDepthView[eye]"));
+            Assert.That(radial, Does.Not.Contain("Camera"));
+
+            string route = Slice(integration, "int RouteSurfaceCandidate",
+                "float MerkabaFreeDistanceWeight");
+            int discovery = route.IndexOf(
+                "MERKABA_SURFACE_AUTHORITY_DISCOVERY",
+                StringComparison.Ordinal);
+            int attention = route.IndexOf("MerkabaMutationAttention",
+                StringComparison.Ordinal);
+            Assert.That(discovery, Is.GreaterThanOrEqualTo(0));
+            Assert.That(attention, Is.GreaterThan(discovery),
+                "Unknown-space discovery must not be gated by mutation attention.");
+            Assert.That(route, Does.Contain(
+                "revision ? MERKABA_SURFACE_AUTHORITY_REVISION"));
+            Assert.That(route, Does.Contain(
+                "MERKABA_SURFACE_AUTHORITY_SUPPORT"));
+
+            string observation = Slice(integration, "bool ObserveJointDepth",
+                "void FuseDepth");
+            Assert.That(observation, Does.Contain(
+                "attention <= 0.0"));
+            Assert.That(observation, Does.Contain(
+                "MerkabaFreeDistanceWeight(clearance) * attention"));
+            Assert.That(observation, Does.Contain(
+                "float kernelDistance = dot(worldPosition - rayOrigin, " +
+                "rayDirection)"));
+            Assert.That(observation.IndexOf("attention <= 0.0",
+                    StringComparison.Ordinal),
+                Is.LessThan(observation.IndexOf("kind = 1",
+                    StringComparison.Ordinal)),
+                "Outside the depth cone must be UNKNOWN before FREE exists.");
+
+            string carve = Slice(integration, "groupshared uint gCarveStats",
+                "void FinalizeObservation");
+            Assert.That(carve, Does.Contain(
+                "_M8TileBits[wordIndex].z & bit"));
+            Assert.That(carve, Does.Contain("observationKind = 2"));
+            Assert.That(carve, Does.Contain(
+                "M8_COUNTER_SAME_OBSERVATION_CONFLICT"));
+            int surfaceOverride = carve.IndexOf("observationKind = 2",
+                StringComparison.Ordinal);
+            int freeMutation = carve.IndexOf("if (observationKind == 1)",
+                surfaceOverride + 1, StringComparison.Ordinal);
+            Assert.That(surfaceOverride, Is.GreaterThanOrEqualTo(0));
+            Assert.That(freeMutation, Is.GreaterThan(surfaceOverride),
+                "Same-observation SURFACE must override FREE before mutation.");
+
+            string managed = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string configure = Slice(managed, "private void ConfigureObservation",
+                "private void ConfigureAttempt");
+            Assert.That(configure, Does.Contain(
+                "BindDepth(_resolveBlocksKernel)"),
+                "Owner routing reads the immutable joint depth and normal field.");
+        }
+
+        [Test]
+        public void MutationAuthorityTelemetry_IsAggregateAndAttemptOwned()
+        {
+            string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
+            string reset = Slice(
+                Source("Runtime/Shaders/MerkabaWorld.compute"),
+                "void ResetObservationCounters", "void ClearTouchedSurfaceCandidates");
+            string telemetry = Source(
+                "Runtime/Telemetry/MerkabaGpuTimestamps.cs");
+            foreach (string counter in new[]
+                     {
+                         "M8_COUNTER_JOINT_ACCEPTED_CENTER",
+                         "M8_COUNTER_JOINT_ACCEPTED_MID",
+                         "M8_COUNTER_JOINT_ACCEPTED_EDGE",
+                         "M8_COUNTER_AUTHORITY_DISCOVERY",
+                         "M8_COUNTER_AUTHORITY_SUPPORT",
+                         "M8_COUNTER_AUTHORITY_REVISION",
+                         "M8_COUNTER_OFF_AXIS_MUTATION_BLOCKED",
+                         "M8_COUNTER_SURFACE_REPLACEMENT",
+                         "M8_COUNTER_SAME_OBSERVATION_CONFLICT"
+                     })
+            {
+                Assert.That(world, Does.Contain(counter), counter);
+                Assert.That(reset, Does.Contain(counter), counter);
+            }
+            Assert.That(telemetry, Does.Contain("carveFreeRadial=["));
+            Assert.That(telemetry, Does.Contain("sameObservationConflict="));
+            Assert.That(telemetry, Does.Not.Contain(
+                "AsyncGPUReadback.Request(_mutation"));
         }
 
         [Test]

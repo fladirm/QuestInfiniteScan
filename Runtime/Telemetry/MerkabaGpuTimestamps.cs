@@ -108,6 +108,16 @@ namespace Genesis.RoomScan
             internal uint ReadoutBuildStatus;
             internal uint ObservationFailure;
             internal uint FailedObservations;
+            internal readonly uint[] CarveFreeRadial = new uint[8];
+            internal uint JointAcceptedCenter;
+            internal uint JointAcceptedMid;
+            internal uint JointAcceptedEdge;
+            internal uint AuthorityDiscovery;
+            internal uint AuthoritySupport;
+            internal uint AuthorityRevision;
+            internal uint OffAxisMutationBlocked;
+            internal uint SurfaceReplacement;
+            internal uint SameObservationConflict;
             internal float LoadBytesPerSecond;
             internal float WriteBytesPerSecond;
             internal float LoadLatencyP50Ms;
@@ -482,6 +492,27 @@ namespace Genesis.RoomScan
                     sample.ColdCarveTilesRequested = values[64];
                     sample.ReadoutUnresolved = values[50];
                     sample.ReadoutBuildStatus = values[71];
+                    for (int radialBin = 0; radialBin < 8; radialBin++)
+                        sample.CarveFreeRadial[radialBin] = values[
+                            MerkabaGrid.CounterCarveFreeRadialBase + radialBin];
+                    sample.JointAcceptedCenter = values[
+                        MerkabaGrid.CounterJointAcceptedCenter];
+                    sample.JointAcceptedMid = values[
+                        MerkabaGrid.CounterJointAcceptedMid];
+                    sample.JointAcceptedEdge = values[
+                        MerkabaGrid.CounterJointAcceptedEdge];
+                    sample.AuthorityDiscovery = values[
+                        MerkabaGrid.CounterAuthorityDiscovery];
+                    sample.AuthoritySupport = values[
+                        MerkabaGrid.CounterAuthoritySupport];
+                    sample.AuthorityRevision = values[
+                        MerkabaGrid.CounterAuthorityRevision];
+                    sample.OffAxisMutationBlocked = values[
+                        MerkabaGrid.CounterOffAxisMutationBlocked];
+                    sample.SurfaceReplacement = values[
+                        MerkabaGrid.CounterSurfaceReplacement];
+                    sample.SameObservationConflict = values[
+                        MerkabaGrid.CounterSameObservationConflict];
                 }
                 sample.PendingReadbacks--;
                 TryLogMetrics(sample);
@@ -678,6 +709,16 @@ namespace Genesis.RoomScan
                         $"evidenceDecrements={sample.CarveEvidenceDecrements} " +
                         $"occupiedToFreeTransitions={sample.CarveOccupiedToFree} " +
                         $"carveBitsRetired={sample.CarveBitsRetired} " +
+                        $"carveFreeRadial=[{string.Join(",", sample.CarveFreeRadial)}] " +
+                        $"jointAcceptedCenter={sample.JointAcceptedCenter} " +
+                        $"jointAcceptedMid={sample.JointAcceptedMid} " +
+                        $"jointAcceptedEdge={sample.JointAcceptedEdge} " +
+                        $"authorityDiscovery={sample.AuthorityDiscovery} " +
+                        $"authoritySupport={sample.AuthoritySupport} " +
+                        $"authorityRevision={sample.AuthorityRevision} " +
+                        $"offAxisMutationBlocked={sample.OffAxisMutationBlocked} " +
+                        $"surfaceReplacement={sample.SurfaceReplacement} " +
+                        $"sameObservationConflict={sample.SameObservationConflict} " +
                         $"coldCarveTilesRequested={sample.ColdCarveTilesRequested} " +
                         $"loadRequests={sample.LoadRequests} " +
                         $"loadBytesPerSecond={sample.LoadBytesPerSecond:F0} " +

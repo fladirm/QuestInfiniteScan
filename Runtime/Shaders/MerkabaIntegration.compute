@@ -28,6 +28,10 @@
 #define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 2560
 #define MERKABA_FREE_FULL_CLEARANCE 0.150
 #define MERKABA_REVISION_MIN_INCIDENCE 0.3
+// Frozen from the Quest 3S centre/mid/edge calibration on 2026-08-30:
+// full authority in the central third, deterministic fade to zero at 2/3.
+#define MERKABA_MUTATION_INNER_RADIUS (1.0 / 3.0)
+#define MERKABA_MUTATION_OUTER_RADIUS (2.0 / 3.0)
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_DEPTH_DISPARITY 0.5
 #define MERKABA_SURFACE_QUEUE_CAPACITY 1048576u
@@ -36,6 +40,15 @@
 #define MERKABA_SURFACE_ROUTE_VALID 1
 #define MERKABA_SURFACE_ROUTE_UNRESOLVED 2
 #define MERKABA_SURFACE_ROUTE_INVALID 3
+#define MERKABA_SURFACE_ROUTE_MASK 3
+#define MERKABA_SURFACE_AUTHORITY_SHIFT 2
+#define MERKABA_SURFACE_AUTHORITY_MASK 3
+#define MERKABA_SURFACE_AUTHORITY_NONE 0
+#define MERKABA_SURFACE_AUTHORITY_DISCOVERY 1
+#define MERKABA_SURFACE_AUTHORITY_SUPPORT 2
+#define MERKABA_SURFACE_AUTHORITY_REVISION 3
+#define MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED 16
+#define MERKABA_SURFACE_FLAG_REPLACEMENT 32
 
 RWStructuredBuffer<int4> _M8SurfaceCandidates;
 StructuredBuffer<int4> _M8SurfaceCandidatesRead;
@@ -193,6 +206,70 @@ bool TrySurfaceMeasurementAtKernel(int3 seedCoord, out uint2 pixel,
         surfaceNormal, quality);
 }
 
+bool TryMerkabaDepthRadialPosition(float3 worldPosition,
+    out float radialPosition)
+{
+    radialPosition = 0.0;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; eye++)
+    {
+        float4 hcs = mul(gsDepthProj[eye], mul(gsDepthView[eye],
+            float4(worldPosition, 1.0)));
+        if (hcs.w <= 0.0) return false;
+        float2 uv = gsDepthHCStoNDC(hcs).xy;
+        if (any(uv < 0.0) || any(uv > 1.0)) return false;
+        radialPosition = max(radialPosition,
+            max(abs(uv.x * 2.0 - 1.0), abs(uv.y * 2.0 - 1.0)));
+    }
+    return true;
+}
+
+float3 MerkabaDepthEyePosition(uint eye)
+{
+    return float3(gsDepthViewInv[eye][0][3],
+        gsDepthViewInv[eye][1][3], gsDepthViewInv[eye][2][3]);
+}
+
+float MerkabaMutationAttention(float3 worldSurface, float3 surfaceNormal,
+    out float radialPosition)
+{
+    if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
+        return 0.0;
+    float3 origin = (MerkabaDepthEyePosition(0u) +
+        MerkabaDepthEyePosition(1u)) * 0.5;
+    float3 ray = worldSurface - origin;
+    float rayLength = length(ray);
+    if (rayLength <= 0.001) return 0.0;
+    float incidence = -dot(ray / rayLength, surfaceNormal);
+    if (incidence < MERKABA_REVISION_MIN_INCIDENCE ||
+        radialPosition >= MERKABA_MUTATION_OUTER_RADIUS)
+        return 0.0;
+    float transition = saturate((MERKABA_MUTATION_OUTER_RADIUS -
+        radialPosition) / (MERKABA_MUTATION_OUTER_RADIUS -
+        MERKABA_MUTATION_INNER_RADIUS));
+    return transition * transition * (3.0 - 2.0 * transition);
+}
+
+int MerkabaPackSurfaceRoute(int route, int authority, bool offAxisBlocked,
+    bool replacement)
+{
+    return route |
+        (authority << MERKABA_SURFACE_AUTHORITY_SHIFT) |
+        (offAxisBlocked ? MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED : 0) |
+        (replacement ? MERKABA_SURFACE_FLAG_REPLACEMENT : 0);
+}
+
+int MerkabaSurfaceRoute(int packedRoute)
+{
+    return packedRoute & MERKABA_SURFACE_ROUTE_MASK;
+}
+
+int MerkabaSurfaceAuthority(int packedRoute)
+{
+    return (packedRoute >> MERKABA_SURFACE_AUTHORITY_SHIFT) &
+        MERKABA_SURFACE_AUTHORITY_MASK;
+}
+
 int3 MerkabaNearestNormalStep(float3 worldNormal)
 {
     float3 gridNormal = normalize(mul((float3x3)_MerkabaWorldToGrid,
@@ -318,13 +395,16 @@ int RouteSurfaceCandidate(int3 seedCoord, out int3 targetCoord)
     float quality;
     if (!TrySurfaceMeasurementAtKernel(seedCoord, pixel, worldSurface,
             nearestKernel, surfaceNormal, quality))
-        return MERKABA_SURFACE_ROUTE_INVALID;
+        return MerkabaPackSurfaceRoute(MERKABA_SURFACE_ROUTE_INVALID,
+            MERKABA_SURFACE_AUTHORITY_NONE, false, false);
 
-    float3 rayOrigin = gsDepthEyePos();
+    float3 rayOrigin = (MerkabaDepthEyePosition(0u) +
+        MerkabaDepthEyePosition(1u)) * 0.5;
     float3 ray = worldSurface - rayOrigin;
     float endpointDistance = length(ray);
     if (endpointDistance <= 0.001)
-        return MERKABA_SURFACE_ROUTE_INVALID;
+        return MerkabaPackSurfaceRoute(MERKABA_SURFACE_ROUTE_INVALID,
+            MERKABA_SURFACE_AUTHORITY_NONE, false, false);
     ray /= endpointDistance;
     int3 normalStep = MerkabaNearestNormalStep(surfaceNormal);
     MerkabaM8Address nearestAddress = MerkabaAddressOf(nearestKernel);
@@ -378,18 +458,26 @@ int RouteSurfaceCandidate(int3 seedCoord, out int3 targetCoord)
     if (unresolved)
     {
         targetCoord = unresolvedOwner;
-        return MERKABA_SURFACE_ROUTE_UNRESOLVED;
+        return MerkabaPackSurfaceRoute(MERKABA_SURFACE_ROUTE_UNRESOLVED,
+            MERKABA_SURFACE_AUTHORITY_NONE, false, false);
     }
     if (!foundOwner)
     {
         targetCoord = nearestKernel;
-        return MERKABA_SURFACE_ROUTE_VALID;
+        return MerkabaPackSurfaceRoute(MERKABA_SURFACE_ROUTE_VALID,
+            MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false);
     }
 
-    float incidence = saturate(-dot(ray, surfaceNormal));
-    bool revision = incidence >= MERKABA_REVISION_MIN_INCIDENCE;
+    float radialPosition;
+    float attention = MerkabaMutationAttention(worldSurface, surfaceNormal,
+        radialPosition);
+    bool revision = attention > 0.0;
     targetCoord = revision ? nearestKernel : bestOwner;
-    return MERKABA_SURFACE_ROUTE_VALID;
+    bool replacement = revision && any(nearestKernel != bestOwner);
+    return MerkabaPackSurfaceRoute(MERKABA_SURFACE_ROUTE_VALID,
+        revision ? MERKABA_SURFACE_AUTHORITY_REVISION :
+            MERKABA_SURFACE_AUTHORITY_SUPPORT,
+        !revision, replacement);
 }
 
 float MerkabaFreeDistanceWeight(float clearance)
@@ -399,11 +487,13 @@ float MerkabaFreeDistanceWeight(float clearance)
 }
 
 bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
-    out int kind, out float evidenceWeight, out int3 replacementCoord)
+    out int kind, out float evidenceWeight, out int3 replacementCoord,
+    out float radialPosition)
 {
     kind = 0;
     evidenceWeight = 0.0;
     replacementCoord = 0;
+    radialPosition = 2.0;
     float3 viewPosition = mul(gsDepthView[0],
         float4(worldPosition, 1.0)).xyz;
     if (viewPosition.z > -0.05) return false;
@@ -420,10 +510,21 @@ bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
             surfaceNormal, quality))
         return false;
 
-    float kernelDistance = distance(worldPosition, gsDepthEyePos());
-    float measuredDistance = distance(worldSurface, gsDepthEyePos());
+    float attention = MerkabaMutationAttention(worldSurface, surfaceNormal,
+        radialPosition);
+
+    float3 rayOrigin = (MerkabaDepthEyePosition(0u) +
+        MerkabaDepthEyePosition(1u)) * 0.5;
+    float3 measuredRay = worldSurface - rayOrigin;
+    float measuredDistance = length(measuredRay);
+    if (measuredDistance <= 0.001) return false;
+    float3 rayDirection = measuredRay / measuredDistance;
+    float kernelDistance = dot(worldPosition - rayOrigin, rayDirection);
+    if (kernelDistance <= 0.0) return false;
     float clearance = measuredDistance - kernelDistance;
     replacementCoord = surfaceKernel;
+    if (attention <= 0.0)
+        return false;
     if (all(globalCoord == surfaceKernel))
     {
         kind = 2;
@@ -439,7 +540,7 @@ bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
             return false;
         kind = 1;
         evidenceWeight = quality * quality *
-            MerkabaFreeDistanceWeight(clearance);
+            MerkabaFreeDistanceWeight(clearance) * attention;
     }
     else
         return false;
@@ -450,10 +551,11 @@ bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
 }
 
 void FuseDepth(int3 globalCoord, float3 worldPosition, out int kind,
-    out float evidenceWeight, out int3 replacementCoord)
+    out float evidenceWeight, out int3 replacementCoord,
+    out float radialPosition)
 {
     ObserveJointDepth(globalCoord, worldPosition, kind, evidenceWeight,
-        replacementCoord);
+        replacementCoord, radialPosition);
 }
 
 bool M8TryOccupiedExactForCarve(int3 globalCoord, out bool occupied)
@@ -543,19 +645,45 @@ void AppendSurfaceCandidate(int3 globalCoord)
         _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] = 1u;
 }
 
+groupshared uint gJointAcceptedRadial[3];
+
 [numthreads(8, 8, 1)]
-void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID)
+void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID,
+    uint thread : SV_GroupIndex)
 {
-    if (id.x >= gsDepthTexSize.x || id.y >= gsDepthTexSize.y)
-        return;
-    float3 worldSurface;
-    int3 surfaceKernel;
-    float3 surfaceNormal;
-    float quality;
-    if (!TrySurfaceMeasurement(id.xy, worldSurface, surfaceKernel,
-            surfaceNormal, quality))
-        return;
-    AppendSurfaceCandidate(surfaceKernel);
+    if (thread < 3u) gJointAcceptedRadial[thread] = 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (id.x < gsDepthTexSize.x && id.y < gsDepthTexSize.y)
+    {
+        float3 worldSurface;
+        int3 surfaceKernel;
+        float3 surfaceNormal;
+        float quality;
+        if (TrySurfaceMeasurement(id.xy, worldSurface, surfaceKernel,
+                surfaceNormal, quality))
+        {
+            float radialPosition;
+            if (TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
+            {
+                uint radialBand = radialPosition < (1.0 / 3.0) ? 0u :
+                    (radialPosition < (2.0 / 3.0) ? 1u : 2u);
+                uint ignored;
+                InterlockedAdd(gJointAcceptedRadial[radialBand], 1u,
+                    ignored);
+            }
+            AppendSurfaceCandidate(surfaceKernel);
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    if (thread < 3u && gJointAcceptedRadial[thread] != 0u)
+    {
+        uint ignored;
+        InterlockedAdd(
+            _M8Counters[M8_COUNTER_JOINT_ACCEPTED_CENTER + thread],
+            gJointAcceptedRadial[thread], ignored);
+    }
 }
 
 [numthreads(1, 1, 1)]
@@ -615,7 +743,8 @@ bool CandidateAt(uint id, out MerkabaM8Address address)
     }
     int4 candidate = _M8SurfaceCandidatesRead[id];
     address = MerkabaAddressOf(candidate.xyz);
-    return candidate.w == MERKABA_SURFACE_ROUTE_VALID;
+    return MerkabaSurfaceRoute(candidate.w) ==
+        MERKABA_SURFACE_ROUTE_VALID;
 }
 
 [numthreads(64, 1, 1)]
@@ -629,7 +758,7 @@ void ResolveSurfaceBlocks(uint id : SV_DispatchThreadID)
     int route = RouteSurfaceCandidate(_M8SurfaceCandidates[id].xyz,
         targetCoord);
     _M8SurfaceCandidates[id] = int4(targetCoord, route);
-    if (route != MERKABA_SURFACE_ROUTE_VALID) return;
+    if (MerkabaSurfaceRoute(route) != MERKABA_SURFACE_ROUTE_VALID) return;
     MerkabaM8Address address = MerkabaAddressOf(targetCoord);
     uint blockIndex = 0u;
     uint failureReason = 0u;
@@ -729,13 +858,14 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
         MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
     if (id >= candidateCount) return;
     int4 candidate = _M8SurfaceCandidatesRead[id];
-    if (candidate.w == MERKABA_SURFACE_ROUTE_UNRESOLVED)
+    int route = MerkabaSurfaceRoute(candidate.w);
+    if (route == MERKABA_SURFACE_ROUTE_UNRESOLVED)
     {
         RequestSurfaceOwnerLoad(candidate.xyz);
         M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
         return;
     }
-    if (candidate.w != MERKABA_SURFACE_ROUTE_VALID) return;
+    if (route != MERKABA_SURFACE_ROUTE_VALID) return;
     MerkabaM8Address address = MerkabaAddressOf(candidate.xyz);
     uint blockIndex = 0u;
     if (!M8FindBlock(address.blockCoord, blockIndex))
@@ -769,6 +899,18 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
     uint previous;
     InterlockedOr(_M8TileBits[wordIndex].z, bit, previous);
     if ((previous & bit) != 0u) return;
+
+    int authority = MerkabaSurfaceAuthority(candidate.w);
+    if (authority == MERKABA_SURFACE_AUTHORITY_DISCOVERY)
+        M8CounterIncrement(M8_COUNTER_AUTHORITY_DISCOVERY);
+    else if (authority == MERKABA_SURFACE_AUTHORITY_SUPPORT)
+        M8CounterIncrement(M8_COUNTER_AUTHORITY_SUPPORT);
+    else if (authority == MERKABA_SURFACE_AUTHORITY_REVISION)
+        M8CounterIncrement(M8_COUNTER_AUTHORITY_REVISION);
+    if ((candidate.w & MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED) != 0)
+        M8CounterIncrement(M8_COUNTER_OFF_AXIS_MUTATION_BLOCKED);
+    if ((candidate.w & MERKABA_SURFACE_FLAG_REPLACEMENT) != 0)
+        M8CounterIncrement(M8_COUNTER_SURFACE_REPLACEMENT);
 
     uint touchedBefore;
     InterlockedCompareExchange(
@@ -1022,7 +1164,7 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
     _M8CarveDispatchArgs[2] = 1u;
 }
 
-groupshared uint gCarveStats[7];
+groupshared uint gCarveStats[16];
 
 bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
 {
@@ -1052,7 +1194,7 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     uint kernelLocal = groupId.y * 64u + thread;
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
     uint bit = 1u << (kernelLocal & 31u);
-    if (thread < 7u) gCarveStats[thread] = 0u;
+    if (thread < 16u) gCarveStats[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();
 
     if ((_M8TileBits[wordIndex].y & bit) != 0u)
@@ -1083,13 +1225,27 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
             int observationKind = 0;
             float evidenceWeight = 0.0;
             int3 replacementCoord = 0;
+            float radialPosition = 2.0;
             if (!IsExcluded(worldPosition))
                 FuseDepth(globalCoord, worldPosition, observationKind,
-                    evidenceWeight, replacementCoord);
+                    evidenceWeight, replacementCoord, radialPosition);
+
+            bool currentSurfaceCandidate =
+                (_M8TileBits[wordIndex].z & bit) != 0u;
+            if (currentSurfaceCandidate)
+            {
+                if (observationKind == 1)
+                    InterlockedAdd(gCarveStats[15], 1u, ignored);
+                observationKind = 2;
+                evidenceWeight = 0.0;
+            }
 
             if (observationKind == 1)
             {
                 InterlockedAdd(gCarveStats[1], 1u, ignored);
+                uint radialBin = min(7u,
+                    (uint)floor(saturate(radialPosition) * 8.0));
+                InterlockedAdd(gCarveStats[7u + radialBin], 1u, ignored);
                 int evidenceBefore = state.evidence;
                 int decrement = max(1, (int)round(evidenceWeight *
                     MERKABA_FREE_SCALE));
@@ -1150,6 +1306,12 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
         FlushCarveStat(M8_COUNTER_CARVE_EVIDENCE_DECREMENTS, gCarveStats[4]);
         FlushCarveStat(M8_COUNTER_CARVE_OCCUPIED_TO_FREE, gCarveStats[5]);
         FlushCarveStat(M8_COUNTER_CARVE_BITS_RETIRED, gCarveStats[6]);
+        [unroll]
+        for (uint radialBin = 0u; radialBin < 8u; radialBin++)
+            FlushCarveStat(M8_COUNTER_CARVE_FREE_RADIAL_0 + radialBin,
+                gCarveStats[7u + radialBin]);
+        FlushCarveStat(M8_COUNTER_SAME_OBSERVATION_CONFLICT,
+            gCarveStats[15]);
     }
 }
 

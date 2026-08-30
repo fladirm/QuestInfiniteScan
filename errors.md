@@ -166,6 +166,33 @@ with q-squared convergence, clearance weighting, hysteresis and replacement
 continuity. S2/S3 may change mutation permission but must not change these
 evidence constants or collapse the hysteretic state to a direct bit toggle.
 
+### M8-5 — measurement validity implicitly granted mutation authority
+[FIXED IN S2/S3, DEVICE PENDING]
+
+A mandatory four-stream hit previously had one undifferentiated right to
+allocate, reinforce, replace and FREE canonical geometry. A peripheral or
+grazing but otherwise valid hit could therefore create a neighbouring normal
+layer while CARVE weakened the prior owner. S2 now routes one joint hit as
+DISCOVERY, SUPPORT or REVISION against only `K`, `K+normalStep` and
+`K-normalStep`. S3 preserves full-common-FOV DISCOVERY but permits replacement
+and FREE only inside a depth-projection attention region with non-degenerate
+incidence. These authority classes remain attempt-local control data; they are
+not persisted and do not alter `KernelState`, evidence scales or hysteresis.
+The Quest 3S calibration used 29 samples / 110,677 pre-gate FREE candidates
+with radial bins `[4100,20892,31902,22520,19024,12099,140,0]`; it freezes full
+authority inside radius `1/3` and a smooth transition to exact zero at `2/3`.
+
+### M8-6 — owner routing read unbound joint depth resources
+[FIXED IN S3, DEVICE PENDING]
+
+S2 moved deterministic owner routing into `ResolveSurfaceBlocks`, where it
+reprojects the candidate through the immutable joint depth/normal field.
+`MerkabaIntegrator.ConfigureObservation()` initially bound those textures only
+to DISCOVER and canonical mutation kernels. The resolve kernel now receives
+the same owned depth, normal and dilation resources before its first dispatch;
+the Quest SPIR-V resource audit remains at no more than eight writable storage
+bindings per kernel.
+
 ## Performance facts and remaining measurement gaps
 
 ### PERF-1 — depth preprocessing is not the dominant measured GPU load [FACT]

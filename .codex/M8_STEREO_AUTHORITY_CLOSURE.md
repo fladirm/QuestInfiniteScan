@@ -343,6 +343,21 @@ inner..outer transition smooth deterministic falloff
 outside outer cone      attentionWeight = 0 and classification is UNKNOWN
 ```
 
+Quest 3S calibration on 2026-08-30 froze:
+
+```text
+normalized radius       max L-infinity radius in both depth projections
+inner radius            1/3
+outer radius            2/3
+FREE calibration bins   [4100,20892,31902,22520,19024,12099,140,0]
+samples / candidates    29 / 110677
+evidence                DeviceEvidence/s3_attention_calibration_20260830_1319
+```
+
+The inner third is full-authority central depth. The middle third is the
+deterministic smooth transition. The outer third has exactly zero revision or
+FREE authority while remaining available to DISCOVERY.
+
 REVISION requires:
 
 ```text

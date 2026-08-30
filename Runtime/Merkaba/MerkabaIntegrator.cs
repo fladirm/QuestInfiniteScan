@@ -532,6 +532,7 @@ namespace Genesis.RoomScan
             compute.SetVectorArray(ExclusionHeadsId, _exclusionPositions);
 
             BindDepth(_discoverKernel);
+            BindDepth(_resolveBlocksKernel);
             BindDepth(_integrateSurfaceKernel);
             BindDepth(_integrateCarveKernel);
             BindCamera(_integrateSurfaceKernel);
