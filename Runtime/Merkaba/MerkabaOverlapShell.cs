@@ -393,16 +393,16 @@ namespace Genesis.RoomScan
             return output.ToString();
         }
 
-        private const string GeneratedHlslPrefix = @"// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.
-#ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
-#define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
+        private static readonly string GeneratedHlslPrefix = @"// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.
+__HASH__ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
+__HASH__define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
 
-#include ""MerkabaSurfaceOrientation.generated.hlsl""
+__HASH__include ""MerkabaSurfaceOrientation.generated.hlsl""
 
-#define M8_OVERLAP_TRIANGLES_PER_PATCH 2u
-#define M8_OVERLAP_MAX_CONTRIBUTORS 12u
-#define M8_OVERLAP_NEIGHBOUR_COUNT 26u
-#define M8_OVERLAP_PATCH_HALF_EXTENT 0.025
+__HASH__define M8_OVERLAP_TRIANGLES_PER_PATCH 2u
+__HASH__define M8_OVERLAP_MAX_CONTRIBUTORS 12u
+__HASH__define M8_OVERLAP_NEIGHBOUR_COUNT 26u
+__HASH__define M8_OVERLAP_PATCH_HALF_EXTENT 0.025
 
 struct M8OverlapCorner
 {
@@ -437,9 +437,9 @@ void M8OverlapTangentBasis(uint normalIndex, out float3 normal,
 int3 M8OverlapNeighbourOffset(uint index)
 {
     int3 value = int3(1, 1, 1);
-";
+".Replace("__HASH__", "#");
 
-        private const string GeneratedHlslSuffix = @"    return value;
+        private static readonly string GeneratedHlslSuffix = @"    return value;
 }
 
 bool M8OverlapDonorContainsCorner(int3 offset, float3 cornerInSteps,
@@ -576,8 +576,8 @@ uint M8OverlapTriangleCorner(uint vertex)
     return index;
 }
 
-#endif
-";
+__HASH__endif
+".Replace("__HASH__", "#");
 #endif
     }
 }
