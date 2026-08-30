@@ -236,7 +236,7 @@ namespace Genesis.RoomScan
                 _m8LoadRequestReadCount = Allocate(1, sizeof(uint));
                 _m8SurfaceCandidates = Allocate(SurfaceCandidateCapacity, 16);
                 _m8SurfaceQueue = Allocate(SurfaceQueueCapacity,
-                    sizeof(uint) * 2);
+                    sizeof(uint));
                 _m8TouchedTileQueue = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8CarveTiles = Allocate(MerkabaSpatial.PhysicalTileCapacity,

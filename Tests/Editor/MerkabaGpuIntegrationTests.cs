@@ -243,7 +243,8 @@ namespace Genesis.RoomScan.Tests
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             Assert.That(integration, Does.Contain(
-                "MerkabaAddressOf(_M8SurfaceCandidatesRead[id].xyz)"));
+                "MerkabaAddressOf(candidate.xyz)"));
+            Assert.That(integration, Does.Contain("RouteSurfaceCandidate"));
             Assert.That(integration, Does.Contain("M8FindOrClaimBlock"));
             Assert.That(integration, Does.Contain("M8FindOrClaimChunk"));
             Assert.That(integration, Does.Not.Contain("FindIntegrationPage"));
@@ -272,7 +273,7 @@ namespace Genesis.RoomScan.Tests
                 "void DiscoverSurfaceCandidates", "void PrepareResolveArgs");
             Assert.That(discover, Does.Contain("TrySurfaceMeasurement"));
             Assert.That(discover, Does.Contain(
-                "AppendSurfaceCandidate(surfaceKernel, packedMeasurement)"));
+                "AppendSurfaceCandidate(surfaceKernel)"));
             Assert.That(discover, Does.Not.Contain("for (int layer"));
             Assert.That(discover, Does.Not.Contain("nearest - stepCoord"));
             Assert.That(discover, Does.Not.Contain("nearest + stepCoord"));
@@ -280,9 +281,62 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Contain(
                 "all(globalCoord == surfaceKernel)"));
             Assert.That(integration, Does.Contain(
-                "RWStructuredBuffer<uint2> _M8SurfaceQueue"));
+                "RWStructuredBuffer<uint> _M8SurfaceQueue"));
             Assert.That(Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),
-                Does.Contain("sizeof(uint) * 2"));
+                Does.Contain("_m8SurfaceQueue = Allocate(SurfaceQueueCapacity,\n" +
+                    "                    sizeof(uint));"));
+            Assert.That(integration, Does.Not.Contain(
+                "PackSurfaceMeasurement"));
+            Assert.That(integration, Does.Not.Contain(
+                "UnpackSurfaceMeasurement"));
+        }
+
+        [Test]
+        public void SurfaceOwnership_RoutesOnlyNormalLayersAndColdIsUnresolved()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string route = Slice(integration, "int RouteSurfaceCandidate",
+                "float MerkabaFreeDistanceWeight");
+            string compatibility = Slice(integration,
+                "bool MerkabaOwnerCompatible", "int RouteSurfaceCandidate");
+            Assert.That(route, Does.Contain(
+                "nearestKernel + normalStep"));
+            Assert.That(route, Does.Contain(
+                "nearestKernel - normalStep"));
+            Assert.That(route, Does.Not.Contain("26"));
+            Assert.That(compatibility, Does.Contain(
+                "perpendicularError <= MERKABA_HALF_SUPPORT"));
+            Assert.That(compatibility, Does.Contain(
+                "alongError <= MERKABA_SUPPORT_SIZE"));
+            Assert.That(route, Does.Contain(
+                "MERKABA_SURFACE_ROUTE_UNRESOLVED"));
+            Assert.That(route, Does.Contain(
+                "incidence >= MERKABA_REVISION_MIN_INCIDENCE"));
+            Assert.That(route, Does.Contain(
+                "targetCoord = revision ? nearestKernel : bestOwner"));
+
+            string resolve = Slice(integration, "void ResolveSurfaceBlocks",
+                "void ResolveSurfaceChunks");
+            Assert.That(resolve, Does.Contain("RouteSurfaceCandidate"));
+            Assert.That(resolve, Does.Contain(
+                "_M8SurfaceCandidates[id] = int4(targetCoord, route)"));
+            string queue = Slice(integration,
+                "void QueueResolvedSurfaceCandidates",
+                "void RetryPendingNewTiles");
+            Assert.That(queue, Does.Contain("RequestSurfaceOwnerLoad"));
+            Assert.That(queue, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_SURFACE_TILES"));
+            Assert.That(queue, Does.Contain(
+                "_M8SurfaceQueue[queueIndex] = key"));
+            Assert.That(queue, Does.Not.Contain("_M8SurfaceCandidatesRead[id].w"));
+
+            string integrate = Slice(integration,
+                "void IntegrateSurfaceCandidates", "uint M8ScanChildMask");
+            Assert.That(integrate, Does.Contain(
+                "TrySurfaceMeasurementAtKernel(globalCoord"));
+            Assert.That(integrate, Does.Not.Contain("sourceEye"));
+            Assert.That(integrate, Does.Not.Contain("packedMeasurement"));
         }
 
         [Test]

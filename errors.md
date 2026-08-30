@@ -147,15 +147,15 @@ hit. There is no depth-only SURFACE commit path and muted magenta remains only
 a presentation fallback for historical payload.
 
 ### M8-3 — color was resampled at the lattice centre, not the validated hit
-[FIXED, DEVICE PENDING]
+[SUPERSEDED BY S2 DETERMINISTIC OWNER REPROJECTION]
 
-The refine kernel validates PCA color at the reconstructed depth hit, but the
-integration kernel later projects and samples the rounded/offset canonical
-kernel centre again. The two positions can differ by 25 mm. This allows color
-coverage and edge correspondence proven for the hit to be lost at integration.
-The surface queue now carries the packed source measurement beside the physical
-kernel key. Canonical RGB is sampled from the reconstructed source hit, while
-the rounded coordinate remains the only canonical spatial owner.
+The temporary packed source-pixel queue reintroduced GPU first-invocation
+authority when multiple pixels mapped to the same kernel. S2 removes all packed
+source data: the queue is one 32-bit canonical key and integration reprojects
+that key into the immutable joint observation. Compatible occupied owners are
+searched only at K/K+normal/K-normal with ray-perpendicular `<=25 mm` and
+along-ray `<=50 mm`; tangential wall growth remains discovery. Any compatible
+non-HOT logical tile holds the same observation unresolved until loaded.
 
 ### M8-4 — old positive evidence could become practically irreversible
 [SUPERSEDED BY 01fd188 HYSTERETIC CONTRACT]

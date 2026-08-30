@@ -19,6 +19,7 @@
 #include "MerkabaWorld.hlsl"
 
 #define MERKABA_LATTICE_STEP 0.025
+#define MERKABA_SUPPORT_SIZE 0.050
 #define MERKABA_HALF_SUPPORT 0.025
 #define MERKABA_OCCUPIED_ON 512
 #define MERKABA_OCCUPIED_OFF 128
@@ -26,15 +27,20 @@
 #define MERKABA_FREE_SCALE 256.0
 #define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 2560
 #define MERKABA_FREE_FULL_CLEARANCE 0.150
+#define MERKABA_REVISION_MIN_INCIDENCE 0.3
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_DEPTH_DISPARITY 0.5
 #define MERKABA_SURFACE_QUEUE_CAPACITY 1048576u
 #define MERKABA_MEASUREMENT_PIXEL_MASK 0x00000fffu
+#define MERKABA_SURFACE_ROUTE_UNROUTED 0
+#define MERKABA_SURFACE_ROUTE_VALID 1
+#define MERKABA_SURFACE_ROUTE_UNRESOLVED 2
+#define MERKABA_SURFACE_ROUTE_INVALID 3
 
 RWStructuredBuffer<int4> _M8SurfaceCandidates;
 StructuredBuffer<int4> _M8SurfaceCandidatesRead;
-RWStructuredBuffer<uint2> _M8SurfaceQueue;
-StructuredBuffer<uint2> _M8SurfaceQueueRead;
+RWStructuredBuffer<uint> _M8SurfaceQueue;
+StructuredBuffer<uint> _M8SurfaceQueueRead;
 RWStructuredBuffer<uint> _M8TouchedTileQueue;
 RWStructuredBuffer<uint> _M8CarveTiles;
 StructuredBuffer<uint> _M8CarveTilesRead;
@@ -114,23 +120,6 @@ bool IsExcluded(float3 worldPosition)
     return false;
 }
 
-uint PackSurfaceMeasurement(uint2 pixel, float quality)
-{
-    uint quality7 = (uint)clamp(round(saturate(quality) * 127.0), 1.0,
-        127.0);
-    return (pixel.x & MERKABA_MEASUREMENT_PIXEL_MASK) |
-        ((pixel.y & MERKABA_MEASUREMENT_PIXEL_MASK) << 12u) |
-        (quality7 << 25u);
-}
-
-void UnpackSurfaceMeasurement(uint packed, out uint2 pixel,
-    out float quality)
-{
-    pixel.x = packed & MERKABA_MEASUREMENT_PIXEL_MASK;
-    pixel.y = (packed >> 12u) & MERKABA_MEASUREMENT_PIXEL_MASK;
-    quality = (float)((packed >> 25u) & 127u) / 127.0;
-}
-
 int MerkabaRoundNearest(float value)
 {
     return value >= 0.0 ? (int)floor(value + 0.5) : (int)ceil(value - 0.5);
@@ -144,12 +133,12 @@ int3 MerkabaNearestKernel(float3 gridPosition)
 }
 
 bool TrySurfaceMeasurement(uint2 pixel, out float3 worldSurface,
-    out int3 surfaceKernel, out float quality, out uint packedMeasurement)
+    out int3 surfaceKernel, out float3 surfaceNormal, out float quality)
 {
     worldSurface = 0.0;
     surfaceKernel = 0;
+    surfaceNormal = 0.0;
     quality = 0.0;
-    packedMeasurement = 0u;
     if (any(pixel >= gsDepthTexSize) || pixel.x >
         MERKABA_MEASUREMENT_PIXEL_MASK || pixel.y >
         MERKABA_MEASUREMENT_PIXEL_MASK)
@@ -166,10 +155,10 @@ bool TrySurfaceMeasurement(uint2 pixel, out float3 worldSurface,
     if (measuredDistance <= 0.05 ||
         measuredDistance > _MerkabaMaxUpdateDistance)
         return false;
-    float3 depthNormal = gsDepthNormalTex.Load(
+    surfaceNormal = gsDepthNormalTex.Load(
         int3(pixel, 0)).xyz;
-    if (dot(depthNormal, depthNormal) < 0.25) return false;
-    float normalFacing = -dot(eyeToSurface, depthNormal) / measuredDistance;
+    if (dot(surfaceNormal, surfaceNormal) < 0.25) return false;
+    float normalFacing = -dot(eyeToSurface, surfaceNormal) / measuredDistance;
 
     float distanceFactor = saturate(1.0 - measuredDistance /
         _MerkabaMaxUpdateDistance);
@@ -178,8 +167,229 @@ bool TrySurfaceMeasurement(uint2 pixel, out float3 worldSurface,
     float3 gridSurface = mul(_MerkabaWorldToGrid,
         float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
     surfaceKernel = MerkabaNearestKernel(gridSurface);
-    packedMeasurement = PackSurfaceMeasurement(pixel, quality);
     return true;
+}
+
+bool TrySurfaceMeasurementAtKernel(int3 seedCoord, out uint2 pixel,
+    out float3 worldSurface, out int3 nearestKernel,
+    out float3 surfaceNormal, out float quality)
+{
+    pixel = 0u;
+    worldSurface = 0.0;
+    nearestKernel = 0;
+    surfaceNormal = 0.0;
+    quality = 0.0;
+    float3 seedWorld = mul(_MerkabaGridToWorld,
+        float4((float3)seedCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    float3 viewPosition = mul(gsDepthView[0],
+        float4(seedWorld, 1.0)).xyz;
+    if (viewPosition.z > -0.05) return false;
+    float3 ndc = gsDepthWorldToNDC(seedWorld);
+    if (ndc.x < 0.0 || ndc.x > 1.0 || ndc.y < 0.0 || ndc.y > 1.0)
+        return false;
+    pixel = min((uint2)(ndc.xy * (float2)gsDepthTexSize),
+        gsDepthTexSize - 1u);
+    return TrySurfaceMeasurement(pixel, worldSurface, nearestKernel,
+        surfaceNormal, quality);
+}
+
+int3 MerkabaNearestNormalStep(float3 worldNormal)
+{
+    float3 gridNormal = normalize(mul((float3x3)_MerkabaWorldToGrid,
+        worldNormal));
+    float3 magnitude = abs(gridNormal);
+    int3 direction = int3(gridNormal.x >= 0.0 ? 1 : -1,
+        gridNormal.y >= 0.0 ? 1 : -1,
+        gridNormal.z >= 0.0 ? 1 : -1);
+
+    float axisScore = max(magnitude.x, max(magnitude.y, magnitude.z));
+    float3 faceScores = float3(magnitude.x + magnitude.y,
+        magnitude.x + magnitude.z, magnitude.y + magnitude.z) *
+        0.70710678118;
+    float faceScore = max(faceScores.x, max(faceScores.y, faceScores.z));
+    float bodyScore = (magnitude.x + magnitude.y + magnitude.z) *
+        0.57735026919;
+
+    if (axisScore >= faceScore && axisScore >= bodyScore)
+    {
+        if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z)
+            return int3(direction.x, 0, 0);
+        if (magnitude.y >= magnitude.z)
+            return int3(0, direction.y, 0);
+        return int3(0, 0, direction.z);
+    }
+    if (faceScore >= bodyScore)
+    {
+        if (faceScores.x >= faceScores.y && faceScores.x >= faceScores.z)
+            return int3(direction.x, direction.y, 0);
+        if (faceScores.y >= faceScores.z)
+            return int3(direction.x, 0, direction.z);
+        return int3(0, direction.y, direction.z);
+    }
+    return direction;
+}
+
+bool M8FindSurfaceBlock(int3 blockCoord, out uint blockIndex)
+{
+    blockIndex = 0u;
+    uint2 buckets = MerkabaHashBucketSearchOrder(blockCoord);
+    [unroll]
+    for (uint bucketOrder = 0u; bucketOrder < 2u; bucketOrder++)
+    {
+        uint bucket = bucketOrder == 0u ? buckets.x : buckets.y;
+        [unroll]
+        for (uint slot = 0u; slot < MERKABA_M8_HASH_SLOTS_PER_BUCKET; slot++)
+        {
+            M8HashEntry entry = _M8HashEntries[
+                M8HashEntryIndex(bucket, slot)];
+            if (entry.blockRef != MERKABA_REF_EMPTY &&
+                entry.blockRef != MERKABA_REF_CLAIMED_NEW &&
+                all(entry.blockCoord == blockCoord))
+            {
+                blockIndex = entry.blockRef - 1u;
+                return blockIndex < MERKABA_M8_BLOCK_CAPACITY;
+            }
+        }
+    }
+    return false;
+}
+
+int M8InspectSurfaceOwner(int3 globalCoord,
+    MerkabaM8Address nearestAddress, bool nearestBlockReady,
+    uint nearestBlockIndex, out bool occupied)
+{
+    occupied = false;
+    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
+    bool sameBlock = all(address.blockCoord == nearestAddress.blockCoord);
+    uint blockIndex = nearestBlockIndex;
+    if (sameBlock)
+    {
+        if (!nearestBlockReady) return 0;
+    }
+    else if (!M8FindSurfaceBlock(address.blockCoord, blockIndex)) return 0;
+    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
+        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
+    if (chunkRef == MERKABA_REF_EMPTY) return 0;
+    if (chunkRef == MERKABA_REF_CLAIMED_NEW) return 2;
+    uint chunkIndex = chunkRef - 1u;
+    if (chunkIndex >= MERKABA_M8_CHUNK_CAPACITY) return 2;
+    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
+        address.tileLocal;
+    uint tileRef = _M8ChunkTileRefsRead[tileRefIndex];
+    if (tileRef == MERKABA_REF_EMPTY) return 0;
+    if (!M8IsHotRef(tileRef)) return 2;
+    uint physicalSlot = M8PhysicalSlot(tileRef);
+    uint word = M8TileWordIndex(physicalSlot, address.kernelLocal >> 5u);
+    occupied = (_M8TileBitsRead[word].x &
+        (1u << (address.kernelLocal & 31u))) != 0u;
+    return occupied ? 1 : 0;
+}
+
+bool MerkabaOwnerCompatible(int3 ownerCoord, float3 rayOrigin,
+    float3 rayDirection, float endpointDistance, out float alongError,
+    out float perpendicularError)
+{
+    float3 ownerWorld = mul(_MerkabaGridToWorld,
+        float4((float3)ownerCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    float3 originToOwner = ownerWorld - rayOrigin;
+    float ownerDistance = dot(originToOwner, rayDirection);
+    float3 closestOnRay = rayOrigin + rayDirection * ownerDistance;
+    alongError = abs(endpointDistance - ownerDistance);
+    perpendicularError = distance(ownerWorld, closestOnRay);
+    return ownerDistance > 0.0 &&
+        alongError <= MERKABA_SUPPORT_SIZE &&
+        perpendicularError <= MERKABA_HALF_SUPPORT;
+}
+
+bool MerkabaLexicographicallyLess(int3 left, int3 right)
+{
+    return left.x < right.x ||
+        (left.x == right.x && (left.y < right.y ||
+        (left.y == right.y && left.z < right.z)));
+}
+
+int RouteSurfaceCandidate(int3 seedCoord, out int3 targetCoord)
+{
+    targetCoord = seedCoord;
+    uint2 pixel;
+    float3 worldSurface;
+    int3 nearestKernel;
+    float3 surfaceNormal;
+    float quality;
+    if (!TrySurfaceMeasurementAtKernel(seedCoord, pixel, worldSurface,
+            nearestKernel, surfaceNormal, quality))
+        return MERKABA_SURFACE_ROUTE_INVALID;
+
+    float3 rayOrigin = gsDepthEyePos();
+    float3 ray = worldSurface - rayOrigin;
+    float endpointDistance = length(ray);
+    if (endpointDistance <= 0.001)
+        return MERKABA_SURFACE_ROUTE_INVALID;
+    ray /= endpointDistance;
+    int3 normalStep = MerkabaNearestNormalStep(surfaceNormal);
+    MerkabaM8Address nearestAddress = MerkabaAddressOf(nearestKernel);
+    uint nearestBlockIndex = 0u;
+    bool nearestBlockReady = M8FindSurfaceBlock(nearestAddress.blockCoord,
+        nearestBlockIndex);
+    int3 ownerCandidates[3] =
+    {
+        nearestKernel,
+        nearestKernel + normalStep,
+        nearestKernel - normalStep
+    };
+    bool foundOwner = false;
+    bool unresolved = false;
+    int3 unresolvedOwner = nearestKernel;
+    int3 bestOwner = nearestKernel;
+    float bestAlong = 1.0e20;
+    float bestPerpendicular = 1.0e20;
+    [unroll]
+    for (uint candidateIndex = 0u; candidateIndex < 3u; candidateIndex++)
+    {
+        int3 ownerCoord = ownerCandidates[candidateIndex];
+        float alongError;
+        float perpendicularError;
+        if (!MerkabaOwnerCompatible(ownerCoord, rayOrigin, ray,
+                endpointDistance, alongError, perpendicularError))
+            continue;
+        bool occupied;
+        int state = M8InspectSurfaceOwner(ownerCoord, nearestAddress,
+            nearestBlockReady, nearestBlockIndex, occupied);
+        if (state == 2)
+        {
+            if (!unresolved) unresolvedOwner = ownerCoord;
+            unresolved = true;
+            continue;
+        }
+        if (!occupied) continue;
+        bool better = !foundOwner || alongError < bestAlong - 1.0e-6 ||
+            (abs(alongError - bestAlong) <= 1.0e-6 &&
+            (perpendicularError < bestPerpendicular - 1.0e-6 ||
+            (abs(perpendicularError - bestPerpendicular) <= 1.0e-6 &&
+            MerkabaLexicographicallyLess(ownerCoord, bestOwner))));
+        if (better)
+        {
+            foundOwner = true;
+            bestOwner = ownerCoord;
+            bestAlong = alongError;
+            bestPerpendicular = perpendicularError;
+        }
+    }
+    if (unresolved)
+    {
+        targetCoord = unresolvedOwner;
+        return MERKABA_SURFACE_ROUTE_UNRESOLVED;
+    }
+    if (!foundOwner)
+    {
+        targetCoord = nearestKernel;
+        return MERKABA_SURFACE_ROUTE_VALID;
+    }
+
+    float incidence = saturate(-dot(ray, surfaceNormal));
+    bool revision = incidence >= MERKABA_REVISION_MIN_INCIDENCE;
+    targetCoord = revision ? nearestKernel : bestOwner;
+    return MERKABA_SURFACE_ROUTE_VALID;
 }
 
 float MerkabaFreeDistanceWeight(float clearance)
@@ -204,10 +414,10 @@ bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
         gsDepthTexSize - 1u);
     float3 worldSurface;
     int3 surfaceKernel;
+    float3 surfaceNormal;
     float quality;
-    uint packedMeasurement;
     if (!TrySurfaceMeasurement(pixel, worldSurface, surfaceKernel,
-            quality, packedMeasurement))
+            surfaceNormal, quality))
         return false;
 
     float kernelDistance = distance(worldPosition, gsDepthEyePos());
@@ -318,7 +528,7 @@ void EnsureCarveActive(uint physicalSlot, uint kernelLocal)
     }
 }
 
-void AppendSurfaceCandidate(int3 globalCoord, uint packedMeasurement)
+void AppendSurfaceCandidate(int3 globalCoord)
 {
     uint index;
     InterlockedAdd(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT], 1u,
@@ -326,7 +536,7 @@ void AppendSurfaceCandidate(int3 globalCoord, uint packedMeasurement)
     if (index < MERKABA_M8_SURFACE_CANDIDATE_CAPACITY)
     {
         _M8SurfaceCandidates[index] = int4(globalCoord,
-            asint(packedMeasurement));
+            MERKABA_SURFACE_ROUTE_UNROUTED);
         M8CounterIncrement(M8_COUNTER_VALID_SURFACE_CANDIDATES);
     }
     else
@@ -340,12 +550,12 @@ void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID)
         return;
     float3 worldSurface;
     int3 surfaceKernel;
+    float3 surfaceNormal;
     float quality;
-    uint packedMeasurement;
     if (!TrySurfaceMeasurement(id.xy, worldSurface, surfaceKernel,
-            quality, packedMeasurement))
+            surfaceNormal, quality))
         return;
-    AppendSurfaceCandidate(surfaceKernel, packedMeasurement);
+    AppendSurfaceCandidate(surfaceKernel);
 }
 
 [numthreads(1, 1, 1)]
@@ -378,6 +588,22 @@ bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     return queued;
 }
 
+void RequestSurfaceOwnerLoad(int3 globalCoord)
+{
+    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
+    uint blockIndex;
+    if (!M8FindBlock(address.blockCoord, blockIndex)) return;
+    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
+        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
+    if (chunkRef == MERKABA_REF_EMPTY ||
+        chunkRef == MERKABA_REF_CLAIMED_NEW) return;
+    uint chunkIndex = chunkRef - 1u;
+    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
+        address.tileLocal;
+    if (_M8ChunkTileRefs[tileRefIndex] == MERKABA_REF_COLD_ON_SSD)
+        RequestColdTile(tileRefIndex, chunkIndex, address.tileLocal, true);
+}
+
 bool CandidateAt(uint id, out MerkabaM8Address address)
 {
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
@@ -387,16 +613,24 @@ bool CandidateAt(uint id, out MerkabaM8Address address)
         address = (MerkabaM8Address)0;
         return false;
     }
-    address = MerkabaAddressOf(_M8SurfaceCandidatesRead[id].xyz);
-    return true;
+    int4 candidate = _M8SurfaceCandidatesRead[id];
+    address = MerkabaAddressOf(candidate.xyz);
+    return candidate.w == MERKABA_SURFACE_ROUTE_VALID;
 }
 
 [numthreads(64, 1, 1)]
 void ResolveSurfaceBlocks(uint id : SV_DispatchThreadID)
 {
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    MerkabaM8Address address = (MerkabaM8Address)0;
-    if (!CandidateAt(id, address)) return;
+    uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
+        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
+    if (id >= count) return;
+    int3 targetCoord;
+    int route = RouteSurfaceCandidate(_M8SurfaceCandidates[id].xyz,
+        targetCoord);
+    _M8SurfaceCandidates[id] = int4(targetCoord, route);
+    if (route != MERKABA_SURFACE_ROUTE_VALID) return;
+    MerkabaM8Address address = MerkabaAddressOf(targetCoord);
     uint blockIndex = 0u;
     uint failureReason = 0u;
     M8FindOrClaimBlock(address.blockCoord, blockIndex, failureReason);
@@ -490,8 +724,19 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
 {
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
     if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
-    MerkabaM8Address address = (MerkabaM8Address)0;
-    if (!CandidateAt(id, address)) return;
+    uint candidateCount = min(
+        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
+        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
+    if (id >= candidateCount) return;
+    int4 candidate = _M8SurfaceCandidatesRead[id];
+    if (candidate.w == MERKABA_SURFACE_ROUTE_UNRESOLVED)
+    {
+        RequestSurfaceOwnerLoad(candidate.xyz);
+        M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
+        return;
+    }
+    if (candidate.w != MERKABA_SURFACE_ROUTE_VALID) return;
+    MerkabaM8Address address = MerkabaAddressOf(candidate.xyz);
     uint blockIndex = 0u;
     if (!M8FindBlock(address.blockCoord, blockIndex))
     {
@@ -509,7 +754,7 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
     uint chunkIndex = chunkRef - 1u;
     uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
         address.tileLocal;
-    uint tileRef = _M8ChunkTileRefsRead[tileRefIndex];
+    uint tileRef = _M8ChunkTileRefs[tileRefIndex];
     if (!M8IsHotRef(tileRef))
     {
         M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
@@ -545,8 +790,7 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
     {
         uint key = physicalSlot * MERKABA_M8_KERNELS_PER_TILE +
             address.kernelLocal;
-        _M8SurfaceQueue[queueIndex] = uint2(key,
-            asuint(_M8SurfaceCandidatesRead[id].w));
+        _M8SurfaceQueue[queueIndex] = key;
         M8CounterIncrement(M8_COUNTER_UNIQUE_SURFACE_KERNELS);
     }
     else
@@ -595,18 +839,18 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT],
         MERKABA_SURFACE_QUEUE_CAPACITY);
     if (id >= count) return;
-    uint2 queued = _M8SurfaceQueueRead[id];
-    uint key = queued.x;
+    uint key = _M8SurfaceQueueRead[id];
     uint physicalSlot = key / MERKABA_M8_KERNELS_PER_TILE;
     uint kernelLocal = key % MERKABA_M8_KERNELS_PER_TILE;
+    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
     uint2 sourcePixel;
+    float3 worldSurface;
+    int3 measuredKernel;
+    float3 surfaceNormal;
     float quality;
-    UnpackSurfaceMeasurement(queued.y, sourcePixel, quality);
-    float depthNdc = gsDepthTex.Load(int3(sourcePixel, 0));
-    float2 sourceUv = ((float2)sourcePixel + 0.5) /
-        (float2)gsDepthTexSize;
-    float3 worldSurface = gsDepthNDCtoWorld(
-        float3(sourceUv, depthNdc));
+    if (!TrySurfaceMeasurementAtKernel(globalCoord, sourcePixel,
+            worldSurface, measuredKernel, surfaceNormal, quality))
+        return;
 
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     UpdateOccupancy(physicalSlot, kernelLocal, state,
