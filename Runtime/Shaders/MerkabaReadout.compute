@@ -26,8 +26,6 @@ RWStructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices1;
 RWStructuredBuffer<uint> _M8FrameDispatchArgs;
 RWStructuredBuffer<uint> _M8DrawArgs;
 
-float4 _M8DrawPlanes[12];
-float4 _M8DependencyPlanes[12];
 float3 _M8CameraGridMeters;
 float3 _M8GridMetricDiagonal;
 float3 _M8GridMetricCross;
@@ -52,39 +50,14 @@ uint M8DistanceChildMask(int3 parentMin, int parentSpan, float distance)
         MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
 }
 
-uint M8EyeFrustumChildMask(int3 parentMin, int parentSpan, uint eye)
-{
-    uint support = 255u;
-    [unroll]
-    for (uint plane = 0u; plane < 6u; plane++)
-        support &= MerkabaM8KernelPlaneChildMask(parentMin, parentSpan,
-            _M8DrawPlanes[eye * 6u + plane]);
-    return support;
-}
-
-uint M8EyeDependencyChildMask(int3 parentMin, int parentSpan, uint eye)
-{
-    uint support = 255u;
-    [unroll]
-    for (uint plane = 0u; plane < 6u; plane++)
-        support &= MerkabaM8KernelPlaneChildMask(parentMin, parentSpan,
-            _M8DependencyPlanes[eye * 6u + plane]);
-    return support;
-}
-
 uint M8DrawChildMask(int3 parentMin, int parentSpan)
 {
-    uint stereo = M8EyeFrustumChildMask(parentMin, parentSpan, 0u) |
-        M8EyeFrustumChildMask(parentMin, parentSpan, 1u);
-    return stereo & M8DistanceChildMask(parentMin, parentSpan,
-        _M8RenderDistance);
+    return M8DistanceChildMask(parentMin, parentSpan, _M8RenderDistance);
 }
 
 uint M8DependencyChildMask(int3 parentMin, int parentSpan)
 {
-    uint stereo = M8EyeDependencyChildMask(parentMin, parentSpan, 0u) |
-        M8EyeDependencyChildMask(parentMin, parentSpan, 1u);
-    return stereo & M8DistanceChildMask(parentMin, parentSpan,
+    return M8DistanceChildMask(parentMin, parentSpan,
         _M8DependencyDistance);
 }
 

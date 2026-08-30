@@ -611,12 +611,17 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void WarmQuery_ContainsDrawAndAddsOneM8BlockMargin()
+        public void RadialWarmQueryContainsCoverageAndOneBlockMargin()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
             Assert.That(renderer, Does.Contain(
-                "renderDistance + MerkabaSpatial.BlockWorldSize"));
+                "coverageDistance +"));
+            Assert.That(renderer, Does.Contain(
+                "MerkabaSpatial.BlockWorldSize"));
+            Assert.That(renderer, Does.Contain("renderDistance = 12f"));
+            Assert.That(renderer, Does.Contain(
+                "readoutTranslationGuard = 1f"));
             Assert.That(frame, Does.Contain("_M8WarmDistance"));
             Assert.That(frame, Does.Contain("_M8RenderDistance"));
             Assert.That(frame, Does.Contain("if (!inDraw ||"));
@@ -652,6 +657,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Contain("readoutBuildHz = 15f"));
             Assert.That(renderer, Does.Contain(
                 "_canonicalDirty || coverageDirty || residencyChanged"));
+            Assert.That(renderer, Does.Not.Contain("Vector3.Angle"));
+            Assert.That(renderer, Does.Not.Contain("publishedGridForward"));
+            Assert.That(renderer, Does.Not.Contain("publishedGridUp"));
             Assert.That(renderer, Does.Contain("MarkCanonicalReadoutDirty"));
             Assert.That(scanner, Does.Contain(
                 "_renderer?.MarkCanonicalReadoutDirty()"));
@@ -853,7 +861,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integrator, Does.Not.Contain(
                 "GeometryUtility.CalculateFrustumPlanes"));
             Assert.That(frame, Does.Contain("M8DrawChildMask"));
-            Assert.That(frame, Does.Contain(
+            Assert.That(frame, Does.Not.Contain(
                 "MerkabaM8KernelPlaneChildMask"));
             Assert.That(frame, Does.Contain(
                 "MerkabaM8GridDistanceChildMask"));
@@ -861,7 +869,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Not.Contain("_MerkabaWorldToGrid"));
             Assert.That(frame, Does.Not.Contain("MerkabaM8PlaneChildMask"));
             Assert.That(Source("Runtime/Merkaba/MerkabaGridRenderer.cs"),
-                Does.Contain("MerkabaReadoutCoverage.WorldToKernelPlane"));
+                Does.Not.Contain("MerkabaReadoutCoverage.WorldToKernelPlane"));
             Assert.That(scan, Does.Not.Contain("TileIntersectsScan"));
         }
 

@@ -14,12 +14,10 @@ namespace Genesis.RoomScan
         [FormerlySerializedAs("frameCompilerCompute")]
         [SerializeField] private ComputeShader readoutCompute;
         [SerializeField] private Shader renderShader;
-        [SerializeField, Range(2f, 12f)] private float renderDistance = 8f;
+        [SerializeField, Range(2f, 24f)] private float renderDistance = 12f;
         [SerializeField, Range(5f, 30f)] private float readoutBuildHz = 15f;
-        [SerializeField, Range(0f, 60f)]
-        private float readoutAngularGuardDegrees = 30f;
-        [SerializeField, Range(0f, 1f)]
-        private float readoutTranslationGuard = 0.25f;
+        [SerializeField, Range(0f, 4f)]
+        private float readoutTranslationGuard = 1f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
 
         private MerkabaGrid _grid;
@@ -42,11 +40,7 @@ namespace Genesis.RoomScan
         private uint _readoutRevision;
         private uint _buildResidencyEpoch;
         private Vector3 _publishedGridPosition;
-        private Vector3 _publishedGridForward;
-        private Vector3 _publishedGridUp;
-        private readonly Vector4[] _drawPlanes = new Vector4[12];
-        private readonly Vector4[] _dependencyPlanes = new Vector4[12];
-        private readonly Plane[] _frustumScratch = new Plane[6];
+        private Matrix4x4 _publishedGridToWorld;
 
         public int VisiblePrimitiveCount { get; private set; }
         public int VisibleSurfaceKernelCount { get; private set; }
@@ -219,26 +213,21 @@ namespace Genesis.RoomScan
                 return;
 
             _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
-            GetCoveragePose(camera, out Vector3 gridPosition,
-                out Vector3 gridForward, out Vector3 gridUp);
+            Vector3 gridPosition = GetCoveragePosition(camera);
             bool coverageDirty = !_hasPublishedCoverage ||
+                _publishedGridToWorld != _grid.GridToWorldMatrix ||
                 Vector3.Distance(gridPosition, _publishedGridPosition) >
-                    readoutTranslationGuard * 0.5f ||
-                Vector3.Angle(gridForward, _publishedGridForward) >
-                    readoutAngularGuardDegrees * 0.5f ||
-                Vector3.Angle(gridUp, _publishedGridUp) >
-                    readoutAngularGuardDegrees * 0.5f;
+                    readoutTranslationGuard;
             bool residencyChanged = _awaitingResidencyChange &&
                 _grid.ResidencyEpoch != _buildResidencyEpoch;
             if ((_canonicalDirty || coverageDirty || residencyChanged) &&
                 Time.unscaledTime >= _nextReadoutBuild)
-                SubmitReadoutBuild(camera, gridPosition, gridForward, gridUp);
+                SubmitReadoutBuild(camera, gridPosition);
 
             RequestStatusIfDue();
         }
 
-        private void SubmitReadoutBuild(Camera camera, Vector3 gridPosition,
-            Vector3 gridForward, Vector3 gridUp)
+        private void SubmitReadoutBuild(Camera camera, Vector3 gridPosition)
         {
             int querySide = ConfigureReadout(camera);
             CommandBuffer command = CommandBufferPool.Get(
@@ -288,8 +277,7 @@ namespace Genesis.RoomScan
             _awaitingResidencyChange = true;
             _buildResidencyEpoch = _grid.ResidencyEpoch;
             _publishedGridPosition = gridPosition;
-            _publishedGridForward = gridForward;
-            _publishedGridUp = gridUp;
+            _publishedGridToWorld = _grid.GridToWorldMatrix;
             _nextReadoutBuild = Time.unscaledTime +
                 1f / Mathf.Max(1f, readoutBuildHz);
         }
@@ -316,30 +304,7 @@ namespace Genesis.RoomScan
 
         private int ConfigureReadout(Camera camera)
         {
-            Matrix4x4 leftView;
-            Matrix4x4 rightView;
-            Matrix4x4 leftProjection;
-            Matrix4x4 rightProjection;
-            if (camera.stereoEnabled)
-            {
-                leftView = camera.GetStereoViewMatrix(Camera.StereoscopicEye.Left);
-                rightView = camera.GetStereoViewMatrix(Camera.StereoscopicEye.Right);
-                leftProjection = camera.GetStereoProjectionMatrix(
-                    Camera.StereoscopicEye.Left);
-                rightProjection = camera.GetStereoProjectionMatrix(
-                    Camera.StereoscopicEye.Right);
-            }
-            else
-            {
-                leftView = rightView = camera.worldToCameraMatrix;
-                leftProjection = rightProjection = camera.projectionMatrix;
-            }
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
-            Matrix4x4 leftEyeToWorld = leftView.inverse;
-            Matrix4x4 rightEyeToWorld = rightView.inverse;
-            WriteExpandedPlanes(leftProjection * leftView, leftEyeToWorld, 0);
-            WriteExpandedPlanes(rightProjection * rightView,
-                rightEyeToWorld, 6);
             Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
                 camera.transform.position);
             var global = new Unity.Mathematics.int3(
@@ -347,14 +312,13 @@ namespace Genesis.RoomScan
                 Mathf.FloorToInt(cameraGridMeters.y / MerkabaConstants.LatticeStep),
                 Mathf.FloorToInt(cameraGridMeters.z / MerkabaConstants.LatticeStep));
             Unity.Mathematics.int3 centerBlock = MerkabaSpatial.Encode(global).BlockCoord;
-            float warmDistance = renderDistance + MerkabaSpatial.BlockWorldSize;
+            float coverageDistance = renderDistance + readoutTranslationGuard;
+            float warmDistance = coverageDistance +
+                MerkabaSpatial.BlockWorldSize;
             int radius = Mathf.CeilToInt(warmDistance /
                 MerkabaSpatial.BlockWorldSize) + 1;
             int side = radius * 2 + 1;
 
-            readoutCompute.SetVectorArray("_M8DrawPlanes", _drawPlanes);
-            readoutCompute.SetVectorArray("_M8DependencyPlanes",
-                _dependencyPlanes);
             readoutCompute.SetVector("_M8CameraGridMeters",
                 cameraGridMeters);
             MerkabaReadoutCoverage.WriteGridMetric(
@@ -363,11 +327,10 @@ namespace Genesis.RoomScan
             readoutCompute.SetVector("_M8GridMetricDiagonal",
                 metricDiagonal);
             readoutCompute.SetVector("_M8GridMetricCross", metricCross);
-            readoutCompute.SetFloat("_M8RenderDistance", renderDistance);
+            readoutCompute.SetFloat("_M8RenderDistance", coverageDistance);
             readoutCompute.SetFloat("_M8WarmDistance", warmDistance);
             readoutCompute.SetFloat("_M8DependencyDistance",
-                renderDistance + MaxNeighbourWorldDistance(
-                    _grid.GridToWorldMatrix));
+                coverageDistance);
             readoutCompute.SetInts("_M8QueryCenterBlock", centerBlock.x,
                 centerBlock.y, centerBlock.z);
             readoutCompute.SetInt("_M8QueryBlockRadius", radius);
@@ -375,84 +338,11 @@ namespace Genesis.RoomScan
             return side;
         }
 
-        private void WriteExpandedPlanes(Matrix4x4 viewProjection,
-            Matrix4x4 eyeToWorld, int offset)
-        {
-            GeometryUtility.CalculateFrustumPlanes(viewProjection,
-                _frustumScratch);
-            Vector3 eye = (Vector3)eyeToWorld.GetColumn(3);
-            Vector3 right = ((Vector3)eyeToWorld.GetColumn(0)).normalized;
-            Vector3 up = ((Vector3)eyeToWorld.GetColumn(1)).normalized;
-            Vector3 forward = -((Vector3)eyeToWorld.GetColumn(2)).normalized;
-            Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
-            Vector3 gridAxisX = gridToWorld.MultiplyVector(Vector3.right);
-            Vector3 gridAxisY = gridToWorld.MultiplyVector(Vector3.up);
-            Vector3 gridAxisZ = gridToWorld.MultiplyVector(Vector3.forward);
-            for (int i = 0; i < 6; i++)
-            {
-                Vector3 normal = _frustumScratch[i].normal.normalized;
-                float distance = _frustumScratch[i].distance;
-                if (i < 4)
-                {
-                    Vector3 axis = i < 2 ? up : right;
-                    normal = ExpandSideNormal(normal, axis, forward,
-                        readoutAngularGuardDegrees);
-                    distance = -Vector3.Dot(normal, eye);
-                }
-                distance += readoutTranslationGuard;
-                float topologyHalo = MerkabaConstants.LatticeStep *
-                    (Mathf.Abs(Vector3.Dot(normal, gridAxisX)) +
-                     Mathf.Abs(Vector3.Dot(normal, gridAxisY)) +
-                     Mathf.Abs(Vector3.Dot(normal, gridAxisZ)));
-                _drawPlanes[offset + i] =
-                    MerkabaReadoutCoverage.WorldToKernelPlane(
-                        new Vector4(normal.x, normal.y, normal.z, distance),
-                        gridToWorld);
-                _dependencyPlanes[offset + i] =
-                    MerkabaReadoutCoverage.WorldToKernelPlane(
-                        new Vector4(normal.x, normal.y, normal.z,
-                            distance + topologyHalo), gridToWorld);
-            }
-        }
-
-        private static Vector3 ExpandSideNormal(Vector3 normal, Vector3 axis,
-            Vector3 forward, float angle)
-        {
-            Vector3 positive = Quaternion.AngleAxis(angle, axis) * normal;
-            Vector3 negative = Quaternion.AngleAxis(-angle, axis) * normal;
-            float positiveFacing = Vector3.Dot(positive, forward);
-            float negativeFacing = Vector3.Dot(negative, forward);
-            if (positiveFacing >= 0f && negativeFacing >= 0f)
-                return positiveFacing <= negativeFacing ? positive : negative;
-            if (positiveFacing >= 0f) return positive;
-            if (negativeFacing >= 0f) return negative;
-            return normal;
-        }
-
-        private void GetCoveragePose(Camera camera, out Vector3 gridPosition,
-            out Vector3 gridForward, out Vector3 gridUp)
+        private Vector3 GetCoveragePosition(Camera camera)
         {
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
-            gridPosition = worldToGrid.MultiplyPoint3x4(
+            return worldToGrid.MultiplyPoint3x4(
                 camera.transform.position);
-            gridForward = worldToGrid.MultiplyVector(
-                camera.transform.forward).normalized;
-            gridUp = worldToGrid.MultiplyVector(camera.transform.up).normalized;
-        }
-
-        private static float MaxNeighbourWorldDistance(Matrix4x4 matrix)
-        {
-            float maximum = 0f;
-            for (int z = -1; z <= 1; z += 2)
-            for (int y = -1; y <= 1; y += 2)
-            for (int x = -1; x <= 1; x += 2)
-            {
-                Vector3 offset = new Vector3(x, y, z) *
-                    MerkabaConstants.LatticeStep;
-                maximum = Mathf.Max(maximum,
-                    matrix.MultiplyVector(offset).magnitude);
-            }
-            return maximum;
         }
 
         private void ApplyOpacityState()
