@@ -971,16 +971,33 @@ namespace Genesis.RoomScan.Tests
                 "void FinalizeObservation");
             Assert.That(carve, Does.Contain(
                 "_M8TileBits[wordIndex].z & bit"));
-            Assert.That(carve, Does.Contain("observationKind = 2"));
+            Assert.That(carve, Does.Contain(
+                "ObserveFrozenSurfaceWinner(physicalSlot, kernelLocal"));
             Assert.That(carve, Does.Contain(
                 "M8_COUNTER_SAME_OBSERVATION_CONFLICT"));
-            int surfaceOverride = carve.IndexOf("observationKind = 2",
+            int surfaceOverride = carve.IndexOf(
+                "ObserveFrozenSurfaceWinner(physicalSlot, kernelLocal",
                 StringComparison.Ordinal);
+            int projectedRay = carve.IndexOf("ObserveFrozenJointRay(",
+                surfaceOverride + 1, StringComparison.Ordinal);
             int freeMutation = carve.IndexOf("if (observationKind == 1)",
                 surfaceOverride + 1, StringComparison.Ordinal);
             Assert.That(surfaceOverride, Is.GreaterThanOrEqualTo(0));
+            Assert.That(projectedRay, Is.GreaterThan(surfaceOverride),
+                "A current SURFACE must consume its S4 winner before the " +
+                "K-center projection path is considered.");
             Assert.That(freeMutation, Is.GreaterThan(surfaceOverride),
                 "Same-observation SURFACE must override FREE before mutation.");
+
+            string winner = Slice(integration,
+                "bool ObserveFrozenSurfaceWinner", "bool M8TrySurfaceWinnerRank");
+            Assert.That(winner, Does.Contain("M8LoadSurfaceWinner"));
+            Assert.That(winner, Does.Contain(
+                "winnerRank & MERKABA_MEASUREMENT_PACKED_MASK"));
+            Assert.That(winner, Does.Contain("TrySurfaceMeasurement(sourcePixel"));
+            Assert.That(winner, Does.Not.Contain("gsDepthWorldToNDC"));
+            Assert.That(carve, Does.Not.Contain(
+                "InterlockedAdd(gCarveStats[15]"));
 
             string managed = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");

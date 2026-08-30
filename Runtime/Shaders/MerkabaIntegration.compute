@@ -941,6 +941,36 @@ uint M8LoadSurfaceWinner(uint physicalSlot, uint kernelLocal)
     return _M8SurfaceWinnerRanks3Read[index];
 }
 
+bool ObserveFrozenSurfaceWinner(uint physicalSlot, uint kernelLocal,
+    out int kind, out float evidenceWeight, out int3 replacementCoord,
+    out float radialPosition)
+{
+    kind = 0;
+    evidenceWeight = 0.0;
+    replacementCoord = 0;
+    radialPosition = 2.0;
+    uint winnerRank = M8LoadSurfaceWinner(physicalSlot, kernelLocal);
+    if (winnerRank == MERKABA_SURFACE_WINNER_EMPTY) return false;
+
+    // S4 stores the deterministic winning immutable joint source pixel in
+    // the low 24 bits of the rank. A kernel committed as SURFACE by this
+    // observation must be classified from that exact measurement, never by
+    // reprojecting center(K) to a different joint pixel.
+    uint2 sourcePixel = MerkabaSurfacePixel(asint(
+        winnerRank & MERKABA_MEASUREMENT_PACKED_MASK));
+    float3 worldSurface;
+    int3 measuredKernel;
+    float3 surfaceNormal;
+    float quality;
+    if (!TrySurfaceMeasurement(sourcePixel, worldSurface, measuredKernel,
+            surfaceNormal, quality))
+        return false;
+    replacementCoord = measuredKernel;
+    MerkabaMutationAttention(worldSurface, surfaceNormal, radialPosition);
+    kind = 2;
+    return true;
+}
+
 bool M8TrySurfaceWinnerRank(int3 targetCoord, int packedMetadata,
     out uint rank)
 {
@@ -1406,20 +1436,18 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
             float evidenceWeight = 0.0;
             int3 replacementCoord = 0;
             float radialPosition = 2.0;
-            if (!IsExcluded(worldPosition))
-                ObserveFrozenJointRay(globalCoord, worldPosition,
-                    observationKind,
-                    evidenceWeight, replacementCoord, radialPosition);
-
             bool currentSurfaceCandidate =
                 (_M8TileBits[wordIndex].z & bit) != 0u;
             if (currentSurfaceCandidate)
             {
-                if (observationKind == 1)
-                    InterlockedAdd(gCarveStats[15], 1u, ignored);
-                observationKind = 2;
-                evidenceWeight = 0.0;
+                ObserveFrozenSurfaceWinner(physicalSlot, kernelLocal,
+                    observationKind, evidenceWeight, replacementCoord,
+                    radialPosition);
             }
+            else if (!IsExcluded(worldPosition))
+                ObserveFrozenJointRay(globalCoord, worldPosition,
+                    observationKind, evidenceWeight, replacementCoord,
+                    radialPosition);
 
             if (observationKind == 1)
             {
