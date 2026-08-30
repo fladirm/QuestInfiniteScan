@@ -146,16 +146,16 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void FixedScanCadenceIsTenHertzAndNeverCatchesUp()
+        public void FixedScanCadenceIsFiveHertzAndNeverCatchesUp()
         {
-            double first = RoomScanner.NextScanAdmissionTime(100.0, 10f);
-            Assert.That(first, Is.EqualTo(100.1)
+            double first = RoomScanner.NextScanAdmissionTime(100.0, 5f);
+            Assert.That(first, Is.EqualTo(100.2)
                 .Within(1e-12));
 
             // A late successful close starts one fresh interval from its actual
             // submission time; elapsed ticks are not replayed as a burst.
-            double late = RoomScanner.NextScanAdmissionTime(101.0, 10f);
-            Assert.That(late, Is.EqualTo(101.1)
+            double late = RoomScanner.NextScanAdmissionTime(101.0, 5f);
+            Assert.That(late, Is.EqualTo(101.2)
                 .Within(1e-12));
             Assert.That(late - first, Is.EqualTo(1.0).Within(1e-12));
         }

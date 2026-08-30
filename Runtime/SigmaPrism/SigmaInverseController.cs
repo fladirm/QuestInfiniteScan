@@ -104,7 +104,7 @@ namespace Genesis.RoomScan.SigmaPrism
         public SigmaRuntimeTelemetrySnapshot RuntimeTelemetry =>
             _runtimeTelemetry;
 
-        // Donor-shaped observation ownership: the fixed 10 Hz scheduler may
+        // Donor-shaped observation ownership: the fixed 5 Hz scheduler may
         // transfer one new coherent frame only after the prior native close has
         // reached its terminal GPU fence. No historical scan queue is admitted.
         internal bool CanAcceptScheduledObservation =>

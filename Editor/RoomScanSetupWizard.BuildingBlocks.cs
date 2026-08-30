@@ -340,10 +340,10 @@ namespace Genesis.RoomScan.Editor
                 var scannerSo = new SerializedObject(scanner);
                 var scanHz = scannerSo.FindProperty("scanHz");
                 if (scanHz != null && !Mathf.Approximately(
-                        scanHz.floatValue, 10f))
+                        scanHz.floatValue, 5f))
                 {
                     Undo.RecordObject(scanner, "Configure scan cadence");
-                    scanHz.floatValue = 10f;
+                    scanHz.floatValue = 5f;
                     scannerSo.ApplyModifiedPropertiesWithoutUndo();
                     EditorUtility.SetDirty(scanner);
                     changed++;

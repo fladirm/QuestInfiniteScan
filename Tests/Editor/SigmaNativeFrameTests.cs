@@ -427,7 +427,7 @@ namespace Genesis.RoomScan.Tests
             string controller = ReadAssetSource(
                 "SigmaInverseController t:MonoScript");
 
-            Assert.That(scanner, Does.Contain("scanHz = 10f"));
+            Assert.That(scanner, Does.Contain("scanHz = 5f"));
             Assert.That(provider, Does.Contain(
                 "requestedResolution = new(640, 480)"));
             Assert.That(bridge, Does.Contain(
