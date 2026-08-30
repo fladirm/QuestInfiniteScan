@@ -482,69 +482,6 @@ bool M8FindOrClaimChunk(uint blockIndex, uint chunkLocal,
     return false;
 }
 
-bool M8TryOccupiedTileRef(uint tileRef, uint kernelLocal, out bool occupied)
-{
-    occupied = false;
-    if (tileRef == MERKABA_REF_EMPTY) return true;
-    if (!M8IsHotRef(tileRef)) return false;
-    uint physicalSlot = M8PhysicalSlot(tileRef);
-    uint word = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
-    occupied = (_M8TileBitsRead[word].x &
-        (1u << (kernelLocal & 31u))) != 0u;
-    return true;
-}
-
-// Missing logical paths are exact empty. Existing non-HOT payload is unresolved.
-// The block hash is touched only when the body-diagonal step crosses an M8 block.
-bool M8TryOccupiedNeighbour(MerkabaM8Address currentAddress,
-    uint currentPhysicalSlot, uint currentChunkIndex, uint currentBlockIndex,
-    int3 neighbourStep, out bool occupied)
-{
-    occupied = false;
-    int3 localSigned = int3(currentAddress.local) + neighbourStep;
-    bool sameBlock = all(localSigned >= 0) && all(localSigned < 256);
-    int3 blockCoord = currentAddress.blockCoord;
-    if (!sameBlock)
-    {
-        if (localSigned.x < 0) { blockCoord.x--; localSigned.x += 256; }
-        else if (localSigned.x >= 256) { blockCoord.x++; localSigned.x -= 256; }
-        if (localSigned.y < 0) { blockCoord.y--; localSigned.y += 256; }
-        else if (localSigned.y >= 256) { blockCoord.y++; localSigned.y -= 256; }
-        if (localSigned.z < 0) { blockCoord.z--; localSigned.z += 256; }
-        else if (localSigned.z >= 256) { blockCoord.z++; localSigned.z -= 256; }
-    }
-    MerkabaM8Address neighbourAddress = MerkabaAddressFromBlockLocal(
-        blockCoord, uint3(localSigned));
-
-    if (sameBlock &&
-        neighbourAddress.chunkLocal == currentAddress.chunkLocal &&
-        neighbourAddress.tileLocal == currentAddress.tileLocal)
-    {
-        uint word = M8TileWordIndex(currentPhysicalSlot,
-            neighbourAddress.kernelLocal >> 5u);
-        occupied = (_M8TileBitsRead[word].x &
-            (1u << (neighbourAddress.kernelLocal & 31u))) != 0u;
-        return true;
-    }
-
-    uint chunkIndex = currentChunkIndex;
-    if (neighbourAddress.chunkLocal != currentAddress.chunkLocal || !sameBlock)
-    {
-        uint blockIndex = currentBlockIndex;
-        if (!sameBlock && !M8FindBlock(blockCoord, blockIndex)) return true;
-        uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-            MERKABA_M8_BLOCK_CHUNK_COUNT + neighbourAddress.chunkLocal];
-        if (chunkRef == MERKABA_REF_EMPTY) return true;
-        if (chunkRef == MERKABA_REF_CLAIMED_NEW) return false;
-        chunkIndex = chunkRef - 1u;
-    }
-
-    uint tileRef = _M8ChunkTileRefsRead[chunkIndex *
-        MERKABA_M8_TILES_PER_CHUNK + neighbourAddress.tileLocal];
-    return M8TryOccupiedTileRef(tileRef, neighbourAddress.kernelLocal,
-        occupied);
-}
-
 M8TileAddress M8LogicalAddress(uint chunkIndex, uint tileLocal)
 {
     uint2 owner = M8LoadChunkOwnerRead(chunkIndex);

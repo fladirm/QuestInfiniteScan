@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Unity.Mathematics;
 
 namespace Genesis.RoomScan
@@ -298,7 +299,9 @@ namespace Genesis.RoomScan
                 if (state.OccupancyEvidence < 0)
                     columnFreeMoment += normalOffset;
             }
-            if (signature.HasKnownFreeSide && columnFreeMoment != 0 &&
+            bool mainColumn = math.all(tangentOffset == 0);
+            if (!mainColumn && signature.HasKnownFreeSide &&
+                columnFreeMoment != 0 &&
                 Math.Sign(columnFreeMoment) != signature.FreeSign)
                 return false;
 
@@ -306,9 +309,10 @@ namespace Genesis.RoomScan
             {
                 int3 offset = tangentOffset + normal * normalOffset;
                 KernelState state = window.At(offset);
-                if (!state.IsOccupied || HasKnownFreeSeparator(window,
-                        offset))
-                    continue;
+                // Immediate +/-1 columns have no intervening lattice site;
+                // a FREE separator therefore cannot be hidden between MAIN
+                // and this candidate.
+                if (!state.IsOccupied) continue;
                 var candidate = new Contributor(window.Global(offset), state,
                     window.Global(offset)[signature.NormalAxis]);
                 if (!found || Math.Abs(normalOffset) < Math.Abs(
@@ -325,19 +329,6 @@ namespace Genesis.RoomScan
                 }
             }
             return found;
-        }
-
-        private static bool HasKnownFreeSeparator(LocalWindow window,
-            int3 candidateOffset)
-        {
-            int steps = math.cmax(math.abs(candidateOffset));
-            if (steps <= 1) return false;
-            for (int step = 1; step < steps; step++)
-            {
-                int3 offset = candidateOffset * step / steps;
-                if (window.At(offset).OccupancyEvidence < 0) return true;
-            }
-            return false;
         }
 
         private static uint ReduceColor(List<Contributor> contributors,
@@ -365,7 +356,8 @@ namespace Genesis.RoomScan
                 total += weight;
                 contributorCount++;
             }
-            if (total == 0) return MerkabaConstants.NeutralPackedColor;
+            if (total == 0)
+                return MerkabaConstants.NeutralPackedColor & 0x00ffffffu;
             uint r = (uint)((red + total / 2) / total);
             uint g = (uint)((green + total / 2) / total);
             uint b = (uint)((blue + total / 2) / total);
@@ -418,5 +410,80 @@ namespace Genesis.RoomScan
                     throw new ArgumentOutOfRangeException(nameof(normalAxis));
             }
         }
+
+#if UNITY_EDITOR
+        internal static string BuildGeneratedHlsl()
+        {
+            var text = new StringBuilder(5000);
+            text.Append("// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.\n")
+                .Append("#ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED\n")
+                .Append("#define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED\n\n")
+                .Append("#define M8_OVERLAP_QUARTERS_PER_STEP ")
+                .Append(QuarterUnitsPerLatticeStep).Append("\n")
+                .Append("#define M8_OVERLAP_HALF_STEP_QUARTERS ")
+                .Append(HalfStepQuarterUnits).Append("\n")
+                .Append("#define M8_OVERLAP_TRIANGLES_PER_PATCH ")
+                .Append(TrianglesPerPatch).Append("u\n\n")
+                .Append("struct M8OverlapSignature\n{\n")
+                .Append("    uint normalAxis;\n    int freeSign;\n")
+                .Append("    uint hasKnownFreeSide;\n};\n\n")
+                .Append("struct M8OverlapCorner\n{\n")
+                .Append("    int3 quarterCoordinate;\n")
+                .Append("    uint packedColor;\n};\n\n")
+                .Append("void M8OverlapAxes(uint normalAxis, out int3 normal, ")
+                .Append("out int3 tangent0, out int3 tangent1)\n{\n")
+                .Append("    if (normalAxis == 0u)\n    {\n")
+                .Append("        normal = int3(1, 0, 0);\n")
+                .Append("        tangent0 = int3(0, 1, 0);\n")
+                .Append("        tangent1 = int3(0, 0, 1);\n    }\n")
+                .Append("    else if (normalAxis == 1u)\n    {\n")
+                .Append("        normal = int3(0, 1, 0);\n")
+                .Append("        tangent0 = int3(0, 0, 1);\n")
+                .Append("        tangent1 = int3(1, 0, 0);\n    }\n")
+                .Append("    else\n    {\n")
+                .Append("        normal = int3(0, 0, 1);\n")
+                .Append("        tangent0 = int3(1, 0, 0);\n")
+                .Append("        tangent1 = int3(0, 1, 0);\n    }\n}\n\n")
+                .Append("uint M8OverlapMinimumAxis(int3 value)\n{\n")
+                .Append("    if (value.x <= value.y && value.x <= value.z) ")
+                .Append("return 0u;\n")
+                .Append("    return value.y <= value.z ? 1u : 2u;\n}\n\n")
+                .Append("void M8OverlapMedianBand(int4 values, uint count, ")
+                .Append("out int lower, out int upper)\n{\n")
+                .Append("    if (count == 1u)\n    {\n")
+                .Append("        lower = upper = values.x;\n        return;\n    }\n")
+                .Append("    if (count == 2u)\n    {\n")
+                .Append("        lower = min(values.x, values.y);\n")
+                .Append("        upper = max(values.x, values.y);\n        return;\n    }\n")
+                .Append("    if (count == 3u)\n    {\n")
+                .Append("        int median = values.x + values.y + values.z - ")
+                .Append("min(values.x, min(values.y, values.z)) - ")
+                .Append("max(values.x, max(values.y, values.z));\n")
+                .Append("        lower = upper = median;\n        return;\n    }\n")
+                .Append("    int x = values.x; int y = values.y;\n")
+                .Append("    int z = values.z; int w = values.w; int swap;\n")
+                .Append("    if (x > y) { swap = x; x = y; y = swap; }\n")
+                .Append("    if (z > w) { swap = z; z = w; w = swap; }\n")
+                .Append("    if (x > z) { swap = x; x = z; z = swap; }\n")
+                .Append("    if (y > w) { swap = y; y = w; w = swap; }\n")
+                .Append("    if (y > z) { swap = y; y = z; z = swap; }\n")
+                .Append("    lower = y; upper = z;\n}\n\n")
+                .Append("int M8OverlapMedianQuarterHeight(int4 values, ")
+                .Append("uint count)\n{\n")
+                .Append("    int lower; int upper;\n")
+                .Append("    M8OverlapMedianBand(values, count, lower, upper);\n")
+                .Append("    return 2 * (lower + upper);\n}\n\n")
+                .Append("uint M8OverlapTriangleCorner(int freeSign, ")
+                .Append("uint vertex)\n{\n")
+                .Append("    bool forward = freeSign > 0;\n")
+                .Append("    switch (vertex)\n    {\n");
+            for (int vertex = 0; vertex < VerticesPerPatch; vertex++)
+                text.Append("        case ").Append(vertex).Append("u: return forward ? ")
+                    .Append(ForwardOrder[vertex]).Append("u : ")
+                    .Append(ReverseOrder[vertex]).Append("u;\n");
+            return text.Append("        default: return 0u;\n    }\n}\n\n")
+                .Append("#endif\n").ToString();
+        }
+#endif
     }
 }

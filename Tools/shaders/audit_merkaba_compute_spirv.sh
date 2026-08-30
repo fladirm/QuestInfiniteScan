@@ -37,6 +37,17 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
     spirv-val --target-env vulkan1.1 "$spv"
     spirv-dis "$spv" -o "$assembly"
 
+    if [[ "$kernel" == "CompileReadoutVertices" ]]; then
+      if grep -Eq 'OpTypeInt 64|Op[US](Div|Mod)|OpSRem' "$assembly"; then
+        echo "FAIL: $kernel regressed to int64/integer div/mod" >&2
+        exit 1
+      fi
+      if ! grep -Eq 'OpExecutionMode .* LocalSize 8 8 2' "$assembly"; then
+        echo "FAIL: $kernel is not the frozen 128-lane tile workgroup" >&2
+        exit 1
+      fi
+    fi
+
     total=$(awk '/OpVariable .* StorageBuffer$/ { count++ }
       END { print count + 0 }' "$assembly")
     readonly=$(awk '

@@ -44,7 +44,6 @@ namespace Genesis.RoomScan
         private Vector3 _publishedGridUp;
         private readonly Vector4[] _drawPlanes = new Vector4[12];
         private readonly Vector4[] _dependencyPlanes = new Vector4[12];
-        private readonly Vector4[] _eyePositions = new Vector4[2];
         private readonly Plane[] _frustumScratch = new Plane[6];
 
         public int VisiblePrimitiveCount { get; private set; }
@@ -330,10 +329,6 @@ namespace Genesis.RoomScan
             WriteExpandedPlanes(leftProjection * leftView, leftEyeToWorld, 0);
             WriteExpandedPlanes(rightProjection * rightView,
                 rightEyeToWorld, 6);
-            _eyePositions[0] = worldToGrid.MultiplyPoint3x4(
-                (Vector3)leftEyeToWorld.GetColumn(3));
-            _eyePositions[1] = worldToGrid.MultiplyPoint3x4(
-                (Vector3)rightEyeToWorld.GetColumn(3));
             Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
                 camera.transform.position);
             var global = new Unity.Mathematics.int3(
@@ -352,11 +347,6 @@ namespace Genesis.RoomScan
             readoutCompute.SetVectorArray("_M8DrawPlanes", _drawPlanes);
             readoutCompute.SetVectorArray("_M8DependencyPlanes",
                 _dependencyPlanes);
-            readoutCompute.SetVectorArray("_M8EyeGridPositions", _eyePositions);
-            readoutCompute.SetFloat("_M8GridWindingSign",
-                _grid.GridToWorldMatrix.determinant < 0f ? -1f : 1f);
-            readoutCompute.SetFloat("_M8ReadoutTranslationGuardGrid",
-                readoutTranslationGuard * MaxAxisScale(worldToGrid));
             readoutCompute.SetVector("_M8CameraWorld",
                 camera.transform.position);
             readoutCompute.SetFloat("_M8RenderDistance", renderDistance);
@@ -431,11 +421,6 @@ namespace Genesis.RoomScan
                 camera.transform.forward).normalized;
             gridUp = worldToGrid.MultiplyVector(camera.transform.up).normalized;
         }
-
-        private static float MaxAxisScale(Matrix4x4 matrix) => Mathf.Max(
-            matrix.MultiplyVector(Vector3.right).magnitude,
-            matrix.MultiplyVector(Vector3.up).magnitude,
-            matrix.MultiplyVector(Vector3.forward).magnitude);
 
         private static float MaxNeighbourWorldDistance(Matrix4x4 matrix)
         {

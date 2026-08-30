@@ -14,7 +14,10 @@ Shader "Genesis/RoomScan/MerkabaGrid"
         {
             Name "MerkabaForward"
             Tags { "LightMode"="UniversalForward" }
-            Cull Back
+            // The readout emits one zero-thickness canonical sheet, never a
+            // second UNKNOWN-side surface. Both physical sides of that one
+            // sheet therefore use the same disposable vertex stream.
+            Cull Off
             Blend [_SrcBlend] [_DstBlend]
             ZWrite [_ZWrite]
             ZTest LEqual

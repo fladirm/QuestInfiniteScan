@@ -259,6 +259,16 @@ namespace Genesis.RoomScan.Tests
                 "Overlap-shell queried non-immediate offset"));
         }
 
+        [Test]
+        public void GeneratedGpuOracle_IsExactlyCurrentCpuAuthority()
+        {
+            string path = System.IO.Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Shaders/" +
+                "MerkabaOverlapShell.generated.hlsl");
+            Assert.That(System.IO.File.ReadAllText(path),
+                Is.EqualTo(MerkabaOverlapShell.BuildGeneratedHlsl()));
+        }
+
         private static Scene AxisHeightField(int normalAxis,
             Func<int, int, int> height, int minimum, int maximum,
             int freeSign)
