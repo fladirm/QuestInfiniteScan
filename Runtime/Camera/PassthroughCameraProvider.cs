@@ -330,14 +330,29 @@ namespace Genesis.RoomScan
                 "Merkaba render-thread PCA history");
             int leftSlot = -1;
             int rightSlot = -1;
+            bool submitted = false;
+            uint timingRevision = unchecked((uint)(_copySubmittedEpoch + 1UL));
+            if (timingRevision == 0u) timingRevision = 1u;
+            bool timedSubmission = false;
             try
             {
-                if (hasLeft) leftSlot = StageOwnedSample(command, 0, left);
-                if (hasRight) rightSlot = StageOwnedSample(command, 1, right);
+                timedSubmission = MerkabaGpuTimestamps.
+                    TryBeginStandaloneSubmission(timingRevision, command);
+                if (hasLeft)
+                    leftSlot = StageOwnedSample(command, 0, left,
+                        timedSubmission);
+                if (hasRight)
+                    rightSlot = StageOwnedSample(command, 1, right,
+                        timedSubmission);
+                MerkabaGpuTimestamps.RecordStandaloneSubmissionEnd(command,
+                    timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
             }
             finally
             {
+                MerkabaGpuTimestamps.CompleteStandaloneSubmission(
+                    timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
 
@@ -376,7 +391,7 @@ namespace Genesis.RoomScan
         }
 
         private int StageOwnedSample(CommandBuffer command, int eye,
-            PendingSample sample)
+            PendingSample sample, bool timedSubmission)
         {
             int slot = _nextHistorySlot[eye];
             RenderTexture owned = _ownedHistory[eye][slot];
@@ -395,7 +410,8 @@ namespace Genesis.RoomScan
                 owned.Create();
                 _ownedHistory[eye][slot] = owned;
             }
-            command.BlitPcaHistoryProfiled(sample.Texture, owned);
+            command.BlitPcaHistoryProfiled(sample.Texture, owned,
+                timedSubmission);
             _lastCopyTarget = owned;
             return slot;
         }

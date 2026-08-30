@@ -290,7 +290,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(provider, Does.Contain("HistoryCapacity = 2"));
             Assert.That(provider, Does.Contain("MatchFrameHistory("));
             Assert.That(provider, Does.Contain(
-                "command.BlitPcaHistoryProfiled(sample.Texture, owned)"));
+                "command.BlitPcaHistoryProfiled(sample.Texture, owned,"));
             string renderCopy = Slice(provider,
                 "private void OnEndContextRendering(",
                 "private bool TryCaptureMetadata");
@@ -522,6 +522,11 @@ namespace Genesis.RoomScan.Tests
             RenderTexture outputDepth = Make2DTarget(width, height,
                 GraphicsFormat.R32_SFloat);
             RenderTexture outputNormal = Make2DTarget(width, height);
+            int metricGroupsX = Mathf.CeilToInt(width / 8f);
+            int metricGroupsY = Mathf.CeilToInt(height / 8f);
+            using var refineMetrics = new ComputeBuffer(metricGroupsX *
+                metricGroupsY * MerkabaGpuTimestamps.RefineMetricValueCount,
+                sizeof(uint));
 
             try
             {
@@ -538,6 +543,9 @@ namespace Genesis.RoomScan.Tests
                 compute.SetMatrixArray("_DepthProjInv", inverseProjections);
                 compute.SetMatrixArray("_DepthView", views);
                 compute.SetMatrixArray("_DepthViewInv", views);
+                compute.SetBuffer(kernel, "_RefineMetrics", refineMetrics);
+                compute.SetInt("_RefineMetricsEnabled", 1);
+                compute.SetInt("_RefineMetricGroupsX", metricGroupsX);
                 BindPca(compute, kernel, 0, pcaLeft, width, height);
                 BindPca(compute, kernel, 1, pcaRight, width, height);
                 compute.Dispatch(kernel, Mathf.CeilToInt(width / 8f),
@@ -554,6 +562,24 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(normal.w, Is.GreaterThan(0.5f));
                 Assert.That(math.lengthsq(normal.xyz),
                     Is.EqualTo(1f).Within(2e-3f));
+
+                var metricValues = new uint[refineMetrics.count];
+                refineMetrics.GetData(metricValues);
+                var radial = new uint[
+                    MerkabaGpuTimestamps.RefineMetricValueCount];
+                for (int index = 0; index < metricValues.Length; index++)
+                    radial[index % radial.Length] += metricValues[index];
+                for (int bin = 0; bin <
+                     MerkabaGpuTimestamps.RefineRadialBinCount; bin++)
+                {
+                    int offset = bin * MerkabaGpuTimestamps.RefineMetricCount;
+                    uint rejected = radial[offset + 1] + radial[offset + 2] +
+                                    radial[offset + 3] + radial[offset + 4];
+                    Assert.That(radial[offset], Is.EqualTo(
+                        radial[offset + 7] + rejected));
+                    Assert.That(radial[offset + 7], Is.EqualTo(
+                        radial[offset + 5] + radial[offset + 6]));
+                }
             }
             finally
             {

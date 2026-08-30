@@ -1016,6 +1016,8 @@ namespace Genesis.RoomScan.Tests
             }
             Assert.That(telemetry, Does.Contain("carveFreeRadial=["));
             Assert.That(telemetry, Does.Contain("sameObservationConflict="));
+            Assert.That(telemetry, Does.Contain("Merkaba metrics-rgbd"));
+            Assert.That(telemetry, Does.Contain("FormatRefineBin"));
             Assert.That(telemetry, Does.Not.Contain(
                 "AsyncGPUReadback.Request(_mutation"));
         }
@@ -1108,6 +1110,18 @@ namespace Genesis.RoomScan.Tests
             Assert.That(Regex.Matches(depth,
                 @"\[numthreads\(8,\s*8,\s*1\)\]"), Has.Count.EqualTo(5));
             Assert.That(depth, Does.Not.Contain("[numthreads(1, 1, 1)]"));
+            string refine = Source(
+                "Runtime/Shaders/StereoRgbdRefine.compute");
+            Assert.That(refine, Does.Contain(
+                "groupshared uint gRefineMetrics[RGBD_METRIC_VALUE_COUNT]"));
+            Assert.That(refine, Does.Contain(
+                "GroupMemoryBarrierWithGroupSync();"));
+            Assert.That(refine, Does.Not.Contain(
+                "InterlockedAdd(_RefineMetrics"));
+            string entry = refine.Substring(refine.IndexOf(
+                "void StereoRgbdRefine", StringComparison.Ordinal));
+            Assert.That(entry, Does.Not.Contain("return;"),
+                "No lane may return before the optional group reduction barrier.");
         }
 
         [Test]

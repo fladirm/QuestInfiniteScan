@@ -89,7 +89,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void SampledFrame_RecordsBothOwnedPcaCopyStages()
+        public void StandalonePcaCopy_HasItsOwnClosedSubmission()
         {
             var source = new Texture2D(2, 2);
             var destination = new RenderTexture(2, 2, 0);
@@ -98,19 +98,42 @@ namespace Genesis.RoomScan.Tests
             try
             {
                 MerkabaGpuTimestamps.SetAvailableForTests(true);
-                Assert.That(MerkabaGpuTimestamps.TryBeginFrame(91), Is.True);
-                MerkabaGpuTimestamps.RecordProfileBegin(command);
-                command.BlitPcaHistoryProfiled(source, destination);
-                command.BlitPcaObservationProfiled(source, destination);
-                MerkabaGpuTimestamps.RecordProfileEnd(command);
-                MerkabaGpuTimestamps.CompleteFrameSubmission(true);
+                bool timed = MerkabaGpuTimestamps.TryBeginStandaloneSubmission(
+                    91u, command);
+                Assert.That(timed, Is.True);
+                command.BlitPcaHistoryProfiled(source, destination, timed);
+                MerkabaGpuTimestamps.RecordStandaloneSubmissionEnd(command,
+                    timed);
+                MerkabaGpuTimestamps.CompleteStandaloneSubmission(timed, true);
 
                 Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
-                    Is.EqualTo(new[]
-                    {
-                        MerkabaGpuStage.DepthPreprocess,
-                        MerkabaGpuStage.DepthPreprocess
-                    }));
+                    Is.EqualTo(new[] { MerkabaGpuStage.DepthPreprocess }));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(source);
+                destination.Release();
+                UnityEngine.Object.DestroyImmediate(destination);
+            }
+        }
+
+        [Test]
+        public void ForeignPcaCopy_IsNotAttributedToAnActiveSubmission()
+        {
+            var source = new Texture2D(2, 2);
+            var destination = new RenderTexture(2, 2, 0);
+            destination.Create();
+            using var command = new CommandBuffer();
+            try
+            {
+                MerkabaGpuTimestamps.SetAvailableForTests(true);
+                Assert.That(MerkabaGpuTimestamps.TryBeginFrame(92), Is.True);
+                MerkabaGpuTimestamps.RecordProfileBegin(command);
+                command.BlitPcaObservationProfiled(source, destination, false);
+                Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
+                    Is.Empty);
+                MerkabaGpuTimestamps.RecordProfileEnd(command);
+                MerkabaGpuTimestamps.CompleteFrameSubmission(true);
             }
             finally
             {
@@ -128,6 +151,17 @@ namespace Genesis.RoomScan.Tests
             double elapsed = MerkabaGpuTimestamps.ElapsedNanoseconds(
                 range - 5, 3, 2.5, validBits);
             Assert.That(elapsed, Is.EqualTo(20.0));
+        }
+
+        [Test]
+        public void TimestampSample_RejectsEntryCountMismatchBeforeAggregation()
+        {
+            Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
+                7u, 7u, 12, 12), Is.True);
+            Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
+                7u, 7u, 11, 12), Is.False);
+            Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
+                7u, 7u, 13, 12), Is.False);
         }
 
         [Test]

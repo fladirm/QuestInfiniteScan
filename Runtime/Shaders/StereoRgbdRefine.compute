@@ -11,6 +11,7 @@ SamplerState gsBilinearClampSampler;
 Texture2DArray<float> _SrcDepth;
 RWTexture2D<float> _DstDepth;
 RWTexture2D<float4> _DstNormal;
+RWStructuredBuffer<uint> _RefineMetrics;
 
 uint _DepthW;
 uint _DepthH;
@@ -18,6 +19,8 @@ float4x4 _DepthProj[2];
 float4x4 _DepthProjInv[2];
 float4x4 _DepthView[2];
 float4x4 _DepthViewInv[2];
+uint _RefineMetricsEnabled;
+uint _RefineMetricGroupsX;
 
 #define RGBD_REFERENCE_EYE 0u
 #define RGBD_OPPOSITE_EYE 1u
@@ -29,6 +32,14 @@ float4x4 _DepthViewInv[2];
 #define RGBD_MIN_CENSUS_CONTRAST 0.02
 #define RGBD_MAX_CHROMATICITY_DIFFERENCE 0.35
 #define RGBD_MIN_PLANE_ALIGNMENT 0.3
+#define RGBD_STAGE_OPPOSITE 1u
+#define RGBD_STAGE_PCA_COVERAGE 2u
+#define RGBD_STAGE_CHROMATICITY 4u
+#define RGBD_STAGE_CENSUS 8u
+#define RGBD_METRIC_COUNT 8u
+#define RGBD_METRIC_VALUE_COUNT 24u
+
+groupshared uint gRefineMetrics[RGBD_METRIC_VALUE_COUNT];
 
 float3 DepthNdcToWorld(uint eye, float2 uv, float depth)
 {
@@ -216,13 +227,14 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
     float referenceDistance, float3 referenceNormal, float candidateDistance,
     out float3 worldPosition, out float3 jointNormal,
     out float geometricCost, out uint censusMismatch,
-    out bool photometricStructure)
+    out bool photometricStructure, out uint completedStages)
 {
     worldPosition = referenceEyePosition + referenceRay * candidateDistance;
     jointNormal = 0.0;
     geometricCost = 0.0;
     censusMismatch = 0u;
     photometricStructure = false;
+    completedStages = 0u;
 
     float3 rightPlanePoint;
     float3 rightNormal;
@@ -236,6 +248,7 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
     float rightResidual = abs(dot(worldPosition - rightPlanePoint,
         rightNormal));
     if (rightResidual > RGBD_MAX_METRIC_CORRECTION) return false;
+    completedStages |= RGBD_STAGE_OPPOSITE;
 
     jointNormal = normalize(referenceNormal + rightNormal);
     if (dot(jointNormal, referenceEyePosition - worldPosition) < 0.0)
@@ -255,6 +268,7 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
         !WorldPatchCensus(1u, worldPosition, tangent, bitangent,
             rightCensus, rightContrast, rightRgb))
         return false;
+    completedStages |= RGBD_STAGE_PCA_COVERAGE;
 
     float leftEnergy = leftRgb.r + leftRgb.g + leftRgb.b;
     float rightEnergy = rightRgb.r + rightRgb.g + rightRgb.b;
@@ -267,6 +281,7 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
             RGBD_MAX_CHROMATICITY_DIFFERENCE)
             return false;
     }
+    completedStages |= RGBD_STAGE_CHROMATICITY;
 
     censusMismatch = countbits(leftCensus ^ rightCensus);
     photometricStructure = max(leftContrast, rightContrast) >=
@@ -274,6 +289,7 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
     if (photometricStructure &&
         censusMismatch > RGBD_MAX_CENSUS_MISMATCH)
         return false;
+    completedStages |= RGBD_STAGE_CENSUS;
 
     geometricCost = rightResidual / RGBD_MAX_METRIC_CORRECTION +
         abs(candidateDistance - referenceDistance) /
@@ -282,22 +298,23 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
 }
 
 [numthreads(8, 8, 1)]
-void StereoRgbdRefine(uint2 id : SV_DispatchThreadID)
+void StereoRgbdRefine(uint2 id : SV_DispatchThreadID,
+    uint groupLane : SV_GroupIndex, uint2 groupId : SV_GroupID)
 {
-    if (id.x >= _DepthW || id.y >= _DepthH) return;
-    _DstDepth[id] = 0.0;
-    _DstNormal[id] = 0.0;
+    bool metricsEnabled = _RefineMetricsEnabled != 0u;
+    if (metricsEnabled)
+    {
+        if (groupLane < RGBD_METRIC_VALUE_COUNT)
+            gRefineMetrics[groupLane] = 0u;
+        GroupMemoryBarrierWithGroupSync();
+    }
 
-    float3 referenceWorld;
-    float3 referenceNormal;
-    if (!TryDepthPlane(RGBD_REFERENCE_EYE, int2(id), referenceWorld,
-            referenceNormal))
-        return;
-    float3 referenceEyePosition = DepthEyePosition(RGBD_REFERENCE_EYE);
-    float3 referenceRay = referenceWorld - referenceEyePosition;
-    float referenceDistance = length(referenceRay);
-    if (referenceDistance <= 0.001) return;
-    referenceRay /= referenceDistance;
+    bool inBounds = id.x < _DepthW && id.y < _DepthH;
+    bool rawPlaneValid = false;
+    bool finalAccepted = false;
+    bool uniquePhotometricWinner = false;
+    uint completedStages = 0u;
+    uint radialBin = 0u;
 
     float metricPriorDistance = 0.0;
     float3 metricPriorNormal = 0.0;
@@ -307,65 +324,139 @@ void StereoRgbdRefine(uint2 id : SV_DispatchThreadID)
     float bestPhotometricDistance = 0.0;
     float3 bestPhotometricNormal = 0.0;
 
-    [unroll]
-    for (int hypothesis = -RGBD_HYPOTHESIS_RADIUS;
-         hypothesis <= RGBD_HYPOTHESIS_RADIUS; hypothesis++)
+    float3 referenceEyePosition = 0.0;
+    float3 referenceRay = 0.0;
+    float referenceDistance = 0.0;
+    if (inBounds)
     {
-        float candidateDistance = max(0.001,
-            referenceDistance + (float)hypothesis *
-            RGBD_MAX_METRIC_CORRECTION /
-            (float)RGBD_HYPOTHESIS_RADIUS);
-        float3 candidateWorld;
-        float3 candidateNormal;
-        float geometricCost;
-        uint mismatch;
-        bool structured;
-        if (!JointCandidate(referenceEyePosition, referenceRay,
-                referenceDistance, referenceNormal, candidateDistance,
-                candidateWorld,
-                candidateNormal, geometricCost, mismatch, structured))
-            continue;
+        _DstDepth[id] = 0.0;
+        _DstNormal[id] = 0.0;
+        float2 normalizedPixel = (float2(id) + 0.5) /
+            float2(_DepthW, _DepthH);
+        float radial = max(abs(normalizedPixel.x * 2.0 - 1.0),
+            abs(normalizedPixel.y * 2.0 - 1.0));
+        radialBin = min(2u, (uint)floor(radial * 3.0));
 
-        if (hypothesis == 0)
+        float3 referenceWorld;
+        float3 referenceNormal;
+        rawPlaneValid = TryDepthPlane(RGBD_REFERENCE_EYE, int2(id),
+            referenceWorld, referenceNormal);
+        if (rawPlaneValid)
         {
-            metricPriorDistance = candidateDistance;
-            metricPriorNormal = candidateNormal;
-        }
-        if (!structured) continue;
-
-        if (mismatch < bestMismatch)
-        {
-            secondMismatch = bestMismatch;
-            bestMismatch = mismatch;
-            bestPhotometricCost = geometricCost;
-            bestPhotometricDistance = candidateDistance;
-            bestPhotometricNormal = candidateNormal;
-        }
-        else if (mismatch == bestMismatch)
-        {
-            secondMismatch = bestMismatch;
-            if (geometricCost < bestPhotometricCost)
+            referenceEyePosition = DepthEyePosition(RGBD_REFERENCE_EYE);
+            referenceRay = referenceWorld - referenceEyePosition;
+            referenceDistance = length(referenceRay);
+            if (referenceDistance > 0.001)
             {
-                bestPhotometricCost = geometricCost;
-                bestPhotometricDistance = candidateDistance;
-                bestPhotometricNormal = candidateNormal;
+                referenceRay /= referenceDistance;
+                [unroll]
+                for (int hypothesis = -RGBD_HYPOTHESIS_RADIUS;
+                     hypothesis <= RGBD_HYPOTHESIS_RADIUS; hypothesis++)
+                {
+                    float candidateDistance = max(0.001,
+                        referenceDistance + (float)hypothesis *
+                        RGBD_MAX_METRIC_CORRECTION /
+                        (float)RGBD_HYPOTHESIS_RADIUS);
+                    float3 candidateWorld;
+                    float3 candidateNormal;
+                    float geometricCost;
+                    uint mismatch;
+                    bool structured;
+                    uint candidateStages;
+                    bool candidateValid = JointCandidate(referenceEyePosition,
+                        referenceRay, referenceDistance, referenceNormal,
+                        candidateDistance, candidateWorld, candidateNormal,
+                        geometricCost, mismatch, structured, candidateStages);
+                    completedStages |= candidateStages;
+                    if (!candidateValid) continue;
+
+                    if (hypothesis == 0)
+                    {
+                        metricPriorDistance = candidateDistance;
+                        metricPriorNormal = candidateNormal;
+                    }
+                    if (!structured) continue;
+
+                    if (mismatch < bestMismatch)
+                    {
+                        secondMismatch = bestMismatch;
+                        bestMismatch = mismatch;
+                        bestPhotometricCost = geometricCost;
+                        bestPhotometricDistance = candidateDistance;
+                        bestPhotometricNormal = candidateNormal;
+                    }
+                    else if (mismatch == bestMismatch)
+                    {
+                        secondMismatch = bestMismatch;
+                        if (geometricCost < bestPhotometricCost)
+                        {
+                            bestPhotometricCost = geometricCost;
+                            bestPhotometricDistance = candidateDistance;
+                            bestPhotometricNormal = candidateNormal;
+                        }
+                    }
+                    else
+                        secondMismatch = min(secondMismatch, mismatch);
+                }
             }
         }
-        else
-            secondMismatch = min(secondMismatch, mismatch);
+
+        uniquePhotometricWinner = bestPhotometricDistance > 0.0 &&
+            bestMismatch < secondMismatch;
+        if (uniquePhotometricWinner || metricPriorDistance > 0.0)
+        {
+            float selectedDistance = uniquePhotometricWinner
+                ? bestPhotometricDistance : metricPriorDistance;
+            float3 selectedNormal = uniquePhotometricWinner
+                ? bestPhotometricNormal : metricPriorNormal;
+            float3 selectedWorld = referenceEyePosition +
+                referenceRay * selectedDistance;
+            float selectedDepth = WorldToReferenceDepthNdc(selectedWorld);
+            finalAccepted = selectedDepth > 0.0 && selectedDepth < 1.0;
+            if (finalAccepted)
+            {
+                _DstDepth[id] = selectedDepth;
+                _DstNormal[id] = float4(selectedNormal, 1.0);
+            }
+        }
     }
 
-    bool uniquePhotometricWinner = bestPhotometricDistance > 0.0 &&
-        bestMismatch < secondMismatch;
-    if (!uniquePhotometricWinner && metricPriorDistance <= 0.0) return;
-    float selectedDistance = uniquePhotometricWinner
-        ? bestPhotometricDistance : metricPriorDistance;
-    float3 selectedNormal = uniquePhotometricWinner
-        ? bestPhotometricNormal : metricPriorNormal;
-    float3 selectedWorld = referenceEyePosition +
-        referenceRay * selectedDistance;
-    float selectedDepth = WorldToReferenceDepthNdc(selectedWorld);
-    if (selectedDepth <= 0.0 || selectedDepth >= 1.0) return;
-    _DstDepth[id] = selectedDepth;
-    _DstNormal[id] = float4(selectedNormal, 1.0);
+    if (metricsEnabled)
+    {
+        uint metricMask = 0u;
+        if (rawPlaneValid) metricMask |= 1u << 0u;
+        if (rawPlaneValid && !finalAccepted)
+        {
+            if ((completedStages & RGBD_STAGE_OPPOSITE) == 0u)
+                metricMask |= 1u << 1u;
+            else if ((completedStages & RGBD_STAGE_PCA_COVERAGE) == 0u)
+                metricMask |= 1u << 2u;
+            else if ((completedStages & RGBD_STAGE_CHROMATICITY) == 0u)
+                metricMask |= 1u << 3u;
+            else
+                metricMask |= 1u << 4u;
+        }
+        if (finalAccepted)
+        {
+            metricMask |= 1u << (uniquePhotometricWinner ? 6u : 5u);
+            metricMask |= 1u << 7u;
+        }
+        [unroll]
+        for (uint metric = 0u; metric < RGBD_METRIC_COUNT; metric++)
+        {
+            if ((metricMask & (1u << metric)) != 0u)
+            {
+                uint ignored;
+                InterlockedAdd(gRefineMetrics[radialBin *
+                    RGBD_METRIC_COUNT + metric], 1u, ignored);
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (groupLane < RGBD_METRIC_VALUE_COUNT)
+        {
+            uint groupLinear = groupId.y * _RefineMetricGroupsX + groupId.x;
+            _RefineMetrics[groupLinear * RGBD_METRIC_VALUE_COUNT + groupLane] =
+                gRefineMetrics[groupLane];
+        }
+    }
 }

@@ -86,6 +86,12 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_DepthView");
         private static readonly int RefineDepthViewInvId =
             Shader.PropertyToID("_DepthViewInv");
+        private static readonly int RefineMetricsId =
+            Shader.PropertyToID("_RefineMetrics");
+        private static readonly int RefineMetricsEnabledId =
+            Shader.PropertyToID("_RefineMetricsEnabled");
+        private static readonly int RefineMetricGroupsXId =
+            Shader.PropertyToID("_RefineMetricGroupsX");
         private static readonly int[] RefineCameraRgbId =
         {
             Shader.PropertyToID("_MerkabaCameraRgbLeft"),
@@ -169,6 +175,9 @@ namespace Genesis.RoomScan
         public RenderTexture DilatedDepthTex => _dilatedDepth;
 
         private RenderTexture _refinedDepthTex;
+        private ComputeBuffer _refineMetrics;
+        private int _refineMetricValueCount;
+        private uint _refineMetricsRevision;
 
         private AROcclusionManager _arOcclusionManager;
         private Camera _mainCam;
@@ -472,6 +481,13 @@ namespace Genesis.RoomScan
                 _ownedRawDepth[slot] = null;
             }
             if (_refinedDepthTex) { Destroy(_refinedDepthTex); _refinedDepthTex = null; }
+            if (_refineMetrics != null)
+            {
+                _refineMetrics.Release();
+                _refineMetrics = null;
+            }
+            _refineMetricValueCount = 0;
+            _refineMetricsRevision = 0u;
             _dilatedDepth = null;
             _depthTex = null;
             _depthFrameRequested = false;
@@ -489,6 +505,7 @@ namespace Genesis.RoomScan
                 _normTex, _dilationA, _dilationB,
                 _ownedRawDepth[0], _ownedRawDepth[1], _refinedDepthTex
             };
+            ComputeBuffer capturedRefineMetrics = _refineMetrics;
             bool released = false;
             return () =>
             {
@@ -501,7 +518,19 @@ namespace Genesis.RoomScan
                 }
                 foreach (UnityEngine.Object resource in captured)
                     if (resource != null) UnityEngine.Object.Destroy(resource);
+                capturedRefineMetrics?.Release();
             };
+        }
+
+        internal bool TryGetRefineMetrics(uint revision,
+            out ComputeBuffer metrics, out int valueCount)
+        {
+            bool available = revision != 0u && revision ==
+                _refineMetricsRevision && _refineMetrics != null &&
+                _refineMetricValueCount > 0;
+            metrics = available ? _refineMetrics : null;
+            valueCount = available ? _refineMetricValueCount : 0;
+            return available;
         }
 
         private void Update()
@@ -790,6 +819,10 @@ namespace Genesis.RoomScan
             }
 
             ComputeShader shader = stereoRgbdRefineCompute;
+            int metricGroupsX = Mathf.CeilToInt(w / 8f);
+            int metricGroupsY = Mathf.CeilToInt(h / 8f);
+            EnsureRefineMetrics(metricGroupsX * metricGroupsY);
+            bool captureMetrics = MerkabaGpuTimestamps.IsRecording;
             _stereoRgbdRefineKernel.Set(command, RefineSrcDepthId, _depthTex);
             _stereoRgbdRefineKernel.Set(command, RefineDstDepthId,
                 _refinedDepthTex);
@@ -803,12 +836,40 @@ namespace Genesis.RoomScan
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewId, _view);
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewInvId,
                 _viewInv);
+            _stereoRgbdRefineKernel.Set(command, RefineMetricsId,
+                _refineMetrics);
+            command.SetComputeIntParam(shader, RefineMetricsEnabledId,
+                captureMetrics ? 1 : 0);
+            command.SetComputeIntParam(shader, RefineMetricGroupsXId,
+                metricGroupsX);
             BindStereoCamera(command, shader, cameraFrame.Left, 0);
             BindStereoCamera(command, shader, cameraFrame.Right, 1);
             _stereoRgbdRefineKernel.DispatchFit(command, w, h, 1);
+            if (captureMetrics)
+                _refineMetricsRevision = MerkabaGpuTimestamps.CurrentRevision;
 
             _depthTex = _refinedDepthTex;
             Shader.SetGlobalTexture(NormTexID, _normTex);
+        }
+
+        private void EnsureRefineMetrics(int groupCount)
+        {
+            int valueCount = Math.Max(1, groupCount) *
+                MerkabaGpuTimestamps.RefineMetricValueCount;
+            if (_refineMetrics != null &&
+                _refineMetrics.count == valueCount)
+            {
+                _refineMetricValueCount = valueCount;
+                return;
+            }
+            _refineMetrics?.Release();
+            _refineMetrics = new ComputeBuffer(valueCount, sizeof(uint),
+                ComputeBufferType.Structured)
+            {
+                name = "Merkaba RGB-D radial metrics"
+            };
+            _refineMetricValueCount = valueCount;
+            _refineMetricsRevision = 0u;
         }
 
         private void BindStereoCamera(CommandBuffer command,

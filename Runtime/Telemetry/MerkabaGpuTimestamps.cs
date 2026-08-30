@@ -24,6 +24,11 @@ namespace Genesis.RoomScan
     /// </summary>
     internal static class MerkabaGpuTimestamps
     {
+        internal const int RefineRadialBinCount = 3;
+        internal const int RefineMetricCount = 8;
+        internal const int RefineMetricValueCount =
+            RefineRadialBinCount * RefineMetricCount;
+
         private const int MaximumTimedEntries = 4096;
         private const float InitialSampleDelaySeconds = 2f;
         private const float SampleIntervalSeconds = 5f;
@@ -118,6 +123,8 @@ namespace Genesis.RoomScan
             internal uint OffAxisMutationBlocked;
             internal uint SurfaceReplacement;
             internal uint SameObservationConflict;
+            internal readonly uint[] RefineRadial =
+                new uint[RefineMetricValueCount];
             internal float LoadBytesPerSecond;
             internal float WriteBytesPerSecond;
             internal float LoadLatencyP50Ms;
@@ -292,17 +299,39 @@ namespace Genesis.RoomScan
         }
 
         internal static void BlitPcaHistoryProfiled(this CommandBuffer command,
-            Texture source, RenderTexture destination)
+            Texture source, RenderTexture destination, bool timedSubmission)
         {
-            BlitProfiled(command, source, destination, PcaHistoryCopyEntry);
+            BlitProfiled(command, source, destination, PcaHistoryCopyEntry,
+                timedSubmission);
         }
 
         internal static void BlitPcaObservationProfiled(
             this CommandBuffer command, Texture source,
-            RenderTexture destination)
+            RenderTexture destination, bool timedSubmission)
         {
             BlitProfiled(command, source, destination,
-                PcaObservationCopyEntry);
+                PcaObservationCopyEntry, timedSubmission);
+        }
+
+        internal static bool TryBeginStandaloneSubmission(uint revision,
+            CommandBuffer command)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            bool timed = TryBeginFrame(revision);
+            if (timed) RecordProfileBegin(command);
+            return timed;
+        }
+
+        internal static void RecordStandaloneSubmissionEnd(
+            CommandBuffer command, bool timedSubmission)
+        {
+            if (timedSubmission) RecordProfileEnd(command);
+        }
+
+        internal static void CompleteStandaloneSubmission(
+            bool timedSubmission, bool submitted)
+        {
+            if (timedSubmission) CompleteFrameSubmission(submitted);
         }
 
         internal static void DispatchComputeProfiled(this CommandBuffer command,
@@ -407,9 +436,8 @@ namespace Genesis.RoomScan
                 out ulong capturedRevision, out bool overflow);
             if (status == 0)
                 return;
-            bool valid = status > 0 && !overflow &&
-                         capturedRevision == _revision &&
-                         entryCount == EntrySequence.Count;
+            bool valid = IsTimestampSampleValid(status, overflow,
+                capturedRevision, _revision, entryCount, EntrySequence.Count);
             if (valid)
                 LogTimings(entryCount, timestampPeriod, validBits);
             else
@@ -447,51 +475,90 @@ namespace Genesis.RoomScan
                 else
                 {
                     var values = request.GetData<uint>();
-                    sample.BlockCount = values[0];
-                    sample.ChunkCount = values[1];
-                    sample.HotTiles = values[2];
-                    sample.ColdTiles = values[3];
-                    sample.HashCollisions = values[4];
-                    sample.HashProbes = values[5];
-                    sample.HashMaxProbe = values[6];
-                    sample.BlockOverflow = values[7];
-                    sample.ChunkOverflow = values[8];
-                    sample.TileStarvation = values[9];
-                    sample.ValidSurfaceCandidates = values[10];
-                    sample.UniqueSurfaceKernels = values[11];
-                    sample.UnresolvedSurfaceTiles = values[12];
-                    sample.SurfaceTilesAllocated = values[13];
-                    sample.ScanColdMisses = values[14];
-                    sample.CarveCandidateTiles = values[17];
-                    sample.CarveKernelsEvaluated = values[18];
-                    sample.LoadRequests = values[19];
-                    sample.VisibleTiles = values[21];
-                    sample.LogicalPrimitives = values[22];
-                    sample.RenderPrimitiveOverflow = values[23];
-                    sample.LateColdMisses = values[24];
-                    sample.CandidateBlocks = values[26];
-                    sample.HashHitBlocks = values[27];
-                    sample.VisibleChunks = values[28];
-                    sample.OccupiedKernelsConsidered = values[29];
-                    sample.PrimitivesBeforeFacing = values[30];
-                    sample.RejectedPrimitives = values[31];
-                    sample.HashFull = values[38];
-                    sample.FailedReads = values[39];
-                    sample.FailedWrites = values[40];
-                    sample.StorageBackpressure = values[41];
-                    sample.CarveQueryBlocks = values[48];
-                    sample.WritebackTiles = values[49];
-                    sample.ObservationFailure = values[52];
-                    sample.FailedObservations = values[53];
-                    sample.CarveClassifiedFree = values[58];
-                    sample.CarveClassifiedSurface = values[59];
-                    sample.CarveClassifiedUnknown = values[60];
-                    sample.CarveEvidenceDecrements = values[61];
-                    sample.CarveOccupiedToFree = values[62];
-                    sample.CarveBitsRetired = values[63];
-                    sample.ColdCarveTilesRequested = values[64];
-                    sample.ReadoutUnresolved = values[50];
-                    sample.ReadoutBuildStatus = values[71];
+                    sample.BlockCount = values[MerkabaGrid.CounterBlockCount];
+                    sample.ChunkCount = values[MerkabaGrid.CounterChunkCount];
+                    sample.HotTiles = values[MerkabaGrid.CounterHotTileCount];
+                    sample.ColdTiles = values[MerkabaGrid.CounterColdTileCount];
+                    sample.HashCollisions = values[
+                        MerkabaGrid.CounterHashCollisions];
+                    sample.HashProbes = values[MerkabaGrid.CounterHashProbes];
+                    sample.HashMaxProbe = values[
+                        MerkabaGrid.CounterHashMaxProbe];
+                    sample.BlockOverflow = values[
+                        MerkabaGrid.CounterBlockOverflow];
+                    sample.ChunkOverflow = values[
+                        MerkabaGrid.CounterChunkOverflow];
+                    sample.TileStarvation = values[
+                        MerkabaGrid.CounterTileStarvation];
+                    sample.ValidSurfaceCandidates = values[
+                        MerkabaGrid.CounterValidSurfaceCandidates];
+                    sample.UniqueSurfaceKernels = values[
+                        MerkabaGrid.CounterUniqueSurfaceKernels];
+                    sample.UnresolvedSurfaceTiles = values[
+                        MerkabaGrid.CounterUnresolvedSurfaceTiles];
+                    sample.SurfaceTilesAllocated = values[
+                        MerkabaGrid.CounterSurfaceTilesAllocated];
+                    sample.ScanColdMisses = values[
+                        MerkabaGrid.CounterScanColdMisses];
+                    sample.CarveCandidateTiles = values[
+                        MerkabaGrid.CounterCarveCandidateTiles];
+                    sample.CarveKernelsEvaluated = values[
+                        MerkabaGrid.CounterCarveKernelsEvaluated];
+                    sample.LoadRequests = values[
+                        MerkabaGrid.CounterLoadRequests];
+                    sample.VisibleTiles = values[
+                        MerkabaGrid.CounterVisibleTiles];
+                    sample.LogicalPrimitives = values[
+                        MerkabaGrid.CounterLogicalPrimitives];
+                    sample.RenderPrimitiveOverflow = values[
+                        MerkabaGrid.CounterRenderPrimitiveOverflow];
+                    sample.LateColdMisses = values[
+                        MerkabaGrid.CounterLateDrawColdMisses];
+                    sample.CandidateBlocks = values[
+                        MerkabaGrid.CounterCandidateBlocks];
+                    sample.HashHitBlocks = values[
+                        MerkabaGrid.CounterHashHitBlocks];
+                    sample.VisibleChunks = values[
+                        MerkabaGrid.CounterVisibleChunks];
+                    sample.OccupiedKernelsConsidered = values[
+                        MerkabaGrid.CounterOccupiedKernelsConsidered];
+                    sample.PrimitivesBeforeFacing = values[
+                        MerkabaGrid.CounterPrimitivesBeforeFacing];
+                    sample.RejectedPrimitives = values[
+                        MerkabaGrid.CounterRejectedPrimitives];
+                    sample.HashFull = values[MerkabaGrid.CounterHashFull];
+                    sample.FailedReads = values[
+                        MerkabaGrid.CounterFailedReads];
+                    sample.FailedWrites = values[
+                        MerkabaGrid.CounterFailedWrites];
+                    sample.StorageBackpressure = values[
+                        MerkabaGrid.CounterStorageBackpressure];
+                    sample.CarveQueryBlocks = values[
+                        MerkabaGrid.CounterCarveQueryBlocks];
+                    sample.WritebackTiles = values[
+                        MerkabaGrid.CounterWritebackTiles];
+                    sample.ObservationFailure = values[
+                        MerkabaGrid.CounterObservationFailure];
+                    sample.FailedObservations = values[
+                        MerkabaGrid.CounterFailedObservations];
+                    sample.CarveClassifiedFree = values[
+                        MerkabaGrid.CounterCarveClassifiedFree];
+                    sample.CarveClassifiedSurface = values[
+                        MerkabaGrid.CounterCarveClassifiedSurface];
+                    sample.CarveClassifiedUnknown = values[
+                        MerkabaGrid.CounterCarveClassifiedUnknown];
+                    sample.CarveEvidenceDecrements = values[
+                        MerkabaGrid.CounterCarveEvidenceDecrements];
+                    sample.CarveOccupiedToFree = values[
+                        MerkabaGrid.CounterCarveOccupiedToFree];
+                    sample.CarveBitsRetired = values[
+                        MerkabaGrid.CounterCarveBitsRetired];
+                    sample.ColdCarveTilesRequested = values[
+                        MerkabaGrid.CounterColdCarveTilesRequested];
+                    sample.ReadoutUnresolved = values[
+                        MerkabaGrid.CounterReadoutUnresolved];
+                    sample.ReadoutBuildStatus = values[
+                        MerkabaGrid.CounterReadoutBuildStatus];
                     for (int radialBin = 0; radialBin < 8; radialBin++)
                         sample.CarveFreeRadial[radialBin] = values[
                             MerkabaGrid.CounterCarveFreeRadialBase + radialBin];
@@ -517,7 +584,38 @@ namespace Genesis.RoomScan
                 sample.PendingReadbacks--;
                 TryLogMetrics(sample);
             });
+
+            DepthCapture depthCapture = DepthCapture.Instance;
+            if (depthCapture != null && depthCapture.TryGetRefineMetrics(
+                    sample.Revision, out ComputeBuffer refineMetrics,
+                    out int refineMetricValueCount))
+            {
+                sample.PendingReadbacks++;
+                AsyncGPUReadback.Request(refineMetrics,
+                    refineMetricValueCount * sizeof(uint), 0, request =>
+                    {
+                        if (request.hasError)
+                            sample.ReadbackValid = false;
+                        else
+                        {
+                            var values = request.GetData<uint>();
+                            for (int index = 0; index < values.Length; index++)
+                            {
+                                int metric = index % RefineMetricValueCount;
+                                sample.RefineRadial[metric] += values[index];
+                            }
+                        }
+                        sample.PendingReadbacks--;
+                        TryLogMetrics(sample);
+                    });
+            }
         }
+
+        internal static bool IsTimestampSampleValid(int status, bool overflow,
+            ulong capturedRevision, ulong expectedRevision, int actualEntries,
+            int expectedEntries) =>
+            status > 0 && !overflow && capturedRevision == expectedRevision &&
+            actualEntries == expectedEntries;
 
         internal static double ElapsedNanoseconds(ulong begin, ulong end,
             double timestampPeriod, int validBits)
@@ -565,13 +663,14 @@ namespace Genesis.RoomScan
         }
 
         private static void BlitProfiled(CommandBuffer command,
-            Texture source, RenderTexture destination, TimingEntry entry)
+            Texture source, RenderTexture destination, TimingEntry entry,
+            bool timedSubmission)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (destination == null)
                 throw new ArgumentNullException(nameof(destination));
-            bool timed = Observe(entry);
+            bool timed = timedSubmission && Observe(entry);
             RecordCopyEvent(command, timed, true);
             command.Blit(source, destination);
             RecordCopyEvent(command, timed, false);
@@ -677,11 +776,12 @@ namespace Genesis.RoomScan
 
         private static void TryLogMetrics(SampleMetrics sample)
         {
-            if (sample == null || sample.Logged || !sample.TimingComplete ||
+            if (sample == null || sample.Logged ||
+                !sample.MetricsCaptureRequested || !sample.TimingComplete ||
                 sample.PendingReadbacks != 0)
                 return;
             sample.Logged = true;
-            Logger.Info($"Merkaba GPU metrics revision={sample.Revision} " +
+            Logger.Info($"Merkaba metrics-world revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
                         $"m8Blocks={sample.BlockCount} " +
                         $"chunks={sample.ChunkCount} " +
@@ -694,7 +794,9 @@ namespace Genesis.RoomScan
                         $"blockOverflow={sample.BlockOverflow} " +
                         $"chunkOverflow={sample.ChunkOverflow} " +
                         $"physicalTileStarvation={sample.TileStarvation} " +
-                        $"hashFull={sample.HashFull} " +
+                        $"hashFull={sample.HashFull}");
+            Logger.Info($"Merkaba metrics-reconstruction revision=" +
+                        $"{sample.Revision} valid={sample.ReadbackValid} " +
                         $"validSurfaceCandidates={sample.ValidSurfaceCandidates} " +
                         $"uniqueSurfaceKernels={sample.UniqueSurfaceKernels} " +
                         $"unresolvedSurfaceTiles={sample.UnresolvedSurfaceTiles} " +
@@ -718,7 +820,14 @@ namespace Genesis.RoomScan
                         $"authorityRevision={sample.AuthorityRevision} " +
                         $"offAxisMutationBlocked={sample.OffAxisMutationBlocked} " +
                         $"surfaceReplacement={sample.SurfaceReplacement} " +
-                        $"sameObservationConflict={sample.SameObservationConflict} " +
+                        $"sameObservationConflict={sample.SameObservationConflict}");
+            Logger.Info($"Merkaba metrics-rgbd revision={sample.Revision} " +
+                        $"valid={sample.ReadbackValid} " +
+                        $"center={FormatRefineBin(sample.RefineRadial, 0)} " +
+                        $"mid={FormatRefineBin(sample.RefineRadial, 1)} " +
+                        $"edge={FormatRefineBin(sample.RefineRadial, 2)}");
+            Logger.Info($"Merkaba metrics-storage revision={sample.Revision} " +
+                        $"valid={sample.ReadbackValid} " +
                         $"coldCarveTilesRequested={sample.ColdCarveTilesRequested} " +
                         $"loadRequests={sample.LoadRequests} " +
                         $"loadBytesPerSecond={sample.LoadBytesPerSecond:F0} " +
@@ -730,7 +839,9 @@ namespace Genesis.RoomScan
                         $"writeLatencyP95={sample.WriteLatencyP95Ms:F2}ms " +
                         $"storageBackpressure={sample.StorageBackpressure} " +
                         $"failedReads={sample.FailedReads} " +
-                        $"failedWrites={sample.FailedWrites} " +
+                        $"failedWrites={sample.FailedWrites}");
+            Logger.Info($"Merkaba metrics-readout revision={sample.Revision} " +
+                        $"valid={sample.ReadbackValid} " +
                         $"candidateM8Blocks={sample.CandidateBlocks} " +
                         $"hashHitM8Blocks={sample.HashHitBlocks} " +
                         $"visibleChunks={sample.VisibleChunks} " +
@@ -748,6 +859,19 @@ namespace Genesis.RoomScan
                         $"readoutBuildStatus={sample.ReadoutBuildStatus} " +
                         $"observationFailure=0x{sample.ObservationFailure:x} " +
                         $"failedObservations={sample.FailedObservations}");
+        }
+
+        private static string FormatRefineBin(uint[] values, int radialBin)
+        {
+            int offset = radialBin * RefineMetricCount;
+            return "[raw=" + values[offset] +
+                   ",opposite=" + values[offset + 1] +
+                   ",coverage=" + values[offset + 2] +
+                   ",chroma=" + values[offset + 3] +
+                   ",census=" + values[offset + 4] +
+                   ",metric=" + values[offset + 5] +
+                   ",unique=" + values[offset + 6] +
+                   ",accepted=" + values[offset + 7] + "]";
         }
 
         private static void CancelFrame()

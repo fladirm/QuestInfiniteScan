@@ -298,18 +298,30 @@ namespace Genesis.RoomScan
                 : _readyCameraSlot >= 0 ? _readyCameraSlot : 0;
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba true-stereo PCA snapshot");
+            bool submitted = false;
+            uint timingRevision = unchecked(
+                (uint)(_cameraCopySubmittedEpoch + 1UL));
+            if (timingRevision == 0u) timingRevision = 1u;
+            bool timedSubmission = false;
             try
             {
-                StoreCameraEye(command, slot, 0, frame.Left);
-                StoreCameraEye(command, slot, 1, frame.Right);
+                timedSubmission = MerkabaGpuTimestamps.
+                    TryBeginStandaloneSubmission(timingRevision, command);
+                StoreCameraEye(command, slot, 0, frame.Left, timedSubmission);
+                StoreCameraEye(command, slot, 1, frame.Right, timedSubmission);
                 // Provider-owned history copies, these immutable observation
                 // copies, and later M8 work share the graphics queue. Queue
                 // ordering publishes matching pixels and metadata without a
                 // per-observation CPU fence or readback.
+                MerkabaGpuTimestamps.RecordStandaloneSubmissionEnd(command,
+                    timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
             }
             finally
             {
+                MerkabaGpuTimestamps.CompleteStandaloneSubmission(
+                    timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
 
@@ -667,7 +679,7 @@ namespace Genesis.RoomScan
         }
 
         private void StoreCameraEye(CommandBuffer command, int slot, int eye,
-            CameraFrameDescriptor frame)
+            CameraFrameDescriptor frame, bool timedSubmission)
         {
             if (frame.Eye != (StereoEye)eye)
                 throw new ArgumentException("Stereo PCA eye mismatch.",
@@ -689,7 +701,8 @@ namespace Genesis.RoomScan
                 owned.Create();
                 _cameraFrameCopies[resource] = owned;
             }
-            command.BlitPcaObservationProfiled(frame.Texture, owned);
+            command.BlitPcaObservationProfiled(frame.Texture, owned,
+                timedSubmission);
             _cameraPosition[resource] = frame.WorldPose.position;
             _cameraRotation[resource] = frame.WorldPose.rotation;
             _cameraFocalLength[resource] = frame.FocalLength;

@@ -83,14 +83,18 @@ profiled command-buffer path. Its cost was absent from device timing logs.
 It must use the existing Vulkan timestamp path; no new compute kernel is
 needed.
 
-### RGBD-5 — centre scans less than the periphery [UNRESOLVED]
+### RGBD-5 — centre scans less than the periphery [INSTRUMENTED, DEVICE PENDING]
 
 The visual symptom is real, but the captured logs contain no radial reject
 histogram, so its cause is not proven. Re-test after RGBD-1/2 because the old
 latest-only pairing and loose depth test confound the result. If it persists,
-the next evidence run must count raw-valid, four-camera-coverage, stereo-depth,
-photometric and accepted pixels in centre/mid/edge regions without per-frame
-readback. Do not tune thresholds blindly.
+the next evidence run counts raw-plane valid, opposite-plane failure, PCA
+coverage failure, chromaticity failure, census failure, metric fallback,
+unique photometric winner and final accepted pixels independently for
+centre/mid/edge. The 8x8 solve reduces these in group shared memory and the
+existing five-second evidence sample reads the compact group records; normal
+frames add no CPU readback and no per-pixel global atomic. Do not tune
+thresholds before this Quest evidence.
 
 ### RGBD-6 — live PCA image and descriptor were latched in different phases
 [FIXED, DEVICE PENDING]
