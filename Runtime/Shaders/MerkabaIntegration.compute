@@ -23,8 +23,9 @@
 #define MERKABA_OCCUPIED_ON 512
 #define MERKABA_OCCUPIED_OFF 128
 #define MERKABA_SURFACE_SCALE 640.0
-#define MERKABA_FREE_SCALE 640.0
-#define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 640
+#define MERKABA_FREE_SCALE 256.0
+#define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 2560
+#define MERKABA_FREE_FULL_CLEARANCE 0.150
 #define MERKABA_MIN_SURFACE_QUALITY 0.25
 #define MERKABA_OCCUPIED_FLAG 1u
 #define MERKABA_NORMAL_MIN 0.3
@@ -205,11 +206,18 @@ bool TrySurfaceMeasurement(uint eye, uint2 pixel, out float3 worldSurface,
     return true;
 }
 
+float MerkabaFreeDistanceWeight(float clearance)
+{
+    return saturate((clearance - MERKABA_HALF_SUPPORT) /
+        (MERKABA_FREE_FULL_CLEARANCE - MERKABA_HALF_SUPPORT));
+}
+
 bool ObserveDepthEye(uint eye, int3 globalCoord, float3 worldPosition,
-    out int kind, out float quality)
+    out int kind, out float evidenceWeight, out int3 replacementCoord)
 {
     kind = 0;
-    quality = 0.0;
+    evidenceWeight = 0.0;
+    replacementCoord = 0;
     float3 viewPosition = mul(gsDepthView[eye],
         float4(worldPosition, 1.0)).xyz;
     if (viewPosition.z > -0.05) return false;
@@ -220,6 +228,7 @@ bool ObserveDepthEye(uint eye, int3 globalCoord, float3 worldPosition,
         gsDepthTexSize - 1u);
     float3 worldSurface;
     int3 surfaceKernel;
+    float quality;
     uint packedMeasurement;
     if (!TrySurfaceMeasurement(eye, pixel, worldSurface, surfaceKernel,
             quality, packedMeasurement))
@@ -227,47 +236,82 @@ bool ObserveDepthEye(uint eye, int3 globalCoord, float3 worldPosition,
 
     float kernelDistance = distance(worldPosition, gsDepthEyePos(eye));
     float measuredDistance = distance(worldSurface, gsDepthEyePos(eye));
+    float clearance = measuredDistance - kernelDistance;
+    replacementCoord = surfaceKernel;
     if (all(globalCoord == surfaceKernel))
+    {
         kind = 2;
-    else if (kernelDistance < measuredDistance)
+        evidenceWeight = quality * quality;
+    }
+    else if (clearance > MERKABA_HALF_SUPPORT)
+    {
         kind = 1;
+        evidenceWeight = quality * quality *
+            MerkabaFreeDistanceWeight(clearance);
+    }
     else
         return false;
 
-    // TrySurfaceMeasurement already proved this exact endpoint against
-    // refined stereo depth, dilation, normal, exclusions, and both PCA eyes.
-    // A different active kernel is therefore corrective FREE only on the
-    // foreground segment of that same validated ray.
+    // One exact kernel owns SURFACE. Other kernels receive only the transient
+    // signed-clearance evidence of this validated four-stream endpoint.
     return true;
 }
 
 void FuseDepth(int3 globalCoord, float3 worldPosition, out int kind,
-    out float quality)
+    out float evidenceWeight, out int3 replacementCoord)
 {
     kind = 0;
-    quality = 0.0;
+    evidenceWeight = 0.0;
+    replacementCoord = 0;
     [unroll]
     for (uint eye = 0u; eye < 2u; eye++)
     {
         int eyeKind = 0;
-        float eyeQuality = 0.0;
+        float eyeEvidenceWeight = 0.0;
+        int3 eyeReplacementCoord = 0;
         if (!ObserveDepthEye(eye, globalCoord, worldPosition, eyeKind,
-                eyeQuality))
+                eyeEvidenceWeight, eyeReplacementCoord))
             continue;
         if (eyeKind == 2)
         {
-            if (kind != 2 || eyeQuality > quality)
+            if (kind != 2 || eyeEvidenceWeight > evidenceWeight)
             {
                 kind = 2;
-                quality = eyeQuality;
+                evidenceWeight = eyeEvidenceWeight;
+                replacementCoord = eyeReplacementCoord;
             }
         }
-        else if (kind == 0 || (kind == 1 && eyeQuality > quality))
+        else if (kind == 0 || (kind == 1 &&
+            eyeEvidenceWeight > evidenceWeight))
         {
             kind = 1;
-            quality = eyeQuality;
+            evidenceWeight = eyeEvidenceWeight;
+            replacementCoord = eyeReplacementCoord;
         }
     }
+}
+
+bool M8TryOccupiedExactForCarve(int3 globalCoord, out bool occupied)
+{
+    occupied = false;
+    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
+    uint blockIndex;
+    if (!M8FindBlock(address.blockCoord, blockIndex)) return true;
+    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
+        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
+    if (chunkRef == MERKABA_REF_EMPTY) return true;
+    if (chunkRef == MERKABA_REF_CLAIMED_NEW) return false;
+    uint chunkIndex = chunkRef - 1u;
+    if (chunkIndex >= MERKABA_M8_CHUNK_CAPACITY) return false;
+    uint tileRef = _M8ChunkTileRefsRead[chunkIndex *
+        MERKABA_M8_TILES_PER_CHUNK + address.tileLocal];
+    if (tileRef == MERKABA_REF_EMPTY) return true;
+    if (!M8IsHotRef(tileRef)) return false;
+    uint physicalSlot = M8PhysicalSlot(tileRef);
+    uint word = M8TileWordIndex(physicalSlot, address.kernelLocal >> 5u);
+    occupied = (_M8TileBits[word].x &
+        (1u << (address.kernelLocal & 31u))) != 0u;
+    return true;
 }
 
 void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
@@ -839,18 +883,31 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
             float3 worldPosition = mul(_MerkabaGridToWorld,
                 float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
             int observationKind = 0;
-            float quality = 0.0;
+            float evidenceWeight = 0.0;
+            int3 replacementCoord = 0;
             if (!IsExcluded(worldPosition))
                 FuseDepth(globalCoord, worldPosition, observationKind,
-                    quality);
+                    evidenceWeight, replacementCoord);
 
             if (observationKind == 1)
             {
                 InterlockedAdd(gCarveStats[1], 1u, ignored);
                 int evidenceBefore = state.evidence;
-                UpdateOccupancy(physicalSlot, kernelLocal, state,
-                    -max(1, (int)round(quality * quality *
-                        MERKABA_FREE_SCALE)));
+                int decrement = max(1, (int)round(evidenceWeight *
+                    MERKABA_FREE_SCALE));
+                if (occupiedBefore && evidenceBefore - decrement <=
+                    MERKABA_OCCUPIED_OFF)
+                {
+                    bool replacementOccupied = false;
+                    bool replacementResolved = M8TryOccupiedExactForCarve(
+                        replacementCoord, replacementOccupied);
+                    if (!replacementResolved || !replacementOccupied)
+                        decrement = min(decrement, max(0,
+                            evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));
+                }
+                if (decrement > 0)
+                    UpdateOccupancy(physicalSlot, kernelLocal, state,
+                        -decrement);
                 bool occupiedAfter =
                     (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
                 if (state.evidence < evidenceBefore)
@@ -864,8 +921,11 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
                     if (RetireCarveActive(physicalSlot, kernelLocal))
                         InterlockedAdd(gCarveStats[6], 1u, ignored);
                 }
-                M8StoreKernelState(physicalSlot, kernelLocal, state);
-                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+                if (state.evidence != evidenceBefore)
+                {
+                    M8StoreKernelState(physicalSlot, kernelLocal, state);
+                    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+                }
             }
             else if (observationKind == 2)
             {

@@ -598,6 +598,14 @@ namespace Genesis.RoomScan.Tests
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_SURFACE_SCALE 640.0"));
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_FREE_SCALE 256.0"));
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 2560"));
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_FREE_FULL_CLEARANCE 0.150"));
             string fuse = Slice(integration, "void FuseDepth",
                 "void UpdateOccupancy");
             Assert.That(fuse.IndexOf("if (eyeKind == 2)",
@@ -610,12 +618,22 @@ namespace Genesis.RoomScan.Tests
                 "void FuseDepth");
             Assert.That(observation, Does.Contain("TrySurfaceMeasurement"));
             Assert.That(observation, Does.Contain(
-                "kernelDistance < measuredDistance"));
-            Assert.That(observation, Does.Not.Contain(
-                "abs(relation) <= MERKABA_HALF_SUPPORT"));
+                "float clearance = measuredDistance - kernelDistance"));
+            Assert.That(observation, Does.Contain(
+                "clearance > MERKABA_HALF_SUPPORT"));
+            Assert.That(observation, Does.Contain(
+                "MerkabaFreeDistanceWeight(clearance)"));
 
             string carve = Slice(integration, "groupshared uint gCarveStats",
                 "void FinalizeObservation");
+            Assert.That(carve, Does.Contain(
+                "M8TryOccupiedExactForCarve"));
+            Assert.That(carve, Does.Contain(
+                "MERKABA_OCCUPIED_OFF + 1"));
+            Assert.That(carve, Does.Contain("replacementResolved"));
+            Assert.That(carve, Does.Contain(
+                "evidenceWeight *\n                    MERKABA_FREE_SCALE"));
+
             Assert.That(carve, Does.Contain("FlushCarveStat"));
             Assert.That(carve, Does.Contain(
                 "M8_COUNTER_CARVE_CLASSIFIED_FREE"));

@@ -36,6 +36,26 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void GeometryConfidence_AccumulatesAcrossFourConfirmations()
+        {
+            KernelState state = default;
+            for (int confirmation = 1;
+                 confirmation <= MerkabaConstants.EvidenceConfirmationCount;
+                 confirmation++)
+            {
+                state.Apply(MerkabaObservationKind.Surface, 1f, Red);
+                Assert.That(state.OccupancyEvidence, Is.EqualTo(
+                    confirmation * MerkabaConstants.SurfaceEvidenceScale));
+            }
+
+            state.Apply(MerkabaObservationKind.Surface, 1f, Blue);
+            Assert.That(state.OccupancyEvidence,
+                Is.EqualTo(MerkabaConstants.EvidenceConfidenceLimit));
+            Assert.That(state.Color.b, Is.GreaterThan(0),
+                "geometry confidence saturates without freezing RGB refinement");
+        }
+
+        [Test]
         public void ReversibleFreeEvidence_RemovesFalseForeground()
         {
             KernelState state = default;
@@ -97,28 +117,98 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void FullQualityReplacement_CorrectsEveryForegroundLayerBoundedly()
+        public void DistanceWeightedReplacement_CorrectsEveryForegroundLayerBoundedly()
         {
             KernelState firstBlob = default;
             KernelState secondBlob = default;
             KernelState replacement = default;
-            for (int pass = 0; pass < 100; pass++)
+            for (int pass = 0;
+                 pass < MerkabaConstants.EvidenceConfirmationCount; pass++)
             {
                 firstBlob.Apply(MerkabaObservationKind.Surface, 1f, Red);
                 secondBlob.Apply(MerkabaObservationKind.Surface, 1f, Red);
             }
 
             replacement.Apply(MerkabaObservationKind.Surface, 1f, Blue);
-            firstBlob.Apply(MerkabaObservationKind.Free, 1f, default);
-            secondBlob.Apply(MerkabaObservationKind.Free, 1f, default);
+            firstBlob.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
+                default, replacement.IsOccupied);
+            secondBlob.ApplyWeighted(MerkabaObservationKind.Free, 1f, 0.4f,
+                default, replacement.IsOccupied);
 
             Assert.That(replacement.IsOccupied, Is.True);
             Assert.That(replacement.Color.b, Is.GreaterThan(
                 replacement.Color.r));
+            Assert.That(firstBlob.IsOccupied, Is.True,
+                "one FREE observation must not bypass hysteresis");
+            Assert.That(secondBlob.IsOccupied, Is.True);
+            Assert.That(firstBlob.OccupancyEvidence, Is.EqualTo(
+                MerkabaConstants.EvidenceConfidenceLimit -
+                MerkabaConstants.FreeEvidenceScale));
+            Assert.That(secondBlob.OccupancyEvidence, Is.EqualTo(
+                MerkabaConstants.EvidenceConfidenceLimit -
+                Mathf.RoundToInt(0.4f * MerkabaConstants.FreeEvidenceScale)));
+
+            int firstIterations = 1;
+            while (firstBlob.IsOccupied && firstIterations++ < 32)
+                firstBlob.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
+                    default, true);
+            int secondIterations = 1;
+            while (secondBlob.IsOccupied && secondIterations++ < 64)
+                secondBlob.ApplyWeighted(MerkabaObservationKind.Free, 1f, 0.4f,
+                    default, true);
+
+            Assert.That(firstIterations, Is.EqualTo(10));
+            Assert.That(secondIterations, Is.EqualTo(24));
             Assert.That(firstBlob.IsOccupied, Is.False);
             Assert.That(secondBlob.IsOccupied, Is.False);
-            Assert.That(firstBlob.OccupancyEvidence, Is.Zero);
-            Assert.That(secondBlob.OccupancyEvidence, Is.Zero);
+        }
+
+        [Test]
+        public void ReplacementContinuity_HoldsOccupiedUntilEndpointExists()
+        {
+            KernelState foreground = default;
+            foreground.SetOccupiedForFixture(true, Red);
+
+            foreground.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
+                default, replacementOccupied: false);
+            Assert.That(foreground.IsOccupied, Is.True);
+            Assert.That(foreground.OccupancyEvidence,
+                Is.EqualTo(MerkabaConstants.OccupiedOnThreshold -
+                    MerkabaConstants.FreeEvidenceScale));
+
+            foreground.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
+                default, replacementOccupied: false);
+            Assert.That(foreground.IsOccupied, Is.True);
+            Assert.That(foreground.OccupancyEvidence,
+                Is.EqualTo(MerkabaConstants.OccupiedOffThreshold + 1));
+
+            foreground.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
+                default, replacementOccupied: true);
+            Assert.That(foreground.IsOccupied, Is.False);
+            Assert.That(foreground.OccupancyEvidence,
+                Is.LessThanOrEqualTo(MerkabaConstants.OccupiedOffThreshold));
+        }
+
+        [Test]
+        public void FreeDistanceWeight_IsContinuousMonotonicAndQrsTruncated()
+        {
+            float[] clearances =
+            {
+                -0.01f, 0f, MerkabaConstants.HalfSupport,
+                0.050f, 0.075f, 0.100f, 0.125f,
+                MerkabaConstants.FreeFullClearance, 1f
+            };
+            float[] expected = { 0f, 0f, 0f, 0.2f, 0.4f, 0.6f, 0.8f, 1f, 1f };
+            float previous = -1f;
+            for (int index = 0; index < clearances.Length; index++)
+            {
+                float actual = MerkabaObservation.FreeDistanceWeight(
+                    clearances[index]);
+                Assert.That(actual, Is.EqualTo(expected[index]).Within(1e-5f),
+                    $"clearance {clearances[index]:F3} m");
+                Assert.That(actual, Is.GreaterThanOrEqualTo(previous));
+                previous = actual;
+            }
         }
 
         [Test]
@@ -132,6 +222,10 @@ namespace Genesis.RoomScan.Tests
                 Input(replacementSurfaceValid: true,
                     isReplacementKernel: false, kernelDistance: 1.5f,
                     measuredDistance: 2f));
+            MerkabaObservationResult nearSurface = MerkabaObservation.Classify(
+                Input(replacementSurfaceValid: true,
+                    isReplacementKernel: false, kernelDistance: 1.98f,
+                    measuredDistance: 2f));
             MerkabaObservationResult behind = MerkabaObservation.Classify(
                 Input(replacementSurfaceValid: true,
                     isReplacementKernel: false, kernelDistance: 2.5f,
@@ -143,6 +237,10 @@ namespace Genesis.RoomScan.Tests
 
             Assert.That(endpoint.Kind, Is.EqualTo(MerkabaObservationKind.Surface));
             Assert.That(foreground.Kind, Is.EqualTo(MerkabaObservationKind.Free));
+            Assert.That(foreground.EvidenceWeight, Is.GreaterThan(0f));
+            Assert.That(nearSurface.Kind,
+                Is.EqualTo(MerkabaObservationKind.Unknown));
+            Assert.That(nearSurface.EvidenceWeight, Is.Zero);
             Assert.That(behind.Kind, Is.EqualTo(MerkabaObservationKind.Unknown));
             Assert.That(noReplacement.Kind,
                 Is.EqualTo(MerkabaObservationKind.Unknown));

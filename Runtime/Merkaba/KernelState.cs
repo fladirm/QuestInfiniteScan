@@ -31,8 +31,18 @@ namespace Genesis.RoomScan
 
         internal bool Apply(MerkabaObservationKind kind, float quality, Color32 observedColor)
         {
+            quality = Mathf.Clamp01(quality);
+            return ApplyWeighted(kind, quality, quality * quality,
+                observedColor, true);
+        }
+
+        internal bool ApplyWeighted(MerkabaObservationKind kind, float quality,
+            float evidenceWeight, Color32 observedColor,
+            bool replacementOccupied)
+        {
             bool occupiedBefore = IsOccupied;
             quality = Mathf.Clamp01(quality);
+            evidenceWeight = Mathf.Clamp01(evidenceWeight);
 
             switch (kind)
             {
@@ -40,14 +50,20 @@ namespace Genesis.RoomScan
                     if (quality < MerkabaConstants.MinimumSurfaceQuality)
                         return false;
                     AddEvidence(Mathf.Max(1,
-                        Mathf.RoundToInt(quality * quality * MerkabaConstants.SurfaceEvidenceScale)));
+                        Mathf.RoundToInt(evidenceWeight *
+                            MerkabaConstants.SurfaceEvidenceScale)));
                     AccumulateColor(observedColor, quality);
                     Flags |= MerkabaConstants.NeedsCarveFlag;
                     break;
 
                 case MerkabaObservationKind.Free:
-                    AddEvidence(-Mathf.Max(1,
-                        Mathf.RoundToInt(quality * quality * MerkabaConstants.FreeEvidenceScale)));
+                    int decrement = Mathf.Max(1,
+                        Mathf.RoundToInt(evidenceWeight *
+                            MerkabaConstants.FreeEvidenceScale));
+                    int minimumEvidence = occupiedBefore && !replacementOccupied
+                        ? MerkabaConstants.OccupiedOffThreshold + 1
+                        : -MerkabaConstants.EvidenceConfidenceLimit;
+                    AddEvidence(-decrement, minimumEvidence);
                     break;
 
                 default:
@@ -80,11 +96,12 @@ namespace Genesis.RoomScan
             }
         }
 
-        private void AddEvidence(int delta)
+        private void AddEvidence(int delta, int minimum =
+            -MerkabaConstants.EvidenceConfidenceLimit)
         {
             long updated = (long)OccupancyEvidence + delta;
             OccupancyEvidence = (int)Math.Max(
-                -MerkabaConstants.EvidenceConfidenceLimit,
+                minimum,
                 Math.Min(MerkabaConstants.EvidenceConfidenceLimit, updated));
         }
 
