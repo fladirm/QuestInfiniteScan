@@ -19,11 +19,12 @@ float4x4 _DepthProj[2];
 float4x4 _DepthProjInv[2];
 float4x4 _DepthView[2];
 float4x4 _DepthViewInv[2];
-float _DepthSearchRadius;
 
 #define RGBD_HYPOTHESIS_RADIUS 2
-#define RGBD_CENSUS_SAMPLES 4u
-#define RGBD_MAX_CENSUS_MISMATCH 3u
+#define RGBD_MAX_METRIC_CORRECTION 0.0125
+#define RGBD_CENSUS_SAMPLES 8u
+#define RGBD_MAX_CENSUS_MISMATCH 2u
+#define RGBD_MIN_CENSUS_CONTRAST 0.02
 
 float3 DepthNdcToWorld(uint eye, float2 uv, float depth)
 {
@@ -68,69 +69,109 @@ float CameraLuma(uint eye, float2 uv)
     return dot(rgb, float3(0.2126, 0.7152, 0.0722));
 }
 
-uint CameraCensus4(uint eye, float2 uv)
+bool CameraCoverage(uint eye, float2 uv)
+{
+    float2 resolution = eye == 0u
+        ? _MerkabaCameraCurrentResolutionLeft
+        : _MerkabaCameraCurrentResolutionRight;
+    float2 margin = 2.0 / max(resolution, 1.0);
+    return all(uv > margin) && all(uv < 1.0 - margin);
+}
+
+bool StereoCameraCoverage(float3 worldPosition, out float2 leftUv,
+    out float2 rightUv)
+{
+    leftUv = MerkabaProjectCameraUv(0u, worldPosition);
+    rightUv = MerkabaProjectCameraUv(1u, worldPosition);
+    return CameraCoverage(0u, leftUv) && CameraCoverage(1u, rightUv);
+}
+
+uint CameraCensus8(uint eye, float2 uv, out float contrast)
 {
     float center = CameraLuma(eye, uv);
     float2 resolution = eye == 0u
         ? _MerkabaCameraCurrentResolutionLeft
         : _MerkabaCameraCurrentResolutionRight;
     float2 texel = 1.0 / max(resolution, 1.0);
-    const int2 offsets[4] =
+    const int2 offsets[8] =
     {
-        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1)
+        int2(-1, -1), int2(0, -1), int2(1, -1), int2(-1, 0),
+        int2(1, 0), int2(-1, 1), int2(0, 1), int2(1, 1)
     };
     uint descriptor = 0u;
+    contrast = 0.0;
     [unroll]
     for (uint sampleIndex = 0u;
          sampleIndex < RGBD_CENSUS_SAMPLES; sampleIndex++)
     {
         float neighbour = CameraLuma(eye,
             uv + float2(offsets[sampleIndex]) * texel);
+        contrast = max(contrast, abs(neighbour - center));
         descriptor |= (neighbour >= center ? 1u : 0u) << sampleIndex;
     }
     return descriptor;
+}
+
+bool OppositeDepthSupport(uint otherEye, float3 worldPosition,
+    out float depthDifference)
+{
+    float2 otherDepthUv;
+    float predictedOther;
+    if (!WorldToDepth(otherEye, worldPosition, otherDepthUv,
+            predictedOther))
+    {
+        depthDifference = 0.0;
+        return false;
+    }
+
+    float2 size = float2(_DepthW, _DepthH);
+    float2 samplePosition = otherDepthUv * size - 0.5;
+    int2 basePixel = (int2)floor(samplePosition);
+    const int2 offsets[4] =
+    {
+        int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)
+    };
+    float bestDifference = 1e20;
+    bool found = false;
+    [unroll]
+    for (uint sampleIndex = 0u; sampleIndex < 4u; sampleIndex++)
+    {
+        int2 pixel = basePixel + offsets[sampleIndex];
+        if (pixel.x < 0 || pixel.y < 0 || pixel.x >= (int)_DepthW ||
+            pixel.y >= (int)_DepthH)
+            continue;
+        float observedProjection = _SrcDepth.Load(
+            int4(pixel, (int)otherEye, 0));
+        if (observedProjection <= 0.0 || observedProjection >= 1.0)
+            continue;
+        float2 observedUv = (float2(pixel) + 0.5) / size;
+        float3 observedWorld = DepthNdcToWorld(otherEye, observedUv,
+            observedProjection);
+        float observedDistance = distance(observedWorld,
+            DepthEyePosition(otherEye));
+        bestDifference = min(bestDifference,
+            abs(predictedOther - observedDistance));
+        found = true;
+    }
+    depthDifference = bestDifference;
+    return found &&
+        bestDifference <= RGBD_MAX_METRIC_CORRECTION;
 }
 
 bool StereoCandidateCost(uint sourceEye, float3 worldPosition,
     float priorDistance, float candidateDistance, out float cost)
 {
     uint otherEye = 1u - sourceEye;
-    float2 otherDepthUv;
-    float predictedOther;
-    if (!WorldToDepth(otherEye, worldPosition, otherDepthUv,
-            predictedOther))
+    float depthDifference;
+    if (!OppositeDepthSupport(otherEye, worldPosition, depthDifference))
     {
         cost = 0.0;
         return false;
     }
 
-    float observedOtherProjection = _SrcDepth.SampleLevel(
-        gsPointClampSampler, float3(otherDepthUv, otherEye), 0);
-    if (observedOtherProjection <= 0.0 || observedOtherProjection >= 1.0)
-    {
-        cost = 0.0;
-        return false;
-    }
-    float3 observedOtherWorld = DepthNdcToWorld(otherEye, otherDepthUv,
-        observedOtherProjection);
-    float observedOther = distance(observedOtherWorld,
-        DepthEyePosition(otherEye));
-    float stereoMargin = max(0.025, 0.0125 * candidateDistance);
-    float depthDifference = abs(predictedOther - observedOther);
-    if (depthDifference > stereoMargin)
-    {
-        cost = 0.0;
-        return false;
-    }
-
-    float2 leftUv = MerkabaProjectCameraUv(0u, worldPosition);
-    float2 rightUv = MerkabaProjectCameraUv(1u, worldPosition);
-    float2 leftMargin = 2.0 /
-        max(_MerkabaCameraCurrentResolutionLeft, 1.0);
-    float2 rightMargin = 2.0 /
-        max(_MerkabaCameraCurrentResolutionRight, 1.0);
-    if (any(leftUv <= leftMargin) || any(leftUv >= 1.0 - leftMargin) ||
-        any(rightUv <= rightMargin) || any(rightUv >= 1.0 - rightMargin))
+    float2 leftUv;
+    float2 rightUv;
+    if (!StereoCameraCoverage(worldPosition, leftUv, rightUv))
     {
         cost = 0.0;
         return false;
@@ -138,32 +179,45 @@ bool StereoCandidateCost(uint sourceEye, float3 worldPosition,
 
     float3 leftRgb = MerkabaSampleCameraRgb(0u, leftUv);
     float3 rightRgb = MerkabaSampleCameraRgb(1u, rightUv);
-    float3 leftChromaticity = leftRgb /
-        max(leftRgb.r + leftRgb.g + leftRgb.b, 0.01);
-    float3 rightChromaticity = rightRgb /
-        max(rightRgb.r + rightRgb.g + rightRgb.b, 0.01);
-    float3 chromaticityDelta = abs(leftChromaticity - rightChromaticity);
-    float chromaticityDifference = chromaticityDelta.x +
-        chromaticityDelta.y + chromaticityDelta.z;
-    if (chromaticityDifference > 0.35)
+    float leftEnergy = leftRgb.r + leftRgb.g + leftRgb.b;
+    float rightEnergy = rightRgb.r + rightRgb.g + rightRgb.b;
+    float chromaticityDifference = 0.0;
+    if (max(leftEnergy, rightEnergy) > 0.06)
     {
-        cost = 0.0;
-        return false;
+        float3 leftChromaticity = leftRgb / max(leftEnergy, 0.01);
+        float3 rightChromaticity = rightRgb / max(rightEnergy, 0.01);
+        float3 chromaticityDelta = abs(leftChromaticity -
+            rightChromaticity);
+        chromaticityDifference = chromaticityDelta.x +
+            chromaticityDelta.y + chromaticityDelta.z;
+        if (chromaticityDifference > 0.35)
+        {
+            cost = 0.0;
+            return false;
+        }
     }
 
-    uint censusLeft = CameraCensus4(0u, leftUv);
-    uint censusRight = CameraCensus4(1u, rightUv);
+    float contrastLeft;
+    float contrastRight;
+    uint censusLeft = CameraCensus8(0u, leftUv, contrastLeft);
+    uint censusRight = CameraCensus8(1u, rightUv, contrastRight);
     uint mismatch = countbits(censusLeft ^ censusRight);
-    if (mismatch > RGBD_MAX_CENSUS_MISMATCH)
+    bool hasPhotometricStructure = max(contrastLeft, contrastRight) >=
+        RGBD_MIN_CENSUS_CONTRAST;
+    if (hasPhotometricStructure &&
+        mismatch > RGBD_MAX_CENSUS_MISMATCH)
     {
         cost = 0.0;
         return false;
     }
 
-    float normalizedDepth = depthDifference / stereoMargin;
+    float normalizedDepth = depthDifference /
+        RGBD_MAX_METRIC_CORRECTION;
     float normalizedPrior = abs(candidateDistance - priorDistance) /
-        max(_DepthSearchRadius, 0.001);
-    cost = (float)mismatch / (float)RGBD_CENSUS_SAMPLES +
+        RGBD_MAX_METRIC_CORRECTION;
+    float normalizedCensus = hasPhotometricStructure
+        ? (float)mismatch / (float)RGBD_CENSUS_SAMPLES : 0.0;
+    cost = normalizedCensus +
         chromaticityDifference * 0.5 + normalizedDepth * 0.25 +
         normalizedPrior * 0.125;
     return true;
@@ -185,6 +239,13 @@ void StereoRgbdRefine(uint3 id : SV_DispatchThreadID)
         float2(_DepthW, _DepthH);
     float3 sourceEyePosition = DepthEyePosition(eye);
     float3 centerWorld = DepthNdcToWorld(eye, sourceUv, centerDepth);
+    float2 centerLeftUv;
+    float2 centerRightUv;
+    if (!StereoCameraCoverage(centerWorld, centerLeftUv, centerRightUv))
+    {
+        _DstDepth[id] = 0.0;
+        return;
+    }
     float3 centerRay = centerWorld - sourceEyePosition;
     float centerDistance = length(centerRay);
     if (centerDistance <= 0.001)
@@ -193,7 +254,8 @@ void StereoRgbdRefine(uint3 id : SV_DispatchThreadID)
         return;
     }
     centerRay /= centerDistance;
-    float metricSigma = max(0.006, centerDistance * 0.004);
+    float metricSigma = clamp(centerDistance * 0.002, 0.004,
+        RGBD_MAX_METRIC_CORRECTION);
     float inverseMetricSigma2 = -0.5 / (metricSigma * metricSigma);
     float weightSum = 0.0;
     float distanceSum = 0.0;
@@ -226,14 +288,18 @@ void StereoRgbdRefine(uint3 id : SV_DispatchThreadID)
 
     float priorDistance = weightSum > 1e-8
         ? distanceSum / weightSum : centerDistance;
+    priorDistance = clamp(priorDistance,
+        centerDistance - RGBD_MAX_METRIC_CORRECTION,
+        centerDistance + RGBD_MAX_METRIC_CORRECTION);
     float bestCost = 1e20;
     float bestDistance = 0.0;
     [unroll]
     for (int hypothesis = -RGBD_HYPOTHESIS_RADIUS;
-         hypothesis <= RGBD_HYPOTHESIS_RADIUS; hypothesis++)
+        hypothesis <= RGBD_HYPOTHESIS_RADIUS; hypothesis++)
     {
         float candidateDistance = max(_DepthNearFar.x,
-            priorDistance + (float)hypothesis * _DepthSearchRadius /
+            centerDistance + (float)hypothesis *
+                RGBD_MAX_METRIC_CORRECTION /
                 (float)RGBD_HYPOTHESIS_RADIUS);
         float3 worldPosition = sourceEyePosition +
             centerRay * candidateDistance;

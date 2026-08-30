@@ -131,6 +131,12 @@ namespace Genesis.RoomScan
             new(MaximumTimedEntries);
         private static readonly TimingEntry DrawEntry = new(
             MerkabaGpuStage.MerkabaDraw, "MerkabaGrid.DrawProceduralIndirect");
+        private static readonly TimingEntry PcaHistoryCopyEntry = new(
+            MerkabaGpuStage.DepthPreprocess,
+            "PassthroughCameraProvider.CopyOwnedHistory");
+        private static readonly TimingEntry PcaObservationCopyEntry = new(
+            MerkabaGpuStage.DepthPreprocess,
+            "MerkabaIntegrator.CopyOwnedPcaObservation");
         private static readonly ulong[] TimestampPairs =
             new ulong[MaximumTimedEntries * 2];
 
@@ -273,6 +279,20 @@ namespace Genesis.RoomScan
             command.DrawProceduralIndirect(matrix, material, shaderPass,
                 topology, arguments, argumentsOffset);
             RecordDrawEvent(command, timed, false);
+        }
+
+        internal static void BlitPcaHistoryProfiled(this CommandBuffer command,
+            Texture source, RenderTexture destination)
+        {
+            BlitProfiled(command, source, destination, PcaHistoryCopyEntry);
+        }
+
+        internal static void BlitPcaObservationProfiled(
+            this CommandBuffer command, Texture source,
+            RenderTexture destination)
+        {
+            BlitProfiled(command, source, destination,
+                PcaObservationCopyEntry);
         }
 
         internal static void DispatchComputeProfiled(this CommandBuffer command,
@@ -513,6 +533,30 @@ namespace Genesis.RoomScan
 #endif
         }
 
+        private static void BlitProfiled(CommandBuffer command,
+            Texture source, RenderTexture destination, TimingEntry entry)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (destination == null)
+                throw new ArgumentNullException(nameof(destination));
+            bool timed = Observe(entry);
+            RecordCopyEvent(command, timed, true);
+            command.Blit(source, destination);
+            RecordCopyEvent(command, timed, false);
+        }
+
+        private static void RecordCopyEvent(CommandBuffer command,
+            bool timed, bool begin)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (timed)
+                command.IssuePluginEvent(Native.RenderEvent,
+                    Native.EventId(begin
+                        ? Native.CopyBegin : Native.CopyEnd));
+#endif
+        }
+
         private static void RecordDrawEvent(RasterCommandBuffer command,
             bool timed, bool begin)
         {
@@ -708,9 +752,11 @@ namespace Genesis.RoomScan
             internal const int SubmissionBegin = 0;
             internal const int DispatchBegin = 1;
             internal const int DispatchEnd = 2;
-            internal const int DrawBegin = 3;
-            internal const int DrawEnd = 4;
-            internal const int SubmissionEnd = 5;
+            internal const int CopyBegin = 3;
+            internal const int CopyEnd = 4;
+            internal const int DrawBegin = 5;
+            internal const int DrawEnd = 6;
+            internal const int SubmissionEnd = 7;
 #if !UNITY_EDITOR && UNITY_ANDROID
             private const string Library = "MerkabaVulkanTimestamps";
 

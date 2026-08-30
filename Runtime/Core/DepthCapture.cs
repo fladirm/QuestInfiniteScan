@@ -28,11 +28,6 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader depthDilationCompute;
         [SerializeField] private ComputeShader stereoRgbdRefineCompute;
 
-        [Header("True-stereo RGB-D refinement")]
-        [Tooltip("Bounded metric search around Environment Depth, validated by both PCA eyes and the opposite depth eye.")]
-        [SerializeField, Range(0.005f, 0.05f)]
-        private float depthSearchRadius = 0.025f;
-
         [Header("Dilation")]
         [SerializeField, Range(0, 12)] private int dilationSteps = 8;
         [SerializeField] private float voxelDistance = 0.2f;
@@ -94,8 +89,6 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_DepthView");
         private static readonly int RefineDepthViewInvId =
             Shader.PropertyToID("_DepthViewInv");
-        private static readonly int RefineSearchRadiusId =
-            Shader.PropertyToID("_DepthSearchRadius");
         private static readonly int[] RefineCameraRgbId =
         {
             Shader.PropertyToID("_MerkabaCameraRgbLeft"),
@@ -251,6 +244,10 @@ namespace Genesis.RoomScan
             MerkabaGpuTimestamps.RegisterKernel(depthNormalCompute,
                 _normKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess,
                 "DepthNorm");
+            MerkabaGpuTimestamps.RegisterKernel(depthNormalCompute,
+                _projectionDepthCopyKernel.KernelIndex,
+                MerkabaGpuStage.DepthPreprocess,
+                "CopyProjectionDepthArray");
             MerkabaGpuTimestamps.RegisterKernel(depthDilationCompute,
                 _initDilateKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess,
                 "InitDepthDilation");
@@ -696,10 +693,25 @@ namespace Genesis.RoomScan
 
             int slot = _requestedDepthSlot;
             EnsureOwnedRawDepth(slot, transientDepth.width, transientDepth.height);
-            _projectionDepthCopyKernel.Set(InputProjectionDepthID, transientDepth);
-            _projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepth[slot]);
-            _projectionDepthCopyKernel.DispatchFit(transientDepth.width,
-                transientDepth.height, 2);
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba owned stereo depth copy");
+            try
+            {
+                MerkabaGpuTimestamps.TryBeginFrame(unchecked((uint)Math.Max(
+                    1, _latestRawFrameVersion + 1)));
+                MerkabaGpuTimestamps.RecordProfileBegin(command);
+                _projectionDepthCopyKernel.Set(command,
+                    InputProjectionDepthID, transientDepth);
+                _projectionDepthCopyKernel.Set(command, DepthTexRWID,
+                    _ownedRawDepth[slot]);
+                _projectionDepthCopyKernel.DispatchFit(command,
+                    transientDepth.width, transientDepth.height, 2);
+                Graphics.ExecuteCommandBuffer(command);
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+            }
             MarkOwnedDepthSnapshotReady();
             return true;
         }
@@ -758,11 +770,12 @@ namespace Genesis.RoomScan
             int h = _depthTex.height;
 
             if (_refinedDepthTex == null || _refinedDepthTex.width != w ||
-                _refinedDepthTex.height != h)
+                _refinedDepthTex.height != h ||
+                _refinedDepthTex.graphicsFormat != GraphicsFormat.R32_SFloat)
             {
                 if (_refinedDepthTex) Destroy(_refinedDepthTex);
                 _refinedDepthTex = new RenderTexture(w, h, 0,
-                    GraphicsFormat.R16_UNorm, 1)
+                    GraphicsFormat.R32_SFloat, 1)
                 {
                     dimension = TextureDimension.Tex2DArray,
                     volumeDepth = 2,
@@ -786,8 +799,6 @@ namespace Genesis.RoomScan
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewId, _view);
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewInvId,
                 _viewInv);
-            command.SetComputeFloatParam(shader, RefineSearchRadiusId,
-                depthSearchRadius);
             BindStereoCamera(command, shader, cameraFrame.Left, 0);
             BindStereoCamera(command, shader, cameraFrame.Right, 1);
             _stereoRgbdRefineKernel.DispatchFit(command, w, h, 2);
@@ -884,7 +895,6 @@ namespace Genesis.RoomScan
 
             _initDilateKernel.Set(command, DepthTexID, _depthTex);
             _initDilateKernel.Set(command, DilateSrcID, _dilationA);
-            _initDilateKernel.Set(command, DilateDestID, _dilationB);
             _initDilateKernel.DispatchFit(command, _dilationA.width,
                 _dilationA.height, 2);
 

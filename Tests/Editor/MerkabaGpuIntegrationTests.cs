@@ -794,7 +794,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 43"));
+            Assert.That(audit, Does.Contain("kernel_count != 48"));
+            Assert.That(audit, Does.Contain("DepthNormals.compute"));
+            Assert.That(audit, Does.Contain("DepthDilation.compute"));
+            Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));
         }
 
         [Test]

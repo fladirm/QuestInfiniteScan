@@ -25,6 +25,8 @@ namespace
         kSubmissionBegin = 0,
         kDispatchBegin,
         kDispatchEnd,
+        kCopyBegin,
+        kCopyEnd,
         kDrawBegin,
         kDrawEnd,
         kSubmissionEnd,
@@ -35,6 +37,7 @@ namespace
     {
         kEntryNone = 0,
         kEntryCompute,
+        kEntryCopy,
         kEntryDraw,
     };
 
@@ -125,6 +128,18 @@ namespace
         {
             EndEntry(&recording, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 kEntryCompute);
+            return;
+        }
+        if (event == kCopyBegin)
+        {
+            BeginEntry(&recording, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                kEntryCopy);
+            return;
+        }
+        if (event == kCopyEnd)
+        {
+            EndEntry(&recording, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                kEntryCopy);
             return;
         }
         if (event == kDrawBegin)

@@ -94,8 +94,9 @@ namespace Genesis.RoomScan
         bool IsPlaying { get; }
 
         /// <summary>
-        /// Match the latest complete PCA L/R pair to one already-owned depth
-        /// timestamp. No texture is accepted outside the specified skew window.
+        /// Match the nearest complete owned PCA L/R history pair to one
+        /// already-owned depth timestamp. No texture is accepted outside the
+        /// specified skew window.
         /// </summary>
         StereoFrameMatch TryGetSynchronizedFrame(double depthUnixSeconds,
             double maximumSkewSeconds, out StereoCameraFrame frame);

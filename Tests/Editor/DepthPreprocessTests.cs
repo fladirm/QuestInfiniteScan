@@ -97,11 +97,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(latch, Does.Not.Contain("Graphics.CopyTexture"));
             Assert.That(latch, Does.Not.Contain("transientDepth.graphicsFormat"));
             Assert.That(latch, Does.Contain(
-                "_projectionDepthCopyKernel.Set(InputProjectionDepthID, transientDepth);"));
+                "_projectionDepthCopyKernel.Set(command,"));
             Assert.That(latch, Does.Contain(
-                "_projectionDepthCopyKernel.Set(DepthTexRWID, _ownedRawDepth[slot]);"));
+                "InputProjectionDepthID, transientDepth);"));
             Assert.That(latch, Does.Contain(
-                "_projectionDepthCopyKernel.DispatchFit(transientDepth.width,"));
+                "_projectionDepthCopyKernel.DispatchFit(command,"));
+            Assert.That(latch, Does.Contain(
+                "MerkabaGpuTimestamps.RecordProfileBegin(command);"));
         }
 
         [Test]
@@ -228,6 +230,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(refine, Does.Contain("countbits(censusLeft ^ censusRight)"));
             Assert.That(refine, Does.Contain("_DstDepth[id] = 0.0;"));
             Assert.That(refine, Does.Contain("RGBD_HYPOTHESIS_RADIUS 2"));
+            Assert.That(refine, Does.Contain(
+                "RGBD_MAX_METRIC_CORRECTION 0.0125"));
+            Assert.That(refine, Does.Contain("RGBD_CENSUS_SAMPLES 8u"));
+            Assert.That(refine, Does.Contain(
+                "RGBD_MAX_CENSUS_MISMATCH 2u"));
+            Assert.That(refine, Does.Contain("StereoCameraCoverage("));
+            Assert.That(refine, Does.Contain("OppositeDepthSupport("));
+            Assert.That(refine, Does.Not.Contain("stereoMargin"));
+            Assert.That(refine, Does.Not.Contain("_DepthSearchRadius"));
             Assert.That(refine, Does.Not.Contain("same UV"));
             Assert.That(refine, Does.Contain("DepthNdcToWorld"));
             Assert.That(refine, Does.Contain("_DepthProjInv[eye]"));
@@ -259,6 +270,12 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Camera/PassthroughCameraProvider.cs");
             Assert.That(provider, Does.Contain("camera.GetCameraPose()"));
             Assert.That(provider, Does.Not.Contain("TrackingToWorld"));
+            Assert.That(provider, Does.Contain("HistoryCapacity = 2"));
+            Assert.That(provider, Does.Contain("MatchFrameHistory("));
+            Assert.That(provider, Does.Contain(
+                "command.BlitPcaHistoryProfiled(sample.Texture, owned)"));
+            Assert.That(depth, Does.Contain(
+                "_refinedDepthTex.graphicsFormat != GraphicsFormat.R32_SFloat"));
         }
 
         [Test]
@@ -350,7 +367,7 @@ namespace Genesis.RoomScan.Tests
                 StringComparison.Ordinal);
             int observation = quiesce.IndexOf("FinishCurrentObservationAsync();",
                 StringComparison.Ordinal);
-            int copies = quiesce.IndexOf("await Task.WhenAll(depthRetirement, cameraRetirement);",
+            int copies = quiesce.IndexOf("await Task.WhenAll(depthRetirement, cameraRetirement,",
                 StringComparison.Ordinal);
             int depthStop = quiesce.IndexOf("CompleteDepthCaptureStop();",
                 StringComparison.Ordinal);
@@ -359,6 +376,8 @@ namespace Genesis.RoomScan.Tests
 
             Assert.That(stopAdmission, Is.GreaterThanOrEqualTo(0));
             Assert.That(detach, Is.GreaterThan(stopAdmission));
+            Assert.That(quiesce.IndexOf("BeginSnapshotQuiesce();",
+                StringComparison.Ordinal), Is.GreaterThan(stopAdmission));
             Assert.That(observation, Is.GreaterThan(detach));
             Assert.That(copies, Is.GreaterThan(observation));
             Assert.That(depthStop, Is.GreaterThan(copies));
@@ -376,6 +395,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(depth, Does.Not.Contain("Task.Delay"));
             Assert.That(depth, Does.Not.Contain("OnApplicationPause"),
                 "RoomScanner is the sole pause lifecycle authority.");
+
+            string provider = RuntimeSource(
+                "Runtime/Camera/PassthroughCameraProvider.cs");
+            Assert.That(provider, Does.Contain(
+                "RetireSubmittedSnapshotCopiesAsync()"));
+            Assert.That(provider, Does.Contain(
+                "CaptureOwnedGpuResourceRelease()"));
+            Assert.That(provider, Does.Not.Contain("WaitForCompletion"));
         }
 
         [Test]

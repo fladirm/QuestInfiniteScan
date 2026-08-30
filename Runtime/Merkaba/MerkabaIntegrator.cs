@@ -272,10 +272,10 @@ namespace Genesis.RoomScan
             {
                 StoreCameraEye(command, slot, 0, frame.Left);
                 StoreCameraEye(command, slot, 1, frame.Right);
-                // Both PCA native-texture update events were queued by MRUK
-                // before this command buffer. The two copies and all later M8
-                // work share the graphics queue, so publication needs no CPU
-                // fence or readback.
+                // Provider-owned history copies, these immutable observation
+                // copies, and later M8 work share the graphics queue. Queue
+                // ordering publishes matching pixels and metadata without a
+                // per-observation CPU fence or readback.
                 Graphics.ExecuteCommandBuffer(command);
             }
             finally
@@ -645,7 +645,7 @@ namespace Genesis.RoomScan
                 owned.Create();
                 _cameraFrameCopies[resource] = owned;
             }
-            command.Blit(frame.Texture, owned);
+            command.BlitPcaObservationProfiled(frame.Texture, owned);
             _cameraPosition[resource] = frame.WorldPose.position;
             _cameraRotation[resource] = frame.WorldPose.rotation;
             _cameraFocalLength[resource] = frame.FocalLength;

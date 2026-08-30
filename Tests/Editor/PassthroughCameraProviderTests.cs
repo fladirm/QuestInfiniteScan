@@ -135,7 +135,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void Pairing_RequiresBothEyesInsideOneDepthWindow()
+        public void PairingHistory_RequiresBothEyesInsideOneDepthWindow()
         {
             var leftTexture = new Texture2D(2, 2);
             var rightTexture = new Texture2D(2, 2);
@@ -145,8 +145,10 @@ namespace Genesis.RoomScan.Tests
                     StereoEye.Left, 100.000);
                 CameraFrameDescriptor right = Descriptor(rightTexture,
                     StereoEye.Right, 100.010);
-                StereoFrameMatch match = PassthroughCameraProvider.MatchFrames(
-                    left, right, 100.005, 0.020, out StereoCameraFrame frame);
+                StereoFrameMatch match =
+                    PassthroughCameraProvider.MatchFrameHistory(
+                        new[] { left }, new[] { right }, 100.005, 0.020,
+                        out StereoCameraFrame frame);
 
                 Assert.That(match, Is.EqualTo(StereoFrameMatch.Ready));
                 Assert.That(frame.IsValid, Is.True);
@@ -163,7 +165,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void Pairing_DropsDepthAfterEitherPcaPassesItsWindow()
+        public void PairingHistory_WaitsUntilBothPcaStreamsPassTheirWindow()
         {
             var leftTexture = new Texture2D(2, 2);
             var rightTexture = new Texture2D(2, 2);
@@ -173,12 +175,87 @@ namespace Genesis.RoomScan.Tests
                     StereoEye.Left, 100.050);
                 CameraFrameDescriptor right = Descriptor(rightTexture,
                     StereoEye.Right, 100.010);
-                StereoFrameMatch match = PassthroughCameraProvider.MatchFrames(
-                    left, right, 100.000, 0.020, out StereoCameraFrame frame);
+                StereoFrameMatch match =
+                    PassthroughCameraProvider.MatchFrameHistory(
+                        new[] { left }, new[] { right }, 100.000, 0.020,
+                        out StereoCameraFrame frame);
 
                 Assert.That(match,
-                    Is.EqualTo(StereoFrameMatch.DepthExpired));
+                    Is.EqualTo(StereoFrameMatch.Waiting));
                 Assert.That(frame.IsValid, Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(leftTexture);
+                Object.DestroyImmediate(rightTexture);
+            }
+        }
+
+        [Test]
+        public void PairingHistory_SelectsNearestOwnedPairNotLatestPair()
+        {
+            var leftOldTexture = new Texture2D(2, 2);
+            var leftNewTexture = new Texture2D(2, 2);
+            var rightOldTexture = new Texture2D(2, 2);
+            var rightNewTexture = new Texture2D(2, 2);
+            try
+            {
+                CameraFrameDescriptor[] left =
+                {
+                    Descriptor(leftOldTexture, StereoEye.Left, 100.001),
+                    Descriptor(leftNewTexture, StereoEye.Left, 100.031)
+                };
+                CameraFrameDescriptor[] right =
+                {
+                    Descriptor(rightOldTexture, StereoEye.Right, 100.003),
+                    Descriptor(rightNewTexture, StereoEye.Right, 100.033)
+                };
+
+                StereoFrameMatch match =
+                    PassthroughCameraProvider.MatchFrameHistory(left, right,
+                        100.000, 0.020, out StereoCameraFrame frame);
+
+                Assert.That(match, Is.EqualTo(StereoFrameMatch.Ready));
+                Assert.That(frame.Left.Texture, Is.SameAs(leftOldTexture));
+                Assert.That(frame.Right.Texture, Is.SameAs(rightOldTexture));
+                Assert.That(frame.MaximumSkewSeconds,
+                    Is.EqualTo(0.003).Within(1e-9));
+            }
+            finally
+            {
+                Object.DestroyImmediate(leftOldTexture);
+                Object.DestroyImmediate(leftNewTexture);
+                Object.DestroyImmediate(rightOldTexture);
+                Object.DestroyImmediate(rightNewTexture);
+            }
+        }
+
+        [Test]
+        public void PairingHistory_ExpiresOnlyAfterBothEyesPassDepthWindow()
+        {
+            var leftTexture = new Texture2D(2, 2);
+            var rightTexture = new Texture2D(2, 2);
+            try
+            {
+                CameraFrameDescriptor[] left =
+                {
+                    Descriptor(leftTexture, StereoEye.Left, 100.050)
+                };
+                CameraFrameDescriptor[] rightWaiting =
+                {
+                    Descriptor(rightTexture, StereoEye.Right, 100.010)
+                };
+                CameraFrameDescriptor[] rightExpired =
+                {
+                    Descriptor(rightTexture, StereoEye.Right, 100.051)
+                };
+
+                Assert.That(PassthroughCameraProvider.MatchFrameHistory(left,
+                    rightWaiting, 100.000, 0.020, out _),
+                    Is.EqualTo(StereoFrameMatch.Waiting));
+                Assert.That(PassthroughCameraProvider.MatchFrameHistory(left,
+                    rightExpired, 100.000, 0.020, out _),
+                    Is.EqualTo(StereoFrameMatch.DepthExpired));
             }
             finally
             {

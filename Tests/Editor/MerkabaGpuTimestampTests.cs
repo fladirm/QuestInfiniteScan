@@ -89,6 +89,38 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void SampledFrame_RecordsBothOwnedPcaCopyStages()
+        {
+            var source = new Texture2D(2, 2);
+            var destination = new RenderTexture(2, 2, 0);
+            destination.Create();
+            using var command = new CommandBuffer();
+            try
+            {
+                MerkabaGpuTimestamps.SetAvailableForTests(true);
+                Assert.That(MerkabaGpuTimestamps.TryBeginFrame(91), Is.True);
+                MerkabaGpuTimestamps.RecordProfileBegin(command);
+                command.BlitPcaHistoryProfiled(source, destination);
+                command.BlitPcaObservationProfiled(source, destination);
+                MerkabaGpuTimestamps.RecordProfileEnd(command);
+                MerkabaGpuTimestamps.CompleteFrameSubmission(true);
+
+                Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
+                    Is.EqualTo(new[]
+                    {
+                        MerkabaGpuStage.DepthPreprocess,
+                        MerkabaGpuStage.DepthPreprocess
+                    }));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(source);
+                destination.Release();
+                UnityEngine.Object.DestroyImmediate(destination);
+            }
+        }
+
+        [Test]
         public void TimestampDelta_HandlesQuestValidBitWrapExactly()
         {
             const int validBits = 48;
@@ -127,12 +159,18 @@ namespace Genesis.RoomScan.Tests
             Assert.That(native, Does.Contain("vkCmdWriteTimestamp"));
             Assert.That(native, Does.Contain(
                 "VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT"));
+            Assert.That(native, Does.Contain(
+                "VK_PIPELINE_STAGE_TRANSFER_BIT"));
             Assert.That(native, Does.Contain("VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT"));
             Assert.That(native, Does.Contain(
                 "VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT"));
             Assert.That(native, Does.Contain(
                 "VK_QUERY_RESULT_WITH_AVAILABILITY_BIT"));
             Assert.That(integrator, Does.Contain("DispatchComputeProfiled"));
+            Assert.That(integrator, Does.Contain(
+                "BlitPcaObservationProfiled"));
+            Assert.That(managed, Does.Contain("BlitPcaHistoryProfiled"));
+            Assert.That(managed, Does.Contain("Native.CopyBegin"));
             Assert.That(renderer, Does.Contain("DispatchComputeProfiled"));
             Assert.That(renderer, Does.Contain("DrawProceduralIndirectProfiled"));
             Assert.That(renderer, Does.Not.Contain(

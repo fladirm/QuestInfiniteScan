@@ -26,7 +26,8 @@ alias_bases=(
 
 kernel_count=0
 for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
-  MerkabaReadout.compute StereoRgbdRefine.compute; do
+  MerkabaReadout.compute DepthNormals.compute DepthDilation.compute \
+  StereoRgbdRefine.compute; do
   shader="$shader_dir/$shader_name"
   while read -r _ _ kernel; do
     spv="$audit_dir/$kernel.spv"
@@ -78,9 +79,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 43 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 43" >&2
+if (( kernel_count != 48 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 48" >&2
   exit 1
 fi
 
-echo "PASS: 43 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 48 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

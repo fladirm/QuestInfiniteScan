@@ -19,7 +19,6 @@ void InitDepthDilation(uint3 coord : SV_DispatchThreadID)
     float depth = gsDepthTex[coord];
     float4 value = float4((float2)coord.xy, depth, 0);
     gsDilateSrc[coord] = value;
-    gsDilateDest[coord] = value;
 }
 
 static const int2 kOffsets[8] =

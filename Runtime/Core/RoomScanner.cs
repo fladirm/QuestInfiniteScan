@@ -432,6 +432,7 @@ namespace Genesis.RoomScan
             ScanLifecycle = ScanLifecycleState.Quiescing;
             IsScanning = false;
             _depthCapture?.BeginQuiesceDepthCapture();
+            _cameraProvider?.BeginSnapshotQuiesce();
             _integrator?.BeginObservationQuiesce();
             try
             {
@@ -443,7 +444,12 @@ namespace Genesis.RoomScan
                 Task cameraRetirement = !ReferenceEquals(_integrator, null)
                     ? _integrator.RetireSubmittedCameraCopiesAsync()
                     : Task.CompletedTask;
-                await Task.WhenAll(depthRetirement, cameraRetirement);
+                Task pcaHistoryRetirement =
+                    !ReferenceEquals(_cameraProvider, null)
+                        ? _cameraProvider.RetireSubmittedSnapshotCopiesAsync()
+                        : Task.CompletedTask;
+                await Task.WhenAll(depthRetirement, cameraRetirement,
+                    pcaHistoryRetirement);
                 _depthCapture?.CompleteDepthCaptureStop();
                 _cameraProvider?.StopCapture();
                 MerkabaGpuTimestamps.CloseIncompleteFrame();
@@ -522,6 +528,9 @@ namespace Genesis.RoomScan
                 ? _depthCapture.CaptureOwnedGpuResourceRelease() : null;
             Action integratorRelease = !ReferenceEquals(_integrator, null)
                 ? _integrator.CaptureOwnedGpuResourceRelease() : null;
+            Action cameraProviderRelease =
+                !ReferenceEquals(_cameraProvider, null)
+                    ? _cameraProvider.CaptureOwnedGpuResourceRelease() : null;
             Action gridRelease = !ReferenceEquals(_grid, null)
                 ? _grid.CaptureOwnedGpuResourceRelease() : null;
             return () =>
@@ -529,6 +538,7 @@ namespace Genesis.RoomScan
                 rendererRelease?.Invoke();
                 depthRelease?.Invoke();
                 integratorRelease?.Invoke();
+                cameraProviderRelease?.Invoke();
                 gridRelease?.Invoke();
             };
         }
