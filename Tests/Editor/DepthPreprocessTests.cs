@@ -229,6 +229,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(refine, Does.Contain("_DstDepth[id] = 0.0;"));
             Assert.That(refine, Does.Contain("RGBD_HYPOTHESIS_RADIUS 2"));
             Assert.That(refine, Does.Not.Contain("same UV"));
+            Assert.That(refine, Does.Contain("DepthNdcToWorld"));
+            Assert.That(refine, Does.Contain("_DepthProjInv[eye]"));
+            Assert.That(refine, Does.Contain("_DepthViewInv[eye]"));
+            Assert.That(refine, Does.Contain("WorldToDepthNdc"));
+            Assert.That(refine, Does.Not.Contain("ProjectionToLinear"),
+                "Environment Depth must use its exact per-eye projection, " +
+                "not a generic near/far conversion.");
 
             string integration = RuntimeSource(
                 "Runtime/Shaders/MerkabaIntegration.compute");

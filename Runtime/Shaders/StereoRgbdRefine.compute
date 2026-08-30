@@ -25,45 +25,40 @@ float _DepthSearchRadius;
 #define RGBD_CENSUS_SAMPLES 4u
 #define RGBD_MAX_CENSUS_MISMATCH 3u
 
-float ProjectionToLinear(float depth)
+float3 DepthNdcToWorld(uint eye, float2 uv, float depth)
 {
-    float nearPlane = _DepthNearFar.x;
-    float farPlane = _DepthNearFar.y;
-    return farPlane * nearPlane /
-        max(farPlane - depth * (farPlane - nearPlane), 1e-8);
-}
-
-float LinearToProjection(float linearDepth)
-{
-    float nearPlane = _DepthNearFar.x;
-    float farPlane = _DepthNearFar.y;
-    return saturate(farPlane / (farPlane - nearPlane) -
-        (farPlane * nearPlane) /
-        ((farPlane - nearPlane) * max(linearDepth, 1e-8)));
-}
-
-float3 DepthUvToWorld(uint eye, float2 uv, float linearDepth)
-{
-    float depth = LinearToProjection(linearDepth);
     float4 clip = float4(float3(uv, depth) * 2.0 - 1.0, 1.0);
-    float4 view = mul(_DepthProjInv[eye], clip);
-    float4 world = mul(_DepthViewInv[eye], view);
+    float4 world = mul(_DepthViewInv[eye],
+        mul(_DepthProjInv[eye], clip));
     return world.xyz / world.w;
 }
 
+float3 DepthEyePosition(uint eye)
+{
+    return float3(_DepthViewInv[eye][0][3],
+        _DepthViewInv[eye][1][3], _DepthViewInv[eye][2][3]);
+}
+
+float WorldToDepthNdc(uint eye, float3 worldPosition)
+{
+    float4 clip = mul(_DepthProj[eye],
+        mul(_DepthView[eye], float4(worldPosition, 1.0)));
+    return clip.z / clip.w * 0.5 + 0.5;
+}
+
 bool WorldToDepth(uint eye, float3 worldPosition, out float2 uv,
-    out float linearDepth)
+    out float metricDistance)
 {
     float4 view = mul(_DepthView[eye], float4(worldPosition, 1.0));
     float4 clip = mul(_DepthProj[eye], view);
     if (view.z >= -0.001 || clip.w <= 0.0)
     {
         uv = -1.0;
-        linearDepth = 0.0;
+        metricDistance = 0.0;
         return false;
     }
     uv = clip.xy / clip.w * 0.5 + 0.5;
-    linearDepth = abs(view.z);
+    metricDistance = distance(worldPosition, DepthEyePosition(eye));
     return all(uv > 0.005) && all(uv < 0.995);
 }
 
@@ -97,7 +92,7 @@ uint CameraCensus4(uint eye, float2 uv)
 }
 
 bool StereoCandidateCost(uint sourceEye, float3 worldPosition,
-    float priorLinear, float candidateLinear, out float cost)
+    float priorDistance, float candidateDistance, out float cost)
 {
     uint otherEye = 1u - sourceEye;
     float2 otherDepthUv;
@@ -116,8 +111,11 @@ bool StereoCandidateCost(uint sourceEye, float3 worldPosition,
         cost = 0.0;
         return false;
     }
-    float observedOther = ProjectionToLinear(observedOtherProjection);
-    float stereoMargin = max(0.012, 0.006 * candidateLinear);
+    float3 observedOtherWorld = DepthNdcToWorld(otherEye, otherDepthUv,
+        observedOtherProjection);
+    float observedOther = distance(observedOtherWorld,
+        DepthEyePosition(otherEye));
+    float stereoMargin = max(0.025, 0.0125 * candidateDistance);
     float depthDifference = abs(predictedOther - observedOther);
     if (depthDifference > stereoMargin)
     {
@@ -163,7 +161,7 @@ bool StereoCandidateCost(uint sourceEye, float3 worldPosition,
     }
 
     float normalizedDepth = depthDifference / stereoMargin;
-    float normalizedPrior = abs(candidateLinear - priorLinear) /
+    float normalizedPrior = abs(candidateDistance - priorDistance) /
         max(_DepthSearchRadius, 0.001);
     cost = (float)mismatch / (float)RGBD_CENSUS_SAMPLES +
         chromaticityDifference * 0.5 + normalizedDepth * 0.25 +
@@ -183,11 +181,22 @@ void StereoRgbdRefine(uint3 id : SV_DispatchThreadID)
         _DstDepth[id] = 0.0;
         return;
     }
-    float centerLinear = ProjectionToLinear(centerDepth);
-    float metricSigma = max(0.006, centerLinear * 0.004);
+    float2 sourceUv = (float2(id.xy) + 0.5) /
+        float2(_DepthW, _DepthH);
+    float3 sourceEyePosition = DepthEyePosition(eye);
+    float3 centerWorld = DepthNdcToWorld(eye, sourceUv, centerDepth);
+    float3 centerRay = centerWorld - sourceEyePosition;
+    float centerDistance = length(centerRay);
+    if (centerDistance <= 0.001)
+    {
+        _DstDepth[id] = 0.0;
+        return;
+    }
+    centerRay /= centerDistance;
+    float metricSigma = max(0.006, centerDistance * 0.004);
     float inverseMetricSigma2 = -0.5 / (metricSigma * metricSigma);
     float weightSum = 0.0;
-    float linearDepthSum = 0.0;
+    float distanceSum = 0.0;
     [unroll]
     for (int dy = -1; dy <= 1; dy++)
     {
@@ -200,40 +209,44 @@ void StereoRgbdRefine(uint3 id : SV_DispatchThreadID)
             float neighbourDepth = _SrcDepth[
                 uint3(neighbourPixel, eye)];
             if (neighbourDepth <= 0.0 || neighbourDepth >= 1.0) continue;
-            float neighbourLinear = ProjectionToLinear(neighbourDepth);
+            float2 neighbourUv = (float2(neighbourPixel) + 0.5) /
+                float2(_DepthW, _DepthH);
+            float3 neighbourWorld = DepthNdcToWorld(eye, neighbourUv,
+                neighbourDepth);
+            float neighbourDistance = distance(neighbourWorld,
+                sourceEyePosition);
             float spatialDistance2 = (float)(dx * dx + dy * dy);
-            float depthDifference = centerLinear - neighbourLinear;
+            float depthDifference = centerDistance - neighbourDistance;
             float weight = exp(-0.5 * spatialDistance2 +
                 depthDifference * depthDifference * inverseMetricSigma2);
             weightSum += weight;
-            linearDepthSum += neighbourLinear * weight;
+            distanceSum += neighbourDistance * weight;
         }
     }
 
-    float priorLinear = weightSum > 1e-8
-        ? linearDepthSum / weightSum : centerLinear;
-    float2 sourceUv = (float2(id.xy) + 0.5) /
-        float2(_DepthW, _DepthH);
+    float priorDistance = weightSum > 1e-8
+        ? distanceSum / weightSum : centerDistance;
     float bestCost = 1e20;
-    float bestLinear = 0.0;
+    float bestDistance = 0.0;
     [unroll]
     for (int hypothesis = -RGBD_HYPOTHESIS_RADIUS;
          hypothesis <= RGBD_HYPOTHESIS_RADIUS; hypothesis++)
     {
-        float candidateLinear = max(_DepthNearFar.x,
-            priorLinear + (float)hypothesis * _DepthSearchRadius /
+        float candidateDistance = max(_DepthNearFar.x,
+            priorDistance + (float)hypothesis * _DepthSearchRadius /
                 (float)RGBD_HYPOTHESIS_RADIUS);
-        float3 worldPosition = DepthUvToWorld(eye, sourceUv,
-            candidateLinear);
+        float3 worldPosition = sourceEyePosition +
+            centerRay * candidateDistance;
         float candidateCost;
-        if (StereoCandidateCost(eye, worldPosition, priorLinear,
-                candidateLinear, candidateCost) && candidateCost < bestCost)
+        if (StereoCandidateCost(eye, worldPosition, priorDistance,
+                candidateDistance, candidateCost) && candidateCost < bestCost)
         {
             bestCost = candidateCost;
-            bestLinear = candidateLinear;
+            bestDistance = candidateDistance;
         }
     }
 
-    _DstDepth[id] = bestLinear > 0.0
-        ? LinearToProjection(bestLinear) : 0.0;
+    float3 bestWorld = sourceEyePosition + centerRay * bestDistance;
+    _DstDepth[id] = bestDistance > 0.0
+        ? WorldToDepthNdc(eye, bestWorld) : 0.0;
 }
