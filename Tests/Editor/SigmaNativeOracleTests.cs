@@ -783,7 +783,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(contract, Does.Contain(
                 "#if defined(SIGMA_N4_TILE_CLOSE_VARIANT)\n" +
                 "[numthreads(256, 1, 1)]\n#else\n" +
-                "[numthreads(128, 1, 1)]\n#endif\n" +
+                "[numthreads(256, 1, 1)]\n#endif\n" +
                 "void ContractNativeQuery"));
             Assert.That(contract, Does.Not.Contain("SigmaNativeContractOne"));
             Assert.That(contract, Does.Not.Contain("_NativeReverseKeys"));

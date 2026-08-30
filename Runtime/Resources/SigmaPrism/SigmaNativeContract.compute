@@ -111,43 +111,43 @@ uint _NativeCanonicalImageStride;
 #if defined(SIGMA_N4_TILE_CLOSE_VARIANT)
 groupshared uint SigmaNativeFreshScratch[256];
 #else
-groupshared uint SigmaNativeFreshScratch[128];
+groupshared uint SigmaNativeFreshScratch[256];
 #endif
 
 #if !defined(SIGMA_N4_TILE_CLOSE_VARIANT)
-#define SIGMA_NATIVE_FRESH_TEAM_COUNT 8u
+#define SIGMA_NATIVE_FRESH_TEAM_COUNT 16u
 #define SIGMA_NATIVE_FRESH_TEAM_LANES 16u
 #define SIGMA_NATIVE_FRESH_LEAVES 8u
 #define SIGMA_NATIVE_FRESH_AXES 4u
 #define SIGMA_NATIVE_FRESH_EYES 2u
 
-// A 128-thread workgroup contains eight completely disjoint 16-lane
+// A 256-thread workgroup contains sixteen completely disjoint 16-lane
 // footprint teams.  The old 64-lane isolated lowering only used lanes 0..15;
 // lanes 16..63 contributed neutral AND/OR values.  Every former groupshared
 // value is therefore partitioned here by team, while workgroup barriers retain
 // one fixed uniform trace.  No team address is ever serialized or published.
-groupshared uint SigmaNativeFreshLeafAxis[64];
-groupshared uint SigmaNativeFreshLeafEye[64];
-groupshared uint2 SigmaNativeFreshLeafLower[64];
-groupshared uint2 SigmaNativeFreshLeafUpper[64];
-groupshared uint4 SigmaNativeFreshEyePermutation[16];
-groupshared int SigmaNativeFreshEyeSign[16];
-groupshared uint2 SigmaNativeFreshInstrumentLower[64];
-groupshared uint2 SigmaNativeFreshInstrumentUpper[64];
-groupshared uint2 SigmaNativeFreshAxisLower[32];
-groupshared uint2 SigmaNativeFreshAxisUpper[32];
-groupshared uint2 SigmaNativeFreshSelected[32];
-groupshared uint2 SigmaNativeFreshState[128];
-groupshared uint2 SigmaNativeFreshForward[32];
-groupshared uint2 SigmaNativeFreshPriorForward[32];
-groupshared uint2 SigmaNativeFreshPriorState[128];
-groupshared uint4 SigmaNativeFreshPriorCertificate[128];
-groupshared uint SigmaNativeFreshTeamPhaseValid[8];
-groupshared uint SigmaNativeFreshTeamHasPrior[8];
-groupshared uint SigmaNativeFreshTeamUsePrior[8];
-groupshared uint SigmaNativeFreshTeamStaticExclusion[8];
-groupshared uint SigmaNativeFreshTeamPriorSlot[8];
-groupshared uint SigmaNativeFreshTeamPriorSample[8];
+groupshared uint SigmaNativeFreshLeafAxis[128];
+groupshared uint SigmaNativeFreshLeafEye[128];
+groupshared uint2 SigmaNativeFreshLeafLower[128];
+groupshared uint2 SigmaNativeFreshLeafUpper[128];
+groupshared uint4 SigmaNativeFreshEyePermutation[32];
+groupshared int SigmaNativeFreshEyeSign[32];
+groupshared uint2 SigmaNativeFreshInstrumentLower[128];
+groupshared uint2 SigmaNativeFreshInstrumentUpper[128];
+groupshared uint2 SigmaNativeFreshAxisLower[64];
+groupshared uint2 SigmaNativeFreshAxisUpper[64];
+groupshared uint2 SigmaNativeFreshSelected[64];
+groupshared uint2 SigmaNativeFreshState[256];
+groupshared uint2 SigmaNativeFreshForward[64];
+groupshared uint2 SigmaNativeFreshPriorForward[64];
+groupshared uint2 SigmaNativeFreshPriorState[256];
+groupshared uint4 SigmaNativeFreshPriorCertificate[256];
+groupshared uint SigmaNativeFreshTeamPhaseValid[16];
+groupshared uint SigmaNativeFreshTeamHasPrior[16];
+groupshared uint SigmaNativeFreshTeamUsePrior[16];
+groupshared uint SigmaNativeFreshTeamStaticExclusion[16];
+groupshared uint SigmaNativeFreshTeamPriorSlot[16];
+groupshared uint SigmaNativeFreshTeamPriorSample[16];
 groupshared uint SigmaNativeFreshPhaseValid;
 groupshared uint SigmaNativeFreshHasPrior;
 groupshared uint SigmaNativeFreshUsePrior;
@@ -2274,7 +2274,7 @@ void SigmaNativeFreshFinalize(uint threadIndex)
 #if defined(SIGMA_N4_TILE_CLOSE_VARIANT)
 [numthreads(256, 1, 1)]
 #else
-[numthreads(128, 1, 1)]
+[numthreads(256, 1, 1)]
 #endif
 void ContractNativeQuery(uint3 id : SV_DispatchThreadID,
     uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThreadID)
