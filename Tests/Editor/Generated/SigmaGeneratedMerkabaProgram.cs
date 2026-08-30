@@ -822,19 +822,19 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-8";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "1769df98f8ac95f978de366be8508b02e7130f49f62b21042b93a89276d1b882";
+        internal const string ProgramFingerprint = "06db8622964bb92168ed739ae94735fb53a5f6b1c2b327e85357ecbc0d2ad46a";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "07eb50fc062bbdb0f0fd98010133f3142e8f82a68a7e9d778c8149fca20bd17c";
+        internal const string GeneratorSourceInputFingerprint = "6def503b287bad94639f7970e6588fb2d3e1a8d39c5c67d3a48fd8669a79af6b";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
         internal const string IQInputFingerprint = "4c811586dc37d02991815629990c9410da3840364d35373008fdba4c2afdeb68";
         internal const string IRepresentationInputFingerprint = "b27e74a9b05902741bde4be11cbc3345e0eb3b8a71aa456a14c1c7e0aeeaf5b7";
-        internal const string CanonicalSpecInputFingerprint = "ba376647044f0f732761e37c27dec4d7d09dd4afae8140205b76fa8be843c1be";
-        internal const string ClosurePlanInputFingerprint = "9ad7394955f0d0b212cb8f5adb622293bebdd46ca94d785e8925c01d4b3bafe5";
+        internal const string CanonicalSpecInputFingerprint = "e716e5a2f86a2b3116fd23c6421b9b1c60233dc0bebb46b4dede778031833b3c";
+        internal const string ClosurePlanInputFingerprint = "44e829a993734ba9c14346ecb36a076de33446d32e587999f23e36d8963c428d";
         internal const string AlgebraCoreInputFingerprint = "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc";
         internal const int ExpressionCount = 17;
         internal const int IrNodeCount = 61;
@@ -1152,7 +1152,30 @@ namespace Genesis.RoomScan.SigmaPrism
             new SigmaChartD4Transform(-1, 0, 0, 1),
             new SigmaChartD4Transform(1, 0, 0, -1),
             new SigmaChartD4Transform(0, 1, 1, 0),
-            new SigmaChartD4Transform(0, -1, -1, 0),
+            new SigmaChartD4Transform(0, -1, -1, 0)
+        };
+
+        // Complete finite execution tables for the square-chart group.  These
+        // are generated from ChartD4 and the same 24 assignments; runtime code
+        // performs no search over the eight-element group.
+        internal static readonly byte[] ChartD4ComposeTable =
+        {
+            0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 0, 7, 6, 4, 5, 2, 3, 0, 1, 5, 4, 7, 6, 3, 0, 1, 2, 6, 7, 5, 4, 4, 6, 5, 7, 0, 2, 1, 3, 5, 7, 4, 6, 2, 0, 3, 1, 6, 5, 7, 4, 3, 1, 0, 2, 7, 4, 6, 5, 1, 3, 2, 0
+        };
+
+        internal static readonly byte[] ChartD4InverseTable =
+        {
+            0, 3, 2, 1, 4, 5, 6, 7
+        };
+
+        internal static readonly byte[] ChartOrbitRepresentativeTable =
+        {
+            2, 0, 1
+        };
+
+        internal static readonly byte[] ChartAdjacentFrameTable =
+        {
+            4, 2, 5, 0, 7, 1, 6, 3, 5, 0, 4, 2, 6, 3, 7, 1, 7, 3, 6, 1, 5, 2, 4, 0, 6, 1, 7, 3, 4, 0, 5, 2, 7, 3, 6, 1, 5, 2, 4, 0, 6, 1, 7, 3, 4, 0, 5, 2, 5, 0, 4, 2, 6, 3, 7, 1, 4, 2, 5, 0, 7, 1, 6, 3, 5, 0, 4, 2, 6, 3, 7, 1, 4, 2, 5, 0, 7, 1, 6, 3, 6, 1, 7, 3, 4, 0, 5, 2, 7, 3, 6, 1, 5, 2, 4, 0, 6, 1, 7, 3, 4, 0, 5, 2, 7, 3, 6, 1, 5, 2, 4, 0, 4, 2, 5, 0, 7, 1, 6, 3, 5, 0, 4, 2, 6, 3, 7, 1, 0, 5, 2, 4, 3, 6, 1, 7, 2, 4, 0, 5, 1, 7, 3, 6, 3, 7, 1, 6, 2, 5, 0, 4, 1, 6, 3, 7, 0, 4, 2, 5, 2, 4, 0, 5, 1, 7, 3, 6, 0, 5, 2, 4, 3, 6, 1, 7, 1, 6, 3, 7, 0, 4, 2, 5, 3, 7, 1, 6, 2, 5, 0, 4, 3, 7, 1, 6, 2, 5, 0, 4, 1, 6, 3, 7, 0, 4, 2, 5, 2, 4, 0, 5, 1, 7, 3, 6, 0, 5, 2, 4, 3, 6, 1, 7, 1, 6, 3, 7, 0, 4, 2, 5, 3, 7, 1, 6, 2, 5, 0, 4, 0, 5, 2, 4, 3, 6, 1, 7, 2, 4, 0, 5, 1, 7, 3, 6, 4, 2, 7, 1, 5, 0, 6, 3, 7, 3, 5, 2, 6, 1, 4, 0, 5, 0, 6, 3, 4, 2, 7, 1, 6, 1, 4, 0, 7, 3, 5, 2, 7, 3, 5, 2, 6, 1, 4, 0, 5, 0, 6, 3, 4, 2, 7, 1, 6, 1, 4, 0, 7, 3, 5, 2, 4, 2, 7, 1, 5, 0, 6, 3, 5, 0, 6, 3, 4, 2, 7, 1, 6, 1, 4, 0, 7, 3, 5, 2, 4, 2, 7, 1, 5, 0, 6, 3, 7, 3, 5, 2, 6, 1, 4, 0, 6, 1, 4, 0, 7, 3, 5, 2, 4, 2, 7, 1, 5, 0, 6, 3, 7, 3, 5, 2, 6, 1, 4, 0, 5, 0, 6, 3, 4, 2, 7, 1, 0, 5, 3, 6, 2, 4, 1, 7, 3, 7, 2, 5, 1, 6, 0, 4, 2, 4, 1, 7, 0, 5, 3, 6, 1, 6, 0, 4, 3, 7, 2, 5, 2, 4, 1, 7, 0, 5, 3, 6, 1, 6, 0, 4, 3, 7, 2, 5, 0, 5, 3, 6, 2, 4, 1, 7, 3, 7, 2, 5, 1, 6, 0, 4, 3, 7, 2, 5, 1, 6, 0, 4, 2, 4, 1, 7, 0, 5, 3, 6, 1, 6, 0, 4, 3, 7, 2, 5, 0, 5, 3, 6, 2, 4, 1, 7, 1, 6, 0, 4, 3, 7, 2, 5, 0, 5, 3, 6, 2, 4, 1, 7, 3, 7, 2, 5, 1, 6, 0, 4, 2, 4, 1, 7, 0, 5, 3, 6, 4, 2, 7, 1, 6, 3, 5, 0, 7, 3, 5, 2, 4, 0, 6, 1, 6, 1, 4, 0, 5, 2, 7, 3, 5, 0, 6, 3, 7, 1, 4, 2, 7, 3, 5, 2, 4, 0, 6, 1, 5, 0, 6, 3, 7, 1, 4, 2, 4, 2, 7, 1, 6, 3, 5, 0, 6, 1, 4, 0, 5, 2, 7, 3, 5, 0, 6, 3, 7, 1, 4, 2, 6, 1, 4, 0, 5, 2, 7, 3, 7, 3, 5, 2, 4, 0, 6, 1, 4, 2, 7, 1, 6, 3, 5, 0, 6, 1, 4, 0, 5, 2, 7, 3, 4, 2, 7, 1, 6, 3, 5, 0, 5, 0, 6, 3, 7, 1, 4, 2, 7, 3, 5, 2, 4, 0, 6, 1, 0, 5, 3, 6, 1, 7, 2, 4, 3, 7, 2, 5, 0, 4, 1, 6, 1, 6, 0, 4, 2, 5, 3, 7, 2, 4, 1, 7, 3, 6, 0, 5, 2, 4, 1, 7, 3, 6, 0, 5, 1, 6, 0, 4, 2, 5, 3, 7, 3, 7, 2, 5, 0, 4, 1, 6, 0, 5, 3, 6, 1, 7, 2, 4, 3, 7, 2, 5, 0, 4, 1, 6, 2, 4, 1, 7, 3, 6, 0, 5, 0, 5, 3, 6, 1, 7, 2, 4, 1, 6, 0, 4, 2, 5, 3, 7, 1, 6, 0, 4, 2, 5, 3, 7, 0, 5, 3, 6, 1, 7, 2, 4, 2, 4, 1, 7, 3, 6, 0, 5, 3, 7, 2, 5, 0, 4, 1, 6
         };
 
         // Every bijection from the four abstract native boundary sectors to the
@@ -1289,6 +1312,51 @@ namespace Genesis.RoomScan.SigmaPrism
             return ShadowNumerator4[(address << 2) + axis];
         }
 
+        // Exact generated lowering for the only coefficients in the Merkaba
+        // shadow/dual frames: 0,+/-2,+/-4,+/-6 divided by 4 or 64.  Quotient and
+        // remainder are formed before the factor of three, so this has exactly
+        // the same single nearest-even rounding and checked final range as QMul.
+        internal static long MultiplyMerkabaDyadic(long value, int numerator,
+            int denominatorShift)
+        {
+            int magnitudeNumerator = Math.Abs(numerator);
+            if ((magnitudeNumerator != 0 && magnitudeNumerator != 2 &&
+                 magnitudeNumerator != 4 && magnitudeNumerator != 6) ||
+                (denominatorShift != 2 && denominatorShift != 6))
+                throw new ArgumentOutOfRangeException(nameof(numerator));
+            if (magnitudeNumerator == 0 || value == 0L)
+                return 0L;
+
+            int factor = magnitudeNumerator >> 1;
+            int shift = denominatorShift - 1;
+            if (factor == 2)
+            {
+                factor = 1;
+                --shift;
+            }
+            BigInteger magnitude = BigInteger.Abs(new BigInteger(value));
+            BigInteger divisor = BigInteger.One << shift;
+            BigInteger quotient = BigInteger.DivRem(magnitude, divisor,
+                out BigInteger remainder);
+            quotient *= factor;
+            remainder *= factor;
+            quotient += BigInteger.DivRem(remainder, divisor, out remainder);
+            BigInteger twiceRemainder = remainder << 1;
+            if (twiceRemainder > divisor ||
+                (twiceRemainder == divisor && !quotient.IsEven))
+                ++quotient;
+            bool negative = (value < 0L) != (numerator < 0);
+            return CheckedLong(negative ? -quotient : quotient);
+        }
+
+        internal static long MultiplyMerkabaShadowCoefficient(long value,
+            int address, int axis) => MultiplyMerkabaDyadic(value,
+                ShadowNumerator(address, axis), 2);
+
+        internal static long MultiplyMerkabaDualCoefficient(long value,
+            int address, int axis) => MultiplyMerkabaDyadic(value,
+                ShadowNumerator(address, axis), 6);
+
         internal static long[] EvaluateMerkabaShadow(SigmaS16 state)
         {
             var output = new long[4];
@@ -1296,12 +1364,9 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 long sum = 0L;
                 for (int address = 0; address < 16; ++address)
-                {
-                    long coefficient = SigmaNumericDomain.FromRatio(
-                        ShadowNumerator(address, axis), 4L);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        SigmaNumericDomain.QMul(state[address], coefficient));
-                }
+                        MultiplyMerkabaShadowCoefficient(state[address],
+                            address, axis));
                 output[axis] = sum;
             }
             return output;
@@ -1318,15 +1383,47 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 long sum = 0L;
                 for (int axis = 0; axis < 4; ++axis)
-                {
-                    long coefficient = SigmaNumericDomain.FromRatio(
-                        ShadowNumerator(address, axis), 64L);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        SigmaNumericDomain.QMul(shadow[axis], coefficient));
-                }
+                        MultiplyMerkabaDualCoefficient(shadow[axis], address,
+                            axis));
                 lanes[address] = sum;
             }
             return SigmaS16.FromArray(lanes);
+        }
+
+        internal static int ComposeChartD4(int outer, int inner)
+        {
+            if ((uint)outer >= 8u || (uint)inner >= 8u)
+                throw new ArgumentOutOfRangeException(nameof(outer));
+            return ChartD4ComposeTable[(outer << 3) + inner];
+        }
+
+        internal static int InverseChartD4(int frame)
+        {
+            if ((uint)frame >= 8u)
+                throw new ArgumentOutOfRangeException(nameof(frame));
+            return ChartD4InverseTable[frame];
+        }
+
+        internal static int ChartOrbitRepresentative(int orbit)
+        {
+            if ((uint)orbit >= 3u)
+                throw new ArgumentOutOfRangeException(nameof(orbit));
+            return ChartOrbitRepresentativeTable[orbit];
+        }
+
+        internal static int ResolveAdjacentOrbitFrame(int orbit,
+            int currentFrame, int currentSector, int nextSector,
+            int orientationParity)
+        {
+            if ((uint)orbit >= 3u || (uint)currentFrame >= 8u ||
+                (uint)currentSector >= 4u || (uint)nextSector >= 4u ||
+                (orientationParity != -1 && orientationParity != 1))
+                throw new ArgumentOutOfRangeException(nameof(orbit));
+            int parityIndex = orientationParity > 0 ? 1 : 0;
+            int index = ((((orbit * 8 + currentFrame) * 4 + currentSector) *
+                4 + nextSector) * 2 + parityIndex);
+            return ChartAdjacentFrameTable[index];
         }
 
         internal static bool TryAssembleSensorEye(

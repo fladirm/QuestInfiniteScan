@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "contract": "S4-08.6-N4.1R-QUEST-GPU-CARDINALITY-CLOSURE",
+  "status": "frozen_for_implementation",
+  "semantic_baseline": "CPQ4-2026-08-25-S16-v8.3",
+  "device_evidence": {
+    "device": "Meta Quest 3 / Adreno 740",
+    "captured_on": "2026-08-30",
+    "vulkan_subgroup_size": 64,
+    "max_compute_shared_memory_bytes": 32768,
+    "max_compute_work_group_count": [65535, 65535, 65535],
+    "max_compute_work_group_invocations": 1024,
+    "max_compute_work_group_size": [1024, 1024, 1024],
+    "max_storage_buffer_range_bytes": 134217728,
+    "min_storage_buffer_offset_alignment_bytes": 64,
+    "max_push_constants_bytes": 256,
+    "timestamp_compute_and_graphics": true
+  },
+  "project_limits": {
+    "hot_threads_per_workgroup": 256,
+    "hard_groupshared_bytes": 32768,
+    "occupancy_review_groupshared_bytes": 16384,
+    "max_uav_bindings_per_kernel": 8,
+    "max_direct_grid_dimension": 65535,
+    "max_storage_binding_bytes": 134217728,
+    "storage_binding_runtime_limit": "min(SystemInfo.maxGraphicsBufferSize, max_storage_binding_bytes)",
+    "required_storage_offset_alignment_bytes": 64,
+    "native_hot_dispatch_count": 16,
+    "native_hot_dispatch_hard_ceiling": 16
+  },
+  "native_graph": {
+    "graph_source": "Runtime/SigmaPrism/SigmaNativeFrameGraph.cs",
+    "dispatch_fields": [
+      "_buildObservation",
+      "_contractNative",
+      "_evaluateRelation",
+      "_contractNative",
+      "_evaluateRelation",
+      "_prepareCanonicalSeed",
+      "_prepareCanonicalRuns",
+      "_prepareRefinementPlan",
+      "_prepareCanonicalSelect",
+      "_prepareRefinementProof",
+      "_prepareComponentOrder",
+      "_prepareRefinementScan",
+      "_prepareRevision",
+      "_preparePage",
+      "_scatterState",
+      "_closePublish"
+    ],
+    "phases": [
+      "BuildNativeObservation",
+      "ContractNativeQuery:FOOTPRINT",
+      "EvaluateNativeRelation:BOUNDARY",
+      "ContractNativeQuery:TILE_CLOSE",
+      "EvaluateNativeRelation:GLOBAL_CLOSE",
+      "PrepareNativeCanonicalSeed",
+      "PrepareNativeCanonicalRuns",
+      "PrepareNativeRefinementPlan:CANONICAL_RUN_MERGE",
+      "PrepareNativeCanonicalSelect",
+      "PrepareNativeRefinementProof",
+      "PrepareNativeComponentOrder",
+      "PrepareNativeRefinementScan",
+      "PrepareNativeRevision",
+      "PrepareNativePage",
+      "ScatterNativeState",
+      "CloseAndPublishNativeRevision"
+    ],
+    "shader_kernel_sets": {
+      "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute": [
+        "BuildNativeObservation",
+        "PrepareNativeCanonicalSeed",
+        "PrepareNativeCanonicalRuns",
+        "PrepareNativeCanonicalSelect",
+        "PrepareNativeRefinementProof",
+        "PrepareNativeComponentOrder",
+        "PrepareNativeRefinementScan",
+        "PrepareNativeRefinementPlan",
+        "PrepareNativeRevision",
+        "PrepareNativePage",
+        "ScatterNativeState",
+        "CloseAndPublishNativeRevision"
+      ],
+      "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute": [
+        "ContractNativeQuery"
+      ],
+      "Runtime/Resources/SigmaPrism/SigmaNativeQuery.compute": [
+        "EvaluateNativeRelation"
+      ]
+    }
+  },
+  "cardinality_contract": {
+    "capacity_passes": [
+      "BuildNativeObservation over the coherent 102400-footprint raster",
+      "FOOTPRINT contraction over that raster",
+      "lossless contact broad-phase over 204160 implicit boundaries"
+    ],
+    "after_broad_phase": "work is proportional to active, realized, changed, unresolved or touched cardinality",
+    "finite_algebra": "generated tables or generated exact specialized operations; never runtime candidate search",
+    "workgroup_rule": "no workgroup owns an O(frame), O(world), O(capacity) or giant-run interpreter",
+    "submission_rule": "the fixed 16-dispatch sequence is invariant to pixels, boundaries, supports, components, pages, mutations and history",
+    "execution_only_order": "atomic append and compaction order may route work only and never enter receipts, D4 comparison, canonical order, publication order or physical identity"
+  },
+  "synchronization_contract": {
+    "barriers": [
+      "GroupMemoryBarrierWithGroupSync",
+      "DeviceMemoryBarrierWithGroupSync"
+    ],
+    "rule": "runtime and UAV/shared-derived values may predicate payload only; they may not alter synchronization count or skip a synchronization point",
+    "runtime_control_symbols": [
+      "SigmaN4PublishCount",
+      "componentCount",
+      "childCount",
+      "safeChildCount",
+      "oldExtent",
+      "activeCount",
+      "mutationCount",
+      "_NativeCounters",
+      "_NativeCloseScratch"
+    ],
+    "proved_workgroup_uniform_symbols": [
+      "SigmaN4PublishCount",
+      "SigmaN4PublishFault"
+    ],
+    "forbidden": [
+      "while(changed)",
+      "global spin or wait",
+      "dispatch-indirect recursion",
+      "component-by-component synchronization",
+      "early return that only some lanes take before a later group-sync barrier"
+    ]
+  },
+  "compiler_contract": {
+    "generated_symbol_prefixes": ["Sigma", "SIGMA_"],
+    "forbidden_generated_identifiers": [
+      "asm", "attribute", "auto", "bool", "break", "buffer", "case",
+      "cbuffer", "centroid", "class", "column_major", "compile", "const",
+      "continue", "default", "discard", "do", "double", "else", "extern",
+      "false", "float", "for", "groupshared", "half", "if", "in", "inline",
+      "inout", "int", "interface", "line", "matrix", "namespace",
+      "nointerpolation", "out", "packoffset", "pass", "precise", "register",
+      "return", "row_major", "sample", "sampler", "shared", "snorm", "static",
+      "string", "struct", "switch", "technique", "texture", "true", "typedef",
+      "uint", "uniform", "unorm", "unsigned", "vector", "void", "volatile",
+      "while"
+    ],
+    "heavy_call_prefixes": [
+      "SigmaMerkabaCanonical",
+      "SigmaMerkabaEvaluateAssociator",
+      "SigmaN4PublishCompareBoundary",
+      "SigmaQ48Mul"
+    ],
+    "rules": [
+      "loops reaching a complete comparator, associator profile or generic Q48 multiply use [loop] unless a small literal generated proof requires [unroll]",
+      "no unroll attribute may clone a full-capacity or large-callgraph body",
+      "all production variants compile to Vulkan 1.1 SPIR-V and pass spirv-val before Unity/APK",
+      "Unity Android/Vulkan shader import is a separate targeted gate before a full APK",
+      "Quest device evidence is required for occupancy, driver and performance acceptance"
+    ]
+  },
+  "shader_variants": [
+    {
+      "name": "frame",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeFrame.compute",
+      "entry_points": [
+        "BuildNativeObservation",
+        "PrepareNativeCanonicalSeed",
+        "PrepareNativeCanonicalRuns",
+        "PrepareNativeCanonicalSelect",
+        "PrepareNativeRefinementProof",
+        "PrepareNativeComponentOrder",
+        "PrepareNativeRefinementScan",
+        "PrepareNativeRefinementPlan",
+        "PrepareNativeRevision",
+        "PrepareNativePage",
+        "ScatterNativeState",
+        "CloseAndPublishNativeRevision"
+      ],
+      "defines": []
+    },
+    {
+      "name": "contract_footprint",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
+      "entry_points": ["ContractNativeQuery"],
+      "defines": ["SIGMA_NATIVE_FRESH_MATH=1"]
+    },
+    {
+      "name": "contract_tile_close",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeContract.compute",
+      "entry_points": ["ContractNativeQuery"],
+      "defines": ["SIGMA_NATIVE_FRESH_MATH=1", "SIGMA_N4_TILE_CLOSE_VARIANT=1"]
+    },
+    {
+      "name": "query_boundary",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeQuery.compute",
+      "entry_points": ["EvaluateNativeRelation"],
+      "defines": ["SIGMA_NATIVE_ORACLE_RELATION_MATH=1", "SIGMA_N4_BOUNDARY_VARIANT=1"]
+    },
+    {
+      "name": "query_global_close",
+      "source": "Runtime/Resources/SigmaPrism/SigmaNativeQuery.compute",
+      "entry_points": ["EvaluateNativeRelation"],
+      "defines": ["SIGMA_NATIVE_ORACLE_RELATION_MATH=1", "SIGMA_N4_GLOBAL_CLOSE_VARIANT=1"]
+    }
+  ],
+  "performance_budget_ms": {
+    "depth_pose_preparation": 2.0,
+    "BuildNativeObservation": 8.0,
+    "ContractNativeQuery:FOOTPRINT": 12.0,
+    "EvaluateNativeRelation:BOUNDARY": 3.0,
+    "ContractNativeQuery:TILE_CLOSE": 6.0,
+    "EvaluateNativeRelation:GLOBAL_CLOSE": 2.0,
+    "canonical_seed_runs_select_total": 8.0,
+    "PrepareNativeComponentOrder": 4.0,
+    "refinement_total": 3.0,
+    "revision_page_scatter_publish_total": 3.0,
+    "typical_native_graph": 40.0,
+    "warm_p95_native_graph_hard": 50.0
+  }
+}

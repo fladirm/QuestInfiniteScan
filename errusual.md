@@ -146,3 +146,69 @@ backpressure and may never erase support, close a relation, expose farther first
 hit or manufacture `ZEmpty`. Locator maps, hash buckets, segment/bank/slot and
 resident generation are disposable execution data, never identity or canonical
 ordering.
+
+## E05 — Low dispatch count hides a full-capacity workgroup interpreter
+
+### Signature
+
+```text
+submission count looks small
+    -> one workgroup owns a complete frame, capacity or giant sort run
+    -> every lane serially walks hundreds/thousands of entries per digit/stride
+    -> Vulkan compiles, Quest takes tens to thousands of milliseconds
+```
+
+Reducing dispatches is not useful when global synchronization is replaced by a
+serial scheduler inside one kernel. After the one allowed raster/FOOTPRINT/
+boundary broad-phase passes, work must follow compact active/realized/touched
+cardinality. No workgroup may own `O(frame)`, `O(world)`, `O(capacity)` or a 16K+
+run. Use the already-frozen dispatch positions as wide global cuts and reduce only
+small deterministic summaries at the end.
+
+### Regression controls
+
+- Report entries-per-lane and barrier stages for every hot kernel at 320x320.
+- Reject a kernel whose inner iteration product grows with frame or allocation
+  capacity even when dispatch count is fixed.
+- Timestamp every mode/entry point separately on Quest; fewer workgroups alone is
+  not a performance result.
+
+## E06 — Finite exact algebra searched at runtime
+
+### Signature
+
+```text
+an algebra has 8 D4 states / 24 assignments / a few dyadic coefficients
+    -> shader loops over candidates and calls generic Q48 multiplication
+    -> the same finite answer is rediscovered millions of times per frame
+```
+
+Finite algebra belongs in generated exact tables or specialized generated
+operations. D4 compose/inverse/orbit/adjacent-frame action is lookup, not search.
+Coefficients such as `0, +/-1/2, +/-1, +/-3/2` use a generated bit-parity-proved
+operation, not an ad-hoc shift identity and not generic 64x64 Q48 multiplication.
+Preserve the original per-term nearest-even rounding, overflow and accumulation
+order; mathematical equality is not sufficient.
+
+## E07 — Host Vulkan or full APK used as the first shader compiler gate
+
+### Signature
+
+```text
+edit one shader line
+    -> wait for Unity/full Android build
+    -> Quest compiler rejects LDS/control-flow/unroll/binding shape
+    -> patch one line and repeat
+```
+
+Freeze device limits before kernel design. Statically validate the exact dispatch
+graph, thread shape, LDS, UAVs, direct-grid dimensions, names and both group-sync
+intrinsics. Compile every exact production variant to the target Vulkan SPIR-V
+environment and run `spirv-val`; then use a targeted Unity Android/Vulkan shader
+compile before a full APK. Quest remains mandatory for driver/occupancy/timing
+proof, but it is not the first syntax or resource-shape check.
+
+Generated/new identifiers stay in `Sigma*` / `SIGMA_*`; loops reaching complete
+comparators, associator profiles, generic Q48 or large call graphs are not blindly
+force-unrolled. A whole kernel cut is made green against these gates before the
+next expensive build.

@@ -19,6 +19,70 @@ Updated: 2026-08-30 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
+## Active N4.1R Quest-first GPU cardinality closure
+
+N4.1R is now the sole execution cut inside in-progress N4R. It does not reopen
+N1R/N2R/N3R, change A--D semantics or open N5R. The current Quest baseline is
+`n4r_fault_fix_retry_20260830_032312`:
+
+```text
+timestamped compute                            500.6230 ms
+ContractNativeQuery x2                         233.1091 ms
+PrepareNativeComponentOrder                     73.4488 ms
+BuildNativeObservation                          66.4428 ms
+canonical Seed/Runs/Select                      109.6929 ms
+native graph                                    exactly 16 submissions
+```
+
+The active correction is frozen as whole-kernel replacement, not line-by-line
+post-build repair:
+
+```text
+compile small finite Q48/D4 algebra in the generator
+rewrite observation/FOOTPRINT around measured Quest team/LDS occupancy
+replace TILE_CLOSE barrier relaxation with one transient forest + pointer doubling
+replace capacity canonical/refinement walks with realized compact streams
+retain exact N1/N2 bytes, D4 witness order and root-last publication
+```
+
+`Tools/sigma/quest_shader_contract.json` records the measured Quest 3 / Adreno 740
+limits and the exact phase budgets. `validate_sigma_quest_compute.py` checks the
+16-stage graph, production kernel set, <=256 threads, <=8 UAVs, variant LDS, both
+group-sync spellings and generated symbol namespace. The hard LDS limit is 32768
+bytes and >16384 bytes requires occupancy/device evidence. Storage bindings remain
+bounded by `min(SystemInfo.maxGraphicsBufferSize, 128 MiB)`, direct dimensions by
+65535 and storage offsets by 64-byte alignment.
+
+Initial gate evidence over HEAD `40fc7bc`:
+
+```text
+graph/kernel/thread/UAV/synchronization/name gate           PASS
+exact production variants compiled                          16/16
+Vulkan 1.1 SPIR-V / spirv-val                               PASS
+variant groupshared bytes
+    frame 26240; FOOTPRINT 17920; TILE_CLOSE 15372;
+    BOUNDARY 27984; GLOBAL_CLOSE 31184
+```
+
+The mandatory complete-file Quest shader review for the current N4.1R cut is
+also complete. It covered all 6809 lines and all 12 entry points of
+`SigmaNativeFrame.compute`, every recursively included generated/math/ABI HLSL
+surface, all 772 lines of `SigmaNativeFrameGraph.cs`, all 389 lines of
+`SigmaNativeFrameResources.cs`, and all 4256 lines of the directly affected
+`SigmaNativeFrameTests.cs`. The review reconfirmed the exact 16-stage binding and
+dispatch graph and found no hidden seventeenth dispatch or additional buffer
+owner. The first focused canonical-seed Unity invocation did not produce shader
+or test evidence: the editor process crashed in FMOD `AudioManager` thread
+startup (`TLSAllocator::ThreadInitialize`, SIGSEGV) after test start. Shader
+source remains frozen across that infrastructure failure; the direct Quest
+SPIR-V variants remain 16/16 compiled and validated.
+
+The four values over 16 KiB are explicit occupancy risks, not failures hidden by
+host Vulkan. Exact next action is generated small-dyadic/D4 table parity and the
+first complete FOOTPRINT/observation kernel cut, followed by the same cheap
+Quest-shader gates before Unity. Target is `<=40 ms` typical, `<50 ms` warm
+ordinary informative p95. N5R and S4-09 remain unopened.
+
 ## N4 resident-capacity safety and frozen N5R persistence design
 
 The historical Quest GPU crash and the current N4 capacity receipt are now

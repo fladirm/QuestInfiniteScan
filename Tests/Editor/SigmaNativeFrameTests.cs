@@ -301,7 +301,11 @@ namespace Genesis.RoomScan.Tests
                 root.SetData(new[] { 4u });
                 frame.SetInt("_NativeRevision", 16);
                 frame.SetInt("_NativeCalibrationEpoch", 8);
-                frame.Dispatch(kernel, (footprintCount + 7) / 8, 1, 1);
+                frame.Dispatch(kernel, (footprintCount +
+                    SigmaNativeFrameSlotResources.
+                        ObservationFootprintsPerGroup - 1) /
+                    SigmaNativeFrameSlotResources.
+                        ObservationFootprintsPerGroup, 1, 1);
                 var zeroInitialized = new SigmaNativeFrameGpu[1];
                 scratch.NativeFrame.GetData(zeroInitialized);
                 Assert.That(zeroInitialized[0].Identity.X, Is.EqualTo(16u));
@@ -324,7 +328,11 @@ namespace Genesis.RoomScan.Tests
                 root.SetData(new[] { 5u });
                 frame.SetInt("_NativeRevision", 17);
                 frame.SetInt("_NativeCalibrationEpoch", 9);
-                frame.Dispatch(kernel, (footprintCount + 7) / 8, 1, 1);
+                frame.Dispatch(kernel, (footprintCount +
+                    SigmaNativeFrameSlotResources.
+                        ObservationFootprintsPerGroup - 1) /
+                    SigmaNativeFrameSlotResources.
+                        ObservationFootprintsPerGroup, 1, 1);
 
                 var first = new SigmaNativeObservationGpu[1];
                 var last = new SigmaNativeObservationGpu[1];
@@ -379,7 +387,7 @@ namespace Genesis.RoomScan.Tests
             int kernel = query.FindKernel("EvaluateNativeRelation");
             UnityEngine.Rendering.LocalKeyword boundaryVariant = new(query,
                 "SIGMA_N4_BOUNDARY_VARIANT");
-            query.SetKeyword(boundaryVariant, true);
+            query.EnableKeyword("SIGMA_N4_BOUNDARY_VARIANT");
             using var scratch = new SigmaNativeFrameSlotResources(0,
                 new Vector2Int(2, 1));
 
@@ -691,7 +699,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void CanonicalSeedPreservesGlobalCloseUnresolvedReceipt()
+        public void CanonicalSeedPreservesGlobalCloseUnresolvedCounterReceipt()
         {
             ComputeShader frame = LoadShader("SigmaNativeFrame");
             int seed = frame.FindKernel("PrepareNativeCanonicalSeed");
@@ -712,18 +720,24 @@ namespace Genesis.RoomScan.Tests
             BindPublication(frame, seed, scratch, state, representation,
                 metadata, dirty, readoutDirty, root, completion);
 
-            var global = new UInt2[4];
-            global[1].High = 1u;
-            scratch.CloseScratch.SetData(global, 0,
-                scratch.GlobalHeaderScratchOffset, global.Length);
+            scratch.CloseScratch.SetData(new UInt2[2], 0,
+                scratch.TileHeaderScratchOffset, 2);
+            scratch.CloseScratch.SetData(new UInt2[1], 0,
+                scratch.CanonicalImageScratchOffset +
+                    8 * scratch.CanonicalImageStride, 1);
+
+            var seededCounters = new UInt4[4];
+            seededCounters[0].W = 1u;
+            seededCounters[2] = new UInt4
+                { X = 1u, Y = 1u, Z = 1u, W = 0u };
+            scratch.Counters.SetData(seededCounters);
             frame.Dispatch(seed, 1, 1, 1);
             var counters = new UInt4[4];
             scratch.Counters.GetData(counters);
             Assert.That(counters[0].W, Is.EqualTo(1u));
 
-            global[1].High = 0u;
-            scratch.CloseScratch.SetData(global, 0,
-                scratch.GlobalHeaderScratchOffset, global.Length);
+            seededCounters[0].W = 0u;
+            scratch.Counters.SetData(seededCounters);
             frame.Dispatch(seed, 1, 1, 1);
             scratch.Counters.GetData(counters);
             Assert.That(counters[0].W, Is.Zero);
@@ -909,9 +923,10 @@ namespace Genesis.RoomScan.Tests
                 SeedBoundaryWorklist(patternArena, scratch);
                 scratch.CloseScratch.SetData(patternArena);
                 query.Dispatch(relation, scratch.BoundaryCapacity + 1, 1, 1);
-                contract.SetKeyword(tileVariant, true);
+                contract.EnableKeyword("SIGMA_N4_TILE_CLOSE_VARIANT");
+                BindClose();
                 contract.Dispatch(close, 1, 1, 1);
-                contract.SetKeyword(tileVariant, false);
+                contract.DisableKeyword("SIGMA_N4_TILE_CLOSE_VARIANT");
             }
 
             UInt2[] ReadTileHeader()
@@ -1208,111 +1223,126 @@ namespace Genesis.RoomScan.Tests
             using var completion = UInt2Buffer(
                 SigmaGeneratedFrame.CompletionWordCount);
 
-            query.SetBuffer(relation, "_NativeStates", scratch.States);
-            query.SetBuffer(relation, "_NativeRelationInputs",
-                scratch.RelationInputs);
-            query.SetBuffer(relation, "_NativeRelationPlans",
-                scratch.RelationPlans);
-            query.SetBuffer(relation, "_NativeRelationNearIntervals",
-                scratch.RelationNearIntervals);
-            query.SetBuffer(relation, "_NativeRelationResults",
-                scratch.RelationResults);
-            query.SetBuffer(relation, "_NativeRelationFactors",
-                scratch.RelationFactors);
-            query.SetBuffer(relation, "_NativeRelationHashes",
-                scratch.RelationHashes);
-            query.SetBuffer(relation, "_NativeRelationNorms",
-                scratch.RelationNorms);
-            query.SetBuffer(relation, "_NativeObservations",
-                scratch.Observation);
-            query.SetBuffer(relation, "_NativeCloseScratch",
-                scratch.CloseScratch);
-            query.SetBuffer(relation, "_NativeLocalityCertificateWords",
-                scratch.LocalityCertificateWords);
-            query.SetBuffer(relation, "_NativeCounters", scratch.Counters);
-            query.SetInt("_NativeEntryPointIndex",
-                SigmaGeneratedFrame.IntrinsicRelationEntryPoint);
-            query.SetInt("_NativeRelationCount", 1);
-            query.SetInts("_NativeResolution", width, height);
-            query.SetInt("_NativeFootprintCount", scratch.FootprintCapacity);
-            query.SetInt("_NativeFootprintStateOffset",
-                scratch.FootprintStateOffset);
-            query.SetInt("_NativeFootprintCertificateOffset",
-                scratch.FootprintCertificateOffset);
-            query.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
-            query.SetInt("_NativeBoundaryScratchOffset",
-                scratch.BoundaryScratchOffset);
-            query.SetInts("_NativeTileCount", scratch.TileCountX,
-                scratch.TileCountY);
-            query.SetInt("_NativeTileHeaderScratchOffset",
-                scratch.TileHeaderScratchOffset);
-            query.SetInt("_NativeTileFootprintScratchOffset",
-                scratch.TileFootprintScratchOffset);
-            query.SetInt("_NativeTileSupportSummaryScratchOffset",
-                scratch.TileSupportSummaryScratchOffset);
-            query.SetInt("_NativeTileComponentSummaryScratchOffset",
-                scratch.TileComponentSummaryScratchOffset);
-            query.SetInt("_NativeGlobalHeaderScratchOffset",
-                scratch.GlobalHeaderScratchOffset);
-            query.SetInt("_NativeActiveSupportListScratchOffset",
-                scratch.ActiveSupportListScratchOffset);
-            query.SetInt("_NativeGlobalParentScratchOffset",
-                scratch.GlobalParentScratchOffset);
-            query.SetInt("_NativeGlobalTransformScratchOffset",
-                scratch.GlobalTransformScratchOffset);
-            query.SetInt("_NativeGlobalBorderComponentCapacity",
-                scratch.GlobalBorderComponentCapacity);
+            void BindQuery()
+            {
+                query.SetBuffer(relation, "_NativeStates", scratch.States);
+                query.SetBuffer(relation, "_NativeRelationInputs",
+                    scratch.RelationInputs);
+                query.SetBuffer(relation, "_NativeRelationPlans",
+                    scratch.RelationPlans);
+                query.SetBuffer(relation, "_NativeRelationNearIntervals",
+                    scratch.RelationNearIntervals);
+                query.SetBuffer(relation, "_NativeRelationResults",
+                    scratch.RelationResults);
+                query.SetBuffer(relation, "_NativeRelationFactors",
+                    scratch.RelationFactors);
+                query.SetBuffer(relation, "_NativeRelationHashes",
+                    scratch.RelationHashes);
+                query.SetBuffer(relation, "_NativeRelationNorms",
+                    scratch.RelationNorms);
+                query.SetBuffer(relation, "_NativeObservations",
+                    scratch.Observation);
+                query.SetBuffer(relation, "_NativeCloseScratch",
+                    scratch.CloseScratch);
+                query.SetBuffer(relation, "_NativeLocalityCertificateWords",
+                    scratch.LocalityCertificateWords);
+                query.SetBuffer(relation, "_NativeCounters", scratch.Counters);
+                query.SetInt("_NativeEntryPointIndex",
+                    SigmaGeneratedFrame.IntrinsicRelationEntryPoint);
+                query.SetInt("_NativeRelationCount", 1);
+                query.SetInts("_NativeResolution", width, height);
+                query.SetInt("_NativeFootprintCount",
+                    scratch.FootprintCapacity);
+                query.SetInt("_NativeFootprintStateOffset",
+                    scratch.FootprintStateOffset);
+                query.SetInt("_NativeFootprintCertificateOffset",
+                    scratch.FootprintCertificateOffset);
+                query.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
+                query.SetInt("_NativeBoundaryScratchOffset",
+                    scratch.BoundaryScratchOffset);
+                query.SetInts("_NativeTileCount", scratch.TileCountX,
+                    scratch.TileCountY);
+                query.SetInt("_NativeTileHeaderScratchOffset",
+                    scratch.TileHeaderScratchOffset);
+                query.SetInt("_NativeTileFootprintScratchOffset",
+                    scratch.TileFootprintScratchOffset);
+                query.SetInt("_NativeTileSupportSummaryScratchOffset",
+                    scratch.TileSupportSummaryScratchOffset);
+                query.SetInt("_NativeTileComponentSummaryScratchOffset",
+                    scratch.TileComponentSummaryScratchOffset);
+                query.SetInt("_NativeGlobalHeaderScratchOffset",
+                    scratch.GlobalHeaderScratchOffset);
+                query.SetInt("_NativeActiveSupportListScratchOffset",
+                    scratch.ActiveSupportListScratchOffset);
+                query.SetInt("_NativeGlobalParentScratchOffset",
+                    scratch.GlobalParentScratchOffset);
+                query.SetInt("_NativeGlobalTransformScratchOffset",
+                    scratch.GlobalTransformScratchOffset);
+                query.SetInt("_NativeGlobalBorderComponentCapacity",
+                    scratch.GlobalBorderComponentCapacity);
+            }
 
-            contract.SetBuffer(close, "_NativeReverseRelationResults",
-                scratch.RelationResults);
-            contract.SetBuffer(close, "_NativeStates", scratch.States);
-            contract.SetBuffer(close, "_NativeFreshEvidenceWords",
-                completion);
-            contract.SetBuffer(close, "_NativeObservations",
-                scratch.Observation);
-            contract.SetBuffer(close, "_NativeCloseScratch",
-                scratch.CloseScratch);
-            contract.SetBuffer(close, "_NativeSourceCarrierState",
-                carrierState);
-            contract.SetBuffer(close, "_NativeSourceCarrierRepresentation",
-                carrierRepresentation);
-            contract.SetBuffer(close, "_NativeBranchHeaders",
-                scratch.BranchHeaders);
-            contract.SetBuffer(close, "_NativeBranchSupports",
-                scratch.BranchSupports);
-            contract.SetBuffer(close, "_NativeBranchPredictions",
-                scratch.BranchPredictions);
-            contract.SetBuffer(close, "_NativeLocalityCertificateWords",
-                scratch.LocalityCertificateWords);
-            contract.SetBuffer(close, "_NativeCounters", scratch.Counters);
-            contract.SetInt("_NativeFootprintCount", scratch.FootprintCapacity);
-            contract.SetInt("_NativeFootprintStateOffset",
-                scratch.FootprintStateOffset);
-            contract.SetInt("_NativeFootprintCertificateOffset",
-                scratch.FootprintCertificateOffset);
-            contract.SetInts("_NativeResolution", width, height);
-            contract.SetInts("_NativeTileCount", scratch.TileCountX,
-                scratch.TileCountY);
-            contract.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
-            contract.SetInt("_NativeBoundaryScratchOffset",
-                scratch.BoundaryScratchOffset);
-            contract.SetInt("_NativeTileHeaderScratchOffset",
-                scratch.TileHeaderScratchOffset);
-            contract.SetInt("_NativeTileFootprintScratchOffset",
-                scratch.TileFootprintScratchOffset);
-            contract.SetInt("_NativeTileSupportSummaryScratchOffset",
-                scratch.TileSupportSummaryScratchOffset);
-            contract.SetInt("_NativeTileComponentSummaryScratchOffset",
-                scratch.TileComponentSummaryScratchOffset);
-            contract.SetInt("_NativeGlobalHeaderScratchOffset",
-                scratch.GlobalHeaderScratchOffset);
-            contract.SetInt("_NativeActiveSupportMarkerScratchOffset",
-                scratch.ActiveSupportMarkerScratchOffset);
-            contract.SetInt("_NativeActiveSupportListScratchOffset",
-                scratch.ActiveSupportListScratchOffset);
-            contract.SetInt("_NativeSupportLocatorCapacity",
-                SigmaNativeFrameSlotResources.SupportLocatorCapacity);
-            contract.SetInt("_NativeRevision", 1);
+            query.SetKeyword(boundaryVariant, true);
+            BindQuery();
+            contract.EnableKeyword("SIGMA_N4_TILE_CLOSE_VARIANT");
+
+            void BindContract()
+            {
+                contract.SetBuffer(close, "_NativeReverseRelationResults",
+                    scratch.RelationResults);
+                contract.SetBuffer(close, "_NativeStates", scratch.States);
+                contract.SetBuffer(close, "_NativeFreshEvidenceWords",
+                    completion);
+                contract.SetBuffer(close, "_NativeObservations",
+                    scratch.Observation);
+                contract.SetBuffer(close, "_NativeCloseScratch",
+                    scratch.CloseScratch);
+                contract.SetBuffer(close, "_NativeSourceCarrierState",
+                    carrierState);
+                contract.SetBuffer(close, "_NativeSourceCarrierRepresentation",
+                    carrierRepresentation);
+                contract.SetBuffer(close, "_NativeBranchHeaders",
+                    scratch.BranchHeaders);
+                contract.SetBuffer(close, "_NativeBranchSupports",
+                    scratch.BranchSupports);
+                contract.SetBuffer(close, "_NativeBranchPredictions",
+                    scratch.BranchPredictions);
+                contract.SetBuffer(close, "_NativeLocalityCertificateWords",
+                    scratch.LocalityCertificateWords);
+                contract.SetBuffer(close, "_NativeCounters", scratch.Counters);
+                contract.SetInt("_NativeFootprintCount",
+                    scratch.FootprintCapacity);
+                contract.SetInt("_NativeFootprintStateOffset",
+                    scratch.FootprintStateOffset);
+                contract.SetInt("_NativeFootprintCertificateOffset",
+                    scratch.FootprintCertificateOffset);
+                contract.SetInts("_NativeResolution", width, height);
+                contract.SetInts("_NativeTileCount", scratch.TileCountX,
+                    scratch.TileCountY);
+                contract.SetInt("_NativeBoundaryCount",
+                    scratch.BoundaryCapacity);
+                contract.SetInt("_NativeBoundaryScratchOffset",
+                    scratch.BoundaryScratchOffset);
+                contract.SetInt("_NativeTileHeaderScratchOffset",
+                    scratch.TileHeaderScratchOffset);
+                contract.SetInt("_NativeTileFootprintScratchOffset",
+                    scratch.TileFootprintScratchOffset);
+                contract.SetInt("_NativeTileSupportSummaryScratchOffset",
+                    scratch.TileSupportSummaryScratchOffset);
+                contract.SetInt("_NativeTileComponentSummaryScratchOffset",
+                    scratch.TileComponentSummaryScratchOffset);
+                contract.SetInt("_NativeGlobalHeaderScratchOffset",
+                    scratch.GlobalHeaderScratchOffset);
+                contract.SetInt("_NativeActiveSupportMarkerScratchOffset",
+                    scratch.ActiveSupportMarkerScratchOffset);
+                contract.SetInt("_NativeActiveSupportListScratchOffset",
+                    scratch.ActiveSupportListScratchOffset);
+                contract.SetInt("_NativeSupportLocatorCapacity",
+                    SigmaNativeFrameSlotResources.SupportLocatorCapacity);
+                contract.SetInt("_NativeRevision", 1);
+            }
+
+            BindContract();
 
             SigmaS16[] cycleStates =
             {
@@ -1415,18 +1445,18 @@ namespace Genesis.RoomScan.Tests
 
             void CloseFrame()
             {
-                query.SetKeyword(boundaryVariant, true);
-                query.SetKeyword(globalVariant, false);
                 query.SetInt("_NativeRelationMode", 1);
                 query.Dispatch(relation, scratch.BoundaryCapacity + 1, 1, 1);
-                contract.SetKeyword(tileVariant, true);
+                BindContract();
                 contract.Dispatch(close, scratch.TileCapacity, 1, 1);
-                contract.SetKeyword(tileVariant, false);
                 query.SetKeyword(boundaryVariant, false);
                 query.SetKeyword(globalVariant, true);
+                BindQuery();
                 query.SetInt("_NativeRelationMode", 2);
                 query.Dispatch(relation, 1, 1, 1);
                 query.SetKeyword(globalVariant, false);
+                query.SetKeyword(boundaryVariant, true);
+                BindQuery();
             }
 
             // Two exact local cycles share two implicit boundaries across the
@@ -1482,9 +1512,14 @@ namespace Genesis.RoomScan.Tests
             corrupt[0].Low ^= 1u;
             scratch.CloseScratch.SetData(corrupt, 0,
                 redundantBoundary + 1, 1);
+            query.SetKeyword(boundaryVariant, false);
             query.SetKeyword(globalVariant, true);
+            BindQuery();
+            query.SetInt("_NativeRelationMode", 2);
             query.Dispatch(relation, 1, 1, 1);
             query.SetKeyword(globalVariant, false);
+            query.SetKeyword(boundaryVariant, true);
+            BindQuery();
             scratch.CloseScratch.GetData(global, 0,
                 scratch.GlobalHeaderScratchOffset, global.Length);
             Assert.That(global[1].High, Is.EqualTo(1u));
@@ -1498,6 +1533,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(global[0].High, Is.EqualTo(2u));
             Assert.That(global[1].Low, Is.EqualTo(2u));
             Assert.That(global[1].High, Is.Zero);
+            query.SetKeyword(boundaryVariant, false);
+            contract.DisableKeyword("SIGMA_N4_TILE_CLOSE_VARIANT");
         }
 
         [Test]
@@ -2772,6 +2809,19 @@ namespace Genesis.RoomScan.Tests
                 new UInt2 { High = 1u };
             close[scratch.TileComponentSummaryScratchOffset + 1] =
                 new UInt2 { High = 2u | (1u << 17) };
+            close[scratch.TileHeaderScratchOffset] =
+                new UInt2 { Low = 0u, High = 1u };
+            close[scratch.TileHeaderScratchOffset + 1] =
+                new UInt2 { Low = 0u, High = 0u };
+            close[scratch.CanonicalImageScratchOffset +
+                8 * scratch.CanonicalImageStride] =
+                new UInt2 { Low = 2u, High = 0u };
+            close[scratch.CanonicalImageScratchOffset +
+                9 * scratch.CanonicalImageStride] =
+                new UInt2 { Low = 0u, High = 0u };
+            close[scratch.CanonicalImageScratchOffset +
+                9 * scratch.CanonicalImageStride + 1] =
+                new UInt2 { Low = 1u, High = 0u };
             int boundary = scratch.BoundaryScratchOffset;
             close[boundary] = new UInt2
             {
@@ -2800,7 +2850,10 @@ namespace Genesis.RoomScan.Tests
                 scratch.StateDelta.count]);
             scratch.GaugeDelta.SetData(new SigmaNativeGaugeDeltaGpu[
                 scratch.GaugeDelta.count]);
-            scratch.Counters.SetData(new UInt4[scratch.Counters.count]);
+            var seededCounters = new UInt4[scratch.Counters.count];
+            seededCounters[2] = new UInt4
+                { X = 1u, Y = 1u, Z = 1u, W = 0u };
+            scratch.Counters.SetData(seededCounters);
             carrierState.SetData(new UInt2[carrierState.count]);
             carrierRepresentation.SetData(new UInt4[
                 carrierRepresentation.count]);
@@ -2925,6 +2978,16 @@ namespace Genesis.RoomScan.Tests
                 new UInt2 { High = 1u };
             close[scratch.TileComponentSummaryScratchOffset + 1] =
                 new UInt2 { High = 1u | (1u << 17) };
+            close[scratch.TileHeaderScratchOffset] =
+                new UInt2 { Low = 0u, High = 1u };
+            close[scratch.TileHeaderScratchOffset + 1] =
+                new UInt2 { Low = 0u, High = 0u };
+            close[scratch.CanonicalImageScratchOffset +
+                8 * scratch.CanonicalImageStride] =
+                new UInt2 { Low = 1u, High = 0u };
+            close[scratch.CanonicalImageScratchOffset +
+                9 * scratch.CanonicalImageStride] =
+                new UInt2 { Low = 0u, High = 0u };
             if (priorSupport)
             {
                 uint locator = sourceSlot * SigmaCarrier.SamplesPerPage +
@@ -2937,7 +3000,9 @@ namespace Genesis.RoomScan.Tests
                 SigmaNativeFrameSlotResources.MaximumMutationsPerFootprint]);
             scratch.GaugeDelta.SetData(new SigmaNativeGaugeDeltaGpu[
                 SigmaNativeFrameSlotResources.MaximumMutationsPerFootprint]);
-            scratch.Counters.SetData(new UInt4[scratch.Counters.count]);
+            var counters = new UInt4[scratch.Counters.count];
+            counters[2] = new UInt4 { X = 1u, Y = 1u, Z = 1u, W = 0u };
+            scratch.Counters.SetData(counters);
         }
 
         private static UInt4[] BuildLocalityCertificate(uint generation)
@@ -3079,44 +3144,31 @@ namespace Genesis.RoomScan.Tests
             SigmaNativeFrameSlotResources scratch,
             Vector2Int? resolutionOverride = null)
         {
-            Vector2Int resolution = resolutionOverride ?? Vector2Int.one;
-            int footprintCount = checked(resolution.x * resolution.y);
             foreach (string kernelName in new[]
             {
                 "PrepareNativeCanonicalSeed",
                 "PrepareNativeCanonicalRuns",
+                "PrepareNativeRefinementPlan",
                 "PrepareNativeCanonicalSelect",
                 "PrepareNativeRefinementProof",
                 "PrepareNativeComponentOrder",
                 "PrepareNativeRefinementScan",
-                "PrepareNativeRefinementPlan",
                 "PrepareNativeRevision",
             })
             {
-                int groups = 1;
-                if (kernelName == "PrepareNativeCanonicalRuns")
-                {
-                    int runSize = Math.Min(16384,
-                        scratch.CanonicalImageStride);
-                    groups = ((footprintCount +
-                        runSize - 1) / runSize) * 8;
-                }
-                else if (kernelName == "PrepareNativeCanonicalSelect")
-                    groups = (footprintCount *
-                        8 + 255) / 256;
-                else if (kernelName == "PrepareNativeRefinementProof")
-                    groups = (footprintCount * 28 + 255) / 256;
-                else if (kernelName == "PrepareNativeComponentOrder")
-                    groups = (footprintCount + 255) / 256;
-                if (kernelName == "PrepareNativeRefinementScan" ||
+                if (kernelName == "PrepareNativeCanonicalSeed")
+                    shader.Dispatch(shader.FindKernel(kernelName), 1, 1, 1);
+                else if (kernelName == "PrepareNativeCanonicalRuns" ||
                     kernelName == "PrepareNativeRefinementPlan" ||
+                    kernelName == "PrepareNativeCanonicalSelect" ||
+                    kernelName == "PrepareNativeRefinementProof" ||
+                    kernelName == "PrepareNativeComponentOrder" ||
+                    kernelName == "PrepareNativeRefinementScan" ||
                     kernelName == "PrepareNativeRevision")
                 {
                     shader.DispatchIndirect(shader.FindKernel(kernelName),
                         scratch.Counters, 2u * sizeof(uint) * 4u);
                 }
-                else
-                    shader.Dispatch(shader.FindKernel(kernelName), groups, 1, 1);
             }
         }
 
@@ -3788,12 +3840,25 @@ namespace Genesis.RoomScan.Tests
                 new UInt2 { High = 1u };
             close[scratch.TileComponentSummaryScratchOffset + 1] =
                 new UInt2 { High = (uint)footprintCount | (1u << 17) };
+            close[scratch.TileHeaderScratchOffset] =
+                new UInt2 { Low = 0u, High = 1u };
+            close[scratch.TileHeaderScratchOffset + 1] =
+                new UInt2 { Low = 0u, High = 0u };
+            close[scratch.CanonicalImageScratchOffset +
+                8 * scratch.CanonicalImageStride] =
+                new UInt2 { Low = (uint)footprintCount, High = 0u };
+            for (int footprint = 0; footprint < footprintCount; ++footprint)
+                close[scratch.CanonicalImageScratchOffset +
+                    9 * scratch.CanonicalImageStride + footprint] =
+                    new UInt2 { Low = (uint)footprint, High = 0u };
             scratch.CloseScratch.SetData(close);
             scratch.StateDelta.SetData(new SigmaNativeStateDeltaGpu[
                 scratch.StateDelta.count]);
             scratch.GaugeDelta.SetData(new SigmaNativeGaugeDeltaGpu[
                 scratch.GaugeDelta.count]);
-            scratch.Counters.SetData(new UInt4[scratch.Counters.count]);
+            var counters = new UInt4[scratch.Counters.count];
+            counters[2] = new UInt4 { X = 1u, Y = 1u, Z = 1u, W = 0u };
+            scratch.Counters.SetData(counters);
         }
 
         private static void WriteRepresentationCell(UInt4[] words, int slot,

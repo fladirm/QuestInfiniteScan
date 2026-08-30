@@ -576,3 +576,40 @@ branch/chart decisions remain in Git history only.
   exact observation replay. It does not reopen N1--N4, add physical state or treat
   storage pressure as unresolved/default/end-of-scan. N5 remains pending until N4R
   acceptance.
+
+## ADR-S453 — N4.1R is a Quest-first active-cardinality compiler cut
+
+- The real N4 Quest profile rejects the current lowering, not its ontology:
+  `500.623 ms` timestamped compute repeats full-capacity transformations and uses
+  one-workgroup/global-run interpreters even though the graph is fixed.
+- The native graph is frozen at exactly sixteen submissions. Existing positions
+  may become real parallel synchronization cuts; no seventeenth dispatch, kernel
+  family, buffer owner, CPU authority/readback, fallback order or S32 is admitted.
+- The codebase-grounded fixed order retains `PrepareNativeRefinementPlan` at
+  submission 8 as the canonical-run merge cut, followed by canonical select,
+  D4 proof, component order and refinement scan. The legacy entrypoint name has
+  no semantic authority; changing it would add churn without changing the fixed
+  synchronization graph.
+- Capacity work is allowed once for coherent raster ingress, once for FOOTPRINT
+  contraction and once for lossless implicit-boundary broad phase. Afterwards work
+  scales with active/realized/changed/unresolved/touched state. Atomic compaction
+  order is routing only and can never enter canonical or physical bytes.
+- The sole generator emits exact specialized small-dyadic actions and complete
+  finite D4/orbit/adjacent-frame tables. Their optimized CPU/HLSL result must equal
+  the existing semantic operation bit-for-bit, including per-term nearest-even
+  rounding, overflow, outward intervals, brackets and summation order.
+- No workgroup owns `O(frame)`, `O(world)`, `O(capacity)` or a giant sort run.
+  TILE_CLOSE uses one transient deterministic forest, packed three-orbit pointer
+  doubling and complete non-tree validation. Canonical/refinement stages consume
+  compact realized streams and fixed parallel reductions.
+- Quest 3 / Adreno 740 constraints are source gates: <=256 hot threads, <=8 UAVs,
+  <=32768 bytes LDS (occupancy review above 16384), <=65535 direct grid dimension,
+  <=128 MiB per storage binding and 64-byte storage alignment. Both group-sync
+  intrinsics require uniform synchronization cardinality.
+- Every exact shader variant first passes static graph/LDS/UAV/sync/name checks,
+  HLSL-to-Vulkan-1.1 SPIR-V and `spirv-val`, then targeted Unity Android/Vulkan
+  compile, semantic parity, full suite and finally Quest driver/performance proof.
+  Full APK rebuilds are milestone gates, not a one-line shader debugger.
+- N4.1R targets <=40 ms typical and <50 ms warm ordinary informative p95. The
+  fixed 15 Hz admission scheduler and independent XR readout remain scheduling
+  policy and cannot waive total GPU work.

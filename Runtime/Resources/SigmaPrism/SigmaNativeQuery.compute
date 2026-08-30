@@ -44,6 +44,11 @@ uint _NativeGlobalParentScratchOffset;
 uint _NativeGlobalTransformScratchOffset;
 uint _NativeGlobalBorderComponentCapacity;
 uint _NativeSupportLocatorCapacity;
+uint _NativeCanonicalComponentScratchOffset;
+uint _NativeCanonicalComponentCapacity;
+uint _NativeCanonicalImageScratchOffset;
+uint _NativeCanonicalImageStride;
+uint _NativeCanonicalRankScratchOffset;
 
 #define SIGMA_NATIVE_RELATION_MODE_STANDARD 0u
 #define SIGMA_NATIVE_RELATION_MODE_BOUNDARY 1u
@@ -63,6 +68,9 @@ uint _NativeSupportLocatorCapacity;
 #define SIGMA_N4_TILE_BORDER_COMPONENT_CAPACITY 60u
 #define SIGMA_N4_CHART_ORBIT_COUNT 3u
 #define SIGMA_N4_INVALID 0xffffffffu
+#define SIGMA_N4_COMPONENT_WORDS 10u
+#define SIGMA_N4_COMPONENT_LIST_IMAGE 8u
+#define SIGMA_N4_RADIX_TEMP_IMAGE 1u
 
 #if defined(SIGMA_N4_GLOBAL_CLOSE_VARIANT)
 groupshared uint2 SigmaN4BoundaryForwardLink[256];
@@ -794,6 +802,18 @@ uint SigmaN4GlobalTransformAddress(uint orbit, uint node, uint word)
         (orbit * _NativeGlobalBorderComponentCapacity + node) * 2u + word;
 }
 
+uint SigmaN4GlobalCanonicalComponentAddress(uint component, uint word)
+{
+    return _NativeCanonicalComponentScratchOffset +
+        component * SIGMA_N4_COMPONENT_WORDS + word;
+}
+
+uint SigmaN4GlobalCanonicalImageAddress(uint image, uint index)
+{
+    return _NativeCanonicalImageScratchOffset +
+        image * _NativeCanonicalImageStride + index;
+}
+
 uint4 SigmaN4Affine(uint frame, int2 offset, bool valid)
 {
     return uint4(frame & 7u, valid ? 1u : 0u,
@@ -814,42 +834,12 @@ int2 SigmaN4D4Vector(uint frame, int2 value)
 
 uint SigmaN4D4Compose(uint outer, uint inner, inout uint valid)
 {
-    valid &= outer < 8u && inner < 8u ? 1u : 0u;
-    int4 a = SIGMA_STITCH_CHART_D4[min(outer, 7u)];
-    int4 b = SIGMA_STITCH_CHART_D4[min(inner, 7u)];
-    int4 product = int4(
-        a.x * b.x + a.y * b.z, a.x * b.y + a.y * b.w,
-        a.z * b.x + a.w * b.z, a.z * b.y + a.w * b.w);
-    uint result = 0u;
-    uint matches = 0u;
-    [loop]
-    for (uint index = 0u; index < 8u; ++index)
-        if (all(SIGMA_STITCH_CHART_D4[index] == product))
-        {
-            result = index;
-            ++matches;
-        }
-    valid &= matches == 1u ? 1u : 0u;
-    return result;
+    return SigmaMerkabaComposeChartD4(outer, inner, valid);
 }
 
 uint SigmaN4D4Inverse(uint frame, inout uint valid)
 {
-    uint result = 0u;
-    uint matches = 0u;
-    [loop]
-    for (uint candidate = 0u; candidate < 8u; ++candidate)
-    {
-        uint candidateValid = valid;
-        uint product = SigmaN4D4Compose(candidate, frame, candidateValid);
-        if (candidateValid != 0u && product == 0u)
-        {
-            result = candidate;
-            ++matches;
-        }
-    }
-    valid &= matches == 1u ? 1u : 0u;
-    return result;
+    return SigmaMerkabaInverseChartD4(frame, valid);
 }
 
 uint4 SigmaN4AffineCompose(uint4 outer, uint4 inner)
@@ -877,33 +867,10 @@ bool SigmaN4AffineEqual(uint4 left, uint4 right)
         left.x == right.x && left.z == right.z && left.w == right.w;
 }
 
-uint SigmaN4ChartAssignmentOrbit(uint assignmentIndex)
-{
-    uint4 assignment = SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[
-        min(assignmentIndex, 23u)];
-    uint opposite = (assignment.x + 2u) & 3u;
-    return (assignment.z == opposite ? 1u : 0u) |
-        (assignment.w == opposite ? 2u : 0u);
-}
-
 uint SigmaN4ChartOrbitRepresentative(uint orbit)
 {
-    uint representative = 0u;
-    uint found = 0u;
-    [loop]
-    for (uint assignment = 0u; assignment < 24u; ++assignment)
-        if (found == 0u && SigmaN4ChartAssignmentOrbit(assignment) == orbit)
-        {
-            representative = assignment;
-            found = 1u;
-        }
-    return representative;
-}
-
-int SigmaN4ChartFrameDeterminant(uint frame)
-{
-    int4 value = SIGMA_STITCH_CHART_D4[min(frame, 7u)];
-    return value.x * value.w - value.y * value.z;
+    uint valid = 1u;
+    return SigmaMerkabaChartOrbitRepresentative(orbit, valid);
 }
 
 int2 SigmaN4ChartDirection(uint assignment, uint frame, uint sector,
@@ -915,29 +882,12 @@ int2 SigmaN4ChartDirection(uint assignment, uint frame, uint sector,
     return SigmaN4D4Vector(frame, source);
 }
 
-bool SigmaN4ResolveAdjacentFrame(uint assignment, uint currentFrame,
+bool SigmaN4ResolveAdjacentFrame(uint orbit, uint currentFrame,
     uint currentSector, uint nextSector, int parity, out uint nextFrame,
     inout uint valid)
 {
-    int2 direction = SigmaN4ChartDirection(assignment, currentFrame,
-        currentSector, valid);
-    int determinant = SigmaN4ChartFrameDeterminant(currentFrame) * parity;
-    nextFrame = 0u;
-    uint matches = 0u;
-    [loop]
-    for (uint candidate = 0u; candidate < 8u; ++candidate)
-    {
-        uint candidateValid = valid;
-        int2 reverseDirection = SigmaN4ChartDirection(assignment, candidate,
-            nextSector, candidateValid);
-        if (candidateValid != 0u && all(reverseDirection == -direction) &&
-            SigmaN4ChartFrameDeterminant(candidate) == determinant)
-        {
-            nextFrame = candidate;
-            ++matches;
-        }
-    }
-    valid &= matches == 1u ? 1u : 0u;
+    nextFrame = SigmaMerkabaResolveAdjacentOrbitFrame(orbit, currentFrame,
+        currentSector, nextSector, parity, valid);
     return valid != 0u;
 }
 
@@ -964,7 +914,7 @@ uint4 SigmaN4DirectRightToLeft(uint boundary, uint left, uint right,
     uint signBits = _NativeCloseScratch[receipt + 5u].x;
     int parity = ((signBits & 1u) == ((signBits >> 1u) & 1u)) ? 1 : -1;
     uint expectedFrame = 0u;
-    SigmaN4ResolveAdjacentFrame(assignment, leftState.z & 7u, header.y,
+    SigmaN4ResolveAdjacentFrame(orbit, leftState.z & 7u, header.y,
         header.z, parity, expectedFrame, valid);
     uint inverseRight = SigmaN4D4Inverse(rightState.z & 7u, valid);
     uint relativeFrame = SigmaN4D4Compose(expectedFrame, inverseRight, valid);
@@ -1331,6 +1281,85 @@ void SigmaN4GlobalGeometryClose(uint threadIndex)
             uint2(crossCount, prefilterNoStitch);
         _NativeCloseScratch[_NativeGlobalHeaderScratchOffset + 3u] =
             uint2(_NativeCounters[0u].y, _NativeCounters[0u].z);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // Transient root membership is execution routing for canonical anchor
+    // reduction. Append order never reaches a witness or canonical byte.
+    [loop]
+    for (uint memberNode = threadIndex; memberNode < nodeCapacity;
+         memberNode += 256u)
+    {
+        uint parent = _NativeCloseScratch[
+            SigmaN4GlobalParentAddress(memberNode)].x;
+        if (parent == SIGMA_N4_INVALID) continue;
+        uint root = parent;
+        [loop]
+        for (uint step = 0u; step < 16u; ++step)
+        {
+            uint next = _NativeCloseScratch[
+                SigmaN4GlobalParentAddress(root)].x;
+            if (next == root || next == SIGMA_N4_INVALID) break;
+            root = next;
+        }
+        if (root == SIGMA_N4_INVALID ||
+            root >= _NativeCanonicalComponentCapacity)
+            continue;
+        uint previous;
+        InterlockedExchange(_NativeCloseScratch[
+            SigmaN4GlobalCanonicalComponentAddress(root, 0u)].y,
+            memberNode, previous);
+        _NativeCloseScratch[SigmaN4GlobalCanonicalComponentAddress(
+            memberNode, 1u)].x = previous;
+
+        // Compact active border nodes for the next fixed Seed block grid.
+        // Append order is execution-only: every record retains the exact root
+        // and tile-component node, and neither position can reach canonical
+        // bytes or physical identity.
+        uint workIndex;
+        InterlockedAdd(_NativeCounters[1u].z, 1u, workIndex);
+        if (workIndex < nodeCapacity)
+            _NativeCloseScratch[SigmaN4GlobalCanonicalImageAddress(
+                SIGMA_N4_RADIX_TEMP_IMAGE, workIndex)] =
+                    uint2(root, memberNode);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+
+    [loop]
+    for (uint rootNode = threadIndex; rootNode < nodeCapacity;
+         rootNode += 256u)
+    {
+        uint2 parent = _NativeCloseScratch[
+            SigmaN4GlobalParentAddress(rootNode)];
+        if (parent.x != rootNode) continue;
+        uint rootIndex;
+        InterlockedAdd(_NativeCounters[1u].x, 1u, rootIndex);
+        // Word 9 is transient Seed reduction state until the last compact
+        // block stores the final eighth D4 anchor in the same location.
+        _NativeCloseScratch[SigmaN4GlobalCanonicalComponentAddress(
+            rootNode, 9u)] = uint2(SIGMA_N4_INVALID, 0u);
+        _NativeCloseScratch[SigmaN4GlobalCanonicalImageAddress(
+            SIGMA_N4_COMPONENT_LIST_IMAGE, tileCount + rootIndex)] =
+                uint2(rootNode, 0u);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+
+    if (threadIndex == 0u)
+    {
+        uint activeBorderNodeCount = _NativeCounters[1u].z;
+        uint borderBlockCount =
+            (activeBorderNodeCount + 255u) / 256u;
+        uint globalUnresolved = _NativeCloseScratch[
+            _NativeGlobalHeaderScratchOffset + 1u].y;
+        _NativeCounters[0u] = uint4(0u, 0u, 0u,
+            globalUnresolved != 0u ? 1u : 0u);
+        _NativeCounters[2u] = uint4(max(1u,
+                max(tileCount, borderBlockCount)),
+            1u, 1u, 0u);
+        // CUT-E owns this word as its dispatch-completion cursor.  GLOBAL_CLOSE
+        // has already copied every support count needed by later semantics.
+        _NativeCounters[3u].z = 0u;
     }
 }
 #endif

@@ -213,7 +213,11 @@ namespace Genesis.RoomScan.SigmaPrism
             BindFrameKernels(command, slot, revision, calibrationEpoch, input,
                 completionJournal, completionRecordIndex);
             command.DispatchComputeProfiled(_frame, _buildObservation,
-                (slot.FootprintCapacity + 7) / 8, 1, 1);
+                (slot.FootprintCapacity +
+                    SigmaNativeFrameSlotResources.ObservationFootprintsPerGroup -
+                    1) /
+                    SigmaNativeFrameSlotResources.ObservationFootprintsPerGroup,
+                1, 1);
 
             BindContract(command, slot, revision, input, completionJournal,
                 completionRecordIndex);
@@ -259,22 +263,18 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetKeyword(_query, _globalCloseVariant, false);
 
             command.DispatchComputeProfiled(_frame, _prepareCanonicalSeed,
-                1, 1, 1);
-            int canonicalRunSize = Math.Min(16384,
-                slot.CanonicalImageStride);
-            int canonicalRunCount = (slot.FootprintCapacity +
-                canonicalRunSize - 1) / canonicalRunSize;
+                slot.Counters, 2u * 4u * sizeof(uint));
             command.DispatchComputeProfiled(_frame, _prepareCanonicalRuns,
-                canonicalRunCount * 8, 1, 1);
-            command.DispatchComputeProfiled(_frame, _prepareCanonicalSelect,
-                (slot.FootprintCapacity * 8 + 255) / 256, 1, 1);
-            command.DispatchComputeProfiled(_frame, _prepareRefinementProof,
-                (slot.FootprintCapacity * 28 + 255) / 256, 1, 1);
-            command.DispatchComputeProfiled(_frame, _prepareComponentOrder,
-                (slot.FootprintCapacity + 255) / 256, 1, 1);
-            command.DispatchComputeProfiled(_frame, _prepareRefinementScan,
-                slot.Counters, 2u * sizeof(uint) * 4u);
+                slot.Counters, 2u * 4u * sizeof(uint));
             command.DispatchComputeProfiled(_frame, _prepareRefinementPlan,
+                slot.Counters, 2u * 4u * sizeof(uint));
+            command.DispatchComputeProfiled(_frame, _prepareCanonicalSelect,
+                slot.Counters, 2u * 4u * sizeof(uint));
+            command.DispatchComputeProfiled(_frame, _prepareRefinementProof,
+                slot.Counters, 2u * 4u * sizeof(uint));
+            command.DispatchComputeProfiled(_frame, _prepareComponentOrder,
+                slot.Counters, 2u * 4u * sizeof(uint));
+            command.DispatchComputeProfiled(_frame, _prepareRefinementScan,
                 slot.Counters, 2u * sizeof(uint) * 4u);
             command.DispatchComputeProfiled(_frame, _prepareRevision,
                 slot.Counters, 2u * sizeof(uint) * 4u);
@@ -609,6 +609,17 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_contract,
                 "_NativeSupportLocatorCapacity",
                 SigmaNativeFrameSlotResources.SupportLocatorCapacity);
+            command.SetComputeIntParam(_contract,
+                "_NativeCanonicalComponentScratchOffset",
+                slot.CanonicalComponentScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeCanonicalComponentCapacity",
+                slot.CanonicalComponentCapacity);
+            command.SetComputeIntParam(_contract,
+                "_NativeCanonicalImageScratchOffset",
+                slot.CanonicalImageScratchOffset);
+            command.SetComputeIntParam(_contract,
+                "_NativeCanonicalImageStride", slot.CanonicalImageStride);
             command.SetComputeIntParam(_contract, "_NativeRevision",
                 unchecked((int)revision));
         }
@@ -692,6 +703,20 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_query,
                 "_NativeSupportLocatorCapacity",
                 SigmaNativeFrameSlotResources.SupportLocatorCapacity);
+            command.SetComputeIntParam(_query,
+                "_NativeCanonicalComponentScratchOffset",
+                slot.CanonicalComponentScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeCanonicalComponentCapacity",
+                slot.CanonicalComponentCapacity);
+            command.SetComputeIntParam(_query,
+                "_NativeCanonicalImageScratchOffset",
+                slot.CanonicalImageScratchOffset);
+            command.SetComputeIntParam(_query,
+                "_NativeCanonicalImageStride", slot.CanonicalImageStride);
+            command.SetComputeIntParam(_query,
+                "_NativeCanonicalRankScratchOffset",
+                slot.CanonicalRankScratchOffset);
         }
 
         private static Vector4 Intrinsics(RigIntrinsics intrinsics) => new(

@@ -1149,6 +1149,174 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference()
+        {
+            string[] fixtureGuids = AssetDatabase.FindAssets(
+                "SigmaMerkabaProgramFixture t:ComputeShader");
+            Assert.That(fixtureGuids, Has.Length.EqualTo(1));
+            ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+                AssetDatabase.GUIDToAssetPath(fixtureGuids[0]));
+            Assert.That(shader, Is.Not.Null);
+
+            var values = new List<long>
+            {
+                long.MinValue, long.MinValue + 1L, long.MinValue + 2L,
+                -65L, -64L, -63L, -33L, -32L, -31L, -17L, -16L, -15L,
+                -3L, -2L, -1L, 0L, 1L, 2L, 3L, 15L, 16L, 17L,
+                31L, 32L, 33L, 63L, 64L, 65L,
+                long.MaxValue - 2L, long.MaxValue - 1L, long.MaxValue,
+            };
+            for (int bit = 1; bit < 63; bit += 3)
+            {
+                long power = 1L << bit;
+                values.Add(power - 1L);
+                values.Add(power);
+                values.Add(power + 1L);
+                values.Add(-power - 1L);
+                values.Add(-power);
+                values.Add(-power + 1L);
+            }
+            var random = new System.Random(0x4d45524b);
+            var randomBytes = new byte[8];
+            for (int index = 0; index < 128; ++index)
+            {
+                random.NextBytes(randomBytes);
+                values.Add(BitConverter.ToInt64(randomBytes, 0));
+            }
+            long[] inputs = values.Distinct().ToArray();
+            var packedInputs = inputs.Select(value => new UInt4
+            {
+                X = unchecked((uint)value),
+                Y = unchecked((uint)((ulong)value >> 32)),
+            }).ToArray();
+            var dyadicResults = new UInt4[inputs.Length * 14];
+            using (GraphicsBuffer inputBuffer = Buffer(packedInputs.Length))
+            using (GraphicsBuffer resultBuffer = Buffer(dyadicResults.Length))
+            {
+                int kernel = shader.FindKernel("MerkabaDyadicParity");
+                inputBuffer.SetData(packedInputs);
+                shader.SetInt("_MerkabaDyadicInputCount", inputs.Length);
+                shader.SetBuffer(kernel, "_MerkabaDyadicInputs", inputBuffer);
+                shader.SetBuffer(kernel, "_MerkabaDyadicResults", resultBuffer);
+                shader.Dispatch(kernel, (inputs.Length + 63) / 64, 1, 1);
+                resultBuffer.GetData(dyadicResults);
+            }
+
+            for (int input = 0; input < inputs.Length; ++input)
+            for (int coefficient = 0; coefficient < 7; ++coefficient)
+            for (int kind = 0; kind < 2; ++kind)
+            {
+                int numerator = coefficient * 2 - 6;
+                int denominatorShift = kind == 0 ? 2 : 6;
+                bool expectedValid = true;
+                long expected = 0L;
+                try
+                {
+                    long semanticCoefficient = SigmaNumericDomain.FromRatio(
+                        numerator, 1L << denominatorShift);
+                    expected = SigmaNumericDomain.QMul(inputs[input],
+                        semanticCoefficient);
+                }
+                catch (OverflowException)
+                {
+                    expectedValid = false;
+                }
+
+                if (expectedValid)
+                    Assert.That(SigmaGeneratedMerkabaProgram
+                        .MultiplyMerkabaDyadic(inputs[input], numerator,
+                            denominatorShift), Is.EqualTo(expected));
+                else
+                    Assert.Throws<OverflowException>(() =>
+                        SigmaGeneratedMerkabaProgram.MultiplyMerkabaDyadic(
+                            inputs[input], numerator, denominatorShift));
+
+                UInt4 actual = dyadicResults[(input * 7 + coefficient) * 2 +
+                    kind];
+                Assert.That(actual.Z, Is.EqualTo(expectedValid ? 1u : 0u),
+                    $"validity input={inputs[input]} numerator={numerator} " +
+                    $"shift={denominatorShift}");
+                if (expectedValid)
+                    Assert.That(Join(actual.X, actual.Y), Is.EqualTo(expected),
+                        $"value input={inputs[input]} numerator={numerator} " +
+                        $"shift={denominatorShift}");
+            }
+
+            var chartResults = new UInt4[843];
+            using (GraphicsBuffer chartBuffer = Buffer(chartResults.Length))
+            {
+                int kernel = shader.FindKernel("MerkabaFiniteChartParity");
+                shader.SetBuffer(kernel, "_MerkabaFiniteChartResults",
+                    chartBuffer);
+                shader.Dispatch(kernel, 4, 1, 1);
+                chartBuffer.GetData(chartResults);
+            }
+            for (int outer = 0; outer < 8; ++outer)
+            for (int inner = 0; inner < 8; ++inner)
+            {
+                SigmaChartD4Transform a =
+                    SigmaGeneratedMerkabaProgram.ChartD4[outer];
+                SigmaChartD4Transform b =
+                    SigmaGeneratedMerkabaProgram.ChartD4[inner];
+                int m00 = a.M00 * b.M00 + a.M01 * b.M10;
+                int m01 = a.M00 * b.M01 + a.M01 * b.M11;
+                int m10 = a.M10 * b.M00 + a.M11 * b.M10;
+                int m11 = a.M10 * b.M01 + a.M11 * b.M11;
+                int expected = Array.FindIndex(
+                    SigmaGeneratedMerkabaProgram.ChartD4, value =>
+                        value.M00 == m00 && value.M01 == m01 &&
+                        value.M10 == m10 && value.M11 == m11);
+                int index = outer * 8 + inner;
+                Assert.That(SigmaGeneratedMerkabaProgram.ComposeChartD4(
+                    outer, inner), Is.EqualTo(expected));
+                Assert.That(chartResults[index].X, Is.EqualTo((uint)expected));
+                Assert.That(chartResults[index].Y, Is.EqualTo(1u));
+            }
+            for (int frame = 0; frame < 8; ++frame)
+            {
+                int expected = Enumerable.Range(0, 8).Single(candidate =>
+                    SigmaGeneratedMerkabaProgram.ComposeChartD4(candidate,
+                        frame) == 0);
+                Assert.That(SigmaGeneratedMerkabaProgram.InverseChartD4(frame),
+                    Is.EqualTo(expected));
+                Assert.That(chartResults[64 + frame].X,
+                    Is.EqualTo((uint)expected));
+            }
+            for (int orbit = 0; orbit < 3; ++orbit)
+            {
+                int expected = Enumerable.Range(0,
+                    SigmaGeneratedMerkabaProgram.NativeSectorChartAssignmentCount)
+                    .First(index => NativeSectorChartOrbit(
+                        SigmaGeneratedMerkabaProgram
+                            .NativeSectorChartAssignments[index]) == orbit);
+                Assert.That(SigmaGeneratedMerkabaProgram
+                    .ChartOrbitRepresentative(orbit), Is.EqualTo(expected));
+                Assert.That(chartResults[72 + orbit].X,
+                    Is.EqualTo((uint)expected));
+            }
+
+            int adjacentIndex = 75;
+            for (int orbit = 0; orbit < 3; ++orbit)
+            for (int currentFrame = 0; currentFrame < 8; ++currentFrame)
+            for (int currentSector = 0; currentSector < 4; ++currentSector)
+            for (int nextSector = 0; nextSector < 4; ++nextSector)
+            for (int parityIndex = 0; parityIndex < 2; ++parityIndex)
+            {
+                int parity = parityIndex == 0 ? -1 : 1;
+                int expected = ResolveAdjacentFrameReference(orbit,
+                    currentFrame, currentSector, nextSector, parity);
+                Assert.That(SigmaGeneratedMerkabaProgram
+                    .ResolveAdjacentOrbitFrame(orbit, currentFrame,
+                        currentSector, nextSector, parity), Is.EqualTo(expected));
+                Assert.That(chartResults[adjacentIndex].X,
+                    Is.EqualTo((uint)expected));
+                Assert.That(chartResults[adjacentIndex].Y, Is.EqualTo(1u));
+                ++adjacentIndex;
+            }
+            Assert.That(adjacentIndex, Is.EqualTo(chartResults.Length));
+        }
+
+        [Test]
         public void GeneratedHlslMatchesCpuTablesIrAndDirectionalAction()
         {
             string[] fixtureGuids = AssetDatabase.FindAssets(
@@ -1422,6 +1590,49 @@ namespace Genesis.RoomScan.Tests
                     GaugeLess(wideCoordinates[index], wideCoordinates[peer])
                         ? 1u : 0u));
             }
+        }
+
+        private static int NativeSectorChartOrbit(IReadOnlyList<int> assignment)
+        {
+            int opposite = (assignment[0] + 2) & 3;
+            return (assignment[2] == opposite ? 1 : 0) |
+                (assignment[3] == opposite ? 2 : 0);
+        }
+
+        private static int ResolveAdjacentFrameReference(int orbit,
+            int currentFrame, int currentSector, int nextSector, int parity)
+        {
+            int assignmentIndex = Enumerable.Range(0,
+                    SigmaGeneratedMerkabaProgram.NativeSectorChartAssignmentCount)
+                .First(index => NativeSectorChartOrbit(
+                    SigmaGeneratedMerkabaProgram
+                        .NativeSectorChartAssignments[index]) == orbit);
+            IReadOnlyList<int> assignment = SigmaGeneratedMerkabaProgram
+                .NativeSectorChartAssignments[assignmentIndex];
+            (int U, int V) Direction(int frameIndex, int sector)
+            {
+                (int U, int V)[] directions =
+                {
+                    (1, 0), (0, 1), (-1, 0), (0, -1),
+                };
+                (int U, int V) source = directions[assignment[sector]];
+                SigmaChartD4Transform transform =
+                    SigmaGeneratedMerkabaProgram.ChartD4[frameIndex];
+                return (transform.M00 * source.U + transform.M01 * source.V,
+                    transform.M10 * source.U + transform.M11 * source.V);
+            }
+            (int U, int V) current = Direction(currentFrame, currentSector);
+            int requiredDeterminant = SigmaGeneratedMerkabaProgram
+                .ChartD4[currentFrame].Determinant * parity;
+            int[] matches = Enumerable.Range(0, 8).Where(candidate =>
+            {
+                (int U, int V) reverse = Direction(candidate, nextSector);
+                return reverse.U == -current.U && reverse.V == -current.V &&
+                    SigmaGeneratedMerkabaProgram.ChartD4[candidate]
+                        .Determinant == requiredDeterminant;
+            }).ToArray();
+            Assert.That(matches, Has.Length.EqualTo(1));
+            return matches[0];
         }
 
         private static long Join(uint low, uint high) =>

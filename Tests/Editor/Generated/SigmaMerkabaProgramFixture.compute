@@ -7,6 +7,8 @@
 #pragma kernel MerkabaInstrumentBoundaryParity
 #pragma kernel MerkabaGaugeParity
 #pragma kernel MerkabaStitchSetParity
+#pragma kernel MerkabaDyadicParity
+#pragma kernel MerkabaFiniteChartParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -19,6 +21,11 @@ RWStructuredBuffer<uint4> _MerkabaFreshResults;
 RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
 RWStructuredBuffer<uint4> _MerkabaGaugeResults;
 RWStructuredBuffer<uint4> _MerkabaStitchResults;
+StructuredBuffer<uint4> _MerkabaDyadicInputs;
+RWStructuredBuffer<uint4> _MerkabaDyadicResults;
+RWStructuredBuffer<uint4> _MerkabaFiniteChartResults;
+
+uint _MerkabaDyadicInputCount;
 
 groupshared uint _MerkabaStitchForwardClasses[16];
 groupshared uint _MerkabaStitchReverseClasses[16];
@@ -38,6 +45,73 @@ void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
         asuint(SigmaMerkabaPlaquetteHolonomy(a, c, b)),
         asuint(SigmaMerkabaShadowNumerator(a, c & 3u)),
         asuint(SigmaMerkabaBasisSign(a, b)));
+}
+
+[numthreads(64, 1, 1)]
+void MerkabaDyadicParity(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _MerkabaDyadicInputCount)
+        return;
+    uint2 value = _MerkabaDyadicInputs[id.x].xy;
+    [unroll]
+    for (uint coefficient = 0u; coefficient < 7u; ++coefficient)
+    {
+        int numerator = (int)coefficient * 2 - 6;
+        uint shadowValid = 1u;
+        uint2 shadow = SigmaMerkabaMultiplyDyadic(value, numerator, 2u,
+            shadowValid);
+        uint dualValid = 1u;
+        uint2 dual = SigmaMerkabaMultiplyDyadic(value, numerator, 6u,
+            dualValid);
+        uint output = (id.x * 7u + coefficient) * 2u;
+        _MerkabaDyadicResults[output] = uint4(shadow, shadowValid, 0u);
+        _MerkabaDyadicResults[output + 1u] = uint4(dual, dualValid, 0u);
+    }
+}
+
+[numthreads(256, 1, 1)]
+void MerkabaFiniteChartParity(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < 64u)
+    {
+        uint valid = 1u;
+        uint value = SigmaMerkabaComposeChartD4(index >> 3u, index & 7u,
+            valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, index, 0u);
+    }
+    else if (index < 72u)
+    {
+        uint frame = index - 64u;
+        uint valid = 1u;
+        uint value = SigmaMerkabaInverseChartD4(frame, valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, frame, 1u);
+    }
+    else if (index < 75u)
+    {
+        uint orbit = index - 72u;
+        uint valid = 1u;
+        uint value = SigmaMerkabaChartOrbitRepresentative(orbit, valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, orbit, 2u);
+    }
+    else if (index < 843u)
+    {
+        uint packed = index - 75u;
+        uint parityIndex = packed & 1u;
+        packed >>= 1u;
+        uint nextSector = packed & 3u;
+        packed >>= 2u;
+        uint currentSector = packed & 3u;
+        packed >>= 2u;
+        uint currentFrame = packed & 7u;
+        uint orbit = packed >> 3u;
+        uint valid = 1u;
+        uint value = SigmaMerkabaResolveAdjacentOrbitFrame(orbit,
+            currentFrame, currentSector, nextSector,
+            parityIndex != 0u ? 1 : -1, valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, orbit,
+            (currentFrame << 8u) | (currentSector << 4u) | nextSector);
+    }
 }
 
 [numthreads(4, 1, 1)]

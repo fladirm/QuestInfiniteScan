@@ -2286,9 +2286,104 @@ int SigmaHadamardSign(uint row, uint column)
 """
 
 
+SIGMA_CHART_D4 = (
+    (1, 0, 0, 1),
+    (0, -1, 1, 0),
+    (-1, 0, 0, -1),
+    (0, 1, -1, 0),
+    (-1, 0, 0, 1),
+    (1, 0, 0, -1),
+    (0, 1, 1, 0),
+    (0, -1, -1, 0),
+)
+
+
+def sigma_chart_assignment_orbit(assignment: tuple[int, ...]) -> int:
+    opposite = (assignment[0] + 2) & 3
+    return (1 if assignment[2] == opposite else 0) | (
+        2 if assignment[3] == opposite else 0)
+
+
+def sigma_chart_d4_tables() -> tuple[list[int], list[int], list[int], list[int]]:
+    assignments = list(itertools.permutations(range(4)))
+    representatives = [
+        next(index for index, assignment in enumerate(assignments)
+             if sigma_chart_assignment_orbit(assignment) == orbit)
+        for orbit in range(3)
+    ]
+
+    compose: list[int] = []
+    for outer in SIGMA_CHART_D4:
+        for inner in SIGMA_CHART_D4:
+            product = (
+                outer[0] * inner[0] + outer[1] * inner[2],
+                outer[0] * inner[1] + outer[1] * inner[3],
+                outer[2] * inner[0] + outer[3] * inner[2],
+                outer[2] * inner[1] + outer[3] * inner[3],
+            )
+            compose.append(SIGMA_CHART_D4.index(product))
+    inverse = [
+        next(candidate for candidate in range(8)
+             if compose[candidate * 8 + frame] == 0)
+        for frame in range(8)
+    ]
+
+    directions = ((1, 0), (0, 1), (-1, 0), (0, -1))
+
+    def determinant(frame: int) -> int:
+        value = SIGMA_CHART_D4[frame]
+        return value[0] * value[3] - value[1] * value[2]
+
+    def direction(assignment_index: int, frame: int,
+                  sector: int) -> tuple[int, int]:
+        source = directions[assignments[assignment_index][sector]]
+        transform = SIGMA_CHART_D4[frame]
+        return (
+            transform[0] * source[0] + transform[1] * source[1],
+            transform[2] * source[0] + transform[3] * source[1],
+        )
+
+    adjacent: list[int] = []
+    for orbit, assignment_index in enumerate(representatives):
+        for current_frame in range(8):
+            for current_sector in range(4):
+                for next_sector in range(4):
+                    for parity in (-1, 1):
+                        current_direction = direction(assignment_index,
+                                                      current_frame,
+                                                      current_sector)
+                        matches = []
+                        for candidate in range(8):
+                            reverse_direction = direction(assignment_index,
+                                                          candidate,
+                                                          next_sector)
+                            if (reverse_direction ==
+                                    (-current_direction[0],
+                                     -current_direction[1]) and
+                                    determinant(candidate) ==
+                                    determinant(current_frame) * parity):
+                                matches.append(candidate)
+                        if len(matches) != 1:
+                            raise ValueError(
+                                "Generated D4 adjacent-frame table is not total")
+                        adjacent.append(matches[0])
+    return compose, inverse, representatives, adjacent
+
+
 def render_merkaba_cs(descriptor: dict) -> str:
     proofs = descriptor["proofs"]
     ir = descriptor["ir"]
+    d4_compose, d4_inverse, orbit_representatives, adjacent_frames = \
+        sigma_chart_d4_tables()
+    chart_d4_lines = ",\n".join(
+        "            new SigmaChartD4Transform(" +
+        ", ".join(str(value) for value in transform) + ")"
+        for transform in SIGMA_CHART_D4)
+    d4_compose_values = ", ".join(str(value) for value in d4_compose)
+    d4_inverse_values = ", ".join(str(value) for value in d4_inverse)
+    orbit_representative_values = ", ".join(
+        str(value) for value in orbit_representatives)
+    adjacent_frame_values = ", ".join(str(value) for value in adjacent_frames)
     stitch_bracket_fingerprint = int(
         proofs["constructiveStitchExpressionFingerprint"][:16], 16)
     expression_fingerprints = ",\n".join(
@@ -3239,14 +3334,30 @@ namespace Genesis.RoomScan.SigmaPrism
         // physical S16 values or native transport receipts.
         internal static readonly SigmaChartD4Transform[] ChartD4 =
         {{
-            new SigmaChartD4Transform(1, 0, 0, 1),
-            new SigmaChartD4Transform(0, -1, 1, 0),
-            new SigmaChartD4Transform(-1, 0, 0, -1),
-            new SigmaChartD4Transform(0, 1, -1, 0),
-            new SigmaChartD4Transform(-1, 0, 0, 1),
-            new SigmaChartD4Transform(1, 0, 0, -1),
-            new SigmaChartD4Transform(0, 1, 1, 0),
-            new SigmaChartD4Transform(0, -1, -1, 0),
+{chart_d4_lines}
+        }};
+
+        // Complete finite execution tables for the square-chart group.  These
+        // are generated from ChartD4 and the same 24 assignments; runtime code
+        // performs no search over the eight-element group.
+        internal static readonly byte[] ChartD4ComposeTable =
+        {{
+            {d4_compose_values}
+        }};
+
+        internal static readonly byte[] ChartD4InverseTable =
+        {{
+            {d4_inverse_values}
+        }};
+
+        internal static readonly byte[] ChartOrbitRepresentativeTable =
+        {{
+            {orbit_representative_values}
+        }};
+
+        internal static readonly byte[] ChartAdjacentFrameTable =
+        {{
+            {adjacent_frame_values}
         }};
 
         // Every bijection from the four abstract native boundary sectors to the
@@ -3383,6 +3494,51 @@ namespace Genesis.RoomScan.SigmaPrism
             return ShadowNumerator4[(address << 2) + axis];
         }}
 
+        // Exact generated lowering for the only coefficients in the Merkaba
+        // shadow/dual frames: 0,+/-2,+/-4,+/-6 divided by 4 or 64.  Quotient and
+        // remainder are formed before the factor of three, so this has exactly
+        // the same single nearest-even rounding and checked final range as QMul.
+        internal static long MultiplyMerkabaDyadic(long value, int numerator,
+            int denominatorShift)
+        {{
+            int magnitudeNumerator = Math.Abs(numerator);
+            if ((magnitudeNumerator != 0 && magnitudeNumerator != 2 &&
+                 magnitudeNumerator != 4 && magnitudeNumerator != 6) ||
+                (denominatorShift != 2 && denominatorShift != 6))
+                throw new ArgumentOutOfRangeException(nameof(numerator));
+            if (magnitudeNumerator == 0 || value == 0L)
+                return 0L;
+
+            int factor = magnitudeNumerator >> 1;
+            int shift = denominatorShift - 1;
+            if (factor == 2)
+            {{
+                factor = 1;
+                --shift;
+            }}
+            BigInteger magnitude = BigInteger.Abs(new BigInteger(value));
+            BigInteger divisor = BigInteger.One << shift;
+            BigInteger quotient = BigInteger.DivRem(magnitude, divisor,
+                out BigInteger remainder);
+            quotient *= factor;
+            remainder *= factor;
+            quotient += BigInteger.DivRem(remainder, divisor, out remainder);
+            BigInteger twiceRemainder = remainder << 1;
+            if (twiceRemainder > divisor ||
+                (twiceRemainder == divisor && !quotient.IsEven))
+                ++quotient;
+            bool negative = (value < 0L) != (numerator < 0);
+            return CheckedLong(negative ? -quotient : quotient);
+        }}
+
+        internal static long MultiplyMerkabaShadowCoefficient(long value,
+            int address, int axis) => MultiplyMerkabaDyadic(value,
+                ShadowNumerator(address, axis), 2);
+
+        internal static long MultiplyMerkabaDualCoefficient(long value,
+            int address, int axis) => MultiplyMerkabaDyadic(value,
+                ShadowNumerator(address, axis), 6);
+
         internal static long[] EvaluateMerkabaShadow(SigmaS16 state)
         {{
             var output = new long[4];
@@ -3390,12 +3546,9 @@ namespace Genesis.RoomScan.SigmaPrism
             {{
                 long sum = 0L;
                 for (int address = 0; address < 16; ++address)
-                {{
-                    long coefficient = SigmaNumericDomain.FromRatio(
-                        ShadowNumerator(address, axis), 4L);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        SigmaNumericDomain.QMul(state[address], coefficient));
-                }}
+                        MultiplyMerkabaShadowCoefficient(state[address],
+                            address, axis));
                 output[axis] = sum;
             }}
             return output;
@@ -3412,15 +3565,47 @@ namespace Genesis.RoomScan.SigmaPrism
             {{
                 long sum = 0L;
                 for (int axis = 0; axis < 4; ++axis)
-                {{
-                    long coefficient = SigmaNumericDomain.FromRatio(
-                        ShadowNumerator(address, axis), 64L);
                     sum = SigmaNumericDomain.QAdd(sum,
-                        SigmaNumericDomain.QMul(shadow[axis], coefficient));
-                }}
+                        MultiplyMerkabaDualCoefficient(shadow[axis], address,
+                            axis));
                 lanes[address] = sum;
             }}
             return SigmaS16.FromArray(lanes);
+        }}
+
+        internal static int ComposeChartD4(int outer, int inner)
+        {{
+            if ((uint)outer >= 8u || (uint)inner >= 8u)
+                throw new ArgumentOutOfRangeException(nameof(outer));
+            return ChartD4ComposeTable[(outer << 3) + inner];
+        }}
+
+        internal static int InverseChartD4(int frame)
+        {{
+            if ((uint)frame >= 8u)
+                throw new ArgumentOutOfRangeException(nameof(frame));
+            return ChartD4InverseTable[frame];
+        }}
+
+        internal static int ChartOrbitRepresentative(int orbit)
+        {{
+            if ((uint)orbit >= 3u)
+                throw new ArgumentOutOfRangeException(nameof(orbit));
+            return ChartOrbitRepresentativeTable[orbit];
+        }}
+
+        internal static int ResolveAdjacentOrbitFrame(int orbit,
+            int currentFrame, int currentSector, int nextSector,
+            int orientationParity)
+        {{
+            if ((uint)orbit >= 3u || (uint)currentFrame >= 8u ||
+                (uint)currentSector >= 4u || (uint)nextSector >= 4u ||
+                (orientationParity != -1 && orientationParity != 1))
+                throw new ArgumentOutOfRangeException(nameof(orbit));
+            int parityIndex = orientationParity > 0 ? 1 : 0;
+            int index = ((((orbit * 8 + currentFrame) * 4 + currentSector) *
+                4 + nextSector) * 2 + parityIndex);
+            return ChartAdjacentFrameTable[index];
         }}
 
         internal static bool TryAssembleSensorEye(
@@ -5392,6 +5577,8 @@ def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
                         "../../../Runtime/Resources/SigmaPrism") -> str:
     proofs = descriptor["proofs"]
     ir = descriptor["ir"]
+    d4_compose, d4_inverse, orbit_representatives, adjacent_frames = \
+        sigma_chart_d4_tables()
     diffraction = ", ".join(str(value) for value in descriptor["diffractionMatrix"])
     metric = ", ".join(str(value) for value in descriptor["informationMetric"])
     shadow = ", ".join(str(value) for value in descriptor["shadowNumerator4"])
@@ -5406,15 +5593,15 @@ def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
     sector_chart_assignments = ",\n    ".join(
         "uint4(" + ", ".join(f"{value}u" for value in assignment) + ")"
         for assignment in itertools.permutations(range(4)))
-    def packed_i64(value: int) -> str:
-        raw = value & ((1 << 64) - 1)
-        return f"uint2(0x{raw & 0xffffffff:08x}u, 0x{raw >> 32:08x}u)"
-    shadow_coefficients = ", ".join(packed_i64(
-        descriptor["shadowNumerator4"][index] * (1 << 46))
-        for index in range(64))
-    dual_coefficients = ", ".join(packed_i64(
-        descriptor["shadowNumerator4"][index] * (1 << 42))
-        for index in range(64))
+    chart_d4 = ", ".join(
+        "int4(" + ", ".join(str(value) for value in transform) + ")"
+        for transform in SIGMA_CHART_D4)
+    d4_compose_values = ", ".join(f"{value}u" for value in d4_compose)
+    d4_inverse_values = ", ".join(f"{value}u" for value in d4_inverse)
+    orbit_representative_values = ", ".join(
+        f"{value}u" for value in orbit_representatives)
+    adjacent_frame_values = ", ".join(
+        f"{value}u" for value in adjacent_frames)
     opcode_macros = "\n".join(
         f"#define SIGMA_MERKABA_IR_{name} {index}u"
         for index, name in enumerate(ir["opcodes"]))
@@ -5521,8 +5708,6 @@ static const int SIGMA_MERKABA_DIFFRACTION[256] = {{ {diffraction} }};
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = {{ {metric} }};
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = {{ -1, -3, -7, -15 }};
 static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = {{ {shadow} }};
-static const uint2 SIGMA_MERKABA_SHADOW_COEFFICIENT_Q48[64] = {{ {shadow_coefficients} }};
-static const uint2 SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[64] = {{ {dual_coefficients} }};
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = {{ {visible} }};
 static const uint4 SIGMA_MERKABA_IR_NODE_A[{len(ir['nodes'])}] = {{
     {node_a}
@@ -5621,6 +5806,85 @@ int SigmaMerkabaShadowNumerator(uint address, uint axis)
     return SIGMA_MERKABA_SHADOW_NUMERATOR4[address * 4u + axis];
 }}
 
+// Exact compiled lowering for 0,+/-2,+/-4,+/-6 divided by 4 or 64.  It
+// preserves one nearest-even rounding of the complete product.  In particular,
+// factor three is applied to quotient/remainder before the single rounding; it
+// is never approximated as a sum of independently rounded terms.
+uint2 SigmaMerkabaMultiplyDyadic(uint2 value, int numerator,
+    uint denominatorShift, inout uint valid)
+{{
+    uint absoluteNumerator = (uint)abs(numerator);
+    bool supported = (absoluteNumerator == 0u || absoluteNumerator == 2u ||
+        absoluteNumerator == 4u || absoluteNumerator == 6u) &&
+        (denominatorShift == 2u || denominatorShift == 6u);
+    valid &= supported ? 1u : 0u;
+    if (!supported || absoluteNumerator == 0u || all(value == 0u))
+        return uint2(0u, 0u);
+
+    uint factor = absoluteNumerator >> 1u;
+    uint shift = denominatorShift - 1u;
+    if (factor == 2u)
+    {{
+        factor = 1u;
+        --shift;
+    }}
+
+    bool negative = ((value.y & 0x80000000u) != 0u) != (numerator < 0);
+    uint2 magnitude = SigmaU64AbsSigned(value);
+    uint2 quotient = shift == 0u
+        ? magnitude : SigmaU64ShiftRight(magnitude, shift);
+    uint remainderMask = shift == 0u ? 0u : (1u << shift) - 1u;
+    uint remainder = magnitude.x & remainderMask;
+
+    if (factor == 3u)
+    {{
+        uint carry0;
+        uint2 doubled = SigmaU64Add(quotient, quotient, carry0);
+        uint carry1;
+        quotient = SigmaU64Add(doubled, quotient, carry1);
+        valid &= (carry0 | carry1) == 0u ? 1u : 0u;
+        remainder *= 3u;
+        uint integerRemainder = remainder >> shift;
+        remainder &= remainderMask;
+        uint carry2;
+        quotient = SigmaU64Add(quotient,
+            uint2(integerRemainder, 0u), carry2);
+        valid &= carry2 == 0u ? 1u : 0u;
+    }}
+
+    if (shift != 0u)
+    {{
+        uint half = 1u << (shift - 1u);
+        bool roundUp = remainder > half ||
+            (remainder == half && (quotient.x & 1u) != 0u);
+        if (roundUp)
+        {{
+            uint carry;
+            quotient = SigmaU64Increment(quotient, carry);
+            valid &= carry == 0u ? 1u : 0u;
+        }}
+    }}
+    return SigmaApplyMagnitudeSign(quotient, negative, valid);
+}}
+
+uint2 SigmaMerkabaMultiplyShadowCoefficient(uint2 value, uint address,
+    uint axis, inout uint valid)
+{{
+    valid &= address < 16u && axis < 4u ? 1u : 0u;
+    return SigmaMerkabaMultiplyDyadic(value,
+        SigmaMerkabaShadowNumerator(min(address, 15u), min(axis, 3u)), 2u,
+        valid);
+}}
+
+uint2 SigmaMerkabaMultiplyDualCoefficient(uint2 value, uint address,
+    uint axis, inout uint valid)
+{{
+    valid &= address < 16u && axis < 4u ? 1u : 0u;
+    return SigmaMerkabaMultiplyDyadic(value,
+        SigmaMerkabaShadowNumerator(min(address, 15u), min(axis, 3u)), 6u,
+        valid);
+}}
+
 void SigmaMerkabaEvaluateShadow(uint2 state[16], out uint2 shadow[4],
     inout uint valid)
 {{
@@ -5630,9 +5894,9 @@ void SigmaMerkabaEvaluateShadow(uint2 state[16], out uint2 shadow[4],
         uint2 sum = uint2(0u, 0u);
         [unroll]
         for (uint address = 0u; address < 16u; ++address)
-            sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(state[address],
-                SIGMA_MERKABA_SHADOW_COEFFICIENT_Q48[address * 4u + axis], valid),
-                valid);
+            sum = SigmaQ48AddChecked(sum,
+                SigmaMerkabaMultiplyShadowCoefficient(state[address], address,
+                    axis, valid), valid);
         shadow[axis] = sum;
     }}
 }}
@@ -5646,9 +5910,9 @@ void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
         uint2 sum = uint2(0u, 0u);
         [unroll]
         for (uint axis = 0u; axis < 4u; ++axis)
-            sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(shadow[axis],
-                SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[address * 4u + axis], valid),
-                valid);
+            sum = SigmaQ48AddChecked(sum,
+                SigmaMerkabaMultiplyDualCoefficient(shadow[axis], address,
+                    axis, valid), valid);
         state[address] = sum;
     }}
 }}
@@ -6375,16 +6639,55 @@ uint4 SigmaMerkabaFinalizeNativeStitchSet(
 }}
 
 static const int4 SIGMA_STITCH_CHART_D4[8] = {{
-    int4(1, 0, 0, 1), int4(0, -1, 1, 0),
-    int4(-1, 0, 0, -1), int4(0, 1, -1, 0),
-    int4(-1, 0, 0, 1), int4(1, 0, 0, -1),
-    int4(0, 1, 1, 0), int4(0, -1, -1, 0) }};
+    {chart_d4} }};
+
+static const uint SIGMA_STITCH_CHART_D4_COMPOSE[64] = {{
+    {d4_compose_values} }};
+static const uint SIGMA_STITCH_CHART_D4_INVERSE[8] = {{
+    {d4_inverse_values} }};
+static const uint SIGMA_STITCH_CHART_ORBIT_REPRESENTATIVE[3] = {{
+    {orbit_representative_values} }};
+static const uint SIGMA_STITCH_CHART_ADJACENT_FRAME[768] = {{
+    {adjacent_frame_values} }};
 
 // Complete finite representation candidates.  No entry is authoritative by
 // itself: closure must enumerate them and quotient only each eight-image D4
 // orbit.  Distinct surviving orbit classes remain unresolved.
 static const uint4 SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[24] = {{
     {sector_chart_assignments} }};
+
+uint SigmaMerkabaComposeChartD4(uint outer, uint inner, inout uint valid)
+{{
+    valid &= outer < 8u && inner < 8u ? 1u : 0u;
+    return SIGMA_STITCH_CHART_D4_COMPOSE[
+        min(outer, 7u) * 8u + min(inner, 7u)];
+}}
+
+uint SigmaMerkabaInverseChartD4(uint frame, inout uint valid)
+{{
+    valid &= frame < 8u ? 1u : 0u;
+    return SIGMA_STITCH_CHART_D4_INVERSE[min(frame, 7u)];
+}}
+
+uint SigmaMerkabaChartOrbitRepresentative(uint orbit, inout uint valid)
+{{
+    valid &= orbit < 3u ? 1u : 0u;
+    return SIGMA_STITCH_CHART_ORBIT_REPRESENTATIVE[min(orbit, 2u)];
+}}
+
+uint SigmaMerkabaResolveAdjacentOrbitFrame(uint orbit, uint currentFrame,
+    uint currentSector, uint nextSector, int orientationParity,
+    inout uint valid)
+{{
+    bool parityValid = orientationParity == -1 || orientationParity == 1;
+    valid &= orbit < 3u && currentFrame < 8u && currentSector < 4u &&
+        nextSector < 4u && parityValid ? 1u : 0u;
+    uint parityIndex = orientationParity > 0 ? 1u : 0u;
+    uint index = ((((min(orbit, 2u) * 8u + min(currentFrame, 7u)) * 4u +
+        min(currentSector, 3u)) * 4u + min(nextSector, 3u)) * 2u +
+        parityIndex);
+    return SIGMA_STITCH_CHART_ADJACENT_FRAME[index];
+}}
 
 int2 SigmaMerkabaSectorChartCandidateDirection(uint assignmentIndex,
     uint sectorOrdinal, inout uint valid)
@@ -6433,6 +6736,8 @@ def render_merkaba_fixture(descriptor: dict) -> str:
 #pragma kernel MerkabaInstrumentBoundaryParity
 #pragma kernel MerkabaGaugeParity
 #pragma kernel MerkabaStitchSetParity
+#pragma kernel MerkabaDyadicParity
+#pragma kernel MerkabaFiniteChartParity
 #pragma target 5.0
 
 #include "SigmaGeneratedMerkabaProgram.hlsl"
@@ -6445,6 +6750,11 @@ RWStructuredBuffer<uint4> _MerkabaFreshResults;
 RWStructuredBuffer<uint4> _MerkabaInstrumentResults;
 RWStructuredBuffer<uint4> _MerkabaGaugeResults;
 RWStructuredBuffer<uint4> _MerkabaStitchResults;
+StructuredBuffer<uint4> _MerkabaDyadicInputs;
+RWStructuredBuffer<uint4> _MerkabaDyadicResults;
+RWStructuredBuffer<uint4> _MerkabaFiniteChartResults;
+
+uint _MerkabaDyadicInputCount;
 
 groupshared uint _MerkabaStitchForwardClasses[16];
 groupshared uint _MerkabaStitchReverseClasses[16];
@@ -6464,6 +6774,73 @@ void MerkabaProgramParity(uint3 id : SV_DispatchThreadID)
         asuint(SigmaMerkabaPlaquetteHolonomy(a, c, b)),
         asuint(SigmaMerkabaShadowNumerator(a, c & 3u)),
         asuint(SigmaMerkabaBasisSign(a, b)));
+}}
+
+[numthreads(64, 1, 1)]
+void MerkabaDyadicParity(uint3 id : SV_DispatchThreadID)
+{{
+    if (id.x >= _MerkabaDyadicInputCount)
+        return;
+    uint2 value = _MerkabaDyadicInputs[id.x].xy;
+    [unroll]
+    for (uint coefficient = 0u; coefficient < 7u; ++coefficient)
+    {{
+        int numerator = (int)coefficient * 2 - 6;
+        uint shadowValid = 1u;
+        uint2 shadow = SigmaMerkabaMultiplyDyadic(value, numerator, 2u,
+            shadowValid);
+        uint dualValid = 1u;
+        uint2 dual = SigmaMerkabaMultiplyDyadic(value, numerator, 6u,
+            dualValid);
+        uint output = (id.x * 7u + coefficient) * 2u;
+        _MerkabaDyadicResults[output] = uint4(shadow, shadowValid, 0u);
+        _MerkabaDyadicResults[output + 1u] = uint4(dual, dualValid, 0u);
+    }}
+}}
+
+[numthreads(256, 1, 1)]
+void MerkabaFiniteChartParity(uint3 id : SV_DispatchThreadID)
+{{
+    uint index = id.x;
+    if (index < 64u)
+    {{
+        uint valid = 1u;
+        uint value = SigmaMerkabaComposeChartD4(index >> 3u, index & 7u,
+            valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, index, 0u);
+    }}
+    else if (index < 72u)
+    {{
+        uint frame = index - 64u;
+        uint valid = 1u;
+        uint value = SigmaMerkabaInverseChartD4(frame, valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, frame, 1u);
+    }}
+    else if (index < 75u)
+    {{
+        uint orbit = index - 72u;
+        uint valid = 1u;
+        uint value = SigmaMerkabaChartOrbitRepresentative(orbit, valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, orbit, 2u);
+    }}
+    else if (index < 843u)
+    {{
+        uint packed = index - 75u;
+        uint parityIndex = packed & 1u;
+        packed >>= 1u;
+        uint nextSector = packed & 3u;
+        packed >>= 2u;
+        uint currentSector = packed & 3u;
+        packed >>= 2u;
+        uint currentFrame = packed & 7u;
+        uint orbit = packed >> 3u;
+        uint valid = 1u;
+        uint value = SigmaMerkabaResolveAdjacentOrbitFrame(orbit,
+            currentFrame, currentSector, nextSector,
+            parityIndex != 0u ? 1 : -1, valid);
+        _MerkabaFiniteChartResults[index] = uint4(value, valid, orbit,
+            (currentFrame << 8u) | (currentSector << 4u) | nextSector);
+    }}
 }}
 
 [numthreads(4, 1, 1)]

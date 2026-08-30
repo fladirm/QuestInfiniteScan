@@ -1914,6 +1914,169 @@ asynchronously, but published-root eye queries remain independent.
 No CPU pixel loop, CPU mesh, synchronous readback or full-world traversal is
 allowed.
 
+## 24.2 N4.1R Quest-first GPU cardinality closure
+
+N4.1R is a lowering correction inside accepted N4R. It changes no S16, stitch,
+associator, D4, certificate, refinement or publication semantics and does not
+open N5R. Its purpose is to remove capacity-proportional and workgroup-serial
+execution that the real Quest profile exposed after the fixed graph reached
+correctness.
+
+The native graph is frozen at exactly sixteen hot submissions:
+
+```text
+ 1  BuildNativeObservation
+ 2  ContractNativeQuery             FOOTPRINT
+ 3  EvaluateNativeRelation          BOUNDARY
+ 4  ContractNativeQuery             TILE_CLOSE
+ 5  EvaluateNativeRelation          GLOBAL_CLOSE
+ 6  PrepareNativeCanonicalSeed
+ 7  PrepareNativeCanonicalRuns
+ 8  PrepareNativeRefinementPlan      canonical run merge cut
+ 9  PrepareNativeCanonicalSelect
+10  PrepareNativeRefinementProof
+11  PrepareNativeComponentOrder
+12  PrepareNativeRefinementScan
+13  PrepareNativeRevision
+14  PrepareNativePage
+15  ScatterNativeState
+16  CloseAndPublishNativeRevision
+```
+
+Stage meanings may be redistributed only within these existing synchronization
+positions. No seventeenth dispatch, new kernel family, new buffer owner, CPU
+semantic path, readback, fallback order, S32 path or physical identity is legal.
+The legacy entrypoint name `PrepareNativeRefinementPlan` is retained at position
+8 as the bounded canonical-run merge synchronization cut; its name is not a new
+semantic phase or refinement authority. Position 12 completes the actual compact
+refinement scan/plan receipts before revision preparation.
+All sixteen submissions remain separately timestamped, including separate mode
+labels for both `ContractNativeQuery` and `EvaluateNativeRelation` invocations.
+
+The cardinality law is:
+
+```text
+raw coherent raster        one capacity pass over 102400 footprints
+FOOTPRINT                  one capacity contraction pass
+fresh boundary broad phase one lossless pass over 204160 implicit boundaries
+after broad phase          work proportional only to active / realized /
+                           changed / unresolved / touched cardinality
+```
+
+Compaction and atomic append order are execution locators only. Heavy boundary
+results are addressed by original canonical boundary id. Compact-list position,
+tile, footprint, scratch root, hash bucket and workgroup order never enter a
+witness, D4 comparison, canonical component stream, publication order or physical
+identity.
+
+Finite exact algebra is compiled rather than rediscovered at runtime. The sole
+generator emits byte-proved small-dyadic actions and complete lookup tables for
+the finite D4 composition/inverse, three chart orbits and adjacent-frame action.
+Specialization must retain the current per-term nearest-even rounding, overflow,
+outward interval and summation order exactly. It may not replace a general Q48
+operation with an algebraically similar but bit-different shift/add expression.
+CPU semantic reference, generated optimized CPU and generated HLSL remain
+bit-identical.
+
+No workgroup may own an `O(frame)`, `O(world)`, `O(capacity)` or giant-run
+interpreter. In particular:
+
+```text
+TILE_CLOSE
+    constructs one deterministic transient execution forest;
+    propagates the three D4 orbit states together with bounded pointer doubling;
+    validates every non-tree resolved edge exactly;
+    never performs 3 x 32 serial relaxation rounds or searches D4 at runtime.
+
+canonical CLOSE
+    materializes and orders only the realized canonical stream;
+    uses bounded parallel block/radix/merge and deterministic reductions across
+    existing dispatch boundaries;
+    never assigns a 16K run, complete frame or mutation capacity to one WG.
+
+component/refinement/publication
+    consumes compact selected/mutation/touched ranges;
+    never rematerializes all 102400 footprints after canonical selection and
+    never scans all 524288 mutation slots for one change.
+```
+
+For the measured Quest 3 / Adreno 740 target, the checked device limits are:
+
+```text
+subgroup size                         64
+hard compute shared memory            32768 bytes / WG
+hard Vulkan storage-buffer range      134217728 bytes / binding
+storage-buffer offset alignment       64 bytes
+hard direct grid dimension            65535 per axis
+device workgroup invocation maximum   1024
+N4.1R project workgroup maximum        256
+N4.1R UAV maximum                     8
+```
+
+The project limits are deliberately stricter than the device invocation maximum.
+Any hot variant above 16 KiB group-shared memory requires explicit occupancy and
+Quest timing evidence; 32 KiB is a hard rejection. A storage binding is bounded
+by the smaller of `SystemInfo.maxGraphicsBufferSize` and 128 MiB. Logical domains
+larger than one direct grid axis use a proved multidimensional linear-grid decode.
+The group size `64/128/256` and footprint-team count are measured lowerings, not
+architectural constants; every shared array and reduction is explicitly
+team-partitioned before batching changes.
+
+Both `GroupMemoryBarrierWithGroupSync` and
+`DeviceMemoryBarrierWithGroupSync` are synchronization surfaces. All lanes in a
+workgroup execute the same synchronization count. UAV/shared/runtime counts may
+predicate payload only; they may not control a loop containing a barrier, skip a
+barrier or create a data-dependent solver. An explicitly broadcast workgroup-
+uniform terminal path is legal only when no subset of lanes can diverge. No
+`while(changed)`, spin/wait, component loop, host redispatch or indirect recursion
+is permitted.
+
+Generated and new shader symbols use the reserved `Sigma*` / `SIGMA_*` namespace
+and avoid the frozen HLSL/Unity/Vulkan keyword denylist. `[unroll]` is admitted
+only for a genuinely small literal generated body. A loop reaching complete
+canonical comparison, intrinsic associator evaluation, generic Q48 multiplication
+or a large call graph uses a compiler-controlled loop unless the generated parity
+proof and target compiler evidence justify unrolling.
+
+Quest compilation is a pre-implementation gate, not a post-hoc repair cycle:
+
+```text
+source graph/thread/LDS/UAV/synchronization/name validation
+    -> every exact production variant HLSL -> Vulkan 1.1 SPIR-V
+    -> spirv-val
+    -> targeted Unity Android/Vulkan shader import/compile
+    -> exact CPU/generated/Vulkan parity corpus
+    -> full Unity Vulkan suite
+    -> one Release APK
+    -> Quest driver/occupancy/timestamp/performance proof
+```
+
+A full APK is not rebuilt after each shader line. Conversely, host SPIR-V success
+does not claim Quest driver or performance acceptance. A whole kernel/phase is
+closed against these rules before the next expensive Unity/device gate.
+
+The N4.1R warm `320x320` budgets are:
+
+```text
+depth/pose preparation                       <=  2 ms
+BuildNativeObservation                       <=  8 ms
+ContractNativeQuery FOOTPRINT                <= 12 ms
+EvaluateNativeRelation BOUNDARY              <=  3 ms
+ContractNativeQuery TILE_CLOSE               <=  6 ms
+EvaluateNativeRelation GLOBAL_CLOSE          <=  2 ms
+canonical Seed/Runs/Select total             <=  8 ms
+PrepareNativeComponentOrder                  <=  4 ms
+all refinement scheduling                    <=  3 ms
+revision/page/scatter/root-last publication  <=  3 ms
+typical complete native graph                <= 40 ms
+warm ordinary informative p95                <  50 ms
+```
+
+These are phase budgets and an end-to-end hard gate, not permission to weaken
+exactness or hide work as cold. The fixed 15 Hz observation scheduler bounds
+admission only; it cannot make a 500 ms close acceptable. Immutable-root readout
+remains independently XR-cadenced.
+
 ---
 
 # 25. Runtime data boundary
@@ -2382,7 +2545,8 @@ stable exact no-change revisit at fixed 15 Hz scan ingress
     state/gauge deltas and cloned pages       0
 
 ordinary bounded informative 320x320 update
-    NativeCloseCommit p95                     <= 100 ms
+    NativeCloseCommit typical                 <= 40 ms
+    NativeCloseCommit p95                      < 50 ms
     no revision/segment/residency slope
 
 XR eye query from immutable published root

@@ -113,6 +113,9 @@ Active node: S4‑08, replacement run S4‑08.6 N0R–N7R. Authorities:
 The run gross-deletes at least 10,000 production LOC, adds at most 4,000,
 finishes net at most -6,100 versus `cac9ab0` and leaves no legacy/fallback. S4‑08
 closes only after archive/build/install/physical acceptance of the exact same
-commit. The old 1500/1800 ms pair is only a replacement recovery ceiling; final
-gates include `<=33.3 ms` stable no-change, `<=100 ms` ordinary informative p95,
-and `<=13.89/11.11 ms` eye query at 72/90 Hz. S4‑09 remains unopened until then.
+commit. The old 1500/1800 ms pair is only a replacement recovery ceiling. The
+active N4.1R Quest-first cardinality closure keeps exactly 16 native submissions,
+targets `<=40 ms` typical and `<50 ms` ordinary informative p95, and permits
+capacity work only for raw ingress/FOOTPRINT/lossless implicit-boundary broad
+phase. Final gates also include `<=33.3 ms` stable no-change and
+`<=13.89/11.11 ms` eye query at 72/90 Hz. S4‑09 remains unopened until then.

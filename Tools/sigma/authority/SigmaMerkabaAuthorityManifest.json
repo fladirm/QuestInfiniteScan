@@ -1414,15 +1414,15 @@
     "algebraCoreSha256": "f7524a2d348cda462a2c6fa4804cf6be33c2554a69c6ecf67a11ef97009529cc",
     "canonicalSpec": {
       "path": "new_spec.md",
-      "sha256": "ba376647044f0f732761e37c27dec4d7d09dd4afae8140205b76fa8be843c1be"
+      "sha256": "e716e5a2f86a2b3116fd23c6421b9b1c60233dc0bebb46b4dede778031833b3c"
     },
     "closurePlan": {
       "path": ".codex/S4-08.6_NATIVE_CLOSURE_PLAN.md",
-      "sha256": "9ad7394955f0d0b212cb8f5adb622293bebdd46ca94d785e8925c01d4b3bafe5"
+      "sha256": "44e829a993734ba9c14346ecb36a076de33446d32e587999f23e36d8963c428d"
     },
     "generatorSource": {
       "path": "Tools/sigma/generate_sigma_operators.py",
-      "sha256": "07eb50fc062bbdb0f0fd98010133f3142e8f82a68a7e9d778c8149fca20bd17c",
+      "sha256": "6def503b287bad94639f7970e6588fb2d3e1a8d39c5c67d3a48fd8669a79af6b",
       "version": "CPQ4-S16-GEN-1"
     },
     "queryBoundary": {
@@ -1482,7 +1482,7 @@
     "unboundedParameterRegion": "FORBIDDEN_TO_PROVE_COMPATIBILITY_OR_MUTATION",
     "whiteBalance": "BOUNDED_PER_CHANNEL_GAIN"
   },
-  "programFingerprint": "1769df98f8ac95f978de366be8508b02e7130f49f62b21042b93a89276d1b882",
+  "programFingerprint": "06db8622964bb92168ed739ae94735fb53a5f6b1c2b327e85357ecbc0d2ad46a",
   "programVersion": "CPQ4-S16-MERKABA-N1R-8",
   "proofs": {
     "allDefaultActiveWork": 0,

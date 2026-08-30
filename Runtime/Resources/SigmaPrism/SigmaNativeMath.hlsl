@@ -42,14 +42,6 @@ uint4 SigmaU128Add64(uint4 value, uint2 addend, inout uint valid)
 #define SIGMA_NATIVE_FACTOR_EXACT_CLOSED 1u
 #define SIGMA_NATIVE_FACTOR_UNRESOLVED 2u
 
-#if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH) || defined(SIGMA_NATIVE_FRESH_MATH)
-uint2 SigmaNativeShadowWeight(int numerator)
-{
-    // numerator / 4 in Q16.48 => numerator * 2^46; low limb is zero.
-    return uint2(0u, asuint(numerator * 16384));
-}
-#endif
-
 #if defined(SIGMA_NATIVE_ORACLE_QUERY_MATH) || \
     defined(SIGMA_NATIVE_ORACLE_RELATION_MATH)
 void SigmaNativeLoadState(uint stateOffset, out uint2 state[16])
@@ -89,10 +81,8 @@ void SigmaNativeEvaluateStateAtRows(uint stateOffset, uint rowOffset,
         [unroll]
         for (uint lane = 0u; lane < 16u; ++lane)
         {
-            uint2 weight = SigmaNativeShadowWeight(
-                SigmaMerkabaShadowNumerator(lane, shadowAxis));
-            uint2 term = SigmaQ48MulNearestEven(
-                _NativeStates[stateOffset + lane], weight, valid);
+            uint2 term = SigmaMerkabaMultiplyShadowCoefficient(
+                _NativeStates[stateOffset + lane], lane, shadowAxis, valid);
             sum = SigmaQ48AddChecked(sum, term, valid);
         }
         shadow[shadowAxis] = sum;

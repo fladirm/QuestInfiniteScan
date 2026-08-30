@@ -34,6 +34,11 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int GlobalHeaderWordCount = 4;
         internal const int GlobalTransformWordCount = 2;
         internal const int ChartOrbitCount = 3;
+        // One bounded cooperative canonical run. Global ordering is completed
+        // by the following fixed graph stages; no workgroup owns a 16K/world
+        // interpreter on Quest.
+        internal const int CanonicalRunCapacity = 1024;
+        internal const int ObservationFootprintsPerGroup = 32;
         internal const int SupportLocatorCapacity =
             SigmaCarrier.MaximumPagesPerSegment * SigmaCarrier.SamplesPerPage;
 

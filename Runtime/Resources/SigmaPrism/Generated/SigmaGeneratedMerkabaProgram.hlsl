@@ -117,13 +117,11 @@
 static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
     uint2(0x212b1e76u, 0x6094d138u);
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0xd2df55dfu, 0x3a1d880cu, 0x376f5756u, 0xadb10e59u, 0xcb4cbcb6u, 0x37ba5da3u, 0x42ef89f1u, 0x60296073u };
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x28efffe8u, 0x45ad9facu, 0x6ac804c4u, 0xeb298b28u, 0x6d127655u, 0xd789424du, 0xebd62b01u, 0xae3c8107u };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
 static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = { 0, 0, 0, 0, -6, 2, 2, 2, 2, -6, 2, 2, -4, -4, 4, 4, 2, 2, -6, 2, -4, 4, -4, 4, 4, -4, -4, 4, -2, -2, -2, 6, 2, 2, 2, -6, -4, 4, 4, -4, 4, -4, 4, -4, -2, -2, 6, -2, 4, 4, -4, -4, -2, 6, -2, -2, 6, -2, -2, -2, 0, 0, 0, 0 };
-static const uint2 SIGMA_MERKABA_SHADOW_COEFFICIENT_Q48[64] = { uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0x00008000u), uint2(0x00000000u, 0xfffe8000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0x00010000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff0000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00018000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0xffff8000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u) };
-static const uint2 SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[64] = { uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0x00000800u), uint2(0x00000000u, 0xffffe800u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0x00001000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff000u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00001800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0xfffff800u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u), uint2(0x00000000u, 0x00000000u) };
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 48, -16, 32, -16, 32, -32, 16, -16, 32, -32, 16, -32, 16, -48, 0, 0, -16, 48, 32, -16, -32, 32, 16, -16, -32, 32, 16, -32, -48, 16, 0, 0, 32, 32, 64, -32, 0, 0, 32, -32, 0, 0, 32, -64, -32, -32, 0, 0, -16, -16, -32, 48, 32, 32, 16, -16, -32, -32, -48, 32, 16, 16, 0, 0, 32, -32, 0, 32, 64, 0, 32, -32, 0, -64, -32, 0, 32, -32, 0, 0, -32, 32, 0, 32, 0, 64, 32, -32, -64, 0, -32, 0, -32, 32, 0, 0, 16, 16, 32, 16, 32, 32, 48, -48, -32, -32, -16, -32, -16, -16, 0, 0, -16, -16, -32, -16, -32, -32, -48, 48, 32, 32, 16, 32, 16, 16, 0, 0, 32, -32, 0, -32, 0, -64, -32, 32, 64, 0, 32, 0, 32, -32, 0, 0, -32, 32, 0, -32, -64, 0, -32, 32, 0, 64, 32, 0, -32, 32, 0, 0, 16, 16, 32, -48, -32, -32, -16, 16, 32, 32, 48, -32, -16, -16, 0, 0, -32, -32, -64, 32, 0, 0, -32, 32, 0, 0, -32, 64, 32, 32, 0, 0, 16, -48, -32, 16, 32, -32, -16, 16, 32, -32, -16, 32, 48, -16, 0, 0, -48, 16, -32, 16, -32, 32, -16, 16, -32, 32, -16, 32, -16, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 static const uint4 SIGMA_MERKABA_IR_NODE_A[61] = {
     uint4(0u, 0u, 1u, 0u),
@@ -380,6 +378,85 @@ int SigmaMerkabaShadowNumerator(uint address, uint axis)
     return SIGMA_MERKABA_SHADOW_NUMERATOR4[address * 4u + axis];
 }
 
+// Exact compiled lowering for 0,+/-2,+/-4,+/-6 divided by 4 or 64.  It
+// preserves one nearest-even rounding of the complete product.  In particular,
+// factor three is applied to quotient/remainder before the single rounding; it
+// is never approximated as a sum of independently rounded terms.
+uint2 SigmaMerkabaMultiplyDyadic(uint2 value, int numerator,
+    uint denominatorShift, inout uint valid)
+{
+    uint absoluteNumerator = (uint)abs(numerator);
+    bool supported = (absoluteNumerator == 0u || absoluteNumerator == 2u ||
+        absoluteNumerator == 4u || absoluteNumerator == 6u) &&
+        (denominatorShift == 2u || denominatorShift == 6u);
+    valid &= supported ? 1u : 0u;
+    if (!supported || absoluteNumerator == 0u || all(value == 0u))
+        return uint2(0u, 0u);
+
+    uint factor = absoluteNumerator >> 1u;
+    uint shift = denominatorShift - 1u;
+    if (factor == 2u)
+    {
+        factor = 1u;
+        --shift;
+    }
+
+    bool negative = ((value.y & 0x80000000u) != 0u) != (numerator < 0);
+    uint2 magnitude = SigmaU64AbsSigned(value);
+    uint2 quotient = shift == 0u
+        ? magnitude : SigmaU64ShiftRight(magnitude, shift);
+    uint remainderMask = shift == 0u ? 0u : (1u << shift) - 1u;
+    uint remainder = magnitude.x & remainderMask;
+
+    if (factor == 3u)
+    {
+        uint carry0;
+        uint2 doubled = SigmaU64Add(quotient, quotient, carry0);
+        uint carry1;
+        quotient = SigmaU64Add(doubled, quotient, carry1);
+        valid &= (carry0 | carry1) == 0u ? 1u : 0u;
+        remainder *= 3u;
+        uint integerRemainder = remainder >> shift;
+        remainder &= remainderMask;
+        uint carry2;
+        quotient = SigmaU64Add(quotient,
+            uint2(integerRemainder, 0u), carry2);
+        valid &= carry2 == 0u ? 1u : 0u;
+    }
+
+    if (shift != 0u)
+    {
+        uint half = 1u << (shift - 1u);
+        bool roundUp = remainder > half ||
+            (remainder == half && (quotient.x & 1u) != 0u);
+        if (roundUp)
+        {
+            uint carry;
+            quotient = SigmaU64Increment(quotient, carry);
+            valid &= carry == 0u ? 1u : 0u;
+        }
+    }
+    return SigmaApplyMagnitudeSign(quotient, negative, valid);
+}
+
+uint2 SigmaMerkabaMultiplyShadowCoefficient(uint2 value, uint address,
+    uint axis, inout uint valid)
+{
+    valid &= address < 16u && axis < 4u ? 1u : 0u;
+    return SigmaMerkabaMultiplyDyadic(value,
+        SigmaMerkabaShadowNumerator(min(address, 15u), min(axis, 3u)), 2u,
+        valid);
+}
+
+uint2 SigmaMerkabaMultiplyDualCoefficient(uint2 value, uint address,
+    uint axis, inout uint valid)
+{
+    valid &= address < 16u && axis < 4u ? 1u : 0u;
+    return SigmaMerkabaMultiplyDyadic(value,
+        SigmaMerkabaShadowNumerator(min(address, 15u), min(axis, 3u)), 6u,
+        valid);
+}
+
 void SigmaMerkabaEvaluateShadow(uint2 state[16], out uint2 shadow[4],
     inout uint valid)
 {
@@ -389,9 +466,9 @@ void SigmaMerkabaEvaluateShadow(uint2 state[16], out uint2 shadow[4],
         uint2 sum = uint2(0u, 0u);
         [unroll]
         for (uint address = 0u; address < 16u; ++address)
-            sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(state[address],
-                SIGMA_MERKABA_SHADOW_COEFFICIENT_Q48[address * 4u + axis], valid),
-                valid);
+            sum = SigmaQ48AddChecked(sum,
+                SigmaMerkabaMultiplyShadowCoefficient(state[address], address,
+                    axis, valid), valid);
         shadow[axis] = sum;
     }
 }
@@ -405,9 +482,9 @@ void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
         uint2 sum = uint2(0u, 0u);
         [unroll]
         for (uint axis = 0u; axis < 4u; ++axis)
-            sum = SigmaQ48AddChecked(sum, SigmaQ48MulNearestEven(shadow[axis],
-                SIGMA_MERKABA_DUAL_COEFFICIENT_Q48[address * 4u + axis], valid),
-                valid);
+            sum = SigmaQ48AddChecked(sum,
+                SigmaMerkabaMultiplyDualCoefficient(shadow[axis], address,
+                    axis, valid), valid);
         state[address] = sum;
     }
 }
@@ -1134,10 +1211,16 @@ uint4 SigmaMerkabaFinalizeNativeStitchSet(
 }
 
 static const int4 SIGMA_STITCH_CHART_D4[8] = {
-    int4(1, 0, 0, 1), int4(0, -1, 1, 0),
-    int4(-1, 0, 0, -1), int4(0, 1, -1, 0),
-    int4(-1, 0, 0, 1), int4(1, 0, 0, -1),
-    int4(0, 1, 1, 0), int4(0, -1, -1, 0) };
+    int4(1, 0, 0, 1), int4(0, -1, 1, 0), int4(-1, 0, 0, -1), int4(0, 1, -1, 0), int4(-1, 0, 0, 1), int4(1, 0, 0, -1), int4(0, 1, 1, 0), int4(0, -1, -1, 0) };
+
+static const uint SIGMA_STITCH_CHART_D4_COMPOSE[64] = {
+    0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 1u, 2u, 3u, 0u, 7u, 6u, 4u, 5u, 2u, 3u, 0u, 1u, 5u, 4u, 7u, 6u, 3u, 0u, 1u, 2u, 6u, 7u, 5u, 4u, 4u, 6u, 5u, 7u, 0u, 2u, 1u, 3u, 5u, 7u, 4u, 6u, 2u, 0u, 3u, 1u, 6u, 5u, 7u, 4u, 3u, 1u, 0u, 2u, 7u, 4u, 6u, 5u, 1u, 3u, 2u, 0u };
+static const uint SIGMA_STITCH_CHART_D4_INVERSE[8] = {
+    0u, 3u, 2u, 1u, 4u, 5u, 6u, 7u };
+static const uint SIGMA_STITCH_CHART_ORBIT_REPRESENTATIVE[3] = {
+    2u, 0u, 1u };
+static const uint SIGMA_STITCH_CHART_ADJACENT_FRAME[768] = {
+    4u, 2u, 5u, 0u, 7u, 1u, 6u, 3u, 5u, 0u, 4u, 2u, 6u, 3u, 7u, 1u, 7u, 3u, 6u, 1u, 5u, 2u, 4u, 0u, 6u, 1u, 7u, 3u, 4u, 0u, 5u, 2u, 7u, 3u, 6u, 1u, 5u, 2u, 4u, 0u, 6u, 1u, 7u, 3u, 4u, 0u, 5u, 2u, 5u, 0u, 4u, 2u, 6u, 3u, 7u, 1u, 4u, 2u, 5u, 0u, 7u, 1u, 6u, 3u, 5u, 0u, 4u, 2u, 6u, 3u, 7u, 1u, 4u, 2u, 5u, 0u, 7u, 1u, 6u, 3u, 6u, 1u, 7u, 3u, 4u, 0u, 5u, 2u, 7u, 3u, 6u, 1u, 5u, 2u, 4u, 0u, 6u, 1u, 7u, 3u, 4u, 0u, 5u, 2u, 7u, 3u, 6u, 1u, 5u, 2u, 4u, 0u, 4u, 2u, 5u, 0u, 7u, 1u, 6u, 3u, 5u, 0u, 4u, 2u, 6u, 3u, 7u, 1u, 0u, 5u, 2u, 4u, 3u, 6u, 1u, 7u, 2u, 4u, 0u, 5u, 1u, 7u, 3u, 6u, 3u, 7u, 1u, 6u, 2u, 5u, 0u, 4u, 1u, 6u, 3u, 7u, 0u, 4u, 2u, 5u, 2u, 4u, 0u, 5u, 1u, 7u, 3u, 6u, 0u, 5u, 2u, 4u, 3u, 6u, 1u, 7u, 1u, 6u, 3u, 7u, 0u, 4u, 2u, 5u, 3u, 7u, 1u, 6u, 2u, 5u, 0u, 4u, 3u, 7u, 1u, 6u, 2u, 5u, 0u, 4u, 1u, 6u, 3u, 7u, 0u, 4u, 2u, 5u, 2u, 4u, 0u, 5u, 1u, 7u, 3u, 6u, 0u, 5u, 2u, 4u, 3u, 6u, 1u, 7u, 1u, 6u, 3u, 7u, 0u, 4u, 2u, 5u, 3u, 7u, 1u, 6u, 2u, 5u, 0u, 4u, 0u, 5u, 2u, 4u, 3u, 6u, 1u, 7u, 2u, 4u, 0u, 5u, 1u, 7u, 3u, 6u, 4u, 2u, 7u, 1u, 5u, 0u, 6u, 3u, 7u, 3u, 5u, 2u, 6u, 1u, 4u, 0u, 5u, 0u, 6u, 3u, 4u, 2u, 7u, 1u, 6u, 1u, 4u, 0u, 7u, 3u, 5u, 2u, 7u, 3u, 5u, 2u, 6u, 1u, 4u, 0u, 5u, 0u, 6u, 3u, 4u, 2u, 7u, 1u, 6u, 1u, 4u, 0u, 7u, 3u, 5u, 2u, 4u, 2u, 7u, 1u, 5u, 0u, 6u, 3u, 5u, 0u, 6u, 3u, 4u, 2u, 7u, 1u, 6u, 1u, 4u, 0u, 7u, 3u, 5u, 2u, 4u, 2u, 7u, 1u, 5u, 0u, 6u, 3u, 7u, 3u, 5u, 2u, 6u, 1u, 4u, 0u, 6u, 1u, 4u, 0u, 7u, 3u, 5u, 2u, 4u, 2u, 7u, 1u, 5u, 0u, 6u, 3u, 7u, 3u, 5u, 2u, 6u, 1u, 4u, 0u, 5u, 0u, 6u, 3u, 4u, 2u, 7u, 1u, 0u, 5u, 3u, 6u, 2u, 4u, 1u, 7u, 3u, 7u, 2u, 5u, 1u, 6u, 0u, 4u, 2u, 4u, 1u, 7u, 0u, 5u, 3u, 6u, 1u, 6u, 0u, 4u, 3u, 7u, 2u, 5u, 2u, 4u, 1u, 7u, 0u, 5u, 3u, 6u, 1u, 6u, 0u, 4u, 3u, 7u, 2u, 5u, 0u, 5u, 3u, 6u, 2u, 4u, 1u, 7u, 3u, 7u, 2u, 5u, 1u, 6u, 0u, 4u, 3u, 7u, 2u, 5u, 1u, 6u, 0u, 4u, 2u, 4u, 1u, 7u, 0u, 5u, 3u, 6u, 1u, 6u, 0u, 4u, 3u, 7u, 2u, 5u, 0u, 5u, 3u, 6u, 2u, 4u, 1u, 7u, 1u, 6u, 0u, 4u, 3u, 7u, 2u, 5u, 0u, 5u, 3u, 6u, 2u, 4u, 1u, 7u, 3u, 7u, 2u, 5u, 1u, 6u, 0u, 4u, 2u, 4u, 1u, 7u, 0u, 5u, 3u, 6u, 4u, 2u, 7u, 1u, 6u, 3u, 5u, 0u, 7u, 3u, 5u, 2u, 4u, 0u, 6u, 1u, 6u, 1u, 4u, 0u, 5u, 2u, 7u, 3u, 5u, 0u, 6u, 3u, 7u, 1u, 4u, 2u, 7u, 3u, 5u, 2u, 4u, 0u, 6u, 1u, 5u, 0u, 6u, 3u, 7u, 1u, 4u, 2u, 4u, 2u, 7u, 1u, 6u, 3u, 5u, 0u, 6u, 1u, 4u, 0u, 5u, 2u, 7u, 3u, 5u, 0u, 6u, 3u, 7u, 1u, 4u, 2u, 6u, 1u, 4u, 0u, 5u, 2u, 7u, 3u, 7u, 3u, 5u, 2u, 4u, 0u, 6u, 1u, 4u, 2u, 7u, 1u, 6u, 3u, 5u, 0u, 6u, 1u, 4u, 0u, 5u, 2u, 7u, 3u, 4u, 2u, 7u, 1u, 6u, 3u, 5u, 0u, 5u, 0u, 6u, 3u, 7u, 1u, 4u, 2u, 7u, 3u, 5u, 2u, 4u, 0u, 6u, 1u, 0u, 5u, 3u, 6u, 1u, 7u, 2u, 4u, 3u, 7u, 2u, 5u, 0u, 4u, 1u, 6u, 1u, 6u, 0u, 4u, 2u, 5u, 3u, 7u, 2u, 4u, 1u, 7u, 3u, 6u, 0u, 5u, 2u, 4u, 1u, 7u, 3u, 6u, 0u, 5u, 1u, 6u, 0u, 4u, 2u, 5u, 3u, 7u, 3u, 7u, 2u, 5u, 0u, 4u, 1u, 6u, 0u, 5u, 3u, 6u, 1u, 7u, 2u, 4u, 3u, 7u, 2u, 5u, 0u, 4u, 1u, 6u, 2u, 4u, 1u, 7u, 3u, 6u, 0u, 5u, 0u, 5u, 3u, 6u, 1u, 7u, 2u, 4u, 1u, 6u, 0u, 4u, 2u, 5u, 3u, 7u, 1u, 6u, 0u, 4u, 2u, 5u, 3u, 7u, 0u, 5u, 3u, 6u, 1u, 7u, 2u, 4u, 2u, 4u, 1u, 7u, 3u, 6u, 0u, 5u, 3u, 7u, 2u, 5u, 0u, 4u, 1u, 6u };
 
 // Complete finite representation candidates.  No entry is authoritative by
 // itself: closure must enumerate them and quotient only each eight-image D4
@@ -1167,6 +1250,39 @@ static const uint4 SIGMA_STITCH_NATIVE_SECTOR_CHART_ASSIGNMENTS[24] = {
     uint4(3u, 1u, 2u, 0u),
     uint4(3u, 2u, 0u, 1u),
     uint4(3u, 2u, 1u, 0u) };
+
+uint SigmaMerkabaComposeChartD4(uint outer, uint inner, inout uint valid)
+{
+    valid &= outer < 8u && inner < 8u ? 1u : 0u;
+    return SIGMA_STITCH_CHART_D4_COMPOSE[
+        min(outer, 7u) * 8u + min(inner, 7u)];
+}
+
+uint SigmaMerkabaInverseChartD4(uint frame, inout uint valid)
+{
+    valid &= frame < 8u ? 1u : 0u;
+    return SIGMA_STITCH_CHART_D4_INVERSE[min(frame, 7u)];
+}
+
+uint SigmaMerkabaChartOrbitRepresentative(uint orbit, inout uint valid)
+{
+    valid &= orbit < 3u ? 1u : 0u;
+    return SIGMA_STITCH_CHART_ORBIT_REPRESENTATIVE[min(orbit, 2u)];
+}
+
+uint SigmaMerkabaResolveAdjacentOrbitFrame(uint orbit, uint currentFrame,
+    uint currentSector, uint nextSector, int orientationParity,
+    inout uint valid)
+{
+    bool parityValid = orientationParity == -1 || orientationParity == 1;
+    valid &= orbit < 3u && currentFrame < 8u && currentSector < 4u &&
+        nextSector < 4u && parityValid ? 1u : 0u;
+    uint parityIndex = orientationParity > 0 ? 1u : 0u;
+    uint index = ((((min(orbit, 2u) * 8u + min(currentFrame, 7u)) * 4u +
+        min(currentSector, 3u)) * 4u + min(nextSector, 3u)) * 2u +
+        parityIndex);
+    return SIGMA_STITCH_CHART_ADJACENT_FRAME[index];
+}
 
 int2 SigmaMerkabaSectorChartCandidateDirection(uint assignmentIndex,
     uint sectorOrdinal, inout uint valid)
