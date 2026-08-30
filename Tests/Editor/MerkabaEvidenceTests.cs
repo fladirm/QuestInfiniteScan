@@ -1,5 +1,7 @@
+using System;
 using System.Runtime.InteropServices;
 using NUnit.Framework;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
@@ -13,6 +15,67 @@ namespace Genesis.RoomScan.Tests
         public void KernelStateAbi_RemainsExactlySixteenBytes()
         {
             Assert.That(Marshal.SizeOf<KernelState>(), Is.EqualTo(16));
+        }
+
+        [Test]
+        public void CanonicalSurfaceOrientation_MapsAllUndirectedBranches()
+        {
+            for (int index = 0;
+                 index < MerkabaOverlapShell.CanonicalNormals.Length; index++)
+            {
+                float3 normal = MerkabaOverlapShell.CanonicalNormals[index];
+                Assert.That(MerkabaOverlapShell.SelectCanonicalOrientation(
+                    normal), Is.EqualTo(index));
+                Assert.That(MerkabaOverlapShell.SelectCanonicalOrientation(
+                    -normal), Is.EqualTo(index));
+            }
+        }
+
+        [Test]
+        public void CanonicalSurfaceOrientation_ExactTieUsesLowerBranch()
+        {
+            Span<float> alignments = stackalloc float[
+                MerkabaOverlapShell.CanonicalNormalCount];
+            alignments[4] = 0.75f;
+            alignments[9] = 0.75f;
+            Assert.That(MerkabaOverlapShell
+                .SelectCanonicalOrientationFromAlignments(alignments),
+                Is.EqualTo(4));
+        }
+
+        [Test]
+        public void SurfaceOrientationFlags_RoundTripAndClearOnlyTheirBits()
+        {
+            uint preserved = MerkabaConstants.OccupiedFlag |
+                MerkabaConstants.NeedsCarveFlag;
+            for (int branch = 0;
+                 branch < MerkabaOverlapShell.CanonicalNormalCount; branch++)
+            {
+                uint flags = KernelState.SetSurfaceOrientation(
+                    preserved, branch);
+                Assert.That(KernelState.GetSurfaceOrientation(flags),
+                    Is.EqualTo((uint)branch + 1u));
+                Assert.That(KernelState.ClearSurfaceOrientation(flags),
+                    Is.EqualTo(preserved));
+            }
+        }
+
+        [Test]
+        public void NonOccupiedState_ClearsStaleSurfaceOrientation()
+        {
+            KernelState state = default;
+            state.SetOccupiedForFixture(true, Red);
+            state.Flags = KernelState.SetSurfaceOrientation(state.Flags, 7);
+            while (state.IsOccupied)
+                state.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
+                    default, replacementOccupied: true);
+            Assert.That(state.SurfaceOrientation, Is.Zero);
+
+            state.SetOccupiedForFixture(true, Red);
+            state.Flags = KernelState.SetSurfaceOrientation(state.Flags, 7);
+            state.SetOccupiedForFixture(false, default);
+            Assert.That(state.IsOccupied, Is.False);
+            Assert.That(state.SurfaceOrientation, Is.Zero);
         }
 
         [Test]

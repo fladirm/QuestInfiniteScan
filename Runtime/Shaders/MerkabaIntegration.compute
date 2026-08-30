@@ -17,6 +17,7 @@
 
 #include "DepthKit.hlsl"
 #include "MerkabaCanonicalGeometry.generated.hlsl"
+#include "MerkabaSurfaceOrientation.generated.hlsl"
 #include "MerkabaStereoCamera.hlsl"
 #include "MerkabaWorld.hlsl"
 
@@ -689,7 +690,11 @@ void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
         ? state.evidence > MERKABA_OCCUPIED_OFF
         : state.evidence >= MERKABA_OCCUPIED_ON;
     if (occupiedAfter) state.flags |= MERKABA_OCCUPIED_FLAG;
-    else state.flags &= ~MERKABA_OCCUPIED_FLAG;
+    else
+    {
+        state.flags &= ~MERKABA_OCCUPIED_FLAG;
+        state.flags = M8ClearSurfaceOrientation(state.flags);
+    }
     if (occupiedBefore == occupiedAfter) return;
 
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
@@ -1289,6 +1294,12 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     UpdateOccupancy(physicalSlot, kernelLocal, state,
         max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE)));
+    if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
+    {
+        float3 normalGrid = mul((float3x3)_MerkabaWorldToGrid, surfaceNormal);
+        uint orientation = M8SelectCanonicalSurfaceOrientation(normalGrid);
+        state.flags = M8SetSurfaceOrientation(state.flags, orientation);
+    }
     state.flags |= MERKABA_NEEDS_CARVE_FLAG;
     float2 leftUv = MerkabaProjectCameraUv(0u, worldSurface);
     float2 rightUv = MerkabaProjectCameraUv(1u, worldSurface);

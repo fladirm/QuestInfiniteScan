@@ -27,7 +27,24 @@ namespace Genesis.RoomScan
         public readonly bool IsOccupied => (Flags & MerkabaConstants.OccupiedFlag) != 0;
         public readonly bool NeedsCarve =>
             (Flags & MerkabaConstants.NeedsCarveFlag) != 0;
+        public readonly uint SurfaceOrientation => GetSurfaceOrientation(Flags);
         public readonly Color32 Color => UnpackColor(PackedColor);
+
+        public static uint GetSurfaceOrientation(uint flags) =>
+            (flags & MerkabaConstants.SurfaceOrientationMask) >>
+            MerkabaConstants.SurfaceOrientationShift;
+
+        public static uint SetSurfaceOrientation(uint flags, int branchIndex)
+        {
+            if ((uint)branchIndex >= MerkabaOverlapShell.CanonicalNormalCount)
+                throw new ArgumentOutOfRangeException(nameof(branchIndex));
+            uint encoded = (uint)(branchIndex + 1) <<
+                MerkabaConstants.SurfaceOrientationShift;
+            return (flags & ~MerkabaConstants.SurfaceOrientationMask) | encoded;
+        }
+
+        public static uint ClearSurfaceOrientation(uint flags) =>
+            flags & ~MerkabaConstants.SurfaceOrientationMask;
 
         internal bool Apply(MerkabaObservationKind kind, float quality, Color32 observedColor)
         {
@@ -75,7 +92,11 @@ namespace Genesis.RoomScan
                 : OccupancyEvidence >= MerkabaConstants.OccupiedOnThreshold;
 
             if (occupiedAfter) Flags |= MerkabaConstants.OccupiedFlag;
-            else Flags &= ~MerkabaConstants.OccupiedFlag;
+            else
+            {
+                Flags &= ~MerkabaConstants.OccupiedFlag;
+                Flags = ClearSurfaceOrientation(Flags);
+            }
             if (kind == MerkabaObservationKind.Free && !occupiedAfter &&
                 OccupancyEvidence <= MerkabaConstants.ExportKnownFreeThreshold)
                 Flags &= ~MerkabaConstants.NeedsCarveFlag;
@@ -89,6 +110,7 @@ namespace Genesis.RoomScan
                 : 0;
             Flags = occupied ? Flags | MerkabaConstants.OccupiedFlag
                              : Flags & ~MerkabaConstants.OccupiedFlag;
+            if (!occupied) Flags = ClearSurfaceOrientation(Flags);
             if (occupied)
             {
                 PackedColor = PackColor(color);

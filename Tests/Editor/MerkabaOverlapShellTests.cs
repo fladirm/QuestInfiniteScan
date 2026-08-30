@@ -292,6 +292,21 @@ namespace Genesis.RoomScan.Tests
                 "M8_OVERLAP_HALF_STEP_QUARTERS"));
         }
 
+        [Test]
+        public void GeneratedSurfaceOrientation_MatchesCpuAuthority()
+        {
+            string path = Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Shaders/" +
+                "MerkabaSurfaceOrientation.generated.hlsl");
+            string generated = File.ReadAllText(path);
+            Assert.That(generated, Is.EqualTo(
+                MerkabaOverlapShell.BuildSurfaceOrientationHlsl()));
+            Assert.That(generated, Does.Contain(
+                "MERKABA_SURFACE_ORIENTATION_MASK 0x3cu"));
+            Assert.That(generated, Does.Contain(
+                "M8SelectCanonicalSurfaceOrientation"));
+        }
+
         private static Scene Plane(int3 normal, int minimum, int maximum,
             int freeSign, Func<int, int, Color32> color = null)
         {

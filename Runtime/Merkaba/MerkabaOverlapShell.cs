@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using Unity.Mathematics;
 
 namespace Genesis.RoomScan
@@ -15,6 +17,7 @@ namespace Genesis.RoomScan
         internal const int CornersPerPatch = 4;
         internal const int TrianglesPerPatch = 2;
         internal const int VerticesPerPatch = 6;
+        internal const int CanonicalNormalCount = 13;
 
         internal readonly struct Signature : IEquatable<Signature>
         {
@@ -552,6 +555,39 @@ namespace Genesis.RoomScan
         internal static ReadOnlySpan<int3> CanonicalNormals =>
             NormalDictionary;
 
+        internal static int SelectCanonicalOrientation(float3 normalGrid)
+        {
+            float lengthSquared = math.lengthsq(normalGrid);
+            if (!(lengthSquared > 0f))
+                throw new ArgumentOutOfRangeException(nameof(normalGrid));
+            float3 normalized = normalGrid * math.rsqrt(lengthSquared);
+            Span<float> alignments = stackalloc float[CanonicalNormalCount];
+            for (int index = 0; index < NormalDictionary.Length; index++)
+            {
+                float3 branch = math.normalize((float3)NormalDictionary[index]);
+                alignments[index] = math.abs(math.dot(normalized, branch));
+            }
+            return SelectCanonicalOrientationFromAlignments(alignments);
+        }
+
+        internal static int SelectCanonicalOrientationFromAlignments(
+            ReadOnlySpan<float> alignments)
+        {
+            if (alignments.Length != CanonicalNormalCount)
+                throw new ArgumentOutOfRangeException(nameof(alignments));
+            int bestIndex = 0;
+            float bestAlignment = alignments[0];
+            for (int index = 1; index < alignments.Length; index++)
+            {
+                if (alignments[index] > bestAlignment)
+                {
+                    bestAlignment = alignments[index];
+                    bestIndex = index;
+                }
+            }
+            return bestIndex;
+        }
+
         internal static void Axes(int normalAxis, out int3 normal,
             out int3 tangent0, out int3 tangent1)
         {
@@ -578,6 +614,71 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
+        internal static string BuildSurfaceOrientationHlsl()
+        {
+            var output = new StringBuilder();
+            output.AppendLine("// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.");
+            output.AppendLine("#ifndef GENESIS_MERKABA_SURFACE_ORIENTATION_INCLUDED");
+            output.AppendLine("#define GENESIS_MERKABA_SURFACE_ORIENTATION_INCLUDED");
+            output.AppendLine();
+            output.AppendLine($"#define MERKABA_SURFACE_ORIENTATION_COUNT {CanonicalNormalCount}u");
+            output.AppendLine($"#define MERKABA_SURFACE_ORIENTATION_SHIFT {MerkabaConstants.SurfaceOrientationShift}u");
+            output.AppendLine($"#define MERKABA_SURFACE_ORIENTATION_MASK 0x{MerkabaConstants.SurfaceOrientationMask:x}u");
+            output.AppendLine();
+            output.AppendLine("int3 M8CanonicalSurfaceOrientationNormal(uint index)");
+            output.AppendLine("{");
+            int3 fallback = NormalDictionary[^1];
+            output.AppendLine($"    int3 value = int3({fallback.x}, {fallback.y}, {fallback.z});");
+            for (int index = 0; index < NormalDictionary.Length - 1; index++)
+            {
+                int3 normal = NormalDictionary[index];
+                string keyword = index == 0 ? "if" : "else if";
+                output.AppendLine(string.Format(CultureInfo.InvariantCulture,
+                    "    {0} (index == {1}u) value = int3({2}, {3}, {4});",
+                    keyword, index, normal.x, normal.y, normal.z));
+            }
+            output.AppendLine("    return value;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("uint M8SelectCanonicalSurfaceOrientation(float3 normalGrid)");
+            output.AppendLine("{");
+            output.AppendLine("    float3 normalized = normalize(normalGrid);");
+            output.AppendLine("    uint bestIndex = 0u;");
+            output.AppendLine("    float bestAlignment = -1.0;");
+            output.AppendLine("    [loop]");
+            output.AppendLine("    for (uint index = 0u; index < MERKABA_SURFACE_ORIENTATION_COUNT; index++)");
+            output.AppendLine("    {");
+            output.AppendLine("        float3 branch = normalize((float3)M8CanonicalSurfaceOrientationNormal(index));");
+            output.AppendLine("        float alignment = abs(dot(normalized, branch));");
+            output.AppendLine("        if (alignment > bestAlignment)");
+            output.AppendLine("        {");
+            output.AppendLine("            bestAlignment = alignment;");
+            output.AppendLine("            bestIndex = index;");
+            output.AppendLine("        }");
+            output.AppendLine("    }");
+            output.AppendLine("    return bestIndex;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("uint M8GetSurfaceOrientation(uint flags)");
+            output.AppendLine("{");
+            output.AppendLine("    return (flags & MERKABA_SURFACE_ORIENTATION_MASK) >> MERKABA_SURFACE_ORIENTATION_SHIFT;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("uint M8SetSurfaceOrientation(uint flags, uint branchIndex)");
+            output.AppendLine("{");
+            output.AppendLine("    uint encoded = (branchIndex + 1u) << MERKABA_SURFACE_ORIENTATION_SHIFT;");
+            output.AppendLine("    return (flags & ~MERKABA_SURFACE_ORIENTATION_MASK) | encoded;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("uint M8ClearSurfaceOrientation(uint flags)");
+            output.AppendLine("{");
+            output.AppendLine("    return flags & ~MERKABA_SURFACE_ORIENTATION_MASK;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("#endif");
+            return output.ToString();
+        }
+
         internal static string BuildGeneratedHlsl()
         {
             const string template = @"// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.

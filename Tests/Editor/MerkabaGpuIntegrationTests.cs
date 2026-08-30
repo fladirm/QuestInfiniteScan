@@ -249,6 +249,21 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void SurfaceIntegration_PersistsExactWinningNormalOrientation()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string surface = Slice(integration,
+                "void IntegrateSurfaceCandidates", "uint M8ScanChildMask");
+            Assert.That(surface, Does.Contain(
+                "TrySurfaceMeasurement(sourcePixel"));
+            Assert.That(surface, Does.Contain(
+                "M8SelectCanonicalSurfaceOrientation(normalGrid)"));
+            Assert.That(surface, Does.Contain(
+                "M8SetSurfaceOrientation(state.flags, orientation)"));
+        }
+
+        [Test]
         public void SurfacePath_DirectlyAddressesM8AndFreeNeverAllocates()
         {
             string integration = Source(

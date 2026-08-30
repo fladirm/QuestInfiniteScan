@@ -31,6 +31,8 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(new int3(1, 0, 3)));
             Assert.That(restored.Tiles[0].States[17].IsOccupied, Is.True);
             Assert.That(restored.Tiles[0].States[17].NeedsCarve, Is.True);
+            Assert.That(restored.Tiles[0].States[17].SurfaceOrientation,
+                Is.EqualTo(6u));
             KernelState pendingCorrection = restored.Tiles[0].States[23];
             Assert.That(pendingCorrection.OccupancyEvidence, Is.Zero);
             Assert.That(pendingCorrection.PackedColor, Is.Zero);
@@ -230,6 +232,8 @@ namespace Genesis.RoomScan.Tests
             var negative = new KernelState[MerkabaSpatial.KernelsPerTile];
             negative[17].Apply(MerkabaObservationKind.Surface, 1f,
                 new Color32(12, 34, 56, 255));
+            negative[17].Flags = KernelState.SetSurfaceOrientation(
+                negative[17].Flags, 5);
             negative[23] = new KernelState
             {
                 Flags = MerkabaConstants.NeedsCarveFlag
