@@ -2,30 +2,28 @@
 
 ## Exchange 1 — user
 
-Bound the N4.1R implementation to the Quest 3 / Adreno 740 production contract:
-exact packed Q16.48, <=8 UAVs, <=128 MiB per buffer, 64-byte scratch alignment,
-<=65535 direct dispatch dimensions, 14 entrypoints/exactly 16 native dispatches,
-and no capacity-sized work after raw ingress. Required the previously specified
-Observation, FOOTPRINT, TILE and RefinementScan cuts through physical Quest
-evidence, with N5R unopened.
+Stopped the prescribed run before R1/R2 after the combined F1-F3 Quest result
+measured FOOTPRINT p50/p95 66.561/68.995 ms. Required exact phase-specialized
+FreshLift reductions, invalid-team arithmetic skips, and one controlled physical
+packing comparison only: 8x16/128 versus 16x16/256. No third packing or new
+algorithm is authorized. If the faster result remains above 30 ms, stop before
+R1/R2 and report the exact remaining phase/barrier/arithmetic inventory.
 
 ## Exchange 1 — assistant
 
-Implemented the CUT A-E WIP without a new kernel, dispatch, buffer or ABI. Local
-gates pass: Unity Vulkan 111/111, generator/check, diff, <=8 UAVs, 14/16 graph and
-16/16 Vulkan 1.1 SPIR-V/spirv-val. Current LDS is Frame 28928, FOOTPRINT 17920,
-TILE 15372, BOUNDARY 27984 and GLOBAL_CLOSE 31184 bytes.
+Implemented exact phase-specific reductions and invalid-team arithmetic guards.
+Local gates pass: generator/check, <=8 UAV, graph 14/16, Quest SPIR-V 16/16,
+focused Vulkan 2/2 and the previously completed full Vulkan corpus 111/111. The
+specialized lift has 12 reduction barriers and 21 total barriers.
 
 ## Exchange 2 — user
 
-Requested the measured result and an immediate commit/push checkpoint.
+Asked whether a third packing run C would be performed.
 
 ## Exchange 2 — assistant
 
-Physical Quest revision 1 measured FOOTPRINT 133.9806 ms, RefinementScan
-52.5162 ms, BuildObservation 25.4787 ms, TILE_CLOSE 14.2876 ms and total timed
-compute 249.6790 ms. Revision/root advanced 1 through 49; revision 50 produced
-the preserved logical-extent PageFault 0x00000100 and retained root 49. There was
-no KGSL/MMU/device-lost/fence-timeout event. The checkpoint is explicitly WIP:
-correctness/lifecycle evidence passed, but the <50 ms N4.1R performance gate did
-not.
+Confirmed that the contract permits only A and B. Physical Quest A
+(8x16/128, 8.960 KiB LDS) measured n=32 p50/p95/max
+43.8683/45.9340/46.1758 ms. B (16x16/256, 17.920 KiB LDS) measured
+73.4178/75.9444/76.0852 ms. A is retained, B is deleted, and the run stops before
+R1/R2 because the faster result remains above the 30 ms gate.

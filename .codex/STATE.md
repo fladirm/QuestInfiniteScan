@@ -131,6 +131,30 @@ the measured FOOTPRINT, RefinementScan, Observation and TILE paths; canonical,
 component-order and BOUNDARY work remain frozen unless new timestamps prove a
 regression. N5R and S4-09 remain unopened.
 
+The prescribed FOOTPRINT F1/F3 correction and controlled packing A/B are now
+physically closed without opening R1/R2. F1 keeps the exact fixed dense Merkaba
+dyadic arithmetic. Nine generic reductions were replaced by their exact
+producer/consumer-specific forms (12 reduction barriers; 21 barriers across the
+complete lift), and already-invalid footprint teams skip expensive arithmetic
+while retaining the uniform synchronization trace and identical invalid receipts.
+
+```text
+packing A  8 x 16 lanes / 128 threads / 8.960 KiB LDS
+    Quest n=32  p50 43.8683 ms  p95 45.9340 ms  max 46.1758 ms
+
+packing B 16 x 16 lanes / 256 threads / 17.920 KiB LDS
+    Quest n=32  p50 73.4178 ms  p95 75.9444 ms  max 76.0852 ms
+```
+
+Packing A is the sole retained production shape; B was execution evidence only
+and its source configuration was deleted. Generator/check, <=8 UAV, graph 14/16,
+16/16 Quest SPIR-V/spirv-val and focused Vulkan 2/2 pass. Both captures reached
+the preserved N4 logical-extent fault with no KGSL/MMU/device-lost evidence.
+Because the faster A result remains above the explicit 30 ms decision gate,
+R1/R2 are not authorized and N4.1R remains WIP. The exact next action is a
+source-grounded FreshLift phase/barrier/arithmetic handoff; no third packing or
+new reduction algorithm is permitted by the current run.
+
 ## N4 resident-capacity safety and frozen N5R persistence design
 
 The historical Quest GPU crash and the current N4 capacity receipt are now
