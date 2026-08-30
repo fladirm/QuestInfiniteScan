@@ -613,3 +613,18 @@ branch/chart decisions remain in Git history only.
 - N4.1R targets <=40 ms typical and <50 ms warm ordinary informative p95. The
   fixed 15 Hz admission scheduler and independent XR readout remain scheduling
   policy and cannot waive total GPU work.
+
+## ADR-S454 — Refinement scheduling is immutable across the mutation boundary
+
+- Dispatch 12 is the sole producer of refinement execution scheduling. Refined
+  membership, block-prefix counts and child ordering live in explicit ranges of
+  the existing disposable `CloseScratch`; no mutation arena aliases them.
+- From entry to multi-workgroup `PrepareNativeRevision`, `StateDelta` and
+  `GaugeDelta` are terminal output-only. No workgroup may read scheduler state
+  from either buffer while another workgroup publishes mutations.
+- The refined prefix is represented by one bit per logical sample plus one exact
+  count/prefix per 256-sample block. Child order is a bounded actual-observation
+  stream; four remains the physical child count and never an observation cap.
+- This is an execution-lifetime correction only. It changes no S16, D4,
+  certificate, refinement, page-plan or root-last semantic rule and adds no
+  buffer owner, ABI field, kernel or dispatch.

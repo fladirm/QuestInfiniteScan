@@ -38,6 +38,7 @@ namespace Genesis.RoomScan.SigmaPrism
         // by the following fixed graph stages; no workgroup owns a 16K/world
         // interpreter on Quest.
         internal const int CanonicalRunCapacity = 1024;
+        internal const int RefinementRunCapacity = 4096;
         internal const int ObservationFootprintsPerGroup = 32;
         internal const int SupportLocatorCapacity =
             SigmaCarrier.MaximumPagesPerSegment * SigmaCarrier.SamplesPerPage;
@@ -111,8 +112,26 @@ namespace Genesis.RoomScan.SigmaPrism
                 CanonicalComponentCapacity));
             CanonicalRankScratchOffset = checked(CanonicalImageScratchOffset +
                 CanonicalImageStride * 10);
-            int closeScratchCount = checked(CanonicalRankScratchOffset +
+            // Dispatch 12 owns this immutable refinement schedule.  Dispatch 13
+            // treats StateDelta and GaugeDelta as terminal output-only arenas,
+            // so no scheduler receipt may alias either mutation buffer.
+            int refinementLogicalCapacity = checked(PagePlanCapacity *
+                SigmaCarrier.SamplesPerPage);
+            RefinedBitsetScratchOffset = checked(CanonicalRankScratchOffset +
                 CanonicalImageStride);
+            RefinedBitsetWordCount = checked((refinementLogicalCapacity + 63) /
+                64);
+            RefinedBlockPrefixScratchOffset = checked(
+                RefinedBitsetScratchOffset + RefinedBitsetWordCount);
+            RefinedBlockPrefixCapacity = checked(
+                (refinementLogicalCapacity + 255) / 256);
+            RefinementChildOrderScratchOffset = checked(
+                RefinedBlockPrefixScratchOffset +
+                RefinedBlockPrefixCapacity);
+            RefinementChildOrderCapacity = RoundUp(checked(FootprintCapacity *
+                MaximumMutationsPerFootprint), RefinementRunCapacity);
+            int closeScratchCount = checked(RefinementChildOrderScratchOffset +
+                RefinementChildOrderCapacity);
             NativeFrame = Buffer<SigmaNativeFrameGpu>(1,
                 SigmaGeneratedFrame.NativeFrameStride, $"native frame {index}");
             // Index zero remains the accepted N3 terminal consumer during CUT A;
@@ -205,6 +224,12 @@ namespace Genesis.RoomScan.SigmaPrism
         internal int CanonicalImageScratchOffset { get; }
         internal int CanonicalImageStride { get; }
         internal int CanonicalRankScratchOffset { get; }
+        internal int RefinedBitsetScratchOffset { get; }
+        internal int RefinedBitsetWordCount { get; }
+        internal int RefinedBlockPrefixScratchOffset { get; }
+        internal int RefinedBlockPrefixCapacity { get; }
+        internal int RefinementChildOrderScratchOffset { get; }
+        internal int RefinementChildOrderCapacity { get; }
         internal GraphicsBuffer States { get; }
         internal GraphicsBuffer RelationInputs { get; }
         internal GraphicsBuffer RelationPlans { get; }
@@ -303,6 +328,13 @@ namespace Genesis.RoomScan.SigmaPrism
             while (result < value)
                 result = checked(result << 1);
             return result;
+        }
+
+        private static int RoundUp(int value, int alignment)
+        {
+            if (value < 0 || alignment <= 0)
+                throw new ArgumentOutOfRangeException();
+            return checked(((value + alignment - 1) / alignment) * alignment);
         }
 
         private static GraphicsBuffer Buffer<T>(int count, int stride,

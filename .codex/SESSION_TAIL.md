@@ -2,26 +2,30 @@
 
 ## Exchange 1 — user
 
-After the resident-capacity/lifetime/N5R design closure, requested the two slowest
-current kernels from actual run history.
+Audited WIP `ad01eee` and accepted its observation batching, generated exact
+dyadic/D4 lowering, weighted TILE forest and smaller canonical runs. Identified a
+real dispatch-12/13 race: GaugeDelta simultaneously owned refinement scheduling
+and terminal mutation output. Required one immutable CloseScratch refinement
+arena, output-only State/Gauge at PrepareRevision, focused closure, 100-repeat
+permutation proof and a fresh Quest profile before any next optimization.
 
 ## Exchange 1 — assistant
 
-The newest capture with per-entrypoint timestamps is the 03:23 Quest retry:
-`ContractNativeQuery` is first at 233.1091 ms across FOOTPRINT and TILE_CLOSE,
-and `PrepareNativeComponentOrder` is second at 73.4488 ms; together they are
-61.2% of 500.623 ms timestamped compute. `BuildNativeObservation` is third at
-66.4428 ms. The historical 4304/868 ms CUT-E kernels are already removed.
+Implemented the ownership cut without adding a buffer, ABI, kernel or dispatch.
+The full-frame CloseScratch is 94.047 MiB. Formerly failing four-child,
+>4-observation, mixed-level and page-spill fixtures pass; the focused closure is
+7/7 including 100 permutation repeats. Generator, UAV, Quest graph and 16/16
+SPIR-V gates pass.
 
 ## Exchange 2 — user
 
-Requested an immediate commit and push, followed by a Release Android/Vulkan APK
-build and installation on the connected Quest; also asked whether N5R is ready.
+Required preserving `ad01eee`, fixing only refinement ownership first, then
+profiling Quest before observation/TILE/GLOBAL/canonical performance cuts.
 
 ## Exchange 2 — assistant
 
-N5R is designed/frozen in spec and plan but remains pending/unimplemented until
-N4R acceptance. The current capacity correction is locally green at Unity/Vulkan
-107/107 with generator/UAV/diff gates. The exact next action is a WIP checkpoint
-on the forensic branch, push, then same-source Release build and streamed install;
-neither N4R acceptance nor N5R activation is claimed.
+Confirmed the current corpus as 77/77 non-Frame, 25/25 unaffected Frame and the
+seven isolated CUT-E assertions 7/7, total 109/109 across clean Vulkan process
+shards. The same-process immediate TILE->Frame fixture ordering artefact is
+recorded explicitly. Exact next action is code-graph/control checkpoint,
+commit/push, then a fresh 16-timestamp Quest profile; N5 remains unopened.

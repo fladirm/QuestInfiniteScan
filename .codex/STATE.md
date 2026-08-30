@@ -53,35 +53,64 @@ bytes and >16384 bytes requires occupancy/device evidence. Storage bindings rema
 bounded by `min(SystemInfo.maxGraphicsBufferSize, 128 MiB)`, direct dimensions by
 65535 and storage offsets by 64-byte alignment.
 
-Initial gate evidence over HEAD `40fc7bc`:
+The complete-file Quest shader review remains the binding source for this cut. It
+covered every entry point and recursively included generated/math/ABI surface in
+`SigmaNativeFrame.compute`, `SigmaNativeContract.compute` and
+`SigmaNativeQuery.compute`, plus every production binding/dispatch and directly
+affected test. No seventeenth dispatch or additional buffer owner exists.
+
+WIP baseline `ad01eee` retains the first real N4.1R lowering:
+
+```text
+BuildNativeObservation                    32 footprints / 256-thread WG
+Contract FOOTPRINT                        16 isolated 16-lane S16 teams
+small-dyadic shadow/dual actions           generated exact specialization
+D4 compose/inverse/orbit/adjacency         generated finite tables
+TILE_CLOSE                                 one 8-round weighted three-orbit forest
+canonical run                              1024 entries, not 16384
+native graph                               14 entry points / exactly 16 dispatches
+```
+
+The first corrective subcut above `ad01eee` closes one real cross-dispatch race.
+Dispatch 12 previously stored refinement prefix/child-order scheduler receipts in
+`GaugeDelta`, while multi-workgroup dispatch 13 concurrently overwrote the same
+records with terminal mutation payload. The immutable scheduler is now wholly in
+three ranges of the existing `CloseScratch`: a 64 KiB refined bitset, 16 KiB block
+prefix and 3.125 MiB child-order arena. At `PrepareNativeRevision`, StateDelta and
+GaugeDelta are output-only. No new buffer, scalar ABI, kernel or dispatch exists.
+
+Current Cut-1 gate evidence:
 
 ```text
 graph/kernel/thread/UAV/synchronization/name gate           PASS
 exact production variants compiled                          16/16
 Vulkan 1.1 SPIR-V / spirv-val                               PASS
 variant groupshared bytes
-    frame 26240; FOOTPRINT 17920; TILE_CLOSE 15372;
+    frame 29952; FOOTPRINT 17920; TILE_CLOSE 15372;
     BOUNDARY 27984; GLOBAL_CLOSE 31184
+CloseScratch 320x320                                          94.047 MiB
+storage-buffer hard bound                                     <=128 MiB
+focused refinement/page/ZEmpty/capacity gates                 7/7 PASS
+adversarial >4-observation duplicate-child permutation        100/100 PASS
+remaining Sigma CPU/Vulkan fixtures                          77/77 PASS
+remaining same-process Frame fixtures                        25/25 PASS
+complete semantic corpus in clean-process shards            109/109 PASS
 ```
 
-The mandatory complete-file Quest shader review for the current N4.1R cut is
-also complete. It covered all 6809 lines and all 12 entry points of
-`SigmaNativeFrame.compute`, every recursively included generated/math/ABI HLSL
-surface, all 772 lines of `SigmaNativeFrameGraph.cs`, all 389 lines of
-`SigmaNativeFrameResources.cs`, and all 4256 lines of the directly affected
-`SigmaNativeFrameTests.cs`. The review reconfirmed the exact 16-stage binding and
-dispatch graph and found no hidden seventeenth dispatch or additional buffer
-owner. The first focused canonical-seed Unity invocation did not produce shader
-or test evidence: the editor process crashed in FMOD `AudioManager` thread
-startup (`TLSAllocator::ThreadInitialize`, SIGSEGV) after test start. Shader
-source remains frozen across that infrastructure failure; the direct Quest
-SPIR-V variants remain 16/16 compiled and validated.
+One EditMode-only ordering artefact is recorded rather than hidden: the legacy
+immediate-dispatch TILE/GLOBAL fixture followed by a different immediate Frame
+shader contaminates seven later fixtures in the same editor frame (25/32). The
+same seven assertions pass 7/7 in a clean Vulkan process, including the 100-repeat
+race test, and the production graph uses one explicitly fenced command buffer.
+Missing current canonical scratch bindings in those direct TILE/GLOBAL fixtures
+were corrected. This is not Quest acceptance and no device timing is claimed.
 
-The four values over 16 KiB are explicit occupancy risks, not failures hidden by
-host Vulkan. Exact next action is generated small-dyadic/D4 table parity and the
-first complete FOOTPRINT/observation kernel cut, followed by the same cheap
-Quest-shader gates before Unity. Target is `<=40 ms` typical, `<50 ms` warm
-ordinary informative p95. N5R and S4-09 remain unopened.
+The four LDS values over 16 KiB remain explicit occupancy risks. Exact next
+action after the standalone Cut-1 checkpoint is one fresh Quest profile with all
+16 timestamps. Only that measured profile may select the next observation,
+FOOTPRINT/TILE, GLOBAL_CLOSE or canonical performance cut. Target remains
+`<=40 ms` typical and `<50 ms` warm ordinary informative p95. N5R and S4-09 remain
+unopened.
 
 ## N4 resident-capacity safety and frozen N5R persistence design
 

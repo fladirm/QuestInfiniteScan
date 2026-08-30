@@ -3631,19 +3631,51 @@ uint SigmaN4PublishLogicalCapacity()
         SIGMA_PAGE_SAMPLE_COUNT;
 }
 
+// Dispatch 12 is the sole producer of this immutable refinement schedule.
+// Dispatch 13 may only write terminal StateDelta/GaugeDelta records; it reads
+// refinement execution receipts from these disjoint CloseScratch regions.
+uint SigmaN4PublishRefinementArenaLogicalCapacity()
+{
+    return _NativePagePlanCapacity * SIGMA_PAGE_SAMPLE_COUNT;
+}
+
+uint SigmaN4PublishRefinedBitsetWordCount()
+{
+    return (SigmaN4PublishRefinementArenaLogicalCapacity() + 63u) / 64u;
+}
+
+uint SigmaN4PublishRefinedBitsetAddress(uint word)
+{
+    return _NativeCanonicalRankScratchOffset + _NativeCanonicalImageStride +
+        word;
+}
+
+uint SigmaN4PublishRefinedBlockPrefixAddress(uint block)
+{
+    return SigmaN4PublishRefinedBitsetAddress(
+        SigmaN4PublishRefinedBitsetWordCount()) + block;
+}
+
+uint SigmaN4PublishRefinementChildOrderAddress(uint index)
+{
+    uint blockCapacity =
+        (SigmaN4PublishRefinementArenaLogicalCapacity() + 255u) / 256u;
+    return SigmaN4PublishRefinedBlockPrefixAddress(blockCapacity) + index;
+}
+
 
 
 uint SigmaN4PublishChildOrderLoad(uint index)
 {
-    // Parallel D4 image words are dead after component selection. Keep the
-    // refinement order in a disjoint gauge-delta lane so the active-support
-    // locator table remains immutable while the old-carrier prefix is built.
-    return _NativeGaugeDeltas[index].Next.x;
+    return _NativeCloseScratch[
+        SigmaN4PublishRefinementChildOrderAddress(index)].x;
 }
 
 void SigmaN4PublishChildOrderStore(uint index, uint candidate)
 {
-    _NativeGaugeDeltas[index].Next.x = candidate;
+    _NativeCloseScratch[
+        SigmaN4PublishRefinementChildOrderAddress(index)] =
+            uint2(candidate, 0u);
 }
 
 uint SigmaN4PublishFreshPrefixAddress(uint position)
@@ -3919,6 +3951,8 @@ void SigmaN4PublishScanRefinementBlock(uint block, uint oldExtent,
 {
     uint logical = block * 256u + threadIndex;
     uint canonicalCount = _NativeCounters[3u].x;
+    uint logicalBlocks = (oldExtent + 255u) / 256u;
+    uint footprintBlocks = (canonicalCount + 255u) / 256u;
     uint refined = 0u;
     if (blockActive && childCount != 0u && logical < oldExtent)
     {
@@ -3935,10 +3969,6 @@ void SigmaN4PublishScanRefinementBlock(uint block, uint oldExtent,
             refinement);
         refined = observed && refinement == SIGMA_N4_REFINEMENT_PROVED
             ? 1u : 0u;
-        _NativeGaugeDeltas[logical].Coordinate.x = refined;
-        _NativeGaugeDeltas[logical].Witness = uint4(
-            observed ? activeIndex + 1u : 0u,
-            refinement, sourceSlot, sourceSample);
         if (!sourceValid)
             InterlockedOr(_NativeCounters[0u].z,
                 SIGMA_N4_FAULT_SOURCE_LOCATOR);
@@ -3954,6 +3984,23 @@ void SigmaN4PublishScanRefinementBlock(uint block, uint oldExtent,
     }
     SigmaN4PublishWide[threadIndex] = uint2(refined, fresh);
     GroupMemoryBarrierWithGroupSync();
+    if (blockActive && childCount != 0u && block < logicalBlocks &&
+        threadIndex < 4u)
+    {
+        uint lowBits = 0u;
+        uint highBits = 0u;
+        uint laneBase = threadIndex * 64u;
+        [loop]
+        for (uint bit = 0u; bit < 32u; ++bit)
+        {
+            lowBits |= (SigmaN4PublishWide[laneBase + bit].x & 1u) << bit;
+            highBits |= (SigmaN4PublishWide[laneBase + 32u + bit].x & 1u)
+                << bit;
+        }
+        _NativeCloseScratch[SigmaN4PublishRefinedBitsetAddress(
+            block * 4u + threadIndex)] = uint2(lowBits, highBits);
+    }
+    GroupMemoryBarrierWithGroupSync();
     [loop]
     for (uint stride = 1u; stride < 256u; stride <<= 1u)
     {
@@ -3968,29 +4015,29 @@ void SigmaN4PublishScanRefinementBlock(uint block, uint oldExtent,
             SigmaN4PublishFlagsHigh[threadIndex]);
         GroupMemoryBarrierWithGroupSync();
     }
-    if (blockActive && childCount != 0u && logical < oldExtent)
-        _NativeGaugeDeltas[logical].Coordinate.x =
-            SigmaN4PublishWide[threadIndex].x;
     if (blockActive && logical < canonicalCount)
         _NativeCloseScratch[SigmaN4PublishFreshPrefixAddress(logical)] =
             uint2(SigmaN4PublishWide[threadIndex].y, 0u);
     if (blockActive && threadIndex == 255u)
     {
-        _NativeGaugeDeltas[block].Prior.x = SigmaN4PublishWide[255u].x;
-        _NativeCloseScratch[SigmaN4PublishFreshBlockAddress(block)] =
-            uint2(SigmaN4PublishWide[255u].y, 0u);
+        if (childCount != 0u && block < logicalBlocks)
+            _NativeCloseScratch[
+                SigmaN4PublishRefinedBlockPrefixAddress(block)] =
+                    uint2(SigmaN4PublishWide[255u].x, 0u);
+        if (block < footprintBlocks)
+            _NativeCloseScratch[SigmaN4PublishFreshBlockAddress(block)] =
+                uint2(SigmaN4PublishWide[255u].y, 0u);
     }
 }
 
 void SigmaN4PublishFinishRefinementBlockScan(uint oldExtent, uint childCount,
     uint threadIndex)
 {
-    uint logicalCapacity = SigmaN4PublishLogicalCapacity();
+    uint logicalCapacity = SigmaN4PublishRefinementArenaLogicalCapacity();
     uint blockCapacity = (logicalCapacity + 255u) / 256u;
     uint logicalBlocks = (oldExtent + 255u) / 256u;
     uint footprintBlocks = (_NativeCounters[3u].x + 255u) / 256u;
-    uint scanBlocks = max(footprintBlocks,
-        childCount == 0u ? 0u : logicalBlocks);
+    uint refinementBlocks = childCount == 0u ? 0u : logicalBlocks;
     uint chunk = (blockCapacity + 255u) / 256u;
     uint begin = threadIndex * chunk;
     uint2 localTotal = 0u;
@@ -3998,10 +4045,14 @@ void SigmaN4PublishFinishRefinementBlockScan(uint oldExtent, uint childCount,
     for (uint blockLocal = 0u; blockLocal < chunk; ++blockLocal)
     {
         uint block = begin + blockLocal;
-        if (block < scanBlocks)
-            localTotal += uint2(_NativeGaugeDeltas[block].Prior.x,
-                _NativeCloseScratch[
-                    SigmaN4PublishFreshBlockAddress(block)].x);
+        if (block < blockCapacity)
+            localTotal.x += block < refinementBlocks
+                ? _NativeCloseScratch[
+                    SigmaN4PublishRefinedBlockPrefixAddress(block)].x
+                : 0u;
+        if (block < footprintBlocks)
+            localTotal.y += _NativeCloseScratch[
+                SigmaN4PublishFreshBlockAddress(block)].x;
     }
     SigmaN4PublishFlags[threadIndex] = localTotal.x;
     SigmaN4PublishFlagsHigh[threadIndex] = localTotal.y;
@@ -4031,13 +4082,22 @@ void SigmaN4PublishFinishRefinementBlockScan(uint oldExtent, uint childCount,
         uint block = begin + local;
         if (block < blockCapacity)
         {
-            _NativeGaugeDeltas[block].Prior.z = running.x;
-            _NativeCloseScratch[SigmaN4PublishFreshBlockAddress(block)].y =
-                running.y;
-            if (block < scanBlocks)
-                running += uint2(_NativeGaugeDeltas[block].Prior.x,
-                    _NativeCloseScratch[
-                        SigmaN4PublishFreshBlockAddress(block)].x);
+            uint refinedCount = block < refinementBlocks
+                ? _NativeCloseScratch[
+                    SigmaN4PublishRefinedBlockPrefixAddress(block)].x
+                : 0u;
+            _NativeCloseScratch[
+                SigmaN4PublishRefinedBlockPrefixAddress(block)] =
+                    uint2(refinedCount, running.x);
+            if (block < footprintBlocks)
+            {
+                uint freshCount = _NativeCloseScratch[
+                    SigmaN4PublishFreshBlockAddress(block)].x;
+                _NativeCloseScratch[
+                    SigmaN4PublishFreshBlockAddress(block)].y = running.y;
+                running.y += freshCount;
+            }
+            running.x += refinedCount;
         }
     }
     DeviceMemoryBarrierWithGroupSync();
@@ -4046,8 +4106,35 @@ void SigmaN4PublishFinishRefinementBlockScan(uint oldExtent, uint childCount,
 uint SigmaN4PublishRefinedInclusive(uint logical)
 {
     uint block = logical >> 8u;
-    return _NativeGaugeDeltas[logical].Coordinate.x +
-        _NativeGaugeDeltas[block].Prior.z;
+    uint wordInBlock = (logical & 255u) >> 6u;
+    uint bitInWord = logical & 63u;
+    uint localCount = 0u;
+    [unroll]
+    for (uint word = 0u; word < 4u; ++word)
+    {
+        uint2 bits = _NativeCloseScratch[SigmaN4PublishRefinedBitsetAddress(
+            block * 4u + word)];
+        if (word < wordInBlock)
+            localCount += countbits(bits.x) + countbits(bits.y);
+        else if (word == wordInBlock)
+        {
+            if (bitInWord < 32u)
+            {
+                uint mask = bitInWord == 31u
+                    ? 0xffffffffu : (1u << (bitInWord + 1u)) - 1u;
+                localCount += countbits(bits.x & mask);
+            }
+            else
+            {
+                uint highBit = bitInWord - 32u;
+                uint mask = highBit == 31u
+                    ? 0xffffffffu : (1u << (highBit + 1u)) - 1u;
+                localCount += countbits(bits.x) + countbits(bits.y & mask);
+            }
+        }
+    }
+    return _NativeCloseScratch[
+        SigmaN4PublishRefinedBlockPrefixAddress(block)].y + localCount;
 }
 
 uint SigmaN4PublishFreshInclusive(uint position)
@@ -4116,9 +4203,12 @@ bool SigmaN4PublishComputeOldTarget(uint logical, uint oldExtent,
     uint valid = SigmaN4PublishSourceLogical(logical, sourceSlot,
         sourceSample, coordinate, level) ? 1u : 0u;
     uint prefix = SigmaN4PublishRefinedInclusive(logical);
-    observed = _NativeGaugeDeltas[logical].Witness.x != 0u;
-    refined = _NativeGaugeDeltas[logical].Witness.y ==
-        SIGMA_N4_REFINEMENT_PROVED;
+    uint activeIndex;
+    uint refinement;
+    observed = valid != 0u && SigmaN4PublishActiveSupport(
+        sourceSlot * SIGMA_PAGE_SAMPLE_COUNT + sourceSample, activeIndex,
+        refinement);
+    refined = observed && refinement == SIGMA_N4_REFINEMENT_PROVED;
     uint childBefore = SigmaN4PublishParallelChildBound(coordinate, level,
         childCount, false, valid);
     uint refinedBefore = prefix - (refined ? 1u : 0u);
@@ -4153,8 +4243,13 @@ bool SigmaN4PublishComputeRefinementChildTarget(uint activeIndex, uint child,
         bool sourceValid = SigmaN4PublishSourceLogical(oldBefore, sourceSlot,
             sourceSample, sourceCoordinate, sourceLevel);
         valid &= sourceValid ? 1u : 0u;
-        bool retained = _NativeGaugeDeltas[oldBefore].Witness.y !=
-            SIGMA_N4_REFINEMENT_PROVED;
+        uint activeIndex;
+        uint refinement;
+        bool observed = sourceValid && SigmaN4PublishActiveSupport(
+            sourceSlot * SIGMA_PAGE_SAMPLE_COUNT + sourceSample, activeIndex,
+            refinement);
+        bool retained = !observed ||
+            refinement != SIGMA_N4_REFINEMENT_PROVED;
         if (retained && SigmaN4PublishGaugeEqual(sourceCoordinate,
                 sourceLevel, coordinate, level))
             InterlockedOr(_NativeCounters[0u].w, 1u);

@@ -167,14 +167,65 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(native.Observation.count,
                     Is.EqualTo(320 * 320 + 1));
                 Assert.That(native.BoundaryCapacity, Is.EqualTo(204160));
-                Assert.That(native.CloseScratch.count, Is.EqualTo(
+                Assert.That(native.RefinedBitsetScratchOffset, Is.EqualTo(
                     native.CanonicalRankScratchOffset +
                     native.CanonicalImageStride));
+                Assert.That(native.RefinedBitsetWordCount,
+                    Is.EqualTo(128 * SigmaCarrier.SamplesPerPage / 64));
+                Assert.That(native.RefinedBlockPrefixScratchOffset, Is.EqualTo(
+                    native.RefinedBitsetScratchOffset +
+                    native.RefinedBitsetWordCount));
+                Assert.That(native.RefinedBlockPrefixCapacity,
+                    Is.EqualTo(128 * SigmaCarrier.SamplesPerPage / 256));
+                Assert.That(native.RefinementChildOrderScratchOffset,
+                    Is.EqualTo(native.RefinedBlockPrefixScratchOffset +
+                        native.RefinedBlockPrefixCapacity));
+                Assert.That(native.RefinementChildOrderCapacity,
+                    Is.EqualTo(320 * 320 *
+                        SigmaNativeFrameSlotResources.
+                            MaximumMutationsPerFootprint));
+                Assert.That(native.CloseScratch.count, Is.EqualTo(
+                    native.RefinementChildOrderScratchOffset +
+                    native.RefinementChildOrderCapacity));
+                Assert.That((long)native.CloseScratch.count * sizeof(uint) * 2,
+                    Is.LessThanOrEqualTo(128L * 1024L * 1024L));
             }
             finally
             {
                 resources.Release(slot);
             }
+        }
+
+        [Test]
+        public void PrepareRevisionMutationArenasAreOutputOnlyAfterScan()
+        {
+            string source = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeFrame")));
+            string immutableSchedule = Slice(source,
+                "uint SigmaN4PublishChildOrderLoad",
+                "// CUT-E crosses real global synchronization boundaries");
+            Assert.That(immutableSchedule,
+                Does.Contain("SigmaN4PublishRefinementChildOrderAddress"));
+            Assert.That(immutableSchedule,
+                Does.Contain("SigmaN4PublishRefinedBitsetAddress"));
+            Assert.That(immutableSchedule,
+                Does.Contain("SigmaN4PublishRefinedBlockPrefixAddress"));
+            Assert.That(immutableSchedule,
+                Does.Not.Contain("_NativeStateDeltas["));
+            Assert.That(immutableSchedule,
+                Does.Not.Contain("_NativeGaugeDeltas["));
+
+            string prepare = Slice(source,
+                "void PrepareNativeRevision(",
+                "void PrepareNativePage(");
+            Assert.That(prepare,
+                Does.Not.Contain("= _NativeStateDeltas["));
+            Assert.That(prepare,
+                Does.Not.Contain("= _NativeGaugeDeltas["));
+            Assert.That(prepare,
+                Does.Contain("_NativeStateDeltas[mutation] ="));
+            Assert.That(prepare,
+                Does.Contain("_NativeGaugeDeltas[mutation] ="));
         }
 
         [Test]
@@ -826,6 +877,14 @@ namespace Genesis.RoomScan.Tests
                     scratch.ActiveSupportListScratchOffset);
                 contract.SetInt("_NativeSupportLocatorCapacity",
                     SigmaNativeFrameSlotResources.SupportLocatorCapacity);
+                contract.SetInt("_NativeCanonicalComponentScratchOffset",
+                    scratch.CanonicalComponentScratchOffset);
+                contract.SetInt("_NativeCanonicalComponentCapacity",
+                    scratch.CanonicalComponentCapacity);
+                contract.SetInt("_NativeCanonicalImageScratchOffset",
+                    scratch.CanonicalImageScratchOffset);
+                contract.SetInt("_NativeCanonicalImageStride",
+                    scratch.CanonicalImageStride);
                 contract.SetInt("_NativeRevision", 1);
             }
 
@@ -1280,6 +1339,14 @@ namespace Genesis.RoomScan.Tests
                     scratch.GlobalTransformScratchOffset);
                 query.SetInt("_NativeGlobalBorderComponentCapacity",
                     scratch.GlobalBorderComponentCapacity);
+                query.SetInt("_NativeCanonicalComponentScratchOffset",
+                    scratch.CanonicalComponentScratchOffset);
+                query.SetInt("_NativeCanonicalComponentCapacity",
+                    scratch.CanonicalComponentCapacity);
+                query.SetInt("_NativeCanonicalImageScratchOffset",
+                    scratch.CanonicalImageScratchOffset);
+                query.SetInt("_NativeCanonicalImageStride",
+                    scratch.CanonicalImageStride);
             }
 
             query.SetKeyword(boundaryVariant, true);
@@ -1339,6 +1406,14 @@ namespace Genesis.RoomScan.Tests
                     scratch.ActiveSupportListScratchOffset);
                 contract.SetInt("_NativeSupportLocatorCapacity",
                     SigmaNativeFrameSlotResources.SupportLocatorCapacity);
+                contract.SetInt("_NativeCanonicalComponentScratchOffset",
+                    scratch.CanonicalComponentScratchOffset);
+                contract.SetInt("_NativeCanonicalComponentCapacity",
+                    scratch.CanonicalComponentCapacity);
+                contract.SetInt("_NativeCanonicalImageScratchOffset",
+                    scratch.CanonicalImageScratchOffset);
+                contract.SetInt("_NativeCanonicalImageStride",
+                    scratch.CanonicalImageStride);
                 contract.SetInt("_NativeRevision", 1);
             }
 
@@ -2549,7 +2624,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(untouchedLocalities, Is.EqualTo(1));
         }
 
-        [Test]
+        [Test, Repeat(100)]
         public void RefinementMultiplicityAndParentMeetArePermutationInvariant()
         {
             var step = new RefinementStep(
@@ -2692,7 +2767,26 @@ namespace Genesis.RoomScan.Tests
 
             var published = new uint[1];
             root.GetData(published);
-            Assert.That(published[0], Is.EqualTo(2u));
+            var terminal = new SigmaNativeFrameGpu[1];
+            scratch.NativeFrame.GetData(terminal);
+            var counters = new UInt4[scratch.Counters.count];
+            scratch.Counters.GetData(counters);
+            var pagePlan = new UInt2[8];
+            scratch.CloseScratch.GetData(pagePlan, 0,
+                scratch.PagePlanScratchOffset, pagePlan.Length);
+            Assert.That(published[0], Is.EqualTo(2u),
+                $"disposition={terminal[0].Disposition.X}/" +
+                $"{terminal[0].Disposition.Y}/" +
+                $"{terminal[0].Disposition.Z}/" +
+                $"{terminal[0].Disposition.W}, publication=" +
+                $"{terminal[0].Publication.X}/" +
+                $"{terminal[0].Publication.Y}/" +
+                $"{terminal[0].Publication.Z}/" +
+                $"{terminal[0].Publication.W}, counters=" +
+                string.Join(";", counters.Select(value =>
+                    $"{value.X}/{value.Y}/{value.Z}/{value.W}")) +
+                ", pagePlan=" + string.Join(",", pagePlan.Select(value =>
+                    $"{value.Low:x8}/{value.High:x8}")));
             PageMeta first = ReadPageMeta(metadata, 1u);
             PageMeta second = ReadPageMeta(metadata, 2u);
             Assert.That(first.ActiveSampleCount,
@@ -3138,6 +3232,16 @@ namespace Genesis.RoomScan.Tests
                 StringComparison.Ordinal)) >= 0; offset += token.Length)
                 count++;
             return count;
+        }
+
+        private static string Slice(string source, string begin, string end)
+        {
+            int beginIndex = source.IndexOf(begin, StringComparison.Ordinal);
+            Assert.That(beginIndex, Is.GreaterThanOrEqualTo(0), begin);
+            int endIndex = source.IndexOf(end, beginIndex,
+                StringComparison.Ordinal);
+            Assert.That(endIndex, Is.GreaterThan(beginIndex), end);
+            return source.Substring(beginIndex, endIndex - beginIndex);
         }
 
         private static void DispatchCutE(ComputeShader shader,
