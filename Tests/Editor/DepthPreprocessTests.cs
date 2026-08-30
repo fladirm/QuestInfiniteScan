@@ -462,7 +462,7 @@ namespace Genesis.RoomScan.Tests
             string shader = RuntimeSource(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             Assert.That(shader, Does.Contain(
-                "M8_COUNTER_ATTEMPT_COMPLETED_TOKEN] = _M8AttemptToken"));
+                "_M8AttemptCompletion[0] = uint4(_M8AttemptToken"));
         }
 
         [Test]

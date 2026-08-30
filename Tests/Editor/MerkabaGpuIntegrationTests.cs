@@ -106,7 +106,7 @@ namespace Genesis.RoomScan.Tests
                 262144L * 64 * 4, 262144L * 9 * 4,
                 stateBank, stateBank, stateBank, stateBank,
                 32768L * 16 * 16, 32768L * 2 * 16,
-                32768L * 4, (long)MerkabaGrid.CounterCount * 4,
+                32768L * 4, (long)MerkabaGrid.CounterCount * 4, 16,
                 (8192L + 262144L + 32768L) * 8,
                 32768L * 4, 262144L * 16, 4,
                 2097152L * 16, 1048576L * 8,
@@ -120,10 +120,10 @@ namespace Genesis.RoomScan.Tests
                 32L * 513 * 16, 32L * 16, 32L * 512 * 16,
                 8192L * 16
             };
-            Assert.That(allBuffers, Has.Length.EqualTo(40));
+            Assert.That(allBuffers, Has.Length.EqualTo(41));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(696878752L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(696878760L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -643,7 +643,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(gpu, Does.Contain(
                 "_m8ReadoutVertices1 = Allocate("));
             Assert.That(MerkabaGrid.CounterReadoutUnresolved, Is.EqualTo(50));
-            Assert.That(MerkabaGrid.CounterReadoutBuildStatus, Is.EqualTo(71));
+            Assert.That(MerkabaGrid.CounterReadoutBuildStatus, Is.EqualTo(69));
 
             string reset = Slice(readout, "void ResetReadoutBuild",
                 "groupshared uint gFrameBlockRef");
@@ -1309,8 +1309,8 @@ namespace Genesis.RoomScan.Tests
                 "\n}") + "\n}";
 
             Assert.That(world, Does.Contain(
-                "#define M8_COUNTER_UNRESOLVED_CARVE_TILES 65u"));
-            Assert.That(MerkabaGrid.CounterUnresolvedCarveTiles, Is.EqualTo(65));
+                "#define M8_COUNTER_UNRESOLVED_CARVE_TILES 63u"));
+            Assert.That(MerkabaGrid.CounterUnresolvedCarveTiles, Is.EqualTo(63));
             Assert.That(prepareResolve, Does.Contain(
                 "M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u"));
             Assert.That(query, Does.Contain(
@@ -1487,8 +1487,8 @@ namespace Genesis.RoomScan.Tests
                 "private void BeginLoadAddressReadback");
 
             Assert.That(address, Does.Contain(
-                "#define M8_COUNTER_RESIDENCY_EPOCH 66u"));
-            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(66));
+                "#define M8_COUNTER_RESIDENCY_EPOCH 64u"));
+            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(64));
             Assert.That(world, Does.Contain("M8SignalResidencyChange"));
             Assert.That(submit, Does.Contain(
                 "_attemptResidencyEpoch = _grid.ResidencyEpoch"));
@@ -1497,9 +1497,54 @@ namespace Genesis.RoomScan.Tests
             Assert.That(retry, Does.Contain(
                 "_grid.ResidencyEpoch != _attemptResidencyEpoch"));
             Assert.That(apply, Does.Contain(
-                "_residencyEpoch = values[CounterResidencyEpoch]"));
+                "PublishResidencyEpoch(values[CounterResidencyEpoch])"));
             Assert.That(storage, Does.Not.Contain(
                 "_dependencySampleInitialized"));
+        }
+
+        [Test]
+        public void AttemptCompletion_UsesOneExactCpuOnlyRecord()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string finalize = Slice(integration, "void FinalizeObservation",
+                "\n}") + "\n}";
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string submit = Slice(integrator,
+                "internal bool TrySubmitObservationAttempt()",
+                "private bool CanRetryPreparedObservation()");
+            string storage = Source(
+                "Runtime/Merkaba/MerkabaGrid.Storage.cs");
+            string pump = Slice(storage, "private void PumpStorage()",
+                "internal void PumpStorageForLifecycleRetirement()");
+            string exact = Slice(storage,
+                "internal void RequestAttemptCompletion(",
+                "private void PublishResidencyEpoch(");
+
+            Assert.That(finalize, Does.Contain(
+                "_M8AttemptCompletion[0] = uint4(_M8AttemptToken"));
+            Assert.That(finalize, Does.Contain(
+                "M8_COUNTER_OBSERVATION_TOKEN"));
+            Assert.That(finalize, Does.Contain(
+                "M8_COUNTER_RESIDENCY_EPOCH"));
+            Assert.That(integration, Does.Not.Contain(
+                "M8_COUNTER_ATTEMPT_COMPLETED_TOKEN"));
+            Assert.That(submit, Does.Contain(
+                "_grid.RequestAttemptCompletion(_attemptToken)"));
+            Assert.That(pump, Does.Not.Contain(
+                "_completedAttemptToken ="));
+            Assert.That(pump, Does.Not.Contain(
+                "_completedObservationToken ="));
+            Assert.That(exact, Does.Contain(
+                "expectedAttemptToken != _attemptCompletionExpectedToken"));
+            Assert.That(exact, Does.Contain(
+                "generation != _gpuGeneration"));
+            Assert.That(exact, Does.Contain(
+                "_completedAttemptToken = completion.X"));
+            Assert.That(exact, Does.Not.Contain("SelectEvictionVictims"));
+            Assert.That(exact, Does.Not.Contain("InstallLoadedTiles"));
+            Assert.That(exact, Does.Not.Contain("Dispatch"));
         }
 
         [Test]

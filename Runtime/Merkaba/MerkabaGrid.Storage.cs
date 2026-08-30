@@ -22,6 +22,8 @@ namespace Genesis.RoomScan
 
         private MerkabaSsdStore _ssdStore;
         private bool _streamCounterPending;
+        private bool _attemptCompletionReadbackPending;
+        private uint _attemptCompletionExpectedToken;
         private bool _evictionSelectionPendingSample;
         private float _nextStreamPoll;
         private uint _loadRequestCursor;
@@ -112,6 +114,8 @@ namespace Genesis.RoomScan
             _completedObservationFailure = 0u;
             _completedAttemptToken = 0u;
             _residencyEpoch = 0u;
+            _attemptCompletionReadbackPending = false;
+            _attemptCompletionExpectedToken = 0u;
             _loadLatencyCount = _loadLatencyCursor = 0;
             _writeLatencyCount = _writeLatencyCursor = 0;
             _loadIoStartedAt = _writeIoStartedAt = 0.0;
@@ -139,15 +143,6 @@ namespace Genesis.RoomScan
                 var values = request.GetData<uint>();
                 ApplySampledCounters(values);
                 _observedLoadRequestCount = values[19];
-                if (values[44] != 0u)
-                {
-                    _completedObservationToken = values[47];
-                    _completedObservationFailure =
-                        values[CounterObservationFailure];
-                }
-                if (values[CounterAttemptCompletedToken] != 0u)
-                    _completedAttemptToken =
-                        values[CounterAttemptCompletedToken];
                 // Accounting above is CPU-only. A callback issued before
                 // quiesce must never enqueue readback/compute/upload work after
                 // the retirement marker.
@@ -208,12 +203,69 @@ namespace Genesis.RoomScan
         {
             uint hotTiles = values[CounterHotTileCount];
             uint coldTiles = values[CounterColdTileCount];
-            _residencyEpoch = values[CounterResidencyEpoch];
+            PublishResidencyEpoch(values[CounterResidencyEpoch]);
             M8BlockCount = ToInt(values[CounterBlockCount]);
             M8ChunkCount = ToInt(values[CounterChunkCount]);
             M8HotTileCount = ToInt(hotTiles);
             M8ColdTileCount = ToInt(coldTiles);
             M8OccupiedKernelCount = ToInt(values[CounterOccupiedKernelCount]);
+        }
+
+        internal void RequestAttemptCompletion(uint expectedAttemptToken)
+        {
+            if (!GpuSubmissionAllowed || _m8AttemptCompletion == null)
+                throw new InvalidOperationException(
+                    "Attempt completion cannot be requested while GPU submission is suspended.");
+            if (expectedAttemptToken == 0u)
+                throw new ArgumentOutOfRangeException(
+                    nameof(expectedAttemptToken));
+            if (_attemptCompletionReadbackPending)
+                throw new InvalidOperationException(
+                    "Only one observation attempt may await completion.");
+
+            _attemptCompletionReadbackPending = true;
+            _attemptCompletionExpectedToken = expectedAttemptToken;
+            int generation = _gpuGeneration;
+            AsyncGPUReadback.Request(_m8AttemptCompletion, request =>
+            {
+                // A stale callback must not clear or publish a newer request.
+                if (generation != _gpuGeneration ||
+                    expectedAttemptToken != _attemptCompletionExpectedToken)
+                    return;
+
+                _attemptCompletionReadbackPending = false;
+                _attemptCompletionExpectedToken = 0u;
+                if (request.hasError)
+                {
+                    Logger.Error("M8 exact attempt-completion readback failed; " +
+                                 $"attempt={expectedAttemptToken}.");
+                    return;
+                }
+
+                Unity.Collections.NativeArray<Raw16> values =
+                    request.GetData<Raw16>();
+                if (values.Length != 1 || values[0].X != expectedAttemptToken)
+                {
+                    uint actual = values.Length == 1 ? values[0].X : 0u;
+                    Logger.Error("Ignored stale M8 attempt-completion record; " +
+                                 $"expected={expectedAttemptToken} actual={actual}.");
+                    return;
+                }
+
+                Raw16 completion = values[0];
+                _completedAttemptToken = completion.X;
+                _completedObservationToken = completion.Y;
+                _completedObservationFailure = completion.Z;
+                PublishResidencyEpoch(completion.W);
+                // CPU accounting only. This callback must never enqueue GPU
+                // work after a quiesce retirement marker.
+            });
+        }
+
+        private void PublishResidencyEpoch(uint candidate)
+        {
+            if (unchecked((int)(candidate - _residencyEpoch)) >= 0)
+                _residencyEpoch = candidate;
         }
 
         private void BeginLoadAddressReadback()

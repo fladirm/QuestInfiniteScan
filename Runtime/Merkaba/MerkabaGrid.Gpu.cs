@@ -26,7 +26,7 @@ namespace Genesis.RoomScan
         internal const int ReadoutVertexCapacityPerBuffer =
             ReadoutTriangleCapacityPerBuffer *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
-        internal const int CounterCount = 90;
+        internal const int CounterCount = 88;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -41,30 +41,28 @@ namespace Genesis.RoomScan
         internal const int CounterFailedObservations = 53;
         internal const int CounterFreeTileCount = 54;
         internal const int CounterLoadsInstalled = 46;
-        internal const int CounterAttemptToken = 56;
-        internal const int CounterAttemptCompletedToken = 57;
-        internal const int CounterCarveClassifiedFree = 58;
-        internal const int CounterCarveClassifiedSurface = 59;
-        internal const int CounterCarveClassifiedUnknown = 60;
-        internal const int CounterCarveEvidenceDecrements = 61;
-        internal const int CounterCarveOccupiedToFree = 62;
-        internal const int CounterCarveBitsRetired = 63;
-        internal const int CounterColdCarveTilesRequested = 64;
-        internal const int CounterUnresolvedCarveTiles = 65;
-        internal const int CounterResidencyEpoch = 66;
+        internal const int CounterCarveClassifiedFree = 56;
+        internal const int CounterCarveClassifiedSurface = 57;
+        internal const int CounterCarveClassifiedUnknown = 58;
+        internal const int CounterCarveEvidenceDecrements = 59;
+        internal const int CounterCarveOccupiedToFree = 60;
+        internal const int CounterCarveBitsRetired = 61;
+        internal const int CounterColdCarveTilesRequested = 62;
+        internal const int CounterUnresolvedCarveTiles = 63;
+        internal const int CounterResidencyEpoch = 64;
         internal const int CounterReadoutUnresolved = 50;
-        internal const int CounterReadoutBuildStatus = 71;
-        internal const int CounterCarveFreeRadialBase = 72;
-        internal const int CounterJointAcceptedCenter = 80;
-        internal const int CounterJointAcceptedMid = 81;
-        internal const int CounterJointAcceptedEdge = 82;
-        internal const int CounterAuthorityDiscovery = 83;
-        internal const int CounterAuthoritySupport = 84;
-        internal const int CounterAuthorityRevision = 85;
-        internal const int CounterOffAxisMutationBlocked = 86;
-        internal const int CounterSurfaceReplacement = 87;
-        internal const int CounterSameObservationConflict = 88;
-        internal const int CounterReadoutEmittedTriangles = 89;
+        internal const int CounterReadoutBuildStatus = 69;
+        internal const int CounterCarveFreeRadialBase = 70;
+        internal const int CounterJointAcceptedCenter = 78;
+        internal const int CounterJointAcceptedMid = 79;
+        internal const int CounterJointAcceptedEdge = 80;
+        internal const int CounterAuthorityDiscovery = 81;
+        internal const int CounterAuthoritySupport = 82;
+        internal const int CounterAuthorityRevision = 83;
+        internal const int CounterOffAxisMutationBlocked = 84;
+        internal const int CounterSurfaceReplacement = 85;
+        internal const int CounterSameObservationConflict = 86;
+        internal const int CounterReadoutEmittedTriangles = 87;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
@@ -114,6 +112,7 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8TileRecords;
         private ComputeBuffer _m8FreeTileStack;
         private ComputeBuffer _m8Counters;
+        private ComputeBuffer _m8AttemptCompletion;
         private ComputeBuffer _m8ClaimQueue;
         private ComputeBuffer _m8PendingNewTileRefs;
         private ComputeBuffer _m8LoadRequests;
@@ -158,6 +157,7 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8TileRecords => _m8TileRecords;
         internal ComputeBuffer M8FreeTileStack => _m8FreeTileStack;
         internal ComputeBuffer M8Counters => _m8Counters;
+        internal ComputeBuffer M8AttemptCompletion => _m8AttemptCompletion;
         internal ComputeBuffer M8ClaimQueue => _m8ClaimQueue;
         internal ComputeBuffer M8PendingNewTileRefs => _m8PendingNewTileRefs;
         internal ComputeBuffer M8LoadRequests => _m8LoadRequests;
@@ -250,6 +250,7 @@ namespace Genesis.RoomScan
                 _m8FreeTileStack = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
+                _m8AttemptCompletion = Allocate(1, sizeof(uint) * 4);
 
                 _m8ClaimQueue = Allocate(MerkabaSpatial.ClaimRecordCount,
                     sizeof(uint) * 2);
@@ -778,6 +779,7 @@ namespace Genesis.RoomScan
             _m8ReadoutVertices1 = null;
             _m8FreeTileStack = null;
             _m8Counters = null;
+            _m8AttemptCompletion = null;
             _m8ClaimQueue = null;
             _m8LoadRequestReadCount = null;
             _m8HashBenchmarkOutput = null;

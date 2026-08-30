@@ -247,6 +247,8 @@ namespace Genesis.RoomScan
                 _grid.BindWorldBuffers(compute, kernel);
                 BindWorkBuffers(kernel);
             }
+            compute.SetBuffer(_finalizeKernel, "_M8AttemptCompletion",
+                _grid.M8AttemptCompletion);
             _initialized = true;
             return true;
         }
@@ -456,15 +458,13 @@ namespace Genesis.RoomScan
                 submitted = true;
                 _attemptInFlight = true;
                 _waitingForDependency = false;
+                _grid.RequestAttemptCompletion(_attemptToken);
                 Logger.Info("Merkaba observation attempt submitted " +
                             $"observation={_observationToken} " +
                             $"attempt={_attemptToken} " +
                             $"depthVersion={_observationDepthVersion} " +
                             $"residencyEpoch={_attemptResidencyEpoch} " +
                             $"retry={!newObservation}");
-
-                // Completion is sampled by the fixed SSD control pump. Until its
-                // exact token completes, this owned observation remains immutable.
                 return true;
             }
             finally
