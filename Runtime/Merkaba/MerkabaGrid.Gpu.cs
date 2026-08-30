@@ -119,6 +119,10 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8LoadRequestReadCount;
         private ComputeBuffer _m8SurfaceCandidates;
         private ComputeBuffer _m8SurfaceQueue;
+        private ComputeBuffer _m8SurfaceWinnerRanks0;
+        private ComputeBuffer _m8SurfaceWinnerRanks1;
+        private ComputeBuffer _m8SurfaceWinnerRanks2;
+        private ComputeBuffer _m8SurfaceWinnerRanks3;
         private ComputeBuffer _m8TouchedTileQueue;
         private ComputeBuffer _m8CarveTiles;
         private ComputeBuffer _m8CarveDispatchArgs;
@@ -158,6 +162,14 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8LoadRequests => _m8LoadRequests;
         internal ComputeBuffer M8SurfaceCandidates => _m8SurfaceCandidates;
         internal ComputeBuffer M8SurfaceQueue => _m8SurfaceQueue;
+        internal ComputeBuffer M8SurfaceWinnerRanks0 =>
+            _m8SurfaceWinnerRanks0;
+        internal ComputeBuffer M8SurfaceWinnerRanks1 =>
+            _m8SurfaceWinnerRanks1;
+        internal ComputeBuffer M8SurfaceWinnerRanks2 =>
+            _m8SurfaceWinnerRanks2;
+        internal ComputeBuffer M8SurfaceWinnerRanks3 =>
+            _m8SurfaceWinnerRanks3;
         internal ComputeBuffer M8TouchedTileQueue => _m8TouchedTileQueue;
         internal ComputeBuffer M8CarveTiles => _m8CarveTiles;
         internal ComputeBuffer M8CarveDispatchArgs => _m8CarveDispatchArgs;
@@ -246,7 +258,11 @@ namespace Genesis.RoomScan
                 _m8LoadRequestReadCount = Allocate(1, sizeof(uint));
                 _m8SurfaceCandidates = Allocate(SurfaceCandidateCapacity, 16);
                 _m8SurfaceQueue = Allocate(SurfaceQueueCapacity,
-                    sizeof(uint));
+                    sizeof(uint) * 2);
+                _m8SurfaceWinnerRanks0 = Allocate(bankStateCount, sizeof(uint));
+                _m8SurfaceWinnerRanks1 = Allocate(bankStateCount, sizeof(uint));
+                _m8SurfaceWinnerRanks2 = Allocate(bankStateCount, sizeof(uint));
+                _m8SurfaceWinnerRanks3 = Allocate(bankStateCount, sizeof(uint));
                 _m8TouchedTileQueue = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8CarveTiles = Allocate(MerkabaSpatial.PhysicalTileCapacity,

@@ -47,6 +47,7 @@ namespace Genesis.RoomScan.Tests
                      {
                          "DiscoverSurfaceCandidates", "ResolveSurfaceBlocks",
                          "ResolveSurfaceChunks", "ResolveSurfaceTiles",
+                         "InitializeSurfaceWinners", "SelectSurfaceWinners",
                          "QueueResolvedSurfaceCandidates",
                          "IntegrateSurfaceCandidates", "QueryCarveTiles",
                          "IntegrateCarveTiles", "FinalizeObservation"
@@ -107,7 +108,9 @@ namespace Genesis.RoomScan.Tests
                 32768L * 4, (long)MerkabaGrid.CounterCount * 4,
                 (8192L + 262144L + 32768L) * 8,
                 32768L * 4, 262144L * 16, 4,
-                2097152L * 16, 1048576L * 4,
+                2097152L * 16, 1048576L * 8,
+                4194304L * 4, 4194304L * 4,
+                4194304L * 4, 4194304L * 4,
                 32768L * 4, 32768L * 4, 12, 32768L * 4,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
@@ -116,10 +119,10 @@ namespace Genesis.RoomScan.Tests
                 32L * 513 * 16, 32L * 16, 32L * 512 * 16,
                 8192L * 16
             };
-            Assert.That(allBuffers, Has.Length.EqualTo(36));
+            Assert.That(allBuffers, Has.Length.EqualTo(40));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(625444508L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(696747676L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -273,7 +276,7 @@ namespace Genesis.RoomScan.Tests
                 "void DiscoverSurfaceCandidates", "void PrepareResolveArgs");
             Assert.That(discover, Does.Contain("TrySurfaceMeasurement"));
             Assert.That(discover, Does.Contain(
-                "AppendSurfaceCandidate(surfaceKernel)"));
+                "AppendSurfaceCandidate(surfaceKernel, id.xy)"));
             Assert.That(discover, Does.Not.Contain("for (int layer"));
             Assert.That(discover, Does.Not.Contain("nearest - stepCoord"));
             Assert.That(discover, Does.Not.Contain("nearest + stepCoord"));
@@ -281,14 +284,114 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Contain(
                 "all(globalCoord == surfaceKernel)"));
             Assert.That(integration, Does.Contain(
-                "RWStructuredBuffer<uint> _M8SurfaceQueue"));
+                "RWStructuredBuffer<uint2> _M8SurfaceQueue"));
             Assert.That(Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),
                 Does.Contain("_m8SurfaceQueue = Allocate(SurfaceQueueCapacity,\n" +
-                    "                    sizeof(uint));"));
-            Assert.That(integration, Does.Not.Contain(
-                "PackSurfaceMeasurement"));
-            Assert.That(integration, Does.Not.Contain(
-                "UnpackSurfaceMeasurement"));
+                    "                    sizeof(uint) * 2);"));
+            Assert.That(integration, Does.Contain(
+                "MerkabaPackSurfaceMetadata(sourcePixel"));
+            Assert.That(integration, Does.Contain(
+                "MerkabaSurfacePixel(candidate.w)"));
+        }
+
+        [Test]
+        public void SurfaceMeasurementAbi_PreservesPixelAndRanksDeterministically()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_SURFACE_ROUTE_SHIFT 24u"));
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_SURFACE_AUTHORITY_SHIFT 26u"));
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED 0x10000000u"));
+            Assert.That(integration, Does.Contain(
+                "#define MERKABA_SURFACE_FLAG_REPLACEMENT 0x20000000u"));
+            int metadata = MerkabaSurfaceMeasurement.PackMetadata(4095, 3071,
+                route: 1, MerkabaSurfaceMeasurement.AuthorityRevision,
+                offAxisBlocked: true, replacement: true);
+            Assert.That(MerkabaSurfaceMeasurement.PixelX(metadata),
+                Is.EqualTo(4095));
+            Assert.That(MerkabaSurfaceMeasurement.PixelY(metadata),
+                Is.EqualTo(3071));
+            uint raw = unchecked((uint)metadata);
+            Assert.That((raw >> MerkabaSurfaceMeasurement.RouteShift) & 3u,
+                Is.EqualTo(1u));
+            Assert.That((raw >> MerkabaSurfaceMeasurement.AuthorityShift) & 3u,
+                Is.EqualTo((uint)MerkabaSurfaceMeasurement.AuthorityRevision));
+            Assert.That(raw & MerkabaSurfaceMeasurement.OffAxisBlockedFlag,
+                Is.Not.Zero);
+            Assert.That(raw & MerkabaSurfaceMeasurement.ReplacementFlag,
+                Is.Not.Zero);
+
+            uint revision = MerkabaSurfaceMeasurement.WinnerRank(
+                MerkabaSurfaceMeasurement.AuthorityRevision, 0.01f, 0.8f,
+                20, 30);
+            uint support = MerkabaSurfaceMeasurement.WinnerRank(
+                MerkabaSurfaceMeasurement.AuthoritySupport, 0f, 1f, 0, 0);
+            uint discovery = MerkabaSurfaceMeasurement.WinnerRank(
+                MerkabaSurfaceMeasurement.AuthorityDiscovery, 0f, 1f, 0, 0);
+            Assert.That(revision, Is.LessThan(support));
+            Assert.That(support, Is.LessThan(discovery));
+
+            uint residualNear = MerkabaSurfaceMeasurement.WinnerRank(
+                MerkabaSurfaceMeasurement.AuthoritySupport, 0.001f, 0.5f,
+                100, 100);
+            uint residualFar = MerkabaSurfaceMeasurement.WinnerRank(
+                MerkabaSurfaceMeasurement.AuthoritySupport, 0.02f, 0.5f,
+                100, 100);
+            uint facing = MerkabaSurfaceMeasurement.WinnerRank(
+                MerkabaSurfaceMeasurement.AuthoritySupport, 0.001f, 0.9f,
+                100, 100);
+            Assert.That(residualNear, Is.LessThan(residualFar));
+            Assert.That(facing, Is.LessThan(residualNear));
+
+            uint[] candidates =
+            {
+                discovery, residualFar, support, residualNear, revision
+            };
+            uint expected = candidates.Min();
+            foreach (uint[] order in new[]
+                     {
+                         candidates,
+                         candidates.Reverse().ToArray(),
+                         new[] { residualNear, discovery, revision, support,
+                             residualFar }
+                     })
+                Assert.That(order.Aggregate(uint.MaxValue, Math.Min),
+                    Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void SurfaceWinner_UsesThreeOrderedPassesAndAttemptLocalBanks()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string integrator = Slice(
+                Source("Runtime/Merkaba/MerkabaIntegrator.cs"),
+                "internal bool TrySubmitObservationAttempt()",
+                "private bool CanRetryPreparedObservation()");
+            string gpu = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
+            Assert.That(integration, Does.Contain(
+                "RWStructuredBuffer<uint> _M8SurfaceWinnerRanks0"));
+            Assert.That(integration, Does.Contain(
+                "InterlockedMin(_M8SurfaceWinnerRanks"));
+            Assert.That(integration, Does.Contain(
+                "asuint(packedMetadata) & MERKABA_MEASUREMENT_PACKED_MASK"));
+            Assert.That(gpu, Does.Contain(
+                "_m8SurfaceWinnerRanks0 = Allocate(bankStateCount, " +
+                "sizeof(uint))"));
+
+            int initialize = integrator.IndexOf(
+                "_initializeSurfaceWinnersKernel,", StringComparison.Ordinal);
+            int select = integrator.IndexOf(
+                "_selectSurfaceWinnersKernel,", initialize + 1,
+                StringComparison.Ordinal);
+            int queue = integrator.IndexOf("_queueResolvedKernel,",
+                select + 1, StringComparison.Ordinal);
+            Assert.That(initialize, Is.GreaterThanOrEqualTo(0));
+            Assert.That(select, Is.GreaterThan(initialize));
+            Assert.That(queue, Is.GreaterThan(select));
         }
 
         [Test]
@@ -314,7 +417,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(route, Does.Contain("MerkabaMutationAttention"));
             string attention = Slice(integration,
                 "float MerkabaMutationAttention",
-                "int MerkabaPackSurfaceRoute");
+                "uint MerkabaPackMeasurementPixel");
             Assert.That(attention, Does.Contain(
                 "incidence < MERKABA_REVISION_MIN_INCIDENCE"));
             Assert.That(route, Does.Contain(
@@ -324,23 +427,29 @@ namespace Genesis.RoomScan.Tests
                 "void ResolveSurfaceChunks");
             Assert.That(resolve, Does.Contain("RouteSurfaceCandidate"));
             Assert.That(resolve, Does.Contain(
-                "_M8SurfaceCandidates[id] = int4(targetCoord, route)"));
+                "_M8SurfaceCandidates[id] = int4(targetCoord, metadata)"));
+            string initialize = Slice(integration,
+                "void InitializeSurfaceWinners",
+                "void SelectSurfaceWinners");
+            Assert.That(initialize, Does.Contain("RequestSurfaceOwnerLoad"));
+            Assert.That(initialize, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_SURFACE_TILES"));
             string queue = Slice(integration,
                 "void QueueResolvedSurfaceCandidates",
                 "void RetryPendingNewTiles");
-            Assert.That(queue, Does.Contain("RequestSurfaceOwnerLoad"));
             Assert.That(queue, Does.Contain(
-                "M8_COUNTER_UNRESOLVED_SURFACE_TILES"));
-            Assert.That(queue, Does.Contain(
-                "_M8SurfaceQueue[queueIndex] = key"));
-            Assert.That(queue, Does.Not.Contain("_M8SurfaceCandidatesRead[id].w"));
+                "_M8SurfaceQueue[queueIndex] = uint2(key, metadata)"));
+            Assert.That(queue, Does.Contain("M8LoadSurfaceWinner"));
 
             string integrate = Slice(integration,
                 "void IntegrateSurfaceCandidates", "uint M8ScanChildMask");
             Assert.That(integrate, Does.Contain(
-                "TrySurfaceMeasurementAtKernel(globalCoord"));
+                "TrySurfaceMeasurement(sourcePixel"));
+            Assert.That(integrate, Does.Contain(
+                "MerkabaSurfacePixel(asint(queued.y))"));
+            Assert.That(integration, Does.Not.Contain(
+                "TrySurfaceMeasurementAtKernel"));
             Assert.That(integrate, Does.Not.Contain("sourceEye"));
-            Assert.That(integrate, Does.Not.Contain("packedMeasurement"));
         }
 
         [Test]
@@ -858,7 +967,7 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(42));
+                RegexOptions.Multiline), Has.Count.EqualTo(44));
 
             string[] serial = Regex.Matches(all,
                     @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
@@ -990,7 +1099,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 47"));
+            Assert.That(audit, Does.Contain("kernel_count != 49"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));
@@ -1033,6 +1142,7 @@ namespace Genesis.RoomScan.Tests
             foreach (string kernel in new[]
                      {
                          "ResolveSurfaceChunks", "ResolveSurfaceTiles",
+                         "InitializeSurfaceWinners", "SelectSurfaceWinners",
                          "QueueResolvedSurfaceCandidates",
                          "RetryPendingNewTiles"
                      })
@@ -1219,7 +1329,7 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Shaders/MerkabaIntegration.compute");
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
             string resolve = Slice(integration, "void ResolveSurfaceTiles",
-                "void QueueResolvedSurfaceCandidates");
+                "bool M8TrySurfaceTargetHot");
             string retry = Slice(integration, "void RetryPendingNewTiles",
                 "void PrepareIntegrateArgs");
             string prepare = Slice(world, "void PrepareNewTileDispatchArgs",

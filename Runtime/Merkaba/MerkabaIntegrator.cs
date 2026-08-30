@@ -26,6 +26,8 @@ namespace Genesis.RoomScan
         private int _resolveBlocksKernel;
         private int _resolveChunksKernel;
         private int _resolveTilesKernel;
+        private int _initializeSurfaceWinnersKernel;
+        private int _selectSurfaceWinnersKernel;
         private int _queueResolvedKernel;
         private int _retryPendingTilesKernel;
         private int _prepareIntegrateKernel;
@@ -204,6 +206,11 @@ namespace Genesis.RoomScan
                 "ResolveSurfaceChunks", MerkabaGpuStage.SurfaceIntegration);
             _resolveTilesKernel = compute.FindProfiledKernel(
                 "ResolveSurfaceTiles", MerkabaGpuStage.SurfaceIntegration);
+            _initializeSurfaceWinnersKernel = compute.FindProfiledKernel(
+                "InitializeSurfaceWinners",
+                MerkabaGpuStage.SurfaceIntegration);
+            _selectSurfaceWinnersKernel = compute.FindProfiledKernel(
+                "SelectSurfaceWinners", MerkabaGpuStage.SurfaceIntegration);
             _queueResolvedKernel = compute.FindProfiledKernel(
                 "QueueResolvedSurfaceCandidates",
                 MerkabaGpuStage.SurfaceIntegration);
@@ -226,7 +233,8 @@ namespace Genesis.RoomScan
                      {
                          _discoverKernel, _prepareResolveKernel,
                          _resolveBlocksKernel, _resolveChunksKernel,
-                         _resolveTilesKernel, _queueResolvedKernel,
+                         _resolveTilesKernel, _initializeSurfaceWinnersKernel,
+                         _selectSurfaceWinnersKernel, _queueResolvedKernel,
                          _retryPendingTilesKernel, _prepareIntegrateKernel,
                          _integrateSurfaceKernel, _queryCarveKernel,
                          _prepareCarveKernel, _integrateCarveKernel, _finalizeKernel
@@ -248,6 +256,22 @@ namespace Genesis.RoomScan
             compute.SetBuffer(kernel, "_M8SurfaceQueue", _grid.M8SurfaceQueue);
             compute.SetBuffer(kernel, "_M8SurfaceQueueRead",
                 _grid.M8SurfaceQueue);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks0",
+                _grid.M8SurfaceWinnerRanks0);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks1",
+                _grid.M8SurfaceWinnerRanks1);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks2",
+                _grid.M8SurfaceWinnerRanks2);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks3",
+                _grid.M8SurfaceWinnerRanks3);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks0Read",
+                _grid.M8SurfaceWinnerRanks0);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks1Read",
+                _grid.M8SurfaceWinnerRanks1);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks2Read",
+                _grid.M8SurfaceWinnerRanks2);
+            compute.SetBuffer(kernel, "_M8SurfaceWinnerRanks3Read",
+                _grid.M8SurfaceWinnerRanks3);
             compute.SetBuffer(kernel, "_M8TouchedTileQueue",
                 _grid.M8TouchedTileQueue);
             compute.SetBuffer(kernel, "_M8CarveTiles", _grid.M8CarveTiles);
@@ -400,6 +424,12 @@ namespace Genesis.RoomScan
                 _grid.RecordPrepareNewTileDispatch(command);
                 _grid.RecordInitializeClaimedTiles(command);
                 _grid.RecordResetClaimQueues(command);
+                command.DispatchComputeProfiled(compute,
+                    _initializeSurfaceWinnersKernel,
+                    _grid.M8ObservationDispatchArgs);
+                command.DispatchComputeProfiled(compute,
+                    _selectSurfaceWinnersKernel,
+                    _grid.M8ObservationDispatchArgs);
                 command.DispatchComputeProfiled(compute, _queueResolvedKernel,
                     _grid.M8ObservationDispatchArgs);
 
@@ -533,6 +563,8 @@ namespace Genesis.RoomScan
 
             BindDepth(_discoverKernel);
             BindDepth(_resolveBlocksKernel);
+            BindDepth(_selectSurfaceWinnersKernel);
+            BindDepth(_queueResolvedKernel);
             BindDepth(_integrateSurfaceKernel);
             BindDepth(_integrateCarveKernel);
             BindCamera(_integrateSurfaceKernel);
