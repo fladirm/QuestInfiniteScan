@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Genesis.RoomScan.SigmaPrism;
 using Meta.XR;
 using Meta.XR.BuildingBlocks;
 using UnityEditor;
@@ -330,46 +331,86 @@ namespace Genesis.RoomScan.Editor
             // stall the XR render fence immediately after the mapper's Vulkan
             // allocation. Serialize the shared Building-Block component to the
             // provider's desired settings here, before the player ever runs.
-            var pca = FindAny<PassthroughCameraAccess>();
-            if (pca != null)
+            var desiredResolution = new Vector2Int(640, 480);
+            const int desiredMaxFramerate = 30;
+
+            var scanner = FindAny<RoomScanner>();
+            if (scanner != null)
             {
-                int desiredPosition = 0;
-                var desiredResolution = new Vector2Int(1280, 960);
-                int desiredMaxFramerate = 30;
-
-                var provider = FindAny<PassthroughCameraProvider>();
-                if (provider != null)
+                var scannerSo = new SerializedObject(scanner);
+                var scanHz = scannerSo.FindProperty("scanHz");
+                if (scanHz != null && !Mathf.Approximately(
+                        scanHz.floatValue, 10f))
                 {
-                    var providerSo = new SerializedObject(provider);
-                    var positionProp = providerSo.FindProperty("cameraPosition");
-                    var resolutionProp = providerSo.FindProperty("requestedResolution");
-                    var framerateProp = providerSo.FindProperty("maxFramerate");
-                    if (positionProp != null) desiredPosition = positionProp.enumValueIndex;
-                    if (resolutionProp != null) desiredResolution = resolutionProp.vector2IntValue;
-                    if (framerateProp != null) desiredMaxFramerate = framerateProp.intValue;
-                }
-
-                var pcaSo = new SerializedObject(pca);
-                var pcaPosition = pcaSo.FindProperty("CameraPosition");
-                var pcaResolution = pcaSo.FindProperty("RequestedResolution");
-                var pcaFramerate = pcaSo.FindProperty("_maxFramerate");
-                bool pcaChanged =
-                    pcaPosition != null && pcaPosition.enumValueIndex != desiredPosition ||
-                    pcaResolution != null && pcaResolution.vector2IntValue != desiredResolution ||
-                    pcaFramerate != null && pcaFramerate.intValue != desiredMaxFramerate;
-
-                if (pcaChanged)
-                {
-                    Undo.RecordObject(pca, "Configure Passthrough Camera Access");
-                    if (pcaPosition != null) pcaPosition.enumValueIndex = desiredPosition;
-                    if (pcaResolution != null) pcaResolution.vector2IntValue = desiredResolution;
-                    if (pcaFramerate != null) pcaFramerate.intValue = desiredMaxFramerate;
-                    pcaSo.ApplyModifiedPropertiesWithoutUndo();
-                    EditorUtility.SetDirty(pca);
+                    Undo.RecordObject(scanner, "Configure scan cadence");
+                    scanHz.floatValue = 10f;
+                    scannerSo.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(scanner);
                     changed++;
-                    Debug.Log($"[RoomScan Setup] Configured PassthroughCameraAccess: " +
-                              $"camera={desiredPosition}, resolution={desiredResolution}, " +
-                              $"maxFps={desiredMaxFramerate}.");
+                }
+            }
+
+            var provider = FindAny<PassthroughCameraProvider>();
+            if (provider != null)
+            {
+                var providerSo = new SerializedObject(provider);
+                var resolution = providerSo.FindProperty(
+                    "requestedResolution");
+                var framerate = providerSo.FindProperty("maxFramerate");
+                bool providerChanged =
+                    resolution != null &&
+                        resolution.vector2IntValue != desiredResolution ||
+                    framerate != null &&
+                        framerate.intValue != desiredMaxFramerate;
+                if (providerChanged)
+                {
+                    Undo.RecordObject(provider,
+                        "Configure passthrough camera provider");
+                    if (resolution != null)
+                        resolution.vector2IntValue = desiredResolution;
+                    if (framerate != null)
+                        framerate.intValue = desiredMaxFramerate;
+                    providerSo.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(provider);
+                    changed++;
+                }
+            }
+
+            PassthroughCameraAccess leftPca = EnsurePcaForEye(
+                PassthroughCameraAccess.CameraPositionType.Left,
+                desiredResolution, desiredMaxFramerate, ref changed);
+            PassthroughCameraAccess rightPca = EnsurePcaForEye(
+                PassthroughCameraAccess.CameraPositionType.Right,
+                desiredResolution, desiredMaxFramerate, ref changed);
+
+            var bridge = FindAny<SigmaRigBridge>();
+            if (bridge != null)
+            {
+                var bridgeSo = new SerializedObject(bridge);
+                var left = bridgeSo.FindProperty("leftCameraAccess");
+                var right = bridgeSo.FindProperty("rightCameraAccess");
+                var resolution = bridgeSo.FindProperty(
+                    "requestedResolution");
+                var framerate = bridgeSo.FindProperty("maxFramerate");
+                bool bridgeChanged =
+                    left != null && left.objectReferenceValue != leftPca ||
+                    right != null && right.objectReferenceValue != rightPca ||
+                    resolution != null &&
+                        resolution.vector2IntValue != desiredResolution ||
+                    framerate != null &&
+                        framerate.intValue != desiredMaxFramerate;
+                if (bridgeChanged)
+                {
+                    Undo.RecordObject(bridge, "Configure stereo PCA capture");
+                    if (left != null) left.objectReferenceValue = leftPca;
+                    if (right != null) right.objectReferenceValue = rightPca;
+                    if (resolution != null)
+                        resolution.vector2IntValue = desiredResolution;
+                    if (framerate != null)
+                        framerate.intValue = desiredMaxFramerate;
+                    bridgeSo.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(bridge);
+                    changed++;
                 }
             }
 
@@ -404,6 +445,67 @@ namespace Genesis.RoomScan.Editor
                 EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
                 RefreshPassthroughSceneState();
             }
+        }
+
+        private PassthroughCameraAccess EnsurePcaForEye(
+            PassthroughCameraAccess.CameraPositionType eye,
+            Vector2Int resolution, int maxFramerate, ref int changed)
+        {
+            PassthroughCameraAccess selected = null;
+            GameObject createdHost = null;
+            foreach (PassthroughCameraAccess candidate in
+                     Object.FindObjectsByType<PassthroughCameraAccess>(
+                         FindObjectsInactive.Include))
+            {
+                if (candidate.CameraPosition != eye)
+                    continue;
+                if (selected == null)
+                    selected = candidate;
+                else
+                    Debug.LogError($"[RoomScan Setup] Duplicate {eye} " +
+                                   "PassthroughCameraAccess; keep exactly one " +
+                                   "serialized component per eye.");
+            }
+
+            if (selected == null)
+            {
+                createdHost = new GameObject(
+                    $"[Sigma-PRISM-16] RGB {eye} PCA");
+                Undo.RegisterCreatedObjectUndo(createdHost,
+                    $"Create {eye} Passthrough Camera Access");
+                createdHost.SetActive(false);
+                if (_roomScanRoot != null)
+                    createdHost.transform.SetParent(_roomScanRoot.transform,
+                        false);
+                selected = Undo.AddComponent<PassthroughCameraAccess>(
+                    createdHost);
+                changed++;
+            }
+
+            var pcaSo = new SerializedObject(selected);
+            var position = pcaSo.FindProperty("CameraPosition");
+            var requested = pcaSo.FindProperty("RequestedResolution");
+            var framerate = pcaSo.FindProperty("_maxFramerate");
+            bool pcaChanged =
+                position != null && position.enumValueIndex != (int)eye ||
+                requested != null && requested.vector2IntValue != resolution ||
+                framerate != null && framerate.intValue != maxFramerate;
+            if (pcaChanged)
+            {
+                Undo.RecordObject(selected,
+                    $"Configure {eye} Passthrough Camera Access");
+                if (position != null) position.enumValueIndex = (int)eye;
+                if (requested != null) requested.vector2IntValue = resolution;
+                if (framerate != null) framerate.intValue = maxFramerate;
+                pcaSo.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(selected);
+                changed++;
+            }
+            if (createdHost != null)
+                createdHost.SetActive(true);
+            Debug.Log($"[RoomScan Setup] {eye} PCA: " +
+                      $"resolution={resolution}, maxFps={maxFramerate}.");
+            return selected;
         }
     }
 }

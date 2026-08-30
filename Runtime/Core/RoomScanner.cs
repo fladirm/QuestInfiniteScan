@@ -42,7 +42,7 @@ namespace Genesis.RoomScan
         [SerializeField, Range(0.2f, 5f)] private float wireThickness = 1.5f;
 
         [Header("Scan cadence")]
-        [SerializeField, Range(5f, 30f)] private float scanHz = 15f;
+        [SerializeField, Range(5f, 30f)] private float scanHz = 10f;
 
         [Header("Logging")]
         [SerializeField] private LogLevel logLevel = LogLevel.Info;

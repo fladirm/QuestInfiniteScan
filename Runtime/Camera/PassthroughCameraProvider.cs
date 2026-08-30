@@ -28,7 +28,7 @@ namespace Genesis.RoomScan
 
         [SerializeField] private PassthroughCameraAccess.CameraPositionType cameraPosition =
             PassthroughCameraAccess.CameraPositionType.Left;
-        [SerializeField] private Vector2Int requestedResolution = new(1280, 960);
+        [SerializeField] private Vector2Int requestedResolution = new(640, 480);
         [SerializeField] private int maxFramerate = 30;
 
         private PassthroughCameraAccess _pca;
@@ -52,12 +52,12 @@ namespace Genesis.RoomScan
             IsPlaying ? _pca.Intrinsics.PrincipalPoint : Vector2.zero;
 
         public Vector2 SensorResolution =>
-            IsPlaying ? _pca.Intrinsics.SensorResolution : new Vector2(1280, 960);
+            IsPlaying ? _pca.Intrinsics.SensorResolution : new Vector2(640, 480);
 
         public Vector2 CurrentResolution =>
             IsPlaying
                 ? new Vector2(_pca.CurrentResolution.x, _pca.CurrentResolution.y)
-                : new Vector2(1280, 960);
+                : new Vector2(640, 480);
 
         /// <summary>
         /// True when the user has granted the Horizon OS HEADSET_CAMERA

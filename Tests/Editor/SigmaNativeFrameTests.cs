@@ -265,7 +265,7 @@ namespace Genesis.RoomScan.Tests
         public void LiveScratchOwnsOneFullFrameArenaAndOneTerminalJournal()
         {
             using var resources = new SigmaNativeFrameResources(
-                new Vector2Int(320, 320), 3);
+                SigmaNativeQuestAperture.LogicalResolution, 3);
             Assert.That(resources.TryLease(out int slot,
                 out SigmaNativeFrameSlotResources native), Is.True);
             try
@@ -283,14 +283,17 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(native.GaugeDelta.count, Is.EqualTo(
                     native.MutationCapacity));
                 Assert.That(native.LocalityCertificateWords.count, Is.EqualTo(
-                    native.FootprintCertificateOffset + 320 * 320 *
+                    native.FootprintCertificateOffset + 256 * 192 *
                     SigmaNativeFrameSlotResources.CertificateWordCount));
                 Assert.That(native.RelationInputs.count,
                     Is.EqualTo(SigmaNativeFrameSlotResources.RelationCapacity));
-                Assert.That(native.FootprintCapacity, Is.EqualTo(320 * 320));
+                Assert.That(native.FootprintCapacity, Is.EqualTo(256 * 192));
                 Assert.That(native.Observation.count,
-                    Is.EqualTo(320 * 320 + 1));
-                Assert.That(native.BoundaryCapacity, Is.EqualTo(204160));
+                    Is.EqualTo(256 * 192 + 1));
+                Assert.That(native.BoundaryCapacity, Is.EqualTo(97856));
+                Assert.That(native.TileCountX, Is.EqualTo(16));
+                Assert.That(native.TileCountY, Is.EqualTo(12));
+                Assert.That(native.TileCapacity, Is.EqualTo(192));
                 Assert.That(native.RefinedBitsetScratchOffset, Is.EqualTo(
                     native.CanonicalRankScratchOffset +
                     native.CanonicalImageStride));
@@ -305,7 +308,7 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(native.RefinedBlockPrefixScratchOffset +
                         native.RefinedBlockPrefixCapacity));
                 Assert.That(native.RefinementChildOrderCapacity,
-                    Is.EqualTo(320 * 320 *
+                    Is.EqualTo(256 * 192 *
                         SigmaNativeFrameSlotResources.
                             MaximumMutationsPerFootprint));
                 Assert.That(native.CloseScratch.count, Is.EqualTo(
@@ -318,6 +321,103 @@ namespace Genesis.RoomScan.Tests
             {
                 resources.Release(slot);
             }
+        }
+
+        [Test]
+        public void QuestApertureMapsRoiToPhysicalSensorWithoutIdentityLeak()
+        {
+            Assert.That(SigmaNativeQuestAperture.PhysicalDepthResolution,
+                Is.EqualTo(new Vector2Int(320, 320)));
+            Assert.That(SigmaNativeQuestAperture.LogicalResolution,
+                Is.EqualTo(new Vector2Int(256, 192)));
+            Assert.That(SigmaNativeQuestAperture.SensorOffset,
+                Is.EqualTo(new Vector2Int(32, 64)));
+            Assert.That(SigmaNativeQuestAperture.ToSensorPixel(
+                new Vector2Int(0, 0)), Is.EqualTo(new Vector2Int(32, 64)));
+            Assert.That(SigmaNativeQuestAperture.ToSensorPixel(
+                new Vector2Int(255, 0)), Is.EqualTo(new Vector2Int(287, 64)));
+            Assert.That(SigmaNativeQuestAperture.ToSensorPixel(
+                new Vector2Int(0, 191)), Is.EqualTo(new Vector2Int(32, 255)));
+            Assert.That(SigmaNativeQuestAperture.ToSensorPixel(
+                new Vector2Int(255, 191)), Is.EqualTo(new Vector2Int(287, 255)));
+            Assert.That(() => SigmaNativeQuestAperture.RequirePhysicalDepth(
+                new Vector2Int(320, 240)), Throws.InvalidOperationException);
+
+            string frame = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeFrame")));
+            string observation = Slice(frame,
+                "void SigmaNativeBuildFullFrameFootprints(",
+                "uint SigmaN4PublishTileHeaderAddress");
+            Assert.That(Count(frame, "_NativeSensorOffset"), Is.EqualTo(2));
+            Assert.That(observation, Does.Contain(
+                "uint2 sensorPixel = localPixel + _NativeSensorOffset"));
+            Assert.That(observation, Does.Contain(
+                "SigmaNativeCurrentPrediction(sensorPixel"));
+            Assert.That(observation, Does.Contain(
+                "_NativeRawDepth[uint3(sensorPixel, eye)]"));
+            Assert.That(observation, Does.Contain(
+                "_NativeMetricDepth[uint3(sensorPixel, eye)]"));
+            Assert.That(observation, Does.Contain(
+                "_NativeDepthFlags[uint3(sensorPixel, eye)]"));
+            Assert.That(observation, Does.Contain(
+                "SigmaNativeDepthSlopeBounds(eye, sensorPixel)"));
+            Assert.That(observation, Does.Contain(
+                "observation.Query = uint4(localPixel"));
+            Assert.That(observation, Does.Not.Contain(
+                "SigmaNativeCurrentPrediction(localPixel"));
+
+            string contract = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeContract")));
+            string query = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeQuery")));
+            Assert.That(contract, Does.Not.Contain("_NativeSensorOffset"));
+            Assert.That(query, Does.Not.Contain("_NativeSensorOffset"));
+            string graph = ReadAssetSource(
+                "SigmaNativeFrameGraph t:MonoScript");
+            Assert.That(graph, Does.Contain(
+                "SetComputeIntParams(_frame, \"_NativeSensorOffset\""));
+        }
+
+        [Test]
+        public void QuestCaptureConfigurationIsSerializedAndCalibrationOwned()
+        {
+            string scanner = ReadAssetSource("RoomScanner t:MonoScript");
+            string provider = ReadAssetSource(
+                "PassthroughCameraProvider t:MonoScript");
+            string bridge = ReadAssetSource("SigmaRigBridge t:MonoScript");
+            string calibration = ReadAssetSource(
+                "RigCalibrationMath t:MonoScript");
+            string wizard = ReadAssetSource(
+                "RoomScanSetupWizard.BuildingBlocks t:MonoScript");
+            string controller = ReadAssetSource(
+                "SigmaInverseController t:MonoScript");
+
+            Assert.That(scanner, Does.Contain("scanHz = 10f"));
+            Assert.That(provider, Does.Contain(
+                "requestedResolution = new(640, 480)"));
+            Assert.That(bridge, Does.Contain(
+                "requestedResolution = new(640, 480)"));
+            Assert.That(bridge, Does.Contain(
+                "RigCalibrationMath.FromPassthrough(access)"));
+            Assert.That(bridge, Does.Contain(
+                "access.CurrentResolution != requestedResolution"));
+            Assert.That(calibration, Does.Contain(
+                "Vector2 image = access.CurrentResolution"));
+            Assert.That(calibration, Does.Contain(
+                "Vector2 focal = Vector2.Scale(source.FocalLength, imageScale)"));
+            Assert.That(calibration, Does.Contain(
+                "Vector2 principal = Vector2.Scale(source.PrincipalPoint - crop.position"));
+            Assert.That(wizard, Does.Contain(
+                "new Vector2Int(640, 480)"));
+            Assert.That(wizard, Does.Contain(
+                "CameraPositionType.Left"));
+            Assert.That(wizard, Does.Contain(
+                "CameraPositionType.Right"));
+            Assert.That(controller, Does.Contain(
+                "SigmaNativeQuestAperture.RequirePhysicalDepth"));
+            Assert.That(provider, Does.Not.Contain("1280, 960"));
+            Assert.That(bridge, Does.Not.Contain("1280, 960"));
+            Assert.That(wizard, Does.Not.Contain("1280, 960"));
         }
 
         [Test]
@@ -353,10 +453,14 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void BuildObservationWritesEvery320By320FootprintOnGpu()
+        public void BuildObservationWritesEveryLogicalRoiFootprintOnGpu()
         {
-            const int width = 320;
-            const int height = 320;
+            const int width = 256;
+            const int height = 192;
+            const int sensorWidth = 320;
+            const int sensorHeight = 320;
+            const int rgbWidth = 640;
+            const int rgbHeight = 480;
             int footprintCount = width * height;
             ComputeShader frame = LoadShader("SigmaNativeFrame");
             int kernel = frame.FindKernel("BuildNativeObservation");
@@ -376,22 +480,23 @@ namespace Genesis.RoomScan.Tests
             using var root = UIntBuffer(1);
             using var completion = UInt2Buffer(
                 SigmaGeneratedFrame.CompletionWordCount);
-            RenderTexture rawDepth = ZeroArrayRenderTexture(width, height,
+            RenderTexture rawDepth = ZeroArrayRenderTexture(sensorWidth,
+                sensorHeight,
                 GraphicsFormat.R32_SFloat);
-            RenderTexture metricDepth = ZeroArrayRenderTexture(width,
-                height, GraphicsFormat.R32G32_SFloat);
-            RenderTexture depthFlags = ZeroArrayRenderTexture(width, height,
-                GraphicsFormat.R32_UInt);
-            RenderTexture rays = ZeroRenderTexture(width, height,
+            RenderTexture metricDepth = ZeroArrayRenderTexture(sensorWidth,
+                sensorHeight, GraphicsFormat.R32G32_SFloat);
+            RenderTexture depthFlags = ZeroArrayRenderTexture(sensorWidth,
+                sensorHeight, GraphicsFormat.R32_UInt);
+            RenderTexture rays = ZeroRenderTexture(sensorWidth, sensorHeight,
                 GraphicsFormat.R32G32B32A32_SFloat);
-            RenderTexture rgb = ZeroRenderTexture(width, height,
+            RenderTexture rgb = ZeroRenderTexture(rgbWidth, rgbHeight,
                 GraphicsFormat.R32G32B32A32_SFloat);
-            RenderTexture predictionPage = ZeroArrayRenderTexture(width,
-                height, GraphicsFormat.R32G32B32A32_UInt);
-            RenderTexture predictionUv = ZeroArrayRenderTexture(width,
-                height, GraphicsFormat.R32G32B32A32_SFloat);
-            RenderTexture predictionKey = ZeroArrayRenderTexture(width,
-                height, GraphicsFormat.R32G32B32A32_UInt);
+            RenderTexture predictionPage = ZeroArrayRenderTexture(sensorWidth,
+                sensorHeight, GraphicsFormat.R32G32B32A32_UInt);
+            RenderTexture predictionUv = ZeroArrayRenderTexture(sensorWidth,
+                sensorHeight, GraphicsFormat.R32G32B32A32_SFloat);
+            RenderTexture predictionKey = ZeroArrayRenderTexture(sensorWidth,
+                sensorHeight, GraphicsFormat.R32G32B32A32_UInt);
             try
             {
                 scratch.NativeFrame.SetData(new[]
@@ -450,8 +555,9 @@ namespace Genesis.RoomScan.Tests
                     predictionUv);
                 frame.SetTexture(kernel, "_NativePredStateKey", predictionKey);
                 frame.SetInts("_NativeResolution", width, height);
-                frame.SetInts("_NativeRgbLeftResolution", width, height);
-                frame.SetInts("_NativeRgbRightResolution", width, height);
+                frame.SetInts("_NativeSensorOffset", 32, 64);
+                frame.SetInts("_NativeRgbLeftResolution", rgbWidth, rgbHeight);
+                frame.SetInts("_NativeRgbRightResolution", rgbWidth, rgbHeight);
                 frame.SetInts("_NativeOpticalTransfers", -1, -1);
                 frame.SetInt("_NativeRevision", 17);
                 frame.SetInt("_NativeCalibrationEpoch", 9);
@@ -517,8 +623,8 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(first[0].Query.Y, Is.Zero);
                 Assert.That(last[0].Identity.X, Is.EqualTo(17u));
                 Assert.That(last[0].Identity.Y, Is.EqualTo(9u));
-                Assert.That(last[0].Query.X, Is.EqualTo(319u));
-                Assert.That(last[0].Query.Y, Is.EqualTo(319u));
+                Assert.That(last[0].Query.X, Is.EqualTo(255u));
+                Assert.That(last[0].Query.Y, Is.EqualTo(191u));
                 var initialized = new SigmaNativeFrameGpu[1];
                 scratch.NativeFrame.GetData(initialized);
                 Assert.That(initialized[0].Identity.X, Is.EqualTo(17u));

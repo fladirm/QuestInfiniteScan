@@ -7,6 +7,39 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
+    /// <summary>
+    /// Fixed Quest execution aperture. These coordinates only select which
+    /// physical sensor samples enter one native close; they never become
+    /// carrier, certificate, component or canonical identity.
+    /// </summary>
+    internal static class SigmaNativeQuestAperture
+    {
+        internal static readonly Vector2Int PhysicalDepthResolution =
+            new(320, 320);
+        internal static readonly Vector2Int LogicalResolution =
+            new(256, 192);
+        internal static readonly Vector2Int SensorOffset = new(32, 64);
+
+        internal static Vector2Int ToSensorPixel(Vector2Int localPixel)
+        {
+            if (localPixel.x < 0 || localPixel.y < 0 ||
+                localPixel.x >= LogicalResolution.x ||
+                localPixel.y >= LogicalResolution.y)
+                throw new ArgumentOutOfRangeException(nameof(localPixel));
+            return localPixel + SensorOffset;
+        }
+
+        internal static void RequirePhysicalDepth(Vector2Int resolution)
+        {
+            if (resolution != PhysicalDepthResolution)
+                throw new InvalidOperationException(
+                    $"N4.1R Quest aperture requires physical depth " +
+                    $"{PhysicalDepthResolution.x}x" +
+                    $"{PhysicalDepthResolution.y}; received " +
+                    $"{resolution.x}x{resolution.y}.");
+        }
+    }
+
     internal static class SigmaRoomFrame
     {
         internal static Matrix4x4 FromCamera(Matrix4x4 worldToRoom,
@@ -131,8 +164,11 @@ namespace Genesis.RoomScan.SigmaPrism
         private bool _disposed;
 
         internal SigmaNativeFrameGraph(Vector2Int resolution,
-            SigmaExactBackendGate backendGate, int frameCapacity)
+            Vector2Int sensorOffset, SigmaExactBackendGate backendGate,
+            int frameCapacity)
         {
+            if (sensorOffset.x < 0 || sensorOffset.y < 0)
+                throw new ArgumentOutOfRangeException(nameof(sensorOffset));
             _backendGate = backendGate ?? throw new ArgumentNullException(
                 nameof(backendGate));
             _frame = Resources.Load<ComputeShader>(FrameResource);
@@ -175,10 +211,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 "SIGMA_N4_GLOBAL_CLOSE_VARIANT");
             FrameResources = new SigmaNativeFrameResources(resolution,
                 frameCapacity);
+            SensorOffset = sensorOffset;
         }
 
         internal SigmaNativeFrameResources FrameResources { get; }
         internal Vector2Int Resolution => FrameResources.Resolution;
+        internal Vector2Int SensorOffset { get; }
         internal int FrameCapacity => FrameResources.FrameCapacity;
         internal long OwnedBytes => FrameResources.OwnedBytes;
 
@@ -427,6 +465,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativePredStateKey", input.Prediction.StateKey);
             command.SetComputeIntParams(_frame, "_NativeResolution",
                 Resolution.x, Resolution.y);
+            command.SetComputeIntParams(_frame, "_NativeSensorOffset",
+                SensorOffset.x, SensorOffset.y);
             command.SetComputeIntParams(_frame, "_NativeRgbLeftResolution",
                 source.RgbLeft.Resolution.x, source.RgbLeft.Resolution.y);
             command.SetComputeIntParams(_frame, "_NativeRgbRightResolution",

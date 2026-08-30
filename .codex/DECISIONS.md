@@ -628,3 +628,26 @@ branch/chart decisions remain in Git history only.
 - This is an execution-lifetime correction only. It changes no S16, D4,
   certificate, refinement, page-plan or root-last semantic rule and adds no
   buffer owner, ABI field, kernel or dispatch.
+
+## ADR-S455 — Quest aperture fixes admission cardinality, not the S16 world
+
+- This decision supersedes ADR-S451's 15 Hz value and ADR-S453's `<50 ms` product
+  target, but not either decision's lifecycle, exactness or graph invariants.
+  RoomScanner admits at 10 Hz, keeps one pending/in-flight observation maximum
+  and never queues or catches up missed ticks. Ordinary warm native work must be
+  `<100 ms`, with p95 `<90 ms` and preferred p50 `<=75 ms`.
+- Both PCA eyes remain independent optical evidence at actual `640x480@30`.
+  `RigCalibrationMath.FromPassthrough` remains the sole intrinsics/crop authority;
+  no manual focal/principal scaling, RGB resampling or per-frame calibration is
+  introduced.
+- Physical depth, cone LUT, pose gauge and prediction resources remain native
+  `320x320`. One session-static execution aperture admits the centred `256x192`
+  subset at sensor offset `(32,64)` into the unchanged inverse law.
+- Footprint/tile/boundary execution identity is ROI-local. Raw depth, cone and
+  prediction texture reads use the corresponding physical sensor coordinate.
+  Sensor pixel and offset are execution locators only and cannot enter D4,
+  certificates, canonical comparison, carrier identity or persistence.
+- The aperture changes no S16 sampling density within the admitted ROI, algebra,
+  component/refinement/canonical/page operation, buffer owner, kernel or dispatch.
+  The graph stays at 14 entrypoints and exactly 16 submissions. R1/R2 remain
+  frozen unless the same-SHA physical aperture profile misses p95 `<90 ms`.

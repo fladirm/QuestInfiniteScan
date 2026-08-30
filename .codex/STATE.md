@@ -155,6 +155,36 @@ R1/R2 are not authorized and N4.1R remains WIP. The exact next action is a
 source-grounded FreshLift phase/barrier/arithmetic handoff; no third packing or
 new reduction algorithm is permitted by the current run.
 
+The superseding N4.1R Quest aperture cut now retains that measured 128-thread
+FOOTPRINT winner and changes only sensor admission cardinality. The physical
+Quest depth, cone LUT, pose input and prediction targets stay `320x320`; one
+session-static centred execution aperture supplies `256x192` logical footprints
+at sensor offset `(32,64)`. Native frame scratch therefore owns 49,152
+footprints, 97,856 local boundaries and 192 16x16 tiles. BuildObservation uses
+physical sensor coordinates only for depth/LUT/prediction texture reads and
+stores ROI-local coordinates for topology/canonical execution. PCA remains two
+independent eyes at actual `640x480@30`, with intrinsics derived only from
+`RigCalibrationMath.FromPassthrough`; RoomScanner admission is 10 Hz with the
+existing no-queue/no-catch-up lifecycle.
+
+The complete shader/ABI/binding/test review was repeated before the one shader
+edit. Local aperture-cut evidence from the dirty source checkpoint is:
+
+```text
+generator/check                                      PASS
+Quest graph/name/thread/sync/UAV contract             14 / 16 PASS
+Vulkan 1.1 SPIR-V / spirv-val                         16 / 16 PASS
+Unity Vulkan EditMode                                 113 / 113 PASS
+new ROI/PCA/cadence fixtures                            4 / 4 PASS
+FOOTPRINT production packing                8x16 / 128 / 8.960 KiB frozen
+algebra/D4/certificate/refinement/canonical source changes            0
+```
+
+The exact next action is a local exact-source checkpoint, Release Android/Vulkan
+build from that SHA, installation and >=32-publication Quest capture. The new
+physical gate is ordinary warm transaction p95 `<90 ms`; R1/R2 remain frozen
+unless that same-SHA aperture profile misses it. N5R/S4-09 remain unopened.
+
 ## N4 resident-capacity safety and frozen N5R persistence design
 
 The historical Quest GPU crash and the current N4 capacity receipt are now

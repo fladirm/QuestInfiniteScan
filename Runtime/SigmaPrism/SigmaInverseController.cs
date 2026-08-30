@@ -104,7 +104,7 @@ namespace Genesis.RoomScan.SigmaPrism
         public SigmaRuntimeTelemetrySnapshot RuntimeTelemetry =>
             _runtimeTelemetry;
 
-        // Donor-shaped observation ownership: the fixed 15 Hz scheduler may
+        // Donor-shaped observation ownership: the fixed 10 Hz scheduler may
         // transfer one new coherent frame only after the prior native close has
         // reached its terminal GPU fence. No historical scan queue is admitted.
         internal bool CanAcceptScheduledObservation =>
@@ -241,18 +241,29 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private void EnsureDirectGraph(StereoRigFrameLease source)
         {
+            SigmaNativeQuestAperture.RequirePhysicalDepth(
+                source.DepthResolution);
             if (_graph != null)
             {
-                if (_graph.Resolution != source.DepthResolution)
+                if (_graph.Resolution !=
+                        SigmaNativeQuestAperture.LogicalResolution ||
+                    _graph.SensorOffset !=
+                        SigmaNativeQuestAperture.SensorOffset)
                     throw new InvalidOperationException(
-                        "Depth resolution changed inside one direct-frame session.");
+                        "The fixed native aperture changed inside one " +
+                        "direct-frame session.");
                 return;
             }
-            _graph = new SigmaNativeFrameGraph(source.DepthResolution,
-                _backendGate, ingressSlotCount);
+            _graph = new SigmaNativeFrameGraph(
+                SigmaNativeQuestAperture.LogicalResolution,
+                SigmaNativeQuestAperture.SensorOffset, _backendGate,
+                ingressSlotCount);
             CreatePersistentResources(_graph.FrameCapacity);
-            Logger.Info($"Sigma direct graph ready: resolution=" +
+            Logger.Info($"Sigma direct graph ready: physicalDepth=" +
                         $"{source.DepthResolution.x}x{source.DepthResolution.y}, " +
+                        $"logicalAperture={_graph.Resolution.x}x" +
+                        $"{_graph.Resolution.y}, sensorOffset=" +
+                        $"{_graph.SensorOffset.x},{_graph.SensorOffset.y}, " +
                         $"ownedFrames={_graph.FrameCapacity}, " +
                         $"hotDispatches={SigmaNativeFrameGraph.HotDispatchCount}, " +
                         $"memory={_graph.OwnedBytes / (1024L * 1024L)}MiB.");

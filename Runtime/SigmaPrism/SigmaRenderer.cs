@@ -220,7 +220,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         /// <summary>
         /// Transfers at most one held coherent observation into the scan query.
-        /// RoomScanner owns the fixed 15 Hz admission clock; this method never
+        /// RoomScanner owns the fixed 10 Hz admission clock; this method never
         /// schedules itself from XR presentation cadence.
         /// </summary>
         internal bool TryScheduleLatestObservation()

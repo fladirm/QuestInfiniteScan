@@ -2,28 +2,32 @@
 
 ## Exchange 1 — user
 
-Stopped the prescribed run before R1/R2 after the combined F1-F3 Quest result
-measured FOOTPRINT p50/p95 66.561/68.995 ms. Required exact phase-specialized
-FreshLift reductions, invalid-team arithmetic skips, and one controlled physical
-packing comparison only: 8x16/128 versus 16x16/256. No third packing or new
-algorithm is authorized. If the faster result remains above 30 ms, stop before
-R1/R2 and report the exact remaining phase/barrier/arithmetic inventory.
+Superseded the prior N4.1R performance plan with one narrow Quest aperture cut
+from `29eef420`: change only fixed admission to 10 Hz, PCA L/R to actual
+640x480@30, and native inverse execution to a centred 256x192 ROI over unchanged
+320x320 physical depth at sensor offset 32,64. Keep the measured 128-thread
+FOOTPRINT winner and all algebra/component/refinement/canonical/page semantics;
+retain exactly 14 entrypoints and 16 dispatches. Build/install/profile >=32 warm
+publications and accept p95 <90 ms; only then may the already-prescribed R1/R2
+resume if required. N5R remains unopened.
 
 ## Exchange 1 — assistant
 
-Implemented exact phase-specific reductions and invalid-team arithmetic guards.
-Local gates pass: generator/check, <=8 UAV, graph 14/16, Quest SPIR-V 16/16,
-focused Vulkan 2/2 and the previously completed full Vulkan corpus 111/111. The
-specialized lift has 12 reduction barriers and 21 total barriers.
+Completed the full shader/ABI/resource/bind/test review and implemented only the
+admission-domain cut. Physical depth/LUT/prediction textures remain 320x320,
+native scratch is 49152 footprints / 97856 boundaries / 192 tiles, and only
+physical sampling uses `localPixel + _NativeSensorOffset`; topology/canonical
+receipts retain local coordinates. The setup wizard serializes scanHz=10 and two
+640x480@30 eye PCAs. Generator/check, graph/UAV contract, Quest SPIR-V 16/16 and
+Unity Vulkan 113/113 pass. Exact-SHA Release build/install/device profile is next.
 
 ## Exchange 2 — user
 
-Asked whether a third packing run C would be performed.
+Requested end-to-end physical Quest closure, one tested/pushed checkpoint and no
+N5R or reconstruction redesign.
 
 ## Exchange 2 — assistant
 
-Confirmed that the contract permits only A and B. Physical Quest A
-(8x16/128, 8.960 KiB LDS) measured n=32 p50/p95/max
-43.8683/45.9340/46.1758 ms. B (16x16/256, 17.920 KiB LDS) measured
-73.4178/75.9444/76.0852 ms. A is retained, B is deleted, and the run stops before
-R1/R2 because the faster result remains above the 30 ms gate.
+Source is frozen after clean local gates. The next action is code-graph/goal-state
+validation, a local exact-SHA checkpoint, Release Android/Vulkan build, install
+and >=32-publication capture before deciding whether the new <90 ms gate passes.

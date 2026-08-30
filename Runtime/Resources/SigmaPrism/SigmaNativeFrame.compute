@@ -68,6 +68,7 @@ RWStructuredBuffer<uint> _TargetReadoutDirtyFlags;
 RWStructuredBuffer<uint> _PublishedRevisionRoot;
 
 uint2 _NativeResolution;
+uint2 _NativeSensorOffset;
 uint2 _NativeRgbLeftResolution;
 uint2 _NativeRgbRightResolution;
 uint2 _NativeOpticalTransfers;
@@ -497,8 +498,9 @@ void SigmaNativeBuildFullFrameFootprints(uint groupIndex, uint threadIndex)
     uint footprint = groupIndex * SIGMA_N4_OBSERVATION_TEAMS_PER_GROUP + team;
     uint footprintCount = _NativeResolution.x * _NativeResolution.y;
     bool active = footprint < footprintCount;
-    uint2 pixel = active ? uint2(footprint % _NativeResolution.x,
+    uint2 localPixel = active ? uint2(footprint % _NativeResolution.x,
         footprint / _NativeResolution.x) : 0u;
+    uint2 sensorPixel = localPixel + _NativeSensorOffset;
     if (teamLane == 0u)
     {
         uint slot = SIGMA_FRAME_INVALID;
@@ -507,7 +509,8 @@ void SigmaNativeBuildFullFrameFootprints(uint groupIndex, uint threadIndex)
         uint revision = 0u;
         uint level = 0u;
         uint4 coordinate = 0u;
-        bool hasSupport = active && SigmaNativeCurrentPrediction(pixel, slot,
+        bool hasSupport = active && SigmaNativeCurrentPrediction(sensorPixel,
+            slot,
             sample, generation, revision, level, coordinate);
         SigmaN4FootprintSupport[team] = uint4(slot, sample, generation,
             revision);
@@ -521,17 +524,19 @@ void SigmaNativeBuildFullFrameFootprints(uint groupIndex, uint threadIndex)
     uint eyeIndex = team * 2u + eye;
     if (teamLane == 0u || teamLane == 4u)
     {
-        float4 ray = active ? SigmaNativeDepthRayCenter(eye, pixel) : 0.0;
-        float4 rayDx = active ? SigmaNativeDepthRayDx(eye, pixel) : 0.0;
-        float4 rayDy = active ? SigmaNativeDepthRayDy(eye, pixel) : 0.0;
+        float4 ray = active ? SigmaNativeDepthRayCenter(eye, sensorPixel) : 0.0;
+        float4 rayDx = active ? SigmaNativeDepthRayDx(eye, sensorPixel) : 0.0;
+        float4 rayDy = active ? SigmaNativeDepthRayDy(eye, sensorPixel) : 0.0;
         uint rayValid = active && _SigmaExactBackendGate[0] != 0u &&
             all(isfinite(ray)) && all(isfinite(rayDx)) &&
             all(isfinite(rayDy)) && ray.z > 0.0 && ray.w > 0.0 &&
             rayDx.w > 0.0 && rayDy.w > 0.0 ? 1u : 0u;
-        float rawDepth = active ? _NativeRawDepth[uint3(pixel, eye)] : 0.0;
-        float2 depth = active ? _NativeMetricDepth[uint3(pixel, eye)] : 0.0;
+        float rawDepth = active ?
+            _NativeRawDepth[uint3(sensorPixel, eye)] : 0.0;
+        float2 depth = active ?
+            _NativeMetricDepth[uint3(sensorPixel, eye)] : 0.0;
         uint depthValid = rayValid != 0u &&
-            (_NativeDepthFlags[uint3(pixel, eye)] & 1u) != 0u &&
+            (_NativeDepthFlags[uint3(sensorPixel, eye)] & 1u) != 0u &&
             isfinite(rawDepth) && rawDepth > 0.0 && rawDepth < 1.0 &&
             all(isfinite(depth)) && depth.x > 0.0 ? 1u : 0u;
         float2 rgbPixel = 0.0;
@@ -639,7 +644,8 @@ void SigmaNativeBuildFullFrameFootprints(uint groupIndex, uint threadIndex)
         uint2 rangeUpper = SigmaQ48AddChecked(range, width,
             boundaryContextValid);
         uint2 poseWidth = SigmaCalibrationValue(eye, SIGMA_CAL_POSE_WIDTH);
-        float4 slopes = active ? SigmaNativeDepthSlopeBounds(eye, pixel) : 0.0;
+        float4 slopes = active ?
+            SigmaNativeDepthSlopeBounds(eye, sensorPixel) : 0.0;
         boundaryContextValid &=
             active && all(isfinite(slopes)) ? 1u : 0u;
         SigmaN4FootprintRgb00[eyeIndex] = float4(asfloat(rangeLower),
@@ -790,7 +796,7 @@ void SigmaNativeBuildFullFrameFootprints(uint groupIndex, uint threadIndex)
         observation.Footprint = SigmaN4FootprintHasSupport[team] != 0u
             ? SigmaN4FootprintCoordinate[team] : uint4(0u, 0u, 0u, 0u);
         observation.Evidence = _NativeIndependenceKeys;
-        observation.Query = uint4(pixel,
+        observation.Query = uint4(localPixel,
             SIGMA_NATIVE_FIRST_HIT_ROLE_FIRST_HIT_MOULD,
             SIGMA_NATIVE_FIRST_HIT_ROLE_FIRST_HIT_MOULD);
         _NativeObservations[footprint + 1u] = observation;

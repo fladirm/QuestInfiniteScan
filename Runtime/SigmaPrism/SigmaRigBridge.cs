@@ -20,7 +20,7 @@ namespace Genesis.RoomScan.SigmaPrism
         [SerializeField] private DepthCapture depthCapture;
 
         [Header("RGB capture")]
-        [SerializeField] private Vector2Int requestedResolution = new(1280, 960);
+        [SerializeField] private Vector2Int requestedResolution = new(640, 480);
         [SerializeField, Range(1, 90)] private int maxFramerate = 30;
 
         [Header("Fail-closed pairing")]
@@ -208,6 +208,13 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (access == null || !access.IsPlaying || !access.IsUpdatedThisFrame)
                 return;
+            if (access.CurrentResolution != requestedResolution ||
+                access.MaxFramerate != maxFramerate)
+            {
+                ReportLocalRejection(
+                    RigFrameRejectionReason.CalibrationMismatch);
+                return;
+            }
 
             RigTimestamp timestamp;
             try
@@ -462,7 +469,17 @@ namespace Genesis.RoomScan.SigmaPrism
                 _sessionIntrinsics[2].Signature, _sessionIntrinsics[3].Signature);
             _calibrationEpoch = 1u;
             Logger.Info("Sigma-PRISM-16 immutable rig calibration frozen, " +
-                        $"signature=0x{_combinedCalibrationSignature:x16}");
+                        $"signature=0x{_combinedCalibrationSignature:x16}, " +
+                        $"rgbLeft={_sessionIntrinsics[0].ImageResolution.x}x" +
+                        $"{_sessionIntrinsics[0].ImageResolution.y}@" +
+                        $"{maxFramerate}, rgbRight=" +
+                        $"{_sessionIntrinsics[1].ImageResolution.x}x" +
+                        $"{_sessionIntrinsics[1].ImageResolution.y}@" +
+                        $"{maxFramerate}, depthLeft=" +
+                        $"{_sessionIntrinsics[2].ImageResolution.x}x" +
+                        $"{_sessionIntrinsics[2].ImageResolution.y}, " +
+                        $"depthRight={_sessionIntrinsics[3].ImageResolution.x}x" +
+                        $"{_sessionIntrinsics[3].ImageResolution.y}");
             return true;
         }
 
