@@ -26,7 +26,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void RearOccupancy_IsPrunedToObservedFreeFrontier()
+        public void RearOccupancy_IsNotDiscardedBySparseKnownFree()
         {
             var evidence = new Dictionary<int3, KernelState>
             {
@@ -38,12 +38,14 @@ namespace Genesis.RoomScan.Tests
 
             MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
 
-            Assert.That(result.ShellCoordinates,
-                Is.EqualTo(new[] { new int3(0, 0, 0) }));
+            Assert.That(result.ShellCoordinates, Is.EqualTo(new[]
+            {
+                new int3(0, 0, 0), new int3(1, 0, 0), new int3(2, 0, 0)
+            }));
         }
 
         [Test]
-        public void BothObservedSidesRemainAndBuriedInteriorIsPruned()
+        public void BothObservedSidesAndRealInteriorRemainForMembraneSolver()
         {
             var evidence = new Dictionary<int3, KernelState>
             {
@@ -59,7 +61,8 @@ namespace Genesis.RoomScan.Tests
 
             Assert.That(result.ShellCoordinates, Is.EqualTo(new[]
             {
-                new int3(0, 0, 0), new int3(3, 0, 0)
+                new int3(0, 0, 0), new int3(1, 0, 0),
+                new int3(2, 0, 0), new int3(3, 0, 0)
             }));
         }
 
@@ -174,7 +177,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ComponentWithoutFreeEvidence_UsesExteriorCompatibilityFallback()
+        public void ComponentWithoutFreeEvidence_PreservesEveryRealOwner()
         {
             var evidence = new Dictionary<int3, KernelState>();
             for (int z = -1; z <= 1; z++)
@@ -185,8 +188,30 @@ namespace Genesis.RoomScan.Tests
             MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
 
             Assert.That(result.HealedCoordinates, Has.Length.EqualTo(27));
-            Assert.That(result.ShellCoordinates, Has.Length.EqualTo(26));
-            Assert.That(result.ShellCoordinates.Contains(new int3(0)), Is.False);
+            Assert.That(result.ShellCoordinates, Has.Length.EqualTo(27));
+            Assert.That(result.ShellCoordinates.Contains(new int3(0)), Is.True);
+        }
+
+        [Test]
+        public void SparseStrongFree_DoesNotDeleteA197kObservedSurfaceFixture()
+        {
+            const int expectedOccupied = 197000;
+            var evidence = new Dictionary<int3, KernelState>(
+                expectedOccupied + 1);
+            for (int x = 0; x < 197; x++)
+            for (int y = 0; y < 20; y++)
+            for (int z = 0; z < 50; z++)
+                evidence.Add(new int3(x, y, z), Occupied());
+            evidence.Add(new int3(-1, 0, 0), StrongFree());
+
+            MerkabaExportShellResult result = MerkabaExportShell.Build(evidence);
+
+            Assert.That(result.OriginalOccupiedCount,
+                Is.EqualTo(expectedOccupied));
+            Assert.That(result.StrongKnownFreeCount, Is.EqualTo(1));
+            Assert.That(result.SyntheticKernelCount, Is.Zero);
+            Assert.That(result.ShellCoordinates, Has.Length.EqualTo(
+                expectedOccupied));
         }
 
         [Test]

@@ -30,9 +30,9 @@ namespace Genesis.RoomScan
 
     /// <summary>
     /// Read-only, sparse export cleanup. It performs one radius-1 binary closing,
-    /// vetoes strong FREE evidence, selects the observed-free frontier per component,
-    /// and returns only lattice coordinates/colours. Triangle generation remains the
-    /// shared canonical Merkaba writer's responsibility.
+    /// vetoes synthetic healing at strong FREE evidence, and preserves every real
+    /// occupied M8 owner. Triangle generation remains the shared canonical Merkaba
+    /// writer's responsibility.
     /// </summary>
     internal static class MerkabaExportShell
     {
@@ -113,7 +113,7 @@ namespace Genesis.RoomScan
 
             HashSet<int3> healed = CloseOnce(occupied, strongFree, progress);
 
-            HashSet<int3> shell = SelectShell(healed, strongFree, progress);
+            HashSet<int3> shell = healed;
             if (shell.Count == 0)
                 throw new InvalidOperationException(
                     "Evidence-aware export shell contains no kernels.");
@@ -208,57 +208,6 @@ namespace Genesis.RoomScan
                     $"Duplicate FREE export coordinate {coord}.");
         }
 
-        private static HashSet<int3> SelectShell(HashSet<int3> healed,
-            HashSet<int3> strongFree,
-            IProgress<OperationWorkProgress> progress)
-        {
-            var selected = new HashSet<int3>();
-            var unvisited = new HashSet<int3>(healed);
-            int3[] seeds = Sorted(healed);
-            var queue = new Queue<int3>();
-            var component = new List<int3>();
-            int visited = 0;
-
-            foreach (int3 seed in seeds)
-            {
-                if (!unvisited.Remove(seed)) continue;
-                component.Clear();
-                queue.Enqueue(seed);
-                while (queue.Count > 0)
-                {
-                    int3 coord = queue.Dequeue();
-                    component.Add(coord);
-                    visited++;
-                    ReportEvery(progress,
-                        ScanOperationStage.ExtractingMerkabaShell, visited,
-                        healed.Count, 1024,
-                        $"Traversed {visited}/{healed.Count} healed kernels");
-                    foreach (int3 offset in MerkabaConstants.Neighbours)
-                    {
-                        int3 neighbour = coord + offset;
-                        if (unvisited.Remove(neighbour)) queue.Enqueue(neighbour);
-                    }
-                }
-
-                bool hasObservedFreeContact = false;
-                foreach (int3 coord in component)
-                {
-                    if (!Touches(coord, strongFree)) continue;
-                    hasObservedFreeContact = true;
-                    break;
-                }
-
-                foreach (int3 coord in component)
-                {
-                    bool retain = hasObservedFreeContact
-                        ? Touches(coord, strongFree)
-                        : TouchesOutside(coord, healed);
-                    if (retain) selected.Add(coord);
-                }
-            }
-            return selected;
-        }
-
         private static void ReportEvery(
             IProgress<OperationWorkProgress> progress,
             ScanOperationStage stage, int completed, int total, int interval,
@@ -268,20 +217,6 @@ namespace Genesis.RoomScan
                 (completed != total && completed % interval != 0)) return;
             progress.Report(new OperationWorkProgress(stage, completed, total,
                 text));
-        }
-
-        private static bool Touches(int3 coord, HashSet<int3> set)
-        {
-            foreach (int3 offset in MerkabaConstants.Neighbours)
-                if (set.Contains(coord + offset)) return true;
-            return false;
-        }
-
-        private static bool TouchesOutside(int3 coord, HashSet<int3> healed)
-        {
-            foreach (int3 offset in MerkabaConstants.Neighbours)
-                if (!healed.Contains(coord + offset)) return true;
-            return false;
         }
 
         private static KernelState SyntheticState(int3 coord,
