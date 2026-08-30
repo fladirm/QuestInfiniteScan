@@ -1940,6 +1940,134 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void ResidentPairCapacityFailsClosedBeforeCloneOrScatter()
+        {
+            ComputeShader frame = LoadShader("SigmaNativeFrame");
+            int clone = frame.FindKernel("PrepareNativePage");
+            int scatter = frame.FindKernel("ScatterNativeState");
+            int close = frame.FindKernel("CloseAndPublishNativeRevision");
+
+            using var scratch = new SigmaNativeFrameSlotResources(0);
+            const int physicalPages = 2;
+            using var carrierState = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured,
+                SigmaCarrier.PageLaneCount * physicalPages,
+                Marshal.SizeOf<UInt2>());
+            using var carrierRepresentation = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured,
+                SigmaCarrier.SamplesPerPage * physicalPages *
+                    SigmaCarrier.RepresentationWordsPerSample,
+                Marshal.SizeOf<UInt4>());
+            using var metadata = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, physicalPages,
+                SigmaCarrier.PageMetadataStride);
+            using var dirty = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, physicalPages,
+                sizeof(uint));
+            using var readoutDirty = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, physicalPages,
+                sizeof(uint));
+            using var root = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 1, sizeof(uint));
+            using var completionJournal = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured,
+                SigmaGeneratedFrame.CompletionWordCount, sizeof(uint) * 2);
+
+            SeedSingleFootprintClosedCutE(scratch, 2u,
+                StateWithLane0(0u, 9u << 16));
+            var priorState = new UInt2[carrierState.count];
+            priorState[0] = new UInt2
+            {
+                Low = 0x01234567u,
+                High = 0x89abcdefu,
+            };
+            carrierState.SetData(priorState);
+            var priorRepresentation = new UInt4[
+                carrierRepresentation.count];
+            priorRepresentation[0] = new UInt4
+            {
+                X = 0x10203040u,
+                Y = 0x50607080u,
+                Z = 0x90a0b0c0u,
+                W = 0xd0e0f000u,
+            };
+            carrierRepresentation.SetData(priorRepresentation);
+            var priorMetadata = new[]
+            {
+                new PageMeta
+                {
+                    Generation = 1u,
+                    Revision = 1u,
+                    CertificateCount = SigmaCarrier.SamplesPerPage,
+                    Flags = 3u,
+                    GaugeGeneration = 1u,
+                    CertificateGeneration = 1u,
+                    RepresentationFlags = 3u,
+                    ActiveSampleCount = SigmaCarrier.SamplesPerPage,
+                },
+                new PageMeta(),
+            };
+            metadata.SetData(priorMetadata);
+            dirty.SetData(new uint[physicalPages]);
+            readoutDirty.SetData(new uint[physicalPages]);
+            root.SetData(new[] { 1u });
+
+            foreach (int kernel in new[]
+            {
+                frame.FindKernel("PrepareNativeRevision"), clone, scatter,
+                close,
+            })
+                BindPublication(frame, kernel, scratch, carrierState,
+                    carrierRepresentation, metadata, dirty, readoutDirty,
+                    root, completionJournal);
+            frame.SetInt("_NativeRevision", 2);
+            frame.SetInt("_NativeCalibrationEpoch", 7);
+            frame.SetInt("_NativeTargetPageCapacity", physicalPages);
+
+            DispatchCutE(frame, scratch);
+
+            var prepared = new SigmaNativeFrameGpu[1];
+            scratch.NativeFrame.GetData(prepared);
+            var counters = new UInt4[scratch.Counters.count];
+            scratch.Counters.GetData(counters);
+            Assert.That(prepared[0].Disposition.X,
+                Is.EqualTo((uint)SigmaNativeFrameDisposition.Faulted));
+            Assert.That(prepared[0].Disposition.W,
+                Is.EqualTo((uint)SigmaNativeColdReason.PageFault));
+            Assert.That(prepared[0].Publication.W, Is.Zero,
+                "A nonresident logical target must not reach scatter.");
+            Assert.That(counters[1].W, Is.Zero,
+                "A capacity fault must schedule no page clone.");
+            Assert.That(counters[2].W, Is.Zero,
+                "A capacity fault must expose no stale mutation to scatter.");
+
+            int copyGroups = Math.Max(SigmaCarrier.PageLaneCount,
+                SigmaCarrier.SamplesPerPage *
+                    SigmaCarrier.RepresentationWordsPerSample) / 256;
+            frame.Dispatch(clone, copyGroups, 1, 1);
+            frame.Dispatch(scatter, 1, 1, 1);
+            frame.Dispatch(close, 1, 1, 1);
+
+            var actualRoot = new uint[1];
+            root.GetData(actualRoot);
+            Assert.That(actualRoot[0], Is.EqualTo(1u));
+            var actualState = new UInt2[1];
+            carrierState.GetData(actualState, 0, 0, 1);
+            Assert.That(actualState[0].Low, Is.EqualTo(priorState[0].Low));
+            Assert.That(actualState[0].High, Is.EqualTo(priorState[0].High));
+            var actualRepresentation = new UInt4[1];
+            carrierRepresentation.GetData(actualRepresentation, 0, 0, 1);
+            Assert.That(actualRepresentation[0],
+                Is.EqualTo(priorRepresentation[0]));
+            PageMeta actualMetadata = ReadPageMeta(metadata, 0u);
+            Assert.That(actualMetadata.Revision,
+                Is.EqualTo(priorMetadata[0].Revision));
+            var actualDirty = new uint[physicalPages];
+            dirty.GetData(actualDirty);
+            Assert.That(actualDirty, Is.All.Zero);
+        }
+
+        [Test]
         public void ExactConstraintJournalMinimizesWithoutBranchIdentity()
         {
             SigmaExactConstraintRecord broad = ConstraintRecord(1u, 11u,

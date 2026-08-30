@@ -19,6 +19,97 @@ Updated: 2026-08-30 (Europe/Prague)
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
 
+## N4 resident-capacity safety and frozen N5R persistence design
+
+The historical Quest GPU crash and the current N4 capacity receipt are now
+forensically separated. In the SimpleScanner donor, commit `24f84a5` used an
+async-compute graphics-fence polling path around publication replacement; commit
+`ba286ac` replaced it with an asynchronous scanner-owned completion token and
+retained both generations while queued GPU use was unproved. That is the verified
+publication/readout use-after-free failure class.
+
+Current Sigma already has the corresponding correct lifecycle boundary:
+`RecordAfterAllWork` inserts a `CPUSynchronisation` graphics-queue ticket after
+the complete native command buffer; ingress/capture/prediction/readout resources
+remain owned through completion, and a polling fault is quarantined by
+`SigmaGpuRetirement`. No lifetime redesign was added to N4.
+
+The distinct N4 bug was a real resident-capacity planning error. CUT E owns 128
+bounded page-plan scratch entries, but the live Quest segment exposed 112 physical
+pages = 56 current/shadow pairs. The old planner could therefore derive target
+slot 112 from logical plan 56. Production now:
+
+```text
+legal page plans = min(PagePlanCapacity, TargetPageCapacity / 2)
+scratch addressing remains sized by the full plan arena
+semantic source/target planning stops at legal resident pairs
+capacity fault zeroes mutation + clone + scatter work
+clone/scatter independently reject invalid target page/sample
+root-last retains the prior root
+```
+
+The production-faithful one-pair regression fills the only resident source page,
+requests the next logical page, then proves zero mutation/clone/scatter and
+byte-identical state/chi-kappa/certificate metadata/root even when clone/scatter
+are invoked defensively. An invalid odd/one-page target ABI also fails closed
+rather than returning false `NO_CHANGE`.
+
+Actual evidence over the current tree:
+
+```text
+ResidentPairCapacityFailsClosedBeforeCloneOrScatter       PASS
+PreRootFaultLeavesStateGaugeCertificateAndRootUntouched   PASS
+complete Unity EditMode/Vulkan                         107/107 PASS
+generator --check / UAV / git diff --check        PASS / PASS / PASS
+compute UAV maximum                                             <=8
+N1/N2 opcode/node/table semantics diff                            0
+generated metadata change        spec SHA + plan SHA + derived program fingerprint
+```
+
+`errusual.md` records the reusable lifetime, capacity and fault-taxonomy patterns.
+`new_spec.md` and the frozen closure plan now define N5R as dirty-page immutable
+COW/CAS persistence:
+
+```text
+HEAD -> RootObject -> sparse immutable page map -> PageRecord -> EncodePage blob
+one sparse GPU logical-page locator + one dense reverse slot table
+ABSENT_IN_ROOT != COLD_DURABLE
+slot reuse = durable reachability + GPU completion + zero generation leases
+```
+
+N5R remains pending/unopened until N4R acceptance. N4 still fails closed at its
+resident boundary; N5 alone converts that receipt into asynchronous cold
+evict/rehydrate/backpressure plus exact replay.
+
+The latest capture containing actual per-entrypoint GPU timestamps is
+`n4r_fault_fix_retry_20260830_032312`. Its shader execution shape is still the
+current N4 shape; the later 15 Hz scheduler does not replace these kernels. For
+revision 1 the two dominant entries are:
+
+```text
+SigmaNativeContract.ContractNativeQuery       233.1091 ms / 2 dispatches
+SigmaNativeFrame.PrepareNativeComponentOrder   73.4488 ms / 1 dispatch
+BuildNativeObservation (next)                  66.4428 ms / 1 dispatch
+total timestamped compute                     500.6230 ms / 20 profiled dispatches
+```
+
+`ContractNativeQuery` telemetry aggregates the independent FOOTPRINT and
+TILE_CLOSE submissions: one costs 155.0864 ms and the other 78.0227 ms, but the
+current telemetry record does not name which sample belongs to which mode.
+Source/work cardinality makes FOOTPRINT the likely maximum; that attribution is
+an inference, not a measured per-mode label. `PrepareNativeComponentOrder` is a
+real remaining global close interpreter: after parallel materialization, the
+last workgroup performs component discovery, complete-component comparison/
+bitonic ordering, fresh-width walks and component scans. Together the top two
+consume 61.2% of the timestamped compute. The older 4304.165 ms
+`PrepareNativeRefinementPlan` and 868.472 ms `PrepareNativeCanonicalSelect`
+measure the rejected pre-parallel CUT-E lowering and are not current blockers.
+
+The current checkpoint action is WIP-only: commit and push this verified capacity/
+N5R-design slice on `forensic/n4r-cut-e-scheduler`, then build and install one
+Release Android/Vulkan APK from that exact source SHA. This does not accept N4R,
+open N5R or waive the remaining Quest performance/physical gates.
+
 ## N4R fixed-cadence scan scheduler closure
 
 The current WIP adopts only the proven SimpleScanner execution cadence, not its

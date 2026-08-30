@@ -545,3 +545,34 @@ branch/chart decisions remain in Git history only.
 - This decision adds no dispatch, buffer, readback, CPU physical authority or
   fallback. It bounds submission backlog but does not waive the N4 kernel timing
   or resident-capacity gates.
+
+## ADR-S452 — Durable COW root, disposable residency and completion-bound retirement
+
+- Two page-fault classes are distinct. `SIGMA_N4_FAULT_PAGE_VALIDATION` is an
+  application fail-closed receipt that retains the prior root. A KGSL/MMU page
+  fault is an invalid device-memory access. The historical SimpleScanner crash is
+  attributed to publication-resource retirement before queued GPU use completed;
+  N4's 128-plan/56-resident-pair boundary is a separate capacity-planning defect.
+- N4 safety computes legal page plans from actual resident current/shadow pairs,
+  clears mutation/clone/scatter work on overflow, bounds-checks clone/scatter and
+  leaves the previous root authoritative. Planning scratch is never resident
+  capacity or logical world size.
+- N5 durable backing is `HEAD -> immutable RootObject -> immutable sparse COW
+  radix/Merkle page map -> PageRecord -> SHA-256(canonical EncodePage bytes)`.
+  Content hashes provide integrity/lookup only; full logical keys and bytes remain
+  authoritative. Live persistence writes dirty pages and affected COW paths, not
+  full snapshots.
+- GPU residency owns one sparse logical-page-to-transient-locator map and one dense
+  reverse slot table. Segment/bank/slot/hash bucket/probe/allocation/eviction order
+  is disposable and cannot reach physics, D4 normalization or canonical bytes.
+- `COLD_DURABLE` is not `ABSENT_IN_ROOT` and never means `ZEmpty`. A cold page or
+  missing/stale support summary is conservatively included and asynchronously
+  rehydrated.
+- A slot/resource/generation is reusable only after its required durable root is
+  reachable, its last GPU reader/writer completion is proved and all publication/
+  readout/persistence leases release. Pending retains it; failed/unprovable
+  completion quarantines it. CPU ownership reaching zero never proves retirement.
+- N5 converts the N4 resident-capacity receipt into bounded cold eviction/load plus
+  exact observation replay. It does not reopen N1--N4, add physical state or treat
+  storage pressure as unresolved/default/end-of-scan. N5 remains pending until N4R
+  acceptance.

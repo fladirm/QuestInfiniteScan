@@ -1492,20 +1492,139 @@ Pages, blocks, segments, codecs, chunks and files are storage only. Their shape,
 order and residency may not affect `Ψ`, query results, reverse constraints or
 certificates.
 
-The live backing must contain four representation-neutral layers:
+The live backing contains four representation-neutral layers:
 
 ```text
-published logical page/gauge key and generation directory
-durable lossless encoded page/gauge/certificate blobs on device storage
-bounded decoded GPU current/shadow residency cache
+canonical logical page/gauge key and generation
+durable immutable sparse directory plus lossless content-addressed blobs
+bounded disposable decoded GPU current/shadow residency cache
 derived conservative query-support summaries/index
 ```
 
-The directory and root manifest are append/replace atomically and identify the
-latest durable generation independently of resident slot/segment. A clean page is
-evictable only after its encoded bytes, gauge metadata, certificate receipts and
-query-support summary are durably reachable from a published manifest. Rehydrate
-must reproduce the exact decoded representation before it becomes query-visible.
+The durable representation is:
+
+```text
+HEAD
+  -> immutable RootObject
+       -> immutable sparse COW radix/Merkle page map
+            logical signed page coordinate -> immutable PageRecord
+                                                    -> PageBlobHash
+       -> conservative query-support-summary root
+       -> certificate/unresolved-frontier manifest roots
+
+PageBlobHash -> canonical lossless Sigma page bytes
+```
+
+`HEAD` is the sole durable publication selector. `RootObject` fingerprints the
+schema, algebra/Merkaba program, `ZEmpty`, `chi/kappa` and certificate formats and
+records the matching logical revision. `PageRecord` records the exact signed
+logical page coordinate, state/gauge/certificate generations, page revision,
+payload hash and conservative support-summary receipt. The sparse map and root are
+immutable copy-on-write objects: changing one page writes one new page blob and
+only the map path/root objects affected by that key. A live commit never rewrites
+or scans the complete world.
+
+For the frozen S4-08.6 page ABI, the initial canonical page blob is exactly the
+lossless canonical byte stream produced by `EncodePage`, including full S16,
+`chi/kappa`, certificate and generation metadata. Its SHA-256 is an integrity and
+content locator, never physical identity, canonical ordering or a substitute for
+byte comparison. Decode validates the complete bytes and all fingerprints; a hash
+collision, malformed object or mismatched coordinate/generation fails closed.
+`EncodeSnapshot` remains a whole-state oracle/import/export format, not the live
+per-revision persistence algorithm.
+
+Durable commit is dirty-page and root-last:
+
+```text
+pin one immutable published GPU revision and its exact dirty-page/certificate set
+    -> GPU encode/stage only touched pages; transfer asynchronously
+    -> verify canonical EncodePage/DecodePage parity and hash immutable blobs
+    -> write and fsync missing blobs
+    -> copy-on-write update page-map and conservative-summary paths
+    -> write and fsync the immutable RootObject
+    -> atomically replace and directory-fsync HEAD last
+    -> mark included generations durable
+```
+
+A crash before the `HEAD` exchange leaves the previous durable root authoritative;
+unreachable blobs are reclaimable garbage. A crash after it exposes the complete
+new root. Restart begins from `HEAD`, validates every reached object and rebuilds
+all disposable residency/locator structures. The in-memory GPU
+`PublishedRevisionRoot` from §21 and durable `HEAD` are distinct selectors with an
+exact revision mapping: a GPU-published revision is current but not durable until
+the corresponding `RootObject` is reachable from `HEAD`. Evidence and dirty page
+generations required to replay or persist that gap remain owned.
+
+The decoded cache has one sparse GPU locator:
+
+```text
+(logical page coordinate, generation/root context)
+    -> transient (segment/bank, slot, resident generation/state)
+```
+
+and one dense reverse metadata table indexed by physical slot. A second sparse
+reverse hash is forbidden unless a measured, independently sparse lookup domain
+requires it. Hash bucket, probe order, segment, bank, slot, resident generation,
+allocation order and eviction order never enter canonical bytes, certificates,
+D4 selection, page ordering or physical identity. Segments remain Vulkan binding
+banks only.
+
+Residency state is explicit and nonphysical:
+
+```text
+ABSENT_IN_ROOT
+COLD_DURABLE
+LOADING
+HOT_CLEAN
+HOT_DIRTY
+EVICTING
+QUARANTINED
+```
+
+`ABSENT_IN_ROOT` may use the proved unbacked-`ZEmpty` equivalence.
+`COLD_DURABLE` means the page exists in the pinned logical root but is not decoded
+on GPU; it is never `ZEmpty`, no support and no relation. Missing/stale resident or
+query-summary data therefore triggers conservative inclusion plus asynchronous
+rehydration/backpressure. It may not expose farther first hit, close an intrinsic
+relation or authorize physical mutation.
+
+A physical slot/resource/generation becomes reusable only when:
+
+```text
+its required durable replacement/root is reachable
+AND the last GPU reader and writer completion is proved
+AND no published-root, readout or persistence lease references the generation
+```
+
+Reference count or CPU ownership reaching zero alone is insufficient. Pending
+completion retains the resource. Failed or unprovable completion quarantines it;
+it never permits release/reuse. Replacement/migration keeps both source and target
+generations alive until the handoff is proved. The graphics-queue completion
+contract may use the existing scanner-owned CPU-synchronisation ticket or a tiny
+asynchronous readback completion token recorded after the final relevant command;
+an async-compute-only fence path may not be used for graphics-queue lifetime.
+
+Eviction follows the same ordering. A dirty page is not evictable. A clean page
+may transition from `HOT_CLEAN` to `COLD_DURABLE` only after its exact page blob,
+gauge/certificate receipts and conservative query-support summary are reachable
+from `HEAD`, all GPU users have completed and every lease has released. The old
+resident locator remains valid until the replacement/cold transition publishes;
+eviction can never create a transient logical hole.
+
+Rehydrate pins one durable root and PageRecord, verifies object hash, schema,
+program/default/representation fingerprints and generation, decodes into an
+unpublished shadow slot, validates full state/gauge/certificate parity and only
+then publishes the transient locator. If the selected root advances during load,
+the decoded generation may remain a cache entry but cannot satisfy a newer query
+without an exact generation match. No synchronous GPU readback, per-page host
+dispatch loop or CPU reconstruction authority is allowed.
+
+N4's resident-capacity boundary is a safety stop, not pager semantics. Planning
+scratch capacity and physical resident-pair capacity are independent. N4 clears
+all indirect mutation/clone/scatter work and retains the prior root when a target
+page has no resident current/shadow pair. N5 converts precisely that condition into
+reason-coded cold page-fault/backpressure work and retained observation replay; it
+does not reinterpret capacity as physical `UNRESOLVED`, `ZEmpty` or end-of-scan.
 
 After the `ZEmpty` gate:
 
@@ -1515,18 +1634,23 @@ After the `ZEmpty` gate:
 - clean pages may encode/evict/rehydrate transparently;
 - capacity pressure changes residency, never logical world size.
 
-The current `NULL/CONST/AFFINE/DELTA/RAW` codec is a donor for state payloads. The
-production schema must additionally encode/fingerprint the exact `chi/kappa`
-normal form or its page/region reference, gauge generation, program/default fingerprint and
-conservative support summary required to interpret a nonresident page. The
+The current `NULL/CONST/AFFINE/DELTA/RAW` codec is the lossless page-payload donor.
+The production object also fingerprints the exact `chi/kappa` normal form or its
+page/region reference, gauge generation, program/default fingerprint, certificate
+receipt and conservative summary required to interpret a nonresident page. The
 S4‑08.6 `64×64` page and `8×8` block geometry remains frozen; adaptive density is
 represented by `chi/kappa`, not by silently changing this ABI.
 
-Page lookup, encode, durable write, eviction, asynchronous rehydrate and GPU cache
-replacement must be implemented before S4‑08 closure. A resident allocation fault
-is backpressure/page-fault work, not proof that the logical carrier is full. The
-published eye/readout root remains usable while cold rehydrate/refinement work is
-in flight.
+Query-support summaries are durable or deterministically rebuildable conservative
+metadata with zero false negatives. A summary may overinclude. Missing, stale or
+corrupt summary data pins/includes the page and schedules rehydrate; it never hides
+it. Summary tree shape and content hashes own no physical identity.
+
+Page lookup, dirty-page encode, durable COW publication, eviction, asynchronous
+rehydrate and GPU locator replacement must be implemented before S4‑08 closure. A
+resident allocation fault is backpressure/page-fault work, not proof that the
+logical carrier is full. The published eye/readout root remains usable while cold
+rehydrate/refinement/persistence work is in flight.
 
 Persist:
 
@@ -2323,6 +2447,12 @@ The following are hard failures:
 - texture/detail reconstructed outside `Ψ` for export;
 - page/segment/residency identity affecting physics;
 - finite resident page pairs treated as logical world capacity;
+- planning/scratch capacity treated as physical resident-slot availability;
+- a cold durable page interpreted as unbacked `ZEmpty` or omitted support;
+- hash bucket, content hash, segment/bank/slot or eviction order used as canonical
+  identity or ordering;
+- GPU publication/readout/migration backing released or recycled before its last
+  reader/writer completion and generation leases are proved complete;
 - query-support culling without a generated zero-false-negative proof;
 - optical quality/confidence used instead of a calibrated illumination/sensor
   transfer nuisance law;
@@ -2405,7 +2535,20 @@ Before live mutation:
 39. the exact no-change fast path emits no state/gauge delta or page clone and
     meets the stable-revisit cadence gate;
 40. direct eye queries meet XR cadence while scan/refinement/page faults are in
-    flight.
+    flight;
+41. dirty-page COW persistence writes only changed page/map paths, and crash
+    injection before every `HEAD`-swap step yields either the complete prior or
+    complete next durable root, never a mixed root;
+42. a page present in the pinned durable root but absent from GPU residency never
+    behaves as `ZEmpty`; stale/missing locator or support summary fails closed and
+    rehydrates the exact generation;
+43. rehydrate into different segment/slot assignments and rebuild of the sparse
+    locator produce byte-identical page, gauge, certificate and query results;
+44. pending/faulted GPU completion, an outstanding readout lease and a queued
+    publication reader each independently prevent slot/resource retirement;
+45. scratch page-plan capacity larger than resident-pair capacity cannot create an
+    out-of-range clone/scatter target; N4 retains the prior root and N5 converts the
+    same boundary into cold page-fault/backpressure work.
 
 Live Quest acceptance additionally requires the staged `D_budget` limits
 `N3<=80`, `N4<=64`, `N5<=56`, final no-change `<=20`, final ordinary informative
@@ -2468,6 +2611,11 @@ restart/rehydrate and deterministic replay
 long scan beyond resident capacity with transparent eviction
 nonresident page contributing to a sensor/eye query
 stale/missing query-support summary fail-closed path
+dirty-only COW commit and no-change zero-write commit
+crash before/after every durable blob/map/root/HEAD publication boundary
+pending/faulted GPU completion and readout-lease retirement quarantine
+page-plan capacity larger than resident current/shadow-pair capacity
+COLD_DURABLE versus ABSENT_IN_ROOT / ZEmpty negative control
 clear-data versus stop/sleep durable-lifecycle separation
 ```
 
@@ -2646,19 +2794,48 @@ There is no publication-capable sensor-only intermediate run.
 
 ## N5R — representation-aware sparse commit and durable pager
 
-- feed compact state/gauge deltas directly to touched representation generations;
-- retain complete evidence/certificate ownership;
-- implement the durable logical page/gauge directory, encoded on-device blob
-  backing, bounded decoded GPU residency, asynchronous eviction/rehydration and
-  exact clear/restore lifecycle;
-- persist conservative nonresident query-support summaries and prove their rebuild;
-- root exchange atomically selects gauge/state/certificate/directory and remains
-  last;
-- delete superseded second mapping/sort/publication orchestration.
-- use exactly the accepted N4 full-frame ingress; N5 may not fall back to the N3
+- retain the accepted N4 full-frame ingress, NativeCloseCommit and in-memory
+  root-last publication unchanged; N5 may not reopen N1--N4 or restore the N3
   one-footprint bootstrap;
-- require `D_budget<=56` on the same full-frame warm ordinary fixture; changing resident
-  segment/page count at fixed visible work leaves the hot sequence unchanged.
+- feed only compact dirty state/gauge/certificate/page deltas into one immutable
+  content-addressed persistence cut; never scan or serialize the complete world
+  per revision;
+- implement `HEAD -> RootObject -> immutable sparse COW radix/Merkle page map ->
+  PageRecord -> SHA-256(EncodePage)` plus certificate/frontier and conservative
+  query-summary roots. Hashes provide integrity/lookup only and never select
+  canonical order or identity;
+- atomically publish durable `HEAD` last after blob, map, summary and RootObject
+  writes are flushed. GPU `PublishedRevisionRoot` and durable `HEAD` retain an
+  explicit revision mapping; evidence/dirty generations remain owned until the
+  durable handoff;
+- implement one sparse GPU logical-page-to-resident-locator map plus a dense
+  reverse slot table. Segment/bank/slot/probe/allocation order remains disposable;
+  a second sparse reverse map requires a separately measured sparse lookup need;
+- implement exact `ABSENT_IN_ROOT`, `COLD_DURABLE`, `LOADING`, `HOT_CLEAN`,
+  `HOT_DIRTY`, `EVICTING` and `QUARANTINED` lifecycle. `COLD_DURABLE` is never
+  `ZEmpty`;
+- make eviction legal only after the exact generation and support summary are
+  reachable from `HEAD`, the last GPU reader/writer completion is proved and no
+  publication/readout/persistence lease remains. Pending keeps backing alive;
+  failed completion quarantines it;
+- asynchronously rehydrate into an unpublished shadow slot, validate hash/schema/
+  fingerprints/generation and full decoded state/gauge/certificate parity, then
+  publish only the transient locator. No synchronous readback or per-page host
+  dispatch loop;
+- convert N4 resident-capacity fail-closed receipts into bounded reason-coded cold
+  page-fault/backpressure plus retained observation replay. Capacity pressure may
+  not become physical unresolved/default state, terminal scan stop or an OOB
+  target;
+- persist/rebuild zero-false-negative query-support summaries so nonresident pages
+  remain discoverable without decoding the world;
+- implement stop/sleep/restart and atomic clear. Stop preserves `HEAD`; clear
+  atomically removes the durable namespace and then retires resident generations
+  under the same completion/lease rule;
+- delete the full-snapshot live commit, any second mapping/sort/publication
+  orchestration and every resource retirement path based only on CPU ownership;
+- require `D_budget<=56` on the accepted full-frame warm-resident fixture; cold
+  encode/evict/rehydrate work is separately reason-coded and resident segments
+  `1/2/7` at fixed visible work leave the hot graph and canonical bytes unchanged.
 
 ## N6R — pure readouts
 

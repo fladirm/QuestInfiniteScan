@@ -2,28 +2,26 @@
 
 ## Exchange 1 — user
 
-Asked whether reconstruction already runs as an independent 15 Hz scan beside a
-72 Hz XR readout, as in SimpleScanner, or whether every XR frame drives scanning.
+After the resident-capacity/lifetime/N5R design closure, requested the two slowest
+current kernels from actual run history.
 
 ## Exchange 1 — assistant
 
-Source and Quest-log audit showed no explicit 15 Hz scheduler. The bridge admitted
-the next strictly newer coherent frame as soon as the renderer consumed the prior
-one; after reconstruction faulted, accepted capture ran at about 25 Hz. Published-
-carrier preview was an XR-frame draw, but scan prediction/admission was still
-triggered from renderer `LateUpdate`, allowing native GPU work to starve XR.
+The newest capture with per-entrypoint timestamps is the 03:23 Quest retry:
+`ContractNativeQuery` is first at 233.1091 ms across FOOTPRINT and TILE_CLOSE,
+and `PrepareNativeComponentOrder` is second at 73.4488 ms; together they are
+61.2% of 500.623 ms timestamped compute. `BuildNativeObservation` is third at
+66.4428 ms. The historical 4304/868 ms CUT-E kernels are already removed.
 
 ## Exchange 2 — user
 
-Directed a donor-shaped 15 Hz scheduler, required the rule and the known prior
-failure cause in spec/run controls, forbade ontology or unrelated changes, and
-requested commit/push plus a new APK.
+Requested an immediate commit and push, followed by a Release Android/Vulkan APK
+build and installation on the connected Quest; also asked whether N5R is ready.
 
 ## Exchange 2 — assistant
 
-Implemented fixed 15 Hz admission in `RoomScanner`, gated on an empty pending/in-
-flight native pipeline, and moved sensor transfer out of renderer `LateUpdate` so
-immutable-root preview remains XR-cadenced. Missed ticks never catch up. The run
-records revision-52 warm-segment exhaustion separately from GPU-starvation fence
-warnings. Focused cadence/rig tests pass 16/16 and full Unity Vulkan passes 100/100;
-the next action is checkpoint/push then same-SHA Release build/install.
+N5R is designed/frozen in spec and plan but remains pending/unimplemented until
+N4R acceptance. The current capacity correction is locally green at Unity/Vulkan
+107/107 with generator/UAV/diff gates. The exact next action is a WIP checkpoint
+on the forensic branch, push, then same-source Release build and streamed install;
+neither N4R acceptance nor N5R activation is claimed.

@@ -172,6 +172,8 @@ uint _NativeProvenanceReceipt[8];
 #define SIGMA_N4_FAULT_REFINEMENT_MAPPING 0x00001000u
 #define SIGMA_N4_FAULT_RELOCATION 0x00002000u
 #define SIGMA_N4_FAULT_REFINEMENT_APPEND 0x00004000u
+#define SIGMA_N4_PUBLICATION_FAULT_TAG 0x80000000u
+#define SIGMA_N4_PUBLICATION_COUNT_MASK 0x7fffffffu
 #define SIGMA_N4_LOGICAL_CAPACITY_MAX_LOG2 19u
 #define SIGMA_N4_INVALID 0xffffffffu
 #define SIGMA_N4_CANONICAL_RUN_CAPACITY 16384u
@@ -3476,6 +3478,10 @@ bool SigmaN4PublishCurrentEqual(uint footprint, uint sourceSlot, uint sample,
     return stateEqual && gaugeEqual && certificateEqual;
 }
 
+uint SigmaN4PublishResidentPagePlanCapacity();
+uint SigmaN4PublishScratchLogicalCapacity();
+uint SigmaN4PublishLogicalCapacity();
+
 bool SigmaN4PublishAppendRefinementChild(uint activeIndex, uint child,
     uint logical, uint component)
 {
@@ -3505,7 +3511,7 @@ bool SigmaN4PublishAppendRefinementChild(uint activeIndex, uint child,
 
     uint page = logical / SIGMA_PAGE_SAMPLE_COUNT;
     uint sample = logical - page * SIGMA_PAGE_SAMPLE_COUNT;
-    if (page >= _NativePagePlanCapacity) return false;
+    if (page >= SigmaN4PublishResidentPagePlanCapacity()) return false;
     uint plan = SigmaN4PublishPlanAddress(page, 0u);
     uint2 planSource = _NativeCloseScratch[plan];
     uint2 planTarget = _NativeCloseScratch[plan + 1u];
@@ -3572,7 +3578,7 @@ bool SigmaN4PublishAppendRelocation(uint sourceSlot, uint sourceSample,
 {
     uint page = logical / SIGMA_PAGE_SAMPLE_COUNT;
     uint sample = logical - page * SIGMA_PAGE_SAMPLE_COUNT;
-    if (page >= _NativePagePlanCapacity ||
+    if (page >= SigmaN4PublishResidentPagePlanCapacity() ||
         !SigmaN4PublishSourceSampleInRange(sourceSlot, sourceSample))
         return false;
     uint plan = SigmaN4PublishPlanAddress(page, 0u);
@@ -3611,9 +3617,23 @@ bool SigmaN4PublishAppendRelocation(uint sourceSlot, uint sourceSample,
     return true;
 }
 
-uint SigmaN4PublishLogicalCapacity()
+uint SigmaN4PublishResidentPagePlanCapacity()
+{
+    // PagePlanCapacity is bounded scratch.  Resident current/shadow pairs are
+    // the only legal N4 publication targets; N5 will replace this capacity
+    // fault with asynchronous cold residency work.
+    return min(_NativePagePlanCapacity, _NativeTargetPageCapacity / 2u);
+}
+
+uint SigmaN4PublishScratchLogicalCapacity()
 {
     return _NativePagePlanCapacity * SIGMA_PAGE_SAMPLE_COUNT;
+}
+
+uint SigmaN4PublishLogicalCapacity()
+{
+    return SigmaN4PublishResidentPagePlanCapacity() *
+        SIGMA_PAGE_SAMPLE_COUNT;
 }
 
 uint SigmaN4PublishTargetWorkAddress(uint index)
@@ -3624,7 +3644,7 @@ uint SigmaN4PublishTargetWorkAddress(uint index)
 uint SigmaN4PublishTargetTempAddress(uint index)
 {
     return _NativeActiveSupportMarkerScratchOffset +
-        SigmaN4PublishLogicalCapacity() + index;
+        SigmaN4PublishScratchLogicalCapacity() + index;
 }
 
 uint SigmaN4PublishChildOrderLoad(uint index)
@@ -3662,7 +3682,7 @@ bool SigmaN4PublishSourceLogical(uint logical, out uint sourceSlot,
     sourceSlot = SIGMA_N4_INVALID;
     coordinate = 0u;
     level = 0u;
-    if (page >= _NativePagePlanCapacity) return false;
+    if (page >= SigmaN4PublishResidentPagePlanCapacity()) return false;
     sourceSlot = _NativeCloseScratch[SigmaN4PublishPlanAddress(page, 0u)].y;
     if (!SigmaN4PublishSourceSampleInRange(sourceSlot, sourceSample))
         return false;
@@ -4185,11 +4205,12 @@ uint SigmaN4PublishPrepareRefinementCandidates(uint threadIndex,
 
     uint localExtent = 0u;
     uint pageRounds = (_NativePagePlanCapacity + 255u) / 256u;
+    uint residentPagePlanCapacity = SigmaN4PublishResidentPagePlanCapacity();
     [loop]
     for (uint pageRound = 0u; pageRound < pageRounds; ++pageRound)
     {
         uint page = pageRound * 256u + threadIndex;
-        if (page < _NativePagePlanCapacity)
+        if (page < residentPagePlanCapacity)
         {
             uint source = _NativeCloseScratch[
                 SigmaN4PublishPlanAddress(page, 0u)].y;
@@ -5100,17 +5121,21 @@ void PrepareNativeCanonicalSeed(uint3 threadId : SV_GroupThreadID)
     DeviceMemoryBarrierWithGroupSync();
 
     uint pageRounds = (_NativePagePlanCapacity + 255u) / 256u;
+    uint residentPagePlanCapacity = SigmaN4PublishResidentPagePlanCapacity();
     [loop]
     for (uint pageRound = 0u; pageRound < pageRounds; ++pageRound)
     {
         uint page = pageRound * 256u + threadIndex;
         if (page < _NativePagePlanCapacity)
         {
-            uint source = SigmaN4PublishVisibleSlot(page);
-            uint target = source == SIGMA_N4_INVALID ? page * 2u :
-                (source ^ 1u);
-            uint generation = source == SIGMA_N4_INVALID ? 1u :
-                _NativeSourcePageMetadata[source].generation + 1u;
+            bool resident = page < residentPagePlanCapacity;
+            uint source = resident
+                ? SigmaN4PublishVisibleSlot(page) : SIGMA_N4_INVALID;
+            uint target = !resident ? SIGMA_N4_INVALID :
+                (source == SIGMA_N4_INVALID ? page * 2u : (source ^ 1u));
+            uint generation = !resident ? 0u :
+                (source == SIGMA_N4_INVALID ? 1u :
+                    _NativeSourcePageMetadata[source].generation + 1u);
             _NativeCloseScratch[SigmaN4PublishPlanAddress(page, 0u)] =
                 uint2(page, source);
             _NativeCloseScratch[SigmaN4PublishPlanAddress(page, 1u)] =
@@ -5373,11 +5398,15 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
     uint threadIndex = threadId.x;
     if (threadIndex == 0u)
     {
-        SigmaN4PublishFault = 0u;
+        SigmaN4PublishFault = _NativeTargetPageCapacity < 2u ||
+            (_NativeTargetPageCapacity & 1u) != 0u
+                ? SIGMA_N4_FAULT_PAGE_VALIDATION
+                : 0u;
         SigmaN4PublishUnresolved = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
     uint pageRounds = (_NativePagePlanCapacity + 255u) / 256u;
+    uint residentPagePlanCapacity = SigmaN4PublishResidentPagePlanCapacity();
     uint componentCount = _NativeCounters[1u].x;
     uint oldExtent = _NativeCounters[1u].y;
     uint refinementCount = _NativeCounters[1u].z;
@@ -5481,7 +5510,7 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
                     SigmaN4PublishFreshInclusive(position) - 1u;
             uint page = logical / SIGMA_PAGE_SAMPLE_COUNT;
             uint sample = logical - page * SIGMA_PAGE_SAMPLE_COUNT;
-            if (page >= _NativePagePlanCapacity) {
+            if (page >= residentPagePlanCapacity) {
                 InterlockedOr(SigmaN4PublishFault,
                     SIGMA_N4_FAULT_LOGICAL_PAGE);
                 continue;
@@ -5640,7 +5669,7 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
          ++targetPageRound)
     {
         uint page = targetPageRound * 256u + threadIndex;
-        if (page < _NativePagePlanCapacity)
+        if (page < residentPagePlanCapacity)
         {
             uint plan = SigmaN4PublishPlanAddress(page, 0u);
             uint2 plan2 = _NativeCloseScratch[plan + 2u];
@@ -5655,7 +5684,7 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
     }
     DeviceMemoryBarrierWithGroupSync();
 
-    uint touched = threadIndex < _NativePagePlanCapacity &&
+    uint touched = threadIndex < residentPagePlanCapacity &&
         _NativeCloseScratch[SigmaN4PublishPlanAddress(threadIndex, 2u)].y !=
             0u ? 1u : 0u;
     SigmaN4PublishWide[threadIndex] = uint2(touched, touched);
@@ -5673,13 +5702,13 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
             SigmaN4PublishFlags[threadIndex];
         GroupMemoryBarrierWithGroupSync();
     }
-    uint touchedCount = SigmaN4PublishWide[
-        min(_NativePagePlanCapacity, 256u) - 1u].x;
+    uint touchedCount = residentPagePlanCapacity == 0u ? 0u :
+        SigmaN4PublishWide[min(residentPagePlanCapacity, 256u) - 1u].x;
     uint2 plan0 = 0u;
     uint2 plan1 = 0u;
     uint2 plan2 = 0u;
     uint2 plan3 = 0u;
-    if (threadIndex < _NativePagePlanCapacity)
+    if (threadIndex < residentPagePlanCapacity)
     {
         uint address = SigmaN4PublishPlanAddress(threadIndex, 0u);
         plan0 = _NativeCloseScratch[address];
@@ -5688,7 +5717,7 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
         plan3 = _NativeCloseScratch[address + 3u];
     }
     GroupMemoryBarrierWithGroupSync();
-    if (threadIndex < _NativePagePlanCapacity && touched != 0u)
+    if (threadIndex < residentPagePlanCapacity && touched != 0u)
     {
         uint output = SigmaN4PublishWide[threadIndex].x - 1u;
         uint address = SigmaN4PublishPlanAddress(output, 0u);
@@ -5727,6 +5756,7 @@ void PrepareNativeRevision(uint3 dispatchThreadId : SV_DispatchThreadID,
                 SIGMA_NATIVE_COLD_REASON_PAGE_FAULT);
             _NativeCounters[0u].w = 1u;
             _NativeCounters[0u].z = faultReceipt;
+            mutationCount = 0u;
             touchedCount = 0u;
         }
         else if (mutationCount == 0u)
@@ -5767,12 +5797,28 @@ void PrepareNativePage(uint3 groupId : SV_GroupID,
 {
     uint planIndex = groupId.y;
     if (planIndex >= _NativeCounters[1u].w) return;
+    if (planIndex >= SigmaN4PublishResidentPagePlanCapacity())
+    {
+        if (threadId.x == 0u)
+            InterlockedOr(_NativeFrames[0u].Publication.w,
+                SIGMA_N4_PUBLICATION_FAULT_TAG |
+                SIGMA_N4_FAULT_PAGE_VALIDATION);
+        return;
+    }
     uint address = SigmaN4PublishPlanAddress(planIndex, 0u);
     uint2 plan0 = _NativeCloseScratch[address];
     uint2 plan1 = _NativeCloseScratch[address + 1u];
     uint2 plan2 = _NativeCloseScratch[address + 2u];
     uint sourceSlot = plan0.y;
     uint targetSlot = plan1.x;
+    if (targetSlot >= _NativeTargetPageCapacity)
+    {
+        if (threadId.x == 0u)
+            InterlockedOr(_NativeFrames[0u].Publication.w,
+                SIGMA_N4_PUBLICATION_FAULT_TAG |
+                SIGMA_N4_FAULT_PAGE_VALIDATION);
+        return;
+    }
     uint word = groupId.x * 256u + threadId.x;
     if (word < SIGMA_PAGE_LANE_COUNT)
     {
@@ -5821,11 +5867,20 @@ void ScatterNativeState(uint3 id : SV_DispatchThreadID)
         uint mutation = stateWord / SIGMA_FRAME_LANE_COUNT;
         uint lane = stateWord - mutation * SIGMA_FRAME_LANE_COUNT;
         SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[mutation];
+        bool targetValid = delta.Generation.x < _NativeTargetPageCapacity &&
+            delta.Generation.y < SIGMA_PAGE_SAMPLE_COUNT;
         if ((delta.Changed.x & SIGMA_NATIVE_DELTA_STATE_CHANGED) != 0u)
-            _TargetCarrierState[
-                delta.Generation.x * SIGMA_PAGE_LANE_COUNT +
-                delta.Generation.y * SIGMA_FRAME_LANE_COUNT + lane] =
-                SigmaN4PublishDeltaLane(delta, lane);
+        {
+            if (targetValid)
+                _TargetCarrierState[
+                    delta.Generation.x * SIGMA_PAGE_LANE_COUNT +
+                    delta.Generation.y * SIGMA_FRAME_LANE_COUNT + lane] =
+                    SigmaN4PublishDeltaLane(delta, lane);
+            else
+                InterlockedOr(_NativeFrames[0u].Publication.w,
+                    SIGMA_N4_PUBLICATION_FAULT_TAG |
+                    SIGMA_N4_FAULT_PAGE_VALIDATION);
+        }
     }
     uint representationWord = id.x;
     if (representationWord <
@@ -5838,6 +5893,8 @@ void ScatterNativeState(uint3 id : SV_DispatchThreadID)
         SigmaNativeStateDeltaGpu delta = _NativeStateDeltas[mutation];
         if (delta.Changed.x != 0u)
         {
+            bool targetValid = delta.Generation.x < _NativeTargetPageCapacity &&
+                delta.Generation.y < SIGMA_PAGE_SAMPLE_COUNT;
             SigmaNativeGaugeDeltaGpu gauge = _NativeGaugeDeltas[mutation];
             bool gaugeWord = word < SIGMA_REPRESENTATION_CERTIFICATE;
             bool write = gaugeWord
@@ -5857,9 +5914,14 @@ void ScatterNativeState(uint3 id : SV_DispatchThreadID)
                             SIGMA_REPRESENTATION_CERTIFICATE]
                     : _NativeLocalityCertificateWords[delta.Receipts.x + word -
                         SIGMA_REPRESENTATION_CERTIFICATE]));
-                _TargetCarrierRepresentation[
-                    SigmaCarrierRepresentationAddress(delta.Generation.x,
-                        delta.Generation.y, word)] = value;
+                if (targetValid)
+                    _TargetCarrierRepresentation[
+                        SigmaCarrierRepresentationAddress(delta.Generation.x,
+                            delta.Generation.y, word)] = value;
+                else
+                    InterlockedOr(_NativeFrames[0u].Publication.w,
+                        SIGMA_N4_PUBLICATION_FAULT_TAG |
+                        SIGMA_N4_FAULT_PAGE_VALIDATION);
             }
         }
     }
@@ -5871,13 +5933,18 @@ void CloseAndPublishNativeRevision(uint3 threadId : SV_GroupThreadID)
     uint threadIndex = threadId.x;
     if (threadIndex == 0u)
     {
-        SigmaN4PublishFault = 0u;
+        uint publicationReceipt = _NativeFrames[0u].Publication.w;
+        SigmaN4PublishFault =
+            (publicationReceipt & SIGMA_N4_PUBLICATION_FAULT_TAG) != 0u
+                ? publicationReceipt & SIGMA_N4_PUBLICATION_COUNT_MASK
+                : 0u;
         SigmaN4PublishCount = _NativeFrames[0u].Disposition.x;
     }
     GroupMemoryBarrierWithGroupSync();
     if (SigmaN4PublishCount != SIGMA_NATIVE_FRAME_DISPOSITION_RESOLVED)
         return;
     SigmaNativeFrameGpu frame = _NativeFrames[0u];
+    frame.Publication.w &= SIGMA_N4_PUBLICATION_COUNT_MASK;
     uint touched = frame.Publication.y;
     [loop]
     for (uint validatePagePlanIndex = threadIndex;
