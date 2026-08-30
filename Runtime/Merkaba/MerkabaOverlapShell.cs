@@ -470,7 +470,7 @@ namespace Genesis.RoomScan
                 .Append("    lower = y; upper = z;\n}\n\n")
                 .Append("int M8OverlapMedianQuarterHeight(int4 values, ")
                 .Append("uint count)\n{\n")
-                .Append("    int lower; int upper;\n")
+                .Append("    int lower = 0; int upper = 0;\n")
                 .Append("    M8OverlapMedianBand(values, count, lower, upper);\n")
                 .Append("    return 2 * (lower + upper);\n}\n\n")
                 .Append("uint M8OverlapTriangleCorner(int freeSign, ")

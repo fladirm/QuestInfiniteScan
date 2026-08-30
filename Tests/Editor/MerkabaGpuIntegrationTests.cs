@@ -561,7 +561,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Contain(
                 "haloCoord - int3(1, 1, 1)"));
             Assert.That(frame, Does.Contain(
-                "kernelLocal += M8_SHELL_GROUP_THREADS"));
+                "kernelLocal = thread + kernelBatch * M8_SHELL_GROUP_THREADS"));
+            Assert.That(frame, Does.Contain(
+                "kernelBatch < 4u"));
             Assert.That(frame, Does.Contain(
                 "_M8FrameDispatchArgs[1] = 1u"));
             Assert.That(frame, Does.Contain("M8OccupiedPrefix"));
@@ -574,7 +576,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Not.Contain(
                 "MerkabaCanonicalPrimitivePosition"));
 
-            int mainLoop = compile.IndexOf("for (uint kernelLocal",
+            int mainLoop = compile.IndexOf("for (uint kernelBatch",
                 StringComparison.Ordinal);
             Assert.That(mainLoop, Is.GreaterThan(0));
             string mainPath = compile.Substring(mainLoop);

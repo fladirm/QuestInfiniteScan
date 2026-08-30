@@ -78,7 +78,7 @@ void M8OverlapMedianBand(int4 values, uint count, out int lower, out int upper)
 
 int M8OverlapMedianQuarterHeight(int4 values, uint count)
 {
-    int lower; int upper;
+    int lower = 0; int upper = 0;
     M8OverlapMedianBand(values, count, lower, upper);
     return 2 * (lower + upper);
 }
