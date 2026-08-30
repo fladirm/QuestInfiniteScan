@@ -103,7 +103,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(latch, Does.Contain(
                 "_projectionDepthCopyKernel.DispatchFit(command,"));
             Assert.That(latch, Does.Contain(
-                "MerkabaGpuTimestamps.RecordProfileBegin(command);"));
+                "CaptureOwner.DepthSnapshotCopy"));
+            Assert.That(latch, Does.Contain(
+                "MerkabaGpuTimestamps.End(CaptureOwner.DepthSnapshotCopy"));
         }
 
         [Test]

@@ -17,6 +17,17 @@ namespace Genesis.RoomScan
         Count
     }
 
+    internal enum CaptureOwner : byte
+    {
+        Observation,
+        ReadoutBuild,
+        Draw,
+        DepthSnapshotCopy,
+        PcaObservationCopy,
+        PcaHistoryCopy,
+        Count
+    }
+
     /// <summary>
     /// Periodic Vulkan timestamps recorded in the same command buffers as each
     /// measured compute dispatch and the actual URP Merkaba draw. Normal frames
@@ -31,7 +42,7 @@ namespace Genesis.RoomScan
 
         private const int MaximumTimedEntries = 4096;
         private const float InitialSampleDelaySeconds = 2f;
-        private const float SampleIntervalSeconds = 5f;
+        private const float SampleIntervalSeconds = 0.75f;
         private const float UnavailableRetrySeconds = 30f;
 
         private enum CaptureState : byte
@@ -53,11 +64,16 @@ namespace Genesis.RoomScan
             internal string Name { get; }
         }
 
-        private sealed class Aggregate
+        private class Aggregate
         {
             internal int Invocations;
             internal double TotalNanoseconds;
             internal double MaximumNanoseconds;
+        }
+
+        private sealed class SessionAggregate : Aggregate
+        {
+            internal int Samples;
         }
 
         private sealed class SampleMetrics
@@ -156,11 +172,17 @@ namespace Genesis.RoomScan
             "MerkabaIntegrator.CopyOwnedPcaObservation");
         private static readonly ulong[] TimestampPairs =
             new ulong[MaximumTimedEntries * 2];
+        private static readonly Dictionary<TimingEntry, SessionAggregate>
+            SessionTotals = new();
 
         private static CaptureState _state;
+        private static CaptureOwner _scheduledOwner;
+        private static CaptureOwner _activeOwner;
         private static uint _revision;
         private static float _nextSampleTime;
         private static bool _submissionBegan;
+        private static bool _submissionEnded;
+        private static int _lastCoverageSeen;
 #if !UNITY_EDITOR
         private static bool _unavailableWarningLogged;
 #endif
@@ -169,7 +191,8 @@ namespace Genesis.RoomScan
         private static bool _testAvailable;
 #endif
 
-        internal static bool IsRecording => _state == CaptureState.Recording;
+        internal static bool IsOwnerRecording(CaptureOwner owner) =>
+            _state == CaptureState.Recording && _activeOwner == owner;
         internal static uint CurrentRevision => _revision;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -177,10 +200,15 @@ namespace Genesis.RoomScan
         {
             EntriesByKernel.Clear();
             EntrySequence.Clear();
+            SessionTotals.Clear();
             _state = CaptureState.Idle;
+            _scheduledOwner = CaptureOwner.Observation;
+            _activeOwner = CaptureOwner.Count;
             _revision = 0u;
             _nextSampleTime = float.PositiveInfinity;
             _submissionBegan = false;
+            _submissionEnded = false;
+            _lastCoverageSeen = -1;
 #if !UNITY_EDITOR
             _unavailableWarningLogged = false;
 #endif
@@ -229,10 +257,37 @@ namespace Genesis.RoomScan
                 _nextSampleTime = Time.unscaledTime + InitialSampleDelaySeconds;
         }
 
-        internal static bool TryBeginFrame(uint revision)
+        internal static bool IsOwnerEligible(CaptureOwner owner)
         {
             Poll();
-            if (_state != CaptureState.Idle || revision == 0u)
+            return _state == CaptureState.Idle && owner == _scheduledOwner &&
+                   Time.unscaledTime >= _nextSampleTime;
+        }
+
+        internal static bool TryAcquire(CaptureOwner owner, uint revision,
+            CommandBuffer command)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (!TryAcquireState(owner, revision)) return false;
+            RecordProfileBegin(command);
+            return true;
+        }
+
+        internal static bool TryAcquire(CaptureOwner owner, uint revision,
+            RasterCommandBuffer command)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (!TryAcquireState(owner, revision)) return false;
+            RecordProfileBegin(command);
+            return true;
+        }
+
+        private static bool TryAcquireState(CaptureOwner owner, uint revision)
+        {
+            Poll();
+            if ((uint)owner >= (uint)CaptureOwner.Count ||
+                _state != CaptureState.Idle || revision == 0u ||
+                owner != _scheduledOwner)
                 return false;
 #if UNITY_EDITOR
             if (!_testAvailable)
@@ -256,11 +311,25 @@ namespace Genesis.RoomScan
             _revision = revision;
             _metrics = new SampleMetrics { Revision = revision };
             _submissionBegan = false;
+            _submissionEnded = false;
+            _activeOwner = owner;
             _state = CaptureState.Recording;
             return true;
         }
 
-        internal static void RecordProfileBegin(CommandBuffer command)
+        private static void RecordProfileBegin(CommandBuffer command)
+        {
+            if (_state != CaptureState.Recording || _submissionBegan)
+                return;
+            if (command == null) throw new ArgumentNullException(nameof(command));
+#if !UNITY_EDITOR && UNITY_ANDROID
+            command.IssuePluginEvent(Native.RenderEvent,
+                Native.EventId(Native.SubmissionBegin));
+#endif
+            _submissionBegan = true;
+        }
+
+        private static void RecordProfileBegin(RasterCommandBuffer command)
         {
             if (_state != CaptureState.Recording || _submissionBegan)
                 return;
@@ -313,27 +382,6 @@ namespace Genesis.RoomScan
                 PcaObservationCopyEntry, timedSubmission);
         }
 
-        internal static bool TryBeginStandaloneSubmission(uint revision,
-            CommandBuffer command)
-        {
-            if (command == null) throw new ArgumentNullException(nameof(command));
-            bool timed = TryBeginFrame(revision);
-            if (timed) RecordProfileBegin(command);
-            return timed;
-        }
-
-        internal static void RecordStandaloneSubmissionEnd(
-            CommandBuffer command, bool timedSubmission)
-        {
-            if (timedSubmission) RecordProfileEnd(command);
-        }
-
-        internal static void CompleteStandaloneSubmission(
-            bool timedSubmission, bool submitted)
-        {
-            if (timedSubmission) CompleteFrameSubmission(submitted);
-        }
-
         internal static void DispatchComputeProfiled(this CommandBuffer command,
             ComputeShader shader, int kernel, ComputeBuffer arguments,
             uint offset = 0u)
@@ -346,7 +394,23 @@ namespace Genesis.RoomScan
             RecordDispatchEvent(command, timed, false);
         }
 
-        internal static void RecordProfileEnd(CommandBuffer command)
+        internal static void End(CaptureOwner owner, CommandBuffer command,
+            bool acquired)
+        {
+            if (!acquired) return;
+            RequireActiveOwner(owner);
+            RecordProfileEnd(command);
+        }
+
+        internal static void End(CaptureOwner owner,
+            RasterCommandBuffer command, bool acquired)
+        {
+            if (!acquired) return;
+            RequireActiveOwner(owner);
+            RecordProfileEnd(command);
+        }
+
+        private static void RecordProfileEnd(CommandBuffer command)
         {
             if (_state != CaptureState.Recording)
                 return;
@@ -356,13 +420,17 @@ namespace Genesis.RoomScan
                 CancelFrame();
                 return;
             }
+            if (_submissionEnded)
+                throw new InvalidOperationException(
+                    "GPU timing submission was ended more than once.");
 #if !UNITY_EDITOR && UNITY_ANDROID
             command.IssuePluginEvent(Native.RenderEvent,
                 Native.EventId(Native.SubmissionEnd));
 #endif
+            _submissionEnded = true;
         }
 
-        internal static void RecordProfileEnd(RasterCommandBuffer command)
+        private static void RecordProfileEnd(RasterCommandBuffer command)
         {
             if (_state != CaptureState.Recording)
                 return;
@@ -372,56 +440,40 @@ namespace Genesis.RoomScan
                 CancelFrame();
                 return;
             }
+            if (_submissionEnded)
+                throw new InvalidOperationException(
+                    "GPU timing submission was ended more than once.");
 #if !UNITY_EDITOR && UNITY_ANDROID
             command.IssuePluginEvent(Native.RenderEvent,
                 Native.EventId(Native.SubmissionEnd));
 #endif
+            _submissionEnded = true;
         }
 
-        internal static void CompleteFrameSubmission(bool submitted)
+        internal static void Complete(CaptureOwner owner, bool acquired,
+            bool submitted)
         {
-            if (_state != CaptureState.Recording)
-                return;
+            if (!acquired) return;
+            RequireActiveOwner(owner);
             if (!submitted)
             {
                 CancelFrame();
                 return;
             }
+            if (!_submissionEnded)
+                throw new InvalidOperationException(
+                    "GPU timing submission completed without a matching End.");
             _state = CaptureState.AwaitingResults;
 #if !UNITY_EDITOR
             _nextSampleTime = Time.unscaledTime + SampleIntervalSeconds;
 #endif
         }
 
-        internal static void CloseIncompleteFrame()
+        private static void RequireActiveOwner(CaptureOwner owner)
         {
-            if (_state != CaptureState.Recording)
-                return;
-            if (!_submissionBegan)
-            {
-                CancelFrame();
-                return;
-            }
-            CommandBuffer command = CommandBufferPool.Get(
-                "Merkaba GPU timestamp close");
-            bool submitted = false;
-            try
-            {
-                RecordProfileEnd(command);
-                Graphics.ExecuteCommandBuffer(command);
-                submitted = true;
-            }
-            finally
-            {
-                CompleteFrameSubmission(submitted);
-                CommandBufferPool.Release(command);
-            }
-        }
-
-        internal static void CancelUnsubmittedFrame()
-        {
-            if (_state == CaptureState.Recording)
-                CancelFrame();
+            if (_state != CaptureState.Recording || _activeOwner != owner)
+                throw new InvalidOperationException(
+                    $"GPU timing owner mismatch: active={_activeOwner}, caller={owner}.");
         }
 
         internal static void Poll()
@@ -439,9 +491,13 @@ namespace Genesis.RoomScan
             bool valid = IsTimestampSampleValid(status, overflow,
                 capturedRevision, _revision, entryCount, EntrySequence.Count);
             if (valid)
+            {
                 LogTimings(entryCount, timestampPeriod, validBits);
+                AdvanceScheduledOwner();
+            }
             else
                 Logger.Warning($"Merkaba GPU timestamp sample invalid " +
+                               $"owner={_activeOwner} " +
                                $"revision={_revision} nativeRevision=" +
                                $"{capturedRevision} expectedEntries=" +
                                $"{EntrySequence.Count} actualEntries=" +
@@ -454,6 +510,12 @@ namespace Genesis.RoomScan
             }
             FinishFrame();
 #endif
+        }
+
+        private static void AdvanceScheduledOwner()
+        {
+            _scheduledOwner = (CaptureOwner)(((int)_scheduledOwner + 1) %
+                (int)CaptureOwner.Count);
         }
 
         internal static void CaptureM8Metrics(MerkabaGrid grid)
@@ -642,7 +704,7 @@ namespace Genesis.RoomScan
 
         private static bool Observe(TimingEntry entry)
         {
-            if (_state != CaptureState.Recording)
+            if (_state != CaptureState.Recording || !_submissionBegan)
                 return false;
             if (EntrySequence.Count >= MaximumTimedEntries)
                 throw new InvalidOperationException(
@@ -738,7 +800,9 @@ namespace Genesis.RoomScan
             {
                 TimingEntry entry = ranked[index].Key;
                 Aggregate value = ranked[index].Value;
-                Logger.Info($"Merkaba gpu-operation revision={_revision} " +
+                UpdateSession(entry, value);
+                Logger.Info($"Merkaba gpu-operation owner={_activeOwner} " +
+                            $"revision={_revision} " +
                             $"rank={index + 1} stage=" +
                             $"{StageNames[(int)entry.Stage]} " +
                             $"name={entry.Name} invocations={value.Invocations} " +
@@ -749,17 +813,66 @@ namespace Genesis.RoomScan
             for (int stage = 0; stage < stageTotals.Length; stage++)
             {
                 Aggregate value = stageTotals[stage];
-                Logger.Info($"Merkaba gpu-stage revision={_revision} " +
+                Logger.Info($"Merkaba gpu-stage owner={_activeOwner} " +
+                            $"revision={_revision} " +
                             $"stage={StageNames[stage]} " +
                             $"invocations={value.Invocations} " +
                             $"total={value.TotalNanoseconds / 1_000_000.0:F3}ms " +
                             $"maximum={value.MaximumNanoseconds / 1_000_000.0:F3}ms");
             }
-            Logger.Info($"Merkaba gpu-sample revision={_revision} " +
+            Logger.Info($"Merkaba gpu-sample owner={_activeOwner} " +
+                        $"revision={_revision} " +
                         $"timestamp-checksum={checksum / 1_000_000.0:F3}ms " +
                         $"entries={entryCount} operations={ranked.Count} " +
                         $"timestampPeriod={timestampPeriod:F6}ns " +
                         $"validBits={validBits}");
+            LogSessionCoverage();
+        }
+
+        private static void UpdateSession(TimingEntry entry, Aggregate sample)
+        {
+            if (!SessionTotals.TryGetValue(entry, out SessionAggregate total))
+            {
+                total = new SessionAggregate();
+                SessionTotals.Add(entry, total);
+            }
+            total.Samples++;
+            total.Invocations += sample.Invocations;
+            total.TotalNanoseconds += sample.TotalNanoseconds;
+            total.MaximumNanoseconds = Math.Max(total.MaximumNanoseconds,
+                sample.MaximumNanoseconds);
+            Logger.Info($"Merkaba gpu-operation-session name={entry.Name} " +
+                        $"samples={total.Samples} " +
+                        $"invocations={total.Invocations} " +
+                        $"average={total.TotalNanoseconds / total.Invocations / 1000.0:F1}us " +
+                        $"maximum={total.MaximumNanoseconds / 1000.0:F1}us");
+        }
+
+        private static void LogSessionCoverage()
+        {
+            var registered = new HashSet<TimingEntry>(EntriesByKernel.Values)
+            {
+                DrawEntry,
+                PcaHistoryCopyEntry,
+                PcaObservationCopyEntry
+            };
+            var missing = new List<string>();
+            foreach (TimingEntry entry in registered)
+                if (!SessionTotals.ContainsKey(entry)) missing.Add(entry.Name);
+            missing.Sort(StringComparer.Ordinal);
+            int seen = registered.Count - missing.Count;
+            Logger.Info($"Merkaba gpu-coverage registered={registered.Count} " +
+                        $"seen={seen} " +
+                        $"missing={missing.Count}");
+            if (seen == _lastCoverageSeen) return;
+            _lastCoverageSeen = seen;
+            const int namesPerLine = 4;
+            for (int start = 0; start < missing.Count; start += namesPerLine)
+            {
+                int count = Math.Min(namesPerLine, missing.Count - start);
+                Logger.Info($"Merkaba gpu-coverage-missing names=" +
+                    string.Join(",", missing.GetRange(start, count)));
+            }
         }
 
         private static void Add(Aggregate aggregate, double nanoseconds)
@@ -888,6 +1001,8 @@ namespace Genesis.RoomScan
             _state = CaptureState.Idle;
             _revision = 0u;
             _submissionBegan = false;
+            _submissionEnded = false;
+            _activeOwner = CaptureOwner.Count;
         }
 
 #if UNITY_EDITOR
@@ -897,10 +1012,46 @@ namespace Genesis.RoomScan
             if (!available)
             {
                 _state = CaptureState.Idle;
+                _scheduledOwner = CaptureOwner.Observation;
+                _activeOwner = CaptureOwner.Count;
                 _revision = 0u;
                 _submissionBegan = false;
+                _submissionEnded = false;
                 EntrySequence.Clear();
+                SessionTotals.Clear();
+                _lastCoverageSeen = -1;
             }
+        }
+
+        internal static CaptureOwner ScheduledOwnerForTests => _scheduledOwner;
+
+        internal static void SetScheduledOwnerForTests(CaptureOwner owner)
+        {
+            if ((uint)owner >= (uint)CaptureOwner.Count)
+                throw new ArgumentOutOfRangeException(nameof(owner));
+            if (_state != CaptureState.Idle)
+                throw new InvalidOperationException(
+                    "Cannot change the scheduled owner during a capture.");
+            _scheduledOwner = owner;
+        }
+
+        internal static int SessionSampleCountForTests
+        {
+            get
+            {
+                int samples = 0;
+                foreach (SessionAggregate aggregate in SessionTotals.Values)
+                    samples += aggregate.Samples;
+                return samples;
+            }
+        }
+
+        internal static void ResolveSampleForTests(bool valid)
+        {
+            if (_state != CaptureState.AwaitingResults)
+                throw new InvalidOperationException("No timing sample is awaiting results.");
+            if (valid) AdvanceScheduledOwner();
+            FinishFrame();
         }
 
         internal static MerkabaGpuStage[] RecordedStagesForTests()

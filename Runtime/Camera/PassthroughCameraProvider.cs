@@ -336,22 +336,22 @@ namespace Genesis.RoomScan
             bool timedSubmission = false;
             try
             {
-                timedSubmission = MerkabaGpuTimestamps.
-                    TryBeginStandaloneSubmission(timingRevision, command);
+                timedSubmission = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.PcaHistoryCopy, timingRevision, command);
                 if (hasLeft)
                     leftSlot = StageOwnedSample(command, 0, left,
                         timedSubmission);
                 if (hasRight)
                     rightSlot = StageOwnedSample(command, 1, right,
                         timedSubmission);
-                MerkabaGpuTimestamps.RecordStandaloneSubmissionEnd(command,
+                MerkabaGpuTimestamps.End(CaptureOwner.PcaHistoryCopy, command,
                     timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
                 submitted = true;
             }
             finally
             {
-                MerkabaGpuTimestamps.CompleteStandaloneSubmission(
+                MerkabaGpuTimestamps.Complete(CaptureOwner.PcaHistoryCopy,
                     timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }

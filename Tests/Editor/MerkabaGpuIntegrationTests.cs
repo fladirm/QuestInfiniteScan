@@ -238,7 +238,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(world, Does.Contain("void BenchmarkM8Pcg3d"));
             Assert.That(world, Does.Contain("MerkabaPcg3d(int3("));
             Assert.That(renderer, Does.Contain(
-                "if (MerkabaGpuTimestamps.IsRecording)"));
+                "if (timedSubmission)"));
             Assert.That(renderer, Does.Contain("RecordHashBenchmark(command)"));
         }
 

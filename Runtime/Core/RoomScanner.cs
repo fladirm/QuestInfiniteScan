@@ -484,7 +484,6 @@ namespace Genesis.RoomScan
                     pcaHistoryRetirement);
                 _depthCapture?.CompleteDepthCaptureStop();
                 _cameraProvider?.StopCapture();
-                MerkabaGpuTimestamps.CloseIncompleteFrame();
                 ScanLifecycle = ScanLifecycleState.Stopped;
                 ScanStopped?.Invoke();
                 Logger.Info("Merkaba scanning stopped after observation and " +

@@ -715,21 +715,29 @@ namespace Genesis.RoomScan
             EnsureOwnedRawDepth(slot, transientDepth.width, transientDepth.height);
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba owned stereo depth copy");
+            bool submitted = false;
+            bool timedSubmission = false;
             try
             {
-                MerkabaGpuTimestamps.TryBeginFrame(unchecked((uint)Math.Max(
-                    1, _latestRawFrameVersion + 1)));
-                MerkabaGpuTimestamps.RecordProfileBegin(command);
+                timedSubmission = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.DepthSnapshotCopy,
+                    unchecked((uint)Math.Max(1, _latestRawFrameVersion + 1)),
+                    command);
                 _projectionDepthCopyKernel.Set(command,
                     InputProjectionDepthID, transientDepth);
                 _projectionDepthCopyKernel.Set(command, DepthTexRWID,
                     _ownedRawDepth[slot]);
                 _projectionDepthCopyKernel.DispatchFit(command,
                     transientDepth.width, transientDepth.height, 2);
+                MerkabaGpuTimestamps.End(CaptureOwner.DepthSnapshotCopy,
+                    command, timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
             }
             finally
             {
+                MerkabaGpuTimestamps.Complete(CaptureOwner.DepthSnapshotCopy,
+                    timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
             MarkOwnedDepthSnapshotReady();
@@ -822,7 +830,8 @@ namespace Genesis.RoomScan
             int metricGroupsX = Mathf.CeilToInt(w / 8f);
             int metricGroupsY = Mathf.CeilToInt(h / 8f);
             EnsureRefineMetrics(metricGroupsX * metricGroupsY);
-            bool captureMetrics = MerkabaGpuTimestamps.IsRecording;
+            bool captureMetrics = MerkabaGpuTimestamps.IsOwnerRecording(
+                CaptureOwner.Observation);
             _stereoRgbdRefineKernel.Set(command, RefineSrcDepthId, _depthTex);
             _stereoRgbdRefineKernel.Set(command, RefineDstDepthId,
                 _refinedDepthTex);

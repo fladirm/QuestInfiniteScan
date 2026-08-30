@@ -31,7 +31,51 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void SampledFrame_RecordsActualDispatchSequence()
+        public void OwnerContract_IsTheFrozenRoundRobinOrder()
+        {
+            Assert.That(Enum.GetNames(typeof(CaptureOwner)), Is.EqualTo(new[]
+            {
+                "Observation",
+                "ReadoutBuild",
+                "Draw",
+                "DepthSnapshotCopy",
+                "PcaObservationCopy",
+                "PcaHistoryCopy",
+                "Count"
+            }));
+        }
+
+        [Test]
+        public void OwnerScheduler_AdvancesOneStepAndWrapsOnlyAfterValidSample()
+        {
+            using var command = new CommandBuffer();
+            MerkabaGpuTimestamps.SetAvailableForTests(true);
+            CaptureOwner[] order =
+            {
+                CaptureOwner.Observation,
+                CaptureOwner.ReadoutBuild,
+                CaptureOwner.Draw,
+                CaptureOwner.DepthSnapshotCopy,
+                CaptureOwner.PcaObservationCopy,
+                CaptureOwner.PcaHistoryCopy
+            };
+            for (int index = 0; index < order.Length; index++)
+            {
+                Assert.That(MerkabaGpuTimestamps.ScheduledOwnerForTests,
+                    Is.EqualTo(order[index]));
+                bool acquired = MerkabaGpuTimestamps.TryAcquire(order[index],
+                    unchecked((uint)(index + 1)), command);
+                Assert.That(acquired, Is.True);
+                MerkabaGpuTimestamps.End(order[index], command, acquired);
+                MerkabaGpuTimestamps.Complete(order[index], acquired, true);
+                MerkabaGpuTimestamps.ResolveSampleForTests(true);
+            }
+            Assert.That(MerkabaGpuTimestamps.ScheduledOwnerForTests,
+                Is.EqualTo(CaptureOwner.Observation));
+        }
+
+        [Test]
+        public void ScheduledOwner_RecordsOnlyItsSingleSubmission()
         {
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
@@ -41,35 +85,25 @@ namespace Genesis.RoomScan.Tests
             int compile = frame.FindProfiledKernel("EmitReadoutVertices",
                 MerkabaGpuStage.ReadoutBuild);
             using var command = new CommandBuffer();
-            using var arguments = new ComputeBuffer(4, sizeof(uint),
-                ComputeBufferType.IndirectArguments);
-            var material = new Material(Shader.Find("Hidden/InternalErrorShader"));
-            RasterCommandBuffer raster =
-                CommandBufferHelpers.GetRasterCommandBuffer(command);
-            try
-            {
-                MerkabaGpuTimestamps.SetAvailableForTests(true);
-                Assert.That(MerkabaGpuTimestamps.TryBeginFrame(73), Is.True);
-                MerkabaGpuTimestamps.RecordProfileBegin(command);
-                command.DispatchComputeProfiled(frame, query, 1, 1, 1);
-                command.DispatchComputeProfiled(frame, compile, 1, 1, 1);
-                raster.DrawProceduralIndirectProfiled(Matrix4x4.identity,
-                    material, 0, MeshTopology.Triangles, arguments, 0);
-                MerkabaGpuTimestamps.RecordProfileEnd(raster);
-                MerkabaGpuTimestamps.CompleteFrameSubmission(true);
+            MerkabaGpuTimestamps.SetAvailableForTests(true);
+            MerkabaGpuTimestamps.SetScheduledOwnerForTests(
+                CaptureOwner.ReadoutBuild);
+            bool acquired = MerkabaGpuTimestamps.TryAcquire(
+                CaptureOwner.ReadoutBuild, 73u, command);
+            Assert.That(acquired, Is.True);
+            command.DispatchComputeProfiled(frame, query, 1, 1, 1);
+            command.DispatchComputeProfiled(frame, compile, 1, 1, 1);
+            MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
+                acquired);
+            MerkabaGpuTimestamps.Complete(CaptureOwner.ReadoutBuild,
+                acquired, true);
 
-                Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
-                    Is.EqualTo(new[]
-                    {
-                        MerkabaGpuStage.WorldQuery,
-                        MerkabaGpuStage.ReadoutBuild,
-                        MerkabaGpuStage.MerkabaDraw
-                    }));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(material);
-            }
+            Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
+                Is.EqualTo(new[]
+                {
+                    MerkabaGpuStage.WorldQuery,
+                    MerkabaGpuStage.ReadoutBuild
+                }));
         }
 
         [Test]
@@ -83,13 +117,14 @@ namespace Genesis.RoomScan.Tests
             using var command = new CommandBuffer();
 
             MerkabaGpuTimestamps.SetAvailableForTests(false);
-            Assert.That(MerkabaGpuTimestamps.TryBeginFrame(1), Is.False);
+            Assert.That(MerkabaGpuTimestamps.TryAcquire(
+                CaptureOwner.Observation, 1u, command), Is.False);
             command.DispatchComputeProfiled(frame, query, 1, 1, 1);
             Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(), Is.Empty);
         }
 
         [Test]
-        public void StandalonePcaCopy_HasItsOwnClosedSubmission()
+        public void PcaHistoryCopy_CannotStealObservationOwner()
         {
             var source = new Texture2D(2, 2);
             var destination = new RenderTexture(2, 2, 0);
@@ -98,16 +133,21 @@ namespace Genesis.RoomScan.Tests
             try
             {
                 MerkabaGpuTimestamps.SetAvailableForTests(true);
-                bool timed = MerkabaGpuTimestamps.TryBeginStandaloneSubmission(
-                    91u, command);
-                Assert.That(timed, Is.True);
-                command.BlitPcaHistoryProfiled(source, destination, timed);
-                MerkabaGpuTimestamps.RecordStandaloneSubmissionEnd(command,
-                    timed);
-                MerkabaGpuTimestamps.CompleteStandaloneSubmission(timed, true);
-
+                bool rejected = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.PcaHistoryCopy, 91u, command);
+                Assert.That(rejected, Is.False);
+                command.BlitPcaHistoryProfiled(source, destination, rejected);
                 Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
-                    Is.EqualTo(new[] { MerkabaGpuStage.DepthPreprocess }));
+                    Is.Empty);
+
+                bool acquired = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.Observation, 92u, command);
+                Assert.That(acquired, Is.True);
+                command.BlitPcaHistoryProfiled(source, destination, false);
+                MerkabaGpuTimestamps.End(CaptureOwner.Observation, command,
+                    acquired);
+                MerkabaGpuTimestamps.Complete(CaptureOwner.Observation,
+                    acquired, true);
             }
             finally
             {
@@ -118,7 +158,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ForeignPcaCopy_IsNotAttributedToAnActiveSubmission()
+        public void ValidAndInvalidSamplesAdvanceOwnerExactlyAsSpecified()
         {
             var source = new Texture2D(2, 2);
             var destination = new RenderTexture(2, 2, 0);
@@ -127,13 +167,30 @@ namespace Genesis.RoomScan.Tests
             try
             {
                 MerkabaGpuTimestamps.SetAvailableForTests(true);
-                Assert.That(MerkabaGpuTimestamps.TryBeginFrame(92), Is.True);
-                MerkabaGpuTimestamps.RecordProfileBegin(command);
+                bool acquired = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.Observation, 92u, command);
+                Assert.That(acquired, Is.True);
                 command.BlitPcaObservationProfiled(source, destination, false);
-                Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
-                    Is.Empty);
-                MerkabaGpuTimestamps.RecordProfileEnd(command);
-                MerkabaGpuTimestamps.CompleteFrameSubmission(true);
+                MerkabaGpuTimestamps.End(CaptureOwner.Observation, command,
+                    acquired);
+                MerkabaGpuTimestamps.Complete(CaptureOwner.Observation,
+                    acquired, true);
+                MerkabaGpuTimestamps.ResolveSampleForTests(false);
+                Assert.That(MerkabaGpuTimestamps.ScheduledOwnerForTests,
+                    Is.EqualTo(CaptureOwner.Observation));
+                Assert.That(MerkabaGpuTimestamps.SessionSampleCountForTests,
+                    Is.Zero);
+
+                acquired = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.Observation, 93u, command);
+                Assert.That(acquired, Is.True);
+                MerkabaGpuTimestamps.End(CaptureOwner.Observation, command,
+                    acquired);
+                MerkabaGpuTimestamps.Complete(CaptureOwner.Observation,
+                    acquired, true);
+                MerkabaGpuTimestamps.ResolveSampleForTests(true);
+                Assert.That(MerkabaGpuTimestamps.ScheduledOwnerForTests,
+                    Is.EqualTo(CaptureOwner.ReadoutBuild));
             }
             finally
             {
@@ -213,6 +270,96 @@ namespace Genesis.RoomScan.Tests
             Assert.That(feature, Does.Contain("RecordRenderPass(context.cmd)"));
             Assert.That(build, Does.Contain(
                 "build_merkaba_vulkan_timestamps.sh"));
+        }
+
+        [Test]
+        public void ProducerContract_HasNoFreeForAllCaptureEntryPoint()
+        {
+            string timestamps = Source(
+                "Runtime/Telemetry/MerkabaGpuTimestamps.cs");
+            string provider = Source(
+                "Runtime/Camera/PassthroughCameraProvider.cs");
+            string depth = Source("Runtime/Core/DepthCapture.cs");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string renderer = Source(
+                "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string[] producers = { provider, depth, integrator, renderer,
+                scanner };
+            foreach (string producer in producers)
+            {
+                Assert.That(producer, Does.Not.Contain("TryBeginFrame"));
+                Assert.That(producer, Does.Not.Contain(
+                    "TryBeginStandaloneSubmission"));
+                Assert.That(producer, Does.Not.Contain(
+                    "CompleteFrameSubmission"));
+                Assert.That(producer, Does.Not.Contain(
+                    "CompleteStandaloneSubmission"));
+                Assert.That(producer, Does.Not.Contain(
+                    "CloseIncompleteFrame"));
+            }
+            Assert.That(timestamps, Does.Not.Contain("TryBeginFrame"));
+            Assert.That(timestamps, Does.Not.Contain(
+                "TryBeginStandaloneSubmission"));
+            Assert.That(depth, Does.Contain(
+                "IsOwnerRecording(\n                CaptureOwner.Observation)"));
+            Assert.That(depth, Does.Not.Contain(
+                "MerkabaGpuTimestamps.IsRecording"));
+        }
+
+        [Test]
+        public void ProducerContract_EndsEachCaptureBeforeItsSubmission()
+        {
+            AssertEndBeforeExecute(Source(
+                    "Runtime/Camera/PassthroughCameraProvider.cs"),
+                "End(CaptureOwner.PcaHistoryCopy",
+                "Graphics.ExecuteCommandBuffer(command)");
+            AssertEndBeforeExecute(Source("Runtime/Core/DepthCapture.cs"),
+                "End(CaptureOwner.DepthSnapshotCopy",
+                "Graphics.ExecuteCommandBuffer(command)");
+            AssertEndBeforeExecute(Source(
+                    "Runtime/Merkaba/MerkabaIntegrator.cs"),
+                "End(CaptureOwner.PcaObservationCopy",
+                "Graphics.ExecuteCommandBuffer(command)");
+            AssertEndBeforeExecute(Source(
+                    "Runtime/Merkaba/MerkabaIntegrator.cs"),
+                "End(CaptureOwner.Observation",
+                "Graphics.ExecuteCommandBuffer(command)");
+            AssertEndBeforeExecute(Source(
+                    "Runtime/Merkaba/MerkabaGridRenderer.cs"),
+                "End(CaptureOwner.ReadoutBuild",
+                "Graphics.ExecuteCommandBuffer(command)");
+
+            string renderer = Source(
+                "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            AssertOrdered(renderer,
+                "TryAcquire(\n                CaptureOwner.Draw",
+                "DrawProceduralIndirectProfiled",
+                "End(CaptureOwner.Draw",
+                "Complete(CaptureOwner.Draw");
+        }
+
+        private static void AssertEndBeforeExecute(string source,
+            string endToken, string submitToken)
+        {
+            int end = source.IndexOf(endToken, StringComparison.Ordinal);
+            int submit = source.IndexOf(submitToken, end,
+                StringComparison.Ordinal);
+            Assert.That(end, Is.GreaterThanOrEqualTo(0), endToken);
+            Assert.That(submit, Is.GreaterThan(end), submitToken);
+        }
+
+        private static void AssertOrdered(string source, params string[] tokens)
+        {
+            int previous = -1;
+            foreach (string token in tokens)
+            {
+                int current = source.IndexOf(token, previous + 1,
+                    StringComparison.Ordinal);
+                Assert.That(current, Is.GreaterThan(previous), token);
+                previous = current;
+            }
         }
 
         private static string Source(string relative) =>

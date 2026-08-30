@@ -94,7 +94,6 @@ namespace Genesis.RoomScan
         private void OnDisable()
         {
             if (_active == this) _active = null;
-            MerkabaGpuTimestamps.CloseIncompleteFrame();
         }
 
         private void OnDestroy()
@@ -109,7 +108,6 @@ namespace Genesis.RoomScan
         {
             _gpuSubmissionSuspended = true;
             if (_active == this) _active = null;
-            MerkabaGpuTimestamps.CloseIncompleteFrame();
         }
 
         internal void ResumeGpuSubmission()
@@ -218,14 +216,9 @@ namespace Genesis.RoomScan
                 _grid.GpuSubmissionSuspended) return;
             Camera camera = Camera.main;
             if (camera == null || !Initialize())
-            {
-                MerkabaGpuTimestamps.CloseIncompleteFrame();
                 return;
-            }
 
             _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
-            MerkabaGpuTimestamps.TryBeginFrame(
-                _readoutRevision == 0u ? 1u : _readoutRevision);
             GetCoveragePose(camera, out Vector3 gridPosition,
                 out Vector3 gridForward, out Vector3 gridUp);
             bool coverageDirty = !_hasPublishedCoverage ||
@@ -237,11 +230,13 @@ namespace Genesis.RoomScan
                     readoutAngularGuardDegrees * 0.5f;
             bool residencyChanged = _awaitingResidencyChange &&
                 _grid.ResidencyEpoch != _buildResidencyEpoch;
-            if ((_canonicalDirty || coverageDirty || residencyChanged) &&
+            bool timingBuildRequested = MerkabaGpuTimestamps.IsOwnerEligible(
+                CaptureOwner.ReadoutBuild);
+            if ((_canonicalDirty || coverageDirty || residencyChanged ||
+                 timingBuildRequested) &&
                 Time.unscaledTime >= _nextReadoutBuild)
                 SubmitReadoutBuild(camera, gridPosition, gridForward, gridUp);
 
-            MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
             RequestStatusIfDue();
         }
 
@@ -252,9 +247,13 @@ namespace Genesis.RoomScan
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 readout build");
             bool submitted = false;
+            bool timedSubmission = false;
             try
             {
-                if (MerkabaGpuTimestamps.IsRecording)
+                timedSubmission = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.ReadoutBuild,
+                    _readoutRevision == 0u ? 1u : _readoutRevision, command);
+                if (timedSubmission)
                     _grid.RecordHashBenchmark(command);
                 command.DispatchComputeProfiled(readoutCompute,
                     _resetKernel, 1, 1, 1);
@@ -270,13 +269,17 @@ namespace Genesis.RoomScan
                     _emitKernel, _grid.M8FrameDispatchArgs);
                 command.DispatchComputeProfiled(readoutCompute,
                     _finalizeKernel, 1, 1, 1);
+                MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
+                    timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
                 submitted = true;
+                if (timedSubmission)
+                    MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
             }
             finally
             {
-                if (!submitted)
-                    MerkabaGpuTimestamps.CancelUnsubmittedFrame();
+                MerkabaGpuTimestamps.Complete(CaptureOwner.ReadoutBuild,
+                    timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
             if (!submitted) return;
@@ -301,15 +304,19 @@ namespace Genesis.RoomScan
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (_gpuSubmissionSuspended || _grid == null ||
                 _grid.GpuSubmissionSuspended)
-            {
-                MerkabaGpuTimestamps.CancelUnsubmittedFrame();
                 return;
-            }
-            if (_initialized && _material != null && scanOpacity > 0.001f)
+            bool canDraw = _initialized && _material != null &&
+                scanOpacity > 0.001f;
+            bool timedSubmission = canDraw && MerkabaGpuTimestamps.TryAcquire(
+                CaptureOwner.Draw,
+                _readoutRevision == 0u ? 1u : _readoutRevision, command);
+            if (canDraw)
                 command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
                     _material, 0, MeshTopology.Triangles, _grid.M8DrawArgs, 0);
-            MerkabaGpuTimestamps.RecordProfileEnd(command);
-            MerkabaGpuTimestamps.CompleteFrameSubmission(true);
+            MerkabaGpuTimestamps.End(CaptureOwner.Draw, command,
+                timedSubmission);
+            MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timedSubmission,
+                true);
         }
 
         private int ConfigureReadout(Camera camera)

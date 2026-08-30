@@ -305,22 +305,22 @@ namespace Genesis.RoomScan
             bool timedSubmission = false;
             try
             {
-                timedSubmission = MerkabaGpuTimestamps.
-                    TryBeginStandaloneSubmission(timingRevision, command);
+                timedSubmission = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.PcaObservationCopy, timingRevision, command);
                 StoreCameraEye(command, slot, 0, frame.Left, timedSubmission);
                 StoreCameraEye(command, slot, 1, frame.Right, timedSubmission);
                 // Provider-owned history copies, these immutable observation
                 // copies, and later M8 work share the graphics queue. Queue
                 // ordering publishes matching pixels and metadata without a
                 // per-observation CPU fence or readback.
-                MerkabaGpuTimestamps.RecordStandaloneSubmissionEnd(command,
-                    timedSubmission);
+                MerkabaGpuTimestamps.End(CaptureOwner.PcaObservationCopy,
+                    command, timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
                 submitted = true;
             }
             finally
             {
-                MerkabaGpuTimestamps.CompleteStandaloneSubmission(
+                MerkabaGpuTimestamps.Complete(CaptureOwner.PcaObservationCopy,
                     timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
@@ -385,11 +385,14 @@ namespace Genesis.RoomScan
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 observation");
             bool submitted = false;
+            bool timedSubmission = false;
             try
             {
-                MerkabaGpuTimestamps.TryBeginFrame(
-                    unchecked((uint)Math.Max(1, IntegrationCount + 1)));
-                MerkabaGpuTimestamps.RecordProfileBegin(command);
+                if (newObservation)
+                    timedSubmission = MerkabaGpuTimestamps.TryAcquire(
+                        CaptureOwner.Observation,
+                        unchecked((uint)Math.Max(1, IntegrationCount + 1)),
+                        command);
                 if (newObservation)
                 {
                     AcquireCameraObservation();
@@ -400,7 +403,6 @@ namespace Genesis.RoomScan
                         _depthCapture.DilatedDepthTex == null)
                     {
                         ReleaseOwnedObservation();
-                        MerkabaGpuTimestamps.CancelUnsubmittedFrame();
                         return false;
                     }
                     _observationToken =
@@ -466,8 +468,12 @@ namespace Genesis.RoomScan
                     1, 1, 1);
                 _grid.RecordClearTouchedSurfaceCandidates(command);
 
+                MerkabaGpuTimestamps.End(CaptureOwner.Observation, command,
+                    timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
                 submitted = true;
+                if (timedSubmission)
+                    MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
                 _attemptInFlight = true;
                 _waitingForDependency = false;
                 _grid.RequestAttemptCompletion(_attemptToken);
@@ -481,8 +487,8 @@ namespace Genesis.RoomScan
             }
             finally
             {
-                if (!submitted)
-                    MerkabaGpuTimestamps.CancelUnsubmittedFrame();
+                MerkabaGpuTimestamps.Complete(CaptureOwner.Observation,
+                    timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
         }
