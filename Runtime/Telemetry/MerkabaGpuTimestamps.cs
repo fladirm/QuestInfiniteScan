@@ -128,14 +128,15 @@ namespace Genesis.RoomScan
             internal uint VisibleChunks;
             internal uint VisibleTiles;
             internal uint OccupiedKernelsConsidered;
-            internal uint PrimitivesBeforeFacing;
+            internal uint ReadoutOrientationKnown;
             internal uint LogicalPrimitives;
-            internal uint RejectedPrimitives;
+            internal uint ReadoutEmittedPatches;
+            internal uint ReadoutEmittedTriangles;
             internal uint LateColdMisses;
             internal uint RenderPrimitiveOverflow;
             internal uint ReadoutUnresolved;
             internal uint ReadoutBuildStatus;
-            internal uint ReadoutUnderdeterminedKernels;
+            internal uint ReadoutOrientationUnknown;
             internal uint ObservationFailure;
             internal uint FailedObservations;
             internal readonly uint[] CarveFreeRadial = new uint[8];
@@ -608,10 +609,12 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterVisibleChunks];
                     sample.OccupiedKernelsConsidered = values[
                         MerkabaGrid.CounterOccupiedKernelsConsidered];
-                    sample.PrimitivesBeforeFacing = values[
-                        MerkabaGrid.CounterPrimitivesBeforeFacing];
-                    sample.RejectedPrimitives = values[
-                        MerkabaGrid.CounterRejectedPrimitives];
+                    sample.ReadoutOrientationKnown = values[
+                        MerkabaGrid.CounterReadoutOrientationKnown];
+                    sample.ReadoutEmittedPatches = values[
+                        MerkabaGrid.CounterReadoutEmittedPatches];
+                    sample.ReadoutEmittedTriangles = values[
+                        MerkabaGrid.CounterReadoutEmittedTriangles];
                     sample.HashFull = values[MerkabaGrid.CounterHashFull];
                     sample.FailedReads = values[
                         MerkabaGrid.CounterFailedReads];
@@ -645,8 +648,8 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterReadoutUnresolved];
                     sample.ReadoutBuildStatus = values[
                         MerkabaGrid.CounterReadoutBuildStatus];
-                    sample.ReadoutUnderdeterminedKernels = values[
-                        MerkabaGrid.CounterReadoutUnderdeterminedKernels];
+                    sample.ReadoutOrientationUnknown = values[
+                        MerkabaGrid.CounterReadoutOrientationUnknown];
                     for (int radialBin = 0; radialBin < 8; radialBin++)
                         sample.CarveFreeRadial[radialBin] = values[
                             MerkabaGrid.CounterCarveFreeRadialBase + radialBin];
@@ -1006,17 +1009,18 @@ namespace Genesis.RoomScan
                         $"visibleChunks={sample.VisibleChunks} " +
                         $"visibleTiles={sample.VisibleTiles} " +
                         $"occupiedKernelsConsidered={sample.OccupiedKernelsConsidered} " +
-                        $"primitivesBeforeFacing={sample.PrimitivesBeforeFacing} " +
+                        $"readoutOrientationKnown={sample.ReadoutOrientationKnown} " +
                         $"logicalReadoutTriangles={sample.LogicalPrimitives} " +
                         $"readoutVertices={sample.LogicalPrimitives * 3u} " +
                         $"rawEyeInstances={(sample.LogicalPrimitives > 0u ? 2u : 0u)} " +
                         $"stereoVertexInvocations={sample.LogicalPrimitives * 6u} " +
-                        $"primitivesRejectedBothEyes={sample.RejectedPrimitives} " +
+                        $"readoutEmittedPatches={sample.ReadoutEmittedPatches} " +
+                        $"readoutEmittedTriangles={sample.ReadoutEmittedTriangles} " +
                         $"lateDrawColdMisses={sample.LateColdMisses} " +
                         $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow} " +
                         $"readoutUnresolved={sample.ReadoutUnresolved} " +
-                        $"readoutUnderdeterminedKernels=" +
-                        $"{sample.ReadoutUnderdeterminedKernels} " +
+                        $"readoutOrientationUnknown=" +
+                        $"{sample.ReadoutOrientationUnknown} " +
                         $"readoutBuildStatus={sample.ReadoutBuildStatus} " +
                         $"observationFailure=0x{sample.ObservationFailure:x} " +
                         $"failedObservations={sample.FailedObservations}");

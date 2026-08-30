@@ -54,8 +54,8 @@ namespace Genesis.RoomScan
         internal const int CounterHashHitBlocks = 27;
         internal const int CounterVisibleChunks = 28;
         internal const int CounterOccupiedKernelsConsidered = 29;
-        internal const int CounterPrimitivesBeforeFacing = 30;
-        internal const int CounterRejectedPrimitives = 31;
+        internal const int CounterReadoutOrientationKnown = 30;
+        internal const int CounterReadoutEmittedPatches = 31;
         internal const int CounterHashFull = 38;
         internal const int CounterFailedReads = 39;
         internal const int CounterFailedWrites = 40;
@@ -98,7 +98,7 @@ namespace Genesis.RoomScan
         internal const int CounterCarveKernelsEvaluated = 93;
         internal const int CounterCarveExactIncidenceReject = 94;
         internal const int CounterCarveExactDilationReject = 95;
-        internal const int CounterReadoutUnderdeterminedKernels = 96;
+        internal const int CounterReadoutOrientationUnknown = 96;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
