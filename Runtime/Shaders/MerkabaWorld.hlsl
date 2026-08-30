@@ -330,28 +330,31 @@ uint M8HashEntryIndex(uint bucket, uint slot)
     return bucket * MERKABA_M8_HASH_SLOTS_PER_BUCKET + slot;
 }
 
+bool M8TryMatchBlockEntry(int3 blockCoord, uint bucket, uint slot,
+    inout uint blockIndex)
+{
+    M8HashEntry entry = _M8HashEntriesRead[M8HashEntryIndex(bucket, slot)];
+    if (entry.blockRef == MERKABA_REF_EMPTY ||
+        entry.blockRef == MERKABA_REF_CLAIMED_NEW ||
+        !all(entry.blockCoord == blockCoord))
+        return false;
+    blockIndex = entry.blockRef - 1u;
+    return true;
+}
+
 bool M8FindBlock(int3 blockCoord, out uint blockIndex)
 {
     blockIndex = 0u;
     uint2 buckets = MerkabaHashBucketSearchOrder(blockCoord);
-    [unroll]
-    for (uint bucketOrder = 0u; bucketOrder < 2u; bucketOrder++)
-    {
-        uint bucket = bucketOrder == 0u ? buckets.x : buckets.y;
-        [unroll]
-        for (uint slot = 0u; slot < MERKABA_M8_HASH_SLOTS_PER_BUCKET; slot++)
-        {
-            uint entryIndex = M8HashEntryIndex(bucket, slot);
-            M8HashEntry entry = _M8HashEntriesRead[entryIndex];
-            if (entry.blockRef != MERKABA_REF_EMPTY &&
-                entry.blockRef != MERKABA_REF_CLAIMED_NEW &&
-                all(entry.blockCoord == blockCoord))
-            {
-                blockIndex = entry.blockRef - 1u;
-                return blockIndex < MERKABA_M8_BLOCK_CAPACITY;
-            }
-        }
-    }
+    if (M8TryMatchBlockEntry(blockCoord, buckets.x, 0u, blockIndex) ||
+        M8TryMatchBlockEntry(blockCoord, buckets.x, 1u, blockIndex) ||
+        M8TryMatchBlockEntry(blockCoord, buckets.x, 2u, blockIndex) ||
+        M8TryMatchBlockEntry(blockCoord, buckets.x, 3u, blockIndex) ||
+        M8TryMatchBlockEntry(blockCoord, buckets.y, 0u, blockIndex) ||
+        M8TryMatchBlockEntry(blockCoord, buckets.y, 1u, blockIndex) ||
+        M8TryMatchBlockEntry(blockCoord, buckets.y, 2u, blockIndex) ||
+        M8TryMatchBlockEntry(blockCoord, buckets.y, 3u, blockIndex))
+        return blockIndex < MERKABA_M8_BLOCK_CAPACITY;
     return false;
 }
 

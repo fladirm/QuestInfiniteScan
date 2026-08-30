@@ -275,7 +275,16 @@ namespace Genesis.RoomScan.Tests
             Assert.That(generated, Does.Contain(
                 "M8_OVERLAP_SUPPORT_HALF_QUARTERS 4"));
             Assert.That(generated, Does.Contain(
-                "bool M8TryBuildOverlapPatch"));
+                "M8OverlapPatch M8BuildOverlapPatchFromSignature"));
+            Assert.That(generated, Does.Contain(
+                "void M8ConsiderOverlapBranch"));
+            Assert.That(generated, Does.Contain(
+                "uint M8PackOverlapSignature"));
+            Assert.That(generated, Does.Contain(
+                "void M8AccumulateOverlapBranchDirection"));
+            Assert.That(generated, Does.Not.Contain("for ("));
+            Assert.That(generated, Does.Not.Contain(
+                "M8TryBuildOverlapPatch"));
             Assert.That(generated, Does.Contain(
                 "if (!found || tied)"));
             Assert.That(generated, Does.Not.Contain("M8OverlapMinimumAxis"));
