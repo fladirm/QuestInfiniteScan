@@ -212,6 +212,27 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void FrozenJointRay_FreeExistsOnlyBeforeEndpointInsideSupportTube()
+        {
+            const float endpoint = 2f;
+            Assert.That(MerkabaObservation.InsideFrozenFreeRayTube(
+                1.5f, endpoint, 0f), Is.True);
+            Assert.That(MerkabaObservation.InsideFrozenFreeRayTube(
+                1.5f, endpoint, MerkabaConstants.HalfSupport), Is.True);
+            Assert.That(MerkabaObservation.InsideFrozenFreeRayTube(
+                endpoint - MerkabaConstants.HalfSupport, endpoint, 0f),
+                Is.False, "The support band at H is not FREE.");
+            Assert.That(MerkabaObservation.InsideFrozenFreeRayTube(
+                endpoint + 0.1f, endpoint, 0f), Is.False,
+                "Nothing behind H is FREE.");
+            Assert.That(MerkabaObservation.InsideFrozenFreeRayTube(
+                1.5f, endpoint, MerkabaConstants.HalfSupport + 0.0001f),
+                Is.False, "A neighbouring ray cannot carve this owner.");
+            Assert.That(MerkabaObservation.InsideFrozenFreeRayTube(
+                -0.1f, endpoint, 0f), Is.False);
+        }
+
+        [Test]
         public void ReplacementEndpoint_OwnsSurfaceAndOnlyForegroundIsFree()
         {
             MerkabaObservationResult endpoint = MerkabaObservation.Classify(

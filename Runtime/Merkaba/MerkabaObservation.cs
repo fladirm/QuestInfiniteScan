@@ -91,7 +91,8 @@ namespace Genesis.RoomScan
             MerkabaObservationKind kind;
             if (input.IsReplacementKernel)
                 kind = MerkabaObservationKind.Surface;
-            else if (clearance > MerkabaConstants.HalfSupport)
+            else if (InsideFrozenFreeRayTube(input.KernelEyeDistance,
+                         input.MeasuredEyeDistance, 0f))
                 kind = MerkabaObservationKind.Free;
             else
                 return Unknown(); // behind or inside the support uncertainty band
@@ -120,6 +121,16 @@ namespace Genesis.RoomScan
             Mathf.Clamp01((clearance - MerkabaConstants.HalfSupport) /
                 (MerkabaConstants.FreeFullClearance -
                  MerkabaConstants.HalfSupport));
+
+        /// <summary>
+        /// Exact signed segment accepted by same-ray CARVE. Perpendicular
+        /// distance is measured from the immutable reference-eye ray.
+        /// </summary>
+        public static bool InsideFrozenFreeRayTube(float kernelAlong,
+            float endpointDistance, float perpendicularDistance) =>
+            kernelAlong > 0f &&
+            kernelAlong < endpointDistance - MerkabaConstants.HalfSupport &&
+            perpendicularDistance <= MerkabaConstants.HalfSupport;
 
         private static bool IsFinitePositive(float value) =>
             value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);

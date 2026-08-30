@@ -773,21 +773,23 @@ namespace Genesis.RoomScan.Tests
                 "#define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 2560"));
             Assert.That(integration, Does.Contain(
                 "#define MERKABA_FREE_FULL_CLEARANCE 0.150"));
-            string fuse = Slice(integration, "void FuseDepth",
-                "void UpdateOccupancy");
-            Assert.That(fuse, Does.Contain(
-                "ObserveJointDepth(globalCoord, worldPosition"));
-            Assert.That(fuse, Does.Not.Contain("for (uint eye"));
-            string observation = Slice(integration, "bool ObserveJointDepth",
-                "void FuseDepth");
+            string observation = Slice(integration,
+                "bool ObserveFrozenJointRay",
+                "bool M8TryOccupiedExactForCarve");
             Assert.That(observation, Does.Contain("TrySurfaceMeasurement"));
             Assert.That(observation, Does.Contain(
                 "float clearance = measuredDistance - kernelDistance"));
             Assert.That(observation, Does.Contain(
-                "clearance > MERKABA_HALF_SUPPORT"));
+                "perpendicularDistance > MERKABA_HALF_SUPPORT"));
+            Assert.That(observation, Does.Contain(
+                "kernelDistance < measuredDistance - MERKABA_HALF_SUPPORT"));
+            Assert.That(observation, Does.Contain(
+                "float3 rayOrigin = MerkabaDepthEyePosition(0u)"));
             Assert.That(observation, Does.Contain(
                 "MerkabaFreeDistanceWeight(clearance)"));
             Assert.That(observation, Does.Contain("gsDilatedDepth.Load"));
+            Assert.That(integration, Does.Not.Contain("void FuseDepth"));
+            Assert.That(integration, Does.Not.Contain("ObserveJointDepth"));
 
             string carve = Slice(integration, "groupshared uint gCarveStats",
                 "void FinalizeObservation");
@@ -858,15 +860,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(route, Does.Contain(
                 "MERKABA_SURFACE_AUTHORITY_SUPPORT"));
 
-            string observation = Slice(integration, "bool ObserveJointDepth",
-                "void FuseDepth");
+            string observation = Slice(integration,
+                "bool ObserveFrozenJointRay",
+                "bool M8TryOccupiedExactForCarve");
             Assert.That(observation, Does.Contain(
                 "attention <= 0.0"));
             Assert.That(observation, Does.Contain(
                 "MerkabaFreeDistanceWeight(clearance) * attention"));
             Assert.That(observation, Does.Contain(
-                "float kernelDistance = dot(worldPosition - rayOrigin, " +
-                "rayDirection)"));
+                "float kernelDistance = dot(originToKernel, rayDirection)"));
             Assert.That(observation.IndexOf("attention <= 0.0",
                     StringComparison.Ordinal),
                 Is.LessThan(observation.IndexOf("kind = 1",
@@ -1162,7 +1164,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(world, Does.Contain(
                 "out uint failureReason"));
             string failureReason = Slice(integration,
-                "uint M8ObservationFailureReason()", "bool ObserveJointDepth");
+                "uint M8ObservationFailureReason()",
+                "bool ObserveFrozenJointRay");
             Assert.That(failureReason, Does.Not.Contain(
                 "M8_COUNTER_BLOCK_OVERFLOW"));
             Assert.That(failureReason, Does.Not.Contain(

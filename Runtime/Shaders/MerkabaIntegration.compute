@@ -497,7 +497,7 @@ float MerkabaFreeDistanceWeight(float clearance)
         (MERKABA_FREE_FULL_CLEARANCE - MERKABA_HALF_SUPPORT));
 }
 
-bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
+bool ObserveFrozenJointRay(int3 globalCoord, float3 worldPosition,
     out int kind, out float evidenceWeight, out int3 replacementCoord,
     out float radialPosition)
 {
@@ -524,14 +524,19 @@ bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
     float attention = MerkabaMutationAttention(worldSurface, surfaceNormal,
         radialPosition);
 
-    float3 rayOrigin = (MerkabaDepthEyePosition(0u) +
-        MerkabaDepthEyePosition(1u)) * 0.5;
+    // gsDepthTex is defined on the frozen reference depth-eye raster. The
+    // endpoint is joint four-stream truth, but its exact ray origin is eye 0.
+    float3 rayOrigin = MerkabaDepthEyePosition(0u);
     float3 measuredRay = worldSurface - rayOrigin;
     float measuredDistance = length(measuredRay);
     if (measuredDistance <= 0.001) return false;
     float3 rayDirection = measuredRay / measuredDistance;
-    float kernelDistance = dot(worldPosition - rayOrigin, rayDirection);
+    float3 originToKernel = worldPosition - rayOrigin;
+    float kernelDistance = dot(originToKernel, rayDirection);
     if (kernelDistance <= 0.0) return false;
+    float3 closestOnRay = rayOrigin + rayDirection * kernelDistance;
+    float perpendicularDistance = distance(worldPosition, closestOnRay);
+    if (perpendicularDistance > MERKABA_HALF_SUPPORT) return false;
     float clearance = measuredDistance - kernelDistance;
     replacementCoord = surfaceKernel;
     if (attention <= 0.0)
@@ -541,7 +546,7 @@ bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
         kind = 2;
         evidenceWeight = quality * quality;
     }
-    else if (clearance > MERKABA_HALF_SUPPORT)
+    else if (kernelDistance < measuredDistance - MERKABA_HALF_SUPPORT)
     {
         float jointDepth = gsDepthTex.Load(int3(pixel, 0));
         float dilatedDepth = gsDilatedDepth.Load(int3(pixel, 0)).z;
@@ -559,14 +564,6 @@ bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
     // One exact kernel owns SURFACE. Other kernels receive only the transient
     // signed-clearance evidence of this validated four-stream endpoint.
     return true;
-}
-
-void FuseDepth(int3 globalCoord, float3 worldPosition, out int kind,
-    out float evidenceWeight, out int3 replacementCoord,
-    out float radialPosition)
-{
-    ObserveJointDepth(globalCoord, worldPosition, kind, evidenceWeight,
-        replacementCoord, radialPosition);
 }
 
 bool M8TryOccupiedExactForCarve(int3 globalCoord, out bool occupied)
@@ -1405,7 +1402,8 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
             int3 replacementCoord = 0;
             float radialPosition = 2.0;
             if (!IsExcluded(worldPosition))
-                FuseDepth(globalCoord, worldPosition, observationKind,
+                ObserveFrozenJointRay(globalCoord, worldPosition,
+                    observationKind,
                     evidenceWeight, replacementCoord, radialPosition);
 
             bool currentSurfaceCandidate =
