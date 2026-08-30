@@ -1,8 +1,8 @@
-// Genesis RoomScan - stereo jump-flood depth dilation with strict bounds guards.
+// Jump-flood support field derived from the one joint four-stream depth truth.
 #include "DepthKit.hlsl"
 
-RWTexture2DArray<float4> gsDilateDest;
-RWTexture2DArray<float4> gsDilateSrc;
+RWTexture2D<float4> gsDilateDest;
+RWTexture2D<float4> gsDilateSrc;
 int gsDilateStepSize;
 
 float gsVoxDist;
@@ -11,13 +11,12 @@ float gsVoxSize;
 #pragma kernel InitDepthDilation
 
 [numthreads(8, 8, 1)]
-void InitDepthDilation(uint3 coord : SV_DispatchThreadID)
+void InitDepthDilation(uint2 coord : SV_DispatchThreadID)
 {
-    if (coord.z >= 2u || coord.x >= gsDepthTexSize.x ||
-        coord.y >= gsDepthTexSize.y) return;
+    if (coord.x >= gsDepthTexSize.x || coord.y >= gsDepthTexSize.y) return;
 
     float depth = gsDepthTex[coord];
-    float4 value = float4((float2)coord.xy, depth, 0);
+    float4 value = float4((float2)coord, depth, 0);
     gsDilateSrc[coord] = value;
 }
 
@@ -36,15 +35,14 @@ static const int2 kOffsets[8] =
 #pragma kernel DilateDepthStep
 
 [numthreads(8, 8, 1)]
-void DilateDepthStep(uint3 coord : SV_DispatchThreadID)
+void DilateDepthStep(uint2 coord : SV_DispatchThreadID)
 {
-    if (coord.z >= 2u || coord.x >= gsDepthTexSize.x ||
-        coord.y >= gsDepthTexSize.y) return;
+    if (coord.x >= gsDepthTexSize.x || coord.y >= gsDepthTexSize.y) return;
 
     float4 value = gsDilateSrc[coord];
-    float focalLength = abs(gsDepthProj[coord.z]._m00);
+    float focalLength = abs(gsDepthProj[0]._m00);
     int2 size = int2(gsDepthTexSize);
-    int2 destinationCoord = int2(coord.xy);
+    int2 destinationCoord = int2(coord);
 
     [unroll]
     for (int index = 0; index < 8; index++)
@@ -56,10 +54,10 @@ void DilateDepthStep(uint3 coord : SV_DispatchThreadID)
             continue;
 
         // The signed coordinate is validated before conversion/read.
-        float4 sourceValue = gsDilateSrc[uint3((uint2)sourceCoord, coord.z)];
+        float4 sourceValue = gsDilateSrc[sourceCoord];
         if (sourceValue.z <= 0.0 || sourceValue.z >= 1.0) continue;
 
-        float sourceLinear = gsDepthNDCToLinear(sourceValue.z, coord.z);
+        float sourceLinear = gsDepthNDCToLinear(sourceValue.z);
         float pixelSize = 2.0 * sourceLinear /
             max(focalLength * gsDepthTexSize.x, 1e-6);
         float radius = (gsVoxDist + gsVoxSize) / max(pixelSize, 1e-6);

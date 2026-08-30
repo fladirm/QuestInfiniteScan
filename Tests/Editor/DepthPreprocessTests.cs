@@ -127,7 +127,7 @@ namespace Genesis.RoomScan.Tests
                 "_depthTex = _ownedRawDepth[_heldDepthSlot];"));
             Assert.That(consume, Does.Contain(
                 "ApplyStereoRgbdRefinement(command, cameraFrame);"));
-            Assert.That(consume, Does.Contain("ComputeNormals(command);"));
+            Assert.That(consume, Does.Not.Contain("ComputeNormals(command);"));
             Assert.That(consume, Does.Contain("ComputeDilation(command);"));
             Assert.That(consume, Does.Contain("_heldDepthSlot = _readyDepthSlot;"));
             Assert.That(consume, Does.Not.Contain("_heldDepthSlot = -1;"),
@@ -224,30 +224,37 @@ namespace Genesis.RoomScan.Tests
 
             string refine = RuntimeSource(
                 "Runtime/Shaders/StereoRgbdRefine.compute");
-            Assert.That(refine, Does.Contain("MerkabaProjectCameraUv(0u"));
-            Assert.That(refine, Does.Contain("MerkabaProjectCameraUv(1u"));
-            Assert.That(refine, Does.Contain("WorldToDepth(otherEye"));
-            Assert.That(refine, Does.Contain("countbits(censusLeft ^ censusRight)"));
+            Assert.That(refine, Does.Contain("WorldPatchCensus(0u"));
+            Assert.That(refine, Does.Contain("WorldPatchCensus(1u"));
+            Assert.That(refine, Does.Contain(
+                "MerkabaProjectCameraUv(eye, center)"));
+            Assert.That(refine, Does.Contain("TryProjectedDepthPlane("));
+            Assert.That(refine, Does.Contain(
+                "countbits(leftCensus ^ rightCensus)"));
             Assert.That(refine, Does.Contain("_DstDepth[id] = 0.0;"));
+            Assert.That(refine, Does.Contain("_DstNormal[id] = 0.0;"));
             Assert.That(refine, Does.Contain("RGBD_HYPOTHESIS_RADIUS 2"));
             Assert.That(refine, Does.Contain(
                 "RGBD_MAX_METRIC_CORRECTION 0.0125"));
             Assert.That(refine, Does.Contain("RGBD_CENSUS_SAMPLES 8u"));
             Assert.That(refine, Does.Contain(
                 "RGBD_MAX_CENSUS_MISMATCH 2u"));
-            Assert.That(refine, Does.Contain("StereoCameraCoverage("));
-            Assert.That(refine, Does.Contain("OppositeDepthSupport("));
+            Assert.That(refine, Does.Contain("CameraCoverage("));
+            Assert.That(refine, Does.Contain("WorldPatchCensus("));
             Assert.That(refine, Does.Contain(
-                "distance(worldPosition, observedWorld)"));
+                "dot(worldPosition - rightPlanePoint"));
             Assert.That(refine, Does.Not.Contain(
-                "abs(predictedOther - observedDistance)"));
+                "distance(worldPosition, observedWorld)"));
             Assert.That(refine, Does.Not.Contain("stereoMargin"));
             Assert.That(refine, Does.Not.Contain("_DepthSearchRadius"));
             Assert.That(refine, Does.Not.Contain("same UV"));
             Assert.That(refine, Does.Contain("DepthNdcToWorld"));
             Assert.That(refine, Does.Contain("_DepthProjInv[eye]"));
             Assert.That(refine, Does.Contain("_DepthViewInv[eye]"));
-            Assert.That(refine, Does.Contain("WorldToDepthNdc"));
+            Assert.That(refine, Does.Contain("WorldToReferenceDepthNdc"));
+            Assert.That(refine, Does.Contain(
+                "void StereoRgbdRefine(uint2 id"));
+            Assert.That(refine, Does.Not.Contain("_DstDepth[id.z]"));
             Assert.That(refine, Does.Not.Contain("ProjectionToLinear"),
                 "Environment Depth must use its exact per-eye projection, " +
                 "not a generic near/far conversion.");
@@ -301,6 +308,9 @@ namespace Genesis.RoomScan.Tests
                 "OnEndContextRendering"));
             Assert.That(depth, Does.Contain(
                 "_refinedDepthTex.graphicsFormat != GraphicsFormat.R32_SFloat"));
+            Assert.That(depth, Does.Contain(
+                "_stereoRgbdRefineKernel.Set(command, RefineDstNormalId"));
+            Assert.That(depth, Does.Not.Contain("ComputeNormals(command)"));
         }
 
         [Test]
@@ -479,65 +489,96 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test, Timeout(30000)]
-        public void DepthNormals_BordersDispatchPaddingAndBothEyes_AreFinite()
+        public void JointSolve_IsTheOnlyDerivedNormalAuthority()
         {
-            const int width = 13;
-            const int height = 11;
-            ComputeShader compute = LoadCompute("DepthNormals.compute");
-            int kernel = compute.FindKernel("DepthNorm");
+            string copy = RuntimeSource("Runtime/Shaders/DepthNormals.compute");
+            string joint = RuntimeSource(
+                "Runtime/Shaders/StereoRgbdRefine.compute");
+            Assert.That(copy, Does.Not.Contain("#pragma kernel DepthNorm"));
+            Assert.That(copy, Does.Not.Contain("gsDepthNormalTexRW"));
+            Assert.That(joint, Does.Contain("RWTexture2D<float4> _DstNormal"));
+            Assert.That(joint, Does.Contain(
+                "_DstNormal[id] = float4(selectedNormal, 1.0);"));
+            Assert.That(joint, Does.Contain("TryDepthPlane("));
+            Assert.That(joint, Does.Contain("TryProjectedDepthPlane("));
+        }
+
+        [Test, Timeout(30000)]
+        public void JointSolve_TexturelessFourStreamPlane_KeepsMetricPrior()
+        {
+            const int width = 17;
+            const int height = 15;
+            ComputeShader compute = LoadCompute("StereoRgbdRefine.compute");
+            int kernel = compute.FindKernel("StereoRgbdRefine");
             Matrix4x4 projection = Matrix4x4.Perspective(90f,
                 width / (float)height, 0.1f, 10f);
-            float depthNdc = DepthNdc(projection, 1f);
-            Texture2DArray depth = MakeDepth(width, height, depthNdc, depthNdc);
-            RenderTexture normals = MakeArrayTarget(width, height);
+            float sourceDepth = DepthNdc(projection, 1f);
+            Texture2DArray depth = MakeDepth(width, height, sourceDepth,
+                sourceDepth);
+            Texture2D pcaLeft = MakeSolidRgb(width, height,
+                new Color(0.4f, 0.4f, 0.4f, 1f));
+            Texture2D pcaRight = MakeSolidRgb(width, height,
+                new Color(0.4f, 0.4f, 0.4f, 1f));
+            RenderTexture outputDepth = Make2DTarget(width, height,
+                GraphicsFormat.R32_SFloat);
+            RenderTexture outputNormal = Make2DTarget(width, height);
 
             try
             {
-                BindDepthMatrices(compute, projection, width, height);
-                compute.SetTexture(kernel, DepthCapture.DepthTexID, depth);
-                compute.SetTexture(kernel, DepthCapture.NormTexRWID, normals);
+                Matrix4x4[] projections = { projection, projection };
+                Matrix4x4[] inverseProjections =
+                    { projection.inverse, projection.inverse };
+                Matrix4x4[] views = { Matrix4x4.identity, Matrix4x4.identity };
+                compute.SetTexture(kernel, "_SrcDepth", depth);
+                compute.SetTexture(kernel, "_DstDepth", outputDepth);
+                compute.SetTexture(kernel, "_DstNormal", outputNormal);
+                compute.SetInt("_DepthW", width);
+                compute.SetInt("_DepthH", height);
+                compute.SetMatrixArray("_DepthProj", projections);
+                compute.SetMatrixArray("_DepthProjInv", inverseProjections);
+                compute.SetMatrixArray("_DepthView", views);
+                compute.SetMatrixArray("_DepthViewInv", views);
+                BindPca(compute, kernel, 0, pcaLeft, width, height);
+                BindPca(compute, kernel, 1, pcaRight, width, height);
                 compute.Dispatch(kernel, Mathf.CeilToInt(width / 8f),
-                    Mathf.CeilToInt(height / 8f), 2);
+                    Mathf.CeilToInt(height / 8f), 1);
 
-                for (int eye = 0; eye < 2; eye++)
-                {
-                    AsyncGPUReadbackRequest request = ReadArrayLayer(
-                        normals, width, height, eye);
-                    var values = request.GetData<float4>();
-                    Assert.That(values.Length, Is.EqualTo(width * height));
-                    for (int index = 0; index < values.Length; index++)
-                    {
-                        float4 value = values[index];
-                        AssertFinite(value, $"normal[{eye},{index}]");
-                        Assert.That(value.w, Is.GreaterThan(0.5f),
-                            $"border/padded normal [{eye},{index}] was not written");
-                        Assert.That(math.lengthsq(value.xyz),
-                            Is.EqualTo(1f).Within(2e-3f));
-                    }
-                }
+                int center = width / 2 + width * (height / 2);
+                float refined = Read2D(outputDepth, width, height)
+                    .GetData<float>()[center];
+                float4 normal = Read2D(outputNormal, width, height)
+                    .GetData<float4>()[center];
+                Assert.That(refined, Is.EqualTo(sourceDepth).Within(2e-4f),
+                    "Ambiguous PCA texture must preserve the joint metric prior.");
+                AssertFinite(normal, "joint normal");
+                Assert.That(normal.w, Is.GreaterThan(0.5f));
+                Assert.That(math.lengthsq(normal.xyz),
+                    Is.EqualTo(1f).Within(2e-3f));
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(depth);
-                UnityEngine.Object.DestroyImmediate(normals);
+                UnityEngine.Object.DestroyImmediate(pcaLeft);
+                UnityEngine.Object.DestroyImmediate(pcaRight);
+                UnityEngine.Object.DestroyImmediate(outputDepth);
+                UnityEngine.Object.DestroyImmediate(outputNormal);
             }
         }
 
         [Test, Timeout(30000)]
-        public void DepthDilation_SignedBorderTapsDispatchPaddingAndBothEyes_AreSafe()
+        public void DepthDilation_SignedBorderTapsOnJointField_AreSafe()
         {
             const int width = 13;
             const int height = 11;
-            const float leftDepth = 0.42f;
-            const float rightDepth = 0.73f;
+            const float jointDepth = 0.42f;
             ComputeShader compute = LoadCompute("DepthDilation.compute");
             int init = compute.FindKernel("InitDepthDilation");
             int step = compute.FindKernel("DilateDepthStep");
             Matrix4x4 projection = Matrix4x4.Perspective(90f,
                 width / (float)height, 0.1f, 10f);
-            Texture2DArray depth = MakeDepth(width, height, leftDepth, rightDepth);
-            RenderTexture a = MakeArrayTarget(width, height);
-            RenderTexture b = MakeArrayTarget(width, height);
+            Texture2D depth = MakeDepth2D(width, height, jointDepth);
+            RenderTexture a = Make2DTarget(width, height);
+            RenderTexture b = Make2DTarget(width, height);
 
             try
             {
@@ -549,33 +590,23 @@ namespace Genesis.RoomScan.Tests
                 compute.SetTexture(init, DepthCapture.DilateDestID, b);
                 int groupsX = Mathf.CeilToInt(width / 8f);
                 int groupsY = Mathf.CeilToInt(height / 8f);
-                compute.Dispatch(init, groupsX, groupsY, 2);
+                compute.Dispatch(init, groupsX, groupsY, 1);
 
                 foreach (int stepSize in DepthCapture.BuildDilationStepSequence(8))
                 {
                     compute.SetTexture(step, DepthCapture.DilateSrcID, a);
                     compute.SetTexture(step, DepthCapture.DilateDestID, b);
                     compute.SetInt(DepthCapture.DilateStepSizeID, stepSize);
-                    compute.Dispatch(step, groupsX, groupsY, 2);
+                    compute.Dispatch(step, groupsX, groupsY, 1);
                     (a, b) = (b, a);
                 }
 
-                var leftValues = ReadArrayLayer(a, width, height, 0)
-                    .GetData<float4>();
-                var rightValues = ReadArrayLayer(a, width, height, 1)
-                    .GetData<float4>();
-                Assert.That(leftValues.Length, Is.EqualTo(width * height));
-                Assert.That(rightValues.Length, Is.EqualTo(width * height));
-                for (int index = 0; index < leftValues.Length; index++)
-                {
-                    AssertFinite(leftValues[index], $"dilation[0,{index}]");
-                    AssertFinite(rightValues[index], $"dilation[1,{index}]");
-                }
-                Assert.That(leftValues[0].z,
-                    Is.EqualTo(leftDepth).Within(2e-4f));
-                Assert.That(rightValues[0].z,
-                    Is.EqualTo(rightDepth).Within(2e-4f),
-                    "The second depth eye was not dilated independently.");
+                var values = Read2D(a, width, height).GetData<float4>();
+                Assert.That(values.Length, Is.EqualTo(width * height));
+                for (int index = 0; index < values.Length; index++)
+                    AssertFinite(values[index], $"dilation[{index}]");
+                Assert.That(values[0].z,
+                    Is.EqualTo(jointDepth).Within(2e-4f));
             }
             finally
             {
@@ -647,6 +678,22 @@ namespace Genesis.RoomScan.Tests
             return texture;
         }
 
+        private static Texture2D MakeDepth2D(int width, int height,
+            float depth)
+        {
+            var texture = new Texture2D(width, height, TextureFormat.RFloat,
+                false, true)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            var pixels = new Color[width * height];
+            Array.Fill(pixels, new Color(depth, 0f, 0f, 0f));
+            texture.SetPixels(pixels);
+            texture.Apply(false, false);
+            return texture;
+        }
+
         private static RenderTexture MakeArrayTarget(int width, int height)
         {
             var descriptor = new RenderTextureDescriptor(width, height)
@@ -662,6 +709,52 @@ namespace Genesis.RoomScan.Tests
             return target;
         }
 
+        private static RenderTexture Make2DTarget(int width, int height,
+            GraphicsFormat format = GraphicsFormat.R32G32B32A32_SFloat)
+        {
+            var descriptor = new RenderTextureDescriptor(width, height)
+            {
+                dimension = TextureDimension.Tex2D,
+                volumeDepth = 1,
+                graphicsFormat = format,
+                enableRandomWrite = true,
+                msaaSamples = 1
+            };
+            var target = new RenderTexture(descriptor);
+            target.Create();
+            return target;
+        }
+
+        private static Texture2D MakeSolidRgb(int width, int height,
+            Color color)
+        {
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32,
+                false, true);
+            var pixels = new Color[width * height];
+            Array.Fill(pixels, color);
+            texture.SetPixels(pixels);
+            texture.Apply(false, false);
+            return texture;
+        }
+
+        private static void BindPca(ComputeShader compute, int kernel,
+            int eye, Texture texture, int width, int height)
+        {
+            string suffix = eye == 0 ? "Left" : "Right";
+            compute.SetTexture(kernel, "_MerkabaCameraRgb" + suffix, texture);
+            compute.SetVector("_MerkabaCameraPosition" + suffix, Vector3.zero);
+            compute.SetMatrix("_MerkabaCameraInverseRotation" + suffix,
+                Matrix4x4.Rotate(Quaternion.Euler(0f, 180f, 0f)));
+            compute.SetVector("_MerkabaCameraFocalLength" + suffix,
+                new Vector2(width * 0.5f, height * 0.5f));
+            compute.SetVector("_MerkabaCameraPrincipalPoint" + suffix,
+                new Vector2(width * 0.5f, height * 0.5f));
+            compute.SetVector("_MerkabaCameraSensorResolution" + suffix,
+                new Vector2(width, height));
+            compute.SetVector("_MerkabaCameraCurrentResolution" + suffix,
+                new Vector2(width, height));
+        }
+
         private static AsyncGPUReadbackRequest ReadArrayLayer(
             RenderTexture texture, int width, int height, int layer)
         {
@@ -670,6 +763,17 @@ namespace Genesis.RoomScan.Tests
             request.WaitForCompletion();
             Assert.That(request.hasError, Is.False,
                 $"GPU readback failed for texture-array layer {layer}.");
+            return request;
+        }
+
+        private static AsyncGPUReadbackRequest Read2D(
+            RenderTexture texture, int width, int height)
+        {
+            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(
+                texture, 0, 0, width, 0, height, 0, 1);
+            request.WaitForCompletion();
+            Assert.That(request.hasError, Is.False,
+                "GPU readback failed for joint 2D texture.");
             return request;
         }
 

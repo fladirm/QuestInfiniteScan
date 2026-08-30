@@ -26,9 +26,7 @@
 #define MERKABA_FREE_SCALE 256.0
 #define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 2560
 #define MERKABA_FREE_FULL_CLEARANCE 0.150
-#define MERKABA_MIN_SURFACE_QUALITY 0.25
 #define MERKABA_OCCUPIED_FLAG 1u
-#define MERKABA_NORMAL_MIN 0.3
 #define MERKABA_DEPTH_DISPARITY 0.5
 #define MERKABA_SURFACE_QUEUE_CAPACITY 1048576u
 #define MERKABA_MEASUREMENT_PIXEL_MASK 0x00000fffu
@@ -47,7 +45,7 @@ float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 float _MerkabaMaxUpdateDistance;
 
-Texture2DArray<float4> gsDilatedDepth;
+Texture2D<float4> gsDilatedDepth;
 
 int _MerkabaExclusionCount;
 float3 _MerkabaExclusionHeads[64];
@@ -116,21 +114,20 @@ bool IsExcluded(float3 worldPosition)
     return false;
 }
 
-uint PackSurfaceMeasurement(uint2 pixel, uint eye, float quality)
+uint PackSurfaceMeasurement(uint2 pixel, float quality)
 {
     uint quality7 = (uint)clamp(round(saturate(quality) * 127.0), 1.0,
         127.0);
     return (pixel.x & MERKABA_MEASUREMENT_PIXEL_MASK) |
         ((pixel.y & MERKABA_MEASUREMENT_PIXEL_MASK) << 12u) |
-        ((eye & 1u) << 24u) | (quality7 << 25u);
+        (quality7 << 25u);
 }
 
-void UnpackSurfaceMeasurement(uint packed, out uint2 pixel, out uint eye,
+void UnpackSurfaceMeasurement(uint packed, out uint2 pixel,
     out float quality)
 {
     pixel.x = packed & MERKABA_MEASUREMENT_PIXEL_MASK;
     pixel.y = (packed >> 12u) & MERKABA_MEASUREMENT_PIXEL_MASK;
-    eye = (packed >> 24u) & 1u;
     quality = (float)((packed >> 25u) & 127u) / 127.0;
 }
 
@@ -146,19 +143,7 @@ int3 MerkabaNearestKernel(float3 gridPosition)
         MerkabaRoundNearest(gridPosition.z));
 }
 
-bool MerkabaStereoColorCoverage(float3 worldPosition)
-{
-    [unroll]
-    for (uint cameraEye = 0u; cameraEye < 2u; cameraEye++)
-    {
-        float2 uv = MerkabaProjectCameraUv(cameraEye, worldPosition);
-        if (uv.x <= 0.02 || uv.x >= 0.98 || uv.y <= 0.02 || uv.y >= 0.98)
-            return false;
-    }
-    return true;
-}
-
-bool TrySurfaceMeasurement(uint eye, uint2 pixel, out float3 worldSurface,
+bool TrySurfaceMeasurement(uint2 pixel, out float3 worldSurface,
     out int3 surfaceKernel, out float quality, out uint packedMeasurement)
 {
     worldSurface = 0.0;
@@ -170,39 +155,30 @@ bool TrySurfaceMeasurement(uint eye, uint2 pixel, out float3 worldSurface,
         MERKABA_MEASUREMENT_PIXEL_MASK)
         return false;
 
-    float depthNdc = gsDepthTex.Load(int4(pixel, (int)eye, 0));
+    float depthNdc = gsDepthTex.Load(int3(pixel, 0));
     if (depthNdc <= 0.0 || depthNdc >= 1.0) return false;
     float2 uv = ((float2)pixel + 0.5) / (float2)gsDepthTexSize;
-    worldSurface = gsDepthNDCtoWorld(float3(uv, depthNdc), eye);
-    if (IsExcluded(worldSurface) || !MerkabaStereoColorCoverage(worldSurface))
-        return false;
+    worldSurface = gsDepthNDCtoWorld(float3(uv, depthNdc));
+    if (IsExcluded(worldSurface)) return false;
 
-    float3 eyeToSurface = worldSurface - gsDepthEyePos(eye);
+    float3 eyeToSurface = worldSurface - gsDepthEyePos();
     float measuredDistance = length(eyeToSurface);
     if (measuredDistance <= 0.05 ||
         measuredDistance > _MerkabaMaxUpdateDistance)
         return false;
     float3 depthNormal = gsDepthNormalTex.Load(
-        int4(pixel, (int)eye, 0)).xyz;
+        int3(pixel, 0)).xyz;
+    if (dot(depthNormal, depthNormal) < 0.25) return false;
     float normalFacing = -dot(eyeToSurface, depthNormal) / measuredDistance;
-    if (normalFacing <= MERKABA_NORMAL_MIN) return false;
-
-    float dilatedNdc = gsDilatedDepth.Load(int4(pixel, (int)eye, 0)).z;
-    if (dilatedNdc <= 0.0 || dilatedNdc >= 1.0) return false;
-    float measuredLinear = gsDepthNDCToLinear(depthNdc, eye);
-    float dilatedLinear = gsDepthNDCToLinear(dilatedNdc, eye);
-    if (measuredLinear >= dilatedLinear + MERKABA_DEPTH_DISPARITY)
-        return false;
 
     float distanceFactor = saturate(1.0 - measuredDistance /
         _MerkabaMaxUpdateDistance);
     quality = distanceFactor * saturate(normalFacing);
-    if (quality < MERKABA_MIN_SURFACE_QUALITY) return false;
 
     float3 gridSurface = mul(_MerkabaWorldToGrid,
         float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
     surfaceKernel = MerkabaNearestKernel(gridSurface);
-    packedMeasurement = PackSurfaceMeasurement(pixel, eye, quality);
+    packedMeasurement = PackSurfaceMeasurement(pixel, quality);
     return true;
 }
 
@@ -212,16 +188,16 @@ float MerkabaFreeDistanceWeight(float clearance)
         (MERKABA_FREE_FULL_CLEARANCE - MERKABA_HALF_SUPPORT));
 }
 
-bool ObserveDepthEye(uint eye, int3 globalCoord, float3 worldPosition,
+bool ObserveJointDepth(int3 globalCoord, float3 worldPosition,
     out int kind, out float evidenceWeight, out int3 replacementCoord)
 {
     kind = 0;
     evidenceWeight = 0.0;
     replacementCoord = 0;
-    float3 viewPosition = mul(gsDepthView[eye],
+    float3 viewPosition = mul(gsDepthView[0],
         float4(worldPosition, 1.0)).xyz;
     if (viewPosition.z > -0.05) return false;
-    float3 ndc = gsDepthWorldToNDC(worldPosition, eye);
+    float3 ndc = gsDepthWorldToNDC(worldPosition);
     if (ndc.x < 0.01 || ndc.x > 0.99 || ndc.y < 0.01 || ndc.y > 0.99)
         return false;
     uint2 pixel = min((uint2)(ndc.xy * (float2)gsDepthTexSize),
@@ -230,12 +206,12 @@ bool ObserveDepthEye(uint eye, int3 globalCoord, float3 worldPosition,
     int3 surfaceKernel;
     float quality;
     uint packedMeasurement;
-    if (!TrySurfaceMeasurement(eye, pixel, worldSurface, surfaceKernel,
+    if (!TrySurfaceMeasurement(pixel, worldSurface, surfaceKernel,
             quality, packedMeasurement))
         return false;
 
-    float kernelDistance = distance(worldPosition, gsDepthEyePos(eye));
-    float measuredDistance = distance(worldSurface, gsDepthEyePos(eye));
+    float kernelDistance = distance(worldPosition, gsDepthEyePos());
+    float measuredDistance = distance(worldSurface, gsDepthEyePos());
     float clearance = measuredDistance - kernelDistance;
     replacementCoord = surfaceKernel;
     if (all(globalCoord == surfaceKernel))
@@ -245,6 +221,12 @@ bool ObserveDepthEye(uint eye, int3 globalCoord, float3 worldPosition,
     }
     else if (clearance > MERKABA_HALF_SUPPORT)
     {
+        float jointDepth = gsDepthTex.Load(int3(pixel, 0));
+        float dilatedDepth = gsDilatedDepth.Load(int3(pixel, 0)).z;
+        if (dilatedDepth <= 0.0 || dilatedDepth >= 1.0 ||
+            gsDepthNDCToLinear(jointDepth) >=
+            gsDepthNDCToLinear(dilatedDepth) + MERKABA_DEPTH_DISPARITY)
+            return false;
         kind = 1;
         evidenceWeight = quality * quality *
             MerkabaFreeDistanceWeight(clearance);
@@ -260,35 +242,8 @@ bool ObserveDepthEye(uint eye, int3 globalCoord, float3 worldPosition,
 void FuseDepth(int3 globalCoord, float3 worldPosition, out int kind,
     out float evidenceWeight, out int3 replacementCoord)
 {
-    kind = 0;
-    evidenceWeight = 0.0;
-    replacementCoord = 0;
-    [unroll]
-    for (uint eye = 0u; eye < 2u; eye++)
-    {
-        int eyeKind = 0;
-        float eyeEvidenceWeight = 0.0;
-        int3 eyeReplacementCoord = 0;
-        if (!ObserveDepthEye(eye, globalCoord, worldPosition, eyeKind,
-                eyeEvidenceWeight, eyeReplacementCoord))
-            continue;
-        if (eyeKind == 2)
-        {
-            if (kind != 2 || eyeEvidenceWeight > evidenceWeight)
-            {
-                kind = 2;
-                evidenceWeight = eyeEvidenceWeight;
-                replacementCoord = eyeReplacementCoord;
-            }
-        }
-        else if (kind == 0 || (kind == 1 &&
-            eyeEvidenceWeight > evidenceWeight))
-        {
-            kind = 1;
-            evidenceWeight = eyeEvidenceWeight;
-            replacementCoord = eyeReplacementCoord;
-        }
-    }
+    ObserveJointDepth(globalCoord, worldPosition, kind, evidenceWeight,
+        replacementCoord);
 }
 
 bool M8TryOccupiedExactForCarve(int3 globalCoord, out bool occupied)
@@ -381,13 +336,13 @@ void AppendSurfaceCandidate(int3 globalCoord, uint packedMeasurement)
 [numthreads(8, 8, 1)]
 void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID)
 {
-    if (id.z >= 2u || id.x >= gsDepthTexSize.x || id.y >= gsDepthTexSize.y)
+    if (id.x >= gsDepthTexSize.x || id.y >= gsDepthTexSize.y)
         return;
     float3 worldSurface;
     int3 surfaceKernel;
     float quality;
     uint packedMeasurement;
-    if (!TrySurfaceMeasurement(id.z, id.xy, worldSurface, surfaceKernel,
+    if (!TrySurfaceMeasurement(id.xy, worldSurface, surfaceKernel,
             quality, packedMeasurement))
         return;
     AppendSurfaceCandidate(surfaceKernel, packedMeasurement);
@@ -645,14 +600,13 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     uint physicalSlot = key / MERKABA_M8_KERNELS_PER_TILE;
     uint kernelLocal = key % MERKABA_M8_KERNELS_PER_TILE;
     uint2 sourcePixel;
-    uint sourceEye;
     float quality;
-    UnpackSurfaceMeasurement(queued.y, sourcePixel, sourceEye, quality);
-    float depthNdc = gsDepthTex.Load(int4(sourcePixel, (int)sourceEye, 0));
+    UnpackSurfaceMeasurement(queued.y, sourcePixel, quality);
+    float depthNdc = gsDepthTex.Load(int3(sourcePixel, 0));
     float2 sourceUv = ((float2)sourcePixel + 0.5) /
         (float2)gsDepthTexSize;
     float3 worldSurface = gsDepthNDCtoWorld(
-        float3(sourceUv, depthNdc), sourceEye);
+        float3(sourceUv, depthNdc));
 
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     UpdateOccupancy(physicalSlot, kernelLocal, state,

@@ -14,8 +14,8 @@ using UnityEngine.Android;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// Captures stereo depth from the AR occlusion subsystem, computes world-space normals,
-    /// runs mandatory true-stereo RGB-D refinement, and produces
+    /// Captures stereo depth from the AR occlusion subsystem, runs the mandatory
+    /// true-stereo RGB-D joint solve, and produces
     /// dilated depth textures consumed by <see cref="MerkabaIntegrator"/> for reversible
     /// surface/free-space evidence integration.
     /// </summary>
@@ -30,8 +30,6 @@ namespace Genesis.RoomScan
 
         [Header("Dilation")]
         [SerializeField, Range(0, 12)] private int dilationSteps = 8;
-        [SerializeField] private float voxelDistance = 0.2f;
-        [SerializeField] private float voxelSize = 0.05f;
 
         private readonly Matrix4x4[] _proj = new Matrix4x4[2];
         private readonly Matrix4x4[] _projInv = new Matrix4x4[2];
@@ -55,7 +53,6 @@ namespace Genesis.RoomScan
         public static readonly int DepthTexRWID = Shader.PropertyToID("gsDepthTexRW");
         public static readonly int TexSizeID = Shader.PropertyToID("gsDepthTexSize");
         public static readonly int NormTexID = Shader.PropertyToID("gsDepthNormalTex");
-        public static readonly int NormTexRWID = Shader.PropertyToID("gsDepthNormalTexRW");
         public static readonly int ZParamsID = Shader.PropertyToID("gsDepthZParams");
         public static readonly int ProjID = Shader.PropertyToID("gsDepthProj");
         public static readonly int ProjInvID = Shader.PropertyToID("gsDepthProjInv");
@@ -75,12 +72,12 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_SrcDepth");
         private static readonly int RefineDstDepthId =
             Shader.PropertyToID("_DstDepth");
+        private static readonly int RefineDstNormalId =
+            Shader.PropertyToID("_DstNormal");
         private static readonly int RefineDepthWidthId =
             Shader.PropertyToID("_DepthW");
         private static readonly int RefineDepthHeightId =
             Shader.PropertyToID("_DepthH");
-        private static readonly int RefineNearFarId =
-            Shader.PropertyToID("_DepthNearFar");
         private static readonly int RefineDepthProjId =
             Shader.PropertyToID("_DepthProj");
         private static readonly int RefineDepthProjInvId =
@@ -140,7 +137,6 @@ namespace Genesis.RoomScan
         /// </summary>
         private bool _captureActive;
 
-        private ComputeKernelHelper _normKernel;
         private ComputeKernelHelper _projectionDepthCopyKernel;
         private ComputeKernelHelper _monoConvertKernel;
         private ComputeKernelHelper _initDilateKernel;
@@ -164,7 +160,7 @@ namespace Genesis.RoomScan
         public Texture DepthTex => _depthTex;
 
         private RenderTexture _normTex;
-        /// <summary>World-space normals computed from the depth texture via the DepthNorm compute shader.</summary>
+        /// <summary>Joint world-space normal from the same four-stream solve as DepthTex.</summary>
         public RenderTexture NormTex => _normTex;
 
         private RenderTexture _dilationA, _dilationB;
@@ -235,15 +231,11 @@ namespace Genesis.RoomScan
             if (!_arOcclusionManager)
                 throw new Exception("[RoomScan] AROcclusionManager not found in scene");
 
-            _normKernel = new ComputeKernelHelper(depthNormalCompute, "DepthNorm");
             _projectionDepthCopyKernel = new ComputeKernelHelper(depthNormalCompute,
                 "CopyProjectionDepthArray");
             _monoConvertKernel = new ComputeKernelHelper(depthNormalCompute, "MonoRawDepthToStereo");
             _initDilateKernel = new ComputeKernelHelper(depthDilationCompute, "InitDepthDilation");
             _dilateStepKernel = new ComputeKernelHelper(depthDilationCompute, "DilateDepthStep");
-            MerkabaGpuTimestamps.RegisterKernel(depthNormalCompute,
-                _normKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess,
-                "DepthNorm");
             MerkabaGpuTimestamps.RegisterKernel(depthNormalCompute,
                 _projectionDepthCopyKernel.KernelIndex,
                 MerkabaGpuStage.DepthPreprocess,
@@ -577,7 +569,6 @@ namespace Genesis.RoomScan
             _depthTex = _ownedRawDepth[_heldDepthSlot];
             ApplyStereoRgbdRefinement(command, cameraFrame);
             SetGlobalShaderProperties();
-            ComputeNormals(command);
             ComputeDilation(command);
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
             _preprocessedFrameCount++;
@@ -777,22 +768,35 @@ namespace Genesis.RoomScan
                 _refinedDepthTex = new RenderTexture(w, h, 0,
                     GraphicsFormat.R32_SFloat, 1)
                 {
-                    dimension = TextureDimension.Tex2DArray,
-                    volumeDepth = 2,
                     enableRandomWrite = true,
                     filterMode = FilterMode.Point,
                     wrapMode = TextureWrapMode.Clamp
                 };
                 _refinedDepthTex.Create();
             }
+            if (_normTex == null || _normTex.width != w ||
+                _normTex.height != h ||
+                _normTex.graphicsFormat != GraphicsFormat.R8G8B8A8_SNorm)
+            {
+                if (_normTex) Destroy(_normTex);
+                _normTex = new RenderTexture(w, h, 0,
+                    GraphicsFormat.R8G8B8A8_SNorm, 1)
+                {
+                    enableRandomWrite = true,
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                _normTex.Create();
+            }
 
             ComputeShader shader = stereoRgbdRefineCompute;
             _stereoRgbdRefineKernel.Set(command, RefineSrcDepthId, _depthTex);
             _stereoRgbdRefineKernel.Set(command, RefineDstDepthId,
                 _refinedDepthTex);
+            _stereoRgbdRefineKernel.Set(command, RefineDstNormalId,
+                _normTex);
             command.SetComputeIntParam(shader, RefineDepthWidthId, w);
             command.SetComputeIntParam(shader, RefineDepthHeightId, h);
-            command.SetComputeVectorParam(shader, RefineNearFarId, _planes);
             command.SetComputeMatrixArrayParam(shader, RefineDepthProjId, _proj);
             command.SetComputeMatrixArrayParam(shader, RefineDepthProjInvId,
                 _projInv);
@@ -801,9 +805,10 @@ namespace Genesis.RoomScan
                 _viewInv);
             BindStereoCamera(command, shader, cameraFrame.Left, 0);
             BindStereoCamera(command, shader, cameraFrame.Right, 1);
-            _stereoRgbdRefineKernel.DispatchFit(command, w, h, 2);
+            _stereoRgbdRefineKernel.DispatchFit(command, w, h, 1);
 
             _depthTex = _refinedDepthTex;
+            Shader.SetGlobalTexture(NormTexID, _normTex);
         }
 
         private void BindStereoCamera(CommandBuffer command,
@@ -841,28 +846,6 @@ namespace Genesis.RoomScan
             Shader.SetGlobalTexture(DepthTexID, _depthTex);
         }
 
-        private void ComputeNormals(CommandBuffer command)
-        {
-            if (_normTex == null || _normTex.width != _depthTex.width || _normTex.height != _depthTex.height)
-            {
-                if (_normTex) Destroy(_normTex);
-                _normTex = new RenderTexture(_depthTex.width, _depthTex.height, 0,
-                    GraphicsFormat.R8G8B8A8_SNorm, 1)
-                {
-                    dimension = TextureDimension.Tex2DArray,
-                    volumeDepth = 2,
-                    useMipMap = false,
-                    enableRandomWrite = true
-                };
-                _normTex.Create();
-            }
-
-            _normKernel.Set(command, DepthTexID, _depthTex);
-            _normKernel.Set(command, NormTexRWID, _normTex);
-            _normKernel.DispatchFit(command, _normTex);
-            Shader.SetGlobalTexture(NormTexID, _normTex);
-        }
-
         private void ComputeDilation(CommandBuffer command)
         {
             if (_dilationA == null || _dilationA.width != _depthTex.width || _dilationA.height != _depthTex.height)
@@ -874,8 +857,8 @@ namespace Genesis.RoomScan
                 {
                     width = _depthTex.width,
                     height = _depthTex.height,
-                    volumeDepth = 2,
-                    dimension = TextureDimension.Tex2DArray,
+                    volumeDepth = 1,
+                    dimension = TextureDimension.Tex2D,
                     autoGenerateMips = false,
                     enableRandomWrite = true,
                     graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat,
@@ -889,14 +872,14 @@ namespace Genesis.RoomScan
             }
 
             command.SetComputeFloatParam(depthDilationCompute, VoxDistID,
-                voxelDistance);
+                MerkabaConstants.FreeFullClearance);
             command.SetComputeFloatParam(depthDilationCompute, VoxSizeShaderID,
-                voxelSize);
+                MerkabaConstants.SupportSize);
 
             _initDilateKernel.Set(command, DepthTexID, _depthTex);
             _initDilateKernel.Set(command, DilateSrcID, _dilationA);
             _initDilateKernel.DispatchFit(command, _dilationA.width,
-                _dilationA.height, 2);
+                _dilationA.height, 1);
 
             foreach (int stepSize in BuildDilationStepSequence(dilationSteps))
             {
@@ -905,7 +888,7 @@ namespace Genesis.RoomScan
                 command.SetComputeIntParam(depthDilationCompute,
                     DilateStepSizeID, stepSize);
                 _dilateStepKernel.DispatchFit(command, _dilationA.width,
-                    _dilationA.height, 2);
+                    _dilationA.height, 1);
 
                 (_dilationA, _dilationB) = (_dilationB, _dilationA);
             }
@@ -950,13 +933,5 @@ namespace Genesis.RoomScan
             };
         }
 
-        /// <summary>
-        /// Update lattice parameters used by dilation when the integrator changes them.
-        /// </summary>
-        public void SetVoxelParams(float voxDist, float voxSize)
-        {
-            voxelDistance = voxDist;
-            voxelSize = voxSize;
-        }
     }
 }

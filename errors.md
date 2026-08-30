@@ -6,7 +6,10 @@ scope boundary.
 
 ## Current evidence baseline
 
-- Code base: `89e59562f1beb9f30f7183a4c8c4257503af730c` before the active canonical-hit closure.
+- Active execution contract: `.codex/M8_STEREO_AUTHORITY_CLOSURE.md`, frozen
+  at `01fd188b171bfffeb184f265d3518a955adc38d6`. Older entries below remain a
+  forensic record; where they conflict, the active contract and current code
+  are authoritative.
 - Device log: `/mnt/kingston-unity/Builds/DeviceEvidence/true_stereo_projection_fix_20260830_020425/live-logcat.log`.
 - 26 timestamp samples: `StereoRgbdRefine` 1.416 ms median / 2.663 ms max;
   nine `DilateDepthStep` invocations about 1.2 ms normally and 2.7 ms max;
@@ -98,12 +101,22 @@ image between those operations. Descriptor capture and the owned history blit
 now occur in the same `endContextRendering` callback. The owned descriptor is
 published only after that copy is submitted on the graphics queue.
 
-### RGBD-7 — opposite-depth support compared only radial range
-[FIXED, DEVICE PENDING]
+### RGBD-7 — opposite-depth support used quantized 3D pixel-centre distance
+[FIXED IN S1, DEVICE PENDING]
 
-Two different points can have the same distance from the opposite eye. The
-stereo refinement now compares the complete reconstructed world positions and
-requires their Euclidean separation to remain within 12.5 mm.
+Euclidean separation to a quantized opposite-eye pixel centre rejects valid
+sloped/distant planes as pixel footprint grows. S1 now fits bounded local
+planes and requires point-to-plane residual `<= 12.5 mm`. One Depth-L reference
+lattice produces one joint endpoint/normal from mandatory Depth-L, Depth-R,
+PCA-L and PCA-R; no second eye-specific canonical producer remains.
+
+### RGBD-8 — post-mask normals expanded valid-depth holes
+[FIXED IN S1, DEVICE PENDING]
+
+The old `DepthNorm` kernel required the refined centre plus additional valid
+neighbours after the hard stereo mask. S1 emits the joint normal from the same
+four-stream plane solve and physically removes that kernel/dispatch. The
+derived depth, normal and dilation fields are now single 2D joint fields.
 
 ## Canonical integration gaps (outside the RGB-D snapshot scope)
 
@@ -145,15 +158,13 @@ kernel key. Canonical RGB is sampled from the reconstructed source hit, while
 the rounded coordinate remains the only canonical spatial owner.
 
 ### M8-4 — old positive evidence could become practically irreversible
-[FIXED, DEVICE PENDING]
+[SUPERSEDED BY 01fd188 HYSTERETIC CONTRACT]
 
-Evidence formerly saturated near `int16` range while FREE was weaker than
-SURFACE. A stale full-confidence foreground kernel could therefore survive many
-valid replacement observations. Evidence confidence is now symmetrically
-bounded to one full observation (`+/-640`) and SURFACE/FREE use the same scale.
-A successful observation publishes its replacement SURFACE before applying
-FREE to every active foreground kernel along the corresponding validated ray;
-behind-surface state remains UNKNOWN because depth cannot prove it empty.
+The temporary `+/-640` equal-scale policy was removed. Current frozen values
+are SURFACE `640`, FREE `256`, confidence cap `+/-2560`, ON `512`, OFF `128`,
+with q-squared convergence, clearance weighting, hysteresis and replacement
+continuity. S2/S3 may change mutation permission but must not change these
+evidence constants or collapse the hysteretic state to a direct bit toggle.
 
 ## Performance facts and remaining measurement gaps
 

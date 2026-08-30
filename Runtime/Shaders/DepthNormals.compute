@@ -1,60 +1,10 @@
-// Genesis RoomScan - derive world-space stereo normals with padded-dispatch guards.
-#include "DepthKit.hlsl"
-
-RWTexture2DArray<float4> gsDepthNormalTexRW;
+// Scanner-owned raw depth materialization. Joint normals are produced by the
+// four-stream solve in StereoRgbdRefine.compute, not by a second erosion pass.
 Texture2DArray<float> gsInputProjectionDepth;
 RWTexture2DArray<float> gsDepthTexRW;
+float4 gsDepthZParams;
 
-#pragma kernel DepthNorm
 #pragma kernel CopyProjectionDepthArray
-
-[numthreads(8, 8, 1)]
-void DepthNorm(uint3 id : SV_DispatchThreadID)
-{
-    uint2 size = gsDepthTexSize;
-    if (id.z >= 2u || id.x >= size.x || id.y >= size.y) return;
-
-    int2 baseCoord = int2(id.xy);
-    int2 maximum = int2(size) - 1;
-    int2 horizontalCoord = min(baseCoord + int2(2, 0), maximum);
-    int2 verticalCoord = min(baseCoord + int2(0, 2), maximum);
-    if (horizontalCoord.x == baseCoord.x)
-        horizontalCoord.x = max(0, baseCoord.x - 2);
-    if (verticalCoord.y == baseCoord.y)
-        verticalCoord.y = max(0, baseCoord.y - 2);
-
-    float centerDepth = gsDepthTex[uint3(baseCoord, id.z)];
-    float horizontalDepth = gsDepthTex[uint3(horizontalCoord, id.z)];
-    float verticalDepth = gsDepthTex[uint3(verticalCoord, id.z)];
-    if (centerDepth <= 0.0 || centerDepth >= 1.0 ||
-        horizontalDepth <= 0.0 || horizontalDepth >= 1.0 ||
-        verticalDepth <= 0.0 || verticalDepth >= 1.0)
-    {
-        gsDepthNormalTexRW[id] = float4(0, 0, 0, 0);
-        return;
-    }
-
-    float2 sizeF = (float2)size;
-    float3 centerWorld = gsDepthNDCtoWorld(float3(
-        ((float2)baseCoord + 0.5) / sizeF, centerDepth), id.z);
-    float3 horizontalWorld = gsDepthNDCtoWorld(float3(
-        ((float2)horizontalCoord + 0.5) / sizeF, horizontalDepth), id.z);
-    float3 verticalWorld = gsDepthNDCtoWorld(float3(
-        ((float2)verticalCoord + 0.5) / sizeF, verticalDepth), id.z);
-    float3 horizontalDerivative = horizontalWorld - centerWorld;
-    float3 verticalDerivative = verticalWorld - centerWorld;
-    float orientation = (horizontalCoord.x - baseCoord.x) *
-        (verticalCoord.y - baseCoord.y) >= 0 ? 1.0 : -1.0;
-    float3 crossValue = cross(horizontalDerivative, verticalDerivative) * orientation;
-    float lengthSquared = dot(crossValue, crossValue);
-    if (lengthSquared <= 1e-16)
-    {
-        gsDepthNormalTexRW[id] = float4(0, 0, 0, 0);
-        return;
-    }
-
-    gsDepthNormalTexRW[id] = float4(-crossValue * rsqrt(lengthSquared), 1.0);
-}
 
 // Quest Environment Depth is an external depth attachment with no portable
 // colour GraphicsFormat. Materialize it while the AR frame is current by

@@ -378,7 +378,7 @@ namespace Genesis.RoomScan
                     ConfigureObservation();
                     command.DispatchComputeProfiled(compute, _discoverKernel,
                         Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f),
-                        Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f), 2);
+                        Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f), 1);
                 }
                 else
                     ConfigureAttempt();

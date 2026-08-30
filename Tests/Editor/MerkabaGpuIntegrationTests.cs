@@ -594,7 +594,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void StereoSurfaceClassification_PrecedesFreeAndCarveStatsAreReduced()
+        public void JointSurfaceClassification_PrecedesFreeAndCarveStatsAreReduced()
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
@@ -608,13 +608,10 @@ namespace Genesis.RoomScan.Tests
                 "#define MERKABA_FREE_FULL_CLEARANCE 0.150"));
             string fuse = Slice(integration, "void FuseDepth",
                 "void UpdateOccupancy");
-            Assert.That(fuse.IndexOf("if (eyeKind == 2)",
-                    StringComparison.Ordinal),
-                Is.LessThan(fuse.IndexOf("else if (kind == 0 || (kind == 1",
-                    StringComparison.Ordinal)));
             Assert.That(fuse, Does.Contain(
-                "ObserveDepthEye(eye, globalCoord, worldPosition"));
-            string observation = Slice(integration, "bool ObserveDepthEye",
+                "ObserveJointDepth(globalCoord, worldPosition"));
+            Assert.That(fuse, Does.Not.Contain("for (uint eye"));
+            string observation = Slice(integration, "bool ObserveJointDepth",
                 "void FuseDepth");
             Assert.That(observation, Does.Contain("TrySurfaceMeasurement"));
             Assert.That(observation, Does.Contain(
@@ -623,6 +620,7 @@ namespace Genesis.RoomScan.Tests
                 "clearance > MERKABA_HALF_SUPPORT"));
             Assert.That(observation, Does.Contain(
                 "MerkabaFreeDistanceWeight(clearance)"));
+            Assert.That(observation, Does.Contain("gsDilatedDepth.Load"));
 
             string carve = Slice(integration, "groupshared uint gCarveStats",
                 "void FinalizeObservation");
@@ -743,9 +741,9 @@ namespace Genesis.RoomScan.Tests
                 Source("Runtime/Shaders/DepthDilation.compute") +
                 Source("Runtime/Shaders/StereoRgbdRefine.compute");
             Assert.That(Regex.Matches(depth, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(6));
+                RegexOptions.Multiline), Has.Count.EqualTo(5));
             Assert.That(Regex.Matches(depth,
-                @"\[numthreads\(8,\s*8,\s*1\)\]"), Has.Count.EqualTo(6));
+                @"\[numthreads\(8,\s*8,\s*1\)\]"), Has.Count.EqualTo(5));
             Assert.That(depth, Does.Not.Contain("[numthreads(1, 1, 1)]"));
         }
 
@@ -831,7 +829,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 48"));
+            Assert.That(audit, Does.Contain("kernel_count != 47"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));
@@ -893,7 +891,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(world, Does.Contain(
                 "out uint failureReason"));
             string failureReason = Slice(integration,
-                "uint M8ObservationFailureReason()", "bool ObserveDepthEye");
+                "uint M8ObservationFailureReason()", "bool ObserveJointDepth");
             Assert.That(failureReason, Does.Not.Contain(
                 "M8_COUNTER_BLOCK_OVERFLOW"));
             Assert.That(failureReason, Does.Not.Contain(
