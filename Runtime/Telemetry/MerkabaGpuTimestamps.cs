@@ -41,6 +41,9 @@ namespace Genesis.RoomScan
             RefineRadialBinCount * RefineMetricCount;
 
         private const int MaximumTimedEntries = 4096;
+        private const int SubmissionTimestampCount = 2;
+        private const int OwnerStride = SubmissionTimestampCount +
+            MaximumTimedEntries * 2;
         private const float InitialSampleDelaySeconds = 2f;
         private const float SampleIntervalSeconds = 5f;
         private const float UnavailableRetrySeconds = 30f;
@@ -181,7 +184,7 @@ namespace Genesis.RoomScan
             MerkabaGpuStage.DepthPreprocess,
             "MerkabaIntegrator.CopyOwnedPcaObservation");
         private static readonly ulong[] TimestampPairs =
-            new ulong[MaximumTimedEntries * 2];
+            new ulong[OwnerStride];
         private static readonly Dictionary<TimingEntry, SessionAggregate>
             SessionTotals = new();
 
@@ -304,7 +307,7 @@ namespace Genesis.RoomScan
 #else
             if (Time.unscaledTime < _nextSampleTime)
                 return false;
-            if (!Native.TryArm(revision))
+            if (!Native.TryArm(owner, revision))
             {
                 if (!_unavailableWarningLogged)
                 {
@@ -492,21 +495,31 @@ namespace Genesis.RoomScan
 #if UNITY_EDITOR
             return;
 #else
-            int status = Native.TryRead(TimestampPairs, out int entryCount,
+            int status = Native.TryRead(_activeOwner, TimestampPairs,
+                out CaptureOwner capturedOwner, out int entryCount,
                 out double timestampPeriod, out int validBits,
                 out ulong capturedRevision, out bool overflow);
             if (status == 0)
                 return;
             bool valid = IsTimestampSampleValid(status, overflow,
-                capturedRevision, _revision, entryCount, EntrySequence.Count);
+                capturedOwner, _activeOwner, capturedRevision, _revision,
+                entryCount, EntrySequence.Count);
+            double submissionNanoseconds = 0.0;
+            double entryNanoseconds = 0.0;
+            if (valid)
+                valid = TryValidateTimestampBounds(entryCount,
+                    timestampPeriod, validBits, out submissionNanoseconds,
+                    out entryNanoseconds);
             if (valid)
             {
-                LogTimings(entryCount, timestampPeriod, validBits);
+                LogTimings(entryCount, timestampPeriod, validBits,
+                    submissionNanoseconds, entryNanoseconds);
                 AdvanceScheduledOwner();
             }
             else
                 Logger.Warning($"Merkaba GPU timestamp sample invalid " +
                                $"owner={_activeOwner} " +
+                               $"nativeOwner={capturedOwner} " +
                                $"revision={_revision} nativeRevision=" +
                                $"{capturedRevision} expectedEntries=" +
                                $"{EntrySequence.Count} actualEntries=" +
@@ -703,10 +716,17 @@ namespace Genesis.RoomScan
         }
 
         internal static bool IsTimestampSampleValid(int status, bool overflow,
+            CaptureOwner capturedOwner, CaptureOwner expectedOwner,
             ulong capturedRevision, ulong expectedRevision, int actualEntries,
             int expectedEntries) =>
-            status > 0 && !overflow && capturedRevision == expectedRevision &&
+            status > 0 && !overflow && capturedOwner == expectedOwner &&
+            capturedRevision == expectedRevision &&
             actualEntries == expectedEntries;
+
+        internal static bool IsEntryTotalWithinSubmission(
+            double submissionNanoseconds, double entryNanoseconds) =>
+            submissionNanoseconds >= 0.0 && entryNanoseconds >= 0.0 &&
+            entryNanoseconds <= submissionNanoseconds * 1.10;
 
         internal static double ElapsedNanoseconds(ulong begin, ulong end,
             double timestampPeriod, int validBits)
@@ -798,8 +818,25 @@ namespace Genesis.RoomScan
                     $"must be in [1,{maximum}].");
         }
 
+        private static bool TryValidateTimestampBounds(int entryCount,
+            double timestampPeriod, int validBits,
+            out double submissionNanoseconds, out double entryNanoseconds)
+        {
+            submissionNanoseconds = ElapsedNanoseconds(TimestampPairs[0],
+                TimestampPairs[1], timestampPeriod, validBits);
+            entryNanoseconds = 0.0;
+            for (int index = 0; index < entryCount; index++)
+                entryNanoseconds += ElapsedNanoseconds(
+                    TimestampPairs[SubmissionTimestampCount + index * 2],
+                    TimestampPairs[SubmissionTimestampCount + index * 2 + 1],
+                    timestampPeriod, validBits);
+            return IsEntryTotalWithinSubmission(submissionNanoseconds,
+                entryNanoseconds);
+        }
+
         private static void LogTimings(int entryCount,
-            double timestampPeriod, int validBits)
+            double timestampPeriod, int validBits,
+            double submissionNanoseconds, double entryNanoseconds)
         {
             var operationTotals = new Dictionary<TimingEntry, Aggregate>();
             var stageTotals = new Aggregate[(int)MerkabaGpuStage.Count];
@@ -809,7 +846,8 @@ namespace Genesis.RoomScan
             for (int index = 0; index < entryCount; index++)
             {
                 double nanoseconds = ElapsedNanoseconds(
-                    TimestampPairs[index * 2], TimestampPairs[index * 2 + 1],
+                    TimestampPairs[SubmissionTimestampCount + index * 2],
+                    TimestampPairs[SubmissionTimestampCount + index * 2 + 1],
                     timestampPeriod, validBits);
                 TimingEntry entry = EntrySequence[index];
                 if (!operationTotals.TryGetValue(entry, out Aggregate operation))
@@ -851,7 +889,10 @@ namespace Genesis.RoomScan
             }
             Logger.Info($"Merkaba gpu-sample owner={_activeOwner} " +
                         $"revision={_revision} " +
-                        $"timestamp-checksum={checksum / 1_000_000.0:F3}ms " +
+                        $"submissionGpuMs=" +
+                        $"{submissionNanoseconds / 1_000_000.0:F3} " +
+                        $"sumEntryGpuMs=" +
+                        $"{entryNanoseconds / 1_000_000.0:F3} " +
                         $"entries={entryCount} operations={ranked.Count} " +
                         $"timestampPeriod={timestampPeriod:F6}ns " +
                         $"validBits={validBits}");
@@ -1113,6 +1154,15 @@ namespace Genesis.RoomScan
                 result[index] = EntrySequence[index].Stage;
             return result;
         }
+
+        internal static int OwnerStrideForTests => OwnerStride;
+
+        internal static int OwnerQueryBaseForTests(CaptureOwner owner)
+        {
+            if ((uint)owner >= (uint)CaptureOwner.Count)
+                throw new ArgumentOutOfRangeException(nameof(owner));
+            return (int)owner * OwnerStride;
+        }
 #endif
 
         private static class Native
@@ -1131,7 +1181,7 @@ namespace Genesis.RoomScan
             [DllImport(Library, EntryPoint = "MerkabaTimestamp_IsAvailable")]
             private static extern int IsAvailableNative();
             [DllImport(Library, EntryPoint = "MerkabaTimestamp_Arm")]
-            private static extern int ArmNative(ulong revision);
+            private static extern int ArmNative(int owner, ulong revision);
             [DllImport(Library, EntryPoint = "MerkabaTimestamp_Cancel")]
             private static extern void CancelNative();
             [DllImport(Library, EntryPoint = "MerkabaTimestamp_GetRenderEventFunc")]
@@ -1139,19 +1189,20 @@ namespace Genesis.RoomScan
             [DllImport(Library, EntryPoint = "MerkabaTimestamp_GetEventId")]
             private static extern int GetEventIdNative(int offset);
             [DllImport(Library, EntryPoint = "MerkabaTimestamp_Read")]
-            private static extern int ReadNative([Out] ulong[] timestamps,
-                int timestampCapacity, out int entryCount,
+            private static extern int ReadNative(int requestedOwner,
+                [Out] ulong[] timestamps, int timestampCapacity,
+                out int capturedOwner, out int entryCount,
                 out double timestampPeriod, out int validBits,
                 out ulong revision, out int overflow);
 
             internal static IntPtr RenderEvent => GetRenderEventFuncNative();
             internal static int EventId(int offset) => GetEventIdNative(offset);
-            internal static bool TryArm(uint revision)
+            internal static bool TryArm(CaptureOwner owner, uint revision)
             {
                 try
                 {
                     return IsAvailableNative() != 0 &&
-                           ArmNative(revision) != 0;
+                           ArmNative((int)owner, revision) != 0;
                 }
                 catch (DllNotFoundException) { return false; }
                 catch (EntryPointNotFoundException) { return false; }
@@ -1164,20 +1215,24 @@ namespace Genesis.RoomScan
                 catch (EntryPointNotFoundException) { }
             }
 
-            internal static int TryRead(ulong[] timestamps,
+            internal static int TryRead(CaptureOwner requestedOwner,
+                ulong[] timestamps, out CaptureOwner capturedOwner,
                 out int entryCount, out double timestampPeriod,
                 out int validBits, out ulong revision, out bool overflow)
             {
                 try
                 {
-                    int result = ReadNative(timestamps, timestamps.Length,
-                        out entryCount, out timestampPeriod, out validBits,
-                        out revision, out int overflowValue);
+                    int result = ReadNative((int)requestedOwner, timestamps,
+                        timestamps.Length, out int ownerValue, out entryCount,
+                        out timestampPeriod, out validBits, out revision,
+                        out int overflowValue);
+                    capturedOwner = (CaptureOwner)ownerValue;
                     overflow = overflowValue != 0;
                     return result;
                 }
                 catch (DllNotFoundException)
                 {
+                    capturedOwner = CaptureOwner.Count;
                     entryCount = validBits = 0;
                     timestampPeriod = 0.0;
                     revision = 0u;
@@ -1186,6 +1241,7 @@ namespace Genesis.RoomScan
                 }
                 catch (EntryPointNotFoundException)
                 {
+                    capturedOwner = CaptureOwner.Count;
                     entryCount = validBits = 0;
                     timestampPeriod = 0.0;
                     revision = 0u;
@@ -1196,12 +1252,14 @@ namespace Genesis.RoomScan
 #else
             internal static IntPtr RenderEvent => IntPtr.Zero;
             internal static int EventId(int offset) => 0;
-            internal static bool TryArm(uint revision) => false;
+            internal static bool TryArm(CaptureOwner owner, uint revision) => false;
             internal static void Cancel() { }
-            internal static int TryRead(ulong[] timestamps,
+            internal static int TryRead(CaptureOwner requestedOwner,
+                ulong[] timestamps, out CaptureOwner capturedOwner,
                 out int entryCount, out double timestampPeriod,
                 out int validBits, out ulong revision, out bool overflow)
             {
+                capturedOwner = CaptureOwner.Count;
                 entryCount = validBits = 0;
                 timestampPeriod = 0.0;
                 revision = 0u;

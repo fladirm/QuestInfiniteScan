@@ -7,7 +7,9 @@
 namespace
 {
     constexpr uint32_t kMaximumEntries = 4096;
-    constexpr uint32_t kMaximumQueries = kMaximumEntries * 2;
+    constexpr uint32_t kOwnerCount = 6;
+    constexpr uint32_t kOwnerStride = 2 + kMaximumEntries * 2;
+    constexpr uint32_t kMaximumQueries = kOwnerCount * kOwnerStride;
     constexpr uint32_t kNoEntry = UINT32_MAX;
 
     enum CaptureState : int
@@ -52,10 +54,11 @@ namespace
     uint32_t g_openEntry = kNoEntry;
     EntryKind g_openKind = kEntryNone;
     uint32_t g_overflow = 0;
+    uint32_t g_activeOwner = kOwnerCount;
     uint64_t g_revision = 0;
     double g_timestampPeriod = 0.0;
     uint32_t g_timestampValidBits = 0;
-    uint64_t g_queryScratch[kMaximumQueries * 2] = {};
+    uint64_t g_queryScratch[kOwnerStride * 2] = {};
     int g_eventBase = 0;
     bool g_eventsReserved = false;
 
@@ -64,6 +67,11 @@ namespace
         return g_vulkan != nullptr && g_queryPool != VK_NULL_HANDLE &&
             g_vulkan->CommandRecordingState(recording,
                 kUnityVulkanGraphicsQueueAccess_DontCare);
+    }
+
+    uint32_t OwnerBase()
+    {
+        return g_activeOwner * kOwnerStride;
     }
 
     void BeginEntry(UnityVulkanRecordingState* recording,
@@ -79,7 +87,7 @@ namespace
         g_openEntry = g_entryCount;
         g_openKind = kind;
         vkCmdWriteTimestamp(recording->commandBuffer, stage, g_queryPool,
-            g_openEntry * 2);
+            OwnerBase() + 2 + g_openEntry * 2);
     }
 
     void EndEntry(UnityVulkanRecordingState* recording,
@@ -92,7 +100,7 @@ namespace
             return;
         }
         vkCmdWriteTimestamp(recording->commandBuffer, stage, g_queryPool,
-            g_openEntry * 2 + 1);
+            OwnerBase() + 3 + g_openEntry * 2);
         ++g_entryCount;
         g_openEntry = kNoEntry;
         g_openKind = kEntryNone;
@@ -108,8 +116,12 @@ namespace
         {
             if (g_state.load(std::memory_order_acquire) != kArmed)
                 return;
-            vkCmdResetQueryPool(recording.commandBuffer, g_queryPool, 0,
-                kMaximumQueries);
+            uint32_t ownerBase = OwnerBase();
+            vkCmdResetQueryPool(recording.commandBuffer, g_queryPool,
+                ownerBase, kOwnerStride);
+            vkCmdWriteTimestamp(recording.commandBuffer,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, g_queryPool,
+                ownerBase);
             g_entryCount = 0;
             g_recordedEntries = 0;
             g_openEntry = kNoEntry;
@@ -159,6 +171,9 @@ namespace
             return;
         if (g_openEntry != kNoEntry)
             g_overflow = 1;
+        vkCmdWriteTimestamp(recording.commandBuffer,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, g_queryPool,
+            OwnerBase() + 1);
         g_recordedEntries = g_entryCount;
         g_openEntry = kNoEntry;
         g_openKind = kEntryNone;
@@ -286,14 +301,16 @@ extern "C"
     }
 
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaTimestamp_Arm(
-        uint64_t revision)
+        int owner, uint64_t revision)
     {
-        if (revision == 0)
+        if (owner < 0 || owner >= static_cast<int>(kOwnerCount) ||
+            revision == 0)
             return 0;
         int expected = kIdle;
         if (!g_state.compare_exchange_strong(expected, kPreparing,
                 std::memory_order_acq_rel))
             return 0;
+        g_activeOwner = static_cast<uint32_t>(owner);
         g_revision = revision;
         g_state.store(kArmed, std::memory_order_release);
         return 1;
@@ -307,11 +324,13 @@ extern "C"
     }
 
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaTimestamp_Read(
-        uint64_t* timestamps, int timestampCapacity, int* entryCount,
+        int requestedOwner, uint64_t* timestamps, int timestampCapacity,
+        int* capturedOwner, int* entryCount,
         double* timestampPeriod, int* validBits, uint64_t* revision,
         int* overflow)
     {
-        if (timestamps == nullptr || entryCount == nullptr ||
+        if (timestamps == nullptr || capturedOwner == nullptr ||
+            entryCount == nullptr ||
             timestampPeriod == nullptr || validBits == nullptr ||
             revision == nullptr || overflow == nullptr)
             return -1;
@@ -320,13 +339,24 @@ extern "C"
             return 0;
         if (state != kRecorded)
             return -1;
-        uint32_t queryCount = g_recordedEntries * 2;
+        *capturedOwner = static_cast<int>(g_activeOwner);
+        *entryCount = static_cast<int>(g_recordedEntries);
+        *timestampPeriod = g_timestampPeriod;
+        *validBits = static_cast<int>(g_timestampValidBits);
+        *revision = g_revision;
+        *overflow = static_cast<int>(g_overflow);
+        if (requestedOwner != static_cast<int>(g_activeOwner))
+        {
+            g_state.store(kIdle, std::memory_order_release);
+            return -1;
+        }
+        uint32_t queryCount = 2 + g_recordedEntries * 2;
         if (timestampCapacity < static_cast<int>(queryCount))
             return -1;
         if (queryCount != 0)
         {
             VkResult result = vkGetQueryPoolResults(g_instance.device,
-                g_queryPool, 0, queryCount,
+                g_queryPool, OwnerBase(), queryCount,
                 sizeof(uint64_t) * queryCount * 2, g_queryScratch,
                 sizeof(uint64_t) * 2,
                 VK_QUERY_RESULT_64_BIT |
@@ -342,11 +372,6 @@ extern "C"
                 timestamps[query] = g_queryScratch[query * 2];
             }
         }
-        *entryCount = static_cast<int>(g_recordedEntries);
-        *timestampPeriod = g_timestampPeriod;
-        *validBits = static_cast<int>(g_timestampValidBits);
-        *revision = g_revision;
-        *overflow = static_cast<int>(g_overflow);
         g_state.store(kIdle, std::memory_order_release);
         return 1;
     }

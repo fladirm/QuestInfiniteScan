@@ -214,11 +214,46 @@ namespace Genesis.RoomScan.Tests
         public void TimestampSample_RejectsEntryCountMismatchBeforeAggregation()
         {
             Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
+                CaptureOwner.Draw, CaptureOwner.Draw,
                 7u, 7u, 12, 12), Is.True);
             Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
+                CaptureOwner.Draw, CaptureOwner.Draw,
                 7u, 7u, 11, 12), Is.False);
             Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
+                CaptureOwner.Draw, CaptureOwner.Draw,
                 7u, 7u, 13, 12), Is.False);
+        }
+
+        [Test]
+        public void TimestampSample_RejectsWrongOwnerAndEntryOverrun()
+        {
+            Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
+                CaptureOwner.ReadoutBuild, CaptureOwner.Draw,
+                9u, 9u, 1, 1), Is.False);
+            Assert.That(MerkabaGpuTimestamps.IsEntryTotalWithinSubmission(
+                10_000.0, 11_000.0), Is.True);
+            Assert.That(MerkabaGpuTimestamps.IsEntryTotalWithinSubmission(
+                10_000.0, 11_001.0), Is.False);
+        }
+
+        [Test]
+        public void OwnerQueryRanges_AreDisjointDuringSyntheticReset()
+        {
+            int stride = MerkabaGpuTimestamps.OwnerStrideForTests;
+            var queries = new ulong[(int)CaptureOwner.Count * stride];
+            Array.Fill(queries, 0x5a5a5a5a5a5a5a5aUL);
+            int ownerABase = MerkabaGpuTimestamps.OwnerQueryBaseForTests(
+                CaptureOwner.Observation);
+            int ownerBBase = MerkabaGpuTimestamps.OwnerQueryBaseForTests(
+                CaptureOwner.ReadoutBuild);
+
+            Array.Clear(queries, ownerABase, stride);
+
+            for (int index = ownerABase; index < ownerABase + stride; index++)
+                Assert.That(queries[index], Is.Zero);
+            for (int index = ownerBBase; index < ownerBBase + stride; index++)
+                Assert.That(queries[index],
+                    Is.EqualTo(0x5a5a5a5a5a5a5a5aUL));
         }
 
         [Test]
@@ -257,6 +292,12 @@ namespace Genesis.RoomScan.Tests
                 "VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT"));
             Assert.That(native, Does.Contain(
                 "VK_QUERY_RESULT_WITH_AVAILABILITY_BIT"));
+            Assert.That(native, Does.Contain("kOwnerCount = 6"));
+            Assert.That(native, Does.Contain("kOwnerStride"));
+            Assert.That(native, Does.Contain(
+                "ownerBase, kOwnerStride"));
+            Assert.That(native, Does.Not.Contain(
+                "g_queryPool, 0,\n                kMaximumQueries"));
             Assert.That(integrator, Does.Contain("DispatchComputeProfiled"));
             Assert.That(integrator, Does.Contain(
                 "BlitPcaObservationProfiled"));
