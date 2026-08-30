@@ -693,7 +693,7 @@ void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
     else
     {
         state.flags &= ~MERKABA_OCCUPIED_FLAG;
-        state.flags = M8ClearSurfaceOrientation(state.flags);
+        state.flags = M8ClearSurfacePlane(state.flags);
     }
     if (occupiedBefore == occupiedAfter) return;
 
@@ -1297,8 +1297,13 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
     {
         float3 normalGrid = mul((float3x3)_MerkabaWorldToGrid, surfaceNormal);
-        uint orientation = M8SelectCanonicalSurfaceOrientation(normalGrid);
-        state.flags = M8SetSurfaceOrientation(state.flags, orientation);
+        float3 kernelGrid = (float3)measuredKernel * MERKABA_LATTICE_STEP;
+        float3 kernelWorld = mul(_MerkabaGridToWorld,
+            float4(kernelGrid, 1.0)).xyz;
+        float signedOffset = dot(worldSurface - kernelWorld,
+            normalize(surfaceNormal));
+        state.flags = M8SetSurfacePlane(state.flags, normalGrid,
+            signedOffset);
     }
     state.flags |= MERKABA_NEEDS_CARVE_FLAG;
     float2 leftUv = MerkabaProjectCameraUv(0u, worldSurface);

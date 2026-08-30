@@ -249,7 +249,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void SurfaceIntegration_PersistsExactWinningNormalOrientation()
+        public void SurfaceIntegration_PersistsExactWinningMeasuredPlane()
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
@@ -258,9 +258,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(surface, Does.Contain(
                 "TrySurfaceMeasurement(sourcePixel"));
             Assert.That(surface, Does.Contain(
-                "M8SelectCanonicalSurfaceOrientation(normalGrid)"));
+                "float signedOffset = dot(worldSurface - kernelWorld"));
             Assert.That(surface, Does.Contain(
-                "M8SetSurfaceOrientation(state.flags, orientation)"));
+                "M8SetSurfacePlane(state.flags, normalGrid"));
+            Assert.That(surface, Does.Not.Contain(
+                "M8SelectCanonicalSurfaceOrientation(normalGrid)"));
         }
 
         [Test]

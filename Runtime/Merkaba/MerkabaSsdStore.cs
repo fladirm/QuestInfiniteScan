@@ -561,8 +561,8 @@ namespace Genesis.RoomScan
                 state.ColorConfidence > MerkabaConstants.MaximumColorConfidence ||
                 (state.Flags & ~(MerkabaConstants.OccupiedFlag |
                                  MerkabaConstants.NeedsCarveFlag |
-                                 MerkabaConstants.SurfaceOrientationMask)) != 0 ||
-                (!state.IsOccupied && state.SurfaceOrientation != 0u))
+                                 MerkabaConstants.SurfacePlanePayloadMask)) != 0 ||
+                (!state.IsOccupied && state.HasMeasuredSurfacePlane))
                 throw new InvalidDataException("M8 KernelState is out of range.");
         }
 

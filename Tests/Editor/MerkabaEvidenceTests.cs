@@ -18,64 +18,77 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void CanonicalSurfaceOrientation_MapsAllUndirectedBranches()
+        public void SurfacePlane_OctahedralNormalRoundTripIsBounded()
         {
-            for (int index = 0;
-                 index < MerkabaOverlapShell.CanonicalNormals.Length; index++)
+            float3[] normals =
             {
-                float3 normal = MerkabaOverlapShell.CanonicalNormals[index];
-                Assert.That(MerkabaOverlapShell.SelectCanonicalOrientation(
-                    normal), Is.EqualTo(index));
-                Assert.That(MerkabaOverlapShell.SelectCanonicalOrientation(
-                    -normal), Is.EqualTo(index));
+                new(1f, 0f, 0f), new(0f, 1f, 0f), new(0f, 0f, 1f),
+                math.normalize(new float3(0.17f, -0.63f, 0.76f)),
+                math.normalize(new float3(-0.42f, 0.88f, -0.21f))
+            };
+            foreach (float3 expected in normals)
+            {
+                uint flags = KernelState.SetSurfacePlane(0u, expected, 0f);
+                KernelState.DecodeSurfacePlane(flags, out float3 decoded,
+                    out _);
+                Assert.That(math.abs(math.dot(math.normalize(expected),
+                    decoded)), Is.GreaterThan(0.99999f));
             }
         }
 
         [Test]
-        public void CanonicalSurfaceOrientation_ExactTieUsesLowerBranch()
+        public void SurfacePlane_OppositeNormalAndOffsetEncodeIdentically()
         {
-            Span<float> alignments = stackalloc float[
-                MerkabaOverlapShell.CanonicalNormalCount];
-            alignments[4] = 0.75f;
-            alignments[9] = 0.75f;
-            Assert.That(MerkabaOverlapShell
-                .SelectCanonicalOrientationFromAlignments(alignments),
-                Is.EqualTo(4));
+            float3 normal = math.normalize(new float3(-0.3f, 0.7f, 0.2f));
+            uint forward = KernelState.SetSurfacePlane(0u, normal, 0.011f);
+            uint reverse = KernelState.SetSurfacePlane(0u, -normal, -0.011f);
+            Assert.That(reverse, Is.EqualTo(forward));
         }
 
         [Test]
-        public void SurfaceOrientationFlags_RoundTripAndClearOnlyTheirBits()
+        public void SurfacePlane_OffsetEndpointsAndSubMillimetreValueRoundTrip()
+        {
+            foreach (float expected in new[] { -0.025f, -0.0073f, 0f,
+                         0.0091f, 0.025f })
+            {
+                uint flags = KernelState.SetSurfacePlane(0u,
+                    new float3(0f, 0f, 1f), expected);
+                KernelState.DecodeSurfacePlane(flags, out _, out float actual);
+                Assert.That(actual, Is.EqualTo(expected).Within(
+                    MerkabaConstants.SurfacePlaneOffsetRange / 127f * 0.51f));
+            }
+        }
+
+        [Test]
+        public void SurfacePlane_ClearPreservesUnrelatedFlagsAndLegacyIsInvalid()
         {
             uint preserved = MerkabaConstants.OccupiedFlag |
                 MerkabaConstants.NeedsCarveFlag;
-            for (int branch = 0;
-                 branch < MerkabaOverlapShell.CanonicalNormalCount; branch++)
-            {
-                uint flags = KernelState.SetSurfaceOrientation(
-                    preserved, branch);
-                Assert.That(KernelState.GetSurfaceOrientation(flags),
-                    Is.EqualTo((uint)branch + 1u));
-                Assert.That(KernelState.ClearSurfaceOrientation(flags),
-                    Is.EqualTo(preserved));
-            }
+            uint flags = KernelState.SetSurfacePlane(preserved,
+                math.normalize(new float3(1f, 2f, 3f)), 0.004f);
+            Assert.That(KernelState.HasSurfacePlane(flags), Is.True);
+            Assert.That(KernelState.ClearSurfacePlane(flags), Is.EqualTo(preserved));
+            Assert.That(KernelState.HasSurfacePlane(7u << 2), Is.False);
         }
 
         [Test]
-        public void NonOccupiedState_ClearsStaleSurfaceOrientation()
+        public void NonOccupiedState_ClearsStaleSurfacePlane()
         {
             KernelState state = default;
             state.SetOccupiedForFixture(true, Red);
-            state.Flags = KernelState.SetSurfaceOrientation(state.Flags, 7);
+            state.Flags = KernelState.SetSurfacePlane(state.Flags,
+                new float3(0f, 1f, 0f), 0.003f);
             while (state.IsOccupied)
                 state.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
                     default, replacementOccupied: true);
-            Assert.That(state.SurfaceOrientation, Is.Zero);
+            Assert.That(state.HasMeasuredSurfacePlane, Is.False);
 
             state.SetOccupiedForFixture(true, Red);
-            state.Flags = KernelState.SetSurfaceOrientation(state.Flags, 7);
+            state.Flags = KernelState.SetSurfacePlane(state.Flags,
+                new float3(0f, 1f, 0f), 0.003f);
             state.SetOccupiedForFixture(false, default);
             Assert.That(state.IsOccupied, Is.False);
-            Assert.That(state.SurfaceOrientation, Is.Zero);
+            Assert.That(state.HasMeasuredSurfacePlane, Is.False);
         }
 
         [Test]

@@ -31,8 +31,14 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(new int3(1, 0, 3)));
             Assert.That(restored.Tiles[0].States[17].IsOccupied, Is.True);
             Assert.That(restored.Tiles[0].States[17].NeedsCarve, Is.True);
-            Assert.That(restored.Tiles[0].States[17].SurfaceOrientation,
-                Is.EqualTo(6u));
+            Assert.That(restored.Tiles[0].States[17].HasMeasuredSurfacePlane,
+                Is.True);
+            KernelState.DecodeSurfacePlane(restored.Tiles[0].States[17].Flags,
+                out float3 restoredNormal, out float restoredOffset);
+            Assert.That(math.dot(restoredNormal,
+                math.normalize(new float3(1f, 0f, 1f))),
+                Is.GreaterThan(0.99999f));
+            Assert.That(restoredOffset, Is.EqualTo(0.006f).Within(0.00011f));
             KernelState pendingCorrection = restored.Tiles[0].States[23];
             Assert.That(pendingCorrection.OccupancyEvidence, Is.Zero);
             Assert.That(pendingCorrection.PackedColor, Is.Zero);
@@ -232,8 +238,9 @@ namespace Genesis.RoomScan.Tests
             var negative = new KernelState[MerkabaSpatial.KernelsPerTile];
             negative[17].Apply(MerkabaObservationKind.Surface, 1f,
                 new Color32(12, 34, 56, 255));
-            negative[17].Flags = KernelState.SetSurfaceOrientation(
-                negative[17].Flags, 5);
+            negative[17].Flags = KernelState.SetSurfacePlane(
+                negative[17].Flags,
+                math.normalize(new float3(1f, 0f, 1f)), 0.006f);
             negative[23] = new KernelState
             {
                 Flags = MerkabaConstants.NeedsCarveFlag

@@ -32,9 +32,15 @@ namespace Genesis.RoomScan
 
         public const uint OccupiedFlag = 1u << 0;
         public const uint NeedsCarveFlag = 1u << 1;
-        public const int SurfaceOrientationShift = 2;
-        public const uint SurfaceOrientationMask = 0x0fu <<
-            SurfaceOrientationShift;
+        public const int SurfacePlaneNormalUShift = 2;
+        public const int SurfacePlaneNormalVShift = 12;
+        public const int SurfacePlaneOffsetShift = 22;
+        public const uint SurfacePlaneNormalMask = 0x3ffu;
+        public const uint SurfacePlaneOffsetMask = 0xffu;
+        public const uint SurfacePlaneValidFlag = 1u << 31;
+        public const uint SurfacePlanePayloadMask = 0xbffffffcu;
+        public const uint SurfacePlaneStorageMask = 0xfffffffcu;
+        public const float SurfacePlaneOffsetRange = HalfSupport;
 
         private static readonly int3[] NeighboursValue = BuildNeighbours();
 
