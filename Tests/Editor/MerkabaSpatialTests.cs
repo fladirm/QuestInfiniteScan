@@ -76,6 +76,23 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
+        [TestCase(-1.5001f, -2)]
+        [TestCase(-1.5f, -2)]
+        [TestCase(-1.4999f, -1)]
+        [TestCase(-0.5f, -1)]
+        [TestCase(-0.4999f, 0)]
+        [TestCase(0.4999f, 0)]
+        [TestCase(0.5f, 1)]
+        [TestCase(1.4999f, 1)]
+        [TestCase(1.5f, 2)]
+        public void NearestKernel_IsDeterministicAcrossSignedHalfSteps(
+            float coordinate, int expected)
+        {
+            int3 result = MerkabaSpatial.NearestKernel(
+                new float3(coordinate, coordinate, coordinate));
+            Assert.That(result, Is.EqualTo(new int3(expected)));
+        }
+
         [TestCase(0, 0, 0, 0x9bafd7c6u, 0xa8e88a6bu, 0x3f15482cu, 6086u, 2667u)]
         [TestCase(1, 2, 3, 0xfa9f79a6u, 0x48f2f44cu, 0x596f5ab1u, 6566u, 5196u)]
         [TestCase(-1, -1, -1, 0xa5f48f40u, 0xa4533e83u, 0x515b8a62u, 3904u, 7811u)]

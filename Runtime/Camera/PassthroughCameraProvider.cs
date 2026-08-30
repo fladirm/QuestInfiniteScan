@@ -50,6 +50,7 @@ namespace Genesis.RoomScan
         private RenderTexture _lastCopyTarget;
         private Task _copyRetirementTask = Task.CompletedTask;
         private bool _captureRequested;
+        private bool _renderCallbackRegistered;
 
         private readonly struct PendingSample
         {
@@ -135,6 +136,7 @@ namespace Genesis.RoomScan
                 Permission.RequestUserPermission(CameraPermissionId);
             }
 #endif
+            RegisterRenderCallback();
             ResetSamples();
             DiscoverExactCameras();
             for (int eye = 0; eye < 2; eye++) StartEye(eye);
@@ -152,7 +154,10 @@ namespace Genesis.RoomScan
             ResetSamples();
         }
 
-        internal void BeginSnapshotQuiesce() => _captureRequested = false;
+        internal void BeginSnapshotQuiesce()
+        {
+            _captureRequested = false;
+        }
 
         internal Task RetireSubmittedSnapshotCopiesAsync()
         {
@@ -310,15 +315,19 @@ namespace Genesis.RoomScan
                 : StereoFrameMatch.Waiting;
         }
 
-        private void Update()
+        private void OnEndContextRendering(ScriptableRenderContext context,
+            List<Camera> cameras)
         {
             if (!_captureRequested) return;
+            // PCA owns a live render-thread texture. Latch its descriptor in
+            // the same render callback that records the copy, so image, pose,
+            // intrinsics, and timestamp describe one producer update.
             bool hasLeft = TryCaptureMetadata(0, out PendingSample left);
             bool hasRight = TryCaptureMetadata(1, out PendingSample right);
             if (!hasLeft && !hasRight) return;
 
             CommandBuffer command = CommandBufferPool.Get(
-                "Merkaba owned PCA history");
+                "Merkaba render-thread PCA history");
             int leftSlot = -1;
             int rightSlot = -1;
             try
@@ -332,8 +341,10 @@ namespace Genesis.RoomScan
                 CommandBufferPool.Release(command);
             }
 
-            if (hasLeft) PublishOwnedSample(0, leftSlot, left);
-            if (hasRight) PublishOwnedSample(1, rightSlot, right);
+            if (hasLeft)
+                PublishOwnedSample(0, leftSlot, left);
+            if (hasRight)
+                PublishOwnedSample(1, rightSlot, right);
             unchecked
             {
                 _copySubmittedEpoch++;
@@ -495,6 +506,24 @@ namespace Genesis.RoomScan
                 _latestTimestampTicks[eye] = 0;
                 _sequence[eye] = 0u;
             }
+        }
+
+        private void OnEnable() => RegisterRenderCallback();
+
+        private void OnDisable() => UnregisterRenderCallback();
+
+        private void RegisterRenderCallback()
+        {
+            if (_renderCallbackRegistered) return;
+            RenderPipelineManager.endContextRendering += OnEndContextRendering;
+            _renderCallbackRegistered = true;
+        }
+
+        private void UnregisterRenderCallback()
+        {
+            if (!_renderCallbackRegistered) return;
+            RenderPipelineManager.endContextRendering -= OnEndContextRendering;
+            _renderCallbackRegistered = false;
         }
 
         private void ReleaseOwnedHistory()

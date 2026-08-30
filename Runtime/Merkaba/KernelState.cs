@@ -83,8 +83,9 @@ namespace Genesis.RoomScan
         private void AddEvidence(int delta)
         {
             long updated = (long)OccupancyEvidence + delta;
-            OccupancyEvidence = (int)Math.Max(MerkabaConstants.MinimumEvidence,
-                Math.Min(MerkabaConstants.MaximumEvidence, updated));
+            OccupancyEvidence = (int)Math.Max(
+                -MerkabaConstants.EvidenceConfidenceLimit,
+                Math.Min(MerkabaConstants.EvidenceConfidenceLimit, updated));
         }
 
         private void AccumulateColor(Color32 observed, float quality)

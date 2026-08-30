@@ -219,6 +219,19 @@ namespace Genesis.RoomScan
             return (hash.z & 1u) == 0u ? pair : pair.yx;
         }
 
+        /// <summary>
+        /// Selects the one canonical lattice kernel owned by a measured surface
+        /// point. Half-step ties are resolved away from zero identically to the
+        /// production HLSL implementation.
+        /// </summary>
+        public static int3 NearestKernel(float3 gridPosition) => new(
+            RoundNearest(gridPosition.x), RoundNearest(gridPosition.y),
+            RoundNearest(gridPosition.z));
+
+        private static int RoundNearest(float value) => value >= 0f
+            ? (int)math.floor(value + 0.5f)
+            : (int)math.ceil(value - 0.5f);
+
         public static int FloorDiv(int value, int divisor)
         {
             if (divisor <= 0) throw new ArgumentOutOfRangeException(nameof(divisor));

@@ -237,6 +237,10 @@ namespace Genesis.RoomScan.Tests
                 "RGBD_MAX_CENSUS_MISMATCH 2u"));
             Assert.That(refine, Does.Contain("StereoCameraCoverage("));
             Assert.That(refine, Does.Contain("OppositeDepthSupport("));
+            Assert.That(refine, Does.Contain(
+                "distance(worldPosition, observedWorld)"));
+            Assert.That(refine, Does.Not.Contain(
+                "abs(predictedOther - observedDistance)"));
             Assert.That(refine, Does.Not.Contain("stereoMargin"));
             Assert.That(refine, Does.Not.Contain("_DepthSearchRadius"));
             Assert.That(refine, Does.Not.Contain("same UV"));
@@ -251,8 +255,14 @@ namespace Genesis.RoomScan.Tests
             string integration = RuntimeSource(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             Assert.That(integration, Does.Contain(
-                "MerkabaProjectCameraUv(cameraEye, worldPosition)"));
+                "MerkabaProjectCameraUv(0u, worldSurface)"));
             Assert.That(integration, Does.Contain(
+                "MerkabaProjectCameraUv(1u, worldSurface)"));
+            Assert.That(integration, Does.Contain(
+                "MerkabaSampleCameraRgb(0u, leftUv)"));
+            Assert.That(integration, Does.Contain(
+                "MerkabaSampleCameraRgb(1u, rightUv)"));
+            Assert.That(integration, Does.Not.Contain(
                 "eyeSurfaceQuality[cameraEye]"));
             Assert.That(integration, Does.Not.Contain(
                 "Texture2D<float4> _MerkabaCameraRgb;"));
@@ -274,6 +284,21 @@ namespace Genesis.RoomScan.Tests
             Assert.That(provider, Does.Contain("MatchFrameHistory("));
             Assert.That(provider, Does.Contain(
                 "command.BlitPcaHistoryProfiled(sample.Texture, owned)"));
+            string renderCopy = Slice(provider,
+                "private void OnEndContextRendering(",
+                "private bool TryCaptureMetadata");
+            Assert.That(renderCopy, Does.Contain("TryCaptureMetadata(0"));
+            Assert.That(renderCopy, Does.Contain("TryCaptureMetadata(1"));
+            Assert.That(renderCopy.IndexOf("TryCaptureMetadata(0",
+                    StringComparison.Ordinal),
+                Is.LessThan(renderCopy.IndexOf("StageOwnedSample(command, 0",
+                    StringComparison.Ordinal)));
+            Assert.That(provider, Does.Not.Contain("private void Update()"),
+                "Live PCA image metadata must be latched in the same render " +
+                "callback that submits its owned copy.");
+            Assert.That(provider, Does.Contain(
+                "RenderPipelineManager.endContextRendering += " +
+                "OnEndContextRendering"));
             Assert.That(depth, Does.Contain(
                 "_refinedDepthTex.graphicsFormat != GraphicsFormat.R32_SFloat"));
         }

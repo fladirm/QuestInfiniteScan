@@ -8,6 +8,8 @@ namespace Genesis.RoomScan
         public readonly bool DepthValid;
         public readonly bool InsideFrustum;
         public readonly bool OutsideExclusions;
+        public readonly bool ReplacementSurfaceValid;
+        public readonly bool IsReplacementKernel;
         public readonly float KernelEyeDistance;
         public readonly float MeasuredEyeDistance;
         public readonly float KernelViewDepthLinear;
@@ -17,13 +19,17 @@ namespace Genesis.RoomScan
         public readonly float MaxUpdateDistance;
 
         public MerkabaObservationInput(bool depthValid, bool insideFrustum,
-            bool outsideExclusions, float kernelEyeDistance, float measuredEyeDistance,
+            bool outsideExclusions, bool replacementSurfaceValid,
+            bool isReplacementKernel, float kernelEyeDistance,
+            float measuredEyeDistance,
             float kernelViewDepthLinear, float measuredDepthLinear,
             float dilatedDepthLinear, float normalFacing, float maxUpdateDistance)
         {
             DepthValid = depthValid;
             InsideFrustum = insideFrustum;
             OutsideExclusions = outsideExclusions;
+            ReplacementSurfaceValid = replacementSurfaceValid;
+            IsReplacementKernel = isReplacementKernel;
             KernelEyeDistance = kernelEyeDistance;
             MeasuredEyeDistance = measuredEyeDistance;
             KernelViewDepthLinear = kernelViewDepthLinear;
@@ -65,39 +71,35 @@ namespace Genesis.RoomScan
 
         public static MerkabaObservationResult Classify(in MerkabaObservationInput input)
         {
-            if (!input.DepthValid || !input.InsideFrustum || !input.OutsideExclusions ||
+            if (!input.DepthValid || !input.InsideFrustum ||
+                !input.OutsideExclusions || !input.ReplacementSurfaceValid ||
                 !IsFinitePositive(input.KernelEyeDistance) ||
                 !IsFinitePositive(input.MeasuredEyeDistance) ||
                 !IsFinitePositive(input.MeasuredDepthLinear) ||
                 !IsFinitePositive(input.DilatedDepthLinear) ||
-                input.MaxUpdateDistance <= 0f)
+                input.MaxUpdateDistance <= 0f ||
+                input.MeasuredEyeDistance > input.MaxUpdateDistance)
                 return Unknown();
 
-            float relation = input.MeasuredEyeDistance - input.KernelEyeDistance;
             MerkabaObservationKind kind;
-            if (relation > MerkabaConstants.HalfSupport)
-                kind = MerkabaObservationKind.Free;
-            else if (Mathf.Abs(relation) <= MerkabaConstants.HalfSupport)
+            if (input.IsReplacementKernel)
                 kind = MerkabaObservationKind.Surface;
+            else if (input.KernelEyeDistance < input.MeasuredEyeDistance)
+                kind = MerkabaObservationKind.Free;
             else
                 return Unknown(); // behind the measured surface
 
             bool disparity = input.MeasuredDepthLinear <
                 input.DilatedDepthLinear + DepthDisparityThreshold;
             bool unoccluded = input.KernelViewDepthLinear < input.DilatedDepthLinear || disparity;
-            bool normalValid = kind == MerkabaObservationKind.Free ||
-                               input.NormalFacing > MinimumNormalDot;
+            bool normalValid = input.NormalFacing > MinimumNormalDot;
             if (!unoccluded || !normalValid)
                 return new MerkabaObservationResult(MerkabaObservationKind.Unknown, 0f,
                     disparity, unoccluded, normalValid);
 
             float distanceFactor = Mathf.Clamp01(1f -
-                input.KernelEyeDistance / input.MaxUpdateDistance);
+                input.MeasuredEyeDistance / input.MaxUpdateDistance);
             float angleFactor = Mathf.Clamp01(input.NormalFacing);
-            // Free-space proof is a ray relation. Retain angle quality where available,
-            // while avoiding a destructively useless zero from a noisy surface normal.
-            if (kind == MerkabaObservationKind.Free)
-                angleFactor = Mathf.Max(angleFactor, 0.5f);
             float quality = distanceFactor * angleFactor;
             return new MerkabaObservationResult(kind, quality, disparity, unoccluded,
                 normalValid);

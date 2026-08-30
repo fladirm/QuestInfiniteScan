@@ -264,15 +264,25 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void CandidateGeneration_PreservesRayBandAndBoundaryGuardUnion()
+        public void CandidateGeneration_OwnsExactlyOneCanonicalSurfaceKernel()
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
-            Assert.That(integration, Does.Contain("for (int layer = -1; layer <= 1; layer++)"));
-            Assert.That(integration, Does.Contain("AppendValidatedSurfaceCandidate(nearest - stepCoord)"));
-            Assert.That(integration, Does.Contain("AppendValidatedSurfaceCandidate(nearest + stepCoord)"));
-            Assert.That(integration, Does.Contain("ObserveDepthEye"));
-            Assert.That(integration, Does.Contain("MERKABA_MIN_SURFACE_QUALITY"));
+            string discover = Slice(integration,
+                "void DiscoverSurfaceCandidates", "void PrepareResolveArgs");
+            Assert.That(discover, Does.Contain("TrySurfaceMeasurement"));
+            Assert.That(discover, Does.Contain(
+                "AppendSurfaceCandidate(surfaceKernel, packedMeasurement)"));
+            Assert.That(discover, Does.Not.Contain("for (int layer"));
+            Assert.That(discover, Does.Not.Contain("nearest - stepCoord"));
+            Assert.That(discover, Does.Not.Contain("nearest + stepCoord"));
+            Assert.That(integration, Does.Contain("MerkabaNearestKernel"));
+            Assert.That(integration, Does.Contain(
+                "all(globalCoord == surfaceKernel)"));
+            Assert.That(integration, Does.Contain(
+                "RWStructuredBuffer<uint2> _M8SurfaceQueue"));
+            Assert.That(Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),
+                Does.Contain("sizeof(uint) * 2"));
         }
 
         [Test]
@@ -589,11 +599,20 @@ namespace Genesis.RoomScan.Tests
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             string fuse = Slice(integration, "void FuseDepth",
-                "bool IsExcluded");
+                "void UpdateOccupancy");
             Assert.That(fuse.IndexOf("if (eyeKind == 2)",
                     StringComparison.Ordinal),
                 Is.LessThan(fuse.IndexOf("else if (kind == 0 || (kind == 1",
                     StringComparison.Ordinal)));
+            Assert.That(fuse, Does.Contain(
+                "ObserveDepthEye(eye, globalCoord, worldPosition"));
+            string observation = Slice(integration, "bool ObserveDepthEye",
+                "void FuseDepth");
+            Assert.That(observation, Does.Contain("TrySurfaceMeasurement"));
+            Assert.That(observation, Does.Contain(
+                "kernelDistance < measuredDistance"));
+            Assert.That(observation, Does.Not.Contain(
+                "abs(relation) <= MERKABA_HALF_SUPPORT"));
 
             string carve = Slice(integration, "groupshared uint gCarveStats",
                 "void FinalizeObservation");

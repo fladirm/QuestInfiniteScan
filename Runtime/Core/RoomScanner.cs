@@ -54,6 +54,11 @@ namespace Genesis.RoomScan
         private long _acceptedRgbdObservations;
         private long _expiredDepthFrames;
         private double _maximumRgbdSkewSeconds;
+        private double _leftDepthDeltaMilliseconds;
+        private double _rightDepthDeltaMilliseconds;
+        private double _pairCenterOffsetMilliseconds;
+        private double _firstPairCenterOffsetMilliseconds;
+        private bool _hasPairClockBaseline;
         private float _lastRgbdLogTime;
 
         public bool IsScanning { get; private set; }
@@ -167,6 +172,7 @@ namespace Genesis.RoomScan
                     ArmNextObservation();
                     return;
                 }
+                RecordRgbdClockEvidence(depthUnixSeconds, cameraFrame);
                 cameraFrame = new StereoCameraFrame(cameraFrame.Left,
                     cameraFrame.Right, cameraFrame.MaximumSkewSeconds +
                     clockUncertainty);
@@ -244,6 +250,11 @@ namespace Genesis.RoomScan
                 _acceptedRgbdObservations = 0L;
                 _expiredDepthFrames = 0L;
                 _maximumRgbdSkewSeconds = 0.0;
+                _leftDepthDeltaMilliseconds = 0.0;
+                _rightDepthDeltaMilliseconds = 0.0;
+                _pairCenterOffsetMilliseconds = 0.0;
+                _firstPairCenterOffsetMilliseconds = 0.0;
+                _hasPairClockBaseline = false;
                 _lastRgbdLogTime = Time.unscaledTime;
                 _lastIntegrationTime = Time.time;
                 IsScanning = true;
@@ -405,8 +416,29 @@ namespace Genesis.RoomScan
                         $"paired={_acceptedRgbdObservations}, " +
                         $"expiredDepth={_expiredDepthFrames}, " +
                         $"maxSkewMs={_maximumRgbdSkewSeconds * 1000.0:F2}, " +
+                        $"deltaLms={_leftDepthDeltaMilliseconds:F2}, " +
+                        $"deltaRms={_rightDepthDeltaMilliseconds:F2}, " +
+                        $"centerOffsetMs={_pairCenterOffsetMilliseconds:F2}, " +
+                        $"centerDriftMs=" +
+                        $"{(_pairCenterOffsetMilliseconds - _firstPairCenterOffsetMilliseconds):F2}, " +
                         $"clockUncertaintyMs=" +
                         $"{_depthCapture.TimestampMappingUncertaintySeconds * 1000.0:F2}");
+        }
+
+        private void RecordRgbdClockEvidence(double depthUnixSeconds,
+            StereoCameraFrame frame)
+        {
+            _leftDepthDeltaMilliseconds =
+                (frame.Left.TimestampUnixSeconds - depthUnixSeconds) * 1000.0;
+            _rightDepthDeltaMilliseconds =
+                (frame.Right.TimestampUnixSeconds - depthUnixSeconds) * 1000.0;
+            _pairCenterOffsetMilliseconds =
+                (_leftDepthDeltaMilliseconds + _rightDepthDeltaMilliseconds) *
+                0.5;
+            if (_hasPairClockBaseline) return;
+            _firstPairCenterOffsetMilliseconds =
+                _pairCenterOffsetMilliseconds;
+            _hasPairClockBaseline = true;
         }
 
         private void OnIntegrated()

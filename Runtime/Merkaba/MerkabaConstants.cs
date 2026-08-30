@@ -20,7 +20,8 @@ namespace Genesis.RoomScan
         public const int OccupiedOffThreshold = 128;
         public const int ExportKnownFreeThreshold = -OccupiedOnThreshold;
         public const int SurfaceEvidenceScale = 640;
-        public const int FreeEvidenceScale = 256;
+        public const int FreeEvidenceScale = SurfaceEvidenceScale;
+        public const int EvidenceConfidenceLimit = SurfaceEvidenceScale;
         public const int MaximumColorConfidence = 65535;
         public const uint NeutralPackedColor = 0xffa0a0a0u;
         public const float MinimumSurfaceQuality = 0.25f;

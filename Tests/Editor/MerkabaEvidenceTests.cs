@@ -16,7 +16,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void RepeatedSurface_StrengthensAndRefinesRgb()
+        public void RepeatedSurface_RefinesRgbWithoutBecomingIrreversible()
         {
             KernelState state = default;
             for (int index = 0; index < 16; index++)
@@ -27,7 +27,10 @@ namespace Genesis.RoomScan.Tests
                 state.Apply(MerkabaObservationKind.Surface, 1f, Blue);
             Assert.That(state.IsOccupied, Is.True);
             Assert.That(state.NeedsCarve, Is.True);
-            Assert.That(state.OccupancyEvidence, Is.GreaterThan(weakEvidence));
+            Assert.That(weakEvidence,
+                Is.LessThanOrEqualTo(MerkabaConstants.EvidenceConfidenceLimit));
+            Assert.That(state.OccupancyEvidence,
+                Is.EqualTo(MerkabaConstants.EvidenceConfidenceLimit));
             Assert.That(state.ColorConfidence, Is.GreaterThan(weakConfidence));
             Assert.That(state.Color.b, Is.GreaterThan(state.Color.r));
         }
@@ -92,5 +95,70 @@ namespace Genesis.RoomScan.Tests
             Assert.That(state.PackedColor, Is.Zero);
             Assert.That(state.ColorConfidence, Is.Zero);
         }
+
+        [Test]
+        public void FullQualityReplacement_CorrectsEveryForegroundLayerBoundedly()
+        {
+            KernelState firstBlob = default;
+            KernelState secondBlob = default;
+            KernelState replacement = default;
+            for (int pass = 0; pass < 100; pass++)
+            {
+                firstBlob.Apply(MerkabaObservationKind.Surface, 1f, Red);
+                secondBlob.Apply(MerkabaObservationKind.Surface, 1f, Red);
+            }
+
+            replacement.Apply(MerkabaObservationKind.Surface, 1f, Blue);
+            firstBlob.Apply(MerkabaObservationKind.Free, 1f, default);
+            secondBlob.Apply(MerkabaObservationKind.Free, 1f, default);
+
+            Assert.That(replacement.IsOccupied, Is.True);
+            Assert.That(replacement.Color.b, Is.GreaterThan(
+                replacement.Color.r));
+            Assert.That(firstBlob.IsOccupied, Is.False);
+            Assert.That(secondBlob.IsOccupied, Is.False);
+            Assert.That(firstBlob.OccupancyEvidence, Is.Zero);
+            Assert.That(secondBlob.OccupancyEvidence, Is.Zero);
+        }
+
+        [Test]
+        public void ReplacementEndpoint_OwnsSurfaceAndOnlyForegroundIsFree()
+        {
+            MerkabaObservationResult endpoint = MerkabaObservation.Classify(
+                Input(replacementSurfaceValid: true,
+                    isReplacementKernel: true, kernelDistance: 2f,
+                    measuredDistance: 2f));
+            MerkabaObservationResult foreground = MerkabaObservation.Classify(
+                Input(replacementSurfaceValid: true,
+                    isReplacementKernel: false, kernelDistance: 1.5f,
+                    measuredDistance: 2f));
+            MerkabaObservationResult behind = MerkabaObservation.Classify(
+                Input(replacementSurfaceValid: true,
+                    isReplacementKernel: false, kernelDistance: 2.5f,
+                    measuredDistance: 2f));
+            MerkabaObservationResult noReplacement = MerkabaObservation.Classify(
+                Input(replacementSurfaceValid: false,
+                    isReplacementKernel: false, kernelDistance: 1.5f,
+                    measuredDistance: 2f));
+
+            Assert.That(endpoint.Kind, Is.EqualTo(MerkabaObservationKind.Surface));
+            Assert.That(foreground.Kind, Is.EqualTo(MerkabaObservationKind.Free));
+            Assert.That(behind.Kind, Is.EqualTo(MerkabaObservationKind.Unknown));
+            Assert.That(noReplacement.Kind,
+                Is.EqualTo(MerkabaObservationKind.Unknown));
+        }
+
+        private static MerkabaObservationInput Input(
+            bool replacementSurfaceValid, bool isReplacementKernel,
+            float kernelDistance, float measuredDistance) => new(
+            depthValid: true, insideFrustum: true, outsideExclusions: true,
+            replacementSurfaceValid: replacementSurfaceValid,
+            isReplacementKernel: isReplacementKernel,
+            kernelEyeDistance: kernelDistance,
+            measuredEyeDistance: measuredDistance,
+            kernelViewDepthLinear: kernelDistance,
+            measuredDepthLinear: measuredDistance,
+            dilatedDepthLinear: measuredDistance,
+            normalFacing: 1f, maxUpdateDistance: 5f);
     }
 }

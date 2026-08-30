@@ -6,7 +6,7 @@ scope boundary.
 
 ## Current evidence baseline
 
-- Code base: `3f437d59625c439f56a6da49dcddc6620c23e8dc` before the active RGB-D closure.
+- Code base: `89e59562f1beb9f30f7183a4c8c4257503af730c` before the active canonical-hit closure.
 - Device log: `/mnt/kingston-unity/Builds/DeviceEvidence/true_stereo_projection_fix_20260830_020425/live-logcat.log`.
 - 26 timestamp samples: `StereoRgbdRefine` 1.416 ms median / 2.663 ms max;
   nine `DilateDepthStep` invocations about 1.2 ms normally and 2.7 ms max;
@@ -89,41 +89,71 @@ the next evidence run must count raw-valid, four-camera-coverage, stereo-depth,
 photometric and accepted pixels in centre/mid/edge regions without per-frame
 readback. Do not tune thresholds blindly.
 
+### RGBD-6 — live PCA image and descriptor were latched in different phases
+[FIXED, DEVICE PENDING]
+
+The provider previously captured pose/intrinsics/timestamp in `Update`, then
+sampled the live PCA texture later. The producer could advance the render-thread
+image between those operations. Descriptor capture and the owned history blit
+now occur in the same `endContextRendering` callback. The owned descriptor is
+published only after that copy is submitted on the graphics queue.
+
+### RGBD-7 — opposite-depth support compared only radial range
+[FIXED, DEVICE PENDING]
+
+Two different points can have the same distance from the opposite eye. The
+stereo refinement now compares the complete reconstructed world positions and
+requires their Euclidean separation to remain within 12.5 mm.
+
 ## Canonical integration gaps (outside the RGB-D snapshot scope)
 
-### M8-1 — one refined hit deliberately admits multiple lattice layers [OPEN]
+### M8-1 — one refined hit deliberately admitted multiple lattice layers
+[FIXED, DEVICE PENDING]
 
 `DiscoverSurfaceCandidates` emits `surface - 25 mm`, `surface`,
 `surface + 25 mm`, then `nearest - dominantAxis`, `nearest`, and
 `nearest + dominantAxis`. `ObserveDepthEye` classifies the full +/-25 mm band
 as SURFACE. Dedup removes identical coordinates, not distinct layers.
 
-Therefore even a perfect 12.5 mm RGB-D snapshot cannot by itself guarantee
-one canonical layer. This is the verified source-level reason that a single
-view may still create up to three adjacent occupied lattice cells. Fixing it
-requires a separate integration/refinement contract; do not hide it in the
-sensor pipeline.
+The ray-band and dominant-axis expansion have been removed. One validated
+refined hit is rounded once to one signed lattice coordinate. Source pixel,
+eye and quality travel with that winner through the existing candidate/queue
+path, so integration cannot reconstruct a different surface point later.
 
-### M8-2 — occupancy may be committed without canonical RGB [OPEN]
+### M8-2 — occupancy could be committed without canonical RGB
+[FIXED, DEVICE PENDING]
 
 `IntegrateSurfaceCandidates` calls `UpdateOccupancy` before it knows whether
 the lattice kernel centre projects into either PCA image. If `rgbWeight == 0`,
 the occupied state remains with `ColorConfidence == 0`, which presentation
 shows as magenta.
 
-The four-stream source hit can be colored while an offset support-band kernel
-centre is outside PCA coverage. This is not evidence that a previously colored
-kernel was erased. It is a boundary between validated source photometry and
-canonical support-band admission.
+Candidate admission now requires both calibrated PCA projections and the
+surface commit always samples both owned images at the exact validated metric
+hit. There is no depth-only SURFACE commit path and muted magenta remains only
+a presentation fallback for historical payload.
 
-### M8-3 — color is resampled at the lattice centre, not carried from the
-validated RGB-D hit [OPEN]
+### M8-3 — color was resampled at the lattice centre, not the validated hit
+[FIXED, DEVICE PENDING]
 
 The refine kernel validates PCA color at the reconstructed depth hit, but the
 integration kernel later projects and samples the rounded/offset canonical
 kernel centre again. The two positions can differ by 25 mm. This allows color
 coverage and edge correspondence proven for the hit to be lost at integration.
-Resolve together with M8-1/M8-2, without adding a CPU color mirror.
+The surface queue now carries the packed source measurement beside the physical
+kernel key. Canonical RGB is sampled from the reconstructed source hit, while
+the rounded coordinate remains the only canonical spatial owner.
+
+### M8-4 — old positive evidence could become practically irreversible
+[FIXED, DEVICE PENDING]
+
+Evidence formerly saturated near `int16` range while FREE was weaker than
+SURFACE. A stale full-confidence foreground kernel could therefore survive many
+valid replacement observations. Evidence confidence is now symmetrically
+bounded to one full observation (`+/-640`) and SURFACE/FREE use the same scale.
+A successful observation publishes its replacement SURFACE before applying
+FREE to every active foreground kernel along the corresponding validated ray;
+behind-surface state remains UNKNOWN because depth cannot prove it empty.
 
 ## Performance facts and remaining measurement gaps
 
