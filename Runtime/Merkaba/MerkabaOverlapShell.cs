@@ -245,85 +245,84 @@ namespace Genesis.RoomScan
 
         internal static string BuildGeneratedHlsl()
         {
-            return string.Format(CultureInfo.InvariantCulture,
-@"// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.
-#ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
-#define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
-
-#include ""MerkabaSurfaceOrientation.generated.hlsl""
-
-#define M8_OVERLAP_TRIANGLES_PER_PATCH {0}u
-#define M8_OVERLAP_PATCH_HALF_EXTENT {1}
-
-struct M8OverlapPatch
-{{
-    float3 corner00;
-    float3 corner10;
-    float3 corner11;
-    float3 corner01;
-    uint packedColor;
-}};
-
-void M8MeasuredPlaneTangentBasis(float3 normal,
-    out float3 tangent0, out float3 tangent1)
-{{
-    float3 absolute = abs(normal);
-    float3 helper = absolute.x <= absolute.y && absolute.x <= absolute.z
-        ? float3(1.0, 0.0, 0.0)
-        : absolute.y <= absolute.z
-            ? float3(0.0, 1.0, 0.0)
-            : float3(0.0, 0.0, 1.0);
-    tangent0 = normalize(cross(normal, helper));
-    float first = tangent0.x != 0.0 ? tangent0.x :
-        tangent0.y != 0.0 ? tangent0.y : tangent0.z;
-    if (first < 0.0) tangent0 = -tangent0;
-    tangent1 = normalize(cross(normal, tangent0));
-}}
-
-bool M8TryBuildMeasuredPlanePatch(int3 globalCoord, KernelState state,
-    out M8OverlapPatch patch)
-{{
-    patch = (M8OverlapPatch)0;
-    if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-        !M8HasSurfacePlane(state.flags))
-        return false;
-    float3 normal;
-    float signedOffset;
-    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
-    float3 tangent0;
-    float3 tangent1;
-    M8MeasuredPlaneTangentBasis(normal, tangent0, tangent1);
-    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +
-        normal * signedOffset;
-    float3 extent0 = tangent0 * M8_OVERLAP_PATCH_HALF_EXTENT;
-    float3 extent1 = tangent1 * M8_OVERLAP_PATCH_HALF_EXTENT;
-    patch.corner00 = center - extent0 - extent1;
-    patch.corner10 = center + extent0 - extent1;
-    patch.corner11 = center + extent0 + extent1;
-    patch.corner01 = center - extent0 + extent1;
-    patch.packedColor = state.packedColor;
-    return true;
-}}
-
-float3 M8OverlapPatchCorner(M8OverlapPatch patch, uint corner)
-{{
-    if (corner == 0u) return patch.corner00;
-    if (corner == 1u) return patch.corner10;
-    if (corner == 2u) return patch.corner11;
-    return patch.corner01;
-}}
-
-uint M8OverlapTriangleCorner(uint vertex)
-{{
-    if (vertex == 0u || vertex == 3u) return 0u;
-    if (vertex == 1u) return 1u;
-    if (vertex == 2u || vertex == 4u) return 2u;
-    return 3u;
-}}
-
-#endif
-", TrianglesPerPatch,
-                PatchHalfExtent.ToString("R", CultureInfo.InvariantCulture));
+            var output = new StringBuilder();
+            output.AppendLine("// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.");
+            output.AppendLine("#ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED");
+            output.AppendLine("#define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED");
+            output.AppendLine();
+            output.AppendLine("#include \"MerkabaSurfaceOrientation.generated.hlsl\"");
+            output.AppendLine();
+            output.AppendLine($"#define M8_OVERLAP_TRIANGLES_PER_PATCH {TrianglesPerPatch}u");
+            output.AppendLine($"#define M8_OVERLAP_PATCH_HALF_EXTENT {PatchHalfExtent.ToString("R", CultureInfo.InvariantCulture)}");
+            output.AppendLine();
+            output.AppendLine("struct M8OverlapPatch");
+            output.AppendLine("{");
+            output.AppendLine("    float3 corner00;");
+            output.AppendLine("    float3 corner10;");
+            output.AppendLine("    float3 corner11;");
+            output.AppendLine("    float3 corner01;");
+            output.AppendLine("    uint packedColor;");
+            output.AppendLine("};");
+            output.AppendLine();
+            output.AppendLine("void M8MeasuredPlaneTangentBasis(float3 normal,");
+            output.AppendLine("    out float3 tangent0, out float3 tangent1)");
+            output.AppendLine("{");
+            output.AppendLine("    float3 absolute = abs(normal);");
+            output.AppendLine("    float3 helper = absolute.x <= absolute.y && absolute.x <= absolute.z");
+            output.AppendLine("        ? float3(1.0, 0.0, 0.0)");
+            output.AppendLine("        : absolute.y <= absolute.z");
+            output.AppendLine("            ? float3(0.0, 1.0, 0.0)");
+            output.AppendLine("            : float3(0.0, 0.0, 1.0);");
+            output.AppendLine("    tangent0 = normalize(cross(normal, helper));");
+            output.AppendLine("    float first = tangent0.x != 0.0 ? tangent0.x :");
+            output.AppendLine("        tangent0.y != 0.0 ? tangent0.y : tangent0.z;");
+            output.AppendLine("    if (first < 0.0) tangent0 = -tangent0;");
+            output.AppendLine("    tangent1 = normalize(cross(normal, tangent0));");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("bool M8TryBuildMeasuredPlanePatch(int3 globalCoord, KernelState state,");
+            output.AppendLine("    out M8OverlapPatch patch)");
+            output.AppendLine("{");
+            output.AppendLine("    patch = (M8OverlapPatch)0;");
+            output.AppendLine("    if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||");
+            output.AppendLine("        !M8HasSurfacePlane(state.flags))");
+            output.AppendLine("        return false;");
+            output.AppendLine("    float3 normal;");
+            output.AppendLine("    float signedOffset;");
+            output.AppendLine("    M8DecodeSurfacePlane(state.flags, normal, signedOffset);");
+            output.AppendLine("    float3 tangent0;");
+            output.AppendLine("    float3 tangent1;");
+            output.AppendLine("    M8MeasuredPlaneTangentBasis(normal, tangent0, tangent1);");
+            output.AppendLine("    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +");
+            output.AppendLine("        normal * signedOffset;");
+            output.AppendLine("    float3 extent0 = tangent0 * M8_OVERLAP_PATCH_HALF_EXTENT;");
+            output.AppendLine("    float3 extent1 = tangent1 * M8_OVERLAP_PATCH_HALF_EXTENT;");
+            output.AppendLine("    patch.corner00 = center - extent0 - extent1;");
+            output.AppendLine("    patch.corner10 = center + extent0 - extent1;");
+            output.AppendLine("    patch.corner11 = center + extent0 + extent1;");
+            output.AppendLine("    patch.corner01 = center - extent0 + extent1;");
+            output.AppendLine("    patch.packedColor = state.packedColor;");
+            output.AppendLine("    return true;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("float3 M8OverlapPatchCorner(M8OverlapPatch patch, uint corner)");
+            output.AppendLine("{");
+            output.AppendLine("    if (corner == 0u) return patch.corner00;");
+            output.AppendLine("    if (corner == 1u) return patch.corner10;");
+            output.AppendLine("    if (corner == 2u) return patch.corner11;");
+            output.AppendLine("    return patch.corner01;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("uint M8OverlapTriangleCorner(uint vertex)");
+            output.AppendLine("{");
+            output.AppendLine("    if (vertex == 0u || vertex == 3u) return 0u;");
+            output.AppendLine("    if (vertex == 1u) return 1u;");
+            output.AppendLine("    if (vertex == 2u || vertex == 4u) return 2u;");
+            output.AppendLine("    return 3u;");
+            output.AppendLine("}");
+            output.AppendLine();
+            output.AppendLine("#endif");
+            return output.ToString();
         }
 #endif
     }
