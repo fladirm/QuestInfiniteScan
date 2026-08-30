@@ -306,6 +306,11 @@ namespace Genesis.RoomScan.Tests
                 "IsOwnerRecording(\n                CaptureOwner.Observation)"));
             Assert.That(depth, Does.Not.Contain(
                 "MerkabaGpuTimestamps.IsRecording"));
+            Assert.That(renderer, Does.Not.Contain("IsOwnerEligible"));
+            Assert.That(renderer, Does.Not.Contain(
+                "RecordHashBenchmark(command)"));
+            Assert.That(timestamps, Does.Contain(
+                "SampleIntervalSeconds = 5f"));
         }
 
         [Test]

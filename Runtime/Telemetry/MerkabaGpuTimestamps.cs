@@ -42,7 +42,7 @@ namespace Genesis.RoomScan
 
         private const int MaximumTimedEntries = 4096;
         private const float InitialSampleDelaySeconds = 2f;
-        private const float SampleIntervalSeconds = 0.75f;
+        private const float SampleIntervalSeconds = 5f;
         private const float UnavailableRetrySeconds = 30f;
 
         private enum CaptureState : byte
@@ -268,7 +268,6 @@ namespace Genesis.RoomScan
 
         internal static bool IsOwnerEligible(CaptureOwner owner)
         {
-            Poll();
             return _state == CaptureState.Idle && owner == _scheduledOwner &&
                    Time.unscaledTime >= _nextSampleTime;
         }

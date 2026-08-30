@@ -230,10 +230,7 @@ namespace Genesis.RoomScan
                     readoutAngularGuardDegrees * 0.5f;
             bool residencyChanged = _awaitingResidencyChange &&
                 _grid.ResidencyEpoch != _buildResidencyEpoch;
-            bool timingBuildRequested = MerkabaGpuTimestamps.IsOwnerEligible(
-                CaptureOwner.ReadoutBuild);
-            if ((_canonicalDirty || coverageDirty || residencyChanged ||
-                 timingBuildRequested) &&
+            if ((_canonicalDirty || coverageDirty || residencyChanged) &&
                 Time.unscaledTime >= _nextReadoutBuild)
                 SubmitReadoutBuild(camera, gridPosition, gridForward, gridUp);
 
@@ -253,8 +250,6 @@ namespace Genesis.RoomScan
                 timedSubmission = MerkabaGpuTimestamps.TryAcquire(
                     CaptureOwner.ReadoutBuild,
                     _readoutRevision == 0u ? 1u : _readoutRevision, command);
-                if (timedSubmission)
-                    _grid.RecordHashBenchmark(command);
                 command.DispatchComputeProfiled(readoutCompute,
                     _resetKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,

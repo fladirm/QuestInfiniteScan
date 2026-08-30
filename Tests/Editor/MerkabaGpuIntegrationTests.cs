@@ -237,15 +237,15 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void Pcg3dBenchmark_RunsOnlyInsideTimestampSampleFrames()
+        public void Pcg3dBenchmark_IsNeverInjectedIntoProductionReadoutTiming()
         {
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
             Assert.That(world, Does.Contain("void BenchmarkM8Pcg3d"));
             Assert.That(world, Does.Contain("MerkabaPcg3d(int3("));
-            Assert.That(renderer, Does.Contain(
-                "if (timedSubmission)"));
-            Assert.That(renderer, Does.Contain("RecordHashBenchmark(command)"));
+            Assert.That(renderer, Does.Not.Contain(
+                "RecordHashBenchmark(command)"));
+            Assert.That(renderer, Does.Not.Contain("timingBuildRequested"));
         }
 
         [Test]
