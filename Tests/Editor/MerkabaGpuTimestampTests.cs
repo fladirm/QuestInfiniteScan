@@ -38,7 +38,7 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaReadout.compute");
             int query = frame.FindProfiledKernel("QueryM8Readout",
                 MerkabaGpuStage.WorldQuery);
-            int compile = frame.FindProfiledKernel("CompileReadoutVertices",
+            int compile = frame.FindProfiledKernel("EmitReadoutVertices",
                 MerkabaGpuStage.ReadoutBuild);
             using var command = new CommandBuffer();
             using var arguments = new ComputeBuffer(4, sizeof(uint),

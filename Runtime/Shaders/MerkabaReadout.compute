@@ -1,7 +1,9 @@
 #pragma kernel ResetReadoutBuild
 #pragma kernel QueryM8Readout
 #pragma kernel PrepareReadoutBuild
-#pragma kernel CompileReadoutVertices
+#pragma kernel PreflightReadout
+#pragma kernel PrepareReadoutEmit
+#pragma kernel EmitReadoutVertices
 #pragma kernel FinalizeReadout
 
 #include "MerkabaWorld.hlsl"
@@ -18,8 +20,8 @@ struct MerkabaReadoutVertex
     uint packedColor;
 };
 
-RWStructuredBuffer<uint> _M8VisibleTiles;
-StructuredBuffer<uint> _M8VisibleTilesRead;
+RWStructuredBuffer<uint2> _M8VisibleTiles;
+StructuredBuffer<uint2> _M8VisibleTilesRead;
 RWStructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices0;
 RWStructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices1;
 RWStructuredBuffer<uint> _M8FrameDispatchArgs;
@@ -110,6 +112,7 @@ void ResetReadoutBuild(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING] = 0u;
     _M8Counters[M8_COUNTER_PRIMITIVES_REJECTED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES] = 0u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
         MERKABA_READOUT_BUILDING;
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
@@ -286,7 +289,7 @@ void QueryM8Readout(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                 InterlockedAdd(_M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
                     1u, visibleIndex);
                 if (visibleIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                    _M8VisibleTiles[visibleIndex] = physicalSlot;
+                    _M8VisibleTiles[visibleIndex] = uint2(physicalSlot, 0u);
                 visibleChunk = true;
             }
         }
@@ -402,15 +405,6 @@ bool M8TryLoadReadoutNeighbourState(MerkabaM8Address currentAddress,
     stateToken = (physicalSlot << 9u) | neighbourAddress.kernelLocal;
     stateToken++;
     return true;
-}
-
-void M8FailReadoutDependency()
-{
-    M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
-    M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
-    uint ignored;
-    InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
-        MERKABA_READOUT_FAILED, ignored);
 }
 
 M8OverlapSignature M8DeriveOverlapSignature(int3 mainHaloCoord)
@@ -628,30 +622,22 @@ void M8StoreReadoutVertex(uint outputTriangle, uint corner,
         _M8ReadoutVertices0[outputVertex + corner] = vertex;
 }
 
-[numthreads(8, 8, 2)]
-void CompileReadoutVertices(uint3 groupId : SV_GroupID,
-    uint3 groupThreadId : SV_GroupThreadID, uint thread : SV_GroupIndex)
+bool M8LoadOverlapHalo(uint physicalSlot,
+    uint3 groupThreadId, uint thread, uint failureStatus)
 {
-    uint visibleCount = min(_M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     if (thread == 0u)
     {
-        gM8ShellUnresolved = groupId.x >= visibleCount ? 1u : 0u;
-        gM8ShellOutputValid = 0u;
-        if (groupId.x < visibleCount)
-        {
-            gM8ShellPhysicalSlot = _M8VisibleTilesRead[groupId.x];
-            uint4 tileMeta = M8LoadTileMetaRead(gM8ShellPhysicalSlot);
-            gM8ShellChunkIndex = tileMeta.x;
-            gM8ShellOccupiedCount = tileMeta.z;
-            gM8ShellBlockIndex =
-                M8LoadChunkOwnerRead(gM8ShellChunkIndex).x;
-            gM8ShellTileOrigin =
-                M8GlobalKernelCoordRead(gM8ShellPhysicalSlot, 0u);
-        }
+        gM8ShellUnresolved = 0u;
+        gM8ShellPhysicalSlot = physicalSlot;
+        uint4 tileMeta = M8LoadTileMetaRead(physicalSlot);
+        gM8ShellChunkIndex = tileMeta.x;
+        gM8ShellOccupiedCount = tileMeta.z;
+        gM8ShellBlockIndex =
+            M8LoadChunkOwnerRead(gM8ShellChunkIndex).x;
+        gM8ShellTileOrigin =
+            M8GlobalKernelCoordRead(physicalSlot, 0u);
     }
     GroupMemoryBarrierWithGroupSync();
-    if (gM8ShellUnresolved != 0u) return;
 
     MerkabaM8Address tileOriginAddress =
         MerkabaAddressOf(gM8ShellTileOrigin);
@@ -681,11 +667,86 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
             _M8TileBitsRead[M8TileWordIndex(gM8ShellPhysicalSlot, thread)].x;
     GroupMemoryBarrierWithGroupSync();
 
-    if (gM8ShellUnresolved != 0u)
+    if (gM8ShellUnresolved == 0u) return true;
+    if (thread == 0u)
     {
-        if (thread == 0u) M8FailReadoutDependency();
+        M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
+        M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
+        uint ignored;
+        InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
+            failureStatus, ignored);
+    }
+    return false;
+}
+
+[numthreads(8, 8, 2)]
+void PreflightReadout(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID, uint thread : SV_GroupIndex)
+{
+    uint2 visibleTile = _M8VisibleTiles[groupId.x];
+    if (!M8LoadOverlapHalo(visibleTile.x, groupThreadId, thread,
+            MERKABA_READOUT_FAILED))
+        return;
+
+    if (thread != 0u) return;
+    uint primitiveCount =
+        gM8ShellOccupiedCount * M8_OVERLAP_TRIANGLES_PER_PATCH;
+    uint ignored;
+    InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED],
+        gM8ShellOccupiedCount, ignored);
+    InterlockedAdd(_M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING],
+        primitiveCount, ignored);
+    uint baseTriangle;
+    InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
+        primitiveCount, baseTriangle);
+    if (baseTriangle + primitiveCount >
+        MERKABA_M8_READOUT_TRIANGLE_CAPACITY)
+    {
+        _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
+        InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
+            MERKABA_READOUT_FAILED, ignored);
         return;
     }
+    _M8VisibleTiles[groupId.x].y = baseTriangle;
+}
+
+[numthreads(1, 1, 1)]
+void PrepareReadoutEmit(uint id : SV_DispatchThreadID)
+{
+    uint status = _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS];
+    uint logical =
+        _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES];
+    if (status != MERKABA_READOUT_BUILDING ||
+        _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
+        _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u ||
+        logical > MERKABA_M8_READOUT_TRIANGLE_CAPACITY)
+    {
+        _M8FrameDispatchArgs[0] = 0u;
+        _M8FrameDispatchArgs[1] = 1u;
+        _M8FrameDispatchArgs[2] = 1u;
+        if (status == MERKABA_READOUT_BUILDING)
+            _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
+                MERKABA_READOUT_FAILED;
+        return;
+    }
+
+    _M8FrameDispatchArgs[0] = min(
+        _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    _M8FrameDispatchArgs[1] = 1u;
+    _M8FrameDispatchArgs[2] = 1u;
+    _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
+        MERKABA_READOUT_PREFLIGHTED;
+}
+
+[numthreads(8, 8, 2)]
+void EmitReadoutVertices(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID, uint thread : SV_GroupIndex)
+{
+    uint2 visibleTile = _M8VisibleTilesRead[groupId.x];
+    if (!M8LoadOverlapHalo(visibleTile.x, groupThreadId, thread,
+            MERKABA_READOUT_EMIT_FAILED))
+        return;
 
     if (thread < MERKABA_M8_TILE_WORDS)
     {
@@ -698,30 +759,15 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
         }
         gM8ShellWordPrefixes[thread] = prefix;
     }
-
     if (thread == 0u)
     {
-        uint primitiveCount =
-            gM8ShellOccupiedCount * M8_OVERLAP_TRIANGLES_PER_PATCH;
         uint ignored;
-        InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED],
-            gM8ShellOccupiedCount, ignored);
-        InterlockedAdd(_M8Counters[M8_COUNTER_PRIMITIVES_BEFORE_FACING],
-            primitiveCount, ignored);
-        InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-            primitiveCount, gM8ShellBaseTriangle);
-        gM8ShellOutputValid =
-            gM8ShellBaseTriangle + primitiveCount <=
-            MERKABA_M8_READOUT_TRIANGLE_CAPACITY ? 1u : 0u;
-        if (gM8ShellOutputValid == 0u)
-        {
-            _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
-            InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
-                MERKABA_READOUT_FAILED, ignored);
-        }
+        InterlockedAdd(
+            _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES],
+            gM8ShellOccupiedCount * M8_OVERLAP_TRIANGLES_PER_PATCH,
+            ignored);
     }
     GroupMemoryBarrierWithGroupSync();
-    if (gM8ShellOutputValid == 0u) return;
 
     for (uint kernelLocal = thread;
         kernelLocal < MERKABA_M8_KERNELS_PER_TILE;
@@ -736,7 +782,7 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
         int3 globalCoord = gM8ShellTileOrigin + tileLocal;
         M8OverlapPatch patch = M8BuildOverlapPatch(globalCoord,
             tileLocal + 1);
-        uint outputTriangle = gM8ShellBaseTriangle +
+        uint outputTriangle = visibleTile.y +
             M8OccupiedPrefix(kernelLocal) *
             M8_OVERLAP_TRIANGLES_PER_PATCH;
 
@@ -762,23 +808,32 @@ void CompileReadoutVertices(uint3 groupId : SV_GroupID,
 void FinalizeReadout(uint id : SV_DispatchThreadID)
 {
     uint status = _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS];
-    if (status == MERKABA_READOUT_SKIPPED) return;
-    if (status == MERKABA_READOUT_FAILED ||
+    if (status == MERKABA_READOUT_SKIPPED ||
+        status == MERKABA_READOUT_FAILED)
+        return;
+
+    uint logical =
+        _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES];
+    uint emitted =
+        _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES];
+    if (status != MERKABA_READOUT_PREFLIGHTED ||
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
-        _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u)
+        _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u ||
+        logical > MERKABA_M8_READOUT_TRIANGLE_CAPACITY ||
+        emitted != logical)
     {
+        // A post-preflight mismatch is an invariant violation. Suppress the
+        // corrupted generation; normal dependency/capacity failure returned
+        // above without touching the last-good args or vertex stream.
         _M8DrawArgs[0] = 0u;
         _M8DrawArgs[1] = 2u;
         _M8DrawArgs[2] = 0u;
         _M8DrawArgs[3] = 0u;
         _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
-            MERKABA_READOUT_FAILED;
+            MERKABA_READOUT_EMIT_FAILED;
         return;
     }
-    uint logical = min(
-        _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-        MERKABA_M8_READOUT_TRIANGLE_CAPACITY);
-    _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES] = logical;
+
     _M8DrawArgs[0] = logical * M8_READOUT_VERTICES_PER_TRIANGLE;
     _M8DrawArgs[1] = 2u;
     _M8DrawArgs[2] = 0u;

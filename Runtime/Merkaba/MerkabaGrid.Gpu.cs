@@ -26,7 +26,7 @@ namespace Genesis.RoomScan
         internal const int ReadoutVertexCapacityPerBuffer =
             ReadoutTriangleCapacityPerBuffer *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
-        internal const int CounterCount = 89;
+        internal const int CounterCount = 90;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -64,6 +64,7 @@ namespace Genesis.RoomScan
         internal const int CounterOffAxisMutationBlocked = 86;
         internal const int CounterSurfaceReplacement = 87;
         internal const int CounterSameObservationConflict = 88;
+        internal const int CounterReadoutEmittedTriangles = 89;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
@@ -270,7 +271,7 @@ namespace Genesis.RoomScan
                 _m8CarveDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
                 _m8VisibleTiles = Allocate(MerkabaSpatial.PhysicalTileCapacity,
-                    sizeof(uint));
+                    sizeof(uint) * 2);
                 _m8ReadoutVertices0 = Allocate(
                     ReadoutVertexCapacityPerBuffer, 16);
                 _m8ReadoutVertices1 = Allocate(

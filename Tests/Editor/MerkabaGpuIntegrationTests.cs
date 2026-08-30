@@ -56,7 +56,8 @@ namespace Genesis.RoomScan.Tests
             foreach (string kernel in new[]
                      {
                          "ResetReadoutBuild", "QueryM8Readout",
-                         "PrepareReadoutBuild", "CompileReadoutVertices",
+                         "PrepareReadoutBuild", "PreflightReadout",
+                         "PrepareReadoutEmit", "EmitReadoutVertices",
                          "FinalizeReadout"
                      })
                 Assert.DoesNotThrow(() => frame.FindKernel(kernel), kernel);
@@ -111,7 +112,7 @@ namespace Genesis.RoomScan.Tests
                 2097152L * 16, 1048576L * 8,
                 4194304L * 4, 4194304L * 4,
                 4194304L * 4, 4194304L * 4,
-                32768L * 4, 32768L * 4, 12, 32768L * 4,
+                32768L * 4, 32768L * 4, 12, 32768L * 8,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
                 12, 16, 12,
@@ -122,7 +123,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers, Has.Length.EqualTo(40));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(696747676L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(696878752L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -203,7 +204,7 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string neighbour = Slice(frame,
                 "bool M8TryLoadReadoutNeighbourState",
-                "void M8FailReadoutDependency");
+                "M8OverlapSignature M8DeriveOverlapSignature");
             Assert.That(frame, Does.Contain(
                 "M8TryLoadReadoutNeighbourState"));
             Assert.That(frame, Does.Not.Contain("M8TryOccupiedExact"));
@@ -553,7 +554,7 @@ namespace Genesis.RoomScan.Tests
         public void ReadoutSkin_UsesOneTileGroupAndImmediateOverlapHalo()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string compile = Slice(frame, "void CompileReadoutVertices",
+            string compile = Slice(frame, "void EmitReadoutVertices",
                 "void FinalizeReadout");
             Assert.That(frame, Does.Contain(
                 "#define M8_SHELL_HALO_COUNT 1000"));
@@ -582,7 +583,7 @@ namespace Genesis.RoomScan.Tests
                 "M8TryLoadReadoutNeighbourState"));
             Assert.That(mainPath, Does.Not.Contain("InterlockedAdd"));
             Assert.That(Regex.Matches(compile,
-                "M8TryLoadReadoutNeighbourState\\("), Has.Count.EqualTo(1));
+                "M8LoadOverlapHalo\\("), Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -651,6 +652,51 @@ namespace Genesis.RoomScan.Tests
             Assert.That(reset, Does.Not.Contain("_M8DrawArgs"));
             Assert.That(prepare, Does.Contain("MERKABA_READOUT_SKIPPED"));
             Assert.That(prepare, Does.Contain("_M8FrameDispatchArgs[0] = 0u"));
+        }
+
+        [Test]
+        public void ReadoutPublication_PreflightsBeforeTouchingLastGoodStream()
+        {
+            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string preflight = Slice(readout, "void PreflightReadout",
+                "void PrepareReadoutEmit");
+            string prepareEmit = Slice(readout, "void PrepareReadoutEmit",
+                "void EmitReadoutVertices");
+            string emit = Slice(readout, "void EmitReadoutVertices",
+                "void FinalizeReadout");
+            string finalize = readout.Substring(readout.IndexOf(
+                "void FinalizeReadout", StringComparison.Ordinal));
+
+            Assert.That(preflight, Does.Not.Contain("M8StoreReadoutVertex"));
+            Assert.That(preflight, Does.Not.Contain("_M8ReadoutVertices0"));
+            Assert.That(preflight, Does.Not.Contain("_M8ReadoutVertices1"));
+            Assert.That(preflight, Does.Contain(
+                "_M8VisibleTiles[groupId.x].y = baseTriangle"));
+            Assert.That(prepareEmit, Does.Not.Contain("_M8DrawArgs"));
+            Assert.That(prepareEmit, Does.Contain(
+                "_M8FrameDispatchArgs[0] = 0u"));
+            Assert.That(emit, Does.Contain("M8StoreReadoutVertex"));
+            Assert.That(emit, Does.Contain(
+                "M8_COUNTER_READOUT_EMITTED_TRIANGLES"));
+            Assert.That(finalize, Does.Contain("emitted != logical"));
+            Assert.That(finalize.IndexOf("status == MERKABA_READOUT_FAILED",
+                StringComparison.Ordinal), Is.LessThan(finalize.IndexOf(
+                "_M8DrawArgs[0]", StringComparison.Ordinal)));
+
+            int preflightDispatch = renderer.IndexOf("_preflightKernel",
+                renderer.IndexOf("void SubmitReadoutBuild",
+                    StringComparison.Ordinal), StringComparison.Ordinal);
+            int prepareEmitDispatch = renderer.IndexOf("_prepareEmitKernel",
+                preflightDispatch, StringComparison.Ordinal);
+            int emitDispatch = renderer.IndexOf("_emitKernel",
+                prepareEmitDispatch, StringComparison.Ordinal);
+            int finalizeDispatch = renderer.IndexOf("_finalizeKernel",
+                emitDispatch, StringComparison.Ordinal);
+            Assert.That(preflightDispatch, Is.GreaterThan(0));
+            Assert.That(prepareEmitDispatch, Is.GreaterThan(preflightDispatch));
+            Assert.That(emitDispatch, Is.GreaterThan(prepareEmitDispatch));
+            Assert.That(finalizeDispatch, Is.GreaterThan(emitDispatch));
         }
 
         [Test]
@@ -1006,7 +1052,7 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(44));
+                RegexOptions.Multiline), Has.Count.EqualTo(46));
 
             string[] serial = Regex.Matches(all,
                     @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
@@ -1022,6 +1068,7 @@ namespace Genesis.RoomScan.Tests
                 "PrepareIntegrateArgs",
                 "PrepareNewTileDispatchArgs",
                 "PrepareReadoutBuild",
+                "PrepareReadoutEmit",
                 "PrepareResolveArgs",
                 "ResetClaimQueueCounts",
                 "ResetObservationCounters",
@@ -1138,7 +1185,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 49"));
+            Assert.That(audit, Does.Contain("kernel_count != 51"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));

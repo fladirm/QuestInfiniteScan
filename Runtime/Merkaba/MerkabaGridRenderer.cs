@@ -27,7 +27,9 @@ namespace Genesis.RoomScan
         private int _resetKernel;
         private int _queryKernel;
         private int _prepareKernel;
-        private int _compileKernel;
+        private int _preflightKernel;
+        private int _prepareEmitKernel;
+        private int _emitKernel;
         private int _finalizeKernel;
         private bool _initialized;
         private volatile bool _gpuSubmissionSuspended;
@@ -170,14 +172,19 @@ namespace Genesis.RoomScan
                 "QueryM8Readout", MerkabaGpuStage.WorldQuery);
             _prepareKernel = readoutCompute.FindProfiledKernel(
                 "PrepareReadoutBuild", MerkabaGpuStage.ReadoutBuild);
-            _compileKernel = readoutCompute.FindProfiledKernel(
-                "CompileReadoutVertices", MerkabaGpuStage.ReadoutBuild);
+            _preflightKernel = readoutCompute.FindProfiledKernel(
+                "PreflightReadout", MerkabaGpuStage.ReadoutBuild);
+            _prepareEmitKernel = readoutCompute.FindProfiledKernel(
+                "PrepareReadoutEmit", MerkabaGpuStage.ReadoutBuild);
+            _emitKernel = readoutCompute.FindProfiledKernel(
+                "EmitReadoutVertices", MerkabaGpuStage.ReadoutBuild);
             _finalizeKernel = readoutCompute.FindProfiledKernel(
                 "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
             foreach (int kernel in new[]
                      {
                          _resetKernel, _queryKernel, _prepareKernel,
-                         _compileKernel, _finalizeKernel
+                         _preflightKernel, _prepareEmitKernel, _emitKernel,
+                         _finalizeKernel
                      })
             {
                 _grid.BindWorldBuffers(readoutCompute, kernel);
@@ -258,7 +265,11 @@ namespace Genesis.RoomScan
                 command.DispatchComputeProfiled(readoutCompute,
                     _prepareKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
-                    _compileKernel, _grid.M8FrameDispatchArgs);
+                    _preflightKernel, _grid.M8FrameDispatchArgs);
+                command.DispatchComputeProfiled(readoutCompute,
+                    _prepareEmitKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(readoutCompute,
+                    _emitKernel, _grid.M8FrameDispatchArgs);
                 command.DispatchComputeProfiled(readoutCompute,
                     _finalizeKernel, 1, 1, 1);
                 Graphics.ExecuteCommandBuffer(command);
@@ -471,7 +482,8 @@ namespace Genesis.RoomScan
                 RenderPrimitiveOverflow = counters[23] != 0u;
                 uint readoutStatus = counters[
                     MerkabaGrid.CounterReadoutBuildStatus];
-                if (readoutStatus == 2u || readoutStatus == 3u)
+                if (readoutStatus == 2u || readoutStatus == 3u ||
+                    readoutStatus == 5u)
                     _awaitingResidencyChange = false;
             });
         }
