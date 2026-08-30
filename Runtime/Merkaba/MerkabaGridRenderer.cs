@@ -66,8 +66,6 @@ namespace Genesis.RoomScan
 
         private static readonly int GridToWorldId =
             Shader.PropertyToID("_MerkabaGridToWorld");
-        private static readonly int WorldToGridId =
-            Shader.PropertyToID("_MerkabaWorldToGrid");
         private static readonly int VisibleTilesId =
             Shader.PropertyToID("_M8VisibleTiles");
         private static readonly int ReadoutVertices0Id =
@@ -352,14 +350,17 @@ namespace Genesis.RoomScan
                 MerkabaSpatial.BlockWorldSize) + 1;
             int side = radius * 2 + 1;
 
-            readoutCompute.SetMatrix(GridToWorldId,
-                _grid.GridToWorldMatrix);
-            readoutCompute.SetMatrix(WorldToGridId, worldToGrid);
             readoutCompute.SetVectorArray("_M8DrawPlanes", _drawPlanes);
             readoutCompute.SetVectorArray("_M8DependencyPlanes",
                 _dependencyPlanes);
-            readoutCompute.SetVector("_M8CameraWorld",
-                camera.transform.position);
+            readoutCompute.SetVector("_M8CameraGridMeters",
+                cameraGridMeters);
+            MerkabaReadoutCoverage.WriteGridMetric(
+                _grid.GridToWorldMatrix, out Vector3 metricDiagonal,
+                out Vector3 metricCross);
+            readoutCompute.SetVector("_M8GridMetricDiagonal",
+                metricDiagonal);
+            readoutCompute.SetVector("_M8GridMetricCross", metricCross);
             readoutCompute.SetFloat("_M8RenderDistance", renderDistance);
             readoutCompute.SetFloat("_M8WarmDistance", warmDistance);
             readoutCompute.SetFloat("_M8DependencyDistance",
@@ -401,10 +402,14 @@ namespace Genesis.RoomScan
                     (Mathf.Abs(Vector3.Dot(normal, gridAxisX)) +
                      Mathf.Abs(Vector3.Dot(normal, gridAxisY)) +
                      Mathf.Abs(Vector3.Dot(normal, gridAxisZ)));
-                _drawPlanes[offset + i] = new Vector4(normal.x, normal.y,
-                    normal.z, distance);
-                _dependencyPlanes[offset + i] = new Vector4(normal.x,
-                    normal.y, normal.z, distance + topologyHalo);
+                _drawPlanes[offset + i] =
+                    MerkabaReadoutCoverage.WorldToKernelPlane(
+                        new Vector4(normal.x, normal.y, normal.z, distance),
+                        gridToWorld);
+                _dependencyPlanes[offset + i] =
+                    MerkabaReadoutCoverage.WorldToKernelPlane(
+                        new Vector4(normal.x, normal.y, normal.z,
+                            distance + topologyHalo), gridToWorld);
             }
         }
 

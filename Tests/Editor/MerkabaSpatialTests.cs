@@ -218,6 +218,12 @@ namespace Genesis.RoomScan.Tests
                 uint computed = PlaneChildMask(parentMin, span, left,
                     gridToWorld) | PlaneChildMask(parentMin, span, right,
                     gridToWorld);
+                uint gridComputed = KernelPlaneChildMask(parentMin, span,
+                    KernelPlanes(left, gridToWorld)) |
+                    KernelPlaneChildMask(parentMin, span,
+                        KernelPlanes(right, gridToWorld));
+                Assert.That(gridComputed, Is.EqualTo(computed),
+                    $"grid-plane iteration={iteration} span={span} min={parentMin}");
                 uint brute = 0u;
                 for (uint child = 0u; child < 8u; child++)
                 {
@@ -232,6 +238,28 @@ namespace Genesis.RoomScan.Tests
                     $"iteration={iteration} span={span} min={parentMin}");
             }
             Assert.That(intersectingChildren, Is.GreaterThan(0));
+        }
+
+        [Test]
+        public void ReadoutGridMetric_EqualsThePreviousWorldDistanceExactly()
+        {
+            var random = new System.Random(0x718d);
+            for (int iteration = 0; iteration < 1024; iteration++)
+            {
+                Matrix4x4 gridToWorld = Matrix4x4.TRS(
+                    RandomVector(random, -8f, 8f),
+                    Quaternion.Euler(RandomVector(random, -180f, 180f)),
+                    RandomVector(random, 0.4f, 2.0f));
+                Vector3 delta = RandomVector(random, -20f, 20f);
+                MerkabaReadoutCoverage.WriteGridMetric(gridToWorld,
+                    out Vector3 diagonal, out Vector3 cross);
+                float expected = gridToWorld.MultiplyVector(delta).sqrMagnitude;
+                float actual = MerkabaReadoutCoverage.GridDistanceSquared(
+                    delta, diagonal, cross);
+                Assert.That(actual, Is.EqualTo(expected).Within(
+                    Mathf.Max(1e-4f, expected * 2e-6f)),
+                    $"iteration={iteration}");
+            }
         }
 
         [Test]
@@ -363,6 +391,24 @@ namespace Genesis.RoomScan.Tests
             }
             return mask;
         }
+
+        private static Vector4[] KernelPlanes(Plane[] planes,
+            Matrix4x4 gridToWorld)
+        {
+            var result = new Vector4[planes.Length];
+            for (int index = 0; index < planes.Length; index++)
+            {
+                Vector3 normal = planes[index].normal;
+                result[index] = MerkabaReadoutCoverage.WorldToKernelPlane(
+                    new Vector4(normal.x, normal.y, normal.z,
+                        planes[index].distance), gridToWorld);
+            }
+            return result;
+        }
+
+        private static uint KernelPlaneChildMask(int3 parentMin,
+            int parentSpan, Vector4[] planes) =>
+            MutationPlaneChildMask(parentMin, parentSpan, planes);
 
         private static Plane[] Frustum(Vector3 position, Quaternion rotation)
         {

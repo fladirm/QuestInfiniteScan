@@ -787,7 +787,6 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string integrator = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
-            Assert.That(spatial, Does.Contain("MerkabaM8PlaneChildMask"));
             Assert.That(spatial, Does.Contain("MerkabaM8DistanceChildMask"));
             Assert.That(scan, Does.Contain("M8ScanChildMask"));
             Assert.That(scan, Does.Contain("MerkabaM8DistanceChildMask"));
@@ -799,7 +798,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integrator, Does.Not.Contain(
                 "GeometryUtility.CalculateFrustumPlanes"));
             Assert.That(frame, Does.Contain("M8DrawChildMask"));
-            Assert.That(frame, Does.Contain("MerkabaM8PlaneChildMask"));
+            Assert.That(frame, Does.Contain(
+                "MerkabaM8KernelPlaneChildMask"));
+            Assert.That(frame, Does.Contain(
+                "MerkabaM8GridDistanceChildMask"));
+            Assert.That(frame, Does.Not.Contain("_MerkabaGridToWorld"));
+            Assert.That(frame, Does.Not.Contain("_MerkabaWorldToGrid"));
+            Assert.That(frame, Does.Not.Contain("MerkabaM8PlaneChildMask"));
+            Assert.That(Source("Runtime/Merkaba/MerkabaGridRenderer.cs"),
+                Does.Contain("MerkabaReadoutCoverage.WorldToKernelPlane"));
             Assert.That(scan, Does.Not.Contain("TileIntersectsScan"));
         }
 

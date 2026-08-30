@@ -147,42 +147,42 @@ uint MerkabaM8DistanceChildMask(int3 parentMin, int parentSpan,
     return mask;
 }
 
-uint MerkabaM8PlaneChildMask(int3 parentMin, int parentSpan, float4 plane,
-    float4x4 gridToWorld, float latticeStep, float halfSupport)
+float MerkabaM8GridDistanceSquared(float3 delta,
+    float3 metricDiagonal, float3 metricCross)
+{
+    return dot(metricDiagonal, delta * delta) + 2.0 *
+        (metricCross.x * delta.x * delta.y +
+         metricCross.y * delta.x * delta.z +
+         metricCross.z * delta.y * delta.z);
+}
+
+bool MerkabaM8GridAabbIntersectsDistance(int3 globalMin, int span,
+    float distance, float3 cameraGridMeters, float3 metricDiagonal,
+    float3 metricCross, float latticeStep, float halfSupport)
+{
+    float3 localMin = (float3)globalMin * latticeStep - halfSupport;
+    float3 localMax = (float3)(globalMin + span - 1) * latticeStep +
+        halfSupport;
+    float3 nearest = clamp(cameraGridMeters, localMin, localMax);
+    float3 delta = nearest - cameraGridMeters;
+    return MerkabaM8GridDistanceSquared(delta, metricDiagonal,
+        metricCross) <= distance * distance;
+}
+
+uint MerkabaM8GridDistanceChildMask(int3 parentMin, int parentSpan,
+    float distance, float3 cameraGridMeters, float3 metricDiagonal,
+    float3 metricCross, float latticeStep, float halfSupport)
 {
     int childSpan = parentSpan / 2;
-    float3 parentCenterLocal = ((float3)parentMin +
-        (parentSpan - 1) * 0.5) * latticeStep;
-    float childOffset = parentSpan * 0.25 * latticeStep;
-    float childExtent = (childSpan * latticeStep + halfSupport) * 0.5;
-    float3 centerWorld = mul(gridToWorld,
-        float4(parentCenterLocal, 1.0)).xyz;
-    float3 offsetX = mul((float3x3)gridToWorld,
-        float3(childOffset, 0, 0));
-    float3 offsetY = mul((float3x3)gridToWorld,
-        float3(0, childOffset, 0));
-    float3 offsetZ = mul((float3x3)gridToWorld,
-        float3(0, 0, childOffset));
-    float3 axisX = mul((float3x3)gridToWorld,
-        float3(childExtent, 0, 0));
-    float3 axisY = mul((float3x3)gridToWorld,
-        float3(0, childExtent, 0));
-    float3 axisZ = mul((float3x3)gridToWorld,
-        float3(0, 0, childExtent));
-    float base = dot(plane.xyz, centerWorld) + plane.w;
-    float sx = dot(plane.xyz, offsetX);
-    float sy = dot(plane.xyz, offsetY);
-    float sz = dot(plane.xyz, offsetZ);
-    float radius = abs(dot(plane.xyz, axisX)) +
-        abs(dot(plane.xyz, axisY)) + abs(dot(plane.xyz, axisZ));
     uint mask = 0u;
     [unroll]
     for (uint child = 0u; child < 8u; child++)
     {
-        float score = base + ((child & 1u) != 0u ? sx : -sx) +
-            ((child & 2u) != 0u ? sy : -sy) +
-            ((child & 4u) != 0u ? sz : -sz);
-        if (score + radius >= 0.0) mask |= 1u << child;
+        if (MerkabaM8GridAabbIntersectsDistance(parentMin +
+            MerkabaM8OctantOffset(child, childSpan), childSpan, distance,
+            cameraGridMeters, metricDiagonal, metricCross, latticeStep,
+            halfSupport))
+            mask |= 1u << child;
     }
     return mask;
 }

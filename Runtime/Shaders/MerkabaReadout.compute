@@ -27,11 +27,11 @@ RWStructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices1;
 RWStructuredBuffer<uint> _M8FrameDispatchArgs;
 RWStructuredBuffer<uint> _M8DrawArgs;
 
-float4x4 _MerkabaGridToWorld;
-float4x4 _MerkabaWorldToGrid;
 float4 _M8DrawPlanes[12];
 float4 _M8DependencyPlanes[12];
-float3 _M8CameraWorld;
+float3 _M8CameraGridMeters;
+float3 _M8GridMetricDiagonal;
+float3 _M8GridMetricCross;
 float _M8RenderDistance;
 float _M8WarmDistance;
 float _M8DependencyDistance;
@@ -41,15 +41,15 @@ int _M8QueryBlockSide;
 
 bool M8AabbIntersectsDistance(int3 globalMin, int span, float distance)
 {
-    return MerkabaM8AabbIntersectsDistance(globalMin, span, distance,
-        _M8CameraWorld, _MerkabaGridToWorld, _MerkabaWorldToGrid,
+    return MerkabaM8GridAabbIntersectsDistance(globalMin, span, distance,
+        _M8CameraGridMeters, _M8GridMetricDiagonal, _M8GridMetricCross,
         MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
 }
 
 uint M8DistanceChildMask(int3 parentMin, int parentSpan, float distance)
 {
-    return MerkabaM8DistanceChildMask(parentMin, parentSpan, distance,
-        _M8CameraWorld, _MerkabaGridToWorld, _MerkabaWorldToGrid,
+    return MerkabaM8GridDistanceChildMask(parentMin, parentSpan, distance,
+        _M8CameraGridMeters, _M8GridMetricDiagonal, _M8GridMetricCross,
         MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
 }
 
@@ -58,9 +58,8 @@ uint M8EyeFrustumChildMask(int3 parentMin, int parentSpan, uint eye)
     uint support = 255u;
     [unroll]
     for (uint plane = 0u; plane < 6u; plane++)
-        support &= MerkabaM8PlaneChildMask(parentMin, parentSpan,
-            _M8DrawPlanes[eye * 6u + plane], _MerkabaGridToWorld,
-            MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
+        support &= MerkabaM8KernelPlaneChildMask(parentMin, parentSpan,
+            _M8DrawPlanes[eye * 6u + plane]);
     return support;
 }
 
@@ -69,9 +68,8 @@ uint M8EyeDependencyChildMask(int3 parentMin, int parentSpan, uint eye)
     uint support = 255u;
     [unroll]
     for (uint plane = 0u; plane < 6u; plane++)
-        support &= MerkabaM8PlaneChildMask(parentMin, parentSpan,
-            _M8DependencyPlanes[eye * 6u + plane], _MerkabaGridToWorld,
-            MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
+        support &= MerkabaM8KernelPlaneChildMask(parentMin, parentSpan,
+            _M8DependencyPlanes[eye * 6u + plane]);
     return support;
 }
 
