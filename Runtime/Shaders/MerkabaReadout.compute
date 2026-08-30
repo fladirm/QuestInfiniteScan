@@ -106,11 +106,11 @@ void ResetReadoutBuild(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_HASH_HIT_BLOCKS] = 0u;
     _M8Counters[M8_COUNTER_VISIBLE_CHUNKS] = 0u;
     _M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED] = 0u;
-    _M8Counters[M8_COUNTER_READOUT_ORIENTATION_KNOWN] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_PLANE_VALID] = 0u;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES] = 0u;
     _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES] = 0u;
-    _M8Counters[M8_COUNTER_READOUT_ORIENTATION_UNKNOWN] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID] = 0u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
         MERKABA_READOUT_BUILDING;
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
@@ -314,112 +314,17 @@ void PrepareReadoutBuild(uint id : SV_DispatchThreadID)
     _M8FrameDispatchArgs[2] = 1u;
 }
 
-#define M8_SHELL_HALO_SIDE 10
-#define M8_SHELL_HALO_PLANE 100
-#define M8_SHELL_HALO_COUNT 1000
 #define M8_SHELL_GROUP_THREADS 128u
 #define M8_SHELL_MAIN_COUNT 512u
 
-groupshared uint gM8ShellFlags[M8_SHELL_HALO_COUNT];
-groupshared uint gM8ShellPackedColors[M8_SHELL_HALO_COUNT];
-groupshared uint gM8ShellColorConfidence[M8_SHELL_HALO_COUNT];
 groupshared uint gM8ShellPatchValidWords[MERKABA_M8_TILE_WORDS];
 groupshared uint gM8ShellPatchPrefixes[MERKABA_M8_TILE_WORDS];
-groupshared uint gM8ShellUnresolved;
 groupshared uint gM8ShellPhysicalSlot;
-groupshared uint gM8ShellChunkIndex;
-groupshared uint gM8ShellBlockIndex;
 groupshared uint gM8ShellOccupiedCount;
 groupshared uint gM8ShellValidPatchCount;
 groupshared int3 gM8ShellTileOrigin;
 
-uint M8ShellHaloIndex(int3 haloCoord)
-{
-    return (uint)(haloCoord.x + haloCoord.y * M8_SHELL_HALO_SIDE +
-        haloCoord.z * M8_SHELL_HALO_PLANE);
-}
-
-KernelState M8ShellState(int3 haloCoord)
-{
-    uint index = M8ShellHaloIndex(haloCoord);
-    KernelState state = (KernelState)0;
-    state.flags = gM8ShellFlags[index];
-    state.packedColor = gM8ShellPackedColors[index];
-    state.colorConfidence = gM8ShellColorConfidence[index];
-    return state;
-}
-
 #include "MerkabaOverlapShell.generated.hlsl"
-
-// Missing logical paths are exact empty. Existing non-HOT payload is unresolved.
-// The sparse lookup happens once per cooperatively loaded halo sample, never
-// once per MAIN neighbour or emitted triangle.
-struct M8ReadoutNeighbourState
-{
-    uint resolved;
-    KernelState state;
-};
-
-M8ReadoutNeighbourState M8LoadReadoutNeighbourState(
-    MerkabaM8Address currentAddress,
-    uint currentPhysicalSlot, uint currentChunkIndex, uint currentBlockIndex,
-    int3 neighbourStep)
-{
-    M8ReadoutNeighbourState result = (M8ReadoutNeighbourState)0;
-    result.resolved = 1u;
-    int3 localSigned = int3(currentAddress.local) + neighbourStep;
-    bool sameBlock = all(localSigned >= 0) && all(localSigned < 256);
-    int3 blockCoord = currentAddress.blockCoord;
-    if (!sameBlock)
-    {
-        if (localSigned.x < 0) { blockCoord.x--; localSigned.x += 256; }
-        else if (localSigned.x >= 256) { blockCoord.x++; localSigned.x -= 256; }
-        if (localSigned.y < 0) { blockCoord.y--; localSigned.y += 256; }
-        else if (localSigned.y >= 256) { blockCoord.y++; localSigned.y -= 256; }
-        if (localSigned.z < 0) { blockCoord.z--; localSigned.z += 256; }
-        else if (localSigned.z >= 256) { blockCoord.z++; localSigned.z -= 256; }
-    }
-    MerkabaM8Address neighbourAddress = MerkabaAddressFromBlockLocal(
-        blockCoord, uint3(localSigned));
-
-    if (sameBlock &&
-        neighbourAddress.chunkLocal == currentAddress.chunkLocal &&
-        neighbourAddress.tileLocal == currentAddress.tileLocal)
-    {
-        result.state = M8LoadKernelStateRead(currentPhysicalSlot,
-            neighbourAddress.kernelLocal);
-        return result;
-    }
-
-    uint chunkIndex = currentChunkIndex;
-    if (neighbourAddress.chunkLocal != currentAddress.chunkLocal || !sameBlock)
-    {
-        uint blockIndex = currentBlockIndex;
-        if (!sameBlock && !M8FindBlock(blockCoord, blockIndex)) return result;
-        uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-            MERKABA_M8_BLOCK_CHUNK_COUNT + neighbourAddress.chunkLocal];
-        if (chunkRef == MERKABA_REF_EMPTY) return result;
-        if (chunkRef == MERKABA_REF_CLAIMED_NEW)
-        {
-            result.resolved = 0u;
-            return result;
-        }
-        chunkIndex = chunkRef - 1u;
-    }
-
-    uint tileRef = _M8ChunkTileRefsRead[chunkIndex *
-        MERKABA_M8_TILES_PER_CHUNK + neighbourAddress.tileLocal];
-    if (tileRef == MERKABA_REF_EMPTY) return result;
-    if (!M8IsHotRef(tileRef))
-    {
-        result.resolved = 0u;
-        return result;
-    }
-    uint physicalSlot = M8PhysicalSlot(tileRef);
-    result.state = M8LoadKernelStateRead(physicalSlot,
-        neighbourAddress.kernelLocal);
-    return result;
-}
 
 uint M8PatchPrefix(uint kernelLocal)
 {
@@ -447,63 +352,17 @@ void M8StoreReadoutVertex(uint outputTriangle, uint corner,
         _M8ReadoutVertices0[outputVertex + corner] = vertex;
 }
 
-void M8LoadOverlapHalo(uint physicalSlot,
-    uint3 groupThreadId, uint thread, uint failureStatus)
+void M8LoadMainTile(uint physicalSlot, uint thread)
 {
     if (thread == 0u)
     {
-        gM8ShellUnresolved = 0u;
         gM8ShellPhysicalSlot = physicalSlot;
         uint4 tileMeta = M8LoadTileMetaRead(physicalSlot);
-        gM8ShellChunkIndex = tileMeta.x;
         gM8ShellOccupiedCount = tileMeta.z;
-        gM8ShellBlockIndex =
-            M8LoadChunkOwnerRead(gM8ShellChunkIndex).x;
         gM8ShellTileOrigin =
             M8GlobalKernelCoordRead(physicalSlot, 0u);
     }
     GroupMemoryBarrierWithGroupSync();
-
-    MerkabaM8Address tileOriginAddress =
-        MerkabaAddressOf(gM8ShellTileOrigin);
-    [loop]
-    for (uint haloBatch = 0u; haloBatch < 20u; haloBatch++)
-    {
-        uint xPass = haloBatch & 1u;
-        uint yPass = (haloBatch >> 1u) & 1u;
-        uint zPass = haloBatch >> 2u;
-        uint x = groupThreadId.x + xPass * 8u;
-        uint y = groupThreadId.y + yPass * 8u;
-        uint z = groupThreadId.z + zPass * 2u;
-        if (x >= M8_SHELL_HALO_SIDE || y >= M8_SHELL_HALO_SIDE ||
-            z >= M8_SHELL_HALO_SIDE)
-            continue;
-        int3 haloCoord = int3(x, y, z);
-        M8ReadoutNeighbourState neighbour = M8LoadReadoutNeighbourState(
-            tileOriginAddress,
-            gM8ShellPhysicalSlot, gM8ShellChunkIndex, gM8ShellBlockIndex,
-            haloCoord - int3(1, 1, 1));
-        uint haloIndex = M8ShellHaloIndex(haloCoord);
-        gM8ShellFlags[haloIndex] = neighbour.state.flags;
-        gM8ShellPackedColors[haloIndex] = neighbour.state.packedColor;
-        gM8ShellColorConfidence[haloIndex] =
-            neighbour.state.colorConfidence;
-        if (neighbour.resolved == 0u)
-        {
-            uint ignored;
-            InterlockedOr(gM8ShellUnresolved, 1u, ignored);
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    if (gM8ShellUnresolved != 0u && thread == 0u)
-    {
-        M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
-        M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
-        uint ignored;
-        InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
-            failureStatus, ignored);
-    }
 }
 
 void M8ResolveOverlapPatchMask(uint thread)
@@ -520,13 +379,10 @@ void M8ResolveOverlapPatchMask(uint thread)
     for (uint batch = 0u; batch < 4u; batch++)
     {
         uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
-        int3 tileLocal = int3(kernelLocal & 7u,
-            (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
-        KernelState state = M8ShellState(tileLocal + 1);
-        uint orientation = M8GetSurfaceOrientation(state.flags);
+        KernelState state = M8LoadKernelStateRead(gM8ShellPhysicalSlot,
+            kernelLocal);
         if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-            orientation == 0u ||
-            orientation > MERKABA_SURFACE_ORIENTATION_COUNT)
+            !M8HasSurfacePlane(state.flags))
             continue;
         uint word = kernelLocal >> 5u;
         uint bit = 1u << (kernelLocal & 31u);
@@ -556,13 +412,10 @@ void M8ResolveOverlapPatchMask(uint thread)
 }
 
 [numthreads(8, 8, 2)]
-void PreflightReadout(uint3 groupId : SV_GroupID,
-    uint3 groupThreadId : SV_GroupThreadID, uint thread : SV_GroupIndex)
+void PreflightReadout(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
 {
     uint2 visibleTile = _M8VisibleTiles[groupId.x];
-    M8LoadOverlapHalo(visibleTile.x, groupThreadId, thread,
-        MERKABA_READOUT_FAILED);
-    if (gM8ShellUnresolved != 0u) return;
+    M8LoadMainTile(visibleTile.x, thread);
     M8ResolveOverlapPatchMask(thread);
 
     if (thread != 0u) return;
@@ -572,9 +425,9 @@ void PreflightReadout(uint3 groupId : SV_GroupID,
     InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED],
         gM8ShellOccupiedCount, ignored);
     InterlockedAdd(
-        _M8Counters[M8_COUNTER_READOUT_ORIENTATION_UNKNOWN],
+        _M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID],
         gM8ShellOccupiedCount - gM8ShellValidPatchCount, ignored);
-    InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_ORIENTATION_KNOWN],
+    InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_PLANE_VALID],
         gM8ShellValidPatchCount, ignored);
     uint baseTriangle;
     InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
@@ -628,47 +481,45 @@ void M8EmitOneOverlapPatch(uint kernelLocal, uint tileBaseTriangle)
     int3 tileLocal = int3(kernelLocal & 7u,
         (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
     int3 globalCoord = gM8ShellTileOrigin + tileLocal;
-    KernelState mainState = M8ShellState(tileLocal + 1);
-    uint orientation = M8GetSurfaceOrientation(mainState.flags);
-    M8OverlapPatch patch = M8BuildOrientedOverlapPatch(
-        globalCoord, tileLocal + 1, orientation);
+    KernelState mainState = M8LoadKernelStateRead(gM8ShellPhysicalSlot,
+        kernelLocal);
+    M8OverlapPatch patch;
+    M8TryBuildMeasuredPlanePatch(globalCoord, mainState, patch);
     uint outputTriangle = tileBaseTriangle + M8PatchPrefix(kernelLocal) *
         M8_OVERLAP_TRIANGLES_PER_PATCH;
 
     uint cornerIndex = M8OverlapTriangleCorner(0u);
-    M8OverlapCorner corner = M8OverlapPatchCorner(patch, cornerIndex);
+    float3 corner = M8OverlapPatchCorner(patch, cornerIndex);
     M8StoreReadoutVertex(outputTriangle, 0u,
-        corner.gridPosition, corner.packedColor);
+        corner, patch.packedColor);
     cornerIndex = M8OverlapTriangleCorner(1u);
     corner = M8OverlapPatchCorner(patch, cornerIndex);
     M8StoreReadoutVertex(outputTriangle, 1u,
-        corner.gridPosition, corner.packedColor);
+        corner, patch.packedColor);
     cornerIndex = M8OverlapTriangleCorner(2u);
     corner = M8OverlapPatchCorner(patch, cornerIndex);
     M8StoreReadoutVertex(outputTriangle, 2u,
-        corner.gridPosition, corner.packedColor);
+        corner, patch.packedColor);
     cornerIndex = M8OverlapTriangleCorner(3u);
     corner = M8OverlapPatchCorner(patch, cornerIndex);
     M8StoreReadoutVertex(outputTriangle + 1u, 0u,
-        corner.gridPosition, corner.packedColor);
+        corner, patch.packedColor);
     cornerIndex = M8OverlapTriangleCorner(4u);
     corner = M8OverlapPatchCorner(patch, cornerIndex);
     M8StoreReadoutVertex(outputTriangle + 1u, 1u,
-        corner.gridPosition, corner.packedColor);
+        corner, patch.packedColor);
     cornerIndex = M8OverlapTriangleCorner(5u);
     corner = M8OverlapPatchCorner(patch, cornerIndex);
     M8StoreReadoutVertex(outputTriangle + 1u, 2u,
-        corner.gridPosition, corner.packedColor);
+        corner, patch.packedColor);
 }
 
 [numthreads(8, 8, 2)]
 void EmitReadoutVertices(uint3 groupId : SV_GroupID,
-    uint3 groupThreadId : SV_GroupThreadID, uint thread : SV_GroupIndex)
+    uint thread : SV_GroupIndex)
 {
     uint2 visibleTile = _M8VisibleTilesRead[groupId.x];
-    M8LoadOverlapHalo(visibleTile.x, groupThreadId, thread,
-        MERKABA_READOUT_EMIT_FAILED);
-    if (gM8ShellUnresolved != 0u) return;
+    M8LoadMainTile(visibleTile.x, thread);
     M8ResolveOverlapPatchMask(thread);
     if (thread == 0u)
     {

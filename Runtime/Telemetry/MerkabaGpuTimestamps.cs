@@ -131,7 +131,7 @@ namespace Genesis.RoomScan
             internal uint VisibleChunks;
             internal uint VisibleTiles;
             internal uint OccupiedKernelsConsidered;
-            internal uint ReadoutOrientationKnown;
+            internal uint ReadoutPlaneValid;
             internal uint LogicalPrimitives;
             internal uint ReadoutEmittedPatches;
             internal uint ReadoutEmittedTriangles;
@@ -139,7 +139,7 @@ namespace Genesis.RoomScan
             internal uint RenderPrimitiveOverflow;
             internal uint ReadoutUnresolved;
             internal uint ReadoutBuildStatus;
-            internal uint ReadoutOrientationUnknown;
+            internal uint ReadoutPlaneLegacyInvalid;
             internal uint ObservationFailure;
             internal uint FailedObservations;
             internal readonly uint[] CarveFreeRadial = new uint[8];
@@ -622,8 +622,8 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterVisibleChunks];
                     sample.OccupiedKernelsConsidered = values[
                         MerkabaGrid.CounterOccupiedKernelsConsidered];
-                    sample.ReadoutOrientationKnown = values[
-                        MerkabaGrid.CounterReadoutOrientationKnown];
+                    sample.ReadoutPlaneValid = values[
+                        MerkabaGrid.CounterReadoutPlaneValid];
                     sample.ReadoutEmittedPatches = values[
                         MerkabaGrid.CounterReadoutEmittedPatches];
                     sample.ReadoutEmittedTriangles = values[
@@ -661,8 +661,8 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterReadoutUnresolved];
                     sample.ReadoutBuildStatus = values[
                         MerkabaGrid.CounterReadoutBuildStatus];
-                    sample.ReadoutOrientationUnknown = values[
-                        MerkabaGrid.CounterReadoutOrientationUnknown];
+                    sample.ReadoutPlaneLegacyInvalid = values[
+                        MerkabaGrid.CounterReadoutPlaneLegacyInvalid];
                     for (int radialBin = 0; radialBin < 8; radialBin++)
                         sample.CarveFreeRadial[radialBin] = values[
                             MerkabaGrid.CounterCarveFreeRadialBase + radialBin];
@@ -1050,7 +1050,7 @@ namespace Genesis.RoomScan
                         $"visibleChunks={sample.VisibleChunks} " +
                         $"visibleTiles={sample.VisibleTiles} " +
                         $"occupiedKernelsConsidered={sample.OccupiedKernelsConsidered} " +
-                        $"readoutOrientationKnown={sample.ReadoutOrientationKnown} " +
+                        $"readoutPlaneValid={sample.ReadoutPlaneValid} " +
                         $"logicalReadoutTriangles={sample.LogicalPrimitives} " +
                         $"readoutVertices={sample.LogicalPrimitives * 3u} " +
                         $"rawEyeInstances={(sample.LogicalPrimitives > 0u ? 2u : 0u)} " +
@@ -1060,8 +1060,8 @@ namespace Genesis.RoomScan
                         $"lateDrawColdMisses={sample.LateColdMisses} " +
                         $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow} " +
                         $"readoutUnresolved={sample.ReadoutUnresolved} " +
-                        $"readoutOrientationUnknown=" +
-                        $"{sample.ReadoutOrientationUnknown} " +
+                        $"readoutPlaneLegacyInvalid=" +
+                        $"{sample.ReadoutPlaneLegacyInvalid} " +
                         $"readoutBuildStatus={sample.ReadoutBuildStatus} " +
                         $"observationFailure=0x{sample.ObservationFailure:x} " +
                         $"failedObservations={sample.FailedObservations}");

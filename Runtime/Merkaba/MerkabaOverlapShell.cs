@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using Unity.Mathematics;
@@ -7,61 +6,43 @@ using Unity.Mathematics;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// CPU/codegen authority for the disposable oriented M8 overlap patch.
+    /// CPU/codegen authority for the disposable measured M8 support patch.
     /// KernelState remains the only persistent world state.
     /// </summary>
     internal static class MerkabaOverlapShell
     {
-        internal const int CanonicalNormalCount = 13;
         internal const int CornersPerPatch = 4;
         internal const int TrianglesPerPatch = 2;
         internal const int VerticesPerPatch = 6;
-        internal const int MaximumContributorsPerCorner = 12;
         internal const float PatchHalfExtent = MerkabaConstants.HalfSupport;
 
         private static readonly byte[] TriangleOrder = { 0, 1, 2, 0, 2, 3 };
-        private static readonly int3[] NormalDictionary =
-        {
-            new(1, 0, 0), new(0, 1, 0), new(0, 0, 1),
-            new(1, 1, 0), new(1, -1, 0),
-            new(1, 0, 1), new(1, 0, -1),
-            new(0, 1, 1), new(0, 1, -1),
-            new(1, 1, 1), new(1, 1, -1),
-            new(1, -1, 1), new(1, -1, -1)
-        };
-        private static readonly int3[] ImmediateOffsets = BuildImmediateOffsets();
 
         internal readonly struct Corner : IEquatable<Corner>
         {
             internal readonly float3 GridPosition;
             internal readonly uint PackedColor;
-            internal readonly int ContributorCount;
 
-            internal Corner(float3 gridPosition, uint packedColor,
-                int contributorCount)
+            internal Corner(float3 gridPosition, uint packedColor)
             {
                 GridPosition = gridPosition;
                 PackedColor = packedColor;
-                ContributorCount = contributorCount;
             }
 
             public bool Equals(Corner other) =>
                 math.all(GridPosition == other.GridPosition) &&
-                PackedColor == other.PackedColor &&
-                ContributorCount == other.ContributorCount;
+                PackedColor == other.PackedColor;
 
             public override bool Equals(object obj) =>
                 obj is Corner other && Equals(other);
 
             public override int GetHashCode() => HashCode.Combine(
-                GridPosition.x, GridPosition.y, GridPosition.z,
-                PackedColor, ContributorCount);
+                GridPosition.x, GridPosition.y, GridPosition.z, PackedColor);
         }
 
         internal readonly struct Patch : IEquatable<Patch>
         {
             internal readonly int3 Main;
-            internal readonly byte NormalIndex;
             internal readonly float3 Normal;
             internal readonly float3 Tangent0;
             internal readonly float3 Tangent1;
@@ -70,12 +51,11 @@ namespace Genesis.RoomScan
             internal readonly Corner Corner11;
             internal readonly Corner Corner01;
 
-            internal Patch(int3 main, int normalIndex, float3 normal,
-                float3 tangent0, float3 tangent1, Corner corner00,
-                Corner corner10, Corner corner11, Corner corner01)
+            internal Patch(int3 main, float3 normal, float3 tangent0,
+                float3 tangent1, Corner corner00, Corner corner10,
+                Corner corner11, Corner corner01)
             {
                 Main = main;
-                NormalIndex = (byte)normalIndex;
                 Normal = normal;
                 Tangent0 = tangent0;
                 Tangent1 = tangent1;
@@ -104,7 +84,6 @@ namespace Genesis.RoomScan
             public bool Equals(Patch other)
             {
                 if (!math.all(Main == other.Main) ||
-                    NormalIndex != other.NormalIndex ||
                     !math.all(Normal == other.Normal) ||
                     !math.all(Tangent0 == other.Tangent0) ||
                     !math.all(Tangent1 == other.Tangent1))
@@ -119,52 +98,16 @@ namespace Genesis.RoomScan
                 obj is Patch other && Equals(other);
 
             public override int GetHashCode() => HashCode.Combine(
-                Main.x, Main.y, Main.z, NormalIndex);
+                Main.x, Main.y, Main.z, Normal.x, Normal.y, Normal.z);
         }
 
-        internal static ReadOnlySpan<int3> CanonicalNormals => NormalDictionary;
-        internal static ReadOnlySpan<int3> CanonicalImmediateOffsets =>
-            ImmediateOffsets;
-
-        internal static int SelectCanonicalOrientation(float3 normalGrid)
-        {
-            float lengthSquared = math.lengthsq(normalGrid);
-            if (!(lengthSquared > 0f))
-                throw new ArgumentOutOfRangeException(nameof(normalGrid));
-            float3 normalized = normalGrid * math.rsqrt(lengthSquared);
-            Span<float> alignments = stackalloc float[CanonicalNormalCount];
-            for (int index = 0; index < NormalDictionary.Length; index++)
-            {
-                float3 branch = math.normalize((float3)NormalDictionary[index]);
-                alignments[index] = math.abs(math.dot(normalized, branch));
-            }
-            return SelectCanonicalOrientationFromAlignments(alignments);
-        }
-
-        internal static int SelectCanonicalOrientationFromAlignments(
-            ReadOnlySpan<float> alignments)
-        {
-            if (alignments.Length != CanonicalNormalCount)
-                throw new ArgumentOutOfRangeException(nameof(alignments));
-            int bestIndex = 0;
-            float bestAlignment = alignments[0];
-            for (int index = 1; index < alignments.Length; index++)
-            {
-                if (alignments[index] > bestAlignment)
-                {
-                    bestAlignment = alignments[index];
-                    bestIndex = index;
-                }
-            }
-            return bestIndex;
-        }
-
-        internal static void TangentBasis(int normalIndex, out float3 normal,
+        internal static void TangentBasis(float3 normal,
             out float3 tangent0, out float3 tangent1)
         {
-            if ((uint)normalIndex >= CanonicalNormalCount)
-                throw new ArgumentOutOfRangeException(nameof(normalIndex));
-            normal = math.normalize((float3)NormalDictionary[normalIndex]);
+            float lengthSquared = math.lengthsq(normal);
+            if (!(lengthSquared > 0f))
+                throw new ArgumentOutOfRangeException(nameof(normal));
+            normal *= math.rsqrt(lengthSquared);
             float3 absolute = math.abs(normal);
             int helperIndex = absolute.x <= absolute.y &&
                 absolute.x <= absolute.z ? 0 :
@@ -179,136 +122,29 @@ namespace Genesis.RoomScan
             tangent1 = math.normalize(math.cross(normal, tangent0));
         }
 
-        internal static bool TryBuildPatch(int3 main,
-            Func<int3, KernelState> sample, out Patch patch) =>
-            TryBuildPatch(main, sample, ImmediateOffsets, out patch);
-
-        internal static bool TryBuildPatch(int3 main,
-            Func<int3, KernelState> sample, IReadOnlyList<int3> donorOrder,
+        internal static bool TryBuildPatch(int3 main, KernelState state,
             out Patch patch)
         {
-            if (sample == null) throw new ArgumentNullException(nameof(sample));
-            if (donorOrder == null)
-                throw new ArgumentNullException(nameof(donorOrder));
-            KernelState mainState = sample(main);
-            uint encodedOrientation = mainState.SurfaceOrientation;
-            if (!mainState.IsOccupied || encodedOrientation == 0u ||
-                encodedOrientation > CanonicalNormalCount)
+            if (!state.IsOccupied || !state.HasMeasuredSurfacePlane)
             {
                 patch = default;
                 return false;
             }
 
-            int normalIndex = (int)encodedOrientation - 1;
-            TangentBasis(normalIndex, out float3 normal,
-                out float3 tangent0, out float3 tangent1);
-            Corner corner00 = BuildCorner(main, mainState, sample, donorOrder,
-                normalIndex, normal, tangent0, tangent1, -1, -1);
-            Corner corner10 = BuildCorner(main, mainState, sample, donorOrder,
-                normalIndex, normal, tangent0, tangent1, 1, -1);
-            Corner corner11 = BuildCorner(main, mainState, sample, donorOrder,
-                normalIndex, normal, tangent0, tangent1, 1, 1);
-            Corner corner01 = BuildCorner(main, mainState, sample, donorOrder,
-                normalIndex, normal, tangent0, tangent1, -1, 1);
-            patch = new Patch(main, normalIndex, normal, tangent0, tangent1,
-                corner00, corner10, corner11, corner01);
+            KernelState.DecodeSurfacePlane(state.Flags, out float3 normal,
+                out float signedOffset);
+            TangentBasis(normal, out float3 tangent0, out float3 tangent1);
+            float3 center = (float3)main * MerkabaConstants.LatticeStep +
+                normal * signedOffset;
+            float3 extent0 = tangent0 * PatchHalfExtent;
+            float3 extent1 = tangent1 * PatchHalfExtent;
+            uint color = state.PackedColor;
+            patch = new Patch(main, normal, tangent0, tangent1,
+                new Corner(center - extent0 - extent1, color),
+                new Corner(center + extent0 - extent1, color),
+                new Corner(center + extent0 + extent1, color),
+                new Corner(center - extent0 + extent1, color));
             return true;
-        }
-
-        private static Corner BuildCorner(int3 main, KernelState mainState,
-            Func<int3, KernelState> sample, IReadOnlyList<int3> donorOrder,
-            int normalIndex, float3 normal, float3 tangent0, float3 tangent1,
-            int tangentSign0, int tangentSign1)
-        {
-            var heights = new List<int>(MaximumContributorsPerCorner) { 0 };
-            var colors = new List<uint>(MaximumContributorsPerCorner);
-            if (mainState.ColorConfidence > 0u)
-                colors.Add(mainState.PackedColor);
-
-            float3 cornerInSteps = tangent0 * tangentSign0 +
-                tangent1 * tangentSign1;
-            int3 integerNormal = NormalDictionary[normalIndex];
-            foreach (int3 offset in donorOrder)
-            {
-                ValidateImmediateOffset(offset);
-                KernelState donor = sample(main + offset);
-                if (!donor.IsOccupied ||
-                    donor.SurfaceOrientation != (uint)normalIndex + 1u ||
-                    !DonorSupportContainsCorner(offset, cornerInSteps,
-                        tangent0, tangent1))
-                    continue;
-                if (heights.Count >= MaximumContributorsPerCorner)
-                    throw new InvalidOperationException(
-                        "Immediate overlap contributor bound exceeded.");
-                heights.Add(math.dot(offset, integerNormal));
-                if (donor.ColorConfidence > 0u)
-                    colors.Add(donor.PackedColor);
-            }
-
-            heights.Sort();
-            int lower = heights[(heights.Count - 1) >> 1];
-            int upper = heights[heights.Count >> 1];
-            float normalLength = math.length((float3)integerNormal);
-            float height = (lower + upper) * 0.5f *
-                MerkabaConstants.LatticeStep / normalLength;
-            float3 center = (float3)main * MerkabaConstants.LatticeStep;
-            float3 baseCorner = center +
-                (tangent0 * tangentSign0 + tangent1 * tangentSign1) *
-                PatchHalfExtent;
-            uint packedColor = colors.Count == 0
-                ? mainState.PackedColor : MedianColor(colors);
-            return new Corner(baseCorner + normal * height, packedColor,
-                heights.Count);
-        }
-
-        internal static bool DonorSupportContainsCorner(int3 offset,
-            float3 cornerInSteps, float3 tangent0, float3 tangent1)
-        {
-            float3 relative = cornerInSteps - (float3)offset;
-            return math.abs(math.dot(relative, tangent0)) <= 1f &&
-                   math.abs(math.dot(relative, tangent1)) <= 1f;
-        }
-
-        private static uint MedianColor(List<uint> colors)
-        {
-            byte red = MedianChannel(colors, 0);
-            byte green = MedianChannel(colors, 8);
-            byte blue = MedianChannel(colors, 16);
-            return red | ((uint)green << 8) | ((uint)blue << 16) |
-                0xff000000u;
-        }
-
-        private static byte MedianChannel(List<uint> colors, int shift)
-        {
-            var values = new byte[colors.Count];
-            for (int index = 0; index < colors.Count; index++)
-                values[index] = (byte)((colors[index] >> shift) & 0xffu);
-            Array.Sort(values);
-            int lower = values[(values.Length - 1) >> 1];
-            int upper = values[values.Length >> 1];
-            return (byte)((lower + upper) >> 1);
-        }
-
-        private static int3[] BuildImmediateOffsets()
-        {
-            var result = new int3[26];
-            int index = 0;
-            for (int z = -1; z <= 1; z++)
-            for (int y = -1; y <= 1; y++)
-            for (int x = -1; x <= 1; x++)
-            {
-                if (x == 0 && y == 0 && z == 0) continue;
-                result[index++] = new int3(x, y, z);
-            }
-            return result;
-        }
-
-        private static void ValidateImmediateOffset(int3 offset)
-        {
-            if (math.all(offset == 0) || math.any(offset < -1) ||
-                math.any(offset > 1))
-                throw new InvalidOperationException(
-                    $"Overlap patch queried non-immediate offset {offset}.");
         }
 
 #if UNITY_EDITOR
@@ -319,7 +155,6 @@ namespace Genesis.RoomScan
             output.AppendLine("#ifndef GENESIS_MERKABA_SURFACE_ORIENTATION_INCLUDED");
             output.AppendLine("#define GENESIS_MERKABA_SURFACE_ORIENTATION_INCLUDED");
             output.AppendLine();
-            output.AppendLine($"#define MERKABA_SURFACE_ORIENTATION_COUNT {CanonicalNormalCount}u");
             output.AppendLine($"#define MERKABA_SURFACE_PLANE_NORMAL_U_SHIFT {MerkabaConstants.SurfacePlaneNormalUShift}u");
             output.AppendLine($"#define MERKABA_SURFACE_PLANE_NORMAL_V_SHIFT {MerkabaConstants.SurfacePlaneNormalVShift}u");
             output.AppendLine($"#define MERKABA_SURFACE_PLANE_OFFSET_SHIFT {MerkabaConstants.SurfacePlaneOffsetShift}u");
@@ -328,40 +163,6 @@ namespace Genesis.RoomScan
             output.AppendLine($"#define MERKABA_SURFACE_PLANE_VALID_FLAG 0x{MerkabaConstants.SurfacePlaneValidFlag:x}u");
             output.AppendLine($"#define MERKABA_SURFACE_PLANE_STORAGE_MASK 0x{MerkabaConstants.SurfacePlaneStorageMask:x}u");
             output.AppendLine($"#define MERKABA_SURFACE_PLANE_OFFSET_RANGE {MerkabaConstants.SurfacePlaneOffsetRange.ToString("R", CultureInfo.InvariantCulture)}");
-            output.AppendLine();
-            output.AppendLine("int3 M8CanonicalSurfaceOrientationNormal(uint index)");
-            output.AppendLine("{");
-            int3 fallback = NormalDictionary[^1];
-            output.AppendLine($"    int3 value = int3({fallback.x}, {fallback.y}, {fallback.z});");
-            for (int index = 0; index < NormalDictionary.Length - 1; index++)
-            {
-                int3 normal = NormalDictionary[index];
-                string keyword = index == 0 ? "if" : "else if";
-                output.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                    "    {0} (index == {1}u) value = int3({2}, {3}, {4});",
-                    keyword, index, normal.x, normal.y, normal.z));
-            }
-            output.AppendLine("    return value;");
-            output.AppendLine("}");
-            output.AppendLine();
-            output.AppendLine("uint M8SelectCanonicalSurfaceOrientation(float3 normalGrid)");
-            output.AppendLine("{");
-            output.AppendLine("    float3 normalized = normalize(normalGrid);");
-            output.AppendLine("    uint bestIndex = 0u;");
-            output.AppendLine("    float bestAlignment = -1.0;");
-            output.AppendLine("    [loop]");
-            output.AppendLine("    for (uint index = 0u; index < MERKABA_SURFACE_ORIENTATION_COUNT; index++)");
-            output.AppendLine("    {");
-            output.AppendLine("        float3 branch = normalize((float3)M8CanonicalSurfaceOrientationNormal(index));");
-            output.AppendLine("        float alignment = abs(dot(normalized, branch));");
-            output.AppendLine("        if (alignment > bestAlignment)");
-            output.AppendLine("        {");
-            output.AppendLine("            bestAlignment = alignment;");
-            output.AppendLine("            bestIndex = index;");
-            output.AppendLine("        }");
-            output.AppendLine("    }");
-            output.AppendLine("    return bestIndex;");
-            output.AppendLine("}");
             output.AppendLine();
             output.AppendLine("bool M8HasSurfacePlane(uint flags)");
             output.AppendLine("{");
@@ -438,231 +239,92 @@ namespace Genesis.RoomScan
             output.AppendLine("    return flags & ~MERKABA_SURFACE_PLANE_STORAGE_MASK;");
             output.AppendLine("}");
             output.AppendLine();
-            output.AppendLine("uint M8GetSurfaceOrientation(uint flags)");
-            output.AppendLine("{");
-            output.AppendLine("    if (!M8HasSurfacePlane(flags)) return 0u;");
-            output.AppendLine("    float3 normal;");
-            output.AppendLine("    float ignoredOffset;");
-            output.AppendLine("    M8DecodeSurfacePlane(flags, normal, ignoredOffset);");
-            output.AppendLine("    return M8SelectCanonicalSurfaceOrientation(normal) + 1u;");
-            output.AppendLine("}");
-            output.AppendLine();
-            output.AppendLine("uint M8SetSurfaceOrientation(uint flags, uint branchIndex)");
-            output.AppendLine("{");
-            output.AppendLine("    return M8SetSurfacePlane(flags,");
-            output.AppendLine("        (float3)M8CanonicalSurfaceOrientationNormal(branchIndex), 0.0);");
-            output.AppendLine("}");
-            output.AppendLine();
-            output.AppendLine("uint M8ClearSurfaceOrientation(uint flags)");
-            output.AppendLine("{");
-            output.AppendLine("    return M8ClearSurfacePlane(flags);");
-            output.AppendLine("}");
-            output.AppendLine();
             output.AppendLine("#endif");
             return output.ToString();
         }
 
         internal static string BuildGeneratedHlsl()
         {
-            var output = new StringBuilder(12000);
-            output.Append(GeneratedHlslPrefix);
-            for (int index = 0; index < ImmediateOffsets.Length; index++)
-            {
-                int3 offset = ImmediateOffsets[index];
-                string keyword = index == 0 ? "if" : "else if";
-                output.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                    "    {0} (index == {1}u) value = int3({2}, {3}, {4});",
-                    keyword, index, offset.x, offset.y, offset.z));
-            }
-            output.Append(GeneratedHlslSuffix);
-            return output.ToString();
-        }
+            return string.Format(CultureInfo.InvariantCulture,
+@"// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.
+#ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
+#define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
 
-        private static readonly string GeneratedHlslPrefix = @"// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.
-__HASH__ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
-__HASH__define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
+#include ""MerkabaSurfaceOrientation.generated.hlsl""
 
-__HASH__include ""MerkabaSurfaceOrientation.generated.hlsl""
-
-__HASH__define M8_OVERLAP_TRIANGLES_PER_PATCH 2u
-__HASH__define M8_OVERLAP_MAX_CONTRIBUTORS 12u
-__HASH__define M8_OVERLAP_NEIGHBOUR_COUNT 26u
-__HASH__define M8_OVERLAP_PATCH_HALF_EXTENT 0.025
-
-struct M8OverlapCorner
-{
-    float3 gridPosition;
-    uint packedColor;
-};
+#define M8_OVERLAP_TRIANGLES_PER_PATCH {0}u
+#define M8_OVERLAP_PATCH_HALF_EXTENT {1}
 
 struct M8OverlapPatch
-{
-    M8OverlapCorner corner00;
-    M8OverlapCorner corner10;
-    M8OverlapCorner corner11;
-    M8OverlapCorner corner01;
-};
+{{
+    float3 corner00;
+    float3 corner10;
+    float3 corner11;
+    float3 corner01;
+    uint packedColor;
+}};
 
-void M8OverlapTangentBasis(uint normalIndex, out float3 normal,
+void M8MeasuredPlaneTangentBasis(float3 normal,
     out float3 tangent0, out float3 tangent1)
-{
-    normal = normalize((float3)M8CanonicalSurfaceOrientationNormal(normalIndex));
+{{
     float3 absolute = abs(normal);
-    uint helperIndex = absolute.x <= absolute.y && absolute.x <= absolute.z
-        ? 0u : (absolute.y <= absolute.z ? 1u : 2u);
-    float3 helper = helperIndex == 0u ? float3(1, 0, 0) :
-        (helperIndex == 1u ? float3(0, 1, 0) : float3(0, 0, 1));
+    float3 helper = absolute.x <= absolute.y && absolute.x <= absolute.z
+        ? float3(1.0, 0.0, 0.0)
+        : absolute.y <= absolute.z
+            ? float3(0.0, 1.0, 0.0)
+            : float3(0.0, 0.0, 1.0);
     tangent0 = normalize(cross(normal, helper));
     float first = tangent0.x != 0.0 ? tangent0.x :
-        (tangent0.y != 0.0 ? tangent0.y : tangent0.z);
+        tangent0.y != 0.0 ? tangent0.y : tangent0.z;
     if (first < 0.0) tangent0 = -tangent0;
     tangent1 = normalize(cross(normal, tangent0));
-}
+}}
 
-int3 M8OverlapNeighbourOffset(uint index)
-{
-    int3 value = int3(1, 1, 1);
-".Replace("__HASH__", "#");
-
-        private static readonly string GeneratedHlslSuffix = @"    return value;
-}
-
-bool M8OverlapDonorContainsCorner(int3 offset, float3 cornerInSteps,
-    float3 tangent0, float3 tangent1)
-{
-    float3 relative = cornerInSteps - (float3)offset;
-    return abs(dot(relative, tangent0)) <= 1.0 &&
-        abs(dot(relative, tangent1)) <= 1.0;
-}
-
-void M8SortOverlapInts(inout int values[M8_OVERLAP_MAX_CONTRIBUTORS],
-    uint count)
-{
-    [loop]
-    for (uint index = 1u; index < count; index++)
-    {
-        int value = values[index];
-        uint insert = index;
-        [loop]
-        while (insert > 0u && value < values[insert - 1u])
-        {
-            values[insert] = values[insert - 1u];
-            insert--;
-        }
-        values[insert] = value;
-    }
-}
-
-uint M8MedianOverlapColorChannel(
-    uint colors[M8_OVERLAP_MAX_CONTRIBUTORS], uint count, uint shift)
-{
-    int values[M8_OVERLAP_MAX_CONTRIBUTORS];
-    [loop]
-    for (uint index = 0u; index < count; index++)
-        values[index] = (int)((colors[index] >> shift) & 255u);
-    M8SortOverlapInts(values, count);
-    int lower = values[(count - 1u) >> 1u];
-    int upper = values[count >> 1u];
-    return (uint)((lower + upper) >> 1);
-}
-
-uint M8MedianOverlapColor(
-    uint colors[M8_OVERLAP_MAX_CONTRIBUTORS], uint count,
-    uint fallbackColor)
-{
-    if (count == 0u) return fallbackColor;
-    uint red = M8MedianOverlapColorChannel(colors, count, 0u);
-    uint green = M8MedianOverlapColorChannel(colors, count, 8u);
-    uint blue = M8MedianOverlapColorChannel(colors, count, 16u);
-    return red | (green << 8u) | (blue << 16u) | 0xff000000u;
-}
-
-M8OverlapCorner M8BuildOrientedOverlapCorner(int3 globalCoord,
-    int3 mainHaloCoord, uint orientation, float3 normal, float3 tangent0,
-    float3 tangent1, int tangentSign0, int tangentSign1)
-{
-    KernelState mainState = M8ShellState(mainHaloCoord);
-    int heightNumerators[M8_OVERLAP_MAX_CONTRIBUTORS];
-    uint colors[M8_OVERLAP_MAX_CONTRIBUTORS];
-    uint heightCount = 1u;
-    uint colorCount = 0u;
-    heightNumerators[0] = 0;
-    if (mainState.colorConfidence > 0u)
-        colors[colorCount++] = mainState.packedColor;
-
-    float3 cornerInSteps = tangent0 * tangentSign0 +
-        tangent1 * tangentSign1;
-    int3 integerNormal = M8CanonicalSurfaceOrientationNormal(orientation - 1u);
-    [loop]
-    for (uint donorIndex = 0u;
-         donorIndex < M8_OVERLAP_NEIGHBOUR_COUNT; donorIndex++)
-    {
-        int3 offset = M8OverlapNeighbourOffset(donorIndex);
-        KernelState donor = M8ShellState(mainHaloCoord + offset);
-        if ((donor.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-            M8GetSurfaceOrientation(donor.flags) != orientation ||
-            !M8OverlapDonorContainsCorner(offset, cornerInSteps,
-                tangent0, tangent1))
-            continue;
-        heightNumerators[heightCount++] = dot(offset, integerNormal);
-        if (donor.colorConfidence > 0u)
-            colors[colorCount++] = donor.packedColor;
-    }
-
-    M8SortOverlapInts(heightNumerators, heightCount);
-    int lower = heightNumerators[(heightCount - 1u) >> 1u];
-    int upper = heightNumerators[heightCount >> 1u];
-    float height = (lower + upper) * 0.5 * MERKABA_LATTICE_STEP /
-        length((float3)integerNormal);
-    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP;
-    M8OverlapCorner corner;
-    corner.gridPosition = center +
-        (tangent0 * tangentSign0 + tangent1 * tangentSign1) *
-            M8_OVERLAP_PATCH_HALF_EXTENT + normal * height;
-    corner.packedColor = M8MedianOverlapColor(colors, colorCount,
-        mainState.packedColor);
-    return corner;
-}
-
-M8OverlapPatch M8BuildOrientedOverlapPatch(int3 globalCoord,
-    int3 mainHaloCoord, uint orientation)
-{
+bool M8TryBuildMeasuredPlanePatch(int3 globalCoord, KernelState state,
+    out M8OverlapPatch patch)
+{{
+    patch = (M8OverlapPatch)0;
+    if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
+        !M8HasSurfacePlane(state.flags))
+        return false;
     float3 normal;
+    float signedOffset;
+    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
     float3 tangent0;
     float3 tangent1;
-    M8OverlapTangentBasis(orientation - 1u, normal, tangent0, tangent1);
-    M8OverlapPatch patch;
-    patch.corner00 = M8BuildOrientedOverlapCorner(globalCoord,
-        mainHaloCoord, orientation, normal, tangent0, tangent1, -1, -1);
-    patch.corner10 = M8BuildOrientedOverlapCorner(globalCoord,
-        mainHaloCoord, orientation, normal, tangent0, tangent1, 1, -1);
-    patch.corner11 = M8BuildOrientedOverlapCorner(globalCoord,
-        mainHaloCoord, orientation, normal, tangent0, tangent1, 1, 1);
-    patch.corner01 = M8BuildOrientedOverlapCorner(globalCoord,
-        mainHaloCoord, orientation, normal, tangent0, tangent1, -1, 1);
-    return patch;
-}
+    M8MeasuredPlaneTangentBasis(normal, tangent0, tangent1);
+    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +
+        normal * signedOffset;
+    float3 extent0 = tangent0 * M8_OVERLAP_PATCH_HALF_EXTENT;
+    float3 extent1 = tangent1 * M8_OVERLAP_PATCH_HALF_EXTENT;
+    patch.corner00 = center - extent0 - extent1;
+    patch.corner10 = center + extent0 - extent1;
+    patch.corner11 = center + extent0 + extent1;
+    patch.corner01 = center - extent0 + extent1;
+    patch.packedColor = state.packedColor;
+    return true;
+}}
 
-M8OverlapCorner M8OverlapPatchCorner(M8OverlapPatch patch, uint index)
-{
-    M8OverlapCorner corner = patch.corner01;
-    if (index == 0u) corner = patch.corner00;
-    else if (index == 1u) corner = patch.corner10;
-    else if (index == 2u) corner = patch.corner11;
-    return corner;
-}
+float3 M8OverlapPatchCorner(M8OverlapPatch patch, uint corner)
+{{
+    if (corner == 0u) return patch.corner00;
+    if (corner == 1u) return patch.corner10;
+    if (corner == 2u) return patch.corner11;
+    return patch.corner01;
+}}
 
 uint M8OverlapTriangleCorner(uint vertex)
-{
-    uint index = 3u;
-    if (vertex == 0u || vertex == 3u) index = 0u;
-    else if (vertex == 1u) index = 1u;
-    else if (vertex == 2u || vertex == 4u) index = 2u;
-    return index;
-}
+{{
+    if (vertex == 0u || vertex == 3u) return 0u;
+    if (vertex == 1u) return 1u;
+    if (vertex == 2u || vertex == 4u) return 2u;
+    return 3u;
+}}
 
-__HASH__endif
-".Replace("__HASH__", "#");
+#endif
+", TrianglesPerPatch,
+                PatchHalfExtent.ToString("R", CultureInfo.InvariantCulture));
+        }
 #endif
     }
 }

@@ -29,16 +29,6 @@ namespace Genesis.RoomScan
         public readonly bool NeedsCarve =>
             (Flags & MerkabaConstants.NeedsCarveFlag) != 0;
         public readonly bool HasMeasuredSurfacePlane => HasSurfacePlane(Flags);
-        internal readonly uint SurfaceOrientation
-        {
-            get
-            {
-                if (!HasMeasuredSurfacePlane) return 0u;
-                DecodeSurfacePlane(Flags, out float3 normal, out _);
-                return (uint)MerkabaOverlapShell.SelectCanonicalOrientation(
-                    normal) + 1u;
-            }
-        }
         public readonly Color32 Color => UnpackColor(PackedColor);
 
         public static bool HasSurfacePlane(uint flags) =>
@@ -99,17 +89,6 @@ namespace Genesis.RoomScan
 
         public static uint ClearSurfacePlane(uint flags) =>
             flags & ~MerkabaConstants.SurfacePlaneStorageMask;
-
-        internal static uint SetSurfaceOrientation(uint flags, int branchIndex)
-        {
-            if ((uint)branchIndex >= MerkabaOverlapShell.CanonicalNormalCount)
-                throw new ArgumentOutOfRangeException(nameof(branchIndex));
-            return SetSurfacePlane(flags,
-                MerkabaOverlapShell.CanonicalNormals[branchIndex], 0f);
-        }
-
-        internal static uint ClearSurfaceOrientation(uint flags) =>
-            ClearSurfacePlane(flags);
 
         private static float2 OctEncode(float3 normal)
         {
