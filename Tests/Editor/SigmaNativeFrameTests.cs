@@ -181,16 +181,21 @@ namespace Genesis.RoomScan.Tests
                 "SigmaN4TileRejectDistinctChartOverlaps"));
             Assert.That(contract, Does.Not.Contain(
                 "SigmaN4TilePackedChartHasDistinctOverlap"));
-            string reduceAnd = Slice(contract,
-                "uint SigmaNativeFreshReduceAnd",
-                "uint SigmaNativeFreshReduceOr");
-            Assert.That(Count(reduceAnd,
-                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(3));
-            string reduceOr = Slice(contract,
-                "uint SigmaNativeFreshReduceOr",
-                "void SigmaNativeFreshLiftSource");
-            Assert.That(Count(reduceOr,
-                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(3));
+            Assert.That(contract, Does.Not.Contain(
+                "SigmaNativeFreshReduceAnd"));
+            Assert.That(contract, Does.Not.Contain(
+                "SigmaNativeFreshReduceOr"));
+            string freshLift = Slice(contract,
+                "void SigmaNativeFreshLiftSource",
+                "void SigmaNativeFreshLiftLegacyBranch");
+            Assert.That(Count(freshLift,
+                "GroupMemoryBarrierWithGroupSync()"), Is.EqualTo(21));
+            Assert.That(freshLift, Does.Contain(
+                "stereoPreHitBase + 4u"));
+            Assert.That(freshLift, Does.Contain(
+                "for (uint reduceLane = 0u; reduceLane < 8u"));
+            Assert.That(freshLift, Does.Contain(
+                "for (uint reduceLane = 0u; reduceLane < 16u"));
         }
 
         [Test]
