@@ -199,6 +199,8 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8ClaimQueue => _m8ClaimQueue;
         internal ComputeBuffer M8PendingNewTileRefs => _m8PendingNewTileRefs;
         internal ComputeBuffer M8LoadRequests => _m8LoadRequests;
+        internal ComputeBuffer M8LoadRequestReadCount =>
+            _m8LoadRequestReadCount;
         internal ComputeBuffer M8SurfaceCandidates => _m8SurfaceCandidates;
         internal ComputeBuffer M8SurfaceQueue => _m8SurfaceQueue;
         internal ComputeBuffer M8SurfaceWinnerRanks0 =>
@@ -225,6 +227,82 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8WritebackStaging => _m8WritebackStaging;
         internal ComputeBuffer M8LoadStagingAddresses => _m8LoadStagingAddresses;
         internal ComputeBuffer M8LoadStagingStates => _m8LoadStagingStates;
+
+        internal void FillNativeExecutorWorldResources(IntPtr[] resources)
+        {
+            if (resources == null || resources.Length !=
+                MerkabaNativeVulkanExecutor.ResourceCount)
+                throw new ArgumentException(
+                    "Native M8 resource table has an invalid size.",
+                    nameof(resources));
+            void Set(MerkabaNativeVulkanExecutor.Resource index,
+                ComputeBuffer buffer) => resources[(int)index] =
+                buffer != null ? buffer.GetNativeBufferPtr() : IntPtr.Zero;
+            Set(MerkabaNativeVulkanExecutor.Resource.HashEntries,
+                _m8HashEntries);
+            Set(MerkabaNativeVulkanExecutor.Resource.OwnerRecords,
+                _m8OwnerRecords);
+            Set(MerkabaNativeVulkanExecutor.Resource.BlockChunkRefs,
+                _m8BlockChunkRefs);
+            Set(MerkabaNativeVulkanExecutor.Resource.BlockPresenceL0,
+                _m8BlockPresenceL0);
+            Set(MerkabaNativeVulkanExecutor.Resource.BlockPresenceL1,
+                _m8BlockPresenceL1);
+            Set(MerkabaNativeVulkanExecutor.Resource.BlockPresenceL2,
+                _m8BlockPresenceL2);
+            Set(MerkabaNativeVulkanExecutor.Resource.ChunkTileRefs,
+                _m8ChunkTileRefs);
+            Set(MerkabaNativeVulkanExecutor.Resource.ChunkPresence,
+                _m8ChunkPresence);
+            Set(MerkabaNativeVulkanExecutor.Resource.KernelStates0,
+                _m8KernelStates0);
+            Set(MerkabaNativeVulkanExecutor.Resource.KernelStates1,
+                _m8KernelStates1);
+            Set(MerkabaNativeVulkanExecutor.Resource.KernelStates2,
+                _m8KernelStates2);
+            Set(MerkabaNativeVulkanExecutor.Resource.KernelStates3,
+                _m8KernelStates3);
+            Set(MerkabaNativeVulkanExecutor.Resource.TileBits, _m8TileBits);
+            Set(MerkabaNativeVulkanExecutor.Resource.TileRecords,
+                _m8TileRecords);
+            Set(MerkabaNativeVulkanExecutor.Resource.FreeTileStack,
+                _m8FreeTileStack);
+            Set(MerkabaNativeVulkanExecutor.Resource.Counters, _m8Counters);
+            Set(MerkabaNativeVulkanExecutor.Resource.ClaimQueue,
+                _m8ClaimQueue);
+            Set(MerkabaNativeVulkanExecutor.Resource.PendingNewTileRefs,
+                _m8PendingNewTileRefs);
+            Set(MerkabaNativeVulkanExecutor.Resource.LoadRequests,
+                _m8LoadRequests);
+            Set(MerkabaNativeVulkanExecutor.Resource.LoadRequestReadCount,
+                _m8LoadRequestReadCount);
+            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceCandidates,
+                _m8SurfaceCandidates);
+            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceQueue,
+                _m8SurfaceQueue);
+            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks0,
+                _m8SurfaceWinnerRanks0);
+            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks1,
+                _m8SurfaceWinnerRanks1);
+            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks2,
+                _m8SurfaceWinnerRanks2);
+            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks3,
+                _m8SurfaceWinnerRanks3);
+            Set(MerkabaNativeVulkanExecutor.Resource.TouchedTileQueue,
+                _m8TouchedTileQueue);
+            Set(MerkabaNativeVulkanExecutor.Resource.CarveTiles,
+                _m8CarveTiles);
+            Set(MerkabaNativeVulkanExecutor.Resource.ObservationDispatchArgs,
+                _m8ObservationDispatchArgs);
+            Set(MerkabaNativeVulkanExecutor.Resource.CarveDispatchArgs,
+                _m8CarveDispatchArgs);
+            Set(MerkabaNativeVulkanExecutor.Resource.AttemptCompletion,
+                _m8AttemptCompletion);
+            Set(MerkabaNativeVulkanExecutor.Resource.VisibleTiles,
+                _m8VisibleTiles);
+            Set(MerkabaNativeVulkanExecutor.Resource.FrameDispatchArgs,
+                _m8FrameDispatchArgs);
+        }
 
         internal bool GpuReady => _gpuReady;
         internal Matrix4x4 GridToWorldMatrix => transform.localToWorldMatrix;
@@ -564,11 +642,7 @@ namespace Genesis.RoomScan
         internal uint ResetObservationGpuCounters()
         {
             if (!GpuSubmissionAllowed) return 0u;
-            unchecked
-            {
-                _issuedObservationToken++;
-                if (_issuedObservationToken == 0u) _issuedObservationToken = 1u;
-            }
+            NextObservationToken();
             worldCompute.SetInt(ObservationTokenId,
                 unchecked((int)_issuedObservationToken));
             worldCompute.Dispatch(_resetObservationKernel, 1, 1, 1);
@@ -579,16 +653,28 @@ namespace Genesis.RoomScan
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (!GpuSubmissionAllowed) return 0u;
-            unchecked
-            {
-                _issuedObservationToken++;
-                if (_issuedObservationToken == 0u) _issuedObservationToken = 1u;
-            }
+            NextObservationToken();
             command.SetComputeIntParam(worldCompute, ObservationTokenId,
                 unchecked((int)_issuedObservationToken));
             command.DispatchComputeProfiled(worldCompute,
                 _resetObservationKernel, 1, 1, 1);
             return _issuedObservationToken;
+        }
+
+        internal uint AllocateNativeObservationToken()
+        {
+            if (!GpuSubmissionAllowed) return 0u;
+            NextObservationToken();
+            return _issuedObservationToken;
+        }
+
+        private void NextObservationToken()
+        {
+            unchecked
+            {
+                _issuedObservationToken++;
+                if (_issuedObservationToken == 0u) _issuedObservationToken = 1u;
+            }
         }
 
         internal void PublishClaimedBlocks()

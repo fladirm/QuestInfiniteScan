@@ -773,6 +773,8 @@ namespace Genesis.RoomScan
             {
                 await prior;
                 if (!await QuiesceScanningAsync()) return;
+                if (!ReferenceEquals(_renderer, null))
+                    await _renderer.FinishCurrentReadoutAsync();
                 // Capture the exact stable set only after observation and
                 // capture-copy retirement, but before the final grid marker.
                 Action release = CaptureOwnedGpuResourceRelease();

@@ -51,12 +51,23 @@ namespace Genesis.RoomScan
         private uint _attemptSequence;
         private uint _attemptToken;
         private uint _attemptResidencyEpoch;
+        private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
+            _nativeAttemptJob;
+        private bool _nativeAttemptIncludesPreprocess;
+        private bool _nativeAttemptGpuComplete;
+        private bool _nativeAttemptCompletionRequested;
+        private double _nativeAttemptSubmittedAt;
+        private double _nativeAttemptGpuCompleteAt;
         private bool _fineErasePrepared;
         private bool _fineEraseAttemptInFlight;
         private bool _fineEraseWaitingForDependency;
         private uint _fineEraseAttemptToken;
         private uint _fineEraseResidencyEpoch;
         private FineBrushDescriptor _fineEraseDescriptor;
+        private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
+            _nativeFineEraseJob;
+        private bool _nativeFineEraseGpuComplete;
+        private bool _nativeFineEraseCompletionRequested;
 
         private const int CameraEyeCount = 2;
         private const int CameraObservationSlots = 2;
@@ -396,11 +407,54 @@ namespace Genesis.RoomScan
 
         internal bool TryRetireObservationAttempt()
         {
-            if (!_observationPrepared || !_attemptInFlight ||
-                _grid.CompletedAttemptToken != _attemptToken)
+            if (!_observationPrepared || !_attemptInFlight)
                 return false;
 
+            if (_nativeAttemptJob != null)
+            {
+                if (!_nativeAttemptGpuComplete)
+                {
+                    if (!_nativeAttemptJob.Poll(out string nativeError))
+                        return false;
+                    if (!string.IsNullOrEmpty(nativeError))
+                    {
+                        _nativeAttemptJob.Dispose();
+                        _nativeAttemptJob = null;
+                        _nativeAttemptIncludesPreprocess = false;
+                        Logger.Error(nativeError);
+                        _attemptInFlight = false;
+                        _nativeAttemptCompletionRequested = false;
+                        ReleaseOwnedObservation();
+                        _observationPrepared = false;
+                        return false;
+                    }
+                    if (_nativeAttemptIncludesPreprocess)
+                        _depthCapture.CompleteNativeDepthPreprocess();
+                    _nativeAttemptIncludesPreprocess = false;
+                    _nativeAttemptGpuComplete = true;
+                    _nativeAttemptGpuCompleteAt = Time.realtimeSinceStartupAsDouble;
+                }
+                if (!_nativeAttemptCompletionRequested)
+                {
+                    _grid.RequestAttemptCompletion(_attemptToken);
+                    _nativeAttemptCompletionRequested = true;
+                    return false;
+                }
+            }
+
+            if (_grid.CompletedAttemptToken != _attemptToken)
+                return false;
+
+            _nativeAttemptJob?.Dispose();
+            _nativeAttemptJob = null;
+            _nativeAttemptGpuComplete = false;
+            double nativeAttemptRetiredAt = Time.realtimeSinceStartupAsDouble;
+            Logger.Info("Merkaba native observation publication " +
+                $"attempt={_attemptToken} " +
+                $"totalMs={(nativeAttemptRetiredAt - _nativeAttemptSubmittedAt) * 1000.0:F3} " +
+                $"completionReadbackMs={(nativeAttemptRetiredAt - _nativeAttemptGpuCompleteAt) * 1000.0:F3}");
             _attemptInFlight = false;
+            _nativeAttemptCompletionRequested = false;
             if (_grid.CompletedObservationToken == _observationToken)
             {
                 Logger.Info("Merkaba observation complete " +
@@ -436,10 +490,41 @@ namespace Genesis.RoomScan
 
         internal bool TryRetireFineEraseAttempt()
         {
-            if (!_fineErasePrepared || !_fineEraseAttemptInFlight ||
-                _grid.CompletedAttemptToken != _fineEraseAttemptToken)
+            if (!_fineErasePrepared || !_fineEraseAttemptInFlight)
                 return false;
 
+            if (_nativeFineEraseJob != null)
+            {
+                if (!_nativeFineEraseGpuComplete)
+                {
+                    if (!_nativeFineEraseJob.Poll(out string nativeError))
+                        return false;
+                    if (!string.IsNullOrEmpty(nativeError))
+                    {
+                        _nativeFineEraseJob.Dispose();
+                        _nativeFineEraseJob = null;
+                        _nativeFineEraseGpuComplete = false;
+                        _fineEraseAttemptInFlight = false;
+                        Logger.Error(nativeError);
+                        return false;
+                    }
+                    _nativeFineEraseGpuComplete = true;
+                }
+                if (!_nativeFineEraseCompletionRequested)
+                {
+                    _grid.RequestAttemptCompletion(_fineEraseAttemptToken);
+                    _nativeFineEraseCompletionRequested = true;
+                    return false;
+                }
+            }
+
+            if (_grid.CompletedAttemptToken != _fineEraseAttemptToken)
+                return false;
+
+            _nativeFineEraseJob?.Dispose();
+            _nativeFineEraseJob = null;
+            _nativeFineEraseGpuComplete = false;
+            _nativeFineEraseCompletionRequested = false;
             _fineEraseAttemptInFlight = false;
             if (_grid.CompletedObservationToken == _fineEraseAttemptToken)
             {
@@ -468,6 +553,9 @@ namespace Genesis.RoomScan
 
             _fineEraseResidencyEpoch = _grid.ResidencyEpoch;
             _fineEraseAttemptToken = NextAttemptToken();
+#if !UNITY_EDITOR && UNITY_ANDROID
+            return TrySubmitNativeFineEraseAttempt();
+#else
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba exact FINE erase");
             bool submitted = false;
@@ -497,7 +585,91 @@ namespace Genesis.RoomScan
                 CommandBufferPool.Release(command);
                 if (!submitted) _fineEraseAttemptToken = 0u;
             }
+#endif
         }
+
+#if !UNITY_EDITOR && UNITY_ANDROID
+        private bool TrySubmitNativeFineEraseAttempt()
+        {
+            if (MerkabaNativeVulkanExecutor.HasJobInFlight)
+                return false;
+            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            float3 gridEye = (float3)worldToGrid.MultiplyPoint3x4(
+                _fineEraseDescriptor.EyeOrigin) /
+                MerkabaConstants.LatticeStep;
+            int3 centerBlock = MerkabaSpatial.Encode(
+                (int3)math.floor(gridEye)).BlockCoord;
+            float toolDepth = Mathf.Sqrt(
+                _fineEraseDescriptor.ToolDepthSquared);
+            int radius = Mathf.CeilToInt(toolDepth /
+                MerkabaSpatial.BlockWorldSize) + 1;
+            int side = radius * 2 + 1;
+            int queryGroups = checked(side * side * side);
+            var resources = new IntPtr[
+                MerkabaNativeVulkanExecutor.ResourceCount];
+            _grid.FillNativeExecutorWorldResources(resources);
+            var uniforms = new MerkabaNativeUniformTable();
+            uniforms.Matrix("_MerkabaGridToWorld",
+                _grid.GridToWorldMatrix);
+            uniforms.Matrix("_MerkabaWorldToGrid", worldToGrid);
+            uniforms.Vector3("_M8FineEyeOrigin",
+                _fineEraseDescriptor.EyeOrigin);
+            uniforms.Vector3("_M8FineBrushAxis",
+                _fineEraseDescriptor.Axis);
+            uniforms.Float("_M8FineCosHalfAngleSquared",
+                _fineEraseDescriptor.CosHalfAngleSquared);
+            uniforms.Float("_M8FineToolDepthSquared",
+                _fineEraseDescriptor.ToolDepthSquared);
+            uniforms.Int3("_M8ScanCenterBlock", centerBlock.x,
+                centerBlock.y, centerBlock.z);
+            uniforms.Int("_M8ScanBlockRadius", radius);
+            uniforms.Int("_M8ScanBlockSide", side);
+            uniforms.UInt("_M8AttemptToken", _fineEraseAttemptToken);
+            if (!MerkabaNativeVulkanExecutor.TryCreateJob(
+                    MerkabaNativeVulkanExecutor.JobKind.FineErase,
+                    _fineEraseAttemptToken, resources, uniforms, 0, 0,
+                    queryGroups, 0, out var nativeJob))
+                return false;
+
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba native FINE erase submit");
+            bool recorded = false;
+            try
+            {
+                nativeJob.RecordPrepareAndSubmit(command);
+                recorded = true;
+                Graphics.ExecuteCommandBuffer(command);
+                _nativeFineEraseJob = nativeJob;
+                _nativeFineEraseGpuComplete = false;
+                _nativeFineEraseCompletionRequested = false;
+                _fineEraseAttemptInFlight = true;
+                _fineEraseWaitingForDependency = false;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                if (recorded)
+                {
+                    _nativeFineEraseJob = nativeJob;
+                    _nativeFineEraseGpuComplete = false;
+                    _nativeFineEraseCompletionRequested = false;
+                    _fineEraseAttemptInFlight = true;
+                    Logger.Error("Merkaba native FINE erase submission " +
+                        "became uncertain; resources remain quarantined: " +
+                        exception.Message);
+                    return true;
+                }
+                nativeJob.CancelBeforeExecution();
+                nativeJob.Dispose();
+                _fineEraseAttemptToken = 0u;
+                return false;
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+            }
+        }
+#endif
 
         internal bool TrySubmitObservationAttempt()
         {
@@ -517,6 +689,16 @@ namespace Genesis.RoomScan
                 return false;
 
             _attemptResidencyEpoch = _grid.ResidencyEpoch;
+
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (!MerkabaNativeVulkanExecutor.IsAvailable)
+            {
+                Logger.Error("Merkaba native scanner queue is unavailable; " +
+                    "graphics-queue fallback is forbidden on Quest.");
+                return false;
+            }
+            return TrySubmitNativeObservationAttempt(newObservation);
+#else
 
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 observation");
@@ -627,7 +809,221 @@ namespace Genesis.RoomScan
                     timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
+#endif
         }
+
+#if !UNITY_EDITOR && UNITY_ANDROID
+        private bool TrySubmitNativeObservationAttempt(bool newObservation)
+        {
+            if (MerkabaNativeVulkanExecutor.HasJobInFlight) return false;
+            if (newObservation)
+            {
+                AcquireCameraObservation();
+                if (!_depthCapture.PrepareLatestDepthFrameForNative(
+                        HeldStereoCameraFrame()))
+                {
+                    ReleaseOwnedObservation();
+                    return false;
+                }
+                _observationToken = _grid.AllocateNativeObservationToken();
+                _observationPreparedAt = Time.realtimeSinceStartupAsDouble;
+                _observationDepthVersion =
+                    _depthCapture.ProcessedRawFrameVersion;
+                _observationPrepared = true;
+            }
+
+            _attemptToken = NextAttemptToken();
+            IntPtr[] resources = BuildNativeObservationResources(
+                newObservation);
+            MerkabaNativeUniformTable uniforms =
+                BuildNativeObservationUniforms(out int queryGroups);
+            int depthGroupsX = newObservation
+                ? Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f) : 0;
+            int depthGroupsY = newObservation
+                ? Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f) : 0;
+            if (!MerkabaNativeVulkanExecutor.TryCreateJob(
+                    newObservation
+                        ? MerkabaNativeVulkanExecutor.JobKind.ObservationNew
+                        : MerkabaNativeVulkanExecutor.JobKind.ObservationRetry,
+                    _attemptToken, resources, uniforms, depthGroupsX,
+                    depthGroupsY, queryGroups, 0, out var nativeJob))
+            {
+                if (newObservation)
+                {
+                    ReleaseOwnedObservation();
+                    _observationPrepared = false;
+                }
+                return false;
+            }
+
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba native scanner submit");
+            bool recorded = false;
+            try
+            {
+                nativeJob.RecordPrepareAndSubmit(command);
+                recorded = true;
+                Graphics.ExecuteCommandBuffer(command);
+                _nativeAttemptJob = nativeJob;
+                _nativeAttemptIncludesPreprocess = newObservation;
+                _nativeAttemptGpuComplete = false;
+                _nativeAttemptCompletionRequested = false;
+                _nativeAttemptSubmittedAt = Time.realtimeSinceStartupAsDouble;
+                _nativeAttemptGpuCompleteAt = 0.0;
+                _attemptInFlight = true;
+                _waitingForDependency = false;
+                Logger.Info("Merkaba native observation submitted " +
+                    $"observation={_observationToken} " +
+                    $"attempt={_attemptToken} " +
+                    $"retry={!newObservation} queue=1");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                if (recorded)
+                {
+                    // Execution is uncertain after Unity accepted plugin events.
+                    // Retain every lease and native object until its fence becomes
+                    // terminal; never recycle sensor/world resources here.
+                    _nativeAttemptJob = nativeJob;
+                    _nativeAttemptIncludesPreprocess = newObservation;
+                    _nativeAttemptGpuComplete = false;
+                    _nativeAttemptSubmittedAt = Time.realtimeSinceStartupAsDouble;
+                    _nativeAttemptGpuCompleteAt = 0.0;
+                    _attemptInFlight = true;
+                    Logger.Error("Merkaba native submit became uncertain; " +
+                        $"resources quarantined until terminal fence: " +
+                        exception.Message);
+                    return true;
+                }
+                nativeJob.CancelBeforeExecution();
+                nativeJob.Dispose();
+                if (newObservation)
+                {
+                    ReleaseOwnedObservation();
+                    _observationPrepared = false;
+                }
+                return false;
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+            }
+        }
+
+        private IntPtr[] BuildNativeObservationResources(bool newObservation)
+        {
+            var resources = new IntPtr[
+                MerkabaNativeVulkanExecutor.ResourceCount];
+            _grid.FillNativeExecutorWorldResources(resources);
+            _depthCapture.FillNativeExecutorDepthResources(resources,
+                newObservation);
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.CameraLeft] =
+                _cameraFrameCopies[CameraResourceIndex(_heldCameraSlot, 0)]
+                    .GetNativeTexturePtr();
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.CameraRight] =
+                _cameraFrameCopies[CameraResourceIndex(_heldCameraSlot, 1)]
+                    .GetNativeTexturePtr();
+            return resources;
+        }
+
+        private MerkabaNativeUniformTable BuildNativeObservationUniforms(
+            out int queryGroups)
+        {
+            var values = new MerkabaNativeUniformTable();
+            int width = _depthCapture.DepthTex.width;
+            int height = _depthCapture.DepthTex.height;
+            values.UInt("_DepthW", checked((uint)width));
+            values.UInt("_DepthH", checked((uint)height));
+            values.Matrices("_DepthProj", _depthCapture.Proj);
+            values.Matrices("_DepthProjInv", _depthCapture.ProjInv);
+            values.Matrices("_DepthView", _depthCapture.View);
+            values.Matrices("_DepthViewInv", _depthCapture.ViewInv);
+            values.UInt("_RefineMetricsEnabled", 0u);
+            values.UInt("_RefineMetricGroupsX",
+                checked((uint)Mathf.CeilToInt(width / 8f)));
+            values.UInt2("gsDepthTexSize", width, height);
+            values.Matrices("gsDepthProj", _depthCapture.Proj);
+            values.Matrices("gsDepthProjInv", _depthCapture.ProjInv);
+            values.Matrices("gsDepthView", _depthCapture.View);
+            values.Matrices("gsDepthViewInv", _depthCapture.ViewInv);
+            values.Float("gsVoxDist", MerkabaConstants.FreeFullClearance);
+            values.Float("gsVoxSize", MerkabaConstants.SupportSize);
+            values.UInt("_M8ObservationToken", _observationToken);
+            values.UInt("_M8AttemptToken", _attemptToken);
+            values.Int("_M8AbortObservation",
+                ObservationTimedOut() ? 1 : 0);
+
+            Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
+            Matrix4x4 worldToGrid = gridToWorld.inverse;
+            values.Matrix("_MerkabaGridToWorld", gridToWorld);
+            values.Matrix("_MerkabaWorldToGrid", worldToGrid);
+            values.Float("_MerkabaMaxUpdateDistance", maxUpdateDistance);
+            values.Float("_MerkabaMutationOuterRadius",
+                MerkabaConstants.MutationOuterRadius);
+            values.UInt("_M8FineRefineActive",
+                _heldFineBrush.IsRefine ? 1u : 0u);
+            values.Vector3("_M8FineEyeOrigin", _heldFineBrush.EyeOrigin);
+            values.Vector3("_M8FineBrushAxis", _heldFineBrush.Axis);
+            values.Float("_M8FineCosHalfAngleSquared",
+                _heldFineBrush.CosHalfAngleSquared);
+            values.Float("_M8FineToolDepthSquared",
+                _heldFineBrush.ToolDepthSquared);
+
+            for (int eye = 0; eye < CameraEyeCount; ++eye)
+            {
+                int resource = CameraResourceIndex(_heldCameraSlot, eye);
+                string suffix = eye == 0 ? "Left" : "Right";
+                values.Vector3("_MerkabaCameraPosition" + suffix,
+                    _cameraPosition[resource]);
+                values.Matrix("_MerkabaCameraInverseRotation" + suffix,
+                    Matrix4x4.Rotate(_cameraRotation[resource]).inverse);
+                values.Vector2("_MerkabaCameraFocalLength" + suffix,
+                    _cameraFocalLength[resource]);
+                values.Vector2("_MerkabaCameraPrincipalPoint" + suffix,
+                    _cameraPrincipalPoint[resource]);
+                values.Vector2("_MerkabaCameraSensorResolution" + suffix,
+                    _cameraSensorResolution[resource]);
+                values.Vector2("_MerkabaCameraCurrentResolution" + suffix,
+                    _cameraCurrentResolution[resource]);
+            }
+
+            int exclusionCount = Mathf.Min(ExclusionZones.Count,
+                _exclusionPositions.Length);
+            for (int index = 0; index < _exclusionPositions.Length; ++index)
+                _exclusionPositions[index] = index < exclusionCount &&
+                    ExclusionZones[index] != null
+                        ? ExclusionZones[index].position
+                        : Vector3.positiveInfinity;
+            values.Int("_MerkabaExclusionCount", exclusionCount);
+            values.Vector3Array("_MerkabaExclusionHeads",
+                _exclusionPositions);
+
+            Vector3 leftOrigin = _depthCapture.ViewInv[0].GetColumn(3);
+            Vector3 rightOrigin = _depthCapture.ViewInv[1].GetColumn(3);
+            Vector3 observationOrigin = (leftOrigin + rightOrigin) * 0.5f;
+            float3 gridCamera = (float3)worldToGrid.MultiplyPoint3x4(
+                observationOrigin) / MerkabaConstants.LatticeStep;
+            int3 globalKernel = (int3)math.floor(gridCamera);
+            int3 centerBlock = MerkabaSpatial.Encode(globalKernel).BlockCoord;
+            int radius = Mathf.CeilToInt(maxUpdateDistance /
+                MerkabaSpatial.BlockWorldSize) + 1;
+            int side = radius * 2 + 1;
+            queryGroups = checked(side * side * side);
+            values.Vector3("_M8ScanCameraWorld", observationOrigin);
+            values.Int3("_M8ScanCenterBlock", centerBlock.x,
+                centerBlock.y, centerBlock.z);
+            values.Int("_M8ScanBlockRadius", radius);
+            values.Int("_M8ScanBlockSide", side);
+            MerkabaMutationCoverage.WriteGridPlanes(_depthCapture.View,
+                _depthCapture.Proj, gridToWorld, _scanCoveragePlanes,
+                _heldFineBrush.IsRefine ? 1f :
+                    MerkabaConstants.MutationOuterRadius);
+            values.Vector4Array("_M8ScanCoveragePlanes",
+                _scanCoveragePlanes);
+            return values;
+        }
+#endif
 
         private bool CanRetryPreparedObservation()
         {

@@ -12,13 +12,18 @@ qis_repo="$(git -C "$qis_script_dir/../.." rev-parse --show-toplevel)"
 qis_project="${1:-$QIS_UNITY_HOST_PROJECT}"
 qis_output_dir="$qis_project/Assets/Plugins/Android"
 qis_output="$qis_output_dir/libMerkabaVulkanTimestamps.so"
+qis_generated_dir="$(mktemp -d -t merkaba-native-executor.XXXXXX)"
+trap 'rm -rf -- "$qis_generated_dir"' EXIT
 
 test -x "$qis_clang"
 test -f "$qis_project/ProjectSettings/ProjectVersion.txt"
 install -d -- "$qis_output_dir"
+python3 "$qis_script_dir/generate_merkaba_native_executor_shaders.py" \
+    --output "$qis_generated_dir/MerkabaNativeExecutorShaders.inc"
 "$qis_clang" --std=c++17 -O2 -fPIC -fvisibility=hidden -shared \
     -Wl,--no-undefined -Wl,-z,max-page-size=16384 \
     -I"$qis_editor/Data/PluginAPI" \
+    -I"$qis_generated_dir" \
     "$qis_repo/Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp" \
     -lvulkan -o "$qis_output.tmp"
 mv -- "$qis_output.tmp" "$qis_output"

@@ -59,7 +59,7 @@ namespace Genesis.RoomScan.Tests
             string pump = Slice(storage, "private void PumpStorage()",
                 "private void ApplySampledCounters");
             int callbackGate = pump.IndexOf(
-                "if (!GpuSubmissionAllowed) return;",
+                "if (!GpuSubmissionAllowed ||",
                 pump.IndexOf("AsyncGPUReadback.Request", StringComparison.Ordinal),
                 StringComparison.Ordinal);
             Assert.That(callbackGate, Is.GreaterThanOrEqualTo(0));

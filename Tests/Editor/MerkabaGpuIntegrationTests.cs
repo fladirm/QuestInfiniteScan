@@ -1579,6 +1579,9 @@ namespace Genesis.RoomScan.Tests
             string submit = Slice(integrator,
                 "internal bool TrySubmitObservationAttempt()",
                 "private bool CanRetryPreparedObservation()");
+            string nativeSubmit = Slice(integrator,
+                "private bool TrySubmitNativeObservationAttempt",
+                "private IntPtr[] BuildNativeObservationResources");
 
             Assert.That(install, Does.Contain(
                 "state.flags & MERKABA_NEEDS_CARVE_FLAG"));
@@ -1587,8 +1590,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(retry, Does.Contain("_attemptResidencyEpoch"));
             Assert.That(submit, Does.Contain("bool newObservation ="));
             Assert.That(submit, Does.Contain("else\n                    ConfigureAttempt();"));
-            Assert.That(Regex.Matches(submit, @"_observationToken\s*=").Count,
-                Is.EqualTo(1));
+            Assert.That(Regex.Matches(submit,
+                @"_observationToken\s*=").Count, Is.EqualTo(2));
+            Assert.That(Regex.Matches(nativeSubmit,
+                @"_observationToken\s*=").Count, Is.EqualTo(1));
             Assert.That(submit.IndexOf("DispatchCarveQuery(command)",
                     StringComparison.Ordinal),
                 Is.LessThan(submit.IndexOf("_integrateSurfaceKernel",
@@ -1784,6 +1789,53 @@ namespace Genesis.RoomScan.Tests
                 StringComparison.Ordinal);
             Assert.That(zeroCarve, Is.GreaterThanOrEqualTo(0));
             Assert.That(residencyTouch, Is.GreaterThan(zeroCarve));
+        }
+
+        [Test]
+        public void NativeScannerQueue_IsPreloadedSerialAndPublicationSafe()
+        {
+            string native = Source(
+                "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp");
+            string managed = Source(
+                "Runtime/Telemetry/MerkabaNativeVulkanExecutor.cs");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string renderer = Source(
+                "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string pluginMeta = Source(
+                "Tools/unity/MerkabaVulkanTimestamps.pluginmeta");
+            string generator = Source(
+                "Tools/unity/generate_merkaba_native_executor_shaders.py");
+
+            Assert.That(pluginMeta, Does.Contain("isPreloaded: 1"));
+            Assert.That(native, Does.Contain("AddInterceptInitialization"));
+            Assert.That(native, Does.Contain("info.queueCount == 1u"));
+            Assert.That(native, Does.Contain("physicalCount >= 2u"));
+            Assert.That(native, Does.Contain("priorities[selected].push_back(0.1f)"));
+            Assert.That(native, Does.Contain("vkGetDeviceQueue"));
+            Assert.That(native, Does.Contain("g_injectedQueueIndex"));
+            Assert.That(native, Does.Contain("graphicsReady"));
+            Assert.That(native, Does.Contain("nativeDone"));
+            Assert.That(native, Does.Contain("acquireFence"));
+            Assert.That(native, Does.Contain(
+                "PipelineRangeForKind(descriptor->kind, &firstPipeline,"));
+            Assert.That(native, Does.Contain(
+                "job->firstPipeline = firstPipeline;"));
+            Assert.That(native, Does.Contain(
+                "job->lastPipeline = lastPipeline;"));
+            Assert.That(managed, Does.Contain(
+                "private static MerkabaNativeVulkanJob _activeJob"));
+            Assert.That(managed, Does.Not.Contain("System.Threading.Thread"));
+            Assert.That(managed, Does.Not.Contain("ExecuteCommandBufferAsync"));
+            Assert.That(integrator, Does.Contain("JobKind.ObservationNew"));
+            Assert.That(integrator, Does.Contain("JobKind.ObservationRetry"));
+            Assert.That(integrator, Does.Contain("JobKind.FineErase"));
+            Assert.That(renderer, Does.Contain("JobKind.Readout"));
+            Assert.That(renderer, Does.Contain("CompleteNativeReadoutBuild"));
+            Assert.That(generator, Does.Contain("StereoRgbdRefine"));
+            Assert.That(generator, Does.Contain("FinalizeObservation"));
+            Assert.That(generator, Does.Contain("FinalizeReadout"));
+            Assert.That(generator, Does.Contain("FinalizeFineErase"));
         }
 
         private static string Source(string relative) =>

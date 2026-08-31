@@ -214,6 +214,7 @@ namespace Genesis.RoomScan
         internal RenderTexture OwnedRawDepthSnapshot => _readyDepthSlot >= 0
             ? _ownedRawDepth[_readyDepthSlot]
             : _heldDepthSlot >= 0 ? _ownedRawDepth[_heldDepthSlot] : null;
+        internal ComputeBuffer RefineMetrics => _refineMetrics;
         public bool HasUnprocessedFrame => DepthAvailable &&
             _readyDepthSlot >= 0 && _heldDepthSlot < 0 &&
             _ownedRawDepth[_readyDepthSlot] != null &&
@@ -597,13 +598,77 @@ namespace Genesis.RoomScan
             StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
-            if (!cameraFrame.IsValid || !DepthAvailable || _readyDepthSlot < 0 ||
+            if (!cameraFrame.IsValid || !TryHoldLatestDepthFrame())
+                return false;
+            ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);
+            SetGlobalShaderProperties();
+            ComputeDilation(command);
+            _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
+            _preprocessedFrameCount++;
+            Updated?.Invoke();
+            return true;
+        }
+
+        internal bool PrepareLatestDepthFrameForNative(
+            StereoCameraFrame cameraFrame)
+        {
+            if (!cameraFrame.IsValid || !TryHoldLatestDepthFrame())
+                return false;
+            int width = _depthTex.width;
+            int height = _depthTex.height;
+            EnsureRefinementOutputs(width, height);
+            EnsureRefineMetrics(Mathf.CeilToInt(width / 8f) *
+                Mathf.CeilToInt(height / 8f));
+            EnsureDilationOutputs(width, height);
+            _depthTex = _refinedDepthTex;
+            _dilatedDepth = _dilationB;
+            _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
+            _preprocessedFrameCount++;
+            return true;
+        }
+
+        internal void CompleteNativeDepthPreprocess()
+        {
+            (_dilationA, _dilationB) = (_dilationB, _dilationA);
+            _dilatedDepth = _dilationA;
+            SetGlobalShaderProperties();
+            Shader.SetGlobalTexture(NormTexID, _normTex);
+            Shader.SetGlobalTexture(DilatedDepthTexID, _dilatedDepth);
+            Updated?.Invoke();
+        }
+
+        internal void FillNativeExecutorDepthResources(IntPtr[] resources,
+            bool includesPreprocess)
+        {
+            if (resources == null || resources.Length !=
+                MerkabaNativeVulkanExecutor.ResourceCount)
+                throw new ArgumentException(nameof(resources));
+            IntPtr TexturePtr(Texture texture) => texture != null
+                ? texture.GetNativeTexturePtr() : IntPtr.Zero;
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.RefineMetrics] =
+                _refineMetrics != null ? _refineMetrics.GetNativeBufferPtr() :
+                IntPtr.Zero;
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.RawDepth] =
+                _heldDepthSlot >= 0
+                    ? TexturePtr(_ownedRawDepth[_heldDepthSlot]) : IntPtr.Zero;
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.RefinedDepth] =
+                TexturePtr(_refinedDepthTex);
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.Normals] =
+                TexturePtr(_normTex);
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.DilationA] =
+                TexturePtr(_dilationA);
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.DilationB] =
+                TexturePtr(includesPreprocess ? _dilationB : _dilatedDepth);
+        }
+
+        private bool TryHoldLatestDepthFrame()
+        {
+            if (!DepthAvailable || _readyDepthSlot < 0 ||
                 _heldDepthSlot >= 0 ||
                 _ownedRawDepth[_readyDepthSlot] == null ||
                 !ShouldPreprocessFrame(_ownedVersions[_readyDepthSlot],
                     _processedRawFrameVersion))
                 return false;
-
             _heldDepthSlot = _readyDepthSlot;
             _readyDepthSlot = -1;
             for (int eye = 0; eye < 2; eye++)
@@ -615,12 +680,6 @@ namespace Genesis.RoomScan
             }
             _planes = _ownedPlanes[_heldDepthSlot];
             _depthTex = _ownedRawDepth[_heldDepthSlot];
-            ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);
-            SetGlobalShaderProperties();
-            ComputeDilation(command);
-            _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
-            _preprocessedFrameCount++;
-            Updated?.Invoke();
             return true;
         }
 
@@ -816,34 +875,7 @@ namespace Genesis.RoomScan
             int w = _depthTex.width;
             int h = _depthTex.height;
 
-            if (_refinedDepthTex == null || _refinedDepthTex.width != w ||
-                _refinedDepthTex.height != h ||
-                _refinedDepthTex.graphicsFormat != GraphicsFormat.R32_SFloat)
-            {
-                if (_refinedDepthTex) Destroy(_refinedDepthTex);
-                _refinedDepthTex = new RenderTexture(w, h, 0,
-                    GraphicsFormat.R32_SFloat, 1)
-                {
-                    enableRandomWrite = true,
-                    filterMode = FilterMode.Point,
-                    wrapMode = TextureWrapMode.Clamp
-                };
-                _refinedDepthTex.Create();
-            }
-            if (_normTex == null || _normTex.width != w ||
-                _normTex.height != h ||
-                _normTex.graphicsFormat != GraphicsFormat.R8G8B8A8_SNorm)
-            {
-                if (_normTex) Destroy(_normTex);
-                _normTex = new RenderTexture(w, h, 0,
-                    GraphicsFormat.R8G8B8A8_SNorm, 1)
-                {
-                    enableRandomWrite = true,
-                    filterMode = FilterMode.Point,
-                    wrapMode = TextureWrapMode.Clamp
-                };
-                _normTex.Create();
-            }
+            EnsureRefinementOutputs(w, h);
 
             ComputeShader shader = stereoRgbdRefineCompute;
             int metricGroupsX = Mathf.CeilToInt(w / 8f);
@@ -948,28 +980,7 @@ namespace Genesis.RoomScan
 
         private void ComputeDilation(CommandBuffer command)
         {
-            if (_dilationA == null || _dilationA.width != _depthTex.width || _dilationA.height != _depthTex.height)
-            {
-                if (_dilationA) Destroy(_dilationA);
-                if (_dilationB) Destroy(_dilationB);
-
-                var desc = new RenderTextureDescriptor
-                {
-                    width = _depthTex.width,
-                    height = _depthTex.height,
-                    volumeDepth = 1,
-                    dimension = TextureDimension.Tex2D,
-                    autoGenerateMips = false,
-                    enableRandomWrite = true,
-                    graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat,
-                    msaaSamples = 1
-                };
-
-                _dilationA = new RenderTexture(desc);
-                _dilationB = new RenderTexture(desc);
-                _dilationA.Create();
-                _dilationB.Create();
-            }
+            EnsureDilationOutputs(_depthTex.width, _depthTex.height);
 
             command.SetComputeFloatParam(depthDilationCompute, VoxDistID,
                 MerkabaConstants.FreeFullClearance);
@@ -995,6 +1006,61 @@ namespace Genesis.RoomScan
 
             _dilatedDepth = _dilationA;
             Shader.SetGlobalTexture(DilatedDepthTexID, _dilatedDepth);
+        }
+
+        private void EnsureRefinementOutputs(int width, int height)
+        {
+            if (_refinedDepthTex == null || _refinedDepthTex.width != width ||
+                _refinedDepthTex.height != height ||
+                _refinedDepthTex.graphicsFormat != GraphicsFormat.R32_SFloat)
+            {
+                if (_refinedDepthTex) Destroy(_refinedDepthTex);
+                _refinedDepthTex = new RenderTexture(width, height, 0,
+                    GraphicsFormat.R32_SFloat, 1)
+                {
+                    enableRandomWrite = true,
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                _refinedDepthTex.Create();
+            }
+            if (_normTex == null || _normTex.width != width ||
+                _normTex.height != height ||
+                _normTex.graphicsFormat != GraphicsFormat.R8G8B8A8_SNorm)
+            {
+                if (_normTex) Destroy(_normTex);
+                _normTex = new RenderTexture(width, height, 0,
+                    GraphicsFormat.R8G8B8A8_SNorm, 1)
+                {
+                    enableRandomWrite = true,
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                _normTex.Create();
+            }
+        }
+
+        private void EnsureDilationOutputs(int width, int height)
+        {
+            if (_dilationA != null && _dilationA.width == width &&
+                _dilationA.height == height) return;
+            if (_dilationA) Destroy(_dilationA);
+            if (_dilationB) Destroy(_dilationB);
+            var descriptor = new RenderTextureDescriptor
+            {
+                width = width,
+                height = height,
+                volumeDepth = 1,
+                dimension = TextureDimension.Tex2D,
+                autoGenerateMips = false,
+                enableRandomWrite = true,
+                graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat,
+                msaaSamples = 1
+            };
+            _dilationA = new RenderTexture(descriptor);
+            _dilationB = new RenderTexture(descriptor);
+            _dilationA.Create();
+            _dilationB.Create();
         }
 
         private static Matrix4x4 CalculateProjectionMatrix(XRFov fov, XRNearFarPlanes planes)

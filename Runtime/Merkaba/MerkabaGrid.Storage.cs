@@ -127,7 +127,8 @@ namespace Genesis.RoomScan
 
         private void PumpStorage()
         {
-            if (!GpuSubmissionAllowed) return;
+            if (!GpuSubmissionAllowed ||
+                MerkabaNativeVulkanExecutor.HasJobInFlight) return;
             SubmitDeferredStorageControl();
             CompleteStorageTasks();
             UpdateStorageRates();
@@ -146,7 +147,8 @@ namespace Genesis.RoomScan
                 // Accounting above is CPU-only. A callback issued before
                 // quiesce must never enqueue readback/compute/upload work after
                 // the retirement marker.
-                if (!GpuSubmissionAllowed) return;
+                if (!GpuSubmissionAllowed ||
+                    MerkabaNativeVulkanExecutor.HasJobInFlight) return;
                 if (!_loadAddressReadbackPending && _loadStorageTask == null &&
                     !_loadInstallStatusPending &&
                     _loadRequestCursor != _observedLoadRequestCount)
