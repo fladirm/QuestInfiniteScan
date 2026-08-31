@@ -115,15 +115,18 @@ namespace Genesis.RoomScan.Tests
                 32768L * 4, 32768L * 4, 12, 32768L * 8,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
+                (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
+                (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
+                16,
                 12, 16, 12,
                 32L * 8,
                 32L * 513 * 16, 32L * 16, 32L * 512 * 16,
                 8192L * 16
             };
-            Assert.That(allBuffers, Has.Length.EqualTo(41));
+            Assert.That(allBuffers, Has.Length.EqualTo(44));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(696878796L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(898205404L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -647,7 +650,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ReadoutCache_IsDisposableCadencedAndSingleBuffered()
+        public void ReadoutCache_HasTwoHazardFreePublicationSlots()
         {
             string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
             string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
@@ -671,9 +674,37 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer + gpu, Does.Not.Contain("ReadoutBank"));
             Assert.That(renderer + gpu, Does.Not.Contain("ReadoutChunk"));
             Assert.That(gpu, Does.Contain(
-                "_m8ReadoutVertices0 = Allocate("));
+                "new ComputeBuffer[2]"));
             Assert.That(gpu, Does.Contain(
-                "_m8ReadoutVertices1 = Allocate("));
+                "_m8ReadoutVertices0[slot] = Allocate("));
+            Assert.That(gpu, Does.Contain(
+                "_m8ReadoutVertices1[slot] = Allocate("));
+            Assert.That(gpu, Does.Contain(
+                "_m8DrawArgs[slot] = Allocate("));
+            Assert.That(gpu, Does.Contain(
+                "private ComputeBuffer _m8VisibleTiles;"));
+            Assert.That(gpu, Does.Contain(
+                "private ComputeBuffer _m8FrameDispatchArgs;"));
+            Assert.That(renderer, Does.Contain(
+                "int backSlot = 1 - _frontReadout"));
+            Assert.That(renderer, Does.Contain(
+                "if (_buildInFlight) return;"));
+            Assert.That(renderer, Does.Contain(
+                "SetComputeBufferParam(readoutCompute, _emitKernel"));
+            Assert.That(renderer, Does.Contain(
+                "SetComputeBufferParam(readoutCompute, _finalizeKernel"));
+            Assert.That(renderer, Does.Contain(
+                "int front = _frontReadout;"));
+            Assert.That(renderer, Does.Contain(
+                "_frontReadout = ticket.Slot;"));
+            Assert.That(renderer, Does.Contain(
+                "if (status == 3u)"));
+            Assert.That(renderer, Does.Contain(
+                "AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint)"));
+            Assert.That(renderer, Does.Contain(
+                "ticket.LifecycleGeneration !="));
+            Assert.That(renderer, Does.Not.Contain(
+                "WaitOnAsyncGraphicsFence"));
             Assert.That(MerkabaGrid.CounterReadoutUnresolved, Is.EqualTo(50));
             Assert.That(MerkabaGrid.CounterReadoutBuildStatus, Is.EqualTo(69));
 

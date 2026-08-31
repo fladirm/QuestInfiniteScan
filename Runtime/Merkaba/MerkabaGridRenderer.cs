@@ -21,7 +21,8 @@ namespace Genesis.RoomScan
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
 
         private MerkabaGrid _grid;
-        private Material _material;
+        private MerkabaIntegrator _integrator;
+        private readonly Material[] _materials = new Material[2];
         private int _resetKernel;
         private int _queryKernel;
         private int _prepareKernel;
@@ -35,6 +36,19 @@ namespace Genesis.RoomScan
         private float _nextStatusReadback;
         private float _nextReadoutBuild;
         private bool _canonicalDirty = true;
+        private bool _buildInFlight;
+        private int _frontReadout;
+        private uint _sourceGeneration = 1u;
+        private uint _submissionRevision;
+        private uint _publishedRevision;
+        private uint _lifecycleGeneration = 1u;
+        private ReadoutBuildTicket _pendingBuild;
+        private bool _buildBlocked;
+        private bool _blockedOnResidency;
+        private uint _blockedSourceGeneration;
+        private uint _blockedResidencyEpoch;
+        private Vector3 _blockedGridPosition;
+        private Matrix4x4 _blockedGridToWorld;
         private bool _hasPublishedCoverage;
         private bool _awaitingResidencyChange;
         private uint _readoutRevision;
@@ -42,12 +56,38 @@ namespace Genesis.RoomScan
         private Vector3 _publishedGridPosition;
         private Matrix4x4 _publishedGridToWorld;
 
+        private readonly struct ReadoutBuildTicket
+        {
+            internal readonly int Slot;
+            internal readonly uint Revision;
+            internal readonly uint LifecycleGeneration;
+            internal readonly uint SourceGeneration;
+            internal readonly uint ResidencyEpoch;
+            internal readonly Vector3 GridPosition;
+            internal readonly Matrix4x4 GridToWorld;
+
+            internal ReadoutBuildTicket(int slot, uint revision,
+                uint lifecycleGeneration, uint sourceGeneration,
+                uint residencyEpoch, Vector3 gridPosition,
+                Matrix4x4 gridToWorld)
+            {
+                Slot = slot;
+                Revision = revision;
+                LifecycleGeneration = lifecycleGeneration;
+                SourceGeneration = sourceGeneration;
+                ResidencyEpoch = residencyEpoch;
+                GridPosition = gridPosition;
+                GridToWorld = gridToWorld;
+            }
+        }
+
         public int VisiblePrimitiveCount { get; private set; }
         public int VisibleSurfaceKernelCount { get; private set; }
         public int VisibleChunkCount { get; private set; }
         public int VisibleTileCount { get; private set; }
         public int LateDrawColdMisses { get; private set; }
         public bool RenderPrimitiveOverflow { get; private set; }
+        internal bool HasReadoutBuildInFlight => _buildInFlight;
         public float ScanOpacity
         {
             get => scanOpacity;
@@ -77,6 +117,7 @@ namespace Genesis.RoomScan
         private void Awake()
         {
             _grid = GetComponent<MerkabaGrid>();
+            _integrator = GetComponent<MerkabaIntegrator>();
             if (_grid != null) _grid.Cleared += MarkCanonicalReadoutDirty;
         }
 
@@ -94,9 +135,18 @@ namespace Genesis.RoomScan
         {
             if (_active == this) _active = null;
             if (_grid != null) _grid.Cleared -= MarkCanonicalReadoutDirty;
+            InvalidatePublicationCallbacks();
         }
 
-        internal void MarkCanonicalReadoutDirty() => _canonicalDirty = true;
+        internal void MarkCanonicalReadoutDirty()
+        {
+            _canonicalDirty = true;
+            unchecked
+            {
+                _sourceGeneration++;
+                if (_sourceGeneration == 0u) _sourceGeneration = 1u;
+            }
+        }
 
         internal void SuspendGpuSubmission()
         {
@@ -112,18 +162,40 @@ namespace Genesis.RoomScan
 
         internal void ReleaseOwnedResourcesAfterGpuRetirement()
         {
-            if (_material != null) Destroy(_material);
-            _material = null;
+            InvalidatePublicationCallbacks();
+            for (int slot = 0; slot < 2; slot++)
+            {
+                if (_materials[slot] != null) Destroy(_materials[slot]);
+                _materials[slot] = null;
+            }
             _initialized = false;
             _statusReadbackPending = false;
             _canonicalDirty = true;
+            _buildInFlight = false;
+            _frontReadout = 0;
+            _submissionRevision = 0u;
+            _publishedRevision = 0u;
+            _pendingBuild = default;
+            _buildBlocked = false;
+            _blockedOnResidency = false;
             _hasPublishedCoverage = false;
             _awaitingResidencyChange = false;
         }
 
+        private void InvalidatePublicationCallbacks()
+        {
+            unchecked
+            {
+                _lifecycleGeneration++;
+                if (_lifecycleGeneration == 0u) _lifecycleGeneration = 1u;
+            }
+            _buildInFlight = false;
+            _statusReadbackPending = false;
+        }
+
         internal Action CaptureOwnedGpuResourceRelease()
         {
-            Material captured = _material;
+            Material[] captured = { _materials[0], _materials[1] };
             bool released = false;
             return () =>
             {
@@ -131,8 +203,10 @@ namespace Genesis.RoomScan
                 released = true;
                 if (this != null)
                     ReleaseOwnedResourcesAfterGpuRetirement();
-                else if (captured != null)
-                    UnityEngine.Object.Destroy(captured);
+                else
+                    foreach (Material material in captured)
+                        if (material != null)
+                            UnityEngine.Object.Destroy(material);
             };
         }
 
@@ -182,23 +256,20 @@ namespace Genesis.RoomScan
                     _grid.M8VisibleTiles);
                 readoutCompute.SetBuffer(kernel, "_M8VisibleTilesRead",
                     _grid.M8VisibleTiles);
-                readoutCompute.SetBuffer(kernel, ReadoutVertices0Id,
-                    _grid.M8ReadoutVertices0);
-                readoutCompute.SetBuffer(kernel, ReadoutVertices1Id,
-                    _grid.M8ReadoutVertices1);
                 readoutCompute.SetBuffer(kernel, FrameDispatchArgsId,
                     _grid.M8FrameDispatchArgs);
-                readoutCompute.SetBuffer(kernel, DrawArgsId,
-                    _grid.M8DrawArgs);
             }
-            _material = new Material(renderShader)
+            for (int slot = 0; slot < 2; slot++)
             {
-                name = "Merkaba M8 Readout"
-            };
-            _material.SetBuffer(ReadoutVertices0Id,
-                _grid.M8ReadoutVertices0);
-            _material.SetBuffer(ReadoutVertices1Id,
-                _grid.M8ReadoutVertices1);
+                _materials[slot] = new Material(renderShader)
+                {
+                    name = $"Merkaba M8 Readout {slot}"
+                };
+                _materials[slot].SetBuffer(ReadoutVertices0Id,
+                    _grid.GetM8ReadoutVertices0(slot));
+                _materials[slot].SetBuffer(ReadoutVertices1Id,
+                    _grid.GetM8ReadoutVertices1(slot));
+            }
             ApplyOpacityState();
             _initialized = true;
             return true;
@@ -212,7 +283,9 @@ namespace Genesis.RoomScan
             if (camera == null || !Initialize())
                 return;
 
-            _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
+            for (int slot = 0; slot < 2; slot++)
+                _materials[slot].SetMatrix(GridToWorldId,
+                    _grid.GridToWorldMatrix);
             Vector3 gridPosition = GetCoveragePosition(camera);
             bool coverageDirty = !_hasPublishedCoverage ||
                 _publishedGridToWorld != _grid.GridToWorldMatrix ||
@@ -220,7 +293,14 @@ namespace Genesis.RoomScan
                     readoutTranslationGuard;
             bool residencyChanged = _awaitingResidencyChange &&
                 _grid.ResidencyEpoch != _buildResidencyEpoch;
-            if ((_canonicalDirty || coverageDirty || residencyChanged) &&
+            bool scanQueueBusy = _buildInFlight ||
+                (_integrator != null &&
+                 (_integrator.HasAttemptInFlight ||
+                  _integrator.HasFineEraseAttemptInFlight));
+            bool buildRequested = _canonicalDirty || coverageDirty || residencyChanged;
+            if (_buildBlocked && !HasBuildReasonChanged(gridPosition))
+                buildRequested = false;
+            if (!scanQueueBusy && buildRequested &&
                 Time.unscaledTime >= _nextReadoutBuild)
                 SubmitReadoutBuild(camera, gridPosition);
 
@@ -229,16 +309,33 @@ namespace Genesis.RoomScan
 
         private void SubmitReadoutBuild(Camera camera, Vector3 gridPosition)
         {
+            if (_buildInFlight) return;
+            int backSlot = 1 - _frontReadout;
+            uint revision = NextNonZero(ref _submissionRevision);
+            var ticket = new ReadoutBuildTicket(backSlot, revision,
+                _lifecycleGeneration, _sourceGeneration,
+                _grid.ResidencyEpoch, gridPosition,
+                _grid.GridToWorldMatrix);
             int querySide = ConfigureReadout(camera);
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 readout build");
             bool submitted = false;
             bool timedSubmission = false;
+            _buildInFlight = true;
+            _pendingBuild = ticket;
             try
             {
                 timedSubmission = MerkabaGpuTimestamps.TryAcquire(
                     CaptureOwner.ReadoutBuild,
                     _readoutRevision == 0u ? 1u : _readoutRevision, command);
+                command.SetComputeBufferParam(readoutCompute, _emitKernel,
+                    ReadoutVertices0Id,
+                    _grid.GetM8ReadoutVertices0(backSlot));
+                command.SetComputeBufferParam(readoutCompute, _emitKernel,
+                    ReadoutVertices1Id,
+                    _grid.GetM8ReadoutVertices1(backSlot));
+                command.SetComputeBufferParam(readoutCompute, _finalizeKernel,
+                    DrawArgsId, _grid.GetM8DrawArgs(backSlot));
                 command.DispatchComputeProfiled(readoutCompute,
                     _resetKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
@@ -266,20 +363,93 @@ namespace Genesis.RoomScan
                     timedSubmission, submitted);
                 CommandBufferPool.Release(command);
             }
-            if (!submitted) return;
+            if (!submitted)
+            {
+                _buildInFlight = false;
+                _pendingBuild = default;
+                _canonicalDirty = true;
+                return;
+            }
             unchecked
             {
                 _readoutRevision++;
                 if (_readoutRevision == 0u) _readoutRevision = 1u;
             }
-            _canonicalDirty = false;
-            _hasPublishedCoverage = true;
-            _awaitingResidencyChange = true;
-            _buildResidencyEpoch = _grid.ResidencyEpoch;
-            _publishedGridPosition = gridPosition;
-            _publishedGridToWorld = _grid.GridToWorldMatrix;
+            if (_sourceGeneration == ticket.SourceGeneration)
+                _canonicalDirty = false;
             _nextReadoutBuild = Time.unscaledTime +
                 1f / Mathf.Max(1f, readoutBuildHz);
+            try
+            {
+                AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint),
+                    MerkabaGrid.CounterReadoutBuildStatus * sizeof(uint),
+                    request => CompleteReadoutBuild(ticket, request));
+            }
+            catch (Exception exception)
+            {
+                _buildInFlight = false;
+                _pendingBuild = default;
+                _canonicalDirty = true;
+                Logger.Warning($"Merkaba readout completion request failed: " +
+                    exception.Message);
+            }
+        }
+
+        private void CompleteReadoutBuild(ReadoutBuildTicket ticket,
+            AsyncGPUReadbackRequest request)
+        {
+            if (this == null || ticket.LifecycleGeneration !=
+                _lifecycleGeneration)
+                return;
+            if (!_buildInFlight || ticket.Revision != _pendingBuild.Revision ||
+                ticket.Slot != _pendingBuild.Slot)
+                return;
+
+            _buildInFlight = false;
+            _pendingBuild = default;
+            if (request.hasError)
+            {
+                _canonicalDirty = true;
+                return;
+            }
+
+            uint status = request.GetData<uint>()[0];
+            if (status == 3u)
+            {
+                _frontReadout = ticket.Slot;
+                _publishedRevision = ticket.Revision;
+                _hasPublishedCoverage = true;
+                _publishedGridPosition = ticket.GridPosition;
+                _publishedGridToWorld = ticket.GridToWorld;
+                _awaitingResidencyChange = false;
+                _buildBlocked = false;
+                _blockedOnResidency = false;
+                if (_sourceGeneration != ticket.SourceGeneration)
+                    _canonicalDirty = true;
+                return;
+            }
+
+            _buildBlocked = true;
+            _blockedOnResidency = status == 1u;
+            _blockedSourceGeneration = ticket.SourceGeneration;
+            _blockedResidencyEpoch = ticket.ResidencyEpoch;
+            _blockedGridPosition = ticket.GridPosition;
+            _blockedGridToWorld = ticket.GridToWorld;
+            _awaitingResidencyChange = _blockedOnResidency;
+            _buildResidencyEpoch = ticket.ResidencyEpoch;
+            if (_sourceGeneration != ticket.SourceGeneration)
+                _canonicalDirty = true;
+        }
+
+        private bool HasBuildReasonChanged(Vector3 gridPosition)
+        {
+            if (_sourceGeneration != _blockedSourceGeneration ||
+                _grid.GridToWorldMatrix != _blockedGridToWorld ||
+                Vector3.Distance(gridPosition, _blockedGridPosition) >
+                    readoutTranslationGuard)
+                return true;
+            return _blockedOnResidency &&
+                _grid.ResidencyEpoch != _blockedResidencyEpoch;
         }
 
         internal void RecordRenderPass(RasterCommandBuffer command)
@@ -288,14 +458,17 @@ namespace Genesis.RoomScan
             if (_gpuSubmissionSuspended || _grid == null ||
                 _grid.GpuSubmissionSuspended)
                 return;
-            bool canDraw = _initialized && _material != null &&
+            int front = _frontReadout;
+            Material material = _materials[front];
+            ComputeBuffer drawArgs = _grid.GetM8DrawArgs(front);
+            bool canDraw = _initialized && material != null &&
                 scanOpacity > 0.001f;
             bool timedSubmission = canDraw && MerkabaGpuTimestamps.TryAcquire(
                 CaptureOwner.Draw,
                 _readoutRevision == 0u ? 1u : _readoutRevision, command);
             if (canDraw)
                 command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
-                    _material, 0, MeshTopology.Triangles, _grid.M8DrawArgs, 0);
+                    material, 0, MeshTopology.Triangles, drawArgs, 0);
             MerkabaGpuTimestamps.End(CaptureOwner.Draw, command,
                 timedSubmission);
             MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timedSubmission,
@@ -347,16 +520,21 @@ namespace Genesis.RoomScan
 
         private void ApplyOpacityState()
         {
-            if (_material == null) return;
             bool opaque = scanOpacity >= 0.999f;
-            _material.SetFloat(ScanOpacityId, scanOpacity);
-            _material.SetInt(SrcBlendId, (int)(opaque
-                ? BlendMode.One : BlendMode.SrcAlpha));
-            _material.SetInt(DstBlendId, (int)(opaque
-                ? BlendMode.Zero : BlendMode.OneMinusSrcAlpha));
-            _material.SetInt(ZWriteId, 1);
-            _material.renderQueue = opaque
-                ? (int)RenderQueue.Geometry : (int)RenderQueue.Transparent;
+            for (int slot = 0; slot < 2; slot++)
+            {
+                Material material = _materials[slot];
+                if (material == null) continue;
+                material.SetFloat(ScanOpacityId, scanOpacity);
+                material.SetInt(SrcBlendId, (int)(opaque
+                    ? BlendMode.One : BlendMode.SrcAlpha));
+                material.SetInt(DstBlendId, (int)(opaque
+                    ? BlendMode.Zero : BlendMode.OneMinusSrcAlpha));
+                material.SetInt(ZWriteId, 1);
+                material.renderQueue = opaque
+                    ? (int)RenderQueue.Geometry :
+                    (int)RenderQueue.Transparent;
+            }
         }
 
         private void RequestStatusIfDue()
@@ -366,8 +544,12 @@ namespace Genesis.RoomScan
                 return;
             _statusReadbackPending = true;
             _nextStatusReadback = Time.unscaledTime + 1f;
+            uint lifecycleGeneration = _lifecycleGeneration;
             AsyncGPUReadback.Request(_grid.M8Counters, request =>
             {
+                if (this == null || lifecycleGeneration !=
+                    _lifecycleGeneration)
+                    return;
                 _statusReadbackPending = false;
                 if (request.hasError) return;
                 var counters = request.GetData<uint>();
@@ -377,12 +559,17 @@ namespace Genesis.RoomScan
                 VisibleChunkCount = ToInt(counters[28]);
                 VisibleSurfaceKernelCount = ToInt(counters[29]);
                 RenderPrimitiveOverflow = counters[23] != 0u;
-                uint readoutStatus = counters[
-                    MerkabaGrid.CounterReadoutBuildStatus];
-                if (readoutStatus == 2u || readoutStatus == 3u ||
-                    readoutStatus == 5u)
-                    _awaitingResidencyChange = false;
             });
+        }
+
+        private static uint NextNonZero(ref uint value)
+        {
+            unchecked
+            {
+                value++;
+                if (value == 0u) value = 1u;
+                return value;
+            }
         }
 
         private static int ToInt(uint value) =>

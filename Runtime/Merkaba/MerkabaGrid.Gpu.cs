@@ -163,10 +163,12 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8CarveTiles;
         private ComputeBuffer _m8CarveDispatchArgs;
         private ComputeBuffer _m8VisibleTiles;
-        private ComputeBuffer _m8ReadoutVertices0;
-        private ComputeBuffer _m8ReadoutVertices1;
+        private readonly ComputeBuffer[] _m8ReadoutVertices0 =
+            new ComputeBuffer[2];
+        private readonly ComputeBuffer[] _m8ReadoutVertices1 =
+            new ComputeBuffer[2];
         private ComputeBuffer _m8FrameDispatchArgs;
-        private ComputeBuffer _m8DrawArgs;
+        private readonly ComputeBuffer[] _m8DrawArgs = new ComputeBuffer[2];
         private ComputeBuffer _m8ObservationDispatchArgs;
         private ComputeBuffer _m8WritebackQueue;
         private ComputeBuffer _m8WritebackStaging;
@@ -211,10 +213,13 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8CarveTiles => _m8CarveTiles;
         internal ComputeBuffer M8CarveDispatchArgs => _m8CarveDispatchArgs;
         internal ComputeBuffer M8VisibleTiles => _m8VisibleTiles;
-        internal ComputeBuffer M8ReadoutVertices0 => _m8ReadoutVertices0;
-        internal ComputeBuffer M8ReadoutVertices1 => _m8ReadoutVertices1;
+        internal ComputeBuffer GetM8ReadoutVertices0(int slot) =>
+            _m8ReadoutVertices0[ValidateReadoutSlot(slot)];
+        internal ComputeBuffer GetM8ReadoutVertices1(int slot) =>
+            _m8ReadoutVertices1[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8FrameDispatchArgs => _m8FrameDispatchArgs;
-        internal ComputeBuffer M8DrawArgs => _m8DrawArgs;
+        internal ComputeBuffer GetM8DrawArgs(int slot) =>
+            _m8DrawArgs[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8ObservationDispatchArgs => _m8ObservationDispatchArgs;
         internal ComputeBuffer M8WritebackQueue => _m8WritebackQueue;
         internal ComputeBuffer M8WritebackStaging => _m8WritebackStaging;
@@ -309,13 +314,16 @@ namespace Genesis.RoomScan
                     ComputeBufferType.IndirectArguments);
                 _m8VisibleTiles = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint) * 2);
-                _m8ReadoutVertices0 = Allocate(
-                    ReadoutVertexCapacityPerBuffer, 16);
-                _m8ReadoutVertices1 = Allocate(
-                    ReadoutVertexCapacityPerBuffer, 16);
+                for (int slot = 0; slot < 2; slot++)
+                {
+                    _m8ReadoutVertices0[slot] = Allocate(
+                        ReadoutVertexCapacityPerBuffer, 16);
+                    _m8ReadoutVertices1[slot] = Allocate(
+                        ReadoutVertexCapacityPerBuffer, 16);
+                    _m8DrawArgs[slot] = Allocate(4, sizeof(uint),
+                        ComputeBufferType.IndirectArguments);
+                }
                 _m8FrameDispatchArgs = Allocate(3, sizeof(uint),
-                    ComputeBufferType.IndirectArguments);
-                _m8DrawArgs = Allocate(4, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
                 _m8ObservationDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
@@ -673,7 +681,8 @@ namespace Genesis.RoomScan
             ClearUInt(_m8Counters, _m8Counters.count);
             ClearUInt(_m8LoadRequestReadCount, 1);
             ClearUInt(_m8FrameDispatchArgs, _m8FrameDispatchArgs.count);
-            ClearUInt(_m8DrawArgs, _m8DrawArgs.count);
+            for (int slot = 0; slot < 2; slot++)
+                ClearUInt(_m8DrawArgs[slot], _m8DrawArgs[slot].count);
             ClearUInt(_m8ObservationDispatchArgs, _m8ObservationDispatchArgs.count);
             ClearUInt(_m8CarveDispatchArgs, _m8CarveDispatchArgs.count);
             worldCompute.Dispatch(_resetCountersKernel, 1, 1, 1);
@@ -697,7 +706,8 @@ namespace Genesis.RoomScan
             ClearUInt(_m8Counters, _m8Counters.count);
             ClearUInt(_m8LoadRequestReadCount, 1);
             ClearUInt(_m8FrameDispatchArgs, _m8FrameDispatchArgs.count);
-            ClearUInt(_m8DrawArgs, _m8DrawArgs.count);
+            for (int slot = 0; slot < 2; slot++)
+                ClearUInt(_m8DrawArgs[slot], _m8DrawArgs[slot].count);
             ClearUInt(_m8ObservationDispatchArgs,
                 _m8ObservationDispatchArgs.count);
             ClearUInt(_m8CarveDispatchArgs, _m8CarveDispatchArgs.count);
@@ -811,8 +821,12 @@ namespace Genesis.RoomScan
             _m8KernelStates3 = null;
             _m8TileBits = null;
             _m8TileRecords = null;
-            _m8ReadoutVertices0 = null;
-            _m8ReadoutVertices1 = null;
+            for (int slot = 0; slot < 2; slot++)
+            {
+                _m8ReadoutVertices0[slot] = null;
+                _m8ReadoutVertices1[slot] = null;
+                _m8DrawArgs[slot] = null;
+            }
             _m8FreeTileStack = null;
             _m8Counters = null;
             _m8AttemptCompletion = null;
@@ -821,6 +835,13 @@ namespace Genesis.RoomScan
             _m8HashBenchmarkOutput = null;
             ResetStorageRuntimeState();
             _gpuReady = false;
+        }
+
+        private static int ValidateReadoutSlot(int slot)
+        {
+            if ((uint)slot >= 2u)
+                throw new ArgumentOutOfRangeException(nameof(slot));
+            return slot;
         }
     }
 }
