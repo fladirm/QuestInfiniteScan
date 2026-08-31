@@ -14,7 +14,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _root;
         private VisualElement _boundRoot;
         private Button _start, _stop, _save, _load, _new, _export,
-            _exportTiles, _fine, _occlusion;
+            _exportTiles, _fine, _readout, _occlusion;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps;
         private Slider _opacity;
@@ -91,6 +91,7 @@ namespace Genesis.RoomScan.UI
             _export = _root.Q<Button>("btn-export");
             _exportTiles = _root.Q<Button>("btn-export-tiles");
             _fine = _root.Q<Button>("btn-fine");
+            _readout = _root.Q<Button>("btn-readout");
             _occlusion = _root.Q<Button>("btn-occlusion");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
@@ -127,6 +128,12 @@ namespace Genesis.RoomScan.UI
             {
                 RoomScanner scanner = RoomScanner.Instance;
                 if (scanner != null) scanner.FineMode = !scanner.FineMode;
+            });
+            _readout?.RegisterCallback<ClickEvent>(evt =>
+            {
+                RoomScanner scanner = RoomScanner.Instance;
+                if (scanner != null)
+                    scanner.ReadoutDrawEnabled = !scanner.ReadoutDrawEnabled;
             });
             _occlusion?.RegisterCallback<ClickEvent>(evt =>
             {
@@ -190,6 +197,9 @@ namespace Genesis.RoomScan.UI
             Set(_fineDepthValue, $"{scanner.FineToolDepth:F2} m");
             if (_fine != null)
                 _fine.text = scanner.FineMode ? "FINE  ON" : "FINE  OFF";
+            if (_readout != null)
+                _readout.text = scanner.ReadoutDrawEnabled
+                    ? "READOUT  ON" : "READOUT  OFF";
             if (_occlusion != null)
                 _occlusion.text = scanner.DynamicOcclusionEnabled
                     ? "OCCLUSION  ON" : "OCCLUSION  OFF";

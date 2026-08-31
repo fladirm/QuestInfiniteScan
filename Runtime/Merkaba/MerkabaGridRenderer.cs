@@ -20,6 +20,7 @@ namespace Genesis.RoomScan
         [SerializeField, Range(0f, 4f)]
         private float readoutTranslationGuard = 1f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
+        [SerializeField] private bool readoutDrawEnabled = true;
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
@@ -104,6 +105,11 @@ namespace Genesis.RoomScan
                 scanOpacity = Mathf.Clamp01(value);
                 ApplyOpacityState();
             }
+        }
+        public bool ReadoutDrawEnabled
+        {
+            get => readoutDrawEnabled;
+            set => readoutDrawEnabled = value;
         }
 
         private static readonly int GridToWorldId =
@@ -248,6 +254,7 @@ namespace Genesis.RoomScan
         {
             renderer = _active;
             return renderer != null && renderer._initialized &&
+                   renderer.readoutDrawEnabled &&
                    !renderer._gpuSubmissionSuspended &&
                    !renderer._grid.GpuSubmissionSuspended &&
                    renderer.isActiveAndEnabled && camera == Camera.main;
@@ -664,7 +671,7 @@ namespace Genesis.RoomScan
         internal void RecordRenderPass(RasterCommandBuffer command)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
-            if (_gpuSubmissionSuspended || _grid == null ||
+            if (!readoutDrawEnabled || _gpuSubmissionSuspended || _grid == null ||
                 _grid.GpuSubmissionSuspended)
                 return;
             int front = _frontReadout;

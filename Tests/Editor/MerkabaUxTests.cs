@@ -21,7 +21,7 @@ namespace Genesis.RoomScan.Tests
             foreach (string button in new[]
                      {
                          "btn-start", "btn-stop", "btn-save", "btn-load",
-                         "btn-new", "btn-export", "btn-occlusion"
+                         "btn-new", "btn-export", "btn-readout", "btn-occlusion"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
@@ -40,6 +40,17 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs"));
             Assert.That(controller, Does.Contain(
                 "scanner.DynamicOcclusionEnabled ="));
+            Assert.That(controller, Does.Contain(
+                "scanner.ReadoutDrawEnabled ="));
+            string scanner = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Core/RoomScanner.cs"));
+            Assert.That(scanner, Does.Contain("integrationHz = 10f"));
+            string renderer = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGridRenderer.cs"));
+            Assert.That(renderer, Does.Contain(
+                "renderer.readoutDrawEnabled &&"));
+            Assert.That(renderer, Does.Contain(
+                "if (!readoutDrawEnabled || _gpuSubmissionSuspended"));
         }
 
         [Test]

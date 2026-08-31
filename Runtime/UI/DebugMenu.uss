@@ -107,9 +107,13 @@
     -unity-text-align: middle-right;
     color: rgb(218, 247, 255);
 }
+.display-toggle-row {
+    margin-top: 7px;
+    flex-direction: row;
+}
 .display-toggle {
     height: 42px;
-    margin-top: 7px;
+    flex-grow: 1;
     background-color: rgba(0, 116, 166, 0.6);
     border-width: 1px;
     border-color: rgba(70, 224, 255, 0.72);
@@ -117,6 +121,7 @@
     color: rgb(230, 251, 255);
     -unity-font-style: bold;
 }
+.display-toggle--first { margin-right: 7px; }
 .fine-row {
     min-height: 108px;
     padding: 8px 13px;

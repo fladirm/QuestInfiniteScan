@@ -26,7 +26,7 @@ namespace Genesis.RoomScan
     {
         public static RoomScanner Instance { get; private set; }
 
-        [SerializeField, Range(5f, 30f)] private float integrationHz = 15f;
+        [SerializeField, Range(5f, 30f)] private float integrationHz = 10f;
         [SerializeField, Range(0.005f, 0.05f)]
         private float maximumRgbdSkewSeconds = 1f / 30f;
         [SerializeField] private bool fineMode;
@@ -125,6 +125,14 @@ namespace Genesis.RoomScan
         {
             get => _renderer != null ? _renderer.ScanOpacity : 1f;
             set { if (_renderer != null) _renderer.ScanOpacity = value; }
+        }
+        public bool ReadoutDrawEnabled
+        {
+            get => _renderer == null || _renderer.ReadoutDrawEnabled;
+            set
+            {
+                if (_renderer != null) _renderer.ReadoutDrawEnabled = value;
+            }
         }
         public bool DynamicOcclusionEnabled
         {
