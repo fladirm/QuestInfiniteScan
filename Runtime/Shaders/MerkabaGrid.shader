@@ -32,6 +32,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma shader_feature_local_vertex _ M8_STEREO_MESH
             #pragma shader_feature_local_fragment _ M8_FINE_PREVIEW
             #pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION
+            #pragma shader_feature_local_fragment _ M8_CHECKER_READOUT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.xr.arfoundation/Assets/Shaders/Utils.hlsl"
@@ -139,6 +140,21 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 half3 color = input.hasRgb != 0u
                     ? input.color : half3(0.55h, 0.16h, 0.42h);
+#if defined(M8_CHECKER_READOUT)
+                float3 surfaceAxis = abs(cross(ddx(input.worldPosition),
+                    ddy(input.worldPosition)));
+                float2 checkerPosition = surfaceAxis.x >= surfaceAxis.y &&
+                    surfaceAxis.x >= surfaceAxis.z
+                    ? input.worldPosition.yz
+                    : surfaceAxis.y >= surfaceAxis.z
+                        ? input.worldPosition.xz : input.worldPosition.xy;
+                int2 checkerCell = (int2)floor(checkerPosition / 0.05);
+                uint checkerParity = (uint(checkerCell.x) ^
+                    uint(checkerCell.y)) & 1u;
+                color = checkerParity == 0u
+                    ? half3(1.0h, 1.0h, 0.0h)
+                    : half3(1.0h, 0.0h, 1.0h);
+#endif
 #if defined(M8_FINE_PREVIEW)
                 if (_FineBrushParams.x > 0.5)
                 {

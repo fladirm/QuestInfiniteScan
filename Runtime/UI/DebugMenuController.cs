@@ -14,7 +14,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _root;
         private VisualElement _boundRoot;
         private Button _start, _stop, _save, _load, _new, _export,
-            _exportTiles, _fine, _readout, _mesh, _occlusion;
+            _exportTiles, _fine, _readout, _mesh, _occlusion, _checker;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps;
         private Slider _opacity;
@@ -94,6 +94,7 @@ namespace Genesis.RoomScan.UI
             _readout = _root.Q<Button>("btn-readout");
             _mesh = _root.Q<Button>("btn-mesh");
             _occlusion = _root.Q<Button>("btn-occlusion");
+            _checker = _root.Q<Button>("btn-checker");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
             _kernels = _root.Q<Label>("val-kernels");
@@ -148,6 +149,13 @@ namespace Genesis.RoomScan.UI
                 if (scanner != null)
                     scanner.DynamicOcclusionEnabled =
                         !scanner.DynamicOcclusionEnabled;
+            });
+            _checker?.RegisterCallback<ClickEvent>(evt =>
+            {
+                RoomScanner scanner = RoomScanner.Instance;
+                if (scanner != null)
+                    scanner.CheckerReadoutEnabled =
+                        !scanner.CheckerReadoutEnabled;
             });
             _opacity?.RegisterValueChangedCallback(evt =>
             {
@@ -213,6 +221,8 @@ namespace Genesis.RoomScan.UI
             if (_occlusion != null)
                 _occlusion.text = scanner.DynamicOcclusionEnabled
                     ? "OCCLUSION  ON" : "OCCLUSION  OFF";
+            _checker?.EnableInClassList("checker-toggle--on",
+                scanner.CheckerReadoutEnabled);
 
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
@@ -242,6 +252,7 @@ namespace Genesis.RoomScan.UI
             _fine?.SetEnabled(!busy);
             _mesh?.SetEnabled(!busy);
             _occlusion?.SetEnabled(!busy);
+            _checker?.SetEnabled(!busy);
         }
 
         private void RefreshOperation(ScanOperationState operation)

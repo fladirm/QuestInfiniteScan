@@ -22,6 +22,7 @@ namespace Genesis.RoomScan
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
         [SerializeField] private bool readoutDrawEnabled = true;
         [SerializeField] private bool meshReadoutEnabled;
+        [SerializeField] private bool checkerReadoutEnabled;
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
@@ -126,9 +127,31 @@ namespace Genesis.RoomScan
             {
                 if (meshReadoutEnabled == value) return;
                 meshReadoutEnabled = value;
+                if (value && checkerReadoutEnabled)
+                {
+                    checkerReadoutEnabled = false;
+                    ApplyCheckerReadoutState();
+                }
                 MarkCanonicalReadoutDirty();
                 Logger.Info("Merkaba live readout mode: " +
                     (value ? "stereo depth mesh" : "canonical patches"));
+            }
+        }
+        public bool CheckerReadoutEnabled
+        {
+            get => checkerReadoutEnabled;
+            set
+            {
+                if (checkerReadoutEnabled == value) return;
+                checkerReadoutEnabled = value;
+                if (value && meshReadoutEnabled)
+                {
+                    meshReadoutEnabled = false;
+                    MarkCanonicalReadoutDirty();
+                }
+                ApplyCheckerReadoutState();
+                Logger.Info("Merkaba coverage checker: " +
+                    (value ? "enabled" : "disabled"));
             }
         }
 
@@ -365,6 +388,7 @@ namespace Genesis.RoomScan
             ApplyOpacityState();
             ApplyFinePreviewState();
             ApplyRasterFeatureState();
+            ApplyCheckerReadoutState();
             _initialized = true;
             return true;
         }
@@ -782,6 +806,7 @@ namespace Genesis.RoomScan
             if (material == null) return;
             if (mesh) material.EnableKeyword("M8_STEREO_MESH");
             else material.DisableKeyword("M8_STEREO_MESH");
+            ApplyCheckerReadoutState(material);
         }
 
         private void CompleteNativeReadoutBuild(ReadoutBuildTicket ticket,
@@ -984,6 +1009,26 @@ namespace Genesis.RoomScan
                     material.DisableKeyword("M8_ENVIRONMENT_OCCLUSION");
             }
             ApplyOpacityState();
+        }
+
+        private void ApplyCheckerReadoutState()
+        {
+            for (int slot = 0; slot < 2; slot++)
+            {
+                Material material = _materials[slot];
+                if (material == null) continue;
+                ApplyCheckerReadoutState(material);
+            }
+        }
+
+        private void ApplyCheckerReadoutState(Material material)
+        {
+            bool standardReadout =
+                !material.IsKeywordEnabled("M8_STEREO_MESH");
+            if (checkerReadoutEnabled && standardReadout)
+                material.EnableKeyword("M8_CHECKER_READOUT");
+            else
+                material.DisableKeyword("M8_CHECKER_READOUT");
         }
 
         private void RequestStatusIfDue()

@@ -59,6 +59,19 @@
                 class="display-toggle" />
             <ui:Button name="btn-occlusion" text="OCCLUSION  ON"
                 class="display-toggle" />
+            <ui:Button name="btn-checker" tooltip="Coverage checker"
+                class="checker-toggle">
+                <ui:VisualElement picking-mode="Ignore" class="checker-icon">
+                    <ui:VisualElement class="checker-icon-row">
+                        <ui:VisualElement class="checker-icon-yellow" />
+                        <ui:VisualElement class="checker-icon-magenta" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="checker-icon-row">
+                        <ui:VisualElement class="checker-icon-magenta" />
+                        <ui:VisualElement class="checker-icon-yellow" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:Button>
         </ui:VisualElement>
 
         <ui:Label text="MANUAL FINE" class="section-title" />

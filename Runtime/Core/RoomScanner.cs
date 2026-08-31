@@ -144,6 +144,15 @@ namespace Genesis.RoomScan
                 if (_renderer != null) _renderer.MeshReadoutEnabled = value;
             }
         }
+        public bool CheckerReadoutEnabled
+        {
+            get => _renderer != null && _renderer.CheckerReadoutEnabled;
+            set
+            {
+                if (_renderer != null)
+                    _renderer.CheckerReadoutEnabled = value;
+            }
+        }
         public bool DynamicOcclusionEnabled
         {
             get => _depthCapture == null ||

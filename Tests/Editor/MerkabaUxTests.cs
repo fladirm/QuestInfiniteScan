@@ -22,7 +22,7 @@ namespace Genesis.RoomScan.Tests
                      {
                          "btn-start", "btn-stop", "btn-save", "btn-load",
                          "btn-new", "btn-export", "btn-readout", "btn-mesh",
-                         "btn-occlusion"
+                         "btn-occlusion", "btn-checker"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
@@ -45,6 +45,8 @@ namespace Genesis.RoomScan.Tests
                 "scanner.ReadoutDrawEnabled ="));
             Assert.That(controller, Does.Contain(
                 "scanner.MeshReadoutEnabled ="));
+            Assert.That(controller, Does.Contain(
+                "scanner.CheckerReadoutEnabled ="));
             string scanner = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Core/RoomScanner.cs"));
             Assert.That(scanner, Does.Contain("integrationHz = 10f"));
@@ -92,6 +94,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "#pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION"));
             Assert.That(source, Does.Contain(
+                "#pragma shader_feature_local_fragment _ M8_CHECKER_READOUT"));
+            Assert.That(source, Does.Contain(
                 "#if defined(M8_FINE_PREVIEW)"));
             Assert.That(source, Does.Contain(
                 "#if defined(M8_ENVIRONMENT_OCCLUSION) && defined(XR_HARD_OCCLUSION)"));
@@ -101,6 +105,12 @@ namespace Genesis.RoomScan.Tests
                 "UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);"));
             Assert.That(source, Does.Contain(
                 "M8EnvironmentVisibility(input.worldPosition)"));
+            Assert.That(source, Does.Contain(
+                "#if defined(M8_CHECKER_READOUT)"));
+            Assert.That(source, Does.Contain(
+                "? half3(1.0h, 1.0h, 0.0h)"));
+            Assert.That(source, Does.Contain(
+                ": half3(1.0h, 0.0h, 1.0h)"));
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));
@@ -126,6 +136,12 @@ namespace Genesis.RoomScan.Tests
                 "material.EnableKeyword(\"M8_ENVIRONMENT_OCCLUSION\")"));
             Assert.That(renderer, Does.Contain(
                 "opaque && !_dynamicOcclusionEnabled"));
+            Assert.That(renderer, Does.Contain(
+                "material.EnableKeyword(\"M8_CHECKER_READOUT\")"));
+            Assert.That(renderer, Does.Contain(
+                "if (value && meshReadoutEnabled)"));
+            Assert.That(renderer, Does.Contain(
+                "!material.IsKeywordEnabled(\"M8_STEREO_MESH\")"));
         }
 
         [Test]
