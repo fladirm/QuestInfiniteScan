@@ -44,6 +44,8 @@ struct SigmaCarrierPageMetaGpu
     uint representationFlags;
     uint representationFingerprint;
     uint activeSampleCount;
+    // N5 durable state generation. The page generation above advances for any
+    // represented page mutation; this advances only when S16 state changes.
     uint reserved0;
 };
 

@@ -1,10 +1,40 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
+    [Flags]
+    internal enum SigmaPredictionPageRequestFlags : uint
+    {
+        None = 0u,
+        Coherent = 1u,
+        Hot = 2u,
+        Directory = 4u,
+        Absent = 8u,
+        Invalid = 16u,
+    }
+
+    internal readonly struct SigmaPredictionPageRequest
+    {
+        internal SigmaPredictionPageRequest(
+            SigmaCarrierPageCoordinate coordinate, uint pageGeneration,
+            uint pageRevision, SigmaPredictionPageRequestFlags flags)
+        {
+            Coordinate = coordinate;
+            PageGeneration = pageGeneration;
+            PageRevision = pageRevision;
+            Flags = flags;
+        }
+
+        internal SigmaCarrierPageCoordinate Coordinate { get; }
+        internal uint PageGeneration { get; }
+        internal uint PageRevision { get; }
+        internal SigmaPredictionPageRequestFlags Flags { get; }
+    }
+
     /// <summary>
     /// Thin managed ownership surface for the plugin-owned same-family Vulkan
     /// queue. It has no reconstruction authority: the embedded pipelines are
@@ -13,11 +43,14 @@ namespace Genesis.RoomScan.SigmaPrism
     /// </summary>
     internal static class SigmaNativeVulkanExecutor
     {
-        internal const int AbiVersion = 3;
-        internal const int ResourceCount = 46;
+        internal const int AbiVersion = 6;
+        internal const int ResourceCount = 53;
         internal const int DispatchCount = 16;
-        internal const int SliceCount = 7;
+        internal const int SliceCount = DispatchCount;
         internal const int TimestampCount = DispatchCount * 2 + 2;
+        internal const int PredictionPageRequestCapacity = 256;
+        internal const int PredictionPageRequestHeaderWords = 2;
+        internal const int PredictionPageRequestWordsPerEntry = 10;
 
         internal enum Resource : int
         {
@@ -51,6 +84,13 @@ namespace Genesis.RoomScan.SigmaPrism
             BranchHeaders,
             BranchSupports,
             BranchPredictions,
+            ResidentPageLocator,
+            CarrierState1,
+            CarrierRepresentation1,
+            CarrierMetadata1,
+            TargetCarrierState,
+            TargetCarrierRepresentation,
+            TargetCarrierMetadata,
             RawDepth,
             MetricDepth,
             DepthFlags,
@@ -114,6 +154,8 @@ namespace Genesis.RoomScan.SigmaPrism
             internal uint FootprintGroupsY;
             internal uint TileGroups;
             internal uint CompletionRecordIndex;
+            internal uint PredictionPageRequestScratchOffset;
+            internal uint PredictionPageRequestCapacity;
         }
 
         internal static void RequireAvailable()
@@ -135,19 +177,21 @@ namespace Genesis.RoomScan.SigmaPrism
             byte[] contractConstants, byte[] queryBoundaryConstants,
             byte[] queryGlobalConstants, int observationGroups,
             Vector2Int footprintGroups, int tileGroups,
-            int completionRecordIndex)
+            int completionRecordIndex,
+            int predictionPageRequestScratchOffset,
+            int predictionPageRequestCapacity)
         {
-            if (_activeJob != null)
+            if (_activeJob != null || SigmaNativeVulkanColdUpload.HasJobInFlight)
                 throw new InvalidOperationException(
-                    "A Sigma native Vulkan job is already in flight.");
+                    "A Sigma native or cold-upload Vulkan job is already in flight.");
             if (revision == 0u)
                 throw new ArgumentOutOfRangeException(nameof(revision));
             if (resources == null || resources.Length != ResourceCount)
                 throw new ArgumentException(
                     $"Native executor requires {ResourceCount} resources.",
                     nameof(resources));
-            if (frameConstants == null || frameConstants.Length < 736 ||
-                contractConstants == null || contractConstants.Length < 120 ||
+            if (frameConstants == null || frameConstants.Length < 756 ||
+                contractConstants == null || contractConstants.Length < 124 ||
                 queryBoundaryConstants == null ||
                 queryBoundaryConstants.Length < 120 ||
                 queryGlobalConstants == null ||
@@ -164,6 +208,11 @@ namespace Genesis.RoomScan.SigmaPrism
                     SigmaNativeCompletionTransfer.RecordsPerBatch)
                 throw new ArgumentOutOfRangeException(
                     nameof(completionRecordIndex));
+            if (predictionPageRequestScratchOffset < 0 ||
+                predictionPageRequestCapacity !=
+                    SigmaNativeFrameSlotResources.PredictionPageRequestCapacity)
+                throw new ArgumentOutOfRangeException(
+                    nameof(predictionPageRequestScratchOffset));
 #if !UNITY_EDITOR && UNITY_ANDROID
             RequireAvailable();
             GCHandle resourcePin = default;
@@ -204,6 +253,10 @@ namespace Genesis.RoomScan.SigmaPrism
                     TileGroups = checked((uint)tileGroups),
                     CompletionRecordIndex = checked(
                         (uint)completionRecordIndex),
+                    PredictionPageRequestScratchOffset = checked(
+                        (uint)predictionPageRequestScratchOffset),
+                    PredictionPageRequestCapacity = checked(
+                        (uint)predictionPageRequestCapacity),
                 };
                 IntPtr handle = Native.CreateJob(ref descriptor);
                 if (handle == IntPtr.Zero)
@@ -288,6 +341,10 @@ namespace Genesis.RoomScan.SigmaPrism
             [DllImport(Library, EntryPoint = "SigmaExecutor_ReadCompletion")]
             internal static extern int ReadCompletion(IntPtr handle,
                 [Out] uint[] words, int wordCapacity);
+            [DllImport(Library,
+                EntryPoint = "SigmaExecutor_ReadPredictionPageRequests")]
+            internal static extern int ReadPredictionPageRequests(
+                IntPtr handle, [Out] uint[] words, int wordCapacity);
             [DllImport(Library, EntryPoint = "SigmaExecutor_DestroyJob")]
             internal static extern int DestroyJob(IntPtr handle);
 
@@ -333,6 +390,8 @@ namespace Genesis.RoomScan.SigmaPrism
             }
             internal static int ReadCompletion(IntPtr handle, uint[] words,
                 int wordCapacity) => 0;
+            internal static int ReadPredictionPageRequests(IntPtr handle,
+                uint[] words, int wordCapacity) => 0;
             internal static int DestroyJob(IntPtr handle) => 0;
             internal static IntPtr RenderEvent => IntPtr.Zero;
             internal static int EventId(int offset) => 0;
@@ -537,6 +596,112 @@ namespace Genesis.RoomScan.SigmaPrism
                     completion[index].Y = raw[index * 2 + 1];
                 }
                 return true;
+            }
+
+            internal bool TryReadPredictionPageRequests(
+                out SigmaPredictionPageRequest[] requests,
+                out bool overflow)
+            {
+                requests = null;
+                overflow = false;
+                if (_handle == IntPtr.Zero || !_terminal)
+                    return false;
+                int wordCount = PredictionPageRequestHeaderWords +
+                    PredictionPageRequestCapacity *
+                        PredictionPageRequestWordsPerEntry;
+                var raw = new uint[wordCount];
+                int count = Native.ReadPredictionPageRequests(_handle, raw,
+                    raw.Length);
+                if (count != raw.Length)
+                    return false;
+                return TryDecodePredictionPageRequests(_revision, raw,
+                    out requests, out overflow);
+            }
+
+            internal static bool TryDecodePredictionPageRequests(
+                uint revision, uint[] raw,
+                out SigmaPredictionPageRequest[] requests,
+                out bool overflow)
+            {
+                requests = null;
+                overflow = false;
+                int wordCount = PredictionPageRequestHeaderWords +
+                    PredictionPageRequestCapacity *
+                        PredictionPageRequestWordsPerEntry;
+                if (revision == 0u || raw == null || raw.Length != wordCount)
+                    return false;
+                bool currentHeader = raw[0] == revision;
+                overflow = raw[1] == revision;
+                var merged = new Dictionary<PredictionPageRequestKey,
+                    SigmaPredictionPageRequestFlags>();
+                for (int bucket = 0;
+                     bucket < PredictionPageRequestCapacity; ++bucket)
+                {
+                    int offset = PredictionPageRequestHeaderWords +
+                        bucket * PredictionPageRequestWordsPerEntry;
+                    if (raw[offset] != 2u || raw[offset + 1] != revision)
+                        continue;
+                    var coordinate = new SigmaCarrierPageCoordinate(
+                        Join(raw[offset + 4], raw[offset + 5]),
+                        Join(raw[offset + 6], raw[offset + 7]));
+                    uint generation = raw[offset + 8];
+                    uint pageRevision = raw[offset + 9];
+                    var flags = (SigmaPredictionPageRequestFlags)
+                        raw[offset + 2];
+                    var key = new PredictionPageRequestKey(coordinate,
+                        generation, pageRevision);
+                    merged.TryGetValue(key, out
+                        SigmaPredictionPageRequestFlags prior);
+                    merged[key] = prior | flags;
+                }
+                // The request arena is revision-tagged on the first actual
+                // request. A fresh frame with no prior prediction therefore
+                // legitimately retains a zero/stale header and zero current
+                // entries. Conversely, a current overflow or entry without a
+                // current header is an incomplete receipt and fails closed.
+                if (!currentHeader)
+                {
+                    if (overflow || merged.Count != 0)
+                        return false;
+                    requests = Array.Empty<SigmaPredictionPageRequest>();
+                    overflow = false;
+                    return true;
+                }
+                requests = new SigmaPredictionPageRequest[merged.Count];
+                int index = 0;
+                foreach (KeyValuePair<PredictionPageRequestKey,
+                    SigmaPredictionPageRequestFlags> item in merged)
+                    requests[index++] = new SigmaPredictionPageRequest(
+                        item.Key.Coordinate, item.Key.Generation,
+                        item.Key.Revision, item.Value);
+                return true;
+            }
+
+            private static long Join(uint low, uint high) => unchecked(
+                (long)((ulong)low | ((ulong)high << 32)));
+
+            private readonly struct PredictionPageRequestKey :
+                IEquatable<PredictionPageRequestKey>
+            {
+                internal PredictionPageRequestKey(
+                    SigmaCarrierPageCoordinate coordinate, uint generation,
+                    uint revision)
+                {
+                    Coordinate = coordinate;
+                    Generation = generation;
+                    Revision = revision;
+                }
+                internal SigmaCarrierPageCoordinate Coordinate { get; }
+                internal uint Generation { get; }
+                internal uint Revision { get; }
+                public bool Equals(PredictionPageRequestKey other) =>
+                    Coordinate.Equals(other.Coordinate) &&
+                    Generation == other.Generation &&
+                    Revision == other.Revision;
+                public override bool Equals(object obj) =>
+                    obj is PredictionPageRequestKey other && Equals(other);
+                public override int GetHashCode() => HashCode.Combine(
+                    Coordinate, Generation, Revision);
             }
 
             internal void CancelBeforeExecution()

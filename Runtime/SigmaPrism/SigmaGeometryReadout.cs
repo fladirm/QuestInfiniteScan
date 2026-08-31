@@ -16,6 +16,28 @@ namespace Genesis.RoomScan.SigmaPrism
     }
 
     /// <summary>
+    /// Exact projective readout point before disposable float presentation.
+    /// N5 query-support summaries use these packed Q16.48 coordinates so a
+    /// resident and an encoded/nonresident spelling produce identical bounds.
+    /// </summary>
+    internal readonly struct SigmaExactGeometrySample
+    {
+        internal SigmaExactGeometrySample(long xRaw, long yRaw, long zRaw,
+            long informationMassRaw)
+        {
+            XRaw = xRaw;
+            YRaw = yRaw;
+            ZRaw = zRaw;
+            InformationMassRaw = informationMassRaw;
+        }
+
+        internal long XRaw { get; }
+        internal long YRaw { get; }
+        internal long ZRaw { get; }
+        internal long InformationMassRaw { get; }
+    }
+
+    /// <summary>
     /// Exact CPU semantic oracle for the projective geometry readout. Runtime bulk
     /// readout uses the matching generated GPU operator; this class is fixture and
     /// recovery authority, never a live CPU geometry path.
@@ -24,21 +46,38 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         public static bool TryRead(SigmaS16 state, out SigmaGeometrySample sample)
         {
+            if (!TryReadExact(state, out SigmaExactGeometrySample exact))
+            {
+                sample = default;
+                return false;
+            }
+            sample = new SigmaGeometrySample(new Vector3(
+                (float)SigmaNumericDomain.ToDouble(exact.XRaw),
+                (float)SigmaNumericDomain.ToDouble(exact.YRaw),
+                (float)SigmaNumericDomain.ToDouble(exact.ZRaw)),
+                exact.InformationMassRaw);
+            return true;
+        }
+
+        internal static bool TryReadExact(SigmaS16 state,
+            out SigmaExactGeometrySample sample)
+        {
             try
             {
-                long[] geometry = SigmaS16Operators.GeometryReadout(state);
-                if (geometry[0] <= 0L)
+                byte[] rows = SigmaGeneratedAlgebra.GeometryRows;
+                long mass = SigmaS16Operators.HadamardRow(state, rows[0]);
+                if (mass <= 0L)
                 {
                     sample = default;
                     return false;
                 }
-                long x = SigmaNumericDomain.QDiv(geometry[1], geometry[0]);
-                long y = SigmaNumericDomain.QDiv(geometry[2], geometry[0]);
-                long z = SigmaNumericDomain.QDiv(geometry[3], geometry[0]);
-                sample = new SigmaGeometrySample(new Vector3(
-                    (float)SigmaNumericDomain.ToDouble(x),
-                    (float)SigmaNumericDomain.ToDouble(y),
-                    (float)SigmaNumericDomain.ToDouble(z)), geometry[0]);
+                long x = SigmaNumericDomain.QDiv(
+                    SigmaS16Operators.HadamardRow(state, rows[1]), mass);
+                long y = SigmaNumericDomain.QDiv(
+                    SigmaS16Operators.HadamardRow(state, rows[2]), mass);
+                long z = SigmaNumericDomain.QDiv(
+                    SigmaS16Operators.HadamardRow(state, rows[3]), mass);
+                sample = new SigmaExactGeometrySample(x, y, z, mass);
                 return true;
             }
             catch (OverflowException)

@@ -1,18 +1,33 @@
 #pragma kernel EncodePageBlocks
 #pragma kernel DecodePageBlocks
+#pragma kernel CompactDirtyPages
+#pragma kernel EncodeDirtyPageBlocks
+#pragma kernel StageDirtyPageRepresentation
 #pragma target 5.0
 
 #include "Sedenion16.hlsl"
+#include "SigmaCarrierAbi.hlsl"
 
 StructuredBuffer<uint> _SigmaExactBackendGate;
 StructuredBuffer<uint2> _DecodedInput;
 RWStructuredBuffer<uint2> _DecodedOutput;
 RWStructuredBuffer<uint4> _BlockDescriptors;
 RWByteAddressBuffer _CodecPayload;
+StructuredBuffer<uint4> _RepresentationInput;
+StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
+StructuredBuffer<uint> _PublishedRevisionRoot;
+RWStructuredBuffer<uint> _DirtyFlags;
+RWStructuredBuffer<uint> _DirtyPageCount;
+RWStructuredBuffer<uint> _DirtyPageSlots;
+RWStructuredBuffer<uint4> _StagedRepresentation;
+RWStructuredBuffer<SigmaCarrierPageMetaGpu> _StagedMetadata;
 
 uint _InputPageSlot;
 uint _OutputPageSlot;
 uint _BlockCount;
+uint _PageCapacity;
+uint _CodecMaximumPages;
+uint _CodecDirtySkip;
 
 #define SIGMA_CODEC_NULL 0u
 #define SIGMA_CODEC_CONST 1u
@@ -21,6 +36,7 @@ uint _BlockCount;
 #define SIGMA_CODEC_RAW 4u
 
 #define SIGMA_CODEC_BLOCK_SIZE 8u
+#define SIGMA_CODEC_BLOCK_COUNT 64u
 #define SIGMA_CODEC_SAMPLES 64u
 #define SIGMA_CODEC_LANES 16u
 #define SIGMA_CODEC_PAGE_SIZE 64u
@@ -63,6 +79,13 @@ uint SigmaCodecPageSample(uint block, uint sample)
 uint SigmaCodecInputIndex(uint block, uint sample, uint lane)
 {
     return _InputPageSlot * SIGMA_CODEC_PAGE_LANES +
+        SigmaCodecPageSample(block, sample) * SIGMA_CODEC_LANES + lane;
+}
+
+uint SigmaCodecInputIndexForSlot(uint pageSlot, uint block, uint sample,
+    uint lane)
+{
+    return pageSlot * SIGMA_CODEC_PAGE_LANES +
         SigmaCodecPageSample(block, sample) * SIGMA_CODEC_LANES + lane;
 }
 
@@ -464,6 +487,248 @@ void EncodePageBlocks(uint3 groupId : SV_GroupID,
         _BlockDescriptors[block] = uint4(mode, SigmaCodecSelectedBytes,
             scratchBase, 1u);
 }
+
+[numthreads(1, 1, 1)]
+void CompactDirtyPages(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    if (dispatchThreadId.x != 0u)
+        return;
+    uint root = _PublishedRevisionRoot[0u];
+    uint selected = 0u;
+    uint total = 0u;
+    uint pairCapacity = _PageCapacity / 2u;
+    [loop]
+    for (uint pair = 0u; pair < pairCapacity; ++pair)
+    {
+        uint first = pair * 2u;
+        uint second = first + 1u;
+        SigmaCarrierPageMetaGpu a = _PageMetadata[first];
+        SigmaCarrierPageMetaGpu b = _PageMetadata[second];
+        bool aVisible = SigmaCarrierVisibleAtRoot(a, b, true, root);
+        bool bVisible = SigmaCarrierVisibleAtRoot(b, a, true, root);
+        uint slot = aVisible ? first : (bVisible ? second : 0xffffffffu);
+        if (slot == 0xffffffffu || _DirtyFlags[slot] == 0u)
+            continue;
+        if (total >= _CodecDirtySkip && selected < _CodecMaximumPages)
+            _DirtyPageSlots[selected++] = slot;
+        ++total;
+    }
+    _DirtyPageCount[0u] = selected;
+    _DirtyPageCount[1u] = total;
+}
+
+[numthreads(16, 1, 1)]
+void EncodeDirtyPageBlocks(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint block = groupId.x;
+    uint page = groupId.y;
+    uint lane = groupThreadId.x;
+    uint descriptorIndex = page * SIGMA_CODEC_BLOCK_COUNT + block;
+    uint scratchBase = descriptorIndex * SIGMA_CODEC_SCRATCH_STRIDE;
+    uint pageCount = min(_DirtyPageCount[0u], _CodecMaximumPages);
+    // The count originates in storage memory. Unity's Vulkan frontend therefore
+    // cannot prove that an early return derived from it is workgroup-uniform,
+    // even though groupId is uniform. Inactive cold groups follow the identical
+    // barrier trace against a harmless slot-zero execution value and suppress
+    // only their descriptor publication. Payload/descriptor ranges are already
+    // allocated for the fixed bounded cold batch.
+    uint active = page < pageCount && block < SIGMA_CODEC_BLOCK_COUNT ? 1u : 0u;
+    uint pageSlot = 0u;
+    if (active != 0u)
+        pageSlot = _DirtyPageSlots[page];
+
+    [loop]
+    for (uint loadSample = 0u; loadSample < 64u; ++loadSample)
+    {
+        SigmaCodecValues[SigmaCodecSharedIndex(lane, loadSample)] =
+            _DecodedInput[SigmaCodecInputIndexForSlot(pageSlot, block,
+                loadSample, lane)];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint laneNull = 1u;
+    uint laneConstant = 1u;
+    uint laneAffine = 1u;
+    uint laneDelta = 1u;
+    uint maximumWidth = 0u;
+    uint valid = active != 0u && _SigmaExactBackendGate[0] != 0u ? 1u : 0u;
+    uint2 origin = SigmaCodecValues[SigmaCodecSharedIndex(lane, 0u)];
+    uint2 stepU = SigmaQ48SubChecked(
+        SigmaCodecValues[SigmaCodecSharedIndex(lane, 1u)], origin, valid);
+    uint2 stepV = SigmaQ48SubChecked(
+        SigmaCodecValues[SigmaCodecSharedIndex(lane, 8u)], origin, valid);
+    laneAffine &= valid;
+
+    [loop]
+    for (uint evalSample = 0u; evalSample < 64u; ++evalSample)
+    {
+        uint2 actual = SigmaCodecValues[
+            SigmaCodecSharedIndex(lane, evalSample)];
+        if (any(actual != SigmaCodecNullLane(lane))) laneNull = 0u;
+        if (any(actual != origin)) laneConstant = 0u;
+        uint affineValid = 1u;
+        uint2 expected = SigmaCodecAddScaled(origin, stepU,
+            evalSample & 7u, stepV, evalSample >> 3u, affineValid);
+        if (affineValid == 0u || any(actual != expected)) laneAffine = 0u;
+        uint2 residual;
+        bool residualValid = SigmaCodecResidual(lane, evalSample, residual);
+        SigmaCodecResiduals[SigmaCodecSharedIndex(lane, evalSample)] = residual;
+        laneDelta &= residualValid ? 1u : 0u;
+        maximumWidth = max(maximumWidth, SigmaCodecSignedWidth(residual));
+    }
+    SigmaCodecWidths[lane] = maximumWidth;
+    SigmaCodecNullFlags[lane] = laneNull;
+    SigmaCodecConstFlags[lane] = laneConstant;
+    SigmaCodecAffineFlags[lane] = laneAffine;
+    SigmaCodecDeltaFlags[lane] = laneDelta;
+    GroupMemoryBarrierWithGroupSync();
+
+    if (lane == 0u)
+    {
+        uint allNull = 1u;
+        uint allConstant = 1u;
+        uint allAffine = 1u;
+        uint allDelta = 1u;
+        uint widthSum = 0u;
+        [unroll]
+        for (uint other = 0u; other < 16u; ++other)
+        {
+            allNull &= SigmaCodecNullFlags[other];
+            allConstant &= SigmaCodecConstFlags[other];
+            allAffine &= SigmaCodecAffineFlags[other];
+            allDelta &= SigmaCodecDeltaFlags[other];
+            widthSum += SigmaCodecWidths[other];
+        }
+        uint bestMode = SIGMA_CODEC_RAW;
+        uint bestBytes = SIGMA_CODEC_RAW_BYTES;
+        uint deltaBytes = SIGMA_CODEC_DELTA_HEADER_BYTES + widthSum * 8u;
+        if (allDelta != 0u && deltaBytes <= bestBytes)
+        {
+            bestMode = SIGMA_CODEC_DELTA;
+            bestBytes = deltaBytes;
+        }
+        if (allAffine != 0u && SIGMA_CODEC_AFFINE_BYTES <= bestBytes)
+        {
+            bestMode = SIGMA_CODEC_AFFINE;
+            bestBytes = SIGMA_CODEC_AFFINE_BYTES;
+        }
+        if (allConstant != 0u && SIGMA_CODEC_CONST_BYTES <= bestBytes)
+        {
+            bestMode = SIGMA_CODEC_CONST;
+            bestBytes = SIGMA_CODEC_CONST_BYTES;
+        }
+        if (allNull != 0u)
+        {
+            bestMode = SIGMA_CODEC_NULL;
+            bestBytes = 0u;
+        }
+        SigmaCodecSelectedMode = bestMode;
+        SigmaCodecSelectedBytes = bestBytes;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint mode = SigmaCodecSelectedMode;
+    if (mode == SIGMA_CODEC_CONST)
+        _CodecPayload.Store2(scratchBase + lane * 8u, origin);
+    else if (mode == SIGMA_CODEC_AFFINE)
+    {
+        _CodecPayload.Store2(scratchBase + lane * 8u, origin);
+        _CodecPayload.Store2(scratchBase + SIGMA_CODEC_CONST_BYTES + lane * 8u,
+            stepU);
+        _CodecPayload.Store2(scratchBase + SIGMA_CODEC_CONST_BYTES * 2u +
+            lane * 8u, stepV);
+    }
+    else if (mode == SIGMA_CODEC_DELTA)
+    {
+        if (lane < 4u)
+        {
+            uint baseLane = lane * 4u;
+            _CodecPayload.Store(scratchBase + lane * 4u,
+                SigmaCodecWidths[baseLane] |
+                (SigmaCodecWidths[baseLane + 1u] << 8u) |
+                (SigmaCodecWidths[baseLane + 2u] << 16u) |
+                (SigmaCodecWidths[baseLane + 3u] << 24u));
+        }
+        if (SigmaCodecWidths[lane] != 0u)
+        {
+            uint prefixWidth = 0u;
+            [unroll]
+            for (uint otherLane = 0u; otherLane < 16u; ++otherLane)
+                prefixWidth += otherLane < lane ?
+                    SigmaCodecWidths[otherLane] : 0u;
+            uint wordAddress = scratchBase + SIGMA_CODEC_DELTA_HEADER_BYTES +
+                prefixWidth * 8u;
+            uint currentWord = 0u;
+            uint bitsInWord = 0u;
+            [loop]
+            for (uint deltaSample = 0u; deltaSample < 64u; ++deltaSample)
+            {
+                uint2 residual = SigmaCodecResiduals[
+                    SigmaCodecSharedIndex(lane, deltaSample)];
+                uint consumed = 0u;
+                uint remaining = SigmaCodecWidths[lane];
+                [unroll]
+                for (uint part = 0u; part < 3u; ++part)
+                {
+                    uint take = min(remaining, 32u - bitsInWord);
+                    if (take != 0u)
+                    {
+                        currentWord |= SigmaCodecExtractBits(residual,
+                            consumed, take) << bitsInWord;
+                        bitsInWord += take;
+                        consumed += take;
+                        remaining -= take;
+                    }
+                    if (bitsInWord == 32u)
+                    {
+                        _CodecPayload.Store(wordAddress, currentWord);
+                        wordAddress += 4u;
+                        currentWord = 0u;
+                        bitsInWord = 0u;
+                    }
+                }
+            }
+        }
+    }
+    else if (mode == SIGMA_CODEC_RAW)
+    {
+        [loop]
+        for (uint rawSample = 0u; rawSample < 64u; ++rawSample)
+            _CodecPayload.Store2(scratchBase +
+                (rawSample * SIGMA_CODEC_LANES + lane) * 8u,
+                SigmaCodecValues[SigmaCodecSharedIndex(lane, rawSample)]);
+    }
+    AllMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+        _BlockDescriptors[descriptorIndex] = uint4(mode,
+            SigmaCodecSelectedBytes, scratchBase, active);
+}
+
+[numthreads(256, 1, 1)]
+void StageDirtyPageRepresentation(uint3 groupId : SV_GroupID,
+    uint3 groupThreadId : SV_GroupThreadID)
+{
+    uint page = groupId.x;
+    uint pageCount = min(_DirtyPageCount[0u], _CodecMaximumPages);
+    if (page >= pageCount)
+        return;
+    uint slot = _DirtyPageSlots[page];
+    SigmaCarrierPageMetaGpu metadata = _PageMetadata[slot];
+    if (groupThreadId.x == 0u)
+        _StagedMetadata[page] = metadata;
+    uint wordCount = min(metadata.activeSampleCount,
+        SIGMA_PAGE_SAMPLE_COUNT) * SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+    [loop]
+    for (uint word = groupThreadId.x; word < wordCount; word += 256u)
+        _StagedRepresentation[
+            page * SIGMA_PAGE_SAMPLE_COUNT *
+                SIGMA_REPRESENTATION_WORDS_PER_SAMPLE + word] =
+            _RepresentationInput[
+                slot * SIGMA_PAGE_SAMPLE_COUNT *
+                    SIGMA_REPRESENTATION_WORDS_PER_SAMPLE + word];
+}
+
 
 [numthreads(16, 1, 1)]
 void DecodePageBlocks(uint3 groupId : SV_GroupID,

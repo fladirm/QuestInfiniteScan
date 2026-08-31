@@ -156,6 +156,21 @@ namespace Genesis.RoomScan.SigmaPrism
         /// value is decoded as an integer ratio before nearest-even Q16.48 rounding.
         /// </summary>
         public static long Quantize(double value)
+            => QuantizeDirected(value, 0);
+
+        /// <summary>
+        /// Outward lower Q16.48 bound of the exact IEEE-754 input value.
+        /// This is representation metadata only; canonical point arithmetic
+        /// continues to use nearest-even <see cref="Quantize(double)"/>.
+        /// </summary>
+        internal static long QuantizeLower(double value)
+            => QuantizeDirected(value, -1);
+
+        /// <summary>Outward upper Q16.48 bound of an IEEE-754 input.</summary>
+        internal static long QuantizeUpper(double value)
+            => QuantizeDirected(value, 1);
+
+        private static long QuantizeDirected(double value, int direction)
         {
             long bits = BitConverter.DoubleToInt64Bits(value);
             bool negative = bits < 0;
@@ -185,7 +200,13 @@ namespace Genesis.RoomScan.SigmaPrism
             int rawExponent = binaryExponent + FractionBits;
             BigInteger raw = rawExponent >= 0
                 ? mantissa << rawExponent
-                : DivideNearestEven(mantissa, BigInteger.One << -rawExponent);
+                : direction < 0
+                    ? DivideFloor(mantissa, BigInteger.One << -rawExponent)
+                    : direction > 0
+                        ? DivideCeiling(mantissa,
+                            BigInteger.One << -rawExponent)
+                        : DivideNearestEven(mantissa,
+                            BigInteger.One << -rawExponent);
             return ToRawChecked(raw);
         }
 

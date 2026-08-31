@@ -16,6 +16,9 @@ namespace Genesis.RoomScan
     [DisallowMultipleComponent]
     public class RoomAnchorManager : MonoBehaviour, IRoomScanModule
     {
+        private const string PersistedAnchorUuidKey =
+            "Genesis.RoomScan.RoomAnchorUuid.v1";
+
         /// <inheritdoc />
         public string ModuleName => "Room Anchor";
 
@@ -27,10 +30,32 @@ namespace Genesis.RoomScan
 
         private OVRSpatialAnchor _activeSpatialAnchor;
         private readonly List<OVRSpatialAnchor.UnboundAnchor> _unboundAnchors = new();
+        private bool _trackingReady;
+        private uint _trackingValidationGeneration;
+
+        internal static bool IsStablePoseStep(Vector3 previousPosition,
+            Quaternion previousRotation, Vector3 currentPosition,
+            Quaternion currentRotation) =>
+            Vector3.Distance(previousPosition, currentPosition) < 0.001f &&
+            Quaternion.Angle(previousRotation, currentRotation) < 0.1f;
 
         private void Awake()
         {
             Instance = this;
+        }
+
+        private void OnEnable()
+        {
+            OVRManager.TrackingLost += HandleTrackingLost;
+            OVRManager.TrackingAcquired += HandleTrackingAcquired;
+        }
+
+        private void OnDisable()
+        {
+            OVRManager.TrackingLost -= HandleTrackingLost;
+            OVRManager.TrackingAcquired -= HandleTrackingAcquired;
+            _trackingReady = false;
+            ++_trackingValidationGeneration;
         }
 
         private void OnDestroy()
@@ -85,6 +110,15 @@ namespace Genesis.RoomScan
         public bool HasSpatialAnchor => _activeSpatialAnchor != null;
 
         /// <summary>
+        /// True only while the persisted room anchor is localized and tracked.
+        /// Scanner admission pauses when tracking is lost; immutable readout may
+        /// continue rendering in the last published room frame.
+        /// </summary>
+        public bool IsSpatialAnchorReady => _trackingReady &&
+            _activeSpatialAnchor != null && _activeSpatialAnchor.Localized &&
+            _activeSpatialAnchor.IsTracked;
+
+        /// <summary>
         /// Live transform of the active spatial anchor. Parenting under it keeps
         /// content world-locked across tracking corrections.
         ///
@@ -104,6 +138,33 @@ namespace Genesis.RoomScan
         /// <summary>UUID of the active spatial anchor, or <see cref="Guid.Empty"/>.</summary>
         public Guid SpatialAnchorUuid =>
             _activeSpatialAnchor != null ? _activeSpatialAnchor.Uuid : Guid.Empty;
+
+        public bool TryGetPersistedSpatialAnchorUuid(out Guid uuid)
+        {
+            string encoded = PlayerPrefs.GetString(PersistedAnchorUuidKey,
+                string.Empty);
+            if (string.IsNullOrEmpty(encoded))
+            {
+                uuid = Guid.Empty;
+                return false;
+            }
+            if (!TryDecodeSpatialAnchorUuid(encoded, out uuid))
+                throw new InvalidOperationException(
+                    "The persisted room-anchor UUID is corrupt; refusing to " +
+                    "re-anchor an existing carrier to a different place.");
+            return true;
+        }
+
+        internal static string EncodeSpatialAnchorUuid(Guid uuid)
+        {
+            if (uuid == Guid.Empty)
+                throw new ArgumentOutOfRangeException(nameof(uuid));
+            return uuid.ToString("D");
+        }
+
+        internal static bool TryDecodeSpatialAnchorUuid(string encoded,
+            out Guid uuid) => Guid.TryParseExact(encoded, "D", out uuid) &&
+                uuid != Guid.Empty;
 
         /// <summary>
         /// Creates an <see cref="OVRSpatialAnchor"/> at the given world pose, waits for
@@ -144,8 +205,16 @@ namespace Genesis.RoomScan
 
             Logger.Info($"Spatial anchor persisted: {anchor.Uuid}");
 
-            // Wait a few frames for transform to stabilize
-            await StabilizeAnchorTransform(anchor.transform);
+            PersistSpatialAnchorUuid(anchor.Uuid);
+
+            // A saved handle is not yet a usable room frame. Wait until Meta
+            // supplies a tracked pose and then require one stable pose epoch.
+            if (!await WaitForStableTrackedAnchor(anchor))
+            {
+                Logger.Error("Spatial anchor did not reach a stable tracked pose.");
+                Destroy(go);
+                return null;
+            }
 
             if (_activeSpatialAnchor != null && _activeSpatialAnchor.gameObject != go)
             {
@@ -164,6 +233,7 @@ namespace Genesis.RoomScan
                 Destroy(_activeSpatialAnchor.gameObject);
             }
             _activeSpatialAnchor = anchor;
+            _trackingReady = true;
 
             Matrix4x4 matrix = anchor.transform.localToWorldMatrix;
             return (anchor.Uuid, matrix);
@@ -177,6 +247,7 @@ namespace Genesis.RoomScan
         {
             Logger.Info($"Loading spatial anchor {uuid}...");
 
+            _unboundAnchors.Clear();
             var loadResult = await OVRSpatialAnchor.LoadUnboundAnchorsAsync(
                 new[] { uuid }, _unboundAnchors);
 
@@ -187,7 +258,21 @@ namespace Genesis.RoomScan
                 return null;
             }
 
-            var unbound = _unboundAnchors[0];
+            OVRSpatialAnchor.UnboundAnchor unbound = default;
+            bool found = false;
+            for (int index = 0; index < _unboundAnchors.Count; ++index)
+            {
+                if (_unboundAnchors[index].Uuid != uuid)
+                    continue;
+                unbound = _unboundAnchors[index];
+                found = true;
+                break;
+            }
+            if (!found)
+            {
+                Logger.Warning("Spatial anchor load returned no exact UUID match.");
+                return null;
+            }
 
             bool localized = await unbound.LocalizeAsync();
             if (!localized && !unbound.Localized)
@@ -209,12 +294,21 @@ namespace Genesis.RoomScan
 
             // Bind to a new OVRSpatialAnchor GO
             var go = new GameObject($"[SpatialAnchor-{uuid:N}]");
+            if (unbound.TryGetPose(out Pose pose))
+                go.transform.SetPositionAndRotation(pose.position,
+                    pose.rotation);
             var anchor = go.AddComponent<OVRSpatialAnchor>();
             unbound.BindTo(anchor);
 
             Logger.Info($"Spatial anchor localized: {uuid}, pos={anchor.transform.position}");
 
-            await StabilizeAnchorTransform(anchor.transform);
+            if (!await WaitForStableTrackedAnchor(anchor))
+            {
+                Logger.Warning("Loaded spatial anchor did not reach a stable " +
+                    "tracked pose.");
+                Destroy(go);
+                return null;
+            }
 
             if (_activeSpatialAnchor != null && _activeSpatialAnchor.gameObject != go)
             {
@@ -226,8 +320,22 @@ namespace Genesis.RoomScan
                 Destroy(_activeSpatialAnchor.gameObject);
             }
             _activeSpatialAnchor = anchor;
+            _trackingReady = true;
+            PersistSpatialAnchorUuid(uuid);
 
             return anchor.transform.localToWorldMatrix;
+        }
+
+        public async Task<bool> WaitForSpatialAnchorReadyAsync()
+        {
+            OVRSpatialAnchor anchor = _activeSpatialAnchor;
+            if (anchor == null)
+                return false;
+            if (!await WaitForStableTrackedAnchor(anchor) ||
+                anchor != _activeSpatialAnchor)
+                return false;
+            _trackingReady = true;
+            return true;
         }
 
         /// <summary>
@@ -241,7 +349,15 @@ namespace Genesis.RoomScan
                 null, new[] { uuid });
 
             if (result.Success)
+            {
                 Logger.Info($"Spatial anchor erased: {uuid}");
+                if (TryGetPersistedSpatialAnchorUuid(out Guid persisted) &&
+                    persisted == uuid)
+                {
+                    PlayerPrefs.DeleteKey(PersistedAnchorUuidKey);
+                    PlayerPrefs.Save();
+                }
+            }
             else
                 Logger.Warning($"Spatial anchor erase failed: {result.Status}");
 
@@ -275,26 +391,115 @@ namespace Genesis.RoomScan
             }
         }
 
-        /// <summary>
-        /// Waits for an anchor transform to stabilize (5 consecutive frames with &lt; 1mm movement).
-        /// </summary>
-        private static async Task StabilizeAnchorTransform(Transform t)
+        private static async Task<bool> WaitForTrackedAnchor(
+            OVRSpatialAnchor anchor)
         {
-            int stableFrames = 0;
-            const int required = 5;
-            const int maxPolls = 60;
-            Vector3 prevPos = t.position;
-
-            for (int i = 0; i < maxPolls && stableFrames < required; i++)
+            const float timeout = 10f;
+            float elapsed = 0f;
+            while (anchor != null &&
+                (!anchor.Localized || !anchor.IsTracked) && elapsed < timeout)
             {
                 await Task.Yield();
-                float delta = Vector3.Distance(prevPos, t.position);
-                if (delta < 0.001f)
-                    stableFrames++;
+                elapsed += Time.unscaledDeltaTime;
+            }
+            return anchor != null && anchor.Localized && anchor.IsTracked;
+        }
+
+        /// <summary>
+        /// Establishes one room-frame epoch only after Meta reports a tracked
+        /// anchor and its translated and rotated pose is stable for five complete
+        /// frames. Tracking can become true before the post-resume pose settles;
+        /// canonical admission must not observe that transient coordinate frame.
+        /// </summary>
+        private static async Task<bool> WaitForStableTrackedAnchor(
+            OVRSpatialAnchor anchor)
+        {
+            if (!await WaitForTrackedAnchor(anchor))
+                return false;
+
+            const int requiredStableFrames = 5;
+            const int maximumPolls = 180;
+            int stableFrames = 0;
+            Vector3 previousPosition = anchor.transform.position;
+            Quaternion previousRotation = anchor.transform.rotation;
+            for (int poll = 0;
+                anchor != null && poll < maximumPolls &&
+                stableFrames < requiredStableFrames; ++poll)
+            {
+                await Task.Yield();
+                if (anchor == null || !anchor.Localized || !anchor.IsTracked)
+                {
+                    stableFrames = 0;
+                    continue;
+                }
+
+                Vector3 currentPosition = anchor.transform.position;
+                Quaternion currentRotation = anchor.transform.rotation;
+                if (IsStablePoseStep(previousPosition, previousRotation,
+                        currentPosition, currentRotation))
+                    ++stableFrames;
                 else
                     stableFrames = 0;
-                prevPos = t.position;
+                previousPosition = currentPosition;
+                previousRotation = currentRotation;
             }
+            return anchor != null && anchor.Localized && anchor.IsTracked &&
+                stableFrames == requiredStableFrames;
+        }
+
+        private static void PersistSpatialAnchorUuid(Guid uuid)
+        {
+            PlayerPrefs.SetString(PersistedAnchorUuidKey,
+                EncodeSpatialAnchorUuid(uuid));
+            PlayerPrefs.Save();
+        }
+
+        private void HandleTrackingLost()
+        {
+            _trackingReady = false;
+            ++_trackingValidationGeneration;
+            Logger.Warning("Spatial anchor tracking lost; scan admission paused " +
+                "while immutable FRONT remains available.");
+        }
+
+        private void HandleTrackingAcquired()
+        {
+            uint generation = ++_trackingValidationGeneration;
+            RevalidateTrackingAfterResume(generation);
+        }
+
+        private async void RevalidateTrackingAfterResume(uint generation)
+        {
+            OVRSpatialAnchor anchor = _activeSpatialAnchor;
+            if (anchor == null)
+                return;
+            bool ready = await WaitForStableTrackedAnchor(anchor);
+            if (generation != _trackingValidationGeneration ||
+                anchor != _activeSpatialAnchor)
+                return;
+            _trackingReady = ready;
+            if (ready)
+                Logger.Info("Spatial anchor stable tracking epoch reacquired: " +
+                    "uuid=" + anchor.Uuid + " pos=" +
+                    anchor.transform.position + " rotation=" +
+                    anchor.transform.rotation.eulerAngles + ".");
+            else
+                Logger.Warning("Spatial anchor failed to reacquire; scan " +
+                    "admission remains paused.");
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                _trackingReady = false;
+                ++_trackingValidationGeneration;
+            }
+            else
+                HandleTrackingAcquired();
+            Logger.Info("Spatial anchor application pause=" + paused +
+                " uuid=" + SpatialAnchorUuid + " ready=" +
+                IsSpatialAnchorReady + ".");
         }
     }
 }

@@ -1,8 +1,12 @@
 #pragma kernel InitializeGpuPool
+#pragma kernel InitializeResidencyIndex
+#pragma kernel ApplyResidencyUpdates
+#pragma kernel ResolveResidencyQueries
 #pragma target 5.0
 
 #include "Sedenion16.hlsl"
 #include "SigmaCarrierAbi.hlsl"
+#include "SigmaResidencyAbi.hlsl"
 
 StructuredBuffer<uint> _SigmaExactBackendGate;
 RWStructuredBuffer<uint2> _TargetCarrierState;
@@ -10,9 +14,16 @@ RWStructuredBuffer<uint4> _TargetCarrierRepresentation;
 RWStructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
 RWStructuredBuffer<uint> _DirtyFlags;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
+RWByteAddressBuffer _ResidentPageLocator;
+RWStructuredBuffer<SigmaResidentSlotGpu> _ResidentSlotTable;
+StructuredBuffer<SigmaResidencyUpdateGpu> _ResidencyUpdates;
+RWStructuredBuffer<uint4> _ResidencyResults;
 
 uint _PageCapacity;
 uint _GpuPoolPageCount;
+uint _ResidentLocatorCapacity;
+uint _ResidentSlotCapacity;
+uint _ResidencyUpdateCount;
 
 uint2 SigmaCarrierNullLane(uint lane)
 {
@@ -48,4 +59,400 @@ void InitializeGpuPool(uint3 groupId : SV_GroupID,
         _DirtyFlags[pageSlot] = 0u;
         _ReadoutDirtyFlags[pageSlot] = 0u;
     }
+}
+
+uint SigmaResidencyLocatorByteAddress(uint bucket, uint word)
+{
+    return (bucket * SIGMA_RESIDENCY_LOCATOR_WORDS + word) * 4u;
+}
+
+uint SigmaResidencyLocatorLoad(uint bucket, uint word)
+{
+    return _ResidentPageLocator.Load(
+        SigmaResidencyLocatorByteAddress(bucket, word));
+}
+
+void SigmaResidencyLocatorStore(uint bucket, uint word, uint value)
+{
+    _ResidentPageLocator.Store(
+        SigmaResidencyLocatorByteAddress(bucket, word), value);
+}
+
+bool SigmaResidencyLocatorKeyEqual(uint bucket,
+    SigmaResidencyUpdateGpu update)
+{
+    return SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_PAGE_X_LO) == update.Coordinate.x &&
+        SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_PAGE_X_HI) == update.Coordinate.y &&
+        SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_PAGE_Y_LO) == update.Coordinate.z &&
+        SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_PAGE_Y_HI) == update.Coordinate.w &&
+        SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_ROOT_LO) == update.RootContext.x &&
+        SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_ROOT_HI) == update.RootContext.y &&
+        SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_PAGE_GENERATION) == update.pageGeneration;
+}
+
+bool SigmaResidencyUpdateValid(SigmaResidencyUpdateGpu update)
+{
+    bool hasSlot = SigmaResidencyStateHasSlot(update.state);
+    bool slotValid = update.globalSlot < _ResidentSlotCapacity &&
+        update.segment != SIGMA_RESIDENCY_INVALID &&
+        update.slot != SIGMA_RESIDENCY_INVALID;
+    bool pairValid = update.reserved == SIGMA_RESIDENCY_INVALID ||
+        (update.reserved < _ResidentSlotCapacity &&
+            update.reserved != update.globalSlot);
+    bool upsert = update.operation == SIGMA_RESIDENCY_UPDATE_UPSERT &&
+        (!hasSlot || slotValid);
+    bool publishLoaded =
+        update.operation == SIGMA_RESIDENCY_UPDATE_PUBLISH_LOADED &&
+        update.state == SIGMA_RESIDENCY_HOT_CLEAN && slotValid &&
+        update.reserved < _ResidentSlotCapacity;
+    bool evict = update.operation == SIGMA_RESIDENCY_UPDATE_EVICT &&
+        update.state == SIGMA_RESIDENCY_COLD_DURABLE && slotValid &&
+        update.reserved < _ResidentSlotCapacity;
+    bool retirePhysical = update.operation ==
+        SIGMA_RESIDENCY_UPDATE_RETIRE_PHYSICAL &&
+        update.state == SIGMA_RESIDENCY_ABSENT_IN_ROOT && slotValid &&
+        update.reserved < _ResidentSlotCapacity;
+    return update.pageGeneration != 0u &&
+        SigmaResidencyStateValid(update.state) && pairValid &&
+        (upsert || publishLoaded || evict || retirePhysical);
+}
+
+SigmaResidentSlotGpu SigmaResidencyDenseSlot(
+    SigmaResidencyUpdateGpu update, uint bucket, uint globalSlot,
+    uint localSlot, uint flags)
+{
+    SigmaResidentSlotGpu slot;
+    slot.Coordinate = update.Coordinate;
+    slot.RootContext = update.RootContext;
+    slot.pageGeneration = update.pageGeneration;
+    slot.residentGeneration = update.residentGeneration;
+    slot.segment = update.segment;
+    slot.slot = localSlot;
+    slot.state = update.state;
+    slot.locatorBucket = bucket;
+    slot.lastReaderTicket = 0u;
+    slot.lastWriterTicket = 0u;
+    slot.leaseCount = 0u;
+    slot.flags = flags;
+    return slot;
+}
+
+void SigmaResidencyStoreDenseSlots(SigmaResidencyUpdateGpu update,
+    uint bucket)
+{
+    if (!SigmaResidencyStateHasSlot(update.state))
+        return;
+    _ResidentSlotTable[update.globalSlot] = SigmaResidencyDenseSlot(update,
+        bucket, update.globalSlot, update.slot, update.flags);
+    if (update.reserved < _ResidentSlotCapacity)
+        _ResidentSlotTable[update.reserved] = SigmaResidencyDenseSlot(update,
+            bucket, update.reserved, update.slot ^ 1u,
+            update.flags | SIGMA_RESIDENCY_SLOT_SHADOW);
+}
+
+void SigmaResidencyStoreLocatorValue(uint bucket,
+    SigmaResidencyUpdateGpu update)
+{
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_FLAGS,
+        update.flags);
+    SigmaResidencyLocatorStore(bucket,
+        SIGMA_RESIDENCY_ENTRY_RESIDENT_GENERATION,
+        SigmaResidencyStateHasSlot(update.state)
+            ? update.residentGeneration : 0u);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_SEGMENT,
+        SigmaResidencyStateHasSlot(update.state)
+            ? update.segment : SIGMA_RESIDENCY_INVALID);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_SLOT,
+        SigmaResidencyStateHasSlot(update.state)
+            ? update.slot : SIGMA_RESIDENCY_INVALID);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_GLOBAL_SLOT,
+        SigmaResidencyStateHasSlot(update.state)
+            ? update.globalSlot : SIGMA_RESIDENCY_INVALID);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_STATE,
+        update.state);
+}
+
+void SigmaResidencyInitializeLocatorEntry(uint bucket, uint hash,
+    SigmaResidencyUpdateGpu update)
+{
+    // Reverse metadata is complete before the forward locator becomes READY.
+    SigmaResidencyStoreDenseSlots(update, bucket);
+    DeviceMemoryBarrier();
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_STATE,
+        update.state);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_HASH, hash);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_FLAGS,
+        update.flags);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_PAGE_X_LO,
+        update.Coordinate.x);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_PAGE_X_HI,
+        update.Coordinate.y);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_PAGE_Y_LO,
+        update.Coordinate.z);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_PAGE_Y_HI,
+        update.Coordinate.w);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_ROOT_LO,
+        update.RootContext.x);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_ROOT_HI,
+        update.RootContext.y);
+    SigmaResidencyLocatorStore(bucket,
+        SIGMA_RESIDENCY_ENTRY_PAGE_GENERATION, update.pageGeneration);
+    SigmaResidencyLocatorStore(bucket,
+        SIGMA_RESIDENCY_ENTRY_RESIDENT_GENERATION,
+        update.residentGeneration);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_SEGMENT,
+        update.segment);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_SLOT,
+        update.slot);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_GLOBAL_SLOT,
+        update.globalSlot);
+    SigmaResidencyLocatorStore(bucket, SIGMA_RESIDENCY_ENTRY_RESERVED, 0u);
+    DeviceMemoryBarrier();
+    uint ignored;
+    _ResidentPageLocator.InterlockedExchange(
+        SigmaResidencyLocatorByteAddress(bucket,
+            SIGMA_RESIDENCY_ENTRY_CLAIM),
+        SIGMA_RESIDENCY_CLAIM_READY, ignored);
+}
+
+[numthreads(64, 1, 1)]
+void InitializeResidencyIndex(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index < _ResidentLocatorCapacity)
+    {
+        uint baseAddress = SigmaResidencyLocatorByteAddress(index, 0u);
+        [unroll]
+        for (uint word = 0u; word < SIGMA_RESIDENCY_LOCATOR_WORDS; ++word)
+            _ResidentPageLocator.Store(baseAddress + word * 4u, 0u);
+    }
+    if (index < _ResidentSlotCapacity)
+        _ResidentSlotTable[index] = (SigmaResidentSlotGpu)0;
+}
+
+[numthreads(64, 1, 1)]
+void ApplyResidencyUpdates(uint3 id : SV_DispatchThreadID)
+{
+    uint updateIndex = id.x;
+    if (updateIndex >= _ResidencyUpdateCount)
+        return;
+    SigmaResidencyUpdateGpu update = _ResidencyUpdates[updateIndex];
+    if (!SigmaResidencyUpdateValid(update) ||
+        _ResidentLocatorCapacity == 0u ||
+        (_ResidentLocatorCapacity & (_ResidentLocatorCapacity - 1u)) != 0u)
+    {
+        _ResidencyResults[updateIndex] = uint4(
+            SIGMA_RESIDENCY_RESULT_INVALID, SIGMA_RESIDENCY_INVALID, 0u, 0u);
+        return;
+    }
+
+    if (update.operation == SIGMA_RESIDENCY_UPDATE_RETIRE_PHYSICAL)
+    {
+        _ResidentSlotTable[update.globalSlot] = (SigmaResidentSlotGpu)0;
+        _ResidentSlotTable[update.reserved] = (SigmaResidentSlotGpu)0;
+        if (update.slot < _PageCapacity &&
+            (update.slot ^ 1u) < _PageCapacity)
+        {
+            _PageMetadata[update.slot] = (SigmaCarrierPageMetaGpu)0;
+            _PageMetadata[update.slot ^ 1u] = (SigmaCarrierPageMetaGpu)0;
+            _DirtyFlags[update.slot] = 0u;
+            _DirtyFlags[update.slot ^ 1u] = 0u;
+            _ReadoutDirtyFlags[update.slot] = 0u;
+            _ReadoutDirtyFlags[update.slot ^ 1u] = 0u;
+        }
+        DeviceMemoryBarrier();
+        _ResidencyResults[updateIndex] = uint4(
+            SIGMA_RESIDENCY_RESULT_APPLIED, update.globalSlot,
+            SIGMA_RESIDENCY_INVALID, SIGMA_RESIDENCY_ABSENT_IN_ROOT);
+        return;
+    }
+
+    uint hash = SigmaResidencyHashKey(update.Coordinate,
+        update.RootContext, update.pageGeneration);
+    uint start = hash & (_ResidentLocatorCapacity - 1u);
+    [loop]
+    for (uint probe = 0u; probe < _ResidentLocatorCapacity; ++probe)
+    {
+        uint bucket = (start + probe) & (_ResidentLocatorCapacity - 1u);
+        uint claim = SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_CLAIM);
+        if (claim == SIGMA_RESIDENCY_CLAIM_READY)
+        {
+            if (!SigmaResidencyLocatorKeyEqual(bucket, update))
+                continue;
+            uint observed;
+            _ResidentPageLocator.InterlockedCompareExchange(
+                SigmaResidencyLocatorByteAddress(bucket,
+                    SIGMA_RESIDENCY_ENTRY_CLAIM),
+                SIGMA_RESIDENCY_CLAIM_READY,
+                SIGMA_RESIDENCY_CLAIM_WRITING, observed);
+            if (observed != SIGMA_RESIDENCY_CLAIM_READY)
+                continue;
+            uint prior = SigmaResidencyLocatorLoad(bucket,
+                SIGMA_RESIDENCY_ENTRY_STATE);
+            uint priorGlobal = SigmaResidencyLocatorLoad(bucket,
+                SIGMA_RESIDENCY_ENTRY_GLOBAL_SLOT);
+            bool ordinaryTransition =
+                update.operation == SIGMA_RESIDENCY_UPDATE_UPSERT &&
+                SigmaResidencyTransitionAllowed(prior, update.state);
+            bool loadedTransition =
+                update.operation == SIGMA_RESIDENCY_UPDATE_PUBLISH_LOADED &&
+                prior == SIGMA_RESIDENCY_COLD_DURABLE &&
+                update.state == SIGMA_RESIDENCY_HOT_CLEAN &&
+                SigmaResidencyKeyEqual(
+                    _ResidentSlotTable[update.globalSlot], update) &&
+                _ResidentSlotTable[update.globalSlot].state ==
+                    SIGMA_RESIDENCY_LOADING &&
+                SigmaResidencyKeyEqual(
+                    _ResidentSlotTable[update.reserved], update) &&
+                _ResidentSlotTable[update.reserved].state ==
+                    SIGMA_RESIDENCY_LOADING;
+            bool evictionTransition =
+                update.operation == SIGMA_RESIDENCY_UPDATE_EVICT &&
+                prior == SIGMA_RESIDENCY_HOT_CLEAN &&
+                update.state == SIGMA_RESIDENCY_COLD_DURABLE &&
+                priorGlobal == update.globalSlot;
+            if (update.expectedState != SIGMA_RESIDENCY_INVALID &&
+                prior != update.expectedState)
+            {
+                _ResidentPageLocator.Store(
+                    SigmaResidencyLocatorByteAddress(bucket,
+                        SIGMA_RESIDENCY_ENTRY_CLAIM),
+                    SIGMA_RESIDENCY_CLAIM_READY);
+                _ResidencyResults[updateIndex] = uint4(
+                    SIGMA_RESIDENCY_RESULT_STATE_CONFLICT, bucket, prior,
+                    update.state);
+                return;
+            }
+            if (!(ordinaryTransition || loadedTransition ||
+                    evictionTransition))
+            {
+                _ResidentPageLocator.Store(
+                    SigmaResidencyLocatorByteAddress(bucket,
+                        SIGMA_RESIDENCY_ENTRY_CLAIM),
+                    SIGMA_RESIDENCY_CLAIM_READY);
+                _ResidencyResults[updateIndex] = uint4(
+                    SIGMA_RESIDENCY_RESULT_STATE_CONFLICT, bucket, prior,
+                    update.state);
+                return;
+            }
+            SigmaResidencyStoreDenseSlots(update, bucket);
+            DeviceMemoryBarrier();
+            SigmaResidencyStoreLocatorValue(bucket, update);
+            DeviceMemoryBarrier();
+            _ResidentPageLocator.Store(
+                SigmaResidencyLocatorByteAddress(bucket,
+                    SIGMA_RESIDENCY_ENTRY_CLAIM),
+                SIGMA_RESIDENCY_CLAIM_READY);
+            DeviceMemoryBarrier();
+            if (evictionTransition)
+            {
+                _ResidentSlotTable[update.globalSlot] =
+                    (SigmaResidentSlotGpu)0;
+                _ResidentSlotTable[update.reserved] =
+                    (SigmaResidentSlotGpu)0;
+                // The durable locator becomes COLD before the decoded pair is
+                // made allocator-visible. State/representation bytes may stay
+                // stale because zero metadata is the only publication gate.
+                if (update.slot < _PageCapacity &&
+                    (update.slot ^ 1u) < _PageCapacity)
+                {
+                    _PageMetadata[update.slot] =
+                        (SigmaCarrierPageMetaGpu)0;
+                    _PageMetadata[update.slot ^ 1u] =
+                        (SigmaCarrierPageMetaGpu)0;
+                    _DirtyFlags[update.slot] = 0u;
+                    _DirtyFlags[update.slot ^ 1u] = 0u;
+                    _ReadoutDirtyFlags[update.slot] = 0u;
+                    _ReadoutDirtyFlags[update.slot ^ 1u] = 0u;
+                }
+            }
+            _ResidencyResults[updateIndex] = uint4(
+                SIGMA_RESIDENCY_RESULT_APPLIED, bucket, prior, update.state);
+            return;
+        }
+        if (claim != SIGMA_RESIDENCY_CLAIM_EMPTY)
+            continue;
+        if (update.operation != SIGMA_RESIDENCY_UPDATE_UPSERT)
+        {
+            _ResidencyResults[updateIndex] = uint4(
+                SIGMA_RESIDENCY_RESULT_STATE_CONFLICT, bucket,
+                SIGMA_RESIDENCY_INVALID, update.state);
+            return;
+        }
+        uint observed;
+        _ResidentPageLocator.InterlockedCompareExchange(
+            SigmaResidencyLocatorByteAddress(bucket,
+                SIGMA_RESIDENCY_ENTRY_CLAIM),
+            SIGMA_RESIDENCY_CLAIM_EMPTY,
+            SIGMA_RESIDENCY_CLAIM_WRITING, observed);
+        if (observed != SIGMA_RESIDENCY_CLAIM_EMPTY)
+            continue;
+        SigmaResidencyInitializeLocatorEntry(bucket, hash, update);
+        _ResidencyResults[updateIndex] = uint4(
+            SIGMA_RESIDENCY_RESULT_APPLIED, bucket,
+            SIGMA_RESIDENCY_INVALID, update.state);
+        return;
+    }
+    _ResidencyResults[updateIndex] = uint4(
+        SIGMA_RESIDENCY_RESULT_TABLE_FULL, SIGMA_RESIDENCY_INVALID, 0u, 0u);
+}
+
+[numthreads(64, 1, 1)]
+void ResolveResidencyQueries(uint3 id : SV_DispatchThreadID)
+{
+    uint queryIndex = id.x;
+    if (queryIndex >= _ResidencyUpdateCount)
+        return;
+    SigmaResidencyUpdateGpu query = _ResidencyUpdates[queryIndex];
+    if (query.pageGeneration == 0u || _ResidentLocatorCapacity == 0u ||
+        (_ResidentLocatorCapacity & (_ResidentLocatorCapacity - 1u)) != 0u)
+    {
+        _ResidencyResults[queryIndex] = uint4(
+            SIGMA_RESIDENCY_RESULT_INVALID, SIGMA_RESIDENCY_INVALID, 0u, 0u);
+        return;
+    }
+    uint hash = SigmaResidencyHashKey(query.Coordinate,
+        query.RootContext, query.pageGeneration);
+    uint start = hash & (_ResidentLocatorCapacity - 1u);
+    [loop]
+    for (uint probe = 0u; probe < _ResidentLocatorCapacity; ++probe)
+    {
+        uint bucket = (start + probe) & (_ResidentLocatorCapacity - 1u);
+        uint claim = SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_CLAIM);
+        if (claim == SIGMA_RESIDENCY_CLAIM_EMPTY)
+            break;
+        if (claim != SIGMA_RESIDENCY_CLAIM_READY ||
+            !SigmaResidencyLocatorKeyEqual(bucket, query))
+            continue;
+        uint state = SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_STATE);
+        uint globalSlot = SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_GLOBAL_SLOT);
+        uint generation = SigmaResidencyLocatorLoad(bucket,
+            SIGMA_RESIDENCY_ENTRY_RESIDENT_GENERATION);
+        DeviceMemoryBarrier();
+        if (SigmaResidencyLocatorLoad(bucket,
+                SIGMA_RESIDENCY_ENTRY_CLAIM) !=
+                SIGMA_RESIDENCY_CLAIM_READY ||
+            !SigmaResidencyLocatorKeyEqual(bucket, query))
+            continue;
+        _ResidencyResults[queryIndex] = uint4(
+            SIGMA_RESIDENCY_RESULT_FOUND,
+            state, globalSlot, generation);
+        return;
+    }
+    // NOT_FOUND means durable-directory resolution is required.  It must not
+    // be interpreted as ABSENT_IN_ROOT or canonical ZEmpty.
+    _ResidencyResults[queryIndex] = uint4(
+        SIGMA_RESIDENCY_RESULT_NOT_FOUND, SIGMA_RESIDENCY_COLD_DURABLE,
+        SIGMA_RESIDENCY_INVALID, 0u);
 }

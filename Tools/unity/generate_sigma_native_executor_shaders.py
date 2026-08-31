@@ -28,6 +28,7 @@ class Pipeline:
     source: str
     entry: str
     defines: tuple[str, ...] = ()
+    cold: bool = False
 
 
 # This order is the fixed 16-dispatch NativeCloseCommit graph.
@@ -70,6 +71,19 @@ PIPELINES = (
 )
 
 
+# N5 cold persistence work is embedded beside, but never appended to, the
+# frozen 16-dispatch NativeClose graph.  These four pipelines consume one
+# compact dirty-page batch on the accepted plugin-owned queue.
+COLD_PIPELINES = (
+    Pipeline("COLD_DURABLE_COMPACT", "SigmaCarrierCodec.compute",
+             "CompactDirtyPages", cold=True),
+    Pipeline("COLD_DURABLE_ENCODE", "SigmaCarrierCodec.compute",
+             "EncodeDirtyPageBlocks", cold=True),
+    Pipeline("COLD_DURABLE_STAGE", "SigmaCarrierCodec.compute",
+             "StageDirtyPageRepresentation", cold=True),
+)
+
+
 # Numeric values are shared with SigmaNativeVulkanExecutor.Resource in C# and
 # SigmaExecutorResource in the native plugin.  Names below are shader ABI names,
 # never physical/canonical identity.
@@ -92,11 +106,11 @@ RESOURCE_IDS = {
     "_NativeCompletionJournal": 13,
     "_NativeFreshEvidenceWords": 13,
     "_NativeSourceCarrierState": 14,
-    "_TargetCarrierState": 14,
+    "_TargetCarrierState": 34,
     "_NativeSourceCarrierRepresentation": 15,
-    "_TargetCarrierRepresentation": 15,
+    "_TargetCarrierRepresentation": 35,
     "_NativeSourcePageMetadata": 16,
-    "_TargetPageMetadata": 16,
+    "_TargetPageMetadata": 36,
     "_NativeSourcePublicationRoot": 17,
     "_PublishedRevisionRoot": 17,
     "_TargetDirtyFlags": 18,
@@ -112,25 +126,45 @@ RESOURCE_IDS = {
     "_NativeBranchHeaders": 27,
     "_NativeBranchSupports": 28,
     "_NativeBranchPredictions": 29,
-    "_NativeRawDepth": 30,
-    "_NativeMetricDepth": 31,
-    "_NativeDepthFlags": 32,
-    "_NativeDepthRayCenterLeft": 33,
-    "_NativeDepthRayCenterRight": 34,
-    "_NativeDepthRayDifferentialXLeft": 35,
-    "_NativeDepthRayDifferentialXRight": 36,
-    "_NativeDepthRayDifferentialYLeft": 37,
-    "_NativeDepthRayDifferentialYRight": 38,
-    "_NativeDepthSlopeBoundsLeft": 39,
-    "_NativeDepthSlopeBoundsRight": 40,
-    "_NativeRgbLeft": 41,
-    "_NativeRgbRight": 42,
-    "_NativePredCarrierPage": 43,
-    "_NativePredCarrierUvNormal": 44,
-    "_NativePredStateKey": 45,
+    "_NativeResidentPageLocator": 30,
+    "_NativeSourceCarrierState1": 31,
+    "_NativeSourceCarrierRepresentation1": 32,
+    "_NativeSourcePageMetadata1": 33,
+    "_NativeRawDepth": 37,
+    "_NativeMetricDepth": 38,
+    "_NativeDepthFlags": 39,
+    "_NativeDepthRayCenterLeft": 40,
+    "_NativeDepthRayCenterRight": 41,
+    "_NativeDepthRayDifferentialXLeft": 42,
+    "_NativeDepthRayDifferentialXRight": 43,
+    "_NativeDepthRayDifferentialYLeft": 44,
+    "_NativeDepthRayDifferentialYRight": 45,
+    "_NativeDepthSlopeBoundsLeft": 46,
+    "_NativeDepthSlopeBoundsRight": 47,
+    "_NativeRgbLeft": 48,
+    "_NativeRgbRight": 49,
+    "_NativePredCarrierPage": 50,
+    "_NativePredCarrierUvNormal": 51,
+    "_NativePredStateKey": 52,
 }
 
-RESOURCE_COUNT = 46
+RESOURCE_COUNT = 53
+
+COLD_RESOURCE_IDS = {
+    "_SigmaExactBackendGate": 0,
+    "_DecodedInput": 1,
+    "_RepresentationInput": 2,
+    "_PageMetadata": 3,
+    "_PublishedRevisionRoot": 4,
+    "_DirtyFlags": 5,
+    "_DirtyPageCount": 6,
+    "_DirtyPageSlots": 7,
+    "_BlockDescriptors": 8,
+    "_CodecPayload": 9,
+    "_StagedRepresentation": 10,
+    "_StagedMetadata": 11,
+}
+COLD_RESOURCE_COUNT = 12
 KIND_STORAGE = 0
 KIND_SAMPLED_IMAGE = 1
 KIND_UNIFORM = 2
@@ -150,6 +184,13 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def resource_id(pipeline: Pipeline, name: str) -> int:
+    if pipeline.cold:
+        try:
+            return COLD_RESOURCE_IDS[name]
+        except KeyError as exception:
+            raise RuntimeError(
+                f"unmapped cold executor resource {pipeline.label}: {name}") \
+                from exception
     # The root-last close deliberately aliases this SRV to the page-plan image
     # in CloseScratch.  Every other entry point reads the canonical carrier.
     if (pipeline.entry == "CloseAndPublishNativeRevision" and
@@ -255,40 +296,52 @@ def compile_pipeline(glslang: str, spirv_val: str, spirv_dis: str,
     return words, descriptors, global_size
 
 
-def emit(output: Path, compiled) -> None:
-    lines = [
-        "// Generated at native-plugin build time. Do not commit this file.",
-        f"static constexpr uint32_t kSigmaExecutorResourceCount = {RESOURCE_COUNT}u;",
-        "",
-    ]
+def emit_pipeline_family(lines, compiled, symbol: str) -> None:
     for index, (pipeline, words, descriptors, global_size) in enumerate(compiled):
-        lines.append(f"static const uint32_t kSigmaExecutorSpv{index}[] = {{")
+        lines.append(f"static const uint32_t kSigma{symbol}Spv{index}[] = {{")
         for begin in range(0, len(words), 8):
             row = ", ".join(f"0x{word:08x}u" for word in words[begin:begin + 8])
             lines.append("    " + row + ",")
         lines.append("};")
         lines.append(
-            f"static const SigmaEmbeddedDescriptor kSigmaExecutorDesc{index}[] = {{")
+            f"static const SigmaEmbeddedDescriptor kSigma{symbol}Desc{index}[] = {{")
         for binding, kind, resource in descriptors:
-            lines.append(
-                f"    {{{binding}u, {kind}u, {resource}}},")
+            lines.append(f"    {{{binding}u, {kind}u, {resource}}},")
         lines.append("};")
         lines.append("")
 
-    lines.append("static const SigmaEmbeddedPipeline kSigmaExecutorPipelines[] = {")
+    lines.append(f"static const SigmaEmbeddedPipeline kSigma{symbol}Pipelines[] = {{")
     for index, (pipeline, words, descriptors, global_size) in enumerate(compiled):
         escaped_label = pipeline.label.replace('"', '\\"')
         escaped_entry = pipeline.entry.replace('"', '\\"')
         lines.append(
             "    {" + f'"{escaped_label}", "{escaped_entry}", '
-            f"kSigmaExecutorSpv{index}, {len(words)}u, "
-            f"kSigmaExecutorDesc{index}, {len(descriptors)}u, {global_size}u" + "},")
+            f"kSigma{symbol}Spv{index}, {len(words)}u, "
+            f"kSigma{symbol}Desc{index}, {len(descriptors)}u, {global_size}u" + "},")
     lines.append("};")
+    lines.append("")
+
+
+def emit(output: Path, compiled, cold_compiled) -> None:
+    lines = [
+        "// Generated at native-plugin build time. Do not commit this file.",
+        f"static constexpr uint32_t kSigmaExecutorResourceCount = {RESOURCE_COUNT}u;",
+        f"static constexpr uint32_t kSigmaColdEncoderResourceCount = {COLD_RESOURCE_COUNT}u;",
+        "",
+    ]
+    emit_pipeline_family(lines, compiled, "Executor")
+    emit_pipeline_family(lines, cold_compiled, "ColdEncoder")
     lines.append(
         "static constexpr uint32_t kSigmaExecutorPipelineCount = "
         "sizeof(kSigmaExecutorPipelines) / sizeof(kSigmaExecutorPipelines[0]);")
     lines.append("static_assert(kSigmaExecutorPipelineCount == 16u, "
                  '"NativeCloseCommit must contain exactly 16 pipelines");')
+    lines.append(
+        "static constexpr uint32_t kSigmaColdEncoderPipelineCount = "
+        "sizeof(kSigmaColdEncoderPipelines) / "
+        "sizeof(kSigmaColdEncoderPipelines[0]);")
+    lines.append("static_assert(kSigmaColdEncoderPipelineCount == 3u, "
+                 '"N5 durable staging owns exactly three cold pipelines");')
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
 
@@ -309,9 +362,18 @@ def main() -> int:
             compiled.append((pipeline, words, descriptors, global_size))
             print(f"PASS {pipeline.label}: {len(words) * 4} bytes, "
                   f"descriptors={len(descriptors)}, globals={global_size}")
+        cold_compiled = []
+        for index, pipeline in enumerate(COLD_PIPELINES):
+            words, descriptors, global_size = compile_pipeline(
+                glslang, spirv_val, spirv_dis, temporary,
+                len(PIPELINES) + index, pipeline)
+            cold_compiled.append((pipeline, words, descriptors, global_size))
+            print(f"PASS {pipeline.label}: {len(words) * 4} bytes, "
+                  f"descriptors={len(descriptors)}, globals={global_size}")
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        emit(args.output, compiled)
-    print(f"Embedded {len(compiled)}/16 native executor pipelines: {args.output}")
+        emit(args.output, compiled, cold_compiled)
+    print(f"Embedded {len(compiled)}/16 hot + {len(cold_compiled)}/3 cold "
+          f"executor pipelines: {args.output}")
     return 0
 
 

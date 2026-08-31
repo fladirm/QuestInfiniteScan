@@ -102,7 +102,9 @@ namespace Genesis.RoomScan.Tests
             representationWords[8] =
                 (uint)(SigmaNativeCertificateFlags.Valid |
                     SigmaNativeCertificateFlags.Minimized);
-            representationWords[11] = 5u;
+            representationWords[9] = Convert.ToUInt32(
+                SigmaGeneratedFrame.CertificateFingerprint.Substring(0, 8), 16);
+            representationWords[10] = 1u;
             var pageASamples = new SigmaS16[SigmaDecodedPage.SampleCount];
             pageASamples[0] = State(17L);
             SigmaDecodedPage pageA = new SigmaDecodedPage(
@@ -134,6 +136,20 @@ namespace Genesis.RoomScan.Tests
             Assert.That(restarted[1].Coordinate, Is.EqualTo(pageA.Coordinate));
             CollectionAssert.AreEqual(snapshot,
                 SigmaCarrierCodec.EncodeSnapshot(restarted));
+        }
+
+        [Test]
+        public void CertificateGenerationIsPageMetadataNotCertificateIdentityPayload()
+        {
+            SigmaDecodedPage page = MakeRepresentedPage(
+                new SigmaCarrierPageCoordinate(3, -4), 9u, 17u, 41UL,
+                7u, 23L);
+            SigmaCarrierRepresentationRecord[] representation =
+                page.CopyRepresentation();
+
+            Assert.That(page.CertificateGeneration, Is.EqualTo(7u));
+            Assert.That(representation[0].Words[11], Is.Zero,
+                "Production certificate identity.w is not a generation field.");
         }
 
         [Test]
@@ -213,6 +229,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaCarrier.MinimumResidentPageCapacity,
                 Is.EqualTo(2),
                 "Every resident generation needs one current/shadow pair.");
+            Assert.That(SigmaCarrier.ResidentBindingBankCount, Is.EqualTo(2),
+                "Two buffers are physical binding banks, not two carriers.");
             long decodedPages = (long)SigmaCarrier.DefaultDecodedBudgetMegabytes *
                 1024L * 1024L / SigmaCarrier.ResidentPageBytes;
             Assert.That(decodedPages, Is.EqualTo(630));
@@ -225,6 +243,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(wideSegment,
                 Is.EqualTo(SigmaCarrier.MaximumPagesPerSegment));
             Assert.That(exact128MiBSegment, Is.EqualTo(112));
+            Assert.That((long)exact128MiBSegment *
+                SigmaCarrier.RepresentationPageBytes,
+                Is.LessThan(128L * 1024L * 1024L));
+            Assert.That(exact128MiBSegment *
+                SigmaCarrier.ResidentBindingBankCount / 2,
+                Is.EqualTo(112),
+                "The Quest cache owns 112 physical pairs behind one root.");
             Assert.That((decodedPages + wideSegment - 1L) / wideSegment,
                 Is.EqualTo(3));
             Assert.That((decodedPages + exact128MiBSegment - 1L) /
@@ -235,6 +260,281 @@ namespace Genesis.RoomScan.Tests
             Assert.Throws<InvalidOperationException>(() =>
                 SigmaCarrier.ComputeSegmentPageCapacity(
                     SigmaCarrier.RepresentationPageBytes));
+        }
+
+        [Test]
+        public void ResidencyAbiHasOneExactForwardAndOneDenseReverseLayout()
+        {
+            Assert.That(Marshal.SizeOf<SigmaResidencyUpdateGpu>(), Is.EqualTo(64));
+            Assert.That(Marshal.SizeOf<SigmaResidentSlotGpu>(), Is.EqualTo(64));
+            Assert.That(SigmaCarrierResidencyAbi.LocatorStride, Is.EqualTo(64));
+            Assert.That(SigmaCarrierResidencyAbi.ComputeLocatorCapacity(630),
+                Is.EqualTo(8192));
+            Assert.That(SigmaCarrierResidencyAbi.TransitionAllowed(
+                SigmaResidencyState.ColdDurable,
+                SigmaResidencyState.Loading), Is.True);
+            Assert.That(SigmaCarrierResidencyAbi.TransitionAllowed(
+                SigmaResidencyState.Loading,
+                SigmaResidencyState.HotClean), Is.True);
+            Assert.That(SigmaCarrierResidencyAbi.TransitionAllowed(
+                SigmaResidencyState.HotDirty,
+                SigmaResidencyState.ColdDurable), Is.False,
+                "Dirty residency must pass durability before eviction.");
+            Assert.That(SigmaCarrierResidencyAbi.TransitionAllowed(
+                SigmaResidencyState.AbsentInRoot,
+                SigmaResidencyState.HotClean), Is.False,
+                "An absent page cannot materialize without a new root key.");
+        }
+
+        [Test]
+        public void SparseGpuLocatorUsesFullKeysAcrossProbeCollisions()
+        {
+            ComputeShader shader = Resources.Load<ComputeShader>(
+                "SigmaPrism/SigmaCarrier");
+            Assert.That(shader, Is.Not.Null);
+            using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
+            using var residency = new SigmaCarrierResidencyResources(shader,
+                gate, 8);
+            using var carrierBank = new ResidencyCarrierBank(8);
+            residency.AttachCarrierBank(carrierBank.Batch);
+
+            SigmaResidencyKey first = new(
+                new SigmaCarrierPageCoordinate(long.MinValue + 17, 91),
+                0x1122334455667788UL, 7u);
+            SigmaResidencyKey collision = FindProbeCollision(first,
+                residency.LocatorCapacity);
+            Assert.That(collision, Is.Not.EqualTo(first));
+            Assert.That(SigmaCarrierResidencyAbi.Hash(collision) &
+                    (uint)(residency.LocatorCapacity - 1),
+                Is.EqualTo(SigmaCarrierResidencyAbi.Hash(first) &
+                    (uint)(residency.LocatorCapacity - 1)));
+
+            var cold = new[]
+            {
+                new SigmaResidencyUpdate(first, 0u, -1, -1, -1,
+                    SigmaResidencyState.ColdDurable),
+                new SigmaResidencyUpdate(collision, 0u, -1, -1, -1,
+                    SigmaResidencyState.ColdDurable),
+            };
+            residency.UploadBatch(cold);
+            residency.DispatchApplyImmediate(cold.Length);
+            var apply = new UInt4[cold.Length];
+            residency.Results.GetData(apply);
+            Assert.That(apply, Is.All.Matches<UInt4>(value =>
+                value.X == (uint)SigmaResidencyResult.Applied));
+            Assert.That(apply[0].Y, Is.Not.EqualTo(apply[1].Y),
+                "A hash collision must probe to distinct full-key entries.");
+
+            residency.UploadBatch(cold);
+            residency.DispatchResolveImmediate(cold.Length);
+            var found = new UInt4[cold.Length];
+            residency.Results.GetData(found);
+            Assert.That(found, Is.All.Matches<UInt4>(value =>
+                value.X == (uint)SigmaResidencyResult.Found &&
+                value.Y == (uint)SigmaResidencyState.ColdDurable));
+
+            SigmaResidencyKey otherRoot = new(first.Coordinate,
+                first.RootContext + 1UL, first.PageGeneration);
+            var miss = new[]
+            {
+                new SigmaResidencyUpdate(otherRoot, 0u, -1, -1, -1,
+                    SigmaResidencyState.ColdDurable),
+            };
+            residency.UploadBatch(miss);
+            residency.DispatchResolveImmediate(1);
+            var missing = new UInt4[1];
+            residency.Results.GetData(missing);
+            Assert.That(missing[0].X,
+                Is.EqualTo((uint)SigmaResidencyResult.NotFound));
+            Assert.That(missing[0].Y,
+                Is.EqualTo((uint)SigmaResidencyState.ColdDurable),
+                "A locator miss requires durable resolution and is not absent/ZEmpty.");
+        }
+
+        [Test]
+        public void LocatorPublishesDenseSlotBeforeHotForwardState()
+        {
+            ComputeShader shader = Resources.Load<ComputeShader>(
+                "SigmaPrism/SigmaCarrier");
+            Assert.That(shader, Is.Not.Null);
+            using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
+            using var residency = new SigmaCarrierResidencyResources(shader,
+                gate, 8);
+            using var carrierBank = new ResidencyCarrierBank(8);
+            residency.AttachCarrierBank(carrierBank.Batch);
+            SigmaResidencyKey key = new(
+                new SigmaCarrierPageCoordinate(-700, long.MaxValue),
+                0x7766554433221100UL, 9u);
+
+            ApplyResidency(residency, new SigmaResidencyUpdate(key, 0u,
+                -1, -1, -1, SigmaResidencyState.ColdDurable));
+            var loading = new SigmaResidentSlotGpu[residency.SlotCapacity];
+            loading[5] = DenseSlot(key, 1u, 2u, 3u,
+                SigmaResidencyState.Loading, 0u);
+            loading[6] = DenseSlot(key, 1u, 2u, 2u,
+                SigmaResidencyState.Loading, 1u);
+            residency.SlotTable.SetData(loading);
+            ApplyResidency(residency, new SigmaResidencyUpdate(key, 1u,
+                2, 3, 5, SigmaResidencyState.HotClean,
+                SigmaResidencyState.ColdDurable, 0u,
+                SigmaResidencyOperation.PublishLoaded, 6));
+
+            var slots = new SigmaResidentSlotGpu[residency.SlotCapacity];
+            residency.SlotTable.GetData(slots);
+            SigmaResidentSlotGpu slot = slots[5];
+            Assert.That(unchecked((long)((ulong)slot.PageXLo |
+                ((ulong)slot.PageXHi << 32))), Is.EqualTo(key.Coordinate.X));
+            Assert.That(unchecked((long)((ulong)slot.PageYLo |
+                ((ulong)slot.PageYHi << 32))), Is.EqualTo(key.Coordinate.Y));
+            Assert.That(slot.RootContextLo, Is.EqualTo(
+                unchecked((uint)key.RootContext)));
+            Assert.That(slot.RootContextHi, Is.EqualTo(
+                unchecked((uint)(key.RootContext >> 32))));
+            Assert.That(slot.PageGeneration, Is.EqualTo(key.PageGeneration));
+            Assert.That(slot.ResidentGeneration, Is.EqualTo(1u));
+            Assert.That(slot.Segment, Is.EqualTo(2u));
+            Assert.That(slot.Slot, Is.EqualTo(3u));
+            Assert.That(slot.State,
+                Is.EqualTo((uint)SigmaResidencyState.HotClean));
+
+            var query = new[]
+            {
+                new SigmaResidencyUpdate(key, 0u, -1, -1, -1,
+                    SigmaResidencyState.ColdDurable),
+            };
+            residency.UploadBatch(query);
+            residency.DispatchResolveImmediate(1);
+            var result = new UInt4[1];
+            residency.Results.GetData(result);
+            Assert.That(result[0].X,
+                Is.EqualTo((uint)SigmaResidencyResult.Found));
+            Assert.That(result[0].Y,
+                Is.EqualTo((uint)SigmaResidencyState.HotClean));
+            Assert.That(result[0].Z, Is.EqualTo(5u));
+            Assert.That(result[0].W, Is.EqualTo(1u));
+        }
+
+        private static SigmaResidentSlotGpu DenseSlot(SigmaResidencyKey key,
+            uint residentGeneration, uint segment, uint slot,
+            SigmaResidencyState state, uint flags)
+        {
+            return new SigmaResidentSlotGpu
+            {
+                PageXLo = unchecked((uint)key.Coordinate.X),
+                PageXHi = unchecked((uint)(key.Coordinate.X >> 32)),
+                PageYLo = unchecked((uint)key.Coordinate.Y),
+                PageYHi = unchecked((uint)(key.Coordinate.Y >> 32)),
+                RootContextLo = unchecked((uint)key.RootContext),
+                RootContextHi = unchecked((uint)(key.RootContext >> 32)),
+                PageGeneration = key.PageGeneration,
+                ResidentGeneration = residentGeneration,
+                Segment = segment,
+                Slot = slot,
+                State = (uint)state,
+                LocatorBucket = uint.MaxValue,
+                LeaseCount = 1u,
+                Flags = flags,
+            };
+        }
+
+        [Test]
+        public void ExplicitAbsentAndUnindexedColdRemainDifferent()
+        {
+            ComputeShader shader = Resources.Load<ComputeShader>(
+                "SigmaPrism/SigmaCarrier");
+            Assert.That(shader, Is.Not.Null);
+            using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
+            using var residency = new SigmaCarrierResidencyResources(shader,
+                gate, 8);
+            using var carrierBank = new ResidencyCarrierBank(8);
+            residency.AttachCarrierBank(carrierBank.Batch);
+            SigmaResidencyKey absent = new(
+                new SigmaCarrierPageCoordinate(10, -20), 5UL, 1u);
+            ApplyResidency(residency, new SigmaResidencyUpdate(absent, 0u,
+                -1, -1, -1, SigmaResidencyState.AbsentInRoot));
+
+            SigmaResidencyKey unknown = new(
+                new SigmaCarrierPageCoordinate(11, -20), 5UL, 1u);
+            var queries = new[]
+            {
+                new SigmaResidencyUpdate(absent, 0u, -1, -1, -1,
+                    SigmaResidencyState.ColdDurable),
+                new SigmaResidencyUpdate(unknown, 0u, -1, -1, -1,
+                    SigmaResidencyState.ColdDurable),
+            };
+            residency.UploadBatch(queries);
+            residency.DispatchResolveImmediate(queries.Length);
+            var result = new UInt4[queries.Length];
+            residency.Results.GetData(result);
+            Assert.That(result[0].X,
+                Is.EqualTo((uint)SigmaResidencyResult.Found));
+            Assert.That(result[0].Y,
+                Is.EqualTo((uint)SigmaResidencyState.AbsentInRoot));
+            Assert.That(result[1].X,
+                Is.EqualTo((uint)SigmaResidencyResult.NotFound));
+            Assert.That(result[1].Y,
+                Is.EqualTo((uint)SigmaResidencyState.ColdDurable));
+        }
+
+        private static void ApplyResidency(
+            SigmaCarrierResidencyResources residency,
+            SigmaResidencyUpdate update)
+        {
+            residency.UploadBatch(new[] { update });
+            residency.DispatchApplyImmediate(1);
+            var result = new UInt4[1];
+            residency.Results.GetData(result);
+            Assert.That(result[0].X,
+                Is.EqualTo((uint)SigmaResidencyResult.Applied),
+                $"prior={result[0].Z} next={result[0].W}");
+        }
+
+        private static SigmaResidencyKey FindProbeCollision(
+            SigmaResidencyKey source, int capacity)
+        {
+            uint bucket = SigmaCarrierResidencyAbi.Hash(source) &
+                (uint)(capacity - 1);
+            for (long x = 0; x < capacity * 8L; ++x)
+            {
+                var candidate = new SigmaResidencyKey(
+                    new SigmaCarrierPageCoordinate(x, -x - 1),
+                    source.RootContext, source.PageGeneration);
+                if (!candidate.Equals(source) &&
+                    (SigmaCarrierResidencyAbi.Hash(candidate) &
+                        (uint)(capacity - 1)) == bucket)
+                    return candidate;
+            }
+            Assert.Fail("Failed to construct a deliberate locator collision.");
+            return default;
+        }
+
+        private sealed class ResidencyCarrierBank : IDisposable
+        {
+            internal ResidencyCarrierBank(int pageCapacity)
+            {
+                Metadata = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                    pageCapacity, SigmaCarrier.PageMetadataStride);
+                Dirty = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                    pageCapacity, sizeof(uint));
+                ReadoutDirty = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured, pageCapacity,
+                    sizeof(uint));
+                Batch = new SigmaCarrierReadBatch(0, pageCapacity, 0, null,
+                    null, Metadata, Dirty, ReadoutDirty, null, null, null,
+                    0, pageCapacity, new SigmaCarrierRuntimeState());
+            }
+
+            internal SigmaCarrierReadBatch Batch { get; }
+            private GraphicsBuffer Metadata { get; }
+            private GraphicsBuffer Dirty { get; }
+            private GraphicsBuffer ReadoutDirty { get; }
+
+            public void Dispose()
+            {
+                Metadata.Dispose();
+                Dirty.Dispose();
+                ReadoutDirty.Dispose();
+            }
         }
 
         private static void AssertAddress(long x, long y, long pageX, long pageY,
@@ -354,7 +654,9 @@ namespace Genesis.RoomScan.Tests
                 SigmaGeneratedFrame.KappaFingerprint.Substring(0, 8), 16);
             words[8] = (uint)(SigmaNativeCertificateFlags.Valid |
                 SigmaNativeCertificateFlags.Minimized);
-            words[11] = certificateGeneration;
+            words[9] = Convert.ToUInt32(
+                SigmaGeneratedFrame.CertificateFingerprint.Substring(0, 8), 16);
+            words[10] = 1u;
             return new SigmaDecodedPage(coordinate, generation, revision,
                 certificateOffset, 1u, 1u, certificateGeneration, 3u, 1u,
                 new[] { new SigmaCarrierRepresentationRecord(0, words) },

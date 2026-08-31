@@ -321,8 +321,16 @@ namespace Genesis.RoomScan.Tests
                 GraphicsBuffer.Target.Structured, 2, sizeof(uint));
             using var root = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint));
+            using var residentLocator = new GraphicsBuffer(
+                GraphicsBuffer.Target.Raw, 16,
+                SigmaCarrierResidencyAbi.LocatorStride);
+            using var residentSlotTable = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 2,
+                SigmaCarrierResidencyAbi.SlotStride);
             var batch = new SigmaCarrierReadBatch(0, 2, 0, state,
-                representation, metadata, dirty, readoutDirty, root);
+                representation, metadata, dirty, readoutDirty, root,
+                residentLocator, residentSlotTable, 16, 2,
+                new SigmaCarrierRuntimeState());
             using var cache = new SigmaRenderer.SegmentReadoutCache(batch);
 
             Assert.That(cache.GenerationCount, Is.EqualTo(2));

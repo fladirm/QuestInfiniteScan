@@ -1,6 +1,6 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-08-31 (Europe/Prague)
+Updated: 2026-09-02 (Europe/Prague)
 
 ## Authority
 
@@ -12,13 +12,246 @@ Updated: 2026-08-31 (Europe/Prague)
   complete 24-assignment representation-only `Z² semidirect D4` chart theorem.
   Corrective N2R-7 proves the same set operation on CPU and Vulkan with
   Runtime/Resources `+0/-0`; N3R remains the accepted live bootstrap and the N4.2R
-  XR execution/lifecycle cut is physically accepted. S4‑08 remains in progress
-  because N5 durable backing is still pending/unopened; S4-09 is also unopened.
+  XR execution/lifecycle cut is physically accepted. N5R A--E is now the active
+  representation-aware durable-backing cut; its two-binding-bank static candidate
+  is green and final physical Quest continuation/restart/clear evidence is still
+  pending. S4-09 is unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
 - Forensic facts and replacement matrix: `analyza.md`.
 - S4‑09 remains pending/unopened.
+
+## Active N5R durable-backing device candidate
+
+N5R retains the accepted N4.2R algebra, sixteen logical dispatches, seven queue-1
+slices, immutable FRONT readout, 5 Hz admission and fixed sensor aperture. The
+active candidate changes backing/lifecycle only:
+
+```text
+durable selector       HEAD -> immutable RootObject
+logical directory      immutable sparse 16-way/32-level COW radix-Merkle map
+page authority         PageRecord -> SHA-256(canonical EncodePage bytes)
+GPU residency          two fixed binding banks behind one full-key sparse locator
+                       and one dense ResidentSlotTable
+states                 ABSENT / COLD / LOADING / HOT_CLEAN / HOT_DIRTY /
+                       EVICTING / QUARANTINED
+cold execution         three separately reason-coded native pipelines
+capacity continuation  retain observation -> durable prior root -> legal eviction /
+                       exact rehydrate -> same NativeClose replay
+publication            GPU root-last remains distinct from durable HEAD-last
+```
+
+The live persistence path stages only dirty pages through the exact existing page
+codec; `EncodeSnapshot` has no production caller. Immutable objects and RootObject
+are flushed before a same-filesystem atomic HEAD rename, followed by directory
+`fsync`. Hashes remain locators/integrity evidence only; every lookup validates full
+logical key, generations, fingerprints and complete canonical bytes. Cache misses
+distinguish `COLD_DURABLE` from `ABSENT_IN_ROOT`; missing/stale/corrupt support
+summaries conservatively request load.
+
+Current verified evidence from the coherent dirty candidate:
+
+```text
+Unity Vulkan EditMode                                      165 / 165 PASS
+generator/check                                                       PASS
+Quest hot graph                                         14 entrypoints / 16 dispatches
+Quest production SPIR-V / spirv-val                         16 / 16 PASS
+native executor embedded pipelines                   16 hot / 3 cold PASS
+production UAV maximum                                             <= 8
+git diff --check                                                       PASS
+10,000 no-change durable revisits                    zero durable growth PASS
+crash boundaries / collision / lifetime / cold-vs-absent             PASS
+generated PREDICTION_SUPPORT plan / exact codec-hull parity            PASS
+incremental full-key support index / 10,000 same-key updates           PASS
+```
+
+The complete 803-line `SigmaCarrierCodec.compute`, both included ABI/math
+programs, generated tables, all five kernel entrypoints, native executor bindings
+and directly affected codec/durable tests were manually reviewed before the final
+shader correction. Unity's Android compiler rejected a storage-count-derived early
+return before group barriers in `EncodeDirtyPageBlocks`; inactive bounded cold
+groups now execute the same synchronization trace with descriptor publication
+masked by `active=0`. The exact codec arithmetic and staged bytes are unchanged.
+The first physical candidate published GPU root/revision 1 and completed all 16
+hot dispatches, then correctly stopped before durable HEAD publication because the
+CPU page decoder incorrectly treated certificate identity word `w` as a per-sample
+certificate generation. Production certificates intentionally preserve/clear that
+word independently; certificate generation is page metadata. The validator now
+checks generation only at page level, production-shaped codec fixtures retain the
+exact certificate identity payload, and the complete Unity Vulkan corpus passes
+`153/153`. The corrected device candidate then published GPU root 1 and completed
+its cold page encode, exposing a platform-only HEAD durability bug before the
+selector swap: Android arm64 defines `O_DIRECTORY` as octal `040000` (`0x4000`),
+not the Linux host value `0x10000`. Directory fsync now selects the host Linux ABI
+inside Editor/Standalone and the Android arm ABI only in the player. The focused
+ABI gate plus the complete Unity Vulkan corpus pass `154/154`; the hot graph and
+shader bytes remain unchanged.
+
+The corrected exact-SHA Quest candidate advanced durable HEAD on every accepted
+revision, converted the former `0x120` resident stop into bounded clean eviction
+and exact retained-observation replay, and continued through root 97 / extent
+564050 before restart. Restart selected durable HEAD 97 with 138 logical pages,
+rehydrated the bounded 56 resident pairs in 32+24 batches and continued through
+root 111 / extent 648545. This exceeds the former 229376-sample resident limit by
+more than 2.8x while physical residency remains bounded. KGSL, MMU, device-lost,
+fence-timeout, revision-mismatch and root-regression counts are zero.
+
+Device telemetry also exposed storage/codec execution defects rather than an N4
+hot regression. One changed logical page created the required blob plus two bounded
+32-level COW paths, but each immutable object separately used `Flush(true)` and a
+directory `fsync`; the same staged page was then fully decoded/re-encoded in two
+adjacent validation layers. Durable commits therefore took roughly 1--3.7 seconds.
+The correction keeps every exact object, hash, COW node, RootObject and HEAD selector
+unchanged: one transaction installs immutable objects behind one filesystem
+durability barrier, publishes separately flushed/renamed/fsynced HEAD last, and
+retains one authoritative GPU-stage-vs-CPU-EncodePage parity proof.
+
+The first exact batching APK exposed a separate restart defect before scanner shell
+readiness: opening HEAD synchronously walked the full durable world repeatedly and
+performed DecodePage/EncodePage/DecodePage again per blob, consuming one CPU core
+for more than 67 seconds. Restart now still reads and SHA-256 verifies every complete
+reachable immutable blob, but validates encoded framing/fingerprints/PageRecord
+metadata without reconstructing 4096 S16 samples. The same one-pass sorted inventory
+and active-sample extent feed startup restore, eliminating two more world walks.
+Focused durable/crash/framing/cache tests pass 18/18, the full Unity Vulkan corpus
+passes 155/155, generator/check, <=8 UAV, graph 14/16 and Quest SPIR-V/spirv-val
+16/16 pass. The first optimized Quest measurement reduced startup HEAD open from
+more than 67 seconds to 7.10 seconds, but dirty commits still scaled by hundreds of
+milliseconds per page. Source audit found a complete redundant `EncodePage` used
+only to synthesize a PageBlob hash that query-support validation never consumes,
+plus duplicate SHA-256 of every COW node after the object store had already verified
+the same immutable bytes. Both repetitions are removed without changing any durable
+byte or selector. The remaining per-page CPU codec pass only re-selected a mode
+from the same already-decoded staged blocks; live commit now uses the separately
+proved bit-exact `EncodePageFromBlocks` direct equivalent, retaining complete
+descriptor/range/payload decode/framing/fingerprint/metadata validation. Multi-page
+commit now applies all dirty leaves in one radix traversal, so shared prefixes are
+materialized once rather than producing unreachable intermediate COW nodes; a
+permuted batch test proves the final root equals sequential insertion exactly.
+Telemetry separates cold `encodeWallMs`, exact CPU `validateCpuMs`, residual stage
+time and `commitMs`. Focused durable tests pass 19/19, full Vulkan 156/156,
+generator/check, <=8 UAV, graph 14/16 and Quest SPIR-V 16/16 remain green. The exact
+next action is an exact-SHA Release Quest measurement of those split latencies,
+followed by explicit-clear, cold-revisit and XR cold-work gates. N6R and S4-09
+remain unopened.
+
+The first long Quest candidate also proved that a naturally cold supported page
+could never be requested: prediction raster visits resident FRONT/BACK readout,
+while the durable v1 support receipt carried no spatial execution bound. The
+active candidate now generates a program-fingerprinted zero-false-negative
+`PREDICTION_SUPPORT` plan, stores an exact packed-Q16.48 projective hull beside
+each staged page, and rebuilds one disposable incremental AVL broad phase from
+those small summaries. Missing, legacy, stale or corrupt summaries remain
+unbounded MAY-CONTRIBUTE entries. Before sensor admission, selected full page
+generations and readout halo pages are revalidated against pinned HEAD; cold
+generations use the existing exact pager and publication-last rehydrate path.
+Scanner prediction is source-proven to use identity pose gauge, so the dual-eye
+session frustum and durable projective hull share the exact readout coordinate
+domain. This index decides residency only; the unchanged GPU native graph still
+decides exact prediction support and mutation. The post-change complete Unity
+Vulkan corpus passes 163/163; generator/check, <=8 UAV, hot graph 14/16, Quest
+SPIR-V/spirv-val 16/16 and embedded 16-hot/3-cold pipelines pass. The exact next
+gate is one committed-SHA Release APK followed by fresh-v2 clear/long scan,
+physically evicted supported-region revisit with observed `COLD_REHYDRATE`,
+restart, explicit clear and XR cold-work evidence. N6R and S4-09 remain unopened.
+
+The same candidate was installed once over the 448-page legacy world. It verified
+686,398,878 reachable PageBlob bytes and restored durable root 423 / extent
+1,832,063 into 56 resident pairs without a fault, but device telemetry measured
+`openMs=17643.732` on the Unity initialization thread. Complete HEAD verification
+is now started as one background Task before module publication. XR may present the
+initializing shell while it runs; scanner admission and explicit clear await the
+same task, and carrier/pager modules become visible only after complete verified
+HEAD publication. No filesystem gate, object verification or restart state was
+removed. The post-change Unity Vulkan corpus remains 163/163 PASS; a rebuilt exact-
+SHA Quest restart must prove `unityThreadBlocked=0` before acceptance.
+
+The exact fresh-v2 device run then selected empty durable HEAD revision 424,
+advanced through root 479 / extent 226373 and converted the next accepted
+`0x120` at revision 480 into bounded clean eviction plus replay of the same
+retained transaction. Root 480 published at extent 234308, beyond the former
+229376 resident limit, with zero unresolved/fault receipt. The resulting 480-page
+world exposed a distinct main-thread execution defect: a conservative 58-page
+support working set correctly exceeded the 56-pair cache and backpressured
+admission, but every retry re-walked each selected page and three halo neighbours
+through the 32-level immutable Merkle tree using synchronous file reads. XR fell
+to 2 FPS although queue-1 GPU utilization was low. The current narrow correction
+adds only a disposable exact current-HEAD PageRecord dictionary, root-hash bound
+to the fully verified inventory and incrementally advanced by dirty PageRecords
+after HEAD-last publication. Old pinned roots retain immutable-Merkle lookup;
+missing current keys remain exact absence and never become ZEmpty. Repeated
+backpressure logging is transition/interval limited and reports selection time.
+Unity Vulkan passes 163/163, generator/check and <=8 UAV pass, hot graph remains
+14/16 and Quest SPIR-V/spirv-val passes 16/16. The exact next gate is a committed-
+SHA Quest restart and same-view backpressure run proving sub-frame support
+selection and live XR, followed by natural cold rehydrate/revisit and final N5
+device closure.
+
+That same evidence proves the 58-page support set is semantically valid but cannot
+fit the original 56-pair physical cache. The current narrow candidate therefore
+adds exactly one second equal Vulkan storage-binding bank. Each bank is individually
+capped by `min(SystemInfo.maxGraphicsBufferSize, 128 MiB)`; on Quest the expected
+representation binding is about 126 MiB for 112 physical pages. Both banks share
+one publication root, one durable HEAD/PageRecord directory, one full-key sparse
+locator, one dense `ResidentSlotTable` and one runtime completion authority.
+Segment, bank and physical slot remain execution locators only. Native close reads
+both banks, writes exactly one selected target bank, and preserves the old physical
+copy until HEAD-last durability and completion-gated bank-local retirement. Cold
+upload batches never cross banks. The accepted N4 algebra, entrypoints, sixteen
+logical dispatches, frame pacing and FRONT/BACK readout are unchanged. Focused
+pager passes 13/13, carrier 11/11, native frame 44/44 including byte-exact bank-1
+clone, and the complete Unity Vulkan corpus passes 165/165. Generator/check, <=8
+UAV, hot graph 14/16, Quest SPIR-V/spirv-val 16/16 and embedded executor pipelines
+16 hot + 3 cold pass. Exact-SHA Release build/install and a same-view Quest run must
+now prove startup restore beyond 56 pairs, ordinary root progress, former-0x120
+continuation, cold revisit, restart/clear and fault-free XR before N5R acceptance.
+
+The first two-bank Quest restore verified durable HEAD revision 486 / extent
+265451 with 65 resident pairs and `openMs=2484.481`, `unityThreadBlocked=0`.
+Revision 487 then failed closed with `PageFault 0x1`: native target selection chose
+the bank with most free pairs rather than the bank owning the exact partially filled
+append-tail generation, so that target could not clone the already durable samples
+before appending. The current narrow correction makes the resident append-tail bank
+the unique execution target until the extent reaches a page boundary, and capacity
+eviction frees that same bank only. This changes no logical coordinate, page byte,
+root, sparse locator or algebra. Focused pager passes 14/14 and the complete Unity
+Vulkan corpus passes 167/167; generator/check, <=8 UAV, graph 14/16 and Quest
+SPIR-V/spirv-val 16/16 pass.
+
+The same device capture proved a separate system-frame lifecycle defect: each app
+launch restored the old durable carrier but created and persisted a new
+`OVRSpatialAnchor`, so the readout inherited a different room frame. The active
+candidate stores the successfully persisted system-anchor UUID, reloads/localizes
+that exact UUID before scan admission, and pauses admission while the same anchor
+is untracked across sleep/resume. `RoomSpaceRoot` and immutable FRONT remain the
+only presentation frame; the anchor UUID is lifecycle metadata and never enters
+canonical carrier bytes. The first upgraded launch establishes one migration
+anchor because older builds stored no selector; subsequent restart and sleep/wake
+must prove the same UUID and physical pose. Exact-SHA device progress beyond
+revision 487 plus restart/sleep anchor evidence remain the immediate gate.
+
+The exact `d866db5` Quest run physically closes the append-tail defect: restored
+HEAD 486 advanced normally through root 523, with every native receipt reporting
+`fault=0`, `unresolved=0` and no KGSL/MMU/device-lost/fence/revision/root failure.
+Restart then restored HEAD 523 and published root 524. The following stop at two
+new capture admissions is not the old page fault: a conservative 113-page support
+working set exceeds the two-bank 112-pair decoded cache and applies the frozen
+no-free-slot backpressure rule while the depth provider continues delivering
+frames.
+
+That evidence also invalidates the first-launch migration assumption. HEAD 486 was
+already nonempty before any build had persisted a system-anchor UUID, so its old
+room frame cannot be reconstructed from canonical page bytes. The current narrow
+lifecycle candidate now fails closed rather than create a new anchor over any
+nonempty durable object graph, establishes readiness only after five consecutive
+translation-and-rotation-stable tracked poses, and suppresses disposable FRONT
+presentation while the system anchor is unverified across sleep/resume. It changes
+no carrier byte, pager state, shader, N4 stage or queue. Unity Vulkan passes
+169/169; generator/check, <=8 UAV and Quest SPIR-V/spirv-val 16/16 pass. The exact
+next physical gate is explicit empty-HEAD selection followed by a clean anchored
+scan, sleep/wake pose proof and static-revisit support-growth measurement; no
+historical page is silently reframed or deleted.
 
 ## Active N4.1R Quest-first GPU cardinality closure
 

@@ -23,6 +23,8 @@ RWStructuredBuffer<uint2> _NativeFreshEvidenceWords;
 StructuredBuffer<SigmaNativeObservationGpu> _NativeObservations;
 StructuredBuffer<uint2> _NativeSourceCarrierState;
 StructuredBuffer<uint4> _NativeSourceCarrierRepresentation;
+StructuredBuffer<uint2> _NativeSourceCarrierState1;
+StructuredBuffer<uint4> _NativeSourceCarrierRepresentation1;
 RWStructuredBuffer<uint2> _NativeCloseScratch;
 
 RWStructuredBuffer<uint4> _NativeBranchHeaders;
@@ -60,6 +62,24 @@ uint _NativeCanonicalComponentScratchOffset;
 uint _NativeCanonicalComponentCapacity;
 uint _NativeCanonicalImageScratchOffset;
 uint _NativeCanonicalImageStride;
+uint _NativeSourceBankPageCapacity;
+
+uint2 SigmaN5ContractSourceState(uint globalAddress)
+{
+    uint bankWords = _NativeSourceBankPageCapacity * SIGMA_PAGE_LANE_COUNT;
+    return globalAddress < bankWords
+        ? _NativeSourceCarrierState[globalAddress]
+        : _NativeSourceCarrierState1[globalAddress - bankWords];
+}
+
+uint4 SigmaN5ContractSourceRepresentation(uint globalAddress)
+{
+    uint bankWords = _NativeSourceBankPageCapacity *
+        SIGMA_PAGE_SAMPLE_COUNT * SIGMA_REPRESENTATION_WORDS_PER_SAMPLE;
+    return globalAddress < bankWords
+        ? _NativeSourceCarrierRepresentation[globalAddress]
+        : _NativeSourceCarrierRepresentation1[globalAddress - bankWords];
+}
 
 #define SIGMA_NATIVE_CONTRACT_FRESH_LIFT 1u
 #define SIGMA_NATIVE_CONTRACT_FRESH_UNION 2u
@@ -333,9 +353,9 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
                 SigmaNativeFreshTeamPriorSample[team],
                 SIGMA_REPRESENTATION_CERTIFICATE + teamLane);
             SigmaNativeFreshPriorState[laneAddress] =
-                _NativeSourceCarrierState[stateAddress];
+                SigmaN5ContractSourceState(stateAddress);
             SigmaNativeFreshPriorCertificate[laneAddress] =
-                _NativeSourceCarrierRepresentation[certificateAddress];
+                SigmaN5ContractSourceRepresentation(certificateAddress);
         }
         else if (teamActive &&
             sourceKind == SIGMA_NATIVE_FRESH_SOURCE_COMPLETION)

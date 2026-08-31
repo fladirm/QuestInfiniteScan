@@ -156,6 +156,21 @@ namespace Genesis.RoomScan.SigmaPrism
         }
 
         public SigmaS16[] CopySamples() => (SigmaS16[])_samples.Clone();
+        internal SigmaS16 SampleAt(int index)
+        {
+            if ((uint)index >= SampleCount)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            return _samples[index];
+        }
+
+        internal int RepresentationCount => _representation.Length;
+        internal SigmaCarrierRepresentationRecord RepresentationAt(int index)
+        {
+            if ((uint)index >= (uint)_representation.Length)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            return _representation[index];
+        }
+
         public SigmaCarrierRepresentationRecord[] CopyRepresentation()
         {
             var copy = new SigmaCarrierRepresentationRecord[_representation.Length];
@@ -248,14 +263,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 uint level = words[4];
                 uint gaugeFlags = words[5];
                 uint certificateFlags = words[8];
-                uint certificateGeneration = words[11];
                 if (level > 62u ||
                     (gaugeFlags & ActiveGaugeFlags) != ActiveGaugeFlags ||
                     words[6] != chiWord || words[7] != kappaWord ||
                     (certificateFlags & RequiredCertificateFlags) !=
-                        RequiredCertificateFlags ||
-                    certificateGeneration == 0u ||
-                    certificateGeneration > CertificateGeneration)
+                        RequiredCertificateFlags)
                     throw new ArgumentException(
                         "Representation record failed its exact gauge/certificate contract.");
             }
@@ -276,6 +288,53 @@ namespace Genesis.RoomScan.SigmaPrism
         public SigmaBlockMode Mode { get; }
         public byte[] Payload { get; }
         public int PayloadBytes => Payload.Length;
+    }
+
+    /// <summary>
+    /// Exact immutable metadata recovered from a structurally complete encoded
+    /// page without materializing its 4096 S16 samples. Durable restart uses
+    /// this view after the complete object hash has already been verified.
+    /// </summary>
+    internal readonly struct SigmaEncodedPageHeader
+    {
+        internal SigmaEncodedPageHeader(SigmaCarrierPageCoordinate coordinate,
+            uint generation, uint revision, ulong certificateOffset,
+            uint certificateCount, uint gaugeGeneration,
+            uint certificateGeneration, uint representationFlags,
+            uint activeSampleCount, uint representationCount)
+        {
+            Coordinate = coordinate;
+            Generation = generation;
+            Revision = revision;
+            CertificateOffset = certificateOffset;
+            CertificateCount = certificateCount;
+            GaugeGeneration = gaugeGeneration;
+            CertificateGeneration = certificateGeneration;
+            RepresentationFlags = representationFlags;
+            ActiveSampleCount = activeSampleCount;
+            RepresentationCount = representationCount;
+        }
+
+        internal SigmaCarrierPageCoordinate Coordinate { get; }
+        internal uint Generation { get; }
+        internal uint Revision { get; }
+        internal ulong CertificateOffset { get; }
+        internal uint CertificateCount { get; }
+        internal uint GaugeGeneration { get; }
+        internal uint CertificateGeneration { get; }
+        internal uint RepresentationFlags { get; }
+        internal uint ActiveSampleCount { get; }
+        internal uint RepresentationCount { get; }
+
+        internal static SigmaEncodedPageHeader FromPage(SigmaDecodedPage page)
+        {
+            if (page == null) throw new ArgumentNullException(nameof(page));
+            return new SigmaEncodedPageHeader(page.Coordinate, page.Generation,
+                page.Revision, page.CertificateOffset, page.CertificateCount,
+                page.GaugeGeneration, page.CertificateGeneration,
+                page.RepresentationFlags, page.ActiveSampleCount,
+                checked((uint)page.RepresentationCount));
+        }
     }
 
     /// <summary>
@@ -355,58 +414,228 @@ namespace Genesis.RoomScan.SigmaPrism
             if (page == null)
                 throw new ArgumentNullException(nameof(page));
             var blocks = new SigmaEncodedBlock[SigmaDecodedPage.BlockCount];
+            for (int block = 0; block < blocks.Length; ++block)
+                blocks[block] = EncodeBlock(page.CopyBlock(block));
+            return EncodePageFromBlocks(page, blocks);
+        }
+
+        internal static byte[] EncodePageFromBlocks(SigmaDecodedPage page,
+            IReadOnlyList<SigmaEncodedBlock> blocks)
+        {
+            if (page == null)
+                throw new ArgumentNullException(nameof(page));
+            SigmaEncodedPageHeader header =
+                SigmaEncodedPageHeader.FromPage(page);
+            return EncodePageFromBlocksCore(header, blocks, writer =>
+            {
+                var packedWords = new byte[
+                    SigmaCarrierRepresentationRecord.WordCount * sizeof(uint)];
+                for (int index = 0; index < page.RepresentationCount; ++index)
+                {
+                    SigmaCarrierRepresentationRecord representation =
+                        page.RepresentationAt(index);
+                    writer.Write((ushort)representation.SampleIndex);
+                    WritePackedWords(writer, representation.Words, 0,
+                        packedWords);
+                }
+            });
+        }
+
+        internal static byte[] EncodePageFromStagedBlocks(
+            SigmaEncodedPageHeader header, uint[] representation,
+            int representationBase, IReadOnlyList<SigmaEncodedBlock> blocks)
+        {
+            if (representation == null)
+                throw new ArgumentNullException(nameof(representation));
+            int wordsPerRecord = SigmaCarrierRepresentationRecord.WordCount;
+            int representationWords = checked(
+                (int)header.RepresentationCount * wordsPerRecord);
+            if (representationBase < 0 ||
+                representationBase > representation.Length - representationWords)
+                throw new ArgumentOutOfRangeException(nameof(representationBase));
+            return EncodePageFromBlocksCore(header, blocks, writer =>
+            {
+                var packedWords = new byte[
+                    SigmaCarrierRepresentationRecord.WordCount * sizeof(uint)];
+                for (uint index = 0u; index < header.RepresentationCount; ++index)
+                {
+                    writer.Write(checked((ushort)index));
+                    int recordBase = checked(representationBase +
+                        (int)index * wordsPerRecord);
+                    WritePackedWords(writer, representation, recordBase,
+                        packedWords);
+                }
+            });
+        }
+
+        internal static void ValidateStagedRepresentationAndCoverage(
+            SigmaEncodedPageHeader header, uint[] representation,
+            int representationBase, IReadOnlyList<SigmaEncodedBlock> blocks)
+        {
+            if (representation == null)
+                throw new ArgumentNullException(nameof(representation));
+            if (blocks == null || blocks.Count != SigmaDecodedPage.BlockCount)
+                throw new ArgumentException(
+                    "A staged page contains exactly 64 encoded blocks.",
+                    nameof(blocks));
+            int wordsPerRecord = SigmaCarrierRepresentationRecord.WordCount;
+            int representationWords = checked(
+                (int)header.RepresentationCount * wordsPerRecord);
+            if (representationBase < 0 ||
+                representationBase > representation.Length - representationWords)
+                throw new ArgumentOutOfRangeException(nameof(representationBase));
+            uint chiWord = Convert.ToUInt32(
+                SigmaGeneratedFrame.ChiFingerprint.Substring(0, 8), 16);
+            uint kappaWord = Convert.ToUInt32(
+                SigmaGeneratedFrame.KappaFingerprint.Substring(0, 8), 16);
+            uint activeGaugeFlags =
+                (uint)(SigmaNativeGaugeCellFlags.Active |
+                    SigmaNativeGaugeCellFlags.Normalized);
+            uint requiredCertificateFlags =
+                (uint)(SigmaNativeCertificateFlags.Valid |
+                    SigmaNativeCertificateFlags.Minimized);
+            for (uint sample = 0u; sample < header.RepresentationCount; ++sample)
+            {
+                int recordBase = checked(representationBase +
+                    (int)sample * wordsPerRecord);
+                bool nonzero = false;
+                for (int word = 0; word < wordsPerRecord; ++word)
+                    nonzero |= representation[recordBase + word] != 0u;
+                if (!nonzero || representation[recordBase + 4] > 62u ||
+                    (representation[recordBase + 5] & activeGaugeFlags) !=
+                        activeGaugeFlags ||
+                    representation[recordBase + 6] != chiWord ||
+                    representation[recordBase + 7] != kappaWord ||
+                    (representation[recordBase + 8] &
+                        requiredCertificateFlags) != requiredCertificateFlags)
+                    throw new InvalidDataException(
+                        "Staged representation failed its exact " +
+                        "gauge/certificate contract.");
+            }
+
+            if (header.ActiveSampleCount == SigmaCarrier.SamplesPerPage)
+                return;
+            for (int block = 0; block < blocks.Count; ++block)
+            {
+                if (blocks[block].Mode == SigmaBlockMode.Null)
+                    continue;
+                int blockX = block & 7;
+                int blockY = block >> 3;
+                int first = blockY * SigmaDecodedPage.BlockSize *
+                    SigmaDecodedPage.PageSize +
+                    blockX * SigmaDecodedPage.BlockSize;
+                int last = first +
+                    (SigmaDecodedPage.BlockSize - 1) *
+                        SigmaDecodedPage.PageSize +
+                    SigmaDecodedPage.BlockSize - 1;
+                if ((uint)last < header.ActiveSampleCount)
+                    continue;
+                SigmaS16[] decoded = DecodeBlock(blocks[block]);
+                for (int y = 0; y < SigmaDecodedPage.BlockSize; ++y)
+                {
+                    for (int x = 0; x < SigmaDecodedPage.BlockSize; ++x)
+                    {
+                        int pageSample = first +
+                            y * SigmaDecodedPage.PageSize + x;
+                        if ((uint)pageSample >= header.ActiveSampleCount &&
+                            !decoded[y * SigmaDecodedPage.BlockSize + x].IsZero)
+                            throw new InvalidDataException(
+                                "State outside the active chi/kappa prefix " +
+                                "is not addressable.");
+                    }
+                }
+            }
+        }
+
+        private static byte[] EncodePageFromBlocksCore(
+            SigmaEncodedPageHeader header,
+            IReadOnlyList<SigmaEncodedBlock> blocks,
+            Action<BinaryWriter> writeRepresentation)
+        {
+            if (blocks == null || blocks.Count != SigmaDecodedPage.BlockCount)
+                throw new ArgumentException(
+                    "A staged page contains exactly 64 encoded blocks.",
+                    nameof(blocks));
+            if (writeRepresentation == null)
+                throw new ArgumentNullException(nameof(writeRepresentation));
             var offsets = new uint[SigmaDecodedPage.BlockCount + 1];
             uint payloadBytes = 0u;
-            for (int block = 0; block < blocks.Length; ++block)
+            for (int block = 0; block < blocks.Count; ++block)
             {
-                blocks[block] = EncodeBlock(page.CopyBlock(block));
+                Require(blocks[block].Mode <= SigmaBlockMode.Raw,
+                    "Invalid staged Sigma block mode.");
                 offsets[block] = payloadBytes;
                 payloadBytes = checked(payloadBytes +
                     (uint)blocks[block].PayloadBytes);
             }
-            offsets[blocks.Length] = payloadBytes;
+            offsets[blocks.Count] = payloadBytes;
 
-            int initialCapacity = payloadBytes <= (uint)(int.MaxValue - 512)
-                ? checked(512 + (int)payloadBytes)
-                : 0;
-            using var stream = new MemoryStream(initialCapacity);
+            const int fixedFramingBytes = 580;
+            int recordBytes = checked(sizeof(ushort) +
+                SigmaCarrierRepresentationRecord.WordCount * sizeof(uint));
+            int encodedBytes = checked(fixedFramingBytes +
+                (int)header.RepresentationCount * recordBytes +
+                (int)payloadBytes);
+            var encoded = new byte[encodedBytes];
+            using var stream = new MemoryStream(encoded, 0, encoded.Length,
+                writable: true, publiclyVisible: true);
             using var writer = new BinaryWriter(stream);
             writer.Write(PageMagic);
             writer.Write(SchemaVersion);
-            writer.Write(page.Coordinate.X);
-            writer.Write(page.Coordinate.Y);
-            writer.Write(page.Generation);
-            writer.Write(page.Revision);
-            writer.Write(page.CertificateOffset);
-            writer.Write(page.CertificateCount);
-            writer.Write(page.GaugeGeneration);
-            writer.Write(page.CertificateGeneration);
-            writer.Write(page.RepresentationFlags);
-            writer.Write(page.ActiveSampleCount);
+            writer.Write(header.Coordinate.X);
+            writer.Write(header.Coordinate.Y);
+            writer.Write(header.Generation);
+            writer.Write(header.Revision);
+            writer.Write(header.CertificateOffset);
+            writer.Write(header.CertificateCount);
+            writer.Write(header.GaugeGeneration);
+            writer.Write(header.CertificateGeneration);
+            writer.Write(header.RepresentationFlags);
+            writer.Write(header.ActiveSampleCount);
             WriteFingerprint(writer, SigmaS16Operators.BundleFingerprint);
             WriteFingerprint(writer, SigmaOperatorPlans.PlanBundleFingerprint);
             WriteFingerprint(writer, SigmaGeneratedFrame.RepresentationFingerprint);
             WriteFingerprint(writer, SigmaGeneratedFrame.ChiFingerprint);
             WriteFingerprint(writer, SigmaGeneratedFrame.KappaFingerprint);
             WriteFingerprint(writer, SigmaGeneratedFrame.CertificateFingerprint);
-            SigmaCarrierRepresentationRecord[] representation =
-                page.CopyRepresentation();
-            writer.Write((uint)representation.Length);
-            for (int index = 0; index < representation.Length; ++index)
-            {
-                writer.Write((ushort)representation[index].SampleIndex);
-                uint[] words = representation[index].Words;
-                for (int word = 0; word < words.Length; ++word)
-                    writer.Write(words[word]);
-            }
-            for (int block = 0; block < blocks.Length; ++block)
+            writer.Write(header.RepresentationCount);
+            writeRepresentation(writer);
+            for (int block = 0; block < blocks.Count; ++block)
                 writer.Write((byte)blocks[block].Mode);
             for (int index = 0; index < offsets.Length; ++index)
                 writer.Write(offsets[index]);
-            for (int block = 0; block < blocks.Length; ++block)
+            for (int block = 0; block < blocks.Count; ++block)
                 writer.Write(blocks[block].Payload);
             writer.Flush();
-            return stream.ToArray();
+            Require(stream.Position == encoded.Length,
+                "Sigma page encoder framing size mismatch.");
+            return encoded;
+        }
+
+        private static void WritePackedWords(BinaryWriter writer,
+            uint[] words, int wordBase, byte[] packed)
+        {
+            if (writer == null) throw new ArgumentNullException(nameof(writer));
+            if (words == null) throw new ArgumentNullException(nameof(words));
+            if (packed == null || packed.Length !=
+                SigmaCarrierRepresentationRecord.WordCount * sizeof(uint))
+                throw new ArgumentException(
+                    "Packed representation scratch has an invalid size.",
+                    nameof(packed));
+            if (wordBase < 0 || wordBase > words.Length -
+                    SigmaCarrierRepresentationRecord.WordCount)
+                throw new ArgumentOutOfRangeException(nameof(wordBase));
+            for (int word = 0;
+                word < SigmaCarrierRepresentationRecord.WordCount; ++word)
+            {
+                uint value = words[wordBase + word];
+                int offset = word * sizeof(uint);
+                packed[offset] = (byte)value;
+                packed[offset + 1] = (byte)(value >> 8);
+                packed[offset + 2] = (byte)(value >> 16);
+                packed[offset + 3] = (byte)(value >> 24);
+            }
+            writer.Write(packed);
         }
 
         public static SigmaDecodedPage DecodePage(byte[] bytes)
@@ -488,6 +717,157 @@ namespace Genesis.RoomScan.SigmaPrism
                 certificateOffset, certificateCount, gaugeGeneration,
                 certificateGeneration, representationFlags, activeSampleCount,
                 representation, pageSamples);
+        }
+
+        /// <summary>
+        /// Validates complete immutable encoded-page framing and returns exact
+        /// metadata without decoding or re-encoding S16 blocks. Canonicality was
+        /// proved before durable HEAD publication; the object SHA proves these
+        /// are the same complete bytes.
+        /// </summary>
+        internal static SigmaEncodedPageHeader ReadPageHeader(byte[] bytes)
+        {
+            if (bytes == null)
+                throw new ArgumentNullException(nameof(bytes));
+            try
+            {
+                using var stream = new MemoryStream(bytes, writable: false);
+                using var reader = new BinaryReader(stream);
+                Require(reader.ReadUInt32() == PageMagic,
+                    "Invalid Sigma page magic.");
+                Require(reader.ReadUInt32() == SchemaVersion,
+                    "Unsupported Sigma page schema.");
+                var coordinate = new SigmaCarrierPageCoordinate(
+                    reader.ReadInt64(), reader.ReadInt64());
+                uint generation = reader.ReadUInt32();
+                uint revision = reader.ReadUInt32();
+                ulong certificateOffset = reader.ReadUInt64();
+                uint certificateCount = reader.ReadUInt32();
+                uint gaugeGeneration = reader.ReadUInt32();
+                uint certificateGeneration = reader.ReadUInt32();
+                uint representationFlags = reader.ReadUInt32();
+                uint activeSampleCount = reader.ReadUInt32();
+                Require(ReadFingerprint(reader) ==
+                    SigmaS16Operators.BundleFingerprint,
+                    "Sigma algebra fingerprint mismatch.");
+                Require(ReadFingerprint(reader) ==
+                    SigmaOperatorPlans.PlanBundleFingerprint,
+                    "Sigma plan fingerprint mismatch.");
+                Require(ReadFingerprint(reader) ==
+                    SigmaGeneratedFrame.RepresentationFingerprint,
+                    "Sigma representation fingerprint mismatch.");
+                Require(ReadFingerprint(reader) ==
+                    SigmaGeneratedFrame.ChiFingerprint,
+                    "Sigma chi fingerprint mismatch.");
+                Require(ReadFingerprint(reader) ==
+                    SigmaGeneratedFrame.KappaFingerprint,
+                    "Sigma kappa fingerprint mismatch.");
+                Require(ReadFingerprint(reader) ==
+                    SigmaGeneratedFrame.CertificateFingerprint,
+                    "Sigma certificate fingerprint mismatch.");
+
+                uint representationCount = reader.ReadUInt32();
+                Require(representationCount <= SigmaDecodedPage.SampleCount,
+                    "Sigma representation record count is invalid.");
+                Require(activeSampleCount <= SigmaDecodedPage.SampleCount,
+                    "Sigma active sample count is invalid.");
+                if (representationFlags == 0u)
+                {
+                    Require(activeSampleCount == 0u && certificateCount == 0u &&
+                        gaugeGeneration == 0u && certificateGeneration == 0u &&
+                        representationCount == 0u,
+                        "Default backing carries partial representation metadata.");
+                }
+                else
+                {
+                    Require(representationFlags == 3u &&
+                        activeSampleCount != 0u &&
+                        representationCount == activeSampleCount &&
+                        certificateCount == activeSampleCount &&
+                        gaugeGeneration != 0u && certificateGeneration != 0u,
+                        "Represented page metadata is incomplete.");
+                }
+
+                long representationWordsBytes = checked(
+                    (long)SigmaCarrierRepresentationRecord.WordCount *
+                    sizeof(uint));
+                for (uint index = 0u; index < representationCount; ++index)
+                {
+                    Require(reader.ReadUInt16() == index,
+                        "Active representation samples are not a dense prefix.");
+                    SkipExact(stream, representationWordsBytes,
+                        "Truncated Sigma representation record.");
+                }
+
+                var modes = new SigmaBlockMode[SigmaDecodedPage.BlockCount];
+                for (int block = 0; block < modes.Length; ++block)
+                {
+                    modes[block] = (SigmaBlockMode)reader.ReadByte();
+                    Require(modes[block] <= SigmaBlockMode.Raw,
+                        "Invalid Sigma block mode.");
+                }
+                var offsets = new uint[SigmaDecodedPage.BlockCount + 1];
+                for (int index = 0; index < offsets.Length; ++index)
+                {
+                    offsets[index] = reader.ReadUInt32();
+                    if (index == 0)
+                        Require(offsets[index] == 0u,
+                            "Sigma payload does not begin at offset zero.");
+                    else
+                        Require(offsets[index] >= offsets[index - 1],
+                            "Sigma payload offsets are not monotone.");
+                }
+                long payloadStart = stream.Position;
+                Require(checked(payloadStart + offsets[offsets.Length - 1]) ==
+                    stream.Length, "Sigma page payload size mismatch.");
+
+                for (int block = 0; block < modes.Length; ++block)
+                {
+                    int length = checked((int)(offsets[block + 1] -
+                        offsets[block]));
+                    switch (modes[block])
+                    {
+                        case SigmaBlockMode.Null:
+                            Require(length == 0, "NULL block has a payload.");
+                            break;
+                        case SigmaBlockMode.Constant:
+                            Require(length == ConstantBlockBytes,
+                                "CONST payload size mismatch.");
+                            break;
+                        case SigmaBlockMode.Affine:
+                            Require(length == AffineBlockBytes,
+                                "AFFINE payload size mismatch.");
+                            break;
+                        case SigmaBlockMode.Raw:
+                            Require(length == RawBlockBytes,
+                                "RAW payload size mismatch.");
+                            break;
+                        case SigmaBlockMode.Delta:
+                            ValidateDeltaPayloadFraming(bytes,
+                                checked((int)(payloadStart + offsets[block])),
+                                length);
+                            break;
+                        default:
+                            throw new InvalidDataException(
+                                "Unknown Sigma block mode.");
+                    }
+                }
+
+                return new SigmaEncodedPageHeader(coordinate, generation,
+                    revision, certificateOffset, certificateCount,
+                    gaugeGeneration, certificateGeneration,
+                    representationFlags, activeSampleCount,
+                    representationCount);
+            }
+            catch (EndOfStreamException exception)
+            {
+                throw new InvalidDataException("Truncated Sigma page.", exception);
+            }
+            catch (OverflowException exception)
+            {
+                throw new InvalidDataException(
+                    "Sigma page framing exceeds its exact bounds.", exception);
+            }
         }
 
         public static byte[] EncodeSnapshot(IReadOnlyList<SigmaDecodedPage> pages)
@@ -802,6 +1182,33 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int sample = 0; sample < samples.Length; ++sample)
                 samples[sample] = ReadState(reader);
             return samples;
+        }
+
+        private static void ValidateDeltaPayloadFraming(byte[] bytes,
+            int offset, int length)
+        {
+            Require(length >= DeltaWidthBytes, "DELTA payload is truncated.");
+            Require(offset >= 0 && offset <= bytes.Length - length,
+                "DELTA payload range is invalid.");
+            long expectedBits = 0L;
+            for (int lane = 0; lane < SigmaS16.LaneCount; ++lane)
+            {
+                byte width = bytes[offset + lane];
+                Require(width <= 64,
+                    "DELTA residual width exceeds 64 bits.");
+                expectedBits = checked(expectedBits +
+                    (long)width * SigmaDecodedPage.SamplesPerBlock);
+            }
+            int expectedBytes = checked((int)((expectedBits + 7L) >> 3));
+            Require(length == DeltaWidthBytes + expectedBytes,
+                "DELTA bitstream size mismatch.");
+        }
+
+        private static void SkipExact(Stream stream, long bytes, string message)
+        {
+            long end = checked(stream.Position + bytes);
+            Require(bytes >= 0L && end <= stream.Length, message);
+            stream.Position = end;
         }
 
         private static int SignedBitWidth(long value)

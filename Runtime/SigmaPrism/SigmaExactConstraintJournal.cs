@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
-using System.Threading.Tasks;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -21,325 +19,6 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         Raw = 0u,
         Certificate = 1u,
-    }
-
-    /// <summary>
-    /// Durable owner for minimized unresolved factors. The frame thread hands
-    /// off bounded immutable deltas; a worker atomically replaces only affected
-    /// exact-key shards. It owns no physical field state.
-    /// </summary>
-    internal sealed class SigmaExactConstraintStore : IDisposable
-    {
-        private const uint MarkerMagic = 0x34534453u; // SDS4
-        private const uint MarkerVersion = 1u;
-        private const uint BucketMagic = 0x34424353u; // SCB4
-        private const uint BucketVersion = 1u;
-        private readonly object _gate = new();
-        private readonly string _path;
-        private readonly string _shardDirectory;
-        private readonly List<SigmaConstraintJournalDelta> _pending = new();
-        private SigmaExactConstraintJournal.Entry[] _migrationEntries;
-        private Task _writer;
-        private string _fault;
-        private bool _accepting = true;
-        private bool _sharded;
-
-        internal SigmaExactConstraintStore(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                throw new ArgumentException("A durable journal path is required.",
-                    nameof(path));
-            _path = path;
-            _shardDirectory = path + ".entries";
-        }
-
-        internal SigmaExactConstraintJournal Load()
-        {
-            lock (_gate)
-            {
-                if (!_accepting || _writer != null)
-                    throw new InvalidOperationException(
-                        "Journal load is legal only before persistence begins.");
-            }
-            if (File.Exists(_path) && IsShardMarker(File.ReadAllBytes(_path)))
-            {
-                if (!Directory.Exists(_shardDirectory))
-                    throw new InvalidDataException(
-                        "Constraint shard directory is missing.");
-                _sharded = true;
-                return LoadShards();
-            }
-            if (!File.Exists(_path))
-                return new SigmaExactConstraintJournal();
-            SigmaExactConstraintJournal legacy =
-                SigmaExactConstraintJournal.DecodeCanonical(
-                    File.ReadAllBytes(_path));
-            _migrationEntries = legacy.SnapshotEntries();
-            return legacy;
-        }
-
-        internal void Stage(SigmaExactConstraintJournal journal)
-        {
-            if (journal == null) throw new ArgumentNullException(nameof(journal));
-            SigmaConstraintJournalDelta[] deltas = journal.TakePendingDeltas();
-            if (deltas.Length == 0)
-                return;
-            lock (_gate)
-            {
-                if (!_accepting)
-                    throw new ObjectDisposedException(
-                        nameof(SigmaExactConstraintStore));
-                if (_fault != null)
-                    throw new IOException(_fault);
-                _pending.AddRange(deltas);
-                if (_writer == null)
-                    _writer = Task.Run(WritePending);
-            }
-        }
-
-        internal bool TryGetFault(out string error)
-        {
-            lock (_gate)
-            {
-                error = _fault;
-                return error != null;
-            }
-        }
-
-        public void Dispose()
-        {
-            Task writer;
-            lock (_gate)
-            {
-                if (!_accepting) return;
-                _accepting = false;
-                writer = _writer;
-            }
-            writer?.GetAwaiter().GetResult();
-        }
-
-        private void WritePending()
-        {
-            while (true)
-            {
-                SigmaConstraintJournalDelta[] deltas;
-                lock (_gate)
-                {
-                    if (_pending.Count == 0)
-                    {
-                        _writer = null;
-                        return;
-                    }
-                    deltas = _pending.ToArray();
-                    _pending.Clear();
-                }
-                try
-                {
-                    EnsureShardStore();
-                    deltas = Coalesce(deltas);
-                    // Phase one persists each exact certificate together with
-                    // every source it still owns. Only a completed atomic shard
-                    // replacement authorizes the certificate-only phase.
-                    for (int index = 0; index < deltas.Length; ++index)
-                        ApplyShardDelta(deltas[index].Key,
-                            deltas[index].Entry);
-                    for (int index = 0; index < deltas.Length; ++index)
-                    {
-                        SigmaConstraintJournalDelta delta = deltas[index];
-                        if (delta.Entry != null &&
-                            delta.Entry.Kind == SigmaConstraintEntryKind.Certificate &&
-                            delta.Entry.CanReleaseRaw)
-                        {
-                            ApplyShardDelta(delta.Key,
-                                delta.Entry.WithoutRaw());
-                            delta.Owner.AcknowledgeDurable(delta.Entry.Key,
-                                delta.Entry.Version);
-                        }
-                    }
-                }
-                catch (Exception exception)
-                {
-                    lock (_gate)
-                    {
-                        _fault = "Exact constraint persistence failed: " +
-                            exception.Message;
-                        _pending.Clear();
-                        _writer = null;
-                    }
-                    return;
-                }
-            }
-        }
-
-        private SigmaExactConstraintJournal LoadShards()
-        {
-            var result = new SigmaExactConstraintJournal();
-            string[] files = Directory.GetFiles(_shardDirectory, "*.scb",
-                SearchOption.TopDirectoryOnly);
-            for (int file = 0; file < files.Length; ++file)
-            {
-                List<SigmaExactConstraintJournal.Entry> entries =
-                    ReadBucket(files[file]);
-                for (int index = 0; index < entries.Count; ++index)
-                    result.AddPersistedEntry(entries[index]);
-            }
-            return result;
-        }
-
-        private void EnsureShardStore()
-        {
-            if (_sharded) return;
-            if (_migrationEntries == null)
-            {
-                if (Directory.Exists(_shardDirectory))
-                    Directory.Delete(_shardDirectory, true);
-                Directory.CreateDirectory(_shardDirectory);
-            }
-            else
-            {
-                string staging = _shardDirectory + ".next";
-                if (Directory.Exists(staging)) Directory.Delete(staging, true);
-                Directory.CreateDirectory(staging);
-                for (int index = 0; index < _migrationEntries.Length; ++index)
-                    ApplyShardDelta(_migrationEntries[index].Key,
-                        _migrationEntries[index], staging);
-                if (Directory.Exists(_shardDirectory))
-                    Directory.Delete(_shardDirectory, true);
-                Directory.Move(staging, _shardDirectory);
-                _migrationEntries = null;
-            }
-            WriteAtomic(_path, MarkerBytes());
-            _sharded = true;
-        }
-
-        private void ApplyShardDelta(SigmaConstraintByteKey key,
-            SigmaExactConstraintJournal.Entry replacement,
-            string directory = null)
-        {
-            string path = Path.Combine(directory ?? _shardDirectory,
-                BucketName(key));
-            List<SigmaExactConstraintJournal.Entry> entries = File.Exists(path)
-                ? ReadBucket(path)
-                : new List<SigmaExactConstraintJournal.Entry>();
-            int found = entries.FindIndex(entry => entry.Key.Equals(key));
-            if (replacement == null)
-            {
-                if (found >= 0) entries.RemoveAt(found);
-            }
-            else if (found >= 0)
-                entries[found] = replacement;
-            else
-                entries.Add(replacement);
-            if (entries.Count == 0)
-            {
-                if (File.Exists(path)) File.Delete(path);
-                return;
-            }
-            entries.Sort((left, right) => left.Key.CompareTo(right.Key));
-            WriteAtomic(path, EncodeBucket(entries));
-        }
-
-        private static SigmaConstraintJournalDelta[] Coalesce(
-            SigmaConstraintJournalDelta[] deltas)
-        {
-            var latest = new Dictionary<SigmaConstraintByteKey,
-                SigmaConstraintJournalDelta>();
-            for (int index = 0; index < deltas.Length; ++index)
-                if (!latest.TryGetValue(deltas[index].Key, out var prior) ||
-                    deltas[index].Version > prior.Version)
-                    latest[deltas[index].Key] = deltas[index];
-            var result = new List<SigmaConstraintJournalDelta>(latest.Values);
-            result.Sort((left, right) => left.Key.CompareTo(right.Key));
-            return result.ToArray();
-        }
-
-        private static byte[] EncodeBucket(
-            List<SigmaExactConstraintJournal.Entry> entries)
-        {
-            using var stream = new MemoryStream();
-            using var writer = new BinaryWriter(stream);
-            writer.Write(BucketMagic); writer.Write(BucketVersion);
-            writer.Write((uint)entries.Count);
-            for (int index = 0; index < entries.Count; ++index)
-                entries[index].Write(writer);
-            writer.Flush();
-            return stream.ToArray();
-        }
-
-        private static List<SigmaExactConstraintJournal.Entry> ReadBucket(
-            string path)
-        {
-            using var stream = new MemoryStream(File.ReadAllBytes(path), false);
-            using var reader = new BinaryReader(stream);
-            Require(reader.ReadUInt32() == BucketMagic &&
-                reader.ReadUInt32() == BucketVersion,
-                "Invalid constraint shard header.");
-            uint count = reader.ReadUInt32();
-            Require(count <= 4096u, "Invalid constraint shard count.");
-            var result = new List<SigmaExactConstraintJournal.Entry>((int)count);
-            for (uint index = 0; index < count; ++index)
-                result.Add(SigmaExactConstraintJournal.Entry.Read(reader));
-            Require(stream.Position == stream.Length,
-                "Trailing constraint shard bytes.");
-            return result;
-        }
-
-        private static string BucketName(SigmaConstraintByteKey key)
-        {
-            byte[] digest;
-            using (SHA256 sha = SHA256.Create())
-                digest = sha.ComputeHash(key.Bytes);
-            const string hex = "0123456789abcdef";
-            var name = new char[digest.Length * 2 + 4];
-            for (int index = 0; index < digest.Length; ++index)
-            {
-                name[index * 2] = hex[digest[index] >> 4];
-                name[index * 2 + 1] = hex[digest[index] & 15];
-            }
-            name[name.Length - 4] = '.'; name[name.Length - 3] = 's';
-            name[name.Length - 2] = 'c'; name[name.Length - 1] = 'b';
-            return new string(name);
-        }
-
-        private static byte[] MarkerBytes()
-        {
-            using var stream = new MemoryStream(8);
-            using var writer = new BinaryWriter(stream);
-            writer.Write(MarkerMagic); writer.Write(MarkerVersion);
-            return stream.ToArray();
-        }
-
-        private static bool IsShardMarker(byte[] bytes)
-        {
-            if (bytes == null || bytes.Length != 8) return false;
-            using var reader = new BinaryReader(new MemoryStream(bytes, false));
-            return reader.ReadUInt32() == MarkerMagic &&
-                reader.ReadUInt32() == MarkerVersion;
-        }
-
-        private static void WriteAtomic(string path, byte[] snapshot)
-        {
-            string directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory))
-                Directory.CreateDirectory(directory);
-            string temporary = path + ".next";
-            using (var stream = new FileStream(temporary, FileMode.Create,
-                       FileAccess.Write, FileShare.None, 4096,
-                       FileOptions.WriteThrough))
-            {
-                stream.Write(snapshot, 0, snapshot.Length);
-                stream.Flush(true);
-            }
-            if (File.Exists(path))
-                File.Replace(temporary, path, null);
-            else
-                File.Move(temporary, path);
-        }
-
-        private static void Require(bool condition, string message)
-        {
-            if (!condition) throw new InvalidDataException(message);
-        }
     }
 
     /// <summary>
@@ -703,7 +382,6 @@ namespace Genesis.RoomScan.SigmaPrism
         private readonly Dictionary<SigmaConstraintByteKey, Entry> _entries = new();
         private readonly Dictionary<SigmaConstraintByteKey,
             List<SigmaConstraintByteKey>> _rawContexts = new();
-        private readonly Dictionary<SigmaConstraintByteKey, long> _dirty = new();
         private long _version;
 
         internal int Count { get { lock (_gate) return _entries.Count; } }
@@ -730,13 +408,11 @@ namespace Genesis.RoomScan.SigmaPrism
                         long version = ++_version;
                         _entries[certificate.Key] = existing.WithCertificate(met,
                             record, version);
-                        _dirty[certificate.Key] = version;
                         return SigmaConstraintAdmission.ReplacedWeaker;
                     }
                     long addedVersion = ++_version;
                     _entries.Add(certificate.Key, Entry.CertificateEntry(
                         certificate, record, addedVersion));
-                    _dirty[certificate.Key] = addedVersion;
                     return SigmaConstraintAdmission.Added;
                 }
                 return AddRaw(record, false);
@@ -758,6 +434,56 @@ namespace Genesis.RoomScan.SigmaPrism
                     entries[index].Write(writer);
                 writer.Flush();
                 return stream.ToArray();
+            }
+        }
+
+        internal SigmaConstraintDurabilitySnapshot EncodeDurableCanonical()
+        {
+            lock (_gate)
+            {
+                Entry[] entries = new List<Entry>(_entries.Values).ToArray();
+                Array.Sort(entries, (left, right) =>
+                    left.Key.CompareTo(right.Key));
+                var acknowledgements =
+                    new List<SigmaConstraintDurabilityAck>();
+                using var stream = new MemoryStream();
+                using var writer = new BinaryWriter(stream);
+                writer.Write(Magic);
+                writer.Write(Version);
+                writer.Write((uint)entries.Length);
+                for (int index = 0; index < entries.Length; ++index)
+                {
+                    Entry entry = entries[index];
+                    if (entry.CanReleaseRaw && entry.RawRecords.Length != 0)
+                    {
+                        acknowledgements.Add(new SigmaConstraintDurabilityAck(
+                            entry.Key, entry.Version));
+                        entry = entry.WithoutRaw();
+                    }
+                    entry.Write(writer);
+                }
+                writer.Flush();
+                return new SigmaConstraintDurabilitySnapshot(stream.ToArray(),
+                    acknowledgements.ToArray());
+            }
+        }
+
+        internal void AcknowledgeDurable(
+            SigmaConstraintDurabilitySnapshot snapshot)
+        {
+            if (!snapshot.IsValid)
+                return;
+            lock (_gate)
+            {
+                foreach (SigmaConstraintDurabilityAck acknowledgement in
+                    snapshot.Acknowledgements)
+                {
+                    if (_entries.TryGetValue(acknowledgement.Key,
+                            out Entry entry) &&
+                        entry.Version == acknowledgement.Version &&
+                        entry.CanReleaseRaw && entry.RawRecords.Length != 0)
+                        _entries[acknowledgement.Key] = entry.WithoutRaw();
+                }
             }
         }
 
@@ -800,55 +526,8 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             lock (_gate)
             {
-                _entries.Clear(); _rawContexts.Clear(); _dirty.Clear();
-            }
-        }
-
-        internal SigmaConstraintJournalDelta[] TakePendingDeltas()
-        {
-            lock (_gate)
-            {
-                var result = new List<SigmaConstraintJournalDelta>(_dirty.Count);
-                foreach (KeyValuePair<SigmaConstraintByteKey, long> dirty in _dirty)
-                    result.Add(new SigmaConstraintJournalDelta(this, dirty.Key,
-                        _entries.TryGetValue(dirty.Key, out Entry entry)
-                            ? entry.Snapshot() : null, dirty.Value));
-                _dirty.Clear();
-                return result.ToArray();
-            }
-        }
-
-        internal Entry[] SnapshotEntries()
-        {
-            lock (_gate)
-            {
-                var result = new Entry[_entries.Count];
-                int index = 0;
-                foreach (Entry entry in _entries.Values)
-                    result[index++] = entry.Snapshot();
-                return result;
-            }
-        }
-
-        internal void AddPersistedEntry(Entry entry)
-        {
-            if (entry == null) throw new ArgumentNullException(nameof(entry));
-            lock (_gate)
-            {
-                Require(!_entries.ContainsKey(entry.Key),
-                    "Duplicate persisted constraint key.");
-                AddDecodedEntry(entry);
-            }
-        }
-
-        internal void AcknowledgeDurable(SigmaConstraintByteKey key, long version)
-        {
-            lock (_gate)
-            {
-                if (_entries.TryGetValue(key, out Entry entry) &&
-                    entry.Version == version && entry.CanReleaseRaw &&
-                    entry.RawRecords.Length != 0)
-                    _entries[key] = entry.WithoutRaw();
+                _entries.Clear();
+                _rawContexts.Clear();
             }
         }
 
@@ -875,7 +554,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 {
                     _entries.Remove(key);
                     bucket.RemoveAt(index);
-                    _dirty[key] = ++_version;
+                    ++_version;
                     removedWeaker = true;
                 }
             }
@@ -883,7 +562,6 @@ namespace Genesis.RoomScan.SigmaPrism
             long version = ++_version;
             _entries[rawKey] = Entry.RawEntry(rawKey, record, version);
             bucket.Add(rawKey);
-            _dirty[rawKey] = version;
             if (incompatible)
                 return SigmaConstraintAdmission.IncompatibleRetained;
             return removedWeaker ? SigmaConstraintAdmission.ReplacedWeaker :
@@ -1057,15 +735,31 @@ namespace Genesis.RoomScan.SigmaPrism
         }
     }
 
-    internal readonly struct SigmaConstraintJournalDelta
+    internal readonly struct SigmaConstraintDurabilitySnapshot
     {
-        internal SigmaConstraintJournalDelta(SigmaExactConstraintJournal owner,
-            SigmaConstraintByteKey key, SigmaExactConstraintJournal.Entry entry,
+        internal SigmaConstraintDurabilitySnapshot(byte[] bytes,
+            SigmaConstraintDurabilityAck[] acknowledgements)
+        {
+            Bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
+            Acknowledgements = acknowledgements ?? throw new
+                ArgumentNullException(nameof(acknowledgements));
+        }
+
+        internal byte[] Bytes { get; }
+        internal SigmaConstraintDurabilityAck[] Acknowledgements { get; }
+        internal bool IsValid => Bytes != null;
+    }
+
+    internal readonly struct SigmaConstraintDurabilityAck
+    {
+        internal SigmaConstraintDurabilityAck(SigmaConstraintByteKey key,
             long version)
-        { Owner = owner; Key = key; Entry = entry; Version = version; }
-        internal SigmaExactConstraintJournal Owner { get; }
+        {
+            Key = key ?? throw new ArgumentNullException(nameof(key));
+            Version = version;
+        }
+
         internal SigmaConstraintByteKey Key { get; }
-        internal SigmaExactConstraintJournal.Entry Entry { get; }
         internal long Version { get; }
     }
 

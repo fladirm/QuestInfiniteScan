@@ -56,6 +56,8 @@ namespace Genesis.RoomScan
         private DebugMenuController _debugMenu;
         private IRoomScanModule[] _modules;
         private SigmaExactBackendGate _exactBackendGate;
+        private Task _moduleInitializationTask;
+        private bool _modulesInitialized;
         private Task _startTask = Task.CompletedTask;
         private uint _lifecycleGeneration;
         private bool _resourcesReleased;
@@ -78,6 +80,8 @@ namespace Genesis.RoomScan
         public DebugMenuController DebugMenu => _debugMenu;
         public bool ScanResourcesReleased => _resourcesReleased;
         public SigmaExactBackendGate ExactBackendGate => _exactBackendGate;
+        public bool IsRoomAnchorReady => _roomAnchor != null &&
+            _roomAnchor.IsSpatialAnchorReady;
 
         public event Action ScanStarted;
         public event Action ScanStopped;
@@ -116,41 +120,60 @@ namespace Genesis.RoomScan
                 return;
             }
 
+            _moduleInitializationTask = InitializeModulesAsync();
+            ObserveModuleInitialization(_moduleInitializationTask);
+        }
+
+        private async Task InitializeModulesAsync()
+        {
             try
             {
                 _ = SigmaOperatorSet.Canonical;
                 _exactBackendGate = SigmaExactBackendGate.Dispatch();
+                _modules = GetComponents<IRoomScanModule>();
+                // Reachable-object SHA/framing validation can scale with the
+                // durable world. It owns no Unity object and therefore runs on a
+                // worker while XR keeps presenting the initialization shell.
+                await _carrier.PrepareDurableStoreAsync();
+                foreach (IRoomScanModule module in _modules)
+                    module.OnModuleInitialize(this);
+                _modulesInitialized = true;
+                Logger.Info("Σ-PRISM-16 Quest shell ready; scanner awaits Start.");
             }
             catch (Exception exception)
             {
-                LastScanStartError = "Exact S16 backend initialization failed: " +
+                LastScanStartError = "Sigma module initialization failed: " +
                     exception.Message;
                 Logger.Error(LastScanStartError);
                 enabled = false;
-                return;
+                throw;
             }
+        }
 
-            _modules = GetComponents<IRoomScanModule>();
-            foreach (IRoomScanModule module in _modules)
-                module.OnModuleInitialize(this);
-            Logger.Info("Σ-PRISM-16 Quest shell ready; scanner awaits Start.");
+        private static async void ObserveModuleInitialization(Task task)
+        {
+            try { await task; }
+            catch { /* InitializeModulesAsync owns the surfaced error. */ }
         }
 
         private void Update()
         {
             if (ScanLifecycle != ScanLifecycleState.Running ||
                 _sigmaInverse == null || _sigmaRenderer == null ||
+                _roomAnchor == null || !_roomAnchor.IsSpatialAnchorReady ||
                 !_sigmaInverse.CanAcceptScheduledObservation)
                 return;
 
             double now = Time.realtimeSinceStartupAsDouble;
-            if (now < _nextScanAdmissionTime ||
-                !_sigmaInverse.TryScheduleLatestObservation())
+            if (now < _nextScanAdmissionTime)
                 return;
 
             // Match the donor's fixed-cadence admission: missed ticks never queue
-            // or catch up. The immutable published-root draw remains XR-cadenced.
+            // or catch up. A backpressured/no-source attempt consumes this tick;
+            // otherwise a due tick would retry on every XR frame. The immutable
+            // published-root draw remains XR-cadenced.
             _nextScanAdmissionTime = NextScanAdmissionTime(now, scanHz);
+            _sigmaInverse.TryScheduleLatestObservation();
         }
 
         private void OnDisable()
@@ -184,6 +207,16 @@ namespace Genesis.RoomScan
         {
             try
             {
+                Task initialization = _moduleInitializationTask ??
+                    throw new InvalidOperationException(
+                        "Sigma module initialization has not started.");
+                await initialization;
+                if (!_modulesInitialized)
+                    throw new InvalidOperationException(
+                        "Sigma modules did not reach a published ready state.");
+                if (generation != _lifecycleGeneration ||
+                    ScanLifecycle != ScanLifecycleState.Starting)
+                    return;
                 _resourcesReleased = false;
                 bool cameraPermission =
                     await PassthroughCameraProvider.RequestCameraPermissionAsync();
@@ -262,6 +295,9 @@ namespace Genesis.RoomScan
         internal static double NextScanAdmissionTime(double submittedAt,
             float frequencyHz) => submittedAt + 1.0 / Math.Max(1.0, frequencyHz);
 
+        internal static bool MayCreateNewSpatialAnchor(
+            bool durableWorldHasContent) => !durableWorldHasContent;
+
         public void ToggleScanning()
         {
             if (ScanLifecycle == ScanLifecycleState.Starting)
@@ -293,12 +329,26 @@ namespace Genesis.RoomScan
             SetRenderMode(ScanRenderMode.None);
         }
 
-        public void ClearAllDataAsync(Action onComplete = null)
+        public async void ClearAllDataAsync(Action onComplete = null)
         {
-            // S4-00 has no durable reconstruction. Exact carrier publication and
-            // clearing are introduced together by S4-10, never through a fallback.
             ClearScan();
-            onComplete?.Invoke();
+            try
+            {
+                if (_moduleInitializationTask != null)
+                    await _moduleInitializationTask;
+                if (!_modulesInitialized)
+                    throw new InvalidOperationException(
+                        "Sigma modules are not ready for durable clear.");
+                if (_sigmaInverse != null)
+                    await _sigmaInverse.ClearDurableWorldAsync();
+                onComplete?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                LastScanStartError = "Durable clear failed: " +
+                    exception.Message;
+                Logger.Error(LastScanStartError);
+            }
         }
 
         public void SetRenderMode(ScanRenderMode mode)
@@ -330,7 +380,30 @@ namespace Genesis.RoomScan
             if (_roomAnchor == null)
                 return false;
             if (_roomAnchor.HasSpatialAnchor)
+                return await _roomAnchor.WaitForSpatialAnchorReadyAsync();
+            if (_roomAnchor.TryGetPersistedSpatialAnchorUuid(
+                    out Guid persistedUuid))
+            {
+                Matrix4x4? loaded = await _roomAnchor.LoadSpatialAnchorAsync(
+                    persistedUuid);
+                if (!loaded.HasValue)
+                {
+                    Logger.Error("Persisted room anchor could not be localized; " +
+                        "refusing to place the existing carrier in a new frame.");
+                    return false;
+                }
                 return true;
+            }
+            bool durableWorldHasContent = _carrier != null &&
+                _carrier.HasDurableWorldContent;
+            if (!MayCreateNewSpatialAnchor(durableWorldHasContent))
+            {
+                Logger.Error("Durable Sigma HEAD contains room-frame content " +
+                    "but its persisted spatial-anchor UUID is absent. Refusing " +
+                    "to bind those bytes to a newly created physical frame; " +
+                    "explicit clear or a recovered anchor selector is required.");
+                return false;
+            }
             Vector3 position = Camera.main != null
                 ? Camera.main.transform.position
                 : Vector3.zero;

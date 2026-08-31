@@ -1,9 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
+    internal sealed class SigmaCarrierRuntimeState
+    {
+        internal uint DurableLogicalExtent;
+        internal ulong DurableRevision;
+    }
+
     public readonly struct SigmaCarrierPageHandle
     {
         internal SigmaCarrierPageHandle(SigmaCarrierPageCoordinate coordinate,
@@ -28,7 +37,9 @@ namespace Genesis.RoomScan.SigmaPrism
             int pairFirst, GraphicsBuffer state, GraphicsBuffer representation,
             GraphicsBuffer metadata,
             GraphicsBuffer dirtyFlags, GraphicsBuffer readoutDirtyFlags,
-            GraphicsBuffer publicationRoot)
+            GraphicsBuffer publicationRoot, GraphicsBuffer residentLocator,
+            GraphicsBuffer residentSlotTable, int residentLocatorCapacity,
+            int residentSlotCapacity, SigmaCarrierRuntimeState runtimeState)
         {
             SegmentIndex = segmentIndex;
             PageCapacity = capacity;
@@ -39,6 +50,12 @@ namespace Genesis.RoomScan.SigmaPrism
             DirtyFlags = dirtyFlags;
             ReadoutDirtyFlags = readoutDirtyFlags;
             PublicationRoot = publicationRoot;
+            ResidentLocator = residentLocator;
+            ResidentSlotTable = residentSlotTable;
+            ResidentLocatorCapacity = residentLocatorCapacity;
+            ResidentSlotCapacity = residentSlotCapacity;
+            RuntimeState = runtimeState ?? throw new ArgumentNullException(
+                nameof(runtimeState));
         }
 
         public int SegmentIndex { get; }
@@ -52,6 +69,13 @@ namespace Genesis.RoomScan.SigmaPrism
         public GraphicsBuffer DirtyFlags { get; }
         public GraphicsBuffer ReadoutDirtyFlags { get; }
         internal GraphicsBuffer PublicationRoot { get; }
+        internal GraphicsBuffer ResidentLocator { get; }
+        internal GraphicsBuffer ResidentSlotTable { get; }
+        internal int ResidentLocatorCapacity { get; }
+        internal int ResidentSlotCapacity { get; }
+        internal SigmaCarrierRuntimeState RuntimeState { get; }
+        internal uint DurableLogicalExtent => RuntimeState.DurableLogicalExtent;
+        internal ulong DurableRevision => RuntimeState.DurableRevision;
         internal bool HasPublicationStorage => PublicationRoot != null;
     }
 
@@ -74,6 +98,7 @@ namespace Genesis.RoomScan.SigmaPrism
             RepresentationPageBytes;
         public const int PageMetadataStride = 16 * sizeof(uint);
         public const int MaximumPagesPerSegment = 256;
+        internal const int ResidentBindingBankCount = 2;
         public const int DefaultDecodedBudgetMegabytes = 1024;
         // N3 owns only the base-density current/shadow pair.  The decoded
         // budget is a residency ceiling, never an eager allocation target.
@@ -82,6 +107,7 @@ namespace Genesis.RoomScan.SigmaPrism
 
         private const string CarrierResource = "SigmaPrism/SigmaCarrier";
         private const long MiB = 1024L * 1024L;
+        private const long ProjectGraphicsBufferLimit = 128L * MiB;
 
         [SerializeField, Min(64)] private int decodedBudgetMegabytes =
             DefaultDecodedBudgetMegabytes;
@@ -90,14 +116,162 @@ namespace Genesis.RoomScan.SigmaPrism
         private SigmaExactBackendGate _backendGate;
         private ComputeShader _carrierShader;
         private GraphicsBuffer _publicationRoot;
+        private SigmaCarrierResidencyResources _residency;
+        private SigmaDurableStore _durableStore;
+        private SigmaCarrierPersistence _persistence;
+        private SigmaCarrierPager _pager;
+        private Task<SigmaDurableStore> _durableOpenTask;
+        private readonly SigmaCarrierRuntimeState _runtimeState = new();
         private int _initializeGpuPoolKernel;
         private int _pagesPerSegment;
         private int _decodedBudgetPages;
+        private int _residentBankPageCapacity;
         private bool _initialized;
         private bool _disposed;
 
         public string ModuleName => "Sigma exact carrier";
         public bool IsInitialized => _initialized && !_disposed;
+        internal bool HasDurableWorldContent
+        {
+            get
+            {
+                if (_durableStore == null || !_durableStore.HasHead)
+                    return false;
+                using SigmaDurableRootLease root = _durableStore.PinHead();
+                SigmaDurableRootObject selected = root.Root;
+                return !selected.SparsePageMapRootHash.IsZero ||
+                    !selected.QuerySupportRootHash.IsZero ||
+                    !selected.CertificateManifestRootHash.IsZero ||
+                    !selected.UnresolvedFrontierRootHash.IsZero;
+            }
+        }
+        internal SigmaCarrierResidencyResources Residency
+        {
+            get
+            {
+                RequireInitialized();
+                return _residency;
+            }
+        }
+        internal SigmaCarrierPersistence Persistence
+        {
+            get
+            {
+                RequireInitialized();
+                return _persistence ?? throw new InvalidOperationException(
+                    "The N5 durable owner has not acquired its resident bank.");
+            }
+        }
+        internal SigmaCarrierPager Pager
+        {
+            get
+            {
+                RequireInitialized();
+                return _pager ?? throw new InvalidOperationException(
+                    "The N5 pager has not acquired its resident bank.");
+            }
+        }
+
+        /// <summary>
+        /// Verifies the complete HEAD-reachable immutable graph off the Unity/XR
+        /// thread. Module publication still waits for the exact result, so no
+        /// scanner consumer can observe a partially verified durable root.
+        /// </summary>
+        internal async Task PrepareDurableStoreAsync()
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(SigmaCarrier));
+            if (_durableStore != null)
+                return;
+            if (_durableOpenTask == null)
+            {
+                string path = Path.Combine(Application.persistentDataPath,
+                    "SigmaPrism", "n5");
+                _durableOpenTask = Task.Run(() => new SigmaDurableStore(path));
+            }
+
+            long started = Stopwatch.GetTimestamp();
+            SigmaDurableStore opened = await _durableOpenTask;
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(SigmaCarrier));
+            _durableStore = opened;
+            if (!_durableStore.HasHead)
+                return;
+
+            using SigmaDurableRootLease root = _durableStore.PinHead();
+            _runtimeState.DurableRevision = root.Root.Revision;
+            _runtimeState.DurableLogicalExtent =
+                _durableStore.ComputeLogicalExtent(root);
+            Logger.Info("Sigma N5 durable HEAD restored: revision=" +
+                _runtimeState.DurableRevision + " extent=" +
+                _runtimeState.DurableLogicalExtent + " pages=" +
+                _durableStore.HeadInventoryPageCount + " pageBytes=" +
+                _durableStore.HeadInventoryPageBytes + " openMs=" +
+                ((Stopwatch.GetTimestamp() - started) * 1000.0 /
+                    Stopwatch.Frequency).ToString("F3") +
+                " unityThreadBlocked=0.");
+        }
+
+        internal void RebuildPagerFromDurableResidentSnapshot(
+            IReadOnlyList<SigmaResidentPairAddress> retiredPairs = null)
+        {
+            RequireInitialized();
+            if (_persistence == null)
+                throw new InvalidOperationException(
+                    "Durable resident snapshot is unavailable.");
+            _pager?.Dispose();
+            _residency.ResetDisposableIndex();
+            SigmaCarrierReadBatch[] banks = CreateResidentBanks();
+            _pager = new SigmaCarrierPager(_durableStore, banks,
+                new SigmaNativeColdUploadBackend(),
+                new SigmaGraphicsResidencyUpdateBackend(_residency));
+            if (!_pager.BeginAdoptDurableSnapshot(
+                    _persistence.ResidentSnapshot,
+                    retiredPairs ?? Array.Empty<SigmaResidentPairAddress>()))
+                throw new InvalidOperationException(
+                    "Durable resident snapshot adoption did not start.");
+        }
+
+        internal async Task<SigmaDurableCommitResult> SelectEmptyDurableAsync(
+            ulong revision)
+        {
+            RequireInitialized();
+            if (_persistence == null || _pager == null)
+                throw new InvalidOperationException(
+                    "The durable carrier bank is not available for clear.");
+            if (_persistence.Activity != SigmaDurableActivity.Idle ||
+                _pager.Activity != SigmaPagerActivity.Idle ||
+                SigmaNativeVulkanExecutor.HasJobInFlight ||
+                SigmaNativeVulkanColdEncode.HasJobInFlight ||
+                SigmaNativeVulkanColdUpload.HasJobInFlight)
+                throw new InvalidOperationException(
+                    "Explicit clear is blocked by an unfinished GPU/durable " +
+                    "owner.");
+
+            // HEAD changes first. Until this atomic selector advances, the old
+            // complete durable root remains the sole authority.
+            SigmaDurableCommitResult selected = await
+                _durableStore.SelectEmptyAsync(revision);
+
+            _pager.Dispose();
+            _pager = null;
+            _persistence.Dispose();
+            _persistence = null;
+            _residency.ResetDisposableIndex();
+            foreach (CarrierSegment segment in _segments)
+                Initialize(segment);
+            _runtimeState.DurableLogicalExtent = 0u;
+            _runtimeState.DurableRevision = revision;
+            _publicationRoot.SetData(new[] { checked((uint)revision) });
+
+            SigmaCarrierReadBatch[] banks = CreateResidentBanks();
+            _persistence = new SigmaCarrierPersistence(_durableStore,
+                _backendGate, banks);
+            _pager = new SigmaCarrierPager(_durableStore, banks,
+                new SigmaNativeColdUploadBackend(),
+                new SigmaGraphicsResidencyUpdateBackend(_residency));
+            return selected;
+        }
 
         public void OnModuleInitialize(RoomScanner scanner)
         {
@@ -107,6 +281,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             if (_disposed)
                 throw new ObjectDisposedException(nameof(SigmaCarrier));
+            if (_durableStore == null)
+                throw new InvalidOperationException(
+                    "Durable HEAD verification must finish before carrier " +
+                    "module publication.");
 
             _backendGate = scanner.ExactBackendGate ?? throw new InvalidOperationException(
                 "Sigma carrier requires the GPU-resident exact backend gate.");
@@ -116,7 +294,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _initializeGpuPoolKernel = _carrierShader.FindProfiledKernel(
                 "InitializeGpuPool");
 
-            long bindingLimit = SystemInfo.maxGraphicsBufferSize;
+            long bindingLimit = Math.Min(SystemInfo.maxGraphicsBufferSize,
+                ProjectGraphicsBufferLimit);
             long largestPageBinding = Math.Max(DecodedPageBytes,
                 RepresentationPageBytes);
             if (bindingLimit < largestPageBinding)
@@ -127,9 +306,27 @@ namespace Genesis.RoomScan.SigmaPrism
             _decodedBudgetPages = Math.Max(2,
                 checked((int)Math.Min(int.MaxValue,
                     decodedBudgetMegabytes * MiB / ResidentPageBytes))) & ~1;
+            _residentBankPageCapacity = Math.Min(_pagesPerSegment,
+                _decodedBudgetPages / ResidentBindingBankCount) & ~1;
+            if (_residentBankPageCapacity < MinimumResidentPageCapacity)
+                throw new InvalidOperationException(
+                    "Decoded residency budget cannot hold two complete Quest " +
+                    "current/shadow binding banks.");
             _publicationRoot = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint)) { name = "Sigma carrier publication root" };
             _publicationRoot.SetData(new uint[1]);
+            _residency = new SigmaCarrierResidencyResources(_carrierShader,
+                _backendGate, checked(_residentBankPageCapacity *
+                    ResidentBindingBankCount));
+            Logger.Info("Sigma N5 resident binding banks: banks=" +
+                ResidentBindingBankCount + " pagesPerBank=" +
+                _residentBankPageCapacity + " pairsTotal=" +
+                (_residentBankPageCapacity * ResidentBindingBankCount / 2) +
+                " stateBytesPerBank=" +
+                ((long)_residentBankPageCapacity * DecodedPageBytes) +
+                " representationBytesPerBank=" +
+                ((long)_residentBankPageCapacity * RepresentationPageBytes) +
+                ".");
             _initialized = true;
         }
 
@@ -141,20 +338,42 @@ namespace Genesis.RoomScan.SigmaPrism
             RequireInitialized();
             if (_segments.Count == 0)
             {
-                // N4 owns one bounded warm resident segment.  Capacity is a
-                // storage ceiling, not eager world identity; N5 alone adds
-                // paging/growth/persistence.
-                int capacity = Math.Min(_pagesPerSegment,
-                    _decodedBudgetPages) & ~1;
-                if (capacity < MinimumResidentPageCapacity)
-                    throw new InvalidOperationException(
-                        "Decoded residency cannot hold the initial Sigma " +
-                        "current/shadow page pair.");
-                var segment = new CarrierSegment(capacity, _segments.Count);
-                _segments.Add(segment);
-                Initialize(segment);
+                // Two equal Vulkan binding banks are disposable decoded
+                // residency only. The carrier root, durable directory and
+                // sparse locator remain singular; segment never becomes
+                // logical or canonical identity.
+                for (int index = 0; index < ResidentBindingBankCount; ++index)
+                {
+                    var segment = new CarrierSegment(
+                        _residentBankPageCapacity, index);
+                    _segments.Add(segment);
+                    Initialize(segment);
+                }
             }
-            return CreateReadBatch(0);
+            SigmaCarrierReadBatch[] banks = CreateResidentBanks();
+            if (_persistence == null)
+            {
+                _persistence = new SigmaCarrierPersistence(_durableStore,
+                    _backendGate, banks);
+                _pager = new SigmaCarrierPager(_durableStore, banks,
+                    new SigmaNativeColdUploadBackend(),
+                    new SigmaGraphicsResidencyUpdateBackend(_residency));
+            }
+            return banks[0];
+        }
+
+        internal SigmaCarrierReadBatch GetResidentBank(int segmentIndex)
+        {
+            RequireInitialized();
+            if ((uint)segmentIndex >= (uint)_segments.Count)
+                throw new ArgumentOutOfRangeException(nameof(segmentIndex));
+            return CreateReadBatch(segmentIndex);
+        }
+
+        internal SigmaCarrierReadBatch SelectNativeTargetBank()
+        {
+            RequireInitialized();
+            return Pager.SelectNativeTarget();
         }
 
         public void CollectReadableSegments(List<SigmaCarrierReadBatch> destination)
@@ -200,14 +419,45 @@ namespace Genesis.RoomScan.SigmaPrism
             if (_disposed)
                 return;
             _disposed = true;
-            foreach (CarrierSegment segment in _segments)
-                segment.Dispose();
+            SigmaCarrierPersistence persistence = _persistence;
+            _persistence = null;
+            SigmaCarrierPager pager = _pager;
+            _pager = null;
+            CarrierSegment[] segments = _segments.ToArray();
             _segments.Clear();
-            _publicationRoot?.Dispose();
+            GraphicsBuffer publicationRoot = _publicationRoot;
             _publicationRoot = null;
+            SigmaCarrierResidencyResources residency = _residency;
+            _residency = null;
+            _durableStore = null;
+            _durableOpenTask = null;
             _carrierShader = null;
             _backendGate = null;
             _initialized = false;
+
+            void ReleaseOwnedResources()
+            {
+                persistence?.Dispose();
+                pager?.Dispose();
+                foreach (CarrierSegment segment in segments)
+                    segment.Dispose();
+                publicationRoot?.Dispose();
+                residency?.Dispose();
+            }
+
+            var completion = new CarrierRetirementCompletion(persistence,
+                pager);
+            SigmaGpuCompletionStatus status = completion.Poll(
+                out string error);
+            if (status == SigmaGpuCompletionStatus.Complete)
+                ReleaseOwnedResources();
+            else if (status == SigmaGpuCompletionStatus.Faulted)
+                SigmaGpuRetirement.Quarantine(ReleaseOwnedResources,
+                    "Sigma N5 carrier bank",
+                    error ?? "Cold carrier completion faulted.");
+            else
+                SigmaGpuRetirement.Retire(completion,
+                    ReleaseOwnedResources, "Sigma N5 carrier bank teardown");
         }
 
         private void OnDestroy() => Dispose();
@@ -240,13 +490,81 @@ namespace Genesis.RoomScan.SigmaPrism
             return new SigmaCarrierReadBatch(segmentIndex, segment.Capacity,
                 pairFirst, segment.State, segment.Representation,
                 segment.Metadata, segment.DirtyFlags,
-                segment.ReadoutDirtyFlags, _publicationRoot);
+                segment.ReadoutDirtyFlags, _publicationRoot,
+                _residency.Locator, _residency.SlotTable,
+                _residency.LocatorCapacity, _residency.SlotCapacity,
+                _runtimeState);
+        }
+
+        private SigmaCarrierReadBatch[] CreateResidentBanks()
+        {
+            if (_segments.Count != ResidentBindingBankCount)
+                throw new InvalidOperationException(
+                    "N5 resident binding-bank ownership is incomplete.");
+            var banks = new SigmaCarrierReadBatch[_segments.Count];
+            for (int index = 0; index < banks.Length; ++index)
+                banks[index] = CreateReadBatch(index);
+            return banks;
         }
 
         private void RequireInitialized()
         {
             if (!IsInitialized)
                 throw new InvalidOperationException("Sigma carrier is not initialized.");
+        }
+
+        private sealed class CarrierRetirementCompletion :
+            ISigmaResidencyCompletion
+        {
+            private readonly SigmaCarrierPersistence _persistence;
+            private readonly SigmaCarrierPager _pager;
+
+            internal CarrierRetirementCompletion(
+                SigmaCarrierPersistence persistence, SigmaCarrierPager pager)
+            {
+                _persistence = persistence;
+                _pager = pager;
+            }
+
+            public SigmaGpuCompletionStatus Poll(out string error)
+            {
+                try
+                {
+                    _persistence?.Poll();
+                    _pager?.Poll();
+                    if (_persistence?.Activity ==
+                            SigmaDurableActivity.Faulted)
+                    {
+                        error = _persistence.Fault ??
+                            "Durable carrier teardown faulted.";
+                        return SigmaGpuCompletionStatus.Faulted;
+                    }
+                    if (_pager?.Activity == SigmaPagerActivity.Faulted)
+                    {
+                        error = _pager.Fault ??
+                            "Pager teardown completion faulted.";
+                        return SigmaGpuCompletionStatus.Faulted;
+                    }
+                    if ((_persistence != null && _persistence.IsBusy) ||
+                        (_pager != null && _pager.Activity !=
+                            SigmaPagerActivity.Idle) ||
+                        SigmaNativeVulkanExecutor.HasJobInFlight ||
+                        SigmaNativeVulkanColdEncode.HasJobInFlight ||
+                        SigmaNativeVulkanColdUpload.HasJobInFlight)
+                    {
+                        error = null;
+                        return SigmaGpuCompletionStatus.Pending;
+                    }
+                    error = null;
+                    return SigmaGpuCompletionStatus.Complete;
+                }
+                catch (Exception exception)
+                {
+                    error = "Carrier retirement polling failed: " +
+                        exception.Message;
+                    return SigmaGpuCompletionStatus.Faulted;
+                }
+            }
         }
 
         private sealed class CarrierSegment : IDisposable

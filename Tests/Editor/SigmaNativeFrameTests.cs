@@ -14,6 +14,26 @@ namespace Genesis.RoomScan.Tests
 {
     public sealed class SigmaNativeFrameTests
     {
+        private const int PublicationLocatorCapacity = 1024;
+        private static GraphicsBuffer s_publicationLocator;
+
+        [SetUp]
+        public void CreatePublicationLocator()
+        {
+            s_publicationLocator = new GraphicsBuffer(
+                GraphicsBuffer.Target.Raw,
+                PublicationLocatorCapacity *
+                    SigmaCarrierResidencyAbi.LocatorWords,
+                sizeof(uint));
+        }
+
+        [TearDown]
+        public void DestroyPublicationLocator()
+        {
+            s_publicationLocator?.Dispose();
+            s_publicationLocator = null;
+        }
+
         [Test]
         public void LiveGraphIsOneBoundedNativeCloseAndLegacyAbiIsAbsent()
         {
@@ -202,7 +222,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void N42NativeCloseIsFramePacedAcrossSevenFixedSlices()
+        public void N42NativeCloseIsFramePacedAcrossSingletonDispatchSlices()
         {
             string executorSource = ReadAssetSource(
                 "SigmaNativeVulkanExecutor t:MonoScript");
@@ -213,9 +233,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaNativeVulkanExecutor.DispatchCount,
                 Is.EqualTo(16));
             Assert.That(SigmaNativeVulkanExecutor.SliceCount,
-                Is.EqualTo(7));
+                Is.EqualTo(SigmaNativeVulkanExecutor.DispatchCount));
             Assert.That(pluginSource, Does.Contain(
-                "kExecutorSliceBounds = {0, 1, 2, 5, 9, 11, 12, 16}"));
+                "kExecutorSliceBounds = {0, 1, 2, 3, 4, 5, 6, 7, 8,"));
+            Assert.That(pluginSource, Does.Contain(
+                "9, 10, 11, 12, 13, 14, 15, 16}"));
+            Assert.That(pluginSource, Does.Contain(
+                "ExecutorSlicesAreSingletons()"));
             Assert.That(pluginSource, Does.Contain(
                 "std::array<VkCommandBuffer, kExecutorSliceCount> " +
                 "commandBuffers"));
@@ -259,6 +283,66 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void EmptyPredictionRequestReceiptIsExactAndCurrentOrphansFail()
+        {
+            const uint revision = 17u;
+            int words = SigmaNativeVulkanExecutor.
+                PredictionPageRequestHeaderWords +
+                SigmaNativeVulkanExecutor.PredictionPageRequestCapacity *
+                SigmaNativeVulkanExecutor.PredictionPageRequestWordsPerEntry;
+            var empty = new uint[words];
+            Assert.That(SigmaNativeVulkanExecutor.SigmaNativeVulkanJob.
+                TryDecodePredictionPageRequests(revision, empty,
+                    out SigmaPredictionPageRequest[] requests,
+                    out bool overflow), Is.True);
+            Assert.That(requests, Is.Empty);
+            Assert.That(overflow, Is.False);
+
+            var stale = new uint[words];
+            stale[0] = revision - 1u;
+            int staleEntry = SigmaNativeVulkanExecutor.
+                PredictionPageRequestHeaderWords;
+            stale[staleEntry] = 2u;
+            stale[staleEntry + 1] = revision - 1u;
+            Assert.That(SigmaNativeVulkanExecutor.SigmaNativeVulkanJob.
+                TryDecodePredictionPageRequests(revision, stale,
+                    out requests, out overflow), Is.True);
+            Assert.That(requests, Is.Empty);
+            Assert.That(overflow, Is.False);
+
+            var current = new uint[words];
+            current[0] = revision;
+            int entry = SigmaNativeVulkanExecutor.
+                PredictionPageRequestHeaderWords;
+            current[entry] = 2u;
+            current[entry + 1] = revision;
+            current[entry + 2] = (uint)
+                SigmaPredictionPageRequestFlags.Coherent;
+            current[entry + 4] = 11u;
+            current[entry + 5] = 12u;
+            current[entry + 6] = 13u;
+            current[entry + 7] = 14u;
+            current[entry + 8] = 3u;
+            current[entry + 9] = 9u;
+            Assert.That(SigmaNativeVulkanExecutor.SigmaNativeVulkanJob.
+                TryDecodePredictionPageRequests(revision, current,
+                    out requests, out overflow), Is.True);
+            Assert.That(requests, Has.Length.EqualTo(1));
+            Assert.That(requests[0].Coordinate,
+                Is.EqualTo(new SigmaCarrierPageCoordinate(
+                    unchecked((long)((ulong)11u | ((ulong)12u << 32))),
+                    unchecked((long)((ulong)13u | ((ulong)14u << 32))))));
+            Assert.That(requests[0].PageGeneration, Is.EqualTo(3u));
+            Assert.That(requests[0].PageRevision, Is.EqualTo(9u));
+
+            current[0] = revision - 1u;
+            Assert.That(SigmaNativeVulkanExecutor.SigmaNativeVulkanJob.
+                TryDecodePredictionPageRequests(revision, current,
+                    out requests, out overflow), Is.False,
+                "A current entry without its current header is incomplete.");
+        }
+
+        [Test]
         public void NativeMatrixConstantBlockMatchesReflectedRowMajorAbi()
         {
             var matrix = new Matrix4x4();
@@ -280,6 +364,26 @@ namespace Genesis.RoomScan.Tests
             Assert.That(generator, Does.Contain("MatrixStride 16"));
             Assert.That(generator, Does.Contain(
                 "(9, 304), (10, 368)"));
+        }
+
+        [Test]
+        public void PublishedMetadataTracksStateGenerationSeparately()
+        {
+            string frame = File.ReadAllText(AssetDatabase.GetAssetPath(
+                LoadShader("SigmaNativeFrame")));
+            string upload = ReadAssetSource(
+                "SigmaNativeVulkanColdUpload t:MonoScript");
+
+            Assert.That(frame, Does.Contain(
+                "source.reserved0 != 0u"));
+            Assert.That(frame, Does.Contain(
+                "SIGMA_N4_PAGE_PLAN_STATE_CHANGED"));
+            Assert.That(frame, Does.Contain(
+                "metadata.reserved0 = sourceStateGeneration"));
+            Assert.That(upload, Does.Contain(
+                "Generation = pageGeneration"));
+            Assert.That(upload, Does.Contain(
+                "StateGeneration = page.Generation"));
         }
 
         [TestCase(320 * 320 + 1)]
@@ -529,9 +633,16 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(256 * 192 *
                         SigmaNativeFrameSlotResources.
                             MaximumMutationsPerFootprint));
+                Assert.That(native.PredictionPageRequestScratchOffset,
+                    Is.EqualTo(native.RefinementChildOrderScratchOffset +
+                        native.RefinementChildOrderCapacity));
                 Assert.That(native.CloseScratch.count, Is.EqualTo(
-                    native.RefinementChildOrderScratchOffset +
-                    native.RefinementChildOrderCapacity));
+                    native.PredictionPageRequestScratchOffset +
+                    SigmaNativeFrameSlotResources.
+                        PredictionPageRequestHeaderWordCount +
+                    SigmaNativeFrameSlotResources.PredictionPageRequestCapacity *
+                    SigmaNativeFrameSlotResources.
+                        PredictionPageRequestWordCount));
                 Assert.That((long)native.CloseScratch.count * sizeof(uint) * 2,
                     Is.LessThanOrEqualTo(128L * 1024L * 1024L));
                 using var minimum = new SigmaNativeFrameSlotResources(1,
@@ -605,6 +716,8 @@ namespace Genesis.RoomScan.Tests
         public void QuestCaptureConfigurationIsSerializedAndCalibrationOwned()
         {
             string scanner = ReadAssetSource("RoomScanner t:MonoScript");
+            string anchorManager = ReadAssetSource(
+                "RoomAnchorManager t:MonoScript");
             string provider = ReadAssetSource(
                 "PassthroughCameraProvider t:MonoScript");
             string bridge = ReadAssetSource("SigmaRigBridge t:MonoScript");
@@ -616,6 +729,32 @@ namespace Genesis.RoomScan.Tests
                 "SigmaInverseController t:MonoScript");
 
             Assert.That(scanner, Does.Contain("scanHz = 5f"));
+            Assert.That(scanner, Does.Contain(
+                "!_roomAnchor.IsSpatialAnchorReady"));
+            Assert.That(scanner, Does.Contain(
+                "TryGetPersistedSpatialAnchorUuid"));
+            Assert.That(scanner, Does.Contain("LoadSpatialAnchorAsync"));
+            Assert.That(scanner, Does.Contain(
+                "_carrier.HasDurableWorldContent"));
+            Assert.That(anchorManager, Does.Contain(
+                "OVRManager.TrackingLost += HandleTrackingLost"));
+            Assert.That(anchorManager, Does.Contain(
+                "OVRManager.TrackingAcquired += HandleTrackingAcquired"));
+            Assert.That(anchorManager, Does.Contain(
+                "WaitForStableTrackedAnchor"));
+            Assert.That(anchorManager, Does.Contain(
+                "PlayerPrefs.SetString(PersistedAnchorUuidKey"));
+            string renderer = ReadAssetSource("SigmaRenderer t:MonoScript");
+            Assert.That(renderer, Does.Contain(
+                "!_scanner.IsRoomAnchorReady"));
+            Assert.That(scanner.IndexOf(
+                    "_nextScanAdmissionTime = NextScanAdmissionTime(now, scanHz)",
+                    StringComparison.Ordinal),
+                Is.LessThan(scanner.IndexOf(
+                    "_sigmaInverse.TryScheduleLatestObservation()",
+                    StringComparison.Ordinal)),
+                "A rejected admission must consume its 5 Hz tick instead of " +
+                "retrying on every XR frame.");
             Assert.That(provider, Does.Contain(
                 "requestedResolution = new(640, 480)"));
             Assert.That(bridge, Does.Contain(
@@ -703,6 +842,8 @@ namespace Genesis.RoomScan.Tests
             using var root = UIntBuffer(1);
             using var completion = UInt2Buffer(
                 SigmaGeneratedFrame.CompletionWordCount);
+            using var residentLocator = new GraphicsBuffer(
+                GraphicsBuffer.Target.Raw, 1, sizeof(uint));
             RenderTexture rawDepth = ZeroArrayRenderTexture(sensorWidth,
                 sensorHeight,
                 GraphicsFormat.R32_SFloat);
@@ -751,10 +892,18 @@ namespace Genesis.RoomScan.Tests
                 frame.SetBuffer(kernel, "_NativeCompletionJournal", completion);
                 frame.SetBuffer(kernel, "_NativeSourceCarrierState",
                     carrierState);
+                frame.SetBuffer(kernel, "_NativeSourceCarrierState1",
+                    carrierState);
                 frame.SetBuffer(kernel, "_NativeSourceCarrierRepresentation",
                     carrierRepresentation);
+                frame.SetBuffer(kernel,
+                    "_NativeSourceCarrierRepresentation1",
+                    carrierRepresentation);
                 frame.SetBuffer(kernel, "_NativeSourcePageMetadata", metadata);
+                frame.SetBuffer(kernel, "_NativeSourcePageMetadata1", metadata);
                 frame.SetBuffer(kernel, "_NativeSourcePublicationRoot", root);
+                frame.SetBuffer(kernel, "_NativeResidentPageLocator",
+                    residentLocator);
                 frame.SetTexture(kernel, "_NativeRawDepth", rawDepth);
                 frame.SetTexture(kernel, "_NativeMetricDepth", metricDepth);
                 frame.SetTexture(kernel, "_NativeDepthFlags", depthFlags);
@@ -787,11 +936,19 @@ namespace Genesis.RoomScan.Tests
                 frame.SetInts("_NativeIndependenceKeys", 1, 2, 3, 4);
                 frame.SetInt("_NativeTargetPageCapacity", 2);
                 frame.SetInt("_NativeTargetSegmentIndex", 0);
+                frame.SetInt("_NativeSourceBankPageCapacity", 2);
                 frame.SetInt("_NativeCompletionRecordIndex", 0);
                 frame.SetInt("_NativeFootprintCount", footprintCount);
                 frame.SetInt("_NativeBoundaryCount", scratch.BoundaryCapacity);
                 frame.SetInt("_NativeBoundaryScratchOffset",
                     scratch.BoundaryScratchOffset);
+                frame.SetInt("_NativeResidentLocatorCapacity", 0);
+                frame.SetInt("_NativePredictionPageScratchOffset",
+                    scratch.PredictionPageRequestScratchOffset);
+                frame.SetInt("_NativePredictionPageScratchCapacity",
+                    SigmaNativeFrameSlotResources.
+                        PredictionPageRequestCapacity);
+                frame.SetInt("_NativeDurableLogicalExtent", 0);
                 frame.SetMatrix("_NativeRoomFromDepthLeft", Matrix4x4.identity);
                 frame.SetMatrix("_NativeRoomFromDepthRight", Matrix4x4.identity);
                 frame.SetMatrix("_NativeRgbFromRoomLeft", Matrix4x4.identity);
@@ -1289,8 +1446,13 @@ namespace Genesis.RoomScan.Tests
                     scratch.CloseScratch);
                 contract.SetBuffer(close, "_NativeSourceCarrierState",
                     carrierState);
+                contract.SetBuffer(close, "_NativeSourceCarrierState1",
+                    carrierState);
                 contract.SetBuffer(close,
                     "_NativeSourceCarrierRepresentation",
+                    carrierRepresentation);
+                contract.SetBuffer(close,
+                    "_NativeSourceCarrierRepresentation1",
                     carrierRepresentation);
                 contract.SetBuffer(close, "_NativeBranchHeaders",
                     scratch.BranchHeaders);
@@ -1304,6 +1466,7 @@ namespace Genesis.RoomScan.Tests
                     scratch.Counters);
                 contract.SetInt("_NativeFootprintCount",
                     scratch.FootprintCapacity);
+                contract.SetInt("_NativeSourceBankPageCapacity", 1);
                 contract.SetInt("_NativeFootprintStateOffset",
                     scratch.FootprintStateOffset);
                 contract.SetInt("_NativeFootprintCertificateOffset",
@@ -1819,7 +1982,12 @@ namespace Genesis.RoomScan.Tests
                     scratch.CloseScratch);
                 contract.SetBuffer(close, "_NativeSourceCarrierState",
                     carrierState);
+                contract.SetBuffer(close, "_NativeSourceCarrierState1",
+                    carrierState);
                 contract.SetBuffer(close, "_NativeSourceCarrierRepresentation",
+                    carrierRepresentation);
+                contract.SetBuffer(close,
+                    "_NativeSourceCarrierRepresentation1",
                     carrierRepresentation);
                 contract.SetBuffer(close, "_NativeBranchHeaders",
                     scratch.BranchHeaders);
@@ -1832,6 +2000,7 @@ namespace Genesis.RoomScan.Tests
                 contract.SetBuffer(close, "_NativeCounters", scratch.Counters);
                 contract.SetInt("_NativeFootprintCount",
                     scratch.FootprintCapacity);
+                contract.SetInt("_NativeSourceBankPageCapacity", 1);
                 contract.SetInt("_NativeFootprintStateOffset",
                     scratch.FootprintStateOffset);
                 contract.SetInt("_NativeFootprintCertificateOffset",
@@ -2169,6 +2338,113 @@ namespace Genesis.RoomScan.Tests
             metadata.GetData(page, 0, 0, 1);
             Assert.That(page[0].Generation, Is.EqualTo(1u));
             Assert.That(page[0].Revision, Is.EqualTo(1u));
+        }
+
+        [Test]
+        public void PrepareNativePageClonesExactSourceFromSecondBindingBank()
+        {
+            ComputeShader frame = LoadShader("SigmaNativeFrame");
+            int clone = frame.FindKernel("PrepareNativePage");
+            const int pageCapacity = 2;
+            using var scratch = new SigmaNativeFrameSlotResources(0);
+            using var sourceState0 = UInt2Buffer(
+                SigmaCarrier.PageLaneCount * pageCapacity);
+            using var sourceState1 = UInt2Buffer(
+                SigmaCarrier.PageLaneCount * pageCapacity);
+            using var targetState = UInt2Buffer(
+                SigmaCarrier.PageLaneCount * pageCapacity);
+            using var sourceRepresentation0 = UInt4Buffer(
+                SigmaCarrier.SamplesPerPage * pageCapacity *
+                SigmaCarrier.RepresentationWordsPerSample);
+            using var sourceRepresentation1 = UInt4Buffer(
+                SigmaCarrier.SamplesPerPage * pageCapacity *
+                SigmaCarrier.RepresentationWordsPerSample);
+            using var targetRepresentation = UInt4Buffer(
+                SigmaCarrier.SamplesPerPage * pageCapacity *
+                SigmaCarrier.RepresentationWordsPerSample);
+            using var sourceMetadata0 = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, pageCapacity,
+                SigmaCarrier.PageMetadataStride);
+            using var sourceMetadata1 = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, pageCapacity,
+                SigmaCarrier.PageMetadataStride);
+
+            var bank0State = new UInt2[sourceState0.count];
+            var bank1State = new UInt2[sourceState1.count];
+            bank0State[0] = new UInt2 { Low = 0x11111111u, High = 1u };
+            bank1State[0] = new UInt2 { Low = 0x22222222u, High = 2u };
+            sourceState0.SetData(bank0State);
+            sourceState1.SetData(bank1State);
+            targetState.SetData(new UInt2[targetState.count]);
+
+            var bank0Representation = new UInt4[sourceRepresentation0.count];
+            var bank1Representation = new UInt4[sourceRepresentation1.count];
+            bank0Representation[0] = new UInt4
+                { X = 1u, Y = 2u, Z = 3u, W = 4u };
+            bank1Representation[0] = new UInt4
+                { X = 5u, Y = 6u, Z = 7u, W = 8u };
+            sourceRepresentation0.SetData(bank0Representation);
+            sourceRepresentation1.SetData(bank1Representation);
+            targetRepresentation.SetData(
+                new UInt4[targetRepresentation.count]);
+            sourceMetadata0.SetData(new PageMeta[pageCapacity]);
+            sourceMetadata1.SetData(new[]
+            {
+                new PageMeta { ActiveSampleCount = 1u },
+                new PageMeta(),
+            });
+
+            var counters = new UInt4[scratch.Counters.count];
+            counters[1].W = 1u;
+            scratch.Counters.SetData(counters);
+            var plan = new UInt2[4];
+            plan[0].High = pageCapacity; // global source bank 1, local slot 0
+            plan[1].Low = 0u; // target bank-local slot 0
+            plan[2].Low = 1u; // one realized source sample
+            scratch.CloseScratch.SetData(plan, 0,
+                scratch.PagePlanScratchOffset, plan.Length);
+
+            frame.SetBuffer(clone, "_NativeFrames", scratch.NativeFrame);
+            frame.SetBuffer(clone, "_NativeCounters", scratch.Counters);
+            frame.SetBuffer(clone, "_NativeCloseScratch",
+                scratch.CloseScratch);
+            frame.SetBuffer(clone, "_NativeSourceCarrierState",
+                sourceState0);
+            frame.SetBuffer(clone, "_NativeSourceCarrierState1",
+                sourceState1);
+            frame.SetBuffer(clone, "_NativeSourceCarrierRepresentation",
+                sourceRepresentation0);
+            frame.SetBuffer(clone,
+                "_NativeSourceCarrierRepresentation1",
+                sourceRepresentation1);
+            frame.SetBuffer(clone, "_NativeSourcePageMetadata",
+                sourceMetadata0);
+            frame.SetBuffer(clone, "_NativeSourcePageMetadata1",
+                sourceMetadata1);
+            frame.SetBuffer(clone, "_TargetCarrierState", targetState);
+            frame.SetBuffer(clone, "_TargetCarrierRepresentation",
+                targetRepresentation);
+            frame.SetInt("_NativePagePlanScratchOffset",
+                scratch.PagePlanScratchOffset);
+            frame.SetInt("_NativePagePlanCapacity", scratch.PagePlanCapacity);
+            frame.SetInt("_NativeTargetPageCapacity", pageCapacity);
+            frame.SetInt("_NativeSourceBankPageCapacity", pageCapacity);
+
+            int copyGroups = Math.Max(SigmaCarrier.PageLaneCount,
+                SigmaCarrier.SamplesPerPage *
+                    SigmaCarrier.RepresentationWordsPerSample) / 256;
+            frame.Dispatch(clone, copyGroups, 1, 1);
+
+            var clonedState = new UInt2[1];
+            var clonedRepresentation = new UInt4[1];
+            targetState.GetData(clonedState, 0, 0, 1);
+            targetRepresentation.GetData(clonedRepresentation, 0, 0, 1);
+            Assert.That(clonedState[0].Low, Is.EqualTo(0x22222222u));
+            Assert.That(clonedState[0].High, Is.EqualTo(2u));
+            Assert.That(clonedRepresentation[0].X, Is.EqualTo(5u));
+            Assert.That(clonedRepresentation[0].Y, Is.EqualTo(6u));
+            Assert.That(clonedRepresentation[0].Z, Is.EqualTo(7u));
+            Assert.That(clonedRepresentation[0].W, Is.EqualTo(8u));
         }
 
         [Test]
@@ -2633,6 +2909,69 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void EvictedLocatorMakesStaleMetadataPairAvailableForReplay()
+        {
+            ComputeShader frame = LoadShader("SigmaNativeFrame");
+            int seed = frame.FindKernel("PrepareNativeCanonicalSeed");
+            using var scratch = new SigmaNativeFrameSlotResources(0,
+                Vector2Int.one);
+            using var state = UInt2Buffer(SigmaCarrier.PageLaneCount * 2);
+            using var representation = UInt4Buffer(
+                SigmaCarrier.SamplesPerPage * 2 *
+                SigmaCarrier.RepresentationWordsPerSample);
+            using var metadata = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 2,
+                SigmaCarrier.PageMetadataStride);
+            using var dirty = UIntBuffer(2);
+            using var readoutDirty = UIntBuffer(2);
+            using var root = UIntBuffer(1);
+            using var completion = UInt2Buffer(
+                SigmaGeneratedFrame.CompletionWordCount);
+
+            metadata.SetData(new[]
+            {
+                new PageMeta
+                {
+                    PageXLow = 5u,
+                    Generation = 1u,
+                    Revision = 1u,
+                    Flags = 3u,
+                },
+                new PageMeta(),
+            });
+            root.SetData(new[] { 1u });
+            scratch.CloseScratch.SetData(new UInt2[2], 0,
+                scratch.TileHeaderScratchOffset, 2);
+            scratch.CloseScratch.SetData(new UInt2[1], 0,
+                scratch.CanonicalImageScratchOffset +
+                    8 * scratch.CanonicalImageStride, 1);
+            scratch.Counters.SetData(new UInt4[4]);
+            BindPublication(frame, seed, scratch, state, representation,
+                metadata, dirty, readoutDirty, root, completion);
+            frame.SetInt("_NativeTargetPageCapacity", 2);
+
+            frame.Dispatch(seed, 1, 1, 1);
+            var residentPlan = new UInt2[2];
+            scratch.CloseScratch.GetData(residentPlan, 0,
+                scratch.PagePlanScratchOffset, residentPlan.Length);
+            Assert.That(residentPlan[0].Low, Is.EqualTo(5u));
+            Assert.That(residentPlan[0].High, Is.Zero);
+            Assert.That(residentPlan[1].Low, Is.EqualTo(1u));
+            Assert.That(residentPlan[1].High, Is.EqualTo(2u));
+
+            ClearPublicationLocator();
+            frame.Dispatch(seed, 1, 1, 1);
+            var evictedPlan = new UInt2[2];
+            scratch.CloseScratch.GetData(evictedPlan, 0,
+                scratch.PagePlanScratchOffset, evictedPlan.Length);
+            Assert.That(evictedPlan[0].Low, Is.EqualTo(uint.MaxValue));
+            Assert.That(evictedPlan[0].High, Is.EqualTo(uint.MaxValue));
+            Assert.That(evictedPlan[1].Low, Is.Zero,
+                "The evicted pair must be reclaimable by the retained replay.");
+            Assert.That(evictedPlan[1].High, Is.EqualTo(1u));
+        }
+
+        [Test]
         public void ExactConstraintJournalMinimizesWithoutBranchIdentity()
         {
             SigmaExactConstraintRecord broad = ConstraintRecord(1u, 11u,
@@ -2672,72 +3011,6 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(SigmaConstraintAdmission.Added),
                 "Different exact proof roles may not be minimized together.");
             Assert.That(journal.Count, Is.EqualTo(2));
-        }
-
-        [Test]
-        public void MinimizedConstraintJournalPersistsAtomicallyOffFrameThread()
-        {
-            string directory = Path.Combine(Path.GetTempPath(),
-                "sigma-n4-journal-" + Guid.NewGuid().ToString("N"));
-            string path = Path.Combine(directory, "constraints.sjc");
-            try
-            {
-                var expected = new SigmaExactConstraintJournal();
-                expected.Add(ConstraintRecord(1u, 11u, -8L, 8L));
-                expected.Add(ConstraintRecord(2u, 11u, -2L, 3L));
-                byte[] canonical = expected.EncodeCanonical();
-                using (var store = new SigmaExactConstraintStore(path))
-                    store.Stage(expected);
-                Assert.That(File.Exists(path), Is.True);
-                Assert.That(new FileInfo(path).Length, Is.EqualTo(8L),
-                    "The durable marker must not contain a history snapshot.");
-                Assert.That(Directory.GetFiles(path + ".entries", "*.scb"),
-                    Has.Length.EqualTo(1),
-                    "One minimized exact key must own one durable shard.");
-                Assert.That(File.Exists(path + ".next"), Is.False);
-                using var reopened = new SigmaExactConstraintStore(path);
-                CollectionAssert.AreEqual(canonical,
-                    reopened.Load().EncodeCanonical());
-            }
-            finally
-            {
-                if (Directory.Exists(directory))
-                    Directory.Delete(directory, true);
-            }
-        }
-
-        [Test]
-        public void LegacyConstraintSnapshotMigratesOnceToBoundedDeltaStore()
-        {
-            string directory = Path.Combine(Path.GetTempPath(),
-                "sigma-n4-migrate-" + Guid.NewGuid().ToString("N"));
-            string path = Path.Combine(directory, "constraints.sjc");
-            try
-            {
-                Directory.CreateDirectory(directory);
-                var source = new SigmaExactConstraintJournal();
-                source.Add(CertifiedConstraintRecord(1u, -8L, 8L, 1u, 2u));
-                File.WriteAllBytes(path, source.EncodeCanonical());
-                using (var store = new SigmaExactConstraintStore(path))
-                {
-                    SigmaExactConstraintJournal loaded = store.Load();
-                    loaded.Add(CertifiedConstraintRecord(2u, -2L, 3L,
-                        17u, 33u));
-                    store.Stage(loaded);
-                }
-                Assert.That(new FileInfo(path).Length, Is.EqualTo(8L));
-                Assert.That(Directory.GetFiles(path + ".entries", "*.scb"),
-                    Has.Length.EqualTo(1));
-                using var reopened = new SigmaExactConstraintStore(path);
-                SigmaExactConstraintJournal migrated = reopened.Load();
-                Assert.That(migrated.CertificateCount, Is.EqualTo(1));
-                Assert.That(migrated.RawEvidenceCount, Is.Zero);
-            }
-            finally
-            {
-                if (Directory.Exists(directory))
-                    Directory.Delete(directory, true);
-            }
         }
 
         [Test]
@@ -2998,6 +3271,74 @@ namespace Genesis.RoomScan.Tests
             Assert.That(telemetry.FaultMask, Is.EqualTo(0x00000802u));
             Assert.That(telemetry.ColdReason,
                 Is.EqualTo((uint)SigmaNativeColdReason.PageFault));
+        }
+
+        [Test]
+        public void CapacityContinuationReservesEveryNewLogicalPagePair()
+        {
+            const uint fullResidentExtent = 56u *
+                SigmaCarrier.SamplesPerPage;
+            const uint oneApertureTick = 49152u;
+            Assert.That(SigmaInverseController.CapacityFreshPairCount(
+                fullResidentExtent, fullResidentExtent + oneApertureTick),
+                Is.EqualTo(12),
+                "One retained aperture transaction must not replay through " +
+                "twelve one-pair capacity faults.");
+            Assert.That(SigmaInverseController.CapacityFreshPairCount(
+                fullResidentExtent - 17u, fullResidentExtent + 1u),
+                Is.EqualTo(1));
+            Assert.That(SigmaInverseController.CapacityFreshPairCount(
+                fullResidentExtent, fullResidentExtent), Is.EqualTo(1),
+                "A non-extending relocation capacity receipt still needs one " +
+                "legal transient page plan.");
+            Assert.Throws<InvalidDataException>(() =>
+                SigmaInverseController.CapacityFreshPairCount(
+                    fullResidentExtent, fullResidentExtent - 1u));
+        }
+
+        [Test]
+        public void CapacityContinuationNeverEvictsProtectedWorkingSet()
+        {
+            Assert.That(SigmaInverseController.CapacityEvictionsRequired(
+                56, 0, 17, 3, 12), Is.EqualTo(15));
+            Assert.That(SigmaInverseController.CapacityEvictionsRequired(
+                56, 8, 17, 3, 12), Is.EqualTo(7));
+            Assert.Throws<InvalidOperationException>(() =>
+                SigmaInverseController.CapacityEvictionsRequired(
+                56, 0, 45, 0, 12));
+        }
+
+        [Test]
+        public void CapacityContinuationSkipsOnlyAnExactDurableRootAndFrontier()
+        {
+            byte[] frontier = { 1, 3, 3, 7 };
+            Assert.That(
+                SigmaInverseController.CapacityRootAndFrontierAreAlreadyDurable(
+                    42UL, 42u, frontier, true,
+                    new byte[] { 1, 3, 3, 7 }),
+                Is.True);
+            Assert.That(
+                SigmaInverseController.CapacityRootAndFrontierAreAlreadyDurable(
+                    42UL, 42u, null, false, null),
+                Is.True);
+
+            Assert.That(
+                SigmaInverseController.CapacityRootAndFrontierAreAlreadyDurable(
+                    41UL, 42u, frontier, true, frontier),
+                Is.False, "A newer GPU root is not durable yet.");
+            Assert.That(
+                SigmaInverseController.CapacityRootAndFrontierAreAlreadyDurable(
+                    42UL, 42u, frontier, false, null),
+                Is.False, "Missing durable evidence cannot be skipped.");
+            Assert.That(
+                SigmaInverseController.CapacityRootAndFrontierAreAlreadyDurable(
+                    42UL, 42u, frontier, true,
+                    new byte[] { 1, 3, 3, 8 }),
+                Is.False, "Different evidence still requires HEAD-last commit.");
+            Assert.That(
+                SigmaInverseController.CapacityRootAndFrontierAreAlreadyDurable(
+                    42UL, 42u, null, true, frontier),
+                Is.False, "An existing frontier cannot alias absence.");
         }
 
         [Test]
@@ -3737,6 +4078,7 @@ namespace Genesis.RoomScan.Tests
             GraphicsBuffer completionJournal,
             Vector2Int? resolutionOverride = null)
         {
+            RefreshPublicationLocator(metadata, root);
             if (kernel == shader.FindKernel("PrepareNativeRevision"))
             {
                 foreach (string stageName in new[]
@@ -3767,10 +4109,16 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(kernel, "_NativeCompletionJournal",
                 completionJournal);
             shader.SetBuffer(kernel, "_NativeSourceCarrierState", carrierState);
+            shader.SetBuffer(kernel, "_NativeSourceCarrierState1", carrierState);
             shader.SetBuffer(kernel, "_NativeSourceCarrierRepresentation",
                 carrierRepresentation);
+            shader.SetBuffer(kernel, "_NativeSourceCarrierRepresentation1",
+                carrierRepresentation);
             shader.SetBuffer(kernel, "_NativeSourcePageMetadata", metadata);
+            shader.SetBuffer(kernel, "_NativeSourcePageMetadata1", metadata);
             shader.SetBuffer(kernel, "_NativeSourcePublicationRoot", root);
+            shader.SetBuffer(kernel, "_NativeResidentPageLocator",
+                s_publicationLocator);
             shader.SetBuffer(kernel, "_TargetCarrierState", carrierState);
             shader.SetBuffer(kernel, "_TargetCarrierRepresentation",
                 carrierRepresentation);
@@ -3792,6 +4140,7 @@ namespace Genesis.RoomScan.Tests
                 unchecked((int)0x99aabbccu),
                 unchecked((int)0xddeeff00u));
             shader.SetInt("_NativeTargetSegmentIndex", 0);
+            shader.SetInt("_NativeSourceBankPageCapacity", metadata.count);
             shader.SetBuffer(kernel, "_NativePrepareObservations",
                 scratch.Observation);
             shader.SetBuffer(kernel, "_NativePrepareStates", scratch.States);
@@ -3840,6 +4189,99 @@ namespace Genesis.RoomScan.Tests
                 scratch.CanonicalImageStride);
             shader.SetInt("_NativeCanonicalRankScratchOffset",
                 scratch.CanonicalRankScratchOffset);
+            shader.SetInt("_NativeResidentLocatorCapacity",
+                PublicationLocatorCapacity);
+        }
+
+        private static void RefreshPublicationLocator(GraphicsBuffer metadata,
+            GraphicsBuffer root)
+        {
+            Assert.That(s_publicationLocator, Is.Not.Null);
+            var pages = new PageMeta[metadata.count];
+            var rootValue = new uint[1];
+            metadata.GetData(pages);
+            root.GetData(rootValue);
+            var words = new uint[PublicationLocatorCapacity *
+                SigmaCarrierResidencyAbi.LocatorWords];
+            for (int first = 0; first < pages.Length; first += 2)
+            {
+                int second = first + 1;
+                bool hasSecond = second < pages.Length;
+                bool firstVisible = PageVisibleAtRoot(pages[first],
+                    hasSecond ? pages[second] : default, hasSecond,
+                    rootValue[0]);
+                bool secondVisible = hasSecond && PageVisibleAtRoot(
+                    pages[second], pages[first], true, rootValue[0]);
+                if (firstVisible)
+                    InsertPublicationLocator(words, pages[first], first);
+                if (secondVisible)
+                    InsertPublicationLocator(words, pages[second], second);
+            }
+            s_publicationLocator.SetData(words);
+        }
+
+        private static bool PageVisibleAtRoot(PageMeta page, PageMeta sibling,
+            bool hasSibling, uint root)
+        {
+            const uint allocated = 1u;
+            if (root == 0u || (page.Flags & allocated) == 0u ||
+                page.Revision == 0u || page.Revision > root)
+                return false;
+            if (!hasSibling || (sibling.Flags & allocated) == 0u ||
+                sibling.Revision == 0u || sibling.Revision > root ||
+                page.PageXLow != sibling.PageXLow ||
+                page.PageXHigh != sibling.PageXHigh ||
+                page.PageYLow != sibling.PageYLow ||
+                page.PageYHigh != sibling.PageYHigh)
+                return true;
+            return page.Revision > sibling.Revision ||
+                (page.Revision == sibling.Revision &&
+                    page.Generation >= sibling.Generation);
+        }
+
+        private static void InsertPublicationLocator(uint[] words,
+            PageMeta page, int slot)
+        {
+            var key = new SigmaResidencyKey(new SigmaCarrierPageCoordinate(
+                unchecked((long)((ulong)page.PageXLow |
+                    ((ulong)page.PageXHigh << 32))),
+                unchecked((long)((ulong)page.PageYLow |
+                    ((ulong)page.PageYHigh << 32)))), page.Revision,
+                page.Generation);
+            uint hash = SigmaCarrierResidencyAbi.Hash(key);
+            int start = (int)(hash & (PublicationLocatorCapacity - 1u));
+            for (int probe = 0; probe < PublicationLocatorCapacity; ++probe)
+            {
+                int bucket = (start + probe) &
+                    (PublicationLocatorCapacity - 1);
+                int address = bucket * SigmaCarrierResidencyAbi.LocatorWords;
+                if (words[address] != 0u)
+                    continue;
+                words[address + 0] = 2u;
+                words[address + 1] = (uint)SigmaResidencyState.HotClean;
+                words[address + 2] = hash;
+                words[address + 4] = page.PageXLow;
+                words[address + 5] = page.PageXHigh;
+                words[address + 6] = page.PageYLow;
+                words[address + 7] = page.PageYHigh;
+                words[address + 8] = page.Revision;
+                words[address + 9] = 0u;
+                words[address + 10] = page.Generation;
+                words[address + 11] = 1u;
+                words[address + 12] = 0u;
+                words[address + 13] = checked((uint)slot);
+                words[address + 14] = checked((uint)slot);
+                words[address + 15] = uint.MaxValue;
+                return;
+            }
+            Assert.Fail("The test publication locator is full.");
+        }
+
+        private static void ClearPublicationLocator()
+        {
+            s_publicationLocator.SetData(new uint[
+                PublicationLocatorCapacity *
+                SigmaCarrierResidencyAbi.LocatorWords]);
         }
 
         private static void SetValidNextCertificate(
@@ -3974,11 +4416,23 @@ namespace Genesis.RoomScan.Tests
             SigmaExactConstraintJournal journal,
             out SigmaExactConstraintJournal reloaded)
         {
-            string path = Path.Combine(directory, file);
-            using (var store = new SigmaExactConstraintStore(path))
-                store.Stage(journal);
-            using var reopened = new SigmaExactConstraintStore(path);
-            reloaded = reopened.Load();
+            string path = Path.Combine(directory, file + ".n5");
+            var store = new SigmaDurableStore(path);
+            SigmaConstraintDurabilitySnapshot snapshot =
+                journal.EncodeDurableCanonical();
+            ulong revision = store.HasHead
+                ? checked(store.Head.Revision + 1UL)
+                : 1UL;
+            store.Commit(new SigmaDurableCommitRequest(revision,
+                Array.Empty<SigmaDurablePageUpdate>(), null,
+                snapshot.Bytes));
+            journal.AcknowledgeDurable(snapshot);
+
+            var reopened = new SigmaDurableStore(path);
+            using SigmaDurableRootLease selected = reopened.PinHead();
+            Assert.That(reopened.TryReadUnresolvedFrontier(selected,
+                out byte[] frontier), Is.True);
+            reloaded = SigmaExactConstraintJournal.DecodeCanonical(frontier);
             return reloaded.EncodeCanonical();
         }
 
@@ -4124,6 +4578,7 @@ namespace Genesis.RoomScan.Tests
                     (uint)parentSample, sourceMeta.Generation, step,
                     priorState, freshCertificate, childByFootprint);
 
+                RefreshPublicationLocator(metadata, root);
                 frame.SetInt("_NativeRevision", (int)revision);
                 DispatchCutE(frame, scratch, refinementResolution);
                 frame.Dispatch(clone, Math.Max(SigmaCarrier.PageLaneCount,

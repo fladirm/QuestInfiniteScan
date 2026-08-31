@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Genesis.RoomScan.SigmaPrism;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.XR.ARSubsystems;
 
 namespace Genesis.RoomScan.Tests
@@ -152,12 +153,96 @@ namespace Genesis.RoomScan.Tests
             Assert.That(first, Is.EqualTo(100.2)
                 .Within(1e-12));
 
-            // A late successful close starts one fresh interval from its actual
-            // submission time; elapsed ticks are not replayed as a burst.
+            // A late admission attempt starts one fresh interval from its actual
+            // tick time even when scanner backpressure rejects the observation;
+            // elapsed ticks are not replayed as a burst.
             double late = RoomScanner.NextScanAdmissionTime(101.0, 5f);
             Assert.That(late, Is.EqualTo(101.2)
                 .Within(1e-12));
             Assert.That(late - first, Is.EqualTo(1.0).Within(1e-12));
+        }
+
+        [Test]
+        public void SpatialAnchorSelectorRoundTripsAndRejectsInvalidIdentity()
+        {
+            Guid uuid = Guid.NewGuid();
+            string encoded = RoomAnchorManager.EncodeSpatialAnchorUuid(uuid);
+
+            Assert.That(RoomAnchorManager.TryDecodeSpatialAnchorUuid(encoded,
+                out Guid decoded), Is.True);
+            Assert.That(decoded, Is.EqualTo(uuid));
+            Assert.That(RoomAnchorManager.TryDecodeSpatialAnchorUuid(
+                "not-an-anchor", out _), Is.False);
+            Assert.That(RoomAnchorManager.TryDecodeSpatialAnchorUuid(
+                Guid.Empty.ToString("D"), out _), Is.False);
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                RoomAnchorManager.EncodeSpatialAnchorUuid(Guid.Empty));
+        }
+
+        [Test]
+        public void DurableRoomContentCannotAcquireAnUnrelatedNewAnchor()
+        {
+            Assert.That(RoomScanner.MayCreateNewSpatialAnchor(false), Is.True,
+                "An empty durable namespace may establish its first room frame.");
+            Assert.That(RoomScanner.MayCreateNewSpatialAnchor(true), Is.False,
+                "Existing durable bytes must fail closed without their saved " +
+                "spatial-anchor selector.");
+        }
+
+        [Test]
+        public void AnchorReadinessRequiresTranslationAndRotationStability()
+        {
+            Vector3 position = new(1f, 2f, 3f);
+            Quaternion rotation = Quaternion.Euler(2f, 3f, 4f);
+            Assert.That(RoomAnchorManager.IsStablePoseStep(position, rotation,
+                position + Vector3.right * 0.0005f,
+                Quaternion.Euler(2f, 3.05f, 4f)), Is.True);
+            Assert.That(RoomAnchorManager.IsStablePoseStep(position, rotation,
+                position + Vector3.right * 0.002f, rotation), Is.False);
+            Assert.That(RoomAnchorManager.IsStablePoseStep(position, rotation,
+                position, Quaternion.Euler(2f, 3.2f, 4f)), Is.False);
+        }
+
+        [Test]
+        public void DurableSupportQueryEnclosesBothDepthFrustaAndPosePrior()
+        {
+            var texture = new Texture2D(1, 1);
+            try
+            {
+                RigIntrinsics intrinsics = RigCalibrationMath.FromDepthFov(
+                    new XRFov(-0.5f, 0.5f, 0.5f, -0.5f),
+                    new Vector2Int(320, 320));
+                var timestamp = new RigTimestamp(RigClockDomain.XrMonotonic,
+                    1L, 1L, 0L);
+                var left = new GpuImageView(RigStreamKind.Depth, RigEye.Left,
+                    texture, 0, 1L, timestamp, new Pose(Vector3.zero,
+                        Quaternion.identity), intrinsics,
+                    GraphicsFormat.R32_SFloat,
+                    RigDepthEncoding.ProjectionDepth01,
+                    new Vector2(0.2f, 5f));
+                var right = new GpuImageView(RigStreamKind.Depth, RigEye.Right,
+                    texture, 1, 1L, timestamp, new Pose(
+                        new Vector3(0.07f, 0f, 0f), Quaternion.identity),
+                    intrinsics, GraphicsFormat.R32_SFloat,
+                    RigDepthEncoding.ProjectionDepth01,
+                    new Vector2(0.2f, 5f));
+
+                Assert.That(SigmaQuerySupportPlan.TryBuildSensorQueryBounds(
+                    left, right, Matrix4x4.identity, 0.03f, 2f,
+                    out SigmaQ48Bounds3 bounds), Is.True);
+                long near = SigmaNumericDomain.Quantize(0.2);
+                long far = SigmaNumericDomain.Quantize(5.0);
+                Assert.That(bounds.LowerZ, Is.LessThanOrEqualTo(near));
+                Assert.That(bounds.UpperZ, Is.GreaterThanOrEqualTo(far));
+                Assert.That(bounds.LowerX,
+                    Is.LessThan(SigmaNumericDomain.Quantize(-2.0)));
+                Assert.That(bounds.UpperX,
+                    Is.GreaterThan(SigmaNumericDomain.Quantize(2.0)));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
         }
 
         [TestCase(true, false, true, false, 0, false, true)]

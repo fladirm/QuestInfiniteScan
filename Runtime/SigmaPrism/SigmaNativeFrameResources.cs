@@ -40,6 +40,9 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int CanonicalRunCapacity = 1024;
         internal const int ComponentRunCapacity = 1024;
         internal const int RefinementRunCapacity = 4096;
+        internal const int PredictionPageRequestCapacity = 256;
+        internal const int PredictionPageRequestWordCount = 5;
+        internal const int PredictionPageRequestHeaderWordCount = 1;
         internal const int ObservationFootprintsPerGroup = 32;
         internal const int ContractFootprintsPerGroup = 8;
         internal const int SupportLocatorCapacity =
@@ -133,8 +136,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 RefinedBlockPrefixCapacity);
             RefinementChildOrderCapacity = RoundUp(checked(FootprintCapacity *
                 MaximumMutationsPerFootprint), RefinementRunCapacity);
-            int closeScratchCount = checked(RefinementChildOrderScratchOffset +
+            PredictionPageRequestScratchOffset = checked(
+                RefinementChildOrderScratchOffset +
                 RefinementChildOrderCapacity);
+            int closeScratchCount = checked(
+                PredictionPageRequestScratchOffset +
+                PredictionPageRequestHeaderWordCount +
+                PredictionPageRequestCapacity *
+                    PredictionPageRequestWordCount);
             NativeFrame = Buffer<SigmaNativeFrameGpu>(1,
                 SigmaGeneratedFrame.NativeFrameStride, $"native frame {index}");
             // Index zero remains the accepted N3 terminal consumer during CUT A;
@@ -233,6 +242,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal int RefinedBlockPrefixCapacity { get; }
         internal int RefinementChildOrderScratchOffset { get; }
         internal int RefinementChildOrderCapacity { get; }
+        internal int PredictionPageRequestScratchOffset { get; }
         internal GraphicsBuffer States { get; }
         internal GraphicsBuffer RelationInputs { get; }
         internal GraphicsBuffer RelationPlans { get; }

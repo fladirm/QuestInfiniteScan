@@ -5,6 +5,9 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
+    internal delegate SigmaGpuCompletionStatus SigmaGpuCompletionPoll(
+        out string error);
+
     internal enum SigmaGpuCompletionStatus : byte
     {
         Pending = 0,
@@ -17,7 +20,8 @@ namespace Genesis.RoomScan.SigmaPrism
     /// is a cross-queue dependency; polling failure is terminal and never means
     /// that a resource can be recycled.
     /// </summary>
-    internal readonly struct SigmaGpuCompletionTicket
+    internal readonly struct SigmaGpuCompletionTicket :
+        ISigmaResidencyCompletion
     {
         private readonly GraphicsFence _fence;
         private readonly SigmaNativeVulkanExecutor.SigmaNativeVulkanJob
@@ -52,7 +56,7 @@ namespace Genesis.RoomScan.SigmaPrism
             : throw new InvalidOperationException(
                 "The GPU completion ticket is not a Unity graphics fence.");
 
-        internal SigmaGpuCompletionStatus Poll(out string error)
+        public SigmaGpuCompletionStatus Poll(out string error)
         {
             if (!_valid)
             {
@@ -151,7 +155,7 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         private sealed class Entry
         {
-            internal SigmaGpuCompletionTicket Ticket;
+            internal SigmaGpuCompletionPoll Poll;
             internal Action Release;
             internal string Label;
         }
@@ -170,13 +174,43 @@ namespace Genesis.RoomScan.SigmaPrism
                 return;
             var entry = new Entry
             {
-                Ticket = ticket,
+                Poll = ticket.Poll,
                 Release = release,
                 Label = string.IsNullOrWhiteSpace(label)
                     ? "Sigma GPU resources"
                     : label
             };
-            SigmaGpuCompletionStatus status = ticket.Poll(out string error);
+            SigmaGpuCompletionStatus status = entry.Poll(out string error);
+            if (status == SigmaGpuCompletionStatus.Complete)
+            {
+                ReleaseOnce(entry);
+                return;
+            }
+            if (status == SigmaGpuCompletionStatus.Faulted)
+            {
+                Quarantine(entry, error);
+                return;
+            }
+            Pending.Add(entry);
+            EnsurePump();
+        }
+
+        internal static void Retire(ISigmaResidencyCompletion completion,
+            Action release, string label)
+        {
+            if (completion == null)
+                throw new ArgumentNullException(nameof(completion));
+            if (release == null)
+                return;
+            var entry = new Entry
+            {
+                Poll = completion.Poll,
+                Release = release,
+                Label = string.IsNullOrWhiteSpace(label)
+                    ? "Sigma GPU resources"
+                    : label
+            };
+            SigmaGpuCompletionStatus status = entry.Poll(out string error);
             if (status == SigmaGpuCompletionStatus.Complete)
             {
                 ReleaseOnce(entry);
@@ -210,7 +244,7 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int index = Pending.Count - 1; index >= 0; --index)
             {
                 Entry entry = Pending[index];
-                SigmaGpuCompletionStatus status = entry.Ticket.Poll(
+                SigmaGpuCompletionStatus status = entry.Poll(
                     out string error);
                 if (status == SigmaGpuCompletionStatus.Pending)
                     continue;

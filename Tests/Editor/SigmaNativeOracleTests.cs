@@ -2163,8 +2163,12 @@ namespace Genesis.RoomScan.Tests
                 observations);
             contractShader.SetBuffer(contract, "_NativeSourceCarrierState",
                 stateBuffer);
+            contractShader.SetBuffer(contract, "_NativeSourceCarrierState1",
+                stateBuffer);
             contractShader.SetBuffer(contract,
                 "_NativeSourceCarrierRepresentation", certificateWords);
+            contractShader.SetBuffer(contract,
+                "_NativeSourceCarrierRepresentation1", certificateWords);
             contractShader.SetBuffer(contract, "_NativeCloseScratch",
                 freshEvidenceBuffer);
             contractShader.SetBuffer(contract, "_NativeBranchHeaders",
@@ -2186,6 +2190,7 @@ namespace Genesis.RoomScan.Tests
                 (branchCount + 2) * SigmaS16.LaneCount);
             contractShader.SetInt("_NativeCompletionRecordIndex", 0);
             contractShader.SetInt("_NativeFootprintCount", 0);
+            contractShader.SetInt("_NativeSourceBankPageCapacity", 1);
 
             // One workgroup per reverse branch. The first 64 of the fixed 256
             // threads map eight raw

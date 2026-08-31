@@ -218,6 +218,21 @@ namespace Genesis.RoomScan.SigmaPrism
             _latest = null;
         }
 
+        internal void ResetDisposableReadoutAfterClear()
+        {
+            if (!_initialized)
+                return;
+            _latest?.Dispose();
+            _latest = null;
+            for (int index = 0; index < _segmentCaches.Count; ++index)
+            {
+                SegmentReadoutCache prior = _segmentCaches[index];
+                _segmentCaches[index] = new SegmentReadoutCache(
+                    _readBatches[index]);
+                RetireSegmentCache(prior);
+            }
+        }
+
         private void LateUpdate()
         {
             if (!_initialized)
@@ -630,6 +645,7 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (_scanner == null ||
                 _scanner.CurrentRenderMode == ScanRenderMode.None ||
+                !_scanner.IsRoomAnchorReady ||
                 _previewMaterial == null || _readBatches.Count == 0)
                 return;
             Camera main = Camera.main;

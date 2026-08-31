@@ -67,7 +67,19 @@ namespace Genesis.RoomScan.SigmaPrism
             GraphicsBuffer depthCalibration, GraphicsBuffer rgbCalibration,
             GraphicsBuffer poseResult, ConeLutLease coneLuts,
             uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
-            uint rgbRightKey, SigmaCarrierReadBatch carrier)
+            uint rgbRightKey, SigmaCarrierReadBatch carrier) : this(
+                prediction, metricDepth, depthFlags, depthCalibration,
+                rgbCalibration, poseResult, coneLuts, depthLeftKey,
+                depthRightKey, rgbLeftKey, rgbRightKey, carrier, carrier,
+                carrier) { }
+
+        internal SigmaNativeFrameInput(SigmaPredictionFrameLease prediction,
+            RenderTexture metricDepth, RenderTexture depthFlags,
+            GraphicsBuffer depthCalibration, GraphicsBuffer rgbCalibration,
+            GraphicsBuffer poseResult, ConeLutLease coneLuts,
+            uint depthLeftKey, uint depthRightKey, uint rgbLeftKey,
+            uint rgbRightKey, SigmaCarrierReadBatch source0,
+            SigmaCarrierReadBatch source1, SigmaCarrierReadBatch target)
         {
             Prediction = prediction ?? throw new ArgumentNullException(
                 nameof(prediction));
@@ -86,7 +98,59 @@ namespace Genesis.RoomScan.SigmaPrism
             DepthRightKey = depthRightKey;
             RgbLeftKey = rgbLeftKey;
             RgbRightKey = rgbRightKey;
-            Carrier = carrier;
+            bool legacySingleBank = source0.SegmentIndex == 0 &&
+                source1.SegmentIndex == 0 && source0.State == source1.State &&
+                source0.Representation == source1.Representation &&
+                source0.Metadata == source1.Metadata;
+            bool sharedAuthority = source0.PublicationRoot ==
+                    source1.PublicationRoot &&
+                source0.ResidentLocator == source1.ResidentLocator &&
+                source0.ResidentSlotTable == source1.ResidentSlotTable &&
+                source0.ResidentLocatorCapacity ==
+                    source1.ResidentLocatorCapacity &&
+                source0.ResidentSlotCapacity ==
+                    source1.ResidentSlotCapacity &&
+                ReferenceEquals(source0.RuntimeState, source1.RuntimeState);
+            bool targetSharesAuthority = target.PublicationRoot ==
+                    source0.PublicationRoot &&
+                target.ResidentLocator == source0.ResidentLocator &&
+                target.ResidentSlotTable == source0.ResidentSlotTable &&
+                target.ResidentLocatorCapacity ==
+                    source0.ResidentLocatorCapacity &&
+                target.ResidentSlotCapacity == source0.ResidentSlotCapacity;
+            bool targetIsSource0 = target.SegmentIndex == 0 &&
+                target.PairFirst == source0.PairFirst &&
+                target.State == source0.State &&
+                target.Representation == source0.Representation &&
+                target.Metadata == source0.Metadata &&
+                target.DirtyFlags == source0.DirtyFlags &&
+                target.ReadoutDirtyFlags == source0.ReadoutDirtyFlags;
+            bool targetIsSource1 = !legacySingleBank &&
+                target.SegmentIndex == 1 &&
+                target.PairFirst == source1.PairFirst &&
+                target.State == source1.State &&
+                target.Representation == source1.Representation &&
+                target.Metadata == source1.Metadata &&
+                target.DirtyFlags == source1.DirtyFlags &&
+                target.ReadoutDirtyFlags == source1.ReadoutDirtyFlags;
+            if (source0.PageCapacity <= 0 ||
+                source0.PageCapacity != source1.PageCapacity ||
+                source0.SegmentIndex != 0 ||
+                source0.PairFirst != 0 ||
+                (!legacySingleBank && source1.SegmentIndex != 1) ||
+                (!legacySingleBank && source1.PairFirst * 2 !=
+                    source0.PageCapacity) ||
+                !sharedAuthority ||
+                !targetSharesAuthority ||
+                (!targetIsSource0 && !targetIsSource1) ||
+                target.PageCapacity != source0.PageCapacity ||
+                !ReferenceEquals(target.RuntimeState, source0.RuntimeState))
+                throw new ArgumentException(
+                    "Native carrier bindings require two equal source banks " +
+                    "and one target aliasing exactly one of them.");
+            Source0 = source0;
+            Source1 = source1;
+            Target = target;
         }
 
         internal SigmaPredictionFrameLease Prediction { get; }
@@ -100,7 +164,10 @@ namespace Genesis.RoomScan.SigmaPrism
         internal uint DepthRightKey { get; }
         internal uint RgbLeftKey { get; }
         internal uint RgbRightKey { get; }
-        internal SigmaCarrierReadBatch Carrier { get; }
+        internal SigmaCarrierReadBatch Source0 { get; }
+        internal SigmaCarrierReadBatch Source1 { get; }
+        internal SigmaCarrierReadBatch Target { get; }
+        internal SigmaCarrierReadBatch Carrier => Source0;
     }
 
     internal sealed class SigmaNativeFrameLease : IDisposable
@@ -389,10 +456,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 input.Carrier.PublicationRoot);
             Set(resources,
                 SigmaNativeVulkanExecutor.Resource.CarrierDirtyFlags,
-                input.Carrier.DirtyFlags);
+                input.Target.DirtyFlags);
             Set(resources,
                 SigmaNativeVulkanExecutor.Resource.CarrierReadoutDirtyFlags,
-                input.Carrier.ReadoutDirtyFlags);
+                input.Target.ReadoutDirtyFlags);
             Set(resources, SigmaNativeVulkanExecutor.Resource.RelationInputs,
                 slot.RelationInputs);
             Set(resources, SigmaNativeVulkanExecutor.Resource.RelationPlans,
@@ -415,6 +482,25 @@ namespace Genesis.RoomScan.SigmaPrism
             Set(resources,
                 SigmaNativeVulkanExecutor.Resource.BranchPredictions,
                 slot.BranchPredictions);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.ResidentPageLocator,
+                input.Carrier.ResidentLocator);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.CarrierState1,
+                input.Source1.State);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.CarrierRepresentation1,
+                input.Source1.Representation);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.CarrierMetadata1,
+                input.Source1.Metadata);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.TargetCarrierState,
+                input.Target.State);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.TargetCarrierRepresentation,
+                input.Target.Representation);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.TargetCarrierMetadata,
+                input.Target.Metadata);
             Set(resources, SigmaNativeVulkanExecutor.Resource.RawDepth,
                 source.DepthLeft.Texture);
             Set(resources, SigmaNativeVulkanExecutor.Resource.MetricDepth,
@@ -472,14 +558,16 @@ namespace Genesis.RoomScan.SigmaPrism
                 BuildFrameConstants(slot, revision, calibrationEpoch, input,
                     completionRecordIndex),
                 BuildContractConstants(slot, revision, completionRecordIndex,
-                    footprintGrid.x),
+                    footprintGrid.x, input),
                 BuildQueryConstants(slot, 1u, 1u,
                     SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension),
                 BuildQueryConstants(slot, 2u,
                     SigmaNativeFrameSlotResources.RelationCapacity,
                     SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension),
                 observationGroups, footprintGrid, slot.TileCapacity,
-                completionRecordIndex);
+                completionRecordIndex,
+                slot.PredictionPageRequestScratchOffset,
+                SigmaNativeFrameSlotResources.PredictionPageRequestCapacity);
         }
 
         internal void Release(int slot) => FrameResources.Release(slot);
@@ -540,21 +628,32 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.SetComputeBufferParam(_frame, kernel,
                     "_NativeSourcePageMetadata", input.Carrier.Metadata);
                 command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeSourceCarrierState1", input.Source1.State);
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeSourceCarrierRepresentation1",
+                    input.Source1.Representation);
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeSourcePageMetadata1", input.Source1.Metadata);
+                command.SetComputeBufferParam(_frame, kernel,
                     "_NativeSourcePublicationRoot",
                     input.Carrier.PublicationRoot);
                 command.SetComputeBufferParam(_frame, kernel,
-                    "_TargetCarrierState", input.Carrier.State);
+                    "_TargetCarrierState", input.Target.State);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_TargetCarrierRepresentation",
-                    input.Carrier.Representation);
+                    input.Target.Representation);
                 command.SetComputeBufferParam(_frame, kernel,
-                    "_TargetPageMetadata", input.Carrier.Metadata);
+                    "_TargetPageMetadata", input.Target.Metadata);
                 command.SetComputeBufferParam(_frame, kernel,
-                    "_TargetDirtyFlags", input.Carrier.DirtyFlags);
+                    "_TargetDirtyFlags", input.Target.DirtyFlags);
                 command.SetComputeBufferParam(_frame, kernel,
-                    "_TargetReadoutDirtyFlags", input.Carrier.ReadoutDirtyFlags);
+                    "_TargetReadoutDirtyFlags",
+                    input.Target.ReadoutDirtyFlags);
                 command.SetComputeBufferParam(_frame, kernel,
                     "_PublishedRevisionRoot", input.Carrier.PublicationRoot);
+                command.SetComputeBufferParam(_frame, kernel,
+                    "_NativeResidentPageLocator",
+                    input.Carrier.ResidentLocator);
             }
             int[] cutEKernels = { _prepareCanonicalSeed,
                 _prepareCanonicalRuns,
@@ -661,9 +760,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParams(_frame, "_NativeProvenanceReceipt",
                 BuildProvenanceReceipt(source));
             command.SetComputeIntParam(_frame, "_NativeTargetSegmentIndex",
-                input.Carrier.SegmentIndex);
+                input.Target.SegmentIndex);
             command.SetComputeIntParam(_frame, "_NativeTargetPageCapacity",
-                input.Carrier.PageCapacity);
+                input.Target.PageCapacity);
+            command.SetComputeIntParam(_frame,
+                "_NativeSourceBankPageCapacity", input.Source0.PageCapacity);
             command.SetComputeIntParam(_frame, "_NativeCompletionRecordIndex",
                 completionRecordIndex);
             command.SetComputeIntParam(_frame, "_NativeFootprintCount",
@@ -723,6 +824,18 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_frame,
                 "_NativeCanonicalRankScratchOffset",
                 slot.CanonicalRankScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativeResidentLocatorCapacity",
+                input.Carrier.ResidentLocatorCapacity);
+            command.SetComputeIntParam(_frame,
+                "_NativePredictionPageScratchOffset",
+                slot.PredictionPageRequestScratchOffset);
+            command.SetComputeIntParam(_frame,
+                "_NativePredictionPageScratchCapacity",
+                SigmaNativeFrameSlotResources.PredictionPageRequestCapacity);
+            command.SetComputeIntParam(_frame,
+                "_NativeDurableLogicalExtent",
+                unchecked((int)input.Carrier.DurableLogicalExtent));
         }
 
         private void BindContract(CommandBuffer command,
@@ -746,6 +859,11 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeSourceCarrierRepresentation",
                 input.Carrier.Representation);
+            command.SetComputeBufferParam(_contract, kernel,
+                "_NativeSourceCarrierState1", input.Source1.State);
+            command.SetComputeBufferParam(_contract, kernel,
+                "_NativeSourceCarrierRepresentation1",
+                input.Source1.Representation);
             command.SetComputeBufferParam(_contract, kernel,
                 "_NativeBranchHeaders", slot.BranchHeaders);
             command.SetComputeBufferParam(_contract, kernel,
@@ -821,6 +939,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 "_NativeCanonicalImageStride", slot.CanonicalImageStride);
             command.SetComputeIntParam(_contract, "_NativeRevision",
                 unchecked((int)revision));
+            command.SetComputeIntParam(_contract,
+                "_NativeSourceBankPageCapacity", input.Source0.PageCapacity);
         }
 
         private void BindRelation(CommandBuffer command,
@@ -929,7 +1049,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 source.DepthLeft.WorldFromCamera);
             Matrix4x4 depthRightRoom = SigmaRoomFrame.FromCamera(worldToRoom,
                 source.DepthRight.WorldFromCamera);
-            var block = new SigmaNativeConstantBlock(736);
+            var block = new SigmaNativeConstantBlock(756);
             block.Matrix(0, depthLeftRoom.inverse);
             block.Matrix(64, depthLeftRoom);
             block.UInt2(128, Resolution.x, Resolution.y);
@@ -952,8 +1072,8 @@ namespace Genesis.RoomScan.SigmaPrism
             block.UInt(468, calibrationEpoch);
             block.UInt4(480, input.DepthLeftKey, input.DepthRightKey,
                 input.RgbLeftKey, input.RgbRightKey);
-            block.UInt(496, unchecked((uint)input.Carrier.SegmentIndex));
-            block.UInt(500, checked((uint)input.Carrier.PageCapacity));
+            block.UInt(496, unchecked((uint)input.Target.SegmentIndex));
+            block.UInt(500, checked((uint)input.Target.PageCapacity));
             block.UInt(504, checked((uint)completionRecordIndex));
             block.UInt(508, checked((uint)slot.FootprintCapacity));
             block.UInt(512, checked((uint)slot.BoundaryCapacity));
@@ -985,14 +1105,23 @@ namespace Genesis.RoomScan.SigmaPrism
             block.UInt(596, checked(
                 (uint)slot.CanonicalRankScratchOffset));
             block.Std140UIntArray(608, BuildProvenanceReceipt(source));
+            block.UInt(736, checked((uint)
+                input.Carrier.ResidentLocatorCapacity));
+            block.UInt(740, checked((uint)
+                slot.PredictionPageRequestScratchOffset));
+            block.UInt(744, SigmaNativeFrameSlotResources
+                .PredictionPageRequestCapacity);
+            block.UInt(748, input.Carrier.DurableLogicalExtent);
+            block.UInt(752, checked((uint)input.Source0.PageCapacity));
             return block.Bytes;
         }
 
         private byte[] BuildContractConstants(
             SigmaNativeFrameSlotResources slot, uint revision,
-            int completionRecordIndex, int linearDispatchWidth)
+            int completionRecordIndex, int linearDispatchWidth,
+            in SigmaNativeFrameInput input)
         {
-            var block = new SigmaNativeConstantBlock(120);
+            var block = new SigmaNativeConstantBlock(124);
             block.UInt(0, 1u);
             block.UInt(4,
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount);
@@ -1033,6 +1162,7 @@ namespace Genesis.RoomScan.SigmaPrism
             block.UInt(116, checked((uint)(
                 SigmaNativeFrameSlotResources.LiveFreshBranchCount *
                     SigmaS16.LaneCount + 2 * SigmaS16.LaneCount)));
+            block.UInt(120, checked((uint)input.Source0.PageCapacity));
             return block.Bytes;
         }
 

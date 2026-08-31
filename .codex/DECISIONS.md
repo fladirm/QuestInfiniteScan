@@ -687,3 +687,139 @@ branch/chart decisions remain in Git history only.
   timeout, revision-mismatch or root-regression event occurred.
 - N4.2R execution/lifecycle is frozen. N5 durable paging remains a separate,
   unopened S4‑08 continuation; S4‑09 remains unopened.
+
+## ADR-S457 — N5 durability selects immutable logical roots; residency is disposable
+
+- The durable canonical graph is exactly `HEAD -> RootObject -> sparse immutable
+  COW radix/Merkle maps -> PageRecord -> canonical EncodePage blob`. HEAD and the
+  in-memory GPU publication root are distinct selectors connected by exact revision
+  and generation. Only a same-filesystem atomic HEAD rename after flushed immutable
+  objects makes a revision durable.
+- SHA-256 addresses immutable objects and proves integrity; full coordinates,
+  generations, fingerprints and complete bytes remain the authority. Map hash,
+  probe route, physical slot, segment and allocator/eviction order never enter
+  canonical bytes or ordering.
+- GPU cache ownership is one sparse full-key forward locator plus one dense
+  `ResidentSlotTable`. The frozen states are ABSENT_IN_ROOT, COLD_DURABLE, LOADING,
+  HOT_CLEAN, HOT_DIRTY, EVICTING and QUARANTINED. Only ABSENT_IN_ROOT may receive
+  unbacked ZEmpty semantics; broken or missing support summaries are conservative
+  MAY-CONTRIBUTE requests.
+- Dirty publication uses one bounded mailbox and stages only dirty pages through
+  the exact existing page codec. A slot can retire only after durable reachability,
+  proved last GPU reader/writer completion and zero publication/readout/persistence
+  leases. Pending work retains; a completion fault quarantines.
+- The accepted N4 `0x120` receipt remains the sole capacity detector. N5 retains
+  that exact admitted observation, durably closes its preceding root, performs
+  legal clean eviction/exact rehydrate or fresh placement, then replays the same
+  NativeClose transaction. It adds no host-authored delta, per-page submission or
+  second physical world.
+- Cold work is reason-coded and remains below immutable FRONT. It may backpressure
+  scan admission but cannot make XR wait or alter the accepted seven N4.2 slices.
+  N5R remains unaccepted until the physical capacity/revisit/restart/clear corpus;
+  N6R and S4-09 remain unopened.
+
+## ADR-S458 — Nonresident prediction support is a generated conservative residency index
+
+- A resident-only prediction raster cannot discover support in an evicted durable
+  page. Every newly staged PageRecord therefore carries a generated-plan-
+  fingerprinted exact packed-Q16.48 projective hull of the same geometry readout
+  consumed by `SigmaPredict`; legacy, missing, stale or corrupt summaries are kept
+  as unbounded MAY-CONTRIBUTE entries.
+- One disposable incremental AVL tree prunes only page hulls disjoint from the
+  complete dual-eye sensor frustum. Tree shape, midpoint, traversal and balance are
+  execution-only. Every selected full coordinate/revision/page-generation is
+  revalidated against pinned HEAD before the existing exact pager may load it.
+- C# performs only this conservative residency broad phase, which is part of its
+  frozen page-residency ownership. It never decides PREDICTION_SUPPORT, first hit,
+  canonical order or mutation; the unchanged exact GPU native program remains the
+  sole semantic authority. A failed query-bound construction selects the complete
+  finite durable directory rather than omitting a page.
+- Support-prefetch occurs before coherent observation admission. It may apply
+  bounded scan backpressure and legal clean eviction/rehydrate, but it cannot drop
+  an admitted observation, publish ZEmpty for COLD_DURABLE, wait XR, alter the seven
+  N4.2 slices or add a hot dispatch/buffer authority.
+- Complete restart verification is performed by one background Task before module
+  publication. The initializing XR shell remains live, while scan admission and
+  explicit clear await that exact task. No partial HEAD, pager or carrier module is
+  published and no reachable-object hash/framing/fingerprint check is skipped.
+
+## ADR-S459 — Current-HEAD record lookup is a verified disposable index
+
+- The immutable COW Merkle map and HEAD-last RootObject remain the durable
+  authority. One in-memory dictionary accelerates only full-coordinate PageRecord
+  lookup for the exact currently selected HEAD hash; it is never serialized and
+  its hash-table shape/order has no semantic role.
+- Startup populates the dictionary solely from the completely verified reachable
+  HEAD inventory. A successful commit advances it only after HEAD publication and
+  only with the exact dirty PageRecords already installed in the new Merkle root.
+  Frontier-only HEAD changes preserve records while rebinding the exact root hash;
+  explicit clear publishes an empty verified index.
+- A lease for any older root bypasses the dictionary and reads its immutable Merkle
+  path. If current-index/root binding is ever unavailable, lookup likewise falls
+  back to immutable storage. A missing dictionary key means absent from that exact
+  selected root; it never denotes `COLD_DURABLE`, support absence or ZEmpty.
+- This removes synchronous 32-level filesystem traversal from repeated conservative
+  support backpressure on Unity's presentation thread. It changes no support
+  predicate, cache capacity, eviction rule, N4 graph, queue slice or canonical byte.
+
+## ADR-S460 — Multiple Vulkan binding banks remain one disposable residency cache
+
+- A conservative 58-page support working set is valid physical evidence and cannot
+  fit the original 56-pair Quest cache. N5 therefore owns exactly two equal decoded
+  Vulkan binding banks. Each individual storage buffer remains bounded by
+  `min(SystemInfo.maxGraphicsBufferSize, 128 MiB)`; the additional bank expands
+  transient residency only, never logical world or canonical authority.
+- There remains one `PublishedRevisionRoot`, one durable HEAD/RootObject/PageRecord
+  directory, one full-key sparse locator, one dense `ResidentSlotTable` and one
+  runtime completion authority. Signed logical coordinate, page bytes, exact
+  generations and selected roots remain canonical. Bank, segment, pair, slot and
+  allocation/migration order remain execution-only.
+- Native close may read exact source pages from either bank but binds exactly one
+  whole target bank for a transaction. Cold upload batches never cross banks.
+  Persistence scans dirty pages from both banks into one atomic HEAD-last commit;
+  a superseded physical copy remains valid until durability and GPU completion are
+  proved, then retires bank-locally before the new resident snapshot is adopted.
+- Both banks share the accepted N4 graph, algebra, certificates, frame pacing and
+  immutable FRONT readout. No new hot kernel/dispatch, host canonical loop, second
+  sparse map, cache-miss-ZEmpty path or physical identity is introduced.
+
+## ADR-S461 — A partial durable append tail selects its physical write bank
+
+- When durable logical extent is not page-aligned, the exact current PageRecord for
+  that final page is the source of already published samples. Native append must
+  therefore target the binding bank owning that exact resident generation; choosing
+  another bank by free capacity loses the clone source and must fail closed.
+- Native target-capacity eviction frees only that selected bank. This is transient
+  residency routing: signed logical coordinate, page generation, canonical bytes,
+  durable HEAD and publication root remain the sole authorities, while bank/slot
+  never enters serialized or canonical identity.
+- If the exact tail is cold or unavailable, admission backpressures for exact
+  rehydrate. It may never substitute an empty page or select a different physical
+  copy merely because another bank has space.
+
+## ADR-S462 — The system spatial-anchor UUID owns the persistent room frame
+
+- A successfully saved `OVRSpatialAnchor` UUID is retained as lifecycle metadata.
+  Restart loads, localizes and binds that exact system anchor before admitting new
+  observations; it may not silently create a new room frame for an existing scan.
+- Tracking loss and application sleep pause sensor admission. On resume the same
+  active UUID must be localized/tracked before admission continues; immutable FRONT
+  may remain visible and follows the system anchor's live corrected transform.
+- Anchor UUID/pose never enters S16, certificates, page bytes, canonical ordering or
+  the durable sparse directory. It only maps the singular room-coordinate carrier
+  readout into the current Unity/OpenXR world frame.
+
+## ADR-S463 — A durable room frame is fail-closed and pose-epoch gated
+
+- A nonempty durable object graph without its persisted system-anchor selector may
+  not acquire a newly created anchor. Canonical pages contain room-local values but
+  cannot reconstruct the lost physical room transform; silently selecting a new
+  anchor would combine distinct physical frames. Recovery requires the exact
+  selector or an explicit empty-HEAD selection.
+- `Localized && IsTracked` is necessary but not sufficient at a tracking-acquired
+  edge. Canonical admission resumes only after the same bound UUID has supplied five
+  consecutive sub-millimetre and sub-0.1-degree pose steps. This is lifecycle
+  validation only and neither pose nor stability counters enter canonical bytes.
+- Disposable FRONT is not drawn while the anchor epoch is unverified. No canonical
+  resource is changed or waited upon; after stable tracking the same immutable FRONT
+  is rendered through the live room-to-world transform.
