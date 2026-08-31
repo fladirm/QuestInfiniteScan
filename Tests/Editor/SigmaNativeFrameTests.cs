@@ -72,10 +72,14 @@ namespace Genesis.RoomScan.Tests
             string transferSource = File.ReadAllText(
                 AssetDatabase.GUIDToAssetPath(transferGuids[0]));
             Assert.That(Count(transferSource, "RequestAsyncReadback("),
-                Is.EqualTo(1));
+                Is.Zero,
+                "No readback command may be recorded into async native work.");
             Assert.That(Count(transferSource, "AsyncGPUReadback.Request("),
-                Is.EqualTo(1),
-                "Only sealed-batch and stopped partial-batch cold transfers exist.");
+                Is.Zero,
+                "Unity readback must not reconnect scanner completion to XR.");
+            Assert.That(transferSource, Does.Contain("CompleteNative("));
+            Assert.That(controllerSource, Does.Contain(
+                "slot.TryReadCompletion("));
             Assert.That(transferSource, Does.Contain("RecordsPerBatch = 16"));
 
             foreach (string deleted in new[]
@@ -93,6 +97,189 @@ namespace Genesis.RoomScan.Tests
             })
                 Assert.That(runtime.GetTypes().Any(value =>
                     value.Name == deleted), Is.False, deleted);
+        }
+
+        [Test]
+        public void N42NativeCloseUsesDonorOwnedOneWayQueueDependency()
+        {
+            string controllerSource = ReadAssetSource(
+                "SigmaInverseController t:MonoScript");
+            string executorSource = ReadAssetSource(
+                "SigmaNativeVulkanExecutor t:MonoScript");
+            string rendererSource = ReadAssetSource(
+                "SigmaRenderer t:MonoScript");
+            string pluginSource = File.ReadAllText(Path.Combine(
+                Application.dataPath, "../Packages/com.genesis.roomscan/" +
+                "Runtime/SigmaPrism/Native/SigmaVulkanTimestamps.cpp"));
+
+            Assert.That(controllerSource, Does.Contain(
+                "_graph.CreateNativeCloseJob("));
+            Assert.That(controllerSource, Does.Contain(
+                "nativeJob.RecordPrepare(scannerCommand)"));
+            Assert.That(controllerSource, Does.Contain(
+                "nativeJob.RecordSubmit(scannerCommand)"));
+            Assert.That(controllerSource, Does.Not.Contain(
+                "RecordScannerBegin"));
+            Assert.That(controllerSource, Does.Not.Contain(
+                "RecordScannerEnd"));
+            Assert.That(controllerSource, Does.Contain(
+                "Graphics.ExecuteCommandBuffer(scannerCommand)"));
+            Assert.That(controllerSource, Does.Not.Contain(
+                "Graphics.ExecuteCommandBufferAsync("));
+            Assert.That(executorSource, Does.Contain(
+                "IssuePluginEventAndData(callback, prepareEvent, _handle)"));
+            Assert.That(executorSource, Does.Contain(
+                "IssuePluginEventAndData(callback, submitEvent, _handle)"));
+            Assert.That(executorSource, Does.Contain(
+                "command.IssuePluginEventAndData(callback,"));
+            Assert.That(executorSource, Does.Contain(
+                "acquireEvent, _handle);"));
+            Assert.That(executorSource, Does.Contain("if (status == 2)"));
+            Assert.That(pluginSource, Does.Not.Contain(
+                "InterceptQueueSubmit"));
+            Assert.That(pluginSource, Does.Not.Contain(
+                "scannerRouteSerial"));
+            Assert.That(pluginSource, Does.Contain(
+                "VkSemaphore graphicsReady = VK_NULL_HANDLE"));
+            Assert.That(pluginSource, Does.Contain(
+                "pSignalSemaphores = &job->graphicsReady"));
+            Assert.That(pluginSource, Does.Contain(
+                "QueueSubmitDirect(g_instance.graphicsQueue, 1"));
+            Assert.That(pluginSource, Does.Contain(
+                "pWaitSemaphores = &job->graphicsReady"));
+            Assert.That(pluginSource, Does.Contain(
+                "QueueSubmitDirect(g_sigmaQueue, 1, &nativeSubmit"));
+            Assert.That(pluginSource, Does.Contain(
+                "unityFenceOnQueue1=0 graphicsWaitOnNative=0"));
+            Assert.That(pluginSource, Does.Contain(
+                "pSignalSemaphores = &job->nativeDone"));
+            Assert.That(pluginSource, Does.Contain(
+                "pWaitSemaphores = &job->nativeDone"));
+            Assert.That(pluginSource, Does.Contain(
+                "vkQueueSubmit(nativeDone acquire)"));
+            Assert.That(pluginSource, Does.Contain(
+                "QueueSubmitDirect(g_sigmaQueue"));
+            Assert.That(pluginSource, Does.Not.Contain(
+                "vkQueueWaitIdle(g_sigmaQueue"));
+            Assert.That(controllerSource.IndexOf("slot.Poll(out string error)",
+                    StringComparison.Ordinal),
+                Is.LessThan(controllerSource.LastIndexOf(
+                    "slot.TryReadCompletion(",
+                    StringComparison.Ordinal)));
+
+            int readout = controllerSource.IndexOf(
+                "RecordScannerPrediction(scannerCommand",
+                StringComparison.Ordinal);
+            int normalize = controllerSource.IndexOf(
+                "RecordNormalize(scannerCommand", readout,
+                StringComparison.Ordinal);
+            int prepare = controllerSource.IndexOf(
+                "nativeJob.RecordPrepare(scannerCommand)", normalize,
+                StringComparison.Ordinal);
+            int submit = controllerSource.IndexOf(
+                "nativeJob.RecordSubmit(scannerCommand)", prepare,
+                StringComparison.Ordinal);
+            Assert.That(new[] { readout, normalize, prepare, submit },
+                Has.All.GreaterThanOrEqualTo(0));
+            Assert.That(readout, Is.LessThan(normalize));
+            Assert.That(normalize, Is.LessThan(prepare));
+            Assert.That(prepare, Is.LessThan(submit));
+
+            Assert.That(rendererSource, Does.Contain(
+                "ReadoutGeneration front = cache.Front"));
+            Assert.That(rendererSource, Does.Contain(
+                "ReadoutGeneration back = cache.Back"));
+            Assert.That(rendererSource, Does.Contain(
+                "generation.RenderPageMetadata"));
+            Assert.That(rendererSource, Does.Not.Contain(
+                "_properties.SetBuffer(PageMetadataId, batch.Metadata)"));
+            Assert.That(rendererSource, Does.Not.Contain(
+                "Graphics.ExecuteCommandBuffer("));
+            Assert.That(rendererSource, Does.Contain(
+                "SigmaNativeVulkanExecutor.HasJobInFlight"));
+            Assert.That(executorSource, Does.Contain(
+                "private static SigmaNativeVulkanJob _activeJob"));
+        }
+
+        [Test]
+        public void N42NativeCloseIsFramePacedAcrossSevenFixedSlices()
+        {
+            string executorSource = ReadAssetSource(
+                "SigmaNativeVulkanExecutor t:MonoScript");
+            string pluginSource = File.ReadAllText(Path.Combine(
+                Application.dataPath, "../Packages/com.genesis.roomscan/" +
+                "Runtime/SigmaPrism/Native/SigmaVulkanTimestamps.cpp"));
+
+            Assert.That(SigmaNativeVulkanExecutor.DispatchCount,
+                Is.EqualTo(16));
+            Assert.That(SigmaNativeVulkanExecutor.SliceCount,
+                Is.EqualTo(7));
+            Assert.That(pluginSource, Does.Contain(
+                "kExecutorSliceBounds = {0, 1, 2, 5, 9, 11, 12, 16}"));
+            Assert.That(pluginSource, Does.Contain(
+                "std::array<VkCommandBuffer, kExecutorSliceCount> " +
+                "commandBuffers"));
+            Assert.That(pluginSource, Does.Contain(
+                "commandInfo.commandBufferCount = kExecutorSliceCount"));
+            Assert.That(pluginSource, Does.Contain(
+                "for (uint32_t index = kExecutorSliceBounds[slice]"));
+            Assert.That(pluginSource, Does.Contain(
+                "index < kExecutorSliceBounds[slice + 1]"));
+            Assert.That(pluginSource, Does.Contain(
+                "SigmaExecutor_SubmitNextSlice"));
+            Assert.That(pluginSource, Does.Contain(
+                "const bool finalSlice = slice + 1 == " +
+                "kExecutorSliceCount"));
+
+            Assert.That(executorSource, Does.Contain("if (status == 3)"));
+            Assert.That(executorSource, Does.Contain(
+                "_continuationFrame = Time.frameCount + 1"));
+            Assert.That(executorSource, Does.Contain(
+                "if (Time.frameCount < _continuationFrame)"));
+            Assert.That(executorSource, Does.Contain(
+                "Native.SubmitNextSlice(_handle)"));
+            Assert.That(executorSource, Does.Contain(
+                "_submittedSlices != SliceCount"));
+
+            int recordSlice = pluginSource.IndexOf(
+                "bool RecordJobSlice", StringComparison.Ordinal);
+            int finalRecord = pluginSource.IndexOf("if (finalSlice)",
+                recordSlice, StringComparison.Ordinal);
+            int completionCopy = pluginSource.IndexOf(
+                "vkCmdCopyBuffer(commandBuffer", finalRecord,
+                StringComparison.Ordinal);
+            Assert.That(new[] { recordSlice, finalRecord, completionCopy },
+                Has.All.GreaterThanOrEqualTo(0));
+            Assert.That(recordSlice, Is.LessThan(finalRecord));
+            Assert.That(finalRecord, Is.LessThan(completionCopy));
+            Assert.That(Count(pluginSource,
+                "vkCmdResetQueryPool(commandBuffer"), Is.EqualTo(1));
+            Assert.That(Count(pluginSource,
+                "RecordDispatch(job, commandBuffer, index)"), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void NativeMatrixConstantBlockMatchesReflectedRowMajorAbi()
+        {
+            var matrix = new Matrix4x4();
+            for (int row = 0; row < 4; ++row)
+            for (int column = 0; column < 4; ++column)
+                matrix[row, column] = row * 10f + column + 0.25f;
+            var block = new SigmaNativeConstantBlock(64);
+            block.Matrix(0, matrix);
+            for (int row = 0; row < 4; ++row)
+            for (int column = 0; column < 4; ++column)
+                Assert.That(BitConverter.ToSingle(block.Bytes,
+                        row * 16 + column * sizeof(float)),
+                    Is.EqualTo(matrix[row, column]));
+
+            string generator = File.ReadAllText(Path.Combine(
+                Application.dataPath, "../Packages/com.genesis.roomscan/" +
+                "Tools/unity/generate_sigma_native_executor_shaders.py"));
+            Assert.That(generator, Does.Contain("RowMajor"));
+            Assert.That(generator, Does.Contain("MatrixStride 16"));
+            Assert.That(generator, Does.Contain(
+                "(9, 304), (10, 368)"));
         }
 
         [TestCase(320 * 320 + 1)]
@@ -124,7 +311,8 @@ namespace Genesis.RoomScan.Tests
 
             string graph = ReadAssetSource("SigmaNativeFrameGraph t:MonoScript");
             Assert.That(Count(graph, "ComputeLinearDispatchGrid("),
-                Is.EqualTo(1));
+                Is.EqualTo(2),
+                "Unity oracle and native executor must use the same grid law.");
             Assert.That(Count(graph,
                 "\"_NativeLinearDispatchWidth\""), Is.EqualTo(2));
             string contract = File.ReadAllText(AssetDatabase.GetAssetPath(

@@ -12,6 +12,7 @@ StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
 StructuredBuffer<uint> _PublishedRevisionRoot;
 RWStructuredBuffer<uint> _ReadoutDirtyFlags;
 RWStructuredBuffer<float4> _ReadoutVertices;
+RWStructuredBuffer<SigmaCarrierPageMetaGpu> _RenderPageMetadata;
 
 RWStructuredBuffer<uint> _CurrentPageSlots;
 RWStructuredBuffer<uint> _ReadoutDrawArguments;
@@ -21,6 +22,7 @@ RWStructuredBuffer<uint> _ReadoutBuildArguments;
 RWStructuredBuffer<uint> _ReadoutHaloArguments;
 
 uint _PageCapacity;
+uint _ReadoutRebuildAll;
 
 #define SIGMA_READOUT_EXTENT 65u
 #define SIGMA_READOUT_SAMPLES 4225u
@@ -95,9 +97,13 @@ void BuildCarrierReadout(uint3 groupId : SV_GroupID,
 void CompactCurrentPages(uint3 groupThreadId : SV_GroupThreadID)
 {
     uint lane = groupThreadId.x;
+    if (lane < _PageCapacity)
+        _RenderPageMetadata[lane] = _PageMetadata[lane];
     uint active = lane < _PageCapacity && SigmaReadoutPageVisible(lane)
         ? 1u : 0u;
-    uint dirty = active != 0u && _ReadoutDirtyFlags[lane] != 0u ? 1u : 0u;
+    uint dirty = active != 0u &&
+        (_ReadoutRebuildAll != 0u || _ReadoutDirtyFlags[lane] != 0u)
+            ? 1u : 0u;
 
     uint currentPrefix;
     uint dirtyPrefix;

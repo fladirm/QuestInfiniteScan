@@ -1094,6 +1094,20 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal static SigmaNativeCompletionRecord Decode(
             NativeArray<SigmaFrameUInt2Gpu> batch, int recordIndex,
+            uint expectedRevision) => DecodeCore(batch.Length,
+                index => batch[index], recordIndex, expectedRevision);
+
+        internal static SigmaNativeCompletionRecord Decode(
+            SigmaFrameUInt2Gpu[] batch, int recordIndex,
+            uint expectedRevision)
+        {
+            if (batch == null) throw new ArgumentNullException(nameof(batch));
+            return DecodeCore(batch.Length, index => batch[index], recordIndex,
+                expectedRevision);
+        }
+
+        private static SigmaNativeCompletionRecord DecodeCore(int batchLength,
+            Func<int, SigmaFrameUInt2Gpu> read, int recordIndex,
             uint expectedRevision)
         {
             Require(expectedRevision != 0u,
@@ -1101,14 +1115,14 @@ namespace Genesis.RoomScan.SigmaPrism
             int recordBase = checked(recordIndex *
                 SigmaGeneratedFrame.CompletionWordCount);
             Require(recordBase >= 0 && recordBase +
-                SigmaGeneratedFrame.CompletionWordCount <= batch.Length,
+                SigmaGeneratedFrame.CompletionWordCount <= batchLength,
                 "Completion record lies outside its transfer batch.");
             SigmaFrameUInt4Gpu Read4(int offset) => new()
             {
-                X = batch[recordBase + offset].X,
-                Y = batch[recordBase + offset].Y,
-                Z = batch[recordBase + offset + 1].X,
-                W = batch[recordBase + offset + 1].Y,
+                X = read(recordBase + offset).X,
+                Y = read(recordBase + offset).Y,
+                Z = read(recordBase + offset + 1).X,
+                W = read(recordBase + offset + 1).Y,
             };
             var frame = new SigmaNativeFrameGpu
             {
@@ -1143,12 +1157,12 @@ namespace Genesis.RoomScan.SigmaPrism
                     index * 2);
             var rays = new SigmaFrameUInt2Gpu[6];
             for (int index = 0; index < rays.Length; ++index)
-                rays[index] = batch[recordBase +
-                    SigmaGeneratedFrame.CompletionRoomRays + index];
+                rays[index] = read(recordBase +
+                    SigmaGeneratedFrame.CompletionRoomRays + index);
             var leaves = new SigmaFrameUInt2Gpu[16];
             for (int index = 0; index < leaves.Length; ++index)
-                leaves[index] = batch[recordBase +
-                    SigmaGeneratedFrame.CompletionCodeLeaves + index];
+                leaves[index] = read(recordBase +
+                    SigmaGeneratedFrame.CompletionCodeLeaves + index);
             var certificate = new SigmaFrameUInt4Gpu[16];
             for (int index = 0; index < certificate.Length; ++index)
                 certificate[index] = Read4(
@@ -1167,8 +1181,8 @@ namespace Genesis.RoomScan.SigmaPrism
 
     /// <summary>
     /// Dynamically segmented, batched GPU-to-host persistence handoff. A batch
-    /// readback is recorded only on the frame that seals it; ingress and root
-    /// publication complete solely on their GPU fence and never wait for this
+    /// readback is issued only after the native writer fence has passed for the
+    /// frame that seals it; ingress and root publication never wait for this
     /// transfer. Segment count follows undrained persistence work, not session
     /// length, and completed segments are recycled.
     /// </summary>
@@ -1226,25 +1240,57 @@ namespace Genesis.RoomScan.SigmaPrism
             }
         }
 
-        internal void RecordSealedReadback(CommandBuffer command,
-            Reservation reservation)
+        internal void CompleteNative(Reservation reservation,
+            SigmaFrameUInt2Gpu[] words)
         {
-            if (command == null) throw new ArgumentNullException(nameof(command));
-            if (!reservation.IsValid || !reservation.SealsBatch)
-                return;
-            Segment segment = reservation._segment;
+            if (!reservation.IsValid)
+                throw new ArgumentException(
+                    "A native completion reservation is required.",
+                    nameof(reservation));
+            TransferResult result;
+            try
+            {
+                result = new TransferResult(
+                    SigmaNativeCompletionRecord.Decode(words, 0,
+                        reservation.ExpectedRevision), null);
+            }
+            catch (Exception exception)
+            {
+                result = new TransferResult(null,
+                    "Exact native completion decode failed: " +
+                    exception.Message);
+            }
+            Complete(reservation, result);
+        }
+
+        internal void CompleteNativeFailure(Reservation reservation,
+            string error)
+        {
+            if (string.IsNullOrWhiteSpace(error))
+                error = "Native completion transfer failed.";
+            Complete(reservation, new TransferResult(null, error));
+        }
+
+        private void Complete(Reservation reservation, TransferResult result)
+        {
+            if (!reservation.IsValid)
+                throw new ArgumentException(
+                    "A native completion reservation is required.",
+                    nameof(reservation));
             lock (_gate)
             {
                 ThrowIfDisposed();
-                if (!segment.Sealed || segment.ReadbackIssued)
+                Segment segment = reservation._segment;
+                int index = reservation.RecordIndex;
+                if ((uint)index >= (uint)segment.RecordCount ||
+                    segment.Completed[index])
                     throw new InvalidOperationException(
-                        "Completion batch has an invalid seal state.");
-                segment.ReadbackIssued = true;
+                        "Native completion reservation was completed twice.");
+                segment.Completed[index] = true;
+                segment.CompletedCount++;
+                _completed.Enqueue(result);
+                RecycleIfComplete(segment);
             }
-            int bytes = checked(segment.RecordCount *
-                SigmaGeneratedFrame.CompletionWordCount * sizeof(uint) * 2);
-            command.RequestAsyncReadback(segment.Buffer, bytes, 0,
-                request => CompleteReadback(segment, request));
         }
 
         internal void Cancel(Reservation reservation)
@@ -1257,10 +1303,11 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (reservation.RecordIndex != segment.RecordCount - 1)
                     throw new InvalidOperationException(
                         "Only the latest completion reservation can be cancelled.");
-                // The caller invokes Cancel only when its command buffer was
-                // never submitted, so a recorded readback command was discarded
-                // together with that command buffer and has no callback.
-                segment.ReadbackIssued = false;
+                // The caller invokes Cancel only when native compute was never
+                // submitted, so no writer or post-fence readback can exist.
+                if (segment.Completed[reservation.RecordIndex])
+                    throw new InvalidOperationException(
+                        "A completed native reservation cannot be cancelled.");
                 segment.ExpectedRevisions[reservation.RecordIndex] = 0u;
                 segment.RecordCount--;
                 segment.Sealed = false;
@@ -1279,12 +1326,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 segment = _open;
                 _open = null;
                 segment.Sealed = true;
-                segment.ReadbackIssued = true;
             }
-            int bytes = checked(segment.RecordCount *
-                SigmaGeneratedFrame.CompletionWordCount * sizeof(uint) * 2);
-            AsyncGPUReadback.Request(segment.Buffer, bytes, 0,
-                request => CompleteReadback(segment, request));
+            lock (_gate)
+                RecycleIfComplete(segment);
         }
 
         internal bool TryDequeue(out SigmaNativeCompletionRecord record,
@@ -1312,8 +1356,7 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (_disposed) return;
                 _disposed = true;
                 foreach (Segment segment in _segments)
-                    if (!segment.ReadbackIssued)
-                        segment.Buffer.Dispose();
+                    segment.Buffer.Dispose();
                 _free.Clear();
                 _open = null;
                 _completed.Clear();
@@ -1328,7 +1371,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 reused.Reset();
                 return reused;
             }
-            var buffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+            var buffer = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured |
+                GraphicsBuffer.Target.CopySource,
                 RecordsPerBatch * SigmaGeneratedFrame.CompletionWordCount,
                 sizeof(uint) * 2)
             {
@@ -1339,53 +1384,13 @@ namespace Genesis.RoomScan.SigmaPrism
             return segment;
         }
 
-        private void CompleteReadback(Segment segment,
-            AsyncGPUReadbackRequest request)
+        private void RecycleIfComplete(Segment segment)
         {
-            var decoded = new List<TransferResult>(segment.RecordCount);
-            if (request.hasError)
-            {
-                decoded.Add(new TransferResult(null,
-                    "Batched exact completion readback failed."));
-            }
-            else
-            {
-                try
-                {
-                    NativeArray<SigmaFrameUInt2Gpu> words =
-                        request.GetData<SigmaFrameUInt2Gpu>();
-                    int expected = checked(segment.RecordCount *
-                        SigmaGeneratedFrame.CompletionWordCount);
-                    if (words.Length != expected)
-                        throw new InvalidDataException(
-                            "Batched exact completion size mismatch.");
-                    for (int index = 0; index < segment.RecordCount; ++index)
-                        decoded.Add(new TransferResult(
-                            SigmaNativeCompletionRecord.Decode(words, index,
-                                segment.ExpectedRevisions[index]),
-                            null));
-                }
-                catch (Exception exception)
-                {
-                    decoded.Clear();
-                    decoded.Add(new TransferResult(null,
-                        "Exact completion decode failed: " +
-                        exception.Message));
-                }
-            }
-            lock (_gate)
-            {
-                if (!_disposed)
-                    for (int index = 0; index < decoded.Count; ++index)
-                        _completed.Enqueue(decoded[index]);
-                segment.ReadbackIssued = false;
-                segment.Sealed = false;
-                segment.RecordCount = 0;
-                if (_disposed)
-                    segment.Buffer.Dispose();
-                else
-                    _free.Push(segment);
-            }
+            if (segment == null || !segment.Sealed ||
+                segment.CompletedCount != segment.RecordCount)
+                return;
+            segment.Reset();
+            _free.Push(segment);
         }
 
         private void ThrowIfDisposed()
@@ -1401,15 +1406,17 @@ namespace Genesis.RoomScan.SigmaPrism
             internal GraphicsBuffer Buffer { get; }
             internal uint[] ExpectedRevisions { get; } =
                 new uint[RecordsPerBatch];
+            internal bool[] Completed { get; } = new bool[RecordsPerBatch];
             internal int RecordCount { get; set; }
+            internal int CompletedCount { get; set; }
             internal bool Sealed { get; set; }
-            internal bool ReadbackIssued { get; set; }
             internal void Reset()
             {
                 Array.Clear(ExpectedRevisions, 0, ExpectedRevisions.Length);
+                Array.Clear(Completed, 0, Completed.Length);
                 RecordCount = 0;
+                CompletedCount = 0;
                 Sealed = false;
-                ReadbackIssued = false;
             }
         }
 

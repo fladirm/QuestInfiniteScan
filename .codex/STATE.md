@@ -10,9 +10,10 @@ Updated: 2026-08-31 (Europe/Prague)
 - Accepted primitive milestones: S4‑00 through S4‑07 where compatible with v8.3.
 - Active node: S4‑08. Corrective N1R-7 closes abstract native stitching and the
   complete 24-assignment representation-only `Z² semidirect D4` chart theorem.
-  Corrective N2R-7 now proves the same set operation on CPU and Vulkan with
-  Runtime/Resources `+0/-0`; N3R remains the accepted live bootstrap, N4R is the
-  sole active implementation cut, and S4-09 remains unopened.
+  Corrective N2R-7 proves the same set operation on CPU and Vulkan with
+  Runtime/Resources `+0/-0`; N3R remains the accepted live bootstrap and the N4.2R
+  XR execution/lifecycle cut is physically accepted. S4‑08 remains in progress
+  because N5 durable backing is still pending/unopened; S4-09 is also unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -220,6 +221,88 @@ commit, Release Android/Vulkan build from that SHA, installation and at least 32
 warm informative Quest publications. Product acceptance is total p95 `<90 ms`.
 Only if total p95 remains >=90 ms and RefinementScan p95 remains >18 ms is the
 prescribed 4096 run-capacity fallback permitted. N5R/S4-09 remain unopened.
+
+## Accepted N4.2R XR execution/lifecycle cut
+
+The accepted checkpoint keeps the 5 Hz no-catch-up admission, two
+`640x480@30` PCA eyes, full `320x320` physical depth and the session-static
+`256x192` native aperture at sensor offset `(32,64)`. It changes no S16/Q16.48,
+D4, certificate, comparator, refinement, page, prediction-support or root-last
+semantic operation.
+
+Disposable readout is generation isolated. Each segment owns exactly two
+generations, each containing `Vertices`, `CurrentPageSlots`, `DrawArguments`,
+`PreviewDrawArguments` and an exact `RenderPageMetadata` snapshot. XR binds only
+immutable FRONT resources. Readout compilation and scanner prediction write/read
+BACK; dirty/build/halo scratch remains single and scanner-only. XR binds no live
+writable carrier metadata and never waits for BACK or native completion.
+
+The preloaded native Vulkan plugin obtains queue 1 from the same family as Unity/
+OpenXR queue 0. A short graphics prepass signals `graphicsReady`; queue 1 executes
+the unchanged fourteen-entrypoint, sixteen-dispatch native graph in seven fixed
+frame-paced command slices:
+
+```text
+1  BuildObservation                                  [0,1)
+2  FOOTPRINT                                         [1,2)
+3  BOUNDARY + TILE_CLOSE + GLOBAL_CLOSE              [2,5)
+4  canonical Seed/Runs/Plan/Select                   [5,9)
+5  RefinementProof + ComponentOrder                  [9,11)
+6  RefinementScan                                    [11,12)
+7  Revision/Page/Scatter/root-last Publish           [12,16)
+```
+
+Only slice 1 waits `graphicsReady`. Only slice 7 signals `nativeDone`, exposes
+terminal completion, permits completion transfer and releases native-consumed
+leases. Unity queue 0 never waits on pending native work; its acquire submission
+is issued only after `nativeDone` is already signalled. The ingress frame,
+prediction leases, cone LUT, completion reservation and all native resources stay
+owned through that terminal proof. There is no C# worker, synchronous readback,
+new canonical buffer owner, kernel or seventeenth dispatch.
+
+Static and build evidence for the exact installed Release source:
+
+```text
+Unity Vulkan EditMode                                      117 / 117 PASS
+generator/check                                                       PASS
+native entrypoints / dispatches                                  14 / 16
+Quest production SPIR-V / spirv-val                         16 / 16 PASS
+production UAV maximum                                             <= 8
+native Android plugin build + embedded pipelines             16 / 16 PASS
+git diff --check                                                       PASS
+Release Android/Vulkan build + install                         PASS / PASS
+```
+
+Physical Quest 3 evidence is decisive for this execution cut. The Vulkan device
+reported Adreno 740, family 0 with graphics+compute and four queues; OpenXR/Unity
+used queue 0 and Sigma used queue 1. Every admitted transaction logged all seven
+slices and exactly sixteen dispatches. `graphicsReadyWait=1` occurred only on the
+first slice, `nativeDoneSignal=1` only on the seventh, and the subsequent acquire
+reported `nativeDoneAlreadySignaled=1` / `queue0WaitWasPostSignal=1`.
+
+```text
+published revision/root progression                         1 -> 47
+last successful logical extent                              228590
+revision 48 receipt                                         0x00000120
+revision 48 retained root                                        47
+ordinary active native GPU work                         about 89 ms
+monolithic donor XR collapse                             35--42 FPS
+accepted frame-paced XR while native close active        71--74 FPS
+KGSL / MMU / device-lost / fence-timeout                  0 / 0 / 0 / 0
+revision mismatch / root regression / false unresolved     0 / 0 / 0
+```
+
+`0x120` is not a GPU page fault or a second corruption. `0x100`
+(`SIGMA_N4_FAULT_LOGICAL_EXTENT`) and `0x20`
+(`SIGMA_N4_FAULT_LOGICAL_PAGE`) are the terminal and per-item guards for the same
+known 56-pair/229376-sample N4 resident boundary. They prevented OOB mutation,
+published nothing and preserved root 47. The held capture state began only after
+that expected boundary. Camera/BufferQueue warnings occur only during the explicit
+application stop and are teardown noise, not a scanning failure.
+
+N4.2R execution/lifecycle is frozen and accepted. Do not reopen N4.1 performance,
+queue probing, FRONT/BACK ownership or slice scheduling. S4‑08 remains in progress
+and N5R/S4‑09 remain unopened until explicitly activated.
 
 ## N4 resident-capacity safety and frozen N5R persistence design
 

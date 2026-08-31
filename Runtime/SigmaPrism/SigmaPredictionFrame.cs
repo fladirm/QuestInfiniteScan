@@ -59,6 +59,9 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal void CommitGpuWrite() => Owner.CommitGpuWrite(_slot, _generation);
 
+        internal void CommitGpuWrite(SigmaGpuCompletionTicket completion) =>
+            Owner.CommitGpuWrite(_slot, _generation, completion);
+
         public void Dispose()
         {
             SigmaPredictionTargetRing owner = _owner;
@@ -107,6 +110,15 @@ namespace Genesis.RoomScan.SigmaPrism
             _slots = new Slot[Math.Max(3, capacity)];
             for (int index = 0; index < _slots.Length; ++index)
                 _slots[index] = new Slot();
+        }
+
+        internal void Preallocate(Vector2Int resolution)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(
+                    nameof(SigmaPredictionTargetRing));
+            for (int index = 0; index < _slots.Length; ++index)
+                EnsureTextures(_slots[index], resolution, index);
         }
 
         internal SigmaPredictionAcquireResult TryBegin(
@@ -168,19 +180,31 @@ namespace Genesis.RoomScan.SigmaPrism
 
         internal void CommitGpuWrite(int index, uint generation)
         {
-            Slot slot = Get(index, generation);
             try
             {
-                slot.Completion = SigmaGpuCompletion.InsertAfterGraphicsWork();
-                slot.HasCompletion = true;
-                slot.CompletionFaulted = false;
+                CommitGpuWrite(index, generation,
+                    SigmaGpuCompletion.InsertAfterGraphicsWork());
             }
             catch (Exception exception)
             {
+                Slot slot = Get(index, generation);
                 LatchCompletionFault(slot,
                     $"Prediction write could not be fenced: {exception.Message}");
                 throw;
             }
+        }
+
+        internal void CommitGpuWrite(int index, uint generation,
+            SigmaGpuCompletionTicket completion)
+        {
+            if (!completion.IsValid)
+                throw new ArgumentException(
+                    "Prediction completion ticket is invalid.",
+                    nameof(completion));
+            Slot slot = Get(index, generation);
+            slot.Completion = completion;
+            slot.HasCompletion = true;
+            slot.CompletionFaulted = false;
         }
 
         internal void Retain(int index, uint generation)

@@ -330,6 +330,158 @@ namespace Genesis.RoomScan.SigmaPrism
             command.DispatchComputeProfiled(_frame, _closePublish, 1, 1, 1);
         }
 
+        internal SigmaNativeVulkanExecutor.SigmaNativeVulkanJob
+            CreateNativeCloseJob(SigmaNativeFrameLease lease, uint revision,
+                uint calibrationEpoch, in SigmaNativeFrameInput input,
+                GraphicsBuffer completionJournal, int completionRecordIndex)
+        {
+            if (lease == null) throw new ArgumentNullException(nameof(lease));
+            if (completionJournal == null)
+                throw new ArgumentNullException(nameof(completionJournal));
+            if (revision == 0u)
+                throw new ArgumentOutOfRangeException(nameof(revision));
+            if (completionRecordIndex < 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(completionRecordIndex));
+            SigmaNativeFrameSlotResources slot = lease.Resources;
+            StereoRigFrameLease source = input.Prediction.Source;
+            var resources = new IntPtr[SigmaNativeVulkanExecutor.ResourceCount];
+
+            Set(resources, SigmaNativeVulkanExecutor.Resource.ExactGate,
+                _backendGate.Buffer);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.DepthCalibration,
+                input.DepthCalibration);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RgbCalibration,
+                input.RgbCalibration);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.PoseResult,
+                input.PoseResult);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.NativeFrame,
+                slot.NativeFrame);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.Observation,
+                slot.Observation);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.CloseScratch,
+                slot.CloseScratch);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.States,
+                slot.States);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.StateDelta,
+                slot.StateDelta);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.GaugeDelta,
+                slot.GaugeDelta);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.LocalityCertificates,
+                slot.LocalityCertificateWords);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.Revisions,
+                slot.Revisions);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.Counters,
+                slot.Counters);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.CompletionJournal,
+                completionJournal);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.CarrierState,
+                input.Carrier.State);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.CarrierRepresentation,
+                input.Carrier.Representation);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.CarrierMetadata,
+                input.Carrier.Metadata);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.CarrierPublicationRoot,
+                input.Carrier.PublicationRoot);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.CarrierDirtyFlags,
+                input.Carrier.DirtyFlags);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.CarrierReadoutDirtyFlags,
+                input.Carrier.ReadoutDirtyFlags);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RelationInputs,
+                slot.RelationInputs);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RelationPlans,
+                slot.RelationPlans);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.RelationNearIntervals,
+                slot.RelationNearIntervals);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RelationResults,
+                slot.RelationResults);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RelationFactors,
+                slot.RelationFactors);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RelationHashes,
+                slot.RelationHashes);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RelationNorms,
+                slot.RelationNorms);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.BranchHeaders,
+                slot.BranchHeaders);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.BranchSupports,
+                slot.BranchSupports);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.BranchPredictions,
+                slot.BranchPredictions);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RawDepth,
+                source.DepthLeft.Texture);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.MetricDepth,
+                input.MetricDepth);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.DepthFlags,
+                input.DepthFlags);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthRayCenterLeft,
+                input.ConeLuts.DepthLeft.CenterRaySolidAngle);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthRayCenterRight,
+                input.ConeLuts.DepthRight.CenterRaySolidAngle);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthRayDifferentialXLeft,
+                input.ConeLuts.DepthLeft.DifferentialXHalfAngle);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthRayDifferentialXRight,
+                input.ConeLuts.DepthRight.DifferentialXHalfAngle);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthRayDifferentialYLeft,
+                input.ConeLuts.DepthLeft.DifferentialYHalfAngle);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthRayDifferentialYRight,
+                input.ConeLuts.DepthRight.DifferentialYHalfAngle);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthSlopeBoundsLeft,
+                input.ConeLuts.DepthLeft.SlopeBounds);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.DepthSlopeBoundsRight,
+                input.ConeLuts.DepthRight.SlopeBounds);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RgbLeft,
+                source.RgbLeft.Texture);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.RgbRight,
+                source.RgbRight.Texture);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.PredCarrierPage,
+                input.Prediction.CarrierPage);
+            Set(resources,
+                SigmaNativeVulkanExecutor.Resource.PredCarrierUvNormal,
+                input.Prediction.CarrierUvNormal);
+            Set(resources, SigmaNativeVulkanExecutor.Resource.PredStateKey,
+                input.Prediction.StateKey);
+
+            Vector2Int footprintGrid =
+                SigmaGpuKernelTelemetry.ComputeLinearDispatchGrid(checked(
+                    (slot.FootprintCapacity +
+                        SigmaNativeFrameSlotResources.ContractFootprintsPerGroup -
+                        1) /
+                    SigmaNativeFrameSlotResources.ContractFootprintsPerGroup +
+                    1));
+            int observationGroups = checked((slot.FootprintCapacity +
+                SigmaNativeFrameSlotResources.ObservationFootprintsPerGroup -
+                1) /
+                SigmaNativeFrameSlotResources.ObservationFootprintsPerGroup);
+            return SigmaNativeVulkanExecutor.CreateJob(revision, resources,
+                BuildFrameConstants(slot, revision, calibrationEpoch, input,
+                    completionRecordIndex),
+                BuildContractConstants(slot, revision, completionRecordIndex,
+                    footprintGrid.x),
+                BuildQueryConstants(slot, 1u, 1u,
+                    SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension),
+                BuildQueryConstants(slot, 2u,
+                    SigmaNativeFrameSlotResources.RelationCapacity,
+                    SigmaGpuKernelTelemetry.MaximumThreadGroupsPerDimension),
+                observationGroups, footprintGrid, slot.TileCapacity,
+                completionRecordIndex);
+        }
+
         internal void Release(int slot) => FrameResources.Release(slot);
 
         public void Dispose()
@@ -764,6 +916,194 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeIntParam(_query,
                 "_NativeCanonicalRankScratchOffset",
                 slot.CanonicalRankScratchOffset);
+        }
+
+        private byte[] BuildFrameConstants(
+            SigmaNativeFrameSlotResources slot, uint revision,
+            uint calibrationEpoch, in SigmaNativeFrameInput input,
+            int completionRecordIndex)
+        {
+            StereoRigFrameLease source = input.Prediction.Source;
+            Matrix4x4 worldToRoom = input.Prediction.WorldToRoom;
+            Matrix4x4 depthLeftRoom = SigmaRoomFrame.FromCamera(worldToRoom,
+                source.DepthLeft.WorldFromCamera);
+            Matrix4x4 depthRightRoom = SigmaRoomFrame.FromCamera(worldToRoom,
+                source.DepthRight.WorldFromCamera);
+            var block = new SigmaNativeConstantBlock(736);
+            block.Matrix(0, depthLeftRoom.inverse);
+            block.Matrix(64, depthLeftRoom);
+            block.UInt2(128, Resolution.x, Resolution.y);
+            block.UInt2(136, SensorOffset.x, SensorOffset.y);
+            block.UInt2(144, source.RgbLeft.Resolution.x,
+                source.RgbLeft.Resolution.y);
+            block.UInt2(152, source.RgbRight.Resolution.x,
+                source.RgbRight.Resolution.y);
+            block.UInt(160, OpticalTransfer(source.RgbLeft));
+            block.UInt(164, OpticalTransfer(source.RgbRight));
+            block.Matrix(176, depthLeftRoom);
+            block.Matrix(240, depthRightRoom);
+            block.Matrix(304, SigmaRoomFrame.FromCamera(worldToRoom,
+                source.RgbLeft.WorldFromCamera).inverse);
+            block.Matrix(368, SigmaRoomFrame.FromCamera(worldToRoom,
+                source.RgbRight.WorldFromCamera).inverse);
+            block.Float4(432, Intrinsics(source.RgbLeft.Intrinsics));
+            block.Float4(448, Intrinsics(source.RgbRight.Intrinsics));
+            block.UInt(464, revision);
+            block.UInt(468, calibrationEpoch);
+            block.UInt4(480, input.DepthLeftKey, input.DepthRightKey,
+                input.RgbLeftKey, input.RgbRightKey);
+            block.UInt(496, unchecked((uint)input.Carrier.SegmentIndex));
+            block.UInt(500, checked((uint)input.Carrier.PageCapacity));
+            block.UInt(504, checked((uint)completionRecordIndex));
+            block.UInt(508, checked((uint)slot.FootprintCapacity));
+            block.UInt(512, checked((uint)slot.BoundaryCapacity));
+            block.UInt(516, checked((uint)slot.BoundaryScratchOffset));
+            block.UInt(520, checked((uint)slot.FootprintStateOffset));
+            block.UInt(524, checked((uint)slot.FootprintCertificateOffset));
+            block.UInt2(528, slot.TileCountX, slot.TileCountY);
+            block.UInt(536, checked((uint)slot.TileHeaderScratchOffset));
+            block.UInt(540, checked((uint)slot.TileFootprintScratchOffset));
+            block.UInt(544, checked(
+                (uint)slot.TileComponentSummaryScratchOffset));
+            block.UInt(548, checked((uint)slot.GlobalHeaderScratchOffset));
+            block.UInt(552, checked(
+                (uint)slot.ActiveSupportMarkerScratchOffset));
+            block.UInt(556, checked((uint)slot.GlobalParentScratchOffset));
+            block.UInt(560, checked((uint)slot.GlobalTransformScratchOffset));
+            block.UInt(564, checked(
+                (uint)slot.GlobalBorderComponentCapacity));
+            block.UInt(568, checked((uint)slot.MutationCapacity));
+            block.UInt(572, checked((uint)slot.PagePlanScratchOffset));
+            block.UInt(576, checked((uint)slot.PagePlanCapacity));
+            block.UInt(580, checked(
+                (uint)slot.CanonicalComponentScratchOffset));
+            block.UInt(584, checked(
+                (uint)slot.CanonicalComponentCapacity));
+            block.UInt(588, checked(
+                (uint)slot.CanonicalImageScratchOffset));
+            block.UInt(592, checked((uint)slot.CanonicalImageStride));
+            block.UInt(596, checked(
+                (uint)slot.CanonicalRankScratchOffset));
+            block.Std140UIntArray(608, BuildProvenanceReceipt(source));
+            return block.Bytes;
+        }
+
+        private byte[] BuildContractConstants(
+            SigmaNativeFrameSlotResources slot, uint revision,
+            int completionRecordIndex, int linearDispatchWidth)
+        {
+            var block = new SigmaNativeConstantBlock(120);
+            block.UInt(0, 1u);
+            block.UInt(4,
+                SigmaNativeFrameSlotResources.LiveFreshBranchCount);
+            block.UInt(8, checked((uint)
+                SigmaGeneratedFrame.SensorLeftEntryPoint));
+            block.UInt(12, checked((uint)
+                SigmaGeneratedFrame.SensorRightEntryPoint));
+            block.UInt(16, checked((uint)completionRecordIndex));
+            block.UInt(20, checked((uint)slot.FootprintCapacity));
+            block.UInt(24, checked((uint)linearDispatchWidth));
+            block.UInt(28, checked((uint)slot.FootprintStateOffset));
+            block.UInt(32, checked((uint)slot.FootprintCertificateOffset));
+            block.UInt2(40, Resolution.x, Resolution.y);
+            block.UInt2(48, slot.TileCountX, slot.TileCountY);
+            block.UInt(56, checked((uint)slot.BoundaryCapacity));
+            block.UInt(60, checked((uint)slot.BoundaryScratchOffset));
+            block.UInt(64, checked((uint)slot.TileHeaderScratchOffset));
+            block.UInt(68, checked((uint)slot.TileFootprintScratchOffset));
+            block.UInt(72, checked(
+                (uint)slot.TileSupportSummaryScratchOffset));
+            block.UInt(76, checked(
+                (uint)slot.TileComponentSummaryScratchOffset));
+            block.UInt(80, checked((uint)slot.GlobalHeaderScratchOffset));
+            block.UInt(84, checked(
+                (uint)slot.ActiveSupportMarkerScratchOffset));
+            block.UInt(88, checked(
+                (uint)slot.ActiveSupportListScratchOffset));
+            block.UInt(92, checked((uint)
+                SigmaNativeFrameSlotResources.SupportLocatorCapacity));
+            block.UInt(96, revision);
+            block.UInt(100, checked(
+                (uint)slot.CanonicalComponentScratchOffset));
+            block.UInt(104, checked(
+                (uint)slot.CanonicalComponentCapacity));
+            block.UInt(108, checked(
+                (uint)slot.CanonicalImageScratchOffset));
+            block.UInt(112, checked((uint)slot.CanonicalImageStride));
+            block.UInt(116, checked((uint)(
+                SigmaNativeFrameSlotResources.LiveFreshBranchCount *
+                    SigmaS16.LaneCount + 2 * SigmaS16.LaneCount)));
+            return block.Bytes;
+        }
+
+        private byte[] BuildQueryConstants(
+            SigmaNativeFrameSlotResources slot, uint mode, uint count,
+            int linearDispatchWidth)
+        {
+            var block = new SigmaNativeConstantBlock(120);
+            block.UInt(0, checked((uint)
+                SigmaGeneratedFrame.IntrinsicRelationEntryPoint));
+            block.UInt(4, count);
+            block.UInt(8, mode);
+            block.UInt(12, checked((uint)linearDispatchWidth));
+            block.UInt2(16, Resolution.x, Resolution.y);
+            block.UInt(24, checked((uint)slot.FootprintCapacity));
+            block.UInt(28, checked((uint)slot.FootprintStateOffset));
+            block.UInt(32, checked((uint)slot.FootprintCertificateOffset));
+            block.UInt(36, checked((uint)slot.BoundaryCapacity));
+            block.UInt(40, checked((uint)slot.BoundaryScratchOffset));
+            block.UInt2(48, slot.TileCountX, slot.TileCountY);
+            block.UInt(56, checked((uint)slot.TileHeaderScratchOffset));
+            block.UInt(60, checked((uint)slot.TileFootprintScratchOffset));
+            block.UInt(64, checked(
+                (uint)slot.TileSupportSummaryScratchOffset));
+            block.UInt(68, checked(
+                (uint)slot.TileComponentSummaryScratchOffset));
+            block.UInt(72, checked((uint)slot.GlobalHeaderScratchOffset));
+            block.UInt(76, checked(
+                (uint)slot.ActiveSupportMarkerScratchOffset));
+            block.UInt(80, checked(
+                (uint)slot.ActiveSupportListScratchOffset));
+            block.UInt(84, checked((uint)slot.GlobalParentScratchOffset));
+            block.UInt(88, checked((uint)slot.GlobalTransformScratchOffset));
+            block.UInt(92, checked(
+                (uint)slot.GlobalBorderComponentCapacity));
+            block.UInt(96, checked((uint)
+                SigmaNativeFrameSlotResources.SupportLocatorCapacity));
+            block.UInt(100, checked(
+                (uint)slot.CanonicalComponentScratchOffset));
+            block.UInt(104, checked(
+                (uint)slot.CanonicalComponentCapacity));
+            block.UInt(108, checked(
+                (uint)slot.CanonicalImageScratchOffset));
+            block.UInt(112, checked((uint)slot.CanonicalImageStride));
+            block.UInt(116, checked(
+                (uint)slot.CanonicalRankScratchOffset));
+            return block.Bytes;
+        }
+
+        private static void Set(IntPtr[] resources,
+            SigmaNativeVulkanExecutor.Resource resource, GraphicsBuffer buffer)
+        {
+            if (buffer == null)
+                throw new ArgumentNullException(resource.ToString());
+            IntPtr pointer = buffer.GetNativeBufferPtr();
+            if (pointer == IntPtr.Zero)
+                throw new InvalidOperationException(
+                    $"Native Vulkan buffer handle is null: {resource}.");
+            resources[(int)resource] = pointer;
+        }
+
+        private static void Set(IntPtr[] resources,
+            SigmaNativeVulkanExecutor.Resource resource, Texture texture)
+        {
+            if (texture == null)
+                throw new ArgumentNullException(resource.ToString());
+            IntPtr pointer = texture.GetNativeTexturePtr();
+            if (pointer == IntPtr.Zero)
+                throw new InvalidOperationException(
+                    $"Native Vulkan texture handle is null: {resource}.");
+            resources[(int)resource] = pointer;
         }
 
         private static Vector4 Intrinsics(RigIntrinsics intrinsics) => new(

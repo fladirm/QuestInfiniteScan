@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.SigmaPrism
 {
@@ -82,17 +83,18 @@ namespace Genesis.RoomScan.SigmaPrism
         private bool _retired;
         private bool _destroyed;
 
-        private RigConeLutSet(ComputeShader shader, RigCalibration calibration)
+        private RigConeLutSet(ComputeShader shader, RigCalibration calibration,
+            CommandBuffer command)
         {
             _shader = shader;
             _kernel = shader.FindProfiledKernel("BuildConeLut");
             Calibration = calibration;
             try
             {
-                RgbLeft = Build(calibration.RgbLeft);
-                RgbRight = Build(calibration.RgbRight);
-                DepthLeft = Build(calibration.DepthLeft);
-                DepthRight = Build(calibration.DepthRight);
+                RgbLeft = Build(calibration.RgbLeft, command);
+                RgbRight = Build(calibration.RgbRight, command);
+                DepthLeft = Build(calibration.DepthLeft, command);
+                DepthRight = Build(calibration.DepthRight, command);
             }
             catch
             {
@@ -111,13 +113,15 @@ namespace Genesis.RoomScan.SigmaPrism
         internal ConeProjectionLut DepthRight { get; }
 
         internal static RigConeLutSet Create(ComputeShader shader,
-            RigCalibration calibration)
+            RigCalibration calibration, CommandBuffer command)
         {
             if (shader == null)
                 throw new ArgumentNullException(nameof(shader));
             if (calibration == null)
                 throw new ArgumentNullException(nameof(calibration));
-            return new RigConeLutSet(shader, calibration);
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            return new RigConeLutSet(shader, calibration, command);
         }
 
         internal ConeLutLease Acquire()
@@ -159,7 +163,8 @@ namespace Genesis.RoomScan.SigmaPrism
             _ => throw new ArgumentOutOfRangeException(nameof(projection))
         };
 
-        private ConeProjectionLut Build(RigProjectionCalibration projection)
+        private ConeProjectionLut Build(RigProjectionCalibration projection,
+            CommandBuffer command)
         {
             Vector2Int resolution = projection.Resolution;
             RenderTexture center = CreateTexture($"{projection.Projection} Cone Center",
@@ -173,15 +178,22 @@ namespace Genesis.RoomScan.SigmaPrism
                 GraphicsFormat.R32G32B32A32_SFloat);
             try
             {
-                _shader.SetInts(ResolutionId, resolution.x, resolution.y);
-                _shader.SetVector(FocalLengthId, projection.Intrinsics.FocalLength);
-                _shader.SetVector(PrincipalPointId, projection.Intrinsics.PrincipalPoint);
-                _shader.SetTexture(_kernel, CenterId, center);
-                _shader.SetTexture(_kernel, DifferentialXId, dx);
-                _shader.SetTexture(_kernel, DifferentialYId, dy);
-                _shader.SetTexture(_kernel, SlopeBoundsId, slopes);
-                _shader.Dispatch(_kernel, CeilDiv(resolution.x, 8),
-                    CeilDiv(resolution.y, 8), 1);
+                command.SetComputeIntParams(_shader, ResolutionId,
+                    resolution.x, resolution.y);
+                command.SetComputeVectorParam(_shader, FocalLengthId,
+                    projection.Intrinsics.FocalLength);
+                command.SetComputeVectorParam(_shader, PrincipalPointId,
+                    projection.Intrinsics.PrincipalPoint);
+                command.SetComputeTextureParam(_shader, _kernel, CenterId,
+                    center);
+                command.SetComputeTextureParam(_shader, _kernel,
+                    DifferentialXId, dx);
+                command.SetComputeTextureParam(_shader, _kernel,
+                    DifferentialYId, dy);
+                command.SetComputeTextureParam(_shader, _kernel,
+                    SlopeBoundsId, slopes);
+                command.DispatchComputeProfiled(_shader, _kernel,
+                    CeilDiv(resolution.x, 8), CeilDiv(resolution.y, 8), 1);
                 return new ConeProjectionLut(projection, center, dx, dy, slopes);
             }
             catch

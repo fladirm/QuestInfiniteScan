@@ -46,8 +46,12 @@ namespace Genesis.RoomScan.Tests
             public uint CertificateOffsetHi;
             public uint CertificateCount;
             public uint Flags;
+            public uint GaugeGeneration;
+            public uint CertificateGeneration;
+            public uint RepresentationFlags;
+            public uint RepresentationFingerprint;
+            public uint ActiveSampleCount;
             public uint Reserved0;
-            public uint Reserved1;
         }
 
         [Test]
@@ -99,6 +103,9 @@ namespace Genesis.RoomScan.Tests
                 packed.Length, Marshal.SizeOf<UInt2>());
             using var meta = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, Marshal.SizeOf<PageMeta>());
+            using var renderMeta = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 1,
+                Marshal.SizeOf<PageMeta>());
             using var publicationRoot = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             using var readoutDirty = new GraphicsBuffer(
@@ -137,7 +144,9 @@ namespace Genesis.RoomScan.Tests
             int compact = readout.FindKernel("CompactCurrentPages");
             int resolveHalo = readout.FindKernel("ResolveCarrierHalos");
             readout.SetInt("_PageCapacity", 1);
+            readout.SetInt("_ReadoutRebuildAll", 0);
             readout.SetBuffer(compact, "_PageMetadata", meta);
+            readout.SetBuffer(compact, "_RenderPageMetadata", renderMeta);
             readout.SetBuffer(compact, "_PublishedRevisionRoot",
                 publicationRoot);
             readout.SetBuffer(compact, "_ReadoutDirtyFlags", readoutDirty);
@@ -149,6 +158,21 @@ namespace Genesis.RoomScan.Tests
             readout.SetBuffer(compact, "_ReadoutBuildArguments", buildArguments);
             readout.SetBuffer(compact, "_ReadoutHaloArguments", haloArguments);
             readout.Dispatch(compact, 1, 1, 1);
+
+            var capturedMetadata = new PageMeta[1];
+            renderMeta.GetData(capturedMetadata);
+            Assert.That(capturedMetadata[0].PageXLo,
+                Is.EqualTo(metadata[0].PageXLo));
+            Assert.That(capturedMetadata[0].PageXHi,
+                Is.EqualTo(metadata[0].PageXHi));
+            Assert.That(capturedMetadata[0].PageYLo,
+                Is.EqualTo(metadata[0].PageYLo));
+            Assert.That(capturedMetadata[0].PageYHi,
+                Is.EqualTo(metadata[0].PageYHi));
+            Assert.That(capturedMetadata[0].Generation,
+                Is.EqualTo(metadata[0].Generation));
+            Assert.That(capturedMetadata[0].Revision,
+                Is.EqualTo(metadata[0].Revision));
 
             var fullDraw = new uint[4];
             var previewDraw = new uint[4];
@@ -165,14 +189,14 @@ namespace Genesis.RoomScan.Tests
 
             gate.Bind(readout, build);
             readout.SetBuffer(build, "_CarrierState", state);
-            readout.SetBuffer(build, "_PageMetadata", meta);
+            readout.SetBuffer(build, "_PageMetadata", renderMeta);
             readout.SetBuffer(build, "_PublishedRevisionRoot",
                 publicationRoot);
             readout.SetBuffer(build, "_ReadoutDirtyFlags", readoutDirty);
             readout.SetBuffer(build, "_ReadoutDirtyPageSlots", dirtySlots);
             readout.SetBuffer(build, "_ReadoutVertices", vertices);
             readout.DispatchIndirect(build, buildArguments);
-            readout.SetBuffer(resolveHalo, "_PageMetadata", meta);
+            readout.SetBuffer(resolveHalo, "_PageMetadata", renderMeta);
             readout.SetBuffer(resolveHalo, "_PublishedRevisionRoot",
                 publicationRoot);
             readout.SetBuffer(resolveHalo, "_CurrentPageSlots", activeSlots);
@@ -214,7 +238,7 @@ namespace Genesis.RoomScan.Tests
                 properties.SetInt("_SegmentIndex", 5);
                 properties.SetBuffer("_ReadoutVertices", vertices);
                 properties.SetBuffer("_CurrentPageSlots", activeSlots);
-                properties.SetBuffer("_PageMetadata", meta);
+                properties.SetBuffer("_PageMetadata", renderMeta);
                 properties.SetBuffer("_PoseResult", poseResult);
                 properties.SetMatrix("_PoseConsumeReferenceFromWorld",
                     Matrix4x4.identity);
@@ -279,6 +303,43 @@ namespace Genesis.RoomScan.Tests
                 Destroy(stateKey);
                 Destroy(hardwareDepth);
             }
+        }
+
+        [Test]
+        public void SegmentReadoutCacheOwnsExactlyTwoNonAliasedGenerations()
+        {
+            using var state = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                1, sizeof(uint) * 2);
+            using var representation = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 1, sizeof(uint) * 4);
+            using var metadata = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 2,
+                SigmaCarrier.PageMetadataStride);
+            using var dirty = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                2, sizeof(uint));
+            using var readoutDirty = new GraphicsBuffer(
+                GraphicsBuffer.Target.Structured, 2, sizeof(uint));
+            using var root = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                1, sizeof(uint));
+            var batch = new SigmaCarrierReadBatch(0, 2, 0, state,
+                representation, metadata, dirty, readoutDirty, root);
+            using var cache = new SigmaRenderer.SegmentReadoutCache(batch);
+
+            Assert.That(cache.GenerationCount, Is.EqualTo(2));
+            Assert.That(cache.FrontIndex, Is.Zero);
+            Assert.That(cache.BackIndex, Is.EqualTo(1));
+            Assert.That(cache.Front.Vertices, Is.Not.SameAs(cache.Back.Vertices));
+            Assert.That(cache.Front.CurrentPageSlots,
+                Is.Not.SameAs(cache.Back.CurrentPageSlots));
+            Assert.That(cache.Front.DrawArguments,
+                Is.Not.SameAs(cache.Back.DrawArguments));
+            Assert.That(cache.Front.PreviewDrawArguments,
+                Is.Not.SameAs(cache.Back.PreviewDrawArguments));
+            Assert.That(cache.Front.RenderPageMetadata,
+                Is.Not.SameAs(cache.Back.RenderPageMetadata));
+            Assert.That(cache.DirtyPageSlots, Is.Not.Null);
+            Assert.That(cache.BuildDispatchArguments, Is.Not.Null);
+            Assert.That(cache.HaloDispatchArguments, Is.Not.Null);
         }
 
         [Test]

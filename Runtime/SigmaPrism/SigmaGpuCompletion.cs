@@ -13,21 +13,44 @@ namespace Genesis.RoomScan.SigmaPrism
     }
 
     /// <summary>
-    /// One non-blocking graphics-queue completion point. Canonical work never runs
-    /// on Unity's optional async-compute queue, so the fence type must not require
-    /// async-compute capability. Polling failure is terminal and never means that a
-    /// resource can be recycled.
+    /// One non-blocking GPU completion point. The ticket records whether its fence
+    /// is a cross-queue dependency; polling failure is terminal and never means
+    /// that a resource can be recycled.
     /// </summary>
     internal readonly struct SigmaGpuCompletionTicket
     {
         private readonly GraphicsFence _fence;
+        private readonly SigmaNativeVulkanExecutor.SigmaNativeVulkanJob
+            _nativeJob;
         private readonly bool _valid;
+        private readonly bool _crossQueue;
 
-        internal SigmaGpuCompletionTicket(GraphicsFence fence)
+        internal SigmaGpuCompletionTicket(GraphicsFence fence,
+            bool crossQueue = false)
         {
             _fence = fence;
+            _nativeJob = null;
             _valid = true;
+            _crossQueue = crossQueue;
         }
+
+        internal SigmaGpuCompletionTicket(
+            SigmaNativeVulkanExecutor.SigmaNativeVulkanJob nativeJob)
+        {
+            _fence = default;
+            _nativeJob = nativeJob ?? throw new ArgumentNullException(
+                nameof(nativeJob));
+            _valid = true;
+            _crossQueue = false;
+        }
+
+        internal bool IsValid => _valid;
+        internal bool IsNative => _valid && _nativeJob != null;
+        internal bool IsCrossQueue => _valid && _crossQueue;
+        internal GraphicsFence Fence => _valid && _nativeJob == null
+            ? _fence
+            : throw new InvalidOperationException(
+                "The GPU completion ticket is not a Unity graphics fence.");
 
         internal SigmaGpuCompletionStatus Poll(out string error)
         {
@@ -40,6 +63,8 @@ namespace Genesis.RoomScan.SigmaPrism
             try
             {
                 error = null;
+                if (_nativeJob != null)
+                    return _nativeJob.Poll(out error);
                 return _fence.passed
                     ? SigmaGpuCompletionStatus.Complete
                     : SigmaGpuCompletionStatus.Pending;
@@ -61,6 +86,18 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Sigma-PRISM-16 requires non-blocking graphics fences.");
         }
 
+        internal static void RequireBackgroundComputeSupported()
+        {
+            RequireSupported();
+            if (!SystemInfo.supportsAsyncCompute)
+                throw new InvalidOperationException(
+                    "N4.2R Quest requires Vulkan background async compute; " +
+                    "graphics-queue fallback is forbidden.");
+            if (!SystemInfo.supportsAsyncGPUReadback)
+                throw new InvalidOperationException(
+                    "N4.2R Quest requires asynchronous GPU readback.");
+        }
+
         internal static SigmaGpuCompletionTicket InsertAfterGraphicsWork()
         {
             RequireSupported();
@@ -78,6 +115,29 @@ namespace Genesis.RoomScan.SigmaPrism
             return new SigmaGpuCompletionTicket(command.CreateGraphicsFence(
                 GraphicsFenceType.CPUSynchronisation,
                 SynchronisationStageFlags.AllGPUOperations));
+        }
+
+        internal static SigmaGpuCompletionTicket RecordCrossQueueFence(
+            CommandBuffer command)
+        {
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            RequireBackgroundComputeSupported();
+            return new SigmaGpuCompletionTicket(command.CreateGraphicsFence(
+                GraphicsFenceType.AsyncQueueSynchronisation,
+                SynchronisationStageFlags.AllGPUOperations), true);
+        }
+
+        internal static void WaitOnCrossQueueFence(CommandBuffer command,
+            SigmaGpuCompletionTicket ticket)
+        {
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            if (!ticket.IsCrossQueue)
+                throw new InvalidOperationException(
+                    "Only an async-queue synchronization fence may cross from " +
+                    "the graphics prepass to native background compute.");
+            command.WaitOnAsyncGraphicsFence(ticket.Fence);
         }
     }
 

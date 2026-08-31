@@ -145,7 +145,7 @@ namespace Genesis.RoomScan
 
             double now = Time.realtimeSinceStartupAsDouble;
             if (now < _nextScanAdmissionTime ||
-                !_sigmaRenderer.TryScheduleLatestObservation())
+                !_sigmaInverse.TryScheduleLatestObservation())
                 return;
 
             // Match the donor's fixed-cadence admission: missed ticks never queue

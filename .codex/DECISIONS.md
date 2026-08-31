@@ -651,3 +651,39 @@ branch/chart decisions remain in Git history only.
   component/refinement/canonical/page operation, buffer owner, kernel or dispatch.
   The graph stays at 14 entrypoints and exactly 16 submissions. R1/R2 remain
   frozen unless the same-SHA physical aperture profile misses p95 `<90 ms`.
+
+## ADR-S456 — XR presents immutable FRONT while native close is frame-paced on queue 1
+
+- This decision supersedes ADR-S455's 10 Hz cadence and its transaction-time gate
+  for N4 execution acceptance, but changes no aperture or reconstruction semantic.
+  Admission is fixed at 5 Hz with one pending/in-flight coherent observation and
+  no queue/catch-up.
+- Canonical carrier state remains singular. Only disposable readout is doubled.
+  Each segment generation owns vertices, selected page slots, draw arguments and
+  an exact render-page metadata snapshot. XR binds immutable FRONT only; scanner
+  compilation/prediction uses BACK; build scratch remains single and private.
+- The preloaded native Vulkan plugin obtains queue 1 from the same queue family as
+  Unity/OpenXR queue 0. Queue 0 records the short graphics prepass and signals
+  `graphicsReady`; queue 1 owns the exact existing NativeCloseCommit. XR never
+  waits on pending scanner work and no C# worker calls Unity graphics APIs.
+- One 80--100 ms native command still starves Adreno presentation despite a second
+  low-priority queue. Therefore the unchanged sixteen dispatches are recorded into
+  seven fixed queue-1 command slices with boundaries `[0,1,2,5,9,11,12,16]` and
+  at least one Unity frame between slice submissions. Dispatch order, shader
+  variants and inter-dispatch barriers remain exact.
+- Only the first slice waits `graphicsReady`. Only the final slice signals
+  `nativeDone`, publishes root-last completion, permits completion transfer and
+  releases ingress/prediction/native leases. A queue-0 acquire may consume
+  `nativeDone` only after CPU polling has already proved it signalled; it cannot
+  stall XR behind native execution.
+- Frame pacing is execution scheduling, not partial canonical publication. No
+  slice exposes StateDelta/GaugeDelta/root, recycles a resource or starts readback.
+  Failure before the terminal slice remains fail-closed and all resources stay
+  retained/quarantined by the same terminal ownership contract.
+- Physical Quest evidence accepts this lowering: the monolithic donor collapsed
+  XR to 35--42 FPS, while repeated seven-slice closes held 71--74 FPS at a 72 Hz
+  target and published root/revision 1--47. Revision 48 reached the known resident
+  boundary (`0x120`) with root 47 preserved. No KGSL, MMU, device-lost, fence-
+  timeout, revision-mismatch or root-regression event occurred.
+- N4.2R execution/lifecycle is frozen. N5 durable paging remains a separate,
+  unopened S4‑08 continuation; S4‑09 remains unopened.

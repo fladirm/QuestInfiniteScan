@@ -43,6 +43,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "_ReadoutDirtyFlags");
         private static readonly int ReadoutVerticesId = Shader.PropertyToID(
             "_ReadoutVertices");
+        private static readonly int RenderPageMetadataId = Shader.PropertyToID(
+            "_RenderPageMetadata");
         private static readonly int CurrentPageSlotsId = Shader.PropertyToID(
             "_CurrentPageSlots");
         private static readonly int ReadoutDrawArgumentsId = Shader.PropertyToID(
@@ -57,6 +59,8 @@ namespace Genesis.RoomScan.SigmaPrism
             "_ReadoutHaloArguments");
         private static readonly int PageCapacityId = Shader.PropertyToID(
             "_PageCapacity");
+        private static readonly int ReadoutRebuildAllId = Shader.PropertyToID(
+            "_ReadoutRebuildAll");
         private static readonly int ClipFromWorldId = Shader.PropertyToID(
             "_ClipFromWorld");
         private static readonly int OpticalFromWorldId = Shader.PropertyToID(
@@ -99,7 +103,8 @@ namespace Genesis.RoomScan.SigmaPrism
         private int _buildKernel;
         private int _compactKernel;
         private int _resolveHaloKernel;
-        private long _lastSourceSequence;
+        private uint _nextReadoutRevision = 1u;
+        private string _readoutFault;
         private bool _running;
         private bool _initialized;
 
@@ -107,8 +112,6 @@ namespace Genesis.RoomScan.SigmaPrism
         public bool IsInitialized => _initialized;
         public long RenderedFrames { get; private set; }
         public long BackpressureFrames { get; private set; }
-
-        public event Action<SigmaPredictionFrameLease> PredictionReady;
 
         internal bool TryGetReadoutDiagnostics(int segmentIndex,
             out GraphicsBuffer drawArguments,
@@ -129,9 +132,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 if (_readBatches[index].SegmentIndex != segmentIndex)
                     continue;
                 SegmentReadoutCache cache = _segmentCaches[index];
-                drawArguments = cache.DrawArguments;
-                currentPageSlots = cache.CurrentPageSlots;
-                vertices = cache.Vertices;
+                ReadoutGeneration front = cache.Front;
+                drawArguments = front.DrawArguments;
+                currentPageSlots = front.CurrentPageSlots;
+                vertices = front.Vertices;
                 pageCapacity = cache.Capacity;
                 return true;
             }
@@ -187,6 +191,10 @@ namespace Genesis.RoomScan.SigmaPrism
             _targets = new SigmaPredictionTargetRing(targetRingSlots);
             _correctedTargets = new SigmaPredictionTargetRing(
                 CorrectedTargetRingSlots);
+            _targets.Preallocate(
+                SigmaNativeQuestAperture.PhysicalDepthResolution);
+            _correctedTargets.Preallocate(
+                SigmaNativeQuestAperture.PhysicalDepthResolution);
             _identityPoseResult = new GraphicsBuffer(
                 GraphicsBuffer.Target.Structured, 4, sizeof(uint) * 4)
             {
@@ -201,7 +209,6 @@ namespace Genesis.RoomScan.SigmaPrism
         public void OnScanStarted()
         {
             _running = true;
-            _lastSourceSequence = 0L;
         }
 
         public void OnScanStopped()
@@ -215,58 +222,34 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (!_initialized)
                 return;
+            TryPublishReadoutCaches();
             RenderDirectCarrierPreview();
         }
 
-        /// <summary>
-        /// Transfers at most one held coherent observation into the scan query.
-        /// RoomScanner owns the fixed 5 Hz admission clock; this method never
-        /// schedules itself from XR presentation cadence.
-        /// </summary>
-        internal bool TryScheduleLatestObservation()
+        internal SigmaPredictionAcquireResult TryAcquireScannerPrediction(
+            StereoRigFrameLease source, Matrix4x4 worldToRoom,
+            out SigmaPredictionFrameLease prediction)
         {
-            if (!_running || !_initialized || !_carrier.IsInitialized)
-                return false;
-            if (_carrier.IsInitialized &&
-                _rigBridge.TryAcquireLatest(out StereoRigFrameLease source))
+            prediction = null;
+            if (!_running || !_initialized || source == null ||
+                !source.IsValid || _readoutFault != null || _targets == null)
+                return SigmaPredictionAcquireResult.Faulted;
+            if (SigmaNativeVulkanExecutor.HasJobInFlight)
             {
-                try
-                {
-                    if (source.Sequence != _lastSourceSequence &&
-                        TryRender(source))
-                    {
-                        _lastSourceSequence = source.Sequence;
-                        _rigBridge.AcknowledgeConsumed(source.Sequence);
-                        return true;
-                    }
-                }
-                finally
-                {
-                    source.Dispose();
-                }
+                BackpressureFrames++;
+                return SigmaPredictionAcquireResult.Busy;
             }
-            return false;
-        }
-
-        internal bool TryRender(StereoRigFrameLease source)
-        {
-            if (source == null)
-                return false;
-            return RenderPrediction(source,
-                SigmaPoseGaugeState.Identity(source.CalibrationEpoch), true,
-                out _);
-        }
-
-        internal bool TryRenderPoseGauge(StereoRigFrameLease source,
-            SigmaPoseGaugeState gauge, out SigmaPredictionFrameLease prediction)
-        {
-            if (!gauge.Resolved || source == null ||
-                gauge.CalibrationEpoch != source.CalibrationEpoch)
+            if (_calibration == null || !_calibration.IsCompatible(source))
             {
-                prediction = null;
-                return false;
+                if (!RigCalibration.TryCreate(source, out _calibration))
+                    return SigmaPredictionAcquireResult.Faulted;
             }
-            return RenderPrediction(source, gauge, false, out prediction);
+            SigmaPredictionAcquireResult result = _targets.TryBegin(source,
+                SigmaPoseGaugeState.Identity(source.CalibrationEpoch),
+                worldToRoom, out prediction);
+            if (result == SigmaPredictionAcquireResult.Busy)
+                BackpressureFrames++;
+            return result;
         }
 
         internal SigmaPredictionAcquireResult TryAcquirePoseGaugePrediction(
@@ -277,6 +260,11 @@ namespace Genesis.RoomScan.SigmaPrism
             if (!_initialized || source == null || !source.IsValid ||
                 _correctedTargets == null)
                 return SigmaPredictionAcquireResult.Faulted;
+            if (SigmaNativeVulkanExecutor.HasJobInFlight)
+            {
+                BackpressureFrames++;
+                return SigmaPredictionAcquireResult.Busy;
+            }
             SigmaPredictionAcquireResult result = _correctedTargets.TryBegin(
                 source, SigmaPoseGaugeState.Identity(source.CalibrationEpoch),
                 worldToRoom, out prediction);
@@ -296,127 +284,112 @@ namespace Genesis.RoomScan.SigmaPrism
                     "Corrected Sigma prediction inputs are incomplete.");
             _carrier.CollectReadableSegments(_readBatches);
             EnsureSegmentCaches();
-            try
+            Matrix4x4 referenceWorld = SigmaRoomFrame.FromCamera(
+                worldToRoom,
+                source.DepthLeft.WorldFromCamera);
+            for (int eye = 0; eye < 2; ++eye)
             {
-                Matrix4x4 referenceWorld = SigmaRoomFrame.FromCamera(
-                    worldToRoom,
+                GpuImageView view = eye == 0 ? source.DepthLeft :
+                    source.DepthRight;
+                Matrix4x4 rawWorld = SigmaRoomFrame.FromCamera(worldToRoom,
+                    view.WorldFromCamera);
+                Matrix4x4 opticalFromWorld = rawWorld.inverse;
+                SetMrt(prediction);
+                command.SetRenderTarget(_mrt,
+                    new RenderTargetIdentifier(prediction.HardwareDepth), 0,
+                    CubemapFace.Unknown, eye);
+                command.ClearRenderTarget(true, true, Color.clear, 1f);
+                DrawSegments(command, ReadoutSelection.Back,
+                    BuildClipFromWorld(view,
+                        opticalFromWorld), opticalFromWorld, poseResult,
+                    referenceWorld.inverse, referenceWorld);
+            }
+        }
+
+        internal bool RecordScannerPrediction(CommandBuffer command,
+            StereoRigFrameLease source, SigmaPredictionFrameLease prediction,
+            out uint readoutRevision)
+        {
+            readoutRevision = 0u;
+            if (!_initialized || command == null || source == null ||
+                !source.IsValid || prediction == null || prediction.IsDisposed)
+                throw new InvalidOperationException(
+                    "Scanner readout/prediction inputs are incomplete.");
+            if (!PrepareReadoutCaches(command, out readoutRevision))
+            {
+                BackpressureFrames++;
+                return false;
+            }
+            Matrix4x4 worldToRoom = prediction.WorldToRoom;
+            SigmaPoseGaugeState gauge = prediction.PoseGauge;
+            for (int eye = 0; eye < 2; ++eye)
+            {
+                GpuImageView view = eye == 0 ? source.DepthLeft :
+                    source.DepthRight;
+                Pose referencePose = SigmaRoomFrame.CameraPose(worldToRoom,
                     source.DepthLeft.WorldFromCamera);
-                for (int eye = 0; eye < 2; ++eye)
-                {
-                    GpuImageView view = eye == 0 ? source.DepthLeft :
-                        source.DepthRight;
-                    Matrix4x4 rawWorld = SigmaRoomFrame.FromCamera(worldToRoom,
-                        view.WorldFromCamera);
-                    Matrix4x4 opticalFromWorld = rawWorld.inverse;
-                    SetMrt(prediction);
-                    command.SetRenderTarget(_mrt,
-                        new RenderTargetIdentifier(prediction.HardwareDepth), 0,
-                        CubemapFace.Unknown, eye);
-                    command.ClearRenderTarget(true, true, Color.clear, 1f);
-                    DrawSegments(command, BuildClipFromWorld(view,
-                            opticalFromWorld), opticalFromWorld, poseResult,
-                        referenceWorld.inverse, referenceWorld);
-                }
+                Pose viewPose = SigmaRoomFrame.CameraPose(worldToRoom,
+                    view.WorldFromCamera);
+                Pose correctedPose = gauge.Apply(referencePose, viewPose);
+                Matrix4x4 opticalFromWorld = Matrix4x4.TRS(
+                    correctedPose.position, correctedPose.rotation,
+                    Vector3.one).inverse;
+                SetMrt(prediction);
+                command.SetRenderTarget(_mrt,
+                    new RenderTargetIdentifier(prediction.HardwareDepth), 0,
+                    CubemapFace.Unknown, eye);
+                command.ClearRenderTarget(true, true, Color.clear, 1f);
+                Matrix4x4 referenceWorld = Matrix4x4.TRS(
+                    referencePose.position, referencePose.rotation,
+                    Vector3.one);
+                DrawSegments(command, ReadoutSelection.Back,
+                    BuildClipFromWorld(view, opticalFromWorld),
+                    opticalFromWorld, _identityPoseResult,
+                    referenceWorld.inverse, referenceWorld);
             }
-            catch
-            {
-                prediction.Dispose();
-                throw;
-            }
+            return true;
         }
 
-        private bool RenderPrediction(StereoRigFrameLease source,
-            SigmaPoseGaugeState gauge, bool publish,
-            out SigmaPredictionFrameLease result)
+        internal void CommitScannerTransaction(
+            SigmaPredictionFrameLease prediction,
+            SigmaPredictionFrameLease correctedPrediction,
+            SigmaGpuCompletionTicket completion, uint readoutRevision)
         {
-            result = null;
-            if (!_initialized || source == null || !source.IsValid)
-                return false;
-            if (_calibration == null || !_calibration.IsCompatible(source))
-            {
-                if (!RigCalibration.TryCreate(source, out _calibration))
-                    return false;
-            }
-            Matrix4x4 worldToRoom = RoomSpaceRoot.WorldToRoom;
-            SigmaPredictionAcquireResult acquisition = _targets.TryBegin(source,
-                gauge, worldToRoom, out SigmaPredictionFrameLease prediction);
-            if (acquisition != SigmaPredictionAcquireResult.Acquired)
-            {
-                if (acquisition == SigmaPredictionAcquireResult.Busy)
-                    BackpressureFrames++;
-                else
-                    Logger.Error("Sigma published prediction ring fault: " +
-                        (_targets.CompletionFault ?? "unknown fault"));
-                return false;
-            }
-
-            CommandBuffer command = CommandBufferPool.Get(
-                "Sigma-PRISM-16 Forward Readout");
-            try
-            {
-                PrepareReadoutCaches(command);
-                for (int eye = 0; eye < 2; ++eye)
-                {
-                    GpuImageView view = eye == 0 ? source.DepthLeft :
-                        source.DepthRight;
-                    Pose referencePose = SigmaRoomFrame.CameraPose(worldToRoom,
-                        source.DepthLeft.WorldFromCamera);
-                    Pose viewPose = SigmaRoomFrame.CameraPose(worldToRoom,
-                        view.WorldFromCamera);
-                    Pose correctedPose = gauge.Apply(
-                        referencePose, viewPose);
-                    Matrix4x4 opticalFromWorld = Matrix4x4.TRS(
-                        correctedPose.position, correctedPose.rotation,
-                        Vector3.one).inverse;
-                    SetMrt(prediction);
-                    command.SetRenderTarget(_mrt,
-                        new RenderTargetIdentifier(prediction.HardwareDepth), 0,
-                        CubemapFace.Unknown, eye);
-                    command.ClearRenderTarget(true, true, Color.clear, 1f);
-                    Matrix4x4 referenceWorld = Matrix4x4.TRS(
-                        referencePose.position, referencePose.rotation,
-                        Vector3.one);
-                    DrawSegments(command, BuildClipFromWorld(view,
-                            opticalFromWorld), opticalFromWorld,
-                        _identityPoseResult, referenceWorld.inverse,
-                        referenceWorld);
-                }
-
-                Graphics.ExecuteCommandBuffer(command);
-                prediction.CommitGpuWrite();
-                result = prediction;
-                if (publish)
-                {
-                    SigmaPredictionFrameLease previous = _latest;
-                    _latest = prediction;
-                    previous?.Dispose();
-                    PredictionReady?.Invoke(prediction);
-                }
-                RenderedFrames++;
-                return true;
-            }
-            catch (Exception exception)
-            {
-                prediction.Dispose();
-                result = null;
-                Logger.Error("Sigma forward readout failed: " +
-                    exception.Message);
-                return false;
-            }
-            finally
-            {
-                CommandBufferPool.Release(command);
-            }
+            if (prediction == null || prediction.IsDisposed ||
+                correctedPrediction == null || correctedPrediction.IsDisposed ||
+                !completion.IsValid || readoutRevision == 0u)
+                throw new InvalidOperationException(
+                    "Scanner transaction publication is incomplete.");
+            prediction.CommitGpuWrite(completion);
+            correctedPrediction.CommitGpuWrite(completion);
+            MarkBackSubmitted(completion, readoutRevision);
+            SigmaPredictionFrameLease previous = _latest;
+            _latest = prediction.Retain();
+            previous?.Dispose();
+            RenderedFrames++;
         }
 
-        private bool PrepareReadoutCaches(CommandBuffer command)
+        private bool PrepareReadoutCaches(CommandBuffer command,
+            out uint readoutRevision)
         {
+            readoutRevision = 0u;
             _carrier.CollectReadableSegments(_readBatches);
             EnsureSegmentCaches();
+            TryPublishReadoutCaches();
+            if (_readoutFault != null || _readBatches.Count == 0)
+                return false;
+            for (int index = 0; index < _segmentCaches.Count; ++index)
+                if (_segmentCaches[index].BackSubmitted)
+                    return false;
+
+            readoutRevision = NextReadoutRevision();
             for (int index = 0; index < _readBatches.Count; ++index)
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
                 SegmentReadoutCache cache = _segmentCaches[index];
+                ReadoutGeneration front = cache.Front;
+                ReadoutGeneration back = cache.Back;
+                command.CopyBuffer(front.Vertices, back.Vertices);
                 BindCompaction(command, batch, cache);
                 command.DispatchComputeProfiled(_readoutCompute,
                     _compactKernel, 1, 1, 1);
@@ -427,12 +400,13 @@ namespace Genesis.RoomScan.SigmaPrism
                 command.DispatchComputeProfiled(_readoutCompute,
                     _resolveHaloKernel, cache.HaloDispatchArguments, 0);
             }
-            return _readBatches.Count != 0;
+            return true;
         }
 
         private void BindBuild(CommandBuffer command,
             SigmaCarrierReadBatch batch, SegmentReadoutCache cache)
         {
+            ReadoutGeneration back = cache.Back;
             command.SetComputeIntParam(_readoutCompute, PageCapacityId,
                 batch.PageCapacity);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
@@ -440,7 +414,7 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
                 CarrierStateId, batch.State);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
-                PageMetadataId, batch.Metadata);
+                PageMetadataId, back.RenderPageMetadata);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
                 PublishedRevisionRootId, batch.PublicationRoot);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
@@ -448,26 +422,31 @@ namespace Genesis.RoomScan.SigmaPrism
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
                 ReadoutDirtyPageSlotsId, cache.DirtyPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _buildKernel,
-                ReadoutVerticesId, cache.Vertices);
+                ReadoutVerticesId, back.Vertices);
         }
 
         private void BindCompaction(CommandBuffer command,
             SigmaCarrierReadBatch batch, SegmentReadoutCache cache)
         {
+            ReadoutGeneration back = cache.Back;
             command.SetComputeIntParam(_readoutCompute, PageCapacityId,
                 batch.PageCapacity);
+            command.SetComputeIntParam(_readoutCompute, ReadoutRebuildAllId,
+                cache.Front.Initialized ? 0 : 1);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 PageMetadataId, batch.Metadata);
+            command.SetComputeBufferParam(_readoutCompute, _compactKernel,
+                RenderPageMetadataId, back.RenderPageMetadata);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 PublishedRevisionRootId, batch.PublicationRoot);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutDirtyFlagsId, batch.ReadoutDirtyFlags);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
-                CurrentPageSlotsId, cache.CurrentPageSlots);
+                CurrentPageSlotsId, back.CurrentPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
-                ReadoutDrawArgumentsId, cache.DrawArguments);
+                ReadoutDrawArgumentsId, back.DrawArguments);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
-                PreviewDrawArgumentsId, cache.PreviewDrawArguments);
+                PreviewDrawArgumentsId, back.PreviewDrawArguments);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
                 ReadoutDirtyPageSlotsId, cache.DirtyPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _compactKernel,
@@ -479,19 +458,21 @@ namespace Genesis.RoomScan.SigmaPrism
         private void BindHaloResolve(CommandBuffer command,
             SigmaCarrierReadBatch batch, SegmentReadoutCache cache)
         {
+            ReadoutGeneration back = cache.Back;
             command.SetComputeIntParam(_readoutCompute, PageCapacityId,
                 batch.PageCapacity);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
-                PageMetadataId, batch.Metadata);
+                PageMetadataId, back.RenderPageMetadata);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
                 PublishedRevisionRootId, batch.PublicationRoot);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
-                CurrentPageSlotsId, cache.CurrentPageSlots);
+                CurrentPageSlotsId, back.CurrentPageSlots);
             command.SetComputeBufferParam(_readoutCompute, _resolveHaloKernel,
-                ReadoutVerticesId, cache.Vertices);
+                ReadoutVerticesId, back.Vertices);
         }
 
         private void DrawSegments(CommandBuffer command,
+            ReadoutSelection selection,
             Matrix4x4 clipFromWorld, Matrix4x4 opticalFromWorld,
             GraphicsBuffer poseResult, Matrix4x4 referenceFromWorld,
             Matrix4x4 worldFromReference)
@@ -500,6 +481,7 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
                 SegmentReadoutCache cache = _segmentCaches[index];
+                ReadoutGeneration generation = cache.Select(selection);
                 _properties.Clear();
                 _properties.SetMatrix(ClipFromWorldId, clipFromWorld);
                 _properties.SetMatrix(OpticalFromWorldId, opticalFromWorld);
@@ -510,14 +492,62 @@ namespace Genesis.RoomScan.SigmaPrism
                 _properties.SetInt(SegmentIndexId, batch.SegmentIndex);
                 _properties.SetFloat(ContactFootprintPixelsId, 1.35f);
                 _properties.SetBuffer(PoseResultId, poseResult);
-                _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
+                _properties.SetBuffer(ReadoutVerticesId, generation.Vertices);
                 _properties.SetBuffer(CurrentPageSlotsId,
-                    cache.CurrentPageSlots);
-                _properties.SetBuffer(PageMetadataId, batch.Metadata);
+                    generation.CurrentPageSlots);
+                _properties.SetBuffer(PageMetadataId,
+                    generation.RenderPageMetadata);
                 command.DrawProceduralIndirect(Matrix4x4.identity,
                     _predictionMaterial, 0, MeshTopology.Triangles,
-                    cache.DrawArguments, 0, _properties);
+                    generation.DrawArguments, 0, _properties);
             }
+        }
+
+        private void MarkBackSubmitted(SigmaGpuCompletionTicket fence,
+            uint revision)
+        {
+            for (int index = 0; index < _segmentCaches.Count; ++index)
+                _segmentCaches[index].MarkBackSubmitted(fence, revision);
+        }
+
+        private bool TryPublishReadoutCaches()
+        {
+            bool hasSubmittedBack = false;
+            for (int index = 0; index < _segmentCaches.Count; ++index)
+            {
+                SegmentReadoutCache cache = _segmentCaches[index];
+                if (!cache.BackSubmitted)
+                    continue;
+                hasSubmittedBack = true;
+                SigmaGpuCompletionStatus status = cache.PollBack(
+                    out string error);
+                if (status == SigmaGpuCompletionStatus.Pending)
+                    return false;
+                if (status == SigmaGpuCompletionStatus.Faulted)
+                {
+                    _readoutFault = string.IsNullOrWhiteSpace(error)
+                        ? "Readout BACK completion is unprovable."
+                        : error;
+                    Logger.Error("Sigma FRONT/BACK readout failed closed: " +
+                        _readoutFault);
+                    return false;
+                }
+            }
+            if (!hasSubmittedBack)
+                return true;
+            for (int index = 0; index < _segmentCaches.Count; ++index)
+                if (_segmentCaches[index].BackSubmitted)
+                    _segmentCaches[index].PublishBack();
+            return true;
+        }
+
+        private uint NextReadoutRevision()
+        {
+            uint revision = _nextReadoutRevision++;
+            if (revision == 0u || _nextReadoutRevision == 0u)
+                throw new OverflowException(
+                    "Disposable readout generation exhausted.");
+            return revision;
         }
 
         private void EnsureSegmentCaches()
@@ -530,7 +560,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     continue;
                 if (index < _segmentCaches.Count)
                 {
-                    _segmentCaches[index].Dispose();
+                    RetireSegmentCache(_segmentCaches[index]);
                     _segmentCaches[index] = new SegmentReadoutCache(batch);
                 }
                 else
@@ -539,8 +569,27 @@ namespace Genesis.RoomScan.SigmaPrism
             for (int index = _segmentCaches.Count - 1;
                 index >= _readBatches.Count; --index)
             {
-                _segmentCaches[index].Dispose();
+                RetireSegmentCache(_segmentCaches[index]);
                 _segmentCaches.RemoveAt(index);
+            }
+        }
+
+        private static void RetireSegmentCache(SegmentReadoutCache cache)
+        {
+            if (cache == null)
+                return;
+            try
+            {
+                SigmaGpuCompletionTicket fence =
+                    SigmaGpuCompletion.InsertAfterGraphicsWork();
+                SigmaGpuRetirement.Retire(fence, cache.Dispose,
+                    "Sigma replaced FRONT/BACK readout cache");
+            }
+            catch (Exception exception)
+            {
+                SigmaGpuRetirement.Quarantine(cache.Dispose,
+                    "Sigma replaced FRONT/BACK readout cache",
+                    exception.Message);
             }
         }
 
@@ -591,6 +640,7 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 SigmaCarrierReadBatch batch = _readBatches[index];
                 SegmentReadoutCache cache = _segmentCaches[index];
+                ReadoutGeneration front = cache.Front;
                 _properties.Clear();
                 _properties.SetFloat(PreviewWireframeId,
                     _scanner.CurrentRenderMode == ScanRenderMode.Wireframe
@@ -600,10 +650,11 @@ namespace Genesis.RoomScan.SigmaPrism
                         ? 1.75f : 1.35f);
                 _properties.SetMatrix(RoomToWorldId,
                     SigmaRoomFrame.ToUnityWorld);
-                _properties.SetBuffer(ReadoutVerticesId, cache.Vertices);
+                _properties.SetBuffer(ReadoutVerticesId, front.Vertices);
                 _properties.SetBuffer(CurrentPageSlotsId,
-                    cache.CurrentPageSlots);
-                _properties.SetBuffer(PageMetadataId, batch.Metadata);
+                    front.CurrentPageSlots);
+                _properties.SetBuffer(PageMetadataId,
+                    front.RenderPageMetadata);
                 var renderParams = new RenderParams(_previewMaterial)
                 {
                     worldBounds = new Bounds(boundsCenter,
@@ -614,7 +665,7 @@ namespace Genesis.RoomScan.SigmaPrism
                     layer = gameObject.layer
                 };
                 Graphics.RenderPrimitivesIndirect(renderParams,
-                    MeshTopology.Triangles, cache.PreviewDrawArguments, 1);
+                    MeshTopology.Triangles, front.PreviewDrawArguments, 1);
             }
         }
 
@@ -677,34 +728,37 @@ namespace Genesis.RoomScan.SigmaPrism
                 UnityEngine.Object.DestroyImmediate(material);
         }
 
-        private sealed class SegmentReadoutCache : IDisposable
+        internal enum ReadoutSelection : byte
         {
-            private readonly GraphicsBuffer _stateIdentity;
-            private readonly GraphicsBuffer _metadataIdentity;
+            Front = 0,
+            Back = 1,
+        }
 
-            public SegmentReadoutCache(SigmaCarrierReadBatch batch)
+        internal sealed class ReadoutGeneration : IDisposable
+        {
+            internal ReadoutGeneration(int segmentIndex, int generationIndex,
+                int capacity)
             {
-                SegmentIndex = batch.SegmentIndex;
-                Capacity = batch.PageCapacity;
-                _stateIdentity = batch.State;
-                _metadataIdentity = batch.Metadata;
-                Vertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                    checked(Capacity * ReadoutSamplesPerPage),
+                Vertices = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured |
+                    GraphicsBuffer.Target.CopySource |
+                    GraphicsBuffer.Target.CopyDestination,
+                    checked(capacity * ReadoutSamplesPerPage),
                     sizeof(float) * 4)
                 {
-                    name = $"Sigma readout vertices {SegmentIndex}"
+                    name = $"Sigma readout vertices {segmentIndex}:{generationIndex}"
                 };
                 CurrentPageSlots = new GraphicsBuffer(
-                    GraphicsBuffer.Target.Structured, Capacity, sizeof(uint))
+                    GraphicsBuffer.Target.Structured, capacity, sizeof(uint))
                 {
-                    name = $"Sigma current page slots {SegmentIndex}"
+                    name = $"Sigma current page slots {segmentIndex}:{generationIndex}"
                 };
                 DrawArguments = new GraphicsBuffer(
                     GraphicsBuffer.Target.Structured |
                     GraphicsBuffer.Target.IndirectArguments,
                     4, sizeof(uint))
                 {
-                    name = $"Sigma readout draw args {SegmentIndex}"
+                    name = $"Sigma readout draw args {segmentIndex}:{generationIndex}"
                 };
                 DrawArguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
                 PreviewDrawArguments = new GraphicsBuffer(
@@ -712,9 +766,53 @@ namespace Genesis.RoomScan.SigmaPrism
                     GraphicsBuffer.Target.IndirectArguments,
                     4, sizeof(uint))
                 {
-                    name = $"Sigma preview draw args {SegmentIndex}"
+                    name = $"Sigma preview draw args {segmentIndex}:{generationIndex}"
                 };
                 PreviewDrawArguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
+                RenderPageMetadata = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured, capacity,
+                    SigmaCarrier.PageMetadataStride)
+                {
+                    name = $"Sigma render page metadata {segmentIndex}:{generationIndex}"
+                };
+            }
+
+            internal GraphicsBuffer Vertices { get; }
+            internal GraphicsBuffer CurrentPageSlots { get; }
+            internal GraphicsBuffer DrawArguments { get; }
+            internal GraphicsBuffer PreviewDrawArguments { get; }
+            internal GraphicsBuffer RenderPageMetadata { get; }
+            internal bool Initialized { get; private set; }
+
+            internal void MarkInitialized() => Initialized = true;
+
+            public void Dispose()
+            {
+                Vertices.Dispose();
+                CurrentPageSlots.Dispose();
+                DrawArguments.Dispose();
+                PreviewDrawArguments.Dispose();
+                RenderPageMetadata.Dispose();
+            }
+        }
+
+        internal sealed class SegmentReadoutCache : IDisposable
+        {
+            private readonly GraphicsBuffer _stateIdentity;
+            private readonly GraphicsBuffer _metadataIdentity;
+            private readonly ReadoutGeneration[] _generations;
+
+            public SegmentReadoutCache(SigmaCarrierReadBatch batch)
+            {
+                SegmentIndex = batch.SegmentIndex;
+                Capacity = batch.PageCapacity;
+                _stateIdentity = batch.State;
+                _metadataIdentity = batch.Metadata;
+                _generations = new[]
+                {
+                    new ReadoutGeneration(SegmentIndex, 0, Capacity),
+                    new ReadoutGeneration(SegmentIndex, 1, Capacity),
+                };
                 DirtyPageSlots = new GraphicsBuffer(
                     GraphicsBuffer.Target.Structured, Capacity, sizeof(uint))
                 {
@@ -740,13 +838,58 @@ namespace Genesis.RoomScan.SigmaPrism
 
             public int SegmentIndex { get; }
             public int Capacity { get; }
-            public GraphicsBuffer Vertices { get; }
-            public GraphicsBuffer CurrentPageSlots { get; }
-            public GraphicsBuffer DrawArguments { get; }
-            public GraphicsBuffer PreviewDrawArguments { get; }
-            public GraphicsBuffer DirtyPageSlots { get; }
-            public GraphicsBuffer BuildDispatchArguments { get; }
-            public GraphicsBuffer HaloDispatchArguments { get; }
+            internal int FrontIndex { get; private set; }
+            internal int BackIndex => 1 - FrontIndex;
+            internal int GenerationCount => _generations.Length;
+            internal ReadoutGeneration Front => _generations[FrontIndex];
+            internal ReadoutGeneration Back => _generations[BackIndex];
+            internal GraphicsBuffer DirtyPageSlots { get; }
+            internal GraphicsBuffer BuildDispatchArguments { get; }
+            internal GraphicsBuffer HaloDispatchArguments { get; }
+            internal SigmaGpuCompletionTicket BackReadyFence { get; private set; }
+            internal bool BackSubmitted { get; private set; }
+            internal uint FrontRevision { get; private set; }
+            internal uint BackRevision { get; private set; }
+
+            internal ReadoutGeneration Select(ReadoutSelection selection) =>
+                selection == ReadoutSelection.Front
+                    ? Front
+                    : Back;
+
+            internal void MarkBackSubmitted(SigmaGpuCompletionTicket fence,
+                uint revision)
+            {
+                if (BackSubmitted || revision == 0u)
+                    throw new InvalidOperationException(
+                        "Readout BACK publication state is invalid.");
+                BackReadyFence = fence;
+                BackRevision = revision;
+                BackSubmitted = true;
+            }
+
+            internal SigmaGpuCompletionStatus PollBack(out string error) =>
+                BackSubmitted
+                    ? BackReadyFence.Poll(out error)
+                    : CompleteWithoutFence(out error);
+
+            internal void PublishBack()
+            {
+                if (!BackSubmitted)
+                    throw new InvalidOperationException(
+                        "No readout BACK generation is ready to publish.");
+                Back.MarkInitialized();
+                FrontIndex = BackIndex;
+                FrontRevision = BackRevision;
+                BackRevision = 0u;
+                BackSubmitted = false;
+            }
+
+            private static SigmaGpuCompletionStatus CompleteWithoutFence(
+                out string error)
+            {
+                error = null;
+                return SigmaGpuCompletionStatus.Complete;
+            }
 
             public bool Matches(SigmaCarrierReadBatch batch) =>
                 SegmentIndex == batch.SegmentIndex &&
@@ -756,10 +899,8 @@ namespace Genesis.RoomScan.SigmaPrism
 
             public void Dispose()
             {
-                Vertices.Dispose();
-                CurrentPageSlots.Dispose();
-                DrawArguments.Dispose();
-                PreviewDrawArguments.Dispose();
+                _generations[0].Dispose();
+                _generations[1].Dispose();
                 DirtyPageSlots.Dispose();
                 BuildDispatchArguments.Dispose();
                 HaloDispatchArguments.Dispose();
