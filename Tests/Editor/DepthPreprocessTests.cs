@@ -25,6 +25,68 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void DilationEveryRetainedJumpIsReachableAndIndependentlyRequired()
+        {
+            // Quest Environment Depth is currently delivered as a 320x320
+            // stereo array. Unlike a 256-wide raster, this admits a real
+            // source/destination pair separated by the largest 256px jump.
+            const int runtimeWidth = 320;
+            const float validNearDepth = 0.051f;
+            const float focalLength = 1f;
+            float physicalRadius = MerkabaConstants.FreeFullClearance +
+                MerkabaConstants.SupportSize;
+            float pixelSize = 2f * validNearDepth /
+                (focalLength * runtimeWidth);
+            float projectedRadius = physicalRadius / pixelSize;
+            Assert.That(projectedRadius, Is.GreaterThan(256f),
+                "The current >50mm measurement domain can physically use " +
+                "the largest in-bounds Quest Environment Depth jump.");
+
+            int[] steps = DepthCapture.BuildDilationStepSequence(8);
+            foreach (int omittedStep in steps)
+            {
+                Assert.That(omittedStep, Is.LessThan(runtimeWidth));
+                Assert.That(projectedRadius, Is.GreaterThan(omittedStep));
+
+                // One valid source starts exactly omittedStep pixels from the
+                // destination. Run the current 1D projection of the JFA with
+                // that exponent removed. Larger jumps cannot land on this
+                // source from x=0; all smaller jumps together span only
+                // omittedStep-1, so the destination must remain unprotected.
+                bool[] field = new bool[runtimeWidth];
+                field[omittedStep] = true;
+                foreach (int step in steps)
+                {
+                    if (step == omittedStep) continue;
+                    bool[] next = (bool[])field.Clone();
+                    for (int destination = 0; destination < runtimeWidth;
+                         destination++)
+                    {
+                        int left = destination - step;
+                        int right = destination + step;
+                        if ((left >= 0 && field[left]) ||
+                            (right < runtimeWidth && field[right]))
+                            next[destination] = true;
+                    }
+                    field = next;
+                }
+                Assert.That(field[0], Is.False,
+                    $"step {omittedStep} was independently redundant");
+            }
+
+            string dilation = RuntimeSource(
+                "Runtime/Shaders/DepthDilation.compute");
+            string exact = RuntimeSource(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            Assert.That(dilation, Does.Contain(
+                "(gsVoxDist + gsVoxSize) / max(pixelSize, 1e-6)"));
+            Assert.That(exact, Does.Contain(
+                "float dilatedDepth = gsDilatedDepth.Load"));
+            Assert.That(exact, Does.Contain(
+                "measuredEyeDistance <= 0.05"));
+        }
+
+        [Test]
         public void PreprocessCadence_ConsumesOnlyNewRawFrameVersions()
         {
             Assert.That(DepthCapture.ShouldPreprocessFrame(0, 0), Is.False);

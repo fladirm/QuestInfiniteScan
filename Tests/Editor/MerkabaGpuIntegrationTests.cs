@@ -237,11 +237,74 @@ namespace Genesis.RoomScan.Tests
             Assert.That(surface, Does.Contain(
                 "TrySurfaceMeasurement(sourcePixel"));
             Assert.That(surface, Does.Contain(
-                "float signedOffset = dot(worldSurface - kernelWorld"));
+                "float newOffset = dot(worldSurface - targetWorld"));
             Assert.That(surface, Does.Contain(
-                "M8SetSurfacePlane(state.flags, normalGrid"));
+                "M8SetSurfacePlane(state.flags, newNormalGrid"));
+            Assert.That(surface, Does.Not.Contain("kernelWorld"));
+            Assert.That(surface, Does.Not.Contain(
+                "worldSurface - measuredKernel"));
             Assert.That(surface, Does.Not.Contain(
                 "M8SelectCanonicalSurfaceOrientation(normalGrid)"));
+
+            float3 targetWorld = new(0.025f, -0.05f, 0.075f);
+            float3 normal = math.normalize(new float3(1f, 2f, -3f));
+            float requestedOffset = 0.0113f;
+            float3 worldSurface = targetWorld + normal * requestedOffset;
+            uint flags = KernelState.SetSurfacePlane(0u, normal,
+                math.dot(worldSurface - targetWorld, normal));
+            KernelState.DecodeSurfacePlane(flags, out float3 decodedNormal,
+                out float decodedOffset);
+            float decodedPlaneError = math.abs(math.dot(
+                worldSurface - targetWorld, decodedNormal) - decodedOffset);
+            Assert.That(decodedPlaneError, Is.LessThan(3e-4f));
+        }
+
+        [Test]
+        public void SupportPlanePolicy_FusesOnlyTheSameUndirectedM8Sheet()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string chart = Slice(integration,
+                "int3 MerkabaNearestGridNormalStep",
+                "int3 MerkabaNearestNormalStep");
+            string surface = Slice(integration,
+                "void IntegrateSurfaceCandidates", "uint M8ScanChildMask");
+            Assert.That(chart, Does.Contain(
+                "return int3(direction.x, 0, 0)"));
+            Assert.That(chart, Does.Contain(
+                "return int3(direction.x, direction.y, 0)"));
+            Assert.That(chart, Does.Contain("return direction"));
+            Assert.That(surface, Does.Contain(
+                "int evidenceBefore = state.evidence"));
+            Assert.That(surface, Does.Contain(
+                "bool hadMeasuredPlaneBefore = M8HasSurfacePlane"));
+            Assert.That(surface, Does.Contain(
+                "int surfaceDelta = max(1, (int)round("));
+            Assert.That(surface, Does.Contain(
+                "UpdateOccupancy(physicalSlot, kernelLocal, state, surfaceDelta)"));
+            Assert.That(surface, Does.Contain(
+                "authority !=\n            MERKABA_SURFACE_AUTHORITY_SUPPORT"));
+            Assert.That(surface, Does.Contain(
+                "all(oldStep == newStep) ||\n                all(oldStep == -newStep)"));
+            Assert.That(surface, Does.Not.Contain("abs(oldStep)"));
+            Assert.That(surface, Does.Contain(
+                "dot(oldNormalGrid, newNormalGrid) < 0.0"));
+            Assert.That(surface, Does.Contain(
+                "oldWeight = max(1.0, (float)max(evidenceBefore, 0))"));
+            Assert.That(surface, Does.Contain(
+                "newWeight = (float)surfaceDelta"));
+            Assert.That(surface, Does.Contain(
+                "weightedOffset / normalLength"));
+            Assert.That(surface, Does.Contain(
+                "MERKABA_SURFACE_PLANE_OFFSET_RANGE + 1.0e-6"));
+            Assert.That(surface, Does.Not.Contain("M8LoadKernelStateRead"));
+
+            Assert.That(math.all(new int3(1, 1, 0) ==
+                -new int3(-1, -1, 0)), Is.True);
+            Assert.That(math.all(new int3(1, 1, 0) ==
+                new int3(1, -1, 0)), Is.False);
+            Assert.That(math.all(new int3(1, 1, 1) ==
+                new int3(1, -1, 1)), Is.False);
         }
 
         [Test]
@@ -386,6 +449,20 @@ namespace Genesis.RoomScan.Tests
                 "_m8SurfaceWinnerRanks0 = Allocate(bankStateCount, " +
                 "sizeof(uint))"));
 
+            string selectPass = Slice(integration,
+                "void SelectSurfaceWinners", "void QueueResolvedSurfaceCandidates");
+            string queuePass = Slice(integration,
+                "void QueueResolvedSurfaceCandidates", "void RetryPendingNewTiles");
+            Assert.That(selectPass, Does.Contain("M8TrySurfaceWinnerRank"));
+            Assert.That(queuePass, Does.Not.Contain("M8TrySurfaceWinnerRank"));
+            Assert.That(queuePass, Does.Not.Contain("TrySurfaceMeasurement"));
+            Assert.That(queuePass, Does.Contain(
+                "winner & MERKABA_MEASUREMENT_PACKED_MASK"));
+            Assert.That(queuePass, Does.Contain(
+                "asuint(candidate.w) &\n        MERKABA_MEASUREMENT_PACKED_MASK"));
+            Assert.That(queuePass, Does.Contain(
+                "_M8SurfaceQueue[queueIndex] = uint2(key, metadata)"));
+
             int initialize = integrator.IndexOf(
                 "_initializeSurfaceWinnersKernel,", StringComparison.Ordinal);
             int select = integrator.IndexOf(
@@ -416,6 +493,9 @@ namespace Genesis.RoomScan.Tests
                 "perpendicularError <= MERKABA_HALF_SUPPORT"));
             Assert.That(compatibility, Does.Contain(
                 "alongError <= MERKABA_SUPPORT_SIZE"));
+            Assert.That(compatibility, Does.Contain(
+                "abs(ownerPlaneOffset) <=\n            " +
+                "MERKABA_SURFACE_PLANE_OFFSET_RANGE + 1.0e-6"));
             Assert.That(route, Does.Contain(
                 "MERKABA_SURFACE_ROUTE_UNRESOLVED"));
             Assert.That(route, Does.Contain("MerkabaMutationAttention"));
@@ -454,6 +534,22 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Not.Contain(
                 "TrySurfaceMeasurementAtKernel"));
             Assert.That(integrate, Does.Not.Contain("sourceEye"));
+
+            float axisOffset = math.dot(new float3(0.0125f, 0f, 0f),
+                new float3(1f, 0f, 0f));
+            float faceOffset = math.dot(-new float3(0.025f, 0.025f, 0f),
+                math.normalize(new float3(1f, 1f, 0f)));
+            float bodyOffset = math.dot(
+                -new float3(0.025f, 0.025f, 0.025f),
+                math.normalize(new float3(1f, 1f, 1f)));
+            Assert.That(math.abs(axisOffset), Is.LessThanOrEqualTo(
+                MerkabaConstants.SurfacePlaneOffsetRange));
+            Assert.That(math.abs(faceOffset), Is.GreaterThan(
+                MerkabaConstants.SurfacePlaneOffsetRange));
+            Assert.That(math.abs(bodyOffset), Is.GreaterThan(
+                MerkabaConstants.SurfacePlaneOffsetRange));
+            Assert.That(route, Does.Contain("if (!foundOwner)"));
+            Assert.That(route, Does.Contain("targetCoord = nearestKernel"));
         }
 
         [Test]
@@ -580,6 +676,8 @@ namespace Genesis.RoomScan.Tests
                 "_M8FrameDispatchArgs[1] = 1u"));
             Assert.That(frame, Does.Contain("M8PatchPrefix"));
             Assert.That(frame, Does.Contain("gM8ShellPatchValidWords"));
+            Assert.That(frame, Does.Contain(
+                "gM8ShellOccupiedWords[MERKABA_M8_TILE_WORDS]"));
             Assert.That(frame, Does.Contain("M8ResolveOverlapPatchMask"));
             Assert.That(frame, Does.Contain(
                 "M8_COUNTER_READOUT_PLANE_LEGACY_INVALID"));
@@ -611,6 +709,20 @@ namespace Genesis.RoomScan.Tests
             Assert.That(Regex.Matches(compile,
                 "M8LoadMainTile\\("), Has.Count.EqualTo(1));
             Assert.That(frame, Does.Contain("[numthreads(8, 8, 2)]"));
+
+            string resolveMask = Slice(frame,
+                "void M8ResolveOverlapPatchMask", "void PreflightReadout");
+            int occupiedPrefilter = resolveMask.IndexOf(
+                "gM8ShellOccupiedWords[word] & bit",
+                StringComparison.Ordinal);
+            int stateLoad = resolveMask.IndexOf("M8LoadKernelStateRead",
+                StringComparison.Ordinal);
+            Assert.That(occupiedPrefilter, Is.GreaterThanOrEqualTo(0));
+            Assert.That(stateLoad, Is.GreaterThan(occupiedPrefilter));
+            Assert.That(resolveMask, Does.Contain(
+                "(state.flags & MERKABA_OCCUPIED_FLAG) == 0u"));
+            Assert.That(resolveMask, Does.Contain(
+                "!M8HasSurfacePlane(state.flags)"));
         }
 
         [Test]

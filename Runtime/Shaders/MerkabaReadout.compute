@@ -292,6 +292,7 @@ void PrepareReadoutBuild(uint id : SV_DispatchThreadID)
 
 groupshared uint gM8ShellPatchValidWords[MERKABA_M8_TILE_WORDS];
 groupshared uint gM8ShellPatchPrefixes[MERKABA_M8_TILE_WORDS];
+groupshared uint gM8ShellOccupiedWords[MERKABA_M8_TILE_WORDS];
 groupshared uint gM8ShellPhysicalSlot;
 groupshared uint gM8ShellOccupiedCount;
 groupshared uint gM8ShellValidPatchCount;
@@ -327,6 +328,9 @@ void M8StoreReadoutVertex(uint outputTriangle, uint corner,
 
 void M8LoadMainTile(uint physicalSlot, uint thread)
 {
+    if (thread < MERKABA_M8_TILE_WORDS)
+        gM8ShellOccupiedWords[thread] = _M8TileBitsRead[
+            M8TileWordIndex(physicalSlot, thread)].x;
     if (thread == 0u)
     {
         gM8ShellPhysicalSlot = physicalSlot;
@@ -352,13 +356,15 @@ void M8ResolveOverlapPatchMask(uint thread)
     for (uint batch = 0u; batch < 4u; batch++)
     {
         uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
+        uint word = kernelLocal >> 5u;
+        uint bit = 1u << (kernelLocal & 31u);
+        if ((gM8ShellOccupiedWords[word] & bit) == 0u)
+            continue;
         KernelState state = M8LoadKernelStateRead(gM8ShellPhysicalSlot,
             kernelLocal);
         if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
             !M8HasSurfacePlane(state.flags))
             continue;
-        uint word = kernelLocal >> 5u;
-        uint bit = 1u << (kernelLocal & 31u);
         uint ignored;
         InterlockedOr(gM8ShellPatchValidWords[word], bit, ignored);
     }

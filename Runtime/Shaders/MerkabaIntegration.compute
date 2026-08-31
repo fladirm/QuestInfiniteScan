@@ -313,10 +313,9 @@ int MerkabaSurfaceAuthority(int packedRoute)
         MERKABA_SURFACE_AUTHORITY_MASK);
 }
 
-int3 MerkabaNearestNormalStep(float3 worldNormal)
+int3 MerkabaNearestGridNormalStep(float3 gridNormal)
 {
-    float3 gridNormal = normalize(mul((float3x3)_MerkabaWorldToGrid,
-        worldNormal));
+    gridNormal = normalize(gridNormal);
     float3 magnitude = abs(gridNormal);
     int3 direction = int3(gridNormal.x >= 0.0 ? 1 : -1,
         gridNormal.y >= 0.0 ? 1 : -1,
@@ -347,6 +346,12 @@ int3 MerkabaNearestNormalStep(float3 worldNormal)
         return int3(0, direction.y, direction.z);
     }
     return direction;
+}
+
+int3 MerkabaNearestNormalStep(float3 worldNormal)
+{
+    return MerkabaNearestGridNormalStep(mul(
+        (float3x3)_MerkabaWorldToGrid, worldNormal));
 }
 
 bool M8FindSurfaceBlock(int3 blockCoord, out uint blockIndex)
@@ -405,8 +410,9 @@ int M8InspectSurfaceOwner(int3 globalCoord,
     return occupied ? 1 : 0;
 }
 
-bool MerkabaOwnerCompatible(int3 ownerCoord, float3 rayOrigin,
-    float3 rayDirection, float endpointDistance, out float alongError,
+bool MerkabaOwnerCompatible(int3 ownerCoord, float3 worldSurface,
+    float3 worldNormal, float3 rayOrigin, float3 rayDirection,
+    float endpointDistance, out float alongError,
     out float perpendicularError)
 {
     float3 ownerWorld = mul(_MerkabaGridToWorld,
@@ -416,9 +422,12 @@ bool MerkabaOwnerCompatible(int3 ownerCoord, float3 rayOrigin,
     float3 closestOnRay = rayOrigin + rayDirection * ownerDistance;
     alongError = abs(endpointDistance - ownerDistance);
     perpendicularError = distance(ownerWorld, closestOnRay);
+    float ownerPlaneOffset = dot(worldSurface - ownerWorld, worldNormal);
     return ownerDistance > 0.0 &&
         alongError <= MERKABA_SUPPORT_SIZE &&
-        perpendicularError <= MERKABA_HALF_SUPPORT;
+        perpendicularError <= MERKABA_HALF_SUPPORT &&
+        abs(ownerPlaneOffset) <=
+            MERKABA_SURFACE_PLANE_OFFSET_RANGE + 1.0e-6;
 }
 
 bool MerkabaLexicographicallyLess(int3 left, int3 right)
@@ -451,6 +460,7 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
             MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
             false, false);
     ray /= endpointDistance;
+    float3 worldNormal = normalize(surfaceNormal);
     int3 normalStep = MerkabaNearestNormalStep(surfaceNormal);
     MerkabaM8Address nearestAddress = MerkabaAddressOf(nearestKernel);
     uint nearestBlockIndex = 0u;
@@ -474,8 +484,9 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
         int3 ownerCoord = ownerCandidates[candidateIndex];
         float alongError;
         float perpendicularError;
-        if (!MerkabaOwnerCompatible(ownerCoord, rayOrigin, ray,
-                endpointDistance, alongError, perpendicularError))
+        if (!MerkabaOwnerCompatible(ownerCoord, worldSurface, worldNormal,
+                rayOrigin, ray, endpointDistance, alongError,
+                perpendicularError))
             continue;
         bool occupied;
         int state = M8InspectSurfaceOwner(ownerCoord, nearestAddress,
@@ -1225,15 +1236,12 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
         M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
         return;
     }
-    uint rank;
-    if (!M8TrySurfaceWinnerRank(candidate.xyz, candidate.w, rank))
-    {
-        uint ignored;
-        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
-            M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY, ignored);
-        return;
-    }
-    if (M8LoadSurfaceWinner(physicalSlot, kernelLocal) != rank) return;
+    uint winner = M8LoadSurfaceWinner(physicalSlot, kernelLocal);
+    if (winner == MERKABA_SURFACE_WINNER_EMPTY) return;
+    uint winnerPixel = winner & MERKABA_MEASUREMENT_PACKED_MASK;
+    uint candidatePixel = asuint(candidate.w) &
+        MERKABA_MEASUREMENT_PACKED_MASK;
+    if (candidatePixel != winnerPixel) return;
 
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
     uint bit = 1u << (kernelLocal & 31u);
@@ -1330,18 +1338,63 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     if (_M8FineRefineActive != 0u && !M8FineContains(targetWorld)) return;
 
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
-    UpdateOccupancy(physicalSlot, kernelLocal, state,
-        max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE)));
+    int evidenceBefore = state.evidence;
+    bool hadMeasuredPlaneBefore = M8HasSurfacePlane(state.flags);
+    int surfaceDelta = max(1, (int)round(
+        quality * quality * MERKABA_SURFACE_SCALE));
+    UpdateOccupancy(physicalSlot, kernelLocal, state, surfaceDelta);
     if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
     {
-        float3 normalGrid = mul((float3x3)_MerkabaWorldToGrid, surfaceNormal);
-        float3 kernelGrid = (float3)measuredKernel * MERKABA_LATTICE_STEP;
-        float3 kernelWorld = mul(_MerkabaGridToWorld,
-            float4(kernelGrid, 1.0)).xyz;
-        float signedOffset = dot(worldSurface - kernelWorld,
-            normalize(surfaceNormal));
-        state.flags = M8SetSurfacePlane(state.flags, normalGrid,
-            signedOffset);
+        float3 worldNormal = normalize(surfaceNormal);
+        float3 newNormalGrid = normalize(mul(
+            (float3x3)_MerkabaWorldToGrid, surfaceNormal));
+        float newOffset = dot(worldSurface - targetWorld, worldNormal);
+        int authority = MerkabaSurfaceAuthority(asint(queued.y));
+        bool storeExactPlane = authority !=
+            MERKABA_SURFACE_AUTHORITY_SUPPORT || !hadMeasuredPlaneBefore;
+        if (storeExactPlane)
+            state.flags = M8SetSurfacePlane(state.flags, newNormalGrid,
+                newOffset);
+        else
+        {
+            float3 oldNormalGrid;
+            float oldOffset;
+            M8DecodeSurfacePlane(state.flags, oldNormalGrid, oldOffset);
+            int3 oldStep = MerkabaNearestGridNormalStep(oldNormalGrid);
+            int3 newStep = MerkabaNearestGridNormalStep(newNormalGrid);
+            bool sameM8Sheet = all(oldStep == newStep) ||
+                all(oldStep == -newStep);
+            if (sameM8Sheet)
+            {
+                if (dot(oldNormalGrid, newNormalGrid) < 0.0)
+                {
+                    newNormalGrid = -newNormalGrid;
+                    newOffset = -newOffset;
+                }
+                float oldWeight = max(1.0, (float)max(evidenceBefore, 0));
+                float newWeight = (float)surfaceDelta;
+                float3 weightedNormal = oldNormalGrid * oldWeight +
+                    newNormalGrid * newWeight;
+                float weightedOffset = oldOffset * oldWeight +
+                    newOffset * newWeight;
+                float normalLength = length(weightedNormal);
+                if (normalLength > 1.0e-6)
+                {
+                    float3 fusedNormalGrid = weightedNormal / normalLength;
+                    float fusedOffset = weightedOffset / normalLength;
+                    if (abs(fusedOffset) <=
+                        MERKABA_SURFACE_PLANE_OFFSET_RANGE + 1.0e-6)
+                        state.flags = M8SetSurfacePlane(state.flags,
+                            fusedNormalGrid, fusedOffset);
+                    else
+                        state.flags = M8SetSurfacePlane(state.flags,
+                            newNormalGrid, newOffset);
+                }
+                else
+                    state.flags = M8SetSurfacePlane(state.flags,
+                        newNormalGrid, newOffset);
+            }
+        }
     }
     state.flags |= MERKABA_NEEDS_CARVE_FLAG;
     float2 leftUv = MerkabaProjectCameraUv(0u, worldSurface);
