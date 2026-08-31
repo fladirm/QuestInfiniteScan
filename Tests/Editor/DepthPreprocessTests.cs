@@ -432,6 +432,10 @@ namespace Genesis.RoomScan.Tests
                 "AROcclusionShaderMode.HardOcclusion"));
             Assert.That(depth, Does.Contain(
                 "_arOcclusionManager.gameObject.AddComponent<ARShaderOcclusion>()"));
+            Assert.That(depth, Does.Contain(
+                "bool depthRequired = _captureActive || dynamicOcclusionEnabled;"));
+            Assert.That(depth, Does.Contain(
+                "_shaderOcclusion.enabled = dynamicOcclusionEnabled;"));
             Assert.That(depth, Does.Not.Contain("WaitForCompletion"));
             Assert.That(depth, Does.Not.Contain("Thread.Sleep"));
             Assert.That(depth, Does.Not.Contain("Task.Delay"));

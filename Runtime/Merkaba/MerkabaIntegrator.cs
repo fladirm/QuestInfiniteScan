@@ -405,6 +405,12 @@ namespace Genesis.RoomScan
             return true;
         }
 
+        internal void RestoreReadyAutomaticObservationAuthority()
+        {
+            if (_readyCameraSlot >= 0)
+                _cameraFineBrush[_readyCameraSlot] = default;
+        }
+
         internal bool TryRetireObservationAttempt()
         {
             if (!_observationPrepared || !_attemptInFlight)

@@ -102,6 +102,8 @@ namespace Genesis.RoomScan
                 _fineCycleArmed = false;
                 if (!fineMode)
                 {
+                    _fineObservationDescriptor = default;
+                    _integrator?.RestoreReadyAutomaticObservationAuthority();
                     _finePreviewDescriptor = default;
                     _controllerRay?.SetFineBrushPreview(default,
                         FineBrushOperation.None);
@@ -123,6 +125,16 @@ namespace Genesis.RoomScan
         {
             get => _renderer != null ? _renderer.ScanOpacity : 1f;
             set { if (_renderer != null) _renderer.ScanOpacity = value; }
+        }
+        public bool DynamicOcclusionEnabled
+        {
+            get => _depthCapture == null ||
+                _depthCapture.DynamicOcclusionEnabled;
+            set
+            {
+                if (_depthCapture != null)
+                    _depthCapture.DynamicOcclusionEnabled = value;
+            }
         }
 
         public MerkabaGrid Grid => _grid;

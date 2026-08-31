@@ -14,7 +14,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _root;
         private VisualElement _boundRoot;
         private Button _start, _stop, _save, _load, _new, _export,
-            _exportTiles, _fine;
+            _exportTiles, _fine, _occlusion;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps;
         private Slider _opacity;
@@ -91,6 +91,7 @@ namespace Genesis.RoomScan.UI
             _export = _root.Q<Button>("btn-export");
             _exportTiles = _root.Q<Button>("btn-export-tiles");
             _fine = _root.Q<Button>("btn-fine");
+            _occlusion = _root.Q<Button>("btn-occlusion");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
             _kernels = _root.Q<Label>("val-kernels");
@@ -126,6 +127,13 @@ namespace Genesis.RoomScan.UI
             {
                 RoomScanner scanner = RoomScanner.Instance;
                 if (scanner != null) scanner.FineMode = !scanner.FineMode;
+            });
+            _occlusion?.RegisterCallback<ClickEvent>(evt =>
+            {
+                RoomScanner scanner = RoomScanner.Instance;
+                if (scanner != null)
+                    scanner.DynamicOcclusionEnabled =
+                        !scanner.DynamicOcclusionEnabled;
             });
             _opacity?.RegisterValueChangedCallback(evt =>
             {
@@ -182,6 +190,9 @@ namespace Genesis.RoomScan.UI
             Set(_fineDepthValue, $"{scanner.FineToolDepth:F2} m");
             if (_fine != null)
                 _fine.text = scanner.FineMode ? "FINE  ON" : "FINE  OFF";
+            if (_occlusion != null)
+                _occlusion.text = scanner.DynamicOcclusionEnabled
+                    ? "OCCLUSION  ON" : "OCCLUSION  OFF";
 
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
@@ -209,6 +220,7 @@ namespace Genesis.RoomScan.UI
             _export?.SetEnabled(!busy);
             _exportTiles?.SetEnabled(!busy);
             _fine?.SetEnabled(!busy);
+            _occlusion?.SetEnabled(!busy);
         }
 
         private void RefreshOperation(ScanOperationState operation)

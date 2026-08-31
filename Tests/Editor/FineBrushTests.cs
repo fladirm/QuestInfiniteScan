@@ -111,6 +111,7 @@ namespace Genesis.RoomScan.Tests
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
             string input = Source("Runtime/RoomScanInputHandler.cs");
+            string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
 
             Assert.That(scanner, Does.Contain("if (fineMode)"));
             Assert.That(scanner, Does.Contain("UpdateFineRefine();"));
@@ -118,6 +119,12 @@ namespace Genesis.RoomScan.Tests
                 "_cameraProvider.TryGetSynchronizedFrame(\n                    depthUnixSeconds, availableSkew,\n                    out StereoCameraFrame cameraFrame)"));
             Assert.That(integrator, Does.Contain(
                 "return SetStereoCameraData(frame, default);"));
+            Assert.That(scanner, Does.Contain(
+                "_integrator?.RestoreReadyAutomaticObservationAuthority();"));
+            Assert.That(integrator, Does.Contain(
+                "_cameraFineBrush[_readyCameraSlot] = default;"));
+            Assert.That(refine, Does.Contain(
+                "_M8FineRefineActive != 0u &&"));
             Assert.That(input, Does.Contain("OVRInput.RawButton.RIndexTrigger"));
             Assert.That(input, Does.Contain("OVRInput.RawButton.RHandTrigger"));
             Assert.That(input, Does.Not.Contain("GetDown(OVRInput.RawButton"));

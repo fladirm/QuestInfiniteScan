@@ -27,6 +27,7 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader depthNormalCompute;
         [SerializeField] private ComputeShader depthDilationCompute;
         [SerializeField] private ComputeShader stereoRgbdRefineCompute;
+        [SerializeField] private bool dynamicOcclusionEnabled = true;
 
         [Header("Dilation")]
         [SerializeField, Range(0, 12)] private int dilationSteps = 8;
@@ -230,6 +231,19 @@ namespace Genesis.RoomScan
         private Task _copyRetirementTask = Task.CompletedTask;
         private float _lastLogTime;
 
+        public bool DynamicOcclusionEnabled
+        {
+            get => dynamicOcclusionEnabled;
+            set
+            {
+                if (dynamicOcclusionEnabled == value) return;
+                dynamicOcclusionEnabled = value;
+                ApplyDynamicOcclusionState();
+                Logger.Info("DepthCapture: dynamic passthrough occlusion " +
+                    (value ? "enabled" : "disabled"));
+            }
+        }
+
         internal int LatestRawFrameVersion => _latestRawFrameVersion;
         internal int ProcessedRawFrameVersion => _processedRawFrameVersion;
         internal int PreprocessedFrameCount => _preprocessedFrameCount;
@@ -324,9 +338,19 @@ namespace Genesis.RoomScan
                 : _arOcclusionManager.gameObject.AddComponent<ARShaderOcclusion>();
             _shaderOcclusion.occlusionShaderMode =
                 AROcclusionShaderMode.HardOcclusion;
-            _shaderOcclusion.enabled = true;
-            Logger.Info("DepthCapture: dynamic passthrough occlusion enabled " +
+            _shaderOcclusion.enabled = dynamicOcclusionEnabled;
+            Logger.Info("DepthCapture: dynamic passthrough occlusion configured " +
                 "(AR Foundation hard mode, shared environment depth)");
+        }
+
+        private void ApplyDynamicOcclusionState()
+        {
+            if (_shaderOcclusion != null)
+                _shaderOcclusion.enabled = dynamicOcclusionEnabled;
+            if (!_permissionReady || _arOcclusionManager == null) return;
+            bool depthRequired = _captureActive || dynamicOcclusionEnabled;
+            if (_arOcclusionManager.enabled != depthRequired)
+                _arOcclusionManager.enabled = depthRequired;
         }
 
         private void EnsureARSession()
@@ -394,11 +418,11 @@ namespace Genesis.RoomScan
                 _subscribed = true;
                 Logger.Info("DepthCapture: subsystem left running (scan already active)");
             }
-            else
-            {
+            ApplyDynamicOcclusionState();
+            if (!_captureActive)
                 Logger.Info("DepthCapture: scanner consumer idle; environment " +
-                    "depth remains active for passthrough occlusion");
-            }
+                    "depth occlusion is " +
+                    (dynamicOcclusionEnabled ? "active" : "disabled"));
         }
 
         /// <summary>
@@ -484,6 +508,7 @@ namespace Genesis.RoomScan
             // A ready B frame was admitted but is not the immutable observation A.
             // Quiesce drops B while retaining the held A until its GPU token retires.
             _readyDepthSlot = -1;
+            ApplyDynamicOcclusionState();
         }
 
         internal Task RetireSubmittedDepthCopiesAsync()
@@ -527,8 +552,10 @@ namespace Genesis.RoomScan
             _depthTex = null;
             _processedRawFrameVersion = _latestRawFrameVersion;
             _depthClock.Reset();
+            ApplyDynamicOcclusionState();
             Logger.Info("DepthCapture: scan stopped; dynamic passthrough " +
-                "occlusion remains active");
+                "occlusion is " +
+                (dynamicOcclusionEnabled ? "active" : "disabled"));
         }
 
         private void OnDestroy()

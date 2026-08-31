@@ -52,6 +52,8 @@
                 class="opacity-slider" />
             <ui:Label name="val-opacity" text="100%" class="opacity-value" />
         </ui:VisualElement>
+        <ui:Button name="btn-occlusion" text="OCCLUSION  ON"
+            class="display-toggle" />
 
         <ui:Label text="MANUAL FINE" class="section-title" />
         <ui:VisualElement class="fine-row">
