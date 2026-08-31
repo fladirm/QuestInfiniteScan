@@ -171,7 +171,11 @@ namespace Genesis.RoomScan.Tests
                 ObservedWallFixture(new int3(-1, -31, 32)));
             byte[] before = Serialize(snapshot);
 
-            _ = MerkabaExportShell.Build(snapshot);
+            MerkabaExportShellResult shell = MerkabaExportShell.Build(snapshot);
+            MerkabaExportMembraneResult membrane =
+                MerkabaExportMembrane.Build(shell);
+            using var export = new MemoryStream();
+            _ = MerkabaGlbWriter.Write(export, membrane);
 
             Assert.That(Serialize(snapshot), Is.EqualTo(before));
         }
@@ -215,12 +219,25 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ExportShell_CanOnlyReachCanonicalNonCubeGlbGeometry()
+        public void ExportShell_ReachesMeasuredPlaneMembraneGlbGeometry()
         {
-            MerkabaExportShellResult shell = MerkabaExportShell.Build(
-                ObservedWallFixture(new int3(0)));
+            Dictionary<int3, KernelState> evidence =
+                ObservedWallFixture(new int3(0));
+            foreach (int3 coord in evidence.Keys.ToArray())
+            {
+                KernelState state = evidence[coord];
+                if (state.IsOccupied)
+                {
+                    state.Flags = KernelState.SetSurfacePlane(state.Flags,
+                        new float3(1, 0, 0), 0f);
+                    evidence[coord] = state;
+                }
+            }
+            MerkabaExportShellResult shell = MerkabaExportShell.Build(evidence);
+            MerkabaExportMembraneResult membrane =
+                MerkabaExportMembrane.Build(shell);
             using var stream = new MemoryStream();
-            MerkabaGlbResult result = MerkabaGlbWriter.Write(stream, shell.Kernels);
+            MerkabaGlbResult result = MerkabaGlbWriter.Write(stream, membrane);
             byte[] bytes = stream.ToArray();
             int jsonLength = checked((int)BitConverter.ToUInt32(bytes, 12));
             int binaryStart = 20 + jsonLength + 8;
@@ -233,8 +250,10 @@ namespace Genesis.RoomScan.Tests
                 float x = Math.Abs(BitConverter.ToSingle(bytes, offset));
                 float y = Math.Abs(BitConverter.ToSingle(bytes, offset + 4));
                 float z = Math.Abs(BitConverter.ToSingle(bytes, offset + 8));
-                Assert.That(math.min(x, math.min(y, z)), Is.GreaterThan(0.5f),
-                    "The export-only cube structuring element leaked cube geometry.");
+                Assert.That(x, Is.GreaterThan(0.99f));
+                Assert.That(y, Is.LessThan(0.01f));
+                Assert.That(z, Is.LessThan(0.01f),
+                    "The old octa/tip geometry leaked into measured export.");
             }
         }
 

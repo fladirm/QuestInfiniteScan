@@ -59,6 +59,8 @@ namespace Genesis.RoomScan
                         progress);
                 MerkabaExportShellResult shell = await Task.Run(() =>
                     MerkabaExportShell.Build(snapshot, progress));
+                MerkabaExportMembraneResult membrane = await Task.Run(() =>
+                    MerkabaExportMembrane.Build(shell, progress));
 
                 string destination = ExportPath;
                 string directory = Path.GetDirectoryName(destination);
@@ -71,7 +73,7 @@ namespace Genesis.RoomScan
                                FileOptions.WriteThrough))
                     {
                         MerkabaGlbResult written = MerkabaGlbWriter.Write(stream,
-                            shell.Kernels, progress);
+                            membrane, progress);
                         stream.Flush(true);
                         return written;
                     }
@@ -86,9 +88,18 @@ namespace Genesis.RoomScan
                     ScanOperationStage.PublishingFile, 1, 1,
                     "GLB published"));
                 LastExportPath = destination;
+                Logger.Info("Merkaba GLB metrics " +
+                            $"canonical={membrane.CanonicalOccupiedCount} " +
+                            $"measuredPlane={membrane.MeasuredPlaneOccupiedCount} " +
+                            $"membraneMeasured={membrane.MeasuredPatchCount} " +
+                            $"inferredGray={membrane.InferredPatchCount} " +
+                            $"legacy={membrane.LegacyMeasuredUnknownPlaneCount} " +
+                            $"removed=0 vertices={result.VertexCount} " +
+                            $"triangles={result.PrimitiveCount} bytes={result.ByteLength}");
                 SetStatus($"GLB: {result.PrimitiveCount} triangles, " +
-                          $"{shell.ShellCoordinates.Length} shell kernels, " +
-                          $"{shell.SyntheticKernelCount} healed");
+                          $"{membrane.MeasuredPatchCount} measured, " +
+                          $"{membrane.InferredPatchCount} gray inferred, " +
+                          $"{membrane.LegacyMeasuredUnknownPlaneCount} legacy planes");
                 return true;
             }
             catch (Exception exception)

@@ -10,18 +10,26 @@ namespace Genesis.RoomScan
         public readonly List<MerkabaKernelSnapshot> Kernels;
         public readonly int3[] HealedCoordinates;
         public readonly int3[] ShellCoordinates;
+        public readonly int3[] SyntheticCoordinates;
+        public readonly int3[] StrongFreeCoordinates;
+        public readonly MerkabaKernelSnapshot[] EvidenceKernels;
         public readonly int OriginalOccupiedCount;
         public readonly int StrongKnownFreeCount;
         public readonly int SyntheticKernelCount;
 
         public MerkabaExportShellResult(List<MerkabaKernelSnapshot> kernels,
             int3[] healedCoordinates, int3[] shellCoordinates,
+            int3[] syntheticCoordinates, int3[] strongFreeCoordinates,
+            MerkabaKernelSnapshot[] evidenceKernels,
             int originalOccupiedCount, int strongKnownFreeCount,
             int syntheticKernelCount)
         {
             Kernels = kernels;
             HealedCoordinates = healedCoordinates;
             ShellCoordinates = shellCoordinates;
+            SyntheticCoordinates = syntheticCoordinates;
+            StrongFreeCoordinates = strongFreeCoordinates;
+            EvidenceKernels = evidenceKernels;
             OriginalOccupiedCount = originalOccupiedCount;
             StrongKnownFreeCount = strongKnownFreeCount;
             SyntheticKernelCount = syntheticKernelCount;
@@ -31,8 +39,8 @@ namespace Genesis.RoomScan
     /// <summary>
     /// Read-only, sparse export cleanup. It performs one radius-1 binary closing,
     /// vetoes synthetic healing at strong FREE evidence, and preserves every real
-    /// occupied M8 owner. Triangle generation remains the shared canonical Merkaba
-    /// writer's responsibility.
+    /// occupied M8 owner. Its output is input to the disposable measured membrane;
+    /// it never becomes another world authority.
     /// </summary>
     internal static class MerkabaExportShell
     {
@@ -56,6 +64,7 @@ namespace Genesis.RoomScan
             var occupied = new HashSet<int3>();
             var strongFree = new HashSet<int3>();
             var realStates = new Dictionary<int3, KernelState>();
+            var allEvidence = new Dictionary<int3, KernelState>();
             for (int tileIndex = 0; tileIndex < snapshot.Tiles.Count; tileIndex++)
             {
                 MerkabaTileSnapshot tile = snapshot.Tiles[tileIndex];
@@ -68,7 +77,8 @@ namespace Genesis.RoomScan
                     KernelState state = tile.States[index];
                     int3 coord = MerkabaSpatial.Decode(tile.Address.BlockCoord,
                         tile.Address.LocalAddress, index);
-                    AddEvidence(coord, state, occupied, strongFree, realStates);
+                    AddEvidence(coord, state, occupied, strongFree, realStates,
+                        allEvidence);
                 }
                 ReportEvery(progress, ScanOperationStage.BuildingExportEvidence,
                     tileIndex + 1, snapshot.Tiles.Count, 32,
@@ -79,7 +89,7 @@ namespace Genesis.RoomScan
                 progress?.Report(new OperationWorkProgress(
                     ScanOperationStage.BuildingExportEvidence, 0, 0,
                     "Export evidence is empty"));
-            return Build(occupied, strongFree, realStates, progress);
+            return Build(occupied, strongFree, realStates, allEvidence, progress);
         }
 
         internal static MerkabaExportShellResult Build(
@@ -90,21 +100,24 @@ namespace Genesis.RoomScan
             var occupied = new HashSet<int3>();
             var strongFree = new HashSet<int3>();
             var realStates = new Dictionary<int3, KernelState>();
+            var allEvidence = new Dictionary<int3, KernelState>();
             int evidenceIndex = 0;
             foreach (KeyValuePair<int3, KernelState> pair in evidence)
             {
-                AddEvidence(pair.Key, pair.Value, occupied, strongFree, realStates);
+                AddEvidence(pair.Key, pair.Value, occupied, strongFree, realStates,
+                    allEvidence);
                 evidenceIndex++;
                 ReportEvery(progress, ScanOperationStage.BuildingExportEvidence,
                     evidenceIndex, evidence.Count, 1024,
                     $"Read {evidenceIndex}/{evidence.Count} evidence states");
             }
-            return Build(occupied, strongFree, realStates, progress);
+            return Build(occupied, strongFree, realStates, allEvidence, progress);
         }
 
         private static MerkabaExportShellResult Build(HashSet<int3> occupied,
             HashSet<int3> strongFree,
             Dictionary<int3, KernelState> realStates,
+            Dictionary<int3, KernelState> allEvidence,
             IProgress<OperationWorkProgress> progress)
         {
             if (occupied.Count == 0)
@@ -121,6 +134,7 @@ namespace Genesis.RoomScan
             var sortedShell = new List<int3>(shell);
             sortedShell.Sort(CompareCoords);
             var kernels = new List<MerkabaKernelSnapshot>(sortedShell.Count);
+            var syntheticCoordinates = new List<int3>();
             int syntheticSelected = 0;
             for (int index = 0; index < sortedShell.Count; index++)
             {
@@ -133,6 +147,7 @@ namespace Genesis.RoomScan
                 else
                 {
                     state = SyntheticState(coord, realStates);
+                    syntheticCoordinates.Add(coord);
                     syntheticSelected++;
                 }
                 kernels.Add(new MerkabaKernelSnapshot(coord, state));
@@ -143,7 +158,9 @@ namespace Genesis.RoomScan
 
             int3[] healedSorted = Sorted(healed);
             return new MerkabaExportShellResult(kernels, healedSorted,
-                sortedShell.ToArray(), occupied.Count, strongFree.Count,
+                sortedShell.ToArray(), syntheticCoordinates.ToArray(),
+                Sorted(strongFree), SortedEvidence(allEvidence), occupied.Count,
+                strongFree.Count,
                 syntheticSelected);
         }
 
@@ -193,8 +210,16 @@ namespace Genesis.RoomScan
 
         private static void AddEvidence(int3 coord, KernelState state,
             HashSet<int3> occupied, HashSet<int3> strongFree,
-            Dictionary<int3, KernelState> realStates)
+            Dictionary<int3, KernelState> realStates,
+            Dictionary<int3, KernelState> allEvidence)
         {
+            if (state.OccupancyEvidence != 0 || state.Flags != 0u ||
+                state.ColorConfidence != 0u)
+            {
+                if (!allEvidence.TryAdd(coord, state))
+                    throw new InvalidOperationException(
+                        $"Duplicate export evidence coordinate {coord}.");
+            }
             if (state.IsOccupied)
             {
                 if (!occupied.Add(coord))
@@ -285,6 +310,18 @@ namespace Genesis.RoomScan
             var sorted = new List<int3>(values);
             sorted.Sort(CompareCoords);
             return sorted.ToArray();
+        }
+
+        private static MerkabaKernelSnapshot[] SortedEvidence(
+            Dictionary<int3, KernelState> evidence)
+        {
+            var coords = new List<int3>(evidence.Keys);
+            coords.Sort(CompareCoords);
+            var result = new MerkabaKernelSnapshot[coords.Count];
+            for (int index = 0; index < coords.Count; index++)
+                result[index] = new MerkabaKernelSnapshot(coords[index],
+                    evidence[coords[index]]);
+            return result;
         }
 
         private static int CompareCoords(int3 left, int3 right)
