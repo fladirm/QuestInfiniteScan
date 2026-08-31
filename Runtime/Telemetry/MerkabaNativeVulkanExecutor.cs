@@ -564,7 +564,8 @@ namespace Genesis.RoomScan
             for (int matrix = 0; matrix < values.Length; ++matrix)
                 for (int row = 0; row < 4; ++row)
                     for (int column = 0; column < 4; ++column)
-                        WriteFloat(bytes, matrix * 64 + row * 16 + column * 4,
+                        WriteFloat(bytes,
+                            matrix * 64 + column * 16 + row * 4,
                             values[matrix][row, column]);
             return bytes;
         }

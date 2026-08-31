@@ -1838,6 +1838,36 @@ namespace Genesis.RoomScan.Tests
             Assert.That(generator, Does.Contain("FinalizeFineErase"));
         }
 
+        [Test]
+        public void NativeScannerUniforms_PackMatricesForSpirvRowMajorLayout()
+        {
+            Matrix4x4 matrix = new Matrix4x4
+            {
+                m00 = 1f, m01 = 2f, m02 = 3f, m03 = 4f,
+                m10 = 5f, m11 = 6f, m12 = 7f, m13 = 8f,
+                m20 = 9f, m21 = 10f, m22 = 11f, m23 = 12f,
+                m30 = 13f, m31 = 14f, m32 = 15f, m33 = 16f,
+            };
+            var uniforms = new MerkabaNativeUniformTable();
+            uniforms.Matrix("_AsymmetricMatrix", matrix);
+
+            uniforms.Build(out MerkabaNativeVulkanExecutor.UniformValue[] values,
+                out byte[] data);
+
+            Assert.That(values, Has.Length.EqualTo(1));
+            Assert.That(values[0].Offset, Is.Zero);
+            Assert.That(values[0].Size, Is.EqualTo(64u));
+            float[] packed = new float[16];
+            Buffer.BlockCopy(data, 0, packed, 0, data.Length);
+            Assert.That(packed, Is.EqualTo(new[]
+            {
+                1f, 5f, 9f, 13f,
+                2f, 6f, 10f, 14f,
+                3f, 7f, 11f, 15f,
+                4f, 8f, 12f, 16f,
+            }));
+        }
+
         private static string Source(string relative) =>
             File.ReadAllText(Path.GetFullPath(Package + relative));
 
