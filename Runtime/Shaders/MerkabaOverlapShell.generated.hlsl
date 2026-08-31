@@ -39,11 +39,11 @@ bool M8TryBuildMeasuredPlanePatch(int3 globalCoord, KernelState state,
     if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
         !M8HasSurfacePlane(state.flags))
         return false;
-    float3 normal;
-    float signedOffset;
+    float3 normal = float3(1.0, 0.0, 0.0);
+    float signedOffset = 0.0;
     M8DecodeSurfacePlane(state.flags, normal, signedOffset);
-    float3 tangent0;
-    float3 tangent1;
+    float3 tangent0 = float3(0.0, 1.0, 0.0);
+    float3 tangent1 = float3(0.0, 0.0, 1.0);
     M8MeasuredPlaneTangentBasis(normal, tangent0, tangent1);
     float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +
         normal * signedOffset;

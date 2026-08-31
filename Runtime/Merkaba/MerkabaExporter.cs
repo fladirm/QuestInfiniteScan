@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -12,6 +13,9 @@ namespace Genesis.RoomScan
     {
         private const string ExportFileName = "QuestMerkabaScan.glb";
         private const string ViewerPackageName = "QuestMerkabaScan";
+        private const string ViewerArchiveFileName = "QuestMerkabaScan.zip";
+        private const string ViewerResourceRoot =
+            "Merkaba/QuestMerkabaScanViewer";
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
@@ -24,7 +28,7 @@ namespace Genesis.RoomScan
             "MerkabaScan", "exports", ExportFileName);
         public string ViewerPackagePath => Path.Combine(
             Application.persistentDataPath, "MerkabaScan", "exports",
-            ViewerPackageName);
+            ViewerArchiveFileName);
         public event Action StatusChanged;
 
         private void Awake()
@@ -61,7 +65,7 @@ namespace Genesis.RoomScan
                     Directory.CreateDirectory(directory);
                     using (var stream = new FileStream(temporary, FileMode.Create,
                                FileAccess.Write, FileShare.None, 1024 * 1024,
-                               FileOptions.WriteThrough))
+                               FileOptions.SequentialScan))
                     {
                         MerkabaGlbResult written = MerkabaGlbWriter.Write(stream,
                             membrane, progress);
@@ -85,7 +89,8 @@ namespace Genesis.RoomScan
                             $"membraneMeasured={membrane.MeasuredPatchCount} " +
                             $"inferredGray={membrane.InferredPatchCount} " +
                             $"legacy={membrane.LegacyMeasuredUnknownPlaneCount} " +
-                            $"removed=0 vertices={result.VertexCount} " +
+                            $"removed={membrane.RemovedBehindMembraneCount} " +
+                            $"vertices={result.VertexCount} " +
                             $"triangles={result.PrimitiveCount} bytes={result.ByteLength}");
                 SetStatus($"GLB: {result.PrimitiveCount} triangles, " +
                           $"{membrane.MeasuredPatchCount} measured, " +
@@ -112,7 +117,10 @@ namespace Genesis.RoomScan
             IsExporting = true;
             SetStatus("Exporting 3D Tiles…");
             string destination = ViewerPackagePath;
-            string staging = destination + ".tmp";
+            string exportDirectory = Path.GetDirectoryName(destination);
+            string staging = Path.Combine(exportDirectory,
+                ViewerPackageName + ".tmp");
+            string temporaryArchive = destination + ".tmp";
             try
             {
                 if (_integrator != null && _integrator.HasPendingObservation)
@@ -125,25 +133,56 @@ namespace Genesis.RoomScan
                 await _grid.FlushAllDirtyTilesAsync(progress);
                 MerkabaExportMembraneResult membrane =
                     await BuildMembraneAsync(progress);
-                MerkabaTilesetResult result = await Task.Run(() =>
+                byte[] viewerHtml = LoadViewerResource(ViewerResourceRoot);
+                byte[] threeLicense = LoadViewerResource(
+                    ViewerResourceRoot + "ThreeLicense");
+                byte[] tilesLicense = LoadViewerResource(
+                    ViewerResourceRoot + "TilesLicense");
+                var output = await Task.Run(() =>
                 {
-                    if (Directory.Exists(staging))
-                        Directory.Delete(staging, true);
-                    MerkabaTilesetResult written =
-                        MerkabaTilesetWriter.WritePackage(staging, membrane,
-                            progress);
-                    PublishDirectory(staging, destination);
-                    return written;
+                    try
+                    {
+                        Directory.CreateDirectory(exportDirectory);
+                        if (Directory.Exists(staging))
+                            Directory.Delete(staging, true);
+                        if (File.Exists(temporaryArchive))
+                            File.Delete(temporaryArchive);
+                        MerkabaTilesetResult written =
+                            MerkabaTilesetWriter.WritePackage(staging,
+                                membrane, progress);
+                        File.WriteAllBytes(Path.Combine(staging, "index.html"),
+                            viewerHtml);
+                        File.WriteAllBytes(Path.Combine(staging,
+                                "THIRD_PARTY_THREE_LICENSE.txt"),
+                            threeLicense);
+                        File.WriteAllBytes(Path.Combine(staging,
+                                "THIRD_PARTY_3DTILESRENDERERJS_LICENSE.txt"),
+                            tilesLicense);
+                        long archiveBytes = WriteViewerArchive(staging,
+                            temporaryArchive);
+                        MerkabaFilePublishing.Publish(temporaryArchive,
+                            destination);
+                        return (Written: written, ArchiveBytes: archiveBytes);
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(staging))
+                            Directory.Delete(staging, true);
+                        if (File.Exists(temporaryArchive))
+                            File.Delete(temporaryArchive);
+                    }
                 });
-                LastExportPath = Path.Combine(destination, "tileset.json");
+                MerkabaTilesetResult result = output.Written;
+                LastExportPath = destination;
                 Logger.Info("Merkaba 3D Tiles metrics " +
                     $"canonical={membrane.CanonicalOccupiedCount} " +
                     $"measured={membrane.MeasuredPatchCount} " +
                     $"inferred={membrane.InferredPatchCount} " +
                     $"tiles={result.TileCount} vertices={result.VertexCount} " +
-                    $"triangles={result.TriangleCount} bytes={result.ByteLength}");
+                    $"triangles={result.TriangleCount} bytes={result.ByteLength} " +
+                    $"archiveBytes={output.ArchiveBytes}");
                 SetStatus($"3D Tiles: {result.TileCount} GLBs, " +
-                    $"{result.TriangleCount} triangles");
+                    $"{result.TriangleCount} triangles, offline ZIP");
                 return true;
             }
             catch (Exception exception)
@@ -166,10 +205,15 @@ namespace Genesis.RoomScan
             {
                 if (File.Exists(ExportPath)) File.Delete(ExportPath);
                 if (File.Exists(ExportPath + ".tmp")) File.Delete(ExportPath + ".tmp");
-                if (Directory.Exists(ViewerPackagePath))
-                    Directory.Delete(ViewerPackagePath, true);
-                if (Directory.Exists(ViewerPackagePath + ".tmp"))
-                    Directory.Delete(ViewerPackagePath + ".tmp", true);
+                if (File.Exists(ViewerPackagePath)) File.Delete(ViewerPackagePath);
+                if (File.Exists(ViewerPackagePath + ".tmp"))
+                    File.Delete(ViewerPackagePath + ".tmp");
+                string legacyDirectory = Path.Combine(
+                    Path.GetDirectoryName(ViewerPackagePath), ViewerPackageName);
+                if (Directory.Exists(legacyDirectory))
+                    Directory.Delete(legacyDirectory, true);
+                if (Directory.Exists(legacyDirectory + ".tmp"))
+                    Directory.Delete(legacyDirectory + ".tmp", true);
                 LastExportPath = null;
                 SetStatus("Not exported");
             }
@@ -226,29 +270,50 @@ namespace Genesis.RoomScan
                 MerkabaExportMembrane.Build(shell, progress));
         }
 
-        private static void PublishDirectory(string staging, string destination)
+        private static byte[] LoadViewerResource(string resourceName)
         {
-            string parent = Path.GetDirectoryName(destination);
-            Directory.CreateDirectory(parent);
-            string previous = destination + ".previous";
-            if (Directory.Exists(previous)) Directory.Delete(previous, true);
-            bool movedPrevious = false;
-            try
+            TextAsset asset = Resources.Load<TextAsset>(resourceName);
+            if (asset == null)
+                throw new InvalidDataException(
+                    $"Missing offline viewer resource {resourceName}.");
+            byte[] bytes = asset.bytes;
+            Resources.UnloadAsset(asset);
+            return bytes;
+        }
+
+        internal static long WriteViewerArchive(string sourceDirectory,
+            string destination)
+        {
+            string root = Path.GetFullPath(sourceDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
+            string[] files = Directory.GetFiles(root, "*",
+                SearchOption.AllDirectories);
+            Array.Sort(files, StringComparer.Ordinal);
+            using (var stream = new FileStream(destination, FileMode.CreateNew,
+                       FileAccess.ReadWrite, FileShare.None, 1024 * 1024,
+                       FileOptions.SequentialScan))
             {
-                if (Directory.Exists(destination))
+                using (var archive = new ZipArchive(stream,
+                           ZipArchiveMode.Create, true))
                 {
-                    Directory.Move(destination, previous);
-                    movedPrevious = true;
+                    foreach (string file in files)
+                    {
+                        string relative = file.Substring(root.Length + 1)
+                            .Replace(Path.DirectorySeparatorChar, '/');
+                        ZipArchiveEntry entry = archive.CreateEntry(relative,
+                            System.IO.Compression.CompressionLevel.NoCompression);
+                        entry.LastWriteTime = new DateTimeOffset(1980, 1, 1,
+                            0, 0, 0, TimeSpan.Zero);
+                        using Stream input = new FileStream(file, FileMode.Open,
+                            FileAccess.Read, FileShare.Read, 1024 * 1024,
+                            FileOptions.SequentialScan);
+                        using Stream output = entry.Open();
+                        input.CopyTo(output, 1024 * 1024);
+                    }
                 }
-                Directory.Move(staging, destination);
-                if (movedPrevious) Directory.Delete(previous, true);
-            }
-            catch
-            {
-                if (!Directory.Exists(destination) && movedPrevious &&
-                    Directory.Exists(previous))
-                    Directory.Move(previous, destination);
-                throw;
+                stream.Flush(true);
+                return stream.Length;
             }
         }
 

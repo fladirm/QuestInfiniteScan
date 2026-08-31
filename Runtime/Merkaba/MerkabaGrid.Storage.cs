@@ -45,6 +45,7 @@ namespace Genesis.RoomScan
         private uint _issuedObservationToken;
         private uint _completedObservationToken;
         private uint _completedObservationFailure;
+        private bool _completedObservationChangedReadout;
         private uint _completedAttemptToken;
         private uint _residencyEpoch;
         private readonly uint[] _streamControlWord = new uint[1];
@@ -81,6 +82,8 @@ namespace Genesis.RoomScan
         internal uint CompletedObservationToken => _completedObservationToken;
         internal uint CompletedObservationFailure =>
             _completedObservationFailure;
+        internal bool CompletedObservationChangedReadout =>
+            _completedObservationChangedReadout;
         internal uint CompletedAttemptToken => _completedAttemptToken;
         internal uint ResidencyEpoch => _residencyEpoch;
 
@@ -112,6 +115,7 @@ namespace Genesis.RoomScan
             _issuedObservationToken = 0u;
             _completedObservationToken = 0u;
             _completedObservationFailure = 0u;
+            _completedObservationChangedReadout = false;
             _completedAttemptToken = 0u;
             _residencyEpoch = 0u;
             _attemptCompletionReadbackPending = false;
@@ -257,7 +261,9 @@ namespace Genesis.RoomScan
                 Raw16 completion = values[0];
                 _completedAttemptToken = completion.X;
                 _completedObservationToken = completion.Y;
-                _completedObservationFailure = completion.Z;
+                _completedObservationChangedReadout =
+                    (completion.Z & 0x80000000u) != 0u;
+                _completedObservationFailure = completion.Z & 0x7fffffffu;
                 PublishResidencyEpoch(completion.W);
                 // CPU accounting only. This callback must never enqueue GPU
                 // work after a quiesce retirement marker.

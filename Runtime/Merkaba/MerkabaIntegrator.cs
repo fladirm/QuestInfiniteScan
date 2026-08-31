@@ -103,6 +103,7 @@ namespace Genesis.RoomScan
         public float MaxUpdateDistance => maxUpdateDistance;
         public bool HasPendingObservation => _observationPrepared;
         public bool HasAttemptInFlight => _attemptInFlight;
+        internal bool LastObservationChangedReadout { get; private set; }
         internal bool HasPendingFineErase => _fineErasePrepared;
         internal bool HasFineEraseAttemptInFlight =>
             _fineEraseAttemptInFlight;
@@ -468,6 +469,8 @@ namespace Genesis.RoomScan
                             $"attempt={_attemptToken} " +
                             $"depthVersion={_observationDepthVersion} " +
                             $"failure=0x{_grid.CompletedObservationFailure:x}");
+                LastObservationChangedReadout =
+                    _grid.CompletedObservationChangedReadout;
                 return FinishObservation(_grid.CompletedObservationFailure);
             }
 
@@ -1067,6 +1070,7 @@ namespace Genesis.RoomScan
             ReleaseOwnedObservation();
             if (failureReason != 0u)
             {
+                LastObservationChangedReadout = false;
                 Logger.Error("Merkaba observation rejected without canonical " +
                              $"mutation; failure=0x{failureReason:x}");
                 return false;

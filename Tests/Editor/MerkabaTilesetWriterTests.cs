@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -111,8 +112,11 @@ namespace Genesis.RoomScan.Tests
                     StringComparison.Ordinal), Is.LessThan(tileset.IndexOf(
                     "File.Move(manifestTemporary, manifest)",
                     StringComparison.Ordinal)));
-            Assert.That(exporter, Does.Contain("PublishDirectory(staging, " +
-                "destination)"));
+            Assert.That(exporter, Does.Contain(
+                "MerkabaFilePublishing.Publish(temporaryArchive,"));
+            Assert.That(exporter, Does.Contain(
+                "CompressionLevel.NoCompression"));
+            Assert.That(exporter, Does.Not.Contain("PublishDirectory("));
             Assert.That(exporter, Does.Contain(
                 "public async Task<bool> ExportViewerPackageAsync()"));
             Assert.That(exporter, Does.Contain("Streamed "));
@@ -120,6 +124,90 @@ namespace Genesis.RoomScan.Tests
                 "CaptureStoredSnapshotAsync(anchorUuid"));
             Assert.That(storage, Does.Contain("CaptureStoredTileIndex()"));
             Assert.That(storage, Does.Contain("ReadStoredTilesAsync("));
+        }
+
+        [Test]
+        public void OfflineViewerResourceIsSelfContainedAndUsesLocalRoot()
+        {
+            TextAsset viewer = Resources.Load<TextAsset>(
+                "Merkaba/QuestMerkabaScanViewer");
+            TextAsset threeLicense = Resources.Load<TextAsset>(
+                "Merkaba/QuestMerkabaScanViewerThreeLicense");
+            TextAsset tilesLicense = Resources.Load<TextAsset>(
+                "Merkaba/QuestMerkabaScanViewerTilesLicense");
+            try
+            {
+                Assert.That(viewer, Is.Not.Null);
+                Assert.That(viewer.bytes.Length, Is.GreaterThan(500_000));
+                Assert.That(viewer.text, Does.Contain("showDirectoryPicker"));
+                Assert.That(viewer.text, Does.Contain(
+                    "merkaba://scan/tileset.json"));
+                Assert.That(viewer.text, Does.Contain("Open this export"));
+                Assert.That(viewer.text, Does.Not.Contain("<script src="));
+                Assert.That(viewer.text, Does.Not.Contain("cdn.jsdelivr"));
+                Assert.That(threeLicense, Is.Not.Null);
+                Assert.That(threeLicense.text, Does.Contain("The MIT License"));
+                Assert.That(tilesLicense, Is.Not.Null);
+                Assert.That(tilesLicense.text, Does.Contain(
+                    "Apache License"));
+            }
+            finally
+            {
+                if (viewer != null) Resources.UnloadAsset(viewer);
+                if (threeLicense != null) Resources.UnloadAsset(threeLicense);
+                if (tilesLicense != null) Resources.UnloadAsset(tilesLicense);
+            }
+        }
+
+        [Test]
+        public void OfflineArchiveIsDeterministicAndContainsCompletePackage()
+        {
+            MerkabaExportMembraneResult membrane = Fixture();
+            string first = TemporaryDirectory();
+            string second = TemporaryDirectory();
+            string firstArchive = first + ".zip";
+            string secondArchive = second + ".zip";
+            try
+            {
+                MerkabaTilesetResult package = MerkabaTilesetWriter.WritePackage(
+                    first, membrane, targetLeafBytes: 3000,
+                    hardLeafBytes: 8000);
+                _ = MerkabaTilesetWriter.WritePackage(second, membrane,
+                    targetLeafBytes: 3000, hardLeafBytes: 8000);
+                WriteViewerAssets(first);
+                WriteViewerAssets(second);
+
+                long firstBytes = MerkabaExporter.WriteViewerArchive(first,
+                    firstArchive);
+                long secondBytes = MerkabaExporter.WriteViewerArchive(second,
+                    secondArchive);
+                Assert.That(firstBytes, Is.EqualTo(new FileInfo(firstArchive).Length));
+                Assert.That(secondBytes, Is.EqualTo(firstBytes));
+                Assert.That(File.ReadAllBytes(secondArchive),
+                    Is.EqualTo(File.ReadAllBytes(firstArchive)));
+
+                using var stream = File.OpenRead(firstArchive);
+                using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+                string[] names = archive.Entries.Select(entry => entry.FullName)
+                    .OrderBy(name => name, StringComparer.Ordinal).ToArray();
+                Assert.That(names, Does.Contain("index.html"));
+                Assert.That(names, Does.Contain("tileset.json"));
+                Assert.That(names, Does.Contain(
+                    "THIRD_PARTY_THREE_LICENSE.txt"));
+                Assert.That(names, Does.Contain(
+                    "THIRD_PARTY_3DTILESRENDERERJS_LICENSE.txt"));
+                Assert.That(names.Count(name => name.EndsWith(".glb",
+                    StringComparison.Ordinal)), Is.EqualTo(package.TileCount));
+                foreach (ZipArchiveEntry entry in archive.Entries)
+                    Assert.That(entry.Length, Is.GreaterThan(0), entry.FullName);
+            }
+            finally
+            {
+                if (Directory.Exists(first)) Directory.Delete(first, true);
+                if (Directory.Exists(second)) Directory.Delete(second, true);
+                if (File.Exists(firstArchive)) File.Delete(firstArchive);
+                if (File.Exists(secondArchive)) File.Delete(secondArchive);
+            }
         }
 
         private static MerkabaExportMembraneResult Fixture()
@@ -211,10 +299,26 @@ namespace Genesis.RoomScan.Tests
                 .Replace(Path.DirectorySeparatorChar, '/'))
             .OrderBy(path => path, StringComparer.Ordinal).ToArray();
 
+        private static void WriteViewerAssets(string root)
+        {
+            File.Copy(SourcePath("Runtime/Resources/Merkaba/" +
+                "QuestMerkabaScanViewer.txt"), Path.Combine(root,
+                "index.html"));
+            File.Copy(SourcePath("Runtime/Resources/Merkaba/" +
+                "QuestMerkabaScanViewerThreeLicense.txt"), Path.Combine(root,
+                "THIRD_PARTY_THREE_LICENSE.txt"));
+            File.Copy(SourcePath("Runtime/Resources/Merkaba/" +
+                "QuestMerkabaScanViewerTilesLicense.txt"), Path.Combine(root,
+                "THIRD_PARTY_3DTILESRENDERERJS_LICENSE.txt"));
+        }
+
         private static string TemporaryDirectory() => Path.Combine(
             Path.GetTempPath(), "merkaba-tiles-" + Guid.NewGuid().ToString("N"));
 
-        private static string Source(string relative) => File.ReadAllText(
-            Path.GetFullPath("Packages/com.genesis.roomscan/" + relative));
+        private static string Source(string relative) =>
+            File.ReadAllText(SourcePath(relative));
+
+        private static string SourcePath(string relative) =>
+            Path.GetFullPath("Packages/com.genesis.roomscan/" + relative);
     }
 }

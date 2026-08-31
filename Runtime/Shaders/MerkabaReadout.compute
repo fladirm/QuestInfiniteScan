@@ -1,9 +1,7 @@
 #pragma kernel ResetReadoutBuild
 #pragma kernel QueryM8Readout
 #pragma kernel PrepareReadoutBuild
-#pragma kernel PreflightReadout
-#pragma kernel PrepareReadoutEmit
-#pragma kernel EmitReadoutVertices
+#pragma kernel BuildReadoutVertices
 #pragma kernel FinalizeReadout
 
 #include "MerkabaWorld.hlsl"
@@ -12,6 +10,13 @@
 #define MERKABA_HALF_SUPPORT 0.025
 #define MERKABA_OCCUPIED_FLAG 1u
 #define M8_READOUT_VERTICES_PER_TRIANGLE 3u
+#define M8_READOUT_PLANAR_TRIANGLES 2u
+#define M8_READOUT_GLYPH_TRIANGLES 8u
+#define M8_READOUT_GLYPH_EXTRA_TRIANGLES 6u
+#define M8_READOUT_GLYPH_EQUATOR_EXTENT 0.0125
+#define M8_READOUT_GLYPH_TIP_EXTENT 0.00625
+#define M8_READOUT_SEAM_OVERLAP \
+    (MERKABA_SURFACE_PLANE_OFFSET_RANGE / 127.0)
 
 struct MerkabaReadoutVertex
 {
@@ -291,22 +296,37 @@ void PrepareReadoutBuild(uint id : SV_DispatchThreadID)
 #define M8_SHELL_MAIN_COUNT 512u
 
 groupshared uint gM8ShellPatchValidWords[MERKABA_M8_TILE_WORDS];
+groupshared uint gM8ShellGlyphWords[MERKABA_M8_TILE_WORDS];
 groupshared uint gM8ShellPatchPrefixes[MERKABA_M8_TILE_WORDS];
 groupshared uint gM8ShellOccupiedWords[MERKABA_M8_TILE_WORDS];
+groupshared uint gM8ShellCompatibleSideMasks[M8_SHELL_MAIN_COUNT];
+groupshared uint gM8ShellMainFlags[M8_SHELL_MAIN_COUNT];
+groupshared uint gM8ShellMainColors[M8_SHELL_MAIN_COUNT];
 groupshared uint gM8ShellPhysicalSlot;
 groupshared uint gM8ShellOccupiedCount;
 groupshared uint gM8ShellValidPatchCount;
+groupshared uint gM8ShellLogicalTriangleCount;
+groupshared uint gM8ShellBaseTriangle;
+groupshared uint gM8ShellCanEmit;
 groupshared int3 gM8ShellTileOrigin;
 
 #include "MerkabaOverlapShell.generated.hlsl"
 
-uint M8PatchPrefix(uint kernelLocal)
+uint M8CompatibleReadoutSideMask(int3 globalCoord, KernelState mainState,
+    M8OverlapPatch mainPatch);
+
+uint M8PatchTrianglePrefix(uint kernelLocal)
 {
     uint wordIndex = kernelLocal >> 5u;
     uint bitIndex = kernelLocal & 31u;
     uint belowMask = bitIndex == 0u ? 0u : ((1u << bitIndex) - 1u);
-    return gM8ShellPatchPrefixes[wordIndex] + countbits(
+    uint validBelow = countbits(
         gM8ShellPatchValidWords[wordIndex] & belowMask);
+    uint glyphBelow = countbits(
+        gM8ShellGlyphWords[wordIndex] & belowMask);
+    return gM8ShellPatchPrefixes[wordIndex] +
+        validBelow * M8_READOUT_PLANAR_TRIANGLES +
+        glyphBelow * M8_READOUT_GLYPH_EXTRA_TRIANGLES;
 }
 
 void M8StoreReadoutVertex(uint outputTriangle, uint corner,
@@ -347,9 +367,18 @@ void M8ResolveOverlapPatchMask(uint thread)
     if (thread < MERKABA_M8_TILE_WORDS)
     {
         gM8ShellPatchValidWords[thread] = 0u;
+        gM8ShellGlyphWords[thread] = 0u;
         gM8ShellPatchPrefixes[thread] = 0u;
     }
-    if (thread == 0u) gM8ShellValidPatchCount = 0u;
+    gM8ShellCompatibleSideMasks[thread] = 0u;
+    gM8ShellCompatibleSideMasks[thread + M8_SHELL_GROUP_THREADS] = 0u;
+    gM8ShellCompatibleSideMasks[thread + M8_SHELL_GROUP_THREADS * 2u] = 0u;
+    gM8ShellCompatibleSideMasks[thread + M8_SHELL_GROUP_THREADS * 3u] = 0u;
+    if (thread == 0u)
+    {
+        gM8ShellValidPatchCount = 0u;
+        gM8ShellLogicalTriangleCount = 0u;
+    }
     GroupMemoryBarrierWithGroupSync();
 
     [loop]
@@ -365,8 +394,22 @@ void M8ResolveOverlapPatchMask(uint thread)
         if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
             !M8HasSurfacePlane(state.flags))
             continue;
+        gM8ShellMainFlags[kernelLocal] = state.flags;
+        gM8ShellMainColors[kernelLocal] = state.packedColor;
+        int3 tileLocal = int3(kernelLocal & 7u,
+            (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+        int3 globalCoord = gM8ShellTileOrigin + tileLocal;
+        M8OverlapPatch patch = (M8OverlapPatch)0;
+        M8TryBuildMeasuredPlanePatch(globalCoord, state, patch);
+        uint compatibleSides = M8CompatibleReadoutSideMask(globalCoord,
+            state, patch);
+        gM8ShellCompatibleSideMasks[kernelLocal] = compatibleSides;
+        uint compatibleCount = countbits(compatibleSides);
         uint ignored;
         InterlockedOr(gM8ShellPatchValidWords[word], bit, ignored);
+        InterlockedAdd(gM8ShellValidPatchCount, 1u, ignored);
+        if (compatibleCount < 3u)
+            InterlockedOr(gM8ShellGlyphWords[word], bit, ignored);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -377,78 +420,300 @@ void M8ResolveOverlapPatchMask(uint thread)
         for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; word++)
         {
             if (word >= thread) break;
-            prefix += countbits(gM8ShellPatchValidWords[word]);
+            prefix += countbits(gM8ShellPatchValidWords[word]) *
+                M8_READOUT_PLANAR_TRIANGLES;
+            prefix += countbits(gM8ShellGlyphWords[word]) *
+                M8_READOUT_GLYPH_EXTRA_TRIANGLES;
         }
         gM8ShellPatchPrefixes[thread] = prefix;
     }
     GroupMemoryBarrierWithGroupSync();
     if (thread == 0u)
-        gM8ShellValidPatchCount =
+    {
+        uint lastValid = countbits(gM8ShellPatchValidWords[
+            MERKABA_M8_TILE_WORDS - 1u]);
+        uint lastGlyph = countbits(gM8ShellGlyphWords[
+            MERKABA_M8_TILE_WORDS - 1u]);
+        gM8ShellLogicalTriangleCount =
             gM8ShellPatchPrefixes[MERKABA_M8_TILE_WORDS - 1u] +
-            countbits(gM8ShellPatchValidWords[
-                MERKABA_M8_TILE_WORDS - 1u]);
+            lastValid * M8_READOUT_PLANAR_TRIANGLES +
+            lastGlyph * M8_READOUT_GLYPH_EXTRA_TRIANGLES;
+    }
     GroupMemoryBarrierWithGroupSync();
 }
 
-[numthreads(8, 8, 2)]
-void PreflightReadout(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
+uint2 M8LoadReadoutNeighbourPayload(int3 globalCoord)
 {
-    uint2 visibleTile = _M8VisibleTiles[groupId.x];
-    M8LoadMainTile(visibleTile.x, thread);
-    M8ResolveOverlapPatchMask(thread);
-
-    if (thread != 0u) return;
-    uint primitiveCount =
-        gM8ShellValidPatchCount * M8_OVERLAP_TRIANGLES_PER_PATCH;
-    uint ignored;
-    InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED],
-        gM8ShellOccupiedCount, ignored);
-    InterlockedAdd(
-        _M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID],
-        gM8ShellOccupiedCount - gM8ShellValidPatchCount, ignored);
-    InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_PLANE_VALID],
-        gM8ShellValidPatchCount, ignored);
-    uint baseTriangle;
-    InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-        primitiveCount, baseTriangle);
-    if (baseTriangle + primitiveCount >
-        MERKABA_M8_READOUT_TRIANGLE_CAPACITY)
+    uint2 payload = uint2(0u, 0u);
+    int3 tileLocal = globalCoord - gM8ShellTileOrigin;
+    // Compaction is optional. At a tile edge retain the original 50 mm
+    // support instead of nesting a sparse hierarchy/hash walk inside the
+    // four-side Quest hot loop.
+    if (!any(tileLocal < 0) && !any(tileLocal >= 8))
     {
-        _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
-        InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
-            MERKABA_READOUT_FAILED, ignored);
-        return;
+        uint kernelLocal = (uint)tileLocal.x + 8u *
+            ((uint)tileLocal.y + 8u * (uint)tileLocal.z);
+        uint bit = 1u << (kernelLocal & 31u);
+        if ((gM8ShellOccupiedWords[kernelLocal >> 5u] & bit) != 0u)
+        {
+            KernelState state = M8LoadKernelStateRead(gM8ShellPhysicalSlot,
+                kernelLocal);
+            payload = uint2(state.flags, state.packedColor);
+        }
     }
-    _M8VisibleTiles[groupId.x].y = baseTriangle;
+    return payload;
 }
 
-[numthreads(1, 1, 1)]
-void PrepareReadoutEmit(uint id : SV_DispatchThreadID)
+void M8CanonicalSheetTangents(int3 step, out int3 tangent0,
+    out int3 tangent1)
 {
-    uint status = _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS];
-    uint logical =
-        _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES];
-    if (status != MERKABA_READOUT_BUILDING ||
-        _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
-        _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u ||
-        logical > MERKABA_M8_READOUT_TRIANGLE_CAPACITY)
+    tangent0 = int3(1, 0, 0);
+    tangent1 = int3(0, 1, 0);
+    int first = step.x != 0 ? step.x : step.y != 0 ? step.y : step.z;
+    if (first < 0) step = -step;
+    int nonZero = abs(step.x) + abs(step.y) + abs(step.z);
+    if (nonZero == 1)
     {
-        _M8FrameDispatchArgs[0] = 0u;
-        _M8FrameDispatchArgs[1] = 1u;
-        _M8FrameDispatchArgs[2] = 1u;
-        if (status == MERKABA_READOUT_BUILDING)
-            _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
-                MERKABA_READOUT_FAILED;
+        tangent0 = step.x != 0 ? int3(0, 1, 0) : int3(1, 0, 0);
+        tangent1 = step.z != 0 ? int3(0, 1, 0) : int3(0, 0, 1);
         return;
     }
+    if (nonZero == 2)
+    {
+        if (step.z == 0)
+        {
+            tangent0 = int3(step.y, -step.x, 0);
+            tangent1 = int3(0, 0, 1);
+        }
+        else if (step.y == 0)
+        {
+            tangent0 = int3(step.z, 0, -step.x);
+            tangent1 = int3(0, 1, 0);
+        }
+        else
+        {
+            tangent0 = int3(0, step.z, -step.y);
+            tangent1 = int3(1, 0, 0);
+        }
+        return;
+    }
+    tangent0 = int3(step.y, -step.x, 0);
+    tangent1 = int3(step.z, 0, -step.x);
+}
 
-    _M8FrameDispatchArgs[0] = min(
-        _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    _M8FrameDispatchArgs[1] = 1u;
-    _M8FrameDispatchArgs[2] = 1u;
-    _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
-        MERKABA_READOUT_PREFLIGHTED;
+bool M8SameUndirectedSheet(int3 left, int3 right)
+{
+    return all(left == right) || all(left == -right);
+}
+
+float3 M8OverlapPatchCenter(M8OverlapPatch patch)
+{
+    return (patch.corner00 + patch.corner10 + patch.corner11 +
+        patch.corner01) * 0.25;
+}
+
+bool M8OriginalPatchCoversMidpoint(M8OverlapPatch patch, float3 normal,
+    float3 tangent0, float3 tangent1, float3 midpoint)
+{
+    float3 delta = midpoint - M8OverlapPatchCenter(patch);
+    return abs(dot(delta, normal)) <= M8_OVERLAP_PATCH_HALF_EXTENT &&
+        abs(dot(delta, tangent0)) <= M8_OVERLAP_PATCH_HALF_EXTENT &&
+        abs(dot(delta, tangent1)) <= M8_OVERLAP_PATCH_HALF_EXTENT;
+}
+
+float3 M8CompactReadoutSideResult(int3 globalCoord, int3 neighbourStep,
+    int3 mainSheet, M8OverlapPatch mainPatch, float3 mainNormal,
+    float3 mainTangent0, float3 mainTangent1)
+{
+    int3 neighbourCoord = globalCoord + neighbourStep;
+    uint2 neighbourPayload = M8LoadReadoutNeighbourPayload(neighbourCoord);
+    KernelState neighbourState = (KernelState)0;
+    neighbourState.flags = neighbourPayload.x;
+    neighbourState.packedColor = neighbourPayload.y;
+    if ((neighbourState.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
+        !M8HasSurfacePlane(neighbourState.flags))
+        return 0.0;
+    float3 neighbourNormal = float3(1.0, 0.0, 0.0);
+    float neighbourOffset = 0.0;
+    M8DecodeSurfacePlane(neighbourState.flags, neighbourNormal,
+        neighbourOffset);
+    int3 neighbourSheet = MerkabaNearestGridNormalStep(neighbourNormal);
+    if (!M8SameUndirectedSheet(mainSheet, neighbourSheet)) return 0.0;
+    M8OverlapPatch neighbourPatch = (M8OverlapPatch)0;
+    if (!M8TryBuildMeasuredPlanePatch(neighbourCoord, neighbourState,
+        neighbourPatch)) return 0.0;
+    float3 neighbourTangent0 = float3(0.0, 1.0, 0.0);
+    float3 neighbourTangent1 = float3(0.0, 0.0, 1.0);
+    M8MeasuredPlaneTangentBasis(neighbourNormal, neighbourTangent0,
+        neighbourTangent1);
+    float3 midpoint = (M8OverlapPatchCenter(mainPatch) +
+        M8OverlapPatchCenter(neighbourPatch)) * 0.5;
+    if (!M8OriginalPatchCoversMidpoint(mainPatch, mainNormal,
+            mainTangent0, mainTangent1, midpoint) ||
+        !M8OriginalPatchCoversMidpoint(neighbourPatch, neighbourNormal,
+            neighbourTangent0, neighbourTangent1, midpoint))
+        return 0.0;
+    float3 relative = midpoint - M8OverlapPatchCenter(mainPatch);
+    return float3(dot(relative, mainTangent0),
+        dot(relative, mainTangent1), 1.0);
+}
+
+void M8ReadoutSheetTangents(float3 normal, out int3 sheet,
+    out int3 chartTangent0, out int3 chartTangent1, out float3 tangent0,
+    out float3 tangent1)
+{
+    sheet = int3(1, 0, 0);
+    chartTangent0 = int3(0, 1, 0);
+    chartTangent1 = int3(0, 0, 1);
+    tangent0 = float3(0.0, 1.0, 0.0);
+    tangent1 = float3(0.0, 0.0, 1.0);
+    M8MeasuredPlaneTangentBasis(normal, tangent0, tangent1);
+    sheet = MerkabaNearestGridNormalStep(normal);
+    M8CanonicalSheetTangents(sheet, chartTangent0, chartTangent1);
+    float3 direction0 = normalize((float3)chartTangent0);
+    float3 direction1 = normalize((float3)chartTangent1);
+    float direct = abs(dot(direction0, tangent0)) +
+        abs(dot(direction1, tangent1));
+    float crossed = abs(dot(direction1, tangent0)) +
+        abs(dot(direction0, tangent1));
+    if (crossed > direct)
+    {
+        int3 swap = chartTangent0;
+        chartTangent0 = chartTangent1;
+        chartTangent1 = swap;
+        direction0 = normalize((float3)chartTangent0);
+        direction1 = normalize((float3)chartTangent1);
+    }
+    if (dot(direction0, tangent0) < 0.0) chartTangent0 = -chartTangent0;
+    if (dot(direction1, tangent1) < 0.0) chartTangent1 = -chartTangent1;
+}
+
+uint M8CompatibleReadoutSideMask(int3 globalCoord, KernelState mainState,
+    M8OverlapPatch mainPatch)
+{
+    float3 normal = float3(1.0, 0.0, 0.0);
+    float signedOffset = 0.0;
+    M8DecodeSurfacePlane(mainState.flags, normal, signedOffset);
+    int3 sheet = int3(1, 0, 0);
+    int3 chartTangent0 = int3(0, 1, 0);
+    int3 chartTangent1 = int3(0, 0, 1);
+    float3 tangent0 = float3(0.0, 1.0, 0.0);
+    float3 tangent1 = float3(0.0, 0.0, 1.0);
+    M8ReadoutSheetTangents(normal, sheet, chartTangent0, chartTangent1,
+        tangent0, tangent1);
+    uint mask = 0u;
+    if (M8CompactReadoutSideResult(globalCoord, -chartTangent0, sheet,
+            mainPatch, normal, tangent0, tangent1).z != 0.0)
+        mask |= 1u;
+    if (M8CompactReadoutSideResult(globalCoord, chartTangent0, sheet,
+            mainPatch, normal, tangent0, tangent1).z != 0.0)
+        mask |= 2u;
+    if (M8CompactReadoutSideResult(globalCoord, -chartTangent1, sheet,
+            mainPatch, normal, tangent0, tangent1).z != 0.0)
+        mask |= 4u;
+    if (M8CompactReadoutSideResult(globalCoord, chartTangent1, sheet,
+            mainPatch, normal, tangent0, tangent1).z != 0.0)
+        mask |= 8u;
+    return mask;
+}
+
+void M8CompactReadoutPatch(int3 globalCoord, inout M8OverlapPatch patch,
+    KernelState mainState, uint compatibleSideMask)
+{
+    float3 normal = float3(1.0, 0.0, 0.0);
+    float signedOffset = 0.0;
+    M8DecodeSurfacePlane(mainState.flags, normal, signedOffset);
+    int3 sheet = int3(1, 0, 0);
+    int3 chartTangent0 = int3(0, 1, 0);
+    int3 chartTangent1 = int3(0, 0, 1);
+    float3 tangent0 = float3(0.0, 1.0, 0.0);
+    float3 tangent1 = float3(0.0, 0.0, 1.0);
+    M8ReadoutSheetTangents(normal, sheet, chartTangent0, chartTangent1,
+        tangent0, tangent1);
+
+    float negative0 = M8_OVERLAP_PATCH_HALF_EXTENT;
+    float positive0 = M8_OVERLAP_PATCH_HALF_EXTENT;
+    float negative1 = M8_OVERLAP_PATCH_HALF_EXTENT;
+    float positive1 = M8_OVERLAP_PATCH_HALF_EXTENT;
+    [loop]
+    for (uint side = 0u; side < 4u; side++)
+    {
+        if ((compatibleSideMask & (1u << side)) == 0u) continue;
+        int3 direction = side == 0u ? -chartTangent0 :
+            side == 1u ? chartTangent0 :
+            side == 2u ? -chartTangent1 : chartTangent1;
+        float3 compact = M8CompactReadoutSideResult(globalCoord, direction,
+            sheet, patch, normal, tangent0, tangent1);
+        if (compact.z == 0.0)
+            continue;
+        float midpoint0 = compact.x;
+        float midpoint1 = compact.y;
+        if (side == 0u)
+            negative0 = min(negative0, max(0.0, -midpoint0) +
+                M8_READOUT_SEAM_OVERLAP);
+        else if (side == 1u)
+            positive0 = min(positive0, max(0.0, midpoint0) +
+                M8_READOUT_SEAM_OVERLAP);
+        else if (side == 2u)
+            negative1 = min(negative1, max(0.0, -midpoint1) +
+                M8_READOUT_SEAM_OVERLAP);
+        else
+            positive1 = min(positive1, max(0.0, midpoint1) +
+                M8_READOUT_SEAM_OVERLAP);
+    }
+
+    float3 center = M8OverlapPatchCenter(patch);
+    patch.corner00 = center - tangent0 * negative0 - tangent1 * negative1;
+    patch.corner10 = center + tangent0 * positive0 - tangent1 * negative1;
+    patch.corner11 = center + tangent0 * positive0 + tangent1 * positive1;
+    patch.corner01 = center - tangent0 * negative0 + tangent1 * positive1;
+}
+
+float3 M8GlyphEquator(uint index, float3 center, float3 tangent0,
+    float3 tangent1)
+{
+    float3 resultPosition =
+        center - tangent1 * M8_READOUT_GLYPH_EQUATOR_EXTENT;
+    if (index == 0u)
+        resultPosition = center + tangent0 * M8_READOUT_GLYPH_EQUATOR_EXTENT;
+    else if (index == 1u)
+        resultPosition = center + tangent1 * M8_READOUT_GLYPH_EQUATOR_EXTENT;
+    else if (index == 2u)
+        resultPosition = center - tangent0 * M8_READOUT_GLYPH_EQUATOR_EXTENT;
+    return resultPosition;
+}
+
+void M8EmitReadoutGlyph(uint outputTriangle, int3 globalCoord,
+    KernelState state)
+{
+    float3 normal = float3(1.0, 0.0, 0.0);
+    float signedOffset = 0.0;
+    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
+    float3 tangent0 = float3(0.0, 1.0, 0.0);
+    float3 tangent1 = float3(0.0, 0.0, 1.0);
+    M8MeasuredPlaneTangentBasis(normal, tangent0, tangent1);
+    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +
+        normal * signedOffset;
+    float3 positiveTip = center + normal * M8_READOUT_GLYPH_TIP_EXTENT;
+    float3 negativeTip = center - normal * M8_READOUT_GLYPH_TIP_EXTENT;
+    [loop]
+    for (uint primitive = 0u; primitive < M8_READOUT_GLYPH_TRIANGLES;
+         primitive++)
+    {
+        bool positive = primitive < 4u;
+        uint side = primitive & 3u;
+        uint next = (side + 1u) & 3u;
+        float3 currentPoint = M8GlyphEquator(side, center,
+            tangent0, tangent1);
+        float3 nextPoint = M8GlyphEquator(next, center,
+            tangent0, tangent1);
+        M8StoreReadoutVertex(outputTriangle + primitive, 0u,
+            positive ? positiveTip : negativeTip, state.packedColor);
+        M8StoreReadoutVertex(outputTriangle + primitive, 1u,
+            positive ? currentPoint : nextPoint, state.packedColor);
+        M8StoreReadoutVertex(outputTriangle + primitive, 2u,
+            positive ? nextPoint : currentPoint, state.packedColor);
+    }
 }
 
 void M8EmitOneOverlapPatch(uint kernelLocal, uint tileBaseTriangle)
@@ -460,12 +725,20 @@ void M8EmitOneOverlapPatch(uint kernelLocal, uint tileBaseTriangle)
     int3 tileLocal = int3(kernelLocal & 7u,
         (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
     int3 globalCoord = gM8ShellTileOrigin + tileLocal;
-    KernelState mainState = M8LoadKernelStateRead(gM8ShellPhysicalSlot,
-        kernelLocal);
-    M8OverlapPatch patch;
+    KernelState mainState = (KernelState)0;
+    mainState.flags = gM8ShellMainFlags[kernelLocal];
+    mainState.packedColor = gM8ShellMainColors[kernelLocal];
+    uint outputTriangle = tileBaseTriangle +
+        M8PatchTrianglePrefix(kernelLocal);
+    if ((gM8ShellGlyphWords[word] & bit) != 0u)
+    {
+        M8EmitReadoutGlyph(outputTriangle, globalCoord, mainState);
+        return;
+    }
+    M8OverlapPatch patch = (M8OverlapPatch)0;
     M8TryBuildMeasuredPlanePatch(globalCoord, mainState, patch);
-    uint outputTriangle = tileBaseTriangle + M8PatchPrefix(kernelLocal) *
-        M8_OVERLAP_TRIANGLES_PER_PATCH;
+    M8CompactReadoutPatch(globalCoord, patch, mainState,
+        gM8ShellCompatibleSideMasks[kernelLocal]);
 
     uint cornerIndex = M8OverlapTriangleCorner(0u);
     float3 corner = M8OverlapPatchCorner(patch, cornerIndex);
@@ -494,12 +767,42 @@ void M8EmitOneOverlapPatch(uint kernelLocal, uint tileBaseTriangle)
 }
 
 [numthreads(8, 8, 2)]
-void EmitReadoutVertices(uint3 groupId : SV_GroupID,
+void BuildReadoutVertices(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
-    uint2 visibleTile = _M8VisibleTilesRead[groupId.x];
+    uint2 visibleTile = _M8VisibleTiles[groupId.x];
     M8LoadMainTile(visibleTile.x, thread);
     M8ResolveOverlapPatchMask(thread);
+    if (thread == 0u)
+    {
+        gM8ShellCanEmit = 0u;
+        uint primitiveCount = gM8ShellLogicalTriangleCount;
+        uint ignored;
+        InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED],
+            gM8ShellOccupiedCount, ignored);
+        InterlockedAdd(
+            _M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID],
+            gM8ShellOccupiedCount - gM8ShellValidPatchCount, ignored);
+        InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_PLANE_VALID],
+            gM8ShellValidPatchCount, ignored);
+        InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
+            primitiveCount, gM8ShellBaseTriangle);
+        bool fits = gM8ShellBaseTriangle <=
+            MERKABA_M8_READOUT_TRIANGLE_CAPACITY &&
+            primitiveCount <= MERKABA_M8_READOUT_TRIANGLE_CAPACITY -
+                gM8ShellBaseTriangle;
+        if (!fits)
+        {
+            _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
+            InterlockedMax(_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
+                MERKABA_READOUT_FAILED, ignored);
+        }
+        else
+            gM8ShellCanEmit = 1u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gM8ShellCanEmit == 0u) return;
+
     if (thread == 0u)
     {
         uint ignored;
@@ -508,17 +811,18 @@ void EmitReadoutVertices(uint3 groupId : SV_GroupID,
             gM8ShellValidPatchCount, ignored);
         InterlockedAdd(
             _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES],
-            gM8ShellValidPatchCount * M8_OVERLAP_TRIANGLES_PER_PATCH,
+            gM8ShellLogicalTriangleCount,
             ignored);
     }
     GroupMemoryBarrierWithGroupSync();
 
-    M8EmitOneOverlapPatch(thread, visibleTile.y);
-    M8EmitOneOverlapPatch(thread + M8_SHELL_GROUP_THREADS, visibleTile.y);
+    M8EmitOneOverlapPatch(thread, gM8ShellBaseTriangle);
+    M8EmitOneOverlapPatch(thread + M8_SHELL_GROUP_THREADS,
+        gM8ShellBaseTriangle);
     M8EmitOneOverlapPatch(thread + M8_SHELL_GROUP_THREADS * 2u,
-        visibleTile.y);
+        gM8ShellBaseTriangle);
     M8EmitOneOverlapPatch(thread + M8_SHELL_GROUP_THREADS * 3u,
-        visibleTile.y);
+        gM8ShellBaseTriangle);
 }
 
 [numthreads(1, 1, 1)]
@@ -533,14 +837,14 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
         _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES];
     uint emitted =
         _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES];
-    if (status != MERKABA_READOUT_PREFLIGHTED ||
+    if (status != MERKABA_READOUT_BUILDING ||
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
         _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u ||
         logical > MERKABA_M8_READOUT_TRIANGLE_CAPACITY ||
         emitted != logical)
     {
-        // A post-preflight mismatch is an invariant violation. Never publish
-        // it and preserve the last-good draw arguments.
+        // A build mismatch is an invariant violation. Never publish it and
+        // preserve the last-good draw arguments.
         _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
             MERKABA_READOUT_EMIT_FAILED;
         return;

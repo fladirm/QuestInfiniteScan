@@ -313,41 +313,6 @@ int MerkabaSurfaceAuthority(int packedRoute)
         MERKABA_SURFACE_AUTHORITY_MASK);
 }
 
-int3 MerkabaNearestGridNormalStep(float3 gridNormal)
-{
-    gridNormal = normalize(gridNormal);
-    float3 magnitude = abs(gridNormal);
-    int3 direction = int3(gridNormal.x >= 0.0 ? 1 : -1,
-        gridNormal.y >= 0.0 ? 1 : -1,
-        gridNormal.z >= 0.0 ? 1 : -1);
-
-    float axisScore = max(magnitude.x, max(magnitude.y, magnitude.z));
-    float3 faceScores = float3(magnitude.x + magnitude.y,
-        magnitude.x + magnitude.z, magnitude.y + magnitude.z) *
-        0.70710678118;
-    float faceScore = max(faceScores.x, max(faceScores.y, faceScores.z));
-    float bodyScore = (magnitude.x + magnitude.y + magnitude.z) *
-        0.57735026919;
-
-    if (axisScore >= faceScore && axisScore >= bodyScore)
-    {
-        if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z)
-            return int3(direction.x, 0, 0);
-        if (magnitude.y >= magnitude.z)
-            return int3(0, direction.y, 0);
-        return int3(0, 0, direction.z);
-    }
-    if (faceScore >= bodyScore)
-    {
-        if (faceScores.x >= faceScores.y && faceScores.x >= faceScores.z)
-            return int3(direction.x, direction.y, 0);
-        if (faceScores.y >= faceScores.z)
-            return int3(direction.x, 0, direction.z);
-        return int3(0, direction.y, direction.z);
-    }
-    return direction;
-}
-
 int3 MerkabaNearestNormalStep(float3 worldNormal)
 {
     return MerkabaNearestGridNormalStep(mul(
@@ -1804,6 +1769,9 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
     uint pendingCount = completed != 0u && failure != 0u
         ? min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    bool readoutChanged = completed != 0u && failure == 0u &&
+        (_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT] != 0u ||
+         _M8Counters[M8_COUNTER_CARVE_OCCUPIED_TO_FREE] != 0u);
     _M8Counters[M8_COUNTER_CLEANUP_TOUCHED_COUNT] = touchedCount;
     _M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT] = pendingCount;
     _M8ObservationDispatchArgs[0] = max(touchedCount, pendingCount);
@@ -1812,7 +1780,9 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
     _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
         completed != 0u ?
             _M8Counters[M8_COUNTER_OBSERVATION_TOKEN] : 0u,
-        failure, _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+        failure | (readoutChanged ?
+            M8_ATTEMPT_COMPLETION_READOUT_CHANGED : 0u),
+        _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
 }
 
 [numthreads(1, 1, 1)]

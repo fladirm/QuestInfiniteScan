@@ -37,8 +37,7 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
     spirv-val --target-env vulkan1.1 "$spv"
     spirv-dis "$spv" -o "$assembly"
 
-    if [[ "$kernel" == "PreflightReadout" ||
-          "$kernel" == "EmitReadoutVertices" ]]; then
+    if [[ "$kernel" == "BuildReadoutVertices" ]]; then
       if grep -Eq 'OpTypeInt 64|Op[US](Div|Mod)|OpSRem' "$assembly"; then
         echo "FAIL: $kernel regressed to int64/integer div/mod" >&2
         exit 1
@@ -103,9 +102,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 57 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 57" >&2
+if (( kernel_count != 55 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 55" >&2
   exit 1
 fi
 
-echo "PASS: 57 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 55 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

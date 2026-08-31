@@ -287,11 +287,11 @@ namespace Genesis.RoomScan
             output.AppendLine("    if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||");
             output.AppendLine("        !M8HasSurfacePlane(state.flags))");
             output.AppendLine("        return false;");
-            output.AppendLine("    float3 normal;");
-            output.AppendLine("    float signedOffset;");
+            output.AppendLine("    float3 normal = float3(1.0, 0.0, 0.0);");
+            output.AppendLine("    float signedOffset = 0.0;");
             output.AppendLine("    M8DecodeSurfacePlane(state.flags, normal, signedOffset);");
-            output.AppendLine("    float3 tangent0;");
-            output.AppendLine("    float3 tangent1;");
+            output.AppendLine("    float3 tangent0 = float3(0.0, 1.0, 0.0);");
+            output.AppendLine("    float3 tangent1 = float3(0.0, 0.0, 1.0);");
             output.AppendLine("    M8MeasuredPlaneTangentBasis(normal, tangent0, tangent1);");
             output.AppendLine("    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +");
             output.AppendLine("        normal * signedOffset;");

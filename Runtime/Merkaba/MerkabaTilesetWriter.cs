@@ -116,7 +116,7 @@ namespace Genesis.RoomScan
                 MerkabaGlbResult result;
                 using (var stream = new FileStream(temporaryPath,
                            FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                           1024 * 1024, FileOptions.WriteThrough))
+                           1024 * 1024, FileOptions.SequentialScan))
                 {
                     result = MerkabaGlbWriter.Write(stream, owned,
                         leaf.LocalOrigin, progress);
@@ -148,7 +148,7 @@ namespace Genesis.RoomScan
             string manifestTemporary = manifest + ".tmp";
             using (var stream = new FileStream(manifestTemporary,
                        FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                       64 * 1024, FileOptions.WriteThrough))
+                       64 * 1024, FileOptions.None))
             using (var writer = new StreamWriter(stream,
                        new UTF8Encoding(false), 64 * 1024, true))
             {

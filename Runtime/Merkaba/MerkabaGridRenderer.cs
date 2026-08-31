@@ -28,9 +28,7 @@ namespace Genesis.RoomScan
         private int _resetKernel;
         private int _queryKernel;
         private int _prepareKernel;
-        private int _preflightKernel;
-        private int _prepareEmitKernel;
-        private int _emitKernel;
+        private int _buildKernel;
         private int _finalizeKernel;
         private bool _initialized;
         private volatile bool _gpuSubmissionSuspended;
@@ -64,6 +62,7 @@ namespace Genesis.RoomScan
         private Matrix4x4 _publishedGridToWorld;
         private FineBrushDescriptor _finePreviewDescriptor;
         private Color _finePreviewColor;
+        private bool _dynamicOcclusionEnabled = true;
 
         private readonly struct ReadoutBuildTicket
         {
@@ -110,6 +109,12 @@ namespace Genesis.RoomScan
         {
             get => readoutDrawEnabled;
             set => readoutDrawEnabled = value;
+        }
+
+        internal void SetDynamicOcclusionEnabled(bool enabled)
+        {
+            _dynamicOcclusionEnabled = enabled;
+            ApplyRasterFeatureState();
         }
 
         private static readonly int GridToWorldId =
@@ -276,19 +281,14 @@ namespace Genesis.RoomScan
                 "QueryM8Readout", MerkabaGpuStage.WorldQuery);
             _prepareKernel = readoutCompute.FindProfiledKernel(
                 "PrepareReadoutBuild", MerkabaGpuStage.ReadoutBuild);
-            _preflightKernel = readoutCompute.FindProfiledKernel(
-                "PreflightReadout", MerkabaGpuStage.ReadoutBuild);
-            _prepareEmitKernel = readoutCompute.FindProfiledKernel(
-                "PrepareReadoutEmit", MerkabaGpuStage.ReadoutBuild);
-            _emitKernel = readoutCompute.FindProfiledKernel(
-                "EmitReadoutVertices", MerkabaGpuStage.ReadoutBuild);
+            _buildKernel = readoutCompute.FindProfiledKernel(
+                "BuildReadoutVertices", MerkabaGpuStage.ReadoutBuild);
             _finalizeKernel = readoutCompute.FindProfiledKernel(
                 "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
             foreach (int kernel in new[]
                      {
                          _resetKernel, _queryKernel, _prepareKernel,
-                         _preflightKernel, _prepareEmitKernel, _emitKernel,
-                         _finalizeKernel
+                         _buildKernel, _finalizeKernel
                      })
             {
                 _grid.BindWorldBuffers(readoutCompute, kernel);
@@ -312,6 +312,7 @@ namespace Genesis.RoomScan
             }
             ApplyOpacityState();
             ApplyFinePreviewState();
+            ApplyRasterFeatureState();
             _initialized = true;
             return true;
         }
@@ -376,10 +377,10 @@ namespace Genesis.RoomScan
                 timedSubmission = MerkabaGpuTimestamps.TryAcquire(
                     CaptureOwner.ReadoutBuild,
                     _readoutRevision == 0u ? 1u : _readoutRevision, command);
-                command.SetComputeBufferParam(readoutCompute, _emitKernel,
+                command.SetComputeBufferParam(readoutCompute, _buildKernel,
                     ReadoutVertices0Id,
                     _grid.GetM8ReadoutVertices0(backSlot));
-                command.SetComputeBufferParam(readoutCompute, _emitKernel,
+                command.SetComputeBufferParam(readoutCompute, _buildKernel,
                     ReadoutVertices1Id,
                     _grid.GetM8ReadoutVertices1(backSlot));
                 command.SetComputeBufferParam(readoutCompute, _finalizeKernel,
@@ -391,11 +392,7 @@ namespace Genesis.RoomScan
                 command.DispatchComputeProfiled(readoutCompute,
                     _prepareKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
-                    _preflightKernel, _grid.M8FrameDispatchArgs);
-                command.DispatchComputeProfiled(readoutCompute,
-                    _prepareEmitKernel, 1, 1, 1);
-                command.DispatchComputeProfiled(readoutCompute,
-                    _emitKernel, _grid.M8FrameDispatchArgs);
+                    _buildKernel, _grid.M8FrameDispatchArgs);
                 command.DispatchComputeProfiled(readoutCompute,
                     _finalizeKernel, 1, 1, 1);
                 MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
@@ -744,7 +741,9 @@ namespace Genesis.RoomScan
                 material.SetFloat(ScanOpacityId, scanOpacity);
                 material.SetInt(SrcBlendId, (int)BlendMode.One);
                 material.SetInt(DstBlendId,
-                    (int)BlendMode.OneMinusSrcAlpha);
+                    opaque && !_dynamicOcclusionEnabled
+                        ? (int)BlendMode.Zero
+                        : (int)BlendMode.OneMinusSrcAlpha);
                 material.SetInt(ZWriteId, 1);
                 material.renderQueue = opaque
                     ? (int)RenderQueue.Geometry :
@@ -772,7 +771,23 @@ namespace Genesis.RoomScan
                     _finePreviewDescriptor.Axis);
                 material.SetVector(FineBrushParamsId, parameters);
                 material.SetColor(FinePreviewColorId, tint);
+                if (active) material.EnableKeyword("M8_FINE_PREVIEW");
+                else material.DisableKeyword("M8_FINE_PREVIEW");
             }
+        }
+
+        private void ApplyRasterFeatureState()
+        {
+            for (int slot = 0; slot < 2; slot++)
+            {
+                Material material = _materials[slot];
+                if (material == null) continue;
+                if (_dynamicOcclusionEnabled)
+                    material.EnableKeyword("M8_ENVIRONMENT_OCCLUSION");
+                else
+                    material.DisableKeyword("M8_ENVIRONMENT_OCCLUSION");
+            }
+            ApplyOpacityState();
         }
 
         private void RequestStatusIfDue()

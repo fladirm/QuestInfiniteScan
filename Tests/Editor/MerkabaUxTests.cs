@@ -85,6 +85,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "#pragma multi_compile _ XR_HARD_OCCLUSION"));
             Assert.That(source, Does.Contain(
+                "#pragma shader_feature_local_fragment _ M8_FINE_PREVIEW"));
+            Assert.That(source, Does.Contain(
+                "#pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION"));
+            Assert.That(source, Does.Contain(
+                "#if defined(M8_FINE_PREVIEW)"));
+            Assert.That(source, Does.Contain(
+                "#if defined(M8_ENVIRONMENT_OCCLUSION) && defined(XR_HARD_OCCLUSION)"));
+            Assert.That(source, Does.Contain(
                 "Packages/com.unity.xr.arfoundation/Assets/Shaders/Utils.hlsl"));
             Assert.That(source, Does.Contain(
                 "UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);"));
@@ -103,6 +111,18 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("discard;"));
             Assert.That(source, Does.Contain(
                 "? input.color : half3(0.55h, 0.16h, 0.42h)"));
+
+            string renderer = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
+                "MerkabaGridRenderer.cs"));
+            Assert.That(renderer, Does.Contain(
+                "material.EnableKeyword(\"M8_FINE_PREVIEW\")"));
+            Assert.That(renderer, Does.Contain(
+                "material.DisableKeyword(\"M8_FINE_PREVIEW\")"));
+            Assert.That(renderer, Does.Contain(
+                "material.EnableKeyword(\"M8_ENVIRONMENT_OCCLUSION\")"));
+            Assert.That(renderer, Does.Contain(
+                "opaque && !_dynamicOcclusionEnabled"));
         }
 
         [Test]

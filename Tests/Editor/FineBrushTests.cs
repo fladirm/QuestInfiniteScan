@@ -66,6 +66,11 @@ namespace Genesis.RoomScan.Tests
                 "cursorTint.a = Mathf.Max(0.55f, color.a) * 0.5f"));
             Assert.That(scanner, Does.Contain(
                 "TryUpdateFineSurfaceTarget(rayOrigin,"));
+            Assert.That(scanner, Does.Contain(
+                "rayDirection, fineToolDepth, true,"));
+            Assert.That(scanner, Does.Not.Contain("Physics.Raycast("));
+            Assert.That(scanner, Does.Not.Contain(
+                "FineSurfaceTargetReadbackPending) return"));
             Assert.That(scanner, Does.Not.Contain(
                 "eyeOrigin + rayDirection * fineToolDepth"));
             string depthTarget = Source("Runtime/Shaders/DepthNormals.compute");
@@ -103,6 +108,25 @@ namespace Genesis.RoomScan.Tests
             Assert.That(depth, Does.Contain(
                 "fineBrush.IsRefine ? 1 : 0"));
             Assert.That(refine, Does.Not.Contain("AppendSurfaceCandidate"));
+        }
+
+        [Test]
+        public void HeldFineActionsTrackLiveTargetButFreezeOneCycleDescriptor()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string target = Source("Runtime/Core/DepthCapture.cs");
+            Assert.That(scanner, Does.Contain(
+                "TryCreateFineDescriptor(FineBrushOperation.Refine,\n" +
+                "                        out _fineObservationDescriptor)"));
+            Assert.That(scanner, Does.Contain(
+                "TryCreateFineDescriptor(FineBrushOperation.Erase,"));
+            Assert.That(scanner, Does.Contain("_fineCycleArmed = false;"));
+            Assert.That(target, Does.Contain(
+                "if (!allowSubmit || _fineSurfaceTargetReadbackPending"));
+            Assert.That(target, Does.Contain(
+                "worldTarget = _fineSurfaceTargetWorld;"));
+            Assert.That(target, Does.Contain(
+                "_fineSurfaceTargetReadbackPending = true;"));
         }
 
         [Test]

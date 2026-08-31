@@ -91,6 +91,19 @@ namespace Genesis.RoomScan
             new(0, -1, 0), new(0, 1, 0),
             new(0, 0, -1), new(0, 0, 1)
         };
+
+        private sealed class SparsePartitionResult
+        {
+            internal readonly HashSet<int3> Cut;
+            internal readonly HashSet<int3> FreeReachable;
+
+            internal SparsePartitionResult(HashSet<int3> cut,
+                HashSet<int3> freeReachable)
+            {
+                Cut = cut;
+                FreeReachable = freeReachable;
+            }
+        }
         internal static MerkabaExportMembraneResult Build(
             MerkabaExportShellResult shell,
             IProgress<OperationWorkProgress> progress = null)
@@ -125,7 +138,8 @@ namespace Genesis.RoomScan
             measured.Sort(CompareCoords);
             canonicalCoords.Sort(CompareCoords);
 
-            HashSet<int3> partitionCut = SolveSparsePartition(shell);
+            SparsePartitionResult partition = SolveSparsePartition(shell);
+            HashSet<int3> partitionCut = partition.Cut;
             var candidateCoords = new HashSet<int3>();
             foreach (MerkabaKernelSnapshot kernel in shell.Kernels)
                 candidateCoords.Add(kernel.Coord);
@@ -138,6 +152,7 @@ namespace Genesis.RoomScan
             int measuredPatches = 0;
             int inferredPatches = 0;
             int unresolvedLegacy = 0;
+            int removedBehind = 0;
             for (int index = 0; index < sortedCandidates.Count; index++)
             {
                 int3 coord = sortedCandidates[index];
@@ -147,8 +162,13 @@ namespace Genesis.RoomScan
                     MerkabaOverlapShell.TryBuildPatch(coord, state,
                         out MerkabaOverlapShell.Patch measuredPatch))
                 {
-                    patches.Add(FromMeasured(measuredPatch));
-                    measuredPatches++;
+                    if (ShouldKeepMeasured(coord, partition, strongFree))
+                    {
+                        patches.Add(FromMeasured(measuredPatch));
+                        measuredPatches++;
+                    }
+                    else
+                        removedBehind++;
                 }
                 else if (!hasState || isSynthetic)
                 {
@@ -176,8 +196,31 @@ namespace Genesis.RoomScan
             return new MerkabaExportMembraneResult(patches, legacyKernels,
                 canonicalCoords.ToArray(),
                 shell.OriginalOccupiedCount, measured.Count, measuredPatches,
-                inferredPatches, legacy, unresolvedLegacy, 0,
+                inferredPatches, legacy, unresolvedLegacy, removedBehind,
                 partitionCut.Count);
+        }
+
+        private static bool ShouldKeepMeasured(int3 coord,
+            SparsePartitionResult partition, HashSet<int3> strongFree)
+        {
+            if (strongFree.Count == 0 || partition.Cut.Contains(coord))
+                return true;
+            foreach (int3 offset in OrderedNeighbours)
+                if (partition.FreeReachable.Contains(coord + offset))
+                    return true;
+            // Destructive selection requires a locally witnessed separator:
+            // the measured support is immediately behind a selected cut and
+            // that cut itself touches canonical strong-FREE evidence. Sparse,
+            // distant FREE cannot erase an otherwise legitimate measured wall.
+            foreach (int3 offset in OrderedNeighbours)
+            {
+                int3 cutCoord = coord + offset;
+                if (!partition.Cut.Contains(cutCoord)) continue;
+                foreach (int3 freeOffset in OrderedNeighbours)
+                    if (strongFree.Contains(cutCoord + freeOffset))
+                        return false;
+            }
+            return true;
         }
 
         private static MerkabaExportMembranePatch FromMeasured(
@@ -249,11 +292,12 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        private static HashSet<int3> SolveSparsePartition(
+        private static SparsePartitionResult SolveSparsePartition(
             MerkabaExportShellResult shell)
         {
             if (shell.StrongFreeCoordinates.Length == 0)
-                return new HashSet<int3>();
+                return new SparsePartitionResult(new HashSet<int3>(),
+                    new HashSet<int3>());
 
             var evidence = new Dictionary<int3, KernelState>(
                 shell.EvidenceKernels.Length);
@@ -307,10 +351,15 @@ namespace Genesis.RoomScan
             flow.MaxFlow(source, sink);
             bool[] reachable = flow.ReachableFrom(source);
             var cut = new HashSet<int3>();
+            var freeReachable = new HashSet<int3>();
             for (int index = 0; index < coords.Count; index++)
+            {
                 if (reachable[index * 2] && !reachable[index * 2 + 1])
                     cut.Add(coords[index]);
-            return cut;
+                if (reachable[index * 2 + 1])
+                    freeReachable.Add(coords[index]);
+            }
+            return new SparsePartitionResult(cut, freeReachable);
         }
 
         private static long PartitionCost(KernelState state)

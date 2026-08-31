@@ -96,7 +96,6 @@
 #define MERKABA_READOUT_SKIPPED 1u
 #define MERKABA_READOUT_FAILED 2u
 #define MERKABA_READOUT_PUBLISHED 3u
-#define MERKABA_READOUT_PREFLIGHTED 4u
 #define MERKABA_READOUT_EMIT_FAILED 5u
 #define M8_COUNTER_NEW_TILE_RESERVATION_BASE 65u
 #define M8_COUNTER_EVICTION_CLEAN_TICKET 66u
@@ -138,6 +137,7 @@
 #define M8_OBSERVATION_FAILURE_TIMEOUT 16u
 #define M8_OBSERVATION_FAILURE_PHYSICAL_CAPACITY 32u
 #define M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY 64u
+#define M8_ATTEMPT_COMPLETION_READOUT_CHANGED 0x80000000u
 
 struct KernelState
 {
@@ -158,6 +158,46 @@ struct M8TileAddress
     int3 blockCoord;
     uint localAddress;
 };
+
+// Canonical 26-direction M8 chart. It classifies support direction only; the
+// stored measured plane normal remains full octahedral precision.
+int3 MerkabaNearestGridNormalStep(float3 gridNormal)
+{
+    gridNormal = normalize(gridNormal);
+    float3 magnitude = abs(gridNormal);
+    int3 direction = int3(gridNormal.x >= 0.0 ? 1 : -1,
+        gridNormal.y >= 0.0 ? 1 : -1,
+        gridNormal.z >= 0.0 ? 1 : -1);
+
+    float axisScore = max(magnitude.x, max(magnitude.y, magnitude.z));
+    float3 faceScores = float3(magnitude.x + magnitude.y,
+        magnitude.x + magnitude.z, magnitude.y + magnitude.z) *
+        0.70710678118;
+    float faceScore = max(faceScores.x, max(faceScores.y, faceScores.z));
+    float bodyScore = (magnitude.x + magnitude.y + magnitude.z) *
+        0.57735026919;
+
+    int3 step = direction;
+    if (axisScore >= faceScore && axisScore >= bodyScore)
+    {
+        if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z)
+            step = int3(direction.x, 0, 0);
+        else if (magnitude.y >= magnitude.z)
+            step = int3(0, direction.y, 0);
+        else
+            step = int3(0, 0, direction.z);
+    }
+    else if (faceScore >= bodyScore)
+    {
+        if (faceScores.x >= faceScores.y && faceScores.x >= faceScores.z)
+            step = int3(direction.x, direction.y, 0);
+        else if (faceScores.y >= faceScores.z)
+            step = int3(direction.x, 0, direction.z);
+        else
+            step = int3(0, direction.y, direction.z);
+    }
+    return step;
+}
 
 RWStructuredBuffer<M8HashEntry> _M8HashEntries;
 StructuredBuffer<M8HashEntry> _M8HashEntriesRead;

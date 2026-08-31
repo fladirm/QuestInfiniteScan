@@ -109,7 +109,7 @@ namespace
     constexpr uint32_t kExecutorAbiVersion = 1;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kFineErasePipelineBegin = 40;
+    constexpr uint32_t kFineErasePipelineBegin = 38;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
 

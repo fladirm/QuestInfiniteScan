@@ -110,6 +110,32 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void ExactSharedMeasuredSeamReusesIndexedVertices()
+        {
+            KernelState state = Measured(new float3(1, 0, 0), 0f,
+                new Color32(90, 150, 210, 255));
+            int3 firstCoord = new(0, 0, 0);
+            int3 secondCoord = new(0, 2, 0);
+            Assert.That(MerkabaOverlapShell.TryBuildPatch(firstCoord, state,
+                out MerkabaOverlapShell.Patch first), Is.True);
+            Assert.That(MerkabaOverlapShell.TryBuildPatch(secondCoord, state,
+                out MerkabaOverlapShell.Patch second), Is.True);
+            var patches = new List<MerkabaExportMembranePatch>
+            {
+                ExportPatch(first), ExportPatch(second)
+            };
+            var membrane = new MerkabaExportMembraneResult(patches,
+                new List<MerkabaKernelSnapshot>(),
+                new[] { firstCoord, secondCoord }, 2, 2, 2, 0, 0, 0, 0, 0);
+
+            Write(membrane, out MerkabaGlbResult result);
+            Assert.That(result.PrimitiveCount, Is.EqualTo(4));
+            Assert.That(result.VertexCount, Is.EqualTo(6));
+            Assert.That(result.VertexCount,
+                Is.LessThan(membrane.Patches.Count * 4));
+        }
+
+        [Test]
         public void WriterHasNoLegacy24MVertexLimitAndStillEnforcesGlb4GiB()
         {
             Assert.That(MerkabaGlbWriter.CheckedIndexCountForPrimitiveCount(
@@ -157,6 +183,12 @@ namespace Genesis.RoomScan.Tests
             result = MerkabaGlbWriter.Write(stream, fixture);
             return stream.ToArray();
         }
+
+        private static MerkabaExportMembranePatch ExportPatch(
+            MerkabaOverlapShell.Patch patch) => new(patch.Main, patch.Normal,
+            patch.Corner00.GridPosition, patch.Corner10.GridPosition,
+            patch.Corner11.GridPosition, patch.Corner01.GridPosition,
+            patch.Corner00.PackedColor, false);
 
         private static uint ReadUInt32(byte[] bytes, int offset) =>
             BitConverter.ToUInt32(bytes, offset);

@@ -61,7 +61,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void RealOccupiedBehindLayerIsNeverDestructivelyFiltered()
+        public void LocallyProvenMeasuredLayerBehindSelectedMembraneIsRemoved()
         {
             var evidence = new Dictionary<int3, KernelState>
             {
@@ -72,11 +72,11 @@ namespace Genesis.RoomScan.Tests
 
             MerkabaExportMembraneResult result = Build(evidence);
 
-            Assert.That(result.RemovedBehindMembraneCount, Is.Zero);
+            Assert.That(result.RemovedBehindMembraneCount, Is.EqualTo(1));
             Assert.That(result.Patches.Any(value =>
                 value.Coord.Equals(new int3(0, 0, 0))), Is.True);
             Assert.That(result.Patches.Any(value =>
-                value.Coord.Equals(new int3(1, 0, 0))), Is.True);
+                value.Coord.Equals(new int3(1, 0, 0))), Is.False);
         }
 
         [Test]

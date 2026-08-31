@@ -29,6 +29,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma multi_compile_instancing
             #pragma multi_compile _ XR_LINEAR_DEPTH
             #pragma multi_compile _ XR_HARD_OCCLUSION
+            #pragma shader_feature_local_fragment _ M8_FINE_PREVIEW
+            #pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.xr.arfoundation/Assets/Shaders/Utils.hlsl"
@@ -39,7 +41,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             float M8EnvironmentVisibility(float3 worldPosition)
             {
-#if defined(XR_HARD_OCCLUSION)
+#if defined(M8_ENVIRONMENT_OCCLUSION) && defined(XR_HARD_OCCLUSION)
                 if (_IsOcclusionOn == 0)
                     return 1.0;
                 float4 depthPosition = mul(
@@ -130,6 +132,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 half3 color = input.hasRgb != 0u
                     ? input.color : half3(0.55h, 0.16h, 0.42h);
+#if defined(M8_FINE_PREVIEW)
                 if (_FineBrushParams.x > 0.5)
                 {
                     float3 relative = input.worldPosition -
@@ -143,6 +146,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                         color = lerp(color, _FinePreviewColor.rgb,
                             _FinePreviewColor.a);
                 }
+#endif
                 half alpha = _ScanOpacity *
                     M8EnvironmentVisibility(input.worldPosition);
                 return half4(color * alpha, alpha);
