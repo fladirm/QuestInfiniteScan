@@ -21,14 +21,18 @@ namespace Genesis.RoomScan
         private float readoutTranslationGuard = 1f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
         [SerializeField] private bool readoutDrawEnabled = true;
+        [SerializeField] private bool meshReadoutEnabled;
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
+        private DepthCapture _depthCapture;
         private readonly Material[] _materials = new Material[2];
         private int _resetKernel;
         private int _queryKernel;
         private int _prepareKernel;
         private int _buildKernel;
+        private int _projectMeshKernel;
+        private int _buildMeshKernel;
         private int _finalizeKernel;
         private bool _initialized;
         private volatile bool _gpuSubmissionSuspended;
@@ -73,11 +77,14 @@ namespace Genesis.RoomScan
             internal readonly uint ResidencyEpoch;
             internal readonly Vector3 GridPosition;
             internal readonly Matrix4x4 GridToWorld;
+            internal readonly bool MeshReadout;
+            internal readonly DepthCapture.ReadoutDepthLease DepthLease;
 
             internal ReadoutBuildTicket(int slot, uint revision,
                 uint lifecycleGeneration, uint sourceGeneration,
                 uint residencyEpoch, Vector3 gridPosition,
-                Matrix4x4 gridToWorld)
+                Matrix4x4 gridToWorld, bool meshReadout,
+                DepthCapture.ReadoutDepthLease depthLease)
             {
                 Slot = slot;
                 Revision = revision;
@@ -86,6 +93,8 @@ namespace Genesis.RoomScan
                 ResidencyEpoch = residencyEpoch;
                 GridPosition = gridPosition;
                 GridToWorld = gridToWorld;
+                MeshReadout = meshReadout;
+                DepthLease = depthLease;
             }
         }
 
@@ -110,6 +119,18 @@ namespace Genesis.RoomScan
             get => readoutDrawEnabled;
             set => readoutDrawEnabled = value;
         }
+        public bool MeshReadoutEnabled
+        {
+            get => meshReadoutEnabled;
+            set
+            {
+                if (meshReadoutEnabled == value) return;
+                meshReadoutEnabled = value;
+                MarkCanonicalReadoutDirty();
+                Logger.Info("Merkaba live readout mode: " +
+                    (value ? "stereo depth mesh" : "canonical patches"));
+            }
+        }
 
         internal void SetDynamicOcclusionEnabled(bool enabled)
         {
@@ -128,6 +149,31 @@ namespace Genesis.RoomScan
         private static readonly int FrameDispatchArgsId =
             Shader.PropertyToID("_M8FrameDispatchArgs");
         private static readonly int DrawArgsId = Shader.PropertyToID("_M8DrawArgs");
+        private static readonly int MeshEnabledId =
+            Shader.PropertyToID("_M8MeshReadoutEnabled");
+        private static readonly int MeshDepthId = Shader.PropertyToID("_SrcDepth");
+        private static readonly int MeshDepthSizeId =
+            Shader.PropertyToID("_M8MeshDepthSize");
+        private static readonly int MeshGridToWorldId =
+            Shader.PropertyToID("_MerkabaGridToWorld");
+        private static readonly int MeshWorldToGridId =
+            Shader.PropertyToID("_MerkabaWorldToGrid");
+        private static readonly int MeshDepthProj0Id =
+            Shader.PropertyToID("_M8MeshDepthProj0");
+        private static readonly int MeshDepthProj1Id =
+            Shader.PropertyToID("_M8MeshDepthProj1");
+        private static readonly int MeshDepthProjInv0Id =
+            Shader.PropertyToID("_M8MeshDepthProjInv0");
+        private static readonly int MeshDepthProjInv1Id =
+            Shader.PropertyToID("_M8MeshDepthProjInv1");
+        private static readonly int MeshDepthView0Id =
+            Shader.PropertyToID("_M8MeshDepthView0");
+        private static readonly int MeshDepthView1Id =
+            Shader.PropertyToID("_M8MeshDepthView1");
+        private static readonly int MeshDepthViewInv0Id =
+            Shader.PropertyToID("_M8MeshDepthViewInv0");
+        private static readonly int MeshDepthViewInv1Id =
+            Shader.PropertyToID("_M8MeshDepthViewInv1");
         private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
         private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
         private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
@@ -145,6 +191,7 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _integrator = GetComponent<MerkabaIntegrator>();
+            _depthCapture = GetComponent<DepthCapture>();
             if (_grid != null) _grid.Cleared += MarkCanonicalReadoutDirty;
         }
 
@@ -283,12 +330,17 @@ namespace Genesis.RoomScan
                 "PrepareReadoutBuild", MerkabaGpuStage.ReadoutBuild);
             _buildKernel = readoutCompute.FindProfiledKernel(
                 "BuildReadoutVertices", MerkabaGpuStage.ReadoutBuild);
+            _projectMeshKernel = readoutCompute.FindProfiledKernel(
+                "ProjectReadoutMeshPins", MerkabaGpuStage.ReadoutBuild);
+            _buildMeshKernel = readoutCompute.FindProfiledKernel(
+                "BuildReadoutMesh", MerkabaGpuStage.ReadoutBuild);
             _finalizeKernel = readoutCompute.FindProfiledKernel(
                 "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
             foreach (int kernel in new[]
                      {
                          _resetKernel, _queryKernel, _prepareKernel,
-                         _buildKernel, _finalizeKernel
+                         _buildKernel, _projectMeshKernel, _buildMeshKernel,
+                         _finalizeKernel
                      })
             {
                 _grid.BindWorldBuffers(readoutCompute, kernel);
@@ -355,17 +407,26 @@ namespace Genesis.RoomScan
         private void SubmitReadoutBuild(Camera camera, Vector3 gridPosition)
         {
             if (_buildInFlight) return;
+            DepthCapture.ReadoutDepthLease depthLease = default;
+            if (meshReadoutEnabled && (_depthCapture == null ||
+                !_depthCapture.TryAcquireReadoutDepth(out depthLease)))
+                return;
             int backSlot = 1 - _frontReadout;
             uint revision = NextNonZero(ref _submissionRevision);
             var ticket = new ReadoutBuildTicket(backSlot, revision,
                 _lifecycleGeneration, _sourceGeneration,
                 _grid.ResidencyEpoch, gridPosition,
-                _grid.GridToWorldMatrix);
+                _grid.GridToWorldMatrix, meshReadoutEnabled, depthLease);
+            ApplyReadoutModeState(backSlot, ticket.MeshReadout);
 #if !UNITY_EDITOR && UNITY_ANDROID
             SubmitNativeReadoutBuild(camera, ticket);
             return;
 #else
             int querySide = ConfigureReadout(camera);
+            int meshGroupsX = ticket.MeshReadout
+                ? Mathf.CeilToInt(depthLease.Texture.width / 8f) : 1;
+            int meshGroupsY = ticket.MeshReadout
+                ? Mathf.CeilToInt(depthLease.Texture.height / 8f) : 1;
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 readout build");
             bool submitted = false;
@@ -385,14 +446,23 @@ namespace Genesis.RoomScan
                     _grid.GetM8ReadoutVertices1(backSlot));
                 command.SetComputeBufferParam(readoutCompute, _finalizeKernel,
                     DrawArgsId, _grid.GetM8DrawArgs(backSlot));
+                ConfigureMeshReadoutCommand(command, ticket);
                 command.DispatchComputeProfiled(readoutCompute,
                     _resetKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
                     _queryKernel, querySide * querySide * querySide, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
-                    _prepareKernel, 1, 1, 1);
-                command.DispatchComputeProfiled(readoutCompute,
-                    _buildKernel, _grid.M8FrameDispatchArgs);
+                    _prepareKernel, meshGroupsX, meshGroupsY, 1);
+                if (ticket.MeshReadout)
+                {
+                    command.DispatchComputeProfiled(readoutCompute,
+                        _projectMeshKernel, _grid.M8FrameDispatchArgs);
+                    command.DispatchComputeProfiled(readoutCompute,
+                        _buildMeshKernel, meshGroupsX, meshGroupsY, 1);
+                }
+                else
+                    command.DispatchComputeProfiled(readoutCompute,
+                        _buildKernel, _grid.M8FrameDispatchArgs);
                 command.DispatchComputeProfiled(readoutCompute,
                     _finalizeKernel, 1, 1, 1);
                 MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
@@ -402,6 +472,11 @@ namespace Genesis.RoomScan
                 if (timedSubmission)
                     MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
             }
+            catch (Exception exception)
+            {
+                Logger.Error("Merkaba readout submission failed: " +
+                    exception.Message);
+            }
             finally
             {
                 MerkabaGpuTimestamps.Complete(CaptureOwner.ReadoutBuild,
@@ -410,6 +485,7 @@ namespace Genesis.RoomScan
             }
             if (!submitted)
             {
+                ReleaseDepthLease(ticket);
                 _buildInFlight = false;
                 _pendingBuild = default;
                 _canonicalDirty = true;
@@ -432,6 +508,7 @@ namespace Genesis.RoomScan
             }
             catch (Exception exception)
             {
+                ReleaseDepthLease(ticket);
                 _buildInFlight = false;
                 _pendingBuild = default;
                 _canonicalDirty = true;
@@ -450,6 +527,7 @@ namespace Genesis.RoomScan
             bool succeeded = string.IsNullOrEmpty(error);
             if (!succeeded)
             {
+                ReleaseDepthLease(ticket);
                 _nativeReadoutJob.Dispose();
                 _nativeReadoutJob = null;
                 _nativeReadoutGpuComplete = false;
@@ -472,6 +550,7 @@ namespace Genesis.RoomScan
             }
             catch (Exception exception)
             {
+                ReleaseDepthLease(ticket);
                 nativeJob.Dispose();
                 if (ReferenceEquals(_nativeReadoutJob, nativeJob))
                     _nativeReadoutJob = null;
@@ -488,12 +567,21 @@ namespace Genesis.RoomScan
         private void SubmitNativeReadoutBuild(Camera camera,
             ReadoutBuildTicket ticket)
         {
-            if (MerkabaNativeVulkanExecutor.HasJobInFlight) return;
+            if (MerkabaNativeVulkanExecutor.HasJobInFlight)
+            {
+                ReleaseDepthLease(ticket);
+                return;
+            }
             MerkabaNativeUniformTable uniforms =
-                BuildNativeReadoutUniforms(camera, out int queryGroups);
+                BuildNativeReadoutUniforms(camera, ticket,
+                    out int queryGroups, out int depthGroupsX,
+                    out int depthGroupsY);
             var resources = new IntPtr[
                 MerkabaNativeVulkanExecutor.ResourceCount];
             _grid.FillNativeExecutorWorldResources(resources);
+            if (ticket.MeshReadout)
+                resources[(int)MerkabaNativeVulkanExecutor.Resource.RawDepth] =
+                    ticket.DepthLease.Texture.GetNativeTexturePtr();
             resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices0] =
                 _grid.GetM8ReadoutVertices0(ticket.Slot).GetNativeBufferPtr();
             resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices1] =
@@ -501,10 +589,16 @@ namespace Genesis.RoomScan
             resources[(int)MerkabaNativeVulkanExecutor.Resource.DrawArgs] =
                 _grid.GetM8DrawArgs(ticket.Slot).GetNativeBufferPtr();
             if (!MerkabaNativeVulkanExecutor.TryCreateJob(
-                    MerkabaNativeVulkanExecutor.JobKind.Readout,
-                    ticket.Revision, resources, uniforms, 0, 0, 0,
+                    ticket.MeshReadout
+                        ? MerkabaNativeVulkanExecutor.JobKind.MeshReadout
+                        : MerkabaNativeVulkanExecutor.JobKind.Readout,
+                    ticket.Revision, resources, uniforms, depthGroupsX,
+                    depthGroupsY, 0,
                     queryGroups, out var nativeJob))
+            {
+                ReleaseDepthLease(ticket);
                 return;
+            }
 
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba native readout submit");
@@ -540,6 +634,7 @@ namespace Genesis.RoomScan
                 }
                 nativeJob.CancelBeforeExecution();
                 nativeJob.Dispose();
+                ReleaseDepthLease(ticket);
                 _buildInFlight = false;
                 _pendingBuild = default;
                 _canonicalDirty = true;
@@ -551,7 +646,8 @@ namespace Genesis.RoomScan
         }
 
         private MerkabaNativeUniformTable BuildNativeReadoutUniforms(
-            Camera camera, out int queryGroups)
+            Camera camera, ReadoutBuildTicket ticket, out int queryGroups,
+            out int depthGroupsX, out int depthGroupsY)
         {
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
             Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
@@ -585,9 +681,108 @@ namespace Genesis.RoomScan
                 centerBlock.y, centerBlock.z);
             values.Int("_M8QueryBlockRadius", radius);
             values.Int("_M8QueryBlockSide", side);
+            values.UInt("_M8MeshReadoutEnabled",
+                ticket.MeshReadout ? 1u : 0u);
+            values.Matrix("_MerkabaGridToWorld", ticket.GridToWorld);
+            values.Matrix("_MerkabaWorldToGrid", ticket.GridToWorld.inverse);
+            if (ticket.MeshReadout)
+            {
+                RenderTexture depth = ticket.DepthLease.Texture;
+                depthGroupsX = Mathf.CeilToInt(depth.width / 8f);
+                depthGroupsY = Mathf.CeilToInt(depth.height / 8f);
+                values.UInt2("_M8MeshDepthSize", depth.width, depth.height);
+                AddMeshDepthUniforms(values, ticket.DepthLease);
+            }
+            else
+            {
+                depthGroupsX = 1;
+                depthGroupsY = 1;
+                values.UInt2("_M8MeshDepthSize", 1, 1);
+            }
             return values;
         }
 #endif
+
+        private void ConfigureMeshReadoutCommand(CommandBuffer command,
+            ReadoutBuildTicket ticket)
+        {
+            command.SetComputeIntParam(readoutCompute, MeshEnabledId,
+                ticket.MeshReadout ? 1 : 0);
+            command.SetComputeMatrixParam(readoutCompute, MeshGridToWorldId,
+                ticket.GridToWorld);
+            command.SetComputeMatrixParam(readoutCompute, MeshWorldToGridId,
+                ticket.GridToWorld.inverse);
+            if (!ticket.MeshReadout) return;
+            BindMeshPublication(command, _prepareKernel, ticket.Slot);
+            BindMeshPublication(command, _projectMeshKernel, ticket.Slot);
+            BindMeshPublication(command, _buildMeshKernel, ticket.Slot);
+            DepthCapture.ReadoutDepthLease lease = ticket.DepthLease;
+            command.SetComputeTextureParam(readoutCompute,
+                _projectMeshKernel, MeshDepthId, lease.Texture);
+            command.SetComputeTextureParam(readoutCompute,
+                _buildMeshKernel, MeshDepthId, lease.Texture);
+            command.SetComputeIntParams(readoutCompute, MeshDepthSizeId,
+                lease.Texture.width, lease.Texture.height);
+            SetMeshDepthMatrices(command, lease);
+        }
+
+        private void BindMeshPublication(CommandBuffer command, int kernel,
+            int slot)
+        {
+            command.SetComputeBufferParam(readoutCompute, kernel,
+                ReadoutVertices0Id, _grid.GetM8ReadoutVertices0(slot));
+            command.SetComputeBufferParam(readoutCompute, kernel,
+                ReadoutVertices1Id, _grid.GetM8ReadoutVertices1(slot));
+        }
+
+        private void SetMeshDepthMatrices(CommandBuffer command,
+            DepthCapture.ReadoutDepthLease lease)
+        {
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthProj0Id,
+                lease.Proj0);
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthProj1Id,
+                lease.Proj1);
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthProjInv0Id,
+                lease.ProjInv0);
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthProjInv1Id,
+                lease.ProjInv1);
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthView0Id,
+                lease.View0);
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthView1Id,
+                lease.View1);
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthViewInv0Id,
+                lease.ViewInv0);
+            command.SetComputeMatrixParam(readoutCompute, MeshDepthViewInv1Id,
+                lease.ViewInv1);
+        }
+
+        private static void AddMeshDepthUniforms(
+            MerkabaNativeUniformTable values,
+            DepthCapture.ReadoutDepthLease lease)
+        {
+            values.Matrix("_M8MeshDepthProj0", lease.Proj0);
+            values.Matrix("_M8MeshDepthProj1", lease.Proj1);
+            values.Matrix("_M8MeshDepthProjInv0", lease.ProjInv0);
+            values.Matrix("_M8MeshDepthProjInv1", lease.ProjInv1);
+            values.Matrix("_M8MeshDepthView0", lease.View0);
+            values.Matrix("_M8MeshDepthView1", lease.View1);
+            values.Matrix("_M8MeshDepthViewInv0", lease.ViewInv0);
+            values.Matrix("_M8MeshDepthViewInv1", lease.ViewInv1);
+        }
+
+        private void ReleaseDepthLease(ReadoutBuildTicket ticket)
+        {
+            if (ticket.MeshReadout)
+                _depthCapture?.ReleaseReadoutDepth(ticket.DepthLease);
+        }
+
+        private void ApplyReadoutModeState(int slot, bool mesh)
+        {
+            Material material = slot is >= 0 and < 2 ? _materials[slot] : null;
+            if (material == null) return;
+            if (mesh) material.EnableKeyword("M8_STEREO_MESH");
+            else material.DisableKeyword("M8_STEREO_MESH");
+        }
 
         private void CompleteNativeReadoutBuild(ReadoutBuildTicket ticket,
             MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob,
@@ -611,6 +806,7 @@ namespace Genesis.RoomScan
         private void CompleteReadoutBuild(ReadoutBuildTicket ticket,
             AsyncGPUReadbackRequest request)
         {
+            ReleaseDepthLease(ticket);
             if (this == null || ticket.LifecycleGeneration !=
                 _lifecycleGeneration)
                 return;

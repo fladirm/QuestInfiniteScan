@@ -193,6 +193,9 @@ namespace Genesis.RoomScan
         private int _requestedDepthSlot = -1;
         private int _readyDepthSlot = -1;
         private int _heldDepthSlot = -1;
+        private int _latestOwnedDepthSlot = -1;
+        private int _readoutDepthLeaseSlot = -1;
+        private int _readoutDepthLeaseVersion;
         private Texture _depthTex;
         /// <summary>The latest depth frame actually preprocessed for integration.</summary>
         public Texture DepthTex => _depthTex;
@@ -269,6 +272,43 @@ namespace Genesis.RoomScan
 
         /// <summary>Raised only after an integration consumer preprocesses the latest frame.</summary>
         public event Action Updated;
+
+        internal readonly struct ReadoutDepthLease
+        {
+            internal readonly int Slot;
+            internal readonly int Version;
+            internal readonly RenderTexture Texture;
+            internal readonly Matrix4x4 Proj0;
+            internal readonly Matrix4x4 Proj1;
+            internal readonly Matrix4x4 ProjInv0;
+            internal readonly Matrix4x4 ProjInv1;
+            internal readonly Matrix4x4 View0;
+            internal readonly Matrix4x4 View1;
+            internal readonly Matrix4x4 ViewInv0;
+            internal readonly Matrix4x4 ViewInv1;
+
+            internal ReadoutDepthLease(int slot, int version,
+                RenderTexture texture, Matrix4x4 proj0, Matrix4x4 proj1,
+                Matrix4x4 projInv0, Matrix4x4 projInv1,
+                Matrix4x4 view0, Matrix4x4 view1,
+                Matrix4x4 viewInv0, Matrix4x4 viewInv1)
+            {
+                Slot = slot;
+                Version = version;
+                Texture = texture;
+                Proj0 = proj0;
+                Proj1 = proj1;
+                ProjInv0 = projInv0;
+                ProjInv1 = projInv1;
+                View0 = view0;
+                View1 = view1;
+                ViewInv0 = viewInv0;
+                ViewInv1 = viewInv1;
+            }
+
+            internal bool IsValid => Slot >= 0 && Version != 0 &&
+                Texture != null;
+        }
 
         private static readonly Vector3 ScaleFlipZ = new(1, 1, -1);
 
@@ -452,11 +492,48 @@ namespace Genesis.RoomScan
         {
             if (!_captureActive || _depthFrameRequested) return false;
             if (_heldDepthSlot < 0 && _readyDepthSlot >= 0) return false;
-            _requestedDepthSlot = _heldDepthSlot >= 0
+            int preferred = _heldDepthSlot >= 0
                 ? 1 - _heldDepthSlot
-                : _readyDepthSlot >= 0 ? 1 - _readyDepthSlot : 0;
+                : _readyDepthSlot >= 0 ? 1 - _readyDepthSlot :
+                _latestOwnedDepthSlot >= 0 ? 1 - _latestOwnedDepthSlot : 0;
+            _requestedDepthSlot = IsDepthSlotWritable(preferred)
+                ? preferred : IsDepthSlotWritable(1 - preferred)
+                    ? 1 - preferred : -1;
+            if (_requestedDepthSlot < 0) return false;
             _depthFrameRequested = true;
             return true;
+        }
+
+        private bool IsDepthSlotWritable(int slot) => slot is >= 0 and < 2 &&
+            slot != _heldDepthSlot && slot != _readyDepthSlot &&
+            slot != _readoutDepthLeaseSlot;
+
+        internal bool TryAcquireReadoutDepth(out ReadoutDepthLease lease)
+        {
+            lease = default;
+            int slot = _latestOwnedDepthSlot;
+            if (_readoutDepthLeaseSlot >= 0 || slot < 0 ||
+                slot == _heldDepthSlot || _ownedRawDepth[slot] == null ||
+                _ownedVersions[slot] == 0)
+                return false;
+            _readoutDepthLeaseSlot = slot;
+            _readoutDepthLeaseVersion = _ownedVersions[slot];
+            lease = new ReadoutDepthLease(slot, _readoutDepthLeaseVersion,
+                _ownedRawDepth[slot], _ownedProj[slot, 0],
+                _ownedProj[slot, 1], _ownedProjInv[slot, 0],
+                _ownedProjInv[slot, 1], _ownedView[slot, 0],
+                _ownedView[slot, 1], _ownedViewInv[slot, 0],
+                _ownedViewInv[slot, 1]);
+            return true;
+        }
+
+        internal void ReleaseReadoutDepth(ReadoutDepthLease lease)
+        {
+            if (!lease.IsValid || lease.Slot != _readoutDepthLeaseSlot ||
+                lease.Version != _readoutDepthLeaseVersion)
+                return;
+            _readoutDepthLeaseSlot = -1;
+            _readoutDepthLeaseVersion = 0;
         }
 
         internal bool RequestFreshDepthFrame()
@@ -604,6 +681,9 @@ namespace Genesis.RoomScan
             _requestedDepthSlot = -1;
             _readyDepthSlot = -1;
             _heldDepthSlot = -1;
+            _latestOwnedDepthSlot = -1;
+            _readoutDepthLeaseSlot = -1;
+            _readoutDepthLeaseVersion = 0;
             _processedRawFrameVersion = _latestRawFrameVersion;
             Logger.Info("DepthCapture: GPU resources released");
         }
@@ -1029,6 +1109,7 @@ namespace Genesis.RoomScan
             _depthFrameRequested = false;
             _requestedDepthSlot = -1;
             _readyDepthSlot = slot;
+            _latestOwnedDepthSlot = slot;
             DepthAvailable = true;
             unchecked
             {

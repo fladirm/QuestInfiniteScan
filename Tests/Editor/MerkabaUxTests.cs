@@ -21,7 +21,8 @@ namespace Genesis.RoomScan.Tests
             foreach (string button in new[]
                      {
                          "btn-start", "btn-stop", "btn-save", "btn-load",
-                         "btn-new", "btn-export", "btn-readout", "btn-occlusion"
+                         "btn-new", "btn-export", "btn-readout", "btn-mesh",
+                         "btn-occlusion"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
@@ -42,6 +43,8 @@ namespace Genesis.RoomScan.Tests
                 "scanner.DynamicOcclusionEnabled ="));
             Assert.That(controller, Does.Contain(
                 "scanner.ReadoutDrawEnabled ="));
+            Assert.That(controller, Does.Contain(
+                "scanner.MeshReadoutEnabled ="));
             string scanner = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Core/RoomScanner.cs"));
             Assert.That(scanner, Does.Contain("integrationHz = 10f"));

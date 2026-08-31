@@ -109,7 +109,8 @@ namespace
     constexpr uint32_t kExecutorAbiVersion = 1;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kFineErasePipelineBegin = 38;
+    constexpr uint32_t kMeshReadoutPipelineBegin = 38;
+    constexpr uint32_t kFineErasePipelineBegin = 44;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
 
@@ -118,7 +119,8 @@ namespace
         kJobObservationNew = 0,
         kJobObservationRetry = 1,
         kJobReadout = 2,
-        kJobFineErase = 3,
+        kJobMeshReadout = 3,
+        kJobFineErase = 4,
     };
 
     struct MerkabaUniformValue
@@ -677,6 +679,12 @@ namespace
         if (kind == kJobReadout)
         {
             *first = kReadoutPipelineBegin;
+            *last = kMeshReadoutPipelineBegin;
+            return true;
+        }
+        if (kind == kJobMeshReadout)
+        {
+            *first = kMeshReadoutPipelineBegin;
             *last = kFineErasePipelineBegin;
             return true;
         }
@@ -1782,8 +1790,13 @@ extern "C"
         if (descriptor->kind == kJobObservationRetry &&
             descriptor->queryGroups == 0)
             return nullptr;
-        if (descriptor->kind == kJobReadout &&
+        if ((descriptor->kind == kJobReadout ||
+             descriptor->kind == kJobMeshReadout) &&
             descriptor->readoutQueryGroups == 0)
+            return nullptr;
+        if (descriptor->kind == kJobMeshReadout &&
+            (descriptor->depthGroupsX == 0 ||
+             descriptor->depthGroupsY == 0))
             return nullptr;
         if (descriptor->kind == kJobFineErase &&
             descriptor->queryGroups == 0)

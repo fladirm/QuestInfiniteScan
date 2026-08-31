@@ -134,6 +134,14 @@ namespace Genesis.RoomScan
                 if (_renderer != null) _renderer.ReadoutDrawEnabled = value;
             }
         }
+        public bool MeshReadoutEnabled
+        {
+            get => _renderer != null && _renderer.MeshReadoutEnabled;
+            set
+            {
+                if (_renderer != null) _renderer.MeshReadoutEnabled = value;
+            }
+        }
         public bool DynamicOcclusionEnabled
         {
             get => _depthCapture == null ||
@@ -730,7 +738,8 @@ namespace Genesis.RoomScan
         private void OnIntegrated()
         {
             if (_integrator != null &&
-                _integrator.LastObservationChangedReadout)
+                (_integrator.LastObservationChangedReadout ||
+                 (_renderer?.MeshReadoutEnabled ?? false)))
                 _renderer?.MarkCanonicalReadoutDirty();
             Integrated?.Invoke();
         }

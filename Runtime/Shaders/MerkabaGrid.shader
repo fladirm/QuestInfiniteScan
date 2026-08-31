@@ -29,6 +29,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma multi_compile_instancing
             #pragma multi_compile _ XR_LINEAR_DEPTH
             #pragma multi_compile _ XR_HARD_OCCLUSION
+            #pragma shader_feature_local_vertex _ M8_STEREO_MESH
             #pragma shader_feature_local_fragment _ M8_FINE_PREVIEW
             #pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION
 
@@ -111,11 +112,17 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
                 MerkabaReadoutVertex vertex;
+#if defined(M8_STEREO_MESH)
+                vertex = unity_StereoEyeIndex == 0
+                    ? _M8ReadoutVertices0[input.vertexID]
+                    : _M8ReadoutVertices1[input.vertexID];
+#else
                 if (input.vertexID < 6291456u)
                     vertex = _M8ReadoutVertices0[input.vertexID];
                 else
                     vertex = _M8ReadoutVertices1[
                         input.vertexID - 6291456u];
+#endif
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(vertex.gridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);

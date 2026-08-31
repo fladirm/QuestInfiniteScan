@@ -57,6 +57,7 @@ namespace Genesis.RoomScan.Tests
                      {
                          "ResetReadoutBuild", "QueryM8Readout",
                          "PrepareReadoutBuild", "BuildReadoutVertices",
+                         "ProjectReadoutMeshPins", "BuildReadoutMesh",
                          "FinalizeReadout"
                      })
                 Assert.DoesNotThrow(() => frame.FindKernel(kernel), kernel);
@@ -896,6 +897,52 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void StereoDepthMesh_IsDisposableAndLegacyReadoutRemainsSelectable()
+        {
+            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string depth = Source("Runtime/Core/DepthCapture.cs");
+            string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
+            string native = Source(
+                "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp");
+
+            Assert.That(renderer, Does.Contain("MeshReadoutEnabled"));
+            Assert.That(renderer, Does.Contain("JobKind.MeshReadout"));
+            Assert.That(renderer, Does.Contain("JobKind.Readout"));
+            Assert.That(renderer, Does.Contain("ReleaseDepthLease(ticket)"));
+            Assert.That(depth, Does.Contain("TryAcquireReadoutDepth"));
+            Assert.That(depth, Does.Contain("_readoutDepthLeaseSlot"));
+            Assert.That(readout, Does.Contain(
+                "void ProjectReadoutMeshPins"));
+            Assert.That(readout, Does.Contain("void BuildReadoutMesh"));
+            Assert.That(readout, Does.Contain(
+                "abs(planeDistance - rawDistance) > MERKABA_HALF_SUPPORT"));
+            Assert.That(readout, Does.Contain(
+                "uint errorRank = min(126u"));
+            Assert.That(readout, Does.Contain(
+                "M8_MESH_MAX_EDGE_LENGTH 0.150"));
+            Assert.That(readout, Does.Contain("M8MeshInsideEnvelope"));
+            Assert.That(readout, Does.Not.Contain("M8MeshJumpFlood"));
+            string project = Slice(readout,
+                "void ProjectReadoutMeshPins", "struct M8MeshVertex");
+            string build = Slice(readout, "void BuildReadoutMesh",
+                "void FinalizeReadout");
+            Assert.That(Regex.Matches(project, @"\[loop\]"),
+                Has.Count.EqualTo(1));
+            Assert.That(build, Does.Not.Contain("[loop]"));
+            Assert.That(build, Does.Not.Contain("for ("));
+            Assert.That(build, Does.Not.Contain("while ("));
+            Assert.That(shader, Does.Contain("M8_STEREO_MESH"));
+            Assert.That(shader, Does.Contain(
+                "unity_StereoEyeIndex == 0"));
+            Assert.That(native, Does.Contain("kJobMeshReadout"));
+            Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
+                Is.EqualTo(44));
+            Assert.That(MerkabaNativeVulkanExecutor.PipelineCount,
+                Is.EqualTo(49));
+        }
+
+        [Test]
         public void ReadoutPublication_BuildsDisposableBackOnceAndPublishesOnlyComplete()
         {
             string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
@@ -1061,8 +1108,12 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaM8KernelPlaneChildMask"));
             Assert.That(frame, Does.Contain(
                 "MerkabaM8GridDistanceChildMask"));
-            Assert.That(frame, Does.Not.Contain("_MerkabaGridToWorld"));
-            Assert.That(frame, Does.Not.Contain("_MerkabaWorldToGrid"));
+            string readoutQuery = Slice(frame, "void QueryM8Readout",
+                "void PrepareReadoutBuild");
+            Assert.That(readoutQuery, Does.Not.Contain(
+                "_MerkabaGridToWorld"));
+            Assert.That(readoutQuery, Does.Not.Contain(
+                "_MerkabaWorldToGrid"));
             Assert.That(frame, Does.Not.Contain("MerkabaM8PlaneChildMask"));
             Assert.That(Source("Runtime/Merkaba/MerkabaGridRenderer.cs"),
                 Does.Not.Contain("MerkabaReadoutCoverage.WorldToKernelPlane"));
@@ -1406,7 +1457,7 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(49));
+                RegexOptions.Multiline), Has.Count.EqualTo(51));
 
             string[] serial = Regex.Matches(all,
                     @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
@@ -1423,7 +1474,6 @@ namespace Genesis.RoomScan.Tests
                 "PrepareFineEraseArgs",
                 "PrepareIntegrateArgs",
                 "PrepareNewTileDispatchArgs",
-                "PrepareReadoutBuild",
                 "PrepareResolveArgs",
                 "ResetClaimQueueCounts",
                 "ResetFineErase",
@@ -1553,7 +1603,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 55"));
+            Assert.That(audit, Does.Contain("kernel_count != 57"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));

@@ -55,6 +55,8 @@
         <ui:VisualElement class="display-toggle-row">
             <ui:Button name="btn-readout" text="READOUT  ON"
                 class="display-toggle display-toggle--first" />
+            <ui:Button name="btn-mesh" text="MESH  OFF"
+                class="display-toggle" />
             <ui:Button name="btn-occlusion" text="OCCLUSION  ON"
                 class="display-toggle" />
         </ui:VisualElement>
