@@ -735,10 +735,9 @@ namespace Genesis.RoomScan
                 Material material = _materials[slot];
                 if (material == null) continue;
                 material.SetFloat(ScanOpacityId, scanOpacity);
-                material.SetInt(SrcBlendId, (int)(opaque
-                    ? BlendMode.One : BlendMode.SrcAlpha));
-                material.SetInt(DstBlendId, (int)(opaque
-                    ? BlendMode.Zero : BlendMode.OneMinusSrcAlpha));
+                material.SetInt(SrcBlendId, (int)BlendMode.One);
+                material.SetInt(DstBlendId,
+                    (int)BlendMode.OneMinusSrcAlpha);
                 material.SetInt(ZWriteId, 1);
                 material.renderQueue = opaque
                     ? (int)RenderQueue.Geometry :

@@ -217,6 +217,7 @@ namespace Genesis.RoomScan
         private uint _fineSurfaceTargetGeneration = 1u;
 
         private AROcclusionManager _arOcclusionManager;
+        private ARShaderOcclusion _shaderOcclusion;
         private Camera _mainCam;
         private int _frameCount;
         private int _preprocessedFrameCount;
@@ -307,8 +308,25 @@ namespace Genesis.RoomScan
 
             // Disable occlusion manager initially, enable after permission is confirmed
             _arOcclusionManager.enabled = false;
+            EnsureDynamicOcclusion();
             CheckPermissionAndEnable();
 
+        }
+
+        private void EnsureDynamicOcclusion()
+        {
+            ARShaderOcclusion[] components =
+                _arOcclusionManager.GetComponents<ARShaderOcclusion>();
+            if (components.Length > 1)
+                throw new Exception("[RoomScan] Multiple ARShaderOcclusion components found");
+            _shaderOcclusion = components.Length == 1
+                ? components[0]
+                : _arOcclusionManager.gameObject.AddComponent<ARShaderOcclusion>();
+            _shaderOcclusion.occlusionShaderMode =
+                AROcclusionShaderMode.HardOcclusion;
+            _shaderOcclusion.enabled = true;
+            Logger.Info("DepthCapture: dynamic passthrough occlusion enabled " +
+                "(AR Foundation hard mode, shared environment depth)");
         }
 
         private void EnsureARSession()
@@ -350,6 +368,7 @@ namespace Genesis.RoomScan
             Logger.Info("Verifying AROcclusionManager subsystem...");
 
             _arOcclusionManager.frameReceived -= OnDepthFrame;
+            _subscribed = false;
             _arOcclusionManager.enabled = false;
 
             await Awaitable.NextFrameAsync();
@@ -377,8 +396,8 @@ namespace Genesis.RoomScan
             }
             else
             {
-                _arOcclusionManager.enabled = false;
-                Logger.Info("DepthCapture: subsystem disabled (no active scan)");
+                Logger.Info("DepthCapture: scanner consumer idle; environment " +
+                    "depth remains active for passthrough occlusion");
             }
         }
 
@@ -500,8 +519,6 @@ namespace Genesis.RoomScan
 
         internal void CompleteDepthCaptureStop()
         {
-            if (_arOcclusionManager != null)
-                _arOcclusionManager.enabled = false;
             DepthAvailable = false;
             _depthFrameRequested = false;
             _requestedDepthSlot = -1;
@@ -510,6 +527,8 @@ namespace Genesis.RoomScan
             _depthTex = null;
             _processedRawFrameVersion = _latestRawFrameVersion;
             _depthClock.Reset();
+            Logger.Info("DepthCapture: scan stopped; dynamic passthrough " +
+                "occlusion remains active");
         }
 
         private void OnDestroy()

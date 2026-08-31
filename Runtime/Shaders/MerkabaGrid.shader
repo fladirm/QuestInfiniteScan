@@ -4,7 +4,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
     {
         _ScanOpacity("Scan Opacity", Range(0,1)) = 1
         [HideInInspector] _SrcBlend("Source Blend", Float) = 1
-        [HideInInspector] _DstBlend("Destination Blend", Float) = 0
+        [HideInInspector] _DstBlend("Destination Blend", Float) = 10
         [HideInInspector] _ZWrite("Depth Write", Float) = 1
     }
     SubShader
@@ -18,7 +18,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             // second UNKNOWN-side surface. Both physical sides of that one
             // sheet therefore use the same disposable vertex stream.
             Cull Off
-            Blend [_SrcBlend] [_DstBlend]
+            Blend [_SrcBlend] [_DstBlend], One OneMinusSrcAlpha
             ZWrite [_ZWrite]
             ZTest LEqual
 
@@ -27,8 +27,45 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma multi_compile_instancing
+            #pragma multi_compile _ XR_LINEAR_DEPTH
+            #pragma multi_compile _ XR_HARD_OCCLUSION
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.xr.arfoundation/Assets/Shaders/Utils.hlsl"
+            TEXTURE2D_ARRAY_FLOAT(_EnvironmentDepthTexture);
+            SAMPLER(sampler_EnvironmentDepthTexture);
+            float4x4 _EnvironmentDepthProjectionMatrices[2];
+            int _IsOcclusionOn;
+
+            float M8EnvironmentVisibility(float3 worldPosition)
+            {
+#if defined(XR_HARD_OCCLUSION)
+                if (_IsOcclusionOn == 0)
+                    return 1.0;
+                float4 depthPosition = mul(
+                    _EnvironmentDepthProjectionMatrices[unity_StereoEyeIndex],
+                    float4(worldPosition, 1.0));
+                float2 uv = (depthPosition.xy / depthPosition.w + 1.0) * 0.5;
+                if (all(uv < 0.0) || all(uv > 1.0))
+                    return 1.0;
+                float environmentDepth = SAMPLE_TEXTURE2D_ARRAY(
+                    _EnvironmentDepthTexture, sampler_EnvironmentDepthTexture,
+                    uv, unity_StereoEyeIndex).r;
+#if defined(XR_LINEAR_DEPTH)
+                float linearEnvironmentDepth = environmentDepth;
+#else
+                float linearEnvironmentDepth = LinearizeDepth(
+                    ConvertDepthToSymmetricRange(environmentDepth));
+#endif
+                float linearSceneDepth = LinearizeDepth(
+                    depthPosition.z / depthPosition.w);
+                return linearEnvironmentDepth > linearSceneDepth
+                    ? 1.0 : 0.0;
+#else
+                return 1.0;
+#endif
+            }
+
             struct MerkabaReadoutVertex
             {
                 float3 gridPosition;
@@ -90,6 +127,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             half4 Frag(Varyings input) : SV_Target
             {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 half3 color = input.hasRgb != 0u
                     ? input.color : half3(0.55h, 0.16h, 0.42h);
                 if (_FineBrushParams.x > 0.5)
@@ -105,7 +143,9 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                         color = lerp(color, _FinePreviewColor.rgb,
                             _FinePreviewColor.a);
                 }
-                return half4(color, _ScanOpacity);
+                half alpha = _ScanOpacity *
+                    M8EnvironmentVisibility(input.worldPosition);
+                return half4(color * alpha, alpha);
             }
             ENDHLSL
         }

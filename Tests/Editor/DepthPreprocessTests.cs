@@ -426,7 +426,12 @@ namespace Genesis.RoomScan.Tests
             string complete = Slice(depth, "internal void CompleteDepthCaptureStop()",
                 "private void OnDestroy()");
             Assert.That(begin, Does.Not.Contain("_arOcclusionManager.enabled = false"));
-            Assert.That(complete, Does.Contain("_arOcclusionManager.enabled = false"));
+            Assert.That(complete, Does.Not.Contain("_arOcclusionManager.enabled = false"));
+            Assert.That(depth, Does.Contain("EnsureDynamicOcclusion();"));
+            Assert.That(depth, Does.Contain(
+                "AROcclusionShaderMode.HardOcclusion"));
+            Assert.That(depth, Does.Contain(
+                "_arOcclusionManager.gameObject.AddComponent<ARShaderOcclusion>()"));
             Assert.That(depth, Does.Not.Contain("WaitForCompletion"));
             Assert.That(depth, Does.Not.Contain("Thread.Sleep"));
             Assert.That(depth, Does.Not.Contain("Task.Delay"));

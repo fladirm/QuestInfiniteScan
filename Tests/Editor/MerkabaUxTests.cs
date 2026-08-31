@@ -62,10 +62,19 @@ namespace Genesis.RoomScan.Tests
             Assert.That(material.HasProperty("_ScanOpacity"), Is.True);
             Object.DestroyImmediate(material);
             string source = File.ReadAllText(Path.GetFullPath(assetPath));
-            Assert.That(source, Does.Contain("Blend [_SrcBlend] [_DstBlend]"));
-            Assert.That(source, Does.Contain("_ScanOpacity)"));
             Assert.That(source, Does.Contain(
-                "return half4(color, _ScanOpacity);"));
+                "Blend [_SrcBlend] [_DstBlend], One OneMinusSrcAlpha"));
+            Assert.That(source, Does.Contain("_ScanOpacity *"));
+            Assert.That(source, Does.Contain(
+                "half alpha = _ScanOpacity *"));
+            Assert.That(source, Does.Contain(
+                "#pragma multi_compile _ XR_HARD_OCCLUSION"));
+            Assert.That(source, Does.Contain(
+                "Packages/com.unity.xr.arfoundation/Assets/Shaders/Utils.hlsl"));
+            Assert.That(source, Does.Contain(
+                "UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);"));
+            Assert.That(source, Does.Contain(
+                "M8EnvironmentVisibility(input.worldPosition)"));
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));
