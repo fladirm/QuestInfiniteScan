@@ -203,6 +203,14 @@ namespace Genesis.RoomScan
             return result;
         });
 
+        internal MerkabaTileAddress[] SnapshotSortedAddresses()
+        {
+            List<MerkabaTileAddress> addresses;
+            lock (_gate) addresses = new List<MerkabaTileAddress>(_index.Keys);
+            addresses.Sort();
+            return addresses.ToArray();
+        }
+
         internal Task<MerkabaSessionSnapshot> ReadCanonicalSnapshotAsync(
             Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount,
             IProgress<OperationWorkProgress> progress = null) =>

@@ -606,6 +606,19 @@ namespace Genesis.RoomScan
                 anchorAtSave, integrationCount, progress);
         }
 
+        internal MerkabaTileAddress[] CaptureStoredTileIndex()
+        {
+            EnsureStorage();
+            return _ssdStore.SnapshotSortedAddresses();
+        }
+
+        internal Task<MerkabaTileSnapshot[]> ReadStoredTilesAsync(
+            IReadOnlyList<MerkabaTileAddress> addresses)
+        {
+            EnsureStorage();
+            return _ssdStore.ReadAsync(addresses);
+        }
+
         internal async Task PublishCheckpointAsync(MerkabaSessionSnapshot snapshot,
             IProgress<OperationWorkProgress> progress = null)
         {

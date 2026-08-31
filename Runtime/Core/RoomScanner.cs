@@ -428,6 +428,30 @@ namespace Genesis.RoomScan
             }
         }
 
+        public async Task<bool> ExportViewerPackageAsync()
+        {
+            if (IsBusy) return false;
+            if (!TryBeginOperation(ScanOperationKind.ExportGlb,
+                    ScanOperationStage.SynchronizingScan,
+                    "Retiring current scan observation")) return false;
+            bool success = false;
+            try
+            {
+                if (!await QuiesceScanningAsync()) return false;
+                ReportOperation(ScanOperationKind.ExportGlb,
+                    ScanOperationStage.SynchronizingScan, 1L, 1L,
+                    "Scan synchronized");
+                success = _exporter != null &&
+                    await _exporter.ExportViewerPackageAsync();
+                return success;
+            }
+            finally
+            {
+                FinishOperation(ScanOperationKind.ExportGlb, success,
+                    _exporter?.LastStatus ?? "Export unavailable");
+            }
+        }
+
         public async void ClearAllDataAsync(Action onComplete = null)
         {
             await NewClearAsync();

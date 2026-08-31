@@ -97,6 +97,10 @@
             <ui:Button name="btn-export" text="EXPORT GLB"
                 class="action-btn action-btn--last" />
         </ui:VisualElement>
+        <ui:VisualElement class="button-row button-row--second">
+            <ui:Button name="btn-export-tiles" text="EXPORT 3D TILES"
+                class="action-btn action-btn--primary action-btn--last" />
+        </ui:VisualElement>
 
         <ui:Label text="Left thumbstick: menu · FINE: right index refine / right grip erase"
             class="control-hint" />

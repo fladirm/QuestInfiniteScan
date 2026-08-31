@@ -14,14 +14,18 @@ namespace Genesis.RoomScan
         public readonly int VertexCount;
         public readonly int IndexCount;
         public readonly int PrimitiveCount;
+        public readonly Vector3 Minimum;
+        public readonly Vector3 Maximum;
 
         public MerkabaGlbResult(long byteLength, int vertexCount, int indexCount,
-            int primitiveCount)
+            int primitiveCount, Vector3 minimum, Vector3 maximum)
         {
             ByteLength = byteLength;
             VertexCount = vertexCount;
             IndexCount = indexCount;
             PrimitiveCount = primitiveCount;
+            Minimum = minimum;
+            Maximum = maximum;
         }
     }
 
@@ -61,6 +65,11 @@ namespace Genesis.RoomScan
 
         internal static MerkabaGlbResult Write(Stream destination,
             MerkabaExportMembraneResult membrane,
+            IProgress<OperationWorkProgress> progress = null) =>
+            Write(destination, membrane, float3.zero, progress);
+
+        internal static MerkabaGlbResult Write(Stream destination,
+            MerkabaExportMembraneResult membrane, float3 localOrigin,
             IProgress<OperationWorkProgress> progress = null)
         {
             if (destination == null || !destination.CanWrite)
@@ -70,7 +79,7 @@ namespace Genesis.RoomScan
             if (membrane.Patches.Count == 0 && membrane.LegacyKernels.Count == 0)
                 throw new InvalidDataException("GLB membrane is empty.");
 
-            GeometryPlan plan = Plan(membrane, progress);
+            GeometryPlan plan = Plan(membrane, localOrigin, progress);
             long positionsOffset = 0;
             long positionsLength = checked((long)plan.VertexCount * 12);
             long normalsOffset = positionsOffset + positionsLength;
@@ -113,7 +122,8 @@ namespace Genesis.RoomScan
                 binaryHeaderBytes, totalLength, "Wrote GLB header");
 
             long passBytes = 0;
-            VisitVertices(membrane, plan.Occupied, (position, _, _) =>
+            VisitVertices(membrane, plan.Occupied, localOrigin,
+                (position, _, _) =>
             {
                 Vector3 value = Convert(position);
                 writer.Write(value.x);
@@ -125,7 +135,8 @@ namespace Genesis.RoomScan
                 "Writing POSITION data"));
 
             passBytes = 0;
-            VisitVertices(membrane, plan.Occupied, (_, normal, _) =>
+            VisitVertices(membrane, plan.Occupied, localOrigin,
+                (_, normal, _) =>
             {
                 Vector3 value = Convert(normal).normalized;
                 writer.Write(value.x);
@@ -137,7 +148,8 @@ namespace Genesis.RoomScan
                 plan.VertexCount, "Writing NORMAL data"));
 
             passBytes = 0;
-            VisitVertices(membrane, plan.Occupied, (_, _, packedColor) =>
+            VisitVertices(membrane, plan.Occupied, localOrigin,
+                (_, _, packedColor) =>
             {
                 Color32 color = KernelState.UnpackColor(packedColor);
                 writer.Write(color.r);
@@ -160,7 +172,8 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException(
                     $"GLB length mismatch: {written} != {totalLength}.");
             return new MerkabaGlbResult(written, plan.VertexCount,
-                plan.IndexCount, plan.PrimitiveCount);
+                plan.IndexCount, plan.PrimitiveCount, plan.Minimum,
+                plan.Maximum);
         }
 
         internal static int CheckedIndexCountForPrimitiveCount(long primitiveCount)
@@ -184,7 +197,7 @@ namespace Genesis.RoomScan
         }
 
         private static GeometryPlan Plan(MerkabaExportMembraneResult membrane,
-            IProgress<OperationWorkProgress> progress)
+            float3 localOrigin, IProgress<OperationWorkProgress> progress)
         {
             var occupied = new HashSet<int3>(
                 membrane.CanonicalOccupiedCoordinates);
@@ -204,7 +217,7 @@ namespace Genesis.RoomScan
             Vector3 maximum = new(float.NegativeInfinity, float.NegativeInfinity,
                 float.NegativeInfinity);
             int visited = 0;
-            VisitVertices(membrane, occupied, (position, _, _) =>
+            VisitVertices(membrane, occupied, localOrigin, (position, _, _) =>
             {
                 Vector3 value = Convert(position);
                 minimum = Vector3.Min(minimum, value);
@@ -225,14 +238,16 @@ namespace Genesis.RoomScan
         }
 
         private static void VisitVertices(MerkabaExportMembraneResult membrane,
-            HashSet<int3> occupied, Action<float3, float3, uint> visitor,
+            HashSet<int3> occupied, float3 localOrigin,
+            Action<float3, float3, uint> visitor,
             Action<int> progress)
         {
             int completed = 0;
             foreach (MerkabaExportMembranePatch patch in membrane.Patches)
             for (int corner = 0; corner < 4; corner++)
             {
-                visitor(patch.Corner(corner), patch.Normal, patch.PackedColor);
+                visitor(patch.Corner(corner) - localOrigin, patch.Normal,
+                    patch.PackedColor);
                 progress?.Invoke(++completed);
             }
             foreach (MerkabaKernelSnapshot kernel in membrane.LegacyKernels)
@@ -243,8 +258,8 @@ namespace Genesis.RoomScan
             {
                 MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId, corner,
                     out float3 local, out float3 normal);
-                visitor(MerkabaConstants.WorldCenter(kernel.Coord) + local,
-                    normal, kernel.State.PackedColor);
+                visitor(MerkabaConstants.WorldCenter(kernel.Coord) + local -
+                    localOrigin, normal, kernel.State.PackedColor);
                 progress?.Invoke(++completed);
             }
         }

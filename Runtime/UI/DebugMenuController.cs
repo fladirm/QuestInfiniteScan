@@ -13,7 +13,8 @@ namespace Genesis.RoomScan.UI
         private DebugMenuFollower _follower;
         private VisualElement _root;
         private VisualElement _boundRoot;
-        private Button _start, _stop, _save, _load, _new, _export, _fine;
+        private Button _start, _stop, _save, _load, _new, _export,
+            _exportTiles, _fine;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps;
         private Slider _opacity;
@@ -88,6 +89,7 @@ namespace Genesis.RoomScan.UI
             _load = _root.Q<Button>("btn-load");
             _new = _root.Q<Button>("btn-new");
             _export = _root.Q<Button>("btn-export");
+            _exportTiles = _root.Q<Button>("btn-export-tiles");
             _fine = _root.Q<Button>("btn-fine");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
@@ -118,6 +120,8 @@ namespace Genesis.RoomScan.UI
             _load?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.LoadAsync());
             _new?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.NewClearAsync());
             _export?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.ExportGlbAsync());
+            _exportTiles?.RegisterCallback<ClickEvent>(evt =>
+                _ = RoomScanner.Instance?.ExportViewerPackageAsync());
             _fine?.RegisterCallback<ClickEvent>(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
@@ -192,6 +196,9 @@ namespace Genesis.RoomScan.UI
             if (_export != null) _export.text = operation.Busy &&
                 operation.Kind == ScanOperationKind.ExportGlb
                 ? "EXPORTING…" : "EXPORT GLB";
+            if (_exportTiles != null) _exportTiles.text = operation.Busy &&
+                operation.Kind == ScanOperationKind.ExportGlb
+                ? "EXPORTING…" : "EXPORT 3D TILES";
 
             bool busy = scanner.IsBusy;
             _start?.SetEnabled(!busy && !scanner.IsScanning && !scanner.IsScanStarting);
@@ -200,6 +207,7 @@ namespace Genesis.RoomScan.UI
             _load?.SetEnabled(!busy && scanner.SavedSessionExists);
             _new?.SetEnabled(!busy);
             _export?.SetEnabled(!busy);
+            _exportTiles?.SetEnabled(!busy);
             _fine?.SetEnabled(!busy);
         }
 
