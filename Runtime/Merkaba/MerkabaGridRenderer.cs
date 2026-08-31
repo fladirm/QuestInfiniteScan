@@ -61,6 +61,8 @@ namespace Genesis.RoomScan
         private uint _buildResidencyEpoch;
         private Vector3 _publishedGridPosition;
         private Matrix4x4 _publishedGridToWorld;
+        private FineBrushDescriptor _finePreviewDescriptor;
+        private Color _finePreviewColor;
 
         private readonly struct ReadoutBuildTicket
         {
@@ -119,6 +121,14 @@ namespace Genesis.RoomScan
         private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
         private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
         private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
+        private static readonly int FineEyeOriginId =
+            Shader.PropertyToID("_FineEyeOrigin");
+        private static readonly int FineBrushAxisId =
+            Shader.PropertyToID("_FineBrushAxis");
+        private static readonly int FineBrushParamsId =
+            Shader.PropertyToID("_FineBrushParams");
+        private static readonly int FinePreviewColorId =
+            Shader.PropertyToID("_FinePreviewColor");
 
         private void Awake()
         {
@@ -152,6 +162,14 @@ namespace Genesis.RoomScan
                 _sourceGeneration++;
                 if (_sourceGeneration == 0u) _sourceGeneration = 1u;
             }
+        }
+
+        internal void SetFineSurfacePreview(FineBrushDescriptor descriptor,
+            Color color)
+        {
+            _finePreviewDescriptor = descriptor;
+            _finePreviewColor = color;
+            ApplyFinePreviewState();
         }
 
         internal void SuspendGpuSubmission()
@@ -286,6 +304,7 @@ namespace Genesis.RoomScan
                     _grid.GetM8ReadoutVertices1(slot));
             }
             ApplyOpacityState();
+            ApplyFinePreviewState();
             _initialized = true;
             return true;
         }
@@ -724,6 +743,29 @@ namespace Genesis.RoomScan
                 material.renderQueue = opaque
                     ? (int)RenderQueue.Geometry :
                     (int)RenderQueue.Transparent;
+            }
+        }
+
+        private void ApplyFinePreviewState()
+        {
+            bool active = _finePreviewDescriptor.IsActive;
+            Color tint = _finePreviewColor;
+            tint.a = 0.5f;
+            Vector4 parameters = active
+                ? new Vector4(1f,
+                    _finePreviewDescriptor.CosHalfAngleSquared,
+                    _finePreviewDescriptor.ToolDepthSquared, 0f)
+                : Vector4.zero;
+            for (int slot = 0; slot < 2; slot++)
+            {
+                Material material = _materials[slot];
+                if (material == null) continue;
+                material.SetVector(FineEyeOriginId,
+                    _finePreviewDescriptor.EyeOrigin);
+                material.SetVector(FineBrushAxisId,
+                    _finePreviewDescriptor.Axis);
+                material.SetVector(FineBrushParamsId, parameters);
+                material.SetColor(FinePreviewColorId, tint);
             }
         }
 

@@ -41,6 +41,10 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             CBUFFER_START(UnityPerMaterial)
                 half _ScanOpacity;
+                float4 _FineEyeOrigin;
+                float4 _FineBrushAxis;
+                float4 _FineBrushParams;
+                half4 _FinePreviewColor;
             CBUFFER_END
 
             struct Attributes
@@ -58,6 +62,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 float4 positionCS : SV_POSITION;
                 half3 color : TEXCOORD0;
                 nointerpolation uint hasRgb : TEXCOORD1;
+                float3 worldPosition : TEXCOORD2;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -75,6 +80,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(vertex.gridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);
+                output.worldPosition = worldPosition;
                 uint rgb = vertex.packedColor & 0x00ffffffu;
                 output.color = half3(rgb & 255u, (rgb >> 8u) & 255u,
                     (rgb >> 16u) & 255u) / 255.0h;
@@ -86,6 +92,19 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             {
                 half3 color = input.hasRgb != 0u
                     ? input.color : half3(0.55h, 0.16h, 0.42h);
+                if (_FineBrushParams.x > 0.5)
+                {
+                    float3 relative = input.worldPosition -
+                        _FineEyeOrigin.xyz;
+                    float distanceSquared = dot(relative, relative);
+                    float axial = dot(relative, _FineBrushAxis.xyz);
+                    bool inside = distanceSquared <= _FineBrushParams.z &&
+                        axial >= 0.0 && axial * axial >=
+                        distanceSquared * _FineBrushParams.y;
+                    if (inside)
+                        color = lerp(color, _FinePreviewColor.rgb,
+                            _FinePreviewColor.a);
+                }
                 return half4(color, _ScanOpacity);
             }
             ENDHLSL

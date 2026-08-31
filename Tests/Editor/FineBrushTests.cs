@@ -40,6 +40,32 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void PreviewProjectsTheExactBrushOntoTheReadoutSurface()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string renderer = Source(
+                "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
+            string controller = Source(
+                "Runtime/UI/ControllerRayDriver.cs");
+
+            Assert.That(scanner, Does.Contain("SetFineSurfacePreview("));
+            Assert.That(renderer, Does.Contain(
+                "_finePreviewDescriptor.CosHalfAngleSquared"));
+            Assert.That(renderer, Does.Contain(
+                "_finePreviewDescriptor.ToolDepthSquared"));
+            Assert.That(shader, Does.Contain(
+                "input.worldPosition -\n                        _FineEyeOrigin.xyz"));
+            Assert.That(shader, Does.Contain(
+                "axial * axial >=\n                        distanceSquared * _FineBrushParams.y"));
+            Assert.That(shader, Does.Contain(
+                "distanceSquared <= _FineBrushParams.z"));
+            Assert.That(controller, Does.Not.Contain("capRings"));
+            Assert.That(controller, Does.Contain(
+                "cursorTint.a = Mathf.Max(0.55f, color.a) * 0.5f"));
+        }
+
+        [Test]
         public void FineRefineIsAnEndOfJointSolveMaskAndNotAnotherScanner()
         {
             string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");

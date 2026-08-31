@@ -110,13 +110,22 @@ namespace Genesis.RoomScan.UI
             return direction.sqrMagnitude > 0.99f;
         }
 
+        internal Color GetFineBrushPreviewColor(FineBrushOperation operation) =>
+            operation switch
+            {
+                FineBrushOperation.Refine => fineRefineColor,
+                FineBrushOperation.Erase => fineEraseColor,
+                _ => fineIdleColor
+            };
+
         internal void SetFineBrushPreview(FineBrushDescriptor descriptor,
-            FineBrushOperation operation)
+            FineBrushOperation operation, bool cursorOnSurface = false)
         {
             bool visible = descriptor.IsActive && _fineCone != null &&
                 _fineCursor != null;
             if (_fineCone != null) _fineCone.SetActive(visible);
-            if (_fineCursor != null) _fineCursor.SetActive(visible);
+            if (_fineCursor != null)
+                _fineCursor.SetActive(visible && cursorOnSurface);
             if (!visible) return;
 
             if (!Mathf.Approximately(_fineConeCosineSquared,
@@ -133,17 +142,14 @@ namespace Genesis.RoomScan.UI
                 descriptor.CursorPosition,
                 Quaternion.FromToRotation(Vector3.up, descriptor.Axis));
 
-            Color color = operation switch
-            {
-                FineBrushOperation.Refine => fineRefineColor,
-                FineBrushOperation.Erase => fineEraseColor,
-                _ => fineIdleColor
-            };
+            Color color = GetFineBrushPreviewColor(operation);
             _fineProperties ??= new MaterialPropertyBlock();
-            _fineProperties.SetColor(ColorId, color);
+            Color coneTint = color;
+            coneTint.a *= 0.5f;
+            _fineProperties.SetColor(ColorId, coneTint);
             _fineConeRenderer.SetPropertyBlock(_fineProperties);
             Color cursorTint = color;
-            cursorTint.a = Mathf.Max(0.55f, color.a);
+            cursorTint.a = Mathf.Max(0.55f, color.a) * 0.5f;
             _fineProperties.SetColor(ColorId, cursorTint);
             _fineCursorRenderer.SetPropertyBlock(_fineProperties);
         }
@@ -250,58 +256,31 @@ namespace Genesis.RoomScan.UI
         private void BuildFineConeMesh(float cosineSquared)
         {
             const int segments = 32;
-            const int capRings = 5;
             float halfAngle = Mathf.Acos(Mathf.Sqrt(Mathf.Clamp01(
                 cosineSquared)));
-            var vertices = new List<Vector3>(2 + segments * capRings)
+            var vertices = new List<Vector3>(1 + segments)
             {
-                Vector3.zero,
-                Vector3.forward
+                Vector3.zero
             };
-            for (int ring = 1; ring <= capRings; ring++)
-            {
-                float polar = halfAngle * ring / capRings;
-                float radius = Mathf.Sin(polar);
-                float z = Mathf.Cos(polar);
-                for (int segment = 0; segment < segments; segment++)
-                {
-                    float angle = segment * Mathf.PI * 2f / segments;
-                    vertices.Add(new Vector3(Mathf.Cos(angle) * radius,
-                        Mathf.Sin(angle) * radius, z));
-                }
-            }
-
-            var triangles = new List<int>(segments * (capRings * 6 + 3));
-            int firstRing = 2;
+            float radius = Mathf.Sin(halfAngle);
+            float z = Mathf.Cos(halfAngle);
             for (int segment = 0; segment < segments; segment++)
             {
-                int next = (segment + 1) % segments;
-                triangles.Add(1);
-                triangles.Add(firstRing + segment);
-                triangles.Add(firstRing + next);
+                float angle = segment * Mathf.PI * 2f / segments;
+                vertices.Add(new Vector3(Mathf.Cos(angle) * radius,
+                    Mathf.Sin(angle) * radius, z));
             }
-            for (int ring = 1; ring < capRings; ring++)
-            {
-                int inner = firstRing + (ring - 1) * segments;
-                int outer = inner + segments;
-                for (int segment = 0; segment < segments; segment++)
-                {
-                    int next = (segment + 1) % segments;
-                    triangles.Add(inner + segment);
-                    triangles.Add(outer + segment);
-                    triangles.Add(outer + next);
-                    triangles.Add(inner + segment);
-                    triangles.Add(outer + next);
-                    triangles.Add(inner + next);
-                }
-            }
-            int rim = firstRing + (capRings - 1) * segments;
+
+            // The exact affected surface is highlighted by the M8 material.
+            // Keep only the cone boundary here: a filled radial cap created a
+            // second floating disc in stereo and was not a surface projection.
+            var triangles = new List<int>(segments * 3);
             for (int segment = 0; segment < segments; segment++)
             {
                 int next = (segment + 1) % segments;
                 triangles.Add(0);
-                triangles.Add(rim + next);
-                triangles.Add(rim + segment);
+                triangles.Add(1 + next);
+                triangles.Add(1 + segment);
             }
 
             var colors = new Color[vertices.Count];
