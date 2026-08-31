@@ -14,6 +14,11 @@
 #pragma kernel PrepareCarveArgs
 #pragma kernel IntegrateCarveTiles
 #pragma kernel FinalizeObservation
+#pragma kernel ResetFineErase
+#pragma kernel QueryFineEraseTiles
+#pragma kernel PrepareFineEraseArgs
+#pragma kernel EraseFineTiles
+#pragma kernel FinalizeFineErase
 
 #include "DepthKit.hlsl"
 #include "MerkabaCanonicalGeometry.generated.hlsl"
@@ -1755,4 +1760,218 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
         completed != 0u ?
             _M8Counters[M8_COUNTER_OBSERVATION_TOKEN] : 0u,
         failure, _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+}
+
+[numthreads(1, 1, 1)]
+void ResetFineErase(uint id : SV_DispatchThreadID)
+{
+    _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
+    _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
+    _M8CarveDispatchArgs[0] = 0u;
+    _M8CarveDispatchArgs[1] = 1u;
+    _M8CarveDispatchArgs[2] = 1u;
+}
+
+uint M8FineEraseChildMask(int3 parentMin, int parentSpan)
+{
+    return MerkabaM8DistanceChildMask(parentMin, parentSpan,
+        sqrt(max(0.0, _M8FineToolDepthSquared)), _M8FineEyeOrigin,
+        _MerkabaGridToWorld, _MerkabaWorldToGrid, MERKABA_LATTICE_STEP,
+        MERKABA_HALF_SUPPORT);
+}
+
+groupshared uint gFineEraseBlockRef;
+groupshared int3 gFineEraseBlockMin;
+groupshared uint gFineEraseSupport4;
+groupshared uint gFineEraseSupport3[8];
+
+[numthreads(64, 1, 1)]
+void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
+    uint thread : SV_GroupIndex)
+{
+    uint linearBlockIndex = groupId.x;
+    if (thread == 0u)
+    {
+        gFineEraseBlockRef = 0u;
+        gFineEraseSupport4 = 0u;
+        uint side = (uint)_M8ScanBlockSide;
+        if (linearBlockIndex < side * side * side)
+        {
+            int3 offset;
+            offset.x = (int)(linearBlockIndex % side) - _M8ScanBlockRadius;
+            offset.y = (int)((linearBlockIndex / side) % side) -
+                _M8ScanBlockRadius;
+            offset.z = (int)(linearBlockIndex / (side * side)) -
+                _M8ScanBlockRadius;
+            int3 blockCoord = _M8ScanCenterBlock + offset;
+            gFineEraseBlockMin = blockCoord *
+                MERKABA_M8_BLOCK_KERNEL_SPAN;
+            gFineEraseSupport4 = M8FineEraseChildMask(
+                gFineEraseBlockMin, 256);
+            if (gFineEraseSupport4 != 0u)
+            {
+                uint blockIndex;
+                if (M8FindBlock(blockCoord, blockIndex))
+                    gFineEraseBlockRef = blockIndex + 1u;
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (thread < 8u)
+    {
+        gFineEraseSupport3[thread] = 0u;
+        if (gFineEraseBlockRef != 0u &&
+            ((_M8BlockPresenceL0Read[gFineEraseBlockRef - 1u] &
+              gFineEraseSupport4) & (1u << thread)) != 0u)
+        {
+            int3 childMin = gFineEraseBlockMin +
+                MerkabaM8OctantOffset(thread, 128);
+            gFineEraseSupport3[thread] =
+                M8FineEraseChildMask(childMin, 128);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gFineEraseBlockRef == 0u) return;
+
+    uint blockIndex = gFineEraseBlockRef - 1u;
+    uint d4 = thread >> 3u;
+    uint d3 = thread & 7u;
+    if (((gFineEraseSupport4 >> d4) & 1u) == 0u ||
+        (((_M8BlockPresenceL1Read[blockIndex * 8u + d4] &
+           gFineEraseSupport3[d4]) >> d3) & 1u) == 0u) return;
+
+    int3 min4 = gFineEraseBlockMin + MerkabaM8OctantOffset(d4, 128);
+    int3 min3 = min4 + MerkabaM8OctantOffset(d3, 64);
+    uint support2 = (_M8BlockPresenceL2Read[blockIndex * 64u +
+        d4 * 8u + d3] & 255u) & M8FineEraseChildMask(min3, 64);
+    while (support2 != 0u)
+    {
+        uint d2 = (uint)firstbitlow(support2);
+        support2 &= support2 - 1u;
+        uint chunkLocal = (d4 << 6u) | (d3 << 3u) | d2;
+        uint chunkRef = _M8BlockChunkRefsRead[blockIndex * 512u +
+            chunkLocal];
+        if (chunkRef == MERKABA_REF_EMPTY) continue;
+        if (chunkRef >= MERKABA_REF_EVICTING)
+        {
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+            continue;
+        }
+        uint chunkIndex = chunkRef - 1u;
+        int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
+        uint support1 = (_M8ChunkPresenceRead[
+            M8ChunkPresenceL0Index(chunkIndex)] & 255u) &
+            M8FineEraseChildMask(min2, 32);
+        while (support1 != 0u)
+        {
+            uint d1 = (uint)firstbitlow(support1);
+            support1 &= support1 - 1u;
+            int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
+            uint support0 = (_M8ChunkPresenceRead[
+                M8ChunkPresenceL1Index(chunkIndex, d1)] & 255u) &
+                M8FineEraseChildMask(min1, 16);
+            while (support0 != 0u)
+            {
+                uint d0 = (uint)firstbitlow(support0);
+                support0 &= support0 - 1u;
+                uint tileLocal = (d1 << 3u) | d0;
+                uint tileRefIndex = chunkIndex * 64u + tileLocal;
+                uint tileRef = _M8ChunkTileRefs[tileRefIndex];
+                if (tileRef == MERKABA_REF_EMPTY) continue;
+                if (tileRef == MERKABA_REF_COLD_ON_SSD)
+                {
+                    RequestColdTile(tileRefIndex, chunkIndex, tileLocal,
+                        false);
+                    M8CounterIncrement(
+                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
+                    continue;
+                }
+                if (!M8IsHotRef(tileRef))
+                {
+                    M8CounterIncrement(
+                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
+                    continue;
+                }
+                uint queueIndex;
+                InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+                    1u, queueIndex);
+                if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                    _M8CarveTiles[queueIndex] = M8PhysicalSlot(tileRef);
+            }
+        }
+    }
+}
+
+[numthreads(1, 1, 1)]
+void PrepareFineEraseArgs(uint id : SV_DispatchThreadID)
+{
+    _M8CarveDispatchArgs[0] =
+        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u
+        ? min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+        : 0u;
+    _M8CarveDispatchArgs[1] = 1u;
+    _M8CarveDispatchArgs[2] = 1u;
+}
+
+void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
+{
+    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
+    float3 worldPosition = mul(_MerkabaGridToWorld,
+        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    if (!M8FineContains(worldPosition)) return;
+
+    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
+    uint bit = 1u << (kernelLocal & 31u);
+    uint previousOccupied;
+    uint previousCarve;
+    uint previousCandidate;
+    InterlockedAnd(_M8TileBits[wordIndex].x, ~bit, previousOccupied);
+    InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previousCarve);
+    InterlockedAnd(_M8TileBits[wordIndex].z, ~bit, previousCandidate);
+
+    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+    bool stateChanged = state.evidence != 0 || state.packedColor != 0u ||
+        state.colorConfidence != 0u || state.flags != 0u;
+    bool occupied = (previousOccupied & bit) != 0u;
+    bool carveActive = (previousCarve & bit) != 0u;
+    if (occupied)
+    {
+        uint ignored;
+        InterlockedAdd(_M8TileRecords[M8TileMetaIndex(physicalSlot)].z,
+            0xffffffffu, ignored);
+        InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_KERNEL_COUNT],
+            0xffffffffu, ignored);
+    }
+    if (carveActive)
+    {
+        uint ignored;
+        InterlockedAdd(_M8TileRecords[M8TileMetaIndex(physicalSlot)].w,
+            0xffffffffu, ignored);
+    }
+    if (stateChanged)
+        M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0);
+    if (stateChanged || occupied || carveActive ||
+        (previousCandidate & bit) != 0u)
+        _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+}
+
+[numthreads(128, 1, 1)]
+void EraseFineTiles(uint3 groupId : SV_GroupID,
+    uint thread : SV_GroupIndex)
+{
+    uint physicalSlot = _M8CarveTilesRead[groupId.x];
+    [unroll]
+    for (uint batch = 0u; batch < 4u; batch++)
+        M8EraseFineKernel(physicalSlot, thread + batch * 128u);
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeFineErase(uint id : SV_DispatchThreadID)
+{
+    uint completed =
+        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u ? 1u : 0u;
+    _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
+        completed != 0u ? _M8AttemptToken : 0u, 0u,
+        _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
 }

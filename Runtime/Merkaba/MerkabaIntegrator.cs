@@ -36,6 +36,11 @@ namespace Genesis.RoomScan
         private int _prepareCarveKernel;
         private int _integrateCarveKernel;
         private int _finalizeKernel;
+        private int _resetFineEraseKernel;
+        private int _queryFineEraseKernel;
+        private int _prepareFineEraseKernel;
+        private int _eraseFineTilesKernel;
+        private int _finalizeFineEraseKernel;
         private bool _initialized;
         private bool _observationPrepared;
         private uint _observationToken;
@@ -46,6 +51,12 @@ namespace Genesis.RoomScan
         private uint _attemptSequence;
         private uint _attemptToken;
         private uint _attemptResidencyEpoch;
+        private bool _fineErasePrepared;
+        private bool _fineEraseAttemptInFlight;
+        private bool _fineEraseWaitingForDependency;
+        private uint _fineEraseAttemptToken;
+        private uint _fineEraseResidencyEpoch;
+        private FineBrushDescriptor _fineEraseDescriptor;
 
         private const int CameraEyeCount = 2;
         private const int CameraObservationSlots = 2;
@@ -81,6 +92,9 @@ namespace Genesis.RoomScan
         public float MaxUpdateDistance => maxUpdateDistance;
         public bool HasPendingObservation => _observationPrepared;
         public bool HasAttemptInFlight => _attemptInFlight;
+        internal bool HasPendingFineErase => _fineErasePrepared;
+        internal bool HasFineEraseAttemptInFlight =>
+            _fineEraseAttemptInFlight;
         internal uint ObservationToken => _observationToken;
         internal uint AttemptToken => _attemptToken;
         internal RenderTexture OwnedCameraFrame
@@ -105,6 +119,7 @@ namespace Genesis.RoomScan
         internal bool HasReadyStereoCameraFrame =>
             _readyCameraSlot >= 0 && _cameraPairAvailable[_readyCameraSlot];
         public event Action Integrated;
+        internal event Action FineErased;
 
         private static readonly int GridToWorldId =
             Shader.PropertyToID("_MerkabaGridToWorld");
@@ -167,6 +182,12 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8FineCosHalfAngleSquared");
         private static readonly int FineToolDepthSquaredId =
             Shader.PropertyToID("_M8FineToolDepthSquared");
+        private static readonly int ScanCenterBlockId =
+            Shader.PropertyToID("_M8ScanCenterBlock");
+        private static readonly int ScanBlockRadiusId =
+            Shader.PropertyToID("_M8ScanBlockRadius");
+        private static readonly int ScanBlockSideId =
+            Shader.PropertyToID("_M8ScanBlockSide");
 
         private void Awake()
         {
@@ -246,6 +267,16 @@ namespace Genesis.RoomScan
                 "IntegrateCarveTiles", MerkabaGpuStage.CarveIntegration);
             _finalizeKernel = compute.FindProfiledKernel(
                 "FinalizeObservation", MerkabaGpuStage.SurfaceIntegration);
+            _resetFineEraseKernel = compute.FindProfiledKernel(
+                "ResetFineErase", MerkabaGpuStage.SurfaceIntegration);
+            _queryFineEraseKernel = compute.FindProfiledKernel(
+                "QueryFineEraseTiles", MerkabaGpuStage.WorldQuery);
+            _prepareFineEraseKernel = compute.FindProfiledKernel(
+                "PrepareFineEraseArgs", MerkabaGpuStage.SurfaceIntegration);
+            _eraseFineTilesKernel = compute.FindProfiledKernel(
+                "EraseFineTiles", MerkabaGpuStage.SurfaceIntegration);
+            _finalizeFineEraseKernel = compute.FindProfiledKernel(
+                "FinalizeFineErase", MerkabaGpuStage.SurfaceIntegration);
             foreach (int kernel in new[]
                      {
                          _discoverKernel, _prepareResolveKernel,
@@ -254,7 +285,10 @@ namespace Genesis.RoomScan
                          _selectSurfaceWinnersKernel, _queueResolvedKernel,
                          _retryPendingTilesKernel, _prepareIntegrateKernel,
                          _integrateSurfaceKernel, _queryCarveKernel,
-                         _prepareCarveKernel, _integrateCarveKernel, _finalizeKernel
+                         _prepareCarveKernel, _integrateCarveKernel,
+                         _finalizeKernel, _resetFineEraseKernel,
+                         _queryFineEraseKernel, _prepareFineEraseKernel,
+                         _eraseFineTilesKernel, _finalizeFineEraseKernel
                      })
             {
                 _grid.BindWorldBuffers(compute, kernel);
@@ -262,6 +296,8 @@ namespace Genesis.RoomScan
             }
             compute.SetBuffer(_finalizeKernel, "_M8AttemptCompletion",
                 _grid.M8AttemptCompletion);
+            compute.SetBuffer(_finalizeFineEraseKernel,
+                "_M8AttemptCompletion", _grid.M8AttemptCompletion);
             _initialized = true;
             return true;
         }
@@ -384,10 +420,90 @@ namespace Genesis.RoomScan
             return false;
         }
 
+        internal bool TryPrepareFineErase(FineBrushDescriptor descriptor)
+        {
+            if (!descriptor.IsErase || _observationPrepared ||
+                _attemptInFlight || _fineErasePrepared ||
+                _fineEraseAttemptInFlight || !Initialize())
+                return false;
+            _fineEraseDescriptor = descriptor;
+            _fineErasePrepared = true;
+            _fineEraseWaitingForDependency = false;
+            _fineEraseAttemptToken = 0u;
+            _fineEraseResidencyEpoch = 0u;
+            return true;
+        }
+
+        internal bool TryRetireFineEraseAttempt()
+        {
+            if (!_fineErasePrepared || !_fineEraseAttemptInFlight ||
+                _grid.CompletedAttemptToken != _fineEraseAttemptToken)
+                return false;
+
+            _fineEraseAttemptInFlight = false;
+            if (_grid.CompletedObservationToken == _fineEraseAttemptToken)
+            {
+                _fineErasePrepared = false;
+                _fineEraseWaitingForDependency = false;
+                _fineEraseAttemptToken = 0u;
+                _fineEraseResidencyEpoch = 0u;
+                _fineEraseDescriptor = default;
+                FineErased?.Invoke();
+                return true;
+            }
+
+            _fineEraseWaitingForDependency = true;
+            return false;
+        }
+
+        internal bool TrySubmitFineEraseAttempt()
+        {
+            if (!_fineErasePrepared || _fineEraseAttemptInFlight ||
+                _observationPrepared || _attemptInFlight ||
+                _grid == null || _grid.GpuSubmissionSuspended ||
+                !Initialize()) return false;
+            if (_fineEraseWaitingForDependency &&
+                _grid.ResidencyEpoch == _fineEraseResidencyEpoch)
+                return false;
+
+            _fineEraseResidencyEpoch = _grid.ResidencyEpoch;
+            _fineEraseAttemptToken = NextAttemptToken();
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba exact FINE erase");
+            bool submitted = false;
+            try
+            {
+                ConfigureFineErase(command, _fineEraseDescriptor);
+                command.SetComputeIntParam(compute, AttemptTokenId,
+                    unchecked((int)_fineEraseAttemptToken));
+                command.DispatchComputeProfiled(compute,
+                    _resetFineEraseKernel, 1, 1, 1);
+                DispatchFineEraseQuery(command, _fineEraseDescriptor);
+                command.DispatchComputeProfiled(compute,
+                    _prepareFineEraseKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(compute,
+                    _eraseFineTilesKernel, _grid.M8CarveDispatchArgs);
+                command.DispatchComputeProfiled(compute,
+                    _finalizeFineEraseKernel, 1, 1, 1);
+                Graphics.ExecuteCommandBuffer(command);
+                submitted = true;
+                _fineEraseAttemptInFlight = true;
+                _fineEraseWaitingForDependency = false;
+                _grid.RequestAttemptCompletion(_fineEraseAttemptToken);
+                return true;
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+                if (!submitted) _fineEraseAttemptToken = 0u;
+            }
+        }
+
         internal bool TrySubmitObservationAttempt()
         {
             if (_grid == null || _grid.GpuSubmissionSuspended ||
-                !Initialize() || _attemptInFlight)
+                !Initialize() || _attemptInFlight || _fineErasePrepared ||
+                _fineEraseAttemptInFlight)
                 return false;
             bool newObservation = !_observationPrepared;
             if (newObservation)
@@ -580,6 +696,22 @@ namespace Genesis.RoomScan
             }
         }
 
+        internal async Task FinishCurrentFineEraseAsync()
+        {
+            while (_fineErasePrepared)
+            {
+                TryRetireFineEraseAttempt();
+                if (!_fineErasePrepared) break;
+                if (!_fineEraseAttemptInFlight)
+                    TrySubmitFineEraseAttempt();
+                if (_fineErasePrepared)
+                {
+                    _grid?.PumpStorageForLifecycleRetirement();
+                    await Task.Yield();
+                }
+            }
+        }
+
         private void ConfigureObservation()
         {
             compute.SetMatrixArray(DepthCapture.ViewID, _depthCapture.View);
@@ -690,6 +822,44 @@ namespace Genesis.RoomScan
             compute.SetVector("_M8ScanCameraWorld", observationOrigin);
 
             command.DispatchComputeProfiled(compute, _queryCarveKernel,
+                side * side * side, 1, 1);
+        }
+
+        private void ConfigureFineErase(CommandBuffer command,
+            FineBrushDescriptor descriptor)
+        {
+            command.SetComputeMatrixParam(compute, GridToWorldId,
+                _grid.GridToWorldMatrix);
+            command.SetComputeMatrixParam(compute, WorldToGridId,
+                _grid.GridToWorldMatrix.inverse);
+            command.SetComputeVectorParam(compute, FineEyeOriginId,
+                descriptor.EyeOrigin);
+            command.SetComputeVectorParam(compute, FineBrushAxisId,
+                descriptor.Axis);
+            command.SetComputeFloatParam(compute,
+                FineCosHalfAngleSquaredId,
+                descriptor.CosHalfAngleSquared);
+            command.SetComputeFloatParam(compute, FineToolDepthSquaredId,
+                descriptor.ToolDepthSquared);
+        }
+
+        private void DispatchFineEraseQuery(CommandBuffer command,
+            FineBrushDescriptor descriptor)
+        {
+            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            float3 gridEye = (float3)worldToGrid.MultiplyPoint3x4(
+                descriptor.EyeOrigin) / MerkabaConstants.LatticeStep;
+            int3 centerBlock = MerkabaSpatial.Encode(
+                (int3)math.floor(gridEye)).BlockCoord;
+            float toolDepth = Mathf.Sqrt(descriptor.ToolDepthSquared);
+            int radius = Mathf.CeilToInt(toolDepth /
+                MerkabaSpatial.BlockWorldSize) + 1;
+            int side = radius * 2 + 1;
+            command.SetComputeIntParams(compute, ScanCenterBlockId,
+                centerBlock.x, centerBlock.y, centerBlock.z);
+            command.SetComputeIntParam(compute, ScanBlockRadiusId, radius);
+            command.SetComputeIntParam(compute, ScanBlockSideId, side);
+            command.DispatchComputeProfiled(compute, _queryFineEraseKernel,
                 side * side * side, 1, 1);
         }
 
@@ -827,6 +997,12 @@ namespace Genesis.RoomScan
             _attemptToken = 0u;
             _waitingForDependency = false;
             _attemptResidencyEpoch = 0u;
+            _fineErasePrepared = false;
+            _fineEraseAttemptInFlight = false;
+            _fineEraseWaitingForDependency = false;
+            _fineEraseAttemptToken = 0u;
+            _fineEraseResidencyEpoch = 0u;
+            _fineEraseDescriptor = default;
             ReleaseOwnedObservation();
             if (_readyCameraSlot >= 0)
                 _cameraPairAvailable[_readyCameraSlot] = false;

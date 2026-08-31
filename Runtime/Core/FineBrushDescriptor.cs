@@ -26,6 +26,7 @@ namespace Genesis.RoomScan
 
         internal bool IsActive => Operation != FineBrushOperation.None;
         internal bool IsRefine => Operation == FineBrushOperation.Refine;
+        internal bool IsErase => Operation == FineBrushOperation.Erase;
 
         private FineBrushDescriptor(Vector3 eyeOrigin, Vector3 cursorPosition,
             Vector3 axis, float cosHalfAngleSquared, float toolDepthSquared,

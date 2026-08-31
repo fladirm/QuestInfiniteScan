@@ -103,9 +103,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 51 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 51" >&2
+if (( kernel_count != 56 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 56" >&2
   exit 1
 fi
 
-echo "PASS: 51 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 56 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

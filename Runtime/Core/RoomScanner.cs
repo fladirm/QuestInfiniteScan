@@ -153,6 +153,7 @@ namespace Genesis.RoomScan
             _controllerRay = FindAnyObjectByType<ControllerRayDriver>(
                 FindObjectsInactive.Include);
             _integrator.Integrated += OnIntegrated;
+            _integrator.FineErased += OnFineErased;
         }
 
         private void Start()
@@ -175,6 +176,13 @@ namespace Genesis.RoomScan
             UpdateFinePreview();
             if (!IsScanning) return;
             LogRgbdPairing();
+            _integrator.TryRetireFineEraseAttempt();
+            if (_integrator.HasPendingFineErase)
+            {
+                if (!_integrator.HasFineEraseAttemptInFlight)
+                    _integrator.TrySubmitFineEraseAttempt();
+                return;
+            }
             _integrator.TryRetireObservationAttempt();
             if (_integrator.HasPendingObservation)
             {
@@ -184,7 +192,10 @@ namespace Genesis.RoomScan
             }
             if (fineMode)
             {
-                UpdateFineRefine();
+                if (CurrentFineAction() == FineBrushOperation.Erase)
+                    UpdateFineErase();
+                else
+                    UpdateFineRefine();
                 return;
             }
             if (Time.time - _lastIntegrationTime < IntegrationInterval) return;
@@ -258,6 +269,7 @@ namespace Genesis.RoomScan
             _destroyed = true;
             BeginDisableTeardown();
             if (_integrator != null) _integrator.Integrated -= OnIntegrated;
+            if (_integrator != null) _integrator.FineErased -= OnFineErased;
             if (Instance == this) Instance = null;
         }
 
@@ -546,6 +558,20 @@ namespace Genesis.RoomScan
             _fineCycleArmed = false;
         }
 
+        private void UpdateFineErase()
+        {
+            _fineCycleArmed = false;
+            if (CurrentFineAction() != FineBrushOperation.Erase ||
+                Time.time - _lastIntegrationTime < IntegrationInterval)
+                return;
+            if (!TryCreateFineDescriptor(FineBrushOperation.Erase,
+                    out FineBrushDescriptor descriptor) ||
+                !_integrator.TryPrepareFineErase(descriptor) ||
+                !_integrator.TrySubmitFineEraseAttempt())
+                return;
+            _lastIntegrationTime = Time.time;
+        }
+
         private void RestartFineCycleAfterExpiredDepth()
         {
             _expiredDepthFrames++;
@@ -649,12 +675,19 @@ namespace Genesis.RoomScan
             Integrated?.Invoke();
         }
 
+        private void OnFineErased()
+        {
+            _renderer?.MarkCanonicalReadoutDirty();
+            Integrated?.Invoke();
+        }
+
         internal Task<bool> QuiesceScanningAsync()
         {
             if (_quiesceTask != null && !_quiesceTask.IsCompleted)
                 return _quiesceTask;
             if (ScanLifecycle == ScanLifecycleState.Stopped &&
-                !IsScanning && !(_integrator?.HasPendingObservation ?? false))
+                !IsScanning && !(_integrator?.HasPendingObservation ?? false) &&
+                !(_integrator?.HasPendingFineErase ?? false))
                 return Task.FromResult(true);
             _quiesceTask = QuiesceCoreAsync();
             return _quiesceTask;
@@ -670,6 +703,8 @@ namespace Genesis.RoomScan
             _integrator?.BeginObservationQuiesce();
             try
             {
+                if (!ReferenceEquals(_integrator, null))
+                    await _integrator.FinishCurrentFineEraseAsync();
                 if (!ReferenceEquals(_integrator, null))
                     await _integrator.FinishCurrentObservationAsync();
                 Task depthRetirement = !ReferenceEquals(_depthCapture, null)

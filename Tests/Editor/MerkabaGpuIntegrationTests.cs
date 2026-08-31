@@ -1210,7 +1210,7 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(46));
+                RegexOptions.Multiline), Has.Count.EqualTo(51));
 
             string[] serial = Regex.Matches(all,
                     @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
@@ -1218,17 +1218,20 @@ namespace Genesis.RoomScan.Tests
                 .OrderBy(name => name).ToArray();
             Assert.That(serial, Is.EqualTo(new[]
             {
+                "FinalizeFineErase",
                 "FinalizeObservation",
                 "FinalizeReadout",
                 "PrepareAllocatedClearArgs",
                 "PrepareCarveArgs",
                 "PrepareEvictionSelection",
+                "PrepareFineEraseArgs",
                 "PrepareIntegrateArgs",
                 "PrepareNewTileDispatchArgs",
                 "PrepareReadoutBuild",
                 "PrepareReadoutEmit",
                 "PrepareResolveArgs",
                 "ResetClaimQueueCounts",
+                "ResetFineErase",
                 "ResetObservationCounters",
                 "ResetReadoutBuild"
             }));
@@ -1355,7 +1358,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 51"));
+            Assert.That(audit, Does.Contain("kernel_count != 56"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));

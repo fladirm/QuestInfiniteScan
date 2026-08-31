@@ -87,6 +87,48 @@ namespace Genesis.RoomScan.Tests
             Assert.That(input, Does.Not.Contain("GetDown(OVRInput.RawButton"));
         }
 
+        [Test]
+        public void FineEraseIsTransactionalCanonicalDeletionNotFreeEvidence()
+        {
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+
+            Assert.That(integration, Does.Contain(
+                "#pragma kernel QueryFineEraseTiles"));
+            Assert.That(integration, Does.Contain(
+                "M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u"));
+            Assert.That(integration, Does.Contain(
+                "M8StoreKernelState(physicalSlot, kernelLocal, " +
+                "(KernelState)0)"));
+            Assert.That(integration, Does.Contain(
+                "InterlockedAnd(_M8TileBits[wordIndex].x, ~bit"));
+            Assert.That(integration, Does.Contain(
+                "InterlockedAnd(_M8TileBits[wordIndex].y, ~bit"));
+            Assert.That(integration, Does.Contain(
+                "InterlockedAnd(_M8TileBits[wordIndex].z, ~bit"));
+            Assert.That(integrator, Does.Contain(
+                "TrySubmitFineEraseAttempt()"));
+            Assert.That(integrator, Does.Contain(
+                "_grid.ResidencyEpoch == _fineEraseResidencyEpoch"));
+            Assert.That(scanner, Does.Contain("UpdateFineErase();"));
+            Assert.That(scanner, Does.Contain(
+                "FinishCurrentFineEraseAsync()"));
+
+            int eraseStart = integration.IndexOf("void M8EraseFineKernel",
+                System.StringComparison.Ordinal);
+            int eraseEnd = integration.IndexOf(
+                "void EraseFineTiles", eraseStart,
+                System.StringComparison.Ordinal);
+            string erase = integration.Substring(eraseStart,
+                eraseEnd - eraseStart);
+            Assert.That(erase, Does.Not.Contain("UpdateOccupancy"));
+            Assert.That(erase, Does.Not.Contain("MERKABA_FREE_SCALE"));
+            Assert.That(erase, Does.Not.Contain("gsDepth"));
+        }
+
         private static string Source(string relative) =>
             File.ReadAllText(Package + relative);
     }
