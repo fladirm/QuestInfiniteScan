@@ -14,7 +14,8 @@ namespace Genesis.RoomScan
 
         internal static void WriteGridPlanes(Matrix4x4[] view,
             Matrix4x4[] projection, Matrix4x4 gridToWorld,
-            Vector4[] destination)
+            Vector4[] destination, float radialRadius =
+                MerkabaConstants.MutationOuterRadius)
         {
             if (view == null || view.Length < 2)
                 throw new ArgumentException("Two frozen depth views are required.",
@@ -34,8 +35,7 @@ namespace Genesis.RoomScan
                 Matrix4x4 worldToClip = projection[eye] * view[eye];
                 Vector4 rowX = worldToClip.GetRow(0);
                 Vector4 rowY = worldToClip.GetRow(1);
-                Vector4 rowW = worldToClip.GetRow(3) *
-                    MerkabaConstants.MutationOuterRadius;
+                Vector4 rowW = worldToClip.GetRow(3) * radialRadius;
                 destination[output++] = WorldToKernelPlane(
                     NormalizeAndExpand(rowW + rowX, referenceOrigin),
                     gridToWorld);

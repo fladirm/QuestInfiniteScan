@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UIElements;
@@ -16,6 +17,12 @@ namespace Genesis.RoomScan.UI
         [SerializeField] private Color hoverColor = new(0.1f, 1f, 0.65f, 0.95f);
         [SerializeField] private float cursorRadius = 0.006f;
         [SerializeField] private Color cursorColor = new(1f, 1f, 1f, 0.9f);
+        [SerializeField] private Color fineIdleColor =
+            new(0.15f, 0.8f, 1f, 0.12f);
+        [SerializeField] private Color fineRefineColor =
+            new(0.1f, 1f, 0.45f, 0.18f);
+        [SerializeField] private Color fineEraseColor =
+            new(1f, 0.15f, 0.2f, 0.2f);
         [SerializeField] internal Shader overlayShader;
 
         private OVRInputModule _inputModule;
@@ -25,6 +32,13 @@ namespace Genesis.RoomScan.UI
         private MeshRenderer _cursorRenderer;
         private Material _overlayMaterial;
         private MaterialPropertyBlock _cursorProperties;
+        private GameObject _fineCone;
+        private GameObject _fineCursor;
+        private Mesh _fineConeMesh;
+        private MeshRenderer _fineConeRenderer;
+        private MeshRenderer _fineCursorRenderer;
+        private MaterialPropertyBlock _fineProperties;
+        private float _fineConeCosineSquared = -1f;
         private OVRInput.Controller _activeController = OVRInput.Controller.None;
         private bool _hasTrackedPose;
         private int _uiLayerMask;
@@ -56,6 +70,7 @@ namespace Genesis.RoomScan.UI
             };
             SetupLineRenderer();
             SetupCursor();
+            SetupFinePreview();
         }
 
         private void Update()
@@ -76,7 +91,61 @@ namespace Genesis.RoomScan.UI
         {
             if (_rayHelper != null) Destroy(_rayHelper.gameObject);
             if (_cursor != null) Destroy(_cursor);
+            if (_fineCone != null) Destroy(_fineCone);
+            if (_fineCursor != null) Destroy(_fineCursor);
+            if (_fineConeMesh != null) Destroy(_fineConeMesh);
             if (_overlayMaterial != null) Destroy(_overlayMaterial);
+        }
+
+        internal bool TryGetWorldRay(out Vector3 origin, out Vector3 direction)
+        {
+            if (!_hasTrackedPose || _rayHelper == null)
+            {
+                origin = default;
+                direction = default;
+                return false;
+            }
+            origin = _rayHelper.position;
+            direction = _rayHelper.forward.normalized;
+            return direction.sqrMagnitude > 0.99f;
+        }
+
+        internal void SetFineBrushPreview(FineBrushDescriptor descriptor,
+            FineBrushOperation operation)
+        {
+            bool visible = descriptor.IsActive && _fineCone != null &&
+                _fineCursor != null;
+            if (_fineCone != null) _fineCone.SetActive(visible);
+            if (_fineCursor != null) _fineCursor.SetActive(visible);
+            if (!visible) return;
+
+            if (!Mathf.Approximately(_fineConeCosineSquared,
+                    descriptor.CosHalfAngleSquared))
+            {
+                _fineConeCosineSquared = descriptor.CosHalfAngleSquared;
+                BuildFineConeMesh(descriptor.CosHalfAngleSquared);
+            }
+            float depth = Mathf.Sqrt(descriptor.ToolDepthSquared);
+            _fineCone.transform.SetPositionAndRotation(descriptor.EyeOrigin,
+                Quaternion.FromToRotation(Vector3.forward, descriptor.Axis));
+            _fineCone.transform.localScale = Vector3.one * depth;
+            _fineCursor.transform.SetPositionAndRotation(
+                descriptor.CursorPosition,
+                Quaternion.FromToRotation(Vector3.up, descriptor.Axis));
+
+            Color color = operation switch
+            {
+                FineBrushOperation.Refine => fineRefineColor,
+                FineBrushOperation.Erase => fineEraseColor,
+                _ => fineIdleColor
+            };
+            _fineProperties ??= new MaterialPropertyBlock();
+            _fineProperties.SetColor(ColorId, color);
+            _fineConeRenderer.SetPropertyBlock(_fineProperties);
+            Color cursorTint = color;
+            cursorTint.a = Mathf.Max(0.55f, color.a);
+            _fineProperties.SetColor(ColorId, cursorTint);
+            _fineCursorRenderer.SetPropertyBlock(_fineProperties);
         }
 
         private bool TryUpdateRayOrigin()
@@ -143,6 +212,106 @@ namespace Genesis.RoomScan.UI
             _cursorRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             _cursorRenderer.receiveShadows = false;
             _cursor.SetActive(false);
+        }
+
+        private void SetupFinePreview()
+        {
+            _fineCone = new GameObject("FineBrushCone");
+            _fineCone.transform.SetParent(transform, false);
+            var filter = _fineCone.AddComponent<MeshFilter>();
+            _fineConeRenderer = _fineCone.AddComponent<MeshRenderer>();
+            _fineConeMesh = new Mesh
+            {
+                name = "Fine Brush Exact Cone Preview",
+                hideFlags = HideFlags.DontSave
+            };
+            filter.sharedMesh = _fineConeMesh;
+            _fineConeRenderer.sharedMaterial = _overlayMaterial;
+            _fineConeRenderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            _fineConeRenderer.receiveShadows = false;
+
+            _fineCursor = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            _fineCursor.name = "FineBrushCursor";
+            _fineCursor.transform.SetParent(transform, false);
+            _fineCursor.transform.localScale = new Vector3(0.018f, 0.001f,
+                0.018f);
+            Collider collider = _fineCursor.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+            _fineCursorRenderer = _fineCursor.GetComponent<MeshRenderer>();
+            _fineCursorRenderer.sharedMaterial = _overlayMaterial;
+            _fineCursorRenderer.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            _fineCursorRenderer.receiveShadows = false;
+            _fineCone.SetActive(false);
+            _fineCursor.SetActive(false);
+        }
+
+        private void BuildFineConeMesh(float cosineSquared)
+        {
+            const int segments = 32;
+            const int capRings = 5;
+            float halfAngle = Mathf.Acos(Mathf.Sqrt(Mathf.Clamp01(
+                cosineSquared)));
+            var vertices = new List<Vector3>(2 + segments * capRings)
+            {
+                Vector3.zero,
+                Vector3.forward
+            };
+            for (int ring = 1; ring <= capRings; ring++)
+            {
+                float polar = halfAngle * ring / capRings;
+                float radius = Mathf.Sin(polar);
+                float z = Mathf.Cos(polar);
+                for (int segment = 0; segment < segments; segment++)
+                {
+                    float angle = segment * Mathf.PI * 2f / segments;
+                    vertices.Add(new Vector3(Mathf.Cos(angle) * radius,
+                        Mathf.Sin(angle) * radius, z));
+                }
+            }
+
+            var triangles = new List<int>(segments * (capRings * 6 + 3));
+            int firstRing = 2;
+            for (int segment = 0; segment < segments; segment++)
+            {
+                int next = (segment + 1) % segments;
+                triangles.Add(1);
+                triangles.Add(firstRing + segment);
+                triangles.Add(firstRing + next);
+            }
+            for (int ring = 1; ring < capRings; ring++)
+            {
+                int inner = firstRing + (ring - 1) * segments;
+                int outer = inner + segments;
+                for (int segment = 0; segment < segments; segment++)
+                {
+                    int next = (segment + 1) % segments;
+                    triangles.Add(inner + segment);
+                    triangles.Add(outer + segment);
+                    triangles.Add(outer + next);
+                    triangles.Add(inner + segment);
+                    triangles.Add(outer + next);
+                    triangles.Add(inner + next);
+                }
+            }
+            int rim = firstRing + (capRings - 1) * segments;
+            for (int segment = 0; segment < segments; segment++)
+            {
+                int next = (segment + 1) % segments;
+                triangles.Add(0);
+                triangles.Add(rim + next);
+                triangles.Add(rim + segment);
+            }
+
+            var colors = new Color[vertices.Count];
+            for (int index = 0; index < colors.Length; index++)
+                colors[index] = Color.white;
+            _fineConeMesh.Clear();
+            _fineConeMesh.SetVertices(vertices);
+            _fineConeMesh.SetTriangles(triangles, 0, true);
+            _fineConeMesh.colors = colors;
+            _fineConeMesh.RecalculateBounds();
         }
 
         private void DrawLaser()

@@ -1,0 +1,93 @@
+using System.IO;
+using NUnit.Framework;
+using UnityEngine;
+
+namespace Genesis.RoomScan.Tests
+{
+    public sealed class FineBrushTests
+    {
+        private const string Package =
+            "Packages/com.genesis.roomscan/";
+
+        [Test]
+        public void ExactConeUsesFullApexAngleAndRadialDepth()
+        {
+            Assert.That(FineBrushDescriptor.TryCreate(Vector3.zero,
+                Vector3.forward, 60f, 2f, FineBrushOperation.Refine,
+                out FineBrushDescriptor brush), Is.True);
+
+            float half = 30f * Mathf.Deg2Rad;
+            Vector3 boundary = new(Mathf.Sin(half) * 1.99f, 0f,
+                Mathf.Cos(half) * 1.99f + 0.001f);
+            Assert.That(brush.Contains(boundary), Is.True);
+            Assert.That(brush.Contains(boundary * 1.01f), Is.False);
+            Assert.That(brush.Contains(new Vector3(1.01f, 0f, 1.7f)),
+                Is.False);
+            Assert.That(brush.Contains(Vector3.back), Is.False);
+        }
+
+        [Test]
+        public void BrushAxisIsAlwaysEyeToCursor()
+        {
+            Vector3 eye = new(2f, -1f, 3f);
+            Vector3 cursor = new(-1f, 4f, 7f);
+            Assert.That(FineBrushDescriptor.TryCreate(eye, cursor, 20f, 4f,
+                FineBrushOperation.Preview, out FineBrushDescriptor brush),
+                Is.True);
+            Assert.That(Vector3.Dot(brush.Axis,
+                (cursor - eye).normalized), Is.EqualTo(1f).Within(1e-6f));
+            Assert.That(brush.CursorPosition, Is.EqualTo(cursor));
+        }
+
+        [Test]
+        public void FineRefineIsAnEndOfJointSolveMaskAndNotAnotherScanner()
+        {
+            string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string depth = Source("Runtime/Core/DepthCapture.cs");
+
+            int selectedWorld = refine.IndexOf("float3 selectedWorld",
+                System.StringComparison.Ordinal);
+            int mask = refine.IndexOf("!M8FineContains(selectedWorld)",
+                System.StringComparison.Ordinal);
+            int publish = refine.IndexOf("_DstDepth[id] = selectedDepth",
+                System.StringComparison.Ordinal);
+            Assert.That(selectedWorld, Is.GreaterThanOrEqualTo(0));
+            Assert.That(mask, Is.GreaterThan(selectedWorld));
+            Assert.That(publish, Is.GreaterThan(mask));
+            Assert.That(integration, Does.Contain(
+                "!M8FineContains(targetWorld)"));
+            Assert.That(integration, Does.Contain(
+                "!M8FineContains(worldPosition)"));
+            Assert.That(scanner, Does.Contain("RequestFreshDepthFrame()"));
+            Assert.That(scanner, Does.Contain("_fineMinimumLeftSequence"));
+            Assert.That(scanner, Does.Contain("_fineMinimumRightSequence"));
+            Assert.That(depth, Does.Contain(
+                "fineBrush.IsRefine ? 1 : 0"));
+            Assert.That(refine, Does.Not.Contain("AppendSurfaceCandidate"));
+        }
+
+        [Test]
+        public void FineOffKeepsTheOriginalAutomaticObservationPath()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
+            string input = Source("Runtime/RoomScanInputHandler.cs");
+
+            Assert.That(scanner, Does.Contain("if (fineMode)"));
+            Assert.That(scanner, Does.Contain("UpdateFineRefine();"));
+            Assert.That(scanner, Does.Contain(
+                "_cameraProvider.TryGetSynchronizedFrame(\n                    depthUnixSeconds, availableSkew,\n                    out StereoCameraFrame cameraFrame)"));
+            Assert.That(integrator, Does.Contain(
+                "return SetStereoCameraData(frame, default);"));
+            Assert.That(input, Does.Contain("OVRInput.RawButton.RIndexTrigger"));
+            Assert.That(input, Does.Contain("OVRInput.RawButton.RHandTrigger"));
+            Assert.That(input, Does.Not.Contain("GetDown(OVRInput.RawButton"));
+        }
+
+        private static string Source(string relative) =>
+            File.ReadAllText(Package + relative);
+    }
+}

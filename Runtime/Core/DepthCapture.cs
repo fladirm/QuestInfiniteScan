@@ -92,6 +92,16 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_RefineMetricsEnabled");
         private static readonly int RefineMetricGroupsXId =
             Shader.PropertyToID("_RefineMetricGroupsX");
+        private static readonly int RefineFineActiveId =
+            Shader.PropertyToID("_M8FineRefineActive");
+        private static readonly int RefineFineEyeOriginId =
+            Shader.PropertyToID("_M8FineEyeOrigin");
+        private static readonly int RefineFineBrushAxisId =
+            Shader.PropertyToID("_M8FineBrushAxis");
+        private static readonly int RefineFineCosHalfAngleSquaredId =
+            Shader.PropertyToID("_M8FineCosHalfAngleSquared");
+        private static readonly int RefineFineToolDepthSquaredId =
+            Shader.PropertyToID("_M8FineToolDepthSquared");
         private static readonly int[] RefineCameraRgbId =
         {
             Shader.PropertyToID("_MerkabaCameraRgbLeft"),
@@ -374,6 +384,15 @@ namespace Genesis.RoomScan
             return true;
         }
 
+        internal bool RequestFreshDepthFrame()
+        {
+            if (!_captureActive || _heldDepthSlot >= 0) return false;
+            _readyDepthSlot = -1;
+            _depthFrameRequested = false;
+            _requestedDepthSlot = -1;
+            return RequestNextDepthFrame();
+        }
+
         internal bool TryGetReadyFrameUnixTime(out double unixSeconds,
             out long timestampNs)
         {
@@ -575,7 +594,7 @@ namespace Genesis.RoomScan
         /// normalised, or dilated.
         /// </summary>
         internal bool ConsumeLatestDepthFrame(CommandBuffer command,
-            StereoCameraFrame cameraFrame)
+            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (!cameraFrame.IsValid || !DepthAvailable || _readyDepthSlot < 0 ||
@@ -596,7 +615,7 @@ namespace Genesis.RoomScan
             }
             _planes = _ownedPlanes[_heldDepthSlot];
             _depthTex = _ownedRawDepth[_heldDepthSlot];
-            ApplyStereoRgbdRefinement(command, cameraFrame);
+            ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);
             SetGlobalShaderProperties();
             ComputeDilation(command);
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
@@ -788,7 +807,7 @@ namespace Genesis.RoomScan
         }
 
         private void ApplyStereoRgbdRefinement(CommandBuffer command,
-            StereoCameraFrame cameraFrame)
+            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush)
         {
             if (!cameraFrame.IsValid || _depthTex == null)
                 throw new InvalidOperationException(
@@ -851,6 +870,17 @@ namespace Genesis.RoomScan
                 captureMetrics ? 1 : 0);
             command.SetComputeIntParam(shader, RefineMetricGroupsXId,
                 metricGroupsX);
+            command.SetComputeIntParam(shader, RefineFineActiveId,
+                fineBrush.IsRefine ? 1 : 0);
+            command.SetComputeVectorParam(shader, RefineFineEyeOriginId,
+                fineBrush.EyeOrigin);
+            command.SetComputeVectorParam(shader, RefineFineBrushAxisId,
+                fineBrush.Axis);
+            command.SetComputeFloatParam(shader,
+                RefineFineCosHalfAngleSquaredId,
+                fineBrush.CosHalfAngleSquared);
+            command.SetComputeFloatParam(shader, RefineFineToolDepthSquaredId,
+                fineBrush.ToolDepthSquared);
             BindStereoCamera(command, shader, cameraFrame.Left, 0);
             BindStereoCamera(command, shader, cameraFrame.Right, 1);
             _stereoRgbdRefineKernel.DispatchFit(command, w, h, 1);

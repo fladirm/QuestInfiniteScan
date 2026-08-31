@@ -61,10 +61,13 @@ namespace Genesis.RoomScan
         private readonly double[] _cameraTimestampUnixSeconds = new double[4];
         private readonly double[] _cameraMaximumSkewSeconds =
             new double[CameraObservationSlots];
+        private readonly FineBrushDescriptor[] _cameraFineBrush =
+            new FineBrushDescriptor[CameraObservationSlots];
         private readonly RenderTexture[] _cameraFrameCopies = new RenderTexture[4];
         private int _readyCameraSlot = -1;
         private int _heldCameraSlot = -1;
         private bool _cameraObservationHeld;
+        private FineBrushDescriptor _heldFineBrush;
         private ulong _cameraCopySubmittedEpoch;
         private ulong _cameraCopyRetiredEpoch;
         private int _lastCameraCopySlot = -1;
@@ -154,6 +157,16 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8AbortObservation");
         private static readonly int AttemptTokenId =
             Shader.PropertyToID("_M8AttemptToken");
+        private static readonly int FineRefineActiveId =
+            Shader.PropertyToID("_M8FineRefineActive");
+        private static readonly int FineEyeOriginId =
+            Shader.PropertyToID("_M8FineEyeOrigin");
+        private static readonly int FineBrushAxisId =
+            Shader.PropertyToID("_M8FineBrushAxis");
+        private static readonly int FineCosHalfAngleSquaredId =
+            Shader.PropertyToID("_M8FineCosHalfAngleSquared");
+        private static readonly int FineToolDepthSquaredId =
+            Shader.PropertyToID("_M8FineToolDepthSquared");
 
         private void Awake()
         {
@@ -290,6 +303,12 @@ namespace Genesis.RoomScan
 
         internal bool SetStereoCameraData(StereoCameraFrame frame)
         {
+            return SetStereoCameraData(frame, default);
+        }
+
+        internal bool SetStereoCameraData(StereoCameraFrame frame,
+            FineBrushDescriptor fineBrush)
+        {
             if (!ReferenceEquals(_grid, null) &&
                 _grid.GpuSubmissionSuspended) return false;
             if (!frame.IsValid) return false;
@@ -327,6 +346,7 @@ namespace Genesis.RoomScan
 
             _cameraPairAvailable[slot] = true;
             _cameraMaximumSkewSeconds[slot] = frame.MaximumSkewSeconds;
+            _cameraFineBrush[slot] = fineBrush;
             _readyCameraSlot = slot;
             unchecked
             {
@@ -397,7 +417,7 @@ namespace Genesis.RoomScan
                 {
                     AcquireCameraObservation();
                     bool consumed = _depthCapture.ConsumeLatestDepthFrame(
-                        command, HeldStereoCameraFrame());
+                        command, HeldStereoCameraFrame(), _heldFineBrush);
                     if (!consumed || _depthCapture.DepthTex == null ||
                         _depthCapture.NormTex == null ||
                         _depthCapture.DilatedDepthTex == null)
@@ -577,9 +597,18 @@ namespace Genesis.RoomScan
                 MerkabaConstants.MutationOuterRadius);
             MerkabaMutationCoverage.WriteGridPlanes(_depthCapture.View,
                 _depthCapture.Proj, _grid.GridToWorldMatrix,
-                _scanCoveragePlanes);
+                _scanCoveragePlanes, _heldFineBrush.IsRefine
+                    ? 1f : MerkabaConstants.MutationOuterRadius);
             compute.SetVectorArray("_M8ScanCoveragePlanes",
                 _scanCoveragePlanes);
+            compute.SetInt(FineRefineActiveId,
+                _heldFineBrush.IsRefine ? 1 : 0);
+            compute.SetVector(FineEyeOriginId, _heldFineBrush.EyeOrigin);
+            compute.SetVector(FineBrushAxisId, _heldFineBrush.Axis);
+            compute.SetFloat(FineCosHalfAngleSquaredId,
+                _heldFineBrush.CosHalfAngleSquared);
+            compute.SetFloat(FineToolDepthSquaredId,
+                _heldFineBrush.ToolDepthSquared);
             ConfigureAttempt();
 
             int exclusionCount = Mathf.Min(ExclusionZones.Count,
@@ -672,6 +701,7 @@ namespace Genesis.RoomScan
                     "A complete synchronized PCA pair is required.");
             _cameraObservationHeld = true;
             _heldCameraSlot = _readyCameraSlot;
+            _heldFineBrush = _cameraFineBrush[_heldCameraSlot];
             _readyCameraSlot = -1;
         }
 
@@ -682,6 +712,7 @@ namespace Genesis.RoomScan
                 _cameraPairAvailable[_heldCameraSlot] = false;
             _cameraObservationHeld = false;
             _heldCameraSlot = -1;
+            _heldFineBrush = default;
         }
 
         private void StoreCameraEye(CommandBuffer command, int slot, int eye,

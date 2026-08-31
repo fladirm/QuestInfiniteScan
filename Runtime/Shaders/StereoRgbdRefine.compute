@@ -21,6 +21,11 @@ float4x4 _DepthView[2];
 float4x4 _DepthViewInv[2];
 uint _RefineMetricsEnabled;
 uint _RefineMetricGroupsX;
+uint _M8FineRefineActive;
+float3 _M8FineEyeOrigin;
+float3 _M8FineBrushAxis;
+float _M8FineCosHalfAngleSquared;
+float _M8FineToolDepthSquared;
 
 #define RGBD_REFERENCE_EYE 0u
 #define RGBD_OPPOSITE_EYE 1u
@@ -40,6 +45,15 @@ uint _RefineMetricGroupsX;
 #define RGBD_METRIC_VALUE_COUNT 24u
 
 groupshared uint gRefineMetrics[RGBD_METRIC_VALUE_COUNT];
+
+bool M8FineContains(float3 worldPosition)
+{
+    float3 relative = worldPosition - _M8FineEyeOrigin;
+    float distanceSquared = dot(relative, relative);
+    float axial = dot(relative, _M8FineBrushAxis);
+    return distanceSquared <= _M8FineToolDepthSquared && axial >= 0.0 &&
+        axial * axial >= distanceSquared * _M8FineCosHalfAngleSquared;
+}
 
 float3 DepthNdcToWorld(uint eye, float2 uv, float depth)
 {
@@ -413,6 +427,9 @@ void StereoRgbdRefine(uint2 id : SV_DispatchThreadID,
                 referenceRay * selectedDistance;
             float selectedDepth = WorldToReferenceDepthNdc(selectedWorld);
             finalAccepted = selectedDepth > 0.0 && selectedDepth < 1.0;
+            if (finalAccepted && _M8FineRefineActive != 0u &&
+                !M8FineContains(selectedWorld))
+                finalAccepted = false;
             if (finalAccepted)
             {
                 _DstDepth[id] = selectedDepth;

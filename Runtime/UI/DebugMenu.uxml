@@ -53,6 +53,28 @@
             <ui:Label name="val-opacity" text="100%" class="opacity-value" />
         </ui:VisualElement>
 
+        <ui:Label text="MANUAL FINE" class="section-title" />
+        <ui:VisualElement class="fine-row">
+            <ui:Button name="btn-fine" text="FINE  OFF"
+                class="fine-toggle" />
+            <ui:VisualElement class="fine-controls">
+                <ui:VisualElement class="fine-control-row">
+                    <ui:Label text="Brush angle" class="fine-key" />
+                    <ui:Slider name="fine-angle" low-value="5" high-value="45"
+                        value="20" class="fine-slider" />
+                    <ui:Label name="val-fine-angle" text="20°"
+                        class="fine-value" />
+                </ui:VisualElement>
+                <ui:VisualElement class="fine-control-row">
+                    <ui:Label text="Tool depth" class="fine-key" />
+                    <ui:Slider name="fine-depth" low-value="0.25" high-value="4"
+                        value="2" class="fine-slider" />
+                    <ui:Label name="val-fine-depth" text="2.00 m"
+                        class="fine-value" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
         <ui:VisualElement name="operation-panel" class="operation-panel">
             <ui:VisualElement class="operation-title-row">
                 <ui:Label name="operation-spinner" text="|" class="operation-spinner" />
@@ -76,7 +98,7 @@
                 class="action-btn action-btn--last" />
         </ui:VisualElement>
 
-        <ui:Label text="Left thumbstick opens/closes · point with right controller · right index trigger selects"
+        <ui:Label text="Left thumbstick: menu · FINE: right index refine / right grip erase"
             class="control-hint" />
         <ui:Label text="One reversible Merkaba grid · clear viewpoints remove false geometry"
             class="ontology-hint" />

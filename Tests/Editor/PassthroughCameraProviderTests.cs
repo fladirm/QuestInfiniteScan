@@ -265,6 +265,44 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void FinePairingRejectsEveryPreTriggerPcaSequence()
+        {
+            var leftOld = new Texture2D(2, 2);
+            var leftFresh = new Texture2D(2, 2);
+            var rightOld = new Texture2D(2, 2);
+            var rightFresh = new Texture2D(2, 2);
+            try
+            {
+                CameraFrameDescriptor[] left =
+                {
+                    Descriptor(leftOld, StereoEye.Left, 100.000, 7u),
+                    Descriptor(leftFresh, StereoEye.Left, 100.010, 8u)
+                };
+                CameraFrameDescriptor[] right =
+                {
+                    Descriptor(rightOld, StereoEye.Right, 100.001, 11u),
+                    Descriptor(rightFresh, StereoEye.Right, 100.011, 12u)
+                };
+
+                StereoFrameMatch match =
+                    PassthroughCameraProvider.MatchFrameHistory(left, right,
+                        100.0105, 0.020, out StereoCameraFrame frame,
+                        7u, 11u);
+
+                Assert.That(match, Is.EqualTo(StereoFrameMatch.Ready));
+                Assert.That(frame.Left.Texture, Is.SameAs(leftFresh));
+                Assert.That(frame.Right.Texture, Is.SameAs(rightFresh));
+            }
+            finally
+            {
+                Object.DestroyImmediate(leftOld);
+                Object.DestroyImmediate(leftFresh);
+                Object.DestroyImmediate(rightOld);
+                Object.DestroyImmediate(rightFresh);
+            }
+        }
+
+        [Test]
         public void DuplicatePhysicalEyeProducer_FailsClosed()
         {
             CreateEnabledBorrowedPca();
@@ -287,10 +325,10 @@ namespace Genesis.RoomScan.Tests
         }
 
         private static CameraFrameDescriptor Descriptor(Texture texture,
-            StereoEye eye, double unixSeconds) => new(texture,
+            StereoEye eye, double unixSeconds, uint sequence = 1u) => new(texture,
             new Pose(Vector3.zero, Quaternion.identity), Vector2.one,
             Vector2.zero, new Vector2(2f, 2f), new Vector2(2f, 2f),
-            unixSeconds, 1u, eye);
+            unixSeconds, sequence, eye);
 
         private PassthroughCameraProvider CreateProvider()
         {

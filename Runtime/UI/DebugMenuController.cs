@@ -13,11 +13,13 @@ namespace Genesis.RoomScan.UI
         private DebugMenuFollower _follower;
         private VisualElement _root;
         private VisualElement _boundRoot;
-        private Button _start, _stop, _save, _load, _new, _export;
+        private Button _start, _stop, _save, _load, _new, _export, _fine;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps;
         private Slider _opacity;
-        private Label _opacityValue, _operationSpinner, _operationStage;
+        private Slider _fineAngle, _fineDepth;
+        private Label _opacityValue, _fineAngleValue, _fineDepthValue;
+        private Label _operationSpinner, _operationStage;
         private VisualElement _operationPanel;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
@@ -86,6 +88,7 @@ namespace Genesis.RoomScan.UI
             _load = _root.Q<Button>("btn-load");
             _new = _root.Q<Button>("btn-new");
             _export = _root.Q<Button>("btn-export");
+            _fine = _root.Q<Button>("btn-fine");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
             _kernels = _root.Q<Label>("val-kernels");
@@ -96,6 +99,10 @@ namespace Genesis.RoomScan.UI
             _fps = _root.Q<Label>("val-fps");
             _opacity = _root.Q<Slider>("scan-opacity");
             _opacityValue = _root.Q<Label>("val-opacity");
+            _fineAngle = _root.Q<Slider>("fine-angle");
+            _fineDepth = _root.Q<Slider>("fine-depth");
+            _fineAngleValue = _root.Q<Label>("val-fine-angle");
+            _fineDepthValue = _root.Q<Label>("val-fine-depth");
             _operationPanel = _root.Q<VisualElement>("operation-panel");
             _operationSpinner = _root.Q<Label>("operation-spinner");
             _operationStage = _root.Q<Label>("operation-stage");
@@ -111,10 +118,25 @@ namespace Genesis.RoomScan.UI
             _load?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.LoadAsync());
             _new?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.NewClearAsync());
             _export?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.ExportGlbAsync());
+            _fine?.RegisterCallback<ClickEvent>(evt =>
+            {
+                RoomScanner scanner = RoomScanner.Instance;
+                if (scanner != null) scanner.FineMode = !scanner.FineMode;
+            });
             _opacity?.RegisterValueChangedCallback(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
                 if (scanner != null) scanner.ScanOpacity = evt.newValue;
+            });
+            _fineAngle?.RegisterValueChangedCallback(evt =>
+            {
+                RoomScanner scanner = RoomScanner.Instance;
+                if (scanner != null) scanner.FineBrushAngle = evt.newValue;
+            });
+            _fineDepth?.RegisterValueChangedCallback(evt =>
+            {
+                RoomScanner scanner = RoomScanner.Instance;
+                if (scanner != null) scanner.FineToolDepth = evt.newValue;
             });
         }
 
@@ -150,6 +172,12 @@ namespace Genesis.RoomScan.UI
             float opacity = scanner.ScanOpacity;
             _opacity?.SetValueWithoutNotify(opacity);
             Set(_opacityValue, $"{opacity * 100f:F0}%");
+            _fineAngle?.SetValueWithoutNotify(scanner.FineBrushAngle);
+            _fineDepth?.SetValueWithoutNotify(scanner.FineToolDepth);
+            Set(_fineAngleValue, $"{scanner.FineBrushAngle:F0}°");
+            Set(_fineDepthValue, $"{scanner.FineToolDepth:F2} m");
+            if (_fine != null)
+                _fine.text = scanner.FineMode ? "FINE  ON" : "FINE  OFF";
 
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
@@ -172,6 +200,7 @@ namespace Genesis.RoomScan.UI
             _load?.SetEnabled(!busy && scanner.SavedSessionExists);
             _new?.SetEnabled(!busy);
             _export?.SetEnabled(!busy);
+            _fine?.SetEnabled(!busy);
         }
 
         private void RefreshOperation(ScanOperationState operation)

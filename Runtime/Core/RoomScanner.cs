@@ -29,6 +29,9 @@ namespace Genesis.RoomScan
         [SerializeField, Range(5f, 30f)] private float integrationHz = 15f;
         [SerializeField, Range(0.005f, 0.05f)]
         private float maximumRgbdSkewSeconds = 1f / 30f;
+        [SerializeField] private bool fineMode;
+        [SerializeField, Range(5f, 45f)] private float fineBrushAngle = 20f;
+        [SerializeField, Range(0.25f, 4f)] private float fineToolDepth = 2f;
         [SerializeField] private LogLevel logLevel = LogLevel.Info;
 
         private DepthCapture _depthCapture;
@@ -40,6 +43,7 @@ namespace Genesis.RoomScan
         private MerkabaExporter _exporter;
         private RoomAnchorManager _anchorManager;
         private DebugMenuController _debugMenu;
+        private ControllerRayDriver _controllerRay;
         private float _lastIntegrationTime;
         private ScanOperationState _operation = ScanOperationState.Idle;
         private readonly ScanOperationProgressTracker _operationProgress = new();
@@ -60,6 +64,13 @@ namespace Genesis.RoomScan
         private double _firstPairCenterOffsetMilliseconds;
         private bool _hasPairClockBaseline;
         private float _lastRgbdLogTime;
+        private bool _fineRefineHeld;
+        private bool _fineEraseHeld;
+        private bool _fineCycleArmed;
+        private uint _fineMinimumLeftSequence;
+        private uint _fineMinimumRightSequence;
+        private FineBrushDescriptor _fineObservationDescriptor;
+        private FineBrushDescriptor _finePreviewDescriptor;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -81,6 +92,32 @@ namespace Genesis.RoomScan
                               _operation.Busy || (_persistence?.IsBusy ?? false) ||
                               (_exporter?.IsExporting ?? false);
         public ScanOperationState CurrentOperation => _operation;
+        public bool FineMode
+        {
+            get => fineMode;
+            set
+            {
+                if (fineMode == value) return;
+                fineMode = value;
+                _fineCycleArmed = false;
+                if (!fineMode)
+                {
+                    _finePreviewDescriptor = default;
+                    _controllerRay?.SetFineBrushPreview(default,
+                        FineBrushOperation.None);
+                }
+            }
+        }
+        public float FineBrushAngle
+        {
+            get => fineBrushAngle;
+            set => fineBrushAngle = Mathf.Clamp(value, 5f, 45f);
+        }
+        public float FineToolDepth
+        {
+            get => fineToolDepth;
+            set => fineToolDepth = Mathf.Clamp(value, 0.25f, 4f);
+        }
         public float ScanOpacity
         {
             get => _renderer != null ? _renderer.ScanOpacity : 1f;
@@ -113,6 +150,8 @@ namespace Genesis.RoomScan
                 FindObjectsInactive.Include);
             _debugMenu = FindAnyObjectByType<DebugMenuController>(
                 FindObjectsInactive.Include);
+            _controllerRay = FindAnyObjectByType<ControllerRayDriver>(
+                FindObjectsInactive.Include);
             _integrator.Integrated += OnIntegrated;
         }
 
@@ -133,6 +172,7 @@ namespace Genesis.RoomScan
         private void Update()
         {
             MerkabaGpuTimestamps.Poll();
+            UpdateFinePreview();
             if (!IsScanning) return;
             LogRgbdPairing();
             _integrator.TryRetireObservationAttempt();
@@ -140,6 +180,11 @@ namespace Genesis.RoomScan
             {
                 if (!_integrator.HasAttemptInFlight)
                     _integrator.TrySubmitObservationAttempt();
+                return;
+            }
+            if (fineMode)
+            {
+                UpdateFineRefine();
                 return;
             }
             if (Time.time - _lastIntegrationTime < IntegrationInterval) return;
@@ -284,6 +329,12 @@ namespace Genesis.RoomScan
             else _ = StartScanningAsync();
         }
 
+        internal void SetFineHeldActions(bool refineHeld, bool eraseHeld)
+        {
+            _fineRefineHeld = refineHeld;
+            _fineEraseHeld = eraseHeld;
+        }
+
         public async Task<bool> SaveAsync()
         {
             if (IsBusy) return false;
@@ -402,6 +453,157 @@ namespace Genesis.RoomScan
             }
             if (RoomSpaceRoot.Instance != null)
                 await RoomSpaceRoot.WaitForBindAsync(5f);
+        }
+
+        private void UpdateFinePreview()
+        {
+            _controllerRay ??= FindAnyObjectByType<ControllerRayDriver>(
+                FindObjectsInactive.Include);
+            if (!fineMode || _controllerRay == null)
+            {
+                _finePreviewDescriptor = default;
+                _controllerRay?.SetFineBrushPreview(default,
+                    FineBrushOperation.None);
+                return;
+            }
+
+            FineBrushOperation action = CurrentFineAction();
+            FineBrushOperation previewOperation = action ==
+                FineBrushOperation.None ? FineBrushOperation.Preview : action;
+            if (!TryCreateFineDescriptor(previewOperation,
+                    out _finePreviewDescriptor))
+            {
+                _controllerRay.SetFineBrushPreview(default,
+                    FineBrushOperation.None);
+                return;
+            }
+            _controllerRay.SetFineBrushPreview(_finePreviewDescriptor, action);
+        }
+
+        private void UpdateFineRefine()
+        {
+            if (CurrentFineAction() != FineBrushOperation.Refine)
+            {
+                _fineCycleArmed = false;
+                return;
+            }
+
+            if (!_fineCycleArmed)
+            {
+                if (!TryCreateFineDescriptor(FineBrushOperation.Refine,
+                        out _fineObservationDescriptor))
+                    return;
+                _cameraProvider.GetLatestSequences(
+                    out _fineMinimumLeftSequence,
+                    out _fineMinimumRightSequence);
+                if (!_depthCapture.RequestFreshDepthFrame()) return;
+                _fineCycleArmed = true;
+            }
+
+            if (Time.time - _lastIntegrationTime < IntegrationInterval ||
+                !_depthCapture.HasUnprocessedFrame)
+                return;
+
+            if (!_integrator.HasReadyStereoCameraFrame)
+            {
+                if (!_depthCapture.TryGetReadyFrameUnixTime(
+                        out double depthUnixSeconds, out _))
+                    return;
+                double clockUncertainty =
+                    _depthCapture.TimestampMappingUncertaintySeconds;
+                double availableSkew = maximumRgbdSkewSeconds -
+                    clockUncertainty;
+                if (availableSkew <= 0.0)
+                {
+                    RestartFineCycleAfterExpiredDepth();
+                    return;
+                }
+                StereoFrameMatch match = _cameraProvider.TryGetSynchronizedFrame(
+                    depthUnixSeconds, availableSkew,
+                    _fineMinimumLeftSequence, _fineMinimumRightSequence,
+                    out StereoCameraFrame cameraFrame);
+                if (match == StereoFrameMatch.Waiting) return;
+                if (match == StereoFrameMatch.DepthExpired)
+                {
+                    RestartFineCycleAfterExpiredDepth();
+                    return;
+                }
+                RecordRgbdClockEvidence(depthUnixSeconds, cameraFrame);
+                cameraFrame = new StereoCameraFrame(cameraFrame.Left,
+                    cameraFrame.Right, cameraFrame.MaximumSkewSeconds +
+                    clockUncertainty);
+                if (!_integrator.SetStereoCameraData(cameraFrame,
+                        _fineObservationDescriptor))
+                    return;
+                _acceptedRgbdObservations++;
+                _maximumRgbdSkewSeconds = Math.Max(
+                    _maximumRgbdSkewSeconds,
+                    cameraFrame.MaximumSkewSeconds);
+            }
+
+            if (!_integrator.TrySubmitObservationAttempt()) return;
+            _lastIntegrationTime = Time.time;
+            _fineCycleArmed = false;
+        }
+
+        private void RestartFineCycleAfterExpiredDepth()
+        {
+            _expiredDepthFrames++;
+            _depthCapture.DiscardReadyDepthFrame();
+            _fineCycleArmed = false;
+        }
+
+        private FineBrushOperation CurrentFineAction()
+        {
+            if (_fineRefineHeld == _fineEraseHeld)
+                return FineBrushOperation.None;
+            return _fineRefineHeld
+                ? FineBrushOperation.Refine : FineBrushOperation.Erase;
+        }
+
+        private bool TryCreateFineDescriptor(FineBrushOperation operation,
+            out FineBrushDescriptor descriptor)
+        {
+            descriptor = default;
+            if (_controllerRay == null ||
+                !_controllerRay.TryGetWorldRay(out Vector3 rayOrigin,
+                    out Vector3 rayDirection) ||
+                !TryGetCyclopeanEyeOrigin(out Vector3 eyeOrigin))
+                return false;
+
+            Vector3 cursorPosition = eyeOrigin + rayDirection * fineToolDepth;
+            if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit,
+                    fineToolDepth, ~0, QueryTriggerInteraction.Collide) &&
+                hit.collider.GetComponentInParent<DebugMenuController>() == null &&
+                (hit.point - eyeOrigin).sqrMagnitude <=
+                fineToolDepth * fineToolDepth)
+                cursorPosition = hit.point;
+            return FineBrushDescriptor.TryCreate(eyeOrigin, cursorPosition,
+                fineBrushAngle, fineToolDepth, operation, out descriptor);
+        }
+
+        private static bool TryGetCyclopeanEyeOrigin(out Vector3 eyeOrigin)
+        {
+            Camera camera = Camera.main;
+            if (camera == null)
+            {
+                eyeOrigin = default;
+                return false;
+            }
+            if (!camera.stereoEnabled)
+            {
+                eyeOrigin = camera.transform.position;
+                return true;
+            }
+            Matrix4x4 left = camera.GetStereoViewMatrix(
+                Camera.StereoscopicEye.Left).inverse;
+            Matrix4x4 right = camera.GetStereoViewMatrix(
+                Camera.StereoscopicEye.Right).inverse;
+            eyeOrigin = ((Vector3)left.GetColumn(3) +
+                         (Vector3)right.GetColumn(3)) * 0.5f;
+            return float.IsFinite(eyeOrigin.x) &&
+                   float.IsFinite(eyeOrigin.y) &&
+                   float.IsFinite(eyeOrigin.z);
         }
 
         private void ArmNextObservation() =>

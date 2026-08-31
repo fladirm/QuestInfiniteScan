@@ -50,6 +50,9 @@ namespace Genesis.RoomScan
         {
             RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null) return;
+            scanner.SetFineHeldActions(
+                OVRInput.Get(OVRInput.RawButton.RIndexTrigger),
+                OVRInput.Get(OVRInput.RawButton.RHandTrigger));
             foreach (ScanInputBinding binding in bindings)
             {
                 if (!binding.enabled || binding.action == ScanAction.None ||

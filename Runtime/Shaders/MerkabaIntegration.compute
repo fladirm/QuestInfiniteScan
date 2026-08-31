@@ -96,6 +96,20 @@ int3 _M8ScanCenterBlock;
 int _M8ScanBlockRadius;
 int _M8ScanBlockSide;
 float4 _M8ScanCoveragePlanes[8];
+uint _M8FineRefineActive;
+float3 _M8FineEyeOrigin;
+float3 _M8FineBrushAxis;
+float _M8FineCosHalfAngleSquared;
+float _M8FineToolDepthSquared;
+
+bool M8FineContains(float3 worldPosition)
+{
+    float3 relative = worldPosition - _M8FineEyeOrigin;
+    float distanceSquared = dot(relative, relative);
+    float axial = dot(relative, _M8FineBrushAxis);
+    return distanceSquared <= _M8FineToolDepthSquared && axial >= 0.0 &&
+        axial * axial >= distanceSquared * _M8FineCosHalfAngleSquared;
+}
 
 uint M8ObservationFailureReason()
 {
@@ -232,9 +246,11 @@ float MerkabaMutationAttentionFromRadial(float3 worldSurface,
     float rayLength = length(ray);
     if (rayLength <= 0.001) return 0.0;
     float incidence = -dot(ray / rayLength, surfaceNormal);
-    if (incidence < MERKABA_REVISION_MIN_INCIDENCE ||
-        radialPosition >= _MerkabaMutationOuterRadius)
+    if (incidence < MERKABA_REVISION_MIN_INCIDENCE)
         return 0.0;
+    if (_M8FineRefineActive != 0u)
+        return M8FineContains(worldSurface) ? 1.0 : 0.0;
+    if (radialPosition >= _MerkabaMutationOuterRadius) return 0.0;
     float transition = saturate((_MerkabaMutationOuterRadius -
         radialPosition) / (_MerkabaMutationOuterRadius -
         MERKABA_MUTATION_INNER_RADIUS));
@@ -244,6 +260,12 @@ float MerkabaMutationAttentionFromRadial(float3 worldSurface,
 float MerkabaMutationAttention(float3 worldSurface, float3 surfaceNormal,
     out float radialPosition)
 {
+    if (_M8FineRefineActive != 0u)
+    {
+        radialPosition = 0.0;
+        return MerkabaMutationAttentionFromRadial(worldSurface,
+            surfaceNormal, radialPosition);
+    }
     if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
         return 0.0;
     return MerkabaMutationAttentionFromRadial(worldSurface, surfaceNormal,
@@ -579,8 +601,14 @@ uint CheapFrozenRayGate(int3 globalCoord, float3 worldPosition,
             return MERKABA_CHEAP_RAY_OUTSIDE_TUBE;
     }
 
-    if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition) ||
-        radialPosition >= _MerkabaMutationOuterRadius)
+    if (_M8FineRefineActive != 0u)
+    {
+        radialPosition = 0.0;
+        if (!M8FineContains(worldSurface))
+            return MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION;
+    }
+    else if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition) ||
+             radialPosition >= _MerkabaMutationOuterRadius)
         return MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION;
     return MERKABA_CHEAP_RAY_CANDIDATE;
 }
@@ -1291,6 +1319,11 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
             surfaceNormal, quality))
         return;
 
+    int3 targetKernel = M8GlobalKernelCoord(physicalSlot, kernelLocal);
+    float3 targetWorld = mul(_MerkabaGridToWorld,
+        float4((float3)targetKernel * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    if (_M8FineRefineActive != 0u && !M8FineContains(targetWorld)) return;
+
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     UpdateOccupancy(physicalSlot, kernelLocal, state,
         max(1, (int)round(quality * quality * MERKABA_SURFACE_SCALE)));
@@ -1521,6 +1554,11 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
     uint bit = 1u << (kernelLocal & 31u);
     uint ignored;
     InterlockedAdd(gCarveStats[0], 1u, ignored);
+    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
+    float3 worldPosition = mul(_MerkabaGridToWorld,
+        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
+    if (_M8FineRefineActive != 0u && !M8FineContains(worldPosition)) return;
+
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     bool occupiedBefore = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
     bool alreadyStrongFree = !occupiedBefore &&
@@ -1538,9 +1576,6 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
         return;
     }
 
-    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
-    float3 worldPosition = mul(_MerkabaGridToWorld,
-        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
     int observationKind = 0;
     float evidenceWeight = 0.0;
     int3 replacementCoord = 0;

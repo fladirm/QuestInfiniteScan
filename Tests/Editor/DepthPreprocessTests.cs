@@ -128,7 +128,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(consume, Does.Contain(
                 "_depthTex = _ownedRawDepth[_heldDepthSlot];"));
             Assert.That(consume, Does.Contain(
-                "ApplyStereoRgbdRefinement(command, cameraFrame);"));
+                "ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);"));
             Assert.That(consume, Does.Not.Contain("ComputeNormals(command);"));
             Assert.That(consume, Does.Contain("ComputeDilation(command);"));
             Assert.That(consume, Does.Contain("_heldDepthSlot = _readyDepthSlot;"));

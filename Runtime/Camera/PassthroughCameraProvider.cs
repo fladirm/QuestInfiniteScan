@@ -217,20 +217,40 @@ namespace Genesis.RoomScan
             double depthUnixSeconds, double maximumSkewSeconds,
             out StereoCameraFrame frame)
         {
+            return TryGetSynchronizedFrame(depthUnixSeconds,
+                maximumSkewSeconds, 0u, 0u, out frame);
+        }
+
+        internal StereoFrameMatch TryGetSynchronizedFrame(
+            double depthUnixSeconds, double maximumSkewSeconds,
+            uint minimumLeftSequenceExclusive,
+            uint minimumRightSequenceExclusive,
+            out StereoCameraFrame frame)
+        {
             frame = default;
             if (!IsReady || !double.IsFinite(depthUnixSeconds) ||
                 maximumSkewSeconds <= 0.0)
                 return StereoFrameMatch.Waiting;
 
             return MatchFrameHistory(_history[0], _history[1],
-                depthUnixSeconds, maximumSkewSeconds, out frame);
+                depthUnixSeconds, maximumSkewSeconds, out frame,
+                minimumLeftSequenceExclusive,
+                minimumRightSequenceExclusive);
+        }
+
+        internal void GetLatestSequences(out uint left, out uint right)
+        {
+            left = _sequence[0];
+            right = _sequence[1];
         }
 
         internal static StereoFrameMatch MatchFrameHistory(
             IReadOnlyList<CameraFrameDescriptor> leftSources,
             IReadOnlyList<CameraFrameDescriptor> rightSources,
             double depthUnixSeconds, double maximumSkewSeconds,
-            out StereoCameraFrame frame)
+            out StereoCameraFrame frame,
+            uint minimumLeftSequenceExclusive = 0u,
+            uint minimumRightSequenceExclusive = 0u)
         {
             frame = default;
             if (leftSources == null || rightSources == null ||
@@ -252,6 +272,9 @@ namespace Genesis.RoomScan
                 CameraFrameDescriptor left = leftSources[leftIndex];
                 if (!left.HasCoherentTime || left.Eye != StereoEye.Left)
                     continue;
+                if (minimumLeftSequenceExclusive != 0u &&
+                    left.Sequence <= minimumLeftSequenceExclusive)
+                    continue;
                 hasLeft = true;
                 latestLeft = Math.Max(latestLeft, left.TimestampUnixSeconds);
                 for (int rightIndex = 0; rightIndex < rightSources.Count;
@@ -260,6 +283,9 @@ namespace Genesis.RoomScan
                     CameraFrameDescriptor right = rightSources[rightIndex];
                     if (!right.HasCoherentTime ||
                         right.Eye != StereoEye.Right)
+                        continue;
+                    if (minimumRightSequenceExclusive != 0u &&
+                        right.Sequence <= minimumRightSequenceExclusive)
                         continue;
                     hasRight = true;
                     latestRight = Math.Max(latestRight,
@@ -295,6 +321,9 @@ namespace Genesis.RoomScan
             {
                 CameraFrameDescriptor right = rightSources[rightIndex];
                 if (!right.HasCoherentTime || right.Eye != StereoEye.Right)
+                    continue;
+                if (minimumRightSequenceExclusive != 0u &&
+                    right.Sequence <= minimumRightSequenceExclusive)
                     continue;
                 hasRight = true;
                 latestRight = Math.Max(latestRight,
