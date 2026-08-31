@@ -1283,16 +1283,16 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void Quest3DepthKernels_UseTwoDimensionalSixtyFourLaneGroups()
+        public void Quest3DepthKernels_UseBoundedWorkgroups()
         {
             string depth = Source("Runtime/Shaders/DepthNormals.compute") +
                 Source("Runtime/Shaders/DepthDilation.compute") +
                 Source("Runtime/Shaders/StereoRgbdRefine.compute");
             Assert.That(Regex.Matches(depth, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(5));
+                RegexOptions.Multiline), Has.Count.EqualTo(6));
             Assert.That(Regex.Matches(depth,
                 @"\[numthreads\(8,\s*8,\s*1\)\]"), Has.Count.EqualTo(5));
-            Assert.That(depth, Does.Not.Contain("[numthreads(1, 1, 1)]"));
+            Assert.That(depth, Does.Contain("[numthreads(1, 1, 1)]"));
             string refine = Source(
                 "Runtime/Shaders/StereoRgbdRefine.compute");
             Assert.That(refine, Does.Contain(
@@ -1389,7 +1389,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 56"));
+            Assert.That(audit, Does.Contain("kernel_count != 57"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));

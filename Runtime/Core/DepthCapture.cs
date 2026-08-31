@@ -102,6 +102,26 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8FineCosHalfAngleSquared");
         private static readonly int RefineFineToolDepthSquaredId =
             Shader.PropertyToID("_M8FineToolDepthSquared");
+        private static readonly int FineDepthId =
+            Shader.PropertyToID("gsFineDepth");
+        private static readonly int FineTargetId =
+            Shader.PropertyToID("gsFineTarget");
+        private static readonly int FineDepthProjId =
+            Shader.PropertyToID("gsFineDepthProj");
+        private static readonly int FineDepthProjInvId =
+            Shader.PropertyToID("gsFineDepthProjInv");
+        private static readonly int FineDepthViewId =
+            Shader.PropertyToID("gsFineDepthView");
+        private static readonly int FineDepthViewInvId =
+            Shader.PropertyToID("gsFineDepthViewInv");
+        private static readonly int FineRayOriginId =
+            Shader.PropertyToID("gsFineRayOrigin");
+        private static readonly int FineRayDirectionId =
+            Shader.PropertyToID("gsFineRayDirection");
+        private static readonly int FineMaxDistanceId =
+            Shader.PropertyToID("gsFineMaxDistance");
+        private static readonly int FineDepthSizeId =
+            Shader.PropertyToID("gsFineDepthSize");
         private static readonly int[] RefineCameraRgbId =
         {
             Shader.PropertyToID("_MerkabaCameraRgbLeft"),
@@ -155,6 +175,7 @@ namespace Genesis.RoomScan
 
         private ComputeKernelHelper _projectionDepthCopyKernel;
         private ComputeKernelHelper _monoConvertKernel;
+        private ComputeKernelHelper _fineSurfaceTargetKernel;
         private ComputeKernelHelper _initDilateKernel;
         private ComputeKernelHelper _dilateStepKernel;
         private ComputeKernelHelper _stereoRgbdRefineKernel;
@@ -188,6 +209,12 @@ namespace Genesis.RoomScan
         private ComputeBuffer _refineMetrics;
         private int _refineMetricValueCount;
         private uint _refineMetricsRevision;
+        private ComputeBuffer _fineSurfaceTarget;
+        private bool _fineSurfaceTargetReadbackPending;
+        private bool _fineSurfaceTargetValid;
+        private Vector3 _fineSurfaceTargetWorld;
+        private float _nextFineSurfaceTarget;
+        private uint _fineSurfaceTargetGeneration = 1u;
 
         private AROcclusionManager _arOcclusionManager;
         private Camera _mainCam;
@@ -215,6 +242,8 @@ namespace Genesis.RoomScan
             ? _ownedRawDepth[_readyDepthSlot]
             : _heldDepthSlot >= 0 ? _ownedRawDepth[_heldDepthSlot] : null;
         internal ComputeBuffer RefineMetrics => _refineMetrics;
+        internal bool FineSurfaceTargetReadbackPending =>
+            _fineSurfaceTargetReadbackPending;
         public bool HasUnprocessedFrame => DepthAvailable &&
             _readyDepthSlot >= 0 && _heldDepthSlot < 0 &&
             _ownedRawDepth[_readyDepthSlot] != null &&
@@ -254,6 +283,8 @@ namespace Genesis.RoomScan
             _projectionDepthCopyKernel = new ComputeKernelHelper(depthNormalCompute,
                 "CopyProjectionDepthArray");
             _monoConvertKernel = new ComputeKernelHelper(depthNormalCompute, "MonoRawDepthToStereo");
+            _fineSurfaceTargetKernel = new ComputeKernelHelper(depthNormalCompute,
+                "FineSurfaceTarget");
             _initDilateKernel = new ComputeKernelHelper(depthDilationCompute, "InitDepthDilation");
             _dilateStepKernel = new ComputeKernelHelper(depthDilationCompute, "DilateDepthStep");
             MerkabaGpuTimestamps.RegisterKernel(depthNormalCompute,
@@ -506,6 +537,19 @@ namespace Genesis.RoomScan
                 _refineMetrics.Release();
                 _refineMetrics = null;
             }
+            if (_fineSurfaceTarget != null)
+            {
+                _fineSurfaceTarget.Release();
+                _fineSurfaceTarget = null;
+            }
+            unchecked
+            {
+                _fineSurfaceTargetGeneration++;
+                if (_fineSurfaceTargetGeneration == 0u)
+                    _fineSurfaceTargetGeneration = 1u;
+            }
+            _fineSurfaceTargetReadbackPending = false;
+            _fineSurfaceTargetValid = false;
             _refineMetricValueCount = 0;
             _refineMetricsRevision = 0u;
             _dilatedDepth = null;
@@ -526,6 +570,7 @@ namespace Genesis.RoomScan
                 _ownedRawDepth[0], _ownedRawDepth[1], _refinedDepthTex
             };
             ComputeBuffer capturedRefineMetrics = _refineMetrics;
+            ComputeBuffer capturedFineTarget = _fineSurfaceTarget;
             bool released = false;
             return () =>
             {
@@ -539,7 +584,89 @@ namespace Genesis.RoomScan
                 foreach (UnityEngine.Object resource in captured)
                     if (resource != null) UnityEngine.Object.Destroy(resource);
                 capturedRefineMetrics?.Release();
+                capturedFineTarget?.Release();
             };
+        }
+
+        internal bool TryUpdateFineSurfaceTarget(Vector3 rayOrigin,
+            Vector3 rayDirection, float maximumDistance, bool allowSubmit,
+            out Vector3 worldTarget)
+        {
+            worldTarget = _fineSurfaceTargetWorld;
+            if (!allowSubmit || _fineSurfaceTargetReadbackPending ||
+                Time.unscaledTime < _nextFineSurfaceTarget)
+                return _fineSurfaceTargetValid;
+            if (_readyDepthSlot < 0)
+            {
+                RequestNextDepthFrame();
+                return _fineSurfaceTargetValid;
+            }
+            int slot = _readyDepthSlot;
+            RenderTexture depth = _ownedRawDepth[slot];
+            if (depth == null || maximumDistance <= 0f ||
+                rayDirection.sqrMagnitude <= 1e-8f)
+                return _fineSurfaceTargetValid;
+
+            _fineSurfaceTarget ??= new ComputeBuffer(1, 16,
+                ComputeBufferType.Structured)
+            {
+                name = "Fine controller-depth surface target"
+            };
+            rayDirection.Normalize();
+            CommandBuffer command = CommandBufferPool.Get(
+                "Fine controller-depth surface target");
+            int kernel = _fineSurfaceTargetKernel.KernelIndex;
+            command.SetComputeTextureParam(depthNormalCompute, kernel,
+                FineDepthId, depth);
+            command.SetComputeBufferParam(depthNormalCompute, kernel,
+                FineTargetId, _fineSurfaceTarget);
+            command.SetComputeMatrixParam(depthNormalCompute, FineDepthProjId,
+                _ownedProj[slot, 0]);
+            command.SetComputeMatrixParam(depthNormalCompute,
+                FineDepthProjInvId, _ownedProjInv[slot, 0]);
+            command.SetComputeMatrixParam(depthNormalCompute, FineDepthViewId,
+                _ownedView[slot, 0]);
+            command.SetComputeMatrixParam(depthNormalCompute,
+                FineDepthViewInvId, _ownedViewInv[slot, 0]);
+            command.SetComputeVectorParam(depthNormalCompute, FineRayOriginId,
+                rayOrigin);
+            command.SetComputeVectorParam(depthNormalCompute,
+                FineRayDirectionId, rayDirection);
+            command.SetComputeFloatParam(depthNormalCompute,
+                FineMaxDistanceId, maximumDistance);
+            command.SetComputeVectorParam(depthNormalCompute, FineDepthSizeId,
+                new Vector4(depth.width, depth.height, 0f, 0f));
+            command.DispatchCompute(depthNormalCompute, kernel, 1, 1, 1);
+            Graphics.ExecuteCommandBuffer(command);
+            CommandBufferPool.Release(command);
+
+            _fineSurfaceTargetReadbackPending = true;
+            _nextFineSurfaceTarget = Time.unscaledTime + 1f / 15f;
+            int version = _ownedVersions[slot];
+            uint generation = _fineSurfaceTargetGeneration;
+            AsyncGPUReadback.Request(_fineSurfaceTarget, request =>
+            {
+                if (generation != _fineSurfaceTargetGeneration) return;
+                _fineSurfaceTargetReadbackPending = false;
+                if (!request.hasError)
+                {
+                    Unity.Collections.NativeArray<Vector4> values =
+                        request.GetData<Vector4>();
+                    _fineSurfaceTargetValid = values.Length == 1 &&
+                        values[0].w > 0.5f;
+                    if (_fineSurfaceTargetValid)
+                        _fineSurfaceTargetWorld = values[0];
+                }
+                else
+                    _fineSurfaceTargetValid = false;
+                if (_readyDepthSlot == slot &&
+                    _ownedVersions[slot] == version && _heldDepthSlot < 0)
+                {
+                    _processedRawFrameVersion = version;
+                    _readyDepthSlot = -1;
+                }
+            });
+            return _fineSurfaceTargetValid;
         }
 
         internal bool TryGetRefineMetrics(uint revision,

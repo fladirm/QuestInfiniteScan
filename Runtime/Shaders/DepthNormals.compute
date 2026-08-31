@@ -5,6 +5,7 @@ RWTexture2DArray<float> gsDepthTexRW;
 float4 gsDepthZParams;
 
 #pragma kernel CopyProjectionDepthArray
+#pragma kernel FineSurfaceTarget
 
 // Quest Environment Depth is an external depth attachment with no portable
 // colour GraphicsFormat. Materialize it while the AR frame is current by
@@ -16,6 +17,110 @@ void CopyProjectionDepthArray(uint3 id : SV_DispatchThreadID)
     gsInputProjectionDepth.GetDimensions(width, height, slices);
     if (id.x >= width || id.y >= height || id.z >= min(slices, 2u)) return;
     gsDepthTexRW[id] = gsInputProjectionDepth[id];
+}
+
+// Presentation-only controller-ray target on the latest immutable Environment
+// Depth snapshot. The mutation brush uses the returned world hit; this kernel
+// does not alter raw depth or canonical M8 state.
+Texture2DArray<float> gsFineDepth;
+RWStructuredBuffer<float4> gsFineTarget;
+float4x4 gsFineDepthProj;
+float4x4 gsFineDepthProjInv;
+float4x4 gsFineDepthView;
+float4x4 gsFineDepthViewInv;
+float3 gsFineRayOrigin;
+float gsFineMaxDistance;
+float3 gsFineRayDirection;
+uint2 gsFineDepthSize;
+
+bool FineLoadWorld(int2 pixel, out float3 worldPosition)
+{
+    worldPosition = 0.0;
+    if (pixel.x < 0 || pixel.y < 0 ||
+        pixel.x >= (int)gsFineDepthSize.x ||
+        pixel.y >= (int)gsFineDepthSize.y)
+        return false;
+    float depth = gsFineDepth.Load(int4(pixel, 0, 0));
+    if (depth <= 0.0 || depth >= 1.0) return false;
+    float2 uv = (float2(pixel) + 0.5) / float2(gsFineDepthSize);
+    float4 clip = float4(float3(uv, depth) * 2.0 - 1.0, 1.0);
+    float4 world = mul(gsFineDepthViewInv,
+        mul(gsFineDepthProjInv, clip));
+    worldPosition = world.xyz / world.w;
+    return all(worldPosition == worldPosition) &&
+        all(abs(worldPosition) < 1.0e20);
+}
+
+bool FineProjectPixel(float3 worldPosition, out float2 pixel)
+{
+    float4 view = mul(gsFineDepthView, float4(worldPosition, 1.0));
+    float4 clip = mul(gsFineDepthProj, view);
+    if (view.z >= -0.001 || clip.w <= 0.0)
+    {
+        pixel = -1.0;
+        return false;
+    }
+    float2 uv = clip.xy / clip.w * 0.5 + 0.5;
+    pixel = uv * float2(gsFineDepthSize) - 0.5;
+    return all(uv > 0.0) && all(uv < 1.0);
+}
+
+bool FineDepthPlane(int2 pixel, out float3 centerWorld, out float3 normal)
+{
+    float3 x0, x1, y0, y1;
+    if (!FineLoadWorld(pixel, centerWorld) ||
+        !FineLoadWorld(pixel + int2(-1, 0), x0) ||
+        !FineLoadWorld(pixel + int2(1, 0), x1) ||
+        !FineLoadWorld(pixel + int2(0, -1), y0) ||
+        !FineLoadWorld(pixel + int2(0, 1), y1))
+    {
+        normal = 0.0;
+        return false;
+    }
+    normal = cross(x1 - x0, y1 - y0);
+    float lengthSquared = dot(normal, normal);
+    if (lengthSquared <= 1.0e-12) return false;
+    normal *= rsqrt(lengthSquared);
+    return true;
+}
+
+[numthreads(1, 1, 1)]
+void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)
+{
+    float bestDistance = gsFineMaxDistance + 1.0;
+    float3 bestHit = 0.0;
+    // Sampling along the controller ray only selects depth pixels. The final
+    // target is the exact ray/local-depth-plane intersection, not a sampled
+    // point at one of these steps.
+    [loop]
+    for (uint step = 0u; step < 128u; step++)
+    {
+        float sampleDistance = gsFineMaxDistance *
+            ((float(step) + 0.5) / 128.0);
+        float3 rayPoint = gsFineRayOrigin +
+            gsFineRayDirection * sampleDistance;
+        float2 projectedPixel;
+        if (!FineProjectPixel(rayPoint, projectedPixel)) continue;
+        int2 centerPixel = int2(floor(projectedPixel + 0.5));
+        float3 planePoint, planeNormal;
+        if (!FineDepthPlane(centerPixel, planePoint, planeNormal)) continue;
+        float denominator = dot(gsFineRayDirection, planeNormal);
+        if (abs(denominator) <= 1.0e-6) continue;
+        float hitDistance = dot(planePoint - gsFineRayOrigin, planeNormal) /
+            denominator;
+        if (hitDistance <= 0.0 || hitDistance > gsFineMaxDistance ||
+            hitDistance >= bestDistance)
+            continue;
+        float3 hit = gsFineRayOrigin + gsFineRayDirection * hitDistance;
+        float2 hitPixel;
+        if (!FineProjectPixel(hit, hitPixel) ||
+            any(abs(hitPixel - float2(centerPixel)) > 1.5))
+            continue;
+        bestDistance = hitDistance;
+        bestHit = hit;
+    }
+    gsFineTarget[0] = bestDistance <= gsFineMaxDistance
+        ? float4(bestHit, 1.0) : 0.0;
 }
 
 // Editor simulation: convert mono linear depth to stereo NDC depth.

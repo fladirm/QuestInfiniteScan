@@ -60,9 +60,19 @@ namespace Genesis.RoomScan.Tests
                 "axial * axial >=\n                        distanceSquared * _FineBrushParams.y"));
             Assert.That(shader, Does.Contain(
                 "distanceSquared <= _FineBrushParams.z"));
-            Assert.That(controller, Does.Not.Contain("capRings"));
+            Assert.That(controller, Does.Not.Contain("FineBrushCone"));
+            Assert.That(controller, Does.Not.Contain("BuildFineConeMesh"));
             Assert.That(controller, Does.Contain(
                 "cursorTint.a = Mathf.Max(0.55f, color.a) * 0.5f"));
+            Assert.That(scanner, Does.Contain(
+                "TryUpdateFineSurfaceTarget(rayOrigin,"));
+            Assert.That(scanner, Does.Not.Contain(
+                "eyeOrigin + rayDirection * fineToolDepth"));
+            string depthTarget = Source("Runtime/Shaders/DepthNormals.compute");
+            Assert.That(depthTarget, Does.Contain(
+                "void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)"));
+            Assert.That(depthTarget, Does.Contain(
+                "gsFineRayOrigin + gsFineRayDirection * hitDistance"));
         }
 
         [Test]

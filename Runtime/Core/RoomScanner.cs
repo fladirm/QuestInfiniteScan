@@ -508,6 +508,7 @@ namespace Genesis.RoomScan
 
             if (!_fineCycleArmed)
             {
+                if (_depthCapture.FineSurfaceTargetReadbackPending) return;
                 if (!TryCreateFineDescriptor(FineBrushOperation.Refine,
                         out _fineObservationDescriptor))
                     return;
@@ -610,7 +611,8 @@ namespace Genesis.RoomScan
                 !TryGetCyclopeanEyeOrigin(out Vector3 eyeOrigin))
                 return false;
 
-            Vector3 cursorPosition = eyeOrigin + rayDirection * fineToolDepth;
+            Vector3 cursorPosition;
+            bool allowDepthTarget = operation == FineBrushOperation.Preview;
             if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit,
                     fineToolDepth, ~0, QueryTriggerInteraction.Collide) &&
                 hit.collider.GetComponentInParent<DebugMenuController>() == null &&
@@ -620,6 +622,15 @@ namespace Genesis.RoomScan
                 cursorPosition = hit.point;
                 cursorOnSurface = true;
             }
+            else if (_depthCapture.TryUpdateFineSurfaceTarget(rayOrigin,
+                         rayDirection, fineToolDepth, allowDepthTarget,
+                         out Vector3 depthTarget))
+            {
+                cursorPosition = depthTarget;
+                cursorOnSurface = true;
+            }
+            else
+                return false;
             return FineBrushDescriptor.TryCreate(eyeOrigin, cursorPosition,
                 fineBrushAngle, fineToolDepth, operation, out descriptor);
         }
