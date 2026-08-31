@@ -217,6 +217,7 @@ namespace Genesis.RoomScan
         private bool _fineSurfaceTargetReadbackPending;
         private bool _fineSurfaceTargetValid;
         private Vector3 _fineSurfaceTargetWorld;
+        private Vector3 _fineSurfaceTargetNormal;
         private float _nextFineSurfaceTarget;
         private uint _fineSurfaceTargetGeneration = 1u;
 
@@ -716,9 +717,10 @@ namespace Genesis.RoomScan
 
         internal bool TryUpdateFineSurfaceTarget(Vector3 rayOrigin,
             Vector3 rayDirection, float maximumDistance, bool allowSubmit,
-            out Vector3 worldTarget)
+            out Vector3 worldTarget, out Vector3 worldNormal)
         {
             worldTarget = _fineSurfaceTargetWorld;
+            worldNormal = _fineSurfaceTargetNormal;
             if (!allowSubmit || _fineSurfaceTargetReadbackPending ||
                 Time.unscaledTime < _nextFineSurfaceTarget)
                 return _fineSurfaceTargetValid;
@@ -733,7 +735,7 @@ namespace Genesis.RoomScan
                 rayDirection.sqrMagnitude <= 1e-8f)
                 return _fineSurfaceTargetValid;
 
-            _fineSurfaceTarget ??= new ComputeBuffer(1, 16,
+            _fineSurfaceTarget ??= new ComputeBuffer(2, 16,
                 ComputeBufferType.Structured)
             {
                 name = "Fine controller-depth surface target"
@@ -778,10 +780,14 @@ namespace Genesis.RoomScan
                 {
                     Unity.Collections.NativeArray<Vector4> values =
                         request.GetData<Vector4>();
-                    _fineSurfaceTargetValid = values.Length == 1 &&
-                        values[0].w > 0.5f;
+                    _fineSurfaceTargetValid = values.Length == 2 &&
+                        values[0].w > 0.5f &&
+                        ((Vector3)values[1]).sqrMagnitude > 1e-10f;
                     if (_fineSurfaceTargetValid)
+                    {
                         _fineSurfaceTargetWorld = values[0];
+                        _fineSurfaceTargetNormal = ((Vector3)values[1]).normalized;
+                    }
                 }
                 else
                     _fineSurfaceTargetValid = false;

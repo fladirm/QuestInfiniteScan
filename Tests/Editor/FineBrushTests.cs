@@ -13,7 +13,8 @@ namespace Genesis.RoomScan.Tests
         public void ExactConeUsesFullApexAngleAndRadialDepth()
         {
             Assert.That(FineBrushDescriptor.TryCreate(Vector3.zero,
-                Vector3.forward, 60f, 2f, FineBrushOperation.Refine,
+                Vector3.forward, Vector3.back, 60f, 2f,
+                FineBrushOperation.Refine,
                 out FineBrushDescriptor brush), Is.True);
 
             float half = 30f * Mathf.Deg2Rad;
@@ -31,12 +32,15 @@ namespace Genesis.RoomScan.Tests
         {
             Vector3 eye = new(2f, -1f, 3f);
             Vector3 cursor = new(-1f, 4f, 7f);
-            Assert.That(FineBrushDescriptor.TryCreate(eye, cursor, 20f, 4f,
-                FineBrushOperation.Preview, out FineBrushDescriptor brush),
+            Assert.That(FineBrushDescriptor.TryCreate(eye, cursor,
+                Vector3.back, 20f, 4f, FineBrushOperation.Preview,
+                out FineBrushDescriptor brush),
                 Is.True);
             Assert.That(Vector3.Dot(brush.Axis,
                 (cursor - eye).normalized), Is.EqualTo(1f).Within(1e-6f));
             Assert.That(brush.CursorPosition, Is.EqualTo(cursor));
+            Assert.That(Vector3.Dot(brush.SurfaceNormal, eye - cursor),
+                Is.GreaterThanOrEqualTo(0f));
         }
 
         [Test]
@@ -63,6 +67,12 @@ namespace Genesis.RoomScan.Tests
             Assert.That(controller, Does.Not.Contain("FineBrushCone"));
             Assert.That(controller, Does.Not.Contain("BuildFineConeMesh"));
             Assert.That(controller, Does.Contain(
+                "float radius = targetDistance * Mathf.Tan(halfAngle)"));
+            Assert.That(controller, Does.Contain(
+                "Quaternion.FromToRotation(Vector3.up, surfaceNormal)"));
+            Assert.That(controller, Does.Contain(
+                "descriptor.CursorPosition + surfaceNormal * 0.001f"));
+            Assert.That(controller, Does.Contain(
                 "cursorTint.a = Mathf.Max(0.55f, color.a) * 0.5f"));
             Assert.That(scanner, Does.Contain(
                 "TryUpdateFineSurfaceTarget(rayOrigin,"));
@@ -78,6 +88,8 @@ namespace Genesis.RoomScan.Tests
                 "void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)"));
             Assert.That(depthTarget, Does.Contain(
                 "gsFineRayOrigin + gsFineRayDirection * hitDistance"));
+            Assert.That(depthTarget, Does.Contain(
+                "gsFineTarget[1] = valid ? float4(bestNormal, 0.0)"));
         }
 
         [Test]
@@ -120,6 +132,12 @@ namespace Genesis.RoomScan.Tests
                 "                        out _fineObservationDescriptor)"));
             Assert.That(scanner, Does.Contain(
                 "TryCreateFineDescriptor(FineBrushOperation.Erase,"));
+            Assert.That(scanner, Does.Contain(
+                "TryGetPendingFineDescriptor(action,"));
+            Assert.That(scanner, Does.Contain(
+                "_finePreviewDescriptor = pendingDescriptor;"));
+            Assert.That(scanner, Does.Contain(
+                "Vector3.Distance(eyeOrigin, cursorPosition)"));
             Assert.That(scanner, Does.Contain("_fineCycleArmed = false;"));
             Assert.That(target, Does.Contain(
                 "if (!allowSubmit || _fineSurfaceTargetReadbackPending"));
@@ -127,6 +145,8 @@ namespace Genesis.RoomScan.Tests
                 "worldTarget = _fineSurfaceTargetWorld;"));
             Assert.That(target, Does.Contain(
                 "_fineSurfaceTargetReadbackPending = true;"));
+            Assert.That(target, Does.Contain(
+                "new ComputeBuffer(2, 16,"));
         }
 
         [Test]
@@ -191,6 +211,10 @@ namespace Genesis.RoomScan.Tests
                 System.StringComparison.Ordinal);
             string erase = integration.Substring(eraseStart,
                 eraseEnd - eraseStart);
+            Assert.That(erase, Does.Contain(
+                "gridPosition + normalGrid * signedOffset"));
+            Assert.That(erase, Does.Contain(
+                "M8HasSurfacePlane(state.flags)"));
             Assert.That(erase, Does.Not.Contain("UpdateOccupancy"));
             Assert.That(erase, Does.Not.Contain("MERKABA_FREE_SCALE"));
             Assert.That(erase, Does.Not.Contain("gsDepth"));

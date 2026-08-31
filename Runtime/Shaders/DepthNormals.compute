@@ -89,6 +89,7 @@ void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)
 {
     float bestDistance = gsFineMaxDistance + 1.0;
     float3 bestHit = 0.0;
+    float3 bestNormal = 0.0;
     // Sampling along the controller ray only selects depth pixels. The final
     // target is the exact ray/local-depth-plane intersection, not a sampled
     // point at one of these steps.
@@ -118,9 +119,11 @@ void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)
             continue;
         bestDistance = hitDistance;
         bestHit = hit;
+        bestNormal = planeNormal;
     }
-    gsFineTarget[0] = bestDistance <= gsFineMaxDistance
-        ? float4(bestHit, 1.0) : 0.0;
+    bool valid = bestDistance <= gsFineMaxDistance;
+    gsFineTarget[0] = valid ? float4(bestHit, 1.0) : 0.0;
+    gsFineTarget[1] = valid ? float4(bestNormal, 0.0) : 0.0;
 }
 
 // Editor simulation: convert mono linear depth to stereo NDC depth.

@@ -70,6 +70,7 @@ namespace Genesis.RoomScan
         private uint _fineMinimumLeftSequence;
         private uint _fineMinimumRightSequence;
         private FineBrushDescriptor _fineObservationDescriptor;
+        private FineBrushDescriptor _fineEraseDescriptor;
         private FineBrushDescriptor _finePreviewDescriptor;
 
         public bool IsScanning { get; private set; }
@@ -103,6 +104,7 @@ namespace Genesis.RoomScan
                 if (!fineMode)
                 {
                     _fineObservationDescriptor = default;
+                    _fineEraseDescriptor = default;
                     _integrator?.RestoreReadyAutomaticObservationAuthority();
                     _finePreviewDescriptor = default;
                     _controllerRay?.SetFineBrushPreview(default,
@@ -539,9 +541,21 @@ namespace Genesis.RoomScan
             FineBrushOperation action = CurrentFineAction();
             FineBrushOperation previewOperation = action ==
                 FineBrushOperation.None ? FineBrushOperation.Preview : action;
-            if (!TryCreateFineDescriptor(previewOperation,
-                    out _finePreviewDescriptor, out bool cursorOnSurface))
+            bool hasLiveDescriptor = TryCreateFineDescriptor(previewOperation,
+                out FineBrushDescriptor liveDescriptor,
+                out bool cursorOnSurface);
+            if (TryGetPendingFineDescriptor(action,
+                    out FineBrushDescriptor pendingDescriptor))
             {
+                _finePreviewDescriptor = pendingDescriptor;
+                cursorOnSurface = true;
+                action = pendingDescriptor.Operation;
+            }
+            else if (hasLiveDescriptor)
+                _finePreviewDescriptor = liveDescriptor;
+            else
+            {
+                _finePreviewDescriptor = default;
                 _controllerRay.SetFineBrushPreview(default,
                     FineBrushOperation.None);
                 _renderer?.SetFineSurfacePreview(default, Color.clear);
@@ -553,11 +567,33 @@ namespace Genesis.RoomScan
             _renderer?.SetFineSurfacePreview(_finePreviewDescriptor, color);
         }
 
+        private bool TryGetPendingFineDescriptor(FineBrushOperation action,
+            out FineBrushDescriptor descriptor)
+        {
+            if (_integrator != null && _integrator.HasPendingFineErase &&
+                _fineEraseDescriptor.IsErase)
+            {
+                descriptor = _fineEraseDescriptor;
+                return true;
+            }
+            if (_fineObservationDescriptor.IsRefine &&
+                ((_fineCycleArmed && action == FineBrushOperation.Refine) ||
+                 (_integrator?.HasPendingObservation ?? false)))
+            {
+                descriptor = _fineObservationDescriptor;
+                return true;
+            }
+            descriptor = default;
+            return false;
+        }
+
         private void UpdateFineRefine()
         {
             if (CurrentFineAction() != FineBrushOperation.Refine)
             {
                 _fineCycleArmed = false;
+                if (!(_integrator?.HasPendingObservation ?? false))
+                    _fineObservationDescriptor = default;
                 return;
             }
 
@@ -627,9 +663,10 @@ namespace Genesis.RoomScan
                 return;
             if (!TryCreateFineDescriptor(FineBrushOperation.Erase,
                     out FineBrushDescriptor descriptor) ||
-                !_integrator.TryPrepareFineErase(descriptor) ||
-                !_integrator.TrySubmitFineEraseAttempt())
+                !_integrator.TryPrepareFineErase(descriptor))
                 return;
+            _fineEraseDescriptor = descriptor;
+            if (!_integrator.TrySubmitFineEraseAttempt()) return;
             _lastIntegrationTime = Time.time;
         }
 
@@ -667,11 +704,14 @@ namespace Genesis.RoomScan
 
             if (!_depthCapture.TryUpdateFineSurfaceTarget(rayOrigin,
                     rayDirection, fineToolDepth, true,
-                    out Vector3 cursorPosition))
+                    out Vector3 cursorPosition, out Vector3 surfaceNormal))
                 return false;
             cursorOnSurface = true;
+            float targetDepth = Mathf.Min(fineToolDepth,
+                Vector3.Distance(eyeOrigin, cursorPosition));
             return FineBrushDescriptor.TryCreate(eyeOrigin, cursorPosition,
-                fineBrushAngle, fineToolDepth, operation, out descriptor);
+                surfaceNormal, fineBrushAngle, targetDepth, operation,
+                out descriptor);
         }
 
         private static bool TryGetCyclopeanEyeOrigin(out Vector3 eyeOrigin)
@@ -746,6 +786,7 @@ namespace Genesis.RoomScan
 
         private void OnFineErased()
         {
+            _fineEraseDescriptor = default;
             _renderer?.MarkCanonicalReadoutDirty();
             Integrated?.Invoke();
         }

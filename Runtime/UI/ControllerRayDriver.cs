@@ -34,6 +34,9 @@ namespace Genesis.RoomScan.UI
         private GameObject _fineCursor;
         private MeshRenderer _fineCursorRenderer;
         private MaterialPropertyBlock _fineProperties;
+        private bool _fineTargetVisible;
+        private Vector3 _fineTargetPosition;
+        private FineBrushOperation _fineTargetOperation;
         private OVRInput.Controller _activeController = OVRInput.Controller.None;
         private bool _hasTrackedPose;
         private int _uiLayerMask;
@@ -115,13 +118,23 @@ namespace Genesis.RoomScan.UI
             FineBrushOperation operation, bool cursorOnSurface = false)
         {
             bool visible = descriptor.IsActive && _fineCursor != null;
+            _fineTargetVisible = visible && cursorOnSurface;
+            _fineTargetPosition = descriptor.CursorPosition;
+            _fineTargetOperation = operation;
             if (_fineCursor != null)
-                _fineCursor.SetActive(visible && cursorOnSurface);
-            if (!visible) return;
+                _fineCursor.SetActive(_fineTargetVisible);
+            if (!_fineTargetVisible) return;
 
+            float targetDistance = Mathf.Sqrt(descriptor.ToolDepthSquared);
+            float halfAngle = Mathf.Acos(Mathf.Sqrt(Mathf.Clamp01(
+                descriptor.CosHalfAngleSquared)));
+            float radius = targetDistance * Mathf.Tan(halfAngle);
+            Vector3 surfaceNormal = descriptor.SurfaceNormal;
             _fineCursor.transform.SetPositionAndRotation(
-                descriptor.CursorPosition,
-                Quaternion.FromToRotation(Vector3.up, descriptor.Axis));
+                descriptor.CursorPosition + surfaceNormal * 0.001f,
+                Quaternion.FromToRotation(Vector3.up, surfaceNormal));
+            _fineCursor.transform.localScale = new Vector3(radius * 2f,
+                0.0005f, radius * 2f);
 
             Color color = GetFineBrushPreviewColor(operation);
             _fineProperties ??= new MaterialPropertyBlock();
@@ -201,7 +214,6 @@ namespace Genesis.RoomScan.UI
         {
             _fineCursor = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             _fineCursor.name = "FineBrushCursor";
-            _fineCursor.transform.SetParent(transform, false);
             _fineCursor.transform.localScale = new Vector3(0.018f, 0.001f,
                 0.018f);
             Collider collider = _fineCursor.GetComponent<Collider>();
@@ -223,14 +235,18 @@ namespace Genesis.RoomScan.UI
             bool hovering = false;
             if (Physics.Raycast(origin, direction, out RaycastHit hit,
                     maxLength + rayStartOffset, _uiLayerMask,
-                    QueryTriggerInteraction.Collide))
+                    QueryTriggerInteraction.Collide) &&
+                hit.collider.GetComponentInParent<UIDocument>() != null)
             {
                 end = hit.point;
-                hovering = hit.collider.GetComponentInParent<UIDocument>() != null;
+                hovering = true;
             }
+            else if (_fineTargetVisible)
+                end = _fineTargetPosition;
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
-            Color color = hovering ? hoverColor : idleColor;
+            Color color = hovering ? hoverColor : _fineTargetVisible
+                ? GetFineBrushPreviewColor(_fineTargetOperation) : idleColor;
             _line.startColor = _line.endColor = color;
             if (_cursor == null) return;
             _cursor.SetActive(hovering);

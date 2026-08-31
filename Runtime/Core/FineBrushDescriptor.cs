@@ -19,6 +19,7 @@ namespace Genesis.RoomScan
     {
         internal readonly Vector3 EyeOrigin;
         internal readonly Vector3 CursorPosition;
+        internal readonly Vector3 SurfaceNormal;
         internal readonly Vector3 Axis;
         internal readonly float CosHalfAngleSquared;
         internal readonly float ToolDepthSquared;
@@ -29,11 +30,12 @@ namespace Genesis.RoomScan
         internal bool IsErase => Operation == FineBrushOperation.Erase;
 
         private FineBrushDescriptor(Vector3 eyeOrigin, Vector3 cursorPosition,
-            Vector3 axis, float cosHalfAngleSquared, float toolDepthSquared,
-            FineBrushOperation operation)
+            Vector3 surfaceNormal, Vector3 axis, float cosHalfAngleSquared,
+            float toolDepthSquared, FineBrushOperation operation)
         {
             EyeOrigin = eyeOrigin;
             CursorPosition = cursorPosition;
+            SurfaceNormal = surfaceNormal;
             Axis = axis;
             CosHalfAngleSquared = cosHalfAngleSquared;
             ToolDepthSquared = toolDepthSquared;
@@ -41,7 +43,8 @@ namespace Genesis.RoomScan
         }
 
         internal static bool TryCreate(Vector3 eyeOrigin,
-            Vector3 cursorPosition, float fullAngleDegrees, float toolDepth,
+            Vector3 cursorPosition, Vector3 surfaceNormal,
+            float fullAngleDegrees, float toolDepth,
             FineBrushOperation operation, out FineBrushDescriptor descriptor)
         {
             descriptor = default;
@@ -49,16 +52,22 @@ namespace Genesis.RoomScan
             float lengthSquared = difference.sqrMagnitude;
             if (operation == FineBrushOperation.None ||
                 !IsFinite(eyeOrigin) || !IsFinite(cursorPosition) ||
+                !IsFinite(surfaceNormal) ||
                 !float.IsFinite(fullAngleDegrees) ||
                 !float.IsFinite(toolDepth) || lengthSquared <= 1e-10f ||
+                surfaceNormal.sqrMagnitude <= 1e-10f ||
                 toolDepth <= 0f || fullAngleDegrees <= 0f ||
                 fullAngleDegrees >= 180f)
                 return false;
 
             Vector3 axis = difference / Mathf.Sqrt(lengthSquared);
+            surfaceNormal.Normalize();
+            if (Vector3.Dot(surfaceNormal, eyeOrigin - cursorPosition) < 0f)
+                surfaceNormal = -surfaceNormal;
             float cosine = Mathf.Cos(fullAngleDegrees * 0.5f * Mathf.Deg2Rad);
             descriptor = new FineBrushDescriptor(eyeOrigin, cursorPosition,
-                axis, cosine * cosine, toolDepth * toolDepth, operation);
+                surfaceNormal, axis, cosine * cosine,
+                toolDepth * toolDepth, operation);
             return true;
         }
 

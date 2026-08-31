@@ -1940,12 +1940,29 @@ void PrepareFineEraseArgs(uint id : SV_DispatchThreadID)
 void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
 {
     int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
-    float3 worldPosition = mul(_MerkabaGridToWorld,
-        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
-    if (!M8FineContains(worldPosition)) return;
-
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
     uint bit = 1u << (kernelLocal & 31u);
+    uint occupiedWord = _M8TileBits[wordIndex].x;
+    float3 gridPosition = (float3)globalCoord * MERKABA_LATTICE_STEP;
+    float3 worldPosition = mul(_MerkabaGridToWorld,
+        float4(gridPosition, 1.0)).xyz;
+    KernelState state;
+    bool stateLoaded = false;
+    if ((occupiedWord & bit) != 0u)
+    {
+        state = M8LoadKernelState(physicalSlot, kernelLocal);
+        stateLoaded = true;
+        if (M8HasSurfacePlane(state.flags))
+        {
+            float3 normalGrid;
+            float signedOffset;
+            M8DecodeSurfacePlane(state.flags, normalGrid, signedOffset);
+            worldPosition = mul(_MerkabaGridToWorld,
+                float4(gridPosition + normalGrid * signedOffset, 1.0)).xyz;
+        }
+    }
+    if (!M8FineContains(worldPosition)) return;
+
     uint previousOccupied;
     uint previousCarve;
     uint previousCandidate;
@@ -1953,7 +1970,8 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
     InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previousCarve);
     InterlockedAnd(_M8TileBits[wordIndex].z, ~bit, previousCandidate);
 
-    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+    if (!stateLoaded)
+        state = M8LoadKernelState(physicalSlot, kernelLocal);
     bool stateChanged = state.evidence != 0 || state.packedColor != 0u ||
         state.colorConfidence != 0u || state.flags != 0u;
     bool occupied = (previousOccupied & bit) != 0u;
