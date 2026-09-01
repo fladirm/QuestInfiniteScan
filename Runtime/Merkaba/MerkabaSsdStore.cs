@@ -32,6 +32,8 @@ namespace Genesis.RoomScan
 
         private readonly object _gate = new();
         private readonly Dictionary<MerkabaTileAddress, Location> _index = new();
+        private readonly Dictionary<int3, HashSet<MerkabaTileAddress>>
+            _indexedTilesByBlock = new();
         private readonly string _directory;
 
         private readonly struct Location
@@ -106,7 +108,12 @@ namespace Genesis.RoomScan
             lock (_gate)
             {
                 _index.Clear();
-                foreach (var pair in rebuilt) _index.Add(pair.Key, pair.Value);
+                _indexedTilesByBlock.Clear();
+                foreach (var pair in rebuilt)
+                {
+                    _index.Add(pair.Key, pair.Value);
+                    IndexTileBlock(pair.Key);
+                }
             }
             ReportBytes(progress, ScanOperationStage.RebuildingStorageIndex,
                 totalBytes, totalBytes, $"Indexed {rebuilt.Count} canonical tiles");
@@ -170,6 +177,7 @@ namespace Genesis.RoomScan
                 foreach (PendingIndexUpdate update in pending)
                 {
                     _index[update.Tile.Address] = update.Location;
+                    IndexTileBlock(update.Tile.Address);
                     update.Tile.Generation = update.Location.Generation;
                 }
             }
@@ -210,6 +218,105 @@ namespace Genesis.RoomScan
             addresses.Sort();
             return addresses.ToArray();
         }
+
+        internal bool TryFindNearestStoredTile(float3 gridPosition,
+            out float3 closestGridPosition, out float distance)
+        {
+            closestGridPosition = gridPosition;
+            distance = 0f;
+            float3 bestGridPosition = gridPosition;
+            float bestDistanceSquared = float.PositiveInfinity;
+            MerkabaTileAddress bestAddress = default;
+            bool found = false;
+            lock (_gate)
+            {
+                if (_indexedTilesByBlock.Count == 0) return false;
+                int3 seedBlock = default;
+                float seedDistanceSquared = float.PositiveInfinity;
+                bool hasSeed = false;
+                foreach (int3 blockCoord in _indexedTilesByBlock.Keys)
+                {
+                    float lowerBound = BlockDistanceSquared(gridPosition,
+                        blockCoord);
+                    if (!hasSeed || lowerBound < seedDistanceSquared -
+                            1.0e-12f ||
+                        (math.abs(lowerBound - seedDistanceSquared) <=
+                            1.0e-12f && LexicographicallyLess(blockCoord,
+                            seedBlock)))
+                    {
+                        hasSeed = true;
+                        seedBlock = blockCoord;
+                        seedDistanceSquared = lowerBound;
+                    }
+                }
+
+                EvaluateBlock(seedBlock);
+                foreach (int3 blockCoord in _indexedTilesByBlock.Keys)
+                {
+                    if (math.all(blockCoord == seedBlock)) continue;
+                    if (BlockDistanceSquared(gridPosition, blockCoord) >
+                        bestDistanceSquared + 1.0e-12f) continue;
+                    EvaluateBlock(blockCoord);
+                }
+
+                void EvaluateBlock(int3 blockCoord)
+                {
+                    foreach (MerkabaTileAddress address in
+                             _indexedTilesByBlock[blockCoord])
+                    {
+                        int3 tileOrigin = MerkabaSpatial.Decode(
+                            address.BlockCoord, address.LocalAddress, 0);
+                        float3 minimum = (float3)tileOrigin *
+                            MerkabaConstants.LatticeStep;
+                        float3 maximum = minimum + MerkabaSpatial.TileSize *
+                            MerkabaConstants.LatticeStep;
+                        float3 candidate = math.clamp(gridPosition, minimum,
+                            maximum);
+                        float candidateDistanceSquared = math.lengthsq(
+                            candidate - gridPosition);
+                        bool better = !found || candidateDistanceSquared <
+                            bestDistanceSquared - 1.0e-12f ||
+                            (math.abs(candidateDistanceSquared -
+                                bestDistanceSquared) <= 1.0e-12f &&
+                            address.CompareTo(bestAddress) < 0);
+                        if (!better) continue;
+                        found = true;
+                        bestAddress = address;
+                        bestDistanceSquared = candidateDistanceSquared;
+                        bestGridPosition = candidate;
+                    }
+                }
+            }
+            if (!found) return false;
+            closestGridPosition = bestGridPosition;
+            distance = math.sqrt(bestDistanceSquared);
+            return true;
+        }
+
+        private void IndexTileBlock(MerkabaTileAddress address)
+        {
+            if (!_indexedTilesByBlock.TryGetValue(address.BlockCoord,
+                    out HashSet<MerkabaTileAddress> addresses))
+            {
+                addresses = new HashSet<MerkabaTileAddress>();
+                _indexedTilesByBlock.Add(address.BlockCoord, addresses);
+            }
+            addresses.Add(address);
+        }
+
+        private static float BlockDistanceSquared(float3 gridPosition,
+            int3 blockCoord)
+        {
+            float3 minimum = (float3)blockCoord *
+                MerkabaSpatial.BlockWorldSize;
+            float3 maximum = minimum + MerkabaSpatial.BlockWorldSize;
+            float3 candidate = math.clamp(gridPosition, minimum, maximum);
+            return math.lengthsq(candidate - gridPosition);
+        }
+
+        private static bool LexicographicallyLess(int3 left, int3 right) =>
+            left.x < right.x || (left.x == right.x &&
+            (left.y < right.y || (left.y == right.y && left.z < right.z)));
 
         internal Task<MerkabaSessionSnapshot> ReadCanonicalSnapshotAsync(
             Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount,
@@ -272,7 +379,11 @@ namespace Genesis.RoomScan
 
         internal void Clear()
         {
-            lock (_gate) _index.Clear();
+            lock (_gate)
+            {
+                _index.Clear();
+                _indexedTilesByBlock.Clear();
+            }
             DeleteIfExists(CheckpointPath);
             DeleteIfExists(CheckpointPath + ".tmp");
             DeleteIfExists(OverlayPath);

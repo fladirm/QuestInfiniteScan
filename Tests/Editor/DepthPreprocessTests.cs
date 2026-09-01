@@ -571,7 +571,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(copy, Does.Not.Contain("gsDepthNormalTexRW"));
             Assert.That(joint, Does.Contain("RWTexture2D<float4> _DstNormal"));
             Assert.That(joint, Does.Contain(
-                "_DstNormal[id] = float4(selectedNormal, 1.0);"));
+                "_DstNormal[id] = float4(selectedNormal,"));
+            Assert.That(joint, Does.Contain("selectedConfidence);"));
             Assert.That(joint, Does.Contain("TryDepthPlane("));
             Assert.That(joint, Does.Contain("TryProjectedDepthPlane("));
         }
@@ -653,6 +654,76 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(radial[offset + 7], Is.EqualTo(
                         radial[offset + 5] + radial[offset + 6]));
                 }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(depth);
+                UnityEngine.Object.DestroyImmediate(pcaLeft);
+                UnityEngine.Object.DestroyImmediate(pcaRight);
+                UnityEngine.Object.DestroyImmediate(outputDepth);
+                UnityEngine.Object.DestroyImmediate(outputNormal);
+            }
+        }
+
+        [Test, Timeout(30000)]
+        public void JointSolve_PhotometricMismatchProducesBootstrapConfidence()
+        {
+            const int width = 17;
+            const int height = 15;
+            ComputeShader compute = LoadCompute("StereoRgbdRefine.compute");
+            int kernel = compute.FindKernel("StereoRgbdRefine");
+            Matrix4x4 projection = Matrix4x4.Perspective(90f,
+                width / (float)height, 0.1f, 10f);
+            float sourceDepth = DepthNdc(projection, 1f);
+            Texture2DArray depth = MakeDepth(width, height, sourceDepth,
+                sourceDepth);
+            Texture2D pcaLeft = MakeSolidRgb(width, height,
+                new Color(0.8f, 0.05f, 0.05f, 1f));
+            Texture2D pcaRight = MakeSolidRgb(width, height,
+                new Color(0.05f, 0.8f, 0.05f, 1f));
+            RenderTexture outputDepth = Make2DTarget(width, height,
+                GraphicsFormat.R32_SFloat);
+            RenderTexture outputNormal = Make2DTarget(width, height);
+            int metricGroupsX = Mathf.CeilToInt(width / 8f);
+            int metricGroupsY = Mathf.CeilToInt(height / 8f);
+            using var refineMetrics = new ComputeBuffer(metricGroupsX *
+                metricGroupsY * MerkabaGpuTimestamps.RefineMetricValueCount,
+                sizeof(uint));
+
+            try
+            {
+                Matrix4x4[] projections = { projection, projection };
+                Matrix4x4[] inverseProjections =
+                    { projection.inverse, projection.inverse };
+                Matrix4x4[] views =
+                    { Matrix4x4.identity, Matrix4x4.identity };
+                compute.SetTexture(kernel, "_SrcDepth", depth);
+                compute.SetTexture(kernel, "_DstDepth", outputDepth);
+                compute.SetTexture(kernel, "_DstNormal", outputNormal);
+                compute.SetInt("_DepthW", width);
+                compute.SetInt("_DepthH", height);
+                compute.SetMatrixArray("_DepthProj", projections);
+                compute.SetMatrixArray("_DepthProjInv", inverseProjections);
+                compute.SetMatrixArray("_DepthView", views);
+                compute.SetMatrixArray("_DepthViewInv", views);
+                compute.SetBuffer(kernel, "_RefineMetrics", refineMetrics);
+                compute.SetInt("_RefineMetricsEnabled", 0);
+                compute.SetInt("_RefineMetricGroupsX", metricGroupsX);
+                BindPca(compute, kernel, 0, pcaLeft, width, height);
+                BindPca(compute, kernel, 1, pcaRight, width, height);
+                compute.Dispatch(kernel, Mathf.CeilToInt(width / 8f),
+                    Mathf.CeilToInt(height / 8f), 1);
+
+                int center = width / 2 + width * (height / 2);
+                float refined = Read2D(outputDepth, width, height)
+                    .GetData<float>()[center];
+                float4 normal = Read2D(outputNormal, width, height)
+                    .GetData<float4>()[center];
+                Assert.That(refined, Is.EqualTo(sourceDepth).Within(2e-4f));
+                AssertFinite(normal, "bootstrap normal");
+                Assert.That(normal.w, Is.GreaterThan(0f).And.LessThan(1f));
+                Assert.That(math.lengthsq(normal.xyz),
+                    Is.EqualTo(1f).Within(2e-3f));
             }
             finally
             {

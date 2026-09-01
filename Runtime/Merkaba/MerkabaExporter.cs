@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Threading.Tasks;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace Genesis.RoomScan
@@ -131,56 +132,41 @@ namespace Genesis.RoomScan
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
                 await _grid.FlushAllDirtyTilesAsync(progress);
-                MerkabaExportMembraneResult membrane =
-                    await BuildMembraneAsync(progress);
                 byte[] viewerHtml = LoadViewerResource(ViewerResourceRoot);
                 byte[] threeLicense = LoadViewerResource(
                     ViewerResourceRoot + "ThreeLicense");
                 byte[] tilesLicense = LoadViewerResource(
                     ViewerResourceRoot + "TilesLicense");
-                var output = await Task.Run(() =>
+                await Task.Run(() =>
                 {
-                    try
-                    {
-                        Directory.CreateDirectory(exportDirectory);
-                        if (Directory.Exists(staging))
-                            Directory.Delete(staging, true);
-                        if (File.Exists(temporaryArchive))
-                            File.Delete(temporaryArchive);
-                        MerkabaTilesetResult written =
-                            MerkabaTilesetWriter.WritePackage(staging,
-                                membrane, progress);
-                        File.WriteAllBytes(Path.Combine(staging, "index.html"),
-                            viewerHtml);
-                        File.WriteAllBytes(Path.Combine(staging,
-                                "THIRD_PARTY_THREE_LICENSE.txt"),
-                            threeLicense);
-                        File.WriteAllBytes(Path.Combine(staging,
-                                "THIRD_PARTY_3DTILESRENDERERJS_LICENSE.txt"),
-                            tilesLicense);
-                        long archiveBytes = WriteViewerArchive(staging,
-                            temporaryArchive);
-                        MerkabaFilePublishing.Publish(temporaryArchive,
-                            destination);
-                        return (Written: written, ArchiveBytes: archiveBytes);
-                    }
-                    finally
-                    {
-                        if (Directory.Exists(staging))
-                            Directory.Delete(staging, true);
-                        if (File.Exists(temporaryArchive))
-                            File.Delete(temporaryArchive);
-                    }
+                    Directory.CreateDirectory(exportDirectory);
+                    if (Directory.Exists(staging))
+                        Directory.Delete(staging, true);
+                    if (File.Exists(temporaryArchive))
+                        File.Delete(temporaryArchive);
                 });
-                MerkabaTilesetResult result = output.Written;
+                MerkabaTilesetResult result = await BuildStreamingTilesetAsync(
+                    staging, progress);
+                long archiveBytes = await Task.Run(() =>
+                {
+                    File.WriteAllBytes(Path.Combine(staging, "index.html"),
+                        viewerHtml);
+                    File.WriteAllBytes(Path.Combine(staging,
+                            "THIRD_PARTY_THREE_LICENSE.txt"), threeLicense);
+                    File.WriteAllBytes(Path.Combine(staging,
+                            "THIRD_PARTY_3DTILESRENDERERJS_LICENSE.txt"),
+                        tilesLicense);
+                    long bytes = WriteViewerArchive(staging,
+                        temporaryArchive);
+                    MerkabaFilePublishing.Publish(temporaryArchive,
+                        destination);
+                    return bytes;
+                });
                 LastExportPath = destination;
                 Logger.Info("Merkaba 3D Tiles metrics " +
-                    $"canonical={membrane.CanonicalOccupiedCount} " +
-                    $"measured={membrane.MeasuredPatchCount} " +
-                    $"inferred={membrane.InferredPatchCount} " +
                     $"tiles={result.TileCount} vertices={result.VertexCount} " +
                     $"triangles={result.TriangleCount} bytes={result.ByteLength} " +
-                    $"archiveBytes={output.ArchiveBytes}");
+                    $"archiveBytes={archiveBytes}");
                 SetStatus($"3D Tiles: {result.TileCount} GLBs, " +
                     $"{result.TriangleCount} triangles, offline ZIP");
                 return true;
@@ -193,6 +179,10 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                if (Directory.Exists(staging))
+                    Directory.Delete(staging, true);
+                if (File.Exists(temporaryArchive))
+                    File.Delete(temporaryArchive);
                 IsExporting = false;
                 StatusChanged?.Invoke();
             }
@@ -228,6 +218,137 @@ namespace Genesis.RoomScan
         {
             LastStatus = status;
             StatusChanged?.Invoke();
+        }
+
+        private async Task<MerkabaTilesetResult> BuildStreamingTilesetAsync(
+            string staging, IProgress<OperationWorkProgress> progress)
+        {
+            MerkabaTileAddress[] addresses = _grid.CaptureStoredTileIndex();
+            var available = new HashSet<MerkabaTileAddress>(addresses);
+            var ownerGroups = new Dictionary<MerkabaTileAddress,
+                List<MerkabaTileAddress>>();
+            foreach (MerkabaTileAddress address in addresses)
+            {
+                var key = new MerkabaTileAddress(address.BlockCoord,
+                    (uint)address.ChunkLocal);
+                if (!ownerGroups.TryGetValue(key,
+                        out List<MerkabaTileAddress> owners))
+                {
+                    owners = new List<MerkabaTileAddress>(
+                        MerkabaSpatial.TilesPerChunk);
+                    ownerGroups.Add(key, owners);
+                }
+                owners.Add(address);
+            }
+            var keys = new List<MerkabaTileAddress>(ownerGroups.Keys);
+            keys.Sort();
+            MerkabaTilesetWriter.BeginStreamingPackage(staging);
+            var leaves = new List<MerkabaTilesetLeaf>(keys.Count);
+            for (int groupIndex = 0; groupIndex < keys.Count; groupIndex++)
+            {
+                MerkabaTileAddress ownerKey = keys[groupIndex];
+                List<MerkabaTileAddress> owners = ownerGroups[ownerKey];
+                owners.Sort();
+                var contextSet = new HashSet<MerkabaTileAddress>(owners);
+                foreach (MerkabaTileAddress owner in owners)
+                {
+                    int3 origin = MerkabaSpatial.Decode(owner.BlockCoord,
+                        owner.LocalAddress, 0);
+                    for (int z = -1; z <= 1; z++)
+                    for (int y = -1; y <= 1; y++)
+                    for (int x = -1; x <= 1; x++)
+                    {
+                        MerkabaSpatial.Address neighbour =
+                            MerkabaSpatial.Encode(origin +
+                            new int3(x, y, z) * MerkabaSpatial.TileSize);
+                        var neighbourAddress = new MerkabaTileAddress(
+                            neighbour.BlockCoord,
+                            (uint)(neighbour.ChunkLocal |
+                            (neighbour.TileLocal << 9)));
+                        if (available.Contains(neighbourAddress))
+                            contextSet.Add(neighbourAddress);
+                    }
+                }
+                var context = new List<MerkabaTileAddress>(contextSet);
+                context.Sort();
+                var evidence = new Dictionary<int3, KernelState>(
+                    context.Count * MerkabaSpatial.KernelsPerTile / 4);
+                for (int offset = 0; offset < context.Count;
+                     offset += MerkabaGrid.StreamBatchCapacity)
+                {
+                    int count = Math.Min(MerkabaGrid.StreamBatchCapacity,
+                        context.Count - offset);
+                    var batch = context.GetRange(offset, count);
+                    MerkabaTileSnapshot[] tiles = await _grid
+                        .ReadStoredTilesAsync(batch).ConfigureAwait(false);
+                    foreach (MerkabaTileSnapshot tile in tiles)
+                    for (int kernel = 0; kernel < tile.States.Length; kernel++)
+                    {
+                        KernelState state = tile.States[kernel];
+                        if (state.OccupancyEvidence == 0 && state.Flags == 0u &&
+                            state.ColorConfidence == 0u) continue;
+                        int3 coord = MerkabaSpatial.Decode(
+                            tile.Address.BlockCoord, tile.Address.LocalAddress,
+                            kernel);
+                        evidence.Add(coord, state);
+                    }
+                }
+                bool hasOwnerSurface = false;
+                foreach (KeyValuePair<int3, KernelState> pair in evidence)
+                    if (IsOwnedByChunk(pair.Key, ownerKey) &&
+                        pair.Value.IsOccupied)
+                    {
+                        hasOwnerSurface = true;
+                        break;
+                    }
+                if (!hasOwnerSurface) continue;
+                MerkabaExportMembraneResult local = await Task.Run(() =>
+                    MerkabaExportMembrane.Build(
+                        MerkabaExportShell.Build(evidence)));
+                MerkabaExportMembraneResult owned = OwnChunk(local, ownerKey);
+                if (owned.Patches.Count == 0 && owned.LegacyKernels.Count == 0)
+                    continue;
+                int leafIndex = leaves.Count;
+                MerkabaTilesetLeaf leaf = await Task.Run(() =>
+                    MerkabaTilesetWriter.WriteStreamingLeaf(staging,
+                        leafIndex, owned, progress));
+                leaves.Add(leaf);
+                progress?.Report(new OperationWorkProgress(
+                    ScanOperationStage.WritingFile, groupIndex + 1, keys.Count,
+                    $"Streamed spatial leaf {groupIndex + 1}/{keys.Count}"));
+            }
+            return await Task.Run(() =>
+                MerkabaTilesetWriter.CompleteStreamingPackage(staging,
+                    leaves));
+        }
+
+        private static bool IsOwnedByChunk(int3 coord,
+            MerkabaTileAddress ownerKey)
+        {
+            MerkabaSpatial.Address address = MerkabaSpatial.Encode(coord);
+            return math.all(address.BlockCoord == ownerKey.BlockCoord) &&
+                address.ChunkLocal == ownerKey.ChunkLocal;
+        }
+
+        private static MerkabaExportMembraneResult OwnChunk(
+            MerkabaExportMembraneResult source, MerkabaTileAddress ownerKey)
+        {
+            var patches = source.Patches.FindAll(patch =>
+                IsOwnedByChunk(patch.Coord, ownerKey));
+            var legacy = source.LegacyKernels.FindAll(kernel =>
+                IsOwnedByChunk(kernel.Coord, ownerKey));
+            int measured = 0;
+            int inferred = 0;
+            foreach (MerkabaExportMembranePatch patch in patches)
+                if (patch.IsInferred) inferred++;
+                else measured++;
+            return new MerkabaExportMembraneResult(patches, legacy,
+                source.CanonicalOccupiedCoordinates,
+                source.CanonicalOccupiedCount,
+                source.MeasuredPlaneOccupiedCount, measured, inferred,
+                legacy.Count, source.UnresolvedLegacyCount,
+                source.RemovedBehindMembraneCount,
+                source.PartitionCutCount);
         }
 
         private async Task<MerkabaExportMembraneResult> BuildMembraneAsync(

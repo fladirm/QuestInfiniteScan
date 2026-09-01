@@ -58,6 +58,7 @@
 #define MERKABA_SURFACE_AUTHORITY_REVISION 3
 #define MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED 0x10000000u
 #define MERKABA_SURFACE_FLAG_REPLACEMENT 0x20000000u
+#define MERKABA_SURFACE_FLAG_STRICT 0x40000000u
 #define MERKABA_SURFACE_WINNER_EMPTY 0xffffffffu
 
 RWStructuredBuffer<int4> _M8SurfaceCandidates;
@@ -114,6 +115,20 @@ bool M8FineContains(float3 worldPosition)
     float axial = dot(relative, _M8FineBrushAxis);
     return distanceSquared <= _M8FineToolDepthSquared && axial >= 0.0 &&
         axial * axial >= distanceSquared * _M8FineCosHalfAngleSquared;
+}
+
+float M8FineWeight(float3 worldPosition)
+{
+    float3 relative = worldPosition - _M8FineEyeOrigin;
+    float distanceSquared = dot(relative, relative);
+    float axial = dot(relative, _M8FineBrushAxis);
+    if (distanceSquared > _M8FineToolDepthSquared || axial < 0.0 ||
+        axial * axial < distanceSquared * _M8FineCosHalfAngleSquared)
+        return 0.0;
+    if (distanceSquared <= 1.0e-12) return 1.0;
+    float cosineSquared = axial * axial / distanceSquared;
+    return saturate((cosineSquared - _M8FineCosHalfAngleSquared) /
+        max(1.0e-6, 1.0 - _M8FineCosHalfAngleSquared));
 }
 
 uint M8ObservationFailureReason()
@@ -181,12 +196,14 @@ int3 MerkabaNearestKernel(float3 gridPosition)
 }
 
 bool TrySurfaceMeasurement(uint2 pixel, out float3 worldSurface,
-    out int3 surfaceKernel, out float3 surfaceNormal, out float quality)
+    out int3 surfaceKernel, out float3 surfaceNormal, out float quality,
+    out float measurementConfidence)
 {
     worldSurface = 0.0;
     surfaceKernel = 0;
     surfaceNormal = 0.0;
     quality = 0.0;
+    measurementConfidence = 0.0;
     if (any(pixel >= gsDepthTexSize) || pixel.x >
         MERKABA_MEASUREMENT_PIXEL_MASK || pixel.y >
         MERKABA_MEASUREMENT_PIXEL_MASK)
@@ -203,9 +220,11 @@ bool TrySurfaceMeasurement(uint2 pixel, out float3 worldSurface,
     if (measuredDistance <= 0.05 ||
         measuredDistance > _MerkabaMaxUpdateDistance)
         return false;
-    surfaceNormal = gsDepthNormalTex.Load(
-        int3(pixel, 0)).xyz;
+    float4 normalSample = gsDepthNormalTex.Load(int3(pixel, 0));
+    surfaceNormal = normalSample.xyz;
+    measurementConfidence = normalSample.w;
     if (dot(surfaceNormal, surfaceNormal) < 0.25) return false;
+    if (measurementConfidence <= 0.0) return false;
     float normalFacing = -dot(eyeToSurface, surfaceNormal) / measuredDistance;
 
     float distanceFactor = saturate(1.0 - measuredDistance /
@@ -254,7 +273,7 @@ float MerkabaMutationAttentionFromRadial(float3 worldSurface,
     if (incidence < MERKABA_REVISION_MIN_INCIDENCE)
         return 0.0;
     if (_M8FineRefineActive != 0u)
-        return M8FineContains(worldSurface) ? 1.0 : 0.0;
+        return M8FineWeight(worldSurface);
     if (radialPosition >= _MerkabaMutationOuterRadius) return 0.0;
     float transition = saturate((_MerkabaMutationOuterRadius -
         radialPosition) / (_MerkabaMutationOuterRadius -
@@ -291,13 +310,14 @@ uint2 MerkabaSurfacePixel(int packedMetadata)
 }
 
 int MerkabaPackSurfaceMetadata(uint2 pixel, int route, int authority,
-    bool offAxisBlocked, bool replacement)
+    bool offAxisBlocked, bool replacement, bool strictMeasurement)
 {
     uint metadata = MerkabaPackMeasurementPixel(pixel) |
         ((uint)route << MERKABA_SURFACE_ROUTE_SHIFT) |
         ((uint)authority << MERKABA_SURFACE_AUTHORITY_SHIFT) |
         (offAxisBlocked ? MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED : 0u) |
-        (replacement ? MERKABA_SURFACE_FLAG_REPLACEMENT : 0u);
+        (replacement ? MERKABA_SURFACE_FLAG_REPLACEMENT : 0u) |
+        (strictMeasurement ? MERKABA_SURFACE_FLAG_STRICT : 0u);
     return asint(metadata);
 }
 
@@ -410,11 +430,21 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
     int3 nearestKernel;
     float3 surfaceNormal;
     float quality;
+    float measurementConfidence;
     if (!TrySurfaceMeasurement(sourcePixel, worldSurface, nearestKernel,
-            surfaceNormal, quality))
+            surfaceNormal, quality, measurementConfidence))
         return MerkabaPackSurfaceMetadata(sourcePixel,
             MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false);
+            false, false, false);
+    bool strictMeasurement = measurementConfidence >= 1.0;
+    if (!strictMeasurement && quality <= 0.0)
+        return MerkabaPackSurfaceMetadata(sourcePixel,
+            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
+            false, false, false);
+    if (_M8FineRefineActive != 0u && !strictMeasurement)
+        return MerkabaPackSurfaceMetadata(sourcePixel,
+            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
+            false, false, false);
 
     float3 rayOrigin = (MerkabaDepthEyePosition(0u) +
         MerkabaDepthEyePosition(1u)) * 0.5;
@@ -423,7 +453,7 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
     if (endpointDistance <= 0.001)
         return MerkabaPackSurfaceMetadata(sourcePixel,
             MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false);
+            false, false, strictMeasurement);
     ray /= endpointDistance;
     float3 worldNormal = normalize(surfaceNormal);
     int3 normalStep = MerkabaNearestNormalStep(surfaceNormal);
@@ -481,15 +511,22 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
         targetCoord = unresolvedOwner;
         return MerkabaPackSurfaceMetadata(sourcePixel,
             MERKABA_SURFACE_ROUTE_UNRESOLVED,
-            MERKABA_SURFACE_AUTHORITY_NONE, false, false);
+            MERKABA_SURFACE_AUTHORITY_NONE, false, false,
+            strictMeasurement);
     }
     if (!foundOwner)
     {
         targetCoord = nearestKernel;
         return MerkabaPackSurfaceMetadata(sourcePixel,
             MERKABA_SURFACE_ROUTE_VALID,
-            MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false);
+            MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false,
+            strictMeasurement);
     }
+
+    if (!strictMeasurement)
+        return MerkabaPackSurfaceMetadata(sourcePixel,
+            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
+            false, false, false);
 
     float radialPosition;
     float attention = MerkabaMutationAttention(worldSurface, surfaceNormal,
@@ -501,7 +538,7 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
         MERKABA_SURFACE_ROUTE_VALID,
         revision ? MERKABA_SURFACE_AUTHORITY_REVISION :
             MERKABA_SURFACE_AUTHORITY_SUPPORT,
-        !revision, replacement);
+        !revision, replacement, true);
 }
 
 float MerkabaFreeDistanceWeight(float clearance)
@@ -603,7 +640,8 @@ bool ExactFrozenRayClassify(int3 globalCoord, float3 worldPosition,
     evidenceWeight = 0.0;
     replacementCoord = surfaceKernel;
     rejection = MERKABA_EXACT_REJECT_OTHER;
-    float3 surfaceNormal = gsDepthNormalTex.Load(int3(pixel, 0)).xyz;
+    float4 normalSample = gsDepthNormalTex.Load(int3(pixel, 0));
+    float3 surfaceNormal = normalSample.xyz;
     if (dot(surfaceNormal, surfaceNormal) < 0.25) return false;
     float3 eyeToSurface = worldSurface - gsDepthEyePos();
     float measuredEyeDistance = length(eyeToSurface);
@@ -643,6 +681,9 @@ bool ExactFrozenRayClassify(int3 globalCoord, float3 worldPosition,
     }
     else if (kernelDistance < measuredDistance - MERKABA_HALF_SUPPORT)
     {
+        // Bootstrap joint hits may create a first DISCOVERY surface, but
+        // never weaken the exact foreground-protected FREE classifier.
+        if (normalSample.w < 1.0) return false;
         float jointDepth = gsDepthTex.Load(int3(pixel, 0));
         float dilatedDepth = gsDilatedDepth.Load(int3(pixel, 0)).z;
         if (dilatedDepth <= 0.0 || dilatedDepth >= 1.0 ||
@@ -751,7 +792,7 @@ void AppendSurfaceCandidate(int3 globalCoord, uint2 sourcePixel)
         _M8SurfaceCandidates[index] = int4(globalCoord,
             MerkabaPackSurfaceMetadata(sourcePixel,
                 MERKABA_SURFACE_ROUTE_UNROUTED,
-                MERKABA_SURFACE_AUTHORITY_NONE, false, false));
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false));
         M8CounterIncrement(M8_COUNTER_VALID_SURFACE_CANDIDATES);
     }
     else
@@ -773,8 +814,9 @@ void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID,
         int3 surfaceKernel;
         float3 surfaceNormal;
         float quality;
+        float measurementConfidence;
         if (TrySurfaceMeasurement(id.xy, worldSurface, surfaceKernel,
-                surfaceNormal, quality))
+                surfaceNormal, quality, measurementConfidence))
         {
             float radialPosition;
             if (TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
@@ -1063,8 +1105,9 @@ bool ObserveFrozenSurfaceWinner(uint physicalSlot, uint kernelLocal,
     int3 measuredKernel;
     float3 surfaceNormal;
     float quality;
+    float measurementConfidence;
     if (!TrySurfaceMeasurement(sourcePixel, worldSurface, measuredKernel,
-            surfaceNormal, quality))
+            surfaceNormal, quality, measurementConfidence))
         return false;
     replacementCoord = measuredKernel;
     MerkabaMutationAttention(worldSurface, surfaceNormal, radialPosition);
@@ -1081,8 +1124,9 @@ bool M8TrySurfaceWinnerRank(int3 targetCoord, int packedMetadata,
     int3 measuredKernel;
     float3 surfaceNormal;
     float quality;
+    float measurementConfidence;
     if (!TrySurfaceMeasurement(sourcePixel, worldSurface, measuredKernel,
-            surfaceNormal, quality))
+            surfaceNormal, quality, measurementConfidence))
         return false;
 
     int authority = MerkabaSurfaceAuthority(packedMetadata);
@@ -1293,8 +1337,9 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     int3 measuredKernel;
     float3 surfaceNormal;
     float quality;
+    float measurementConfidence;
     if (!TrySurfaceMeasurement(sourcePixel, worldSurface, measuredKernel,
-            surfaceNormal, quality))
+            surfaceNormal, quality, measurementConfidence))
         return;
 
     int3 targetKernel = M8GlobalKernelCoord(physicalSlot, kernelLocal);
@@ -1305,8 +1350,18 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
     int evidenceBefore = state.evidence;
     bool hadMeasuredPlaneBefore = M8HasSurfacePlane(state.flags);
+    int authority = MerkabaSurfaceAuthority(asint(queued.y));
+    bool strictMeasurement = (queued.y & MERKABA_SURFACE_FLAG_STRICT) != 0u;
+    if (!strictMeasurement && authority !=
+        MERKABA_SURFACE_AUTHORITY_DISCOVERY) return;
+    float fineWeight = _M8FineRefineActive != 0u
+        ? M8FineWeight(targetWorld) : 1.0;
+    if (fineWeight <= 0.0) return;
     int surfaceDelta = max(1, (int)round(
-        quality * quality * MERKABA_SURFACE_SCALE));
+        quality * quality * fineWeight * MERKABA_SURFACE_SCALE));
+    if (!strictMeasurement)
+        surfaceDelta = max(surfaceDelta,
+            MERKABA_OCCUPIED_ON - max(state.evidence, 0));
     UpdateOccupancy(physicalSlot, kernelLocal, state, surfaceDelta);
     if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
     {
@@ -1314,7 +1369,6 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
         float3 newNormalGrid = normalize(mul(
             (float3x3)_MerkabaWorldToGrid, surfaceNormal));
         float newOffset = dot(worldSurface - targetWorld, worldNormal);
-        int authority = MerkabaSurfaceAuthority(asint(queued.y));
         bool storeExactPlane = authority !=
             MERKABA_SURFACE_AUTHORITY_SUPPORT || !hadMeasuredPlaneBefore;
         if (storeExactPlane)
@@ -1366,7 +1420,8 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     float2 rightUv = MerkabaProjectCameraUv(1u, worldSurface);
     float3 observedRgb = (MerkabaSampleCameraRgb(0u, leftUv) +
         MerkabaSampleCameraRgb(1u, rightUv)) * 0.5;
-    AccumulateColor(state, observedRgb, quality);
+    AccumulateColor(state, observedRgb,
+        quality * measurementConfidence * fineWeight);
     M8StoreKernelState(physicalSlot, kernelLocal, state);
     EnsureCarveActive(physicalSlot, kernelLocal);
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
@@ -1641,6 +1696,8 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
 
     if (observationKind == 1)
     {
+        if (_M8FineRefineActive != 0u)
+            evidenceWeight *= M8FineWeight(worldPosition);
         InterlockedAdd(gCarveStats[1], 1u, ignored);
         uint radialBin = min(7u,
             (uint)floor(saturate(radialPosition) * 8.0));

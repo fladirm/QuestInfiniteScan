@@ -69,11 +69,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(controller, Does.Contain(
                 "float radius = targetDistance * Mathf.Tan(halfAngle)"));
             Assert.That(controller, Does.Contain(
-                "Quaternion.FromToRotation(Vector3.up, surfaceNormal)"));
+                "Vector3.Distance(descriptor.EyeOrigin,\n" +
+                "                descriptor.CursorPosition)"));
             Assert.That(controller, Does.Contain(
-                "descriptor.CursorPosition + surfaceNormal * 0.001f"));
+                "Quaternion.FromToRotation(Vector3.up, axis)"));
             Assert.That(controller, Does.Contain(
-                "cursorTint.a = Mathf.Max(0.55f, color.a) * 0.5f"));
+                "descriptor.CursorPosition - axis * 0.001f"));
+            Assert.That(controller, Does.Contain(
+                "cursorTint.a = Mathf.Clamp01(color.a * 0.5f)"));
             Assert.That(scanner, Does.Contain(
                 "TryUpdateFineSurfaceTarget(rayOrigin,"));
             Assert.That(scanner, Does.Contain(
@@ -114,6 +117,12 @@ namespace Genesis.RoomScan.Tests
                 "!M8FineContains(targetWorld)"));
             Assert.That(integration, Does.Contain(
                 "!M8FineContains(worldPosition)"));
+            Assert.That(integration, Does.Contain(
+                "float M8FineWeight(float3 worldPosition)"));
+            Assert.That(integration, Does.Contain(
+                "quality * quality * fineWeight * MERKABA_SURFACE_SCALE"));
+            Assert.That(integration, Does.Contain(
+                "evidenceWeight *= M8FineWeight(worldPosition)"));
             Assert.That(scanner, Does.Contain("RequestFreshDepthFrame()"));
             Assert.That(scanner, Does.Contain("_fineMinimumLeftSequence"));
             Assert.That(scanner, Does.Contain("_fineMinimumRightSequence"));

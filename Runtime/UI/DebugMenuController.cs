@@ -16,7 +16,7 @@ namespace Genesis.RoomScan.UI
         private Button _start, _stop, _save, _load, _new, _export,
             _exportTiles, _fine, _readout, _mesh, _occlusion, _checker;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
-        private Label _saved, _exportStatus, _pointer, _fps;
+        private Label _saved, _exportStatus, _pointer, _fps, _proximity;
         private Slider _opacity;
         private Slider _fineAngle, _fineDepth;
         private Label _opacityValue, _fineAngleValue, _fineDepthValue;
@@ -28,6 +28,9 @@ namespace Genesis.RoomScan.UI
         private float _fpsWindow;
         private int _fpsFrames;
         private float _currentFps;
+        private float _nextProximityRefresh;
+        private string _proximityText = "No stored region";
+        private StatusKind _proximityKind = StatusKind.Neutral;
 
         public bool IsVisible => _visible;
 
@@ -100,6 +103,7 @@ namespace Genesis.RoomScan.UI
             _kernels = _root.Q<Label>("val-kernels");
             _visibleBoundary = _root.Q<Label>("val-visible");
             _saved = _root.Q<Label>("val-saved");
+            _proximity = _root.Q<Label>("val-proximity");
             _exportStatus = _root.Q<Label>("val-export");
             _pointer = _root.Q<Label>("val-pointer");
             _fps = _root.Q<Label>("val-fps");
@@ -195,6 +199,36 @@ namespace Genesis.RoomScan.UI
             SetStatus(_saved, scanner.SavedSessionExists
                 ? scanner.PersistenceStatus : "No saved session",
                 scanner.SavedSessionExists ? StatusKind.Good : StatusKind.Neutral);
+            if (Time.unscaledTime >= _nextProximityRefresh)
+            {
+                _nextProximityRefresh = Time.unscaledTime + 0.25f;
+                Camera camera = Camera.main;
+                if (camera != null && scanner.TryGetStoredScanProximity(
+                        camera.transform.position, out Vector3 direction,
+                        out float proximityDistance))
+                {
+                    if (proximityDistance <= 0.05f)
+                    {
+                        _proximityText = "Inside stored scan";
+                        _proximityKind = StatusKind.Good;
+                    }
+                    else
+                    {
+                        Vector3 local = camera.transform.InverseTransformDirection(
+                            direction);
+                        string arrow = DirectionArrow(local);
+                        _proximityText =
+                            $"Outside · {proximityDistance:F1} m {arrow}";
+                        _proximityKind = StatusKind.Warning;
+                    }
+                }
+                else
+                {
+                    _proximityText = "No stored region";
+                    _proximityKind = StatusKind.Neutral;
+                }
+            }
+            SetStatus(_proximity, _proximityText, _proximityKind);
             Set(_exportStatus, scanner.ExportStatus);
             _rayDriver ??= FindAnyObjectByType<ControllerRayDriver>();
             SetStatus(_pointer, _rayDriver == null ? "Missing" :
@@ -253,6 +287,28 @@ namespace Genesis.RoomScan.UI
             _mesh?.SetEnabled(!busy);
             _occlusion?.SetEnabled(!busy);
             _checker?.SetEnabled(!busy);
+        }
+
+        private static string DirectionArrow(Vector3 cameraLocalDirection)
+        {
+            if (Mathf.Abs(cameraLocalDirection.y) > Mathf.Max(
+                    Mathf.Abs(cameraLocalDirection.x),
+                    Mathf.Abs(cameraLocalDirection.z)))
+                return cameraLocalDirection.y >= 0f ? "⇧" : "⇩";
+            float angle = Mathf.Atan2(cameraLocalDirection.x,
+                cameraLocalDirection.z) * Mathf.Rad2Deg;
+            int sector = Mathf.RoundToInt(angle / 45f) & 7;
+            return sector switch
+            {
+                0 => "↑",
+                1 => "↗",
+                2 => "→",
+                3 => "↘",
+                4 => "↓",
+                5 => "↙",
+                6 => "←",
+                _ => "↖"
+            };
         }
 
         private void RefreshOperation(ScanOperationState operation)

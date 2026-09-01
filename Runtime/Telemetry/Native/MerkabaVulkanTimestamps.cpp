@@ -109,8 +109,8 @@ namespace
     constexpr uint32_t kExecutorAbiVersion = 1;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kMeshReadoutPipelineBegin = 38;
-    constexpr uint32_t kFineErasePipelineBegin = 44;
+    constexpr uint32_t kMeshReadoutPipelineBegin = 39;
+    constexpr uint32_t kFineErasePipelineBegin = 45;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
 
@@ -1197,6 +1197,8 @@ namespace
             vkCmdDispatch(job->commandBuffer, job->queryGroups, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "readout_query") == 0)
             vkCmdDispatch(job->commandBuffer, job->readoutQueryGroups, 1, 1);
+        else if (std::strcmp(pipeline.dispatch, "readout_reset") == 0)
+            vkCmdDispatch(job->commandBuffer, 192, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);

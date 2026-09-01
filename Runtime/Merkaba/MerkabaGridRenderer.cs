@@ -31,6 +31,7 @@ namespace Genesis.RoomScan
         private int _resetKernel;
         private int _queryKernel;
         private int _prepareKernel;
+        private int _projectFrontKernel;
         private int _buildKernel;
         private int _projectMeshKernel;
         private int _buildMeshKernel;
@@ -351,6 +352,8 @@ namespace Genesis.RoomScan
                 "QueryM8Readout", MerkabaGpuStage.WorldQuery);
             _prepareKernel = readoutCompute.FindProfiledKernel(
                 "PrepareReadoutBuild", MerkabaGpuStage.ReadoutBuild);
+            _projectFrontKernel = readoutCompute.FindProfiledKernel(
+                "ProjectReadoutFrontDepth", MerkabaGpuStage.ReadoutBuild);
             _buildKernel = readoutCompute.FindProfiledKernel(
                 "BuildReadoutVertices", MerkabaGpuStage.ReadoutBuild);
             _projectMeshKernel = readoutCompute.FindProfiledKernel(
@@ -362,8 +365,8 @@ namespace Genesis.RoomScan
             foreach (int kernel in new[]
                      {
                          _resetKernel, _queryKernel, _prepareKernel,
-                         _buildKernel, _projectMeshKernel, _buildMeshKernel,
-                         _finalizeKernel
+                         _projectFrontKernel, _buildKernel,
+                         _projectMeshKernel, _buildMeshKernel, _finalizeKernel
                      })
             {
                 _grid.BindWorldBuffers(readoutCompute, kernel);
@@ -472,7 +475,7 @@ namespace Genesis.RoomScan
                     DrawArgsId, _grid.GetM8DrawArgs(backSlot));
                 ConfigureMeshReadoutCommand(command, ticket);
                 command.DispatchComputeProfiled(readoutCompute,
-                    _resetKernel, 1, 1, 1);
+                    _resetKernel, 192, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
                     _queryKernel, querySide * querySide * querySide, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
@@ -485,8 +488,12 @@ namespace Genesis.RoomScan
                         _buildMeshKernel, meshGroupsX, meshGroupsY, 1);
                 }
                 else
+                {
+                    command.DispatchComputeProfiled(readoutCompute,
+                        _projectFrontKernel, _grid.M8FrameDispatchArgs);
                     command.DispatchComputeProfiled(readoutCompute,
                         _buildKernel, _grid.M8FrameDispatchArgs);
+                }
                 command.DispatchComputeProfiled(readoutCompute,
                     _finalizeKernel, 1, 1, 1);
                 MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
@@ -976,7 +983,7 @@ namespace Genesis.RoomScan
         {
             bool active = _finePreviewDescriptor.IsActive;
             Color tint = _finePreviewColor;
-            tint.a = 0.5f;
+            tint.a = 0.25f;
             Vector4 parameters = active
                 ? new Vector4(1f,
                     _finePreviewDescriptor.CosHalfAngleSquared,

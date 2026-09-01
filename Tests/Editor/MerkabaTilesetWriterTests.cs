@@ -99,6 +99,39 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void StreamingPackagePublishesManifestAfterBoundedLeaves()
+        {
+            MerkabaExportMembraneResult membrane = Fixture();
+            string root = TemporaryDirectory();
+            try
+            {
+                MerkabaTilesetWriter.BeginStreamingPackage(root);
+                MerkabaTilesetLeaf leaf =
+                    MerkabaTilesetWriter.WriteStreamingLeaf(root, 0,
+                        membrane, hardLeafBytes: 1_000_000);
+                Assert.That(File.Exists(Path.Combine(root, "tiles",
+                    "000000.glb")), Is.True);
+                Assert.That(File.Exists(Path.Combine(root,
+                    "tileset.json")), Is.False);
+
+                MerkabaTilesetResult result =
+                    MerkabaTilesetWriter.CompleteStreamingPackage(root,
+                        new[] { leaf });
+                Assert.That(result.TileCount, Is.EqualTo(1));
+                Assert.That(result.TriangleCount,
+                    Is.EqualTo(membrane.Patches.Count * 2));
+                string json = File.ReadAllText(Path.Combine(root,
+                    "tileset.json"));
+                Assert.That(json, Does.Contain(
+                    "\"uri\":\"tiles/000000.glb\""));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
         public void SourceKeepsOneGlbAuthorityAndDurableManifestLast()
         {
             string tileset = Source(
@@ -120,8 +153,29 @@ namespace Genesis.RoomScan.Tests
             Assert.That(exporter, Does.Contain(
                 "public async Task<bool> ExportViewerPackageAsync()"));
             Assert.That(exporter, Does.Contain("Streamed "));
+            Assert.That(exporter, Does.Contain(
+                "BuildStreamingTilesetAsync(\n" +
+                "                    staging, progress)"));
+            Assert.That(exporter, Does.Contain(
+                "MerkabaTilesetWriter.BeginStreamingPackage(staging)"));
+            Assert.That(exporter, Does.Contain(
+                "MerkabaTilesetWriter.WriteStreamingLeaf(staging"));
+            Assert.That(exporter, Does.Contain(
+                "MerkabaTilesetWriter.CompleteStreamingPackage(staging"));
+            Assert.That(exporter, Does.Contain(
+                "offset += MerkabaGrid.StreamBatchCapacity"));
             Assert.That(exporter, Does.Not.Contain(
                 "CaptureStoredSnapshotAsync(anchorUuid"));
+            int viewerExport = exporter.IndexOf(
+                "public async Task<bool> ExportViewerPackageAsync()",
+                StringComparison.Ordinal);
+            int nextMethod = exporter.IndexOf(
+                "private async Task<MerkabaExportMembraneResult> " +
+                "BuildMembraneAsync", viewerExport,
+                StringComparison.Ordinal);
+            string scalablePath = exporter.Substring(viewerExport,
+                nextMethod - viewerExport);
+            Assert.That(scalablePath, Does.Not.Contain("BuildMembraneAsync("));
             Assert.That(storage, Does.Contain("CaptureStoredTileIndex()"));
             Assert.That(storage, Does.Contain("ReadStoredTilesAsync("));
         }
@@ -143,6 +197,14 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(viewer.text, Does.Contain(
                     "merkaba://scan/tileset.json"));
                 Assert.That(viewer.text, Does.Contain("Open this export"));
+                Assert.That(viewer.text, Does.Contain(
+                    "alphaHash=s.alphaHash"));
+                Assert.That(viewer.text, Does.Contain(
+                    "merkabaShootCrosshairPoint"));
+                Assert.That(viewer.text, Does.Contain(
+                    "merkabaPickLoadedSceneAtCenter"));
+                Assert.That(viewer.text, Does.Contain(
+                    "merkabaWorldUp=new R(0,0,1)"));
                 Assert.That(viewer.text, Does.Not.Contain("<script src="));
                 Assert.That(viewer.text, Does.Not.Contain("cdn.jsdelivr"));
                 Assert.That(threeLicense, Is.Not.Null);

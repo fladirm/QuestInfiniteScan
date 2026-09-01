@@ -36,6 +36,10 @@
                 <ui:Label name="val-saved" text="--" class="status-val status-val--small" />
             </ui:VisualElement>
             <ui:VisualElement class="status-row">
+                <ui:Label text="Scan proximity" class="status-key" />
+                <ui:Label name="val-proximity" text="--" class="status-val status-val--small" />
+            </ui:VisualElement>
+            <ui:VisualElement class="status-row">
                 <ui:Label text="GLB export" class="status-key" />
                 <ui:Label name="val-export" text="--" class="status-val status-val--small" />
             </ui:VisualElement>
@@ -64,10 +68,10 @@
                 <ui:VisualElement picking-mode="Ignore" class="checker-icon">
                     <ui:VisualElement class="checker-icon-row">
                         <ui:VisualElement class="checker-icon-yellow" />
-                        <ui:VisualElement class="checker-icon-magenta" />
+                        <ui:VisualElement class="checker-icon-black" />
                     </ui:VisualElement>
                     <ui:VisualElement class="checker-icon-row">
-                        <ui:VisualElement class="checker-icon-magenta" />
+                        <ui:VisualElement class="checker-icon-black" />
                         <ui:VisualElement class="checker-icon-yellow" />
                     </ui:VisualElement>
                 </ui:VisualElement>

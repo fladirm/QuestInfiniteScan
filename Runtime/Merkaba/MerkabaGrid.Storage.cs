@@ -618,6 +618,28 @@ namespace Genesis.RoomScan
             return _ssdStore.SnapshotSortedAddresses();
         }
 
+        internal bool TryGetStoredScanProximity(Vector3 worldPosition,
+            out Vector3 worldDirection, out float distance)
+        {
+            EnsureStorage();
+            Vector3 gridPosition = GridToWorldMatrix.inverse.MultiplyPoint3x4(
+                worldPosition);
+            if (!_ssdStore.TryFindNearestStoredTile(gridPosition,
+                    out float3 closestGrid, out _))
+            {
+                worldDirection = Vector3.zero;
+                distance = 0f;
+                return false;
+            }
+            Vector3 closestWorld = GridToWorldMatrix.MultiplyPoint3x4(
+                closestGrid);
+            Vector3 delta = closestWorld - worldPosition;
+            distance = delta.magnitude;
+            worldDirection = distance > 1.0e-5f
+                ? delta / distance : Vector3.zero;
+            return true;
+        }
+
         internal Task<MerkabaTileSnapshot[]> ReadStoredTilesAsync(
             IReadOnlyList<MerkabaTileAddress> addresses)
         {

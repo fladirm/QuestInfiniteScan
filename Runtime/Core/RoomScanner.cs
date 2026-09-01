@@ -83,6 +83,16 @@ namespace Genesis.RoomScan
             _renderer != null ? _renderer.VisiblePrimitiveCount : 0;
         public int VisibleChunkCount =>
             _renderer != null ? _renderer.VisibleChunkCount : 0;
+        public bool TryGetStoredScanProximity(Vector3 worldPosition,
+            out Vector3 worldDirection, out float distance)
+        {
+            if (_grid != null)
+                return _grid.TryGetStoredScanProximity(worldPosition,
+                    out worldDirection, out distance);
+            worldDirection = Vector3.zero;
+            distance = 0f;
+            return false;
+        }
         public int VisibleSurfaceKernelCount =>
             _renderer != null ? _renderer.VisibleSurfaceKernelCount : 0;
         public int IntegrationCount => _integrator != null ? _integrator.IntegrationCount : 0;

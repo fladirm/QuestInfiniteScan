@@ -241,13 +241,15 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
     float referenceDistance, float3 referenceNormal, float candidateDistance,
     out float3 worldPosition, out float3 jointNormal,
     out float geometricCost, out uint censusMismatch,
-    out bool photometricStructure, out uint completedStages)
+    out bool photometricStructure, out bool strictAccepted,
+    out uint completedStages)
 {
     worldPosition = referenceEyePosition + referenceRay * candidateDistance;
     jointNormal = 0.0;
     geometricCost = 0.0;
     censusMismatch = 0u;
     photometricStructure = false;
+    strictAccepted = false;
     completedStages = 0u;
 
     float3 rightPlanePoint;
@@ -293,7 +295,7 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
         float3 delta = abs(leftChromaticity - rightChromaticity);
         if (delta.x + delta.y + delta.z >
             RGBD_MAX_CHROMATICITY_DIFFERENCE)
-            return false;
+            return true;
     }
     completedStages |= RGBD_STAGE_CHROMATICITY;
 
@@ -302,12 +304,13 @@ bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
         RGBD_MIN_CENSUS_CONTRAST;
     if (photometricStructure &&
         censusMismatch > RGBD_MAX_CENSUS_MISMATCH)
-        return false;
+        return true;
     completedStages |= RGBD_STAGE_CENSUS;
 
     geometricCost = rightResidual / RGBD_MAX_METRIC_CORRECTION +
         abs(candidateDistance - referenceDistance) /
         RGBD_MAX_METRIC_CORRECTION * 0.125;
+    strictAccepted = true;
     return true;
 }
 
@@ -337,6 +340,9 @@ void StereoRgbdRefine(uint2 id : SV_DispatchThreadID,
     float bestPhotometricCost = 1e20;
     float bestPhotometricDistance = 0.0;
     float3 bestPhotometricNormal = 0.0;
+    float bootstrapDistance = 0.0;
+    float3 bootstrapNormal = 0.0;
+    float bootstrapConfidence = 0.0;
 
     float3 referenceEyePosition = 0.0;
     float3 referenceRay = 0.0;
@@ -376,20 +382,32 @@ void StereoRgbdRefine(uint2 id : SV_DispatchThreadID,
                     float geometricCost;
                     uint mismatch;
                     bool structured;
+                    bool strictAccepted;
                     uint candidateStages;
                     bool candidateValid = JointCandidate(referenceEyePosition,
                         referenceRay, referenceDistance, referenceNormal,
                         candidateDistance, candidateWorld, candidateNormal,
-                        geometricCost, mismatch, structured, candidateStages);
+                        geometricCost, mismatch, structured, strictAccepted,
+                        candidateStages);
                     completedStages |= candidateStages;
                     if (!candidateValid) continue;
 
                     if (hypothesis == 0)
                     {
-                        metricPriorDistance = candidateDistance;
-                        metricPriorNormal = candidateNormal;
+                        if (strictAccepted)
+                        {
+                            metricPriorDistance = candidateDistance;
+                            metricPriorNormal = candidateNormal;
+                        }
+                        else
+                        {
+                            bootstrapDistance = candidateDistance;
+                            bootstrapNormal = candidateNormal;
+                            bootstrapConfidence =
+                                (float)countbits(candidateStages) * 0.25;
+                        }
                     }
-                    if (!structured) continue;
+                    if (!strictAccepted || !structured) continue;
 
                     if (mismatch < bestMismatch)
                     {
@@ -417,12 +435,17 @@ void StereoRgbdRefine(uint2 id : SV_DispatchThreadID,
 
         uniquePhotometricWinner = bestPhotometricDistance > 0.0 &&
             bestMismatch < secondMismatch;
-        if (uniquePhotometricWinner || metricPriorDistance > 0.0)
+        if (uniquePhotometricWinner || metricPriorDistance > 0.0 ||
+            bootstrapDistance > 0.0)
         {
             float selectedDistance = uniquePhotometricWinner
-                ? bestPhotometricDistance : metricPriorDistance;
+                ? bestPhotometricDistance : (metricPriorDistance > 0.0
+                ? metricPriorDistance : bootstrapDistance);
             float3 selectedNormal = uniquePhotometricWinner
-                ? bestPhotometricNormal : metricPriorNormal;
+                ? bestPhotometricNormal : (metricPriorDistance > 0.0
+                ? metricPriorNormal : bootstrapNormal);
+            float selectedConfidence = uniquePhotometricWinner ||
+                metricPriorDistance > 0.0 ? 1.0 : bootstrapConfidence;
             float3 selectedWorld = referenceEyePosition +
                 referenceRay * selectedDistance;
             float selectedDepth = WorldToReferenceDepthNdc(selectedWorld);
@@ -433,7 +456,8 @@ void StereoRgbdRefine(uint2 id : SV_DispatchThreadID,
             if (finalAccepted)
             {
                 _DstDepth[id] = selectedDepth;
-                _DstNormal[id] = float4(selectedNormal, 1.0);
+                _DstNormal[id] = float4(selectedNormal,
+                    selectedConfidence);
             }
         }
     }

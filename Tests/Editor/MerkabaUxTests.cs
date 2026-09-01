@@ -34,6 +34,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Label>("operation-spinner"), Is.Not.Null);
             Assert.That(root.Q<Label>("operation-stage"), Is.Not.Null);
             Assert.That(root.Q<ProgressBar>("operation-progress"), Is.Not.Null);
+            Assert.That(root.Q<Label>("val-proximity"), Is.Not.Null);
             string source = File.ReadAllText(Path.GetFullPath(path));
             Assert.That(source, Does.Contain("Published triangles"));
             Assert.That(source, Does.Contain("Visible chunks"));
@@ -47,9 +48,15 @@ namespace Genesis.RoomScan.Tests
                 "scanner.MeshReadoutEnabled ="));
             Assert.That(controller, Does.Contain(
                 "scanner.CheckerReadoutEnabled ="));
+            Assert.That(controller, Does.Contain(
+                "TryGetStoredScanProximity"));
+            Assert.That(controller, Does.Contain(
+                "Outside · {proximityDistance:F1} m"));
             string scanner = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Core/RoomScanner.cs"));
             Assert.That(scanner, Does.Contain("integrationHz = 10f"));
+            Assert.That(scanner, Does.Contain(
+                "TryGetStoredScanProximity"));
             string renderer = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGridRenderer.cs"));
             Assert.That(renderer, Does.Contain(
@@ -94,7 +101,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "#pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION"));
             Assert.That(source, Does.Contain(
-                "#pragma shader_feature_local_fragment _ M8_CHECKER_READOUT"));
+                "#pragma multi_compile_local_fragment _ M8_CHECKER_READOUT"));
             Assert.That(source, Does.Contain(
                 "#if defined(M8_FINE_PREVIEW)"));
             Assert.That(source, Does.Contain(
@@ -110,7 +117,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "? half3(1.0h, 1.0h, 0.0h)"));
             Assert.That(source, Does.Contain(
-                ": half3(1.0h, 0.0h, 1.0h)"));
+                ": half3(0.0h, 0.0h, 0.0h)"));
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));

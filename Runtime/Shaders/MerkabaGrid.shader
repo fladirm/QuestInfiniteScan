@@ -32,7 +32,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma shader_feature_local_vertex _ M8_STEREO_MESH
             #pragma shader_feature_local_fragment _ M8_FINE_PREVIEW
             #pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION
-            #pragma shader_feature_local_fragment _ M8_CHECKER_READOUT
+            #pragma multi_compile_local_fragment _ M8_CHECKER_READOUT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.xr.arfoundation/Assets/Shaders/Utils.hlsl"
@@ -153,7 +153,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                     uint(checkerCell.y)) & 1u;
                 color = checkerParity == 0u
                     ? half3(1.0h, 1.0h, 0.0h)
-                    : half3(1.0h, 0.0h, 1.0h);
+                    : half3(0.0h, 0.0h, 0.0h);
 #endif
 #if defined(M8_FINE_PREVIEW)
                 if (_FineBrushParams.x > 0.5)
@@ -166,8 +166,15 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                         axial >= 0.0 && axial * axial >=
                         distanceSquared * _FineBrushParams.y;
                     if (inside)
+                    {
+                        float cosineSquared = distanceSquared > 1.0e-12
+                            ? axial * axial / distanceSquared : 1.0;
+                        half brushWeight = (half)saturate(
+                            (cosineSquared - _FineBrushParams.y) /
+                            max(1.0e-6, 1.0 - _FineBrushParams.y));
                         color = lerp(color, _FinePreviewColor.rgb,
-                            _FinePreviewColor.a);
+                            _FinePreviewColor.a * brushWeight);
+                    }
                 }
 #endif
                 half alpha = _ScanOpacity *

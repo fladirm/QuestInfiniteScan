@@ -136,13 +136,13 @@
     border-radius: 8px;
 }
 .checker-toggle--on {
-    background-color: rgba(128, 70, 132, 0.9);
+    background-color: rgba(82, 76, 22, 0.9);
     border-color: rgb(255, 225, 0);
 }
 .checker-icon { width: 18px; height: 18px; flex-direction: column; }
 .checker-icon-row { width: 18px; height: 9px; flex-direction: row; }
 .checker-icon-yellow { width: 9px; height: 9px; background-color: rgb(255, 235, 0); }
-.checker-icon-magenta { width: 9px; height: 9px; background-color: rgb(255, 0, 210); }
+.checker-icon-black { width: 9px; height: 9px; background-color: rgb(0, 0, 0); }
 .fine-row {
     min-height: 108px;
     padding: 8px 13px;

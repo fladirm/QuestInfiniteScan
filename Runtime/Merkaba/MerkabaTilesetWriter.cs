@@ -25,6 +25,35 @@ namespace Genesis.RoomScan
         }
     }
 
+    internal readonly struct MerkabaTilesetLeaf
+    {
+        internal readonly int Index;
+        internal readonly int3 MinimumCoord;
+        internal readonly int3 MaximumCoord;
+        internal readonly float3 LocalOrigin;
+        internal readonly Vector3 ContentMinimum;
+        internal readonly Vector3 ContentMaximum;
+        internal readonly long ByteLength;
+        internal readonly int VertexCount;
+        internal readonly int TriangleCount;
+
+        internal MerkabaTilesetLeaf(int index, int3 minimumCoord,
+            int3 maximumCoord, float3 localOrigin, Vector3 contentMinimum,
+            Vector3 contentMaximum, long byteLength, int vertexCount,
+            int triangleCount)
+        {
+            Index = index;
+            MinimumCoord = minimumCoord;
+            MaximumCoord = maximumCoord;
+            LocalOrigin = localOrigin;
+            ContentMinimum = contentMinimum;
+            ContentMaximum = contentMaximum;
+            ByteLength = byteLength;
+            VertexCount = vertexCount;
+            TriangleCount = triangleCount;
+        }
+    }
+
     /// <summary>
     /// Dependency-free 3D Tiles 1.1 packaging over the finished membrane/GLB
     /// authority. Spatial ownership partitions emission only; every leaf retains
@@ -160,6 +189,112 @@ namespace Genesis.RoomScan
             totalBytes = checked(totalBytes + new FileInfo(manifest).Length);
             return new MerkabaTilesetResult(leaves.Count, totalBytes,
                 totalVertices, totalTriangles);
+        }
+
+        internal static void BeginStreamingPackage(string directory)
+        {
+            if (Directory.Exists(directory))
+                throw new IOException("Tileset staging directory already exists.");
+            Directory.CreateDirectory(Path.Combine(directory, "tiles"));
+        }
+
+        internal static MerkabaTilesetLeaf WriteStreamingLeaf(
+            string directory, int leafIndex,
+            MerkabaExportMembraneResult membrane,
+            IProgress<OperationWorkProgress> progress = null,
+            long hardLeafBytes = DefaultHardLeafBytes)
+        {
+            List<Item> items = BuildItems(membrane);
+            if (items.Count == 0)
+                throw new InvalidDataException("3D Tiles leaf membrane is empty.");
+            Bounds(items, out int3 minimum, out int3 maximum, out _);
+            float3 localOrigin = LocalOrigin(minimum, maximum);
+            string name = leafIndex.ToString("D6",
+                CultureInfo.InvariantCulture) + ".glb";
+            string finalPath = Path.Combine(directory, "tiles", name);
+            string temporaryPath = finalPath + ".tmp";
+            MerkabaGlbResult result;
+            using (var stream = new FileStream(temporaryPath,
+                       FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                       1024 * 1024, FileOptions.SequentialScan))
+            {
+                result = MerkabaGlbWriter.Write(stream, membrane,
+                    localOrigin, progress);
+                stream.Flush(true);
+            }
+            if (result.ByteLength > hardLeafBytes)
+                throw new InvalidDataException($"3D Tiles leaf {name} is " +
+                    $"{result.ByteLength} bytes, above {hardLeafBytes}.");
+            File.Move(temporaryPath, finalPath);
+            return new MerkabaTilesetLeaf(leafIndex, minimum, maximum,
+                localOrigin, result.Minimum, result.Maximum,
+                result.ByteLength, result.VertexCount,
+                result.PrimitiveCount);
+        }
+
+        internal static MerkabaTilesetResult CompleteStreamingPackage(
+            string directory, IReadOnlyList<MerkabaTilesetLeaf> leaves)
+        {
+            if (leaves == null || leaves.Count == 0)
+                throw new InvalidDataException("3D Tiles membrane is empty.");
+            var nodes = new List<Node>(leaves.Count);
+            long totalBytes = 0L;
+            long totalVertices = 0L;
+            long totalTriangles = 0L;
+            foreach (MerkabaTilesetLeaf leaf in leaves)
+            {
+                Vector3 translation = Convert(leaf.LocalOrigin);
+                nodes.Add(new Node
+                {
+                    Items = new List<Item>(),
+                    LeafIndex = leaf.Index,
+                    MinimumCoord = leaf.MinimumCoord,
+                    MaximumCoord = leaf.MaximumCoord,
+                    LocalOrigin = leaf.LocalOrigin,
+                    ContentMinimum = leaf.ContentMinimum,
+                    ContentMaximum = leaf.ContentMaximum,
+                    Minimum = leaf.ContentMinimum + translation,
+                    Maximum = leaf.ContentMaximum + translation,
+                    ContentBytes = leaf.ByteLength,
+                    VertexCount = leaf.VertexCount,
+                    TriangleCount = leaf.TriangleCount
+                });
+                totalBytes = checked(totalBytes + leaf.ByteLength);
+                totalVertices = checked(totalVertices + leaf.VertexCount);
+                totalTriangles = checked(totalTriangles + leaf.TriangleCount);
+            }
+            Node root = BuildStreamingHierarchy(nodes, 0, nodes.Count);
+            ResolveBounds(root);
+            string json = BuildTileset(root);
+            string manifest = Path.Combine(directory, "tileset.json");
+            string temporary = manifest + ".tmp";
+            using (var stream = new FileStream(temporary, FileMode.CreateNew,
+                       FileAccess.Write, FileShare.None, 64 * 1024,
+                       FileOptions.None))
+            using (var writer = new StreamWriter(stream,
+                       new UTF8Encoding(false), 64 * 1024, true))
+            {
+                writer.Write(json);
+                writer.Flush();
+                stream.Flush(true);
+            }
+            File.Move(temporary, manifest);
+            totalBytes = checked(totalBytes + new FileInfo(manifest).Length);
+            return new MerkabaTilesetResult(leaves.Count, totalBytes,
+                totalVertices, totalTriangles);
+        }
+
+        private static Node BuildStreamingHierarchy(List<Node> leaves,
+            int offset, int count)
+        {
+            if (count == 1) return leaves[offset];
+            int lowCount = count / 2;
+            return new Node
+            {
+                Low = BuildStreamingHierarchy(leaves, offset, lowCount),
+                High = BuildStreamingHierarchy(leaves, offset + lowCount,
+                    count - lowCount)
+            };
         }
 
         private static List<Item> BuildItems(

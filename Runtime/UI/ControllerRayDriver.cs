@@ -125,21 +125,22 @@ namespace Genesis.RoomScan.UI
                 _fineCursor.SetActive(_fineTargetVisible);
             if (!_fineTargetVisible) return;
 
-            float targetDistance = Mathf.Sqrt(descriptor.ToolDepthSquared);
+            float targetDistance = Vector3.Distance(descriptor.EyeOrigin,
+                descriptor.CursorPosition);
             float halfAngle = Mathf.Acos(Mathf.Sqrt(Mathf.Clamp01(
                 descriptor.CosHalfAngleSquared)));
             float radius = targetDistance * Mathf.Tan(halfAngle);
-            Vector3 surfaceNormal = descriptor.SurfaceNormal;
+            Vector3 axis = descriptor.Axis.normalized;
             _fineCursor.transform.SetPositionAndRotation(
-                descriptor.CursorPosition + surfaceNormal * 0.001f,
-                Quaternion.FromToRotation(Vector3.up, surfaceNormal));
+                descriptor.CursorPosition - axis * 0.001f,
+                Quaternion.FromToRotation(Vector3.up, axis));
             _fineCursor.transform.localScale = new Vector3(radius * 2f,
                 0.0005f, radius * 2f);
 
             Color color = GetFineBrushPreviewColor(operation);
             _fineProperties ??= new MaterialPropertyBlock();
             Color cursorTint = color;
-            cursorTint.a = Mathf.Max(0.55f, color.a) * 0.5f;
+            cursorTint.a = Mathf.Clamp01(color.a * 0.5f);
             _fineProperties.SetColor(ColorId, cursorTint);
             _fineCursorRenderer.SetPropertyBlock(_fineProperties);
         }

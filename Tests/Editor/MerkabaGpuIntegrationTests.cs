@@ -56,7 +56,8 @@ namespace Genesis.RoomScan.Tests
             foreach (string kernel in new[]
                      {
                          "ResetReadoutBuild", "QueryM8Readout",
-                         "PrepareReadoutBuild", "BuildReadoutVertices",
+                         "PrepareReadoutBuild", "ProjectReadoutFrontDepth",
+                         "BuildReadoutVertices",
                          "ProjectReadoutMeshPins", "BuildReadoutMesh",
                          "FinalizeReadout"
                      })
@@ -312,6 +313,45 @@ namespace Genesis.RoomScan.Tests
                 new int3(1, -1, 0)), Is.False);
             Assert.That(math.all(new int3(1, 1, 1) ==
                 new int3(1, -1, 1)), Is.False);
+        }
+
+        [Test]
+        public void BootstrapJointMeasurement_CanOnlyCreateFirstDiscovery()
+        {
+            string refine = Source(
+                "Runtime/Shaders/StereoRgbdRefine.compute");
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string route = Slice(integration, "int RouteSurfaceCandidate",
+                "float MerkabaFreeDistanceWeight");
+            string integrate = Slice(integration,
+                "void IntegrateSurfaceCandidates", "void PrepareCarveArgs");
+            string classify = Slice(integration,
+                "bool ExactFrozenRayClassify", "bool M8TryOccupiedExactForCarve");
+
+            Assert.That(refine, Does.Contain(
+                "out bool photometricStructure, out bool strictAccepted"));
+            Assert.That(refine, Does.Contain("bootstrapConfidence ="));
+            Assert.That(refine, Does.Contain(
+                "(float)countbits(candidateStages) * 0.25"));
+            Assert.That(refine, Does.Contain(
+                "_DstNormal[id] = float4(selectedNormal,"));
+            Assert.That(route, Does.Contain(
+                "if (!strictMeasurement && quality <= 0.0)"));
+            Assert.That(route, Does.Contain(
+                "if (_M8FineRefineActive != 0u && !strictMeasurement)"));
+            Assert.That(route, Does.Contain(
+                "MERKABA_SURFACE_AUTHORITY_DISCOVERY"));
+            Assert.That(route, Does.Contain(
+                "if (!strictMeasurement)\n" +
+                "        return MerkabaPackSurfaceMetadata"));
+            Assert.That(integrate, Does.Contain(
+                "!strictMeasurement && authority !=\n" +
+                "        MERKABA_SURFACE_AUTHORITY_DISCOVERY"));
+            Assert.That(integrate, Does.Contain(
+                "MERKABA_OCCUPIED_ON - max(state.evidence, 0)"));
+            Assert.That(classify, Does.Contain(
+                "if (normalSample.w < 1.0) return false;"));
         }
 
         [Test]
@@ -734,6 +774,58 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void ReadoutFrontDepth_PrefiltersStackedSurfacesWithoutChangingCoverage()
+        {
+            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string renderer = Source(
+                "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string generator = Source(
+                "Tools/unity/generate_merkaba_native_executor_shaders.py");
+            string native = Source(
+                "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp");
+            string reset = Slice(readout, "void ResetReadoutBuild",
+                "groupshared uint gFrameBlockRef");
+            string query = Slice(readout, "void QueryM8Readout",
+                "void PrepareReadoutBuild");
+            string project = Slice(readout,
+                "void ProjectReadoutFrontDepth",
+                "bool M8IsFrontReadoutKernel");
+            string resolve = Slice(readout,
+                "void M8ResolveOverlapPatchMask",
+                "uint2 M8LoadReadoutNeighbourPayload");
+
+            Assert.That(reset, Does.Contain(
+                "_M8VisibleTiles[id].y = M8_FRONT_INVALID_DEPTH"));
+            Assert.That(readout, Does.Contain(
+                "[numthreads(128, 1, 1)]\nvoid ResetReadoutBuild"));
+            Assert.That(query, Does.Contain(
+                "_M8VisibleTiles[visibleIndex].x = physicalSlot"));
+            Assert.That(project, Does.Contain(
+                "InterlockedMin(_M8VisibleTiles[pixel].y"));
+            Assert.That(project, Does.Contain("[unroll]"));
+            Assert.That(Regex.Matches(project, @"for \("),
+                Has.Count.EqualTo(1));
+            Assert.That(project, Does.Not.Contain("while ("));
+            Assert.That(resolve.IndexOf("M8LoadKernelStateRead",
+                    StringComparison.Ordinal), Is.LessThan(resolve.IndexOf(
+                    "M8IsFrontReadoutKernel", StringComparison.Ordinal)));
+            Assert.That(renderer, Does.Contain(
+                "_projectFrontKernel, _grid.M8FrameDispatchArgs"));
+            Assert.That(generator, Does.Contain(
+                "Pipeline(\"ProjectReadoutFrontDepth\""));
+            Assert.That(native, Does.Contain(
+                "vkCmdDispatch(job->commandBuffer, 192, 1, 1)"));
+            Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
+                Is.EqualTo(44));
+            Assert.That(readout, Does.Contain(
+                "return MerkabaM8GridAabbIntersectsDistance(globalMin, " +
+                "span, distance,"));
+            Assert.That(readout, Does.Contain(
+                "if (M8AabbIntersectsDistance(gFrameBlockMin,"));
+            Assert.That(readout, Does.Not.Contain("M8DrawPlanes"));
+        }
+
+        [Test]
         public void ReadoutSparseSupportFallback_IsExactMeasuredPlaneGlyph()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
@@ -939,7 +1031,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
                 Is.EqualTo(44));
             Assert.That(MerkabaNativeVulkanExecutor.PipelineCount,
-                Is.EqualTo(49));
+                Is.EqualTo(50));
         }
 
         [Test]
@@ -1457,7 +1549,7 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(51));
+                RegexOptions.Multiline), Has.Count.EqualTo(52));
 
             string[] serial = Regex.Matches(all,
                     @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
@@ -1477,8 +1569,7 @@ namespace Genesis.RoomScan.Tests
                 "PrepareResolveArgs",
                 "ResetClaimQueueCounts",
                 "ResetFineErase",
-                "ResetObservationCounters",
-                "ResetReadoutBuild"
+                "ResetObservationCounters"
             }));
             foreach (string kernel in serial)
             {
@@ -1603,7 +1694,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 57"));
+            Assert.That(audit, Does.Contain("kernel_count != 58"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));

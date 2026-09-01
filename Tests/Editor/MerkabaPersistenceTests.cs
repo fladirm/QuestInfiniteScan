@@ -206,6 +206,52 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public async Task StoredScanProximityUsesNearestTileNotWholeBlock()
+        {
+            string directory = Path.Combine(Path.GetTempPath(),
+                "merkaba-proximity-" + Guid.NewGuid().ToString("N"));
+            var store = new MerkabaSsdStore(directory);
+            MerkabaSpatial.Address firstAddress = MerkabaSpatial.Encode(
+                new int3(0, 0, 0));
+            MerkabaSpatial.Address secondAddress = MerkabaSpatial.Encode(
+                new int3(MerkabaSpatial.TileSize, 0, 0));
+            try
+            {
+                await store.AppendAsync(new[]
+                {
+                    new MerkabaTileSnapshot
+                    {
+                        Address = new MerkabaTileAddress(
+                            firstAddress.BlockCoord,
+                            firstAddress.LocalAddress),
+                        States = new KernelState[MerkabaSpatial.KernelsPerTile]
+                    },
+                    new MerkabaTileSnapshot
+                    {
+                        Address = new MerkabaTileAddress(
+                            secondAddress.BlockCoord,
+                            secondAddress.LocalAddress),
+                        States = new KernelState[MerkabaSpatial.KernelsPerTile]
+                    }
+                });
+
+                Assert.That(store.TryFindNearestStoredTile(
+                    new float3(0.5f, 0.1f, 0.1f), out float3 closest,
+                    out float distance), Is.True);
+                Assert.That(distance, Is.EqualTo(0.1f).Within(1.0e-5f));
+                Assert.That(closest.x, Is.EqualTo(0.4f).Within(1.0e-5f));
+                Assert.That(closest.y, Is.EqualTo(0.1f).Within(1.0e-5f));
+                Assert.That(closest.z, Is.EqualTo(0.1f).Within(1.0e-5f));
+            }
+            finally
+            {
+                store.Clear();
+                if (Directory.Exists(directory)) Directory.Delete(directory,
+                    true);
+            }
+        }
+
+        [Test]
         public void DurableOverlayAndCheckpointPublishBeforeTheirCpuAuthority()
         {
             string store = File.ReadAllText(Path.GetFullPath(
