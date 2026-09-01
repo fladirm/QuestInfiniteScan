@@ -435,6 +435,8 @@ namespace Genesis.RoomScan.Tests
                 StringComparison.Ordinal);
             int secondYield = start.IndexOf("await Task.Yield();",
                 firstYield + 1, StringComparison.Ordinal);
+            int loadedCoverage = start.IndexOf(
+                "await loadedCoverageReady;", StringComparison.Ordinal);
             int pca = start.IndexOf("_cameraProvider?.StartCapture();",
                 StringComparison.Ordinal);
             int depth = start.IndexOf("_depthCapture.StartDepthCapture();",
@@ -443,8 +445,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(prepare, Is.GreaterThanOrEqualTo(0));
             Assert.That(firstYield, Is.GreaterThan(prepare));
             Assert.That(secondYield, Is.GreaterThan(firstYield));
-            Assert.That(pca, Is.GreaterThan(secondYield));
-            Assert.That(depth, Is.GreaterThan(secondYield));
+            Assert.That(loadedCoverage, Is.GreaterThan(secondYield));
+            Assert.That(pca, Is.GreaterThan(loadedCoverage));
+            Assert.That(depth, Is.GreaterThan(loadedCoverage));
             Assert.That(start.IndexOf("ArmNextObservation();",
                 StringComparison.Ordinal), Is.GreaterThan(depth));
 
@@ -536,6 +539,30 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Shaders/MerkabaIntegration.compute");
             Assert.That(shader, Does.Contain(
                 "_M8AttemptCompletion[0] = uint4(_M8AttemptToken"));
+        }
+
+        [Test]
+        public void ObservationMutation_FailsClosedWhileQuestHeadPoseIsInvalid()
+        {
+            string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
+            string update = Slice(scanner, "private void Update()",
+                "private bool HasTrackedHeadPose()");
+            string tracking = Slice(scanner,
+                "private bool HasTrackedHeadPose()", "private void OnEnable()");
+            int gate = update.IndexOf("if (!HasTrackedHeadPose())",
+                StringComparison.Ordinal);
+            int submit = update.LastIndexOf("TrySubmitObservationAttempt()",
+                StringComparison.Ordinal);
+
+            Assert.That(gate, Is.GreaterThanOrEqualTo(0));
+            Assert.That(submit, Is.GreaterThan(gate));
+            Assert.That(update, Does.Contain("DiscardReadyDepthFrame()"));
+            Assert.That(update, Does.Contain("ArmNextObservation()"));
+            Assert.That(tracking, Does.Contain(
+                "OVRPlugin.GetNodePositionTracked("));
+            Assert.That(tracking, Does.Contain(
+                "OVRPlugin.GetNodeOrientationTracked("));
+            Assert.That(tracking, Does.Contain("OVRPlugin.Node.EyeCenter"));
         }
 
         [Test]

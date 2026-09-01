@@ -82,6 +82,17 @@ namespace Genesis.RoomScan
             IProgress<OperationWorkProgress> progress = null) =>
             Task.Run(() => RebuildIndex(progress));
 
+        internal Task ResetToCheckpointAsync(
+            IProgress<OperationWorkProgress> progress = null) =>
+            Task.Run(() => ResetToCheckpoint(progress));
+
+        internal void ResetToCheckpoint(
+            IProgress<OperationWorkProgress> progress = null)
+        {
+            DeleteIfExists(OverlayPath);
+            RebuildIndex(progress);
+        }
+
         internal void RebuildIndex(IProgress<OperationWorkProgress> progress = null)
         {
             var rebuilt = new Dictionary<MerkabaTileAddress, Location>();

@@ -64,6 +64,7 @@ namespace Genesis.RoomScan
         private double _storageRateSampleAt;
         private float _loadBytesPerSecond;
         private float _writeBytesPerSecond;
+        private bool _storageReplacementPending;
 
         internal string CheckpointPath
         {
@@ -131,7 +132,7 @@ namespace Genesis.RoomScan
 
         private void PumpStorage()
         {
-            if (!GpuSubmissionAllowed ||
+            if (_storageReplacementPending || !GpuSubmissionAllowed ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight) return;
             SubmitDeferredStorageControl();
             CompleteStorageTasks();
@@ -151,7 +152,7 @@ namespace Genesis.RoomScan
                 // Accounting above is CPU-only. A callback issued before
                 // quiesce must never enqueue readback/compute/upload work after
                 // the retirement marker.
-                if (!GpuSubmissionAllowed ||
+                if (_storageReplacementPending || !GpuSubmissionAllowed ||
                     MerkabaNativeVulkanExecutor.HasJobInFlight) return;
                 if (!_loadAddressReadbackPending && _loadStorageTask == null &&
                     !_loadInstallStatusPending &&
@@ -278,7 +279,7 @@ namespace Genesis.RoomScan
 
         private void BeginLoadAddressReadback()
         {
-            if (!GpuSubmissionAllowed) return;
+            if (_storageReplacementPending || !GpuSubmissionAllowed) return;
             uint available = _observedLoadRequestCount - _loadRequestCursor;
             uint queueIndex = _loadRequestCursor & LoadRequestMask;
             uint contiguous = (uint)LoadRequestCapacity - queueIndex;
@@ -297,6 +298,7 @@ namespace Genesis.RoomScan
                         Logger.Error("M8 SSD load-request readback failed.");
                         return;
                     }
+                    if (_storageReplacementPending) return;
                     var raw = request.GetData<Raw16>();
                     var addresses = new MerkabaTileAddress[raw.Length];
                     for (int index = 0; index < raw.Length; index++)
@@ -313,7 +315,7 @@ namespace Genesis.RoomScan
 
         private void CompleteStorageTasks()
         {
-            if (!GpuSubmissionAllowed) return;
+            if (_storageReplacementPending || !GpuSubmissionAllowed) return;
             if (_loadStorageTask != null && _loadStorageTask.IsCompleted)
             {
                 Task<MerkabaTileSnapshot[]> task = _loadStorageTask;
@@ -404,6 +406,7 @@ namespace Genesis.RoomScan
                 {
                     _loadInstallStatusPending = false;
                     if (generation != _gpuGeneration) return;
+                    if (_storageReplacementPending) return;
                     bool complete = !request.hasError;
                     if (complete)
                     {
@@ -446,7 +449,7 @@ namespace Genesis.RoomScan
 
         private void BeginWritebackReadback(int count)
         {
-            if (!GpuSubmissionAllowed) return;
+            if (_storageReplacementPending || !GpuSubmissionAllowed) return;
             _writebackReadbackPending = true;
             int rawCount = count * (MerkabaSpatial.KernelsPerTile + 1);
             int generation = _gpuGeneration;
@@ -454,7 +457,10 @@ namespace Genesis.RoomScan
                 request =>
                 {
                     _writebackReadbackPending = false;
-                    if (generation != _gpuGeneration || request.hasError)
+                    if (generation != _gpuGeneration ||
+                        _storageReplacementPending)
+                        return;
+                    if (request.hasError)
                     {
                         Logger.Error("M8 writeback staging readback failed; " +
                                      "canonical tiles return HOT and dirty.");
@@ -665,8 +671,33 @@ namespace Genesis.RoomScan
                     1024 * 1024, FileOptions.SequentialScan);
                 return MerkabaSsdStore.ReadCheckpoint(stream, progress);
             });
-            await _ssdStore.RebuildIndexAsync(progress);
             return snapshot;
+        }
+
+        private async Task PrepareStorageForCheckpointReplacementAsync(
+            IProgress<OperationWorkProgress> progress)
+        {
+            _storageReplacementPending = true;
+            progress?.Report(OperationWorkProgress.Indeterminate(
+                ScanOperationStage.RebuildingStorageIndex,
+                "Retiring live storage activity"));
+            while (_streamCounterPending || _loadAddressReadbackPending ||
+                   _loadInstallStatusPending || _writebackReadbackPending)
+                await Task.Yield();
+
+            Task loadTask = _loadStorageTask;
+            Task writeTask = _writebackStorageTask;
+            if (loadTask != null)
+            {
+                try { await loadTask; }
+                catch { /* Current live state is deliberately discarded. */ }
+            }
+            if (writeTask != null)
+            {
+                try { await writeTask; }
+                catch { /* Current live state is deliberately discarded. */ }
+            }
+            await _ssdStore.ResetToCheckpointAsync(progress);
         }
 
         internal async Task LoadStoredSnapshotAsync(MerkabaSessionSnapshot snapshot,
@@ -674,67 +705,77 @@ namespace Genesis.RoomScan
         {
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
             EnsureGpuResources();
-            ClearGpuWorldForNewScan();
-            int batches = DivideRoundUp(snapshot.Tiles.Count,
-                StreamBatchCapacity);
-            int totalWork = checked(snapshot.Tiles.Count + batches);
-            uint occupiedCount = 0u;
-            for (int tileIndex = 0; tileIndex < snapshot.Tiles.Count; tileIndex++)
+            try
             {
-                foreach (KernelState state in snapshot.Tiles[tileIndex].States)
-                    if (state.IsOccupied) occupiedCount++;
-                if ((tileIndex + 1) % StreamBatchCapacity == 0 ||
-                    tileIndex + 1 == snapshot.Tiles.Count)
+                await PrepareStorageForCheckpointReplacementAsync(progress);
+                ClearGpuWorldForNewScan();
+                int batches = DivideRoundUp(snapshot.Tiles.Count,
+                    StreamBatchCapacity);
+                int totalWork = checked(snapshot.Tiles.Count + batches);
+                uint occupiedCount = 0u;
+                for (int tileIndex = 0; tileIndex < snapshot.Tiles.Count;
+                     tileIndex++)
+                {
+                    foreach (KernelState state in snapshot.Tiles[tileIndex].States)
+                        if (state.IsOccupied) occupiedCount++;
+                    if ((tileIndex + 1) % StreamBatchCapacity == 0 ||
+                        tileIndex + 1 == snapshot.Tiles.Count)
+                        progress?.Report(new OperationWorkProgress(
+                            ScanOperationStage.ApplyingState, tileIndex + 1,
+                            totalWork, $"Validated {tileIndex + 1}/" +
+                            $"{snapshot.Tiles.Count} tiles"));
+                }
+                int completedBatches = 0;
+                for (int offset = 0; offset < snapshot.Tiles.Count;
+                     offset += StreamBatchCapacity)
+                {
+                    if (!GpuSubmissionAllowed)
+                        throw new InvalidOperationException(
+                            "M8 Load was interrupted by GPU quiesce.");
+                    int count = Math.Min(StreamBatchCapacity,
+                        snapshot.Tiles.Count - offset);
+                    var addresses = new MerkabaTileAddress[count];
+                    for (int item = 0; item < count; item++)
+                        addresses[item] = snapshot.Tiles[offset + item].Address;
+                    UploadLoadAddresses(addresses);
+                    RegisterLoadedTileAddresses(count);
+                    await Task.Yield();
+                    completedBatches++;
                     progress?.Report(new OperationWorkProgress(
-                        ScanOperationStage.ApplyingState, tileIndex + 1,
-                        totalWork, $"Validated {tileIndex + 1}/" +
-                        $"{snapshot.Tiles.Count} tiles"));
-            }
-            int completedBatches = 0;
-            for (int offset = 0; offset < snapshot.Tiles.Count;
-                 offset += StreamBatchCapacity)
-            {
+                        ScanOperationStage.ApplyingState,
+                        snapshot.Tiles.Count + completedBatches, totalWork,
+                        $"Registered {completedBatches}/{batches} M8 batches"));
+                }
+                if (totalWork == 0)
+                    progress?.Report(new OperationWorkProgress(
+                        ScanOperationStage.ApplyingState, 0, 0,
+                        "Registered empty M8 world"));
+                uint[] counters = await ReadWorldCountersAsync();
+                ulong addressedTiles = (ulong)counters[CounterHotTileCount] +
+                    counters[CounterColdTileCount];
+                if (counters[CounterBlockOverflow] != 0u ||
+                    counters[CounterChunkOverflow] != 0u ||
+                    counters[CounterHashFull] != 0u ||
+                    addressedTiles != (ulong)snapshot.Tiles.Count)
+                {
+                    ClearGpuWorldForNewScan();
+                    throw new InvalidDataException(
+                        "M8 snapshot exceeds block/chunk/hash capacity or did not " +
+                        "register every logical tile.");
+                }
+                _streamControlWord[0] = occupiedCount;
                 if (!GpuSubmissionAllowed)
                     throw new InvalidOperationException(
                         "M8 Load was interrupted by GPU quiesce.");
-                int count = Math.Min(StreamBatchCapacity,
-                    snapshot.Tiles.Count - offset);
-                var addresses = new MerkabaTileAddress[count];
-                for (int item = 0; item < count; item++)
-                    addresses[item] = snapshot.Tiles[offset + item].Address;
-                UploadLoadAddresses(addresses);
-                RegisterLoadedTileAddresses(count);
-                await Task.Yield();
-                completedBatches++;
-                progress?.Report(new OperationWorkProgress(
-                    ScanOperationStage.ApplyingState,
-                    snapshot.Tiles.Count + completedBatches, totalWork,
-                    $"Registered {completedBatches}/{batches} M8 batches"));
+                _m8Counters.SetData(_streamControlWord, 0,
+                    CounterOccupiedKernelCount, 1);
+                M8OccupiedKernelCount = ToInt(occupiedCount);
             }
-            if (totalWork == 0)
-                progress?.Report(new OperationWorkProgress(
-                    ScanOperationStage.ApplyingState, 0, 0,
-                    "Registered empty M8 world"));
-            uint[] counters = await ReadWorldCountersAsync();
-            ulong addressedTiles = (ulong)counters[CounterHotTileCount] +
-                counters[CounterColdTileCount];
-            if (counters[CounterBlockOverflow] != 0u ||
-                counters[CounterChunkOverflow] != 0u ||
-                counters[CounterHashFull] != 0u ||
-                addressedTiles != (ulong)snapshot.Tiles.Count)
+            finally
             {
-                ClearGpuWorldForNewScan();
-                throw new InvalidDataException(
-                    "M8 snapshot exceeds block/chunk/hash capacity or did not " +
-                    "register every logical tile.");
+                _storageReplacementPending = false;
+                _nextStreamPoll = 0f;
             }
-            _streamControlWord[0] = occupiedCount;
-            if (!GpuSubmissionAllowed)
-                throw new InvalidOperationException(
-                    "M8 Load was interrupted by GPU quiesce.");
-            _m8Counters.SetData(_streamControlWord, 0,
-                CounterOccupiedKernelCount, 1);
-            M8OccupiedKernelCount = ToInt(occupiedCount);
         }
 
         private Task<uint[]> ReadWorldCountersAsync()

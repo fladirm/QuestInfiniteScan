@@ -241,6 +241,60 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public async Task ExplicitLoadDiscardsLiveOverlayBeforeIndexingCheckpoint()
+        {
+            string directory = Path.Combine(Path.GetTempPath(),
+                "merkaba-load-reset-" + Guid.NewGuid().ToString("N"));
+            var store = new MerkabaSsdStore(directory);
+            MerkabaSessionSnapshot checkpoint = Fixture();
+            MerkabaTileAddress checkpointAddress =
+                checkpoint.Tiles[0].Address;
+            var overlayAddress = new MerkabaTileAddress(new int3(7, 8, 9),
+                11u);
+            try
+            {
+                await store.PublishCheckpointAsync(checkpoint);
+                KernelState[] replacement = new KernelState[
+                    MerkabaSpatial.KernelsPerTile];
+                replacement[31].Apply(MerkabaObservationKind.Surface, 1f,
+                    new Color32(9, 8, 7, 255));
+                await store.AppendAsync(new[]
+                {
+                    new MerkabaTileSnapshot
+                    {
+                        Address = checkpointAddress,
+                        States = replacement
+                    },
+                    new MerkabaTileSnapshot
+                    {
+                        Address = overlayAddress,
+                        States = replacement
+                    }
+                });
+                await store.RebuildIndexAsync();
+                Assert.That(store.IndexedTileCount,
+                    Is.EqualTo(checkpoint.Tiles.Count + 1));
+
+                await store.ResetToCheckpointAsync();
+                MerkabaTileSnapshot[] restored = await store.ReadAsync(
+                    new[] { checkpointAddress });
+
+                Assert.That(File.Exists(store.OverlayPath), Is.False);
+                Assert.That(store.IndexedTileCount,
+                    Is.EqualTo(checkpoint.Tiles.Count));
+                Assert.That(restored[0].States[17].IsOccupied, Is.True);
+                Assert.That(restored[0].States[31].IsOccupied, Is.False);
+                Assert.That(Array.IndexOf(store.SnapshotSortedAddresses(),
+                    overlayAddress), Is.EqualTo(-1));
+            }
+            finally
+            {
+                store.Clear();
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
         public async Task StoredScanProximityUsesNearestTileNotWholeBlock()
         {
             string directory = Path.Combine(Path.GetTempPath(),

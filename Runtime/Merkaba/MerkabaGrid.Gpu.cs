@@ -26,6 +26,15 @@ namespace Genesis.RoomScan
         internal const int ReadoutVertexCapacityPerBuffer =
             ReadoutTriangleCapacityPerBuffer *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
+        internal const int ReadoutFrontFaceDimension = 512;
+        internal const int ReadoutFrontPixelCount = 6 *
+            ReadoutFrontFaceDimension * ReadoutFrontFaceDimension;
+        internal const int ReadoutVisibleBufferCount =
+            ReadoutFrontPixelCount > MerkabaSpatial.PhysicalTileCapacity
+                ? ReadoutFrontPixelCount
+                : MerkabaSpatial.PhysicalTileCapacity;
+        internal const int ReadoutResetGroupCount =
+            (ReadoutFrontPixelCount + 127) / 128;
         internal const int CounterCount = 97;
 
         internal const int CounterBlockCount = 0;
@@ -390,7 +399,7 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8CarveDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
-                _m8VisibleTiles = Allocate(MerkabaSpatial.PhysicalTileCapacity,
+                _m8VisibleTiles = Allocate(ReadoutVisibleBufferCount,
                     sizeof(uint) * 2);
                 for (int slot = 0; slot < 2; slot++)
                 {

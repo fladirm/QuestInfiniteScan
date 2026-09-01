@@ -72,6 +72,8 @@ namespace Genesis.RoomScan
         private FineBrushDescriptor _fineObservationDescriptor;
         private FineBrushDescriptor _fineEraseDescriptor;
         private FineBrushDescriptor _finePreviewDescriptor;
+        private bool _headTrackingBlocked;
+        private float _lastHeadTrackingWarningTime;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -243,6 +245,16 @@ namespace Genesis.RoomScan
                     _integrator.TrySubmitObservationAttempt();
                 return;
             }
+            if (!HasTrackedHeadPose())
+            {
+                if (_depthCapture.HasUnprocessedFrame)
+                {
+                    _expiredDepthFrames++;
+                    _depthCapture.DiscardReadyDepthFrame();
+                }
+                ArmNextObservation();
+                return;
+            }
             if (fineMode)
             {
                 if (CurrentFineAction() == FineBrushOperation.Erase)
@@ -299,6 +311,31 @@ namespace Genesis.RoomScan
             }
         }
 
+        private bool HasTrackedHeadPose()
+        {
+            bool tracked = OVRPlugin.GetNodePositionTracked(
+                    OVRPlugin.Node.EyeCenter) &&
+                OVRPlugin.GetNodeOrientationTracked(OVRPlugin.Node.EyeCenter);
+            if (!tracked)
+            {
+                float now = Time.unscaledTime;
+                if (!_headTrackingBlocked ||
+                    now - _lastHeadTrackingWarningTime >= 1f)
+                {
+                    _lastHeadTrackingWarningTime = now;
+                    Logger.Warning("Merkaba observation paused: Quest head " +
+                        "position/orientation tracking is invalid");
+                }
+                _headTrackingBlocked = true;
+                return false;
+            }
+            if (_headTrackingBlocked)
+                Logger.Info("Merkaba observation resumed after Quest head " +
+                    "tracking recovered");
+            _headTrackingBlocked = false;
+            return true;
+        }
+
         private void OnEnable() => _disableRequested = false;
 
         private void OnApplicationPause(bool paused)
@@ -347,6 +384,13 @@ namespace Genesis.RoomScan
                 _grid.EnsureGpuResources();
                 await Task.Yield();
                 await Task.Yield();
+                if (!StartIsCurrent(generation)) return;
+                Task loadedCoverageReady = _renderer != null
+                    ? _renderer.WaitForLoadedCoverageReadyAsync()
+                    : Task.CompletedTask;
+                if (!loadedCoverageReady.IsCompleted)
+                    Logger.Info("Waiting for loaded M8 coverage before scan resume");
+                await loadedCoverageReady;
                 if (!StartIsCurrent(generation)) return;
                 bool cameraPermission = await PassthroughCameraProvider
                     .RequestCameraPermissionAsync();
@@ -437,7 +481,7 @@ namespace Genesis.RoomScan
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _persistence != null && await _persistence.LoadAsync();
-                if (success) _renderer?.MarkCanonicalReadoutDirty();
+                if (success) _renderer?.BeginLoadedCoverageWarmup();
                 return success;
             }
             finally
@@ -450,6 +494,7 @@ namespace Genesis.RoomScan
         public async Task NewClearAsync()
         {
             if (!await QuiesceScanningAsync()) return;
+            _renderer?.CancelLoadedCoverageWarmup();
             _integrator?.Clear();
             _persistence?.ClearSavedSession();
             _exporter?.ClearExport();

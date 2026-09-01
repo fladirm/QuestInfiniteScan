@@ -69,6 +69,8 @@ namespace Genesis.RoomScan
         private FineBrushDescriptor _finePreviewDescriptor;
         private Color _finePreviewColor;
         private bool _dynamicOcclusionEnabled = true;
+        private TaskCompletionSource<bool> _loadedCoverageReady;
+        private uint _loadedCoverageSourceGeneration;
 
         private readonly struct ReadoutBuildTicket
         {
@@ -243,6 +245,25 @@ namespace Genesis.RoomScan
             }
         }
 
+        internal void BeginLoadedCoverageWarmup()
+        {
+            _loadedCoverageReady?.TrySetResult(true);
+            _loadedCoverageReady = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            MarkCanonicalReadoutDirty();
+            _loadedCoverageSourceGeneration = _sourceGeneration;
+        }
+
+        internal Task WaitForLoadedCoverageReadyAsync() =>
+            _loadedCoverageReady?.Task ?? Task.CompletedTask;
+
+        internal void CancelLoadedCoverageWarmup()
+        {
+            _loadedCoverageReady?.TrySetResult(true);
+            _loadedCoverageReady = null;
+            _loadedCoverageSourceGeneration = 0u;
+        }
+
         internal void SetFineSurfacePreview(FineBrushDescriptor descriptor,
             Color color)
         {
@@ -274,6 +295,7 @@ namespace Genesis.RoomScan
 
         internal void ReleaseOwnedResourcesAfterGpuRetirement()
         {
+            CancelLoadedCoverageWarmup();
             InvalidatePublicationCallbacks();
             for (int slot = 0; slot < 2; slot++)
             {
@@ -472,7 +494,8 @@ namespace Genesis.RoomScan
                     DrawArgsId, _grid.GetM8DrawArgs(backSlot));
                 ConfigureMeshReadoutCommand(command, ticket);
                 command.DispatchComputeProfiled(readoutCompute,
-                    _resetKernel, 192, 1, 1);
+                    _resetKernel, ticket.MeshReadout ? 1 :
+                        MerkabaGrid.ReadoutResetGroupCount, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
                     _queryKernel, querySide * querySide * querySide, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute,
@@ -856,16 +879,27 @@ namespace Genesis.RoomScan
             }
 
             uint status = request.GetData<uint>()[0];
-            if (status == 3u)
+            if (status == 3u || status == 4u)
             {
                 _frontReadout = ticket.Slot;
                 _publishedRevision = ticket.Revision;
                 _hasPublishedCoverage = true;
                 _publishedGridPosition = ticket.GridPosition;
                 _publishedGridToWorld = ticket.GridToWorld;
-                _awaitingResidencyChange = false;
+                bool partial = status == 4u;
+                _awaitingResidencyChange = partial;
+                _buildResidencyEpoch = ticket.ResidencyEpoch;
                 _buildBlocked = false;
                 _blockedOnResidency = false;
+                if (!partial && _loadedCoverageReady != null &&
+                    unchecked((int)(ticket.SourceGeneration -
+                        _loadedCoverageSourceGeneration)) >= 0)
+                {
+                    TaskCompletionSource<bool> ready = _loadedCoverageReady;
+                    _loadedCoverageReady = null;
+                    _loadedCoverageSourceGeneration = 0u;
+                    ready.TrySetResult(true);
+                }
                 if (_sourceGeneration != ticket.SourceGeneration)
                     _canonicalDirty = true;
                 return;

@@ -399,7 +399,9 @@ int M8InspectSurfaceOwner(int3 globalCoord,
     return occupied ? 1 : 0;
 }
 
-bool M8HasBootstrapSheetNeighbour(int3 targetCoord, int3 measuredStep,
+bool M8HasCompatibleImmediateSheetSupport(int3 targetCoord,
+    float3 worldSurface,
+    int3 measuredStep,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
     uint nearestBlockIndex, out bool unresolved,
     out int3 unresolvedCoord)
@@ -430,8 +432,22 @@ bool M8HasBootstrapSheetNeighbour(int3 targetCoord, int3 measuredStep,
         float neighbourOffset;
         M8DecodeSurfacePlane(flags, neighbourNormal, neighbourOffset);
         int3 neighbourStep = MerkabaNearestGridNormalStep(neighbourNormal);
-        if (all(neighbourStep == measuredStep) ||
-            all(neighbourStep == -measuredStep))
+        if (!all(neighbourStep == measuredStep) &&
+            !all(neighbourStep == -measuredStep))
+            continue;
+        float3 neighbourCenterGrid =
+            (float3)neighbourCoord * MERKABA_LATTICE_STEP +
+            neighbourNormal * neighbourOffset;
+        float3 neighbourCenterWorld = mul(_MerkabaGridToWorld,
+            float4(neighbourCenterGrid, 1.0)).xyz;
+        float3 neighbourNormalWorld = normalize(mul(
+            transpose((float3x3)_MerkabaWorldToGrid), neighbourNormal));
+        float3 delta = worldSurface - neighbourCenterWorld;
+        float planeDistance = abs(dot(delta, neighbourNormalWorld));
+        float3 tangentDelta = delta - neighbourNormalWorld *
+            dot(delta, neighbourNormalWorld);
+        if (planeDistance <= MERKABA_HALF_SUPPORT + 1.0e-6 &&
+            length(tangentDelta) <= MERKABA_SUPPORT_SIZE + 1.0e-6)
             return true;
     }
     return false;
@@ -523,8 +539,8 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
                 MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
         bool bootstrapUnresolved;
         int3 bootstrapUnresolvedCoord;
-        bool supported = M8HasBootstrapSheetNeighbour(nearestKernel,
-            normalStep, nearestAddress, nearestBlockReady,
+        bool supported = M8HasCompatibleImmediateSheetSupport(nearestKernel,
+            worldSurface, normalStep, nearestAddress, nearestBlockReady,
             nearestBlockIndex, bootstrapUnresolved,
             bootstrapUnresolvedCoord);
         if (supported)
@@ -1669,7 +1685,35 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
 }
 
 groupshared uint gCarveWords[16];
+groupshared uint gCarveOccupiedWords[16];
 groupshared uint gCarveStats[23];
+
+bool M8HasImmediateOccupiedNeighbourInMainTile(uint kernelLocal)
+{
+    int3 tileLocal = int3(kernelLocal & 7u,
+        (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+    // The cooperative group deliberately owns one tile. A boundary kernel
+    // may have support in an adjacent tile, so preserve it rather than
+    // interpreting an unloaded dependency as empty.
+    if (any(tileLocal == 0) || any(tileLocal == 7)) return true;
+    [unroll]
+    for (uint neighbourIndex = 0u; neighbourIndex < 26u;
+         neighbourIndex++)
+    {
+        uint encoded = neighbourIndex < 13u
+            ? neighbourIndex : neighbourIndex + 1u;
+        int3 offset = int3(encoded % 3u,
+            (encoded / 3u) % 3u, encoded / 9u) - 1;
+        int3 neighbour = tileLocal + offset;
+        uint neighbourLocal = (uint)neighbour.x + 8u *
+            ((uint)neighbour.y + 8u * (uint)neighbour.z);
+        uint neighbourBit = 1u << (neighbourLocal & 31u);
+        if ((gCarveOccupiedWords[neighbourLocal >> 5u] &
+                neighbourBit) != 0u)
+            return true;
+    }
+    return false;
+}
 
 bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
 {
@@ -1791,7 +1835,11 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
             bool replacementOccupied = false;
             bool replacementResolved = M8TryOccupiedExactForCarve(
                 replacementCoord, replacementOccupied);
-            if (!replacementResolved || !replacementOccupied)
+            bool preserveWithoutReplacement = !replacementResolved;
+            if (replacementResolved && !replacementOccupied)
+                preserveWithoutReplacement =
+                    M8HasImmediateOccupiedNeighbourInMainTile(kernelLocal);
+            if (!replacementOccupied && preserveWithoutReplacement)
                 decrement = min(decrement, max(0,
                     evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));
         }
@@ -1835,6 +1883,7 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     {
         uint wordIndex = M8TileWordIndex(physicalSlot, thread);
         gCarveWords[thread] = _M8TileBits[wordIndex].y;
+        gCarveOccupiedWords[thread] = _M8TileBits[wordIndex].x;
     }
     if (thread < 23u) gCarveStats[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();

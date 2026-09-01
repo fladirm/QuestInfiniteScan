@@ -113,7 +113,8 @@ namespace Genesis.RoomScan.Tests
                 2097152L * 16, 1048576L * 8,
                 4194304L * 4, 4194304L * 4,
                 4194304L * 4, 4194304L * 4,
-                32768L * 4, 32768L * 4, 12, 32768L * 8,
+                32768L * 4, 32768L * 4, 12,
+                (long)MerkabaGrid.ReadoutVisibleBufferCount * 8,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
                 (long)MerkabaGrid.ReadoutVertexCapacityPerBuffer * 16,
@@ -127,7 +128,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers, Has.Length.EqualTo(44));
             Assert.That(allBuffers.Max(), Is.EqualTo(96L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThan(128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(898205404L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(910526172L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -343,13 +344,21 @@ namespace Genesis.RoomScan.Tests
             Assert.That(route, Does.Contain(
                 "MERKABA_SURFACE_AUTHORITY_DISCOVERY"));
             Assert.That(integration, Does.Contain(
-                "bool M8HasBootstrapSheetNeighbour"));
+                "bool M8HasCompatibleImmediateSheetSupport"));
             Assert.That(integration, Does.Contain(
                 "for (uint neighbourIndex = 0u; neighbourIndex < 26u;"));
             Assert.That(integration, Does.Contain(
-                "all(neighbourStep == measuredStep) ||"));
+                "if (!all(neighbourStep == measuredStep) &&\n" +
+                "            !all(neighbourStep == -measuredStep))"));
             Assert.That(integration, Does.Contain(
-                "all(neighbourStep == -measuredStep)"));
+                "planeDistance <= MERKABA_HALF_SUPPORT + 1.0e-6"));
+            Assert.That(integration, Does.Contain(
+                "length(tangentDelta) <= MERKABA_SUPPORT_SIZE + 1.0e-6"));
+            Assert.That(integration, Does.Contain(
+                "transpose((float3x3)_MerkabaWorldToGrid), neighbourNormal"));
+            Assert.That(route, Does.Contain(
+                "M8HasCompatibleImmediateSheetSupport(nearestKernel,\n" +
+                "            worldSurface, normalStep"));
             Assert.That(route, Does.Contain(
                 "if (targetOccupied)"));
             Assert.That(route, Does.Contain(
@@ -804,6 +813,8 @@ namespace Genesis.RoomScan.Tests
                 "uint2 M8LoadReadoutNeighbourPayload");
 
             Assert.That(reset, Does.Contain(
+                "_M8MeshReadoutEnabled == 0u && id < M8_FRONT_PIXEL_COUNT"));
+            Assert.That(reset, Does.Contain(
                 "_M8VisibleTiles[id].y = M8_FRONT_PACKED_INVALID_DEPTH"));
             Assert.That(readout, Does.Contain(
                 "[numthreads(128, 1, 1)]\nvoid ResetReadoutBuild"));
@@ -839,7 +850,19 @@ namespace Genesis.RoomScan.Tests
             Assert.That(generator, Does.Contain(
                 "Pipeline(\"ProjectReadoutFrontDepth\""));
             Assert.That(native, Does.Contain(
-                "vkCmdDispatch(job->commandBuffer, 192, 1, 1)"));
+                "job->kind == kJobMeshReadout ? 1u :\n" +
+                "                    kReadoutResetGroupCount"));
+            Assert.That(readout, Does.Contain(
+                "#define M8_FRONT_FACE_DIMENSION 512u"));
+            Assert.That(MerkabaGrid.ReadoutFrontFaceDimension,
+                Is.EqualTo(512));
+            Assert.That(MerkabaGrid.ReadoutVisibleBufferCount,
+                Is.EqualTo(6 * 512 * 512));
+            Assert.That(MerkabaGrid.ReadoutResetGroupCount,
+                Is.EqualTo(12288));
+            Assert.That(2f * 12f /
+                MerkabaGrid.ReadoutFrontFaceDimension,
+                Is.LessThanOrEqualTo(MerkabaConstants.SupportSize));
             Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
                 Is.EqualTo(44));
             Assert.That(readout, Does.Contain(
@@ -994,7 +1017,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Contain(
                 "_frontReadout = ticket.Slot;"));
             Assert.That(renderer, Does.Contain(
-                "if (status == 3u)"));
+                "if (status == 3u || status == 4u)"));
             Assert.That(renderer, Does.Contain(
                 "AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint)"));
             Assert.That(renderer, Does.Contain(
@@ -1009,8 +1032,17 @@ namespace Genesis.RoomScan.Tests
             string prepare = Slice(readout, "void PrepareReadoutBuild",
                 "#define M8_SHELL_GROUP_THREADS");
             Assert.That(reset, Does.Not.Contain("_M8DrawArgs"));
-            Assert.That(prepare, Does.Contain("MERKABA_READOUT_SKIPPED"));
-            Assert.That(prepare, Does.Contain("_M8FrameDispatchArgs[0] = 0u"));
+            Assert.That(prepare, Does.Not.Contain("MERKABA_READOUT_SKIPPED"));
+            string finalize = readout.Substring(readout.IndexOf(
+                "void FinalizeReadout", StringComparison.Ordinal));
+            Assert.That(finalize, Does.Contain(
+                "MERKABA_READOUT_PARTIAL_PUBLISHED"));
+            Assert.That(finalize, Does.Not.Contain(
+                "_M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u ||"));
+            Assert.That(renderer, Does.Contain(
+                "_awaitingResidencyChange = partial"));
+            Assert.That(renderer, Does.Contain(
+                "_grid.ResidencyEpoch != _buildResidencyEpoch"));
         }
 
         [Test]
@@ -1320,6 +1352,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(carve, Does.Contain(
                 "MERKABA_OCCUPIED_OFF + 1"));
             Assert.That(carve, Does.Contain("replacementResolved"));
+            Assert.That(carve, Does.Contain(
+                "M8HasImmediateOccupiedNeighbourInMainTile(kernelLocal)"));
+            Assert.That(integration, Does.Contain(
+                "groupshared uint gCarveOccupiedWords[16]"));
+            Assert.That(integration, Does.Contain(
+                "if (any(tileLocal == 0) || any(tileLocal == 7)) return true"));
+            Assert.That(carve, Does.Contain(
+                "if (!replacementOccupied && preserveWithoutReplacement)"));
             Assert.That(carve, Does.Contain(
                 "evidenceWeight *\n            MERKABA_FREE_SCALE"));
 
