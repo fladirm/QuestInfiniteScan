@@ -79,7 +79,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void OpacityAndPresentationFallbackRemainCheapAndFragmentOnly()
+        public void OpacityUsesOpaqueDepthWritingCoverageInsteadOfBlending()
         {
             const string assetPath =
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader";
@@ -90,10 +90,14 @@ namespace Genesis.RoomScan.Tests
             Object.DestroyImmediate(material);
             string source = File.ReadAllText(Path.GetFullPath(assetPath));
             Assert.That(source, Does.Contain(
-                "Blend [_SrcBlend] [_DstBlend], One OneMinusSrcAlpha"));
-            Assert.That(source, Does.Contain("_ScanOpacity *"));
+                "Blend One Zero"));
+            Assert.That(source, Does.Contain("ZWrite On"));
             Assert.That(source, Does.Contain(
-                "half alpha = _ScanOpacity *"));
+                "#pragma shader_feature_local_fragment _ M8_ALPHA_COVERAGE"));
+            Assert.That(source, Does.Contain(
+                "clip(_ScanOpacity - coverageThreshold)"));
+            Assert.That(source, Does.Contain(
+                "return half4(color, 1.0h)"));
             Assert.That(source, Does.Contain(
                 "#pragma multi_compile _ XR_HARD_OCCLUSION"));
             Assert.That(source, Does.Contain(
@@ -113,11 +117,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "M8EnvironmentVisibility(input.worldPosition)"));
             Assert.That(source, Does.Contain(
+                "clip(M8EnvironmentVisibility(input.worldPosition) - 0.5)"));
+            Assert.That(source, Does.Contain(
                 "#if defined(M8_CHECKER_READOUT)"));
             Assert.That(source, Does.Contain(
-                "? half3(1.0h, 1.0h, 0.0h)"));
+                ": half3(1.0h, 0.0h, 1.0h);"));
             Assert.That(source, Does.Contain(
-                ": half3(0.0h, 0.0h, 0.0h)"));
+                "? half3(1.0h, 1.0h, 0.0h)"));
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));
@@ -128,7 +134,6 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("barycentric"));
             Assert.That(source, Does.Not.Contain("fwidth"));
             Assert.That(source, Does.Not.Contain("pixelDistance"));
-            Assert.That(source, Does.Not.Contain("discard;"));
             Assert.That(source, Does.Contain(
                 "? input.color : half3(0.55h, 0.16h, 0.42h)"));
 
@@ -142,7 +147,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Contain(
                 "material.EnableKeyword(\"M8_ENVIRONMENT_OCCLUSION\")"));
             Assert.That(renderer, Does.Contain(
-                "opaque && !_dynamicOcclusionEnabled"));
+                "material.EnableKeyword(\"M8_ALPHA_COVERAGE\")"));
+            Assert.That(renderer, Does.Contain(
+                "material.renderQueue = (int)RenderQueue.Geometry"));
+            Assert.That(renderer, Does.Not.Contain("BlendMode."));
             Assert.That(renderer, Does.Contain(
                 "material.EnableKeyword(\"M8_CHECKER_READOUT\")"));
             Assert.That(renderer, Does.Contain(

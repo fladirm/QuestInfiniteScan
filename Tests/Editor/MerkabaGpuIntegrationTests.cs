@@ -316,7 +316,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void BootstrapJointMeasurement_CanOnlyCreateFirstDiscovery()
+        public void BootstrapJointMeasurement_CanOnlyExtendAProvenM8Sheet()
         {
             string refine = Source(
                 "Runtime/Shaders/StereoRgbdRefine.compute");
@@ -342,9 +342,18 @@ namespace Genesis.RoomScan.Tests
                 "if (_M8FineRefineActive != 0u && !strictMeasurement)"));
             Assert.That(route, Does.Contain(
                 "MERKABA_SURFACE_AUTHORITY_DISCOVERY"));
+            Assert.That(integration, Does.Contain(
+                "bool M8HasBootstrapSheetNeighbour"));
+            Assert.That(integration, Does.Contain(
+                "for (uint neighbourIndex = 0u; neighbourIndex < 26u;"));
+            Assert.That(integration, Does.Contain(
+                "all(neighbourStep == measuredStep) ||"));
+            Assert.That(integration, Does.Contain(
+                "all(neighbourStep == -measuredStep)"));
             Assert.That(route, Does.Contain(
-                "if (!strictMeasurement)\n" +
-                "        return MerkabaPackSurfaceMetadata"));
+                "if (targetOccupied)"));
+            Assert.That(route, Does.Contain(
+                "if (supported)"));
             Assert.That(integrate, Does.Contain(
                 "!strictMeasurement && authority !=\n" +
                 "        MERKABA_SURFACE_AUTHORITY_DISCOVERY"));
@@ -692,11 +701,10 @@ namespace Genesis.RoomScan.Tests
                 "M8OverlapTriangleCorner(uint vertex)"));
             Assert.That(generated, Does.Not.Contain("freeSign"));
             Assert.That(frame + generated,
-                Does.Not.Contain("_M8EyeGridPositions"));
-            Assert.That(frame + generated,
                 Does.Not.Contain("_M8GridWindingSign"));
+            Assert.That(frame + generated,
+                Does.Not.Contain("swapWinding"));
             Assert.That(frame + generated, Does.Not.Contain("opposite0"));
-            Assert.That(frame + generated, Does.Not.Contain("swapWinding"));
             Assert.That(shader, Does.Contain("Cull Off"));
             Assert.That(shader, Does.Not.Contain(
                 "MerkabaCanonicalPrimitivePosition"));
@@ -779,6 +787,7 @@ namespace Genesis.RoomScan.Tests
             string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
             string renderer = Source(
                 "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
             string generator = Source(
                 "Tools/unity/generate_merkaba_native_executor_shaders.py");
             string native = Source(
@@ -795,20 +804,36 @@ namespace Genesis.RoomScan.Tests
                 "uint2 M8LoadReadoutNeighbourPayload");
 
             Assert.That(reset, Does.Contain(
-                "_M8VisibleTiles[id].y = M8_FRONT_INVALID_DEPTH"));
+                "_M8VisibleTiles[id].y = M8_FRONT_PACKED_INVALID_DEPTH"));
             Assert.That(readout, Does.Contain(
                 "[numthreads(128, 1, 1)]\nvoid ResetReadoutBuild"));
             Assert.That(query, Does.Contain(
                 "_M8VisibleTiles[visibleIndex].x = physicalSlot"));
             Assert.That(project, Does.Contain(
-                "InterlockedMin(_M8VisibleTiles[pixel].y"));
+                "M8AtomicMinFrontDepth(pixel, 0u"));
+            Assert.That(project, Does.Contain(
+                "M8AtomicMinFrontDepth(pixel, 1u"));
+            Assert.That(readout, Does.Contain(
+                "uint M8FrontReadoutEyeMask"));
+            Assert.That(readout, Does.Contain(
+                "(eyeMask << M8_READOUT_EYE_MASK_SHIFT)"));
+            Assert.That(shader, Does.Contain(
+                "(vertex.packedColor >> 25u) & 3u"));
+            Assert.That(shader, Does.Contain(
+                "1u << unity_StereoEyeIndex"));
+            Assert.That(renderer, Does.Contain(
+                "GetStereoViewMatrix("));
+            Assert.That(renderer, Does.Contain(
+                "values.Vector3(\"_M8EyeGridPosition0\""));
+            Assert.That(renderer, Does.Contain(
+                "values.Vector3(\"_M8EyeGridPosition1\""));
             Assert.That(project, Does.Contain("[unroll]"));
             Assert.That(Regex.Matches(project, @"for \("),
                 Has.Count.EqualTo(1));
             Assert.That(project, Does.Not.Contain("while ("));
             Assert.That(resolve.IndexOf("M8LoadKernelStateRead",
                     StringComparison.Ordinal), Is.LessThan(resolve.IndexOf(
-                    "M8IsFrontReadoutKernel", StringComparison.Ordinal)));
+                    "M8FrontReadoutEyeMask", StringComparison.Ordinal)));
             Assert.That(renderer, Does.Contain(
                 "_projectFrontKernel, _grid.M8FrameDispatchArgs"));
             Assert.That(generator, Does.Contain(

@@ -66,6 +66,7 @@ namespace Genesis.RoomScan
         private const long GlbHeaderReserve = 2L * 1024;
         private const long MeasuredPatchBytes = 4L * 28L + 6L * 4L;
         private const long LegacyPrimitiveBytes = 3L * 28L + 3L * 4L;
+        private const string EmptyNodeGeometricError = "1e30";
 
         private readonly struct Item
         {
@@ -158,11 +159,11 @@ namespace Genesis.RoomScan
                 leaf.ContentBytes = result.ByteLength;
                 leaf.VertexCount = result.VertexCount;
                 leaf.TriangleCount = result.PrimitiveCount;
-                leaf.ContentMinimum = result.Minimum;
-                leaf.ContentMaximum = result.Maximum;
-                Vector3 translation = Convert(leaf.LocalOrigin);
-                leaf.Minimum = result.Minimum + translation;
-                leaf.Maximum = result.Maximum + translation;
+                ConvertGlbBoundsToTileset(result.Minimum, result.Maximum,
+                    out leaf.ContentMinimum, out leaf.ContentMaximum);
+                Vector3 translation = ConvertOriginToTileset(leaf.LocalOrigin);
+                leaf.Minimum = leaf.ContentMinimum + translation;
+                leaf.Maximum = leaf.ContentMaximum + translation;
                 totalBytes = checked(totalBytes + result.ByteLength);
                 totalVertices = checked(totalVertices + result.VertexCount);
                 totalTriangles = checked(totalTriangles + result.PrimitiveCount);
@@ -226,8 +227,10 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException($"3D Tiles leaf {name} is " +
                     $"{result.ByteLength} bytes, above {hardLeafBytes}.");
             File.Move(temporaryPath, finalPath);
+            ConvertGlbBoundsToTileset(result.Minimum, result.Maximum,
+                out Vector3 contentMinimum, out Vector3 contentMaximum);
             return new MerkabaTilesetLeaf(leafIndex, minimum, maximum,
-                localOrigin, result.Minimum, result.Maximum,
+                localOrigin, contentMinimum, contentMaximum,
                 result.ByteLength, result.VertexCount,
                 result.PrimitiveCount);
         }
@@ -243,7 +246,7 @@ namespace Genesis.RoomScan
             long totalTriangles = 0L;
             foreach (MerkabaTilesetLeaf leaf in leaves)
             {
-                Vector3 translation = Convert(leaf.LocalOrigin);
+                Vector3 translation = ConvertOriginToTileset(leaf.LocalOrigin);
                 nodes.Add(new Node
                 {
                     Items = new List<Item>(),
@@ -407,7 +410,8 @@ namespace Genesis.RoomScan
                 source.CanonicalOccupiedCoordinates,
                 source.CanonicalOccupiedCount,
                 source.MeasuredPlaneOccupiedCount, measured, inferred,
-                legacy.Count, 0, 0, source.PartitionCutCount);
+                legacy.Count, 0, Array.Empty<int3>(), 0,
+                source.PartitionCutCount);
         }
 
         private static float3 LocalOrigin(int3 minimum, int3 maximum)
@@ -429,7 +433,9 @@ namespace Genesis.RoomScan
         {
             var json = new StringBuilder(4096);
             json.Append("{\"asset\":{\"version\":\"1.1\",\"generator\":")
-                .Append("\"Quest Infinite Merkaba\"},\"geometricError\":0,")
+                .Append("\"Quest Infinite Merkaba\"},\"geometricError\":")
+                .Append(root.IsLeaf ? "0" : EmptyNodeGeometricError)
+                .Append(',')
                 .Append("\"root\":");
             AppendNode(json, root);
             json.Append('}');
@@ -441,10 +447,11 @@ namespace Genesis.RoomScan
             json.Append("{\"boundingVolume\":{\"box\":[");
             AppendBox(json, node.IsLeaf ? node.ContentMinimum : node.Minimum,
                 node.IsLeaf ? node.ContentMaximum : node.Maximum);
-            json.Append("]},\"geometricError\":0");
+            json.Append("]},\"geometricError\":")
+                .Append(node.IsLeaf ? "0" : EmptyNodeGeometricError);
             if (node.IsLeaf)
             {
-                Vector3 translation = Convert(node.LocalOrigin);
+                Vector3 translation = ConvertOriginToTileset(node.LocalOrigin);
                 json.Append(",\"transform\":[1,0,0,0,0,1,0,0,0,0,1,0,")
                     .Append(Number(translation.x)).Append(',')
                     .Append(Number(translation.y)).Append(',')
@@ -476,8 +483,19 @@ namespace Genesis.RoomScan
                 .Append(Number(half.z));
         }
 
-        private static Vector3 Convert(float3 unity) =>
-            new(-unity.x, unity.y, unity.z);
+        // Leaf GLBs retain glTF's Y-up convention. 3D Tiles consumers rotate
+        // glTF content into the tileset's Z-up frame, so the separately stored
+        // local origin and bounds must undergo the identical fixed rotation.
+        private static Vector3 ConvertOriginToTileset(float3 unity) =>
+            new(-unity.x, -unity.z, unity.y);
+
+        private static void ConvertGlbBoundsToTileset(Vector3 minimum,
+            Vector3 maximum, out Vector3 convertedMinimum,
+            out Vector3 convertedMaximum)
+        {
+            convertedMinimum = new Vector3(minimum.x, -maximum.z, minimum.y);
+            convertedMaximum = new Vector3(maximum.x, -minimum.z, maximum.y);
+        }
 
         private static string Number(float value) =>
             value.ToString("R", CultureInfo.InvariantCulture);

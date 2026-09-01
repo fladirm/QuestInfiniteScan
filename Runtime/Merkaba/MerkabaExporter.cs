@@ -44,6 +44,10 @@ namespace Genesis.RoomScan
             if (IsExporting || _grid == null) return false;
             IsExporting = true;
             SetStatus("Exporting GLB…");
+            string destination = ExportPath;
+            string directory = Path.GetDirectoryName(destination);
+            string temporary = destination + ".tmp";
+            string spoolDirectory = temporary + ".parts";
             try
             {
                 if (_integrator != null && _integrator.HasPendingObservation)
@@ -54,26 +58,36 @@ namespace Genesis.RoomScan
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
                 await _grid.FlushAllDirtyTilesAsync(progress);
-
-                MerkabaExportMembraneResult membrane =
-                    await BuildMembraneAsync(progress);
-
-                string destination = ExportPath;
-                string directory = Path.GetDirectoryName(destination);
-                string temporary = destination + ".tmp";
-                MerkabaGlbResult result = await Task.Run(() =>
+                await Task.Run(() =>
                 {
                     Directory.CreateDirectory(directory);
-                    using (var stream = new FileStream(temporary, FileMode.Create,
-                               FileAccess.Write, FileShare.None, 1024 * 1024,
-                               FileOptions.SequentialScan))
-                    {
-                        MerkabaGlbResult written = MerkabaGlbWriter.Write(stream,
-                            membrane, progress);
-                        stream.Flush(true);
-                        return written;
-                    }
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                    if (Directory.Exists(spoolDirectory))
+                        Directory.Delete(spoolDirectory, true);
                 });
+                var metrics = new ExportMetrics();
+                MerkabaGlbResult result;
+                using (var streamSession =
+                           new MerkabaGlbWriter.StreamingSession(
+                           spoolDirectory))
+                {
+                    await StreamOwnedMembranesAsync(async (membrane, _, _) =>
+                    {
+                        await Task.Run(() =>
+                            streamSession.Append(membrane, progress));
+                        metrics.Add(membrane);
+                    }, progress);
+                    result = await Task.Run(() =>
+                    {
+                        using var output = new FileStream(temporary,
+                            FileMode.Create, FileAccess.Write, FileShare.None,
+                            1024 * 1024, FileOptions.SequentialScan);
+                        MerkabaGlbResult written = streamSession.Complete(
+                            output, progress);
+                        output.Flush(true);
+                        return written;
+                    });
+                }
 
                 progress.Report(new OperationWorkProgress(
                     ScanOperationStage.PublishingFile, 0, 1,
@@ -85,22 +99,25 @@ namespace Genesis.RoomScan
                     "GLB published"));
                 LastExportPath = destination;
                 Logger.Info("Merkaba GLB metrics " +
-                            $"canonical={membrane.CanonicalOccupiedCount} " +
-                            $"measuredPlane={membrane.MeasuredPlaneOccupiedCount} " +
-                            $"membraneMeasured={membrane.MeasuredPatchCount} " +
-                            $"inferredGray={membrane.InferredPatchCount} " +
-                            $"legacy={membrane.LegacyMeasuredUnknownPlaneCount} " +
-                            $"removed={membrane.RemovedBehindMembraneCount} " +
+                            $"canonical={metrics.CanonicalOccupiedCount} " +
+                            $"measuredPlane={metrics.MeasuredPlaneOccupiedCount} " +
+                            $"membraneMeasured={metrics.MeasuredPatchCount} " +
+                            $"inferredGray={metrics.InferredPatchCount} " +
+                            $"legacy={metrics.LegacyMeasuredUnknownPlaneCount} " +
+                            $"removed={metrics.RemovedBehindMembraneCount} " +
                             $"vertices={result.VertexCount} " +
                             $"triangles={result.PrimitiveCount} bytes={result.ByteLength}");
                 SetStatus($"GLB: {result.PrimitiveCount} triangles, " +
-                          $"{membrane.MeasuredPatchCount} measured, " +
-                          $"{membrane.InferredPatchCount} gray inferred, " +
-                          $"{membrane.LegacyMeasuredUnknownPlaneCount} legacy planes");
+                          $"{metrics.MeasuredPatchCount} measured, " +
+                          $"{metrics.InferredPatchCount} gray inferred, " +
+                          $"{metrics.LegacyMeasuredUnknownPlaneCount} legacy planes");
                 return true;
             }
             catch (Exception exception)
             {
+                if (File.Exists(temporary)) File.Delete(temporary);
+                if (Directory.Exists(spoolDirectory))
+                    Directory.Delete(spoolDirectory, true);
                 Logger.Error("Merkaba GLB export failed: " + exception);
                 SetStatus("Export failed: " + exception.Message);
                 return false;
@@ -223,6 +240,29 @@ namespace Genesis.RoomScan
         private async Task<MerkabaTilesetResult> BuildStreamingTilesetAsync(
             string staging, IProgress<OperationWorkProgress> progress)
         {
+            MerkabaTilesetWriter.BeginStreamingPackage(staging);
+            var leaves = new List<MerkabaTilesetLeaf>();
+            await StreamOwnedMembranesAsync(async (owned, groupIndex,
+                groupCount) =>
+            {
+                int leafIndex = leaves.Count;
+                MerkabaTilesetLeaf leaf = await Task.Run(() =>
+                    MerkabaTilesetWriter.WriteStreamingLeaf(staging,
+                        leafIndex, owned, progress));
+                leaves.Add(leaf);
+                progress?.Report(new OperationWorkProgress(
+                    ScanOperationStage.WritingFile, groupIndex + 1, groupCount,
+                    $"Streamed spatial leaf {groupIndex + 1}/{groupCount}"));
+            }, progress);
+            return await Task.Run(() =>
+                MerkabaTilesetWriter.CompleteStreamingPackage(staging,
+                    leaves));
+        }
+
+        private async Task StreamOwnedMembranesAsync(
+            Func<MerkabaExportMembraneResult, int, int, Task> consume,
+            IProgress<OperationWorkProgress> progress)
+        {
             MerkabaTileAddress[] addresses = _grid.CaptureStoredTileIndex();
             var available = new HashSet<MerkabaTileAddress>(addresses);
             var ownerGroups = new Dictionary<MerkabaTileAddress,
@@ -242,8 +282,6 @@ namespace Genesis.RoomScan
             }
             var keys = new List<MerkabaTileAddress>(ownerGroups.Keys);
             keys.Sort();
-            MerkabaTilesetWriter.BeginStreamingPackage(staging);
-            var leaves = new List<MerkabaTilesetLeaf>(keys.Count);
             for (int groupIndex = 0; groupIndex < keys.Count; groupIndex++)
             {
                 MerkabaTileAddress ownerKey = keys[groupIndex];
@@ -308,18 +346,8 @@ namespace Genesis.RoomScan
                 MerkabaExportMembraneResult owned = OwnChunk(local, ownerKey);
                 if (owned.Patches.Count == 0 && owned.LegacyKernels.Count == 0)
                     continue;
-                int leafIndex = leaves.Count;
-                MerkabaTilesetLeaf leaf = await Task.Run(() =>
-                    MerkabaTilesetWriter.WriteStreamingLeaf(staging,
-                        leafIndex, owned, progress));
-                leaves.Add(leaf);
-                progress?.Report(new OperationWorkProgress(
-                    ScanOperationStage.WritingFile, groupIndex + 1, keys.Count,
-                    $"Streamed spatial leaf {groupIndex + 1}/{keys.Count}"));
+                await consume(owned, groupIndex, keys.Count);
             }
-            return await Task.Run(() =>
-                MerkabaTilesetWriter.CompleteStreamingPackage(staging,
-                    leaves));
         }
 
         private static bool IsOwnedByChunk(int3 coord,
@@ -342,53 +370,41 @@ namespace Genesis.RoomScan
             foreach (MerkabaExportMembranePatch patch in patches)
                 if (patch.IsInferred) inferred++;
                 else measured++;
+            int canonicalOwned = 0;
+            foreach (int3 coord in source.CanonicalOccupiedCoordinates)
+                if (IsOwnedByChunk(coord, ownerKey)) canonicalOwned++;
+            var removedBehind = new List<int3>();
+            foreach (int3 coord in source.RemovedBehindCoordinates)
+                if (IsOwnedByChunk(coord, ownerKey)) removedBehind.Add(coord);
             return new MerkabaExportMembraneResult(patches, legacy,
                 source.CanonicalOccupiedCoordinates,
-                source.CanonicalOccupiedCount,
-                source.MeasuredPlaneOccupiedCount, measured, inferred,
+                canonicalOwned, canonicalOwned - legacy.Count,
+                measured, inferred,
                 legacy.Count, source.UnresolvedLegacyCount,
-                source.RemovedBehindMembraneCount,
+                removedBehind.ToArray(), removedBehind.Count,
                 source.PartitionCutCount);
         }
 
-        private async Task<MerkabaExportMembraneResult> BuildMembraneAsync(
-            IProgress<OperationWorkProgress> progress)
+        private sealed class ExportMetrics
         {
-            MerkabaTileAddress[] addresses = _grid.CaptureStoredTileIndex();
-            var evidence = new Dictionary<Unity.Mathematics.int3, KernelState>();
-            for (int offset = 0; offset < addresses.Length;
-                 offset += MerkabaGrid.StreamBatchCapacity)
+            internal long CanonicalOccupiedCount;
+            internal long MeasuredPlaneOccupiedCount;
+            internal long MeasuredPatchCount;
+            internal long InferredPatchCount;
+            internal long LegacyMeasuredUnknownPlaneCount;
+            internal long RemovedBehindMembraneCount;
+
+            internal void Add(MerkabaExportMembraneResult result)
             {
-                int count = Math.Min(MerkabaGrid.StreamBatchCapacity,
-                    addresses.Length - offset);
-                var batchAddresses = new MerkabaTileAddress[count];
-                Array.Copy(addresses, offset, batchAddresses, 0, count);
-                MerkabaTileSnapshot[] tiles = await _grid
-                    .ReadStoredTilesAsync(batchAddresses);
-                foreach (MerkabaTileSnapshot tile in tiles)
-                for (int index = 0; index < tile.States.Length; index++)
-                {
-                    KernelState state = tile.States[index];
-                    if (state.OccupancyEvidence == 0 && state.Flags == 0u &&
-                        state.ColorConfidence == 0u)
-                        continue;
-                    Unity.Mathematics.int3 coord = MerkabaSpatial.Decode(
-                        tile.Address.BlockCoord, tile.Address.LocalAddress,
-                        index);
-                    if (!evidence.TryAdd(coord, state))
-                        throw new InvalidDataException(
-                            $"Duplicate canonical export coordinate {coord}.");
-                }
-                progress?.Report(new OperationWorkProgress(
-                    ScanOperationStage.CapturingState,
-                    Math.Min(offset + count, addresses.Length), addresses.Length,
-                    $"Streamed {Math.Min(offset + count, addresses.Length)}/" +
-                    $"{addresses.Length} canonical tiles"));
+                CanonicalOccupiedCount += result.CanonicalOccupiedCount;
+                MeasuredPlaneOccupiedCount += result.MeasuredPlaneOccupiedCount;
+                MeasuredPatchCount += result.MeasuredPatchCount;
+                InferredPatchCount += result.InferredPatchCount;
+                LegacyMeasuredUnknownPlaneCount +=
+                    result.LegacyMeasuredUnknownPlaneCount;
+                RemovedBehindMembraneCount +=
+                    result.RemovedBehindMembraneCount;
             }
-            MerkabaExportShellResult shell = await Task.Run(() =>
-                MerkabaExportShell.Build(evidence, progress));
-            return await Task.Run(() =>
-                MerkabaExportMembrane.Build(shell, progress));
         }
 
         private static byte[] LoadViewerResource(string resourceName)

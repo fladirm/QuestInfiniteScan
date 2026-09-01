@@ -142,9 +142,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(scanner, Does.Contain(
                 "TryCreateFineDescriptor(FineBrushOperation.Erase,"));
             Assert.That(scanner, Does.Contain(
-                "TryGetPendingFineDescriptor(action,"));
-            Assert.That(scanner, Does.Contain(
-                "_finePreviewDescriptor = pendingDescriptor;"));
+                "if (hasLiveDescriptor)\n" +
+                "                _finePreviewDescriptor = liveDescriptor;"));
+            Assert.That(scanner, Does.Not.Contain(
+                "TryGetPendingFineDescriptor"));
             Assert.That(scanner, Does.Contain(
                 "Vector3.Distance(eyeOrigin, cursorPosition)"));
             Assert.That(scanner, Does.Contain("_fineCycleArmed = false;"));

@@ -366,9 +366,10 @@ bool M8FindSurfaceBlock(int3 blockCoord, out uint blockIndex)
 
 int M8InspectSurfaceOwner(int3 globalCoord,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
-    uint nearestBlockIndex, out bool occupied)
+    uint nearestBlockIndex, out bool occupied, out uint flags)
 {
     occupied = false;
+    flags = 0u;
     MerkabaM8Address address = MerkabaAddressOf(globalCoord);
     bool sameBlock = all(address.blockCoord == nearestAddress.blockCoord);
     uint blockIndex = nearestBlockIndex;
@@ -392,7 +393,48 @@ int M8InspectSurfaceOwner(int3 globalCoord,
     uint word = M8TileWordIndex(physicalSlot, address.kernelLocal >> 5u);
     occupied = (_M8TileBitsRead[word].x &
         (1u << (address.kernelLocal & 31u))) != 0u;
+    if (occupied)
+        flags = M8LoadKernelStateRead(physicalSlot,
+            address.kernelLocal).flags;
     return occupied ? 1 : 0;
+}
+
+bool M8HasBootstrapSheetNeighbour(int3 targetCoord, int3 measuredStep,
+    MerkabaM8Address nearestAddress, bool nearestBlockReady,
+    uint nearestBlockIndex, out bool unresolved,
+    out int3 unresolvedCoord)
+{
+    unresolved = false;
+    unresolvedCoord = targetCoord;
+    [unroll]
+    for (uint neighbourIndex = 0u; neighbourIndex < 26u;
+         neighbourIndex++)
+    {
+        uint encoded = neighbourIndex < 13u
+            ? neighbourIndex : neighbourIndex + 1u;
+        int3 offset = int3(encoded % 3u,
+            (encoded / 3u) % 3u, encoded / 9u) - 1;
+        int3 neighbourCoord = targetCoord + offset;
+        bool occupied;
+        uint flags;
+        int status = M8InspectSurfaceOwner(neighbourCoord, nearestAddress,
+            nearestBlockReady, nearestBlockIndex, occupied, flags);
+        if (status == 2)
+        {
+            if (!unresolved) unresolvedCoord = neighbourCoord;
+            unresolved = true;
+            continue;
+        }
+        if (!occupied || !M8HasSurfacePlane(flags)) continue;
+        float3 neighbourNormal;
+        float neighbourOffset;
+        M8DecodeSurfacePlane(flags, neighbourNormal, neighbourOffset);
+        int3 neighbourStep = MerkabaNearestGridNormalStep(neighbourNormal);
+        if (all(neighbourStep == measuredStep) ||
+            all(neighbourStep == -measuredStep))
+            return true;
+    }
+    return false;
 }
 
 bool MerkabaOwnerCompatible(int3 ownerCoord, float3 worldSurface,
@@ -461,6 +503,48 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
     uint nearestBlockIndex = 0u;
     bool nearestBlockReady = M8FindSurfaceBlock(nearestAddress.blockCoord,
         nearestBlockIndex);
+    if (!strictMeasurement)
+    {
+        bool targetOccupied;
+        uint targetFlags;
+        int targetState = M8InspectSurfaceOwner(nearestKernel,
+            nearestAddress, nearestBlockReady, nearestBlockIndex,
+            targetOccupied, targetFlags);
+        if (targetState == 2)
+        {
+            targetCoord = nearestKernel;
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_UNRESOLVED,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+        }
+        if (targetOccupied)
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_INVALID,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+        bool bootstrapUnresolved;
+        int3 bootstrapUnresolvedCoord;
+        bool supported = M8HasBootstrapSheetNeighbour(nearestKernel,
+            normalStep, nearestAddress, nearestBlockReady,
+            nearestBlockIndex, bootstrapUnresolved,
+            bootstrapUnresolvedCoord);
+        if (supported)
+        {
+            targetCoord = nearestKernel;
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_VALID,
+                MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false, false);
+        }
+        if (bootstrapUnresolved)
+        {
+            targetCoord = bootstrapUnresolvedCoord;
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_UNRESOLVED,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+        }
+        return MerkabaPackSurfaceMetadata(sourcePixel,
+            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
+            false, false, false);
+    }
     int3 ownerCandidates[3] =
     {
         nearestKernel,
@@ -484,8 +568,9 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
                 perpendicularError))
             continue;
         bool occupied;
+        uint ownerFlags;
         int state = M8InspectSurfaceOwner(ownerCoord, nearestAddress,
-            nearestBlockReady, nearestBlockIndex, occupied);
+            nearestBlockReady, nearestBlockIndex, occupied, ownerFlags);
         if (state == 2)
         {
             if (!unresolved) unresolvedOwner = ownerCoord;
@@ -522,11 +607,6 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
             MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false,
             strictMeasurement);
     }
-
-    if (!strictMeasurement)
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, false);
 
     float radialPosition;
     float attention = MerkabaMutationAttention(worldSurface, surfaceNormal,

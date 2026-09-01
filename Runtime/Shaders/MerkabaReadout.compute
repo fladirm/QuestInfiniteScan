@@ -33,10 +33,13 @@
 #define M8_FRONT_FACE_PIXELS \
     (M8_FRONT_FACE_DIMENSION * M8_FRONT_FACE_DIMENSION)
 #define M8_FRONT_PIXEL_COUNT (6u * M8_FRONT_FACE_PIXELS)
-#define M8_FRONT_INVALID_DEPTH 0xffffffffu
+#define M8_FRONT_INVALID_DEPTH 0xffffu
+#define M8_FRONT_PACKED_INVALID_DEPTH 0xffffffffu
 #define M8_FRONT_DEPTH_SCALE 1000.0
 #define M8_FRONT_DEPTH_TOLERANCE_MM \
     ((uint)round(2.0 * MERKABA_HALF_SUPPORT * M8_FRONT_DEPTH_SCALE))
+#define M8_READOUT_EYE_MASK_SHIFT 25u
+#define M8_READOUT_COLOR_AND_RGB_MASK 0x01ffffffu
 
 struct MerkabaReadoutVertex
 {
@@ -53,6 +56,8 @@ RWStructuredBuffer<uint> _M8DrawArgs;
 Texture2DArray<float> _SrcDepth;
 
 float3 _M8CameraGridMeters;
+float3 _M8EyeGridPosition0;
+float3 _M8EyeGridPosition1;
 float3 _M8GridMetricDiagonal;
 float3 _M8GridMetricCross;
 float _M8RenderDistance;
@@ -110,7 +115,7 @@ void M8RequestWarmLoad(uint tileRefIndex, uint chunkIndex, uint tileLocal,
 void ResetReadoutBuild(uint id : SV_DispatchThreadID)
 {
     if (id < M8_FRONT_PIXEL_COUNT)
-        _M8VisibleTiles[id].y = M8_FRONT_INVALID_DEPTH;
+        _M8VisibleTiles[id].y = M8_FRONT_PACKED_INVALID_DEPTH;
     if (id != 0u) return;
     _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES] = 0u;
@@ -357,12 +362,13 @@ void PrepareReadoutBuild(uint3 id : SV_DispatchThreadID)
 #define M8_SHELL_GROUP_THREADS 128u
 #define M8_SHELL_MAIN_COUNT 512u
 
-bool M8FrontDepthPixel(float3 gridPosition, out uint pixel,
+bool M8FrontDepthPixel(float3 gridPosition, float3 eyeGridPosition,
+    out uint pixel,
     out uint depthMillimetres)
 {
     pixel = 0u;
     depthMillimetres = 0u;
-    float3 delta = gridPosition - _M8CameraGridMeters;
+    float3 delta = gridPosition - eyeGridPosition;
     float distance = length(delta);
     if (distance <= 1.0e-6) return false;
     float3 direction = delta / distance;
@@ -395,9 +401,28 @@ bool M8FrontDepthPixel(float3 gridPosition, out uint pixel,
         M8_FRONT_FACE_DIMENSION), M8_FRONT_FACE_DIMENSION - 1u);
     pixel = face * M8_FRONT_FACE_PIXELS + coordinate.y *
         M8_FRONT_FACE_DIMENSION + coordinate.x;
-    depthMillimetres = min(0xfffffffeu,
+    depthMillimetres = min(M8_FRONT_INVALID_DEPTH - 1u,
         (uint)round(distance * M8_FRONT_DEPTH_SCALE));
     return true;
+}
+
+void M8AtomicMinFrontDepth(uint pixel, uint eye, uint depthMillimetres)
+{
+    uint shift = eye * 16u;
+    uint mask = M8_FRONT_INVALID_DEPTH << shift;
+    uint previous = _M8VisibleTiles[pixel].y;
+    [allow_uav_condition]
+    while (true)
+    {
+        uint current = (previous >> shift) & M8_FRONT_INVALID_DEPTH;
+        if (depthMillimetres >= current) return;
+        uint replacement = (previous & ~mask) | (depthMillimetres << shift);
+        uint observed;
+        InterlockedCompareExchange(_M8VisibleTiles[pixel].y, previous,
+            replacement, observed);
+        if (observed == previous) return;
+        previous = observed;
+    }
 }
 
 [numthreads(128, 1, 1)]
@@ -425,25 +450,42 @@ void ProjectReadoutFrontDepth(uint3 groupId : SV_GroupID,
             normal * signedOffset;
         uint pixel;
         uint depthMillimetres;
-        if (!M8FrontDepthPixel(center, pixel, depthMillimetres)) continue;
-        uint ignored;
-        InterlockedMin(_M8VisibleTiles[pixel].y, depthMillimetres, ignored);
+        if (M8FrontDepthPixel(center, _M8EyeGridPosition0, pixel,
+            depthMillimetres))
+            M8AtomicMinFrontDepth(pixel, 0u, depthMillimetres);
+        if (M8FrontDepthPixel(center, _M8EyeGridPosition1, pixel,
+            depthMillimetres))
+            M8AtomicMinFrontDepth(pixel, 1u, depthMillimetres);
     }
 }
 
-bool M8IsFrontReadoutKernel(int3 globalCoord, KernelState state)
+bool M8IsFrontReadoutKernelForEye(float3 center, float3 eyeGridPosition,
+    uint eye)
+{
+    uint pixel;
+    uint depthMillimetres;
+    if (!M8FrontDepthPixel(center, eyeGridPosition, pixel,
+        depthMillimetres))
+        return false;
+    uint packedDepth = _M8VisibleTiles[pixel].y;
+    uint frontDepth = (packedDepth >> (eye * 16u)) &
+        M8_FRONT_INVALID_DEPTH;
+    return frontDepth != M8_FRONT_INVALID_DEPTH &&
+        depthMillimetres <= frontDepth + M8_FRONT_DEPTH_TOLERANCE_MM;
+}
+
+uint M8FrontReadoutEyeMask(int3 globalCoord, KernelState state)
 {
     float3 normal;
     float signedOffset;
     M8DecodeSurfacePlane(state.flags, normal, signedOffset);
     float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +
         normal * signedOffset;
-    uint pixel;
-    uint depthMillimetres;
-    if (!M8FrontDepthPixel(center, pixel, depthMillimetres)) return false;
-    uint frontDepth = _M8VisibleTiles[pixel].y;
-    return frontDepth != M8_FRONT_INVALID_DEPTH &&
-        depthMillimetres <= frontDepth + M8_FRONT_DEPTH_TOLERANCE_MM;
+    uint mask = M8IsFrontReadoutKernelForEye(center,
+        _M8EyeGridPosition0, 0u) ? 1u : 0u;
+    if (M8IsFrontReadoutKernelForEye(center, _M8EyeGridPosition1, 1u))
+        mask |= 2u;
+    return mask;
 }
 
 groupshared uint gM8ShellPatchValidWords[MERKABA_M8_TILE_WORDS];
@@ -545,12 +587,15 @@ void M8ResolveOverlapPatchMask(uint thread)
         if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
             !M8HasSurfacePlane(state.flags))
             continue;
-        gM8ShellMainFlags[kernelLocal] = state.flags;
-        gM8ShellMainColors[kernelLocal] = state.packedColor;
         int3 tileLocal = int3(kernelLocal & 7u,
             (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
         int3 globalCoord = gM8ShellTileOrigin + tileLocal;
-        if (!M8IsFrontReadoutKernel(globalCoord, state)) continue;
+        uint eyeMask = M8FrontReadoutEyeMask(globalCoord, state);
+        if (eyeMask == 0u) continue;
+        gM8ShellMainFlags[kernelLocal] = state.flags;
+        gM8ShellMainColors[kernelLocal] =
+            (state.packedColor & M8_READOUT_COLOR_AND_RGB_MASK) |
+            (eyeMask << M8_READOUT_EYE_MASK_SHIFT);
         M8OverlapPatch patch = (M8OverlapPatch)0;
         M8TryBuildMeasuredPlanePatch(globalCoord, state, patch);
         uint compatibleSides = M8CompatibleReadoutSideMask(globalCoord,

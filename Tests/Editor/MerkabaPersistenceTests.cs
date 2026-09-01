@@ -156,6 +156,41 @@ namespace Genesis.RoomScan.Tests
             Assert.That(gate, Does.Contain("is unavailable."));
             Assert.That(gate, Does.Contain("did not bind"));
             Assert.That(gate, Does.Not.Contain("using current world frame"));
+            Assert.That(gate, Does.Contain(
+                "_grid.RelocateForLoadedAnchor(localized.Value,"));
+            Assert.That(gate, Does.Contain("snapshot.AnchorAtSave"));
+        }
+
+        [Test]
+        public void AnchoredResumeRelocatesTheGridFromSavedToLocalizedPose()
+        {
+            var owner = new GameObject("anchored-grid-fixture");
+            owner.transform.SetPositionAndRotation(new Vector3(1f, 2f, -3f),
+                Quaternion.Euler(0f, 17f, 0f));
+            Matrix4x4 sceneGrid = owner.transform.localToWorldMatrix;
+            MerkabaGrid grid = owner.AddComponent<MerkabaGrid>();
+            typeof(MerkabaGrid).GetMethod("Awake",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic)
+                ?.Invoke(grid, null);
+            Matrix4x4 saved = Matrix4x4.TRS(new Vector3(4f, 0.5f, -2f),
+                Quaternion.Euler(0f, 31f, 0f), Vector3.one);
+            Matrix4x4 localized = Matrix4x4.TRS(
+                new Vector3(-6f, 1.25f, 8f),
+                Quaternion.Euler(0f, -23f, 0f), Vector3.one);
+            try
+            {
+                grid.RelocateForLoadedAnchor(localized, saved);
+                Matrix4x4 expected = localized * saved.inverse * sceneGrid;
+                Assert.That(Vector3.Distance(owner.transform.position,
+                    expected.GetColumn(3)), Is.LessThan(1e-5f));
+                Assert.That(Quaternion.Angle(owner.transform.rotation,
+                    expected.rotation), Is.LessThan(1e-4f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
         }
 
         [Test]

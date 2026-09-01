@@ -51,6 +51,7 @@ namespace Genesis.RoomScan
         internal readonly int InferredPatchCount;
         internal readonly int LegacyMeasuredUnknownPlaneCount;
         internal readonly int UnresolvedLegacyCount;
+        internal readonly int3[] RemovedBehindCoordinates;
         internal readonly int RemovedBehindMembraneCount;
         internal readonly int PartitionCutCount;
 
@@ -61,7 +62,8 @@ namespace Genesis.RoomScan
             int canonicalOccupiedCount, int measuredPlaneOccupiedCount,
             int measuredPatchCount, int inferredPatchCount,
             int legacyMeasuredUnknownPlaneCount, int unresolvedLegacyCount,
-            int removedBehindMembraneCount, int partitionCutCount)
+            int3[] removedBehindCoordinates, int removedBehindMembraneCount,
+            int partitionCutCount)
         {
             Patches = patches;
             LegacyKernels = legacyKernels;
@@ -72,6 +74,8 @@ namespace Genesis.RoomScan
             InferredPatchCount = inferredPatchCount;
             LegacyMeasuredUnknownPlaneCount = legacyMeasuredUnknownPlaneCount;
             UnresolvedLegacyCount = unresolvedLegacyCount;
+            RemovedBehindCoordinates = removedBehindCoordinates ??
+                Array.Empty<int3>();
             RemovedBehindMembraneCount = removedBehindMembraneCount;
             PartitionCutCount = partitionCutCount;
         }
@@ -153,6 +157,7 @@ namespace Genesis.RoomScan
             int inferredPatches = 0;
             int unresolvedLegacy = 0;
             int removedBehind = 0;
+            var removedBehindCoordinates = new List<int3>();
             for (int index = 0; index < sortedCandidates.Count; index++)
             {
                 int3 coord = sortedCandidates[index];
@@ -168,7 +173,10 @@ namespace Genesis.RoomScan
                         measuredPatches++;
                     }
                     else
+                    {
+                        removedBehindCoordinates.Add(coord);
                         removedBehind++;
+                    }
                 }
                 else if (!hasState || isSynthetic)
                 {
@@ -196,7 +204,8 @@ namespace Genesis.RoomScan
             return new MerkabaExportMembraneResult(patches, legacyKernels,
                 canonicalCoords.ToArray(),
                 shell.OriginalOccupiedCount, measured.Count, measuredPatches,
-                inferredPatches, legacy, unresolvedLegacy, removedBehind,
+                inferredPatches, legacy, unresolvedLegacy,
+                removedBehindCoordinates.ToArray(), removedBehind,
                 partitionCut.Count);
         }
 

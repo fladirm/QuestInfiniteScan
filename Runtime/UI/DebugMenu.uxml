@@ -68,10 +68,10 @@
                 <ui:VisualElement picking-mode="Ignore" class="checker-icon">
                     <ui:VisualElement class="checker-icon-row">
                         <ui:VisualElement class="checker-icon-yellow" />
-                        <ui:VisualElement class="checker-icon-black" />
+                        <ui:VisualElement class="checker-icon-magenta" />
                     </ui:VisualElement>
                     <ui:VisualElement class="checker-icon-row">
-                        <ui:VisualElement class="checker-icon-black" />
+                        <ui:VisualElement class="checker-icon-magenta" />
                         <ui:VisualElement class="checker-icon-yellow" />
                     </ui:VisualElement>
                 </ui:VisualElement>

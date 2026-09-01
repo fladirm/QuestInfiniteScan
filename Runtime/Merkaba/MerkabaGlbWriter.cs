@@ -29,10 +29,7 @@ namespace Genesis.RoomScan
         }
     }
 
-    /// <summary>
-    /// Multi-pass streaming GLB 2.0 writer for the read-only export membrane. No
-    /// vertex/index collection proportional to export size is retained in RAM.
-    /// </summary>
+    /// <summary>Indexed GLB 2.0 writer for the read-only export membrane.</summary>
     internal static class MerkabaGlbWriter
     {
         private const uint GlbMagic = 0x46546C67u;
@@ -109,6 +106,229 @@ namespace Genesis.RoomScan
                 hash.Add(_nx); hash.Add(_ny); hash.Add(_nz);
                 hash.Add(_color);
                 return hash.ToHashCode();
+            }
+        }
+
+        /// <summary>
+        /// Bounded-memory GLB assembly. Each spatial membrane batch is indexed
+        /// independently and appended to sequential attribute/index spools; the
+        /// complete GLB is published only after all batches have succeeded.
+        /// </summary>
+        internal sealed class StreamingSession : IDisposable
+        {
+            private readonly string _directory;
+            private readonly FileStream _positions;
+            private readonly FileStream _normals;
+            private readonly FileStream _colors;
+            private readonly FileStream _indices;
+            private readonly BinaryWriter _positionWriter;
+            private readonly BinaryWriter _normalWriter;
+            private readonly BinaryWriter _colorWriter;
+            private readonly BinaryWriter _indexWriter;
+            private int _vertexCount;
+            private int _indexCount;
+            private int _primitiveCount;
+            private Vector3 _minimum = new(float.PositiveInfinity,
+                float.PositiveInfinity, float.PositiveInfinity);
+            private Vector3 _maximum = new(float.NegativeInfinity,
+                float.NegativeInfinity, float.NegativeInfinity);
+            private bool _completed;
+            private bool _disposed;
+
+            internal StreamingSession(string directory)
+            {
+                if (string.IsNullOrWhiteSpace(directory))
+                    throw new ArgumentException(
+                        "GLB spool directory is required.", nameof(directory));
+                if (Directory.Exists(directory))
+                    throw new IOException(
+                        "GLB spool directory already exists: " + directory);
+                _directory = directory;
+                Directory.CreateDirectory(directory);
+                _positions = Open("positions.bin");
+                _normals = Open("normals.bin");
+                _colors = Open("colors.bin");
+                _indices = Open("indices.bin");
+                var encoding = new UTF8Encoding(false);
+                _positionWriter = new BinaryWriter(_positions, encoding, true);
+                _normalWriter = new BinaryWriter(_normals, encoding, true);
+                _colorWriter = new BinaryWriter(_colors, encoding, true);
+                _indexWriter = new BinaryWriter(_indices, encoding, true);
+            }
+
+            internal void Append(MerkabaExportMembraneResult membrane,
+                IProgress<OperationWorkProgress> progress = null)
+            {
+                ThrowIfClosed();
+                if (_completed)
+                    throw new InvalidOperationException(
+                        "The bounded GLB stream is already complete.");
+                GeometryPlan plan = Plan(membrane, float3.zero, progress);
+                int baseVertex = _vertexCount;
+                _vertexCount = checked(_vertexCount + plan.VertexCount);
+                _indexCount = checked(_indexCount + plan.IndexCount);
+                _primitiveCount = checked(_primitiveCount +
+                    plan.PrimitiveCount);
+                _minimum = Vector3.Min(_minimum, plan.Minimum);
+                _maximum = Vector3.Max(_maximum, plan.Maximum);
+
+                foreach (GeometryVertex vertex in plan.Vertices)
+                {
+                    Vector3 position = Convert(vertex.Position);
+                    _positionWriter.Write(position.x);
+                    _positionWriter.Write(position.y);
+                    _positionWriter.Write(position.z);
+                    Vector3 normal = Convert(vertex.Normal).normalized;
+                    _normalWriter.Write(normal.x);
+                    _normalWriter.Write(normal.y);
+                    _normalWriter.Write(normal.z);
+                    Color32 color = KernelState.UnpackColor(
+                        vertex.PackedColor);
+                    _colorWriter.Write(color.r);
+                    _colorWriter.Write(color.g);
+                    _colorWriter.Write(color.b);
+                    _colorWriter.Write((byte)255);
+                }
+                foreach (uint index in plan.Indices)
+                    _indexWriter.Write(checked((uint)baseVertex + index));
+            }
+
+            internal MerkabaGlbResult Complete(Stream destination,
+                IProgress<OperationWorkProgress> progress = null)
+            {
+                ThrowIfClosed();
+                if (_completed)
+                    throw new InvalidOperationException(
+                        "The bounded GLB stream is already complete.");
+                if (_primitiveCount == 0)
+                    throw new InvalidDataException("GLB membrane is empty.");
+                if (destination == null || !destination.CanWrite)
+                    throw new ArgumentException(
+                        "GLB destination must be writable.",
+                        nameof(destination));
+
+                FlushSpools();
+                long positionsOffset = 0L;
+                long positionsLength = _positions.Length;
+                long normalsOffset = positionsLength;
+                long normalsLength = _normals.Length;
+                long colorsOffset = checked(normalsOffset + normalsLength);
+                long colorsLength = _colors.Length;
+                long indicesOffset = checked(colorsOffset + colorsLength);
+                long indicesLength = _indices.Length;
+                long binaryLength = checked(indicesOffset + indicesLength);
+                if (binaryLength > uint.MaxValue)
+                    throw new InvalidDataException(
+                        "GLB binary chunk exceeds the 4 GiB container limit; " +
+                        "use the 3D Tiles export for a larger scan.");
+
+                string json = BuildJson(_vertexCount, _indexCount,
+                    binaryLength, positionsOffset, positionsLength,
+                    normalsOffset, normalsLength, colorsOffset, colorsLength,
+                    indicesOffset, indicesLength, _minimum, _maximum);
+                byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+                int paddedJsonLength = Align4(jsonBytes.Length);
+                long totalLength = checked(12L + 8L + paddedJsonLength + 8L +
+                    binaryLength);
+                if (totalLength > uint.MaxValue)
+                    throw new InvalidDataException(
+                        "GLB exceeds the 4 GiB container limit; use the 3D " +
+                        "Tiles export for a larger scan.");
+
+                long start = destination.CanSeek ? destination.Position : 0L;
+                using var writer = new BinaryWriter(destination,
+                    new UTF8Encoding(false), true);
+                writer.Write(GlbMagic);
+                writer.Write(2u);
+                writer.Write((uint)totalLength);
+                writer.Write((uint)paddedJsonLength);
+                writer.Write(JsonChunkType);
+                writer.Write(jsonBytes);
+                for (int index = jsonBytes.Length; index < paddedJsonLength;
+                     index++)
+                    writer.Write((byte)0x20);
+                writer.Write((uint)binaryLength);
+                writer.Write(BinaryChunkType);
+                writer.Flush();
+
+                long completed = 12L + 8L + paddedJsonLength + 8L;
+                Copy(_positions, destination);
+                completed += positionsLength;
+                Report(progress, ScanOperationStage.WritingFile, completed,
+                    totalLength, "Wrote bounded POSITION data");
+                Copy(_normals, destination);
+                completed += normalsLength;
+                Report(progress, ScanOperationStage.WritingFile, completed,
+                    totalLength, "Wrote bounded NORMAL data");
+                Copy(_colors, destination);
+                completed += colorsLength;
+                Report(progress, ScanOperationStage.WritingFile, completed,
+                    totalLength, "Wrote bounded COLOR_0 data");
+                Copy(_indices, destination);
+                completed += indicesLength;
+                writer.Flush();
+                if (completed != totalLength)
+                    throw new InvalidDataException(
+                        $"GLB length mismatch: {completed} != {totalLength}.");
+                long written = destination.CanSeek
+                    ? destination.Position - start : totalLength;
+                if (written != totalLength)
+                    throw new InvalidDataException(
+                        $"GLB length mismatch: {written} != {totalLength}.");
+                _completed = true;
+                return new MerkabaGlbResult(written, _vertexCount,
+                    _indexCount, _primitiveCount, _minimum, _maximum);
+            }
+
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _positionWriter.Dispose();
+                _normalWriter.Dispose();
+                _colorWriter.Dispose();
+                _indexWriter.Dispose();
+                _positions.Dispose();
+                _normals.Dispose();
+                _colors.Dispose();
+                _indices.Dispose();
+                if (Directory.Exists(_directory))
+                    Directory.Delete(_directory, true);
+            }
+
+            private FileStream Open(string name) => new(
+                Path.Combine(_directory, name), FileMode.CreateNew,
+                FileAccess.ReadWrite, FileShare.None, 1024 * 1024,
+                FileOptions.SequentialScan);
+
+            private void FlushSpools()
+            {
+                _positionWriter.Flush();
+                _normalWriter.Flush();
+                _colorWriter.Flush();
+                _indexWriter.Flush();
+                _positions.Flush();
+                _normals.Flush();
+                _colors.Flush();
+                _indices.Flush();
+                if (_positions.Length != checked((long)_vertexCount * 12L) ||
+                    _normals.Length != checked((long)_vertexCount * 12L) ||
+                    _colors.Length != checked((long)_vertexCount * 4L) ||
+                    _indices.Length != checked((long)_indexCount * 4L))
+                    throw new InvalidDataException(
+                        "Bounded GLB spool length mismatch.");
+            }
+
+            private static void Copy(FileStream source, Stream destination)
+            {
+                source.Position = 0L;
+                source.CopyTo(destination, 1024 * 1024);
+            }
+
+            private void ThrowIfClosed()
+            {
+                if (_disposed) throw new ObjectDisposedException(
+                    nameof(StreamingSession));
             }
         }
 

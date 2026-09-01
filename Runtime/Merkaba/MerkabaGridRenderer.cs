@@ -199,9 +199,6 @@ namespace Genesis.RoomScan
         private static readonly int MeshDepthViewInv1Id =
             Shader.PropertyToID("_M8MeshDepthViewInv1");
         private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
-        private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
-        private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
-        private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
         private static readonly int FineEyeOriginId =
             Shader.PropertyToID("_FineEyeOrigin");
         private static readonly int FineBrushAxisId =
@@ -703,6 +700,10 @@ namespace Genesis.RoomScan
                 out Vector3 metricDiagonal, out Vector3 metricCross);
             var values = new MerkabaNativeUniformTable();
             values.Vector3("_M8CameraGridMeters", cameraGridMeters);
+            GetReadoutEyeGridPositions(camera, worldToGrid,
+                out Vector3 eyeGridPosition0, out Vector3 eyeGridPosition1);
+            values.Vector3("_M8EyeGridPosition0", eyeGridPosition0);
+            values.Vector3("_M8EyeGridPosition1", eyeGridPosition1);
             values.Vector3("_M8GridMetricDiagonal", metricDiagonal);
             values.Vector3("_M8GridMetricCross", metricCross);
             values.Float("_M8RenderDistance", coverageDistance);
@@ -935,6 +936,12 @@ namespace Genesis.RoomScan
 
             readoutCompute.SetVector("_M8CameraGridMeters",
                 cameraGridMeters);
+            GetReadoutEyeGridPositions(camera, worldToGrid,
+                out Vector3 eyeGridPosition0, out Vector3 eyeGridPosition1);
+            readoutCompute.SetVector("_M8EyeGridPosition0",
+                eyeGridPosition0);
+            readoutCompute.SetVector("_M8EyeGridPosition1",
+                eyeGridPosition1);
             MerkabaReadoutCoverage.WriteGridMetric(
                 _grid.GridToWorldMatrix, out Vector3 metricDiagonal,
                 out Vector3 metricCross);
@@ -952,6 +959,25 @@ namespace Genesis.RoomScan
             return side;
         }
 
+        private static void GetReadoutEyeGridPositions(Camera camera,
+            Matrix4x4 worldToGrid, out Vector3 left, out Vector3 right)
+        {
+            Vector3 mono = worldToGrid.MultiplyPoint3x4(
+                camera.transform.position);
+            left = mono;
+            right = mono;
+            if (!camera.stereoEnabled) return;
+
+            Matrix4x4 leftPose = camera.GetStereoViewMatrix(
+                Camera.StereoscopicEye.Left).inverse;
+            Matrix4x4 rightPose = camera.GetStereoViewMatrix(
+                Camera.StereoscopicEye.Right).inverse;
+            left = worldToGrid.MultiplyPoint3x4(new Vector3(
+                leftPose.m03, leftPose.m13, leftPose.m23));
+            right = worldToGrid.MultiplyPoint3x4(new Vector3(
+                rightPose.m03, rightPose.m13, rightPose.m23));
+        }
+
         private Vector3 GetCoveragePosition(Camera camera)
         {
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
@@ -961,21 +987,15 @@ namespace Genesis.RoomScan
 
         private void ApplyOpacityState()
         {
-            bool opaque = scanOpacity >= 0.999f;
+            bool coverage = scanOpacity < 0.999f;
             for (int slot = 0; slot < 2; slot++)
             {
                 Material material = _materials[slot];
                 if (material == null) continue;
                 material.SetFloat(ScanOpacityId, scanOpacity);
-                material.SetInt(SrcBlendId, (int)BlendMode.One);
-                material.SetInt(DstBlendId,
-                    opaque && !_dynamicOcclusionEnabled
-                        ? (int)BlendMode.Zero
-                        : (int)BlendMode.OneMinusSrcAlpha);
-                material.SetInt(ZWriteId, 1);
-                material.renderQueue = opaque
-                    ? (int)RenderQueue.Geometry :
-                    (int)RenderQueue.Transparent;
+                if (coverage) material.EnableKeyword("M8_ALPHA_COVERAGE");
+                else material.DisableKeyword("M8_ALPHA_COVERAGE");
+                material.renderQueue = (int)RenderQueue.Geometry;
             }
         }
 

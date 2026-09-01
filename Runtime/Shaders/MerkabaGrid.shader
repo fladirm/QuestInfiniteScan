@@ -3,9 +3,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
     Properties
     {
         _ScanOpacity("Scan Opacity", Range(0,1)) = 1
-        [HideInInspector] _SrcBlend("Source Blend", Float) = 1
-        [HideInInspector] _DstBlend("Destination Blend", Float) = 10
-        [HideInInspector] _ZWrite("Depth Write", Float) = 1
     }
     SubShader
     {
@@ -18,8 +15,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             // second UNKNOWN-side surface. Both physical sides of that one
             // sheet therefore use the same disposable vertex stream.
             Cull Off
-            Blend [_SrcBlend] [_DstBlend], One OneMinusSrcAlpha
-            ZWrite [_ZWrite]
+            Blend One Zero
+            ZWrite On
             ZTest LEqual
 
             HLSLPROGRAM
@@ -32,6 +29,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma shader_feature_local_vertex _ M8_STEREO_MESH
             #pragma shader_feature_local_fragment _ M8_FINE_PREVIEW
             #pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION
+            #pragma shader_feature_local_fragment _ M8_ALPHA_COVERAGE
             #pragma multi_compile_local_fragment _ M8_CHECKER_READOUT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -127,6 +125,11 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(vertex.gridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);
+#if !defined(M8_STEREO_MESH)
+                uint eyeMask = (vertex.packedColor >> 25u) & 3u;
+                if ((eyeMask & (1u << unity_StereoEyeIndex)) == 0u)
+                    output.positionCS = float4(2.0, 2.0, 2.0, 1.0);
+#endif
                 output.worldPosition = worldPosition;
                 uint rgb = vertex.packedColor & 0x00ffffffu;
                 output.color = half3(rgb & 255u, (rgb >> 8u) & 255u,
@@ -138,6 +141,20 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             half4 Frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+#if defined(M8_ENVIRONMENT_OCCLUSION) && defined(XR_HARD_OCCLUSION)
+                clip(M8EnvironmentVisibility(input.worldPosition) - 0.5);
+#endif
+#if defined(M8_ALPHA_COVERAGE)
+                uint2 coveragePixel = (uint2)input.positionCS.xy;
+                uint coverageHash = coveragePixel.x * 0x8da6b343u ^
+                    coveragePixel.y * 0xd8163841u;
+                coverageHash ^= coverageHash >> 13u;
+                coverageHash *= 0x85ebca6bu;
+                coverageHash ^= coverageHash >> 16u;
+                half coverageThreshold =
+                    (half)((coverageHash & 255u) + 0.5) / 256.0h;
+                clip(_ScanOpacity - coverageThreshold);
+#endif
                 half3 color = input.hasRgb != 0u
                     ? input.color : half3(0.55h, 0.16h, 0.42h);
 #if defined(M8_CHECKER_READOUT)
@@ -153,7 +170,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                     uint(checkerCell.y)) & 1u;
                 color = checkerParity == 0u
                     ? half3(1.0h, 1.0h, 0.0h)
-                    : half3(0.0h, 0.0h, 0.0h);
+                    : half3(1.0h, 0.0h, 1.0h);
 #endif
 #if defined(M8_FINE_PREVIEW)
                 if (_FineBrushParams.x > 0.5)
@@ -177,9 +194,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                     }
                 }
 #endif
-                half alpha = _ScanOpacity *
-                    M8EnvironmentVisibility(input.worldPosition);
-                return half4(color * alpha, alpha);
+                return half4(color, 1.0h);
             }
             ENDHLSL
         }

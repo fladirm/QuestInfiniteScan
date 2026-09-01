@@ -563,14 +563,7 @@ namespace Genesis.RoomScan
             bool hasLiveDescriptor = TryCreateFineDescriptor(previewOperation,
                 out FineBrushDescriptor liveDescriptor,
                 out bool cursorOnSurface);
-            if (TryGetPendingFineDescriptor(action,
-                    out FineBrushDescriptor pendingDescriptor))
-            {
-                _finePreviewDescriptor = pendingDescriptor;
-                cursorOnSurface = true;
-                action = pendingDescriptor.Operation;
-            }
-            else if (hasLiveDescriptor)
+            if (hasLiveDescriptor)
                 _finePreviewDescriptor = liveDescriptor;
             else
             {
@@ -584,26 +577,6 @@ namespace Genesis.RoomScan
             _controllerRay.SetFineBrushPreview(_finePreviewDescriptor, action,
                 cursorOnSurface);
             _renderer?.SetFineSurfacePreview(_finePreviewDescriptor, color);
-        }
-
-        private bool TryGetPendingFineDescriptor(FineBrushOperation action,
-            out FineBrushDescriptor descriptor)
-        {
-            if (_integrator != null && _integrator.HasPendingFineErase &&
-                _fineEraseDescriptor.IsErase)
-            {
-                descriptor = _fineEraseDescriptor;
-                return true;
-            }
-            if (_fineObservationDescriptor.IsRefine &&
-                ((_fineCycleArmed && action == FineBrushOperation.Refine) ||
-                 (_integrator?.HasPendingObservation ?? false)))
-            {
-                descriptor = _fineObservationDescriptor;
-                return true;
-            }
-            descriptor = default;
-            return false;
         }
 
         private void UpdateFineRefine()

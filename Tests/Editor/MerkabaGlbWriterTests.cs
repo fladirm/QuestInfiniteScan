@@ -126,7 +126,8 @@ namespace Genesis.RoomScan.Tests
             };
             var membrane = new MerkabaExportMembraneResult(patches,
                 new List<MerkabaKernelSnapshot>(),
-                new[] { firstCoord, secondCoord }, 2, 2, 2, 0, 0, 0, 0, 0);
+                new[] { firstCoord, secondCoord }, 2, 2, 2, 0, 0, 0,
+                Array.Empty<int3>(), 0, 0);
 
             Write(membrane, out MerkabaGlbResult result);
             Assert.That(result.PrimitiveCount, Is.EqualTo(4));
@@ -148,6 +149,38 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain("membrane.LegacyKernels"));
             Assert.That(source, Does.Not.Contain("MaximumVertices"));
             Assert.That(source, Does.Not.Contain("List<ExportPrimitive>"));
+        }
+
+        [Test]
+        public void BoundedWriterSpoolsSpatialBatchesAndPublishesOneValidGlb()
+        {
+            string spool = Path.Combine(Path.GetTempPath(),
+                "merkaba-glb-spool-" + Guid.NewGuid().ToString("N"));
+            MerkabaGlbResult result;
+            using var output = new MemoryStream();
+            using (var session = new MerkabaGlbWriter.StreamingSession(spool))
+            {
+                session.Append(Membrane(new Dictionary<int3, KernelState>
+                {
+                    [new int3(0, 0, 0)] = Measured(new float3(1, 0, 0),
+                        0f, new Color32(20, 40, 60, 255))
+                }));
+                session.Append(Membrane(new Dictionary<int3, KernelState>
+                {
+                    [new int3(64, 0, 0)] = Measured(new float3(1, 0, 0),
+                        0f, new Color32(80, 100, 120, 255))
+                }));
+                Assert.That(Directory.GetFiles(spool), Has.Length.EqualTo(4));
+                result = session.Complete(output);
+            }
+
+            byte[] bytes = output.ToArray();
+            Assert.That(Directory.Exists(spool), Is.False);
+            Assert.That(ReadUInt32(bytes, 0), Is.EqualTo(0x46546C67u));
+            Assert.That(ReadUInt32(bytes, 8), Is.EqualTo((uint)bytes.Length));
+            Assert.That(result.PrimitiveCount, Is.EqualTo(4));
+            Assert.That(result.VertexCount, Is.EqualTo(8));
+            Assert.That(result.IndexCount, Is.EqualTo(12));
         }
 
         private static MerkabaExportMembraneResult Fixture()

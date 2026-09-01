@@ -19,7 +19,24 @@ namespace Genesis.RoomScan
 
         public event Action Cleared;
 
-        private void Awake() => Instance = this;
+        private Matrix4x4 _sceneGridToWorld;
+
+        private void Awake()
+        {
+            Instance = this;
+            _sceneGridToWorld = transform.localToWorldMatrix;
+        }
+
+        internal void RelocateForLoadedAnchor(Matrix4x4 anchorNow,
+            Matrix4x4 anchorAtSave)
+        {
+            Matrix4x4 relocated = anchorNow * anchorAtSave.inverse *
+                _sceneGridToWorld;
+            Vector4 position = relocated.GetColumn(3);
+            transform.SetPositionAndRotation(
+                new Vector3(position.x, position.y, position.z),
+                relocated.rotation);
+        }
 
         private void OnDestroy()
         {

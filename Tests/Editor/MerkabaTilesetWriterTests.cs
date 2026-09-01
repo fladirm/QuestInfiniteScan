@@ -33,7 +33,8 @@ namespace Genesis.RoomScan.Tests
                 using (var stream = new MemoryStream())
                 {
                     _ = MerkabaGlbWriter.Write(stream, membrane);
-                    monolithic = Triangles(stream.ToArray(), Vector3.zero);
+                    monolithic = Triangles(stream.ToArray(), Vector3.zero,
+                        rotateGlbToTileset: true);
                 }
                 List<string> tiled = TiledTriangles(root);
                 Assert.That(tiled, Is.EqualTo(monolithic));
@@ -62,6 +63,7 @@ namespace Genesis.RoomScan.Tests
                 string json = File.ReadAllText(Path.Combine(first,
                     "tileset.json"));
                 Assert.That(json, Does.Contain("\"version\":\"1.1\""));
+                Assert.That(json, Does.Contain("\"geometricError\":1e30"));
                 Assert.That(json, Does.Contain("\"geometricError\":0"));
                 Assert.That(json, Does.Contain("\"boundingVolume\":{" +
                     "\"box\""));
@@ -170,12 +172,19 @@ namespace Genesis.RoomScan.Tests
                 "public async Task<bool> ExportViewerPackageAsync()",
                 StringComparison.Ordinal);
             int nextMethod = exporter.IndexOf(
-                "private async Task<MerkabaExportMembraneResult> " +
-                "BuildMembraneAsync", viewerExport,
+                "private async Task StreamOwnedMembranesAsync(", viewerExport,
                 StringComparison.Ordinal);
             string scalablePath = exporter.Substring(viewerExport,
                 nextMethod - viewerExport);
-            Assert.That(scalablePath, Does.Not.Contain("BuildMembraneAsync("));
+            Assert.That(exporter, Does.Not.Contain("BuildMembraneAsync("));
+            Assert.That(exporter, Does.Contain(
+                "new MerkabaGlbWriter.StreamingSession("));
+            Assert.That(exporter, Does.Contain(
+                "StreamOwnedMembranesAsync(async (membrane"));
+            Assert.That(exporter, Does.Contain(
+                "StreamOwnedMembranesAsync(async (owned"));
+            Assert.That(scalablePath, Does.Contain(
+                "BuildStreamingTilesetAsync("));
             Assert.That(storage, Does.Contain("CaptureStoredTileIndex()"));
             Assert.That(storage, Does.Contain("ReadStoredTilesAsync("));
         }
@@ -195,16 +204,34 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(viewer.bytes.Length, Is.GreaterThan(500_000));
                 Assert.That(viewer.text, Does.Contain("showDirectoryPicker"));
                 Assert.That(viewer.text, Does.Contain(
+                    "location.protocol===\"file:\""));
+                Assert.That(viewer.text, Does.Contain(
+                    "merkabaOpenLocalExport"));
+                Assert.That(viewer.text, Does.Contain(
                     "merkaba://scan/tileset.json"));
                 Assert.That(viewer.text, Does.Contain("Open this export"));
                 Assert.That(viewer.text, Does.Contain(
-                    "alphaHash=s.alphaHash"));
+                    "alphaHash=r||s.alphaHash"));
+                Assert.That(viewer.text, Does.Contain(
+                    "transparent=s.transparent"));
+                Assert.That(viewer.text, Does.Contain(
+                    "depthWrite=s.depthWrite"));
                 Assert.That(viewer.text, Does.Contain(
                     "merkabaShootCrosshairPoint"));
                 Assert.That(viewer.text, Does.Contain(
                     "merkabaPickLoadedSceneAtCenter"));
                 Assert.That(viewer.text, Does.Contain(
                     "merkabaWorldUp=new R(0,0,1)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaArchitectureDirection(i){let e=Math.abs(i.z)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "Math.atan2(i.y,i.x)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaWalkFloorBelow"));
+                Assert.That(viewer.text, Does.Contain(
+                    "l.floorZ+l.jumpOffset"));
+                Assert.That(viewer.text, Does.Contain(
+                    "a.floorZ=f,a.jumpOffset=0,a.jumpVelocity=0"));
                 Assert.That(viewer.text, Does.Not.Contain("<script src="));
                 Assert.That(viewer.text, Does.Not.Contain("cdn.jsdelivr"));
                 Assert.That(threeLicense, Is.Not.Null);
@@ -305,13 +332,15 @@ namespace Genesis.RoomScan.Tests
                     Parse(match.Groups[3].Value));
                 string path = Path.Combine(root,
                     match.Groups[4].Value.Replace('/', Path.DirectorySeparatorChar));
-                result.AddRange(Triangles(File.ReadAllBytes(path), translation));
+                result.AddRange(Triangles(File.ReadAllBytes(path), translation,
+                    rotateGlbToTileset: true));
             }
             result.Sort(StringComparer.Ordinal);
             return result;
         }
 
-        private static List<string> Triangles(byte[] glb, Vector3 translation)
+        private static List<string> Triangles(byte[] glb, Vector3 translation,
+            bool rotateGlbToTileset = false)
         {
             int jsonLength = checked((int)BitConverter.ToUInt32(glb, 12));
             string json = Encoding.UTF8.GetString(glb, 20, jsonLength)
@@ -325,10 +354,13 @@ namespace Genesis.RoomScan.Tests
             for (int index = 0; index < vertexCount; index++)
             {
                 int offset = binaryStart + index * 12;
-                vertices[index] = new Vector3(
+                Vector3 vertex = new Vector3(
                     BitConverter.ToSingle(glb, offset),
                     BitConverter.ToSingle(glb, offset + 4),
-                    BitConverter.ToSingle(glb, offset + 8)) + translation;
+                    BitConverter.ToSingle(glb, offset + 8));
+                if (rotateGlbToTileset)
+                    vertex = new Vector3(vertex.x, -vertex.z, vertex.y);
+                vertices[index] = vertex + translation;
             }
             int indexOffset = binaryStart + vertexCount * 28;
             int indexCount = checked((glb.Length - indexOffset) / 4);

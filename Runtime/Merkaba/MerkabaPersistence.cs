@@ -110,6 +110,8 @@ namespace Genesis.RoomScan
                         throw new InvalidOperationException(
                             "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
                             "did not bind.");
+                    _grid.RelocateForLoadedAnchor(localized.Value,
+                        snapshot.AnchorAtSave);
                 }
                 await _grid.LoadStoredSnapshotAsync(snapshot, progress);
                 _integrator?.RestoreIntegrationCount(snapshot.IntegrationCount);
