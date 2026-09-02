@@ -1900,11 +1900,11 @@ bool M8StableCarveSideInChunk(int3 globalCoord, int3 offset,
             MERKABA_HALF_SUPPORT + 1.0e-6;
 }
 
-bool M8HasStableCarveSheetSupport(int3 globalCoord, KernelState state,
+uint M8StableCarveSheetSideCount(int3 globalCoord, KernelState state,
     out bool resolved)
 {
     resolved = true;
-    if (!M8HasSurfacePlane(state.flags)) return false;
+    if (!M8HasSurfacePlane(state.flags)) return 0u;
     float3 normal;
     float signedOffset;
     M8DecodeSurfacePlane(state.flags, normal, signedOffset);
@@ -1915,25 +1915,23 @@ bool M8HasStableCarveSheetSupport(int3 globalCoord, KernelState state,
     int3 tangent1;
     MerkabaGridSheetTangents(sheet, tangent0, tangent1);
 
-    bool negativeResolved;
-    bool positiveResolved = true;
-    bool axis0 = M8StableCarveSideInChunk(globalCoord, -tangent0,
-        center, normal, sheet, negativeResolved);
-    if (!axis0)
-        axis0 = M8StableCarveSideInChunk(globalCoord, tangent0,
-            center, normal, sheet, positiveResolved);
-    bool axis0Resolved = axis0 || (negativeResolved && positiveResolved);
-
-    negativeResolved = true;
-    positiveResolved = true;
-    bool axis1 = M8StableCarveSideInChunk(globalCoord, -tangent1,
-        center, normal, sheet, negativeResolved);
-    if (!axis1)
-        axis1 = M8StableCarveSideInChunk(globalCoord, tangent1,
-            center, normal, sheet, positiveResolved);
-    bool axis1Resolved = axis1 || (negativeResolved && positiveResolved);
-    resolved = axis0Resolved && axis1Resolved;
-    return axis0 && axis1;
+    bool negative0Resolved;
+    bool positive0Resolved;
+    bool negative1Resolved;
+    bool positive1Resolved;
+    bool negative0 = M8StableCarveSideInChunk(globalCoord, -tangent0,
+        center, normal, sheet, negative0Resolved);
+    bool positive0 = M8StableCarveSideInChunk(globalCoord, tangent0,
+        center, normal, sheet, positive0Resolved);
+    bool negative1 = M8StableCarveSideInChunk(globalCoord, -tangent1,
+        center, normal, sheet, negative1Resolved);
+    bool positive1 = M8StableCarveSideInChunk(globalCoord, tangent1,
+        center, normal, sheet, positive1Resolved);
+    uint sideCount = (negative0 ? 1u : 0u) + (positive0 ? 1u : 0u) +
+        (negative1 ? 1u : 0u) + (positive1 ? 1u : 0u);
+    resolved = sideCount >= 3u || (negative0Resolved && positive0Resolved &&
+        negative1Resolved && positive1Resolved);
+    return sideCount;
 }
 
 bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
@@ -2050,6 +2048,16 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
         int evidenceBefore = state.evidence;
         int decrement = max(1, (int)round(evidenceWeight *
             MERKABA_FREE_SCALE));
+        bool supportResolved = true;
+        uint stableSideCount = 4u;
+        if (occupiedBefore)
+            stableSideCount = M8StableCarveSheetSideCount(globalCoord,
+                state, supportResolved);
+        bool sparseIsland = occupiedBefore && supportResolved &&
+            stableSideCount < 3u;
+        if (sparseIsland)
+            decrement = max(decrement,
+                evidenceBefore - MERKABA_OCCUPIED_OFF);
         if (occupiedBefore && evidenceBefore - decrement <=
             MERKABA_OCCUPIED_OFF)
         {
@@ -2058,12 +2066,8 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
                 replacementCoord, replacementOccupied);
             bool preserveWithoutReplacement = !replacementResolved;
             if (replacementResolved && !replacementOccupied)
-            {
-                bool supportResolved;
-                bool stableSheet = M8HasStableCarveSheetSupport(globalCoord,
-                    state, supportResolved);
-                preserveWithoutReplacement = !supportResolved || stableSheet;
-            }
+                preserveWithoutReplacement = !supportResolved ||
+                    stableSideCount >= 3u;
             if (!replacementOccupied && preserveWithoutReplacement)
                 decrement = min(decrement, max(0,
                     evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));

@@ -1549,7 +1549,7 @@ namespace Genesis.RoomScan.Tests
             string carve = Slice(integration, "groupshared uint gCarveStats",
                 "void FinalizeObservation");
             string stableCarve = Slice(integration,
-                "bool M8HasStableCarveSheetSupport",
+                "uint M8StableCarveSheetSideCount",
                 "bool RetireCarveActive");
             Assert.That(carve, Does.Contain(
                 "M8TryOccupiedExactForCarve"));
@@ -1557,11 +1557,11 @@ namespace Genesis.RoomScan.Tests
                 "MERKABA_OCCUPIED_OFF + 1"));
             Assert.That(carve, Does.Contain("replacementResolved"));
             Assert.That(carve, Does.Contain(
-                "M8HasStableCarveSheetSupport(globalCoord"));
+                "M8StableCarveSheetSideCount(globalCoord"));
             Assert.That(integration, Does.Not.Contain(
                 "groupshared uint gCarveOccupiedWords[16]"));
-            Assert.That(integration, Does.Contain(
-                "return axis0 && axis1"));
+            Assert.That(stableCarve, Does.Contain(
+                "sideCount >= 3u"));
             Assert.That(integration, Does.Contain(
                 "neighbour.evidence < MERKABA_OCCUPIED_ON"));
             Assert.That(integration, Does.Contain(
@@ -1573,6 +1573,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(stableCarve, Does.Not.Contain("26u"));
             Assert.That(carve, Does.Contain(
                 "if (!replacementOccupied && preserveWithoutReplacement)"));
+            Assert.That(carve, Does.Contain(
+                "bool sparseIsland = occupiedBefore && supportResolved"));
+            Assert.That(carve, Does.Contain(
+                "evidenceBefore - MERKABA_OCCUPIED_OFF"));
             Assert.That(carve, Does.Contain(
                 "evidenceWeight *\n            MERKABA_FREE_SCALE"));
 
