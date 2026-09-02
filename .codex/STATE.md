@@ -253,6 +253,23 @@ next physical gate is explicit empty-HEAD selection followed by a clean anchored
 scan, sleep/wake pose proof and static-revisit support-growth measurement; no
 historical page is silently reframed or deleted.
 
+The subsequent fresh-device run advanced root 581 through 612 and logical extent
+296622 through 466437, repeatedly converting `0x120` into bounded clean eviction
+and exact retained-observation replay with fault=0/unresolved=0. Capture remained
+live when admission stopped at 114 conservative support candidates versus 112
+resident pairs. Evidence isolates two execution-only over-selection defects: the
+query hull used the entire physical 320x320 depth frustum instead of the frozen
+256x192 ROI, and fully verified pages with no exact generated geometry readout were
+stored as unbounded MAY-CONTRIBUTE. The active candidate uses the fixed ROI edges
+and omits only a complete verified page that proves zero sensor-forward witnesses;
+missing/legacy/stale/corrupt summaries remain unbounded and fail closed. The same
+capture exposed an accidental 16-singleton-slice execution regression; source is
+restored to the accepted seven boundaries `[0,1,2,5,9,11,12,16]` without changing
+the 16 logical dispatches. Unity Vulkan passes 170/170; generator/check, <=8 UAV,
+hot graph 14/16, Quest SPIR-V/spirv-val 16/16 and embedded 16-hot/3-cold pipelines
+pass. Exact-SHA Release plus explicit empty-HEAD scan, former-boundary continuation,
+cold revisit, sleep/wake anchor, restart and clear remain before N5R acceptance.
+
 ## Active N4.1R Quest-first GPU cardinality closure
 
 N4.1R is now the sole execution cut inside in-progress N4R. It does not reopen

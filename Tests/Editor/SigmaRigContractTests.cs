@@ -204,7 +204,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void DurableSupportQueryEnclosesBothDepthFrustaAndPosePrior()
+        public void DurableSupportQueryEnclosesNativeRoiFrustaAndPosePrior()
         {
             var texture = new Texture2D(1, 1);
             try
@@ -230,6 +230,11 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(SigmaQuerySupportPlan.TryBuildSensorQueryBounds(
                     left, right, Matrix4x4.identity, 0.03f, 2f,
                     out SigmaQ48Bounds3 bounds), Is.True);
+                Assert.That(
+                    SigmaQuerySupportPlan.TryBuildSensorQueryBoundsForAperture(
+                        left, right, Matrix4x4.identity, 0.03f, 2f,
+                        Vector2Int.zero, new Vector2Int(320, 320),
+                        out SigmaQ48Bounds3 fullBounds), Is.True);
                 long near = SigmaNumericDomain.Quantize(0.2);
                 long far = SigmaNumericDomain.Quantize(5.0);
                 Assert.That(bounds.LowerZ, Is.LessThanOrEqualTo(near));
@@ -238,6 +243,10 @@ namespace Genesis.RoomScan.Tests
                     Is.LessThan(SigmaNumericDomain.Quantize(-2.0)));
                 Assert.That(bounds.UpperX,
                     Is.GreaterThan(SigmaNumericDomain.Quantize(2.0)));
+                Assert.That(bounds.LowerX, Is.GreaterThan(fullBounds.LowerX));
+                Assert.That(bounds.UpperX, Is.LessThan(fullBounds.UpperX));
+                Assert.That(bounds.LowerY, Is.GreaterThan(fullBounds.LowerY));
+                Assert.That(bounds.UpperY, Is.LessThan(fullBounds.UpperY));
             }
             finally
             {

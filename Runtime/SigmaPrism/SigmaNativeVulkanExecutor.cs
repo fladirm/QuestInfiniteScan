@@ -46,7 +46,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int AbiVersion = 6;
         internal const int ResourceCount = 53;
         internal const int DispatchCount = 16;
-        internal const int SliceCount = DispatchCount;
+        internal const int SliceCount = 7;
         internal const int TimestampCount = DispatchCount * 2 + 2;
         internal const int PredictionPageRequestCapacity = 256;
         internal const int PredictionPageRequestHeaderWords = 2;

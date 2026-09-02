@@ -435,13 +435,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 byte[] staged = SigmaCarrierCodec.EncodePageFromStagedBlocks(
                     header, Representation, representationBase, blocks);
                 ValidateDirectCodecStage(header, staged);
-                byte[] supportBytes = BuildConservativeSupportSummary(header,
-                    pageGeneration, blocks);
+                SigmaQuerySupportSummary supportSummary =
+                    BuildConservativeSupportSummary(header, pageGeneration,
+                        blocks);
+                byte[] supportBytes = supportSummary.Encode();
                 SigmaDurableHash supportHash = SigmaDurableHash.Compute(
                     supportBytes);
                 var support = new SigmaQuerySupportReceipt(pageGeneration,
-                    SigmaQuerySupportFlags.Verified |
-                        SigmaQuerySupportFlags.MayContribute,
+                    supportSummary.Flags,
                     supportHash);
                 updates.Add(new SigmaStagedDurablePage(
                     segmentIndex, checked((int)Slots[pageIndex]),
@@ -508,14 +509,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 activeCount, activeCount);
         }
 
-        private static byte[] BuildConservativeSupportSummary(
+        private static SigmaQuerySupportSummary BuildConservativeSupportSummary(
             SigmaEncodedPageHeader header, uint pageGeneration,
             IReadOnlyList<SigmaEncodedBlock> blocks)
         {
             return SigmaQuerySupportSummary.FromStagedBlocks(header,
                 pageGeneration,
                 SigmaQuerySupportFlags.Verified |
-                SigmaQuerySupportFlags.MayContribute, blocks).Encode();
+                SigmaQuerySupportFlags.MayContribute, blocks);
         }
 
         private static void ValidateDirectCodecStage(

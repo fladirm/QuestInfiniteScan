@@ -426,12 +426,12 @@ namespace Genesis.RoomScan.Tests
             SigmaDecodedPage page = MakeOneSamplePage(
                 new SigmaCarrierPageCoordinate(-91, 203), 7u, 11u, 13u,
                 17u, 19L);
-            const SigmaQuerySupportFlags flags =
+            SigmaQuerySupportSummary generated =
+                SigmaQuerySupportSummary.FromPage(page, page.Generation,
                 SigmaQuerySupportFlags.Verified |
-                SigmaQuerySupportFlags.MayContribute;
-            byte[] bytes = SigmaQuerySupportSummary.FromPage(page,
-                page.Generation, flags)
-                .Encode();
+                    SigmaQuerySupportFlags.MayContribute);
+            SigmaQuerySupportFlags flags = generated.Flags;
+            byte[] bytes = generated.Encode();
             var receipt = new SigmaQuerySupportReceipt(page.Generation, flags,
                 SigmaDurableHash.Compute(bytes));
             SigmaQuerySupportSummary.Decode(bytes).Validate(page, receipt);
@@ -443,7 +443,8 @@ namespace Genesis.RoomScan.Tests
                     .Validate(page, wrongGenerationReceipt));
 
             var wrongFlagsReceipt = new SigmaQuerySupportReceipt(
-                page.Generation, SigmaQuerySupportFlags.Verified,
+                page.Generation,
+                flags ^ SigmaQuerySupportFlags.MayContribute,
                 SigmaDurableHash.Compute(bytes));
             Assert.Throws<InvalidDataException>(() =>
                 SigmaQuerySupportSummary.Decode(bytes)
@@ -466,6 +467,48 @@ namespace Genesis.RoomScan.Tests
             Assert.Throws<InvalidDataException>(() =>
                 SigmaQuerySupportSummary.Decode(wrongExtent)
                     .Validate(page, receipt));
+        }
+
+        [Test]
+        public void VerifiedGeometryEmptySummaryIsOmittedButMissingIsConservative()
+        {
+            var coordinate = new SigmaCarrierPageCoordinate(-12, 31);
+            SigmaDecodedPage page = MakeOneSamplePage(coordinate, 9u, 9u,
+                9u, 9u, 0L);
+            SigmaQuerySupportSummary summary =
+                SigmaQuerySupportSummary.FromPage(page, 9u,
+                    SigmaQuerySupportFlags.Verified |
+                    SigmaQuerySupportFlags.MayContribute);
+            var blocks = new SigmaEncodedBlock[SigmaDecodedPage.BlockCount];
+            for (int block = 0; block < blocks.Length; ++block)
+                blocks[block] = SigmaCarrierCodec.EncodeBlock(
+                    page.CopyBlock(block));
+            SigmaQuerySupportSummary stagedSummary =
+                SigmaQuerySupportSummary.FromStagedBlocks(
+                    SigmaEncodedPageHeader.FromPage(page), 9u,
+                    SigmaQuerySupportFlags.Verified |
+                    SigmaQuerySupportFlags.MayContribute, blocks);
+            Assert.That(summary.HasExactProjectiveBounds, Is.False);
+            Assert.That(summary.MayContribute, Is.False,
+                "A fully decoded page with no sensor-forward geometry cannot " +
+                "contribute to prediction raster support.");
+            Assert.That(stagedSummary.Flags, Is.EqualTo(summary.Flags));
+            Assert.That(stagedSummary.MayContribute, Is.False);
+
+            var index = new SigmaQuerySupportIndex();
+            SigmaDurablePageRecord record = MakeRecord(coordinate, 9u,
+                summary.Flags);
+            index.Upsert(record, summary);
+            Assert.That(index.Count, Is.Zero);
+            Assert.That(index.Query(new SigmaQ48Bounds3(-1L, -1L, -1L,
+                1L, 1L, 1L)), Is.Empty);
+
+            index.Upsert(record, null);
+            Assert.That(index.Count, Is.EqualTo(1));
+            Assert.That(index.UnboundedCount, Is.EqualTo(1));
+            Assert.That(index.Query(new SigmaQ48Bounds3(-1L, -1L, -1L,
+                1L, 1L, 1L)), Has.Count.EqualTo(1),
+                "Missing/stale/corrupt summary must remain fail-closed.");
         }
 
         [Test]
@@ -837,14 +880,14 @@ namespace Genesis.RoomScan.Tests
 
                 SigmaDecodedPage gaugePage = MakeOneSamplePage(
                     left.Page.Coordinate, 1u, 2u, 2u, 2u, 11L);
-                byte[] summary = SigmaQuerySupportSummary.FromPage(gaugePage,
-                    2u,
-                    SigmaQuerySupportFlags.Verified |
-                    SigmaQuerySupportFlags.MayContribute).Encode();
+                SigmaQuerySupportSummary supportSummary =
+                    SigmaQuerySupportSummary.FromPage(gaugePage, 2u,
+                        SigmaQuerySupportFlags.Verified |
+                        SigmaQuerySupportFlags.MayContribute);
+                byte[] summary = supportSummary.Encode();
                 var gaugeUpdate = new SigmaDurablePageUpdate(gaugePage, 2u,
                     new SigmaQuerySupportReceipt(2u,
-                        SigmaQuerySupportFlags.Verified |
-                            SigmaQuerySupportFlags.MayContribute,
+                        supportSummary.Flags,
                         SigmaDurableHash.Compute(summary)), null, summary);
                 SigmaDurableCommitResult gaugeCommit = store.Commit(
                     new SigmaDurableCommitRequest(2UL,
@@ -998,10 +1041,16 @@ namespace Genesis.RoomScan.Tests
 
         private static SigmaDurablePageRecord MakeRecord(
             SigmaCarrierPageCoordinate coordinate, uint generation)
+            => MakeRecord(coordinate, generation,
+                SigmaQuerySupportFlags.Verified |
+                SigmaQuerySupportFlags.MayContribute);
+
+        private static SigmaDurablePageRecord MakeRecord(
+            SigmaCarrierPageCoordinate coordinate, uint generation,
+            SigmaQuerySupportFlags flags)
         {
             var support = new SigmaQuerySupportReceipt(generation,
-                SigmaQuerySupportFlags.Verified |
-                    SigmaQuerySupportFlags.MayContribute,
+                flags,
                 Hash((byte)(generation + 32u)));
             return new SigmaDurablePageRecord(coordinate, generation,
                 generation, generation, generation, generation,
@@ -1014,13 +1063,13 @@ namespace Genesis.RoomScan.Tests
         {
             SigmaDecodedPage page = MakeOneSamplePage(coordinate, revision,
                 revision, revision, revision, stateValue);
-            byte[] summary = SigmaQuerySupportSummary.FromPage(page,
-                revision,
-                SigmaQuerySupportFlags.Verified |
-                    SigmaQuerySupportFlags.MayContribute).Encode();
+            SigmaQuerySupportSummary supportSummary =
+                SigmaQuerySupportSummary.FromPage(page, revision,
+                    SigmaQuerySupportFlags.Verified |
+                    SigmaQuerySupportFlags.MayContribute);
+            byte[] summary = supportSummary.Encode();
             var receipt = new SigmaQuerySupportReceipt(revision,
-                SigmaQuerySupportFlags.Verified |
-                    SigmaQuerySupportFlags.MayContribute,
+                supportSummary.Flags,
                 SigmaDurableHash.Compute(summary));
             return new SigmaDurablePageUpdate(page, revision, receipt,
                 SigmaCarrierCodec.EncodePage(page), summary);

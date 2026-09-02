@@ -106,19 +106,18 @@ namespace
 
     constexpr uint32_t kExecutorAbiVersion = 6;
     constexpr uint32_t kExecutorDispatchCount = 16;
-    constexpr uint32_t kExecutorSliceCount = kExecutorDispatchCount;
+    constexpr uint32_t kExecutorSliceCount = 7;
     constexpr std::array<uint32_t, kExecutorSliceCount + 1>
-        kExecutorSliceBounds = {0, 1, 2, 3, 4, 5, 6, 7, 8,
-            9, 10, 11, 12, 13, 14, 15, 16};
-    constexpr bool ExecutorSlicesAreSingletons()
-    {
-        for (uint32_t index = 0; index <= kExecutorSliceCount; ++index)
-            if (kExecutorSliceBounds[index] != index)
-                return false;
-        return true;
-    }
-    static_assert(ExecutorSlicesAreSingletons(),
-        "Every N4.2R slice must own exactly one fixed dispatch");
+        kExecutorSliceBounds = {0, 1, 2, 5, 9, 11, 12, 16};
+    static_assert(kExecutorSliceBounds[0] == 0 &&
+        kExecutorSliceBounds[1] == 1 &&
+        kExecutorSliceBounds[2] == 2 &&
+        kExecutorSliceBounds[3] == 5 &&
+        kExecutorSliceBounds[4] == 9 &&
+        kExecutorSliceBounds[5] == 11 &&
+        kExecutorSliceBounds[6] == 12 &&
+        kExecutorSliceBounds[7] == kExecutorDispatchCount,
+        "N4.2R slice schedule must cover each fixed dispatch exactly once");
     constexpr uint32_t kExecutorQueryCount =
         kExecutorDispatchCount * 2 + 2;
     constexpr uint32_t kCompletionWordCount = 80;

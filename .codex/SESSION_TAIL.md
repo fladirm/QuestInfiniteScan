@@ -2,25 +2,26 @@
 
 ## Exchange 1 — user
 
-After sleep/wake the system anchor does not line up, and accepted capture frames
-remain at two. Confirm whether the earlier crash defect is fixed and continue.
+The latest Quest run stopped scanning again and may still be slow. Inspect the
+pipeline and verify that the accepted N4 queue slicing/dispatch contract was not
+regressed.
 
 ## Exchange 1 — assistant
 
-The original append-tail `PageFault 0x1` is physically fixed: exact-SHA Quest
-advanced root 486 through 523 and restart published 524 without a GPU/lifecycle
-fault. `accepted=2` is a separate 113-candidate versus 112-resident-pair support
-backpressure state; depth delivery itself remains live.
+Device evidence shows live depth but permanent admission backpressure at 114 exact
+conservative candidates versus 112 resident pairs. It also proves source was using
+16 singleton queue slices instead of the frozen seven. The active repair restores
+`[0,1,2,5,9,11,12,16]`, uses the fixed ROI for the support hull and excludes only
+fully verified pages with zero generated forward-readout geometry. Missing, stale
+or corrupt summaries remain fail-closed candidates; N4 algebra is unchanged.
 
 ## Exchange 2 — user
 
-Continue S4-08.6 without breaking the closed ontology.
+The application is being stopped.
 
 ## Exchange 2 — assistant
 
-The active lifecycle cut forbids a new anchor over a nonempty durable graph, waits
-for a stable tracked pose epoch before admission, and hides FRONT while the system
-anchor is unverified. Unity Vulkan passes 169/169 and Quest SPIR-V 16/16. The next
-device gate is an explicit empty-HEAD clear followed by a clean same-UUID scan,
-sleep/wake and static-revisit support-growth capture; historical immutable objects
-are not automatically deleted or reframed.
+Stopping is safe because the decisive evidence is captured. Unity Vulkan passes
+170/170; generator/check, UAV, graph 14/16, Quest SPIR-V 16/16 and embedded native
+pipelines pass. Next is an exact-SHA APK and explicit clear/fresh device run for
+continuation, cold revisit, sleep/wake anchor and restart/clear closure.

@@ -215,6 +215,12 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaDurableHash SupportPlanFingerprint { get; }
         internal SigmaQuerySupportBoundsKind BoundsKind { get; }
         internal SigmaQ48Bounds3 ProjectiveBounds { get; }
+        // A missing/unverified summary is always conservative. A complete
+        // verified page may prove that the generated sensor-forward witness
+        // emits no projective sample at all.
+        internal bool MayContribute =>
+            (Flags & SigmaQuerySupportFlags.Verified) == 0 ||
+            (Flags & SigmaQuerySupportFlags.MayContribute) != 0;
         internal bool HasExactProjectiveBounds =>
             EncodingVersion == CurrentVersion &&
             SupportPlanFingerprint == SigmaQuerySupportPlan.Fingerprint &&
@@ -228,14 +234,16 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaQuerySupportBoundsKind kind =
                 SigmaQuerySupportPlan.SummarizePage(page, out var bounds);
             return Create(SigmaEncodedPageHeader.FromPage(page),
-                pageGeneration, flags, kind, bounds);
+                pageGeneration, ExactSummaryFlags(flags, kind), kind, bounds);
         }
 
         internal static SigmaQuerySupportSummary FromHeader(
             SigmaEncodedPageHeader header, uint pageGeneration,
             SigmaQuerySupportFlags flags)
         {
-            return Create(header, pageGeneration, flags,
+            // A header alone cannot prove absence of a projective witness.
+            return Create(header, pageGeneration,
+                flags | SigmaQuerySupportFlags.MayContribute,
                 SigmaQuerySupportBoundsKind.Unknown, default);
         }
 
@@ -247,7 +255,18 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaQuerySupportBoundsKind kind =
                 SigmaQuerySupportPlan.SummarizeBlocks(header, blocks,
                     out var bounds);
-            return Create(header, pageGeneration, flags, kind, bounds);
+            return Create(header, pageGeneration,
+                ExactSummaryFlags(flags, kind), kind, bounds);
+        }
+
+        private static SigmaQuerySupportFlags ExactSummaryFlags(
+            SigmaQuerySupportFlags flags,
+            SigmaQuerySupportBoundsKind boundsKind)
+        {
+            if ((flags & SigmaQuerySupportFlags.Verified) == 0 ||
+                boundsKind == SigmaQuerySupportBoundsKind.ExactProjectiveHull)
+                return flags | SigmaQuerySupportFlags.MayContribute;
+            return flags & ~SigmaQuerySupportFlags.MayContribute;
         }
 
         private static SigmaQuerySupportSummary Create(

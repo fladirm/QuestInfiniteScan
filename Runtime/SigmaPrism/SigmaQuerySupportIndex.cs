@@ -147,6 +147,18 @@ namespace Genesis.RoomScan.SigmaPrism
             float translationPriorMetres, float rotationPriorDegrees,
             out SigmaQ48Bounds3 bounds)
         {
+            return TryBuildSensorQueryBoundsForAperture(left, right,
+                worldToRoom, translationPriorMetres, rotationPriorDegrees,
+                SigmaNativeQuestAperture.SensorOffset,
+                SigmaNativeQuestAperture.LogicalResolution, out bounds);
+        }
+
+        internal static bool TryBuildSensorQueryBoundsForAperture(
+            GpuImageView left, GpuImageView right, Matrix4x4 worldToRoom,
+            float translationPriorMetres, float rotationPriorDegrees,
+            Vector2Int sensorOffset, Vector2Int logicalResolution,
+            out SigmaQ48Bounds3 bounds)
+        {
             bounds = default;
             if (!float.IsFinite(translationPriorMetres) ||
                 !float.IsFinite(rotationPriorDegrees) ||
@@ -161,11 +173,13 @@ namespace Genesis.RoomScan.SigmaPrism
             if (!IncludeFrustum(left, worldToRoom, ref any,
                     ref lowerX, ref lowerY, ref lowerZ,
                     ref upperX, ref upperY, ref upperZ,
-                    ref maximumRadius, ref maximumFar, ref minimumFocal) ||
+                    ref maximumRadius, ref maximumFar, ref minimumFocal,
+                    sensorOffset, logicalResolution) ||
                 !IncludeFrustum(right, worldToRoom, ref any,
                     ref lowerX, ref lowerY, ref lowerZ,
                     ref upperX, ref upperY, ref upperZ,
-                    ref maximumRadius, ref maximumFar, ref minimumFocal) ||
+                    ref maximumRadius, ref maximumFar, ref minimumFocal,
+                    sensorOffset, logicalResolution) ||
                 !any)
                 return false;
             double theta = Math.Sqrt(3.0) * rotationPriorDegrees *
@@ -214,10 +228,20 @@ namespace Genesis.RoomScan.SigmaPrism
             ref double lowerX, ref double lowerY, ref double lowerZ,
             ref double upperX, ref double upperY, ref double upperZ,
             ref double maximumRadius, ref double maximumFar,
-            ref double minimumFocal)
+            ref double minimumFocal, Vector2Int sensorOffset,
+            Vector2Int logicalResolution)
         {
             RigIntrinsics intrinsics = view.Intrinsics;
             if (!view.IsValid || !intrinsics.IsValid)
+                return false;
+            if (sensorOffset.x < 0 || sensorOffset.y < 0 ||
+                logicalResolution.x <= 0 || logicalResolution.y <= 0 ||
+                logicalResolution.x > intrinsics.ImageResolution.x ||
+                logicalResolution.y > intrinsics.ImageResolution.y ||
+                sensorOffset.x >
+                    intrinsics.ImageResolution.x - logicalResolution.x ||
+                sensorOffset.y >
+                    intrinsics.ImageResolution.y - logicalResolution.y)
                 return false;
             double near = view.DepthNearFar.x;
             double far = RigDepthContract.FiniteRasterFar(view.DepthNearFar);
@@ -227,14 +251,14 @@ namespace Genesis.RoomScan.SigmaPrism
                 return false;
             double[] slopesX =
             {
-                -intrinsics.PrincipalPoint.x / fx,
-                (intrinsics.ImageResolution.x -
+                (sensorOffset.x - intrinsics.PrincipalPoint.x) / fx,
+                (sensorOffset.x + logicalResolution.x -
                     intrinsics.PrincipalPoint.x) / fx,
             };
             double[] slopesY =
             {
-                -intrinsics.PrincipalPoint.y / fy,
-                (intrinsics.ImageResolution.y -
+                (sensorOffset.y - intrinsics.PrincipalPoint.y) / fy,
+                (sensorOffset.y + logicalResolution.y -
                     intrinsics.PrincipalPoint.y) / fy,
             };
             Matrix4x4 roomFromCamera = SigmaRoomFrame.FromCamera(worldToRoom,
@@ -423,6 +447,8 @@ namespace Genesis.RoomScan.SigmaPrism
             SigmaQuerySupportSummary? summary)
         {
             RemoveNoLock(record.Coordinate);
+            if (summary.HasValue && !summary.Value.MayContribute)
+                return;
             if (summary.HasValue && summary.Value.HasExactProjectiveBounds)
             {
                 var entry = new Entry

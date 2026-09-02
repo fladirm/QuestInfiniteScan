@@ -222,7 +222,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void N42NativeCloseIsFramePacedAcrossSingletonDispatchSlices()
+        public void N42NativeCloseIsFramePacedAcrossSevenFixedSlices()
         {
             string executorSource = ReadAssetSource(
                 "SigmaNativeVulkanExecutor t:MonoScript");
@@ -233,13 +233,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(SigmaNativeVulkanExecutor.DispatchCount,
                 Is.EqualTo(16));
             Assert.That(SigmaNativeVulkanExecutor.SliceCount,
-                Is.EqualTo(SigmaNativeVulkanExecutor.DispatchCount));
+                Is.EqualTo(7));
             Assert.That(pluginSource, Does.Contain(
-                "kExecutorSliceBounds = {0, 1, 2, 3, 4, 5, 6, 7, 8,"));
-            Assert.That(pluginSource, Does.Contain(
-                "9, 10, 11, 12, 13, 14, 15, 16}"));
-            Assert.That(pluginSource, Does.Contain(
-                "ExecutorSlicesAreSingletons()"));
+                "kExecutorSliceBounds = {0, 1, 2, 5, 9, 11, 12, 16}"));
             Assert.That(pluginSource, Does.Contain(
                 "std::array<VkCommandBuffer, kExecutorSliceCount> " +
                 "commandBuffers"));

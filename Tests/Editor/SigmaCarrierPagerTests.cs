@@ -664,10 +664,11 @@ namespace Genesis.RoomScan.Tests
             SummaryKind kind, out SigmaDurableHash summaryHash)
         {
             SigmaDecodedPage page = MakePage(coordinate, generation);
-            byte[] summary = SigmaQuerySupportSummary.FromPage(page,
-                generation,
-                SigmaQuerySupportFlags.Verified |
-                SigmaQuerySupportFlags.MayContribute).Encode();
+            SigmaQuerySupportSummary supportSummary =
+                SigmaQuerySupportSummary.FromPage(page, generation,
+                    SigmaQuerySupportFlags.Verified |
+                    SigmaQuerySupportFlags.MayContribute);
+            byte[] summary = supportSummary.Encode();
             summaryHash = SigmaDurableHash.Compute(summary);
             SigmaQuerySupportFlags flags = SigmaQuerySupportFlags.MayContribute;
             uint supportGeneration = generation;
@@ -676,7 +677,7 @@ namespace Genesis.RoomScan.Tests
             {
                 case SummaryKind.Valid:
                 case SummaryKind.Corrupt:
-                    flags |= SigmaQuerySupportFlags.Verified;
+                    flags = supportSummary.Flags;
                     stagedSummary = summary;
                     break;
                 case SummaryKind.Missing:

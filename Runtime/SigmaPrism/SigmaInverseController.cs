@@ -431,6 +431,12 @@ namespace Genesis.RoomScan.SigmaPrism
                 {
                     Logger.Warning("Sigma N5 support working set " +
                         "backpressured: candidates=" + candidates.Count +
+                        " selected=" + selected.Count + " halo=" +
+                        (candidates.Count - selected.Count) + " hot=" +
+                        _supportPrefetchProtected.Count + " cold=" +
+                        _supportPrefetchLoads.Count + " unbounded=" +
+                        store.QuerySupportUnboundedCount + " visitedNodes=" +
+                        store.LastQuerySupportVisitedNodes +
                         " bounded=" + bounded + " residentPairs=" +
                         pager.PairCapacity + " targetPairs=" +
                         _pool.PairCount + " selectMs=" +
