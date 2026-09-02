@@ -492,8 +492,9 @@ bool M8HasStableCanonicalPlanarSupport(int3 targetCoord,
 }
 
 bool M8IsCurrentFrameSheetSupport(int2 pixel, float3 worldSurface,
-    float3 worldNormal, int3 measuredStep)
+    float3 worldNormal, int3 measuredStep, out bool strictSupport)
 {
+    strictSupport = false;
     if (any(pixel < 0) || any(pixel >= (int2)gsDepthTexSize)) return false;
     float4 normalSample = gsDepthNormalTex.Load(int3(pixel, 0));
     if (normalSample.w <= 0.0 ||
@@ -512,24 +513,37 @@ bool M8IsCurrentFrameSheetSupport(int2 pixel, float3 worldSurface,
     float3 neighbourWorld = gsDepthNDCtoWorld(float3(uv, depth));
     float3 delta = neighbourWorld - worldSurface;
     float tolerance = MERKABA_LATTICE_STEP * 0.5 + 1.0e-6;
-    return dot(delta, delta) <=
-            MERKABA_SUPPORT_SIZE * MERKABA_SUPPORT_SIZE + 1.0e-6 &&
+    bool compatible = dot(delta, delta) <=
+            MERKABA_HALF_SUPPORT * MERKABA_HALF_SUPPORT + 1.0e-6 &&
         abs(dot(delta, worldNormal)) <= tolerance &&
         abs(dot(delta, neighbourNormal)) <= tolerance;
+    strictSupport = compatible && normalSample.w >= 1.0;
+    return compatible;
 }
 
 bool M8HasCurrentFramePlanarSupport(uint2 sourcePixel,
-    float3 worldSurface, float3 worldNormal, int3 measuredStep)
+    float3 worldSurface, float3 worldNormal, int3 measuredStep,
+    out bool hasStrictSupport)
 {
     int2 pixel = (int2)sourcePixel;
-    bool axis0 = M8IsCurrentFrameSheetSupport(pixel + int2(-1, 0),
-        worldSurface, worldNormal, measuredStep) ||
-        M8IsCurrentFrameSheetSupport(pixel + int2(1, 0),
-            worldSurface, worldNormal, measuredStep);
-    bool axis1 = M8IsCurrentFrameSheetSupport(pixel + int2(0, -1),
-        worldSurface, worldNormal, measuredStep) ||
-        M8IsCurrentFrameSheetSupport(pixel + int2(0, 1),
-            worldSurface, worldNormal, measuredStep);
+    bool negative0Strict;
+    bool positive0Strict;
+    bool negative1Strict;
+    bool positive1Strict;
+    bool negative0 = M8IsCurrentFrameSheetSupport(pixel + int2(-1, 0),
+        worldSurface, worldNormal, measuredStep, negative0Strict);
+    bool positive0 = M8IsCurrentFrameSheetSupport(pixel + int2(1, 0),
+        worldSurface, worldNormal, measuredStep, positive0Strict);
+    bool negative1 = M8IsCurrentFrameSheetSupport(pixel + int2(0, -1),
+        worldSurface, worldNormal, measuredStep, negative1Strict);
+    bool positive1 = M8IsCurrentFrameSheetSupport(pixel + int2(0, 1),
+        worldSurface, worldNormal, measuredStep, positive1Strict);
+    bool axis0 = negative0 || positive0;
+    bool axis1 = negative1 || positive1;
+    hasStrictSupport = (negative0 && negative0Strict) ||
+        (positive0 && positive0Strict) ||
+        (negative1 && negative1Strict) ||
+        (positive1 && positive1Strict);
     return axis0 && axis1;
 }
 
@@ -608,8 +622,11 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
             return MerkabaPackSurfaceMetadata(sourcePixel,
                 MERKABA_SURFACE_ROUTE_INVALID,
                 MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
-        bool continuation = M8HasCurrentFramePlanarSupport(sourcePixel,
-            worldSurface, worldNormal, normalStep);
+        bool hasStrictCurrentSupport;
+        bool currentFramePlanar = M8HasCurrentFramePlanarSupport(sourcePixel,
+            worldSurface, worldNormal, normalStep,
+            hasStrictCurrentSupport);
+        bool continuation = currentFramePlanar && hasStrictCurrentSupport;
         bool continuationUnresolved = false;
         int3 continuationUnresolvedCoord = nearestKernel;
         if (!continuation)
@@ -708,10 +725,19 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
             strictMeasurement);
         bool continuationUnresolved;
         int3 continuationUnresolvedCoord;
-        bool continuation = M8HasStableCanonicalPlanarSupport(nearestKernel,
-            worldSurface, normalStep, nearestAddress, nearestBlockReady,
-            nearestBlockIndex, continuationUnresolved,
-            continuationUnresolvedCoord);
+        bool ignoredStrictSupport;
+        bool continuation = M8HasCurrentFramePlanarSupport(sourcePixel,
+            worldSurface, worldNormal, normalStep, ignoredStrictSupport);
+        if (!continuation)
+            continuation = M8HasStableCanonicalPlanarSupport(nearestKernel,
+                worldSurface, normalStep, nearestAddress, nearestBlockReady,
+                nearestBlockIndex, continuationUnresolved,
+                continuationUnresolvedCoord);
+        else
+        {
+            continuationUnresolved = false;
+            continuationUnresolvedCoord = nearestKernel;
+        }
         if (continuation)
             metadata = asint(asuint(metadata) |
                 MERKABA_SURFACE_FLAG_CANONICAL_CONTINUATION);
