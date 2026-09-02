@@ -225,23 +225,39 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(viewer.text, Does.Contain(
                     "function merkabaArchitectureDirection(i){let e=Math.abs(i.z)"));
                 Assert.That(viewer.text, Does.Contain(
-                    "function merkabaCollectArchitectureMesh()"));
+                    "merkabaArchitectureCellSize=.075"));
                 Assert.That(viewer.text, Does.Contain(
-                    "function merkabaGrowArchitecturalRegions(i)"));
+                    "function merkabaCollectArchitectureSamples()"));
                 Assert.That(viewer.text, Does.Contain(
-                    "function merkabaArchitecturalRegionGeometry(i,e,t,n,s)"));
+                    "function merkabaEstimateArchitectureFrame(i)"));
                 Assert.That(viewer.text, Does.Contain(
-                    "function merkabaArchitectureSimplifyChain(i,e,t)"));
+                    "function merkabaArchitecturePlaneHypotheses(i,e)"));
                 Assert.That(viewer.text, Does.Contain(
-                    "function merkabaArchitecturalJoints(i,e,t)"));
+                    "function merkabaArchitectureRasterizePlane(i,e)"));
                 Assert.That(viewer.text, Does.Contain(
-                    "meshVertices:M.meshVertices,meshIndices:M.meshIndices"));
+                    "function merkabaArchitectureBridgeSingleCellCracks(i)"));
                 Assert.That(viewer.text, Does.Contain(
-                    "neighbours:new Set,region:-1"));
+                    "function merkabaArchitectureConnectedComponents(i)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaArchitectureCloseSmallHoles(i)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaArchitectureBuildRegion(i,e,t,n)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaArchitecturalSupportJoints(i,e)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "version:4,gridMeters:merkabaArchitectureCellSize"));
+                Assert.That(viewer.text, Does.Contain(
+                    "rects:merkabaArchitectureGridRectangles(t)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "meshVertices:f,meshIndices:g"));
+                Assert.That(viewer.text, Does.Contain(
+                    "closedHoleCells"));
                 Assert.That(viewer.text, Does.Not.Contain(
-                    "function merkabaSelectDominantPlanes"));
+                    "merkabaCollectArchitectureMesh"));
                 Assert.That(viewer.text, Does.Not.Contain(
-                    "Math.atan2(i.y,i.x)"));
+                    "merkabaGrowArchitecturalRegions"));
+                Assert.That(viewer.text, Does.Not.Contain(
+                    "neighbours:new Set"));
                 Assert.That(viewer.text, Does.Contain(
                     "function merkabaWalkFloorBelow"));
                 Assert.That(viewer.text, Does.Contain(
