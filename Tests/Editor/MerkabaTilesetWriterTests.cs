@@ -225,6 +225,22 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(viewer.text, Does.Contain(
                     "function merkabaArchitectureDirection(i){let e=Math.abs(i.z)"));
                 Assert.That(viewer.text, Does.Contain(
+                    "function merkabaCollectArchitectureMesh()"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaGrowArchitecturalRegions(i)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaArchitecturalRegionGeometry(i,e,t,n,s)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaArchitectureSimplifyChain(i,e,t)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaArchitecturalJoints(i,e,t)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "meshVertices:M.meshVertices,meshIndices:M.meshIndices"));
+                Assert.That(viewer.text, Does.Contain(
+                    "neighbours:new Set,region:-1"));
+                Assert.That(viewer.text, Does.Not.Contain(
+                    "function merkabaSelectDominantPlanes"));
+                Assert.That(viewer.text, Does.Not.Contain(
                     "Math.atan2(i.y,i.x)"));
                 Assert.That(viewer.text, Does.Contain(
                     "function merkabaWalkFloorBelow"));
