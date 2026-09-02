@@ -443,7 +443,7 @@ namespace Genesis.RoomScan.Tests
             string classify = Slice(integration,
                 "bool ExactFrozenRayClassify", "bool M8TryOccupiedExactForCarve");
             string canonicalSupport = Slice(integration,
-                "bool M8IsStableCanonicalSheetSupport",
+                "bool M8InspectStableCanonicalSupport",
                 "bool M8IsCurrentFrameSheetSupport");
             string planarSupport = Slice(integration,
                 "float M8StableCanonicalPlanePrior",
@@ -475,8 +475,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(canonicalSupport, Does.Contain(
                 "M8HasSurfacePlane(neighbourState.flags)"));
             Assert.That(canonicalSupport, Does.Contain(
-                "if (!all(neighbourStep == measuredStep) &&\n" +
-                "        !all(neighbourStep == -measuredStep))"));
+                "sameSheet = all(neighbourStep == measuredStep) ||"));
             Assert.That(canonicalSupport, Does.Contain(
                 "MERKABA_LATTICE_STEP * 0.5"));
             Assert.That(canonicalSupport, Does.Contain(
@@ -486,10 +485,16 @@ namespace Genesis.RoomScan.Tests
             Assert.That(canonicalSupport, Does.Contain(
                 "MerkabaGridSheetTangents(measuredStep"));
             Assert.That(canonicalSupport, Does.Contain(
-                "axisPrior = float2(negative0Overlap + positive0Overlap"));
+                "axisPrior = float2("));
+            Assert.That(canonicalSupport, Does.Contain(
+                "negative0SameSheet ? negative0Overlap : 0.0"));
             Assert.That(Regex.Matches(planarSupport,
-                "M8IsStableCanonicalSheetSupport\\("),
+                "M8InspectStableCanonicalSupport\\("),
                 Has.Count.EqualTo(4));
+            Assert.That(planarSupport, Does.Contain(
+                "out float crossSheetPrior"));
+            Assert.That(planarSupport, Does.Contain(
+                "negative0SameSheet ? 0.0 : negative0Overlap"));
             Assert.That(currentFrameSupport, Does.Contain(
                 "if (normalSample.w <= 0.0"));
             Assert.That(currentFrameSupport, Does.Contain(
@@ -530,10 +535,16 @@ namespace Genesis.RoomScan.Tests
             Assert.That(route, Does.Contain("if (quality <= 0.0)"));
             Assert.That(route, Does.Contain(
                 "M8StableCanonicalPlanePrior(nearestKernel,"));
-            Assert.That(route, Does.Contain(
-                "bool continuation = all(axisPrior > 0.0)"));
             Assert.That(Regex.Matches(route,
-                "all\\(axisPrior > 0\\.0\\)"), Has.Count.EqualTo(2));
+                "bool sheetContinuation = all\\(axisPrior > 0\\.0\\)"),
+                Has.Count.EqualTo(2));
+            Assert.That(Regex.Matches(route,
+                "bool cornerContinuation = crossSheetPrior > 0\\.0"),
+                Has.Count.EqualTo(2));
+            Assert.That(route, Does.Contain(
+                "bool continuation = sheetContinuation || cornerContinuation"));
+            Assert.That(route, Does.Contain(
+                "bool continuation = currentFramePlanar &&"));
             Assert.That(route, Does.Contain(
                 "M8PlanePriorReachesOccupied(quality, measurementConfidence"));
             Assert.That(route, Does.Contain("if (occupied)"));
@@ -1594,8 +1605,8 @@ namespace Genesis.RoomScan.Tests
 
             string carve = Slice(integration, "groupshared uint gCarveStats",
                 "void FinalizeObservation");
-            string stableCarve = Slice(integration,
-                "uint M8StableCarveSheetSideCount",
+            string isolation = Slice(integration,
+                "bool M8IsIsolatedOccupiedInMainTile",
                 "bool RetireCarveActive");
             Assert.That(carve, Does.Contain(
                 "M8TryOccupiedExactForCarve"));
@@ -1603,24 +1614,25 @@ namespace Genesis.RoomScan.Tests
                 "MERKABA_OCCUPIED_OFF + 1"));
             Assert.That(carve, Does.Contain("replacementResolved"));
             Assert.That(carve, Does.Contain(
-                "M8StableCarveSheetSideCount(globalCoord"));
-            Assert.That(integration, Does.Not.Contain(
+                "M8IsIsolatedOccupiedInMainTile(kernelLocal)"));
+            Assert.That(integration, Does.Contain(
                 "groupshared uint gCarveOccupiedWords[16]"));
-            Assert.That(stableCarve, Does.Contain(
-                "sideCount >= 3u"));
-            Assert.That(integration, Does.Contain(
-                "neighbour.evidence < MERKABA_OCCUPIED_ON"));
-            Assert.That(integration, Does.Contain(
-                "address.chunkLocal != gCarveChunkLocal"));
+            Assert.That(isolation, Does.Contain(
+                "Cross-tile isolation is deliberately unresolved"));
+            Assert.That(isolation, Does.Contain(
+                "M8CarveOccupiedRow(z - 1u, y - 1u)"));
+            Assert.That(isolation, Does.Contain(
+                "M8CarveOccupiedRow(z + 1u, y + 1u)"));
+            Assert.That(isolation, Does.Contain(
+                "M8CarveOccupiedRow(z, y) & ~(1u << x)"));
             Assert.That(integration, Does.Not.Contain(
-                "M8HasImmediateOccupiedNeighbourInMainTile"));
-            Assert.That(Regex.Matches(stableCarve,
-                "M8StableCarveSideInChunk\\("), Has.Count.EqualTo(4));
-            Assert.That(stableCarve, Does.Not.Contain("26u"));
+                "M8StableCarveSideInChunk"));
+            Assert.That(integration, Does.Not.Contain(
+                "M8StableCarveSheetSideCount"));
             Assert.That(carve, Does.Contain(
                 "if (!replacementOccupied && preserveWithoutReplacement)"));
             Assert.That(carve, Does.Contain(
-                "bool sparseIsland = occupiedBefore && supportResolved"));
+                "bool isolatedOccupied = occupiedBefore &&"));
             Assert.That(carve, Does.Contain(
                 "evidenceBefore - MERKABA_OCCUPIED_OFF"));
             Assert.That(carve, Does.Contain(

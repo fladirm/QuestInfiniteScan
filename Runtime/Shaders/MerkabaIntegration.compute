@@ -399,12 +399,14 @@ int M8InspectSurfaceOwner(int3 globalCoord,
     return occupied ? 1 : 0;
 }
 
-bool M8IsStableCanonicalSheetSupport(int3 neighbourCoord,
+bool M8InspectStableCanonicalSupport(int3 neighbourCoord,
     float3 worldSurface, int3 measuredStep,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
-    uint nearestBlockIndex, out bool unresolved, out float overlap)
+    uint nearestBlockIndex, out bool unresolved, out bool sameSheet,
+    out float overlap)
 {
     unresolved = false;
+    sameSheet = false;
     overlap = 0.0;
     bool occupied;
     KernelState neighbourState;
@@ -427,9 +429,8 @@ bool M8IsStableCanonicalSheetSupport(int3 neighbourCoord,
     M8DecodeSurfacePlane(neighbourState.flags, neighbourNormalGrid,
         neighbourOffset);
     int3 neighbourStep = MerkabaNearestGridNormalStep(neighbourNormalGrid);
-    if (!all(neighbourStep == measuredStep) &&
-        !all(neighbourStep == -measuredStep))
-        return false;
+    sameSheet = all(neighbourStep == measuredStep) ||
+        all(neighbourStep == -measuredStep);
 
     float3 neighbourCenterGrid =
         (float3)neighbourCoord * MERKABA_LATTICE_STEP +
@@ -454,11 +455,13 @@ float M8StableCanonicalPlanePrior(int3 targetCoord,
     float3 worldSurface, int3 measuredStep,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
     uint nearestBlockIndex, out bool unresolved,
-    out int3 unresolvedCoord, out float2 axisPrior)
+    out int3 unresolvedCoord, out float2 axisPrior,
+    out float crossSheetPrior)
 {
     unresolved = false;
     unresolvedCoord = targetCoord;
     axisPrior = 0.0;
+    crossSheetPrior = 0.0;
     int3 tangent0;
     int3 tangent1;
     MerkabaGridSheetTangents(measuredStep, tangent0, tangent1);
@@ -466,22 +469,30 @@ float M8StableCanonicalPlanePrior(int3 targetCoord,
     bool positive0Unresolved;
     bool negative1Unresolved;
     bool positive1Unresolved;
+    bool negative0SameSheet;
+    bool positive0SameSheet;
+    bool negative1SameSheet;
+    bool positive1SameSheet;
     float negative0Overlap;
     float positive0Overlap;
     float negative1Overlap;
     float positive1Overlap;
-    M8IsStableCanonicalSheetSupport(targetCoord - tangent0,
+    M8InspectStableCanonicalSupport(targetCoord - tangent0,
         worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-        nearestBlockIndex, negative0Unresolved, negative0Overlap);
-    M8IsStableCanonicalSheetSupport(targetCoord + tangent0,
+        nearestBlockIndex, negative0Unresolved, negative0SameSheet,
+        negative0Overlap);
+    M8InspectStableCanonicalSupport(targetCoord + tangent0,
         worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-        nearestBlockIndex, positive0Unresolved, positive0Overlap);
-    M8IsStableCanonicalSheetSupport(targetCoord - tangent1,
+        nearestBlockIndex, positive0Unresolved, positive0SameSheet,
+        positive0Overlap);
+    M8InspectStableCanonicalSupport(targetCoord - tangent1,
         worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-        nearestBlockIndex, negative1Unresolved, negative1Overlap);
-    M8IsStableCanonicalSheetSupport(targetCoord + tangent1,
+        nearestBlockIndex, negative1Unresolved, negative1SameSheet,
+        negative1Overlap);
+    M8InspectStableCanonicalSupport(targetCoord + tangent1,
         worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-        nearestBlockIndex, positive1Unresolved, positive1Overlap);
+        nearestBlockIndex, positive1Unresolved, positive1SameSheet,
+        positive1Overlap);
     unresolved = negative0Unresolved || positive0Unresolved ||
         negative1Unresolved || positive1Unresolved;
     if (unresolved)
@@ -491,8 +502,16 @@ float M8StableCanonicalPlanePrior(int3 targetCoord,
             negative1Unresolved ? targetCoord - tangent1 :
             targetCoord + tangent1;
     }
-    axisPrior = float2(negative0Overlap + positive0Overlap,
-        negative1Overlap + positive1Overlap);
+    axisPrior = float2(
+        (negative0SameSheet ? negative0Overlap : 0.0) +
+        (positive0SameSheet ? positive0Overlap : 0.0),
+        (negative1SameSheet ? negative1Overlap : 0.0) +
+        (positive1SameSheet ? positive1Overlap : 0.0));
+    crossSheetPrior = max(
+        max(negative0SameSheet ? 0.0 : negative0Overlap,
+            positive0SameSheet ? 0.0 : positive0Overlap),
+        max(negative1SameSheet ? 0.0 : negative1Overlap,
+            positive1SameSheet ? 0.0 : positive1Overlap));
     return axisPrior.x + axisPrior.y;
 }
 
@@ -651,13 +670,18 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
         bool continuationUnresolved = false;
         int3 continuationUnresolvedCoord = nearestKernel;
         float2 axisPrior;
+        float crossSheetPrior;
         float planePrior = M8StableCanonicalPlanePrior(nearestKernel,
             worldSurface, normalStep, nearestAddress, nearestBlockReady,
             nearestBlockIndex, continuationUnresolved,
-            continuationUnresolvedCoord, axisPrior);
-        bool continuation = all(axisPrior > 0.0) &&
+            continuationUnresolvedCoord, axisPrior, crossSheetPrior);
+        bool sheetContinuation = all(axisPrior > 0.0) &&
             M8PlanePriorReachesOccupied(quality, measurementConfidence,
                 planePrior);
+        bool cornerContinuation = crossSheetPrior > 0.0 &&
+            M8PlanePriorReachesOccupied(quality, measurementConfidence,
+                crossSheetPrior);
+        bool continuation = sheetContinuation || cornerContinuation;
         if (!continuation && continuationUnresolved)
         {
             targetCoord = continuationUnresolvedCoord;
@@ -754,15 +778,21 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
             M8HasCurrentFramePlanarSupport(sourcePixel, worldSurface,
                 worldNormal, normalStep, ignoredStrictSupport);
         float2 axisPrior = 0.0;
+        float crossSheetPrior = 0.0;
         float planePrior = currentFramePlanar
             ? M8StableCanonicalPlanePrior(nearestKernel, worldSurface,
                 normalStep, nearestAddress, nearestBlockReady,
                 nearestBlockIndex, continuationUnresolved,
-                continuationUnresolvedCoord, axisPrior)
+                continuationUnresolvedCoord, axisPrior, crossSheetPrior)
             : 0.0;
-        bool continuation = currentFramePlanar && all(axisPrior > 0.0) &&
+        bool sheetContinuation = all(axisPrior > 0.0) &&
             M8PlanePriorReachesOccupied(quality, measurementConfidence,
                 planePrior);
+        bool cornerContinuation = crossSheetPrior > 0.0 &&
+            M8PlanePriorReachesOccupied(quality, measurementConfidence,
+                crossSheetPrior);
+        bool continuation = currentFramePlanar &&
+            (sheetContinuation || cornerContinuation);
         if (continuation)
             metadata = asint(asuint(metadata) |
                 MERKABA_SURFACE_FLAG_CANONICAL_CONTINUATION);
@@ -1845,93 +1875,39 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
 }
 
 groupshared uint gCarveWords[16];
+groupshared uint gCarveOccupiedWords[16];
 groupshared uint gCarveStats[23];
-groupshared uint gCarveChunkIndex;
-groupshared int3 gCarveBlockCoord;
-groupshared uint gCarveChunkLocal;
 
-bool M8StableCarveSideInChunk(int3 globalCoord, int3 offset,
-    float3 center, float3 normal,
-    int3 sheet, out bool resolved)
+uint M8CarveOccupiedRow(uint z, uint y)
 {
-    MerkabaM8Address address = MerkabaAddressOf(globalCoord + offset);
-    if (!all(address.blockCoord == gCarveBlockCoord) ||
-        address.chunkLocal != gCarveChunkLocal)
-    {
-        resolved = false;
-        return false;
-    }
-    uint tileRef = _M8ChunkTileRefsRead[gCarveChunkIndex *
-        MERKABA_M8_TILES_PER_CHUNK + address.tileLocal];
-    if (tileRef == MERKABA_REF_EMPTY)
-    {
-        resolved = true;
-        return false;
-    }
-    if (!M8IsHotRef(tileRef))
-    {
-        resolved = false;
-        return false;
-    }
-    resolved = true;
-    uint physicalSlot = M8PhysicalSlot(tileRef);
-    uint neighbourKernel = address.kernelLocal;
-    uint bit = 1u << (neighbourKernel & 31u);
-    uint occupiedWord = _M8TileBits[M8TileWordIndex(physicalSlot,
-        neighbourKernel >> 5u)].x;
-    if ((occupiedWord & bit) == 0u)
-        return false;
-    KernelState neighbour = M8LoadKernelState(physicalSlot,
-        neighbourKernel);
-    if (neighbour.evidence < MERKABA_OCCUPIED_ON ||
-        !M8HasSurfacePlane(neighbour.flags))
-        return false;
-    float3 neighbourNormal;
-    float neighbourOffset;
-    M8DecodeSurfacePlane(neighbour.flags, neighbourNormal, neighbourOffset);
-    int3 neighbourSheet = MerkabaNearestGridNormalStep(neighbourNormal);
-    if (!all(neighbourSheet == sheet) && !all(neighbourSheet == -sheet))
-        return false;
-    float3 neighbourCenter = (float3)(globalCoord + offset) *
-        MERKABA_LATTICE_STEP + neighbourNormal * neighbourOffset;
-    float3 delta = neighbourCenter - center;
-    return abs(dot(delta, normal)) <= MERKABA_HALF_SUPPORT + 1.0e-6 &&
-        abs(dot(delta, neighbourNormal)) <=
-            MERKABA_HALF_SUPPORT + 1.0e-6;
+    uint rowStart = z * 64u + y * 8u;
+    return (gCarveOccupiedWords[rowStart >> 5u] >>
+        (rowStart & 31u)) & 255u;
 }
 
-uint M8StableCarveSheetSideCount(int3 globalCoord, KernelState state,
-    out bool resolved)
+bool M8IsIsolatedOccupiedInMainTile(uint kernelLocal)
 {
-    resolved = true;
-    if (!M8HasSurfacePlane(state.flags)) return 0u;
-    float3 normal;
-    float signedOffset;
-    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
-    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +
-        normal * signedOffset;
-    int3 sheet = MerkabaNearestGridNormalStep(normal);
-    int3 tangent0;
-    int3 tangent1;
-    MerkabaGridSheetTangents(sheet, tangent0, tangent1);
+    uint x = kernelLocal & 7u;
+    uint y = (kernelLocal >> 3u) & 7u;
+    uint z = kernelLocal >> 6u;
+    // Cross-tile isolation is deliberately unresolved: only a completely
+    // observable 3x3x3 neighbourhood may bypass occupied hysteresis.
+    if (x == 0u || x == 7u || y == 0u || y == 7u ||
+        z == 0u || z == 7u)
+        return false;
 
-    bool negative0Resolved;
-    bool positive0Resolved;
-    bool negative1Resolved;
-    bool positive1Resolved;
-    bool negative0 = M8StableCarveSideInChunk(globalCoord, -tangent0,
-        center, normal, sheet, negative0Resolved);
-    bool positive0 = M8StableCarveSideInChunk(globalCoord, tangent0,
-        center, normal, sheet, positive0Resolved);
-    bool negative1 = M8StableCarveSideInChunk(globalCoord, -tangent1,
-        center, normal, sheet, negative1Resolved);
-    bool positive1 = M8StableCarveSideInChunk(globalCoord, tangent1,
-        center, normal, sheet, positive1Resolved);
-    uint sideCount = (negative0 ? 1u : 0u) + (positive0 ? 1u : 0u) +
-        (negative1 ? 1u : 0u) + (positive1 ? 1u : 0u);
-    resolved = sideCount >= 3u || (negative0Resolved && positive0Resolved &&
-        negative1Resolved && positive1Resolved);
-    return sideCount;
+    uint xMask = 7u << (x - 1u);
+    uint neighbours =
+        M8CarveOccupiedRow(z - 1u, y - 1u) |
+        M8CarveOccupiedRow(z - 1u, y) |
+        M8CarveOccupiedRow(z - 1u, y + 1u) |
+        M8CarveOccupiedRow(z, y - 1u) |
+        (M8CarveOccupiedRow(z, y) & ~(1u << x)) |
+        M8CarveOccupiedRow(z, y + 1u) |
+        M8CarveOccupiedRow(z + 1u, y - 1u) |
+        M8CarveOccupiedRow(z + 1u, y) |
+        M8CarveOccupiedRow(z + 1u, y + 1u);
+    return (neighbours & xMask) == 0u;
 }
 
 bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
@@ -2048,14 +2024,9 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
         int evidenceBefore = state.evidence;
         int decrement = max(1, (int)round(evidenceWeight *
             MERKABA_FREE_SCALE));
-        bool supportResolved = true;
-        uint stableSideCount = 4u;
-        if (occupiedBefore)
-            stableSideCount = M8StableCarveSheetSideCount(globalCoord,
-                state, supportResolved);
-        bool sparseIsland = occupiedBefore && supportResolved &&
-            stableSideCount < 3u;
-        if (sparseIsland)
+        bool isolatedOccupied = occupiedBefore &&
+            M8IsIsolatedOccupiedInMainTile(kernelLocal);
+        if (isolatedOccupied)
             decrement = max(decrement,
                 evidenceBefore - MERKABA_OCCUPIED_OFF);
         if (occupiedBefore && evidenceBefore - decrement <=
@@ -2066,8 +2037,7 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
                 replacementCoord, replacementOccupied);
             bool preserveWithoutReplacement = !replacementResolved;
             if (replacementResolved && !replacementOccupied)
-                preserveWithoutReplacement = !supportResolved ||
-                    stableSideCount >= 3u;
+                preserveWithoutReplacement = !isolatedOccupied;
             if (!replacementOccupied && preserveWithoutReplacement)
                 decrement = min(decrement, max(0,
                     evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));
@@ -2108,18 +2078,11 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint physicalSlot = _M8CarveTilesRead[groupId.x];
-    if (thread == 0u)
-    {
-        uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
-        uint2 owner = M8LoadChunkOwnerRead(meta.x);
-        gCarveChunkIndex = meta.x;
-        gCarveBlockCoord = M8LoadBlockCoordRead(owner.x);
-        gCarveChunkLocal = owner.y;
-    }
     if (thread < 16u)
     {
         uint wordIndex = M8TileWordIndex(physicalSlot, thread);
         gCarveWords[thread] = _M8TileBits[wordIndex].y;
+        gCarveOccupiedWords[thread] = _M8TileBits[wordIndex].x;
     }
     if (thread < 23u) gCarveStats[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();
