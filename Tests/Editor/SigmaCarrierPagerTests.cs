@@ -392,13 +392,19 @@ namespace Genesis.RoomScan.Tests
                     "bank that owns its exact resident generation.");
                 Assert.That(pager.NativeTargetFreePairCount, Is.Zero);
 
+                var protectedKeys = new HashSet<SigmaResidencyKey>();
+                using (SigmaDurableRootLease root = store.PinHead())
+                    Assert.That(
+                        SigmaInverseController.AddRequiredAppendTail(
+                            runtime.DurableLogicalExtent, store, root,
+                            protectedKeys),
+                        Is.True);
+                Assert.That(protectedKeys, Has.Count.EqualTo(1));
                 Assert.That(store.TryGetPageRecord(tail,
                     out SigmaDurablePageRecord tailRecord), Is.True);
-                var protectedKeys = new HashSet<SigmaResidencyKey>
-                {
-                    new(tail, tailRecord.Revision,
-                        tailRecord.PageGeneration),
-                };
+                Assert.That(protectedKeys.Contains(new SigmaResidencyKey(
+                    tail, tailRecord.Revision, tailRecord.PageGeneration)),
+                    Is.True);
                 Assert.That(pager.TryBeginNativeTargetEviction(1,
                     protectedKeys, out SigmaResidencyKey evicted), Is.True);
                 Assert.That(evicted.Coordinate, Is.EqualTo(other));

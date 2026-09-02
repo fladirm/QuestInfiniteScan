@@ -59,6 +59,7 @@ namespace Genesis.RoomScan
         private Task _moduleInitializationTask;
         private bool _modulesInitialized;
         private Task _startTask = Task.CompletedTask;
+        private Task _clearTask = Task.CompletedTask;
         private uint _lifecycleGeneration;
         private bool _resourcesReleased;
         private double _nextScanAdmissionTime;
@@ -211,6 +212,9 @@ namespace Genesis.RoomScan
                     throw new InvalidOperationException(
                         "Sigma module initialization has not started.");
                 await initialization;
+                Task clear = _clearTask;
+                if (!clear.IsCompleted)
+                    await clear;
                 if (!_modulesInitialized)
                     throw new InvalidOperationException(
                         "Sigma modules did not reach a published ready state.");
@@ -331,6 +335,27 @@ namespace Genesis.RoomScan
 
         public async void ClearAllDataAsync(Action onComplete = null)
         {
+            try
+            {
+                if (_clearTask.IsCompleted)
+                {
+                    ScanRenderMode previousRenderMode = renderMode;
+                    _clearTask = ClearAllDataCoreAsync(previousRenderMode);
+                }
+                await _clearTask;
+                onComplete?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                LastScanStartError = "Durable clear failed: " +
+                    exception.Message;
+                Logger.Error(LastScanStartError);
+            }
+        }
+
+        private async Task ClearAllDataCoreAsync(
+            ScanRenderMode previousRenderMode)
+        {
             ClearScan();
             try
             {
@@ -341,13 +366,13 @@ namespace Genesis.RoomScan
                         "Sigma modules are not ready for durable clear.");
                 if (_sigmaInverse != null)
                     await _sigmaInverse.ClearDurableWorldAsync();
-                onComplete?.Invoke();
             }
-            catch (Exception exception)
+            finally
             {
-                LastScanStartError = "Durable clear failed: " +
-                    exception.Message;
-                Logger.Error(LastScanStartError);
+                // Clear hides the old disposable FRONT while HEAD changes, then
+                // restores the caller's presentation choice. A successful new
+                // scan can therefore publish visible readout without opening N6.
+                SetRenderMode(previousRenderMode);
             }
         }
 

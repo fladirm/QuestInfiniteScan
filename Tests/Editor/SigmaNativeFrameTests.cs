@@ -726,6 +726,12 @@ namespace Genesis.RoomScan.Tests
 
             Assert.That(scanner, Does.Contain("scanHz = 5f"));
             Assert.That(scanner, Does.Contain(
+                "_clearTask = ClearAllDataCoreAsync(previousRenderMode)"));
+            Assert.That(scanner, Does.Contain(
+                "if (!clear.IsCompleted)"));
+            Assert.That(scanner, Does.Contain(
+                "SetRenderMode(previousRenderMode)"));
+            Assert.That(scanner, Does.Contain(
                 "!_roomAnchor.IsSpatialAnchorReady"));
             Assert.That(scanner, Does.Contain(
                 "TryGetPersistedSpatialAnchorUuid"));

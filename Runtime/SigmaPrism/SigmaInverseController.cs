@@ -350,25 +350,30 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             double selectionBegin = Time.realtimeSinceStartupAsDouble;
             SigmaDurableStore store = _carrier.Persistence.Store;
-            if (!store.HasHead || store.QuerySupportPageCount == 0)
+            if (!store.HasHead)
                 return true;
 
-            SigmaQ48Bounds3 queryBounds;
-            bool bounded = SigmaQuerySupportPlan.TryBuildSensorQueryBounds(
-                source, worldToRoom, poseTranslationPriorMetres,
-                poseRotationPriorDegrees, out queryBounds);
-            if (!bounded)
+            SigmaQ48Bounds3 queryBounds = default;
+            bool bounded = true;
+            IReadOnlyList<SigmaResidencyKey> selected =
+                Array.Empty<SigmaResidencyKey>();
+            if (store.QuerySupportPageCount != 0)
             {
-                // Invalid calibration/bound construction never omits a durable
-                // page. The finite durable directory becomes the candidate set
-                // and normal working-set backpressure applies.
-                queryBounds = new SigmaQ48Bounds3(long.MinValue,
-                    long.MinValue, long.MinValue, long.MaxValue,
-                    long.MaxValue, long.MaxValue);
+                bounded = SigmaQuerySupportPlan.TryBuildSensorQueryBounds(
+                    source, worldToRoom, poseTranslationPriorMetres,
+                    poseRotationPriorDegrees, out queryBounds);
+                if (!bounded)
+                {
+                    // Invalid calibration/bound construction never omits a
+                    // durable page. The finite durable directory becomes the
+                    // candidate set and normal working-set backpressure applies.
+                    queryBounds = new SigmaQ48Bounds3(long.MinValue,
+                        long.MinValue, long.MinValue, long.MaxValue,
+                        long.MaxValue, long.MaxValue);
+                }
+                selected = store.SelectPredictionSupport(queryBounds);
             }
 
-            IReadOnlyList<SigmaResidencyKey> selected =
-                store.SelectPredictionSupport(queryBounds);
             var candidates = new HashSet<SigmaResidencyKey>(selected);
             using SigmaDurableRootLease root = store.PinHead();
             for (int index = 0; index < selected.Count; ++index)
@@ -390,6 +395,9 @@ namespace Genesis.RoomScan.SigmaPrism
                 AddDurableNeighbour(store, root, key.Coordinate, 1L, 1L,
                     candidates);
             }
+            int readoutCandidateCount = candidates.Count;
+            bool hasAppendTail = AddRequiredAppendTail(
+                _pool.DurableLogicalExtent, store, root, candidates);
 
             SigmaCarrierPager pager = _carrier.Pager;
             _supportPrefetchLoads.Clear();
@@ -432,7 +440,8 @@ namespace Genesis.RoomScan.SigmaPrism
                     Logger.Warning("Sigma N5 support working set " +
                         "backpressured: candidates=" + candidates.Count +
                         " selected=" + selected.Count + " halo=" +
-                        (candidates.Count - selected.Count) + " hot=" +
+                        (readoutCandidateCount - selected.Count) +
+                        " appendTail=" + (hasAppendTail ? 1 : 0) + " hot=" +
                         _supportPrefetchProtected.Count + " cold=" +
                         _supportPrefetchLoads.Count + " unbounded=" +
                         store.QuerySupportUnboundedCount + " visitedNodes=" +
@@ -456,6 +465,7 @@ namespace Genesis.RoomScan.SigmaPrism
             _supportPrefetchLoadBatchCount = 0;
             Logger.Info("Sigma N5 query-support prefetch: candidates=" +
                 candidates.Count + " cold=" + _supportPrefetchLoads.Count +
+                " appendTail=" + (hasAppendTail ? 1 : 0) +
                 " unbounded=" + store.QuerySupportUnboundedCount +
                 " visitedNodes=" + store.LastQuerySupportVisitedNodes +
                 " evictions=" + _supportPrefetchEvictions + ".");
@@ -465,6 +475,29 @@ namespace Genesis.RoomScan.SigmaPrism
             else
                 BeginNextSupportPrefetchLoad();
             return false;
+        }
+
+        internal static bool AddRequiredAppendTail(uint durableExtent,
+            SigmaDurableStore store, SigmaDurableRootLease root,
+            ISet<SigmaResidencyKey> destination)
+        {
+            if (store == null) throw new ArgumentNullException(nameof(store));
+            if (root == null) throw new ArgumentNullException(nameof(root));
+            if (destination == null)
+                throw new ArgumentNullException(nameof(destination));
+            if (durableExtent == 0u ||
+                durableExtent % SigmaCarrier.SamplesPerPage == 0u)
+                return false;
+
+            var coordinate = new SigmaCarrierPageCoordinate(
+                durableExtent / SigmaCarrier.SamplesPerPage, 0L);
+            if (!store.TryGetPageRecord(root, coordinate,
+                    out SigmaDurablePageRecord record))
+                throw new InvalidDataException(
+                    "The durable append tail is absent from selected HEAD.");
+            destination.Add(new SigmaResidencyKey(coordinate,
+                record.Revision, record.PageGeneration));
+            return true;
         }
 
         private void ResetSupportBackpressureLog()

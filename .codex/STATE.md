@@ -270,6 +270,25 @@ hot graph 14/16, Quest SPIR-V/spirv-val 16/16 and embedded 16-hot/3-cold pipelin
 pass. Exact-SHA Release plus explicit empty-HEAD scan, former-boundary continuation,
 cold revisit, sleep/wake anchor, restart and clear remain before N5R acceptance.
 
+The committed `b1072bb` fresh-clear run selected empty HEAD revision 613 and then
+published revisions 614 through 702, reaching extent 476998 while repeatedly
+crossing the former 229376-sample boundary with fault=0/unresolved=0. It isolated
+one exact residency-lifetime defect: query-support prefetch selected 105 pages,
+evicted partial append-tail page `(116,0)`, completed its requested rehydrates and
+then correctly failed closed because native admission could no longer clone the
+durable tail. The active narrow correction always includes the exact partial tail
+generation in the prefetch working set: a HOT tail is protected and a COLD tail is
+rehydrated before admission. The same capture proved two UI/lifecycle races rather
+than carrier defects: concurrent Clear requests selected the same next HEAD
+revision, and Clear hid the disposable readout by setting render mode `None`
+without restoring it. Clear is now one coalesced task, Start awaits it, and the
+prior Carrier/Wireframe choice is restored after the HEAD transaction. No N4
+shader, algebra, dispatch, seven-slice schedule, durable byte or canonical rule
+changed. Unity Vulkan passes 170/170; generator/check, <=8 UAV, hot graph 14/16
+and Quest SPIR-V/spirv-val 16/16 pass. Exact-SHA physical clear/start, append-tail
+continuation, visible FRONT, cold revisit, sleep/wake and restart remain before
+N5R acceptance.
+
 ## Active N4.1R Quest-first GPU cardinality closure
 
 N4.1R is now the sole execution cut inside in-progress N4R. It does not reopen
