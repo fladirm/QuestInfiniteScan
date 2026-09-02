@@ -589,6 +589,22 @@ namespace Genesis.RoomScan
             ApplyDynamicOcclusionState();
         }
 
+        internal void SuspendEnvironmentDepthForApplicationPause()
+        {
+            if (_arOcclusionManager == null || !_arOcclusionManager.enabled)
+                return;
+            _arOcclusionManager.enabled = false;
+            Logger.Info("DepthCapture: environment depth subsystem suspended " +
+                        "for application pause");
+        }
+
+        internal void RestoreEnvironmentDepthAfterApplicationResume()
+        {
+            ApplyDynamicOcclusionState();
+            Logger.Info("DepthCapture: environment depth subsystem restored " +
+                        "after application resume");
+        }
+
         internal Task RetireSubmittedDepthCopiesAsync()
         {
             ulong target = _copySubmittedEpoch;

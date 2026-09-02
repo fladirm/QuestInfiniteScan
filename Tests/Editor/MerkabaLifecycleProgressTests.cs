@@ -20,9 +20,25 @@ namespace Genesis.RoomScan.Tests
                 "private async Task ApplyApplicationPauseAsync",
                 "private void BeginDisableTeardown()");
             Assert.That(pause, Does.Contain("_resumeAfterPause = IsScanning || IsScanStarting"));
-            Assert.That(transition, Does.Contain("await QuiesceScanningAsync();"));
+            Assert.That(transition, Does.Contain(
+                "if (!await QuiesceScanningAsync()) return;"));
+            Assert.That(transition, Does.Contain(
+                "SuspendEnvironmentDepthForApplicationPause()"));
+            Assert.That(transition, Does.Contain(
+                "RestoreEnvironmentDepthAfterApplicationResume()"));
             Assert.That(transition, Does.Contain("await StartScanningAsync();"));
-            Assert.That(transition.IndexOf("await QuiesceScanningAsync();",
+            Assert.That(transition.IndexOf("QuiesceScanningAsync()",
+                    StringComparison.Ordinal),
+                Is.LessThan(transition.IndexOf("await StartScanningAsync();",
+                    StringComparison.Ordinal)));
+            Assert.That(transition.IndexOf(
+                    "SuspendEnvironmentDepthForApplicationPause()",
+                    StringComparison.Ordinal),
+                Is.LessThan(transition.IndexOf(
+                    "RestoreEnvironmentDepthAfterApplicationResume()",
+                    StringComparison.Ordinal)));
+            Assert.That(transition.IndexOf(
+                    "RestoreEnvironmentDepthAfterApplicationResume()",
                     StringComparison.Ordinal),
                 Is.LessThan(transition.IndexOf("await StartScanningAsync();",
                     StringComparison.Ordinal)));

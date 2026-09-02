@@ -487,6 +487,9 @@ namespace Genesis.RoomScan.Tests
 
             string depth = RuntimeSource("Runtime/Core/DepthCapture.cs");
             string begin = Slice(depth, "internal void BeginQuiesceDepthCapture()",
+                "internal void SuspendEnvironmentDepthForApplicationPause()");
+            string pause = Slice(depth,
+                "internal void SuspendEnvironmentDepthForApplicationPause()",
                 "internal Task RetireSubmittedDepthCopiesAsync()");
             string complete = Slice(depth, "internal void CompleteDepthCaptureStop()",
                 "private void OnDestroy()");
@@ -499,6 +502,11 @@ namespace Genesis.RoomScan.Tests
                 "_arOcclusionManager.gameObject.AddComponent<ARShaderOcclusion>()"));
             Assert.That(depth, Does.Contain(
                 "bool depthRequired = _captureActive || dynamicOcclusionEnabled;"));
+            Assert.That(pause, Does.Contain(
+                "_arOcclusionManager.enabled = false;"));
+            Assert.That(pause, Does.Contain(
+                "internal void RestoreEnvironmentDepthAfterApplicationResume()"));
+            Assert.That(pause, Does.Contain("ApplyDynamicOcclusionState();"));
             Assert.That(depth, Does.Contain(
                 "_shaderOcclusion.enabled = dynamicOcclusionEnabled;"));
             Assert.That(depth, Does.Not.Contain("WaitForCompletion"));

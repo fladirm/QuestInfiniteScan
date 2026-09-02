@@ -343,6 +343,8 @@ namespace Genesis.RoomScan
             if (paused && !_applicationPaused)
                 _resumeAfterPause = IsScanning || IsScanStarting;
             _applicationPaused = paused;
+            Logger.Info($"Application pause={paused} resumeScan=" +
+                        $"{_resumeAfterPause} lifecycle={ScanLifecycle}");
             Task prior = _pauseTransitionTask;
             _pauseTransitionTask = ApplyApplicationPauseAsync(prior, paused);
         }
@@ -891,12 +893,15 @@ namespace Genesis.RoomScan
                 await prior;
                 if (paused)
                 {
-                    await QuiesceScanningAsync();
+                    if (!await QuiesceScanningAsync()) return;
+                    _depthCapture?.SuspendEnvironmentDepthForApplicationPause();
                     return;
                 }
-                if (!_resumeAfterPause || _applicationPaused ||
-                    _disableRequested || _destroyed || !isActiveAndEnabled)
+                if (_applicationPaused || _disableRequested || _destroyed ||
+                    !isActiveAndEnabled)
                     return;
+                _depthCapture?.RestoreEnvironmentDepthAfterApplicationResume();
+                if (!_resumeAfterPause) return;
                 _resumeAfterPause = false;
                 await StartScanningAsync();
             }
