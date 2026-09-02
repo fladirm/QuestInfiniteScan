@@ -760,7 +760,7 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
                 nearestBlockIndex, continuationUnresolved,
                 continuationUnresolvedCoord, axisPrior)
             : 0.0;
-        bool continuation = currentFramePlanar && planePrior > 0.0 &&
+        bool continuation = currentFramePlanar && all(axisPrior > 0.0) &&
             M8PlanePriorReachesOccupied(quality, measurementConfidence,
                 planePrior);
         if (continuation)

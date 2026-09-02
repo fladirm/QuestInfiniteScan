@@ -218,7 +218,9 @@ namespace Genesis.RoomScan.Tests
             string compatible = Slice(frame,
                 "bool M8ReadoutPinsCompatible", "float3 M8GlyphEquator");
             string pin = Slice(frame, "void M8ResolveOneReadoutPin",
-                "uint M8BuildTrianglePrefix");
+                "uint3 M8BuildRecordTotals");
+            string compact = Slice(frame, "uint M8BuildValidWord",
+                "void M8ResolveOneReadoutPin");
             string build = Slice(frame, "void BuildReadoutVertices",
                 "float4 M8MeshWorldToClip");
 
@@ -242,17 +244,42 @@ namespace Genesis.RoomScan.Tests
                 "M8TryCompatibleReadoutSide\\("), Has.Count.EqualTo(4));
             Assert.That(pin, Does.Not.Contain("for ("));
             Assert.That(pin, Does.Not.Contain("while ("));
-            Assert.That(build, Does.Contain(
-                "for (uint resolveBatch = 0u; resolveBatch < 4u"));
+            Assert.That(compact, Does.Contain(
+                "_M8ReadoutIndices.Load(mapWord * 4u)"));
+            Assert.That(compact, Does.Contain(
+                "uint M8BuildKernelForOrdinal(uint ordinal)"));
+            Assert.That(compact, Does.Contain("M8SelectSetBit("));
+            Assert.That(pin, Does.Not.Contain(
+                "M8ReadoutLocalVertexIndex(context.physicalSlot"));
+            Assert.That(pin, Does.Contain("record = kernelLocal | flags"));
             Assert.That(build, Does.Contain("M8ResolveOneReadoutPin(context"));
+            Assert.That(build, Does.Contain(
+                "if (ordinal < gM8BuildValidCount)"));
+            Assert.That(build, Does.Contain(
+                "uint kernelLocal = M8BuildKernelForOrdinal(ordinal)"));
             Assert.That(build, Does.Contain("M8EmitOneReadoutPin(context"));
             Assert.That(Regex.Matches(build,
                 "GroupMemoryBarrierWithGroupSync\\(\\)"),
-                Has.Count.EqualTo(2));
+                Has.Count.EqualTo(6));
             Assert.That(frame, Does.Contain(
-                "groupshared uint4 gM8BuildSideVertices["));
+                "groupshared uint4 gM8BuildRecords["));
+            Assert.That(frame, Does.Contain("uint4 M8PackBuildRecord"));
+            Assert.That(frame, Does.Contain("uint4 M8BuildSideVertices"));
             Assert.That(frame, Does.Contain(
-                "groupshared uint gM8BuildRecords["));
+                "groupshared uint gM8BuildNeighbourSlots[27]"));
+            Assert.That(build, Does.Contain(
+                "M8ResolveReadoutAddress(context,"));
+            Assert.That(build, Does.Contain(
+                "gM8BuildNeighbourSlots[thread] = resolved"));
+            Assert.That(build, Does.Not.Contain(
+                "kernelLocal < M8_SHELL_MAIN_COUNT"));
+            Assert.That(build, Does.Contain("gM8BuildLaneTotals[thread]"));
+            Assert.That(build, Does.Contain("gM8BuildQuadTotals[thread]"));
+            Assert.That(build, Does.Contain("gM8BuildBlockTotals[thread]"));
+            Assert.That(frame, Does.Contain(
+                "groupshared uint gM8BuildValidWords["));
+            Assert.That(frame, Does.Contain(
+                "groupshared uint gM8BuildValidPrefixes["));
             Assert.That(frame, Does.Not.Contain("gM8ShellNeighbourSlots"));
             Assert.That(frame, Does.Not.Contain("gM8ShellMainCenters"));
             Assert.That(generated, Does.Not.Contain("neighbour"));
@@ -459,8 +486,8 @@ namespace Genesis.RoomScan.Tests
                 "M8StableCanonicalPlanePrior(nearestKernel,"));
             Assert.That(route, Does.Contain(
                 "bool continuation = all(axisPrior > 0.0)"));
-            Assert.That(route, Does.Contain(
-                "currentFramePlanar && planePrior > 0.0"));
+            Assert.That(Regex.Matches(route,
+                "all\\(axisPrior > 0\\.0\\)"), Has.Count.EqualTo(2));
             Assert.That(route, Does.Contain(
                 "M8PlanePriorReachesOccupied(quality, measurementConfidence"));
             Assert.That(route, Does.Contain("if (occupied)"));
@@ -842,7 +869,7 @@ namespace Genesis.RoomScan.Tests
             string compile = Slice(frame, "void BuildReadoutVertices",
                 "float4 M8MeshWorldToClip");
             string pin = Slice(frame, "void M8ResolveOneReadoutPin",
-                "uint M8BuildTrianglePrefix");
+                "uint3 M8BuildRecordTotals");
             Assert.That(frame, Does.Not.Contain("M8_SHELL_HALO_COUNT"));
             Assert.That(frame + generated, Does.Not.Contain("donor"));
             Assert.That(frame, Does.Contain("M8HasSurfacePlane(state.flags)"));
@@ -912,7 +939,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(pin, Does.Not.Contain("for ("));
             Assert.That(Regex.Matches(compile,
                 "GroupMemoryBarrierWithGroupSync\\(\\)"),
-                Has.Count.EqualTo(2));
+                Has.Count.EqualTo(6));
+            Assert.That(compile, Does.Not.Contain(
+                "kernelLocal < M8_SHELL_MAIN_COUNT"));
             Assert.That(Regex.Matches(compile,
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"),
                 Has.Count.EqualTo(1));
@@ -1026,7 +1055,7 @@ namespace Genesis.RoomScan.Tests
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string resolve = Slice(frame, "void M8ResolveOneReadoutPin",
-                "uint M8BuildTrianglePrefix");
+                "uint3 M8BuildRecordTotals");
             string compatibility = Slice(frame,
                 "bool M8ReadoutPinsCompatible",
                 "bool M8TryCompatibleReadoutSide");
@@ -1065,7 +1094,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(glyph, Does.Not.Contain("M8StoreKernelState"));
             Assert.That(resolve, Does.Not.Contain("InterlockedAdd("));
             Assert.That(emit, Does.Contain(
-                "uint glyphVertex = totalVertices -"));
+                "M8EmitReadoutGlyph(outputTriangle, glyphVertex"));
+            string build = Slice(frame, "void BuildReadoutVertices",
+                "float4 M8MeshWorldToClip");
+            Assert.That(build, Does.Contain(
+                "M8_COUNTER_READOUT_EMITTED_VERTICES"));
+            Assert.That(build, Does.Contain(
+                "total.z * M8_READOUT_GLYPH_VERTICES"));
         }
 
         [TestCase(0b0000u, true)]
@@ -1263,7 +1298,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(build, Does.Contain("M8ResolveOneReadoutPin"));
             Assert.That(build, Does.Contain("M8EmitOneReadoutPin"));
             Assert.That(build, Does.Contain(
-                "for (uint resolveBatch = 0u; resolveBatch < 4u"));
+                "if (ordinal < gM8BuildValidCount)"));
+            Assert.That(build, Does.Not.Contain(
+                "kernelLocal < M8_SHELL_MAIN_COUNT"));
             Assert.That(build, Does.Contain(
                 "M8_COUNTER_READOUT_EMITTED_TRIANGLES"));
             Assert.That(emitHelper, Does.Contain(
