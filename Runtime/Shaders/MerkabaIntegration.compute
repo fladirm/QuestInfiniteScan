@@ -402,9 +402,10 @@ int M8InspectSurfaceOwner(int3 globalCoord,
 bool M8IsStableCanonicalSheetSupport(int3 neighbourCoord,
     float3 worldSurface, int3 measuredStep,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
-    uint nearestBlockIndex, out bool unresolved)
+    uint nearestBlockIndex, out bool unresolved, out float overlap)
 {
     unresolved = false;
+    overlap = 0.0;
     bool occupied;
     KernelState neighbourState;
     int status = M8InspectSurfaceOwner(neighbourCoord, nearestAddress,
@@ -441,54 +442,68 @@ bool M8IsStableCanonicalSheetSupport(int3 neighbourCoord,
     float planeDistance = abs(dot(delta, neighbourNormalWorld));
     float3 tangentDelta = delta - neighbourNormalWorld *
         dot(delta, neighbourNormalWorld);
-    return planeDistance <= MERKABA_LATTICE_STEP * 0.5 + 1.0e-6 &&
-        dot(tangentDelta, tangentDelta) <=
-            MERKABA_SUPPORT_SIZE * MERKABA_SUPPORT_SIZE + 1.0e-6;
+    float tangentDistance = length(tangentDelta);
+    if (planeDistance > MERKABA_LATTICE_STEP * 0.5 + 1.0e-6 ||
+        tangentDistance >= MERKABA_SUPPORT_SIZE)
+        return false;
+    overlap = saturate(1.0 - tangentDistance / MERKABA_SUPPORT_SIZE);
+    return overlap > 0.0;
 }
 
-bool M8HasStableCanonicalPlanarSupport(int3 targetCoord,
+float M8StableCanonicalPlanePrior(int3 targetCoord,
     float3 worldSurface, int3 measuredStep,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
     uint nearestBlockIndex, out bool unresolved,
-    out int3 unresolvedCoord)
+    out int3 unresolvedCoord, out float2 axisPrior)
 {
     unresolved = false;
     unresolvedCoord = targetCoord;
+    axisPrior = 0.0;
     int3 tangent0;
     int3 tangent1;
     MerkabaGridSheetTangents(measuredStep, tangent0, tangent1);
-    bool negativeUnresolved;
-    bool positiveUnresolved = false;
-    bool axis0 = M8IsStableCanonicalSheetSupport(targetCoord - tangent0,
+    bool negative0Unresolved;
+    bool positive0Unresolved;
+    bool negative1Unresolved;
+    bool positive1Unresolved;
+    float negative0Overlap;
+    float positive0Overlap;
+    float negative1Overlap;
+    float positive1Overlap;
+    M8IsStableCanonicalSheetSupport(targetCoord - tangent0,
         worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-        nearestBlockIndex, negativeUnresolved);
-    if (!axis0)
-        axis0 = M8IsStableCanonicalSheetSupport(targetCoord + tangent0,
-            worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-            nearestBlockIndex, positiveUnresolved);
-    if (!axis0 && (negativeUnresolved || positiveUnresolved))
+        nearestBlockIndex, negative0Unresolved, negative0Overlap);
+    M8IsStableCanonicalSheetSupport(targetCoord + tangent0,
+        worldSurface, measuredStep, nearestAddress, nearestBlockReady,
+        nearestBlockIndex, positive0Unresolved, positive0Overlap);
+    M8IsStableCanonicalSheetSupport(targetCoord - tangent1,
+        worldSurface, measuredStep, nearestAddress, nearestBlockReady,
+        nearestBlockIndex, negative1Unresolved, negative1Overlap);
+    M8IsStableCanonicalSheetSupport(targetCoord + tangent1,
+        worldSurface, measuredStep, nearestAddress, nearestBlockReady,
+        nearestBlockIndex, positive1Unresolved, positive1Overlap);
+    unresolved = negative0Unresolved || positive0Unresolved ||
+        negative1Unresolved || positive1Unresolved;
+    if (unresolved)
     {
-        unresolved = true;
-        unresolvedCoord = negativeUnresolved
-            ? targetCoord - tangent0 : targetCoord + tangent0;
+        unresolvedCoord = negative0Unresolved ? targetCoord - tangent0 :
+            positive0Unresolved ? targetCoord + tangent0 :
+            negative1Unresolved ? targetCoord - tangent1 :
+            targetCoord + tangent1;
     }
+    axisPrior = float2(negative0Overlap + positive0Overlap,
+        negative1Overlap + positive1Overlap);
+    return axisPrior.x + axisPrior.y;
+}
 
-    negativeUnresolved = false;
-    positiveUnresolved = false;
-    bool axis1 = M8IsStableCanonicalSheetSupport(targetCoord - tangent1,
-        worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-        nearestBlockIndex, negativeUnresolved);
-    if (!axis1)
-        axis1 = M8IsStableCanonicalSheetSupport(targetCoord + tangent1,
-            worldSurface, measuredStep, nearestAddress, nearestBlockReady,
-            nearestBlockIndex, positiveUnresolved);
-    if (!axis1 && (negativeUnresolved || positiveUnresolved) && !unresolved)
-    {
-        unresolved = true;
-        unresolvedCoord = negativeUnresolved
-            ? targetCoord - tangent1 : targetCoord + tangent1;
-    }
-    return axis0 && axis1;
+bool M8PlanePriorReachesOccupied(float quality, float measurementConfidence,
+    float planePrior)
+{
+    int measuredDelta = max(1, (int)round(quality * quality *
+        measurementConfidence * MERKABA_SURFACE_SCALE));
+    int priorDelta = (int)round(saturate(planePrior) *
+        (float)MERKABA_OCCUPIED_ON);
+    return measuredDelta + priorDelta >= MERKABA_OCCUPIED_ON;
 }
 
 bool M8IsCurrentFrameSheetSupport(int2 pixel, float3 worldSurface,
@@ -540,10 +555,13 @@ bool M8HasCurrentFramePlanarSupport(uint2 sourcePixel,
         worldSurface, worldNormal, measuredStep, positive1Strict);
     bool axis0 = negative0 || positive0;
     bool axis1 = negative1 || positive1;
-    hasStrictSupport = (negative0 && negative0Strict) ||
-        (positive0 && positive0Strict) ||
-        (negative1 && negative1Strict) ||
+    bool strictAxis0 = (negative0 && negative0Strict) ||
+        (positive0 && positive0Strict);
+    bool strictAxis1 = (negative1 && negative1Strict) ||
         (positive1 && positive1Strict);
+    // A weak sample may fill a hole inside a strict 2D observation, but may
+    // never extend a strict edge into a weak depth tail.
+    hasStrictSupport = strictAxis0 && strictAxis1;
     return axis0 && axis1;
 }
 
@@ -626,15 +644,21 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
         bool currentFramePlanar = M8HasCurrentFramePlanarSupport(sourcePixel,
             worldSurface, worldNormal, normalStep,
             hasStrictCurrentSupport);
-        bool continuation = currentFramePlanar && hasStrictCurrentSupport;
+        if (!currentFramePlanar || !hasStrictCurrentSupport)
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_INVALID,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
         bool continuationUnresolved = false;
         int3 continuationUnresolvedCoord = nearestKernel;
-        if (!continuation)
-            continuation = M8HasStableCanonicalPlanarSupport(nearestKernel,
-                worldSurface, normalStep, nearestAddress, nearestBlockReady,
-                nearestBlockIndex, continuationUnresolved,
-                continuationUnresolvedCoord);
-        if (continuationUnresolved)
+        float2 axisPrior;
+        float planePrior = M8StableCanonicalPlanePrior(nearestKernel,
+            worldSurface, normalStep, nearestAddress, nearestBlockReady,
+            nearestBlockIndex, continuationUnresolved,
+            continuationUnresolvedCoord, axisPrior);
+        bool continuation = all(axisPrior > 0.0) &&
+            M8PlanePriorReachesOccupied(quality, measurementConfidence,
+                planePrior);
+        if (!continuation && continuationUnresolved)
         {
             targetCoord = continuationUnresolvedCoord;
             return MerkabaPackSurfaceMetadata(sourcePixel,
@@ -723,21 +747,22 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
             MERKABA_SURFACE_ROUTE_VALID,
             MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false,
             strictMeasurement);
-        bool continuationUnresolved;
-        int3 continuationUnresolvedCoord;
+        bool continuationUnresolved = false;
+        int3 continuationUnresolvedCoord = nearestKernel;
         bool ignoredStrictSupport;
-        bool continuation = M8HasCurrentFramePlanarSupport(sourcePixel,
-            worldSurface, worldNormal, normalStep, ignoredStrictSupport);
-        if (!continuation)
-            continuation = M8HasStableCanonicalPlanarSupport(nearestKernel,
-                worldSurface, normalStep, nearestAddress, nearestBlockReady,
+        bool currentFramePlanar = _M8FineRefineActive == 0u &&
+            M8HasCurrentFramePlanarSupport(sourcePixel, worldSurface,
+                worldNormal, normalStep, ignoredStrictSupport);
+        float2 axisPrior = 0.0;
+        float planePrior = currentFramePlanar
+            ? M8StableCanonicalPlanePrior(nearestKernel, worldSurface,
+                normalStep, nearestAddress, nearestBlockReady,
                 nearestBlockIndex, continuationUnresolved,
-                continuationUnresolvedCoord);
-        else
-        {
-            continuationUnresolved = false;
-            continuationUnresolvedCoord = nearestKernel;
-        }
+                continuationUnresolvedCoord, axisPrior)
+            : 0.0;
+        bool continuation = currentFramePlanar && planePrior > 0.0 &&
+            M8PlanePriorReachesOccupied(quality, measurementConfidence,
+                planePrior);
         if (continuation)
             metadata = asint(asuint(metadata) |
                 MERKABA_SURFACE_FLAG_CANONICAL_CONTINUATION);

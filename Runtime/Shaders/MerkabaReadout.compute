@@ -48,6 +48,14 @@
 #define M8_READOUT_PIN_SHEET_SHIFT 25u
 #define M8_READOUT_PIN_SHEET_MASK 0x0fu
 #define M8_READOUT_VISIBLE_COLOR_MASK 0x01ffffffu
+#define M8_READOUT_BUILD_VERTEX_MASK 0x00ffffffu
+#define M8_READOUT_BUILD_POSITIVE (1u << 24u)
+#define M8_READOUT_BUILD_NEGATIVE (1u << 25u)
+#define M8_READOUT_BUILD_GLYPH (1u << 26u)
+#define M8_READOUT_BUILD_FLAGS_MASK (7u << 24u)
+#define M8_READOUT_BUILD_PREFIX_HIGH_SHIFT 27u
+#define M8_READOUT_BUILD_PREFIX_LOW_SHIFT 24u
+#define M8_READOUT_INVALID_VERTEX M8_READOUT_BUILD_VERTEX_MASK
 
 struct MerkabaReadoutVertex
 {
@@ -728,19 +736,30 @@ uint M8ReadoutEyeMask(uint physicalSlot, uint kernelLocal)
     return (packed >> ((kernelLocal & 15u) * 2u)) & 3u;
 }
 
-bool M8ReadoutVertexIndex(uint physicalSlot, uint kernelLocal,
-    out uint vertexIndex)
+bool M8ReadoutLocalVertexIndex(uint physicalSlot, uint kernelLocal,
+    uint baseVertex, out uint vertexIndex)
 {
     vertexIndex = 0u;
-    uint2 record = _M8VisibleTiles[M8_FRONT_VERTEX_BASE + physicalSlot];
-    if (record.y != _M8Counters[M8_COUNTER_FRAME_EPOCH]) return false;
     uint mapWord = M8_READOUT_MAP_WORD_BASE + physicalSlot *
         M8_READOUT_MAP_WORDS_PER_TILE + (kernelLocal >> 1u);
     uint packed = _M8ReadoutIndices.Load(mapWord * 4u);
     uint local = (packed >> ((kernelLocal & 1u) * 16u)) & 0xffffu;
     if (local == 0u) return false;
-    vertexIndex = record.x + local - 1u;
+    vertexIndex = baseVertex + local - 1u;
     return true;
+}
+
+bool M8ReadoutVertexIndex(uint physicalSlot, uint kernelLocal,
+    out uint vertexIndex)
+{
+    uint2 record = _M8VisibleTiles[M8_FRONT_VERTEX_BASE + physicalSlot];
+    if (record.y != _M8Counters[M8_COUNTER_FRAME_EPOCH])
+    {
+        vertexIndex = 0u;
+        return false;
+    }
+    return M8ReadoutLocalVertexIndex(physicalSlot, kernelLocal, record.x,
+        vertexIndex);
 }
 
 struct M8ReadoutPin
@@ -779,6 +798,7 @@ void M8DecodeReadoutPin(uint eyeMask, uint vertexIndex,
 struct M8ReadoutTileContext
 {
     uint physicalSlot;
+    uint baseVertex;
     int3 tileOrigin;
     int3 blockCoord;
     uint blockIndex;
@@ -786,10 +806,12 @@ struct M8ReadoutTileContext
     uint chunkLocal;
 };
 
-M8ReadoutTileContext M8LoadReadoutTileContext(uint physicalSlot)
+M8ReadoutTileContext M8LoadReadoutTileContext(uint physicalSlot,
+    uint baseVertex)
 {
     M8ReadoutTileContext context;
     context.physicalSlot = physicalSlot;
+    context.baseVertex = baseVertex;
     context.tileOrigin = M8GlobalKernelCoordRead(physicalSlot, 0u);
     uint4 meta = M8LoadTileMetaRead(physicalSlot);
     uint2 owner = M8LoadChunkOwnerRead(meta.x);
@@ -854,7 +876,13 @@ bool M8TryLoadReadoutPin(M8ReadoutTileContext context, int3 globalCoord,
             kernelLocal))
         return false;
     uint vertexIndex;
-    if (!M8ReadoutVertexIndex(physicalSlot, kernelLocal, vertexIndex))
+    if (physicalSlot == context.physicalSlot)
+    {
+        if (!M8ReadoutLocalVertexIndex(physicalSlot, kernelLocal,
+                context.baseVertex, vertexIndex))
+            return false;
+    }
+    else if (!M8ReadoutVertexIndex(physicalSlot, kernelLocal, vertexIndex))
         return false;
     M8DecodeReadoutPin(M8ReadoutEyeMask(physicalSlot, kernelLocal),
         vertexIndex, pin);
@@ -951,15 +979,28 @@ void M8FailReadoutCapacity()
         MERKABA_READOUT_FAILED, ignored);
 }
 
-void M8BuildOneReadoutPin(M8ReadoutTileContext context, uint kernelLocal)
+groupshared uint4 gM8BuildSideVertices[M8_SHELL_MAIN_COUNT];
+groupshared uint gM8BuildRecords[M8_SHELL_MAIN_COUNT];
+groupshared uint gM8BuildBaseTriangle;
+groupshared uint gM8BuildTriangleCount;
+groupshared uint gM8BuildPatchCount;
+groupshared uint gM8BuildCanEmit;
+
+void M8ResolveOneReadoutPin(M8ReadoutTileContext context, uint kernelLocal,
+    out uint record, out uint4 sideVertices)
 {
+    record = 0u;
+    sideVertices = uint4(M8_READOUT_INVALID_VERTEX,
+        M8_READOUT_INVALID_VERTEX, M8_READOUT_INVALID_VERTEX,
+        M8_READOUT_INVALID_VERTEX);
     int3 tileLocal = int3(kernelLocal & 7u,
         (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
     int3 globalCoord = context.tileOrigin + tileLocal;
     M8ReadoutPin mainPin;
     M8InitializeReadoutPin(mainPin);
     uint mainVertex;
-    if (!M8ReadoutVertexIndex(context.physicalSlot, kernelLocal,
+    if (!M8ReadoutLocalVertexIndex(context.physicalSlot, kernelLocal,
+            context.baseVertex,
             mainVertex))
         return;
     M8DecodeReadoutPin(M8ReadoutEyeMask(context.physicalSlot, kernelLocal),
@@ -969,8 +1010,8 @@ void M8BuildOneReadoutPin(M8ReadoutTileContext context, uint kernelLocal)
     int nonZero = abs(mainSheet.x) + abs(mainSheet.y) + abs(mainSheet.z);
     float chartLength = nonZero == 1 ? 1.0 :
         nonZero == 2 ? 1.41421356237 : 1.73205080757;
-    int3 tangent0;
-    int3 tangent1;
+    int3 tangent0 = 0;
+    int3 tangent1 = 0;
     MerkabaGridSheetTangents(mainSheet, tangent0, tangent1);
 
     uint negative0Vertex;
@@ -1003,73 +1044,164 @@ void M8BuildOneReadoutPin(M8ReadoutTileContext context, uint kernelLocal)
         (mainPin.eyeMask | negative0Eyes | negative1Eyes) != 0u;
     bool glyph = mainPin.eyeMask != 0u &&
         (countbits(sideMask) < 3u || (!positive && !negative));
-    uint triangleCount = glyph ? M8_READOUT_GLYPH_TRIANGLES :
-        (positive ? 1u : 0u) + (negative ? 1u : 0u);
-    if (triangleCount == 0u) return;
+    uint flags = glyph ? M8_READOUT_BUILD_GLYPH :
+        ((positive ? M8_READOUT_BUILD_POSITIVE : 0u) |
+        (negative ? M8_READOUT_BUILD_NEGATIVE : 0u));
+    if (flags == 0u) return;
+    record = (mainPin.vertexIndex & M8_READOUT_BUILD_VERTEX_MASK) | flags;
+    sideVertices = uint4(negative0Vertex, positive0Vertex,
+        negative1Vertex, positive1Vertex);
+}
 
-    uint baseTriangle;
-    InterlockedAdd(_M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-        triangleCount, baseTriangle);
-    uint glyphVertex = 0u;
-    if (glyph)
-        InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES],
-            6u, glyphVertex);
-    uint totalVertices = MERKABA_M8_READOUT_VERTICES_PER_BUFFER * 2u;
-    bool fits = baseTriangle <= MERKABA_M8_READOUT_TRIANGLE_CAPACITY &&
-        triangleCount <= MERKABA_M8_READOUT_TRIANGLE_CAPACITY -
-            baseTriangle && (!glyph || (glyphVertex <= totalVertices &&
-            6u <= totalVertices - glyphVertex));
-    if (!fits)
+uint M8BuildTrianglePrefix(uint record, uint packedPositive1)
+{
+    return (record >> M8_READOUT_BUILD_PREFIX_HIGH_SHIFT) * 256u +
+        (packedPositive1 >> M8_READOUT_BUILD_PREFIX_LOW_SHIFT);
+}
+
+void M8EmitOneReadoutPin(M8ReadoutTileContext context, uint kernelLocal)
+{
+    uint record = gM8BuildRecords[kernelLocal];
+    uint flags = record & M8_READOUT_BUILD_FLAGS_MASK;
+    if (flags == 0u) return;
+    uint4 sides = gM8BuildSideVertices[kernelLocal];
+    uint outputTriangle = gM8BuildBaseTriangle +
+        M8BuildTrianglePrefix(record, sides.w);
+    uint mainVertex = record & M8_READOUT_BUILD_VERTEX_MASK;
+    if ((flags & M8_READOUT_BUILD_GLYPH) != 0u)
     {
-        M8FailReadoutCapacity();
+        int3 tileLocal = int3(kernelLocal & 7u,
+            (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+        KernelState state = M8LoadKernelStateRead(context.physicalSlot,
+            kernelLocal);
+        uint totalVertices =
+            MERKABA_M8_READOUT_VERTICES_PER_BUFFER * 2u;
+        uint glyphVertex = totalVertices -
+            (outputTriangle + M8_READOUT_GLYPH_TRIANGLES);
+        M8EmitReadoutGlyph(outputTriangle, glyphVertex,
+            context.tileOrigin + tileLocal, state);
         return;
     }
 
-    if (glyph)
+    uint outputIndex = outputTriangle * M8_READOUT_VERTICES_PER_TRIANGLE;
+    if ((flags & M8_READOUT_BUILD_POSITIVE) != 0u)
     {
-        KernelState state = M8LoadKernelStateRead(context.physicalSlot,
-            kernelLocal);
-        M8EmitReadoutGlyph(baseTriangle, glyphVertex, globalCoord, state);
+        M8StoreReadoutIndex(outputIndex + 0u, mainVertex);
+        M8StoreReadoutIndex(outputIndex + 1u,
+            sides.y & M8_READOUT_BUILD_VERTEX_MASK);
+        M8StoreReadoutIndex(outputIndex + 2u,
+            sides.w & M8_READOUT_BUILD_VERTEX_MASK);
+        outputIndex += 3u;
     }
-    else
+    if ((flags & M8_READOUT_BUILD_NEGATIVE) != 0u)
     {
-        uint outputIndex = baseTriangle *
-            M8_READOUT_VERTICES_PER_TRIANGLE;
-        if (positive)
-        {
-            M8StoreReadoutIndex(outputIndex + 0u, mainPin.vertexIndex);
-            M8StoreReadoutIndex(outputIndex + 1u, positive0Vertex);
-            M8StoreReadoutIndex(outputIndex + 2u, positive1Vertex);
-            outputIndex += 3u;
-        }
-        if (negative)
-        {
-            M8StoreReadoutIndex(outputIndex + 0u, mainPin.vertexIndex);
-            M8StoreReadoutIndex(outputIndex + 1u, negative0Vertex);
-            M8StoreReadoutIndex(outputIndex + 2u, negative1Vertex);
-        }
+        M8StoreReadoutIndex(outputIndex + 0u, mainVertex);
+        M8StoreReadoutIndex(outputIndex + 1u,
+            sides.x & M8_READOUT_BUILD_VERTEX_MASK);
+        M8StoreReadoutIndex(outputIndex + 2u,
+            sides.z & M8_READOUT_BUILD_VERTEX_MASK);
     }
-
-    uint ignored;
-    InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES],
-        1u, ignored);
-    InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES],
-        triangleCount, ignored);
 }
 
 [numthreads(8, 8, 2)]
 void BuildReadoutVertices(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
-    if (_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] !=
-        MERKABA_READOUT_BUILDING)
-        return;
     uint physicalSlot = _M8VisibleTiles[groupId.x].x;
-    M8ReadoutTileContext context = M8LoadReadoutTileContext(physicalSlot);
+    uint2 vertexRecord =
+        _M8VisibleTiles[M8_FRONT_VERTEX_BASE + physicalSlot];
+    bool tileReady = _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] ==
+            MERKABA_READOUT_BUILDING &&
+        vertexRecord.y == _M8Counters[M8_COUNTER_FRAME_EPOCH];
+    M8ReadoutTileContext context = M8LoadReadoutTileContext(physicalSlot,
+        vertexRecord.x);
     [loop]
-    for (uint batch = 0u; batch < 4u; batch++)
-        M8BuildOneReadoutPin(context,
-            thread + batch * M8_SHELL_GROUP_THREADS);
+    for (uint resolveBatch = 0u; resolveBatch < 4u; resolveBatch++)
+    {
+        uint kernelLocal = thread + resolveBatch * M8_SHELL_GROUP_THREADS;
+        uint record = 0u;
+        uint4 sideVertices = uint4(M8_READOUT_INVALID_VERTEX,
+            M8_READOUT_INVALID_VERTEX, M8_READOUT_INVALID_VERTEX,
+            M8_READOUT_INVALID_VERTEX);
+        if (tileReady)
+            M8ResolveOneReadoutPin(context, kernelLocal, record,
+                sideVertices);
+        gM8BuildRecords[kernelLocal] = record;
+        gM8BuildSideVertices[kernelLocal] = sideVertices;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (thread == 0u)
+    {
+        uint trianglePrefix = 0u;
+        uint patchCount = 0u;
+        uint lastGlyphEnd = 0u;
+        [loop]
+        for (uint kernelLocal = 0u; kernelLocal < M8_SHELL_MAIN_COUNT;
+            kernelLocal++)
+        {
+            uint record = gM8BuildRecords[kernelLocal];
+            uint flags = record & M8_READOUT_BUILD_FLAGS_MASK;
+            if (flags == 0u) continue;
+            uint triangleCount = (flags & M8_READOUT_BUILD_GLYPH) != 0u
+                ? M8_READOUT_GLYPH_TRIANGLES :
+                ((flags & M8_READOUT_BUILD_POSITIVE) != 0u ? 1u : 0u) +
+                ((flags & M8_READOUT_BUILD_NEGATIVE) != 0u ? 1u : 0u);
+            uint4 sides = gM8BuildSideVertices[kernelLocal];
+            sides.w = (sides.w & M8_READOUT_BUILD_VERTEX_MASK) |
+                ((trianglePrefix & 255u) <<
+                    M8_READOUT_BUILD_PREFIX_LOW_SHIFT);
+            gM8BuildSideVertices[kernelLocal] = sides;
+            gM8BuildRecords[kernelLocal] = record |
+                ((trianglePrefix >> 8u) <<
+                    M8_READOUT_BUILD_PREFIX_HIGH_SHIFT);
+            trianglePrefix += triangleCount;
+            patchCount++;
+            if ((flags & M8_READOUT_BUILD_GLYPH) != 0u)
+                lastGlyphEnd = trianglePrefix;
+        }
+
+        gM8BuildTriangleCount = trianglePrefix;
+        gM8BuildPatchCount = patchCount;
+        gM8BuildCanEmit = 0u;
+        uint ignored;
+        if (tileReady)
+            InterlockedAdd(
+                _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
+                trianglePrefix, gM8BuildBaseTriangle);
+        else
+            gM8BuildBaseTriangle = 0u;
+        uint totalVertices =
+            MERKABA_M8_READOUT_VERTICES_PER_BUFFER * 2u;
+        uint indexedVertices =
+            _M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES];
+        bool trianglesFit = gM8BuildBaseTriangle <=
+                MERKABA_M8_READOUT_TRIANGLE_CAPACITY &&
+            trianglePrefix <= MERKABA_M8_READOUT_TRIANGLE_CAPACITY -
+                gM8BuildBaseTriangle;
+        bool glyphsFit = lastGlyphEnd == 0u ||
+            gM8BuildBaseTriangle + lastGlyphEnd <=
+                totalVertices - indexedVertices;
+        if (tileReady && (!trianglesFit || !glyphsFit))
+            M8FailReadoutCapacity();
+        else if (tileReady)
+        {
+            gM8BuildCanEmit = 1u;
+            InterlockedAdd(
+                _M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES],
+                patchCount, ignored);
+            InterlockedAdd(
+                _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES],
+                trianglePrefix, ignored);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gM8BuildCanEmit == 0u) return;
+
+    [loop]
+    for (uint emitBatch = 0u; emitBatch < 4u; emitBatch++)
+        M8EmitOneReadoutPin(context,
+            thread + emitBatch * M8_SHELL_GROUP_THREADS);
 }
 
 float4 M8MeshWorldToClip(uint eye, float3 worldPosition)
