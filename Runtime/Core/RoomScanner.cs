@@ -26,7 +26,7 @@ namespace Genesis.RoomScan
     {
         public static RoomScanner Instance { get; private set; }
 
-        [SerializeField, Range(5f, 30f)] private float integrationHz = 10f;
+        [SerializeField, Range(5f, 30f)] private float integrationHz = 20f;
         [SerializeField, Range(0.005f, 0.05f)]
         private float maximumRgbdSkewSeconds = 1f / 30f;
         [SerializeField] private bool fineMode;

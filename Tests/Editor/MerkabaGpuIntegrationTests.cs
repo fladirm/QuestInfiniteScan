@@ -245,7 +245,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(pin, Does.Not.Contain("for ("));
             Assert.That(pin, Does.Not.Contain("while ("));
             Assert.That(compact, Does.Contain(
-                "_M8ReadoutIndices.Load(mapWord * 4u)"));
+                "M8_FRONT_MASK_WORDS_PER_TILE + word].y"));
+            Assert.That(compact, Does.Not.Contain(
+                "_M8ReadoutIndices.Load"));
+            Assert.That(frame, Does.Contain("uint2(packed, valid)"));
             Assert.That(compact, Does.Contain(
                 "uint M8BuildKernelForOrdinal(uint ordinal)"));
             Assert.That(compact, Does.Contain("M8SelectSetBit("));
@@ -284,6 +287,49 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Not.Contain("gM8ShellMainCenters"));
             Assert.That(generated, Does.Not.Contain("neighbour"));
             Assert.That(generated, Does.Not.Contain("donor"));
+        }
+
+        [Test]
+        public void ReadoutBuildRecordPacking_PreservesValidAndMissingSides()
+        {
+            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string packing = Slice(frame, "uint4 M8PackBuildRecord",
+                "uint M8SelectSetBit");
+            Assert.That(packing, Does.Contain(
+                "sides.x & M8_READOUT_BUILD_VERTEX_MASK"));
+            Assert.That(packing, Does.Contain(
+                "(sides.y >> 8u) & 65535u"));
+            Assert.That(packing, Does.Contain(
+                "(sides.z >> 16u) & 255u"));
+            Assert.That(packing, Does.Contain(
+                "sides.w & M8_READOUT_BUILD_VERTEX_MASK"));
+
+            const uint mask = 0x00ffffffu;
+            uint[] values =
+            {
+                0u, 1u, 0x000000feu, 0x00000102u,
+                0x00010203u, 0x00fffffeu, 0xffffffffu,
+            };
+            foreach (uint x in values)
+            foreach (uint y in values)
+            foreach (uint z in values)
+            foreach (uint w in values)
+            {
+                uint packedY = (x & mask) | ((y & 255u) << 24);
+                uint packedZ = ((y >> 8) & 65535u) |
+                    ((z & 65535u) << 16);
+                uint packedW = ((z >> 16) & 255u) |
+                    ((w & mask) << 8);
+                uint decodedX = packedY & mask;
+                uint decodedY = (packedY >> 24) |
+                    ((packedZ & 65535u) << 8);
+                uint decodedZ = (packedZ >> 16) |
+                    ((packedW & 255u) << 16);
+                uint decodedW = (packedW >> 8) & mask;
+                Assert.That(new[] { decodedX, decodedY, decodedZ, decodedW },
+                    Is.EqualTo(new[] { x & mask, y & mask, z & mask, w & mask }),
+                    $"{x:x8}/{y:x8}/{z:x8}/{w:x8}");
+            }
         }
 
         [Test]
@@ -2422,6 +2468,10 @@ namespace Genesis.RoomScan.Tests
                 "private static MerkabaNativeVulkanJob _activeJob"));
             Assert.That(managed, Does.Not.Contain("System.Threading.Thread"));
             Assert.That(managed, Does.Not.Contain("ExecuteCommandBufferAsync"));
+            Assert.That(managed, Does.Contain(
+                "TimingLogIntervalSeconds = 5f"));
+            Assert.That(managed, Does.Contain(
+                "if (!TryClaimTimingLog(_kind)) return"));
             Assert.That(integrator, Does.Contain("JobKind.ObservationNew"));
             Assert.That(integrator, Does.Contain("JobKind.ObservationRetry"));
             Assert.That(integrator, Does.Contain("JobKind.FineErase"));

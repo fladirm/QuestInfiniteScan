@@ -54,7 +54,7 @@ namespace Genesis.RoomScan.Tests
                 "Outside · {proximityDistance:F1} m"));
             string scanner = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Core/RoomScanner.cs"));
-            Assert.That(scanner, Does.Contain("integrationHz = 10f"));
+            Assert.That(scanner, Does.Contain("integrationHz = 20f"));
             Assert.That(scanner, Does.Contain(
                 "TryGetStoredScanProximity"));
             string renderer = File.ReadAllText(Path.GetFullPath(

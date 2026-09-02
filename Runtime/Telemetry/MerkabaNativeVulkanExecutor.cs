@@ -12,6 +12,7 @@ namespace Genesis.RoomScan
     /// </summary>
     internal static class MerkabaNativeVulkanExecutor
     {
+        private const float TimingLogIntervalSeconds = 5f;
         internal const int AbiVersion = 1;
         internal const int ResourceCount = 45;
         internal const int PipelineCount = 51;
@@ -159,6 +160,8 @@ namespace Genesis.RoomScan
         };
 
         private static MerkabaNativeVulkanJob _activeJob;
+        private static readonly float[] NextTimingLogTimes =
+            new float[5];
 
         internal static bool HasJobInFlight => _activeJob != null;
 
@@ -247,6 +250,15 @@ namespace Genesis.RoomScan
         private static void ReleaseActive(MerkabaNativeVulkanJob job)
         {
             if (ReferenceEquals(_activeJob, job)) _activeJob = null;
+        }
+
+        private static bool TryClaimTimingLog(JobKind kind)
+        {
+            int index = (int)kind;
+            float now = Time.unscaledTime;
+            if (now < NextTimingLogTimes[index]) return false;
+            NextTimingLogTimes[index] = now + TimingLogIntervalSeconds;
+            return true;
         }
 
         private static void LogTimings(JobKind kind, uint revision,
@@ -428,6 +440,8 @@ namespace Genesis.RoomScan
             private void TryLogTimings()
             {
                 if (_timingsLogged) return;
+                _timingsLogged = true;
+                if (!TryClaimTimingLog(_kind)) return;
 #if !UNITY_EDITOR && UNITY_ANDROID
                 var timestamps = new ulong[MaximumTimestampCount];
                 int count = Native.ReadTimings(_handle, timestamps,
@@ -439,7 +453,6 @@ namespace Genesis.RoomScan
                     Logger.Warning("Merkaba native-queue timing unavailable " +
                         $"for revision {_revision}; completion remains valid.");
 #endif
-                _timingsLogged = true;
             }
 
             public void Dispose()

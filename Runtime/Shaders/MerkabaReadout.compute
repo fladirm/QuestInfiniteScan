@@ -650,8 +650,10 @@ void IndexReadoutVertices(uint3 groupId : SV_GroupID,
             index++)
             packed |= (gM8IndexEyeMasks[firstKernel + index] & 3u) <<
                 (index * 2u);
+        uint valid = thread < MERKABA_M8_TILE_WORDS
+            ? gM8IndexValidWords[thread] : 0u;
         _M8VisibleTiles[M8_FRONT_MASK_BASE + physicalSlot *
-            M8_FRONT_MASK_WORDS_PER_TILE + thread].x = packed;
+            M8_FRONT_MASK_WORDS_PER_TILE + thread] = uint2(packed, valid);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -1050,28 +1052,19 @@ groupshared uint gM8BuildValidCount;
 
 uint M8BuildValidWord(uint physicalSlot, uint word)
 {
-    uint result = 0u;
-    uint firstPair = word * 16u;
-    [unroll]
-    for (uint pairInWord = 0u; pairInWord < 16u; pairInWord++)
-    {
-        uint mapWord = M8_READOUT_MAP_WORD_BASE + physicalSlot *
-            M8_READOUT_MAP_WORDS_PER_TILE + firstPair + pairInWord;
-        uint packed = _M8ReadoutIndices.Load(mapWord * 4u);
-        uint firstValid = (packed & 65535u) != 0u ? 1u : 0u;
-        uint secondValid = (packed >> 16u) != 0u ? 1u : 0u;
-        result |= (firstValid | (secondValid << 1u)) <<
-            (pairInWord * 2u);
-    }
-    return result;
+    return _M8VisibleTiles[M8_FRONT_MASK_BASE + physicalSlot *
+        M8_FRONT_MASK_WORDS_PER_TILE + word].y;
 }
 
 uint4 M8PackBuildRecord(uint record, uint4 sides)
 {
     return uint4(record,
-        sides.x | ((sides.y & 255u) << 24u),
-        (sides.y >> 8u) | ((sides.z & 65535u) << 16u),
-        (sides.z >> 16u) | (sides.w << 8u));
+        (sides.x & M8_READOUT_BUILD_VERTEX_MASK) |
+            ((sides.y & 255u) << 24u),
+        ((sides.y >> 8u) & 65535u) |
+            ((sides.z & 65535u) << 16u),
+        ((sides.z >> 16u) & 255u) |
+            ((sides.w & M8_READOUT_BUILD_VERTEX_MASK) << 8u));
 }
 
 uint4 M8BuildSideVertices(uint4 packed)
