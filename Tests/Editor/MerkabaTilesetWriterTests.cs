@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using Genesis.RoomScan;
+using Genesis.RoomScan.UI;
 using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
@@ -15,6 +16,56 @@ namespace Genesis.RoomScan.Tests
 {
     public sealed class MerkabaTilesetWriterTests
     {
+        [Test]
+        public void QuestArtifactPreviewReadsTheFrozenWriterAbiBackIntoUnitySpace()
+        {
+            MerkabaExportMembraneResult membrane = Fixture();
+            Vector3 origin = new(0.25f, -0.5f, 0.75f);
+            Vector3 center = new(0.1f, 0.2f, 0.3f);
+            using var stream = new MemoryStream();
+            _ = MerkabaGlbWriter.Write(stream, membrane, origin);
+
+            MerkabaArtifactViewer.ParsedGlb parsed =
+                MerkabaArtifactViewer.ParseGlbForPreview(stream.ToArray(),
+                    origin, center);
+
+            Assert.That(parsed.Positions.Length, Is.GreaterThan(0));
+            Assert.That(parsed.Normals.Length, Is.EqualTo(parsed.Positions.Length));
+            Assert.That(parsed.Colors.Length, Is.EqualTo(parsed.Positions.Length));
+            Assert.That(parsed.Indices.Length % 3, Is.Zero);
+            Assert.That(parsed.Positions.Any(value =>
+                Vector3.Distance(value,
+                    (Vector3)membrane.Patches[0].Corner00 - center) < 1e-6f),
+                Is.True);
+            Color32 expected = KernelState.UnpackColor(
+                membrane.Patches[0].PackedColor);
+            Assert.That(parsed.Colors.Any(value => value.r == expected.r &&
+                value.g == expected.g && value.b == expected.b), Is.True);
+        }
+
+        [Test]
+        public void QuestArtifactPreviewIsBoundedAndReadOnly()
+        {
+            string viewer = Source(
+                "Runtime/UI/MerkabaArtifactViewer.cs");
+            string setup = Source("Editor/RoomScanSetupWizard.cs");
+            string menu = Source("Runtime/UI/DebugMenu.uxml");
+
+            Assert.That(viewer, Does.Contain(
+                "DefaultResidentArchiveBytes = 128L * 1024L * 1024L"));
+            Assert.That(viewer, Does.Contain("ReadPackageIndex(archivePath)"));
+            Assert.That(viewer, Does.Contain("ReadGlbTile("));
+            Assert.That(viewer, Does.Contain("DestroyTile(tile)"));
+            Assert.That(viewer, Does.Contain("_scanner.ReadoutDrawEnabled = false"));
+            Assert.That(viewer, Does.Not.Contain("MerkabaGrid"));
+            Assert.That(viewer, Does.Not.Contain("KernelState"));
+            Assert.That(setup, Does.Contain(
+                "GetOrAdd<MerkabaArtifactViewer>(scannerObject)"));
+            Assert.That(menu, Does.Contain("btn-artifact-view"));
+            Assert.That(menu, Does.Contain("btn-annotation-mode"));
+            Assert.That(menu, Does.Contain("annotation-note"));
+        }
+
         [Test]
         public void TiledLeavesComposeTheExactMonolithicTriangleUnion()
         {
@@ -221,7 +272,15 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(viewer.text, Does.Contain(
                     "merkabaPickLoadedSceneAtCenter"));
                 Assert.That(viewer.text, Does.Contain(
+                    "function merkabaPickLoadedScene(i,e)"));
+                Assert.That(viewer.text, Does.Contain(
                     "merkabaWorldUp=new R(0,0,1)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "merkabaWalkEyeHeight=1.7"));
+                Assert.That(viewer.text, Does.Contain(
+                    "merkabaWalkStepHeight=.32"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaBuildWalkFloorLevels"));
                 Assert.That(viewer.text, Does.Contain(
                     "function merkabaArchitectureDirection(i){let e=Math.abs(i.z)"));
                 Assert.That(viewer.text, Does.Contain(
@@ -245,7 +304,11 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(viewer.text, Does.Contain(
                     "function merkabaArchitecturalSupportJoints(i,e)"));
                 Assert.That(viewer.text, Does.Contain(
-                    "version:4,gridMeters:merkabaArchitectureCellSize"));
+                    "function merkabaArchitectureLevelBands(i)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "function merkabaSelectStructuralEnvelope(i,e)"));
+                Assert.That(viewer.text, Does.Contain(
+                    "version:5,gridMeters:merkabaArchitectureCellSize"));
                 Assert.That(viewer.text, Does.Contain(
                     "rects:merkabaArchitectureGridRectangles(t)"));
                 Assert.That(viewer.text, Does.Contain(

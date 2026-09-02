@@ -78,6 +78,20 @@
             </ui:Button>
         </ui:VisualElement>
 
+        <ui:Label text="EXPORT REVIEW" class="section-title" />
+        <ui:VisualElement class="artifact-row">
+            <ui:Button name="btn-artifact-view" text="GLB VIEW  OFF"
+                class="artifact-button" />
+            <ui:Button name="btn-annotation-mode" text="NOTE  OFF"
+                class="artifact-button" />
+            <ui:Button name="btn-annotation-save" text="SAVE NOTES"
+                class="artifact-button artifact-button--last" />
+        </ui:VisualElement>
+        <ui:TextField name="annotation-note" label="Selected note"
+            class="annotation-note" />
+        <ui:Label name="val-artifact" text="GLB View closed"
+            class="artifact-status" />
+
         <ui:Label text="MANUAL FINE" class="section-title" />
         <ui:VisualElement class="fine-row">
             <ui:Button name="btn-fine" text="FINE  OFF"
@@ -127,7 +141,7 @@
                 class="action-btn action-btn--primary action-btn--last" />
         </ui:VisualElement>
 
-        <ui:Label text="Left thumbstick: menu · FINE: right index refine / right grip erase"
+        <ui:Label text="Left thumbstick: menu · GLB: grip move / stick rotate+zoom / trigger mark"
             class="control-hint" />
         <ui:Label text="One reversible Merkaba grid · clear viewpoints remove false geometry"
             class="ontology-hint" />

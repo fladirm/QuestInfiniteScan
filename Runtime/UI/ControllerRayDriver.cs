@@ -35,6 +35,7 @@ namespace Genesis.RoomScan.UI
         private MeshRenderer _fineCursorRenderer;
         private MaterialPropertyBlock _fineProperties;
         private bool _fineTargetVisible;
+        private bool _pointingAtUi;
         private Vector3 _fineTargetPosition;
         private FineBrushOperation _fineTargetOperation;
         private OVRInput.Controller _activeController = OVRInput.Controller.None;
@@ -46,6 +47,7 @@ namespace Genesis.RoomScan.UI
 
         public Shader OverlayShader => overlayShader;
         public bool HasTrackedPose => _hasTrackedPose;
+        internal bool IsPointingAtUi => _pointingAtUi;
 
         private void Awake()
         {
@@ -77,7 +79,11 @@ namespace Genesis.RoomScan.UI
                 OVRInput.Handedness.RightHanded);
             _hasTrackedPose = TryUpdateRayOrigin();
             if (_line != null) _line.enabled = _hasTrackedPose;
-            if (!_hasTrackedPose && _cursor != null) _cursor.SetActive(false);
+            if (!_hasTrackedPose)
+            {
+                _pointingAtUi = false;
+                if (_cursor != null) _cursor.SetActive(false);
+            }
         }
 
         private void LateUpdate()
@@ -244,6 +250,7 @@ namespace Genesis.RoomScan.UI
             }
             else if (_fineTargetVisible)
                 end = _fineTargetPosition;
+            _pointingAtUi = hovering;
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
             Color color = hovering ? hoverColor : _fineTargetVisible

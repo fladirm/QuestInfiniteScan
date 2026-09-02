@@ -206,6 +206,8 @@ namespace Genesis.RoomScan.Editor
             MerkabaGridRenderer renderer = GetOrAdd<MerkabaGridRenderer>(scannerObject);
             GetOrAdd<MerkabaPersistence>(scannerObject);
             GetOrAdd<MerkabaExporter>(scannerObject);
+            MerkabaArtifactViewer artifactViewer =
+                GetOrAdd<MerkabaArtifactViewer>(scannerObject);
             GetOrAdd<RoomScanner>(scannerObject);
 
             AssignAsset(depth, "depthNormalCompute",
@@ -222,6 +224,8 @@ namespace Genesis.RoomScan.Editor
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaReadout.compute");
             AssignAsset(renderer, "renderShader",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader");
+            AssignAsset(artifactViewer, "previewShader",
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaArtifactPreview.shader");
         }
 
         private static void EnsureControllerMenu()

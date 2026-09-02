@@ -14,9 +14,12 @@ namespace Genesis.RoomScan.UI
         private VisualElement _root;
         private VisualElement _boundRoot;
         private Button _start, _stop, _save, _load, _new, _export,
-            _exportTiles, _fine, _readout, _mesh, _occlusion, _checker;
+            _exportTiles, _fine, _readout, _mesh, _occlusion, _checker,
+            _artifactView, _annotationMode, _annotationSave;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
+        private Label _artifactStatus;
+        private TextField _annotationNote;
         private Slider _opacity;
         private Slider _fineAngle, _fineDepth;
         private Label _opacityValue, _fineAngleValue, _fineDepthValue;
@@ -24,6 +27,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _operationPanel;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
+        private MerkabaArtifactViewer _artifactViewer;
         private bool _visible;
         private float _fpsWindow;
         private int _fpsFrames;
@@ -39,6 +43,7 @@ namespace Genesis.RoomScan.UI
             _document = GetComponent<UIDocument>();
             _follower = GetComponent<DebugMenuFollower>();
             _rayDriver = FindAnyObjectByType<ControllerRayDriver>();
+            _artifactViewer = FindAnyObjectByType<MerkabaArtifactViewer>();
         }
 
         private void OnEnable()
@@ -98,6 +103,10 @@ namespace Genesis.RoomScan.UI
             _mesh = _root.Q<Button>("btn-mesh");
             _occlusion = _root.Q<Button>("btn-occlusion");
             _checker = _root.Q<Button>("btn-checker");
+            _artifactView = _root.Q<Button>("btn-artifact-view");
+            _annotationMode = _root.Q<Button>("btn-annotation-mode");
+            _annotationSave = _root.Q<Button>("btn-annotation-save");
+            _annotationNote = _root.Q<TextField>("annotation-note");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
             _kernels = _root.Q<Label>("val-kernels");
@@ -107,6 +116,7 @@ namespace Genesis.RoomScan.UI
             _exportStatus = _root.Q<Label>("val-export");
             _pointer = _root.Q<Label>("val-pointer");
             _fps = _root.Q<Label>("val-fps");
+            _artifactStatus = _root.Q<Label>("val-artifact");
             _opacity = _root.Q<Slider>("scan-opacity");
             _opacityValue = _root.Q<Label>("val-opacity");
             _fineAngle = _root.Q<Slider>("fine-angle");
@@ -160,6 +170,21 @@ namespace Genesis.RoomScan.UI
                 if (scanner != null)
                     scanner.CheckerReadoutEnabled =
                         !scanner.CheckerReadoutEnabled;
+            });
+            _artifactView?.RegisterCallback<ClickEvent>(evt =>
+            {
+                _artifactViewer ??=
+                    FindAnyObjectByType<MerkabaArtifactViewer>();
+                if (_artifactViewer != null) _ = _artifactViewer.ToggleAsync();
+            });
+            _annotationMode?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.CycleAnnotationMode());
+            _annotationSave?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.SaveAnnotations());
+            _annotationNote?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.SelectedNote = evt.newValue;
             });
             _opacity?.RegisterValueChangedCallback(evt =>
             {
@@ -236,6 +261,9 @@ namespace Genesis.RoomScan.UI
                 "Waiting for controller pose", _rayDriver == null ? StatusKind.Error :
                 _rayDriver.HasTrackedPose ? StatusKind.Good : StatusKind.Warning);
             Set(_fps, $"{_currentFps:F0} FPS");
+            _artifactViewer ??= FindAnyObjectByType<MerkabaArtifactViewer>();
+            Set(_artifactStatus, _artifactViewer?.Status ??
+                "GLB View unavailable");
 
             float opacity = scanner.ScanOpacity;
             _opacity?.SetValueWithoutNotify(opacity);
@@ -257,6 +285,15 @@ namespace Genesis.RoomScan.UI
                     ? "OCCLUSION  ON" : "OCCLUSION  OFF";
             _checker?.EnableInClassList("checker-toggle--on",
                 scanner.CheckerReadoutEnabled);
+            if (_artifactView != null)
+                _artifactView.text = _artifactViewer != null &&
+                    _artifactViewer.IsOpen ? "GLB VIEW  ON" : "GLB VIEW  OFF";
+            if (_annotationMode != null)
+                _annotationMode.text = "NOTE  " +
+                    (_artifactViewer?.AnnotationModeText ?? "OFF");
+            if (_annotationNote != null)
+                _annotationNote.SetValueWithoutNotify(
+                    _artifactViewer?.SelectedNote ?? string.Empty);
 
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
@@ -275,9 +312,13 @@ namespace Genesis.RoomScan.UI
                 operation.Kind == ScanOperationKind.ExportGlb
                 ? "EXPORTING…" : "EXPORT 3D TILES";
 
-            bool busy = scanner.IsBusy;
-            _start?.SetEnabled(!busy && !scanner.IsScanning && !scanner.IsScanStarting);
-            _stop?.SetEnabled(!busy && (scanner.IsScanning || scanner.IsScanStarting));
+            bool reviewing = _artifactViewer?.IsOpen ?? false;
+            bool operationBusy = scanner.IsBusy;
+            bool busy = operationBusy || reviewing;
+            _start?.SetEnabled(!busy && !scanner.IsScanning &&
+                !scanner.IsScanStarting);
+            _stop?.SetEnabled(!busy && (scanner.IsScanning ||
+                scanner.IsScanStarting));
             _save?.SetEnabled(!busy);
             _load?.SetEnabled(!busy && scanner.SavedSessionExists);
             _new?.SetEnabled(!busy);
@@ -287,6 +328,10 @@ namespace Genesis.RoomScan.UI
             _mesh?.SetEnabled(!busy);
             _occlusion?.SetEnabled(!busy);
             _checker?.SetEnabled(!busy);
+            _artifactView?.SetEnabled(!operationBusy && _artifactViewer != null);
+            _annotationMode?.SetEnabled(!operationBusy && reviewing);
+            _annotationSave?.SetEnabled(!operationBusy && reviewing);
+            _annotationNote?.SetEnabled(!operationBusy && reviewing);
         }
 
         private static string DirectionArrow(Vector3 cameraLocalDirection)
