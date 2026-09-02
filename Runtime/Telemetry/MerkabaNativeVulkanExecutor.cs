@@ -13,8 +13,8 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         internal const int AbiVersion = 1;
-        internal const int ResourceCount = 44;
-        internal const int PipelineCount = 50;
+        internal const int ResourceCount = 45;
+        internal const int PipelineCount = 51;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -71,6 +71,7 @@ namespace Genesis.RoomScan
             FrameDispatchArgs,
             ReadoutVertices0,
             ReadoutVertices1,
+            ReadoutIndices,
             DrawArgs,
         }
 
@@ -141,6 +142,7 @@ namespace Genesis.RoomScan
             "QueryM8Readout",
             "PrepareReadoutBuild",
             "ProjectReadoutFrontDepth",
+            "IndexReadoutVertices",
             "BuildReadoutVertices",
             "FinalizeReadout",
             "MeshResetReadoutBuild",
@@ -253,8 +255,8 @@ namespace Genesis.RoomScan
             ulong mask = validBits >= 64 ? ulong.MaxValue :
                 validBits <= 0 ? 0UL : (1UL << validBits) - 1UL;
             int first = kind == JobKind.Readout ? 33 :
-                kind == JobKind.MeshReadout ? 39 :
-                kind == JobKind.FineErase ? 45 :
+                kind == JobKind.MeshReadout ? 40 :
+                kind == JobKind.FineErase ? 46 :
                 kind == JobKind.ObservationRetry ? 13 : 0;
             int dispatchCount = (count - 2) / 2;
             for (int index = 0; index < dispatchCount; ++index)

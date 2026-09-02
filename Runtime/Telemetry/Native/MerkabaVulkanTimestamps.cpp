@@ -60,6 +60,7 @@ namespace
         kResourceFrameDispatchArgs,
         kResourceReadoutVertices0,
         kResourceReadoutVertices1,
+        kResourceReadoutIndices,
         kResourceDrawArgs,
         kResourceCount,
     };
@@ -109,8 +110,8 @@ namespace
     constexpr uint32_t kExecutorAbiVersion = 1;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kMeshReadoutPipelineBegin = 39;
-    constexpr uint32_t kFineErasePipelineBegin = 45;
+    constexpr uint32_t kMeshReadoutPipelineBegin = 40;
+    constexpr uint32_t kFineErasePipelineBegin = 46;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
     constexpr uint32_t kReadoutFrontFaceDimension = 512;

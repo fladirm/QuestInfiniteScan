@@ -125,11 +125,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(vertex.gridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);
-#if !defined(M8_STEREO_MESH)
-                uint eyeMask = (vertex.packedColor >> 25u) & 3u;
-                if ((eyeMask & (1u << unity_StereoEyeIndex)) == 0u)
-                    output.positionCS = float4(2.0, 2.0, 2.0, 1.0);
-#endif
                 output.worldPosition = worldPosition;
                 uint rgb = vertex.packedColor & 0x00ffffffu;
                 output.color = half3(rgb & 255u, (rgb >> 8u) & 255u,

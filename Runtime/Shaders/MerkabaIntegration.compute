@@ -59,6 +59,7 @@
 #define MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED 0x10000000u
 #define MERKABA_SURFACE_FLAG_REPLACEMENT 0x20000000u
 #define MERKABA_SURFACE_FLAG_STRICT 0x40000000u
+#define MERKABA_SURFACE_FLAG_CANONICAL_CONTINUATION 0x80000000u
 #define MERKABA_SURFACE_WINNER_EMPTY 0xffffffffu
 
 RWStructuredBuffer<int4> _M8SurfaceCandidates;
@@ -366,10 +367,10 @@ bool M8FindSurfaceBlock(int3 blockCoord, out uint blockIndex)
 
 int M8InspectSurfaceOwner(int3 globalCoord,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
-    uint nearestBlockIndex, out bool occupied, out uint flags)
+    uint nearestBlockIndex, out bool occupied, out KernelState state)
 {
     occupied = false;
-    flags = 0u;
+    state = (KernelState)0;
     MerkabaM8Address address = MerkabaAddressOf(globalCoord);
     bool sameBlock = all(address.blockCoord == nearestAddress.blockCoord);
     uint blockIndex = nearestBlockIndex;
@@ -394,63 +395,142 @@ int M8InspectSurfaceOwner(int3 globalCoord,
     occupied = (_M8TileBitsRead[word].x &
         (1u << (address.kernelLocal & 31u))) != 0u;
     if (occupied)
-        flags = M8LoadKernelStateRead(physicalSlot,
-            address.kernelLocal).flags;
+        state = M8LoadKernelStateRead(physicalSlot, address.kernelLocal);
     return occupied ? 1 : 0;
 }
 
-bool M8HasCompatibleImmediateSheetSupport(int3 targetCoord,
-    float3 worldSurface,
-    int3 measuredStep,
+bool M8IsStableCanonicalSheetSupport(int3 neighbourCoord,
+    float3 worldSurface, int3 measuredStep,
+    MerkabaM8Address nearestAddress, bool nearestBlockReady,
+    uint nearestBlockIndex, out bool unresolved)
+{
+    unresolved = false;
+    bool occupied;
+    KernelState neighbourState;
+    int status = M8InspectSurfaceOwner(neighbourCoord, nearestAddress,
+        nearestBlockReady, nearestBlockIndex, occupied, neighbourState);
+    if (status == 2)
+    {
+        unresolved = true;
+        return false;
+    }
+    // A just-bootstrapped state is exactly at OCCUPIED_ON. Requiring strictly
+    // more evidence prevents a weak first hit from recursively seeding a
+    // second weak hit before a strict observation has reinforced it.
+    if (!occupied || neighbourState.evidence <= MERKABA_OCCUPIED_ON ||
+        !M8HasSurfacePlane(neighbourState.flags))
+        return false;
+
+    float3 neighbourNormalGrid;
+    float neighbourOffset;
+    M8DecodeSurfacePlane(neighbourState.flags, neighbourNormalGrid,
+        neighbourOffset);
+    int3 neighbourStep = MerkabaNearestGridNormalStep(neighbourNormalGrid);
+    if (!all(neighbourStep == measuredStep) &&
+        !all(neighbourStep == -measuredStep))
+        return false;
+
+    float3 neighbourCenterGrid =
+        (float3)neighbourCoord * MERKABA_LATTICE_STEP +
+        neighbourNormalGrid * neighbourOffset;
+    float3 neighbourWorld = mul(_MerkabaGridToWorld,
+        float4(neighbourCenterGrid, 1.0)).xyz;
+    float3 neighbourNormalWorld = normalize(mul(
+        transpose((float3x3)_MerkabaWorldToGrid), neighbourNormalGrid));
+    float3 delta = neighbourWorld - worldSurface;
+    float planeDistance = abs(dot(delta, neighbourNormalWorld));
+    float3 tangentDelta = delta - neighbourNormalWorld *
+        dot(delta, neighbourNormalWorld);
+    return planeDistance <= MERKABA_LATTICE_STEP * 0.5 + 1.0e-6 &&
+        dot(tangentDelta, tangentDelta) <=
+            MERKABA_SUPPORT_SIZE * MERKABA_SUPPORT_SIZE + 1.0e-6;
+}
+
+bool M8HasStableCanonicalPlanarSupport(int3 targetCoord,
+    float3 worldSurface, int3 measuredStep,
     MerkabaM8Address nearestAddress, bool nearestBlockReady,
     uint nearestBlockIndex, out bool unresolved,
     out int3 unresolvedCoord)
 {
     unresolved = false;
     unresolvedCoord = targetCoord;
-    [unroll]
-    for (uint neighbourIndex = 0u; neighbourIndex < 26u;
-         neighbourIndex++)
+    int3 tangent0;
+    int3 tangent1;
+    MerkabaGridSheetTangents(measuredStep, tangent0, tangent1);
+    bool negativeUnresolved;
+    bool positiveUnresolved = false;
+    bool axis0 = M8IsStableCanonicalSheetSupport(targetCoord - tangent0,
+        worldSurface, measuredStep, nearestAddress, nearestBlockReady,
+        nearestBlockIndex, negativeUnresolved);
+    if (!axis0)
+        axis0 = M8IsStableCanonicalSheetSupport(targetCoord + tangent0,
+            worldSurface, measuredStep, nearestAddress, nearestBlockReady,
+            nearestBlockIndex, positiveUnresolved);
+    if (!axis0 && (negativeUnresolved || positiveUnresolved))
     {
-        uint encoded = neighbourIndex < 13u
-            ? neighbourIndex : neighbourIndex + 1u;
-        int3 offset = int3(encoded % 3u,
-            (encoded / 3u) % 3u, encoded / 9u) - 1;
-        int3 neighbourCoord = targetCoord + offset;
-        bool occupied;
-        uint flags;
-        int status = M8InspectSurfaceOwner(neighbourCoord, nearestAddress,
-            nearestBlockReady, nearestBlockIndex, occupied, flags);
-        if (status == 2)
-        {
-            if (!unresolved) unresolvedCoord = neighbourCoord;
-            unresolved = true;
-            continue;
-        }
-        if (!occupied || !M8HasSurfacePlane(flags)) continue;
-        float3 neighbourNormal;
-        float neighbourOffset;
-        M8DecodeSurfacePlane(flags, neighbourNormal, neighbourOffset);
-        int3 neighbourStep = MerkabaNearestGridNormalStep(neighbourNormal);
-        if (!all(neighbourStep == measuredStep) &&
-            !all(neighbourStep == -measuredStep))
-            continue;
-        float3 neighbourCenterGrid =
-            (float3)neighbourCoord * MERKABA_LATTICE_STEP +
-            neighbourNormal * neighbourOffset;
-        float3 neighbourCenterWorld = mul(_MerkabaGridToWorld,
-            float4(neighbourCenterGrid, 1.0)).xyz;
-        float3 neighbourNormalWorld = normalize(mul(
-            transpose((float3x3)_MerkabaWorldToGrid), neighbourNormal));
-        float3 delta = worldSurface - neighbourCenterWorld;
-        float planeDistance = abs(dot(delta, neighbourNormalWorld));
-        float3 tangentDelta = delta - neighbourNormalWorld *
-            dot(delta, neighbourNormalWorld);
-        if (planeDistance <= MERKABA_HALF_SUPPORT + 1.0e-6 &&
-            length(tangentDelta) <= MERKABA_SUPPORT_SIZE + 1.0e-6)
-            return true;
+        unresolved = true;
+        unresolvedCoord = negativeUnresolved
+            ? targetCoord - tangent0 : targetCoord + tangent0;
     }
-    return false;
+
+    negativeUnresolved = false;
+    positiveUnresolved = false;
+    bool axis1 = M8IsStableCanonicalSheetSupport(targetCoord - tangent1,
+        worldSurface, measuredStep, nearestAddress, nearestBlockReady,
+        nearestBlockIndex, negativeUnresolved);
+    if (!axis1)
+        axis1 = M8IsStableCanonicalSheetSupport(targetCoord + tangent1,
+            worldSurface, measuredStep, nearestAddress, nearestBlockReady,
+            nearestBlockIndex, positiveUnresolved);
+    if (!axis1 && (negativeUnresolved || positiveUnresolved) && !unresolved)
+    {
+        unresolved = true;
+        unresolvedCoord = negativeUnresolved
+            ? targetCoord - tangent1 : targetCoord + tangent1;
+    }
+    return axis0 && axis1;
+}
+
+bool M8IsCurrentFrameSheetSupport(int2 pixel, float3 worldSurface,
+    float3 worldNormal, int3 measuredStep)
+{
+    if (any(pixel < 0) || any(pixel >= (int2)gsDepthTexSize)) return false;
+    float4 normalSample = gsDepthNormalTex.Load(int3(pixel, 0));
+    if (normalSample.w <= 0.0 ||
+        dot(normalSample.xyz, normalSample.xyz) < 0.25)
+        return false;
+    float depth = gsDepthTex.Load(int3(pixel, 0));
+    if (depth <= 0.0 || depth >= 1.0) return false;
+
+    float3 neighbourNormal = normalize(normalSample.xyz);
+    int3 neighbourStep = MerkabaNearestNormalStep(neighbourNormal);
+    if (!all(neighbourStep == measuredStep) &&
+        !all(neighbourStep == -measuredStep))
+        return false;
+
+    float2 uv = ((float2)pixel + 0.5) / (float2)gsDepthTexSize;
+    float3 neighbourWorld = gsDepthNDCtoWorld(float3(uv, depth));
+    float3 delta = neighbourWorld - worldSurface;
+    float tolerance = MERKABA_LATTICE_STEP * 0.5 + 1.0e-6;
+    return dot(delta, delta) <=
+            MERKABA_SUPPORT_SIZE * MERKABA_SUPPORT_SIZE + 1.0e-6 &&
+        abs(dot(delta, worldNormal)) <= tolerance &&
+        abs(dot(delta, neighbourNormal)) <= tolerance;
+}
+
+bool M8HasCurrentFramePlanarSupport(uint2 sourcePixel,
+    float3 worldSurface, float3 worldNormal, int3 measuredStep)
+{
+    int2 pixel = (int2)sourcePixel;
+    bool axis0 = M8IsCurrentFrameSheetSupport(pixel + int2(-1, 0),
+        worldSurface, worldNormal, measuredStep) ||
+        M8IsCurrentFrameSheetSupport(pixel + int2(1, 0),
+            worldSurface, worldNormal, measuredStep);
+    bool axis1 = M8IsCurrentFrameSheetSupport(pixel + int2(0, -1),
+        worldSurface, worldNormal, measuredStep) ||
+        M8IsCurrentFrameSheetSupport(pixel + int2(0, 1),
+            worldSurface, worldNormal, measuredStep);
+    return axis0 && axis1;
 }
 
 bool MerkabaOwnerCompatible(int3 ownerCoord, float3 worldSurface,
@@ -495,14 +575,66 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
             MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
             false, false, false);
     bool strictMeasurement = measurementConfidence >= 1.0;
-    if (!strictMeasurement && quality <= 0.0)
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, false);
-    if (_M8FineRefineActive != 0u && !strictMeasurement)
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, false);
+    float3 worldNormal = normalize(surfaceNormal);
+    int3 normalStep = MerkabaNearestNormalStep(surfaceNormal);
+    MerkabaM8Address nearestAddress = MerkabaAddressOf(nearestKernel);
+    uint nearestBlockIndex = 0u;
+    bool nearestBlockReady = M8FindSurfaceBlock(nearestAddress.blockCoord,
+        nearestBlockIndex);
+
+    if (!strictMeasurement)
+    {
+        targetCoord = nearestKernel;
+        if (_M8FineRefineActive != 0u)
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_INVALID,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+
+        bool occupied;
+        KernelState targetState;
+        int targetStatus = M8InspectSurfaceOwner(nearestKernel,
+            nearestAddress, nearestBlockReady, nearestBlockIndex, occupied,
+            targetState);
+        if (targetStatus == 2)
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_UNRESOLVED,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+        if (occupied)
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_INVALID,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+
+        if (quality <= 0.0)
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_INVALID,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+        bool continuation = M8HasCurrentFramePlanarSupport(sourcePixel,
+            worldSurface, worldNormal, normalStep);
+        bool continuationUnresolved = false;
+        int3 continuationUnresolvedCoord = nearestKernel;
+        if (!continuation)
+            continuation = M8HasStableCanonicalPlanarSupport(nearestKernel,
+                worldSurface, normalStep, nearestAddress, nearestBlockReady,
+                nearestBlockIndex, continuationUnresolved,
+                continuationUnresolvedCoord);
+        if (continuationUnresolved)
+        {
+            targetCoord = continuationUnresolvedCoord;
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_UNRESOLVED,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+        }
+        if (!continuation)
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_INVALID,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
+
+        int metadata = MerkabaPackSurfaceMetadata(sourcePixel,
+            MERKABA_SURFACE_ROUTE_VALID,
+            MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false, false);
+        return asint(asuint(metadata) |
+            MERKABA_SURFACE_FLAG_CANONICAL_CONTINUATION);
+    }
 
     float3 rayOrigin = (MerkabaDepthEyePosition(0u) +
         MerkabaDepthEyePosition(1u)) * 0.5;
@@ -511,56 +643,8 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
     if (endpointDistance <= 0.001)
         return MerkabaPackSurfaceMetadata(sourcePixel,
             MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, strictMeasurement);
+            false, false, true);
     ray /= endpointDistance;
-    float3 worldNormal = normalize(surfaceNormal);
-    int3 normalStep = MerkabaNearestNormalStep(surfaceNormal);
-    MerkabaM8Address nearestAddress = MerkabaAddressOf(nearestKernel);
-    uint nearestBlockIndex = 0u;
-    bool nearestBlockReady = M8FindSurfaceBlock(nearestAddress.blockCoord,
-        nearestBlockIndex);
-    if (!strictMeasurement)
-    {
-        bool targetOccupied;
-        uint targetFlags;
-        int targetState = M8InspectSurfaceOwner(nearestKernel,
-            nearestAddress, nearestBlockReady, nearestBlockIndex,
-            targetOccupied, targetFlags);
-        if (targetState == 2)
-        {
-            targetCoord = nearestKernel;
-            return MerkabaPackSurfaceMetadata(sourcePixel,
-                MERKABA_SURFACE_ROUTE_UNRESOLVED,
-                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
-        }
-        if (targetOccupied)
-            return MerkabaPackSurfaceMetadata(sourcePixel,
-                MERKABA_SURFACE_ROUTE_INVALID,
-                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
-        bool bootstrapUnresolved;
-        int3 bootstrapUnresolvedCoord;
-        bool supported = M8HasCompatibleImmediateSheetSupport(nearestKernel,
-            worldSurface, normalStep, nearestAddress, nearestBlockReady,
-            nearestBlockIndex, bootstrapUnresolved,
-            bootstrapUnresolvedCoord);
-        if (supported)
-        {
-            targetCoord = nearestKernel;
-            return MerkabaPackSurfaceMetadata(sourcePixel,
-                MERKABA_SURFACE_ROUTE_VALID,
-                MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false, false);
-        }
-        if (bootstrapUnresolved)
-        {
-            targetCoord = bootstrapUnresolvedCoord;
-            return MerkabaPackSurfaceMetadata(sourcePixel,
-                MERKABA_SURFACE_ROUTE_UNRESOLVED,
-                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
-        }
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, false);
-    }
     int3 ownerCandidates[3] =
     {
         nearestKernel,
@@ -584,9 +668,9 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
                 perpendicularError))
             continue;
         bool occupied;
-        uint ownerFlags;
+        KernelState ownerState;
         int state = M8InspectSurfaceOwner(ownerCoord, nearestAddress,
-            nearestBlockReady, nearestBlockIndex, occupied, ownerFlags);
+            nearestBlockReady, nearestBlockIndex, occupied, ownerState);
         if (state == 2)
         {
             if (!unresolved) unresolvedOwner = ownerCoord;
@@ -618,10 +702,27 @@ int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
     if (!foundOwner)
     {
         targetCoord = nearestKernel;
-        return MerkabaPackSurfaceMetadata(sourcePixel,
+        int metadata = MerkabaPackSurfaceMetadata(sourcePixel,
             MERKABA_SURFACE_ROUTE_VALID,
             MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false,
             strictMeasurement);
+        bool continuationUnresolved;
+        int3 continuationUnresolvedCoord;
+        bool continuation = M8HasStableCanonicalPlanarSupport(nearestKernel,
+            worldSurface, normalStep, nearestAddress, nearestBlockReady,
+            nearestBlockIndex, continuationUnresolved,
+            continuationUnresolvedCoord);
+        if (continuation)
+            metadata = asint(asuint(metadata) |
+                MERKABA_SURFACE_FLAG_CANONICAL_CONTINUATION);
+        else if (continuationUnresolved)
+        {
+            targetCoord = continuationUnresolvedCoord;
+            return MerkabaPackSurfaceMetadata(sourcePixel,
+                MERKABA_SURFACE_ROUTE_UNRESOLVED,
+                MERKABA_SURFACE_AUTHORITY_NONE, false, false, true);
+        }
+        return metadata;
     }
 
     float radialPosition;
@@ -777,8 +878,8 @@ bool ExactFrozenRayClassify(int3 globalCoord, float3 worldPosition,
     }
     else if (kernelDistance < measuredDistance - MERKABA_HALF_SUPPORT)
     {
-        // Bootstrap joint hits may create a first DISCOVERY surface, but
-        // never weaken the exact foreground-protected FREE classifier.
+        // Canonical mutation is strict; FREE keeps the same exact
+        // foreground-protected four-stream endpoint authority.
         if (normalSample.w < 1.0) return false;
         float jointDepth = gsDepthTex.Load(int3(pixel, 0));
         float dilatedDepth = gsDilatedDepth.Load(int3(pixel, 0)).z;
@@ -1448,17 +1549,22 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     bool hadMeasuredPlaneBefore = M8HasSurfacePlane(state.flags);
     int authority = MerkabaSurfaceAuthority(asint(queued.y));
     bool strictMeasurement = (queued.y & MERKABA_SURFACE_FLAG_STRICT) != 0u;
-    if (!strictMeasurement && authority !=
-        MERKABA_SURFACE_AUTHORITY_DISCOVERY) return;
+    bool canonicalContinuation = (queued.y &
+        MERKABA_SURFACE_FLAG_CANONICAL_CONTINUATION) != 0u;
+    if (!strictMeasurement && (authority !=
+            MERKABA_SURFACE_AUTHORITY_DISCOVERY || !canonicalContinuation))
+        return;
     float fineWeight = _M8FineRefineActive != 0u
         ? M8FineWeight(targetWorld) : 1.0;
     if (fineWeight <= 0.0) return;
     int surfaceDelta = max(1, (int)round(
-        quality * quality * fineWeight * MERKABA_SURFACE_SCALE));
-    if (!strictMeasurement)
+        quality * quality * measurementConfidence * fineWeight *
+        MERKABA_SURFACE_SCALE));
+    if (canonicalContinuation)
         surfaceDelta = max(surfaceDelta,
             MERKABA_OCCUPIED_ON - max(state.evidence, 0));
     UpdateOccupancy(physicalSlot, kernelLocal, state, surfaceDelta);
+    bool acceptObservedColor = true;
     if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
     {
         float3 worldNormal = normalize(surfaceNormal);
@@ -1509,6 +1615,8 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
                     state.flags = M8SetSurfacePlane(state.flags,
                         newNormalGrid, newOffset);
             }
+            else
+                acceptObservedColor = false;
         }
     }
     state.flags |= MERKABA_NEEDS_CARVE_FLAG;
@@ -1516,8 +1624,9 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     float2 rightUv = MerkabaProjectCameraUv(1u, worldSurface);
     float3 observedRgb = (MerkabaSampleCameraRgb(0u, leftUv) +
         MerkabaSampleCameraRgb(1u, rightUv)) * 0.5;
-    AccumulateColor(state, observedRgb,
-        quality * measurementConfidence * fineWeight);
+    if (acceptObservedColor)
+        AccumulateColor(state, observedRgb,
+            quality * measurementConfidence * fineWeight);
     M8StoreKernelState(physicalSlot, kernelLocal, state);
     EnsureCarveActive(physicalSlot, kernelLocal);
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
@@ -1685,34 +1794,95 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
 }
 
 groupshared uint gCarveWords[16];
-groupshared uint gCarveOccupiedWords[16];
 groupshared uint gCarveStats[23];
+groupshared uint gCarveChunkIndex;
+groupshared int3 gCarveBlockCoord;
+groupshared uint gCarveChunkLocal;
 
-bool M8HasImmediateOccupiedNeighbourInMainTile(uint kernelLocal)
+bool M8StableCarveSideInChunk(int3 globalCoord, int3 offset,
+    float3 center, float3 normal,
+    int3 sheet, out bool resolved)
 {
-    int3 tileLocal = int3(kernelLocal & 7u,
-        (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
-    // The cooperative group deliberately owns one tile. A boundary kernel
-    // may have support in an adjacent tile, so preserve it rather than
-    // interpreting an unloaded dependency as empty.
-    if (any(tileLocal == 0) || any(tileLocal == 7)) return true;
-    [unroll]
-    for (uint neighbourIndex = 0u; neighbourIndex < 26u;
-         neighbourIndex++)
+    MerkabaM8Address address = MerkabaAddressOf(globalCoord + offset);
+    if (!all(address.blockCoord == gCarveBlockCoord) ||
+        address.chunkLocal != gCarveChunkLocal)
     {
-        uint encoded = neighbourIndex < 13u
-            ? neighbourIndex : neighbourIndex + 1u;
-        int3 offset = int3(encoded % 3u,
-            (encoded / 3u) % 3u, encoded / 9u) - 1;
-        int3 neighbour = tileLocal + offset;
-        uint neighbourLocal = (uint)neighbour.x + 8u *
-            ((uint)neighbour.y + 8u * (uint)neighbour.z);
-        uint neighbourBit = 1u << (neighbourLocal & 31u);
-        if ((gCarveOccupiedWords[neighbourLocal >> 5u] &
-                neighbourBit) != 0u)
-            return true;
+        resolved = false;
+        return false;
     }
-    return false;
+    uint tileRef = _M8ChunkTileRefsRead[gCarveChunkIndex *
+        MERKABA_M8_TILES_PER_CHUNK + address.tileLocal];
+    if (tileRef == MERKABA_REF_EMPTY)
+    {
+        resolved = true;
+        return false;
+    }
+    if (!M8IsHotRef(tileRef))
+    {
+        resolved = false;
+        return false;
+    }
+    resolved = true;
+    uint physicalSlot = M8PhysicalSlot(tileRef);
+    uint neighbourKernel = address.kernelLocal;
+    uint bit = 1u << (neighbourKernel & 31u);
+    uint occupiedWord = _M8TileBits[M8TileWordIndex(physicalSlot,
+        neighbourKernel >> 5u)].x;
+    if ((occupiedWord & bit) == 0u)
+        return false;
+    KernelState neighbour = M8LoadKernelState(physicalSlot,
+        neighbourKernel);
+    if (neighbour.evidence < MERKABA_OCCUPIED_ON ||
+        !M8HasSurfacePlane(neighbour.flags))
+        return false;
+    float3 neighbourNormal;
+    float neighbourOffset;
+    M8DecodeSurfacePlane(neighbour.flags, neighbourNormal, neighbourOffset);
+    int3 neighbourSheet = MerkabaNearestGridNormalStep(neighbourNormal);
+    if (!all(neighbourSheet == sheet) && !all(neighbourSheet == -sheet))
+        return false;
+    float3 neighbourCenter = (float3)(globalCoord + offset) *
+        MERKABA_LATTICE_STEP + neighbourNormal * neighbourOffset;
+    float3 delta = neighbourCenter - center;
+    return abs(dot(delta, normal)) <= MERKABA_HALF_SUPPORT + 1.0e-6 &&
+        abs(dot(delta, neighbourNormal)) <=
+            MERKABA_HALF_SUPPORT + 1.0e-6;
+}
+
+bool M8HasStableCarveSheetSupport(int3 globalCoord, KernelState state,
+    out bool resolved)
+{
+    resolved = true;
+    if (!M8HasSurfacePlane(state.flags)) return false;
+    float3 normal;
+    float signedOffset;
+    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
+    float3 center = (float3)globalCoord * MERKABA_LATTICE_STEP +
+        normal * signedOffset;
+    int3 sheet = MerkabaNearestGridNormalStep(normal);
+    int3 tangent0;
+    int3 tangent1;
+    MerkabaGridSheetTangents(sheet, tangent0, tangent1);
+
+    bool negativeResolved;
+    bool positiveResolved = true;
+    bool axis0 = M8StableCarveSideInChunk(globalCoord, -tangent0,
+        center, normal, sheet, negativeResolved);
+    if (!axis0)
+        axis0 = M8StableCarveSideInChunk(globalCoord, tangent0,
+            center, normal, sheet, positiveResolved);
+    bool axis0Resolved = axis0 || (negativeResolved && positiveResolved);
+
+    negativeResolved = true;
+    positiveResolved = true;
+    bool axis1 = M8StableCarveSideInChunk(globalCoord, -tangent1,
+        center, normal, sheet, negativeResolved);
+    if (!axis1)
+        axis1 = M8StableCarveSideInChunk(globalCoord, tangent1,
+            center, normal, sheet, positiveResolved);
+    bool axis1Resolved = axis1 || (negativeResolved && positiveResolved);
+    resolved = axis0Resolved && axis1Resolved;
+    return axis0 && axis1;
 }
 
 bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
@@ -1837,8 +2007,12 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
                 replacementCoord, replacementOccupied);
             bool preserveWithoutReplacement = !replacementResolved;
             if (replacementResolved && !replacementOccupied)
-                preserveWithoutReplacement =
-                    M8HasImmediateOccupiedNeighbourInMainTile(kernelLocal);
+            {
+                bool supportResolved;
+                bool stableSheet = M8HasStableCarveSheetSupport(globalCoord,
+                    state, supportResolved);
+                preserveWithoutReplacement = !supportResolved || stableSheet;
+            }
             if (!replacementOccupied && preserveWithoutReplacement)
                 decrement = min(decrement, max(0,
                     evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));
@@ -1879,11 +2053,18 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint physicalSlot = _M8CarveTilesRead[groupId.x];
+    if (thread == 0u)
+    {
+        uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
+        uint2 owner = M8LoadChunkOwnerRead(meta.x);
+        gCarveChunkIndex = meta.x;
+        gCarveBlockCoord = M8LoadBlockCoordRead(owner.x);
+        gCarveChunkLocal = owner.y;
+    }
     if (thread < 16u)
     {
         uint wordIndex = M8TileWordIndex(physicalSlot, thread);
         gCarveWords[thread] = _M8TileBits[wordIndex].y;
-        gCarveOccupiedWords[thread] = _M8TileBits[wordIndex].x;
     }
     if (thread < 23u) gCarveStats[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();

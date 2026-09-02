@@ -26,6 +26,13 @@ namespace Genesis.RoomScan
         internal const int ReadoutVertexCapacityPerBuffer =
             ReadoutTriangleCapacityPerBuffer *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
+        internal const int ReadoutIndexCapacity = ReadoutTriangleCapacity *
+            MerkabaCanonicalGeometry.VerticesPerPrimitive;
+        internal const int ReadoutIndexMapWordCount =
+            MerkabaSpatial.PhysicalTileCapacity *
+            MerkabaSpatial.KernelsPerTile / 2;
+        internal const int ReadoutIndexStorageCount =
+            ReadoutIndexCapacity + ReadoutIndexMapWordCount;
         internal const int ReadoutFrontFaceDimension = 512;
         internal const int ReadoutFrontPixelCount = 6 *
             ReadoutFrontFaceDimension * ReadoutFrontFaceDimension;
@@ -35,7 +42,7 @@ namespace Genesis.RoomScan
                 : MerkabaSpatial.PhysicalTileCapacity;
         internal const int ReadoutResetGroupCount =
             (ReadoutFrontPixelCount + 127) / 128;
-        internal const int CounterCount = 97;
+        internal const int CounterCount = 98;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -108,6 +115,7 @@ namespace Genesis.RoomScan
         internal const int CounterCarveExactIncidenceReject = 94;
         internal const int CounterCarveExactDilationReject = 95;
         internal const int CounterReadoutPlaneLegacyInvalid = 96;
+        internal const int CounterReadoutEmittedVertices = 97;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
@@ -176,6 +184,8 @@ namespace Genesis.RoomScan
             new ComputeBuffer[2];
         private readonly ComputeBuffer[] _m8ReadoutVertices1 =
             new ComputeBuffer[2];
+        private readonly GraphicsBuffer[] _m8ReadoutIndices =
+            new GraphicsBuffer[2];
         private ComputeBuffer _m8FrameDispatchArgs;
         private readonly ComputeBuffer[] _m8DrawArgs = new ComputeBuffer[2];
         private ComputeBuffer _m8ObservationDispatchArgs;
@@ -186,6 +196,7 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8HashBenchmarkOutput;
 
         private readonly List<ComputeBuffer> _allGpuBuffers = new();
+        private readonly List<GraphicsBuffer> _allGraphicsBuffers = new();
 
         internal ComputeShader WorldCompute => worldCompute;
         internal ComputeBuffer M8HashEntries => _m8HashEntries;
@@ -228,6 +239,8 @@ namespace Genesis.RoomScan
             _m8ReadoutVertices0[ValidateReadoutSlot(slot)];
         internal ComputeBuffer GetM8ReadoutVertices1(int slot) =>
             _m8ReadoutVertices1[ValidateReadoutSlot(slot)];
+        internal GraphicsBuffer GetM8ReadoutIndices(int slot) =>
+            _m8ReadoutIndices[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8FrameDispatchArgs => _m8FrameDispatchArgs;
         internal ComputeBuffer GetM8DrawArgs(int slot) =>
             _m8DrawArgs[ValidateReadoutSlot(slot)];
@@ -407,7 +420,11 @@ namespace Genesis.RoomScan
                         ReadoutVertexCapacityPerBuffer, 16);
                     _m8ReadoutVertices1[slot] = Allocate(
                         ReadoutVertexCapacityPerBuffer, 16);
-                    _m8DrawArgs[slot] = Allocate(4, sizeof(uint),
+                    _m8ReadoutIndices[slot] = AllocateGraphics(
+                        ReadoutIndexStorageCount, sizeof(uint),
+                        GraphicsBuffer.Target.Raw |
+                        GraphicsBuffer.Target.Index);
+                    _m8DrawArgs[slot] = Allocate(5, sizeof(uint),
                         ComputeBufferType.IndirectArguments);
                 }
                 _m8FrameDispatchArgs = Allocate(3, sizeof(uint),
@@ -517,6 +534,14 @@ namespace Genesis.RoomScan
         {
             var buffer = new ComputeBuffer(count, stride, type);
             _allGpuBuffers.Add(buffer);
+            return buffer;
+        }
+
+        private GraphicsBuffer AllocateGraphics(int count, int stride,
+            GraphicsBuffer.Target target)
+        {
+            var buffer = new GraphicsBuffer(target, count, stride);
+            _allGraphicsBuffers.Add(buffer);
             return buffer;
         }
 
@@ -880,6 +905,7 @@ namespace Genesis.RoomScan
         internal Action CaptureOwnedGpuResourceRelease()
         {
             ComputeBuffer[] captured = _allGpuBuffers.ToArray();
+            GraphicsBuffer[] capturedGraphics = _allGraphicsBuffers.ToArray();
             bool released = false;
             return () =>
             {
@@ -891,6 +917,8 @@ namespace Genesis.RoomScan
                     return;
                 }
                 foreach (ComputeBuffer buffer in captured) buffer?.Release();
+                foreach (GraphicsBuffer buffer in capturedGraphics)
+                    buffer?.Release();
             };
         }
 
@@ -902,6 +930,9 @@ namespace Genesis.RoomScan
             _gpuGeneration++;
             foreach (ComputeBuffer buffer in _allGpuBuffers) buffer?.Release();
             _allGpuBuffers.Clear();
+            foreach (GraphicsBuffer buffer in _allGraphicsBuffers)
+                buffer?.Release();
+            _allGraphicsBuffers.Clear();
             _m8HashEntries = null;
             _m8OwnerRecords = null;
             _m8BlockChunkRefs = null;
@@ -920,6 +951,7 @@ namespace Genesis.RoomScan
             {
                 _m8ReadoutVertices0[slot] = null;
                 _m8ReadoutVertices1[slot] = null;
+                _m8ReadoutIndices[slot] = null;
                 _m8DrawArgs[slot] = null;
             }
             _m8FreeTileStack = null;

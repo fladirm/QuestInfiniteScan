@@ -46,6 +46,11 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
         echo "FAIL: $kernel is not the frozen 128-lane tile workgroup" >&2
         exit 1
       fi
+      barrier_count=$(grep -c 'OpControlBarrier' "$assembly" || true)
+      if (( barrier_count > 6 )); then
+        echo "FAIL: $kernel contains $barrier_count group barriers (>6)" >&2
+        exit 1
+      fi
     fi
 
     if [[ "$kernel" == "IntegrateCarveTiles" ]]; then
@@ -102,9 +107,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 58 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 58" >&2
+if (( kernel_count != 59 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 59" >&2
   exit 1
 fi
 
-echo "PASS: 58 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 59 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

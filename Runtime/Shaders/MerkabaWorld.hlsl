@@ -129,7 +129,8 @@
 #define M8_COUNTER_CARVE_EXACT_INCIDENCE_REJECT 94u
 #define M8_COUNTER_CARVE_EXACT_DILATION_REJECT 95u
 #define M8_COUNTER_READOUT_PLANE_LEGACY_INVALID 96u
-#define M8_COUNTER_COUNT 97u
+#define M8_COUNTER_READOUT_EMITTED_VERTICES 97u
+#define M8_COUNTER_COUNT 98u
 
 #define M8_OBSERVATION_FAILURE_SURFACE_CAPACITY 1u
 #define M8_OBSERVATION_FAILURE_BLOCK_CAPACITY 2u
@@ -198,6 +199,43 @@ int3 MerkabaNearestGridNormalStep(float3 gridNormal)
             step = int3(0, direction.y, direction.z);
     }
     return step;
+}
+
+// Deterministic integer tangents for the existing 26-direction M8 chart.
+// These are topology directions only; measured plane normals remain exact.
+void MerkabaGridSheetTangents(int3 step, out int3 tangent0,
+    out int3 tangent1)
+{
+    int first = step.x != 0 ? step.x : step.y != 0 ? step.y : step.z;
+    if (first < 0) step = -step;
+    int nonZero = abs(step.x) + abs(step.y) + abs(step.z);
+    if (nonZero == 1)
+    {
+        tangent0 = step.x != 0 ? int3(0, 1, 0) : int3(1, 0, 0);
+        tangent1 = step.z != 0 ? int3(0, 1, 0) : int3(0, 0, 1);
+        return;
+    }
+    if (nonZero == 2)
+    {
+        if (step.z == 0)
+        {
+            tangent0 = int3(step.y, -step.x, 0);
+            tangent1 = int3(0, 0, 1);
+        }
+        else if (step.y == 0)
+        {
+            tangent0 = int3(step.z, 0, -step.x);
+            tangent1 = int3(0, 1, 0);
+        }
+        else
+        {
+            tangent0 = int3(0, step.z, -step.y);
+            tangent1 = int3(1, 0, 0);
+        }
+        return;
+    }
+    tangent0 = int3(step.y, -step.x, 0);
+    tangent1 = int3(step.z, 0, -step.x);
 }
 
 RWStructuredBuffer<M8HashEntry> _M8HashEntries;

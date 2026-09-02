@@ -120,7 +120,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Contain(
                 "float M8FineWeight(float3 worldPosition)"));
             Assert.That(integration, Does.Contain(
-                "quality * quality * fineWeight * MERKABA_SURFACE_SCALE"));
+                "quality * quality * measurementConfidence * fineWeight *"));
             Assert.That(integration, Does.Contain(
                 "evidenceWeight *= M8FineWeight(worldPosition)"));
             Assert.That(scanner, Does.Contain("RequestFreshDepthFrame()"));

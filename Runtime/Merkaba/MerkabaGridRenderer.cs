@@ -28,10 +28,12 @@ namespace Genesis.RoomScan
         private MerkabaIntegrator _integrator;
         private DepthCapture _depthCapture;
         private readonly Material[] _materials = new Material[2];
+        private readonly bool[] _slotMeshReadout = new bool[2];
         private int _resetKernel;
         private int _queryKernel;
         private int _prepareKernel;
         private int _projectFrontKernel;
+        private int _indexVerticesKernel;
         private int _buildKernel;
         private int _projectMeshKernel;
         private int _buildMeshKernel;
@@ -172,6 +174,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8ReadoutVertices0");
         private static readonly int ReadoutVertices1Id =
             Shader.PropertyToID("_M8ReadoutVertices1");
+        private static readonly int ReadoutIndicesId =
+            Shader.PropertyToID("_M8ReadoutIndices");
         private static readonly int FrameDispatchArgsId =
             Shader.PropertyToID("_M8FrameDispatchArgs");
         private static readonly int DrawArgsId = Shader.PropertyToID("_M8DrawArgs");
@@ -373,6 +377,8 @@ namespace Genesis.RoomScan
                 "PrepareReadoutBuild", MerkabaGpuStage.ReadoutBuild);
             _projectFrontKernel = readoutCompute.FindProfiledKernel(
                 "ProjectReadoutFrontDepth", MerkabaGpuStage.ReadoutBuild);
+            _indexVerticesKernel = readoutCompute.FindProfiledKernel(
+                "IndexReadoutVertices", MerkabaGpuStage.ReadoutBuild);
             _buildKernel = readoutCompute.FindProfiledKernel(
                 "BuildReadoutVertices", MerkabaGpuStage.ReadoutBuild);
             _projectMeshKernel = readoutCompute.FindProfiledKernel(
@@ -384,7 +390,8 @@ namespace Genesis.RoomScan
             foreach (int kernel in new[]
                      {
                          _resetKernel, _queryKernel, _prepareKernel,
-                         _projectFrontKernel, _buildKernel,
+                         _projectFrontKernel, _indexVerticesKernel,
+                         _buildKernel,
                          _projectMeshKernel, _buildMeshKernel, _finalizeKernel
                      })
             {
@@ -490,6 +497,17 @@ namespace Genesis.RoomScan
                 command.SetComputeBufferParam(readoutCompute, _buildKernel,
                     ReadoutVertices1Id,
                     _grid.GetM8ReadoutVertices1(backSlot));
+                command.SetComputeBufferParam(readoutCompute, _buildKernel,
+                    ReadoutIndicesId, _grid.GetM8ReadoutIndices(backSlot));
+                command.SetComputeBufferParam(readoutCompute,
+                    _indexVerticesKernel, ReadoutVertices0Id,
+                    _grid.GetM8ReadoutVertices0(backSlot));
+                command.SetComputeBufferParam(readoutCompute,
+                    _indexVerticesKernel, ReadoutVertices1Id,
+                    _grid.GetM8ReadoutVertices1(backSlot));
+                command.SetComputeBufferParam(readoutCompute,
+                    _indexVerticesKernel, ReadoutIndicesId,
+                    _grid.GetM8ReadoutIndices(backSlot));
                 command.SetComputeBufferParam(readoutCompute, _finalizeKernel,
                     DrawArgsId, _grid.GetM8DrawArgs(backSlot));
                 ConfigureMeshReadoutCommand(command, ticket);
@@ -511,6 +529,8 @@ namespace Genesis.RoomScan
                 {
                     command.DispatchComputeProfiled(readoutCompute,
                         _projectFrontKernel, _grid.M8FrameDispatchArgs);
+                    command.DispatchComputeProfiled(readoutCompute,
+                        _indexVerticesKernel, _grid.M8FrameDispatchArgs);
                     command.DispatchComputeProfiled(readoutCompute,
                         _buildKernel, _grid.M8FrameDispatchArgs);
                 }
@@ -637,6 +657,8 @@ namespace Genesis.RoomScan
                 _grid.GetM8ReadoutVertices0(ticket.Slot).GetNativeBufferPtr();
             resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices1] =
                 _grid.GetM8ReadoutVertices1(ticket.Slot).GetNativeBufferPtr();
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutIndices] =
+                _grid.GetM8ReadoutIndices(ticket.Slot).GetNativeBufferPtr();
             resources[(int)MerkabaNativeVulkanExecutor.Resource.DrawArgs] =
                 _grid.GetM8DrawArgs(ticket.Slot).GetNativeBufferPtr();
             if (!MerkabaNativeVulkanExecutor.TryCreateJob(
@@ -835,6 +857,7 @@ namespace Genesis.RoomScan
         {
             Material material = slot is >= 0 and < 2 ? _materials[slot] : null;
             if (material == null) return;
+            _slotMeshReadout[slot] = mesh;
             if (mesh) material.EnableKeyword("M8_STEREO_MESH");
             else material.DisableKeyword("M8_STEREO_MESH");
             ApplyCheckerReadoutState(material);
@@ -943,8 +966,15 @@ namespace Genesis.RoomScan
                 CaptureOwner.Draw,
                 _readoutRevision == 0u ? 1u : _readoutRevision, command);
             if (canDraw)
-                command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
-                    material, 0, MeshTopology.Triangles, drawArgs, 0);
+            {
+                if (_slotMeshReadout[front])
+                    command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
+                        material, 0, MeshTopology.Triangles, drawArgs, 0);
+                else
+                    command.DrawProceduralIndirectProfiled(
+                        _grid.GetM8ReadoutIndices(front), Matrix4x4.identity,
+                        material, 0, MeshTopology.Triangles, drawArgs, 0);
+            }
             MerkabaGpuTimestamps.End(CaptureOwner.Draw, command,
                 timedSubmission);
             MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timedSubmission,

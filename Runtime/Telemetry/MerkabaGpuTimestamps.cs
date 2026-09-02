@@ -379,6 +379,24 @@ namespace Genesis.RoomScan
             RecordDrawEvent(command, timed, false);
         }
 
+        internal static void DrawProceduralIndirectProfiled(
+            this RasterCommandBuffer command, GraphicsBuffer indexBuffer,
+            Matrix4x4 matrix, Material material, int shaderPass,
+            MeshTopology topology, ComputeBuffer arguments,
+            int argumentsOffset)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (indexBuffer == null)
+                throw new ArgumentNullException(nameof(indexBuffer));
+            if (material == null) throw new ArgumentNullException(nameof(material));
+            if (arguments == null) throw new ArgumentNullException(nameof(arguments));
+            bool timed = Observe(DrawEntry);
+            RecordDrawEvent(command, timed, true);
+            command.DrawProceduralIndirect(indexBuffer, matrix, material,
+                shaderPass, topology, arguments, argumentsOffset);
+            RecordDrawEvent(command, timed, false);
+        }
+
         internal static void BlitPcaHistoryProfiled(this CommandBuffer command,
             Texture source, RenderTexture destination, bool timedSubmission)
         {

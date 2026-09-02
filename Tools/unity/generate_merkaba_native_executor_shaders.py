@@ -94,6 +94,8 @@ PIPELINES = (
              "PrepareReadoutBuild", "one"),
     Pipeline("ProjectReadoutFrontDepth", "MerkabaReadout.compute",
              "ProjectReadoutFrontDepth", "readout_indirect"),
+    Pipeline("IndexReadoutVertices", "MerkabaReadout.compute",
+             "IndexReadoutVertices", "readout_indirect"),
     Pipeline("BuildReadoutVertices", "MerkabaReadout.compute",
              "BuildReadoutVertices", "readout_indirect"),
     Pipeline("FinalizeReadout", "MerkabaReadout.compute",
@@ -135,7 +137,8 @@ RESOURCE_NAMES = (
     "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
     "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "DilationA",
     "DilationB", "CameraLeft", "CameraRight", "VisibleTiles",
-    "FrameDispatchArgs", "ReadoutVertices0", "ReadoutVertices1", "DrawArgs",
+    "FrameDispatchArgs", "ReadoutVertices0", "ReadoutVertices1",
+    "ReadoutIndices", "DrawArgs",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -152,7 +155,7 @@ ALIASES = {
         "SurfaceWinnerRanks3", "TouchedTileQueue", "CarveTiles",
         "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
         "VisibleTiles", "FrameDispatchArgs", "ReadoutVertices0",
-        "ReadoutVertices1", "DrawArgs")},
+        "ReadoutVertices1", "ReadoutIndices", "DrawArgs")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",
