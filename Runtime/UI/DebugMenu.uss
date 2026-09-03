@@ -157,7 +157,20 @@
     -unity-font-style: bold;
 }
 .artifact-button--last { margin-right: 0; }
-.annotation-note { margin-top: 6px; font-size: 11px; color: rgb(218, 247, 255); }
+.annotation-note-row { margin-top: 6px; flex-direction: row; align-items: flex-end; }
+.annotation-note { flex-grow: 1; font-size: 11px; color: rgb(218, 247, 255); }
+.annotation-edit {
+    width: 104px;
+    height: 34px;
+    margin-left: 7px;
+    background-color: rgba(0, 116, 166, 0.72);
+    border-width: 1px;
+    border-color: rgba(70, 224, 255, 0.82);
+    border-radius: 7px;
+    color: rgb(230, 251, 255);
+    font-size: 10px;
+    -unity-font-style: bold;
+}
 .artifact-status {
     margin-top: 4px;
     font-size: 10px;

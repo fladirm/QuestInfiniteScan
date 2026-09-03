@@ -87,8 +87,12 @@
             <ui:Button name="btn-annotation-save" text="SAVE NOTES"
                 class="artifact-button artifact-button--last" />
         </ui:VisualElement>
-        <ui:TextField name="annotation-note" label="Selected note"
-            class="annotation-note" />
+        <ui:VisualElement class="annotation-note-row">
+            <ui:TextField name="annotation-note" label="Selected note"
+                class="annotation-note" />
+            <ui:Button name="btn-annotation-edit" text="TYPE NOTE"
+                class="annotation-edit" />
+        </ui:VisualElement>
         <ui:Label name="val-artifact" text="GLB View closed"
             class="artifact-status" />
 

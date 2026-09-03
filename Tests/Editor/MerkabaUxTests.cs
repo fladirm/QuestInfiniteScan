@@ -23,7 +23,8 @@ namespace Genesis.RoomScan.Tests
                          "btn-start", "btn-stop", "btn-save", "btn-load",
                          "btn-new", "btn-export", "btn-readout", "btn-mesh",
                          "btn-occlusion", "btn-checker", "btn-artifact-view",
-                         "btn-annotation-mode", "btn-annotation-save"
+                         "btn-annotation-mode", "btn-annotation-save",
+                         "btn-annotation-edit"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 

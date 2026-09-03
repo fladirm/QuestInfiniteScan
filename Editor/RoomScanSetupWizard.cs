@@ -106,6 +106,7 @@ namespace Genesis.RoomScan.Editor
             ConfigurePlayerSettings();
             EnsureURPSetup();
             await VRProjectBootstrap.FixAllAsync(CheckSeverity.Recommended);
+            ConfigureSystemKeyboard();
             RemoveStaleSimulationBuildCopies();
             RemoveDonorHostArtifacts();
 
@@ -143,6 +144,16 @@ namespace Genesis.RoomScan.Editor
             PlayerSettings.colorSpace = ColorSpace.Linear;
             EditorUserBuildSettings.buildAppBundle = false;
             EditorUserBuildSettings.androidBuildSystem = AndroidBuildSystem.Gradle;
+        }
+
+        private static void ConfigureSystemKeyboard()
+        {
+            OVRProjectConfig config = OVRProjectConfig.CachedProjectConfig;
+            if (config == null)
+                throw new InvalidOperationException(
+                    "Meta XR project config is unavailable.");
+            config.requiresSystemKeyboard = true;
+            OVRProjectConfig.CommitProjectConfig(config);
         }
 
         private static void EnsureQuestRigAndDepthManager()

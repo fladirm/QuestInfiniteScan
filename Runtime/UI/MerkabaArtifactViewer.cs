@@ -10,23 +10,23 @@ using UnityEngine.Rendering;
 namespace Genesis.RoomScan.UI
 {
     /// <summary>
-    /// Bounded, read-only preview of this package's own tiled GLB export.  It
+    /// Streamed, read-only preview of this package's own tiled GLB export.  It
     /// never reads canonical M8 and never becomes scan or export authority.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(MerkabaExporter), typeof(RoomScanner))]
     public sealed class MerkabaArtifactViewer : MonoBehaviour
     {
-        private const long DefaultResidentArchiveBytes = 128L * 1024L * 1024L;
+        private const long MinimumResidentDecodedBytes = 256L * 1024L * 1024L;
+        private const long MaximumResidentDecodedBytes = 512L * 1024L * 1024L;
         private const uint GlbMagic = 0x46546c67u;
         private const uint JsonChunkType = 0x4e4f534au;
         private const uint BinaryChunkType = 0x004e4942u;
 
         [SerializeField] internal Shader previewShader;
-        [SerializeField] private long residentArchiveBytes =
-            DefaultResidentArchiveBytes;
         [SerializeField] private float initialPreviewSize = 0.65f;
         [SerializeField] private float initialPreviewDistance = 0.9f;
+        [SerializeField] private float minimumPreviewScale = 0.025f;
 
         private MerkabaExporter _exporter;
         private RoomScanner _scanner;
@@ -45,6 +45,8 @@ namespace Genesis.RoomScan.UI
         private bool _displaySuppressed;
         private bool _savedReadoutEnabled;
         private bool _savedFineMode;
+        private TouchScreenKeyboard _noteKeyboard;
+        private string _noteBeforeKeyboard = string.Empty;
         private int _generation;
         private int _nextAnnotationId = 1;
         private float _nextResidencyRefresh;
@@ -53,10 +55,12 @@ namespace Genesis.RoomScan.UI
         private int _selectedAnnotationId;
         private Vector3 _moveStart;
         private Vector3[] _moveOriginalPoints;
+        private long _totalArchiveBytes;
 
         public bool IsOpen { get; private set; }
         public string Status { get; private set; } = "GLB View closed";
         public string AnnotationModeText => _annotationMode.ToString().ToUpperInvariant();
+        public bool HasSelectedAnnotation => FindSelectedAnnotation() != null;
         public string SelectedNote
         {
             get
@@ -95,6 +99,7 @@ namespace Genesis.RoomScan.UI
 
         private void Update()
         {
+            PollNoteKeyboard();
             if (!IsOpen || _modelRoot == null) return;
             if (_scanner.IsScanning || _scanner.IsScanStarting)
             {
@@ -191,10 +196,12 @@ namespace Genesis.RoomScan.UI
             _annotationMode = AnnotationMode.Off;
             _selectedAnnotationId = 0;
             _moveOriginalPoints = null;
+            CloseNoteKeyboard();
             _pendingPoints.Clear();
             _annotations.Clear();
             foreach (Tile tile in _tiles) DestroyTile(tile);
             _tiles.Clear();
+            _totalArchiveBytes = 0L;
             if (_modelRoot != null) Destroy(_modelRoot.gameObject);
             _modelRoot = null;
             _annotationRoot = null;
@@ -219,6 +226,55 @@ namespace Genesis.RoomScan.UI
             _moveOriginalPoints = null;
             RefreshTileColliders();
             Status = "Annotation " + AnnotationModeText;
+        }
+
+        public void BeginNoteEdit()
+        {
+            AnnotationRecord selected = FindSelectedAnnotation();
+            if (selected == null)
+            {
+                Status = "Select a point, line or plane first";
+                return;
+            }
+            if (_noteKeyboard != null &&
+                _noteKeyboard.status == TouchScreenKeyboard.Status.Visible)
+                return;
+            _noteBeforeKeyboard = selected.note ?? string.Empty;
+            _noteKeyboard = TouchScreenKeyboard.Open(_noteBeforeKeyboard,
+                TouchScreenKeyboardType.Default, false, true, false, false,
+                "Annotation note", 512);
+            Status = _noteKeyboard != null
+                ? $"Editing {selected.type} #{selected.id}"
+                : "Quest system keyboard is unavailable";
+        }
+
+        private void PollNoteKeyboard()
+        {
+            if (_noteKeyboard == null) return;
+            TouchScreenKeyboard.Status keyboardStatus = _noteKeyboard.status;
+            if (keyboardStatus == TouchScreenKeyboard.Status.Visible)
+            {
+                SelectedNote = _noteKeyboard.text;
+                return;
+            }
+            if (keyboardStatus == TouchScreenKeyboard.Status.Canceled)
+                SelectedNote = _noteBeforeKeyboard;
+            else
+                SelectedNote = _noteKeyboard.text;
+            AnnotationRecord selected = FindSelectedAnnotation();
+            if (selected != null)
+                Status = keyboardStatus == TouchScreenKeyboard.Status.Canceled
+                    ? $"Note unchanged for {selected.type} #{selected.id}"
+                    : $"Updated note for {selected.type} #{selected.id}";
+            _noteKeyboard = null;
+        }
+
+        private void CloseNoteKeyboard()
+        {
+            if (_noteKeyboard != null)
+                _noteKeyboard.active = false;
+            _noteKeyboard = null;
+            _noteBeforeKeyboard = string.Empty;
         }
 
         public void SaveAnnotations()
@@ -258,6 +314,7 @@ namespace Genesis.RoomScan.UI
         {
             _scanCenter = package.Bounds.center;
             _tiles.AddRange(package.Tiles);
+            _totalArchiveBytes = package.TotalArchiveBytes;
 
             var root = new GameObject("Merkaba Export Preview");
             _modelRoot = root.transform;
@@ -287,7 +344,8 @@ namespace Genesis.RoomScan.UI
             forward.Normalize();
             float maximum = Mathf.Max(0.01f, Mathf.Max(package.Bounds.size.x,
                 Mathf.Max(package.Bounds.size.y, package.Bounds.size.z)));
-            float scale = initialPreviewSize / maximum;
+            float scale = Mathf.Max(minimumPreviewScale,
+                initialPreviewSize / maximum);
             _modelRoot.localScale = Vector3.one * scale;
             _modelRoot.rotation = Quaternion.LookRotation(forward, Vector3.up);
             _modelRoot.position = camera != null
@@ -336,8 +394,25 @@ namespace Genesis.RoomScan.UI
                 if (triggerHeld) ContinueMove(ray);
                 if (triggerUp) _moveOriginalPoints = null;
             }
+            else if (_annotationMode == AnnotationMode.Select)
+            {
+                if (triggerDown) SelectAnnotation(ray);
+            }
             else if (triggerDown && _annotationMode != AnnotationMode.Off)
                 AddAnnotationPoint(ray);
+        }
+
+        private void SelectAnnotation(Ray ray)
+        {
+            AnnotationRecord selected = FindNearestAnnotation(ray);
+            if (selected == null)
+            {
+                Status = "No annotation under pointer";
+                return;
+            }
+            _selectedAnnotationId = selected.id;
+            RefreshAnnotationObjects();
+            Status = $"Selected {selected.type} #{selected.id}";
         }
 
         private void AddAnnotationPoint(Ray ray)
@@ -382,6 +457,7 @@ namespace Genesis.RoomScan.UI
             }
             _selectedAnnotationId = selected.id;
             _moveOriginalPoints = (Vector3[])selected.points.Clone();
+            RefreshAnnotationObjects();
             Status = $"Moving {selected.type} #{selected.id}";
         }
 
@@ -420,21 +496,130 @@ namespace Genesis.RoomScan.UI
         {
             AnnotationRecord best = null;
             float bestDistance = 0.035f;
+            float bestAlong = float.PositiveInfinity;
             foreach (AnnotationRecord annotation in _annotations)
             {
-                Vector3 anchor = Vector3.zero;
-                foreach (Vector3 value in annotation.points) anchor += value;
-                anchor /= Mathf.Max(annotation.points.Length, 1);
-                Vector3 world = _modelRoot.TransformPoint(anchor - _scanCenter);
-                float along = Vector3.Dot(world - ray.origin, ray.direction);
-                if (along <= 0f) continue;
-                float distance = Vector3.Distance(world,
-                    ray.origin + ray.direction * along);
-                if (distance >= bestDistance) continue;
+                if (!TryMeasureAnnotation(ray, annotation, out float distance,
+                        out float along) || distance > bestDistance ||
+                    (Mathf.Approximately(distance, bestDistance) &&
+                     along >= bestAlong)) continue;
                 bestDistance = distance;
+                bestAlong = along;
                 best = annotation;
             }
             return best;
+        }
+
+        private bool TryMeasureAnnotation(Ray ray, AnnotationRecord annotation,
+            out float distance, out float along)
+        {
+            distance = float.PositiveInfinity;
+            along = float.PositiveInfinity;
+            Vector3[] points = annotation.points;
+            if (points == null || points.Length == 0) return false;
+            if (annotation.type == "point")
+            {
+                distance = RayPointDistance(ray,
+                    AnnotationWorldPoint(points[0]), out along);
+                return along > 0f;
+            }
+
+            if (annotation.type == "plane" && points.Length >= 3)
+            {
+                Vector3 origin = AnnotationWorldPoint(points[0]);
+                for (int index = 1; index + 1 < points.Length; index++)
+                {
+                    if (!RayTriangleDistance(ray, origin,
+                            AnnotationWorldPoint(points[index]),
+                            AnnotationWorldPoint(points[index + 1]),
+                            out float triangleAlong) || triangleAlong >= along)
+                        continue;
+                    distance = 0f;
+                    along = triangleAlong;
+                }
+                if (distance == 0f) return true;
+            }
+
+            int segmentCount = annotation.type == "plane"
+                ? points.Length : points.Length - 1;
+            for (int index = 0; index < segmentCount; index++)
+            {
+                Vector3 start = AnnotationWorldPoint(points[index]);
+                Vector3 end = AnnotationWorldPoint(points[(index + 1) %
+                    points.Length]);
+                float candidate = RaySegmentDistance(ray, start, end,
+                    out float candidateAlong);
+                if (candidateAlong <= 0f || candidate > distance) continue;
+                distance = candidate;
+                along = candidateAlong;
+            }
+            return along < float.PositiveInfinity;
+        }
+
+        private Vector3 AnnotationWorldPoint(Vector3 scanPoint) =>
+            _modelRoot.TransformPoint(scanPoint - _scanCenter);
+
+        internal static float RayPointDistance(Ray ray, Vector3 point,
+            out float along)
+        {
+            along = Mathf.Max(0f, Vector3.Dot(point - ray.origin,
+                ray.direction));
+            return Vector3.Distance(point, ray.GetPoint(along));
+        }
+
+        internal static float RaySegmentDistance(Ray ray, Vector3 start,
+            Vector3 end, out float along)
+        {
+            Vector3 segment = end - start;
+            float segmentLengthSquared = segment.sqrMagnitude;
+            if (segmentLengthSquared < 1e-12f)
+                return RayPointDistance(ray, start, out along);
+            Vector3 originDelta = ray.origin - start;
+            float raySegment = Vector3.Dot(ray.direction, segment);
+            float rayOrigin = Vector3.Dot(ray.direction, originDelta);
+            float segmentOrigin = Vector3.Dot(segment, originDelta);
+            float denominator = segmentLengthSquared - raySegment * raySegment;
+            float segmentT = denominator > 1e-12f
+                ? Mathf.Clamp01((segmentOrigin - raySegment * rayOrigin) /
+                    denominator)
+                : 0f;
+            along = Mathf.Max(0f, raySegment * segmentT - rayOrigin);
+            segmentT = Mathf.Clamp01((segmentOrigin + raySegment * along) /
+                segmentLengthSquared);
+            along = Mathf.Max(0f, raySegment * segmentT - rayOrigin);
+            return Vector3.Distance(ray.GetPoint(along),
+                start + segment * segmentT);
+        }
+
+        internal static bool RayTriangleDistance(Ray ray, Vector3 a, Vector3 b,
+            Vector3 c, out float along)
+        {
+            Vector3 edge1 = b - a;
+            Vector3 edge2 = c - a;
+            Vector3 cross = Vector3.Cross(ray.direction, edge2);
+            float determinant = Vector3.Dot(edge1, cross);
+            if (Mathf.Abs(determinant) < 1e-8f)
+            {
+                along = 0f;
+                return false;
+            }
+            float inverse = 1f / determinant;
+            Vector3 offset = ray.origin - a;
+            float u = Vector3.Dot(offset, cross) * inverse;
+            if (u < 0f || u > 1f)
+            {
+                along = 0f;
+                return false;
+            }
+            Vector3 q = Vector3.Cross(offset, edge1);
+            float v = Vector3.Dot(ray.direction, q) * inverse;
+            if (v < 0f || u + v > 1f)
+            {
+                along = 0f;
+                return false;
+            }
+            along = Vector3.Dot(edge2, q) * inverse;
+            return along > 0f;
         }
 
         private AnnotationRecord FindSelectedAnnotation() =>
@@ -450,6 +635,9 @@ namespace Genesis.RoomScan.UI
             {
                 Vector3[] points = annotation.points;
                 if (points == null || points.Length == 0) continue;
+                Color displayColor = annotation.id == _selectedAnnotationId
+                    ? new Color(0.15f, 0.95f, 1f, 1f)
+                    : new Color(1f, 0.35f, 0.05f, 1f);
                 if (annotation.type == "point")
                 {
                     GameObject marker = GameObject.CreatePrimitive(
@@ -460,8 +648,11 @@ namespace Genesis.RoomScan.UI
                     marker.transform.localPosition = points[0] - _scanCenter;
                     marker.transform.localScale = Vector3.one *
                         (0.018f * inverseScale);
-                    marker.GetComponent<MeshRenderer>().sharedMaterial =
-                        _annotationMaterial;
+                    MeshRenderer renderer = marker.GetComponent<MeshRenderer>();
+                    renderer.sharedMaterial = _annotationMaterial;
+                    var properties = new MaterialPropertyBlock();
+                    properties.SetColor("_BaseColor", displayColor);
+                    renderer.SetPropertyBlock(properties);
                 }
                 else
                 {
@@ -470,6 +661,10 @@ namespace Genesis.RoomScan.UI
                     lineObject.transform.SetParent(_annotationRoot, false);
                     var line = lineObject.AddComponent<LineRenderer>();
                     line.sharedMaterial = _annotationMaterial;
+                    line.startColor = line.endColor = Color.white;
+                    var properties = new MaterialPropertyBlock();
+                    properties.SetColor("_BaseColor", displayColor);
+                    line.SetPropertyBlock(properties);
                     line.useWorldSpace = false;
                     line.startWidth = line.endWidth = 0.008f * inverseScale;
                     line.positionCount = annotation.type == "plane"
@@ -515,6 +710,12 @@ namespace Genesis.RoomScan.UI
             if (!IsOpen || _loadPending || _tiles.Count == 0) return;
             Camera camera = Camera.main;
             if (camera == null) return;
+            Vector3 pointerOrigin = default;
+            Vector3 pointerDirection = default;
+            bool hasPointer = _rayDriver != null &&
+                _rayDriver.TryGetWorldRay(out pointerOrigin,
+                    out pointerDirection);
+            var pointerRay = new Ray(pointerOrigin, pointerDirection);
             GeometryUtility.CalculateFrustumPlanes(camera, _frustumPlanes);
             _desiredTiles.Clear();
             foreach (Tile tile in _tiles)
@@ -523,8 +724,13 @@ namespace Genesis.RoomScan.UI
                     Centered(tile.Bounds));
                 if (!GeometryUtility.TestPlanesAABB(_frustumPlanes, worldBounds))
                     continue;
-                float score = Vector3.SqrMagnitude(worldBounds.center -
-                    camera.transform.position);
+                float score;
+                if (hasPointer && worldBounds.IntersectRay(pointerRay,
+                        out float pointerDistance))
+                    score = -1000000f + pointerDistance;
+                else
+                    score = Vector3.SqrMagnitude(worldBounds.center -
+                        camera.transform.position);
                 _desiredTiles.Add((tile, score));
             }
             _desiredTiles.Sort((left, right) =>
@@ -533,16 +739,18 @@ namespace Genesis.RoomScan.UI
                 return score != 0 ? score : string.CompareOrdinal(
                     left.Tile.Uri, right.Tile.Uri);
             });
-            long budget = Math.Max(1L, residentArchiveBytes);
+            long budget = ResidentDecodedBudgetBytes();
             _keptTiles.Clear();
             long used = 0L;
             foreach ((Tile tile, _) in _desiredTiles)
             {
+                long bytes = tile.ResidentBytes > 0L
+                    ? tile.ResidentBytes : tile.ArchiveBytes;
                 if (_keptTiles.Count != 0 &&
-                    used + tile.ArchiveBytes > budget)
+                    used + bytes > budget)
                     continue;
                 _keptTiles.Add(tile);
-                used = checked(used + tile.ArchiveBytes);
+                used = checked(used + bytes);
             }
             foreach (Tile tile in _tiles)
                 if (tile.Object != null && !_keptTiles.Contains(tile))
@@ -554,8 +762,34 @@ namespace Genesis.RoomScan.UI
                     _ = LoadTileAsync(tile, _generation);
                     break;
                 }
-            Status = $"GLB View · {LoadedTileCount}/{_tiles.Count} tiles";
+            Status = $"GLB View · {LoadedTileCount}/{_tiles.Count} tiles · " +
+                $"{FormatBytes(ResidentDecodedBytes())} resident / " +
+                $"{FormatBytes(_totalArchiveBytes)} package";
         }
+
+        private static long ResidentDecodedBudgetBytes()
+        {
+            long systemBytes = Math.Max(0L, (long)SystemInfo.systemMemorySize) *
+                1024L * 1024L;
+            long adaptive = systemBytes > 0L
+                ? systemBytes / 12L : MinimumResidentDecodedBytes;
+            return Math.Min(MaximumResidentDecodedBytes,
+                Math.Max(MinimumResidentDecodedBytes, adaptive));
+        }
+
+        private long ResidentDecodedBytes()
+        {
+            long bytes = 0L;
+            foreach (Tile tile in _tiles)
+                if (tile.Object != null) bytes = checked(bytes +
+                    tile.ResidentBytes);
+            return bytes;
+        }
+
+        private static string FormatBytes(long bytes) => bytes >= 1024L *
+            1024L * 1024L
+            ? $"{bytes / (1024d * 1024d * 1024d):F1} GiB"
+            : $"{bytes / (1024d * 1024d):F0} MiB";
 
         private Bounds Centered(Bounds source) =>
             new(source.center - _scanCenter, source.size);
@@ -610,7 +844,8 @@ namespace Genesis.RoomScan.UI
             renderer.receiveShadows = false;
             tile.Object = tileObject;
             tile.Mesh = mesh;
-            if (_annotationMode != AnnotationMode.Off)
+            tile.ResidentBytes = parsed.DecodedBytes;
+            if (TileCollidersRequired())
             {
                 tile.Collider = tileObject.AddComponent<MeshCollider>();
                 tile.Collider.sharedMesh = mesh;
@@ -619,7 +854,7 @@ namespace Genesis.RoomScan.UI
 
         private void RefreshTileColliders()
         {
-            bool required = _annotationMode != AnnotationMode.Off;
+            bool required = TileCollidersRequired();
             foreach (Tile tile in _tiles)
             {
                 if (tile.Object == null) continue;
@@ -636,6 +871,12 @@ namespace Genesis.RoomScan.UI
             }
         }
 
+        private bool TileCollidersRequired() =>
+            _annotationMode == AnnotationMode.Point ||
+            _annotationMode == AnnotationMode.Line ||
+            _annotationMode == AnnotationMode.Plane ||
+            _annotationMode == AnnotationMode.Move;
+
         private static void DestroyTile(Tile tile)
         {
             if (tile.Object != null) Destroy(tile.Object);
@@ -643,6 +884,7 @@ namespace Genesis.RoomScan.UI
             tile.Object = null;
             tile.Mesh = null;
             tile.Collider = null;
+            tile.ResidentBytes = 0L;
         }
 
         private static Bounds TransformBounds(Transform transform,
@@ -684,7 +926,10 @@ namespace Genesis.RoomScan.UI
                 right.Uri));
             Bounds bounds = ConvertTilesetBox(document.root.boundingVolume?.box,
                 Matrix4x4.identity);
-            return new PackageIndex(tiles, bounds);
+            long totalArchiveBytes = 0L;
+            foreach (Tile tile in tiles)
+                totalArchiveBytes = checked(totalArchiveBytes + tile.ArchiveBytes);
+            return new PackageIndex(tiles, bounds, totalArchiveBytes);
         }
 
         private static void CollectTiles(TilesetNode node, Matrix4x4 parent,
@@ -758,40 +1003,56 @@ namespace Genesis.RoomScan.UI
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
             ZipArchiveEntry entry = archive.GetEntry(tile.Uri) ??
                 throw new InvalidDataException("Missing tile " + tile.Uri);
-            if (entry.Length > int.MaxValue)
-                throw new InvalidDataException("Preview tile is too large.");
-            byte[] bytes = new byte[(int)entry.Length];
-            using (Stream input = entry.Open())
-            {
-                int offset = 0;
-                while (offset < bytes.Length)
-                {
-                    int read = input.Read(bytes, offset, bytes.Length - offset);
-                    if (read == 0) throw new EndOfStreamException();
-                    offset += read;
-                }
-            }
-            return ParseGlbForPreview(bytes, tile.OriginUnity, scanCenter);
+            using Stream entryStream = entry.Open();
+            using var input = new BufferedStream(entryStream, 1024 * 1024);
+            return ParseGlbForPreview(input, entry.Length, tile.OriginUnity,
+                scanCenter);
         }
 
         internal static ParsedGlb ParseGlbForPreview(byte[] bytes,
             Vector3 originUnity, Vector3 scanCenter)
         {
-            if (bytes == null || bytes.Length < 28 || ReadUInt32(bytes, 0) !=
-                GlbMagic || ReadUInt32(bytes, 4) != 2u ||
-                ReadUInt32(bytes, 8) != bytes.Length)
+            if (bytes == null) throw new ArgumentNullException(nameof(bytes));
+            using var input = new MemoryStream(bytes, false);
+            return ParseGlbForPreview(input, bytes.LongLength, originUnity,
+                scanCenter);
+        }
+
+        internal static ParsedGlb ParseGlbForPreview(Stream input,
+            long streamLength, Vector3 originUnity, Vector3 scanCenter)
+        {
+            if (input == null || !input.CanRead)
+                throw new ArgumentException("GLB input must be readable.",
+                    nameof(input));
+            if (streamLength < 28L)
                 throw new InvalidDataException("Invalid GLB header.");
-            int jsonLength = checked((int)ReadUInt32(bytes, 12));
-            if (ReadUInt32(bytes, 16) != JsonChunkType || jsonLength < 2 ||
-                20L + jsonLength + 8L > bytes.Length)
+            byte[] scratch = new byte[12];
+            ReadExactly(input, scratch, 0, 12);
+            if (ReadUInt32(scratch, 0) != GlbMagic ||
+                ReadUInt32(scratch, 4) != 2u ||
+                ReadUInt32(scratch, 8) != streamLength)
+                throw new InvalidDataException("Invalid GLB header.");
+
+            ReadExactly(input, scratch, 0, 8);
+            uint jsonLengthValue = ReadUInt32(scratch, 0);
+            if (jsonLengthValue > int.MaxValue ||
+                ReadUInt32(scratch, 4) != JsonChunkType ||
+                jsonLengthValue < 2u || 20L + jsonLengthValue + 8L >
+                streamLength)
                 throw new InvalidDataException("Invalid GLB JSON chunk.");
-            string json = Encoding.UTF8.GetString(bytes, 20, jsonLength).TrimEnd(
+            int jsonLength = (int)jsonLengthValue;
+            byte[] jsonBytes = new byte[jsonLength];
+            ReadExactly(input, jsonBytes, 0, jsonBytes.Length);
+            string json = Encoding.UTF8.GetString(jsonBytes).TrimEnd(
                 '\0', ' ', '\t', '\r', '\n');
-            int binaryHeader = 20 + jsonLength;
-            int binaryLength = checked((int)ReadUInt32(bytes, binaryHeader));
-            if (ReadUInt32(bytes, binaryHeader + 4) != BinaryChunkType ||
-                binaryHeader + 8L + binaryLength != bytes.Length)
+
+            ReadExactly(input, scratch, 0, 8);
+            uint binaryLengthValue = ReadUInt32(scratch, 0);
+            if (binaryLengthValue > int.MaxValue ||
+                ReadUInt32(scratch, 4) != BinaryChunkType ||
+                28L + jsonLength + binaryLengthValue != streamLength)
                 throw new InvalidDataException("Invalid GLB binary chunk.");
+            int binaryLength = (int)binaryLengthValue;
             GlbDocument document = JsonUtility.FromJson<GlbDocument>(json);
             if (document?.bufferViews == null ||
                 document.bufferViews.Length != 4 || document.accessors == null ||
@@ -808,7 +1069,6 @@ namespace Genesis.RoomScan.UI
                 index.type != "SCALAR" || position.count != normal.count ||
                 position.count != color.count || index.count % 3 != 0)
                 throw new InvalidDataException("Unsupported GLB accessor ABI.");
-            int binaryStart = binaryHeader + 8;
             ValidateView(document.bufferViews[0], position.count, 12,
                 binaryLength);
             ValidateView(document.bufferViews[1], normal.count, 12,
@@ -821,41 +1081,91 @@ namespace Genesis.RoomScan.UI
             var normals = new Vector3[position.count];
             var colors = new Color32[position.count];
             var indices = new int[index.count];
-            int positionOffset = binaryStart + document.bufferViews[0].byteOffset;
-            int normalOffset = binaryStart + document.bufferViews[1].byteOffset;
-            int colorOffset = binaryStart + document.bufferViews[2].byteOffset;
-            int indexOffset = binaryStart + document.bufferViews[3].byteOffset;
+            long binaryCursor = 0L;
+            MoveToView(input, document.bufferViews[0], ref binaryCursor,
+                scratch);
             for (int vertex = 0; vertex < position.count; vertex++)
             {
-                int p = positionOffset + vertex * 12;
-                Vector3 glb = new(ReadSingle(bytes, p), ReadSingle(bytes, p + 4),
-                    ReadSingle(bytes, p + 8));
+                ReadExactly(input, scratch, 0, 12);
+                Vector3 glb = new(ReadSingle(scratch, 0),
+                    ReadSingle(scratch, 4), ReadSingle(scratch, 8));
                 positions[vertex] = originUnity +
                     new Vector3(-glb.x, glb.y, glb.z) - scanCenter;
-                int n = normalOffset + vertex * 12;
-                Vector3 glbNormal = new(ReadSingle(bytes, n),
-                    ReadSingle(bytes, n + 4), ReadSingle(bytes, n + 8));
+            }
+            binaryCursor += document.bufferViews[0].byteLength;
+            MoveToView(input, document.bufferViews[1], ref binaryCursor,
+                scratch);
+            for (int vertex = 0; vertex < normal.count; vertex++)
+            {
+                ReadExactly(input, scratch, 0, 12);
+                Vector3 glbNormal = new(ReadSingle(scratch, 0),
+                    ReadSingle(scratch, 4), ReadSingle(scratch, 8));
                 normals[vertex] = new Vector3(-glbNormal.x, glbNormal.y,
                     glbNormal.z).normalized;
-                int c = colorOffset + vertex * 4;
-                colors[vertex] = new Color32(bytes[c], bytes[c + 1],
-                    bytes[c + 2], bytes[c + 3]);
             }
+            binaryCursor += document.bufferViews[1].byteLength;
+            MoveToView(input, document.bufferViews[2], ref binaryCursor,
+                scratch);
+            for (int vertex = 0; vertex < color.count; vertex++)
+            {
+                ReadExactly(input, scratch, 0, 4);
+                colors[vertex] = new Color32(scratch[0], scratch[1],
+                    scratch[2], scratch[3]);
+            }
+            binaryCursor += document.bufferViews[2].byteLength;
+            MoveToView(input, document.bufferViews[3], ref binaryCursor,
+                scratch);
             for (int value = 0; value < index.count; value++)
             {
-                uint read = ReadUInt32(bytes, indexOffset + value * 4);
+                ReadExactly(input, scratch, 0, 4);
+                uint read = ReadUInt32(scratch, 0);
                 if (read >= position.count)
                     throw new InvalidDataException("GLB index out of range.");
                 indices[value] = (int)read;
             }
+            binaryCursor += document.bufferViews[3].byteLength;
+            SkipExactly(input, binaryLength - binaryCursor, scratch);
             for (int triangle = 0; triangle < indices.Length; triangle += 3)
                 (indices[triangle + 1], indices[triangle + 2]) =
                     (indices[triangle + 2], indices[triangle + 1]);
             return new ParsedGlb(positions, normals, colors, indices);
         }
 
+        private static void MoveToView(Stream input, GlbBufferView view,
+            ref long cursor, byte[] scratch)
+        {
+            if (view.byteOffset < cursor)
+                throw new InvalidDataException(
+                    "GLB buffer views are not sequential.");
+            SkipExactly(input, view.byteOffset - cursor, scratch);
+            cursor = view.byteOffset;
+        }
+
+        private static void SkipExactly(Stream input, long count,
+            byte[] scratch)
+        {
+            while (count > 0L)
+            {
+                int requested = (int)Math.Min(count, scratch.Length);
+                ReadExactly(input, scratch, 0, requested);
+                count -= requested;
+            }
+        }
+
+        private static void ReadExactly(Stream input, byte[] bytes, int offset,
+            int count)
+        {
+            while (count > 0)
+            {
+                int read = input.Read(bytes, offset, count);
+                if (read == 0) throw new EndOfStreamException();
+                offset += read;
+                count -= read;
+            }
+        }
+
         private static void ValidateView(GlbBufferView view, int count,
-            int stride, int binaryLength)
+            int stride, long binaryLength)
         {
             if (view == null || view.byteOffset < 0 || view.byteLength !=
                 checked(count * stride) || view.byteOffset + (long)view.byteLength >
@@ -886,6 +1196,7 @@ namespace Genesis.RoomScan.UI
             internal GameObject Object;
             internal Mesh Mesh;
             internal MeshCollider Collider;
+            internal long ResidentBytes;
 
             internal Tile(string uri, long archiveBytes, Vector3 originUnity,
                 Bounds bounds)
@@ -901,11 +1212,14 @@ namespace Genesis.RoomScan.UI
         {
             internal readonly List<Tile> Tiles;
             internal readonly Bounds Bounds;
+            internal readonly long TotalArchiveBytes;
 
-            internal PackageIndex(List<Tile> tiles, Bounds bounds)
+            internal PackageIndex(List<Tile> tiles, Bounds bounds,
+                long totalArchiveBytes)
             {
                 Tiles = tiles;
                 Bounds = bounds;
+                TotalArchiveBytes = totalArchiveBytes;
             }
         }
 
@@ -915,6 +1229,7 @@ namespace Genesis.RoomScan.UI
             internal readonly Vector3[] Normals;
             internal readonly Color32[] Colors;
             internal readonly int[] Indices;
+            internal readonly long DecodedBytes;
 
             internal ParsedGlb(Vector3[] positions, Vector3[] normals,
                 Color32[] colors, int[] indices)
@@ -923,6 +1238,9 @@ namespace Genesis.RoomScan.UI
                 Normals = normals;
                 Colors = colors;
                 Indices = indices;
+                DecodedBytes = checked(positions.LongLength * 12L +
+                    normals.LongLength * 12L + colors.LongLength * 4L +
+                    indices.LongLength * 4L);
             }
         }
 
@@ -982,6 +1300,7 @@ namespace Genesis.RoomScan.UI
             Point,
             Line,
             Plane,
+            Select,
             Move
         }
 

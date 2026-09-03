@@ -24,10 +24,15 @@ namespace Genesis.RoomScan.Tests
             Vector3 center = new(0.1f, 0.2f, 0.3f);
             using var stream = new MemoryStream();
             _ = MerkabaGlbWriter.Write(stream, membrane, origin);
+            byte[] glb = stream.ToArray();
 
             MerkabaArtifactViewer.ParsedGlb parsed =
-                MerkabaArtifactViewer.ParseGlbForPreview(stream.ToArray(),
+                MerkabaArtifactViewer.ParseGlbForPreview(glb,
                     origin, center);
+            using var streamed = new MemoryStream(glb, false);
+            MerkabaArtifactViewer.ParsedGlb streamedParsed =
+                MerkabaArtifactViewer.ParseGlbForPreview(streamed,
+                    streamed.Length, origin, center);
 
             Assert.That(parsed.Positions.Length, Is.GreaterThan(0));
             Assert.That(parsed.Normals.Length, Is.EqualTo(parsed.Positions.Length));
@@ -41,10 +46,16 @@ namespace Genesis.RoomScan.Tests
                 membrane.Patches[0].PackedColor);
             Assert.That(parsed.Colors.Any(value => value.r == expected.r &&
                 value.g == expected.g && value.b == expected.b), Is.True);
+            Assert.That(streamedParsed.Positions, Is.EqualTo(parsed.Positions));
+            Assert.That(streamedParsed.Normals, Is.EqualTo(parsed.Normals));
+            Assert.That(streamedParsed.Colors, Is.EqualTo(parsed.Colors));
+            Assert.That(streamedParsed.Indices, Is.EqualTo(parsed.Indices));
+            Assert.That(streamedParsed.DecodedBytes, Is.EqualTo(
+                parsed.DecodedBytes));
         }
 
         [Test]
-        public void QuestArtifactPreviewIsBoundedAndReadOnly()
+        public void QuestArtifactPreviewStreamsUnboundedPackageIntoBoundedCache()
         {
             string viewer = Source(
                 "Runtime/UI/MerkabaArtifactViewer.cs");
@@ -52,18 +63,48 @@ namespace Genesis.RoomScan.Tests
             string menu = Source("Runtime/UI/DebugMenu.uxml");
 
             Assert.That(viewer, Does.Contain(
-                "DefaultResidentArchiveBytes = 128L * 1024L * 1024L"));
+                "MaximumResidentDecodedBytes = 512L * 1024L * 1024L"));
             Assert.That(viewer, Does.Contain("ReadPackageIndex(archivePath)"));
             Assert.That(viewer, Does.Contain("ReadGlbTile("));
+            Assert.That(viewer, Does.Contain("new BufferedStream(entryStream"));
+            Assert.That(viewer, Does.Not.Contain(
+                "new byte[(int)entry.Length]"));
+            Assert.That(viewer, Does.Not.Contain(
+                "Preview tile is too large"));
+            Assert.That(viewer, Does.Contain("TouchScreenKeyboard.Open("));
+            Assert.That(viewer, Does.Contain("AnnotationMode.Select"));
             Assert.That(viewer, Does.Contain("DestroyTile(tile)"));
             Assert.That(viewer, Does.Contain("_scanner.ReadoutDrawEnabled = false"));
             Assert.That(viewer, Does.Not.Contain("MerkabaGrid"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
             Assert.That(setup, Does.Contain(
                 "GetOrAdd<MerkabaArtifactViewer>(scannerObject)"));
+            Assert.That(setup, Does.Contain("requiresSystemKeyboard = true"));
             Assert.That(menu, Does.Contain("btn-artifact-view"));
             Assert.That(menu, Does.Contain("btn-annotation-mode"));
+            Assert.That(menu, Does.Contain("btn-annotation-edit"));
             Assert.That(menu, Does.Contain("annotation-note"));
+        }
+
+        [Test]
+        public void QuestArtifactAnnotationsSelectPointsLinesAndPlaneInterior()
+        {
+            var ray = new Ray(Vector3.zero, Vector3.forward);
+            float pointDistance = MerkabaArtifactViewer.RayPointDistance(ray,
+                new Vector3(0.02f, 0f, 2f), out float pointAlong);
+            float lineDistance = MerkabaArtifactViewer.RaySegmentDistance(ray,
+                new Vector3(-1f, 0f, 2f), new Vector3(1f, 0f, 2f),
+                out float lineAlong);
+            bool triangle = MerkabaArtifactViewer.RayTriangleDistance(ray,
+                new Vector3(-1f, -1f, 2f), new Vector3(1f, -1f, 2f),
+                new Vector3(0f, 1f, 2f), out float triangleAlong);
+
+            Assert.That(pointDistance, Is.EqualTo(0.02f).Within(1e-6f));
+            Assert.That(pointAlong, Is.EqualTo(2f).Within(1e-6f));
+            Assert.That(lineDistance, Is.EqualTo(0f).Within(1e-6f));
+            Assert.That(lineAlong, Is.EqualTo(2f).Within(1e-6f));
+            Assert.That(triangle, Is.True);
+            Assert.That(triangleAlong, Is.EqualTo(2f).Within(1e-6f));
         }
 
         [Test]

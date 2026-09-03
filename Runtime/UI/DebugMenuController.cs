@@ -15,7 +15,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _boundRoot;
         private Button _start, _stop, _save, _load, _new, _export,
             _exportTiles, _fine, _readout, _mesh, _occlusion, _checker,
-            _artifactView, _annotationMode, _annotationSave;
+            _artifactView, _annotationMode, _annotationSave, _annotationEdit;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
         private Label _artifactStatus;
@@ -106,6 +106,7 @@ namespace Genesis.RoomScan.UI
             _artifactView = _root.Q<Button>("btn-artifact-view");
             _annotationMode = _root.Q<Button>("btn-annotation-mode");
             _annotationSave = _root.Q<Button>("btn-annotation-save");
+            _annotationEdit = _root.Q<Button>("btn-annotation-edit");
             _annotationNote = _root.Q<TextField>("annotation-note");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
@@ -181,6 +182,8 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer?.CycleAnnotationMode());
             _annotationSave?.RegisterCallback<ClickEvent>(evt =>
                 _artifactViewer?.SaveAnnotations());
+            _annotationEdit?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.BeginNoteEdit());
             _annotationNote?.RegisterValueChangedCallback(evt =>
             {
                 if (_artifactViewer != null)
@@ -332,6 +335,8 @@ namespace Genesis.RoomScan.UI
             _annotationMode?.SetEnabled(!operationBusy && reviewing);
             _annotationSave?.SetEnabled(!operationBusy && reviewing);
             _annotationNote?.SetEnabled(!operationBusy && reviewing);
+            _annotationEdit?.SetEnabled(!operationBusy && reviewing &&
+                (_artifactViewer?.HasSelectedAnnotation ?? false));
         }
 
         private static string DirectionArrow(Vector3 cameraLocalDirection)
