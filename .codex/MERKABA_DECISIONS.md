@@ -1,5 +1,7 @@
 # Durable Merkaba decisions
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 - Chunk edge is 32 kernels: 32^3 dense states per allocated sparse chunk, 0.8 m wide.
 - Coordinates are signed `int3`; chunk/local split is mathematical floorDiv/floorMod.
 - Evidence is signed saturating fixed-point with distinct occupied-on and occupied-off

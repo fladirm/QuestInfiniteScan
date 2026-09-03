@@ -1,5 +1,7 @@
 # Quest Infinite Merkaba Scan
 
+> Production closure contract: [`contr.md`](contr.md). It is authoritative over conflicting historical documentation.
+
 A simple, fast room scanner for Meta Quest. Depth, normals, and passthrough RGB
 update one reversible sparse occupancy grid. Fixed local boundary primitives are
 drawn directly on the GPU; live scanning never constructs a Unity mesh.

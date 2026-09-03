@@ -1,5 +1,7 @@
 # Quest Infinite Merkaba algorithm
 
+> Production closure contract: [`contr.md`](contr.md). It is authoritative over conflicting historical documentation.
+
 ## 1. Coordinate model
 
 The sole geometry authority is a signed cubic lattice:

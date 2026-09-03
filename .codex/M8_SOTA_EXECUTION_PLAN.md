@@ -1,5 +1,7 @@
 # M8 SOTA finalization — ověřený realizační plán
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 Tento soubor je realizační mapa pro `kontrakt.md`. Není novou specifikací.
 Při rozporu vždy vítězí `kontrakt.md`, zejména jeho dodatek
 `R0 SPEC CLARIFICATION`.

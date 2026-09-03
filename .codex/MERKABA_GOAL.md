@@ -1,5 +1,7 @@
 # Quest Infinite Merkaba contract
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 - A kernel has exactly 5 cm cubic/Merkaba support on an ordinary signed cubic lattice.
 - Lattice spacing is exactly 2.5 cm; support half-extent is exactly 2.5 cm.
 - `MerkabaGrid` is the only reconstruction authority.

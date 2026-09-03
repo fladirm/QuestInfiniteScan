@@ -1,5 +1,7 @@
 # Immutable Merkaba environment ledger
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 Recorded and verified: 2026-08-28 (Europe/Prague)
 
 ```text

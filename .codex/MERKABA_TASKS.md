@@ -1,5 +1,7 @@
 # Merkaba closure tasks
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 - [x] Bootstrap clean target main and work branch.
 - [x] Discover and score the read-only OtherScan donor deterministically.
 - [x] Verify Unity/Android/build/deploy environment and inspect host embedding.

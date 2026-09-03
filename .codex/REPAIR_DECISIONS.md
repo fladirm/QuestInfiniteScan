@@ -1,5 +1,7 @@
 # Quest Merkaba Repair Decisions
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 - Pursuit authority is external to Git at `/mnt/aidisk/prace/.codex-pursuits/quest-merkaba-production-closure/REPAIR_GOAL.md`.
 - Repair baseline is immutable commit `0e9081060ed1068aad6e075f4961ad25b72245ff`.
 - Every occupied coordinate owns one central octahedron. For each of eight body-diagonal directions it emits its base face when the neighbour is empty, or the three fixed tip sides toward that neighbour when occupied.

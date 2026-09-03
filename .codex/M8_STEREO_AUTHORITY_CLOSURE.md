@@ -1,5 +1,7 @@
 # M8 JOINT FOUR-STREAM / MUTATION AUTHORITY CLOSURE
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 Frozen on 2026-08-30 against:
 
 ```text

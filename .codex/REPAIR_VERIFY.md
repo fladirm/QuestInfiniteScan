@@ -1,5 +1,7 @@
 # Quest Merkaba Repair Verification
 
+> Current production closure authority: [`contr.md`](../contr.md). Read and follow it verbatim; it supersedes conflicting historical notes in this file.
+
 All results below are filled with exact commands and outcomes as each checkpoint closes.
 
 ## R1 Geometry Authority
