@@ -201,7 +201,7 @@ namespace Genesis.RoomScan.UI
             }
             else
             {
-                if (!OVRInput.GetControllerPositionTracked(controller) &&
+                if (!OVRInput.GetControllerPositionTracked(controller) ||
                     !OVRInput.GetControllerOrientationTracked(controller))
                 {
                     position = default;

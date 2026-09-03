@@ -1853,7 +1853,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(observation, Does.Contain(
                 "attention <= 0.0"));
             Assert.That(observation, Does.Contain(
-                "MerkabaFreeDistanceWeight(clearance) * attention"));
+                "float spatialAttention = _M8FineRefineActive != 0u"));
+            Assert.That(observation, Does.Contain(
+                "MerkabaFreeDistanceWeight(clearance) * spatialAttention"));
+            Assert.That(observation, Does.Contain(
+                "? 1.0 : attention"));
             Assert.That(observation, Does.Contain(
                 "float kernelDistance = dot(originToKernel, rayDirection)"));
             Assert.That(observation.IndexOf("attention <= 0.0",

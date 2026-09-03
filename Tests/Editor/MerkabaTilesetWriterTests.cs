@@ -119,9 +119,17 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaArtifactPaintTool.SpatialBrush"));
             Assert.That(viewer, Does.Contain("styled = true"));
             Assert.That(viewer, Does.Contain("version = 2"));
+            Assert.That(viewer, Does.Contain("public bool PlanViewEnabled"));
+            Assert.That(viewer, Does.Contain(
+                "_modelMaterial.EnableKeyword(PlanKeyword)"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
             Assert.That(shader, Does.Contain("_AlphaDither"));
-            Assert.That(shader, Does.Contain("clip(input.color.a - threshold)"));
+            Assert.That(shader, Does.Contain(
+                "#pragma multi_compile_local_fragment _ M8_ARTIFACT_PLAN"));
+            Assert.That(shader, Does.Contain(
+                "displayColor = _PlanColor"));
+            Assert.That(shader, Does.Contain(
+                "clip(displayColor.a - threshold)"));
             Assert.That(setup, Does.Contain(
                 "GetOrAdd<MerkabaArtifactViewer>(scannerObject)"));
             Assert.That(setup, Does.Contain("requiresSystemKeyboard = true"));
@@ -141,6 +149,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(menu, Does.Contain("annotation-note"));
             Assert.That(menu, Does.Contain("btn-tab-paint"));
             Assert.That(menu, Does.Contain("paint-color-swatch"));
+            Assert.That(menu, Does.Contain("btn-tab-plan"));
+            Assert.That(menu, Does.Contain("btn-plan-style"));
+            Assert.That(menu, Does.Contain("paint-color-wheel"));
             Assert.That(picker, Does.Contain("Intent.ACTION_OPEN_DOCUMENT"));
             Assert.That(picker, Does.Contain("byte[] buffer = new byte[1024 * 1024]"));
             Assert.That(picker, Does.Contain("MessageDigest.getInstance("));
@@ -436,7 +447,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(exporter, Does.Contain(
                 "await CaptureSpatialBindingAsync()"));
             Assert.That(exporter, Does.Contain(
-                "await anchor.WaitForActiveSpatialAnchorReadyAsync()"));
+                "await anchor.EnsureSpatialAnchorAsync()"));
+            Assert.That(exporter, Does.Not.Contain(
+                "3D Tiles export requires a localized spatial anchor."));
             Assert.That(exporter, Does.Contain(
                 "anchor.SpatialAnchorMatrix.inverse *\n" +
                 "                _grid.GridToWorldMatrix"));

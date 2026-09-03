@@ -972,8 +972,10 @@ bool ExactFrozenRayClassify(int3 globalCoord, float3 worldPosition,
             return false;
         }
         kind = 1;
+        float spatialAttention = _M8FineRefineActive != 0u
+            ? 1.0 : attention;
         evidenceWeight = quality * quality *
-            MerkabaFreeDistanceWeight(clearance) * attention;
+            MerkabaFreeDistanceWeight(clearance) * spatialAttention;
         rejection = MERKABA_EXACT_REJECT_NONE;
     }
     else
@@ -1641,6 +1643,12 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     int surfaceDelta = max(1, (int)round(
         quality * quality * measurementConfidence * fineWeight *
         MERKABA_SURFACE_SCALE));
+    // A strict, user-selected FINE observation is explicit local authority.
+    // Keep the radial falloff for reinforcement, but do not make the selected
+    // surface wait through automatic-scan admission hysteresis.
+    if (_M8FineRefineActive != 0u)
+        surfaceDelta = max(surfaceDelta,
+            MERKABA_OCCUPIED_ON - state.evidence);
     if (canonicalContinuation)
         surfaceDelta = max(surfaceDelta,
             MERKABA_OCCUPIED_ON - max(state.evidence, 0));

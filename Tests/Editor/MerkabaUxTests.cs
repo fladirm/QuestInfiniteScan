@@ -25,10 +25,14 @@ namespace Genesis.RoomScan.Tests
                          "btn-occlusion", "btn-checker", "btn-artifact-view",
                          "btn-annotation-mode", "btn-annotation-save",
                          "btn-annotation-edit", "btn-annotation-delete",
-                         "btn-tab-scan", "btn-tab-paint", "btn-paint-view",
+                         "btn-tab-scan", "btn-tab-paint", "btn-tab-plan",
+                         "btn-paint-view",
                          "btn-paint-load", "btn-paint-save", "btn-paint-line",
                          "btn-paint-surface", "btn-paint-spatial",
-                         "btn-paint-erase"
+                         "btn-paint-erase", "btn-plan-view", "btn-plan-load",
+                         "btn-plan-style", "btn-plan-annotation-mode",
+                         "btn-plan-annotation-save", "btn-plan-annotation-edit",
+                         "btn-plan-annotation-delete"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
@@ -47,13 +51,19 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Label>("val-artifact"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("scan-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-panel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("plan-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-swatch"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("paint-color-wheel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("paint-color-cursor"), Is.Not.Null);
             foreach (string slider in new[]
                      {
-                         "paint-red", "paint-green", "paint-blue",
-                         "paint-alpha", "paint-width"
+                         "paint-value", "paint-alpha", "paint-width",
+                         "plan-opacity"
                      })
                 Assert.That(root.Q<Slider>(slider), Is.Not.Null, slider);
+            Assert.That(root.Q<Slider>("paint-red"), Is.Null);
+            Assert.That(root.Q<Slider>("paint-green"), Is.Null);
+            Assert.That(root.Q<Slider>("paint-blue"), Is.Null);
             string source = File.ReadAllText(Path.GetFullPath(path));
             Assert.That(source, Does.Contain("Published triangles"));
             Assert.That(source, Does.Contain("Visible chunks"));
@@ -76,6 +86,13 @@ namespace Genesis.RoomScan.Tests
                 "TryGetStoredScanProximity"));
             Assert.That(controller, Does.Contain(
                 "Outside · {proximityDistance:F1} m"));
+            Assert.That(controller, Does.Contain(
+                "Color.HSVToRGB(_paintHue, _paintSaturation"));
+            Assert.That(controller, Does.Contain(
+                "_paintColorWheel.CapturePointer(evt.pointerId)"));
+            Assert.That(controller, Does.Not.Contain("_paintRed"));
+            Assert.That(controller, Does.Not.Contain("_paintGreen"));
+            Assert.That(controller, Does.Not.Contain("_paintBlue"));
             string scanner = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Core/RoomScanner.cs"));
             Assert.That(scanner, Does.Contain("integrationHz = 20f"));
@@ -95,6 +112,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Contain("paint-spatial"));
             Assert.That(viewer, Does.Contain("SurfacePaintPoint"));
             Assert.That(viewer, Does.Contain("WorldToScanPoint"));
+            Assert.That(viewer, Does.Contain("public bool PlanViewEnabled"));
+            Assert.That(viewer, Does.Contain(
+                "_modelMaterial.EnableKeyword(PlanKeyword)"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
 
             string follower = File.ReadAllText(Path.GetFullPath(

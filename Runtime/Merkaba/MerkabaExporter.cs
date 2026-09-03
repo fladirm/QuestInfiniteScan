@@ -265,13 +265,15 @@ namespace Genesis.RoomScan
         private async Task<MerkabaSpatialBinding> CaptureSpatialBindingAsync()
         {
             RoomAnchorManager anchor = RoomAnchorManager.Instance;
-            if (anchor == null || !anchor.HasSpatialAnchor ||
+            if (anchor == null || !anchor.enabled)
+                throw new InvalidOperationException(
+                    "3D Tiles export requires RoomAnchorManager.");
+            if (!await anchor.EnsureSpatialAnchorAsync() ||
+                !anchor.HasSpatialAnchor ||
                 anchor.SpatialAnchorUuid == Guid.Empty)
                 throw new InvalidOperationException(
-                    "3D Tiles export requires a localized spatial anchor.");
-            if (!await anchor.WaitForActiveSpatialAnchorReadyAsync())
-                throw new InvalidOperationException(
-                    "3D Tiles export requires a tracked spatial anchor.");
+                    "3D Tiles export could not create and localize its " +
+                    "persistent spatial anchor.");
             Matrix4x4 anchorFromPackage = anchor.SpatialAnchorMatrix.inverse *
                 _grid.GridToWorldMatrix;
             var binding = new MerkabaSpatialBinding(anchor.SpatialAnchorUuid,

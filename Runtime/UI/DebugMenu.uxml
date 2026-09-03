@@ -17,6 +17,8 @@
             <ui:Button name="btn-tab-scan" text="SCAN"
                 class="mode-tab mode-tab--selected" />
             <ui:Button name="btn-tab-paint" text="PAINT"
+                class="mode-tab" />
+            <ui:Button name="btn-tab-plan" text="PLAN"
                 class="mode-tab mode-tab--last" />
         </ui:VisualElement>
 
@@ -198,28 +200,23 @@
                     class="paint-tool paint-tool--last" />
             </ui:VisualElement>
 
-            <ui:Label text="RGBA" class="section-title" />
+            <ui:Label text="COLOR" class="section-title" />
             <ui:VisualElement class="paint-color-card">
                 <ui:VisualElement name="paint-color-swatch"
                     class="paint-color-swatch" />
+                <ui:VisualElement name="paint-color-wheel"
+                    class="paint-color-wheel">
+                    <ui:VisualElement name="paint-color-cursor"
+                        picking-mode="Ignore" class="paint-color-cursor" />
+                </ui:VisualElement>
                 <ui:VisualElement class="paint-channel-stack">
                     <ui:VisualElement class="paint-channel-row">
-                        <ui:Label text="R" class="paint-channel-label paint-r" />
-                        <ui:Slider name="paint-red" low-value="0" high-value="1"
-                            value="0.1" class="paint-channel-slider" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="paint-channel-row">
-                        <ui:Label text="G" class="paint-channel-label paint-g" />
-                        <ui:Slider name="paint-green" low-value="0" high-value="1"
-                            value="0.8" class="paint-channel-slider" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="paint-channel-row">
-                        <ui:Label text="B" class="paint-channel-label paint-b" />
-                        <ui:Slider name="paint-blue" low-value="0" high-value="1"
+                        <ui:Label text="VALUE" class="paint-channel-label" />
+                        <ui:Slider name="paint-value" low-value="0" high-value="1"
                             value="1" class="paint-channel-slider" />
                     </ui:VisualElement>
                     <ui:VisualElement class="paint-channel-row">
-                        <ui:Label text="A" class="paint-channel-label" />
+                        <ui:Label text="ALPHA" class="paint-channel-label" />
                         <ui:Slider name="paint-alpha" low-value="0.05" high-value="1"
                             value="0.85" class="paint-channel-slider" />
                     </ui:VisualElement>
@@ -234,6 +231,52 @@
                     class="opacity-value" />
             </ui:VisualElement>
             <ui:Label text="Right trigger draws · SURFACE follows model · 3D BRUSH draws at a fixed ray depth · ERASE removes the touched stroke"
+                class="control-hint" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="plan-panel"
+            class="mode-panel mode-panel--hidden">
+            <ui:Label text="ARCHITECTURAL REVIEW" class="section-title" />
+            <ui:Label text="One streamed model · one room anchor · editable survey marks"
+                class="paint-description" />
+            <ui:VisualElement class="paint-action-row">
+                <ui:Button name="btn-plan-view" text="VIEW  OFF"
+                    class="artifact-button" />
+                <ui:Button name="btn-plan-load" text="LOAD MODEL"
+                    class="artifact-button" />
+                <ui:Button name="btn-plan-style" text="PLAN  ON"
+                    class="artifact-button artifact-button--last" />
+            </ui:VisualElement>
+            <ui:VisualElement class="artifact-options-row">
+                <ui:Toggle name="plan-world-lock" label="WORLD LOCK"
+                    value="true" class="artifact-toggle" />
+                <ui:Toggle name="plan-room-align" label="ALIGN 1:1"
+                    value="false" class="artifact-toggle" />
+            </ui:VisualElement>
+            <ui:VisualElement class="opacity-row">
+                <ui:Label text="Plan opacity" class="status-key" />
+                <ui:Slider name="plan-opacity" low-value="0.05" high-value="1"
+                    value="0.45" class="opacity-slider" />
+                <ui:Label name="val-plan-opacity" text="45%"
+                    class="opacity-value" />
+            </ui:VisualElement>
+
+            <ui:Label text="SURVEY MARKS" class="section-title" />
+            <ui:VisualElement class="artifact-row">
+                <ui:Button name="btn-plan-annotation-mode" text="MARK  OFF"
+                    class="artifact-button" />
+                <ui:Button name="btn-plan-annotation-edit" text="TYPE NOTE"
+                    class="artifact-button" />
+                <ui:Button name="btn-plan-annotation-delete" text="DELETE"
+                    class="artifact-button" />
+                <ui:Button name="btn-plan-annotation-save" text="SAVE"
+                    class="artifact-button artifact-button--last" />
+            </ui:VisualElement>
+            <ui:TextField name="plan-annotation-note" label="Selected note"
+                class="annotation-note" />
+            <ui:Label name="val-plan-status" text="Open or load a model"
+                class="artifact-status" />
+            <ui:Label text="MARK cycles POINT · LINE · PLANE · SELECT · MOVE · drag trigger to draw/edit · right grip edits 6DoF"
                 class="control-hint" />
         </ui:VisualElement>
     </ui:VisualElement>

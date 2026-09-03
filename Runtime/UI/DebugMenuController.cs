@@ -16,23 +16,27 @@ namespace Genesis.RoomScan.UI
         private Button _start, _stop, _save, _load, _new, _export,
             _exportTiles, _fine, _readout, _mesh, _occlusion, _checker,
             _artifactView, _artifactLoad, _annotationMode, _annotationSave,
-            _annotationEdit, _annotationDelete, _tabScan, _tabPaint,
+            _annotationEdit, _annotationDelete, _tabScan, _tabPaint, _tabPlan,
             _paintView, _paintLoad, _paintSave, _paintLine, _paintSurface,
-            _paintSpatial, _paintErase;
+            _paintSpatial, _paintErase, _planView, _planLoad, _planStyle,
+            _planAnnotationMode, _planAnnotationSave, _planAnnotationEdit,
+            _planAnnotationDelete;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
         private Label _artifactStatus;
-        private Label _paintStatus, _paintWidthValue;
-        private TextField _annotationNote;
+        private Label _paintStatus, _paintWidthValue, _planStatus,
+            _planOpacityValue;
+        private TextField _annotationNote, _planAnnotationNote;
         private Slider _opacity;
-        private Slider _paintRed, _paintGreen, _paintBlue, _paintAlpha,
-            _paintWidth;
-        private Toggle _artifactWorldLock, _artifactRoomAlign;
+        private Slider _paintValue, _paintAlpha, _paintWidth, _planOpacity;
+        private Toggle _artifactWorldLock, _artifactRoomAlign,
+            _planWorldLock, _planRoomAlign;
         private Slider _fineAngle, _fineDepth;
         private Label _opacityValue, _fineAngleValue, _fineDepthValue;
         private Label _operationSpinner, _operationStage;
         private VisualElement _operationPanel;
-        private VisualElement _scanPanel, _paintPanel, _paintColorSwatch;
+        private VisualElement _scanPanel, _paintPanel, _planPanel,
+            _paintColorSwatch, _paintColorWheel, _paintColorCursor;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
         private MerkabaArtifactViewer _artifactViewer;
@@ -43,7 +47,12 @@ namespace Genesis.RoomScan.UI
         private float _nextProximityRefresh;
         private string _proximityText = "No stored region";
         private StatusKind _proximityKind = StatusKind.Neutral;
-        private bool _paintTabSelected;
+        private MenuTab _selectedTab;
+        private Texture2D _paintWheelTexture;
+        private int _paintWheelPointer = -1;
+        private float _paintHue;
+        private float _paintSaturation;
+        private bool _paintHsvInitialized;
 
         public bool IsVisible => _visible;
 
@@ -61,11 +70,18 @@ namespace Genesis.RoomScan.UI
             _root.style.display = DisplayStyle.None;
             _visible = false;
             Query();
+            InitializePaintColorWheel();
             if (_boundRoot != _root)
             {
                 Bind();
                 _boundRoot = _root;
             }
+        }
+
+        private void OnDestroy()
+        {
+            if (_paintWheelTexture != null)
+                Destroy(_paintWheelTexture);
         }
 
         private void Update()
@@ -120,6 +136,7 @@ namespace Genesis.RoomScan.UI
             _annotationDelete = _root.Q<Button>("btn-annotation-delete");
             _tabScan = _root.Q<Button>("btn-tab-scan");
             _tabPaint = _root.Q<Button>("btn-tab-paint");
+            _tabPlan = _root.Q<Button>("btn-tab-plan");
             _paintView = _root.Q<Button>("btn-paint-view");
             _paintLoad = _root.Q<Button>("btn-paint-load");
             _paintSave = _root.Q<Button>("btn-paint-save");
@@ -127,9 +144,19 @@ namespace Genesis.RoomScan.UI
             _paintSurface = _root.Q<Button>("btn-paint-surface");
             _paintSpatial = _root.Q<Button>("btn-paint-spatial");
             _paintErase = _root.Q<Button>("btn-paint-erase");
+            _planView = _root.Q<Button>("btn-plan-view");
+            _planLoad = _root.Q<Button>("btn-plan-load");
+            _planStyle = _root.Q<Button>("btn-plan-style");
+            _planAnnotationMode = _root.Q<Button>("btn-plan-annotation-mode");
+            _planAnnotationSave = _root.Q<Button>("btn-plan-annotation-save");
+            _planAnnotationEdit = _root.Q<Button>("btn-plan-annotation-edit");
+            _planAnnotationDelete = _root.Q<Button>("btn-plan-annotation-delete");
             _artifactWorldLock = _root.Q<Toggle>("artifact-world-lock");
             _artifactRoomAlign = _root.Q<Toggle>("artifact-room-align");
+            _planWorldLock = _root.Q<Toggle>("plan-world-lock");
+            _planRoomAlign = _root.Q<Toggle>("plan-room-align");
             _annotationNote = _root.Q<TextField>("annotation-note");
+            _planAnnotationNote = _root.Q<TextField>("plan-annotation-note");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
             _kernels = _root.Q<Label>("val-kernels");
@@ -142,18 +169,22 @@ namespace Genesis.RoomScan.UI
             _artifactStatus = _root.Q<Label>("val-artifact");
             _paintStatus = _root.Q<Label>("val-paint-status");
             _paintWidthValue = _root.Q<Label>("val-paint-width");
+            _planStatus = _root.Q<Label>("val-plan-status");
+            _planOpacityValue = _root.Q<Label>("val-plan-opacity");
             _scanPanel = _root.Q<VisualElement>("scan-panel");
             _paintPanel = _root.Q<VisualElement>("paint-panel");
+            _planPanel = _root.Q<VisualElement>("plan-panel");
             _paintColorSwatch = _root.Q<VisualElement>("paint-color-swatch");
+            _paintColorWheel = _root.Q<VisualElement>("paint-color-wheel");
+            _paintColorCursor = _root.Q<VisualElement>("paint-color-cursor");
             _opacity = _root.Q<Slider>("scan-opacity");
             _opacityValue = _root.Q<Label>("val-opacity");
             _fineAngle = _root.Q<Slider>("fine-angle");
             _fineDepth = _root.Q<Slider>("fine-depth");
-            _paintRed = _root.Q<Slider>("paint-red");
-            _paintGreen = _root.Q<Slider>("paint-green");
-            _paintBlue = _root.Q<Slider>("paint-blue");
+            _paintValue = _root.Q<Slider>("paint-value");
             _paintAlpha = _root.Q<Slider>("paint-alpha");
             _paintWidth = _root.Q<Slider>("paint-width");
+            _planOpacity = _root.Q<Slider>("plan-opacity");
             _fineAngleValue = _root.Q<Label>("val-fine-angle");
             _fineDepthValue = _root.Q<Label>("val-fine-depth");
             _operationPanel = _root.Q<VisualElement>("operation-panel");
@@ -224,8 +255,9 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer?.BeginNoteEdit());
             _annotationDelete?.RegisterCallback<ClickEvent>(evt =>
                 _artifactViewer?.DeleteSelectedAnnotation());
-            _tabScan?.RegisterCallback<ClickEvent>(evt => SetPaintTab(false));
-            _tabPaint?.RegisterCallback<ClickEvent>(evt => SetPaintTab(true));
+            _tabScan?.RegisterCallback<ClickEvent>(evt => SetTab(MenuTab.Scan));
+            _tabPaint?.RegisterCallback<ClickEvent>(evt => SetTab(MenuTab.Paint));
+            _tabPlan?.RegisterCallback<ClickEvent>(evt => SetTab(MenuTab.Plan));
             _paintView?.RegisterCallback<ClickEvent>(evt =>
             {
                 _artifactViewer ??=
@@ -248,6 +280,31 @@ namespace Genesis.RoomScan.UI
                 SetPaintTool(MerkabaArtifactPaintTool.SpatialBrush));
             _paintErase?.RegisterCallback<ClickEvent>(evt =>
                 SetPaintTool(MerkabaArtifactPaintTool.Erase));
+            _planView?.RegisterCallback<ClickEvent>(evt =>
+            {
+                EnsureArtifactViewer();
+                if (_artifactViewer != null) _ = _artifactViewer.ToggleAsync();
+            });
+            _planLoad?.RegisterCallback<ClickEvent>(evt =>
+            {
+                EnsureArtifactViewer();
+                _artifactViewer?.RequestPackageFromDisk();
+            });
+            _planStyle?.RegisterCallback<ClickEvent>(evt =>
+            {
+                EnsureArtifactViewer();
+                if (_artifactViewer != null)
+                    _artifactViewer.PlanViewEnabled =
+                        !_artifactViewer.PlanViewEnabled;
+            });
+            _planAnnotationMode?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.CycleAnnotationMode());
+            _planAnnotationSave?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.SaveAnnotations());
+            _planAnnotationEdit?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.BeginNoteEdit());
+            _planAnnotationDelete?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.DeleteSelectedAnnotation());
             _artifactWorldLock?.RegisterValueChangedCallback(evt =>
             {
                 if (_artifactViewer != null)
@@ -258,18 +315,28 @@ namespace Genesis.RoomScan.UI
                 if (_artifactViewer != null)
                     _artifactViewer.RoomAligned = evt.newValue;
             });
+            _planWorldLock?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.WorldLocked = evt.newValue;
+            });
+            _planRoomAlign?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.RoomAligned = evt.newValue;
+            });
             _annotationNote?.RegisterValueChangedCallback(evt =>
             {
                 if (_artifactViewer != null)
                     _artifactViewer.SelectedNote = evt.newValue;
             });
-            _opacity?.RegisterValueChangedCallback(evt =>
+            _planAnnotationNote?.RegisterValueChangedCallback(evt =>
             {
-                RoomScanner scanner = RoomScanner.Instance;
-                if (scanner != null) scanner.ScanOpacity = evt.newValue;
                 if (_artifactViewer != null)
-                    _artifactViewer.PreviewOpacity = evt.newValue;
+                    _artifactViewer.SelectedNote = evt.newValue;
             });
+            _opacity?.RegisterValueChangedCallback(evt =>
+                SetArtifactOpacity(evt.newValue));
             _fineAngle?.RegisterValueChangedCallback(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
@@ -280,34 +347,47 @@ namespace Genesis.RoomScan.UI
                 RoomScanner scanner = RoomScanner.Instance;
                 if (scanner != null) scanner.FineToolDepth = evt.newValue;
             });
-            _paintRed?.RegisterValueChangedCallback(evt =>
-                SetPaintColorChannel(0, evt.newValue));
-            _paintGreen?.RegisterValueChangedCallback(evt =>
-                SetPaintColorChannel(1, evt.newValue));
-            _paintBlue?.RegisterValueChangedCallback(evt =>
-                SetPaintColorChannel(2, evt.newValue));
             _paintAlpha?.RegisterValueChangedCallback(evt =>
-                SetPaintColorChannel(3, evt.newValue));
+                SetPaintAlpha(evt.newValue));
+            _paintValue?.RegisterValueChangedCallback(evt =>
+                SetPaintValue(evt.newValue));
             _paintWidth?.RegisterValueChangedCallback(evt =>
             {
                 if (_artifactViewer != null)
                     _artifactViewer.PaintWidth = evt.newValue;
             });
+            _planOpacity?.RegisterValueChangedCallback(evt =>
+                SetArtifactOpacity(evt.newValue));
+            _paintColorWheel?.RegisterCallback<PointerDownEvent>(
+                OnPaintWheelPointerDown);
+            _paintColorWheel?.RegisterCallback<PointerMoveEvent>(
+                OnPaintWheelPointerMove);
+            _paintColorWheel?.RegisterCallback<PointerUpEvent>(
+                OnPaintWheelPointerUp);
+            _paintColorWheel?.RegisterCallback<PointerCaptureOutEvent>(evt =>
+                _paintWheelPointer = -1);
         }
 
-        private void SetPaintTab(bool paint)
+        private void SetTab(MenuTab tab)
         {
-            _paintTabSelected = paint;
+            _selectedTab = tab;
             if (_scanPanel != null)
-                _scanPanel.style.display = paint
-                    ? DisplayStyle.None : DisplayStyle.Flex;
-            if (_paintPanel != null)
-                _paintPanel.style.display = paint
+                _scanPanel.style.display = tab == MenuTab.Scan
                     ? DisplayStyle.Flex : DisplayStyle.None;
-            _tabScan?.EnableInClassList("mode-tab--selected", !paint);
-            _tabPaint?.EnableInClassList("mode-tab--selected", paint);
+            if (_paintPanel != null)
+                _paintPanel.style.display = tab == MenuTab.Paint
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_planPanel != null)
+                _planPanel.style.display = tab == MenuTab.Plan
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+            _tabScan?.EnableInClassList("mode-tab--selected",
+                tab == MenuTab.Scan);
+            _tabPaint?.EnableInClassList("mode-tab--selected",
+                tab == MenuTab.Paint);
+            _tabPlan?.EnableInClassList("mode-tab--selected",
+                tab == MenuTab.Plan);
             if (_artifactViewer != null)
-                _artifactViewer.PaintInputEnabled = paint;
+                _artifactViewer.PaintInputEnabled = tab == MenuTab.Paint;
             RefreshStatus();
         }
 
@@ -317,13 +397,142 @@ namespace Genesis.RoomScan.UI
             if (_artifactViewer != null) _artifactViewer.PaintTool = tool;
         }
 
-        private void SetPaintColorChannel(int channel, float value)
+        private void EnsureArtifactViewer() => _artifactViewer ??=
+            FindAnyObjectByType<MerkabaArtifactViewer>();
+
+        private void SetArtifactOpacity(float value)
         {
-            _artifactViewer ??= FindAnyObjectByType<MerkabaArtifactViewer>();
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner != null) scanner.ScanOpacity = value;
+            EnsureArtifactViewer();
+            if (_artifactViewer != null) _artifactViewer.PreviewOpacity = value;
+        }
+
+        private void SetPaintAlpha(float alpha)
+        {
+            EnsureArtifactViewer();
             if (_artifactViewer == null) return;
             Color color = _artifactViewer.PaintColor;
-            color[channel] = Mathf.Clamp01(value);
+            color.a = Mathf.Clamp01(alpha);
             _artifactViewer.PaintColor = color;
+        }
+
+        private void SetPaintValue(float value)
+        {
+            EnsureArtifactViewer();
+            if (_artifactViewer == null) return;
+            Color rgb = Color.HSVToRGB(_paintHue, _paintSaturation,
+                Mathf.Clamp01(value));
+            rgb.a = _artifactViewer.PaintColor.a;
+            _artifactViewer.PaintColor = rgb;
+        }
+
+        private void InitializePaintColorWheel()
+        {
+            if (_paintColorWheel == null) return;
+            if (_paintWheelTexture != null)
+            {
+                _paintColorWheel.style.backgroundImage =
+                    new StyleBackground(_paintWheelTexture);
+                return;
+            }
+            const int size = 128;
+            var pixels = new Color32[size * size];
+            float radius = (size - 1) * 0.5f;
+            Vector2 center = Vector2.one * radius;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                Vector2 delta = new Vector2(x, y) - center;
+                float saturation = delta.magnitude / radius;
+                if (saturation > 1f)
+                {
+                    pixels[y * size + x] = new Color32(0, 0, 0, 0);
+                    continue;
+                }
+                float hue = Mathf.Repeat(Mathf.Atan2(delta.y, delta.x) /
+                    (Mathf.PI * 2f), 1f);
+                pixels[y * size + x] = Color.HSVToRGB(hue, saturation, 1f);
+            }
+            _paintWheelTexture = new Texture2D(size, size,
+                TextureFormat.RGBA32, false, false)
+            {
+                name = "Merkaba Paint Color Wheel",
+                hideFlags = HideFlags.DontSave,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            _paintWheelTexture.SetPixels32(pixels);
+            _paintWheelTexture.Apply(false, true);
+            _paintColorWheel.style.backgroundImage =
+                new StyleBackground(_paintWheelTexture);
+        }
+
+        private void OnPaintWheelPointerDown(PointerDownEvent evt)
+        {
+            if (_paintColorWheel == null || evt.button != 0) return;
+            _paintWheelPointer = evt.pointerId;
+            _paintColorWheel.CapturePointer(evt.pointerId);
+            SetPaintWheelPosition(new Vector2(evt.position.x, evt.position.y));
+            evt.StopPropagation();
+        }
+
+        private void OnPaintWheelPointerMove(PointerMoveEvent evt)
+        {
+            if (_paintWheelPointer != evt.pointerId) return;
+            SetPaintWheelPosition(new Vector2(evt.position.x, evt.position.y));
+            evt.StopPropagation();
+        }
+
+        private void OnPaintWheelPointerUp(PointerUpEvent evt)
+        {
+            if (_paintWheelPointer != evt.pointerId) return;
+            SetPaintWheelPosition(new Vector2(evt.position.x, evt.position.y));
+            if (_paintColorWheel.HasPointerCapture(evt.pointerId))
+                _paintColorWheel.ReleasePointer(evt.pointerId);
+            _paintWheelPointer = -1;
+            evt.StopPropagation();
+        }
+
+        private void SetPaintWheelPosition(Vector2 panelPosition)
+        {
+            EnsureArtifactViewer();
+            if (_artifactViewer == null || _paintColorWheel == null) return;
+            Vector2 local = _paintColorWheel.WorldToLocal(panelPosition);
+            float width = _paintColorWheel.contentRect.width;
+            float height = _paintColorWheel.contentRect.height;
+            if (!(width > 0f) || !(height > 0f)) return;
+            Vector2 center = new(width * 0.5f, height * 0.5f);
+            Vector2 delta = local - center;
+            float radius = Mathf.Max(1f, Mathf.Min(width, height) * 0.5f);
+            float magnitude = Mathf.Min(delta.magnitude, radius);
+            if (delta.sqrMagnitude > radius * radius)
+                delta = delta.normalized * radius;
+            _paintHue = Mathf.Repeat(Mathf.Atan2(-delta.y, delta.x) /
+                (Mathf.PI * 2f), 1f);
+            _paintSaturation = magnitude / radius;
+            float value = _paintValue != null ? _paintValue.value : 1f;
+            Color rgb = Color.HSVToRGB(_paintHue, _paintSaturation, value);
+            rgb.a = _artifactViewer.PaintColor.a;
+            _artifactViewer.PaintColor = rgb;
+            _paintHsvInitialized = true;
+            UpdatePaintColorCursor(width, height);
+        }
+
+        private void UpdatePaintColorCursor(float width = -1f,
+            float height = -1f)
+        {
+            if (_paintColorCursor == null || _paintColorWheel == null) return;
+            if (!(width > 0f)) width = _paintColorWheel.contentRect.width;
+            if (!(height > 0f)) height = _paintColorWheel.contentRect.height;
+            if (!(width > 0f) || !(height > 0f)) return;
+            float radius = Mathf.Min(width, height) * 0.5f;
+            float angle = _paintHue * Mathf.PI * 2f;
+            Vector2 point = new(width * 0.5f + Mathf.Cos(angle) *
+                _paintSaturation * radius, height * 0.5f - Mathf.Sin(angle) *
+                _paintSaturation * radius);
+            _paintColorCursor.style.left = point.x - 6f;
+            _paintColorCursor.style.top = point.y - 6f;
         }
 
         private void RefreshStatus()
@@ -389,12 +598,16 @@ namespace Genesis.RoomScan.UI
                 "GLB View unavailable");
             Set(_paintStatus, _artifactViewer?.Status ??
                 "GLB View unavailable");
+            Set(_planStatus, _artifactViewer?.Status ??
+                "GLB View unavailable");
 
             float opacity = scanner.ScanOpacity;
             if (_artifactViewer != null)
                 _artifactViewer.PreviewOpacity = opacity;
             _opacity?.SetValueWithoutNotify(opacity);
             Set(_opacityValue, $"{opacity * 100f:F0}%");
+            _planOpacity?.SetValueWithoutNotify(opacity);
+            Set(_planOpacityValue, $"{opacity * 100f:F0}%");
             _fineAngle?.SetValueWithoutNotify(scanner.FineBrushAngle);
             _fineDepth?.SetValueWithoutNotify(scanner.FineToolDepth);
             Set(_fineAngleValue, $"{scanner.FineBrushAngle:F0}°");
@@ -425,6 +638,22 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer?.WorldLocked ?? true);
             _artifactRoomAlign?.SetValueWithoutNotify(
                 _artifactViewer?.RoomAligned ?? false);
+            _planWorldLock?.SetValueWithoutNotify(
+                _artifactViewer?.WorldLocked ?? true);
+            _planRoomAlign?.SetValueWithoutNotify(
+                _artifactViewer?.RoomAligned ?? false);
+            if (_planAnnotationNote != null)
+                _planAnnotationNote.SetValueWithoutNotify(
+                    _artifactViewer?.SelectedNote ?? string.Empty);
+            if (_planView != null)
+                _planView.text = _artifactViewer != null &&
+                    _artifactViewer.IsOpen ? "VIEW  ON" : "VIEW  OFF";
+            if (_planStyle != null)
+                _planStyle.text = _artifactViewer?.PlanViewEnabled ?? false
+                    ? "PLAN  ON" : "MODEL  ON";
+            if (_planAnnotationMode != null)
+                _planAnnotationMode.text = "MARK  " +
+                    (_artifactViewer?.AnnotationModeText ?? "OFF");
             RefreshPaintControls();
 
             ScanOperationState operation = scanner.CurrentOperation;
@@ -479,21 +708,39 @@ namespace Genesis.RoomScan.UI
             _paintSurface?.SetEnabled(!operationBusy && reviewing);
             _paintSpatial?.SetEnabled(!operationBusy && reviewing);
             _paintErase?.SetEnabled(!operationBusy && reviewing);
+            _planView?.SetEnabled(!operationBusy && _artifactViewer != null);
+            _planLoad?.SetEnabled(!operationBusy && _artifactViewer != null);
+            _planStyle?.SetEnabled(!operationBusy && reviewing);
+            _planAnnotationMode?.SetEnabled(!operationBusy && reviewing);
+            _planAnnotationSave?.SetEnabled(!operationBusy && reviewing);
+            _planAnnotationNote?.SetEnabled(!operationBusy && reviewing);
+            _planAnnotationEdit?.SetEnabled(!operationBusy && reviewing &&
+                (_artifactViewer?.HasSelectedAnnotation ?? false));
+            _planAnnotationDelete?.SetEnabled(!operationBusy && reviewing &&
+                (_artifactViewer?.HasSelectedAnnotation ?? false));
+            _planWorldLock?.SetEnabled(!operationBusy && reviewing);
+            _planRoomAlign?.SetEnabled(!operationBusy && reviewing);
         }
 
         private void RefreshPaintControls()
         {
             if (_artifactViewer == null) return;
-            _artifactViewer.PaintInputEnabled = _paintTabSelected;
+            _artifactViewer.PaintInputEnabled = _selectedTab == MenuTab.Paint;
             Color color = _artifactViewer.PaintColor;
-            _paintRed?.SetValueWithoutNotify(color.r);
-            _paintGreen?.SetValueWithoutNotify(color.g);
-            _paintBlue?.SetValueWithoutNotify(color.b);
+            if (!_paintHsvInitialized)
+            {
+                Color.RGBToHSV(color, out _paintHue, out _paintSaturation,
+                    out _);
+                _paintHsvInitialized = true;
+            }
+            Color.RGBToHSV(color, out _, out _, out float value);
+            _paintValue?.SetValueWithoutNotify(value);
             _paintAlpha?.SetValueWithoutNotify(color.a);
             _paintWidth?.SetValueWithoutNotify(_artifactViewer.PaintWidth);
             Set(_paintWidthValue, $"{_artifactViewer.PaintWidth * 1000f:F0} mm");
             if (_paintColorSwatch != null)
                 _paintColorSwatch.style.backgroundColor = color;
+            UpdatePaintColorCursor();
             MerkabaArtifactPaintTool tool = _artifactViewer.PaintTool;
             _paintLine?.EnableInClassList("paint-tool--selected",
                 tool == MerkabaArtifactPaintTool.Line);
@@ -586,5 +833,6 @@ namespace Genesis.RoomScan.UI
         }
 
         private enum StatusKind { Neutral, Good, Warning, Error }
+        private enum MenuTab { Scan, Paint, Plan }
     }
 }

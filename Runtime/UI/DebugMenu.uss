@@ -356,13 +356,31 @@
     border-radius: 9px;
 }
 .paint-color-swatch {
-    width: 58px;
-    height: 58px;
-    margin-right: 12px;
+    width: 42px;
+    height: 42px;
+    margin-right: 10px;
     background-color: rgba(26, 204, 255, 0.85);
-    border-width: 3px;
+    border-width: 2px;
     border-color: rgba(230, 251, 255, 0.92);
-    border-radius: 29px;
+    border-radius: 21px;
+}
+.paint-color-wheel {
+    width: 112px;
+    height: 112px;
+    min-width: 112px;
+    margin-right: 12px;
+    border-width: 2px;
+    border-color: rgba(230, 251, 255, 0.72);
+    border-radius: 56px;
+}
+.paint-color-cursor {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-width: 2px;
+    border-color: white;
+    border-radius: 6px;
+    background-color: rgba(8, 13, 20, 0.45);
 }
 .paint-channel-stack { flex-grow: 1; flex-direction: column; }
 .paint-channel-row {
@@ -371,14 +389,11 @@
     align-items: center;
 }
 .paint-channel-label {
-    width: 24px;
-    font-size: 10px;
+    width: 52px;
+    font-size: 9px;
     -unity-font-style: bold;
     color: rgb(210, 225, 238);
 }
-.paint-r { color: rgb(255, 105, 105); }
-.paint-g { color: rgb(105, 255, 160); }
-.paint-b { color: rgb(105, 180, 255); }
 .paint-channel-slider { flex-grow: 1; }
 .paint-width-row {
     min-height: 44px;

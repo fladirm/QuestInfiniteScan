@@ -67,6 +67,32 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void ScanAnchorAdmissionIsIndependentOfMrukRoomDiscovery()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string ensure = Slice(scanner,
+                "private async Task EnsureRoomAnchorAsync()",
+                "private void UpdateFineActionBoundary()");
+            Assert.That(ensure, Does.Contain(
+                "await _anchorManager.EnsureSpatialAnchorAsync()"));
+            Assert.That(ensure, Does.Not.Contain("IsRoomLoaded"));
+            Assert.That(ensure, Does.Not.Contain("using the current world frame"));
+            Assert.That(ensure, Does.Contain(
+                "could not be created, persisted, \" +"));
+            Assert.That(ensure, Does.Contain("\"tracked and bound."));
+
+            string manager = Source("Runtime/Core/RoomAnchorManager.cs");
+            string admission = Slice(manager,
+                "internal async Task<bool> EnsureSpatialAnchorAsync()",
+                "/// <summary>\n        /// Creates an");
+            Assert.That(admission, Does.Contain(
+                "CreateAndSaveSpatialAnchorAsync"));
+            Assert.That(admission, Does.Contain(
+                "RoomSpaceRoot.WaitForBindAsync()"));
+            Assert.That(admission, Does.Not.Contain("IsRoomLoaded"));
+        }
+
+        [Test]
         public void PreSuspensionStorageCallbacksCannotSubmitAfterQuiesce()
         {
             string storage = Source(

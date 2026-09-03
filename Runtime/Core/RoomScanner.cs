@@ -66,6 +66,7 @@ namespace Genesis.RoomScan
         private float _lastRgbdLogTime;
         private bool _fineRefineHeld;
         private bool _fineEraseHeld;
+        private bool _fineAuthorityActive;
         private bool _fineCycleArmed;
         private uint _fineMinimumLeftSequence;
         private uint _fineMinimumRightSequence;
@@ -118,18 +119,9 @@ namespace Genesis.RoomScan
                 _fineCycleArmed = false;
                 _fineMinimumSurfaceTargetSequence = _depthCapture != null
                     ? _depthCapture.FineSurfaceTargetIssuedSequence : 0u;
-                if (!fineMode)
-                {
-                    _fineObservationDescriptor = default;
-                    _fineEraseDescriptor = default;
-                    _integrator?.RestoreReadyAutomaticObservationAuthority();
-                    _finePreviewDescriptor = default;
-                    _controllerRay?.SetFineBrushPreview(default,
-                        FineBrushOperation.None);
-                    _renderer?.SetFineSurfacePreview(default, Color.clear);
-                }
             }
         }
+        internal bool FineAuthorityActive => _fineAuthorityActive;
         public float FineBrushAngle
         {
             get => fineBrushAngle;
@@ -233,18 +225,19 @@ namespace Genesis.RoomScan
         private void Update()
         {
             MerkabaGpuTimestamps.Poll();
+            _integrator.TryRetireFineEraseAttempt();
+            _integrator.TryRetireObservationAttempt();
+            UpdateFineAuthorityBoundary();
             UpdateFineActionBoundary();
             UpdateFinePreview();
             if (!IsScanning) return;
             LogRgbdPairing();
-            _integrator.TryRetireFineEraseAttempt();
             if (_integrator.HasPendingFineErase)
             {
                 if (!_integrator.HasFineEraseAttemptInFlight)
                     _integrator.TrySubmitFineEraseAttempt();
                 return;
             }
-            _integrator.TryRetireObservationAttempt();
             if (_integrator.HasPendingObservation)
             {
                 if (!_integrator.HasAttemptInFlight)
@@ -261,12 +254,12 @@ namespace Genesis.RoomScan
                 ArmNextObservation();
                 return;
             }
-            if (fineMode)
+            if (_fineAuthorityActive)
             {
-                // A copied automatic PCA pair is not a FINE observation.
-                // Retire an already prepared transaction, but never admit a
-                // stale unsubmitted automatic pair under manual authority.
-                _integrator.DiscardReadyAutomaticObservation();
+                // Authority transitions retire/discard work before becoming
+                // visible. While an OFF transition is pending, do not admit a
+                // new manual operation.
+                if (!fineMode) return;
                 if (CurrentFineAction() == FineBrushOperation.Erase)
                     UpdateFineErase();
                 else
@@ -589,53 +582,56 @@ namespace Genesis.RoomScan
 
         private async Task EnsureRoomAnchorAsync()
         {
-            if (_anchorManager == null || !_anchorManager.enabled) return;
-            float deadline = Time.realtimeSinceStartup + 10f;
-            while (!_anchorManager.IsRoomLoaded && Time.realtimeSinceStartup < deadline)
-                await Task.Yield();
-            if (!_anchorManager.IsRoomLoaded)
-            {
-                Logger.Warning("MRUK room load timed out; using the current world frame.");
-                return;
-            }
-            if (!_anchorManager.HasSpatialAnchor)
-            {
-                Vector3 position = Camera.main != null
-                    ? Camera.main.transform.position : Vector3.zero;
-                var anchor = await _anchorManager.CreateAndSaveSpatialAnchorAsync(
-                    position, Quaternion.identity);
-                if (!anchor.HasValue)
-                {
-                    Logger.Warning("Spatial anchor creation failed; using MRUK/world fallback.");
-                    return;
-                }
-            }
-            if (RoomSpaceRoot.Instance != null)
-                await RoomSpaceRoot.WaitForBindAsync(5f);
-            if (_anchorManager.HasSpatialAnchor &&
-                !await _anchorManager.WaitForActiveSpatialAnchorReadyAsync())
+            _anchorManager ??= RoomAnchorManager.Instance ??
+                FindAnyObjectByType<RoomAnchorManager>(
+                    FindObjectsInactive.Include);
+            if (_anchorManager == null || !_anchorManager.enabled)
                 throw new InvalidOperationException(
-                    "The room spatial anchor is localized but not tracked.");
+                    "RoomAnchorManager is unavailable for persistent scanning.");
+            if (!await _anchorManager.EnsureSpatialAnchorAsync())
+                throw new InvalidOperationException(
+                    "The room spatial anchor could not be created, persisted, " +
+                    "tracked and bound.");
+        }
+
+        private void UpdateFineAuthorityBoundary()
+        {
+            if (_fineAuthorityActive == fineMode) return;
+            if (_integrator == null ||
+                !_integrator.TrySwitchObservationAuthority())
+                return;
+
+            _fineAuthorityActive = fineMode;
+            _fineCycleArmed = false;
+            _lastFineAction = FineBrushOperation.None;
+            _fineMinimumSurfaceTargetSequence = _depthCapture != null
+                ? _depthCapture.FineSurfaceTargetIssuedSequence : 0u;
+            if (_fineAuthorityActive) return;
+
+            _fineObservationDescriptor = default;
+            _fineEraseDescriptor = default;
+            _finePreviewDescriptor = default;
+            _controllerRay?.SetFineBrushPreview(default,
+                FineBrushOperation.None);
+            _renderer?.SetFineSurfacePreview(default, Color.clear);
         }
 
         private void UpdateFineActionBoundary()
         {
-            FineBrushOperation action = fineMode
+            FineBrushOperation action = _fineAuthorityActive && fineMode
                 ? CurrentFineAction() : FineBrushOperation.None;
             if (action == _lastFineAction) return;
             _lastFineAction = action;
             _fineCycleArmed = false;
             _fineMinimumSurfaceTargetSequence = _depthCapture != null
                 ? _depthCapture.FineSurfaceTargetIssuedSequence : 0u;
-            if (action != FineBrushOperation.None)
-                _integrator?.DiscardReadyAutomaticObservation();
         }
 
         private void UpdateFinePreview()
         {
             _controllerRay ??= FindAnyObjectByType<ControllerRayDriver>(
                 FindObjectsInactive.Include);
-            if (!fineMode || _controllerRay == null)
+            if (!_fineAuthorityActive || _controllerRay == null)
             {
                 _finePreviewDescriptor = default;
                 _controllerRay?.SetFineBrushPreview(default,
@@ -644,13 +640,21 @@ namespace Genesis.RoomScan
                 return;
             }
 
-            FineBrushOperation action = CurrentFineAction();
+            FineBrushOperation action = fineMode
+                ? CurrentFineAction() : FineBrushOperation.None;
             FineBrushOperation previewOperation = action ==
                 FineBrushOperation.None ? FineBrushOperation.Preview : action;
-            bool hasLiveDescriptor = TryCreateFineDescriptor(previewOperation,
-                out FineBrushDescriptor liveDescriptor,
-                out bool cursorOnSurface);
-            if (hasLiveDescriptor)
+            FineBrushDescriptor liveDescriptor = default;
+            bool cursorOnSurface = false;
+            bool hasLiveDescriptor = fineMode && TryCreateFineDescriptor(
+                previewOperation, out liveDescriptor, out cursorOnSurface);
+            if (TryGetPendingFineDescriptor(out FineBrushDescriptor pending))
+            {
+                _finePreviewDescriptor = pending;
+                cursorOnSurface = true;
+                action = pending.Operation;
+            }
+            else if (hasLiveDescriptor)
                 _finePreviewDescriptor = liveDescriptor;
             else
             {
@@ -664,6 +668,26 @@ namespace Genesis.RoomScan
             _controllerRay.SetFineBrushPreview(_finePreviewDescriptor, action,
                 cursorOnSurface);
             _renderer?.SetFineSurfacePreview(_finePreviewDescriptor, color);
+        }
+
+        private bool TryGetPendingFineDescriptor(
+            out FineBrushDescriptor descriptor)
+        {
+            if (_integrator != null && _integrator.HasPendingFineErase &&
+                _fineEraseDescriptor.IsErase)
+            {
+                descriptor = _fineEraseDescriptor;
+                return true;
+            }
+            if (_fineObservationDescriptor.IsRefine &&
+                (_fineCycleArmed ||
+                 (_integrator?.HasPendingObservation ?? false)))
+            {
+                descriptor = _fineObservationDescriptor;
+                return true;
+            }
+            descriptor = default;
+            return false;
         }
 
         private void UpdateFineRefine()

@@ -51,6 +51,9 @@ namespace Genesis.RoomScan.UI
         private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
         private static readonly int AlphaDitherId =
             Shader.PropertyToID("_AlphaDither");
+        private static readonly int PlanColorId =
+            Shader.PropertyToID("_PlanColor");
+        private const string PlanKeyword = "M8_ARTIFACT_PLAN";
 
         [SerializeField] internal Shader previewShader;
         [SerializeField] private float initialPreviewSize = 0.65f;
@@ -58,6 +61,8 @@ namespace Genesis.RoomScan.UI
         [SerializeField] private float minimumPreviewScale = 0.025f;
         [SerializeField] private Color backdropColor =
             new(0.025f, 0.04f, 0.065f, 0.42f);
+        [SerializeField] private Color architecturalPlanColor =
+            new(0.32f, 0.95f, 0.68f, 1f);
 
         private MerkabaExporter _exporter;
         private RoomScanner _scanner;
@@ -92,6 +97,7 @@ namespace Genesis.RoomScan.UI
         private bool _alignmentPending;
         private bool _packagePickerPending;
         private bool _paintInputEnabled;
+        private bool _planViewEnabled;
         private bool _paintStrokeActive;
         private bool _hasSavedPreviewTransform;
         private bool _savedQueriesHitBackfaces;
@@ -206,6 +212,19 @@ namespace Genesis.RoomScan.UI
         {
             get => _roomAligned;
             set => _ = SetRoomAlignedAsync(value);
+        }
+        public bool PlanViewEnabled
+        {
+            get => _planViewEnabled;
+            set
+            {
+                if (_planViewEnabled == value) return;
+                _planViewEnabled = value;
+                ApplyPreviewOpacity();
+                Status = value
+                    ? "Architectural plan view enabled"
+                    : "Measured GLB model view enabled";
+            }
         }
         public float PreviewOpacity
         {
@@ -1160,6 +1179,15 @@ namespace Genesis.RoomScan.UI
             bool visible = _previewOpacity > 0.001f;
             ConfigureMaterial(_modelMaterial,
                 new Color(1f, 1f, 1f, _previewOpacity), true);
+            if (_planViewEnabled)
+            {
+                Color plan = architecturalPlanColor;
+                plan.a = _previewOpacity;
+                _modelMaterial.SetColor(PlanColorId, plan);
+                _modelMaterial.EnableKeyword(PlanKeyword);
+            }
+            else
+                _modelMaterial.DisableKeyword(PlanKeyword);
             _modelMaterial.SetFloat(AlphaDitherId,
                 _previewOpacity < 0.999f ? 1f : 0f);
             foreach (Tile tile in _tiles)

@@ -90,9 +90,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(depthTarget, Does.Contain(
                 "void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)"));
             Assert.That(depthTarget, Does.Contain(
-                "gsFineRayOrigin + gsFineRayDirection * hitDistance"));
+                "bool FineRayDepthDelta(float rayDistance"));
             Assert.That(depthTarget, Does.Contain(
-                "gsFineTarget[1] = valid ? float4(bestNormal, 0.0)"));
+                "previousDelta < 0.0 && sampleDelta >= 0.0"));
+            Assert.That(depthTarget, Does.Contain(
+                "for (uint iteration = 0u; iteration < 8u; iteration++)"));
+            Assert.That(depthTarget, Does.Contain(
+                "gsFineRayOrigin +\n        gsFineRayDirection * upperDistance"));
+            Assert.That(depthTarget, Does.Not.Contain(
+                "dot(planePoint - gsFineRayOrigin, planeNormal)"));
         }
 
         [Test]
@@ -122,7 +128,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Contain(
                 "quality * quality * measurementConfidence * fineWeight *"));
             Assert.That(integration, Does.Contain(
+                "MERKABA_OCCUPIED_ON - state.evidence"));
+            Assert.That(integration, Does.Contain(
                 "evidenceWeight *= M8FineWeight(worldPosition)"));
+            Assert.That(integration, Does.Contain(
+                "? 1.0 : attention"));
             Assert.That(scanner, Does.Contain("RequestFreshDepthFrame()"));
             Assert.That(scanner, Does.Contain("_fineMinimumLeftSequence"));
             Assert.That(scanner, Does.Contain("_fineMinimumRightSequence"));
@@ -142,10 +152,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(scanner, Does.Contain(
                 "TryCreateFineDescriptor(FineBrushOperation.Erase,"));
             Assert.That(scanner, Does.Contain(
-                "if (hasLiveDescriptor)\n" +
-                "                _finePreviewDescriptor = liveDescriptor;"));
-            Assert.That(scanner, Does.Not.Contain(
-                "TryGetPendingFineDescriptor"));
+                "TryGetPendingFineDescriptor(out FineBrushDescriptor pending)"));
+            Assert.That(scanner, Does.Contain(
+                "_finePreviewDescriptor = pending;"));
+            Assert.That(scanner, Does.Contain(
+                "action = pending.Operation;"));
             Assert.That(scanner, Does.Contain(
                 "Vector3.Distance(eyeOrigin, cursorPosition)"));
             Assert.That(scanner, Does.Contain("_fineCycleArmed = false;"));
@@ -175,25 +186,57 @@ namespace Genesis.RoomScan.Tests
             string input = Source("Runtime/RoomScanInputHandler.cs");
             string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
 
-            Assert.That(scanner, Does.Contain("if (fineMode)"));
+            Assert.That(scanner, Does.Contain("if (_fineAuthorityActive)"));
             Assert.That(scanner, Does.Contain("UpdateFineRefine();"));
             Assert.That(scanner, Does.Contain(
                 "_cameraProvider.TryGetSynchronizedFrame(\n                    depthUnixSeconds, availableSkew,\n                    out StereoCameraFrame cameraFrame)"));
             Assert.That(integrator, Does.Contain(
                 "return SetStereoCameraData(frame, default);"));
-            Assert.That(scanner, Does.Contain(
-                "_integrator?.RestoreReadyAutomaticObservationAuthority();"));
             Assert.That(integrator, Does.Contain(
-                "_cameraFineBrush[_readyCameraSlot] = default;"));
+                "internal bool TrySwitchObservationAuthority()"));
             Assert.That(scanner, Does.Contain(
-                "_integrator.DiscardReadyAutomaticObservation();"));
+                "_integrator.TrySwitchObservationAuthority()"));
             Assert.That(integrator, Does.Contain(
-                "internal bool DiscardReadyAutomaticObservation()"));
+                "_cameraPairAvailable[_readyCameraSlot] = false;"));
+            Assert.That(integrator, Does.Not.Contain(
+                "RestoreReadyAutomaticObservationAuthority"));
+            Assert.That(integrator, Does.Not.Contain(
+                "DiscardReadyAutomaticObservation"));
             Assert.That(refine, Does.Contain(
                 "_M8FineRefineActive != 0u &&"));
             Assert.That(input, Does.Contain("OVRInput.RawButton.RIndexTrigger"));
             Assert.That(input, Does.Contain("OVRInput.RawButton.RHandTrigger"));
             Assert.That(input, Does.Not.Contain("GetDown(OVRInput.RawButton"));
+        }
+
+        [Test]
+        public void FineAuthorityAndControllerPoseFailClosed()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string integrator = Source(
+                "Runtime/Merkaba/MerkabaIntegrator.cs");
+            string controller = Source(
+                "Runtime/UI/ControllerRayDriver.cs");
+
+            int retireErase = scanner.IndexOf(
+                "_integrator.TryRetireFineEraseAttempt()",
+                System.StringComparison.Ordinal);
+            int retireObservation = scanner.IndexOf(
+                "_integrator.TryRetireObservationAttempt()",
+                System.StringComparison.Ordinal);
+            int switchAuthority = scanner.IndexOf(
+                "UpdateFineAuthorityBoundary();",
+                System.StringComparison.Ordinal);
+            Assert.That(switchAuthority, Is.GreaterThan(retireErase));
+            Assert.That(switchAuthority, Is.GreaterThan(retireObservation));
+            Assert.That(integrator, Does.Contain(
+                "_observationPrepared || _attemptInFlight ||"));
+            Assert.That(integrator, Does.Contain(
+                "_fineErasePrepared ||\n                _fineEraseAttemptInFlight"));
+            Assert.That(controller, Does.Contain(
+                "!OVRInput.GetControllerPositionTracked(controller) ||"));
+            Assert.That(controller, Does.Contain(
+                "!OVRInput.GetControllerOrientationTracked(controller)"));
         }
 
         [Test]

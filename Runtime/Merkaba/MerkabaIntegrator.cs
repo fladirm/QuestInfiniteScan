@@ -406,27 +406,24 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        internal void RestoreReadyAutomaticObservationAuthority()
-        {
-            if (_readyCameraSlot >= 0)
-                _cameraFineBrush[_readyCameraSlot] = default;
-        }
-
         /// <summary>
-        /// Drops an unsubmitted automatic PCA pair when FINE takes authority.
-        /// A prepared/in-flight observation is immutable and is deliberately
-        /// left to retire at the transaction boundary.
+        /// Changes observation authority only at a transaction boundary.
+        /// An already prepared/in-flight observation is immutable and must
+        /// retire first. An unsubmitted stereo pair is discarded rather than
+        /// being reinterpreted under the other authority.
         /// </summary>
-        internal bool DiscardReadyAutomaticObservation()
+        internal bool TrySwitchObservationAuthority()
         {
             if (_observationPrepared || _attemptInFlight ||
-                _cameraObservationHeld || _readyCameraSlot < 0 ||
-                !_cameraPairAvailable[_readyCameraSlot] ||
-                _cameraFineBrush[_readyCameraSlot].IsActive)
+                _cameraObservationHeld || _fineErasePrepared ||
+                _fineEraseAttemptInFlight)
                 return false;
-            _cameraPairAvailable[_readyCameraSlot] = false;
-            _cameraFineBrush[_readyCameraSlot] = default;
-            _readyCameraSlot = -1;
+            if (_readyCameraSlot >= 0)
+            {
+                _cameraPairAvailable[_readyCameraSlot] = false;
+                _cameraFineBrush[_readyCameraSlot] = default;
+                _readyCameraSlot = -1;
+            }
             return true;
         }
 

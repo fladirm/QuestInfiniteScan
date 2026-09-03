@@ -29,6 +29,7 @@ namespace Genesis.RoomScan
 
         private OVRSpatialAnchor _activeSpatialAnchor;
         private readonly List<OVRSpatialAnchor.UnboundAnchor> _unboundAnchors = new();
+        private Task<bool> _ensureSpatialAnchorTask;
 
         private void Awake()
         {
@@ -212,6 +213,60 @@ namespace Genesis.RoomScan
         /// <summary>UUID of the active spatial anchor, or <see cref="Guid.Empty"/>.</summary>
         public Guid SpatialAnchorUuid =>
             _activeSpatialAnchor != null ? _activeSpatialAnchor.Uuid : Guid.Empty;
+
+        /// <summary>
+        /// Ensures that the current room frame has one persisted, tracked
+        /// spatial anchor. This is intentionally independent of MRUK room
+        /// discovery: a spatial anchor can be created at the tracked headset
+        /// pose even when no Scene room has been captured on the device.
+        /// Concurrent callers share the same creation attempt.
+        /// </summary>
+        internal async Task<bool> EnsureSpatialAnchorAsync()
+        {
+            if (_activeSpatialAnchor != null)
+            {
+                if (!await WaitForActiveSpatialAnchorReadyAsync())
+                    return false;
+                return RoomSpaceRoot.Instance != null &&
+                    await RoomSpaceRoot.WaitForBindAsync();
+            }
+
+            Task<bool> pending = _ensureSpatialAnchorTask;
+            if (pending == null || pending.IsCompleted)
+            {
+                pending = EnsureSpatialAnchorCoreAsync();
+                _ensureSpatialAnchorTask = pending;
+            }
+
+            try
+            {
+                return await pending;
+            }
+            finally
+            {
+                if (ReferenceEquals(_ensureSpatialAnchorTask, pending))
+                    _ensureSpatialAnchorTask = null;
+            }
+        }
+
+        private async Task<bool> EnsureSpatialAnchorCoreAsync()
+        {
+            Camera camera = Camera.main;
+            Vector3 position = camera != null
+                ? camera.transform.position
+                : (_anchorTransform != null
+                    ? _anchorTransform.position : Vector3.zero);
+            var created = await CreateAndSaveSpatialAnchorAsync(position,
+                Quaternion.identity);
+            if (!created.HasValue)
+                return false;
+            if (RoomSpaceRoot.Instance == null)
+            {
+                Logger.Error("Spatial anchor exists, but RoomSpaceRoot is missing.");
+                return false;
+            }
+            return await RoomSpaceRoot.WaitForBindAsync();
+        }
 
         /// <summary>
         /// Creates an <see cref="OVRSpatialAnchor"/> at the given world pose, waits for
