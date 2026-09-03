@@ -6,6 +6,7 @@ using NUnit.Framework;
 using UnityEditor;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.Tests
 {
@@ -887,9 +888,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Contain("vertex.gridPosition"));
             Assert.That(renderer, Does.Not.Contain("Graphics.DrawProceduralIndirect("));
             Assert.That(renderer, Does.Contain(
-                "_grid.GetM8ReadoutIndices(front)"));
+                "_grid.GetM8ReadoutMesh(front)"));
             Assert.That(renderer, Does.Contain(
-                "if (_slotMeshReadout[front])"));
+                "DrawMeshInstancedIndirectProfiled(mesh, 0"));
             Assert.That(feature, Does.Contain("RecordRenderPass(context.cmd)"));
             Assert.That(renderer, Does.Not.Contain("VisibleSlotAt"));
             Assert.That(renderer, Does.Not.Contain("for (int visible"));
@@ -1192,15 +1193,21 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void LiveVertexPath_ReadsOnlyDrawReadyReadoutVertex()
+        public void LiveVertexPath_UsesFixedFunctionMeshStreamsOnly()
         {
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
             Assert.That(shader, Does.Contain(
-                "_M8ReadoutVertices0[input.vertexID]"));
+                "float3 gridPosition0 : POSITION"));
             Assert.That(shader, Does.Contain(
-                "_M8ReadoutVertices1["));
+                "half4 packedColor0 : COLOR"));
             Assert.That(shader, Does.Contain(
-                "input.vertexID - 6291456u"));
+                "float3 gridPosition1 : TEXCOORD0"));
+            Assert.That(shader, Does.Contain(
+                "half4 packedColor1 : TEXCOORD1"));
+            Assert.That(shader, Does.Contain(
+                "unity_StereoEyeIndex == 0"));
+            Assert.That(shader, Does.Not.Contain("StructuredBuffer"));
+            Assert.That(shader, Does.Not.Contain("SV_VertexID"));
             Assert.That(shader, Does.Not.Contain(
                 "MerkabaCanonicalPrimitivePosition"));
             Assert.That(shader, Does.Not.Contain("primitiveId"));
@@ -1233,14 +1240,21 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Not.Contain("GraphicsFence"));
             Assert.That(renderer + gpu, Does.Not.Contain("ReadoutBank"));
             Assert.That(renderer + gpu, Does.Not.Contain("ReadoutChunk"));
+            Assert.That(gpu, Does.Contain("new Mesh[2]"));
+            Assert.That(gpu, Does.Contain("new GraphicsBuffer[2]"));
             Assert.That(gpu, Does.Contain(
-                "new ComputeBuffer[2]"));
+                "_m8ReadoutMeshes[slot] = AllocateReadoutMesh(slot)"));
+            Assert.That(gpu, Does.Contain("mesh.UploadMeshData(true)"));
             Assert.That(gpu, Does.Contain(
-                "_m8ReadoutVertices0[slot] = Allocate("));
+                "vertices0 = mesh.GetVertexBuffer(0)"));
             Assert.That(gpu, Does.Contain(
-                "_m8ReadoutVertices1[slot] = Allocate("));
+                "vertices1 = mesh.GetVertexBuffer(1)"));
             Assert.That(gpu, Does.Contain(
-                "_m8ReadoutIndices[slot] = AllocateGraphics("));
+                "indices = mesh.GetIndexBuffer()"));
+            Assert.That(gpu, Does.Contain(
+                "_m8ReadoutVertices0[slot] = vertices0"));
+            Assert.That(gpu, Does.Contain(
+                "_m8ReadoutIndices[slot] = indices"));
             Assert.That(gpu, Does.Contain(
                 "_m8DrawArgs[slot] = Allocate("));
             Assert.That(gpu, Does.Contain(
@@ -1259,6 +1273,8 @@ namespace Genesis.RoomScan.Tests
                 "SetComputeBufferParam(readoutCompute, _finalizeKernel"));
             Assert.That(renderer, Does.Contain(
                 "int front = _frontReadout;"));
+            Assert.That(renderer, Does.Contain(
+                "DrawMeshInstancedIndirectProfiled(mesh, 0"));
             Assert.That(renderer, Does.Contain(
                 "_frontReadout = ticket.Slot;"));
             Assert.That(renderer, Does.Contain(
@@ -1316,6 +1332,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(readout, Does.Contain(
                 "M8_MESH_MAX_EDGE_LENGTH 0.150"));
             Assert.That(readout, Does.Contain("M8MeshInsideEnvelope"));
+            Assert.That(readout, Does.Contain(
+                "void M8StoreMeshIdentityIndices"));
             Assert.That(readout, Does.Not.Contain("M8MeshJumpFlood"));
             string project = Slice(readout,
                 "void ProjectReadoutMeshPins", "struct M8MeshVertex");
@@ -1326,6 +1344,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(build, Does.Not.Contain("[loop]"));
             Assert.That(build, Does.Not.Contain("for ("));
             Assert.That(build, Does.Not.Contain("while ("));
+            Assert.That(build, Does.Contain(
+                "M8StoreMeshIdentityIndices(outputVertex)"));
             Assert.That(shader, Does.Contain("M8_STEREO_MESH"));
             Assert.That(shader, Does.Contain(
                 "unity_StereoEyeIndex == 0"));
@@ -1402,15 +1422,21 @@ namespace Genesis.RoomScan.Tests
                 MerkabaGrid.ReadoutTriangleCapacityPerBuffer;
             uint boundaryVertex = boundaryTriangle * 3u - (uint)
                 MerkabaGrid.ReadoutVertexCapacityPerBuffer;
-            Assert.That(boundaryVertex, Is.Zero,
-                "buffer 1 is the consecutive half of one logical stream");
+            Assert.That(boundaryVertex, Is.Zero);
             Assert.That(readout, Does.Contain("struct MerkabaReadoutVertex"));
             Assert.That(readout, Does.Contain(
                 "vertex.gridPosition = gridPosition"));
             Assert.That(readout, Does.Contain(
-                "_M8ReadoutVertices0[outputVertex] = vertex"));
+                "M8StoreReadoutVertex0(outputVertex, vertex)"));
+            string standardStore = Slice(readout,
+                "void M8StoreReadoutVertex(uint outputVertex",
+                "uint M8EncodeReadoutSheet");
+            Assert.That(standardStore, Does.Not.Contain(
+                "M8StoreReadoutVertex1"));
             Assert.That(readout, Does.Contain(
-                "_M8ReadoutVertices1[outputVertex] = vertex"));
+                "RWByteAddressBuffer _M8ReadoutVertices0"));
+            Assert.That(readout, Does.Contain(
+                "_M8ReadoutVertices0.Store3(address"));
             Assert.That(readout, Does.Contain(
                 "_M8ReadoutIndices.Store(outputIndex * 4u, outputVertex)"));
             Assert.That(readout, Does.Contain(
@@ -1422,7 +1448,67 @@ namespace Genesis.RoomScan.Tests
             Assert.That(readout, Does.Not.Contain("MerkabaReadoutCubeTriangle"));
             Assert.That(readout, Does.Not.Contain("half3(0.55h"));
             Assert.That(shader, Does.Contain("half3(0.55h, 0.16h, 0.42h)"));
-            Assert.That(shader, Does.Contain("packedColor >> 24u"));
+            Assert.That(shader, Does.Contain(
+                "round(saturate(packedColor.a) *"));
+            Assert.That(shader, Does.Contain(
+                "#if defined(M8_STEREO_MESH)"));
+            Assert.That(shader, Does.Not.Contain("SV_VertexID"));
+        }
+
+        [Test]
+        public void ReadoutMesh_DiscardsCpuShadowAndRetainsRawGpuHandles()
+        {
+            var mesh = new Mesh();
+            try
+            {
+                mesh.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
+                mesh.indexBufferTarget |= GraphicsBuffer.Target.Raw;
+                mesh.SetVertexBufferParams(4,
+                    new VertexAttributeDescriptor(VertexAttribute.Position,
+                        VertexAttributeFormat.Float32, 3, 0),
+                    new VertexAttributeDescriptor(VertexAttribute.Color,
+                        VertexAttributeFormat.UNorm8, 4, 0),
+                    new VertexAttributeDescriptor(VertexAttribute.TexCoord0,
+                        VertexAttributeFormat.Float32, 3, 1),
+                    new VertexAttributeDescriptor(VertexAttribute.TexCoord1,
+                        VertexAttributeFormat.UNorm8, 4, 1));
+                mesh.SetIndexBufferParams(6, IndexFormat.UInt32);
+                mesh.subMeshCount = 1;
+                mesh.SetSubMesh(0, new SubMeshDescriptor(0, 6,
+                    MeshTopology.Triangles),
+                    MeshUpdateFlags.DontRecalculateBounds |
+                    MeshUpdateFlags.DontValidateIndices |
+                    MeshUpdateFlags.DontNotifyMeshUsers);
+                mesh.UploadMeshData(true);
+
+                Assert.That(mesh.isReadable, Is.False);
+                GraphicsBuffer vertex0 = null;
+                GraphicsBuffer vertex1 = null;
+                GraphicsBuffer indices = null;
+                try
+                {
+                    vertex0 = mesh.GetVertexBuffer(0);
+                    vertex1 = mesh.GetVertexBuffer(1);
+                    indices = mesh.GetIndexBuffer();
+                    Assert.That(vertex0, Is.Not.Null);
+                    Assert.That(vertex1, Is.Not.Null);
+                    Assert.That(indices, Is.Not.Null);
+                    Assert.That(vertex0.stride,
+                        Is.EqualTo(MerkabaGrid.ReadoutVertexStride));
+                    Assert.That(vertex1.stride,
+                        Is.EqualTo(MerkabaGrid.ReadoutVertexStride));
+                }
+                finally
+                {
+                    vertex0?.Dispose();
+                    vertex1?.Dispose();
+                    indices?.Dispose();
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(mesh);
+            }
         }
 
         [Test]

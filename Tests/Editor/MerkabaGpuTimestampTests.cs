@@ -280,7 +280,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(managed, Does.Contain("command.IssuePluginEvent"));
             Assert.That(managed, Does.Contain("command.DispatchCompute"));
             Assert.That(managed, Does.Contain(
-                "command.DrawProceduralIndirect"));
+                "command.DrawMeshInstancedIndirect"));
             Assert.That(native, Does.Contain("VK_QUERY_TYPE_TIMESTAMP"));
             Assert.That(native, Does.Contain("vkCmdWriteTimestamp"));
             Assert.That(native, Does.Contain(
@@ -304,7 +304,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(managed, Does.Contain("BlitPcaHistoryProfiled"));
             Assert.That(managed, Does.Contain("Native.CopyBegin"));
             Assert.That(renderer, Does.Contain("DispatchComputeProfiled"));
-            Assert.That(renderer, Does.Contain("DrawProceduralIndirectProfiled"));
+            Assert.That(renderer, Does.Contain(
+                "DrawMeshInstancedIndirectProfiled"));
             Assert.That(renderer, Does.Not.Contain(
                 "Graphics.DrawProceduralIndirect"));
             Assert.That(feature, Does.Contain("AddRasterRenderPass"));
@@ -381,7 +382,7 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Merkaba/MerkabaGridRenderer.cs");
             AssertOrdered(renderer,
                 "TryAcquire(\n                CaptureOwner.Draw",
-                "DrawProceduralIndirectProfiled",
+                "DrawMeshInstancedIndirectProfiled",
                 "End(CaptureOwner.Draw",
                 "Complete(CaptureOwner.Draw");
         }

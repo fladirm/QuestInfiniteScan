@@ -136,6 +136,8 @@ namespace Genesis.RoomScan.Editor
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android,
                 ScriptingImplementation.IL2CPP);
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
+            PlayerSettings.Android.applicationEntry =
+                AndroidApplicationEntry.Activity;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel32;
             PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android,
@@ -316,8 +318,8 @@ namespace Genesis.RoomScan.Editor
                 "android:installLocation=\"auto\">\n" +
                 "  <application android:label=\"@string/app_name\" " +
                 "android:icon=\"@mipmap/app_icon\" android:allowBackup=\"false\">\n" +
-                "    <activity android:name=\"com.unity3d.player.UnityPlayerGameActivity\" " +
-                "android:theme=\"@style/Theme.AppCompat.DayNight.NoActionBar\" " +
+                "    <activity android:name=\"com.unity3d.player.UnityPlayerActivity\" " +
+                "android:theme=\"@style/UnityThemeSelector\" " +
                 "android:launchMode=\"singleTask\" android:exported=\"true\" " +
                 "android:excludeFromRecents=\"true\" " +
                 "android:configChanges=\"locale|fontScale|keyboard|keyboardHidden|mcc|mnc|" +

@@ -25,6 +25,12 @@ namespace Genesis.RoomScan.UI
         private const float RotationSpeed = 75f;
         private const float ZoomSpeed = 1.4f;
         private const float MinimumAnnotationDrag = 0.012f;
+        private const float AnnotationPointRadius = 0.025f;
+        private const float AnnotationLineWidth = 0.01f;
+        private const float AnnotationPlaneAlpha = 0.2f;
+        private const float AnnotationHandleRadius = 0.018f;
+        private const float AnnotationPickRadius = 0.045f;
+        private const float ModelRayDistance = 1000f;
         private const uint GlbMagic = 0x46546c67u;
         private const uint JsonChunkType = 0x4e4f534au;
         private const uint BinaryChunkType = 0x004e4942u;
@@ -44,6 +50,7 @@ namespace Genesis.RoomScan.UI
 
         private MerkabaExporter _exporter;
         private RoomScanner _scanner;
+        private MerkabaGrid _grid;
         private ControllerRayDriver _rayDriver;
         private Transform _modelRoot;
         private Transform _annotationRoot;
@@ -51,10 +58,12 @@ namespace Genesis.RoomScan.UI
         private GameObject _continuationMarker;
         private Material _modelMaterial;
         private Material _annotationMaterial;
+        private Material _annotationPlaneMaterial;
         private Material _backdropMaterial;
         private Material _continuationMaterial;
         private Mesh _pointMarkerMesh;
         private Mesh _continuationMesh;
+        private GameObject _annotationHitPreview;
         private readonly List<Mesh> _annotationMeshes = new();
         private readonly Dictionary<int, GameObject> _annotationObjects = new();
         private readonly List<Tile> _tiles = new();
@@ -67,19 +76,26 @@ namespace Genesis.RoomScan.UI
         private bool _savedReadoutEnabled;
         private bool _savedFineMode;
         private bool _modelGrabActive;
+        private bool _annotationPoseGrabActive;
         private bool _worldLocked = true;
         private bool _roomAligned;
         private bool _hasSavedPreviewTransform;
+        private bool _savedQueriesHitBackfaces;
+        private bool _ownsQueriesHitBackfaces;
         private TouchScreenKeyboard _noteKeyboard;
         private string _noteBeforeKeyboard = string.Empty;
+        private int _noteAnnotationId;
+        private int _noteKeyboardOpenedFrame;
+        private bool _noteKeyboardWasVisible;
         private int _generation;
         private int _tileLoadsInFlight;
         private int _nextAnnotationId = 1;
         private float _nextResidencyRefresh;
         private float _previewOpacity = 1f;
-        private float _grabDistance;
         private Vector3 _scanCenter;
-        private Vector3 _grabOffsetInRayFrame;
+        private ModelGrabMode _modelGrabMode;
+        private OneHandGrab _oneHandGrab;
+        private TwoHandGrab _twoHandGrab;
         private Vector3 _savedPreviewWorldPosition;
         private Quaternion _savedPreviewWorldRotation;
         private Vector3 _savedPreviewScale;
@@ -91,6 +107,11 @@ namespace Genesis.RoomScan.UI
         private int _selectedAnnotationId;
         private Vector3 _moveStart;
         private Vector3[] _moveOriginalPoints;
+        private int _moveHandleIndex = -1;
+        private Plane _movePlane;
+        private AnnotationPoseGrab _annotationPoseGrab;
+        private bool _hasModelHit;
+        private ModelHit _latestModelHit;
         private long _totalModelBytes;
         private long _totalResidentEstimateBytes;
 
@@ -158,6 +179,7 @@ namespace Genesis.RoomScan.UI
         {
             _exporter = GetComponent<MerkabaExporter>();
             _scanner = GetComponent<RoomScanner>();
+            _grid = GetComponent<MerkabaGrid>();
             _rayDriver = FindAnyObjectByType<ControllerRayDriver>();
         }
 
@@ -242,6 +264,9 @@ namespace Genesis.RoomScan.UI
                 _scanner.ReadoutDrawEnabled = false;
                 _scanner.FineMode = false;
                 _displaySuppressed = true;
+                _savedQueriesHitBackfaces = Physics.queriesHitBackfaces;
+                Physics.queriesHitBackfaces = true;
+                _ownsQueriesHitBackfaces = true;
                 CreatePreview(package);
                 LoadAnnotations();
                 IsOpen = true;
@@ -278,6 +303,7 @@ namespace Genesis.RoomScan.UI
             _hasSavedPreviewTransform = false;
             _selectedAnnotationId = 0;
             _moveOriginalPoints = null;
+            _moveHandleIndex = -1;
             CancelTransientInput();
             CloseNoteKeyboard();
             _annotations.Clear();
@@ -295,15 +321,20 @@ namespace Genesis.RoomScan.UI
             _backdrop = null;
             if (_continuationMarker != null) Destroy(_continuationMarker);
             _continuationMarker = null;
+            if (_annotationHitPreview != null) Destroy(_annotationHitPreview);
+            _annotationHitPreview = null;
             if (_modelRoot != null) Destroy(_modelRoot.gameObject);
             _modelRoot = null;
             _annotationRoot = null;
             if (_modelMaterial != null) Destroy(_modelMaterial);
             if (_annotationMaterial != null) Destroy(_annotationMaterial);
+            if (_annotationPlaneMaterial != null)
+                Destroy(_annotationPlaneMaterial);
             if (_backdropMaterial != null) Destroy(_backdropMaterial);
             if (_continuationMaterial != null) Destroy(_continuationMaterial);
             _modelMaterial = null;
             _annotationMaterial = null;
+            _annotationPlaneMaterial = null;
             _backdropMaterial = null;
             _continuationMaterial = null;
             if (_displaySuppressed && _scanner != null)
@@ -312,12 +343,18 @@ namespace Genesis.RoomScan.UI
                 _scanner.FineMode = _savedFineMode;
             }
             _displaySuppressed = false;
+            if (_ownsQueriesHitBackfaces)
+            {
+                Physics.queriesHitBackfaces = _savedQueriesHitBackfaces;
+                _ownsQueriesHitBackfaces = false;
+            }
             if (wasOpen) Status = "GLB View closed";
         }
 
         public void CycleAnnotationMode()
         {
             CancelAnnotationDrag();
+            SetAnnotationHitPreview(false, default);
             _annotationMode = (AnnotationMode)(((int)_annotationMode + 1) %
                 Enum.GetValues(typeof(AnnotationMode)).Length);
             _moveOriginalPoints = null;
@@ -351,10 +388,18 @@ namespace Genesis.RoomScan.UI
             if (_noteKeyboard != null &&
                 _noteKeyboard.status == TouchScreenKeyboard.Status.Visible)
                 return;
+            CloseNoteKeyboard();
             _noteBeforeKeyboard = selected.note ?? string.Empty;
+            _noteAnnotationId = selected.id;
+            _noteKeyboardOpenedFrame = Time.frameCount;
+            _noteKeyboardWasVisible = false;
             _noteKeyboard = TouchScreenKeyboard.Open(_noteBeforeKeyboard,
                 TouchScreenKeyboardType.Default, false, true, false, false,
                 "Annotation note", 512);
+            if (_noteKeyboard != null) _noteKeyboard.characterLimit = 512;
+            Logger.Info($"Merkaba GLB note keyboard requested: " +
+                $"supported={TouchScreenKeyboard.isSupported}, " +
+                $"annotation={_noteAnnotationId}.");
             Status = _noteKeyboard != null
                 ? $"Editing {selected.type} #{selected.id}"
                 : "Quest system keyboard is unavailable";
@@ -364,21 +409,34 @@ namespace Genesis.RoomScan.UI
         {
             if (_noteKeyboard == null) return;
             TouchScreenKeyboard.Status keyboardStatus = _noteKeyboard.status;
-            if (keyboardStatus == TouchScreenKeyboard.Status.Visible)
+            if (keyboardStatus == TouchScreenKeyboard.Status.Visible ||
+                _noteKeyboard.active)
             {
-                SelectedNote = _noteKeyboard.text;
+                _noteKeyboardWasVisible = true;
+                SetAnnotationNote(_noteAnnotationId, _noteKeyboard.text);
                 return;
             }
+            // Android may not report Visible until the overlay owns focus.
+            // Do not interpret the request-frame default state as completion.
+            if (!_noteKeyboardWasVisible &&
+                Time.frameCount <= _noteKeyboardOpenedFrame + 2)
+                return;
             if (keyboardStatus == TouchScreenKeyboard.Status.Canceled)
-                SelectedNote = _noteBeforeKeyboard;
+                SetAnnotationNote(_noteAnnotationId, _noteBeforeKeyboard);
             else
-                SelectedNote = _noteKeyboard.text;
-            AnnotationRecord selected = FindSelectedAnnotation();
+                SetAnnotationNote(_noteAnnotationId, _noteKeyboard.text);
+            AnnotationRecord selected = _annotations.Find(item =>
+                item.id == _noteAnnotationId);
             if (selected != null)
                 Status = keyboardStatus == TouchScreenKeyboard.Status.Canceled
                     ? $"Note unchanged for {selected.type} #{selected.id}"
                     : $"Updated note for {selected.type} #{selected.id}";
+            Logger.Info($"Merkaba GLB note keyboard retired: " +
+                $"status={keyboardStatus}, annotation={_noteAnnotationId}.");
             _noteKeyboard = null;
+            _noteBeforeKeyboard = string.Empty;
+            _noteAnnotationId = 0;
+            _noteKeyboardWasVisible = false;
         }
 
         private void CloseNoteKeyboard()
@@ -387,6 +445,15 @@ namespace Genesis.RoomScan.UI
                 _noteKeyboard.active = false;
             _noteKeyboard = null;
             _noteBeforeKeyboard = string.Empty;
+            _noteAnnotationId = 0;
+            _noteKeyboardWasVisible = false;
+        }
+
+        private void SetAnnotationNote(int annotationId, string value)
+        {
+            AnnotationRecord annotation = _annotations.Find(item =>
+                item.id == annotationId);
+            if (annotation != null) annotation.note = value ?? string.Empty;
         }
 
         public void SaveAnnotations()
@@ -446,6 +513,12 @@ namespace Genesis.RoomScan.UI
                 hideFlags = HideFlags.DontSave
             };
             ConfigureMaterial(_annotationMaterial, Color.white, false);
+            _annotationPlaneMaterial = new Material(previewShader)
+            {
+                name = "Merkaba GLB Annotation Planes",
+                hideFlags = HideFlags.DontSave
+            };
+            ConfigureMaterial(_annotationPlaneMaterial, Color.white, false);
             _previewOpacity = _scanner != null ? _scanner.ScanOpacity : 1f;
             ApplyPreviewOpacity();
 
@@ -474,28 +547,56 @@ namespace Genesis.RoomScan.UI
             _rayDriver ??= FindAnyObjectByType<ControllerRayDriver>();
             bool rightGrip = OVRInput.Get(
                 OVRInput.Button.SecondaryHandTrigger);
-            if (!_roomAligned && _rayDriver != null && rightGrip &&
-                _rayDriver.TryGetWorldRay(out Vector3 moveOrigin,
-                    out Vector3 moveDirection))
+            bool leftGrip = OVRInput.Get(OVRInput.Button.PrimaryHandTrigger);
+            Vector3 rightPosition = default;
+            Quaternion rightRotation = default;
+            bool hasRightPose = _rayDriver != null &&
+                _rayDriver.TryGetWorldPose(out rightPosition,
+                    out rightRotation);
+            Vector3 leftPosition = default;
+            Quaternion leftRotation = default;
+            bool hasLeftPose = _rayDriver != null &&
+                _rayDriver.TryGetLeftWorldPose(out leftPosition,
+                    out leftRotation);
+            Vector3 rayOrigin = default;
+            Vector3 rayDirection = default;
+            bool hasRay = _rayDriver != null &&
+                _rayDriver.TryGetWorldRay(out rayOrigin,
+                    out rayDirection);
+            var ray = new Ray(rayOrigin, rayDirection);
+
+            if (!_roomAligned && rightGrip && hasRightPose && hasRay &&
+                (_annotationPoseGrabActive || TryBeginAnnotationPoseGrab(ray,
+                    rightPosition, rightRotation)))
             {
-                if (!_modelGrabActive)
-                    BeginModelGrab(moveOrigin, moveDirection);
-                ContinueModelGrab(moveOrigin, moveDirection);
+                ContinueAnnotationPoseGrab(rightPosition, rightRotation);
                 return;
             }
-            _modelGrabActive = false;
+            _annotationPoseGrabActive = false;
+
+            if (!_roomAligned && rightGrip && leftGrip && hasRightPose &&
+                hasLeftPose)
+            {
+                ContinueTwoHandModelGrab(leftPosition, leftRotation,
+                    rightPosition, rightRotation);
+                return;
+            }
+            if (!_roomAligned && rightGrip && hasRightPose)
+            {
+                ContinueOneHandModelGrab(rightPosition, rightRotation);
+                return;
+            }
+            EndModelGrab();
 
             Camera camera = Camera.main;
             Vector2 leftStick = ApplyDeadZone(OVRInput.Get(
                 OVRInput.Axis2D.PrimaryThumbstick));
-            bool leftGrip = OVRInput.Get(OVRInput.Button.PrimaryHandTrigger);
             if (!_roomAligned && leftGrip && Mathf.Abs(leftStick.y) > 0f)
             {
                 float scale = Mathf.Clamp(_modelRoot.localScale.x *
                     Mathf.Exp(leftStick.y * ZoomSpeed * Time.unscaledDeltaTime),
                     0.002f, 2f);
                 _modelRoot.localScale = Vector3.one * scale;
-                RefreshAnnotationObjects();
             }
             else if (!_roomAligned && camera != null &&
                      leftStick.sqrMagnitude > 0f)
@@ -522,10 +623,12 @@ namespace Genesis.RoomScan.UI
                     rightStick.y * RotationSpeed * Time.unscaledDeltaTime,
                     Space.World);
 
-            if (_rayDriver == null || _rayDriver.IsPointingAtUi ||
-                !_rayDriver.TryGetWorldRay(out Vector3 origin,
-                    out Vector3 direction)) return;
-            var ray = new Ray(origin, direction);
+            if (!hasRay || _rayDriver.IsPointingAtUi)
+            {
+                SetAnnotationHitPreview(false, default);
+                return;
+            }
+            UpdateAnnotationHitPreview(ray);
             bool triggerDown = OVRInput.GetDown(
                 OVRInput.Button.SecondaryIndexTrigger);
             bool triggerHeld = OVRInput.Get(
@@ -536,7 +639,11 @@ namespace Genesis.RoomScan.UI
             {
                 if (triggerDown) BeginMove(ray);
                 if (triggerHeld) ContinueMove(ray);
-                if (triggerUp) _moveOriginalPoints = null;
+                if (triggerUp)
+                {
+                    _moveOriginalPoints = null;
+                    _moveHandleIndex = -1;
+                }
             }
             else if (_annotationMode == AnnotationMode.Select)
             {
@@ -564,36 +671,133 @@ namespace Genesis.RoomScan.UI
             return value / magnitude * scaled;
         }
 
-        private void BeginModelGrab(Vector3 origin, Vector3 direction)
+        private void ContinueOneHandModelGrab(Vector3 controllerPosition,
+            Quaternion controllerRotation)
         {
-            direction.Normalize();
-            BuildRayFrame(direction, out Vector3 right, out Vector3 up);
-            Vector3 delta = _modelRoot.position - origin;
-            _grabDistance = Mathf.Max(0.05f, Vector3.Dot(delta, direction));
-            Vector3 transverse = delta - direction * _grabDistance;
-            _grabOffsetInRayFrame = new Vector3(
-                Vector3.Dot(transverse, right),
-                Vector3.Dot(transverse, up), 0f);
-            _modelGrabActive = true;
+            if (!_modelGrabActive || _modelGrabMode != ModelGrabMode.OneHand)
+            {
+                _oneHandGrab = new OneHandGrab(controllerPosition,
+                    controllerRotation, _modelRoot.position,
+                    _modelRoot.rotation, _modelRoot.localScale);
+                _modelGrabActive = true;
+                _modelGrabMode = ModelGrabMode.OneHand;
+            }
+            Quaternion deltaRotation = controllerRotation *
+                Quaternion.Inverse(_oneHandGrab.ControllerRotation);
+            _modelRoot.SetPositionAndRotation(controllerPosition +
+                deltaRotation * (_oneHandGrab.ModelPosition -
+                    _oneHandGrab.ControllerPosition),
+                deltaRotation * _oneHandGrab.ModelRotation);
+            _modelRoot.localScale = _oneHandGrab.ModelScale;
         }
 
-        private void ContinueModelGrab(Vector3 origin, Vector3 direction)
+        private void ContinueTwoHandModelGrab(Vector3 leftPosition,
+            Quaternion leftRotation, Vector3 rightPosition,
+            Quaternion rightRotation)
         {
-            direction.Normalize();
-            BuildRayFrame(direction, out Vector3 right, out Vector3 up);
-            _modelRoot.position = origin + direction * _grabDistance +
-                right * _grabOffsetInRayFrame.x +
-                up * _grabOffsetInRayFrame.y;
+            if (!TryBuildTwoHandFrame(leftPosition, leftRotation,
+                    rightPosition, rightRotation, out Vector3 midpoint,
+                    out Quaternion frame, out float separation))
+                return;
+            if (!_modelGrabActive || _modelGrabMode != ModelGrabMode.TwoHand)
+            {
+                _twoHandGrab = new TwoHandGrab(midpoint, frame, separation,
+                    _modelRoot.position, _modelRoot.rotation,
+                    _modelRoot.localScale);
+                _modelGrabActive = true;
+                _modelGrabMode = ModelGrabMode.TwoHand;
+            }
+            Quaternion deltaRotation = frame *
+                Quaternion.Inverse(_twoHandGrab.HandFrame);
+            float scaleRatio = separation / _twoHandGrab.Separation;
+            Vector3 scale = _twoHandGrab.ModelScale * scaleRatio;
+            float uniform = Mathf.Clamp(scale.x, 0.002f, 10f);
+            float clampedRatio = uniform /
+                Mathf.Max(1e-6f, _twoHandGrab.ModelScale.x);
+            _modelRoot.SetPositionAndRotation(midpoint + deltaRotation *
+                ((_twoHandGrab.ModelPosition - _twoHandGrab.Midpoint) *
+                    clampedRatio), deltaRotation * _twoHandGrab.ModelRotation);
+            _modelRoot.localScale = Vector3.one * uniform;
         }
 
-        private static void BuildRayFrame(Vector3 forward, out Vector3 right,
-            out Vector3 up)
+        private void EndModelGrab()
         {
-            right = Vector3.Cross(Vector3.up, forward);
-            if (right.sqrMagnitude < 1e-6f)
-                right = Vector3.Cross(Vector3.forward, forward);
-            right.Normalize();
-            up = Vector3.Cross(forward, right).normalized;
+            _modelGrabActive = false;
+            _modelGrabMode = ModelGrabMode.None;
+        }
+
+        internal static bool TryBuildTwoHandFrame(Vector3 leftPosition,
+            Quaternion leftRotation, Vector3 rightPosition,
+            Quaternion rightRotation, out Vector3 midpoint,
+            out Quaternion frame, out float separation)
+        {
+            midpoint = (leftPosition + rightPosition) * 0.5f;
+            Vector3 x = rightPosition - leftPosition;
+            separation = x.magnitude;
+            if (separation < 0.03f)
+            {
+                frame = default;
+                return false;
+            }
+            x /= separation;
+            Vector3 up = Vector3.ProjectOnPlane(
+                leftRotation * Vector3.up + rightRotation * Vector3.up, x);
+            if (up.sqrMagnitude < 1e-6f)
+                up = Vector3.ProjectOnPlane(leftRotation * Vector3.forward +
+                    rightRotation * Vector3.forward, x);
+            if (up.sqrMagnitude < 1e-6f)
+                up = Vector3.ProjectOnPlane(Vector3.up, x);
+            if (up.sqrMagnitude < 1e-6f)
+                up = Vector3.ProjectOnPlane(Vector3.forward, x);
+            up.Normalize();
+            Vector3 forward = Vector3.Cross(x, up).normalized;
+            up = Vector3.Cross(forward, x).normalized;
+            frame = Quaternion.LookRotation(forward, up);
+            return true;
+        }
+
+        private bool TryBeginAnnotationPoseGrab(Ray ray,
+            Vector3 controllerPosition, Quaternion controllerRotation)
+        {
+            if (_annotationMode != AnnotationMode.Move) return false;
+            AnnotationRecord annotation = FindNearestAnnotation(ray);
+            if (annotation == null) return false;
+            _selectedAnnotationId = annotation.id;
+            Vector3[] worldPoints = Array.ConvertAll(annotation.points,
+                AnnotationWorldPoint);
+            _annotationPoseGrab = new AnnotationPoseGrab(annotation.id,
+                controllerPosition, controllerRotation, worldPoints);
+            _annotationPoseGrabActive = true;
+            _moveOriginalPoints = null;
+            _moveHandleIndex = -1;
+            RefreshAnnotationObjects();
+            Status = $"6DoF editing {annotation.type} #{annotation.id}";
+            return true;
+        }
+
+        private void ContinueAnnotationPoseGrab(Vector3 controllerPosition,
+            Quaternion controllerRotation)
+        {
+            if (!_annotationPoseGrabActive) return;
+            AnnotationRecord annotation = _annotations.Find(item =>
+                item.id == _annotationPoseGrab.AnnotationId);
+            if (annotation == null ||
+                annotation.points.Length !=
+                _annotationPoseGrab.WorldPoints.Length)
+            {
+                _annotationPoseGrabActive = false;
+                return;
+            }
+            Quaternion deltaRotation = controllerRotation *
+                Quaternion.Inverse(_annotationPoseGrab.ControllerRotation);
+            for (int index = 0; index < annotation.points.Length; index++)
+            {
+                Vector3 world = controllerPosition + deltaRotation *
+                    (_annotationPoseGrab.WorldPoints[index] -
+                        _annotationPoseGrab.ControllerPosition);
+                annotation.points[index] = WorldToScanPoint(world);
+            }
+            UpdateAnnotationObject(annotation);
         }
 
         private void ApplyViewerFrame()
@@ -618,7 +822,7 @@ namespace Genesis.RoomScan.UI
             if (aligned)
             {
                 if (RoomSpaceRoot.Instance == null ||
-                    !RoomSpaceRoot.Instance.IsBound)
+                    !RoomSpaceRoot.Instance.IsBound || _grid == null)
                 {
                     Status = "ALIGN 1:1 needs the localized scan anchor";
                     return;
@@ -628,7 +832,10 @@ namespace Genesis.RoomScan.UI
                 _savedPreviewScale = _modelRoot.localScale;
                 _hasSavedPreviewTransform = true;
                 _worldLocked = true;
-                _modelRoot.SetParent(RoomSpaceRoot.Instance.transform, false);
+                // Export vertices are canonical grid-local coordinates.  The
+                // grid already carries the persisted anchor relocation used by
+                // live readout, so parenting here applies that transform once.
+                _modelRoot.SetParent(_grid.transform, false);
                 _modelRoot.localPosition = _scanCenter;
                 _modelRoot.localRotation = Quaternion.identity;
                 _modelRoot.localScale = Vector3.one;
@@ -708,13 +915,58 @@ namespace Genesis.RoomScan.UI
                 ? (int)RenderQueue.Geometry : (int)RenderQueue.Transparent;
         }
 
+        private void UpdateAnnotationHitPreview(Ray ray)
+        {
+            bool needsSurface = _annotationMode is AnnotationMode.Point or
+                AnnotationMode.Line or AnnotationMode.Plane;
+            _hasModelHit = needsSurface && !_annotationDrag.Active &&
+                TryHitModel(ray, out _latestModelHit);
+            SetAnnotationHitPreview(_hasModelHit, _latestModelHit);
+        }
+
+        private void SetAnnotationHitPreview(bool visible, ModelHit hit)
+        {
+            if (!visible)
+            {
+                _hasModelHit = false;
+                if (_annotationHitPreview != null)
+                    _annotationHitPreview.SetActive(false);
+                return;
+            }
+            if (_annotationHitPreview == null)
+            {
+                _pointMarkerMesh ??= CreatePointMarkerMesh();
+                _annotationHitPreview = new GameObject(
+                    "Annotation Surface Hit Preview");
+                _annotationHitPreview.transform.SetParent(_modelRoot, false);
+                var filter = _annotationHitPreview.AddComponent<MeshFilter>();
+                filter.sharedMesh = _pointMarkerMesh;
+                var renderer =
+                    _annotationHitPreview.AddComponent<MeshRenderer>();
+                renderer.sharedMaterial = _annotationMaterial;
+                ConfigureRenderer(renderer,
+                    new Color(0.15f, 0.95f, 1f, 0.55f));
+            }
+            _annotationHitPreview.SetActive(true);
+            _annotationHitPreview.transform.localPosition =
+                WorldToScanPoint(hit.Point) - _scanCenter;
+            _annotationHitPreview.transform.localRotation =
+                Quaternion.Inverse(_modelRoot.rotation) *
+                Quaternion.FromToRotation(Vector3.forward, hit.Normal);
+            _annotationHitPreview.transform.localScale = Vector3.one *
+                AnnotationPointRadius;
+        }
+
         private void BeginAnnotationDrag(Ray ray)
         {
-            if (!TryHitModel(ray, out ModelHit hit))
+            if (!_hasModelHit && !TryHitModel(ray, out _latestModelHit))
             {
                 Status = "No exported surface under pointer";
                 return;
             }
+            ModelHit hit = _latestModelHit;
+            _hasModelHit = true;
+            SetAnnotationHitPreview(false, default);
             Vector3 normal = hit.Normal.normalized;
             Camera camera = Camera.main;
             Vector3 tangentU = Vector3.ProjectOnPlane(camera != null
@@ -802,8 +1054,11 @@ namespace Genesis.RoomScan.UI
 
         private void CancelTransientInput()
         {
-            _modelGrabActive = false;
+            EndModelGrab();
+            _annotationPoseGrabActive = false;
             _moveOriginalPoints = null;
+            _moveHandleIndex = -1;
+            SetAnnotationHitPreview(false, default);
             CancelAnnotationDrag();
         }
 
@@ -823,11 +1078,12 @@ namespace Genesis.RoomScan.UI
 
         private void AddPointAnnotation(Ray ray)
         {
-            if (!TryHitModel(ray, out ModelHit hit))
+            if (!_hasModelHit && !TryHitModel(ray, out _latestModelHit))
             {
                 Status = "No exported surface under pointer";
                 return;
             }
+            ModelHit hit = _latestModelHit;
             var annotation = new AnnotationRecord
             {
                 id = _nextAnnotationId++,
@@ -844,30 +1100,142 @@ namespace Genesis.RoomScan.UI
         private void BeginMove(Ray ray)
         {
             AnnotationRecord selected = FindNearestAnnotation(ray);
-            if (selected == null || !TryHitModel(ray, out ModelHit hit))
+            if (selected == null)
             {
-                Status = "Point at an annotation on the exported surface";
+                Status = "Point at an annotation or one of its handles";
                 return;
             }
-            _moveStart = hit.Point;
             _selectedAnnotationId = selected.id;
             _moveOriginalPoints = (Vector3[])selected.points.Clone();
+            _moveHandleIndex = FindNearestAnnotationHandle(ray, selected);
+            Vector3 grabWorld = _moveHandleIndex >= 0
+                ? AnnotationWorldPoint(selected.points[_moveHandleIndex])
+                : ray.GetPoint(AnnotationAlongRay(ray, selected));
+            Camera camera = Camera.main;
+            Vector3 normal = camera != null ? camera.transform.forward :
+                ray.direction;
+            _movePlane = new Plane(normal, grabWorld);
+            _moveStart = TryResolveMoveTarget(ray, out Vector3 target)
+                ? target : grabWorld;
             RefreshAnnotationObjects();
-            Status = $"Moving {selected.type} #{selected.id}";
+            Status = _moveHandleIndex >= 0
+                ? $"Editing {selected.type} #{selected.id} handle " +
+                  $"{_moveHandleIndex + 1}"
+                : $"Moving {selected.type} #{selected.id}";
         }
 
         private void ContinueMove(Ray ray)
         {
             if (_moveOriginalPoints == null ||
-                !TryHitModel(ray, out ModelHit hit)) return;
+                !TryResolveMoveTarget(ray, out Vector3 target)) return;
             AnnotationRecord selected = FindSelectedAnnotation();
             if (selected == null) return;
-            Vector3 deltaWorld = hit.Point - _moveStart;
+            if (_moveHandleIndex >= 0)
+            {
+                Vector3 targetScan = WorldToScanPoint(target);
+                if (selected.type == "plane" &&
+                    _moveOriginalPoints.Length >= 4)
+                    selected.points = ResizePlaneCorner(_moveOriginalPoints,
+                        _moveHandleIndex, targetScan, MinimumAnnotationDrag);
+                else
+                    selected.points[_moveHandleIndex] = targetScan;
+                UpdateAnnotationObject(selected);
+                return;
+            }
+            Vector3 deltaWorld = target - _moveStart;
             Vector3 deltaScan = _modelRoot.InverseTransformVector(deltaWorld);
-            selected.points = new Vector3[_moveOriginalPoints.Length];
             for (int index = 0; index < selected.points.Length; index++)
                 selected.points[index] = _moveOriginalPoints[index] + deltaScan;
             UpdateAnnotationObject(selected);
+        }
+
+        private bool TryResolveMoveTarget(Ray ray, out Vector3 target)
+        {
+            if (TryHitModel(ray, out ModelHit hit))
+            {
+                target = hit.Point;
+                return true;
+            }
+            if (_movePlane.Raycast(ray, out float along))
+            {
+                target = ray.GetPoint(along);
+                return true;
+            }
+            target = default;
+            return false;
+        }
+
+        private float AnnotationAlongRay(Ray ray, AnnotationRecord annotation)
+        {
+            return TryMeasureAnnotation(ray, annotation, out _, out float along)
+                ? along : Mathf.Max(0.05f, Vector3.Dot(
+                    AnnotationWorldPoint(annotation.points[0]) - ray.origin,
+                    ray.direction));
+        }
+
+        private int FindNearestAnnotationHandle(Ray ray,
+            AnnotationRecord annotation)
+        {
+            if (annotation?.points == null) return -1;
+            int best = -1;
+            float bestDistance = AnnotationPickRadius;
+            float bestAlong = float.PositiveInfinity;
+            for (int index = 0; index < annotation.points.Length; index++)
+            {
+                float distance = RayPointDistance(ray,
+                    AnnotationWorldPoint(annotation.points[index]),
+                    out float along);
+                if (along <= 0f || distance > bestDistance ||
+                    (Mathf.Approximately(distance, bestDistance) &&
+                     along >= bestAlong)) continue;
+                best = index;
+                bestDistance = distance;
+                bestAlong = along;
+            }
+            return best;
+        }
+
+        internal static Vector3[] ResizePlaneCorner(Vector3[] original,
+            int corner, Vector3 target, float minimumSize)
+        {
+            if (original == null || original.Length < 4 ||
+                (uint)corner >= 4u)
+                throw new ArgumentException("A plane needs four corners.",
+                    nameof(original));
+            Vector3 uAxis = (original[1] - original[0]).normalized;
+            Vector3 vAxis = (original[3] - original[0]).normalized;
+            if (uAxis.sqrMagnitude < 0.99f || vAxis.sqrMagnitude < 0.99f)
+                return (Vector3[])original.Clone();
+            int opposite = (corner + 2) & 3;
+            Vector3 fixedPoint = original[opposite];
+            float du = Vector3.Dot(target - fixedPoint, uAxis);
+            float dv = Vector3.Dot(target - fixedPoint, vAxis);
+            float expectedU = Vector3.Dot(original[corner] - fixedPoint,
+                uAxis);
+            float expectedV = Vector3.Dot(original[corner] - fixedPoint,
+                vAxis);
+            du = ClampSignedMagnitude(du, expectedU, minimumSize);
+            dv = ClampSignedMagnitude(dv, expectedV, minimumSize);
+            Vector3 selectedPoint = fixedPoint + uAxis * du + vAxis * dv;
+            var result = (Vector3[])original.Clone();
+            result[corner] = selectedPoint;
+            bool selectedU = corner == 1 || corner == 2;
+            bool selectedV = corner >= 2;
+            result[RectangleCornerIndex(selectedU, !selectedV)] =
+                fixedPoint + uAxis * du;
+            result[RectangleCornerIndex(!selectedU, selectedV)] =
+                fixedPoint + vAxis * dv;
+            return result;
+        }
+
+        private static int RectangleCornerIndex(bool u, bool v) =>
+            v ? (u ? 2 : 3) : (u ? 1 : 0);
+
+        private static float ClampSignedMagnitude(float value,
+            float expectedSign, float minimum)
+        {
+            float sign = expectedSign < 0f ? -1f : 1f;
+            return sign * Mathf.Max(minimum, value * sign);
         }
 
         private bool TryHitModel(Ray ray, out ModelHit modelHit)
@@ -881,11 +1249,11 @@ namespace Genesis.RoomScan.UI
                     !TransformBounds(_modelRoot,
                         Centered(tile.Bounds)).IntersectRay(ray,
                         out float boundsDistance) ||
-                    boundsDistance > 20f)
+                    boundsDistance > ModelRayDistance)
                     continue;
                 EnsureTileCollider(tile);
                 if (tile.Collider == null || !tile.Collider.Raycast(ray,
-                        out RaycastHit hit, 20f) ||
+                        out RaycastHit hit, ModelRayDistance) ||
                     hit.distance >= nearest) continue;
                 nearest = hit.distance;
                 modelHit = new ModelHit(hit.point, hit.normal);
@@ -906,7 +1274,7 @@ namespace Genesis.RoomScan.UI
         private AnnotationRecord FindNearestAnnotation(Ray ray)
         {
             AnnotationRecord best = null;
-            float bestDistance = 0.035f;
+            float bestDistance = AnnotationPickRadius;
             float bestAlong = float.PositiveInfinity;
             foreach (AnnotationRecord annotation in _annotations)
             {
@@ -1051,7 +1419,6 @@ namespace Genesis.RoomScan.UI
         {
             Vector3[] points = annotation.points;
             if (points == null || points.Length == 0) return;
-            float inverseScale = 1f / Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
             bool selected = annotation.id == _selectedAnnotationId;
             Color outlineColor = selected
                 ? new Color(0.15f, 0.95f, 1f, 0.98f)
@@ -1065,7 +1432,7 @@ namespace Genesis.RoomScan.UI
                 _pointMarkerMesh ??= CreatePointMarkerMesh();
                 visual.transform.localPosition = points[0] - _scanCenter;
                 visual.transform.localScale = Vector3.one *
-                    (0.010f * inverseScale);
+                    AnnotationPointRadius;
                 var filter = visual.AddComponent<MeshFilter>();
                 filter.sharedMesh = _pointMarkerMesh;
                 var renderer = visual.AddComponent<MeshRenderer>();
@@ -1081,9 +1448,9 @@ namespace Genesis.RoomScan.UI
                 var filter = visual.AddComponent<MeshFilter>();
                 filter.sharedMesh = mesh;
                 var renderer = visual.AddComponent<MeshRenderer>();
-                renderer.sharedMaterial = _annotationMaterial;
+                renderer.sharedMaterial = _annotationPlaneMaterial;
                 Color fill = outlineColor;
-                fill.a = selected ? 0.32f : 0.18f;
+                fill.a = AnnotationPlaneAlpha;
                 ConfigureRenderer(renderer, fill);
             }
 
@@ -1094,7 +1461,7 @@ namespace Genesis.RoomScan.UI
             line.alignment = LineAlignment.View;
             line.numCapVertices = 3;
             line.numCornerVertices = 2;
-            line.startWidth = line.endWidth = 0.0025f * inverseScale;
+            line.startWidth = line.endWidth = AnnotationLineWidth;
             line.positionCount = annotation.type == "plane"
                 ? points.Length + 1 : points.Length;
             for (int pointIndex = 0; pointIndex < points.Length; pointIndex++)
@@ -1104,6 +1471,27 @@ namespace Genesis.RoomScan.UI
             var lineProperties = new MaterialPropertyBlock();
             lineProperties.SetColor(BaseColorId, outlineColor);
             line.SetPropertyBlock(lineProperties);
+            if (selected) CreateAnnotationHandles(visual, points);
+        }
+
+        private void CreateAnnotationHandles(GameObject visual,
+            Vector3[] points)
+        {
+            _pointMarkerMesh ??= CreatePointMarkerMesh();
+            for (int index = 0; index < points.Length; index++)
+            {
+                var handle = new GameObject("Handle " + index);
+                handle.transform.SetParent(visual.transform, false);
+                handle.transform.localPosition = points[index] - _scanCenter;
+                handle.transform.localScale = Vector3.one *
+                    AnnotationHandleRadius;
+                var filter = handle.AddComponent<MeshFilter>();
+                filter.sharedMesh = _pointMarkerMesh;
+                var renderer = handle.AddComponent<MeshRenderer>();
+                renderer.sharedMaterial = _annotationMaterial;
+                ConfigureRenderer(renderer,
+                    new Color(0.15f, 0.95f, 1f, 0.92f));
+            }
         }
 
         private void UpdateAnnotationObject(AnnotationRecord annotation)
@@ -1128,6 +1516,7 @@ namespace Genesis.RoomScan.UI
                 if (annotation.type == "plane")
                     line.SetPosition(points.Length, points[0] - _scanCenter);
             }
+            UpdateAnnotationHandles(visual, points);
             if (annotation.type != "plane") return;
             Mesh mesh = visual.GetComponent<MeshFilter>()?.sharedMesh;
             if (mesh == null) return;
@@ -1135,6 +1524,15 @@ namespace Genesis.RoomScan.UI
                 point => point - _scanCenter);
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
+        }
+
+        private void UpdateAnnotationHandles(GameObject visual,
+            Vector3[] points)
+        {
+            int count = Mathf.Min(visual.transform.childCount, points.Length);
+            for (int index = 0; index < count; index++)
+                visual.transform.GetChild(index).localPosition =
+                    points[index] - _scanCenter;
         }
 
         private Mesh CreatePlaneMesh(Vector3[] scanPoints)
@@ -1219,7 +1617,8 @@ namespace Genesis.RoomScan.UI
                 _annotationDraftLine.alignment = LineAlignment.View;
                 _annotationDraftLine.numCapVertices = 3;
                 _annotationDraftLine.startWidth =
-                    _annotationDraftLine.endWidth = 0.0025f;
+                    _annotationDraftLine.endWidth = AnnotationLineWidth *
+                    Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
                 var properties = new MaterialPropertyBlock();
                 properties.SetColor(BaseColorId,
                     new Color(0.15f, 0.95f, 1f, 0.95f));
@@ -1235,9 +1634,10 @@ namespace Genesis.RoomScan.UI
                     filter.sharedMesh = _annotationDraftMesh;
                     var renderer =
                         _annotationDraftObject.AddComponent<MeshRenderer>();
-                    renderer.sharedMaterial = _annotationMaterial;
+                    renderer.sharedMaterial = _annotationPlaneMaterial;
                     ConfigureRenderer(renderer,
-                        new Color(0.15f, 0.95f, 1f, 0.22f));
+                        new Color(0.15f, 0.95f, 1f,
+                            AnnotationPlaneAlpha));
                 }
             }
 
@@ -1607,14 +2007,20 @@ namespace Genesis.RoomScan.UI
             tile.Object = tileObject;
             tile.Mesh = mesh;
             tile.ResidentBytes = EstimateResidentBytes(parsed.DecodedBytes);
+            if (TileCollidersRequired()) EnsureTileCollider(tile);
         }
 
         private void RefreshTileColliders()
         {
-            if (TileCollidersRequired()) return;
+            bool required = TileCollidersRequired();
             foreach (Tile tile in _tiles)
             {
                 if (tile.Object == null) continue;
+                if (required)
+                {
+                    EnsureTileCollider(tile);
+                    continue;
+                }
                 if (tile.Collider != null)
                 {
                     Destroy(tile.Collider);
@@ -1627,7 +2033,8 @@ namespace Genesis.RoomScan.UI
             _annotationMode == AnnotationMode.Point ||
             _annotationMode == AnnotationMode.Line ||
             _annotationMode == AnnotationMode.Plane ||
-            _annotationMode == AnnotationMode.Move;
+            _annotationMode == AnnotationMode.Move ||
+            _annotationMode == AnnotationMode.Select;
 
         private static void DestroyTile(Tile tile)
         {
@@ -2126,6 +2533,73 @@ namespace Genesis.RoomScan.UI
             Plane,
             Select,
             Move
+        }
+
+        private enum ModelGrabMode
+        {
+            None,
+            OneHand,
+            TwoHand
+        }
+
+        private readonly struct OneHandGrab
+        {
+            internal readonly Vector3 ControllerPosition;
+            internal readonly Quaternion ControllerRotation;
+            internal readonly Vector3 ModelPosition;
+            internal readonly Quaternion ModelRotation;
+            internal readonly Vector3 ModelScale;
+
+            internal OneHandGrab(Vector3 controllerPosition,
+                Quaternion controllerRotation, Vector3 modelPosition,
+                Quaternion modelRotation, Vector3 modelScale)
+            {
+                ControllerPosition = controllerPosition;
+                ControllerRotation = controllerRotation;
+                ModelPosition = modelPosition;
+                ModelRotation = modelRotation;
+                ModelScale = modelScale;
+            }
+        }
+
+        private readonly struct TwoHandGrab
+        {
+            internal readonly Vector3 Midpoint;
+            internal readonly Quaternion HandFrame;
+            internal readonly float Separation;
+            internal readonly Vector3 ModelPosition;
+            internal readonly Quaternion ModelRotation;
+            internal readonly Vector3 ModelScale;
+
+            internal TwoHandGrab(Vector3 midpoint, Quaternion handFrame,
+                float separation, Vector3 modelPosition,
+                Quaternion modelRotation, Vector3 modelScale)
+            {
+                Midpoint = midpoint;
+                HandFrame = handFrame;
+                Separation = separation;
+                ModelPosition = modelPosition;
+                ModelRotation = modelRotation;
+                ModelScale = modelScale;
+            }
+        }
+
+        private readonly struct AnnotationPoseGrab
+        {
+            internal readonly int AnnotationId;
+            internal readonly Vector3 ControllerPosition;
+            internal readonly Quaternion ControllerRotation;
+            internal readonly Vector3[] WorldPoints;
+
+            internal AnnotationPoseGrab(int annotationId,
+                Vector3 controllerPosition, Quaternion controllerRotation,
+                Vector3[] worldPoints)
+            {
+                AnnotationId = annotationId;
+                ControllerPosition = controllerPosition;
+                ControllerRotation = controllerRotation;
+                WorldPoints = worldPoints;
+            }
         }
 
         [Serializable]

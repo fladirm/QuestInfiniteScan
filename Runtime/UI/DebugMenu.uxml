@@ -153,7 +153,7 @@
                 class="action-btn action-btn--primary action-btn--last" />
         </ui:VisualElement>
 
-        <ui:Label text="GLB: left stick move · left grip+stick zoom · right stick rotate · right grip place · trigger drag mark"
+        <ui:Label text="GLB: right grip 6DoF · both grips scale/rotate · trigger place/edit · TYPE NOTE keyboard"
             class="control-hint" />
         <ui:Label text="One reversible Merkaba grid · clear viewpoints remove false geometry"
             class="ontology-hint" />

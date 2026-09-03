@@ -409,10 +409,6 @@ namespace Genesis.RoomScan
                 {
                     name = $"Merkaba M8 Readout {slot}"
                 };
-                _materials[slot].SetBuffer(ReadoutVertices0Id,
-                    _grid.GetM8ReadoutVertices0(slot));
-                _materials[slot].SetBuffer(ReadoutVertices1Id,
-                    _grid.GetM8ReadoutVertices1(slot));
             }
             ApplyOpacityState();
             ApplyFinePreviewState();
@@ -959,22 +955,16 @@ namespace Genesis.RoomScan
                 return;
             int front = _frontReadout;
             Material material = _materials[front];
+            Mesh mesh = _grid.GetM8ReadoutMesh(front);
             ComputeBuffer drawArgs = _grid.GetM8DrawArgs(front);
-            bool canDraw = _initialized && material != null &&
+            bool canDraw = _initialized && mesh != null && material != null &&
                 scanOpacity > 0.001f;
             bool timedSubmission = canDraw && MerkabaGpuTimestamps.TryAcquire(
                 CaptureOwner.Draw,
                 _readoutRevision == 0u ? 1u : _readoutRevision, command);
             if (canDraw)
-            {
-                if (_slotMeshReadout[front])
-                    command.DrawProceduralIndirectProfiled(Matrix4x4.identity,
-                        material, 0, MeshTopology.Triangles, drawArgs, 0);
-                else
-                    command.DrawProceduralIndirectProfiled(
-                        _grid.GetM8ReadoutIndices(front), Matrix4x4.identity,
-                        material, 0, MeshTopology.Triangles, drawArgs, 0);
-            }
+                command.DrawMeshInstancedIndirectProfiled(mesh, 0,
+                    material, 0, drawArgs, 0);
             MerkabaGpuTimestamps.End(CaptureOwner.Draw, command,
                 timedSubmission);
             MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timedSubmission,

@@ -83,16 +83,34 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Contain("DestroyTile(tile)"));
             Assert.That(viewer, Does.Contain("_scanner.ReadoutDrawEnabled = false"));
             Assert.That(viewer, Does.Contain("RoomSpaceRoot.Instance"));
-            Assert.That(viewer, Does.Contain("_grabDistance"));
+            Assert.That(viewer, Does.Contain("OneHandGrab"));
+            Assert.That(viewer, Does.Contain("TwoHandGrab"));
+            Assert.That(viewer, Does.Contain("TryBuildTwoHandFrame("));
+            Assert.That(viewer, Does.Not.Contain("_grabDistance"));
             Assert.That(viewer, Does.Not.Contain(
                 "moveDirection * initialPreviewDistance"));
-            Assert.That(viewer, Does.Not.Contain("MerkabaGrid"));
+            Assert.That(viewer, Does.Contain(
+                "_modelRoot.SetParent(_grid.transform, false)"));
+            Assert.That(viewer, Does.Contain(
+                "Physics.queriesHitBackfaces = true"));
+            Assert.That(viewer, Does.Contain(
+                "AnnotationPointRadius = 0.025f"));
+            Assert.That(viewer, Does.Contain(
+                "AnnotationLineWidth = 0.01f"));
+            Assert.That(viewer, Does.Contain(
+                "AnnotationPlaneAlpha = 0.2f"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
             Assert.That(shader, Does.Contain("_AlphaDither"));
             Assert.That(shader, Does.Contain("clip(input.color.a - threshold)"));
             Assert.That(setup, Does.Contain(
                 "GetOrAdd<MerkabaArtifactViewer>(scannerObject)"));
             Assert.That(setup, Does.Contain("requiresSystemKeyboard = true"));
+            Assert.That(setup, Does.Contain(
+                "AndroidApplicationEntry.Activity"));
+            Assert.That(setup, Does.Contain("UnityPlayerActivity"));
+            Assert.That(setup, Does.Not.Contain("UnityPlayerGameActivity"));
+            Assert.That(setup, Does.Contain("@style/UnityThemeSelector"));
+            Assert.That(setup, Does.Not.Contain("@style/Theme.AppCompat"));
             Assert.That(menu, Does.Contain("btn-artifact-view"));
             Assert.That(menu, Does.Contain("btn-annotation-mode"));
             Assert.That(menu, Does.Contain("btn-annotation-edit"));
@@ -155,6 +173,42 @@ namespace Genesis.RoomScan.Tests
             Assert.That(points[1], Is.EqualTo(new Vector3(3f, 2f, 3f)));
             Assert.That(points[2], Is.EqualTo(new Vector3(3f, 5f, 3f)));
             Assert.That(points[3], Is.EqualTo(new Vector3(1f, 5f, 3f)));
+        }
+
+        [Test]
+        public void QuestArtifactTwoHandFrameTracksMidpointScaleAndFullPose()
+        {
+            bool valid = MerkabaArtifactViewer.TryBuildTwoHandFrame(
+                new Vector3(-0.2f, 1f, 2f), Quaternion.identity,
+                new Vector3(0.2f, 1f, 2f), Quaternion.identity,
+                out Vector3 midpoint, out Quaternion frame,
+                out float separation);
+
+            Assert.That(valid, Is.True);
+            Assert.That(midpoint, Is.EqualTo(new Vector3(0f, 1f, 2f)));
+            Assert.That(separation, Is.EqualTo(0.4f).Within(1e-6f));
+            Assert.That(Vector3.Distance(
+                (frame * Vector3.right).normalized, Vector3.right),
+                Is.LessThan(1e-6f));
+        }
+
+        [Test]
+        public void QuestArtifactPlaneCornerHandlePreservesOneRectangle()
+        {
+            Vector3[] original =
+            {
+                new(0f, 0f, 0f),
+                new(2f, 0f, 0f),
+                new(2f, 1f, 0f),
+                new(0f, 1f, 0f)
+            };
+            Vector3[] resized = MerkabaArtifactViewer.ResizePlaneCorner(
+                original, 2, new Vector3(3f, 2f, 0f), 0.01f);
+
+            Assert.That(resized[0], Is.EqualTo(original[0]));
+            Assert.That(resized[1], Is.EqualTo(new Vector3(3f, 0f, 0f)));
+            Assert.That(resized[2], Is.EqualTo(new Vector3(3f, 2f, 0f)));
+            Assert.That(resized[3], Is.EqualTo(new Vector3(0f, 2f, 0f)));
         }
 
         [Test]

@@ -38,11 +38,11 @@ namespace Genesis.RoomScan.UI
         private bool _pointingAtUi;
         private Vector3 _fineTargetPosition;
         private FineBrushOperation _fineTargetOperation;
-        private OVRInput.Controller _activeController = OVRInput.Controller.None;
         private bool _hasTrackedPose;
         private int _uiLayerMask;
 
-        private static OVRPlugin.HandState _handState = new();
+        private static OVRPlugin.HandState _leftHandState = new();
+        private static OVRPlugin.HandState _rightHandState = new();
         private static readonly int ColorId = Shader.PropertyToID("_Color");
 
         public Shader OverlayShader => overlayShader;
@@ -75,8 +75,6 @@ namespace Genesis.RoomScan.UI
 
         private void Update()
         {
-            _activeController = OVRInput.GetActiveControllerForHand(
-                OVRInput.Handedness.RightHanded);
             _hasTrackedPose = TryUpdateRayOrigin();
             if (_line != null) _line.enabled = _hasTrackedPose;
             if (!_hasTrackedPose)
@@ -111,6 +109,14 @@ namespace Genesis.RoomScan.UI
             direction = _rayHelper.forward.normalized;
             return direction.sqrMagnitude > 0.99f;
         }
+
+        internal bool TryGetWorldPose(out Vector3 position,
+            out Quaternion rotation) => TryGetWorldPose(
+                OVRInput.Handedness.RightHanded, out position, out rotation);
+
+        internal bool TryGetLeftWorldPose(out Vector3 position,
+            out Quaternion rotation) => TryGetWorldPose(
+                OVRInput.Handedness.LeftHanded, out position, out rotation);
 
         internal Color GetFineBrushPreviewColor(FineBrushOperation operation) =>
             operation switch
@@ -153,37 +159,72 @@ namespace Genesis.RoomScan.UI
 
         private bool TryUpdateRayOrigin()
         {
-            if (_activeController == OVRInput.Controller.None || _rayHelper == null)
+            if (_rayHelper == null || !TryGetWorldPose(
+                    OVRInput.Handedness.RightHanded, out Vector3 position,
+                    out Quaternion rotation))
                 return false;
-            bool hand = _activeController is OVRInput.Controller.LHand or
+            _rayHelper.SetPositionAndRotation(position, rotation);
+            return true;
+        }
+
+        private static bool TryGetWorldPose(OVRInput.Handedness handedness,
+            out Vector3 position, out Quaternion rotation)
+        {
+            OVRInput.Controller controller =
+                OVRInput.GetActiveControllerForHand(handedness);
+            if (controller == OVRInput.Controller.None)
+            {
+                position = default;
+                rotation = default;
+                return false;
+            }
+            bool hand = controller is OVRInput.Controller.LHand or
                 OVRInput.Controller.RHand;
             Vector3 localPosition;
             Quaternion localRotation;
             if (hand)
             {
-                OVRPlugin.Hand which = _activeController == OVRInput.Controller.LHand
+                OVRPlugin.Hand which = controller == OVRInput.Controller.LHand
                     ? OVRPlugin.Hand.HandLeft : OVRPlugin.Hand.HandRight;
-                if (!OVRPlugin.GetHandState(OVRPlugin.Step.Render, which, ref _handState))
+                ref OVRPlugin.HandState handState = ref (which ==
+                    OVRPlugin.Hand.HandLeft ? ref _leftHandState :
+                    ref _rightHandState);
+                if (!OVRPlugin.GetHandState(OVRPlugin.Step.Render, which,
+                        ref handState))
+                {
+                    position = default;
+                    rotation = default;
                     return false;
-                localPosition = _handState.PointerPose.Position.FromFlippedZVector3f();
-                localRotation = _handState.PointerPose.Orientation.FromFlippedZQuatf();
+                }
+                localPosition = handState.PointerPose.Position.FromFlippedZVector3f();
+                localRotation = handState.PointerPose.Orientation.FromFlippedZQuatf();
             }
             else
             {
-                if (!OVRInput.GetControllerPositionTracked(_activeController) &&
-                    !OVRInput.GetControllerOrientationTracked(_activeController))
+                if (!OVRInput.GetControllerPositionTracked(controller) &&
+                    !OVRInput.GetControllerOrientationTracked(controller))
+                {
+                    position = default;
+                    rotation = default;
                     return false;
-                localPosition = OVRInput.GetLocalControllerPosition(_activeController);
-                localRotation = OVRInput.GetLocalControllerRotation(_activeController);
+                }
+                localPosition = OVRInput.GetLocalControllerPosition(controller);
+                localRotation = OVRInput.GetLocalControllerRotation(controller);
             }
             Camera camera = Camera.main;
-            if (camera == null) return false;
+            if (camera == null)
+            {
+                position = default;
+                rotation = default;
+                return false;
+            }
             OVRPose pose = new OVRPose
             {
                 position = localPosition,
                 orientation = localRotation
             }.ToWorldSpacePose(camera);
-            _rayHelper.SetPositionAndRotation(pose.position, pose.orientation);
+            position = pose.position;
+            rotation = pose.orientation;
             return true;
         }
 

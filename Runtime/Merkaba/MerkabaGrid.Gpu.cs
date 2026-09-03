@@ -26,6 +26,7 @@ namespace Genesis.RoomScan
         internal const int ReadoutVertexCapacityPerBuffer =
             ReadoutTriangleCapacityPerBuffer *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
+        internal const int ReadoutVertexStride = 16;
         internal const int ReadoutIndexCapacity = ReadoutTriangleCapacity *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
         internal const int ReadoutIndexMapWordCount =
@@ -180,10 +181,11 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8CarveTiles;
         private ComputeBuffer _m8CarveDispatchArgs;
         private ComputeBuffer _m8VisibleTiles;
-        private readonly ComputeBuffer[] _m8ReadoutVertices0 =
-            new ComputeBuffer[2];
-        private readonly ComputeBuffer[] _m8ReadoutVertices1 =
-            new ComputeBuffer[2];
+        private readonly Mesh[] _m8ReadoutMeshes = new Mesh[2];
+        private readonly GraphicsBuffer[] _m8ReadoutVertices0 =
+            new GraphicsBuffer[2];
+        private readonly GraphicsBuffer[] _m8ReadoutVertices1 =
+            new GraphicsBuffer[2];
         private readonly GraphicsBuffer[] _m8ReadoutIndices =
             new GraphicsBuffer[2];
         private ComputeBuffer _m8FrameDispatchArgs;
@@ -196,7 +198,6 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8HashBenchmarkOutput;
 
         private readonly List<ComputeBuffer> _allGpuBuffers = new();
-        private readonly List<GraphicsBuffer> _allGraphicsBuffers = new();
 
         internal ComputeShader WorldCompute => worldCompute;
         internal ComputeBuffer M8HashEntries => _m8HashEntries;
@@ -235,9 +236,11 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8CarveTiles => _m8CarveTiles;
         internal ComputeBuffer M8CarveDispatchArgs => _m8CarveDispatchArgs;
         internal ComputeBuffer M8VisibleTiles => _m8VisibleTiles;
-        internal ComputeBuffer GetM8ReadoutVertices0(int slot) =>
+        internal Mesh GetM8ReadoutMesh(int slot) =>
+            _m8ReadoutMeshes[ValidateReadoutSlot(slot)];
+        internal GraphicsBuffer GetM8ReadoutVertices0(int slot) =>
             _m8ReadoutVertices0[ValidateReadoutSlot(slot)];
-        internal ComputeBuffer GetM8ReadoutVertices1(int slot) =>
+        internal GraphicsBuffer GetM8ReadoutVertices1(int slot) =>
             _m8ReadoutVertices1[ValidateReadoutSlot(slot)];
         internal GraphicsBuffer GetM8ReadoutIndices(int slot) =>
             _m8ReadoutIndices[ValidateReadoutSlot(slot)];
@@ -416,14 +419,7 @@ namespace Genesis.RoomScan
                     sizeof(uint) * 2);
                 for (int slot = 0; slot < 2; slot++)
                 {
-                    _m8ReadoutVertices0[slot] = Allocate(
-                        ReadoutVertexCapacityPerBuffer, 16);
-                    _m8ReadoutVertices1[slot] = Allocate(
-                        ReadoutVertexCapacityPerBuffer, 16);
-                    _m8ReadoutIndices[slot] = AllocateGraphics(
-                        ReadoutIndexStorageCount, sizeof(uint),
-                        GraphicsBuffer.Target.Raw |
-                        GraphicsBuffer.Target.Index);
+                    _m8ReadoutMeshes[slot] = AllocateReadoutMesh(slot);
                     _m8DrawArgs[slot] = Allocate(5, sizeof(uint),
                         ComputeBufferType.IndirectArguments);
                 }
@@ -537,12 +533,69 @@ namespace Genesis.RoomScan
             return buffer;
         }
 
-        private GraphicsBuffer AllocateGraphics(int count, int stride,
-            GraphicsBuffer.Target target)
+        private Mesh AllocateReadoutMesh(int slot)
         {
-            var buffer = new GraphicsBuffer(target, count, stride);
-            _allGraphicsBuffers.Add(buffer);
-            return buffer;
+            var mesh = new Mesh
+            {
+                name = $"Merkaba M8 Readout Publication {slot}",
+                indexFormat = IndexFormat.UInt32,
+                bounds = new Bounds(Vector3.zero,
+                    Vector3.one * 1_000_000f)
+            };
+            GraphicsBuffer vertices0 = null;
+            GraphicsBuffer vertices1 = null;
+            GraphicsBuffer indices = null;
+            try
+            {
+                mesh.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
+                mesh.indexBufferTarget |= GraphicsBuffer.Target.Raw;
+                mesh.SetVertexBufferParams(ReadoutVertexCapacityPerBuffer,
+                    new VertexAttributeDescriptor(VertexAttribute.Position,
+                        VertexAttributeFormat.Float32, 3, 0),
+                    new VertexAttributeDescriptor(VertexAttribute.Color,
+                        VertexAttributeFormat.UNorm8, 4, 0),
+                    new VertexAttributeDescriptor(VertexAttribute.TexCoord0,
+                        VertexAttributeFormat.Float32, 3, 1),
+                    new VertexAttributeDescriptor(VertexAttribute.TexCoord1,
+                        VertexAttributeFormat.UNorm8, 4, 1));
+                mesh.SetIndexBufferParams(ReadoutIndexStorageCount,
+                    IndexFormat.UInt32);
+                mesh.subMeshCount = 1;
+                mesh.SetSubMesh(0, new SubMeshDescriptor(0,
+                        ReadoutIndexCapacity, MeshTopology.Triangles)
+                    {
+                        firstVertex = 0,
+                        vertexCount = ReadoutVertexCapacityPerBuffer,
+                        bounds = mesh.bounds
+                    }, MeshUpdateFlags.DontRecalculateBounds |
+                       MeshUpdateFlags.DontValidateIndices |
+                       MeshUpdateFlags.DontNotifyMeshUsers);
+                if (mesh.GetVertexBufferStride(0) != ReadoutVertexStride ||
+                    mesh.GetVertexBufferStride(1) != ReadoutVertexStride ||
+                    mesh.GetVertexAttributeOffset(VertexAttribute.Color) != 12 ||
+                    mesh.GetVertexAttributeOffset(VertexAttribute.TexCoord1) != 12)
+                    throw new InvalidOperationException(
+                        "M8 readout Mesh vertex ABI must be two 16-byte streams.");
+                // The readout compiler owns the GPU contents. Keeping Unity's
+                // parallel CPU copy would duplicate hundreds of MiB without
+                // ever becoming authoritative or readable by this pipeline.
+                mesh.UploadMeshData(true);
+                vertices0 = mesh.GetVertexBuffer(0);
+                vertices1 = mesh.GetVertexBuffer(1);
+                indices = mesh.GetIndexBuffer();
+                _m8ReadoutVertices0[slot] = vertices0;
+                _m8ReadoutVertices1[slot] = vertices1;
+                _m8ReadoutIndices[slot] = indices;
+                return mesh;
+            }
+            catch
+            {
+                vertices0?.Dispose();
+                vertices1?.Dispose();
+                indices?.Dispose();
+                Destroy(mesh);
+                throw;
+            }
         }
 
         internal void BindWorldBuffers(ComputeShader shader, int kernel)
@@ -905,7 +958,13 @@ namespace Genesis.RoomScan
         internal Action CaptureOwnedGpuResourceRelease()
         {
             ComputeBuffer[] captured = _allGpuBuffers.ToArray();
-            GraphicsBuffer[] capturedGraphics = _allGraphicsBuffers.ToArray();
+            GraphicsBuffer[] capturedVertices0 =
+                (GraphicsBuffer[])_m8ReadoutVertices0.Clone();
+            GraphicsBuffer[] capturedVertices1 =
+                (GraphicsBuffer[])_m8ReadoutVertices1.Clone();
+            GraphicsBuffer[] capturedIndices =
+                (GraphicsBuffer[])_m8ReadoutIndices.Clone();
+            Mesh[] capturedMeshes = (Mesh[])_m8ReadoutMeshes.Clone();
             bool released = false;
             return () =>
             {
@@ -917,8 +976,8 @@ namespace Genesis.RoomScan
                     return;
                 }
                 foreach (ComputeBuffer buffer in captured) buffer?.Release();
-                foreach (GraphicsBuffer buffer in capturedGraphics)
-                    buffer?.Release();
+                ReleaseReadoutMeshes(capturedVertices0, capturedVertices1,
+                    capturedIndices, capturedMeshes);
             };
         }
 
@@ -930,9 +989,8 @@ namespace Genesis.RoomScan
             _gpuGeneration++;
             foreach (ComputeBuffer buffer in _allGpuBuffers) buffer?.Release();
             _allGpuBuffers.Clear();
-            foreach (GraphicsBuffer buffer in _allGraphicsBuffers)
-                buffer?.Release();
-            _allGraphicsBuffers.Clear();
+            ReleaseReadoutMeshes(_m8ReadoutVertices0,
+                _m8ReadoutVertices1, _m8ReadoutIndices, _m8ReadoutMeshes);
             _m8HashEntries = null;
             _m8OwnerRecords = null;
             _m8BlockChunkRefs = null;
@@ -949,6 +1007,7 @@ namespace Genesis.RoomScan
             _m8TileRecords = null;
             for (int slot = 0; slot < 2; slot++)
             {
+                _m8ReadoutMeshes[slot] = null;
                 _m8ReadoutVertices0[slot] = null;
                 _m8ReadoutVertices1[slot] = null;
                 _m8ReadoutIndices[slot] = null;
@@ -962,6 +1021,20 @@ namespace Genesis.RoomScan
             _m8HashBenchmarkOutput = null;
             ResetStorageRuntimeState();
             _gpuReady = false;
+        }
+
+        private static void ReleaseReadoutMeshes(
+            GraphicsBuffer[] vertices0, GraphicsBuffer[] vertices1,
+            GraphicsBuffer[] indices, Mesh[] meshes)
+        {
+            for (int slot = 0; slot < 2; slot++)
+            {
+                vertices0[slot]?.Dispose();
+                vertices1[slot]?.Dispose();
+                indices[slot]?.Dispose();
+                if (meshes[slot] != null)
+                    UnityEngine.Object.Destroy(meshes[slot]);
+            }
         }
 
         private static int ValidateReadoutSlot(int slot)

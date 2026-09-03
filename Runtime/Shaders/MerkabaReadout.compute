@@ -67,8 +67,11 @@ struct MerkabaReadoutVertex
 
 RWStructuredBuffer<uint2> _M8VisibleTiles;
 StructuredBuffer<uint2> _M8VisibleTilesRead;
-RWStructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices0;
-RWStructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices1;
+// These are the two 16-byte vertex streams of the publication Mesh.  Raw
+// access lets queue1 compile directly into the exact buffers consumed by the
+// fixed-function vertex/index path on queue0.
+RWByteAddressBuffer _M8ReadoutVertices0;
+RWByteAddressBuffer _M8ReadoutVertices1;
 RWByteAddressBuffer _M8ReadoutIndices;
 RWStructuredBuffer<uint> _M8FrameDispatchArgs;
 RWStructuredBuffer<uint> _M8DrawArgs;
@@ -97,6 +100,56 @@ float4x4 _M8MeshDepthView0;
 float4x4 _M8MeshDepthView1;
 float4x4 _M8MeshDepthViewInv0;
 float4x4 _M8MeshDepthViewInv1;
+
+#define M8_READOUT_VERTEX_STRIDE 16u
+
+uint M8ReadoutVertexAddress(uint index)
+{
+    return index * M8_READOUT_VERTEX_STRIDE;
+}
+
+MerkabaReadoutVertex M8LoadReadoutVertex0(uint index)
+{
+    MerkabaReadoutVertex vertex;
+    uint address = M8ReadoutVertexAddress(index);
+    vertex.gridPosition = asfloat(_M8ReadoutVertices0.Load3(address));
+    vertex.packedColor = _M8ReadoutVertices0.Load(address + 12u);
+    return vertex;
+}
+
+void M8StoreReadoutVertex0(uint index, MerkabaReadoutVertex vertex)
+{
+    uint address = M8ReadoutVertexAddress(index);
+    _M8ReadoutVertices0.Store3(address, asuint(vertex.gridPosition));
+    _M8ReadoutVertices0.Store(address + 12u, vertex.packedColor);
+}
+
+void M8StoreReadoutVertex1(uint index, MerkabaReadoutVertex vertex)
+{
+    uint address = M8ReadoutVertexAddress(index);
+    _M8ReadoutVertices1.Store3(address, asuint(vertex.gridPosition));
+    _M8ReadoutVertices1.Store(address + 12u, vertex.packedColor);
+}
+
+uint M8LoadReadoutColor0(uint index)
+{
+    return _M8ReadoutVertices0.Load(M8ReadoutVertexAddress(index) + 12u);
+}
+
+uint M8LoadReadoutColor1(uint index)
+{
+    return _M8ReadoutVertices1.Load(M8ReadoutVertexAddress(index) + 12u);
+}
+
+void M8StoreReadoutColor0(uint index, uint value)
+{
+    _M8ReadoutVertices0.Store(M8ReadoutVertexAddress(index) + 12u, value);
+}
+
+void M8StoreReadoutColor1(uint index, uint value)
+{
+    _M8ReadoutVertices1.Store(M8ReadoutVertexAddress(index) + 12u, value);
+}
 
 bool M8AabbIntersectsDistance(int3 globalMin, int span, float distance)
 {
@@ -341,26 +394,26 @@ void PrepareReadoutBuild(uint3 id : SV_DispatchThreadID)
         id.x < _M8MeshDepthSize.x && id.y < _M8MeshDepthSize.y)
     {
         uint pixel = id.x + id.y * _M8MeshDepthSize.x;
-        _M8ReadoutVertices0[M8_MESH_SCRATCH_BASE + pixel].packedColor =
-            M8_MESH_INVALID_RANK;
-        _M8ReadoutVertices1[M8_MESH_SCRATCH_BASE + pixel].packedColor =
-            M8_MESH_INVALID_RANK;
+        M8StoreReadoutColor0(M8_MESH_SCRATCH_BASE + pixel,
+            M8_MESH_INVALID_RANK);
+        M8StoreReadoutColor1(M8_MESH_SCRATCH_BASE + pixel,
+            M8_MESH_INVALID_RANK);
     }
     if (id.x == 0u && id.y == 0u && id.z == 0u &&
         _M8MeshReadoutEnabled != 0u)
     {
-        _M8ReadoutVertices0[M8_MESH_ENVELOPE_BASE + 0u].packedColor =
-            M8_MESH_INVALID_RANK;
-        _M8ReadoutVertices0[M8_MESH_ENVELOPE_BASE + 1u].packedColor =
-            M8_MESH_INVALID_RANK;
-        _M8ReadoutVertices0[M8_MESH_ENVELOPE_BASE + 2u].packedColor = 0u;
-        _M8ReadoutVertices0[M8_MESH_ENVELOPE_BASE + 3u].packedColor = 0u;
-        _M8ReadoutVertices1[M8_MESH_ENVELOPE_BASE + 0u].packedColor =
-            M8_MESH_INVALID_RANK;
-        _M8ReadoutVertices1[M8_MESH_ENVELOPE_BASE + 1u].packedColor =
-            M8_MESH_INVALID_RANK;
-        _M8ReadoutVertices1[M8_MESH_ENVELOPE_BASE + 2u].packedColor = 0u;
-        _M8ReadoutVertices1[M8_MESH_ENVELOPE_BASE + 3u].packedColor = 0u;
+        M8StoreReadoutColor0(M8_MESH_ENVELOPE_BASE + 0u,
+            M8_MESH_INVALID_RANK);
+        M8StoreReadoutColor0(M8_MESH_ENVELOPE_BASE + 1u,
+            M8_MESH_INVALID_RANK);
+        M8StoreReadoutColor0(M8_MESH_ENVELOPE_BASE + 2u, 0u);
+        M8StoreReadoutColor0(M8_MESH_ENVELOPE_BASE + 3u, 0u);
+        M8StoreReadoutColor1(M8_MESH_ENVELOPE_BASE + 0u,
+            M8_MESH_INVALID_RANK);
+        M8StoreReadoutColor1(M8_MESH_ENVELOPE_BASE + 1u,
+            M8_MESH_INVALID_RANK);
+        M8StoreReadoutColor1(M8_MESH_ENVELOPE_BASE + 2u, 0u);
+        M8StoreReadoutColor1(M8_MESH_ENVELOPE_BASE + 3u, 0u);
     }
     if (any(id != 0u)) return;
     _M8FrameDispatchArgs[0] = min(
@@ -442,9 +495,9 @@ void ProjectReadoutFrontDepth(uint3 groupId : SV_GroupID,
 {
     uint physicalSlot = _M8VisibleTiles[groupId.x].x;
     [unroll]
-    for (uint batch = 0u; batch < 4u; batch++)
+    for (uint depthBatch = 0u; depthBatch < 4u; depthBatch++)
     {
-        uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
+        uint kernelLocal = thread + depthBatch * M8_SHELL_GROUP_THREADS;
         uint word = _M8TileBitsRead[M8TileWordIndex(physicalSlot,
             kernelLocal >> 5u)].x;
         uint bit = 1u << (kernelLocal & 31u);
@@ -502,15 +555,13 @@ uint M8FrontReadoutEyeMask(int3 globalCoord, KernelState state)
 void M8StoreReadoutVertex(uint outputVertex, float3 gridPosition,
     uint packedColor)
 {
-    bool secondBuffer = outputVertex >=
-        MERKABA_M8_READOUT_VERTICES_PER_BUFFER;
-    if (secondBuffer)
-        outputVertex -= MERKABA_M8_READOUT_VERTICES_PER_BUFFER;
     MerkabaReadoutVertex vertex;
     vertex.gridPosition = gridPosition;
     vertex.packedColor = packedColor;
-    if (secondBuffer) _M8ReadoutVertices1[outputVertex] = vertex;
-    else _M8ReadoutVertices0[outputVertex] = vertex;
+    // Standard readout is view-independent geometry, so its shader variant
+    // consumes only stream 0 for both eyes.  The stereo-depth variant writes
+    // the two eye streams independently below.
+    M8StoreReadoutVertex0(outputVertex, vertex);
 }
 
 uint M8EncodeReadoutSheet(int3 step)
@@ -615,9 +666,9 @@ void IndexReadoutVertices(uint3 groupId : SV_GroupID,
         gM8IndexValidWords[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();
     [unroll]
-    for (uint batch = 0u; batch < 4u; batch++)
+    for (uint indexBatch = 0u; indexBatch < 4u; indexBatch++)
     {
-        uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
+        uint kernelLocal = thread + indexBatch * M8_SHELL_GROUP_THREADS;
         uint occupancy = _M8TileBitsRead[M8TileWordIndex(physicalSlot,
             kernelLocal >> 5u)].x;
         uint eyeMask = 0u;
@@ -630,11 +681,12 @@ void IndexReadoutVertices(uint3 groupId : SV_GroupID,
             {
                 uint ignored;
                 InterlockedAdd(gM8IndexPlaneCount, 1u, ignored);
-                InterlockedOr(gM8IndexValidWords[kernelLocal >> 5u],
-                    1u << (kernelLocal & 31u), ignored);
                 int3 globalCoord = M8GlobalKernelCoordRead(physicalSlot,
                     kernelLocal);
                 eyeMask = M8FrontReadoutEyeMask(globalCoord, state);
+                if (eyeMask != 0u)
+                    InterlockedOr(gM8IndexValidWords[kernelLocal >> 5u],
+                        1u << (kernelLocal & 31u), ignored);
             }
         }
         gM8IndexEyeMasks[kernelLocal] = eyeMask;
@@ -678,7 +730,7 @@ void IndexReadoutVertices(uint3 groupId : SV_GroupID,
         uint ignored;
         InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES],
             gM8IndexValidCount, gM8IndexBaseVertex);
-        uint totalCapacity = MERKABA_M8_READOUT_VERTICES_PER_BUFFER * 2u;
+        uint totalCapacity = MERKABA_M8_READOUT_VERTICES_PER_BUFFER;
         bool fits = gM8IndexBaseVertex <= totalCapacity &&
             gM8IndexValidCount <= totalCapacity - gM8IndexBaseVertex;
         if (!fits)
@@ -713,9 +765,9 @@ void IndexReadoutVertices(uint3 groupId : SV_GroupID,
     if (gM8IndexCanEmit == 0u) return;
 
     [unroll]
-    for (uint batch = 0u; batch < 4u; batch++)
+    for (uint emitBatch = 0u; emitBatch < 4u; emitBatch++)
     {
-        uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
+        uint kernelLocal = thread + emitBatch * M8_SHELL_GROUP_THREADS;
         if (!M8IndexPinValid(kernelLocal)) continue;
         KernelState state = M8LoadKernelStateRead(physicalSlot, kernelLocal);
         float3 normal;
@@ -782,10 +834,7 @@ void M8InitializeReadoutPin(out M8ReadoutPin pin)
 
 MerkabaReadoutVertex M8LoadReadoutVertex(uint vertexIndex)
 {
-    if (vertexIndex < MERKABA_M8_READOUT_VERTICES_PER_BUFFER)
-        return _M8ReadoutVertices0[vertexIndex];
-    return _M8ReadoutVertices1[
-        vertexIndex - MERKABA_M8_READOUT_VERTICES_PER_BUFFER];
+    return M8LoadReadoutVertex0(vertexIndex);
 }
 
 void M8DecodeReadoutPin(uint eyeMask, uint vertexIndex,
@@ -1386,8 +1435,7 @@ void BuildReadoutVertices(uint3 groupId : SV_GroupID,
                 glyphVertices, gM8BuildBaseGlyphVertex);
         else
             gM8BuildBaseGlyphVertex = 0u;
-        uint totalVertices =
-            MERKABA_M8_READOUT_VERTICES_PER_BUFFER * 2u;
+        uint totalVertices = MERKABA_M8_READOUT_VERTICES_PER_BUFFER;
         bool trianglesFit = gM8BuildBaseTriangle <=
                 MERKABA_M8_READOUT_TRIANGLE_CAPACITY &&
             triangleCount <= MERKABA_M8_READOUT_TRIANGLE_CAPACITY -
@@ -1502,29 +1550,29 @@ bool M8ProjectOneMeshPin(uint eye, uint handle, float3 pinGrid,
     uint ignored;
     if (eye == 0u)
     {
-        InterlockedMin(_M8ReadoutVertices0[
-            M8_MESH_SCRATCH_BASE + pixelIndex].packedColor, rank, ignored);
-        InterlockedMin(_M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 0u].packedColor, pixel.x, ignored);
-        InterlockedMin(_M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 1u].packedColor, pixel.y, ignored);
-        InterlockedMax(_M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 2u].packedColor, pixel.x, ignored);
-        InterlockedMax(_M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 3u].packedColor, pixel.y, ignored);
+        _M8ReadoutVertices0.InterlockedMin(M8ReadoutVertexAddress(
+            M8_MESH_SCRATCH_BASE + pixelIndex) + 12u, rank, ignored);
+        _M8ReadoutVertices0.InterlockedMin(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 0u) + 12u, pixel.x, ignored);
+        _M8ReadoutVertices0.InterlockedMin(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 1u) + 12u, pixel.y, ignored);
+        _M8ReadoutVertices0.InterlockedMax(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 2u) + 12u, pixel.x, ignored);
+        _M8ReadoutVertices0.InterlockedMax(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 3u) + 12u, pixel.y, ignored);
     }
     else
     {
-        InterlockedMin(_M8ReadoutVertices1[
-            M8_MESH_SCRATCH_BASE + pixelIndex].packedColor, rank, ignored);
-        InterlockedMin(_M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 0u].packedColor, pixel.x, ignored);
-        InterlockedMin(_M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 1u].packedColor, pixel.y, ignored);
-        InterlockedMax(_M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 2u].packedColor, pixel.x, ignored);
-        InterlockedMax(_M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 3u].packedColor, pixel.y, ignored);
+        _M8ReadoutVertices1.InterlockedMin(M8ReadoutVertexAddress(
+            M8_MESH_SCRATCH_BASE + pixelIndex) + 12u, rank, ignored);
+        _M8ReadoutVertices1.InterlockedMin(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 0u) + 12u, pixel.x, ignored);
+        _M8ReadoutVertices1.InterlockedMin(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 1u) + 12u, pixel.y, ignored);
+        _M8ReadoutVertices1.InterlockedMax(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 2u) + 12u, pixel.x, ignored);
+        _M8ReadoutVertices1.InterlockedMax(M8ReadoutVertexAddress(
+            M8_MESH_ENVELOPE_BASE + 3u) + 12u, pixel.y, ignored);
     }
     return true;
 }
@@ -1545,9 +1593,9 @@ void ProjectReadoutMeshPins(uint3 groupId : SV_GroupID,
             M8LoadTileMetaRead(physicalSlot).z, ignored);
     }
     [loop]
-    for (uint batch = 0u; batch < 4u; batch++)
+    for (uint meshPinBatch = 0u; meshPinBatch < 4u; meshPinBatch++)
     {
-        uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
+        uint kernelLocal = thread + meshPinBatch * M8_SHELL_GROUP_THREADS;
         uint bit = 1u << (kernelLocal & 31u);
         if ((_M8TileBitsRead[M8TileWordIndex(physicalSlot,
                 kernelLocal >> 5u)].x & bit) == 0u)
@@ -1588,8 +1636,8 @@ uint M8MeshRank(uint eye, uint2 pixel)
 {
     uint index = M8_MESH_SCRATCH_BASE + pixel.x +
         pixel.y * _M8MeshDepthSize.x;
-    return eye == 0u ? _M8ReadoutVertices0[index].packedColor :
-        _M8ReadoutVertices1[index].packedColor;
+    return eye == 0u ? M8LoadReadoutColor0(index) :
+        M8LoadReadoutColor1(index);
 }
 
 M8MeshVertex M8LoadMeshVertex(uint eye, uint2 pixel)
@@ -1665,25 +1713,17 @@ bool M8MeshInsideEnvelope(uint eye, uint2 cell)
     uint minX, minY, maxX, maxY;
     if (eye == 0u)
     {
-        minX = _M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 0u].packedColor;
-        minY = _M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 1u].packedColor;
-        maxX = _M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 2u].packedColor;
-        maxY = _M8ReadoutVertices0[
-            M8_MESH_ENVELOPE_BASE + 3u].packedColor;
+        minX = M8LoadReadoutColor0(M8_MESH_ENVELOPE_BASE + 0u);
+        minY = M8LoadReadoutColor0(M8_MESH_ENVELOPE_BASE + 1u);
+        maxX = M8LoadReadoutColor0(M8_MESH_ENVELOPE_BASE + 2u);
+        maxY = M8LoadReadoutColor0(M8_MESH_ENVELOPE_BASE + 3u);
     }
     else
     {
-        minX = _M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 0u].packedColor;
-        minY = _M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 1u].packedColor;
-        maxX = _M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 2u].packedColor;
-        maxY = _M8ReadoutVertices1[
-            M8_MESH_ENVELOPE_BASE + 3u].packedColor;
+        minX = M8LoadReadoutColor1(M8_MESH_ENVELOPE_BASE + 0u);
+        minY = M8LoadReadoutColor1(M8_MESH_ENVELOPE_BASE + 1u);
+        maxX = M8LoadReadoutColor1(M8_MESH_ENVELOPE_BASE + 2u);
+        maxY = M8LoadReadoutColor1(M8_MESH_ENVELOPE_BASE + 3u);
     }
     return minX != M8_MESH_INVALID_RANK &&
         cell.x + 1u >= minX && cell.x <= maxX &&
@@ -1695,8 +1735,8 @@ void M8StoreMeshVertex(uint eye, uint index, M8MeshVertex vertex)
     MerkabaReadoutVertex output;
     output.gridPosition = vertex.gridPosition;
     output.packedColor = vertex.packedColor;
-    if (eye == 0u) _M8ReadoutVertices0[index] = output;
-    else _M8ReadoutVertices1[index] = output;
+    if (eye == 0u) M8StoreReadoutVertex0(index, output);
+    else M8StoreReadoutVertex1(index, output);
 }
 
 void M8StoreMeshTriangle(uint eye, uint outputVertex, M8MeshVertex a,
@@ -1714,6 +1754,13 @@ void M8StoreMeshTriangle(uint eye, uint outputVertex, M8MeshVertex a,
     M8StoreMeshVertex(eye, outputVertex + 0u, a);
     M8StoreMeshVertex(eye, outputVertex + 1u, b);
     M8StoreMeshVertex(eye, outputVertex + 2u, c);
+}
+
+void M8StoreMeshIdentityIndices(uint outputVertex)
+{
+    [unroll]
+    for (uint local = 0u; local < 6u; local++)
+        M8StoreReadoutIndex(outputVertex + local, outputVertex + local);
 }
 
 void M8BuildMeshEye(uint eye, uint2 cell, uint outputVertex)
@@ -1776,6 +1823,11 @@ void BuildReadoutMesh(uint3 id : SV_DispatchThreadID)
         return;
     uint cell = id.x + id.y * (_M8MeshDepthSize.x - 1u);
     uint outputVertex = cell * 6u;
+    // The stereo cloth is emitted as a sequential triangle list into both
+    // Mesh vertex streams.  Publish the matching shared index sequence in
+    // the same cell invocation so a prior canonical-readout index topology
+    // can never leak into this BACK publication.
+    M8StoreMeshIdentityIndices(outputVertex);
     M8BuildMeshEye(0u, id.xy, outputVertex);
     M8BuildMeshEye(1u, id.xy, outputVertex);
 }
