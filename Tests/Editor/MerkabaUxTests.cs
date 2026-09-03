@@ -24,7 +24,7 @@ namespace Genesis.RoomScan.Tests
                          "btn-new", "btn-export", "btn-readout", "btn-mesh",
                          "btn-occlusion", "btn-checker", "btn-artifact-view",
                          "btn-annotation-mode", "btn-annotation-save",
-                         "btn-annotation-edit"
+                         "btn-annotation-edit", "btn-annotation-delete"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
@@ -38,6 +38,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<ProgressBar>("operation-progress"), Is.Not.Null);
             Assert.That(root.Q<Label>("val-proximity"), Is.Not.Null);
             Assert.That(root.Q<TextField>("annotation-note"), Is.Not.Null);
+            Assert.That(root.Q<Toggle>("artifact-world-lock"), Is.Not.Null);
+            Assert.That(root.Q<Toggle>("artifact-room-align"), Is.Not.Null);
             Assert.That(root.Q<Label>("val-artifact"), Is.Not.Null);
             string source = File.ReadAllText(Path.GetFullPath(path));
             Assert.That(source, Does.Contain("Published triangles"));

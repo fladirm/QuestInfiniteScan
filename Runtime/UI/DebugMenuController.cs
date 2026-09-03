@@ -15,12 +15,14 @@ namespace Genesis.RoomScan.UI
         private VisualElement _boundRoot;
         private Button _start, _stop, _save, _load, _new, _export,
             _exportTiles, _fine, _readout, _mesh, _occlusion, _checker,
-            _artifactView, _annotationMode, _annotationSave, _annotationEdit;
+            _artifactView, _annotationMode, _annotationSave, _annotationEdit,
+            _annotationDelete;
         private Label _scanning, _chunks, _kernels, _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
         private Label _artifactStatus;
         private TextField _annotationNote;
         private Slider _opacity;
+        private Toggle _artifactWorldLock, _artifactRoomAlign;
         private Slider _fineAngle, _fineDepth;
         private Label _opacityValue, _fineAngleValue, _fineDepthValue;
         private Label _operationSpinner, _operationStage;
@@ -107,6 +109,9 @@ namespace Genesis.RoomScan.UI
             _annotationMode = _root.Q<Button>("btn-annotation-mode");
             _annotationSave = _root.Q<Button>("btn-annotation-save");
             _annotationEdit = _root.Q<Button>("btn-annotation-edit");
+            _annotationDelete = _root.Q<Button>("btn-annotation-delete");
+            _artifactWorldLock = _root.Q<Toggle>("artifact-world-lock");
+            _artifactRoomAlign = _root.Q<Toggle>("artifact-room-align");
             _annotationNote = _root.Q<TextField>("annotation-note");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
@@ -184,6 +189,18 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer?.SaveAnnotations());
             _annotationEdit?.RegisterCallback<ClickEvent>(evt =>
                 _artifactViewer?.BeginNoteEdit());
+            _annotationDelete?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.DeleteSelectedAnnotation());
+            _artifactWorldLock?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.WorldLocked = evt.newValue;
+            });
+            _artifactRoomAlign?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.RoomAligned = evt.newValue;
+            });
             _annotationNote?.RegisterValueChangedCallback(evt =>
             {
                 if (_artifactViewer != null)
@@ -193,6 +210,8 @@ namespace Genesis.RoomScan.UI
             {
                 RoomScanner scanner = RoomScanner.Instance;
                 if (scanner != null) scanner.ScanOpacity = evt.newValue;
+                if (_artifactViewer != null)
+                    _artifactViewer.PreviewOpacity = evt.newValue;
             });
             _fineAngle?.RegisterValueChangedCallback(evt =>
             {
@@ -269,6 +288,8 @@ namespace Genesis.RoomScan.UI
                 "GLB View unavailable");
 
             float opacity = scanner.ScanOpacity;
+            if (_artifactViewer != null)
+                _artifactViewer.PreviewOpacity = opacity;
             _opacity?.SetValueWithoutNotify(opacity);
             Set(_opacityValue, $"{opacity * 100f:F0}%");
             _fineAngle?.SetValueWithoutNotify(scanner.FineBrushAngle);
@@ -297,6 +318,10 @@ namespace Genesis.RoomScan.UI
             if (_annotationNote != null)
                 _annotationNote.SetValueWithoutNotify(
                     _artifactViewer?.SelectedNote ?? string.Empty);
+            _artifactWorldLock?.SetValueWithoutNotify(
+                _artifactViewer?.WorldLocked ?? true);
+            _artifactRoomAlign?.SetValueWithoutNotify(
+                _artifactViewer?.RoomAligned ?? false);
 
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
@@ -337,6 +362,10 @@ namespace Genesis.RoomScan.UI
             _annotationNote?.SetEnabled(!operationBusy && reviewing);
             _annotationEdit?.SetEnabled(!operationBusy && reviewing &&
                 (_artifactViewer?.HasSelectedAnnotation ?? false));
+            _annotationDelete?.SetEnabled(!operationBusy && reviewing &&
+                (_artifactViewer?.HasSelectedAnnotation ?? false));
+            _artifactWorldLock?.SetEnabled(!operationBusy && reviewing);
+            _artifactRoomAlign?.SetEnabled(!operationBusy && reviewing);
         }
 
         private static string DirectionArrow(Vector3 cameraLocalDirection)

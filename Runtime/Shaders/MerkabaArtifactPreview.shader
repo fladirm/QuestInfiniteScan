@@ -3,6 +3,10 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
     Properties
     {
         _BaseColor("Base Color", Color) = (1, 1, 1, 1)
+        [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend("Source Blend", Float) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend("Destination Blend", Float) = 0
+        [Toggle] _ZWrite("Depth Write", Float) = 1
+        [Toggle] _AlphaDither("Alpha Dither", Float) = 0
     }
 
     SubShader
@@ -19,9 +23,9 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
             Name "ArtifactPreview"
             Tags { "LightMode" = "SRPDefaultUnlit" }
             Cull Off
-            ZWrite On
+            ZWrite [_ZWrite]
             ZTest LEqual
-            Blend One Zero
+            Blend [_SrcBlend] [_DstBlend]
 
             HLSLPROGRAM
             #pragma vertex Vert
@@ -32,6 +36,7 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _BaseColor;
+                half _AlphaDither;
             CBUFFER_END
 
             struct Attributes
@@ -44,6 +49,7 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
+                float3 worldPosition : TEXCOORD0;
                 half4 color : COLOR;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
@@ -53,7 +59,9 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
                 Varyings output;
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+                output.worldPosition = TransformObjectToWorld(
+                    input.positionOS.xyz);
+                output.positionCS = TransformWorldToHClip(output.worldPosition);
                 output.color = input.color * _BaseColor;
                 return output;
             }
@@ -61,6 +69,21 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
             half4 Frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                if (_AlphaDither > 0.5h)
+                {
+                    int3 worldCell = (int3)floor(input.worldPosition * 40.0);
+                    uint hash = (uint)input.positionCS.x * 0x8da6b343u ^
+                        (uint)input.positionCS.y * 0xd8163841u ^
+                        asuint(worldCell.x) * 0xcb1ab31fu ^
+                        asuint(worldCell.y) * 0x165667b1u ^
+                        asuint(worldCell.z) * 0x27d4eb2fu;
+                    hash ^= hash >> 13u;
+                    hash *= 0x85ebca6bu;
+                    hash ^= hash >> 16u;
+                    half threshold = (half)((hash & 255u) + 0.5) / 256.0h;
+                    clip(input.color.a - threshold);
+                    return half4(input.color.rgb, 1.0h);
+                }
                 return input.color;
             }
             ENDHLSL

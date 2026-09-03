@@ -27,19 +27,18 @@ namespace Genesis.RoomScan.Tests
             byte[] glb = stream.ToArray();
 
             MerkabaArtifactViewer.ParsedGlb parsed =
-                MerkabaArtifactViewer.ParseGlbForPreview(glb,
-                    origin, center);
+                MerkabaArtifactViewer.ParseGlbForPreview(glb);
             using var streamed = new MemoryStream(glb, false);
             MerkabaArtifactViewer.ParsedGlb streamedParsed =
                 MerkabaArtifactViewer.ParseGlbForPreview(streamed,
-                    streamed.Length, origin, center);
+                    streamed.Length);
 
             Assert.That(parsed.Positions.Length, Is.GreaterThan(0));
             Assert.That(parsed.Normals.Length, Is.EqualTo(parsed.Positions.Length));
             Assert.That(parsed.Colors.Length, Is.EqualTo(parsed.Positions.Length));
             Assert.That(parsed.Indices.Length % 3, Is.Zero);
             Assert.That(parsed.Positions.Any(value =>
-                Vector3.Distance(value,
+                Vector3.Distance(value + origin - center,
                     (Vector3)membrane.Patches[0].Corner00 - center) < 1e-6f),
                 Is.True);
             Color32 expected = KernelState.UnpackColor(
@@ -61,9 +60,15 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/UI/MerkabaArtifactViewer.cs");
             string setup = Source("Editor/RoomScanSetupWizard.cs");
             string menu = Source("Runtime/UI/DebugMenu.uxml");
+            string shader = Source(
+                "Runtime/Shaders/MerkabaArtifactPreview.shader");
 
             Assert.That(viewer, Does.Contain(
-                "MaximumResidentDecodedBytes = 512L * 1024L * 1024L"));
+                "systemBytes * 3L / 8L"));
+            Assert.That(viewer, Does.Contain(
+                "MaximumConcurrentTileLoads = 4"));
+            Assert.That(viewer, Does.Contain(
+                "GlbReadBufferBytes = 1024 * 1024"));
             Assert.That(viewer, Does.Contain("ReadPackageIndex(archivePath)"));
             Assert.That(viewer, Does.Contain("ReadGlbTile("));
             Assert.That(viewer, Does.Contain("new BufferedStream(entryStream"));
@@ -73,17 +78,48 @@ namespace Genesis.RoomScan.Tests
                 "Preview tile is too large"));
             Assert.That(viewer, Does.Contain("TouchScreenKeyboard.Open("));
             Assert.That(viewer, Does.Contain("AnnotationMode.Select"));
+            Assert.That(viewer, Does.Contain("BeginAnnotationDrag(ray)"));
+            Assert.That(viewer, Does.Contain("DeleteSelectedAnnotation()"));
             Assert.That(viewer, Does.Contain("DestroyTile(tile)"));
             Assert.That(viewer, Does.Contain("_scanner.ReadoutDrawEnabled = false"));
+            Assert.That(viewer, Does.Contain("RoomSpaceRoot.Instance"));
+            Assert.That(viewer, Does.Contain("_grabDistance"));
+            Assert.That(viewer, Does.Not.Contain(
+                "moveDirection * initialPreviewDistance"));
             Assert.That(viewer, Does.Not.Contain("MerkabaGrid"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
+            Assert.That(shader, Does.Contain("_AlphaDither"));
+            Assert.That(shader, Does.Contain("clip(input.color.a - threshold)"));
             Assert.That(setup, Does.Contain(
                 "GetOrAdd<MerkabaArtifactViewer>(scannerObject)"));
             Assert.That(setup, Does.Contain("requiresSystemKeyboard = true"));
             Assert.That(menu, Does.Contain("btn-artifact-view"));
             Assert.That(menu, Does.Contain("btn-annotation-mode"));
             Assert.That(menu, Does.Contain("btn-annotation-edit"));
+            Assert.That(menu, Does.Contain("btn-annotation-delete"));
+            Assert.That(menu, Does.Contain("artifact-world-lock"));
+            Assert.That(menu, Does.Contain("artifact-room-align"));
             Assert.That(menu, Does.Contain("annotation-note"));
+        }
+
+        [Test]
+        public void QuestArtifactPreviewLoadsEveryTileThatFitsAndOnlyMarksLargeContinuation()
+        {
+            const long gibibyte = 1024L * 1024L * 1024L;
+
+            Assert.That(MerkabaArtifactViewer.FitsResidentBudget(
+                gibibyte, gibibyte), Is.True);
+            Assert.That(MerkabaArtifactViewer.FitsResidentBudget(
+                gibibyte + 1L, gibibyte), Is.False);
+            Assert.That(MerkabaArtifactViewer.EstimateResidentBytes(
+                64L * 1024L * 1024L),
+                Is.EqualTo(128L * 1024L * 1024L));
+            Assert.That(MerkabaArtifactViewer.NeedsContinuationMarker(
+                gibibyte, 1, 2), Is.False);
+            Assert.That(MerkabaArtifactViewer.NeedsContinuationMarker(
+                gibibyte + 1L, 1, 2), Is.True);
+            Assert.That(MerkabaArtifactViewer.NeedsContinuationMarker(
+                gibibyte + 1L, 2, 2), Is.False);
         }
 
         [Test]
@@ -105,6 +141,20 @@ namespace Genesis.RoomScan.Tests
             Assert.That(lineAlong, Is.EqualTo(2f).Within(1e-6f));
             Assert.That(triangle, Is.True);
             Assert.That(triangleAlong, Is.EqualTo(2f).Within(1e-6f));
+        }
+
+        [Test]
+        public void QuestArtifactPlaneDragBuildsOneFilledSurfaceRectangle()
+        {
+            Vector3[] points = MerkabaArtifactViewer.SurfaceRectangle(
+                new Vector3(1f, 2f, 3f), new Vector3(3f, 5f, 7f),
+                Vector3.right, Vector3.up);
+
+            Assert.That(points, Has.Length.EqualTo(4));
+            Assert.That(points[0], Is.EqualTo(new Vector3(1f, 2f, 3f)));
+            Assert.That(points[1], Is.EqualTo(new Vector3(3f, 2f, 3f)));
+            Assert.That(points[2], Is.EqualTo(new Vector3(3f, 5f, 3f)));
+            Assert.That(points[3], Is.EqualTo(new Vector3(1f, 5f, 3f)));
         }
 
         [Test]
