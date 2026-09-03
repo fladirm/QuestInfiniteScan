@@ -163,8 +163,8 @@ namespace Genesis.RoomScan
         public static bool DepthAvailable { get; private set; }
 
         /// <summary>
-        /// True after USE_SCENE permission is confirmed and the initial subsystem check passes.
-        /// Until this is set, <see cref="StartDepthCapture"/> is a no-op.
+        /// True after USE_SCENE permission is confirmed. Runtime readiness is
+        /// established separately before scanning is admitted.
         /// </summary>
         private bool _permissionReady;
 
@@ -220,6 +220,8 @@ namespace Genesis.RoomScan
         private Vector3 _fineSurfaceTargetNormal;
         private float _nextFineSurfaceTarget;
         private uint _fineSurfaceTargetGeneration = 1u;
+        private uint _fineSurfaceTargetIssuedSequence;
+        private uint _fineSurfaceTargetCompletedSequence;
 
         private AROcclusionManager _arOcclusionManager;
         private ARShaderOcclusion _shaderOcclusion;
@@ -234,6 +236,19 @@ namespace Genesis.RoomScan
         private int _lastCopySlot = -1;
         private Task _copyRetirementTask = Task.CompletedTask;
         private float _lastLogTime;
+        private readonly TaskCompletionSource<bool> _scenePermissionCompletion =
+            new();
+        private Task<bool> _environmentDepthReadyTask =
+            Task.FromResult(false);
+        private bool _environmentDepthReadyTaskRequiresFreshFrame;
+        private bool _environmentDepthSuspended;
+        private uint _environmentDepthGeneration = 1u;
+        private uint _environmentDepthFrameSequence;
+
+        private static readonly int EnvironmentDepthTextureId =
+            Shader.PropertyToID("_EnvironmentDepthTexture");
+        private static readonly int IsOcclusionOnId =
+            Shader.PropertyToID("_IsOcclusionOn");
 
         public bool DynamicOcclusionEnabled
         {
@@ -243,6 +258,8 @@ namespace Genesis.RoomScan
                 if (dynamicOcclusionEnabled == value) return;
                 dynamicOcclusionEnabled = value;
                 ApplyDynamicOcclusionState();
+                if (value)
+                    _ = EnsureEnvironmentDepthRunningAsync(false, true);
                 Logger.Info("DepthCapture: dynamic passthrough occlusion " +
                     (value ? "enabled" : "disabled"));
             }
@@ -263,6 +280,10 @@ namespace Genesis.RoomScan
         internal ComputeBuffer RefineMetrics => _refineMetrics;
         internal bool FineSurfaceTargetReadbackPending =>
             _fineSurfaceTargetReadbackPending;
+        internal uint FineSurfaceTargetIssuedSequence =>
+            _fineSurfaceTargetIssuedSequence;
+        internal uint FineSurfaceTargetCompletedSequence =>
+            _fineSurfaceTargetCompletedSequence;
         public bool HasUnprocessedFrame => DepthAvailable &&
             _readyDepthSlot >= 0 && _heldDepthSlot < 0 &&
             _ownedRawDepth[_readyDepthSlot] != null &&
@@ -387,11 +408,29 @@ namespace Genesis.RoomScan
         private void ApplyDynamicOcclusionState()
         {
             if (_shaderOcclusion != null)
-                _shaderOcclusion.enabled = dynamicOcclusionEnabled;
+                _shaderOcclusion.enabled = dynamicOcclusionEnabled &&
+                    !_environmentDepthSuspended;
             if (!_permissionReady || _arOcclusionManager == null) return;
-            bool depthRequired = _captureActive || dynamicOcclusionEnabled;
+            bool depthRequired = !_environmentDepthSuspended &&
+                (_captureActive || dynamicOcclusionEnabled);
+            UpdateDepthFrameSubscription(depthRequired);
             if (_arOcclusionManager.enabled != depthRequired)
                 _arOcclusionManager.enabled = depthRequired;
+        }
+
+        private void UpdateDepthFrameSubscription(bool subscribe)
+        {
+            if (_arOcclusionManager == null) return;
+            if (subscribe && !_subscribed)
+            {
+                _arOcclusionManager.frameReceived += OnDepthFrame;
+                _subscribed = true;
+            }
+            else if (!subscribe && _subscribed)
+            {
+                _arOcclusionManager.frameReceived -= OnDepthFrame;
+                _subscribed = false;
+            }
         }
 
         private void EnsureARSession()
@@ -409,68 +448,47 @@ namespace Genesis.RoomScan
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (Permission.HasUserAuthorizedPermission(ScenePermission))
             {
-                EnableOcclusion();
+                CompleteScenePermission(true);
             }
             else
             {
                 Logger.Info("Requesting USE_SCENE permission...");
                 var callbacks = new PermissionCallbacks();
-                callbacks.PermissionGranted += _ => EnableOcclusion();
-                callbacks.PermissionDenied += _ => Logger.Error("USE_SCENE permission denied — depth will not work");
+                callbacks.PermissionGranted += _ =>
+                    CompleteScenePermission(true);
+                callbacks.PermissionDenied += _ =>
+                    CompleteScenePermission(false);
                 Permission.RequestUserPermission(ScenePermission, callbacks);
             }
 #else
-            EnableOcclusion();
+            CompleteScenePermission(true);
 #endif
         }
 
         private bool _subscribed;
 
-        private async void EnableOcclusion()
+        private void CompleteScenePermission(bool granted)
         {
-            if (_arOcclusionManager == null) return;
-
-            Logger.Info("Verifying AROcclusionManager subsystem...");
-
-            _arOcclusionManager.frameReceived -= OnDepthFrame;
-            _subscribed = false;
-            _arOcclusionManager.enabled = false;
-
-            await Awaitable.NextFrameAsync();
-            await Awaitable.NextFrameAsync();
-
-            if (_arOcclusionManager == null) return;
-
-            // Briefly enable to verify the subsystem is functional
-            _arOcclusionManager.enabled = true;
-
-            await Awaitable.NextFrameAsync();
-            await Awaitable.NextFrameAsync();
-
-            if (_arOcclusionManager == null) return;
-            var sub = _arOcclusionManager.subsystem;
-            Logger.Info($"Occlusion subsystem: {(sub != null ? sub.GetType().Name : "null")}, running={sub?.running}");
-
-            _permissionReady = true;
-
-            if (_captureActive)
+            if (_scenePermissionCompletion.Task.IsCompleted) return;
+            _permissionReady = granted;
+            _scenePermissionCompletion.TrySetResult(granted);
+            if (!granted)
             {
-                _arOcclusionManager.frameReceived += OnDepthFrame;
-                _subscribed = true;
-                Logger.Info("DepthCapture: subsystem left running (scan already active)");
+                Logger.Error("USE_SCENE permission denied — environment " +
+                    "depth and scanning are unavailable.");
+                return;
             }
-            ApplyDynamicOcclusionState();
-            if (!_captureActive)
-                Logger.Info("DepthCapture: scanner consumer idle; environment " +
-                    "depth occlusion is " +
-                    (dynamicOcclusionEnabled ? "active" : "disabled"));
+            Logger.Info("USE_SCENE permission granted.");
+            if (dynamicOcclusionEnabled || _captureActive)
+                _ = EnsureEnvironmentDepthRunningAsync(false, true);
         }
 
         /// <summary>
-        /// Enables the AROcclusionManager and subscribes to depth frames.
-        /// Called by RoomScanner when scanning starts.
+        /// Starts the scanner's depth consumer and does not complete until a
+        /// new owned stereo Environment Depth snapshot is available.
         /// </summary>
-        public void StartDepthCapture()
+        internal async Task<bool> StartDepthCaptureAsync(
+            float timeoutSeconds = 10f)
         {
             if (!_captureActive)
             {
@@ -478,15 +496,122 @@ namespace Genesis.RoomScan
                 _depthClock.TryCaptureAnchor();
             }
             _captureActive = true;
-            if (!_permissionReady || _arOcclusionManager == null) return;
-            if (!_arOcclusionManager.enabled)
-                _arOcclusionManager.enabled = true;
-            if (!_subscribed)
+            _environmentDepthSuspended = false;
+            ApplyDynamicOcclusionState();
+            if (!await EnsureEnvironmentDepthRunningAsync(false, true))
+                return false;
+
+            int baselineVersion = _latestRawFrameVersion;
+            float deadline = Time.realtimeSinceStartup +
+                Mathf.Max(0.1f, timeoutSeconds);
+            bool requested = false;
+            while (_captureActive && isActiveAndEnabled &&
+                   Time.realtimeSinceStartup < deadline)
             {
-                _arOcclusionManager.frameReceived += OnDepthFrame;
-                _subscribed = true;
+                if (!requested)
+                    requested = RequestFreshDepthFrame();
+                if (HasUnprocessedFrame &&
+                    _latestRawFrameVersion != baselineVersion)
+                {
+                    Logger.Info("DepthCapture: fresh owned Environment Depth " +
+                        $"snapshot ready, version={_latestRawFrameVersion}.");
+                    return true;
+                }
+                await Task.Yield();
             }
-            Logger.Info("DepthCapture: subsystem started");
+            Logger.Error("DepthCapture: timed out waiting for a fresh owned " +
+                $"Environment Depth snapshot after {timeoutSeconds:F1}s.");
+            return false;
+        }
+
+        private Task<bool> EnsureEnvironmentDepthRunningAsync(
+            bool forceRestart, bool requireFreshFrame,
+            float timeoutSeconds = 10f)
+        {
+            if (_environmentDepthSuspended)
+                return Task.FromResult(false);
+            if (!forceRestart && EnvironmentDepthIsRunning() &&
+                (!requireFreshFrame || _environmentDepthFrameSequence != 0u))
+            {
+                ApplyDynamicOcclusionState();
+                return Task.FromResult(true);
+            }
+            if (!forceRestart && _environmentDepthReadyTask != null &&
+                !_environmentDepthReadyTask.IsCompleted &&
+                (!requireFreshFrame ||
+                 _environmentDepthReadyTaskRequiresFreshFrame))
+                return _environmentDepthReadyTask;
+
+            uint generation = NextEnvironmentDepthGeneration();
+            _environmentDepthReadyTaskRequiresFreshFrame = requireFreshFrame;
+            _environmentDepthReadyTask =
+                EnableEnvironmentDepthCoreAsync(generation, forceRestart,
+                    requireFreshFrame, timeoutSeconds);
+            return _environmentDepthReadyTask;
+        }
+
+        private async Task<bool> EnableEnvironmentDepthCoreAsync(
+            uint generation, bool forceRestart, bool requireFreshFrame,
+            float timeoutSeconds)
+        {
+            bool permission = _permissionReady ||
+                await _scenePermissionCompletion.Task;
+            if (!permission || generation != _environmentDepthGeneration ||
+                _arOcclusionManager == null)
+                return false;
+
+            uint baselineFrame = _environmentDepthFrameSequence;
+            if (forceRestart && _arOcclusionManager.enabled)
+            {
+                UpdateDepthFrameSubscription(false);
+                _arOcclusionManager.enabled = false;
+                await Task.Yield();
+                if (generation != _environmentDepthGeneration)
+                    return false;
+            }
+
+            ApplyDynamicOcclusionState();
+            float deadline = Time.realtimeSinceStartup +
+                Mathf.Max(0.1f, timeoutSeconds);
+            while (generation == _environmentDepthGeneration &&
+                   !_environmentDepthSuspended &&
+                   Time.realtimeSinceStartup < deadline)
+            {
+                if (EnvironmentDepthIsRunning() &&
+                    (!requireFreshFrame ||
+                     _environmentDepthFrameSequence != baselineFrame))
+                {
+                    Logger.Info("DepthCapture: Environment Depth ready " +
+                        $"(running=true, frame=" +
+                        $"{_environmentDepthFrameSequence}).");
+                    return true;
+                }
+                await Task.Yield();
+            }
+            if (generation == _environmentDepthGeneration)
+                Logger.Error("DepthCapture: Environment Depth readiness " +
+                    $"timed out after {timeoutSeconds:F1}s " +
+                    $"(manager={_arOcclusionManager.enabled}, " +
+                    $"running={_arOcclusionManager.subsystem?.running}, " +
+                    $"freshFrame=" +
+                    $"{_environmentDepthFrameSequence != baselineFrame}).");
+            return false;
+        }
+
+        private bool EnvironmentDepthIsRunning() =>
+            _arOcclusionManager != null && _arOcclusionManager.enabled &&
+            _arOcclusionManager.subsystem != null &&
+            _arOcclusionManager.subsystem.running;
+
+        private uint NextEnvironmentDepthGeneration()
+        {
+            unchecked
+            {
+                _environmentDepthGeneration++;
+                if (_environmentDepthGeneration == 0u)
+                    _environmentDepthGeneration = 1u;
+            }
+            return _environmentDepthGeneration;
         }
 
         public bool RequestNextDepthFrame()
@@ -573,14 +698,6 @@ namespace Genesis.RoomScan
         internal void BeginQuiesceDepthCapture()
         {
             _captureActive = false;
-            if (_arOcclusionManager != null)
-            {
-                if (_subscribed)
-                {
-                    _arOcclusionManager.frameReceived -= OnDepthFrame;
-                    _subscribed = false;
-                }
-            }
             _depthFrameRequested = false;
             _requestedDepthSlot = -1;
             // A ready B frame was admitted but is not the immutable observation A.
@@ -591,18 +708,27 @@ namespace Genesis.RoomScan
 
         internal void SuspendEnvironmentDepthForApplicationPause()
         {
-            if (_arOcclusionManager == null || !_arOcclusionManager.enabled)
-                return;
-            _arOcclusionManager.enabled = false;
+            _environmentDepthSuspended = true;
+            NextEnvironmentDepthGeneration();
+            UpdateDepthFrameSubscription(false);
+            if (_shaderOcclusion != null)
+                _shaderOcclusion.enabled = false;
+            if (_arOcclusionManager != null && _arOcclusionManager.enabled)
+                _arOcclusionManager.enabled = false;
             Logger.Info("DepthCapture: environment depth subsystem suspended " +
                         "for application pause");
         }
 
-        internal void RestoreEnvironmentDepthAfterApplicationResume()
+        internal async Task<bool>
+            RestoreEnvironmentDepthAfterApplicationResumeAsync()
         {
-            ApplyDynamicOcclusionState();
-            Logger.Info("DepthCapture: environment depth subsystem restored " +
-                        "after application resume");
+            _environmentDepthSuspended = false;
+            if (!_captureActive && !dynamicOcclusionEnabled)
+                return true;
+            bool ready = await EnsureEnvironmentDepthRunningAsync(true, true);
+            Logger.Info("DepthCapture: environment depth subsystem restore " +
+                (ready ? "completed." : "failed."));
+            return ready;
         }
 
         internal Task RetireSubmittedDepthCopiesAsync()
@@ -654,6 +780,9 @@ namespace Genesis.RoomScan
 
         private void OnDestroy()
         {
+            NextEnvironmentDepthGeneration();
+            UpdateDepthFrameSubscription(false);
+            _scenePermissionCompletion.TrySetResult(false);
             if (Instance == this) Instance = null;
         }
 
@@ -690,6 +819,8 @@ namespace Genesis.RoomScan
             }
             _fineSurfaceTargetReadbackPending = false;
             _fineSurfaceTargetValid = false;
+            _fineSurfaceTargetIssuedSequence = 0u;
+            _fineSurfaceTargetCompletedSequence = 0u;
             _refineMetricValueCount = 0;
             _refineMetricsRevision = 0u;
             _dilatedDepth = null;
@@ -786,12 +917,21 @@ namespace Genesis.RoomScan
 
             _fineSurfaceTargetReadbackPending = true;
             _nextFineSurfaceTarget = Time.unscaledTime + 1f / 15f;
+            uint querySequence;
+            unchecked
+            {
+                _fineSurfaceTargetIssuedSequence++;
+                if (_fineSurfaceTargetIssuedSequence == 0u)
+                    _fineSurfaceTargetIssuedSequence = 1u;
+                querySequence = _fineSurfaceTargetIssuedSequence;
+            }
             int version = _ownedVersions[slot];
             uint generation = _fineSurfaceTargetGeneration;
             AsyncGPUReadback.Request(_fineSurfaceTarget, request =>
             {
                 if (generation != _fineSurfaceTargetGeneration) return;
                 _fineSurfaceTargetReadbackPending = false;
+                _fineSurfaceTargetCompletedSequence = querySequence;
                 if (!request.hasError)
                 {
                     Unity.Collections.NativeArray<Vector4> values =
@@ -835,17 +975,34 @@ namespace Genesis.RoomScan
             {
                 _lastLogTime = t;
                 var sub = _arOcclusionManager != null ? _arOcclusionManager.subsystem : null;
+                bool hardKeyword = Shader.IsKeywordEnabled(
+                    "XR_HARD_OCCLUSION");
                 Logger.Info($"DepthCapture: rawFrames={_frameCount}, preprocessed={_preprocessedFrameCount}, " +
                           $"ready={_readyDepthSlot >= 0}, held={_heldDepthSlot >= 0}, " +
                           $"depthAvail={DepthAvailable}, " +
                           $"occMgr.enabled={_arOcclusionManager?.enabled}, sub={sub?.GetType().Name ?? "null"}, " +
-                          $"running={sub?.running}");
+                          $"running={sub?.running}, shaderOcc=" +
+                          $"{_shaderOcclusion?.enabled}, hardKeyword=" +
+                          $"{hardKeyword}, isOcclusionOn=" +
+                          $"{Shader.GetGlobalInt(IsOcclusionOnId)}, " +
+                          $"globalDepth=" +
+                          $"{Shader.GetGlobalTexture(EnvironmentDepthTextureId) != null}");
             }
         }
 
         private void OnDepthFrame(AROcclusionFrameEventArgs args)
         {
             _frameCount++;
+            if (args.externalTextures.Count > 0 &&
+                args.externalTextures[0].texture != null)
+            {
+                unchecked
+                {
+                    _environmentDepthFrameSequence++;
+                    if (_environmentDepthFrameSequence == 0u)
+                        _environmentDepthFrameSequence = 1u;
+                }
+            }
             if (_frameCount <= 3 || _frameCount % 100 == 0)
                 Logger.Info($"OnDepthFrame #{_frameCount}, textures={args.externalTextures.Count}");
 

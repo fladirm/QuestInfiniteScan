@@ -62,6 +62,8 @@ namespace Genesis.RoomScan.Tests
             string menu = Source("Runtime/UI/DebugMenu.uxml");
             string shader = Source(
                 "Runtime/Shaders/MerkabaArtifactPreview.shader");
+            string picker = Source(
+                "Runtime/Plugins/Android/MerkabaPackagePicker.java");
 
             Assert.That(viewer, Does.Contain(
                 "systemBytes * 3L / 8L"));
@@ -90,7 +92,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Not.Contain(
                 "moveDirection * initialPreviewDistance"));
             Assert.That(viewer, Does.Contain(
-                "_modelRoot.SetParent(_grid.transform, false)"));
+                "ComposeAlignedModelLocal("));
+            Assert.That(viewer, Does.Contain(
+                "LocalizeArtifactAnchorAsync("));
+            Assert.That(viewer, Does.Contain(
+                "public void RequestPackageFromDisk()"));
+            Assert.That(viewer, Does.Contain(
+                "ReadGlbTile(\n                    archivePath, tile)"));
             Assert.That(viewer, Does.Contain(
                 "Physics.queriesHitBackfaces = true"));
             Assert.That(viewer, Does.Contain(
@@ -99,6 +107,18 @@ namespace Genesis.RoomScan.Tests
                 "AnnotationLineWidth = 0.01f"));
             Assert.That(viewer, Does.Contain(
                 "AnnotationPlaneAlpha = 0.2f"));
+            Assert.That(viewer, Does.Contain(
+                "TouchScreenKeyboardType.Default, false, false, false, false"));
+            Assert.That(viewer, Does.Contain(
+                "keyboardStatus ==\n                TouchScreenKeyboard.Status.Done"));
+            Assert.That(viewer, Does.Not.Contain(
+                "SetAnnotationNote(_noteAnnotationId, _noteBeforeKeyboard)"));
+            Assert.That(viewer, Does.Contain(
+                "MerkabaArtifactPaintTool.SurfaceBrush"));
+            Assert.That(viewer, Does.Contain(
+                "MerkabaArtifactPaintTool.SpatialBrush"));
+            Assert.That(viewer, Does.Contain("styled = true"));
+            Assert.That(viewer, Does.Contain("version = 2"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
             Assert.That(shader, Does.Contain("_AlphaDither"));
             Assert.That(shader, Does.Contain("clip(input.color.a - threshold)"));
@@ -112,12 +132,71 @@ namespace Genesis.RoomScan.Tests
             Assert.That(setup, Does.Contain("@style/UnityThemeSelector"));
             Assert.That(setup, Does.Not.Contain("@style/Theme.AppCompat"));
             Assert.That(menu, Does.Contain("btn-artifact-view"));
+            Assert.That(menu, Does.Contain("btn-artifact-load"));
             Assert.That(menu, Does.Contain("btn-annotation-mode"));
             Assert.That(menu, Does.Contain("btn-annotation-edit"));
             Assert.That(menu, Does.Contain("btn-annotation-delete"));
             Assert.That(menu, Does.Contain("artifact-world-lock"));
             Assert.That(menu, Does.Contain("artifact-room-align"));
             Assert.That(menu, Does.Contain("annotation-note"));
+            Assert.That(menu, Does.Contain("btn-tab-paint"));
+            Assert.That(menu, Does.Contain("paint-color-swatch"));
+            Assert.That(picker, Does.Contain("Intent.ACTION_OPEN_DOCUMENT"));
+            Assert.That(picker, Does.Contain("byte[] buffer = new byte[1024 * 1024]"));
+            Assert.That(picker, Does.Contain("MessageDigest.getInstance("));
+            Assert.That(picker, Does.Not.Contain("readAllBytes"));
+        }
+
+        [Test]
+        public void PackageSpatialBindingRoundTripsAndPlacesPackagePointsExactly()
+        {
+            string root = TemporaryDirectory();
+            try
+            {
+                Guid uuid = Guid.Parse(
+                    "3d2504e0-4f89-41d3-9a0c-0305e82c3301");
+                Matrix4x4 anchorFromPackage = Matrix4x4.TRS(
+                    new Vector3(1.25f, -0.4f, 3.5f),
+                    Quaternion.Euler(0f, 37f, 0f), Vector3.one);
+                var expected = new MerkabaSpatialBinding(uuid,
+                    anchorFromPackage);
+                _ = MerkabaTilesetWriter.WritePackage(root, Fixture(),
+                    targetLeafBytes: 1_000_000,
+                    hardLeafBytes: 2_000_000,
+                    spatialBinding: expected);
+
+                string json = File.ReadAllText(Path.Combine(root,
+                    "tileset.json"));
+                Assert.That(json, Does.Contain(
+                    "\"questMerkabaSpatialBinding\""));
+                Assert.That(MerkabaArtifactViewer.TryParseSpatialBinding(
+                    json, out MerkabaSpatialBinding actual), Is.True);
+                Assert.That(actual.AnchorUuid, Is.EqualTo(uuid));
+                for (int column = 0; column < 4; column++)
+                for (int row = 0; row < 4; row++)
+                    Assert.That(actual.AnchorFromPackage[row, column],
+                        Is.EqualTo(anchorFromPackage[row, column]).Within(1e-6f));
+
+                Vector3 center = new(4f, 1f, -2f);
+                Vector3 packagePoint = new(4.8f, 1.2f, -1.7f);
+                Matrix4x4 modelToAnchor =
+                    MerkabaArtifactViewer.ComposeAlignedModelLocal(
+                        actual.AnchorFromPackage, center);
+                Vector3 actualPoint = modelToAnchor.MultiplyPoint3x4(
+                    packagePoint - center);
+                Vector3 expectedPoint = anchorFromPackage.MultiplyPoint3x4(
+                    packagePoint);
+                Assert.That(Vector3.Distance(actualPoint, expectedPoint),
+                    Is.LessThan(1e-5f));
+                Assert.That(MerkabaArtifactViewer.TryDecomposeTransform(
+                    modelToAnchor, out _, out _, out Vector3 scale), Is.True);
+                Assert.That(Vector3.Distance(scale, Vector3.one),
+                    Is.LessThan(1e-5f));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
         }
 
         [Test]
@@ -353,7 +432,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(exporter, Does.Contain("Streamed "));
             Assert.That(exporter, Does.Contain(
                 "BuildStreamingTilesetAsync(\n" +
-                "                    staging, progress)"));
+                "                    staging, spatialBinding, progress)"));
+            Assert.That(exporter, Does.Contain(
+                "await CaptureSpatialBindingAsync()"));
+            Assert.That(exporter, Does.Contain(
+                "await anchor.WaitForActiveSpatialAnchorReadyAsync()"));
+            Assert.That(exporter, Does.Contain(
+                "anchor.SpatialAnchorMatrix.inverse *\n" +
+                "                _grid.GridToWorldMatrix"));
             Assert.That(exporter, Does.Contain(
                 "MerkabaTilesetWriter.BeginStreamingPackage(staging)"));
             Assert.That(exporter, Does.Contain(

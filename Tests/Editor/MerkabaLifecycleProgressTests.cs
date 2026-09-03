@@ -25,7 +25,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(transition, Does.Contain(
                 "SuspendEnvironmentDepthForApplicationPause()"));
             Assert.That(transition, Does.Contain(
-                "RestoreEnvironmentDepthAfterApplicationResume()"));
+                "RestoreEnvironmentDepthAfterApplicationResumeAsync()"));
             Assert.That(transition, Does.Contain("await StartScanningAsync();"));
             Assert.That(transition.IndexOf("QuiesceScanningAsync()",
                     StringComparison.Ordinal),
@@ -35,10 +35,10 @@ namespace Genesis.RoomScan.Tests
                     "SuspendEnvironmentDepthForApplicationPause()",
                     StringComparison.Ordinal),
                 Is.LessThan(transition.IndexOf(
-                    "RestoreEnvironmentDepthAfterApplicationResume()",
+                    "RestoreEnvironmentDepthAfterApplicationResumeAsync()",
                     StringComparison.Ordinal)));
             Assert.That(transition.IndexOf(
-                    "RestoreEnvironmentDepthAfterApplicationResume()",
+                    "RestoreEnvironmentDepthAfterApplicationResumeAsync()",
                     StringComparison.Ordinal),
                 Is.LessThan(transition.IndexOf("await StartScanningAsync();",
                     StringComparison.Ordinal)));

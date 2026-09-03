@@ -156,6 +156,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(target, Does.Contain(
                 "_fineSurfaceTargetReadbackPending = true;"));
             Assert.That(target, Does.Contain(
+                "_fineSurfaceTargetIssuedSequence++"));
+            Assert.That(target, Does.Contain(
+                "_fineSurfaceTargetCompletedSequence = querySequence;"));
+            Assert.That(scanner, Does.Contain(
+                "_fineMinimumSurfaceTargetSequence"));
+            Assert.That(scanner, Does.Contain(
+                "FineSurfaceTargetCompletedSequence <="));
+            Assert.That(target, Does.Contain(
                 "new ComputeBuffer(2, 16,"));
         }
 
@@ -177,6 +185,10 @@ namespace Genesis.RoomScan.Tests
                 "_integrator?.RestoreReadyAutomaticObservationAuthority();"));
             Assert.That(integrator, Does.Contain(
                 "_cameraFineBrush[_readyCameraSlot] = default;"));
+            Assert.That(scanner, Does.Contain(
+                "_integrator.DiscardReadyAutomaticObservation();"));
+            Assert.That(integrator, Does.Contain(
+                "internal bool DiscardReadyAutomaticObservation()"));
             Assert.That(refine, Does.Contain(
                 "_M8FineRefineActive != 0u &&"));
             Assert.That(input, Does.Contain("OVRInput.RawButton.RIndexTrigger"));

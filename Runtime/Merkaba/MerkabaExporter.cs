@@ -149,6 +149,8 @@ namespace Genesis.RoomScan
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
                 await _grid.FlushAllDirtyTilesAsync(progress);
+                MerkabaSpatialBinding spatialBinding =
+                    await CaptureSpatialBindingAsync();
                 byte[] viewerHtml = LoadViewerResource(ViewerResourceRoot);
                 byte[] threeLicense = LoadViewerResource(
                     ViewerResourceRoot + "ThreeLicense");
@@ -163,7 +165,7 @@ namespace Genesis.RoomScan
                         File.Delete(temporaryArchive);
                 });
                 MerkabaTilesetResult result = await BuildStreamingTilesetAsync(
-                    staging, progress);
+                    staging, spatialBinding, progress);
                 long archiveBytes = await Task.Run(() =>
                 {
                     File.WriteAllBytes(Path.Combine(staging, "index.html"),
@@ -238,7 +240,8 @@ namespace Genesis.RoomScan
         }
 
         private async Task<MerkabaTilesetResult> BuildStreamingTilesetAsync(
-            string staging, IProgress<OperationWorkProgress> progress)
+            string staging, MerkabaSpatialBinding spatialBinding,
+            IProgress<OperationWorkProgress> progress)
         {
             MerkabaTilesetWriter.BeginStreamingPackage(staging);
             var leaves = new List<MerkabaTilesetLeaf>();
@@ -256,7 +259,30 @@ namespace Genesis.RoomScan
             }, progress);
             return await Task.Run(() =>
                 MerkabaTilesetWriter.CompleteStreamingPackage(staging,
-                    leaves));
+                    leaves, spatialBinding));
+        }
+
+        private async Task<MerkabaSpatialBinding> CaptureSpatialBindingAsync()
+        {
+            RoomAnchorManager anchor = RoomAnchorManager.Instance;
+            if (anchor == null || !anchor.HasSpatialAnchor ||
+                anchor.SpatialAnchorUuid == Guid.Empty)
+                throw new InvalidOperationException(
+                    "3D Tiles export requires a localized spatial anchor.");
+            if (!await anchor.WaitForActiveSpatialAnchorReadyAsync())
+                throw new InvalidOperationException(
+                    "3D Tiles export requires a tracked spatial anchor.");
+            Matrix4x4 anchorFromPackage = anchor.SpatialAnchorMatrix.inverse *
+                _grid.GridToWorldMatrix;
+            var binding = new MerkabaSpatialBinding(anchor.SpatialAnchorUuid,
+                anchorFromPackage);
+            if (!binding.IsValid)
+                throw new InvalidOperationException(
+                    "3D Tiles spatial registration is not finite.");
+            Logger.Info($"Merkaba 3D Tiles spatial binding " +
+                $"anchor={binding.AnchorUuid:D}, " +
+                $"packageOrigin={anchorFromPackage.GetColumn(3)}");
+            return binding;
         }
 
         private async Task StreamOwnedMembranesAsync(

@@ -112,7 +112,9 @@ namespace Genesis.RoomScan.Tests
                     ?.SetValue(capture, new ComputeKernelHelper(
                         LoadCompute("DepthNormals.compute"),
                         "CopyProjectionDepthArray"));
-                capture.StartDepthCapture();
+                typeof(DepthCapture).GetField("_captureActive",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?.SetValue(capture, true);
                 Assert.That(capture.TryLatchDepthSnapshot(first), Is.False,
                     "An unrequested producer frame must be discarded.");
                 Assert.That(capture.OwnedRawDepthSnapshot, Is.Null);
@@ -439,7 +441,9 @@ namespace Genesis.RoomScan.Tests
                 "await loadedCoverageReady;", StringComparison.Ordinal);
             int pca = start.IndexOf("_cameraProvider?.StartCapture();",
                 StringComparison.Ordinal);
-            int depth = start.IndexOf("_depthCapture.StartDepthCapture();",
+            int depth = start.IndexOf("_depthCapture.StartDepthCaptureAsync();",
+                StringComparison.Ordinal);
+            int ready = start.IndexOf("await Task.WhenAll(depthReady,",
                 StringComparison.Ordinal);
 
             Assert.That(prepare, Is.GreaterThanOrEqualTo(0));
@@ -448,8 +452,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(loadedCoverage, Is.GreaterThan(secondYield));
             Assert.That(pca, Is.GreaterThan(loadedCoverage));
             Assert.That(depth, Is.GreaterThan(loadedCoverage));
+            Assert.That(ready, Is.GreaterThan(depth));
             Assert.That(start.IndexOf("ArmNextObservation();",
-                StringComparison.Ordinal), Is.GreaterThan(depth));
+                StringComparison.Ordinal), Is.GreaterThan(ready));
 
             string grid = RuntimeSource("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
             string ensure = Slice(grid, "internal void EnsureGpuResources()",
@@ -501,14 +506,25 @@ namespace Genesis.RoomScan.Tests
             Assert.That(depth, Does.Contain(
                 "_arOcclusionManager.gameObject.AddComponent<ARShaderOcclusion>()"));
             Assert.That(depth, Does.Contain(
-                "bool depthRequired = _captureActive || dynamicOcclusionEnabled;"));
+                "(_captureActive || dynamicOcclusionEnabled);"));
             Assert.That(pause, Does.Contain(
                 "_arOcclusionManager.enabled = false;"));
             Assert.That(pause, Does.Contain(
-                "internal void RestoreEnvironmentDepthAfterApplicationResume()"));
-            Assert.That(pause, Does.Contain("ApplyDynamicOcclusionState();"));
+                "RestoreEnvironmentDepthAfterApplicationResumeAsync()"));
+            Assert.That(pause, Does.Contain(
+                "EnsureEnvironmentDepthRunningAsync(true, true)"));
             Assert.That(depth, Does.Contain(
-                "_shaderOcclusion.enabled = dynamicOcclusionEnabled;"));
+                "_shaderOcclusion.enabled = dynamicOcclusionEnabled &&"));
+            Assert.That(depth, Does.Contain(
+                "_arOcclusionManager.subsystem.running"));
+            string startDepth = Slice(depth,
+                "internal async Task<bool> StartDepthCaptureAsync(",
+                "private Task<bool> EnsureEnvironmentDepthRunningAsync(");
+            Assert.That(startDepth, Does.Contain(
+                "await EnsureEnvironmentDepthRunningAsync(false, true)"));
+            Assert.That(startDepth, Does.Contain(
+                "_latestRawFrameVersion != baselineVersion"));
+            Assert.That(startDepth, Does.Contain("HasUnprocessedFrame"));
             Assert.That(depth, Does.Not.Contain("WaitForCompletion"));
             Assert.That(depth, Does.Not.Contain("Thread.Sleep"));
             Assert.That(depth, Does.Not.Contain("Task.Delay"));

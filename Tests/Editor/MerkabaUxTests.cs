@@ -24,7 +24,11 @@ namespace Genesis.RoomScan.Tests
                          "btn-new", "btn-export", "btn-readout", "btn-mesh",
                          "btn-occlusion", "btn-checker", "btn-artifact-view",
                          "btn-annotation-mode", "btn-annotation-save",
-                         "btn-annotation-edit", "btn-annotation-delete"
+                         "btn-annotation-edit", "btn-annotation-delete",
+                         "btn-tab-scan", "btn-tab-paint", "btn-paint-view",
+                         "btn-paint-load", "btn-paint-save", "btn-paint-line",
+                         "btn-paint-surface", "btn-paint-spatial",
+                         "btn-paint-erase"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
@@ -41,11 +45,25 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Toggle>("artifact-world-lock"), Is.Not.Null);
             Assert.That(root.Q<Toggle>("artifact-room-align"), Is.Not.Null);
             Assert.That(root.Q<Label>("val-artifact"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("scan-panel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("paint-panel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("paint-color-swatch"), Is.Not.Null);
+            foreach (string slider in new[]
+                     {
+                         "paint-red", "paint-green", "paint-blue",
+                         "paint-alpha", "paint-width"
+                     })
+                Assert.That(root.Q<Slider>(slider), Is.Not.Null, slider);
             string source = File.ReadAllText(Path.GetFullPath(path));
             Assert.That(source, Does.Contain("Published triangles"));
             Assert.That(source, Does.Contain("Visible chunks"));
             string controller = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs"));
+            Assert.That(controller, Does.Contain(
+                "_operationProgress.style.display = DisplayStyle.Flex"));
+            Assert.That(controller, Does.Contain("Mathf.PingPong("));
+            Assert.That(controller, Does.Not.Contain(
+                "_operationProgress.style.display = indeterminate"));
             Assert.That(controller, Does.Contain(
                 "scanner.DynamicOcclusionEnabled ="));
             Assert.That(controller, Does.Contain(
@@ -69,6 +87,30 @@ namespace Genesis.RoomScan.Tests
                 "renderer.readoutDrawEnabled &&"));
             Assert.That(renderer, Does.Contain(
                 "if (!readoutDrawEnabled || _gpuSubmissionSuspended"));
+
+            string viewer = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/" +
+                "MerkabaArtifactViewer.cs"));
+            Assert.That(viewer, Does.Contain("paint-surface"));
+            Assert.That(viewer, Does.Contain("paint-spatial"));
+            Assert.That(viewer, Does.Contain("SurfacePaintPoint"));
+            Assert.That(viewer, Does.Contain("WorldToScanPoint"));
+            Assert.That(viewer, Does.Not.Contain("KernelState"));
+
+            string follower = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/" +
+                "DebugMenuFollower.cs"));
+            Assert.That(follower, Does.Contain("menuScale = 0.75f"));
+            Assert.That(follower, Does.Contain(
+                "controllerRotation * _controllerToPanelRotation"));
+            Assert.That(follower, Does.Contain("Quaternion.Slerp"));
+            string lateUpdate = follower.Substring(follower.IndexOf(
+                "private void LateUpdate()",
+                System.StringComparison.Ordinal));
+            lateUpdate = lateUpdate.Substring(0, lateUpdate.IndexOf(
+                "public void SnapToLeftController()",
+                System.StringComparison.Ordinal));
+            Assert.That(lateUpdate, Does.Not.Contain("FaceView()"));
         }
 
         [Test]
@@ -99,7 +141,7 @@ namespace Genesis.RoomScan.Tests
                 "Blend One Zero"));
             Assert.That(source, Does.Contain("ZWrite On"));
             Assert.That(source, Does.Contain(
-                "#pragma shader_feature_local_fragment _ M8_ALPHA_COVERAGE"));
+                "#pragma multi_compile_local_fragment _ M8_ALPHA_COVERAGE"));
             Assert.That(source, Does.Contain(
                 "clip(_ScanOpacity - coverageThreshold)"));
             Assert.That(source, Does.Contain(
@@ -107,9 +149,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "#pragma multi_compile _ XR_HARD_OCCLUSION"));
             Assert.That(source, Does.Contain(
-                "#pragma shader_feature_local_fragment _ M8_FINE_PREVIEW"));
+                "#pragma multi_compile_local_fragment _ M8_FINE_PREVIEW"));
             Assert.That(source, Does.Contain(
-                "#pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION"));
+                "#pragma multi_compile_local_fragment _ M8_ENVIRONMENT_OCCLUSION"));
+            Assert.That(source, Does.Contain(
+                "if (any(uv < 0.0) || any(uv > 1.0))"));
             Assert.That(source, Does.Contain(
                 "#pragma multi_compile_local_fragment _ M8_CHECKER_READOUT"));
             Assert.That(source, Does.Contain(

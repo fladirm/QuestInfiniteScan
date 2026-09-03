@@ -8,6 +8,39 @@ using UnityEngine;
 
 namespace Genesis.RoomScan
 {
+    /// <summary>
+    /// Durable registration of package-space metres in one persisted spatial
+    /// anchor. It is export metadata only and never participates in canonical
+    /// M8 state.
+    /// </summary>
+    internal readonly struct MerkabaSpatialBinding
+    {
+        internal const int CurrentVersion = 1;
+
+        internal readonly Guid AnchorUuid;
+        internal readonly Matrix4x4 AnchorFromPackage;
+
+        internal MerkabaSpatialBinding(Guid anchorUuid,
+            Matrix4x4 anchorFromPackage)
+        {
+            AnchorUuid = anchorUuid;
+            AnchorFromPackage = anchorFromPackage;
+        }
+
+        internal bool IsValid => AnchorUuid != Guid.Empty &&
+            IsFinite(AnchorFromPackage);
+
+        private static bool IsFinite(Matrix4x4 matrix)
+        {
+            for (int column = 0; column < 4; column++)
+            for (int row = 0; row < 4; row++)
+                if (float.IsNaN(matrix[row, column]) ||
+                    float.IsInfinity(matrix[row, column]))
+                    return false;
+            return true;
+        }
+    }
+
     internal readonly struct MerkabaTilesetResult
     {
         internal readonly int TileCount;
@@ -108,7 +141,8 @@ namespace Genesis.RoomScan
             MerkabaExportMembraneResult membrane,
             IProgress<OperationWorkProgress> progress = null,
             long targetLeafBytes = DefaultTargetLeafBytes,
-            long hardLeafBytes = DefaultHardLeafBytes)
+            long hardLeafBytes = DefaultHardLeafBytes,
+            MerkabaSpatialBinding? spatialBinding = null)
         {
             if (string.IsNullOrWhiteSpace(directory))
                 throw new ArgumentException("Tileset directory is required.",
@@ -173,7 +207,7 @@ namespace Genesis.RoomScan
             }
 
             ResolveBounds(root);
-            string json = BuildTileset(root);
+            string json = BuildTileset(root, spatialBinding);
             string manifest = Path.Combine(directory, "tileset.json");
             string manifestTemporary = manifest + ".tmp";
             using (var stream = new FileStream(manifestTemporary,
@@ -236,7 +270,8 @@ namespace Genesis.RoomScan
         }
 
         internal static MerkabaTilesetResult CompleteStreamingPackage(
-            string directory, IReadOnlyList<MerkabaTilesetLeaf> leaves)
+            string directory, IReadOnlyList<MerkabaTilesetLeaf> leaves,
+            MerkabaSpatialBinding? spatialBinding = null)
         {
             if (leaves == null || leaves.Count == 0)
                 throw new InvalidDataException("3D Tiles membrane is empty.");
@@ -268,7 +303,7 @@ namespace Genesis.RoomScan
             }
             Node root = BuildStreamingHierarchy(nodes, 0, nodes.Count);
             ResolveBounds(root);
-            string json = BuildTileset(root);
+            string json = BuildTileset(root, spatialBinding);
             string manifest = Path.Combine(directory, "tileset.json");
             string temporary = manifest + ".tmp";
             using (var stream = new FileStream(temporary, FileMode.CreateNew,
@@ -429,17 +464,40 @@ namespace Genesis.RoomScan
             node.Maximum = Vector3.Max(node.Low.Maximum, node.High.Maximum);
         }
 
-        private static string BuildTileset(Node root)
+        private static string BuildTileset(Node root,
+            MerkabaSpatialBinding? spatialBinding)
         {
             var json = new StringBuilder(4096);
             json.Append("{\"asset\":{\"version\":\"1.1\",\"generator\":")
-                .Append("\"Quest Infinite Merkaba\"},\"geometricError\":")
+                .Append("\"Quest Infinite Merkaba\"");
+            if (spatialBinding.HasValue && spatialBinding.Value.IsValid)
+                AppendSpatialBinding(json, spatialBinding.Value);
+            json.Append("},\"geometricError\":")
                 .Append(root.IsLeaf ? "0" : EmptyNodeGeometricError)
                 .Append(',')
                 .Append("\"root\":");
             AppendNode(json, root);
             json.Append('}');
             return json.ToString();
+        }
+
+        private static void AppendSpatialBinding(StringBuilder json,
+            MerkabaSpatialBinding binding)
+        {
+            json.Append(",\"extras\":{\"questMerkabaSpatialBinding\":{")
+                .Append("\"version\":")
+                .Append(MerkabaSpatialBinding.CurrentVersion)
+                .Append(",\"anchorUuid\":\"")
+                .Append(binding.AnchorUuid.ToString("D",
+                    CultureInfo.InvariantCulture))
+                .Append("\",\"anchorFromPackage\":[");
+            for (int column = 0; column < 4; column++)
+            for (int row = 0; row < 4; row++)
+            {
+                if (column != 0 || row != 0) json.Append(',');
+                json.Append(Number(binding.AnchorFromPackage[row, column]));
+            }
+            json.Append("]}}");
         }
 
         private static void AppendNode(StringBuilder json, Node node)

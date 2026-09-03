@@ -26,10 +26,13 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma multi_compile_instancing
             #pragma multi_compile _ XR_LINEAR_DEPTH
             #pragma multi_compile _ XR_HARD_OCCLUSION
-            #pragma shader_feature_local_vertex _ M8_STEREO_MESH
-            #pragma shader_feature_local_fragment _ M8_FINE_PREVIEW
-            #pragma shader_feature_local_fragment _ M8_ENVIRONMENT_OCCLUSION
-            #pragma shader_feature_local_fragment _ M8_ALPHA_COVERAGE
+            // These four features are selected on runtime-created materials.
+            // Keep every required Release-player variant; shader_feature
+            // variants without a serialized material user may be stripped.
+            #pragma multi_compile_local_vertex _ M8_STEREO_MESH
+            #pragma multi_compile_local_fragment _ M8_FINE_PREVIEW
+            #pragma multi_compile_local_fragment _ M8_ENVIRONMENT_OCCLUSION
+            #pragma multi_compile_local_fragment _ M8_ALPHA_COVERAGE
             #pragma multi_compile_local_fragment _ M8_CHECKER_READOUT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -49,7 +52,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                     _EnvironmentDepthProjectionMatrices[unity_StereoEyeIndex],
                     float4(worldPosition, 1.0));
                 float2 uv = (depthPosition.xy / depthPosition.w + 1.0) * 0.5;
-                if (all(uv < 0.0) || all(uv > 1.0))
+                if (any(uv < 0.0) || any(uv > 1.0))
                     return 1.0;
                 float environmentDepth = SAMPLE_TEXTURE2D_ARRAY(
                     _EnvironmentDepthTexture, sampler_EnvironmentDepthTexture,

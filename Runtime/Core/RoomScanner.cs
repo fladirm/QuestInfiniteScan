@@ -69,6 +69,9 @@ namespace Genesis.RoomScan
         private bool _fineCycleArmed;
         private uint _fineMinimumLeftSequence;
         private uint _fineMinimumRightSequence;
+        private uint _fineMinimumSurfaceTargetSequence;
+        private uint _fineObservationTargetSequence;
+        private FineBrushOperation _lastFineAction;
         private FineBrushDescriptor _fineObservationDescriptor;
         private FineBrushDescriptor _fineEraseDescriptor;
         private FineBrushDescriptor _finePreviewDescriptor;
@@ -113,6 +116,8 @@ namespace Genesis.RoomScan
                 if (fineMode == value) return;
                 fineMode = value;
                 _fineCycleArmed = false;
+                _fineMinimumSurfaceTargetSequence = _depthCapture != null
+                    ? _depthCapture.FineSurfaceTargetIssuedSequence : 0u;
                 if (!fineMode)
                 {
                     _fineObservationDescriptor = default;
@@ -228,6 +233,7 @@ namespace Genesis.RoomScan
         private void Update()
         {
             MerkabaGpuTimestamps.Poll();
+            UpdateFineActionBoundary();
             UpdateFinePreview();
             if (!IsScanning) return;
             LogRgbdPairing();
@@ -257,6 +263,10 @@ namespace Genesis.RoomScan
             }
             if (fineMode)
             {
+                // A copied automatic PCA pair is not a FINE observation.
+                // Retire an already prepared transaction, but never admit a
+                // stale unsubmitted automatic pair under manual authority.
+                _integrator.DiscardReadyAutomaticObservation();
                 if (CurrentFineAction() == FineBrushOperation.Erase)
                     UpdateFineErase();
                 else
@@ -402,7 +412,20 @@ namespace Genesis.RoomScan
                         "True-stereo scan requires HEADSET_CAMERA permission " +
                         "for both PCA eyes.");
                 _cameraProvider?.StartCapture();
-                _depthCapture.StartDepthCapture();
+                Task<bool> depthReady = _depthCapture.StartDepthCaptureAsync();
+                Task<bool> stereoReady = _cameraProvider != null
+                    ? _cameraProvider.WaitForFreshStereoReadyAsync()
+                    : Task.FromResult(false);
+                bool[] sensorReady = await Task.WhenAll(depthReady,
+                    stereoReady);
+                if (!StartIsCurrent(generation)) return;
+                if (!sensorReady[0])
+                    throw new InvalidOperationException(
+                        "Environment Depth did not become ready with a fresh " +
+                        "owned stereo snapshot.");
+                if (!sensorReady[1])
+                    throw new InvalidOperationException(
+                        "Both physical PCA eyes did not produce fresh frames.");
                 _acceptedRgbdObservations = 0L;
                 _expiredDepthFrames = 0L;
                 _maximumRgbdSkewSeconds = 0.0;
@@ -589,6 +612,23 @@ namespace Genesis.RoomScan
             }
             if (RoomSpaceRoot.Instance != null)
                 await RoomSpaceRoot.WaitForBindAsync(5f);
+            if (_anchorManager.HasSpatialAnchor &&
+                !await _anchorManager.WaitForActiveSpatialAnchorReadyAsync())
+                throw new InvalidOperationException(
+                    "The room spatial anchor is localized but not tracked.");
+        }
+
+        private void UpdateFineActionBoundary()
+        {
+            FineBrushOperation action = fineMode
+                ? CurrentFineAction() : FineBrushOperation.None;
+            if (action == _lastFineAction) return;
+            _lastFineAction = action;
+            _fineCycleArmed = false;
+            _fineMinimumSurfaceTargetSequence = _depthCapture != null
+                ? _depthCapture.FineSurfaceTargetIssuedSequence : 0u;
+            if (action != FineBrushOperation.None)
+                _integrator?.DiscardReadyAutomaticObservation();
         }
 
         private void UpdateFinePreview()
@@ -641,6 +681,8 @@ namespace Genesis.RoomScan
                 if (!TryCreateFineDescriptor(FineBrushOperation.Refine,
                         out _fineObservationDescriptor))
                     return;
+                _fineObservationTargetSequence =
+                    _depthCapture.FineSurfaceTargetCompletedSequence;
                 _cameraProvider.GetLatestSequences(
                     out _fineMinimumLeftSequence,
                     out _fineMinimumRightSequence);
@@ -691,6 +733,8 @@ namespace Genesis.RoomScan
 
             if (!_integrator.TrySubmitObservationAttempt()) return;
             _lastIntegrationTime = Time.time;
+            _fineMinimumSurfaceTargetSequence =
+                _fineObservationTargetSequence;
             _fineCycleArmed = false;
         }
 
@@ -707,12 +751,16 @@ namespace Genesis.RoomScan
             _fineEraseDescriptor = descriptor;
             if (!_integrator.TrySubmitFineEraseAttempt()) return;
             _lastIntegrationTime = Time.time;
+            _fineMinimumSurfaceTargetSequence =
+                _depthCapture.FineSurfaceTargetCompletedSequence;
         }
 
         private void RestartFineCycleAfterExpiredDepth()
         {
             _expiredDepthFrames++;
             _depthCapture.DiscardReadyDepthFrame();
+            _fineMinimumSurfaceTargetSequence =
+                _fineObservationTargetSequence;
             _fineCycleArmed = false;
         }
 
@@ -744,6 +792,11 @@ namespace Genesis.RoomScan
             if (!_depthCapture.TryUpdateFineSurfaceTarget(rayOrigin,
                     rayDirection, fineToolDepth, true,
                     out Vector3 cursorPosition, out Vector3 surfaceNormal))
+                return false;
+            if ((operation == FineBrushOperation.Refine ||
+                 operation == FineBrushOperation.Erase) &&
+                _depthCapture.FineSurfaceTargetCompletedSequence <=
+                    _fineMinimumSurfaceTargetSequence)
                 return false;
             cursorOnSurface = true;
             float targetDepth = Mathf.Min(fineToolDepth,
@@ -900,7 +953,14 @@ namespace Genesis.RoomScan
                 if (_applicationPaused || _disableRequested || _destroyed ||
                     !isActiveAndEnabled)
                     return;
-                _depthCapture?.RestoreEnvironmentDepthAfterApplicationResume();
+                if (_depthCapture != null &&
+                    !await _depthCapture
+                        .RestoreEnvironmentDepthAfterApplicationResumeAsync())
+                {
+                    Logger.Error("Application resume did not restore a fresh " +
+                        "Environment Depth stream.");
+                    return;
+                }
                 if (!_resumeAfterPause) return;
                 _resumeAfterPause = false;
                 await StartScanningAsync();

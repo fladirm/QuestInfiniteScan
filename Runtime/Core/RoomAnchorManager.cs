@@ -175,6 +175,24 @@ namespace Genesis.RoomScan
         public bool HasSpatialAnchor => _activeSpatialAnchor != null;
 
         /// <summary>
+        /// Waits until the active anchor is both localized and currently
+        /// tracked. A bound GameObject alone is not a valid observation frame
+        /// after an application pause.
+        /// </summary>
+        internal async Task<bool> WaitForActiveSpatialAnchorReadyAsync(
+            float timeoutSeconds = 10f)
+        {
+            OVRSpatialAnchor anchor = _activeSpatialAnchor;
+            if (anchor == null) return false;
+            bool ready = await WaitForSpatialAnchorReadyAsync(anchor,
+                timeoutSeconds);
+            if (!ready)
+                Logger.Warning($"Active spatial anchor is not localized and " +
+                    $"tracked after {timeoutSeconds:F1}s: {anchor.Uuid}.");
+            return ready;
+        }
+
+        /// <summary>
         /// Live transform of the active spatial anchor. Parenting under it keeps
         /// content world-locked across tracking corrections.
         ///
@@ -241,7 +259,13 @@ namespace Genesis.RoomScan
 
             Logger.Info($"Spatial anchor persisted: {anchor.Uuid}");
 
-            // Wait a few frames for transform to stabilize
+            if (!await WaitForSpatialAnchorReadyAsync(anchor, 10f))
+            {
+                Logger.Error("New spatial anchor did not become localized " +
+                    "and tracked.");
+                Destroy(go);
+                return null;
+            }
             await StabilizeAnchorTransform(anchor.transform);
 
             if (_activeSpatialAnchor != null && _activeSpatialAnchor.gameObject != go)
@@ -312,6 +336,13 @@ namespace Genesis.RoomScan
 
             Logger.Info($"Spatial anchor localized: {uuid}, pos={anchor.transform.position}");
 
+            if (!await WaitForSpatialAnchorReadyAsync(anchor, 10f))
+            {
+                Logger.Warning("Bound spatial anchor did not become tracked. " +
+                    "Falling back to MRUK.");
+                Destroy(go);
+                return null;
+            }
             await StabilizeAnchorTransform(anchor.transform);
 
             if (_activeSpatialAnchor != null && _activeSpatialAnchor.gameObject != go)
@@ -327,6 +358,76 @@ namespace Genesis.RoomScan
             _activeSpatialAnchor = anchor;
 
             return anchor.transform.localToWorldMatrix;
+        }
+
+        /// <summary>
+        /// Localizes an anchor for read-only artifact presentation without
+        /// replacing the scanner's active anchor or rebinding RoomSpaceRoot.
+        /// The caller owns and must destroy the returned object only when
+        /// <c>owned</c> is true.
+        /// </summary>
+        internal async Task<(Transform transform, bool owned)?>
+            LocalizeArtifactAnchorAsync(Guid uuid)
+        {
+            if (uuid == Guid.Empty) return null;
+            if (_activeSpatialAnchor != null &&
+                _activeSpatialAnchor.Uuid == uuid)
+            {
+                if (!await WaitForSpatialAnchorReadyAsync(
+                        _activeSpatialAnchor, 10f))
+                {
+                    Logger.Warning($"Active artifact spatial anchor is not " +
+                        $"tracked: {uuid}.");
+                    return null;
+                }
+                return (_activeSpatialAnchor.transform, false);
+            }
+
+            var unboundAnchors =
+                new List<OVRSpatialAnchor.UnboundAnchor>();
+            var loadResult = await OVRSpatialAnchor.LoadUnboundAnchorsAsync(
+                new[] { uuid }, unboundAnchors);
+            if (!loadResult.Success || unboundAnchors.Count == 0)
+            {
+                Logger.Warning($"Artifact spatial anchor load failed: " +
+                    $"{loadResult.Status}, uuid={uuid}, " +
+                    $"count={unboundAnchors.Count}.");
+                return null;
+            }
+
+            OVRSpatialAnchor.UnboundAnchor unbound = unboundAnchors[0];
+            bool localized = await unbound.LocalizeAsync();
+            if (!localized && !unbound.Localized)
+            {
+                float timeout = 10f;
+                float elapsed = 0f;
+                while (!unbound.Localized && elapsed < timeout)
+                {
+                    await Task.Yield();
+                    elapsed += Time.unscaledDeltaTime;
+                }
+                if (!unbound.Localized)
+                {
+                    Logger.Warning($"Artifact spatial anchor localization " +
+                        $"timed out: {uuid}.");
+                    return null;
+                }
+            }
+
+            var go = new GameObject($"[ArtifactSpatialAnchor-{uuid:N}]");
+            var anchor = go.AddComponent<OVRSpatialAnchor>();
+            unbound.BindTo(anchor);
+            if (!await WaitForSpatialAnchorReadyAsync(anchor, 10f))
+            {
+                Logger.Warning($"Artifact spatial anchor did not become " +
+                    $"tracked: {uuid}.");
+                Destroy(go);
+                return null;
+            }
+            await StabilizeAnchorTransform(anchor.transform);
+            Logger.Info($"Artifact spatial anchor localized without " +
+                $"changing scan authority: {uuid}.");
+            return (anchor.transform, true);
         }
 
         /// <summary>
@@ -395,6 +496,20 @@ namespace Genesis.RoomScan
                     stableFrames = 0;
                 prevPos = t.position;
             }
+        }
+
+        private static async Task<bool> WaitForSpatialAnchorReadyAsync(
+            OVRSpatialAnchor anchor, float timeoutSeconds)
+        {
+            float deadline = Time.realtimeSinceStartup +
+                Mathf.Max(0.1f, timeoutSeconds);
+            while (anchor != null && Time.realtimeSinceStartup < deadline)
+            {
+                if (anchor.Localized && anchor.IsTracked)
+                    return true;
+                await Task.Yield();
+            }
+            return anchor != null && anchor.Localized && anchor.IsTracked;
         }
     }
 }

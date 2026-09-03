@@ -109,8 +109,6 @@ namespace Genesis.RoomScan
             var callbacks = new PermissionCallbacks();
             callbacks.PermissionGranted += _ => completion.TrySetResult(true);
             callbacks.PermissionDenied += _ => completion.TrySetResult(false);
-            callbacks.PermissionDeniedAndDontAskAgain += _ =>
-                completion.TrySetResult(false);
             try
             {
                 Permission.RequestUserPermission(CameraPermissionId, callbacks);
@@ -141,6 +139,31 @@ namespace Genesis.RoomScan
             DiscoverExactCameras();
             for (int eye = 0; eye < 2; eye++) StartEye(eye);
             _captureRequested = true;
+        }
+
+        /// <summary>
+        /// Waits for both physical PCA producers and for one newly owned frame
+        /// from each eye. StartCapture clears history, so IsReady proves that
+        /// no pre-pause image can enter the next observation.
+        /// </summary>
+        internal async Task<bool> WaitForFreshStereoReadyAsync(
+            float timeoutSeconds = 10f)
+        {
+            float deadline = Time.realtimeSinceStartup +
+                Mathf.Max(0.1f, timeoutSeconds);
+            while (_captureRequested && isActiveAndEnabled &&
+                   Time.realtimeSinceStartup < deadline)
+            {
+                if (IsPlaying && IsReady)
+                    return true;
+                await Task.Yield();
+            }
+            bool ready = IsPlaying && IsReady;
+            if (!ready)
+                Logger.Warning("PassthroughCameraProvider: fresh true-stereo " +
+                    $"PCA pair was not ready after {timeoutSeconds:F1}s " +
+                    $"(playing={IsPlaying}, ready={IsReady}).");
+            return ready;
         }
 
         public void StopCapture()

@@ -13,6 +13,24 @@
             <ui:Label name="val-fps" text="-- FPS" class="fps" />
         </ui:VisualElement>
 
+        <ui:VisualElement class="mode-tab-row">
+            <ui:Button name="btn-tab-scan" text="SCAN"
+                class="mode-tab mode-tab--selected" />
+            <ui:Button name="btn-tab-paint" text="PAINT"
+                class="mode-tab mode-tab--last" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="operation-panel" class="operation-panel">
+            <ui:VisualElement class="operation-title-row">
+                <ui:Label name="operation-spinner" text="|" class="operation-spinner" />
+                <ui:Label name="operation-stage" text="Working…" class="operation-stage" />
+            </ui:VisualElement>
+            <ui:ProgressBar name="operation-progress" value="0" low-value="0"
+                high-value="100" title="0%" class="operation-progress" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="scan-panel" class="mode-panel">
+
         <ui:Label text="SCAN STATUS" class="section-title" />
         <ui:VisualElement class="status-card">
             <ui:VisualElement class="status-row">
@@ -82,6 +100,8 @@
         <ui:VisualElement class="artifact-row">
             <ui:Button name="btn-artifact-view" text="GLB VIEW  OFF"
                 class="artifact-button" />
+            <ui:Button name="btn-artifact-load" text="LOAD MODEL"
+                class="artifact-button" />
             <ui:Button name="btn-annotation-mode" text="NOTE  OFF"
                 class="artifact-button" />
             <ui:Button name="btn-annotation-save" text="SAVE NOTES"
@@ -126,15 +146,6 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
-        <ui:VisualElement name="operation-panel" class="operation-panel">
-            <ui:VisualElement class="operation-title-row">
-                <ui:Label name="operation-spinner" text="|" class="operation-spinner" />
-                <ui:Label name="operation-stage" text="Working…" class="operation-stage" />
-            </ui:VisualElement>
-            <ui:ProgressBar name="operation-progress" value="0" low-value="0"
-                high-value="100" title="0%" class="operation-progress" />
-        </ui:VisualElement>
-
         <ui:VisualElement class="button-row">
             <ui:Button name="btn-start" text="START / RESUME"
                 class="action-btn action-btn--primary" />
@@ -157,5 +168,73 @@
             class="control-hint" />
         <ui:Label text="One reversible Merkaba grid · clear viewpoints remove false geometry"
             class="ontology-hint" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="paint-panel"
+            class="mode-panel mode-panel--hidden">
+            <ui:Label text="MODEL PAINT" class="section-title" />
+            <ui:Label text="Immediate export-local strokes · canonical M8 is unchanged"
+                class="paint-description" />
+            <ui:VisualElement class="paint-action-row">
+                <ui:Button name="btn-paint-view" text="GLB VIEW  OFF"
+                    class="artifact-button" />
+                <ui:Button name="btn-paint-load" text="LOAD MODEL"
+                    class="artifact-button" />
+                <ui:Button name="btn-paint-save" text="SAVE PAINT"
+                    class="artifact-button artifact-button--last" />
+            </ui:VisualElement>
+            <ui:Label name="val-paint-status" text="Open or load a model"
+                class="artifact-status" />
+
+            <ui:Label text="TOOL" class="section-title" />
+            <ui:VisualElement class="paint-tool-row">
+                <ui:Button name="btn-paint-line" text="LINE"
+                    class="paint-tool paint-tool--selected" />
+                <ui:Button name="btn-paint-surface" text="SURFACE"
+                    class="paint-tool" />
+                <ui:Button name="btn-paint-spatial" text="3D BRUSH"
+                    class="paint-tool" />
+                <ui:Button name="btn-paint-erase" text="ERASE"
+                    class="paint-tool paint-tool--last" />
+            </ui:VisualElement>
+
+            <ui:Label text="RGBA" class="section-title" />
+            <ui:VisualElement class="paint-color-card">
+                <ui:VisualElement name="paint-color-swatch"
+                    class="paint-color-swatch" />
+                <ui:VisualElement class="paint-channel-stack">
+                    <ui:VisualElement class="paint-channel-row">
+                        <ui:Label text="R" class="paint-channel-label paint-r" />
+                        <ui:Slider name="paint-red" low-value="0" high-value="1"
+                            value="0.1" class="paint-channel-slider" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="paint-channel-row">
+                        <ui:Label text="G" class="paint-channel-label paint-g" />
+                        <ui:Slider name="paint-green" low-value="0" high-value="1"
+                            value="0.8" class="paint-channel-slider" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="paint-channel-row">
+                        <ui:Label text="B" class="paint-channel-label paint-b" />
+                        <ui:Slider name="paint-blue" low-value="0" high-value="1"
+                            value="1" class="paint-channel-slider" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="paint-channel-row">
+                        <ui:Label text="A" class="paint-channel-label" />
+                        <ui:Slider name="paint-alpha" low-value="0.05" high-value="1"
+                            value="0.85" class="paint-channel-slider" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="paint-width-row">
+                <ui:Label text="Stroke width" class="status-key" />
+                <ui:Slider name="paint-width" low-value="0.002"
+                    high-value="0.05" value="0.01"
+                    class="paint-channel-slider" />
+                <ui:Label name="val-paint-width" text="10 mm"
+                    class="opacity-value" />
+            </ui:VisualElement>
+            <ui:Label text="Right trigger draws · SURFACE follows model · 3D BRUSH draws at a fixed ray depth · ERASE removes the touched stroke"
+                class="control-hint" />
+        </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

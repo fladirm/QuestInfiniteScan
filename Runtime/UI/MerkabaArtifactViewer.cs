@@ -9,6 +9,14 @@ using UnityEngine.Rendering;
 
 namespace Genesis.RoomScan.UI
 {
+    public enum MerkabaArtifactPaintTool
+    {
+        Line,
+        SurfaceBrush,
+        SpatialBrush,
+        Erase
+    }
+
     /// <summary>
     /// Streamed, read-only preview of this package's own tiled GLB export.  It
     /// never reads canonical M8 and never becomes scan or export authority.
@@ -30,6 +38,9 @@ namespace Genesis.RoomScan.UI
         private const float AnnotationPlaneAlpha = 0.2f;
         private const float AnnotationHandleRadius = 0.018f;
         private const float AnnotationPickRadius = 0.045f;
+        private const float MinimumPaintSampleDistance = 0.003f;
+        private const float PaintSurfaceOffset = 0.001f;
+        private const float PaintEraseInterval = 0.06f;
         private const float ModelRayDistance = 1000f;
         private const uint GlbMagic = 0x46546c67u;
         private const uint JsonChunkType = 0x4e4f534au;
@@ -50,7 +61,6 @@ namespace Genesis.RoomScan.UI
 
         private MerkabaExporter _exporter;
         private RoomScanner _scanner;
-        private MerkabaGrid _grid;
         private ControllerRayDriver _rayDriver;
         private Transform _modelRoot;
         private Transform _annotationRoot;
@@ -79,6 +89,10 @@ namespace Genesis.RoomScan.UI
         private bool _annotationPoseGrabActive;
         private bool _worldLocked = true;
         private bool _roomAligned;
+        private bool _alignmentPending;
+        private bool _packagePickerPending;
+        private bool _paintInputEnabled;
+        private bool _paintStrokeActive;
         private bool _hasSavedPreviewTransform;
         private bool _savedQueriesHitBackfaces;
         private bool _ownsQueriesHitBackfaces;
@@ -88,10 +102,15 @@ namespace Genesis.RoomScan.UI
         private int _noteKeyboardOpenedFrame;
         private bool _noteKeyboardWasVisible;
         private int _generation;
+        private int _alignmentRevision;
         private int _tileLoadsInFlight;
         private int _nextAnnotationId = 1;
         private float _nextResidencyRefresh;
         private float _previewOpacity = 1f;
+        private float _paintWidth = 0.01f;
+        private float _spatialPaintDistance = 0.75f;
+        private float _nextPaintErase;
+        private Color _paintColor = new(0.1f, 0.8f, 1f, 0.85f);
         private Vector3 _scanCenter;
         private ModelGrabMode _modelGrabMode;
         private OneHandGrab _oneHandGrab;
@@ -104,6 +123,8 @@ namespace Genesis.RoomScan.UI
         private GameObject _annotationDraftObject;
         private LineRenderer _annotationDraftLine;
         private Mesh _annotationDraftMesh;
+        private GameObject _paintDraftObject;
+        private LineRenderer _paintDraftLine;
         private int _selectedAnnotationId;
         private Vector3 _moveStart;
         private Vector3[] _moveOriginalPoints;
@@ -112,20 +133,71 @@ namespace Genesis.RoomScan.UI
         private AnnotationPoseGrab _annotationPoseGrab;
         private bool _hasModelHit;
         private ModelHit _latestModelHit;
+        private readonly List<Vector3> _paintDraftPoints = new();
+        private MerkabaArtifactPaintTool _paintTool =
+            MerkabaArtifactPaintTool.Line;
         private long _totalModelBytes;
         private long _totalResidentEstimateBytes;
+        private string _archivePath;
+        private MerkabaSpatialBinding? _packageSpatialBinding;
+        private Transform _artifactAnchor;
+        private bool _ownsArtifactAnchor;
 
         public bool IsOpen { get; private set; }
         public string Status { get; private set; } = "GLB View closed";
         public string AnnotationModeText => _annotationMode.ToString().ToUpperInvariant();
         public bool HasSelectedAnnotation => FindSelectedAnnotation() != null;
+        public bool PaintInputEnabled
+        {
+            get => _paintInputEnabled;
+            set
+            {
+                if (_paintInputEnabled == value) return;
+                _paintInputEnabled = value;
+                CancelPaintStroke();
+                if (value)
+                {
+                    CancelAnnotationDrag();
+                    _annotationMode = AnnotationMode.Off;
+                    RefreshTileColliders();
+                }
+            }
+        }
+        public MerkabaArtifactPaintTool PaintTool
+        {
+            get => _paintTool;
+            set
+            {
+                if (_paintTool == value) return;
+                CancelPaintStroke();
+                _paintTool = value;
+                RefreshTileColliders();
+                Status = "Paint " + value;
+            }
+        }
+        public Color PaintColor
+        {
+            get => _paintColor;
+            set => _paintColor = new Color(Mathf.Clamp01(value.r),
+                Mathf.Clamp01(value.g), Mathf.Clamp01(value.b),
+                Mathf.Clamp01(value.a));
+        }
+        public float PaintWidth
+        {
+            get => _paintWidth;
+            set => _paintWidth = Mathf.Clamp(value, 0.002f, 0.05f);
+        }
         public bool WorldLocked
         {
             get => _worldLocked;
             set
             {
                 if (_worldLocked == value) return;
-                if (_roomAligned && !value) SetRoomAligned(false);
+                if ((_roomAligned || _alignmentPending) && !value)
+                {
+                    ++_alignmentRevision;
+                    ExitRoomAlignment();
+                }
                 _worldLocked = value;
                 ApplyViewerFrame();
             }
@@ -133,7 +205,7 @@ namespace Genesis.RoomScan.UI
         public bool RoomAligned
         {
             get => _roomAligned;
-            set => SetRoomAligned(value);
+            set => _ = SetRoomAlignedAsync(value);
         }
         public float PreviewOpacity
         {
@@ -171,15 +243,21 @@ namespace Genesis.RoomScan.UI
             }
         }
 
-        private string AnnotationPath => Path.Combine(
-            Path.GetDirectoryName(_exporter.ViewerPackagePath),
-            "QuestMerkabaScan.annotations.json");
+        private string AnnotationPath
+        {
+            get
+            {
+                string archive = _archivePath ?? _exporter.ViewerPackagePath;
+                return Path.Combine(Path.GetDirectoryName(archive),
+                    Path.GetFileNameWithoutExtension(archive) +
+                    ".annotations.json");
+            }
+        }
 
         private void Awake()
         {
             _exporter = GetComponent<MerkabaExporter>();
             _scanner = GetComponent<RoomScanner>();
-            _grid = GetComponent<MerkabaGrid>();
             _rayDriver = FindAnyObjectByType<ControllerRayDriver>();
         }
 
@@ -223,18 +301,33 @@ namespace Genesis.RoomScan.UI
             await OpenAsync();
         }
 
-        public async Task<bool> OpenAsync()
+        public Task<bool> OpenAsync() => OpenArchiveAsync(
+            _exporter.ViewerPackagePath);
+
+        public async Task<bool> OpenArchiveAsync(string archivePath)
         {
-            if (IsOpen || _indexLoadPending) return IsOpen;
+            if (string.IsNullOrWhiteSpace(archivePath))
+            {
+                Status = "3D Tiles ZIP path is empty";
+                return false;
+            }
+            archivePath = Path.GetFullPath(archivePath);
+            if (IsOpen)
+            {
+                if (string.Equals(_archivePath, archivePath,
+                        StringComparison.Ordinal))
+                    return true;
+                Close();
+            }
+            if (_indexLoadPending) return false;
             if (previewShader == null)
             {
                 Status = "GLB View shader is not wired";
                 return false;
             }
-            string archivePath = _exporter.ViewerPackagePath;
             if (!File.Exists(archivePath))
             {
-                Status = "Export 3D Tiles first";
+                Status = "3D Tiles ZIP does not exist";
                 return false;
             }
 
@@ -267,6 +360,8 @@ namespace Genesis.RoomScan.UI
                 _savedQueriesHitBackfaces = Physics.queriesHitBackfaces;
                 Physics.queriesHitBackfaces = true;
                 _ownsQueriesHitBackfaces = true;
+                _archivePath = archivePath;
+                _packageSpatialBinding = package.SpatialBinding;
                 CreatePreview(package);
                 LoadAnnotations();
                 IsOpen = true;
@@ -291,11 +386,63 @@ namespace Genesis.RoomScan.UI
             }
         }
 
+        public void RequestPackageFromDisk()
+        {
+            if (_packagePickerPending || _indexLoadPending)
+                return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                if (IsOpen) Close();
+                using var unityPlayer = new AndroidJavaClass(
+                    "com.unity3d.player.UnityPlayer");
+                using AndroidJavaObject activity = unityPlayer.GetStatic<
+                    AndroidJavaObject>("currentActivity");
+                using var picker = new AndroidJavaClass(
+                    "com.genesis.roomscan.MerkabaPackagePicker");
+                _packagePickerPending = true;
+                Status = "Choose a 3D Tiles ZIP…";
+                picker.CallStatic("open", activity, gameObject.name,
+                    nameof(OnPackagePickerResult));
+            }
+            catch (Exception exception)
+            {
+                _packagePickerPending = false;
+                Logger.Error("Could not open 3D Tiles picker: " + exception);
+                Status = "3D Tiles picker failed: " + exception.Message;
+            }
+#else
+            Status = "3D Tiles disk picker is available on Quest";
+#endif
+        }
+
+        /// <summary>Android document-picker callback. Called by UnitySendMessage.</summary>
+        public void OnPackagePickerResult(string result)
+        {
+            _packagePickerPending = false;
+            if (string.IsNullOrWhiteSpace(result) || result == "CANCELLED")
+            {
+                Status = "3D Tiles load cancelled";
+                return;
+            }
+            const string errorPrefix = "ERROR:";
+            if (result.StartsWith(errorPrefix, StringComparison.Ordinal))
+            {
+                Status = "3D Tiles import failed: " +
+                    result.Substring(errorPrefix.Length);
+                Logger.Error(Status);
+                return;
+            }
+            _ = OpenArchiveAsync(result);
+        }
+
         public void Close()
         {
             bool wasOpen = IsOpen;
             ++_generation;
+            ++_alignmentRevision;
             _indexLoadPending = false;
+            _alignmentPending = false;
             _tileLoadsInFlight = 0;
             IsOpen = false;
             _annotationMode = AnnotationMode.Off;
@@ -326,6 +473,7 @@ namespace Genesis.RoomScan.UI
             if (_modelRoot != null) Destroy(_modelRoot.gameObject);
             _modelRoot = null;
             _annotationRoot = null;
+            ReleaseArtifactAnchor();
             if (_modelMaterial != null) Destroy(_modelMaterial);
             if (_annotationMaterial != null) Destroy(_annotationMaterial);
             if (_annotationPlaneMaterial != null)
@@ -343,6 +491,8 @@ namespace Genesis.RoomScan.UI
                 _scanner.FineMode = _savedFineMode;
             }
             _displaySuppressed = false;
+            _archivePath = null;
+            _packageSpatialBinding = null;
             if (_ownsQueriesHitBackfaces)
             {
                 Physics.queriesHitBackfaces = _savedQueriesHitBackfaces;
@@ -353,6 +503,8 @@ namespace Genesis.RoomScan.UI
 
         public void CycleAnnotationMode()
         {
+            _paintInputEnabled = false;
+            CancelPaintStroke();
             CancelAnnotationDrag();
             SetAnnotationHitPreview(false, default);
             _annotationMode = (AnnotationMode)(((int)_annotationMode + 1) %
@@ -394,7 +546,7 @@ namespace Genesis.RoomScan.UI
             _noteKeyboardOpenedFrame = Time.frameCount;
             _noteKeyboardWasVisible = false;
             _noteKeyboard = TouchScreenKeyboard.Open(_noteBeforeKeyboard,
-                TouchScreenKeyboardType.Default, false, true, false, false,
+                TouchScreenKeyboardType.Default, false, false, false, false,
                 "Annotation note", 512);
             if (_noteKeyboard != null) _noteKeyboard.characterLimit = 512;
             Logger.Info($"Merkaba GLB note keyboard requested: " +
@@ -413,7 +565,6 @@ namespace Genesis.RoomScan.UI
                 _noteKeyboard.active)
             {
                 _noteKeyboardWasVisible = true;
-                SetAnnotationNote(_noteAnnotationId, _noteKeyboard.text);
                 return;
             }
             // Android may not report Visible until the overlay owns focus.
@@ -421,16 +572,16 @@ namespace Genesis.RoomScan.UI
             if (!_noteKeyboardWasVisible &&
                 Time.frameCount <= _noteKeyboardOpenedFrame + 2)
                 return;
-            if (keyboardStatus == TouchScreenKeyboard.Status.Canceled)
-                SetAnnotationNote(_noteAnnotationId, _noteBeforeKeyboard);
-            else
+            bool committed = keyboardStatus ==
+                TouchScreenKeyboard.Status.Done;
+            if (committed)
                 SetAnnotationNote(_noteAnnotationId, _noteKeyboard.text);
             AnnotationRecord selected = _annotations.Find(item =>
                 item.id == _noteAnnotationId);
             if (selected != null)
-                Status = keyboardStatus == TouchScreenKeyboard.Status.Canceled
-                    ? $"Note unchanged for {selected.type} #{selected.id}"
-                    : $"Updated note for {selected.type} #{selected.id}";
+                Status = committed
+                    ? $"Updated note for {selected.type} #{selected.id}"
+                    : $"Note unchanged for {selected.type} #{selected.id}";
             Logger.Info($"Merkaba GLB note keyboard retired: " +
                 $"status={keyboardStatus}, annotation={_noteAnnotationId}.");
             _noteKeyboard = null;
@@ -466,7 +617,7 @@ namespace Genesis.RoomScan.UI
                 var file = new AnnotationFile
                 {
                     format = "QuestMerkabaAnnotations",
-                    version = 1,
+                    version = 2,
                     nextId = _nextAnnotationId,
                     items = _annotations.ToArray()
                 };
@@ -626,6 +777,13 @@ namespace Genesis.RoomScan.UI
             if (!hasRay || _rayDriver.IsPointingAtUi)
             {
                 SetAnnotationHitPreview(false, default);
+                if (!OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
+                    CancelPaintStroke();
+                return;
+            }
+            if (_paintInputEnabled)
+            {
+                HandlePaintInput(ray);
                 return;
             }
             UpdateAnnotationHitPreview(ray);
@@ -812,39 +970,107 @@ namespace Genesis.RoomScan.UI
                 : "GLB View follows headset";
         }
 
-        private void SetRoomAligned(bool aligned)
+        private async Task SetRoomAlignedAsync(bool aligned)
         {
-            if (_roomAligned == aligned || _modelRoot == null)
+            if (!aligned)
             {
-                _roomAligned = aligned && _modelRoot != null;
+                ++_alignmentRevision;
+                ExitRoomAlignment();
                 return;
             }
-            if (aligned)
+            if (_roomAligned || _alignmentPending || _modelRoot == null)
+                return;
+            if (!_packageSpatialBinding.HasValue ||
+                !_packageSpatialBinding.Value.IsValid)
             {
-                if (RoomSpaceRoot.Instance == null ||
-                    !RoomSpaceRoot.Instance.IsBound || _grid == null)
+                Status = "ALIGN 1:1 unavailable: package has no spatial binding";
+                return;
+            }
+            RoomAnchorManager manager = RoomAnchorManager.Instance;
+            if (manager == null)
+            {
+                Status = "ALIGN 1:1 unavailable: anchor service is missing";
+                return;
+            }
+
+            int generation = _generation;
+            int revision = ++_alignmentRevision;
+            MerkabaSpatialBinding binding = _packageSpatialBinding.Value;
+            _alignmentPending = true;
+            Status = $"Localizing model anchor {binding.AnchorUuid:D}…";
+            (Transform transform, bool owned)? localized = null;
+            try
+            {
+                localized = await manager.LocalizeArtifactAnchorAsync(
+                    binding.AnchorUuid);
+                if (generation != _generation || revision !=
+                    _alignmentRevision || !IsOpen || _modelRoot == null)
                 {
-                    Status = "ALIGN 1:1 needs the localized scan anchor";
+                    if (localized.HasValue && localized.Value.owned &&
+                        localized.Value.transform != null)
+                        Destroy(localized.Value.transform.gameObject);
                     return;
                 }
+                if (!localized.HasValue || localized.Value.transform == null)
+                {
+                    Status = "ALIGN 1:1 failed: package anchor was not localized";
+                    return;
+                }
+
+                Matrix4x4 local = ComposeAlignedModelLocal(
+                    binding.AnchorFromPackage, _scanCenter);
+                if (!TryDecomposeTransform(local, out Vector3 position,
+                        out Quaternion rotation, out Vector3 scale))
+                {
+                    if (localized.Value.owned)
+                        Destroy(localized.Value.transform.gameObject);
+                    Status = "ALIGN 1:1 failed: invalid package transform";
+                    return;
+                }
+
                 _savedPreviewWorldPosition = _modelRoot.position;
                 _savedPreviewWorldRotation = _modelRoot.rotation;
                 _savedPreviewScale = _modelRoot.localScale;
                 _hasSavedPreviewTransform = true;
+                _artifactAnchor = localized.Value.transform;
+                _ownsArtifactAnchor = localized.Value.owned;
                 _worldLocked = true;
-                // Export vertices are canonical grid-local coordinates.  The
-                // grid already carries the persisted anchor relocation used by
-                // live readout, so parenting here applies that transform once.
-                _modelRoot.SetParent(_grid.transform, false);
-                _modelRoot.localPosition = _scanCenter;
-                _modelRoot.localRotation = Quaternion.identity;
-                _modelRoot.localScale = Vector3.one;
+                _modelRoot.SetParent(_artifactAnchor, false);
+                _modelRoot.localPosition = position;
+                _modelRoot.localRotation = rotation;
+                _modelRoot.localScale = scale;
                 _roomAligned = true;
                 RefreshAnnotationObjects();
-                Status = "GLB View aligned 1:1 to the scanned room";
+                Status = "GLB View aligned 1:1 on its persisted room anchor";
+                Logger.Info($"Merkaba GLB View ALIGN 1:1 anchor=" +
+                    $"{binding.AnchorUuid:D}, localOrigin={position}.");
+            }
+            catch (Exception exception)
+            {
+                if (localized.HasValue && localized.Value.owned &&
+                    localized.Value.transform != null)
+                    Destroy(localized.Value.transform.gameObject);
+                Logger.Error("GLB View ALIGN 1:1 failed: " + exception);
+                Status = "ALIGN 1:1 failed: " + exception.Message;
+            }
+            finally
+            {
+                if (generation == _generation && revision ==
+                    _alignmentRevision)
+                    _alignmentPending = false;
+            }
+        }
+
+        private void ExitRoomAlignment()
+        {
+            _alignmentPending = false;
+            if (_modelRoot == null)
+            {
+                _roomAligned = false;
+                ReleaseArtifactAnchor();
                 return;
             }
-
+            bool wasAligned = _roomAligned;
             _roomAligned = false;
             ApplyViewerFrame();
             if (_hasSavedPreviewTransform)
@@ -854,9 +1080,55 @@ namespace Genesis.RoomScan.UI
                 _modelRoot.localScale = _savedPreviewScale;
                 _hasSavedPreviewTransform = false;
             }
-            RefreshAnnotationObjects();
-            Status = "GLB View restored to model review";
+            ReleaseArtifactAnchor();
+            if (wasAligned)
+            {
+                RefreshAnnotationObjects();
+                Status = "GLB View restored to model review";
+            }
         }
+
+        private void ReleaseArtifactAnchor()
+        {
+            if (_ownsArtifactAnchor && _artifactAnchor != null)
+                Destroy(_artifactAnchor.gameObject);
+            _artifactAnchor = null;
+            _ownsArtifactAnchor = false;
+        }
+
+        internal static Matrix4x4 ComposeAlignedModelLocal(
+            Matrix4x4 anchorFromPackage, Vector3 scanCenter) =>
+            anchorFromPackage * Matrix4x4.Translate(scanCenter);
+
+        internal static bool TryDecomposeTransform(Matrix4x4 matrix,
+            out Vector3 position, out Quaternion rotation, out Vector3 scale)
+        {
+            position = matrix.GetColumn(3);
+            Vector3 x = matrix.GetColumn(0);
+            Vector3 y = matrix.GetColumn(1);
+            Vector3 z = matrix.GetColumn(2);
+            scale = new Vector3(x.magnitude, y.magnitude, z.magnitude);
+            rotation = Quaternion.identity;
+            if (scale.x < 1e-6f || scale.y < 1e-6f || scale.z < 1e-6f ||
+                !IsFinite(position) || !IsFinite(scale))
+                return false;
+            x /= scale.x;
+            y /= scale.y;
+            z /= scale.z;
+            if (Mathf.Abs(Vector3.Dot(x, y)) > 1e-4f ||
+                Mathf.Abs(Vector3.Dot(x, z)) > 1e-4f ||
+                Mathf.Abs(Vector3.Dot(y, z)) > 1e-4f ||
+                Vector3.Dot(Vector3.Cross(x, y), z) < 0.999f)
+                return false;
+            rotation = Quaternion.LookRotation(z, y);
+            return IsFinite(new Vector3(rotation.x, rotation.y, rotation.z)) &&
+                !float.IsNaN(rotation.w) && !float.IsInfinity(rotation.w);
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+            !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
+            !float.IsNaN(value.z) && !float.IsInfinity(value.z);
 
         private void CreateBackdrop(Camera camera)
         {
@@ -914,6 +1186,222 @@ namespace Genesis.RoomScan.UI
             material.renderQueue = opaque
                 ? (int)RenderQueue.Geometry : (int)RenderQueue.Transparent;
         }
+
+        private void HandlePaintInput(Ray ray)
+        {
+            bool triggerDown = OVRInput.GetDown(
+                OVRInput.Button.SecondaryIndexTrigger);
+            bool triggerHeld = OVRInput.Get(
+                OVRInput.Button.SecondaryIndexTrigger);
+            bool triggerUp = OVRInput.GetUp(
+                OVRInput.Button.SecondaryIndexTrigger);
+
+            if (_paintTool == MerkabaArtifactPaintTool.Erase)
+            {
+                CancelPaintStroke();
+                AnnotationRecord touched = FindNearestPaintAnnotation(ray,
+                    out float along);
+                if (touched != null)
+                    SetAnnotationHitPreview(true, new ModelHit(
+                        ray.GetPoint(along), -ray.direction));
+                else
+                    SetAnnotationHitPreview(false, default);
+                if (triggerHeld && touched != null &&
+                    Time.unscaledTime >= _nextPaintErase)
+                {
+                    _nextPaintErase = Time.unscaledTime + PaintEraseInterval;
+                    _annotations.Remove(touched);
+                    if (_selectedAnnotationId == touched.id)
+                        _selectedAnnotationId = 0;
+                    _annotationObjects.TryGetValue(touched.id,
+                        out GameObject visual);
+                    _annotationObjects.Remove(touched.id);
+                    if (visual != null)
+                        Destroy(visual);
+                    Status = $"Erased paint #{touched.id}";
+                }
+                return;
+            }
+
+            bool surfaceTool = _paintTool ==
+                    MerkabaArtifactPaintTool.Line ||
+                _paintTool == MerkabaArtifactPaintTool.SurfaceBrush;
+            ModelHit surfaceHit = default;
+            bool hasSurfaceHit = surfaceTool &&
+                TryHitModel(ray, out surfaceHit);
+            if (!_paintStrokeActive)
+            {
+                if (surfaceTool)
+                    SetAnnotationHitPreview(hasSurfaceHit, surfaceHit);
+                else
+                    SetAnnotationHitPreview(true, new ModelHit(
+                        ray.GetPoint(_spatialPaintDistance), -ray.direction));
+            }
+            else SetAnnotationHitPreview(false, default);
+
+            if (triggerDown)
+            {
+                if (surfaceTool && !hasSurfaceHit)
+                {
+                    Status = "No exported surface under paint pointer";
+                    return;
+                }
+                BeginPaintStroke(ray, surfaceHit);
+            }
+            if (triggerHeld && _paintStrokeActive)
+                ContinuePaintStroke(ray);
+            if (triggerUp && _paintStrokeActive)
+                CompletePaintStroke();
+        }
+
+        private void BeginPaintStroke(Ray ray, ModelHit surfaceHit)
+        {
+            CancelPaintStroke();
+            _paintStrokeActive = true;
+            Vector3 point;
+            if (_paintTool == MerkabaArtifactPaintTool.SpatialBrush)
+            {
+                if (TryHitModel(ray, out ModelHit hit))
+                    _spatialPaintDistance = Mathf.Max(0.05f,
+                        Vector3.Dot(hit.Point - ray.origin, ray.direction));
+                point = ray.GetPoint(_spatialPaintDistance);
+            }
+            else point = SurfacePaintPoint(surfaceHit);
+            _paintDraftPoints.Add(point);
+            if (_paintTool == MerkabaArtifactPaintTool.Line)
+                _paintDraftPoints.Add(point);
+            EnsurePaintDraft();
+            UpdatePaintDraft();
+        }
+
+        private void ContinuePaintStroke(Ray ray)
+        {
+            if (!_paintStrokeActive) return;
+            if (_paintTool == MerkabaArtifactPaintTool.Line)
+            {
+                if (!TryHitModel(ray, out ModelHit hit)) return;
+                _paintDraftPoints[1] = SurfacePaintPoint(hit);
+                _paintDraftLine.SetPosition(1, _paintDraftPoints[1]);
+                return;
+            }
+
+            Vector3 point;
+            if (_paintTool == MerkabaArtifactPaintTool.SurfaceBrush)
+            {
+                if (!TryHitModel(ray, out ModelHit hit)) return;
+                point = SurfacePaintPoint(hit);
+            }
+            else point = ray.GetPoint(_spatialPaintDistance);
+            Vector3 prior = _paintDraftPoints[^1];
+            float spacing = Mathf.Max(MinimumPaintSampleDistance,
+                _paintWidth * 0.35f) *
+                Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
+            if ((point - prior).sqrMagnitude < spacing * spacing) return;
+            _paintDraftPoints.Add(point);
+            _paintDraftLine.positionCount = _paintDraftPoints.Count;
+            _paintDraftLine.SetPosition(_paintDraftPoints.Count - 1, point);
+        }
+
+        private Vector3 SurfacePaintPoint(ModelHit hit) => hit.Point +
+            hit.Normal.normalized * PaintSurfaceOffset *
+            Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
+
+        private void EnsurePaintDraft()
+        {
+            if (_paintDraftObject != null) return;
+            _paintDraftObject = new GameObject("Paint Draft");
+            _paintDraftLine = _paintDraftObject.AddComponent<LineRenderer>();
+            _paintDraftLine.sharedMaterial = _annotationMaterial;
+            _paintDraftLine.startColor = _paintDraftLine.endColor = Color.white;
+            _paintDraftLine.useWorldSpace = true;
+            _paintDraftLine.alignment = LineAlignment.View;
+            _paintDraftLine.numCapVertices = 4;
+            _paintDraftLine.numCornerVertices = 4;
+            float worldWidth = _paintWidth *
+                Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
+            _paintDraftLine.startWidth = _paintDraftLine.endWidth = worldWidth;
+            var properties = new MaterialPropertyBlock();
+            properties.SetColor(BaseColorId, _paintColor);
+            _paintDraftLine.SetPropertyBlock(properties);
+        }
+
+        private void UpdatePaintDraft()
+        {
+            if (_paintDraftLine == null) return;
+            _paintDraftLine.positionCount = _paintDraftPoints.Count;
+            for (int index = 0; index < _paintDraftPoints.Count; index++)
+                _paintDraftLine.SetPosition(index, _paintDraftPoints[index]);
+        }
+
+        private void CompletePaintStroke()
+        {
+            if (!_paintStrokeActive) return;
+            float modelScale = Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
+            bool valid = _paintDraftPoints.Count >= 2 &&
+                Vector3.Distance(_paintDraftPoints[0],
+                    _paintDraftPoints[^1]) >=
+                MinimumPaintSampleDistance * modelScale;
+            if (valid)
+            {
+                string type = _paintTool switch
+                {
+                    MerkabaArtifactPaintTool.Line => "paint-line",
+                    MerkabaArtifactPaintTool.SurfaceBrush => "paint-surface",
+                    _ => "paint-spatial"
+                };
+                var record = new AnnotationRecord
+                {
+                    id = _nextAnnotationId++,
+                    type = type,
+                    note = string.Empty,
+                    styled = true,
+                    color = _paintColor,
+                    width = _paintWidth,
+                    points = _paintDraftPoints.ConvertAll(
+                        WorldToScanPoint).ToArray()
+                };
+                _annotations.Add(record);
+                _selectedAnnotationId = record.id;
+                Status = $"Added {type} #{record.id}";
+            }
+            else Status = "Paint stroke was too short";
+            CancelPaintStroke();
+            RefreshAnnotationObjects();
+        }
+
+        private void CancelPaintStroke()
+        {
+            _paintStrokeActive = false;
+            _paintDraftPoints.Clear();
+            if (_paintDraftObject != null) Destroy(_paintDraftObject);
+            _paintDraftObject = null;
+            _paintDraftLine = null;
+        }
+
+        private AnnotationRecord FindNearestPaintAnnotation(Ray ray,
+            out float along)
+        {
+            AnnotationRecord best = null;
+            along = float.PositiveInfinity;
+            float bestDistance = Mathf.Max(AnnotationPickRadius,
+                _paintWidth * Mathf.Max(_modelRoot.lossyScale.x, 1e-5f));
+            foreach (AnnotationRecord annotation in _annotations)
+            {
+                if (!IsPaintAnnotation(annotation) ||
+                    !TryMeasureAnnotation(ray, annotation,
+                        out float distance, out float candidateAlong) ||
+                    distance > bestDistance || candidateAlong >= along)
+                    continue;
+                best = annotation;
+                along = candidateAlong;
+                bestDistance = distance;
+            }
+            return best;
+        }
+
+        private static bool IsPaintAnnotation(AnnotationRecord annotation) =>
+            annotation != null && annotation.type != null &&
+            annotation.type.StartsWith("paint-", StringComparison.Ordinal);
 
         private void UpdateAnnotationHitPreview(Ray ray)
         {
@@ -1055,6 +1543,7 @@ namespace Genesis.RoomScan.UI
         private void CancelTransientInput()
         {
             EndModelGrab();
+            CancelPaintStroke();
             _annotationPoseGrabActive = false;
             _moveOriginalPoints = null;
             _moveHandleIndex = -1;
@@ -1420,9 +1909,12 @@ namespace Genesis.RoomScan.UI
             Vector3[] points = annotation.points;
             if (points == null || points.Length == 0) return;
             bool selected = annotation.id == _selectedAnnotationId;
-            Color outlineColor = selected
-                ? new Color(0.15f, 0.95f, 1f, 0.98f)
-                : new Color(1f, 0.35f, 0.05f, 0.82f);
+            bool paint = IsPaintAnnotation(annotation);
+            Color outlineColor = paint && annotation.styled
+                ? annotation.color
+                : selected
+                    ? new Color(0.15f, 0.95f, 1f, 0.98f)
+                    : new Color(1f, 0.35f, 0.05f, 0.82f);
             var visual = new GameObject($"{annotation.type} {annotation.id}");
             visual.transform.SetParent(_annotationRoot, false);
             _annotationObjects[annotation.id] = visual;
@@ -1461,7 +1953,8 @@ namespace Genesis.RoomScan.UI
             line.alignment = LineAlignment.View;
             line.numCapVertices = 3;
             line.numCornerVertices = 2;
-            line.startWidth = line.endWidth = AnnotationLineWidth;
+            line.startWidth = line.endWidth = paint && annotation.width > 0f
+                ? annotation.width : AnnotationLineWidth;
             line.positionCount = annotation.type == "plane"
                 ? points.Length + 1 : points.Length;
             for (int pointIndex = 0; pointIndex < points.Length; pointIndex++)
@@ -1471,7 +1964,7 @@ namespace Genesis.RoomScan.UI
             var lineProperties = new MaterialPropertyBlock();
             lineProperties.SetColor(BaseColorId, outlineColor);
             line.SetPropertyBlock(lineProperties);
-            if (selected) CreateAnnotationHandles(visual, points);
+            if (selected && !paint) CreateAnnotationHandles(visual, points);
         }
 
         private void CreateAnnotationHandles(GameObject visual,
@@ -1709,7 +2202,8 @@ namespace Genesis.RoomScan.UI
                 AnnotationFile file = JsonUtility.FromJson<AnnotationFile>(
                     File.ReadAllText(AnnotationPath));
                 if (file?.format != "QuestMerkabaAnnotations" ||
-                    file.version != 1 || file.items == null) return;
+                    (file.version != 1 && file.version != 2) ||
+                    file.items == null) return;
                 _annotations.AddRange(file.items);
                 _nextAnnotationId = Mathf.Max(file.nextId, 1);
             }
@@ -1946,10 +2440,11 @@ namespace Genesis.RoomScan.UI
             tile.Loading = true;
             _tileLoadsInFlight++;
             var timer = System.Diagnostics.Stopwatch.StartNew();
+            string archivePath = _archivePath;
             try
             {
                 ParsedGlb parsed = await Task.Run(() => ReadGlbTile(
-                    _exporter.ViewerPackagePath, tile));
+                    archivePath, tile));
                 if (generation != _generation || !IsOpen) return;
                 if (!_keptTiles.Contains(tile)) return;
                 double parseMilliseconds = timer.Elapsed.TotalMilliseconds;
@@ -2030,6 +2525,9 @@ namespace Genesis.RoomScan.UI
         }
 
         private bool TileCollidersRequired() =>
+            (_paintInputEnabled && (_paintTool ==
+                MerkabaArtifactPaintTool.Line || _paintTool ==
+                MerkabaArtifactPaintTool.SurfaceBrush)) ||
             _annotationMode == AnnotationMode.Point ||
             _annotationMode == AnnotationMode.Line ||
             _annotationMode == AnnotationMode.Plane ||
@@ -2067,8 +2565,11 @@ namespace Genesis.RoomScan.UI
                 FileAccess.Read, FileShare.Read, 1024 * 1024,
                 FileOptions.SequentialScan);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-            ZipArchiveEntry manifest = archive.GetEntry("tileset.json") ??
-                throw new InvalidDataException("tileset.json is missing.");
+            ZipArchiveEntry manifest = FindTilesetManifest(archive);
+            string manifestName = manifest.FullName.Replace('\\', '/');
+            int slash = manifestName.LastIndexOf('/');
+            string packagePrefix = slash >= 0
+                ? manifestName.Substring(0, slash + 1) : string.Empty;
             string json;
             using (Stream input = manifest.Open())
             using (var reader = new StreamReader(input, Encoding.UTF8, true,
@@ -2077,8 +2578,12 @@ namespace Genesis.RoomScan.UI
             TilesetDocument document = JsonUtility.FromJson<TilesetDocument>(json);
             if (document?.root == null)
                 throw new InvalidDataException("Invalid 3D Tiles root.");
+            MerkabaSpatialBinding? spatialBinding =
+                TryParseSpatialBinding(json, out MerkabaSpatialBinding parsed)
+                    ? parsed : null;
             var tiles = new List<Tile>();
-            CollectTiles(document.root, Matrix4x4.identity, archive, tiles);
+            CollectTiles(document.root, Matrix4x4.identity, archive,
+                packagePrefix, tiles);
             if (tiles.Count == 0)
                 throw new InvalidDataException("3D Tiles export has no GLB leaves.");
             tiles.Sort((left, right) => string.CompareOrdinal(left.Uri,
@@ -2094,18 +2599,39 @@ namespace Genesis.RoomScan.UI
                     totalResidentEstimateBytes + tile.EstimatedResidentBytes);
             }
             return new PackageIndex(tiles, bounds, totalModelBytes,
-                totalResidentEstimateBytes);
+                totalResidentEstimateBytes, spatialBinding);
+        }
+
+        private static ZipArchiveEntry FindTilesetManifest(ZipArchive archive)
+        {
+            ZipArchiveEntry exact = archive.GetEntry("tileset.json");
+            if (exact != null) return exact;
+            ZipArchiveEntry match = null;
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                string name = entry.FullName.Replace('\\', '/');
+                if (!name.EndsWith("/tileset.json",
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (match != null)
+                    throw new InvalidDataException(
+                        "ZIP contains more than one tileset.json.");
+                match = entry;
+            }
+            return match ?? throw new InvalidDataException(
+                "tileset.json is missing.");
         }
 
         private static void CollectTiles(TilesetNode node, Matrix4x4 parent,
-            ZipArchive archive, List<Tile> output)
+            ZipArchive archive, string packagePrefix, List<Tile> output)
         {
             Matrix4x4 local = ReadColumnMajorMatrix(node.transform);
             Matrix4x4 current = parent * local;
             if (node.content != null && !string.IsNullOrWhiteSpace(
                     node.content.uri))
             {
-                string uri = node.content.uri.Replace('\\', '/');
+                string uri = ResolveArchiveUri(packagePrefix,
+                    node.content.uri);
                 ZipArchiveEntry entry = archive.GetEntry(uri) ??
                     throw new InvalidDataException("Missing tile " + uri);
                 output.Add(new Tile(uri, entry.Length,
@@ -2114,7 +2640,40 @@ namespace Genesis.RoomScan.UI
             }
             if (node.children == null) return;
             foreach (TilesetNode child in node.children)
-                if (child != null) CollectTiles(child, current, archive, output);
+                if (child != null) CollectTiles(child, current, archive,
+                    packagePrefix, output);
+        }
+
+        private static string ResolveArchiveUri(string packagePrefix,
+            string contentUri)
+        {
+            string uri = contentUri.Replace('\\', '/').TrimStart('/');
+            if (uri.Contains("://", StringComparison.Ordinal) ||
+                uri == ".." || uri.StartsWith("../", StringComparison.Ordinal) ||
+                uri.Contains("/../", StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    "3D Tiles content URI must stay inside its ZIP.");
+            return packagePrefix + uri;
+        }
+
+        internal static bool TryParseSpatialBinding(string json,
+            out MerkabaSpatialBinding binding)
+        {
+            binding = default;
+            if (string.IsNullOrWhiteSpace(json)) return false;
+            TilesetDocument document = JsonUtility.FromJson<TilesetDocument>(
+                json);
+            TilesetSpatialBinding encoded = document?.asset?.extras?
+                .questMerkabaSpatialBinding;
+            if (encoded == null || encoded.version !=
+                MerkabaSpatialBinding.CurrentVersion ||
+                !Guid.TryParse(encoded.anchorUuid, out Guid uuid) ||
+                encoded.anchorFromPackage == null ||
+                encoded.anchorFromPackage.Length != 16)
+                return false;
+            binding = new MerkabaSpatialBinding(uuid,
+                ReadColumnMajorMatrix(encoded.anchorFromPackage));
+            return binding.IsValid;
         }
 
         private static Matrix4x4 ReadColumnMajorMatrix(float[] values)
@@ -2443,14 +3002,17 @@ namespace Genesis.RoomScan.UI
             internal readonly Bounds Bounds;
             internal readonly long TotalModelBytes;
             internal readonly long TotalResidentEstimateBytes;
+            internal readonly MerkabaSpatialBinding? SpatialBinding;
 
             internal PackageIndex(List<Tile> tiles, Bounds bounds,
-                long totalModelBytes, long totalResidentEstimateBytes)
+                long totalModelBytes, long totalResidentEstimateBytes,
+                MerkabaSpatialBinding? spatialBinding)
             {
                 Tiles = tiles;
                 Bounds = bounds;
                 TotalModelBytes = totalModelBytes;
                 TotalResidentEstimateBytes = totalResidentEstimateBytes;
+                SpatialBinding = spatialBinding;
             }
         }
 
@@ -2478,7 +3040,28 @@ namespace Genesis.RoomScan.UI
         [Serializable]
         private sealed class TilesetDocument
         {
+            public TilesetAsset asset;
             public TilesetNode root;
+        }
+
+        [Serializable]
+        private sealed class TilesetAsset
+        {
+            public TilesetExtras extras;
+        }
+
+        [Serializable]
+        private sealed class TilesetExtras
+        {
+            public TilesetSpatialBinding questMerkabaSpatialBinding;
+        }
+
+        [Serializable]
+        private sealed class TilesetSpatialBinding
+        {
+            public int version;
+            public string anchorUuid;
+            public float[] anchorFromPackage;
         }
 
         [Serializable]
@@ -2609,6 +3192,9 @@ namespace Genesis.RoomScan.UI
             public string type;
             public string note;
             public Vector3[] points;
+            public bool styled;
+            public Color color;
+            public float width;
         }
 
         [Serializable]

@@ -2,43 +2,63 @@ using UnityEngine;
 
 namespace Genesis.RoomScan.UI
 {
-    /// <summary>Tracks the donor UX above the left controller while facing the user.</summary>
+    /// <summary>Tracks the UX above the left controller with wrist-relative orientation.</summary>
     public sealed class DebugMenuFollower : MonoBehaviour
     {
         [SerializeField] private float verticalOffset = 0.18f;
         [SerializeField] private float viewOffset = 0.04f;
         [SerializeField] private float followSpeed = 18f;
+        [SerializeField, Range(0.25f, 1f)] private float menuScale = 0.75f;
 
         private Transform _camera;
         private bool _tracking;
+        private Quaternion _controllerToPanelRotation = Quaternion.identity;
+        private Vector3 _authoredScale;
         private static OVRPlugin.HandState _leftHandState = new();
 
         public bool IsTracking => _tracking;
+
+        private void Awake()
+        {
+            _authoredScale = transform.localScale;
+            transform.localScale = _authoredScale * menuScale;
+        }
 
         private void OnEnable() =>
             _camera = Camera.main != null ? Camera.main.transform : null;
 
         private void LateUpdate()
         {
-            if (!_tracking || _camera == null ||
-                !TryGetLeftControllerPosition(out Vector3 controllerPosition))
+            if (!_tracking) return;
+            if (_camera == null)
+                _camera = Camera.main != null ? Camera.main.transform : null;
+            if (_camera == null ||
+                !TryGetLeftControllerPose(out Vector3 controllerPosition,
+                    out Quaternion controllerRotation))
                 return;
             Vector3 target = ControllerPanelPosition(controllerPosition, _camera.up,
                 _camera.forward, verticalOffset, viewOffset);
             float blend = 1f - Mathf.Exp(-followSpeed * Time.unscaledDeltaTime);
             transform.position = Vector3.Lerp(transform.position, target, blend);
-            FaceView();
+            transform.rotation = Quaternion.Slerp(transform.rotation,
+                controllerRotation * _controllerToPanelRotation, blend);
         }
 
         public void SnapToLeftController()
         {
-            _camera ??= Camera.main != null ? Camera.main.transform : null;
+            if (_camera == null)
+                _camera = Camera.main != null ? Camera.main.transform : null;
             if (_camera == null) return;
             _tracking = true;
-            if (TryGetLeftControllerPosition(out Vector3 position))
+            if (TryGetLeftControllerPose(out Vector3 position,
+                    out Quaternion rotation))
+            {
                 transform.position = ControllerPanelPosition(position, _camera.up,
                     _camera.forward, verticalOffset, viewOffset);
-            FaceView();
+                FaceView();
+                _controllerToPanelRotation = Quaternion.Inverse(rotation) *
+                    transform.rotation;
+            }
         }
 
         public void SnapToView() => SnapToLeftController();
@@ -56,13 +76,15 @@ namespace Genesis.RoomScan.UI
                 transform.rotation = Quaternion.LookRotation(away, _camera.up);
         }
 
-        private bool TryGetLeftControllerPosition(out Vector3 position)
+        private bool TryGetLeftControllerPose(out Vector3 position,
+            out Quaternion rotation)
         {
             OVRInput.Controller controller = OVRInput.GetActiveControllerForHand(
                 OVRInput.Handedness.LeftHanded);
             if (controller == OVRInput.Controller.None)
             {
                 position = default;
+                rotation = default;
                 return false;
             }
             Vector3 localPosition;
@@ -73,6 +95,7 @@ namespace Genesis.RoomScan.UI
                         OVRPlugin.Hand.HandLeft, ref _leftHandState))
                 {
                     position = default;
+                    rotation = default;
                     return false;
                 }
                 localPosition = _leftHandState.PointerPose.Position.FromFlippedZVector3f();
@@ -83,6 +106,7 @@ namespace Genesis.RoomScan.UI
                 if (!OVRInput.GetControllerPositionTracked(controller))
                 {
                     position = default;
+                    rotation = default;
                     return false;
                 }
                 localPosition = OVRInput.GetLocalControllerPosition(controller);
@@ -94,6 +118,7 @@ namespace Genesis.RoomScan.UI
                 orientation = localRotation
             }.ToWorldSpacePose(_camera.GetComponent<Camera>());
             position = pose.position;
+            rotation = pose.orientation;
             return true;
         }
     }
