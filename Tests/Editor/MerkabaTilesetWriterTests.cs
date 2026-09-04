@@ -420,6 +420,48 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void StreamingPackageRejectsZeroLeavesAndOwnedMeasuredPatchExists()
+        {
+            string root = TemporaryDirectory();
+            try
+            {
+                MerkabaTilesetWriter.BeginStreamingPackage(root);
+                Assert.Throws<InvalidDataException>(() =>
+                    MerkabaTilesetWriter.CompleteStreamingPackage(root,
+                        Array.Empty<MerkabaTilesetLeaf>()));
+
+                MerkabaExportMembraneResult membrane = Fixture();
+                int3 coord = membrane.Patches[0].Coord;
+                MerkabaSpatial.Address address = MerkabaSpatial.Encode(coord);
+                var owner = new MerkabaTileAddress(address.BlockCoord,
+                    (uint)address.ChunkLocal);
+                MerkabaExportMembraneResult owned = MerkabaExporter.OwnChunk(
+                    membrane, owner);
+                Assert.That(owned.Patches.Any(patch =>
+                    math.all(patch.Coord == coord)), Is.True);
+
+                InvalidDataException failure = Assert.Throws<InvalidDataException>(
+                    () => MerkabaExporter.ValidateOwnedMeasuredPatches(owner,
+                        storedTiles: 4, nonzeroStates: 7,
+                        occupiedOwners: 2, measuredOwners: 1,
+                        membranePatches: 3, ownedPatches: 0));
+                Assert.That(failure.Message, Does.Contain(
+                    "Export invariant failed at spatial ownership"));
+                Assert.That(failure.Message, Does.Contain("storedTiles=4"));
+                Assert.That(failure.Message, Does.Contain("ownedPatches=0"));
+                Assert.DoesNotThrow(() =>
+                    MerkabaExporter.ValidateOwnedMeasuredPatches(owner,
+                        storedTiles: 4, nonzeroStates: 7,
+                        occupiedOwners: 2, measuredOwners: 1,
+                        membranePatches: 3, ownedPatches: 1));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
         public void SourceKeepsOneGlbAuthorityAndDurableManifestLast()
         {
             string tileset = Source(
@@ -463,6 +505,17 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaTilesetWriter.CompleteStreamingPackage(staging"));
             Assert.That(exporter, Does.Contain(
                 "offset += MerkabaGrid.StreamBatchCapacity"));
+            Assert.That(exporter, Does.Contain(
+                "ValidateOwnedMeasuredPatches(ownerKey"));
+            Assert.That(exporter, Does.Contain(
+                "Export invariant failed at spatial ownership"));
+            foreach (string field in new[]
+                     {
+                         "storedTiles=", "nonzeroStates=", "occupiedOwners=",
+                         "measuredOwners=", "membranePatches=",
+                         "ownedPatches=", "emittedLeaf="
+                     })
+                Assert.That(exporter, Does.Contain(field), field);
             Assert.That(exporter, Does.Not.Contain(
                 "CaptureStoredSnapshotAsync(anchorUuid"));
             int viewerExport = exporter.IndexOf(
