@@ -67,29 +67,78 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ScanAnchorAdmissionIsIndependentOfMrukRoomDiscovery()
+        public void OnlyNewSessionMayCreateTheRoomAnchor()
         {
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string ensure = Slice(scanner,
                 "private async Task EnsureRoomAnchorAsync()",
                 "private void UpdateFineActionBoundary()");
             Assert.That(ensure, Does.Contain(
-                "await _anchorManager.EnsureSpatialAnchorAsync()"));
+                "EnsureSessionAnchorAsync(requiredUuid,\n" +
+                "                    false)"));
             Assert.That(ensure, Does.Not.Contain("IsRoomLoaded"));
-            Assert.That(ensure, Does.Not.Contain("using the current world frame"));
             Assert.That(ensure, Does.Contain(
-                "could not be created, persisted, \" +"));
-            Assert.That(ensure, Does.Contain("\"tracked and bound."));
+                "Create or open a scan session before starting."));
+            Assert.That(ensure, Does.Contain("Room anchor not localized"));
+
+            string create = Slice(scanner,
+                "public async Task NewClearAsync()",
+                "public async Task<bool> ExportGlbAsync()");
+            Assert.That(create, Does.Contain(
+                "EnsureSessionAnchorAsync(Guid.Empty,\n" +
+                "                        true)"));
+            Assert.That(create, Does.Contain("BeginNewSession("));
 
             string manager = Source("Runtime/Core/RoomAnchorManager.cs");
             string admission = Slice(manager,
-                "internal async Task<bool> EnsureSpatialAnchorAsync()",
+                "internal async Task<bool> EnsureSessionAnchorAsync(",
                 "/// <summary>\n        /// Creates an");
             Assert.That(admission, Does.Contain(
                 "CreateAndSaveSpatialAnchorAsync"));
             Assert.That(admission, Does.Contain(
-                "RoomSpaceRoot.WaitForBindAsync()"));
+                "LoadSpatialAnchorAsync(requiredUuid)"));
+            Assert.That(admission, Does.Contain(
+                "requiredUuid == Guid.Empty && !allowCreate"));
+            Assert.That(admission, Does.Contain(
+                "RoomSpaceRoot.WaitForAnchorBindAsync("));
             Assert.That(admission, Does.Not.Contain("IsRoomLoaded"));
+        }
+
+        [Test]
+        public void ResumeLocalizesExactAnchorBeforeRestoringSensors()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string transition = Slice(scanner,
+                "private async Task ApplyApplicationPauseAsync",
+                "private void BeginDisableTeardown()");
+            int anchor = transition.IndexOf(
+                "EnsureSessionAnchorAsync(\n" +
+                "                            _resumeAnchorUuid, false)",
+                StringComparison.Ordinal);
+            int depth = transition.IndexOf(
+                "RestoreEnvironmentDepthAfterApplicationResumeAsync()",
+                StringComparison.Ordinal);
+            Assert.That(anchor, Is.GreaterThanOrEqualTo(0));
+            Assert.That(depth, Is.GreaterThan(anchor));
+            Assert.That(transition, Does.Contain(
+                "LastScanStartError = \"Room anchor not localized\""));
+            Assert.That(transition, Does.Not.Contain(
+                "EnsureSessionAnchorAsync(Guid.Empty"));
+        }
+
+        [Test]
+        public void ArtifactLocalizationCannotReplaceTheScannerAnchor()
+        {
+            string manager = Source("Runtime/Core/RoomAnchorManager.cs");
+            string artifact = Slice(manager,
+                "LocalizeArtifactAnchorAsync(Guid uuid)",
+                "public async Task<bool> EraseSpatialAnchorAsync");
+            Assert.That(artifact, Does.Not.Contain(
+                "_activeSpatialAnchor = anchor"));
+            Assert.That(artifact, Does.Not.Contain(
+                "RoomSpaceRoot.WaitForAnchorBindAsync"));
+            Assert.That(artifact, Does.Contain(
+                "return (anchor.transform, true)"));
         }
 
         [Test]

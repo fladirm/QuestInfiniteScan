@@ -447,9 +447,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(exporter, Does.Contain(
                 "await CaptureSpatialBindingAsync()"));
             Assert.That(exporter, Does.Contain(
-                "await anchor.EnsureSpatialAnchorAsync()"));
+                "await anchor.EnsureSessionAnchorAsync(requiredUuid, false)"));
+            Assert.That(exporter, Does.Contain(
+                "Active session has no persisted room anchor."));
             Assert.That(exporter, Does.Not.Contain(
-                "3D Tiles export requires a localized spatial anchor."));
+                "EnsureSessionAnchorAsync(Guid.Empty, true)"));
             Assert.That(exporter, Does.Contain(
                 "anchor.SpatialAnchorMatrix.inverse *\n" +
                 "                _grid.GridToWorldMatrix"));

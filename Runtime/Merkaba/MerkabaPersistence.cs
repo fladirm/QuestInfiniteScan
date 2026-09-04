@@ -15,6 +15,8 @@ namespace Genesis.RoomScan
         private RoomScanner _scanner;
 
         public bool IsBusy { get; private set; }
+        public Guid ActiveAnchorUuid { get; private set; }
+        public bool HasActiveSession => ActiveAnchorUuid != Guid.Empty;
         public bool SavedSessionExists => _grid != null
             ? File.Exists(_grid.CheckpointPath)
             : File.Exists(DefaultCheckpointPath);
@@ -47,16 +49,18 @@ namespace Genesis.RoomScan
                     ScanOperationKind.Save);
                 await _grid.FlushAllDirtyTilesAsync(progress);
 
-                Guid anchorUuid = Guid.Empty;
-                Matrix4x4 anchorAtSave = Matrix4x4.identity;
                 RoomAnchorManager anchor = RoomAnchorManager.Instance;
-                if (anchor != null && anchor.HasSpatialAnchor)
-                {
-                    anchorUuid = anchor.SpatialAnchorUuid;
-                    anchorAtSave = anchor.SpatialAnchorMatrix;
-                }
+                if (ActiveAnchorUuid == Guid.Empty)
+                    throw new InvalidOperationException(
+                        "Active session has no persisted room anchor.");
+                if (anchor == null || !anchor.enabled ||
+                    !await anchor.EnsureSessionAnchorAsync(ActiveAnchorUuid,
+                        false) || anchor.SpatialAnchorUuid != ActiveAnchorUuid)
+                    throw new InvalidOperationException(
+                        "Active session room anchor could not be localized.");
                 MerkabaSessionSnapshot snapshot = await _grid
-                    .CaptureStoredSnapshotAsync(anchorUuid, anchorAtSave,
+                    .CaptureStoredSnapshotAsync(ActiveAnchorUuid,
+                        anchor.SpatialAnchorMatrix,
                         _integrator != null ? _integrator.IntegrationCount : 0,
                         progress);
                 await _grid.PublishCheckpointAsync(snapshot, progress);
@@ -87,34 +91,36 @@ namespace Genesis.RoomScan
                     ScanOperationKind.Load);
                 MerkabaSessionSnapshot snapshot = await _grid
                     .ReadCheckpointSnapshotAsync(progress);
-                if (snapshot.AnchorUuid != Guid.Empty)
-                {
-                    progress.Report(OperationWorkProgress.Indeterminate(
-                        ScanOperationStage.LocalizingAnchor,
-                        "Localizing saved anchor"));
-                    RoomAnchorManager anchorManager = RoomAnchorManager.Instance;
-                    if (anchorManager == null)
-                        throw new InvalidOperationException(
-                            "Saved M8 world requires its spatial anchor, but " +
-                            "RoomAnchorManager is unavailable.");
-                    Matrix4x4? localized = await anchorManager
-                        .LoadSpatialAnchorAsync(snapshot.AnchorUuid);
-                    if (!localized.HasValue)
-                        throw new InvalidOperationException(
-                            "Saved M8 spatial anchor could not be localized.");
-                    if (RoomSpaceRoot.Instance == null)
-                        throw new InvalidOperationException(
-                            "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
-                            "is unavailable.");
-                    if (!await RoomSpaceRoot.WaitForBindAsync())
-                        throw new InvalidOperationException(
-                            "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
-                            "did not bind.");
-                    _grid.RelocateForLoadedAnchor(localized.Value,
-                        snapshot.AnchorAtSave);
-                }
+                if (snapshot.AnchorUuid == Guid.Empty)
+                    throw new InvalidDataException(
+                        "Saved M8 session has no persisted room anchor UUID.");
+                progress.Report(OperationWorkProgress.Indeterminate(
+                    ScanOperationStage.LocalizingAnchor,
+                    "Localizing saved anchor"));
+                RoomAnchorManager anchorManager = RoomAnchorManager.Instance;
+                if (anchorManager == null || !anchorManager.enabled)
+                    throw new InvalidOperationException(
+                        "Saved M8 world requires its spatial anchor, but " +
+                        "RoomAnchorManager is unavailable.");
+                if (!await anchorManager.EnsureSessionAnchorAsync(
+                        snapshot.AnchorUuid, false) ||
+                    anchorManager.SpatialAnchorUuid != snapshot.AnchorUuid)
+                    throw new InvalidOperationException(
+                        "Saved M8 spatial anchor could not be localized.");
+                if (RoomSpaceRoot.Instance == null)
+                    throw new InvalidOperationException(
+                        "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
+                        "is unavailable.");
+                if (!await RoomSpaceRoot.WaitForAnchorBindAsync(
+                        anchorManager.SpatialAnchorTransform))
+                    throw new InvalidOperationException(
+                        "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
+                        "did not bind.");
+                _grid.RelocateForLoadedAnchor(
+                    anchorManager.SpatialAnchorMatrix, snapshot.AnchorAtSave);
                 await _grid.LoadStoredSnapshotAsync(snapshot, progress);
                 _integrator?.RestoreIntegrationCount(snapshot.IntegrationCount);
+                ActiveAnchorUuid = snapshot.AnchorUuid;
                 SetStatus($"Loaded {snapshot.Tiles.Count} M8 tiles");
                 return true;
             }
@@ -137,6 +143,7 @@ namespace Genesis.RoomScan
             try
             {
                 _grid?.ClearStorage();
+                ActiveAnchorUuid = Guid.Empty;
                 SetStatus("No saved session");
             }
             catch (Exception exception)
@@ -144,6 +151,25 @@ namespace Genesis.RoomScan
                 Logger.Error("Could not clear M8 storage: " + exception.Message);
                 SetStatus("Clear failed: " + exception.Message);
             }
+        }
+
+        internal void BeginNewSession(Guid anchorUuid)
+        {
+            if (anchorUuid == Guid.Empty)
+                throw new ArgumentException(
+                    "A new session requires its persisted room anchor UUID.",
+                    nameof(anchorUuid));
+            RoomAnchorManager anchor = RoomAnchorManager.Instance;
+            if (anchor == null || anchor.SpatialAnchorUuid != anchorUuid ||
+                !anchor.HasSpatialAnchor || RoomSpaceRoot.Instance == null ||
+                RoomSpaceRoot.Instance.CurrentAnchor !=
+                    anchor.SpatialAnchorTransform)
+                throw new InvalidOperationException(
+                    "A new session may begin only after its room anchor is " +
+                    "localized and bound.");
+            _grid.ClearStorage();
+            ActiveAnchorUuid = anchorUuid;
+            SetStatus("New session — not saved");
         }
 
         internal static void WriteSnapshot(Stream destination,

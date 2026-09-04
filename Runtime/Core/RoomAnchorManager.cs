@@ -29,7 +29,9 @@ namespace Genesis.RoomScan
 
         private OVRSpatialAnchor _activeSpatialAnchor;
         private readonly List<OVRSpatialAnchor.UnboundAnchor> _unboundAnchors = new();
-        private Task<bool> _ensureSpatialAnchorTask;
+        private Task<bool> _ensureSessionAnchorTask;
+        private Guid _ensureSessionAnchorUuid;
+        private bool _ensureSessionAnchorMayCreate;
 
         private void Awake()
         {
@@ -155,7 +157,7 @@ namespace Genesis.RoomScan
 
         /// <summary>
         /// Current spatial anchor localization matrix. Valid after
-        /// <see cref="CreateAndSaveSpatialAnchorAsync"/> or <see cref="LoadSpatialAnchorAsync"/>.
+        /// <see cref="EnsureSessionAnchorAsync"/>.
         /// Returns identity if no spatial anchor is active.
         ///
         /// <para><b>Persisting data baked in world space.</b> Store this
@@ -215,27 +217,45 @@ namespace Genesis.RoomScan
             _activeSpatialAnchor != null ? _activeSpatialAnchor.Uuid : Guid.Empty;
 
         /// <summary>
-        /// Ensures that the current room frame has one persisted, tracked
-        /// spatial anchor. This is intentionally independent of MRUK room
-        /// discovery: a spatial anchor can be created at the tracked headset
-        /// pose even when no Scene room has been captured on the device.
-        /// Concurrent callers share the same creation attempt.
+        /// Localizes the exact persisted anchor owned by an existing session,
+        /// or creates one only for an explicit NEW-session request.
         /// </summary>
-        internal async Task<bool> EnsureSpatialAnchorAsync()
+        internal async Task<bool> EnsureSessionAnchorAsync(Guid requiredUuid,
+            bool allowCreate)
         {
-            if (_activeSpatialAnchor != null)
+            if (requiredUuid == Guid.Empty && !allowCreate)
             {
-                if (!await WaitForActiveSpatialAnchorReadyAsync())
-                    return false;
-                return RoomSpaceRoot.Instance != null &&
-                    await RoomSpaceRoot.WaitForBindAsync();
+                Logger.Error("An existing session requires a persisted room " +
+                    "anchor UUID.");
+                return false;
             }
 
-            Task<bool> pending = _ensureSpatialAnchorTask;
+            if (requiredUuid != Guid.Empty && _activeSpatialAnchor != null &&
+                _activeSpatialAnchor.Uuid == requiredUuid)
+            {
+                if (_activeSpatialAnchor.Localized &&
+                    _activeSpatialAnchor.IsTracked)
+                    return RoomSpaceRoot.Instance != null &&
+                        await RoomSpaceRoot.WaitForAnchorBindAsync(
+                            _activeSpatialAnchor.transform);
+            }
+
+            Task<bool> pending = _ensureSessionAnchorTask;
+            if (pending != null && !pending.IsCompleted &&
+                (_ensureSessionAnchorUuid != requiredUuid ||
+                 _ensureSessionAnchorMayCreate != allowCreate))
+            {
+                await pending;
+                return await EnsureSessionAnchorAsync(requiredUuid,
+                    allowCreate);
+            }
             if (pending == null || pending.IsCompleted)
             {
-                pending = EnsureSpatialAnchorCoreAsync();
-                _ensureSpatialAnchorTask = pending;
+                pending = EnsureSessionAnchorCoreAsync(requiredUuid,
+                    allowCreate);
+                _ensureSessionAnchorTask = pending;
+                _ensureSessionAnchorUuid = requiredUuid;
+                _ensureSessionAnchorMayCreate = allowCreate;
             }
 
             try
@@ -244,28 +264,43 @@ namespace Genesis.RoomScan
             }
             finally
             {
-                if (ReferenceEquals(_ensureSpatialAnchorTask, pending))
-                    _ensureSpatialAnchorTask = null;
+                if (ReferenceEquals(_ensureSessionAnchorTask, pending))
+                {
+                    _ensureSessionAnchorTask = null;
+                    _ensureSessionAnchorUuid = Guid.Empty;
+                    _ensureSessionAnchorMayCreate = false;
+                }
             }
         }
 
-        private async Task<bool> EnsureSpatialAnchorCoreAsync()
+        private async Task<bool> EnsureSessionAnchorCoreAsync(Guid requiredUuid,
+            bool allowCreate)
         {
-            Camera camera = Camera.main;
-            Vector3 position = camera != null
-                ? camera.transform.position
-                : (_anchorTransform != null
-                    ? _anchorTransform.position : Vector3.zero);
-            var created = await CreateAndSaveSpatialAnchorAsync(position,
-                Quaternion.identity);
-            if (!created.HasValue)
-                return false;
+            if (requiredUuid != Guid.Empty)
+            {
+                Matrix4x4? localized = await LoadSpatialAnchorAsync(requiredUuid);
+                if (!localized.HasValue) return false;
+            }
+            else
+            {
+                if (!allowCreate) return false;
+                Camera camera = Camera.main;
+                Vector3 position = camera != null
+                    ? camera.transform.position
+                    : (_anchorTransform != null
+                        ? _anchorTransform.position : Vector3.zero);
+                var created = await CreateAndSaveSpatialAnchorAsync(position,
+                    Quaternion.identity);
+                if (!created.HasValue) return false;
+            }
             if (RoomSpaceRoot.Instance == null)
             {
                 Logger.Error("Spatial anchor exists, but RoomSpaceRoot is missing.");
                 return false;
             }
-            return await RoomSpaceRoot.WaitForBindAsync();
+            return _activeSpatialAnchor != null &&
+                await RoomSpaceRoot.WaitForAnchorBindAsync(
+                    _activeSpatialAnchor.transform);
         }
 
         /// <summary>
@@ -273,7 +308,7 @@ namespace Genesis.RoomScan
         /// creation, persists it, and returns the UUID + localToWorld matrix.
         /// Falls back to MRUK anchor position if <paramref name="position"/> is default.
         /// </summary>
-        public async Task<(Guid uuid, Matrix4x4 matrix)?> CreateAndSaveSpatialAnchorAsync(
+        private async Task<(Guid uuid, Matrix4x4 matrix)?> CreateAndSaveSpatialAnchorAsync(
             Vector3 position, Quaternion rotation)
         {
             if (position == Vector3.zero && rotation == Quaternion.identity && _anchorTransform != null)
@@ -346,21 +381,22 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
-        /// Loads a previously persisted spatial anchor by UUID, localizes it, and returns
-        /// the anchor's current localToWorld matrix. Returns null on failure.
-        /// Falls back to MRUK anchor if localization fails.
+        /// Loads exactly one previously persisted spatial anchor by UUID,
+        /// localizes it, and returns its current localToWorld matrix. Returns
+        /// null on failure; existing-session callers must fail closed.
         /// </summary>
-        public async Task<Matrix4x4?> LoadSpatialAnchorAsync(Guid uuid)
+        private async Task<Matrix4x4?> LoadSpatialAnchorAsync(Guid uuid)
         {
             Logger.Info($"Loading spatial anchor {uuid}...");
 
+            _unboundAnchors.Clear();
             var loadResult = await OVRSpatialAnchor.LoadUnboundAnchorsAsync(
                 new[] { uuid }, _unboundAnchors);
 
             if (!loadResult.Success || _unboundAnchors.Count == 0)
             {
                 Logger.Warning($"Spatial anchor load failed: {loadResult.Status}, " +
-                                 $"count={_unboundAnchors.Count}. Falling back to MRUK.");
+                                 $"count={_unboundAnchors.Count}.");
                 return null;
             }
 
@@ -379,7 +415,7 @@ namespace Genesis.RoomScan
                 }
                 if (!unbound.Localized)
                 {
-                    Logger.Warning("Spatial anchor localization timed out. Falling back to MRUK.");
+                    Logger.Warning("Spatial anchor localization timed out.");
                     return null;
                 }
             }
@@ -389,12 +425,19 @@ namespace Genesis.RoomScan
             var anchor = go.AddComponent<OVRSpatialAnchor>();
             unbound.BindTo(anchor);
 
+            if (anchor.Uuid != uuid)
+            {
+                Logger.Error($"Spatial anchor UUID mismatch: requested={uuid}, " +
+                    $"bound={anchor.Uuid}.");
+                Destroy(go);
+                return null;
+            }
+
             Logger.Info($"Spatial anchor localized: {uuid}, pos={anchor.transform.position}");
 
             if (!await WaitForSpatialAnchorReadyAsync(anchor, 10f))
             {
-                Logger.Warning("Bound spatial anchor did not become tracked. " +
-                    "Falling back to MRUK.");
+                Logger.Warning("Bound spatial anchor did not become tracked.");
                 Destroy(go);
                 return null;
             }

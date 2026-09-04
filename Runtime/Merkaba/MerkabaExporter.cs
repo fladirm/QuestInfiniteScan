@@ -20,6 +20,7 @@ namespace Genesis.RoomScan
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
+        private MerkabaPersistence _persistence;
         private RoomScanner _scanner;
 
         public bool IsExporting { get; private set; }
@@ -36,6 +37,7 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _integrator = GetComponent<MerkabaIntegrator>();
+            _persistence = GetComponent<MerkabaPersistence>();
             _scanner = GetComponent<RoomScanner>();
         }
 
@@ -57,6 +59,7 @@ namespace Genesis.RoomScan
                     new Progress<OperationWorkProgress>(value =>
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
+                await RequireActiveSessionAnchorAsync();
                 await _grid.FlushAllDirtyTilesAsync(progress);
                 await Task.Run(() =>
                 {
@@ -264,16 +267,7 @@ namespace Genesis.RoomScan
 
         private async Task<MerkabaSpatialBinding> CaptureSpatialBindingAsync()
         {
-            RoomAnchorManager anchor = RoomAnchorManager.Instance;
-            if (anchor == null || !anchor.enabled)
-                throw new InvalidOperationException(
-                    "3D Tiles export requires RoomAnchorManager.");
-            if (!await anchor.EnsureSpatialAnchorAsync() ||
-                !anchor.HasSpatialAnchor ||
-                anchor.SpatialAnchorUuid == Guid.Empty)
-                throw new InvalidOperationException(
-                    "3D Tiles export could not create and localize its " +
-                    "persistent spatial anchor.");
+            RoomAnchorManager anchor = await RequireActiveSessionAnchorAsync();
             Matrix4x4 anchorFromPackage = anchor.SpatialAnchorMatrix.inverse *
                 _grid.GridToWorldMatrix;
             var binding = new MerkabaSpatialBinding(anchor.SpatialAnchorUuid,
@@ -285,6 +279,24 @@ namespace Genesis.RoomScan
                 $"anchor={binding.AnchorUuid:D}, " +
                 $"packageOrigin={anchorFromPackage.GetColumn(3)}");
             return binding;
+        }
+
+        private async Task<RoomAnchorManager>
+            RequireActiveSessionAnchorAsync()
+        {
+            Guid requiredUuid = _persistence != null
+                ? _persistence.ActiveAnchorUuid : Guid.Empty;
+            if (requiredUuid == Guid.Empty)
+                throw new InvalidOperationException(
+                    "Active session has no persisted room anchor.");
+            RoomAnchorManager anchor = RoomAnchorManager.Instance;
+            if (anchor == null || !anchor.enabled ||
+                !await anchor.EnsureSessionAnchorAsync(requiredUuid, false) ||
+                !anchor.HasSpatialAnchor ||
+                anchor.SpatialAnchorUuid != requiredUuid)
+                throw new InvalidOperationException(
+                    "Active session room anchor could not be localized.");
+            return anchor;
         }
 
         private async Task StreamOwnedMembranesAsync(

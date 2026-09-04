@@ -55,6 +55,7 @@ namespace Genesis.RoomScan
         private uint _lifecycleGeneration;
         private bool _applicationPaused;
         private bool _resumeAfterPause;
+        private Guid _resumeAnchorUuid;
         private bool _disableRequested;
         private bool _destroyed;
         private long _acceptedRgbdObservations;
@@ -346,7 +347,11 @@ namespace Genesis.RoomScan
         private void OnApplicationPause(bool paused)
         {
             if (paused && !_applicationPaused)
+            {
                 _resumeAfterPause = IsScanning || IsScanStarting;
+                _resumeAnchorUuid = _resumeAfterPause && _persistence != null
+                    ? _persistence.ActiveAnchorUuid : Guid.Empty;
+            }
             _applicationPaused = paused;
             Logger.Info($"Application pause={paused} resumeScan=" +
                         $"{_resumeAfterPause} lifecycle={ScanLifecycle}");
@@ -514,12 +519,31 @@ namespace Genesis.RoomScan
         public async Task NewClearAsync()
         {
             if (!await QuiesceScanningAsync()) return;
-            _renderer?.CancelLoadedCoverageWarmup();
-            _integrator?.Clear();
-            _persistence?.ClearSavedSession();
-            _exporter?.ClearExport();
-            await Task.Yield();
-            Logger.Info("Started a new empty Merkaba session");
+            try
+            {
+                _anchorManager ??= RoomAnchorManager.Instance ??
+                    FindAnyObjectByType<RoomAnchorManager>(
+                        FindObjectsInactive.Include);
+                if (_anchorManager == null || !_anchorManager.enabled ||
+                    !await _anchorManager.EnsureSessionAnchorAsync(Guid.Empty,
+                        true) || _anchorManager.SpatialAnchorUuid == Guid.Empty)
+                    throw new InvalidOperationException(
+                        "A new persisted room anchor could not be created.");
+                _persistence?.BeginNewSession(
+                    _anchorManager.SpatialAnchorUuid);
+                _renderer?.CancelLoadedCoverageWarmup();
+                _integrator?.Clear();
+                await Task.Yield();
+                LastScanStartError = null;
+                Logger.Info("Started a new empty anchored Merkaba session " +
+                    _anchorManager.SpatialAnchorUuid.ToString("D"));
+            }
+            catch (Exception exception)
+            {
+                LastScanStartError = exception.Message;
+                Logger.Error("Could not create a new Merkaba session: " +
+                    exception);
+            }
         }
 
         public async Task<bool> ExportGlbAsync()
@@ -590,10 +614,15 @@ namespace Genesis.RoomScan
             if (_anchorManager == null || !_anchorManager.enabled)
                 throw new InvalidOperationException(
                     "RoomAnchorManager is unavailable for persistent scanning.");
-            if (!await _anchorManager.EnsureSpatialAnchorAsync())
+            Guid requiredUuid = _persistence != null
+                ? _persistence.ActiveAnchorUuid : Guid.Empty;
+            if (requiredUuid == Guid.Empty)
                 throw new InvalidOperationException(
-                    "The room spatial anchor could not be created, persisted, " +
-                    "tracked and bound.");
+                    "Create or open a scan session before starting.");
+            if (!await _anchorManager.EnsureSessionAnchorAsync(requiredUuid,
+                    false) || _anchorManager.SpatialAnchorUuid != requiredUuid)
+                throw new InvalidOperationException(
+                    "Room anchor not localized");
         }
 
         private void UpdateFineAuthorityBoundary()
@@ -952,6 +981,41 @@ namespace Genesis.RoomScan
                 if (_applicationPaused || _disableRequested || _destroyed ||
                     !isActiveAndEnabled)
                     return;
+                if (_resumeAfterPause)
+                {
+                    if (!await WaitForTrackedHeadPoseAsync())
+                    {
+                        _resumeAfterPause = false;
+                        LastScanStartError = "Room anchor not localized";
+                        Logger.Error("Application resume did not recover Quest " +
+                            "head tracking before anchor localization.");
+                        return;
+                    }
+                    if (_resumeAnchorUuid == Guid.Empty ||
+                        _persistence == null ||
+                        _persistence.ActiveAnchorUuid != _resumeAnchorUuid)
+                    {
+                        _resumeAfterPause = false;
+                        LastScanStartError = "Room anchor not localized";
+                        Logger.Error("Application resume has no exact active " +
+                            "session anchor to localize.");
+                        return;
+                    }
+                    _anchorManager ??= RoomAnchorManager.Instance ??
+                        FindAnyObjectByType<RoomAnchorManager>(
+                            FindObjectsInactive.Include);
+                    if (_anchorManager == null || !_anchorManager.enabled ||
+                        !await _anchorManager.EnsureSessionAnchorAsync(
+                            _resumeAnchorUuid, false) ||
+                        _anchorManager.SpatialAnchorUuid != _resumeAnchorUuid)
+                    {
+                        _resumeAfterPause = false;
+                        LastScanStartError = "Room anchor not localized";
+                        Logger.Error("Application resume could not localize " +
+                            $"session anchor {_resumeAnchorUuid:D}.");
+                        return;
+                    }
+                }
                 if (_depthCapture != null &&
                     !await _depthCapture
                         .RestoreEnvironmentDepthAfterApplicationResumeAsync())
@@ -968,6 +1032,21 @@ namespace Genesis.RoomScan
             {
                 Logger.Error("Application pause lifecycle failed: " + exception);
             }
+        }
+
+        private async Task<bool> WaitForTrackedHeadPoseAsync(
+            float timeoutSeconds = 10f)
+        {
+            float deadline = Time.realtimeSinceStartup +
+                Mathf.Max(0.1f, timeoutSeconds);
+            while (!_applicationPaused && !_disableRequested && !_destroyed &&
+                   isActiveAndEnabled)
+            {
+                if (HasTrackedHeadPose()) return true;
+                if (Time.realtimeSinceStartup >= deadline) return false;
+                await Task.Yield();
+            }
+            return false;
         }
 
         private void BeginDisableTeardown()

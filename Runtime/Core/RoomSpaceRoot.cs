@@ -264,6 +264,30 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
+        /// Waits until room space is bound to one specific localized anchor.
+        /// A stale binding from before sleep or a session switch is not ready.
+        /// </summary>
+        internal static async Task<bool> WaitForAnchorBindAsync(
+            Transform expectedAnchor, float timeoutSeconds = 10f,
+            CancellationToken cancellationToken = default)
+        {
+            if (expectedAnchor == null) return false;
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Instance == null || Instance.CurrentAnchor != expectedAnchor)
+            {
+                if (cancellationToken.IsCancellationRequested) return false;
+                if (Time.realtimeSinceStartup >= deadline)
+                {
+                    Logger.Warning("Room space did not bind to the required " +
+                        $"session anchor within {timeoutSeconds:F0}s.");
+                    return false;
+                }
+                await Task.Yield();
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Bind to a stand-in anchor without going through MRUK or
         /// <c>OVRSpatialAnchor</c>, for editor playmode and tests. Applies
         /// synchronously so a caller can bake or author against the result in
