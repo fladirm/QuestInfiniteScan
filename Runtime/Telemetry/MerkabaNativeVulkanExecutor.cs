@@ -15,7 +15,7 @@ namespace Genesis.RoomScan
         private const float TimingLogIntervalSeconds = 5f;
         internal const int AbiVersion = 1;
         internal const int ResourceCount = 45;
-        internal const int PipelineCount = 51;
+        internal const int PipelineCount = 49;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -142,8 +142,6 @@ namespace Genesis.RoomScan
             "ResetReadoutBuild",
             "QueryM8Readout",
             "PrepareReadoutBuild",
-            "ProjectReadoutFrontDepth",
-            "IndexReadoutVertices",
             "BuildReadoutVertices",
             "FinalizeReadout",
             "MeshResetReadoutBuild",
@@ -267,8 +265,8 @@ namespace Genesis.RoomScan
             ulong mask = validBits >= 64 ? ulong.MaxValue :
                 validBits <= 0 ? 0UL : (1UL << validBits) - 1UL;
             int first = kind == JobKind.Readout ? 33 :
-                kind == JobKind.MeshReadout ? 40 :
-                kind == JobKind.FineErase ? 46 :
+                kind == JobKind.MeshReadout ? 38 :
+                kind == JobKind.FineErase ? 44 :
                 kind == JobKind.ObservationRetry ? 13 : 0;
             int dispatchCount = (count - 2) / 2;
             for (int index = 0; index < dispatchCount; ++index)

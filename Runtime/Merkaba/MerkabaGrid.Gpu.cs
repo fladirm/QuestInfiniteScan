@@ -29,20 +29,10 @@ namespace Genesis.RoomScan
         internal const int ReadoutVertexStride = 16;
         internal const int ReadoutIndexCapacity = ReadoutTriangleCapacity *
             MerkabaCanonicalGeometry.VerticesPerPrimitive;
-        internal const int ReadoutIndexMapWordCount =
-            MerkabaSpatial.PhysicalTileCapacity *
-            MerkabaSpatial.KernelsPerTile / 2;
-        internal const int ReadoutIndexStorageCount =
-            ReadoutIndexCapacity + ReadoutIndexMapWordCount;
-        internal const int ReadoutFrontFaceDimension = 512;
-        internal const int ReadoutFrontPixelCount = 6 *
-            ReadoutFrontFaceDimension * ReadoutFrontFaceDimension;
+        internal const int ReadoutIndexStorageCount = ReadoutIndexCapacity;
         internal const int ReadoutVisibleBufferCount =
-            ReadoutFrontPixelCount > MerkabaSpatial.PhysicalTileCapacity
-                ? ReadoutFrontPixelCount
-                : MerkabaSpatial.PhysicalTileCapacity;
-        internal const int ReadoutResetGroupCount =
-            (ReadoutFrontPixelCount + 127) / 128;
+            MerkabaSpatial.PhysicalTileCapacity;
+        internal const int ReadoutResetGroupCount = 1;
         internal const int CounterCount = 98;
 
         internal const int CounterBlockCount = 0;

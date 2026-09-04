@@ -115,7 +115,7 @@ namespace Genesis.RoomScan.Tests
             KernelState state = Measured(new float3(1, 0, 0), 0f,
                 new Color32(90, 150, 210, 255));
             int3 firstCoord = new(0, 0, 0);
-            int3 secondCoord = new(0, 2, 0);
+            int3 secondCoord = new(0, 1, 0);
             Assert.That(MerkabaOverlapShell.TryBuildPatch(firstCoord, state,
                 out MerkabaOverlapShell.Patch first), Is.True);
             Assert.That(MerkabaOverlapShell.TryBuildPatch(secondCoord, state,

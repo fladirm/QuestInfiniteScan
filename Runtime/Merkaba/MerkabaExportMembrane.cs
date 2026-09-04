@@ -120,6 +120,12 @@ namespace Genesis.RoomScan
                     throw new InvalidOperationException(
                         $"Duplicate membrane coordinate {kernel.Coord}.");
             }
+            var membraneContext = new Dictionary<int3, KernelState>(
+                shell.EvidenceKernels.Length + shell.Kernels.Count);
+            foreach (MerkabaKernelSnapshot kernel in shell.EvidenceKernels)
+                membraneContext.Add(kernel.Coord, kernel.State);
+            foreach (MerkabaKernelSnapshot kernel in shell.Kernels)
+                membraneContext[kernel.Coord] = kernel.State;
 
             var synthetic = new HashSet<int3>(shell.SyntheticCoordinates);
             var strongFree = new HashSet<int3>(shell.StrongFreeCoordinates);
@@ -164,7 +170,7 @@ namespace Genesis.RoomScan
                 bool hasState = states.TryGetValue(coord, out KernelState state);
                 bool isSynthetic = synthetic.Contains(coord);
                 if (hasState && !isSynthetic &&
-                    MerkabaOverlapShell.TryBuildPatch(coord, state,
+                    MerkabaOverlapShell.TryBuildPatch(coord, membraneContext,
                         out MerkabaOverlapShell.Patch measuredPatch))
                 {
                     if (ShouldKeepMeasured(coord, partition, strongFree))
@@ -182,7 +188,7 @@ namespace Genesis.RoomScan
                 {
                     if ((partitionCut.Contains(coord) ||
                          (strongFree.Count == 0 && isSynthetic)) &&
-                         TryInferClosure(coord, states,
+                         TryInferClosure(coord, membraneContext,
                             out MerkabaExportMembranePatch inferred))
                     {
                         patches.Add(inferred);
@@ -247,7 +253,7 @@ namespace Genesis.RoomScan
             {
                 int3 donorCoord = coord + offset;
                 if (!states.TryGetValue(donorCoord, out KernelState state) ||
-                    !MerkabaOverlapShell.TryBuildPatch(donorCoord, state,
+                    !MerkabaOverlapShell.TryBuildPatch(donorCoord, states,
                         out MerkabaOverlapShell.Patch donor))
                     continue;
                 donors.Add((donorCoord, donor));
@@ -290,10 +296,19 @@ namespace Genesis.RoomScan
             float3 latticeCenter = (float3)coord * MerkabaConstants.LatticeStep;
             float3 center = latticeCenter + normal *
                 (height - math.dot(latticeCenter, normal));
-            MerkabaOverlapShell.TangentBasis(normal, out float3 tangent0,
-                out float3 tangent1);
-            float3 extent0 = tangent0 * MerkabaConstants.HalfSupport;
-            float3 extent1 = tangent1 * MerkabaConstants.HalfSupport;
+            int dominantAxis = MerkabaOverlapShell.DominantAxis(normal);
+            MerkabaOverlapShell.TangentAxes(dominantAxis,
+                out int tangentAxis0, out int tangentAxis1);
+            float3 tangent0 = tangentAxis0 == 0 ? new float3(1, 0, 0) :
+                tangentAxis0 == 1 ? new float3(0, 1, 0) :
+                new float3(0, 0, 1);
+            float3 tangent1 = tangentAxis1 == 0 ? new float3(1, 0, 0) :
+                tangentAxis1 == 1 ? new float3(0, 1, 0) :
+                new float3(0, 0, 1);
+            float3 extent0 = tangent0 *
+                MerkabaOverlapShell.MembraneHalfPitch;
+            float3 extent1 = tangent1 *
+                MerkabaOverlapShell.MembraneHalfPitch;
             patch = new MerkabaExportMembranePatch(coord, normal,
                 center - extent0 - extent1, center + extent0 - extent1,
                 center + extent0 + extent1, center - extent0 + extent1,

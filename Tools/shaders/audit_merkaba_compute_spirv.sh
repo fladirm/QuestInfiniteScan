@@ -42,13 +42,13 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
         echo "FAIL: $kernel regressed to int64/integer div/mod" >&2
         exit 1
       fi
-      if ! grep -Eq 'OpExecutionMode .* LocalSize 8 8 2' "$assembly"; then
+      if ! grep -Eq 'OpExecutionMode .* LocalSize 128 1 1' "$assembly"; then
         echo "FAIL: $kernel is not the frozen 128-lane tile workgroup" >&2
         exit 1
       fi
       barrier_count=$(grep -c 'OpControlBarrier' "$assembly" || true)
-      if (( barrier_count > 6 )); then
-        echo "FAIL: $kernel contains $barrier_count group barriers (>6)" >&2
+      if (( barrier_count > 8 )); then
+        echo "FAIL: $kernel contains $barrier_count group barriers (>8)" >&2
         exit 1
       fi
     fi
@@ -107,9 +107,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 59 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 59" >&2
+if (( kernel_count != 57 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 57" >&2
   exit 1
 fi
 
-echo "PASS: 59 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 57 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

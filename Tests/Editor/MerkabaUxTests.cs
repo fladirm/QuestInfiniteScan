@@ -247,8 +247,11 @@ namespace Genesis.RoomScan.Tests
                 "float3 gridPosition1 : TEXCOORD0"));
             Assert.That(source, Does.Contain(
                 "unity_StereoEyeIndex == 0"));
-            Assert.That(source, Does.Not.Contain("SV_VertexID"));
-            Assert.That(source, Does.Not.Contain("StructuredBuffer"));
+            Assert.That(source, Does.Contain("uint vertexID : SV_VertexID"));
+            Assert.That(source, Does.Contain(
+                "StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices0"));
+            Assert.That(source, Does.Contain(
+                "#if defined(M8_STEREO_MESH)"));
             Assert.That(source, Does.Not.Contain("logicalPrimitive"));
             Assert.That(source, Does.Not.Contain("primitiveId"));
             Assert.That(source, Does.Not.Contain(

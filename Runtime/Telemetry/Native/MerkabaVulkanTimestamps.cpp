@@ -110,15 +110,11 @@ namespace
     constexpr uint32_t kExecutorAbiVersion = 1;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kMeshReadoutPipelineBegin = 40;
-    constexpr uint32_t kFineErasePipelineBegin = 46;
+    constexpr uint32_t kMeshReadoutPipelineBegin = 38;
+    constexpr uint32_t kFineErasePipelineBegin = 44;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
-    constexpr uint32_t kReadoutFrontFaceDimension = 512;
-    constexpr uint32_t kReadoutFrontPixelCount = 6 *
-        kReadoutFrontFaceDimension * kReadoutFrontFaceDimension;
-    constexpr uint32_t kReadoutResetGroupCount =
-        (kReadoutFrontPixelCount + 127) / 128;
+    constexpr uint32_t kReadoutResetGroupCount = 1;
 
     enum ExecutorJobKind : uint32_t
     {
@@ -1204,9 +1200,7 @@ namespace
         else if (std::strcmp(pipeline.dispatch, "readout_query") == 0)
             vkCmdDispatch(job->commandBuffer, job->readoutQueryGroups, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "readout_reset") == 0)
-            vkCmdDispatch(job->commandBuffer,
-                job->kind == kJobMeshReadout ? 1u :
-                    kReadoutResetGroupCount, 1, 1);
+            vkCmdDispatch(job->commandBuffer, kReadoutResetGroupCount, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);
