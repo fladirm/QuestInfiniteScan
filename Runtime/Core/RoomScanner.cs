@@ -81,6 +81,7 @@ namespace Genesis.RoomScan
         private FineBrushDescriptor _finePreviewDescriptor;
         private bool _headTrackingBlocked;
         private float _lastHeadTrackingWarningTime;
+        private bool _newSessionPending;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -106,11 +107,22 @@ namespace Genesis.RoomScan
             _renderer != null ? _renderer.VisibleSurfaceKernelCount : 0;
         public int IntegrationCount => _integrator != null ? _integrator.IntegrationCount : 0;
         public bool SavedSessionExists => _persistence != null && _persistence.SavedSessionExists;
+        public bool AnySessionExists => _persistence != null &&
+            _persistence.AnySessionExists;
+        public Guid ActiveSessionId => _persistence?.ActiveSessionId ??
+            Guid.Empty;
+        public string ActiveSessionName => _persistence?.ActiveSessionName ??
+            "No session";
+        public bool SessionIsDirty => _persistence?.IsDirty ?? false;
+        public System.Collections.Generic.IReadOnlyList<MerkabaSessionInfo>
+            Sessions => _persistence?.Sessions ??
+                Array.Empty<MerkabaSessionInfo>();
         public string PersistenceStatus => _persistence?.LastStatus ?? "Unavailable";
         public string ExportStatus => _exporter?.LastStatus ?? "Unavailable";
         public bool IsBusy => ScanLifecycle == ScanLifecycleState.Quiescing ||
                               _operation.Busy || (_persistence?.IsBusy ?? false) ||
-                              (_exporter?.IsExporting ?? false);
+                              (_exporter?.IsExporting ?? false) ||
+                              _newSessionPending;
         public ScanOperationState CurrentOperation => _operation;
         public bool FineMode
         {
@@ -516,11 +528,78 @@ namespace Genesis.RoomScan
             }
         }
 
-        public async Task NewClearAsync()
+        public async Task<bool> OpenSessionAsync(Guid sessionId)
         {
-            if (!await QuiesceScanningAsync()) return;
+            if (IsBusy || sessionId == Guid.Empty) return false;
+            if (!TryBeginOperation(ScanOperationKind.Load,
+                    ScanOperationStage.SynchronizingScan,
+                    "Retiring current scan observation")) return false;
+            bool success = false;
             try
             {
+                if (!await QuiesceScanningAsync()) return false;
+                ReportOperation(ScanOperationKind.Load,
+                    ScanOperationStage.SynchronizingScan, 1L, 1L,
+                    "Scan synchronized");
+                success = _persistence != null &&
+                    await _persistence.OpenSessionAsync(sessionId);
+                if (success) _renderer?.BeginLoadedCoverageWarmup();
+                return success;
+            }
+            finally
+            {
+                FinishOperation(ScanOperationKind.Load, success,
+                    _persistence?.LastStatus ?? "Open unavailable");
+            }
+        }
+
+        public async Task<bool> SaveAsAsync(string displayName)
+        {
+            if (IsBusy) return false;
+            if (!TryBeginOperation(ScanOperationKind.Save,
+                    ScanOperationStage.SynchronizingScan,
+                    "Retiring current scan observation")) return false;
+            bool success = false;
+            try
+            {
+                if (!await QuiesceScanningAsync()) return false;
+                ReportOperation(ScanOperationKind.Save,
+                    ScanOperationStage.SynchronizingScan, 1L, 1L,
+                    "Scan synchronized");
+                success = _persistence != null &&
+                    await _persistence.SaveAsAsync(displayName);
+                return success;
+            }
+            finally
+            {
+                FinishOperation(ScanOperationKind.Save, success,
+                    _persistence?.LastStatus ?? "Save As unavailable");
+            }
+        }
+
+        public bool RenameActiveSession(string displayName) =>
+            !IsBusy && _persistence != null &&
+            _persistence.RenameActiveSession(displayName);
+
+        public async Task<bool> DeleteSessionAsync(Guid sessionId)
+        {
+            if (IsBusy || sessionId == Guid.Empty) return false;
+            bool wasActive = sessionId == ActiveSessionId;
+            if (!await QuiesceScanningAsync()) return false;
+            bool deleted = _persistence != null &&
+                await _persistence.DeleteSessionAsync(sessionId);
+            if (deleted && wasActive)
+                _renderer?.CancelLoadedCoverageWarmup();
+            return deleted;
+        }
+
+        public async Task NewClearAsync()
+        {
+            if (IsBusy) return;
+            _newSessionPending = true;
+            try
+            {
+                if (!await QuiesceScanningAsync()) return;
                 _anchorManager ??= RoomAnchorManager.Instance ??
                     FindAnyObjectByType<RoomAnchorManager>(
                         FindObjectsInactive.Include);
@@ -529,7 +608,10 @@ namespace Genesis.RoomScan
                         true) || _anchorManager.SpatialAnchorUuid == Guid.Empty)
                     throw new InvalidOperationException(
                         "A new persisted room anchor could not be created.");
-                _persistence?.BeginNewSession(
+                if (_persistence == null)
+                    throw new InvalidOperationException(
+                        "Session persistence is unavailable.");
+                await _persistence.BeginNewSessionAsync(
                     _anchorManager.SpatialAnchorUuid);
                 _renderer?.CancelLoadedCoverageWarmup();
                 _integrator?.Clear();
@@ -543,6 +625,10 @@ namespace Genesis.RoomScan
                 LastScanStartError = exception.Message;
                 Logger.Error("Could not create a new Merkaba session: " +
                     exception);
+            }
+            finally
+            {
+                _newSessionPending = false;
             }
         }
 
@@ -901,6 +987,7 @@ namespace Genesis.RoomScan
                 (_integrator.LastObservationChangedReadout ||
                  (_renderer?.MeshReadoutEnabled ?? false)))
                 _renderer?.MarkCanonicalReadoutDirty();
+            _persistence?.MarkDirty();
             Integrated?.Invoke();
         }
 
@@ -908,6 +995,7 @@ namespace Genesis.RoomScan
         {
             _fineEraseDescriptor = default;
             _renderer?.MarkCanonicalReadoutDirty();
+            _persistence?.MarkDirty();
             Integrated?.Invoke();
         }
 

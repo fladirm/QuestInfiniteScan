@@ -87,7 +87,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(create, Does.Contain(
                 "EnsureSessionAnchorAsync(Guid.Empty,\n" +
                 "                        true)"));
-            Assert.That(create, Does.Contain("BeginNewSession("));
+            Assert.That(create, Does.Contain("BeginNewSessionAsync("));
 
             string manager = Source("Runtime/Core/RoomAnchorManager.cs");
             string admission = Slice(manager,

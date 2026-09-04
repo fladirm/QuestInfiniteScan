@@ -21,6 +21,7 @@ namespace Genesis.RoomScan
         }
 
         private MerkabaSsdStore _ssdStore;
+        private string _storageDirectory;
         private bool _streamCounterPending;
         private bool _attemptCompletionReadbackPending;
         private uint _attemptCompletionExpectedToken;
@@ -66,15 +67,6 @@ namespace Genesis.RoomScan
         private float _writeBytesPerSecond;
         private bool _storageReplacementPending;
 
-        internal string CheckpointPath
-        {
-            get
-            {
-                EnsureStorage();
-                return _ssdStore.CheckpointPath;
-            }
-        }
-
         internal bool HasUnresolvedStorageRequests =>
             _loadRequestCursor != _observedLoadRequestCount ||
             _loadAddressReadbackPending || _loadStorageTask != null ||
@@ -90,8 +82,95 @@ namespace Genesis.RoomScan
 
         private void EnsureStorage()
         {
-            _ssdStore ??= new MerkabaSsdStore(Path.Combine(
-                Application.persistentDataPath, "MerkabaScan"));
+            _storageDirectory ??= Path.Combine(
+                Application.persistentDataPath, "MerkabaScan");
+            _ssdStore ??= new MerkabaSsdStore(_storageDirectory);
+        }
+
+        internal async Task SwitchStorageRootAsync(string directory,
+            bool clearCanonicalFiles, bool clearGpuWorld)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+                throw new ArgumentException("Session storage root is required.",
+                    nameof(directory));
+            string fullDirectory = Path.GetFullPath(directory);
+            if (_storageReplacementPending)
+                throw new InvalidOperationException(
+                    "M8 storage authority is already being replaced.");
+
+            _storageReplacementPending = true;
+            try
+            {
+                while (_streamCounterPending ||
+                       _attemptCompletionReadbackPending ||
+                       _loadAddressReadbackPending ||
+                       _loadInstallStatusPending || _writebackReadbackPending)
+                    await Task.Yield();
+
+                Task loadTask = _loadStorageTask;
+                Task writeTask = _writebackStorageTask;
+                if (loadTask != null)
+                {
+                    try { await loadTask; }
+                    catch (Exception exception)
+                    {
+                        Logger.Warning("Discarding retired session read: " +
+                            exception.GetBaseException().Message);
+                    }
+                }
+                if (writeTask != null)
+                {
+                    try { await writeTask; }
+                    catch (Exception exception)
+                    {
+                        Logger.Warning("Retired session write failed before " +
+                            "storage switch: " +
+                            exception.GetBaseException().Message);
+                    }
+                }
+
+                if (_flushCompletion != null)
+                {
+                    _flushCompletion.TrySetException(
+                        new InvalidOperationException(
+                            "M8 storage root changed during a flush."));
+                    _flushCompletion = null;
+                    _flushAllDirty = false;
+                    _flushProgress = null;
+                }
+
+                if (clearGpuWorld)
+                {
+                    EnsureGpuResources();
+                    if (!GpuSubmissionAllowed)
+                        throw new InvalidOperationException(
+                            "Cannot replace the M8 world while GPU submission " +
+                            "is suspended.");
+                    // Keep the replacement gate closed across the clear and
+                    // index rebuild. No frame can pair the old GPU world with
+                    // the new session store (or vice versa).
+                    ClearGpuWorldForNewScan();
+                }
+
+                var replacement = new MerkabaSsdStore(fullDirectory);
+                if (clearCanonicalFiles)
+                    replacement.Clear();
+                else if (!clearGpuWorld)
+                    await replacement.RebuildIndexAsync();
+                // OPEN rebuilds exactly once inside LoadStoredSnapshotAsync,
+                // after its checkpoint has been parsed. SAVE AS keeps the live
+                // GPU world and therefore needs the copied store indexed now.
+                _ssdStore = replacement;
+                _storageDirectory = fullDirectory;
+                // When the GPU world survives (SAVE AS), its ring cursors and
+                // any completed load task survive too. Resetting them would
+                // replay historical load requests into the copied session.
+            }
+            finally
+            {
+                _storageReplacementPending = false;
+                _nextStreamPoll = 0f;
+            }
         }
 
         private void ResetStorageRuntimeState()
@@ -808,10 +887,5 @@ namespace Genesis.RoomScan
             return count;
         }
 
-        internal void ClearStorage()
-        {
-            EnsureStorage();
-            _ssdStore.Clear();
-        }
     }
 }

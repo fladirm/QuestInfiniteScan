@@ -681,7 +681,7 @@ namespace Genesis.RoomScan.UI
             _stop?.SetEnabled(!busy && (scanner.IsScanning ||
                 scanner.IsScanStarting));
             _save?.SetEnabled(!busy);
-            _load?.SetEnabled(!busy && scanner.SavedSessionExists);
+            _load?.SetEnabled(!busy);
             _new?.SetEnabled(!busy);
             _export?.SetEnabled(!busy);
             _exportTiles?.SetEnabled(!busy);
