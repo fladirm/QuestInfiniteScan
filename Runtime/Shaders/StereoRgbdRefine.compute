@@ -22,10 +22,10 @@ float4x4 _DepthViewInv[2];
 uint _RefineMetricsEnabled;
 uint _RefineMetricGroupsX;
 uint _M8FineRefineActive;
-float3 _M8FineEyeOrigin;
+float3 _M8FineCursorPosition;
 float3 _M8FineBrushAxis;
-float _M8FineCosHalfAngleSquared;
-float _M8FineToolDepthSquared;
+float _M8FineRadiusSquared;
+float _M8FineLength;
 
 #define RGBD_REFERENCE_EYE 0u
 #define RGBD_OPPOSITE_EYE 1u
@@ -48,11 +48,11 @@ groupshared uint gRefineMetrics[RGBD_METRIC_VALUE_COUNT];
 
 bool M8FineContains(float3 worldPosition)
 {
-    float3 relative = worldPosition - _M8FineEyeOrigin;
-    float distanceSquared = dot(relative, relative);
+    float3 relative = worldPosition - _M8FineCursorPosition;
     float axial = dot(relative, _M8FineBrushAxis);
-    return distanceSquared <= _M8FineToolDepthSquared && axial >= 0.0 &&
-        axial * axial >= distanceSquared * _M8FineCosHalfAngleSquared;
+    float3 radial = relative - _M8FineBrushAxis * axial;
+    return axial >= 0.0 && axial <= _M8FineLength &&
+        dot(radial, radial) <= _M8FineRadiusSquared;
 }
 
 float3 DepthNdcToWorld(uint eye, float2 uv, float depth)

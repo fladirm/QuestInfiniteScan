@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using NUnit.Framework;
 using UnityEngine;
@@ -10,112 +11,120 @@ namespace Genesis.RoomScan.Tests
             "Packages/com.genesis.roomscan/";
 
         [Test]
-        public void ExactConeUsesFullApexAngleAndRadialDepth()
+        public void ExactControllerCylinderUsesCursorRadiusAndLength()
         {
-            Assert.That(FineBrushDescriptor.TryCreate(Vector3.zero,
-                Vector3.forward, Vector3.back, 60f, 2f,
-                FineBrushOperation.Refine,
+            Assert.That(FineBrushDescriptor.TryCreate(
+                new Vector3(1f, 2f, 3f), Vector3.back, Vector3.forward,
+                0.1f, 0.5f, FineBrushOperation.Refine,
                 out FineBrushDescriptor brush), Is.True);
 
-            float half = 30f * Mathf.Deg2Rad;
-            Vector3 boundary = new(Mathf.Sin(half) * 1.99f, 0f,
-                Mathf.Cos(half) * 1.99f + 0.001f);
-            Assert.That(brush.Contains(boundary), Is.True);
-            Assert.That(brush.Contains(boundary * 1.01f), Is.False);
-            Assert.That(brush.Contains(new Vector3(1.01f, 0f, 1.7f)),
-                Is.False);
-            Assert.That(brush.Contains(Vector3.back), Is.False);
-        }
-
-        [Test]
-        public void BrushAxisIsAlwaysEyeToCursor()
-        {
-            Vector3 eye = new(2f, -1f, 3f);
-            Vector3 cursor = new(-1f, 4f, 7f);
-            Assert.That(FineBrushDescriptor.TryCreate(eye, cursor,
-                Vector3.back, 20f, 4f, FineBrushOperation.Preview,
-                out FineBrushDescriptor brush),
+            Assert.That(brush.Contains(new Vector3(1.099f, 2f, 3.25f)),
                 Is.True);
-            Assert.That(Vector3.Dot(brush.Axis,
-                (cursor - eye).normalized), Is.EqualTo(1f).Within(1e-6f));
-            Assert.That(brush.CursorPosition, Is.EqualTo(cursor));
-            Assert.That(Vector3.Dot(brush.SurfaceNormal, eye - cursor),
-                Is.GreaterThanOrEqualTo(0f));
+            Assert.That(brush.Contains(new Vector3(1.1001f, 2f, 3.25f)),
+                Is.False);
+            Assert.That(brush.Contains(new Vector3(1f, 2f, 2.999f)),
+                Is.False);
+            Assert.That(brush.Contains(new Vector3(1f, 2f, 3.501f)),
+                Is.False);
         }
 
         [Test]
-        public void PreviewProjectsTheExactBrushOntoTheReadoutSurface()
+        public void BrushAxisIsControllerRayAndBoundsEncloseCylinder()
+        {
+            Vector3 cursor = new(-1f, 4f, 7f);
+            Vector3 controllerRay = new(1f, 2f, 3f);
+            Assert.That(FineBrushDescriptor.TryCreate(cursor,
+                Vector3.forward, controllerRay, 0.2f, 0.8f,
+                FineBrushOperation.Preview, out FineBrushDescriptor brush),
+                Is.True);
+
+            Assert.That(Vector3.Dot(brush.Axis, controllerRay.normalized),
+                Is.EqualTo(1f).Within(1e-6f));
+            Assert.That(brush.CursorPosition, Is.EqualTo(cursor));
+            Assert.That(Vector3.Dot(brush.SurfaceNormal, -brush.Axis),
+                Is.GreaterThanOrEqualTo(0f));
+            Assert.That(brush.BoundsCenter,
+                Is.EqualTo(cursor + brush.Axis * 0.4f));
+            Assert.That(brush.BoundsRadius,
+                Is.EqualTo(Mathf.Sqrt(0.2f * 0.2f + 0.4f * 0.4f))
+                    .Within(1e-6f));
+        }
+
+        [Test]
+        public void PreviewAndMutationUseTheSameExactCylinder()
         {
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string renderer = Source(
                 "Runtime/Merkaba/MerkabaGridRenderer.cs");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
+            string integration = Source(
+                "Runtime/Shaders/MerkabaIntegration.compute");
+            string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
             string controller = Source(
                 "Runtime/UI/ControllerRayDriver.cs");
 
             Assert.That(scanner, Does.Contain("SetFineSurfacePreview("));
-            Assert.That(renderer, Does.Contain(
-                "_finePreviewDescriptor.CosHalfAngleSquared"));
-            Assert.That(renderer, Does.Contain(
-                "_finePreviewDescriptor.ToolDepthSquared"));
-            Assert.That(shader, Does.Contain(
-                "input.worldPosition -\n                        _FineEyeOrigin.xyz"));
-            Assert.That(shader, Does.Contain(
-                "axial * axial >=\n                        distanceSquared * _FineBrushParams.y"));
-            Assert.That(shader, Does.Contain(
-                "distanceSquared <= _FineBrushParams.z"));
-            Assert.That(controller, Does.Not.Contain("FineBrushCone"));
-            Assert.That(controller, Does.Not.Contain("BuildFineConeMesh"));
-            Assert.That(controller, Does.Contain(
-                "float radius = targetDistance * Mathf.Tan(halfAngle)"));
-            Assert.That(controller, Does.Contain(
-                "Vector3.Distance(descriptor.EyeOrigin,\n" +
-                "                descriptor.CursorPosition)"));
-            Assert.That(controller, Does.Contain(
-                "Quaternion.FromToRotation(Vector3.up, axis)"));
-            Assert.That(controller, Does.Contain(
-                "descriptor.CursorPosition - axis * 0.001f"));
-            Assert.That(controller, Does.Contain(
-                "cursorTint.a = Mathf.Clamp01(color.a * 0.5f)"));
             Assert.That(scanner, Does.Contain(
-                "TryUpdateFineSurfaceTarget(rayOrigin,"));
-            Assert.That(scanner, Does.Contain(
-                "rayDirection, fineToolDepth, true,"));
+                "surfaceNormal, rayDirection, fineBrushRadius, fineToolLength"));
             Assert.That(scanner, Does.Not.Contain("Physics.Raycast("));
-            Assert.That(scanner, Does.Not.Contain(
-                "FineSurfaceTargetReadbackPending) return"));
-            Assert.That(scanner, Does.Not.Contain(
-                "eyeOrigin + rayDirection * fineToolDepth"));
-            string depthTarget = Source("Runtime/Shaders/DepthNormals.compute");
-            Assert.That(depthTarget, Does.Contain(
-                "void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)"));
-            Assert.That(depthTarget, Does.Contain(
-                "bool FineRayDepthDelta(float rayDistance"));
-            Assert.That(depthTarget, Does.Contain(
-                "previousDelta < 0.0 && sampleDelta >= 0.0"));
-            Assert.That(depthTarget, Does.Contain(
-                "for (uint iteration = 0u; iteration < 8u; iteration++)"));
-            Assert.That(depthTarget, Does.Contain(
-                "gsFineRayOrigin +\n        gsFineRayDirection * upperDistance"));
-            Assert.That(depthTarget, Does.Not.Contain(
-                "dot(planePoint - gsFineRayOrigin, planeNormal)"));
+            Assert.That(renderer, Does.Contain(
+                "_finePreviewDescriptor.Radius *"));
+            Assert.That(renderer, Does.Contain(
+                "_finePreviewDescriptor.Length"));
+            AssertCylinderPredicate(shader, "_FineCursorPosition.xyz",
+                "_FineBrushAxis.xyz", "_FineBrushParams.z",
+                "_FineBrushParams.y");
+            AssertCylinderPredicate(integration, "_M8FineCursorPosition",
+                "_M8FineBrushAxis", "_M8FineLength",
+                "_M8FineRadiusSquared");
+            AssertCylinderPredicate(refine, "_M8FineCursorPosition",
+                "_M8FineBrushAxis", "_M8FineLength",
+                "_M8FineRadiusSquared");
+            Assert.That(controller, Does.Contain(
+                "descriptor.CursorPosition + axis * (descriptor.Length * 0.5f)"));
+            Assert.That(controller, Does.Contain(
+                "descriptor.Radius * 2f, descriptor.Length * 0.5f"));
         }
 
         [Test]
-        public void FineRefineIsAnEndOfJointSolveMaskAndNotAnotherScanner()
+        public void FineSurfaceTargetIsOneParallelWorkgroup()
+        {
+            string target = Source("Runtime/Shaders/DepthNormals.compute");
+            string depth = Source("Runtime/Core/DepthCapture.cs");
+            string body = Slice(target, "[numthreads(128, 1, 1)]\n" +
+                "void FineSurfaceTarget", "// Editor simulation");
+
+            Assert.That(body, Does.Contain("uint lane : SV_GroupIndex"));
+            Assert.That(body, Does.Contain("gFineDepthDelta[lane + 1u]"));
+            Assert.That(body, Does.Contain(
+                "lowerDelta < 0.0 &&\n        upperDelta >= 0.0"));
+            Assert.That(body, Does.Contain("InterlockedMin(gFineWinnerRank"));
+            Assert.That(body, Does.Contain("GroupMemoryBarrierWithGroupSync"));
+            Assert.That(body, Does.Not.Contain("for ("));
+            Assert.That(body, Does.Not.Contain("while ("));
+            Assert.That(target, Does.Not.Contain("binary"));
+            Assert.That(depth, Does.Contain(
+                "command.DispatchCompute(depthNormalCompute, kernel, 1, 1, 1)"));
+            Assert.That(depth, Does.Not.Contain("_nextFineSurfaceTarget"));
+            Assert.That(depth, Does.Contain(
+                "if (!allowSubmit || _fineSurfaceTargetReadbackPending)"));
+            Assert.That(depth, Does.Contain("new ComputeBuffer(2, 16,"));
+        }
+
+        [Test]
+        public void FineRefineMasksJointSolveAndAdmitsStrictHitImmediately()
         {
             string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             string scanner = Source("Runtime/Core/RoomScanner.cs");
-            string depth = Source("Runtime/Core/DepthCapture.cs");
 
             int selectedWorld = refine.IndexOf("float3 selectedWorld",
-                System.StringComparison.Ordinal);
+                StringComparison.Ordinal);
             int mask = refine.IndexOf("!M8FineContains(selectedWorld)",
-                System.StringComparison.Ordinal);
+                StringComparison.Ordinal);
             int publish = refine.IndexOf("_DstDepth[id] = selectedDepth",
-                System.StringComparison.Ordinal);
+                StringComparison.Ordinal);
             Assert.That(selectedWorld, Is.GreaterThanOrEqualTo(0));
             Assert.That(mask, Is.GreaterThan(selectedWorld));
             Assert.That(publish, Is.GreaterThan(mask));
@@ -124,89 +133,59 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Contain(
                 "!M8FineContains(worldPosition)"));
             Assert.That(integration, Does.Contain(
-                "float M8FineWeight(float3 worldPosition)"));
-            Assert.That(integration, Does.Contain(
-                "quality * quality * measurementConfidence * fineWeight *"));
-            Assert.That(integration, Does.Contain(
-                "MERKABA_OCCUPIED_ON - state.evidence"));
-            Assert.That(integration, Does.Contain(
-                "evidenceWeight *= M8FineWeight(worldPosition)"));
-            Assert.That(integration, Does.Contain(
-                "? 1.0 : attention"));
+                "MERKABA_OCCUPIED_ON - max(state.evidence, 0)"));
+            Assert.That(integration, Does.Not.Contain("M8FineWeight"));
+            Assert.That(integration, Does.Not.Contain("fineWeight"));
             Assert.That(scanner, Does.Contain("RequestFreshDepthFrame()"));
-            Assert.That(scanner, Does.Contain("_fineMinimumLeftSequence"));
-            Assert.That(scanner, Does.Contain("_fineMinimumRightSequence"));
-            Assert.That(depth, Does.Contain(
-                "fineBrush.IsRefine ? 1 : 0"));
             Assert.That(refine, Does.Not.Contain("AppendSurfaceCandidate"));
         }
 
         [Test]
-        public void HeldFineActionsTrackLiveTargetButFreezeOneCycleDescriptor()
+        public void HeldFineActionsFreezeOnlyOneOperationDescriptor()
         {
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string target = Source("Runtime/Core/DepthCapture.cs");
+            string preview = Slice(scanner, "private void UpdateFinePreview()",
+                "private bool TryGetPendingFineDescriptor");
+            string erase = Slice(scanner, "private void UpdateFineErase()",
+                "private void RestartFineCycleAfterExpiredDepth");
+
+            Assert.That(preview.IndexOf("TryGetPendingFineDescriptor",
+                    StringComparison.Ordinal),
+                Is.LessThan(preview.IndexOf("TryCreateFineDescriptor(",
+                    StringComparison.Ordinal)));
             Assert.That(scanner, Does.Contain(
-                "TryCreateFineDescriptor(FineBrushOperation.Refine,\n" +
-                "                        out _fineObservationDescriptor)"));
+                "out _fineObservationDescriptor"));
             Assert.That(scanner, Does.Contain(
                 "TryCreateFineDescriptor(FineBrushOperation.Erase,"));
             Assert.That(scanner, Does.Contain(
-                "TryGetPendingFineDescriptor(out FineBrushDescriptor pending)"));
-            Assert.That(scanner, Does.Contain(
-                "_finePreviewDescriptor = pending;"));
-            Assert.That(scanner, Does.Contain(
-                "action = pending.Operation;"));
-            Assert.That(scanner, Does.Contain(
-                "Vector3.Distance(eyeOrigin, cursorPosition)"));
-            Assert.That(scanner, Does.Contain("_fineCycleArmed = false;"));
-            Assert.That(target, Does.Contain(
-                "if (!allowSubmit || _fineSurfaceTargetReadbackPending"));
-            Assert.That(target, Does.Contain(
-                "worldTarget = _fineSurfaceTargetWorld;"));
+                "FineSurfaceTargetCompletedSequence <="));
             Assert.That(target, Does.Contain(
                 "_fineSurfaceTargetReadbackPending = true;"));
             Assert.That(target, Does.Contain(
-                "_fineSurfaceTargetIssuedSequence++"));
-            Assert.That(target, Does.Contain(
                 "_fineSurfaceTargetCompletedSequence = querySequence;"));
-            Assert.That(scanner, Does.Contain(
-                "_fineMinimumSurfaceTargetSequence"));
-            Assert.That(scanner, Does.Contain(
-                "FineSurfaceTargetCompletedSequence <="));
-            Assert.That(target, Does.Contain(
-                "new ComputeBuffer(2, 16,"));
+            Assert.That(target, Does.Contain("RequestNextDepthFrame();"));
+            Assert.That(erase, Does.Not.Contain("IntegrationInterval"));
+            Assert.That(erase, Does.Not.Contain("_lastIntegrationTime"));
         }
 
         [Test]
-        public void FineOffKeepsTheOriginalAutomaticObservationPath()
+        public void FineOffKeepsOriginalAutomaticObservationPath()
         {
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
             string input = Source("Runtime/RoomScanInputHandler.cs");
-            string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
 
             Assert.That(scanner, Does.Contain("if (_fineAuthorityActive)"));
             Assert.That(scanner, Does.Contain("UpdateFineRefine();"));
-            Assert.That(scanner, Does.Contain(
-                "_cameraProvider.TryGetSynchronizedFrame(\n                    depthUnixSeconds, availableSkew,\n                    out StereoCameraFrame cameraFrame)"));
             Assert.That(integrator, Does.Contain(
                 "return SetStereoCameraData(frame, default);"));
             Assert.That(integrator, Does.Contain(
                 "internal bool TrySwitchObservationAuthority()"));
             Assert.That(scanner, Does.Contain(
                 "_integrator.TrySwitchObservationAuthority()"));
-            Assert.That(integrator, Does.Contain(
-                "_cameraPairAvailable[_readyCameraSlot] = false;"));
-            Assert.That(integrator, Does.Not.Contain(
-                "RestoreReadyAutomaticObservationAuthority"));
-            Assert.That(integrator, Does.Not.Contain(
-                "DiscardReadyAutomaticObservation"));
-            Assert.That(refine, Does.Contain(
-                "_M8FineRefineActive != 0u &&"));
             Assert.That(input, Does.Contain("OVRInput.RawButton.RIndexTrigger"));
             Assert.That(input, Does.Contain("OVRInput.RawButton.RHandTrigger"));
-            Assert.That(input, Does.Not.Contain("GetDown(OVRInput.RawButton"));
         }
 
         [Test]
@@ -220,19 +199,16 @@ namespace Genesis.RoomScan.Tests
 
             int retireErase = scanner.IndexOf(
                 "_integrator.TryRetireFineEraseAttempt()",
-                System.StringComparison.Ordinal);
+                StringComparison.Ordinal);
             int retireObservation = scanner.IndexOf(
                 "_integrator.TryRetireObservationAttempt()",
-                System.StringComparison.Ordinal);
+                StringComparison.Ordinal);
             int switchAuthority = scanner.IndexOf(
-                "UpdateFineAuthorityBoundary();",
-                System.StringComparison.Ordinal);
+                "UpdateFineAuthorityBoundary();", StringComparison.Ordinal);
             Assert.That(switchAuthority, Is.GreaterThan(retireErase));
             Assert.That(switchAuthority, Is.GreaterThan(retireObservation));
             Assert.That(integrator, Does.Contain(
                 "_observationPrepared || _attemptInFlight ||"));
-            Assert.That(integrator, Does.Contain(
-                "_fineErasePrepared ||\n                _fineEraseAttemptInFlight"));
             Assert.That(controller, Does.Contain(
                 "!OVRInput.GetControllerPositionTracked(controller) ||"));
             Assert.That(controller, Does.Contain(
@@ -240,49 +216,73 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void FineEraseIsTransactionalCanonicalDeletionNotFreeEvidence()
+        public void FineEraseIsTransactionalImmediateCanonicalDeletion()
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             string integrator = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
             string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string erase = Slice(integration, "void M8EraseFineKernel",
+                "void EraseFineTiles");
 
             Assert.That(integration, Does.Contain(
                 "#pragma kernel QueryFineEraseTiles"));
             Assert.That(integration, Does.Contain(
                 "M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u"));
-            Assert.That(integration, Does.Contain(
-                "M8StoreKernelState(physicalSlot, kernelLocal, " +
-                "(KernelState)0)"));
-            Assert.That(integration, Does.Contain(
+            Assert.That(erase, Does.Contain(
+                "M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0)"));
+            Assert.That(erase, Does.Contain(
                 "InterlockedAnd(_M8TileBits[wordIndex].x, ~bit"));
-            Assert.That(integration, Does.Contain(
+            Assert.That(erase, Does.Contain(
                 "InterlockedAnd(_M8TileBits[wordIndex].y, ~bit"));
-            Assert.That(integration, Does.Contain(
+            Assert.That(erase, Does.Contain(
                 "InterlockedAnd(_M8TileBits[wordIndex].z, ~bit"));
-            Assert.That(integrator, Does.Contain(
-                "TrySubmitFineEraseAttempt()"));
+            Assert.That(erase, Does.Contain(
+                "gridPosition + normalGrid * signedOffset"));
+            Assert.That(erase, Does.Not.Contain("UpdateOccupancy"));
+            Assert.That(erase, Does.Not.Contain("MERKABA_FREE_SCALE"));
             Assert.That(integrator, Does.Contain(
                 "_grid.ResidencyEpoch == _fineEraseResidencyEpoch"));
             Assert.That(scanner, Does.Contain("UpdateFineErase();"));
             Assert.That(scanner, Does.Contain(
                 "FinishCurrentFineEraseAsync()"));
+        }
 
-            int eraseStart = integration.IndexOf("void M8EraseFineKernel",
-                System.StringComparison.Ordinal);
-            int eraseEnd = integration.IndexOf(
-                "void EraseFineTiles", eraseStart,
-                System.StringComparison.Ordinal);
-            string erase = integration.Substring(eraseStart,
-                eraseEnd - eraseStart);
-            Assert.That(erase, Does.Contain(
-                "gridPosition + normalGrid * signedOffset"));
-            Assert.That(erase, Does.Contain(
-                "M8HasSurfacePlane(state.flags)"));
-            Assert.That(erase, Does.Not.Contain("UpdateOccupancy"));
-            Assert.That(erase, Does.Not.Contain("MERKABA_FREE_SCALE"));
-            Assert.That(erase, Does.Not.Contain("gsDepth"));
+        [Test]
+        public void ObsoleteEyeConeAuthorityIsAbsent()
+        {
+            string all = Source("Runtime/Core/FineBrushDescriptor.cs") +
+                Source("Runtime/Core/RoomScanner.cs") +
+                Source("Runtime/Core/DepthCapture.cs") +
+                Source("Runtime/Merkaba/MerkabaIntegrator.cs") +
+                Source("Runtime/Shaders/MerkabaIntegration.compute") +
+                Source("Runtime/Shaders/StereoRgbdRefine.compute");
+            Assert.That(all, Does.Not.Contain("FineEyeOrigin"));
+            Assert.That(all, Does.Not.Contain("FineCosHalfAngleSquared"));
+            Assert.That(all, Does.Not.Contain("TryGetCyclopeanEyeOrigin"));
+            Assert.That(all, Does.Not.Contain("Brush angle"));
+        }
+
+        private static void AssertCylinderPredicate(string source,
+            string cursor, string axis, string length, string radiusSquared)
+        {
+            Assert.That(source, Does.Contain(cursor));
+            Assert.That(source, Does.Contain(axis));
+            Assert.That(source, Does.Contain("axial >= 0.0"));
+            Assert.That(source, Does.Contain("axial <= " + length));
+            Assert.That(source, Does.Contain(
+                "dot(radial, radial) <= " + radiusSquared));
+        }
+
+        private static string Slice(string source, string start, string end)
+        {
+            int first = source.IndexOf(start, StringComparison.Ordinal);
+            int last = source.IndexOf(end, first + start.Length,
+                StringComparison.Ordinal);
+            Assert.That(first, Is.GreaterThanOrEqualTo(0), start);
+            Assert.That(last, Is.GreaterThan(first), end);
+            return source.Substring(first, last - first);
         }
 
         private static string Source(string relative) =>

@@ -104,32 +104,18 @@ int _M8ScanBlockRadius;
 int _M8ScanBlockSide;
 float4 _M8ScanCoveragePlanes[8];
 uint _M8FineRefineActive;
-float3 _M8FineEyeOrigin;
+float3 _M8FineCursorPosition;
 float3 _M8FineBrushAxis;
-float _M8FineCosHalfAngleSquared;
-float _M8FineToolDepthSquared;
+float _M8FineRadiusSquared;
+float _M8FineLength;
 
 bool M8FineContains(float3 worldPosition)
 {
-    float3 relative = worldPosition - _M8FineEyeOrigin;
-    float distanceSquared = dot(relative, relative);
+    float3 relative = worldPosition - _M8FineCursorPosition;
     float axial = dot(relative, _M8FineBrushAxis);
-    return distanceSquared <= _M8FineToolDepthSquared && axial >= 0.0 &&
-        axial * axial >= distanceSquared * _M8FineCosHalfAngleSquared;
-}
-
-float M8FineWeight(float3 worldPosition)
-{
-    float3 relative = worldPosition - _M8FineEyeOrigin;
-    float distanceSquared = dot(relative, relative);
-    float axial = dot(relative, _M8FineBrushAxis);
-    if (distanceSquared > _M8FineToolDepthSquared || axial < 0.0 ||
-        axial * axial < distanceSquared * _M8FineCosHalfAngleSquared)
-        return 0.0;
-    if (distanceSquared <= 1.0e-12) return 1.0;
-    float cosineSquared = axial * axial / distanceSquared;
-    return saturate((cosineSquared - _M8FineCosHalfAngleSquared) /
-        max(1.0e-6, 1.0 - _M8FineCosHalfAngleSquared));
+    float3 radial = relative - _M8FineBrushAxis * axial;
+    return axial >= 0.0 && axial <= _M8FineLength &&
+        dot(radial, radial) <= _M8FineRadiusSquared;
 }
 
 uint M8ObservationFailureReason()
@@ -274,7 +260,7 @@ float MerkabaMutationAttentionFromRadial(float3 worldSurface,
     if (incidence < MERKABA_REVISION_MIN_INCIDENCE)
         return 0.0;
     if (_M8FineRefineActive != 0u)
-        return M8FineWeight(worldSurface);
+        return M8FineContains(worldSurface) ? 1.0 : 0.0;
     if (radialPosition >= _MerkabaMutationOuterRadius) return 0.0;
     float transition = saturate((_MerkabaMutationOuterRadius -
         radialPosition) / (_MerkabaMutationOuterRadius -
@@ -1423,18 +1409,14 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     if (!strictMeasurement && authority !=
             MERKABA_SURFACE_AUTHORITY_DISCOVERY)
         return;
-    float fineWeight = _M8FineRefineActive != 0u
-        ? M8FineWeight(targetWorld) : 1.0;
-    if (fineWeight <= 0.0) return;
     int surfaceDelta = max(1, (int)round(
-        quality * quality * measurementConfidence * fineWeight *
+        quality * quality * measurementConfidence *
         MERKABA_SURFACE_SCALE));
     // A strict, user-selected FINE observation is explicit local authority.
-    // Keep the radial falloff for reinforcement, but do not make the selected
-    // surface wait through automatic-scan admission hysteresis.
+    // It does not wait through automatic-scan admission hysteresis.
     if (_M8FineRefineActive != 0u)
         surfaceDelta = max(surfaceDelta,
-            MERKABA_OCCUPIED_ON - state.evidence);
+            MERKABA_OCCUPIED_ON - max(state.evidence, 0));
     if (fastAdmission && strictMeasurement && authority ==
             MERKABA_SURFACE_AUTHORITY_DISCOVERY)
         surfaceDelta = max(surfaceDelta,
@@ -1502,7 +1484,7 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
         MerkabaSampleCameraRgb(1u, rightUv)) * 0.5;
     if (acceptObservedColor)
         AccumulateColor(state, observedRgb,
-            quality * measurementConfidence * fineWeight);
+            quality * measurementConfidence);
     M8StoreKernelState(physicalSlot, kernelLocal, state);
     EnsureCarveActive(physicalSlot, kernelLocal);
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
@@ -1964,8 +1946,6 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
 
     if (observationKind == 1)
     {
-        if (_M8FineRefineActive != 0u)
-            evidenceWeight *= M8FineWeight(worldPosition);
         InterlockedAdd(gCarveStats[1], 1u, ignored);
         uint radialBin = min(7u,
             (uint)floor(saturate(radialPosition) * 8.0));
@@ -2151,8 +2131,13 @@ void ResetFineErase(uint id : SV_DispatchThreadID)
 
 uint M8FineEraseChildMask(int3 parentMin, int parentSpan)
 {
+    float halfLength = _M8FineLength * 0.5;
+    float3 boundsCenter = _M8FineCursorPosition +
+        _M8FineBrushAxis * halfLength;
+    float boundsRadius = sqrt(max(0.0,
+        _M8FineRadiusSquared + halfLength * halfLength));
     return MerkabaM8DistanceChildMask(parentMin, parentSpan,
-        sqrt(max(0.0, _M8FineToolDepthSquared)), _M8FineEyeOrigin,
+        boundsRadius, boundsCenter,
         _MerkabaGridToWorld, _MerkabaWorldToGrid, MERKABA_LATTICE_STEP,
         MERKABA_HALF_SUPPORT);
 }

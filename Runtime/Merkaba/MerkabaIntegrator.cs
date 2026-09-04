@@ -186,14 +186,14 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8AttemptToken");
         private static readonly int FineRefineActiveId =
             Shader.PropertyToID("_M8FineRefineActive");
-        private static readonly int FineEyeOriginId =
-            Shader.PropertyToID("_M8FineEyeOrigin");
+        private static readonly int FineCursorPositionId =
+            Shader.PropertyToID("_M8FineCursorPosition");
         private static readonly int FineBrushAxisId =
             Shader.PropertyToID("_M8FineBrushAxis");
-        private static readonly int FineCosHalfAngleSquaredId =
-            Shader.PropertyToID("_M8FineCosHalfAngleSquared");
-        private static readonly int FineToolDepthSquaredId =
-            Shader.PropertyToID("_M8FineToolDepthSquared");
+        private static readonly int FineRadiusSquaredId =
+            Shader.PropertyToID("_M8FineRadiusSquared");
+        private static readonly int FineLengthId =
+            Shader.PropertyToID("_M8FineLength");
         private static readonly int ScanCenterBlockId =
             Shader.PropertyToID("_M8ScanCenterBlock");
         private static readonly int ScanBlockRadiusId =
@@ -618,14 +618,14 @@ namespace Genesis.RoomScan
             if (MerkabaNativeVulkanExecutor.HasJobInFlight)
                 return false;
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
-            float3 gridEye = (float3)worldToGrid.MultiplyPoint3x4(
-                _fineEraseDescriptor.EyeOrigin) /
+            float3 gridCenter = (float3)worldToGrid.MultiplyPoint3x4(
+                _fineEraseDescriptor.BoundsCenter) /
                 MerkabaConstants.LatticeStep;
             int3 centerBlock = MerkabaSpatial.Encode(
-                (int3)math.floor(gridEye)).BlockCoord;
-            float toolDepth = Mathf.Sqrt(
-                _fineEraseDescriptor.ToolDepthSquared);
-            int radius = Mathf.CeilToInt(toolDepth /
+                (int3)math.floor(gridCenter)).BlockCoord;
+            int radius = Mathf.CeilToInt(
+                (_fineEraseDescriptor.BoundsRadius +
+                 MerkabaConstants.HalfSupport) /
                 MerkabaSpatial.BlockWorldSize) + 1;
             int side = radius * 2 + 1;
             int queryGroups = checked(side * side * side);
@@ -636,14 +636,14 @@ namespace Genesis.RoomScan
             uniforms.Matrix("_MerkabaGridToWorld",
                 _grid.GridToWorldMatrix);
             uniforms.Matrix("_MerkabaWorldToGrid", worldToGrid);
-            uniforms.Vector3("_M8FineEyeOrigin",
-                _fineEraseDescriptor.EyeOrigin);
+            uniforms.Vector3("_M8FineCursorPosition",
+                _fineEraseDescriptor.CursorPosition);
             uniforms.Vector3("_M8FineBrushAxis",
                 _fineEraseDescriptor.Axis);
-            uniforms.Float("_M8FineCosHalfAngleSquared",
-                _fineEraseDescriptor.CosHalfAngleSquared);
-            uniforms.Float("_M8FineToolDepthSquared",
-                _fineEraseDescriptor.ToolDepthSquared);
+            uniforms.Float("_M8FineRadiusSquared",
+                _fineEraseDescriptor.Radius * _fineEraseDescriptor.Radius);
+            uniforms.Float("_M8FineLength",
+                _fineEraseDescriptor.Length);
             uniforms.Int3("_M8ScanCenterBlock", centerBlock.x,
                 centerBlock.y, centerBlock.z);
             uniforms.Int("_M8ScanBlockRadius", radius);
@@ -987,12 +987,12 @@ namespace Genesis.RoomScan
                 MerkabaConstants.MutationOuterRadius);
             values.UInt("_M8FineRefineActive",
                 _heldFineBrush.IsRefine ? 1u : 0u);
-            values.Vector3("_M8FineEyeOrigin", _heldFineBrush.EyeOrigin);
+            values.Vector3("_M8FineCursorPosition",
+                _heldFineBrush.CursorPosition);
             values.Vector3("_M8FineBrushAxis", _heldFineBrush.Axis);
-            values.Float("_M8FineCosHalfAngleSquared",
-                _heldFineBrush.CosHalfAngleSquared);
-            values.Float("_M8FineToolDepthSquared",
-                _heldFineBrush.ToolDepthSquared);
+            values.Float("_M8FineRadiusSquared",
+                _heldFineBrush.Radius * _heldFineBrush.Radius);
+            values.Float("_M8FineLength", _heldFineBrush.Length);
 
             for (int eye = 0; eye < CameraEyeCount; ++eye)
             {
@@ -1156,12 +1156,12 @@ namespace Genesis.RoomScan
                 _scanCoveragePlanes);
             compute.SetInt(FineRefineActiveId,
                 _heldFineBrush.IsRefine ? 1 : 0);
-            compute.SetVector(FineEyeOriginId, _heldFineBrush.EyeOrigin);
+            compute.SetVector(FineCursorPositionId,
+                _heldFineBrush.CursorPosition);
             compute.SetVector(FineBrushAxisId, _heldFineBrush.Axis);
-            compute.SetFloat(FineCosHalfAngleSquaredId,
-                _heldFineBrush.CosHalfAngleSquared);
-            compute.SetFloat(FineToolDepthSquaredId,
-                _heldFineBrush.ToolDepthSquared);
+            compute.SetFloat(FineRadiusSquaredId,
+                _heldFineBrush.Radius * _heldFineBrush.Radius);
+            compute.SetFloat(FineLengthId, _heldFineBrush.Length);
             ConfigureAttempt();
 
             int exclusionCount = Mathf.Min(ExclusionZones.Count,
@@ -1253,27 +1253,26 @@ namespace Genesis.RoomScan
                 _grid.GridToWorldMatrix);
             command.SetComputeMatrixParam(compute, WorldToGridId,
                 _grid.GridToWorldMatrix.inverse);
-            command.SetComputeVectorParam(compute, FineEyeOriginId,
-                descriptor.EyeOrigin);
+            command.SetComputeVectorParam(compute, FineCursorPositionId,
+                descriptor.CursorPosition);
             command.SetComputeVectorParam(compute, FineBrushAxisId,
                 descriptor.Axis);
-            command.SetComputeFloatParam(compute,
-                FineCosHalfAngleSquaredId,
-                descriptor.CosHalfAngleSquared);
-            command.SetComputeFloatParam(compute, FineToolDepthSquaredId,
-                descriptor.ToolDepthSquared);
+            command.SetComputeFloatParam(compute, FineRadiusSquaredId,
+                descriptor.Radius * descriptor.Radius);
+            command.SetComputeFloatParam(compute, FineLengthId,
+                descriptor.Length);
         }
 
         private void DispatchFineEraseQuery(CommandBuffer command,
             FineBrushDescriptor descriptor)
         {
             Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
-            float3 gridEye = (float3)worldToGrid.MultiplyPoint3x4(
-                descriptor.EyeOrigin) / MerkabaConstants.LatticeStep;
+            float3 gridCenter = (float3)worldToGrid.MultiplyPoint3x4(
+                descriptor.BoundsCenter) / MerkabaConstants.LatticeStep;
             int3 centerBlock = MerkabaSpatial.Encode(
-                (int3)math.floor(gridEye)).BlockCoord;
-            float toolDepth = Mathf.Sqrt(descriptor.ToolDepthSquared);
-            int radius = Mathf.CeilToInt(toolDepth /
+                (int3)math.floor(gridCenter)).BlockCoord;
+            int radius = Mathf.CeilToInt(
+                (descriptor.BoundsRadius + MerkabaConstants.HalfSupport) /
                 MerkabaSpatial.BlockWorldSize) + 1;
             int side = radius * 2 + 1;
             command.SetComputeIntParams(compute, ScanCenterBlockId,

@@ -95,14 +95,14 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_RefineMetricGroupsX");
         private static readonly int RefineFineActiveId =
             Shader.PropertyToID("_M8FineRefineActive");
-        private static readonly int RefineFineEyeOriginId =
-            Shader.PropertyToID("_M8FineEyeOrigin");
+        private static readonly int RefineFineCursorPositionId =
+            Shader.PropertyToID("_M8FineCursorPosition");
         private static readonly int RefineFineBrushAxisId =
             Shader.PropertyToID("_M8FineBrushAxis");
-        private static readonly int RefineFineCosHalfAngleSquaredId =
-            Shader.PropertyToID("_M8FineCosHalfAngleSquared");
-        private static readonly int RefineFineToolDepthSquaredId =
-            Shader.PropertyToID("_M8FineToolDepthSquared");
+        private static readonly int RefineFineRadiusSquaredId =
+            Shader.PropertyToID("_M8FineRadiusSquared");
+        private static readonly int RefineFineLengthId =
+            Shader.PropertyToID("_M8FineLength");
         private static readonly int FineDepthId =
             Shader.PropertyToID("gsFineDepth");
         private static readonly int FineTargetId =
@@ -218,7 +218,6 @@ namespace Genesis.RoomScan
         private bool _fineSurfaceTargetValid;
         private Vector3 _fineSurfaceTargetWorld;
         private Vector3 _fineSurfaceTargetNormal;
-        private float _nextFineSurfaceTarget;
         private uint _fineSurfaceTargetGeneration = 1u;
         private uint _fineSurfaceTargetIssuedSequence;
         private uint _fineSurfaceTargetCompletedSequence;
@@ -868,8 +867,7 @@ namespace Genesis.RoomScan
         {
             worldTarget = _fineSurfaceTargetWorld;
             worldNormal = _fineSurfaceTargetNormal;
-            if (!allowSubmit || _fineSurfaceTargetReadbackPending ||
-                Time.unscaledTime < _nextFineSurfaceTarget)
+            if (!allowSubmit || _fineSurfaceTargetReadbackPending)
                 return _fineSurfaceTargetValid;
             if (_readyDepthSlot < 0)
             {
@@ -916,7 +914,6 @@ namespace Genesis.RoomScan
             CommandBufferPool.Release(command);
 
             _fineSurfaceTargetReadbackPending = true;
-            _nextFineSurfaceTarget = Time.unscaledTime + 1f / 15f;
             uint querySequence;
             unchecked
             {
@@ -952,6 +949,7 @@ namespace Genesis.RoomScan
                 {
                     _processedRawFrameVersion = version;
                     _readyDepthSlot = -1;
+                    RequestNextDepthFrame();
                 }
             });
             return _fineSurfaceTargetValid;
@@ -1337,15 +1335,14 @@ namespace Genesis.RoomScan
                 metricGroupsX);
             command.SetComputeIntParam(shader, RefineFineActiveId,
                 fineBrush.IsRefine ? 1 : 0);
-            command.SetComputeVectorParam(shader, RefineFineEyeOriginId,
-                fineBrush.EyeOrigin);
+            command.SetComputeVectorParam(shader, RefineFineCursorPositionId,
+                fineBrush.CursorPosition);
             command.SetComputeVectorParam(shader, RefineFineBrushAxisId,
                 fineBrush.Axis);
-            command.SetComputeFloatParam(shader,
-                RefineFineCosHalfAngleSquaredId,
-                fineBrush.CosHalfAngleSquared);
-            command.SetComputeFloatParam(shader, RefineFineToolDepthSquaredId,
-                fineBrush.ToolDepthSquared);
+            command.SetComputeFloatParam(shader, RefineFineRadiusSquaredId,
+                fineBrush.Radius * fineBrush.Radius);
+            command.SetComputeFloatParam(shader, RefineFineLengthId,
+                fineBrush.Length);
             BindStereoCamera(command, shader, cameraFrame.Left, 0);
             BindStereoCamera(command, shader, cameraFrame.Right, 1);
             _stereoRgbdRefineKernel.DispatchFit(command, w, h, 1);

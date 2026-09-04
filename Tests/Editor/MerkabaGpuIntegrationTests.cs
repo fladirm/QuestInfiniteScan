@@ -1831,7 +1831,7 @@ namespace Genesis.RoomScan.Tests
                 RegexOptions.Multiline), Has.Count.EqualTo(6));
             Assert.That(Regex.Matches(depth,
                 @"\[numthreads\(8,\s*8,\s*1\)\]"), Has.Count.EqualTo(5));
-            Assert.That(depth, Does.Contain("[numthreads(1, 1, 1)]"));
+            Assert.That(depth, Does.Contain("[numthreads(128, 1, 1)]"));
             string refine = Source(
                 "Runtime/Shaders/StereoRgbdRefine.compute");
             Assert.That(refine, Does.Contain(

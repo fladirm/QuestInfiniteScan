@@ -83,7 +83,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             CBUFFER_START(UnityPerMaterial)
                 half _ScanOpacity;
-                float4 _FineEyeOrigin;
+                float4 _FineCursorPosition;
                 float4 _FineBrushAxis;
                 float4 _FineBrushParams;
                 half4 _FinePreviewColor;
@@ -185,22 +185,16 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 if (_FineBrushParams.x > 0.5)
                 {
                     float3 relative = input.worldPosition -
-                        _FineEyeOrigin.xyz;
-                    float distanceSquared = dot(relative, relative);
+                        _FineCursorPosition.xyz;
                     float axial = dot(relative, _FineBrushAxis.xyz);
-                    bool inside = distanceSquared <= _FineBrushParams.z &&
-                        axial >= 0.0 && axial * axial >=
-                        distanceSquared * _FineBrushParams.y;
+                    float3 radial = relative -
+                        _FineBrushAxis.xyz * axial;
+                    bool inside = axial >= 0.0 &&
+                        axial <= _FineBrushParams.z &&
+                        dot(radial, radial) <= _FineBrushParams.y;
                     if (inside)
-                    {
-                        float cosineSquared = distanceSquared > 1.0e-12
-                            ? axial * axial / distanceSquared : 1.0;
-                        half brushWeight = (half)saturate(
-                            (cosineSquared - _FineBrushParams.y) /
-                            max(1.0e-6, 1.0 - _FineBrushParams.y));
                         color = lerp(color, _FinePreviewColor.rgb,
-                            _FinePreviewColor.a * brushWeight);
-                    }
+                            _FinePreviewColor.a);
                 }
 #endif
                 return half4(color, 1.0h);

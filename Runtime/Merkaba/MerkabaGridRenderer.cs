@@ -195,8 +195,8 @@ namespace Genesis.RoomScan
         private static readonly int MeshDepthViewInv1Id =
             Shader.PropertyToID("_M8MeshDepthViewInv1");
         private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
-        private static readonly int FineEyeOriginId =
-            Shader.PropertyToID("_FineEyeOrigin");
+        private static readonly int FineCursorPositionId =
+            Shader.PropertyToID("_FineCursorPosition");
         private static readonly int FineBrushAxisId =
             Shader.PropertyToID("_FineBrushAxis");
         private static readonly int FineBrushParamsId =
@@ -990,15 +990,16 @@ namespace Genesis.RoomScan
             tint.a = 0.25f;
             Vector4 parameters = active
                 ? new Vector4(1f,
-                    _finePreviewDescriptor.CosHalfAngleSquared,
-                    _finePreviewDescriptor.ToolDepthSquared, 0f)
+                    _finePreviewDescriptor.Radius *
+                    _finePreviewDescriptor.Radius,
+                    _finePreviewDescriptor.Length, 0f)
                 : Vector4.zero;
             for (int slot = 0; slot < 2; slot++)
             {
                 Material material = _materials[slot];
                 if (material == null) continue;
-                material.SetVector(FineEyeOriginId,
-                    _finePreviewDescriptor.EyeOrigin);
+                material.SetVector(FineCursorPositionId,
+                    _finePreviewDescriptor.CursorPosition);
                 material.SetVector(FineBrushAxisId,
                     _finePreviewDescriptor.Axis);
                 material.SetVector(FineBrushParamsId, parameters);

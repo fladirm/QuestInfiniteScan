@@ -112,76 +112,79 @@ bool FineRayDepthDelta(float rayDistance, out float depthDelta,
     return rayViewZ < -0.001 && depthViewZ < -0.001;
 }
 
-[numthreads(1, 1, 1)]
-void FineSurfaceTarget(uint3 id : SV_DispatchThreadID)
+groupshared float gFineDepthDelta[129];
+groupshared uint gFineDepthValid[129];
+groupshared uint gFineWinnerRank;
+
+[numthreads(128, 1, 1)]
+void FineSurfaceTarget(uint lane : SV_GroupIndex)
 {
-    float lowerDistance = 0.0;
-    float upperDistance = 0.0;
-    float previousDistance = 0.0;
-    float previousDelta = 0.0;
-    bool previousValid = false;
-    bool bracketed = false;
-
-    // Locate the first actual front-to-behind crossing of the measured depth
-    // field. A noisy local tangent plane is never extended toward the hand.
-    [loop]
-    for (uint step = 0u; step < 128u; step++)
+    if (lane == 0u)
     {
-        float sampleDistance = gsFineMaxDistance *
-            ((float(step) + 1.0) / 128.0);
-        float sampleDelta;
+        gFineWinnerRank = 0xffffffffu;
+        gsFineTarget[0] = 0.0;
+        gsFineTarget[1] = 0.0;
         int2 ignoredPixel;
-        if (!FineRayDepthDelta(sampleDistance, sampleDelta, ignoredPixel))
-        {
-            previousValid = false;
-            continue;
-        }
-        if (previousValid && previousDelta < 0.0 && sampleDelta >= 0.0)
-        {
-            lowerDistance = previousDistance;
-            upperDistance = sampleDistance;
-            bracketed = true;
-            break;
-        }
-        previousValid = true;
-        previousDistance = sampleDistance;
-        previousDelta = sampleDelta;
+        gFineDepthValid[0] = FineRayDepthDelta(0.0,
+            gFineDepthDelta[0], ignoredPixel) ? 1u : 0u;
     }
 
-    int2 targetPixel = 0;
-    bool refined = bracketed;
-    [unroll]
-    for (uint iteration = 0u; iteration < 8u; iteration++)
+    float sampleDistance = gsFineMaxDistance *
+        ((float(lane) + 1.0) / 128.0);
+    int2 ignoredPixel;
+    gFineDepthValid[lane + 1u] = FineRayDepthDelta(sampleDistance,
+        gFineDepthDelta[lane + 1u], ignoredPixel) ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    float lowerDelta = gFineDepthDelta[lane];
+    float upperDelta = gFineDepthDelta[lane + 1u];
+    bool crossing = gFineDepthValid[lane] != 0u &&
+        gFineDepthValid[lane + 1u] != 0u && lowerDelta < 0.0 &&
+        upperDelta >= 0.0;
+    if (crossing)
     {
-        if (!refined) break;
-        float middleDistance = (lowerDistance + upperDistance) * 0.5;
-        float middleDelta;
-        int2 middlePixel;
-        if (!FineRayDepthDelta(middleDistance, middleDelta, middlePixel))
-        {
-            refined = false;
-            break;
-        }
-        if (middleDelta >= 0.0)
-        {
-            upperDistance = middleDistance;
-            targetPixel = middlePixel;
-        }
-        else
-            lowerDistance = middleDistance;
+        // Lane is the ray-order key. Residual gives deterministic ordering
+        // inside the same interval without a serial refinement loop.
+        uint residual = (uint)min(65535.0,
+            round(min(abs(lowerDelta), abs(upperDelta)) * 1000000.0));
+        uint rank = (lane << 16u) | residual;
+        uint ignored;
+        InterlockedMin(gFineWinnerRank, rank, ignored);
     }
+    GroupMemoryBarrierWithGroupSync();
 
+    if (lane != 0u || gFineWinnerRank == 0xffffffffu) return;
+
+    uint winnerLane = gFineWinnerRank >> 16u;
+    float lowerDistance = gsFineMaxDistance *
+        ((float)winnerLane / 128.0);
+    float upperDistance = gsFineMaxDistance *
+        ((float(winnerLane) + 1.0) / 128.0);
+    lowerDelta = gFineDepthDelta[winnerLane];
+    upperDelta = gFineDepthDelta[winnerLane + 1u];
+    float fraction = saturate(-lowerDelta /
+        max(upperDelta - lowerDelta, 1.0e-8));
+    float targetDistance = lerp(lowerDistance, upperDistance, fraction);
     float finalDelta;
-    refined = refined && FineRayDepthDelta(upperDistance, finalDelta,
-        targetPixel);
-    float3 ignoredCenter;
+    int2 targetPixel;
+    bool valid = FineRayDepthDelta(targetDistance, finalDelta, targetPixel);
+    float3 planeCenter;
     float3 targetNormal;
-    refined = refined && FineDepthPlane(targetPixel, ignoredCenter,
-        targetNormal);
+    valid = valid && FineDepthPlane(targetPixel, planeCenter, targetNormal);
+    float denominator = dot(gsFineRayDirection, targetNormal);
+    if (valid && abs(denominator) > 1.0e-5)
+    {
+        float planeDistance = dot(planeCenter - gsFineRayOrigin,
+            targetNormal) / denominator;
+        if (planeDistance >= lowerDistance && planeDistance <= upperDistance)
+            targetDistance = planeDistance;
+    }
+    if (valid && dot(targetNormal, -gsFineRayDirection) < 0.0)
+        targetNormal = -targetNormal;
     float3 target = gsFineRayOrigin +
-        gsFineRayDirection * upperDistance;
-    gsFineTarget[0] = refined ? float4(target, 1.0) : 0.0;
-    gsFineTarget[1] = refined ? float4(targetNormal, 0.0) : 0.0;
+        gsFineRayDirection * targetDistance;
+    gsFineTarget[0] = valid ? float4(target, 1.0) : 0.0;
+    gsFineTarget[1] = valid ? float4(targetNormal, 0.0) : 0.0;
 }
 
 // Editor simulation: convert mono linear depth to stereo NDC depth.

@@ -31,8 +31,8 @@ namespace Genesis.RoomScan.UI
         private Slider _paintValue, _paintAlpha, _paintWidth, _planOpacity;
         private Toggle _artifactWorldLock, _artifactRoomAlign,
             _planWorldLock, _planRoomAlign;
-        private Slider _fineAngle, _fineDepth;
-        private Label _opacityValue, _fineAngleValue, _fineDepthValue;
+        private Slider _fineRadius, _fineLength;
+        private Label _opacityValue, _fineRadiusValue, _fineLengthValue;
         private Label _operationSpinner, _operationStage;
         private VisualElement _operationPanel;
         private VisualElement _scanPanel, _paintPanel, _planPanel,
@@ -179,14 +179,14 @@ namespace Genesis.RoomScan.UI
             _paintColorCursor = _root.Q<VisualElement>("paint-color-cursor");
             _opacity = _root.Q<Slider>("scan-opacity");
             _opacityValue = _root.Q<Label>("val-opacity");
-            _fineAngle = _root.Q<Slider>("fine-angle");
-            _fineDepth = _root.Q<Slider>("fine-depth");
+            _fineRadius = _root.Q<Slider>("fine-radius");
+            _fineLength = _root.Q<Slider>("fine-length");
             _paintValue = _root.Q<Slider>("paint-value");
             _paintAlpha = _root.Q<Slider>("paint-alpha");
             _paintWidth = _root.Q<Slider>("paint-width");
             _planOpacity = _root.Q<Slider>("plan-opacity");
-            _fineAngleValue = _root.Q<Label>("val-fine-angle");
-            _fineDepthValue = _root.Q<Label>("val-fine-depth");
+            _fineRadiusValue = _root.Q<Label>("val-fine-radius");
+            _fineLengthValue = _root.Q<Label>("val-fine-length");
             _operationPanel = _root.Q<VisualElement>("operation-panel");
             _operationSpinner = _root.Q<Label>("operation-spinner");
             _operationStage = _root.Q<Label>("operation-stage");
@@ -337,15 +337,15 @@ namespace Genesis.RoomScan.UI
             });
             _opacity?.RegisterValueChangedCallback(evt =>
                 SetArtifactOpacity(evt.newValue));
-            _fineAngle?.RegisterValueChangedCallback(evt =>
+            _fineRadius?.RegisterValueChangedCallback(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
-                if (scanner != null) scanner.FineBrushAngle = evt.newValue;
+                if (scanner != null) scanner.FineBrushRadius = evt.newValue;
             });
-            _fineDepth?.RegisterValueChangedCallback(evt =>
+            _fineLength?.RegisterValueChangedCallback(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
-                if (scanner != null) scanner.FineToolDepth = evt.newValue;
+                if (scanner != null) scanner.FineToolLength = evt.newValue;
             });
             _paintAlpha?.RegisterValueChangedCallback(evt =>
                 SetPaintAlpha(evt.newValue));
@@ -608,10 +608,10 @@ namespace Genesis.RoomScan.UI
             Set(_opacityValue, $"{opacity * 100f:F0}%");
             _planOpacity?.SetValueWithoutNotify(opacity);
             Set(_planOpacityValue, $"{opacity * 100f:F0}%");
-            _fineAngle?.SetValueWithoutNotify(scanner.FineBrushAngle);
-            _fineDepth?.SetValueWithoutNotify(scanner.FineToolDepth);
-            Set(_fineAngleValue, $"{scanner.FineBrushAngle:F0}°");
-            Set(_fineDepthValue, $"{scanner.FineToolDepth:F2} m");
+            _fineRadius?.SetValueWithoutNotify(scanner.FineBrushRadius);
+            _fineLength?.SetValueWithoutNotify(scanner.FineToolLength);
+            Set(_fineRadiusValue, $"{scanner.FineBrushRadius * 100f:F0} cm");
+            Set(_fineLengthValue, $"{scanner.FineToolLength:F2} m");
             if (_fine != null)
                 _fine.text = scanner.FineMode ? "FINE  ON" : "FINE  OFF";
             if (_readout != null)
