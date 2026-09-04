@@ -80,7 +80,7 @@ namespace Genesis.RoomScan.Tests
                 new float3(0f, 1f, 0f), 0.003f);
             while (state.IsOccupied)
                 state.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
-                    default, replacementOccupied: true);
+                    default, allowOccupiedClear: true);
             Assert.That(state.HasMeasuredSurfacePlane, Is.False);
 
             state.SetOccupiedForFixture(true, Red);
@@ -240,26 +240,26 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ReplacementContinuity_HoldsOccupiedUntilEndpointExists()
+        public void CarveClearAuthority_HoldsOccupiedUntilExactGateAllowsClear()
         {
             KernelState foreground = default;
             foreground.SetOccupiedForFixture(true, Red);
 
             foreground.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
-                default, replacementOccupied: false);
+                default, allowOccupiedClear: false);
             Assert.That(foreground.IsOccupied, Is.True);
             Assert.That(foreground.OccupancyEvidence,
                 Is.EqualTo(MerkabaConstants.OccupiedOnThreshold -
                     MerkabaConstants.FreeEvidenceScale));
 
             foreground.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
-                default, replacementOccupied: false);
+                default, allowOccupiedClear: false);
             Assert.That(foreground.IsOccupied, Is.True);
             Assert.That(foreground.OccupancyEvidence,
                 Is.EqualTo(MerkabaConstants.OccupiedOffThreshold + 1));
 
             foreground.ApplyWeighted(MerkabaObservationKind.Free, 1f, 1f,
-                default, replacementOccupied: true);
+                default, allowOccupiedClear: true);
             Assert.That(foreground.IsOccupied, Is.False);
             Assert.That(foreground.OccupancyEvidence,
                 Is.LessThanOrEqualTo(MerkabaConstants.OccupiedOffThreshold));

@@ -33,7 +33,7 @@ namespace Genesis.RoomScan
         internal const int ReadoutVisibleBufferCount =
             MerkabaSpatial.PhysicalTileCapacity;
         internal const int ReadoutResetGroupCount = 1;
-        internal const int CounterCount = 98;
+        internal const int CounterCount = 99;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;

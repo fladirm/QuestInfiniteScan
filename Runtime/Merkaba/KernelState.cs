@@ -125,7 +125,7 @@ namespace Genesis.RoomScan
 
         internal bool ApplyWeighted(MerkabaObservationKind kind, float quality,
             float evidenceWeight, Color32 observedColor,
-            bool replacementOccupied)
+            bool allowOccupiedClear)
         {
             bool occupiedBefore = IsOccupied;
             quality = Mathf.Clamp01(quality);
@@ -147,7 +147,7 @@ namespace Genesis.RoomScan
                     int decrement = Mathf.Max(1,
                         Mathf.RoundToInt(evidenceWeight *
                             MerkabaConstants.FreeEvidenceScale));
-                    int minimumEvidence = occupiedBefore && !replacementOccupied
+                    int minimumEvidence = occupiedBefore && !allowOccupiedClear
                         ? MerkabaConstants.OccupiedOffThreshold + 1
                         : -MerkabaConstants.EvidenceConfidenceLimit;
                     AddEvidence(-decrement, minimumEvidence);
