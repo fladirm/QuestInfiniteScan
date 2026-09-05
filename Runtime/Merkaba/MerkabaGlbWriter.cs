@@ -345,7 +345,7 @@ namespace Genesis.RoomScan
                 throw new ArgumentException("GLB destination must be writable.",
                     nameof(destination));
             if (membrane == null) throw new ArgumentNullException(nameof(membrane));
-            if (membrane.Patches.Count == 0 && membrane.LegacyKernels.Count == 0)
+            if (membrane.Patches.Count == 0)
                 throw new InvalidDataException("GLB membrane is empty.");
 
             GeometryPlan plan = Plan(membrane, localOrigin, progress);
@@ -468,18 +468,11 @@ namespace Genesis.RoomScan
         private static GeometryPlan Plan(MerkabaExportMembraneResult membrane,
             float3 localOrigin, IProgress<OperationWorkProgress> progress)
         {
-            var occupied = new HashSet<int3>(
-                membrane.CanonicalOccupiedCoordinates);
             int primitiveCount = checked(membrane.Patches.Count * 2);
-            foreach (MerkabaKernelSnapshot kernel in membrane.LegacyKernels)
-                foreach (int _ in MerkabaCanonicalGeometry.VisiblePrimitives(
-                             kernel.Coord, occupied.Contains))
-                    primitiveCount = checked(primitiveCount + 1);
             int indexCapacity = CheckedIndexCountForPrimitiveCount(
                 primitiveCount);
             var vertices = new List<GeometryVertex>(Math.Min(indexCapacity,
-                checked(membrane.Patches.Count * 4 +
-                    membrane.LegacyKernels.Count * 3)));
+                checked(membrane.Patches.Count * 4)));
             var indices = new List<uint>(indexCapacity);
             var vertexLookup = new Dictionary<VertexKey, uint>();
 
@@ -522,26 +515,6 @@ namespace Genesis.RoomScan
                     Report(progress, ScanOperationStage.BuildingMerkabaGeometry,
                         completedPrimitives, primitiveCount,
                         $"Built {completedPrimitives}/{primitiveCount} export triangles");
-            }
-            foreach (MerkabaKernelSnapshot kernel in membrane.LegacyKernels)
-            foreach (int primitiveId in MerkabaCanonicalGeometry.VisiblePrimitives(
-                         kernel.Coord, occupied.Contains))
-            {
-                float3 center = MerkabaConstants.WorldCenter(kernel.Coord);
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId, 0,
-                    out float3 local0, out float3 normal0);
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId, 1,
-                    out float3 local1, out float3 normal1);
-                MerkabaCanonicalGeometry.PrimitiveVertex(primitiveId, 2,
-                    out float3 local2, out float3 normal2);
-                uint v0 = AddVertex(center + local0, normal0,
-                    kernel.State.PackedColor);
-                uint v1 = AddVertex(center + local1, normal1,
-                    kernel.State.PackedColor);
-                uint v2 = AddVertex(center + local2, normal2,
-                    kernel.State.PackedColor);
-                AddTriangle(indices, v0, v2, v1);
-                completedPrimitives++;
             }
             if (completedPrimitives != primitiveCount ||
                 indices.Count != indexCapacity)

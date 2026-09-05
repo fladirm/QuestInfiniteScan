@@ -43,40 +43,38 @@ namespace Genesis.RoomScan
     internal sealed class MerkabaExportMembraneResult
     {
         internal readonly List<MerkabaExportMembranePatch> Patches;
-        internal readonly List<MerkabaKernelSnapshot> LegacyKernels;
         internal readonly int3[] CanonicalOccupiedCoordinates;
+        internal readonly int3[] MeasuredPlaneCoordinates;
         internal readonly int CanonicalOccupiedCount;
         internal readonly int MeasuredPlaneOccupiedCount;
         internal readonly int MeasuredPatchCount;
         internal readonly int InferredPatchCount;
-        internal readonly int LegacyMeasuredUnknownPlaneCount;
-        internal readonly int UnresolvedLegacyCount;
+        internal readonly int UnresolvedMeasuredPlaneCount;
         internal readonly int3[] RemovedBehindCoordinates;
         internal readonly int RemovedBehindMembraneCount;
         internal readonly int PartitionCutCount;
 
         internal MerkabaExportMembraneResult(
             List<MerkabaExportMembranePatch> patches,
-            List<MerkabaKernelSnapshot> legacyKernels,
             int3[] canonicalOccupiedCoordinates,
-            int canonicalOccupiedCount, int measuredPlaneOccupiedCount,
+            int3[] measuredPlaneCoordinates,
             int measuredPatchCount, int inferredPatchCount,
-            int legacyMeasuredUnknownPlaneCount, int unresolvedLegacyCount,
-            int3[] removedBehindCoordinates, int removedBehindMembraneCount,
-            int partitionCutCount)
+            int3[] removedBehindCoordinates, int partitionCutCount)
         {
-            Patches = patches;
-            LegacyKernels = legacyKernels;
-            CanonicalOccupiedCoordinates = canonicalOccupiedCoordinates;
-            CanonicalOccupiedCount = canonicalOccupiedCount;
-            MeasuredPlaneOccupiedCount = measuredPlaneOccupiedCount;
+            Patches = patches ?? throw new ArgumentNullException(nameof(patches));
+            CanonicalOccupiedCoordinates = canonicalOccupiedCoordinates ??
+                Array.Empty<int3>();
+            MeasuredPlaneCoordinates = measuredPlaneCoordinates ??
+                Array.Empty<int3>();
+            CanonicalOccupiedCount = CanonicalOccupiedCoordinates.Length;
+            MeasuredPlaneOccupiedCount = MeasuredPlaneCoordinates.Length;
             MeasuredPatchCount = measuredPatchCount;
             InferredPatchCount = inferredPatchCount;
-            LegacyMeasuredUnknownPlaneCount = legacyMeasuredUnknownPlaneCount;
-            UnresolvedLegacyCount = unresolvedLegacyCount;
+            UnresolvedMeasuredPlaneCount = Math.Max(0,
+                CanonicalOccupiedCount - MeasuredPlaneOccupiedCount);
             RemovedBehindCoordinates = removedBehindCoordinates ??
                 Array.Empty<int3>();
-            RemovedBehindMembraneCount = removedBehindMembraneCount;
+            RemovedBehindMembraneCount = RemovedBehindCoordinates.Length;
             PartitionCutCount = partitionCutCount;
         }
     }
@@ -130,20 +128,13 @@ namespace Genesis.RoomScan
             var synthetic = new HashSet<int3>(shell.SyntheticCoordinates);
             var strongFree = new HashSet<int3>(shell.StrongFreeCoordinates);
             var measured = new List<int3>();
-            var legacyKernels = new List<MerkabaKernelSnapshot>();
             var canonicalCoords = new List<int3>();
-            int legacy = 0;
             foreach (MerkabaKernelSnapshot kernel in shell.Kernels)
             {
                 if (synthetic.Contains(kernel.Coord)) continue;
                 canonicalCoords.Add(kernel.Coord);
                 if (kernel.State.HasMeasuredSurfacePlane)
                     measured.Add(kernel.Coord);
-                else
-                {
-                    legacy++;
-                    legacyKernels.Add(kernel);
-                }
             }
             measured.Sort(CompareCoords);
             canonicalCoords.Sort(CompareCoords);
@@ -161,8 +152,6 @@ namespace Genesis.RoomScan
                 sortedCandidates.Count);
             int measuredPatches = 0;
             int inferredPatches = 0;
-            int unresolvedLegacy = 0;
-            int removedBehind = 0;
             var removedBehindCoordinates = new List<int3>();
             for (int index = 0; index < sortedCandidates.Count; index++)
             {
@@ -181,7 +170,6 @@ namespace Genesis.RoomScan
                     else
                     {
                         removedBehindCoordinates.Add(coord);
-                        removedBehind++;
                     }
                 }
                 else if (!hasState || isSynthetic)
@@ -203,15 +191,17 @@ namespace Genesis.RoomScan
                         sortedCandidates.Count,
                         $"Solved {index + 1}/{sortedCandidates.Count} membrane supports"));
             }
-            if (patches.Count == 0 && legacyKernels.Count == 0)
+            if (patches.Count == 0)
                 throw new InvalidOperationException(
-                    "The export membrane has no resolvable surface patches.");
+                    "The export membrane has no resolvable measured surface " +
+                    $"patches (occupied={canonicalCoords.Count}, " +
+                    $"measuredPlane={measured.Count}, " +
+                    $"unresolvedPlane=" +
+                    $"{canonicalCoords.Count - measured.Count}).");
 
-            return new MerkabaExportMembraneResult(patches, legacyKernels,
-                canonicalCoords.ToArray(),
-                shell.OriginalOccupiedCount, measured.Count, measuredPatches,
-                inferredPatches, legacy, unresolvedLegacy,
-                removedBehindCoordinates.ToArray(), removedBehind,
+            return new MerkabaExportMembraneResult(patches,
+                canonicalCoords.ToArray(), measured.ToArray(), measuredPatches,
+                inferredPatches, removedBehindCoordinates.ToArray(),
                 partitionCut.Count);
         }
 

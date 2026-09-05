@@ -167,8 +167,17 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void ExportCleanup_DoesNotMutateCanonicalSnapshot()
         {
-            MerkabaSessionSnapshot snapshot = SnapshotFromEvidence(
-                ObservedWallFixture(new int3(-1, -31, 32)));
+            Dictionary<int3, KernelState> evidence =
+                ObservedWallFixture(new int3(-1, -31, 32));
+            foreach (int3 coord in evidence.Keys.ToArray())
+            {
+                KernelState state = evidence[coord];
+                if (!state.IsOccupied) continue;
+                state.Flags = KernelState.SetSurfacePlane(state.Flags,
+                    new float3(1, 0, 0), 0f);
+                evidence[coord] = state;
+            }
+            MerkabaSessionSnapshot snapshot = SnapshotFromEvidence(evidence);
             byte[] before = Serialize(snapshot);
 
             MerkabaExportShellResult shell = MerkabaExportShell.Build(snapshot);

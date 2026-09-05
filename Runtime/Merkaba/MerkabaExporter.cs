@@ -106,14 +106,14 @@ namespace Genesis.RoomScan
                             $"measuredPlane={metrics.MeasuredPlaneOccupiedCount} " +
                             $"membraneMeasured={metrics.MeasuredPatchCount} " +
                             $"inferredGray={metrics.InferredPatchCount} " +
-                            $"legacy={metrics.LegacyMeasuredUnknownPlaneCount} " +
+                            $"unresolvedPlane={metrics.UnresolvedMeasuredPlaneCount} " +
                             $"removed={metrics.RemovedBehindMembraneCount} " +
                             $"vertices={result.VertexCount} " +
                             $"triangles={result.PrimitiveCount} bytes={result.ByteLength}");
                 SetStatus($"GLB: {result.PrimitiveCount} triangles, " +
                           $"{metrics.MeasuredPatchCount} measured, " +
                           $"{metrics.InferredPatchCount} gray inferred, " +
-                          $"{metrics.LegacyMeasuredUnknownPlaneCount} legacy planes");
+                          $"{metrics.UnresolvedMeasuredPlaneCount} unresolved planes");
                 return true;
             }
             catch (Exception exception)
@@ -434,7 +434,7 @@ namespace Genesis.RoomScan
                 ValidateOwnedMeasuredPatches(ownerKey, owners.Count,
                     nonzeroStates, occupiedOwners, measuredOwners,
                     membranePatches, ownedPatches);
-                if (ownedPatches == 0 && owned.LegacyKernels.Count == 0)
+                if (ownedPatches == 0)
                 {
                     LogOwnerGroup(tilesetLeaves, ownerKey, owners.Count,
                         nonzeroStates, occupiedOwners, measuredOwners,
@@ -509,25 +509,23 @@ namespace Genesis.RoomScan
         {
             var patches = source.Patches.FindAll(patch =>
                 IsOwnedByChunk(patch.Coord, ownerKey));
-            var legacy = source.LegacyKernels.FindAll(kernel =>
-                IsOwnedByChunk(kernel.Coord, ownerKey));
             int measured = 0;
             int inferred = 0;
             foreach (MerkabaExportMembranePatch patch in patches)
                 if (patch.IsInferred) inferred++;
                 else measured++;
-            int canonicalOwned = 0;
+            var canonicalOwned = new List<int3>();
             foreach (int3 coord in source.CanonicalOccupiedCoordinates)
-                if (IsOwnedByChunk(coord, ownerKey)) canonicalOwned++;
+                if (IsOwnedByChunk(coord, ownerKey)) canonicalOwned.Add(coord);
+            var measuredOwned = new List<int3>();
+            foreach (int3 coord in source.MeasuredPlaneCoordinates)
+                if (IsOwnedByChunk(coord, ownerKey)) measuredOwned.Add(coord);
             var removedBehind = new List<int3>();
             foreach (int3 coord in source.RemovedBehindCoordinates)
                 if (IsOwnedByChunk(coord, ownerKey)) removedBehind.Add(coord);
-            return new MerkabaExportMembraneResult(patches, legacy,
-                source.CanonicalOccupiedCoordinates,
-                canonicalOwned, canonicalOwned - legacy.Count,
-                measured, inferred,
-                legacy.Count, source.UnresolvedLegacyCount,
-                removedBehind.ToArray(), removedBehind.Count,
+            return new MerkabaExportMembraneResult(patches,
+                canonicalOwned.ToArray(), measuredOwned.ToArray(),
+                measured, inferred, removedBehind.ToArray(),
                 source.PartitionCutCount);
         }
 
@@ -537,7 +535,7 @@ namespace Genesis.RoomScan
             internal long MeasuredPlaneOccupiedCount;
             internal long MeasuredPatchCount;
             internal long InferredPatchCount;
-            internal long LegacyMeasuredUnknownPlaneCount;
+            internal long UnresolvedMeasuredPlaneCount;
             internal long RemovedBehindMembraneCount;
 
             internal void Add(MerkabaExportMembraneResult result)
@@ -546,8 +544,8 @@ namespace Genesis.RoomScan
                 MeasuredPlaneOccupiedCount += result.MeasuredPlaneOccupiedCount;
                 MeasuredPatchCount += result.MeasuredPatchCount;
                 InferredPatchCount += result.InferredPatchCount;
-                LegacyMeasuredUnknownPlaneCount +=
-                    result.LegacyMeasuredUnknownPlaneCount;
+                UnresolvedMeasuredPlaneCount +=
+                    result.UnresolvedMeasuredPlaneCount;
                 RemovedBehindMembraneCount +=
                     result.RemovedBehindMembraneCount;
             }

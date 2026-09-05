@@ -125,9 +125,9 @@ namespace Genesis.RoomScan.Tests
                 ExportPatch(first), ExportPatch(second)
             };
             var membrane = new MerkabaExportMembraneResult(patches,
-                new List<MerkabaKernelSnapshot>(),
-                new[] { firstCoord, secondCoord }, 2, 2, 2, 0, 0, 0,
-                Array.Empty<int3>(), 0, 0);
+                new[] { firstCoord, secondCoord },
+                new[] { firstCoord, secondCoord }, 2, 0,
+                Array.Empty<int3>(), 0);
 
             Write(membrane, out MerkabaGlbResult result);
             Assert.That(result.PrimitiveCount, Is.EqualTo(4));
@@ -146,7 +146,8 @@ namespace Genesis.RoomScan.Tests
             string source = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
                 "MerkabaGlbWriter.cs"));
-            Assert.That(source, Does.Contain("membrane.LegacyKernels"));
+            Assert.That(source, Does.Not.Contain("MerkabaCanonicalGeometry"));
+            Assert.That(source, Does.Not.Contain("LegacyKernels"));
             Assert.That(source, Does.Not.Contain("MaximumVertices"));
             Assert.That(source, Does.Not.Contain("List<ExportPrimitive>"));
         }

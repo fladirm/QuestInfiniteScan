@@ -98,22 +98,18 @@ namespace Genesis.RoomScan
         internal const long DefaultHardLeafBytes = 256L * 1024 * 1024;
         private const long GlbHeaderReserve = 2L * 1024;
         private const long MeasuredPatchBytes = 4L * 28L + 6L * 4L;
-        private const long LegacyPrimitiveBytes = 3L * 28L + 3L * 4L;
         private const string EmptyNodeGeometricError = "1e30";
 
         private readonly struct Item
         {
             internal readonly int3 Coord;
             internal readonly int Index;
-            internal readonly bool IsPatch;
             internal readonly long EstimatedBytes;
 
-            internal Item(int3 coord, int index, bool isPatch,
-                long estimatedBytes)
+            internal Item(int3 coord, int index, long estimatedBytes)
             {
                 Coord = coord;
                 Index = index;
-                IsPatch = isPatch;
                 EstimatedBytes = estimatedBytes;
             }
         }
@@ -338,24 +334,10 @@ namespace Genesis.RoomScan
         private static List<Item> BuildItems(
             MerkabaExportMembraneResult membrane)
         {
-            var occupied = new HashSet<int3>(
-                membrane.CanonicalOccupiedCoordinates);
-            var items = new List<Item>(membrane.Patches.Count +
-                membrane.LegacyKernels.Count);
+            var items = new List<Item>(membrane.Patches.Count);
             for (int index = 0; index < membrane.Patches.Count; index++)
-                items.Add(new Item(membrane.Patches[index].Coord, index, true,
+                items.Add(new Item(membrane.Patches[index].Coord, index,
                     MeasuredPatchBytes));
-            for (int index = 0; index < membrane.LegacyKernels.Count; index++)
-            {
-                MerkabaKernelSnapshot kernel = membrane.LegacyKernels[index];
-                int primitiveCount = 0;
-                foreach (int _ in MerkabaCanonicalGeometry.VisiblePrimitives(
-                             kernel.Coord, occupied.Contains))
-                    primitiveCount++;
-                if (primitiveCount != 0)
-                    items.Add(new Item(kernel.Coord, index, false,
-                        checked(primitiveCount * LegacyPrimitiveBytes)));
-            }
             items.Sort(CompareItems);
             return items;
         }
@@ -427,25 +409,19 @@ namespace Genesis.RoomScan
             MerkabaExportMembraneResult source, List<Item> items)
         {
             var patches = new List<MerkabaExportMembranePatch>();
-            var legacy = new List<MerkabaKernelSnapshot>();
             foreach (Item item in items)
-            {
-                if (item.IsPatch) patches.Add(source.Patches[item.Index]);
-                else legacy.Add(source.LegacyKernels[item.Index]);
-            }
+                patches.Add(source.Patches[item.Index]);
             patches.Sort((left, right) => CompareCoords(left.Coord, right.Coord));
-            legacy.Sort((left, right) => CompareCoords(left.Coord, right.Coord));
             int measured = 0, inferred = 0;
             foreach (MerkabaExportMembranePatch patch in patches)
             {
                 if (patch.IsInferred) inferred++;
                 else measured++;
             }
-            return new MerkabaExportMembraneResult(patches, legacy,
+            return new MerkabaExportMembraneResult(patches,
                 source.CanonicalOccupiedCoordinates,
-                source.CanonicalOccupiedCount,
-                source.MeasuredPlaneOccupiedCount, measured, inferred,
-                legacy.Count, 0, Array.Empty<int3>(), 0,
+                source.MeasuredPlaneCoordinates, measured, inferred,
+                Array.Empty<int3>(),
                 source.PartitionCutCount);
         }
 
@@ -562,7 +538,6 @@ namespace Genesis.RoomScan
         {
             int coordinate = CompareCoords(left.Coord, right.Coord);
             if (coordinate != 0) return coordinate;
-            if (left.IsPatch != right.IsPatch) return left.IsPatch ? -1 : 1;
             return left.Index.CompareTo(right.Index);
         }
 

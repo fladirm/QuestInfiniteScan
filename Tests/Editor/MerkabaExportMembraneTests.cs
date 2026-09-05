@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -117,22 +118,36 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void LegacyOwnerIsCountedAndPreservedForCanonicalFallback()
+        public void OccupiedWithoutMeasuredPlaneIsCountedAndNeverEmitted()
         {
             var evidence = new Dictionary<int3, KernelState>
             {
                 [new int3(0, 0, 0)] = Measured(new float3(0, 0, 1)),
-                [new int3(0, 1, 0)] = LegacyOccupied()
+                [new int3(0, 1, 0)] = OccupiedWithoutPlane()
             };
 
             MerkabaExportMembraneResult result = Build(evidence);
 
-            Assert.That(result.LegacyMeasuredUnknownPlaneCount, Is.EqualTo(1));
-            Assert.That(result.UnresolvedLegacyCount, Is.Zero);
-            Assert.That(result.LegacyKernels.Single().Coord,
-                Is.EqualTo(new int3(0, 1, 0)));
+            Assert.That(result.UnresolvedMeasuredPlaneCount, Is.EqualTo(1));
             Assert.That(result.Patches.Any(value =>
                 value.Coord.Equals(new int3(0, 1, 0))), Is.False);
+        }
+
+        [Test]
+        public void OnlyOccupiedWithoutMeasuredPlanesFailsAtMembraneStage()
+        {
+            var evidence = new Dictionary<int3, KernelState>
+            {
+                [new int3(-1, 0, 0)] = OccupiedWithoutPlane(),
+                [new int3(0, 0, 0)] = OccupiedWithoutPlane()
+            };
+
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+                () => Build(evidence));
+
+            Assert.That(failure.Message, Does.Contain("occupied=2"));
+            Assert.That(failure.Message, Does.Contain("measuredPlane=0"));
+            Assert.That(failure.Message, Does.Contain("unresolvedPlane=2"));
         }
 
         [Test]
@@ -214,12 +229,12 @@ namespace Genesis.RoomScan.Tests
 
         private static KernelState Measured(float3 normal)
         {
-            KernelState state = LegacyOccupied();
+            KernelState state = OccupiedWithoutPlane();
             state.Flags = KernelState.SetSurfacePlane(state.Flags, normal, 0f);
             return state;
         }
 
-        private static KernelState LegacyOccupied()
+        private static KernelState OccupiedWithoutPlane()
         {
             KernelState state = default;
             state.SetOccupiedForFixture(true, MeasuredColor);
