@@ -44,7 +44,6 @@ namespace Genesis.RoomScan
     /// </summary>
     internal static class MerkabaExportShell
     {
-        private static readonly int3[] ClosingOffsets = BuildClosingOffsets();
         private static readonly int3[] AxisOffsets =
         {
             new(-1, 0, 0), new(1, 0, 0),
@@ -168,35 +167,22 @@ namespace Genesis.RoomScan
             HashSet<int3> strongFree,
             IProgress<OperationWorkProgress> progress)
         {
-            var dilated = new HashSet<int3>();
-            int processed = 0;
-            foreach (int3 coord in occupied)
-            {
-                foreach (int3 offset in ClosingOffsets)
-                    dilated.Add(coord + offset);
-                processed++;
-                ReportEvery(progress, ScanOperationStage.DilatingShell,
-                    processed, occupied.Count, 1024,
-                    $"Dilated {processed}/{occupied.Count} occupied kernels");
-            }
+            // A radius-one cubic morphology is separable. These six narrow
+            // passes are exactly equivalent to visiting all 27 cube offsets,
+            // while avoiding the repeated 27-wide work for every owner/chunk.
+            HashSet<int3> dilatedX = DilateAxis(occupied, new int3(1, 0, 0));
+            HashSet<int3> dilatedY = DilateAxis(dilatedX, new int3(0, 1, 0));
+            HashSet<int3> dilated = DilateAxis(dilatedY, new int3(0, 0, 1));
+            progress?.Report(new OperationWorkProgress(
+                ScanOperationStage.DilatingShell, occupied.Count, occupied.Count,
+                $"Dilated {occupied.Count}/{occupied.Count} occupied kernels"));
 
-            var closed = new HashSet<int3>();
-            processed = 0;
-            foreach (int3 candidate in dilated)
-            {
-                bool retained = true;
-                foreach (int3 offset in ClosingOffsets)
-                {
-                    if (dilated.Contains(candidate + offset)) continue;
-                    retained = false;
-                    break;
-                }
-                if (retained) closed.Add(candidate);
-                processed++;
-                ReportEvery(progress, ScanOperationStage.HealingTinyHoles,
-                    processed, dilated.Count, 1024,
-                    $"Tested {processed}/{dilated.Count} closing candidates");
-            }
+            HashSet<int3> erodedX = ErodeAxis(dilated, new int3(1, 0, 0));
+            HashSet<int3> erodedY = ErodeAxis(erodedX, new int3(0, 1, 0));
+            HashSet<int3> closed = ErodeAxis(erodedY, new int3(0, 0, 1));
+            progress?.Report(new OperationWorkProgress(
+                ScanOperationStage.HealingTinyHoles, dilated.Count, dilated.Count,
+                $"Tested {dilated.Count}/{dilated.Count} closing candidates"));
 
             var healed = new HashSet<int3>(occupied);
             foreach (int3 candidate in closed)
@@ -206,6 +192,29 @@ namespace Genesis.RoomScan
                 healed.Add(candidate);
             }
             return healed;
+        }
+
+        private static HashSet<int3> DilateAxis(HashSet<int3> source, int3 axis)
+        {
+            var result = new HashSet<int3>(source.Count * 2);
+            foreach (int3 coord in source)
+            {
+                result.Add(coord - axis);
+                result.Add(coord);
+                result.Add(coord + axis);
+            }
+            return result;
+        }
+
+        private static HashSet<int3> ErodeAxis(HashSet<int3> source, int3 axis)
+        {
+            var result = new HashSet<int3>();
+            foreach (int3 coord in source)
+            {
+                if (source.Contains(coord - axis) && source.Contains(coord + axis))
+                    result.Add(coord);
+            }
+            return result;
         }
 
         private static void AddEvidence(int3 coord, KernelState state,
@@ -331,15 +340,5 @@ namespace Genesis.RoomScan
             return left.z.CompareTo(right.z);
         }
 
-        private static int3[] BuildClosingOffsets()
-        {
-            var offsets = new int3[27];
-            int index = 0;
-            for (int z = -1; z <= 1; z++)
-            for (int y = -1; y <= 1; y++)
-            for (int x = -1; x <= 1; x++)
-                offsets[index++] = new int3(x, y, z);
-            return offsets;
-        }
     }
 }

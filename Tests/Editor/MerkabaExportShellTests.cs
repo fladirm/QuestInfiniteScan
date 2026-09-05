@@ -165,6 +165,38 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void SeparableClosing_IsExactlyEquivalentToCubicReference()
+        {
+            var occupied = new HashSet<int3>();
+            for (int z = -4; z <= 4; z++)
+            for (int y = -5; y <= 3; y++)
+            for (int x = -6; x <= 2; x++)
+            {
+                if ((x * 17 + y * 11 + z * 7) % 5 != 0 &&
+                    !(x == -2 && y == -1 && z == 1))
+                    occupied.Add(new int3(x, y, z));
+            }
+
+            var strongFree = new HashSet<int3>
+            {
+                new(-2, -1, 1),
+                new(-4, 0, 0)
+            };
+            occupied.ExceptWith(strongFree);
+            var evidence = occupied.ToDictionary(coord => coord,
+                _ => Occupied());
+            foreach (int3 coord in strongFree)
+                evidence[coord] = StrongFree();
+
+            int3[] expected = CubicClosingReference(occupied, strongFree)
+                .OrderBy(value => value.x).ThenBy(value => value.y)
+                .ThenBy(value => value.z).ToArray();
+            MerkabaExportShellResult actual = MerkabaExportShell.Build(evidence);
+
+            Assert.That(actual.HealedCoordinates, Is.EqualTo(expected));
+        }
+
+        [Test]
         public void ExportCleanup_DoesNotMutateCanonicalSnapshot()
         {
             Dictionary<int3, KernelState> evidence =
@@ -342,6 +374,35 @@ namespace Genesis.RoomScan.Tests
             using var stream = new MemoryStream();
             MerkabaPersistence.WriteSnapshot(stream, snapshot);
             return stream.ToArray();
+        }
+
+        private static HashSet<int3> CubicClosingReference(
+            HashSet<int3> occupied, HashSet<int3> strongFree)
+        {
+            var dilated = new HashSet<int3>();
+            foreach (int3 coord in occupied)
+            for (int z = -1; z <= 1; z++)
+            for (int y = -1; y <= 1; y++)
+            for (int x = -1; x <= 1; x++)
+                dilated.Add(coord + new int3(x, y, z));
+
+            var healed = new HashSet<int3>(occupied);
+            foreach (int3 candidate in dilated)
+            {
+                bool retained = true;
+                for (int z = -1; z <= 1 && retained; z++)
+                for (int y = -1; y <= 1 && retained; y++)
+                for (int x = -1; x <= 1; x++)
+                {
+                    if (dilated.Contains(candidate + new int3(x, y, z)))
+                        continue;
+                    retained = false;
+                    break;
+                }
+                if (retained && !strongFree.Contains(candidate))
+                    healed.Add(candidate);
+            }
+            return healed;
         }
     }
 }
