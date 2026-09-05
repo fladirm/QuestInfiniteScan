@@ -49,8 +49,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 uint packedColor;
             };
 
-            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices0;
-            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices1;
+            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices;
 
             float M8EnvironmentVisibility(float3 worldPosition)
             {
@@ -83,6 +82,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             CBUFFER_START(UnityPerMaterial)
                 half _ScanOpacity;
+                uint _M8MeshEyeVertexOffset;
                 float4 _FineCursorPosition;
                 float4 _FineBrushAxis;
                 float4 _FineBrushParams;
@@ -91,12 +91,9 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             struct Attributes
             {
+                float3 gridPosition : POSITION;
+                half4 packedColor : COLOR;
 #if defined(M8_STEREO_MESH)
-                float3 gridPosition0 : POSITION;
-                half4 packedColor0 : COLOR;
-                float3 gridPosition1 : TEXCOORD0;
-                half4 packedColor1 : TEXCOORD1;
-#else
                 uint vertexID : SV_VertexID;
 #endif
 #if UNITY_ANY_INSTANCING_ENABLED
@@ -121,28 +118,20 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 #if defined(M8_STEREO_MESH)
-                float3 gridPosition = input.gridPosition1;
-                half4 packedColor = input.packedColor1;
-                if (unity_StereoEyeIndex == 0)
-                {
-                    gridPosition = input.gridPosition0;
-                    packedColor = input.packedColor0;
-                }
-                half3 color = packedColor.rgb;
-                uint hasRgb = ((uint)round(saturate(packedColor.a) *
-                    255.0h)) & 1u;
-#else
-                MerkabaReadoutVertex vertex;
-                if (input.vertexID < 6291456u)
-                    vertex = _M8ReadoutVertices0[input.vertexID];
-                else
-                    vertex = _M8ReadoutVertices1[
-                        input.vertexID - 6291456u];
+                uint meshVertex = input.vertexID + unity_StereoEyeIndex *
+                    _M8MeshEyeVertexOffset;
+                MerkabaReadoutVertex vertex =
+                    _M8ReadoutVertices[meshVertex];
                 float3 gridPosition = vertex.gridPosition;
                 uint rgb = vertex.packedColor & 0x00ffffffu;
                 half3 color = half3(rgb & 255u, (rgb >> 8u) & 255u,
                     (rgb >> 16u) & 255u) / 255.0h;
                 uint hasRgb = (vertex.packedColor >> 24u) & 1u;
+#else
+                float3 gridPosition = input.gridPosition;
+                half3 color = input.packedColor.rgb;
+                uint hasRgb = ((uint)round(saturate(input.packedColor.a) *
+                    255.0h)) & 1u;
 #endif
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(gridPosition, 1.0)).xyz;

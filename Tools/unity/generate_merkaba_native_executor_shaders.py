@@ -133,8 +133,7 @@ RESOURCE_NAMES = (
     "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
     "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "DilationA",
     "DilationB", "CameraLeft", "CameraRight", "VisibleTiles",
-    "FrameDispatchArgs", "ReadoutVertices0", "ReadoutVertices1",
-    "ReadoutIndices", "DrawArgs",
+    "FrameDispatchArgs", "ReadoutVertices", "ReadoutIndices", "DrawArgs",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -150,8 +149,8 @@ ALIASES = {
         "SurfaceWinnerRanks0", "SurfaceWinnerRanks1", "SurfaceWinnerRanks2",
         "SurfaceWinnerRanks3", "TouchedTileQueue", "CarveTiles",
         "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
-        "VisibleTiles", "FrameDispatchArgs", "ReadoutVertices0",
-        "ReadoutVertices1", "ReadoutIndices", "DrawArgs")},
+        "VisibleTiles", "FrameDispatchArgs", "ReadoutVertices",
+        "ReadoutIndices", "DrawArgs")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",

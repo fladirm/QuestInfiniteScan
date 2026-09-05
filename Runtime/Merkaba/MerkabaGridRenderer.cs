@@ -160,10 +160,10 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_MerkabaGridToWorld");
         private static readonly int VisibleTilesId =
             Shader.PropertyToID("_M8VisibleTiles");
-        private static readonly int ReadoutVertices0Id =
-            Shader.PropertyToID("_M8ReadoutVertices0");
-        private static readonly int ReadoutVertices1Id =
-            Shader.PropertyToID("_M8ReadoutVertices1");
+        private static readonly int ReadoutVerticesId =
+            Shader.PropertyToID("_M8ReadoutVertices");
+        private static readonly int MeshEyeVertexOffsetId =
+            Shader.PropertyToID("_M8MeshEyeVertexOffset");
         private static readonly int ReadoutIndicesId =
             Shader.PropertyToID("_M8ReadoutIndices");
         private static readonly int FrameDispatchArgsId =
@@ -394,10 +394,10 @@ namespace Genesis.RoomScan
                 {
                     name = $"Merkaba M8 Readout {slot}"
                 };
-                _materials[slot].SetBuffer(ReadoutVertices0Id,
-                    _grid.GetM8ReadoutVertices0(slot));
-                _materials[slot].SetBuffer(ReadoutVertices1Id,
-                    _grid.GetM8ReadoutVertices1(slot));
+                _materials[slot].SetBuffer(ReadoutVerticesId,
+                    _grid.GetM8ReadoutVertices(slot));
+                _materials[slot].SetInt(MeshEyeVertexOffsetId,
+                    MerkabaGrid.ReadoutVertexCapacity / 2);
             }
             ApplyOpacityState();
             ApplyFinePreviewState();
@@ -476,11 +476,8 @@ namespace Genesis.RoomScan
                     CaptureOwner.ReadoutBuild,
                     _readoutRevision == 0u ? 1u : _readoutRevision, command);
                 command.SetComputeBufferParam(readoutCompute, _buildKernel,
-                    ReadoutVertices0Id,
-                    _grid.GetM8ReadoutVertices0(backSlot));
-                command.SetComputeBufferParam(readoutCompute, _buildKernel,
-                    ReadoutVertices1Id,
-                    _grid.GetM8ReadoutVertices1(backSlot));
+                    ReadoutVerticesId,
+                    _grid.GetM8ReadoutVertices(backSlot));
                 command.SetComputeBufferParam(readoutCompute, _buildKernel,
                     ReadoutIndicesId, _grid.GetM8ReadoutIndices(backSlot));
                 command.SetComputeBufferParam(readoutCompute, _finalizeKernel,
@@ -624,10 +621,8 @@ namespace Genesis.RoomScan
             if (ticket.MeshReadout)
                 resources[(int)MerkabaNativeVulkanExecutor.Resource.RawDepth] =
                     ticket.DepthLease.Texture.GetNativeTexturePtr();
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices0] =
-                _grid.GetM8ReadoutVertices0(ticket.Slot).GetNativeBufferPtr();
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices1] =
-                _grid.GetM8ReadoutVertices1(ticket.Slot).GetNativeBufferPtr();
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices] =
+                _grid.GetM8ReadoutVertices(ticket.Slot).GetNativeBufferPtr();
             resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutIndices] =
                 _grid.GetM8ReadoutIndices(ticket.Slot).GetNativeBufferPtr();
             resources[(int)MerkabaNativeVulkanExecutor.Resource.DrawArgs] =
@@ -774,9 +769,7 @@ namespace Genesis.RoomScan
             int slot)
         {
             command.SetComputeBufferParam(readoutCompute, kernel,
-                ReadoutVertices0Id, _grid.GetM8ReadoutVertices0(slot));
-            command.SetComputeBufferParam(readoutCompute, kernel,
-                ReadoutVertices1Id, _grid.GetM8ReadoutVertices1(slot));
+                ReadoutVerticesId, _grid.GetM8ReadoutVertices(slot));
         }
 
         private void SetMeshDepthMatrices(CommandBuffer command,

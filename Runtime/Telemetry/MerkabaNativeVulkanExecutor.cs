@@ -13,8 +13,8 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 1;
-        internal const int ResourceCount = 45;
+        internal const int AbiVersion = 2;
+        internal const int ResourceCount = 44;
         internal const int PipelineCount = 49;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
@@ -70,8 +70,7 @@ namespace Genesis.RoomScan
             CameraRight,
             VisibleTiles,
             FrameDispatchArgs,
-            ReadoutVertices0,
-            ReadoutVertices1,
+            ReadoutVertices,
             ReadoutIndices,
             DrawArgs,
         }

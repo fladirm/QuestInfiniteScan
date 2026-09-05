@@ -58,8 +58,7 @@ namespace
         kResourceCameraRight,
         kResourceVisibleTiles,
         kResourceFrameDispatchArgs,
-        kResourceReadoutVertices0,
-        kResourceReadoutVertices1,
+        kResourceReadoutVertices,
         kResourceReadoutIndices,
         kResourceDrawArgs,
         kResourceCount,
@@ -107,7 +106,7 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
 
-    constexpr uint32_t kExecutorAbiVersion = 1;
+    constexpr uint32_t kExecutorAbiVersion = 2;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
     constexpr uint32_t kMeshReadoutPipelineBegin = 38;
