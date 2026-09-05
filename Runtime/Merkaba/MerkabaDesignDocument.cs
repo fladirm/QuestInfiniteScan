@@ -62,6 +62,18 @@ namespace Genesis.RoomScan
         };
     }
 
+    [Serializable]
+    public sealed class MerkabaDesignInstance
+    {
+        public int instanceId;
+        public string assetId;
+        public Vector3 position;
+        public Quaternion rotation = Quaternion.identity;
+        public Vector3 scale = Vector3.one;
+        public bool visible = true;
+        public bool locked;
+    }
+
     /// <summary>
     /// Session-local design authority. Positions are stored in RoomSpaceRoot
     /// coordinates; the document never becomes canonical M8 state.
@@ -75,9 +87,12 @@ namespace Genesis.RoomScan
         public string format = Format;
         public int version = CurrentVersion;
         public int nextStrokeId = 1;
+        public int nextInstanceId = 1;
         public List<MerkabaDesignStroke> strokes = new();
+        public List<MerkabaDesignInstance> instances = new();
 
         internal int AllocateStrokeId() => nextStrokeId++;
+        internal int AllocateInstanceId() => nextInstanceId++;
 
         internal static MerkabaDesignDocument Load(string path)
         {
@@ -91,6 +106,7 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException(
                     "Session design document has an unsupported format.");
             document.strokes ??= new List<MerkabaDesignStroke>();
+            document.instances ??= new List<MerkabaDesignInstance>();
             int greatestId = 0;
             foreach (MerkabaDesignStroke stroke in document.strokes)
             {
@@ -100,6 +116,15 @@ namespace Genesis.RoomScan
             }
             document.nextStrokeId = Math.Max(document.nextStrokeId,
                 greatestId + 1);
+            int greatestInstanceId = 0;
+            foreach (MerkabaDesignInstance instance in document.instances)
+            {
+                if (instance == null) continue;
+                greatestInstanceId = Math.Max(greatestInstanceId,
+                    instance.instanceId);
+            }
+            document.nextInstanceId = Math.Max(document.nextInstanceId,
+                greatestInstanceId + 1);
             return document;
         }
 
