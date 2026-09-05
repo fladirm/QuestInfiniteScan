@@ -1444,6 +1444,11 @@ namespace Genesis.RoomScan.Tests
                 "for (int y = -1; y <= 1; y++)"));
             Assert.That(halo, Does.Contain(
                 "for (int x = -1; x <= 1; x++)"));
+            Assert.That(Regex.Matches(halo, @"\[loop\]"),
+                Has.Count.EqualTo(3),
+                "The rare exact 3x3x3 clear gate must remain rolled; " +
+                "unrolling its plane oracle exhausts the Adreno register budget.");
+            Assert.That(halo, Does.Not.Contain("[unroll]"));
             Assert.That(halo, Does.Contain(
                 "if (x == 0 && y == 0 && z == 0) continue"));
             Assert.That(halo, Does.Contain(

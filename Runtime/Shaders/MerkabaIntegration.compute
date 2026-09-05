@@ -1818,11 +1818,16 @@ bool M8HasContinuingCarveSheet(int3 mainCoord, KernelState mainState,
     out bool resolved)
 {
     resolved = true;
-    [unroll]
+    // This exact 26-neighbour test runs only when one FREE update would cross
+    // the occupied threshold.  Keep its deterministic order, but do not clone
+    // the complete plane decoder/compatibility path 26 times into every lane.
+    // Unity's Vulkan compiler otherwise exceeds the recommended Adreno
+    // register budget for this 128-lane kernel.
+    [loop]
     for (int z = -1; z <= 1; z++)
-    [unroll]
+    [loop]
     for (int y = -1; y <= 1; y++)
-    [unroll]
+    [loop]
     for (int x = -1; x <= 1; x++)
     {
         if (x == 0 && y == 0 && z == 0) continue;
