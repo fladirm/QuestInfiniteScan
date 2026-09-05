@@ -62,8 +62,8 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(new[] { tileA.Address }));
                 Assert.That(storeB.SnapshotSortedAddresses(),
                     Is.EqualTo(new[] { tileB.Address }));
-                Assert.That(storeA.SnapshotSortedAddresses(),
-                    Does.Not.Contain(tileB.Address));
+                Assert.That(storeA.SnapshotSortedAddresses()
+                    .Contains(tileB.Address), Is.False);
             }
             finally
             {
@@ -145,8 +145,8 @@ namespace Genesis.RoomScan.Tests
                     .ReadCanonicalSnapshotAsync(anchor, Matrix4x4.identity, 7);
                 Assert.That(reopenedA.Tiles.Select(tile => tile.Address),
                     Is.EqualTo(new[] { snapshotA.Tiles[0].Address }));
-                Assert.That(reopenedA.Tiles.Select(tile => tile.Address),
-                    Does.Not.Contain(snapshotB.Tiles[0].Address));
+                Assert.That(reopenedA.Tiles.Select(tile => tile.Address)
+                    .Contains(snapshotB.Tiles[0].Address), Is.False);
 
                 MerkabaSessionInfo copy = catalog.Create(anchor, "A copy");
                 string copiedCheckpoint = Path.Combine(
@@ -180,8 +180,8 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(catalog.Read(copy.Id).displayName,
                     Is.EqualTo("A archive"));
                 catalog.Delete(b.Id);
-                Assert.That(catalog.List().Select(session => session.Id),
-                    Does.Not.Contain(b.Id));
+                Assert.That(catalog.List().Any(session => session.Id == b.Id),
+                    Is.False);
             }
             finally
             {

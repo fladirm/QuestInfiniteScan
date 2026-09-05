@@ -142,7 +142,7 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
                 "MerkabaPersistence.cs"));
             int anchored = persistence.IndexOf(
-                "if (snapshot.AnchorUuid == Guid.Empty)",
+                "MerkabaSessionInfo session = _catalog.Read(sessionId)",
                 StringComparison.Ordinal);
             int loadWorld = persistence.IndexOf(
                 "await _grid.LoadStoredSnapshotAsync(snapshot, progress)",
@@ -154,7 +154,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(gate, Does.Contain("could not be localized"));
             Assert.That(gate, Does.Contain(
                 "EnsureSessionAnchorAsync(\n" +
-                "                        snapshot.AnchorUuid, false)"));
+                "                        session.AnchorId, false)"));
+            Assert.That(gate, Does.Contain(
+                "snapshot.AnchorUuid != session.AnchorId"));
             Assert.That(gate, Does.Contain("RoomSpaceRoot.Instance == null"));
             Assert.That(gate, Does.Contain("is unavailable."));
             Assert.That(gate, Does.Contain("did not bind"));
