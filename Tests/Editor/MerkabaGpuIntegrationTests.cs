@@ -228,7 +228,7 @@ namespace Genesis.RoomScan.Tests
                 "cacheIndex < M8_MEMBRANE_CACHE_COUNT"));
             Assert.That(build, Does.Contain(
                 "M8TryBuildMembranePatch(globalCoord, state"));
-            Assert.That(build, Does.Contain("[unroll]"));
+            Assert.That(build, Does.Contain("[loop]"));
             Assert.That(build, Does.Contain(
                 "for (uint batch = 0u; batch < 4u; batch++)"));
             Assert.That(build, Does.Not.Contain("M8FindBlock("));
@@ -1595,6 +1595,7 @@ namespace Genesis.RoomScan.Tests
                 "[numthreads(128, 1, 1)]\nvoid IntegrateCarveTiles"));
             Assert.That(carve, Does.Contain(
                 "for (uint batch = 0u; batch < 4u; batch++)"));
+            Assert.That(carve, Does.Contain("[loop]"));
             Assert.That(carve, Does.Contain(
                 "IntegrateCarveKernel(physicalSlot, kernelLocal)"));
             Assert.That(carve, Does.Not.Contain("groupId.y"));

@@ -546,17 +546,17 @@ namespace Genesis.RoomScan
         internal static string BuildGeneratedHlsl()
         {
             string source = @"// GENERATED from MerkabaOverlapShell.cs. DO NOT EDIT.
-#ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
-#define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
+__HASH__ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
+__HASH__define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
 
-#include ""MerkabaSurfaceOrientation.generated.hlsl""
+__HASH__include ""MerkabaSurfaceOrientation.generated.hlsl""
 
-#define M8_MEMBRANE_TRIANGLES_PER_PATCH __TRIANGLES__u
-#define M8_MEMBRANE_VERTICES_PER_PATCH __VERTICES__u
-#define M8_MEMBRANE_INDICES_PER_PATCH __INDICES__u
-#define M8_MEMBRANE_PATCH_PITCH __PITCH__
-#define M8_MEMBRANE_HALF_PITCH __HALF_PITCH__
-#define M8_MEMBRANE_NUMERICAL_EPSILON 1.0e-6
+__HASH__define M8_MEMBRANE_TRIANGLES_PER_PATCH __TRIANGLES__u
+__HASH__define M8_MEMBRANE_VERTICES_PER_PATCH __VERTICES__u
+__HASH__define M8_MEMBRANE_INDICES_PER_PATCH __INDICES__u
+__HASH__define M8_MEMBRANE_PATCH_PITCH __PITCH__
+__HASH__define M8_MEMBRANE_HALF_PITCH __HALF_PITCH__
+__HASH__define M8_MEMBRANE_NUMERICAL_EPSILON 1.0e-6
 
 struct M8OverlapPatch
 {
@@ -594,6 +594,22 @@ int3 M8MembraneAxis(int axis)
         axis == 1 ? int3(0, 1, 0) : int3(0, 0, 1);
 }
 
+int3 M8MembraneSetIntComponent(int3 value, int axis, int component)
+{
+    if (axis == 0) value.x = component;
+    else if (axis == 1) value.y = component;
+    else value.z = component;
+    return value;
+}
+
+float3 M8MembraneSetFloatComponent(float3 value, int axis, float component)
+{
+    if (axis == 0) value.x = component;
+    else if (axis == 1) value.y = component;
+    else value.z = component;
+    return value;
+}
+
 int M8MembraneFloorDiv2(int value)
 {
     return value >> 1;
@@ -621,7 +637,7 @@ bool M8MembranePlaneLineHeight(int3 owner, float3 normal,
         return false;
     }
     float3 basePoint = linePoint;
-    basePoint[dominantAxis] = 0.0;
+    basePoint = M8MembraneSetFloatComponent(basePoint, dominantAxis, 0.0);
     float planeConstant = dot((float3)owner * MERKABA_LATTICE_STEP, normal) +
         signedOffset;
     height = (planeConstant - dot(basePoint, normal)) / denominator;
@@ -659,7 +675,8 @@ bool M8MembraneSeparatedByFree(int3 contributor, int normalOffset,
     unresolved = false;
     if (normalOffset == 0) return false;
     int3 towardMain = contributor;
-    towardMain[dominantAxis] -= normalOffset < 0 ? -1 : 1;
+    towardMain = M8MembraneSetIntComponent(towardMain, dominantAxis,
+        towardMain[dominantAxis] - (normalOffset < 0 ? -1 : 1));
     KernelState separator;
     bool resolved;
     bool exists = M8TryLoadMembraneState(towardMain, separator, resolved);
@@ -679,8 +696,10 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
 {
     unresolved = false;
     int3 halfAddress = main * 2;
-    halfAddress[tangentAxis0] += cornerSign0;
-    halfAddress[tangentAxis1] += cornerSign1;
+    halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis0,
+        halfAddress[tangentAxis0] + cornerSign0);
+    halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis1,
+        halfAddress[tangentAxis1] + cornerSign1);
     float3 cornerLine = (float3)halfAddress *
         (M8_MEMBRANE_PATCH_PITCH * 0.5);
     float mainHeight;
@@ -695,25 +714,28 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
     int lower1 = M8MembraneFloorDiv2(halfAddress[tangentAxis1]);
     float heightSum = 0.0;
     uint accepted = 0u;
-    [unroll]
+    [loop]
     for (int first = 0; first < 2; first++)
-    [unroll]
+    [loop]
     for (int second = 0; second < 2; second++)
     {
         int3 column = main;
-        column[tangentAxis0] = lower0 + first;
-        column[tangentAxis1] = lower1 + second;
+        column = M8MembraneSetIntComponent(column, tangentAxis0,
+            lower0 + first);
+        column = M8MembraneSetIntComponent(column, tangentAxis1,
+            lower1 + second);
         bool found = false;
         bool bestSignature = false;
         float bestResidual = 3.402823466e+38;
         int bestLayerDistance = 2147483647;
         int3 bestCoord = 0;
         float bestHeight = 0.0;
-        [unroll]
+        [loop]
         for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
         {
             int3 coord = column;
-            coord[dominantAxis] = main[dominantAxis] + normalOffset;
+            coord = M8MembraneSetIntComponent(coord, dominantAxis,
+                main[dominantAxis] + normalOffset);
             KernelState candidate;
             bool resolved;
             bool exists = M8TryLoadMembraneState(coord, candidate, resolved);
@@ -791,7 +813,8 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
         position = 0.0;
         return false;
     }
-    cornerLine[dominantAxis] = heightSum / (float)accepted;
+    cornerLine = M8MembraneSetFloatComponent(cornerLine, dominantAxis,
+        heightSum / (float)accepted);
     position = cornerLine;
     return all(isfinite(position));
 }
@@ -858,9 +881,10 @@ uint M8OverlapTriangleCorner(uint vertex)
     return 3u;
 }
 
-#endif
+__HASH__endif
 ";
             return source
+                .Replace("__HASH__", "#")
                 .Replace("__TRIANGLES__", TrianglesPerPatch.ToString(
                     CultureInfo.InvariantCulture))
                 .Replace("__VERTICES__", VerticesPerPatch.ToString(

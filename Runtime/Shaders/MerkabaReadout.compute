@@ -653,9 +653,6 @@ void BuildReadoutVertices(uint3 groupId : SV_GroupID,
             M8LoadTileMetaRead(physicalSlot).z, ignored);
     }
     GroupMemoryBarrierWithGroupSync();
-    if (_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] !=
-        MERKABA_READOUT_BUILDING)
-        return;
 
     M8ReadoutTileContext context = M8SharedReadoutTileContext();
     if (thread < M8_MEMBRANE_TILE_COUNT)
@@ -699,7 +696,10 @@ void BuildReadoutVertices(uint3 groupId : SV_GroupID,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    [unroll]
+    // The barriers make this a uniform four-phase tile walk. Keep the loop
+    // rolled so Unity's mobile Vulkan compiler does not clone the complete
+    // membrane oracle four times.
+    [loop]
     for (uint batch = 0u; batch < 4u; batch++)
     {
         if (thread < 4u)

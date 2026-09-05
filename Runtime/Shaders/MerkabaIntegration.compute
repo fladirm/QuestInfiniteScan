@@ -2025,7 +2025,10 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    [unroll]
+    // Keeping this fixed four-iteration loop rolled avoids replicating the
+    // large exact classifier four times in the mobile Vulkan program. All
+    // 128 lanes still cooperatively cover the complete 512-kernel tile.
+    [loop]
     for (uint batch = 0u; batch < 4u; batch++)
     {
         uint kernelLocal = thread + batch * 128u;

@@ -121,17 +121,23 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 #if defined(M8_STEREO_MESH)
-                float3 gridPosition = unity_StereoEyeIndex == 0
-                    ? input.gridPosition0 : input.gridPosition1;
-                half4 packedColor = unity_StereoEyeIndex == 0
-                    ? input.packedColor0 : input.packedColor1;
+                float3 gridPosition = input.gridPosition1;
+                half4 packedColor = input.packedColor1;
+                if (unity_StereoEyeIndex == 0)
+                {
+                    gridPosition = input.gridPosition0;
+                    packedColor = input.packedColor0;
+                }
                 half3 color = packedColor.rgb;
                 uint hasRgb = ((uint)round(saturate(packedColor.a) *
                     255.0h)) & 1u;
 #else
-                MerkabaReadoutVertex vertex = input.vertexID < 6291456u
-                    ? _M8ReadoutVertices0[input.vertexID]
-                    : _M8ReadoutVertices1[input.vertexID - 6291456u];
+                MerkabaReadoutVertex vertex;
+                if (input.vertexID < 6291456u)
+                    vertex = _M8ReadoutVertices0[input.vertexID];
+                else
+                    vertex = _M8ReadoutVertices1[
+                        input.vertexID - 6291456u];
                 float3 gridPosition = vertex.gridPosition;
                 uint rgb = vertex.packedColor & 0x00ffffffu;
                 half3 color = half3(rgb & 255u, (rgb >> 8u) & 255u,
