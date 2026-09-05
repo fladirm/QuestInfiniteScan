@@ -81,7 +81,7 @@ namespace Genesis.RoomScan
                            new MerkabaGlbWriter.StreamingSession(
                            spoolDirectory))
                 {
-                    await StreamOwnedMembranesAsync(async (membrane, _, _) =>
+                    await StreamOwnedMembranesAsync(async (membrane, _, _, _) =>
                     {
                         await Task.Run(() =>
                             streamSession.Append(membrane, progress));
@@ -370,18 +370,66 @@ namespace Genesis.RoomScan
         {
             MerkabaTilesetWriter.BeginStreamingPackage(staging);
             var leaves = new List<MerkabaTilesetLeaf>();
-            await StreamOwnedMembranesAsync(async (owned, groupIndex,
-                groupCount) =>
+            MerkabaTilesetWriter.StreamingLeafBuilder leafBuilder = null;
+            int3 activeBlock = default;
+            int streamedGroups = 0;
+
+            async Task CompleteLeafAsync()
             {
-                int leafIndex = leaves.Count;
-                MerkabaTilesetLeaf leaf = await Task.Run(() =>
-                    MerkabaTilesetWriter.WriteStreamingLeaf(staging,
-                        leafIndex, owned, progress));
-                leaves.Add(leaf);
-                progress?.Report(new OperationWorkProgress(
-                    ScanOperationStage.WritingFile, groupIndex + 1, groupCount,
-                    $"Streamed spatial leaf {groupIndex + 1}/{groupCount}"));
-            }, progress, true);
+                if (leafBuilder == null) return;
+                MerkabaTilesetWriter.StreamingLeafBuilder completed =
+                    leafBuilder;
+                leafBuilder = null;
+                try
+                {
+                    MerkabaTilesetLeaf leaf = await Task.Run(() =>
+                        completed.Complete(progress));
+                    leaves.Add(leaf);
+                }
+                finally
+                {
+                    completed.Dispose();
+                }
+            }
+
+            try
+            {
+                await StreamOwnedMembranesAsync(async (owned, ownerKey,
+                    groupIndex, groupCount) =>
+                {
+                    if (leafBuilder != null &&
+                        (!math.all(activeBlock == ownerKey.BlockCoord) ||
+                         leafBuilder.EstimatedCompleteByteLength >=
+                         MerkabaTilesetWriter.DefaultTargetLeafBytes))
+                        await CompleteLeafAsync();
+                    if (leafBuilder == null)
+                    {
+                        activeBlock = ownerKey.BlockCoord;
+                        leafBuilder = new MerkabaTilesetWriter
+                            .StreamingLeafBuilder(staging, leaves.Count,
+                            MerkabaTilesetWriter.BlockLocalOrigin(activeBlock));
+                    }
+                    MerkabaTilesetWriter.StreamingLeafBuilder target =
+                        leafBuilder;
+                    await Task.Run(() => target.Append(owned, progress));
+                    if (target.EstimatedCompleteByteLength >=
+                        MerkabaTilesetWriter.DefaultTargetLeafBytes)
+                        await CompleteLeafAsync();
+                    progress?.Report(new OperationWorkProgress(
+                        ScanOperationStage.WritingFile, groupIndex + 1,
+                        groupCount, $"Streamed spatial group " +
+                        $"{groupIndex + 1}/{groupCount}"));
+                    streamedGroups++;
+                }, progress, true);
+                await CompleteLeafAsync();
+            }
+            finally
+            {
+                leafBuilder?.Dispose();
+            }
+            Logger.Info("Merkaba 3D Tiles spatial batching " +
+                $"groups={streamedGroups} leaves={leaves.Count} " +
+                $"targetBytes={MerkabaTilesetWriter.DefaultTargetLeafBytes}");
             return await Task.Run(() =>
                 MerkabaTilesetWriter.CompleteStreamingPackage(staging,
                     leaves, spatialBinding));
@@ -422,7 +470,8 @@ namespace Genesis.RoomScan
         }
 
         private async Task StreamOwnedMembranesAsync(
-            Func<MerkabaExportMembraneResult, int, int, Task> consume,
+            Func<MerkabaExportMembraneResult, MerkabaTileAddress, int, int,
+                Task> consume,
             IProgress<OperationWorkProgress> progress, bool tilesetLeaves)
         {
             MerkabaTileAddress[] addresses = _grid.CaptureStoredTileIndex();
@@ -558,7 +607,7 @@ namespace Genesis.RoomScan
                         membranePatches, ownedPatches, emittedLeaf);
                     continue;
                 }
-                await consume(owned, groupIndex, keys.Count);
+                await consume(owned, ownerKey, groupIndex, keys.Count);
                 emittedLeaf = true;
                 emittedGroups++;
                 LogOwnerGroup(tilesetLeaves, ownerKey, owners.Count,

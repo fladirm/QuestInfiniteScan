@@ -100,6 +100,91 @@ namespace Genesis.RoomScan
         private const long MeasuredPatchBytes = 4L * 28L + 6L * 4L;
         private const string EmptyNodeGeometricError = "1e30";
 
+        /// <summary>
+        /// Bounded spatial leaf assembly. Chunk-local membrane plans are
+        /// appended directly to disk spools, so a viewer-sized GLB never
+        /// requires its complete decoded geometry in managed memory.
+        /// </summary>
+        internal sealed class StreamingLeafBuilder : IDisposable
+        {
+            private readonly string _directory;
+            private readonly int _leafIndex;
+            private readonly float3 _localOrigin;
+            private readonly long _hardLeafBytes;
+            private readonly MerkabaGlbWriter.StreamingSession _session;
+            private bool _completed;
+
+            internal StreamingLeafBuilder(string directory, int leafIndex,
+                float3 localOrigin,
+                long hardLeafBytes = DefaultHardLeafBytes)
+            {
+                if (string.IsNullOrWhiteSpace(directory))
+                    throw new ArgumentException(
+                        "Tileset directory is required.", nameof(directory));
+                if (leafIndex < 0)
+                    throw new ArgumentOutOfRangeException(nameof(leafIndex));
+                if (hardLeafBytes <= GlbHeaderReserve)
+                    throw new ArgumentOutOfRangeException(
+                        nameof(hardLeafBytes));
+                _directory = directory;
+                _leafIndex = leafIndex;
+                _localOrigin = localOrigin;
+                _hardLeafBytes = hardLeafBytes;
+                string name = leafIndex.ToString("D6",
+                    CultureInfo.InvariantCulture);
+                _session = new MerkabaGlbWriter.StreamingSession(
+                    Path.Combine(directory, ".leaf-" + name + ".parts"),
+                    localOrigin);
+            }
+
+            internal long EstimatedCompleteByteLength =>
+                _session.EstimatedCompleteByteLength;
+
+            internal void Append(MerkabaExportMembraneResult membrane,
+                IProgress<OperationWorkProgress> progress = null)
+            {
+                if (_completed)
+                    throw new InvalidOperationException(
+                        "The 3D Tiles leaf is already complete.");
+                _session.Append(membrane, progress);
+            }
+
+            internal MerkabaTilesetLeaf Complete(
+                IProgress<OperationWorkProgress> progress = null)
+            {
+                if (_completed)
+                    throw new InvalidOperationException(
+                        "The 3D Tiles leaf is already complete.");
+                string name = _leafIndex.ToString("D6",
+                    CultureInfo.InvariantCulture) + ".glb";
+                string finalPath = Path.Combine(_directory, "tiles", name);
+                string temporaryPath = finalPath + ".tmp";
+                MerkabaGlbResult result;
+                using (var stream = new FileStream(temporaryPath,
+                           FileMode.CreateNew, FileAccess.Write,
+                           FileShare.None, 1024 * 1024,
+                           FileOptions.SequentialScan))
+                {
+                    result = _session.Complete(stream, progress);
+                    stream.Flush(true);
+                }
+                if (result.ByteLength > _hardLeafBytes)
+                    throw new InvalidDataException($"3D Tiles leaf {name} is " +
+                        $"{result.ByteLength} bytes, above {_hardLeafBytes}.");
+                File.Move(temporaryPath, finalPath);
+                ConvertGlbBoundsToTileset(result.Minimum, result.Maximum,
+                    out Vector3 contentMinimum, out Vector3 contentMaximum);
+                _completed = true;
+                return new MerkabaTilesetLeaf(_leafIndex,
+                    _session.MinimumCoord, _session.MaximumCoord,
+                    _localOrigin, contentMinimum, contentMaximum,
+                    result.ByteLength, result.VertexCount,
+                    result.PrimitiveCount);
+            }
+
+            public void Dispose() => _session.Dispose();
+        }
+
         private readonly struct Item
         {
             internal readonly int3 Coord;
@@ -229,41 +314,10 @@ namespace Genesis.RoomScan
             Directory.CreateDirectory(Path.Combine(directory, "tiles"));
         }
 
-        internal static MerkabaTilesetLeaf WriteStreamingLeaf(
-            string directory, int leafIndex,
-            MerkabaExportMembraneResult membrane,
-            IProgress<OperationWorkProgress> progress = null,
-            long hardLeafBytes = DefaultHardLeafBytes)
-        {
-            List<Item> items = BuildItems(membrane);
-            if (items.Count == 0)
-                throw new InvalidDataException("3D Tiles leaf membrane is empty.");
-            Bounds(items, out int3 minimum, out int3 maximum, out _);
-            float3 localOrigin = LocalOrigin(minimum, maximum);
-            string name = leafIndex.ToString("D6",
-                CultureInfo.InvariantCulture) + ".glb";
-            string finalPath = Path.Combine(directory, "tiles", name);
-            string temporaryPath = finalPath + ".tmp";
-            MerkabaGlbResult result;
-            using (var stream = new FileStream(temporaryPath,
-                       FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                       1024 * 1024, FileOptions.SequentialScan))
-            {
-                result = MerkabaGlbWriter.Write(stream, membrane,
-                    localOrigin, progress);
-                stream.Flush(true);
-            }
-            if (result.ByteLength > hardLeafBytes)
-                throw new InvalidDataException($"3D Tiles leaf {name} is " +
-                    $"{result.ByteLength} bytes, above {hardLeafBytes}.");
-            File.Move(temporaryPath, finalPath);
-            ConvertGlbBoundsToTileset(result.Minimum, result.Maximum,
-                out Vector3 contentMinimum, out Vector3 contentMaximum);
-            return new MerkabaTilesetLeaf(leafIndex, minimum, maximum,
-                localOrigin, contentMinimum, contentMaximum,
-                result.ByteLength, result.VertexCount,
-                result.PrimitiveCount);
-        }
+        internal static float3 BlockLocalOrigin(int3 blockCoord) =>
+            ((float3)blockCoord * MerkabaSpatial.BlockKernelSpan +
+             MerkabaSpatial.BlockKernelSpan * 0.5f) *
+            MerkabaConstants.LatticeStep;
 
         internal static MerkabaTilesetResult CompleteStreamingPackage(
             string directory, IReadOnlyList<MerkabaTilesetLeaf> leaves,

@@ -455,9 +455,17 @@ namespace Genesis.RoomScan.Tests
             try
             {
                 MerkabaTilesetWriter.BeginStreamingPackage(root);
-                MerkabaTilesetLeaf leaf =
-                    MerkabaTilesetWriter.WriteStreamingLeaf(root, 0,
-                        membrane, hardLeafBytes: 1_000_000);
+                MerkabaTilesetLeaf leaf;
+                using (var builder = new MerkabaTilesetWriter
+                           .StreamingLeafBuilder(root, 0,
+                           MerkabaTilesetWriter.BlockLocalOrigin(int3.zero),
+                           hardLeafBytes: 1_000_000))
+                {
+                    builder.Append(membrane);
+                    Assert.That(builder.EstimatedCompleteByteLength,
+                        Is.GreaterThan(0));
+                    leaf = builder.Complete();
+                }
                 Assert.That(File.Exists(Path.Combine(root, "tiles",
                     "000000.glb")), Is.True);
                 Assert.That(File.Exists(Path.Combine(root,
@@ -473,6 +481,17 @@ namespace Genesis.RoomScan.Tests
                     "tileset.json"));
                 Assert.That(json, Does.Contain(
                     "\"uri\":\"tiles/000000.glb\""));
+                using (var monolithicStream = new MemoryStream())
+                {
+                    _ = MerkabaGlbWriter.Write(monolithicStream, membrane);
+                    Assert.That(TiledTriangles(root, 100_000f), Is.EqualTo(
+                        Triangles(
+                        monolithicStream.ToArray(), Vector3.zero,
+                        rotateGlbToTileset: true,
+                        quantization: 100_000f)));
+                }
+                Assert.That(Directory.GetDirectories(root, ".leaf-*.parts"),
+                    Is.Empty);
             }
             finally
             {
@@ -561,7 +580,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(exporter, Does.Contain(
                 "MerkabaTilesetWriter.BeginStreamingPackage(staging)"));
             Assert.That(exporter, Does.Contain(
-                "MerkabaTilesetWriter.WriteStreamingLeaf(staging"));
+                ".StreamingLeafBuilder(staging, leaves.Count"));
+            Assert.That(exporter, Does.Contain(
+                "DefaultTargetLeafBytes"));
+            Assert.That(exporter, Does.Contain(
+                "activeBlock == ownerKey.BlockCoord"));
             Assert.That(exporter, Does.Contain(
                 "MerkabaTilesetWriter.CompleteStreamingPackage(staging"));
             Assert.That(exporter, Does.Contain(
@@ -786,7 +809,8 @@ namespace Genesis.RoomScan.Tests
                 MerkabaExportShell.Build(evidence));
         }
 
-        private static List<string> TiledTriangles(string root)
+        private static List<string> TiledTriangles(string root,
+            float quantization = 1_000_000f)
         {
             string json = File.ReadAllText(Path.Combine(root, "tileset.json"));
             var result = new List<string>();
@@ -802,14 +826,15 @@ namespace Genesis.RoomScan.Tests
                 string path = Path.Combine(root,
                     match.Groups[4].Value.Replace('/', Path.DirectorySeparatorChar));
                 result.AddRange(Triangles(File.ReadAllBytes(path), translation,
-                    rotateGlbToTileset: true));
+                    rotateGlbToTileset: true, quantization));
             }
             result.Sort(StringComparer.Ordinal);
             return result;
         }
 
         private static List<string> Triangles(byte[] glb, Vector3 translation,
-            bool rotateGlbToTileset = false)
+            bool rotateGlbToTileset = false,
+            float quantization = 1_000_000f)
         {
             int jsonLength = checked((int)BitConverter.ToUInt32(glb, 12));
             string json = Encoding.UTF8.GetString(glb, 20, jsonLength)
@@ -842,16 +867,17 @@ namespace Genesis.RoomScan.Tests
                     indexOffset + (index + 1) * 4)];
                 Vector3 c = vertices[BitConverter.ToUInt32(glb,
                     indexOffset + (index + 2) * 4)];
-                triangles.Add(Key(a) + "|" + Key(b) + "|" + Key(c));
+                triangles.Add(Key(a, quantization) + "|" +
+                    Key(b, quantization) + "|" + Key(c, quantization));
             }
             triangles.Sort(StringComparer.Ordinal);
             return triangles;
         }
 
-        private static string Key(Vector3 value) =>
-            $"{Mathf.RoundToInt(value.x * 1_000_000f)}," +
-            $"{Mathf.RoundToInt(value.y * 1_000_000f)}," +
-            $"{Mathf.RoundToInt(value.z * 1_000_000f)}";
+        private static string Key(Vector3 value, float quantization) =>
+            $"{Mathf.RoundToInt(value.x * quantization)}," +
+            $"{Mathf.RoundToInt(value.y * quantization)}," +
+            $"{Mathf.RoundToInt(value.z * quantization)}";
 
         private static float Parse(string value) => float.Parse(value,
             CultureInfo.InvariantCulture);

@@ -42,16 +42,20 @@ namespace Genesis.RoomScan
             internal readonly List<GeometryVertex> Vertices;
             internal readonly List<uint> Indices;
             internal readonly int PrimitiveCount;
+            internal readonly int3 MinimumCoord;
+            internal readonly int3 MaximumCoord;
             internal readonly Vector3 Minimum;
             internal readonly Vector3 Maximum;
 
             internal GeometryPlan(List<GeometryVertex> vertices,
-                List<uint> indices, int primitiveCount, Vector3 minimum,
-                Vector3 maximum)
+                List<uint> indices, int primitiveCount, int3 minimumCoord,
+                int3 maximumCoord, Vector3 minimum, Vector3 maximum)
             {
                 Vertices = vertices;
                 Indices = indices;
                 PrimitiveCount = primitiveCount;
+                MinimumCoord = minimumCoord;
+                MaximumCoord = maximumCoord;
                 Minimum = minimum;
                 Maximum = maximum;
             }
@@ -122,9 +126,12 @@ namespace Genesis.RoomScan
             private readonly FileStream _indices;
             private readonly BinaryWriter _vertexWriter;
             private readonly BinaryWriter _indexWriter;
+            private readonly float3 _localOrigin;
             private int _vertexCount;
             private int _indexCount;
             private int _primitiveCount;
+            private int3 _minimumCoord = new(int.MaxValue);
+            private int3 _maximumCoord = new(int.MinValue);
             private Vector3 _minimum = new(float.PositiveInfinity,
                 float.PositiveInfinity, float.PositiveInfinity);
             private Vector3 _maximum = new(float.NegativeInfinity,
@@ -132,15 +139,25 @@ namespace Genesis.RoomScan
             private bool _completed;
             private bool _disposed;
 
-            internal StreamingSession(string directory)
+            internal StreamingSession(string directory) :
+                this(directory, float3.zero)
+            {
+            }
+
+            internal StreamingSession(string directory, float3 localOrigin)
             {
                 if (string.IsNullOrWhiteSpace(directory))
                     throw new ArgumentException(
                         "GLB spool directory is required.", nameof(directory));
+                if (math.any(!math.isfinite(localOrigin)))
+                    throw new ArgumentException(
+                        "GLB local origin must be finite.",
+                        nameof(localOrigin));
                 if (Directory.Exists(directory))
                     throw new IOException(
                         "GLB spool directory already exists: " + directory);
                 _directory = directory;
+                _localOrigin = localOrigin;
                 Directory.CreateDirectory(directory);
                 _vertices = Open("vertices.bin");
                 _indices = Open("indices.bin");
@@ -149,6 +166,12 @@ namespace Genesis.RoomScan
                 _indexWriter = new BinaryWriter(_indices, encoding, true);
             }
 
+            internal long EstimatedCompleteByteLength => checked(
+                2L * 1024L + (long)_vertexCount * VertexStride +
+                (long)_indexCount * sizeof(uint));
+            internal int3 MinimumCoord => _minimumCoord;
+            internal int3 MaximumCoord => _maximumCoord;
+
             internal void Append(MerkabaExportMembraneResult membrane,
                 IProgress<OperationWorkProgress> progress = null)
             {
@@ -156,12 +179,14 @@ namespace Genesis.RoomScan
                 if (_completed)
                     throw new InvalidOperationException(
                         "The bounded GLB stream is already complete.");
-                GeometryPlan plan = Plan(membrane, float3.zero, progress);
+                GeometryPlan plan = Plan(membrane, _localOrigin, progress);
                 int baseVertex = _vertexCount;
                 _vertexCount = checked(_vertexCount + plan.VertexCount);
                 _indexCount = checked(_indexCount + plan.IndexCount);
                 _primitiveCount = checked(_primitiveCount +
                     plan.PrimitiveCount);
+                _minimumCoord = math.min(_minimumCoord, plan.MinimumCoord);
+                _maximumCoord = math.max(_maximumCoord, plan.MaximumCoord);
                 _minimum = Vector3.Min(_minimum, plan.Minimum);
                 _maximum = Vector3.Max(_maximum, plan.Maximum);
 
@@ -429,6 +454,8 @@ namespace Genesis.RoomScan
                 float.PositiveInfinity);
             Vector3 maximum = new(float.NegativeInfinity, float.NegativeInfinity,
                 float.NegativeInfinity);
+            int3 minimumCoord = new(int.MaxValue);
+            int3 maximumCoord = new(int.MinValue);
             uint AddVertex(float3 position, float3 normal, uint packedColor)
             {
                 var vertex = new GeometryVertex(position - localOrigin,
@@ -448,6 +475,8 @@ namespace Genesis.RoomScan
             int completedPrimitives = 0;
             foreach (MerkabaExportMembranePatch patch in membrane.Patches)
             {
+                minimumCoord = math.min(minimumCoord, patch.Coord);
+                maximumCoord = math.max(maximumCoord, patch.Coord);
                 uint v0 = AddVertex(patch.Corner00, patch.Normal,
                     patch.PackedColor);
                 uint v1 = AddVertex(patch.Corner10, patch.Normal,
@@ -470,7 +499,7 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException(
                     "GLB indexed geometry construction count mismatch.");
             return new GeometryPlan(vertices, indices, primitiveCount,
-                minimum, maximum);
+                minimumCoord, maximumCoord, minimum, maximum);
         }
 
         private static void AddTriangle(List<uint> indices, uint a, uint b,
