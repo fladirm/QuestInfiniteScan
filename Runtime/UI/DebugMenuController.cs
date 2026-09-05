@@ -34,7 +34,7 @@ namespace Genesis.RoomScan.UI
         private Label _paintStatus, _paintWidthValue, _paintFlowValue,
             _paintHardnessValue, _paintSaturationValue, _paintDensityValue,
             _paintScatterValue;
-        private TextField _sessionName, _annotationNote;
+        private TextField _sessionName, _exportName, _annotationNote;
         private DropdownField _sessionPicker, _objectAssetPicker,
             _objectInstancePicker;
         private Slider _opacity;
@@ -72,6 +72,7 @@ namespace Genesis.RoomScan.UI
         private readonly List<MerkabaDesignAsset> _designAssets = new();
         private readonly List<MerkabaDesignInstance> _designInstances = new();
         private int _selectedSessionIndex = -1;
+        private Guid _exportNameSessionId;
         private DesignSubmode _designSubmode;
         private bool _hasLastRecentColor;
         private Color _lastRecentColor;
@@ -198,6 +199,7 @@ namespace Genesis.RoomScan.UI
             _artifactRoomAlign = _root.Q<Toggle>("artifact-room-align");
             _annotationNote = _root.Q<TextField>("annotation-note");
             _sessionName = _root.Q<TextField>("session-name");
+            _exportName = _root.Q<TextField>("export-name");
             _sessionPicker = _root.Q<DropdownField>("session-picker");
             _objectAssetPicker = _root.Q<DropdownField>(
                 "object-asset-picker");
@@ -270,9 +272,11 @@ namespace Genesis.RoomScan.UI
             _rename?.RegisterCallback<ClickEvent>(evt => RenameActiveSession());
             _deleteSession?.RegisterCallback<ClickEvent>(evt =>
                 _ = DeleteSelectedSessionAsync());
-            _export?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.ExportGlbAsync());
+            _export?.RegisterCallback<ClickEvent>(evt => _ =
+                RoomScanner.Instance?.ExportGlbAsync(ExportNameInput()));
             _exportTiles?.RegisterCallback<ClickEvent>(evt =>
-                _ = RoomScanner.Instance?.ExportViewerPackageAsync());
+                _ = RoomScanner.Instance?.ExportViewerPackageAsync(
+                    ExportNameInput()));
             _fine?.RegisterCallback<ClickEvent>(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
@@ -672,6 +676,11 @@ namespace Genesis.RoomScan.UI
             string.IsNullOrWhiteSpace(_sessionName?.value)
                 ? null : _sessionName.value.Trim();
 
+        private string ExportNameInput() =>
+            string.IsNullOrWhiteSpace(_exportName?.value)
+                ? RoomScanner.Instance?.ActiveSessionName
+                : _exportName.value.Trim();
+
         private void RefreshSessionChoices()
         {
             RoomScanner scanner = RoomScanner.Instance;
@@ -694,6 +703,14 @@ namespace Genesis.RoomScan.UI
                 ? choices[_selectedSessionIndex] : string.Empty);
             if (_sessionName != null && scanner.ActiveSessionId != Guid.Empty)
                 _sessionName.SetValueWithoutNotify(scanner.ActiveSessionName);
+            if (_exportName != null && _exportNameSessionId !=
+                    scanner.ActiveSessionId)
+            {
+                _exportNameSessionId = scanner.ActiveSessionId;
+                _exportName.SetValueWithoutNotify(scanner.ActiveSessionId ==
+                    Guid.Empty ? "QuestMerkabaScan" :
+                    scanner.ActiveSessionName);
+            }
         }
 
         private void SelectSessionChoice(string choice)

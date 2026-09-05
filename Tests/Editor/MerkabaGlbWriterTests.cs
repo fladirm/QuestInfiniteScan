@@ -34,6 +34,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(json, Does.Contain("\"indices\":3"));
             Assert.That(json, Does.Contain(
                 "\"componentType\":5121,\"normalized\":true"));
+            Assert.That(json, Does.Contain("\"byteStride\":28"));
+            Assert.That(json, Does.Contain(
+                "\"bufferView\":0,\"byteOffset\":24"));
             Assert.That(json, Does.Contain("\"doubleSided\":true"));
             Assert.That(json, Does.Not.Contain("TEXCOORD_0"));
             Assert.That(json, Does.Not.Contain("image"));
@@ -76,10 +79,9 @@ namespace Genesis.RoomScan.Tests
 
             int jsonLength = checked((int)ReadUInt32(bytes, 12));
             int binaryStart = 20 + jsonLength + 8;
-            int normalsOffset = result.VertexCount * 12;
             for (int vertex = 0; vertex < result.VertexCount; vertex++)
             {
-                int offset = binaryStart + normalsOffset + vertex * 12;
+                int offset = binaryStart + vertex * 28 + 12;
                 Assert.That(Math.Abs(BitConverter.ToSingle(bytes, offset)),
                     Is.GreaterThan(0.99f));
                 Assert.That(Math.Abs(BitConverter.ToSingle(bytes, offset + 4)),
@@ -171,7 +173,7 @@ namespace Genesis.RoomScan.Tests
                     [new int3(64, 0, 0)] = Measured(new float3(1, 0, 0),
                         0f, new Color32(80, 100, 120, 255))
                 }));
-                Assert.That(Directory.GetFiles(spool), Has.Length.EqualTo(4));
+                Assert.That(Directory.GetFiles(spool), Has.Length.EqualTo(2));
                 result = session.Complete(output);
             }
 

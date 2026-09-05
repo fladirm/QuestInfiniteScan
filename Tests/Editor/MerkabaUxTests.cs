@@ -54,6 +54,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Label>("operation-stage"), Is.Not.Null);
             Assert.That(root.Q<ProgressBar>("operation-progress"), Is.Not.Null);
             Assert.That(root.Q<Label>("val-proximity"), Is.Not.Null);
+            Assert.That(root.Q<TextField>("export-name"), Is.Not.Null);
             Assert.That(root.Q<TextField>("annotation-note"), Is.Not.Null);
             Assert.That(root.Q<Toggle>("artifact-world-lock"), Is.Not.Null);
             Assert.That(root.Q<Toggle>("artifact-room-align"), Is.Not.Null);

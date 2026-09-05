@@ -3,7 +3,7 @@
     min-height: 650px;
     padding: 16px;
     flex-direction: column;
-    background-color: rgba(18, 20, 24, 0.94);
+    background-color: rgba(14, 17, 22, 0.84);
     border-width: 1px;
     border-color: rgba(255, 255, 255, 0.14);
     border-radius: 18px;
@@ -19,7 +19,7 @@
     padding-bottom: 8px;
 }
 .session-heading { flex-direction: column; }
-.session-name { font-size: 19px; -unity-font-style: bold; color: white; }
+.session-name { font-size: 17px; -unity-font-style: bold; color: white; }
 .session-state { margin-top: 2px; font-size: 11px; color: rgb(126, 220, 188); }
 .save-state { font-size: 11px; -unity-text-align: middle-right; color: rgb(177, 183, 191); }
 .history-actions { flex-direction: row; margin-left: auto; margin-right: 8px; }
@@ -65,6 +65,10 @@
 .mode-panel { flex-direction: column; }
 .mode-panel--hidden { display: none; }
 .design-scroll { max-height: 510px; }
+.design-scroll .unity-scroll-view__vertical-scroller,
+.design-scroll .unity-scroll-view__horizontal-scroller,
+.design-scroll .unity-scroller--vertical,
+.design-scroll .unity-scroller--horizontal { display: none; }
 .operation-card {
     display: none;
     min-height: 62px;
@@ -81,7 +85,7 @@
     margin-right: 7px;
     border-width: 1px;
     border-radius: 11px;
-    font-size: 11px;
+    font-size: 10px;
     -unity-font-style: bold;
 }
 .primary-action { min-height: 54px; background-color: rgb(39, 130, 106); border-color: rgba(151, 245, 219, 0.48); color: white; }
@@ -95,8 +99,28 @@
 .refine-action { margin-top: 9px; margin-right: 0; }
 .section-title { margin-top: 12px; margin-bottom: 6px; font-size: 11px; -unity-font-style: bold; color: rgb(189, 194, 201); }
 .mini-section { margin-top: 6px; font-size: 9px; color: rgb(149, 155, 164); }
-.card, .color-card { padding: 10px; background-color: rgba(31, 34, 40, 0.92); border-width: 1px; border-color: rgba(255, 255, 255, 0.08); border-radius: 13px; }
-.field { min-height: 43px; margin-bottom: 5px; font-size: 11px; }
+.card, .color-card { padding: 10px; background-color: rgba(27, 32, 39, 0.76); border-width: 1px; border-color: rgba(255, 255, 255, 0.1); border-radius: 13px; }
+.export-card { margin-top: 2px; }
+.field { min-height: 44px; margin-bottom: 5px; font-size: 10px; color: rgb(238, 241, 245); }
+.field > .unity-base-field__label { width: 112px; color: rgb(174, 182, 193); font-size: 10px; }
+.field > .unity-base-text-field__input,
+.field > .unity-base-popup-field__input,
+.field .unity-text-field__input,
+.field .unity-popup-field__input {
+    min-height: 38px;
+    padding-left: 10px;
+    padding-right: 10px;
+    background-color: rgba(6, 8, 11, 0.56);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.13);
+    border-radius: 9px;
+    color: rgb(245, 247, 250);
+    font-size: 10px;
+}
+.field > .unity-base-text-field__input:focus,
+.field > .unity-base-popup-field__input:focus {
+    border-color: rgba(126, 220, 188, 0.72);
+}
 .button-row { margin-top: 8px; }
 .compact-row { margin-top: 5px; }
 .proximity { margin-top: 7px; -unity-text-align: middle-center; font-size: 11px; color: rgb(245, 197, 93); }

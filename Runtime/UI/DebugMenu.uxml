@@ -72,11 +72,15 @@
             </ui:VisualElement>
 
             <ui:Label text="Export" class="section-title" />
-            <ui:VisualElement class="button-row">
-                <ui:Button name="btn-export" text="Export GLB"
-                    class="secondary-action" />
-                <ui:Button name="btn-export-tiles" text="Export 3D Tiles"
-                    class="secondary-action button-last" />
+            <ui:VisualElement class="card export-card">
+                <ui:TextField name="export-name" label="File name"
+                    value="" class="field" />
+                <ui:VisualElement class="button-row compact-row">
+                    <ui:Button name="btn-export" text="Export GLB"
+                        class="secondary-action" />
+                    <ui:Button name="btn-export-tiles" text="Export 3D Tiles"
+                        class="secondary-action button-last" />
+                </ui:VisualElement>
             </ui:VisualElement>
             <ui:Label name="val-export" text="Not exported"
                 class="supporting-status" />
@@ -114,7 +118,7 @@
 
         <ui:ScrollView name="design-panel" mode="Vertical"
             horizontal-scroller-visibility="Hidden"
-            vertical-scroller-visibility="Auto"
+            vertical-scroller-visibility="Hidden"
             class="mode-panel design-scroll mode-panel--hidden">
             <ui:VisualElement class="segmented-row">
                 <ui:Button name="btn-design-paint" text="PAINT"

@@ -17,14 +17,18 @@ namespace Genesis.RoomScan
         private const string ViewerArchiveFileName = "QuestMerkabaScan.zip";
         private const string ViewerResourceRoot =
             "Merkaba/QuestMerkabaScanViewer";
+        private const int ExportTileCacheCapacity = 512;
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
         private MerkabaPersistence _persistence;
         private RoomScanner _scanner;
+        private bool _publicSavePending;
+        private string _publicSaveName;
 
         public bool IsExporting { get; private set; }
         public string LastExportPath { get; private set; }
+        public string LastPublicExportUri { get; private set; }
         public string LastStatus { get; private set; } = "Not exported";
         public string ExportPath => Path.Combine(Application.persistentDataPath,
             "MerkabaScan", "exports", ExportFileName);
@@ -41,7 +45,10 @@ namespace Genesis.RoomScan
             _scanner = GetComponent<RoomScanner>();
         }
 
-        public async Task<bool> ExportGlbAsync()
+        public async Task<bool> ExportGlbAsync() =>
+            await ExportGlbAsync(null);
+
+        public async Task<bool> ExportGlbAsync(string suggestedFileName)
         {
             if (IsExporting || _grid == null) return false;
             IsExporting = true;
@@ -114,6 +121,9 @@ namespace Genesis.RoomScan
                           $"{metrics.MeasuredPatchCount} measured, " +
                           $"{metrics.InferredPatchCount} gray inferred, " +
                           $"{metrics.UnresolvedMeasuredPlaneCount} unresolved planes");
+                RequestPublicSave(destination,
+                    ExportFileNameFor(suggestedFileName, ".glb"),
+                    "model/gltf-binary");
                 return true;
             }
             catch (Exception exception)
@@ -132,7 +142,11 @@ namespace Genesis.RoomScan
             }
         }
 
-        public async Task<bool> ExportViewerPackageAsync()
+        public async Task<bool> ExportViewerPackageAsync() =>
+            await ExportViewerPackageAsync(null);
+
+        public async Task<bool> ExportViewerPackageAsync(
+            string suggestedFileName)
         {
             if (IsExporting || _grid == null) return false;
             IsExporting = true;
@@ -191,6 +205,9 @@ namespace Genesis.RoomScan
                     $"archiveBytes={archiveBytes}");
                 SetStatus($"3D Tiles: {result.TileCount} GLBs, " +
                     $"{result.TriangleCount} triangles, offline ZIP");
+                RequestPublicSave(destination,
+                    ExportFileNameFor(suggestedFileName, ".zip"),
+                    "application/zip");
                 return true;
             }
             catch (Exception exception)
@@ -240,6 +257,111 @@ namespace Genesis.RoomScan
         {
             LastStatus = status;
             StatusChanged?.Invoke();
+        }
+
+        internal static string SanitizeExportFileName(string requested,
+            string fallback, string extension)
+        {
+            string value = string.IsNullOrWhiteSpace(requested)
+                ? fallback : requested.Trim();
+            value = Path.GetFileName(value);
+            if (value.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+                value = value.Substring(0, value.Length - extension.Length);
+            char[] invalid = Path.GetInvalidFileNameChars();
+            var clean = new char[value.Length];
+            int length = 0;
+            foreach (char character in value)
+            {
+                bool forbidden = character == '/' || character == '\\' ||
+                    character == ':' || character == '*' || character == '?' ||
+                    character == '"' || character == '<' || character == '>' ||
+                    character == '|';
+                if (!forbidden)
+                    for (int index = 0; index < invalid.Length; index++)
+                        if (character == invalid[index])
+                        {
+                            forbidden = true;
+                            break;
+                        }
+                char output = forbidden ? '-' : character;
+                if (output == '-' && length > 0 && clean[length - 1] == '-')
+                    continue;
+                clean[length++] = output;
+            }
+            string stem = new string(clean, 0, length).Trim(' ', '.', '-');
+            if (string.IsNullOrWhiteSpace(stem)) stem = fallback;
+            return stem + extension;
+        }
+
+        private string ExportFileNameFor(string requested, string extension)
+        {
+            string fallback = _persistence != null &&
+                _persistence.ActiveSessionId != Guid.Empty
+                ? _persistence.ActiveSessionName : ViewerPackageName;
+            return SanitizeExportFileName(requested, fallback, extension);
+        }
+
+        private void RequestPublicSave(string sourcePath, string suggestedName,
+            string mimeType)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (_publicSavePending)
+            {
+                SetStatus("Export ready in app storage; a Save As picker is " +
+                    "already open");
+                return;
+            }
+            try
+            {
+                using var unityPlayer = new AndroidJavaClass(
+                    "com.unity3d.player.UnityPlayer");
+                using AndroidJavaObject activity = unityPlayer.GetStatic<
+                    AndroidJavaObject>("currentActivity");
+                using var picker = new AndroidJavaClass(
+                    "com.genesis.roomscan.MerkabaPackagePicker");
+                _publicSavePending = true;
+                _publicSaveName = suggestedName;
+                SetStatus("Choose where to save " + suggestedName);
+                picker.CallStatic("save", activity, sourcePath, suggestedName,
+                    mimeType, gameObject.name,
+                    nameof(OnExportDocumentResult));
+            }
+            catch (Exception exception)
+            {
+                _publicSavePending = false;
+                Logger.Error("Could not open export Save As picker: " +
+                    exception);
+                SetStatus("Export ready in app storage; Save As failed: " +
+                    exception.Message);
+            }
+#endif
+        }
+
+        /// <summary>Android document-picker callback via UnitySendMessage.</summary>
+        public void OnExportDocumentResult(string result)
+        {
+            _publicSavePending = false;
+            if (string.IsNullOrWhiteSpace(result) || result == "CANCELLED")
+            {
+                SetStatus("Save As cancelled; export remains in app storage");
+                return;
+            }
+            const string savedPrefix = "SAVED:";
+            if (result.StartsWith(savedPrefix, StringComparison.Ordinal))
+            {
+                LastPublicExportUri = result.Substring(savedPrefix.Length);
+                SetStatus((_publicSaveName ?? "Export") +
+                    " saved to Quest Files");
+                _publicSaveName = null;
+                return;
+            }
+            const string errorPrefix = "ERROR:";
+            string detail = result.StartsWith(errorPrefix,
+                StringComparison.Ordinal)
+                ? result.Substring(errorPrefix.Length) : result;
+            Logger.Error("Export Save As failed: " + detail);
+            SetStatus("Export remains in app storage; Save As failed: " +
+                detail);
         }
 
         private async Task<MerkabaTilesetResult> BuildStreamingTilesetAsync(
@@ -330,6 +452,8 @@ namespace Genesis.RoomScan
             long totalOccupiedOwners = 0L;
             long totalMeasuredOwners = 0L;
             int emittedGroups = 0;
+            var tileCache = new ExportTileSnapshotCache(_grid,
+                ExportTileCacheCapacity);
             for (int groupIndex = 0; groupIndex < keys.Count; groupIndex++)
             {
                 MerkabaTileAddress ownerKey = keys[groupIndex];
@@ -366,39 +490,32 @@ namespace Genesis.RoomScan
                 context.Sort();
                 var evidence = new Dictionary<int3, KernelState>(
                     context.Count * MerkabaSpatial.KernelsPerTile / 4);
-                for (int offset = 0; offset < context.Count;
-                     offset += MerkabaGrid.StreamBatchCapacity)
+                MerkabaTileSnapshot[] tiles = await tileCache.ReadAsync(
+                    context).ConfigureAwait(false);
+                foreach (MerkabaTileSnapshot tile in tiles)
                 {
-                    int count = Math.Min(MerkabaGrid.StreamBatchCapacity,
-                        context.Count - offset);
-                    var batch = context.GetRange(offset, count);
-                    MerkabaTileSnapshot[] tiles = await _grid
-                        .ReadStoredTilesAsync(batch).ConfigureAwait(false);
-                    foreach (MerkabaTileSnapshot tile in tiles)
+                    bool ownerTile = ownerSet.Contains(tile.Address);
+                    for (int kernel = 0; kernel < tile.States.Length;
+                         kernel++)
                     {
-                        bool ownerTile = ownerSet.Contains(tile.Address);
-                        for (int kernel = 0; kernel < tile.States.Length;
-                             kernel++)
+                        KernelState state = tile.States[kernel];
+                        if (state.OccupancyEvidence == 0 &&
+                            state.Flags == 0u &&
+                            state.ColorConfidence == 0u) continue;
+                        if (ownerTile)
                         {
-                            KernelState state = tile.States[kernel];
-                            if (state.OccupancyEvidence == 0 &&
-                                state.Flags == 0u &&
-                                state.ColorConfidence == 0u) continue;
-                            if (ownerTile)
+                            nonzeroStates++;
+                            if (state.IsOccupied)
                             {
-                                nonzeroStates++;
-                                if (state.IsOccupied)
-                                {
-                                    occupiedOwners++;
-                                    if (state.HasMeasuredSurfacePlane)
-                                        measuredOwners++;
-                                }
+                                occupiedOwners++;
+                                if (state.HasMeasuredSurfacePlane)
+                                    measuredOwners++;
                             }
-                            int3 coord = MerkabaSpatial.Decode(
-                                tile.Address.BlockCoord,
-                                tile.Address.LocalAddress, kernel);
-                            evidence.Add(coord, state);
                         }
+                        int3 coord = MerkabaSpatial.Decode(
+                            tile.Address.BlockCoord,
+                            tile.Address.LocalAddress, kernel);
+                        evidence.Add(coord, state);
                     }
                 }
                 totalNonzeroStates += nonzeroStates;
@@ -456,6 +573,11 @@ namespace Genesis.RoomScan
                     $"occupiedOwners={totalOccupiedOwners} " +
                     $"measuredOwners={totalMeasuredOwners} " +
                     "emittedLeaf=0.");
+            Logger.Info("Merkaba export tile IO " +
+                $"logicalReads={tileCache.LogicalReadCount} " +
+                $"physicalReads={tileCache.PhysicalReadCount} " +
+                $"cacheHits={tileCache.CacheHitCount} " +
+                $"capacity={ExportTileCacheCapacity}");
         }
 
         private static void LogOwnerGroup(bool enabled,
@@ -548,6 +670,119 @@ namespace Genesis.RoomScan
                     result.UnresolvedMeasuredPlaneCount;
                 RemovedBehindMembraneCount +=
                     result.RemovedBehindMembraneCount;
+            }
+        }
+
+        private sealed class ExportTileSnapshotCache
+        {
+            private sealed class Entry
+            {
+                internal readonly MerkabaTileSnapshot Snapshot;
+                internal readonly LinkedListNode<MerkabaTileAddress> Node;
+
+                internal Entry(MerkabaTileSnapshot snapshot,
+                    LinkedListNode<MerkabaTileAddress> node)
+                {
+                    Snapshot = snapshot;
+                    Node = node;
+                }
+            }
+
+            private readonly MerkabaGrid _grid;
+            private readonly int _capacity;
+            private readonly Dictionary<MerkabaTileAddress, Entry> _entries;
+            private readonly LinkedList<MerkabaTileAddress> _recency = new();
+
+            internal long LogicalReadCount { get; private set; }
+            internal long PhysicalReadCount { get; private set; }
+            internal long CacheHitCount { get; private set; }
+
+            internal ExportTileSnapshotCache(MerkabaGrid grid, int capacity)
+            {
+                _grid = grid ?? throw new ArgumentNullException(nameof(grid));
+                _capacity = Math.Max(MerkabaGrid.StreamBatchCapacity,
+                    capacity);
+                _entries = new Dictionary<MerkabaTileAddress, Entry>(
+                    _capacity);
+            }
+
+            internal async Task<MerkabaTileSnapshot[]> ReadAsync(
+                IReadOnlyList<MerkabaTileAddress> addresses)
+            {
+                if (addresses == null)
+                    throw new ArgumentNullException(nameof(addresses));
+                var result = new MerkabaTileSnapshot[addresses.Count];
+                LogicalReadCount += addresses.Count;
+                for (int offset = 0; offset < addresses.Count;)
+                {
+                    if (TryGet(addresses[offset], out result[offset]))
+                    {
+                        CacheHitCount++;
+                        offset++;
+                        continue;
+                    }
+
+                    var missing = new List<MerkabaTileAddress>(
+                        MerkabaGrid.StreamBatchCapacity);
+                    var resultIndices = new List<int>(
+                        MerkabaGrid.StreamBatchCapacity);
+                    while (offset < addresses.Count && missing.Count <
+                           MerkabaGrid.StreamBatchCapacity)
+                    {
+                        MerkabaTileAddress address = addresses[offset];
+                        if (TryGet(address, out result[offset]))
+                            CacheHitCount++;
+                        else
+                        {
+                            missing.Add(address);
+                            resultIndices.Add(offset);
+                        }
+                        offset++;
+                    }
+                    if (missing.Count == 0) continue;
+                    MerkabaTileSnapshot[] loaded = await _grid
+                        .ReadStoredTilesAsync(missing).ConfigureAwait(false);
+                    if (loaded.Length != missing.Count)
+                        throw new InvalidDataException(
+                            "M8 export tile read count mismatch.");
+                    PhysicalReadCount += loaded.Length;
+                    for (int index = 0; index < loaded.Length; index++)
+                    {
+                        MerkabaTileSnapshot snapshot = loaded[index];
+                        if (!snapshot.Address.Equals(missing[index]))
+                            throw new InvalidDataException(
+                                "M8 export tile read order mismatch.");
+                        result[resultIndices[index]] = snapshot;
+                        Add(snapshot);
+                    }
+                }
+                return result;
+            }
+
+            private bool TryGet(MerkabaTileAddress address,
+                out MerkabaTileSnapshot snapshot)
+            {
+                if (!_entries.TryGetValue(address, out Entry entry))
+                {
+                    snapshot = null;
+                    return false;
+                }
+                _recency.Remove(entry.Node);
+                _recency.AddLast(entry.Node);
+                snapshot = entry.Snapshot;
+                return true;
+            }
+
+            private void Add(MerkabaTileSnapshot snapshot)
+            {
+                var node = new LinkedListNode<MerkabaTileAddress>(
+                    snapshot.Address);
+                _recency.AddLast(node);
+                _entries.Add(snapshot.Address, new Entry(snapshot, node));
+                if (_entries.Count <= _capacity) return;
+                LinkedListNode<MerkabaTileAddress> oldest = _recency.First;
+                _recency.RemoveFirst();
+                _entries.Remove(oldest.Value);
             }
         }
 

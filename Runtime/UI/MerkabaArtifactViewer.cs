@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -3040,21 +3041,20 @@ namespace Genesis.RoomScan.UI
             using (var reader = new StreamReader(input, Encoding.UTF8, true,
                        64 * 1024, false))
                 json = reader.ReadToEnd();
-            TilesetDocument document = JsonUtility.FromJson<TilesetDocument>(json);
-            if (document?.root == null)
-                throw new InvalidDataException("Invalid 3D Tiles root.");
-            MerkabaSpatialBinding? spatialBinding =
-                TryParseSpatialBinding(json, out MerkabaSpatialBinding parsed)
-                    ? parsed : null;
+            TilesetManifest parsedManifest = ParseTilesetManifest(json);
             var tiles = new List<Tile>();
-            CollectTiles(document.root, Matrix4x4.identity, archive,
-                packagePrefix, tiles);
+            foreach (TilesetManifestTile parsedTile in parsedManifest.Tiles)
+            {
+                string uri = ResolveArchiveUri(packagePrefix, parsedTile.Uri);
+                ZipArchiveEntry entry = archive.GetEntry(uri) ??
+                    throw new InvalidDataException("Missing tile " + uri);
+                tiles.Add(new Tile(uri, entry.Length, parsedTile.OriginUnity,
+                    parsedTile.Bounds));
+            }
             if (tiles.Count == 0)
                 throw new InvalidDataException("3D Tiles export has no GLB leaves.");
             tiles.Sort((left, right) => string.CompareOrdinal(left.Uri,
                 right.Uri));
-            Bounds bounds = ConvertTilesetBox(document.root.boundingVolume?.box,
-                ReadColumnMajorMatrix(document.root.transform));
             long totalModelBytes = 0L;
             long totalResidentEstimateBytes = 0L;
             foreach (Tile tile in tiles)
@@ -3063,8 +3063,9 @@ namespace Genesis.RoomScan.UI
                 totalResidentEstimateBytes = checked(
                     totalResidentEstimateBytes + tile.EstimatedResidentBytes);
             }
-            return new PackageIndex(tiles, bounds, totalModelBytes,
-                totalResidentEstimateBytes, spatialBinding);
+            return new PackageIndex(tiles, parsedManifest.Bounds,
+                totalModelBytes, totalResidentEstimateBytes,
+                parsedManifest.SpatialBinding);
         }
 
         private static ZipArchiveEntry FindTilesetManifest(ZipArchive archive)
@@ -3087,26 +3088,74 @@ namespace Genesis.RoomScan.UI
                 "tileset.json is missing.");
         }
 
-        private static void CollectTiles(TilesetNode node, Matrix4x4 parent,
-            ZipArchive archive, string packagePrefix, List<Tile> output)
+        internal static int ValidateTilesetManifestForPreview(string json) =>
+            ParseTilesetManifest(json).Tiles.Count;
+
+        private static TilesetManifest ParseTilesetManifest(string json)
         {
-            Matrix4x4 local = ReadColumnMajorMatrix(node.transform);
-            Matrix4x4 current = parent * local;
-            if (node.content != null && !string.IsNullOrWhiteSpace(
-                    node.content.uri))
+            if (string.IsNullOrWhiteSpace(json))
+                throw new InvalidDataException("Invalid 3D Tiles root.");
+            if (!TryFindJsonProperty(json, 0, json.Length, "root",
+                    out JsonSlice root) || json[root.Start] != '{')
+                throw new InvalidDataException("Invalid 3D Tiles root.");
+
+            var tiles = new List<TilesetManifestTile>();
+            var stack = new Stack<TilesetNodeFrame>();
+            stack.Push(new TilesetNodeFrame(root, Matrix4x4.identity, true));
+            Bounds rootBounds = default;
+            bool hasRootBounds = false;
+            while (stack.Count != 0)
             {
-                string uri = ResolveArchiveUri(packagePrefix,
-                    node.content.uri);
-                ZipArchiveEntry entry = archive.GetEntry(uri) ??
-                    throw new InvalidDataException("Missing tile " + uri);
-                output.Add(new Tile(uri, entry.Length,
-                    TilesetToUnity(current.MultiplyPoint3x4(Vector3.zero)),
-                    ConvertTilesetBox(node.boundingVolume?.box, current)));
+                TilesetNodeFrame frame = stack.Pop();
+                if (!TryFindJsonProperty(json, frame.Node.Start,
+                        frame.Node.End, "boundingVolume",
+                        out JsonSlice volume) || json[volume.Start] != '{' ||
+                    !TryFindJsonProperty(json, volume.Start, volume.End,
+                        "box", out JsonSlice boxSlice))
+                    throw new InvalidDataException("Invalid 3D Tiles box.");
+                float[] box = ParseJsonFloatArray(json, boxSlice, 12,
+                    "3D Tiles box");
+
+                Matrix4x4 local = Matrix4x4.identity;
+                if (TryFindJsonProperty(json, frame.Node.Start,
+                        frame.Node.End, "transform", out JsonSlice transform))
+                    local = ReadColumnMajorMatrix(ParseJsonFloatArray(json,
+                        transform, 16, "3D Tiles transform"));
+                Matrix4x4 current = frame.Parent * local;
+                Bounds bounds = ConvertTilesetBox(box, current);
+                if (frame.IsRoot)
+                {
+                    rootBounds = bounds;
+                    hasRootBounds = true;
+                }
+
+                if (TryFindJsonProperty(json, frame.Node.Start,
+                        frame.Node.End, "content", out JsonSlice content) &&
+                    json[content.Start] == '{' &&
+                    TryFindJsonProperty(json, content.Start, content.End,
+                        "uri", out JsonSlice uriSlice))
+                {
+                    string uri = ParseJsonString(json, uriSlice);
+                    if (!string.IsNullOrWhiteSpace(uri))
+                        tiles.Add(new TilesetManifestTile(uri,
+                            TilesetToUnity(current.MultiplyPoint3x4(
+                                Vector3.zero)), bounds));
+                }
+
+                if (!TryFindJsonProperty(json, frame.Node.Start,
+                        frame.Node.End, "children", out JsonSlice children))
+                    continue;
+                List<JsonSlice> childNodes = ParseJsonObjectArray(json,
+                    children, "3D Tiles children");
+                for (int index = childNodes.Count - 1; index >= 0; index--)
+                    stack.Push(new TilesetNodeFrame(childNodes[index], current,
+                        false));
             }
-            if (node.children == null) return;
-            foreach (TilesetNode child in node.children)
-                if (child != null) CollectTiles(child, current, archive,
-                    packagePrefix, output);
+            if (!hasRootBounds)
+                throw new InvalidDataException("Invalid 3D Tiles root.");
+            MerkabaSpatialBinding? binding = TryParseSpatialBinding(json,
+                out MerkabaSpatialBinding parsed) ? parsed : null;
+            return new TilesetManifest(tiles, rootBounds, binding);
         }
 
         private static string ResolveArchiveUri(string packagePrefix,
@@ -3126,19 +3175,264 @@ namespace Genesis.RoomScan.UI
         {
             binding = default;
             if (string.IsNullOrWhiteSpace(json)) return false;
-            TilesetDocument document = JsonUtility.FromJson<TilesetDocument>(
-                json);
-            TilesetSpatialBinding encoded = document?.asset?.extras?
-                .questMerkabaSpatialBinding;
-            if (encoded == null || encoded.version !=
-                MerkabaSpatialBinding.CurrentVersion ||
-                !Guid.TryParse(encoded.anchorUuid, out Guid uuid) ||
-                encoded.anchorFromPackage == null ||
-                encoded.anchorFromPackage.Length != 16)
+            if (!TryFindJsonProperty(json, 0, json.Length, "asset",
+                    out JsonSlice asset) || json[asset.Start] != '{' ||
+                !TryFindJsonProperty(json, asset.Start, asset.End, "extras",
+                    out JsonSlice extras) || json[extras.Start] != '{' ||
+                !TryFindJsonProperty(json, extras.Start, extras.End,
+                    "questMerkabaSpatialBinding", out JsonSlice encoded) ||
+                json[encoded.Start] != '{' ||
+                !TryFindJsonProperty(json, encoded.Start, encoded.End,
+                    "version", out JsonSlice version) ||
+                !TryParseJsonInt(json, version, out int parsedVersion) ||
+                parsedVersion != MerkabaSpatialBinding.CurrentVersion ||
+                !TryFindJsonProperty(json, encoded.Start, encoded.End,
+                    "anchorUuid", out JsonSlice anchorUuid) ||
+                !Guid.TryParse(ParseJsonString(json, anchorUuid),
+                    out Guid uuid) ||
+                !TryFindJsonProperty(json, encoded.Start, encoded.End,
+                    "anchorFromPackage", out JsonSlice matrix))
                 return false;
+            float[] values;
+            try
+            {
+                values = ParseJsonFloatArray(json, matrix, 16,
+                    "3D Tiles spatial binding");
+            }
+            catch (InvalidDataException)
+            {
+                return false;
+            }
             binding = new MerkabaSpatialBinding(uuid,
-                ReadColumnMajorMatrix(encoded.anchorFromPackage));
+                ReadColumnMajorMatrix(values));
             return binding.IsValid;
+        }
+
+        private static bool TryFindJsonProperty(string json, int objectStart,
+            int objectEnd, string property, out JsonSlice value)
+        {
+            value = default;
+            int cursor = SkipJsonWhitespace(json, objectStart);
+            if (cursor >= objectEnd || json[cursor] != '{') return false;
+            cursor++;
+            while (cursor < objectEnd)
+            {
+                cursor = SkipJsonWhitespace(json, cursor);
+                if (cursor >= objectEnd || json[cursor] == '}') return false;
+                JsonSlice key = ReadJsonStringSlice(json, cursor, objectEnd);
+                cursor = SkipJsonWhitespace(json, key.End);
+                if (cursor >= objectEnd || json[cursor++] != ':')
+                    throw new InvalidDataException("Invalid 3D Tiles JSON.");
+                cursor = SkipJsonWhitespace(json, cursor);
+                int valueEnd = SkipJsonValue(json, cursor, objectEnd);
+                if (JsonStringEquals(json, key, property))
+                {
+                    value = new JsonSlice(cursor, valueEnd);
+                    return true;
+                }
+                cursor = SkipJsonWhitespace(json, valueEnd);
+                if (cursor < objectEnd && json[cursor] == ',')
+                {
+                    cursor++;
+                    continue;
+                }
+                if (cursor < objectEnd && json[cursor] == '}') return false;
+                throw new InvalidDataException("Invalid 3D Tiles JSON.");
+            }
+            return false;
+        }
+
+        private static List<JsonSlice> ParseJsonObjectArray(string json,
+            JsonSlice array, string label)
+        {
+            int cursor = SkipJsonWhitespace(json, array.Start);
+            if (cursor >= array.End || json[cursor++] != '[')
+                throw new InvalidDataException("Invalid " + label + '.');
+            var result = new List<JsonSlice>();
+            while (cursor < array.End)
+            {
+                cursor = SkipJsonWhitespace(json, cursor);
+                if (cursor < array.End && json[cursor] == ']') return result;
+                if (cursor >= array.End || json[cursor] != '{')
+                    throw new InvalidDataException("Invalid " + label + '.');
+                int end = SkipJsonValue(json, cursor, array.End);
+                result.Add(new JsonSlice(cursor, end));
+                cursor = SkipJsonWhitespace(json, end);
+                if (cursor < array.End && json[cursor] == ',')
+                {
+                    cursor++;
+                    continue;
+                }
+                if (cursor < array.End && json[cursor] == ']') return result;
+                throw new InvalidDataException("Invalid " + label + '.');
+            }
+            throw new InvalidDataException("Invalid " + label + '.');
+        }
+
+        private static float[] ParseJsonFloatArray(string json,
+            JsonSlice array, int expectedCount, string label)
+        {
+            int cursor = SkipJsonWhitespace(json, array.Start);
+            if (cursor >= array.End || json[cursor++] != '[')
+                throw new InvalidDataException("Invalid " + label + '.');
+            var values = new float[expectedCount];
+            for (int index = 0; index < expectedCount; index++)
+            {
+                cursor = SkipJsonWhitespace(json, cursor);
+                int start = cursor;
+                while (cursor < array.End && json[cursor] != ',' &&
+                       json[cursor] != ']') cursor++;
+                string token = json.Substring(start, cursor - start).Trim();
+                if (!float.TryParse(token, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out float parsed) ||
+                    float.IsNaN(parsed) || float.IsInfinity(parsed))
+                    throw new InvalidDataException("Invalid " + label + '.');
+                values[index] = parsed;
+                cursor = SkipJsonWhitespace(json, cursor);
+                if (index + 1 < expectedCount)
+                {
+                    if (cursor >= array.End || json[cursor++] != ',')
+                        throw new InvalidDataException("Invalid " + label + '.');
+                }
+            }
+            cursor = SkipJsonWhitespace(json, cursor);
+            if (cursor >= array.End || json[cursor++] != ']')
+                throw new InvalidDataException("Invalid " + label + '.');
+            cursor = SkipJsonWhitespace(json, cursor);
+            if (cursor != array.End)
+                throw new InvalidDataException("Invalid " + label + '.');
+            return values;
+        }
+
+        private static bool TryParseJsonInt(string json, JsonSlice value,
+            out int parsed) => int.TryParse(json.Substring(value.Start,
+                value.End - value.Start), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out parsed);
+
+        private static string ParseJsonString(string json, JsonSlice value)
+        {
+            JsonSlice encoded = ReadJsonStringSlice(json, value.Start,
+                value.End);
+            if (encoded.End != value.End)
+                throw new InvalidDataException("Invalid 3D Tiles JSON string.");
+            var decoded = new StringBuilder(encoded.End - encoded.Start - 2);
+            for (int cursor = encoded.Start + 1; cursor < encoded.End - 1;
+                 cursor++)
+            {
+                char character = json[cursor];
+                if (character != '\\')
+                {
+                    decoded.Append(character);
+                    continue;
+                }
+                if (++cursor >= encoded.End - 1)
+                    throw new InvalidDataException(
+                        "Invalid 3D Tiles JSON string.");
+                char escape = json[cursor];
+                switch (escape)
+                {
+                    case '"': decoded.Append('"'); break;
+                    case '\\': decoded.Append('\\'); break;
+                    case '/': decoded.Append('/'); break;
+                    case 'b': decoded.Append('\b'); break;
+                    case 'f': decoded.Append('\f'); break;
+                    case 'n': decoded.Append('\n'); break;
+                    case 'r': decoded.Append('\r'); break;
+                    case 't': decoded.Append('\t'); break;
+                    case 'u':
+                        if (cursor + 4 >= encoded.End)
+                            throw new InvalidDataException(
+                                "Invalid 3D Tiles JSON string.");
+                        string hex = json.Substring(cursor + 1, 4);
+                        if (!ushort.TryParse(hex, NumberStyles.HexNumber,
+                                CultureInfo.InvariantCulture,
+                                out ushort codePoint))
+                            throw new InvalidDataException(
+                                "Invalid 3D Tiles JSON string.");
+                        decoded.Append((char)codePoint);
+                        cursor += 4;
+                        break;
+                    default:
+                        throw new InvalidDataException(
+                            "Invalid 3D Tiles JSON string.");
+                }
+            }
+            return decoded.ToString();
+        }
+
+        private static JsonSlice ReadJsonStringSlice(string json, int start,
+            int limit)
+        {
+            if (start >= limit || json[start] != '"')
+                throw new InvalidDataException("Invalid 3D Tiles JSON.");
+            bool escaped = false;
+            for (int cursor = start + 1; cursor < limit; cursor++)
+            {
+                char character = json[cursor];
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+                if (character == '\\') escaped = true;
+                else if (character == '"')
+                    return new JsonSlice(start, cursor + 1);
+            }
+            throw new InvalidDataException("Invalid 3D Tiles JSON string.");
+        }
+
+        private static int SkipJsonValue(string json, int start, int limit)
+        {
+            if (start >= limit)
+                throw new InvalidDataException("Invalid 3D Tiles JSON.");
+            char opening = json[start];
+            if (opening == '"') return ReadJsonStringSlice(json, start,
+                limit).End;
+            if (opening != '{' && opening != '[')
+            {
+                int cursor = start;
+                while (cursor < limit && json[cursor] != ',' &&
+                       json[cursor] != '}' && json[cursor] != ']') cursor++;
+                int end = cursor;
+                while (end > start && char.IsWhiteSpace(json[end - 1])) end--;
+                if (end == start)
+                    throw new InvalidDataException("Invalid 3D Tiles JSON.");
+                return end;
+            }
+
+            char closing = opening == '{' ? '}' : ']';
+            int depth = 1;
+            for (int cursor = start + 1; cursor < limit; cursor++)
+            {
+                char character = json[cursor];
+                if (character == '"')
+                {
+                    cursor = ReadJsonStringSlice(json, cursor, limit).End - 1;
+                    continue;
+                }
+                if (character == opening) depth++;
+                else if (character == closing && --depth == 0)
+                    return cursor + 1;
+            }
+            throw new InvalidDataException("Invalid 3D Tiles JSON.");
+        }
+
+        private static int SkipJsonWhitespace(string json, int cursor)
+        {
+            while (cursor < json.Length && char.IsWhiteSpace(json[cursor]))
+                cursor++;
+            return cursor;
+        }
+
+        private static bool JsonStringEquals(string json, JsonSlice encoded,
+            string expected)
+        {
+            if (encoded.End - encoded.Start != expected.Length + 2)
+                return false;
+            for (int index = 0; index < expected.Length; index++)
+                if (json[encoded.Start + index + 1] != expected[index])
+                    return false;
+            return true;
         }
 
         private static Matrix4x4 ReadColumnMajorMatrix(float[] values)
@@ -3240,8 +3534,7 @@ namespace Genesis.RoomScan.UI
             int binaryLength = (int)binaryLengthValue;
             GlbDocument document = JsonUtility.FromJson<GlbDocument>(json);
             if (document?.bufferViews == null ||
-                document.bufferViews.Length != 4 || document.accessors == null ||
-                document.accessors.Length != 4)
+                document.accessors == null || document.accessors.Length != 4)
                 throw new InvalidDataException("Unsupported GLB layout.");
             GlbAccessor position = document.accessors[0];
             GlbAccessor normal = document.accessors[1];
@@ -3254,75 +3547,124 @@ namespace Genesis.RoomScan.UI
                 index.type != "SCALAR" || position.count != normal.count ||
                 position.count != color.count || index.count % 3 != 0)
                 throw new InvalidDataException("Unsupported GLB accessor ABI.");
-            ValidateView(document.bufferViews[0], position.count, 12,
-                binaryLength);
-            ValidateView(document.bufferViews[1], normal.count, 12,
-                binaryLength);
-            ValidateView(document.bufferViews[2], color.count, 4,
-                binaryLength);
-            ValidateView(document.bufferViews[3], index.count, 4,
-                binaryLength);
+
+            bool interleaved = document.bufferViews.Length == 2 &&
+                position.bufferView == 0 && normal.bufferView == 0 &&
+                color.bufferView == 0 && index.bufferView == 1 &&
+                position.byteOffset == 0 && normal.byteOffset == 12 &&
+                color.byteOffset == 24 && index.byteOffset == 0 &&
+                document.bufferViews[0].byteStride == 28;
+            bool separated = document.bufferViews.Length == 4 &&
+                position.bufferView == 0 && normal.bufferView == 1 &&
+                color.bufferView == 2 && index.bufferView == 3 &&
+                position.byteOffset == 0 && normal.byteOffset == 0 &&
+                color.byteOffset == 0 && index.byteOffset == 0 &&
+                document.bufferViews[0].byteStride == 0 &&
+                document.bufferViews[1].byteStride == 0 &&
+                document.bufferViews[2].byteStride == 0 &&
+                document.bufferViews[3].byteStride == 0;
+            if (!interleaved && !separated)
+                throw new InvalidDataException("Unsupported GLB layout.");
             var positions = new Vector3[position.count];
             var normals = new Vector3[position.count];
             var colors = new Color32[position.count];
             var indices = new int[index.count];
             long binaryCursor = 0L;
-            MoveToView(input, document.bufferViews[0], ref binaryCursor,
-                scratch);
-            for (int vertexBase = 0; vertexBase < position.count;)
+            if (interleaved)
             {
-                int batch = Math.Min(position.count - vertexBase,
-                    scratch.Length / 12);
-                ReadExactly(input, scratch, 0, batch * 12);
-                for (int local = 0; local < batch; local++)
+                ValidateView(document.bufferViews[0], position.count, 28,
+                    binaryLength);
+                ValidateView(document.bufferViews[1], index.count, 4,
+                    binaryLength);
+                MoveToView(input, document.bufferViews[0], ref binaryCursor,
+                    scratch);
+                for (int vertexBase = 0; vertexBase < position.count;)
                 {
-                    int offset = local * 12;
-                    Vector3 glb = new(ReadSingle(scratch, offset),
-                        ReadSingle(scratch, offset + 4),
-                        ReadSingle(scratch, offset + 8));
-                    positions[vertexBase + local] =
-                        new Vector3(-glb.x, glb.y, glb.z);
+                    int batch = Math.Min(position.count - vertexBase,
+                        scratch.Length / 28);
+                    ReadExactly(input, scratch, 0, batch * 28);
+                    for (int local = 0; local < batch; local++)
+                    {
+                        int offset = local * 28;
+                        DecodePreviewVertex(scratch, offset,
+                            out Vector3 decodedPosition,
+                            out Vector3 decodedNormal, out Color32 decodedColor);
+                        positions[vertexBase + local] = decodedPosition;
+                        normals[vertexBase + local] = decodedNormal;
+                        colors[vertexBase + local] = decodedColor;
+                    }
+                    vertexBase += batch;
                 }
-                vertexBase += batch;
+                binaryCursor += document.bufferViews[0].byteLength;
             }
-            binaryCursor += document.bufferViews[0].byteLength;
-            MoveToView(input, document.bufferViews[1], ref binaryCursor,
-                scratch);
-            for (int vertexBase = 0; vertexBase < normal.count;)
+            else
             {
-                int batch = Math.Min(normal.count - vertexBase,
-                    scratch.Length / 12);
-                ReadExactly(input, scratch, 0, batch * 12);
-                for (int local = 0; local < batch; local++)
+                ValidateView(document.bufferViews[0], position.count, 12,
+                    binaryLength);
+                ValidateView(document.bufferViews[1], normal.count, 12,
+                    binaryLength);
+                ValidateView(document.bufferViews[2], color.count, 4,
+                    binaryLength);
+                ValidateView(document.bufferViews[3], index.count, 4,
+                    binaryLength);
+                MoveToView(input, document.bufferViews[0], ref binaryCursor,
+                    scratch);
+                for (int vertexBase = 0; vertexBase < position.count;)
                 {
-                    int offset = local * 12;
-                    Vector3 glbNormal = new(ReadSingle(scratch, offset),
-                        ReadSingle(scratch, offset + 4),
-                        ReadSingle(scratch, offset + 8));
-                    normals[vertexBase + local] = new Vector3(-glbNormal.x,
-                        glbNormal.y, glbNormal.z).normalized;
+                    int batch = Math.Min(position.count - vertexBase,
+                        scratch.Length / 12);
+                    ReadExactly(input, scratch, 0, batch * 12);
+                    for (int local = 0; local < batch; local++)
+                    {
+                        int offset = local * 12;
+                        Vector3 glb = new(ReadSingle(scratch, offset),
+                            ReadSingle(scratch, offset + 4),
+                            ReadSingle(scratch, offset + 8));
+                        positions[vertexBase + local] =
+                            new Vector3(-glb.x, glb.y, glb.z);
+                    }
+                    vertexBase += batch;
                 }
-                vertexBase += batch;
-            }
-            binaryCursor += document.bufferViews[1].byteLength;
-            MoveToView(input, document.bufferViews[2], ref binaryCursor,
-                scratch);
-            for (int vertexBase = 0; vertexBase < color.count;)
-            {
-                int batch = Math.Min(color.count - vertexBase,
-                    scratch.Length / 4);
-                ReadExactly(input, scratch, 0, batch * 4);
-                for (int local = 0; local < batch; local++)
+                binaryCursor += document.bufferViews[0].byteLength;
+                MoveToView(input, document.bufferViews[1], ref binaryCursor,
+                    scratch);
+                for (int vertexBase = 0; vertexBase < normal.count;)
                 {
-                    int offset = local * 4;
-                    colors[vertexBase + local] = new Color32(scratch[offset],
-                        scratch[offset + 1], scratch[offset + 2],
-                        scratch[offset + 3]);
+                    int batch = Math.Min(normal.count - vertexBase,
+                        scratch.Length / 12);
+                    ReadExactly(input, scratch, 0, batch * 12);
+                    for (int local = 0; local < batch; local++)
+                    {
+                        int offset = local * 12;
+                        Vector3 glbNormal = new(ReadSingle(scratch, offset),
+                            ReadSingle(scratch, offset + 4),
+                            ReadSingle(scratch, offset + 8));
+                        normals[vertexBase + local] = new Vector3(-glbNormal.x,
+                            glbNormal.y, glbNormal.z).normalized;
+                    }
+                    vertexBase += batch;
                 }
-                vertexBase += batch;
+                binaryCursor += document.bufferViews[1].byteLength;
+                MoveToView(input, document.bufferViews[2], ref binaryCursor,
+                    scratch);
+                for (int vertexBase = 0; vertexBase < color.count;)
+                {
+                    int batch = Math.Min(color.count - vertexBase,
+                        scratch.Length / 4);
+                    ReadExactly(input, scratch, 0, batch * 4);
+                    for (int local = 0; local < batch; local++)
+                    {
+                        int offset = local * 4;
+                        colors[vertexBase + local] = new Color32(
+                            scratch[offset], scratch[offset + 1],
+                            scratch[offset + 2], scratch[offset + 3]);
+                    }
+                    vertexBase += batch;
+                }
+                binaryCursor += document.bufferViews[2].byteLength;
             }
-            binaryCursor += document.bufferViews[2].byteLength;
-            MoveToView(input, document.bufferViews[3], ref binaryCursor,
+            GlbBufferView indexView = document.bufferViews[index.bufferView];
+            MoveToView(input, indexView, ref binaryCursor,
                 scratch);
             for (int valueBase = 0; valueBase < index.count;)
             {
@@ -3339,12 +3681,27 @@ namespace Genesis.RoomScan.UI
                 }
                 valueBase += batch;
             }
-            binaryCursor += document.bufferViews[3].byteLength;
+            binaryCursor += indexView.byteLength;
             SkipExactly(input, binaryLength - binaryCursor, scratch);
             for (int triangle = 0; triangle < indices.Length; triangle += 3)
                 (indices[triangle + 1], indices[triangle + 2]) =
                     (indices[triangle + 2], indices[triangle + 1]);
             return new ParsedGlb(positions, normals, colors, indices);
+        }
+
+        private static void DecodePreviewVertex(byte[] bytes, int offset,
+            out Vector3 position, out Vector3 normal, out Color32 color)
+        {
+            Vector3 glbPosition = new(ReadSingle(bytes, offset),
+                ReadSingle(bytes, offset + 4), ReadSingle(bytes, offset + 8));
+            Vector3 glbNormal = new(ReadSingle(bytes, offset + 12),
+                ReadSingle(bytes, offset + 16), ReadSingle(bytes, offset + 20));
+            position = new Vector3(-glbPosition.x, glbPosition.y,
+                glbPosition.z);
+            normal = new Vector3(-glbNormal.x, glbNormal.y,
+                glbNormal.z).normalized;
+            color = new Color32(bytes[offset + 24], bytes[offset + 25],
+                bytes[offset + 26], bytes[offset + 27]);
         }
 
         private static void MoveToView(Stream input, GlbBufferView view,
@@ -3486,6 +3843,63 @@ namespace Genesis.RoomScan.UI
             }
         }
 
+        private readonly struct JsonSlice
+        {
+            internal readonly int Start;
+            internal readonly int End;
+
+            internal JsonSlice(int start, int end)
+            {
+                Start = start;
+                End = end;
+            }
+        }
+
+        private readonly struct TilesetNodeFrame
+        {
+            internal readonly JsonSlice Node;
+            internal readonly Matrix4x4 Parent;
+            internal readonly bool IsRoot;
+
+            internal TilesetNodeFrame(JsonSlice node, Matrix4x4 parent,
+                bool isRoot)
+            {
+                Node = node;
+                Parent = parent;
+                IsRoot = isRoot;
+            }
+        }
+
+        private readonly struct TilesetManifestTile
+        {
+            internal readonly string Uri;
+            internal readonly Vector3 OriginUnity;
+            internal readonly Bounds Bounds;
+
+            internal TilesetManifestTile(string uri, Vector3 originUnity,
+                Bounds bounds)
+            {
+                Uri = uri;
+                OriginUnity = originUnity;
+                Bounds = bounds;
+            }
+        }
+
+        private readonly struct TilesetManifest
+        {
+            internal readonly List<TilesetManifestTile> Tiles;
+            internal readonly Bounds Bounds;
+            internal readonly MerkabaSpatialBinding? SpatialBinding;
+
+            internal TilesetManifest(List<TilesetManifestTile> tiles,
+                Bounds bounds, MerkabaSpatialBinding? spatialBinding)
+            {
+                Tiles = tiles;
+                Bounds = bounds;
+                SpatialBinding = spatialBinding;
+            }
+        }
+
         internal readonly struct ParsedGlb
         {
             internal readonly Vector3[] Positions;
@@ -3508,54 +3922,6 @@ namespace Genesis.RoomScan.UI
         }
 
         [Serializable]
-        private sealed class TilesetDocument
-        {
-            public TilesetAsset asset;
-            public TilesetNode root;
-        }
-
-        [Serializable]
-        private sealed class TilesetAsset
-        {
-            public TilesetExtras extras;
-        }
-
-        [Serializable]
-        private sealed class TilesetExtras
-        {
-            public TilesetSpatialBinding questMerkabaSpatialBinding;
-        }
-
-        [Serializable]
-        private sealed class TilesetSpatialBinding
-        {
-            public int version;
-            public string anchorUuid;
-            public float[] anchorFromPackage;
-        }
-
-        [Serializable]
-        private sealed class TilesetNode
-        {
-            public TilesetBoundingVolume boundingVolume;
-            public float[] transform;
-            public TilesetContent content;
-            public TilesetNode[] children;
-        }
-
-        [Serializable]
-        private sealed class TilesetBoundingVolume
-        {
-            public float[] box;
-        }
-
-        [Serializable]
-        private sealed class TilesetContent
-        {
-            public string uri;
-        }
-
-        [Serializable]
         private sealed class GlbDocument
         {
             public GlbBufferView[] bufferViews;
@@ -3567,11 +3933,14 @@ namespace Genesis.RoomScan.UI
         {
             public int byteOffset;
             public int byteLength;
+            public int byteStride;
         }
 
         [Serializable]
         private sealed class GlbAccessor
         {
+            public int bufferView;
+            public int byteOffset;
             public int componentType;
             public int count;
             public string type;

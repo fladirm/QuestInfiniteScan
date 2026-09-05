@@ -650,7 +650,10 @@ namespace Genesis.RoomScan
             }
         }
 
-        public async Task<bool> ExportGlbAsync()
+        public async Task<bool> ExportGlbAsync() =>
+            await ExportGlbAsync(null);
+
+        public async Task<bool> ExportGlbAsync(string suggestedFileName)
         {
             if (IsBusy) return false;
             if (!TryBeginOperation(ScanOperationKind.ExportGlb,
@@ -663,7 +666,8 @@ namespace Genesis.RoomScan
                 ReportOperation(ScanOperationKind.ExportGlb,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
-                success = _exporter != null && await _exporter.ExportGlbAsync();
+                success = _exporter != null && await _exporter
+                    .ExportGlbAsync(suggestedFileName);
                 return success;
             }
             finally
@@ -673,7 +677,11 @@ namespace Genesis.RoomScan
             }
         }
 
-        public async Task<bool> ExportViewerPackageAsync()
+        public async Task<bool> ExportViewerPackageAsync() =>
+            await ExportViewerPackageAsync(null);
+
+        public async Task<bool> ExportViewerPackageAsync(
+            string suggestedFileName)
         {
             if (IsBusy) return false;
             if (!TryBeginOperation(ScanOperationKind.ExportGlb,
@@ -687,7 +695,8 @@ namespace Genesis.RoomScan
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _exporter != null &&
-                    await _exporter.ExportViewerPackageAsync();
+                    await _exporter.ExportViewerPackageAsync(
+                        suggestedFileName);
                 return success;
             }
             finally

@@ -250,12 +250,11 @@ namespace Genesis.RoomScan.Tests
             byte[] bytes = stream.ToArray();
             int jsonLength = checked((int)BitConverter.ToUInt32(bytes, 12));
             int binaryStart = 20 + jsonLength + 8;
-            int normalsOffset = result.VertexCount * 12;
 
             Assert.That(result.PrimitiveCount, Is.GreaterThan(0));
             for (int vertex = 0; vertex < result.VertexCount; vertex++)
             {
-                int offset = binaryStart + normalsOffset + vertex * 12;
+                int offset = binaryStart + vertex * 28 + 12;
                 float x = Math.Abs(BitConverter.ToSingle(bytes, offset));
                 float y = Math.Abs(BitConverter.ToSingle(bytes, offset + 4));
                 float z = Math.Abs(BitConverter.ToSingle(bytes, offset + 8));

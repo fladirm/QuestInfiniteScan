@@ -35,6 +35,7 @@ namespace Genesis.RoomScan
         private const uint GlbMagic = 0x46546C67u;
         private const uint JsonChunkType = 0x4E4F534Au;
         private const uint BinaryChunkType = 0x004E4942u;
+        private const int VertexStride = 28;
 
         private readonly struct GeometryPlan
         {
@@ -117,13 +118,9 @@ namespace Genesis.RoomScan
         internal sealed class StreamingSession : IDisposable
         {
             private readonly string _directory;
-            private readonly FileStream _positions;
-            private readonly FileStream _normals;
-            private readonly FileStream _colors;
+            private readonly FileStream _vertices;
             private readonly FileStream _indices;
-            private readonly BinaryWriter _positionWriter;
-            private readonly BinaryWriter _normalWriter;
-            private readonly BinaryWriter _colorWriter;
+            private readonly BinaryWriter _vertexWriter;
             private readonly BinaryWriter _indexWriter;
             private int _vertexCount;
             private int _indexCount;
@@ -145,14 +142,10 @@ namespace Genesis.RoomScan
                         "GLB spool directory already exists: " + directory);
                 _directory = directory;
                 Directory.CreateDirectory(directory);
-                _positions = Open("positions.bin");
-                _normals = Open("normals.bin");
-                _colors = Open("colors.bin");
+                _vertices = Open("vertices.bin");
                 _indices = Open("indices.bin");
                 var encoding = new UTF8Encoding(false);
-                _positionWriter = new BinaryWriter(_positions, encoding, true);
-                _normalWriter = new BinaryWriter(_normals, encoding, true);
-                _colorWriter = new BinaryWriter(_colors, encoding, true);
+                _vertexWriter = new BinaryWriter(_vertices, encoding, true);
                 _indexWriter = new BinaryWriter(_indices, encoding, true);
             }
 
@@ -175,19 +168,19 @@ namespace Genesis.RoomScan
                 foreach (GeometryVertex vertex in plan.Vertices)
                 {
                     Vector3 position = Convert(vertex.Position);
-                    _positionWriter.Write(position.x);
-                    _positionWriter.Write(position.y);
-                    _positionWriter.Write(position.z);
+                    _vertexWriter.Write(position.x);
+                    _vertexWriter.Write(position.y);
+                    _vertexWriter.Write(position.z);
                     Vector3 normal = Convert(vertex.Normal).normalized;
-                    _normalWriter.Write(normal.x);
-                    _normalWriter.Write(normal.y);
-                    _normalWriter.Write(normal.z);
+                    _vertexWriter.Write(normal.x);
+                    _vertexWriter.Write(normal.y);
+                    _vertexWriter.Write(normal.z);
                     Color32 color = KernelState.UnpackColor(
                         vertex.PackedColor);
-                    _colorWriter.Write(color.r);
-                    _colorWriter.Write(color.g);
-                    _colorWriter.Write(color.b);
-                    _colorWriter.Write((byte)255);
+                    _vertexWriter.Write(color.r);
+                    _vertexWriter.Write(color.g);
+                    _vertexWriter.Write(color.b);
+                    _vertexWriter.Write((byte)255);
                 }
                 foreach (uint index in plan.Indices)
                     _indexWriter.Write(checked((uint)baseVertex + index));
@@ -208,13 +201,9 @@ namespace Genesis.RoomScan
                         nameof(destination));
 
                 FlushSpools();
-                long positionsOffset = 0L;
-                long positionsLength = _positions.Length;
-                long normalsOffset = positionsLength;
-                long normalsLength = _normals.Length;
-                long colorsOffset = checked(normalsOffset + normalsLength);
-                long colorsLength = _colors.Length;
-                long indicesOffset = checked(colorsOffset + colorsLength);
+                long verticesOffset = 0L;
+                long verticesLength = _vertices.Length;
+                long indicesOffset = verticesLength;
                 long indicesLength = _indices.Length;
                 long binaryLength = checked(indicesOffset + indicesLength);
                 if (binaryLength > uint.MaxValue)
@@ -223,8 +212,7 @@ namespace Genesis.RoomScan
                         "use the 3D Tiles export for a larger scan.");
 
                 string json = BuildJson(_vertexCount, _indexCount,
-                    binaryLength, positionsOffset, positionsLength,
-                    normalsOffset, normalsLength, colorsOffset, colorsLength,
+                    binaryLength, verticesOffset, verticesLength,
                     indicesOffset, indicesLength, _minimum, _maximum);
                 byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
                 int paddedJsonLength = Align4(jsonBytes.Length);
@@ -252,18 +240,10 @@ namespace Genesis.RoomScan
                 writer.Flush();
 
                 long completed = 12L + 8L + paddedJsonLength + 8L;
-                Copy(_positions, destination);
-                completed += positionsLength;
+                Copy(_vertices, destination);
+                completed += verticesLength;
                 Report(progress, ScanOperationStage.WritingFile, completed,
-                    totalLength, "Wrote bounded POSITION data");
-                Copy(_normals, destination);
-                completed += normalsLength;
-                Report(progress, ScanOperationStage.WritingFile, completed,
-                    totalLength, "Wrote bounded NORMAL data");
-                Copy(_colors, destination);
-                completed += colorsLength;
-                Report(progress, ScanOperationStage.WritingFile, completed,
-                    totalLength, "Wrote bounded COLOR_0 data");
+                    totalLength, "Wrote bounded interleaved vertex data");
                 Copy(_indices, destination);
                 completed += indicesLength;
                 writer.Flush();
@@ -284,13 +264,9 @@ namespace Genesis.RoomScan
             {
                 if (_disposed) return;
                 _disposed = true;
-                _positionWriter.Dispose();
-                _normalWriter.Dispose();
-                _colorWriter.Dispose();
+                _vertexWriter.Dispose();
                 _indexWriter.Dispose();
-                _positions.Dispose();
-                _normals.Dispose();
-                _colors.Dispose();
+                _vertices.Dispose();
                 _indices.Dispose();
                 if (Directory.Exists(_directory))
                     Directory.Delete(_directory, true);
@@ -303,17 +279,12 @@ namespace Genesis.RoomScan
 
             private void FlushSpools()
             {
-                _positionWriter.Flush();
-                _normalWriter.Flush();
-                _colorWriter.Flush();
+                _vertexWriter.Flush();
                 _indexWriter.Flush();
-                _positions.Flush();
-                _normals.Flush();
-                _colors.Flush();
+                _vertices.Flush();
                 _indices.Flush();
-                if (_positions.Length != checked((long)_vertexCount * 12L) ||
-                    _normals.Length != checked((long)_vertexCount * 12L) ||
-                    _colors.Length != checked((long)_vertexCount * 4L) ||
+                if (_vertices.Length != checked((long)_vertexCount *
+                        VertexStride) ||
                     _indices.Length != checked((long)_indexCount * 4L))
                     throw new InvalidDataException(
                         "Bounded GLB spool length mismatch.");
@@ -349,13 +320,10 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException("GLB membrane is empty.");
 
             GeometryPlan plan = Plan(membrane, localOrigin, progress);
-            long positionsOffset = 0;
-            long positionsLength = checked((long)plan.VertexCount * 12);
-            long normalsOffset = positionsOffset + positionsLength;
-            long normalsLength = checked((long)plan.VertexCount * 12);
-            long colorsOffset = normalsOffset + normalsLength;
-            long colorsLength = checked((long)plan.VertexCount * 4);
-            long indicesOffset = colorsOffset + colorsLength;
+            long verticesOffset = 0;
+            long verticesLength = checked((long)plan.VertexCount *
+                VertexStride);
+            long indicesOffset = verticesLength;
             long indicesLength = checked((long)plan.IndexCount * 4);
             long binaryLength = checked(indicesOffset + indicesLength);
             if (binaryLength > uint.MaxValue)
@@ -363,8 +331,7 @@ namespace Genesis.RoomScan
                     "GLB binary chunk exceeds the 4 GiB container limit.");
 
             string json = BuildJson(plan.VertexCount, plan.IndexCount,
-                binaryLength, positionsOffset, positionsLength, normalsOffset,
-                normalsLength, colorsOffset, colorsLength, indicesOffset,
+                binaryLength, verticesOffset, verticesLength, indicesOffset,
                 indicesLength, plan.Minimum, plan.Maximum);
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             int paddedJsonLength = Align4(jsonBytes.Length);
@@ -390,44 +357,26 @@ namespace Genesis.RoomScan
             Report(progress, ScanOperationStage.WritingFile,
                 binaryHeaderBytes, totalLength, "Wrote GLB header");
 
-            long passBytes = 0;
+            long vertexBytes = 0;
             foreach (GeometryVertex vertex in plan.Vertices)
             {
-                Vector3 value = Convert(vertex.Position);
-                writer.Write(value.x);
-                writer.Write(value.y);
-                writer.Write(value.z);
-                passBytes += 12;
-                ReportVertexPass(progress, binaryHeaderBytes + passBytes,
-                    totalLength, (int)(passBytes / 12), plan.VertexCount,
-                    "Writing POSITION data");
-            }
-
-            passBytes = 0;
-            foreach (GeometryVertex vertex in plan.Vertices)
-            {
-                Vector3 value = Convert(vertex.Normal).normalized;
-                writer.Write(value.x);
-                writer.Write(value.y);
-                writer.Write(value.z);
-                passBytes += 12;
-                ReportVertexPass(progress, binaryHeaderBytes + normalsOffset +
-                    passBytes, totalLength, (int)(passBytes / 12),
-                    plan.VertexCount, "Writing NORMAL data");
-            }
-
-            passBytes = 0;
-            foreach (GeometryVertex vertex in plan.Vertices)
-            {
+                Vector3 position = Convert(vertex.Position);
+                writer.Write(position.x);
+                writer.Write(position.y);
+                writer.Write(position.z);
+                Vector3 normal = Convert(vertex.Normal).normalized;
+                writer.Write(normal.x);
+                writer.Write(normal.y);
+                writer.Write(normal.z);
                 Color32 color = KernelState.UnpackColor(vertex.PackedColor);
                 writer.Write(color.r);
                 writer.Write(color.g);
                 writer.Write(color.b);
                 writer.Write((byte)255);
-                passBytes += 4;
-                ReportVertexPass(progress, binaryHeaderBytes + colorsOffset +
-                    passBytes, totalLength, (int)(passBytes / 4),
-                    plan.VertexCount, "Writing COLOR_0 data");
+                vertexBytes += VertexStride;
+                ReportVertexPass(progress, binaryHeaderBytes + vertexBytes,
+                    totalLength, (int)(vertexBytes / VertexStride),
+                    plan.VertexCount, "Writing interleaved vertex data");
             }
 
             WriteIndices(writer, plan, progress,
@@ -577,10 +526,9 @@ namespace Genesis.RoomScan
         private static Vector3 Convert(float3 unity) => Convert((Vector3)unity);
 
         private static string BuildJson(int vertexCount, int indexCount,
-            long binaryLength, long positionsOffset, long positionsLength,
-            long normalsOffset, long normalsLength, long colorsOffset,
-            long colorsLength, long indicesOffset, long indicesLength,
-            Vector3 minimum, Vector3 maximum)
+            long binaryLength, long verticesOffset, long verticesLength,
+            long indicesOffset, long indicesLength, Vector3 minimum,
+            Vector3 maximum)
         {
             string min = $"[{Number(minimum.x)},{Number(minimum.y)},{Number(minimum.z)}]";
             string max = $"[{Number(maximum.x)},{Number(maximum.y)},{Number(maximum.z)}]";
@@ -596,29 +544,31 @@ namespace Genesis.RoomScan
             json.Append("\"metallicFactor\":0,\"roughnessFactor\":0.85},\"doubleSided\":true}],");
             json.Append("\"buffers\":[{\"byteLength\":").Append(binaryLength).Append("}],");
             json.Append("\"bufferViews\":[");
-            BufferView(json, positionsOffset, positionsLength, 34962); json.Append(',');
-            BufferView(json, normalsOffset, normalsLength, 34962); json.Append(',');
-            BufferView(json, colorsOffset, colorsLength, 34962); json.Append(',');
-            BufferView(json, indicesOffset, indicesLength, 34963); json.Append("],");
+            BufferView(json, verticesOffset, verticesLength, 34962,
+                VertexStride); json.Append(',');
+            BufferView(json, indicesOffset, indicesLength, 34963, 0);
+            json.Append("],");
             json.Append("\"accessors\":[");
-            json.Append("{\"bufferView\":0,\"componentType\":5126,\"count\":")
+            json.Append("{\"bufferView\":0,\"byteOffset\":0,\"componentType\":5126,\"count\":")
                 .Append(vertexCount).Append(",\"type\":\"VEC3\",\"min\":")
                 .Append(min).Append(",\"max\":").Append(max).Append("},");
-            json.Append("{\"bufferView\":1,\"componentType\":5126,\"count\":")
+            json.Append("{\"bufferView\":0,\"byteOffset\":12,\"componentType\":5126,\"count\":")
                 .Append(vertexCount).Append(",\"type\":\"VEC3\"},");
-            json.Append("{\"bufferView\":2,\"componentType\":5121,\"normalized\":true,\"count\":")
+            json.Append("{\"bufferView\":0,\"byteOffset\":24,\"componentType\":5121,\"normalized\":true,\"count\":")
                 .Append(vertexCount).Append(",\"type\":\"VEC4\"},");
-            json.Append("{\"bufferView\":3,\"componentType\":5125,\"count\":")
+            json.Append("{\"bufferView\":1,\"byteOffset\":0,\"componentType\":5125,\"count\":")
                 .Append(indexCount).Append(",\"type\":\"SCALAR\"}]}");
             return json.ToString();
         }
 
         private static void BufferView(StringBuilder json, long offset,
-            long length, int target)
+            long length, int target, int stride)
         {
             json.Append("{\"buffer\":0,\"byteOffset\":").Append(offset)
                 .Append(",\"byteLength\":").Append(length)
-                .Append(",\"target\":").Append(target).Append('}');
+                .Append(",\"target\":").Append(target);
+            if (stride != 0) json.Append(",\"byteStride\":").Append(stride);
+            json.Append('}');
         }
 
         private static string Number(float value) =>

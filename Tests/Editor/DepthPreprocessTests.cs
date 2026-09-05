@@ -604,7 +604,7 @@ namespace Genesis.RoomScan.Tests
                     StringComparison.Ordinal)));
             Assert.That(export.IndexOf("await QuiesceScanningAsync()",
                     StringComparison.Ordinal),
-                Is.LessThan(export.IndexOf("_exporter.ExportGlbAsync()",
+                Is.LessThan(export.IndexOf(".ExportGlbAsync(suggestedFileName)",
                     StringComparison.Ordinal)));
             Assert.That(RuntimeSource("Runtime/Merkaba/MerkabaPersistence.cs"),
                 Does.Not.Contain("await _integrator.FinishCurrentObservationAsync()"));

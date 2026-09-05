@@ -157,6 +157,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(menu, Does.Contain("paint-color-wheel"));
             Assert.That(menu, Does.Contain("btn-paint-eyedropper"));
             Assert.That(picker, Does.Contain("Intent.ACTION_OPEN_DOCUMENT"));
+            Assert.That(picker, Does.Contain("Intent.ACTION_CREATE_DOCUMENT"));
+            Assert.That(picker, Does.Contain("Intent.EXTRA_TITLE"));
+            Assert.That(picker, Does.Contain("openFileDescriptor(uri, \"w\")"));
             Assert.That(picker, Does.Contain("byte[] buffer = new byte[1024 * 1024]"));
             Assert.That(picker, Does.Contain("MessageDigest.getInstance("));
             Assert.That(picker, Does.Not.Contain("readAllBytes"));
@@ -212,6 +215,24 @@ namespace Genesis.RoomScan.Tests
             {
                 if (Directory.Exists(root)) Directory.Delete(root, true);
             }
+        }
+
+        [Test]
+        public void QuestPreviewParsesDeepStandardTilesetWithoutRecursiveJsonUtility()
+        {
+            const string box =
+                "{\"box\":[0,0,0,1,0,0,0,1,0,0,0,1]}";
+            string node = "{\"boundingVolume\":" + box +
+                ",\"geometricError\":0,\"content\":{\"uri\":" +
+                "\"tiles/000000.glb\"}}";
+            for (int depth = 0; depth < 24; depth++)
+                node = "{\"boundingVolume\":" + box +
+                    ",\"geometricError\":1,\"children\":[" + node + "]}";
+            string json = "{\"asset\":{\"version\":\"1.1\"}," +
+                "\"geometricError\":1,\"root\":" + node + "}";
+
+            Assert.That(MerkabaArtifactViewer
+                .ValidateTilesetManifestForPreview(json), Is.EqualTo(1));
         }
 
         [Test]
@@ -508,7 +529,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(exporter, Does.Contain(
                 "MerkabaTilesetWriter.CompleteStreamingPackage(staging"));
             Assert.That(exporter, Does.Contain(
-                "offset += MerkabaGrid.StreamBatchCapacity"));
+                "new ExportTileSnapshotCache(_grid,"));
+            Assert.That(exporter, Does.Contain("physicalReads="));
             Assert.That(exporter, Does.Contain(
                 "ValidateOwnedMeasuredPatches(ownerKey"));
             Assert.That(exporter, Does.Contain(
@@ -541,6 +563,19 @@ namespace Genesis.RoomScan.Tests
                 "BuildStreamingTilesetAsync("));
             Assert.That(storage, Does.Contain("CaptureStoredTileIndex()"));
             Assert.That(storage, Does.Contain("ReadStoredTilesAsync("));
+        }
+
+        [Test]
+        public void ExportFileNameIsSafeAndKeepsRequestedContainerExtension()
+        {
+            Assert.That(MerkabaExporter.SanitizeExportFileName(
+                "  First floor.glb  ", "Scan", ".glb"),
+                Is.EqualTo("First floor.glb"));
+            Assert.That(MerkabaExporter.SanitizeExportFileName(
+                "../bad:name?.zip", "Scan", ".zip"),
+                Is.EqualTo("bad-name.zip"));
+            Assert.That(MerkabaExporter.SanitizeExportFileName(
+                "...", "Scan", ".zip"), Is.EqualTo("Scan.zip"));
         }
 
         [Test]
@@ -751,7 +786,7 @@ namespace Genesis.RoomScan.Tests
             var vertices = new Vector3[vertexCount];
             for (int index = 0; index < vertexCount; index++)
             {
-                int offset = binaryStart + index * 12;
+                int offset = binaryStart + index * 28;
                 Vector3 vertex = new Vector3(
                     BitConverter.ToSingle(glb, offset),
                     BitConverter.ToSingle(glb, offset + 4),
