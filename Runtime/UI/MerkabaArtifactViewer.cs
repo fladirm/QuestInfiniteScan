@@ -73,6 +73,7 @@ namespace Genesis.RoomScan.UI
         private MerkabaPaintEngine _paintEngine;
         private MerkabaDesignLibrary _designLibrary;
         private Transform _modelRoot;
+        private Transform _designDisplayRoot;
         private Transform _annotationRoot;
         private GameObject _backdrop;
         private GameObject _continuationMarker;
@@ -338,7 +339,7 @@ namespace Genesis.RoomScan.UI
             set
             {
                 AnnotationRecord selected = FindSelectedAnnotation();
-                if (selected != null) selected.note = value ?? string.Empty;
+                if (selected != null) SetAnnotationNote(selected.id, value);
             }
         }
 
@@ -357,6 +358,9 @@ namespace Genesis.RoomScan.UI
         {
             get
             {
+                string sessionPath = _scanner?.ActiveAnnotationsPath;
+                if (!string.IsNullOrWhiteSpace(sessionPath))
+                    return sessionPath;
                 string archive = _archivePath ?? _exporter.ViewerPackagePath;
                 return Path.Combine(Path.GetDirectoryName(archive),
                     Path.GetFileNameWithoutExtension(archive) +
@@ -717,7 +721,7 @@ namespace Genesis.RoomScan.UI
             {
                 _designLibrary?.CloseRuntime();
                 _designLibrary = null;
-                _paintEngine.Save();
+                SaveDesign();
                 _paintEngine.Close();
             }
             _annotations.Clear();
@@ -739,6 +743,7 @@ namespace Genesis.RoomScan.UI
             _annotationHitPreview = null;
             if (_modelRoot != null) Destroy(_modelRoot.gameObject);
             _modelRoot = null;
+            _designDisplayRoot = null;
             _annotationRoot = null;
             ReleaseArtifactAnchor();
             if (_modelMaterial != null) Destroy(_modelMaterial);
@@ -768,14 +773,19 @@ namespace Genesis.RoomScan.UI
             if (wasOpen) Status = "GLB View closed";
         }
 
-        public bool SaveDesign() => _paintEngine == null ||
-            _paintEngine.Save();
+        public bool SaveDesign()
+        {
+            bool annotationsSaved = TrySaveAnnotations(false);
+            bool paintSaved = _paintEngine == null || _paintEngine.Save();
+            return annotationsSaved && paintSaved;
+        }
 
         internal void RebindSessionDesign()
         {
             if (!IsOpen) return;
-            if (_paintEngine != null && !_paintEngine.Save()) return;
+            if (!SaveDesign()) return;
             OpenSessionDesign();
+            LoadAnnotations();
         }
 
         private void OpenSessionDesign()
@@ -786,20 +796,20 @@ namespace Genesis.RoomScan.UI
             _designLibrary = null;
             _paintEngine.Save();
             _paintEngine.Close();
-            Transform roomRoot = RoomSpaceRoot.RoomSpaceReady
-                ? RoomSpaceRoot.Instance.transform : null;
+            bool roomReady = RoomSpaceRoot.RoomSpaceReady;
+            Transform displayRoot = roomReady ? _designDisplayRoot : null;
             string path = _scanner?.ActiveDesignPath;
-            if (roomRoot == null || string.IsNullOrWhiteSpace(path))
+            if (displayRoot == null || string.IsNullOrWhiteSpace(path))
             {
                 Logger.Warning("Design paint is unavailable until an anchored " +
                     "scan session is active.");
                 return;
             }
-            _paintEngine.Open(roomRoot, previewShader, path);
+            _paintEngine.Open(displayRoot, previewShader, path);
             string libraryPath = _scanner?.DesignLibraryPath;
             if (string.IsNullOrWhiteSpace(libraryPath)) return;
             _designLibrary = new MerkabaDesignLibrary(libraryPath);
-            _designLibrary.Open(_paintEngine.Document, roomRoot,
+            _designLibrary.Open(_paintEngine.Document, displayRoot,
                 previewShader, _paintEngine.MarkDocumentChanged,
                 _paintEngine.BeginDocumentChange,
                 _paintEngine.CommitDocumentChange,
@@ -833,6 +843,7 @@ namespace Genesis.RoomScan.UI
             _annotations.Remove(selected);
             _selectedAnnotationId = 0;
             RefreshAnnotationObjects();
+            _scanner?.MarkDesignDirty();
             Status = $"Deleted {selected.type} #{selected.id}";
         }
 
@@ -911,16 +922,37 @@ namespace Genesis.RoomScan.UI
         {
             AnnotationRecord annotation = _annotations.Find(item =>
                 item.id == annotationId);
-            if (annotation != null) annotation.note = value ?? string.Empty;
+            if (annotation == null) return;
+            string note = value ?? string.Empty;
+            if (string.Equals(annotation.note, note,
+                    StringComparison.Ordinal)) return;
+            annotation.note = note;
+            _scanner?.MarkDesignDirty();
         }
 
         public void SaveAnnotations()
         {
+            if (!TrySaveAnnotations(true)) return;
+            if (_paintEngine != null && !_paintEngine.Save())
+            {
+                Status = "Design save failed";
+                return;
+            }
+            Status = $"Saved {_annotations.Count} survey annotations " +
+                $"and {_paintEngine?.StrokeCount ?? 0} paint strokes";
+        }
+
+        private bool TrySaveAnnotations(bool reportFailure)
+        {
             try
             {
-                string directory = Path.GetDirectoryName(AnnotationPath);
+                string path = AnnotationPath;
+                string directory = Path.GetDirectoryName(path);
+                if (string.IsNullOrWhiteSpace(directory))
+                    throw new IOException(
+                        "Annotation destination has no directory.");
                 Directory.CreateDirectory(directory);
-                string temporary = AnnotationPath + ".tmp";
+                string temporary = path + ".tmp";
                 var file = new AnnotationFile
                 {
                     format = "QuestMerkabaAnnotations",
@@ -937,16 +969,15 @@ namespace Genesis.RoomScan.UI
                     stream.Write(bytes, 0, bytes.Length);
                     stream.Flush(true);
                 }
-                MerkabaFilePublishing.Publish(temporary, AnnotationPath);
-                if (!SaveDesign())
-                    throw new IOException("Session design could not be saved.");
-                Status = $"Saved {_annotations.Count} survey annotations " +
-                    $"and {_paintEngine?.StrokeCount ?? 0} paint strokes";
+                MerkabaFilePublishing.Publish(temporary, path);
+                return true;
             }
             catch (Exception exception)
             {
                 Logger.Error("Could not save GLB View annotations: " + exception);
-                Status = "Annotation save failed: " + exception.Message;
+                if (reportFailure)
+                    Status = "Annotation save failed: " + exception.Message;
+                return false;
             }
         }
 
@@ -959,6 +990,10 @@ namespace Genesis.RoomScan.UI
 
             var root = new GameObject("Merkaba Export Preview");
             _modelRoot = root.transform;
+            var design = new GameObject("Session Design Display");
+            _designDisplayRoot = design.transform;
+            ConfigureSessionDesignDisplay(_designDisplayRoot, _modelRoot,
+                _scanCenter);
             var annotations = new GameObject("Annotations");
             _annotationRoot = annotations.transform;
             _annotationRoot.SetParent(_modelRoot, false);
@@ -1001,6 +1036,19 @@ namespace Genesis.RoomScan.UI
                 : new Vector3(0f, 1.4f, 0.9f);
             ApplyViewerFrame();
             CreateBackdrop(camera);
+        }
+
+        internal static void ConfigureSessionDesignDisplay(
+            Transform displayRoot, Transform modelRoot, Vector3 scanCenter)
+        {
+            if (displayRoot == null)
+                throw new ArgumentNullException(nameof(displayRoot));
+            if (modelRoot == null)
+                throw new ArgumentNullException(nameof(modelRoot));
+            displayRoot.SetParent(modelRoot, false);
+            displayRoot.localPosition = -scanCenter;
+            displayRoot.localRotation = Quaternion.identity;
+            displayRoot.localScale = Vector3.one;
         }
 
         private void HandleViewerInput()
@@ -1046,7 +1094,7 @@ namespace Genesis.RoomScan.UI
                 ContinueAnnotationPoseGrab(rightPosition, rightRotation);
                 return;
             }
-            _annotationPoseGrabActive = false;
+            EndAnnotationPoseGrab();
 
             if (!_roomAligned && rightGrip && leftGrip && hasRightPose &&
                 hasLeftPose)
@@ -1122,6 +1170,8 @@ namespace Genesis.RoomScan.UI
                 if (triggerHeld) ContinueMove(ray);
                 if (triggerUp)
                 {
+                    if (_moveOriginalPoints != null)
+                        _scanner?.MarkDesignDirty();
                     _moveOriginalPoints = null;
                     _moveHandleIndex = -1;
                 }
@@ -1243,6 +1293,13 @@ namespace Genesis.RoomScan.UI
         {
             _modelGrabActive = false;
             _modelGrabMode = ModelGrabMode.None;
+        }
+
+        private void EndAnnotationPoseGrab()
+        {
+            if (!_annotationPoseGrabActive) return;
+            _annotationPoseGrabActive = false;
+            _scanner?.MarkDesignDirty();
         }
 
         internal static bool TryBuildTwoHandFrame(Vector3 leftPosition,
@@ -1929,6 +1986,7 @@ namespace Genesis.RoomScan.UI
             _annotations.Add(annotation);
             _selectedAnnotationId = annotation.id;
             RefreshAnnotationObjects();
+            _scanner?.MarkDesignDirty();
             Status = $"Added {annotation.type} #{annotation.id}";
         }
 
@@ -1940,7 +1998,7 @@ namespace Genesis.RoomScan.UI
             EndModelGrab();
             _designLibrary?.EndGrab(true);
             CancelPaintStroke();
-            _annotationPoseGrabActive = false;
+            EndAnnotationPoseGrab();
             _moveOriginalPoints = null;
             _moveHandleIndex = -1;
             SetAnnotationHitPreview(false, default);
@@ -1979,6 +2037,7 @@ namespace Genesis.RoomScan.UI
             _annotations.Add(annotation);
             _selectedAnnotationId = annotation.id;
             RefreshAnnotationObjects();
+            _scanner?.MarkDesignDirty();
             Status = $"Added {annotation.type} #{annotation.id}";
         }
 

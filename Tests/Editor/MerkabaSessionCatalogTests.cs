@@ -159,9 +159,19 @@ namespace Genesis.RoomScan.Tests
                 string copiedDesign = Path.Combine(
                     catalog.SessionDirectory(copy.Id),
                     MerkabaSessionCatalog.DesignFileName);
+                string sourceAnnotations = Path.Combine(
+                    catalog.SessionDirectory(a.Id),
+                    MerkabaSessionCatalog.AnnotationsFileName);
+                string copiedAnnotations = Path.Combine(
+                    catalog.SessionDirectory(copy.Id),
+                    MerkabaSessionCatalog.AnnotationsFileName);
                 File.WriteAllText(sourceDesign, "{\"formatVersion\":1}");
+                File.WriteAllText(sourceAnnotations,
+                    "{\"format\":\"QuestMerkabaAnnotations\"}");
                 await Task.Run(() => MerkabaPersistence.CopyFileDurable(
                     sourceDesign, copiedDesign));
+                await Task.Run(() => MerkabaPersistence.CopyFileDurable(
+                    sourceAnnotations, copiedAnnotations));
                 catalog.MarkSaved(copy);
                 MerkabaSessionSnapshot reopenedCopy = await Task.Run(() =>
                 {
@@ -175,6 +185,9 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(new[] { snapshotA.Tiles[0].Address }));
                 Assert.That(File.ReadAllText(copiedDesign),
                     Is.EqualTo("{\"formatVersion\":1}"));
+                Assert.That(File.ReadAllText(copiedAnnotations),
+                    Is.EqualTo(
+                        "{\"format\":\"QuestMerkabaAnnotations\"}"));
 
                 catalog.Rename(copy, "A archive");
                 Assert.That(catalog.Read(copy.Id).displayName,
@@ -216,6 +229,8 @@ namespace Genesis.RoomScan.Tests
                 "public async Task<bool> SaveAsAsync(string displayName)"));
             Assert.That(persistence, Does.Contain(
                 "CopyFileDurable(sourceCheckpoint"));
+            Assert.That(persistence, Does.Contain(
+                "MerkabaSessionCatalog.AnnotationsFileName"));
             Assert.That(persistence, Does.Not.Contain("File.Copy("));
 
             string storage = File.ReadAllText(Path.GetFullPath(

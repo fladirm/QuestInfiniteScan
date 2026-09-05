@@ -5,6 +5,7 @@ using UnityEngine.UIElements;
 namespace Genesis.RoomScan.UI
 {
     /// <summary>Donor-proven right-controller UI pointer with laser and cursor feedback.</summary>
+    [DefaultExecutionOrder(-1000)]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(OVRInputModule))]
     public sealed class ControllerRayDriver : MonoBehaviour
@@ -36,6 +37,8 @@ namespace Genesis.RoomScan.UI
         private MaterialPropertyBlock _fineProperties;
         private bool _fineTargetVisible;
         private bool _pointingAtUi;
+        private bool _hoveringUi;
+        private Vector3 _uiHitPoint;
         private bool _uiTriggerCaptured;
         private Vector3 _fineTargetPosition;
         private FineBrushOperation _fineTargetOperation;
@@ -81,9 +84,12 @@ namespace Genesis.RoomScan.UI
             if (!_hasTrackedPose)
             {
                 _pointingAtUi = false;
+                _hoveringUi = false;
                 _uiTriggerCaptured = false;
                 if (_cursor != null) _cursor.SetActive(false);
+                return;
             }
+            RefreshUiAuthority();
         }
 
         private void LateUpdate()
@@ -278,23 +284,10 @@ namespace Genesis.RoomScan.UI
             Vector3 direction = _rayHelper.forward;
             Vector3 start = origin + direction * rayStartOffset;
             Vector3 end = start + direction * maxLength;
-            bool hovering = false;
-            if (Physics.Raycast(origin, direction, out RaycastHit hit,
-                    maxLength + rayStartOffset, _uiLayerMask,
-                    QueryTriggerInteraction.Collide) &&
-                hit.collider.GetComponentInParent<UIDocument>() != null)
-            {
-                end = hit.point;
-                hovering = true;
-            }
+            bool hovering = _hoveringUi;
+            if (hovering) end = _uiHitPoint;
             else if (_fineTargetVisible)
                 end = _fineTargetPosition;
-            if (hovering && OVRInput.GetDown(
-                    OVRInput.Button.SecondaryIndexTrigger))
-                _uiTriggerCaptured = true;
-            if (!OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
-                _uiTriggerCaptured = false;
-            _pointingAtUi = hovering || _uiTriggerCaptured;
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
             Color color = hovering ? hoverColor : _fineTargetVisible
@@ -306,6 +299,23 @@ namespace Genesis.RoomScan.UI
             _cursor.transform.position = end;
             _cursor.transform.LookAt(_rayHelper);
             SetCursorColor(hoverColor);
+        }
+
+        private void RefreshUiAuthority()
+        {
+            Vector3 origin = _rayHelper.position;
+            Vector3 direction = _rayHelper.forward;
+            _hoveringUi = Physics.Raycast(origin, direction,
+                    out RaycastHit hit, maxLength + rayStartOffset,
+                    _uiLayerMask, QueryTriggerInteraction.Collide) &&
+                hit.collider.GetComponentInParent<UIDocument>() != null;
+            if (_hoveringUi) _uiHitPoint = hit.point;
+            if (_hoveringUi && OVRInput.GetDown(
+                    OVRInput.Button.SecondaryIndexTrigger))
+                _uiTriggerCaptured = true;
+            if (!OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
+                _uiTriggerCaptured = false;
+            _pointingAtUi = _hoveringUi || _uiTriggerCaptured;
         }
 
         private void SetCursorColor(Color color)

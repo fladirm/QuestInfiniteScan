@@ -33,6 +33,7 @@ namespace Genesis.RoomScan
         internal const int FormatVersion = 1;
         internal const string MetadataFileName = "session.json";
         internal const string DesignFileName = "design.json";
+        internal const string AnnotationsFileName = "annotations.json";
 
         private readonly string _applicationRoot;
         private readonly string _sessionsRoot;

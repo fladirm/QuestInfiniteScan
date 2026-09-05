@@ -38,6 +38,10 @@ namespace Genesis.RoomScan
             ? Path.Combine(ActiveSessionDirectory,
                 MerkabaSessionCatalog.DesignFileName)
             : string.Empty;
+        internal string ActiveAnnotationsPath => _activeSession != null
+            ? Path.Combine(ActiveSessionDirectory,
+                MerkabaSessionCatalog.AnnotationsFileName)
+            : string.Empty;
         internal string DesignLibraryPath => _catalog?.LibraryRoot ??
             string.Empty;
         public event Action StatusChanged;
@@ -256,6 +260,13 @@ namespace Genesis.RoomScan
                     await Task.Run(() => CopyFileDurable(sourceDesign,
                         Path.Combine(destinationDirectory,
                             MerkabaSessionCatalog.DesignFileName)));
+                string sourceAnnotations = Path.Combine(
+                    ActiveSessionDirectory,
+                    MerkabaSessionCatalog.AnnotationsFileName);
+                if (File.Exists(sourceAnnotations))
+                    await Task.Run(() => CopyFileDurable(sourceAnnotations,
+                        Path.Combine(destinationDirectory,
+                            MerkabaSessionCatalog.AnnotationsFileName)));
                 await _grid.SwitchStorageRootAsync(destinationDirectory,
                     false, false);
                 _activeSession = created;

@@ -61,7 +61,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Label>("val-artifact"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("scan-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("refine-panel"), Is.Not.Null);
-            Assert.That(root.Q<ScrollView>("design-panel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("design-panel"), Is.Not.Null);
+            Assert.That(root.Q<ScrollView>("design-panel"), Is.Null,
+                "The compact DESIGN workspace must not hide controls in a " +
+                "scroll viewport.");
             Assert.That(root.Q<VisualElement>("view-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-swatch"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-wheel"), Is.Not.Null);
@@ -178,6 +181,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(rayDriver, Does.Not.Contain(
                 "LayerMask.GetMask(\"Default\", \"UI\")"));
             Assert.That(rayDriver, Does.Contain("_uiTriggerCaptured"));
+            Assert.That(rayDriver, Does.Contain(
+                "[DefaultExecutionOrder(-1000)]"));
+            Assert.That(rayDriver, Does.Contain("RefreshUiAuthority();"));
             string scanInput = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/" +
                 "RoomScanInputHandler.cs"));
@@ -195,6 +201,9 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/UI/DebugMenu.uss"));
             Assert.That(stylesheet, Does.Contain("width: 196px"));
             Assert.That(stylesheet, Does.Contain("min-height: 54px"));
+            Assert.That(stylesheet, Does.Contain("width: 580px"));
+            Assert.That(stylesheet, Does.Contain(".paint-tool-strip"));
+            Assert.That(stylesheet, Does.Not.Contain(".design-scroll"));
 
             string follower = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/" +

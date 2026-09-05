@@ -308,6 +308,42 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void SessionDesignDisplayFollowsModelInSessionRoomCoordinates()
+        {
+            var modelObject = new GameObject("model");
+            var displayObject = new GameObject("display");
+            try
+            {
+                Transform model = modelObject.transform;
+                Transform display = displayObject.transform;
+                Vector3 scanCenter = new(3f, -2f, 5f);
+                Vector3 roomPoint = new(4.5f, 1.25f, -0.75f);
+
+                MerkabaArtifactViewer.ConfigureSessionDesignDisplay(
+                    display, model, scanCenter);
+                model.SetPositionAndRotation(new Vector3(2f, 3f, 4f),
+                    Quaternion.Euler(12f, 37f, -8f));
+                model.localScale = Vector3.one * 0.25f;
+
+                Vector3 expected = model.TransformPoint(roomPoint - scanCenter);
+                Assert.That(Vector3.Distance(display.TransformPoint(roomPoint),
+                    expected), Is.LessThan(1e-5f));
+
+                model.SetPositionAndRotation(new Vector3(-7f, 0.5f, 9f),
+                    Quaternion.Euler(-21f, 118f, 16f));
+                model.localScale = Vector3.one * 1.75f;
+                expected = model.TransformPoint(roomPoint - scanCenter);
+                Assert.That(Vector3.Distance(display.TransformPoint(roomPoint),
+                    expected), Is.LessThan(1e-5f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(displayObject);
+                UnityEngine.Object.DestroyImmediate(modelObject);
+            }
+        }
+
+        [Test]
         public void QuestArtifactPlaneCornerHandlePreservesOneRectangle()
         {
             Vector3[] original =

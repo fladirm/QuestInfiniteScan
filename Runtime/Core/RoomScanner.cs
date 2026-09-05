@@ -117,6 +117,8 @@ namespace Genesis.RoomScan
             "No session";
         internal string ActiveDesignPath =>
             _persistence?.ActiveDesignPath ?? string.Empty;
+        internal string ActiveAnnotationsPath =>
+            _persistence?.ActiveAnnotationsPath ?? string.Empty;
         internal string DesignLibraryPath =>
             _persistence?.DesignLibraryPath ?? string.Empty;
         public bool SessionIsDirty => _persistence?.IsDirty ?? false;

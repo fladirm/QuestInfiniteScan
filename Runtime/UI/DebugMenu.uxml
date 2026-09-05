@@ -116,10 +116,8 @@
                 class="help-text" />
         </ui:VisualElement>
 
-        <ui:ScrollView name="design-panel" mode="Vertical"
-            horizontal-scroller-visibility="Hidden"
-            vertical-scroller-visibility="Hidden"
-            class="mode-panel design-scroll mode-panel--hidden">
+        <ui:VisualElement name="design-panel"
+            class="mode-panel mode-panel--hidden">
             <ui:VisualElement class="segmented-row">
                 <ui:Button name="btn-design-paint" text="PAINT"
                     class="segment segment--selected" />
@@ -127,7 +125,7 @@
                     class="segment button-last" />
             </ui:VisualElement>
             <ui:VisualElement name="paint-workspace">
-                <ui:VisualElement class="button-row">
+                <ui:VisualElement class="button-row compact-row">
                     <ui:Button name="btn-paint-view" text="Open model"
                         class="secondary-action" />
                     <ui:Button name="btn-paint-load" text="Load model"
@@ -138,13 +136,12 @@
                 <ui:Label name="val-paint-status" text="Open a model to design"
                     class="supporting-status" />
 
-                <ui:Label text="Tool" class="section-title" />
-                <ui:VisualElement class="tool-grid">
+                <ui:VisualElement class="tool-grid paint-tool-strip">
                     <ui:Button name="btn-paint-brush" text="Brush"
                         class="tool-button" />
                     <ui:Button name="btn-paint-surface" text="Surface"
                         class="tool-button tool-button--selected" />
-                    <ui:Button name="btn-paint-spatial" text="3D Brush"
+                    <ui:Button name="btn-paint-spatial" text="3D"
                         class="tool-button" />
                     <ui:Button name="btn-paint-spray" text="Spray"
                         class="tool-button" />
@@ -152,74 +149,75 @@
                         class="tool-button" />
                     <ui:Button name="btn-paint-erase" text="Eraser"
                         class="tool-button" />
-                    <ui:Button name="btn-paint-eyedropper" text="Eyedropper"
+                    <ui:Button name="btn-paint-eyedropper" text="Pick"
                         class="tool-button button-last" />
                 </ui:VisualElement>
 
-                <ui:VisualElement class="color-card">
+                <ui:VisualElement class="color-card paint-inspector">
                     <ui:VisualElement name="paint-color-wheel"
                         class="paint-color-wheel">
                         <ui:VisualElement name="paint-color-cursor"
                             picking-mode="Ignore" class="paint-color-cursor" />
                     </ui:VisualElement>
-                    <ui:VisualElement class="color-controls">
-                        <ui:VisualElement name="paint-color-swatch"
-                            class="paint-color-swatch" />
-                        <ui:VisualElement class="control-row">
+                    <ui:VisualElement class="color-controls paint-control-column">
+                        <ui:VisualElement class="paint-color-heading">
+                            <ui:VisualElement name="paint-color-swatch"
+                                class="paint-color-swatch" />
+                            <ui:Button name="btn-save-swatch" text="Save"
+                                class="quiet-action compact-action button-last" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-value"
+                            class="control-row paint-control-row">
                             <ui:Label text="Value" class="mini-label" />
                             <ui:Slider name="paint-value" low-value="0"
                                 high-value="1" value="1"
                                 class="control-slider" />
                         </ui:VisualElement>
-                        <ui:VisualElement class="control-row">
+                        <ui:VisualElement name="paint-row-alpha"
+                            class="control-row paint-control-row">
                             <ui:Label text="Opacity" class="mini-label" />
                             <ui:Slider name="paint-alpha" low-value="0.01"
                                 high-value="1" value="0.85"
                                 class="control-slider" />
                         </ui:VisualElement>
-                        <ui:Button name="btn-save-swatch" text="Save color"
-                            class="quiet-action button-last" />
-                    </ui:VisualElement>
-                </ui:VisualElement>
-                <ui:Label text="Recent" class="mini-section" />
-                <ui:VisualElement name="recent-swatches" class="swatch-row" />
-                <ui:Label text="Saved" class="mini-section" />
-                <ui:VisualElement name="saved-swatches" class="swatch-row" />
-
-                <ui:VisualElement class="card tool-card">
-                    <ui:VisualElement class="control-row">
+                        <ui:VisualElement name="paint-row-width"
+                            class="control-row paint-control-row">
                         <ui:Label text="Size" class="control-label" />
                         <ui:Slider name="paint-width" low-value="0.002"
                             high-value="0.1" value="0.01"
                             class="control-slider" />
                         <ui:Label name="val-paint-width" text="10 mm"
                             class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="control-row">
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-flow"
+                            class="control-row paint-control-row">
                         <ui:Label text="Flow" class="control-label" />
                         <ui:Slider name="paint-flow" low-value="0.01"
                             high-value="1" value="0.65"
                             class="control-slider" />
                         <ui:Label name="val-paint-flow" text="65%"
                             class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="control-row">
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-hardness"
+                            class="control-row paint-control-row">
                         <ui:Label text="Hardness" class="control-label" />
                         <ui:Slider name="paint-hardness" low-value="0"
                             high-value="1" value="0.8"
                             class="control-slider" />
                         <ui:Label name="val-paint-hardness" text="80%"
                             class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="control-row">
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-saturation"
+                            class="control-row paint-control-row">
                         <ui:Label text="Saturation" class="control-label" />
                         <ui:Slider name="paint-saturation" low-value="0"
                             high-value="1" value="1"
                             class="control-slider" />
                         <ui:Label name="val-paint-saturation" text="100%"
                             class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="control-row">
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-shape"
+                            class="control-row paint-control-row">
                         <ui:Label text="Shape" class="control-label" />
                         <ui:VisualElement class="segmented-row shape-row">
                             <ui:Button name="btn-paint-round" text="Round"
@@ -227,10 +225,10 @@
                             <ui:Button name="btn-paint-square" text="Square"
                                 class="segment button-last" />
                         </ui:VisualElement>
-                    </ui:VisualElement>
-                    <ui:VisualElement name="paint-spray-settings"
-                        class="mode-panel--hidden">
-                        <ui:VisualElement class="control-row">
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-spray-settings"
+                            class="mode-panel--hidden">
+                        <ui:VisualElement class="control-row paint-control-row">
                             <ui:Label text="Density" class="control-label" />
                             <ui:Slider name="paint-density" low-value="1"
                                 high-value="300" value="90"
@@ -238,7 +236,7 @@
                             <ui:Label name="val-paint-density" text="90/s"
                                 class="control-value" />
                         </ui:VisualElement>
-                        <ui:VisualElement class="control-row">
+                        <ui:VisualElement class="control-row paint-control-row">
                             <ui:Label text="Scatter" class="control-label" />
                             <ui:Slider name="paint-scatter" low-value="0.005"
                                 high-value="0.25" value="0.04"
@@ -246,7 +244,14 @@
                             <ui:Label name="val-paint-scatter" text="4 cm"
                                 class="control-value" />
                         </ui:VisualElement>
+                        </ui:VisualElement>
                     </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="palette-history">
+                    <ui:Label text="Recent" class="mini-section palette-label" />
+                    <ui:VisualElement name="recent-swatches" class="swatch-row" />
+                    <ui:Label text="Saved" class="mini-section palette-label" />
+                    <ui:VisualElement name="saved-swatches" class="swatch-row" />
                 </ui:VisualElement>
             </ui:VisualElement>
 
@@ -292,7 +297,7 @@
                     class="help-text" />
             </ui:VisualElement>
 
-        </ui:ScrollView>
+        </ui:VisualElement>
 
         <ui:VisualElement name="view-panel"
             class="mode-panel mode-panel--hidden">
