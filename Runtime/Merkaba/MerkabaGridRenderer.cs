@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Serialization;
 
 namespace Genesis.RoomScan
@@ -35,6 +36,7 @@ namespace Genesis.RoomScan
         private int _projectMeshKernel;
         private int _buildMeshKernel;
         private int _finalizeKernel;
+        private int _visibilityKernel;
         private bool _initialized;
         private volatile bool _gpuSubmissionSuspended;
         private bool _statusReadbackPending;
@@ -162,6 +164,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8VisibleTiles");
         private static readonly int ReadoutVerticesId =
             Shader.PropertyToID("_M8ReadoutVertices");
+        private static readonly int ReadoutVerticesReadId =
+            Shader.PropertyToID("_M8ReadoutVerticesRead");
         private static readonly int MeshEyeVertexOffsetId =
             Shader.PropertyToID("_M8MeshEyeVertexOffset");
         private static readonly int ReadoutIndicesId =
@@ -203,6 +207,12 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_FineBrushParams");
         private static readonly int FinePreviewColorId =
             Shader.PropertyToID("_FinePreviewColor");
+        private static readonly int CullGridPlanesId =
+            Shader.PropertyToID("_M8CullGridPlanes");
+        private static readonly uint[] ZeroDrawCount = { 0u };
+        private readonly Plane[] _leftCullPlanes = new Plane[6];
+        private readonly Plane[] _rightCullPlanes = new Plane[6];
+        private readonly Vector4[] _gridCullPlanes = new Vector4[12];
 
         private void Awake()
         {
@@ -373,6 +383,8 @@ namespace Genesis.RoomScan
                 "BuildReadoutMesh", MerkabaGpuStage.ReadoutBuild);
             _finalizeKernel = readoutCompute.FindProfiledKernel(
                 "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
+            _visibilityKernel = readoutCompute.FindProfiledKernel(
+                "CullReadoutVisibility", MerkabaGpuStage.MerkabaDraw);
             foreach (int kernel in new[]
                      {
                          _resetKernel, _queryKernel, _prepareKernel,
@@ -902,21 +914,109 @@ namespace Genesis.RoomScan
                 _grid.ResidencyEpoch != _blockedResidencyEpoch;
         }
 
-        internal void RecordRenderPass(RasterCommandBuffer command)
+        internal bool TryGetFrontRenderResources(Camera camera, out int slot,
+            out GraphicsBuffer vertices, out GraphicsBuffer indices,
+            out Vector4[] gridCullPlanes,
+            out bool compactVisibility)
+        {
+            slot = _frontReadout;
+            vertices = null;
+            indices = null;
+            gridCullPlanes = null;
+            compactVisibility = false;
+            if (camera == null || !_initialized || _grid == null ||
+                scanOpacity <= 0.001f)
+                return false;
+
+            vertices = _grid.GetM8ReadoutVertices(slot);
+            indices = _grid.GetM8ReadoutIndices(slot);
+            Material material = _materials[slot];
+            if (vertices == null || indices == null || material == null)
+                return false;
+            compactVisibility = !material.IsKeywordEnabled("M8_STEREO_MESH");
+
+            Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
+            Matrix4x4 view0 = camera.worldToCameraMatrix;
+            Matrix4x4 view1 = view0;
+            Matrix4x4 projection0 = camera.projectionMatrix;
+            Matrix4x4 projection1 = projection0;
+            if (camera.stereoEnabled)
+            {
+                view0 = camera.GetStereoViewMatrix(
+                    Camera.StereoscopicEye.Left);
+                view1 = camera.GetStereoViewMatrix(
+                    Camera.StereoscopicEye.Right);
+                projection0 = camera.GetStereoProjectionMatrix(
+                    Camera.StereoscopicEye.Left);
+                projection1 = camera.GetStereoProjectionMatrix(
+                    Camera.StereoscopicEye.Right);
+            }
+            WriteGridFrustumPlanes(projection0 * view0, gridToWorld,
+                _leftCullPlanes, _gridCullPlanes, 0);
+            WriteGridFrustumPlanes(projection1 * view1, gridToWorld,
+                _rightCullPlanes, _gridCullPlanes, 6);
+            gridCullPlanes = _gridCullPlanes;
+            return true;
+        }
+
+        private static void WriteGridFrustumPlanes(Matrix4x4 worldToClip,
+            Matrix4x4 gridToWorld, Plane[] scratch, Vector4[] destination,
+            int destinationOffset)
+        {
+            GeometryUtility.CalculateFrustumPlanes(worldToClip, scratch);
+            Matrix4x4 worldPlaneToGrid = gridToWorld.transpose;
+            for (int index = 0; index < 6; index++)
+            {
+                Plane plane = scratch[index];
+                Vector4 transformed = worldPlaneToGrid * new Vector4(
+                    plane.normal.x, plane.normal.y, plane.normal.z,
+                    plane.distance);
+                float inverseLength = 1f / Mathf.Max(1e-12f,
+                    new Vector3(transformed.x, transformed.y,
+                        transformed.z).magnitude);
+                destination[destinationOffset + index] =
+                    transformed * inverseLength;
+            }
+        }
+
+        internal bool RecordVisibilityPass(ComputeCommandBuffer command,
+            int slot, BufferHandle vertices, BufferHandle indices,
+            Vector4[] gridCullPlanes)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            ComputeBuffer drawArgs = _grid.GetM8DrawArgs(slot);
+            bool timedSubmission = MerkabaGpuTimestamps.TryAcquire(
+                CaptureOwner.Draw,
+                _readoutRevision == 0u ? 1u : _readoutRevision, command);
+            command.SetBufferData(drawArgs, ZeroDrawCount, 0, 0, 1);
+            command.SetComputeBufferParam(readoutCompute, _visibilityKernel,
+                ReadoutVerticesReadId, vertices);
+            command.SetComputeBufferParam(readoutCompute, _visibilityKernel,
+                ReadoutIndicesId, indices);
+            command.SetComputeBufferParam(readoutCompute, _visibilityKernel,
+                DrawArgsId, drawArgs);
+            command.SetComputeVectorArrayParam(readoutCompute,
+                CullGridPlanesId, gridCullPlanes);
+            command.DispatchComputeProfiled(readoutCompute, _visibilityKernel,
+                drawArgs, 6u * sizeof(uint));
+            return timedSubmission;
+        }
+
+        internal void RecordRenderPass(RasterCommandBuffer command, int front,
+            bool timingStartedByVisibility)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (!readoutDrawEnabled || _gpuSubmissionSuspended || _grid == null ||
                 _grid.GpuSubmissionSuspended)
                 return;
-            int front = _frontReadout;
             Material material = _materials[front];
             Mesh mesh = _grid.GetM8ReadoutMesh(front);
             ComputeBuffer drawArgs = _grid.GetM8DrawArgs(front);
             bool canDraw = _initialized && mesh != null && material != null &&
                 scanOpacity > 0.001f;
-            bool timedSubmission = canDraw && MerkabaGpuTimestamps.TryAcquire(
-                CaptureOwner.Draw,
-                _readoutRevision == 0u ? 1u : _readoutRevision, command);
+            bool timedSubmission = timingStartedByVisibility ||
+                canDraw && MerkabaGpuTimestamps.TryAcquire(CaptureOwner.Draw,
+                    _readoutRevision == 0u ? 1u : _readoutRevision, command);
             if (canDraw)
                 command.DrawMeshInstancedIndirectProfiled(mesh, 0,
                     material, 0, drawArgs, 0);

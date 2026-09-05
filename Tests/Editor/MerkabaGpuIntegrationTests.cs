@@ -59,7 +59,7 @@ namespace Genesis.RoomScan.Tests
                          "ResetReadoutBuild", "QueryM8Readout",
                          "PrepareReadoutBuild", "BuildReadoutVertices",
                          "ProjectReadoutMeshPins", "BuildReadoutMesh",
-                         "FinalizeReadout"
+                         "FinalizeReadout", "CullReadoutVisibility"
                      })
                 Assert.DoesNotThrow(() => frame.FindKernel(kernel), kernel);
         }
@@ -119,8 +119,8 @@ namespace Genesis.RoomScan.Tests
                 (long)MerkabaGrid.ReadoutVertexCapacity * 16,
                 (long)MerkabaGrid.ReadoutIndexStorageCount * 4,
                 (long)MerkabaGrid.ReadoutIndexStorageCount * 4,
-                20,
-                12, 20, 12,
+                36,
+                12, 36, 12,
                 32L * 8,
                 32L * 513 * 16, 32L * 16, 32L * 512 * 16,
                 8192L * 16
@@ -129,7 +129,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers.Max(), Is.EqualTo(128L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(864650988L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(864651020L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -776,7 +776,8 @@ namespace Genesis.RoomScan.Tests
                 "_grid.GetM8ReadoutMesh(front)"));
             Assert.That(renderer, Does.Contain(
                 "DrawMeshInstancedIndirectProfiled(mesh, 0"));
-            Assert.That(feature, Does.Contain("RecordRenderPass(context.cmd)"));
+            Assert.That(feature, Does.Contain(
+                "RecordRenderPass(context.cmd, data.Slot,"));
             Assert.That(renderer, Does.Not.Contain("VisibleSlotAt"));
             Assert.That(renderer, Does.Not.Contain("for (int visible"));
         }
@@ -993,6 +994,7 @@ namespace Genesis.RoomScan.Tests
                 "_m8ReadoutIndices[slot] = indices"));
             Assert.That(gpu, Does.Contain(
                 "_m8DrawArgs[slot] = Allocate("));
+            Assert.That(MerkabaGrid.ReadoutDrawArgumentCount, Is.EqualTo(9));
             Assert.That(gpu, Does.Contain(
                 "private ComputeBuffer _m8VisibleTiles;"));
             Assert.That(gpu, Does.Contain(
@@ -1008,7 +1010,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Contain(
                 "SetComputeBufferParam(readoutCompute, _finalizeKernel"));
             Assert.That(renderer, Does.Contain(
-                "int front = _frontReadout;"));
+                "slot = _frontReadout;"));
             Assert.That(renderer, Does.Contain(
                 "DrawMeshInstancedIndirectProfiled(mesh, 0"));
             Assert.That(renderer, Does.Contain(
@@ -1128,6 +1130,53 @@ namespace Genesis.RoomScan.Tests
                 buildDispatch, StringComparison.Ordinal);
             Assert.That(buildDispatch, Is.GreaterThan(0));
             Assert.That(finalizeDispatch, Is.GreaterThan(buildDispatch));
+        }
+
+        [Test]
+        public void ReadoutDraw_CompactsOnlyVisibleFrontIndicesForStereoUnion()
+        {
+            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
+            string renderer = Source(
+                "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            string feature = Source("Runtime/Merkaba/MerkabaRenderFeature.cs");
+            string build = Slice(readout, "void BuildReadoutVertices",
+                "float4 M8MeshWorldToClip");
+            string cull = readout.Substring(readout.IndexOf(
+                "void CullReadoutVisibility", StringComparison.Ordinal));
+
+            Assert.That(build, Does.Contain(
+                "gM8MembraneBaseTriangle = gM8MembraneBaseVertex >> 1u"));
+            Assert.That(cull, Does.Contain("uint patchCount = _M8DrawArgs[5]"));
+            Assert.That(cull, Does.Contain(
+                "!M8SphereOutsideFrustum(center, radius, 0u) ||"));
+            Assert.That(cull, Does.Contain(
+                "!M8SphereOutsideFrustum(center, radius, 6u)"));
+            Assert.That(cull, Does.Contain(
+                "float3 center = (corner0 + corner1 + corner2 + corner3)"));
+            Assert.That(cull, Does.Contain("float radius = sqrt(radiusSquared)"));
+            Assert.That(cull, Does.Contain(
+                "InterlockedOr(gM8CullVisibleWords[lane >> 5u]"));
+            Assert.That(cull, Does.Contain(
+                "visibleCount * M8_MEMBRANE_INDICES_PER_PATCH"));
+            Assert.That(cull, Does.Contain(
+                "visiblePrefix * M8_MEMBRANE_INDICES_PER_PATCH"));
+            Assert.That(cull, Does.Contain("M8StoreReadoutIndex"));
+            Assert.That(cull, Does.Not.Contain("M8LoadKernelStateRead"));
+            Assert.That(cull, Does.Not.Contain("_M8Counters"));
+            Assert.That(renderer, Does.Contain(
+                "command.SetBufferData(drawArgs, ZeroDrawCount, 0, 0, 1)"));
+            Assert.That(renderer, Does.Contain(
+                "command.DispatchComputeProfiled(readoutCompute, " +
+                "_visibilityKernel"));
+            Assert.That(feature, Does.Contain(
+                "AddComputePass<VisibilityPassData>"));
+            Assert.That(feature, Does.Contain(
+                "visibilityBuilder.UseBuffer(indexHandle,"));
+            Assert.That(feature, Does.Contain("AccessFlags.Write"));
+            Assert.That(feature, Does.Contain(
+                "builder.UseBuffer(indexHandle, AccessFlags.Read)"));
+            Assert.That(feature, Does.Contain(
+                "RecordRenderPass(context.cmd, data.Slot,"));
         }
 
         [Test]
@@ -1773,7 +1822,10 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(51));
+                RegexOptions.Multiline), Has.Count.EqualTo(52));
+            Assert.That(frame, Does.Contain(
+                "[numthreads(128, 1, 1)]\n" +
+                "void CullReadoutVisibility"));
 
             string[] serial = Regex.Matches(all,
                     @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
@@ -1918,7 +1970,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 57"));
+            Assert.That(audit, Does.Contain("kernel_count != 58"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));

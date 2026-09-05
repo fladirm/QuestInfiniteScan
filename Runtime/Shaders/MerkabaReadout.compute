@@ -5,6 +5,7 @@
 #pragma kernel ProjectReadoutMeshPins
 #pragma kernel BuildReadoutMesh
 #pragma kernel FinalizeReadout
+#pragma kernel CullReadoutVisibility
 
 #include "MerkabaWorld.hlsl"
 #include "MerkabaSurfaceOrientation.generated.hlsl"
@@ -38,6 +39,7 @@ StructuredBuffer<uint2> _M8VisibleTilesRead;
 // queue0's fixed-function vertex/index path. The diagnostic stereo mesh uses
 // two bounded regions inside the same publication buffer.
 RWByteAddressBuffer _M8ReadoutVertices;
+ByteAddressBuffer _M8ReadoutVerticesRead;
 RWByteAddressBuffer _M8ReadoutIndices;
 RWStructuredBuffer<uint> _M8FrameDispatchArgs;
 RWStructuredBuffer<uint> _M8DrawArgs;
@@ -64,6 +66,7 @@ float4x4 _M8MeshDepthView0;
 float4x4 _M8MeshDepthView1;
 float4x4 _M8MeshDepthViewInv0;
 float4x4 _M8MeshDepthViewInv1;
+float4 _M8CullGridPlanes[12];
 
 #define M8_READOUT_VERTEX_STRIDE 16u
 
@@ -82,6 +85,12 @@ void M8StoreReadoutVertexAt(uint index, MerkabaReadoutVertex vertex)
 uint M8LoadReadoutColor(uint index)
 {
     return _M8ReadoutVertices.Load(M8ReadoutVertexAddress(index) + 12u);
+}
+
+float3 M8LoadReadoutPosition(uint index)
+{
+    return asfloat(_M8ReadoutVerticesRead.Load3(
+        M8ReadoutVertexAddress(index)));
 }
 
 void M8StoreReadoutColor(uint index, uint value)
@@ -769,11 +778,17 @@ void BuildReadoutVertices(uint3 groupId : SV_GroupID,
             if (patchCount != 0u)
             {
                 InterlockedAdd(_M8Counters[
-                    M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
-                    triangleCount, gM8MembraneBaseTriangle);
-                InterlockedAdd(_M8Counters[
                     M8_COUNTER_READOUT_EMITTED_VERTICES],
                     vertexCount, gM8MembraneBaseVertex);
+                // One allocation authority keeps the implicit 4-vertex /
+                // 6-index patch address stable across concurrently executing
+                // tile groups. Visibility compaction can then regenerate the
+                // canonical patch indices without reading an in-place source
+                // index stream.
+                gM8MembraneBaseTriangle = gM8MembraneBaseVertex >> 1u;
+                InterlockedAdd(_M8Counters[
+                    M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES],
+                    triangleCount, ignored);
                 bool trianglesFit = gM8MembraneBaseTriangle <=
                         MERKABA_M8_READOUT_TRIANGLE_CAPACITY &&
                     triangleCount <= MERKABA_M8_READOUT_TRIANGLE_CAPACITY -
@@ -1185,6 +1200,91 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
     _M8DrawArgs[2] = 0u;
     _M8DrawArgs[3] = 0u;
     _M8DrawArgs[4] = 0u;
+    // Elements 5..8 are private compute metadata. Unity consumes only the
+    // first five DrawMeshInstancedIndirect arguments.
+    _M8DrawArgs[5] = logical >> 1u;
+    _M8DrawArgs[6] = (_M8DrawArgs[5] + 127u) >> 7u;
+    _M8DrawArgs[7] = 1u;
+    _M8DrawArgs[8] = 1u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
         MERKABA_READOUT_PUBLISHED;
+}
+
+bool M8SphereOutsideFrustum(float3 center, float radius, uint planeBase)
+{
+    float4 center4 = float4(center, 1.0);
+    return dot(_M8CullGridPlanes[planeBase + 0u], center4) < -radius ||
+        dot(_M8CullGridPlanes[planeBase + 1u], center4) < -radius ||
+        dot(_M8CullGridPlanes[planeBase + 2u], center4) < -radius ||
+        dot(_M8CullGridPlanes[planeBase + 3u], center4) < -radius ||
+        dot(_M8CullGridPlanes[planeBase + 4u], center4) < -radius ||
+        dot(_M8CullGridPlanes[planeBase + 5u], center4) < -radius;
+}
+
+groupshared uint gM8CullVisibleWords[4];
+groupshared uint gM8CullOutputBase;
+
+[numthreads(128, 1, 1)]
+void CullReadoutVisibility(uint patchIndex : SV_DispatchThreadID,
+    uint lane : SV_GroupThreadID)
+{
+    uint patchCount = _M8DrawArgs[5];
+    if (lane < 4u) gM8CullVisibleWords[lane] = 0u;
+    GroupMemoryBarrierWithGroupSync();
+
+    bool visible = patchIndex < patchCount;
+    uint baseVertex = patchIndex * M8_MEMBRANE_VERTICES_PER_PATCH;
+    if (visible)
+    {
+        float3 corner0 = M8LoadReadoutPosition(baseVertex + 0u);
+        float3 corner1 = M8LoadReadoutPosition(baseVertex + 1u);
+        float3 corner2 = M8LoadReadoutPosition(baseVertex + 2u);
+        float3 corner3 = M8LoadReadoutPosition(baseVertex + 3u);
+        float3 center = (corner0 + corner1 + corner2 + corner3) * 0.25;
+        float radiusSquared = max(max(dot(corner0 - center,
+            corner0 - center), dot(corner1 - center, corner1 - center)),
+            max(dot(corner2 - center, corner2 - center),
+                dot(corner3 - center, corner3 - center)));
+        float radius = sqrt(radiusSquared);
+        visible = !M8SphereOutsideFrustum(center, radius, 0u) ||
+            !M8SphereOutsideFrustum(center, radius, 6u);
+    }
+    if (visible)
+    {
+        uint ignored;
+        InterlockedOr(gM8CullVisibleWords[lane >> 5u],
+            1u << (lane & 31u), ignored);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (lane == 0u)
+    {
+        uint visibleCount = countbits(gM8CullVisibleWords[0]) +
+            countbits(gM8CullVisibleWords[1]) +
+            countbits(gM8CullVisibleWords[2]) +
+            countbits(gM8CullVisibleWords[3]);
+        InterlockedAdd(_M8DrawArgs[0],
+            visibleCount * M8_MEMBRANE_INDICES_PER_PATCH,
+            gM8CullOutputBase);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (!visible) return;
+
+    uint laneWord = lane >> 5u;
+    uint lowerBits = (1u << (lane & 31u)) - 1u;
+    uint visiblePrefix = countbits(gM8CullVisibleWords[laneWord] & lowerBits);
+    if (laneWord > 0u)
+        visiblePrefix += countbits(gM8CullVisibleWords[0]);
+    if (laneWord > 1u)
+        visiblePrefix += countbits(gM8CullVisibleWords[1]);
+    if (laneWord > 2u)
+        visiblePrefix += countbits(gM8CullVisibleWords[2]);
+    uint outputIndex = gM8CullOutputBase +
+        visiblePrefix * M8_MEMBRANE_INDICES_PER_PATCH;
+    M8StoreReadoutIndex(outputIndex + 0u, baseVertex + 0u);
+    M8StoreReadoutIndex(outputIndex + 1u, baseVertex + 1u);
+    M8StoreReadoutIndex(outputIndex + 2u, baseVertex + 2u);
+    M8StoreReadoutIndex(outputIndex + 3u, baseVertex + 0u);
+    M8StoreReadoutIndex(outputIndex + 4u, baseVertex + 2u);
+    M8StoreReadoutIndex(outputIndex + 5u, baseVertex + 3u);
 }

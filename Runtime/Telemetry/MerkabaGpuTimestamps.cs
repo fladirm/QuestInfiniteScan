@@ -294,6 +294,15 @@ namespace Genesis.RoomScan
             return true;
         }
 
+        internal static bool TryAcquire(CaptureOwner owner, uint revision,
+            ComputeCommandBuffer command)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (!TryAcquireState(owner, revision)) return false;
+            RecordProfileBegin(command);
+            return true;
+        }
+
         private static bool TryAcquireState(CaptureOwner owner, uint revision)
         {
             Poll();
@@ -342,6 +351,18 @@ namespace Genesis.RoomScan
         }
 
         private static void RecordProfileBegin(RasterCommandBuffer command)
+        {
+            if (_state != CaptureState.Recording || _submissionBegan)
+                return;
+            if (command == null) throw new ArgumentNullException(nameof(command));
+#if !UNITY_EDITOR && UNITY_ANDROID
+            command.IssuePluginEvent(Native.RenderEvent,
+                Native.EventId(Native.SubmissionBegin));
+#endif
+            _submissionBegan = true;
+        }
+
+        private static void RecordProfileBegin(ComputeCommandBuffer command)
         {
             if (_state != CaptureState.Recording || _submissionBegan)
                 return;
@@ -431,6 +452,18 @@ namespace Genesis.RoomScan
         internal static void DispatchComputeProfiled(this CommandBuffer command,
             ComputeShader shader, int kernel, ComputeBuffer arguments,
             uint offset = 0u)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (arguments == null) throw new ArgumentNullException(nameof(arguments));
+            bool timed = Observe(shader, kernel);
+            RecordDispatchEvent(command, timed, true);
+            command.DispatchCompute(shader, kernel, arguments, offset);
+            RecordDispatchEvent(command, timed, false);
+        }
+
+        internal static void DispatchComputeProfiled(
+            this ComputeCommandBuffer command, ComputeShader shader,
+            int kernel, ComputeBuffer arguments, uint offset = 0u)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (arguments == null) throw new ArgumentNullException(nameof(arguments));
@@ -797,6 +830,17 @@ namespace Genesis.RoomScan
         }
 
         private static void RecordDispatchEvent(CommandBuffer command,
+            bool timed, bool begin)
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (timed)
+                command.IssuePluginEvent(Native.RenderEvent,
+                    Native.EventId(begin
+                        ? Native.DispatchBegin : Native.DispatchEnd));
+#endif
+        }
+
+        private static void RecordDispatchEvent(ComputeCommandBuffer command,
             bool timed, bool begin)
         {
 #if !UNITY_EDITOR && UNITY_ANDROID

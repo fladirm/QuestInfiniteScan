@@ -32,6 +32,7 @@ namespace Genesis.RoomScan
         internal const int ReadoutVisibleBufferCount =
             MerkabaSpatial.PhysicalTileCapacity;
         internal const int ReadoutResetGroupCount = 1;
+        internal const int ReadoutDrawArgumentCount = 9;
         internal const int CounterCount = 99;
 
         internal const int CounterBlockCount = 0;
@@ -405,7 +406,8 @@ namespace Genesis.RoomScan
                 for (int slot = 0; slot < 2; slot++)
                 {
                     _m8ReadoutMeshes[slot] = AllocateReadoutMesh(slot);
-                    _m8DrawArgs[slot] = Allocate(5, sizeof(uint),
+                    _m8DrawArgs[slot] = Allocate(ReadoutDrawArgumentCount,
+                        sizeof(uint),
                         ComputeBufferType.IndirectArguments);
                 }
                 _m8FrameDispatchArgs = Allocate(3, sizeof(uint),

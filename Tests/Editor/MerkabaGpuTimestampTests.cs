@@ -309,7 +309,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Not.Contain(
                 "Graphics.DrawProceduralIndirect"));
             Assert.That(feature, Does.Contain("AddRasterRenderPass"));
-            Assert.That(feature, Does.Contain("RecordRenderPass(context.cmd)"));
+            Assert.That(feature, Does.Contain(
+                "RecordRenderPass(context.cmd, data.Slot,"));
             Assert.That(build, Does.Contain(
                 "build_merkaba_vulkan_timestamps.sh"));
         }
