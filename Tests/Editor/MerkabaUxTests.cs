@@ -10,7 +10,7 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaUxTests
     {
         [Test]
-        public void MenuContainsAllActionsOpacityAndOperationFeedback()
+        public void ProductionMenuSeparatesWorkflowsDiagnosticsAndInputAuthority()
         {
             const string path =
                 "Packages/com.genesis.roomscan/Runtime/UI/DebugMenu.uxml";
@@ -20,19 +20,20 @@ namespace Genesis.RoomScan.Tests
 
             foreach (string button in new[]
                      {
-                         "btn-start", "btn-stop", "btn-save", "btn-load",
-                         "btn-new", "btn-export", "btn-readout", "btn-mesh",
-                         "btn-occlusion", "btn-checker", "btn-artifact-view",
+                         "btn-start", "btn-save", "btn-save-as", "btn-load",
+                         "btn-new", "btn-rename", "btn-delete-session",
+                         "btn-export", "btn-export-tiles", "btn-readout",
+                         "btn-mesh", "btn-occlusion", "btn-checker",
+                         "btn-artifact-view", "btn-artifact-load",
                          "btn-annotation-mode", "btn-annotation-save",
                          "btn-annotation-edit", "btn-annotation-delete",
-                         "btn-tab-scan", "btn-tab-paint", "btn-tab-plan",
+                         "btn-tab-scan", "btn-tab-refine", "btn-tab-design",
+                         "btn-tab-view", "btn-fine-refine", "btn-fine-erase",
                          "btn-paint-view",
                          "btn-paint-load", "btn-paint-save", "btn-paint-line",
                          "btn-paint-surface", "btn-paint-spatial",
-                         "btn-paint-erase", "btn-plan-view", "btn-plan-load",
-                         "btn-plan-style", "btn-plan-annotation-mode",
-                         "btn-plan-annotation-save", "btn-plan-annotation-edit",
-                         "btn-plan-annotation-delete"
+                         "btn-paint-erase", "btn-paint-eyedropper",
+                         "btn-save-swatch", "btn-plan-model", "btn-plan-style"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
@@ -41,7 +42,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(opacity.lowValue, Is.EqualTo(0f));
             Assert.That(opacity.highValue, Is.EqualTo(1f));
             Assert.That(opacity.value, Is.EqualTo(1f));
-            Assert.That(root.Q<Label>("operation-spinner"), Is.Not.Null);
+            Assert.That(root.Q<Label>("operation-spinner"), Is.Null);
             Assert.That(root.Q<Label>("operation-stage"), Is.Not.Null);
             Assert.That(root.Q<ProgressBar>("operation-progress"), Is.Not.Null);
             Assert.That(root.Q<Label>("val-proximity"), Is.Not.Null);
@@ -50,15 +51,16 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Toggle>("artifact-room-align"), Is.Not.Null);
             Assert.That(root.Q<Label>("val-artifact"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("scan-panel"), Is.Not.Null);
-            Assert.That(root.Q<VisualElement>("paint-panel"), Is.Not.Null);
-            Assert.That(root.Q<VisualElement>("plan-panel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("refine-panel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("design-panel"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("view-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-swatch"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-wheel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-cursor"), Is.Not.Null);
             foreach (string slider in new[]
                      {
                          "paint-value", "paint-alpha", "paint-width",
-                         "plan-opacity"
+                         "fine-radius", "fine-length"
                      })
                 Assert.That(root.Q<Slider>(slider), Is.Not.Null, slider);
             Assert.That(root.Q<Slider>("paint-red"), Is.Null);
@@ -67,6 +69,9 @@ namespace Genesis.RoomScan.Tests
             string source = File.ReadAllText(Path.GetFullPath(path));
             Assert.That(source, Does.Contain("Published triangles"));
             Assert.That(source, Does.Contain("Visible chunks"));
+            Foldout diagnostics = root.Q<Foldout>("diagnostics-foldout");
+            Assert.That(diagnostics, Is.Not.Null);
+            Assert.That(diagnostics.value, Is.False);
             string controller = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs"));
             Assert.That(controller, Does.Contain(
@@ -90,6 +95,13 @@ namespace Genesis.RoomScan.Tests
                 "Color.HSVToRGB(_paintHue, _paintSaturation"));
             Assert.That(controller, Does.Contain(
                 "_paintColorWheel.CapturePointer(evt.pointerId)"));
+            Assert.That(controller, Does.Contain(
+                "_paintColorWheel.ReleasePointer(evt.pointerId)"));
+            Assert.That(controller, Does.Contain("RefreshSessionChoices()"));
+            Assert.That(controller, Does.Contain("MenuTab.Refine"));
+            Assert.That(controller, Does.Contain("MenuTab.Design"));
+            Assert.That(controller, Does.Contain("MenuTab.View"));
+            Assert.That(controller, Does.Not.Contain("SpinnerFrames"));
             Assert.That(controller, Does.Not.Contain("_paintRed"));
             Assert.That(controller, Does.Not.Contain("_paintGreen"));
             Assert.That(controller, Does.Not.Contain("_paintBlue"));
@@ -115,7 +127,42 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Contain("public bool PlanViewEnabled"));
             Assert.That(viewer, Does.Contain(
                 "_modelMaterial.EnableKeyword(PlanKeyword)"));
+            Assert.That(viewer, Does.Contain(
+                "MerkabaArtifactPaintTool.Eyedropper"));
+            Assert.That(viewer, Does.Contain("TryInterpolateVertexColor"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
+            int viewerUiGate = viewer.IndexOf(
+                "if (_rayDriver != null && _rayDriver.IsPointingAtUi)",
+                System.StringComparison.Ordinal);
+            int viewerGrip = viewer.IndexOf("bool rightGrip = OVRInput.Get(",
+                System.StringComparison.Ordinal);
+            Assert.That(viewerUiGate, Is.GreaterThanOrEqualTo(0));
+            Assert.That(viewerGrip, Is.GreaterThan(viewerUiGate));
+
+            string rayDriver = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/" +
+                "ControllerRayDriver.cs"));
+            Assert.That(rayDriver, Does.Contain("LayerMask.GetMask(\"UI\")"));
+            Assert.That(rayDriver, Does.Not.Contain(
+                "LayerMask.GetMask(\"Default\", \"UI\")"));
+            Assert.That(rayDriver, Does.Contain("_uiTriggerCaptured"));
+            string scanInput = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/" +
+                "RoomScanInputHandler.cs"));
+            Assert.That(scanInput, Does.Contain("uiOwnsTrigger"));
+            Assert.That(scanInput, Does.Contain("scanner.FineEraseSelected"));
+            string documentRaycaster = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/" +
+                "VRDocumentRaycaster.cs"));
+            Assert.That(documentRaycaster, Does.Contain(
+                "LayerMask.NameToLayer(\"UI\")"));
+            Assert.That(documentRaycaster, Does.Not.Contain(
+                "private LayerMask interactionLayers = ~0"));
+
+            string stylesheet = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/DebugMenu.uss"));
+            Assert.That(stylesheet, Does.Contain("width: 196px"));
+            Assert.That(stylesheet, Does.Contain("min-height: 54px"));
 
             string follower = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/" +

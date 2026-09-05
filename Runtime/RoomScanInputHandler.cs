@@ -46,13 +46,21 @@ namespace Genesis.RoomScan
             bindings.RemoveAll(binding => binding.button == button);
         public void ClearAllBindings() => bindings.Clear();
 
+        private UI.ControllerRayDriver _rayDriver;
+
         private void Update()
         {
             RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null) return;
-            scanner.SetFineHeldActions(
-                OVRInput.Get(OVRInput.RawButton.RIndexTrigger),
-                OVRInput.Get(OVRInput.RawButton.RHandTrigger));
+            _rayDriver ??= FindAnyObjectByType<UI.ControllerRayDriver>();
+            bool uiOwnsTrigger = _rayDriver != null &&
+                _rayDriver.IsPointingAtUi;
+            bool trigger = !uiOwnsTrigger && OVRInput.Get(
+                OVRInput.RawButton.RIndexTrigger);
+            bool erase = !uiOwnsTrigger && OVRInput.Get(
+                OVRInput.RawButton.RHandTrigger);
+            erase |= scanner.FineEraseSelected && trigger;
+            scanner.SetFineHeldActions(!erase && trigger, erase);
             foreach (ScanInputBinding binding in bindings)
             {
                 if (!binding.enabled || binding.action == ScanAction.None ||

@@ -14,7 +14,8 @@ namespace Genesis.RoomScan.UI
         Line,
         SurfaceBrush,
         SpatialBrush,
-        Erase
+        Erase,
+        Eyedropper
     }
 
     /// <summary>
@@ -715,6 +716,11 @@ namespace Genesis.RoomScan.UI
         private void HandleViewerInput()
         {
             _rayDriver ??= FindAnyObjectByType<ControllerRayDriver>();
+            if (_rayDriver != null && _rayDriver.IsPointingAtUi)
+            {
+                CancelTransientInput();
+                return;
+            }
             bool rightGrip = OVRInput.Get(
                 OVRInput.Button.SecondaryHandTrigger);
             bool leftGrip = OVRInput.Get(OVRInput.Button.PrimaryHandTrigger);
@@ -793,7 +799,7 @@ namespace Genesis.RoomScan.UI
                     rightStick.y * RotationSpeed * Time.unscaledDeltaTime,
                     Space.World);
 
-            if (!hasRay || _rayDriver.IsPointingAtUi)
+            if (!hasRay)
             {
                 SetAnnotationHitPreview(false, default);
                 if (!OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
@@ -1224,6 +1230,34 @@ namespace Genesis.RoomScan.UI
             bool triggerUp = OVRInput.GetUp(
                 OVRInput.Button.SecondaryIndexTrigger);
 
+            if (_paintTool == MerkabaArtifactPaintTool.Eyedropper)
+            {
+                CancelPaintStroke();
+                AnnotationRecord paint = FindNearestPaintAnnotation(ray,
+                    out float paintAlong);
+                bool model = TryHitModel(ray, out ModelHit modelHit,
+                    triggerDown);
+                bool usePaint = paint != null && (!model || paintAlong <
+                    Vector3.Distance(ray.origin, modelHit.Point));
+                if (usePaint)
+                    SetAnnotationHitPreview(true, new ModelHit(
+                        ray.GetPoint(paintAlong), -ray.direction));
+                else
+                    SetAnnotationHitPreview(model, modelHit);
+                if (!triggerDown) return;
+                if (usePaint && paint.styled)
+                    PaintColor = paint.color;
+                else if (model && modelHit.HasColor)
+                    PaintColor = modelHit.Color;
+                else
+                {
+                    Status = "No displayed color under pointer";
+                    return;
+                }
+                Status = "Sampled displayed color";
+                return;
+            }
+
             if (_paintTool == MerkabaArtifactPaintTool.Erase)
             {
                 CancelPaintStroke();
@@ -1251,8 +1285,7 @@ namespace Genesis.RoomScan.UI
                 return;
             }
 
-            bool surfaceTool = _paintTool ==
-                    MerkabaArtifactPaintTool.Line ||
+            bool surfaceTool = _paintTool == MerkabaArtifactPaintTool.Line ||
                 _paintTool == MerkabaArtifactPaintTool.SurfaceBrush;
             ModelHit surfaceHit = default;
             bool hasSurfaceHit = surfaceTool &&
@@ -1755,7 +1788,8 @@ namespace Genesis.RoomScan.UI
             return sign * Mathf.Max(minimum, value * sign);
         }
 
-        private bool TryHitModel(Ray ray, out ModelHit modelHit)
+        private bool TryHitModel(Ray ray, out ModelHit modelHit,
+            bool sampleColor = false)
         {
             float nearest = float.PositiveInfinity;
             modelHit = default;
@@ -1773,10 +1807,36 @@ namespace Genesis.RoomScan.UI
                         out RaycastHit hit, ModelRayDistance) ||
                     hit.distance >= nearest) continue;
                 nearest = hit.distance;
-                modelHit = new ModelHit(hit.point, hit.normal);
+                Color color = Color.white;
+                bool hasColor = sampleColor && TryInterpolateVertexColor(
+                    tile.Mesh, hit, out color);
+                modelHit = new ModelHit(hit.point, hit.normal, color,
+                    hasColor);
                 found = true;
             }
             return found;
+        }
+
+        private static bool TryInterpolateVertexColor(Mesh mesh,
+            RaycastHit hit, out Color color)
+        {
+            color = Color.white;
+            if (mesh == null || hit.triangleIndex < 0) return false;
+            int[] indices = mesh.triangles;
+            Color32[] colors = mesh.colors32;
+            int triangle = hit.triangleIndex * 3;
+            if (triangle + 2 >= indices.Length || colors.Length == 0)
+                return false;
+            int i0 = indices[triangle];
+            int i1 = indices[triangle + 1];
+            int i2 = indices[triangle + 2];
+            if ((uint)i0 >= colors.Length || (uint)i1 >= colors.Length ||
+                (uint)i2 >= colors.Length) return false;
+            Vector3 barycentric = hit.barycentricCoordinate;
+            color = (Color)colors[i0] * barycentric.x +
+                (Color)colors[i1] * barycentric.y +
+                (Color)colors[i2] * barycentric.z;
+            return true;
         }
 
         private static void EnsureTileCollider(Tile tile)
@@ -2553,7 +2613,8 @@ namespace Genesis.RoomScan.UI
         }
 
         private bool TileCollidersRequired() =>
-            (_paintInputEnabled && (_paintTool ==
+            (_paintInputEnabled && (_paintTool == MerkabaArtifactPaintTool.Eyedropper ||
+                _paintTool ==
                 MerkabaArtifactPaintTool.Line || _paintTool ==
                 MerkabaArtifactPaintTool.SurfaceBrush)) ||
             _annotationMode == AnnotationMode.Point ||
@@ -2993,11 +3054,16 @@ namespace Genesis.RoomScan.UI
         {
             internal readonly Vector3 Point;
             internal readonly Vector3 Normal;
+            internal readonly Color Color;
+            internal readonly bool HasColor;
 
-            internal ModelHit(Vector3 point, Vector3 normal)
+            internal ModelHit(Vector3 point, Vector3 normal,
+                Color color = default, bool hasColor = false)
             {
                 Point = point;
                 Normal = normal;
+                Color = color;
+                HasColor = hasColor;
             }
         }
 

@@ -136,6 +136,7 @@ namespace Genesis.RoomScan
                     ? _depthCapture.FineSurfaceTargetIssuedSequence : 0u;
             }
         }
+        public bool FineEraseSelected { get; set; }
         internal bool FineAuthorityActive => _fineAuthorityActive;
         public float FineBrushRadius
         {
@@ -593,7 +594,9 @@ namespace Genesis.RoomScan
             return deleted;
         }
 
-        public async Task NewClearAsync()
+        public async Task NewClearAsync() => await NewClearAsync(null);
+
+        public async Task NewClearAsync(string displayName)
         {
             if (IsBusy) return;
             _newSessionPending = true;
@@ -612,7 +615,7 @@ namespace Genesis.RoomScan
                     throw new InvalidOperationException(
                         "Session persistence is unavailable.");
                 await _persistence.BeginNewSessionAsync(
-                    _anchorManager.SpatialAnchorUuid);
+                    _anchorManager.SpatialAnchorUuid, displayName);
                 _renderer?.CancelLoadedCoverageWarmup();
                 _integrator?.Clear();
                 await Task.Yield();

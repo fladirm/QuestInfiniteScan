@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -7,36 +10,36 @@ namespace Genesis.RoomScan.UI
     [RequireComponent(typeof(UIDocument), typeof(DebugMenuFollower))]
     public sealed class DebugMenuController : MonoBehaviour
     {
-        private static readonly string[] SpinnerFrames = { "|", "/", "—", "\\" };
-
         private UIDocument _document;
         private DebugMenuFollower _follower;
         private VisualElement _root;
         private VisualElement _boundRoot;
-        private Button _start, _stop, _save, _load, _new, _export,
+        private Button _start, _save, _saveAs, _load, _new, _rename,
+            _deleteSession, _export,
             _exportTiles, _fine, _readout, _mesh, _occlusion, _checker,
             _artifactView, _artifactLoad, _annotationMode, _annotationSave,
-            _annotationEdit, _annotationDelete, _tabScan, _tabPaint, _tabPlan,
-            _paintView, _paintLoad, _paintSave, _paintLine, _paintSurface,
-            _paintSpatial, _paintErase, _planView, _planLoad, _planStyle,
-            _planAnnotationMode, _planAnnotationSave, _planAnnotationEdit,
-            _planAnnotationDelete;
-        private Label _scanning, _chunks, _kernels, _visibleBoundary;
+            _annotationEdit, _annotationDelete, _tabScan, _tabRefine,
+            _tabPaint, _tabPlan, _fineRefine, _fineErase,
+            _paintView, _paintLoad, _paintSave, _paintLine,
+            _paintSurface, _paintSpatial, _paintErase,
+            _paintEyedropper, _saveSwatch, _planView, _planStyle;
+        private Label _sessionNameLabel, _scanning, _chunks, _kernels,
+            _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
         private Label _artifactStatus;
-        private Label _paintStatus, _paintWidthValue, _planStatus,
-            _planOpacityValue;
-        private TextField _annotationNote, _planAnnotationNote;
+        private Label _paintStatus, _paintWidthValue;
+        private TextField _sessionName, _annotationNote;
+        private DropdownField _sessionPicker;
         private Slider _opacity;
-        private Slider _paintValue, _paintAlpha, _paintWidth, _planOpacity;
-        private Toggle _artifactWorldLock, _artifactRoomAlign,
-            _planWorldLock, _planRoomAlign;
+        private Slider _paintValue, _paintAlpha, _paintWidth;
+        private Toggle _artifactWorldLock, _artifactRoomAlign;
         private Slider _fineRadius, _fineLength;
         private Label _opacityValue, _fineRadiusValue, _fineLengthValue;
-        private Label _operationSpinner, _operationStage;
+        private Label _operationStage;
         private VisualElement _operationPanel;
-        private VisualElement _scanPanel, _paintPanel, _planPanel,
-            _paintColorSwatch, _paintColorWheel, _paintColorCursor;
+        private VisualElement _scanPanel, _refinePanel, _paintPanel, _planPanel,
+            _paintColorSwatch, _paintColorWheel, _paintColorCursor, _recentSwatches,
+            _savedSwatches;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
         private MerkabaArtifactViewer _artifactViewer;
@@ -52,13 +55,21 @@ namespace Genesis.RoomScan.UI
         private int _paintWheelPointer = -1;
         private float _paintHue;
         private float _paintSaturation;
-        private bool _paintHsvInitialized;
+        private readonly List<MerkabaSessionInfo> _sessionEntries = new();
+        private readonly List<Color> _recentColors = new();
+        private readonly List<Color> _savedColors = new();
+        private int _selectedSessionIndex = -1;
+        private bool _hasLastRecentColor;
+        private Color _lastRecentColor;
 
         public bool IsVisible => _visible;
 
         private void Awake()
         {
             _document = GetComponent<UIDocument>();
+            int uiLayer = LayerMask.NameToLayer("UI");
+            if (uiLayer >= 0) gameObject.layer = uiLayer;
+            _document.sortingOrder = 1000;
             _follower = GetComponent<DebugMenuFollower>();
             _rayDriver = FindAnyObjectByType<ControllerRayDriver>();
             _artifactViewer = FindAnyObjectByType<MerkabaArtifactViewer>();
@@ -104,6 +115,7 @@ namespace Genesis.RoomScan.UI
             _visible = true;
             _root.style.display = DisplayStyle.Flex;
             _follower?.SnapToLeftController();
+            RefreshSessionChoices();
             RefreshStatus();
         }
 
@@ -117,10 +129,12 @@ namespace Genesis.RoomScan.UI
         private void Query()
         {
             _start = _root.Q<Button>("btn-start");
-            _stop = _root.Q<Button>("btn-stop");
             _save = _root.Q<Button>("btn-save");
+            _saveAs = _root.Q<Button>("btn-save-as");
             _load = _root.Q<Button>("btn-load");
             _new = _root.Q<Button>("btn-new");
+            _rename = _root.Q<Button>("btn-rename");
+            _deleteSession = _root.Q<Button>("btn-delete-session");
             _export = _root.Q<Button>("btn-export");
             _exportTiles = _root.Q<Button>("btn-export-tiles");
             _fine = _root.Q<Button>("btn-fine");
@@ -135,8 +149,11 @@ namespace Genesis.RoomScan.UI
             _annotationEdit = _root.Q<Button>("btn-annotation-edit");
             _annotationDelete = _root.Q<Button>("btn-annotation-delete");
             _tabScan = _root.Q<Button>("btn-tab-scan");
-            _tabPaint = _root.Q<Button>("btn-tab-paint");
-            _tabPlan = _root.Q<Button>("btn-tab-plan");
+            _tabRefine = _root.Q<Button>("btn-tab-refine");
+            _tabPaint = _root.Q<Button>("btn-tab-design");
+            _tabPlan = _root.Q<Button>("btn-tab-view");
+            _fineRefine = _root.Q<Button>("btn-fine-refine");
+            _fineErase = _root.Q<Button>("btn-fine-erase");
             _paintView = _root.Q<Button>("btn-paint-view");
             _paintLoad = _root.Q<Button>("btn-paint-load");
             _paintSave = _root.Q<Button>("btn-paint-save");
@@ -144,19 +161,16 @@ namespace Genesis.RoomScan.UI
             _paintSurface = _root.Q<Button>("btn-paint-surface");
             _paintSpatial = _root.Q<Button>("btn-paint-spatial");
             _paintErase = _root.Q<Button>("btn-paint-erase");
-            _planView = _root.Q<Button>("btn-plan-view");
-            _planLoad = _root.Q<Button>("btn-plan-load");
+            _paintEyedropper = _root.Q<Button>("btn-paint-eyedropper");
+            _saveSwatch = _root.Q<Button>("btn-save-swatch");
+            _planView = _root.Q<Button>("btn-plan-model");
             _planStyle = _root.Q<Button>("btn-plan-style");
-            _planAnnotationMode = _root.Q<Button>("btn-plan-annotation-mode");
-            _planAnnotationSave = _root.Q<Button>("btn-plan-annotation-save");
-            _planAnnotationEdit = _root.Q<Button>("btn-plan-annotation-edit");
-            _planAnnotationDelete = _root.Q<Button>("btn-plan-annotation-delete");
             _artifactWorldLock = _root.Q<Toggle>("artifact-world-lock");
             _artifactRoomAlign = _root.Q<Toggle>("artifact-room-align");
-            _planWorldLock = _root.Q<Toggle>("plan-world-lock");
-            _planRoomAlign = _root.Q<Toggle>("plan-room-align");
             _annotationNote = _root.Q<TextField>("annotation-note");
-            _planAnnotationNote = _root.Q<TextField>("plan-annotation-note");
+            _sessionName = _root.Q<TextField>("session-name");
+            _sessionPicker = _root.Q<DropdownField>("session-picker");
+            _sessionNameLabel = _root.Q<Label>("val-session-name");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
             _kernels = _root.Q<Label>("val-kernels");
@@ -169,14 +183,15 @@ namespace Genesis.RoomScan.UI
             _artifactStatus = _root.Q<Label>("val-artifact");
             _paintStatus = _root.Q<Label>("val-paint-status");
             _paintWidthValue = _root.Q<Label>("val-paint-width");
-            _planStatus = _root.Q<Label>("val-plan-status");
-            _planOpacityValue = _root.Q<Label>("val-plan-opacity");
             _scanPanel = _root.Q<VisualElement>("scan-panel");
-            _paintPanel = _root.Q<VisualElement>("paint-panel");
-            _planPanel = _root.Q<VisualElement>("plan-panel");
+            _refinePanel = _root.Q<VisualElement>("refine-panel");
+            _paintPanel = _root.Q<VisualElement>("design-panel");
+            _planPanel = _root.Q<VisualElement>("view-panel");
             _paintColorSwatch = _root.Q<VisualElement>("paint-color-swatch");
             _paintColorWheel = _root.Q<VisualElement>("paint-color-wheel");
             _paintColorCursor = _root.Q<VisualElement>("paint-color-cursor");
+            _recentSwatches = _root.Q<VisualElement>("recent-swatches");
+            _savedSwatches = _root.Q<VisualElement>("saved-swatches");
             _opacity = _root.Q<Slider>("scan-opacity");
             _opacityValue = _root.Q<Label>("val-opacity");
             _fineRadius = _root.Q<Slider>("fine-radius");
@@ -184,11 +199,9 @@ namespace Genesis.RoomScan.UI
             _paintValue = _root.Q<Slider>("paint-value");
             _paintAlpha = _root.Q<Slider>("paint-alpha");
             _paintWidth = _root.Q<Slider>("paint-width");
-            _planOpacity = _root.Q<Slider>("plan-opacity");
             _fineRadiusValue = _root.Q<Label>("val-fine-radius");
             _fineLengthValue = _root.Q<Label>("val-fine-length");
             _operationPanel = _root.Q<VisualElement>("operation-panel");
-            _operationSpinner = _root.Q<Label>("operation-spinner");
             _operationStage = _root.Q<Label>("operation-stage");
             _operationProgress = _root.Q<ProgressBar>("operation-progress");
         }
@@ -196,11 +209,14 @@ namespace Genesis.RoomScan.UI
         private void Bind()
         {
             _start?.RegisterCallback<ClickEvent>(evt =>
-                _ = RoomScanner.Instance?.StartScanningAsync());
-            _stop?.RegisterCallback<ClickEvent>(evt => RoomScanner.Instance?.StopScanning());
-            _save?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.SaveAsync());
-            _load?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.LoadAsync());
-            _new?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.NewClearAsync());
+                RoomScanner.Instance?.ToggleScanning());
+            _save?.RegisterCallback<ClickEvent>(evt => _ = SaveActiveAsync());
+            _saveAs?.RegisterCallback<ClickEvent>(evt => _ = SaveAsAsync());
+            _load?.RegisterCallback<ClickEvent>(evt => _ = OpenSelectedAsync());
+            _new?.RegisterCallback<ClickEvent>(evt => _ = NewSessionAsync());
+            _rename?.RegisterCallback<ClickEvent>(evt => RenameActiveSession());
+            _deleteSession?.RegisterCallback<ClickEvent>(evt =>
+                _ = DeleteSelectedSessionAsync());
             _export?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.ExportGlbAsync());
             _exportTiles?.RegisterCallback<ClickEvent>(evt =>
                 _ = RoomScanner.Instance?.ExportViewerPackageAsync());
@@ -256,8 +272,15 @@ namespace Genesis.RoomScan.UI
             _annotationDelete?.RegisterCallback<ClickEvent>(evt =>
                 _artifactViewer?.DeleteSelectedAnnotation());
             _tabScan?.RegisterCallback<ClickEvent>(evt => SetTab(MenuTab.Scan));
-            _tabPaint?.RegisterCallback<ClickEvent>(evt => SetTab(MenuTab.Paint));
-            _tabPlan?.RegisterCallback<ClickEvent>(evt => SetTab(MenuTab.Plan));
+            _tabRefine?.RegisterCallback<ClickEvent>(evt =>
+                SetTab(MenuTab.Refine));
+            _tabPaint?.RegisterCallback<ClickEvent>(evt =>
+                SetTab(MenuTab.Design));
+            _tabPlan?.RegisterCallback<ClickEvent>(evt => SetTab(MenuTab.View));
+            _fineRefine?.RegisterCallback<ClickEvent>(evt =>
+                SelectFineTool(false));
+            _fineErase?.RegisterCallback<ClickEvent>(evt =>
+                SelectFineTool(true));
             _paintView?.RegisterCallback<ClickEvent>(evt =>
             {
                 _artifactViewer ??=
@@ -280,31 +303,19 @@ namespace Genesis.RoomScan.UI
                 SetPaintTool(MerkabaArtifactPaintTool.SpatialBrush));
             _paintErase?.RegisterCallback<ClickEvent>(evt =>
                 SetPaintTool(MerkabaArtifactPaintTool.Erase));
-            _planView?.RegisterCallback<ClickEvent>(evt =>
-            {
-                EnsureArtifactViewer();
-                if (_artifactViewer != null) _ = _artifactViewer.ToggleAsync();
-            });
-            _planLoad?.RegisterCallback<ClickEvent>(evt =>
-            {
-                EnsureArtifactViewer();
-                _artifactViewer?.RequestPackageFromDisk();
-            });
+            _paintEyedropper?.RegisterCallback<ClickEvent>(evt =>
+                SetPaintTool(MerkabaArtifactPaintTool.Eyedropper));
+            _saveSwatch?.RegisterCallback<ClickEvent>(evt => SaveCurrentSwatch());
             _planStyle?.RegisterCallback<ClickEvent>(evt =>
             {
                 EnsureArtifactViewer();
-                if (_artifactViewer != null)
-                    _artifactViewer.PlanViewEnabled =
-                        !_artifactViewer.PlanViewEnabled;
+                if (_artifactViewer != null) _artifactViewer.PlanViewEnabled = true;
             });
-            _planAnnotationMode?.RegisterCallback<ClickEvent>(evt =>
-                _artifactViewer?.CycleAnnotationMode());
-            _planAnnotationSave?.RegisterCallback<ClickEvent>(evt =>
-                _artifactViewer?.SaveAnnotations());
-            _planAnnotationEdit?.RegisterCallback<ClickEvent>(evt =>
-                _artifactViewer?.BeginNoteEdit());
-            _planAnnotationDelete?.RegisterCallback<ClickEvent>(evt =>
-                _artifactViewer?.DeleteSelectedAnnotation());
+            _planView?.RegisterCallback<ClickEvent>(evt =>
+            {
+                EnsureArtifactViewer();
+                if (_artifactViewer != null) _artifactViewer.PlanViewEnabled = false;
+            });
             _artifactWorldLock?.RegisterValueChangedCallback(evt =>
             {
                 if (_artifactViewer != null)
@@ -315,22 +326,7 @@ namespace Genesis.RoomScan.UI
                 if (_artifactViewer != null)
                     _artifactViewer.RoomAligned = evt.newValue;
             });
-            _planWorldLock?.RegisterValueChangedCallback(evt =>
-            {
-                if (_artifactViewer != null)
-                    _artifactViewer.WorldLocked = evt.newValue;
-            });
-            _planRoomAlign?.RegisterValueChangedCallback(evt =>
-            {
-                if (_artifactViewer != null)
-                    _artifactViewer.RoomAligned = evt.newValue;
-            });
             _annotationNote?.RegisterValueChangedCallback(evt =>
-            {
-                if (_artifactViewer != null)
-                    _artifactViewer.SelectedNote = evt.newValue;
-            });
-            _planAnnotationNote?.RegisterValueChangedCallback(evt =>
             {
                 if (_artifactViewer != null)
                     _artifactViewer.SelectedNote = evt.newValue;
@@ -356,8 +352,6 @@ namespace Genesis.RoomScan.UI
                 if (_artifactViewer != null)
                     _artifactViewer.PaintWidth = evt.newValue;
             });
-            _planOpacity?.RegisterValueChangedCallback(evt =>
-                SetArtifactOpacity(evt.newValue));
             _paintColorWheel?.RegisterCallback<PointerDownEvent>(
                 OnPaintWheelPointerDown);
             _paintColorWheel?.RegisterCallback<PointerMoveEvent>(
@@ -366,6 +360,9 @@ namespace Genesis.RoomScan.UI
                 OnPaintWheelPointerUp);
             _paintColorWheel?.RegisterCallback<PointerCaptureOutEvent>(evt =>
                 _paintWheelPointer = -1);
+            _sessionPicker?.RegisterValueChangedCallback(evt =>
+                SelectSessionChoice(evt.newValue));
+            BuildSwatchButtons();
         }
 
         private void SetTab(MenuTab tab)
@@ -374,21 +371,42 @@ namespace Genesis.RoomScan.UI
             if (_scanPanel != null)
                 _scanPanel.style.display = tab == MenuTab.Scan
                     ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_refinePanel != null)
+                _refinePanel.style.display = tab == MenuTab.Refine
+                    ? DisplayStyle.Flex : DisplayStyle.None;
             if (_paintPanel != null)
-                _paintPanel.style.display = tab == MenuTab.Paint
+                _paintPanel.style.display = tab == MenuTab.Design
                     ? DisplayStyle.Flex : DisplayStyle.None;
             if (_planPanel != null)
-                _planPanel.style.display = tab == MenuTab.Plan
+                _planPanel.style.display = tab == MenuTab.View
                     ? DisplayStyle.Flex : DisplayStyle.None;
             _tabScan?.EnableInClassList("mode-tab--selected",
                 tab == MenuTab.Scan);
+            _tabRefine?.EnableInClassList("mode-tab--selected",
+                tab == MenuTab.Refine);
             _tabPaint?.EnableInClassList("mode-tab--selected",
-                tab == MenuTab.Paint);
+                tab == MenuTab.Design);
             _tabPlan?.EnableInClassList("mode-tab--selected",
-                tab == MenuTab.Plan);
+                tab == MenuTab.View);
             if (_artifactViewer != null)
-                _artifactViewer.PaintInputEnabled = tab == MenuTab.Paint;
+                _artifactViewer.PaintInputEnabled = tab == MenuTab.Design;
             RefreshStatus();
+        }
+
+        private void SelectFineTool(bool erase)
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null) return;
+            scanner.FineEraseSelected = erase;
+            scanner.FineMode = true;
+            RefreshFineTool();
+        }
+
+        private void RefreshFineTool()
+        {
+            bool erase = RoomScanner.Instance?.FineEraseSelected ?? false;
+            _fineRefine?.EnableInClassList("segment--selected", !erase);
+            _fineErase?.EnableInClassList("segment--selected", erase);
         }
 
         private void SetPaintTool(MerkabaArtifactPaintTool tool)
@@ -399,6 +417,167 @@ namespace Genesis.RoomScan.UI
 
         private void EnsureArtifactViewer() => _artifactViewer ??=
             FindAnyObjectByType<MerkabaArtifactViewer>();
+
+        private async Task NewSessionAsync()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null) return;
+            await scanner.NewClearAsync(SessionNameInput());
+            RefreshSessionChoices();
+        }
+
+        private async Task OpenSelectedAsync()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null || _selectedSessionIndex < 0 ||
+                _selectedSessionIndex >= _sessionEntries.Count) return;
+            await scanner.OpenSessionAsync(
+                _sessionEntries[_selectedSessionIndex].Id);
+            RefreshSessionChoices();
+        }
+
+        private async Task SaveAsAsync()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null) return;
+            await scanner.SaveAsAsync(SessionNameInput());
+            RefreshSessionChoices();
+        }
+
+        private async Task SaveActiveAsync()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null) return;
+            await scanner.SaveAsync();
+            RefreshSessionChoices();
+        }
+
+        private void RenameActiveSession()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null) return;
+            scanner.RenameActiveSession(SessionNameInput());
+            RefreshSessionChoices();
+        }
+
+        private async Task DeleteSelectedSessionAsync()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null || _selectedSessionIndex < 0 ||
+                _selectedSessionIndex >= _sessionEntries.Count) return;
+            await scanner.DeleteSessionAsync(
+                _sessionEntries[_selectedSessionIndex].Id);
+            RefreshSessionChoices();
+        }
+
+        private string SessionNameInput() =>
+            string.IsNullOrWhiteSpace(_sessionName?.value)
+                ? null : _sessionName.value.Trim();
+
+        private void RefreshSessionChoices()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null || _sessionPicker == null) return;
+            _sessionEntries.Clear();
+            _sessionEntries.AddRange(scanner.Sessions);
+            var choices = new List<string>(_sessionEntries.Count);
+            _selectedSessionIndex = -1;
+            for (int index = 0; index < _sessionEntries.Count; index++)
+            {
+                MerkabaSessionInfo session = _sessionEntries[index];
+                choices.Add(SessionChoice(session));
+                if (session.Id == scanner.ActiveSessionId)
+                    _selectedSessionIndex = index;
+            }
+            if (_selectedSessionIndex < 0 && choices.Count > 0)
+                _selectedSessionIndex = 0;
+            _sessionPicker.choices = choices;
+            _sessionPicker.SetValueWithoutNotify(_selectedSessionIndex >= 0
+                ? choices[_selectedSessionIndex] : string.Empty);
+            if (_sessionName != null && scanner.ActiveSessionId != Guid.Empty)
+                _sessionName.SetValueWithoutNotify(scanner.ActiveSessionName);
+        }
+
+        private void SelectSessionChoice(string choice)
+        {
+            _selectedSessionIndex = -1;
+            for (int index = 0; index < _sessionEntries.Count; index++)
+                if (string.Equals(SessionChoice(_sessionEntries[index]), choice,
+                        StringComparison.Ordinal))
+                {
+                    _selectedSessionIndex = index;
+                    _sessionName?.SetValueWithoutNotify(
+                        _sessionEntries[index].displayName);
+                    break;
+                }
+        }
+
+        private static string SessionChoice(MerkabaSessionInfo session) =>
+            $"{session.displayName} · {session.Id.ToString("N").Substring(0, 8)}";
+
+        private void BuildSwatchButtons()
+        {
+            if (_recentColors.Count == 0)
+                _recentColors.AddRange(new[]
+                {
+                    new Color(0.1f, 0.8f, 1f, 0.85f),
+                    new Color(1f, 0.3f, 0.2f, 0.85f),
+                    new Color(1f, 0.82f, 0.18f, 0.85f),
+                    new Color(0.2f, 0.9f, 0.45f, 0.85f),
+                    new Color(0.68f, 0.34f, 1f, 0.85f),
+                    Color.white, Color.black, Color.gray
+                });
+            RebuildSwatchRow(_recentSwatches, _recentColors);
+            RebuildSwatchRow(_savedSwatches, _savedColors);
+        }
+
+        private void RebuildSwatchRow(VisualElement row, List<Color> colors)
+        {
+            if (row == null) return;
+            row.Clear();
+            for (int index = 0; index < colors.Count && index < 8; index++)
+            {
+                Color color = colors[index];
+                var button = new Button(() => SelectSwatch(color));
+                button.AddToClassList("color-swatch");
+                button.style.backgroundColor = color;
+                row.Add(button);
+            }
+        }
+
+        private void SelectSwatch(Color color)
+        {
+            EnsureArtifactViewer();
+            if (_artifactViewer == null) return;
+            _artifactViewer.PaintColor = color;
+            Color.RGBToHSV(color, out _paintHue, out _paintSaturation, out _);
+            RefreshPaintControls();
+        }
+
+        private void SaveCurrentSwatch()
+        {
+            EnsureArtifactViewer();
+            if (_artifactViewer == null) return;
+            Color color = _artifactViewer.PaintColor;
+            _savedColors.RemoveAll(item => Approximately(item, color));
+            _savedColors.Insert(0, color);
+            if (_savedColors.Count > 8) _savedColors.RemoveAt(8);
+            RebuildSwatchRow(_savedSwatches, _savedColors);
+        }
+
+        private void RecordRecentColor(Color color)
+        {
+            _recentColors.RemoveAll(item => Approximately(item, color));
+            _recentColors.Insert(0, color);
+            if (_recentColors.Count > 8) _recentColors.RemoveAt(8);
+            RebuildSwatchRow(_recentSwatches, _recentColors);
+        }
+
+        private static bool Approximately(Color left, Color right) =>
+            Mathf.Abs(left.r - right.r) < 0.002f &&
+            Mathf.Abs(left.g - right.g) < 0.002f &&
+            Mathf.Abs(left.b - right.b) < 0.002f &&
+            Mathf.Abs(left.a - right.a) < 0.002f;
 
         private void SetArtifactOpacity(float value)
         {
@@ -488,6 +667,8 @@ namespace Genesis.RoomScan.UI
         {
             if (_paintWheelPointer != evt.pointerId) return;
             SetPaintWheelPosition(new Vector2(evt.position.x, evt.position.y));
+            if (_artifactViewer != null)
+                RecordRecentColor(_artifactViewer.PaintColor);
             if (_paintColorWheel.HasPointerCapture(evt.pointerId))
                 _paintColorWheel.ReleasePointer(evt.pointerId);
             _paintWheelPointer = -1;
@@ -515,7 +696,6 @@ namespace Genesis.RoomScan.UI
             Color rgb = Color.HSVToRGB(_paintHue, _paintSaturation, value);
             rgb.a = _artifactViewer.PaintColor.a;
             _artifactViewer.PaintColor = rgb;
-            _paintHsvInitialized = true;
             UpdatePaintColorCursor(width, height);
         }
 
@@ -539,6 +719,7 @@ namespace Genesis.RoomScan.UI
         {
             RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null) return;
+            Set(_sessionNameLabel, scanner.ActiveSessionName);
             string state = scanner.ScanLifecycle switch
             {
                 ScanLifecycleState.Starting => "Starting…",
@@ -553,9 +734,12 @@ namespace Genesis.RoomScan.UI
             Set(_chunks, scanner.ActiveChunkCount.ToString());
             Set(_kernels, scanner.PublishedPrimitiveCount.ToString());
             Set(_visibleBoundary, scanner.VisibleChunkCount.ToString());
-            SetStatus(_saved, scanner.SavedSessionExists
-                ? scanner.PersistenceStatus : "No saved session",
-                scanner.SavedSessionExists ? StatusKind.Good : StatusKind.Neutral);
+            string saved = scanner.ActiveSessionId == Guid.Empty
+                ? "No session"
+                : scanner.SessionIsDirty ? "Unsaved changes" : "Saved";
+            SetStatus(_saved, saved, scanner.SessionIsDirty
+                ? StatusKind.Warning : scanner.ActiveSessionId != Guid.Empty
+                    ? StatusKind.Good : StatusKind.Neutral);
             if (Time.unscaledTime >= _nextProximityRefresh)
             {
                 _nextProximityRefresh = Time.unscaledTime + 0.25f;
@@ -598,33 +782,34 @@ namespace Genesis.RoomScan.UI
                 "GLB View unavailable");
             Set(_paintStatus, _artifactViewer?.Status ??
                 "GLB View unavailable");
-            Set(_planStatus, _artifactViewer?.Status ??
-                "GLB View unavailable");
 
             float opacity = scanner.ScanOpacity;
             if (_artifactViewer != null)
                 _artifactViewer.PreviewOpacity = opacity;
             _opacity?.SetValueWithoutNotify(opacity);
             Set(_opacityValue, $"{opacity * 100f:F0}%");
-            _planOpacity?.SetValueWithoutNotify(opacity);
-            Set(_planOpacityValue, $"{opacity * 100f:F0}%");
             _fineRadius?.SetValueWithoutNotify(scanner.FineBrushRadius);
             _fineLength?.SetValueWithoutNotify(scanner.FineToolLength);
             Set(_fineRadiusValue, $"{scanner.FineBrushRadius * 100f:F0} cm");
             Set(_fineLengthValue, $"{scanner.FineToolLength:F2} m");
             if (_fine != null)
-                _fine.text = scanner.FineMode ? "FINE  ON" : "FINE  OFF";
+                _fine.text = scanner.FineMode
+                    ? "HAND TOOL ENABLED" : "ENABLE HAND TOOL";
+            RefreshFineTool();
             if (_readout != null)
                 _readout.text = scanner.ReadoutDrawEnabled
-                    ? "READOUT  ON" : "READOUT  OFF";
+                    ? "Readout On" : "Readout Off";
             if (_mesh != null)
                 _mesh.text = scanner.MeshReadoutEnabled
-                    ? "MESH  ON" : "MESH  OFF";
+                    ? "Raw mesh On" : "Raw mesh Off";
             if (_occlusion != null)
                 _occlusion.text = scanner.DynamicOcclusionEnabled
-                    ? "OCCLUSION  ON" : "OCCLUSION  OFF";
+                    ? "Occlusion On" : "Occlusion Off";
             _checker?.EnableInClassList("checker-toggle--on",
                 scanner.CheckerReadoutEnabled);
+            if (_checker != null)
+                _checker.text = scanner.CheckerReadoutEnabled
+                    ? "Checker On" : "Checker Off";
             if (_artifactView != null)
                 _artifactView.text = _artifactViewer != null &&
                     _artifactViewer.IsOpen ? "GLB VIEW  ON" : "GLB VIEW  OFF";
@@ -638,30 +823,21 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer?.WorldLocked ?? true);
             _artifactRoomAlign?.SetValueWithoutNotify(
                 _artifactViewer?.RoomAligned ?? false);
-            _planWorldLock?.SetValueWithoutNotify(
-                _artifactViewer?.WorldLocked ?? true);
-            _planRoomAlign?.SetValueWithoutNotify(
-                _artifactViewer?.RoomAligned ?? false);
-            if (_planAnnotationNote != null)
-                _planAnnotationNote.SetValueWithoutNotify(
-                    _artifactViewer?.SelectedNote ?? string.Empty);
             if (_planView != null)
                 _planView.text = _artifactViewer != null &&
                     _artifactViewer.IsOpen ? "VIEW  ON" : "VIEW  OFF";
             if (_planStyle != null)
-                _planStyle.text = _artifactViewer?.PlanViewEnabled ?? false
-                    ? "PLAN  ON" : "MODEL  ON";
-            if (_planAnnotationMode != null)
-                _planAnnotationMode.text = "MARK  " +
-                    (_artifactViewer?.AnnotationModeText ?? "OFF");
+            {
+                bool plan = _artifactViewer?.PlanViewEnabled ?? false;
+                _planStyle.EnableInClassList("segment--selected", plan);
+                _planView?.EnableInClassList("segment--selected", !plan);
+            }
             RefreshPaintControls();
 
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
             if (_start != null) _start.text = scanner.IsScanStarting
-                ? "STARTING…" : scanner.IsScanning ? "RUNNING" : "START / RESUME";
-            if (_stop != null) _stop.text = scanner.ScanLifecycle ==
-                ScanLifecycleState.Quiescing ? "QUIESCING…" : "STOP";
+                ? "STARTING…" : scanner.IsScanning ? "STOP SCAN" : "START SCAN";
             if (_save != null) _save.text = operation.Busy &&
                 operation.Kind == ScanOperationKind.Save ? "SAVING…" : "SAVE";
             if (_load != null) _load.text = operation.Busy &&
@@ -676,13 +852,13 @@ namespace Genesis.RoomScan.UI
             bool reviewing = _artifactViewer?.IsOpen ?? false;
             bool operationBusy = scanner.IsBusy;
             bool busy = operationBusy || reviewing;
-            _start?.SetEnabled(!busy && !scanner.IsScanning &&
-                !scanner.IsScanStarting);
-            _stop?.SetEnabled(!busy && (scanner.IsScanning ||
-                scanner.IsScanStarting));
+            _start?.SetEnabled(!busy && !scanner.IsScanStarting);
             _save?.SetEnabled(!busy);
-            _load?.SetEnabled(!busy);
+            _saveAs?.SetEnabled(!busy && scanner.ActiveSessionId != Guid.Empty);
+            _load?.SetEnabled(!busy && _selectedSessionIndex >= 0);
             _new?.SetEnabled(!busy);
+            _rename?.SetEnabled(!busy && scanner.ActiveSessionId != Guid.Empty);
+            _deleteSession?.SetEnabled(!busy && _selectedSessionIndex >= 0);
             _export?.SetEnabled(!busy);
             _exportTiles?.SetEnabled(!busy);
             _fine?.SetEnabled(!busy);
@@ -708,30 +884,28 @@ namespace Genesis.RoomScan.UI
             _paintSurface?.SetEnabled(!operationBusy && reviewing);
             _paintSpatial?.SetEnabled(!operationBusy && reviewing);
             _paintErase?.SetEnabled(!operationBusy && reviewing);
+            _paintEyedropper?.SetEnabled(!operationBusy && reviewing);
+            _saveSwatch?.SetEnabled(!operationBusy && reviewing);
             _planView?.SetEnabled(!operationBusy && _artifactViewer != null);
-            _planLoad?.SetEnabled(!operationBusy && _artifactViewer != null);
             _planStyle?.SetEnabled(!operationBusy && reviewing);
-            _planAnnotationMode?.SetEnabled(!operationBusy && reviewing);
-            _planAnnotationSave?.SetEnabled(!operationBusy && reviewing);
-            _planAnnotationNote?.SetEnabled(!operationBusy && reviewing);
-            _planAnnotationEdit?.SetEnabled(!operationBusy && reviewing &&
-                (_artifactViewer?.HasSelectedAnnotation ?? false));
-            _planAnnotationDelete?.SetEnabled(!operationBusy && reviewing &&
-                (_artifactViewer?.HasSelectedAnnotation ?? false));
-            _planWorldLock?.SetEnabled(!operationBusy && reviewing);
-            _planRoomAlign?.SetEnabled(!operationBusy && reviewing);
         }
 
         private void RefreshPaintControls()
         {
             if (_artifactViewer == null) return;
-            _artifactViewer.PaintInputEnabled = _selectedTab == MenuTab.Paint;
+            _artifactViewer.PaintInputEnabled = _selectedTab == MenuTab.Design;
             Color color = _artifactViewer.PaintColor;
-            if (!_paintHsvInitialized)
+            if (_paintWheelPointer < 0 && (!_hasLastRecentColor ||
+                !Approximately(_lastRecentColor, color)))
+            {
+                _lastRecentColor = color;
+                _hasLastRecentColor = true;
+                RecordRecentColor(color);
+            }
+            if (_paintWheelPointer < 0)
             {
                 Color.RGBToHSV(color, out _paintHue, out _paintSaturation,
                     out _);
-                _paintHsvInitialized = true;
             }
             Color.RGBToHSV(color, out _, out _, out float value);
             _paintValue?.SetValueWithoutNotify(value);
@@ -742,14 +916,16 @@ namespace Genesis.RoomScan.UI
                 _paintColorSwatch.style.backgroundColor = color;
             UpdatePaintColorCursor();
             MerkabaArtifactPaintTool tool = _artifactViewer.PaintTool;
-            _paintLine?.EnableInClassList("paint-tool--selected",
+            _paintLine?.EnableInClassList("tool-button--selected",
                 tool == MerkabaArtifactPaintTool.Line);
-            _paintSurface?.EnableInClassList("paint-tool--selected",
+            _paintSurface?.EnableInClassList("tool-button--selected",
                 tool == MerkabaArtifactPaintTool.SurfaceBrush);
-            _paintSpatial?.EnableInClassList("paint-tool--selected",
+            _paintSpatial?.EnableInClassList("tool-button--selected",
                 tool == MerkabaArtifactPaintTool.SpatialBrush);
-            _paintErase?.EnableInClassList("paint-tool--selected",
+            _paintErase?.EnableInClassList("tool-button--selected",
                 tool == MerkabaArtifactPaintTool.Erase);
+            _paintEyedropper?.EnableInClassList("tool-button--selected",
+                tool == MerkabaArtifactPaintTool.Eyedropper);
             if (_paintView != null)
                 _paintView.text = _artifactViewer.IsOpen
                     ? "GLB VIEW  ON" : "GLB VIEW  OFF";
@@ -787,16 +963,6 @@ namespace Genesis.RoomScan.UI
 
             Set(_operationStage, operation.StatusText);
             bool indeterminate = operation.IsIndeterminate;
-            if (_operationSpinner != null)
-            {
-                _operationSpinner.style.display = indeterminate
-                    ? DisplayStyle.Flex : DisplayStyle.None;
-                if (indeterminate)
-                {
-                    _operationSpinner.text = SpinnerFrames[
-                        Mathf.FloorToInt(Time.unscaledTime * 8f) & 3];
-                }
-            }
             if (_operationProgress != null)
             {
                 _operationProgress.style.display = DisplayStyle.Flex;
@@ -833,6 +999,6 @@ namespace Genesis.RoomScan.UI
         }
 
         private enum StatusKind { Neutral, Good, Warning, Error }
-        private enum MenuTab { Scan, Paint, Plan }
+        private enum MenuTab { Scan, Refine, Design, View }
     }
 }

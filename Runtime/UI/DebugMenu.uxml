@@ -4,280 +4,249 @@
     noNamespaceSchemaLocation="../../UIElementsSchema/UIElements.xsd"
     editor-extension-mode="False">
     <Style src="DebugMenu.uss" />
-    <ui:VisualElement name="debug-root" class="debug-root">
-        <ui:VisualElement class="header-row">
-            <ui:VisualElement class="title-stack">
-                <ui:Label text="QUEST INFINITE MERKABA" class="title" />
-                <ui:Label text="5 CM SUPPORT · 2.5 CM GRID" class="subtitle" />
+    <ui:VisualElement name="debug-root" class="workspace">
+        <ui:VisualElement class="top-bar">
+            <ui:VisualElement class="session-heading">
+                <ui:Label name="val-session-name" text="No session"
+                    class="session-name" />
+                <ui:Label name="val-scanning" text="Stopped"
+                    class="session-state" />
             </ui:VisualElement>
-            <ui:Label name="val-fps" text="-- FPS" class="fps" />
+            <ui:Label name="val-saved" text="Not saved"
+                class="save-state" />
         </ui:VisualElement>
 
-        <ui:VisualElement class="mode-tab-row">
+        <ui:VisualElement class="mode-tabs">
             <ui:Button name="btn-tab-scan" text="SCAN"
                 class="mode-tab mode-tab--selected" />
-            <ui:Button name="btn-tab-paint" text="PAINT"
+            <ui:Button name="btn-tab-refine" text="REFINE"
                 class="mode-tab" />
-            <ui:Button name="btn-tab-plan" text="PLAN"
+            <ui:Button name="btn-tab-design" text="DESIGN"
+                class="mode-tab" />
+            <ui:Button name="btn-tab-view" text="VIEW"
                 class="mode-tab mode-tab--last" />
         </ui:VisualElement>
 
-        <ui:VisualElement name="operation-panel" class="operation-panel">
-            <ui:VisualElement class="operation-title-row">
-                <ui:Label name="operation-spinner" text="|" class="operation-spinner" />
-                <ui:Label name="operation-stage" text="Working…" class="operation-stage" />
-            </ui:VisualElement>
+        <ui:VisualElement name="operation-panel" class="operation-card">
+            <ui:Label name="operation-stage" text="Working…"
+                class="operation-stage" />
             <ui:ProgressBar name="operation-progress" value="0" low-value="0"
                 high-value="100" title="0%" class="operation-progress" />
         </ui:VisualElement>
 
         <ui:VisualElement name="scan-panel" class="mode-panel">
+            <ui:Button name="btn-start" text="START SCAN"
+                class="primary-action" />
+            <ui:Label name="val-proximity" text="No stored region"
+                class="proximity" />
 
-        <ui:Label text="SCAN STATUS" class="section-title" />
-        <ui:VisualElement class="status-card">
-            <ui:VisualElement class="status-row">
-                <ui:Label text="Scanning" class="status-key" />
-                <ui:Label name="val-scanning" text="--" class="status-val" />
-            </ui:VisualElement>
-            <ui:VisualElement class="status-row">
-                <ui:Label text="Active chunks" class="status-key" />
-                <ui:Label name="val-chunks" text="0" class="status-val" />
-            </ui:VisualElement>
-            <ui:VisualElement class="status-row">
-                <ui:Label text="Published triangles" class="status-key" />
-                <ui:Label name="val-kernels" text="0" class="status-val" />
-            </ui:VisualElement>
-            <ui:VisualElement class="status-row">
-                <ui:Label text="Visible chunks" class="status-key" />
-                <ui:Label name="val-visible" text="0" class="status-val" />
-            </ui:VisualElement>
-            <ui:VisualElement class="status-row">
-                <ui:Label text="Saved session" class="status-key" />
-                <ui:Label name="val-saved" text="--" class="status-val status-val--small" />
-            </ui:VisualElement>
-            <ui:VisualElement class="status-row">
-                <ui:Label text="Scan proximity" class="status-key" />
-                <ui:Label name="val-proximity" text="--" class="status-val status-val--small" />
-            </ui:VisualElement>
-            <ui:VisualElement class="status-row">
-                <ui:Label text="GLB export" class="status-key" />
-                <ui:Label name="val-export" text="--" class="status-val status-val--small" />
-            </ui:VisualElement>
-            <ui:VisualElement class="status-row status-row--last">
-                <ui:Label text="Controller pointer" class="status-key" />
-                <ui:Label name="val-pointer" text="--" class="status-val status-val--small" />
-            </ui:VisualElement>
-        </ui:VisualElement>
-
-        <ui:Label text="DISPLAY" class="section-title" />
-        <ui:VisualElement class="opacity-row">
-            <ui:Label text="Scan opacity" class="status-key" />
-            <ui:Slider name="scan-opacity" low-value="0" high-value="1" value="1"
-                class="opacity-slider" />
-            <ui:Label name="val-opacity" text="100%" class="opacity-value" />
-        </ui:VisualElement>
-        <ui:VisualElement class="display-toggle-row">
-            <ui:Button name="btn-readout" text="READOUT  ON"
-                class="display-toggle display-toggle--first" />
-            <ui:Button name="btn-mesh" text="MESH  OFF"
-                class="display-toggle" />
-            <ui:Button name="btn-occlusion" text="OCCLUSION  ON"
-                class="display-toggle" />
-            <ui:Button name="btn-checker" tooltip="Coverage checker"
-                class="checker-toggle">
-                <ui:VisualElement picking-mode="Ignore" class="checker-icon">
-                    <ui:VisualElement class="checker-icon-row">
-                        <ui:VisualElement class="checker-icon-yellow" />
-                        <ui:VisualElement class="checker-icon-magenta" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="checker-icon-row">
-                        <ui:VisualElement class="checker-icon-magenta" />
-                        <ui:VisualElement class="checker-icon-yellow" />
-                    </ui:VisualElement>
+            <ui:Label text="Session" class="section-title" />
+            <ui:VisualElement class="card">
+                <ui:DropdownField name="session-picker" label="Saved sessions"
+                    class="field" />
+                <ui:TextField name="session-name" label="Name"
+                    value="" class="field" />
+                <ui:VisualElement class="button-row">
+                    <ui:Button name="btn-new" text="New"
+                        class="secondary-action" />
+                    <ui:Button name="btn-load" text="Open"
+                        class="secondary-action" />
+                    <ui:Button name="btn-save" text="Save"
+                        class="secondary-action button-last" />
                 </ui:VisualElement>
-            </ui:Button>
+                <ui:VisualElement class="button-row compact-row">
+                    <ui:Button name="btn-save-as" text="Save As"
+                        class="quiet-action" />
+                    <ui:Button name="btn-rename" text="Rename"
+                        class="quiet-action" />
+                    <ui:Button name="btn-delete-session" text="Delete"
+                        class="danger-action button-last" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:Label text="Export" class="section-title" />
+            <ui:VisualElement class="button-row">
+                <ui:Button name="btn-export" text="Export GLB"
+                    class="secondary-action" />
+                <ui:Button name="btn-export-tiles" text="Export 3D Tiles"
+                    class="secondary-action button-last" />
+            </ui:VisualElement>
+            <ui:Label name="val-export" text="Not exported"
+                class="supporting-status" />
         </ui:VisualElement>
 
-        <ui:Label text="EXPORT REVIEW" class="section-title" />
-        <ui:VisualElement class="artifact-row">
-            <ui:Button name="btn-artifact-view" text="GLB VIEW  OFF"
-                class="artifact-button" />
-            <ui:Button name="btn-artifact-load" text="LOAD MODEL"
-                class="artifact-button" />
-            <ui:Button name="btn-annotation-mode" text="NOTE  OFF"
-                class="artifact-button" />
-            <ui:Button name="btn-annotation-save" text="SAVE NOTES"
-                class="artifact-button artifact-button--last" />
-        </ui:VisualElement>
-        <ui:VisualElement class="artifact-options-row">
-            <ui:Toggle name="artifact-world-lock" label="WORLD LOCK"
-                value="true" class="artifact-toggle" />
-            <ui:Toggle name="artifact-room-align" label="ALIGN 1:1"
-                value="false" class="artifact-toggle" />
-            <ui:Button name="btn-annotation-delete" text="DELETE MARK"
-                class="annotation-delete" />
-        </ui:VisualElement>
-        <ui:VisualElement class="annotation-note-row">
-            <ui:TextField name="annotation-note" label="Selected note"
-                class="annotation-note" />
-            <ui:Button name="btn-annotation-edit" text="TYPE NOTE"
-                class="annotation-edit" />
-        </ui:VisualElement>
-        <ui:Label name="val-artifact" text="GLB View closed"
-            class="artifact-status" />
-
-        <ui:Label text="MANUAL FINE" class="section-title" />
-        <ui:VisualElement class="fine-row">
-            <ui:Button name="btn-fine" text="FINE  OFF"
-                class="fine-toggle" />
-            <ui:VisualElement class="fine-controls">
-                <ui:VisualElement class="fine-control-row">
-                    <ui:Label text="Radius" class="fine-key" />
-                    <ui:Slider name="fine-radius" low-value="0.01" high-value="0.5"
-                        value="0.1" class="fine-slider" />
+        <ui:VisualElement name="refine-panel"
+            class="mode-panel mode-panel--hidden">
+            <ui:VisualElement class="segmented-row">
+                <ui:Button name="btn-fine-refine" text="REFINE"
+                    class="segment segment--selected segment--refine" />
+                <ui:Button name="btn-fine-erase" text="ERASE"
+                    class="segment segment--erase button-last" />
+            </ui:VisualElement>
+            <ui:Button name="btn-fine" text="ENABLE HAND TOOL"
+                class="primary-action refine-action" />
+            <ui:VisualElement class="card tool-card">
+                <ui:VisualElement class="control-row">
+                    <ui:Label text="Radius" class="control-label" />
+                    <ui:Slider name="fine-radius" low-value="0.01"
+                        high-value="0.5" value="0.1" class="control-slider" />
                     <ui:Label name="val-fine-radius" text="10 cm"
-                        class="fine-value" />
+                        class="control-value" />
                 </ui:VisualElement>
-                <ui:VisualElement class="fine-control-row">
-                    <ui:Label text="Length" class="fine-key" />
-                    <ui:Slider name="fine-length" low-value="0.025" high-value="2"
-                        value="0.25" class="fine-slider" />
-                    <ui:Label name="val-fine-length" text="0.25 m"
-                        class="fine-value" />
+                <ui:VisualElement class="control-row">
+                    <ui:Label text="Length" class="control-label" />
+                    <ui:Slider name="fine-length" low-value="0.025"
+                        high-value="2" value="0.25" class="control-slider" />
+                    <ui:Label name="val-fine-length" text="25 cm"
+                        class="control-value" />
                 </ui:VisualElement>
             </ui:VisualElement>
+            <ui:Label text="Right trigger applies the selected cylinder. Right grip always erases."
+                class="help-text" />
         </ui:VisualElement>
 
-        <ui:VisualElement class="button-row">
-            <ui:Button name="btn-start" text="START / RESUME"
-                class="action-btn action-btn--primary" />
-            <ui:Button name="btn-stop" text="STOP" class="action-btn" />
-            <ui:Button name="btn-save" text="SAVE" class="action-btn action-btn--last" />
-        </ui:VisualElement>
-        <ui:VisualElement class="button-row button-row--second">
-            <ui:Button name="btn-load" text="LOAD" class="action-btn" />
-            <ui:Button name="btn-new" text="NEW / CLEAR"
-                class="action-btn action-btn--danger" />
-            <ui:Button name="btn-export" text="EXPORT GLB"
-                class="action-btn action-btn--last" />
-        </ui:VisualElement>
-        <ui:VisualElement class="button-row button-row--second">
-            <ui:Button name="btn-export-tiles" text="EXPORT 3D TILES"
-                class="action-btn action-btn--primary action-btn--last" />
-        </ui:VisualElement>
-
-        <ui:Label text="GLB: right grip 6DoF · both grips scale/rotate · trigger place/edit · TYPE NOTE keyboard"
-            class="control-hint" />
-        <ui:Label text="One reversible Merkaba grid · clear viewpoints remove false geometry"
-            class="ontology-hint" />
-        </ui:VisualElement>
-
-        <ui:VisualElement name="paint-panel"
+        <ui:VisualElement name="design-panel"
             class="mode-panel mode-panel--hidden">
-            <ui:Label text="MODEL PAINT" class="section-title" />
-            <ui:Label text="Immediate export-local strokes · canonical M8 is unchanged"
-                class="paint-description" />
-            <ui:VisualElement class="paint-action-row">
-                <ui:Button name="btn-paint-view" text="GLB VIEW  OFF"
-                    class="artifact-button" />
-                <ui:Button name="btn-paint-load" text="LOAD MODEL"
-                    class="artifact-button" />
-                <ui:Button name="btn-paint-save" text="SAVE PAINT"
-                    class="artifact-button artifact-button--last" />
-            </ui:VisualElement>
-            <ui:Label name="val-paint-status" text="Open or load a model"
-                class="artifact-status" />
-
-            <ui:Label text="TOOL" class="section-title" />
-            <ui:VisualElement class="paint-tool-row">
-                <ui:Button name="btn-paint-line" text="LINE"
-                    class="paint-tool paint-tool--selected" />
-                <ui:Button name="btn-paint-surface" text="SURFACE"
-                    class="paint-tool" />
-                <ui:Button name="btn-paint-spatial" text="3D BRUSH"
-                    class="paint-tool" />
-                <ui:Button name="btn-paint-erase" text="ERASE"
-                    class="paint-tool paint-tool--last" />
-            </ui:VisualElement>
-
-            <ui:Label text="COLOR" class="section-title" />
-            <ui:VisualElement class="paint-color-card">
-                <ui:VisualElement name="paint-color-swatch"
-                    class="paint-color-swatch" />
-                <ui:VisualElement name="paint-color-wheel"
-                    class="paint-color-wheel">
-                    <ui:VisualElement name="paint-color-cursor"
-                        picking-mode="Ignore" class="paint-color-cursor" />
+            <ui:VisualElement name="paint-workspace">
+                <ui:VisualElement class="button-row">
+                    <ui:Button name="btn-paint-view" text="Open model"
+                        class="secondary-action" />
+                    <ui:Button name="btn-paint-load" text="Load model"
+                        class="secondary-action" />
+                    <ui:Button name="btn-paint-save" text="Save design"
+                        class="secondary-action button-last" />
                 </ui:VisualElement>
-                <ui:VisualElement class="paint-channel-stack">
-                    <ui:VisualElement class="paint-channel-row">
-                        <ui:Label text="VALUE" class="paint-channel-label" />
-                        <ui:Slider name="paint-value" low-value="0" high-value="1"
-                            value="1" class="paint-channel-slider" />
+                <ui:Label name="val-paint-status" text="Open a model to design"
+                    class="supporting-status" />
+
+                <ui:Label text="Tool" class="section-title" />
+                <ui:VisualElement class="tool-grid">
+                    <ui:Button name="btn-paint-surface" text="Surface"
+                        class="tool-button tool-button--selected" />
+                    <ui:Button name="btn-paint-spatial" text="3D Brush"
+                        class="tool-button" />
+                    <ui:Button name="btn-paint-line" text="Line"
+                        class="tool-button" />
+                    <ui:Button name="btn-paint-erase" text="Eraser"
+                        class="tool-button" />
+                    <ui:Button name="btn-paint-eyedropper" text="Eyedropper"
+                        class="tool-button button-last" />
+                </ui:VisualElement>
+
+                <ui:VisualElement class="color-card">
+                    <ui:VisualElement name="paint-color-wheel"
+                        class="paint-color-wheel">
+                        <ui:VisualElement name="paint-color-cursor"
+                            picking-mode="Ignore" class="paint-color-cursor" />
                     </ui:VisualElement>
-                    <ui:VisualElement class="paint-channel-row">
-                        <ui:Label text="ALPHA" class="paint-channel-label" />
-                        <ui:Slider name="paint-alpha" low-value="0.05" high-value="1"
-                            value="0.85" class="paint-channel-slider" />
+                    <ui:VisualElement class="color-controls">
+                        <ui:VisualElement name="paint-color-swatch"
+                            class="paint-color-swatch" />
+                        <ui:VisualElement class="control-row">
+                            <ui:Label text="Value" class="mini-label" />
+                            <ui:Slider name="paint-value" low-value="0"
+                                high-value="1" value="1"
+                                class="control-slider" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="control-row">
+                            <ui:Label text="Opacity" class="mini-label" />
+                            <ui:Slider name="paint-alpha" low-value="0.01"
+                                high-value="1" value="0.85"
+                                class="control-slider" />
+                        </ui:VisualElement>
+                        <ui:Button name="btn-save-swatch" text="Save color"
+                            class="quiet-action button-last" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:Label text="Recent" class="mini-section" />
+                <ui:VisualElement name="recent-swatches" class="swatch-row" />
+                <ui:Label text="Saved" class="mini-section" />
+                <ui:VisualElement name="saved-swatches" class="swatch-row" />
+
+                <ui:VisualElement class="card tool-card">
+                    <ui:VisualElement class="control-row">
+                        <ui:Label text="Size" class="control-label" />
+                        <ui:Slider name="paint-width" low-value="0.002"
+                            high-value="0.1" value="0.01"
+                            class="control-slider" />
+                        <ui:Label name="val-paint-width" text="10 mm"
+                            class="control-value" />
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
-            <ui:VisualElement class="paint-width-row">
-                <ui:Label text="Stroke width" class="status-key" />
-                <ui:Slider name="paint-width" low-value="0.002"
-                    high-value="0.05" value="0.01"
-                    class="paint-channel-slider" />
-                <ui:Label name="val-paint-width" text="10 mm"
-                    class="opacity-value" />
-            </ui:VisualElement>
-            <ui:Label text="Right trigger draws · SURFACE follows model · 3D BRUSH draws at a fixed ray depth · ERASE removes the touched stroke"
-                class="control-hint" />
+
         </ui:VisualElement>
 
-        <ui:VisualElement name="plan-panel"
+        <ui:VisualElement name="view-panel"
             class="mode-panel mode-panel--hidden">
-            <ui:Label text="ARCHITECTURAL REVIEW" class="section-title" />
-            <ui:Label text="One streamed model · one room anchor · editable survey marks"
-                class="paint-description" />
-            <ui:VisualElement class="paint-action-row">
-                <ui:Button name="btn-plan-view" text="VIEW  OFF"
-                    class="artifact-button" />
-                <ui:Button name="btn-plan-load" text="LOAD MODEL"
-                    class="artifact-button" />
-                <ui:Button name="btn-plan-style" text="PLAN  ON"
-                    class="artifact-button artifact-button--last" />
+            <ui:VisualElement class="button-row">
+                <ui:Button name="btn-artifact-view" text="Open export"
+                    class="primary-action" />
+                <ui:Button name="btn-artifact-load" text="Load model"
+                    class="secondary-action button-last" />
             </ui:VisualElement>
-            <ui:VisualElement class="artifact-options-row">
-                <ui:Toggle name="plan-world-lock" label="WORLD LOCK"
-                    value="true" class="artifact-toggle" />
-                <ui:Toggle name="plan-room-align" label="ALIGN 1:1"
-                    value="false" class="artifact-toggle" />
+            <ui:Label name="val-artifact" text="Viewer closed"
+                class="supporting-status" />
+            <ui:VisualElement class="segmented-row">
+                <ui:Button name="btn-plan-model" text="MODEL"
+                    class="segment segment--selected" />
+                <ui:Button name="btn-plan-style" text="PLAN"
+                    class="segment button-last" />
             </ui:VisualElement>
-            <ui:VisualElement class="opacity-row">
-                <ui:Label text="Plan opacity" class="status-key" />
-                <ui:Slider name="plan-opacity" low-value="0.05" high-value="1"
-                    value="0.45" class="opacity-slider" />
-                <ui:Label name="val-plan-opacity" text="45%"
-                    class="opacity-value" />
+            <ui:VisualElement class="card">
+                <ui:Toggle name="artifact-world-lock" label="World Lock"
+                    value="true" class="inline-toggle" />
+                <ui:Toggle name="artifact-room-align" label="Align 1:1"
+                    value="false" class="inline-toggle" />
+                <ui:VisualElement class="control-row">
+                    <ui:Label text="Opacity" class="control-label" />
+                    <ui:Slider name="scan-opacity" low-value="0"
+                        high-value="1" value="1" class="control-slider" />
+                    <ui:Label name="val-opacity" text="100%"
+                        class="control-value" />
+                </ui:VisualElement>
             </ui:VisualElement>
-
-            <ui:Label text="SURVEY MARKS" class="section-title" />
-            <ui:VisualElement class="artifact-row">
-                <ui:Button name="btn-plan-annotation-mode" text="MARK  OFF"
-                    class="artifact-button" />
-                <ui:Button name="btn-plan-annotation-edit" text="TYPE NOTE"
-                    class="artifact-button" />
-                <ui:Button name="btn-plan-annotation-delete" text="DELETE"
-                    class="artifact-button" />
-                <ui:Button name="btn-plan-annotation-save" text="SAVE"
-                    class="artifact-button artifact-button--last" />
+            <ui:Label text="Measurements &amp; notes" class="section-title" />
+            <ui:VisualElement class="button-row">
+                <ui:Button name="btn-annotation-mode" text="Tool: Off"
+                    class="secondary-action" />
+                <ui:Button name="btn-annotation-edit" text="Edit note"
+                    class="secondary-action" />
+                <ui:Button name="btn-annotation-delete" text="Delete"
+                    class="danger-action button-last" />
             </ui:VisualElement>
-            <ui:TextField name="plan-annotation-note" label="Selected note"
-                class="annotation-note" />
-            <ui:Label name="val-plan-status" text="Open or load a model"
-                class="artifact-status" />
-            <ui:Label text="MARK cycles POINT · LINE · PLANE · SELECT · MOVE · drag trigger to draw/edit · right grip edits 6DoF"
-                class="control-hint" />
+            <ui:TextField name="annotation-note" label="Selected note"
+                class="field" />
+            <ui:Button name="btn-annotation-save" text="Save measurements"
+                class="quiet-action button-last" />
+            <ui:Label text="Right grip moves. Two grips scale and rotate. Trigger draws or edits the active mark."
+                class="help-text" />
         </ui:VisualElement>
+
+        <ui:Foldout name="diagnostics-foldout" text="Diagnostics" value="false"
+            class="diagnostics">
+            <ui:VisualElement class="diagnostic-grid">
+                <ui:Label text="FPS" class="diagnostic-key" />
+                <ui:Label name="val-fps" text="--" class="diagnostic-value" />
+                <ui:Label text="Active chunks" class="diagnostic-key" />
+                <ui:Label name="val-chunks" text="0" class="diagnostic-value" />
+                <ui:Label text="Published triangles" class="diagnostic-key" />
+                <ui:Label name="val-kernels" text="0" class="diagnostic-value" />
+                <ui:Label text="Visible chunks" class="diagnostic-key" />
+                <ui:Label name="val-visible" text="0" class="diagnostic-value" />
+                <ui:Label text="Controller" class="diagnostic-key" />
+                <ui:Label name="val-pointer" text="--" class="diagnostic-value" />
+            </ui:VisualElement>
+            <ui:VisualElement class="button-row compact-row">
+                <ui:Button name="btn-readout" text="Readout On"
+                    class="quiet-action" />
+                <ui:Button name="btn-mesh" text="Raw mesh Off"
+                    class="quiet-action" />
+                <ui:Button name="btn-occlusion" text="Occlusion On"
+                    class="quiet-action" />
+                <ui:Button name="btn-checker" text="Checker Off"
+                    class="quiet-action button-last" />
+            </ui:VisualElement>
+        </ui:Foldout>
     </ui:VisualElement>
 </ui:UXML>

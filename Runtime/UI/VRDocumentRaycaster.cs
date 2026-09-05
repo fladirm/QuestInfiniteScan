@@ -21,9 +21,6 @@ namespace Genesis.RoomScan.UI
         [SerializeField, Tooltip("Max ray distance for UI interaction (meters)")]
         private float maxRayDistance = 5f;
 
-        [SerializeField, Tooltip("Physics layers to raycast against")]
-        private LayerMask interactionLayers = ~0;
-
         protected override bool GetWorldRay(
             PointerEventData eventData,
             out Ray worldRay,
@@ -35,7 +32,8 @@ namespace Genesis.RoomScan.UI
             {
                 worldRay = ovrData.worldSpaceRay;
                 maxDistance = maxRayDistance;
-                layerMask = interactionLayers.value;
+                int uiLayer = LayerMask.NameToLayer("UI");
+                layerMask = uiLayer >= 0 ? 1 << uiLayer : 0;
                 return true;
             }
 

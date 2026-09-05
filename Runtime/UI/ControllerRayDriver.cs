@@ -36,6 +36,7 @@ namespace Genesis.RoomScan.UI
         private MaterialPropertyBlock _fineProperties;
         private bool _fineTargetVisible;
         private bool _pointingAtUi;
+        private bool _uiTriggerCaptured;
         private Vector3 _fineTargetPosition;
         private FineBrushOperation _fineTargetOperation;
         private bool _hasTrackedPose;
@@ -56,7 +57,7 @@ namespace Genesis.RoomScan.UI
             _rayHelper.SetParent(transform, false);
             _inputModule.rayTransform = _rayHelper;
             _inputModule.joyPadClickButton = OVRInput.Button.SecondaryIndexTrigger;
-            _uiLayerMask = LayerMask.GetMask("Default", "UI");
+            _uiLayerMask = LayerMask.GetMask("UI");
 
             if (overlayShader == null)
             {
@@ -80,6 +81,7 @@ namespace Genesis.RoomScan.UI
             if (!_hasTrackedPose)
             {
                 _pointingAtUi = false;
+                _uiTriggerCaptured = false;
                 if (_cursor != null) _cursor.SetActive(false);
             }
         }
@@ -287,7 +289,12 @@ namespace Genesis.RoomScan.UI
             }
             else if (_fineTargetVisible)
                 end = _fineTargetPosition;
-            _pointingAtUi = hovering;
+            if (hovering && OVRInput.GetDown(
+                    OVRInput.Button.SecondaryIndexTrigger))
+                _uiTriggerCaptured = true;
+            if (!OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
+                _uiTriggerCaptured = false;
+            _pointingAtUi = hovering || _uiTriggerCaptured;
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
             Color color = hovering ? hoverColor : _fineTargetVisible

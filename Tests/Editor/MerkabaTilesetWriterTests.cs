@@ -147,11 +147,12 @@ namespace Genesis.RoomScan.Tests
             Assert.That(menu, Does.Contain("artifact-world-lock"));
             Assert.That(menu, Does.Contain("artifact-room-align"));
             Assert.That(menu, Does.Contain("annotation-note"));
-            Assert.That(menu, Does.Contain("btn-tab-paint"));
+            Assert.That(menu, Does.Contain("btn-tab-design"));
             Assert.That(menu, Does.Contain("paint-color-swatch"));
-            Assert.That(menu, Does.Contain("btn-tab-plan"));
+            Assert.That(menu, Does.Contain("btn-tab-view"));
             Assert.That(menu, Does.Contain("btn-plan-style"));
             Assert.That(menu, Does.Contain("paint-color-wheel"));
+            Assert.That(menu, Does.Contain("btn-paint-eyedropper"));
             Assert.That(picker, Does.Contain("Intent.ACTION_OPEN_DOCUMENT"));
             Assert.That(picker, Does.Contain("byte[] buffer = new byte[1024 * 1024]"));
             Assert.That(picker, Does.Contain("MessageDigest.getInstance("));

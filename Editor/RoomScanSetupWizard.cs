@@ -258,6 +258,8 @@ namespace Genesis.RoomScan.Editor
                 "Packages/com.genesis.roomscan/Runtime/UI/ControllerRay.shader");
 
             GameObject menu = FindByName("Merkaba Menu") ?? new GameObject("Merkaba Menu");
+            int uiLayer = LayerMask.NameToLayer("UI");
+            if (uiLayer >= 0) menu.layer = uiLayer;
             UIDocument document = GetOrAdd<UIDocument>(menu);
             GetOrAdd<DebugMenuController>(menu);
             document.visualTreeAsset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(
