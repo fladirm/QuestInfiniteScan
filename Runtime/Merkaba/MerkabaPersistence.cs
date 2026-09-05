@@ -34,6 +34,10 @@ namespace Genesis.RoomScan
         public string SessionPath => SavedSessionExists
             ? Path.Combine(ActiveSessionDirectory, "merkaba-grid.bin")
             : string.Empty;
+        internal string ActiveDesignPath => _activeSession != null
+            ? Path.Combine(ActiveSessionDirectory,
+                MerkabaSessionCatalog.DesignFileName)
+            : string.Empty;
         public event Action StatusChanged;
 
         private string ActiveSessionDirectory => _activeSession != null

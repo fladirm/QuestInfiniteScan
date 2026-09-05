@@ -117,7 +117,10 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaArtifactPaintTool.SurfaceBrush"));
             Assert.That(viewer, Does.Contain(
                 "MerkabaArtifactPaintTool.SpatialBrush"));
-            Assert.That(viewer, Does.Contain("styled = true"));
+            Assert.That(viewer, Does.Contain("MerkabaPaintEngine"));
+            Assert.That(viewer, Does.Contain("SaveDesign()"));
+            Assert.That(viewer, Does.Not.Contain("_spatialPaintDistance"));
+            Assert.That(viewer, Does.Not.Contain("_paintDraftLine"));
             Assert.That(viewer, Does.Contain("version = 2"));
             Assert.That(viewer, Does.Contain("public bool PlanViewEnabled"));
             Assert.That(viewer, Does.Contain(

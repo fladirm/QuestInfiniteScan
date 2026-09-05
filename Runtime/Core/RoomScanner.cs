@@ -111,8 +111,12 @@ namespace Genesis.RoomScan
             _persistence.AnySessionExists;
         public Guid ActiveSessionId => _persistence?.ActiveSessionId ??
             Guid.Empty;
+        internal Guid ActiveAnchorUuid => _persistence?.ActiveAnchorUuid ??
+            Guid.Empty;
         public string ActiveSessionName => _persistence?.ActiveSessionName ??
             "No session";
+        internal string ActiveDesignPath =>
+            _persistence?.ActiveDesignPath ?? string.Empty;
         public bool SessionIsDirty => _persistence?.IsDirty ?? false;
         public System.Collections.Generic.IReadOnlyList<MerkabaSessionInfo>
             Sessions => _persistence?.Sessions ??
@@ -492,6 +496,7 @@ namespace Genesis.RoomScan
             try
             {
                 if (!await QuiesceScanningAsync()) return false;
+                if (!SaveOpenDesign()) return false;
                 ReportOperation(ScanOperationKind.Save,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
@@ -515,6 +520,7 @@ namespace Genesis.RoomScan
             try
             {
                 if (!await QuiesceScanningAsync()) return false;
+                if (!CloseOpenDesignForSessionSwitch()) return false;
                 ReportOperation(ScanOperationKind.Load,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
@@ -539,6 +545,7 @@ namespace Genesis.RoomScan
             try
             {
                 if (!await QuiesceScanningAsync()) return false;
+                if (!CloseOpenDesignForSessionSwitch()) return false;
                 ReportOperation(ScanOperationKind.Load,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
@@ -564,11 +571,15 @@ namespace Genesis.RoomScan
             try
             {
                 if (!await QuiesceScanningAsync()) return false;
+                if (!SaveOpenDesign()) return false;
                 ReportOperation(ScanOperationKind.Save,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _persistence != null &&
                     await _persistence.SaveAsAsync(displayName);
+                if (success)
+                    FindAnyObjectByType<MerkabaArtifactViewer>()?.
+                        RebindSessionDesign();
                 return success;
             }
             finally
@@ -587,6 +598,7 @@ namespace Genesis.RoomScan
             if (IsBusy || sessionId == Guid.Empty) return false;
             bool wasActive = sessionId == ActiveSessionId;
             if (!await QuiesceScanningAsync()) return false;
+            if (wasActive && !CloseOpenDesignForSessionSwitch()) return false;
             bool deleted = _persistence != null &&
                 await _persistence.DeleteSessionAsync(sessionId);
             if (deleted && wasActive)
@@ -603,6 +615,7 @@ namespace Genesis.RoomScan
             try
             {
                 if (!await QuiesceScanningAsync()) return;
+                if (!CloseOpenDesignForSessionSwitch()) return;
                 _anchorManager ??= RoomAnchorManager.Instance ??
                     FindAnyObjectByType<RoomAnchorManager>(
                         FindObjectsInactive.Include);
@@ -1000,6 +1013,25 @@ namespace Genesis.RoomScan
             _renderer?.MarkCanonicalReadoutDirty();
             _persistence?.MarkDirty();
             Integrated?.Invoke();
+        }
+
+        internal void MarkDesignDirty() => _persistence?.MarkDirty();
+
+        private static bool SaveOpenDesign()
+        {
+            MerkabaArtifactViewer viewer =
+                FindAnyObjectByType<MerkabaArtifactViewer>();
+            return viewer == null || !viewer.IsOpen || viewer.SaveDesign();
+        }
+
+        private static bool CloseOpenDesignForSessionSwitch()
+        {
+            MerkabaArtifactViewer viewer =
+                FindAnyObjectByType<MerkabaArtifactViewer>();
+            if (viewer == null || !viewer.IsOpen) return true;
+            if (!viewer.SaveDesign()) return false;
+            viewer.Close();
+            return true;
         }
 
         internal Task<bool> QuiesceScanningAsync()

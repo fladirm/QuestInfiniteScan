@@ -30,9 +30,11 @@ namespace Genesis.RoomScan.Tests
                          "btn-tab-scan", "btn-tab-refine", "btn-tab-design",
                          "btn-tab-view", "btn-fine-refine", "btn-fine-erase",
                          "btn-paint-view",
-                         "btn-paint-load", "btn-paint-save", "btn-paint-line",
-                         "btn-paint-surface", "btn-paint-spatial",
+                         "btn-paint-load", "btn-paint-save", "btn-paint-brush",
+                         "btn-paint-line", "btn-paint-surface",
+                         "btn-paint-spatial", "btn-paint-spray",
                          "btn-paint-erase", "btn-paint-eyedropper",
+                         "btn-paint-round", "btn-paint-square",
                          "btn-save-swatch", "btn-plan-model", "btn-plan-style"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
@@ -52,7 +54,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Label>("val-artifact"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("scan-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("refine-panel"), Is.Not.Null);
-            Assert.That(root.Q<VisualElement>("design-panel"), Is.Not.Null);
+            Assert.That(root.Q<ScrollView>("design-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("view-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-swatch"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-wheel"), Is.Not.Null);
@@ -60,6 +62,8 @@ namespace Genesis.RoomScan.Tests
             foreach (string slider in new[]
                      {
                          "paint-value", "paint-alpha", "paint-width",
+                         "paint-flow", "paint-hardness", "paint-saturation",
+                         "paint-density", "paint-scatter",
                          "fine-radius", "fine-length"
                      })
                 Assert.That(root.Q<Slider>(slider), Is.Not.Null, slider);
@@ -120,8 +124,11 @@ namespace Genesis.RoomScan.Tests
             string viewer = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/" +
                 "MerkabaArtifactViewer.cs"));
-            Assert.That(viewer, Does.Contain("paint-surface"));
-            Assert.That(viewer, Does.Contain("paint-spatial"));
+            Assert.That(viewer, Does.Contain("MerkabaPaintEngine"));
+            Assert.That(viewer, Does.Contain(
+                "MerkabaPaintEngine.SpatialBrushPoint(ray)"));
+            Assert.That(viewer, Does.Contain("AppendProjectedSurfaceSamples"));
+            Assert.That(viewer, Does.Contain("EraseSphere(center"));
             Assert.That(viewer, Does.Contain("SurfacePaintPoint"));
             Assert.That(viewer, Does.Contain("WorldToScanPoint"));
             Assert.That(viewer, Does.Contain("public bool PlanViewEnabled"));
@@ -129,7 +136,11 @@ namespace Genesis.RoomScan.Tests
                 "_modelMaterial.EnableKeyword(PlanKeyword)"));
             Assert.That(viewer, Does.Contain(
                 "MerkabaArtifactPaintTool.Eyedropper"));
+            Assert.That(viewer, Does.Contain(
+                "MerkabaArtifactPaintTool.Spray"));
             Assert.That(viewer, Does.Contain("TryInterpolateVertexColor"));
+            Assert.That(viewer, Does.Not.Contain("_spatialPaintDistance"));
+            Assert.That(viewer, Does.Not.Contain("_paintDraftLine"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
             int viewerUiGate = viewer.IndexOf(
                 "if (_rayDriver != null && _rayDriver.IsPointingAtUi)",

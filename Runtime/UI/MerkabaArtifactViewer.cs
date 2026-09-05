@@ -11,9 +11,11 @@ namespace Genesis.RoomScan.UI
 {
     public enum MerkabaArtifactPaintTool
     {
-        Line,
+        Brush,
         SurfaceBrush,
         SpatialBrush,
+        Spray,
+        Line,
         Erase,
         Eyedropper
     }
@@ -39,7 +41,6 @@ namespace Genesis.RoomScan.UI
         private const float AnnotationPlaneAlpha = 0.2f;
         private const float AnnotationHandleRadius = 0.018f;
         private const float AnnotationPickRadius = 0.045f;
-        private const float MinimumPaintSampleDistance = 0.003f;
         private const float PaintSurfaceOffset = 0.001f;
         private const float PaintEraseInterval = 0.06f;
         private const float ModelRayDistance = 1000f;
@@ -68,6 +69,7 @@ namespace Genesis.RoomScan.UI
         private MerkabaExporter _exporter;
         private RoomScanner _scanner;
         private ControllerRayDriver _rayDriver;
+        private MerkabaPaintEngine _paintEngine;
         private Transform _modelRoot;
         private Transform _annotationRoot;
         private GameObject _backdrop;
@@ -99,7 +101,7 @@ namespace Genesis.RoomScan.UI
         private bool _packagePickerPending;
         private bool _paintInputEnabled;
         private bool _planViewEnabled;
-        private bool _paintStrokeActive;
+        private bool _hasPaintSample;
         private bool _hasSavedPreviewTransform;
         private bool _savedQueriesHitBackfaces;
         private bool _ownsQueriesHitBackfaces;
@@ -115,8 +117,13 @@ namespace Genesis.RoomScan.UI
         private float _nextResidencyRefresh;
         private float _previewOpacity = 1f;
         private float _paintWidth = 0.01f;
-        private float _spatialPaintDistance = 0.75f;
+        private float _paintFlow = 0.65f;
+        private float _paintHardness = 0.8f;
+        private float _paintSaturation = 1f;
+        private float _sprayDensity = 90f;
+        private float _sprayScatter = 0.04f;
         private float _nextPaintErase;
+        private MerkabaBrushShape _paintShape = MerkabaBrushShape.Round;
         private Color _paintColor = new(0.1f, 0.8f, 1f, 0.85f);
         private Vector3 _scanCenter;
         private ModelGrabMode _modelGrabMode;
@@ -130,8 +137,6 @@ namespace Genesis.RoomScan.UI
         private GameObject _annotationDraftObject;
         private LineRenderer _annotationDraftLine;
         private Mesh _annotationDraftMesh;
-        private GameObject _paintDraftObject;
-        private LineRenderer _paintDraftLine;
         private int _selectedAnnotationId;
         private Vector3 _moveStart;
         private Vector3[] _moveOriginalPoints;
@@ -140,9 +145,14 @@ namespace Genesis.RoomScan.UI
         private AnnotationPoseGrab _annotationPoseGrab;
         private bool _hasModelHit;
         private ModelHit _latestModelHit;
-        private readonly List<Vector3> _paintDraftPoints = new();
+        private Ray _lastPaintRay;
+        private Vector3 _lastPaintPoint;
+        private Vector3 _lineStart;
+        private Vector3 _lineNormal;
+        private readonly List<MerkabaPaintEngine.PaintInputSample>
+            _paintInputSamples = new();
         private MerkabaArtifactPaintTool _paintTool =
-            MerkabaArtifactPaintTool.Line;
+            MerkabaArtifactPaintTool.SurfaceBrush;
         private long _totalModelBytes;
         private long _totalResidentEstimateBytes;
         private string _archivePath;
@@ -166,8 +176,8 @@ namespace Genesis.RoomScan.UI
                 {
                     CancelAnnotationDrag();
                     _annotationMode = AnnotationMode.Off;
-                    RefreshTileColliders();
                 }
+                RefreshTileColliders();
             }
         }
         public MerkabaArtifactPaintTool PaintTool
@@ -192,7 +202,37 @@ namespace Genesis.RoomScan.UI
         public float PaintWidth
         {
             get => _paintWidth;
-            set => _paintWidth = Mathf.Clamp(value, 0.002f, 0.05f);
+            set => _paintWidth = Mathf.Clamp(value, 0.002f, 0.1f);
+        }
+        public float PaintFlow
+        {
+            get => _paintFlow;
+            set => _paintFlow = Mathf.Clamp01(value);
+        }
+        public float PaintHardness
+        {
+            get => _paintHardness;
+            set => _paintHardness = Mathf.Clamp01(value);
+        }
+        public float PaintSaturation
+        {
+            get => _paintSaturation;
+            set => _paintSaturation = Mathf.Clamp01(value);
+        }
+        public float SprayDensity
+        {
+            get => _sprayDensity;
+            set => _sprayDensity = Mathf.Clamp(value, 1f, 300f);
+        }
+        public float SprayScatter
+        {
+            get => _sprayScatter;
+            set => _sprayScatter = Mathf.Clamp(value, 0.005f, 0.25f);
+        }
+        public MerkabaBrushShape PaintShape
+        {
+            get => _paintShape;
+            set => _paintShape = value;
         }
         public bool WorldLocked
         {
@@ -279,6 +319,9 @@ namespace Genesis.RoomScan.UI
             _exporter = GetComponent<MerkabaExporter>();
             _scanner = GetComponent<RoomScanner>();
             _rayDriver = FindAnyObjectByType<ControllerRayDriver>();
+            _paintEngine = GetComponent<MerkabaPaintEngine>() ??
+                gameObject.AddComponent<MerkabaPaintEngine>();
+            _paintEngine.Changed += OnPaintChanged;
         }
 
         private void Update()
@@ -299,7 +342,12 @@ namespace Genesis.RoomScan.UI
         }
 
         private void OnDisable() => Close();
-        private void OnDestroy() => Close();
+        private void OnDestroy()
+        {
+            Close();
+            if (_paintEngine != null)
+                _paintEngine.Changed -= OnPaintChanged;
+        }
 
         private void OnApplicationPause(bool paused)
         {
@@ -383,6 +431,7 @@ namespace Genesis.RoomScan.UI
                 _archivePath = archivePath;
                 _packageSpatialBinding = package.SpatialBinding;
                 CreatePreview(package);
+                OpenSessionDesign();
                 LoadAnnotations();
                 IsOpen = true;
                 Status = $"GLB View · 0/{_tiles.Count} tiles";
@@ -473,6 +522,11 @@ namespace Genesis.RoomScan.UI
             _moveHandleIndex = -1;
             CancelTransientInput();
             CloseNoteKeyboard();
+            if (_paintEngine != null)
+            {
+                _paintEngine.Save();
+                _paintEngine.Close();
+            }
             _annotations.Clear();
             _annotationObjects.Clear();
             foreach (Tile tile in _tiles) DestroyTile(tile);
@@ -520,6 +574,35 @@ namespace Genesis.RoomScan.UI
             }
             if (wasOpen) Status = "GLB View closed";
         }
+
+        public bool SaveDesign() => _paintEngine == null ||
+            _paintEngine.Save();
+
+        internal void RebindSessionDesign()
+        {
+            if (!IsOpen) return;
+            if (_paintEngine != null && !_paintEngine.Save()) return;
+            OpenSessionDesign();
+        }
+
+        private void OpenSessionDesign()
+        {
+            _paintEngine ??= GetComponent<MerkabaPaintEngine>() ??
+                gameObject.AddComponent<MerkabaPaintEngine>();
+            _paintEngine.Close();
+            Transform roomRoot = RoomSpaceRoot.RoomSpaceReady
+                ? RoomSpaceRoot.Instance.transform : null;
+            string path = _scanner?.ActiveDesignPath;
+            if (roomRoot == null || string.IsNullOrWhiteSpace(path))
+            {
+                Logger.Warning("Design paint is unavailable until an anchored " +
+                    "scan session is active.");
+                return;
+            }
+            _paintEngine.Open(roomRoot, previewShader, path);
+        }
+
+        private void OnPaintChanged() => _scanner?.MarkDesignDirty();
 
         public void CycleAnnotationMode()
         {
@@ -651,7 +734,10 @@ namespace Genesis.RoomScan.UI
                     stream.Flush(true);
                 }
                 MerkabaFilePublishing.Publish(temporary, AnnotationPath);
-                Status = $"Saved {_annotations.Count} annotations";
+                if (!SaveDesign())
+                    throw new IOException("Session design could not be saved.");
+                Status = $"Saved {_annotations.Count} survey annotations " +
+                    $"and {_paintEngine?.StrokeCount ?? 0} paint strokes";
             }
             catch (Exception exception)
             {
@@ -1230,23 +1316,31 @@ namespace Genesis.RoomScan.UI
             bool triggerUp = OVRInput.GetUp(
                 OVRInput.Button.SecondaryIndexTrigger);
 
+            if (_paintEngine == null || !_paintEngine.IsOpen)
+            {
+                CancelPaintStroke();
+                SetAnnotationHitPreview(false, default);
+                Status = "Open an anchored scan session before painting";
+                return;
+            }
+
             if (_paintTool == MerkabaArtifactPaintTool.Eyedropper)
             {
                 CancelPaintStroke();
-                AnnotationRecord paint = FindNearestPaintAnnotation(ray,
-                    out float paintAlong);
+                bool paint = _paintEngine.TrySample(ray,
+                    out MerkabaPaintEngine.PaintHit paintHit);
                 bool model = TryHitModel(ray, out ModelHit modelHit,
                     triggerDown);
-                bool usePaint = paint != null && (!model || paintAlong <
+                bool usePaint = paint && (!model || paintHit.Along <
                     Vector3.Distance(ray.origin, modelHit.Point));
                 if (usePaint)
                     SetAnnotationHitPreview(true, new ModelHit(
-                        ray.GetPoint(paintAlong), -ray.direction));
+                        paintHit.Point, -ray.direction));
                 else
                     SetAnnotationHitPreview(model, modelHit);
                 if (!triggerDown) return;
-                if (usePaint && paint.styled)
-                    PaintColor = paint.color;
+                if (usePaint)
+                    PaintColor = paintHit.Color;
                 else if (model && modelHit.HasColor)
                     PaintColor = modelHit.Color;
                 else
@@ -1261,42 +1355,37 @@ namespace Genesis.RoomScan.UI
             if (_paintTool == MerkabaArtifactPaintTool.Erase)
             {
                 CancelPaintStroke();
-                AnnotationRecord touched = FindNearestPaintAnnotation(ray,
-                    out float along);
-                if (touched != null)
-                    SetAnnotationHitPreview(true, new ModelHit(
-                        ray.GetPoint(along), -ray.direction));
-                else
-                    SetAnnotationHitPreview(false, default);
-                if (triggerHeld && touched != null &&
-                    Time.unscaledTime >= _nextPaintErase)
+                bool paint = _paintEngine.TrySample(ray,
+                    out MerkabaPaintEngine.PaintHit paintHit);
+                Vector3 center = paint
+                    ? paintHit.Point
+                    : MerkabaPaintEngine.SpatialBrushPoint(ray);
+                SetAnnotationHitPreview(true, new ModelHit(center,
+                    -ray.direction));
+                if (triggerHeld && Time.unscaledTime >= _nextPaintErase)
                 {
                     _nextPaintErase = Time.unscaledTime + PaintEraseInterval;
-                    _annotations.Remove(touched);
-                    if (_selectedAnnotationId == touched.id)
-                        _selectedAnnotationId = 0;
-                    _annotationObjects.TryGetValue(touched.id,
-                        out GameObject visual);
-                    _annotationObjects.Remove(touched.id);
-                    if (visual != null)
-                        Destroy(visual);
-                    Status = $"Erased paint #{touched.id}";
+                    int removed = _paintEngine.EraseSphere(center,
+                        _paintWidth);
+                    Status = removed > 0
+                        ? $"Erased {removed} local paint dabs"
+                        : "No paint inside eraser";
                 }
                 return;
             }
 
-            bool surfaceTool = _paintTool == MerkabaArtifactPaintTool.Line ||
-                _paintTool == MerkabaArtifactPaintTool.SurfaceBrush;
+            bool surfaceTool = PaintToolUsesSurface(_paintTool);
             ModelHit surfaceHit = default;
             bool hasSurfaceHit = surfaceTool &&
                 TryHitModel(ray, out surfaceHit);
-            if (!_paintStrokeActive)
+            if (!_paintEngine.HasActiveStroke)
             {
                 if (surfaceTool)
                     SetAnnotationHitPreview(hasSurfaceHit, surfaceHit);
                 else
                     SetAnnotationHitPreview(true, new ModelHit(
-                        ray.GetPoint(_spatialPaintDistance), -ray.direction));
+                        MerkabaPaintEngine.SpatialBrushPoint(ray),
+                        -ray.direction));
             }
             else SetAnnotationHitPreview(false, default);
 
@@ -1309,156 +1398,173 @@ namespace Genesis.RoomScan.UI
                 }
                 BeginPaintStroke(ray, surfaceHit);
             }
-            if (triggerHeld && _paintStrokeActive)
+            if (triggerHeld && _paintEngine.HasActiveStroke)
                 ContinuePaintStroke(ray);
-            if (triggerUp && _paintStrokeActive)
+            if (triggerUp && _paintEngine.HasActiveStroke)
                 CompletePaintStroke();
         }
 
         private void BeginPaintStroke(Ray ray, ModelHit surfaceHit)
         {
             CancelPaintStroke();
-            _paintStrokeActive = true;
-            Vector3 point;
+            _paintEngine.BeginStroke(DesignTool(_paintTool),
+                new MerkabaPaintSettings(_paintColor, _paintColor.a,
+                    _paintFlow, _paintHardness, _paintSaturation, _paintWidth,
+                    _paintShape));
+            _hasPaintSample = false;
+            if (_paintTool == MerkabaArtifactPaintTool.Line)
+            {
+                _lineStart = SurfacePaintPoint(surfaceHit);
+                _lineNormal = surfaceHit.Normal;
+                _lastPaintPoint = _lineStart;
+                _paintEngine.SetLine(_lineStart, _lineStart, _lineNormal,
+                    true);
+                _hasPaintSample = true;
+                return;
+            }
+            if (PaintToolUsesSurface(_paintTool))
+            {
+                Vector3 point = SurfacePaintPoint(surfaceHit);
+                _paintEngine.AddSample(point, surfaceHit.Normal, true);
+                _lastPaintRay = ray;
+                _lastPaintPoint = point;
+                _hasPaintSample = true;
+                return;
+            }
             if (_paintTool == MerkabaArtifactPaintTool.SpatialBrush)
             {
-                if (TryHitModel(ray, out ModelHit hit))
-                    _spatialPaintDistance = Mathf.Max(0.05f,
-                        Vector3.Dot(hit.Point - ray.origin, ray.direction));
-                point = ray.GetPoint(_spatialPaintDistance);
+                Vector3 point = MerkabaPaintEngine.SpatialBrushPoint(ray);
+                _paintEngine.AddSample(point, Vector3.zero, false);
+                _lastPaintPoint = point;
+                _hasPaintSample = true;
             }
-            else point = SurfacePaintPoint(surfaceHit);
-            _paintDraftPoints.Add(point);
-            if (_paintTool == MerkabaArtifactPaintTool.Line)
-                _paintDraftPoints.Add(point);
-            EnsurePaintDraft();
-            UpdatePaintDraft();
         }
 
         private void ContinuePaintStroke(Ray ray)
         {
-            if (!_paintStrokeActive) return;
+            if (_paintEngine == null || !_paintEngine.HasActiveStroke) return;
             if (_paintTool == MerkabaArtifactPaintTool.Line)
             {
                 if (!TryHitModel(ray, out ModelHit hit)) return;
-                _paintDraftPoints[1] = SurfacePaintPoint(hit);
-                _paintDraftLine.SetPosition(1, _paintDraftPoints[1]);
+                _lastPaintPoint = SurfacePaintPoint(hit);
+                _lineNormal = Vector3.Slerp(_lineNormal, hit.Normal, 0.5f);
+                _paintEngine.SetLine(_lineStart, _lastPaintPoint,
+                    _lineNormal, true);
                 return;
             }
-
-            Vector3 point;
-            if (_paintTool == MerkabaArtifactPaintTool.SurfaceBrush)
+            if (PaintToolUsesSurface(_paintTool))
             {
-                if (!TryHitModel(ray, out ModelHit hit)) return;
-                point = SurfacePaintPoint(hit);
+                AppendProjectedSurfaceSamples(ray);
+                return;
             }
-            else point = ray.GetPoint(_spatialPaintDistance);
-            Vector3 prior = _paintDraftPoints[^1];
-            float spacing = Mathf.Max(MinimumPaintSampleDistance,
-                _paintWidth * 0.35f) *
-                Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
-            if ((point - prior).sqrMagnitude < spacing * spacing) return;
-            _paintDraftPoints.Add(point);
-            _paintDraftLine.positionCount = _paintDraftPoints.Count;
-            _paintDraftLine.SetPosition(_paintDraftPoints.Count - 1, point);
+            Vector3 spatialPoint = MerkabaPaintEngine.SpatialBrushPoint(ray);
+            if (_paintTool == MerkabaArtifactPaintTool.Spray)
+            {
+                _paintEngine.AddSpray(spatialPoint, ray.direction,
+                    Time.unscaledDeltaTime, _sprayDensity, _sprayScatter);
+                return;
+            }
+            AppendSpatialSamples(spatialPoint);
         }
 
         private Vector3 SurfacePaintPoint(ModelHit hit) => hit.Point +
-            hit.Normal.normalized * PaintSurfaceOffset *
-            Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
-
-        private void EnsurePaintDraft()
-        {
-            if (_paintDraftObject != null) return;
-            _paintDraftObject = new GameObject("Paint Draft");
-            _paintDraftLine = _paintDraftObject.AddComponent<LineRenderer>();
-            _paintDraftLine.sharedMaterial = _annotationMaterial;
-            _paintDraftLine.startColor = _paintDraftLine.endColor = Color.white;
-            _paintDraftLine.useWorldSpace = true;
-            _paintDraftLine.alignment = LineAlignment.View;
-            _paintDraftLine.numCapVertices = 4;
-            _paintDraftLine.numCornerVertices = 4;
-            float worldWidth = _paintWidth *
-                Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
-            _paintDraftLine.startWidth = _paintDraftLine.endWidth = worldWidth;
-            var properties = new MaterialPropertyBlock();
-            properties.SetColor(BaseColorId, _paintColor);
-            _paintDraftLine.SetPropertyBlock(properties);
-        }
-
-        private void UpdatePaintDraft()
-        {
-            if (_paintDraftLine == null) return;
-            _paintDraftLine.positionCount = _paintDraftPoints.Count;
-            for (int index = 0; index < _paintDraftPoints.Count; index++)
-                _paintDraftLine.SetPosition(index, _paintDraftPoints[index]);
-        }
+            hit.Normal.normalized * PaintSurfaceOffset;
 
         private void CompletePaintStroke()
         {
-            if (!_paintStrokeActive) return;
-            float modelScale = Mathf.Max(_modelRoot.lossyScale.x, 1e-5f);
-            bool valid = _paintDraftPoints.Count >= 2 &&
-                Vector3.Distance(_paintDraftPoints[0],
-                    _paintDraftPoints[^1]) >=
-                MinimumPaintSampleDistance * modelScale;
-            if (valid)
-            {
-                string type = _paintTool switch
-                {
-                    MerkabaArtifactPaintTool.Line => "paint-line",
-                    MerkabaArtifactPaintTool.SurfaceBrush => "paint-surface",
-                    _ => "paint-spatial"
-                };
-                var record = new AnnotationRecord
-                {
-                    id = _nextAnnotationId++,
-                    type = type,
-                    note = string.Empty,
-                    styled = true,
-                    color = _paintColor,
-                    width = _paintWidth,
-                    points = _paintDraftPoints.ConvertAll(
-                        WorldToScanPoint).ToArray()
-                };
-                _annotations.Add(record);
-                _selectedAnnotationId = record.id;
-                Status = $"Added {type} #{record.id}";
-            }
-            else Status = "Paint stroke was too short";
-            CancelPaintStroke();
-            RefreshAnnotationObjects();
+            if (_paintEngine == null || !_paintEngine.HasActiveStroke) return;
+            bool committed = _paintEngine.CommitStroke();
+            _hasPaintSample = false;
+            Status = committed ? $"Added {_paintTool} stroke" :
+                "Paint stroke was too short";
         }
 
         private void CancelPaintStroke()
         {
-            _paintStrokeActive = false;
-            _paintDraftPoints.Clear();
-            if (_paintDraftObject != null) Destroy(_paintDraftObject);
-            _paintDraftObject = null;
-            _paintDraftLine = null;
+            _paintEngine?.CancelStroke();
+            _paintInputSamples.Clear();
+            _hasPaintSample = false;
         }
 
-        private AnnotationRecord FindNearestPaintAnnotation(Ray ray,
-            out float along)
+        private void AppendProjectedSurfaceSamples(Ray currentRay)
         {
-            AnnotationRecord best = null;
-            along = float.PositiveInfinity;
-            float bestDistance = Mathf.Max(AnnotationPickRadius,
-                _paintWidth * Mathf.Max(_modelRoot.lossyScale.x, 1e-5f));
-            foreach (AnnotationRecord annotation in _annotations)
+            if (!TryHitModel(currentRay, out ModelHit currentHit))
             {
-                if (!IsPaintAnnotation(annotation) ||
-                    !TryMeasureAnnotation(ray, annotation,
-                        out float distance, out float candidateAlong) ||
-                    distance > bestDistance || candidateAlong >= along)
-                    continue;
-                best = annotation;
-                along = candidateAlong;
-                bestDistance = distance;
+                _hasPaintSample = false;
+                return;
             }
-            return best;
+            Vector3 currentPoint = SurfacePaintPoint(currentHit);
+            if (!_hasPaintSample)
+            {
+                _paintEngine.AddSample(currentPoint, currentHit.Normal, true);
+                _lastPaintRay = currentRay;
+                _lastPaintPoint = currentPoint;
+                _hasPaintSample = true;
+                return;
+            }
+            float spacing = MerkabaPaintEngine.SurfaceSampleSpacing(
+                _paintWidth);
+            int steps = Mathf.Max(1, Mathf.CeilToInt(Vector3.Distance(
+                _lastPaintPoint, currentPoint) / spacing));
+            _paintInputSamples.Clear();
+            for (int step = 1; step <= steps; step++)
+            {
+                float t = step / (float)steps;
+                Vector3 origin = Vector3.Lerp(_lastPaintRay.origin,
+                    currentRay.origin, t);
+                Vector3 direction = Vector3.Slerp(_lastPaintRay.direction,
+                    currentRay.direction, t).normalized;
+                if (!TryHitModel(new Ray(origin, direction),
+                        out ModelHit hit)) continue;
+                _paintInputSamples.Add(new MerkabaPaintEngine.PaintInputSample(
+                    SurfacePaintPoint(hit), hit.Normal, true));
+            }
+            _paintEngine.AddSamples(_paintInputSamples);
+            _lastPaintRay = currentRay;
+            _lastPaintPoint = currentPoint;
         }
+
+        private void AppendSpatialSamples(Vector3 currentPoint)
+        {
+            if (!_hasPaintSample)
+            {
+                _paintEngine.AddSample(currentPoint, Vector3.zero, false);
+                _lastPaintPoint = currentPoint;
+                _hasPaintSample = true;
+                return;
+            }
+            float spacing = MerkabaPaintEngine.SurfaceSampleSpacing(
+                _paintWidth);
+            int steps = Mathf.CeilToInt(Vector3.Distance(_lastPaintPoint,
+                currentPoint) / spacing);
+            if (steps <= 0) return;
+            _paintInputSamples.Clear();
+            for (int step = 1; step <= steps; step++)
+                _paintInputSamples.Add(new MerkabaPaintEngine.PaintInputSample(
+                    Vector3.Lerp(_lastPaintPoint, currentPoint,
+                        step / (float)steps), Vector3.zero, false));
+            _paintEngine.AddSamples(_paintInputSamples);
+            _lastPaintPoint = currentPoint;
+        }
+
+        private static bool PaintToolUsesSurface(
+            MerkabaArtifactPaintTool tool) =>
+            tool is MerkabaArtifactPaintTool.Brush or
+                MerkabaArtifactPaintTool.SurfaceBrush or
+                MerkabaArtifactPaintTool.Line;
+
+        private static MerkabaDesignTool DesignTool(
+            MerkabaArtifactPaintTool tool) => tool switch
+            {
+                MerkabaArtifactPaintTool.Brush => MerkabaDesignTool.Brush,
+                MerkabaArtifactPaintTool.SurfaceBrush =>
+                    MerkabaDesignTool.SurfaceBrush,
+                MerkabaArtifactPaintTool.SpatialBrush =>
+                    MerkabaDesignTool.SpatialBrush,
+                MerkabaArtifactPaintTool.Spray => MerkabaDesignTool.Spray,
+                MerkabaArtifactPaintTool.Line => MerkabaDesignTool.Line,
+                _ => throw new ArgumentOutOfRangeException(nameof(tool))
+            };
 
         private static bool IsPaintAnnotation(AnnotationRecord annotation) =>
             annotation != null && annotation.type != null &&
@@ -2294,6 +2400,45 @@ namespace Genesis.RoomScan.UI
                     file.items == null) return;
                 _annotations.AddRange(file.items);
                 _nextAnnotationId = Mathf.Max(file.nextId, 1);
+                bool migrated = false;
+                bool canMigratePaint = _paintEngine != null &&
+                    _paintEngine.IsOpen && _packageSpatialBinding.HasValue &&
+                    _scanner != null && _scanner.ActiveAnchorUuid != Guid.Empty &&
+                    _packageSpatialBinding.Value.AnchorUuid ==
+                    _scanner.ActiveAnchorUuid &&
+                    RoomSpaceRoot.RoomSpaceReady;
+                if (canMigratePaint)
+                {
+                    for (int index = _annotations.Count - 1;
+                         index >= 0; index--)
+                    {
+                        AnnotationRecord annotation = _annotations[index];
+                        if (!IsPaintAnnotation(annotation) ||
+                            annotation.points == null ||
+                            annotation.points.Length == 0) continue;
+                        MerkabaDesignTool tool = annotation.type switch
+                        {
+                            "paint-line" => MerkabaDesignTool.Line,
+                            "paint-surface" =>
+                                MerkabaDesignTool.SurfaceBrush,
+                            _ => MerkabaDesignTool.SpatialBrush
+                        };
+                        Matrix4x4 anchorFromPackage =
+                            _packageSpatialBinding.Value.AnchorFromPackage;
+                        Transform roomRoot = RoomSpaceRoot.Instance.transform;
+                        Vector3[] points = Array.ConvertAll(annotation.points,
+                            point => roomRoot.TransformPoint(
+                                anchorFromPackage.MultiplyPoint3x4(point)));
+                        if (!_paintEngine.ImportLegacy(tool,
+                                annotation.styled ? annotation.color :
+                                    Color.white,
+                                annotation.width > 0f ? annotation.width :
+                                    0.01f, points)) continue;
+                        _annotations.RemoveAt(index);
+                        migrated = true;
+                    }
+                }
+                if (migrated) SaveAnnotations();
             }
             catch (Exception exception)
             {
@@ -2616,6 +2761,7 @@ namespace Genesis.RoomScan.UI
             (_paintInputEnabled && (_paintTool == MerkabaArtifactPaintTool.Eyedropper ||
                 _paintTool ==
                 MerkabaArtifactPaintTool.Line || _paintTool ==
+                MerkabaArtifactPaintTool.Brush || _paintTool ==
                 MerkabaArtifactPaintTool.SurfaceBrush)) ||
             _annotationMode == AnnotationMode.Point ||
             _annotationMode == AnnotationMode.Line ||
