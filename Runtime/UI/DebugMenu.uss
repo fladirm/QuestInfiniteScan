@@ -22,6 +22,22 @@
 .session-name { font-size: 19px; -unity-font-style: bold; color: white; }
 .session-state { margin-top: 2px; font-size: 11px; color: rgb(126, 220, 188); }
 .save-state { font-size: 11px; -unity-text-align: middle-right; color: rgb(177, 183, 191); }
+.history-actions { flex-direction: row; margin-left: auto; margin-right: 8px; }
+.history-action {
+    min-width: 64px;
+    min-height: 44px;
+    margin-right: 5px;
+    background-color: rgba(52, 57, 65, 0.96);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    color: rgb(233, 235, 238);
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+.history-action:hover { border-color: rgba(176, 239, 222, 0.72); }
+.history-action:active { scale: 0.98; }
+.history-action:disabled { opacity: 0.34; }
 .mode-tabs, .segmented-row, .button-row, .tool-grid, .swatch-row { flex-direction: row; }
 .mode-tabs {
     height: 46px;

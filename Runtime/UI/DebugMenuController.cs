@@ -25,7 +25,7 @@ namespace Genesis.RoomScan.UI
             _paintEyedropper, _paintShapeRound, _paintShapeSquare,
             _designPaint, _designObjects, _objectImport, _objectPlace,
             _objectSelect, _objectDuplicate, _objectVisible, _objectLock,
-            _objectDelete,
+            _objectDelete, _designUndo, _designRedo,
             _saveSwatch, _planView, _planStyle;
         private Label _sessionNameLabel, _scanning, _chunks, _kernels,
             _visibleBoundary;
@@ -50,7 +50,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _scanPanel, _refinePanel, _paintPanel, _planPanel,
             _paintColorSwatch, _paintColorWheel, _paintColorCursor, _recentSwatches,
             _savedSwatches, _paintSpraySettings, _paintWorkspace,
-            _objectsWorkspace;
+            _objectsWorkspace, _designHistoryActions;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
         private MerkabaArtifactViewer _artifactViewer;
@@ -189,6 +189,8 @@ namespace Genesis.RoomScan.UI
             _objectVisible = _root.Q<Button>("btn-object-visible");
             _objectLock = _root.Q<Button>("btn-object-lock");
             _objectDelete = _root.Q<Button>("btn-object-delete");
+            _designUndo = _root.Q<Button>("btn-design-undo");
+            _designRedo = _root.Q<Button>("btn-design-redo");
             _saveSwatch = _root.Q<Button>("btn-save-swatch");
             _planView = _root.Q<Button>("btn-plan-model");
             _planStyle = _root.Q<Button>("btn-plan-style");
@@ -245,6 +247,8 @@ namespace Genesis.RoomScan.UI
                 "paint-spray-settings");
             _paintWorkspace = _root.Q<VisualElement>("paint-workspace");
             _objectsWorkspace = _root.Q<VisualElement>("objects-workspace");
+            _designHistoryActions = _root.Q<VisualElement>(
+                "design-history-actions");
             _objectSurfaceSnap = _root.Q<Toggle>("object-surface-snap");
             _objectUprightSnap = _root.Q<Toggle>("object-upright-snap");
             _objectGridSnap = _root.Q<Toggle>("object-grid-snap");
@@ -380,6 +384,10 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer?.ToggleSelectedDesignObjectLocked());
             _objectDelete?.RegisterCallback<ClickEvent>(evt =>
                 _artifactViewer?.DeleteSelectedDesignObject());
+            _designUndo?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.UndoDesign());
+            _designRedo?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.RedoDesign());
             _saveSwatch?.RegisterCallback<ClickEvent>(evt => SaveCurrentSwatch());
             _planStyle?.RegisterCallback<ClickEvent>(evt =>
             {
@@ -498,6 +506,9 @@ namespace Genesis.RoomScan.UI
                     ? DisplayStyle.Flex : DisplayStyle.None;
             if (_planPanel != null)
                 _planPanel.style.display = tab == MenuTab.View
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_designHistoryActions != null)
+                _designHistoryActions.style.display = tab == MenuTab.Design
                     ? DisplayStyle.Flex : DisplayStyle.None;
             _tabScan?.EnableInClassList("mode-tab--selected",
                 tab == MenuTab.Scan);
@@ -1100,6 +1111,11 @@ namespace Genesis.RoomScan.UI
             _objectSurfaceSnap?.SetEnabled(!operationBusy && objectMode);
             _objectUprightSnap?.SetEnabled(!operationBusy && objectMode);
             _objectGridSnap?.SetEnabled(!operationBusy && objectMode);
+            bool designMode = reviewing && _selectedTab == MenuTab.Design;
+            _designUndo?.SetEnabled(!operationBusy && designMode &&
+                (_artifactViewer?.CanUndoDesign ?? false));
+            _designRedo?.SetEnabled(!operationBusy && designMode &&
+                (_artifactViewer?.CanRedoDesign ?? false));
             _saveSwatch?.SetEnabled(!operationBusy && reviewing);
             _planView?.SetEnabled(!operationBusy && _artifactViewer != null);
             _planStyle?.SetEnabled(!operationBusy && reviewing);

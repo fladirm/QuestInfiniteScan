@@ -14,6 +14,7 @@ namespace Genesis.RoomScan
     {
         private const float MinimumRayDistance = 0.01f;
         private const int RoundSegments = 8;
+        private const int HistoryCapacity = 24;
         private static readonly int BaseColorId =
             Shader.PropertyToID("_BaseColor");
         private static readonly int SourceBlendId =
@@ -25,6 +26,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_AlphaDither");
 
         private readonly Dictionary<int, StrokeVisual> _visuals = new();
+        private readonly List<string> _undoHistory = new();
+        private readonly List<string> _redoHistory = new();
         private Transform _roomRoot;
         private Transform _paintRoot;
         private Material _material;
@@ -34,11 +37,14 @@ namespace Genesis.RoomScan
         private bool _dirty;
         private float _sprayAccumulator;
         private uint _sprayOrdinal;
+        private string _pendingHistory;
 
         internal event Action Changed;
         internal bool IsOpen => _document != null;
         internal bool IsDirty => _dirty;
         internal bool HasActiveStroke => _activeStroke != null;
+        internal bool CanUndo => _undoHistory.Count > 0;
+        internal bool CanRedo => _redoHistory.Count > 0;
         internal int StrokeCount => _document?.strokes?.Count ?? 0;
         internal MerkabaDesignDocument Document => _document;
 
@@ -69,12 +75,20 @@ namespace Genesis.RoomScan
             foreach (MerkabaDesignStroke stroke in _document.strokes)
                 if (stroke?.samples != null && stroke.samples.Count > 0)
                     RebuildVisual(stroke);
+            _undoHistory.Clear();
+            _redoHistory.Clear();
+            _pendingHistory = null;
             _dirty = false;
         }
 
         internal void Close()
         {
-            CancelStroke();
+            if (_activeStroke != null)
+            {
+                RemoveStroke(_activeStroke);
+                _activeStroke = null;
+            }
+            _pendingHistory = null;
             foreach (StrokeVisual visual in _visuals.Values)
                 DestroyVisual(visual);
             _visuals.Clear();
@@ -85,6 +99,9 @@ namespace Genesis.RoomScan
             _document = null;
             _roomRoot = null;
             _path = null;
+            _undoHistory.Clear();
+            _redoHistory.Clear();
+            _pendingHistory = null;
             _dirty = false;
         }
 
@@ -109,6 +126,7 @@ namespace Genesis.RoomScan
         {
             CancelStroke();
             if (_document == null || _paintRoot == null) return;
+            BeginDocumentChange();
             int id = _document.AllocateStrokeId();
             Color color = ApplySaturation(settings.Color,
                 settings.Saturation);
@@ -219,10 +237,11 @@ namespace Genesis.RoomScan
             {
                 RemoveStroke(_activeStroke);
                 _activeStroke = null;
+                RollbackDocumentChange();
                 return false;
             }
             _activeStroke = null;
-            MarkChanged();
+            CommitDocumentChange();
             return true;
         }
 
@@ -232,6 +251,7 @@ namespace Genesis.RoomScan
             RemoveStroke(_activeStroke);
             _activeStroke = null;
             _sprayAccumulator = 0f;
+            RollbackDocumentChange();
         }
 
         internal bool TrySample(Ray worldRay, out PaintHit hit)
@@ -262,6 +282,7 @@ namespace Genesis.RoomScan
         internal int EraseSphere(Vector3 worldCenter, float worldRadius)
         {
             if (_document?.strokes == null || _paintRoot == null) return 0;
+            BeginDocumentChange();
             Vector3 center = WorldToRoomPoint(worldCenter);
             float radius = WorldToRoomRadius(Mathf.Max(0.001f, worldRadius));
             int removed = 0;
@@ -290,8 +311,55 @@ namespace Genesis.RoomScan
                     RebuildVisual(replacement);
                 }
             }
-            if (removed > 0) MarkChanged();
+            if (removed > 0) CommitDocumentChange();
+            else DiscardDocumentChange();
             return removed;
+        }
+
+        internal void BeginDocumentChange()
+        {
+            if (_document == null || _pendingHistory != null) return;
+            _pendingHistory = _document.CaptureSnapshot();
+        }
+
+        internal void CommitDocumentChange()
+        {
+            if (_document == null) return;
+            if (_pendingHistory == null)
+            {
+                MarkChanged();
+                return;
+            }
+            string before = _pendingHistory;
+            _pendingHistory = null;
+            if (string.Equals(before, _document.CaptureSnapshot(),
+                    StringComparison.Ordinal)) return;
+            PushHistory(_undoHistory, before);
+            _redoHistory.Clear();
+            MarkChanged();
+        }
+
+        internal void RollbackDocumentChange()
+        {
+            if (_document == null || _pendingHistory == null) return;
+            string before = _pendingHistory;
+            _pendingHistory = null;
+            _document.RestoreSnapshot(before);
+            RebuildAllVisuals();
+        }
+
+        internal void DiscardDocumentChange() => _pendingHistory = null;
+
+        internal bool Undo()
+        {
+            CancelStroke();
+            return RestoreHistory(_undoHistory, _redoHistory);
+        }
+
+        internal bool Redo()
+        {
+            CancelStroke();
+            return RestoreHistory(_redoHistory, _undoHistory);
         }
 
         internal bool ImportLegacy(MerkabaDesignTool tool, Color color,
@@ -390,6 +458,37 @@ namespace Genesis.RoomScan
         {
             _document?.strokes?.Remove(stroke);
             DestroyVisualFor(stroke.id);
+        }
+
+        private bool RestoreHistory(List<string> source, List<string> target)
+        {
+            if (_document == null || source.Count == 0) return false;
+            string current = _document.CaptureSnapshot();
+            string replacement = source[^1];
+            source.RemoveAt(source.Count - 1);
+            PushHistory(target, current);
+            _pendingHistory = null;
+            _document.RestoreSnapshot(replacement);
+            RebuildAllVisuals();
+            MarkChanged();
+            return true;
+        }
+
+        private static void PushHistory(List<string> history, string snapshot)
+        {
+            if (history.Count == HistoryCapacity) history.RemoveAt(0);
+            history.Add(snapshot);
+        }
+
+        private void RebuildAllVisuals()
+        {
+            foreach (StrokeVisual visual in _visuals.Values)
+                DestroyVisual(visual);
+            _visuals.Clear();
+            if (_document?.strokes == null) return;
+            foreach (MerkabaDesignStroke stroke in _document.strokes)
+                if (stroke?.samples != null && stroke.samples.Count > 0)
+                    RebuildVisual(stroke);
         }
 
         private void RebuildVisual(MerkabaDesignStroke stroke)

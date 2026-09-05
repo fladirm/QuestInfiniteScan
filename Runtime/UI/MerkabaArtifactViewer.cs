@@ -227,6 +227,8 @@ namespace Genesis.RoomScan.UI
             _designLibrary?.SelectedInstanceId ?? 0;
         public bool ObjectPlacementEnabled =>
             _designLibrary?.PlacementEnabled ?? false;
+        public bool CanUndoDesign => _paintEngine?.CanUndo ?? false;
+        public bool CanRedoDesign => _paintEngine?.CanRedo ?? false;
         public MerkabaArtifactPaintTool PaintTool
         {
             get => _paintTool;
@@ -629,6 +631,26 @@ namespace Genesis.RoomScan.UI
         public bool ToggleSelectedDesignObjectLocked() =>
             _designLibrary?.ToggleSelectedLocked() ?? false;
 
+        public bool UndoDesign()
+        {
+            _designLibrary?.EndGrab(true);
+            if (_paintEngine == null || !_paintEngine.Undo()) return false;
+            _designLibrary?.RefreshInstances();
+            RefreshTileColliders();
+            Status = "Design change undone";
+            return true;
+        }
+
+        public bool RedoDesign()
+        {
+            _designLibrary?.EndGrab(true);
+            if (_paintEngine == null || !_paintEngine.Redo()) return false;
+            _designLibrary?.RefreshInstances();
+            RefreshTileColliders();
+            Status = "Design change restored";
+            return true;
+        }
+
         private async Task ImportDesignAssetAsync(string importedPath)
         {
             try
@@ -777,7 +799,10 @@ namespace Genesis.RoomScan.UI
             if (string.IsNullOrWhiteSpace(libraryPath)) return;
             _designLibrary = new MerkabaDesignLibrary(libraryPath);
             _designLibrary.Open(_paintEngine.Document, roomRoot,
-                previewShader, _paintEngine.MarkDocumentChanged);
+                previewShader, _paintEngine.MarkDocumentChanged,
+                _paintEngine.BeginDocumentChange,
+                _paintEngine.CommitDocumentChange,
+                _paintEngine.RollbackDocumentChange);
         }
 
         private void OnPaintChanged() => _scanner?.MarkDesignDirty();

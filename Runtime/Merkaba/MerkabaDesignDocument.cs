@@ -94,6 +94,22 @@ namespace Genesis.RoomScan
         internal int AllocateStrokeId() => nextStrokeId++;
         internal int AllocateInstanceId() => nextInstanceId++;
 
+        internal string CaptureSnapshot() => JsonUtility.ToJson(this, false);
+
+        internal void RestoreSnapshot(string json)
+        {
+            MerkabaDesignDocument restored = JsonUtility.FromJson<
+                MerkabaDesignDocument>(json);
+            Validate(restored);
+            format = restored.format;
+            version = restored.version;
+            nextStrokeId = restored.nextStrokeId;
+            nextInstanceId = restored.nextInstanceId;
+            strokes = restored.strokes;
+            instances = restored.instances;
+            Normalize();
+        }
+
         internal static MerkabaDesignDocument Load(string path)
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
@@ -101,31 +117,40 @@ namespace Genesis.RoomScan
             string json = File.ReadAllText(path, Encoding.UTF8);
             MerkabaDesignDocument document = JsonUtility.FromJson<
                 MerkabaDesignDocument>(json);
+            Validate(document);
+            document.Normalize();
+            return document;
+        }
+
+        private static void Validate(MerkabaDesignDocument document)
+        {
             if (document == null || document.format != Format ||
                 document.version != CurrentVersion)
                 throw new InvalidDataException(
                     "Session design document has an unsupported format.");
-            document.strokes ??= new List<MerkabaDesignStroke>();
-            document.instances ??= new List<MerkabaDesignInstance>();
+        }
+
+        private void Normalize()
+        {
+            strokes ??= new List<MerkabaDesignStroke>();
+            instances ??= new List<MerkabaDesignInstance>();
             int greatestId = 0;
-            foreach (MerkabaDesignStroke stroke in document.strokes)
+            foreach (MerkabaDesignStroke stroke in strokes)
             {
                 if (stroke == null) continue;
                 stroke.samples ??= new List<MerkabaDesignSample>();
                 greatestId = Math.Max(greatestId, stroke.id);
             }
-            document.nextStrokeId = Math.Max(document.nextStrokeId,
-                greatestId + 1);
+            nextStrokeId = Math.Max(nextStrokeId, greatestId + 1);
             int greatestInstanceId = 0;
-            foreach (MerkabaDesignInstance instance in document.instances)
+            foreach (MerkabaDesignInstance instance in instances)
             {
                 if (instance == null) continue;
                 greatestInstanceId = Math.Max(greatestInstanceId,
                     instance.instanceId);
             }
-            document.nextInstanceId = Math.Max(document.nextInstanceId,
+            nextInstanceId = Math.Max(nextInstanceId,
                 greatestInstanceId + 1);
-            return document;
         }
 
         internal void Save(string path)

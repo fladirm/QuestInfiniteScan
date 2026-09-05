@@ -39,7 +39,8 @@ namespace Genesis.RoomScan.Tests
                          "btn-object-import", "btn-object-place",
                          "btn-object-select", "btn-object-duplicate",
                          "btn-object-visible", "btn-object-lock",
-                         "btn-object-delete",
+                         "btn-object-delete", "btn-design-undo",
+                         "btn-design-redo",
                          "btn-save-swatch", "btn-plan-model", "btn-plan-style"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
@@ -66,6 +67,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<VisualElement>("paint-color-cursor"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-workspace"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("objects-workspace"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("design-history-actions"),
+                Is.Not.Null);
             Assert.That(root.Q<DropdownField>("object-asset-picker"),
                 Is.Not.Null);
             Assert.That(root.Q<DropdownField>("object-instance-picker"),

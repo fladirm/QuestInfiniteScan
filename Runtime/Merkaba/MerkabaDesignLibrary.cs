@@ -52,6 +52,9 @@ namespace Genesis.RoomScan
         private OneHandGrab _oneHandGrab;
         private TwoHandGrab _twoHandGrab;
         private Action _changed;
+        private Action _beginChange;
+        private Action _commitChange;
+        private Action _rollbackChange;
 
         internal MerkabaDesignLibrary(string root)
         {
@@ -75,7 +78,8 @@ namespace Genesis.RoomScan
                 Array.Empty<MerkabaDesignInstance>();
 
         internal void Open(MerkabaDesignDocument document, Transform roomRoot,
-            Shader shader, Action changed)
+            Shader shader, Action changed, Action beginChange = null,
+            Action commitChange = null, Action rollbackChange = null)
         {
             CloseRuntime();
             _document = document ?? throw new ArgumentNullException(
@@ -84,6 +88,9 @@ namespace Genesis.RoomScan
                 nameof(roomRoot));
             if (shader == null) throw new ArgumentNullException(nameof(shader));
             _changed = changed;
+            _beginChange = beginChange;
+            _commitChange = commitChange;
+            _rollbackChange = rollbackChange;
             var rootObject = new GameObject("Merkaba Design Objects");
             _objectRoot = rootObject.transform;
             _objectRoot.SetParent(_roomRoot, false);
@@ -130,6 +137,9 @@ namespace Genesis.RoomScan
             _selectedInstanceId = 0;
             _placing = false;
             _changed = null;
+            _beginChange = null;
+            _commitChange = null;
+            _rollbackChange = null;
         }
 
         internal bool SelectAsset(string assetId)
@@ -181,6 +191,7 @@ namespace Genesis.RoomScan
         internal bool PlaceSelected()
         {
             if (!_placing || _ghost == null || _document == null) return false;
+            BeginChange();
             var instance = new MerkabaDesignInstance
             {
                 instanceId = _document.AllocateInstanceId(),
@@ -195,6 +206,7 @@ namespace Genesis.RoomScan
             if (!TryCreateVisual(instance))
             {
                 _document.instances.Remove(instance);
+                RollbackChange();
                 return false;
             }
             _selectedInstanceId = instance.instanceId;
@@ -237,6 +249,8 @@ namespace Genesis.RoomScan
         {
             MerkabaDesignInstance source = SelectedInstance;
             if (source == null || _document == null) return false;
+            EndGrab(true);
+            BeginChange();
             var copy = new MerkabaDesignInstance
             {
                 instanceId = _document.AllocateInstanceId(),
@@ -251,6 +265,7 @@ namespace Genesis.RoomScan
             if (!TryCreateVisual(copy))
             {
                 _document.instances.Remove(copy);
+                RollbackChange();
                 return false;
             }
             _selectedInstanceId = copy.instanceId;
@@ -263,11 +278,12 @@ namespace Genesis.RoomScan
         {
             MerkabaDesignInstance instance = SelectedInstance;
             if (instance == null || _document == null) return false;
+            EndGrab(true);
+            BeginChange();
             _document.instances.Remove(instance);
             if (_visuals.Remove(instance.instanceId, out InstanceVisual visual))
                 DestroyObject(visual.Root);
             _selectedInstanceId = 0;
-            EndGrab(false);
             RefreshSelectionVisual();
             MarkChanged();
             return true;
@@ -277,6 +293,8 @@ namespace Genesis.RoomScan
         {
             MerkabaDesignInstance instance = SelectedInstance;
             if (instance == null) return false;
+            EndGrab(true);
+            BeginChange();
             instance.visible = !instance.visible;
             if (_visuals.TryGetValue(instance.instanceId,
                     out InstanceVisual visual))
@@ -289,8 +307,9 @@ namespace Genesis.RoomScan
         {
             MerkabaDesignInstance instance = SelectedInstance;
             if (instance == null) return false;
+            EndGrab(true);
+            BeginChange();
             instance.locked = !instance.locked;
-            if (instance.locked) EndGrab(true);
             MarkChanged();
             return true;
         }
@@ -301,6 +320,7 @@ namespace Genesis.RoomScan
             if (!TryGetEditableVisual(out InstanceVisual visual)) return false;
             if (_grabMode != GrabMode.OneHand)
             {
+                if (_grabMode == GrabMode.None) BeginChange();
                 _oneHandGrab = new OneHandGrab(controllerPosition,
                     controllerRotation, visual.Root.transform.position,
                     visual.Root.transform.rotation,
@@ -323,6 +343,7 @@ namespace Genesis.RoomScan
                     out Quaternion frame, out float separation)) return false;
             if (_grabMode != GrabMode.TwoHand)
             {
+                if (_grabMode == GrabMode.None) BeginChange();
                 _twoHandGrab = new TwoHandGrab(midpoint, frame, separation,
                     visual.Root.transform.position,
                     visual.Root.transform.rotation,
@@ -340,6 +361,29 @@ namespace Genesis.RoomScan
             if (_grabMode == GrabMode.None) return;
             _grabMode = GrabMode.None;
             if (changed) MarkChanged();
+            else
+            {
+                RollbackChange();
+                RebuildInstanceVisuals();
+            }
+        }
+
+        internal void RefreshInstances()
+        {
+            EndGrab(true);
+            RebuildInstanceVisuals();
+        }
+
+        private void RebuildInstanceVisuals()
+        {
+            foreach (InstanceVisual visual in _visuals.Values)
+                DestroyObject(visual.Root);
+            _visuals.Clear();
+            if (_document?.instances != null)
+                foreach (MerkabaDesignInstance instance in _document.instances)
+                    TryCreateVisual(instance);
+            if (SelectedInstance == null) _selectedInstanceId = 0;
+            RefreshSelectionVisual();
         }
 
         internal void Refresh()
@@ -648,7 +692,18 @@ namespace Genesis.RoomScan
             }
         }
 
-        private void MarkChanged() => _changed?.Invoke();
+        private void BeginChange() => _beginChange?.Invoke();
+
+        private void MarkChanged()
+        {
+            if (_commitChange != null) _commitChange();
+            else _changed?.Invoke();
+        }
+
+        private void RollbackChange()
+        {
+            if (_rollbackChange != null) _rollbackChange();
+        }
 
         private static Vector3 Pivot(Bounds bounds) => new(bounds.center.x,
             bounds.min.y, bounds.center.z);

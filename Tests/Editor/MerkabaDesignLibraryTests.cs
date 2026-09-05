@@ -149,6 +149,66 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
+        [Test]
+        public void ObjectChangesUseSharedUndoAndCanceledGrabRestoresSnapshot()
+        {
+            string source = Path.Combine(_directory, "fixture.glb");
+            File.WriteAllBytes(source, CreateGlb());
+            var library = new MerkabaDesignLibrary(Path.Combine(_directory,
+                "library"));
+            MerkabaDesignAsset asset = library.Import(source);
+            var room = new GameObject("Room");
+            var engineObject = new GameObject("Paint Engine");
+            MerkabaPaintEngine engine =
+                engineObject.AddComponent<MerkabaPaintEngine>();
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(
+                "Packages/com.genesis.roomscan/Runtime/Shaders/" +
+                "MerkabaArtifactPreview.shader");
+            Assert.That(shader, Is.Not.Null);
+            try
+            {
+                engine.Open(room.transform, shader, Path.Combine(_directory,
+                    "design.json"));
+                library.Open(engine.Document, room.transform, shader,
+                    engine.MarkDocumentChanged, engine.BeginDocumentChange,
+                    engine.CommitDocumentChange,
+                    engine.RollbackDocumentChange);
+                library.SelectAsset(asset.id);
+                library.SetPlacementEnabled(true);
+                var ray = new Ray(Vector3.zero, Vector3.forward);
+                library.UpdatePlacementPreview(ray, false, default, default,
+                    false, true, false);
+                Assert.That(library.PlaceSelected(), Is.True);
+                Assert.That(engine.Document.instances.Count, Is.EqualTo(1));
+                Assert.That(engine.Undo(), Is.True);
+                library.RefreshInstances();
+                Assert.That(engine.Document.instances, Is.Empty);
+                Assert.That(engine.Redo(), Is.True);
+                library.RefreshInstances();
+                Assert.That(engine.Document.instances.Count, Is.EqualTo(1));
+
+                Assert.That(library.SelectInstance(1), Is.True);
+                Vector3 original = engine.Document.instances[0].position;
+                Assert.That(library.ContinueOneHandGrab(Vector3.zero,
+                    Quaternion.identity), Is.True);
+                Assert.That(library.ContinueOneHandGrab(Vector3.right * 0.3f,
+                    Quaternion.identity), Is.True);
+                Assert.That(Vector3.Distance(
+                    engine.Document.instances[0].position, original),
+                    Is.GreaterThan(0.1f));
+                library.EndGrab(false);
+                Assert.That(Vector3.Distance(
+                    engine.Document.instances[0].position, original),
+                    Is.LessThan(1e-6f));
+            }
+            finally
+            {
+                library.CloseRuntime();
+                UnityEngine.Object.DestroyImmediate(engineObject);
+                UnityEngine.Object.DestroyImmediate(room);
+            }
+        }
+
         private static byte[] CreateGlb()
         {
             KernelState state = default;

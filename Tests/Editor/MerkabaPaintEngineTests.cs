@@ -96,6 +96,45 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void UndoRedoRestoresPaintAndSharedObjectAuthorityInPlace()
+        {
+            MerkabaPaintEngine engine = OpenEngine();
+            MerkabaDesignDocument document = engine.Document;
+            engine.BeginStroke(MerkabaDesignTool.SpatialBrush, Settings());
+            engine.AddSample(new Vector3(0.1f, 0.2f, 0.3f), Vector3.up,
+                false);
+            Assert.That(engine.CommitStroke(), Is.True);
+            Assert.That(engine.CanUndo, Is.True);
+
+            engine.BeginDocumentChange();
+            document.instances.Add(new MerkabaDesignInstance
+            {
+                instanceId = document.AllocateInstanceId(),
+                assetId = new string('b', 64),
+                position = new Vector3(1f, 2f, 3f)
+            });
+            engine.CommitDocumentChange();
+            Assert.That(document.instances.Count, Is.EqualTo(1));
+
+            Assert.That(engine.Undo(), Is.True);
+            Assert.That(engine.Document, Is.SameAs(document));
+            Assert.That(document.strokes.Count, Is.EqualTo(1));
+            Assert.That(document.instances, Is.Empty);
+            Assert.That(engine.Undo(), Is.True);
+            Assert.That(document.strokes, Is.Empty);
+            Assert.That(engine.CanUndo, Is.False);
+            Assert.That(engine.CanRedo, Is.True);
+
+            Assert.That(engine.Redo(), Is.True);
+            Assert.That(document.strokes.Count, Is.EqualTo(1));
+            Assert.That(engine.Redo(), Is.True);
+            Assert.That(document.instances.Count, Is.EqualTo(1));
+            Assert.That(document.instances[0].position,
+                Is.EqualTo(new Vector3(1f, 2f, 3f)));
+            Assert.That(engine.CanRedo, Is.False);
+        }
+
+        [Test]
         public void DesignDocumentRoundTripsWithoutChangingStoredGeometry()
         {
             var document = new MerkabaDesignDocument();

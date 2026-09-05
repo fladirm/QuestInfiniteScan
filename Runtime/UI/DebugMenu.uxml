@@ -12,6 +12,13 @@
                 <ui:Label name="val-scanning" text="Stopped"
                     class="session-state" />
             </ui:VisualElement>
+            <ui:VisualElement name="design-history-actions"
+                class="history-actions mode-panel--hidden">
+                <ui:Button name="btn-design-undo" text="Undo"
+                    class="history-action" />
+                <ui:Button name="btn-design-redo" text="Redo"
+                    class="history-action button-last" />
+            </ui:VisualElement>
             <ui:Label name="val-saved" text="Not saved"
                 class="save-state" />
         </ui:VisualElement>
