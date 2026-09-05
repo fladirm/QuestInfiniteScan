@@ -35,6 +35,11 @@ namespace Genesis.RoomScan.Tests
                          "btn-paint-spatial", "btn-paint-spray",
                          "btn-paint-erase", "btn-paint-eyedropper",
                          "btn-paint-round", "btn-paint-square",
+                         "btn-design-paint", "btn-design-objects",
+                         "btn-object-import", "btn-object-place",
+                         "btn-object-select", "btn-object-duplicate",
+                         "btn-object-visible", "btn-object-lock",
+                         "btn-object-delete",
                          "btn-save-swatch", "btn-plan-model", "btn-plan-style"
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
@@ -59,6 +64,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<VisualElement>("paint-color-swatch"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-wheel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-cursor"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("paint-workspace"), Is.Not.Null);
+            Assert.That(root.Q<VisualElement>("objects-workspace"), Is.Not.Null);
+            Assert.That(root.Q<DropdownField>("object-asset-picker"),
+                Is.Not.Null);
+            Assert.That(root.Q<DropdownField>("object-instance-picker"),
+                Is.Not.Null);
+            Assert.That(root.Q<Toggle>("object-surface-snap"), Is.Not.Null);
+            Assert.That(root.Q<Toggle>("object-upright-snap"), Is.Not.Null);
+            Assert.That(root.Q<Toggle>("object-grid-snap"), Is.Not.Null);
             foreach (string slider in new[]
                      {
                          "paint-value", "paint-alpha", "paint-width",
@@ -139,6 +153,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Contain(
                 "MerkabaArtifactPaintTool.Spray"));
             Assert.That(viewer, Does.Contain("TryInterpolateVertexColor"));
+            Assert.That(viewer, Does.Contain("RequestDesignAssetFromDisk"));
+            Assert.That(viewer, Does.Contain("ContinueTwoHandGrab"));
+            Assert.That(viewer, Does.Contain("ObjectInputEnabled"));
             Assert.That(viewer, Does.Not.Contain("_spatialPaintDistance"));
             Assert.That(viewer, Does.Not.Contain("_paintDraftLine"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));

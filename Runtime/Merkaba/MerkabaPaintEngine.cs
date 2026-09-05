@@ -40,6 +40,7 @@ namespace Genesis.RoomScan
         internal bool IsDirty => _dirty;
         internal bool HasActiveStroke => _activeStroke != null;
         internal int StrokeCount => _document?.strokes?.Count ?? 0;
+        internal MerkabaDesignDocument Document => _document;
 
         private void OnDestroy() => Close();
 
@@ -625,6 +626,8 @@ namespace Genesis.RoomScan
             _dirty = true;
             Changed?.Invoke();
         }
+
+        internal void MarkDocumentChanged() => MarkChanged();
 
         private Vector3 WorldToRoomPoint(Vector3 value) => _roomRoot != null
             ? _roomRoot.InverseTransformPoint(value) : value;

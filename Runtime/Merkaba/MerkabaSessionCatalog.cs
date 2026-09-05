@@ -47,6 +47,8 @@ namespace Genesis.RoomScan
         }
 
         internal string SessionsRoot => _sessionsRoot;
+        internal string LibraryRoot => Path.Combine(_applicationRoot,
+            "library");
         internal string SessionDirectory(Guid sessionId)
         {
             if (sessionId == Guid.Empty)

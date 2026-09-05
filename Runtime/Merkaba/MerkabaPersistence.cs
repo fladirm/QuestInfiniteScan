@@ -38,6 +38,8 @@ namespace Genesis.RoomScan
             ? Path.Combine(ActiveSessionDirectory,
                 MerkabaSessionCatalog.DesignFileName)
             : string.Empty;
+        internal string DesignLibraryPath => _catalog?.LibraryRoot ??
+            string.Empty;
         public event Action StatusChanged;
 
         private string ActiveSessionDirectory => _activeSession != null

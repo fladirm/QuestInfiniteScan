@@ -109,6 +109,12 @@
             horizontal-scroller-visibility="Hidden"
             vertical-scroller-visibility="Auto"
             class="mode-panel design-scroll mode-panel--hidden">
+            <ui:VisualElement class="segmented-row">
+                <ui:Button name="btn-design-paint" text="PAINT"
+                    class="segment segment--selected" />
+                <ui:Button name="btn-design-objects" text="OBJECTS"
+                    class="segment button-last" />
+            </ui:VisualElement>
             <ui:VisualElement name="paint-workspace">
                 <ui:VisualElement class="button-row">
                     <ui:Button name="btn-paint-view" text="Open model"
@@ -231,6 +237,48 @@
                         </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="objects-workspace"
+                class="mode-panel--hidden">
+                <ui:Label text="Object library" class="section-title" />
+                <ui:VisualElement class="button-row">
+                    <ui:Button name="btn-object-import" text="Import GLB"
+                        class="secondary-action" />
+                    <ui:Button name="btn-object-place" text="Place"
+                        class="primary-action" />
+                    <ui:Button name="btn-object-select" text="Select"
+                        class="secondary-action button-last" />
+                </ui:VisualElement>
+                <ui:DropdownField name="object-asset-picker" label="Asset"
+                    class="field" />
+                <ui:DropdownField name="object-instance-picker"
+                    label="Placed object" class="field" />
+                <ui:VisualElement class="button-row">
+                    <ui:Button name="btn-object-duplicate" text="Duplicate"
+                        class="secondary-action" />
+                    <ui:Button name="btn-object-visible" text="Hide"
+                        class="quiet-action" />
+                    <ui:Button name="btn-object-lock" text="Lock"
+                        class="quiet-action" />
+                    <ui:Button name="btn-object-delete" text="Delete"
+                        class="danger-action button-last" />
+                </ui:VisualElement>
+                <ui:VisualElement class="card tool-card">
+                    <ui:Toggle name="object-surface-snap"
+                        label="Surface snap" value="true"
+                        class="inline-toggle" />
+                    <ui:Toggle name="object-upright-snap"
+                        label="Upright snap" value="true"
+                        class="inline-toggle" />
+                    <ui:Toggle name="object-grid-snap" label="5 cm grid"
+                        value="false" class="inline-toggle" />
+                </ui:VisualElement>
+                <ui:Label name="val-object-status"
+                    text="Import a GLB or select a library asset"
+                    class="supporting-status" />
+                <ui:Label text="Trigger places/selects. Right grip moves and rotates. Two grips rotate and scale."
+                    class="help-text" />
             </ui:VisualElement>
 
         </ui:ScrollView>

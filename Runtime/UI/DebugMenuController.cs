@@ -23,28 +23,34 @@ namespace Genesis.RoomScan.UI
             _paintView, _paintLoad, _paintSave, _paintBrush, _paintLine,
             _paintSurface, _paintSpatial, _paintSpray, _paintErase,
             _paintEyedropper, _paintShapeRound, _paintShapeSquare,
+            _designPaint, _designObjects, _objectImport, _objectPlace,
+            _objectSelect, _objectDuplicate, _objectVisible, _objectLock,
+            _objectDelete,
             _saveSwatch, _planView, _planStyle;
         private Label _sessionNameLabel, _scanning, _chunks, _kernels,
             _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
-        private Label _artifactStatus;
+        private Label _artifactStatus, _objectStatus;
         private Label _paintStatus, _paintWidthValue, _paintFlowValue,
             _paintHardnessValue, _paintSaturationValue, _paintDensityValue,
             _paintScatterValue;
         private TextField _sessionName, _annotationNote;
-        private DropdownField _sessionPicker;
+        private DropdownField _sessionPicker, _objectAssetPicker,
+            _objectInstancePicker;
         private Slider _opacity;
         private Slider _paintValue, _paintAlpha, _paintWidth, _paintFlow,
             _paintHardness, _paintSaturationSlider, _paintDensity,
             _paintScatter;
-        private Toggle _artifactWorldLock, _artifactRoomAlign;
+        private Toggle _artifactWorldLock, _artifactRoomAlign,
+            _objectSurfaceSnap, _objectUprightSnap, _objectGridSnap;
         private Slider _fineRadius, _fineLength;
         private Label _opacityValue, _fineRadiusValue, _fineLengthValue;
         private Label _operationStage;
         private VisualElement _operationPanel;
         private VisualElement _scanPanel, _refinePanel, _paintPanel, _planPanel,
             _paintColorSwatch, _paintColorWheel, _paintColorCursor, _recentSwatches,
-            _savedSwatches, _paintSpraySettings;
+            _savedSwatches, _paintSpraySettings, _paintWorkspace,
+            _objectsWorkspace;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
         private MerkabaArtifactViewer _artifactViewer;
@@ -63,7 +69,10 @@ namespace Genesis.RoomScan.UI
         private readonly List<MerkabaSessionInfo> _sessionEntries = new();
         private readonly List<Color> _recentColors = new();
         private readonly List<Color> _savedColors = new();
+        private readonly List<MerkabaDesignAsset> _designAssets = new();
+        private readonly List<MerkabaDesignInstance> _designInstances = new();
         private int _selectedSessionIndex = -1;
+        private DesignSubmode _designSubmode;
         private bool _hasLastRecentColor;
         private Color _lastRecentColor;
 
@@ -171,6 +180,15 @@ namespace Genesis.RoomScan.UI
             _paintEyedropper = _root.Q<Button>("btn-paint-eyedropper");
             _paintShapeRound = _root.Q<Button>("btn-paint-round");
             _paintShapeSquare = _root.Q<Button>("btn-paint-square");
+            _designPaint = _root.Q<Button>("btn-design-paint");
+            _designObjects = _root.Q<Button>("btn-design-objects");
+            _objectImport = _root.Q<Button>("btn-object-import");
+            _objectPlace = _root.Q<Button>("btn-object-place");
+            _objectSelect = _root.Q<Button>("btn-object-select");
+            _objectDuplicate = _root.Q<Button>("btn-object-duplicate");
+            _objectVisible = _root.Q<Button>("btn-object-visible");
+            _objectLock = _root.Q<Button>("btn-object-lock");
+            _objectDelete = _root.Q<Button>("btn-object-delete");
             _saveSwatch = _root.Q<Button>("btn-save-swatch");
             _planView = _root.Q<Button>("btn-plan-model");
             _planStyle = _root.Q<Button>("btn-plan-style");
@@ -179,6 +197,10 @@ namespace Genesis.RoomScan.UI
             _annotationNote = _root.Q<TextField>("annotation-note");
             _sessionName = _root.Q<TextField>("session-name");
             _sessionPicker = _root.Q<DropdownField>("session-picker");
+            _objectAssetPicker = _root.Q<DropdownField>(
+                "object-asset-picker");
+            _objectInstancePicker = _root.Q<DropdownField>(
+                "object-instance-picker");
             _sessionNameLabel = _root.Q<Label>("val-session-name");
             _scanning = _root.Q<Label>("val-scanning");
             _chunks = _root.Q<Label>("val-chunks");
@@ -190,6 +212,7 @@ namespace Genesis.RoomScan.UI
             _pointer = _root.Q<Label>("val-pointer");
             _fps = _root.Q<Label>("val-fps");
             _artifactStatus = _root.Q<Label>("val-artifact");
+            _objectStatus = _root.Q<Label>("val-object-status");
             _paintStatus = _root.Q<Label>("val-paint-status");
             _paintWidthValue = _root.Q<Label>("val-paint-width");
             _paintFlowValue = _root.Q<Label>("val-paint-flow");
@@ -220,6 +243,11 @@ namespace Genesis.RoomScan.UI
             _paintScatter = _root.Q<Slider>("paint-scatter");
             _paintSpraySettings = _root.Q<VisualElement>(
                 "paint-spray-settings");
+            _paintWorkspace = _root.Q<VisualElement>("paint-workspace");
+            _objectsWorkspace = _root.Q<VisualElement>("objects-workspace");
+            _objectSurfaceSnap = _root.Q<Toggle>("object-surface-snap");
+            _objectUprightSnap = _root.Q<Toggle>("object-upright-snap");
+            _objectGridSnap = _root.Q<Toggle>("object-grid-snap");
             _fineRadiusValue = _root.Q<Label>("val-fine-radius");
             _fineLengthValue = _root.Q<Label>("val-fine-length");
             _operationPanel = _root.Q<VisualElement>("operation-panel");
@@ -334,6 +362,24 @@ namespace Genesis.RoomScan.UI
                 SetPaintShape(MerkabaBrushShape.Round));
             _paintShapeSquare?.RegisterCallback<ClickEvent>(evt =>
                 SetPaintShape(MerkabaBrushShape.Square));
+            _designPaint?.RegisterCallback<ClickEvent>(evt =>
+                SetDesignSubmode(DesignSubmode.Paint));
+            _designObjects?.RegisterCallback<ClickEvent>(evt =>
+                SetDesignSubmode(DesignSubmode.Objects));
+            _objectImport?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.RequestDesignAssetFromDisk());
+            _objectPlace?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.SetObjectPlacementEnabled(true));
+            _objectSelect?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.SetObjectPlacementEnabled(false));
+            _objectDuplicate?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.DuplicateSelectedDesignObject());
+            _objectVisible?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.ToggleSelectedDesignObjectVisible());
+            _objectLock?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.ToggleSelectedDesignObjectLocked());
+            _objectDelete?.RegisterCallback<ClickEvent>(evt =>
+                _artifactViewer?.DeleteSelectedDesignObject());
             _saveSwatch?.RegisterCallback<ClickEvent>(evt => SaveCurrentSwatch());
             _planStyle?.RegisterCallback<ClickEvent>(evt =>
             {
@@ -416,6 +462,25 @@ namespace Genesis.RoomScan.UI
                 _paintWheelPointer = -1);
             _sessionPicker?.RegisterValueChangedCallback(evt =>
                 SelectSessionChoice(evt.newValue));
+            _objectAssetPicker?.RegisterValueChangedCallback(evt =>
+                SelectObjectAssetChoice(evt.newValue));
+            _objectInstancePicker?.RegisterValueChangedCallback(evt =>
+                SelectObjectInstanceChoice(evt.newValue));
+            _objectSurfaceSnap?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.ObjectSurfaceSnap = evt.newValue;
+            });
+            _objectUprightSnap?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.ObjectUprightSnap = evt.newValue;
+            });
+            _objectGridSnap?.RegisterValueChangedCallback(evt =>
+            {
+                if (_artifactViewer != null)
+                    _artifactViewer.ObjectGridSnap = evt.newValue;
+            });
             BuildSwatchButtons();
         }
 
@@ -443,7 +508,13 @@ namespace Genesis.RoomScan.UI
             _tabPlan?.EnableInClassList("mode-tab--selected",
                 tab == MenuTab.View);
             if (_artifactViewer != null)
-                _artifactViewer.PaintInputEnabled = tab == MenuTab.Design;
+            {
+                bool design = tab == MenuTab.Design;
+                _artifactViewer.PaintInputEnabled = design &&
+                    _designSubmode == DesignSubmode.Paint;
+                _artifactViewer.ObjectInputEnabled = design &&
+                    _designSubmode == DesignSubmode.Objects;
+            }
             RefreshStatus();
         }
 
@@ -473,6 +544,62 @@ namespace Genesis.RoomScan.UI
         {
             _artifactViewer ??= FindAnyObjectByType<MerkabaArtifactViewer>();
             if (_artifactViewer != null) _artifactViewer.PaintShape = shape;
+        }
+
+        private void SetDesignSubmode(DesignSubmode mode)
+        {
+            _designSubmode = mode;
+            bool paint = mode == DesignSubmode.Paint;
+            if (_paintWorkspace != null)
+                _paintWorkspace.style.display = paint
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_objectsWorkspace != null)
+                _objectsWorkspace.style.display = paint
+                    ? DisplayStyle.None : DisplayStyle.Flex;
+            _designPaint?.EnableInClassList("segment--selected", paint);
+            _designObjects?.EnableInClassList("segment--selected", !paint);
+            if (_artifactViewer != null)
+            {
+                bool design = _selectedTab == MenuTab.Design;
+                _artifactViewer.PaintInputEnabled = design && paint;
+                _artifactViewer.ObjectInputEnabled = design && !paint;
+            }
+        }
+
+        private void SelectObjectAssetChoice(string choice)
+        {
+            for (int index = 0; index < _designAssets.Count; index++)
+                if (string.Equals(ObjectAssetChoice(_designAssets[index]),
+                        choice, StringComparison.Ordinal))
+                {
+                    _artifactViewer?.SelectDesignAsset(
+                        _designAssets[index].id);
+                    return;
+                }
+        }
+
+        private void SelectObjectInstanceChoice(string choice)
+        {
+            for (int index = 0; index < _designInstances.Count; index++)
+                if (string.Equals(ObjectInstanceChoice(
+                            _designInstances[index]), choice,
+                        StringComparison.Ordinal))
+                {
+                    _artifactViewer?.SelectDesignInstance(
+                        _designInstances[index].instanceId);
+                    return;
+                }
+        }
+
+        private static string ObjectAssetChoice(MerkabaDesignAsset asset) =>
+            $"{asset.displayName} · {asset.id.Substring(0, 8)}";
+
+        private static string ObjectInstanceChoice(
+            MerkabaDesignInstance instance)
+        {
+            string asset = instance.assetId ?? string.Empty;
+            string shortId = asset.Length >= 8 ? asset.Substring(0, 8) : asset;
+            return $"#{instance.instanceId} · {shortId}";
         }
 
         private void EnsureArtifactViewer() => _artifactViewer ??=
@@ -893,6 +1020,7 @@ namespace Genesis.RoomScan.UI
                 _planView?.EnableInClassList("segment--selected", !plan);
             }
             RefreshPaintControls();
+            RefreshObjectControls();
 
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
@@ -949,6 +1077,29 @@ namespace Genesis.RoomScan.UI
             _paintEyedropper?.SetEnabled(!operationBusy && reviewing);
             _paintShapeRound?.SetEnabled(!operationBusy && reviewing);
             _paintShapeSquare?.SetEnabled(!operationBusy && reviewing);
+            _designPaint?.SetEnabled(!operationBusy && reviewing);
+            _designObjects?.SetEnabled(!operationBusy && reviewing);
+            bool objectMode = reviewing &&
+                _designSubmode == DesignSubmode.Objects;
+            bool hasAssets = (_artifactViewer?.DesignAssets.Count ?? 0) > 0;
+            bool hasObject = (_artifactViewer?.SelectedDesignInstanceId ?? 0)
+                != 0;
+            _objectImport?.SetEnabled(!operationBusy && reviewing);
+            _objectPlace?.SetEnabled(!operationBusy && objectMode && hasAssets);
+            _objectSelect?.SetEnabled(!operationBusy && objectMode);
+            _objectDuplicate?.SetEnabled(!operationBusy && objectMode &&
+                hasObject);
+            _objectVisible?.SetEnabled(!operationBusy && objectMode &&
+                hasObject);
+            _objectLock?.SetEnabled(!operationBusy && objectMode && hasObject);
+            _objectDelete?.SetEnabled(!operationBusy && objectMode && hasObject);
+            _objectAssetPicker?.SetEnabled(!operationBusy && objectMode &&
+                hasAssets);
+            _objectInstancePicker?.SetEnabled(!operationBusy && objectMode &&
+                (_artifactViewer?.DesignInstances.Count ?? 0) > 0);
+            _objectSurfaceSnap?.SetEnabled(!operationBusy && objectMode);
+            _objectUprightSnap?.SetEnabled(!operationBusy && objectMode);
+            _objectGridSnap?.SetEnabled(!operationBusy && objectMode);
             _saveSwatch?.SetEnabled(!operationBusy && reviewing);
             _planView?.SetEnabled(!operationBusy && _artifactViewer != null);
             _planStyle?.SetEnabled(!operationBusy && reviewing);
@@ -957,7 +1108,9 @@ namespace Genesis.RoomScan.UI
         private void RefreshPaintControls()
         {
             if (_artifactViewer == null) return;
-            _artifactViewer.PaintInputEnabled = _selectedTab == MenuTab.Design;
+            _artifactViewer.PaintInputEnabled =
+                _selectedTab == MenuTab.Design &&
+                _designSubmode == DesignSubmode.Paint;
             Color color = _artifactViewer.PaintColor;
             if (_paintWheelPointer < 0 && (!_hasLastRecentColor ||
                 !Approximately(_lastRecentColor, color)))
@@ -1021,6 +1174,84 @@ namespace Genesis.RoomScan.UI
             if (_paintView != null)
                 _paintView.text = _artifactViewer.IsOpen
                     ? "GLB VIEW  ON" : "GLB VIEW  OFF";
+        }
+
+        private void RefreshObjectControls()
+        {
+            if (_artifactViewer == null) return;
+            _artifactViewer.ObjectInputEnabled =
+                _selectedTab == MenuTab.Design &&
+                _designSubmode == DesignSubmode.Objects;
+            IReadOnlyList<MerkabaDesignAsset> assets =
+                _artifactViewer.DesignAssets;
+            bool assetsChanged = _designAssets.Count != assets.Count;
+            if (!assetsChanged)
+                for (int index = 0; index < assets.Count; index++)
+                    if (_designAssets[index].id != assets[index].id)
+                    {
+                        assetsChanged = true;
+                        break;
+                    }
+            if (assetsChanged)
+            {
+                _designAssets.Clear();
+                _designAssets.AddRange(assets);
+                var choices = new List<string>(_designAssets.Count);
+                foreach (MerkabaDesignAsset asset in _designAssets)
+                    choices.Add(ObjectAssetChoice(asset));
+                _objectAssetPicker.choices = choices;
+            }
+            MerkabaDesignAsset selectedAsset = _designAssets.Find(asset =>
+                asset.id == _artifactViewer.SelectedDesignAssetId);
+            _objectAssetPicker?.SetValueWithoutNotify(selectedAsset != null
+                ? ObjectAssetChoice(selectedAsset) : string.Empty);
+
+            IReadOnlyList<MerkabaDesignInstance> instances =
+                _artifactViewer.DesignInstances;
+            bool instancesChanged = _designInstances.Count != instances.Count;
+            if (!instancesChanged)
+                for (int index = 0; index < instances.Count; index++)
+                    if (_designInstances[index].instanceId !=
+                        instances[index].instanceId)
+                    {
+                        instancesChanged = true;
+                        break;
+                    }
+            if (instancesChanged)
+            {
+                _designInstances.Clear();
+                _designInstances.AddRange(instances);
+                var choices = new List<string>(_designInstances.Count);
+                foreach (MerkabaDesignInstance instance in _designInstances)
+                    choices.Add(ObjectInstanceChoice(instance));
+                _objectInstancePicker.choices = choices;
+            }
+            MerkabaDesignInstance selected = _designInstances.Find(instance =>
+                instance.instanceId ==
+                _artifactViewer.SelectedDesignInstanceId);
+            _objectInstancePicker?.SetValueWithoutNotify(selected != null
+                ? ObjectInstanceChoice(selected) : string.Empty);
+            _objectSurfaceSnap?.SetValueWithoutNotify(
+                _artifactViewer.ObjectSurfaceSnap);
+            _objectUprightSnap?.SetValueWithoutNotify(
+                _artifactViewer.ObjectUprightSnap);
+            _objectGridSnap?.SetValueWithoutNotify(
+                _artifactViewer.ObjectGridSnap);
+            if (_objectPlace != null)
+                _objectPlace.text = _artifactViewer.ObjectPlacementEnabled
+                    ? "PLACING…" : "Place";
+            if (_objectVisible != null)
+                _objectVisible.text = selected?.visible == false
+                    ? "Show" : "Hide";
+            if (_objectLock != null)
+                _objectLock.text = selected?.locked == true
+                    ? "Unlock" : "Lock";
+            Set(_objectStatus, selected != null
+                ? $"Object #{selected.instanceId} · " +
+                  (selected.locked ? "Locked" : "Editable")
+                : assets.Count > 0
+                    ? "Select Place, then point and trigger"
+                    : "Import a GLB design object");
         }
 
         private static string DirectionArrow(Vector3 cameraLocalDirection)
@@ -1092,5 +1323,6 @@ namespace Genesis.RoomScan.UI
 
         private enum StatusKind { Neutral, Good, Warning, Error }
         private enum MenuTab { Scan, Refine, Design, View }
+        private enum DesignSubmode { Paint, Objects }
     }
 }

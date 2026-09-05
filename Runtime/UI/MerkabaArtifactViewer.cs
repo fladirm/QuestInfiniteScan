@@ -70,6 +70,7 @@ namespace Genesis.RoomScan.UI
         private RoomScanner _scanner;
         private ControllerRayDriver _rayDriver;
         private MerkabaPaintEngine _paintEngine;
+        private MerkabaDesignLibrary _designLibrary;
         private Transform _modelRoot;
         private Transform _annotationRoot;
         private GameObject _backdrop;
@@ -99,7 +100,12 @@ namespace Genesis.RoomScan.UI
         private bool _roomAligned;
         private bool _alignmentPending;
         private bool _packagePickerPending;
+        private bool _designAssetPickerPending;
         private bool _paintInputEnabled;
+        private bool _objectInputEnabled;
+        private bool _objectSurfaceSnap = true;
+        private bool _objectUprightSnap = true;
+        private bool _objectGridSnap;
         private bool _planViewEnabled;
         private bool _hasPaintSample;
         private bool _hasSavedPreviewTransform;
@@ -127,8 +133,8 @@ namespace Genesis.RoomScan.UI
         private Color _paintColor = new(0.1f, 0.8f, 1f, 0.85f);
         private Vector3 _scanCenter;
         private ModelGrabMode _modelGrabMode;
-        private OneHandGrab _oneHandGrab;
-        private TwoHandGrab _twoHandGrab;
+        private MerkabaDesignLibrary.OneHandGrab _oneHandGrab;
+        private MerkabaDesignLibrary.TwoHandGrab _twoHandGrab;
         private Vector3 _savedPreviewWorldPosition;
         private Quaternion _savedPreviewWorldRotation;
         private Vector3 _savedPreviewScale;
@@ -180,6 +186,47 @@ namespace Genesis.RoomScan.UI
                 RefreshTileColliders();
             }
         }
+        public bool ObjectInputEnabled
+        {
+            get => _objectInputEnabled;
+            set
+            {
+                if (_objectInputEnabled == value) return;
+                _objectInputEnabled = value;
+                _designLibrary?.EndGrab(true);
+                if (!value) _designLibrary?.SetPlacementEnabled(false);
+                RefreshTileColliders();
+            }
+        }
+        public bool ObjectSurfaceSnap
+        {
+            get => _objectSurfaceSnap;
+            set
+            {
+                _objectSurfaceSnap = value;
+                RefreshTileColliders();
+            }
+        }
+        public bool ObjectUprightSnap
+        {
+            get => _objectUprightSnap;
+            set => _objectUprightSnap = value;
+        }
+        public bool ObjectGridSnap
+        {
+            get => _objectGridSnap;
+            set => _objectGridSnap = value;
+        }
+        public IReadOnlyList<MerkabaDesignAsset> DesignAssets =>
+            _designLibrary?.Assets ?? Array.Empty<MerkabaDesignAsset>();
+        public IReadOnlyList<MerkabaDesignInstance> DesignInstances =>
+            _designLibrary?.Instances ?? Array.Empty<MerkabaDesignInstance>();
+        public string SelectedDesignAssetId =>
+            _designLibrary?.SelectedAssetId ?? string.Empty;
+        public int SelectedDesignInstanceId =>
+            _designLibrary?.SelectedInstanceId ?? 0;
+        public bool ObjectPlacementEnabled =>
+            _designLibrary?.PlacementEnabled ?? false;
         public MerkabaArtifactPaintTool PaintTool
         {
             get => _paintTool;
@@ -505,6 +552,126 @@ namespace Genesis.RoomScan.UI
             _ = OpenArchiveAsync(result);
         }
 
+        public void RequestDesignAssetFromDisk()
+        {
+            if (_designAssetPickerPending) return;
+            if (_designLibrary == null)
+            {
+                Status = "Open an anchored session before importing objects";
+                return;
+            }
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var unityPlayer = new AndroidJavaClass(
+                    "com.unity3d.player.UnityPlayer");
+                using AndroidJavaObject activity = unityPlayer.GetStatic<
+                    AndroidJavaObject>("currentActivity");
+                using var picker = new AndroidJavaClass(
+                    "com.genesis.roomscan.MerkabaPackagePicker");
+                _designAssetPickerPending = true;
+                Status = "Choose a GLB design object…";
+                picker.CallStatic("openGlb", activity, gameObject.name,
+                    nameof(OnDesignAssetPickerResult));
+            }
+            catch (Exception exception)
+            {
+                _designAssetPickerPending = false;
+                Logger.Error("Could not open design GLB picker: " + exception);
+                Status = "Design GLB picker failed: " + exception.Message;
+            }
+#else
+            Status = "Design GLB disk picker is available on Quest";
+#endif
+        }
+
+        /// <summary>Android document-picker callback. Called by UnitySendMessage.</summary>
+        public void OnDesignAssetPickerResult(string result)
+        {
+            _designAssetPickerPending = false;
+            if (string.IsNullOrWhiteSpace(result) || result == "CANCELLED")
+            {
+                Status = "Design object import cancelled";
+                return;
+            }
+            const string errorPrefix = "ERROR:";
+            if (result.StartsWith(errorPrefix, StringComparison.Ordinal))
+            {
+                Status = "Design object import failed: " +
+                    result.Substring(errorPrefix.Length);
+                Logger.Error(Status);
+                return;
+            }
+            _ = ImportDesignAssetAsync(result);
+        }
+
+        public bool SelectDesignAsset(string assetId) =>
+            _designLibrary?.SelectAsset(assetId) ?? false;
+
+        public void SetObjectPlacementEnabled(bool enabled)
+        {
+            _designLibrary?.SetPlacementEnabled(enabled);
+            RefreshTileColliders();
+        }
+
+        public bool SelectDesignInstance(int instanceId) =>
+            _designLibrary?.SelectInstance(instanceId) ?? false;
+
+        public bool DuplicateSelectedDesignObject() =>
+            _designLibrary?.DuplicateSelected() ?? false;
+
+        public bool DeleteSelectedDesignObject() =>
+            _designLibrary?.DeleteSelected() ?? false;
+
+        public bool ToggleSelectedDesignObjectVisible() =>
+            _designLibrary?.ToggleSelectedVisible() ?? false;
+
+        public bool ToggleSelectedDesignObjectLocked() =>
+            _designLibrary?.ToggleSelectedLocked() ?? false;
+
+        private async Task ImportDesignAssetAsync(string importedPath)
+        {
+            try
+            {
+                MerkabaDesignLibrary library = _designLibrary ??
+                    throw new InvalidOperationException(
+                        "Open an anchored session before importing objects.");
+                MerkabaDesignAsset asset = await Task.Run(() =>
+                    library.ImportFile(importedPath));
+                if (_designLibrary != library || !IsOpen) return;
+                library.Refresh();
+                library.SelectAsset(asset.id);
+                library.SetPlacementEnabled(true);
+                ObjectInputEnabled = true;
+                Status = "Place " + asset.displayName;
+            }
+            catch (Exception exception)
+            {
+                Logger.Error("Design GLB import failed: " + exception);
+                Status = "Design object import failed: " + exception.Message;
+            }
+            finally
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                try
+                {
+                    string imports = Path.Combine(
+                        Application.persistentDataPath, "MerkabaScan",
+                        "imports");
+                    string full = Path.GetFullPath(importedPath);
+                    if (string.Equals(Path.GetDirectoryName(full), imports,
+                            StringComparison.Ordinal) && File.Exists(full))
+                        File.Delete(full);
+                }
+                catch (Exception exception)
+                {
+                    Logger.Warning("Could not remove staged design import: " +
+                        exception.Message);
+                }
+#endif
+            }
+        }
+
         public void Close()
         {
             bool wasOpen = IsOpen;
@@ -512,6 +679,7 @@ namespace Genesis.RoomScan.UI
             ++_alignmentRevision;
             _indexLoadPending = false;
             _alignmentPending = false;
+            _designAssetPickerPending = false;
             _tileLoadsInFlight = 0;
             IsOpen = false;
             _annotationMode = AnnotationMode.Off;
@@ -524,6 +692,8 @@ namespace Genesis.RoomScan.UI
             CloseNoteKeyboard();
             if (_paintEngine != null)
             {
+                _designLibrary?.CloseRuntime();
+                _designLibrary = null;
                 _paintEngine.Save();
                 _paintEngine.Close();
             }
@@ -589,6 +759,9 @@ namespace Genesis.RoomScan.UI
         {
             _paintEngine ??= GetComponent<MerkabaPaintEngine>() ??
                 gameObject.AddComponent<MerkabaPaintEngine>();
+            _designLibrary?.CloseRuntime();
+            _designLibrary = null;
+            _paintEngine.Save();
             _paintEngine.Close();
             Transform roomRoot = RoomSpaceRoot.RoomSpaceReady
                 ? RoomSpaceRoot.Instance.transform : null;
@@ -600,6 +773,11 @@ namespace Genesis.RoomScan.UI
                 return;
             }
             _paintEngine.Open(roomRoot, previewShader, path);
+            string libraryPath = _scanner?.DesignLibraryPath;
+            if (string.IsNullOrWhiteSpace(libraryPath)) return;
+            _designLibrary = new MerkabaDesignLibrary(libraryPath);
+            _designLibrary.Open(_paintEngine.Document, roomRoot,
+                previewShader, _paintEngine.MarkDocumentChanged);
         }
 
         private void OnPaintChanged() => _scanner?.MarkDesignDirty();
@@ -827,6 +1005,14 @@ namespace Genesis.RoomScan.UI
                     out rayDirection);
             var ray = new Ray(rayOrigin, rayDirection);
 
+            if (_objectInputEnabled)
+            {
+                HandleObjectInput(ray, hasRay, rightGrip, leftGrip,
+                    hasRightPose, rightPosition, rightRotation, hasLeftPose,
+                    leftPosition, leftRotation);
+                return;
+            }
+
             if (!_roomAligned && rightGrip && hasRightPose && hasRay &&
                 (_annotationPoseGrabActive || TryBeginAnnotationPoseGrab(ray,
                     rightPosition, rightRotation)))
@@ -931,6 +1117,56 @@ namespace Genesis.RoomScan.UI
             }
         }
 
+        private void HandleObjectInput(Ray ray, bool hasRay, bool rightGrip,
+            bool leftGrip, bool hasRightPose, Vector3 rightPosition,
+            Quaternion rightRotation, bool hasLeftPose, Vector3 leftPosition,
+            Quaternion leftRotation)
+        {
+            if (_designLibrary == null)
+            {
+                Status = "Open an anchored session before placing objects";
+                return;
+            }
+            if (_designLibrary.PlacementEnabled && hasRay)
+            {
+                ModelHit surface = default;
+                bool hit = _objectSurfaceSnap && TryHitModel(ray,
+                    out surface);
+                _designLibrary.UpdatePlacementPreview(ray, hit,
+                    hit ? surface.Point : default,
+                    hit ? surface.Normal : default, _objectSurfaceSnap,
+                    _objectUprightSnap, _objectGridSnap);
+                if (OVRInput.GetDown(
+                        OVRInput.Button.SecondaryIndexTrigger))
+                {
+                    if (_designLibrary.PlaceSelected())
+                    {
+                        Status = "Design object placed";
+                        RefreshTileColliders();
+                    }
+                }
+                return;
+            }
+            if (rightGrip && leftGrip && hasRightPose && hasLeftPose)
+            {
+                _designLibrary.ContinueTwoHandGrab(leftPosition, leftRotation,
+                    rightPosition, rightRotation);
+                return;
+            }
+            if (rightGrip && hasRightPose)
+            {
+                _designLibrary.ContinueOneHandGrab(rightPosition,
+                    rightRotation);
+                return;
+            }
+            _designLibrary.EndGrab(true);
+            if (hasRay && OVRInput.GetDown(
+                    OVRInput.Button.SecondaryIndexTrigger))
+                Status = _designLibrary.SelectInstance(ray)
+                    ? "Design object selected"
+                    : "No design object selected";
+        }
+
         private static Vector2 ApplyDeadZone(Vector2 value)
         {
             float magnitude = value.magnitude;
@@ -945,19 +1181,15 @@ namespace Genesis.RoomScan.UI
         {
             if (!_modelGrabActive || _modelGrabMode != ModelGrabMode.OneHand)
             {
-                _oneHandGrab = new OneHandGrab(controllerPosition,
+                _oneHandGrab = new MerkabaDesignLibrary.OneHandGrab(
+                    controllerPosition,
                     controllerRotation, _modelRoot.position,
                     _modelRoot.rotation, _modelRoot.localScale);
                 _modelGrabActive = true;
                 _modelGrabMode = ModelGrabMode.OneHand;
             }
-            Quaternion deltaRotation = controllerRotation *
-                Quaternion.Inverse(_oneHandGrab.ControllerRotation);
-            _modelRoot.SetPositionAndRotation(controllerPosition +
-                deltaRotation * (_oneHandGrab.ModelPosition -
-                    _oneHandGrab.ControllerPosition),
-                deltaRotation * _oneHandGrab.ModelRotation);
-            _modelRoot.localScale = _oneHandGrab.ModelScale;
+            MerkabaDesignLibrary.ApplyOneHandTransform(_modelRoot,
+                _oneHandGrab, controllerPosition, controllerRotation);
         }
 
         private void ContinueTwoHandModelGrab(Vector3 leftPosition,
@@ -970,23 +1202,15 @@ namespace Genesis.RoomScan.UI
                 return;
             if (!_modelGrabActive || _modelGrabMode != ModelGrabMode.TwoHand)
             {
-                _twoHandGrab = new TwoHandGrab(midpoint, frame, separation,
+                _twoHandGrab = new MerkabaDesignLibrary.TwoHandGrab(midpoint,
+                    frame, separation,
                     _modelRoot.position, _modelRoot.rotation,
                     _modelRoot.localScale);
                 _modelGrabActive = true;
                 _modelGrabMode = ModelGrabMode.TwoHand;
             }
-            Quaternion deltaRotation = frame *
-                Quaternion.Inverse(_twoHandGrab.HandFrame);
-            float scaleRatio = separation / _twoHandGrab.Separation;
-            Vector3 scale = _twoHandGrab.ModelScale * scaleRatio;
-            float uniform = Mathf.Clamp(scale.x, 0.002f, 10f);
-            float clampedRatio = uniform /
-                Mathf.Max(1e-6f, _twoHandGrab.ModelScale.x);
-            _modelRoot.SetPositionAndRotation(midpoint + deltaRotation *
-                ((_twoHandGrab.ModelPosition - _twoHandGrab.Midpoint) *
-                    clampedRatio), deltaRotation * _twoHandGrab.ModelRotation);
-            _modelRoot.localScale = Vector3.one * uniform;
+            MerkabaDesignLibrary.ApplyTwoHandTransform(_modelRoot,
+                _twoHandGrab, midpoint, frame, separation);
         }
 
         private void EndModelGrab()
@@ -998,32 +1222,10 @@ namespace Genesis.RoomScan.UI
         internal static bool TryBuildTwoHandFrame(Vector3 leftPosition,
             Quaternion leftRotation, Vector3 rightPosition,
             Quaternion rightRotation, out Vector3 midpoint,
-            out Quaternion frame, out float separation)
-        {
-            midpoint = (leftPosition + rightPosition) * 0.5f;
-            Vector3 x = rightPosition - leftPosition;
-            separation = x.magnitude;
-            if (separation < 0.03f)
-            {
-                frame = default;
-                return false;
-            }
-            x /= separation;
-            Vector3 up = Vector3.ProjectOnPlane(
-                leftRotation * Vector3.up + rightRotation * Vector3.up, x);
-            if (up.sqrMagnitude < 1e-6f)
-                up = Vector3.ProjectOnPlane(leftRotation * Vector3.forward +
-                    rightRotation * Vector3.forward, x);
-            if (up.sqrMagnitude < 1e-6f)
-                up = Vector3.ProjectOnPlane(Vector3.up, x);
-            if (up.sqrMagnitude < 1e-6f)
-                up = Vector3.ProjectOnPlane(Vector3.forward, x);
-            up.Normalize();
-            Vector3 forward = Vector3.Cross(x, up).normalized;
-            up = Vector3.Cross(forward, x).normalized;
-            frame = Quaternion.LookRotation(forward, up);
-            return true;
-        }
+            out Quaternion frame, out float separation) =>
+            MerkabaDesignLibrary.TryBuildTwoHandFrame(leftPosition,
+                leftRotation, rightPosition, rightRotation, out midpoint,
+                out frame, out separation);
 
         private bool TryBeginAnnotationPoseGrab(Ray ray,
             Vector3 controllerPosition, Quaternion controllerRotation)
@@ -1290,7 +1492,7 @@ namespace Genesis.RoomScan.UI
             }
         }
 
-        private static void ConfigureMaterial(Material material, Color color,
+        internal static void ConfigureMaterial(Material material, Color color,
             bool opaque)
         {
             if (material == null) return;
@@ -1710,6 +1912,7 @@ namespace Genesis.RoomScan.UI
         private void CancelTransientInput()
         {
             EndModelGrab();
+            _designLibrary?.EndGrab(true);
             CancelPaintStroke();
             _annotationPoseGrabActive = false;
             _moveOriginalPoints = null;
@@ -2758,6 +2961,8 @@ namespace Genesis.RoomScan.UI
         }
 
         private bool TileCollidersRequired() =>
+            (_objectInputEnabled && _objectSurfaceSnap &&
+                (_designLibrary?.PlacementEnabled ?? false)) ||
             (_paintInputEnabled && (_paintTool == MerkabaArtifactPaintTool.Eyedropper ||
                 _paintTool ==
                 MerkabaArtifactPaintTool.Line || _paintTool ==
@@ -3363,48 +3568,6 @@ namespace Genesis.RoomScan.UI
             None,
             OneHand,
             TwoHand
-        }
-
-        private readonly struct OneHandGrab
-        {
-            internal readonly Vector3 ControllerPosition;
-            internal readonly Quaternion ControllerRotation;
-            internal readonly Vector3 ModelPosition;
-            internal readonly Quaternion ModelRotation;
-            internal readonly Vector3 ModelScale;
-
-            internal OneHandGrab(Vector3 controllerPosition,
-                Quaternion controllerRotation, Vector3 modelPosition,
-                Quaternion modelRotation, Vector3 modelScale)
-            {
-                ControllerPosition = controllerPosition;
-                ControllerRotation = controllerRotation;
-                ModelPosition = modelPosition;
-                ModelRotation = modelRotation;
-                ModelScale = modelScale;
-            }
-        }
-
-        private readonly struct TwoHandGrab
-        {
-            internal readonly Vector3 Midpoint;
-            internal readonly Quaternion HandFrame;
-            internal readonly float Separation;
-            internal readonly Vector3 ModelPosition;
-            internal readonly Quaternion ModelRotation;
-            internal readonly Vector3 ModelScale;
-
-            internal TwoHandGrab(Vector3 midpoint, Quaternion handFrame,
-                float separation, Vector3 modelPosition,
-                Quaternion modelRotation, Vector3 modelScale)
-            {
-                Midpoint = midpoint;
-                HandFrame = handFrame;
-                Separation = separation;
-                ModelPosition = modelPosition;
-                ModelRotation = modelRotation;
-                ModelScale = modelScale;
-            }
         }
 
         private readonly struct AnnotationPoseGrab

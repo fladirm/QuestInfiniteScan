@@ -14,16 +14,28 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-/** Small Storage Access Framework bridge for importing one streamed ZIP. */
+/** Small Storage Access Framework bridge for one streamed ZIP or GLB. */
 public final class MerkabaPackagePicker {
     private static final String FragmentTag = "MerkabaPackagePicker";
     private static final String GameObjectKey = "gameObject";
     private static final String CallbackKey = "callback";
+    private static final String GlbModeKey = "glbMode";
 
     private MerkabaPackagePicker() { }
 
     public static void open(final Activity activity, final String gameObject,
             final String callback) {
+        openDocument(activity, gameObject, callback, false);
+    }
+
+    public static void openGlb(final Activity activity,
+            final String gameObject, final String callback) {
+        openDocument(activity, gameObject, callback, true);
+    }
+
+    private static void openDocument(final Activity activity,
+            final String gameObject, final String callback,
+            final boolean glbMode) {
         if (activity == null) {
             send(gameObject, callback, "ERROR:Unity activity is unavailable");
             return;
@@ -41,6 +53,7 @@ public final class MerkabaPackagePicker {
                 Bundle arguments = new Bundle();
                 arguments.putString(GameObjectKey, gameObject);
                 arguments.putString(CallbackKey, callback);
+                arguments.putBoolean(GlbModeKey, glbMode);
                 fragment.setArguments(arguments);
                 activity.getFragmentManager().beginTransaction()
                     .add(fragment, FragmentTag).commit();
@@ -63,11 +76,14 @@ public final class MerkabaPackagePicker {
             launched = true;
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("application/zip");
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
-                "application/zip", "application/x-zip-compressed",
-                "application/octet-stream"
-            });
+            boolean glbMode = booleanArgument(GlbModeKey);
+            intent.setType(glbMode ? "*/*" : "application/zip");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, glbMode
+                ? new String[] { "model/gltf-binary",
+                    "application/octet-stream" }
+                : new String[] { "application/zip",
+                    "application/x-zip-compressed",
+                    "application/octet-stream" });
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
             try {
@@ -99,8 +115,10 @@ public final class MerkabaPackagePicker {
                         if (!directory.exists() && !directory.mkdirs())
                             throw new IllegalStateException(
                                 "Could not create model import directory");
+                        boolean glbMode = booleanArgument(GlbModeKey);
+                        String extension = glbMode ? ".glb" : ".zip";
                         File temporary = new File(directory,
-                            "QuestMerkabaScan-import.zip.tmp");
+                            "QuestMerkabaScan-import" + extension + ".tmp");
                         if (temporary.exists() && !temporary.delete())
                             throw new IllegalStateException(
                                 "Could not reset temporary import");
@@ -126,7 +144,7 @@ public final class MerkabaPackagePicker {
                             for (byte value : digest.digest())
                                 hash.append(String.format("%02x", value & 0xff));
                             File destination = new File(directory,
-                                "QuestMerkabaScan-" + hash + ".zip");
+                                "QuestMerkabaScan-" + hash + extension);
                             if (destination.exists()) {
                                 if (!temporary.delete())
                                     throw new IllegalStateException(
@@ -154,6 +172,11 @@ public final class MerkabaPackagePicker {
         private String argument(String key) {
             Bundle arguments = getArguments();
             return arguments != null ? arguments.getString(key, "") : "";
+        }
+
+        private boolean booleanArgument(String key) {
+            Bundle arguments = getArguments();
+            return arguments != null && arguments.getBoolean(key, false);
         }
 
         private void finish(String result) {

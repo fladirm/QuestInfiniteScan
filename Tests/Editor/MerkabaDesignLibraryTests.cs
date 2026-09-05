@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using Unity.Mathematics;
+using UnityEditor;
 using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
@@ -83,6 +84,69 @@ namespace Genesis.RoomScan.Tests
             Assert.That(instance.visible, Is.False);
             Assert.That(instance.locked, Is.True);
             Assert.That(loaded.AllocateInstanceId(), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void PlacementUsesRoomCoordinatesAndDuplicateSharesDecodedMesh()
+        {
+            string source = Path.Combine(_directory, "fixture.glb");
+            File.WriteAllBytes(source, CreateGlb());
+            var library = new MerkabaDesignLibrary(Path.Combine(_directory,
+                "library"));
+            MerkabaDesignAsset asset = library.Import(source);
+            var document = new MerkabaDesignDocument();
+            var room = new GameObject("Room");
+            room.transform.SetPositionAndRotation(new Vector3(4f, 1f, -2f),
+                Quaternion.Euler(0f, 35f, 0f));
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(
+                "Packages/com.genesis.roomscan/Runtime/Shaders/" +
+                "MerkabaArtifactPreview.shader");
+            Assert.That(shader, Is.Not.Null);
+            try
+            {
+                library.Open(document, room.transform, shader, () => { });
+                Assert.That(library.SelectAsset(asset.id), Is.True);
+                library.SetPlacementEnabled(true);
+                var ray = new Ray(new Vector3(1f, 2f, 3f),
+                    Vector3.forward);
+                library.UpdatePlacementPreview(ray, false, default, default,
+                    false, true, false);
+                Assert.That(library.PlaceSelected(), Is.True);
+                Assert.That(document.instances.Count, Is.EqualTo(1));
+                Assert.That(Vector3.Distance(document.instances[0].position,
+                    room.transform.InverseTransformPoint(ray.GetPoint(0.50f))),
+                    Is.LessThan(1e-5f));
+
+                Assert.That(library.DuplicateSelected(), Is.True);
+                MeshFilter[] filters = room.GetComponentsInChildren<
+                    MeshFilter>();
+                Assert.That(filters.Length, Is.EqualTo(2));
+                Assert.That(filters[0].sharedMesh,
+                    Is.SameAs(filters[1].sharedMesh));
+
+                Transform original = room.transform.Find(
+                    "Merkaba Design Objects/Design Object 1");
+                Assert.That(original, Is.Not.Null);
+                Vector3 before = original.position;
+                Vector3 delta = new(0.3f, -0.1f, 0.2f);
+                room.transform.position += delta;
+                Assert.That(Vector3.Distance(original.position, before + delta),
+                    Is.LessThan(1e-5f));
+
+                Assert.That(library.SelectInstance(1), Is.True);
+                Assert.That(library.ToggleSelectedLocked(), Is.True);
+                Assert.That(library.ContinueOneHandGrab(Vector3.zero,
+                    Quaternion.identity), Is.False);
+                Assert.That(library.ToggleSelectedLocked(), Is.True);
+                Assert.That(library.ContinueOneHandGrab(Vector3.zero,
+                    Quaternion.identity), Is.True);
+                library.EndGrab(true);
+            }
+            finally
+            {
+                library.CloseRuntime();
+                UnityEngine.Object.DestroyImmediate(room);
+            }
         }
 
         private static byte[] CreateGlb()
