@@ -5,7 +5,7 @@
 
 namespace genesis::sphere_flower_abi
 {
-constexpr uint32_t kSchemaVersion = 2u;
+constexpr uint32_t kSchemaVersion = 3u;
 constexpr uint32_t kR1SeedFlag = 0x00000002u;
 #pragma pack(push, 4)
 struct KernelStateAbi {
@@ -40,25 +40,41 @@ struct FlowerDetailRecord {
     int32_t upper;
     uint32_t parentEpoch;
 };
+struct FlowerSkinMetricRun {
+    uint32_t flowerKey;
+    uint32_t groupBase;
+    uint32_t splitBitsLo;
+    uint32_t splitBitsHi;
+    uint32_t parentEpoch;
+    uint32_t reserved;
+};
+struct FlowerVInterval {
+    int32_t lower;
+    int32_t upper;
+};
+struct FlowerVGroup {
+    FlowerVInterval child[7];
+};
 struct ThreadRun {
     uint32_t flowerKey;
     uint32_t programRef;
-    uint32_t residualBase;
+    uint32_t groupBase;
+    uint32_t splitBitsLo;
+    uint32_t splitBitsHi;
     uint32_t parentEpoch;
 };
-struct ThreadResidual {
-    uint32_t segmentKey;
-    uint32_t parentEpoch;
+struct ThreadColorInterval {
     uint32_t lowerLinearRgba[2];
     uint32_t upperLinearRgba[2];
-    uint32_t flags;
-    uint32_t reserved;
+};
+struct ThreadColorGroup {
+    ThreadColorInterval child[7];
 };
 struct ThreadProgramRecord {
-    uint32_t endpointColorRule;
-    uint32_t rgbResidualBasis;
-    uint32_t fibonacciRouteOrigin;
     uint32_t flags;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    uint32_t reserved2;
     uint32_t opticalLower[2];
     uint32_t opticalUpper[2];
     uint32_t captureViewLower[2];
@@ -96,8 +112,12 @@ static_assert(sizeof(DualChunkPayload) == 32u);
 static_assert(sizeof(DualLeaf) == 64u);
 static_assert(sizeof(FlowerOwnerEpoch) == 8u);
 static_assert(sizeof(FlowerDetailRecord) == 16u);
-static_assert(sizeof(ThreadRun) == 16u);
-static_assert(sizeof(ThreadResidual) == 32u);
+static_assert(sizeof(FlowerSkinMetricRun) == 24u);
+static_assert(sizeof(FlowerVInterval) == 8u);
+static_assert(sizeof(FlowerVGroup) == 56u);
+static_assert(sizeof(ThreadRun) == 24u);
+static_assert(sizeof(ThreadColorInterval) == 16u);
+static_assert(sizeof(ThreadColorGroup) == 112u);
 static_assert(sizeof(ThreadProgramRecord) == 48u);
 static_assert(sizeof(FlowerSymbolKey) == 16u);
 static_assert(sizeof(ObservationRecord) == 16u);

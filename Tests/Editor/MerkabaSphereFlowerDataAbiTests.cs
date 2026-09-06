@@ -28,20 +28,28 @@ namespace Genesis.RoomScan.Tests
             AssertSize<MerkabaDualLeaf>(64);
             AssertSize<MerkabaFlowerOwnerEpoch>(8);
             AssertSize<MerkabaFlowerDetailRecord>(16);
-            AssertSize<MerkabaThreadRun>(16);
-            AssertSize<MerkabaThreadResidual>(32);
+            AssertSize<MerkabaFlowerSkinMetricRun>(24);
+            AssertSize<MerkabaFlowerVInterval>(8);
+            AssertSize<MerkabaFlowerVGroup>(56);
+            AssertSize<MerkabaThreadRun>(24);
+            AssertSize<MerkabaThreadColorInterval>(16);
+            AssertSize<MerkabaThreadColorGroup>(112);
             AssertSize<MerkabaThreadProgramRecord>(48);
             AssertSize<MerkabaFlowerSymbolKey>(16);
             AssertSize<MerkabaObservationRecord>(16);
             AssertSize<MerkabaRecordHeader>(28);
             AssertSize<MerkabaTombstoneRecord>(8);
 
-            AssertOffset<MerkabaThreadResidual>(
-                nameof(MerkabaThreadResidual.LowerLinearRgba), 8);
-            AssertOffset<MerkabaThreadResidual>(
-                nameof(MerkabaThreadResidual.UpperLinearRgba), 16);
-            AssertOffset<MerkabaThreadResidual>(
-                nameof(MerkabaThreadResidual.Flags), 24);
+            AssertOffset<MerkabaFlowerSkinMetricRun>(
+                nameof(MerkabaFlowerSkinMetricRun.ParentEpoch), 16);
+            AssertOffset<MerkabaFlowerVGroup>(
+                nameof(MerkabaFlowerVGroup.Child6), 48);
+            AssertOffset<MerkabaThreadRun>(nameof(MerkabaThreadRun.GroupBase),
+                8);
+            AssertOffset<MerkabaThreadRun>(nameof(MerkabaThreadRun.ParentEpoch),
+                20);
+            AssertOffset<MerkabaThreadColorGroup>(
+                nameof(MerkabaThreadColorGroup.Child6), 96);
             AssertOffset<MerkabaRecordHeader>(
                 nameof(MerkabaRecordHeader.CommitGeneration), 8);
             AssertOffset<MerkabaRecordHeader>(
@@ -151,7 +159,9 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void FlowerDetailKey_RoundTripsEveryFieldAndRejectsAliases()
         {
-            for (int level = 0; level < 6; level++)
+            for (int level = 0;
+                 level < MerkabaSphereFlowerAuthority.GeometryLevelCount;
+                 level++)
             foreach (int channel in new[] { 0, 2, 3, 8, 9, 12 })
             foreach (bool rootSign in new[] { false, true })
             foreach (MerkabaFlowerDetailKind kind in Enum.GetValues(
@@ -171,8 +181,8 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(MerkabaFlowerDetailKey.TryDecode(key.Value,
                         out var decoded), Is.True);
                     Assert.That(decoded, Is.EqualTo(key));
-                    Assert.That(decoded.Level, Is.EqualTo(level));
-                    Assert.That(decoded.ChildPath, Is.EqualTo(path));
+                    Assert.That(decoded.GeometryLevel, Is.EqualTo(level));
+                    Assert.That(decoded.GeometryChildPath, Is.EqualTo(path));
                     Assert.That(decoded.PetalClass, Is.EqualTo(47));
                     Assert.That(decoded.Channel, Is.EqualTo(channel));
                     Assert.That(decoded.Kind, Is.EqualTo(kind));
@@ -199,19 +209,113 @@ namespace Genesis.RoomScan.Tests
             Assert.That(MerkabaFlowerDetailRecord.DecodePhase(phaseHi),
                 Is.GreaterThanOrEqualTo(value));
 
-            int metricLo = MerkabaFlowerDetailRecord.EncodeMetricLower(-value);
-            int metricHi = MerkabaFlowerDetailRecord.EncodeMetricUpper(-value);
-            Assert.That(MerkabaFlowerDetailRecord.DecodeMetric(metricLo),
+            int metricLo = MerkabaFlowerVInterval.EncodeLower(-value);
+            int metricHi = MerkabaFlowerVInterval.EncodeUpper(-value);
+            Assert.That(MerkabaFlowerVInterval.Decode(metricLo),
                 Is.LessThanOrEqualTo(-value));
-            Assert.That(MerkabaFlowerDetailRecord.DecodeMetric(metricHi),
+            Assert.That(MerkabaFlowerVInterval.Decode(metricHi),
                 Is.GreaterThanOrEqualTo(-value));
 
-            var key = MerkabaFlowerDetailKey.Create(5, 1023, 47, 12,
-                MerkabaFlowerDetailKind.VAmplitude, true,
+            var key = MerkabaFlowerDetailKey.Create(2, 15, 47, 12,
+                MerkabaFlowerDetailKind.KnotMetric, true,
                 MerkabaSphereFlowerAuthority.Lines[12].SectorCount - 1);
             var record = MerkabaFlowerDetailRecord.Create(key, int.MinValue,
                 int.MaxValue, 9u);
             Assert.That(record.DrawMidpoint, Is.EqualTo(-1));
+        }
+
+        [Test]
+        public void FixedSkinRuns_EncodeOnlyThreadOrderedSplitsAndAtomicGroups()
+        {
+            var flower = MerkabaFlowerL2Key.Create(15, 47, true, 31);
+            Assert.That(MerkabaFlowerL2Key.TryDecode(flower.Value,
+                out MerkabaFlowerL2Key decoded), Is.True);
+            Assert.That(decoded, Is.EqualTo(flower));
+            Assert.That(decoded.GeometryChildPath, Is.EqualTo(15));
+            Assert.That(decoded.PetalClass, Is.EqualTo(47));
+            Assert.That(decoded.RootSign, Is.True);
+            Assert.That(decoded.Sector, Is.EqualTo(31));
+            Assert.That(MerkabaFlowerL2Key.TryDecode(flower.Value |
+                (1u << MerkabaFlowerL2Key.ReservedShift), out _), Is.False);
+
+            // Root, L3 parents j3=1/5 and one L4 parent beneath each.
+            uint low = 1u | ((1u << 1 | 1u << 5) << 1) |
+                (1u << (8 + 7));
+            uint high = 1u << (8 + 35 - 32);
+            Assert.That(MerkabaFlowerSkinSplitBits.IsCanonical(low, high),
+                Is.True);
+            Assert.That(MerkabaFlowerSkinSplitBits.GroupCount(low, high),
+                Is.EqualTo(5));
+            Assert.That(MerkabaFlowerSkinSplitBits.IsCanonical(
+                low | (1u << 8), 0u), Is.False);
+            Assert.That(MerkabaFlowerSkinSplitBits.IsCanonical(low,
+                1u << 25), Is.False);
+
+            var metric = new MerkabaFlowerSkinMetricRun
+            {
+                FlowerKey = flower.Value,
+                GroupBase = 20u,
+                SplitBitsLo = low,
+                SplitBitsHi = high,
+                ParentEpoch = 9u
+            };
+            Assert.That(metric.IsValidFor(9u), Is.True);
+            Assert.That(metric.GroupCount, Is.EqualTo(5));
+            for (int c3 = 0; c3 < 7; c3++)
+            for (int c4 = 0; c4 < 7; c4++)
+            for (int c5 = 0; c5 < 7; c5++)
+            {
+                int j3 = MerkabaSphereFlowerAuthority
+                    .SkinL3ParentThreadIndex(c3);
+                Assert.That(MerkabaFlowerSkinSplitBits.TryCompactChildAddress(
+                    metric.GroupBase, low, high, 3, c3, c4, c5,
+                    out uint group3, out int child3), Is.True);
+                Assert.That(group3, Is.EqualTo(20u));
+                Assert.That(child3, Is.EqualTo(j3));
+
+                bool has4 = j3 == 1 || j3 == 5;
+                Assert.That(MerkabaFlowerSkinSplitBits.TryCompactChildAddress(
+                    metric.GroupBase, low, high, 4, c3, c4, c5,
+                    out uint group4, out int child4), Is.EqualTo(has4));
+                if (has4)
+                {
+                    Assert.That(group4, Is.EqualTo((uint)(j3 == 1 ? 21 : 22)));
+                    Assert.That(child4, Is.EqualTo(
+                        MerkabaSphereFlowerAuthority
+                            .SkinL4CompactChildRank(c3, c4)));
+                }
+
+                int j4 = MerkabaSphereFlowerAuthority
+                    .SkinL4ParentThreadIndex(c3, c4);
+                bool has5 = j4 == 7 || j4 == 35;
+                Assert.That(MerkabaFlowerSkinSplitBits.TryCompactChildAddress(
+                    metric.GroupBase, low, high, 5, c3, c4, c5,
+                    out uint group5, out int child5), Is.EqualTo(has5));
+                if (has5)
+                {
+                    Assert.That(group5, Is.EqualTo((uint)(j4 == 7 ? 23 : 24)));
+                    Assert.That(child5, Is.EqualTo(
+                        MerkabaSphereFlowerAuthority
+                            .SkinL5CompactChildRank(c3, c4, c5)));
+                }
+            }
+
+            var thread = new MerkabaThreadRun
+            {
+                FlowerKey = flower.Value,
+                ProgramRef = MerkabaThreadRun.InvalidRef,
+                GroupBase = 40u,
+                SplitBitsLo = low,
+                SplitBitsHi = high,
+                ParentEpoch = 9u
+            };
+            Assert.That(thread.IsValidFor(9u), Is.True);
+            thread.SplitBitsLo = 0u;
+            thread.SplitBitsHi = 0u;
+            thread.GroupBase = MerkabaThreadRun.InvalidRef;
+            Assert.That(thread.IsValidFor(9u), Is.False);
+            thread.ProgramRef = 3u;
+            Assert.That(thread.IsValidFor(9u), Is.True);
         }
 
         [Test]
@@ -226,7 +330,10 @@ namespace Genesis.RoomScan.Tests
 
             var run = new MerkabaThreadRun
             {
-                FlowerKey = key.Value,
+                FlowerKey = MerkabaFlowerL2Key.Create(3, 5, false, 0).Value,
+                ProgramRef = MerkabaThreadRun.InvalidRef,
+                GroupBase = 12u,
+                SplitBitsLo = 1u,
                 ParentEpoch = 8u
             };
             Assert.That(run.IsValidFor(8u), Is.True);
@@ -306,16 +413,16 @@ namespace Genesis.RoomScan.Tests
             MerkabaRecordHeader header = MerkabaRecordHeader.Create(
                 MerkabaRecordKind.FlowerDetail,
                 0x0102030405060708ul, address, payload);
-            Assert.That(header.Crc32, Is.EqualTo(0xe4e543e9u));
+            Assert.That(header.Crc32, Is.EqualTo(0xf970503eu));
             byte[] bytes = new byte[MerkabaRecordHeader.ByteSize];
             MerkabaSphereFlowerPersistenceAbi.WriteHeader(bytes, header);
 
             CollectionAssert.AreEqual(new byte[]
             {
-                0x4d, 0x38, 0x53, 0x46, 0x04, 0x00, 0x07, 0x00,
+                0x4d, 0x38, 0x53, 0x46, 0x05, 0x00, 0x07, 0x00,
                 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
                 0x14, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
-                0xe9, 0x43, 0xe5, 0xe4
+                0x3e, 0x50, 0x70, 0xf9
             }, bytes);
             Assert.That(MerkabaSphereFlowerPersistenceAbi.TryReadHeader(bytes,
                 out var decoded), Is.True);
@@ -344,9 +451,11 @@ namespace Genesis.RoomScan.Tests
                 (MerkabaRecordKind.DualLeaf, 16, 64),
                 (MerkabaRecordKind.FlowerOwnerEpoch, 16, 8),
                 (MerkabaRecordKind.FlowerDetail, 20, 16),
+                (MerkabaRecordKind.FlowerSkinMetricRun, 20, 24),
+                (MerkabaRecordKind.FlowerVGroup, 24, 56),
                 (MerkabaRecordKind.ThreadProgram, 4, 48),
-                (MerkabaRecordKind.ThreadRun, 20, 16),
-                (MerkabaRecordKind.ThreadResidual, 20, 32),
+                (MerkabaRecordKind.ThreadRun, 20, 24),
+                (MerkabaRecordKind.ThreadColorGroup, 24, 112),
                 (MerkabaRecordKind.Tombstone, 20, 8)
             };
             foreach (var item in expected)
@@ -388,6 +497,16 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(kernelLocal, Is.EqualTo(encoded.KernelLocal));
                 Assert.That(MerkabaSpatial.Decode(decodedTile.BlockCoord,
                     decodedTile.LocalAddress, kernelLocal), Is.EqualTo(coord));
+
+                byte[] group = new byte[MerkabaSphereFlowerPersistenceAbi
+                    .GroupAddressBytes];
+                MerkabaSphereFlowerPersistenceAbi.WriteGroupAddress(group,
+                    tile, encoded.KernelLocal, 0xfedcba98u);
+                MerkabaSphereFlowerPersistenceAbi.ReadGroupAddress(group,
+                    out decodedTile, out kernelLocal, out uint groupIndex);
+                Assert.That(decodedTile, Is.EqualTo(tile));
+                Assert.That(kernelLocal, Is.EqualTo(encoded.KernelLocal));
+                Assert.That(groupIndex, Is.EqualTo(0xfedcba98u));
             }
         }
 
@@ -398,7 +517,11 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaSphereFlowerDataAbi.generated.hlsl"));
             StringAssert.Contains("struct M8FlowerDetailRecord", hlsl);
-            StringAssert.Contains("struct M8ThreadResidual", hlsl);
+            StringAssert.Contains("struct M8FlowerSkinMetricRun", hlsl);
+            StringAssert.Contains("struct M8FlowerVGroup", hlsl);
+            StringAssert.Contains("struct M8ThreadColorGroup", hlsl);
+            StringAssert.DoesNotContain("ThreadResidual", hlsl);
+            StringAssert.DoesNotContain("FibonacciRouteOrigin", hlsl);
             StringAssert.DoesNotContain("RWStructuredBuffer", hlsl);
             StringAssert.DoesNotContain("StructuredBuffer", hlsl);
             string native = File.ReadAllText(Path.GetFullPath(
@@ -456,34 +579,56 @@ namespace Genesis.RoomScan.Tests
             leaf.Word00 = 0x89abcdefu;
             leaf.Word15 = 0x76543210u;
             var epoch = new MerkabaFlowerOwnerEpoch(511u, 29u);
-            var detailKey = MerkabaFlowerDetailKey.Create(5, 1023, 47, 12,
-                MerkabaFlowerDetailKind.VAmplitude, true, 1);
+            var detailKey = MerkabaFlowerDetailKey.Create(2, 15, 47, 12,
+                MerkabaFlowerDetailKind.KnotMetric, true, 1);
             var detail = MerkabaFlowerDetailRecord.Create(detailKey,
                 -123, 456, 29u);
+            var flowerKey = MerkabaFlowerL2Key.Create(15, 47, true, 31);
+            var metric = new MerkabaFlowerSkinMetricRun
+            {
+                FlowerKey = flowerKey.Value,
+                GroupBase = 37u,
+                SplitBitsLo = 0x00000103u,
+                SplitBitsHi = 0x00001000u,
+                ParentEpoch = 29u,
+                Reserved = 0u
+            };
+            var vGroup = new MerkabaFlowerVGroup
+            {
+                Child0 = new MerkabaFlowerVInterval
+                    { Lower = -11, Upper = 13 },
+                Child6 = new MerkabaFlowerVInterval
+                    { Lower = -17, Upper = 19 }
+            };
             var run = new MerkabaThreadRun
             {
-                FlowerKey = detailKey.Value,
+                FlowerKey = flowerKey.Value,
                 ProgramRef = 41u,
-                ResidualBase = 43u,
+                GroupBase = 43u,
+                SplitBitsLo = 0x76543211u,
+                SplitBitsHi = 0x00123456u,
                 ParentEpoch = 29u
             };
-            var residual = new MerkabaThreadResidual
+            var colorGroup = new MerkabaThreadColorGroup
             {
-                SegmentKey = 47u,
-                ParentEpoch = 29u,
-                LowerLinearRgba = new half4((half)0.125f, (half)0.25f,
-                    (half)0.5f, (half)1f),
-                UpperLinearRgba = new half4((half)1.5f, (half)2f,
-                    (half)3f, (half)4f),
-                Flags = 0x13579bdfu,
-                Reserved = 0x2468ace0u
+                Child0 = new MerkabaThreadColorInterval
+                {
+                    LowerLinearRgba = new half4((half)0.125f, (half)0.25f,
+                        (half)0.5f, (half)1f),
+                    UpperLinearRgba = new half4((half)1.5f, (half)2f,
+                        (half)3f, (half)4f)
+                },
+                Child6 = new MerkabaThreadColorInterval
+                {
+                    LowerLinearRgba = new half4((half)(-1f), (half)(-2f),
+                        (half)(-3f), (half)(-4f)),
+                    UpperLinearRgba = new half4((half)5f, (half)6f,
+                        (half)7f, (half)8f)
+                }
             };
             var program = new MerkabaThreadProgramRecord
             {
-                EndpointColorRule = 53u,
-                RgbResidualBasis = 59u,
-                FibonacciRouteOrigin = 61u,
-                Flags = 67u,
+                Flags = (uint)MerkabaThreadProgramFlags.OpticalValid,
                 OpticalLower = new half4((half)0.0625f, (half)0.125f,
                     (half)0.25f, (half)0.5f),
                 OpticalUpper = new half4((half)1f, (half)2f,
@@ -511,12 +656,14 @@ namespace Genesis.RoomScan.Tests
             using var b3 = Buffer(leaf);
             using var b4 = Buffer(epoch);
             using var b5 = Buffer(detail);
-            using var b6 = Buffer(run);
-            using var b7 = Buffer(residual);
-            using var b8 = Buffer(program);
-            using var b9 = Buffer(symbol);
-            using var b10 = Buffer(observation);
-            using var output = new ComputeBuffer(42, sizeof(uint),
+            using var b6 = Buffer(metric);
+            using var b7 = Buffer(vGroup);
+            using var b8 = Buffer(run);
+            using var b9 = Buffer(colorGroup);
+            using var b10 = Buffer(program);
+            using var b11 = Buffer(symbol);
+            using var b12 = Buffer(observation);
+            using var output = new ComputeBuffer(58, sizeof(uint),
                 ComputeBufferType.Structured);
             shader.SetBuffer(kernel, "_DualBlock", b0);
             shader.SetBuffer(kernel, "_DualChildren", b1);
@@ -524,14 +671,16 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(kernel, "_DualLeaf", b3);
             shader.SetBuffer(kernel, "_OwnerEpoch", b4);
             shader.SetBuffer(kernel, "_FlowerDetail", b5);
-            shader.SetBuffer(kernel, "_ThreadRun", b6);
-            shader.SetBuffer(kernel, "_ThreadResidual", b7);
-            shader.SetBuffer(kernel, "_ThreadProgram", b8);
-            shader.SetBuffer(kernel, "_FlowerSymbol", b9);
-            shader.SetBuffer(kernel, "_Observation", b10);
+            shader.SetBuffer(kernel, "_MetricRun", b6);
+            shader.SetBuffer(kernel, "_VGroup", b7);
+            shader.SetBuffer(kernel, "_ThreadRun", b8);
+            shader.SetBuffer(kernel, "_ColorGroup", b9);
+            shader.SetBuffer(kernel, "_ThreadProgram", b10);
+            shader.SetBuffer(kernel, "_FlowerSymbol", b11);
+            shader.SetBuffer(kernel, "_Observation", b12);
             shader.SetBuffer(kernel, "_DataAbiOutput", output);
             shader.Dispatch(kernel, 1, 1, 1);
-            var actual = new uint[42];
+            var actual = new uint[58];
             output.GetData(actual);
 
             uint[] expected =
@@ -542,15 +691,19 @@ namespace Genesis.RoomScan.Tests
                 0x89abcdefu, 0x76543210u,
                 511u, 29u,
                 detailKey.Value, unchecked((uint)-123), 456u, 29u,
-                detailKey.Value, 41u, 43u, 29u,
-                47u, 29u, 0x13579bdfu, 0x2468ace0u,
-                53u, 67u,
-                unchecked((uint)-71), unchecked((uint)-79), symbolTag.Value,
-                97u, detailKey.Value, symbolTag.Value,
-                RawUInt32(residual, 8), RawUInt32(residual, 12),
-                RawUInt32(residual, 16), RawUInt32(residual, 20),
+                flowerKey.Value, 37u, 0x00000103u, 0x00001000u, 29u, 0u,
+                unchecked((uint)-11), 13u, unchecked((uint)-17), 19u,
+                flowerKey.Value, 41u, 43u, 0x76543211u, 0x00123456u, 29u,
+                RawUInt32(colorGroup, 0), RawUInt32(colorGroup, 4),
+                RawUInt32(colorGroup, 8), RawUInt32(colorGroup, 12),
+                RawUInt32(colorGroup, 96), RawUInt32(colorGroup, 100),
+                RawUInt32(colorGroup, 104), RawUInt32(colorGroup, 108),
+                (uint)MerkabaThreadProgramFlags.OpticalValid, 0u, 0u, 0u,
                 RawUInt32(program, 16), RawUInt32(program, 28),
-                RawUInt32(program, 32), RawUInt32(program, 44)
+                RawUInt32(program, 32), RawUInt32(program, 44),
+                unchecked((uint)-71), unchecked((uint)-79), symbolTag.Value,
+                97u, detailKey.Value, flowerKey.Value, symbolTag.Value,
+                MerkabaFlowerSkinSplitBits.HighValidMask
             };
             CollectionAssert.AreEqual(expected, actual);
         }

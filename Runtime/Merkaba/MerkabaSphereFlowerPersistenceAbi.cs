@@ -13,10 +13,12 @@ namespace Genesis.RoomScan
         DualLeaf = 5,
         FlowerOwnerEpoch = 6,
         FlowerDetail = 7,
-        ThreadProgram = 8,
-        ThreadRun = 9,
-        ThreadResidual = 10,
-        Tombstone = 11
+        FlowerSkinMetricRun = 8,
+        FlowerVGroup = 9,
+        ThreadProgram = 10,
+        ThreadRun = 11,
+        ThreadColorGroup = 12,
+        Tombstone = 13
     }
 
     /// <summary>
@@ -36,8 +38,10 @@ namespace Genesis.RoomScan
             MerkabaRecordKind targetKind, uint localKey)
         {
             if (targetKind != MerkabaRecordKind.FlowerDetail &&
+                targetKind != MerkabaRecordKind.FlowerSkinMetricRun &&
+                targetKind != MerkabaRecordKind.FlowerVGroup &&
                 targetKind != MerkabaRecordKind.ThreadRun &&
-                targetKind != MerkabaRecordKind.ThreadResidual)
+                targetKind != MerkabaRecordKind.ThreadColorGroup)
                 throw new ArgumentOutOfRangeException(nameof(targetKind));
             return new MerkabaTombstoneRecord
             {
@@ -48,8 +52,10 @@ namespace Genesis.RoomScan
 
         internal readonly bool IsCanonical =>
             TargetKind == (uint)MerkabaRecordKind.FlowerDetail ||
+            TargetKind == (uint)MerkabaRecordKind.FlowerSkinMetricRun ||
+            TargetKind == (uint)MerkabaRecordKind.FlowerVGroup ||
             TargetKind == (uint)MerkabaRecordKind.ThreadRun ||
-            TargetKind == (uint)MerkabaRecordKind.ThreadResidual;
+            TargetKind == (uint)MerkabaRecordKind.ThreadColorGroup;
     }
 
     /// <summary>Exact 28-byte little-endian append-record header.</summary>
@@ -58,7 +64,7 @@ namespace Genesis.RoomScan
     {
         internal const int ByteSize = 28;
         internal const uint MagicValue = 0x4653384du; // bytes "M8SF"
-        internal const ushort CurrentVersion = 4;
+        internal const ushort CurrentVersion = 5;
 
         internal uint Magic;
         internal ushort Version;
@@ -120,6 +126,7 @@ namespace Genesis.RoomScan
         internal const int ChunkAddressBytes = 16;
         internal const int TileAddressBytes = 16;
         internal const int OwnerAddressBytes = 20;
+        internal const int GroupAddressBytes = 24;
         internal const int ProgramAddressBytes = 4;
         internal const int TombstonePayloadBytes =
             MerkabaTombstoneRecord.ByteSize;
@@ -160,6 +167,14 @@ namespace Genesis.RoomScan
                     expectedAddress = OwnerAddressBytes;
                     expectedPayload = MerkabaFlowerDetailRecord.ByteSize;
                     break;
+                case MerkabaRecordKind.FlowerSkinMetricRun:
+                    expectedAddress = OwnerAddressBytes;
+                    expectedPayload = MerkabaFlowerSkinMetricRun.ByteSize;
+                    break;
+                case MerkabaRecordKind.FlowerVGroup:
+                    expectedAddress = GroupAddressBytes;
+                    expectedPayload = MerkabaFlowerVGroup.ByteSize;
+                    break;
                 case MerkabaRecordKind.ThreadProgram:
                     expectedAddress = ProgramAddressBytes;
                     expectedPayload = MerkabaThreadProgramRecord.ByteSize;
@@ -168,9 +183,9 @@ namespace Genesis.RoomScan
                     expectedAddress = OwnerAddressBytes;
                     expectedPayload = MerkabaThreadRun.ByteSize;
                     break;
-                case MerkabaRecordKind.ThreadResidual:
-                    expectedAddress = OwnerAddressBytes;
-                    expectedPayload = MerkabaThreadResidual.ByteSize;
+                case MerkabaRecordKind.ThreadColorGroup:
+                    expectedAddress = GroupAddressBytes;
+                    expectedPayload = MerkabaThreadColorGroup.ByteSize;
                     break;
                 case MerkabaRecordKind.Tombstone:
                     expectedAddress = OwnerAddressBytes;
@@ -339,6 +354,25 @@ namespace Genesis.RoomScan
             if (local >= MerkabaSpatial.KernelsPerTile)
                 throw new FormatException("Invalid M8 kernel-local address.");
             kernelLocal = (int)local;
+        }
+
+        internal static void WriteGroupAddress(Span<byte> destination,
+            in MerkabaTileAddress tile, int kernelLocal, uint groupIndex)
+        {
+            RequireSize(destination, GroupAddressBytes);
+            WriteOwnerAddress(destination.Slice(0, OwnerAddressBytes), tile,
+                kernelLocal);
+            WriteUInt32(destination, OwnerAddressBytes, groupIndex);
+        }
+
+        internal static void ReadGroupAddress(ReadOnlySpan<byte> source,
+            out MerkabaTileAddress tile, out int kernelLocal,
+            out uint groupIndex)
+        {
+            RequireSize(source, GroupAddressBytes);
+            ReadOwnerAddress(source.Slice(0, OwnerAddressBytes), out tile,
+                out kernelLocal);
+            groupIndex = ReadUInt32(source, OwnerAddressBytes);
         }
 
         private static uint Update(uint crc, ReadOnlySpan<byte> bytes)

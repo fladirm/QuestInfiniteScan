@@ -356,8 +356,11 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(replay.ReadDual(tile, 5),
                     Is.EqualTo(MerkabaDualReadResult.CertainThrough));
                 Assert.That(replay.ValidFlowerDetailCount, Is.EqualTo(1));
+                Assert.That(replay.ValidFlowerSkinMetricRunCount,
+                    Is.EqualTo(1));
+                Assert.That(replay.ValidFlowerVGroupCount, Is.EqualTo(1));
                 Assert.That(replay.ValidThreadRunCount, Is.EqualTo(1));
-                Assert.That(replay.ValidThreadResidualCount, Is.EqualTo(1));
+                Assert.That(replay.ValidThreadColorGroupCount, Is.EqualTo(1));
                 Assert.That(replay.ThreadProgramCount, Is.EqualTo(1));
             }
             finally
@@ -424,9 +427,13 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(MerkabaDualReadResult.CertainThrough));
                 Assert.That(reopened.Subordinate.ValidFlowerDetailCount,
                     Is.EqualTo(1));
+                Assert.That(reopened.Subordinate.ValidFlowerSkinMetricRunCount,
+                    Is.EqualTo(1));
+                Assert.That(reopened.Subordinate.ValidFlowerVGroupCount,
+                    Is.EqualTo(1));
                 Assert.That(reopened.Subordinate.ValidThreadRunCount,
                     Is.EqualTo(1));
-                Assert.That(reopened.Subordinate.ValidThreadResidualCount,
+                Assert.That(reopened.Subordinate.ValidThreadColorGroupCount,
                     Is.EqualTo(1));
                 Assert.That(reopened.Subordinate.ThreadProgramCount,
                     Is.EqualTo(1));
@@ -1088,7 +1095,7 @@ namespace Genesis.RoomScan.Tests
                 store.AppendSphereFlowerRecords(new[]
                 {
                     OwnerEpoch(tile, 7, 1u),
-                    ThreadRun(tile, 7, DetailKey(), 91u, 1u)
+                    ThreadRun(tile, 7, FlowerKey(), 91u, 1u)
                 });
 
                 Assert.Throws<InvalidDataException>(() => store.Commit(Session,
@@ -1099,6 +1106,119 @@ namespace Genesis.RoomScan.Tests
             {
                 DeleteRoot(directory);
             }
+        }
+
+        [Test]
+        public void SkinSplitWithoutAtomicSevenChildGroup_CannotPublishManifest()
+        {
+            string directory = TemporaryRoot("m8-skin-atomic-group");
+            var tile = new MerkabaTileAddress(new int3(0), 0u);
+            try
+            {
+                var store = new MerkabaSsdStore(directory);
+                store.AppendM8Tiles(new[]
+                {
+                    Tile(tile, 7, new Color32(1, 2, 3, 255))
+                });
+                byte[] run = new byte[MerkabaFlowerSkinMetricRun.ByteSize];
+                Write32(run, 0, FlowerKey().Value);
+                Write32(run, 4, 9u);
+                Write32(run, 8, 1u);
+                Write32(run, 16, 1u);
+                store.AppendSphereFlowerRecords(new[]
+                {
+                    OwnerEpoch(tile, 7, 1u),
+                    new MerkabaAppendRecord(
+                        MerkabaRecordKind.FlowerSkinMetricRun,
+                        OwnerAddress(tile, 7), run)
+                });
+
+                Assert.Throws<InvalidDataException>(() => store.Commit(Session,
+                    Anchor, AnchorPose, 1, 1));
+                Assert.That(File.Exists(store.ManifestPath), Is.False);
+            }
+            finally
+            {
+                DeleteRoot(directory);
+            }
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void SkinRun_CannotBorrowAnotherRunsNewerGroups(bool metric)
+        {
+            string directory = TemporaryRoot("m8-skin-generation-alias");
+            var tile = new MerkabaTileAddress(new int3(-1, 0, 1),
+                511u | (63u << 9));
+            MerkabaRecordKind runKind = metric
+                ? MerkabaRecordKind.FlowerSkinMetricRun
+                : MerkabaRecordKind.ThreadRun;
+            MerkabaRecordKind groupKind = metric
+                ? MerkabaRecordKind.FlowerVGroup
+                : MerkabaRecordKind.ThreadColorGroup;
+            try
+            {
+                var store = new MerkabaSsdStore(directory);
+                store.AppendM8Tiles(new[]
+                {
+                    Tile(tile, 511, new Color32(1, 2, 3, 255))
+                });
+                MerkabaAppendRecord[] records = AllAuthorityRecords(tile,
+                    511, 1u).ToArray();
+                store.AppendSphereFlowerRecords(records);
+                store.Commit(Session, Anchor, AnchorPose, 1, 1);
+
+                MerkabaAppendRecord original = records.Single(record =>
+                    record.Kind == runKind);
+                byte[] secondRun = (byte[])original.Payload.Clone();
+                uint secondKey = MerkabaFlowerL2Key.Create(1, 0, false,
+                    0).Value;
+                Write32(secondRun, 0, secondKey);
+                // An independent L2 tries to reuse the first L2's group
+                // address in a later generation. The old run must not be
+                // validated through the new run's group reference.
+                store.AppendSphereFlowerRecords(new[]
+                {
+                    new MerkabaAppendRecord(runKind, original.Address,
+                        secondRun),
+                    records.Single(record => record.Kind == groupKind)
+                });
+                Assert.Throws<InvalidDataException>(() => store.Commit(
+                    Session, Anchor, AnchorPose, 2, 1));
+
+                var reopened = new MerkabaSsdStore(directory);
+                Assert.That(reopened.OpenCommitted().Manifest.CommitGeneration,
+                    Is.EqualTo(1ul));
+                Assert.That(reopened.Subordinate.TryGetFine(tile, 511,
+                    runKind, FlowerKey().Value, out byte[] restored), Is.True);
+                Assert.That(restored, Is.EqualTo(original.Payload));
+                Assert.That(reopened.Subordinate.TryGetFine(tile, 511,
+                    runKind, secondKey, out _), Is.False);
+            }
+            finally
+            {
+                DeleteRoot(directory);
+            }
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void SkinRun_WrappedGroupRangeIsRejectedBeforeReplay(bool metric)
+        {
+            var tile = new MerkabaTileAddress(new int3(0), 0u);
+            MerkabaRecordKind kind = metric
+                ? MerkabaRecordKind.FlowerSkinMetricRun
+                : MerkabaRecordKind.ThreadRun;
+            MerkabaAppendRecord original = AllAuthorityRecords(tile, 0,
+                1u).Single(record => record.Kind == kind);
+            byte[] payload = (byte[])original.Payload.Clone();
+            Write32(payload, metric ? 4 : 8, uint.MaxValue - 1u);
+            Write32(payload, metric ? 8 : 12, 7u); // three child groups
+            var record = new MerkabaAppendRecord(kind, original.Address,
+                payload);
+            var replay = new MerkabaSphereFlowerReplayIndex();
+            Assert.Throws<InvalidDataException>(() => replay.Apply(record,
+                new MerkabaRecordVersion(1ul, 1ul)));
         }
 
         [Test]
@@ -1433,6 +1553,26 @@ namespace Genesis.RoomScan.Tests
             yield return OwnerEpoch(tile, kernel, epoch);
             MerkabaFlowerDetailKey detailKey = DetailKey();
             yield return Detail(tile, kernel, detailKey, epoch);
+            MerkabaFlowerL2Key flowerKey = FlowerKey();
+
+            byte[] ownerAddress = OwnerAddress(tile, kernel);
+            byte[] metricRun = new byte[MerkabaFlowerSkinMetricRun.ByteSize];
+            Write32(metricRun, 0, flowerKey.Value);
+            Write32(metricRun, 4, 17u);
+            Write32(metricRun, 8, 1u);
+            Write32(metricRun, 16, epoch);
+            yield return new MerkabaAppendRecord(
+                MerkabaRecordKind.FlowerSkinMetricRun, ownerAddress,
+                metricRun);
+
+            byte[] vGroup = new byte[MerkabaFlowerVGroup.ByteSize];
+            for (int child = 0; child < 7; child++)
+            {
+                Write32(vGroup, child * 8, 1u);
+                Write32(vGroup, child * 8 + 4, 2u);
+            }
+            yield return new MerkabaAppendRecord(MerkabaRecordKind.FlowerVGroup,
+                GroupAddress(tile, kernel, 17u), vGroup);
 
             byte[] programAddress = new byte[
                 MerkabaSphereFlowerPersistenceAbi.ProgramAddressBytes];
@@ -1442,20 +1582,19 @@ namespace Genesis.RoomScan.Tests
                 MerkabaRecordKind.ThreadProgram, programAddress,
                 new byte[MerkabaThreadProgramRecord.ByteSize]);
 
-            byte[] ownerAddress = OwnerAddress(tile, kernel);
             byte[] run = new byte[MerkabaThreadRun.ByteSize];
-            Write32(run, 0, detailKey.Value);
+            Write32(run, 0, flowerKey.Value);
             Write32(run, 4, 7u);
-            Write32(run, 8, 0u);
-            Write32(run, 12, epoch);
+            Write32(run, 8, 23u);
+            Write32(run, 12, 1u);
+            Write32(run, 20, epoch);
             yield return new MerkabaAppendRecord(MerkabaRecordKind.ThreadRun,
                 ownerAddress, run);
 
-            byte[] residual = new byte[MerkabaThreadResidual.ByteSize];
-            Write32(residual, 0, 99u);
-            Write32(residual, 4, epoch);
+            byte[] colors = new byte[MerkabaThreadColorGroup.ByteSize];
             yield return new MerkabaAppendRecord(
-                MerkabaRecordKind.ThreadResidual, ownerAddress, residual);
+                MerkabaRecordKind.ThreadColorGroup,
+                GroupAddress(tile, kernel, 23u), colors);
         }
 
         private static MerkabaAppendRecord OwnerEpoch(MerkabaTileAddress tile,
@@ -1579,14 +1718,14 @@ namespace Genesis.RoomScan.Tests
         }
 
         private static MerkabaAppendRecord ThreadRun(MerkabaTileAddress tile,
-            int kernel, MerkabaFlowerDetailKey key, uint programRef,
+            int kernel, MerkabaFlowerL2Key key, uint programRef,
             uint epoch)
         {
             byte[] payload = new byte[MerkabaThreadRun.ByteSize];
             Write32(payload, 0, key.Value);
             Write32(payload, 4, programRef);
-            Write32(payload, 8, 0u);
-            Write32(payload, 12, epoch);
+            Write32(payload, 8, MerkabaThreadRun.InvalidRef);
+            Write32(payload, 20, epoch);
             return new MerkabaAppendRecord(MerkabaRecordKind.ThreadRun,
                 OwnerAddress(tile, kernel), payload);
         }
@@ -1594,6 +1733,9 @@ namespace Genesis.RoomScan.Tests
         private static MerkabaFlowerDetailKey DetailKey() =>
             MerkabaFlowerDetailKey.Create(1, 0, 0, 3,
                 MerkabaFlowerDetailKind.R2Phase, false, 0);
+
+        private static MerkabaFlowerL2Key FlowerKey() =>
+            MerkabaFlowerL2Key.Create(0, 0, false, 0);
 
         private static byte[] TileAddress(MerkabaTileAddress tile)
         {
@@ -1609,6 +1751,16 @@ namespace Genesis.RoomScan.Tests
                 MerkabaSphereFlowerPersistenceAbi.OwnerAddressBytes];
             MerkabaSphereFlowerPersistenceAbi.WriteOwnerAddress(result, tile,
                 kernel);
+            return result;
+        }
+
+        private static byte[] GroupAddress(MerkabaTileAddress tile, int kernel,
+            uint group)
+        {
+            var result = new byte[
+                MerkabaSphereFlowerPersistenceAbi.GroupAddressBytes];
+            MerkabaSphereFlowerPersistenceAbi.WriteGroupAddress(result, tile,
+                kernel, group);
             return result;
         }
 

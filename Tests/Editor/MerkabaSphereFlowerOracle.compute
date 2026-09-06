@@ -1,4 +1,5 @@
 #pragma kernel SphereFlowerOracle
+#pragma kernel SphereFlowerSkinAddressOracle
 #pragma target 5.0
 
 #include "../../Runtime/Shaders/MerkabaSphereFlower.generated.hlsl"
@@ -206,6 +207,26 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
             scalar, certainMask);
         result.Control.y = (int)M8FlowerClassifyRgbSkinSplit(rgb, certainMask);
     }
+    _SphereFlowerOracleResults[id] = result;
+}
 
+[numthreads(64, 1, 1)]
+void SphereFlowerSkinAddressOracle(uint3 dispatchId : SV_DispatchThreadID)
+{
+    uint id = dispatchId.x;
+    if (id >= _SphereFlowerOracleCaseCount)
+        return;
+
+    SphereFlowerOracleCase input = _SphereFlowerOracleCases[id];
+    SphereFlowerOracleCase result = (SphereFlowerOracleCase)0;
+    uint groupIndex;
+    uint childStitchRank;
+    bool valid = M8FlowerSkinCompactChildAddress(
+        asuint(input.A.y), asuint(input.A.z), asuint(input.A.w),
+        (uint)input.Control.y, (uint)input.Control.z,
+        (uint)input.Control.w, asuint(input.A.x), groupIndex,
+        childStitchRank);
+    result.Control = int4(valid ? 1 : 0, (int)groupIndex,
+        (int)childStitchRank, 0);
     _SphereFlowerOracleResults[id] = result;
 }

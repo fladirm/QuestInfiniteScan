@@ -73,7 +73,8 @@ for shader in "${shaders[@]}"; do
       fi
     fi
 
-    if [[ "$kernel" == "SphereFlowerOracle" ]]; then
+    if [[ "$kernel" == "SphereFlowerOracle" ||
+          "$kernel" == "SphereFlowerSkinAddressOracle" ]]; then
       if ! grep -Eq 'OpExecutionMode .* LocalSize 64 1 1' "$assembly"; then
         echo "FAIL: $kernel is not the frozen 64-lane parity workgroup" >&2
         exit 1
@@ -82,6 +83,9 @@ for shader in "${shaders[@]}"; do
         echo "FAIL: $kernel contains a float64 runtime path" >&2
         exit 1
       fi
+    fi
+
+    if [[ "$kernel" == "SphereFlowerOracle" ]]; then
       precise_count=$(grep -c 'OpDecorate .* NoContraction' "$assembly" || true)
       if (( precise_count < 8 )); then
         echo "FAIL: $kernel lost precise arithmetic ($precise_count decorations)" >&2
@@ -131,9 +135,9 @@ for shader in "${shaders[@]}"; do
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 59 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 59" >&2
+if (( kernel_count != 60 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 60" >&2
   exit 1
 fi
 
-echo "PASS: 59 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 60 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

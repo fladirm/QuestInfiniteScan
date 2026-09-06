@@ -4673,3 +4673,59 @@ CUT_01_MANUAL_AUDIT:
 QUEST_DEVICE_RUNTIME=NOT RUN (device disconnected by user)
 NEXT_CUT=CUT_02 ABI/data model fixed-thread replacement
 ```
+
+## CURRENT TRUE STATE — REV-C CUT 02 closed
+
+```text
+CURRENT_COMMIT=3d78451c472688cbdc8a03466f5d097b888ed543 (pre-CUT-02-reclosure)
+CURRENT_CUT=CUT_02 PASS
+DAG_STATUS=CUT_00_PASS;CUT_01_PASS;CUT_02_PASS;CUT_14_PASS;CUT_03_NEXT
+AUTHORITY_PREFIX_CMP=PASS (86895 bytes; frozen REV-C unchanged)
+FILES_CHANGED:
+  Runtime/Merkaba/MerkabaFlowerDetail.cs
+  Runtime/Merkaba/MerkabaThreadAtlas.cs
+  Runtime/Merkaba/MerkabaSphereFlowerDataAbi.cs
+  Runtime/Merkaba/MerkabaSphereFlowerPersistenceAbi.cs
+  Runtime/Merkaba/MerkabaSphereFlowerReplayIndex.cs
+  Runtime/Merkaba/MerkabaSsdStore.cs
+  Runtime/Merkaba/MerkabaGrid.Gpu.cs
+  Editor/MerkabaSphereFlowerCodegen.cs
+  Runtime/Shaders/MerkabaSphereFlower.generated.hlsl
+  Runtime/Shaders/MerkabaSphereFlowerDataAbi.generated.hlsl
+  Runtime/Telemetry/Native/MerkabaSphereFlowerDataAbi.h
+  Tests/Editor/MerkabaPersistenceTests.cs
+  Tests/Editor/MerkabaSphereFlowerDataAbi.compute
+  Tests/Editor/MerkabaSphereFlowerDataAbiTests.cs
+  Tests/Editor/MerkabaSphereFlowerGpuParityTests.cs
+  Tests/Editor/MerkabaSphereFlowerOracle.compute
+  Tests/Editor/MerkabaGpuIntegrationTests.cs
+  Tools/shaders/audit_merkaba_compute_spirv.sh
+INVARIANTS_PROVEN:
+  exact L0-L2 metric keys; independent 57-bit thread-order RGB/V masks
+  sparse seven-child groups; no validDepth or dense 399-value requirement
+  Q2.29 phase and Q5.26 V intervals; deterministic interval midpoints
+  owner epoch rejects stale RGB/V; optical programs contain no runtime Fibonacci
+  replay requires every live run's groups from its own commit generation
+  another run cannot make an overwritten group valid for an older run
+  wrapped group ranges rejected before replay; generation-bound append/open intact
+TESTS_RUN:
+  full Vulkan EditMode: 376/376 PASS
+    /mnt/kingston-unity/Builds/TestResults/merkaba-results.xml
+  replay regression: 53/53 PASS
+    /mnt/kingston-unity/Builds/TestResults/revc-cut2-replay-owner-10.xml
+  Quest SPIR-V: 60/60 PASS
+    /mnt/kingston-unity/Builds/TestResults/revc-cut2-spirv-2.log
+  fresh Android APK build: PASS
+    /mnt/kingston-unity/Builds/QuestMerkabaScan/build.log
+  git diff --check: PASS
+PERF:
+  KernelState=16B; detail=16B; metric/RGB run=24B; V group=56B; RGB group=112B
+  group reachability examines only the affected owner's index, never all owners
+  no new production GPU allocation or dispatch in this ABI cut
+LEGACY_REMOVED=ThreadResidual; VAmplitude detail kind; old ThreadProgram endpoint/residual/FibonacciRouteOrigin fields
+CUT_02_MANUAL_AUDIT=PASS (changed production/data/codegen files and generated ABI reviewed)
+CONTRACT_AUDIT=PASS
+DEFERRED_DEPENDENCIES=production observation/scanner consumers CUT_03-11; procedural readout CUT_12; export CUT_15; final native ABI excision CUT_16
+QUEST_DEVICE_RUNTIME=NOT RUN (device disconnected by user)
+NEXT_CUT=CUT_03 deterministic GPU observation bins and reduction
+```

@@ -37,7 +37,7 @@ namespace Genesis.RoomScan.Tests
         [Test, Timeout(60000)]
         public void GeneratedHlsl_IsBitIdenticalAndMatchesCpuOracle()
         {
-            var cases = new List<OracleCase>(1024);
+            var cases = new List<OracleCase>(4096);
 
             for (int i = 0; i < MerkabaSphereFlowerAuthority.Lines.Length; i++)
                 cases.Add(new OracleCase(0, i));
@@ -512,14 +512,61 @@ namespace Genesis.RoomScan.Tests
             Assert.That(cursor, Is.EqualTo(results.Length));
         }
 
-        private static OracleCase[] Dispatch(List<OracleCase> cases)
+        [Test, Timeout(60000)]
+        public void CompactThreadAddress_IsExhaustivelyCpuHlslIdentical()
+        {
+            const uint groupBase = 20u;
+            uint partialLo = 1u | ((1u << 1 | 1u << 5) << 1) |
+                (1u << (8 + 7));
+            uint partialHi = 1u << (8 + 35 - 32);
+            var splits = new[]
+            {
+                new uint2(uint.MaxValue, 0x01ffffffu),
+                new uint2(partialLo, partialHi)
+            };
+            var cases = new List<OracleCase>(2058);
+            foreach (uint2 split in splits)
+            for (int c3 = 0; c3 < 7; c3++)
+            for (int c4 = 0; c4 < 7; c4++)
+            for (int c5 = 0; c5 < 7; c5++)
+            for (int level = 3; level <= 5; level++)
+                cases.Add(new OracleCase(24)
+                {
+                    Control = new int4(24, level, c3, c4),
+                    A = new float4(math.asfloat((uint)c5),
+                        math.asfloat(groupBase), math.asfloat(split.x),
+                        math.asfloat(split.y))
+                });
+
+            OracleCase[] results = Dispatch(cases,
+                "SphereFlowerSkinAddressOracle");
+            int cursor = 0;
+            foreach (uint2 split in splits)
+            for (int c3 = 0; c3 < 7; c3++)
+            for (int c4 = 0; c4 < 7; c4++)
+            for (int c5 = 0; c5 < 7; c5++)
+            for (int level = 3; level <= 5; level++)
+            {
+                bool valid = MerkabaFlowerSkinSplitBits.TryCompactChildAddress(
+                    groupBase, split.x, split.y, level, c3, c4, c5,
+                    out uint groupIndex, out int childStitchRank);
+                Assert.That(results[cursor++].Control, Is.EqualTo(new int4(
+                    valid ? 1 : 0, unchecked((int)groupIndex),
+                    childStitchRank, 0)),
+                    $"compact thread address {split}/{c3}/{c4}/{c5}/L{level}");
+            }
+            Assert.That(cursor, Is.EqualTo(results.Length));
+        }
+
+        private static OracleCase[] Dispatch(List<OracleCase> cases,
+            string kernelName = "SphereFlowerOracle")
         {
             const string path =
                 "Packages/com.genesis.roomscan/Tests/Editor/" +
                 "MerkabaSphereFlowerOracle.compute";
             ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(path);
             Assert.That(shader, Is.Not.Null, path);
-            int kernel = shader.FindKernel("SphereFlowerOracle");
+            int kernel = shader.FindKernel(kernelName);
             int stride = Marshal.SizeOf<OracleCase>();
             Assert.That(stride, Is.EqualTo(64));
             using var input = new ComputeBuffer(cases.Count, stride,

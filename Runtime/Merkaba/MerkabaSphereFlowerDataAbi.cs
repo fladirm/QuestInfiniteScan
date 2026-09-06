@@ -161,7 +161,7 @@ namespace Genesis.RoomScan
     /// </summary>
     internal static class MerkabaSphereFlowerDataAbi
     {
-        internal const uint SchemaVersion = 2u;
+        internal const uint SchemaVersion = 3u;
         // Frozen CUT 05 flag layout. No CUT 02 consumer reads this bit.
         internal const uint R1SeedFlag = 1u << 1;
         internal const int KernelStateStride = 16;
@@ -176,9 +176,16 @@ namespace Genesis.RoomScan
             MerkabaFlowerOwnerEpoch.ByteSize;
         internal const int FlowerDetailStride =
             MerkabaFlowerDetailRecord.ByteSize;
+        internal const int FlowerSkinMetricRunStride =
+            MerkabaFlowerSkinMetricRun.ByteSize;
+        internal const int FlowerVIntervalStride =
+            MerkabaFlowerVInterval.ByteSize;
+        internal const int FlowerVGroupStride = MerkabaFlowerVGroup.ByteSize;
         internal const int ThreadRunStride = MerkabaThreadRun.ByteSize;
-        internal const int ThreadResidualStride =
-            MerkabaThreadResidual.ByteSize;
+        internal const int ThreadColorIntervalStride =
+            MerkabaThreadColorInterval.ByteSize;
+        internal const int ThreadColorGroupStride =
+            MerkabaThreadColorGroup.ByteSize;
         internal const int ThreadProgramStride =
             MerkabaThreadProgramRecord.ByteSize;
         internal const int FlowerSymbolStride =

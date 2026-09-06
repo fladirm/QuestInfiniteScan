@@ -2,15 +2,19 @@
 // Packed REV-C subordinate data ABI; no resources are declared here.
 #ifndef GENESIS_MERKABA_SPHERE_FLOWER_DATA_ABI_INCLUDED
 #define GENESIS_MERKABA_SPHERE_FLOWER_DATA_ABI_INCLUDED
-#define M8_FLOWER_DATA_ABI_VERSION 2u
+#define M8_FLOWER_DATA_ABI_VERSION 3u
 #define M8_FLOWER_R1_SEED_FLAG 0x00000002u
 #define M8_FLOWER_DETAIL_LEVEL_SHIFT 0u
-#define M8_FLOWER_DETAIL_CHILD_PATH_SHIFT 3u
-#define M8_FLOWER_DETAIL_PETAL_SHIFT 13u
-#define M8_FLOWER_DETAIL_CHANNEL_SHIFT 19u
-#define M8_FLOWER_DETAIL_KIND_SHIFT 23u
-#define M8_FLOWER_DETAIL_ROOT_SHIFT 26u
-#define M8_FLOWER_DETAIL_SECTOR_SHIFT 27u
+#define M8_FLOWER_DETAIL_CHILD_PATH_SHIFT 2u
+#define M8_FLOWER_DETAIL_PETAL_SHIFT 6u
+#define M8_FLOWER_DETAIL_CHANNEL_SHIFT 12u
+#define M8_FLOWER_DETAIL_KIND_SHIFT 16u
+#define M8_FLOWER_DETAIL_ROOT_SHIFT 19u
+#define M8_FLOWER_DETAIL_SECTOR_SHIFT 20u
+#define M8_FLOWER_L2_KEY_PETAL_SHIFT 4u
+#define M8_FLOWER_L2_KEY_ROOT_SHIFT 10u
+#define M8_FLOWER_L2_KEY_SECTOR_SHIFT 11u
+#define M8_FLOWER_SKIN_SPLIT_HIGH_MASK 0x01ffffffu
 #define M8_FLOWER_SYMBOL_LINE_SHIFT 3u
 #define M8_FLOWER_SYMBOL_ROOT_SHIFT 7u
 #define M8_FLOWER_SYMBOL_SECTOR_SHIFT 8u
@@ -25,9 +29,13 @@ struct M8DualChunkPayload { uint NonFullMaskLo; uint NonFullMaskHi; uint MixedMa
 struct M8DualLeaf { uint Word00; uint Word01; uint Word02; uint Word03; uint Word04; uint Word05; uint Word06; uint Word07; uint Word08; uint Word09; uint Word10; uint Word11; uint Word12; uint Word13; uint Word14; uint Word15; };
 struct M8FlowerOwnerEpoch { uint KernelLocal; uint Epoch; };
 struct M8FlowerDetailRecord { uint Key; int Lower; int Upper; uint ParentEpoch; };
-struct M8ThreadRun { uint FlowerKey; uint ProgramRef; uint ResidualBase; uint ParentEpoch; };
-struct M8ThreadResidual { uint SegmentKey; uint ParentEpoch; uint2 LowerLinearRgba; uint2 UpperLinearRgba; uint Flags; uint Reserved; };
-struct M8ThreadProgramRecord { uint EndpointColorRule; uint RgbResidualBasis; uint FibonacciRouteOrigin; uint Flags; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };
+struct M8FlowerSkinMetricRun { uint FlowerKey; uint GroupBase; uint SplitBitsLo; uint SplitBitsHi; uint ParentEpoch; uint Reserved; };
+struct M8FlowerVInterval { int Lower; int Upper; };
+struct M8FlowerVGroup { M8FlowerVInterval Child[7]; };
+struct M8ThreadRun { uint FlowerKey; uint ProgramRef; uint GroupBase; uint SplitBitsLo; uint SplitBitsHi; uint ParentEpoch; };
+struct M8ThreadColorInterval { uint2 LowerLinearRgba; uint2 UpperLinearRgba; };
+struct M8ThreadColorGroup { M8ThreadColorInterval Child[7]; };
+struct M8ThreadProgramRecord { uint Flags; uint Reserved0; uint Reserved1; uint Reserved2; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };
 struct M8FlowerSymbolKey { int3 Junction; uint Tag; };
 struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint SymbolTag; uint PrecisionKey; };
 
@@ -40,6 +48,15 @@ uint M8FlowerPackDetailKey(uint level, uint childPath,
         (kind << M8_FLOWER_DETAIL_KIND_SHIFT) |
         (rootSign ? (1u << M8_FLOWER_DETAIL_ROOT_SHIFT) : 0u) |
         (sector << M8_FLOWER_DETAIL_SECTOR_SHIFT);
+}
+
+uint M8FlowerPackL2Key(uint geometryChildPath, uint petalClass,
+    bool rootSign, uint sector)
+{
+    return geometryChildPath |
+        (petalClass << M8_FLOWER_L2_KEY_PETAL_SHIFT) |
+        (rootSign ? (1u << M8_FLOWER_L2_KEY_ROOT_SHIFT) : 0u) |
+        (sector << M8_FLOWER_L2_KEY_SECTOR_SHIFT);
 }
 
 uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,

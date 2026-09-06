@@ -11,48 +11,90 @@ namespace Genesis.RoomScan
         OpticalValid = 1u << 0
     }
 
-    /// <summary>Persistent parent-local binding of one closed-loop strand.</summary>
+    /// <summary>
+    /// Persistent RGB subdivision of one fixed L2 skin thread. Split bits use
+    /// the exact same thread-parent order as metric V but remain an independent
+    /// captured-radiance authority.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     internal struct MerkabaThreadRun
     {
-        internal const int ByteSize = 16;
+        internal const int ByteSize = 24;
+        internal const uint InvalidRef = uint.MaxValue;
 
         internal uint FlowerKey;
         internal uint ProgramRef;
-        internal uint ResidualBase;
+        internal uint GroupBase;
+        internal uint SplitBitsLo;
+        internal uint SplitBitsHi;
         internal uint ParentEpoch;
-
-        internal readonly bool IsValidFor(uint currentParentEpoch) =>
-            currentParentEpoch != 0u && ParentEpoch == currentParentEpoch &&
-            MerkabaFlowerDetailKey.TryDecode(FlowerKey, out _);
-    }
-
-    /// <summary>
-    /// One sparse linear-light RGB interval. The alpha lane remains part of the
-    /// closed-loop RGBA ABI; metric V is deliberately absent and lives only in
-    /// FlowerDetail.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential, Pack = 4)]
-    internal struct MerkabaThreadResidual
-    {
-        internal const int ByteSize = 32;
-
-        internal uint SegmentKey;
-        internal uint ParentEpoch;
-        internal half4 LowerLinearRgba;
-        internal half4 UpperLinearRgba;
-        internal uint Flags;
-        internal uint Reserved;
 
         internal readonly bool IsValidFor(uint currentParentEpoch)
         {
             if (currentParentEpoch == 0u || ParentEpoch != currentParentEpoch ||
-                Reserved != 0u) return false;
-            float4 lower = LowerLinearRgba;
-            float4 upper = UpperLinearRgba;
-            return math.all(math.isfinite(lower)) &&
-                math.all(math.isfinite(upper)) && math.all(lower <= upper);
+                !MerkabaFlowerL2Key.TryDecode(FlowerKey, out _) ||
+                !MerkabaFlowerSkinSplitBits.IsCanonical(SplitBitsLo,
+                    SplitBitsHi)) return false;
+            bool split = MerkabaFlowerSkinSplitBits.SplitL2(SplitBitsLo);
+            if (split != (GroupBase != InvalidRef)) return false;
+            return (!split || MerkabaFlowerSkinSplitBits.GroupRangeFits(
+                    GroupBase, SplitBitsLo, SplitBitsHi)) &&
+                (split || ProgramRef != InvalidRef);
         }
+
+        internal readonly int GroupCount =>
+            MerkabaFlowerSkinSplitBits.GroupCount(SplitBitsLo, SplitBitsHi);
+    }
+
+    /// <summary>
+    /// One actual captured linear-light RGBA interval. Metric V is deliberately
+    /// absent and lives only in FlowerDetail.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct MerkabaThreadColorInterval
+    {
+        internal const int ByteSize = 16;
+
+        internal half4 LowerLinearRgba;
+        internal half4 UpperLinearRgba;
+
+        internal readonly bool IsCanonical
+        {
+            get
+            {
+                float4 lower = LowerLinearRgba;
+                float4 upper = UpperLinearRgba;
+                return math.all(math.isfinite(lower)) &&
+                    math.all(math.isfinite(upper)) && math.all(lower <= upper);
+            }
+        }
+    }
+
+    /// <summary>Atomic seven-child actual captured-color group.</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct MerkabaThreadColorGroup
+    {
+        internal const int ByteSize = 7 * MerkabaThreadColorInterval.ByteSize;
+
+        internal MerkabaThreadColorInterval Child0;
+        internal MerkabaThreadColorInterval Child1;
+        internal MerkabaThreadColorInterval Child2;
+        internal MerkabaThreadColorInterval Child3;
+        internal MerkabaThreadColorInterval Child4;
+        internal MerkabaThreadColorInterval Child5;
+        internal MerkabaThreadColorInterval Child6;
+
+        internal readonly MerkabaThreadColorInterval Child(int stitchRank) =>
+            stitchRank switch
+            {
+                0 => Child0, 1 => Child1, 2 => Child2, 3 => Child3,
+                4 => Child4, 5 => Child5, 6 => Child6,
+                _ => throw new ArgumentOutOfRangeException(nameof(stitchRank))
+            };
+
+        internal readonly bool IsCanonical => Child0.IsCanonical &&
+            Child1.IsCanonical && Child2.IsCanonical && Child3.IsCanonical &&
+            Child4.IsCanonical && Child5.IsCanonical && Child6.IsCanonical;
     }
 
     /// <summary>
@@ -66,10 +108,10 @@ namespace Genesis.RoomScan
     {
         internal const int ByteSize = 48;
 
-        internal uint EndpointColorRule;
-        internal uint RgbResidualBasis;
-        internal uint FibonacciRouteOrigin;
         internal uint Flags;
+        internal uint Reserved0;
+        internal uint Reserved1;
+        internal uint Reserved2;
         internal half4 OpticalLower;
         internal half4 OpticalUpper;
         internal half4 CaptureViewLower;
@@ -84,13 +126,19 @@ namespace Genesis.RoomScan
             float4 opticalUpper = OpticalUpper;
             float4 viewLower = CaptureViewLower;
             float4 viewUpper = CaptureViewUpper;
-            return math.all(math.isfinite(opticalLower)) &&
+            bool finiteOrdered = math.all(math.isfinite(opticalLower)) &&
                 math.all(math.isfinite(opticalUpper)) &&
                 math.all(math.isfinite(viewLower)) &&
                 math.all(math.isfinite(viewUpper)) &&
                 math.all(opticalLower <= opticalUpper) &&
                 math.all(viewLower <= viewUpper) &&
-                (Flags & ~(uint)MerkabaThreadProgramFlags.OpticalValid) == 0u;
+                (Flags & ~(uint)MerkabaThreadProgramFlags.OpticalValid) == 0u &&
+                Reserved0 == 0u && Reserved1 == 0u && Reserved2 == 0u;
+            if (!finiteOrdered) return false;
+            if (OpticalValid) return true;
+            return math.all(opticalLower == 0f) &&
+                math.all(opticalUpper == 0f) &&
+                math.all(viewLower == 0f) && math.all(viewUpper == 0f);
         }
     }
 }

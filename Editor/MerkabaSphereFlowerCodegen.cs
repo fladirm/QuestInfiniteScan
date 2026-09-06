@@ -178,9 +178,9 @@ namespace Genesis.RoomScan.Editor
                 MerkabaSphereFlowerDataAbi.R1SeedFlag.ToString("x8",
                     CultureInfo.InvariantCulture) + "u");
             Define(o, "M8_FLOWER_DETAIL_LEVEL_SHIFT",
-                MerkabaFlowerDetailKey.LevelShift + "u");
+                MerkabaFlowerDetailKey.GeometryLevelShift + "u");
             Define(o, "M8_FLOWER_DETAIL_CHILD_PATH_SHIFT",
-                MerkabaFlowerDetailKey.ChildPathShift + "u");
+                MerkabaFlowerDetailKey.GeometryChildPathShift + "u");
             Define(o, "M8_FLOWER_DETAIL_PETAL_SHIFT",
                 MerkabaFlowerDetailKey.PetalClassShift + "u");
             Define(o, "M8_FLOWER_DETAIL_CHANNEL_SHIFT",
@@ -191,6 +191,15 @@ namespace Genesis.RoomScan.Editor
                 MerkabaFlowerDetailKey.RootSignShift + "u");
             Define(o, "M8_FLOWER_DETAIL_SECTOR_SHIFT",
                 MerkabaFlowerDetailKey.SectorShift + "u");
+            Define(o, "M8_FLOWER_L2_KEY_PETAL_SHIFT",
+                MerkabaFlowerL2Key.PetalClassShift + "u");
+            Define(o, "M8_FLOWER_L2_KEY_ROOT_SHIFT",
+                MerkabaFlowerL2Key.RootSignShift + "u");
+            Define(o, "M8_FLOWER_L2_KEY_SECTOR_SHIFT",
+                MerkabaFlowerL2Key.SectorShift + "u");
+            Define(o, "M8_FLOWER_SKIN_SPLIT_HIGH_MASK", "0x" +
+                MerkabaFlowerSkinSplitBits.HighValidMask.ToString("x8",
+                    CultureInfo.InvariantCulture) + "u");
             Define(o, "M8_FLOWER_SYMBOL_LINE_SHIFT",
                 MerkabaFlowerSymbolTag.LineClassShift + "u");
             Define(o, "M8_FLOWER_SYMBOL_ROOT_SHIFT",
@@ -212,9 +221,13 @@ namespace Genesis.RoomScan.Editor
             AppendHlslWordStruct(o, "M8DualLeaf", 16);
             o.AppendLine("struct M8FlowerOwnerEpoch { uint KernelLocal; uint Epoch; };");
             o.AppendLine("struct M8FlowerDetailRecord { uint Key; int Lower; int Upper; uint ParentEpoch; };");
-            o.AppendLine("struct M8ThreadRun { uint FlowerKey; uint ProgramRef; uint ResidualBase; uint ParentEpoch; };");
-            o.AppendLine("struct M8ThreadResidual { uint SegmentKey; uint ParentEpoch; uint2 LowerLinearRgba; uint2 UpperLinearRgba; uint Flags; uint Reserved; };");
-            o.AppendLine("struct M8ThreadProgramRecord { uint EndpointColorRule; uint RgbResidualBasis; uint FibonacciRouteOrigin; uint Flags; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };");
+            o.AppendLine("struct M8FlowerSkinMetricRun { uint FlowerKey; uint GroupBase; uint SplitBitsLo; uint SplitBitsHi; uint ParentEpoch; uint Reserved; };");
+            o.AppendLine("struct M8FlowerVInterval { int Lower; int Upper; };");
+            o.AppendLine("struct M8FlowerVGroup { M8FlowerVInterval Child[7]; };");
+            o.AppendLine("struct M8ThreadRun { uint FlowerKey; uint ProgramRef; uint GroupBase; uint SplitBitsLo; uint SplitBitsHi; uint ParentEpoch; };");
+            o.AppendLine("struct M8ThreadColorInterval { uint2 LowerLinearRgba; uint2 UpperLinearRgba; };");
+            o.AppendLine("struct M8ThreadColorGroup { M8ThreadColorInterval Child[7]; };");
+            o.AppendLine("struct M8ThreadProgramRecord { uint Flags; uint Reserved0; uint Reserved1; uint Reserved2; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };");
             o.AppendLine("struct M8FlowerSymbolKey { int3 Junction; uint Tag; };");
             o.AppendLine("struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint SymbolTag; uint PrecisionKey; };");
             o.AppendLine();
@@ -227,6 +240,15 @@ namespace Genesis.RoomScan.Editor
         (kind << M8_FLOWER_DETAIL_KIND_SHIFT) |
         (rootSign ? (1u << M8_FLOWER_DETAIL_ROOT_SHIFT) : 0u) |
         (sector << M8_FLOWER_DETAIL_SECTOR_SHIFT);
+}
+
+uint M8FlowerPackL2Key(uint geometryChildPath, uint petalClass,
+    bool rootSign, uint sector)
+{
+    return geometryChildPath |
+        (petalClass << M8_FLOWER_L2_KEY_PETAL_SHIFT) |
+        (rootSign ? (1u << M8_FLOWER_L2_KEY_ROOT_SHIFT) : 0u) |
+        (sector << M8_FLOWER_L2_KEY_SECTOR_SHIFT);
 }
 
 uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
@@ -278,16 +300,26 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
             AppendNativeStruct(o, "FlowerDetailRecord", new[]
                 { "uint32_t key", "int32_t lower", "int32_t upper",
                   "uint32_t parentEpoch" });
+            AppendNativeStruct(o, "FlowerSkinMetricRun", new[]
+                { "uint32_t flowerKey", "uint32_t groupBase",
+                  "uint32_t splitBitsLo", "uint32_t splitBitsHi",
+                  "uint32_t parentEpoch", "uint32_t reserved" });
+            AppendNativeStruct(o, "FlowerVInterval", new[]
+                { "int32_t lower", "int32_t upper" });
+            AppendNativeStruct(o, "FlowerVGroup", new[]
+                { "FlowerVInterval child[7]" });
             AppendNativeStruct(o, "ThreadRun", new[]
                 { "uint32_t flowerKey", "uint32_t programRef",
-                  "uint32_t residualBase", "uint32_t parentEpoch" });
-            AppendNativeStruct(o, "ThreadResidual", new[]
-                { "uint32_t segmentKey", "uint32_t parentEpoch",
-                  "uint32_t lowerLinearRgba[2]", "uint32_t upperLinearRgba[2]",
-                  "uint32_t flags", "uint32_t reserved" });
+                  "uint32_t groupBase", "uint32_t splitBitsLo",
+                  "uint32_t splitBitsHi", "uint32_t parentEpoch" });
+            AppendNativeStruct(o, "ThreadColorInterval", new[]
+                { "uint32_t lowerLinearRgba[2]",
+                  "uint32_t upperLinearRgba[2]" });
+            AppendNativeStruct(o, "ThreadColorGroup", new[]
+                { "ThreadColorInterval child[7]" });
             AppendNativeStruct(o, "ThreadProgramRecord", new[]
-                { "uint32_t endpointColorRule", "uint32_t rgbResidualBasis",
-                  "uint32_t fibonacciRouteOrigin", "uint32_t flags",
+                { "uint32_t flags", "uint32_t reserved0",
+                  "uint32_t reserved1", "uint32_t reserved2",
                   "uint32_t opticalLower[2]", "uint32_t opticalUpper[2]",
                   "uint32_t captureViewLower[2]",
                   "uint32_t captureViewUpper[2]" });
@@ -317,9 +349,17 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
                 MerkabaFlowerOwnerEpoch.ByteSize);
             AppendNativeSizeAssert(o, "FlowerDetailRecord",
                 MerkabaFlowerDetailRecord.ByteSize);
+            AppendNativeSizeAssert(o, "FlowerSkinMetricRun",
+                MerkabaFlowerSkinMetricRun.ByteSize);
+            AppendNativeSizeAssert(o, "FlowerVInterval",
+                MerkabaFlowerVInterval.ByteSize);
+            AppendNativeSizeAssert(o, "FlowerVGroup",
+                MerkabaFlowerVGroup.ByteSize);
             AppendNativeSizeAssert(o, "ThreadRun", MerkabaThreadRun.ByteSize);
-            AppendNativeSizeAssert(o, "ThreadResidual",
-                MerkabaThreadResidual.ByteSize);
+            AppendNativeSizeAssert(o, "ThreadColorInterval",
+                MerkabaThreadColorInterval.ByteSize);
+            AppendNativeSizeAssert(o, "ThreadColorGroup",
+                MerkabaThreadColorGroup.ByteSize);
             AppendNativeSizeAssert(o, "ThreadProgramRecord",
                 MerkabaThreadProgramRecord.ByteSize);
             AppendNativeSizeAssert(o, "FlowerSymbolKey",
@@ -1146,6 +1186,51 @@ uint M8FlowerRank49(uint2 mask, uint bit)
     uint highBit=bit-32u;
     uint highBelow=highBit==0u ? 0u : (1u<<highBit)-1u;
     return countbits(mask.x)+countbits(mask.y&highBelow);
+}
+
+void M8FlowerUnpackSkinSplitBits(uint packedLo, uint packedHi,
+    out uint splitL2, out uint splitL3, out uint2 splitL4)
+{
+    splitL2=packedLo&1u;
+    splitL3=(packedLo>>1)&0x7fu;
+    splitL4.x=(packedLo>>8)|((packedHi&0xffu)<<24);
+    splitL4.y=(packedHi>>8)&0x1ffffu;
+}
+
+bool M8FlowerSkinCompactChildAddress(uint groupBase, uint packedLo,
+    uint packedHi, uint level, uint c3, uint c4, uint c5,
+    out uint groupIndex, out uint childStitchRank)
+{
+    uint splitL2,splitL3;
+    uint2 splitL4;
+    M8FlowerUnpackSkinSplitBits(packedLo,packedHi,splitL2,splitL3,splitL4);
+    uint j3=M8FlowerSkinL3ChildRank[c3];
+    groupIndex=0xffffffffu;
+    childStitchRank=0xffffffffu;
+    if (splitL2==0u) return false;
+    if (level==3u)
+    {
+        groupIndex=groupBase;
+        childStitchRank=j3;
+        return true;
+    }
+    if ((splitL3&(1u<<j3))==0u) return false;
+    uint p4=7u*c3+c4;
+    uint r4=M8FlowerSkinL4ChildRank[p4];
+    if (level==4u)
+    {
+        groupIndex=groupBase+1u+M8FlowerRank7(splitL3,j3);
+        childStitchRank=r4;
+        return true;
+    }
+    uint j4=M8FlowerSkinL4ParentThread[p4];
+    uint l4Word=j4<32u ? splitL4.x : splitL4.y;
+    uint l4Shift=j4<32u ? j4 : j4-32u;
+    if (level!=5u || (l4Word&(1u<<l4Shift))==0u) return false;
+    groupIndex=groupBase+1u+countbits(splitL3)+
+        M8FlowerRank49(splitL4,j4);
+    childStitchRank=M8FlowerSkinL5ChildRank[49u*c3+7u*c4+c5];
+    return true;
 }
 
 bool M8FlowerSkinSplitClosure(uint splitL2, uint splitL3, uint2 splitL4)

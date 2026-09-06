@@ -2773,6 +2773,51 @@ uint M8FlowerRank49(uint2 mask, uint bit)
     return countbits(mask.x)+countbits(mask.y&highBelow);
 }
 
+void M8FlowerUnpackSkinSplitBits(uint packedLo, uint packedHi,
+    out uint splitL2, out uint splitL3, out uint2 splitL4)
+{
+    splitL2=packedLo&1u;
+    splitL3=(packedLo>>1)&0x7fu;
+    splitL4.x=(packedLo>>8)|((packedHi&0xffu)<<24);
+    splitL4.y=(packedHi>>8)&0x1ffffu;
+}
+
+bool M8FlowerSkinCompactChildAddress(uint groupBase, uint packedLo,
+    uint packedHi, uint level, uint c3, uint c4, uint c5,
+    out uint groupIndex, out uint childStitchRank)
+{
+    uint splitL2,splitL3;
+    uint2 splitL4;
+    M8FlowerUnpackSkinSplitBits(packedLo,packedHi,splitL2,splitL3,splitL4);
+    uint j3=M8FlowerSkinL3ChildRank[c3];
+    groupIndex=0xffffffffu;
+    childStitchRank=0xffffffffu;
+    if (splitL2==0u) return false;
+    if (level==3u)
+    {
+        groupIndex=groupBase;
+        childStitchRank=j3;
+        return true;
+    }
+    if ((splitL3&(1u<<j3))==0u) return false;
+    uint p4=7u*c3+c4;
+    uint r4=M8FlowerSkinL4ChildRank[p4];
+    if (level==4u)
+    {
+        groupIndex=groupBase+1u+M8FlowerRank7(splitL3,j3);
+        childStitchRank=r4;
+        return true;
+    }
+    uint j4=M8FlowerSkinL4ParentThread[p4];
+    uint l4Word=j4<32u ? splitL4.x : splitL4.y;
+    uint l4Shift=j4<32u ? j4 : j4-32u;
+    if (level!=5u || (l4Word&(1u<<l4Shift))==0u) return false;
+    groupIndex=groupBase+1u+countbits(splitL3)+
+        M8FlowerRank49(splitL4,j4);
+    childStitchRank=M8FlowerSkinL5ChildRank[49u*c3+7u*c4+c5];
+    return true;
+}
+
 bool M8FlowerSkinSplitClosure(uint splitL2, uint splitL3, uint2 splitL4)
 {
     if ((splitL3&~0x7fu)!=0u || (splitL4.y&~0x1ffffu)!=0u)

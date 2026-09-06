@@ -1274,13 +1274,19 @@ namespace Genesis.RoomScan
                 MerkabaStorageStream.FlowerDetail =>
                     record.Kind == MerkabaRecordKind.FlowerOwnerEpoch ||
                     record.Kind == MerkabaRecordKind.FlowerDetail ||
-                    IsTombstoneFor(record, MerkabaRecordKind.FlowerDetail),
+                    record.Kind == MerkabaRecordKind.FlowerSkinMetricRun ||
+                    record.Kind == MerkabaRecordKind.FlowerVGroup ||
+                    IsTombstoneFor(record, MerkabaRecordKind.FlowerDetail) ||
+                    IsTombstoneFor(record,
+                        MerkabaRecordKind.FlowerSkinMetricRun) ||
+                    IsTombstoneFor(record, MerkabaRecordKind.FlowerVGroup),
                 MerkabaStorageStream.ThreadAtlas =>
                     record.Kind == MerkabaRecordKind.ThreadProgram ||
                     record.Kind == MerkabaRecordKind.ThreadRun ||
-                    record.Kind == MerkabaRecordKind.ThreadResidual ||
-                    (record.Kind == MerkabaRecordKind.Tombstone &&
-                     !IsTombstoneFor(record, MerkabaRecordKind.FlowerDetail)),
+                    record.Kind == MerkabaRecordKind.ThreadColorGroup ||
+                    IsTombstoneFor(record, MerkabaRecordKind.ThreadRun) ||
+                    IsTombstoneFor(record,
+                        MerkabaRecordKind.ThreadColorGroup),
                 _ => false
             };
             if (!valid)
@@ -1318,7 +1324,12 @@ namespace Genesis.RoomScan
                 return MerkabaStorageStream.ThroughLive;
             if (record.Kind == MerkabaRecordKind.FlowerOwnerEpoch ||
                 record.Kind == MerkabaRecordKind.FlowerDetail ||
-                IsTombstoneFor(record, MerkabaRecordKind.FlowerDetail))
+                record.Kind == MerkabaRecordKind.FlowerSkinMetricRun ||
+                record.Kind == MerkabaRecordKind.FlowerVGroup ||
+                IsTombstoneFor(record, MerkabaRecordKind.FlowerDetail) ||
+                IsTombstoneFor(record,
+                    MerkabaRecordKind.FlowerSkinMetricRun) ||
+                IsTombstoneFor(record, MerkabaRecordKind.FlowerVGroup))
                 return MerkabaStorageStream.FlowerDetail;
             return MerkabaStorageStream.ThreadAtlas;
         }

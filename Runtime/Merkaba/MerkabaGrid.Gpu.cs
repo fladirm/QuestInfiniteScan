@@ -30,10 +30,14 @@ namespace Genesis.RoomScan
             MerkabaSphereFlowerDataAbi.FlowerOwnerEpochStride;
         internal const int FlowerDetailStride =
             MerkabaSphereFlowerDataAbi.FlowerDetailStride;
+        internal const int FlowerSkinMetricRunStride =
+            MerkabaSphereFlowerDataAbi.FlowerSkinMetricRunStride;
+        internal const int FlowerVGroupStride =
+            MerkabaSphereFlowerDataAbi.FlowerVGroupStride;
         internal const int ThreadRunStride =
             MerkabaSphereFlowerDataAbi.ThreadRunStride;
-        internal const int ThreadResidualStride =
-            MerkabaSphereFlowerDataAbi.ThreadResidualStride;
+        internal const int ThreadColorGroupStride =
+            MerkabaSphereFlowerDataAbi.ThreadColorGroupStride;
         internal const int ThreadProgramStride =
             MerkabaSphereFlowerDataAbi.ThreadProgramStride;
         internal const int FlowerSymbolStride =
