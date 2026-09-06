@@ -3473,8 +3473,9 @@ CONTRACT_BYTES=86895
 CONTRACT_SHA256=a49c511126750cd46cde2fa06f12d27410c94a3f47c50c58114316261fae9c0b
 WORKTREE=/mnt/aidisk/prace/uniscan
 BRANCH=refactor/m8-dual-sphere-flower-rev-b
-CURRENT_COMMIT=HEAD (resolve with git rev-parse; a commit cannot contain its own SHA)
-CURRENT_CUT=CUT_01_FIXED_THREAD_ORACLE_EXTENSION
+CURRENT_COMMIT=HEAD (CUT 3 commit parent: d5551bfba0012c2e72a7071f38d023909bcb23c9)
+CURRENT_CUT=CUT_03_IMPLEMENTED_VALIDATION_DEFERRED
+DAG_REVISION=COMPACT_FOUR_RUNS_2026_09_06
 DAG_AUDIT=PASS
 FINAL_DAG_AUDIT=PENDING
 FINAL_CONTRACT_AUDIT=PENDING
@@ -3554,30 +3555,22 @@ per-frame world traversal or topology rebuild
 
 ## Implementation DAG status
 
-The full dependency-ordered DAG and ownership audit are populated in PHASE 2 before any production behavior change. Until then no cut may pass CUT 0.
+Only the compact DAG below is executable. Historical CUT 04–17 are coverage
+references, not separate runs or acceptance cycles.
 
-| Cut | Name | Status | Commit |
-|---:|---|---|---|
-| 0 | Authority/bootstrap | PASS | `7a42dda` |
-| 1 | CPU exact oracle + codegen | IN_PROGRESS — fixed-thread closure | `4b6848d` + pending REV-C delta |
-| 2 | ABI/data model | REOPENED — fixed-thread ABI pending | `2148fa6` + pending replacement |
-| 3 | Deterministic observation reduction | PENDING | — |
-| 4 | Stereo Flower support | PENDING | — |
-| 5 | Direct R1 production commit | PENDING | — |
-| 6 | Sparse SEE_THROUGH negative volume | PENDING | — |
-| 7 | Exact R2 shape refinement | PENDING | — |
-| 8 | Exact R3 closure | PENDING | — |
-| 9 | Hole/ghost/refinement algebra | PENDING | — |
-| 10 | L1/L2 geometry + L3-L5 metric skin | PENDING | — |
-| 11 | RGBV/V/photoreal synthesis | PENDING | — |
-| 12 | Procedural readout | PENDING | — |
-| 13 | Spherical residency | PENDING | — |
-| 14 | Transactional persistence | PASS | `HEAD: cut 14 transactional persistence` |
-| 15 | Unified GLB/3D Tiles export | PENDING | — |
-| 16 | Legacy excision + ABI closure | PENDING | — |
-| 17 | Full application closure | PENDING | — |
+| Work | Status | Commit / owner |
+|---|---|---|
+| CUT 0 — authority | PASS | `7a42dda` |
+| CUT 1 — exact fixed-thread oracle/codegen | PASS | `3d78451` |
+| CUT 2 — fixed-thread ABI | PASS | `d5551bf` |
+| CUT 14 — append/manifest foundation | PASS | `0c59ff1` |
+| CUT 3 — GPU bins/reduction/publication | IMPLEMENTED; final validation pending | HEAD |
+| RUN 4 — complete scanner and detail | PENDING | replacement of old CUT 4–11 |
+| RUN 5 — procedural readout and residency | PENDING | replacement of old CUT 12–13 |
+| RUN 6 — shared export and app wiring | PENDING | old CUT 15 / lifecycle integration |
+| RUN 7 — final integration/validation | PENDING | final closure, no RUN 8 |
 
-## Proof/test evidence
+## Historical bootstrap proof/test evidence — not current acceptance
 
 ```text
 PHASE_0 current contract bytes/SHA-256: 86895 / a49c511126750cd46cde2fa06f12d27410c94a3f47c50c58114316261fae9c0b
@@ -3596,7 +3589,7 @@ DEVICE_ACCEPTANCE=NOT_RUN
 
 None yet. Removal is recorded only after the replacement cut and manual audit pass.
 
-## CURRENT TRUE STATE
+## Historical bootstrap state — superseded
 
 ```text
 Working branch is exactly at mandatory base c34d27f0ecb51500b12209ed5d2fe72b893726f5.
@@ -3711,448 +3704,278 @@ PHASE_1_MANUAL_AUDIT=PASS
 Production mutations during forensic audit=0
 ```
 
-## PHASE 2 — dependency-ordered implementation DAG
+## Závazný implementační DAG — CUT 3 + nejvýše čtyři další runy
 
-The numeric labels preserve the requested contract partition. Execution is topological. Every temporary coexistence named below is bounded by an explicit deletion cut; none is a final-state feature flag or fallback.
+Revize 2026-09-06 podle přímého pokynu uživatele. Tento DAG nahrazuje původní
+samostatné CUT 04–17, jejich samostatné closure cykly a jejich pořadí.
+Nemění žádnou rovnici, datový model, invariant ani acceptance podmínku
+zmrazeného kontraktu. Staré číslování níže slouží pouze k dohledání pokrytí,
+nikoli jako další seznam runů.
 
-### CUT 0 — authority/bootstrap
+### Autorita a skutečný výchozí stav
 
-```text
-ID=CUT_00
-NAME=Authority bootstrap and immutable REV-C control
-DEPENDS_ON=mandatory base only
-FILES_TOUCHED=AGENTS.md; contr.md; REV-C contract; superseded contract notices; lasttrue.md; Runtime/Merkaba/MerkabaSphereFlowerAuthority.cs(.meta); Editor/MerkabaSphereFlowerCodegen.cs(.meta); Runtime/Shaders/MerkabaSphereFlower.generated.hlsl(.meta)
-NEW_AUTHORITY=REV-C immutable contract prefix; ledger; compile-time Sphere-Flower namespace/constants/table schema with no production dispatch
-LEGACY_REMOVED=contr.md as competing normative authority (replaced by an unambiguous pointer); no production behavior
-INVARIANTS=H01,H05,H06,H15,H23; contract prefix stays byte-identical; geometric L0-L2, planar-skin L3-L5 and 13/26/72/48 capacities frozen
-CPU_PROOFS=contract byte count/SHA; exact HEAD ancestry; assembly compile of empty authority surface; table-schema uniqueness
-GPU_TESTS=generated HLSL include parses but is not bound by production
-SCENE_FIXTURES=none; behavior checksum of existing tests must be unchanged
-PERF_CHECKS=no new buffer, dispatch, allocation or runtime call site
-ACCEPTANCE=authority chain has one normative target; lasttrue contains full forensic map/DAG; source behavior unchanged
-ROLLBACK_BOUNDARY=single documentation/skeleton commit
-```
+- Repo: `/mnt/aidisk/prace/uniscan`, `fladirm/QuestInfiniteScan`.
+- Mandatory base: `c34d27f0ecb51500b12209ed5d2fe72b893726f5`.
+- Pracovní commit při sestavení DAGu: `d5551bfba0012c2e72a7071f38d023909bcb23c9`;
+  aktuální CUT 3 handoff je HEAD připravovaného review commitu.
+- Autorita: celý zmrazený `M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md`,
+  včetně fixed-399-thread a všech šesti posledních zpřesnění; jeho nezměněná
+  kopie tvoří prvních 86895 bajtů `lasttrue.md`.
+- Uzavřené základy: CUT 0 (`7a42dda`), CUT 1 (`3d78451`),
+  CUT 2 (`d5551bf`), persistence CUT 14 (`0c59ff1`).
+- CUT 3 substrate je implementovaný pro RUN 4; formální runtime/proof validace
+  je podle pokynu uživatele odložená. Není to nový PASS celé aplikace.
+  Přeskupení DAGu samo o sobě nedokončilo žádný produkční mechanismus.
+- Povolené source roots: `Runtime/`, `Editor/`, `Tests/`, `Tools/`;
+  `package.json` a build/authority metadata jen podle skutečné potřeby.
+  Uživatelské `.claude/`, `CLAUDE.md`, `CLAUDE.md.meta` zůstávají nedotčené.
 
-### CUT 1 — CPU exact oracle + codegen
-
-```text
-ID=CUT_01
-NAME=Exact Sphere-Flower CPU oracle and generated finite alphabet
-DEPENDS_ON=CUT_00
-FILES_TOUCHED=MerkabaSphereFlowerAuthority.cs; MerkabaSphereFlowerCodegen.cs; MerkabaSphereFlower.generated.cs/HLSL; oracle/parity tests; shader audit tooling; generated .meta files
-NEW_AUTHORITY=single exact CPU evaluator plus generated HLSL tables for integer incidence, interval ABC/root algebra, 26 nodes/72 strands/48 petals, L0-L2 geometry, exact Flower-7 chambers, recursively contiguous 399-position stitch and canonical/thread maps
-LEGACY_REMOVED=none from production before gate; old geometry generator is explicitly deferred to CUT_12/CUT_16 because current scanner/readout still requires it
-INVARIANTS=H05-H10,H15-H17,H24-H27; no runtime adjacency/root search; no dynamic branch rank; no epsilon; no observation-dependent refinement admission; no runtime Fibonacci
-CPU_PROOFS=J and negative coordinates; 13 lines; endpoint uniqueness; loop/sector/root algebra; 26/72/48 incidence/winding; geometric child substitution only through L2; R2/R3; all 36 ordered chambers and exact Flower-7 child-footprint unions recursively; 399/343 bijections; 57/8 subtree contiguity; adjacency/ports/orientation; FibBit(Tparent); thread-order rank; mask closure; additive V bubble/value/gradient
-GPU_TESTS=bit-identical table hashes; exhaustive CPU/HLSL parity for all 343 terminal addresses, boundary ties, canonical/thread maps, rank49, split masks and V basis; SPIR-V validation with precise math flags
-SCENE_FIXTURES=analytic geometry fixtures; all negative/hierarchy boundaries; uniform/partial/full fixed-thread skin; RGB-only/V-only/union; additive V boundaries
-PERF_CHECKS=generated immutable tables <64KiB target; no heap allocation in evaluator hot methods; fixed operation-count report per primitive
-ACCEPTANCE=every CPU_ORACLE_GATE item relevant to pure algebra PASS; generated artifacts reproducible byte-for-byte; no heuristic fallback
-ROLLBACK_BOUNDARY=oracle/codegen commit; production remains base behavior until later cutover
-```
-
-### CUT 2 — ABI/data model
+### Jediné pořadí provádění
 
 ```text
-ID=CUT_02
-NAME=Exact subordinate data models and persistence record ABI
-DEPENDS_ON=CUT_01
-FILES_TOUCHED=KernelState.cs; MerkabaConstants.cs; new MerkabaDualVisibility.cs; new MerkabaFlowerDetail.cs; new MerkabaThreadAtlas.cs; new persistence record/layout source; MerkabaGrid.Gpu.cs layout declarations; managed/native ABI headers and layout tests
-NEW_AUTHORITY=sparse dual node/leaf types; sparse FlowerOwnerEpoch; 16B L1/L2 FlowerDetailRecord; FlowerSkinMetricRun/FlowerVGroup; ThreadRun/ThreadColorGroup; independent 57-bit thread-order masks; fixed record headers; typed transient Flower symbol and observation records
-LEGACY_REMOVED=no semantic path yet; old ABI fields are marked with last legal consumer cuts, not aliased to new meanings; physical removal occurs when each consumer is replaced
-INVARIANTS=H02-H04,H06,H08,H13,H15-H18,H20,H22,H26,H27; exact byte offsets/strides; no second coordinate hierarchy; no orphan fine state; no stored skin topology
-CPU_PROOFS=Marshal/Unsafe size and offset checks; L1/L2 key round trips; 57-bit mask layout/unused zeros/parent closure; compact thread-rank groups; epoch wrap/rebase; stale-descendant rejection; dual node encode/decode; endian/version fixtures; parent-owner ownership
-GPU_TESTS=C#/HLSL/native struct reflection parity; buffer stride/resource range tests; no binding is exposed before a real consumer exists
-SCENE_FIXTURES=parent compatible refinement, structural sector change, deletion with stale descendants, negative owner addresses
-PERF_CHECKS=KernelState remains 16B; mixed leaf=64B; detail=16B; no per-kernel epoch allocation; allocation upper-bound report
-ACCEPTANCE=all persistent/transient structures have one owner, exact packing and failure semantics; production output unchanged
-ROLLBACK_BOUNDARY=data-model/ABI-schema commit
+HOTOVÉ: CUT 0 -> CUT 1 -> CUT 2 -> CUT 14
+                                      |
+                             dokončit CUT 3
+                                      |
+                       RUN 4: celý scanner
+                                      |
+                 RUN 5: readout + spherical residency
+                                      |
+                 RUN 6: export + aplikační napojení
+                                      |
+                 RUN 7: finální integrace a validace
 ```
 
-### CUT 3 — deterministic observation reduction
+Po CUT 3 existují přesně čtyři další runy. Nevzniknou pod-runy, další
+samostatné authority cuts ani nové per-module closure cykly. Vnitřní
+závislosti se implementují uvnitř daného runu, ne jako nový projektový DAG.
+
+### Pravidla čisté implementace
+
+1. Upravit existující consumer flow a používat již napsanou Sphere–Flower
+   authority, codegen, datové typy a append storage. Nevytvářet druhý evaluator,
+   obecný framework, další orchestration vrstvu, druhou frontu ani fallback.
+2. Samostatný shader dispatch vzniká pouze pro potřebnou GPU synchronizaci,
+   kapacitu či datovou závislost. R1/R2/R3, completion a skin nejsou automaticky
+   samostatné dispatch fáze. Preferovat lokální práci uvnitř FlowerCommit.
+3. Každá nahrazená stará cesta se odstraní spolu se svými volajícími,
+   buffery, bindingy, native jmény a obsolete generovanými soubory ve stejném
+   runu. RUN 7 není odkladiště ponechaných legacy authorities.
+4. Během implementace nepouštět testy, benchmarky ani opakované audity.
+   Jen compile/build check nezbytný pro pokračování. Jeden závěrečný
+   validační průchod v RUN 7; potom cílené opravy skutečných selhání.
+5. IMPLEMENTED není VALIDATED/PASS. Dřívější proof evidence se zachovává,
+   ale nepovažuje se za důkaz nově změněného kódu. Gate §29 zůstává závazná:
+   produkční GPU cutover nesmí proběhnout před požadovanými CPU/HLSL důkazy.
+   Lokální implementace není automatické schválení produkčního nasazení.
+6. Commit uzavřeného runu a finální PASS vyžadují skutečně splněné podmínky,
+   nikoli jen upravený seznam. Quest je odpojený; device acceptance se nefinguje.
+7. Po kompaktaci pokračovat z aktuálního kurzoru, relevantního diffu a posledních
+   2 KiB historie před kompaktací; nečíst znovu celý historický ledger.
+8. GPU hot path nemá geometry readback, CPU surface solve, world clear ani
+   rebuild při otočení hlavy. CPU dále zajišťuje storage/session I/O, oracle
+   a kontraktem předepsaný CPU export; to není druhá scan authority.
+
+### CUT 3 — dokončit GPU observation substrate, nerozšiřovat jej
 
 ```text
 ID=CUT_03
-NAME=Touched-tile observation binning and deterministic one-WG reduction
-DEPENDS_ON=CUT_02
-FILES_TOUCHED=MerkabaIntegrator.cs; MerkabaGrid.Gpu.cs; MerkabaIntegration.compute; native executor/generator resource declarations; new reduction tests
-NEW_AUTHORITY=CountObservationBins→bounded HOT prefix reserve→EmitObservationBins→one FlowerCommit WG per stamped tile; interval intersection precedes representative selection; immutable observation lifetime remains retained until its finite CERTAIN refinement workset is drained
-LEGACY_REMOVED=world clearing is removed where no longer used; SurfaceCandidates capacity is retyped as ObservationRecords; SurfaceWinnerRanks/SurfaceQueue remain explicitly deferred only until CUT_05 switches canonical R1 commit
-INVARIANTS=H05,H07,H08,H14,H22,H24,H25; max 8 owners/pixel; max 2,097,152×16B; canonical source selection cannot resolve incompatible symbols; finalization cannot release observation-owned pending CERTAIN work
-CPU_PROOFS=owner arithmetic/half-open supports; deterministic bin/reference output under every input permutation; prefix bounds; duplicate-compatible interval intersection; incompatible bucket -> UNRESOLVED
-GPU_TESTS=CPU/GPU record parity; exactly one commit group/stamped tile; count/reserve/emit overflow fixtures; slot-generation/ABA halo validation; negative and hierarchy boundaries
-SCENE_FIXTURES=flat wall under shuffled pixels; overlapping owners; thin parallel sheets; maximum 512² frame; missing/cold tile allocation retry
-PERF_CHECKS=no O(world) clear; transient <=32MiB plus 512KiB tile metadata; zero per-record hash after root-tile resolution; dispatch/timing baseline
-ACCEPTANCE=deterministic reducer proven and callable by CUT_05; no new geometry decision is hidden in allocation stages
-ROLLBACK_BOUNDARY=reduction commit; bounded deferred winner deletion=CUT_05
+NAME=Deterministické binning/reduction a storage publication
+STATUS=IMPLEMENTED_FOR_RUN_04; VALIDATION_DEFERRED_TO_RUN_07
+DEPENDS_ON=CUT_01,CUT_02,CUT_14
+FILES_TOUCHED=existující ObservationBins/Owners/Reduction; FlowerTileHalo; World.hlsl/compute; MerkabaObservationBinsGpu; Grid.Gpu; managed/native executor a shader generator
+NEW_AUTHORITY=žádná nová surface authority; dokončený GPU vstup pro společný FlowerCommit
+LEGACY_REMOVED=nahrazené attempt-local obsluhy; pozitivní winner/queue a CARVE se odstraní společně v RUN_04, nikoli třemi samostatnými cutovers
+INVARIANTS=H05,H07,H08,H14,H22,H24,H25; osm ownerů; 32 MiB records; jeden WG/touched tile; interval před PrecisionKey; 27 generation-valid halo refs
+CPU_PROOFS=existující owner/root/reduction oracle; doplněné povinnosti se validují v závěrečném průchodu
+GPU_TESTS=permutace recordů, overflow, nekompatibilní kořeny, záporné/boundary adresy, allocation retry, generation/ABA halo
+SCENE_FIXTURES=flat/shuffled, thin parallel sheets, 512² maximum, missing/COLD retry
+PERF_CHECKS=žádný world winner clear, per-record geometry hash ani další 32 MiB arena
+ACCEPTANCE=kompletní callable reduction/storage průchod bez placeholderu; explicitně napojené všechny jeho resources a retry lifecycle; validace nesmí být předstírána
+ROLLBACK_BOUNDARY=dosud neaktivovaný nový observation vstup; nepřepínat produkční R1 v tomto runu
 ```
 
-### CUT 4 — stereo Flower support
+Dokončit pouze zbývající propojení: root/sector reduction a PrecisionKey,
+alokaci a binding TileHalo, publication chybějících prostorových uzlů a
+native/managed obsluhu opakování téže immutable observation. Vlastní
+přepnutí Integratoru na stereo + FlowerCommit patří do následujícího
+jediného scanner runu; není důvod před ním zavádět dočasný stereo/R1 bridge.
+
+### RUN 4 — jeden kompletní scanner včetně detailu
 
 ```text
-ID=CUT_04
-NAME=Exact Flower-supported stereo interval evidence
-DEPENDS_ON=CUT_01,CUT_03
-FILES_TOUCHED=StereoRgbdRefine.compute; DepthCapture.cs; shared camera/depth includes; MerkabaObservation.cs; native shader generator; stereo/oracle tests
-NEW_AUTHORITY=five bounded hypotheses validated on exact R1 loop roots, conditional R3 disambiguation and conditional R2 bend evidence
-LEGACY_REMOVED=JointTangentBasis; eight square census offsets; arbitrary 12.5mm tangent/bitangent patch; PCA tangent geometry role
-INVARIANTS=H05-H08,H12,H17,H24; PCA L/R remains sensor evidence only; invalid/ambiguous roots do not emit measurement
-CPU_PROOFS=hypothesis-to-ABC intervals; sector/root agreement across eyes; two independent non-collinear R1 relation predicate; deterministic hypothesis tie/ambiguity
-GPU_TESTS=CPU/HLSL hypothesis classification parity; immutable depth/PCA inputs; no camera-dependent branch numbering; source bounds
-SCENE_FIXTURES=flat/oblique/translated planes; arbitrary quantized normals; depth discontinuity; FOV/invalid/occlusion/range edges; thin parallel sheets
-PERF_CHECKS=five-hypothesis bound retained; report R1 fast path/R2/R3 activation; no per-pixel heap/readback/extra world lookup
-ACCEPTANCE=all stereo fixtures either emit contract-valid interval evidence or UNRESOLVED; old square semantic absent
-ROLLBACK_BOUNDARY=stereo support commit
+ID=RUN_04
+NAME=Stereo -> M8 + SEE_THROUGH + FlowerDetail + ThreadAtlas
+STATUS=PENDING
+DEPENDS_ON=CUT_03
+FILES_TOUCHED=StereoRgbdRefine.compute; DepthCapture; MerkabaObservation; MerkabaIntegration.compute/Integrator; Grid.Gpu/Storage; existující SphereFlower authority/codegen, DualVisibility, FlowerDetail, ThreadAtlas; native executor/generator
+NEW_AUTHORITY=jediný GPU observation/refinement/ERASE flow zapisující čtyři kontraktní autority přes existující append transaction
+LEGACY_REMOVED=square census; nearest/normal-step/current-frame routing; weighted plane fusion; Discover/Initialize/Select/Queue/IntegrateSurfaceCandidates; winner banks/SurfaceQueue; CARVE kernels/resources; DepthDilation; NeedsCarve význam; provisional fine-state shortcuts
+INVARIANTS=H02-H17,H20,H22-H27; R1 jediný vlastní occupancy; R2/R3 jej nemažou; dual pouze veto; skin nemění L2 geometrii
+CPU_PROOFS=všechny příslušné §29: stereo/root, R1 seed/promotion, dual/certificate, R2/R3/hinge, completion, epoch, split a eager/drain parity
+GPU_TESTS=stejné generované tabulky; jeden WG/tile; immutable work drain; negativní a hierarchy boundaries; zero-false-THROUGH; atomic epoch a sedm child values
+SCENE_FIXTURES=kontraktní geometry/sensor/ghost/hole fixtures; stationary observation; uniform/partial/full skin; RGB-only/V-only; parent refine/delete
+PERF_CHECKS=bounded hypotheses, fused conditional shell work, 32 MiB records, sparse dual/detail, novelty-proportional skin; bez readbacku, blind expansion a dispatch zoo
+ACCEPTANCE=nový scanner implementuje celou observation transaction včetně SAVE/OPEN datového napojení; jeho stará pozitivní i negativní větev jsou odstraněny
+ROLLBACK_BOUNDARY=celý scanner run; žádný newEnabled/oldPath fallback
 ```
 
-### CUT 5 — direct R1 production commit
+Vnitřní implementační pořadí, nikoli další runy:
+
+- Zachovat Depth-L/R, PCA-L/R a pět bounded hypotheses. Nahradit square
+  support přesnými Flower loops a zavést min-depth/AllValid certificate.
+- Napojit CUT 3 na R1 seed/promotion/retirement a sparse dual update
+  s úplným support certificate a direct endpoint precedence.
+- Ve stejném commit flow použít generated R2 child-loop residual,
+  R3 determinant/chirality a jedinou finite completion/ghost algebru.
+- Doplnit L1/L2 metric records, structural owner epochs, FINE/ERASE
+  invalidation a skutečné GPU zápisy obou skin autorit.
+- RGB/V split rozhoduje scan přes sedm CERTAIN complete-footprint intervalů
+  a prokazatelně disjunktní dvojici. Atomicky publikuje split + sedm hodnot.
+  Žádný validDepth ani existence tree.
+- RGB zůstává skutečná captured radiance; V je additive nested innovation.
+  Jedna observation vyčerpá všechny vlastní CERTAIN geometric/skin práce.
+  AMBIGUOUS žádá novou informaci, nikoli nový frame pro pouhé scheduling.
+
+### RUN 5 — jeden procedural readout a jeho residency
 
 ```text
-ID=CUT_05
-NAME=Canonical direct R1 seed/promotion/retirement and Flower commit cutover
-DEPENDS_ON=CUT_03,CUT_04,CUT_14
-FILES_TOUCHED=KernelState.cs; MerkabaConstants.cs; MerkabaIntegrator.cs; MerkabaIntegration.compute; MerkabaGrid.Gpu.cs; native executor/generator; evidence/GPU/lifecycle tests
-NEW_AUTHORITY=strict endpoint→eight owners→typed symbols→attempt interval reduction→R1 seed or stable exact finite-incidence commit
-LEGACY_REMOVED=DiscoverSurfaceCandidates; Initialize/Select/Queue winners; Prepare/IntegrateSurfaceCandidates; ClearTouchedSurfaceCandidates; SurfaceWinnerRanks0..3; SurfaceQueue; legacy candidate semantic struct; nearest/±normal owner routing; current-frame planar support; same-sheet normal classification; weighted plane fusion authority
-INVARIANTS=H02,H05-H09,H13,H14,H23,H24; `NeedsCarve` meaning is gone and bit is `R1_SEED`; seed never draws/owns children; incompatible occupied owner is not overwritten
-CPU_PROOFS=first-hit state truth table; same-attempt two-relation promotion; cross-generation compatible promotion; incompatible dormant replacement; stable evidence hysteresis; exact root/sector identity
-GPU_TESTS=new observation path is sole positive commit; touched-only finalization; negative/boundary owners; retry at residency epoch; removed resources/pipelines unbound
-SCENE_FIXTURES=isolated first hit; repeated real object; doorway/boundary; comet-tail depth; flat/oblique wall; thin/two parallel sheets
-PERF_CHECKS=winner 72MiB removed; no world winner clear; per-observation timings/memory; no regression against base observation cadence
-ACCEPTANCE=positive canonical surface comes only from direct R1 path; old positive authority physically absent; legacy negative CARVE is the sole explicitly deferred path and loses all `NeedsCarve` flag dependence before close
-ROLLBACK_BOUNDARY=atomic positive-authority cutover commit; deferred negative path deletion=CUT_06
+ID=RUN_05
+NAME=Dirty L2 pages -> compact RGBV -> cull/draw
+STATUS=PENDING
+DEPENDS_ON=RUN_04
+FILES_TOUCHED=MerkabaReadout.compute; GridRenderer; Grid.Gpu; Grid.shader; RenderFeature; ReadoutCoverage a existující storage residency hooks; sdílený evaluator/codegen; native executor/generator
+NEW_AUTHORITY=derived L2 symbol pages a RGB/V union samples; 64 MiB generational arena; jedna serialized-queue publication; SCAN/DRAW/WARM
+LEGACY_REMOVED=oba legacy readout pipelines; MeshReadout; vertex/index/Mesh FRONT/BACK rezervace; octahedron/tip output; camera-dependent rebuild; giant logical sphere stencil a loaded-DRAW gate pro SCAN
+INVARIANTS=H09-H11,H15-H19,H21-H27; pouze L2 raster geometry; thread order; runtime L2 frame; vždy tři sestupy a jeden aligned hot sample
+CPU_PROOFS=§29 page/arena/ownership/winding, exact chamber footprints, 399/343 bijections, thread ranks, RGB/V union, additive V/normal moments a publication
+GPU_TESTS=CPU/HLSL vertex/signal parity; page failure retains FRONT; epoch validity; single queue; rotation mění jen cull commands
+SCENE_FIXTURES=uniform/partial/full skin se stejnou geometrií; hinge; completed/veto; RGB/V union; head rotation, translation, COLD/WARM a arena capacity
+PERF_CHECKS=odstranit ~480 MiB rezervaci; arena 64 MiB; commands <=512 KiB; jeden vkCmdDrawIndirectCount; žádná L3-L5 geometrie, runtime Fibonacci ani per-frame rebuild
+ACCEPTANCE=renderer používá jen společný L2 evaluator a scan-authored signal; readout nemůže vytvářet detail, měnit subdivision nebo emitovat alternativní surface
+ROLLBACK_BOUNDARY=celý readout/residency run; starý renderer není emergency fallback
 ```
 
-### CUT 6 — sparse SEE_THROUGH negative volume
+Struna zůstává vždy 399 logických pozic. Identity jsou radix-7, masks/rank
+jsou v thread-parent order. Fibonacci zůstává v codegenu jako
+`FibBit(Tparent)` pro portově/orientačně platné A/B embroidery; runtime jej
+nevypočítává. World frame dodává skutečný L2 evaluator. Fragment vyhodnocuje
+nejhlubší explicitní RGB a součet A3ψ3+A4ψ4+A5ψ5. Captured-light-preserving
+normal/optical synthesis nevytváří albedo, ambient ani nepozorovaný specular.
+
+### RUN 6 — společný export a napojení celé aplikace
 
 ```text
-ID=CUT_06
-NAME=Conservative full-support free certificate and sparse negative-volume cutover
-DEPENDS_ON=CUT_04,CUT_05,CUT_14
-FILES_TOUCHED=DepthCapture.cs; new DepthCertificate.compute; delete DepthDilation.compute; MerkabaDualVisibility.cs; MerkabaObservation.cs; MerkabaIntegrator.cs; MerkabaIntegration.compute; MerkabaGrid.Gpu.cs; native executor/generator; persistence replay hooks; certificate/dual tests
-NEW_AUTHORITY=min-lower/all-valid depth pyramid; convex projected-support dyadic cover; sparse ALL_FULL/ALL_THROUGH/MIXED Block→Chunk→Tile leaves; endpoint precedence; endpoint/through dual projection
-LEGACY_REMOVED=DepthDilation compute/resources/bindings; QueryCarveTiles; PrepareCarveArgs; IntegrateCarveTiles; CarveTiles/Args; 26-plane continuing-sheet CARVE; dilated-depth and image-morphology free authority
-INVARIANTS=H03,H08,H11-H13,H20,H22-H24; missing/cold dual=AMBIGUOUS; dual never creates positive surface; complete-support proof has zero false positives
-CPU_PROOFS=pyramid reduction; common-prefix superset proof; exact dyadic-cover query; projected eight-corner uncertainty enclosure; ALL states promotion/collapse; sparse record replay; endpoint exclusion/restore
-GPU_TESTS=CPU/GPU certificate parity; 64-node exhaustion=>AMBIGUOUS; frustum sparse traversal; node collapse/expand; slot generation; no destructive write from invalid/FOV/range/occlusion ambiguity
-SCENE_FIXTURES=FOV/invalid/occlusion/range boundaries; foreground occluder; comet tail; direct endpoint crossing; closed ghost support; negative/tile/chunk/block edges
-PERF_CHECKS=certificate memory ~5.33MiB per stereo hierarchy as contracted; dual HOT <= stated bounds; report fast/slow cover nodes and R1 mutation time; no pixel→world raymarch/hash traversal
-ACCEPTANCE=SEE_THROUGH persists across save/open; sole automatic free/ghost contradiction path is certificate-based; old CARVE/dilation physically absent
-ROLLBACK_BOUNDARY=atomic negative-volume authority cutover commit
+ID=RUN_06
+NAME=SAVE/OPEN, GLB/3D Tiles a existující aplikační lifecycle
+STATUS=PENDING
+DEPENDS_ON=RUN_05,CUT_14
+FILES_TOUCHED=MerkabaExporter/GlbWriter/TilesetWriter; existující SsdStore/replay/persistence/session; RoomScanner/ScanOperationState; anchor/ALIGN/FINE/ERASE/controller/design call sites pouze podle potřeby
+NEW_AUTHORITY=žádná další; všechny consumery napojené na tytéž M8/dual/detail/thread records a společný evaluator
+LEGACY_REMOVED=ExportShell/ExportMembrane, donor/repair/min-cut/float weld, zbývající OverlapShell a jeho codegen po odstranění posledního consumeru; staré lifecycle/save/readout gate a export-only solver
+INVARIANTS=H02-H04,H09-H11,H15-H17,H19-H27; dirty append; manifest-first replay; SCAN readiness nezávislá na DRAW/WARM; export je presentation, nikoli world truth
+CPU_PROOFS=§26 crash/generation/epoch replay a §27 live/export knot+RGBV parity, ownership, winding, RTC a deterministic output
+GPU_TESTS=upload/publication a priority consumerů; žádný nový CPU hot-path geometry solve
+SCENE_FIXTURES=SAVE/OPEN fine+dual, stale descendants, SCAN/STOP/RESUME/WAKE/ALIGN/FINE/ERASE, GLB/3D Tiles, session anchor, controller/two-hand/design, multiroom/stairs/large space
+PERF_CHECKS=O(dirty) SAVE, CPU storage pokračuje při GPU jobu, bounded export streaming; žádný whole-world snapshot rebuild či export repair pass
+ACCEPTANCE=aplikační flow je plně implementované bez UX redesignu a bez další geometry authority; exporter i live čtou stejný signal
+ROLLBACK_BOUNDARY=celé consumer napojení; ponechat existující session/anchor/UI/design ownership
 ```
 
-### CUT 7 — exact R2 shape refinement
+Již hotový CUT 14 se nepíše znovu. Pouze se dopojí skutečné nové GPU
+producenty a consumery a opraví prokazatelné lifecycle nesoulady.
+UI, paint/design a viewer se nepřestavují; zachovávají svoje současné funkce.
+
+### RUN 7 — dokončení integrované aplikace a jeden validační průchod
 
 ```text
-ID=CUT_07
-NAME=Native child-loop R2 analysis/synthesis
-DEPENDS_ON=CUT_05,CUT_06
-FILES_TOUCHED=MerkabaSphereFlowerAuthority.cs/generated HLSL; MerkabaFlowerDetail.cs; MerkabaIntegrator.cs; MerkabaIntegration.compute; detail page GPU resources; R2 oracle/GPU tests
-NEW_AUTHORITY=six face-diagonal channels; exact parent evaluator restricted to generated child loops; tangent-half-angle innovation; rational rotation synthesis; incident-child interval intersection
-LEGACY_REMOVED=remaining normal-difference curvature/crease decisions; any provisional R2 placeholder from earlier cuts
-INVARIANTS=H06-H10,H15,H23,H24; no Hessian/phi/Taylor/LS/PCA; inherited nodes never move; geometric R2 stops at L2; nonzero certain innovations only
-CPU_PROOFS=all 48 parent classes × generated L1/L2 children; predicted loop identity; tau degeneracy; orientation signed permutations; analysis→synthesis containment; shared-child intersection; sector promotion within L0-L2
-GPU_TESTS=CPU/HLSL R2 parity through L2; conditional activation masks; parent bit identity; conflict and ambiguous paths write nothing
-SCENE_FIXTURES=flat zero innovation; smooth bend; mixed bends xy/xz/yz; hinge onset; parent boundary; representability promotion; negative/tile boundaries
-PERF_CHECKS=R1 fast wall executes no R2 metric work; max six scalar interval innovations/parent; touched-only record allocation/timing
-ACCEPTANCE=R2 modifies only subordinate FlowerDetail, produces exact certain child geometry, and cannot affect occupancy
-ROLLBACK_BOUNDARY=R2 authority commit
+ID=RUN_07
+NAME=Finální integrace, opravy skutečných selhání a release closure
+STATUS=PENDING
+DEPENDS_ON=RUN_06
+FILES_TOUCHED=jen skutečné integration/build/validation fixy v již změněných files; existující test/build entry points; final native ABI/generator; lasttrue evidence
+NEW_AUTHORITY=žádná
+LEGACY_REMOVED=poslední nefunkční reference, obsolete serialized fields/metas/bindingy a stale tests; aktivní nahrazené authorities již musejí být pryč z RUN_04/05/06
+INVARIANTS=H01-H27 a celý zmrazený kontrakt, bez výjimek
+CPU_PROOFS=celý existující oracle/codegen, všechny požadavky §29, persistence crash a export parity
+GPU_TESTS=celá CPU/HLSL parity, shader/native ABI compile, synchronizace/publication a runtime integration
+SCENE_FIXTURES=všechny fixtures §29 a všechny požadované aplikační flow; nic se neoznačí PASS bez vykonání
+PERF_CHECKS=stereo/certificate/binning/commit/compaction/cull/draw; CPU storage/session/submission; konečná paměť, rotation a large-space regresní profil
+ACCEPTANCE=FINAL_DAG_AUDIT, FINAL_CONTRACT_AUDIT, FINAL_LEGACY_AUDIT, FINAL_BUILD, FINAL_RUNTIME_FIXTURES skutečně PASS; produkční cutover až po gate §29
+ROLLBACK_BOUNDARY=finální opravný/closure run; nevracet legacy jako fallback a nevytvářet RUN_08
 ```
 
-### CUT 8 — exact R3 closure
+Jediný závěrečný průchod: CPU/proofs → CPU/HLSL/build → export/app/runtime →
+profiling/legacy closure. Potom opravit konkrétní nalezené chyby a zopakovat
+jen dotčené kontroly. Odpojený Quest znamená neprovedenou device validaci,
+nikoli automatický PASS ani důvod pro další návrhový run.
+
+### Úplné pokrytí původního DAGu
+
+| Původní oblast | Jediný nový implementation owner |
+|---|---|
+| CUT 0, 1, 2, 14 — authority/oracle/ABI/append foundation | zachovat hotové; jejich integrace v RUN 4–6 |
+| CUT 3 — binning/reduction/halo | dokončit současný CUT 3 |
+| CUT 4, 5, 6 — stereo, R1, dual | RUN 4 |
+| CUT 7, 8, 9 — R2, R3, completion/ghost | RUN 4 |
+| CUT 10, 11 — metric/ThreadAtlas/split producer | RUN 4; sdílená draw evaluace v RUN 5 |
+| CUT 12, 13 — readout/residency/photoreal consumer | RUN 5 |
+| CUT 15 — společný export | RUN 6 |
+| CUT 17 — aplikační wiring a UX zachování | RUN 6 |
+| CUT 16 — removal/ABI | každý replacement RUN 4/5/6; finální absence v RUN 7 |
+| CUT 17 — plná validace a integration fixy | RUN 7 |
+
+### Pokrytí kontraktu a deletion dependencies
+
+| Contract authority | Implementace / odstranění staré cesty |
+|---|---|
+| §0–1, §3–11: ontology, ABI, geometry, intervaly, R1/R2/R3 | hotové CUT 1/2 + RUN 4; consumers RUN 5/6 |
+| §2, §12–16: sparse dual, full support, seed, completion/ghost | RUN 4; CARVE/dilation odstranění v témže runu |
+| §17–19: bins, observation lifetime a stereo | CUT 3 + RUN 4; winner/queue/square support odstranění v RUN 4 |
+| §20–22: fixed thread, Fib(Tparent), independent splits, RGB/V | hotové codegen/ABI + scan RUN 4 + readout RUN 5 + export RUN 6 |
+| §23–24: micro-normal/optical a procedural pages | RUN 5; obě mesh readout větve a buffery odstraněny zde |
+| §25: SCAN/DRAW/WARM | RUN 5; head-rotation rebuild odstraněn zde |
+| §26: dirty append/manifest/open | hotový CUT 14 + producenti RUN 4 a consumer/lifecycle RUN 6 |
+| §27: shared export | RUN 6; membrane/shell/repair/float-weld odstraněny zde |
+| §28: úplné replacement/excision + ABI | RUN 4/5/6 podle consumeru; finální kontrola absence RUN 7 |
+| §29–30: proofy, fixtures a jediná finální cesta | RUN 7; povinnosti všech předchozích ownerů zachovány |
+
+H01 je vlastněn hotovým CUT 0. H02–H14,H20,H22–H27 mají implementačního
+ownera v CUT 3/RUN 4 a podle consumeru RUN 5/6. H15–H19,H21,H26,H27 jsou
+explicitní povinností RUN 4/5/6. RUN 7 ověřuje všech H01–H27 a celé §29.
+Žádný invariant ani delete nemá ownera „později“ mimo tento DAG.
+
+Šest posledních zpřesnění je zachováno: thread-order rank, Fibonacci podle
+Tparent, additive V, world frame od runtime L2 evaluatoru, exact
+chamber-to-Flower footprint proof a intervalově přesný scan split predicate.
+
+### Výsledek revize DAGu
 
 ```text
-ID=CUT_08
-NAME=Tetrahedral branch/corner/chirality closure
-DEPENDS_ON=CUT_07
-FILES_TOUCHED=SphereFlower authority/codegen/generated HLSL; FlowerDetail; integration shader/orchestration; R3 tests
-NEW_AUTHORITY=four generated tetra frames for each of eight parity classes; q_i from oriented predicted/observed root tau; exact qs/qv transform and generated chirality candidate intersection
-LEGACY_REMOVED=all remaining normal-angle branch/corner logic; any hard-coded level chirality toggle or Taylor predictor
-INVARIANTS=H06-H10,H15,H23,H24; R3 never predicts R1/R2, owns occupancy, creates skin geometry or gates independent skin signal
-CPU_PROOFS=eight determinant frames; signed permutations/eta; forward/inverse tetra transform; chiCell/product root signs; all candidate junction decisions; shared hinge position with branch normals
-GPU_TESTS=CPU/HLSL q_i/qs/qv/chirality parity; conditional R3 only at branch/corner/hole/cross-junction; ambiguous class writes no R3 state
-SCENE_FIXTURES=convex/concave/trihedral corners; chirality mirrors; doorway; two sheets; missing R3 with valid local fine sheet; junction ambiguity
-PERF_CHECKS=R3 activation ratio and fixed four-channel instruction bound; zero work on ordinary R1-only wall
-ACCEPTANCE=one finite generated class or UNRESOLVED; no threshold/score/predictor; R1 survives every R3 failure
-ROLLBACK_BOUNDARY=R3 authority commit
-```
-
-### CUT 9 — hole/ghost/refinement algebra
-
-```text
-ID=CUT_09
-NAME=Finite direct/dual completion, veto and discrete refinement reasons
-DEPENDS_ON=CUT_06,CUT_07,CUT_08
-FILES_TOUCHED=SphereFlower authority/generated incidence; DualVisibility; Integrator/integration shader; symbol page inputs; hole/ghost scene tests
-NEW_AUTHORITY=fixed signed 72×48 incidence operations; candidate bit intersections; exact 0/1/>1 completion; full-interval dual veto; discrete refinement reason mask
-LEGACY_REMOVED=all scan-time generic hole/ghost heuristics, confidence/refinement scores and any inferred patch logic in production scanner
-INVARIANTS=H03,H08-H12,H15,H23,H24; dual only removes/narrows; completed cannot seed completion; no extrapolated knot; partial THROUGH overlap=AMBIGUOUS; completion creates no skin split
-CPU_PROOFS=B·x boundary signs; every one-petal removal/restoration; 0/1/>1 candidate enumeration; generation-local nonrecursion; direct precedence; complete support contradiction; reason-bit determinism
-GPU_TESTS=CPU/HLSL mask parity; completed flag transient/page-only; immediate dual veto; no canonical M8 write from completion; bounded per-parent operations
-SCENE_FIXTURES=unique one-petal hole; large ambiguous hole; real doorway/frontier; closed ghost in THROUGH; partial dual overlap; direct later confirmation; through later invalidation
-PERF_CHECKS=fixed masks/add-sub/popcount only; no traversal/allocation/fit; completion/refinement activation profile
-ACCEPTANCE=surface completion occurs only for exactly one certain generated symbol; every other case remains VETO/UNRESOLVED/REFINE
-ROLLBACK_BOUNDARY=direct/dual algebra commit
-```
-
-### CUT 10 — L1/L2 geometry and L3–L5 metric skin
-
-```text
-ID=CUT_10
-NAME=Persistent L1/L2 metric geometry and additive planar V signal
-DEPENDS_ON=CUT_07,CUT_08,CUT_09,CUT_14
-FILES_TOUCHED=MerkabaFlowerDetail.cs; SphereFlower evaluator/generated HLSL; Integrator/shader; Grid GPU/storage; persistence records/replay; FINE integration; detail tests
-NEW_AUTHORITY=sparse per-owner epochs; L1/L2 R2/R3/Knot interval records; independent 57-bit thread-order V split mask; compact seven-child Q5.26 V groups; exact interval split predicate; same-observation finite work drain
-LEGACY_REMOVED=any fine geometry encoded as legacy carrier fusion/readout subdivision; FINE mutations that touch only coarse M8 without subordinate-detail semantics
-INVARIANTS=H04,H06,H08-H10,H15,H16,H20,H22-H27; no orphan detail; compatible parent refinement retains epoch; structural change invalidates logically without walk; no observationOrdinal/Fibonacci admission; no resolvable work waits for another camera observation
-CPU_PROOFS=L1/L2 key packing; epoch wrap/rebase; parent delete; selective invalidation; 57-bit V mask closure; thread-order ranks; interval split decisions; additive A3/A4/A5 continuity; Q5.26 bounds; eager versus every quantum split; save/open identity
-GPU_TESTS=detail page/run/group allocation/update/tombstone; stale epoch rejection; CPU/HLSL V mask/rank/bubble parity; FINE priority; fused or bounded same-observation drain; no L3-L5 vertex output
-SCENE_FIXTURES=L0-L2 geometry; uniform/partial/full V signal; parent+child+grandchild V; stationary observation; multi-quantum identical state; flat no split; parent compatible refine; structural invalidation; FINE across boundaries
-PERF_CHECKS=one 57-bit mask and only seven-value groups for actual V distinctions; no topology allocation, subtree walk, Fibonacci runtime or dense 399 values; O(dirty) upload/log
-ACCEPTANCE=persistent geometric metric and nested V survive OPEN beneath valid R1/L2 owners; L3-L5 never become geometry; one observation exhausts every split test it can make CERTAIN
-ROLLBACK_BOUNDARY=fine metric authority commit
-```
-
-### CUT 11 — RGBV/V/photoreal synthesis
-
-```text
-ID=CUT_11
-NAME=Fixed-thread captured RGB and unified optical evaluator
-DEPENDS_ON=CUT_10,CUT_14
-FILES_TOUCHED=MerkabaThreadAtlas.cs; new MerkabaFlowerCloth.hlsl; SphereFlower evaluator; render shader shared includes; integration observation updates; persistence; RGBV/optical tests
-NEW_AUTHORITY=epoch-bound ThreadRun/actual-color groups; independent 57-bit thread-order RGB mask; exact interval split predicate; deepest explicit captured RGB; derived union with additive V; analytic micro-normal/moments and certified optical intervals
-LEGACY_REMOVED=any new-path dense texture/UV/normal-map/roughness authority; provisional coarse-only color shortcut for resolvable fine data
-INVARIANTS=H04,H10,H15-H17,H20,H21,H24-H27; RGB never creates V; V only metric evidence; no ambient/albedo invention; completion signal only when unique; Fibonacci has no runtime role
-CPU_PROOFS=RGB interval disjointness; thread-order mask/rank; nearest explicit value; RGB/V union; fixed-thread address continuity; additive V derivative; analytic normal/moment math; stale epoch
-GPU_TESTS=CPU/HLSL fixed-thread RGB/A3/A4/A5 parity; linear-light interval updates; three unconditional descents; one aligned hot sample load; optical invalid => zero specular correction
-SCENE_FIXTURES=uniform photograph; one partial RGB split; RGB-only/V-only/union; plaster relief; wood/cloth; completed petal unique/ambiguous color; all terminal localities
-PERF_CHECKS=novelty-proportional seven-child groups; no dense 399 samples, runtime Fibonacci, pointer traversal, mip/LOD selection, texture atlas allocation or readback
-ACCEPTANCE=geometry and photoreal appearance are one address/evaluator; persisted RGBV survives OPEN; unresolved information is not invented
-ROLLBACK_BOUNDARY=RGBV/photoreal authority commit
-```
-
-### CUT 12 — procedural readout
-
-```text
-ID=CUT_12
-NAME=Compact L2 symbol pages and fixed-thread procedural draw cutover
-DEPENDS_ON=CUT_05,CUT_07,CUT_08,CUT_09,CUT_10,CUT_11
-FILES_TOUCHED=MerkabaGridRenderer.cs; MerkabaGrid.Gpu.cs; MerkabaReadout.compute (full replacement); MerkabaGrid.shader; MerkabaRenderFeature.cs; native executor/generator; canonical geometry generator/files; procedural readout tests
-NEW_AUTHORITY=dirty active-L2-symbol page compaction; 64MiB generational arena; immutable L2/chamber/thread tables; exact RGB/V union groups; one indirect draw stream; shared VS/FS evaluator; single-queue page publication
-LEGACY_REMOVED=all Reset/Query/Prepare/Build/Finalize legacy readout and MeshReadout kernels; both full vertex streams/index buffers/Unity Mesh slots; meshReadoutEnabled/checker alternate; whole-world FRONT/BACK publication; direct octahedron/tip draw authority
-INVARIANTS=H09,H10,H15-H19,H21-H27; page records only active L2 symbols; no dynamic index/world/depth authority; three descents always; failed allocation leaves FRONT intact
-CPU_PROOFS=symbol packing/page runs; canonical owner/L2 wedge evaluation; runtime frame ownership; union/rank/sample compaction; arena allocate/retire; generation/fence state machine; L2 VertexID and chamber tables
-GPU_TESTS=CPU/HLSL L2 vertex/fixed-thread RGBV parity; dirty-only compaction; single indirect stream; completed/hinge semantics; single native queue publication; fence-safe page retention; environment depth/opaque passes
-SCENE_FIXTURES=flat/curved/corners/hinges/parallel sheets; hole completion; uniform/partial/full skin; head rotation; dirty single page; arena failure
-PERF_CHECKS=remove ~480MiB reservation; arena<=64MiB; commands<=512KiB; page compaction fixed 32–64 page quantum; no whole-world rebuild/readback
-ACCEPTANCE=only procedural Sphere-Flower synthesis is drawable; every legacy mesh resource/pipeline/call site physically absent
-ROLLBACK_BOUNDARY=atomic readout authority cutover commit
-```
-
-### CUT 13 — spherical residency
-
-```text
-ID=CUT_13
-NAME=SCAN/DRAW/WARM physical-slot spherical residency
-DEPENDS_ON=CUT_12
-FILES_TOUCHED=MerkabaGridRenderer.cs; MerkabaReadoutCoverage.cs; readout/cull compute; Grid storage residency hooks; native scheduler; residency tests
-NEW_AUTHORITY=translation-triggered parallel AABB-distance classification of at most 32768 HOT slots; changed-slot classification; asynchronous WARM prefetch; SCAN priority
-LEGACY_REMOVED=loaded-coverage dependency on scan start; canonicalDirty whole-surface build trigger; per-rotation query/rebuild; any precomputed giant logical sphere stencil
-INVARIANTS=H19,H22,H23; 360° DRAW set independent of head orientation; culling may change commands only, never residency/topology/page membership
-CPU_PROOFS=AABB distance and boundary states; translation-cell trigger; DRAW/WARM/SCAN nesting; negative coords; residency generation
-GPU_TESTS=HOT-slot classification parity; changed-slot path; rotation produces no residency/page/storage job; culling only indirect commands
-SCENE_FIXTURES=head rotation; subcell and cross-cell translation; cold/warm movement; multiroom/stairs/large space; eviction/install
-PERF_CHECKS=classification<=32768 slots only on translation/slot change; zero head-rotation SSD/page work; WARM latency and memory budget
-ACCEPTANCE=instant 360° rotation and independent SCAN readiness; no world traversal
-ROLLBACK_BOUNDARY=spherical residency commit
-```
-
-### CUT 14 — transactional persistence
-
-```text
-ID=CUT_14
-NAME=Generation-bound dirty append SAVE/OPEN foundation
-DEPENDS_ON=CUT_02
-FILES_TOUCHED=MerkabaSsdStore.cs; MerkabaGrid.Storage.cs; MerkabaPersistence.cs; MerkabaSessionCatalog.cs; record/layout sources; RoomScanner lifecycle hooks; persistence tests
-NEW_AUTHORITY=separate M8/through/detail/thread append streams; commit generation and valid end offsets; manifest.tmp fsync+atomic rename; replayed sparse epochs; independent PumpStorageCpu/PumpStorageGpu
-LEGACY_REMOVED=CaptureStoredSnapshotAsync; ReadCanonicalSnapshotAsync; whole-world PublishCheckpoint SAVE dependency; write-through+fsync per tiny batch; GPU-job gate around CPU completion/accounting
-INVARIANTS=H02-H04,H20,H22-H24; no old-format compatibility authority; tails ignored; ancestor dual record supersedes descendants; no orphan detail; SCAN readiness independent of DRAW/WARM
-CPU_PROOFS=every crash point before/after stream flush and manifest rename; truncated/corrupt tail; generation ordering; uniform dual supersession; epoch/detail replay; dirty-only byte counts; named-session and anchor preservation
-GPU_TESTS=upload/readback phases serialize correctly while CPU file/index tasks progress; resume with queue occupied; no readback in scan hot path
-SCENE_FIXTURES=save/open empty/coarse/fine worlds; parent tombstone; dual mixed/uniform; interrupted save; wake/resume; named session switch; anchor relocation
-PERF_CHECKS=SAVE bytes/time proportional to dirty records; no full stored-index scan or checkpoint rewrite; CPU pump makes progress during long GPU job
-ACCEPTANCE=all four authorities commit atomically by manifest generation and reopen without orphans; legacy snapshot path absent
-ROLLBACK_BOUNDARY=storage-format cutover commit; new format begins cleanly with no compatibility alias
-```
-
-### CUT 15 — unified GLB/3D Tiles export
-
-```text
-ID=CUT_15
-NAME=Presentation export from the shared CPU Flower evaluator
-DEPENDS_ON=CUT_09,CUT_10,CUT_11,CUT_14
-FILES_TOUCHED=MerkabaExporter.cs; MerkabaGlbWriter.cs; MerkabaTilesetWriter.cs; delete MerkabaExportShell.cs/MerkabaExportMembrane.cs/MerkabaOverlapShell.cs and generated overlap files when last live dependency is gone; export/oracle/validator tests
-NEW_AUTHORITY=streamed confirmed+unique-completed petal enumeration; generated canonical owner; L0-L2 KnotAddress identity; deterministic winding; same L2/fixed-thread RGBV evaluator; export-only presentation tessellation and baking
-LEGACY_REMOVED=export closing offsets/synthetic kernels; donor inference; sparse max-flow/min-cut membrane; overlap-shell patch authority; dominant-axis quads; float VertexKey weld; export-only surface repair
-INVARIANTS=H09-H11,H15-H17,H20-H27; materialized L2 triangles cannot re-enter canonical world; skin adds no vertices; completion metadata/fallback color exact; no float identity
-CPU_PROOFS=live/export L0-L2 knot bit parity and all-terminal skin parity; tile-boundary owner; winding/hinge normals; completed policy; RTC origin and binary32 quantization; deterministic byte output; chunk streaming ownership
-GPU_TESTS=none required for geometry authority; validate any shared HLSL/CPU table hash before export
-SCENE_FIXTURES=all geometry fixtures plus confirmed/completed holes, parallel sheets, negative/hierarchy boundaries, fine V, save/open export, large multiroom/stairs
-PERF_CHECKS=bounded streaming memory; no whole-world mesh list; GLB and 3D Tiles size/time; no repair pass or weld dictionary
-ACCEPTANCE=GLB validator and 3D Tiles viewer pass; exporter invokes only shared Flower evaluator; all membrane/shell repair sources and stale tests absent
-ROLLBACK_BOUNDARY=export authority cutover commit
-```
-
-### CUT 16 — legacy excision + ABI closure
-
-```text
-ID=CUT_16
-NAME=Final physical excision and minimal native ABI
-DEPENDS_ON=CUT_06,CUT_12,CUT_13,CUT_15
-FILES_TOUCHED=all managed/native resource enums/bindings; shader generator; build sanitizer; deleted old generated/source/meta files; tests/tool manifests; all source roots searched
-NEW_AUTHORITY=one final ABI containing only retained M8 storage plus TileHalo, sparse dual, certificate, attempt bins, detail/thread pages, symbol arena/directory and indirect commands
-LEGACY_REMOVED=every deferred resource/pipeline/helper/property/serialized flag/compatibility alias; dead generated files; stale legacy tests; obsolete docs presented as authority
-INVARIANTS=H01-H27; exact managed/native/HLSL resource and pipeline equality; no hidden CPU/shader/export alternate geometry, validDepth, runtime Fibonacci or observationOrdinal refinement state
-CPU_PROOFS=forbidden-symbol scan; reflection/layout manifest; source ownership graph; generated artifact reproducibility; clean import/meta references
-GPU_TESTS=compile/validate every final SPIR-V pipeline; descriptor type/count audit; native ABI handshake; every job kind; no stale binding/property
-SCENE_FIXTURES=smoke set covering scan, through, R2/R3, detail, draw, export
-PERF_CHECKS=final resource memory inventory compared to mandatory base; dispatch inventory; no world-sized cleared buffer or mesh reservation
-ACCEPTANCE=forbidden registry search returns zero semantic matches except immutable contract/test assertions; ABI has no unused slot; clean Unity import/build
-ROLLBACK_BOUNDARY=legacy-excision commit; no compatibility fallback exists after it
-```
-
-### CUT 17 — full application closure
-
-```text
-ID=CUT_17
-NAME=End-to-end Quest application and final contract closure
-DEPENDS_ON=CUT_13,CUT_14,CUT_15,CUT_16
-FILES_TOUCHED=RoomScanner/lifecycle; FINE/ERASE integration; anchor/ALIGN; controller/UI/design workspace only where regression fixes are required; full tests/build/profiling evidence; lasttrue ledger
-NEW_AUTHORITY=none; proves the single authority is used coherently by every application workflow
-LEGACY_REMOVED=any final stale lifecycle readiness gate, dead UI field, abandoned setting, alternate save/export/readout path found by full audit
-INVARIANTS=H01-H27 and every REV-C MUST/MUST NOT statement
-CPU_PROOFS=complete oracle suite, persistence crash suite, export/live parity and deterministic repeat run
-GPU_TESTS=full compute parity/SPIR-V/native ABI suite; long-run queue priority/publication; no readback/per-frame allocation in hot paths
-SCENE_FIXTURES=every mandatory fixture, including stationary one-observation drain, multi-quantum eager equivalence and flat no-expansion, plus SCAN/STOP/RESUME/WAKE/SAVE/OPEN/ALIGN/FINE/ERASE/GLB/3D Tiles/controller/two-hand/design/session anchor/multiroom/stairs/large scan/cold-warm residency
-PERF_CHECKS=Quest GPU stages stereo/certificate/binning/commit/page compact/cull/draw; CPU storage/publication/session/submission; complete memory inventory; rotation and translation assertions
-ACCEPTANCE=FINAL_DAG_AUDIT, FINAL_CONTRACT_AUDIT, FINAL_LEGACY_AUDIT, FINAL_BUILD and FINAL_RUNTIME_FIXTURES all PASS; every node closed and committed
-ROLLBACK_BOUNDARY=final closure commit
-```
-
-## DAG topological execution order
-
-Persistence is deliberately established before any newly persistent production authority. This avoids a forbidden HOT-only dual phase and avoids committing FlowerDetail/ThreadAtlas into the old whole-snapshot store.
-
-```text
-CUT_00
-  -> CUT_01
-  -> CUT_02
-  -> CUT_14
-  -> CUT_03
-  -> CUT_04
-  -> CUT_05
-  -> CUT_06
-  -> CUT_07
-  -> CUT_08
-  -> CUT_09
-  -> CUT_10
-  -> CUT_11
-  -> CUT_12
-  -> CUT_13
-  -> CUT_15
-  -> CUT_16
-  -> CUT_17
-```
-
-This ordering is acyclic. CUT 14 retains its required logical identity but executes early as a storage foundation.
-
-## DAG ownership audit
-
-### Hard-invariant ownership
-
-| Invariant | Owning cut(s) | Final verifier |
-|---|---|---|
-| H01 | 0 | 16,17 |
-| H02 | 2,5,14 | 16,17 |
-| H03 | 2,6,9,14 | 17 |
-| H04 | 2,10,11,14 | 17 |
-| H05 | 1,3 | 16,17 |
-| H06 | 1,5,7,8 | 17 |
-| H07 | 1,3,5,7,8 | 16,17 |
-| H08 | 1,3,4,5,7,8,9 | 17 |
-| H09 | 1,8,9,12,15 | 17 |
-| H10 | 1,7,10,11,12,15 | 17 |
-| H11 | 9,12,15 | 17 |
-| H12 | 6,9 | 17 |
-| H13 | 5,6 | 17 |
-| H14 | 3,5 | 17 |
-| H15 | 7,8,10,11,12,15 | 17 |
-| H16 | 1,10,11 | 17 |
-| H17 | 11,12,15 | 17 |
-| H18 | 12 | 16,17 |
-| H19 | 12,13 | 17 |
-| H20 | 14 | 17 |
-| H21 | 11,12,15 | 17 |
-| H22 | 3,5,6,10,12,14,16 | 17 |
-| H23 | every replacement cut | 16,17 |
-| H24 | 1,3-11 | 17 |
-| H25 | 1,3,10,11 | 16,17 |
-| H26 | 1,11,12,15 | 16,17 |
-| H27 | 1,2,10,11,12,14,15 | 16,17 |
-
-Every hard invariant has an implementation owner and an independent final verifier.
-
-### Legacy replacement/deletion ownership
-
-| Legacy authority | Replacement available | Physical deletion no later than |
-|---|---:|---:|
-| candidate/winner/queue positive integration | CUT 3 + CUT 5 | CUT 5 |
-| nearest/normal-step/current-frame/weighted fusion | CUT 5 | CUT 5 |
-| dilation + CARVE + 26-plane continuation | CUT 6 | CUT 6 |
-| square tangent stereo support | CUT 4 | CUT 4 |
-| mesh/canonical primitive readout and ~480MiB buffers | CUT 12 | CUT 12 |
-| loaded-coverage/per-rotation rebuild lifecycle | CUT 13 | CUT 13 |
-| whole-snapshot SAVE/checkpoint | CUT 14 | CUT 14 |
-| overlap shell/export heal/membrane/min-cut/float weld | CUT 15 | CUT 15 |
-| leftover ABI aliases/dead generated helpers/tests | all prior cuts | CUT 16 |
-
-Every delete has a preceding or same-cut replacement. No delete is ownerless.
-
-### Cross-authority audit
-
-```text
-Canonical positive surface owner: CUT_05 M8 R1 only.
-Negative volume owner: CUT_06 sparse SEE_THROUGH only, persisted by CUT_14.
-Fine metric owner: CUT_10 FlowerDetail only.
-Fine appearance owner: CUT_11 ThreadAtlas only.
-Live presentation owner: CUT_12 shared procedural evaluator.
-Export presentation owner: CUT_15 same CPU evaluator/table hash.
-Persistence owner: CUT_14 transaction contains all four authorities.
-No cut creates a second coordinate hierarchy, surface solver, mesh truth or fallback.
-R1/R2/R3 are shell semantics in CUT_05/07/08, never LOD/confidence.
-L0-L2 are the only geometric levels; CUT_10/11 own planar L3-L5 signals and CUT_12 proves they cannot emit geometry.
-Dual never emits a petal except after CUT_09 leaves exactly one direct-incidence candidate.
-Fixed-thread/chamber/Fibonacci codegen is owned by CUT_01; exact storage ABI by CUT_02; immutable observation retention by CUT_03; metric split/drain by CUT_10; RGB split/union by CUT_11; deterministic evaluation by CUT_12/15.
-No later cut may use Fibonacci, validDepth, observationOrdinal, camera motion or a new frame as an admission gate for work already CERTAIN in the current immutable observation.
-```
-
-```text
+DAG_REVISION=COMPACT_FOUR_RUNS_2026_09_06
 DAG_ACYCLIC=PASS
-CONTRACT_INVARIANT_OWNERSHIP=PASS
-LEGACY_REPLACEMENT_OWNERSHIP=PASS
-DELETE_DEPENDENCY_AUDIT=PASS
-PARALLEL_AUTHORITY_AUDIT=PASS
-PERSISTENCE_READOUT_EXPORT_UNITY=PASS
-L0_L2_ONLY_GEOMETRY_OWNERSHIP=PASS
-FIXED_399_THREAD_OWNERSHIP=PASS
-THREAD_ORDER_STORAGE_OWNERSHIP=PASS
-R1_R2_R3_SEMANTICS=PASS
-DUAL_NON_SURFACE_ORACLE=PASS
-OBSERVATION_LOCAL_REFINEMENT_OWNERSHIP=PASS
-DAG_AUDIT=PASS
+DAG_CONTRACT_COVERAGE=PASS
+DAG_DELETE_DEPENDENCIES=PASS
+DAG_AUDIT=PASS (dokumentové pokrytí, nikoli implementace nebo runtime)
+NEXT=RUN_04_AFTER_CUT_03_REVIEW_COMMIT
+AFTER_CURRENT_CUT=RUN_04 -> RUN_05 -> RUN_06 -> RUN_07
+ADDITIONAL_RUN_COUNT=4
+PRODUCTION_IMPLEMENTATION_STATUS=IN_PROGRESS
+FINAL_CONTRACT_AUDIT=PENDING
+FINAL_LEGACY_AUDIT=PENDING
+FINAL_BUILD=PENDING
+FINAL_RUNTIME_FIXTURES=PENDING
 ```
 
-## CURRENT TRUE STATE — after complete DAG audit
+## Historical implementation evidence — not an executable DAG
+
+All CUT numbers, CURRENT/NEXT state lines and earlier audit statements below
+record past work only. They do not reopen closed foundations, prescribe extra
+runs or override the compact four-run DAG above. Resume at the latest cursor
+at the end of this file. Preserve past test results without treating them as
+validation of newer edits.
+
+## Historical state — after original DAG audit
 
 ```text
 HEAD remains the exact mandatory base.
@@ -4729,3 +4552,135 @@ DEFERRED_DEPENDENCIES=production observation/scanner consumers CUT_03-11; proced
 QUEST_DEVICE_RUNTIME=NOT RUN (device disconnected by user)
 NEXT_CUT=CUT_03 deterministic GPU observation bins and reduction
 ```
+
+## CURRENT TRUE STATE — CUT 03 implementation cursor
+
+```text
+CURRENT_COMMIT=d5551bf (CUT_02 closed)
+CURRENT_CUT=CUT_03 IN_PROGRESS; not closed and not committed
+IMPLEMENTED:
+  Runtime/Shaders/MerkabaObservationBins.compute: one 256-lane HOT-slot prefix/reservation dispatch; stable physical-slot spans; exactly one indirect group per touched tile; fail-closed bounded/saturating capacity arithmetic
+  Runtime/Shaders/MerkabaObservationBins.hlsl: resolved-owner atomic count and bounded 16-byte record emission; no geometry decision
+  Runtime/Shaders/MerkabaObservationReduction.hlsl: 512 owner buckets; exact signed interval intersection and symbolic conflict before representative selection; 10 KiB groupshared, no world winner buffer
+  signed endpoint atomics use monotone sign-bit-biased uint encoding, verified across negative/positive interval conflicts
+  record/source capacities emitted from the managed ABI authority
+TESTS_RUN=3/3 Vulkan tests PASS: /mnt/kingston-unity/Builds/TestResults/cut3-bins-3.xml
+SPIRV=64/64 PASS via Tools/shaders/audit_merkaba_compute_spirv.sh
+MANUAL_AUDIT=written shaders reviewed; latest targeted run has no shader warnings; git diff --check PASS
+PRODUCTION_CUTOVER=NOT DONE; scanner remains unchanged pending CUT_03-05 dependencies
+REMAINING_CUT_03:
+  arithmetic eight-owner enumeration, unique logical root-tile resolution and allocation retries
+  generated root/sector scratch feeding the GPU reducer
+  slot-generation-validated TileHalo and touched-only bin lifecycle
+  Integrator/native bindings and immutable-observation refinement lifetime
+  full cut closure, dependent legacy removals and one cut commit
+CURSOR:
+  updated by the later cursor below; do not restart completed owner/bin work
+  do not restart CUT_02, re-read historical contracts, or repeat the model-comparison answer
+QUEST_DEVICE_RUNTIME=NOT RUN (user-disconnected)
+```
+
+## CURRENT TRUE STATE — CUT 03 runtime cursor, 2026-09-06
+
+```text
+CURRENT_COMMIT=d5551bf; CURRENT_CUT=CUT_03 IN_PROGRESS; no new closed-cut commit
+IMPLEMENTED:
+  generated arithmetic eight-owner/boundary masks; one lookup per distinct block/chunk/tile
+  GPU CountObservationBins/EmitObservationBins and deduplicated EMPTY/COLD tile requests
+  allocation-incomplete reservation emits zero commit groups; touched list survives failure/retry
+  ResetObservationBins retires only touched bins and retains fatal diagnostics
+  generated interval ABC/root/sector evaluator; sqrt/division enclosure certified by exact dyadic comparison
+  CPU ABC central values now use explicit ordered binary32 steps matching precise HLSL, not library dot order
+  MerkabaObservationBinsGpu runtime bindings: one borrowed 32 MiB record arena plus 512 KiB bin metadata
+  same immutable field/token retained across retries; indirect commit; no geometry readback
+  native executor ABI=2, resources=47, pipelines=54; ObservationBins job on the existing serialized queue
+  frozen native uniform payload serialized once and reused across quanta
+EVIDENCE:
+  10/10 targeted Vulkan tests PASS: /mnt/kingston-unity/Builds/TestResults/cut3-roots-3.xml
+  72/72 SPIR-V PASS: /mnt/kingston-unity/Builds/TestResults/cut3-roots-spirv.log
+  Android native plugin build PASS: /mnt/kingston-unity/Builds/TestResults/cut3-native-build.log
+  runtime C# compilation + exact codegen check PASS: /mnt/kingston-unity/Builds/TestResults/cut3-runtime-compile.log
+  last two native uniform snapshot-cache fields added after that compile; full cut closure still pending
+  shader compiler emitted potential-uninitialized warnings in new probes/inlined helpers; review before cut closure
+MANUAL_AUDIT=IN_PROGRESS; reviewed changed expressions, bin lifetime, new runtime bindings, native pipeline ranges
+PRODUCTION_CUTOVER=NOT DONE; no new positive surface authority is enabled
+LEGACY_REMOVED=none in CUT_03 yet; winner/queue/old R1 execution explicitly deferred to CUT_05
+REMAINING:
+  generated roots into final owner/symbol reducer; deterministic PrecisionKey construction
+  generation-validated TileHalo
+  Integrator activation/lifetime and fused allocation publication, with old R1 replacement in CUT_05
+  full cut manual audit/closure; do not call this cut PASS yet
+RECOVERY_CURSOR:
+  continue runtime reduction and Integrator wiring, not another contract rewrite or test framework
+  runtime controller: Runtime/Merkaba/MerkabaObservationBinsGpu.cs
+  HLSL: Runtime/Shaders/MerkabaObservationBins.compute, Owners.hlsl, Reduction.hlsl
+  native ABI/range edits: Runtime/Telemetry/MerkabaNativeVulkanExecutor.cs;
+    Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp;
+    Tools/unity/generate_merkaba_native_executor_shaders.py
+  ROOT INTERVAL FAIL in cut3-roots-1 was an invalid sector-midpoint fixture; corrected angular fixture covers all 132 sectors
+  PLANE FAIL in cut3-roots-2 was CPU library dot order; corrected CPU ordered operations, no epsilon widening
+  contract immutable prefix unchanged; Fibonacci/399-position thread untouched
+QUEST_DEVICE_RUNTIME=NOT RUN (user-disconnected)
+NEXT_CUT=CUT_03 until closure; CUT_04 only afterwards
+```
+
+## CURRENT TRUE STATE — CUT 03 implementation handoff, compact DAG
+
+```text
+CURRENT_COMMIT=HEAD; parent before CUT 03 commit=d5551bfba0012c2e72a7071f38d023909bcb23c9
+CURRENT_CUT=CUT_03 IMPLEMENTED_FOR_RUN_04
+CUT_03_VALIDATION=DEFERRED_TO_RUN_07 by explicit user execution instruction; NOT a new runtime/proof PASS
+DAG_STATUS=foundations CUT_00/01/02/14 PASS; CUT_03 implementation done; RUN_04/05/06/07 pending
+NEXT=RUN_04 complete scanner; do not reopen completed CUT 3 substrate or recreate the 18-cut DAG
+```
+
+Implemented substrate:
+- Arithmetic eight-owner Count, stable touched-HOT prefix Reserve, bounded
+  Emit and one GPU-indirect future FlowerCommit group per touched tile.
+- Generated bounded ABC/root/sector evaluator; both root coordinates
+  intersect before class/normalized-width/source-pixel representative
+  selection; conflicting/ambiguous buckets cannot select a surface.
+  Signed zero shares one interval key; tangent root has one canonical entry.
+- Complete storage publication sequence: Count claims, fused publication
+  of Block/Chunk nodes, deduplicated EMPTY/COLD requests, pending HOT
+  reservation and existing tile initialization, Reserve/Emit. Missing owners
+  leave commit count zero and require recount of the same frozen field.
+- Managed Record() and native ObservationBins job record the same sequence.
+  Frozen input/calibration and serialized uniform payload survive retries;
+  no camera timer or geometry readback is added by this substrate.
+- 27 packed TileHalo refs per HOT tile (3.375 MiB), cooperative cache entry,
+  validation of slot generation, live spatial ref and exact logical owner.
+  Slot generation uses existing TileRuntime.w, not KernelState or fine epochs.
+- Native ABI 2: 48 resources, 56 pipeline entries; still one serialized queue.
+  Bins own 512 KiB metadata and borrow the existing single 32 MiB record arena.
+
+Files changed are the observation shader/controller set, World slot lifecycle,
+Grid.Gpu halo resource, shared CPU/codegen/generated math, native executor/
+shader generator and the existing related tests/binding manifests. No
+production sensor/R1/dual/readout switch is claimed here.
+
+Build evidence:
+- Native HLSL embedding and Android plugin compilation completed successfully,
+  all 56 embedded pipeline entries built. Tool output is in this session.
+- C# import/compile: `/mnt/kingston-unity/Builds/cut3-final-compile.log`.
+- Earlier 10/10 Vulkan and 72/72 SPIR-V results remain historical evidence,
+  not validation of these later edits. No tests/benchmarks executed during
+  this implementation handoff. Device acceptance remains NOT RUN.
+
+Legacy dependency:
+- Old positive winner/queue, stereo and CARVE consumers remain only until the
+  single RUN 4 replacement; they are not new fallback branches. Consumer
+  activation, FinalizeObservation workset exhaustion and complete scanner
+  lease release belong together to RUN 4, as explicitly bounded in the DAG.
+- Readout removal is RUN 5; export repair removal is RUN 6.
+- Changed storage publication is free of root/surface decisions.
+
+Recovery cursor:
+- Start RUN 4 at `StereoRgbdRefine.compute` / `DepthCapture` and
+  `MerkabaIntegrator`; use existing CPU/codegen/data/append foundations.
+- New backend entry: `MerkabaObservationBinsGpu.Record` or
+  `TryCreateNativeJob`. Its input requires categorical accepted normal.w=1;
+  it is deliberately not called with legacy confidence-valued stereo output.
+- Do not change fixed-399/Fibonacci/57-bit/thread-order/additive-V semantics.
+- DAG review copy: `/home/wraith/Stažené/M8-DAG-4-RUNY-K-REVIZI.md`.
+- User requested commit + GitHub push of this CUT 3 handoff and the amended DAG.

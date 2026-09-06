@@ -311,6 +311,16 @@ uint M8TileRuntimeIndex(uint physicalSlot)
     return physicalSlot * 2u + 1u;
 }
 
+// Slot lifetime, not surface/fine-detail generation. A halo is refreshed at
+// each consumer workgroup entry on the serialized queue; accesses additionally
+// validate the logical tile identity, so a 15-bit rollover cannot alias a
+// different neighbour. Zero denotes an uninstalled physical slot.
+uint M8NextTileSlotGeneration(uint previous)
+{
+    uint generation = (previous + 1u) & 0x7fffu;
+    return generation == 0u ? 1u : generation;
+}
+
 uint4 M8LoadTileMetaRead(uint physicalSlot)
 {
     return _M8TileRecordsRead[M8TileMetaIndex(physicalSlot)];

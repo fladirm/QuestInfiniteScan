@@ -111,6 +111,12 @@ namespace Genesis.RoomScan.Editor
             Define(output, "M8_FLOWER_ROOT_CERTAIN_SECANT", "2u");
             Define(output, "M8_FLOWER_ROOT_COPLANAR", "3u");
             Define(output, "M8_FLOWER_ROOT_AMBIGUOUS", "4u");
+            Define(output, "M8_FLOWER_GAMMA6_UPPER", Number(
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
+                    6.0 / (16777216.0 - 6.0)).Upper));
+            Define(output, "M8_FLOWER_GAMMA7_UPPER", Number(
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
+                    7.0 / (16777216.0 - 7.0)).Upper));
             Define(output, "M8_FLOWER_SKIN_UNIFORM", "0u");
             Define(output, "M8_FLOWER_SKIN_SPLIT", "1u");
             Define(output, "M8_FLOWER_SKIN_AMBIGUOUS", "2u");
@@ -174,6 +180,10 @@ namespace Genesis.RoomScan.Editor
             o.AppendLine("#define GENESIS_MERKABA_SPHERE_FLOWER_DATA_ABI_INCLUDED");
             Define(o, "M8_FLOWER_DATA_ABI_VERSION",
                 MerkabaSphereFlowerDataAbi.SchemaVersion + "u");
+            Define(o, "M8_FLOWER_OBSERVATION_RECORD_CAPACITY",
+                MerkabaObservationRecord.Capacity + "u");
+            Define(o, "M8_FLOWER_OBSERVATION_SOURCE_CAPACITY",
+                MerkabaObservationRecord.MaximumSourcePixels + "u");
             Define(o, "M8_FLOWER_R1_SEED_FLAG", "0x" +
                 MerkabaSphereFlowerDataAbi.R1SeedFlag.ToString("x8",
                     CultureInfo.InvariantCulture) + "u");
@@ -1042,6 +1052,245 @@ uint M8FlowerClassifyRoot(M8FlowerInterval3 abc)
     if (aa.lo == aa.hi && q.lo == q.hi && aa.lo == q.lo && q.lo > 0.0)
         return M8_FLOWER_ROOT_CERTAIN_TANGENT;
     return M8_FLOWER_ROOT_AMBIGUOUS;
+}
+
+// Exact dyadic comparisons certify the bounds around native sqrt/division.
+// An implementation's approximate instruction can only cause AMBIGUOUS;
+// its result is never accepted merely because it is within a chosen epsilon.
+M8FlowerDyadicSquare M8FlowerProductDyadic(float left, float right)
+{
+    M8FlowerDyadicSquare result;
+    uint2 bits = uint2(asuint(left), asuint(right)) & 0x7fffffffu;
+    uint2 e = (bits >> 23u) & 0xffu;
+    uint2 m = bits & 0x7fffffu;
+    m |= uint2(e.x != 0u ? 0x800000u : 0u,
+        e.y != 0u ? 0x800000u : 0u);
+    result.coefficient = M8FlowerMultiply24(m.x, m.y);
+    result.exponent = (e.x == 0u ? -149 : (int)e.x - 150) +
+        (e.y == 0u ? -149 : (int)e.y - 150);
+    result.nonzero = any(e == 255u) ? 2u :
+        (all(m != 0u) ? 1u : 0u);
+    if (result.nonzero == 0u) result.coefficient = 0u.xx;
+    return result;
+}
+
+int M8FlowerCompareDyadic(M8FlowerDyadicSquare a, M8FlowerDyadicSquare b)
+{
+    uint na = M8FlowerBitLength(a.coefficient);
+    uint nb = M8FlowerBitLength(b.coefficient);
+    if (na == 0u || nb == 0u) return na == nb ? 0 : (na == 0u ? -1 : 1);
+    int topA = a.exponent + (int)na;
+    int topB = b.exponent + (int)nb;
+    if (topA != topB) return topA < topB ? -1 : 1;
+    uint2 ca = M8FlowerShiftLeft64(a.coefficient, na < nb ? nb - na : 0u);
+    uint2 cb = M8FlowerShiftLeft64(b.coefficient, nb < na ? na - nb : 0u);
+    if (ca.y != cb.y) return ca.y < cb.y ? -1 : 1;
+    return ca.x == cb.x ? 0 : (ca.x < cb.x ? -1 : 1);
+}
+
+int M8FlowerCompareSignedProduct(float left, float positiveRight, float value)
+{
+    M8FlowerDyadicSquare a = M8FlowerProductDyadic(left, positiveRight);
+    M8FlowerDyadicSquare b = M8FlowerProductDyadic(value, 1.0);
+    bool negativeA = a.nonzero != 0u && (asuint(left) >> 31u) != 0u;
+    bool negativeB = b.nonzero != 0u && (asuint(value) >> 31u) != 0u;
+    if (negativeA != negativeB) return negativeA ? -1 : 1;
+    int magnitude = M8FlowerCompareDyadic(a, b);
+    return negativeA ? -magnitude : magnitude;
+}
+
+bool M8FlowerDivideEnclosed(float numerator, float denominator,
+    out M8FlowerInterval result)
+{
+    result = M8FlowerI(0.0, 0.0);
+    if (!isfinite(numerator) || !isfinite(denominator) || !(denominator > 0.0))
+        return false;
+    precise float quotient = numerator / denominator;
+    float lo = M8FlowerPrevious(quotient);
+    float hi = M8FlowerNext(quotient);
+    if (!isfinite(lo) || !isfinite(hi)) return false;
+    if (M8FlowerCompareSignedProduct(lo, denominator, numerator) > 0 ||
+        M8FlowerCompareSignedProduct(hi, denominator, numerator) < 0)
+        return false;
+    result = M8FlowerI(lo, hi);
+    return true;
+}
+
+bool M8FlowerIDivPositive(M8FlowerInterval numerator,
+    M8FlowerInterval denominator, out M8FlowerInterval result)
+{
+    result = M8FlowerI(0.0, 0.0);
+    if (!(denominator.lo > 0.0) || denominator.lo > denominator.hi ||
+        numerator.lo > numerator.hi) return false;
+    M8FlowerInterval lower = M8FlowerI(0.0, 0.0);
+    M8FlowerInterval upper = lower;
+    bool lowerValid = M8FlowerDivideEnclosed(numerator.lo,
+        numerator.lo < 0.0 ? denominator.lo : denominator.hi, lower);
+    bool upperValid = M8FlowerDivideEnclosed(numerator.hi,
+        numerator.hi < 0.0 ? denominator.hi : denominator.lo, upper);
+    if (!lowerValid || !upperValid) return false;
+    result = M8FlowerI(lower.lo, upper.hi);
+    return true;
+}
+
+bool M8FlowerISqrt(M8FlowerInterval value, out M8FlowerInterval result)
+{
+    result = M8FlowerI(0.0, 0.0);
+    if (!(value.lo >= 0.0) || value.lo > value.hi || !isfinite(value.hi))
+        return false;
+    precise float lower = sqrt(value.lo);
+    precise float upper = sqrt(value.hi);
+    float lo = max(0.0, M8FlowerPrevious(lower));
+    float hi = M8FlowerNext(upper);
+    if (!isfinite(hi) ||
+        M8FlowerCompareDyadic(M8FlowerSquareDyadic(lo),
+            M8FlowerProductDyadic(value.lo, 1.0)) > 0 ||
+        M8FlowerCompareDyadic(M8FlowerSquareDyadic(hi),
+            M8FlowerProductDyadic(value.hi, 1.0)) < 0) return false;
+    result = M8FlowerI(lo, hi);
+    return true;
+}
+
+float M8FlowerAbsoluteProductSumUpper(float3 a, float3 b)
+{
+    precise float3 product = a * b;
+    float3 upper = float3(M8FlowerNext(abs(product.x)),
+        M8FlowerNext(abs(product.y)), M8FlowerNext(abs(product.z)));
+    precise float xy = upper.x + upper.y;
+    precise float xyz = M8FlowerNext(xy) + upper.z;
+    return M8FlowerNext(xyz);
+}
+
+M8FlowerInterval M8FlowerCenterRadius(float center, float radius)
+{
+    precise float lo = center - radius;
+    precise float hi = center + radius;
+    return M8FlowerI(M8FlowerPrevious(lo), M8FlowerNext(hi));
+}
+
+// Section 5: the caller supplies the frozen calibrated + quantization
+// uncertainty, never an observation score or a manually selected epsilon.
+// relative is the loop-center displacement from this endpoint's M8 owner.
+bool M8FlowerPlaneIntervals(float3 normal, float offset, float3 relative,
+    float radius, uint lineClass, float normalUncertainty, float offsetUncertainty,
+    out M8FlowerInterval3 abc)
+{
+    abc.x = M8FlowerI(0.0, 0.0); abc.y = abc.x; abc.z = abc.x;
+    if (lineClass >= M8_FLOWER_LINE_CLASS_COUNT ||
+        !all(isfinite(normal)) || !all(isfinite(relative)) ||
+        !all(isfinite(float4(offset, radius, normalUncertainty, offsetUncertainty))) ||
+        radius <= 0.0 || normalUncertainty < 0.0 || offsetUncertainty < 0.0)
+        return false;
+    float3 e1 = M8FlowerLineE1[lineClass];
+    float3 e2 = M8FlowerLineE2[lineClass];
+    precise float3 ar = normal * relative;
+    precise float axy = ar.x + ar.y;
+    precise float a = (axy + ar.z) - offset;
+    precise float3 br = normal * e1;
+    precise float bxy = br.x + br.y;
+    precise float b = radius * (bxy + br.z);
+    precise float3 cr = normal * e2;
+    precise float cxy = cr.x + cr.y;
+    precise float c = radius * (cxy + cr.z);
+
+    M8FlowerInterval lengthSquared = M8FlowerIAdd(M8FlowerIAdd(
+        M8FlowerISquare(M8FlowerI(relative.x, relative.x)),
+        M8FlowerISquare(M8FlowerI(relative.y, relative.y))),
+        M8FlowerISquare(M8FlowerI(relative.z, relative.z)));
+    M8FlowerInterval length = M8FlowerI(0.0, 0.0);
+    if (!M8FlowerISqrt(lengthSquared, length)) return false;
+    precise float sa = M8FlowerAbsoluteProductSumUpper(normal, relative) + abs(offset);
+    precise float sb = radius * M8FlowerAbsoluteProductSumUpper(normal, e1);
+    precise float sc = radius * M8FlowerAbsoluteProductSumUpper(normal, e2);
+    precise float eaMetric = normalUncertainty * length.hi;
+    precise float eaOffset = M8FlowerNext(eaMetric) + offsetUncertainty;
+    precise float eaRound = M8_FLOWER_GAMMA6_UPPER * M8FlowerNext(sa);
+    precise float ea = M8FlowerNext(eaOffset) + M8FlowerNext(eaRound);
+    precise float radialMetric = radius * normalUncertainty;
+    precise float ebRound = M8_FLOWER_GAMMA7_UPPER * M8FlowerNext(sb);
+    precise float ecRound = M8_FLOWER_GAMMA7_UPPER * M8FlowerNext(sc);
+    precise float eb = M8FlowerNext(radialMetric) + M8FlowerNext(ebRound);
+    precise float ec = M8FlowerNext(radialMetric) + M8FlowerNext(ecRound);
+    abc.x = M8FlowerCenterRadius(a, M8FlowerNext(ea));
+    abc.y = M8FlowerCenterRadius(b, M8FlowerNext(eb));
+    abc.z = M8FlowerCenterRadius(c, M8FlowerNext(ec));
+    return all(isfinite(float3(abc.x.lo, abc.y.lo, abc.z.lo))) &&
+        all(isfinite(float3(abc.x.hi, abc.y.hi, abc.z.hi)));
+}
+
+uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
+    out M8FlowerInterval2 root)
+{
+    root.x = M8FlowerI(0.0, 0.0);
+    root.y = root.x;
+    if (!all(isfinite(float3(abc.x.lo, abc.y.lo, abc.z.lo))) ||
+        !all(isfinite(float3(abc.x.hi, abc.y.hi, abc.z.hi))) ||
+        abc.x.lo > abc.x.hi || abc.y.lo > abc.y.hi || abc.z.lo > abc.z.hi)
+        return M8_FLOWER_ROOT_AMBIGUOUS;
+    uint classification = M8FlowerClassifyRoot(abc);
+    if (classification != M8_FLOWER_ROOT_CERTAIN_SECANT &&
+        classification != M8_FLOWER_ROOT_CERTAIN_TANGENT) return classification;
+    M8FlowerInterval q = M8FlowerIAdd(M8FlowerISquare(abc.y),
+        M8FlowerISquare(abc.z));
+    M8FlowerInterval minusA = M8FlowerI(-abc.x.hi, -abc.x.lo);
+    M8FlowerInterval x = M8FlowerIMul(minusA, abc.y);
+    M8FlowerInterval y = M8FlowerIMul(minusA, abc.z);
+    // Exact singleton tangency was established by dyadic equality, so no
+    // uncertain subtraction around delta=0 is used to invent a second root.
+    if (classification == M8_FLOWER_ROOT_CERTAIN_SECANT)
+    {
+        M8FlowerInterval delta = M8FlowerISub(q, M8FlowerISquare(abc.x));
+        M8FlowerInterval turn = M8FlowerI(0.0, 0.0);
+        if (!M8FlowerISqrt(delta, turn)) return M8_FLOWER_ROOT_AMBIGUOUS;
+        if (!plusRoot) turn = M8FlowerI(-turn.hi, -turn.lo);
+        x = M8FlowerIAdd(x, M8FlowerIMul(turn, M8FlowerI(-abc.z.hi, -abc.z.lo)));
+        y = M8FlowerIAdd(y, M8FlowerIMul(turn, abc.y));
+    }
+    bool xValid = M8FlowerIDivPositive(x, q, root.x);
+    bool yValid = M8FlowerIDivPositive(y, q, root.y);
+    if (!xValid || !yValid) return M8_FLOWER_ROOT_AMBIGUOUS;
+    return classification;
+}
+
+M8FlowerInterval M8FlowerICross(M8FlowerInterval2 a, M8FlowerInterval2 b)
+{
+    return M8FlowerISub(M8FlowerIMul(a.x, b.y), M8FlowerIMul(a.y, b.x));
+}
+
+bool M8FlowerRootSector(uint lineClass, M8FlowerInterval2 root, out uint sector)
+{
+    sector = 0xffffffffu;
+    if (lineClass >= M8_FLOWER_LINE_CLASS_COUNT) return false;
+    uint3 meta = M8FlowerLineMeta[lineClass];
+    for (uint candidate = 0u; candidate < meta.z; candidate++)
+    {
+        float4 a = M8FlowerSectorBounds[meta.y + candidate];
+        uint next = candidate + 1u == meta.z ? 0u : candidate + 1u;
+        float4 b = M8FlowerSectorBounds[meta.y + next];
+        M8FlowerInterval2 start, end;
+        start.x = M8FlowerI(a.x, a.y); start.y = M8FlowerI(a.z, a.w);
+        end.x = M8FlowerI(b.x, b.y); end.y = M8FlowerI(b.z, b.w);
+        if (M8FlowerICross(start, root).lo > 0.0 &&
+            M8FlowerICross(root, end).lo > 0.0)
+        {
+            if (sector != 0xffffffffu) { sector = 0xffffffffu; return false; }
+            sector = candidate;
+        }
+    }
+    return sector != 0xffffffffu;
+}
+
+int3 M8FlowerOverlapDelta(uint ordinal)
+{
+    return int3(ordinal & 1u, (ordinal >> 1u) & 1u, (ordinal >> 2u) & 1u);
+}
+
+uint M8FlowerOverlapBoundaryMask(int3 firstOwner, uint shift)
+{
+    uint mask = (1u << shift) - 1u;
+    bool3 crosses = (asuint(firstOwner) & mask) == mask;
+    return (crosses.x ? 1u : 0u) | (crosses.y ? 2u : 0u) |
+        (crosses.z ? 4u : 0u);
 }
 
 int3 M8FlowerJunction(int3 kernel, int3 direction)

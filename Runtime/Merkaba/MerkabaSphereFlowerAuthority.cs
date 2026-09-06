@@ -678,6 +678,25 @@ namespace Genesis.RoomScan
             return LatticeStep / (1 << level);
         }
 
+        public static int3 OverlapOwner(int3 firstOwner, int ordinal)
+        {
+            if ((uint)ordinal >= 8u)
+                throw new ArgumentOutOfRangeException(nameof(ordinal));
+            return new int3(checked(firstOwner.x + (ordinal & 1)),
+                checked(firstOwner.y + ((ordinal >> 1) & 1)),
+                checked(firstOwner.z + ((ordinal >> 2) & 1)));
+        }
+
+        public static uint OverlapBoundaryMask(int3 firstOwner, int spanShift)
+        {
+            if (spanShift != 3 && spanShift != 5 && spanShift != 8)
+                throw new ArgumentOutOfRangeException(nameof(spanShift));
+            uint mask = (1u << spanShift) - 1u;
+            bool3 crosses = (math.asuint(firstOwner) & mask) == mask;
+            return (crosses.x ? 1u : 0u) | (crosses.y ? 2u : 0u) |
+                (crosses.z ? 4u : 0u);
+        }
+
         public static Long3 JunctionAddress(int3 kernel, int3 direction) =>
             new((long)kernel.x * 2L + direction.x,
                 (long)kernel.y * 2L + direction.y,
@@ -768,9 +787,9 @@ namespace Genesis.RoomScan
             if (normalUncertainty < 0f || offsetUncertainty < 0f)
                 throw new ArgumentOutOfRangeException(nameof(normalUncertainty));
             float3 relative = loop.Center - kernelCenter;
-            float a = math.dot(decodedNormal, relative) - decodedOffset;
-            float b = loop.Radius * math.dot(decodedNormal, loop.E1);
-            float c = loop.Radius * math.dot(decodedNormal, loop.E2);
+            float a = (float)((double)OrderedDot(decodedNormal, relative) - decodedOffset);
+            float b = (float)((double)loop.Radius * OrderedDot(decodedNormal, loop.E1));
+            float c = (float)((double)loop.Radius * OrderedDot(decodedNormal, loop.E2));
 
             double sumA = Math.Abs((double)decodedNormal.x * relative.x) +
                 Math.Abs((double)decodedNormal.y * relative.y) +
@@ -793,6 +812,18 @@ namespace Genesis.RoomScan
             return new Interval3(FloatInterval.FromCenterRadius(a, boundA),
                 FloatInterval.FromCenterRadius(b, boundB),
                 FloatInterval.FromCenterRadius(c, boundC));
+        }
+
+        // Each cast is one binary32 rounding boundary matching the generated
+        // precise HLSL expression. A library dot product may reassociate or
+        // contract the sum and therefore is not the section-5 operation order.
+        private static float OrderedDot(float3 left, float3 right)
+        {
+            float x = (float)((double)left.x * right.x);
+            float y = (float)((double)left.y * right.y);
+            float z = (float)((double)left.z * right.z);
+            float xy = (float)((double)x + y);
+            return (float)((double)xy + z);
         }
 
         public static RootClassification ClassifyRoots(Interval3 abc)

@@ -118,6 +118,20 @@ PIPELINES = (
              "EraseFineTiles", "carve_indirect"),
     Pipeline("FinalizeFineErase", "MerkabaIntegration.compute",
              "FinalizeFineErase", "one"),
+    Pipeline("ResetObservationBins", "MerkabaObservationBins.compute",
+             "ResetObservationBins", "one"),
+    Pipeline("CountObservationBins", "MerkabaObservationBins.compute",
+             "CountObservationBins", "depth"),
+    Pipeline("ResolveMissingSpatialNodes", "MerkabaObservationBins.compute",
+             "ResolveMissingSpatialNodes", "one"),
+    Pipeline("ResolveObservationTileRequests", "MerkabaObservationBins.compute",
+             "ResolveObservationTileRequests", "one"),
+    Pipeline("InstallObservationTiles", "MerkabaWorld.compute",
+             "InitializeNewTiles", "observation_indirect"),
+    Pipeline("ReserveObservationBins", "MerkabaObservationBins.compute",
+             "ReserveObservationBins", "one"),
+    Pipeline("EmitObservationBins", "MerkabaObservationBins.compute",
+             "EmitObservationBins", "depth"),
 )
 
 
@@ -134,7 +148,7 @@ RESOURCE_NAMES = (
     "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "DilationA",
     "DilationB", "CameraLeft", "CameraRight", "VisibleTiles",
     "FrameDispatchArgs", "ReadoutVertices0", "ReadoutVertices1",
-    "ReadoutIndices", "DrawArgs",
+    "ReadoutIndices", "DrawArgs", "ObservationRecords", "ObservationTileBins", "TileHalo",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -151,7 +165,8 @@ ALIASES = {
         "SurfaceWinnerRanks3", "TouchedTileQueue", "CarveTiles",
         "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
         "VisibleTiles", "FrameDispatchArgs", "ReadoutVertices0",
-        "ReadoutVertices1", "ReadoutIndices", "DrawArgs")},
+        "ReadoutVertices1", "ReadoutIndices", "DrawArgs", "ObservationRecords",
+        "ObservationTileBins", "TileHalo")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",

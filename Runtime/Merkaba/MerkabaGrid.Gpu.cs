@@ -182,6 +182,7 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8KernelStates3;
         private ComputeBuffer _m8TileBits;
         private ComputeBuffer _m8TileRecords;
+        private ComputeBuffer _m8TileHalo;
         private ComputeBuffer _m8FreeTileStack;
         private ComputeBuffer _m8Counters;
         private ComputeBuffer _m8AttemptCompletion;
@@ -232,6 +233,7 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8KernelStates3 => _m8KernelStates3;
         internal ComputeBuffer M8TileBits => _m8TileBits;
         internal ComputeBuffer M8TileRecords => _m8TileRecords;
+        internal ComputeBuffer M8TileHalo => _m8TileHalo;
         internal ComputeBuffer M8FreeTileStack => _m8FreeTileStack;
         internal ComputeBuffer M8Counters => _m8Counters;
         internal ComputeBuffer M8AttemptCompletion => _m8AttemptCompletion;
@@ -308,6 +310,7 @@ namespace Genesis.RoomScan
             Set(MerkabaNativeVulkanExecutor.Resource.TileBits, _m8TileBits);
             Set(MerkabaNativeVulkanExecutor.Resource.TileRecords,
                 _m8TileRecords);
+            Set(MerkabaNativeVulkanExecutor.Resource.TileHalo, _m8TileHalo);
             Set(MerkabaNativeVulkanExecutor.Resource.FreeTileStack,
                 _m8FreeTileStack);
             Set(MerkabaNativeVulkanExecutor.Resource.Counters, _m8Counters);
@@ -409,6 +412,8 @@ namespace Genesis.RoomScan
                 _m8KernelStates3 = Allocate(bankStateCount, 16);
                 _m8TileBits = Allocate(MerkabaSpatial.TileBitRecordCount, 16);
                 _m8TileRecords = Allocate(MerkabaSpatial.TileRecordCount, 16);
+                _m8TileHalo = Allocate(MerkabaSpatial.PhysicalTileCapacity * 27,
+                    sizeof(uint));
                 _m8FreeTileStack = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
@@ -1023,6 +1028,7 @@ namespace Genesis.RoomScan
             _m8KernelStates3 = null;
             _m8TileBits = null;
             _m8TileRecords = null;
+            _m8TileHalo = null;
             for (int slot = 0; slot < 2; slot++)
             {
                 _m8ReadoutMeshes[slot] = null;

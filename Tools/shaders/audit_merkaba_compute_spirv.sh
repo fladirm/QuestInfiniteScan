@@ -27,15 +27,19 @@ alias_bases=(
 shaders=(
   "$shader_dir/MerkabaWorld.compute"
   "$shader_dir/MerkabaIntegration.compute"
+  "$shader_dir/MerkabaObservationBins.compute"
   "$shader_dir/MerkabaReadout.compute"
   "$shader_dir/DepthNormals.compute"
   "$shader_dir/DepthDilation.compute"
   "$shader_dir/StereoRgbdRefine.compute"
   "$repo_root/Tests/Editor/MerkabaSphereFlowerOracle.compute"
   "$repo_root/Tests/Editor/MerkabaSphereFlowerDataAbi.compute"
+  "$repo_root/Tests/Editor/MerkabaObservationBinsProbe.compute"
 )
 
 kernel_count=0
+expected_kernel_count=$(rg -c '^#pragma kernel ' "${shaders[@]}" |
+  awk -F: '{ count += $NF } END { print count + 0 }')
 for shader in "${shaders[@]}"; do
   while read -r _ _ kernel; do
     spv="$audit_dir/$kernel.spv"
@@ -135,9 +139,9 @@ for shader in "${shaders[@]}"; do
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 60 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 60" >&2
+if (( kernel_count != expected_kernel_count )); then
+  echo "FAIL: audited $kernel_count kernels; expected $expected_kernel_count" >&2
   exit 1
 fi
 
-echo "PASS: 60 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: $kernel_count Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

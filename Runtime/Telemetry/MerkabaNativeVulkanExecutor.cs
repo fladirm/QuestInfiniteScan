@@ -13,9 +13,9 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 1;
-        internal const int ResourceCount = 45;
-        internal const int PipelineCount = 49;
+        internal const int AbiVersion = 2;
+        internal const int ResourceCount = 48;
+        internal const int PipelineCount = 56;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -25,6 +25,7 @@ namespace Genesis.RoomScan
             Readout = 2,
             MeshReadout = 3,
             FineErase = 4,
+            ObservationBins = 5,
         }
 
         internal enum Resource : int
@@ -74,6 +75,9 @@ namespace Genesis.RoomScan
             ReadoutVertices1,
             ReadoutIndices,
             DrawArgs,
+            ObservationRecords,
+            ObservationTileBins,
+            TileHalo,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -155,11 +159,18 @@ namespace Genesis.RoomScan
             "PrepareFineEraseArgs",
             "EraseFineTiles",
             "FinalizeFineErase",
+            "ResetObservationBins",
+            "CountObservationBins",
+            "ResolveMissingSpatialNodes",
+            "ResolveObservationTileRequests",
+            "InstallObservationTiles",
+            "ReserveObservationBins",
+            "EmitObservationBins",
         };
 
         private static MerkabaNativeVulkanJob _activeJob;
         private static readonly float[] NextTimingLogTimes =
-            new float[5];
+            new float[6];
 
         internal static bool HasJobInFlight => _activeJob != null;
 
@@ -264,7 +275,8 @@ namespace Genesis.RoomScan
         {
             ulong mask = validBits >= 64 ? ulong.MaxValue :
                 validBits <= 0 ? 0UL : (1UL << validBits) - 1UL;
-            int first = kind == JobKind.Readout ? 33 :
+            int first = kind == JobKind.ObservationBins ? 49 :
+                kind == JobKind.Readout ? 33 :
                 kind == JobKind.MeshReadout ? 38 :
                 kind == JobKind.FineErase ? 44 :
                 kind == JobKind.ObservationRetry ? 13 : 0;
@@ -483,6 +495,8 @@ namespace Genesis.RoomScan
             _values = new();
         private readonly List<byte> _data = new();
         private readonly HashSet<uint> _names = new();
+        private MerkabaNativeVulkanExecutor.UniformValue[] _builtValues;
+        private byte[] _builtData;
 
         internal void Int(string name, int value) => Add(name,
             BitConverter.GetBytes(value));
@@ -551,8 +565,10 @@ namespace Genesis.RoomScan
         internal void Build(out MerkabaNativeVulkanExecutor.UniformValue[] values,
             out byte[] data)
         {
-            values = _values.ToArray();
-            data = _data.ToArray();
+            // The same immutable observation can span many queue quanta.
+            // Serialize once; retries must not rebuild its uniform payload.
+            values = _builtValues ??= _values.ToArray();
+            data = _builtData ??= _data.ToArray();
             if (values.Length == 0 || data.Length == 0)
                 throw new InvalidOperationException(
                     "Native scanner job has no uniform ABI values.");
@@ -566,6 +582,8 @@ namespace Genesis.RoomScan
             if (!_names.Add(hash))
                 throw new InvalidOperationException(
                     $"Duplicate native uniform value: {name}");
+            _builtValues = null;
+            _builtData = null;
             int offset = _data.Count;
             _data.AddRange(bytes);
             _values.Add(new MerkabaNativeVulkanExecutor.UniformValue

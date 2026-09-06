@@ -77,7 +77,11 @@ void ClearInt4s(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
 void InitializeFreeTileStack(uint id : SV_DispatchThreadID)
 {
     if (id < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+    {
         _M8FreeTileStack[id] = id;
+        _M8TileRecords[M8TileMetaIndex(id)] = 0u.xxxx;
+        _M8TileRecords[M8TileRuntimeIndex(id)] = 0u.xxxx;
+    }
     if (id == 0u)
         _M8Counters[M8_COUNTER_FREE_TILE_COUNT] =
             MERKABA_M8_PHYSICAL_TILE_CAPACITY;
@@ -204,10 +208,12 @@ void InitializeNewTiles(uint3 groupId : SV_GroupID,
         uint refIndex = claim.x;
         uint chunkIndex = refIndex / MERKABA_M8_TILES_PER_CHUNK;
         uint tileLocal = refIndex % MERKABA_M8_TILES_PER_CHUNK;
+        uint generation = M8NextTileSlotGeneration(
+            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w);
         _M8TileRecords[M8TileMetaIndex(physicalSlot)] =
             uint4(chunkIndex, tileLocal, 0u, 0u);
         _M8TileRecords[M8TileRuntimeIndex(physicalSlot)] = uint4(0u, 1u,
-            _M8Counters[M8_COUNTER_FRAME_EPOCH], 0u);
+            _M8Counters[M8_COUNTER_FRAME_EPOCH], generation);
     }
     DeviceMemoryBarrierWithGroupSync();
     if (thread == 0u)
@@ -560,10 +566,12 @@ void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
     {
         uint physicalSlot = _M8FreeTileStackRead[
             gLoadReservationBase + needIndex];
+        uint generation = M8NextTileSlotGeneration(
+            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w);
         _M8TileRecords[M8TileMetaIndex(physicalSlot)] =
             uint4(chunkIndex, tileLocal, 0u, 0u);
         _M8TileRecords[M8TileRuntimeIndex(physicalSlot)] =
-            uint4(0u, 0u, _M8Counters[M8_COUNTER_FRAME_EPOCH], 0u);
+            uint4(0u, 0u, _M8Counters[M8_COUNTER_FRAME_EPOCH], generation);
         encodedAddress |= (physicalSlot << M8_LOAD_SLOT_SHIFT) |
             M8_LOAD_INSTALL_BIT | M8_LOAD_READY_BIT;
     }

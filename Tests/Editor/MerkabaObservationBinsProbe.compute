@@ -1,0 +1,117 @@
+#pragma kernel CountBinsProbe
+#pragma kernel EmitBinsProbe
+#pragma kernel ReduceBinsProbe
+#pragma kernel CountOwnersProbe
+#pragma kernel EmitOwnersProbe
+#pragma kernel RootIntervalsProbe
+#pragma kernel PlaneIntervalsProbe
+
+#include "../../Runtime/Shaders/MerkabaObservationBins.hlsl"
+#include "../../Runtime/Shaders/MerkabaObservationReduction.hlsl"
+#include "../../Runtime/Shaders/MerkabaObservationOwners.hlsl"
+
+StructuredBuffer<uint4> _ProbeRecords;
+StructuredBuffer<int2> _ProbeIntervals;
+RWStructuredBuffer<uint4> _ProbeReduced;
+uint _ProbeRecordCount;
+StructuredBuffer<float4> _ProbeCoefficients;
+RWStructuredBuffer<float4> _ProbeRootIntervals;
+
+[numthreads(64, 1, 1)]
+void PlaneIntervalsProbe(uint id : SV_DispatchThreadID)
+{
+    if (id >= _ProbeRecordCount) return;
+    float4 plane = _ProbeCoefficients[3u * id];
+    float4 loop = _ProbeCoefficients[3u * id + 1u];
+    float4 bounds = _ProbeCoefficients[3u * id + 2u];
+    M8FlowerInterval3 abc;
+    bool certain = M8FlowerPlaneIntervals(plane.xyz, plane.w, loop.xyz, loop.w,
+        (uint)bounds.z, bounds.x, bounds.y, abc);
+    _ProbeReduced[id] = uint4(certain ? 1u : 0u, 0u, 0u, 0u);
+    _ProbeRootIntervals[2u * id] = float4(abc.x.lo, abc.x.hi, abc.y.lo, abc.y.hi);
+    _ProbeRootIntervals[2u * id + 1u] = float4(abc.z.lo, abc.z.hi, 0.0, 0.0);
+}
+
+[numthreads(64, 1, 1)]
+void RootIntervalsProbe(uint id : SV_DispatchThreadID)
+{
+    if (id >= _ProbeRecordCount) return;
+    float4 a = _ProbeCoefficients[2u * id];
+    float4 b = _ProbeCoefficients[2u * id + 1u];
+    M8FlowerInterval3 abc;
+    abc.x = M8FlowerI(a.x, a.y);
+    abc.y = M8FlowerI(a.z, a.w);
+    abc.z = M8FlowerI(b.x, b.y);
+    M8FlowerInterval2 root;
+    uint classification = M8FlowerRootInterval(abc, b.z != 0.0, root);
+    uint sector = 0xffffffffu;
+    bool certain = false;
+    if (classification == M8_FLOWER_ROOT_CERTAIN_SECANT ||
+        classification == M8_FLOWER_ROOT_CERTAIN_TANGENT)
+        certain = M8FlowerRootSector((uint)b.w, root, sector);
+    _ProbeReduced[id] = uint4(classification, sector, certain ? 1u : 0u, 0u);
+    _ProbeRootIntervals[id] = float4(root.x.lo, root.x.hi, root.y.lo, root.y.hi);
+}
+
+[numthreads(64, 1, 1)]
+void CountOwnersProbe(uint id : SV_DispatchThreadID)
+{
+    if (id < _ProbeRecordCount)
+        M8FlowerCountObservationOwners(asint(_ProbeRecords[id].xyz));
+}
+
+[numthreads(64, 1, 1)]
+void EmitOwnersProbe(uint id : SV_DispatchThreadID)
+{
+    if (id < _ProbeRecordCount)
+        M8FlowerEmitObservationOwners(asint(_ProbeRecords[id].xyz),
+            _ProbeRecords[id].w, 0x150u, 0x80000000u | _ProbeRecords[id].w);
+}
+
+[numthreads(64, 1, 1)]
+void CountBinsProbe(uint id : SV_DispatchThreadID)
+{
+    if (id < _ProbeRecordCount)
+        M8FlowerCountObservationOwner(_ProbeRecords[id].x >> 9u);
+}
+
+[numthreads(64, 1, 1)]
+void EmitBinsProbe(uint id : SV_DispatchThreadID)
+{
+    if (id >= _ProbeRecordCount) return;
+    uint4 item = _ProbeRecords[id];
+    M8FlowerEmitObservationOwner(item.x >> 9u, item.x & 511u,
+        item.y, item.z, item.w);
+}
+
+[numthreads(128, 1, 1)]
+void ReduceBinsProbe(uint lane : SV_GroupIndex)
+{
+    for (uint initOwner = lane; initOwner < 512u; initOwner += 128u)
+        M8FlowerResetObservationBucket(initOwner);
+    GroupMemoryBarrierWithGroupSync();
+    for (uint intersectId = lane; intersectId < _ProbeRecordCount; intersectId += 128u)
+    {
+        uint4 item = _ProbeRecords[intersectId];
+        int2 interval = _ProbeIntervals[intersectId];
+        M8FlowerIntersectObservation(item.x & 511u, item.z,
+            interval.x, interval.y);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint selectId = lane; selectId < _ProbeRecordCount; selectId += 128u)
+    {
+        uint4 item = _ProbeRecords[selectId];
+        M8FlowerSelectObservationRepresentative(item.x & 511u, item.w);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint owner = lane; owner < 512u; owner += 128u)
+    {
+        uint identity, pixel;
+        int lower, upper;
+        bool certain = M8FlowerReadObservationBucket(owner, identity,
+            lower, upper, pixel);
+        _ProbeReduced[owner] = certain ?
+            uint4(identity, asuint(lower), asuint(upper), pixel) :
+            0xffffffffu.xxxx;
+    }
+}

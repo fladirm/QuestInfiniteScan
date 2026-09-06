@@ -63,6 +63,9 @@ namespace
         kResourceReadoutVertices1,
         kResourceReadoutIndices,
         kResourceDrawArgs,
+        kResourceObservationRecords,
+        kResourceObservationTileBins,
+        kResourceTileHalo,
         kResourceCount,
     };
 
@@ -108,11 +111,12 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
 
-    constexpr uint32_t kExecutorAbiVersion = 1;
+    constexpr uint32_t kExecutorAbiVersion = 2;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
     constexpr uint32_t kMeshReadoutPipelineBegin = 38;
     constexpr uint32_t kFineErasePipelineBegin = 44;
+    constexpr uint32_t kObservationBinsPipelineBegin = 49;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
     constexpr uint32_t kReadoutResetGroupCount = 1;
@@ -124,6 +128,7 @@ namespace
         kJobReadout = 2,
         kJobMeshReadout = 3,
         kJobFineErase = 4,
+        kJobObservationBins = 5,
     };
 
     struct MerkabaUniformValue
@@ -694,6 +699,12 @@ namespace
         if (kind == kJobFineErase)
         {
             *first = kFineErasePipelineBegin;
+            *last = kObservationBinsPipelineBegin;
+            return true;
+        }
+        if (kind == kJobObservationBins)
+        {
+            *first = kObservationBinsPipelineBegin;
             *last = kMerkabaExecutorPipelineCount;
             return true;
         }
@@ -1775,7 +1786,7 @@ extern "C"
             descriptor->structSize != sizeof(MerkabaExecutorJobDescriptor) ||
             descriptor->abiVersion != kExecutorAbiVersion ||
             descriptor->revision == 0 ||
-            descriptor->kind > kJobFineErase ||
+            descriptor->kind > kJobObservationBins ||
             descriptor->resourceCount != kResourceCount ||
             descriptor->resources == nullptr ||
             descriptor->uniformValueCount == 0 ||
@@ -1805,6 +1816,9 @@ extern "C"
             return nullptr;
         if (descriptor->kind == kJobFineErase &&
             descriptor->queryGroups == 0)
+            return nullptr;
+        if (descriptor->kind == kJobObservationBins &&
+            (descriptor->depthGroupsX == 0 || descriptor->depthGroupsY == 0))
             return nullptr;
 
         uint32_t firstPipeline = 0;

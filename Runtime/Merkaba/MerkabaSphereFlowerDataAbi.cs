@@ -148,6 +148,9 @@ namespace Genesis.RoomScan
     internal struct MerkabaObservationRecord
     {
         internal const int ByteSize = 16;
+        internal const int MaximumSourcePixels = 512 * 512;
+        internal const int OwnersPerMeasurement = 8;
+        internal const int Capacity = MaximumSourcePixels * OwnersPerMeasurement;
 
         internal uint TileAndKernel;
         internal uint SourcePixel;

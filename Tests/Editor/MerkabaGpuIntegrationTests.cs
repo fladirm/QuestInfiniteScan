@@ -885,7 +885,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(MerkabaGrid.ReadoutResetGroupCount,
                 Is.EqualTo(1));
             Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
-                Is.EqualTo(45));
+                Is.EqualTo(48));
             Assert.That(readout, Does.Contain(
                 "return MerkabaM8GridAabbIntersectsDistance(globalMin, " +
                 "span, distance,"));
@@ -1092,9 +1092,9 @@ namespace Genesis.RoomScan.Tests
                 "unity_StereoEyeIndex == 0"));
             Assert.That(native, Does.Contain("kJobMeshReadout"));
             Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
-                Is.EqualTo(45));
+                Is.EqualTo(48));
             Assert.That(MerkabaNativeVulkanExecutor.PipelineCount,
-                Is.EqualTo(49));
+                Is.EqualTo(56));
         }
 
         [Test]
@@ -1934,7 +1934,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 60"));
+            Assert.That(audit, Does.Contain("kernel_count != expected_kernel_count"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));
