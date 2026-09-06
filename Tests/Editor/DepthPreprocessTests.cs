@@ -437,8 +437,6 @@ namespace Genesis.RoomScan.Tests
                 StringComparison.Ordinal);
             int secondYield = start.IndexOf("await Task.Yield();",
                 firstYield + 1, StringComparison.Ordinal);
-            int loadedCoverage = start.IndexOf(
-                "await loadedCoverageReady;", StringComparison.Ordinal);
             int pca = start.IndexOf("_cameraProvider?.StartCapture();",
                 StringComparison.Ordinal);
             int depth = start.IndexOf("_depthCapture.StartDepthCaptureAsync();",
@@ -449,9 +447,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(prepare, Is.GreaterThanOrEqualTo(0));
             Assert.That(firstYield, Is.GreaterThan(prepare));
             Assert.That(secondYield, Is.GreaterThan(firstYield));
-            Assert.That(loadedCoverage, Is.GreaterThan(secondYield));
-            Assert.That(pca, Is.GreaterThan(loadedCoverage));
-            Assert.That(depth, Is.GreaterThan(loadedCoverage));
+            Assert.That(start, Does.Not.Contain("loadedCoverageReady"));
+            Assert.That(start, Does.Not.Contain(
+                "WaitForLoadedCoverageReadyAsync"));
+            Assert.That(pca, Is.GreaterThan(secondYield));
+            Assert.That(depth, Is.GreaterThan(secondYield));
             Assert.That(ready, Is.GreaterThan(depth));
             Assert.That(start.IndexOf("ArmNextObservation();",
                 StringComparison.Ordinal), Is.GreaterThan(ready));

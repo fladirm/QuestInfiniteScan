@@ -416,13 +416,6 @@ namespace Genesis.RoomScan
                 await Task.Yield();
                 await Task.Yield();
                 if (!StartIsCurrent(generation)) return;
-                Task loadedCoverageReady = _renderer != null
-                    ? _renderer.WaitForLoadedCoverageReadyAsync()
-                    : Task.CompletedTask;
-                if (!loadedCoverageReady.IsCompleted)
-                    Logger.Info("Waiting for loaded M8 coverage before scan resume");
-                await loadedCoverageReady;
-                if (!StartIsCurrent(generation)) return;
                 bool cameraPermission = await PassthroughCameraProvider
                     .RequestCameraPermissionAsync();
                 if (!StartIsCurrent(generation)) return;
@@ -527,7 +520,7 @@ namespace Genesis.RoomScan
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _persistence != null && await _persistence.LoadAsync();
-                if (success) _renderer?.BeginLoadedCoverageWarmup();
+                if (success) _renderer?.MarkCanonicalReadoutDirty();
                 return success;
             }
             finally
@@ -553,7 +546,7 @@ namespace Genesis.RoomScan
                     "Scan synchronized");
                 success = _persistence != null &&
                     await _persistence.OpenSessionAsync(sessionId);
-                if (success) _renderer?.BeginLoadedCoverageWarmup();
+                if (success) _renderer?.MarkCanonicalReadoutDirty();
                 return success;
             }
             finally
@@ -603,8 +596,6 @@ namespace Genesis.RoomScan
             if (wasActive && !CloseOpenDesignForSessionSwitch()) return false;
             bool deleted = _persistence != null &&
                 await _persistence.DeleteSessionAsync(sessionId);
-            if (deleted && wasActive)
-                _renderer?.CancelLoadedCoverageWarmup();
             return deleted;
         }
 
@@ -631,7 +622,6 @@ namespace Genesis.RoomScan
                         "Session persistence is unavailable.");
                 await _persistence.BeginNewSessionAsync(
                     _anchorManager.SpatialAnchorUuid, displayName);
-                _renderer?.CancelLoadedCoverageWarmup();
                 _integrator?.Clear();
                 await Task.Yield();
                 LastScanStartError = null;

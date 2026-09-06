@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -127,6 +128,34 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void ScanResumeDoesNotWaitForDrawOrWarmCoverage()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            string start = Slice(scanner,
+                "public async Task StartScanningAsync()",
+                "internal Task<bool> QuiesceScanningAsync()");
+            Assert.That(start, Does.Not.Contain(
+                "WaitForLoadedCoverageReadyAsync"));
+            Assert.That(start, Does.Not.Contain("loadedCoverageReady"));
+            Assert.That(start, Does.Contain(
+                "RequestCameraPermissionAsync()"));
+
+            string open = Slice(scanner,
+                "public async Task<bool> LoadAsync()",
+                "public async Task<bool> SaveAsAsync(string displayName)");
+            Assert.That(open, Does.Contain("MarkCanonicalReadoutDirty()"));
+
+            string renderer = Source(
+                "Runtime/Merkaba/MerkabaGridRenderer.cs");
+            Assert.That(renderer, Does.Not.Contain(
+                "WaitForLoadedCoverageReadyAsync"));
+            Assert.That(renderer, Does.Not.Contain(
+                "BeginLoadedCoverageWarmup"));
+            Assert.That(renderer, Does.Not.Contain(
+                "CancelLoadedCoverageWarmup"));
+        }
+
+        [Test]
         public void ArtifactLocalizationCannotReplaceTheScannerAnchor()
         {
             string manager = Source("Runtime/Core/RoomAnchorManager.cs");
@@ -168,8 +197,8 @@ namespace Genesis.RoomScan.Tests
             foreach ((string begin, string end) in new[]
                      {
                          ("private void BeginLoadAddressReadback()",
-                          "private void CompleteStorageTasks()"),
-                         ("private void CompleteStorageTasks()",
+                          "private void CompleteStorageCpuTasks()"),
+                         ("private void CompleteStorageGpuWork()",
                           "private void SubmitLoadedTiles("),
                          ("private void SubmitLoadedTiles(",
                           "private void UploadLoadAddresses("),
@@ -180,6 +209,20 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(Slice(storage, begin, end),
                     Does.Contain("GpuSubmissionAllowed"), begin);
             }
+            string cpuCompletion = Slice(storage,
+                "private void CompleteStorageCpuTasks()",
+                "private void PumpIdleBaseCompaction()");
+            Assert.That(cpuCompletion, Does.Not.Contain(
+                "MerkabaNativeVulkanExecutor.HasJobInFlight"));
+            Assert.That(cpuCompletion, Does.Not.Contain(
+                "if (!GpuSubmissionAllowed) return"));
+            int cpuPump = pump.IndexOf("CompleteStorageCpuTasks()",
+                StringComparison.Ordinal);
+            int nativeGate = pump.IndexOf(
+                "MerkabaNativeVulkanExecutor.HasJobInFlight",
+                StringComparison.Ordinal);
+            Assert.That(cpuPump, Is.GreaterThanOrEqualTo(0));
+            Assert.That(nativeGate, Is.GreaterThan(cpuPump));
             string acknowledge = Slice(storage,
                 "private void AcknowledgeLoadRequests()",
                 "private void BeginWritebackReadback(");
@@ -215,6 +258,55 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(body, Does.Contain(
                     "if (!GpuSubmissionAllowed) return;"), method);
             }
+        }
+
+        [Test]
+        public void SaveRequestsButNeverExecutesWholeWorldBaseCompaction()
+        {
+            string storage = Source("Runtime/Merkaba/MerkabaGrid.Storage.cs");
+            string commit = Slice(storage,
+                "internal async Task<MerkabaStorageCommitResult> CommitStorageAsync(",
+                "internal Task CloneCommittedStorageAsync(");
+            Assert.That(commit, Does.Contain("_baseCompactionRequested = true"));
+            Assert.That(commit, Does.Not.Contain("CompactCommittedBases"));
+
+            string pump = Slice(storage, "private void PumpStorage()",
+                "private void ApplySampledCounters");
+            int cpu = pump.IndexOf("CompleteStorageCpuTasks()",
+                StringComparison.Ordinal);
+            int compaction = pump.IndexOf("PumpIdleBaseCompaction()",
+                StringComparison.Ordinal);
+            int nativeGate = pump.IndexOf(
+                "MerkabaNativeVulkanExecutor.HasJobInFlight",
+                StringComparison.Ordinal);
+            Assert.That(cpu, Is.GreaterThanOrEqualTo(0));
+            Assert.That(compaction, Is.GreaterThan(cpu));
+            Assert.That(nativeGate, Is.GreaterThan(compaction));
+
+            string idle = Slice(storage,
+                "private void PumpIdleBaseCompaction()",
+                "private bool IsIdleForBaseCompaction()");
+            Assert.That(idle, Does.Contain("IsIdleForBaseCompaction()"));
+            Assert.That(idle, Does.Contain(
+                "MerkabaNativeVulkanExecutor.HasJobInFlight"));
+            Assert.That(idle, Does.Contain("CompactCommittedBasesAsync("));
+            Assert.That(idle, Does.Contain("_baseCompactionCancellation.Token"));
+
+            string admission = Slice(storage,
+                "private bool IsIdleForBaseCompaction()",
+                "private async Task CancelAndRetireBaseCompactionAsync");
+            Assert.That(admission, Does.Contain("!scanner.IsScanning"));
+            Assert.That(admission, Does.Contain(
+                "scanner.ScanLifecycle == ScanLifecycleState.Stopped"));
+            Assert.That(admission, Does.Contain("!scanner.IsBusy"));
+            Assert.That(admission, Does.Contain("_writebackStorageTask == null"));
+            Assert.That(admission, Does.Contain("_flushCompletion == null"));
+
+            string store = Source("Runtime/Merkaba/MerkabaSsdStore.cs");
+            string save = Slice(store,
+                "internal MerkabaStorageCommitResult Commit(",
+                "/// <summary>\n        /// Idle-only physical maintenance.");
+            Assert.That(save, Does.Not.Contain("CompactCommittedBases("));
         }
 
         [Test]
@@ -312,29 +404,44 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void CheckpointProgressUsesActualBytesAndRecords()
+        public async Task ManifestCommitProgressUsesDirtyStreamsAndPublish()
         {
-            MerkabaSessionSnapshot snapshot = Snapshot(2);
-            var written = new RecordingProgress();
-            using var stream = new MemoryStream();
-            MerkabaSsdStore.WriteCheckpoint(stream, snapshot, written);
-            AssertStageIsMeasured(written.Values,
-                ScanOperationStage.WritingFile);
-            OperationWorkProgress writeLast = Last(written.Values,
-                ScanOperationStage.WritingFile);
-            Assert.That(writeLast.Completed, Is.EqualTo(stream.Length));
-            Assert.That(writeLast.Total, Is.EqualTo(stream.Length));
+            string directory = Path.Combine(Path.GetTempPath(),
+                "merkaba-progress-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var store = new MerkabaSsdStore(directory);
+                var states = new KernelState[MerkabaSpatial.KernelsPerTile];
+                states[0].SetOccupiedForFixture(true,
+                    new UnityEngine.Color32(1, 2, 3, 255));
+                await store.AppendM8TilesAsync(new[]
+                {
+                    new MerkabaTileSnapshot
+                    {
+                        Address = new MerkabaTileAddress(new int3(-1, 2, 0),
+                            0u),
+                        States = states
+                    }
+                });
+                var progress = new RecordingProgress();
+                MerkabaStorageCommitResult result = await store.CommitAsync(
+                    Guid.NewGuid(), Guid.NewGuid(),
+                    UnityEngine.Matrix4x4.identity, 1, 1, progress);
 
-            stream.Position = 0;
-            var read = new RecordingProgress();
-            MerkabaSessionSnapshot restored = MerkabaSsdStore.ReadCheckpoint(
-                stream, read);
-            Assert.That(restored.Tiles.Count, Is.EqualTo(2));
-            AssertStageIsMeasured(read.Values, ScanOperationStage.ReadingFile);
-            OperationWorkProgress readLast = Last(read.Values,
-                ScanOperationStage.ReadingFile);
-            Assert.That(readLast.Completed, Is.EqualTo(stream.Length));
-            Assert.That(readLast.Total, Is.EqualTo(stream.Length));
+                Assert.That(result.DirtyBytes, Is.GreaterThan(0L));
+                AssertStageIsMeasured(progress.Values,
+                    ScanOperationStage.WritingFile);
+                AssertStageIsMeasured(progress.Values,
+                    ScanOperationStage.PublishingFile);
+                Assert.That(Last(progress.Values,
+                    ScanOperationStage.PublishingFile).Completed,
+                    Is.EqualTo(1L));
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory,
+                    true);
+            }
         }
 
         [Test]
@@ -390,8 +497,8 @@ namespace Genesis.RoomScan.Tests
         {
             string store = Source("Runtime/Merkaba/MerkabaSsdStore.cs");
             string publish = Slice(store,
-                "internal void PublishCheckpoint(MerkabaSessionSnapshot snapshot,",
-                "internal void Clear()");
+                "internal MerkabaStorageCommitResult Commit(Guid sessionUuid,",
+                "internal Task CloneCommittedToAsync");
             int flush = publish.IndexOf("stream.Flush(true);",
                 StringComparison.Ordinal);
             int atomicPublish = publish.IndexOf("MerkabaFilePublishing.Publish(",
@@ -409,26 +516,6 @@ namespace Genesis.RoomScan.Tests
                 "private void SetOperation");
             Assert.That(finish, Does.Contain("success ? 1f"));
             Assert.That(finish, Does.Contain("ScanOperationStage.Failed"));
-        }
-
-        private static MerkabaSessionSnapshot Snapshot(int count)
-        {
-            var snapshot = new MerkabaSessionSnapshot();
-            for (int item = 0; item < count; item++)
-            {
-                var states = new KernelState[MerkabaSpatial.KernelsPerTile];
-                states[item].OccupancyEvidence =
-                    MerkabaConstants.OccupiedOnThreshold;
-                states[item].Flags = MerkabaConstants.OccupiedFlag;
-                snapshot.Tiles.Add(new MerkabaTileSnapshot
-                {
-                    Address = new MerkabaTileAddress(new int3(item, -item, 0),
-                        (uint)item),
-                    Generation = 1,
-                    States = states
-                });
-            }
-            return snapshot;
         }
 
         private static void AssertStageIsMeasured(

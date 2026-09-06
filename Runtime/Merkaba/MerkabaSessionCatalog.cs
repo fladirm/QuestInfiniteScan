@@ -25,8 +25,9 @@ namespace Genesis.RoomScan
     }
 
     /// <summary>
-    /// Small durable catalog around the existing per-directory M8 store.
-    /// It owns names and roots only; canonical data remains in MerkabaSsdStore.
+    /// Durable names around REV-B session directories. A present manifest is
+    /// always validated against the metadata identity; metadata-only directories
+    /// are valid unsaved sessions and no historical format is migrated.
     /// </summary>
     internal sealed class MerkabaSessionCatalog
     {
@@ -60,7 +61,6 @@ namespace Genesis.RoomScan
         internal IReadOnlyList<MerkabaSessionInfo> List()
         {
             Directory.CreateDirectory(_sessionsRoot);
-            MigrateLegacyIfNecessary();
             var sessions = new List<MerkabaSessionInfo>();
             string[] directories = Directory.GetDirectories(_sessionsRoot);
             Array.Sort(directories, StringComparer.Ordinal);
@@ -68,8 +68,7 @@ namespace Genesis.RoomScan
             {
                 try
                 {
-                    MerkabaSessionInfo session = ReadDirectory(directory,
-                        recoverMissingMetadata: true);
+                    MerkabaSessionInfo session = ReadDirectory(directory);
                     if (session != null) sessions.Add(session);
                 }
                 catch (Exception exception)
@@ -116,7 +115,7 @@ namespace Genesis.RoomScan
         internal MerkabaSessionInfo Read(Guid sessionId)
         {
             MerkabaSessionInfo session = ReadDirectory(
-                SessionDirectory(sessionId), recoverMissingMetadata: true);
+                SessionDirectory(sessionId));
             return session ?? throw new FileNotFoundException(
                 "Scan session metadata was not found.", SessionDirectory(
                     sessionId));
@@ -124,7 +123,14 @@ namespace Genesis.RoomScan
 
         internal void MarkSaved(MerkabaSessionInfo session)
         {
-            Validate(session, SessionDirectory(session.Id));
+            string directory = SessionDirectory(session.Id);
+            Validate(session, directory);
+            MerkabaSessionManifest manifest =
+                MerkabaSsdStore.ReadManifestFromDirectory(directory);
+            if (manifest.SessionUuid != session.Id ||
+                manifest.AnchorUuid != session.AnchorId)
+                throw new InvalidDataException(
+                    "Session metadata and committed manifest identity differ.");
             session.modifiedUtc = UtcNow();
             Write(session);
         }
@@ -146,40 +152,25 @@ namespace Genesis.RoomScan
             Directory.Delete(directory, true);
         }
 
-        private MerkabaSessionInfo ReadDirectory(string directory,
-            bool recoverMissingMetadata)
+        private MerkabaSessionInfo ReadDirectory(string directory)
         {
             string metadataPath = Path.Combine(directory, MetadataFileName);
-            if (!File.Exists(metadataPath))
-            {
-                if (!recoverMissingMetadata) return null;
-                string checkpoint = Path.Combine(directory,
-                    "merkaba-grid.bin");
-                if (!File.Exists(checkpoint)) return null;
-                if (!Guid.TryParseExact(Path.GetFileName(directory), "N",
-                        out Guid id))
-                    throw new InvalidDataException(
-                        "Session directory is not a canonical UUID.");
-                Guid anchor = ReadCheckpointAnchorUuid(checkpoint);
-                string now = File.GetLastWriteTimeUtc(checkpoint).ToString("O",
-                    CultureInfo.InvariantCulture);
-                var recovered = new MerkabaSessionInfo
-                {
-                    formatVersion = FormatVersion,
-                    sessionId = id.ToString("D"),
-                    displayName = "Recovered Scan",
-                    createdUtc = now,
-                    modifiedUtc = now,
-                    anchorUuid = anchor.ToString("D"),
-                    thumbnailPath = string.Empty
-                };
-                Write(recovered);
-                return recovered;
-            }
+            if (!File.Exists(metadataPath)) return null;
             string json = File.ReadAllText(metadataPath, Encoding.UTF8);
             MerkabaSessionInfo session = JsonUtility.FromJson<
                 MerkabaSessionInfo>(json);
             Validate(session, directory);
+            string manifestPath = Path.Combine(directory,
+                MerkabaSsdStore.ManifestFileName);
+            if (File.Exists(manifestPath))
+            {
+                MerkabaSessionManifest manifest =
+                    MerkabaSsdStore.ReadManifestFromDirectory(directory);
+                if (manifest.SessionUuid != session.Id ||
+                    manifest.AnchorUuid != session.AnchorId)
+                    throw new InvalidDataException(
+                        "Session metadata and committed manifest identity differ.");
+            }
             return session;
         }
 
@@ -200,61 +191,6 @@ namespace Genesis.RoomScan
                 stream.Flush(true);
             }
             MerkabaFilePublishing.Publish(temporary, destination);
-        }
-
-        private void MigrateLegacyIfNecessary()
-        {
-            string checkpoint = Path.Combine(_applicationRoot,
-                "merkaba-grid.bin");
-            if (!File.Exists(checkpoint)) return;
-
-            Guid anchorUuid = ReadCheckpointAnchorUuid(checkpoint);
-            Guid sessionId = Guid.NewGuid();
-            string now = UtcNow();
-            var session = new MerkabaSessionInfo
-            {
-                formatVersion = FormatVersion,
-                sessionId = sessionId.ToString("D"),
-                displayName = "Imported Scan",
-                createdUtc = now,
-                modifiedUtc = now,
-                anchorUuid = anchorUuid.ToString("D"),
-                thumbnailPath = string.Empty
-            };
-            string directory = SessionDirectory(session.Id);
-            Directory.CreateDirectory(directory);
-            File.Move(checkpoint, Path.Combine(directory,
-                "merkaba-grid.bin"));
-            string overlay = Path.Combine(_applicationRoot,
-                "merkaba-live.m8log");
-            if (File.Exists(overlay))
-                File.Move(overlay, Path.Combine(directory,
-                    "merkaba-live.m8log"));
-            Write(session);
-            Logger.Info($"Migrated legacy M8 checkpoint into session " +
-                $"{session.Id:D}.");
-        }
-
-        internal static Guid ReadCheckpointAnchorUuid(string checkpoint)
-        {
-            using var stream = new FileStream(checkpoint, FileMode.Open,
-                FileAccess.Read, FileShare.Read, 64 * 1024,
-                FileOptions.SequentialScan);
-            using var reader = new BinaryReader(stream, Encoding.UTF8, true);
-            if (reader.ReadUInt32() != MerkabaSsdStore.CheckpointMagic ||
-                reader.ReadInt32() != MerkabaSsdStore.FormatVersion)
-                throw new InvalidDataException(
-                    "Session checkpoint has an unsupported format.");
-            stream.Position = 20;
-            byte[] uuid = reader.ReadBytes(16);
-            if (uuid.Length != 16)
-                throw new EndOfStreamException(
-                    "Session checkpoint anchor UUID is truncated.");
-            Guid anchor = new Guid(uuid);
-            if (anchor == Guid.Empty)
-                throw new InvalidDataException(
-                    "Session checkpoint has no persisted anchor UUID.");
-            return anchor;
         }
 
         private void Validate(MerkabaSessionInfo session, string directory)

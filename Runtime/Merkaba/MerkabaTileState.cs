@@ -48,7 +48,7 @@ namespace Genesis.RoomScan
     internal sealed class MerkabaTileSnapshot
     {
         internal MerkabaTileAddress Address;
-        internal uint Generation;
+        internal ulong Generation;
         internal KernelState[] States;
     }
 

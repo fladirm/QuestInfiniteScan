@@ -248,6 +248,9 @@ namespace Genesis.RoomScan
             return ~crc;
         }
 
+        internal static uint ComputeBytesCrc(ReadOnlySpan<byte> bytes) =>
+            ~Update(uint.MaxValue, bytes);
+
         internal static void WriteBlockAddress(Span<byte> destination,
             int3 blockCoord)
         {
@@ -402,14 +405,14 @@ namespace Genesis.RoomScan
                     $"Address must be exactly {size} bytes.");
         }
 
-        private static void WriteUInt16(Span<byte> bytes, int offset,
+        internal static void WriteUInt16(Span<byte> bytes, int offset,
             ushort value)
         {
             bytes[offset] = (byte)value;
             bytes[offset + 1] = (byte)(value >> 8);
         }
 
-        private static void WriteUInt32(Span<byte> bytes, int offset,
+        internal static void WriteUInt32(Span<byte> bytes, int offset,
             uint value)
         {
             bytes[offset] = (byte)value;
@@ -418,28 +421,29 @@ namespace Genesis.RoomScan
             bytes[offset + 3] = (byte)(value >> 24);
         }
 
-        private static void WriteInt32(Span<byte> bytes, int offset,
+        internal static void WriteInt32(Span<byte> bytes, int offset,
             int value) => WriteUInt32(bytes, offset, unchecked((uint)value));
 
-        private static void WriteUInt64(Span<byte> bytes, int offset,
+        internal static void WriteUInt64(Span<byte> bytes, int offset,
             ulong value)
         {
             WriteUInt32(bytes, offset, (uint)value);
             WriteUInt32(bytes, offset + 4, (uint)(value >> 32));
         }
 
-        private static ushort ReadUInt16(ReadOnlySpan<byte> bytes, int offset) =>
+        internal static ushort ReadUInt16(ReadOnlySpan<byte> bytes,
+            int offset) =>
             (ushort)(bytes[offset] | (bytes[offset + 1] << 8));
 
-        private static uint ReadUInt32(ReadOnlySpan<byte> bytes, int offset) =>
+        internal static uint ReadUInt32(ReadOnlySpan<byte> bytes, int offset) =>
             bytes[offset] | ((uint)bytes[offset + 1] << 8) |
             ((uint)bytes[offset + 2] << 16) |
             ((uint)bytes[offset + 3] << 24);
 
-        private static int ReadInt32(ReadOnlySpan<byte> bytes, int offset) =>
+        internal static int ReadInt32(ReadOnlySpan<byte> bytes, int offset) =>
             unchecked((int)ReadUInt32(bytes, offset));
 
-        private static ulong ReadUInt64(ReadOnlySpan<byte> bytes, int offset) =>
+        internal static ulong ReadUInt64(ReadOnlySpan<byte> bytes, int offset) =>
             ReadUInt32(bytes, offset) |
             ((ulong)ReadUInt32(bytes, offset + 4) << 32);
     }

@@ -7,7 +7,10 @@ using UnityEngine;
 
 namespace Genesis.RoomScan
 {
-    /// <summary>Greenfield V3 sparse-M8 persistence. No legacy reader exists.</summary>
+    /// <summary>
+    /// REV-B session transaction coordinator. M8 and every subordinate stream
+    /// become durable only through one atomically published generation manifest.
+    /// </summary>
     [DisallowMultipleComponent]
     public sealed class MerkabaPersistence : MonoBehaviour
     {
@@ -26,13 +29,14 @@ namespace Genesis.RoomScan
         public bool IsDirty { get; private set; }
         public bool SavedSessionExists => _activeSession != null &&
             File.Exists(Path.Combine(ActiveSessionDirectory,
-                "merkaba-grid.bin"));
+                MerkabaSsdStore.ManifestFileName));
         public bool AnySessionExists => Sessions.Count > 0;
         public IReadOnlyList<MerkabaSessionInfo> Sessions =>
             _catalog?.List() ?? Array.Empty<MerkabaSessionInfo>();
         public string LastStatus { get; private set; } = "Not saved";
         public string SessionPath => SavedSessionExists
-            ? Path.Combine(ActiveSessionDirectory, "merkaba-grid.bin")
+            ? Path.Combine(ActiveSessionDirectory,
+                MerkabaSsdStore.ManifestFileName)
             : string.Empty;
         internal string ActiveDesignPath => _activeSession != null
             ? Path.Combine(ActiveSessionDirectory,
@@ -66,16 +70,17 @@ namespace Genesis.RoomScan
                         "Save requires RoomScanner quiesce before persistence.");
                 IProgress<OperationWorkProgress> progress = ProgressFor(
                     ScanOperationKind.Save);
-                MerkabaSessionSnapshot snapshot = await SaveActiveCoreAsync(
+                MerkabaStorageCommitResult result = await SaveActiveCoreAsync(
                     progress);
                 _catalog.MarkSaved(_activeSession);
                 IsDirty = false;
-                SetStatus($"Saved {snapshot.Tiles.Count} M8 tiles");
+                SetStatus($"Saved {result.CanonicalTileCount} M8 tiles · " +
+                    $"{result.DirtyBytes} dirty bytes");
                 return true;
             }
             catch (Exception exception)
             {
-                Logger.Error("Merkaba V3 save failed: " + exception);
+                Logger.Error("Merkaba REV-B save failed: " + exception);
                 SetStatus("Save failed: " + exception.Message);
                 return false;
             }
@@ -96,7 +101,7 @@ namespace Genesis.RoomScan
                 foreach (MerkabaSessionInfo session in Sessions)
                     if (File.Exists(Path.Combine(
                             _catalog.SessionDirectory(session.Id),
-                            "merkaba-grid.bin")))
+                            MerkabaSsdStore.ManifestFileName)))
                     {
                         selected = session;
                         break;
@@ -122,52 +127,68 @@ namespace Genesis.RoomScan
                     ScanOperationKind.Load);
                 MerkabaSessionInfo session = _catalog.Read(sessionId);
                 string directory = _catalog.SessionDirectory(session.Id);
-                string checkpoint = Path.Combine(directory,
-                    "merkaba-grid.bin");
-                if (!File.Exists(checkpoint))
+                string manifestPath = Path.Combine(directory,
+                    MerkabaSsdStore.ManifestFileName);
+                if (!File.Exists(manifestPath))
                     throw new FileNotFoundException(
                         "Scan session has not been saved yet.");
-                if (MerkabaSessionCatalog.ReadCheckpointAnchorUuid(
-                        checkpoint) != session.AnchorId)
+                // Manifest identity is validated before localizing or clearing
+                // any current world. Its committed byte ranges are the only
+                // crash-safe session authority.
+                MerkabaSessionManifest manifest =
+                    MerkabaSsdStore.ReadManifestFromDirectory(directory);
+                if (manifest.SessionUuid != session.Id ||
+                    manifest.AnchorUuid != session.AnchorId)
                     throw new InvalidDataException(
-                        "Session metadata and M8 checkpoint anchor UUID differ.");
-                progress.Report(OperationWorkProgress.Indeterminate(
-                    ScanOperationStage.LocalizingAnchor,
-                    "Localizing saved anchor"));
+                        "Session metadata and manifest identity differ.");
                 anchorManager = RoomAnchorManager.Instance;
                 if (anchorManager == null || !anchorManager.enabled)
                     throw new InvalidOperationException(
                         "Saved M8 world requires its spatial anchor, but " +
                         "RoomAnchorManager is unavailable.");
-                if (!await anchorManager.EnsureSessionAnchorAsync(
-                        session.AnchorId, false) ||
-                    anchorManager.SpatialAnchorUuid != session.AnchorId)
-                    throw new InvalidOperationException(
-                        "Saved M8 spatial anchor could not be localized.");
-                if (RoomSpaceRoot.Instance == null)
-                    throw new InvalidOperationException(
-                        "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
-                        "is unavailable.");
-                if (!await RoomSpaceRoot.WaitForAnchorBindAsync(
-                        anchorManager.SpatialAnchorTransform))
-                    throw new InvalidOperationException(
-                        "Saved M8 spatial anchor localized, but RoomSpaceRoot " +
-                        "did not bind.");
+                MerkabaSessionOpenState opened = await _grid
+                    .SwitchStorageRootAsync(directory, false, true, progress,
+                        async candidate =>
+                        {
+                            if (candidate == null ||
+                                candidate.Manifest.CommitGeneration !=
+                                manifest.CommitGeneration ||
+                                candidate.Manifest.SessionUuid != session.Id ||
+                                candidate.Manifest.AnchorUuid != session.AnchorId)
+                                throw new InvalidDataException(
+                                    "Session manifest changed during OPEN replay.");
+                            progress.Report(
+                                OperationWorkProgress.Indeterminate(
+                                    ScanOperationStage.LocalizingAnchor,
+                                    "Localizing saved anchor"));
+                            if (!await anchorManager.EnsureSessionAnchorAsync(
+                                    session.AnchorId, false) ||
+                                anchorManager.SpatialAnchorUuid !=
+                                session.AnchorId)
+                                throw new InvalidOperationException(
+                                    "Saved M8 spatial anchor could not be " +
+                                    "localized.");
+                            if (RoomSpaceRoot.Instance == null)
+                                throw new InvalidOperationException(
+                                    "Saved M8 spatial anchor localized, but " +
+                                    "RoomSpaceRoot is unavailable.");
+                            if (!await RoomSpaceRoot.WaitForAnchorBindAsync(
+                                    anchorManager.SpatialAnchorTransform))
+                                throw new InvalidOperationException(
+                                    "Saved M8 spatial anchor localized, but " +
+                                    "RoomSpaceRoot did not bind.");
+                        });
                 worldCleared = true;
-                await _grid.SwitchStorageRootAsync(directory, false, true);
                 _integrator?.Clear();
-                MerkabaSessionSnapshot snapshot = await _grid
-                    .ReadCheckpointSnapshotAsync(progress);
-                if (snapshot.AnchorUuid != session.AnchorId)
-                    throw new InvalidDataException(
-                        "Session metadata and M8 checkpoint anchor UUID differ.");
                 _grid.RelocateForLoadedAnchor(
-                    anchorManager.SpatialAnchorMatrix, snapshot.AnchorAtSave);
-                await _grid.LoadStoredSnapshotAsync(snapshot, progress);
-                _integrator?.RestoreIntegrationCount(snapshot.IntegrationCount);
+                    anchorManager.SpatialAnchorMatrix,
+                    opened.Manifest.AnchorAtSave);
+                await _grid.LoadCommittedStorageAsync(opened, progress);
+                _integrator?.RestoreIntegrationCount(
+                    opened.Manifest.IntegrationCount);
                 _activeSession = session;
                 IsDirty = false;
-                SetStatus($"Loaded {snapshot.Tiles.Count} M8 tiles");
+                SetStatus($"Loaded {opened.IndexedTileCount} M8 tiles");
                 return true;
             }
             catch (Exception exception)
@@ -179,7 +200,7 @@ namespace Genesis.RoomScan
                 if (failClosed) ClearCanonicalWorldFailClosed();
                 _activeSession = failClosed ? null : previousSession;
                 IsDirty = failClosed ? false : previousDirty;
-                Logger.Error("Merkaba V3 load failed: " + exception);
+                Logger.Error("Merkaba REV-B load failed: " + exception);
                 SetStatus("Load failed: " + exception.Message);
                 return false;
             }
@@ -236,20 +257,19 @@ namespace Genesis.RoomScan
             IsBusy = true;
             SetStatus("Saving as…");
             MerkabaSessionInfo created = null;
+            bool switched = false;
             try
             {
                 IProgress<OperationWorkProgress> progress = ProgressFor(
                     ScanOperationKind.Save);
-                MerkabaSessionSnapshot snapshot = await SaveActiveCoreAsync(
+                MerkabaStorageCommitResult result = await SaveActiveCoreAsync(
                     progress);
                 _catalog.MarkSaved(_activeSession);
-                string sourceCheckpoint = Path.Combine(
-                    ActiveSessionDirectory, "merkaba-grid.bin");
                 created = _catalog.Create(ActiveAnchorUuid, displayName);
                 string destinationDirectory = _catalog.SessionDirectory(
                     created.Id);
-                await Task.Run(() => CopyFileDurable(sourceCheckpoint,
-                    Path.Combine(destinationDirectory, "merkaba-grid.bin")));
+                await _grid.CloneCommittedStorageAsync(destinationDirectory,
+                    created.Id);
                 string sourceDesign = Path.Combine(ActiveSessionDirectory,
                     MerkabaSessionCatalog.DesignFileName);
                 if (File.Exists(sourceDesign))
@@ -259,15 +279,16 @@ namespace Genesis.RoomScan
                 await _grid.SwitchStorageRootAsync(destinationDirectory,
                     false, false);
                 _activeSession = created;
+                switched = true;
                 _catalog.MarkSaved(created);
                 IsDirty = false;
                 SetStatus($"Saved as {created.displayName} · " +
-                    $"{snapshot.Tiles.Count} M8 tiles");
+                    $"{result.CanonicalTileCount} M8 tiles");
                 return true;
             }
             catch (Exception exception)
             {
-                if (created != null && created.Id != ActiveSessionId)
+                if (created != null && !switched)
                     _catalog.Delete(created.Id);
                 Logger.Error("Merkaba Save As failed: " + exception);
                 SetStatus("Save As failed: " + exception.Message);
@@ -355,7 +376,7 @@ namespace Genesis.RoomScan
             }
         }
 
-        private async Task<MerkabaSessionSnapshot> SaveActiveCoreAsync(
+        private async Task<MerkabaStorageCommitResult> SaveActiveCoreAsync(
             IProgress<OperationWorkProgress> progress)
         {
             if (_integrator != null &&
@@ -375,13 +396,11 @@ namespace Genesis.RoomScan
                     false) || anchor.SpatialAnchorUuid != ActiveAnchorUuid)
                 throw new InvalidOperationException(
                     "Active session room anchor could not be localized.");
-            MerkabaSessionSnapshot snapshot = await _grid
-                .CaptureStoredSnapshotAsync(ActiveAnchorUuid,
-                    anchor.SpatialAnchorMatrix,
-                    _integrator != null ? _integrator.IntegrationCount : 0,
-                    progress);
-            await _grid.PublishCheckpointAsync(snapshot, progress);
-            return snapshot;
+            int occupied = Math.Max(0, _grid.M8OccupiedKernelCount);
+            return await _grid.CommitStorageAsync(ActiveSessionId,
+                ActiveAnchorUuid, anchor.SpatialAnchorMatrix,
+                _integrator != null ? _integrator.IntegrationCount : 0,
+                checked((uint)occupied), progress);
         }
 
         internal static void CopyFileDurable(string source, string destination)
@@ -400,13 +419,6 @@ namespace Genesis.RoomScan
             MerkabaFilePublishing.Publish(temporary, destination);
         }
 
-        internal static void WriteSnapshot(Stream destination,
-            MerkabaSessionSnapshot snapshot) =>
-            MerkabaSsdStore.WriteCheckpoint(destination, snapshot);
-
-        internal static MerkabaSessionSnapshot ReadSnapshot(Stream source) =>
-            MerkabaSsdStore.ReadCheckpoint(source);
-
         private void SetStatus(string status)
         {
             LastStatus = status;
@@ -424,23 +436,67 @@ namespace Genesis.RoomScan
         [DllImport("libc", EntryPoint = "rename", SetLastError = true)]
         private static extern int RenameAtomic(string source, string destination);
 #endif
+#if (UNITY_ANDROID && !UNITY_EDITOR) || UNITY_EDITOR_LINUX || UNITY_STANDALONE_LINUX
+        [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+        private static extern int OpenDirectory(string path, int flags);
+
+        [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
+        private static extern int SyncFileDescriptor(int descriptor);
+
+        [DllImport("libc", EntryPoint = "close", SetLastError = true)]
+        private static extern int CloseFileDescriptor(int descriptor);
+#endif
 
         internal static void Publish(string temporary, string destination)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (RenameAtomic(temporary, destination) != 0)
-                throw new IOException("Atomic checkpoint rename failed with " +
+                throw new IOException("Atomic file rename failed with " +
                                       $"errno {Marshal.GetLastWin32Error()}.");
 #else
             if (!File.Exists(destination))
             {
                 File.Move(temporary, destination);
-                return;
             }
-            string backup = destination + ".bak";
-            if (File.Exists(backup)) File.Delete(backup);
-            File.Replace(temporary, destination, backup, true);
-            if (File.Exists(backup)) File.Delete(backup);
+            else
+            {
+                string backup = destination + ".bak";
+                if (File.Exists(backup)) File.Delete(backup);
+                File.Replace(temporary, destination, backup, true);
+                if (File.Exists(backup)) File.Delete(backup);
+            }
+#endif
+            FlushParentDirectory(destination);
+        }
+
+        /// <summary>
+        /// Flushes the directory entry that makes a durable temporary file
+        /// authoritative. Quest/Android and the Linux proof host use the same
+        /// POSIX ordering: file fsync, atomic rename, parent-directory fsync.
+        /// </summary>
+        private static void FlushParentDirectory(string destination)
+        {
+#if (UNITY_ANDROID && !UNITY_EDITOR) || UNITY_EDITOR_LINUX || UNITY_STANDALONE_LINUX
+            string directory = Path.GetDirectoryName(Path.GetFullPath(
+                destination));
+            int descriptor = OpenDirectory(directory, 0);
+            if (descriptor < 0)
+                throw new IOException("Could not open publish directory with " +
+                    $"errno {Marshal.GetLastWin32Error()}.");
+            int syncError = 0;
+            try
+            {
+                if (SyncFileDescriptor(descriptor) != 0)
+                    syncError = Marshal.GetLastWin32Error();
+            }
+            finally
+            {
+                if (CloseFileDescriptor(descriptor) != 0 && syncError == 0)
+                    syncError = Marshal.GetLastWin32Error();
+            }
+            if (syncError != 0)
+                throw new IOException("Could not fsync publish directory with " +
+                    $"errno {syncError}.");
 #endif
         }
     }

@@ -3051,7 +3051,7 @@ CONTRACT_SHA256=75f67ad9080fcbd999ba9ee7f0e30312201cc6dc671112700f403ddd4a309012
 WORKTREE=/mnt/aidisk/prace/uniscan
 BRANCH=refactor/m8-dual-sphere-flower-rev-b
 CURRENT_COMMIT=HEAD (resolve with git rev-parse; a commit cannot contain its own SHA)
-CURRENT_CUT=CUT_00_PASS_NEXT_CUT_01
+CURRENT_CUT=CUT_14_PASS_NEXT_CUT_03
 DAG_AUDIT=PASS
 FINAL_DAG_AUDIT=PENDING
 FINAL_CONTRACT_AUDIT=PENDING
@@ -3132,9 +3132,9 @@ The full dependency-ordered DAG and ownership audit are populated in PHASE 2 bef
 
 | Cut | Name | Status | Commit |
 |---:|---|---|---|
-| 0 | Authority/bootstrap | PASS | `HEAD: cut 00: authority bootstrap — REV-B closure control` |
-| 1 | CPU exact oracle + codegen | PENDING | — |
-| 2 | ABI/data model | PENDING | — |
+| 0 | Authority/bootstrap | PASS | `7a42dda` |
+| 1 | CPU exact oracle + codegen | PASS | `4b6848d` |
+| 2 | ABI/data model | PASS | `2148fa6` |
 | 3 | Deterministic observation reduction | PENDING | — |
 | 4 | Stereo Flower support | PENDING | — |
 | 5 | Direct R1 production commit | PENDING | — |
@@ -3146,7 +3146,7 @@ The full dependency-ordered DAG and ownership audit are populated in PHASE 2 bef
 | 11 | RGBV/V/photoreal synthesis | PENDING | — |
 | 12 | Procedural readout | PENDING | — |
 | 13 | Spherical residency | PENDING | — |
-| 14 | Transactional persistence | PENDING | — |
+| 14 | Transactional persistence | PASS | `HEAD: cut 14 transactional persistence` |
 | 15 | Unified GLB/3D Tiles export | PENDING | — |
 | 16 | Legacy excision + ABI closure | PENDING | — |
 | 17 | Full application closure | PENDING | — |
@@ -3987,4 +3987,110 @@ The immutable REV-B prefix remains byte-identical and authoritative.
 The complete subordinate dual/detail/thread/transient/persistence ABI is exact across C#, HLSL and native C++.
 No new data resource is allocated and production scanner/readout/storage/export behavior still follows c34d27f.
 The old whole-snapshot persistence path is now the next authority eligible for replacement in CUT 14.
+```
+
+## CUT 14 closure record
+
+```text
+CUT_14_STATUS=PASS
+CURRENT_COMMIT=HEAD (self; cut 14 transactional persistence)
+CURRENT_CUT=CUT_14
+DAG_STATUS=CUT_00_PASS;CUT_01_PASS;CUT_02_PASS;CUT_14_PASS;CUT_03_NEXT;ALL_OTHERS_PENDING
+
+FILES_CHANGED:
+  Runtime/Merkaba/MerkabaSessionManifest.cs(.meta)
+  Runtime/Merkaba/MerkabaSphereFlowerReplayIndex.cs(.meta)
+  Runtime/Merkaba/MerkabaSsdStore.cs
+  Runtime/Merkaba/MerkabaGrid.Storage.cs
+  Runtime/Merkaba/MerkabaPersistence.cs
+  Runtime/Merkaba/MerkabaSessionCatalog.cs
+  Runtime/Merkaba/MerkabaSphereFlowerPersistenceAbi.cs
+  Runtime/Merkaba/MerkabaTileState.cs
+  Runtime/Merkaba/MerkabaExportShell.cs
+  Runtime/Merkaba/MerkabaGridRenderer.cs
+  Runtime/Core/RoomScanner.cs
+  Tests/Editor/MerkabaPersistenceTests.cs
+  Tests/Editor/MerkabaSessionCatalogTests.cs
+  Tests/Editor/MerkabaLifecycleProgressTests.cs
+  Tests/Editor/MerkabaExportShellTests.cs
+  Tests/Editor/DepthPreprocessTests.cs
+
+INVARIANTS_PROVEN:
+  session-manifest.bin is the sole published session transaction authority
+  M8, sparse dual, FlowerDetail and ThreadAtlas have separate append streams and one commit generation
+  every manifest records the exact valid byte end of all six streams
+  dirty streams are durably flushed once before the manifest is durably written and atomically renamed
+  parent-directory fsync follows every authoritative rename on Android/Linux
+  OPEN reads and validates the manifest before replay, ignores/truncates every excluded tail and rejects corrupt ranges
+  base/live generation boundaries and record CRC/address/payload shapes are fail-closed
+  sparse dual ancestor records supersede older descendants and implicit ALL_FULL requires no stored record
+  FlowerDetail and ThreadAtlas records whose sparse parent epoch is absent, stale or lacks a canonical R1 owner are rejected
+  compaction publishes a complete recovery live image before replacing either base and preserves truth originally present only in base
+  SAVE AS clones exact committed prefixes and changes only session identity; an existing root cannot be relabeled
+  session metadata, manifest session UUID and anchor UUID must agree before world adoption
+  candidate OPEN is fully replayed before anchor localization and GPU-world retirement
+  SCAN resume no longer waits for DRAW/WARM readout coverage
+  CPU storage task completion/accounting executes before the native-GPU in-flight gate
+  SAVE requests idle compaction but does not await or perform a whole-world rewrite
+
+TESTS_RUN:
+  filtered MerkabaPersistenceTests = PASS 48/48
+  Tools/unity/run_merkaba_tests.sh = PASS 364/364
+  MerkabaSphereFlowerCodegen.CheckForBatch = PASS byte-for-byte
+  Tools/shaders/audit_merkaba_compute_spirv.sh = PASS 59/59 Vulkan kernels
+  fresh Quest APK build = PASS, 59,026,337 bytes, SHA-256 1b15e5b91544afc16e036e579d534e3f37644469c860998e51318e83428c872d
+  git diff --check = PASS
+  immutable REV-B prefix SHA-256 = 75f67ad9080fcbd999ba9ee7f0e30312201cc6dc671112700f403ddd4a309012
+  device runtime acceptance = NOT RUN (Quest disconnected by user)
+
+PERF:
+  SAVE performs O(dirty M8/subordinate append) work plus six fixed stream flush checks and one manifest publish
+  SAVE performs no canonical tile-index traversal, complete-world readback or checkpoint rewrite
+  idle base compaction is independently scheduled, cancellable and never part of SAVE completion
+  CPU storage completions/rates/idle maintenance progress before native GPU availability is tested
+  OPEN registers only the committed logical M8 address index; DRAW/WARM population remains independent
+
+LEGACY_REMOVED:
+  MerkabaSessionSnapshot
+  CaptureStoredSnapshotAsync and ReadCanonicalSnapshotAsync
+  WriteCheckpoint/ReadCheckpoint and whole-world PublishCheckpoint SAVE path
+  merkaba-grid.bin session authority and legacy checkpoint migration/recovery alias
+  durable fsync on every tiny write-through batch
+  loaded-coverage/DRAW-WARM wait from SCAN resume
+
+DEFERRED_DEPENDENCIES:
+  production sparse SEE_THROUGH mutation and GPU residency=CUT_06
+  production FlowerDetail and ThreadAtlas writers=CUT_10/CUT_11
+  legacy winner/integration path=CUT_03/CUT_05
+  legacy dilation/CARVE path=CUT_06
+  legacy readout and renderer geometry=CUT_12/CUT_13
+  legacy shell/membrane/float-weld export=CUT_15
+  physical stale fine-log compaction follows the production fine writers in CUT_10/CUT_11
+  on-device runtime/performance acceptance remains pending until the user reconnects Quest
+
+CUT_14_MANUAL_AUDIT:
+  PASS
+  files reviewed=every production and test file listed above, including complete new manifest/replay sources
+  legacy snapshot/checkpoint symbols in Runtime=absent
+  session/anchor relabel fallback=absent
+  hidden compatibility reader/migration=absent
+  SAVE whole-world traversal/rewrite=absent
+  orphan subordinate acceptance=absent
+  manifest-ignored tail authority=absent
+  CPU storage completion blocked by native GPU job=absent
+  readout wait blocking SCAN resume=absent
+  user-owned .claude and CLAUDE files touched=none
+
+NEXT_CUT=CUT_03 deterministic observation reduction
+```
+
+## CURRENT TRUE STATE — CUT 14 closed
+
+```text
+CUT 0, CUT 1, CUT 2 and CUT 14 are closed.
+REV-B remains the byte-identical sole authority and the dependency DAG remains PASS.
+The old snapshot/checkpoint persistence authority is absent; manifest-bound dirty append/replay is the only session storage path.
+Production scanner, stereo, positive integration, negative-volume mutation, detail, RGBV, procedural readout and export have not yet cut over and their named legacy paths remain only until CUT 3-13 and CUT 15.
+No photorealistic procedural Sphere-Flower readout is claimed at this state.
+The next implementation cut is CUT 3: touched-tile ObservationRecords and deterministic one-workgroup-per-tile reduction.
 ```

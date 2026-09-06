@@ -57,42 +57,6 @@ namespace Genesis.RoomScan
             MerkabaConstants.ExportKnownFreeThreshold;
 
         internal static MerkabaExportShellResult Build(
-            MerkabaSessionSnapshot snapshot,
-            IProgress<OperationWorkProgress> progress = null)
-        {
-            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
-            var occupied = new HashSet<int3>();
-            var strongFree = new HashSet<int3>();
-            var realStates = new Dictionary<int3, KernelState>();
-            var allEvidence = new Dictionary<int3, KernelState>();
-            for (int tileIndex = 0; tileIndex < snapshot.Tiles.Count; tileIndex++)
-            {
-                MerkabaTileSnapshot tile = snapshot.Tiles[tileIndex];
-                if (tile?.States == null ||
-                    tile.States.Length != MerkabaSpatial.KernelsPerTile)
-                    throw new InvalidOperationException(
-                        "Export snapshot contains an invalid M8 tile payload.");
-                for (int index = 0; index < tile.States.Length; index++)
-                {
-                    KernelState state = tile.States[index];
-                    int3 coord = MerkabaSpatial.Decode(tile.Address.BlockCoord,
-                        tile.Address.LocalAddress, index);
-                    AddEvidence(coord, state, occupied, strongFree, realStates,
-                        allEvidence);
-                }
-                ReportEvery(progress, ScanOperationStage.BuildingExportEvidence,
-                    tileIndex + 1, snapshot.Tiles.Count, 32,
-                    $"Read export evidence from {tileIndex + 1}/" +
-                    $"{snapshot.Tiles.Count} tiles");
-            }
-            if (snapshot.Tiles.Count == 0)
-                progress?.Report(new OperationWorkProgress(
-                    ScanOperationStage.BuildingExportEvidence, 0, 0,
-                    "Export evidence is empty"));
-            return Build(occupied, strongFree, realStates, allEvidence, progress);
-        }
-
-        internal static MerkabaExportShellResult Build(
             IReadOnlyDictionary<int3, KernelState> evidence,
             IProgress<OperationWorkProgress> progress = null)
         {

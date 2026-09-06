@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Unity.Mathematics;
 using UnityEngine;
@@ -32,11 +33,16 @@ namespace Genesis.RoomScan
         private bool _loadAddressReadbackPending;
         private MerkabaTileAddress[] _loadAddresses;
         private Task<MerkabaTileSnapshot[]> _loadStorageTask;
+        private MerkabaTileSnapshot[] _loadStorageResult;
+        private Exception _loadStorageFailure;
         private bool _loadInstallStatusPending;
         private bool _loadAcknowledgePending;
         private bool _writebackReadbackPending;
         private Task _writebackStorageTask;
         private int _writebackBatchCount;
+        private bool _writebackCompletionPending;
+        private Exception _writebackStorageFailure;
+        private int _completedWritebackBatchCount;
         private int _deferredWritebackFailureCount;
         private bool _flushAllDirty;
         private TaskCompletionSource<bool> _flushCompletion;
@@ -66,10 +72,14 @@ namespace Genesis.RoomScan
         private float _loadBytesPerSecond;
         private float _writeBytesPerSecond;
         private bool _storageReplacementPending;
+        private bool _baseCompactionRequested;
+        private Task<bool> _baseCompactionTask;
+        private CancellationTokenSource _baseCompactionCancellation;
 
         internal bool HasUnresolvedStorageRequests =>
             _loadRequestCursor != _observedLoadRequestCount ||
             _loadAddressReadbackPending || _loadStorageTask != null ||
+            _loadStorageResult != null || _loadStorageFailure != null ||
             _loadInstallStatusPending;
 
         internal uint CompletedObservationToken => _completedObservationToken;
@@ -87,8 +97,11 @@ namespace Genesis.RoomScan
             _ssdStore ??= new MerkabaSsdStore(_storageDirectory);
         }
 
-        internal async Task SwitchStorageRootAsync(string directory,
-            bool clearCanonicalFiles, bool clearGpuWorld)
+        internal async Task<MerkabaSessionOpenState> SwitchStorageRootAsync(
+            string directory,
+            bool clearCanonicalFiles, bool clearGpuWorld,
+            IProgress<OperationWorkProgress> openProgress = null,
+            Func<MerkabaSessionOpenState, Task> beforeAdoption = null)
         {
             if (string.IsNullOrWhiteSpace(directory))
                 throw new ArgumentException("Session storage root is required.",
@@ -101,6 +114,7 @@ namespace Genesis.RoomScan
             _storageReplacementPending = true;
             try
             {
+                await CancelAndRetireBaseCompactionAsync(false);
                 while (_streamCounterPending ||
                        _attemptCompletionReadbackPending ||
                        _loadAddressReadbackPending ||
@@ -139,6 +153,25 @@ namespace Genesis.RoomScan
                     _flushProgress = null;
                 }
 
+                var replacement = new MerkabaSsdStore(fullDirectory);
+                MerkabaSessionOpenState opened = null;
+                if (clearCanonicalFiles)
+                    replacement.Clear();
+                else
+                    opened = await replacement.OpenCommittedAsync(openProgress);
+
+                // OPEN's candidate authority is completely replayed and
+                // validated before anchor localization. The callback is a
+                // pre-adoption barrier: failure leaves both the current store
+                // and current GPU world untouched.
+                if (beforeAdoption != null)
+                {
+                    if (opened == null)
+                        throw new InvalidOperationException(
+                            "A new empty root has no committed state to adopt.");
+                    await beforeAdoption(opened);
+                }
+
                 if (clearGpuWorld)
                 {
                     EnsureGpuResources();
@@ -146,25 +179,17 @@ namespace Genesis.RoomScan
                         throw new InvalidOperationException(
                             "Cannot replace the M8 world while GPU submission " +
                             "is suspended.");
-                    // Keep the replacement gate closed across the clear and
-                    // index rebuild. No frame can pair the old GPU world with
-                    // the new session store (or vice versa).
+                    // The replacement has already passed manifest/range replay.
+                    // Keep the gate closed while the old GPU coordinate authority
+                    // is retired and the new store becomes authoritative.
                     ClearGpuWorldForNewScan();
                 }
-
-                var replacement = new MerkabaSsdStore(fullDirectory);
-                if (clearCanonicalFiles)
-                    replacement.Clear();
-                else if (!clearGpuWorld)
-                    await replacement.RebuildIndexAsync();
-                // OPEN rebuilds exactly once inside LoadStoredSnapshotAsync,
-                // after its checkpoint has been parsed. SAVE AS keeps the live
-                // GPU world and therefore needs the copied store indexed now.
                 _ssdStore = replacement;
                 _storageDirectory = fullDirectory;
                 // When the GPU world survives (SAVE AS), its ring cursors and
                 // any completed load task survive too. Resetting them would
                 // replay historical load requests into the copied session.
+                return opened;
             }
             finally
             {
@@ -179,6 +204,8 @@ namespace Genesis.RoomScan
             _observedLoadRequestCount = 0u;
             _loadAddresses = null;
             _loadStorageTask = null;
+            _loadStorageResult = null;
+            _loadStorageFailure = null;
             _loadAddressReadbackPending = false;
             _evictionSelectionPendingSample = false;
             _loadInstallStatusPending = false;
@@ -186,6 +213,9 @@ namespace Genesis.RoomScan
             _writebackReadbackPending = false;
             _writebackStorageTask = null;
             _writebackBatchCount = 0;
+            _writebackCompletionPending = false;
+            _writebackStorageFailure = null;
+            _completedWritebackBatchCount = 0;
             _deferredWritebackFailureCount = 0;
             _flushAllDirty = false;
             _flushCompletion = null;
@@ -211,11 +241,14 @@ namespace Genesis.RoomScan
 
         private void PumpStorage()
         {
-            if (_storageReplacementPending || !GpuSubmissionAllowed ||
+            if (_storageReplacementPending) return;
+            CompleteStorageCpuTasks();
+            UpdateStorageRates();
+            PumpIdleBaseCompaction();
+            if (!GpuSubmissionAllowed ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight) return;
             SubmitDeferredStorageControl();
-            CompleteStorageTasks();
-            UpdateStorageRates();
+            CompleteStorageGpuWork();
             if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
                 return;
             _nextStreamPoll = Time.unscaledTime + 0.05f;
@@ -234,6 +267,7 @@ namespace Genesis.RoomScan
                 if (_storageReplacementPending || !GpuSubmissionAllowed ||
                     MerkabaNativeVulkanExecutor.HasJobInFlight) return;
                 if (!_loadAddressReadbackPending && _loadStorageTask == null &&
+                    _loadStorageResult == null && _loadStorageFailure == null &&
                     !_loadInstallStatusPending &&
                     _loadRequestCursor != _observedLoadRequestCount)
                     BeginLoadAddressReadback();
@@ -241,7 +275,8 @@ namespace Genesis.RoomScan
                 uint writebackCount = Math.Min(rawWritebackCount,
                     (uint)StreamBatchCapacity);
                 if (writebackCount > 0u && !_writebackReadbackPending &&
-                    _writebackStorageTask == null)
+                    _writebackStorageTask == null &&
+                    !_writebackCompletionPending)
                 {
                     if (_flushAllDirty && _flushTotalTiles < 0)
                     {
@@ -257,7 +292,8 @@ namespace Genesis.RoomScan
                 {
                     _evictionSelectionPendingSample = false;
                     if (_flushAllDirty && !_writebackReadbackPending &&
-                        _writebackStorageTask == null)
+                        _writebackStorageTask == null &&
+                        !_writebackCompletionPending)
                     {
                         if (_flushTotalTiles < 0)
                             _flushTotalTiles = _flushCompletedTiles;
@@ -270,6 +306,7 @@ namespace Genesis.RoomScan
                 }
                 else if (!_writebackReadbackPending &&
                          _writebackStorageTask == null &&
+                         !_writebackCompletionPending &&
                          (_flushAllDirty ||
                           values[CounterEvictionNeeded] != 0u))
                 {
@@ -282,7 +319,7 @@ namespace Genesis.RoomScan
 
         internal void PumpStorageForLifecycleRetirement()
         {
-            if (!_gpuSubmissionSuspended) PumpStorage();
+            PumpStorage();
         }
 
         private void ApplySampledCounters(Unity.Collections.NativeArray<uint> values)
@@ -392,9 +429,8 @@ namespace Genesis.RoomScan
                 });
         }
 
-        private void CompleteStorageTasks()
+        private void CompleteStorageCpuTasks()
         {
-            if (_storageReplacementPending || !GpuSubmissionAllowed) return;
             if (_loadStorageTask != null && _loadStorageTask.IsCompleted)
             {
                 Task<MerkabaTileSnapshot[]> task = _loadStorageTask;
@@ -402,22 +438,18 @@ namespace Genesis.RoomScan
                 bool completedStorageRead = _loadIoStartedAt > 0.0;
                 RecordStorageLatency(_loadLatencies, ref _loadLatencyCount,
                     ref _loadLatencyCursor, ref _loadIoStartedAt);
-                if (task.IsFaulted)
-                {
-                    Logger.Error("M8 SSD tile load failed: " +
-                                 task.Exception?.GetBaseException().Message);
-                    UploadLoadAddresses(_loadAddresses);
-                    FailLoadedTiles(_loadAddresses.Length);
-                    _loadRequestCursor += (uint)_loadAddresses.Length;
-                    AcknowledgeLoadRequests();
-                    _loadAddresses = null;
-                }
+                if (task.IsCanceled)
+                    _loadStorageFailure = new TaskCanceledException(
+                        "M8 SSD tile load was canceled.");
+                else if (task.IsFaulted)
+                    _loadStorageFailure = task.Exception?.GetBaseException() ??
+                        new IOException("M8 SSD tile load failed.");
                 else
                 {
                     if (completedStorageRead)
                         _loadBytesTotal += (ulong)task.Result.Length *
                             MerkabaSsdStore.TilePayloadBytes;
-                    SubmitLoadedTiles(task.Result);
+                    _loadStorageResult = task.Result;
                 }
             }
             if (_writebackStorageTask != null &&
@@ -427,20 +459,13 @@ namespace Genesis.RoomScan
                 _writebackStorageTask = null;
                 RecordStorageLatency(_writeLatencies, ref _writeLatencyCount,
                     ref _writeLatencyCursor, ref _writeIoStartedAt);
-                if (task.IsFaulted)
-                {
-                    Logger.Error("M8 SSD writeback failed; canonical tiles " +
-                                 "returned HOT and remain dirty: " +
-                                 task.Exception?.GetBaseException().Message);
-                    _flushCompletion?.TrySetException(
+                if (task.IsCanceled)
+                    _writebackStorageFailure = new TaskCanceledException(
+                        "M8 SSD writeback was canceled.");
+                else if (task.IsFaulted)
+                    _writebackStorageFailure =
                         task.Exception?.GetBaseException() ??
-                        new IOException("M8 SSD writeback failed."));
-                    _flushCompletion = null;
-                    _flushAllDirty = false;
-                    _flushProgress = null;
-                    FailWritebackBatch(_writebackBatchCount);
-                    _nextStreamPoll = 0f;
-                }
+                        new IOException("M8 SSD writeback failed.");
                 else
                 {
                     _writeBytesTotal += (ulong)_writebackBatchCount *
@@ -451,10 +476,136 @@ namespace Genesis.RoomScan
                             _writebackBatchCount);
                         ReportFlushProgress();
                     }
-                    AcknowledgeWritebackBatch(_writebackBatchCount);
                 }
+                _completedWritebackBatchCount = _writebackBatchCount;
+                _writebackCompletionPending = true;
                 _writebackBatchCount = 0;
             }
+            if (_baseCompactionTask != null &&
+                _baseCompactionTask.IsCompleted)
+            {
+                Task<bool> task = _baseCompactionTask;
+                CancellationTokenSource cancellation =
+                    _baseCompactionCancellation;
+                _baseCompactionTask = null;
+                _baseCompactionCancellation = null;
+                if (task.IsCanceled)
+                    _baseCompactionRequested = true;
+                else if (task.IsFaulted)
+                    Logger.Error("Idle M8 base compaction failed without " +
+                        "changing canonical truth: " +
+                        (task.Exception?.GetBaseException().Message ??
+                         "unknown storage failure"));
+                cancellation?.Dispose();
+            }
+        }
+
+        private void PumpIdleBaseCompaction()
+        {
+            bool idle = IsIdleForBaseCompaction();
+            if (_baseCompactionTask != null)
+            {
+                if (!idle) _baseCompactionCancellation?.Cancel();
+                return;
+            }
+            if (!_baseCompactionRequested || !idle ||
+                MerkabaNativeVulkanExecutor.HasJobInFlight)
+                return;
+            EnsureStorage();
+            _baseCompactionRequested = false;
+            _baseCompactionCancellation = new CancellationTokenSource();
+            _baseCompactionTask = _ssdStore.CompactCommittedBasesAsync(
+                _baseCompactionCancellation.Token);
+        }
+
+        private bool IsIdleForBaseCompaction()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            return !_storageReplacementPending && scanner != null &&
+                ReferenceEquals(scanner.Grid, this) && !scanner.IsScanning &&
+                scanner.ScanLifecycle == ScanLifecycleState.Stopped &&
+                !scanner.IsBusy && !_streamCounterPending &&
+                !_loadAddressReadbackPending && _loadStorageTask == null &&
+                _loadStorageResult == null && _loadStorageFailure == null &&
+                !_loadInstallStatusPending && !_writebackReadbackPending &&
+                _writebackStorageTask == null && !_writebackCompletionPending &&
+                !_flushAllDirty && _flushCompletion == null;
+        }
+
+        private async Task CancelAndRetireBaseCompactionAsync(bool retryWhenIdle)
+        {
+            Task<bool> task = _baseCompactionTask;
+            if (task == null)
+            {
+                if (!retryWhenIdle) _baseCompactionRequested = false;
+                return;
+            }
+            _baseCompactionCancellation?.Cancel();
+            try
+            {
+                await task;
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is allowed only before the recovery manifest.
+            }
+            catch (Exception exception)
+            {
+                Logger.Error("Retiring idle M8 base compaction failed: " +
+                    exception.GetBaseException().Message);
+            }
+            if (ReferenceEquals(_baseCompactionTask, task))
+            {
+                _baseCompactionTask = null;
+                _baseCompactionCancellation?.Dispose();
+                _baseCompactionCancellation = null;
+            }
+            _baseCompactionRequested = retryWhenIdle;
+        }
+
+        private void CompleteStorageGpuWork()
+        {
+            if (!GpuSubmissionAllowed) return;
+            if (_loadStorageFailure != null)
+            {
+                Logger.Error("M8 SSD tile load failed: " +
+                    _loadStorageFailure.Message);
+                if (_loadAddresses == null)
+                    throw new InvalidOperationException(
+                        "A completed M8 load has no request addresses.");
+                UploadLoadAddresses(_loadAddresses);
+                FailLoadedTiles(_loadAddresses.Length);
+                _loadRequestCursor += (uint)_loadAddresses.Length;
+                AcknowledgeLoadRequests();
+                _loadAddresses = null;
+                _loadStorageFailure = null;
+            }
+            else if (_loadStorageResult != null)
+            {
+                MerkabaTileSnapshot[] tiles = _loadStorageResult;
+                _loadStorageResult = null;
+                SubmitLoadedTiles(tiles);
+            }
+
+            if (!_writebackCompletionPending) return;
+            int count = _completedWritebackBatchCount;
+            Exception failure = _writebackStorageFailure;
+            _writebackCompletionPending = false;
+            _completedWritebackBatchCount = 0;
+            _writebackStorageFailure = null;
+            if (failure != null)
+            {
+                Logger.Error("M8 SSD writeback failed; canonical tiles " +
+                    "returned HOT and remain dirty: " + failure.Message);
+                _flushCompletion?.TrySetException(failure);
+                _flushCompletion = null;
+                _flushAllDirty = false;
+                _flushProgress = null;
+                FailWritebackBatch(count);
+                _nextStreamPoll = 0f;
+            }
+            else
+                AcknowledgeWritebackBatch(count);
         }
 
         private void SubmitLoadedTiles(MerkabaTileSnapshot[] tiles)
@@ -588,7 +739,7 @@ namespace Genesis.RoomScan
                     EnsureStorage();
                     _writebackBatchCount = count;
                     _writeIoStartedAt = Time.realtimeSinceStartupAsDouble;
-                    _writebackStorageTask = _ssdStore.AppendAsync(tiles);
+                    _writebackStorageTask = _ssdStore.AppendM8TilesAsync(tiles);
                 });
         }
 
@@ -688,15 +839,6 @@ namespace Genesis.RoomScan
                 $"Flushed {completed}/{total} canonical tiles"));
         }
 
-        internal async Task<MerkabaSessionSnapshot> CaptureStoredSnapshotAsync(
-            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount,
-            IProgress<OperationWorkProgress> progress = null)
-        {
-            EnsureStorage();
-            return await _ssdStore.ReadCanonicalSnapshotAsync(anchorUuid,
-                anchorAtSave, integrationCount, progress);
-        }
-
         internal MerkabaTileAddress[] CaptureStoredTileIndex()
         {
             EnsureStorage();
@@ -732,100 +874,90 @@ namespace Genesis.RoomScan
             return _ssdStore.ReadAsync(addresses);
         }
 
-        internal async Task PublishCheckpointAsync(MerkabaSessionSnapshot snapshot,
+        internal async Task<MerkabaStorageCommitResult> CommitStorageAsync(
+            Guid sessionUuid, Guid anchorUuid, Matrix4x4 anchorAtSave,
+            int integrationCount, uint occupiedKernelCount,
             IProgress<OperationWorkProgress> progress = null)
         {
             EnsureStorage();
-            await _ssdStore.PublishCheckpointAsync(snapshot, progress);
+            if (_storageReplacementPending)
+                throw new InvalidOperationException(
+                    "Cannot commit while storage authority is changing.");
+            MerkabaStorageCommitResult result = await _ssdStore.CommitAsync(
+                sessionUuid, anchorUuid, anchorAtSave, integrationCount,
+                occupiedKernelCount, progress);
+            _baseCompactionRequested = true;
+            return result;
         }
 
-        internal async Task<MerkabaSessionSnapshot> ReadCheckpointSnapshotAsync(
-            IProgress<OperationWorkProgress> progress = null)
+        internal Task CloneCommittedStorageAsync(string destinationDirectory,
+            Guid destinationSessionUuid)
         {
             EnsureStorage();
-            MerkabaSessionSnapshot snapshot = await Task.Run(() =>
-            {
-                using var stream = new FileStream(_ssdStore.CheckpointPath,
-                    FileMode.Open, FileAccess.Read, FileShare.Read,
-                    1024 * 1024, FileOptions.SequentialScan);
-                return MerkabaSsdStore.ReadCheckpoint(stream, progress);
-            });
-            return snapshot;
+            if (_storageReplacementPending)
+                return Task.FromException(new InvalidOperationException(
+                    "Cannot clone while storage authority is changing."));
+            return _ssdStore.CloneCommittedToAsync(destinationDirectory,
+                destinationSessionUuid);
         }
 
-        private async Task PrepareStorageForCheckpointReplacementAsync(
-            IProgress<OperationWorkProgress> progress)
+        internal MerkabaSessionOpenState CurrentCommittedStorageState()
         {
-            _storageReplacementPending = true;
-            progress?.Report(OperationWorkProgress.Indeterminate(
-                ScanOperationStage.RebuildingStorageIndex,
-                "Retiring live storage activity"));
-            while (_streamCounterPending || _loadAddressReadbackPending ||
-                   _loadInstallStatusPending || _writebackReadbackPending)
-                await Task.Yield();
-
-            Task loadTask = _loadStorageTask;
-            Task writeTask = _writebackStorageTask;
-            if (loadTask != null)
-            {
-                try { await loadTask; }
-                catch { /* Current live state is deliberately discarded. */ }
-            }
-            if (writeTask != null)
-            {
-                try { await writeTask; }
-                catch { /* Current live state is deliberately discarded. */ }
-            }
-            await _ssdStore.ResetToCheckpointAsync(progress);
+            EnsureStorage();
+            return _ssdStore.CurrentCommittedState();
         }
 
-        internal async Task LoadStoredSnapshotAsync(MerkabaSessionSnapshot snapshot,
+        internal async Task LoadCommittedStorageAsync(
+            MerkabaSessionOpenState openState,
             IProgress<OperationWorkProgress> progress = null)
         {
-            if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
+            if (openState == null) throw new ArgumentNullException(
+                nameof(openState));
             EnsureGpuResources();
+            if (!GpuSubmissionAllowed)
+                throw new InvalidOperationException(
+                    "Cannot register committed M8 storage while GPU submission " +
+                    "is suspended.");
+            EnsureStorage();
+            MerkabaSessionOpenState current = _ssdStore.CurrentCommittedState();
+            if (current.Manifest.SessionUuid != openState.Manifest.SessionUuid ||
+                current.Manifest.CommitGeneration !=
+                openState.Manifest.CommitGeneration ||
+                current.IndexedTileCount != openState.IndexedTileCount)
+                throw new InvalidDataException(
+                    "Committed storage authority changed before GPU registration.");
+
+            _storageReplacementPending = true;
             try
             {
-                await PrepareStorageForCheckpointReplacementAsync(progress);
-                ClearGpuWorldForNewScan();
-                int batches = DivideRoundUp(snapshot.Tiles.Count,
+                MerkabaTileAddress[] addresses =
+                    _ssdStore.SnapshotSortedAddresses();
+                if (addresses.Length != openState.IndexedTileCount)
+                    throw new InvalidDataException(
+                        "Committed M8 index count changed during load.");
+                int batches = DivideRoundUp(addresses.Length,
                     StreamBatchCapacity);
-                int totalWork = checked(snapshot.Tiles.Count + batches);
-                uint occupiedCount = 0u;
-                for (int tileIndex = 0; tileIndex < snapshot.Tiles.Count;
-                     tileIndex++)
-                {
-                    foreach (KernelState state in snapshot.Tiles[tileIndex].States)
-                        if (state.IsOccupied) occupiedCount++;
-                    if ((tileIndex + 1) % StreamBatchCapacity == 0 ||
-                        tileIndex + 1 == snapshot.Tiles.Count)
-                        progress?.Report(new OperationWorkProgress(
-                            ScanOperationStage.ApplyingState, tileIndex + 1,
-                            totalWork, $"Validated {tileIndex + 1}/" +
-                            $"{snapshot.Tiles.Count} tiles"));
-                }
                 int completedBatches = 0;
-                for (int offset = 0; offset < snapshot.Tiles.Count;
+                for (int offset = 0; offset < addresses.Length;
                      offset += StreamBatchCapacity)
                 {
                     if (!GpuSubmissionAllowed)
                         throw new InvalidOperationException(
                             "M8 Load was interrupted by GPU quiesce.");
                     int count = Math.Min(StreamBatchCapacity,
-                        snapshot.Tiles.Count - offset);
-                    var addresses = new MerkabaTileAddress[count];
-                    for (int item = 0; item < count; item++)
-                        addresses[item] = snapshot.Tiles[offset + item].Address;
-                    UploadLoadAddresses(addresses);
+                        addresses.Length - offset);
+                    var batch = new MerkabaTileAddress[count];
+                    Array.Copy(addresses, offset, batch, 0, count);
+                    UploadLoadAddresses(batch);
                     RegisterLoadedTileAddresses(count);
                     await Task.Yield();
                     completedBatches++;
                     progress?.Report(new OperationWorkProgress(
-                        ScanOperationStage.ApplyingState,
-                        snapshot.Tiles.Count + completedBatches, totalWork,
+                        ScanOperationStage.ApplyingState, completedBatches,
+                        batches,
                         $"Registered {completedBatches}/{batches} M8 batches"));
                 }
-                if (totalWork == 0)
+                if (batches == 0)
                     progress?.Report(new OperationWorkProgress(
                         ScanOperationStage.ApplyingState, 0, 0,
                         "Registered empty M8 world"));
@@ -835,20 +967,22 @@ namespace Genesis.RoomScan
                 if (counters[CounterBlockOverflow] != 0u ||
                     counters[CounterChunkOverflow] != 0u ||
                     counters[CounterHashFull] != 0u ||
-                    addressedTiles != (ulong)snapshot.Tiles.Count)
+                    addressedTiles != (ulong)addresses.Length)
                 {
                     ClearGpuWorldForNewScan();
                     throw new InvalidDataException(
-                        "M8 snapshot exceeds block/chunk/hash capacity or did not " +
-                        "register every logical tile.");
+                        "Committed M8 index exceeds block/chunk/hash capacity " +
+                        "or did not register every logical tile.");
                 }
-                _streamControlWord[0] = occupiedCount;
+                _streamControlWord[0] =
+                    openState.Manifest.OccupiedKernelCount;
                 if (!GpuSubmissionAllowed)
                     throw new InvalidOperationException(
                         "M8 Load was interrupted by GPU quiesce.");
                 _m8Counters.SetData(_streamControlWord, 0,
                     CounterOccupiedKernelCount, 1);
-                M8OccupiedKernelCount = ToInt(occupiedCount);
+                M8OccupiedKernelCount = ToInt(
+                    openState.Manifest.OccupiedKernelCount);
             }
             finally
             {
@@ -876,15 +1010,6 @@ namespace Genesis.RoomScan
                     completion.TrySetResult(request.GetData<uint>().ToArray());
             });
             return completion.Task;
-        }
-
-        internal static uint CountOccupiedStates(MerkabaSessionSnapshot snapshot)
-        {
-            uint count = 0u;
-            foreach (MerkabaTileSnapshot tile in snapshot.Tiles)
-                foreach (KernelState state in tile.States)
-                    if (state.IsOccupied) count++;
-            return count;
         }
 
     }

@@ -137,9 +137,9 @@ namespace Genesis.RoomScan.Tests
             int3 interiorCenter = new(8, 8, 8);
             int3 borderCenter = new(31, 31, 31);
             MerkabaExportShellResult interior = MerkabaExportShell.Build(
-                SnapshotFromEvidence(ObservedWallFixture(interiorCenter)));
+                ObservedWallFixture(interiorCenter));
             MerkabaExportShellResult border = MerkabaExportShell.Build(
-                SnapshotFromEvidence(ObservedWallFixture(borderCenter)));
+                ObservedWallFixture(borderCenter));
 
             Assert.That(RelativeKey(interior.HealedCoordinates, interiorCenter),
                 Is.EqualTo(RelativeKey(border.HealedCoordinates, borderCenter)));
@@ -150,11 +150,11 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void SameSnapshot_ProducesDeterministicCoordinatesAndKernelOrder()
         {
-            MerkabaSessionSnapshot snapshot = SnapshotFromEvidence(
-                ObservedWallFixture(new int3(-32, 7, 31)));
+            Dictionary<int3, KernelState> evidence = ObservedWallFixture(
+                new int3(-32, 7, 31));
 
-            MerkabaExportShellResult first = MerkabaExportShell.Build(snapshot);
-            MerkabaExportShellResult second = MerkabaExportShell.Build(snapshot);
+            MerkabaExportShellResult first = MerkabaExportShell.Build(evidence);
+            MerkabaExportShellResult second = MerkabaExportShell.Build(evidence);
 
             Assert.That(second.HealedCoordinates, Is.EqualTo(first.HealedCoordinates));
             Assert.That(second.ShellCoordinates, Is.EqualTo(first.ShellCoordinates));
@@ -177,16 +177,15 @@ namespace Genesis.RoomScan.Tests
                     new float3(1, 0, 0), 0f);
                 evidence[coord] = state;
             }
-            MerkabaSessionSnapshot snapshot = SnapshotFromEvidence(evidence);
-            byte[] before = Serialize(snapshot);
+            byte[] before = SerializeEvidence(evidence);
 
-            MerkabaExportShellResult shell = MerkabaExportShell.Build(snapshot);
+            MerkabaExportShellResult shell = MerkabaExportShell.Build(evidence);
             MerkabaExportMembraneResult membrane =
                 MerkabaExportMembrane.Build(shell);
             using var export = new MemoryStream();
             _ = MerkabaGlbWriter.Write(export, membrane);
 
-            Assert.That(Serialize(snapshot), Is.EqualTo(before));
+            Assert.That(SerializeEvidence(evidence), Is.EqualTo(before));
         }
 
         [Test]
@@ -288,35 +287,6 @@ namespace Genesis.RoomScan.Tests
             return evidence;
         }
 
-        private static MerkabaSessionSnapshot SnapshotFromEvidence(
-            IReadOnlyDictionary<int3, KernelState> evidence)
-        {
-            var tiles = new Dictionary<MerkabaTileAddress, KernelState[]>();
-            foreach (KeyValuePair<int3, KernelState> pair in evidence)
-            {
-                MerkabaSpatial.Address address = MerkabaSpatial.Encode(pair.Key);
-                var tileAddress = new MerkabaTileAddress(address.BlockCoord,
-                    address.LocalAddress);
-                if (!tiles.TryGetValue(tileAddress, out KernelState[] states))
-                {
-                    states = new KernelState[MerkabaSpatial.KernelsPerTile];
-                    tiles.Add(tileAddress, states);
-                }
-                states[address.KernelLocal] = pair.Value;
-            }
-
-            var snapshot = new MerkabaSessionSnapshot();
-            foreach (MerkabaTileAddress address in tiles.Keys.OrderBy(value => value))
-            {
-                snapshot.Tiles.Add(new MerkabaTileSnapshot
-                {
-                    Address = address,
-                    States = tiles[address]
-                });
-            }
-            return snapshot;
-        }
-
         private static KernelState Occupied()
         {
             KernelState state = default;
@@ -338,10 +308,24 @@ namespace Genesis.RoomScan.Tests
                 .ThenBy(value => value.z)
                 .Select(value => $"{value.x},{value.y},{value.z}"));
 
-        private static byte[] Serialize(MerkabaSessionSnapshot snapshot)
+        private static byte[] SerializeEvidence(
+            IReadOnlyDictionary<int3, KernelState> evidence)
         {
             using var stream = new MemoryStream();
-            MerkabaPersistence.WriteSnapshot(stream, snapshot);
+            using var writer = new BinaryWriter(stream);
+            foreach (KeyValuePair<int3, KernelState> pair in evidence
+                         .OrderBy(value => value.Key.x)
+                         .ThenBy(value => value.Key.y)
+                         .ThenBy(value => value.Key.z))
+            {
+                writer.Write(pair.Key.x);
+                writer.Write(pair.Key.y);
+                writer.Write(pair.Key.z);
+                writer.Write(pair.Value.OccupancyEvidence);
+                writer.Write(pair.Value.PackedColor);
+                writer.Write(pair.Value.ColorConfidence);
+                writer.Write(pair.Value.Flags);
+            }
             return stream.ToArray();
         }
     }
