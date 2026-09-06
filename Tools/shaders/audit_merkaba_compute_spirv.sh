@@ -24,11 +24,18 @@ alias_bases=(
   M8SurfaceQueue M8CarveTiles M8VisibleTiles
 )
 
+shaders=(
+  "$shader_dir/MerkabaWorld.compute"
+  "$shader_dir/MerkabaIntegration.compute"
+  "$shader_dir/MerkabaReadout.compute"
+  "$shader_dir/DepthNormals.compute"
+  "$shader_dir/DepthDilation.compute"
+  "$shader_dir/StereoRgbdRefine.compute"
+  "$repo_root/Tests/Editor/MerkabaSphereFlowerOracle.compute"
+)
+
 kernel_count=0
-for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
-  MerkabaReadout.compute DepthNormals.compute DepthDilation.compute \
-  StereoRgbdRefine.compute; do
-  shader="$shader_dir/$shader_name"
+for shader in "${shaders[@]}"; do
   while read -r _ _ kernel; do
     spv="$audit_dir/$kernel.spv"
     assembly="$audit_dir/$kernel.spvasm"
@@ -61,6 +68,22 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
       barrier_count=$(grep -c 'OpControlBarrier' "$assembly" || true)
       if (( barrier_count != 2 )); then
         echo "FAIL: $kernel must contain exactly two tile-group barriers" >&2
+        exit 1
+      fi
+    fi
+
+    if [[ "$kernel" == "SphereFlowerOracle" ]]; then
+      if ! grep -Eq 'OpExecutionMode .* LocalSize 64 1 1' "$assembly"; then
+        echo "FAIL: $kernel is not the frozen 64-lane parity workgroup" >&2
+        exit 1
+      fi
+      if grep -Eq 'OpTypeFloat 64' "$assembly"; then
+        echo "FAIL: $kernel contains a float64 runtime path" >&2
+        exit 1
+      fi
+      precise_count=$(grep -c 'OpDecorate .* NoContraction' "$assembly" || true)
+      if (( precise_count < 8 )); then
+        echo "FAIL: $kernel lost precise arithmetic ($precise_count decorations)" >&2
         exit 1
       fi
     fi
@@ -107,9 +130,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 57 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 57" >&2
+if (( kernel_count != 58 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 58" >&2
   exit 1
 fi
 
-echo "PASS: 57 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 58 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

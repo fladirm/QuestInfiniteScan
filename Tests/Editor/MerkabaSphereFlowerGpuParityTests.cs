@@ -1,0 +1,466 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using Genesis.RoomScan;
+using NUnit.Framework;
+using Unity.Mathematics;
+using UnityEditor;
+using UnityEngine;
+
+namespace Genesis.RoomScan.Tests
+{
+    public sealed class MerkabaSphereFlowerGpuParityTests
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct OracleCase
+        {
+            internal int4 Control;
+            internal float4 A;
+            internal float4 B;
+            internal float4 C;
+
+            internal OracleCase(int operation, int index = 0)
+            {
+                Control = new int4(operation, index, 0, 0);
+                A = default;
+                B = default;
+                C = default;
+            }
+        }
+
+        private static readonly int[] SignedBoundaries =
+        {
+            -257, -256, -255, -33, -32, -31, -9, -8, -1,
+            0, 1, 7, 8, 31, 32, 33, 255, 256, 257
+        };
+
+        [Test, Timeout(60000)]
+        public void GeneratedHlsl_IsBitIdenticalAndMatchesCpuOracle()
+        {
+            var cases = new List<OracleCase>(1024);
+
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Lines.Length; i++)
+                cases.Add(new OracleCase(0, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Directions.Length; i++)
+                cases.Add(new OracleCase(1, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Nodes.Length; i++)
+                cases.Add(new OracleCase(2, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Strands.Length; i++)
+                cases.Add(new OracleCase(3, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Petals.Length; i++)
+                cases.Add(new OracleCase(4, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.ChildPetals.Length; i++)
+                cases.Add(new OracleCase(5, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SectorBoundaries.Length; i++)
+                cases.Add(new OracleCase(6, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.TetraFrames.Length; i++)
+                cases.Add(new OracleCase(7, i));
+
+            foreach (int value in SignedBoundaries)
+            foreach (var direction in MerkabaSphereFlowerAuthority.Directions)
+            {
+                var item = new OracleCase(8)
+                {
+                    Control = new int4(8, value, -value, value - 1),
+                    A = new float4(direction.Direction, direction.LineClass),
+                    B = new float4((value & 7) % 6, 0f, 0f, 0f)
+                };
+                cases.Add(item);
+            }
+
+            float3[] coefficients =
+            {
+                new(1f, 0f, 0f), new(0f), new(0f, 1f, 0f),
+                new(1f, 1f, 0f), new(1.1f, 1f, 0f),
+                new(5f, 3f, 4f),
+                new(0.25f, 0.75f, -0.5f), new(-0.4f, 0.2f, 0.9f)
+            };
+            foreach (float3 abc in coefficients)
+            foreach (int plus in new[] { 0, 1 })
+            {
+                var item = new OracleCase(9)
+                {
+                    Control = new int4(9, plus, 0, 0),
+                    A = new float4(abc, 0f)
+                };
+                cases.Add(item);
+            }
+
+            float2 baseRoot = math.normalize(new float2(0.8f, -0.6f));
+            foreach (float turn in new[] { -0.3f, -0.125f, 0f, 0.0625f, 0.25f })
+            {
+                float2 target = MerkabaSphereFlowerAuthority
+                    .RotateTangentHalfAngle(baseRoot, turn);
+                var item = new OracleCase(10)
+                {
+                    A = new float4(baseRoot, target)
+                };
+                cases.Add(item);
+            }
+
+            float4[] tetraCases =
+            {
+                new(0f), new(1f, -2f, 3f, -4f),
+                new(0.125f, 0.25f, -0.5f, 1f)
+            };
+            foreach (float4 q in tetraCases)
+            {
+                var item = new OracleCase(11) { A = q };
+                cases.Add(item);
+            }
+
+            for (int line = 0; line < MerkabaSphereFlowerAuthority.Lines.Length;
+                 line++)
+            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            {
+                float sphereRadius = MerkabaSphereFlowerAuthority.LevelStep(2) *
+                    math.sqrt(math.lengthsq((float3)
+                        MerkabaSphereFlowerAuthority.Lines[line].Direction));
+                float v = 0.2f * sphereRadius *
+                    MerkabaSphereFlowerAuthority.EndpointBasis(s);
+                float vPrime = 0.2f * sphereRadius *
+                    MerkabaSphereFlowerAuthority.EndpointBasisDerivative(s);
+                var item = new OracleCase(12, line)
+                {
+                    A = new float4(1.1f * s, v, vPrime, sphereRadius),
+                    B = new float4(0.25f, -0.5f, 0.75f, 0f),
+                    C = new float4(math.cos(1.1f * s), math.sin(1.1f * s),
+                        0f, 0f)
+                };
+                cases.Add(item);
+            }
+
+            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            {
+                var item = new OracleCase(13) { A = new float4(s, 0f, 0f, 0f) };
+                cases.Add(item);
+            }
+
+            var intervalCases = new[]
+            {
+                new OracleCase(14)
+                {
+                    A = new float4(1f, 1f, 0f, 0f),
+                    B = new float4(0f, 0f, 0f, 0f)
+                },
+                new OracleCase(14)
+                {
+                    A = new float4(0f, 0f, 0f, 0f),
+                    B = new float4(0f, 0f, 0f, 0f)
+                },
+                new OracleCase(14)
+                {
+                    A = new float4(0f, 0f, 1f, 1f),
+                    B = new float4(0f, 0f, 0f, 0f)
+                },
+                new OracleCase(14)
+                {
+                    A = new float4(1f, 1f, 1f, 1f),
+                    B = new float4(0f, 0f, 0f, 0f)
+                },
+                new OracleCase(14)
+                {
+                    A = new float4(0.99f, 1.01f, 1f, 1f),
+                    B = new float4(0f, 0f, 0f, 0f)
+                },
+                new OracleCase(14)
+                {
+                    A = new float4(1.1f, 1.2f, 0.9f, 1f),
+                    B = new float4(-0.1f, 0.1f, 0f, 0f)
+                }
+            };
+            cases.AddRange(intervalCases);
+            cases.Add(new OracleCase(15));
+
+            OracleCase[] results = Dispatch(cases);
+            int cursor = 0;
+
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Lines.Length; i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.Lines[i];
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control,
+                    Is.EqualTo(new int4(expected.Direction, (int)expected.Shell)));
+                AssertBits(actual.A.xyz, expected.UnitDirection, $"line {i} unit");
+                AssertBits(actual.B.xyz, expected.E1, $"line {i} e1");
+                AssertBits(actual.C.xyz, expected.E2, $"line {i} e2");
+                Assert.That(actual.A.w, Is.EqualTo((float)expected.SectorOffset));
+                Assert.That(actual.B.w, Is.EqualTo((float)expected.SectorCount));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Directions.Length; i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.Directions[i];
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control, Is.EqualTo(new int4(expected.Direction,
+                    expected.LineClass)));
+                Assert.That(actual.A.x, Is.EqualTo((float)expected.Orientation));
+                Assert.That(actual.A.y, Is.EqualTo((float)expected.Shell));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Nodes.Length; i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.Nodes[i];
+                Assert.That(results[cursor++].Control,
+                    Is.EqualTo(new int4(expected.Direction, expected.LineClass)));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Strands.Length; i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.Strands[i];
+                uint petals = (uint)(expected.Petal0 | (expected.Petal1 << 8));
+                Assert.That(results[cursor++].Control,
+                    Is.EqualTo(new int4(expected.Node0, expected.Node1,
+                        expected.IncidenceKind, unchecked((int)petals))));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.Petals.Length; i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.Petals[i];
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control, Is.EqualTo(new int4(expected.FaceNode,
+                    expected.EdgeNode, expected.CornerNode,
+                    expected.Orientation > 0 ? 1 : 0)));
+                AssertBits(actual.A.xyz,
+                    new float3(expected.Strand0, expected.Strand1,
+                        expected.Strand2), $"petal {i} strands");
+                AssertBits(actual.B.xyz,
+                    new float3(expected.StrandSign0, expected.StrandSign1,
+                        expected.StrandSign2), $"petal {i} signs");
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.ChildPetals.Length; i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.ChildPetals[i];
+                Assert.That(results[cursor++].Control.xyz,
+                    Is.EqualTo(new int3(expected.Vertex0, expected.Vertex1,
+                        expected.Vertex2)));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SectorBoundaries.Length;
+                 i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.SectorBoundaries[i];
+                OracleCase actual = results[cursor++];
+                AssertBits(actual.A.xy, expected.Unit, $"sector {i} unit");
+                AssertBits(actual.A.zw,
+                    new float2(expected.Enclosure.X.Lower,
+                        expected.Enclosure.X.Upper), $"sector {i} x bounds");
+                AssertBits(actual.B.xy,
+                    new float2(expected.Enclosure.Y.Lower,
+                        expected.Enclosure.Y.Upper), $"sector {i} y bounds");
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.TetraFrames.Length; i++)
+            {
+                var expected = MerkabaSphereFlowerAuthority.TetraFrames[i];
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control, Is.EqualTo(expected.LineClasses));
+                AssertBits(actual.A, (float4)expected.Eta, $"tetra {i} eta");
+                Assert.That(actual.B.x, Is.EqualTo((float)expected.Chirality));
+            }
+
+            foreach (int value in SignedBoundaries)
+            foreach (var direction in MerkabaSphereFlowerAuthority.Directions)
+            {
+                OracleCase actual = results[cursor++];
+                int3 kernel = new(value, -value, value - 1);
+                var junction = MerkabaSphereFlowerAuthority.JunctionAddress(kernel,
+                    direction.Direction);
+                Assert.That(actual.Control, Is.EqualTo(new int4(
+                    checked((int)junction.X), checked((int)junction.Y),
+                    checked((int)junction.Z),
+                    MerkabaSphereFlowerAuthority.JunctionParity(junction))));
+                AssertUlp(actual.A.x,
+                    MerkabaSphereFlowerAuthority.LevelStep((value & 7) % 6),
+                    1, "level step");
+                Assert.That(MerkabaSphereFlowerAuthority.TryResolveEndpointPair(
+                    junction, direction.LineClass, out var first, out var second),
+                    Is.True);
+                AssertBits(actual.B.xyz,
+                    new float3(first.X, first.Y, first.Z), "first endpoint");
+                Assert.That(actual.B.w, Is.EqualTo(1f));
+                AssertBits(actual.C.xyz,
+                    new float3(second.X, second.Y, second.Z), "second endpoint");
+            }
+
+            foreach (float3 abc in coefficients)
+            foreach (int plus in new[] { 0, 1 })
+            {
+                OracleCase actual = results[cursor++];
+                bool valid = MerkabaSphereFlowerAuthority.TryEvaluateRoot(abc,
+                    plus != 0, out float2 root);
+                Assert.That(actual.Control.x, Is.EqualTo(valid ? 1 : 0));
+                Assert.That(actual.Control.y, Is.EqualTo((int)
+                    MerkabaSphereFlowerAuthority.ClassifyRoots(
+                        MerkabaSphereFlowerAuthority.Interval3.Singleton(abc))));
+                if (valid) AssertUlp(actual.A.xy, root, 12, $"root {abc}");
+            }
+
+            foreach (float turn in new[] { -0.3f, -0.125f, 0f, 0.0625f, 0.25f })
+            {
+                OracleCase actual = results[cursor++];
+                float2 target = MerkabaSphereFlowerAuthority
+                    .RotateTangentHalfAngle(baseRoot, turn);
+                var proof = MerkabaSphereFlowerAuthority.TangentHalfAngle(
+                    MerkabaSphereFlowerAuthority.Interval2.Singleton(baseRoot),
+                    MerkabaSphereFlowerAuthority.Interval2.Singleton(target),
+                    out var recovered);
+                Assert.That(proof,
+                    Is.EqualTo(MerkabaSphereFlowerAuthority.ProofClassification.Certain));
+                Assert.That(actual.Control.x, Is.EqualTo(1));
+                Assert.That(actual.A.x, Is.GreaterThanOrEqualTo(recovered.Lower)
+                    .And.LessThanOrEqualTo(recovered.Upper));
+                AssertUlp(actual.B.xy, target, 12, "tau synthesis");
+            }
+
+            foreach (float4 q in tetraCases)
+            {
+                OracleCase actual = results[cursor++];
+                float4 forward = MerkabaSphereFlowerAuthority.TetraForward(q);
+                float4 inverse = MerkabaSphereFlowerAuthority.TetraInverse(
+                    forward.x, forward.yzw);
+                AssertUlp(actual.A, forward, 16, "tetra forward");
+                AssertUlp(actual.B, inverse, 24, "tetra inverse");
+            }
+
+            for (int line = 0; line < MerkabaSphereFlowerAuthority.Lines.Length;
+                 line++)
+            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            {
+                float sphereRadius = MerkabaSphereFlowerAuthority.LevelStep(2) *
+                    math.sqrt(math.lengthsq((float3)
+                        MerkabaSphereFlowerAuthority.Lines[line].Direction));
+                float v = 0.2f * sphereRadius *
+                    MerkabaSphereFlowerAuthority.EndpointBasis(s);
+                float vPrime = 0.2f * sphereRadius *
+                    MerkabaSphereFlowerAuthority.EndpointBasisDerivative(s);
+                var rule = MerkabaSphereFlowerAuthority.Lines[line];
+                float rho = math.sqrt(0.75f * sphereRadius * sphereRadius -
+                    3f * v * v);
+                var loop = new MerkabaSphereFlowerAuthority.LoopFrame(
+                    new float3(0.25f, -0.5f, 0.75f), sphereRadius, rho,
+                    rule.UnitDirection, rule.E1, rule.E2);
+                float2 loopUnit = new(math.cos(1.1f * s), math.sin(1.1f * s));
+                MerkabaSphereFlowerAuthority.EvaluateDeformedLoopUnit(loop,
+                    loopUnit, v, vPrime, out float3 position,
+                    out float3 tangent);
+                OracleCase actual = results[cursor++];
+                AssertUlp(actual.A.xyz, position, 24, $"V position {line}/{s}");
+                AssertUlp(actual.B.xyz, tangent, 32, $"V tangent {line}/{s}");
+            }
+
+            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            {
+                OracleCase actual = results[cursor++];
+                AssertUlp(actual.A.x,
+                    MerkabaSphereFlowerAuthority.EndpointBasis(s), 3, "basis");
+                AssertUlp(actual.A.y,
+                    MerkabaSphereFlowerAuthority.EndpointBasisDerivative(s),
+                    4, "basis derivative");
+            }
+
+            foreach (OracleCase item in intervalCases)
+            {
+                OracleCase actual = results[cursor++];
+                var abc = new MerkabaSphereFlowerAuthority.Interval3(
+                    new MerkabaSphereFlowerAuthority.FloatInterval(item.A.x,
+                        item.A.y),
+                    new MerkabaSphereFlowerAuthority.FloatInterval(item.A.z,
+                        item.A.w),
+                    new MerkabaSphereFlowerAuthority.FloatInterval(item.B.x,
+                        item.B.y));
+                Assert.That(actual.Control.x, Is.EqualTo(
+                    (int)MerkabaSphereFlowerAuthority.ClassifyRoots(abc)));
+            }
+
+            Assert.That(unchecked((uint)results[cursor++].Control.x),
+                Is.EqualTo(MerkabaSphereFlowerAuthority.FrozenTableHash));
+            Assert.That(MerkabaSphereFlowerAuthority.ComputeFrozenTableHash(),
+                Is.EqualTo(MerkabaSphereFlowerAuthority.FrozenTableHash));
+            Assert.That(cursor, Is.EqualTo(results.Length));
+        }
+
+        private static OracleCase[] Dispatch(List<OracleCase> cases)
+        {
+            const string path =
+                "Packages/com.genesis.roomscan/Tests/Editor/" +
+                "MerkabaSphereFlowerOracle.compute";
+            ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(path);
+            Assert.That(shader, Is.Not.Null, path);
+            int kernel = shader.FindKernel("SphereFlowerOracle");
+            int stride = Marshal.SizeOf<OracleCase>();
+            Assert.That(stride, Is.EqualTo(64));
+            using var input = new ComputeBuffer(cases.Count, stride,
+                ComputeBufferType.Structured);
+            using var output = new ComputeBuffer(cases.Count, stride,
+                ComputeBufferType.Structured);
+            input.SetData(cases);
+            shader.SetBuffer(kernel, "_SphereFlowerOracleCases", input);
+            shader.SetBuffer(kernel, "_SphereFlowerOracleResults", output);
+            shader.SetInt("_SphereFlowerOracleCaseCount", cases.Count);
+            shader.Dispatch(kernel, (cases.Count + 63) / 64, 1, 1);
+            var result = new OracleCase[cases.Count];
+            output.GetData(result);
+            return result;
+        }
+
+        private static void AssertBits(float2 actual, float2 expected,
+            string context)
+        {
+            Assert.That(math.asuint(actual.x), Is.EqualTo(math.asuint(expected.x)),
+                context + ".x");
+            Assert.That(math.asuint(actual.y), Is.EqualTo(math.asuint(expected.y)),
+                context + ".y");
+        }
+
+        private static void AssertBits(float3 actual, float3 expected,
+            string context)
+        {
+            AssertBits(actual.xy, expected.xy, context);
+            Assert.That(math.asuint(actual.z), Is.EqualTo(math.asuint(expected.z)),
+                context + ".z");
+        }
+
+        private static void AssertBits(float4 actual, float4 expected,
+            string context)
+        {
+            AssertBits(actual.xyz, expected.xyz, context);
+            Assert.That(math.asuint(actual.w), Is.EqualTo(math.asuint(expected.w)),
+                context + ".w");
+        }
+
+        private static void AssertUlp(float actual, float expected, int maximum,
+            string context) => Assert.That(UlpDistance(actual, expected),
+            Is.LessThanOrEqualTo(maximum), context);
+
+        private static void AssertUlp(float2 actual, float2 expected, int maximum,
+            string context)
+        {
+            AssertUlp(actual.x, expected.x, maximum, context + ".x");
+            AssertUlp(actual.y, expected.y, maximum, context + ".y");
+        }
+
+        private static void AssertUlp(float3 actual, float3 expected, int maximum,
+            string context)
+        {
+            AssertUlp(actual.xy, expected.xy, maximum, context);
+            AssertUlp(actual.z, expected.z, maximum, context + ".z");
+        }
+
+        private static void AssertUlp(float4 actual, float4 expected, int maximum,
+            string context)
+        {
+            AssertUlp(actual.xyz, expected.xyz, maximum, context);
+            AssertUlp(actual.w, expected.w, maximum, context + ".w");
+        }
+
+        private static int UlpDistance(float left, float right)
+        {
+            if (float.IsNaN(left) || float.IsNaN(right)) return int.MaxValue;
+            int a = OrderedBits(left);
+            int b = OrderedBits(right);
+            long distance = Math.Abs((long)a - b);
+            return distance > int.MaxValue ? int.MaxValue : (int)distance;
+        }
+
+        private static int OrderedBits(float value)
+        {
+            int bits = BitConverter.SingleToInt32Bits(value);
+            return bits < 0 ? int.MinValue - bits : bits;
+        }
+    }
+}

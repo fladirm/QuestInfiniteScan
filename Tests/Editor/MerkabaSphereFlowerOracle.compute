@@ -1,0 +1,140 @@
+#pragma kernel SphereFlowerOracle
+#pragma target 5.0
+
+#include "../../Runtime/Shaders/MerkabaSphereFlower.generated.hlsl"
+
+struct SphereFlowerOracleCase
+{
+    int4 Control;
+    float4 A;
+    float4 B;
+    float4 C;
+};
+
+StructuredBuffer<SphereFlowerOracleCase> _SphereFlowerOracleCases;
+RWStructuredBuffer<SphereFlowerOracleCase> _SphereFlowerOracleResults;
+uint _SphereFlowerOracleCaseCount;
+
+[numthreads(64, 1, 1)]
+void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
+{
+    uint id = dispatchId.x;
+    if (id >= _SphereFlowerOracleCaseCount)
+        return;
+
+    SphereFlowerOracleCase input = _SphereFlowerOracleCases[id];
+    SphereFlowerOracleCase result = (SphereFlowerOracleCase)0;
+    int operation = input.Control.x;
+    uint index = (uint)input.Control.y;
+
+    if (operation == 0)
+    {
+        int3 d = M8FlowerLineDirection[index];
+        uint3 meta = M8FlowerLineMeta[index];
+        result.Control = int4(d, (int)meta.x);
+        result.A = float4(M8FlowerLineUnit[index], (float)meta.y);
+        result.B = float4(M8FlowerLineE1[index], (float)meta.z);
+        result.C = float4(M8FlowerLineE2[index], 0.0);
+    }
+    else if (operation == 1)
+    {
+        result.Control = M8FlowerDirection[index];
+        result.A.xy = (float2)M8FlowerDirectionMeta[index];
+    }
+    else if (operation == 2)
+    {
+        result.Control = M8FlowerNode[index];
+    }
+    else if (operation == 3)
+    {
+        result.Control = (int4)M8FlowerStrand[index];
+    }
+    else if (operation == 4)
+    {
+        result.Control = (int4)M8FlowerPetalNodes[index];
+        result.A.xyz = (float3)M8FlowerPetalStrands[index];
+        result.B.xyz = (float3)M8FlowerPetalStrandSign[index];
+    }
+    else if (operation == 5)
+    {
+        result.Control.xyz = (int3)M8FlowerChildPetal[index];
+    }
+    else if (operation == 6)
+    {
+        float4 bounds = M8FlowerSectorBounds[index];
+        result.A = float4(M8FlowerSectorUnit[index], bounds.xy);
+        result.B.xy = bounds.zw;
+    }
+    else if (operation == 7)
+    {
+        result.Control = M8FlowerTetraLine[index];
+        result.A = (float4)M8FlowerTetraEta[index];
+        result.B.x = (float)M8FlowerTetraChirality[index];
+    }
+    else if (operation == 8)
+    {
+        int3 junction = M8FlowerJunction(input.Control.yzw,
+            (int3)input.A.xyz);
+        result.Control = int4(junction,
+            (int)M8FlowerJunctionParity(junction));
+        result.A.x = M8FlowerLevelStep((uint)input.B.x);
+        int3 first;
+        int3 second;
+        bool pair = M8FlowerEndpointPair(junction, (uint)input.A.w,
+            first, second);
+        result.B = float4((float3)first, pair ? 1.0 : 0.0);
+        result.C.xyz = (float3)second;
+    }
+    else if (operation == 9)
+    {
+        float2 root;
+        bool valid = M8FlowerRoot(input.A.xyz, input.Control.y != 0, root);
+        M8FlowerInterval3 abc;
+        abc.x = M8FlowerI(input.A.x, input.A.x);
+        abc.y = M8FlowerI(input.A.y, input.A.y);
+        abc.z = M8FlowerI(input.A.z, input.A.z);
+        result.Control.x = valid ? 1 : 0;
+        result.Control.y = (int)M8FlowerClassifyRoot(abc);
+        result.A.xy = root;
+    }
+    else if (operation == 10)
+    {
+        float turn;
+        bool valid = M8FlowerTau(input.A.xy, input.A.zw, turn);
+        result.Control.x = valid ? 1 : 0;
+        result.A.x = turn;
+        result.B.xy = valid ? M8FlowerRotate(input.A.xy, turn) : 0.0.xx;
+    }
+    else if (operation == 11)
+    {
+        result.A = M8FlowerTetraForward(input.A);
+        result.B = M8FlowerTetraInverse(result.A.x, result.A.yzw);
+    }
+    else if (operation == 12)
+    {
+        uint lineIndex = (uint)input.Control.y;
+        M8FlowerDeformedLoopUnit(input.B.xyz, input.A.w,
+            M8FlowerLineUnit[lineIndex], M8FlowerLineE1[lineIndex],
+            M8FlowerLineE2[lineIndex], input.C.xy, input.A.y, input.A.z,
+            result.A.xyz, result.B.xyz);
+    }
+    else if (operation == 13)
+    {
+        result.A.x = M8FlowerEndpointBasis(input.A.x);
+        result.A.y = M8FlowerEndpointBasisDerivative(input.A.x);
+    }
+    else if (operation == 14)
+    {
+        M8FlowerInterval3 abc;
+        abc.x = M8FlowerI(input.A.x, input.A.y);
+        abc.y = M8FlowerI(input.A.z, input.A.w);
+        abc.z = M8FlowerI(input.B.x, input.B.y);
+        result.Control.x = (int)M8FlowerClassifyRoot(abc);
+    }
+    else if (operation == 15)
+    {
+        result.Control.x = (int)M8_FLOWER_TABLE_HASH;
+    }
+
+    _SphereFlowerOracleResults[id] = result;
+}

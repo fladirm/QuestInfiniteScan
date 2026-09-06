@@ -3790,3 +3790,95 @@ REV-B and lasttrue are now the unambiguous repository authority.
 The complete DAG remains PASS.
 CUT 1 must replace the bootstrap generator with the exhaustive exact CPU oracle before any production GPU cutover.
 ```
+
+## CUT 1 closure record
+
+```text
+CUT_01_STATUS=PASS
+CURRENT_COMMIT=HEAD (self; cut 01 exact oracle and codegen)
+CURRENT_CUT=CUT_01
+DAG_STATUS=CUT_00_PASS;CUT_01_PASS;CUT_02_NEXT;ALL_OTHERS_PENDING
+
+FILES_CHANGED:
+  Runtime/Merkaba/MerkabaSphereFlowerAuthority.cs
+  Runtime/Merkaba/MerkabaSphereFlower.generated.cs(.meta)
+  Runtime/Shaders/MerkabaSphereFlower.generated.hlsl
+  Editor/MerkabaSphereFlowerCodegen.cs
+  Tests/Editor/MerkabaSphereFlowerOracleTests.cs(.meta)
+  Tests/Editor/MerkabaSphereFlowerGpuParityTests.cs(.meta)
+  Tests/Editor/MerkabaSphereFlowerOracle.compute(.meta)
+  Tests/Editor/MerkabaGpuIntegrationTests.cs
+  Tools/shaders/audit_merkaba_compute_spirv.sh
+
+INVARIANTS_PROVEN:
+  exact signed J=2K+d identity across negative/tile/chunk/block coordinates
+  one algebraic endpoint pair for every valid (J,lineClass)
+  exactly 13 undirected line classes and 6/12/8 directed shell nodes
+  canonical endpoint-independent loop basis with positive-zero normalization
+  symbolic radical-plane sector partition: R1=16, R2=6, R3=12, total=132, maximum=16<=32
+  exact root degeneracies including dyadic 3/4/5 tangency without tolerance
+  outward ABC/interval containment and flat shared-loop SEAL compatibility
+  exactly 26 nodes / 72 strands / 48 flag petals
+  signed petal boundary incidence cancels identically on every shared strand
+  deterministic determinant winding and four-child address substitution
+  R2 tangent-half-angle analysis/synthesis and sector-preserving representation
+  all eight generated R3 tetra frames, forward/inverse transform and determinant chirality
+  homogeneous hinge position and distinct relation identity for parallel owners
+  V endpoint value/tangent invariance, representability, nonzero tangent and angular order
+  generated CPU/HLSL tables carry the same frozen 32-bit hash
+  generated player tables load without editor codegen or runtime adjacency construction
+
+TESTS_RUN:
+  Tools/unity/run_merkaba_tests.sh = PASS 311/311
+  filtered Sphere-Flower suite = PASS 21/21
+  GPU table/algebra parity fixture = PASS 1/1 over all frozen table rows and adversarial primitives
+  MerkabaSphereFlowerCodegen.CheckForBatch = PASS byte-for-byte for generated C# and HLSL
+  Tools/shaders/audit_merkaba_compute_spirv.sh = PASS 58/58 Vulkan kernels
+  oracle SPIR-V local size=64; float64 path=absent; NoContraction gate=PASS
+  fresh Quest APK = PASS, 58,792,993 bytes, SHA-256 79c9c3bd15864bb710efcc3cf5cc4e986008a414561fb14e2e2216acab040564
+  git diff --check = PASS
+  immutable REV-B prefix SHA-256 = 75f67ad9080fcbd999ba9ee7f0e30312201cc6dc671112700f403ddd4a309012
+
+PERF:
+  generated HLSL=33,438 bytes (<64KiB table/code target)
+  generated player C# literals=37,191 bytes
+  evaluator hot primitives allocate zero managed heap objects
+  runtime adjacency/root search=0
+  production buffers added=0
+  production dispatches added=0
+  production call sites added=0
+  table parity scratch exists under Tests/Editor only
+
+LEGACY_REMOVED:
+  none eligible before the CPU oracle gate; current scanner/readout behavior remains c34d27f
+
+DEFERRED_DEPENDENCIES:
+  old MerkabaCanonicalGeometry surface-output authority remains until procedural readout CUT_12/CUT_16
+  production scanner/winner/carve/readout branches remain until their explicit replacement cuts
+
+CUT_01_MANUAL_AUDIT:
+  PASS
+  files reviewed=all files listed above plus generated artifacts and SPIR-V disassembly gate
+  authority duplication=none; exact oracle has no production consumer yet
+  hidden fallback=none
+  runtime adjacency search=none in player initialization; player uses generated literals
+  dynamic branch rank=absent
+  magic tolerance/nearest-root/inverse-trig production path=absent
+  signed incidence omission found and corrected before closure
+  CPU BigInteger removed from evaluator hot primitive; retained only by editor symbolic generation
+  new production buffer/dispatch/property/native pipeline=none
+  user-owned .claude and CLAUDE files touched=none
+
+NEXT_CUT=CUT_02 exact subordinate data model and persistence record ABI
+```
+
+## CURRENT TRUE STATE — CUT 1 closed
+
+```text
+CUT 0 and CUT 1 are closed.
+The immutable REV-B prefix remains byte-identical and authoritative.
+The exact finite Sphere-Flower CPU oracle, generated player literals and generated HLSL are reproducible and parity-proven.
+No production scanner/readout/storage/export behavior has switched yet.
+No legacy production path is eligible for deletion until its named replacement cut.
+CUT 2 must now introduce only the exact subordinate packed data types and record ABI; it must not create a second spatial or surface authority.
+```
