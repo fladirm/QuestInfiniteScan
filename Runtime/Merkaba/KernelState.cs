@@ -20,6 +20,8 @@ namespace Genesis.RoomScan
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     public struct KernelState
     {
+        public const int ByteSize = MerkabaConstants.KernelStateByteSize;
+
         public int OccupancyEvidence;
         public uint PackedColor;
         public uint ColorConfidence;

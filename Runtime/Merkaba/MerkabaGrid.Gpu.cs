@@ -16,6 +16,30 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader worldCompute;
 
         internal const int SurfaceCandidateCapacity = 2_097_152;
+        // Frozen future data strides only. CUT 02 allocates and binds none of
+        // these resources; their owning production cuts do so exactly once.
+        internal const int DualBlockMetaStride =
+            MerkabaSphereFlowerDataAbi.DualBlockMetaStride;
+        internal const int DualBlockChildrenStride =
+            MerkabaSphereFlowerDataAbi.DualBlockChildrenStride;
+        internal const int DualChunkStride =
+            MerkabaSphereFlowerDataAbi.DualChunkStride;
+        internal const int DualLeafStride =
+            MerkabaSphereFlowerDataAbi.DualLeafStride;
+        internal const int FlowerOwnerEpochStride =
+            MerkabaSphereFlowerDataAbi.FlowerOwnerEpochStride;
+        internal const int FlowerDetailStride =
+            MerkabaSphereFlowerDataAbi.FlowerDetailStride;
+        internal const int ThreadRunStride =
+            MerkabaSphereFlowerDataAbi.ThreadRunStride;
+        internal const int ThreadResidualStride =
+            MerkabaSphereFlowerDataAbi.ThreadResidualStride;
+        internal const int ThreadProgramStride =
+            MerkabaSphereFlowerDataAbi.ThreadProgramStride;
+        internal const int FlowerSymbolStride =
+            MerkabaSphereFlowerDataAbi.FlowerSymbolStride;
+        internal const int ObservationRecordStride =
+            MerkabaSphereFlowerDataAbi.ObservationRecordStride;
         internal const int SurfaceQueueCapacity = 1_048_576;
         internal const int LoadRequestCapacity = 262144;
         internal const int LoadRequestMask = LoadRequestCapacity - 1;

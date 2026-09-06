@@ -1,6 +1,7 @@
 #include "IUnityGraphics.h"
 #include "IUnityGraphicsVulkan.h"
 #include "IUnityLog.h"
+#include "MerkabaSphereFlowerDataAbi.h"
 
 #include <algorithm>
 #include <array>

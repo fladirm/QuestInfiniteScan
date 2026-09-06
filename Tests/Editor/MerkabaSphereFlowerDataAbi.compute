@@ -1,0 +1,72 @@
+#pragma kernel VerifySphereFlowerDataAbi
+
+#include "../../Runtime/Shaders/MerkabaSphereFlowerDataAbi.generated.hlsl"
+
+StructuredBuffer<M8DualBlockMeta> _DualBlock;
+StructuredBuffer<M8DualBlockChildren> _DualChildren;
+StructuredBuffer<M8DualChunkPayload> _DualChunk;
+StructuredBuffer<M8DualLeaf> _DualLeaf;
+StructuredBuffer<M8FlowerOwnerEpoch> _OwnerEpoch;
+StructuredBuffer<M8FlowerDetailRecord> _FlowerDetail;
+StructuredBuffer<M8ThreadRun> _ThreadRun;
+StructuredBuffer<M8ThreadResidual> _ThreadResidual;
+StructuredBuffer<M8ThreadProgramRecord> _ThreadProgram;
+StructuredBuffer<M8FlowerSymbolKey> _FlowerSymbol;
+StructuredBuffer<M8ObservationRecord> _Observation;
+RWStructuredBuffer<uint> _DataAbiOutput;
+
+[numthreads(1, 1, 1)]
+void VerifySphereFlowerDataAbi(uint3 id : SV_DispatchThreadID)
+{
+    M8DualBlockMeta block = _DualBlock[0];
+    _DataAbiOutput[0] = block.StateAndGeneration;
+    _DataAbiOutput[1] = block.PayloadIndex;
+    _DataAbiOutput[2] = _DualChildren[0].Word00;
+    _DataAbiOutput[3] = _DualChildren[0].Word31;
+    M8DualChunkPayload chunk = _DualChunk[0];
+    _DataAbiOutput[4] = chunk.NonFullMaskLo;
+    _DataAbiOutput[5] = chunk.NonFullMaskHi;
+    _DataAbiOutput[6] = chunk.MixedMaskLo;
+    _DataAbiOutput[7] = chunk.MixedMaskHi;
+    _DataAbiOutput[8] = chunk.LeafRefBase;
+    _DataAbiOutput[9] = chunk.Generation;
+    _DataAbiOutput[10] = _DualLeaf[0].Word00;
+    _DataAbiOutput[11] = _DualLeaf[0].Word15;
+    _DataAbiOutput[12] = _OwnerEpoch[0].KernelLocal;
+    _DataAbiOutput[13] = _OwnerEpoch[0].Epoch;
+    M8FlowerDetailRecord detail = _FlowerDetail[0];
+    _DataAbiOutput[14] = detail.Key;
+    _DataAbiOutput[15] = asuint(detail.Lower);
+    _DataAbiOutput[16] = asuint(detail.Upper);
+    _DataAbiOutput[17] = detail.ParentEpoch;
+    M8ThreadRun run = _ThreadRun[0];
+    _DataAbiOutput[18] = run.FlowerKey;
+    _DataAbiOutput[19] = run.ProgramRef;
+    _DataAbiOutput[20] = run.ResidualBase;
+    _DataAbiOutput[21] = run.ParentEpoch;
+    M8ThreadResidual residual = _ThreadResidual[0];
+    _DataAbiOutput[22] = residual.SegmentKey;
+    _DataAbiOutput[23] = residual.ParentEpoch;
+    _DataAbiOutput[24] = residual.Flags;
+    _DataAbiOutput[25] = residual.Reserved;
+    M8ThreadProgramRecord program = _ThreadProgram[0];
+    _DataAbiOutput[26] = program.EndpointColorRule;
+    _DataAbiOutput[27] = program.Flags;
+    M8FlowerSymbolKey symbol = _FlowerSymbol[0];
+    _DataAbiOutput[28] = asuint(symbol.Junction.x);
+    _DataAbiOutput[29] = asuint(symbol.Junction.z);
+    _DataAbiOutput[30] = symbol.Tag;
+    _DataAbiOutput[31] = _Observation[0].PrecisionKey;
+    _DataAbiOutput[32] = M8FlowerPackDetailKey(5u, 1023u, 47u, 12u,
+        2u, true, 1u);
+    _DataAbiOutput[33] = M8FlowerPackSymbolTag(5u, 12u, true, 1u, true,
+        7u, 5u, 0xabcu);
+    _DataAbiOutput[34] = residual.LowerLinearRgba.x;
+    _DataAbiOutput[35] = residual.LowerLinearRgba.y;
+    _DataAbiOutput[36] = residual.UpperLinearRgba.x;
+    _DataAbiOutput[37] = residual.UpperLinearRgba.y;
+    _DataAbiOutput[38] = program.OpticalLower.x;
+    _DataAbiOutput[39] = program.OpticalUpper.y;
+    _DataAbiOutput[40] = program.CaptureViewLower.x;
+    _DataAbiOutput[41] = program.CaptureViewUpper.y;
+}

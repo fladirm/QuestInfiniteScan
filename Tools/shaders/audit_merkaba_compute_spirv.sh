@@ -32,6 +32,7 @@ shaders=(
   "$shader_dir/DepthDilation.compute"
   "$shader_dir/StereoRgbdRefine.compute"
   "$repo_root/Tests/Editor/MerkabaSphereFlowerOracle.compute"
+  "$repo_root/Tests/Editor/MerkabaSphereFlowerDataAbi.compute"
 )
 
 kernel_count=0
@@ -130,9 +131,9 @@ for shader in "${shaders[@]}"; do
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 58 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 58" >&2
+if (( kernel_count != 59 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 59" >&2
   exit 1
 fi
 
-echo "PASS: 58 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 59 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

@@ -3882,3 +3882,109 @@ No production scanner/readout/storage/export behavior has switched yet.
 No legacy production path is eligible for deletion until its named replacement cut.
 CUT 2 must now introduce only the exact subordinate packed data types and record ABI; it must not create a second spatial or surface authority.
 ```
+
+## CUT 2 closure record
+
+```text
+CUT_02_STATUS=PASS
+CURRENT_COMMIT=HEAD (self; cut 02 exact subordinate data model and persistence record ABI)
+CURRENT_CUT=CUT_02
+DAG_STATUS=CUT_00_PASS;CUT_01_PASS;CUT_02_PASS;CUT_14_NEXT;ALL_OTHERS_PENDING
+
+FILES_CHANGED:
+  Runtime/Merkaba/KernelState.cs
+  Runtime/Merkaba/MerkabaConstants.cs
+  Runtime/Merkaba/MerkabaGrid.Gpu.cs
+  Runtime/Merkaba/MerkabaDualVisibility.cs(.meta)
+  Runtime/Merkaba/MerkabaFlowerDetail.cs(.meta)
+  Runtime/Merkaba/MerkabaThreadAtlas.cs(.meta)
+  Runtime/Merkaba/MerkabaSphereFlowerDataAbi.cs(.meta)
+  Runtime/Merkaba/MerkabaSphereFlowerPersistenceAbi.cs(.meta)
+  Runtime/Shaders/MerkabaSphereFlowerDataAbi.generated.hlsl(.meta)
+  Runtime/Telemetry/Native/MerkabaSphereFlowerDataAbi.h(.meta)
+  Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp
+  Editor/MerkabaSphereFlowerCodegen.cs
+  Tests/Editor/MerkabaSphereFlowerDataAbiTests.cs(.meta)
+  Tests/Editor/MerkabaSphereFlowerDataAbi.compute(.meta)
+  Tests/Editor/MerkabaGpuIntegrationTests.cs
+  Tools/shaders/audit_merkaba_compute_spirv.sh
+
+INVARIANTS_PROVEN:
+  KernelState remains exactly 16 bytes with unchanged production semantics
+  future R1_SEED bit is frozen at bit 1 but has zero CUT 02 consumers
+  dual node state is exactly two bits; missing world state remains implicit ALL_FULL
+  MIXED block children are exactly 512 two-bit states in 128 bytes
+  MIXED chunk summary is exactly 32 bytes with MixedMask subset of NonFullMask
+  MIXED tile leaf is exactly 512 SEE_THROUGH bits in 64 bytes
+  uniform expand/mutate/collapse is exact for block/chunk/tile levels
+  cold/unresolved dual state is distinct from every persistent node state
+  dual generation wrap requires transactional rebase rather than aliasing
+  sparse FlowerOwnerEpoch is exactly 8 bytes and epoch zero never validates detail
+  owner epoch wrap requires transactional tombstone/rebase to epoch 1
+  FlowerDetailRecord is exactly 16 bytes and all 32 key bits have one canonical meaning
+  childPath has one canonical 4-ary encoding for its declared L0-L5 level
+  Q2.29 phase and Q5.26 metre intervals round outward and never clamp
+  ThreadRun is 16 bytes, ThreadResidual 32 bytes and ThreadProgram 48 bytes
+  CPU half4 layout is bit-identical to the generated uint2 HLSL/native ABI
+  transient FlowerSymbolKey and ObservationRecord are each exactly 16 bytes
+  no branch ordinal, world PortKey or second coordinate hierarchy was introduced
+  append RecordHeader is exactly 28-byte little-endian and CRC-binds metadata/address/payload
+  every record kind has one exact address/payload shape using existing M8 addresses
+  owner-local tombstone is exactly 8 bytes and targets only subordinate fine records
+  stale FlowerDetail/Thread records are rejected solely by exact parent epoch equality
+  C#, generated HLSL and native C++ mirrors agree on every packed stride/offset
+
+TESTS_RUN:
+  Tools/unity/run_merkaba_tests.sh = PASS 326/326
+  filtered CUT 02 ABI suite = PASS 15/15 including live Vulkan buffer roundtrip
+  MerkabaSphereFlowerCodegen.CheckForBatch = PASS byte-for-byte for C#/HLSL/native outputs
+  Tools/shaders/audit_merkaba_compute_spirv.sh = PASS 59/59 Vulkan kernels
+  VerifySphereFlowerDataAbi SPIR-V = 11 readonly buffers + 1 writable test sink
+  native Android build static_assert gate = PASS
+  fresh Quest APK = PASS, 58,811,365 bytes, SHA-256 1b604e1b409209e14357138ce42ad8661bfad4be9b09d5b3b3f664029403d055
+  git diff --check = PASS
+  immutable REV-B prefix SHA-256 = 75f67ad9080fcbd999ba9ee7f0e30312201cc6dc671112700f403ddd4a309012
+
+PERF:
+  production buffers added=0
+  production dispatches added=0
+  production executor resources added=0; ResourceCount remains 45
+  production executor pipelines added=0; PipelineCount remains 49
+  behavioral performance delta=0 by construction
+  future dual worst-case packed bounds: block headers=64KiB; block children=1MiB; chunk summaries=8MiB; HOT leaves=2MiB
+  sparse fine overhead: owner epoch=8B only for owners with fine truth; detail=16B; thread run=16B; residual=32B; program=48B
+
+LEGACY_REMOVED:
+  none eligible in a production-behavior-neutral ABI/schema cut
+
+DEFERRED_DEPENDENCIES:
+  existing NeedsCarve semantics remain untouched through CUT 02; its flag dependency and bit meaning are atomically replaced in CUT 05
+  remaining legacy CARVE/dilation implementation is removed in CUT 06
+  new append record ABI is unbound until transactional persistence CUT 14
+  sparse dual GPU allocation/binding waits for its certificate consumer in CUT 06
+  FlowerDetail/ThreadAtlas allocation waits for CUT 10/CUT 11
+
+CUT_02_MANUAL_AUDIT:
+  PASS
+  files reviewed=all files listed above plus generated output and native build artifact
+  authority duplication=none; every new persistent fine record is parent-addressed and epoch-gated
+  second coordinate hierarchy=absent; persistence codecs use MerkabaTileAddress/MerkabaSpatial only
+  hidden fallback=none
+  new production buffer/resource/dispatch/property/native pipeline=none
+  dynamic branch rank/persistent PortKey=absent
+  unsafe uniform/cold dual promotion=absent
+  invalid/truncated record acceptance=absent
+  user-owned .claude and CLAUDE files touched=none
+
+NEXT_CUT=CUT_14 generation-bound dirty append SAVE/OPEN foundation
+```
+
+## CURRENT TRUE STATE — CUT 2 closed
+
+```text
+CUT 0, CUT 1 and CUT 2 are closed.
+The immutable REV-B prefix remains byte-identical and authoritative.
+The complete subordinate dual/detail/thread/transient/persistence ABI is exact across C#, HLSL and native C++.
+No new data resource is allocated and production scanner/readout/storage/export behavior still follows c34d27f.
+The old whole-snapshot persistence path is now the next authority eligible for replacement in CUT 14.
+```

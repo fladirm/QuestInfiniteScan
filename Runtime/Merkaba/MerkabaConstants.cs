@@ -6,6 +6,7 @@ namespace Genesis.RoomScan
     /// <summary>Frozen physical, storage, and evidence constants for the one Merkaba grid.</summary>
     public static class MerkabaConstants
     {
+        public const int KernelStateByteSize = 16;
         public const float SupportSize = 0.050f;
         public const float LatticeStep = 0.025f;
         public const float HalfSupport = 0.025f;
@@ -31,6 +32,9 @@ namespace Genesis.RoomScan
         public const float MinimumSurfaceQuality = 0.25f;
 
         public const uint OccupiedFlag = 1u << 0;
+        // CUT 02 deliberately leaves this legacy bit untouched. Its final flag
+        // dependency is removed and this bit is atomically reclaimed as
+        // R1_SEED in CUT 05; the remaining CARVE subsystem exits in CUT 06.
         public const uint NeedsCarveFlag = 1u << 1;
         public const int SurfacePlaneNormalUShift = 2;
         public const int SurfacePlaneNormalVShift = 12;
