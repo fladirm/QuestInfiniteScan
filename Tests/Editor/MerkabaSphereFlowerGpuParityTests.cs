@@ -109,32 +109,76 @@ namespace Genesis.RoomScan.Tests
                 cases.Add(item);
             }
 
-            for (int line = 0; line < MerkabaSphereFlowerAuthority.Lines.Length;
-                 line++)
-            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            for (int i = 0;
+                 i < MerkabaSphereFlowerAuthority.SkinChambers.Length; i++)
+                cases.Add(new OracleCase(12, i));
+            for (int i = 0;
+                 i < MerkabaSphereFlowerAuthority.SkinThreadPositionCount; i++)
+                cases.Add(new OracleCase(13, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SkinL5Count; i++)
+                cases.Add(new OracleCase(16, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SkinL3Count; i++)
+                cases.Add(new OracleCase(17, i));
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SkinL4Count; i++)
+                cases.Add(new OracleCase(18, i));
+            for (int i = 0;
+                 i < MerkabaSphereFlowerAuthority.SkinChambers.Length; i++)
             {
-                float sphereRadius = MerkabaSphereFlowerAuthority.LevelStep(2) *
-                    math.sqrt(math.lengthsq((float3)
-                        MerkabaSphereFlowerAuthority.Lines[line].Direction));
-                float v = 0.2f * sphereRadius *
-                    MerkabaSphereFlowerAuthority.EndpointBasis(s);
-                float vPrime = 0.2f * sphereRadius *
-                    MerkabaSphereFlowerAuthority.EndpointBasisDerivative(s);
-                var item = new OracleCase(12, line)
+                var rule = MerkabaSphereFlowerAuthority.SkinChambers[i];
+                float3 barycentric = default;
+                barycentric[rule.High] = 0.6f;
+                barycentric[rule.Middle] = 0.3f;
+                barycentric[rule.Low] = 0.1f;
+                cases.Add(new OracleCase(19, i / 6) { A = barycentric.xyzz });
+            }
+            for (int bit = 0; bit <= 49; bit++)
+            {
+                var item = new OracleCase(20)
                 {
-                    A = new float4(1.1f * s, v, vPrime, sphereRadius),
-                    B = new float4(0.25f, -0.5f, 0.75f, 0f),
-                    C = new float4(math.cos(1.1f * s), math.sin(1.1f * s),
-                        0f, 0f)
+                    Control = new int4(20, bit, math.min(bit, 7), 0),
+                    A = new float4(math.asfloat(0x6du),
+                        math.asfloat(0xa5a5a5a5u),
+                        math.asfloat(0x00015555u), 0f)
                 };
                 cases.Add(item);
             }
-
-            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            float3[] skinCoordinates =
             {
-                var item = new OracleCase(13) { A = new float4(s, 0f, 0f, 0f) };
-                cases.Add(item);
+                new(1f / 3f), new(0.2f, 0.3f, 0.5f),
+                new(0.1f, 0.4f, 0.5f), new(0f, 0.25f, 0.75f)
+            };
+            for (int i3 = 0; i3 < skinCoordinates.Length; i3++)
+            for (int i4 = 0; i4 < skinCoordinates.Length; i4++)
+            {
+                float3 c3 = skinCoordinates[i3];
+                float3 c4 = skinCoordinates[i4];
+                float3 c5 = skinCoordinates[(i3 + i4) % skinCoordinates.Length];
+                float3 amplitude = new(0.003f, -0.001f, 0.00025f);
+                cases.Add(new OracleCase(21)
+                {
+                    Control = new int4(21, math.asint(amplitude)),
+                    A = c3.xyzz,
+                    B = c4.xyzz,
+                    C = c5.xyzz
+                });
             }
+            var splitCases = new[]
+            {
+                new int4(0, 0, 0, 0),
+                new int4(1, 1 << 2, (1 << 14) | (1 << 20), 0),
+                new int4(1, 1 << 2, 1 << 7, 0),
+                new int4(1, 0x7f, -1, 0x1ffff)
+            };
+            foreach (int4 split in splitCases)
+                cases.Add(new OracleCase(22)
+                {
+                    Control = new int4(22, split.x, split.y, 0),
+                    A = new float4(math.asfloat(split.z),
+                        math.asfloat(split.w), 0f, 0f)
+                });
+            for (int classificationCase = 0; classificationCase < 4;
+                 classificationCase++)
+                cases.Add(new OracleCase(23, classificationCase));
 
             var intervalCases = new[]
             {
@@ -317,40 +361,134 @@ namespace Genesis.RoomScan.Tests
                 AssertUlp(actual.B, inverse, 24, "tetra inverse");
             }
 
-            for (int line = 0; line < MerkabaSphereFlowerAuthority.Lines.Length;
-                 line++)
-            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            for (int i = 0;
+                 i < MerkabaSphereFlowerAuthority.SkinChambers.Length; i++)
             {
-                float sphereRadius = MerkabaSphereFlowerAuthority.LevelStep(2) *
-                    math.sqrt(math.lengthsq((float3)
-                        MerkabaSphereFlowerAuthority.Lines[line].Direction));
-                float v = 0.2f * sphereRadius *
-                    MerkabaSphereFlowerAuthority.EndpointBasis(s);
-                float vPrime = 0.2f * sphereRadius *
-                    MerkabaSphereFlowerAuthority.EndpointBasisDerivative(s);
-                var rule = MerkabaSphereFlowerAuthority.Lines[line];
-                float rho = math.sqrt(0.75f * sphereRadius * sphereRadius -
-                    3f * v * v);
-                var loop = new MerkabaSphereFlowerAuthority.LoopFrame(
-                    new float3(0.25f, -0.5f, 0.75f), sphereRadius, rho,
-                    rule.UnitDirection, rule.E1, rule.E2);
-                float2 loopUnit = new(math.cos(1.1f * s), math.sin(1.1f * s));
-                MerkabaSphereFlowerAuthority.EvaluateDeformedLoopUnit(loop,
-                    loopUnit, v, vPrime, out float3 position,
-                    out float3 tangent);
+                var expected = MerkabaSphereFlowerAuthority.SkinChambers[i];
                 OracleCase actual = results[cursor++];
-                AssertUlp(actual.A.xyz, position, 24, $"V position {line}/{s}");
-                AssertUlp(actual.B.xyz, tangent, 32, $"V tangent {line}/{s}");
+                Assert.That(actual.Control, Is.EqualTo(new int4(expected.High,
+                    expected.Middle, expected.Low, expected.ChildSite)));
+                AssertBits(actual.A.xyz, new float3(expected.ChildWedge,
+                    expected.NextStitchState, expected.Orientation),
+                    $"skin chamber {i}");
             }
-
-            foreach (float s in new[] { 0f, 0.125f, 0.5f, 0.875f, 1f })
+            for (int i = 0;
+                 i < MerkabaSphereFlowerAuthority.SkinThreadPositionCount; i++)
             {
                 OracleCase actual = results[cursor++];
-                AssertUlp(actual.A.x,
-                    MerkabaSphereFlowerAuthority.EndpointBasis(s), 3, "basis");
-                AssertUlp(actual.A.y,
-                    MerkabaSphereFlowerAuthority.EndpointBasisDerivative(s),
-                    4, "basis derivative");
+                Assert.That(actual.Control.xy, Is.EqualTo(new int2(
+                    MerkabaSphereFlowerAuthority.SkinCanonicalToThread[i],
+                    MerkabaSphereFlowerAuthority.SkinThreadToCanonical[i])));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SkinL5Count; i++)
+            {
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control.xy, Is.EqualTo(new int2(
+                    MerkabaSphereFlowerAuthority.SkinCanonicalL5ToThread[i],
+                    MerkabaSphereFlowerAuthority.SkinL5ChildRank[i])));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SkinL3Count; i++)
+            {
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control.xy, Is.EqualTo(new int2(
+                    MerkabaSphereFlowerAuthority.SkinL3ChildRank[i],
+                    MerkabaSphereFlowerAuthority.SkinL3State[i])));
+            }
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.SkinL4Count; i++)
+            {
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control.xyz, Is.EqualTo(new int3(
+                    MerkabaSphereFlowerAuthority.SkinL4ParentThread[i],
+                    MerkabaSphereFlowerAuthority.SkinL4ChildRank[i],
+                    MerkabaSphereFlowerAuthority.SkinL4State[i])));
+            }
+            for (int i = 0;
+                 i < MerkabaSphereFlowerAuthority.SkinChambers.Length; i++)
+            {
+                var rule = MerkabaSphereFlowerAuthority.SkinChambers[i];
+                float3 barycentric = default;
+                barycentric[rule.High] = 0.6f;
+                barycentric[rule.Middle] = 0.3f;
+                barycentric[rule.Low] = 0.1f;
+                var expected = MerkabaSphereFlowerAuthority.DescendSkin(
+                    barycentric, i / 6, out float3 child);
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control, Is.EqualTo(new int4(
+                    expected.ChildSite, expected.ChildWedge,
+                    expected.NextStitchState,
+                    expected.Orientation > 0 ? 1 : 0)));
+                AssertBits(actual.B.xyz, child, $"skin descend {i}");
+            }
+            for (int bit = 0; bit <= 49; bit++)
+            {
+                OracleCase actual = results[cursor++];
+                AssertBits(actual.A.xy, new float2(
+                    MerkabaSphereFlowerAuthority.Rank7(0x6du,
+                        math.min(bit, 7)),
+                    MerkabaSphereFlowerAuthority.Rank49(0xa5a5a5a5u,
+                        0x00015555u, bit)), $"rank bit {bit}");
+            }
+            for (int i3 = 0; i3 < skinCoordinates.Length; i3++)
+            for (int i4 = 0; i4 < skinCoordinates.Length; i4++)
+            {
+                float3 c3 = skinCoordinates[i3];
+                float3 c4 = skinCoordinates[i4];
+                float3 c5 = skinCoordinates[(i3 + i4) % skinCoordinates.Length];
+                float3 amplitude = new(0.003f, -0.001f, 0.00025f);
+                OracleCase actual = results[cursor++];
+                AssertUlp(actual.A.xyz, new float3(
+                    MerkabaSphereFlowerAuthority.SkinBubble(c3),
+                    MerkabaSphereFlowerAuthority.SkinBubble(c4),
+                    MerkabaSphereFlowerAuthority.SkinBubble(c5)), 4,
+                    $"skin bubble {i3}/{i4}");
+                AssertUlp(actual.A.w,
+                    MerkabaSphereFlowerAuthority.EvaluateNestedSkinV(
+                        c3, c4, c5, amplitude), 8,
+                    $"nested V {i3}/{i4}");
+            }
+            foreach (int4 split in splitCases)
+            {
+                OracleCase actual = results[cursor++];
+                bool valid = MerkabaSphereFlowerAuthority.ValidateSkinSplitClosure(
+                    split.x != 0, unchecked((uint)split.y),
+                    unchecked((uint)split.z), unchecked((uint)split.w));
+                Assert.That(actual.Control.x, Is.EqualTo(valid ? 1 : 0));
+                uint expected = valid ? (uint)MerkabaSphereFlowerAuthority
+                    .CompactSkinValueCount(split.x != 0,
+                        unchecked((uint)split.y), unchecked((uint)split.z),
+                        unchecked((uint)split.w)) : uint.MaxValue;
+                AssertBits(actual.A.x, (float)expected,
+                    $"split count {split}");
+            }
+            for (int classificationCase = 0; classificationCase < 4;
+                 classificationCase++)
+            {
+                var scalar = new MerkabaSphereFlowerAuthority.FloatInterval[7];
+                var rgb = new MerkabaSphereFlowerAuthority.FloatInterval[21];
+                for (int i = 0; i < scalar.Length; i++)
+                    scalar[i] = new MerkabaSphereFlowerAuthority.FloatInterval(
+                        0f, 1f);
+                for (int i = 0; i < rgb.Length; i++)
+                    rgb[i] = new MerkabaSphereFlowerAuthority.FloatInterval(0f, 1f);
+                uint certainMask = classificationCase == 2 ? 0x3fu : 0x7fu;
+                if (classificationCase == 1)
+                {
+                    scalar[6] = new MerkabaSphereFlowerAuthority.FloatInterval(
+                        2f, 3f);
+                    rgb[18] = scalar[6];
+                }
+                else if (classificationCase == 3)
+                {
+                    rgb[19] = new MerkabaSphereFlowerAuthority.FloatInterval(
+                        2f, 3f);
+                }
+                OracleCase actual = results[cursor++];
+                Assert.That(actual.Control.xy, Is.EqualTo(new int2(
+                    (int)MerkabaSphereFlowerAuthority.ClassifyScalarSkinSplit(
+                        scalar, certainMask),
+                    (int)MerkabaSphereFlowerAuthority.ClassifyRgbSkinSplit(
+                        rgb, certainMask))),
+                    $"split classification {classificationCase}");
             }
 
             foreach (OracleCase item in intervalCases)
@@ -397,6 +535,10 @@ namespace Genesis.RoomScan.Tests
             output.GetData(result);
             return result;
         }
+
+        private static void AssertBits(float actual, float expected,
+            string context) => Assert.That(math.asuint(actual),
+            Is.EqualTo(math.asuint(expected)), context);
 
         private static void AssertBits(float2 actual, float2 expected,
             string context)

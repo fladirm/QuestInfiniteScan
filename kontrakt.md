@@ -1,3 +1,8 @@
+# Historical contract — superseded
+
+This document is not implementation authority. The sole production contract is
+[`M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md`](M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md).
+
 # M8 SOTA FINALIZATION CONTRACT
 
 ## 0. Neměnné invarianty

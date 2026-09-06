@@ -6,7 +6,7 @@ using Unity.Mathematics;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// The single CPU oracle for the REV-B M8 Dual Sphere-Flower algebra.
+    /// The single CPU oracle for the REV-C M8 Dual Sphere-Flower algebra.
     /// Its finite tables are emitted verbatim to HLSL by the editor codegen.
     /// No method in this type searches world geometry or owns persistent state.
     /// </summary>
@@ -14,6 +14,7 @@ namespace Genesis.RoomScan
     {
         public const float LatticeStep = MerkabaConstants.LatticeStep;
         public const int LevelCount = 6;
+        public const int GeometryLevelCount = 3;
         public const int DirectedRelationCount = 26;
         public const int LineClassCount = 13;
         public const int NodeClassCount = 26;
@@ -648,6 +649,25 @@ namespace Genesis.RoomScan
                     Word(unchecked((uint)value.Eta[i]));
                 Word(unchecked((uint)value.Chirality));
             }
+            foreach (SkinChamberRule value in SkinChambers)
+            {
+                Word(value.High);
+                Word(value.Middle);
+                Word(value.Low);
+                Word(value.ChildSite);
+                Word(value.ChildWedge);
+                Word(value.NextStitchState);
+                Word(unchecked((uint)value.Orientation));
+            }
+            foreach (ushort value in SkinCanonicalToThread) Word(value);
+            foreach (ushort value in SkinThreadToCanonical) Word(value);
+            foreach (ushort value in SkinCanonicalL5ToThread) Word(value);
+            foreach (byte value in SkinL3ChildRank) Word(value);
+            foreach (byte value in SkinL3State) Word(value);
+            foreach (byte value in SkinL4ParentThread) Word(value);
+            foreach (byte value in SkinL4ChildRank) Word(value);
+            foreach (byte value in SkinL4State) Word(value);
+            foreach (byte value in SkinL5ChildRank) Word(value);
             return hash;
         }
 
@@ -723,6 +743,9 @@ namespace Genesis.RoomScan
         public static LoopFrame EvaluateLoop(int level, Long3 junction,
             int lineClass)
         {
+            if ((uint)level >= GeometryLevelCount)
+                throw new ArgumentOutOfRangeException(nameof(level),
+                    "World Sphere-Flower geometry terminates at L2.");
             if ((uint)lineClass >= LineClassCount)
                 throw new ArgumentOutOfRangeException(nameof(lineClass));
             float step = LevelStep(level);
@@ -966,57 +989,6 @@ namespace Genesis.RoomScan
             return norm.IsSingleton && norm.Lower == 1f
                 ? ProofClassification.Certain
                 : ProofClassification.Ambiguous;
-        }
-
-        public static float EndpointBasis(float s)
-        {
-            if (s < 0f || s > 1f) throw new ArgumentOutOfRangeException(nameof(s));
-            float oneMinus = 1f - s;
-            return 16f * s * s * oneMinus * oneMinus;
-        }
-
-        public static float EndpointBasisDerivative(float s)
-        {
-            if (s < 0f || s > 1f) throw new ArgumentOutOfRangeException(nameof(s));
-            return 32f * s * (1f - s) * (1f - 2f * s);
-        }
-
-        public static ProofClassification ClassifyVRepresentability(
-            FloatInterval amplitude, float sphereRadius)
-        {
-            if (!(sphereRadius > 0f))
-                throw new ArgumentOutOfRangeException(nameof(sphereRadius));
-            FloatInterval magnitude = FloatInterval.Abs(amplitude);
-            float limit = sphereRadius * 0.5f;
-            if (magnitude.Upper < limit) return ProofClassification.Certain;
-            if (magnitude.Lower >= limit) return ProofClassification.Impossible;
-            return ProofClassification.Ambiguous;
-        }
-
-        public static void EvaluateDeformedLoop(LoopFrame loop, float theta,
-            float v, float vPrime, out float3 position, out float3 tangent)
-        {
-            EvaluateDeformedLoopUnit(loop,
-                new float2(math.cos(theta), math.sin(theta)), v, vPrime,
-                out position, out tangent);
-        }
-
-        public static void EvaluateDeformedLoopUnit(LoopFrame loop,
-            float2 loopUnit, float v, float vPrime, out float3 position,
-            out float3 tangent)
-        {
-            float radiusSquared = 0.75f * loop.SphereRadius *
-                loop.SphereRadius - 3f * v * v;
-            if (!(radiusSquared > 0f))
-                throw new ArgumentOutOfRangeException(nameof(v));
-            float rho = math.sqrt(radiusSquared);
-            float3 radial = loop.E1 * loopUnit.x + loop.E2 * loopUnit.y;
-            float3 perpendicular = -loop.E1 * loopUnit.y +
-                loop.E2 * loopUnit.x;
-            float rhoPrime = -3f * v * vPrime / rho;
-            position = loop.Center + 2f * v * loop.Direction + rho * radial;
-            tangent = 2f * vPrime * loop.Direction + rhoPrime * radial +
-                rho * perpendicular;
         }
 
         public static void DecodeBarycentric(byte packed, out int a,

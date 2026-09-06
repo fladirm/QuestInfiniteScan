@@ -112,16 +112,17 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     }
     else if (operation == 12)
     {
-        uint lineIndex = (uint)input.Control.y;
-        M8FlowerDeformedLoopUnit(input.B.xyz, input.A.w,
-            M8FlowerLineUnit[lineIndex], M8FlowerLineE1[lineIndex],
-            M8FlowerLineE2[lineIndex], input.C.xy, input.A.y, input.A.z,
-            result.A.xyz, result.B.xyz);
+        int4 rule = M8FlowerSkinChamber[index];
+        uint packed = asuint(rule.w);
+        result.Control = int4(rule.xyz, (int)(packed & 0xffu));
+        result.A.xyz = float3((packed >> 8) & 0xffu,
+            (packed >> 16) & 0xffu,
+            ((packed >> 24) & 1u) != 0u ? 1.0 : -1.0);
     }
     else if (operation == 13)
     {
-        result.A.x = M8FlowerEndpointBasis(input.A.x);
-        result.A.y = M8FlowerEndpointBasisDerivative(input.A.x);
+        result.Control.xy = int2(M8FlowerSkinCanonicalToThread[index],
+            M8FlowerSkinThreadToCanonical[index]);
     }
     else if (operation == 14)
     {
@@ -134,6 +135,76 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     else if (operation == 15)
     {
         result.Control.x = (int)M8_FLOWER_TABLE_HASH;
+    }
+    else if (operation == 16)
+    {
+        result.Control.xy = int2(M8FlowerSkinCanonicalL5ToThread[index],
+            M8FlowerSkinL5ChildRank[index]);
+    }
+    else if (operation == 17)
+    {
+        result.Control.xy = int2(M8FlowerSkinL3ChildRank[index],
+            M8FlowerSkinL3State[index]);
+    }
+    else if (operation == 18)
+    {
+        result.Control.xyz = int3(M8FlowerSkinL4ParentThread[index],
+            M8FlowerSkinL4ChildRank[index], M8FlowerSkinL4State[index]);
+    }
+    else if (operation == 19)
+    {
+        float3 child;
+        uint4 meta = M8FlowerSkinDescend(input.A.xyz, index, child);
+        result.Control = (int4)meta;
+        result.B.xyz = child;
+    }
+    else if (operation == 20)
+    {
+        result.A.x = (float)M8FlowerRank7(asuint(input.A.x),
+            (uint)input.Control.z);
+        result.A.y = (float)M8FlowerRank49(
+            uint2(asuint(input.A.y), asuint(input.A.z)), index);
+    }
+    else if (operation == 21)
+    {
+        float3 amplitude = asfloat(input.Control.yzw);
+        result.A = float4(M8FlowerSkinBubble(input.A.xyz),
+            M8FlowerSkinBubble(input.B.xyz),
+            M8FlowerSkinBubble(input.C.xyz),
+            M8FlowerNestedV(input.A.xyz, input.B.xyz, input.C.xyz,
+                amplitude));
+    }
+    else if (operation == 22)
+    {
+        uint splitL2 = (uint)input.Control.y;
+        uint splitL3 = (uint)input.Control.z;
+        uint2 splitL4 = uint2(asuint(input.A.x), asuint(input.A.y));
+        bool valid = M8FlowerSkinSplitClosure(splitL2, splitL3, splitL4);
+        result.Control.x = valid ? 1 : 0;
+        result.A.x = (float)M8FlowerCompactSkinValueCount(
+            splitL2, splitL3, splitL4);
+    }
+    else if (operation == 23)
+    {
+        float2 scalar[7];
+        float2 rgb[21];
+        [unroll]
+        for (uint i = 0u; i < 7u; i++) scalar[i] = float2(0.0, 1.0);
+        [unroll]
+        for (uint i = 0u; i < 21u; i++) rgb[i] = float2(0.0, 1.0);
+        uint certainMask = index == 2u ? 0x3fu : 0x7fu;
+        if (index == 1u)
+        {
+            scalar[6] = float2(2.0, 3.0);
+            rgb[18] = scalar[6];
+        }
+        else if (index == 3u)
+        {
+            rgb[19] = float2(2.0, 3.0);
+        }
+        result.Control.x = (int)M8FlowerClassifyScalarSkinSplit(
+            scalar, certainMask);
+        result.Control.y = (int)M8FlowerClassifyRgbSkinSplit(rgb, certainMask);
     }
 
     _SphereFlowerOracleResults[id] = result;

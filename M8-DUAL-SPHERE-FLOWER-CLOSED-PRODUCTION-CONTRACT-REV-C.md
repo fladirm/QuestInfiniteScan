@@ -1,8 +1,3 @@
-# SUPERSEDED CONTRACT — NOT PRODUCTION AUTHORITY
-
-REV-B is retained only as history. The sole production authority is
-[`M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md`](M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md).
-
 # M8 DUAL SPHERE–FLOWER
 
 ## CLOSED PRODUCTION ALGORITHMIC CONTRACT
@@ -15,7 +10,7 @@ c34d27f0ecb51500b12209ed5d2fe72b893726f5
 
 This contract replaces every previous Sphere–Flower draft.
 
-**REV-B closure:** this revision removes observation-dependent branch ranks, replaces the invented R2 half-phase split with exact child-loop residual synthesis, derives R3 chirality from generated incidence, makes parent fine-state invalidation explicit, certifies THROUGH over the full projected support, and permits resolved geometry through L5.
+**REV-C closure:** this revision preserves every REV-B closure, removes acquisition throttling, and freezes the skin representation. Fibonacci is never a refinement gate and never ties detail convergence to new camera observations. One accepted immutable observation must drain every finite child test that its own bounded evidence can resolve; new viewpoints are required only for new information or ambiguity. Geometry ends at L2. Every valid L2 carrier owns the same immutable planar Flower-7-in-Flower L3/L4/L5 address space and the same recursively subtree-contiguous 399-position embroidery. Scan evidence refines only the piecewise RGB and additive metric-V signal written on that fixed thread. Readout always performs the same three exact barycentric descents and never selects a detail level.
 
 No backward-compatibility layer is permitted. No legacy surface authority may remain beside the final path.
 
@@ -160,7 +155,8 @@ struct FlowerOwnerEpoch
 
 The epoch table belongs to the FlowerDetail page and is absent for tiles with no fine state. A structural parent change increments only that owner's epoch in the same transaction as the M8 change. `0xffffffff -> 0` is forbidden; before wrap, that owner is transactionally rebased: descendants are tombstoned, epoch becomes 1, and only subsequently re-observed detail may reappear.
 
-One fine metric record remains 16 bytes:
+One geometric fine-metric record remains 16 bytes and is used only by the
+L1/L2 Sphere–Flower evaluator:
 
 ```c
 struct FlowerDetailRecord
@@ -175,13 +171,14 @@ struct FlowerDetailRecord
 `Key` is parent-owner local and contains **no dynamic branch ordinal**:
 
 ```text
-bits  0..2   level              3   // L0..L5
-bits  3..12  childPath          10  // 2 bits × L1..L5
-bits 13..18  petalClass         6   // 0..47
-bits 19..22  channel            4   // 13 line classes / local channel
-bits 23..25  kind               3
-bit      26  rootSign           1
-bits 27..31  sector             5   // generated fixed loop sector
+bits  0..1   geometryLevel      2   // L0..L2 only
+bits  2..5   geometryChildPath  4   // 2 bits × L1/L2
+bits  6..11  petalClass         6   // 0..47
+bits 12..15  channel            4   // 13 line classes / local channel
+bits 16..18  kind               3
+bit      19  rootSign           1
+bits 20..24  sector             5   // generated fixed loop sector
+bits 25..31  reserved           7   // MUST be zero
 ```
 
 Codegen MUST prove `maxSectorCount <= 32` for every line class. If this proof fails, the ABI build fails; sectors are never truncated or aliased.
@@ -191,7 +188,6 @@ Kinds:
 ```text
 R2_PHASE
 R3_PHASE
-V_AMPLITUDE
 KNOT_METRIC
 TOMBSTONE
 ```
@@ -199,7 +195,6 @@ TOMBSTONE
 `Lower/Upper` are fixed-point interval endpoints:
 
 - phase values use signed Q2.29 tangent-half-angle within one generated sector;
-- metric V uses signed Q5.26 metres relative to its parent segment;
 - no single best float is persisted.
 
 Render value is the deterministic interval midpoint:
@@ -210,6 +205,51 @@ x_{\rm draw}=x_-+\left\lfloor\frac{x_+-x_-}{2}\right\rfloor.
 
 A record is valid iff its `ParentEpoch` equals the current sparse owner epoch. Parent structural invalidation therefore removes every descendant logically without walking the descendant records.
 
+L3/L4/L5 metric V does not use `geometryChildPath`. It is the additive signal
+on the fixed L2 skin thread defined in section 20. One L2 carrier with any
+persistent V innovation has exactly one run:
+
+```c
+struct FlowerSkinMetricRun
+{
+    uint FlowerKey;       // canonical L2 carrier identity
+    uint GroupBase;       // first compact seven-child V group
+    uint SplitBitsLo;     // split bits 0..31
+    uint SplitBitsHi;     // split bits 32..56; bits 57..63 MUST be zero
+    uint ParentEpoch;
+    uint Reserved;        // MUST be zero
+}
+```
+
+The 57 bits are exactly:
+
+```text
+bit  0       L2 -> L3 V split
+bits 1..7    L3 -> L4 V splits in L3-parent thread order
+bits 8..56   L4 -> L5 V splits in L4-parent thread order
+```
+
+Each set split bit owns one compact group of exactly seven intervals:
+
+```c
+struct FlowerVInterval
+{
+    int Lower;            // signed Q5.26 metres
+    int Upper;            // signed Q5.26 metres
+}
+
+struct FlowerVGroup
+{
+    FlowerVInterval Child[7];
+}
+```
+
+`FlowerVGroup` order and child order are the immutable embroidery order from
+section 20. A split bit and all seven child intervals are published in one
+transaction. A missing group is not zero-filled storage: its logical
+descendants inherit zero innovation at that level. The fixed 399-position
+topology is implicit and is never stored in FlowerDetail.
+
 ## 1.4 ThreadAtlas
 
 ThreadAtlas is persistent appearance truth under the same parent-owner epoch. It is not a cache and not another spatial world.
@@ -217,35 +257,41 @@ ThreadAtlas is persistent appearance truth under the same parent-owner epoch. It
 ```c
 struct ThreadRun
 {
-    uint FlowerKey;
-    uint ProgramRef;
-    uint ResidualBase;
+    uint FlowerKey;       // canonical L2 carrier identity
+    uint ProgramRef;      // optional certified optical program
+    uint GroupBase;       // first compact seven-child RGB group
+    uint SplitBitsLo;     // split bits 0..31
+    uint SplitBitsHi;     // split bits 32..56; bits 57..63 MUST be zero
     uint ParentEpoch;
 }
 ```
 
+The RGB mask has the same bit meanings as the V mask, but it is an independent
+persistent authority. Each RGB split adds exactly seven actual captured-color
+intervals, not seven residuals:
+
 ```c
-struct ThreadResidual
+struct ThreadColorInterval
 {
-    uint  SegmentKey;
-    uint  ParentEpoch;
     half4 LowerLinearRgba;
     half4 UpperLinearRgba;
-    uint  Flags;
-    uint  Reserved;
+}
+
+struct ThreadColorGroup
+{
+    ThreadColorInterval Child[7];
 }
 ```
 
-Thread programs contain only reusable:
+The unsplit root color is the L2 carrier's canonical M8 captured color. A
+child color replaces its nearest explicit RGB ancestor for its footprint;
+colors from several levels are never accumulated. Thread programs contain
+only reusable optional certified optical response. They contain no geometry,
+topology, world XYZ, Fibonacci origin or refinement state.
 
-```text
-endpoint color rule
-RGB residual basis
-optional certified optical response
-Fibonacci route origin
-```
-
-No Thread record contains topology or world XYZ. A Thread record whose parent epoch is stale is ignored identically to stale FlowerDetail.
+The immutable topology and embroidery order are generated globally, not
+persisted per L2. A Thread record whose parent epoch is stale is ignored
+identically to stale FlowerDetail.
 
 ---
 
@@ -999,7 +1045,9 @@ N_L\subset N_{L+1}
 
 by integer address identity. Codegen MUST additionally prove that every midpoint address maps to the expected R1/R2/R3 loop class and that every inherited boundary strand has the same canonical orientation on both incident children.
 
-The canonical geometry of a level is the evaluated nested Flower knots/strands. Presentation rasterization may connect evaluated child knots into triangles, but those triangles are disposable output and never define the scan truth.
+The canonical geometry of a level is the evaluated nested Flower knots/strands. This geometric substitution is applied only for L0 -> L1 and L1 -> L2. L2 is the terminal raster carrier. It MUST NOT be applied to create L3, L4 or L5 world knots, vertices, silhouettes or depth.
+
+Presentation rasterization may connect evaluated L2 knots into triangles, but those triangles are disposable output and never define the scan truth. The planar L3/L4/L5 skin hierarchy inside each L2 carrier is the distinct fixed address construction in section 20; it never changes this geometric alphabet or its knot identity.
 
 ## 8.6 Failure
 
@@ -1094,6 +1142,10 @@ xz-
 yz+
 yz-
 ```
+
+R2 geometric analysis/synthesis refines the Sphere–Flower carrier only through
+L2. It never creates an L3/L4/L5 geometric child. Those names denote only the
+planar skin signal hierarchy of section 20.
 
 R2 detail is **not** obtained by splitting a parent phase in half and it is not a Hessian. It is the exact residual between:
 
@@ -1263,6 +1315,9 @@ t_1=\frac{(1,-1,-1)}{\sqrt3},\quad
 t_2=\frac{(-1,1,-1)}{\sqrt3},\quad
 t_3=\frac{(-1,-1,1)}{\sqrt3}.
 \]
+
+R3 closes branch, chirality and junction geometry only on the L0–L2 carrier
+hierarchy. It is never a skin-detail level and never makes L3/L4/L5 geometry.
 
 R3 orientation MUST come from the actual generated corner incidence. It is not manually toggled by `+L`.
 
@@ -1541,6 +1596,89 @@ RGBV_NOVELTY
 ```
 
 There is no scalar refinement score.
+
+### 14.2.1 Observation-local refinement closure
+
+Refinement is **evidence-bounded, not observation-count-bounded**. Geometry may
+refine only through L2. Skin evidence is evaluated on the already existing
+fixed L3/L4/L5 footprints of section 20 and may publish only scan-authored
+signal splits.
+
+One accepted immutable observation MUST evaluate every geometric L1/L2
+candidate and every RGB/V split predicate that its own bounded evidence can
+make `CERTAIN`. If all work fits the current GPU quantum, it is consumed
+immediately. Otherwise the remaining finite workset stays attached to that
+same immutable observation and drains in later quanta without a new frame or
+camera motion.
+
+```text
+new viewpoint is required only for new information or AMBIGUOUS evidence,
+never merely to schedule computation already supported by the frozen observation.
+```
+
+The drained result MUST be bit/interval-identical to eager evaluation of the
+same complete workset. Scheduling order changes latency only. Fibonacci does
+not order this work. `observationOrdinal` MUST NOT appear in geometry validity,
+skin split validity, completion, metric state or appearance state.
+
+### 14.2.2 Exact scan split predicates
+
+For closed scalar intervals `a=[a-,a+]` and `b=[b-,b+]`, define certified
+disjointness only as:
+
+\[
+Disjoint(a,b)=(a^+<b^-)\lor(b^+<a^-).
+\]
+
+For two linear RGB interval vectors, `RgbDistinct` is true iff at least one of
+R, G or B is `Disjoint`. No distance, variance, confidence score or epsilon is
+permitted.
+
+For one unsplit RGB parent with seven generated skin-child footprints:
+
+```text
+all seven complete-footprint RGB measurements are CERTAIN
+AND at least one child pair is RgbDistinct
+    -> publish the parent RGB split and all seven actual child RGB intervals
+
+any required child measurement is AMBIGUOUS
+    -> do not publish; request genuinely new evidence
+
+all seven are CERTAIN but no child pair is provably distinct
+    -> retain the uniform parent RGB signal
+```
+
+V uses the identical finite decision over scalar metric-innovation intervals
+relative to the already committed parent V signal:
+
+```text
+all seven complete-footprint V innovation intervals are CERTAIN
+AND at least one child pair is Disjoint
+    -> publish the parent V split and all seven additive child innovations
+
+any required child interval is AMBIGUOUS
+    -> do not publish; request genuinely new evidence
+
+all seven are CERTAIN but no child pair is provably distinct
+    -> retain the unsplit parent; no child V innovation is stored
+```
+
+A split bit and its seven values are one atomic publication. Descendant split
+bits may be set only when every ancestor split for the same authority is set.
+RGB and V decisions remain independent; their exact union is derived only for
+resident draw data.
+
+### 14.2.3 Finite workset
+
+For each L2 carrier, codegen exposes the complete finite geometric candidates
+through L2 and the fixed seven-child footprint masks for the three skin
+substitution steps. Runtime removes parents with no discrete reason or no
+possible interval distinction, tests every remaining finite candidate, commits
+`CERTAIN` results, and stops locally at `AMBIGUOUS` evidence.
+
+No blind geometric expansion, sparse child discovery, pointer tree or generic
+score exists. The fixed skin topology already contains every logical child;
+work is proportional only to actual evidence/novelty and ambiguity.
 
 ## 14.3 Three-shell protection
 
@@ -1887,10 +2025,21 @@ FlowerCommit
     conditional R2
     conditional R3
     dual veto/completion/refinement
-    FlowerDetail/Thread update
+    generate complete finite L1/L2 geometry workset
+    evaluate exact L2-skin RGB/V split predicates
+    commit current-quantum FlowerDetail/Thread work
+
+DrainObservationRefinement
+    consume remaining work from the SAME immutable observation
+    no new camera input required
+    stop only at workset exhaustion or AMBIGUOUS evidence boundary
 
 FinalizeObservation
 ```
+
+`DrainObservationRefinement` is a semantic obligation, not a mandatory extra micro-dispatch. Production MAY fuse it into `FlowerCommit` or process the fixed L2-skin stages in one workgroup/dispatch. The implementation MUST prefer fused local work over a dispatch zoo. Its order is a scheduler implementation detail and MUST NOT use Fibonacci.
+
+The immutable observation may be released only after all work that it can make CERTAIN has either committed or been proven unnecessary. AMBIGUOUS children are not pending compute; they require new evidence and therefore do not keep the observation alive.
 
 Sparse allocation barriers do not contain geometry decisions.
 
@@ -1945,46 +2094,187 @@ No tangent PCA or arbitrary square stencil is introduced.
 
 ---
 
-# 20. L1–L5 authority and Fibonacci routing
+# 20. L0–L2 geometry and fixed 399-position Flower skin thread
 
-## 20.1 Levels
-
-```text
-L0 25.00000 mm
-L1 12.50000 mm
-L2  6.25000 mm
-L3  3.12500 mm
-L4  1.56250 mm
-L5  0.78125 mm
-```
-
-Fine detail cannot exist without a valid parent R1 FlowerAddress.
-
-## 20.2 Invalidation
+## 20.1 Hard level split
 
 ```text
-parent R1 structural anchor changes
-    increment sparse FlowerOwnerEpoch
-    stale ParentEpoch descendants disappear logically
-
-compatible parent metric refinement inside same sector/rootSign
-    keep OwnerEpoch; descendants are re-evaluated relative to refined parent
-
-parent R1 deleted / explicit ERASE
-    increment epoch and remove parent; all descendants become stale
-
-R2 invalidated
-    ignore only R2-dependent child metric
-
-R3 invalidated
-    ignore only cross-junction/chirality-dependent detail
+L0 25.00000 mm   geometric Sphere–Flower carrier
+L1 12.50000 mm   geometric Sphere–Flower refinement
+L2  6.25000 mm   terminal geometric/raster carrier
+L3  3.12500 mm   planar skin signal address
+L4  1.56250 mm   planar skin signal address
+L5  0.78125 mm   planar skin signal address
 ```
 
-Cleanup is deferred log compaction, never an immediate subtree traversal.
+The level names state canonical scale, not six geometric LODs:
 
-## 20.3 Exact Fibonacci word
+\[
+L0\rightarrow L1\rightarrow L2=\text{geometry refinement}
+\]
 
-Define:
+\[
+L2\triangleright(L3\rightarrow L4\rightarrow L5)
+=\text{fixed planar Flower skin signal}.
+\]
+
+L2 is the final world-space raster geometry. L3/L4/L5 never move a carrier
+vertex, create a world knot, change silhouette or write depth. They address RGB
+and metric microrelief over the local plane of the evaluated L2 carrier.
+Fine skin state cannot exist without a valid parent R1/L2 FlowerAddress.
+
+## 20.2 Fixed Flower-7 hierarchy
+
+The canonical surface slice of one Flower has exactly seven sites:
+
+```text
+H                    hub in the surface slice
+R0,R1,R2,R3,R4,R5    ordered tangential/ring sites
+```
+
+The axial `+N` and inward `-N` 3D lobes participate in geometric closure,
+metric interpretation and optical response only. They MUST NOT appear in a
+skin child address. `H` is not the inward axial lobe.
+
+Every valid L2 carrier always owns the identical complete logical hierarchy:
+
+```text
+L3: 7
+L4: 7^2 = 49
+L5: 7^3 = 343
+total L3–L5 thread positions: 7 + 49 + 343 = 399
+```
+
+The canonical radix-7 identities are:
+
+\[
+I_3(c_3)=c_3,
+\]
+
+\[
+I_4(c_3,c_4)=7+7c_3+c_4,
+\]
+
+\[
+I_5(c_3,c_4,c_5)=56+49c_3+7c_4+c_5,
+\]
+
+where every `c` is in `0..6`. These 399 identities exist immediately when L2
+exists. Refinement changes only the signal subdivision and interval values;
+it never creates a node or changes topology.
+
+Prohibited:
+
+```text
+validDepth / validDepthCode / deepestValidFlower / drawDepth
+7-, 56- or 399-node topology variants
+whole-level promotion
+childExists bits or per-child allocation
+sparse child lists, pointers, hashes or compaction maps
+presentation selection among L3/L4/L5
+```
+
+## 20.3 Exact three-step barycentric address
+
+Each L2 skin Flower consists of the six canonical wedges:
+
+\[
+W_i=(H,R_i,R_{(i+1)\bmod6}),\quad i=0\ldots5.
+\]
+
+Codegen owns only their canonical UV convention, vertex order, orientation and
+finite transition tables. The actual world frame:
+
+\[
+(O,T_1,T_2,N)
+\]
+
+MUST be supplied at runtime by the canonical evaluator of the particular
+scanned L2 carrier. A generated/static world frame is forbidden.
+
+The L2 vertex shader emits the three evaluated world positions and canonical
+wedge coordinates `(1,0,0)`, `(0,1,0)`, `(0,0,1)`. Raster interpolation gives
+`bc=(lambda0,lambda1,lambda2)`. Each skin descent uses the complete stable
+ordering of the three components, not `argmax` alone. Ties are resolved by
+increasing generated canonical skin-site identity; no epsilon is used.
+
+For ordered components `x0 >= x1 >= x2`, the exact child barycentrics are:
+
+\[
+bc'=(x_0-x_1,\;2(x_1-x_2),\;3x_2).
+\]
+
+They are nonnegative and sum to one. A generated `6 parent wedges × 6 stable
+orders = 36` transition table returns:
+
+```text
+child site c in 0..6
+child wedge in 0..5
+orientation/permutation
+next stitch state
+```
+
+The fragment applies that same ordered-chamber transform exactly three times,
+unconditionally, producing the terminal locality `(c3,c4,c5)`. At every
+recursive level, codegen MUST prove both:
+
+1. the 36 half-open chambers partition the six parent wedges exactly; and
+2. the union of all chambers mapped to each child `c` equals the exact
+   canonical footprint of that Flower-7 child.
+
+A merely convenient triangular fractal partition that does not reproduce the
+generated Flower-7 footprint is forbidden.
+
+## 20.4 Immutable recursively contiguous embroidery
+
+The logical positions are physically ordered by one global generated thread
+template `Gamma_L2`. It is reused by every L2 carrier; only its signal data
+differs. Every subtree is one contiguous interval:
+
+```text
+one L4 subtree = one L4 anchor + seven L5 sites = 8 positions
+one L3 subtree = one L3 anchor + seven L4 subtrees = 57 positions
+seven L3 subtrees = 399 positions
+```
+
+Let `r3(c3)`, `r4(state3,c4)` and `r5(state4,c5)` be generated local stitch
+ranks. Exact thread coordinates are:
+
+\[
+T_3=57r_3(c_3),
+\]
+
+\[
+T_4=57r_3(c_3)+1+8r_4(state_3,c_4),
+\]
+
+\[
+T_5=57r_3(c_3)+1+8r_4(state_3,c_4)+1+r_5(state_4,c_5).
+\]
+
+They cover `0..398` bijectively. Codegen emits at minimum
+`CanonicalL5ToThread[343]`, `CanonicalToThread[399]`, their inverse/debug
+mapping, and canonical-parent-to-thread-parent mappings.
+
+The canonical Flower-7 adjacency graph is fixed:
+
+```text
+H--Ri for i=0..5
+Ri--R(i+1 mod 6) for i=0..5
+```
+
+For each finite `(entry port, exit port, orientation)` stitch state, codegen
+derives two mirror-equivalent valid templates `A` and `B`. In the canonical
+positive state `(entry=R0, exit=R5)`, template A is the adjacency path
+`R0,H,R1,R2,R3,R4,R5`; B is `reverse(mirror(A)) =
+R0,R1,R2,R3,R4,H,R5`. Rotations/reflections transport these templates to every
+other state and generated transition rows transport child entry, exit and
+orientation. Codegen rejects any row that is not a seven-site bijection, uses
+a non-adjacent transition, or changes its declared ports/orientation.
+
+## 20.5 Fibonacci has one compile-time role
+
+Define the exact Fibonacci word:
 
 ```text
 W0 = "0"
@@ -1992,265 +2282,309 @@ W1 = "01"
 Wn = Wn-1 || Wn-2
 ```
 
-Lengths are precomputed Fibonacci integers.
+`FibBit(n)` chooses the smallest `k` with `|Wk| > n`, then repeatedly descends
+to `Wk-1` or `Wk-2` using integer compare/subtract until reaching W0/W1.
 
-`FibBit(n)`:
+Fibonacci chooses only A/B during code generation. The index is the actual
+preorder thread ordinal of the parent whose children are about to be expanded:
 
-1. choose the smallest stored \(k\) with \(|W_k|>n\);
-2. while \(k>1\):
+\[
+FibBit(T_{parent}).
+\]
 
-```text
-n < |Wk-1|:
-    k = k-1
-else:
-    n = n-|Wk-1|
-    k = k-2
-```
+The root L2 seed uses `FibBit(0)` to choose `r3`. Once `r3` is known, each L3
+parent has `Tparent=T3`; once `r4` is known, each L4 parent has `Tparent=T4`.
+Thus generation is finite and non-circular. Using canonical tree ordinals such
+as `1+c3` or `8+7c3+c4` is forbidden.
 
-3. return the indexed bit from `W0` or `W1`.
+There is no runtime Fibonacci evaluation, route origin or Fibonacci state.
+Fibonacci MUST NOT affect scan scheduling, observation draining, refinement,
+split decisions, color, V, confidence, read depth, camera LOD or raster
+traversal.
 
-Only integer compares/subtracts are used.
+## 20.6 Fixed topology, scan-authored signal
 
-This runs during observation/page compaction, not per fragment.
-
-## 20.4 Two permitted Fibonacci uses
-
-Acquisition:
-
-```text
-geometry supplies finite equivalent child routes
-FibBit(routeOrigin + observationOrdinal)
-selects which additional valid route is measured
-```
-
-Appearance:
+For each of RGB and V independently, one signal region has only:
 
 ```text
-geometry supplies finite equivalent strand continuations
-FibBit(routeOrigin + segmentOrdinal)
-selects continuation
+UNIFORM    the complete descendant footprint inherits this region's signal
+SPLIT      all seven skin children have explicit interval values
 ```
 
-Fibonacci never makes geometry valid and never chooses between incompatible petal/junction classes.
+The complete subdivision topology state is exactly 57 bits per authority:
+
+```text
+1 bit    L2 -> L3
+7 bits   L3 -> L4
+49 bits  L4 -> L5
+```
+
+The seven L3-parent bits and 49 L4-parent bits are stored in **thread-parent
+order**, never canonical order. Define:
+
+\[
+j_3=r_3(c_3),
+\]
+
+\[
+j_4=7r_3(c_3)+r_4(state_3,c_4).
+\]
+
+`SplitL3Thread` bit `j3` and `SplitL4Thread` bit `j4` therefore follow the same
+physical ordering as `Gamma_L2`. Canonical identity remains radix-7; generated
+maps convert canonical identities to thread parent positions.
+
+Only scan evidence satisfying section 14.2.2 may set a split. Readout, camera
+distance, raster footprint and Fibonacci never set or clear one. A split and
+its seven child intervals publish atomically. Parent closure is mandatory:
+
+```text
+SplitL2 = 0        -> SplitL3Thread = 0 and SplitL4Thread = 0
+SplitL3Thread[j]=0 -> the seven corresponding L4-parent bits are zero
+```
+
+## 20.7 Compact storage in thread order
+
+The 399 positions are a logical address space, not mandatory dense storage.
+Every split adds exactly one seven-value group. Let:
+
+```text
+rank7(mask,j)   = popcount(mask & ((1<<j)-1))
+rank49(mask,j)  = popcount of the at-most-two words strictly before bit j
+```
+
+For a root split, its seven L3 values are the first group and:
+
+\[
+index_3=Base_3+r_3(c_3).
+\]
+
+For a split L3 parent:
+
+\[
+group_4=rank_7(SplitL3Thread,j_3),
+\]
+
+\[
+index_4=Base_4+7group_4+r_4(state_3,c_4).
+\]
+
+For a split L4 parent:
+
+\[
+group_5=rank_{49}(SplitL4Thread,j_4),
+\]
+
+\[
+index_5=Base_5+7group_5+r_5(state_4,c_5).
+\]
+
+where `Base4=Base3+7` and
+`Base5=Base4+7*popcount(SplitL3Thread)`. Rank uses at most two integer words,
+two masks and two `countbits`; there is no loop, search, hash or pointer chase.
+
+Including the canonical L2 root value, physical signal value count is exactly:
+
+\[
+1+7SplitL2+7popcount(SplitL3Thread)+7popcount(SplitL4Thread).
+\]
+
+The fully split signal has 400 stored values including its distinct L2 root;
+the immutable L3–L5 thread itself remains exactly 399 positions. A uniform L2
+stores only its root signal and maps all 399 logical positions to it.
+
+## 20.8 Deterministic readout and RGB/V union
+
+The fragment always computes `(c3,c4,c5)` by three descents. It then follows
+the scan-authored masks from the root and resolves the nearest explicit value.
+For RGB, the deepest explicit actual color replaces its ancestor. For V, the
+explicit values at each split level are additive innovations as section 22
+defines.
+
+Persistent masks remain separate:
+
+```text
+RGB splits -> ThreadAtlas
+V splits   -> FlowerDetail
+```
+
+Dirty-page compaction derives, bit for bit:
+
+\[
+SplitDraw=SplitRGB\lor SplitV.
+\]
+
+For every resulting draw region it inherits the nearest RGB ancestor and zero
+for absent V innovations, then packs one aligned hot RGB/V/optical sample.
+This merge is derived readout data and never changes either persistent
+authority.
+
+Antialiasing may filter the fully evaluated signal over a pixel footprint. It
+MUST NOT mutate subdivision, choose a stored level, suppress an explicit split
+or create a mip/LOD authority.
+
+## 20.9 Invalidation
+
+```text
+parent R1/L2 structural anchor changes or explicit ERASE
+    increment FlowerOwnerEpoch; every geometric and skin record becomes stale
+
+compatible parent metric refinement inside the same sector/rootSign/frame
+    retain the epoch and re-evaluate descendants against the refined L2 frame
+
+R2 invalidated
+    ignore only R2-dependent L1/L2 geometry and subordinate skin state
+
+R3 invalidated
+    ignore only junction/chirality-dependent state; never delete independent R1
+```
+
+Cleanup is deferred log compaction, never an immediate subtree traversal.
 
 ---
 
-# 21. Closed-loop RGBV
+# 21. Fixed-thread captured RGB signal
 
-Every fine loop is divided by generated Flower knots into canonical half-open segments.
-
-For segment coordinate:
-
-\[
-s\in[0,1].
-\]
-
-Use the fixed endpoint-preserving basis:
+RGB is an actual captured linear-radiance interval on the fixed L2 skin
+thread. It is not a multilevel residual series. The L2 root color comes from
+the canonical M8 owner. Every explicit child group contains seven actual child
+colors. At a terminal locality, readout returns the deepest explicit color on
+the scan-authored path:
 
 \[
-b(s)=16s^2(1-s)^2.
+C(p)=C_{nearest\ explicit\ RGB\ ancestor}(p).
 \]
 
-Properties:
+No L3+L4+L5 color accumulation, interpolation across unrelated regions, RGB
+inpainting or invented texture is permitted. Half-open chamber ownership makes
+boundary evaluation deterministic. Shared carrier identities and generated
+wedge orientation make duplicate evaluations identical.
 
-\[
-b(0)=b(1)=0
-\]
-
-\[
-b'(0)=b'(1)=0
-\]
-
-\[
-b(1/2)=1.
-\]
-
-## 21.1 RGB
-
-With shared endpoint colors \(C_0,C_1\):
-
-\[
-C(s)=(1-s)C_0+sC_1+b(s)\Delta C.
-\]
-
-`ΔC` is stored only when its interval excludes zero.
-
-Because loop endpoint colors are shared KnotAddress values, a closed loop has no seam.
-
-RGB cannot modify V.
-
-## 21.2 Unique completion color
+RGB cannot modify V or any geometry/split predicate. The render value of each
+stored color interval is its componentwise deterministic interval midpoint.
 
 For a COMPLETED petal:
 
 ```text
-unique ThreadAddress + phase continuation
-    continue existing RGB residual
+unique existing ThreadAddress continuation
+    use that exact scan-authored signal
 
 otherwise
     use canonical owner M8 PackedColor
-    no fine RGB residual
+    create no child RGB group
 ```
-
-No texture detail is invented.
 
 ---
 
-# 22. Metric V
+# 22. Additive nested metric V on the L2 plane
 
-## 22.1 Terminology
+## 22.1 Authority and basis
 
-Constant \(v\):
-
-```text
-ordinary conjugate sphere breathing
-```
-
-Variable \(v(\theta)\):
-
-```text
-conjugate deformed Flower loop
-```
-
-It is not claimed to be the intersection of two constant-radius spheres.
-
-## 22.2 Basis
-
-Every canonical segment stores one interval amplitude \(A_V\):
+V is metric microrelief over the frozen L2 carrier, not another raster
+geometry level and not a replacement color channel. For canonical child
+barycentrics `lambda=(lambda0,lambda1,lambda2)`, use the fixed bubble:
 
 \[
-v(s)=A_V\,b(s).
+\psi(\lambda)=729\lambda_0^2\lambda_1^2\lambda_2^2.
 \]
 
-Nested levels add detail only inside their own child segments.
-
-At every parent knot:
+It satisfies:
 
 \[
-v=0,\qquad v'=0.
+\psi(1/3,1/3,1/3)=1,
 \]
 
-Parent knot position and tangent therefore remain invariant.
+and both its value and first derivative are exactly zero on every child
+boundary. A V group stores interval amplitudes in signed Q5.26 metres.
 
-## 22.3 Geometry
+## 22.2 Nested innovation
+
+For the three ordered chamber descents, let `psi3`, `psi4`, `psi5` be the
+bubble evaluated in the corresponding local child coordinates. The physical
+microrelief is the additive innovation:
 
 \[
-e(\theta)=E_1\cos\theta+E_2\sin\theta
+\boxed{V(u,v)=A_3\psi_3(u,v)+A_4\psi_4(u,v)+A_5\psi_5(u,v)}.
 \]
 
-\[
-e_\perp(\theta)=-E_1\sin\theta+E_2\cos\theta.
-\]
+`A3` exists only when the V root is split; `A4` only when its L3 parent is
+split; `A5` only when its L4 parent is split. An absent term is exactly zero.
+A child term augments and never replaces its parent term. Therefore adding or
+removing child detail preserves the parent V and its first derivative on the
+child boundary. At most three bubbles are evaluated per fragment.
+
+## 22.3 World evaluation and actual micro-normal
+
+The canonical L2 evaluator, not codegen, supplies an orthonormal runtime frame
+`(O,T1,T2,N)` for the particular carrier. With its planar coordinates `(u,v)`:
 
 \[
-\rho_v=
-\sqrt{\frac34R^2-3v^2}.
+P_{L2}(u,v)=O+uT_1+vT_2,
 \]
 
 \[
-X_v=
-M+2v\hat r+\rho_v e.
+P_\mu(u,v)=P_{L2}(u,v)+V(u,v)N.
+\]
+
+This micro-surface is evaluated for material response; raster position,
+silhouette and depth remain the L2 carrier. Exact derivatives are obtained by
+the generated affine chamber transforms and analytic derivatives of `psi`:
+
+\[
+P_u=T_1+V_uN,\qquad P_v=T_2+V_vN,
 \]
 
 \[
-\rho_v'=-\frac{3vv'}{\rho_v}.
+N_\mu=
+\frac{N-V_uT_1-V_vT_2}
+{|N-V_uT_1-V_vT_2|}.
 \]
 
-\[
-T=
-2v'\hat r+\rho_v'e+\rho_ve_\perp.
-\]
+Because the frame is orthonormal, the squared denominator is
+`1+Vu^2+Vv^2` and is strictly positive without an angular epsilon. Finite
+differences, neighbor fetches and fitted normal maps are forbidden.
 
-## 22.4 Representability
+## 22.4 Admission and representability
 
-Required interval invariant:
+V is admitted only from a metric stereo/multiview innovation interval made
+`CERTAIN` over the complete child footprint by section 14.2.2. Stored bounds
+must fit signed Q5.26 and all outward-rounded analytic evaluation bounds must
+remain finite. No amplitude is clamped.
 
-\[
-|v|_{\max}<R/2.
-\]
-
-Then:
-
-\[
-\rho_v>0
-\]
-
-and:
-
-\[
-|T|^2=
-4(v')^2+(\rho_v')^2+\rho_v^2>0.
-\]
-
-Because projection into the loop plane has positive polar radius \(\rho_v\), angular ordering is injective and cannot locally self-cross.
-
-Root order is therefore preserved.
-
-If the complete V interval violates the bound:
-
-- do not clamp;
-- reject the child record;
-- represent the residual at the first coarser level whose bound is satisfied;
-- otherwise return `UNRESOLVED`.
-
-V is admitted only from metric stereo/multiview residual whose interval excludes zero.
+If evidence cannot certify a single-valued metric graph over the L2 frame, it
+is not skin V: the L0–L2 geometric carrier must be re-evaluated if its finite
+Sphere–Flower candidates permit that evidence; otherwise the result is
+`UNRESOLVED`. V never changes L2 occupancy or creates geometry by itself.
 
 ---
 
 # 23. Micro-normal and optical synthesis
 
-## 23.1 Actual normal
+## 23.1 Exact signal evaluation and filtering
 
-At a petal knot, generated incidence supplies two independent analytic/nested strand tangents:
+The fragment evaluates the exact terminal locality, deepest explicit RGB and
+all present additive V innovations before shading. Distance and pixel footprint
+never choose L3/L4/L5. Presentation antialiasing may integrate this final
+piecewise signal and its analytic micro-normal over a pixel footprint, but may
+not change a split bit or substitute a coarser stored signal.
 
-\[
-T_a,T_b.
-\]
-
-\[
-N_\mu=
-\frac{T_a\times T_b}{|T_a\times T_b|}.
-\]
-
-If the lower interval bound of `|Ta × Tb|²` is zero:
-
-```text
-AMBIGUOUS
-use the parent normal for presentation only
-request refinement
-```
-
-No angular tolerance exists.
-
-## 23.2 Resolved and unresolved microgeometry
-
-L4/L5 are not intrinsically shading-only levels.
-
-If their conservative projected geometric deviation is resolvable, the procedural draw emits their actual child geometry. If it is subpixel, the same generated child normals are reduced to moments instead of being discarded.
-
-For the six generated local child-petal normal directions:
+For exact covered subregions with analytic micro-normals `Ni` and exact
+projected-area weights `wi`, optional derived prefilter moments are:
 
 \[
-N_0,\ldots,N_5
-\]
-
-with exact projected-area weights `w_i`:
-
-\[
-\bar N=\frac{\sum_iw_iN_i}{\sum_iw_i}
-\]
-
-\[
-M_N=\frac{\sum_iw_iN_iN_i^T}{\sum_iw_i}
+\bar N=\frac{\sum_iw_iN_i}{\sum_iw_i},\qquad
+M_N=\frac{\sum_iw_iN_iN_i^T}{\sum_iw_i},
 \]
 
 \[
 C_N=M_N-\bar N\bar N^T.
 \]
 
-The two tangent-plane eigenvalues of `C_N` are deterministic unresolved directional spread/anisotropy descriptors. No normal map or fitted Gaussian geometry is stored.
+The tangent-plane eigenvalues of `C_N` are deterministic directional
+spread/anisotropy descriptors. They are derived presentation data, never a
+stored normal map, fitted Gaussian geometry or alternate surface authority.
 
-## 23.3 Captured-radiance invariant
+## 23.2 Captured-radiance invariant
 
 The scanned RGB channel is treated as captured linear radiance, **not as known diffuse albedo**. Therefore the production renderer MUST NOT invent an ambient irradiance value or fully relight the captured diffuse component.
 
@@ -2260,7 +2594,8 @@ Base output is exactly:
 \boxed{C_{base}=C_{capture}}.
 \]
 
-Resolved V geometry still changes real silhouette, parallax, depth, self-occlusion and any actual presentation-light interaction through its evaluated geometry.
+V changes the analytic micro-normal and certified optical response inside the
+L2 footprint. It does not move raster geometry, silhouette or depth.
 
 For unresolved microgeometry, a relative diffuse micro-correction is allowed only when the parent directional response is interval-proven positive. With presentation light direction `L`:
 
@@ -2282,7 +2617,7 @@ otherwise
 
 No `E_a`, no epsilon and no inferred albedo exist. This correction is presentation-only and cannot feed back into scan geometry or V.
 
-## 23.4 Specular / view-dependent appearance
+## 23.3 Specular / view-dependent appearance
 
 A ThreadProgram may contain a view-dependent optical interval only when repeated multiview RGB observations make that interval `CERTAIN`. If not certified:
 
@@ -2291,7 +2626,10 @@ OPTICAL_VALID = 0
 specular correction = 0
 ```
 
-When certified, the renderer evaluates the optical response over the **actual six Flower normals / tangent directions**, area-weighted by `w_i`. The unresolved normal moments may choose the directional width of the presentation lobe, but they never replace the six physical directions as geometry authority.
+When certified, the renderer evaluates the optical response over the actual
+analytic V micro-normal field, area-weighted by `w_i`. Derived normal moments
+may choose the directional width of the presentation lobe, but never replace
+the analytic signal or become geometry authority.
 
 Required ThreadProgram optical fields when valid:
 
@@ -2306,21 +2644,22 @@ The presentation BRDF is isolated from reconstruction: changing its closed shade
 
 ---
 
-# 24. Procedural readout ABI
+# 24. Procedural L2 readout ABI
 
-Readout pages contain compact Flower symbols, never persistent vertices or indices.
+Readout pages contain compact active L2 carrier symbols and derived compact
+skin samples, never persistent vertices, indices or L3/L4/L5 geometry.
 
 ## 24.1 Symbol record
 
-One active petal instance remains 16 bytes:
+One active L2 carrier wedge remains 16 bytes:
 
 ```c
 struct FlowerSymbolRecord
 {
     uint OwnerAndPetal;
     uint TopologyAndSector;
-    uint DetailRef;
-    uint ThreadRef;
+    uint DetailRef;          // FlowerSkinMetricRun or invalid
+    uint ThreadRef;          // ThreadRun or invalid
 }
 ```
 
@@ -2329,52 +2668,62 @@ struct FlowerSymbolRecord
 ```text
 kernelLocal       9 bits
 petalClass        6 bits
-geometryDepth     3 bits  // L0..L5 may be emitted
 validShellMask    3 bits
-sector            5 bits
-rootSign          1 bit
 COMPLETED         1 bit
 HINGE             1 bit
-remaining         3 bits
+directFreeSide    1 bit
+remaining        11 bits    // MUST be zero
 ```
 
-No dynamic branch rank exists. Only active surface symbols receive records.
+`TopologyAndSector` packs:
+
+```text
+sector            5 bits
+rootSign          1 bit
+L2 wedge          3 bits
+wedgeOrientation  1 bit
+remaining        22 bits    // MUST be zero
+```
+
+There is no geometry-depth or valid-depth field and no dynamic branch rank.
+Only active canonical or uniquely COMPLETED surface symbols receive records.
 
 ## 24.2 Page header
 
 ```c
 struct FlowerPageHeader
 {
-    int3  LogicalTile;
-    uint  Generation;
-    uint  FirstByDepth[6];
-    uint  CountByDepth[6];
+    int3 LogicalTile;
+    uint Generation;
+    uint FirstSymbol;
+    uint SymbolCount;
+    uint FirstDrawSample;
+    uint DrawSampleCount;
 }
 ```
 
-Depth bins correspond exactly to emitted geometry depth `L0..L5`.
+Every drawable symbol evaluates to L2 raster geometry. Missing direct L1/L2
+innovation means the exact certain parent evaluator is repeatedly restricted
+to L2; it does not authorize invented child geometry.
 
-## 24.3 Geometry-depth selection
+## 24.3 Deterministic page compaction
 
-Geometry validity is independent of presentation depth. A valid L4/L5 detail is never discarded merely because it is fine.
-
-For each page/symbol, evaluate a conservative screen-space deviation interval between level `g` and its certain child level `g+1`.
+For every dirty L2 carrier, compaction reads the independent RGB and V split
+masks, validates their common `ParentEpoch`, takes their exact hierarchical
+union, and writes compact groups in the thread-parent order of section 20.7.
+Each resulting hot sample contains in one aligned record:
 
 ```text
-child detail CERTAIN and projected deviation >= 0.5 pixel
-    emit child geometry
-
-child may change silhouette/depth ordering
-    emit child geometry regardless of area
-
-child detail CERTAIN but strictly subpixel and no silhouette/depth change
-    keep child as analytic normal/optical moments
-
-child AMBIGUOUS
-    never invent geometry; draw deepest certain parent
+deepest explicit captured RGB
+A3 additive V innovation (or exact zero)
+A4 additive V innovation (or exact zero)
+A5 additive V innovation (or exact zero)
+certified optical/material fields
 ```
 
-`geometryDepth` may therefore be any `0..5`.
+The derived masks and group offsets allow one final structured sample load per
+fragment. Failed validation or allocation leaves the old FRONT page untouched;
+it never publishes a partial union.
 
 ## 24.4 Directory publication — one native queue
 
@@ -2424,9 +2773,10 @@ never silently shrink draw radius
 
 ## 24.6 Static procedural topology
 
-For geometry depth `g=0..5`, immutable vertex-ID tables contain repeated child substitution from section 8.5.
-
-The table does **not** store world geometry. It tells the vertex shader which generated child knot/strand sample to evaluate.
+Immutable vertex-ID tables contain only the two geometric substitutions needed
+to evaluate L2 carrier wedges from section 8.5. They do **not** store world
+geometry. They tell the vertex shader which generated L2 knot/strand sample to
+evaluate. L3/L4/L5 never appear in a vertex-ID table.
 
 Vertex shader input:
 
@@ -2440,27 +2790,32 @@ M8 / FlowerDetail
 Output:
 
 ```text
-evaluated nested Flower position
-linear captured RGBV/thread coordinate
-actual normal/tangent inputs
+evaluated L2 Flower position
+canonical L2 wedge barycentrics
+flat Thread/FlowerDetail references
+runtime-evaluated L2 frame
 ```
 
-Triangles emitted to the rasterizer are presentation tessellation of the evaluated Flower cell; they are never canonical topology.
+Triangles emitted to the rasterizer are presentation tessellation of the
+evaluated L2 Flower carrier; they are never canonical topology. The fragment
+always performs the three generated ordered-barycentric descents, follows the
+scan-authored union mask, loads one compact RGB/A3/A4/A5 sample and evaluates
+the analytic micro-normal.
 
 ## 24.7 Draw
 
-For each of six emitted geometry depths:
+Visible page commands are submitted with:
 
 ```text
 one vkCmdDrawIndirectCount
 ```
 
-Each visible page contributes one 16-byte `VkDrawIndirectCommand` per nonempty depth bin.
+Each visible page contributes one 16-byte `VkDrawIndirectCommand`.
 
 Maximum command memory:
 
 ```text
-32768 pages × 6 depths × 16 B = 3 MiB
+32768 pages × 16 B = 512 KiB
 ```
 
 ## 24.8 View culling
@@ -2636,7 +2991,7 @@ Only that owner emits the petal.
 Identity is:
 
 ```text
-(level, J, lineClass, sector, rootSign)
+(geometry level L0..L2, J, lineClass, sector, rootSign)
 ```
 
 For a fixed `(J,lineClass)` the endpoint pair is algebraically unique, so no observation-dependent branch ordinal is part of knot identity.
@@ -2678,14 +3033,21 @@ They disappear on a later dual veto.
 ## 27.5 Color
 
 ```text
-unique Thread continuation
-    export ThreadAtlas result
+valid ThreadRun for the owner epoch
+    evaluate the same fixed three-descents + scan-authored RGB signal
 
 otherwise
     export canonical owner M8 PackedColor
 ```
 
 No RGB inpainting is performed.
+
+L3/L4/L5 never add export vertices. If output material baking requests
+micro-normal, color or optical values, the exporter evaluates the same fixed
+399-position address template, thread-order masks and additive `A3/A4/A5` V
+signal as live readout. Canonical skin identity is
+`(L2 carrier, c3, c4, c5)`; its physical tape coordinate is the generated
+deterministic mapping, never a float weld.
 
 ## 27.6 Position encoding
 
@@ -2702,7 +3064,9 @@ GLB/3D Tiles may materialize:
 - baked base color;
 - baked normals/roughness.
 
-These files remain presentation products and can never be loaded as canonical M8 truth.
+Materialized geometry is the L2 carrier only. These files remain presentation
+products and can never be loaded as canonical M8, FlowerDetail or ThreadAtlas
+truth.
 
 ---
 
@@ -2924,6 +3288,41 @@ R2 shared-child knot interval intersection closure
 R3 forward/inverse tetra transform
 R3 TetraFrame determinant/chirality for all 8 level-local parities
 R3 has no manual +L chirality flip
+one immutable observation drains all CERTAIN geometry and skin-split work without new camera input
+stationary-camera refinement reaches the same final state as immediate eager evaluation
+no observationOrdinal-dependent metric/refinement state exists
+every L2 has the same complete logical 399-position skin thread
+logical thread topology never changes after L2 creation
+refinement changes signal splits/values, never topology
+zero-detail L2 maps all 399 positions to one root signal
+one L2 split creates exactly seven L3 signal regions
+one L3 split creates exactly seven L4 signal regions
+one L4 split creates exactly seven L5 signal regions
+exactly 57 split bits represent complete L3-L5 signal subdivision
+no axial lobe enters a skin split address
+stable ordered-barycentric chambers partition every wedge exactly
+union of chambers mapped to each child equals its exact canonical Flower-7 footprint at all three recursions
+every generated Flower subtree is contiguous on Gamma_L2
+one L3 subtree occupies exactly 57 thread positions
+one L4 subtree occupies exactly 8 thread positions
+seven L3 subtrees cover exactly 399 positions
+all consecutive embroidery transitions are valid Flower adjacency
+Fibonacci A/B substitution uses Tparent and preserves subtree contiguity, entry and exit
+scan refinement cannot alter thread order
+readout cannot alter scan subdivision
+canonical L5 address -> thread coordinate is deterministic and bijective
+CPU/HLSL mapping is exhaustive-identical for all 343 L5 addresses and boundary tie cases
+thread-order split rank addresses exactly the compact parent groups
+57-bit parent closure rejects every orphan descendant split
+RGB interval split predicate has no false CERTAIN distinction
+V interval split predicate has no false CERTAIN distinction
+uniform / partial / fully detailed skin has identical L2 geometry
+persistent RGB and V authorities remain separate
+derived draw split is the exact hierarchical union of RGB/V splits
+no dense 399-value allocation is required for uniform L2
+additive V preserves every parent innovation
+V bubble value and derivative vanish on every child boundary
+runtime L2 evaluator supplies world frame; generated tables contain no world frame
 hinge shared position with distinct normals
 sparse FlowerOwnerEpoch invalidates descendants exactly
 compatible parent metric refinement does not spuriously invalidate descendants
@@ -2933,11 +3332,12 @@ dyadic-cover THROUGH slow path has zero false positives
 completed petal count 0/1/>1
 completed petals cannot recursively seed completion
 parent deletion invalidates every descendant
-L4/L5 resolved geometry can be emitted
-L4/L5 subpixel collapse preserves normal moments
+L3/L4/L5 cannot emit geometry, alter silhouette or alter depth
+analytic V micro-normal and filtered normal moments preserve the evaluated signal
 single-native-queue page publication
 CPU/HLSL symbol parity
 export/live knot parity
+export/live fixed-thread RGBV parity
 ```
 
 Required scene fixtures:
@@ -2964,11 +3364,19 @@ ambiguous large hole
 closed ghost inside THROUGH
 negative coordinates
 tile/chunk/block boundary
-L0-L5 parent invariance
-L4/L5 close-up resolved detail
-L4/L5 far subpixel reduction
-V representable limit
-V promotion
+L0-L2 parent knot invariance
+uniform L2 skin over all 399 logical positions
+partially split L3/L4/L5 skin
+fully split L3/L4/L5 skin
+all 343 terminal localities and chamber boundaries
+thread-order compact rank across the 32-bit split-mask boundary
+RGB-only split, V-only split and exact union draw split
+additive parent+child+grandchild V continuity
+single accepted close-up observation drained while camera remains stationary
+GPU-budget split of one observation into multiple quanta with identical final state
+flat wall proves no scan-authored skin split
+V Q5.26 representable limit
+non-graph metric evidence remains unresolved or revises L0-L2 geometry
 parent compatible plane refinement with surviving detail
 parent structural sector change with exact detail invalidation
 ```
@@ -3006,17 +3414,21 @@ R3\ tetra\ branch/closure\\
 \downarrow\\
 unique\ direct+dual\ completion\ only\\
 \downarrow\\
-dyadic\ L0-L5\ FlowerDetail\\
+exact\ geometric\ refinement\ through\ L2\\
 \downarrow\\
-Fibonacci\ route\ ordering\\
+fixed\ planar\ Flower\!\!-7^3\ skin\ address\\
 \downarrow\\
-closed-loop\ RGBV\\
+immutable\ 399-position\ embroidery\\
 \downarrow\\
-conjugate\ deformed\ V\\
+scan-authored\ 57-bit\ RGB/V\ subdivision\\
 \downarrow\\
-actual\ tangents/normals/optical\ moments\\
+captured\ RGB+additive\ nested\ V\\
 \downarrow\\
-compact\ procedural\ sphere-resident\ draw
+three\ exact\ barycentric\ descents\\
+\downarrow\\
+analytic\ micro-normal/optical\ response\\
+\downarrow\\
+compact\ procedural\ L2\ sphere-resident\ draw
 \end{array}
 }
 \]
@@ -3033,7 +3445,13 @@ SEE_THROUGH only vetoes impossible matter.
 A hole is completed only by one unique finite Flower symbol.
 Ambiguity remains unresolved.
 FlowerDetail persists metric refinement.
-ThreadAtlas persists RGBV novelty.
+ThreadAtlas persists captured RGB novelty.
+L0-L2 are geometry; L3-L5 are the immutable planar Flower-7 skin address.
+Every L2 owns the same complete 399-position thread; only its scan-authored signal becomes finer.
+Fibonacci selects compile-time mirror stitch templates using the actual parent thread ordinal and has no runtime or scheduling role.
+RGB selects the deepest explicit captured value; V adds its L3/L4/L5 metric innovations.
+Readout always executes three exact descents and never chooses detail depth.
+One observation drains all work its evidence can make CERTAIN; only genuinely AMBIGUOUS detail requires another viewpoint.
 Renderer and exporters synthesize the same authority.
 ```
 

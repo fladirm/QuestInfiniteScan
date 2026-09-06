@@ -6,11 +6,13 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaSphereFlowerBootstrapTests
     {
         [Test]
-        public void FrozenSchema_MatchesRevBCountsAndExistingLattice()
+        public void FrozenSchema_MatchesRevCCountsAndExistingLattice()
         {
             Assert.That(MerkabaSphereFlowerAuthority.LatticeStep,
                 Is.EqualTo(MerkabaConstants.LatticeStep));
             Assert.That(MerkabaSphereFlowerAuthority.LevelCount, Is.EqualTo(6));
+            Assert.That(MerkabaSphereFlowerAuthority.GeometryLevelCount,
+                Is.EqualTo(3));
             Assert.That(MerkabaSphereFlowerAuthority.DirectedRelationCount,
                 Is.EqualTo(26));
             Assert.That(MerkabaSphereFlowerAuthority.LineClassCount,
@@ -44,6 +46,19 @@ namespace Genesis.RoomScan.Tests
                 MerkabaSphereFlowerAuthority.LevelStep(-1));
             Assert.Throws<System.ArgumentOutOfRangeException>(() =>
                 MerkabaSphereFlowerAuthority.LevelStep(6));
+        }
+
+        [Test]
+        public void WorldLoopEvaluation_StopsAtTerminalL2Carrier()
+        {
+            var junction = new MerkabaSphereFlowerAuthority.Long3(1, 0, 0);
+            for (int level = 0;
+                 level < MerkabaSphereFlowerAuthority.GeometryLevelCount; level++)
+                Assert.DoesNotThrow(() =>
+                    MerkabaSphereFlowerAuthority.EvaluateLoop(level,
+                        junction, 0));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+                MerkabaSphereFlowerAuthority.EvaluateLoop(3, junction, 0));
         }
     }
 }

@@ -1,6 +1,7 @@
 # Quest Infinite Merkaba algorithm
 
-> Production closure contract: [`contr.md`](contr.md). It is authoritative over conflicting historical documentation.
+> Historical algorithm description only. The sole production contract is
+> [`M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md`](M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md).
 
 ## 1. Coordinate model
 

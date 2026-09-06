@@ -310,8 +310,8 @@ namespace Genesis.RoomScan.Tests
                 math.normalize(new float3(-7f, 5f, 2f))
             };
             int3 kernel = new(-33, 31, -257);
-            for (int level = 0; level < MerkabaSphereFlowerAuthority.LevelCount;
-                 level++)
+            for (int level = 0;
+                 level < MerkabaSphereFlowerAuthority.GeometryLevelCount; level++)
             foreach (var line in MerkabaSphereFlowerAuthority.Lines)
             foreach (float3 normal in normals)
             {
@@ -453,56 +453,33 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void VBasis_PreservesParentEndpointsTangentsAndBound()
+        public void SkinBubble_IsUnitAtCenterAndClampedOnEveryBoundary()
         {
-            Assert.That(MerkabaSphereFlowerAuthority.EndpointBasis(0f), Is.Zero);
-            Assert.That(MerkabaSphereFlowerAuthority.EndpointBasis(1f), Is.Zero);
-            Assert.That(MerkabaSphereFlowerAuthority.EndpointBasis(0.5f),
-                Is.EqualTo(1f));
-            Assert.That(MerkabaSphereFlowerAuthority.EndpointBasisDerivative(0f),
-                Is.Zero);
-            Assert.That(MerkabaSphereFlowerAuthority.EndpointBasisDerivative(1f),
-                Is.Zero);
-
-            Assert.That(MerkabaSphereFlowerAuthority.ClassifyVRepresentability(
-                new MerkabaSphereFlowerAuthority.FloatInterval(-0.49f, 0.49f), 1f),
-                Is.EqualTo(MerkabaSphereFlowerAuthority.ProofClassification.Certain));
-            Assert.That(MerkabaSphereFlowerAuthority.ClassifyVRepresentability(
-                new MerkabaSphereFlowerAuthority.FloatInterval(0.5f, 0.5f), 1f),
-                Is.EqualTo(MerkabaSphereFlowerAuthority.ProofClassification.Impossible));
-            Assert.That(MerkabaSphereFlowerAuthority.ClassifyVRepresentability(
-                new MerkabaSphereFlowerAuthority.FloatInterval(0.49f, 0.51f), 1f),
-                Is.EqualTo(MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous));
-
-            var loop = MerkabaSphereFlowerAuthority.EvaluateLoop(0,
-                MerkabaSphereFlowerAuthority.JunctionAddress(int3.zero,
-                    new int3(1, 0, 0)), 0);
-            float2 previousDirection = default;
-            for (int i = 0; i <= 64; i++)
+            Assert.That(MerkabaSphereFlowerAuthority.SkinBubble(
+                new float3(1f / 3f)), Is.EqualTo(1f).Within(2e-6f));
+            for (int axis = 0; axis < 3; axis++)
             {
-                float s = i / 64f;
-                float v = 0.2f * loop.SphereRadius *
-                    MerkabaSphereFlowerAuthority.EndpointBasis(s);
-                float vp = 0.2f * loop.SphereRadius *
-                    MerkabaSphereFlowerAuthority.EndpointBasisDerivative(s);
-                float theta = s * 1.2f;
-                MerkabaSphereFlowerAuthority.EvaluateDeformedLoop(loop, theta,
-                    v, vp, out float3 position, out float3 tangent);
-                Assert.That(math.all(math.isfinite(position)), Is.True);
-                Assert.That(math.lengthsq(tangent), Is.GreaterThan(0f));
-                float3 relative = position - loop.Center -
-                    2f * v * loop.Direction;
-                float2 projected = new(math.dot(relative, loop.E1),
-                    math.dot(relative, loop.E2));
-                if (i > 0)
-                {
-                    Assert.That(Cross(previousDirection, projected),
-                        Is.GreaterThan(0f));
-                    Assert.That(math.dot(previousDirection, projected),
-                        Is.GreaterThan(0f));
-                }
-                previousDirection = projected;
+                float3 boundary = axis == 0
+                    ? new float3(0f, 0.25f, 0.75f)
+                    : axis == 1
+                        ? new float3(0.25f, 0f, 0.75f)
+                        : new float3(0.25f, 0.75f, 0f);
+                Assert.That(MerkabaSphereFlowerAuthority.SkinBubble(boundary),
+                    Is.Zero);
+                Assert.That(MerkabaSphereFlowerAuthority
+                    .SkinBubbleGradient(boundary), Is.EqualTo(float3.zero));
             }
+
+            float3 child3 = new(1f / 3f);
+            float3 child4 = new(0.2f, 0.3f, 0.5f);
+            float3 child5 = new(0.1f, 0.4f, 0.5f);
+            float3 amplitude = new(0.003f, -0.001f, 0.00025f);
+            float expected = amplitude.x *
+                MerkabaSphereFlowerAuthority.SkinBubble(child3) +
+                amplitude.y * MerkabaSphereFlowerAuthority.SkinBubble(child4) +
+                amplitude.z * MerkabaSphereFlowerAuthority.SkinBubble(child5);
+            Assert.That(MerkabaSphereFlowerAuthority.EvaluateNestedSkinV(
+                child3, child4, child5, amplitude), Is.EqualTo(expected));
         }
 
         [Test]
@@ -517,7 +494,13 @@ namespace Genesis.RoomScan.Tests
             StringAssert.Contains("static const uint4 M8FlowerStrand[72]", source);
             StringAssert.Contains("static const uint4 M8FlowerPetalNodes[48]", source);
             StringAssert.Contains("M8FlowerClassifyRoot", source);
-            StringAssert.Contains("M8FlowerDeformedLoopUnit", source);
+            StringAssert.Contains("static const int4 M8FlowerSkinChamber[36]",
+                source);
+            StringAssert.Contains("M8FlowerSkinCanonicalToThread[399]", source);
+            StringAssert.Contains("M8FlowerSkinCanonicalL5ToThread[343]", source);
+            StringAssert.Contains("M8FlowerNestedV", source);
+            StringAssert.DoesNotContain("M8FlowerDeformedLoopUnit", source);
+            StringAssert.DoesNotContain("M8FlowerEndpointBasis", source);
             StringAssert.DoesNotContain("atan", source);
             StringAssert.DoesNotContain("acos", source);
             StringAssert.DoesNotContain("epsilon", source.ToLowerInvariant());
