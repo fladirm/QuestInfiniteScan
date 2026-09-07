@@ -15,6 +15,9 @@
 #define M8_FLOWER_MAX_PAGE_SYMBOLS (512u*128u+512u*6u*2u)
 #define M8_FLOWER_PAGE_RESIDENCY_MASK 3u
 #define M8_FLOWER_PAGE_SOURCE_INVALID 0x80000000u
+// Transient scheduler cursor in the existing 64-byte directory control area.
+// It is not a symbol ordinal, branch identity or persistent world address.
+#define M8_FLOWER_DIRTY_CURSOR 8u
 
 struct M8FlowerPageHeader
 {
@@ -121,21 +124,41 @@ bool M8FlowerPageSourceUnchanged(uint slot,uint generation)
             (1u<<(slot&31u)))==0u;
 }
 
-// The one compaction workgroup consumes the sparse dirty hierarchy. No scan
-// of logical space or all kernels/pages is hidden in page selection.
+// The one compaction workgroup consumes the sparse dirty hierarchy. Circular
+// priority prevents a COLD/capacity retry from permanently selecting itself
+// ahead of every other dirty page. Three fixed bit levels, no page scan.
 bool M8FlowerTakeDirtyPage(out uint slot,out uint generation)
 {
     slot=0xffffffffu;generation=0u;
     uint root=_M8FlowerPageDirectory.Load(0u);
     if(root==0u)return false;
-    uint upper=(uint)firstbitlow(root);
+    uint cursor=_M8FlowerPageDirectory.Load(M8_FLOWER_DIRTY_CURSOR)&32767u;
+    uint upper=cursor>>10u,word=cursor>>5u;
     uint summary=_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_SUMMARY+4u*upper);
-    if(summary==0u)return false;
-    uint word=(upper<<5u)+(uint)firstbitlow(summary);
     uint bits=_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_BITS+4u*word);
-    if(bits==0u)return false;
-    uint bit=(uint)firstbitlow(bits);
+    uint candidates=bits&(0xffffffffu<<(cursor&31u));
+    if(candidates==0u)
+    {
+        // Omit the current word/group without ever shifting a uint by32.
+        uint laterWords=(word&31u)==31u?0u:
+            summary&(0xffffffffu<<((word&31u)+1u));
+        if(laterWords==0u)
+        {
+            uint laterGroups=upper==31u?0u:root&(0xffffffffu<<(upper+1u));
+            // No later group: wrap to the first existing dirty subtree.
+            upper=(uint)firstbitlow(laterGroups!=0u?laterGroups:root);
+            summary=_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_SUMMARY+4u*upper);
+            laterWords=summary;
+        }
+        if(laterWords==0u)return false;
+        word=(upper<<5u)+(uint)firstbitlow(laterWords);
+        bits=_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_BITS+4u*word);
+        candidates=bits;
+    }
+    if(candidates==0u)return false;
+    uint bit=(uint)firstbitlow(candidates);
     slot=(word<<5u)+bit;
+    _M8FlowerPageDirectory.Store(M8_FLOWER_DIRTY_CURSOR,(slot+1u)&32767u);
     bits&=~(1u<<bit);
     _M8FlowerPageDirectory.Store(M8_FLOWER_PAGE_DIRTY_BITS+4u*word,bits);
     if(bits==0u)

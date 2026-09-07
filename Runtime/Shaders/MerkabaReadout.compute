@@ -39,6 +39,31 @@ groupshared uint m8FlowerCompileStatus;
 groupshared uint m8FlowerCompileTriangles;
 groupshared uint2 m8FlowerCompileTotal;
 
+// Translation classification and a newly installed page use the same metric
+// and support AABB. This helper has no residency descriptor of its own: Compact
+// validates its RW-backed ref while the translation pass uses the SRV view.
+uint M8FlowerClassifyTileDistance(int3 minimum)
+{
+    bool warm=MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8WarmDistance,
+        _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
+        MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
+    bool draw=warm && MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8RenderDistance,
+        _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
+        MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
+    bool scan=draw && MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8ScanDistance,
+        _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
+        MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
+    return scan?3u:(draw?2u:(warm?1u:0u));
+}
+
+void M8FlowerClearRetiredPageResidency(uint slot)
+{
+    M8FlowerSetPageResidency(slot,0u);
+    // A retired installation cannot retain FRONT's slot-lifetime receipt.
+    // Allocation/source generations remain intact for normal page retirement.
+    _M8FlowerPageDirectory.Store(M8_FLOWER_PAGE_AUX_BASE+32u*slot+28u,0u);
+}
+
 // This is a storage request after the cached geometry work, not a relation
 // lookup in the knot loop. Only endpoints actually requested by the reader
 // can hold this page for residency; unrelated COLD halo entries cannot.
@@ -56,10 +81,10 @@ void M8FlowerRequestPageEndpoints(uint lane)
     M8QueueColdTileLoad(chunk*64u+address.tileLocal,chunk,address.tileLocal);
 }
 
-// Count and emit traverse the identical frozen authority. No temporary XYZ,
-// per-world candidates or index lists are allocated. Each lane owns one M8
-// owner at a time and immediately consumes one finite carrier's roots.
-uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,
+// Count, neighboring coverage and emit share this one frozen evaluator. No
+// temporary XYZ, per-world candidates or index lists are allocated. Coverage
+// consumes the given owner but never claims its symbols for the current page.
+uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
     M8FlowerPageBuild build,uint2 first)
 {
     uint2 count=0u;
@@ -74,6 +99,10 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,
         uint status=M8FlowerPageCarrier(slot,local,carrier,_M8FlowerPlaneErrorBounds,
             symbol,unresolved,roots,positions);
         if(status!=1u)continue;
+        if(!emit)
+            M8FlowerSupportAccumulateCarrier(slot,owner,carrier,symbol,roots,positions,
+                _M8FlowerPlaneErrorBounds);
+        if(coverageOnly)continue;
         uint active=M8FlowerDrawActiveWedgeMask(symbol);
         uint signs=M8FlowerDrawRootSigns(symbol),sector=M8FlowerDrawHubSector(symbol);
         uint bytes;
@@ -95,18 +124,14 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,
             M8FlowerStoreSymbol(build.SymbolAddress,symbolIndex,symbol);
         }
         else
-        {
-            M8FlowerSupportAccumulateCarrier(slot,owner,carrier,symbol,roots,positions,
-                _M8FlowerPlaneErrorBounds);
             InterlockedAdd(m8FlowerCompileTriangles,countbits(active));
-        }
         count+=uint2(1u,bytes);
     }
     return count;
 }
 
 // Exactly one bounded page quantum on the existing serialized native queue.
-// The immutable source lease spans both passes and the final publication.
+// The immutable source lease spans all three passes and final publication.
 // Failed count/skin validation never publishes a partial page or changes FRONT.
 [numthreads(256,1,1)]
 void CompactDirtyFlowerSymbols(uint lane:SV_GroupIndex)
@@ -124,7 +149,32 @@ void CompactDirtyFlowerSymbols(uint lane:SV_GroupIndex)
             uint4 runtime=M8LoadTileRuntimeRead(m8FlowerCompileSlot);
             if(runtime.w!=0u && meta.x<MERKABA_M8_CHUNK_CAPACITY && meta.y<64u &&
                 _M8ChunkTileRefsRead[meta.x*64u+meta.y]==m8FlowerCompileSlot+1u)
+            {
                 m8FlowerCompileSlotGeneration=runtime.w;
+                uint slot=m8FlowerCompileSlot;
+                uint2 front=_M8FlowerPageDirectory.Load2(
+                    M8_FLOWER_PAGE_DIRECTORY_BASE+16u*slot);
+                uint header0=M8_FLOWER_PAGE_HEADER_BASE+64u*slot;
+                int3 minimum=M8GlobalKernelCoordRead(slot,0u);
+                bool sameInstallation=front.y!=0u &&
+                    (front.x==header0 || front.x==header0+32u) &&
+                    _M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_AUX_BASE+32u*slot+28u)==runtime.w;
+                if(sameInstallation)
+                {
+                    M8FlowerPageHeader previous=M8FlowerLoadPageHeader(front.x);
+                    // Slot generations wrap; the exact logical tile prevents
+                    // an old slot occupant from supplying its classification.
+                    sameInstallation=previous.Generation==front.y &&
+                        all(previous.LogicalTile==(minimum>>3));
+                }
+                // Installation is a residency trigger even at a stationary
+                // head. Until its first successful publication a retry remains
+                // this same install work; ordinary source dirtiness thereafter
+                // does not reclassify the already published slot lifetime.
+                if(!sameInstallation)
+                    M8FlowerSetPageResidency(slot,M8FlowerClassifyTileDistance(minimum));
+            }
+            else M8FlowerClearRetiredPageResidency(m8FlowerCompileSlot);
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -141,19 +191,31 @@ void CompactDirtyFlowerSymbols(uint lane:SV_GroupIndex)
     M8FlowerSupportCacheTile(logicalTile,lane,256u);
     M8FlowerSupportBuildFaces(lane,256u);
     M8FlowerPageBuild build=(M8FlowerPageBuild)0;
-    // One call site for the exact evaluator keeps its ordered interval
-    // arithmetic shared by both passes instead of duplicating its inlined
-    // call graph. Allocation remains after the count pass's tile barrier.
-    [loop]for(uint phase=0u;phase<2u;phase++)
+    // One ordered call site: central count, neighboring coverage, central emit.
+    // Resolve only maps the fixed stencil to resident owners; it never invokes
+    // a second carrier evaluator. All coverage completes before allocation.
+    [loop]for(uint phase=0u;phase<3u;phase++)
     {
-        if(phase!=0u && m8FlowerCompileStatus!=M8_FLOWER_ARENA_OK)break;
-        [loop]for(uint item=0u;item<2u;item++)
+        if(phase==2u && m8FlowerCompileStatus!=M8_FLOWER_ARENA_OK)break;
+        bool coverageOnly=phase==1u;
+        uint itemCount=2u;
+        if(coverageOnly)
+            itemCount=M8FlowerSupportPrepareNeighborCoverage(lane,256u)?
+                (M8_FLOWER_COVERAGE_OWNER_COUNT+255u)/256u:0u;
+        [loop]for(uint item=0u;item<itemCount;item++)
         {
-            uint local=lane+256u*item;
-            uint2 first=phase==0u?uint2(0u,0u):m8FlowerPageOwnerSpans[local];
-            uint2 count=M8FlowerCompileOwner(slot,local,phase!=0u,build,first);
+            uint ownerSlot=slot,local=lane+256u*item;
+            if(coverageOnly)
+            {
+                uint stencilIndex=local;
+                if(stencilIndex>=M8_FLOWER_COVERAGE_OWNER_COUNT)continue;
+                if(!M8FlowerSupportResolveCoverageOwner(slot,stencilIndex,ownerSlot,local))continue;
+            }
+            uint2 first=0u;
+            if(phase==2u)first=m8FlowerPageOwnerSpans[local];
+            uint2 count=M8FlowerCompileOwner(ownerSlot,local,phase==2u,coverageOnly,build,first);
             if(phase==0u)m8FlowerPageOwnerSpans[local]=count;
-            else
+            else if(phase==2u)
             {
                 uint2 end=local==511u?m8FlowerCompileTotal:m8FlowerPageOwnerSpans[local+1u];
                 if(any(count!=end-first))
@@ -161,7 +223,7 @@ void CompactDirtyFlowerSymbols(uint lane:SV_GroupIndex)
             }
         }
         GroupMemoryBarrierWithGroupSync();
-        if(phase==0u)
+        if(phase==1u)
         {
             M8FlowerRequestPageEndpoints(lane);
             M8FlowerSupportRequestResidency(lane,256u);
@@ -229,23 +291,11 @@ void ClassifyHotFlowerPages(uint dispatchId : SV_DispatchThreadID)
     if(slot>=MERKABA_M8_PHYSICAL_TILE_CAPACITY)return;
     uint4 meta=M8LoadTileMetaRead(slot);
     uint4 runtime=M8LoadTileRuntimeRead(slot);
-    uint classification=0u;
     if(runtime.w!=0u && meta.x<MERKABA_M8_CHUNK_CAPACITY && meta.y<64u &&
         _M8ChunkTileRefsRead[meta.x*64u+meta.y]==slot+1u)
-    {
-        int3 minimum=M8GlobalKernelCoordRead(slot,0u);
-        bool warm=MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8WarmDistance,
-            _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
-            MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
-        bool draw=warm && MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8RenderDistance,
-            _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
-            MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
-        bool scan=draw && MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8ScanDistance,
-            _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
-            MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
-        classification=scan?3u:(draw?2u:(warm?1u:0u));
-    }
-    M8FlowerSetPageResidency(slot,classification);
+        M8FlowerSetPageResidency(slot,
+            M8FlowerClassifyTileDistance(M8GlobalKernelCoordRead(slot,0u)));
+    else M8FlowerClearRetiredPageResidency(slot);
 }
 
 [numthreads(128,1,1)]

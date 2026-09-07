@@ -16,6 +16,14 @@
 #define M8_FLOWER_SUPPORT_HALF_WORDS 192u
 #define M8_FLOWER_SUPPORT_CELL_COUNT 1000u
 #define M8_FLOWER_SUPPORT_ARENA_CAPACITY 4194304u
+// Every generated knot centre is within owner +/-a/2, and the largest
+// (L0,R3) loop radius is 3a/2. This is only a conservative source exclusion,
+// never a coverage/dual proof. The complete page [0,8]^3 therefore needs
+// integer owners [-2,10]^3, all inside the existing 27-tile reference halo.
+#define M8_FLOWER_COVERAGE_OWNER_MIN -2
+#define M8_FLOWER_COVERAGE_OWNER_MAX 10
+#define M8_FLOWER_COVERAGE_OWNER_SIDE 13u
+#define M8_FLOWER_COVERAGE_OWNER_COUNT 2197u
 
 // Context: resolved dual tile state, existing chunk index, tileLocal, packed
 // physical leaf reference. Uniform ancestors need no positive M8 HOT owner.
@@ -35,6 +43,8 @@ groupshared uint m8FlowerSupportSymbolCount;
 groupshared uint m8FlowerSupportUnresolved;
 groupshared int3 m8FlowerSupportOrigin;
 groupshared uint m8FlowerSupportOriginValid;
+groupshared uint m8FlowerSupportCoverageNeeded;
+groupshared uint m8FlowerSupportCoverageUnresolved;
 
 uint4 M8FlowerSupportResolveTile(int3 logicalTile)
 {
@@ -94,6 +104,8 @@ void M8FlowerSupportCacheTile(int3 logicalTile, uint lane, uint laneCount)
     if (lane == 0u)
     {
         m8FlowerSupportColdHalo = 0u;
+        m8FlowerSupportCoverageNeeded = 0u;
+        m8FlowerSupportCoverageUnresolved = 0u;
         m8FlowerSupportOriginValid = all(logicalTile >= -268435456) &&
             all(logicalTile <= 268435455) ? 1u : 0u;
         m8FlowerSupportOrigin = m8FlowerSupportOriginValid != 0u
@@ -221,6 +233,7 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
             else if (boundary == 2u) ambiguous |= 1u << bit;
         }
         m8FlowerSupportFaces[faceWord] = exposed;
+        if(exposed!=0u)InterlockedOr(m8FlowerSupportCoverageNeeded,1u);
         m8FlowerSupportAmbiguousFaces[faceWord] = ambiguous;
         // Absence of proved direct coverage does not suppress DIRT. An
         // occupied owner, unknown direct root, or missing RGB is not coverage.
@@ -618,14 +631,18 @@ uint3 M8FlowerSupportPairedOuterEdges(uint slot,int3 owner,uint carrier,uint act
         int3 delta;uint canonicalWedge,permutation;
         if(!M8FlowerCanonicalL2WedgeOwner(peerWedge/6u,peerWedge%6u,
             delta,canonicalWedge,permutation))continue;
-        int3 relative=(owner&7)+delta;
-        // Only cancel against contributors in the same COMPLETE iteration
-        // set. A halo partner not accumulated by this page retains boundary.
-        if(any(relative<0) || any(relative>7))continue;
-        uint local=(uint)(relative.x+8*(relative.y+8*relative.z));
+        int3 relative=(owner-m8FlowerSupportOrigin)+delta;
+        // A partner must belong to the exact complete coverage stencil.
+        // Being somewhere in the resident halo alone is not sufficient.
+        if(any(relative<M8_FLOWER_COVERAGE_OWNER_MIN) || any(relative>M8_FLOWER_COVERAGE_OWNER_MAX))continue;
+        if(any(m8FlowerSupportOrigin>2147483647-max(relative,0)) ||
+            any(m8FlowerSupportOrigin<(-2147483647-1)-min(relative,0)))continue;
+        int3 peerOwner=m8FlowerSupportOrigin+relative;
+        uint peerSlot,local;KernelState peerState;
+        if(M8FlowerReadEndpoint(slot,owner,peerOwner,peerSlot,local,peerState)!=1u)continue;
         M8FlowerSymbolRecord peerSymbol;uint unresolved;
         M8FlowerPhaseRootEvidence peerRoots[7];float3 peerPositions[7];
-        if(M8FlowerPageCarrier(slot,local,canonicalWedge/6u,errors,
+        if(M8FlowerPageCarrier(peerSlot,local,canonicalWedge/6u,errors,
             peerSymbol,unresolved,peerRoots,peerPositions)!=1u ||
             (M8FlowerDrawActiveWedgeMask(peerSymbol)&(1u<<(canonicalWedge%6u)))==0u)continue;
         uint3 peerSites=M8FlowerL2CarrierTriangle(canonicalWedge%6u,false);
@@ -646,6 +663,7 @@ uint3 M8FlowerSupportPairedOuterEdges(uint slot,int3 owner,uint carrier,uint act
 void M8FlowerSupportAccumulateCarrier(uint slot,int3 owner,uint carrier,M8FlowerSymbolRecord symbol,
     M8FlowerPhaseRootEvidence roots[7],float3 positions[7],float2 errors)
 {
+    if(m8FlowerSupportCoverageNeeded==0u)return;
     uint active=M8FlowerDrawActiveWedgeMask(symbol);
     int3 carrierFirst=15,carrierLast=-8;
     bool anyBounds=false;
@@ -657,10 +675,11 @@ void M8FlowerSupportAccumulateCarrier(uint slot,int3 owner,uint carrier,M8Flower
         carrierFirst=min(carrierFirst,first);carrierLast=max(carrierLast,last);anyBounds=true;
     }
     if(!anyBounds)return;
-    uint3 pairedEdges=M8FlowerSupportPairedOuterEdges(slot,owner,carrier,active,roots,positions,errors);
     // A boundary face belongs to either adjacent U. Include the lower
     // neighbour at an exact integer coordinate; bounds are metric-derived.
     carrierFirst=max(carrierFirst-1,0);carrierLast=min(carrierLast,7);
+    if(any(carrierFirst>carrierLast))return;
+    uint3 pairedEdges=M8FlowerSupportPairedOuterEdges(slot,owner,carrier,active,roots,positions,errors);
     [loop]for(uint face=0u;face<6u;face++)
     {
         [loop]for(int z=carrierFirst.z;z<=carrierLast.z;z++)
@@ -687,6 +706,44 @@ void M8FlowerSupportAccumulateCarrier(uint slot,int3 owner,uint carrier,M8Flower
     }
 }
 
+// Prepare coverage-only work for the SAME per-owner evaluator used by the
+// central count/emit passes. A separate nested PageCarrier call graph here
+// would duplicate all ordered interval arithmetic in the compiled shader.
+bool M8FlowerSupportPrepareNeighborCoverage(uint lane,uint laneCount)
+{
+    GroupMemoryBarrierWithGroupSync();
+    if(lane==0u)m8FlowerSupportCoverageNeeded=0u;
+    GroupMemoryBarrierWithGroupSync();
+    [loop]for(uint word=lane;word<M8_FLOWER_SUPPORT_FACE_WORDS;word+=laneCount)
+    {
+        uint faces=m8FlowerSupportFaces[word];
+        if((faces&~m8FlowerSupportOffsets[2u*word])!=0u ||
+            (faces&~m8FlowerSupportOffsets[2u*word+1u])!=0u)
+            InterlockedOr(m8FlowerSupportCoverageNeeded,1u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    return m8FlowerSupportCoverageNeeded!=0u;
+}
+
+bool M8FlowerSupportResolveCoverageOwner(uint pageSlot,uint index,
+    out uint slot,out uint local)
+{
+    slot=local=0u;
+    if(index>=M8_FLOWER_COVERAGE_OWNER_COUNT || m8FlowerSupportCoverageNeeded==0u)return false;
+    int3 relative=int3(index%M8_FLOWER_COVERAGE_OWNER_SIDE,
+        (index/M8_FLOWER_COVERAGE_OWNER_SIDE)%M8_FLOWER_COVERAGE_OWNER_SIDE,
+        index/(M8_FLOWER_COVERAGE_OWNER_SIDE*M8_FLOWER_COVERAGE_OWNER_SIDE))+M8_FLOWER_COVERAGE_OWNER_MIN;
+    if(all(relative>=0) && all(relative<=7))return false;
+    if(any(m8FlowerSupportOrigin>2147483647-max(relative,0)) ||
+        any(m8FlowerSupportOrigin<(-2147483647-1)-min(relative,0)))
+    {InterlockedOr(m8FlowerSupportCoverageUnresolved,1u);return false;}
+    int3 owner=m8FlowerSupportOrigin+relative;
+    KernelState state;
+    uint resident=M8FlowerReadEndpoint(pageSlot,m8FlowerSupportOrigin,owner,slot,local,state);
+    if(resident==2u)InterlockedOr(m8FlowerSupportCoverageUnresolved,1u);
+    return resident==1u;
+}
+
 void M8FlowerSupportFinalizeCoverage(uint lane,uint laneCount)
 {
     GroupMemoryBarrierWithGroupSync();
@@ -698,6 +755,11 @@ void M8FlowerSupportFinalizeCoverage(uint lane,uint laneCount)
         m8FlowerSupportOffsets[b]|=m8FlowerSupportWitnessHalves[b]&~m8FlowerSupportBoundaryHalves[b];
         uint partialA=m8FlowerSupportPartialHalves[a]&~m8FlowerSupportOffsets[a];
         uint partialB=m8FlowerSupportPartialHalves[b]&~m8FlowerSupportOffsets[b];
+        if(m8FlowerSupportCoverageUnresolved!=0u)
+        {
+            partialA|=faces&~m8FlowerSupportOffsets[a];
+            partialB|=faces&~m8FlowerSupportOffsets[b];
+        }
         m8FlowerSupportHalves[a]=faces&~(m8FlowerSupportOffsets[a]|partialA);
         m8FlowerSupportHalves[b]=faces&~(m8FlowerSupportOffsets[b]|partialB);
         m8FlowerSupportPartial[faceWord]=faces&(partialA|partialB);

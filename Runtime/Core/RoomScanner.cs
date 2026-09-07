@@ -389,7 +389,6 @@ namespace Genesis.RoomScan
                 await _disableTeardownTask;
             if (_destroyed || _disableRequested || !isActiveAndEnabled) return;
             _grid?.ResumeGpuSubmission();
-            _renderer?.ResumeGpuSubmission();
             if (ScanLifecycle == ScanLifecycleState.Quiescing &&
                 !await QuiesceScanningAsync())
                 return;
@@ -400,7 +399,11 @@ namespace Genesis.RoomScan
             {
                 await EnsureRoomAnchorAsync();
                 if (!StartIsCurrent(generation)) return;
+                if (_persistence != null)
+                    await _persistence.RestoreReleasedGpuWorldAsync();
+                if (!StartIsCurrent(generation)) return;
                 _grid.EnsureGpuResources();
+                _renderer?.ResumeGpuSubmission();
                 await Task.Yield();
                 await Task.Yield();
                 if (!StartIsCurrent(generation)) return;
@@ -1163,11 +1166,19 @@ namespace Genesis.RoomScan
         {
             if (_disableTeardownTask != null && !_disableTeardownTask.IsCompleted)
                 return;
+            // Capture while Unity anchor objects still exist. The async drain
+            // may outlive OnDestroy, but must retain this exact session frame.
+            MerkabaCommitMetadata? releaseMetadata = null;
+            if (!ReferenceEquals(_persistence, null) &&
+                _persistence.TryCaptureCommitMetadata(out MerkabaCommitMetadata captured))
+                releaseMetadata = captured;
             _renderer?.SuspendGpuSubmission();
-            _disableTeardownTask = DisableTeardownCoreAsync(_pauseTransitionTask);
+            _disableTeardownTask = DisableTeardownCoreAsync(_pauseTransitionTask,
+                releaseMetadata);
         }
 
-        private async Task DisableTeardownCoreAsync(Task prior)
+        private async Task DisableTeardownCoreAsync(Task prior,
+            MerkabaCommitMetadata? releaseMetadata)
         {
             try
             {
@@ -1180,13 +1191,33 @@ namespace Genesis.RoomScan
                 // first would strand its GPU receipt/acknowledgement work.
                 if (!ReferenceEquals(_grid, null))
                     await _grid.FinishObservationDurableCutAsync();
+                if (!_disableRequested && !_destroyed)
+                {
+                    if (!_applicationPaused) _renderer?.ResumeGpuSubmission();
+                    return;
+                }
+                MerkabaSessionOpenState releasedState = !ReferenceEquals(_persistence, null)
+                    ? await _persistence.PrepareGpuReleaseAsync(releaseMetadata) : null;
+                if (!_disableRequested && !_destroyed)
+                {
+                    if (!_applicationPaused) _renderer?.ResumeGpuSubmission();
+                    return;
+                }
                 // Capture the exact stable set only after observation and
                 // capture-copy retirement, but before the final grid marker.
                 Action release = CaptureOwnedGpuResourceRelease();
                 _grid?.BeginGpuSubmissionQuiesce();
                 if (!ReferenceEquals(_grid, null))
                     await _grid.RetireSubmittedGpuWorkAsync();
+                if (!_disableRequested && !_destroyed)
+                {
+                    _grid?.ResumeGpuSubmission();
+                    if (!_applicationPaused) _renderer?.ResumeGpuSubmission();
+                    return;
+                }
                 release?.Invoke();
+                if (!ReferenceEquals(_persistence, null))
+                    _persistence.MarkGpuWorldReleased(releasedState);
             }
             catch (Exception exception)
             {

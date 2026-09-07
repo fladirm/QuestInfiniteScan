@@ -156,13 +156,22 @@ uint M8FlowerReadEndpoint(uint ownerSlot,int3 owner,int3 coordinate,
     if(any(delta < -1) || any(delta > 1))return 2u;
     uint3 index=uint3(delta+1);
     uint halo=index.x+3u*(index.y+3u*index.z);
-    uint packed,origin;
+    uint packed,origin,sourceHalo=13u;
 #if defined(M8_FLOWER_HALO_READ_ONLY)
     origin=_M8TileHaloRead[ownerSlot*M8_FLOWER_HALO_COUNT+13u];
     packed=_M8TileHaloRead[ownerSlot*M8_FLOWER_HALO_COUNT+halo];
 #else
-    if(any(m8FlowerHaloTile!=ownerTile))return 2u;
-    origin=m8FlowerHalo[13];packed=m8FlowerHalo[halo];
+    // Coverage can evaluate a neighbouring owner inside this same frozen
+    // 27-tile lease. Both references are indexed in the cached page chart,
+    // never in an unpublished neighbour halo or a newly resolved hash lookup.
+    int3 sourceDelta=ownerTile-m8FlowerHaloTile;
+    int3 targetDelta=targetTile-m8FlowerHaloTile;
+    if(any(sourceDelta < -1) || any(sourceDelta > 1) ||
+        any(targetDelta < -1) || any(targetDelta > 1))return 2u;
+    uint3 sourceIndex=uint3(sourceDelta+1),targetIndex=uint3(targetDelta+1);
+    sourceHalo=sourceIndex.x+3u*(sourceIndex.y+3u*sourceIndex.z);
+    halo=targetIndex.x+3u*(targetIndex.y+3u*targetIndex.z);
+    origin=m8FlowerHalo[sourceHalo];packed=m8FlowerHalo[halo];
 #endif
     uint sourceSlot,sourceLocal;
 #if defined(M8_FLOWER_ENDPOINT_TILE_WRITE_VIEW)
@@ -174,7 +183,7 @@ uint M8FlowerReadEndpoint(uint ownerSlot,int3 owner,int3 coordinate,
         sourceSlot,sourceLocal,tileWriteView) || sourceSlot!=ownerSlot)
     {
 #if !defined(M8_FLOWER_HALO_READ_ONLY)
-        InterlockedOr(m8FlowerHaloUnresolvedReads,1u<<13u);
+        InterlockedOr(m8FlowerHaloUnresolvedReads,1u<<sourceHalo);
 #endif
         return 2u;
     }

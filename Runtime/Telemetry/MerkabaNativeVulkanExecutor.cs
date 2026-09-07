@@ -655,78 +655,93 @@ namespace Genesis.RoomScan
         private readonly HashSet<uint> _names = new();
         private MerkabaNativeVulkanExecutor.UniformValue[] _builtValues;
         private byte[] _builtData;
+        private bool _serializationDirty = true;
 
-        internal void Int(string name, int value) => Add(name,
-            BitConverter.GetBytes(value));
-        internal void UInt(string name, uint value) => Add(name,
-            BitConverter.GetBytes(value));
-        internal void Float(string name, float value) => Add(name,
-            BitConverter.GetBytes(value));
+        // CreateJob copies this payload before returning. A new page quantum
+        // may reuse the table after its previous job retires; a held immutable
+        // observation never calls Reset while its quanta are draining.
+        internal void Reset()
+        {
+            _values.Clear();
+            _data.Clear();
+            _names.Clear();
+            _serializationDirty = true;
+        }
+
+        internal void Int(string name, int value) =>
+            Write32(Reserve(name, 4), value);
+        internal void UInt(string name, uint value) =>
+            Int(name, unchecked((int)value));
+        internal void Float(string name, float value) =>
+            Int(name, BitConverter.SingleToInt32Bits(value));
         internal void UInt2(string name, int x, int y)
         {
-            byte[] bytes = new byte[8];
-            Write32(bytes, 0, x);
-            Write32(bytes, 4, y);
-            Add(name, bytes);
+            int offset = Reserve(name, 8);
+            Write32(offset, x);
+            Write32(offset + 4, y);
         }
         internal void Int3(string name, int x, int y, int z)
         {
-            byte[] bytes = new byte[12];
-            Write32(bytes, 0, x);
-            Write32(bytes, 4, y);
-            Write32(bytes, 8, z);
-            Add(name, bytes);
+            int offset = Reserve(name, 12);
+            Write32(offset, x);
+            Write32(offset + 4, y);
+            Write32(offset + 8, z);
         }
         internal void Vector2(string name, Vector2 value)
         {
-            byte[] bytes = new byte[8];
-            WriteFloat(bytes, 0, value.x);
-            WriteFloat(bytes, 4, value.y);
-            Add(name, bytes);
+            int offset = Reserve(name, 8);
+            WriteFloat(offset, value.x);
+            WriteFloat(offset + 4, value.y);
         }
         internal void Vector3(string name, Vector3 value)
         {
-            byte[] bytes = new byte[12];
-            WriteFloat(bytes, 0, value.x);
-            WriteFloat(bytes, 4, value.y);
-            WriteFloat(bytes, 8, value.z);
-            Add(name, bytes);
+            int offset = Reserve(name, 12);
+            WriteFloat(offset, value.x);
+            WriteFloat(offset + 4, value.y);
+            WriteFloat(offset + 8, value.z);
         }
         internal void Vector4(string name, Vector4 value)
         {
-            byte[] bytes = new byte[16];
-            WriteFloat(bytes, 0, value.x);
-            WriteFloat(bytes, 4, value.y);
-            WriteFloat(bytes, 8, value.z);
-            WriteFloat(bytes, 12, value.w);
-            Add(name, bytes);
+            int offset = Reserve(name, 16);
+            WriteFloat(offset, value.x);
+            WriteFloat(offset + 4, value.y);
+            WriteFloat(offset + 8, value.z);
+            WriteFloat(offset + 12, value.w);
         }
-        internal void Matrix(string name, Matrix4x4 value) => Add(name,
-            MatrixBytes(new[] { value }));
-        internal void Matrices(string name, Matrix4x4[] values) => Add(name,
-            MatrixBytes(values));
+        internal void Matrix(string name, Matrix4x4 value) =>
+            WriteMatrix(Reserve(name, 64), value);
+        internal void Matrices(string name, Matrix4x4[] values)
+        {
+            if (values == null || values.Length == 0)
+                throw new ArgumentException(nameof(values));
+            int offset = Reserve(name, checked(values.Length * 64));
+            for (int index = 0; index < values.Length; ++index)
+                WriteMatrix(offset + index * 64, values[index]);
+        }
         internal void Vector3Array(string name, Vector4[] values)
         {
-            byte[] bytes = new byte[values.Length * 16];
+            if (values == null || values.Length == 0)
+                throw new ArgumentException(nameof(values));
+            int offset = Reserve(name, checked(values.Length * 16));
             for (int index = 0; index < values.Length; ++index)
             {
-                WriteFloat(bytes, index * 16, values[index].x);
-                WriteFloat(bytes, index * 16 + 4, values[index].y);
-                WriteFloat(bytes, index * 16 + 8, values[index].z);
+                WriteFloat(offset + index * 16, values[index].x);
+                WriteFloat(offset + index * 16 + 4, values[index].y);
+                WriteFloat(offset + index * 16 + 8, values[index].z);
             }
-            Add(name, bytes);
         }
         internal void Vector4Array(string name, Vector4[] values)
         {
-            byte[] bytes = new byte[values.Length * 16];
+            if (values == null || values.Length == 0)
+                throw new ArgumentException(nameof(values));
+            int offset = Reserve(name, checked(values.Length * 16));
             for (int index = 0; index < values.Length; ++index)
             {
-                WriteFloat(bytes, index * 16, values[index].x);
-                WriteFloat(bytes, index * 16 + 4, values[index].y);
-                WriteFloat(bytes, index * 16 + 8, values[index].z);
-                WriteFloat(bytes, index * 16 + 12, values[index].w);
+                WriteFloat(offset + index * 16, values[index].x);
+                WriteFloat(offset + index * 16 + 4, values[index].y);
+                WriteFloat(offset + index * 16 + 8, values[index].z);
+                WriteFloat(offset + index * 16 + 12, values[index].w);
             }
-            Add(name, bytes);
         }
 
         internal void Build(out MerkabaNativeVulkanExecutor.UniformValue[] values,
@@ -734,11 +749,21 @@ namespace Genesis.RoomScan
         {
             // The same immutable observation can span many queue quanta.
             // Serialize once; retries must not rebuild its uniform payload.
-            values = _builtValues ??= _values.ToArray();
-            data = _builtData ??= _data.ToArray();
-            if (values.Length == 0 || data.Length == 0)
+            if (_values.Count == 0 || _data.Count == 0)
                 throw new InvalidOperationException(
                     "Native scanner job has no uniform ABI values.");
+            if (_serializationDirty)
+            {
+                if (_builtValues == null || _builtValues.Length != _values.Count)
+                    _builtValues = new MerkabaNativeVulkanExecutor.UniformValue[_values.Count];
+                if (_builtData == null || _builtData.Length != _data.Count)
+                    _builtData = new byte[_data.Count];
+                _values.CopyTo(_builtValues);
+                _data.CopyTo(_builtData);
+                _serializationDirty = false;
+            }
+            values = _builtValues;
+            data = _builtData;
         }
 
         internal bool TryReadUInt(string name, out uint value)
@@ -755,38 +780,33 @@ namespace Genesis.RoomScan
             return false;
         }
 
-        private void Add(string name, byte[] bytes)
+        private int Reserve(string name, int size)
         {
-            if (string.IsNullOrEmpty(name) || bytes == null || bytes.Length == 0)
+            if (string.IsNullOrEmpty(name) || size <= 0)
                 throw new ArgumentException("Invalid native uniform value.");
             uint hash = NameHash(name);
             if (!_names.Add(hash))
                 throw new InvalidOperationException(
                     $"Duplicate native uniform value: {name}");
-            _builtValues = null;
-            _builtData = null;
+            _serializationDirty = true;
             int offset = _data.Count;
-            _data.AddRange(bytes);
+            int end = checked(offset + size);
+            if (_data.Capacity < end) _data.Capacity = Math.Max(end, _data.Capacity * 2);
+            for (int index = offset; index < end; ++index) _data.Add(0);
             _values.Add(new MerkabaNativeVulkanExecutor.UniformValue
             {
                 NameHash = hash,
                 Offset = checked((uint)offset),
-                Size = checked((uint)bytes.Length),
+                Size = checked((uint)size),
             });
+            return offset;
         }
 
-        private static byte[] MatrixBytes(Matrix4x4[] values)
+        private void WriteMatrix(int offset, Matrix4x4 value)
         {
-            if (values == null || values.Length == 0)
-                throw new ArgumentException(nameof(values));
-            byte[] bytes = new byte[values.Length * 64];
-            for (int matrix = 0; matrix < values.Length; ++matrix)
+            for (int column = 0; column < 4; ++column)
                 for (int row = 0; row < 4; ++row)
-                    for (int column = 0; column < 4; ++column)
-                        WriteFloat(bytes,
-                            matrix * 64 + column * 16 + row * 4,
-                            values[matrix][row, column]);
-            return bytes;
+                    WriteFloat(offset + column * 16 + row * 4, value[row, column]);
         }
 
         private static uint NameHash(string value)
@@ -797,13 +817,15 @@ namespace Genesis.RoomScan
             return hash;
         }
 
-        private static void WriteFloat(byte[] target, int offset, float value) =>
-            Write32(target, offset, BitConverter.SingleToInt32Bits(value));
+        private void WriteFloat(int offset, float value) =>
+            Write32(offset, BitConverter.SingleToInt32Bits(value));
 
-        private static void Write32(byte[] target, int offset, int value)
+        private void Write32(int offset, int value)
         {
-            byte[] source = BitConverter.GetBytes(value);
-            Buffer.BlockCopy(source, 0, target, offset, sizeof(int));
+            _data[offset] = unchecked((byte)value);
+            _data[offset + 1] = unchecked((byte)(value >> 8));
+            _data[offset + 2] = unchecked((byte)(value >> 16));
+            _data[offset + 3] = unchecked((byte)(value >> 24));
         }
     }
 }

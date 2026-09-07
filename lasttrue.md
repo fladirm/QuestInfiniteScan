@@ -6608,3 +6608,50 @@ prefix remains byte-for-byte unchanged pending the user's decision.
 NEXT_CURSOR=do not reopen numerical/codegen compile work or invent junction
 chirality; finish independent integration only, then resume R1/completion
 admission from the explicitly approved boundary amendment.
+
+### CURRENT TRUE STATE — cross-page coverage and release/resume consumers
+
+CHECKPOINT_PARENT=08be6ed; CURRENT_COMMIT=git HEAD containing this entry.
+RUN_04=OPEN; RUN_05=IMPLEMENTING; RUN_06=IMPLEMENTING; RUN_07=NOT_RUN.
+CONTRACT_UNCHANGED; R1_BOUNDARY_GATE above still requires the user's decision.
+IMPLEMENTED_COVERAGE=CPU/live coverage now includes neighbouring M8 owners
+inside the fixed origin+[-2,10]^3 source bound:2197 positions minus512 central
+owners, at most1685 neighbours. The bound follows from generated loop centres
+within a/2 and radius at most3a/2; it excludes sources only, never proves
+coverage. Actual generated AcrossEdge/Sigma/metric predicates still decide.
+No neighbouring carrier is published into the current page/export geometry.
+No remaining candidate DIRT face means no neighbour traversal. COLD/overflow
+remains unresolved. Existing27-tile generation-checked halo supplies both
+source and target refs; no new coordinate index, buffer or geometry lookup.
+COMPACTION=central count, neighbouring coverage and central emit now use ONE
+syntactic evaluator call in one WG/queue lease. Prefix/allocation follows
+the complete coverage barrier. The first duplicated-call attempt emitted
+optimizer ID-overflow diagnostics; it was replaced, not accepted or bypassed
+by compiler-limit flags. The final shared-call ordinary glslang compile PASS.
+IMPLEMENTED_RESIDENCY=new installation is classified at stationary head
+using the same AABB metric as translation, checked by slot generation AND
+logical tile. Ordinary already-published source edits do not reclassify.
+Retired installation clears its residency receipt; cull remains view-only.
+IMPLEMENTED_SCHEDULING=one transient circular cursor in existing directory
+control offset8 makes COLD/capacity retries yield to other dirty pages.
+Selection remains three fixed bit levels, not a HOT/world traversal.
+IMPLEMENTED_LIFECYCLE=actual GPU release first completes the existing dirty
+append/manifest SAVE. Session/anchor metadata is captured before teardown
+awaits; final integration count follows drain. Disabled Update cannot stall
+SAVE because it pumps the existing storage retirement. Failure retains GPU
+resources; cancellation does not mark them released. Actual release records
+the committed state, restored through existing manifest/index replay before
+Start/Save/GLB/Tiles. Ordinary retained STOP/PAUSE causes no save/reload.
+IMPLEMENTED_UNIFORMS=explicit little-endian scalar/vector/matrix writes remove
+per-field temporary arrays. Page quanta reuse table/resource arrays and exact
+serialized payload capacity; native CreateJob still copies before returning.
+ABI bytes, column-major matrices and immutable held observations unchanged.
+CODEGEN=cross-page-lifecycle-codegen.log Kingston Unity6000.5.9f1 PASS.
+GPU_COMPILE=cross-page-readout-shared-compile.log ordinary glslang PASS;
+cross-page-readout-shared.spv spirv-val(vulkan1.1) PASS;7RW/13RO,no images
+or RW/RO aliases,256lanes,15472B groupshared,4221804B SPIR-V. No limits raised.
+TESTS_RUN=no new test suite or benchmark. APK=not built; QUEST_RUNTIME=not run.
+MANUAL_AUDIT=changed callers, generation/lifetime paths and bounded addressing
+reviewed; this is NOT a full cut/contract/legacy closure PASS.
+NEXT_CURSOR=R1 boundary admission and full parent48 completion/junction
+consumer remain open; no return to same-page-only coverage or legacy export.

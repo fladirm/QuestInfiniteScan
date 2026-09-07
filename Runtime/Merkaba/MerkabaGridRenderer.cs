@@ -39,6 +39,11 @@ namespace Genesis.RoomScan
         private Matrix4x4 _nativeGridToWorld;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob _nativeReadoutJob;
         private uint _nativeGeneration;
+#if !UNITY_EDITOR && UNITY_ANDROID
+        private readonly MerkabaNativeUniformTable _nativePageUniforms = new();
+        private readonly IntPtr[] _nativePageResources =
+            new IntPtr[MerkabaNativeVulkanExecutor.ResourceCount];
+#endif
         private bool _managedBuildInFlight;
         private GraphicsFence _managedBuildFence;
         private bool _viewReady;
@@ -252,7 +257,8 @@ namespace Genesis.RoomScan
             ConfigureResidency(camera, out Vector3 center, out Vector3 diagonal, out Vector3 cross, out int3 cell);
             uint revision = NextNonZero(ref _readoutRevision);
 #if !UNITY_EDITOR && UNITY_ANDROID
-            var uniforms = new MerkabaNativeUniformTable();
+            MerkabaNativeUniformTable uniforms = _nativePageUniforms;
+            uniforms.Reset();
             uniforms.Vector3("_M8CameraGridMeters", center);
             uniforms.Vector3("_M8GridMetricDiagonal", diagonal);
             uniforms.Vector3("_M8GridMetricCross", cross);
@@ -264,7 +270,7 @@ namespace Genesis.RoomScan
             Vector4 planeBounds = PlaneBounds();
             uniforms.Vector2("_M8FlowerPlaneErrorBounds", new Vector2(planeBounds.x, planeBounds.y));
             uniforms.Matrix("_MerkabaGridToWorld", _grid.GridToWorldMatrix);
-            var resources = new IntPtr[MerkabaNativeVulkanExecutor.ResourceCount];
+            IntPtr[] resources = _nativePageResources;
             _grid.FillNativeExecutorWorldResources(resources);
             uint generation = _grid.BeginNativeDualMutation(uniforms);
             uniforms.UInt("_M8FlowerGraphicsRetiredGeneration", _grid.FlowerGraphicsRetiredGeneration);

@@ -25,7 +25,7 @@ namespace Genesis.RoomScan
     }
 
     /// <summary>
-    /// REV-B session transaction coordinator. M8 and every subordinate stream
+    /// REV-C session transaction coordinator. M8 and every subordinate stream
     /// become durable only through one atomically published generation manifest.
     /// </summary>
     [DisallowMultipleComponent]
@@ -36,8 +36,15 @@ namespace Genesis.RoomScan
         private RoomScanner _scanner;
         private MerkabaSessionCatalog _catalog;
         private MerkabaSessionInfo _activeSession;
+        private MerkabaSessionOpenState _releasedGpuState;
+        private Task _restoreReleasedGpuTask;
+        private bool _operationBusy;
 
-        public bool IsBusy { get; private set; }
+        public bool IsBusy
+        {
+            get => _operationBusy || (_restoreReleasedGpuTask != null && !_restoreReleasedGpuTask.IsCompleted);
+            private set => _operationBusy = value;
+        }
         public Guid ActiveSessionId => _activeSession?.Id ?? Guid.Empty;
         public string ActiveSessionName => _activeSession?.displayName ??
             "No session";
@@ -128,7 +135,7 @@ namespace Genesis.RoomScan
             }
             catch (Exception exception)
             {
-                Logger.Error("Merkaba REV-B save failed: " + exception);
+                Logger.Error("Merkaba REV-C save failed: " + exception);
                 SetStatus("Save failed: " + exception.Message);
                 return false;
             }
@@ -157,6 +164,87 @@ namespace Genesis.RoomScan
             if (selected != null) return OpenSessionAsync(selected.Id);
             SetStatus("No saved session");
             return Task.FromResult(false);
+        }
+
+        // Called only for actual buffer release, not STOP or application sleep.
+        // A completed SAVE supplies the same manifest used by ordinary OPEN.
+        internal async Task<MerkabaSessionOpenState> PrepareGpuReleaseAsync(
+            MerkabaCommitMetadata? capturedMetadata)
+        {
+            while (IsBusy) await Task.Yield();
+            if (_releasedGpuState != null) return _releasedGpuState;
+            if (_activeSession == null) return null;
+            if (!capturedMetadata.HasValue ||
+                capturedMetadata.Value.SessionUuid != ActiveSessionId ||
+                capturedMetadata.Value.AnchorUuid != ActiveAnchorUuid)
+                throw new InvalidOperationException(
+                    "GPU release requires the active session's captured localized anchor.");
+            IsBusy = true;
+            SetStatus("Saving…");
+            try
+            {
+                // OnDestroy may have invalidated Unity objects since capture.
+                // The frozen frame and the retained managed GPU/SSD owners are
+                // sufficient for the same dirty-append SAVE transaction.
+                MerkabaStorageCommitResult result = await SaveActiveCoreAsync(
+                    null, capturedMetadata);
+                MerkabaSessionOpenState committed = _grid.CurrentCommittedStorageState();
+                _catalog.MarkSaved(_activeSession);
+                IsDirty = false;
+                SetStatus($"Saved {result.CanonicalTileCount} M8 tiles · " +
+                    $"{result.DirtyBytes} dirty bytes");
+                return committed;
+            }
+            catch (Exception exception)
+            {
+                SetStatus("Save failed: " + exception.Message);
+                throw;
+            }
+            finally
+            {
+                IsBusy = false;
+                StatusChanged?.Invoke();
+            }
+        }
+
+        internal void MarkGpuWorldReleased(MerkabaSessionOpenState state)
+        {
+            // Set only after the captured GPU resource set was actually released.
+            _releasedGpuState = state;
+        }
+
+        internal Task RestoreReleasedGpuWorldAsync()
+        {
+            if (_restoreReleasedGpuTask != null && !_restoreReleasedGpuTask.IsCompleted)
+                return _restoreReleasedGpuTask;
+            if (_releasedGpuState == null) return Task.CompletedTask;
+            _restoreReleasedGpuTask = RestoreReleasedGpuWorldCoreAsync(_releasedGpuState);
+            return _restoreReleasedGpuTask;
+        }
+
+        private async Task RestoreReleasedGpuWorldCoreAsync(MerkabaSessionOpenState released)
+        {
+            if (_activeSession == null || released.Manifest.SessionUuid != ActiveSessionId ||
+                released.Manifest.AnchorUuid != ActiveAnchorUuid)
+                throw new InvalidDataException("Released GPU world no longer matches the active session.");
+            RoomAnchorManager anchor = RoomAnchorManager.Instance;
+            if (anchor == null || !anchor.enabled ||
+                !await anchor.EnsureSessionAnchorAsync(ActiveAnchorUuid, false) ||
+                anchor.SpatialAnchorUuid != released.Manifest.AnchorUuid ||
+                RoomSpaceRoot.Instance == null ||
+                !await RoomSpaceRoot.WaitForAnchorBindAsync(anchor.SpatialAnchorTransform))
+                throw new InvalidOperationException("Released scan requires its exact localized room anchor.");
+            if (!ReferenceEquals(_releasedGpuState, released) || ActiveSessionId != released.Manifest.SessionUuid)
+                throw new InvalidOperationException("Active session changed during GPU residency restoration.");
+            _grid.ResumeGpuSubmission();
+            _grid.EnsureGpuResources();
+            // There is no positive truth in the released buffers. Reset also
+            // removes a partially registered previous retry, never the SSD data.
+            _grid.ClearGpuWorldForNewScan();
+            await _grid.LoadCommittedStorageAsync(released);
+            _integrator?.RestoreIntegrationCount(released.Manifest.IntegrationCount);
+            _releasedGpuState = null;
+            Logger.Info("Restored released M8/dual/Flower/Thread residency from the committed session index.");
         }
 
         public async Task<bool> OpenSessionAsync(Guid sessionId)
@@ -227,6 +315,7 @@ namespace Genesis.RoomScan
                                     "RoomSpaceRoot did not bind.");
                         });
                 worldCleared = true;
+                _releasedGpuState = null;
                 _integrator?.Clear();
                 _grid.RelocateForLoadedAnchor(
                     anchorManager.SpatialAnchorMatrix,
@@ -245,10 +334,14 @@ namespace Genesis.RoomScan
                 bool anchorChanged = anchorManager != null &&
                     anchorManager.SpatialAnchorUuid != previousAnchor;
                 bool failClosed = worldCleared || anchorChanged;
-                if (failClosed) ClearCanonicalWorldFailClosed();
+                if (failClosed)
+                {
+                    _releasedGpuState = null;
+                    ClearCanonicalWorldFailClosed();
+                }
                 _activeSession = failClosed ? null : previousSession;
                 IsDirty = failClosed ? false : previousDirty;
-                Logger.Error("Merkaba REV-B load failed: " + exception);
+                Logger.Error("Merkaba REV-C load failed: " + exception);
                 SetStatus("Load failed: " + exception.Message);
                 return false;
             }
@@ -288,11 +381,13 @@ namespace Genesis.RoomScan
                 // If its empty store cannot become authoritative, retaining the
                 // prior session label would pair it with the wrong anchor.
                 _activeSession = null;
+                _releasedGpuState = null;
                 IsDirty = false;
                 ClearCanonicalWorldFailClosed();
                 throw;
             }
             _activeSession = session;
+            _releasedGpuState = null;
             IsDirty = true;
             SetStatus("New session — not saved");
             StatusChanged?.Invoke();
@@ -382,6 +477,7 @@ namespace Genesis.RoomScan
                     // destroyed and must never remain paired with an empty or
                     // replacement storage authority.
                     _activeSession = null;
+                    _releasedGpuState = null;
                     IsDirty = false;
                     await _grid.SwitchStorageRootAsync(inactive, true, true);
                     _integrator?.Clear();
@@ -425,9 +521,11 @@ namespace Genesis.RoomScan
         }
 
         private async Task<MerkabaStorageCommitResult> SaveActiveCoreAsync(
-            IProgress<OperationWorkProgress> progress)
+            IProgress<OperationWorkProgress> progress,
+            MerkabaCommitMetadata? capturedMetadata = null)
         {
-            if (_integrator != null &&
+            await RestoreReleasedGpuWorldAsync();
+            if (!ReferenceEquals(_integrator, null) &&
                 (_integrator.HasPendingObservation ||
                  _integrator.HasAttemptInFlight ||
                  _integrator.HasPendingFineErase ||
@@ -437,16 +535,42 @@ namespace Genesis.RoomScan
             if (_activeSession == null || ActiveAnchorUuid == Guid.Empty)
                 throw new InvalidOperationException(
                     "Active session has no persisted room anchor.");
-            await _grid.FlushAllDirtyTilesAsync(progress);
-            RoomAnchorManager anchor = RoomAnchorManager.Instance;
-            if (anchor == null || !anchor.enabled ||
-                !await anchor.EnsureSessionAnchorAsync(ActiveAnchorUuid,
-                    false) || anchor.SpatialAnchorUuid != ActiveAnchorUuid)
+            Guid sessionUuid = ActiveSessionId;
+            Guid anchorUuid = ActiveAnchorUuid;
+            if (capturedMetadata.HasValue &&
+                (capturedMetadata.Value.SessionUuid != sessionUuid ||
+                 capturedMetadata.Value.AnchorUuid != anchorUuid))
                 throw new InvalidOperationException(
-                    "Active session room anchor could not be localized.");
-            return await _grid.CommitStorageAsync(ActiveSessionId,
-                ActiveAnchorUuid, anchor.SpatialAnchorMatrix,
-                _integrator != null ? _integrator.IntegrationCount : 0,
+                    "Captured SAVE frame belongs to a different session.");
+            Task drain = _grid.FlushAllDirtyTilesAsync(progress);
+            while (!drain.IsCompleted)
+            {
+                // OnDisable stops MonoBehaviour.Update, not the existing
+                // storage pump. The exact append/ack/drain must still finish.
+                if (!_grid.GpuSubmissionAllowed)
+                    throw new InvalidOperationException("GPU submission stopped before SAVE's source drain retired.");
+                _grid.PumpStorageForLifecycleRetirement();
+                await Task.Yield();
+            }
+            await drain;
+            Matrix4x4 anchorAtSave;
+            if (capturedMetadata.HasValue)
+                anchorAtSave = capturedMetadata.Value.AnchorAtSave;
+            else
+            {
+                RoomAnchorManager anchor = RoomAnchorManager.Instance;
+                if (anchor == null || !anchor.enabled ||
+                    !await anchor.EnsureSessionAnchorAsync(anchorUuid,
+                        false) || anchor.SpatialAnchorUuid != anchorUuid)
+                    throw new InvalidOperationException(
+                        "Active session room anchor could not be localized.");
+                anchorAtSave = anchor.SpatialAnchorMatrix;
+            }
+            if (ActiveSessionId != sessionUuid || ActiveAnchorUuid != anchorUuid)
+                throw new InvalidOperationException("Active session changed during SAVE.");
+            return await _grid.CommitStorageAsync(sessionUuid,
+                anchorUuid, anchorAtSave,
+                !ReferenceEquals(_integrator, null) ? _integrator.IntegrationCount : 0,
                 _grid.DrainedOccupiedKernelCount, progress);
         }
 

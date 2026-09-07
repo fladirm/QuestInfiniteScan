@@ -65,6 +65,8 @@ namespace Genesis.RoomScan
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
                 await RequireActiveSessionAnchorAsync();
+                if (_persistence != null)
+                    await _persistence.RestoreReleasedGpuWorldAsync();
                 await _grid.FlushAllDirtyTilesAsync(progress);
                 CaptureExportSource();
                 await Task.Run(() =>
@@ -160,6 +162,8 @@ namespace Genesis.RoomScan
                     new Progress<OperationWorkProgress>(value =>
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
+                if (_persistence != null)
+                    await _persistence.RestoreReleasedGpuWorldAsync();
                 await _grid.FlushAllDirtyTilesAsync(progress);
                 MerkabaSpatialBinding spatialBinding =
                     await CaptureSpatialBindingAsync();
