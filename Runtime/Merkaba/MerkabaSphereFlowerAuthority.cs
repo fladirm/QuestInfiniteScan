@@ -849,6 +849,24 @@ namespace Genesis.RoomScan
                 Word((uint)mask);
                 Word((uint)(mask >> 32));
             }
+            foreach (BoundaryRule rule in BoundaryRules)
+            {
+                for (int axis = 0; axis < 4; axis++) Word(unchecked((uint)rule.Rational[axis]));
+                for (int axis = 0; axis < 3; axis++) Word(unchecked((uint)rule.D[axis]));
+                Word(rule.Owner);
+            }
+            foreach (ulong mask in AnchorBoundaryPetalMasks)
+            {
+                Word((uint)mask);
+                Word((uint)(mask >> 32));
+            }
+            foreach (ushort offset in L2BoundaryFlagOffsets) Word(offset);
+            foreach (byte index in L2BoundaryFlagIndices) Word(index);
+            foreach (ulong mask in L2BoundaryFlagMasks)
+            {
+                Word((uint)mask);
+                Word((uint)(mask >> 32));
+            }
             foreach (TetraFrameRule value in TetraFramesValue)
             {
                 for (int i = 0; i < 4; i++)
@@ -1295,6 +1313,21 @@ namespace Genesis.RoomScan
                 ClassifySector(lineClass, second, out int secondSector) !=
                     ProofClassification.Certain || sector != secondSector)
                 return ProofClassification.Ambiguous;
+            if (!TrySealRootIntervals(first, second, out seal))
+                return ProofClassification.Ambiguous;
+            if (ClassifySector(lineClass, seal, out int sharedSector) !=
+                    ProofClassification.Certain || sharedSector != sector)
+                return ProofClassification.Ambiguous;
+            return TangentHalfAngle(seal, second, out bend);
+        }
+
+        // The metric expression is shared by strict interval-only and
+        // evidence-aware SEAL. Topological boundary evidence never replaces
+        // this full ordered sum/normalization with an endpoint or singleton.
+        private static bool TrySealRootIntervals(Interval2 first, Interval2 second,
+            out Interval2 seal)
+        {
+            seal = default;
             FloatInterval x = FloatInterval.Add(first.X, second.X);
             FloatInterval y = FloatInterval.Add(first.Y, second.Y);
             if (!FloatInterval.TrySqrt(FloatInterval.Add(FloatInterval.Square(x),
@@ -1302,12 +1335,9 @@ namespace Genesis.RoomScan
                 !(length.Lower > 0f) ||
                 !FloatInterval.TryDividePositive(x, length, out FloatInterval sealX) ||
                 !FloatInterval.TryDividePositive(y, length, out FloatInterval sealY))
-                return ProofClassification.Ambiguous;
+                return false;
             seal = new Interval2(sealX, sealY);
-            if (ClassifySector(lineClass, seal, out int sharedSector) !=
-                    ProofClassification.Certain || sharedSector != sector)
-                return ProofClassification.Ambiguous;
-            return TangentHalfAngle(seal, second, out bend);
+            return true;
         }
 
         public static ProofClassification RotateTangentHalfAngle(
@@ -1318,18 +1348,7 @@ namespace Genesis.RoomScan
             if (ClassifySector(lineClass, prediction, out int predictedSector) !=
                     ProofClassification.Certain || predictedSector != sector)
                 return ProofClassification.Ambiguous;
-            FloatInterval one = FloatInterval.Singleton(1f);
-            FloatInterval squared = FloatInterval.Square(turn);
-            FloatInterval denominator = FloatInterval.Add(one, squared);
-            if (!FloatInterval.TryDividePositive(FloatInterval.Subtract(one, squared),
-                    denominator, out FloatInterval c) ||
-                !FloatInterval.TryDividePositive(FloatInterval.Multiply(FloatInterval.Singleton(2f), turn),
-                    denominator, out FloatInterval s)) return ProofClassification.Ambiguous;
-            root = new Interval2(FloatInterval.Subtract(
-                    FloatInterval.Multiply(c, prediction.X),
-                    FloatInterval.Multiply(s, prediction.Y)),
-                FloatInterval.Add(FloatInterval.Multiply(s, prediction.X),
-                    FloatInterval.Multiply(c, prediction.Y)));
+            if (!RotatePhaseMetric(prediction, turn, out root)) return ProofClassification.Ambiguous;
             return ClassifySector(lineClass, root, out int synthesizedSector) ==
                     ProofClassification.Certain && synthesizedSector == sector
                 ? ProofClassification.Certain : ProofClassification.Ambiguous;
@@ -1533,6 +1552,8 @@ namespace Genesis.RoomScan
                 !float.IsFinite(decodedOffset) || !float.IsFinite(normalUncertainty) ||
                 !float.IsFinite(offsetUncertainty) || normalUncertainty < 0f ||
                 offsetUncertainty < 0f ||
+                level <= 0 || level >= GeometryLevelCount ||
+                (uint)childSector >= LinesValue[line].SectorCount ||
                 ancestorRecords.Length != ancestorKeys.Length ||
                 ancestorRecords.Length != ancestorRoots.Length ||
                 ancestorRecords.Length > level ||
@@ -1553,6 +1574,8 @@ namespace Genesis.RoomScan
                 if (sourceLevel <= previousLevel || sourceLevel >= level ||
                     !TryPhaseIdentity(ancestorRoots[i], out var sourceTag) ||
                     ancestorRoots[i].Classification != ProofClassification.Certain ||
+                    ClassifyPhaseSector(ancestorRoots[i], out int sourceSector) !=
+                        ProofClassification.Certain || sourceSector != sourceTag.Sector ||
                     sourceTag.Level != sourceLevel || sourceTag.LineClass != line ||
                     key.Channel != line || key.Sector != sourceTag.Sector ||
                     key.RootSign != sourceTag.RootSign)
@@ -1583,7 +1606,10 @@ namespace Genesis.RoomScan
                         out int3 sourceJunction) ||
                     math.any(ancestorRoots[i].Symbol.Junction != sourceJunction) ||
                     !ancestorRecords[i].TryReadR2Phase(key, currentParentEpoch,
-                        out int lower, out int upper))
+                        out int lower, out int upper) ||
+                    lower > upper ||
+                    (lower <= 0 && upper >= 0 && (lower != 0 || upper != 0)) ||
+                    (orientation != -1 && orientation != 1))
                     return ProofClassification.Ambiguous;
                 terms[i] = new PhaseTransportTerm(lower, upper, orientation,
                     checked((byte)sourceLevel));
@@ -1592,14 +1618,35 @@ namespace Genesis.RoomScan
                 new Long3(offset.x, offset.y, offset.z), line);
             Interval3 abc = RestrictPlaneToLoop(float3.zero, decodedNormal,
                 decodedOffset, normalUncertainty, offsetUncertainty, loop);
-            ProofClassification classification = PredictChildPhase(level, abc,
-                line, childSector, plusRoot, terms[..ancestorRecords.Length],
-                out Interval2 root);
-            if (classification != ProofClassification.Certain) return classification;
+            RootResult basis = EvaluateRoots(abc);
+            if (basis.Classification == RootClassification.Impossible ||
+                (basis.Classification == RootClassification.CertainTangent && plusRoot))
+                return ProofClassification.Impossible;
+            if (basis.Classification != RootClassification.CertainSecant &&
+                basis.Classification != RootClassification.CertainTangent)
+                return ProofClassification.Ambiguous;
+            Interval2 root = plusRoot ? basis.Plus : basis.Minus;
+            if (ClassifyPlaneSector(level, offset, line, plusRoot, decodedNormal,
+                    decodedOffset, root, out int baseSector, out uint boundaryWitness) !=
+                    ProofClassification.Certain || baseSector != childSector)
+                return ProofClassification.Ambiguous;
             var tag = MerkabaFlowerSymbolTag.Create(level, line, plusRoot,
                 childSector, endpoint < 0, 0, MerkabaFlowerSymbolStatus.Confirmed);
-            prediction = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(junction,
-                tag), root, ProofClassification.Certain);
+            var symbol = new MerkabaFlowerSymbolKey(junction, tag);
+            symbol.Tag |= boundaryWitness;
+            var current = new PhaseRootEvidence(symbol, root, ProofClassification.Certain);
+            for (int i = 0; i < ancestorRecords.Length; i++)
+            {
+                PhaseTransportTerm term = terms[i];
+                FloatInterval residual = DecodePhaseInterval(term.Lower, term.Upper);
+                if (term.Orientation < 0)
+                    residual = new FloatInterval(-residual.Upper, -residual.Lower);
+                if (RotatePhaseEvidence(current, residual, out PhaseRootEvidence rotated) !=
+                    ProofClassification.Certain)
+                    return ProofClassification.Ambiguous;
+                current = rotated;
+            }
+            prediction = current;
             return ProofClassification.Certain;
         }
 
@@ -1621,15 +1668,24 @@ namespace Genesis.RoomScan
             if (math.any(first.Symbol.Junction != second.Symbol.Junction) ||
                 (first.Symbol.Tag & 0x1fffu) != (second.Symbol.Tag & 0x1fffu))
                 return ProofClassification.Impossible;
-            ProofClassification result = SealBend(first.Root, second.Root,
-                tag.LineClass, out Interval2 root, out bend, out int sector);
-            if (result != ProofClassification.Certain || sector != tag.Sector)
+            if (ClassifyPhaseSector(first, out int firstSector) != ProofClassification.Certain ||
+                ClassifyPhaseSector(second, out int secondSector) != ProofClassification.Certain ||
+                firstSector != tag.Sector || secondSector != tag.Sector ||
+                !TrySealRootIntervals(first.Root, second.Root, out Interval2 root))
                 return ProofClassification.Ambiguous;
             var canonical = MerkabaFlowerSymbolTag.Create(tag.Level,
                 tag.LineClass, tag.RootSign, tag.Sector, false, 0u,
                 MerkabaFlowerSymbolStatus.Confirmed);
-            relation = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(
-                first.Symbol.Junction, canonical), root, ProofClassification.Certain);
+            var symbol = new MerkabaFlowerSymbolKey(first.Symbol.Junction, canonical);
+            uint witness = first.Symbol.Tag & BoundaryWitnessMask;
+            if (witness == (second.Symbol.Tag & BoundaryWitnessMask))
+                symbol.Tag |= witness;
+            var candidate = new PhaseRootEvidence(symbol, root, ProofClassification.Certain);
+            if (ClassifyPhaseSector(candidate, out int sector) != ProofClassification.Certain ||
+                sector != tag.Sector ||
+                TangentHalfAngle(root, second.Root, out bend) != ProofClassification.Certain)
+                return ProofClassification.Ambiguous;
+            relation = candidate;
             return ProofClassification.Certain;
         }
 
@@ -1669,22 +1725,36 @@ namespace Genesis.RoomScan
             RootResult second = EvaluateRoots(RestrictPlaneToLoop(float3.zero,
                 secondNormal, secondOffset, normalUncertainty, offsetUncertainty, secondLoop));
             if (first.Classification == RootClassification.Impossible ||
-                second.Classification == RootClassification.Impossible)
+                second.Classification == RootClassification.Impossible ||
+                (rootSign && (first.Classification == RootClassification.CertainTangent ||
+                    second.Classification == RootClassification.CertainTangent)))
                 return ProofClassification.Impossible;
             if ((first.Classification != RootClassification.CertainSecant &&
                  first.Classification != RootClassification.CertainTangent) ||
                 (second.Classification != RootClassification.CertainSecant &&
                  second.Classification != RootClassification.CertainTangent))
                 return ProofClassification.Ambiguous;
-            ProofClassification result = SealBend(rootSign ? first.Plus : first.Minus,
-                rootSign ? second.Plus : second.Minus, lineClass,
-                out Interval2 root, out bend, out int sector);
-            if (result != ProofClassification.Certain) return result;
-            var tag = MerkabaFlowerSymbolTag.Create(0, lineClass, rootSign, sector,
+            Interval2 firstRoot = rootSign ? first.Plus : first.Minus;
+            Interval2 secondRoot = rootSign ? second.Plus : second.Minus;
+            if (ClassifyPlaneSector(0, r, lineClass, rootSign, firstNormal,
+                    firstOffset, firstRoot, out int firstSector, out uint firstWitness) !=
+                    ProofClassification.Certain ||
+                ClassifyPlaneSector(0, -r, lineClass, rootSign, secondNormal,
+                    secondOffset, secondRoot, out int secondSector, out uint secondWitness) !=
+                    ProofClassification.Certain)
+                return ProofClassification.Ambiguous;
+            var firstTag = MerkabaFlowerSymbolTag.Create(0, lineClass, rootSign, firstSector,
                 false, 0u, MerkabaFlowerSymbolStatus.Confirmed);
-            seal = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(junction, tag),
-                root, ProofClassification.Certain);
-            return ProofClassification.Certain;
+            var secondTag = MerkabaFlowerSymbolTag.Create(0, lineClass, rootSign, secondSector,
+                false, 0u, MerkabaFlowerSymbolStatus.Confirmed);
+            var firstSymbol = new MerkabaFlowerSymbolKey(junction, firstTag);
+            var secondSymbol = new MerkabaFlowerSymbolKey(junction, secondTag);
+            firstSymbol.Tag |= firstWitness;
+            secondSymbol.Tag |= secondWitness;
+            return SealPhaseRelation(
+                new PhaseRootEvidence(firstSymbol, firstRoot, ProofClassification.Certain),
+                new PhaseRootEvidence(secondSymbol, secondRoot, ProofClassification.Certain),
+                out seal, out bend);
         }
 
         /// <summary>Apply one committed innovation to its regenerated
@@ -1705,13 +1775,11 @@ namespace Genesis.RoomScan
                 !record.TryReadR2Phase(expectedKey, parentEpoch,
                     out int lower, out int upper))
                 return ProofClassification.Ambiguous;
-            if (RotateTangentHalfAngle(prediction.Root,
-                    DecodePhaseInterval(lower, upper), tag.LineClass,
-                    tag.Sector, out Interval2 root) != ProofClassification.Certain ||
-                !IsFinitePhaseRoot(root))
+            if (RotatePhaseEvidence(prediction, DecodePhaseInterval(lower, upper),
+                    out PhaseRootEvidence rotated) != ProofClassification.Certain ||
+                !IsFinitePhaseRoot(rotated.Root))
                 return ProofClassification.Ambiguous;
-            synthesis = new PhaseRootEvidence(prediction.Symbol, root,
-                ProofClassification.Certain);
+            synthesis = rotated;
             return ProofClassification.Certain;
         }
 
@@ -1731,6 +1799,10 @@ namespace Genesis.RoomScan
             if (math.any(first.Symbol.Junction != second.Symbol.Junction) ||
                 (first.Symbol.Tag & 0x1fffu) != (second.Symbol.Tag & 0x1fffu))
                 return ProofClassification.Impossible;
+            if (ClassifyPhaseSector(first, out int firstSector) != ProofClassification.Certain ||
+                ClassifyPhaseSector(second, out int secondSector) != ProofClassification.Certain ||
+                firstSector != tag.Sector || secondSector != tag.Sector)
+                return ProofClassification.Ambiguous;
             float xLower = math.max(first.Root.X.Lower, second.Root.X.Lower);
             float xUpper = math.min(first.Root.X.Upper, second.Root.X.Upper);
             float yLower = math.max(first.Root.Y.Lower, second.Root.Y.Lower);
@@ -1739,16 +1811,20 @@ namespace Genesis.RoomScan
                 return ProofClassification.Impossible;
             var root = new Interval2(new FloatInterval(xLower, xUpper),
                 new FloatInterval(yLower, yUpper));
-            if (ClassifySector(tag.LineClass, root, out int sector) !=
-                    ProofClassification.Certain || sector != tag.Sector)
-                return ProofClassification.Ambiguous;
             // Canonicalize the derived tag so reversing incidence order
             // cannot change a published shared symbol's scratch bits.
             var canonical = MerkabaFlowerSymbolTag.Create(tag.Level,
                 tag.LineClass, tag.RootSign, tag.Sector, false, 0,
                 MerkabaFlowerSymbolStatus.Confirmed);
-            shared = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(
-                first.Symbol.Junction, canonical), root, ProofClassification.Certain);
+            var symbol = new MerkabaFlowerSymbolKey(first.Symbol.Junction, canonical);
+            uint witness = first.Symbol.Tag & BoundaryWitnessMask;
+            if (witness == (second.Symbol.Tag & BoundaryWitnessMask))
+                symbol.Tag |= witness;
+            var candidate = new PhaseRootEvidence(symbol, root, ProofClassification.Certain);
+            if (ClassifyPhaseSector(candidate, out int sector) != ProofClassification.Certain ||
+                sector != tag.Sector)
+                return ProofClassification.Ambiguous;
+            shared = candidate;
             return ProofClassification.Certain;
         }
 
@@ -1797,11 +1873,11 @@ namespace Genesis.RoomScan
                 !TryPhaseIdentity(observed, out var o))
                 return new PhaseResidualResult(PhaseResidualClassification.Ambiguous);
 
-            // Roots that cannot be placed wholly inside one generated sector
-            // are unresolved even when their tentative packed tags agree.
-            if (ClassifySector(p.LineClass, predicted.Root, out int pSector) !=
+            // Sector admission needs either strict interval containment or an
+            // exact symbolic boundary witness, not merely matching tags.
+            if (ClassifyPhaseSector(predicted, out int pSector) !=
                     ProofClassification.Certain ||
-                ClassifySector(o.LineClass, observed.Root, out int oSector) !=
+                ClassifyPhaseSector(observed, out int oSector) !=
                     ProofClassification.Certain)
                 return new PhaseResidualResult(PhaseResidualClassification.Ambiguous);
             if (!math.all(predicted.Symbol.Junction == observed.Symbol.Junction) ||
@@ -1840,20 +1916,20 @@ namespace Genesis.RoomScan
             // Quantize outward before checking the synthesis: the interval
             // actually persisted must remain representable in its sector.
             FloatInterval stored = DecodePhaseInterval(lower, upper);
-            if (RotateTangentHalfAngle(predicted.Root, stored, p.LineClass,
-                    p.Sector, out var synthesis) == ProofClassification.Certain)
+            if (RotatePhaseEvidence(predicted, stored, out PhaseRootEvidence synthesis) ==
+                ProofClassification.Certain)
                 return new PhaseResidualResult(PhaseResidualClassification.CertainNonzero,
-                    residual, synthesis, lower, upper);
+                    residual, synthesis.Root, lower, upper);
 
             // An unresolved enclosure is not proof that another level is
             // required. Promotion is reserved for proven representation failure.
-            bool differentSector = IsFinitePhaseRoot(synthesis) &&
-                ClassifySector(p.LineClass, synthesis, out int sector) ==
+            bool differentSector = IsFinitePhaseRoot(synthesis.Root) &&
+                ClassifySector(p.LineClass, synthesis.Root, out int sector) ==
                     ProofClassification.Certain && sector != p.Sector;
             return new PhaseResidualResult(differentSector
                     ? PhaseResidualClassification.Promote
                     : PhaseResidualClassification.Ambiguous,
-                residual, synthesis);
+                residual, synthesis.Root);
         }
 
         internal static PhaseResidualResult AnalyzeR3PhaseResidual(

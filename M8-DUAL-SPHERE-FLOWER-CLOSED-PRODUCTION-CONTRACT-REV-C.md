@@ -935,9 +935,20 @@ All coefficients belong to:
 
 Code generation evaluates them symbolically and emits outward-rounded interval boundaries. No sampled adjacency is generated.
 
-A root interval is `CERTAIN` in a sector only when the complete interval lies strictly inside that sector.
+A non-boundary root is `CERTAIN` in a sector only when its complete metric
+interval lies strictly inside that sector.
 
-Crossing a sector boundary yields `AMBIGUOUS`.
+An exact symbolic proof that a root equals a generated sector boundary
+classifies it as `CERTAIN_BOUNDARY`. The generated canonical half-open
+tie-break assigns that boundary identity to exactly one adjacent sector
+and flag. Its complete metric interval is retained unchanged; it MUST NOT
+be clipped, narrowed or shifted into the chosen sector. Topological
+ownership follows the proven symbolic boundary identity, not the width
+of its numerical enclosure.
+
+An interval which merely touches or crosses a boundary without that exact
+equality proof remains `AMBIGUOUS`. A numerical midpoint, tolerance or
+overlap with the boundary enclosure is not an equality proof.
 
 ## 7.2 Root sign
 
@@ -1115,11 +1126,15 @@ Each mask MUST contain exactly one incident flag; all eight flags of each
 face MUST be covered. Zero or multiple incompatible flags is a codegen
 failure, not a runtime choice.
 
-The half-open equality convention defines exact ownership only.
-Section 7.1 still requires a root interval strictly inside one sector:
-touching or crossing an order boundary is `AMBIGUOUS`, not a tie-based
-permission to emit an uncertain root. Direction, sector and rootSign
-transport remain the generated shared-loop conventions.
+The half-open equality convention defines exact ownership. A root proven
+symbolically equal to a generated boundary is `CERTAIN_BOUNDARY` and is
+owned by exactly one adjacent sector/flag under the generated canonical
+tie-break. Its full metric enclosure remains unchanged even when that
+enclosure crosses the boundary. The strict-interior condition in section
+7.1 applies only to non-boundary roots. Touching or crossing without an
+exact symbolic equality proof is still `AMBIGUOUS`; no epsilon or interval
+clamp is permitted. Direction, sector and rootSign transport remain the
+generated shared-loop conventions.
 
 ## 8.5 Child substitution
 
@@ -1409,7 +1424,8 @@ r_c contains zero but is not exactly {0}
     AMBIGUOUS; the observation does not prove whether an innovation exists
 
 tau denominator contains zero,
-root interval crosses a generated sector boundary,
+root interval touches/crosses a generated sector boundary without the
+exact symbolic boundary equality proof of section 7.1,
 or symbolic correspondence is not uniquely CERTAIN
     AMBIGUOUS / re-evaluate the generated alternatives
 
@@ -3681,7 +3697,10 @@ root sector stability
 R1 same-shell power-order cuts are complete in the shared sector arrangement
 R1 clipping is exactly 2 in xi=2*(X-C)/aL and preserves every R1 world loop
 each directed R1 sector selects exactly one incident flag and covers all eight face flags
-exact equality ownership follows frozen Node ordinal; boundary-crossing intervals remain AMBIGUOUS
+exact symbolic boundary equality yields CERTAIN_BOUNDARY with one generated half-open owner
+CERTAIN_BOUNDARY preserves the complete metric enclosure without clipping or shifting
+boundary-touching/crossing intervals without exact equality proof remain AMBIGUOUS
+exact z=0 boundary roots remain admissible under the generated half-open ownership
 R1 Sector-to-PetalMask is exhaustively CPU/HLSL identical and maxSectorCount<=32
 rootSign stability under d -> -d
 NO observation-dependent branch renumbering

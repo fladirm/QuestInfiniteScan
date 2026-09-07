@@ -935,9 +935,20 @@ All coefficients belong to:
 
 Code generation evaluates them symbolically and emits outward-rounded interval boundaries. No sampled adjacency is generated.
 
-A root interval is `CERTAIN` in a sector only when the complete interval lies strictly inside that sector.
+A non-boundary root is `CERTAIN` in a sector only when its complete metric
+interval lies strictly inside that sector.
 
-Crossing a sector boundary yields `AMBIGUOUS`.
+An exact symbolic proof that a root equals a generated sector boundary
+classifies it as `CERTAIN_BOUNDARY`. The generated canonical half-open
+tie-break assigns that boundary identity to exactly one adjacent sector
+and flag. Its complete metric interval is retained unchanged; it MUST NOT
+be clipped, narrowed or shifted into the chosen sector. Topological
+ownership follows the proven symbolic boundary identity, not the width
+of its numerical enclosure.
+
+An interval which merely touches or crosses a boundary without that exact
+equality proof remains `AMBIGUOUS`. A numerical midpoint, tolerance or
+overlap with the boundary enclosure is not an equality proof.
 
 ## 7.2 Root sign
 
@@ -1115,11 +1126,15 @@ Each mask MUST contain exactly one incident flag; all eight flags of each
 face MUST be covered. Zero or multiple incompatible flags is a codegen
 failure, not a runtime choice.
 
-The half-open equality convention defines exact ownership only.
-Section 7.1 still requires a root interval strictly inside one sector:
-touching or crossing an order boundary is `AMBIGUOUS`, not a tie-based
-permission to emit an uncertain root. Direction, sector and rootSign
-transport remain the generated shared-loop conventions.
+The half-open equality convention defines exact ownership. A root proven
+symbolically equal to a generated boundary is `CERTAIN_BOUNDARY` and is
+owned by exactly one adjacent sector/flag under the generated canonical
+tie-break. Its full metric enclosure remains unchanged even when that
+enclosure crosses the boundary. The strict-interior condition in section
+7.1 applies only to non-boundary roots. Touching or crossing without an
+exact symbolic equality proof is still `AMBIGUOUS`; no epsilon or interval
+clamp is permitted. Direction, sector and rootSign transport remain the
+generated shared-loop conventions.
 
 ## 8.5 Child substitution
 
@@ -1409,7 +1424,8 @@ r_c contains zero but is not exactly {0}
     AMBIGUOUS; the observation does not prove whether an innovation exists
 
 tau denominator contains zero,
-root interval crosses a generated sector boundary,
+root interval touches/crosses a generated sector boundary without the
+exact symbolic boundary equality proof of section 7.1,
 or symbolic correspondence is not uniquely CERTAIN
     AMBIGUOUS / re-evaluate the generated alternatives
 
@@ -3681,7 +3697,10 @@ root sector stability
 R1 same-shell power-order cuts are complete in the shared sector arrangement
 R1 clipping is exactly 2 in xi=2*(X-C)/aL and preserves every R1 world loop
 each directed R1 sector selects exactly one incident flag and covers all eight face flags
-exact equality ownership follows frozen Node ordinal; boundary-crossing intervals remain AMBIGUOUS
+exact symbolic boundary equality yields CERTAIN_BOUNDARY with one generated half-open owner
+CERTAIN_BOUNDARY preserves the complete metric enclosure without clipping or shifting
+boundary-touching/crossing intervals without exact equality proof remain AMBIGUOUS
+exact z=0 boundary roots remain admissible under the generated half-open ownership
 R1 Sector-to-PetalMask is exhaustively CPU/HLSL identical and maxSectorCount<=32
 rootSign stability under d -> -d
 NO observation-dependent branch renumbering
@@ -6655,3 +6674,65 @@ MANUAL_AUDIT=changed callers, generation/lifetime paths and bounded addressing
 reviewed; this is NOT a full cut/contract/legacy closure PASS.
 NEXT_CURSOR=R1 boundary admission and full parent48 completion/junction
 consumer remain open; no return to same-page-only coverage or legacy export.
+
+### CURRENT TRUE STATE — authorized exact-boundary admission, in progress
+
+CURRENT_COMMIT=93d6a5fd08f3fa976eba6f0fa4b20b57d32a31b1 (checkpoint, pushed).
+CURRENT_CUT=RUN_04; RUN_05/06 consumer implementation remains in this tree.
+USER_DECISION=exact symbolic boundary equality is now explicitly authorized;
+the earlier R1_BOUNDARY_GATE decision requirement is superseded, not retried.
+CONTRACT_AMENDMENT=7.1/8.4.2 and matching analysis/proof clauses updated in
+REV-C and its exact lasttrue prefix. Whole metric intervals remain unchanged.
+IMPLEMENTING=generated common half-open owner; exact decoded-plane/boundary
+equality using integer/surd algebra; transient witness in existing scratch;
+CPU/HLSL root, phase, reduction and L2 containment consumer propagation.
+PROHIBITED=no >= shortcut, epsilon, interval clamp, midpoint equality or
+boundary witness selected by PrecisionKey. Mere numeric contact is ambiguous.
+TESTS_RUN=none in this implementation continuation; compiler/codegen pending.
+NEXT_CURSOR=finish shared boundary emission and its consumers, generate with
+Kingston Unity, then continue actual parent48 completion/junction admission.
+
+### CURRENT TRUE STATE — exact-boundary implementation checkpoint
+
+CHECKPOINT_PARENT=93d6a5fd08f3fa976eba6f0fa4b20b57d32a31b1.
+CURRENT_COMMIT=git HEAD containing this entry; CURRENT_CUT=RUN_04 (OPEN).
+BOUNDARY_AMENDMENT=implemented in common CPU/HLSL authority and consumers.
+EXACT_PROOF=generated rational/surd boundary predicates evaluate original
+decoded plane inputs, not rounded ABC/root midpoints. GPU uses bounded
+uint32 limbs; CPU oracle/export uses exact integer arithmetic. No geometry
+readback, new persistent field, epsilon or enclosure clamp was introduced.
+OWNERSHIP=the canonical endpoint's first incident face fixes one common
+sector with its frozen Node tie. Each endpoint retains its own exact local
+flag mask. Requiring both local flags to choose the same open-sector side
+was an implementation error exposed by codegen and has been removed.
+WITNESS=boundaryLocal+1 occupies six existing transient scratch bits21..26.
+It survives inherited identity and agreeing SEAL/shared-incidence proofs;
+nonzero rotation discards it and must prove its result anew. Root reductions
+merge proof metadata separately from physical identity, in order-independent
+AND/OR and interval intersection operations. No representative selects proof.
+L2_CONSUMERS=actual original knot/frame and retained witness reach final flag
+containment. Position, normal and orientation determinant intervals remain
+unchanged. The packed lookup is9128B (78 distinct48-bit masks); boundary
+coefficients/owners8448B and endpoint boundary masks4224B are immutable.
+NO_FALSE_CERTAINTY=raw stereo evidence without an exact canonical equality
+witness remains strict/ambiguous. A numerical touch is never promoted by
+this amendment; the original scalar root-degeneracy gates still apply.
+CODEGEN=exact-boundary-codegen-final.log Kingston Unity6000.5.9f1 exit0;
+generated C#/HLSL tables emitted. Exact contract-prefix cmp and diff-check PASS.
+COMPILER=CompactDirtyFlowerSymbols,FlowerCommit,DrainObservationRefinement
+ordinary glslang(vulkan1.1) compilation and spirv-val PASS. No relaxed flags.
+READOUT_RECEIPT=exact-boundary-readout.spv:7RW/13RO,0images/aliases,
+256lanes,15472B groupshared,4594356B SPIR-V. No new resources/dispatches.
+EVIDENCE_ROOT=/mnt/kingston-unity/Builds/UniscanR1Order/TestResults.
+TESTS_RUN=no full suite/scene fixtures/benchmarks; PERF/QUEST_RUNTIME=not run;
+APK=not built. Compiler success is not runtime or whole-RUN04 acceptance.
+MANUAL_AUDIT=boundary provenance, half-open endpoint transport, full enclosure
+preservation and changed CPU/GPU reader/reduction callsites reviewed.
+NEXT_CURSOR=do not reopen clipping2, canonical boundary admission, codegen
+rounding or previous cross-page coverage. Remaining RUN04 implementation is
+the actual parent48 direct snapshot and finite R3 junction-class selector
+feeding the existing CompletionCandidates/UniqueCompletion predicates.
+Those predicates currently have no production caller; the R3 metric bundle
+alone is not a junction-class proof. This is remaining implementation, not
+a new mathematical/environmental blocker or a closed cut. RUN05/06 retain
+their implemented consumers; RUN07 final validation/APK is still NOT_RUN.

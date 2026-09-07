@@ -67,6 +67,57 @@ float M8FlowerFromOrderedFloat(uint value)
         value ^ 0x80000000u : ~value);
 }
 
+// AND/OR retain unanimity independently for identity and proof metadata.
+// A differing witness is never a differing physical knot, nor may the common
+// bits of two different witness codes manufacture a third boundary claim.
+bool M8FlowerResolveRootProof(uint tagsAnd,uint tagsOr,M8FlowerInterval2 root,
+    out uint symbolTag)
+{
+    symbolTag=tagsAnd&M8_FLOWER_OBSERVATION_IDENTITY_MASK;
+    const uint accepted=M8_FLOWER_OBSERVATION_IDENTITY_MASK|M8_FLOWER_BOUNDARY_WITNESS_MASK;
+    if((tagsOr&~accepted)!=0u ||
+        ((tagsAnd^tagsOr)&~M8_FLOWER_BOUNDARY_WITNESS_MASK)!=0u ||
+        !M8FlowerFinitePhaseRoot(root))return false;
+    uint level=symbolTag&7u,lineClass=(symbolTag>>3u)&15u;
+    uint sector=(symbolTag>>8u)&31u;
+    if(level>=3u || lineClass>=M8_FLOWER_LINE_CLASS_COUNT ||
+        sector>=M8FlowerLineMeta[lineClass].z)return false;
+    uint witness=0u;
+    if(((tagsAnd^tagsOr)&M8_FLOWER_BOUNDARY_WITNESS_MASK)==0u)
+        witness=tagsAnd&M8_FLOWER_BOUNDARY_WITNESS_MASK;
+    if(witness!=0u)
+    {
+        uint boundary=(witness>>21u)-1u,ownerSector;
+        if(!M8FlowerBoundarySector(lineClass,boundary,ownerSector) || ownerSector!=sector)return false;
+        float4 cut=M8FlowerSectorBounds[M8FlowerLineMeta[lineClass].y+boundary];
+        if(root.x.hi<cut.x || cut.y<root.x.lo ||
+            root.y.hi<cut.z || cut.w<root.y.lo)return false;
+        symbolTag|=witness;
+        return true;
+    }
+    // This includes boundary/interior or different-boundary mixtures. Only
+    // the full metric intersection may establish an ordinary strict sector.
+    uint strictSector;
+    return M8FlowerRootSector(lineClass,root,strictSector) && strictSector==sector;
+}
+
+bool M8FlowerReadRootIntersection(uint kernelLocal,out uint symbolTag,
+    out M8FlowerInterval2 root)
+{
+    root.x=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerLower[kernelLocal]),
+        M8FlowerFromOrderedFloat(m8FlowerUpper[kernelLocal]));
+    root.y=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerRootLowerY[kernelLocal]),
+        M8FlowerFromOrderedFloat(m8FlowerRootUpperY[kernelLocal]));
+    return M8FlowerResolveRootProof(m8FlowerTagIntersection[kernelLocal],
+        m8FlowerTagUnion[kernelLocal],root,symbolTag);
+}
+
+bool M8FlowerRootBucketCertain(uint kernelLocal)
+{
+    uint tag;M8FlowerInterval2 root;
+    return M8FlowerReadRootIntersection(kernelLocal,tag,root);
+}
+
 // Reuse the owner scratch for each fixed directed relation/root sign within
 // the same tile workgroup. Roots of different relations are never pooled.
 // Both coordinates of the analytic root are intersected before selecting a
@@ -75,8 +126,9 @@ float M8FlowerFromOrderedFloat(uint value)
 void M8FlowerIntersectRoot(uint kernelLocal, uint symbolTag,
     M8FlowerInterval2 root)
 {
-    InterlockedAnd(m8FlowerTagIntersection[kernelLocal], symbolTag);
-    InterlockedOr(m8FlowerTagUnion[kernelLocal], symbolTag);
+    uint claim=symbolTag&(M8_FLOWER_OBSERVATION_IDENTITY_MASK|M8_FLOWER_BOUNDARY_WITNESS_MASK);
+    InterlockedAnd(m8FlowerTagIntersection[kernelLocal], claim);
+    InterlockedOr(m8FlowerTagUnion[kernelLocal], claim);
     InterlockedMax(m8FlowerLower[kernelLocal], M8FlowerOrderedFloat(root.x.lo));
     InterlockedMin(m8FlowerUpper[kernelLocal], M8FlowerOrderedFloat(root.x.hi));
     InterlockedMax(m8FlowerRootLowerY[kernelLocal], M8FlowerOrderedFloat(root.y.lo));
@@ -123,8 +175,9 @@ uint M8FlowerObservationPrecisionKey(uint classification,
 void M8FlowerSelectRootRepresentative(uint kernelLocal, uint symbolTag,
     uint classification, M8FlowerInterval2 root, uint sourcePixel)
 {
-    if (!M8FlowerObservationBucketCertain(kernelLocal) ||
-        m8FlowerTagIntersection[kernelLocal] != symbolTag) return;
+    uint bucketTag;M8FlowerInterval2 intersection;
+    if (!M8FlowerReadRootIntersection(kernelLocal,bucketTag,intersection) ||
+        ((bucketTag^symbolTag)&M8_FLOWER_OBSERVATION_IDENTITY_MASK)!=0u) return;
     uint key = M8FlowerObservationPrecisionKey(classification, root, sourcePixel);
     InterlockedMin(m8FlowerRepresentative[kernelLocal], key);
 }
@@ -132,15 +185,10 @@ void M8FlowerSelectRootRepresentative(uint kernelLocal, uint symbolTag,
 bool M8FlowerReadRootBucket(uint kernelLocal, out uint symbolTag,
     out M8FlowerInterval2 root, out uint sourcePixel)
 {
-    symbolTag = m8FlowerTagIntersection[kernelLocal];
-    root.x = M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerLower[kernelLocal]),
-        M8FlowerFromOrderedFloat(m8FlowerUpper[kernelLocal]));
-    root.y = M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerRootLowerY[kernelLocal]),
-        M8FlowerFromOrderedFloat(m8FlowerRootUpperY[kernelLocal]));
+    bool certain=M8FlowerReadRootIntersection(kernelLocal,symbolTag,root);
     uint representative = m8FlowerRepresentative[kernelLocal];
     sourcePixel = representative & M8_FLOWER_OBSERVATION_PIXEL_MASK;
-    return M8FlowerObservationBucketCertain(kernelLocal) &&
-        representative != 0xffffffffu;
+    return certain && representative != 0xffffffffu;
 }
 
 // This stage runs only AFTER all interval intersections and conflict bits are
@@ -198,9 +246,13 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
         [loop]
         for (uint rootSign = 0u; rootSign < 2u; ++rootSign)
         {
-            M8FlowerInterval2 roots[2];uint2 classes=0u;
+            M8FlowerInterval2 roots[2];uint2 classes=0u,tags=0u;
+            bool certain[2];
             [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
-                classes[endpoint]=M8FlowerRootInterval(abc[endpoint],rootSign!=0u,roots[endpoint]);
+                certain[endpoint]=M8FlowerClassifyPlaneRoot(0u,lineClass,
+                    (direction&1u)!=0u,rootSign!=0u,normals[endpoint],offsets[endpoint],
+                    M8FlowerDirection[direction].xyz,abc[endpoint],tags[endpoint],
+                    roots[endpoint],classes[endpoint]);
             uint previousClass=classes.x,incomingClass=classes.y;
             if (previousClass == M8_FLOWER_ROOT_AMBIGUOUS ||
                 incomingClass != previousClass) return false;
@@ -208,12 +260,14 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
                 previousClass == M8_FLOWER_ROOT_COPLANAR) continue;
             if (rootSign != 0u &&
                 previousClass == M8_FLOWER_ROOT_CERTAIN_TANGENT) continue;
-            uint2 sectors=0u;
-            [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
-                if(!M8FlowerRootSector(lineClass,roots[endpoint],sectors[endpoint]))return false;
-            if(sectors.x!=sectors.y ||
-                max(roots[0].x.lo,roots[1].x.lo)>min(roots[0].x.hi,roots[1].x.hi) ||
-                max(roots[0].y.lo,roots[1].y.lo)>min(roots[0].y.hi,roots[1].y.hi))return false;
+            if(!certain[0] || !certain[1])return false;
+            M8FlowerInterval2 intersection;
+            intersection.x=M8FlowerI(max(roots[0].x.lo,roots[1].x.lo),
+                min(roots[0].x.hi,roots[1].x.hi));
+            intersection.y=M8FlowerI(max(roots[0].y.lo,roots[1].y.lo),
+                min(roots[0].y.hi,roots[1].y.hi));
+            uint sharedTag;
+            if(!M8FlowerResolveRootProof(tags.x&tags.y,tags.x|tags.y,intersection,sharedTag))return false;
             isolated = true;
         }
     }
@@ -249,21 +303,21 @@ bool M8FlowerSeedCorrespondence(uint previousFlags, uint incomingFlags,
         {
             uint previousTag, incomingTag, previousClass, incomingClass;
             M8FlowerInterval2 previousRoot, incomingRoot;
-            if (!M8FlowerClassifyObservationRoot(0u,lineClass,
-                    (direction & 1u) != 0u,sign != 0u,previousAbc,
-                    previousTag,previousRoot,previousClass) ||
-                !M8FlowerClassifyObservationRoot(0u,lineClass,
-                    (direction & 1u) != 0u,sign != 0u,incomingAbc,
-                    incomingTag,incomingRoot,incomingClass)) continue;
-            uint previousFlag,incomingFlag;
-            if (previousTag == incomingTag &&
-                M8FlowerR1SectorFlag(direction,(previousTag>>8u)&31u,previousFlag) &&
-                M8FlowerR1SectorFlag(direction,(incomingTag>>8u)&31u,incomingFlag) &&
-                previousFlag==incomingFlag &&
-                max(previousRoot.x.lo,incomingRoot.x.lo) <=
-                    min(previousRoot.x.hi,incomingRoot.x.hi) &&
-                max(previousRoot.y.lo,incomingRoot.y.lo) <=
-                    min(previousRoot.y.hi,incomingRoot.y.hi)) return true;
+            if (!M8FlowerClassifyPlaneRoot(0u,lineClass,
+                    (direction & 1u) != 0u,sign != 0u,previousNormal,previousOffset,
+                    M8FlowerDirection[direction].xyz,previousAbc,previousTag,previousRoot,previousClass) ||
+                !M8FlowerClassifyPlaneRoot(0u,lineClass,
+                    (direction & 1u) != 0u,sign != 0u,incomingNormal,incomingOffset,
+                    M8FlowerDirection[direction].xyz,incomingAbc,incomingTag,incomingRoot,incomingClass)) continue;
+            M8FlowerInterval2 intersection;
+            intersection.x=M8FlowerI(max(previousRoot.x.lo,incomingRoot.x.lo),
+                min(previousRoot.x.hi,incomingRoot.x.hi));
+            intersection.y=M8FlowerI(max(previousRoot.y.lo,incomingRoot.y.lo),
+                min(previousRoot.y.hi,incomingRoot.y.hi));
+            uint sharedTag,selectedFlag;
+            if(M8FlowerResolveRootProof(previousTag&incomingTag,previousTag|incomingTag,
+                    intersection,sharedTag) &&
+                M8FlowerR1RootFlag(direction,sharedTag,selectedFlag))return true;
         }
     }
     return false;

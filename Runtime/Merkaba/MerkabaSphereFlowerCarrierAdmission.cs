@@ -10,12 +10,34 @@ namespace Genesis.RoomScan
         {
 #if UNITY_EDITOR
             internal static readonly ulong[] Masks = BuildAnchorSectorPetalMasks();
+            internal static readonly ulong[] BoundaryMasks = BuildAnchorBoundaryPetalMasks();
 #else
             internal static readonly ulong[] Masks = LoadGeneratedAnchorSectorPetalMasks();
+            internal static readonly ulong[] BoundaryMasks = LoadGeneratedAnchorBoundaryPetalMasks();
 #endif
         }
 
+        private static class L2BoundaryFlagData
+        {
+            internal static readonly ushort[] Offsets;
+            internal static readonly byte[] Indices;
+            internal static readonly ulong[] Masks;
+            static L2BoundaryFlagData()
+            {
+#if UNITY_EDITOR
+                BuildL2BoundaryFlags(out Offsets, out Indices, out Masks);
+#else
+                LoadGeneratedL2BoundaryFlags(out Offsets, out Indices, out Masks);
+#endif
+            }
+        }
+
+        public static ReadOnlySpan<ushort> L2BoundaryFlagOffsets => L2BoundaryFlagData.Offsets;
+        public static ReadOnlySpan<byte> L2BoundaryFlagIndices => L2BoundaryFlagData.Indices;
+        public static ReadOnlySpan<ulong> L2BoundaryFlagMasks => L2BoundaryFlagData.Masks;
+
         public static ReadOnlySpan<ulong> AnchorSectorPetalMasks => AnchorFlagData.Masks;
+        public static ReadOnlySpan<ulong> AnchorBoundaryPetalMasks => AnchorFlagData.BoundaryMasks;
         public static ReadOnlySpan<ulong> R1SectorPetalMasks => AnchorSectorPetalMasks.Slice(
             0, 2 * (LinesValue[2].SectorOffset + LinesValue[2].SectorCount));
 
@@ -29,6 +51,26 @@ namespace Genesis.RoomScan
             LineRule line = LinesValue[anchor.LineClass];
             if ((uint)sector >= line.SectorCount) return false;
             mask = AnchorFlagData.Masks[2 * (line.SectorOffset + sector) +
+                (anchor.Orientation < 0 ? 1 : 0)];
+            return true;
+        }
+
+        // Shared Sigma sector ownership is canonical to the undirected loop.
+        // At an exact boundary, each endpoint's local Node tie remains its
+        // own directed flag decision, not the adjacent open-sector mask.
+        public static bool TryGetAnchorRootFlags(int node, uint proofTag, out ulong mask)
+        {
+            mask = 0u;
+            if ((uint)node >= NodesValue.Length) return false;
+            NodeRule anchor = NodesValue[node];
+            if (((proofTag >> 3) & 15u) != anchor.LineClass) return false;
+            int sector = (int)((proofTag >> 8) & 31u);
+            uint code = (proofTag & BoundaryWitnessMask) >> 21;
+            if (code == 0u) return TryGetAnchorSectorFlags(node, sector, out mask);
+            LineRule line = LinesValue[anchor.LineClass];
+            if (code > line.SectorCount ||
+                BoundaryRules[line.SectorOffset + (int)code - 1].Owner != sector) return false;
+            mask = AnchorFlagData.BoundaryMasks[2 * (line.SectorOffset + (int)code - 1) +
                 (anchor.Orientation < 0 ? 1 : 0)];
             return true;
         }
@@ -66,7 +108,7 @@ namespace Genesis.RoomScan
             }
         }
 
-        // Same bounded plane/root/strict-sector evaluator as CarrierRootProof.
+        // Same bounded plane/root and exact half-open sector evaluator as GPU.
         // This classifies an explicit algebraic sign; it never chooses a flag.
         internal static ProofClassification CarrierRootProof(int3 owner, uint flags,
             int level, int3 offset, int lineClass, bool plus, float normalError,
@@ -96,12 +138,14 @@ namespace Genesis.RoomScan
                 roots.Classification != RootClassification.CertainTangent)
                 return ProofClassification.Ambiguous;
             Interval2 phase = plus ? roots.Plus : roots.Minus;
-            if (ClassifySector(lineClass, phase, out int sector) != ProofClassification.Certain)
+            if (ClassifyPlaneSector(level, offset, lineClass, plus, normal, delta,
+                    phase, out int sector, out uint boundaryWitness) != ProofClassification.Certain)
                 return ProofClassification.Ambiguous;
             var tag = MerkabaFlowerSymbolTag.Create(level, lineClass, plus, sector,
                 false, 0u, MerkabaFlowerSymbolStatus.Confirmed);
-            root = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(
-                new int3((int)x, (int)y, (int)z), tag), phase, ProofClassification.Certain);
+            var symbol = new MerkabaFlowerSymbolKey(new int3((int)x, (int)y, (int)z), tag);
+            symbol.Tag |= boundaryWitness;
+            root = new PhaseRootEvidence(symbol, phase, ProofClassification.Certain);
             return ProofClassification.Certain;
         }
 
@@ -124,8 +168,8 @@ namespace Genesis.RoomScan
                     node.Direction, node.LineClass, sign != 0, normalError, offsetError, out var root);
                 if (result == ProofClassification.Impossible) continue;
                 if (result != ProofClassification.Certain ||
-                    !MerkabaFlowerSymbolTag.TryDecode(root.Symbol.Tag, out var tag) ||
-                    !TryGetAnchorSectorFlags(anchor, tag.Sector, out ulong allowed))
+                    ClassifyPhaseSector(root, out _) != ProofClassification.Certain ||
+                    !TryGetAnchorRootFlags(anchor, root.Symbol.Tag, out ulong allowed))
                 { unresolved |= 1u << sign; continue; }
                 if ((allowed & (1UL << petal)) == 0u) continue;
                 candidates |= 1u << sign;
@@ -157,8 +201,8 @@ namespace Genesis.RoomScan
                     node.Orientation < 0 ? flags : neighbourFlags, normalError, offsetError,
                     out PhaseRootEvidence relation, out _);
                 if (result == ProofClassification.Certain &&
-                    (!MerkabaFlowerSymbolTag.TryDecode(relation.Symbol.Tag, out var tag) ||
-                     !TryGetAnchorSectorFlags(anchorNode, tag.Sector, out ulong allowed) ||
+                    (ClassifyPhaseSector(relation, out _) != ProofClassification.Certain ||
+                     !TryGetAnchorRootFlags(anchorNode, relation.Symbol.Tag, out ulong allowed) ||
                      (allowed & (1UL << petal)) == 0u)) result = ProofClassification.Ambiguous;
                 if (result != ProofClassification.Certain)
                 {
@@ -221,7 +265,8 @@ namespace Genesis.RoomScan
 
         // Equal-shell Phi differences are linear at EVERY X. No original
         // face equation or owner-box constraint is applied to a child loop.
-        internal static ProofClassification SourceFlagContainment(int petal, Interval3 position)
+        internal static ProofClassification SourceFlagContainment(int petal, int knot,
+            uint proofTag, Interval3 position)
         {
             if ((uint)petal >= PetalClassCount) return ProofClassification.Impossible;
             PetalRule rule = PetalsValue[petal];
@@ -231,7 +276,30 @@ namespace Genesis.RoomScan
             FloatInterval edgeOrder = CarrierDot(edge - corner, position);
             if (cornerOrder.Upper < 0f || edgeOrder.Upper < 0f) return ProofClassification.Impossible;
             if (cornerOrder.Lower > 0f && edgeOrder.Lower > 0f) return ProofClassification.Certain;
+            if (TryL2BoundaryFlags(knot, proofTag, out ulong allowed))
+                return (allowed & (1UL << petal)) != 0u ?
+                    ProofClassification.Certain : ProofClassification.Impossible;
             return ProofClassification.Ambiguous;
+        }
+
+        // proofTag is retained only after ClassifyPhaseSector has certified
+        // the actual reader result. The original knot, not its requesting
+        // petal or a midpoint, identifies this boundary's translated frame.
+        private static bool TryL2BoundaryFlags(int knot, uint proofTag, out ulong mask)
+        {
+            mask = 0u;
+            uint code = (proofTag & BoundaryWitnessMask) >> 21;
+            if (code == 0u || !TryGetL2KnotLoop(knot, out int level,
+                out _, out int lineClass) || (proofTag & 7u) != (uint)level ||
+                ((proofTag >> 3) & 15u) != (uint)lineClass) return false;
+            LineRule line = LinesValue[lineClass];
+            if (code > line.SectorCount ||
+                BoundaryRules[line.SectorOffset + (int)code - 1].Owner != ((proofTag >> 8) & 31u))
+                return false;
+            int start = L2BoundaryFlagData.Offsets[knot];
+            if (code > L2BoundaryFlagData.Offsets[knot + 1] - start) return false;
+            mask = L2BoundaryFlagData.Masks[L2BoundaryFlagData.Indices[start + (int)code - 1]];
+            return true;
         }
 
         internal static ProofClassification CarrierWedgeOrientation(Interval3 a, Interval3 b,
@@ -742,6 +810,139 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
+        public static void BuildL2BoundaryFlags(out ushort[] offsets,
+            out byte[] indices, out ulong[] masks)
+        {
+            // The lookup stores only deduplicated exact admission masks.
+            // No exact boundary coordinate or dense 48-bit-per-knot table is
+            // introduced into the runtime geometry representation.
+            var cuts = new List<ExactBoundaryPoint>[LineClassCount];
+            for (int line = 0; line < cuts.Length; line++)
+            {
+                cuts[line] = BuildLineBoundaryPoints(PetalsValue, NodesValue, LinesValue[line].Direction);
+                if (cuts[line].Count != LinesValue[line].SectorCount)
+                    throw new InvalidOperationException("L2 boundary flags differ from the canonical arrangement.");
+            }
+            offsets = new ushort[L2KnotCount + 1];
+            var entries = new List<byte>(L2KnotCount * MaximumSectorCount);
+            var unique = new List<ulong>();
+            var byMask = new Dictionary<ulong, byte>();
+            for (int knot = 0; knot < L2KnotCount; knot++)
+            {
+                offsets[knot] = checked((ushort)entries.Count);
+                if (!TryGetL2KnotLoop(knot, out _, out int3 junction, out int lineClass))
+                    throw new InvalidOperationException("An L2 boundary has no original loop identity.");
+                int3 line = LinesValue[lineClass].Direction;
+                foreach (ExactBoundaryPoint cut in cuts[lineClass])
+                {
+                    ulong mask = 0u;
+                    for (int face = 0; face < 6; face++)
+                    {
+                        // X/a_L = P + (Joffset-line)/2. Positive scale a_L
+                        // cancels from equal-shell Phi differences. Thus the
+                        // existing exact predicate uses Joffset as its centre
+                        // argument, not an unrelated root-face direction.
+                        int selected = PowerFlagAtCut(PetalsValue, NodesValue,
+                            line, junction, face, cut, 0);
+                        PetalRule flag = PetalsValue[selected];
+                        int3 edge = NodesValue[flag.EdgeNode].Direction - NodesValue[flag.FaceNode].Direction;
+                        int3 corner = NodesValue[flag.CornerNode].Direction - NodesValue[flag.EdgeNode].Direction;
+                        if (SectorPredicateLimit(line, junction, cut, corner, Rational.Zero, 0) < 0 ||
+                            SectorPredicateLimit(line, junction, cut, edge - corner, Rational.Zero, 0) < 0)
+                            throw new InvalidOperationException("Exact boundary power ownership fails source containment.");
+                        mask |= 1UL << selected;
+                    }
+                    if (!byMask.TryGetValue(mask, out byte index))
+                    {
+                        if (unique.Count >= 256)
+                            throw new InvalidOperationException("L2 boundary flag lookup exceeds 256 distinct masks.");
+                        index = checked((byte)unique.Count);
+                        byMask.Add(mask, index); unique.Add(mask);
+                    }
+                    entries.Add(index);
+                }
+            }
+            offsets[L2KnotCount] = checked((ushort)entries.Count);
+            // HLSL packs two offsets/four byte indices in one uint; masks are
+            // uint2. Prove the actual emitted payload, including final padding.
+            int payloadBytes = 4 * ((offsets.Length + 1) / 2 + (entries.Count + 3) / 4) + 8 * unique.Count;
+            if (payloadBytes > 65536)
+                throw new InvalidOperationException("L2 boundary flag lookup exceeds its 64KiB finite budget.");
+            indices = entries.ToArray(); masks = unique.ToArray();
+        }
+
+        // One local sector ordinal for each canonical boundary, shared by
+        // both directed endpoints of the loop. This is only ownership data:
+        // it neither proves that a measured root equals a boundary nor alters
+        // that root's outward metric enclosure.
+        public static byte[] BuildAnchorBoundaryOwners()
+        {
+            var owners = new byte[SectorBoundariesValue.Length];
+            for (int lineClass = 0; lineClass < LinesValue.Length; lineClass++)
+            {
+                LineRule line = LinesValue[lineClass];
+                List<ExactBoundaryPoint> cuts = BuildLineBoundaryPoints(
+                    PetalsValue, NodesValue, line.Direction);
+                if (cuts.Count != line.SectorCount)
+                    throw new InvalidOperationException(
+                        "Boundary ownership differs from the canonical sector arrangement.");
+                int canonicalNode = FindNode(NodesValue, line.Direction);
+                int canonicalFace = -1;
+                for (int face = 0; face < 6; face++)
+                    if (FaceIncidentToAnchor(PetalsValue, canonicalNode, face))
+                    { canonicalFace = face; break; }
+                if (canonicalFace < 0)
+                    throw new InvalidOperationException("A canonical loop has no incident R1 face.");
+                for (int boundary = 0; boundary < cuts.Count; boundary++)
+                {
+                    ExactBoundaryPoint cut = cuts[boundary];
+                    int before = PowerFlagAtCut(PetalsValue, NodesValue, line.Direction,
+                        line.Direction, canonicalFace, cut, -1);
+                    int at = PowerFlagAtCut(PetalsValue, NodesValue, line.Direction,
+                        line.Direction, canonicalFace, cut, 0);
+                    int after = PowerFlagAtCut(PetalsValue, NodesValue, line.Direction,
+                        line.Direction, canonicalFace, cut, 1);
+                    uint sides = (at == before ? 1u : 0u) | (at == after ? 2u : 0u);
+                    if (sides == 0u)
+                        throw new InvalidOperationException(
+                            $"Canonical face boundary tie has no adjacent sector: line={lineClass}, " +
+                            $"boundary={boundary}, node={canonicalNode}, face={canonicalFace}, " +
+                            $"before/at/after petals={before}/{at}/{after}.");
+
+                    // One canonical face fixes the shared Sigma. If its flag
+                    // does not change here, use the canonical [start,end)
+                    // convention. Opposite endpoint flags are stored below
+                    // at side=0; their local tie may prefer the other side.
+                    int sector = (sides & 2u) != 0u ? boundary :
+                        (boundary + cuts.Count - 1) % cuts.Count;
+                    owners[line.SectorOffset + boundary] = checked((byte)sector);
+                }
+            }
+            return owners;
+        }
+
+        public static ulong[] BuildAnchorBoundaryPetalMasks()
+        {
+            var masks = new ulong[2 * SectorBoundariesValue.Length];
+            for (int node = 0; node < NodesValue.Length; node++)
+            {
+                NodeRule anchor = NodesValue[node];
+                LineRule line = LinesValue[anchor.LineClass];
+                List<ExactBoundaryPoint> cuts = BuildLineBoundaryPoints(PetalsValue, NodesValue, line.Direction);
+                if (cuts.Count != line.SectorCount)
+                    throw new InvalidOperationException("Boundary flags differ from the canonical arrangement.");
+                for (int boundary = 0; boundary < cuts.Count; boundary++)
+                {
+                    ulong at = AnchorFlagMaskAtCut(PetalsValue, NodesValue, line.Direction, node, cuts[boundary], 0);
+                    if ((at & ~NodeIncidentPetalsValue[node]) != 0u ||
+                        (anchor.Shell == Shell.R1Core && (at == 0u || (at & (at - 1u)) != 0u)))
+                        throw new InvalidOperationException("Exact boundary flag ownership is not incident and unique.");
+                    masks[2 * (line.SectorOffset + boundary) + (anchor.Orientation < 0 ? 1 : 0)] = at;
+                }
+            }
+            return masks;
+        }
+
         public static ulong[] BuildAnchorSectorPetalMasks()
         {
             var masks = new ulong[2 * SectorBoundariesValue.Length];

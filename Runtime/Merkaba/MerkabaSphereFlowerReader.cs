@@ -338,10 +338,10 @@ namespace Genesis.RoomScan
                 if (eta == 0) return ProofClassification.Ambiguous;
                 FloatInterval turn = DecodePhaseInterval(record.Lower, record.Upper);
                 if (eta < 0) turn = new FloatInterval(-turn.Upper, -turn.Lower);
-                if (RotateTangentHalfAngle(prediction.Root, turn, key.Channel,
-                        key.Sector, out Interval2 rotated) != ProofClassification.Certain)
+                if (RotatePhaseEvidence(prediction, turn, out PhaseRootEvidence rotated) !=
+                    ProofClassification.Certain)
                     return ProofClassification.Ambiguous;
-                root = new PhaseRootEvidence(prediction.Symbol, rotated, ProofClassification.Certain);
+                root = rotated;
                 return ProofClassification.Certain;
             }
 
@@ -421,8 +421,8 @@ namespace Genesis.RoomScan
                     predicted.Classification != ProofClassification.Certain || observed.Classification != ProofClassification.Certain ||
                     !TryPhaseIdentity(predicted, out var p) || !TryPhaseIdentity(observed, out var o))
                     return ProofClassification.Ambiguous;
-                if (ClassifySector(p.LineClass, predicted.Root, out int pSector) != ProofClassification.Certain ||
-                    ClassifySector(o.LineClass, observed.Root, out int oSector) != ProofClassification.Certain)
+                if (ClassifyPhaseSector(predicted, out int pSector) != ProofClassification.Certain ||
+                    ClassifyPhaseSector(observed, out int oSector) != ProofClassification.Certain)
                     return ProofClassification.Ambiguous;
                 if (math.any(predicted.Symbol.Junction != observed.Symbol.Junction) ||
                     (predicted.Symbol.Tag & 0x1fffu) != (observed.Symbol.Tag & 0x1fffu) ||
@@ -572,10 +572,9 @@ namespace Genesis.RoomScan
                             {
                                 FloatInterval turn = DecodePhaseInterval(records[0].Lower, records[0].Upper);
                                 if (family.PhaseOrientation < 0) turn = new FloatInterval(-turn.Upper, -turn.Lower);
-                                if (RotateTangentHalfAngle(source.Root, turn, task.Line,
-                                    (int)((source.Symbol.Tag >> 8) & 31u), out Interval2 transported) !=
+                                if (RotatePhaseEvidence(source, turn, out PhaseRootEvidence transported) !=
                                     ProofClassification.Certain) return false;
-                                source = new PhaseRootEvidence(source.Symbol, transported, source.Classification);
+                                source = transported;
                             }
                             if (SynthesizePhaseRecord(source, key, record, epoch,
                                 out PhaseRootEvidence synthesized) != ProofClassification.Certain) return false;
@@ -661,7 +660,7 @@ namespace Genesis.RoomScan
                         errors.x, errors.y, out PhaseRootEvidence root);
                     if (status == ProofClassification.Impossible) continue;
                     if (status != ProofClassification.Certain ||
-                        !TryGetAnchorSectorFlags(node, (int)((root.Symbol.Tag >> 8) & 31u), out ulong allowed))
+                        !TryGetAnchorRootFlags(node, root.Symbol.Tag, out ulong allowed))
                     { unresolved |= 1u << sign; continue; }
                     if ((allowed & (1UL << petal)) != 0u) admitted |= 1u << sign;
                 }
@@ -684,7 +683,9 @@ namespace Genesis.RoomScan
                 if (!StableR1(state.Flags)) return ProofClassification.Impossible;
                 M8FlowerUnpackPlane(state.Flags, out float3 normal, out _);
                 Span<Interval3> support = stackalloc Interval3[14];
+                Span<uint> proofTags = stackalloc uint[14];
                 support.Clear();
+                proofTags.Clear();
                 uint known = 0u, unknown = 0u;
                 for (int site = 0; site < 7; site++)
                 for (int sign = 0; sign < 2; sign++)
@@ -692,7 +693,13 @@ namespace Genesis.RoomScan
                     int index = 2 * site + sign, knot = L2CarrierKnotIndex(carrier, site);
                     uint bit = 1u << index;
                     if (ReadL2Knot(owner, knot, sign != 0, errors.x, errors.y, out PhaseRootEvidence root) &&
-                        RootRelativeBounds(knot, root, out support[index])) known |= bit;
+                        RootRelativeBounds(knot, root, out support[index]))
+                    {
+                        known |= bit;
+                        if ((root.Symbol.Tag & BoundaryWitnessMask) != 0u &&
+                            ClassifyPhaseSector(root, out _) == ProofClassification.Certain)
+                            proofTags[index] = root.Symbol.Tag;
+                    }
                     else if (root.Classification != ProofClassification.Impossible) unknown |= bit;
                 }
                 Span<uint> certain = stackalloc uint[6], uncertain = stackalloc uint[6];
@@ -719,7 +726,8 @@ namespace Genesis.RoomScan
                         for (int vertex = 0; vertex < 3; vertex++)
                         {
                             if ((known & (1u << index[vertex])) == 0u) continue;
-                            ProofClassification status = SourceFlagContainment(petal, support[index[vertex]]);
+                            ProofClassification status = SourceFlagContainment(petal,
+                                L2CarrierKnotIndex(carrier, sites[vertex]), proofTags[index[vertex]], support[index[vertex]]);
                             if (status == ProofClassification.Impossible) { impossible = true; break; }
                             if (status != ProofClassification.Certain) resolved = false;
                         }

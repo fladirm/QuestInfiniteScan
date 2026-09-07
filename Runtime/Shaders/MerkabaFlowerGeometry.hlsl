@@ -84,7 +84,7 @@ uint M8FlowerCarrierRootProof(int3 owner,uint flags,uint level,int3 offset,
         M8FlowerGeometryLoopRadius[level*13u+lineClass],lineClass,normalError,offsetError,abc))return 2u;
     uint tag,classification;
     M8FlowerInterval2 phase;
-    if(!M8FlowerClassifyObservationRoot(level,lineClass,false,plus,abc,
+    if(!M8FlowerClassifyPlaneRoot(level,lineClass,false,plus,normal,delta,offset,abc,
         tag,phase,classification))
     {
         // The generated classifier owns tangent-minus canonicalization.
@@ -146,7 +146,7 @@ uint M8FlowerSelectAnchorFlagRoots(int3 owner,uint flags,uint petal,uint anchorI
             sign!=0u,normalError,offsetError,root);
         if(result==0u)continue;
         uint2 allowed;
-        if(result!=1u || !M8FlowerAnchorSectorFlags(anchor,(root.Tag>>8u)&31u,allowed))
+        if(result!=1u || !M8FlowerAnchorRootFlags(anchor,root.Tag,allowed))
         {candidates.UnresolvedMask|=1u<<sign;continue;}
         if((allowed[petal>>5u]&(1u<<(petal&31u)))==0u)continue;
         candidates.CandidateMask|=1u<<sign;
@@ -188,7 +188,7 @@ uint M8FlowerSelectAnchorFlagRelation(int3 owner,uint flags,uint neighbourFlags,
             reversed?neighbourFlags:flags,reversed?flags:neighbourFlags,
             normalError,offsetError,relation,bend);
         uint2 allowed=0u;
-        if(result==1u && (!M8FlowerAnchorSectorFlags(anchorNode,(relation.Tag>>8u)&31u,allowed) ||
+        if(result==1u && (!M8FlowerAnchorRootFlags(anchorNode,relation.Tag,allowed) ||
             (allowed[petal>>5u]&(1u<<(petal&31u)))==0u))result=2u;
         if(result!=1u)
         {
@@ -274,10 +274,10 @@ bool M8FlowerApplyGeometryDetail(uint ownerRef,uint epoch,int3 owner,
     if(eta==0){root.Classification=2u;return false;}
     M8FlowerInterval turn=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
     if(eta<0)turn=M8FlowerI(-turn.hi,-turn.lo);
-    M8FlowerInterval2 rotated;
-    if(!M8FlowerRotateInterval(root.Root,turn,node.Line,(root.Tag>>8u)&31u,rotated))
-    {root.Classification=2u;return false;}
-    root.Root=rotated;return true;
+    M8FlowerPhaseRootEvidence rotated;
+    uint status=M8FlowerRotatePhaseEvidence(root,turn,rotated);
+    root=rotated;root.Classification=status;
+    return status==1u;
 }
 
 uint M8FlowerReadOriginalLocal(uint ownerRef,int3 owner,uint flags,uint nodeIndex,
@@ -372,8 +372,8 @@ uint M8FlowerR3MetricResidual(M8FlowerPhaseRootEvidence predicted,M8FlowerPhaseR
     if(parity>=8u || axis>=4u || predicted.Classification!=1u || observed.Classification!=1u ||
         !M8FlowerPhaseIdentityValid(predicted) || !M8FlowerPhaseIdentityValid(observed))return 2u;
     uint lineClass=(predicted.Tag>>3u)&15u,pSector,oSector;
-    if(!M8FlowerRootSector(lineClass,predicted.Root,pSector) ||
-        !M8FlowerRootSector((observed.Tag>>3u)&15u,observed.Root,oSector))return 2u;
+    if(!M8FlowerPhaseRootSector(predicted,pSector) ||
+        !M8FlowerPhaseRootSector(observed,oSector))return 2u;
     if(any(predicted.Junction!=observed.Junction) ||
         (predicted.Tag&0x1fffu)!=(observed.Tag&0x1fffu) ||
         pSector!=((predicted.Tag>>8u)&31u) || oSector!=((observed.Tag>>8u)&31u) ||
@@ -667,7 +667,7 @@ M8FlowerInterval M8FlowerCarrierDot(int3 direction,M8FlowerInterval3 position)
 // actual source flag f<e<c, max-edge then max-corner is exactly
 // (c-e).X >= 0 and ((e-f)-(c-e)).X >= 0. This applies on the child's OWN
 // loop, without importing an R1 face equation, radius or support box.
-uint M8FlowerSourceFlagContainment(uint petal,M8FlowerInterval3 position)
+uint M8FlowerSourceFlagContainment(uint petal,uint knot,uint proofTag,M8FlowerInterval3 position)
 {
     if(petal>=48u)return 0u;
     uint3 nodes=M8FlowerPetalNodes[petal].xyz;
@@ -677,8 +677,18 @@ uint M8FlowerSourceFlagContainment(uint petal,M8FlowerInterval3 position)
     M8FlowerInterval edgeOrder=M8FlowerCarrierDot(edge-corner,position);
     if(cornerOrder.hi<0.0 || edgeOrder.hi<0.0)return 0u;
     if(cornerOrder.lo>0.0 && edgeOrder.lo>0.0)return 1u;
-    // A bounded interval touching an order cut is unresolved. Exact cut
-    // ownership remains the generated ordinal convention, not a tolerance.
+    uint code=(proofTag&M8_FLOWER_BOUNDARY_WITNESS_MASK)>>21u;
+    M8FlowerGeometryNode original;uint sector;uint2 allowed;
+    // Only a previously certified exact-boundary reader result can use this
+    // lookup. Its original knot supplies the child translation; a source
+    // petal is never substituted for the knot's actual loop identity.
+    if(code!=0u && M8FlowerL2GeometryNode(knot,((proofTag>>7u)&1u)!=0u,original) &&
+        (proofTag&7u)==original.Level && ((proofTag>>3u)&15u)==original.Line &&
+        M8FlowerBoundarySector(original.Line,code-1u,sector) && sector==((proofTag>>8u)&31u) &&
+        M8FlowerL2BoundaryFlags(knot,code-1u,allowed))
+        return (allowed[petal>>5u]&(1u<<(petal&31u)))!=0u?1u:0u;
+    // Numeric touching/crossing without that proof remains unresolved.
+    // No metric bound is narrowed, and orientation still uses the full bound.
     return 2u;
 }
 
@@ -870,7 +880,7 @@ uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags
             errors.x,errors.y,root);
         if(status==0u)continue;
         uint2 allowed;
-        if(status!=1u || !M8FlowerAnchorSectorFlags(node,(root.Tag>>8u)&31u,allowed))
+        if(status!=1u || !M8FlowerAnchorRootFlags(node,root.Tag,allowed))
         {unresolved|=1u<<sign;continue;}
         if((allowed[petal>>5u]&(1u<<(petal&31u)))!=0u)admitted|=1u<<sign;
     }
@@ -896,7 +906,7 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
     if(resident!=1u){unresolvedWedges=resident==2u?63u:0u;return resident;}
     uint ownerRef=M8FlowerFindOwner(slot,local,M8FlowerEndpointGeneration(slot));
     float3 normal;float delta;M8FlowerUnpackPlane(state.flags,normal,delta);
-    M8FlowerInterval3 support[14];uint known=0u,unknown=0u;
+    M8FlowerInterval3 support[14];uint proofTags[14];uint known=0u,unknown=0u;
     uint signs=0u,active=0u,used=0u;
     // Enumerate possible roots, classify, then materialize only the selected
     // seven sites. Both phases use one reader call site; no fourteen-root
@@ -917,8 +927,13 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
                 errors.x,errors.y,root);
             if(phase==0u)
             {
-                support[index]=(M8FlowerInterval3)0;
-                if(read && M8FlowerRootRelativeBounds(knot,root,support[index]))known|=bit;
+                support[index]=(M8FlowerInterval3)0;proofTags[index]=0u;
+                if(read && M8FlowerRootRelativeBounds(knot,root,support[index]))
+                {
+                    known|=bit;uint sector;
+                    if((root.Tag&M8_FLOWER_BOUNDARY_WITNESS_MASK)!=0u &&
+                        M8FlowerPhaseRootSector(root,sector))proofTags[index]=root.Tag;
+                }
                 else if(root.Classification!=0u)unknown|=bit;
             }
             else
@@ -954,7 +969,8 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
             [unroll]for(uint vertex=0u;vertex<3u;vertex++)
             {
                 if((known&(1u<<index[vertex]))==0u)continue;
-                uint status=M8FlowerSourceFlagContainment(petal,support[index[vertex]]);
+                uint status=M8FlowerSourceFlagContainment(petal,
+                    M8FlowerL2CarrierKnot(carrier,sites[vertex]),proofTags[index[vertex]],support[index[vertex]]);
                 if(status==0u){impossible=true;break;}
                 if(status!=1u)resolved=false;
             }

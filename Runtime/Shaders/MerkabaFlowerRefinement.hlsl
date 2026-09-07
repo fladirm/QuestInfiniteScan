@@ -180,6 +180,8 @@ void M8FlowerReduceFineEndpoint(uint slot,uint lane,M8FlowerGeometryNode task,
             }
             float3 normal;float delta;
             M8FlowerUnpackPlane(plane,normal,delta);
+            int3 loopOffset=task.Offset;
+            if(task.Level==0u)loopOffset-=2*endpointLocal;
             precise float3 relative=(0.5*M8FlowerLevelStep(task.Level))*float3(task.Offset);
             if(task.Level==0u)relative-=float3(endpointLocal)*M8_FLOWER_LATTICE_STEP;
             M8FlowerInterval3 abc;
@@ -190,8 +192,8 @@ void M8FlowerReduceFineEndpoint(uint slot,uint lane,M8FlowerGeometryNode task,
                 InterlockedOr(m8FinePresence[local],8u);continue;
             }
             uint tag,classification;M8FlowerInterval2 root;
-            if(M8FlowerClassifyObservationRoot(task.Level,task.Line,false,task.Plus,
-                abc,tag,root,classification))
+            if(M8FlowerClassifyPlaneRoot(task.Level,task.Line,false,task.Plus,
+                normal,delta,loopOffset,abc,tag,root,classification))
             {
                 InterlockedOr(m8FinePresence[local],2u);
                 M8FlowerIntersectRoot(local,tag,root);
@@ -206,12 +208,11 @@ void M8FlowerReduceFineEndpoint(uint slot,uint lane,M8FlowerGeometryNode task,
 bool M8FlowerFineReadBucket(uint local,int3 junction,out M8FlowerPhaseRootEvidence root)
 {
     root=(M8FlowerPhaseRootEvidence)0;root.Classification=2u;
-    if(m8FinePresence[local]!=2u || !M8FlowerObservationBucketCertain(local))return false;
-    root.Junction=junction;root.Tag=m8FlowerTagIntersection[local]&0x1fffu;
-    root.Root.x=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerLower[local]),
-        M8FlowerFromOrderedFloat(m8FlowerUpper[local]));
-    root.Root.y=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerRootLowerY[local]),
-        M8FlowerFromOrderedFloat(m8FlowerRootUpperY[local]));
+    uint tag;M8FlowerInterval2 intersection;
+    if(m8FinePresence[local]!=2u || !M8FlowerReadRootIntersection(local,tag,intersection))return false;
+    root.Junction=junction;
+    root.Tag=tag&(0x1fffu|M8_FLOWER_BOUNDARY_WITNESS_MASK);
+    root.Root=intersection;
     root.Classification=1u;
     return M8FlowerPhaseIdentityValid(root);
 }

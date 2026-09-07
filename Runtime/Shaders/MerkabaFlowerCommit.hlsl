@@ -127,8 +127,9 @@ bool M8FlowerR1FlagWitness(uint2 witness, uint plane,
                             if (expected==0u) continue;
                             uint tag,classification;
                             M8FlowerInterval2 root;
-                            if (M8FlowerClassifyObservationRoot(level,lineClass,
-                                    endpoint<0,sign!=0u,abc,tag,root,classification) &&
+                            if (M8FlowerClassifyPlaneRoot(level,lineClass,
+                                    endpoint<0,sign!=0u,normal,offset,junction,abc,
+                                    tag,root,classification) &&
                                 ((tag>>8u)&31u)==expected-1u)
                                 admitted=true;
                         }
@@ -180,9 +181,11 @@ bool M8FlowerParentStructureChanged(uint previous,uint next)
         {
             uint oldTag,newTag,oldClass,newClass;
             M8FlowerInterval2 oldRoot,newRoot;
-            bool oldCertain=M8FlowerClassifyObservationRoot(0u,lineClass,false,sign!=0u,
+            bool oldCertain=M8FlowerClassifyPlaneRoot(0u,lineClass,false,sign!=0u,
+                beforeNormal,beforeOffset,M8FlowerDirection[direction].xyz,
                 oldAbc,oldTag,oldRoot,oldClass);
-            bool newCertain=M8FlowerClassifyObservationRoot(0u,lineClass,false,sign!=0u,
+            bool newCertain=M8FlowerClassifyPlaneRoot(0u,lineClass,false,sign!=0u,
+                afterNormal,afterOffset,M8FlowerDirection[direction].xyz,
                 newAbc,newTag,newRoot,newClass);
             if(oldCertain&&newCertain&&((oldTag^newTag)&0x1f80u)!=0u)return true;
             if((oldCertain&&newClass==M8_FLOWER_ROOT_IMPOSSIBLE)||
@@ -420,8 +423,9 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                     M8_FLOWER_R1_RADIUS,lineClass,normalError,offsetError,abc)) continue;
             uint tag,classification;
             M8FlowerInterval2 root;
-            if (M8FlowerClassifyObservationRoot(0u,lineClass,
-                    (direction & 1u) != 0u,plus,abc,tag,root,classification))
+            if (M8FlowerClassifyPlaneRoot(0u,lineClass,
+                    (direction & 1u) != 0u,plus,normal,offset,
+                    M8FlowerDirection[direction].xyz,abc,tag,root,classification))
             {
                 InterlockedOr(m8FlowerRootPresence[local],2u);
                 M8FlowerIntersectRoot(local,tag,root);
@@ -433,7 +437,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         for (uint local = lane; local < 512u; local += 128u)
             if (m8FlowerRootPresence[local] == 3u ||
                 (m8FlowerTagIntersection[local] != 0xffffffffu &&
-                 !M8FlowerObservationBucketCertain(local)))
+                 !M8FlowerRootBucketCertain(local)))
                 m8FlowerOwnerRejected[local] = 1u;
         GroupMemoryBarrierWithGroupSync();
         // A representative key can act only inside a nonempty compatible
@@ -453,8 +457,9 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                     M8_FLOWER_R1_RADIUS,lineClass,normalError,offsetError,abc)) continue;
             uint tag,classification;
             M8FlowerInterval2 root;
-            if (M8FlowerClassifyObservationRoot(0u,lineClass,
-                    (direction & 1u) != 0u,plus,abc,tag,root,classification))
+            if (M8FlowerClassifyPlaneRoot(0u,lineClass,
+                    (direction & 1u) != 0u,plus,normal,offset,
+                    M8FlowerDirection[direction].xyz,abc,tag,root,classification))
                 M8FlowerSelectRootRepresentative(local,tag,classification,
                     root,record.SourcePixel);
         }
@@ -474,12 +479,13 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         [unroll] for (uint owned=0u; owned<4u; owned++)
         {
             uint ownerLocal=lane+128u*owned;
-            ownTags[owned]=m8FlowerTagIntersection[ownerLocal];
+            M8FlowerInterval2 ownRoot;
+            bool certain=M8FlowerReadRootIntersection(ownerLocal,ownTags[owned],ownRoot);
             ownBounds[owned]=uint4(m8FlowerLower[ownerLocal],m8FlowerUpper[ownerLocal],
                 m8FlowerRootLowerY[ownerLocal],m8FlowerRootUpperY[ownerLocal]);
             ownCertain[owned]=m8FlowerOwnerRejected[ownerLocal]==0u &&
                 m8FlowerRepresentative[ownerLocal]!=0xffffffffu &&
-                M8FlowerObservationBucketCertain(ownerLocal);
+                certain;
             m8FlowerTagIntersection[ownerLocal]=0xffffffffu;
             m8FlowerTagUnion[ownerLocal]=0u;
             m8FlowerLower[ownerLocal]=0u;
@@ -531,8 +537,9 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                 }
                 uint peerTag,peerClass;
                 M8FlowerInterval2 peerRoot;
-                if (M8FlowerClassifyObservationRoot(0u,lineClass,
-                        (direction&1u)!=0u,plus,peerAbc,peerTag,peerRoot,peerClass))
+                if (M8FlowerClassifyPlaneRoot(0u,lineClass,
+                        (direction&1u)!=0u,plus,peerNormal,peerOffset,
+                        -M8FlowerDirection[direction].xyz,peerAbc,peerTag,peerRoot,peerClass))
                 {
                     uint independent=peer.SourcePixel!=
                         (source&M8_FLOWER_OBSERVATION_PIXEL_MASK)?4u:0u;
@@ -548,20 +555,28 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         {
             uint ownerLocal=lane+128u*witnessOwner;
             uint4 prior=ownBounds[witnessOwner];
+            uint peerTag;M8FlowerInterval2 peerRoot;
             if (!ownCertain[witnessOwner] || m8FlowerRootPresence[ownerLocal]!=6u ||
-                !M8FlowerObservationBucketCertain(ownerLocal) ||
-                m8FlowerTagIntersection[ownerLocal]!=ownTags[witnessOwner] ||
-                max(prior.x,m8FlowerLower[ownerLocal])>min(prior.y,m8FlowerUpper[ownerLocal]) ||
-                max(prior.z,m8FlowerRootLowerY[ownerLocal])>min(prior.w,m8FlowerRootUpperY[ownerLocal]))
+                !M8FlowerReadRootIntersection(ownerLocal,peerTag,peerRoot))
                 continue;
-            uint sector=(ownTags[witnessOwner]>>8u)&31u;
+            M8FlowerInterval2 intersection;
+            intersection.x=M8FlowerI(
+                M8FlowerFromOrderedFloat(max(prior.x,m8FlowerLower[ownerLocal])),
+                M8FlowerFromOrderedFloat(min(prior.y,m8FlowerUpper[ownerLocal])));
+            intersection.y=M8FlowerI(
+                M8FlowerFromOrderedFloat(max(prior.z,m8FlowerRootLowerY[ownerLocal])),
+                M8FlowerFromOrderedFloat(min(prior.w,m8FlowerRootUpperY[ownerLocal])));
+            uint sharedTag;
+            if(!M8FlowerResolveRootProof(ownTags[witnessOwner]&peerTag,
+                ownTags[witnessOwner]|peerTag,intersection,sharedTag))continue;
+            uint sector=(sharedTag>>8u)&31u;
             uint selectedFlag;
             // The relation is expressed in THIS endpoint owner's face frame,
             // even though the other endpoint supplied the second root. Only
             // its generated selected flag is incident at this certain phase.
             // Do not transport that face flag into a child petal implicitly.
             if (sector>=M8FlowerLineMeta[lineClass].z || sector>=31u ||
-                !M8FlowerR1SectorFlag(direction,sector,selectedFlag) ||
+                !M8FlowerR1RootFlag(direction,sharedTag,selectedFlag) ||
                 M8FlowerPetalNodes[selectedFlag].x!=direction) continue;
             m8FlowerR1Witness[ownerLocal][plus?1u:0u] |=
                 (sector+1u)<<(5u*direction);
