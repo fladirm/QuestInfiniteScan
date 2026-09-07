@@ -6105,3 +6105,57 @@ NEXT_CURSOR=do not redo the now-green binning/THROUGH/division fixes. The
 remaining skin footprint closure, direct carrier/page producer and actual
 frozen GPU observation fixture must be completed before any RUN_04 PASS,
 generated-table gate override, APK success or final-contract claim.
+
+### RUN_04 actual GPU drain proof — 2026-09-07 02:26:32Z
+
+CURRENT_COMMIT=SELF; PARENT_COMMIT=0ff3b55ac6f3249f0eceed7a8e9198242f661a4b
+CURRENT_CUT=RUN_04 OPEN. This entry supersedes the missing R2 GPU input
+fixture noted above; it does not close the skin/readout implementation gaps.
+
+FILES_CHANGED=Tests/Editor/MerkabaObservationDrainGpuTests.cs and its meta,
+plus this ledger. No production shader, ABI or contract change in this step.
+GPU_PROOF=PASS, actual DrainObservationRefinement, not a probe replacement.
+The fixture uses an orthographic camera, two frozen depth/normal pixels,
+their16 exact arithmetic overlap-owner records, stable occupied R1 owners
+K=(3,4,3) and Q=(4,3,3), and the production sparse allocator/phase writer.
+Normal=normalize(1,1,1); canonical offset0; measured offset0.006m. The kernel
+adds the mandatory quantization bounds. No roots/residuals are uploaded.
+The fixed relation d=(1,-1,0),line4 has certain nonzero R2 evidence under both
+signs. A CPU construction check used the current compiled authority before
+the GPU test; it did not introduce search or a fixture-specific production rule.
+
+The GPU test requires at least one nonzero R2 record and compares every
+owner identity and all four words of every16B phase record for eager1336
+versus quanta1/7/64. It also holds the real allocator lock, requires pending
+and backpressure without publication, then drains the SAME frozen observation
+after retirement/unlock. Completion is idempotent; canonical R1 state and
+its once-per-observation stamp are unchanged. Test-only readbacks verify
+results and retirement; no production readback was added.
+
+TESTS_RUN=Kingston Unity Vulkan full suite390 total,383 PASS,7 FAIL,0 skipped,
+80.322s; actual GPU drain test PASS in58.789s including cold pipeline setup.
+RESULT=/mnt/kingston-unity/Builds/UniscanRun04GpuDrain/TestResults/merkaba-results.xml
+LOG=/mnt/kingston-unity/Builds/UniscanRun04GpuDrain/TestResults/merkaba-tests.log
+No C# or shader compilation errors. The75-kernel native SPIR-V PASS still
+applies: this step changes no compute source. Quest runtime/performance and
+APK remain NOT RUN. This fixture starts after coarse commit; it does NOT
+claim end-to-end stereo acquisition, RGB/V skin drain or complete app parity.
+
+SKIN_AUTHORITY_QUESTION=requested from user; no answer applied. Section20.3
+has36 ordered chambers, each mapped onto one canonical child wedge. If all
+seven children are complete six-wedge Flowers, they require42 distinct
+(child,wedge) footprint images;36 single-wedge images cannot cover42.
+The minimal cardinality correction for that interpretation is at least six
+additional chamber images, still requiring an exact Flower-native partition.
+Alternatively clipped edge-child footprints need an explicit normative
+definition and corresponding proof, not an assumed row permutation. Neither
+interpretation has been silently substituted for the frozen contract.
+
+MANUAL_REVIEW=raw pixel projection, exact owners, buffer bindings, allocator
+initialization/lock, complete record comparison and disposal reviewed.
+RUN_04_CLOSURE=NOT PASS: six skin/codegen parity failures and the missing
+CompactDirtyFlowerSymbols producer remain. Source work is committed; unrelated
+.claude/ and CLAUDE.md files remain excluded. No existing authority restored.
+NEXT_CURSOR=preserve the now-passing THROUGH and real R2 eager/drain proofs.
+Resolve the precise section20.3 footprint decision, then complete the live
+carrier/skin/page producer and rerun remaining gates; do not restart the DAG.
