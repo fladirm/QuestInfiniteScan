@@ -9,6 +9,8 @@ plugin never maintains a second handwritten shader ABI.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import shutil
 import struct
@@ -232,15 +234,20 @@ def patch_storage_image_formats(words: tuple[int, ...], descriptors):
     return tuple(mutable)
 
 
-def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
-                     index: int, pipeline: Pipeline):
-    output = temporary / f"pipeline-{index}.spv"
-    command = [
+def compile_command(glslang: str, pipeline: Pipeline, output: Path) -> list[str]:
+    """One flag source for native embedding and the existing compute audit."""
+    return [
         glslang, "-D", "-V", "--target-env", "vulkan1.1", "-S", "comp",
         "-e", pipeline.entry, f"-I{SHADER_ROOT}",
         "-DSHADER_API_VULKAN=1", "--auto-map-bindings", "-l", "-q",
         str(SHADER_ROOT / pipeline.source), "-o", str(output),
     ]
+
+
+def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
+                     index: int, pipeline: Pipeline):
+    output = temporary / f"pipeline-{index}.spv"
+    command = compile_command(glslang, pipeline, output)
     compiled = run(command)
     if compiled.returncode != 0:
         raise RuntimeError(f"{pipeline.label}: glslang failed\n" +
@@ -348,6 +355,190 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
     return words, descriptors, uniforms, global_size
 
 
+def spirv_metrics(words: tuple[int, ...], entry: str) -> dict:
+    """Measure the final binary, without another optimizer or source estimate.
+
+    Body count excludes OpFunction/OpFunctionEnd, including the instructions
+    between them (parameters and labels included). Constant bytes mean encoded
+    SPIR-V constant instructions, NOT per-invocation register allocation.
+    Workgroup bytes count live declared payload, not driver occupancy/spills.
+    """
+    if len(words) < 5 or words[0] != 0x07230203:
+        raise RuntimeError("invalid SPIR-V header")
+    types, constants, decorations, member_decorations = {}, {}, {}, {}
+    variables, names, entries, local_sizes = {}, {}, {}, {}
+    body = False
+    instruction_count = body_count = constant_bytes = control = memory = precise = 0
+    offset = 5
+    while offset < len(words):
+        count, opcode = words[offset] >> 16, words[offset] & 0xffff
+        if count == 0 or offset + count > len(words):
+            raise RuntimeError("malformed SPIR-V instruction stream")
+        operands = words[offset + 1:offset + count]
+        instruction_count += 1
+        if opcode == 54:  # OpFunction
+            body = True
+        elif opcode == 56:  # OpFunctionEnd
+            body = False
+        elif body:
+            body_count += 1
+        if opcode in (41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52):
+            constant_bytes += count * 4
+        if opcode == 43:  # Integer array lengths use ordinary OpConstant.
+            constants[operands[1]] = operands[2:]
+        elif opcode == 5:
+            names[operands[0]] = struct.pack(
+                f"<{len(operands) - 1}I", *operands[1:]).split(b"\0", 1)[0].decode("utf-8")
+        elif opcode == 15:  # OpEntryPoint, including trailing interface IDs.
+            name = struct.pack(f"<{len(operands) - 2}I", *operands[2:]).split(b"\0", 1)[0]
+            entries[name.decode("utf-8")] = operands[1]
+        elif opcode == 16 and operands[1] == 17:  # LocalSize
+            local_sizes[operands[0]] = list(operands[2:5])
+        elif opcode == 71:
+            decorations.setdefault(operands[0], {})[operands[1]] = operands[2:]
+            precise += operands[1] == 42  # NoContraction
+        elif opcode == 72:
+            member_decorations.setdefault((operands[0], operands[1]), {})[operands[2]] = operands[3:]
+        elif 19 <= opcode <= 39:
+            types[operands[0]] = (opcode, operands[1:])
+        elif opcode == 59:  # OpVariable
+            variables[operands[1]] = (operands[0], operands[2])
+        control += opcode == 224
+        memory += opcode == 225
+        offset += count
+    local_size = local_sizes.get(entries.get(entry))
+    if local_size is None:
+        raise RuntimeError(f"{entry}: no fixed emitted LocalSize")
+
+    sizes = {}
+
+    def type_bytes(type_id: int) -> int:
+        if type_id in sizes:
+            return sizes[type_id]
+        opcode, operands = types[type_id]
+        if opcode == 20:  # Physical boolean payload, when present.
+            size = 4
+        elif opcode in (21, 22):
+            size = operands[0] // 8
+        elif opcode in (23, 24):  # Vector/matrix.
+            size = type_bytes(operands[0]) * operands[1]
+        elif opcode == 28:
+            length_words = constants.get(operands[1])
+            if length_words is None:
+                raise RuntimeError("unresolved Workgroup array length")
+            length = sum(word << (32 * index) for index, word in enumerate(length_words))
+            stride = decorations.get(type_id, {}).get(6, (type_bytes(operands[0]),))[0]
+            size = stride * length
+        elif opcode == 30:
+            size = 0
+            for index, member in enumerate(operands):
+                layout = member_decorations.get((type_id, index), {})
+                member_size = type_bytes(member)
+                if 7 in layout:  # MatrixStride: count the declared major vectors.
+                    member_op, member_args = types[member]
+                    if member_op != 24:
+                        raise RuntimeError("unsupported Workgroup matrix layout")
+                    vectors = types[member_args[0]][1][1] if 4 in layout else member_args[1]
+                    member_size = layout[7][0] * vectors
+                size = max(size, layout.get(35, (size,))[0] + member_size)
+        else:
+            raise RuntimeError(f"unsupported Workgroup type opcode {opcode}")
+        sizes[type_id] = size
+        return size
+
+    def nonwritable(type_id: int) -> bool:
+        if 24 in decorations.get(type_id, {}):
+            return True
+        opcode, operands = types[type_id]
+        if opcode in (28, 29):
+            return nonwritable(operands[0])
+        return opcode == 30 and bool(operands) and all(
+            24 in member_decorations.get((type_id, index), {}) or nonwritable(member)
+            for index, member in enumerate(operands))
+
+    workgroup = total_buffers = readonly_buffers = writable_images = 0
+    bindings = []
+    for variable, (pointer, storage) in variables.items():
+        _, pointer_args = types[pointer]
+        pointee = pointer_args[1]
+        if storage == 4:  # Workgroup: only variables surviving native compilation.
+            workgroup += type_bytes(pointee)
+        decoration = decorations.get(variable, {})
+        if 33 not in decoration:
+            continue
+        readonly = 24 in decoration or nonwritable(pointee)
+        opcode, operands = types[pointee]
+        kind = "other"
+        if storage == 12 or (storage == 2 and 3 in decorations.get(pointee, {})):
+            kind = "storage_buffer"
+            total_buffers += 1
+            readonly_buffers += readonly
+        elif opcode == 25 and operands[5] == 2:
+            kind = "storage_image"
+            writable_images += not readonly
+        elif storage == 2:
+            kind = "uniform_buffer"
+            readonly = True
+        elif opcode in (25, 27):
+            kind = "sampled_image"
+            readonly = True
+        elif opcode == 26:
+            kind = "sampler"
+            readonly = True
+        bindings.append({"set": decoration.get(34, (0,))[0], "binding": decoration[33][0],
+                         "name": names.get(variable, str(variable)), "kind": kind,
+                         "readonly": readonly})
+    payload = struct.pack(f"<{len(words)}I", *words)
+    return {
+        "entrypoint": entry, "sha256": hashlib.sha256(payload).hexdigest(),
+        "spirv_bytes": len(payload), "spirv_bound": words[3],
+        "module_instructions": instruction_count, "function_body_instructions": body_count,
+        "constant_instruction_bytes": constant_bytes, "local_size": local_size,
+        "groupshared_payload_bytes": workgroup,
+        "storage_buffers": total_buffers, "readonly_storage_buffers": readonly_buffers,
+        "writable_storage_buffers": total_buffers - readonly_buffers,
+        "writable_storage_images": writable_images,
+        "writable_storage_bindings": total_buffers - readonly_buffers + writable_images,
+        "control_barriers": control, "memory_barriers": memory,
+        "barriers": control + memory, "no_contraction": precise,
+        "float64": any(op == 22 and args[0] == 64 for op, args in types.values()),
+        "bindings": sorted(bindings, key=lambda item: (item["set"], item["binding"])),
+    }
+
+
+def metric_report(words, pipeline: Pipeline, command: list[str], compiler_version: str,
+                  native: bool, oracle: bool = False) -> dict:
+    report = spirv_metrics(words, pipeline.entry)
+    report.update(source=pipeline.source, profile="oracle" if oracle else "production",
+                  native_embedding_payload=native, compiler=command[0], compiler_version=compiler_version,
+                  compile_command=command, postprocess="native storage-image formats" if native else "none")
+    failures, reviews = [], []
+    # Oracle modules deliberately contain many operation branches. Report their
+    # sizes, but do not mislabel them as a production shader-size failure.
+    if not oracle:
+        for key, review, fail in (("spirv_bytes", 512 * 1024, 1024 * 1024),
+                                  ("function_body_instructions", 20000, 50000)):
+            if report[key] > fail:
+                failures.append(f"{key}={report[key]} > {fail}")
+            elif report[key] > review:
+                reviews.append(f"{key}={report[key]} > {review}")
+    if report["groupshared_payload_bytes"] > 32768:
+        failures.append("groupshared_payload_bytes > 32768")
+    elif report["groupshared_payload_bytes"] > 16384:
+        reviews.append("groupshared_payload_bytes > 16384")
+    if report["writable_storage_bindings"] > 8:
+        failures.append("writable_storage_bindings > 8")
+    if report["float64"]:
+        failures.append("float64 runtime type")
+    report.update(metric_gate="FAIL" if failures else "REVIEW" if reviews else "PASS",
+                  failures=failures, reviews=reviews)
+    return report
+
+
+def print_metrics(report: dict) -> None:
+    print("METRICS " + json.dumps(report, sort_keys=True))
+
+
 def c_string(value: str) -> str:
     return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
@@ -396,22 +587,84 @@ def emit(output: Path, compiled) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, help="native C++ embedding output (unchanged ABI)")
+    parser.add_argument("--metrics-report", type=Path, help="write the exact emitted-module metrics as JSON")
+    parser.add_argument("--audit-shader", type=Path, help="compile one entry for the existing compute audit")
+    parser.add_argument("--audit-entry", help="entrypoint in --audit-shader")
+    parser.add_argument("--artifact-dir", type=Path, help="retain the single audit module and its metrics")
     args = parser.parse_args()
+    auditing = args.audit_shader is not None
+    if auditing:
+        if args.output or not args.audit_entry or not args.artifact_dir:
+            parser.error("--audit-shader needs --audit-entry and --artifact-dir, without --output")
+    elif not args.output or args.audit_entry or args.artifact_dir:
+        parser.error("provide --output, or the complete single-entry --audit-shader arguments")
     glslang = require("glslangValidator")
     spirv_val = require("spirv-val")
+    version = run([glslang, "--version"])
+    if version.returncode != 0:
+        raise RuntimeError("cannot record the actual glslang version")
+    compiler_version = version.stdout.strip()
+    if auditing:
+        shader = args.audit_shader.resolve()
+        if not shader.is_file() or not shader.is_relative_to(ROOT):
+            parser.error("--audit-shader must name an existing repository shader")
+        native = next((pipeline for pipeline in PIPELINES
+                       if (SHADER_ROOT / pipeline.source).resolve() == shader
+                       and pipeline.entry == args.audit_entry), None)
+        pipeline = native or Pipeline(args.audit_entry, str(shader), args.audit_entry, "audit")
+        args.artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact = args.artifact_dir / "pipeline-0.spv"
+        command = compile_command(glslang, pipeline, artifact)
+        if native:
+            # EXACT native words, including the required final image-format
+            # patch, validation and reflected resource/global ABI checks.
+            words, _, _, _ = compile_pipeline(glslang, spirv_val, args.artifact_dir, 0, pipeline)
+        else:
+            # Auxiliary runtime and oracle kernels are not embedded pipelines;
+            # keep that distinction explicit, using the same compiler flags.
+            compiled = run(command)
+            if compiled.returncode != 0:
+                raise RuntimeError(f"{pipeline.label}: glslang failed\n" + compiled.stdout + compiled.stderr)
+            validated = run([spirv_val, "--target-env", "vulkan1.1", str(artifact)])
+            if validated.returncode != 0:
+                raise RuntimeError(f"{pipeline.label}: spirv-val failed\n" + validated.stdout + validated.stderr)
+            payload = artifact.read_bytes()
+            if len(payload) % 4:
+                raise RuntimeError(f"{pipeline.label}: malformed SPIR-V size")
+            words = struct.unpack(f"<{len(payload) // 4}I", payload)
+        report = metric_report(words, pipeline, command, compiler_version,
+                               native is not None, shader.is_relative_to(ROOT / "Tests"))
+        report["source"] = str(shader.relative_to(ROOT))
+        print_metrics(report)
+        report_path = args.metrics_report or args.artifact_dir / "metrics.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        # Compilation/reflection errors fail above. The calling audit combines
+        # metric failures with its existing alias/precision checks, continuing
+        # through every entry rather than hiding later failures.
+        return 0
     with tempfile.TemporaryDirectory(prefix="merkaba-native-executor-") as value:
         temporary = Path(value)
         compiled = []
+        reports = []
         for index, pipeline in enumerate(PIPELINES):
             result = compile_pipeline(glslang, spirv_val, temporary, index,
                                       pipeline)
             compiled.append((pipeline, *result))
-            print(f"PASS {pipeline.label}: {len(result[0]) * 4} bytes, "
+            report = metric_report(result[0], pipeline,
+                                   compile_command(glslang, pipeline, temporary / f"pipeline-{index}.spv"),
+                                   compiler_version, True)
+            reports.append(report)
+            print_metrics(report)
+            print(f"COMPILED {pipeline.label}: {len(result[0]) * 4} bytes, "
                   f"descriptors={len(result[1])}, uniforms={len(result[2])}, "
-                  f"globals={result[3]}")
+                  f"globals={result[3]}, metric_gate={report['metric_gate']}")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         emit(args.output, compiled)
+        if args.metrics_report:
+            args.metrics_report.parent.mkdir(parents=True, exist_ok=True)
+            args.metrics_report.write_text(json.dumps(reports, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Embedded {len(compiled)} native executor pipelines: {args.output}")
     return 0
 

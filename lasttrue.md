@@ -7131,3 +7131,55 @@ DEVICE_LOG=/mnt/kingston-unity/Builds/QuestMerkabaScan/DeviceLogs/quest-20260907
 Log capture is restricted to this package UID from installation time onward;
 device log buffers were not cleared. Runtime acceptance remains unproved.
 NEXT=observe this installed APK's user-driven run and repair concrete findings.
+
+### CURRENT TRUE STATE — actual Quest startup failure, 2026-09-07 16:36Z
+
+CURRENT_COMMIT=d60e053468c5e592d5635f370f6f0089bea2f8d2, pushed to
+refactor/m8-dual-sphere-flower-rev-b. This is the requested checkpoint,
+not closed RUN04/05/06 acceptance. Installed APK remains ff3b6b2b above.
+DEVICE_FAILURE=actual user launch PID25038 on Quest_3S340YC20G7X0QZ4:
+18:09:07 initialization ->18:12:58.951 Adreno "Failed to link shaders",
+vkCreateComputePipelines=-13. Native pipeline creation blocks UnityMain
+before first frame. The old binary lacks per-pipeline creation labels;
+the exact failed entry is therefore not yet established. This is not PASS
+and not just a slow loading screen. Device process PSS was about188MiB.
+DEVICE_FEATURE_FAILURE=multiDrawIndirect/firstInstance/countDraw supported1
+but enabled0; Flower draw unavailable. Feature negotiation repair is in
+the worktree, preserving Unity's requested features/const pNext chain.
+REPAIR_IN_PROGRESS=per-pipeline driver creation labels/times; bounded ordered
+decoder callsites in StereoDepthPlane/ChromaticSupport/LoopSupport; one host
+initialization worker so compiler work cannot hold Unity startup. No new GPU
+queue, geometry equation, measurement omission, fallback or ABI change.
+STEREO_FIRST_MEASURE=depth decoder callsite consolidation:1589116->984084B,
+98377->60421 SPIR-V instructions; actual native compile_pipeline, no-Os.
+spirv-val PASS; descriptors/uniform offsets/global1012B/WG8x8x1 identical;
+no Fma/RelaxedPrecision/FPFastMathMode. Ordered-eye consolidation is newer
+than that receipt and is being compiled separately before APK packaging.
+REJECTED_COMPILER_SHORTCUT=glslang-Os stereo saved only4.27% bytes; Drain
+exceeded a bounded6GiB host compile scope. No-Os switch was adopted.
+DEVICE_LOG_CAPTURE=exec68869, package UID10178 only, same DeviceLogs path.
+The user controls launch; no force-stop, app-data clear or log-buffer clear.
+NEXT=finish actual source compile/native ARM64 build, bounded fresh APK,
+install and observe user-driven runtime. Do not relabel this worktree as the
+already installed APK or claim the driver failure is repaired without evidence.
+
+### CURRENT TRUE STATE — authorized execution closure RUN_08–14
+
+CURRENT_COMMIT=d60e053468c5e592d5635f370f6f0089bea2f8d2 plus preserved repairs.
+EXECUTION_AUTHORITY=MERKABA_CLOSURE_CONTRACT.md, the user-approved corrected
+closure, subordinate to immutable REV-C. Downloads copy is the review copy;
+this repository copy is the execution reference. No old CUT14/REV-B goal
+text overrides the current closure. Product goal is PAUSED; API cannot resume it.
+CURRENT_RUN=RUN_08 OPEN. Main=existing native startup/features/cache repair;
+parallel bounded work=shader size gate, refinement callsite reduction, RUN_11
+export-name/Android Save-As. No geometry or persistence ABI change authorized.
+DAG=08->09->10;11 independent;10+11->12;11->13(final wiring10/12);all->14.
+COMMITS=first size-gate checkpoint; cohesive run checkpoints thereafter;
+never label unvalidated implementation as PASS. Full validation stays RUN_14.
+USER_BUDGET=90% implementation, 10% control/tests; only necessary interim checks.
+NEXT=commit measuring gate, finish RUN_08 execution consumers; continue DAG.
+
+RUN_08_GATE_CHECKPOINT=exact native payload size/body/GS/binding/ABI receipts
+implemented in the existing generator and compute audit. Syntax checks PASS;
+full shader gate NOT RUN and known oversized production modules remain FAIL.
+This commit freezes the approved closure and measuring gate, not runtime repair.

@@ -4,10 +4,26 @@ set -euo pipefail
 tool_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$tool_dir/../.." && pwd)"
 shader_dir="$repo_root/Runtime/Shaders"
-audit_dir="$(mktemp -d)"
-trap 'rm -rf -- "$audit_dir"' EXIT
+generator="$repo_root/Tools/unity/generate_merkaba_native_executor_shaders.py"
+if (( $# == 0 )); then
+  audit_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$audit_dir"' EXIT
+elif (( $# == 2 )) && [[ "$1" == "--output-dir" && -n "$2" ]]; then
+  audit_dir="$2"
+  mkdir -p -- "$audit_dir"
+  audit_dir="$(cd -- "$audit_dir" && pwd)"
+elif (( $# == 1 )) && [[ "$1" == "--help" ]]; then
+  echo "Usage: $0 [--output-dir DIR]"
+  echo "Audit exact native compile flags/payloads; retain per-entry SPIR-V, JSON metrics and logs in DIR."
+  echo "Production: >512 KiB/20000 body instructions REVIEW; >1 MiB/50000 FAIL."
+  echo "Oracle sizes reported separately. All entries: >16 KiB GS REVIEW; >32 KiB or >8 writable FAIL."
+  exit 0
+else
+  echo "Usage: $0 [--output-dir DIR]" >&2
+  exit 2
+fi
 
-for tool in glslangValidator spirv-dis spirv-val; do
+for tool in python3 rg glslangValidator spirv-dis spirv-val; do
   command -v "$tool" >/dev/null || {
     echo "FAIL: required shader audit tool is missing: $tool" >&2
     exit 1
@@ -43,18 +59,28 @@ shaders=(
 
 kernel_count=0
 failed_kernel_count=0
+production_count=0
+oracle_count=0
+native_count=0
 expected_kernel_count=$(rg -c '^#pragma kernel ' "${shaders[@]}" |
   awk -F: '{ count += $NF } END { print count + 0 }')
 for shader in "${shaders[@]}"; do
   while read -r _ _ kernel; do
     kernel_count=$((kernel_count + 1))
     kernel_failed=0
-    spv="$audit_dir/$kernel.spv"
-    assembly="$audit_dir/$kernel.spvasm"
-    if ! glslangValidator -D -V --target-env vulkan1.1 -S comp -e "$kernel" \
-      -I"$shader_dir" "$shader" -o "$spv" >"$audit_dir/compile.log" 2>&1; then
+    entry_dir="$audit_dir/$(basename "$shader" .compute)/$kernel"
+    mkdir -p -- "$entry_dir"
+    spv="$entry_dir/pipeline-0.spv"
+    assembly="$entry_dir/module.spvasm"
+    metrics="$entry_dir/metrics.json"
+    # The native generator owns the flags and final storage-image format patch.
+    # Its native PIPELINES are also checked against the emitted descriptor ABI.
+    # Other runtime/oracle entries use those same flags, without pretending to
+    # be an embedded native pipeline. No extra spirv-opt pass changes the metric.
+    if ! python3 "$generator" --audit-shader "$shader" --audit-entry "$kernel" \
+      --artifact-dir "$entry_dir" >"$entry_dir/compile.log" 2>&1; then
       echo "FAIL: $shader kernel $kernel did not compile" >&2
-      cat "$audit_dir/compile.log" >&2
+      cat "$entry_dir/compile.log" >&2
       failed_kernel_count=$((failed_kernel_count + 1))
       continue
     fi
@@ -85,26 +111,40 @@ for shader in "${shaders[@]}"; do
       fi
     fi
 
-    total=$(awk '/OpVariable .* StorageBuffer$/ { count++ }
-      END { print count + 0 }' "$assembly")
-    readonly=$(awk '
-      /OpDecorate %[^ ]+ NonWritable$/ { read_only[$2] = 1 }
-      /OpVariable .* StorageBuffer$/ { variables[$1] = 1 }
-      END {
-        for (variable in variables)
-          if (read_only[variable]) count++
-        print count + 0
-      }' "$assembly")
-    writable_buffers=$((total - readonly))
-    writable_images=$(awk '
-      $3 == "OpTypeImage" && $9 == "2" { storage_image[$1] = 1 }
-      $3 == "OpTypePointer" && $4 == "UniformConstant" &&
-        storage_image[$5] { storage_pointer[$1] = 1 }
-      $3 == "OpVariable" && $5 == "UniformConstant" &&
-        storage_pointer[$4] { count++ }
-      END { print count + 0 }
-    ' "$assembly")
-    writable=$((writable_buffers + writable_images))
+    # The shared binary reflector accounts for NonWritable on variables,
+    # block types AND members. Do not infer private storage from static const.
+    if ! measurement=$(python3 - "$metrics" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+keys = ("storage_buffers", "readonly_storage_buffers", "writable_storage_bindings",
+        "writable_storage_images", "spirv_bytes", "function_body_instructions",
+        "groupshared_payload_bytes", "constant_instruction_bytes", "barriers",
+        "metric_gate", "profile", "sha256")
+values = [str(report[key]) for key in keys]
+values.extend(("x".join(map(str, report["local_size"])),
+               "native" if report["native_embedding_payload"] else "auxiliary"))
+print(" ".join(values))
+for level, key in (("FAIL", "failures"), ("REVIEW", "reviews")):
+    for issue in report[key]:
+        print(f"{level}: {report['profile']} {report['entrypoint']}: {issue}", file=sys.stderr)
+PY
+    ); then
+      echo "FAIL: $kernel emitted-module metrics could not be read" >&2
+      failed_kernel_count=$((failed_kernel_count + 1))
+      continue
+    fi
+    read -r total readonly writable writable_images bytes body_instructions \
+      groupshared constant_bytes barriers metric_gate profile sha256 local_size artifact_kind <<< "$measurement"
+    if [[ "$profile" == "oracle" ]]; then
+      oracle_count=$((oracle_count + 1))
+    else
+      production_count=$((production_count + 1))
+    fi
+    if [[ "$artifact_kind" == "native" ]]; then native_count=$((native_count + 1)); fi
+    if [[ "$metric_gate" == "FAIL" ]]; then kernel_failed=1; fi
     if (( writable > 8 )); then
       echo "FAIL: $kernel has $writable writable storage bindings (>8)" >&2
       kernel_failed=1
@@ -132,8 +172,10 @@ for shader in "${shaders[@]}"; do
       kernel_failed=1
     fi
 
-    printf '%-38s buffers=%2d writable=%d images=%d readonly=%2d\n' \
-      "$kernel" "$total" "$writable" "$writable_images" "$readonly"
+    printf '%-38s profile=%s payload=%s gate=%s bytes=%d body=%d GS=%d LocalSize=%s buffers=%d RW=%d RWimages=%d RO=%d barriers=%d constantSPV=%d sha256=%s\n' \
+      "$kernel" "$profile" "$artifact_kind" "$metric_gate" "$bytes" "$body_instructions" \
+      "$groupshared" "$local_size" "$total" "$writable" "$writable_images" "$readonly" \
+      "$barriers" "$constant_bytes" "$sha256"
     failed_kernel_count=$((failed_kernel_count + kernel_failed))
   done < <(rg '^#pragma kernel ' "$shader")
 done
@@ -144,8 +186,8 @@ if (( kernel_count != expected_kernel_count )); then
 fi
 
 if (( failed_kernel_count != 0 )); then
-  echo "FAIL: $failed_kernel_count of $kernel_count Quest compute kernels failed the unchanged validation/binding limits" >&2
+  echo "FAIL: $failed_kernel_count of $kernel_count kernels failed validation, binding or production engineering gates (production=$production_count native=$native_count oracle=$oracle_count)" >&2
   exit 1
 fi
 
-echo "PASS: $kernel_count Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: $kernel_count kernels validate; production=$production_count native=$native_count oracle=$oracle_count; production size/body gates pass; GS <=32 KiB; writable storage <=8; no RW/read alias pair. REVIEW remains advisory; this is not device/RUN_08 acceptance."
