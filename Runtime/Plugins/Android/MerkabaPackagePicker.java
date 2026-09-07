@@ -6,12 +6,16 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 
 import com.unity3d.player.UnityPlayer;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.security.MessageDigest;
 
 /** Small Storage Access Framework bridge for one streamed ZIP or GLB. */
@@ -20,6 +24,10 @@ public final class MerkabaPackagePicker {
     private static final String GameObjectKey = "gameObject";
     private static final String CallbackKey = "callback";
     private static final String GlbModeKey = "glbMode";
+    private static final String SaveModeKey = "saveMode";
+    private static final String SourcePathKey = "sourcePath";
+    private static final String FileNameKey = "fileName";
+    private static final String MimeTypeKey = "mimeType";
 
     private MerkabaPackagePicker() { }
 
@@ -36,6 +44,29 @@ public final class MerkabaPackagePicker {
     private static void openDocument(final Activity activity,
             final String gameObject, final String callback,
             final boolean glbMode) {
+        Bundle arguments = new Bundle();
+        arguments.putString(GameObjectKey, gameObject);
+        arguments.putString(CallbackKey, callback);
+        arguments.putBoolean(GlbModeKey, glbMode);
+        showPicker(activity, arguments, gameObject, callback);
+    }
+
+    public static void save(final Activity activity, final String sourcePath,
+            final String fileName, final String mimeType,
+            final String gameObject, final String callback) {
+        Bundle arguments = new Bundle();
+        arguments.putString(GameObjectKey, gameObject);
+        arguments.putString(CallbackKey, callback);
+        arguments.putBoolean(SaveModeKey, true);
+        arguments.putString(SourcePathKey, sourcePath);
+        arguments.putString(FileNameKey, fileName);
+        arguments.putString(MimeTypeKey, mimeType);
+        showPicker(activity, arguments, gameObject, callback);
+    }
+
+    private static void showPicker(final Activity activity,
+            final Bundle arguments, final String gameObject,
+            final String callback) {
         if (activity == null) {
             send(gameObject, callback, "ERROR:Unity activity is unavailable");
             return;
@@ -50,10 +81,6 @@ public final class MerkabaPackagePicker {
                     return;
                 }
                 PickerFragment fragment = new PickerFragment();
-                Bundle arguments = new Bundle();
-                arguments.putString(GameObjectKey, gameObject);
-                arguments.putString(CallbackKey, callback);
-                arguments.putBoolean(GlbModeKey, glbMode);
                 fragment.setArguments(arguments);
                 activity.getFragmentManager().beginTransaction()
                     .add(fragment, FragmentTag).commit();
@@ -64,6 +91,8 @@ public final class MerkabaPackagePicker {
     public static final class PickerFragment extends Fragment {
         private static final int OpenZipRequest = 0x4d38;
         private boolean launched;
+        private FileInputStream saveInput;
+        private long saveBytes;
 
         @Override public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
@@ -74,22 +103,41 @@ public final class MerkabaPackagePicker {
             super.onResume();
             if (launched) return;
             launched = true;
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            boolean saveMode = booleanArgument(SaveModeKey);
+            if (saveMode) {
+                try {
+                    openSaveSource();
+                } catch (Exception exception) {
+                    finish("ERROR:" + exception.getMessage());
+                    return;
+                }
+            }
+            Intent intent = new Intent(saveMode ? Intent.ACTION_CREATE_DOCUMENT
+                : Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            boolean glbMode = booleanArgument(GlbModeKey);
-            intent.setType(glbMode ? "*/*" : "application/zip");
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, glbMode
-                ? new String[] { "model/gltf-binary",
-                    "application/octet-stream" }
-                : new String[] { "application/zip",
-                    "application/x-zip-compressed",
-                    "application/octet-stream" });
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            if (saveMode) {
+                intent.setType(argument(MimeTypeKey));
+                intent.putExtra(Intent.EXTRA_TITLE, argument(FileNameKey));
+                intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            } else {
+                boolean glbMode = booleanArgument(GlbModeKey);
+                intent.setType(glbMode ? "*/*" : "application/zip");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, glbMode
+                    ? new String[] { "model/gltf-binary",
+                        "application/octet-stream" }
+                    : new String[] { "application/zip",
+                        "application/x-zip-compressed",
+                        "application/octet-stream" });
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            }
             try {
                 startActivityForResult(intent, OpenZipRequest);
             } catch (ActivityNotFoundException exception) {
                 finish("ERROR:No Android document picker is installed");
+            } catch (RuntimeException exception) {
+                finish("ERROR:" + exception.getMessage());
             }
         }
 
@@ -106,6 +154,18 @@ public final class MerkabaPackagePicker {
             final Uri uri = data.getData();
             final String gameObject = argument(GameObjectKey);
             final String callback = argument(CallbackKey);
+            if (activity == null) {
+                finish("ERROR:Unity activity is unavailable");
+                return;
+            }
+            boolean saveMode = booleanArgument(SaveModeKey);
+            takePersistableGrant(activity, uri, data.getFlags(), saveMode
+                ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                : Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (saveMode) {
+                saveDocument(activity, uri, gameObject, callback);
+                return;
+            }
             new Thread(new Runnable() {
                 @Override public void run() {
                     String result;
@@ -169,6 +229,114 @@ public final class MerkabaPackagePicker {
             }, "MerkabaPackageImport").start();
         }
 
+        private void openSaveSource() throws IOException {
+            Activity activity = getActivity();
+            if (activity == null)
+                throw new IOException("Unity activity is unavailable");
+            File source = new File(argument(SourcePathKey)).getCanonicalFile();
+            boolean allowed = isExportDirectory(source.getParentFile(),
+                activity.getFilesDir()) || isExportDirectory(
+                    source.getParentFile(), activity.getExternalFilesDir(null));
+            String name = argument(FileNameKey);
+            String mime = argument(MimeTypeKey);
+            boolean format = (source.getName().endsWith(".glb") &&
+                "model/gltf-binary".equals(mime)) ||
+                (source.getName().endsWith(".zip") && "application/zip".equals(mime));
+            if (!allowed || !source.isFile() || !format ||
+                    !source.getName().equals(name))
+                throw new IOException("Save As requires a completed app export");
+            // Pin the completed file before opening the picker. A later atomic
+            // export replacement cannot change this descriptor's source bytes.
+            saveInput = new FileInputStream(source);
+            saveBytes = saveInput.getChannel().size();
+            if (saveBytes <= 0L)
+                throw new IOException("The completed export is empty");
+        }
+
+        private boolean isExportDirectory(File directory, File filesRoot)
+                throws IOException {
+            return filesRoot != null && directory != null && directory.equals(
+                new File(filesRoot, "MerkabaScan/exports").getCanonicalFile());
+        }
+
+        private void saveDocument(final Activity activity, final Uri uri,
+                final String gameObject, final String callback) {
+            final FileInputStream source = saveInput;
+            final long expected = saveBytes;
+            saveInput = null; // The worker now owns and always closes the stream.
+            if (source == null) {
+                finish("ERROR:Export source is no longer available; choose Save As again");
+                return;
+            }
+            send(gameObject, callback, "COPYING");
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    String result;
+                    try {
+                        try (InputStream input = source;
+                             OutputStream output = activity.getContentResolver()
+                                 .openOutputStream(uri, "wt")) {
+                            if (output == null)
+                                throw new IOException("Selected document cannot be written");
+                            byte[] buffer = new byte[1024 * 1024];
+                            long copied = 0L;
+                            int read;
+                            while ((read = input.read(buffer)) >= 0) {
+                                if (read == 0) continue;
+                                copied += read;
+                                if (copied > expected)
+                                    throw new IOException("Export source changed during copy");
+                                output.write(buffer, 0, read);
+                            }
+                            if (copied != expected)
+                                throw new IOException("Export source was truncated during copy");
+                            output.flush();
+                        }
+                        result = "SAVED:" + uri.toString();
+                    } catch (Exception exception) {
+                        result = "ERROR:" + exception.getMessage();
+                    }
+                    final String delivered = result;
+                    activity.runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            send(gameObject, callback, delivered);
+                            removeSelf();
+                        }
+                    });
+                }
+            }, "MerkabaPackageExport").start();
+        }
+
+        private void takePersistableGrant(Activity activity, Uri uri,
+                int returnedFlags, int requestedMode) {
+            int grantedMode = returnedFlags & requestedMode;
+            if ((returnedFlags & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) == 0 ||
+                    grantedMode == 0) return;
+            try {
+                activity.getContentResolver().takePersistableUriPermission(uri, grantedMode);
+            } catch (SecurityException | UnsupportedOperationException exception) {
+                // The current one-time permission may still be usable. No
+                // persistent access is promised; a later action reopens picker.
+                Log.w(FragmentTag, "Document permission is one-time only; " +
+                    "select the document again when needed", exception);
+            }
+        }
+
+        private void closeSaveSource() {
+            if (saveInput == null) return;
+            try {
+                saveInput.close();
+            } catch (IOException exception) {
+                Log.w(FragmentTag, "Could not close export source", exception);
+            }
+            saveInput = null;
+        }
+
+        @Override public void onDestroy() {
+            closeSaveSource();
+            super.onDestroy();
+        }
+
         private String argument(String key) {
             Bundle arguments = getArguments();
             return arguments != null ? arguments.getString(key, "") : "";
@@ -180,6 +348,7 @@ public final class MerkabaPackagePicker {
         }
 
         private void finish(String result) {
+            closeSaveSource();
             send(argument(GameObjectKey), argument(CallbackKey), result);
             removeSelf();
         }

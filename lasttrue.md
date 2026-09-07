@@ -7198,3 +7198,11 @@ SIZE_GATE=OPEN/FAIL; Drain4857076B, Stereo859508B/51060body instructions.
 TESTS=full suite deferred RUN_14; DEVICE=not run on this source.
 NEXT=RUN_08 dirty-page batching/parallel prefix, finite lookup and command graph;
 RUN_11 export picker/name and session-note checkpoints proceed independently.
+
+RUN_11_EXPORT_UI_CHECKPOINT=export-name and named GLB/ZIP consumers; Android
+ACTION_CREATE_DOCUMENT streams a pinned completed app export, keeps source
+intact, reports partial destination failure, retains only actually granted
+persistable URI permissions. Current viewer resolves the last named ZIP.
+Existing status label displays native startup progress/failure from ABI11.
+CHECKS=Android36/Unity Java8 compile and UXML syntax PASS; C#/device pending14.
+No exporter geometry or presentation authority was changed by this UI slice.

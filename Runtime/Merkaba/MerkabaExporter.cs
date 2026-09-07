@@ -12,9 +12,7 @@ namespace Genesis.RoomScan
     [DisallowMultipleComponent]
     public sealed class MerkabaExporter : MonoBehaviour
     {
-        private const string ExportFileName = "QuestMerkabaScan.glb";
         private const string ViewerPackageName = "QuestMerkabaScan";
-        private const string ViewerArchiveFileName = "QuestMerkabaScan.zip";
         private const string ViewerResourceRoot =
             "Merkaba/QuestMerkabaScanViewer";
 
@@ -26,15 +24,15 @@ namespace Genesis.RoomScan
         private MerkabaTileAddress[] _exportTiles;
         private MerkabaStorageAppendPosition _exportPosition;
         private float2 _exportPlaneBounds;
+        private string _lastGlbPath;
+        private string _lastViewerPackagePath;
 
         public bool IsExporting { get; private set; }
         public string LastExportPath { get; private set; }
         public string LastStatus { get; private set; } = "Not exported";
-        public string ExportPath => Path.Combine(Application.persistentDataPath,
-            "MerkabaScan", "exports", ExportFileName);
-        public string ViewerPackagePath => Path.Combine(
-            Application.persistentDataPath, "MerkabaScan", "exports",
-            ViewerArchiveFileName);
+        public string ExportPath => _lastGlbPath ?? ExportPathFor(null, ".glb");
+        public string ViewerPackagePath => _lastViewerPackagePath ??
+            ExportPathFor(null, ".zip");
         public event Action StatusChanged;
 
         private void Awake()
@@ -46,12 +44,14 @@ namespace Genesis.RoomScan
             _depthCapture = GetComponent<DepthCapture>();
         }
 
-        public async Task<bool> ExportGlbAsync()
+        public Task<bool> ExportGlbAsync() => ExportGlbAsync(null);
+
+        public async Task<bool> ExportGlbAsync(string fileName)
         {
             if (IsExporting || _grid == null) return false;
             IsExporting = true;
             SetStatus("Exporting GLB…");
-            string destination = ExportPath;
+            string destination = ExportPathFor(fileName, ".glb");
             string directory = Path.GetDirectoryName(destination);
             string temporary = destination + ".tmp";
             string spoolDirectory = temporary + ".parts";
@@ -110,6 +110,7 @@ namespace Genesis.RoomScan
                     ScanOperationStage.PublishingFile, 1, 1,
                     "GLB published"));
                 LastExportPath = destination;
+                _lastGlbPath = destination;
                 Logger.Info("Merkaba GLB metrics " +
                             $"canonical={metrics.CanonicalOccupiedCount} " +
                             $"measuredPlane={metrics.MeasuredPlaneOccupiedCount} " +
@@ -143,15 +144,18 @@ namespace Genesis.RoomScan
             }
         }
 
-        public async Task<bool> ExportViewerPackageAsync()
+        public Task<bool> ExportViewerPackageAsync() =>
+            ExportViewerPackageAsync(null);
+
+        public async Task<bool> ExportViewerPackageAsync(string fileName)
         {
             if (IsExporting || _grid == null) return false;
             IsExporting = true;
             SetStatus("Exporting 3D Tiles…");
-            string destination = ViewerPackagePath;
+            string destination = ExportPathFor(fileName, ".zip");
             string exportDirectory = Path.GetDirectoryName(destination);
             string staging = Path.Combine(exportDirectory,
-                ViewerPackageName + ".tmp");
+                Path.GetFileNameWithoutExtension(destination) + ".tmp");
             string temporaryArchive = destination + ".tmp";
             try
             {
@@ -199,6 +203,7 @@ namespace Genesis.RoomScan
                     return bytes;
                 });
                 LastExportPath = destination;
+                _lastViewerPackagePath = destination;
                 Logger.Info("Merkaba 3D Tiles metrics " +
                     $"tiles={result.TileCount} vertices={result.VertexCount} " +
                     $"triangles={result.TriangleCount} bytes={result.ByteLength} " +
@@ -256,6 +261,35 @@ namespace Genesis.RoomScan
         {
             LastStatus = status;
             StatusChanged?.Invoke();
+        }
+
+        private static string ExportPathFor(string requested, string extension) =>
+            Path.Combine(Application.persistentDataPath, "MerkabaScan", "exports",
+                SanitizeExportFileName(requested, extension));
+
+        // A name is one bounded filename, never an application-relative path.
+        // Both export buttons share the same stem and supply their own suffix.
+        internal static string SanitizeExportFileName(string requested,
+            string extension)
+        {
+            string value = string.IsNullOrWhiteSpace(requested)
+                ? ViewerPackageName : requested.Trim();
+            if (value.EndsWith(".glb", StringComparison.OrdinalIgnoreCase) ||
+                value.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                value = value.Substring(0, value.Length - 4);
+            int length = Math.Min(value.Length, 64);
+            if (length > 0 && char.IsHighSurrogate(value[length - 1])) --length;
+            var clean = new char[length];
+            for (int index = 0; index < length; ++index)
+            {
+                char c = value[index];
+                clean[index] = char.IsControl(c) || c == '/' || c == '\\' ||
+                    c == ':' || c == '*' || c == '?' || c == '"' ||
+                    c == '<' || c == '>' || c == '|' ? '-' : c;
+            }
+            string stem = new string(clean).Trim(' ', '.', '-');
+            if (stem.Length == 0) stem = ViewerPackageName;
+            return stem + extension;
         }
 
         private async Task<MerkabaTilesetResult> BuildStreamingTilesetAsync(

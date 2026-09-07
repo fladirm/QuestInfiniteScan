@@ -72,14 +72,24 @@
             </ui:VisualElement>
 
             <ui:Label text="Export" class="section-title" />
-            <ui:VisualElement class="button-row">
-                <ui:Button name="btn-export" text="Export GLB"
-                    class="secondary-action" />
-                <ui:Button name="btn-export-tiles" text="Export 3D Tiles"
-                    class="secondary-action button-last" />
+            <ui:VisualElement name="export-card" class="card export-card">
+                <ui:TextField name="export-name" label="File name"
+                    value="QuestMerkabaScan" max-length="64" class="field export-name" />
+                <ui:VisualElement class="button-row compact-row">
+                    <ui:Button name="btn-export" text="Export GLB"
+                        class="secondary-action" />
+                    <ui:Button name="btn-export-tiles" text="Export 3D Tiles"
+                        class="secondary-action button-last" />
+                </ui:VisualElement>
+                <ui:Button name="btn-export-save-as" text="Save last export as…"
+                    class="quiet-action export-save-as button-last" />
+                <ui:Label text="Writes to app storage. Save As chooses a destination in Quest Files."
+                    class="supporting-status" />
+                <ui:Label name="val-export" text="Not exported"
+                    class="supporting-status" />
+                <ui:Label name="val-export-save-as" text=""
+                    class="supporting-status" />
             </ui:VisualElement>
-            <ui:Label name="val-export" text="Not exported"
-                class="supporting-status" />
         </ui:VisualElement>
 
         <ui:VisualElement name="refine-panel"

@@ -18,9 +18,9 @@
     padding-right: 4px;
     padding-bottom: 8px;
 }
-.session-heading { flex-direction: column; }
+.session-heading { flex-direction: column; flex-shrink: 1; min-width: 0; }
 .session-name { font-size: 19px; -unity-font-style: bold; color: white; }
-.session-state { margin-top: 2px; font-size: 11px; color: rgb(126, 220, 188); }
+.session-state { margin-top: 2px; font-size: 11px; color: rgb(126, 220, 188); white-space: normal; }
 .save-state { font-size: 11px; -unity-text-align: middle-right; color: rgb(177, 183, 191); }
 .history-actions { flex-direction: row; margin-left: auto; margin-right: 8px; }
 .history-action {
@@ -99,6 +99,8 @@
 .field { min-height: 43px; margin-bottom: 5px; font-size: 11px; }
 .button-row { margin-top: 8px; }
 .compact-row { margin-top: 5px; }
+.export-name { min-height: 44px; }
+.export-save-as { margin-top: 7px; }
 .proximity { margin-top: 7px; -unity-text-align: middle-center; font-size: 11px; color: rgb(245, 197, 93); }
 .supporting-status, .help-text { margin-top: 7px; white-space: normal; font-size: 10px; color: rgb(159, 166, 176); }
 .help-text { -unity-text-align: middle-center; }

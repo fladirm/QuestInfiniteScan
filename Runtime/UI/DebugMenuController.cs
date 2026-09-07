@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -16,7 +17,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _boundRoot;
         private Button _start, _save, _saveAs, _load, _new, _rename,
             _deleteSession, _export,
-            _exportTiles, _fine, _readout, _occlusion, _checker,
+            _exportTiles, _exportSaveAs, _fine, _readout, _occlusion, _checker,
             _artifactView, _artifactLoad, _annotationMode, _annotationSave,
             _annotationEdit, _annotationDelete, _tabScan, _tabRefine,
             _tabPaint, _tabPlan, _fineRefine, _fineErase,
@@ -30,11 +31,12 @@ namespace Genesis.RoomScan.UI
         private Label _sessionNameLabel, _scanning, _chunks, _kernels,
             _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
+        private Label _exportSaveAsStatus;
         private Label _artifactStatus, _objectStatus;
         private Label _paintStatus, _paintWidthValue, _paintFlowValue,
             _paintHardnessValue, _paintSaturationValue, _paintDensityValue,
             _paintScatterValue;
-        private TextField _sessionName, _annotationNote;
+        private TextField _sessionName, _annotationNote, _exportName;
         private DropdownField _sessionPicker, _objectAssetPicker,
             _objectInstancePicker;
         private Slider _opacity;
@@ -75,6 +77,8 @@ namespace Genesis.RoomScan.UI
         private DesignSubmode _designSubmode;
         private bool _hasLastRecentColor;
         private Color _lastRecentColor;
+        private bool _exportFileSavePending;
+        private string _exportFileSaveStatus = string.Empty;
 
         public bool IsVisible => _visible;
 
@@ -151,6 +155,7 @@ namespace Genesis.RoomScan.UI
             _deleteSession = _root.Q<Button>("btn-delete-session");
             _export = _root.Q<Button>("btn-export");
             _exportTiles = _root.Q<Button>("btn-export-tiles");
+            _exportSaveAs = _root.Q<Button>("btn-export-save-as");
             _fine = _root.Q<Button>("btn-fine");
             _readout = _root.Q<Button>("btn-readout");
             _occlusion = _root.Q<Button>("btn-occlusion");
@@ -197,6 +202,7 @@ namespace Genesis.RoomScan.UI
             _artifactRoomAlign = _root.Q<Toggle>("artifact-room-align");
             _annotationNote = _root.Q<TextField>("annotation-note");
             _sessionName = _root.Q<TextField>("session-name");
+            _exportName = _root.Q<TextField>("export-name");
             _sessionPicker = _root.Q<DropdownField>("session-picker");
             _objectAssetPicker = _root.Q<DropdownField>(
                 "object-asset-picker");
@@ -210,6 +216,7 @@ namespace Genesis.RoomScan.UI
             _saved = _root.Q<Label>("val-saved");
             _proximity = _root.Q<Label>("val-proximity");
             _exportStatus = _root.Q<Label>("val-export");
+            _exportSaveAsStatus = _root.Q<Label>("val-export-save-as");
             _pointer = _root.Q<Label>("val-pointer");
             _fps = _root.Q<Label>("val-fps");
             _artifactStatus = _root.Q<Label>("val-artifact");
@@ -269,9 +276,11 @@ namespace Genesis.RoomScan.UI
             _rename?.RegisterCallback<ClickEvent>(evt => RenameActiveSession());
             _deleteSession?.RegisterCallback<ClickEvent>(evt =>
                 _ = DeleteSelectedSessionAsync());
-            _export?.RegisterCallback<ClickEvent>(evt => _ = RoomScanner.Instance?.ExportGlbAsync());
+            _export?.RegisterCallback<ClickEvent>(evt => _ = ExportAsync(false));
             _exportTiles?.RegisterCallback<ClickEvent>(evt =>
-                _ = RoomScanner.Instance?.ExportViewerPackageAsync());
+                _ = ExportAsync(true));
+            _exportSaveAs?.RegisterCallback<ClickEvent>(evt =>
+                RequestExportSaveAs());
             _fine?.RegisterCallback<ClickEvent>(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
@@ -609,6 +618,87 @@ namespace Genesis.RoomScan.UI
         private void EnsureArtifactViewer() => _artifactViewer ??=
             FindAnyObjectByType<MerkabaArtifactViewer>();
 
+        private async Task ExportAsync(bool tiles)
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (scanner == null || scanner.IsBusy || _exportFileSavePending)
+                return;
+            _exportFileSaveStatus = string.Empty;
+            string name = _exportName?.value;
+            bool success = tiles
+                ? await scanner.ExportViewerPackageAsync(name)
+                : await scanner.ExportGlbAsync(name);
+            if (success)
+                _exportFileSaveStatus = Path.GetFileName(scanner.LastExportPath) +
+                    " is ready in app storage.";
+        }
+
+        private void RequestExportSaveAs()
+        {
+            RoomScanner scanner = RoomScanner.Instance;
+            if (_exportFileSavePending || scanner == null || scanner.IsBusy)
+                return;
+            string source = scanner.LastExportPath;
+            if (string.IsNullOrEmpty(source) || !File.Exists(source))
+            {
+                _exportFileSaveStatus = "Export a GLB or 3D Tiles package first.";
+                return;
+            }
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var unityPlayer = new AndroidJavaClass(
+                    "com.unity3d.player.UnityPlayer");
+                using AndroidJavaObject activity = unityPlayer.GetStatic<
+                    AndroidJavaObject>("currentActivity");
+                using var picker = new AndroidJavaClass(
+                    "com.genesis.roomscan.MerkabaPackagePicker");
+                _exportFileSavePending = true;
+                _exportFileSaveStatus = "Choose where to save " +
+                    Path.GetFileName(source);
+                picker.CallStatic("save", activity, source,
+                    Path.GetFileName(source), source.EndsWith(".glb",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? "model/gltf-binary" : "application/zip",
+                    gameObject.name, nameof(OnExportDocumentResult));
+            }
+            catch (Exception exception)
+            {
+                _exportFileSavePending = false;
+                _exportFileSaveStatus = "Export remains in app storage; " +
+                    "Save As failed: " + exception.Message;
+                Logger.Error(_exportFileSaveStatus);
+            }
+#else
+            _exportFileSaveStatus = "Save As is available in Quest Files; " +
+                "export remains in app storage.";
+#endif
+        }
+
+        [UnityEngine.Scripting.Preserve]
+        public void OnExportDocumentResult(string result)
+        {
+            if (!_exportFileSavePending) return;
+            if (result == "COPYING")
+            {
+                _exportFileSaveStatus = "Copying export to selected document…";
+                return;
+            }
+            _exportFileSavePending = false;
+            if (string.IsNullOrWhiteSpace(result) || result == "CANCELLED")
+                _exportFileSaveStatus = "Save As cancelled; export remains in app storage.";
+            else if (result.StartsWith("SAVED:", StringComparison.Ordinal))
+                _exportFileSaveStatus = "Export saved to Quest Files.";
+            else
+            {
+                string detail = result.StartsWith("ERROR:", StringComparison.Ordinal)
+                    ? result.Substring(6) : result;
+                _exportFileSaveStatus = "Save As failed: " + detail +
+                    ". Destination may be incomplete; export remains in app storage.";
+                Logger.Error(_exportFileSaveStatus);
+            }
+        }
+
         private async Task NewSessionAsync()
         {
             RoomScanner scanner = RoomScanner.Instance;
@@ -920,8 +1010,19 @@ namespace Genesis.RoomScan.UI
                     "Failed: " + scanner.LastScanStartError,
                 _ => "Stopped"
             };
-            SetStatus(_scanning, state, scanner.IsScanning ? StatusKind.Good :
-                scanner.IsScanStarting ? StatusKind.Warning : StatusKind.Neutral);
+            StatusKind scanKind = scanner.IsScanning ? StatusKind.Good :
+                scanner.IsScanStarting ? StatusKind.Warning : StatusKind.Neutral;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!MerkabaNativeVulkanExecutor.IsAvailable)
+            {
+                // The executor owns the cached device status. Do not invent
+                // a UI timeout or hide a failed pipeline behind "Starting".
+                state = MerkabaNativeVulkanExecutor.StartupSummary;
+                scanKind = MerkabaNativeVulkanExecutor.StartupFailed
+                    ? StatusKind.Error : StatusKind.Warning;
+            }
+#endif
+            SetStatus(_scanning, state, scanKind);
             Set(_chunks, scanner.ActiveChunkCount.ToString());
             // These counts need a completed current-view GPU counter producer;
             // legacy Query/Build counters are not Flower metrics.
@@ -964,6 +1065,7 @@ namespace Genesis.RoomScan.UI
             }
             SetStatus(_proximity, _proximityText, _proximityKind);
             Set(_exportStatus, scanner.ExportStatus);
+            Set(_exportSaveAsStatus, _exportFileSaveStatus);
             _rayDriver ??= FindAnyObjectByType<ControllerRayDriver>();
             SetStatus(_pointer, _rayDriver == null ? "Missing" :
                 _rayDriver.HasTrackedPose ? "Tracked · trigger selects" :
@@ -1041,7 +1143,7 @@ namespace Genesis.RoomScan.UI
                 ? "EXPORTING…" : "EXPORT 3D TILES";
 
             bool reviewing = _artifactViewer?.IsOpen ?? false;
-            bool operationBusy = scanner.IsBusy;
+            bool operationBusy = scanner.IsBusy || _exportFileSavePending;
             bool busy = operationBusy || reviewing;
             _start?.SetEnabled(!busy && !scanner.IsScanStarting);
             _save?.SetEnabled(!busy);
@@ -1052,6 +1154,9 @@ namespace Genesis.RoomScan.UI
             _deleteSession?.SetEnabled(!busy && _selectedSessionIndex >= 0);
             _export?.SetEnabled(!busy);
             _exportTiles?.SetEnabled(!busy);
+            _exportName?.SetEnabled(!busy);
+            _exportSaveAs?.SetEnabled(!busy &&
+                !string.IsNullOrEmpty(scanner.LastExportPath));
             _fine?.SetEnabled(!busy);
             _occlusion?.SetEnabled(!busy);
             _checker?.SetEnabled(!busy);

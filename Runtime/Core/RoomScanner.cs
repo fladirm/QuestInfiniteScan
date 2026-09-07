@@ -119,6 +119,7 @@ namespace Genesis.RoomScan
                 Array.Empty<MerkabaSessionInfo>();
         public string PersistenceStatus => _persistence?.LastStatus ?? "Unavailable";
         public string ExportStatus => _exporter?.LastStatus ?? "Unavailable";
+        public string LastExportPath => _exporter?.LastExportPath;
         public bool IsBusy => ScanLifecycle == ScanLifecycleState.Quiescing ||
                               _operation.Busy || (_persistence?.IsBusy ?? false) ||
                               (_exporter?.IsExporting ?? false) ||
@@ -629,30 +630,9 @@ namespace Genesis.RoomScan
             }
         }
 
-        public async Task<bool> ExportGlbAsync()
-        {
-            if (IsBusy) return false;
-            if (!TryBeginOperation(ScanOperationKind.ExportGlb,
-                    ScanOperationStage.SynchronizingScan,
-                    "Retiring current scan observation")) return false;
-            bool success = false;
-            try
-            {
-                if (!await QuiesceScanningAsync()) return false;
-                ReportOperation(ScanOperationKind.ExportGlb,
-                    ScanOperationStage.SynchronizingScan, 1L, 1L,
-                    "Scan synchronized");
-                success = _exporter != null && await _exporter.ExportGlbAsync();
-                return success;
-            }
-            finally
-            {
-                FinishOperation(ScanOperationKind.ExportGlb, success,
-                    _exporter?.LastStatus ?? "Export unavailable");
-            }
-        }
+        public Task<bool> ExportGlbAsync() => ExportGlbAsync(null);
 
-        public async Task<bool> ExportViewerPackageAsync()
+        public async Task<bool> ExportGlbAsync(string fileName)
         {
             if (IsBusy) return false;
             if (!TryBeginOperation(ScanOperationKind.ExportGlb,
@@ -666,7 +646,34 @@ namespace Genesis.RoomScan
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _exporter != null &&
-                    await _exporter.ExportViewerPackageAsync();
+                    await _exporter.ExportGlbAsync(fileName);
+                return success;
+            }
+            finally
+            {
+                FinishOperation(ScanOperationKind.ExportGlb, success,
+                    _exporter?.LastStatus ?? "Export unavailable");
+            }
+        }
+
+        public Task<bool> ExportViewerPackageAsync() =>
+            ExportViewerPackageAsync(null);
+
+        public async Task<bool> ExportViewerPackageAsync(string fileName)
+        {
+            if (IsBusy) return false;
+            if (!TryBeginOperation(ScanOperationKind.ExportGlb,
+                    ScanOperationStage.SynchronizingScan,
+                    "Retiring current scan observation")) return false;
+            bool success = false;
+            try
+            {
+                if (!await QuiesceScanningAsync()) return false;
+                ReportOperation(ScanOperationKind.ExportGlb,
+                    ScanOperationStage.SynchronizingScan, 1L, 1L,
+                    "Scan synchronized");
+                success = _exporter != null &&
+                    await _exporter.ExportViewerPackageAsync(fileName);
                 return success;
             }
             finally
