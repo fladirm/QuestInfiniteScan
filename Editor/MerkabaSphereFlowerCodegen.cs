@@ -247,7 +247,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
         (secondPlane&M8_FLOWER_OCCUPIED_FLAG)==0u ||
         (firstPlane&M8_FLOWER_SEED_FLAG)!=0u ||
         (secondPlane&M8_FLOWER_SEED_FLAG)!=0u ||
-        !all(isfinite(float2(normalUncertainty,offsetUncertainty))) ||
+        !all(M8FlowerIsFinite(float2(normalUncertainty,offsetUncertainty))) ||
         normalUncertainty<0.0 || offsetUncertainty<0.0) return 2u;
     float3 firstNormal,secondNormal;
     float firstOffset,secondOffset;
@@ -385,12 +385,12 @@ internal static bool M8FlowerTryPackPlane(uint flags, float3 normal,
     float signedOffset, out uint packed)
 {
     packed = flags;
-    if (!all(isfinite(normal)) || !isfinite(signedOffset) ||
+    if (!all(M8FlowerIsFinite(normal)) || !M8FlowerIsFinite(signedOffset) ||
         abs(signedOffset) > M8_FLOWER_PLANE_RANGE) return false;
     precise float3 square = normal * normal;
     precise float squareXY = square.x + square.y;
     precise float lengthSquared = squareXY + square.z;
-    if (!(lengthSquared > 0.0f) || !isfinite(lengthSquared)) return false;
+    if (!(lengthSquared > 0.0f) || !M8FlowerIsFinite(lengthSquared)) return false;
     precise float normalLength = sqrt(lengthSquared);
     normal /= normalLength;
     float first = normal.x != 0.0f ? normal.x :
@@ -493,7 +493,7 @@ internal static uint4 M8FlowerContradictR1(uint4 state)
 }
 ";
             output.AppendLine(csharp
-                ? source.Replace("precise ", string.Empty)
+                ? source.Replace("precise ", string.Empty).Replace("M8FlowerIsFinite(", "isfinite(")
                 : source.Replace("internal static ", string.Empty));
         }
 
@@ -504,6 +504,14 @@ internal static uint4 M8FlowerContradictR1(uint4 state)
             o.AppendLine("// Packed REV-C subordinate data ABI; no resources are declared here.");
             o.AppendLine("#ifndef GENESIS_MERKABA_SPHERE_FLOWER_DATA_ABI_INCLUDED");
             o.AppendLine("#define GENESIS_MERKABA_SPHERE_FLOWER_DATA_ABI_INCLUDED");
+            o.AppendLine(@"
+// IEEE-754 binary32 classification, including subnormals and signed zero.
+// Use integer exponent bits so all Vulkan compilers produce the same predicate;
+// this avoids the invalid OpIsNan result type emitted by Unity's DXC lowering.
+bool M8FlowerIsFinite(float value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }
+bool2 M8FlowerIsFinite(float2 value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }
+bool3 M8FlowerIsFinite(float3 value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }
+bool4 M8FlowerIsFinite(float4 value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }");
             Define(o, "M8_FLOWER_DATA_ABI_VERSION",
                 MerkabaSphereFlowerDataAbi.SchemaVersion + "u");
             Define(o, "M8_FLOWER_OBSERVATION_RECORD_CAPACITY",
@@ -683,7 +691,7 @@ bool M8ThreadEncodeColorInterval(float4 lower, float4 upper,
 {
     value.LowerLinearRgba = 0u.xx;
     value.UpperLinearRgba = 0u.xx;
-    if (!all(isfinite(lower)) || !all(isfinite(upper)) ||
+    if (!all(M8FlowerIsFinite(lower)) || !all(M8FlowerIsFinite(upper)) ||
         any(lower > upper) || any(lower < -65504.0) || any(upper > 65504.0))
         return false;
     uint4 lo, hi;
@@ -1664,8 +1672,18 @@ M8FlowerInterval M8FlowerI(float lo, float hi)
     M8FlowerInterval r; r.lo = lo; r.hi = hi; return r;
 }
 
+// Exact algebraic identities preserve zero without manufacturing denormal
+// endpoints that a mobile arithmetic unit can flush before the next op.
+// Inspect bits: a nonzero subnormal is NOT the exact zero interval.
+bool M8FlowerIZero(M8FlowerInterval a)
+{
+    return ((asuint(a.lo) | asuint(a.hi)) & 0x7fffffffu) == 0u;
+}
+
 M8FlowerInterval M8FlowerIAdd(M8FlowerInterval a, M8FlowerInterval b)
 {
+    if (M8FlowerIZero(a)) return b;
+    if (M8FlowerIZero(b)) return a;
     precise float lo = a.lo+b.lo;
     precise float hi = a.hi+b.hi;
     return M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
@@ -1673,6 +1691,8 @@ M8FlowerInterval M8FlowerIAdd(M8FlowerInterval a, M8FlowerInterval b)
 
 M8FlowerInterval M8FlowerISub(M8FlowerInterval a, M8FlowerInterval b)
 {
+    if (M8FlowerIZero(b)) return a;
+    if (M8FlowerIZero(a)) return M8FlowerI(-b.hi,-b.lo);
     precise float lo = a.lo-b.hi;
     precise float hi = a.hi-b.lo;
     return M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
@@ -1680,6 +1700,9 @@ M8FlowerInterval M8FlowerISub(M8FlowerInterval a, M8FlowerInterval b)
 
 M8FlowerInterval M8FlowerIMul(M8FlowerInterval a, M8FlowerInterval b)
 {
+    if ((M8FlowerIZero(a) && all((asuint(float2(b.lo,b.hi)) & 0x7f800000u) != 0x7f800000u)) ||
+        (M8FlowerIZero(b) && all((asuint(float2(a.lo,a.hi)) & 0x7f800000u) != 0x7f800000u)))
+        return M8FlowerI(0.0,0.0);
     precise float4 p = float4(a.lo * b.lo, a.lo * b.hi,
         a.hi * b.lo, a.hi * b.hi);
     return M8FlowerI(M8FlowerPrevious(min(min(p.x,p.y),min(p.z,p.w))),
@@ -1688,6 +1711,7 @@ M8FlowerInterval M8FlowerIMul(M8FlowerInterval a, M8FlowerInterval b)
 
 M8FlowerInterval M8FlowerISquare(M8FlowerInterval a)
 {
+    if (M8FlowerIZero(a)) return M8FlowerI(0.0,0.0);
     if (a.lo <= 0.0 && a.hi >= 0.0)
         return M8FlowerI(0.0,
             M8FlowerNext(max(a.lo*a.lo,a.hi*a.hi)));
@@ -1896,16 +1920,47 @@ bool M8FlowerDivideEnclosed(float numerator, float denominator,
     out M8FlowerInterval result)
 {
     result = M8FlowerI(0.0, 0.0);
-    if (!isfinite(numerator) || !isfinite(denominator) || !(denominator > 0.0))
+    uint denominatorBits = asuint(denominator);
+    if (!M8FlowerIsFinite(numerator) || denominatorBits == 0u ||
+        denominatorBits >= 0x7f800000u)
         return false;
-    precise float quotient = numerator / denominator;
-    float lo = M8FlowerPrevious(quotient);
-    float hi = M8FlowerNext(quotient);
-    if (!isfinite(lo) || !isfinite(hi)) return false;
-    if (M8FlowerCompareSignedProduct(lo, denominator, numerator) > 0 ||
-        M8FlowerCompareSignedProduct(hi, denominator, numerator) < 0)
-        return false;
-    result = M8FlowerI(lo, hi);
+    uint sign = asuint(numerator) & 0x80000000u;
+    uint magnitude = asuint(numerator) & 0x7fffffffu;
+    if (magnitude == 0u) return true;
+    float positive = asfloat(magnitude);
+    precise float quotient = positive / denominator;
+    // Native division is only a starting hint, not a one-ULP accuracy
+    // assumption. Exact dyadic products find an enclosing binary32 bracket.
+    // Positive finite floats are monotonically ordered by their uint bits;
+    // 32 doublings cover that entire domain, including flushed subnormals.
+    const uint maximum = 0x7f7fffffu;
+    uint centre = min(asuint(quotient) & 0x7fffffffu, maximum);
+    uint lo = centre, hi = centre, step = 1u;
+    bool bracketed = false;
+    [loop] for (uint bit = 0u; bit < 32u; bit++)
+    {
+        lo = centre > step ? centre - step : 0u;
+        hi = step > maximum - centre ? maximum : centre + step;
+        int lower = M8FlowerCompareSignedProduct(asfloat(lo), denominator, positive);
+        int upper = M8FlowerCompareSignedProduct(asfloat(hi), denominator, positive);
+        if (lower <= 0 && upper >= 0) { bracketed = true; break; }
+        if (hi == maximum && upper < 0) return false; // proved finite overflow
+        step <<= 1u;
+    }
+    if (!bracketed) return false;
+    // Tight directed bounds do not depend on the driver's division hint.
+    [loop] while (hi - lo > 1u)
+    {
+        uint middle = lo + ((hi - lo) >> 1u);
+        int comparison = M8FlowerCompareSignedProduct(asfloat(middle), denominator, positive);
+        if (comparison == 0) { lo = middle; hi = middle; break; }
+        if (comparison < 0) lo = middle;
+        else hi = middle;
+    }
+    if (M8FlowerCompareSignedProduct(asfloat(lo), denominator, positive) == 0) hi = lo;
+    else if (M8FlowerCompareSignedProduct(asfloat(hi), denominator, positive) == 0) lo = hi;
+    if (sign == 0u) result = M8FlowerI(asfloat(lo),asfloat(hi));
+    else result = M8FlowerI(asfloat(hi | sign),asfloat(lo | sign));
     return true;
 }
 
@@ -1913,14 +1968,25 @@ bool M8FlowerIDivPositive(M8FlowerInterval numerator,
     M8FlowerInterval denominator, out M8FlowerInterval result)
 {
     result = M8FlowerI(0.0, 0.0);
-    if (!(denominator.lo > 0.0) || denominator.lo > denominator.hi ||
-        numerator.lo > numerator.hi) return false;
+    uint dLo = asuint(denominator.lo), dHi = asuint(denominator.hi);
+    uint nLo = asuint(numerator.lo), nHi = asuint(numerator.hi);
+    if (dLo == 0u || dLo > dHi || dHi >= 0x7f800000u ||
+        !M8FlowerIsFinite(numerator.lo) || !M8FlowerIsFinite(numerator.hi)) return false;
+    // Compare finite values and choose denominator endpoints by bits.
+    // Shader FP comparisons may flush a nonzero subnormal to signed zero.
+    if ((nLo & 0x7fffffffu) == 0u) nLo = 0u;
+    if ((nHi & 0x7fffffffu) == 0u) nHi = 0u;
+    bool lowerNegative = (nLo >> 31u) != 0u;
+    bool upperNegative = (nHi >> 31u) != 0u;
+    uint lowerOrder = lowerNegative ? ~nLo : nLo | 0x80000000u;
+    uint upperOrder = upperNegative ? ~nHi : nHi | 0x80000000u;
+    if (lowerOrder > upperOrder) return false;
     M8FlowerInterval lower = M8FlowerI(0.0, 0.0);
     M8FlowerInterval upper = lower;
     bool lowerValid = M8FlowerDivideEnclosed(numerator.lo,
-        numerator.lo < 0.0 ? denominator.lo : denominator.hi, lower);
+        lowerNegative ? denominator.lo : denominator.hi, lower);
     bool upperValid = M8FlowerDivideEnclosed(numerator.hi,
-        numerator.hi < 0.0 ? denominator.hi : denominator.lo, upper);
+        upperNegative ? denominator.hi : denominator.lo, upper);
     if (!lowerValid || !upperValid) return false;
     result = M8FlowerI(lower.lo, upper.hi);
     return true;
@@ -1929,13 +1995,13 @@ bool M8FlowerIDivPositive(M8FlowerInterval numerator,
 bool M8FlowerISqrt(M8FlowerInterval value, out M8FlowerInterval result)
 {
     result = M8FlowerI(0.0, 0.0);
-    if (!(value.lo >= 0.0) || value.lo > value.hi || !isfinite(value.hi))
+    if (!(value.lo >= 0.0) || value.lo > value.hi || !M8FlowerIsFinite(value.hi))
         return false;
     precise float lower = sqrt(value.lo);
     precise float upper = sqrt(value.hi);
     float lo = max(0.0, M8FlowerPrevious(lower));
     float hi = M8FlowerNext(upper);
-    if (!isfinite(hi) ||
+    if (!M8FlowerIsFinite(hi) ||
         M8FlowerCompareDyadic(M8FlowerSquareDyadic(lo),
             M8FlowerProductDyadic(value.lo, 1.0)) > 0 ||
         M8FlowerCompareDyadic(M8FlowerSquareDyadic(hi),
@@ -1970,8 +2036,8 @@ bool M8FlowerPlaneIntervals(float3 normal, float offset, float3 relative,
 {
     abc.x = M8FlowerI(0.0, 0.0); abc.y = abc.x; abc.z = abc.x;
     if (lineClass >= M8_FLOWER_LINE_CLASS_COUNT ||
-        !all(isfinite(normal)) || !all(isfinite(relative)) ||
-        !all(isfinite(float4(offset, radius, normalUncertainty, offsetUncertainty))) ||
+        !all(M8FlowerIsFinite(normal)) || !all(M8FlowerIsFinite(relative)) ||
+        !all(M8FlowerIsFinite(float4(offset, radius, normalUncertainty, offsetUncertainty))) ||
         radius <= 0.0 || normalUncertainty < 0.0 || offsetUncertainty < 0.0)
         return false;
     float3 e1 = M8FlowerLineE1[lineClass];
@@ -2007,8 +2073,8 @@ bool M8FlowerPlaneIntervals(float3 normal, float offset, float3 relative,
     abc.x = M8FlowerCenterRadius(a, M8FlowerNext(ea));
     abc.y = M8FlowerCenterRadius(b, M8FlowerNext(eb));
     abc.z = M8FlowerCenterRadius(c, M8FlowerNext(ec));
-    return all(isfinite(float3(abc.x.lo, abc.y.lo, abc.z.lo))) &&
-        all(isfinite(float3(abc.x.hi, abc.y.hi, abc.z.hi)));
+    return all(M8FlowerIsFinite(float3(abc.x.lo, abc.y.lo, abc.z.lo))) &&
+        all(M8FlowerIsFinite(float3(abc.x.hi, abc.y.hi, abc.z.hi)));
 }
 
 uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
@@ -2016,8 +2082,8 @@ uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
 {
     root.x = M8FlowerI(0.0, 0.0);
     root.y = root.x;
-    if (!all(isfinite(float3(abc.x.lo, abc.y.lo, abc.z.lo))) ||
-        !all(isfinite(float3(abc.x.hi, abc.y.hi, abc.z.hi))) ||
+    if (!all(M8FlowerIsFinite(float3(abc.x.lo, abc.y.lo, abc.z.lo))) ||
+        !all(M8FlowerIsFinite(float3(abc.x.hi, abc.y.hi, abc.z.hi))) ||
         abc.x.lo > abc.x.hi || abc.y.lo > abc.y.hi || abc.z.lo > abc.z.hi)
         return M8_FLOWER_ROOT_AMBIGUOUS;
     uint classification = M8FlowerClassifyRoot(abc);
@@ -2246,7 +2312,7 @@ M8FlowerPhaseResidualResult M8FlowerPhaseResult(uint classification)
 
 bool M8FlowerFinitePhaseRoot(M8FlowerInterval2 root)
 {
-    return all(isfinite(float4(root.x.lo,root.x.hi,root.y.lo,root.y.hi))) &&
+    return all(M8FlowerIsFinite(float4(root.x.lo,root.x.hi,root.y.lo,root.y.hi))) &&
         root.x.lo<=root.x.hi && root.y.lo<=root.y.hi;
 }
 
@@ -2487,8 +2553,8 @@ uint M8FlowerPredictChildFromFamily(int3 rootOwner, uint petalClass,
         prediction=M8FlowerCopyInheritedPhase(source);
         return prediction.Classification;
     }
-    if (!all(isfinite(decodedNormal)) || !isfinite(decodedOffset) ||
-        !isfinite(normalUncertainty) || !isfinite(offsetUncertainty) ||
+    if (!all(M8FlowerIsFinite(decodedNormal)) || !M8FlowerIsFinite(decodedOffset) ||
+        !M8FlowerIsFinite(normalUncertainty) || !M8FlowerIsFinite(offsetUncertainty) ||
         normalUncertainty<0.0 || offsetUncertainty<0.0 || ancestorCount>level ||
         (ancestorCount!=0u && currentParentEpoch==0u)) return 2u;
 
@@ -2693,7 +2759,7 @@ M8FlowerPhaseResidualResult M8FlowerAnalyzePhaseResidual(
 
     // Prediction and observation are differenced, NEVER intersected.
     if (!M8FlowerTauInterval(predicted.Root,observed.Root,result.Residual) ||
-        !all(isfinite(float2(result.Residual.lo,result.Residual.hi))))
+        !all(M8FlowerIsFinite(float2(result.Residual.lo,result.Residual.hi))))
         return result;
     if (result.Residual.lo==0.0 && result.Residual.hi==0.0)
     {
@@ -3117,12 +3183,12 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
     pixelMin = imageSize;
     pixelMax = -1;
     supportUpperDepth = 0.0;
-    if (!all(isfinite(minimum)) || !all(isfinite(maximum)) || any(maximum < minimum) ||
+    if (!all(M8FlowerIsFinite(minimum)) || !all(M8FlowerIsFinite(maximum)) || any(maximum < minimum) ||
         any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
-        !isfinite(reprojectionError) || reprojectionError < 0.0 ||
-        !all(isfinite(view[0])) || !all(isfinite(view[1])) || !all(isfinite(view[2])) ||
-        !all(isfinite(projection[0])) || !all(isfinite(projection[1])) ||
-        !all(isfinite(projection[2])) || !all(isfinite(projection[3])) ||
+        !M8FlowerIsFinite(reprojectionError) || reprojectionError < 0.0 ||
+        !all(M8FlowerIsFinite(view[0])) || !all(M8FlowerIsFinite(view[1])) || !all(M8FlowerIsFinite(view[2])) ||
+        !all(M8FlowerIsFinite(projection[0])) || !all(M8FlowerIsFinite(projection[1])) ||
+        !all(M8FlowerIsFinite(projection[2])) || !all(M8FlowerIsFinite(projection[3])) ||
         any(view[3] != float4(0.0, 0.0, 0.0, 1.0))) return false;
     [unroll]
     for (uint corner = 0u; corner < 8u; corner++)
@@ -3151,12 +3217,12 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
             M8FlowerI((float)imageSize.x * 0.5, (float)imageSize.x * 0.5));
         y = M8FlowerIMul(M8FlowerIAdd(y, M8FlowerI(1.0, 1.0)),
             M8FlowerI((float)imageSize.y * 0.5, (float)imageSize.y * 0.5));
-        if (!all(isfinite(float4(x.lo, x.hi, y.lo, y.hi))) ||
+        if (!all(M8FlowerIsFinite(float4(x.lo, x.hi, y.lo, y.hi))) ||
             x.lo < 0.0 || y.lo < 0.0 || x.hi >= imageSize.x || y.hi >= imageSize.y) return false;
         pixelMin = min(pixelMin, int2(floor(x.lo), floor(y.lo)));
         pixelMax = max(pixelMax, int2(floor(x.hi), floor(y.hi)));
     }
-    return isfinite(supportUpperDepth);
+    return M8FlowerIsFinite(supportUpperDepth);
 }
 
 uint M8DepthCertificateOffset(uint level)
@@ -3174,7 +3240,7 @@ uint M8DepthCertificateAddress(uint eye, uint level, uint2 xy)
 
 uint2 M8DepthCertificateNode(float lower, bool valid)
 {
-    bool accepted = valid && isfinite(lower) && lower > 0.0;
+    bool accepted = valid && M8FlowerIsFinite(lower) && lower > 0.0;
     return accepted ? uint2(asuint(lower), 1u) : 0u.xx;
 }
 
@@ -3206,7 +3272,7 @@ bool M8DepthCertificateThrough(uint eye, int2 imageSize, int2 minimum,
 {
     if (eye >= 2u || any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
         any(minimum < 0) || any(maximum < minimum) || any(maximum >= imageSize) ||
-        !isfinite(supportUpperDepth) || supportUpperDepth < 0.0) return false;
+        !M8FlowerIsFinite(supportUpperDepth) || supportUpperDepth < 0.0) return false;
     uint level = M8DepthCertificateEnvelopeLevel((uint2)minimum, (uint2)maximum);
     uint2 origin = ((uint2)minimum >> level) << level;
     if (M8DepthCertificateProves(_M8DepthCertificate[
@@ -3250,7 +3316,7 @@ bool M8DepthCertificateEyeSupport(float3 minimum, float3 maximum,
 {
     if (eye >= 2u) return false;
     float4 errors = _M8DepthErrorBounds[eye];
-    if (errors.w != 1.0 || !all(isfinite(errors.xyz)) || any(errors.xyz < 0.0)) return false;
+    if (errors.w != 1.0 || !all(M8FlowerIsFinite(errors.xyz)) || any(errors.xyz < 0.0)) return false;
     int2 lo, hi;
     float upper;
     return M8DepthProjectSupport(minimum, maximum, view, projection,

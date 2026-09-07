@@ -6016,3 +6016,92 @@ BUILD=no fresh Unity/Quest build; PERF=not measured; DEVICE=not run.
 LEGACY_REMOVED=preserve the actual diff; no fallback/compatibility is restored.
 NEXT_CURSOR=commit this checkpoint, run the existing Kingston Unity test entry,
 then fix its concrete failures and add the two requested behavioral proofs.
+
+### RUN_04 closure repairs checkpoint — 2026-09-07 02:06:43Z
+
+CURRENT_COMMIT=SELF (the commit containing this entry; resolve with git log -1).
+PARENT_COMMIT=dcb83cea6e9e9be637d6e8a2fdd45ab3ccb2a52c
+CURRENT_CUT=RUN_04 OPEN. RUN_05 consumers remain started, not closed.
+DAG_STATUS=unchanged; no new architecture or cut reordering.
+
+IMPLEMENTED_FIXES:
+- Vulkan Unity shaders explicitly use DXC. IEEE exponent-bit finite tests
+  replace the IsNan lowering that produced invalid SPIR-V in Unity. Native
+  glslang remains the native compilation path; both are checked separately.
+- Generated interval division now certifies a finite binary32 bracket using
+  exact dyadic products, then tightens it with bounded integer bisection.
+  Native division is only a starting hint, not an assumed one-ULP oracle.
+  Signed-zero/subnormal comparisons and denominator endpoint selection use
+  bits; finite overflow is proved, not clamped. Exact-zero add/sub/multiply/
+  square identities avoid artificial subnormal uncertainty. The same source
+  changes are present in codegen and its generated HLSL output.
+- RGB-only/skin-V-only owner state no longer requests blind L1/L2 geometry
+  refinement. Structural epoch invalidation clears the stale active phase
+  count in O(1), retaining the allocation and existing publication leases.
+- Sparse epoch append validation distinguishes a complete frozen fine-image
+  snapshot from a raw epoch update. Raw skips/decreases/orphans are rejected;
+  certified dirty-state coalescing survives SAVE/OPEN without fabricated
+  descendants. This receipt is transient metadata, not a new persistent ABI.
+- Stale tests now bind the actual tile endpoint bits, include the current
+  packing authority, and check current lifecycle/readout/timing consumers.
+  Missing-kernel and geometry/codegen gates were NOT removed or weakened.
+
+INVARIANTS_PROVEN / TESTS_RUN:
+- Kingston Unity6000.5.9f1, real Vulkan EditMode suite:
+  /mnt/kingston-unity/Builds/UniscanRun04ClosureChecks2/TestResults/merkaba-results.xml
+  389 total; 382 PASS; 7 FAIL; 0 skipped; 180.156s.
+  Matching merkaba-tests.log has no C# or shader compilation errors.
+- All ObservationBins tests PASS, including the actual root/sector interval
+  probe and new directed division GPU probe over1036 binary32 input cases.
+  Division is checked with independent exact binary64 products, including
+  signed zero, both underflow signs, every finite exponent and overflow.
+- All26 depth-certificate tests PASS. Common-prefix and dyadic-cover GPU
+  queries use actual production functions and an independent all-pixel
+  oracle, including exhaustive9x7 rectangles, interior foreground, invalid
+  pixels, FOV/near/range boundaries, NPOT padding and512x512 sources.
+  Full-support stereo fixtures include either-eye proof and direct endpoint
+  precedence for a new object. These are certificate predicate fixtures,
+  NOT a claim of a completed on-device dynamic-scene observation test.
+- Nine reduced-evidence eager/drain tests PASS: dependent nonzero L1/L2 R2
+  records, same frozen two-eye RGB evidence, quantum/retry/backpressure,
+  byte-identical payloads, parent epoch and uniform no-blind-expansion cases.
+  The oracle is UNITY_EDITOR only. It does NOT execute the production GPU
+  drain or prove the currently unwired full RGB/V observation pipeline.
+- SPIR-V audit PASS for75 actual kernels, <=8 writable buffer/image bindings,
+  no RW/read alias pair. Output:
+  /mnt/kingston-unity/Builds/UniscanRun04Checkpoint/TestResults/spirv-audit-closure-final.log
+- git diff --check PASS; immutable REV-C prefix of lasttrue.md byte-identical.
+
+FAILED_GATES (seven tests, two current causes):
+1. SkinData rejects its current generated chamber transitions:31/49 L4 and
+   115/343 L5 addresses reachable; first missing(c3,c4,c5)=(0,1,3).
+   This causes six skin/ABI/codegen parity failures. Artifact regeneration
+   alone cannot prove the Flower-7 footprint. Do not disable this guard or
+   permute transitions merely to make address counts pass.
+2. CompactDirtyFlowerSymbols still has no implementation; the compute import
+   test correctly fails. Existing ABI/renderer consumers are not a producer.
+   Complete direct carrier admission and full live RGB/V drain remain open
+   exactly as recorded above. No empty/DIRT-only kernel was added as a bypass.
+
+REMAINING_PROOF_SCOPE:
+- A nonzero test of the actual DrainObservationRefinement requires accepted
+  frozen depth/normal/source-pixel input; the reduced root-arc oracle is not
+  that input. This is missing fixture/implementation work, not a claim that
+  the R2 drain depends on skin admission or is mathematically impossible.
+- Geometry/ghost/hole/full stationary-observation/whole-scene fixtures and
+  full CPU/HLSL/live/export parity are not closed by these unit predicates.
+
+BUILD=Unity C#/shader compilation succeeded in the test host; full test gate
+FAIL as above. Native ABI10 plugin / Quest APK NOT built in this continuation.
+PERF=not measured on Quest; cold shader compilation time is not device timing.
+QUEST_DEVICE_RUNTIME=NOT RUN; adb listed no attached device.
+LEGACY_REMOVED=no legacy authority restored; prior checkpoint excisions remain.
+MANUAL_AUDIT=changed interval, phase-count/epoch, snapshot-validation, compiler
+and fixture code reviewed; this is NOT a full-cut manual-audit PASS.
+FILES_CHANGED=the exact diff from PARENT_COMMIT in this checkpoint, including
+the new certificate/drain fixtures and editor-only drain oracle. Unrelated
+.claude/, CLAUDE.md and CLAUDE.md.meta remain untracked and excluded.
+NEXT_CURSOR=do not redo the now-green binning/THROUGH/division fixes. The
+remaining skin footprint closure, direct carrier/page producer and actual
+frozen GPU observation fixture must be completed before any RUN_04 PASS,
+generated-table gate override, APK success or final-contract claim.

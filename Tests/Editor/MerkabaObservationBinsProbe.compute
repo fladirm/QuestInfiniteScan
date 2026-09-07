@@ -4,7 +4,10 @@
 #pragma kernel CountOwnersProbe
 #pragma kernel EmitOwnersProbe
 #pragma kernel RootIntervalsProbe
+#pragma kernel RootIntervalStagesProbe
 #pragma kernel PlaneIntervalsProbe
+#pragma kernel DivisionBoundsProbe
+#pragma use_dxc vulkan
 
 #include "../../Runtime/Shaders/MerkabaObservationBins.hlsl"
 #include "../../Runtime/Shaders/MerkabaObservationReduction.hlsl"
@@ -16,6 +19,21 @@ RWStructuredBuffer<uint4> _ProbeReduced;
 uint _ProbeRecordCount;
 StructuredBuffer<float4> _ProbeCoefficients;
 RWStructuredBuffer<float4> _ProbeRootIntervals;
+
+[numthreads(64, 1, 1)]
+void DivisionBoundsProbe(uint id : SV_DispatchThreadID)
+{
+    if (id >= _ProbeRecordCount) return;
+    float4 values = asfloat(_ProbeRecords[id]);
+    M8FlowerInterval scalar, interval;
+    bool scalarValid = M8FlowerDivideEnclosed(values.x, values.z, scalar);
+    bool intervalValid = M8FlowerIDivPositive(M8FlowerI(values.x, values.y),
+        M8FlowerI(values.z, values.w), interval);
+    _ProbeReduced[2u * id] = uint4(scalarValid ? 1u : 0u,
+        intervalValid ? 1u : 0u, 0u, 0u);
+    _ProbeReduced[2u * id + 1u] = asuint(float4(scalar.lo, scalar.hi,
+        interval.lo, interval.hi));
+}
 
 [numthreads(64, 1, 1)]
 void PlaneIntervalsProbe(uint id : SV_DispatchThreadID)
@@ -49,8 +67,40 @@ void RootIntervalsProbe(uint id : SV_DispatchThreadID)
     if (classification == M8_FLOWER_ROOT_CERTAIN_SECANT ||
         classification == M8_FLOWER_ROOT_CERTAIN_TANGENT)
         certain = M8FlowerRootSector((uint)b.w, root, sector);
-    _ProbeReduced[id] = uint4(classification, sector, certain ? 1u : 0u, 0u);
+    _ProbeReduced[id] = uint4(classification, sector, certain ? 1u : 0u,
+        M8FlowerClassifyRoot(abc));
     _ProbeRootIntervals[id] = float4(root.x.lo, root.x.hi, root.y.lo, root.y.hi);
+}
+
+// Failure diagnostics for the exact production interval operators. This
+// never admits a root: tests still require the real RootInterval result.
+[numthreads(1, 1, 1)]
+void RootIntervalStagesProbe(uint id : SV_DispatchThreadID)
+{
+    float4 a = _ProbeCoefficients[0], b = _ProbeCoefficients[1];
+    M8FlowerInterval3 abc;
+    abc.x = M8FlowerI(a.x, a.y);
+    abc.y = M8FlowerI(a.z, a.w);
+    abc.z = M8FlowerI(b.x, b.y);
+    M8FlowerInterval q = M8FlowerIAdd(M8FlowerISquare(abc.y), M8FlowerISquare(abc.z));
+    M8FlowerInterval delta = M8FlowerISub(q, M8FlowerISquare(abc.x));
+    M8FlowerInterval turn;
+    bool sqrtValid = M8FlowerISqrt(delta, turn);
+    if (b.z == 0.0) turn = M8FlowerI(-turn.hi, -turn.lo);
+    M8FlowerInterval minusA = M8FlowerI(-abc.x.hi, -abc.x.lo);
+    M8FlowerInterval x = M8FlowerIAdd(M8FlowerIMul(minusA, abc.y),
+        M8FlowerIMul(turn, M8FlowerI(-abc.z.hi, -abc.z.lo)));
+    M8FlowerInterval y = M8FlowerIAdd(M8FlowerIMul(minusA, abc.z),
+        M8FlowerIMul(turn, abc.y));
+    M8FlowerInterval rootX, rootY;
+    bool xValid = M8FlowerIDivPositive(x, q, rootX);
+    bool yValid = M8FlowerIDivPositive(y, q, rootY);
+    _ProbeReduced[0] = uint4(M8FlowerClassifyRoot(abc),
+        sqrtValid ? 1u : 0u, xValid ? 1u : 0u, yValid ? 1u : 0u);
+    _ProbeRootIntervals[0] = float4(q.lo, q.hi, delta.lo, delta.hi);
+    _ProbeRootIntervals[1] = float4(turn.lo, turn.hi, x.lo, x.hi);
+    _ProbeRootIntervals[2] = float4(y.lo, y.hi, rootX.lo, rootX.hi);
+    _ProbeRootIntervals[3] = float4(rootY.lo, rootY.hi, 0.0, 0.0);
 }
 
 [numthreads(64, 1, 1)]

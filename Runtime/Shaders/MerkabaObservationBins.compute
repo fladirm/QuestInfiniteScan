@@ -5,6 +5,7 @@
 #pragma kernel ResolveObservationTileRequests
 #pragma kernel ResetObservationBins
 #pragma kernel RetireObservationBins
+#pragma use_dxc vulkan
 
 #include "MerkabaObservationOwners.hlsl"
 #include "MerkabaSphereFlower.generated.hlsl"
@@ -30,7 +31,7 @@ bool M8FlowerLoadAcceptedEndpoint(uint2 pixel, out int3 firstOwner)
     }
     float depth = gsDepthTex.Load(int3(pixel, 0));
     float4 normal = gsDepthNormalTex.Load(int3(pixel, 0));
-    if (normal.w != 1.0 || !all(isfinite(normal.xyz)) ||
+    if (normal.w != 1.0 || !all(M8FlowerIsFinite(normal.xyz)) ||
         all(normal.xyz == 0.0.xxx) || !(depth > 0.0 && depth < 1.0))
         return false;
     precise float2 uv = (float2(pixel) + 0.5) / float2(gsDepthTexSize);
@@ -40,7 +41,7 @@ bool M8FlowerLoadAcceptedEndpoint(uint2 pixel, out int3 firstOwner)
         M8_FLOWER_LATTICE_STEP;
     // 2147483520 is the greatest binary32 integer below int32's upper bound.
     // Both members of each overlap pair must have a representable address.
-    if (!all(isfinite(grid)) || any(grid < -2147483648.0) ||
+    if (!all(M8FlowerIsFinite(grid)) || any(grid < -2147483648.0) ||
         any(grid > 2147483520.0)) return false;
     firstOwner = int3(floor(grid));
     return true;

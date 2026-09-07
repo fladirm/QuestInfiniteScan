@@ -92,12 +92,12 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
     pixelMin = imageSize;
     pixelMax = -1;
     supportUpperDepth = 0.0;
-    if (!all(isfinite(minimum)) || !all(isfinite(maximum)) || any(maximum < minimum) ||
+    if (!all(M8FlowerIsFinite(minimum)) || !all(M8FlowerIsFinite(maximum)) || any(maximum < minimum) ||
         any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
-        !isfinite(reprojectionError) || reprojectionError < 0.0 ||
-        !all(isfinite(view[0])) || !all(isfinite(view[1])) || !all(isfinite(view[2])) ||
-        !all(isfinite(projection[0])) || !all(isfinite(projection[1])) ||
-        !all(isfinite(projection[2])) || !all(isfinite(projection[3])) ||
+        !M8FlowerIsFinite(reprojectionError) || reprojectionError < 0.0 ||
+        !all(M8FlowerIsFinite(view[0])) || !all(M8FlowerIsFinite(view[1])) || !all(M8FlowerIsFinite(view[2])) ||
+        !all(M8FlowerIsFinite(projection[0])) || !all(M8FlowerIsFinite(projection[1])) ||
+        !all(M8FlowerIsFinite(projection[2])) || !all(M8FlowerIsFinite(projection[3])) ||
         any(view[3] != float4(0.0, 0.0, 0.0, 1.0))) return false;
     [unroll]
     for (uint corner = 0u; corner < 8u; corner++)
@@ -126,12 +126,12 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
             M8FlowerI((float)imageSize.x * 0.5, (float)imageSize.x * 0.5));
         y = M8FlowerIMul(M8FlowerIAdd(y, M8FlowerI(1.0, 1.0)),
             M8FlowerI((float)imageSize.y * 0.5, (float)imageSize.y * 0.5));
-        if (!all(isfinite(float4(x.lo, x.hi, y.lo, y.hi))) ||
+        if (!all(M8FlowerIsFinite(float4(x.lo, x.hi, y.lo, y.hi))) ||
             x.lo < 0.0 || y.lo < 0.0 || x.hi >= imageSize.x || y.hi >= imageSize.y) return false;
         pixelMin = min(pixelMin, int2(floor(x.lo), floor(y.lo)));
         pixelMax = max(pixelMax, int2(floor(x.hi), floor(y.hi)));
     }
-    return isfinite(supportUpperDepth);
+    return M8FlowerIsFinite(supportUpperDepth);
 }
 
 uint M8DepthCertificateOffset(uint level)
@@ -149,7 +149,7 @@ uint M8DepthCertificateAddress(uint eye, uint level, uint2 xy)
 
 uint2 M8DepthCertificateNode(float lower, bool valid)
 {
-    bool accepted = valid && isfinite(lower) && lower > 0.0;
+    bool accepted = valid && M8FlowerIsFinite(lower) && lower > 0.0;
     return accepted ? uint2(asuint(lower), 1u) : 0u.xx;
 }
 
@@ -181,7 +181,7 @@ bool M8DepthCertificateThrough(uint eye, int2 imageSize, int2 minimum,
 {
     if (eye >= 2u || any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
         any(minimum < 0) || any(maximum < minimum) || any(maximum >= imageSize) ||
-        !isfinite(supportUpperDepth) || supportUpperDepth < 0.0) return false;
+        !M8FlowerIsFinite(supportUpperDepth) || supportUpperDepth < 0.0) return false;
     uint level = M8DepthCertificateEnvelopeLevel((uint2)minimum, (uint2)maximum);
     uint2 origin = ((uint2)minimum >> level) << level;
     if (M8DepthCertificateProves(_M8DepthCertificate[
@@ -225,7 +225,7 @@ bool M8DepthCertificateEyeSupport(float3 minimum, float3 maximum,
 {
     if (eye >= 2u) return false;
     float4 errors = _M8DepthErrorBounds[eye];
-    if (errors.w != 1.0 || !all(isfinite(errors.xyz)) || any(errors.xyz < 0.0)) return false;
+    if (errors.w != 1.0 || !all(M8FlowerIsFinite(errors.xyz)) || any(errors.xyz < 0.0)) return false;
     int2 lo, hi;
     float upper;
     return M8DepthProjectSupport(minimum, maximum, view, projection,

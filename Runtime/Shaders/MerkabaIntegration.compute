@@ -8,6 +8,7 @@
 #pragma kernel PrepareFineEraseArgs
 #pragma kernel EraseFineTiles
 #pragma kernel FinalizeFineErase
+#pragma use_dxc vulkan
 
 #include "DepthKit.hlsl"
 #include "MerkabaSphereFlower.generated.hlsl"
@@ -88,7 +89,7 @@ bool M8SupportInsideMutationScope(M8FlowerInterval3 support)
 
 bool M8SupportThrough(int3 firstOwner, uint ownerSpan)
 {
-    if (!isfinite(_MerkabaMaxUpdateDistance) ||
+    if (!M8FlowerIsFinite(_MerkabaMaxUpdateDistance) ||
         !(_MerkabaMaxUpdateDistance > 0.0) || ownerSpan == 0u ||
         ownerSpan > MERKABA_M8_BLOCK_KERNEL_SPAN) return false;
     // The union of n consecutive owner supports is [first-1, first+n]

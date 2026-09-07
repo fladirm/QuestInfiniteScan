@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using Genesis.RoomScan;
@@ -255,14 +256,49 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void SkinCarrierKey_SixSourceWedgesShareOneCanonicalPersistentIdentity()
+        {
+            var keys = new HashSet<uint>();
+            for (int carrier = 0; carrier < MerkabaSphereFlowerAuthority.L2HubCount; carrier++)
+            foreach (bool rootSign in new[] { false, true })
+            foreach (int sector in new[] { 0, 31 })
+            {
+                uint canonicalSource = MerkabaSphereFlowerAuthority.L2Wedges[6 * carrier].Source;
+                uint canonical = canonicalSource |
+                    (rootSign ? 1u << MerkabaFlowerL2Key.RootSignShift : 0u) |
+                    ((uint)sector << MerkabaFlowerL2Key.SectorShift);
+                Assert.That(keys.Add(canonical), Is.True,
+                    "Different carriers/root signs/sectors must not alias.");
+                for (int wedge = 0; wedge < 6; wedge++)
+                {
+                    var source = MerkabaSphereFlowerAuthority.L2Wedges[6 * carrier + wedge];
+                    Assert.That(MerkabaSphereFlowerAuthority.L2WedgeIndex(
+                        source.Petal, source.ChildPath) / 6, Is.EqualTo(carrier));
+                    MerkabaFlowerL2Key key = MerkabaFlowerL2Key.Create(
+                        source.ChildPath, source.Petal, rootSign, sector);
+                    Assert.That(key.Value, Is.EqualTo(canonical));
+                    uint spelling = source.Source |
+                        (rootSign ? 1u << MerkabaFlowerL2Key.RootSignShift : 0u) |
+                        ((uint)sector << MerkabaFlowerL2Key.SectorShift);
+                    Assert.That(MerkabaFlowerL2Key.TryDecode(spelling, out _),
+                        Is.EqualTo(wedge == 0),
+                        "Persisted wedge aliases must be rejected, not retained as parallel runs.");
+                }
+            }
+            Assert.That(keys.Count, Is.EqualTo(4 * MerkabaSphereFlowerAuthority.L2HubCount));
+        }
+
+        [Test]
         public void FixedSkinRuns_EncodeOnlyThreadOrderedSplitsAndAtomicGroups()
         {
             var flower = MerkabaFlowerL2Key.Create(15, 47, true, 31);
             Assert.That(MerkabaFlowerL2Key.TryDecode(flower.Value,
                 out MerkabaFlowerL2Key decoded), Is.True);
             Assert.That(decoded, Is.EqualTo(flower));
-            Assert.That(decoded.GeometryChildPath, Is.EqualTo(15));
-            Assert.That(decoded.PetalClass, Is.EqualTo(47));
+            int carrier = MerkabaSphereFlowerAuthority.L2WedgeIndex(47, 15) / 6;
+            var canonical = MerkabaSphereFlowerAuthority.L2Wedges[6 * carrier];
+            Assert.That(decoded.GeometryChildPath, Is.EqualTo(canonical.ChildPath));
+            Assert.That(decoded.PetalClass, Is.EqualTo(canonical.Petal));
             Assert.That(decoded.RootSign, Is.True);
             Assert.That(decoded.Sector, Is.EqualTo(31));
             Assert.That(MerkabaFlowerL2Key.TryDecode(flower.Value |

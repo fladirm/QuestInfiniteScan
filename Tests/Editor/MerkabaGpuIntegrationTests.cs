@@ -639,6 +639,8 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Shaders/MerkabaIntegration.compute");
             string finalize = Slice(integration, "void FinalizeObservation",
                 "\n}") + "\n}";
+            string completion = Slice(integration, "void M8FinalizeObservationCompletion()",
+                "\n}") + "\n}";
             string integrator = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
             string submit = Slice(integrator,
@@ -652,14 +654,18 @@ namespace Genesis.RoomScan.Tests
                 "internal void RequestAttemptCompletion(",
                 "private void PublishResidencyEpoch(");
 
-            Assert.That(finalize, Does.Contain(
+            Assert.That(finalize, Does.Contain("if (lane == 0u)"));
+            Assert.That(finalize, Does.Contain("M8FinalizeObservationCompletion();"));
+            Assert.That(finalize.IndexOf("M8FinalizeObservationCompletion();", StringComparison.Ordinal),
+                Is.LessThan(finalize.IndexOf("GroupMemoryBarrierWithGroupSync();", StringComparison.Ordinal)));
+            Assert.That(completion, Does.Contain(
                 "_M8AttemptCompletion[0] = uint4(_M8AttemptToken"));
-            Assert.That(finalize, Does.Contain(
+            Assert.That(completion, Does.Contain(
                 "M8_COUNTER_OBSERVATION_TOKEN"));
-            Assert.That(finalize, Does.Contain(
+            Assert.That(completion, Does.Contain(
                 "M8_COUNTER_RESIDENCY_EPOCH"));
-            Assert.That(finalize, Does.Contain("M8_COUNTER_OBSERVATION_CHANGE_MASK"));
-            Assert.That(finalize, Does.Contain(
+            Assert.That(completion, Does.Contain("M8_COUNTER_OBSERVATION_CHANGE_MASK"));
+            Assert.That(completion, Does.Contain(
                 "M8_ATTEMPT_COMPLETION_READOUT_CHANGED"));
             Assert.That(integration, Does.Not.Contain(
                 "M8_COUNTER_ATTEMPT_COMPLETED_TOKEN"));
@@ -687,15 +693,18 @@ namespace Genesis.RoomScan.Tests
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
-            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
             string finalize = Slice(integration, "void FinalizeObservation",
+                "\n}") + "\n}";
+            string completion = Slice(integration, "void M8FinalizeObservationCompletion()",
                 "\n}") + "\n}";
             string cleanup = Slice(Source("Runtime/Shaders/MerkabaObservationBins.compute"),
                 "void RetireObservationBins", "\n}");
 
-            Assert.That(finalize, Does.Contain(
+            Assert.That(finalize, Does.Contain("M8FinalizeObservationCompletion();"));
+            Assert.That(completion, Does.Contain(
                 "M8_COUNTER_CLEANUP_PENDING_COUNT"));
-            Assert.That(finalize, Does.Contain("failure != 0u"));
+            Assert.That(completion, Does.Contain("completed != 0u && failure != 0u"));
+            Assert.That(completion, Does.Contain("M8_COUNTER_PENDING_NEW_TILE_COUNT"));
             Assert.That(cleanup, Does.Contain(
                 "MERKABA_REF_CLAIMED_NEW,MERKABA_REF_EMPTY"));
             Assert.That(cleanup, Does.Not.Contain("M8StoreKernelState"));

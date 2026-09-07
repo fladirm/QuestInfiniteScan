@@ -130,8 +130,15 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGridRenderer.cs"));
             Assert.That(renderer, Does.Contain(
                 "renderer.readoutDrawEnabled &&"));
-            Assert.That(renderer, Does.Contain(
-                "if (!readoutDrawEnabled || _gpuSubmissionSuspended"));
+            int cullStart = renderer.IndexOf("internal void RecordViewCull(",
+                System.StringComparison.Ordinal);
+            int cullEnd = renderer.IndexOf("internal void RecordRenderPass(",
+                cullStart, System.StringComparison.Ordinal);
+            string cull = renderer.Substring(cullStart, cullEnd - cullStart);
+            Assert.That(cull, Does.Contain("_gpuSubmissionSuspended || !readoutDrawEnabled) return;"));
+            Assert.That(cull, Does.Contain("!_grid.FlowerGraphicsReadAllowed"));
+            Assert.That(cull.IndexOf("!readoutDrawEnabled", System.StringComparison.Ordinal),
+                Is.LessThan(cull.IndexOf("command.DispatchComputeProfiled", System.StringComparison.Ordinal)));
 
             string viewer = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/" +
@@ -274,32 +281,30 @@ namespace Genesis.RoomScan.Tests
                 "Opacity must select material state on CPU, not branch per fragment.");
             Assert.That(source, Does.Not.Contain(
                 "if (input.colorConfidence == 0u) discard;"));
-            Assert.That(source, Does.Not.Contain("barycentric"));
+            Assert.That(source, Does.Contain("M8FlowerResolveSkinLocality("),
+                "Barycentrics address the fixed skin signal, not a wireframe or presentation LOD.");
+            Assert.That(source, Does.Contain("M8FlowerReadGraphicsSkin("));
             Assert.That(source, Does.Not.Contain("fwidth"));
             Assert.That(source, Does.Not.Contain("pixelDistance"));
-            Assert.That(source, Does.Contain(
-                "? input.color : half3(0.55h, 0.16h, 0.42h)"));
+            Assert.That(source, Does.Contain("color = sample.CapturedRgb;"));
+            Assert.That(source, Does.Contain("M8FlowerCapturedColor(input.packedColor)"));
+            Assert.That(source, Does.Contain("color = M8FlowerDirtSupportLinearRgba.rgb;"),
+                "Derived DIRT presentation must not masquerade as captured RGB.");
 
             string renderer = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
                 "MerkabaGridRenderer.cs"));
+            Assert.That(renderer, Does.Contain("SetKeyword(\"M8_FINE_PREVIEW\", active)"));
+            Assert.That(renderer, Does.Contain("SetKeyword(\"M8_ENVIRONMENT_OCCLUSION\", enabled)"));
+            Assert.That(renderer, Does.Contain("SetKeyword(\"M8_ALPHA_COVERAGE\", scanOpacity < 1f)"));
+            Assert.That(renderer, Does.Contain("if (enabled) _material.EnableKeyword(keyword);"));
+            Assert.That(renderer, Does.Contain("else _material.DisableKeyword(keyword);"));
             Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_FINE_PREVIEW\")"));
-            Assert.That(renderer, Does.Contain(
-                "material.DisableKeyword(\"M8_FINE_PREVIEW\")"));
-            Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_ENVIRONMENT_OCCLUSION\")"));
-            Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_ALPHA_COVERAGE\")"));
-            Assert.That(renderer, Does.Contain(
-                "material.renderQueue = (int)RenderQueue.Geometry"));
+                "_material.renderQueue = (int)RenderQueue.Geometry"));
             Assert.That(renderer, Does.Not.Contain("BlendMode."));
-            Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_CHECKER_READOUT\")"));
-            Assert.That(renderer, Does.Contain(
-                "if (value && meshReadoutEnabled)"));
-            Assert.That(renderer, Does.Contain(
-                "!material.IsKeywordEnabled(\"M8_STEREO_MESH\")"));
+            Assert.That(renderer, Does.Contain("SetKeyword(\"M8_CHECKER_READOUT\", value)"));
+            Assert.That(renderer, Does.Not.Contain("meshReadoutEnabled"));
+            Assert.That(renderer, Does.Not.Contain("M8_STEREO_MESH"));
         }
 
         [Test]
@@ -314,17 +319,31 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain("UNITY_VERTEX_OUTPUT_STEREO"));
             Assert.That(source, Does.Contain(
                 "UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output)"));
-            Assert.That(source, Does.Contain(
-                "float3 gridPosition0 : POSITION"));
-            Assert.That(source, Does.Contain(
-                "float3 gridPosition1 : TEXCOORD0"));
-            Assert.That(source, Does.Contain(
-                "unity_StereoEyeIndex == 0"));
+            Assert.That(source, Does.Contain("uint pageSlot = unity_InstanceID;"));
+            Assert.That(source, Does.Contain("uint pageSlot = input.proceduralInstanceID;"));
             Assert.That(source, Does.Contain("uint vertexID : SV_VertexID"));
             Assert.That(source, Does.Contain(
-                "StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices0"));
-            Assert.That(source, Does.Contain(
-                "#if defined(M8_STEREO_MESH)"));
+                "M8FlowerReadGraphicsVertex(input.vertexID, pageSlot, vertex)"));
+            Assert.That(source, Does.Contain("TransformWorldToHClip(worldPosition)"));
+            Assert.That(source, Does.Not.Contain("gridPosition0"));
+            Assert.That(source, Does.Not.Contain("gridPosition1"));
+            Assert.That(source, Does.Not.Contain("ReadoutVertices"));
+            Assert.That(source, Does.Not.Contain("M8_STEREO_MESH"));
+            string vertex = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaFlowerVertex.hlsl"));
+            Assert.That(vertex, Does.Contain("symbolIndex=vertexId/7u,site=vertexId%7u"));
+            Assert.That(vertex, Does.Contain("M8FlowerFrontPage(pageSlot,page)"));
+            Assert.That(vertex, Does.Contain("M8FlowerL2CarrierKnot(carrier,site)"));
+            Assert.That(vertex, Does.Contain("M8FlowerReadL2Knot("));
+            Assert.That(vertex, Does.Contain("M8FlowerRootGridPosition(root,result.GridPosition)"));
+            Assert.That(source, Does.Contain("M8FlowerDrawActiveWedgeMask(symbol)"));
+            string renderer = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGridRenderer.cs"));
+            Assert.That(renderer, Does.Contain("RecordFlowerIndirectRegistration("));
+            Assert.That(renderer, Does.Contain(
+                "command.DrawProceduralIndirect(_grid.M8FlowerIndices, Matrix4x4.identity,"));
+            Assert.That(renderer, Does.Not.Contain("ReadoutVertices"));
+            Assert.That(renderer, Does.Not.Contain("meshReadoutEnabled"));
             Assert.That(source, Does.Not.Contain("logicalPrimitive"));
             Assert.That(source, Does.Not.Contain("primitiveId"));
             Assert.That(source, Does.Not.Contain(

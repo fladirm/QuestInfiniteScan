@@ -201,9 +201,15 @@ namespace Genesis.RoomScan.Tests
                           "internal void CaptureStorageMetrics(")
                      })
             {
-                Assert.That(Slice(storage, begin, end),
-                    Does.Contain("GpuSubmissionAllowed"), begin);
+                string body = Slice(storage, begin, end);
+                Assert.That(body.Contains("GpuSubmissionAllowed") ||
+                    body.Contains("DualMutationSubmissionAllowed"), Is.True, begin);
             }
+            string dualGate = Slice(gpu,
+                "internal bool DualMutationSubmissionAllowed =>", ";");
+            Assert.That(dualGate, Does.Contain("GpuSubmissionAllowed &&"));
+            Assert.That(dualGate, Does.Contain("_dualMutationGeneration == 0u"));
+            Assert.That(dualGate, Does.Contain("!MerkabaNativeVulkanExecutor.HasJobInFlight"));
             string cpuCompletion = Slice(storage,
                 "private void CompleteStorageCpuTasks()",
                 "private void PumpIdleBaseCompaction()");
@@ -336,9 +342,15 @@ namespace Genesis.RoomScan.Tests
                     "internal Action CaptureOwnedGpuResourceRelease()",
                     "\n        }") + "\n        }";
                 Assert.That(capture, Does.Contain("if (this != null)"), path);
-                Assert.That(capture, Does.Contain(
-                    "UnityEngine.Object.Destroy"), path);
+                Assert.That(capture, Does.Contain("Destroy("), path);
+                Assert.That(capture, Does.Contain("if (released) return;"), path);
+                Assert.That(capture, Does.Contain("released = true;"), path);
             }
+            string rendererCapture = Slice(
+                Source("Runtime/Merkaba/MerkabaGridRenderer.cs"),
+                "internal Action CaptureOwnedGpuResourceRelease()", "\n        }");
+            Assert.That(rendererCapture, Does.Contain("Material captured = _material;"));
+            Assert.That(rendererCapture, Does.Contain("else if (captured != null) Destroy(captured);"));
             string gridCapture = Slice(
                 Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),
                 "internal Action CaptureOwnedGpuResourceRelease()",

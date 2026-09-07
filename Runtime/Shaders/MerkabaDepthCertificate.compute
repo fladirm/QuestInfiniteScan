@@ -1,5 +1,6 @@
 #pragma kernel BuildDepthCertificate
 #pragma kernel ReduceDepthCertificate
+#pragma use_dxc vulkan
 
 #define M8_DEPTH_CERTIFICATE_BUILD
 #include "MerkabaDepthCertificate.generated.hlsl"
@@ -26,7 +27,7 @@ uint2 M8FrozenDepthCertificate(uint2 pixel, uint eye)
     float depth = _SrcDepth.Load(int4(pixel, eye, 0));
     float4 bounds = _M8DepthErrorBounds[eye];
     if (!(depth > 0.0 && depth < 1.0) || bounds.w != 1.0 ||
-        !all(isfinite(bounds.xyz)) || any(bounds.xyz < 0.0)) return 0u.xx;
+        !all(M8FlowerIsFinite(bounds.xyz)) || any(bounds.xyz < 0.0)) return 0u.xx;
     M8FlowerInterval3 ndc;
     M8FlowerInterval ux, uy;
     if (!M8FlowerIDivPositive(
@@ -47,7 +48,7 @@ uint2 M8FrozenDepthCertificate(uint2 pixel, uint eye)
         M8FlowerI(bounds.x, bounds.x), M8FlowerI(bounds.y, bounds.y)),
         M8FlowerI(bounds.z, bounds.z));
     M8FlowerInterval enclosed = M8FlowerIAdd(centre, M8FlowerI(-error.hi, error.hi));
-    return M8DepthCertificateNode(enclosed.lo, isfinite(enclosed.hi) &&
+    return M8DepthCertificateNode(enclosed.lo, M8FlowerIsFinite(enclosed.hi) &&
         enclosed.lo <= enclosed.hi);
 }
 

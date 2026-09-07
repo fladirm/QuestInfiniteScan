@@ -139,6 +139,7 @@ namespace Genesis.RoomScan.Tests
             world.DispatchOwners("EmitOwnersProbe");
             CollectionAssert.AreEqual(world.Expected.OrderBy(x => x.y).ThenBy(x => x.x),
                 Read<uint4>(world.Records).OrderBy(x => x.y).ThenBy(x => x.x));
+            world.AssertEndpointSupport(true);
             Assert.That(Read<uint>(world.Counters)[MerkabaGrid.CounterObservationFailure], Is.Zero);
             world.ResetBins();
             Assert.That(Read<uint4>(world.Bins).All(x => math.all(x == 0u)), Is.True);
@@ -164,6 +165,7 @@ namespace Genesis.RoomScan.Tests
             Reserve(world.Bins, world.Counters, world.Touched, world.Args, points.Length * 8);
             world.DispatchOwners("EmitOwnersProbe");
             Assert.That(Read<uint>(world.Args)[0], Is.Zero);
+            world.AssertEndpointSupport(false);
             uint[] counters = Read<uint>(world.Counters);
             Assert.That(counters[MerkabaGrid.CounterUnresolvedSurfaceTiles], Is.EqualTo(64));
             Assert.That(counters[34], Is.EqualTo(missing == MerkabaSpatial.EmptyRef ||
@@ -183,6 +185,7 @@ namespace Genesis.RoomScan.Tests
             world.DispatchOwners("EmitOwnersProbe");
             CollectionAssert.AreEqual(world.Expected.OrderBy(x => x.y).ThenBy(x => x.x),
                 Read<uint4>(world.Records).OrderBy(x => x.y).ThenBy(x => x.x));
+            world.AssertEndpointSupport(true);
             Assert.That(Read<uint>(world.Counters)[MerkabaGrid.CounterObservationFailure], Is.Zero);
         }
 
@@ -191,6 +194,106 @@ namespace Genesis.RoomScan.Tests
             var values = new T[buffer.count];
             buffer.GetData(values); // Oracle only, never a production readback.
             return values;
+        }
+
+        [Test, Timeout(30000)]
+        public void DivisionBounds_EncloseExactDyadicProductsAcrossBinary32Domain()
+        {
+            const uint one = 0x3f800000u, half = 0x3f000000u, two = 0x40000000u;
+            const uint three = 0x40400000u, negative = 0x80000000u, maximum = 0x7f7fffffu;
+            var cases = new List<uint4>();
+            void Add(uint n, uint d) => cases.Add(new uint4(n, n, d, d));
+            Add(0u, one);
+            Add(negative, one);
+            cases.Add(new uint4(1u, 1u, half, two));
+            cases.Add(new uint4(negative | 1u, negative | 1u, half, two));
+            cases.Add(new uint4(negative | 1u, 1u, half, two));
+            Add(0x007fffffu, 0x00800000u);
+            Add(0x00800000u, 0x007fffffu);
+            Add(math.asuint(0.9238796f), one);
+            Add(one, three);
+            Add(negative | one, three);
+            Add(maximum, one);
+            Add(maximum, 1u);
+            Add(negative | maximum, 1u);
+            Add(1u, maximum);
+            Add(negative | 1u, maximum);
+            cases.Add(new uint4(one, two, half, three));
+            // Every finite exponent field is exercised in numerator and divisor,
+            // with two deterministic mantissa/exponent pairings and both signs.
+            for (uint exponent = 0; exponent < 255u; exponent++)
+            for (uint pairing = 0; pairing < 2u; pairing++)
+            {
+                uint denominatorExponent = pairing == 0u ? 254u - exponent :
+                    (73u * exponent + 19u) % 255u;
+                uint n = (exponent << 23) | (((exponent * 0x1f123u + pairing * 0x391u) & 0x7fffffu) | 1u);
+                uint d = (denominatorExponent << 23) | (((exponent * 0x35a17u + pairing * 0x917u) & 0x7fffffu) | 1u);
+                Add(n, d);
+                Add(n | negative, d);
+            }
+            using var input = new ComputeBuffer(cases.Count, 16);
+            using var output = new ComputeBuffer(2 * cases.Count, 16);
+            input.SetData(cases);
+            ComputeShader shader = Shader("Tests/Editor/MerkabaObservationBinsProbe.compute");
+            int kernel = shader.FindKernel("DivisionBoundsProbe");
+            shader.SetInt("_ProbeRecordCount", cases.Count);
+            shader.SetBuffer(kernel, "_ProbeRecords", input);
+            shader.SetBuffer(kernel, "_ProbeReduced", output);
+            shader.Dispatch(kernel, (cases.Count + 63) / 64, 1, 1);
+            uint4[] actual = Read<uint4>(output);
+            for (int i = 0; i < cases.Count; i++)
+            {
+                uint4 c = cases[i], status = actual[2 * i], bounds = actual[2 * i + 1];
+                uint lowerDivisor = ExactFloat(c.x) < 0.0 ? c.z : c.w;
+                uint upperDivisor = ExactFloat(c.y) < 0.0 ? c.w : c.z;
+                bool Fits(uint n, uint d) => Math.Abs(ExactFloat(n)) <= ExactFloat(maximum) * ExactFloat(d);
+                Assert.That(status.x != 0u, Is.EqualTo(Fits(c.x, c.z)), $"scalar {i}");
+                Assert.That(status.y != 0u,
+                    Is.EqualTo(Fits(c.x, lowerDivisor) && Fits(c.y, upperDivisor)), $"interval {i}");
+                if (status.x != 0u)
+                {
+                    AssertDirectedBound(c.x, c.z, bounds.x, true, $"scalar lower {i}");
+                    AssertDirectedBound(c.x, c.z, bounds.y, false, $"scalar upper {i}");
+                    if (ExactFloat(bounds.x) != ExactFloat(bounds.y))
+                        Assert.That(ExactFloat(AdjacentFloat(bounds.x, true)), Is.EqualTo(ExactFloat(bounds.y)), $"adjacent {i}");
+                }
+                if (status.y != 0u)
+                {
+                    AssertDirectedBound(c.x, lowerDivisor, bounds.z, true, $"interval lower {i}");
+                    AssertDirectedBound(c.y, upperDivisor, bounds.w, false, $"interval upper {i}");
+                    Assert.That(ExactFloat(bounds.z), Is.LessThanOrEqualTo(ExactFloat(bounds.w)), $"ordered {i}");
+                }
+            }
+        }
+
+        // Decode via integer bits, so the independent CPU oracle never subjects
+        // subnormal inputs to a binary32 arithmetic/DAZ operation. Binary64 holds
+        // every product of two finite binary32 values exactly (at most 48 bits).
+        private static double ExactFloat(uint bits)
+        {
+            uint exponent = (bits >> 23) & 255u;
+            Assert.That(exponent, Is.LessThan(255u), $"finite bound 0x{bits:x8}");
+            uint mantissa = (bits & 0x7fffffu) | (exponent == 0u ? 0u : 0x800000u);
+            double power = BitConverter.Int64BitsToDouble((long)(exponent == 0u ? 874u : exponent + 873u) << 52);
+            double value = mantissa * power;
+            return (bits & 0x80000000u) == 0u ? value : -value;
+        }
+
+        private static uint AdjacentFloat(uint bits, bool upward)
+        {
+            if ((bits & 0x7fffffffu) == 0u) return upward ? 1u : 0x80000001u;
+            return ((bits & 0x80000000u) == 0u) == upward ? bits + 1u : bits - 1u;
+        }
+
+        private static void AssertDirectedBound(uint numerator, uint denominator,
+            uint bound, bool lower, string label)
+        {
+            double n = ExactFloat(numerator), d = ExactFloat(denominator);
+            double product = ExactFloat(bound) * d;
+            Assert.That(lower ? product <= n : product >= n, Is.True, label);
+            if (product == n) return;
+            double adjacent = ExactFloat(AdjacentFloat(bound, lower)) * d;
+            Assert.That(lower ? adjacent > n : adjacent < n, Is.True, label + " tight");
         }
 
         [Test, Timeout(30000)]
@@ -252,6 +355,8 @@ namespace Genesis.RoomScan.Tests
                 var abc = new MerkabaSphereFlowerAuthority.Interval3(
                     new(a.x, a.y), new(a.z, a.w), new(b.x, b.y));
                 var classification = MerkabaSphereFlowerAuthority.ClassifyRoots(abc);
+                if (actual[i].x != (uint)classification)
+                    DescribeRootFailure(shader, a, b);
                 Assert.That(actual[i].x, Is.EqualTo((uint)classification), $"root case {i}");
                 if (actual[i].x != 1u && actual[i].x != 2u)
                 {
@@ -289,6 +394,25 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(MerkabaSphereFlowerAuthority.SectorBoundaries.Length));
             Assert.That(bounds[2], Is.EqualTo(bounds[3]),
                 "tangent signs evaluate the same single root");
+        }
+
+        private static void DescribeRootFailure(ComputeShader shader, float4 a, float4 b)
+        {
+            int kernel = shader.FindKernel("RootIntervalStagesProbe");
+            using var input = new ComputeBuffer(2, 16);
+            using var flags = new ComputeBuffer(1, 16);
+            using var stages = new ComputeBuffer(4, 16);
+            input.SetData(new[] { a, b });
+            shader.SetBuffer(kernel, "_ProbeCoefficients", input);
+            shader.SetBuffer(kernel, "_ProbeReduced", flags);
+            shader.SetBuffer(kernel, "_ProbeRootIntervals", stages);
+            shader.Dispatch(kernel, 1, 1, 1);
+            uint4 result = Read<uint4>(flags)[0];
+            float4[] values = Read<float4>(stages);
+            TestContext.WriteLine($"Root ABC={a}/{b}: " +
+                $"class/sqrt/xDivision/yDivision={result}; " +
+                $"Q,delta={math.asuint(values[0])}; turn,x={math.asuint(values[1])}; " +
+                $"y,rootX={math.asuint(values[2])}; rootY={math.asuint(values[3])}");
         }
 
         [Test, Timeout(30000)]
@@ -448,8 +572,20 @@ namespace Genesis.RoomScan.Tests
                     shader.SetBuffer(kernel, "_M8BlockChunkRefsRead", _blockRefs);
                     shader.SetBuffer(kernel, "_M8ChunkTileRefsRead", TileRefs);
                     shader.SetBuffer(kernel, "_M8ObservationRecords", Records);
+                    shader.SetBuffer(kernel, "_M8TileBits", _tileBits);
                 }
                 shader.Dispatch(kernel, (_pointCount + 63) / 64, 1, 1);
+            }
+
+            public void AssertEndpointSupport(bool emitted)
+            {
+                var expected = new uint[_tileBits.count];
+                if (emitted)
+                    foreach (uint4 record in Expected)
+                        expected[record.x >> 5] |= 1u << (int)(record.x & 31u);
+                uint4[] actual = Read<uint4>(_tileBits);
+                CollectionAssert.AreEqual(expected, actual.Select(word => word.z),
+                    "Only emitted frozen endpoints may exclude their support from THROUGH.");
             }
 
             public void ServiceTileRequests()

@@ -163,7 +163,11 @@ namespace Genesis.RoomScan
                 for (int word = payload.Length / sizeof(uint); word < bodyWords; word++)
                     if (words[cursor + HeaderWords + word] != 0u)
                         throw new InvalidDataException("Fine-page transport padding is nonzero.");
-                var record = new MerkabaAppendRecord(kind, address, payload, rebased);
+                // GPU capture emits an owner epoch only when hasFineHistory
+                // is set. The SSD append still requires this entire tile's
+                // completed image before accepting the receipt.
+                var record = new MerkabaAppendRecord(kind, address, payload, rebased,
+                    ownerEpochSnapshot: kind == MerkabaRecordKind.FlowerOwnerEpoch);
                 TransportIdentity(tile, record, out uint decodedOwner, out uint decodedKey);
                 if (decodedOwner != owner || decodedKey != (rebased ? 0u : key))
                     throw new InvalidDataException("Fine-page transport identity disagrees with its payload.");

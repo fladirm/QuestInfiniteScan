@@ -17,18 +17,25 @@ namespace Genesis.RoomScan
         // Capture-only receipt. It is expanded into canonical epoch/tombstone
         // records inside the append lock, never written as another ABI field.
         internal readonly bool OwnerEpochRebased;
+        // An immutable fine image certifies that this sparse owner actually
+        // had fine state, even if every descendant was invalidated before
+        // writeback. This receipt is transport/index metadata, not log ABI.
+        internal readonly bool OwnerEpochSnapshot;
 
         internal MerkabaAppendRecord(MerkabaRecordKind kind, byte[] address,
-            byte[] payload, bool ownerEpochRebased = false)
+            byte[] payload, bool ownerEpochRebased = false,
+            bool ownerEpochSnapshot = false)
         {
             Address = address ?? throw new ArgumentNullException(nameof(address));
             Payload = payload ?? throw new ArgumentNullException(nameof(payload));
             MerkabaSphereFlowerPersistenceAbi.ValidateRecordShape(kind,
                 address.Length, payload.Length);
             Kind = kind;
-            if (ownerEpochRebased && kind != MerkabaRecordKind.FlowerOwnerEpoch)
-                throw new ArgumentException("Only an owner epoch can carry a rebase receipt.");
+            if ((ownerEpochRebased || ownerEpochSnapshot) &&
+                kind != MerkabaRecordKind.FlowerOwnerEpoch)
+                throw new ArgumentException("Only an owner epoch can carry a capture receipt.");
             OwnerEpochRebased = ownerEpochRebased;
+            OwnerEpochSnapshot = ownerEpochSnapshot;
         }
     }
 
@@ -126,12 +133,14 @@ namespace Genesis.RoomScan
         {
             internal readonly MerkabaRecordVersion Version;
             internal readonly byte[] Payload;
+            internal readonly bool OwnerHistoryCertified;
 
             internal VersionedPayload(MerkabaRecordVersion version,
-                byte[] payload)
+                byte[] payload, bool ownerHistoryCertified = false)
             {
                 Version = version;
                 Payload = payload;
+                OwnerHistoryCertified = ownerHistoryCertified;
             }
         }
 
@@ -526,9 +535,9 @@ namespace Genesis.RoomScan
             // A GPU snapshot can cross the wrap before its previous high epoch
             // was appended. Record the actual wrap boundary explicitly.
             records.Add(new MerkabaAppendRecord(MerkabaRecordKind.FlowerOwnerEpoch,
-                address, maximum));
+                address, maximum, ownerEpochSnapshot: true));
             records.Add(new MerkabaAppendRecord(MerkabaRecordKind.FlowerOwnerEpoch,
-                address, initial));
+                address, initial, ownerEpochSnapshot: true));
             if (!_fineByOwner.TryGetValue(owner, out HashSet<FineAddress> history)) return;
             var ordered = new List<FineAddress>(history);
             ordered.Sort((left, right) =>
@@ -621,15 +630,19 @@ namespace Genesis.RoomScan
                 var owner = new MerkabaOwnerAddress(tile, kernel);
                 if (!_epochs.TryGetValue(owner, out VersionedPayload epoch))
                     continue;
+                bool hasDescendantHistory = _fineByOwner.TryGetValue(owner,
+                    out HashSet<FineAddress> values) && values.Count != 0;
+                if (!epoch.OwnerHistoryCertified && !hasDescendantHistory)
+                    throw new InvalidDataException(
+                        "Cannot capture a sparse owner epoch without fine-state history.");
                 byte[] ownerAddress = new byte[
                     MerkabaSphereFlowerPersistenceAbi.TileAddressBytes];
                 MerkabaSphereFlowerPersistenceAbi.WriteTileAddress(
                     ownerAddress, tile);
                 records.Add(new MerkabaAppendRecord(
                     MerkabaRecordKind.FlowerOwnerEpoch, ownerAddress,
-                    (byte[])epoch.Payload.Clone()));
-                if (!_fineByOwner.TryGetValue(owner,
-                        out HashSet<FineAddress> values)) continue;
+                    (byte[])epoch.Payload.Clone(), ownerEpochSnapshot: true));
+                if (!hasDescendantHistory) continue;
                 var ordered = new List<FineAddress>(values);
                 ordered.Sort((left, right) =>
                 {
@@ -880,13 +893,15 @@ namespace Genesis.RoomScan
                         throw new InvalidDataException(
                             "Flower owner epoch wrap requires same-transaction " +
                             "tombstones for every existing descendant.");
-            bool hasEpoch = _epochs.ContainsKey(owner);
+            bool hasEpoch = _epochs.TryGetValue(owner, out VersionedPayload epoch);
             if (!_fineByOwner.TryGetValue(owner,
                     out HashSet<FineAddress> addresses))
             {
-                // Dirty snapshots may coalesce creation and invalidation of
-                // the first fine payload. The sparse epoch history still has
-                // to survive OPEN, without a fabricated descendant record.
+                if (hasEpoch && !epoch.OwnerHistoryCertified)
+                    throw new InvalidDataException(
+                        "Sparse Flower owner epoch has no fine-state history or complete capture receipt.");
+                // Only a certified complete snapshot may coalesce the first
+                // fine payload and its retirement before the first append.
                 return;
             }
             if (!hasEpoch)
@@ -1176,6 +1191,7 @@ namespace Genesis.RoomScan
             int kernel = checked((int)Read32(record.Payload, 0));
             var owner = new MerkabaOwnerAddress(tile, kernel);
             uint nextEpoch = Read32(record.Payload, 4);
+            bool historyCertified = record.OwnerEpochSnapshot;
             if (_epochs.TryGetValue(owner, out VersionedPayload prior))
             {
                 if (version.CompareTo(prior.Version) < 0) return;
@@ -1183,12 +1199,15 @@ namespace Genesis.RoomScan
                 if (version.CompareTo(prior.Version) == 0 && nextEpoch != previousEpoch)
                     throw new InvalidDataException("Conflicting owner epoch snapshots share a record version.");
                 bool same = nextEpoch == previousEpoch;
-                bool increment = nextEpoch > previousEpoch;
+                bool increment = previousEpoch != uint.MaxValue &&
+                    nextEpoch == previousEpoch + 1u;
+                bool snapshotAdvance = record.OwnerEpochSnapshot && nextEpoch > previousEpoch;
                 bool rebase = previousEpoch == uint.MaxValue && nextEpoch == 1u;
-                if (!same && !increment && !rebase)
+                if (!same && !increment && !snapshotAdvance && !rebase)
                     throw new InvalidDataException(
-                        "Flower owner snapshot epoch must remain stable, advance, " +
-                        "or transactionally rebase from 0xffffffff to 1.");
+                        "Flower owner epoch must remain stable, advance one step, " +
+                        "advance by a certified complete snapshot, or transactionally rebase.");
+                historyCertified |= prior.OwnerHistoryCertified;
                 if (rebase)
                 {
                     _ownerRebases[owner] = version;
@@ -1201,9 +1220,10 @@ namespace Genesis.RoomScan
                         _rebaseTombstonesRequired.Remove(owner);
                 }
             }
-            // This is a dirty-state log, not an event log. The first durable
-            // snapshot may already include several structural invalidations.
-            Put(_epochs, owner, version, record.Payload);
+            else if (nextEpoch != 1u && !record.OwnerEpochSnapshot)
+                throw new InvalidDataException(
+                    "An initial epoch beyond 1 requires a certified complete fine snapshot.");
+            Put(_epochs, owner, version, record.Payload, historyCertified);
         }
 
         private void IndexFineAddress(FineAddress address)
@@ -1427,12 +1447,13 @@ namespace Genesis.RoomScan
         }
 
         private static void Put<TKey>(Dictionary<TKey, VersionedPayload> target,
-            TKey key, MerkabaRecordVersion version, byte[] payload)
+            TKey key, MerkabaRecordVersion version, byte[] payload,
+            bool ownerHistoryCertified = false)
         {
             if (!target.TryGetValue(key, out VersionedPayload prior) ||
                 version.CompareTo(prior.Version) >= 0)
                 target[key] = new VersionedPayload(version,
-                    (byte[])payload.Clone());
+                    (byte[])payload.Clone(), ownerHistoryCertified);
         }
 
         private static void Copy<TKey>(
@@ -1441,7 +1462,8 @@ namespace Genesis.RoomScan
         {
             foreach (KeyValuePair<TKey, VersionedPayload> pair in source)
                 destination.Add(pair.Key, new VersionedPayload(
-                    pair.Value.Version, (byte[])pair.Value.Payload.Clone()));
+                    pair.Value.Version, (byte[])pair.Value.Payload.Clone(),
+                    pair.Value.OwnerHistoryCertified));
         }
 
         private static void CopyVersions<TKey>(

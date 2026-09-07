@@ -25,16 +25,16 @@ bool M8FlowerMeasurement(uint sourcePixel, int3 owner, out uint plane,
     worldPosition = 0.0.xxx;
     if (sourcePixel >= gsDepthTexSize.x * gsDepthTexSize.y ||
         _M8PlaneErrorBounds.w != 1.0 ||
-        !all(isfinite(_M8PlaneErrorBounds)) ||
+        !all(M8FlowerIsFinite(_M8PlaneErrorBounds)) ||
         any(_M8PlaneErrorBounds.xy < 0.0) ||
-        !isfinite(_MerkabaMaxUpdateDistance) ||
+        !M8FlowerIsFinite(_MerkabaMaxUpdateDistance) ||
         _MerkabaMaxUpdateDistance <= 0.0) return false;
     uint2 pixel = uint2(sourcePixel % gsDepthTexSize.x,
         sourcePixel / gsDepthTexSize.x);
     float depth = gsDepthTex.Load(int3(pixel,0));
     float4 measured = gsDepthNormalTex.Load(int3(pixel,0));
     if (!(depth > 0.0 && depth < 1.0) || measured.w != 1.0 ||
-        !all(isfinite(measured.xyz))) return false;
+        !all(M8FlowerIsFinite(measured.xyz))) return false;
     precise float2 uv = (float2(pixel)+0.5)/float2(gsDepthTexSize);
     worldPosition = gsDepthNDCtoWorld(float3(uv,depth));
     if (!M8ObservationContains(worldPosition,gsDepthEyePos())) return false;
@@ -47,7 +47,7 @@ bool M8FlowerMeasurement(uint sourcePixel, int3 owner, out uint plane,
     precise float3 normalSquare = gridNormal*gridNormal;
     precise float normalSquareXY = normalSquare.x+normalSquare.y;
     precise float normalLength = sqrt(normalSquareXY+normalSquare.z);
-    if (!(normalLength > 0.0) || !isfinite(normalLength)) return false;
+    if (!(normalLength > 0.0) || !M8FlowerIsFinite(normalLength)) return false;
     // The persisted offset is a metric signed distance. Compute it from
     // the unit normal that plane packing will encode, not from a scaled
     // world-to-grid normal (including ordinary binary32 rotation drift).

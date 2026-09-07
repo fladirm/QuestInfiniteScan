@@ -1,0 +1,114 @@
+#pragma kernel BuildLeavesProbe
+#pragma kernel ReduceLevelProbe
+#pragma kernel QueryCertificateProbe
+#pragma kernel QuerySupportProbe
+#pragma target 5.0
+#pragma use_dxc vulkan
+
+#include "../../Runtime/Shaders/MerkabaDepthCertificate.generated.hlsl"
+
+struct DepthSource
+{
+    float Lower;
+    float Upper;
+    uint Valid;
+    uint Reserved;
+};
+
+struct DepthQuery
+{
+    int4 Bounds;
+    int4 Parameters;
+    float4 Depth;
+};
+
+StructuredBuffer<DepthSource> _ProbeDepthSources;
+StructuredBuffer<DepthQuery> _ProbeDepthQueries;
+RWStructuredBuffer<uint2> _ProbeCertificateWrite;
+RWStructuredBuffer<uint4> _ProbeDepthResults;
+int2 _ProbeImageSize;
+uint _ProbeLevel;
+uint _ProbeQueryCount;
+float3 _ProbeSupportMin;
+float3 _ProbeSupportMax;
+float4x4 _ProbeViews[2];
+float4x4 _ProbeProjections[2];
+uint _ProbeEndpointIntersects;
+
+// The real complete-support/endpoint-precedence predicate, not a test-side
+// reimplementation of projection or stereo selection.
+[numthreads(1, 1, 1)]
+void QuerySupportProbe(uint id : SV_DispatchThreadID)
+{
+    _ProbeDepthResults[0] = uint4(M8DepthCertificateStereoSupport(
+        _ProbeSupportMin, _ProbeSupportMax, _ProbeViews, _ProbeProjections,
+        _ProbeImageSize, _ProbeEndpointIntersects != 0u), 0u, 0u, 0u);
+}
+
+// Test transport only: source intervals are already frozen. All certificate
+// node/reduction/query mathematics below is the production generated code.
+[numthreads(64, 1, 1)]
+void BuildLeavesProbe(uint id : SV_DispatchThreadID)
+{
+    const uint pixels = M8_DEPTH_CERTIFICATE_SIDE * M8_DEPTH_CERTIFICATE_SIDE;
+    if (id >= 2u * pixels) return;
+    uint eye = id / pixels;
+    uint local = id % pixels;
+    uint2 xy = uint2(local % M8_DEPTH_CERTIFICATE_SIDE,
+        local / M8_DEPTH_CERTIFICATE_SIDE);
+    uint2 node = uint2(0u, 0u);
+    if (all(xy < (uint2)_ProbeImageSize))
+    {
+        uint source = eye * (uint)(_ProbeImageSize.x * _ProbeImageSize.y) +
+            xy.y * (uint)_ProbeImageSize.x + xy.x;
+        DepthSource sample = _ProbeDepthSources[source];
+        node = M8DepthCertificateNode(sample.Lower, sample.Valid == 1u &&
+            M8FlowerIsFinite(sample.Upper) && sample.Lower <= sample.Upper);
+    }
+    _ProbeCertificateWrite[M8DepthCertificateAddress(eye, 0u, xy)] = node;
+}
+
+[numthreads(64, 1, 1)]
+void ReduceLevelProbe(uint id : SV_DispatchThreadID)
+{
+    uint side = M8_DEPTH_CERTIFICATE_SIDE >> _ProbeLevel;
+    uint count = side * side;
+    if (id >= 2u * count) return;
+    uint eye = id / count;
+    uint local = id % count;
+    uint2 xy = uint2(local % side, local / side);
+    uint src = M8DepthCertificateAddress(eye, _ProbeLevel - 1u, 2u * xy);
+    uint stride = 2u * side;
+    _ProbeCertificateWrite[M8DepthCertificateAddress(eye, _ProbeLevel, xy)] =
+        M8DepthCertificateReduce(_ProbeCertificateWrite[src],
+            _ProbeCertificateWrite[src + 1u],
+            _ProbeCertificateWrite[src + stride],
+            _ProbeCertificateWrite[src + stride + 1u]);
+}
+
+[numthreads(64, 1, 1)]
+void QueryCertificateProbe(uint id : SV_DispatchThreadID)
+{
+    if (id >= _ProbeQueryCount) return;
+    DepthQuery query = _ProbeDepthQueries[id];
+    uint eye = (uint)query.Parameters.x;
+    int2 image = query.Parameters.yz;
+    int2 lo = query.Bounds.xy;
+    int2 hi = query.Bounds.zw;
+    float upper = query.Depth.x;
+    bool through = M8DepthCertificateThrough(eye, image, lo, hi, upper);
+    bool envelope = false;
+    uint level = 0xffffffffu;
+    // Isolate the same production fast path as well as calling the complete
+    // production query. The host oracle independently scans its whole square.
+    if (eye < 2u && all(image > 0) && all(image <= (int)M8_DEPTH_CERTIFICATE_SIDE) &&
+        all(lo >= 0) && all(hi >= lo) && all(hi < image) &&
+        M8FlowerIsFinite(upper) && upper >= 0.0)
+    {
+        level = M8DepthCertificateEnvelopeLevel((uint2)lo, (uint2)hi);
+        envelope = M8DepthCertificateProves(_M8DepthCertificate[
+            M8DepthCertificateAddress(eye, level, (uint2)lo >> level)], upper);
+    }
+    _ProbeDepthResults[id] = uint4(through ? 1u : 2u,
+        envelope ? 1u : 2u, level, M8_DEPTH_CERTIFICATE_STACK);
+}

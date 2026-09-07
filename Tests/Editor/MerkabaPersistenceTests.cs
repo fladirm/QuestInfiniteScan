@@ -1080,6 +1080,80 @@ namespace Genesis.RoomScan.Tests
             Assert.That(epoch, Is.EqualTo(2u));
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ParentEpoch_CompleteHistorySnapshotCoalescesAndSurvivesOpen(
+            bool historyAlreadyAppended)
+        {
+            string directory = TemporaryRoot("m8-epoch-coalesced-snapshot");
+            var tile = new MerkabaTileAddress(new int3(-1, 0, 1), 0u);
+            MerkabaFlowerDetailKey key = DetailKey();
+            try
+            {
+                var store = new MerkabaSsdStore(directory);
+                if (historyAlreadyAppended)
+                {
+                    store.AppendM8Tiles(new[] { Tile(tile, 7, new Color32(1, 2, 3, 255)) });
+                    store.AppendSphereFlowerRecords(new[]
+                    {
+                        OwnerEpoch(tile, 7, 1u), Detail(tile, 7, key, 1u)
+                    });
+                    store.Commit(Session, Anchor, AnchorPose, 1, 1);
+                }
+
+                // The source really contained fine state, then three structural
+                // invalidations before storage captured its complete image.
+                // Capture emits its history epoch but no stale descendants.
+                MerkabaAppendRecord[] captured = CapturedRetiredOwner(tile, 7, 4u);
+                Assert.That(captured, Has.Length.EqualTo(1));
+                Assert.That(captured[0].OwnerEpochSnapshot, Is.True);
+                var snapshot = EmptyTile(tile);
+                snapshot.Sidecars = captured;
+                store.AppendObservationBatch(new[] { snapshot }, captured,
+                    completeFineImages: true);
+                store.Commit(Session, Anchor, AnchorPose, 2, 0);
+
+                var reopened = new MerkabaSsdStore(directory);
+                reopened.OpenCommitted();
+                Assert.That(reopened.Subordinate.TryGetOwnerEpoch(tile, 7, out uint epoch), Is.True);
+                Assert.That(epoch, Is.EqualTo(4u));
+                Assert.That(reopened.Subordinate.TryGetFine(tile, 7,
+                    MerkabaRecordKind.FlowerDetail, key.Value, out _), Is.False);
+                Assert.That(reopened.Subordinate.CaptureTile(tile), Has.Length.EqualTo(1));
+                Assert.Throws<InvalidDataException>(() => reopened.AppendSphereFlowerRecords(
+                    new[] { OwnerEpoch(tile, 7, 3u) }));
+                Assert.Throws<InvalidDataException>(() => reopened.AppendSphereFlowerRecords(
+                    new[] { OwnerEpoch(tile, 7, 6u) }));
+                reopened.OpenCommitted();
+                Assert.That(reopened.Subordinate.TryGetOwnerEpoch(tile, 7, out epoch), Is.True);
+                Assert.That(epoch, Is.EqualTo(4u));
+                Assert.That(reopened.Subordinate.ValidFlowerDetailCount, Is.Zero);
+            }
+            finally { DeleteRoot(directory); }
+        }
+
+        [Test]
+        public void ParentEpoch_CaptureReceiptRequiresItsCompleteTileImage()
+        {
+            string directory = TemporaryRoot("m8-epoch-snapshot-scope");
+            var tile = new MerkabaTileAddress(new int3(-1, 0, 1), 0u);
+            try
+            {
+                var store = new MerkabaSsdStore(directory);
+                MerkabaAppendRecord[] captured = CapturedRetiredOwner(tile, 7, 4u);
+                Assert.Throws<InvalidDataException>(() => store.AppendSphereFlowerRecords(captured));
+                Assert.Throws<InvalidDataException>(() => store.AppendObservationBatch(
+                    new[] { EmptyTile(tile) }, captured, completeFineImages: true));
+                var snapshot = EmptyTile(tile);
+                snapshot.Sidecars = captured;
+                Assert.Throws<InvalidDataException>(() => store.AppendObservationBatch(
+                    new[] { snapshot }, Array.Empty<MerkabaAppendRecord>(), completeFineImages: true));
+                Assert.That(store.Subordinate.TryGetOwnerEpoch(tile, 7, out _), Is.False);
+                Assert.That(File.Exists(store.ManifestPath), Is.False);
+            }
+            finally { DeleteRoot(directory); }
+        }
+
         [Test]
         public void ThreadRunWithoutCommittedProgram_CannotPublishManifest()
         {
@@ -1313,26 +1387,28 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
-        [Test]
-        public void SparseOwnerEpochWithoutFineHistory_CannotPublishManifest()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void SparseOwnerEpochWithoutFineHistory_CannotPublishManifest(
+            bool completeFineImages)
         {
             string directory = TemporaryRoot("m8-epoch-without-fine");
             var tile = new MerkabaTileAddress(new int3(0), 0u);
             try
             {
                 var store = new MerkabaSsdStore(directory);
-                store.AppendM8Tiles(new[]
-                {
-                    Tile(tile, 5, new Color32(1, 2, 3, 255))
-                });
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    OwnerEpoch(tile, 5, 1u)
-                });
+                var snapshot = Tile(tile, 5, new Color32(1, 2, 3, 255));
+                snapshot.Sidecars = new[] { OwnerEpoch(tile, 5, 1u) };
+                store.AppendObservationBatch(new[] { snapshot }, snapshot.Sidecars,
+                    completeFineImages);
 
                 Assert.Throws<InvalidDataException>(() => store.Commit(Session,
                     Anchor, AnchorPose, 1, 1));
+                Assert.Throws<InvalidDataException>(() => store.Subordinate.CaptureTile(tile));
                 Assert.That(File.Exists(store.ManifestPath), Is.False);
+                var reopened = new MerkabaSsdStore(directory);
+                Assert.Throws<FileNotFoundException>(() => reopened.OpenCommitted());
+                Assert.That(reopened.Subordinate.TryGetOwnerEpoch(tile, 5, out _), Is.False);
             }
             finally
             {
@@ -1605,6 +1681,19 @@ namespace Genesis.RoomScan.Tests
             Write32(payload, 4, epoch);
             return new MerkabaAppendRecord(
                 MerkabaRecordKind.FlowerOwnerEpoch, TileAddress(tile), payload);
+        }
+
+        private static MerkabaAppendRecord[] CapturedRetiredOwner(
+            MerkabaTileAddress tile, int kernel, uint finalEpoch)
+        {
+            var source = new MerkabaSphereFlowerReplayIndex();
+            source.Apply(OwnerEpoch(tile, kernel, 1u), new MerkabaRecordVersion(1ul, 0ul));
+            source.Apply(Detail(tile, kernel, DetailKey(), 1u), new MerkabaRecordVersion(1ul, 1ul));
+            for (uint epoch = 2u; epoch <= finalEpoch; epoch++)
+                source.Apply(OwnerEpoch(tile, kernel, epoch), new MerkabaRecordVersion(epoch, 0ul));
+            MerkabaAppendRecord[] image = source.CaptureTile(tile);
+            return MerkabaFlowerPageStorage.DecodeCaptureRecords(tile,
+                MerkabaFlowerPageStorage.EncodeLoadRecords(tile, image));
         }
 
         private static MerkabaAppendRecord DualBlock(int3 block,

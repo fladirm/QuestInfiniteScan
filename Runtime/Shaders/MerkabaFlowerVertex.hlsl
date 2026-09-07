@@ -61,7 +61,7 @@ bool M8FlowerReadGraphicsVertex(uint vertexId,uint pageSlot,
     }
     if(!M8FlowerIsCanonicalCarrierSymbol(result.Symbol) ||
         any(page.LogicalTile < -268435456) || any(page.LogicalTile > 268435455) ||
-        !all(isfinite(_M8FlowerPlaneErrorBounds)) ||
+        !all(M8FlowerIsFinite(_M8FlowerPlaneErrorBounds)) ||
         _M8FlowerPlaneErrorBounds.x<M8_FLOWER_NORMAL_QUANTIZATION_UPPER ||
         _M8FlowerPlaneErrorBounds.y<M8_FLOWER_OFFSET_QUANTIZATION_UPPER)return false;
     uint local=M8FlowerDrawKernelLocal(result.Symbol);
@@ -100,7 +100,7 @@ bool M8FlowerGraphicsFrame(float3 worldPosition,float2 chart,uint wedge,
 {
     tangentU=tangentV=normal=barycentricU=barycentricV=0.0;
     precise float determinant=duvdx.x*duvdy.y-duvdx.y*duvdy.x;
-    if(determinant==0.0 || !isfinite(determinant))return false;
+    if(determinant==0.0 || !M8FlowerIsFinite(determinant))return false;
     precise float3 chartU=(dpdx*duvdy.y-dpdy*duvdx.y)/determinant;
     precise float3 chartV=(dpdy*duvdx.x-dpdx*duvdy.x)/determinant;
     precise float3 origin=worldPosition-chart.x*chartU-chart.y*chartV;
@@ -108,7 +108,7 @@ bool M8FlowerGraphicsFrame(float3 worldPosition,float2 chart,uint wedge,
     float2 b=M8FlowerCarrierChartSite(1u+(wedge+1u)%6u);
     precise float3 p1=origin+a.x*chartU+a.y*chartV;
     precise float3 p2=origin+b.x*chartU+b.y*chartV;
-    if(!all(isfinite(origin)) || !all(isfinite(p1)) || !all(isfinite(p2)))return false;
+    if(!all(M8FlowerIsFinite(origin)) || !all(M8FlowerIsFinite(p1)) || !all(M8FlowerIsFinite(p2)))return false;
     return M8FlowerSkinRuntimeFrame(origin,p1,p2,tangentU,tangentV,normal,
         barycentricU,barycentricV);
 }
@@ -139,8 +139,8 @@ bool M8FlowerReadGraphicsSkin(M8FlowerSymbolRecord symbol,uint parentEpoch,
         !M8FlowerDrawRange(index*64u,64u))return false;
     sample=M8FlowerLoadSkinDrawSample(index);
     return sample.Reserved==0u && (sample.Flags&~1u)==0u &&
-        all(isfinite(sample.CapturedRgb)) && all(isfinite(sample.Optical)) &&
-        all(isfinite(sample.CaptureView));
+        all(M8FlowerIsFinite(sample.CapturedRgb)) && all(M8FlowerIsFinite(sample.Optical)) &&
+        all(M8FlowerIsFinite(sample.CaptureView));
 }
 
 #endif

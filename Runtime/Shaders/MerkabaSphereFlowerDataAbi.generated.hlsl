@@ -2,6 +2,14 @@
 // Packed REV-C subordinate data ABI; no resources are declared here.
 #ifndef GENESIS_MERKABA_SPHERE_FLOWER_DATA_ABI_INCLUDED
 #define GENESIS_MERKABA_SPHERE_FLOWER_DATA_ABI_INCLUDED
+
+// IEEE-754 binary32 classification, including subnormals and signed zero.
+// Use integer exponent bits so all Vulkan compilers produce the same predicate;
+// this avoids the invalid OpIsNan result type emitted by Unity's DXC lowering.
+bool M8FlowerIsFinite(float value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }
+bool2 M8FlowerIsFinite(float2 value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }
+bool3 M8FlowerIsFinite(float3 value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }
+bool4 M8FlowerIsFinite(float4 value) { return (asuint(value) & 0x7f800000u) != 0x7f800000u; }
 #define M8_FLOWER_DATA_ABI_VERSION 3u
 #define M8_FLOWER_OBSERVATION_RECORD_CAPACITY 2097152u
 #define M8_FLOWER_OBSERVATION_SOURCE_CAPACITY 262144u
@@ -156,7 +164,7 @@ bool M8ThreadEncodeColorInterval(float4 lower, float4 upper,
 {
     value.LowerLinearRgba = 0u.xx;
     value.UpperLinearRgba = 0u.xx;
-    if (!all(isfinite(lower)) || !all(isfinite(upper)) ||
+    if (!all(M8FlowerIsFinite(lower)) || !all(M8FlowerIsFinite(upper)) ||
         any(lower > upper) || any(lower < -65504.0) || any(upper > 65504.0))
         return false;
     uint4 lo, hi;

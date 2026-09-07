@@ -20,6 +20,11 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             HLSLPROGRAM
             #pragma target 4.5
+            // Unity 6000.5 supports native DXC -> SPIR-V for Vulkan. Keep
+            // generated constant-table indexing and bounded shared-knot loops
+            // out of the legacy FXC -> HLSLcc constant-array expansion path.
+            // This changes the compiler backend, not precise root arithmetic.
+            #pragma use_dxc vulkan
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma multi_compile_instancing

@@ -527,7 +527,7 @@ uint M8FlowerCommitThreadGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
             f16tof32(lo.y&65535u),f16tof32(lo.y>>16u));
         float4 b=float4(f16tof32(hi.x&65535u),f16tof32(hi.x>>16u),
             f16tof32(hi.y&65535u),f16tof32(hi.y>>16u));
-        if(!all(isfinite(a)) || !all(isfinite(b)) || any(a>b))return M8_FLOWER_ARENA_INVALID;
+        if(!all(M8FlowerIsFinite(a)) || !all(M8FlowerIsFinite(b)) || any(a>b))return M8_FLOWER_ARENA_INVALID;
         words[4u*child]=lo.x;words[4u*child+1u]=lo.y;
         words[4u*child+2u]=hi.x;words[4u*child+3u]=hi.y;
     }
@@ -593,6 +593,12 @@ uint M8FlowerInvalidateOwner(uint slot,uint kernelLocal,uint slotGeneration,
         // Logical invalidation changes no allocation; independent owners must
         // not contend for the global allocator merely to advance their epoch.
         _M8FlowerDetailPages.Store(ownerRef+4u,epoch+1u);
+        // The old phase span has no live records in the new epoch. Forget
+        // its searchable prefix in O(1), retaining the allocation/capacity
+        // for reuse after the existing reader lease. Otherwise stale phase
+        // count alone would request blind geometry work on a flat parent.
+        // RGB/V runs remain logically invalidated by their ParentEpoch.
+        _M8FlowerDetailPages.Store(ownerRef+12u,0u);
         _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
         _M8FlowerDetailPages.Store2(ownerRef+48u,uint2(0u,0u));
         return M8_FLOWER_ARENA_OK;
@@ -726,7 +732,7 @@ bool M8FlowerStoreImportedGroup(bool thread,uint groupBase,uint groupCount,uint 
                 f16tof32(value.y&65535u),f16tof32(value.y>>16u));
             float4 hi=float4(f16tof32(value.z&65535u),f16tof32(value.z>>16u),
                 f16tof32(value.w&65535u),f16tof32(value.w>>16u));
-            if(!all(isfinite(lo)) || !all(isfinite(hi)) || any(lo>hi))return false;
+            if(!all(M8FlowerIsFinite(lo)) || !all(M8FlowerIsFinite(hi)) || any(lo>hi))return false;
         }
         else if(asint(words[2u*child])>asint(words[2u*child+1u]))return false;
     }
@@ -867,8 +873,8 @@ uint M8FlowerInstallOpticalProgram(M8ThreadProgramRecord program,uint logicalPro
         f16tof32(program.CaptureViewLower.y&65535u),f16tof32(program.CaptureViewLower.y>>16u));
     float4 viewHi=float4(f16tof32(program.CaptureViewUpper.x&65535u),f16tof32(program.CaptureViewUpper.x>>16u),
         f16tof32(program.CaptureViewUpper.y&65535u),f16tof32(program.CaptureViewUpper.y>>16u));
-    if(!all(isfinite(opticalLo)) || !all(isfinite(opticalHi)) ||
-        !all(isfinite(viewLo)) || !all(isfinite(viewHi)) ||
+    if(!all(M8FlowerIsFinite(opticalLo)) || !all(M8FlowerIsFinite(opticalHi)) ||
+        !all(M8FlowerIsFinite(viewLo)) || !all(M8FlowerIsFinite(viewHi)) ||
         any(opticalLo>opticalHi) || any(viewLo>viewHi) ||
         (program.Flags==0u && (any(opticalLo!=0.0f) || any(opticalHi!=0.0f) ||
             any(viewLo!=0.0f) || any(viewHi!=0.0f))))return M8_FLOWER_ARENA_INVALID;

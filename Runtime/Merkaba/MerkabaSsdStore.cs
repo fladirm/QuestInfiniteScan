@@ -329,6 +329,21 @@ namespace Genesis.RoomScan
                 if (!tileSet.Add(tile.Address))
                     throw new InvalidDataException("Duplicate tile in writeback batch.");
             }
+            var capturedEpochs = new Dictionary<MerkabaOwnerAddress, MerkabaAppendRecord>();
+            if (completeFineImages)
+                foreach (MerkabaTileSnapshot tile in tiles)
+                    foreach (MerkabaAppendRecord captured in tile.Sidecars)
+                    {
+                        if (!captured.OwnerEpochSnapshot) continue;
+                        MerkabaSphereFlowerReplayIndex.ValidateRecord(captured);
+                        MerkabaTileAddress address =
+                            MerkabaSphereFlowerPersistenceAbi.ReadTileAddress(captured.Address);
+                        int kernel = checked((int)MerkabaSphereFlowerPersistenceAbi.ReadUInt32(
+                            captured.Payload, 0));
+                        if (!address.Equals(tile.Address) ||
+                            !capturedEpochs.TryAdd(new MerkabaOwnerAddress(address, kernel), captured))
+                            throw new InvalidDataException("Complete tile image has a duplicate or foreign owner epoch.");
+                    }
             var byStream = new SortedDictionary<MerkabaStorageStream,
                 List<MerkabaAppendRecord>>();
             foreach (MerkabaAppendRecord input in sidecars)
@@ -340,14 +355,29 @@ namespace Genesis.RoomScan
                         "M8 state belongs in the tile batch.", nameof(sidecars));
                 var record = new MerkabaAppendRecord(input.Kind,
                     (byte[])input.Address.Clone(), (byte[])input.Payload.Clone(),
-                    input.OwnerEpochRebased);
+                    input.OwnerEpochRebased, input.OwnerEpochSnapshot);
                 if (record.OwnerEpochRebased && !completeFineImages)
                     throw new InvalidDataException("Epoch rebase requires a complete frozen fine image.");
+                if (record.OwnerEpochSnapshot)
+                {
+                    var owner = new MerkabaOwnerAddress(
+                        MerkabaSphereFlowerPersistenceAbi.ReadTileAddress(record.Address),
+                        checked((int)MerkabaSphereFlowerPersistenceAbi.ReadUInt32(record.Payload, 0)));
+                    if (!completeFineImages || !capturedEpochs.TryGetValue(owner, out var captured) ||
+                        record.OwnerEpochRebased != captured.OwnerEpochRebased ||
+                        !record.Payload.AsSpan().SequenceEqual(captured.Payload))
+                        throw new InvalidDataException(
+                            "Owner epoch snapshot requires its completed frozen M8/fine tile image.");
+                    capturedEpochs.Remove(owner);
+                }
                 MerkabaStorageStream stream = StreamFor(record);
                 if (!byStream.TryGetValue(stream, out List<MerkabaAppendRecord> list))
                     byStream.Add(stream, list = new List<MerkabaAppendRecord>());
                 list.Add(record);
             }
+            if (capturedEpochs.Count != 0)
+                throw new InvalidDataException(
+                    "Complete fine image omitted an owner epoch from its append batch.");
             var orderedSidecars = new List<MerkabaAppendRecord>(sidecars.Count);
             foreach (List<MerkabaAppendRecord> list in byStream.Values)
                 orderedSidecars.AddRange(list);
@@ -1106,7 +1136,12 @@ namespace Genesis.RoomScan
                         $"Record CRC/shape mismatch in " +
                         FileName(storageStream) + ".");
                 var record = new MerkabaAppendRecord(
-                    (MerkabaRecordKind)header.Kind, address, payload);
+                    (MerkabaRecordKind)header.Kind, address, payload,
+                    // A durable manifest is published only after provenance
+                    // and hierarchy validation. Restore that receipt after
+                    // validating this exact committed CRC-bound log prefix.
+                    ownerEpochSnapshot: (MerkabaRecordKind)header.Kind ==
+                        MerkabaRecordKind.FlowerOwnerEpoch);
                 ValidateStreamKind(storageStream, record);
                 sequence++;
                 if (record.Kind == MerkabaRecordKind.M8Tile)

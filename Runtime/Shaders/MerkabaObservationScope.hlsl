@@ -1,6 +1,8 @@
 #ifndef GENESIS_MERKABA_OBSERVATION_SCOPE_INCLUDED
 #define GENESIS_MERKABA_OBSERVATION_SCOPE_INCLUDED
 
+#include "MerkabaSphereFlowerDataAbi.generated.hlsl"
+
 // One frozen acquisition scope is shared by count, emit and the R1 writer.
 // Allocation publication contains no scope, ownership, or surface decisions.
 float _MerkabaMaxUpdateDistance;
@@ -42,7 +44,7 @@ bool IsExcluded(float3 worldPosition)
 
 bool M8ObservationContains(float3 worldPosition, float3 eyePosition)
 {
-    if (!all(isfinite(worldPosition)) || !isfinite(_MerkabaMaxUpdateDistance) ||
+    if (!all(M8FlowerIsFinite(worldPosition)) || !M8FlowerIsFinite(_MerkabaMaxUpdateDistance) ||
         _MerkabaMaxUpdateDistance <= 0.0 || IsExcluded(worldPosition)) return false;
     float3 delta = worldPosition-eyePosition;
     return dot(delta,delta) <= _MerkabaMaxUpdateDistance*_MerkabaMaxUpdateDistance &&

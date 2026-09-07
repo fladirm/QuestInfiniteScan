@@ -2,6 +2,7 @@
 // planes; PCA-L/R compare the SAME generated Flower root support. Ambiguity
 // is not a lower confidence endpoint and never selects a central fallback.
 #pragma kernel StereoFlowerRefine
+#pragma use_dxc vulkan
 
 #include "MerkabaStereoCamera.hlsl"
 #define M8_DEPTH_CERTIFICATE_BUILD
@@ -88,12 +89,12 @@ bool StereoIntersects(M8FlowerInterval a, M8FlowerInterval b)
 }
 bool StereoCalibrationValid()
 {
-    if (_M8PlaneErrorBounds.w != 1.0 || !all(isfinite(_M8PlaneErrorBounds.xy)) ||
+    if (_M8PlaneErrorBounds.w != 1.0 || !all(M8FlowerIsFinite(_M8PlaneErrorBounds.xy)) ||
         any(_M8PlaneErrorBounds.xy < 0.0)) return false;
     [unroll] for (uint eye = 0u; eye < 2u; eye++)
         if (_M8DepthErrorBounds[eye].w != 1.0 || _M8RgbErrorBounds[eye].w != 1.0 ||
-            !all(isfinite(_M8DepthErrorBounds[eye].xyz)) ||
-            !all(isfinite(_M8RgbErrorBounds[eye].xyz)) ||
+            !all(M8FlowerIsFinite(_M8DepthErrorBounds[eye].xyz)) ||
+            !all(M8FlowerIsFinite(_M8RgbErrorBounds[eye].xyz)) ||
             any(_M8DepthErrorBounds[eye].xyz < 0.0) ||
             any(_M8RgbErrorBounds[eye].xyz < 0.0)) return false;
     return _DepthW > 0u && _DepthH > 0u && _DepthW <= 512u && _DepthH <= 512u;
@@ -133,7 +134,7 @@ bool StereoDepthSample(uint eye, int2 pixel, out M8FlowerInterval3 world,
     view.y = M8FlowerIAdd(M8FlowerIMul(rayY,depth),reprojection);
     view.z = M8FlowerIAdd(M8FlowerI(-depth.hi,-depth.lo),reprojection);
     world = StereoTransform(_DepthViewInv[eye],view);
-    return all(isfinite(StereoLower(world))) && all(isfinite(StereoUpper(world)));
+    return all(M8FlowerIsFinite(StereoLower(world))) && all(M8FlowerIsFinite(StereoUpper(world)));
 }
 
 struct StereoMeasuredPlane
@@ -164,7 +165,7 @@ bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane)
         return false;
     plane.position = StereoMidpoint(centre);
     plane.normal = normalize(StereoMidpoint(normal));
-    if (!all(isfinite(plane.normal))) return false;
+    if (!all(M8FlowerIsFinite(plane.normal))) return false;
     M8FlowerInterval normalError;
     if (!StereoLength(StereoSubtract(normal,StereoPoint(plane.normal)),normalError) ||
         normalError.hi > _M8PlaneErrorBounds.x) return false;
@@ -202,7 +203,7 @@ bool StereoOppositePlane(M8FlowerInterval3 world, out StereoMeasuredPlane plane)
     if (z.lo < -1.0 || z.hi > 1.0) return false;
     x = M8FlowerIMul(M8FlowerIAdd(x,M8FlowerI(1.0,1.0)),M8FlowerI(_DepthW*0.5,_DepthW*0.5));
     y = M8FlowerIMul(M8FlowerIAdd(y,M8FlowerI(1.0,1.0)),M8FlowerI(_DepthH*0.5,_DepthH*0.5));
-    if (!all(isfinite(float4(x.lo,x.hi,y.lo,y.hi))) || x.lo < 0.0 || y.lo < 0.0 ||
+    if (!all(M8FlowerIsFinite(float4(x.lo,x.hi,y.lo,y.hi))) || x.lo < 0.0 || y.lo < 0.0 ||
         x.hi >= _DepthW || y.hi >= _DepthH) return false;
     int2 pixelMin = int2(floor(x.lo),floor(y.lo)), pixelMax = int2(floor(x.hi),floor(y.hi));
     if (any(pixelMin != pixelMax)) return false;
@@ -241,7 +242,7 @@ bool StereoRootRgb(uint eye, M8FlowerInterval3 world, out M8FlowerInterval3 rgb)
         M8FlowerI(resolution.x*0.5,resolution.x*0.5)),M8FlowerI(0.5,0.5));
     y = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(y,scale),
         M8FlowerI(resolution.y*0.5,resolution.y*0.5)),M8FlowerI(0.5,0.5));
-    if (!all(isfinite(float4(x.lo,x.hi,y.lo,y.hi)))) return false;
+    if (!all(M8FlowerIsFinite(float4(x.lo,x.hi,y.lo,y.hi)))) return false;
     int2 p = int2(floor(x.lo),floor(y.lo));
     if (any(p != int2(floor(x.hi),floor(y.hi))) || any(p < 0) || any(p+1 >= int2(resolution))) return false;
     x = M8FlowerISub(x,M8FlowerI((float)p.x,(float)p.x));
@@ -256,7 +257,7 @@ bool StereoRootRgb(uint eye, M8FlowerInterval3 world, out M8FlowerInterval3 rgb)
         int3 texel = int3(p+int2(i&1u,i>>1u),0);
         float3 value = eye == 0u ? _MerkabaCameraRgbLeft.Load(texel).rgb :
             _MerkabaCameraRgbRight.Load(texel).rgb;
-        if (!all(isfinite(value)) || any(value < 0.0)) return false;
+        if (!all(M8FlowerIsFinite(value)) || any(value < 0.0)) return false;
         M8FlowerInterval wx = x;
         M8FlowerInterval wy = y;
         if ((i&1u) == 0u) wx = M8FlowerISub(M8FlowerI(1.0,1.0),x);
@@ -360,7 +361,7 @@ uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bo
     StereoMeasuredPlane left = StereoCanonicalPlane(measured), right = StereoCanonicalPlane(opposite);
     float3 grid = mul(_MerkabaWorldToGrid,float4(measured.position,1.0)).xyz/M8_FLOWER_LATTICE_STEP;
     // J=2K+d must also fit signed int32.
-    if (!all(isfinite(grid)) || any(grid < -1073741824.0) || any(grid > 1073741696.0)) return RGBD_AMBIGUOUS;
+    if (!all(M8FlowerIsFinite(grid)) || any(grid < -1073741824.0) || any(grid > 1073741696.0)) return RGBD_AMBIGUOUS;
     int3 owner = int3(floor(grid));
     uint axes = 0u, possibleAxes = 0u;
     uint edges = 0u, possibleEdges = 0u;
@@ -489,7 +490,7 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
                 float3 world = selectedWorld;
                 float4 clip = mul(_DepthProj[0],mul(_DepthView[0],float4(world,1.0)));
                 float depth = clip.z/clip.w*0.5+0.5;
-                accepted = clip.w > 0.0 && depth > 0.0 && depth < 1.0 && all(isfinite(selectedNormal));
+                accepted = clip.w > 0.0 && depth > 0.0 && depth < 1.0 && all(M8FlowerIsFinite(selectedNormal));
                 if (_M8FineRefineActive != 0u)
                 {
                     float3 relative = world-_M8FineCursorPosition;

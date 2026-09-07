@@ -556,7 +556,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(joint, Does.Contain("StereoOppositePlane("));
         }
 
-        [Test, Timeout(30000)]
+        // Includes cold Vulkan driver/pipeline compilation, not just the
+        // tiny fixture dispatch. Device frame-time acceptance is separate.
+        [Test, Timeout(120000)]
         public void JointSolve_TexturelessFourStreamPlane_DoesNotChooseAnAmbiguousHypothesis()
         {
             const int width = 17;
@@ -647,7 +649,7 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
-        [Test, Timeout(30000)]
+        [Test, Timeout(120000)]
         public void JointSolve_DisjointStereoChromaticIntervalsRejectTheEndpoint()
         {
             const int width = 17;

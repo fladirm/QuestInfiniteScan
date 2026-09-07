@@ -69,11 +69,12 @@ bool M8FlowerPredictGeometryNode(uint ownerRef,uint epoch,int3 owner,uint flags,
     if(task.Level==0u)return true;
     M8FlowerPhaseRootEvidence parents[3],ancestors[2];
     M8FlowerDetailRecord records[2];uint keys[2];
-    [unroll]for(uint i=0u;i<3u;i++)parents[i]=(M8FlowerPhaseRootEvidence)0;
-    [unroll]for(uint i=0u;i<2u;i++)
+    [unroll]for(uint parentIndex=0u;parentIndex<3u;parentIndex++)
+        parents[parentIndex]=(M8FlowerPhaseRootEvidence)0;
+    [unroll]for(uint ancestorIndex=0u;ancestorIndex<2u;ancestorIndex++)
     {
-        ancestors[i]=(M8FlowerPhaseRootEvidence)0;
-        records[i]=(M8FlowerDetailRecord)0;keys[i]=0u;
+        ancestors[ancestorIndex]=(M8FlowerPhaseRootEvidence)0;
+        records[ancestorIndex]=(M8FlowerDetailRecord)0;keys[ancestorIndex]=0u;
     }
     uint count=0u;
     M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(task.Strand);
@@ -208,7 +209,7 @@ bool M8FlowerCarrierChartWedge(float2 uv,out uint wedge,out float3 barycentric,
     out float3 derivativeU,out float3 derivativeV)
 {
     wedge=0u;barycentric=derivativeU=derivativeV=0.0;
-    if(!all(isfinite(uv)))return false;
+    if(!all(M8FlowerIsFinite(uv)))return false;
     wedge=uv.y>=0.0?(uv.x>=uv.y?0u:uv.x>=0.0?1u:2u):
         (uv.x<=uv.y?3u:uv.x<=0.0?4u:5u);
     float2 a=M8FlowerCarrierChartSite(1u+wedge);
@@ -237,7 +238,7 @@ bool M8FlowerRootGridPosition(M8FlowerPhaseRootEvidence root,out float3 position
     precise float3 e2=M8FlowerLineE2[lineClass]*y;
     precise float3 radial=(e1+e2)*M8FlowerGeometryLoopRadius[level*13u+lineClass];
     position=centre+radial;
-    return all(isfinite(position));
+    return all(M8FlowerIsFinite(position));
 }
 
 bool M8FlowerReadL2Incidence(uint ownerRef,int3 owner,uint flags,uint source,bool plus,

@@ -16,6 +16,7 @@
 #define M8_FLOWER_PHASE_TASKS (M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS+M8_FLOWER_R2_L2_TASKS)
 #define M8_FLOWER_FINE_ACTIVE 1u
 #define M8_FLOWER_FINE_NOVEL 2u
+#define M8_FLOWER_FINE_HAS_PHASE 4u
 
 uint _M8RefinementQuantum;
 groupshared uint m8FineOwner[512];
@@ -398,7 +399,12 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         KernelState state=M8LoadKernelStateRead(slot,local);
         m8FinePlane[local]=state.flags;
         m8FineOwner[local]=M8FlowerFindOwner(slot,local,runtime.w);
-        m8FineState[local]=0u;
+        // The owner also exists for RGB-only and skin-V state. Neither is
+        // a world-geometry ancestor and neither may force L1/L2 expansion.
+        // Read the existing owner phase span once, not once per measurement.
+        uint phaseCount=m8FineOwner[local]==0u?0u:
+            M8_FLOWER_DETAIL_SOURCE.Load4(m8FineOwner[local]).w;
+        m8FineState[local]=phaseCount==0u?0u:M8_FLOWER_FINE_HAS_PHASE;
     }
     GroupMemoryBarrierWithGroupSync();
     [loop]for(uint index=lane;index<bin.y;index+=128u)
@@ -415,7 +421,8 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         // Identical plane evidence and no ancestor innovation cannot prove
         // a new nonzero child residual. This exact-equality case prunes a
         // flat carrier without a variance score or blind dyadic expansion.
-        if(((plane^flags)&M8_FLOWER_PLANE_STORAGE_MASK)!=0u || m8FineOwner[local]!=0u)
+        if(((plane^flags)&M8_FLOWER_PLANE_STORAGE_MASK)!=0u ||
+            (m8FineState[local]&M8_FLOWER_FINE_HAS_PHASE)!=0u)
             state|=M8_FLOWER_FINE_NOVEL;
         InterlockedOr(m8FineState[local],state);
         if((state&M8_FLOWER_FINE_NOVEL)!=0u)InterlockedOr(m8FineAnyNovelty,1u);

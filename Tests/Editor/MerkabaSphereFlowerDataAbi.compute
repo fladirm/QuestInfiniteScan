@@ -1,6 +1,6 @@
 #pragma kernel VerifySphereFlowerDataAbi
 
-#include "../../Runtime/Shaders/MerkabaSphereFlowerDataAbi.generated.hlsl"
+#include "../../Runtime/Shaders/MerkabaSphereFlower.generated.hlsl"
 
 StructuredBuffer<M8DualBlockMeta> _DualBlock;
 StructuredBuffer<M8DualBlockChildren> _DualChildren;

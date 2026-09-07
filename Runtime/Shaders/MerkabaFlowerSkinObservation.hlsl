@@ -66,8 +66,8 @@ bool M8FlowerSkinRootWorld(M8FlowerPhaseRootEvidence root,out M8FlowerInterval3 
     M8FlowerInterval3 axis2=M8FlowerObservedLoopAxis(M8FlowerLineE2[lineClass],radiusBound,_MerkabaGridToWorld);
     world=M8FlowerSkinAdd(M8FlowerSkinAdd(centre,M8FlowerSkinScale(axis1,root.Root.x)),
         M8FlowerSkinScale(axis2,root.Root.y));
-    return all(isfinite(float4(world.x.lo,world.x.hi,world.y.lo,world.y.hi))) &&
-        all(isfinite(float2(world.z.lo,world.z.hi)));
+    return all(M8FlowerIsFinite(float4(world.x.lo,world.x.hi,world.y.lo,world.y.hi))) &&
+        all(M8FlowerIsFinite(float2(world.z.lo,world.z.hi)));
 }
 
 // Inverse of the frozen ordered barycentric chamber, applied to a surface
@@ -180,13 +180,13 @@ bool M8FlowerSkinProjectRgb(uint eye,M8FlowerInterval3 world,
     if(eye==0u)_MerkabaCameraRgbLeft.GetDimensions(width,height);
     else _MerkabaCameraRgbRight.GetDimensions(width,height);
     if(any(size!=float2(width,height)) || any(size<2.0) || any(sensor<=0.0) || any(focal<=0.0) ||
-        !all(isfinite(float4(sensor,size))) || !all(isfinite(float4(focal,principal))))return false;
+        !all(M8FlowerIsFinite(float4(sensor,size))) || !all(M8FlowerIsFinite(float4(focal,principal))))return false;
     world.x=M8FlowerISub(world.x,M8FlowerI(origin.x,origin.x));
     world.y=M8FlowerISub(world.y,M8FlowerI(origin.y,origin.y));
     world.z=M8FlowerISub(world.z,M8FlowerI(origin.z,origin.z));
     M8FlowerInterval3 local=M8FlowerSkinTransform(rotation,world);
     float error=_M8DepthErrorBounds[eye].y;
-    if(!isfinite(error) || error<0.0)return false;
+    if(!M8FlowerIsFinite(error) || error<0.0)return false;
     M8FlowerInterval reprojection=M8FlowerI(-error,error);
     local.x=M8FlowerIAdd(local.x,reprojection);local.y=M8FlowerIAdd(local.y,reprojection);
     local.z=M8FlowerIAdd(local.z,reprojection);
@@ -202,7 +202,7 @@ bool M8FlowerSkinProjectRgb(uint eye,M8FlowerInterval3 world,
     x=M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(x,scale),M8FlowerI(0.5*size.x,0.5*size.x)),M8FlowerI(0.5,0.5));
     y=M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(y,scale),M8FlowerI(0.5*size.y,0.5*size.y)),M8FlowerI(0.5,0.5));
     resolution=int2(width,height);
-    return all(isfinite(float4(x.lo,x.hi,y.lo,y.hi))) && x.lo>=0.0 && y.lo>=0.0 &&
+    return all(M8FlowerIsFinite(float4(x.lo,x.hi,y.lo,y.hi))) && x.lo>=0.0 && y.lo>=0.0 &&
         x.hi<size.x-1.0 && y.hi<size.y-1.0;
 }
 
@@ -222,11 +222,11 @@ bool M8FlowerSkinRgbFootprint(uint eye,M8FlowerInterval3 world,out M8FlowerInter
     {
         float3 captured=eye==0u?_MerkabaCameraRgbLeft.Load(int3(px,py,0)).rgb:
             _MerkabaCameraRgbRight.Load(int3(px,py,0)).rgb;
-        if(!all(isfinite(captured)) || any(captured<0.0) || any(captured>65504.0))return false;
+        if(!all(M8FlowerIsFinite(captured)) || any(captured<0.0) || any(captured>65504.0))return false;
         lower=min(lower,captured);upper=max(upper,captured);
     }
     float3 error=_M8RgbErrorBounds[eye].xyz;
-    if(!all(isfinite(error)) || any(error<0.0))return false;
+    if(!all(M8FlowerIsFinite(error)) || any(error<0.0))return false;
     rgb.x=M8FlowerI(max(0.0,M8FlowerPrevious(lower.x-error.x)),M8FlowerNext(upper.x+error.x));
     rgb.y=M8FlowerI(max(0.0,M8FlowerPrevious(lower.y-error.y)),M8FlowerNext(upper.y+error.y));
     rgb.z=M8FlowerI(max(0.0,M8FlowerPrevious(lower.z-error.z)),M8FlowerNext(upper.z+error.z));

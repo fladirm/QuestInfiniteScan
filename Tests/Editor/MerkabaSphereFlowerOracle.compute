@@ -1,6 +1,7 @@
 #pragma kernel SphereFlowerOracle
 #pragma kernel SphereFlowerSkinAddressOracle
 #pragma target 5.0
+#pragma use_dxc vulkan
 
 #include "../../Runtime/Shaders/MerkabaSphereFlower.generated.hlsl"
 

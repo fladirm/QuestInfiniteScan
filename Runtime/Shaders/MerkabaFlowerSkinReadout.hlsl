@@ -60,21 +60,21 @@ bool M8FlowerSkinRuntimeFrame(float3 p0, float3 p1, float3 p2,
     float edgeSquared = dot(edgeU, edgeU);
     float areaSquared = dot(area, area);
     if (!(edgeSquared > 0.0) || !(areaSquared > 0.0) ||
-        !isfinite(edgeSquared) || !isfinite(areaSquared)) return false;
+        !M8FlowerIsFinite(edgeSquared) || !M8FlowerIsFinite(areaSquared)) return false;
     float edgeLength = sqrt(edgeSquared);
     tangentU = edgeU / edgeLength;
     normal = area / sqrt(areaSquared);
     tangentV = cross(normal, tangentU);
     float x = dot(edgeV, tangentU);
     float y = dot(edgeV, tangentV);
-    if (!(y > 0.0) || !isfinite(x) || !isfinite(y)) return false;
+    if (!(y > 0.0) || !M8FlowerIsFinite(x) || !M8FlowerIsFinite(y)) return false;
     float inverseU = 1.0 / edgeLength;
     float inverseV = 1.0 / y;
     float skew = x * inverseU;
     barycentricU = float3(-inverseU, inverseU, 0.0);
     barycentricV = float3((skew - 1.0) * inverseV,
         -skew * inverseV, inverseV);
-    return all(isfinite(barycentricU)) && all(isfinite(barycentricV));
+    return all(M8FlowerIsFinite(barycentricU)) && all(M8FlowerIsFinite(barycentricV));
 }
 
 float4 M8FlowerSkinUnpackHalf4(uint2 packed)
@@ -91,7 +91,7 @@ bool M8FlowerSkinColorMidpoint(M8ThreadColorInterval value,
     float4 hi = M8FlowerSkinUnpackHalf4(value.UpperLinearRgba);
     precise float4 midpoint = lo + (hi - lo) * 0.5;
     color = midpoint.rgb;
-    return all(isfinite(lo)) && all(isfinite(hi)) && all(lo <= hi);
+    return all(M8FlowerIsFinite(lo)) && all(M8FlowerIsFinite(hi)) && all(lo <= hi);
 }
 
 int M8FlowerSkinMetricMidpoint(M8FlowerVInterval value)
@@ -200,7 +200,7 @@ bool M8FlowerCompileSkinRegion(float3 rootRgb, uint parentEpoch,
     sample.Reserved = 0u;
     sample.Optical = 0.0;
     sample.CaptureView = 0.0;
-    if (!all(isfinite(rootRgb)) || regionLevel < 2u || regionLevel > 5u ||
+    if (!all(M8FlowerIsFinite(rootRgb)) || regionLevel < 2u || regionLevel > 5u ||
         any(child > 6u)) return false;
 
     bool useRgb = rgbPresent && parentEpoch != 0u &&
@@ -271,8 +271,8 @@ bool M8FlowerCompileSkinRegion(float3 rootRgb, uint parentEpoch,
         float4 hi = M8FlowerSkinUnpackHalf4(program.OpticalUpper);
         float4 viewLo = M8FlowerSkinUnpackHalf4(program.CaptureViewLower);
         float4 viewHi = M8FlowerSkinUnpackHalf4(program.CaptureViewUpper);
-        if (!all(isfinite(lo)) || !all(isfinite(hi)) ||
-            !all(isfinite(viewLo)) || !all(isfinite(viewHi)) ||
+        if (!all(M8FlowerIsFinite(lo)) || !all(M8FlowerIsFinite(hi)) ||
+            !all(M8FlowerIsFinite(viewLo)) || !all(M8FlowerIsFinite(viewHi)) ||
             !all(lo <= hi) || !all(viewLo <= viewHi)) return false;
         if ((program.Flags & 1u) != 0u)
         {

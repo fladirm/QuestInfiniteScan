@@ -38,6 +38,7 @@ shaders=(
   "$repo_root/Tests/Editor/MerkabaSphereFlowerOracle.compute"
   "$repo_root/Tests/Editor/MerkabaSphereFlowerDataAbi.compute"
   "$repo_root/Tests/Editor/MerkabaObservationBinsProbe.compute"
+  "$repo_root/Tests/Editor/MerkabaDepthCertificateProbe.compute"
 )
 
 kernel_count=0

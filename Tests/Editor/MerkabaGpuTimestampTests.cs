@@ -85,8 +85,10 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaReadout.compute");
             int classify = frame.FindProfiledKernel("ClassifyHotFlowerPages",
                 MerkabaGpuStage.FlowerClassify);
-            int compact = frame.FindProfiledKernel("CompactDirtyFlowerSymbols",
-                MerkabaGpuStage.FlowerCompact);
+            // This test records (but does not execute) two existing page
+            // stages. Kernel-set completeness has its own integration gate.
+            int publish = frame.FindProfiledKernel("PublishDirtyFlowerPages",
+                MerkabaGpuStage.FlowerPublish);
             using var command = new CommandBuffer();
             MerkabaGpuTimestamps.SetAvailableForTests(true);
             MerkabaGpuTimestamps.SetScheduledOwnerForTests(
@@ -95,7 +97,7 @@ namespace Genesis.RoomScan.Tests
                 CaptureOwner.FlowerPages, 73u, command);
             Assert.That(acquired, Is.True);
             command.DispatchComputeProfiled(frame, classify, 1, 1, 1);
-            command.DispatchComputeProfiled(frame, compact, 1, 1, 1);
+            command.DispatchComputeProfiled(frame, publish, 1, 1, 1);
             MerkabaGpuTimestamps.End(CaptureOwner.FlowerPages, command,
                 acquired);
             MerkabaGpuTimestamps.Complete(CaptureOwner.FlowerPages,
@@ -105,7 +107,7 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(new[]
                 {
                     MerkabaGpuStage.FlowerClassify,
-                    MerkabaGpuStage.FlowerCompact
+                    MerkabaGpuStage.FlowerPublish
                 }));
         }
 
