@@ -919,6 +919,11 @@ namespace Genesis.RoomScan
                 Word(value.Packed);
             }
             foreach (ushort value in L2EdgeIncidence) Word(value);
+            foreach (JunctionRule value in JunctionRules)
+            {
+                Word(value.Corners);
+                Word(value.Flags);
+            }
             for (int level = 0; level < GeometryLevelCount; level++)
                 for (int line = 0; line < LineClassCount; line++)
                     Word(math.asuint(EvaluateLoop(level, default, line).Radius));

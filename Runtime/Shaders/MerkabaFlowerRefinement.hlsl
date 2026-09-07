@@ -3,6 +3,7 @@
 
 #define M8_FLOWER_SIDECAR_WRITE
 #include "MerkabaFlowerGeometry.hlsl"
+#include "MerkabaFlowerSupport.hlsl"
 #include "MerkabaFlowerSkinObservation.hlsl"
 
 // One group owns a touched tile throughout this finite, observation-local
@@ -294,9 +295,8 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
         // declaration of a unique chirally valid junction/petal class.
         M8FlowerInterval phase=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
         if(r3Orientation<0)phase=M8FlowerI(-phase.hi,-phase.lo);
-        synthesized=predicted;
-        if(!M8FlowerRotateInterval(predicted.Root,phase,task.Line,
-            (predicted.Tag>>8u)&31u,synthesized.Root))return M8_FLOWER_ARENA_OK;
+        if(M8FlowerRotatePhaseEvidence(predicted,phase,synthesized)!=1u)
+            return M8_FLOWER_ARENA_OK;
     }
     if(M8FlowerCloseSharedPhaseRoot(synthesized,observed,closedRoot)!=1u)
         return M8_FLOWER_ARENA_OK;
@@ -322,43 +322,6 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
 void M8FlowerFineSchedulingStatus(uint status)
 {
     if(status!=M8_FLOWER_ARENA_OK)InterlockedMax(m8FineWriteStatus,status);
-}
-
-// Read the four measured phase coefficients in the actual generated tetra
-// frame. This is metric evidence ONLY: the result cannot set a shell-valid
-// or junction-valid bit without the finite candidate chirality predicate.
-bool M8FlowerR3MetricBundle(uint ownerRef,int3 owner,uint flags,uint rootSigns,
-    float normalError,float offsetError,out M8FlowerInterval scalar,
-    out M8FlowerInterval3 tetraVector,out int chirality)
-{
-    scalar=M8FlowerI(0.0,0.0);
-    tetraVector.x=scalar;tetraVector.y=scalar;tetraVector.z=scalar;chirality=0;
-    uint epoch=M8FlowerGetOwnerEpoch(ownerRef);
-    if(epoch==0u || rootSigns>=16u)return false;
-    uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
-    M8FlowerInterval q[4];
-    int branch=M8FlowerTetraChirality[parity];
-    [loop]for(uint axis=0u;axis<4u;axis++)
-    {
-        uint lineClass=(uint)M8FlowerTetraLine[parity][axis];
-        uint node=2u*lineClass+(M8FlowerTetraEta[parity][axis]<0?1u:0u);
-        bool plus=(rootSigns&(1u<<axis))!=0u;
-        M8FlowerPhaseRootEvidence identity;
-        if(!M8FlowerCarrierRoot(owner,flags,0u,M8FlowerNode[node].xyz,
-            lineClass,plus,normalError,offsetError,identity))return false;
-        uint key=M8FlowerPackDetailKey(0u,0u,M8FlowerRootRecordPetal(node),
-            lineClass,1u,plus,(identity.Tag>>8u)&31u);
-        M8FlowerDetailRecord record;
-        // Absence never means a proved zero R3 residual. It means there is
-        // no complete persistent four-axis metric bundle to consume here.
-        if(!M8FlowerFindPhase(ownerRef,key,epoch,record) ||
-            (record.Lower<=0&&record.Upper>=0))return false;
-        q[axis]=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
-        branch*=plus?1:-1;
-    }
-    M8FlowerTetraForwardIntervals(q,scalar,tetraVector);
-    chirality=branch;
-    return true;
 }
 
 // All phase stages have retired before this is called. A carrier reads one
@@ -610,21 +573,17 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         cursor++;consumed++;
         if(cursor==M8_FLOWER_ROOT_PHASE_TASKS)
         {
-            // Every sign alternative stays finite and explicit. Nonzero
-            // opening/bias asks for the R3 junction predicate; no closest
-            // class is selected and R1/R2 remain independently valid.
+            // The same frozen observation now has all original phase work.
+            // Fetch dual descriptors once per tile, then classify the actual
+            // generated junction alternatives. No metric bundle is mistaken
+            // for a branch proof, and R1/R2 remain independently valid.
+            M8FlowerSupportCacheDualTile(M8GlobalKernelCoord(slot,0u)>>3,lane,128u);
             for(uint local=lane;local<512u;local+=128u)
             {
                 if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)==0u || m8FineOwner[local]==0u)continue;
-                [loop]for(uint signs=0u;signs<16u;signs++)
-                {
-                    M8FlowerInterval scalar;M8FlowerInterval3 tetraVector;int chirality;
-                    if(!M8FlowerR3MetricBundle(m8FineOwner[local],M8GlobalKernelCoord(slot,local),
-                        m8FinePlane[local],signs,normalError,offsetError,scalar,tetraVector,chirality))continue;
-                    if(scalar.lo>0.0 || scalar.hi<0.0 || tetraVector.x.lo>0.0 || tetraVector.x.hi<0.0 ||
-                        tetraVector.y.lo>0.0 || tetraVector.y.hi<0.0 || tetraVector.z.lo>0.0 || tetraVector.z.hi<0.0)
-                        M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
-                }
+                M8FlowerJunctionSelection junction=M8FlowerReadR3Junction(slot,m8FineOwner[local],
+                    M8GlobalKernelCoord(slot,local),m8FinePlane[local],float2(normalError,offsetError));
+                if(junction.Classification!=1u)M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
             }
         }
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);

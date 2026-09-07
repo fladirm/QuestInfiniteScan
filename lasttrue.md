@@ -6736,3 +6736,58 @@ Those predicates currently have no production caller; the R3 metric bundle
 alone is not a junction-class proof. This is remaining implementation, not
 a new mathematical/environmental blocker or a closed cut. RUN05/06 retain
 their implemented consumers; RUN07 final validation/APK is still NOT_RUN.
+
+### CURRENT TRUE STATE — generated R3 selector and boundary transport follow-up
+
+CHECKPOINT_PARENT=40aec96; CURRENT_COMMIT=git HEAD containing this entry.
+CURRENT_CUT=RUN_04 (OPEN); no RUN/CUT or final acceptance is claimed.
+CONTRACT=the authorized CERTAIN_BOUNDARY amendment remains unchanged, including
+its full enclosure, canonical half-open ownership and no-epsilon rules.
+BOUNDARY_FOLLOWUP=the remaining GPU R3 commit and L1 ancestry rotation now use
+the same typed RotatePhaseEvidence as CPU. A nonzero rotation cannot retain
+an old exact-boundary witness. No phase/metric interval is clamped.
+R3_IMPLEMENTED=Petal f<e<c induces Q=[f,e-f,c-e]. Exact generation applies Q
+to all four tetra corners and their corresponding face/edge/corner flags;
+actual strand incidence and determinant are checked. Four equivalent start
+flags deduplicate to one class:12 classes,96 bytes, no runtime branch ordinal.
+The common CPU/HLSL selector enumerates the16 algebraic sign bundles and
+those12 incidence classes. It uses root sector/boundary masks, frozen
+chirality, explicit direct/dual constraints and ordered q/qs/qv intervals.
+CERTAIN_CLOSURE,AMBIGUOUS,DETAIL_CANDIDATE and IMPOSSIBLE remain distinct;
+a finite/nonzero metric bundle alone is not a junction closure.
+GPU_CONSUMER=DrainObservationRefinement now invokes that selector at the
+original-phase boundary, replacing its old four-persistent-residual shortcut.
+Eight axis/sign alternatives are evaluated once each; only q/tag evidence
+is retained. A shared mini dual-halo cache supplies full root-support covers
+without per-root spatial hashing. No new buffer, dispatch or queue exists.
+R1/R2 protection and observation-local draining remain unchanged.
+CPU_CONSUMER=SnapshotReader.ReadR3Junction mirrors the same eight alternatives
+and uses the same bounds/full-cell-cover predicate as evaluated wedges.
+PARENT48_PARTIAL=CPU snapshot input can AND all16 actual L2 children of each
+source petal through the existing128-carrier pass and exclude provisional
+anchors. CPU/GPU source admission now exposes that direct/provisional
+distinction independently of drawable R1. This is not an emitted completion.
+COMPLETION_OPEN=CompletionCandidates/UniqueCompletion still have no production
+caller. The actual donor-root candidate admission and completed-petal output
+must be connected; reusing own-source direct admission for both D and the
+candidate would make C AND NOT D empty. Do not call this finished, fabricate
+all-true shell masks, or weaken canonical half-open ownership to hide it.
+EXPORT_FIX=measured patch counts exclude completed wedges; inferred counts
+count them exactly once. Existing COMPLETED symbol/GLB/Tiles metadata remains.
+CODEGEN=r3-junction-codegen-final.log, Kingston Unity6000.5.9f1 exit0. Exact
+incidence generation guards ran during emission; this is not a fixture suite.
+COMPILER=FlowerCommit,DrainObservationRefinement,CompactDirtyFlowerSymbols
+ordinary glslang(vulkan1.1) compile and spirv-val PASS. The first compile
+exposed the reserved HLSL identifier line; source generator was corrected
+to lineClass and regenerated, not patched only in generated output.
+DRAIN_RECEIPT=7RW/13RO,128lanes,22804B groupshared,0unknown GS types,
+no RW/SRV aliases;5283176B SPIR-V. Readout4604224B;FlowerCommit2229044B.
+EVIDENCE_ROOT=/mnt/kingston-unity/Builds/UniscanR1Order/TestResults.
+TESTS_RUN=no full suite/scene fixtures/benchmarks; PERF/QUEST_RUNTIME=NOT_RUN;
+APK=NOT_BUILT. Compile/reflection receipts are not device acceptance.
+FILES_REVIEWED=Junction,Authority,Codegen,Reader,CarrierAdmission,Geometry,
+Refinement,Support,Exporter and generated output. Legacy residual-only R3
+diagnostic removed; no legacy geometry authority restored.
+NEXT_CURSOR=actual parent48 donor/completion producer and its GPU/readout
+consumer; do not redo clipping2, CERTAIN_BOUNDARY, generated12-class R3,
+mini dual cache, previous coverage/publication or durable release work.

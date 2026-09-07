@@ -396,10 +396,13 @@ namespace Genesis.RoomScan
             {
                 CanonicalOccupiedCount += result.OccupiedOwners;
                 MeasuredPlaneOccupiedCount += result.OccupiedOwners;
-                MeasuredPatchCount += result.TriangleCount;
                 UnresolvedMeasuredPlaneCount += result.UnresolvedWedges;
                 foreach (var carrier in result.Carriers)
-                    InferredPatchCount += math.countbits(carrier.Symbol.CompletedWedgeMask);
+                {
+                    uint completed = carrier.Symbol.CompletedWedgeMask;
+                    MeasuredPatchCount += math.countbits(carrier.Symbol.ActiveWedgeMask & ~completed);
+                    InferredPatchCount += math.countbits(completed);
+                }
             }
         }
 

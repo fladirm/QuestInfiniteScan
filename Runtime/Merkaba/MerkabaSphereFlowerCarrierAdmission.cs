@@ -238,8 +238,15 @@ namespace Genesis.RoomScan
             out Interval3 bounds)
         {
             bounds = default;
+            return TryGetL2KnotLoop(knot, out int level, out int3 offset, out int lineClass) &&
+                RootRelativeBounds(level, offset, lineClass, root, out bounds);
+        }
+
+        internal static bool RootRelativeBounds(int level, int3 offset, int lineClass,
+            PhaseRootEvidence root, out Interval3 bounds)
+        {
+            bounds = default;
             if (root.Classification != ProofClassification.Certain ||
-                !TryGetL2KnotLoop(knot, out int level, out int3 offset, out int lineClass) ||
                 !MerkabaFlowerSymbolTag.TryDecode(root.Symbol.Tag, out var tag) ||
                 tag.Level != level || tag.LineClass != lineClass) return false;
             LoopFrame loop = EvaluateLoop(level, new Long3(offset.x, offset.y, offset.z), lineClass);
@@ -424,7 +431,14 @@ namespace Genesis.RoomScan
             if (readCell == null) throw new ArgumentNullException(nameof(readCell));
             if (!SupportWedgeBounds(owner, carrier, wedge, roots, out int3 first, out int3 last))
                 return ProofClassification.Ambiguous;
-            int3 origin = (owner >> 3) << 3;
+            return ClassifySupportCellCover((owner >> 3) << 3, first, last, readCell);
+        }
+
+        // One full-cover predicate for evaluated wedges and individual root
+        // intervals. Neither a missing cell nor a mixed cover means FULL/FREE.
+        private static ProofClassification ClassifySupportCellCover(int3 origin,
+            int3 first, int3 last, Func<int3, ExcavationCellState> readCell)
+        {
             bool full = false, through = false;
             for (int z = first.z; z <= last.z; z++)
                 for (int y = first.y; y <= last.y; y++)

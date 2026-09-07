@@ -162,7 +162,9 @@ namespace Genesis.RoomScan.Editor
             AppendRadicalSectorPatterns(output, false);
             AppendAnchorSectorPetalMasks(output, false);
             AppendTetraFrames(output);
+            AppendJunctionRules(output, false);
             AppendFunctions(output);
+            AppendJunctionSelector(output);
             AppendPlaneCodec(output, false);
             AppendCarrierRelation(output);
             output.AppendLine(@"
@@ -346,6 +348,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
             AppendAnchorSectorPetalMasks(o, true);
             AppendBoundaryRules(o, true);
             AppendCompletion(o, true);
+            AppendJunctionRules(o, true);
             o.AppendLine("        private static ulong[] LoadGeneratedNodeIncidentPetals() => new ulong[] {");
             for (int i = 0; i < MerkabaSphereFlowerAuthority.NodeIncidentPetals.Length; i++)
             {
@@ -2207,6 +2210,145 @@ bool M8FlowerR1SectorFlag(uint node,uint sector,out uint petal)
     petal=mask.x!=0u?(uint)firstbitlow(mask.x):32u+(uint)firstbitlow(mask.y);
     return true;
 }");
+        }
+
+        private static void AppendJunctionRules(StringBuilder output, bool csharp)
+        {
+            var rules = MerkabaSphereFlowerAuthority.JunctionRules;
+            output.AppendLine(csharp
+                ? "        private static JunctionRule[] LoadGeneratedJunctionRules() => new JunctionRule[] {"
+                : "static const uint2 M8FlowerJunctionRule[12] = {");
+            for (int i = 0; i < rules.Length; i++)
+            {
+                output.Append(csharp ? "            new JunctionRule(" : "    uint2(")
+                    .Append(rules[i].Corners).Append("u, ").Append(rules[i].Flags).Append("u)");
+                Comma(output, i, rules.Length);
+            }
+            output.AppendLine("};");
+        }
+
+        private static void AppendJunctionSelector(StringBuilder output)
+        {
+            output.AppendLine(@"
+// Twelve incidence classes: four equivalent starting flags are one class.
+// Root alternatives use 2*actualTetraAxis+sign (minus=0, plus=1); q already
+// contains that frame's eta. Known requires non-provisional direct SEAL.
+// Allowed/veto certify these ROOTS, never the complete completion footprint.
+struct M8FlowerJunctionSelection
+{
+    uint Classification; // 0 impossible,1 certain closure,2 ambiguous,3 detail
+    uint ClassIndex;
+    uint RootSigns;
+    uint CertainCount;
+    uint AmbiguousCount;
+    uint DetailCount;
+    M8FlowerInterval Scalar;
+    M8FlowerInterval3 Vector;
+};
+
+bool M8FlowerJunctionFinite(M8FlowerInterval value)
+{
+    return isfinite(value.lo) && isfinite(value.hi) && value.lo<=value.hi;
+}
+
+M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
+    M8FlowerInterval q[8],uint observedTags[8],uint knownMask,
+    uint ambiguousMask,uint allowedMask,uint vetoMask)
+{
+    M8FlowerJunctionSelection result=(M8FlowerJunctionSelection)0;
+    result.Classification=2u;result.ClassIndex=0xffffffffu;result.RootSigns=0xffffffffu;
+    if(parity>=8u || ((knownMask|ambiguousMask|allowedMask|vetoMask)&~255u)!=0u ||
+        (knownMask&ambiguousMask)!=0u)return result;
+    int4 frameLines=M8FlowerTetraLine[parity],frameEta=M8FlowerTetraEta[parity];
+    uint2 rootFlags[8];
+    [loop] for(uint alternative=0u;alternative<8u;alternative++)
+    {
+        rootFlags[alternative]=uint2(0u,0u);
+        uint bit=1u<<alternative;
+        if((knownMask&bit)==0u)continue;
+        uint axis=alternative>>1u,lineClass=(uint)frameLines[axis];
+        uint node=2u*lineClass+(frameEta[axis]<0?1u:0u);
+        uint tag=observedTags[alternative];uint2 flags;
+        if((tag&7u)>=M8_FLOWER_GEOMETRY_LEVEL_COUNT || ((tag>>3u)&15u)!=lineClass ||
+            ((tag>>7u)&1u)!=(alternative&1u) || !M8FlowerJunctionFinite(q[alternative]) ||
+            !M8FlowerAnchorRootFlags(node,tag,flags))
+        {
+            knownMask&=~bit;ambiguousMask|=bit;continue;
+        }
+        rootFlags[alternative]=flags;
+    }
+    uint selectedClass=0xffffffffu,selectedSigns=0xffffffffu;
+    M8FlowerInterval selectedScalar=(M8FlowerInterval)0;
+    M8FlowerInterval3 selectedVector=(M8FlowerInterval3)0;
+    M8FlowerInterval bundle[4];
+    [loop] for(uint signs=0u;signs<16u;signs++)
+    {
+        uint required=0u;
+        [loop] for(uint axis=0u;axis<4u;axis++)
+            required|=1u<<(2u*axis+((signs>>axis)&1u));
+        if((required&vetoMask)!=0u || (required&~(knownMask|ambiguousMask))!=0u)continue;
+        bool unresolved=(required&knownMask&allowedMask)!=required;
+        bool metricDetail=false;
+        M8FlowerInterval scalar=(M8FlowerInterval)0;
+        M8FlowerInterval3 tetraVector=(M8FlowerInterval3)0;
+        if((required&knownMask)==required)
+        {
+            uint level=0xffffffffu;
+            [loop] for(uint axis=0u;axis<4u;axis++)
+            {
+                uint alternative=2u*axis+((signs>>axis)&1u);
+                bundle[axis]=q[alternative];
+                metricDetail=metricDetail || !(bundle[axis].lo<=0.0 && bundle[axis].hi>=0.0);
+                uint axisLevel=observedTags[alternative]&7u;
+                if(axis!=0u && axisLevel!=level)unresolved=true;
+                level=axisLevel;
+            }
+            M8FlowerTetraForwardIntervals(bundle,scalar,tetraVector);
+            if(!M8FlowerJunctionFinite(scalar) || !M8FlowerJunctionFinite(tetraVector.x) ||
+                !M8FlowerJunctionFinite(tetraVector.y) || !M8FlowerJunctionFinite(tetraVector.z))
+                unresolved=true;
+            metricDetail=metricDetail || !(scalar.lo<=0.0 && scalar.hi>=0.0) ||
+                !(tetraVector.x.lo<=0.0 && tetraVector.x.hi>=0.0) ||
+                !(tetraVector.y.lo<=0.0 && tetraVector.y.hi>=0.0) ||
+                !(tetraVector.z.lo<=0.0 && tetraVector.z.hi>=0.0);
+        }
+        int branchChirality=M8FlowerTetraChirality[parity]*((countbits(signs)&1u)==0u?1:-1);
+        [loop] for(uint candidate=0u;candidate<12u;candidate++)
+        {
+            uint2 rule=M8FlowerJunctionRule[candidate];
+            int chirality=(rule.y&(1u<<30u))==0u?1:-1;
+            if(chirality!=branchChirality)continue;
+            bool admitted=true;
+            [loop] for(uint axis=0u;axis<4u;axis++)
+            {
+                uint lineClass=(uint)frameLines[axis];
+                uint node=2u*lineClass+(frameEta[axis]<0?1u:0u);
+                uint alternative=2u*axis+((signs>>axis)&1u);
+                uint corner=(rule.x>>(5u*(lineClass-9u)))&31u;
+                uint flag=(rule.y>>(6u*(lineClass-9u)))&63u;
+                if(corner!=node || ((knownMask&(1u<<alternative))!=0u &&
+                    (rootFlags[alternative][flag>>5u]&(1u<<(flag&31u)))==0u))admitted=false;
+            }
+            if(!admitted)continue;
+            if(unresolved)result.AmbiguousCount++;
+            else
+            {
+                if(metricDetail)result.DetailCount++;else result.CertainCount++;
+                // Tentative only; all classes/branches decide uniqueness.
+                selectedClass=candidate;selectedSigns=signs;
+                selectedScalar=scalar;selectedVector=tetraVector;
+            }
+        }
+    }
+    uint certain=result.CertainCount+result.DetailCount;
+    if(result.AmbiguousCount!=0u || certain>1u)return result;
+    if(certain==0u){result.Classification=0u;return result;}
+    result.Classification=result.CertainCount==1u?1u:3u;
+    result.ClassIndex=selectedClass;result.RootSigns=selectedSigns;
+    result.Scalar=selectedScalar;result.Vector=selectedVector;
+    return result;
+}
+");
         }
 
         private static void AppendTetraFrames(StringBuilder output)

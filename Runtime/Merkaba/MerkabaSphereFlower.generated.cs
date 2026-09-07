@@ -6,7 +6,7 @@ namespace Genesis.RoomScan
 {
     public static partial class MerkabaSphereFlowerAuthority
     {
-        internal const uint FrozenTableHash = 0x5a32c059u;
+        internal const uint FrozenTableHash = 0x57c96b09u;
 
         private static PhaseFamilyRule[] LoadGeneratedPhaseFamilies() =>
             new PhaseFamilyRule[]
@@ -17758,6 +17758,20 @@ internal static uint M8FlowerUniqueCompletion(uint2 candidates,out uint petal)
     return 1u;
 }
 
+        private static JunctionRule[] LoadGeneratedJunctionRules() => new JunctionRule[] {
+            new JunctionRule(842387u, 823936u),
+            new JunctionRule(810674u, 1092624459u),
+            new JunctionRule(842387u, 1142743876u),
+            new JunctionRule(810674u, 87052687u),
+            new JunctionRule(842387u, 1348810384u),
+            new JunctionRule(810674u, 290030683u),
+            new JunctionRule(842387u, 343504724u),
+            new JunctionRule(810674u, 1431684511u),
+            new JunctionRule(842387u, 547793120u),
+            new JunctionRule(810674u, 1636440619u),
+            new JunctionRule(842387u, 1689967076u),
+            new JunctionRule(810674u, 630614831u)
+};
         private static ulong[] LoadGeneratedNodeIncidentPetals() => new ulong[] {
             0x00000000ff00UL,
             0x0000000000ffUL,

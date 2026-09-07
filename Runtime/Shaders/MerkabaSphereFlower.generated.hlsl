@@ -20,7 +20,7 @@ struct M8FlowerInterval3 { M8FlowerInterval x; M8FlowerInterval y; M8FlowerInter
 #define M8_FLOWER_SKIN_TERMINAL_COUNT 343u
 #define M8_FLOWER_SKIN_SPLIT_BIT_COUNT 57u
 #define M8_FLOWER_SECTOR_BOUNDARY_COUNT 264u
-#define M8_FLOWER_TABLE_HASH 0x5a32c059u
+#define M8_FLOWER_TABLE_HASH 0x57c96b09u
 #define M8_FLOWER_ROOT_IMPOSSIBLE 0u
 #define M8_FLOWER_ROOT_CERTAIN_TANGENT 1u
 #define M8_FLOWER_ROOT_CERTAIN_SECANT 2u
@@ -15140,6 +15140,20 @@ static const float3 M8FlowerTetraAxis[4] = {
     float3(-0.5773502691896258, 0.5773502691896258, -0.5773502691896258),
     float3(-0.5773502691896258, -0.5773502691896258, 0.5773502691896258)
 };
+static const uint2 M8FlowerJunctionRule[12] = {
+    uint2(842387u, 823936u),
+    uint2(810674u, 1092624459u),
+    uint2(842387u, 1142743876u),
+    uint2(810674u, 87052687u),
+    uint2(842387u, 1348810384u),
+    uint2(810674u, 290030683u),
+    uint2(842387u, 343504724u),
+    uint2(810674u, 1431684511u),
+    uint2(842387u, 547793120u),
+    uint2(810674u, 1636440619u),
+    uint2(842387u, 1689967076u),
+    uint2(810674u, 630614831u)
+};
 
 
 float M8FlowerNext(float v)
@@ -16696,6 +16710,126 @@ float M8FlowerNestedV(float3 child3, float3 child4, float3 child5,
     return amplitude.x*M8FlowerSkinBubble(child3)+
         amplitude.y*M8FlowerSkinBubble(child4)+
         amplitude.z*M8FlowerSkinBubble(child5);
+}
+
+
+// Twelve incidence classes: four equivalent starting flags are one class.
+// Root alternatives use 2*actualTetraAxis+sign (minus=0, plus=1); q already
+// contains that frame's eta. Known requires non-provisional direct SEAL.
+// Allowed/veto certify these ROOTS, never the complete completion footprint.
+struct M8FlowerJunctionSelection
+{
+    uint Classification; // 0 impossible,1 certain closure,2 ambiguous,3 detail
+    uint ClassIndex;
+    uint RootSigns;
+    uint CertainCount;
+    uint AmbiguousCount;
+    uint DetailCount;
+    M8FlowerInterval Scalar;
+    M8FlowerInterval3 Vector;
+};
+
+bool M8FlowerJunctionFinite(M8FlowerInterval value)
+{
+    return isfinite(value.lo) && isfinite(value.hi) && value.lo<=value.hi;
+}
+
+M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
+    M8FlowerInterval q[8],uint observedTags[8],uint knownMask,
+    uint ambiguousMask,uint allowedMask,uint vetoMask)
+{
+    M8FlowerJunctionSelection result=(M8FlowerJunctionSelection)0;
+    result.Classification=2u;result.ClassIndex=0xffffffffu;result.RootSigns=0xffffffffu;
+    if(parity>=8u || ((knownMask|ambiguousMask|allowedMask|vetoMask)&~255u)!=0u ||
+        (knownMask&ambiguousMask)!=0u)return result;
+    int4 frameLines=M8FlowerTetraLine[parity],frameEta=M8FlowerTetraEta[parity];
+    uint2 rootFlags[8];
+    [loop] for(uint alternative=0u;alternative<8u;alternative++)
+    {
+        rootFlags[alternative]=uint2(0u,0u);
+        uint bit=1u<<alternative;
+        if((knownMask&bit)==0u)continue;
+        uint axis=alternative>>1u,lineClass=(uint)frameLines[axis];
+        uint node=2u*lineClass+(frameEta[axis]<0?1u:0u);
+        uint tag=observedTags[alternative];uint2 flags;
+        if((tag&7u)>=M8_FLOWER_GEOMETRY_LEVEL_COUNT || ((tag>>3u)&15u)!=lineClass ||
+            ((tag>>7u)&1u)!=(alternative&1u) || !M8FlowerJunctionFinite(q[alternative]) ||
+            !M8FlowerAnchorRootFlags(node,tag,flags))
+        {
+            knownMask&=~bit;ambiguousMask|=bit;continue;
+        }
+        rootFlags[alternative]=flags;
+    }
+    uint selectedClass=0xffffffffu,selectedSigns=0xffffffffu;
+    M8FlowerInterval selectedScalar=(M8FlowerInterval)0;
+    M8FlowerInterval3 selectedVector=(M8FlowerInterval3)0;
+    M8FlowerInterval bundle[4];
+    [loop] for(uint signs=0u;signs<16u;signs++)
+    {
+        uint required=0u;
+        [loop] for(uint axis=0u;axis<4u;axis++)
+            required|=1u<<(2u*axis+((signs>>axis)&1u));
+        if((required&vetoMask)!=0u || (required&~(knownMask|ambiguousMask))!=0u)continue;
+        bool unresolved=(required&knownMask&allowedMask)!=required;
+        bool metricDetail=false;
+        M8FlowerInterval scalar=(M8FlowerInterval)0;
+        M8FlowerInterval3 tetraVector=(M8FlowerInterval3)0;
+        if((required&knownMask)==required)
+        {
+            uint level=0xffffffffu;
+            [loop] for(uint axis=0u;axis<4u;axis++)
+            {
+                uint alternative=2u*axis+((signs>>axis)&1u);
+                bundle[axis]=q[alternative];
+                metricDetail=metricDetail || !(bundle[axis].lo<=0.0 && bundle[axis].hi>=0.0);
+                uint axisLevel=observedTags[alternative]&7u;
+                if(axis!=0u && axisLevel!=level)unresolved=true;
+                level=axisLevel;
+            }
+            M8FlowerTetraForwardIntervals(bundle,scalar,tetraVector);
+            if(!M8FlowerJunctionFinite(scalar) || !M8FlowerJunctionFinite(tetraVector.x) ||
+                !M8FlowerJunctionFinite(tetraVector.y) || !M8FlowerJunctionFinite(tetraVector.z))
+                unresolved=true;
+            metricDetail=metricDetail || !(scalar.lo<=0.0 && scalar.hi>=0.0) ||
+                !(tetraVector.x.lo<=0.0 && tetraVector.x.hi>=0.0) ||
+                !(tetraVector.y.lo<=0.0 && tetraVector.y.hi>=0.0) ||
+                !(tetraVector.z.lo<=0.0 && tetraVector.z.hi>=0.0);
+        }
+        int branchChirality=M8FlowerTetraChirality[parity]*((countbits(signs)&1u)==0u?1:-1);
+        [loop] for(uint candidate=0u;candidate<12u;candidate++)
+        {
+            uint2 rule=M8FlowerJunctionRule[candidate];
+            int chirality=(rule.y&(1u<<30u))==0u?1:-1;
+            if(chirality!=branchChirality)continue;
+            bool admitted=true;
+            [loop] for(uint axis=0u;axis<4u;axis++)
+            {
+                uint lineClass=(uint)frameLines[axis];
+                uint node=2u*lineClass+(frameEta[axis]<0?1u:0u);
+                uint alternative=2u*axis+((signs>>axis)&1u);
+                uint corner=(rule.x>>(5u*(lineClass-9u)))&31u;
+                uint flag=(rule.y>>(6u*(lineClass-9u)))&63u;
+                if(corner!=node || ((knownMask&(1u<<alternative))!=0u &&
+                    (rootFlags[alternative][flag>>5u]&(1u<<(flag&31u)))==0u))admitted=false;
+            }
+            if(!admitted)continue;
+            if(unresolved)result.AmbiguousCount++;
+            else
+            {
+                if(metricDetail)result.DetailCount++;else result.CertainCount++;
+                // Tentative only; all classes/branches decide uniqueness.
+                selectedClass=candidate;selectedSigns=signs;
+                selectedScalar=scalar;selectedVector=tetraVector;
+            }
+        }
+    }
+    uint certain=result.CertainCount+result.DetailCount;
+    if(result.AmbiguousCount!=0u || certain>1u)return result;
+    if(certain==0u){result.Classification=0u;return result;}
+    result.Classification=result.CertainCount==1u?1u:3u;
+    result.ClassIndex=selectedClass;result.RootSigns=selectedSigns;
+    result.Scalar=selectedScalar;result.Vector=selectedVector;
+    return result;
 }
 
 #define M8_FLOWER_PLANE_U_SHIFT 0x00000002u
