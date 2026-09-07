@@ -1849,17 +1849,28 @@ For two linear RGB interval vectors, `RgbDistinct` is true iff at least one of
 R, G or B is `Disjoint`. No distance, variance, confidence score or epsilon is
 permitted.
 
+Every footprint below is clipped to the current parent support as defined
+in section 20.3. Let supportMask contain exactly its geometrically nonempty
+child intersections, not merely children hit by valid measurement pixels.
+An empty intersection needs no observation and cannot prove a distinction.
+All nonempty intersections still require complete-footprint CERTAIN evidence.
+The seven-value publication retains the ancestor RGB interval and zero V
+innovation in empty slots; these are inherited signal, not measured samples,
+and are excluded from the distinct-pair test. Empty support is UNIFORM and
+requests no work. A missing or invalid observation on nonempty support is
+AMBIGUOUS, never EMPTY.
+
 For one unsplit RGB parent with seven generated skin-child footprints:
 
 ```text
-all seven complete-footprint RGB measurements are CERTAIN
-AND at least one child pair is RgbDistinct
-    -> publish the parent RGB split and all seven actual child RGB intervals
+all nonempty complete-footprint RGB measurements are CERTAIN
+AND at least one nonempty child pair is RgbDistinct
+    -> publish the parent RGB split and all seven child RGB intervals
 
 any required child measurement is AMBIGUOUS
     -> do not publish; request genuinely new evidence
 
-all seven are CERTAIN but no child pair is provably distinct
+all nonempty children are CERTAIN but no nonempty pair is provably distinct
     -> retain the uniform parent RGB signal
 ```
 
@@ -1867,14 +1878,14 @@ V uses the identical finite decision over scalar metric-innovation intervals
 relative to the already committed parent V signal:
 
 ```text
-all seven complete-footprint V innovation intervals are CERTAIN
-AND at least one child pair is Disjoint
+all nonempty complete-footprint V innovation intervals are CERTAIN
+AND at least one nonempty child pair is Disjoint
     -> publish the parent V split and all seven additive child innovations
 
 any required child interval is AMBIGUOUS
     -> do not publish; request genuinely new evidence
 
-all seven are CERTAIN but no child pair is provably distinct
+all nonempty children are CERTAIN but no nonempty pair is provably distinct
     -> retain the unsplit parent; no child V innovation is stored
 ```
 
@@ -2436,7 +2447,17 @@ recursive level, codegen MUST prove both:
 
 1. the 36 half-open chambers partition the six parent wedges exactly; and
 2. the union of all chambers mapped to each child `c` equals the exact
-   canonical footprint of that Flower-7 child.
+   canonical child footprint clipped to the current parent support.
+
+All seven children always exist logically. Their represented support is
+`F_c = F_canonical_child_c intersect F_parent_support`; clipping never removes
+an identity or creates a `childExists` state. A logical descendant outside
+the current L2/parent support has no raster preimage and need not be reached
+by that carrier. The 36 rows partition the existing parent domain; they do
+not materialize 42 full child wedges outside it. Recursion transports a point
+in the current support through one chamber and repeats inside that support.
+The full 7/49/343 identity space and the immutable 399-position thread remain
+unchanged, independently of which addresses have a preimage in this carrier.
 
 A merely convenient triangular fractal partition that does not reproduce the
 generated Flower-7 footprint is forbidden.
@@ -3628,7 +3649,8 @@ one L4 split creates exactly seven L5 signal regions
 exactly 57 split bits represent complete L3-L5 signal subdivision
 no axial lobe enters a skin split address
 stable ordered-barycentric chambers partition every wedge exactly
-union of chambers mapped to each child equals its exact canonical Flower-7 footprint at all three recursions
+union of chambers mapped to each child equals its exact canonical Flower-7 footprint clipped to the current parent support at all three recursions
+empty clipped footprints retain logical identity but cannot prove novelty; missing evidence on nonempty support stays AMBIGUOUS
 every generated Flower subtree is contiguous on Gamma_L2
 one L3 subtree occupies exactly 57 thread positions
 one L4 subtree occupies exactly 8 thread positions
@@ -6159,3 +6181,60 @@ CompactDirtyFlowerSymbols producer remain. Source work is committed; unrelated
 NEXT_CURSOR=preserve the now-passing THROUGH and real R2 eager/drain proofs.
 Resolve the precise section20.3 footprint decision, then complete the live
 carrier/skin/page producer and rerun remaining gates; do not restart the DAG.
+
+### RUN_04 clipped skin closure — 2026-09-07 03:27:49Z
+
+CURRENT_COMMIT=SELF; PARENT_COMMIT=af758cc599b6dfd6731842ccf33158aa727a3838
+CURRENT_CUT=RUN_04 OPEN. User resolved the section20.3 question explicitly:
+all seven children exist logically; their support is clipped to the current
+parent/L2 domain. The36 chamber rows are correct;42 full child wedges are not
+required. This supersedes the previous footprint blocker and the assertion
+that every logical L4/L5 address must have a raster preimage in one carrier.
+DO_NOT_REOPEN_THIS_QUESTION. The31/115 reachable addresses of this clipped
+mapping are not missing topology. All7/49/343 identities and399 thread
+positions remain, without childExists or a new persistent support mask.
+
+CONTRACT_CHANGE=user-authorized clipped-footprint clarification in section20.3;
+section14.2.2 consistently applies measurement/novelty to nonempty intersections,
+and section29 names the corresponding proof. Empty group slots inherit parent
+RGB or zero V innovation, are not measured evidence, and cannot prove novelty.
+Missing evidence on nonempty support is still AMBIGUOUS. The lasttrue immutable
+prefix was compared byte-for-byte with the amended REV-C source:PASS.
+
+IMPLEMENTED=exact integer chamber-domain area/orientation proof replaces the
+incorrect all-address reachability gate; CPU/HLSL scalar+RGB split predicates
+share geometric supportMask semantics; GPU RGB child measurement skips EMPTY
+footprints and preserves the actual parent Thread interval in unused slots.
+The36 transition rows, Fibonacci order,399 logical addresses,57 persistent
+split bits and all hot/persistent ABI layouts are unchanged. Generated CPU/HLSL
+artifacts were regenerated through the existing Kingston Unity codegen,
+including its already-authored radical-sector provenance tables. Provenance
+does not itself decide carrier admission.
+
+TESTS_RUN=Kingston Unity Vulkan full suite391 total,390 PASS,1 FAIL,0 skipped;
+195.860s. All six prior skin/codegen parity failures now PASS. The new exhaustive
+CPU/GPU split test covers32769 support/certainty cases with independent expected
+outcomes, including empty, partial, invalid and uncovered nonempty support.
+Actual frozen-depth R2 eager/drain/backpressure proof remains PASS(58.556s).
+RESULT=/mnt/kingston-unity/Builds/UniscanClippedSkin/TestResults/merkaba-results.xml
+LOG=/mnt/kingston-unity/Builds/UniscanClippedSkin/TestResults/merkaba-tests.log
+CODEGEN=/mnt/kingston-unity/Builds/UniscanClippedSkin/TestResults/codegen.log;PASS
+SPIRV=75 kernels PASS; writable buffer/image bindings<=8; no RW/read alias pair.
+PERF=Quest sustained runtime NOT MEASURED; suite time includes pipeline creation,
+not a device frame-time measurement. APK/Quest runtime NOT RUN.
+
+REMAINING=CompactDirtyFlowerSymbols still absent, the sole suite failure.
+Its real direct carrier selector still needs the section8.4 sector/flag admission
+predicate; existing readers take root signs/sectors as inputs, and generated
+L2 incidence/provenance does not select them. The same selector is needed by
+live RGB/V drain. Direct/partial DIRT coverage is also not a complete producer.
+No no-op kernel, guessed root selection or DIRT-only fallback was introduced.
+Therefore these green skin tests do not certify full scanner/readout integration.
+
+MANUAL_REVIEW=changed CPU/HLSL predicates, exact domain proof, inherited Thread
+address/epoch handling, generated artifact parity and test expectations reviewed.
+No legacy authority restored and no production readback or new dispatch added.
+FILES_CHANGED=the exact diff from PARENT_COMMIT; unrelated.claude/,CLAUDE.md and
+CLAUDE.md.meta remain excluded. This is a verified checkpoint, not RUN_04 PASS.
+NEXT_CURSOR=preserve the now-green clipped-skin, THROUGH and real R2 drain
+proofs; finish actual shared carrier admission and its skin/page consumers.

@@ -558,6 +558,51 @@ namespace Genesis.RoomScan.Tests
             Assert.That(cursor, Is.EqualTo(results.Length));
         }
 
+        [Test, Timeout(120000)]
+        public void ClippedSkinSplit_ExhaustivelySeparatesEmptyFromMissingEvidence()
+        {
+            // Every support/certainty mask, with either one distinct child
+            // or seven distinct children. Out-of-support values must not
+            // manufacture novelty; uncovered nonempty support stays ambiguous.
+            var cases = new List<OracleCase>(2 * 128 * 128 + 1);
+            for (int variant = 0; variant < 2; variant++)
+            for (int support = 0; support < 128; support++)
+            for (int certain = 0; certain < 128; certain++)
+                cases.Add(new OracleCase(25)
+                {
+                    Control = new int4(25, variant, certain, support)
+                });
+            cases.Add(new OracleCase(25) { Control = new int4(25, 1, 127, 128) });
+            OracleCase[] actual = Dispatch(cases);
+            var scalar = new MerkabaSphereFlowerAuthority.FloatInterval[7];
+            var rgb = new MerkabaSphereFlowerAuthority.FloatInterval[21];
+            for (int index = 0; index < cases.Count; index++)
+            {
+                int4 input = cases[index].Control;
+                uint support = (uint)input.w, certain = (uint)input.z;
+                for (int child = 0; child < 7; child++)
+                {
+                    float lower = input.y == 0 ? (child == 6 ? 2f : 0f) : 2f * child;
+                    scalar[child] = new MerkabaSphereFlowerAuthority.FloatInterval(
+                        lower, lower + 1f);
+                    for (int channel = 0; channel < 3; channel++)
+                        rgb[3 * child + channel] = scalar[child];
+                }
+                bool missing = (support & ~127u) != 0u ||
+                    (support & certain) != support;
+                bool distinct = input.y == 0
+                    ? (support & 64u) != 0u && (support & 63u) != 0u
+                    : math.countbits(support) >= 2;
+                int expected = missing ? 2 : distinct ? 1 : 0;
+                Assert.That((int)MerkabaSphereFlowerAuthority.ClassifyScalarSkinSplit(
+                    scalar, certain, support), Is.EqualTo(expected));
+                Assert.That((int)MerkabaSphereFlowerAuthority.ClassifyRgbSkinSplit(
+                    rgb, certain, support), Is.EqualTo(expected));
+                Assert.That(actual[index].Control.xy, Is.EqualTo(new int2(expected)),
+                    $"clipped split variant/certain/support={input.yzw}");
+            }
+        }
+
         private static OracleCase[] Dispatch(List<OracleCase> cases,
             string kernelName = "SphereFlowerOracle")
         {

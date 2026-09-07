@@ -89,7 +89,7 @@ namespace Genesis.RoomScan
 #endif
                 ValidateSkinTables();
 #if UNITY_EDITOR
-                ValidateSkinAddressCoverage();
+                ValidateSkinDomainPartition();
 #endif
             }
         }
@@ -204,32 +204,40 @@ namespace Genesis.RoomScan
             right.Upper < left.Lower;
 
         public static SplitClassification ClassifyScalarSkinSplit(
-            ReadOnlySpan<FloatInterval> childIntervals, uint certainMask)
+            ReadOnlySpan<FloatInterval> childIntervals, uint certainMask,
+            uint supportMask = 0x7fu)
         {
             if (childIntervals.Length != SkinSiteCount)
                 throw new ArgumentException("Exactly seven intervals required.",
                     nameof(childIntervals));
-            if ((certainMask & 0x7fu) != 0x7fu)
+            if ((supportMask & ~0x7fu) != 0u ||
+                (certainMask & supportMask) != supportMask)
                 return SplitClassification.Ambiguous;
             for (int i = 0; i < SkinSiteCount; i++)
             for (int j = i + 1; j < SkinSiteCount; j++)
-                if (IntervalsDisjoint(childIntervals[i], childIntervals[j]))
+                if ((supportMask & (1u << i)) != 0u &&
+                    (supportMask & (1u << j)) != 0u &&
+                    IntervalsDisjoint(childIntervals[i], childIntervals[j]))
                     return SplitClassification.Split;
             return SplitClassification.Uniform;
         }
 
         public static SplitClassification ClassifyRgbSkinSplit(
-            ReadOnlySpan<FloatInterval> childRgbIntervals, uint certainMask)
+            ReadOnlySpan<FloatInterval> childRgbIntervals, uint certainMask,
+            uint supportMask = 0x7fu)
         {
             if (childRgbIntervals.Length != SkinSiteCount * 3)
                 throw new ArgumentException("Exactly seven RGB intervals required.",
                     nameof(childRgbIntervals));
-            if ((certainMask & 0x7fu) != 0x7fu)
+            if ((supportMask & ~0x7fu) != 0u ||
+                (certainMask & supportMask) != supportMask)
                 return SplitClassification.Ambiguous;
             for (int i = 0; i < SkinSiteCount; i++)
             for (int j = i + 1; j < SkinSiteCount; j++)
             for (int channel = 0; channel < 3; channel++)
-                if (IntervalsDisjoint(childRgbIntervals[3 * i + channel],
+                if ((supportMask & (1u << i)) != 0u &&
+                    (supportMask & (1u << j)) != 0u &&
+                    IntervalsDisjoint(childRgbIntervals[3 * i + channel],
                         childRgbIntervals[3 * j + channel]))
                     return SplitClassification.Split;
             return SplitClassification.Uniform;
@@ -598,51 +606,54 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
-        private static void ValidateSkinAddressCoverage()
+        private static void ValidateSkinDomainPartition()
         {
-            // Each strict ordered chamber maps onto the complete child
-            // simplex. Enumerating transitions therefore proves reachability
-            // exactly, without sampled UVs or a floating-point tolerance.
-            // This is necessary, not sufficient, for the geometric footprint
-            // proof: a bijective thread table alone cannot prove that raster
-            // evaluation can actually address its seven-child regions.
-            var reachedL4 = new bool[SkinL4Count];
-            var reachedL5 = new bool[SkinL5Count];
-            int countL4 = 0;
-            int countL5 = 0;
+            // Logical children are complete; their represented footprints
+            // are clipped to this parent support (§20.3). Prove coverage of
+            // that domain, not that every logical address has a preimage.
+            // The inverse of the ordered-gap transform maps the simplex to
+            // [e_high, (e_high+e_middle)/2, (1,1,1)/3]. All proof coordinates
+            // below have denominator six: no sampled UV or epsilon is used.
             for (int wedge = 0; wedge < SkinWedgeCount; wedge++)
-            for (int order3 = 0; order3 < SkinOrderCount; order3++)
             {
-                SkinChamberRule r3 = SkinData.Chambers[
-                    SkinOrderCount * wedge + order3];
-                for (int order4 = 0; order4 < SkinOrderCount; order4++)
+                int area = 0;
+                for (int order = 0; order < SkinOrderCount; order++)
                 {
-                    SkinChamberRule r4 = SkinData.Chambers[
-                        SkinOrderCount * r3.ChildWedge + order4];
-                    int parent = SkinSiteCount * r3.ChildSite + r4.ChildSite;
-                    if (!reachedL4[parent])
-                    {
-                        reachedL4[parent] = true;
-                        countL4++;
-                    }
-                    for (int order5 = 0; order5 < SkinOrderCount; order5++)
-                    {
-                        SkinChamberRule r5 = SkinData.Chambers[
-                            SkinOrderCount * r4.ChildWedge + order5];
-                        int terminal = SkinSiteCount * parent + r5.ChildSite;
-                        if (reachedL5[terminal]) continue;
-                        reachedL5[terminal] = true;
-                        countL5++;
-                    }
+                    SkinChamberRule rule = SkinData.Chambers[
+                        SkinOrderCount * wedge + order];
+                    if (((1 << rule.High) | (1 << rule.Middle) |
+                         (1 << rule.Low)) != 7)
+                        throw new InvalidOperationException(
+                            "Skin chamber must order three distinct coordinates.");
+                    int3 a = default, b = default, c = new(2);
+                    a[rule.High] = 6;
+                    b[rule.High] = b[rule.Middle] = 3;
+                    int signedArea = (b.x - a.x) * (c.y - a.y) -
+                        (b.y - a.y) * (c.x - a.x);
+                    if (signedArea != 6 * rule.Orientation)
+                        throw new InvalidOperationException(
+                            "Skin chamber inverse has incorrect area or orientation.");
+                    area += Math.Abs(signedArea);
+
+                    // Its interior is exactly high>middle>low. The six
+                    // permutations have disjoint interiors; stable site-ID
+                    // ordering owns their shared boundaries half-open.
+                    float3 interior = default;
+                    interior[rule.High] = 3;
+                    interior[rule.Middle] = 2;
+                    interior[rule.Low] = 1;
+                    if (SkinStableOrder(interior, wedge) != order)
+                        throw new InvalidOperationException(
+                            "Skin chamber does not own its canonical interior.");
                 }
-            }
-            for (int terminal = 0; terminal < SkinL5Count; terminal++)
-                if (!reachedL5[terminal])
+                if (area != 36)
                     throw new InvalidOperationException(
-                        $"Flower-7 skin footprint closure failed: {countL4}/49 L4 " +
-                        $"and {countL5}/343 L5 addresses reachable; first missing " +
-                        $"(c3,c4,c5)=({terminal / 49},{terminal / 7 % 7},{terminal % 7}). " +
-                        "Do not publish these transitions as exact Flower-7 geometry.");
+                        "Clipped child footprints do not cover their parent wedge.");
+            }
+            // Every image is a child simplex, to which these same six
+            // ordered chambers apply. Domain coverage therefore composes
+            // through all three descents without expanding the parent.
+            // ValidateSkinTables separately proves all 399 logical identities.
         }
 #endif
 

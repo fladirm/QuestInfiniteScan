@@ -7,7 +7,6 @@
 // this immutable observation. No presentation light or colour score enters
 // captured-radiance admission.
 float4 _M8RgbErrorBounds[2];
-#define M8_FLOWER_SKIN_INVALID_FOOTPRINT 3u
 
 M8FlowerInterval3 M8FlowerSkinPoint(float3 p)
 {
@@ -256,18 +255,26 @@ bool M8FlowerSkinDirectFootprint(M8FlowerInterval3 world,int3 owner,uint ownerFl
 
 uint M8FlowerMeasureRgbSkinChildren(M8FlowerPhaseRootEvidence roots[7],uint parentOrdinal,
     int3 owner,uint ownerFlags,float normalError,float offsetError,
-    out M8ThreadColorInterval children[7])
+    M8ThreadColorInterval inherited,out M8ThreadColorInterval children[7],
+    out uint supportMask)
 {
     M8FlowerInterval3 footprints[7];uint covered;
-    [loop]for(uint child=0u;child<7u;child++)children[child]=(M8ThreadColorInterval)0;
+    supportMask=0u;
+    [loop]for(uint child=0u;child<7u;child++)children[child]=inherited;
     if(!M8FlowerSkinChildFootprints(roots,parentOrdinal,footprints,covered))
         return M8_FLOWER_SKIN_AMBIGUOUS;
-    // A hole in the generated fixed topology is an implementation error,
-    // not an observation that needs a different camera viewpoint.
-    if(covered!=0x7fu)return M8_FLOWER_SKIN_INVALID_FOOTPRINT;
+    // All seven logical children exist. Only the exact generated chamber
+    // intersection decides whether one has support inside this L2 carrier.
+    // EMPTY is not missing camera evidence and never supplies measured zero.
+    supportMask=covered;
+    if(supportMask==0u)return M8_FLOWER_SKIN_UNIFORM;
     float2 intervals[21];uint certain=0u;
     [loop]for(uint child=0u;child<7u;child++)
     {
+        intervals[3u*child]=0.0.xx;
+        intervals[3u*child+1u]=0.0.xx;
+        intervals[3u*child+2u]=0.0.xx;
+        if((supportMask&(1u<<child))==0u)continue;
         if(!M8FlowerSkinDirectFootprint(footprints[child],owner,ownerFlags,normalError,offsetError))
             return M8_FLOWER_SKIN_AMBIGUOUS;
         M8FlowerInterval3 left,right;
@@ -284,7 +291,37 @@ uint M8FlowerMeasureRgbSkinChildren(M8FlowerPhaseRootEvidence roots[7],uint pare
         intervals[3u*child+2u]=float2(f16tof32(lo.y&65535u),f16tof32(hi.y&65535u));
         certain|=1u<<child;
     }
-    return M8FlowerClassifyRgbSkinSplit(intervals,certain);
+    return M8FlowerClassifyRgbSkinSplit(intervals,certain,supportMask);
+}
+
+// The unused member of a seven-value group inherits the existing signal of
+// this scan parent. This is not a new observation and does not take part in
+// split classification. The shared compact-address function owns the exact
+// thread-order mapping, identical to the procedural signal consumer.
+bool M8FlowerSkinInheritedColor(uint parentOrdinal,uint rootPackedColor,
+    M8ThreadRun run,bool existing,out M8ThreadColorInterval inherited)
+{
+    inherited=(M8ThreadColorInterval)0;
+    uint depth,c3,c4;
+    if(!M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4))return false;
+    if(parentOrdinal==0u)
+    {
+        float3 rgb=float3(rootPackedColor&255u,(rootPackedColor>>8u)&255u,
+            (rootPackedColor>>16u)&255u)*(1.0/255.0);
+        return M8ThreadEncodeColorInterval(float4(rgb,1.0),float4(rgb,1.0),inherited);
+    }
+    if(!existing || !M8FlowerCanonicalSplit(uint2(run.SplitBitsLo,run.SplitBitsHi)))return false;
+    uint group,rank;
+    if(!M8FlowerSkinCompactChildAddress(run.GroupBase,run.SplitBitsLo,run.SplitBitsHi,
+        depth+1u,c3,c4,0u,group,rank) || rank>=7u || group<run.GroupBase ||
+        group>0xffffffffu/112u || !M8FlowerThreadRange(group*112u,112u))return false;
+    uint4 value=_M8ThreadAtlasPages.Load4(group*112u+16u*rank);
+    inherited.LowerLinearRgba=value.xy;inherited.UpperLinearRgba=value.zw;
+    float4 lo=float4(f16tof32(value.x&65535u),f16tof32(value.x>>16u),
+        f16tof32(value.y&65535u),f16tof32(value.y>>16u));
+    float4 hi=float4(f16tof32(value.z&65535u),f16tof32(value.z>>16u),
+        f16tof32(value.w&65535u),f16tof32(value.w>>16u));
+    return all(M8FlowerIsFinite(lo)) && all(M8FlowerIsFinite(hi)) && all(lo<=hi);
 }
 
 bool M8FlowerSkinCarrierIdentity(int3 owner,uint flowerKey,
@@ -337,10 +374,13 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
         if(!existing || (bits[predecessor>>5u]&(1u<<(predecessor&31u)))==0u)
         {classification=M8_FLOWER_SKIN_UNIFORM;return M8_FLOWER_ARENA_OK;}
     }
-    M8ThreadColorInterval canonical[7],thread[7];
+    M8ThreadColorInterval canonical[7],thread[7],inherited;
+    if(!M8FlowerSkinInheritedColor(parentOrdinal,state.packedColor,run,existing,inherited))
+        return M8_FLOWER_ARENA_INVALID;
+    uint supportMask;
     classification=M8FlowerMeasureRgbSkinChildren(roots,parentOrdinal,owner,
-        state.flags,normalError,offsetError,canonical);
-    if(classification==M8_FLOWER_SKIN_INVALID_FOOTPRINT)return M8_FLOWER_ARENA_INVALID;
+        state.flags,normalError,offsetError,inherited,canonical,supportMask);
+    if(supportMask==0u)return M8_FLOWER_ARENA_OK;
     bool replacing=existing && (bits[parentOrdinal>>5u]&(1u<<(parentOrdinal&31u)))!=0u;
     if(classification==M8_FLOWER_SKIN_AMBIGUOUS ||
         (classification==M8_FLOWER_SKIN_UNIFORM && !replacing))return M8_FLOWER_ARENA_OK;
@@ -386,7 +426,8 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
 // Finite scan-owned subdivision program for ONE already admitted carrier.
 // A caller retains canonicalCursor with the SAME immutable observation when
 // this returns BUSY/CAPACITY or quantum exhausts. Genuine interval ambiguity
-// consumes the candidate; a generated footprint failure does not.
+// consumes the candidate. A geometrically EMPTY parent consumes no image
+// evidence and cannot create a split or a phantom refinement branch.
 uint M8FlowerDrainRgbSkinCarrier(uint slot,uint local,uint slotGeneration,uint flowerKey,
     M8FlowerPhaseRootEvidence roots[7],float normalError,float offsetError,uint quantum,
     inout uint canonicalCursor,out uint progressed,out uint ambiguous)

@@ -208,6 +208,26 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
             scalar, certainMask);
         result.Control.y = (int)M8FlowerClassifyRgbSkinSplit(rgb, certainMask);
     }
+    else if (operation == 25)
+    {
+        float2 scalar[7];
+        float2 rgb[21];
+        [unroll]
+        for (uint i = 0u; i < 7u; i++)
+        {
+            float lower = index == 0u ? (i == 6u ? 2.0 : 0.0) : 2.0 * i;
+            scalar[i] = float2(lower, lower + 1.0);
+            [unroll]
+            for (uint channel = 0u; channel < 3u; channel++)
+                rgb[3u * i + channel] = scalar[i];
+        }
+        uint certainMask = (uint)input.Control.z;
+        uint supportMask = (uint)input.Control.w;
+        result.Control.x = (int)M8FlowerClassifyScalarSkinSplit(
+            scalar, certainMask, supportMask);
+        result.Control.y = (int)M8FlowerClassifyRgbSkinSplit(
+            rgb, certainMask, supportMask);
+    }
     _SphereFlowerOracleResults[id] = result;
 }
 

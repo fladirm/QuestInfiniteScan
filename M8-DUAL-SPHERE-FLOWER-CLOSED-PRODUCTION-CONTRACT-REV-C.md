@@ -1849,17 +1849,28 @@ For two linear RGB interval vectors, `RgbDistinct` is true iff at least one of
 R, G or B is `Disjoint`. No distance, variance, confidence score or epsilon is
 permitted.
 
+Every footprint below is clipped to the current parent support as defined
+in section 20.3. Let supportMask contain exactly its geometrically nonempty
+child intersections, not merely children hit by valid measurement pixels.
+An empty intersection needs no observation and cannot prove a distinction.
+All nonempty intersections still require complete-footprint CERTAIN evidence.
+The seven-value publication retains the ancestor RGB interval and zero V
+innovation in empty slots; these are inherited signal, not measured samples,
+and are excluded from the distinct-pair test. Empty support is UNIFORM and
+requests no work. A missing or invalid observation on nonempty support is
+AMBIGUOUS, never EMPTY.
+
 For one unsplit RGB parent with seven generated skin-child footprints:
 
 ```text
-all seven complete-footprint RGB measurements are CERTAIN
-AND at least one child pair is RgbDistinct
-    -> publish the parent RGB split and all seven actual child RGB intervals
+all nonempty complete-footprint RGB measurements are CERTAIN
+AND at least one nonempty child pair is RgbDistinct
+    -> publish the parent RGB split and all seven child RGB intervals
 
 any required child measurement is AMBIGUOUS
     -> do not publish; request genuinely new evidence
 
-all seven are CERTAIN but no child pair is provably distinct
+all nonempty children are CERTAIN but no nonempty pair is provably distinct
     -> retain the uniform parent RGB signal
 ```
 
@@ -1867,14 +1878,14 @@ V uses the identical finite decision over scalar metric-innovation intervals
 relative to the already committed parent V signal:
 
 ```text
-all seven complete-footprint V innovation intervals are CERTAIN
-AND at least one child pair is Disjoint
+all nonempty complete-footprint V innovation intervals are CERTAIN
+AND at least one nonempty child pair is Disjoint
     -> publish the parent V split and all seven additive child innovations
 
 any required child interval is AMBIGUOUS
     -> do not publish; request genuinely new evidence
 
-all seven are CERTAIN but no child pair is provably distinct
+all nonempty children are CERTAIN but no nonempty pair is provably distinct
     -> retain the unsplit parent; no child V innovation is stored
 ```
 
@@ -2436,7 +2447,17 @@ recursive level, codegen MUST prove both:
 
 1. the 36 half-open chambers partition the six parent wedges exactly; and
 2. the union of all chambers mapped to each child `c` equals the exact
-   canonical footprint of that Flower-7 child.
+   canonical child footprint clipped to the current parent support.
+
+All seven children always exist logically. Their represented support is
+`F_c = F_canonical_child_c intersect F_parent_support`; clipping never removes
+an identity or creates a `childExists` state. A logical descendant outside
+the current L2/parent support has no raster preimage and need not be reached
+by that carrier. The 36 rows partition the existing parent domain; they do
+not materialize 42 full child wedges outside it. Recursion transports a point
+in the current support through one chamber and repeats inside that support.
+The full 7/49/343 identity space and the immutable 399-position thread remain
+unchanged, independently of which addresses have a preimage in this carrier.
 
 A merely convenient triangular fractal partition that does not reproduce the
 generated Flower-7 footprint is forbidden.
@@ -3628,7 +3649,8 @@ one L4 split creates exactly seven L5 signal regions
 exactly 57 split bits represent complete L3-L5 signal subdivision
 no axial lobe enters a skin split address
 stable ordered-barycentric chambers partition every wedge exactly
-union of chambers mapped to each child equals its exact canonical Flower-7 footprint at all three recursions
+union of chambers mapped to each child equals its exact canonical Flower-7 footprint clipped to the current parent support at all three recursions
+empty clipped footprints retain logical identity but cannot prove novelty; missing evidence on nonempty support stays AMBIGUOUS
 every generated Flower subtree is contiguous on Gamma_L2
 one L3 subtree occupies exactly 57 thread positions
 one L4 subtree occupies exactly 8 thread positions

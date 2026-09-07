@@ -3029,23 +3029,33 @@ bool M8FlowerIntervalsDisjoint(float2 left, float2 right)
     return left.y<right.x || right.y<left.x;
 }
 
-uint M8FlowerClassifyScalarSkinSplit(float2 child[7], uint certainMask)
+uint M8FlowerClassifyScalarSkinSplit(float2 child[7], uint certainMask,
+    uint supportMask)
 {
-    if ((certainMask&0x7fu)!=0x7fu) return M8_FLOWER_SKIN_AMBIGUOUS;
+    if ((supportMask&~0x7fu)!=0u ||
+        (certainMask&supportMask)!=supportMask) return M8_FLOWER_SKIN_AMBIGUOUS;
     [unroll]
     for (uint i=0u;i<7u;i++)
     {
         [unroll]
         for (uint j=i+1u;j<7u;j++)
-            if (M8FlowerIntervalsDisjoint(child[i],child[j]))
+            if ((supportMask&(1u<<i))!=0u && (supportMask&(1u<<j))!=0u &&
+                M8FlowerIntervalsDisjoint(child[i],child[j]))
                 return M8_FLOWER_SKIN_SPLIT;
     }
     return M8_FLOWER_SKIN_UNIFORM;
 }
 
-uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask)
+uint M8FlowerClassifyScalarSkinSplit(float2 child[7], uint certainMask)
 {
-    if ((certainMask&0x7fu)!=0x7fu) return M8_FLOWER_SKIN_AMBIGUOUS;
+    return M8FlowerClassifyScalarSkinSplit(child,certainMask,0x7fu);
+}
+
+uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask,
+    uint supportMask)
+{
+    if ((supportMask&~0x7fu)!=0u ||
+        (certainMask&supportMask)!=supportMask) return M8_FLOWER_SKIN_AMBIGUOUS;
     [unroll]
     for (uint i=0u;i<7u;i++)
     {
@@ -3054,12 +3064,18 @@ uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask)
         {
             [unroll]
             for (uint channel=0u;channel<3u;channel++)
-                if (M8FlowerIntervalsDisjoint(childRgb[3u*i+channel],
+                if ((supportMask&(1u<<i))!=0u && (supportMask&(1u<<j))!=0u &&
+                    M8FlowerIntervalsDisjoint(childRgb[3u*i+channel],
                         childRgb[3u*j+channel]))
                     return M8_FLOWER_SKIN_SPLIT;
         }
     }
     return M8_FLOWER_SKIN_UNIFORM;
+}
+
+uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask)
+{
+    return M8FlowerClassifyRgbSkinSplit(childRgb,certainMask,0x7fu);
 }
 
 float M8FlowerSkinBubble(float3 barycentric)

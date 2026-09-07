@@ -93,7 +93,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void OrderedChambersExactlyPartitionFlower7FootprintsAtAllDepths()
+        public void OrderedChambersExactlyPartitionClippedFlower7FootprintsAtAllDepths()
         {
             int[] footprintChambers = new int[7];
             for (int wedge = 0; wedge < 6; wedge++)
@@ -167,13 +167,17 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(math.cmax(math.abs(actual5 - bc5)),
                     Is.LessThanOrEqualTo(3e-6f));
             }
-            // A successful round trip through the SAME transition table
-            // alone does not prove that it represents all Flower children.
-            // Every chamber is affinely onto its child simplex, so this
-            // finite enumeration covers every nonempty terminal interior.
-            Assert.That(new[] { reachableL4.Count, reachableL5.Count },
-                Is.EqualTo(new[] { 49, 343 }),
-                "The fixed thread must not contain unreachable L4/L5 locality addresses.");
+            // §20.3 clips support, never identity. This carrier need not
+            // contain a raster preimage of every entry of the complete tape.
+            // In particular (H,R0,R2) lies outside these recursively clipped
+            // wedges, but remains a valid immutable logical thread address.
+            Assert.That(reachableL5.Contains(7 * 1 + 3), Is.False);
+            Assert.That(MerkabaSphereFlowerAuthority.SkinThreadPosition(5, 0, 1, 3),
+                Is.InRange(0, 398));
+            Assert.That(MerkabaSphereFlowerAuthority.SkinCanonicalL5ToThread.Length,
+                Is.EqualTo(343));
+            Assert.That(reachableL4.Count, Is.LessThan(49));
+            Assert.That(reachableL5.Count, Is.LessThan(343));
         }
 
         [Test]

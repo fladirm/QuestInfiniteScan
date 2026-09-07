@@ -5687,6 +5687,288 @@ static const float2 M8FlowerSectorUnit[132] = {
     float2(0.866025329, -0.49999994),
     float2(0.908248246, -0.41843161)
 };
+static const uint3 M8FlowerRadicalSectorPattern[264] = {
+    uint3(22287681u, 262208u, 22025472u),
+    uint3(44575362u, 33554944u, 11020416u),
+    uint3(22287681u, 263232u, 22024448u),
+    uint3(44575362u, 33563136u, 11012224u),
+    uint3(22287681u, 263168u, 22024512u),
+    uint3(44575362u, 33562624u, 11012736u),
+    uint3(22287681u, 1024u, 22286656u),
+    uint3(44575362u, 8192u, 44567168u),
+    uint3(22287681u, 4195328u, 18092352u),
+    uint3(44575362u, 2105344u, 42470016u),
+    uint3(22287681u, 4195584u, 18092096u),
+    uint3(44575362u, 2105472u, 42469888u),
+    uint3(22287681u, 4194560u, 18093120u),
+    uint3(44575362u, 2097280u, 42478080u),
+    uint3(22287681u, 256u, 22287424u),
+    uint3(44575362u, 128u, 44575232u),
+    uint3(22287681u, 16777472u, 5510208u),
+    uint3(44575362u, 524416u, 44050944u),
+    uint3(22287681u, 16781568u, 5506112u),
+    uint3(44575362u, 526464u, 44048896u),
+    uint3(22287681u, 16781312u, 5506368u),
+    uint3(44575362u, 526336u, 44049024u),
+    uint3(22287681u, 4096u, 22283584u),
+    uint3(44575362u, 2048u, 44573312u),
+    uint3(22287681u, 1052672u, 21235008u),
+    uint3(44575362u, 8390656u, 36184704u),
+    uint3(22287681u, 1052736u, 21234944u),
+    uint3(44575362u, 8391168u, 36184192u),
+    uint3(22287681u, 1048640u, 21239040u),
+    uint3(44575362u, 8389120u, 36186240u),
+    uint3(22287681u, 64u, 22287616u),
+    uint3(44575362u, 512u, 44574848u),
+    uint3(43336260u, 1048640u, 42287616u),
+    uint3(23757192u, 16777472u, 6979712u),
+    uint3(43336260u, 1114176u, 42222080u),
+    uint3(23757192u, 16810240u, 6946944u),
+    uint3(43336260u, 1114112u, 42222144u),
+    uint3(23757192u, 16809984u, 6947200u),
+    uint3(43336260u, 65536u, 43270720u),
+    uint3(23757192u, 32768u, 23724416u),
+    uint3(43336260u, 8454144u, 34882112u),
+    uint3(23757192u, 557056u, 23200128u),
+    uint3(43336260u, 8454656u, 34881600u),
+    uint3(23757192u, 557184u, 23200000u),
+    uint3(43336260u, 8389120u, 34947136u),
+    uint3(23757192u, 524416u, 23232768u),
+    uint3(43336260u, 512u, 43335744u),
+    uint3(23757192u, 128u, 23757056u),
+    uint3(43336260u, 33554944u, 9781312u),
+    uint3(23757192u, 2097280u, 21659904u),
+    uint3(43336260u, 33571328u, 9764928u),
+    uint3(23757192u, 2228352u, 21528832u),
+    uint3(43336260u, 33570816u, 9765440u),
+    uint3(23757192u, 2228224u, 21528960u),
+    uint3(43336260u, 16384u, 43319872u),
+    uint3(23757192u, 131072u, 23626112u),
+    uint3(43336260u, 278528u, 43057728u),
+    uint3(23757192u, 4325376u, 19431808u),
+    uint3(43336260u, 278592u, 43057664u),
+    uint3(23757192u, 4325632u, 19431552u),
+    uint3(43336260u, 262208u, 43074048u),
+    uint3(23757192u, 4194560u, 19562624u),
+    uint3(43336260u, 64u, 43336192u),
+    uint3(23757192u, 256u, 23756928u),
+    uint3(40264720u, 263168u, 40001536u),
+    uint3(26843168u, 1052672u, 25790464u),
+    uint3(40264720u, 279552u, 39985152u),
+    uint3(26843168u, 1118208u, 25724928u),
+    uint3(40264720u, 278528u, 39986176u),
+    uint3(26843168u, 1114112u, 25729024u),
+    uint3(40264720u, 16384u, 40248320u),
+    uint3(26843168u, 65536u, 26777600u),
+    uint3(40264720u, 33570816u, 6693888u),
+    uint3(26843168u, 8454144u, 18388992u),
+    uint3(40264720u, 33579008u, 6685696u),
+    uint3(26843168u, 8456192u, 18386944u),
+    uint3(40264720u, 33562624u, 6702080u),
+    uint3(26843168u, 8390656u, 18452480u),
+    uint3(40264720u, 8192u, 40256512u),
+    uint3(26843168u, 2048u, 26841088u),
+    uint3(40264720u, 2105344u, 38159360u),
+    uint3(26843168u, 526336u, 26316800u),
+    uint3(40264720u, 2236416u, 38028288u),
+    uint3(26843168u, 559104u, 26284032u),
+    uint3(40264720u, 2228224u, 38036480u),
+    uint3(26843168u, 557056u, 26286080u),
+    uint3(40264720u, 131072u, 40133632u),
+    uint3(26843168u, 32768u, 26810368u),
+    uint3(40264720u, 4325376u, 35939328u),
+    uint3(26843168u, 16809984u, 10033152u),
+    uint3(40264720u, 4326400u, 35938304u),
+    uint3(26843168u, 16814080u, 10029056u),
+    uint3(40264720u, 4195328u, 36069376u),
+    uint3(26843168u, 16781312u, 10061824u),
+    uint3(40264720u, 1024u, 40263680u),
+    uint3(26843168u, 4096u, 26839040u),
+    uint3(1310789u, 262145u, 1048580u),
+    uint3(2621578u, 2097160u, 524290u),
+    uint3(1310789u, 1u, 1310724u),
+    uint3(2621578u, 8u, 2621442u),
+    uint3(1310789u, 1048577u, 262148u),
+    uint3(2621578u, 524296u, 2097154u),
+    uint3(1310789u, 1048580u, 262145u),
+    uint3(2621578u, 524290u, 2097160u),
+    uint3(1310789u, 4u, 1310721u),
+    uint3(2621578u, 2u, 2621448u),
+    uint3(1310789u, 262148u, 1048577u),
+    uint3(2621578u, 2097154u, 524296u),
+    uint3(20971785u, 4194312u, 16777217u),
+    uint3(41943558u, 33554434u, 8388612u),
+    uint3(20971785u, 8u, 20971521u),
+    uint3(41943558u, 2u, 41943044u),
+    uint3(20971785u, 16777224u, 4194305u),
+    uint3(41943558u, 8388610u, 33554436u),
+    uint3(20971785u, 16777217u, 4194312u),
+    uint3(41943558u, 8388612u, 33554434u),
+    uint3(20971785u, 1u, 20971528u),
+    uint3(41943558u, 4u, 41943042u),
+    uint3(20971785u, 4194305u, 16777224u),
+    uint3(41943558u, 33554436u, 8388610u),
+    uint3(4457489u, 262160u, 4194305u),
+    uint3(8914978u, 8388610u, 524320u),
+    uint3(4457489u, 16u, 4456449u),
+    uint3(8914978u, 2u, 8912928u),
+    uint3(4457489u, 4194320u, 262145u),
+    uint3(8914978u, 524290u, 8388640u),
+    uint3(4457489u, 4194305u, 262160u),
+    uint3(8914978u, 524320u, 8388610u),
+    uint3(4457489u, 1u, 4456464u),
+    uint3(8914978u, 32u, 8912898u),
+    uint3(4457489u, 262145u, 4194320u),
+    uint3(8914978u, 8388640u, 524290u),
+    uint3(17829921u, 1048577u, 16777248u),
+    uint3(35659794u, 33554448u, 2097154u),
+    uint3(17829921u, 1u, 17825824u),
+    uint3(35659794u, 16u, 35651586u),
+    uint3(17829921u, 16777217u, 1048608u),
+    uint3(35659794u, 2097168u, 33554434u),
+    uint3(17829921u, 16777248u, 1048577u),
+    uint3(35659794u, 2097154u, 33554448u),
+    uint3(17829921u, 32u, 17825793u),
+    uint3(35659794u, 2u, 35651600u),
+    uint3(17829921u, 1048608u, 16777217u),
+    uint3(35659794u, 33554434u, 2097168u),
+    uint3(33832980u, 262148u, 33554448u),
+    uint3(17334312u, 16777248u, 524296u),
+    uint3(33832980u, 4u, 33816592u),
+    uint3(17334312u, 32u, 17301512u),
+    uint3(33832980u, 33554436u, 262160u),
+    uint3(17334312u, 524320u, 16777224u),
+    uint3(33832980u, 33554448u, 262148u),
+    uint3(17334312u, 524296u, 16777248u),
+    uint3(33832980u, 16u, 33816580u),
+    uint3(17334312u, 8u, 17301536u),
+    uint3(33832980u, 262160u, 33554436u),
+    uint3(17334312u, 16777224u, 524320u),
+    uint3(9502756u, 1048608u, 8388612u),
+    uint3(6422552u, 4194312u, 2097168u),
+    uint3(9502756u, 32u, 9437188u),
+    uint3(6422552u, 8u, 6291472u),
+    uint3(9502756u, 8388640u, 1048580u),
+    uint3(6422552u, 2097160u, 4194320u),
+    uint3(9502756u, 8388612u, 1048608u),
+    uint3(6422552u, 2097168u, 4194312u),
+    uint3(9502756u, 4u, 9437216u),
+    uint3(6422552u, 16u, 6291464u),
+    uint3(9502756u, 1048580u, 8388640u),
+    uint3(6422552u, 4194320u, 2097160u),
+    uint3(279637u, 1089u, 16404u),
+    uint3(559274u, 32808u, 2178u),
+    uint3(279637u, 69u, 17424u),
+    uint3(559274u, 34848u, 138u),
+    uint3(279637u, 16452u, 1041u),
+    uint3(559274u, 2082u, 32904u),
+    uint3(279637u, 16452u, 1041u),
+    uint3(559274u, 2082u, 32904u),
+    uint3(279637u, 16452u, 1041u),
+    uint3(559274u, 2082u, 32904u),
+    uint3(279637u, 16404u, 1089u),
+    uint3(559274u, 2178u, 32808u),
+    uint3(279637u, 17424u, 69u),
+    uint3(559274u, 138u, 34848u),
+    uint3(279637u, 17424u, 69u),
+    uint3(559274u, 138u, 34848u),
+    uint3(279637u, 17424u, 69u),
+    uint3(559274u, 138u, 34848u),
+    uint3(279637u, 1041u, 16452u),
+    uint3(559274u, 32904u, 2082u),
+    uint3(279637u, 1089u, 16404u),
+    uint3(559274u, 32808u, 2178u),
+    uint3(279637u, 1089u, 16404u),
+    uint3(559274u, 32808u, 2178u),
+    uint3(1118309u, 4161u, 65572u),
+    uint3(2236570u, 131096u, 8322u),
+    uint3(1118309u, 4129u, 65604u),
+    uint3(2236570u, 131208u, 8210u),
+    uint3(1118309u, 69664u, 69u),
+    uint3(2236570u, 138u, 139280u),
+    uint3(1118309u, 69664u, 69u),
+    uint3(2236570u, 138u, 139280u),
+    uint3(1118309u, 69664u, 69u),
+    uint3(2236570u, 138u, 139280u),
+    uint3(1118309u, 65572u, 4161u),
+    uint3(2236570u, 8322u, 131096u),
+    uint3(1118309u, 65604u, 4129u),
+    uint3(2236570u, 8210u, 131208u),
+    uint3(1118309u, 65604u, 4129u),
+    uint3(2236570u, 8210u, 131208u),
+    uint3(1118309u, 65604u, 4129u),
+    uint3(2236570u, 8210u, 131208u),
+    uint3(1118309u, 69u, 69664u),
+    uint3(2236570u, 139280u, 138u),
+    uint3(1118309u, 4161u, 65572u),
+    uint3(2236570u, 131096u, 8322u),
+    uint3(1118309u, 4161u, 65572u),
+    uint3(2236570u, 131096u, 8322u),
+    uint3(4326681u, 1281u, 131096u),
+    uint3(8456742u, 65572u, 2562u),
+    uint3(4326681u, 1041u, 131336u),
+    uint3(8456742u, 66052u, 2082u),
+    uint3(4326681u, 132112u, 265u),
+    uint3(8456742u, 518u, 67616u),
+    uint3(4326681u, 132112u, 265u),
+    uint3(8456742u, 518u, 67616u),
+    uint3(4326681u, 132112u, 265u),
+    uint3(8456742u, 518u, 67616u),
+    uint3(4326681u, 131096u, 1281u),
+    uint3(8456742u, 2562u, 65572u),
+    uint3(4326681u, 131336u, 1041u),
+    uint3(8456742u, 2082u, 66052u),
+    uint3(4326681u, 131336u, 1041u),
+    uint3(8456742u, 2082u, 66052u),
+    uint3(4326681u, 131336u, 1041u),
+    uint3(8456742u, 2082u, 66052u),
+    uint3(4326681u, 265u, 132112u),
+    uint3(8456742u, 67616u, 518u),
+    uint3(4326681u, 1281u, 131096u),
+    uint3(8456742u, 65572u, 2562u),
+    uint3(4326681u, 1281u, 131096u),
+    uint3(8456742u, 65572u, 2562u),
+    uint3(16814377u, 4353u, 32808u),
+    uint3(33579542u, 16404u, 8706u),
+    uint3(16814377u, 265u, 36896u),
+    uint3(33579542u, 24592u, 518u),
+    uint3(16814377u, 33032u, 4129u),
+    uint3(33579542u, 8210u, 16900u),
+    uint3(16814377u, 33032u, 4129u),
+    uint3(33579542u, 8210u, 16900u),
+    uint3(16814377u, 33032u, 4129u),
+    uint3(33579542u, 8210u, 16900u),
+    uint3(16814377u, 32808u, 4353u),
+    uint3(33579542u, 8706u, 16404u),
+    uint3(16814377u, 36896u, 265u),
+    uint3(33579542u, 518u, 24592u),
+    uint3(16814377u, 36896u, 265u),
+    uint3(33579542u, 518u, 24592u),
+    uint3(16814377u, 36896u, 265u),
+    uint3(33579542u, 518u, 24592u),
+    uint3(16814377u, 4129u, 33032u),
+    uint3(33579542u, 16900u, 8210u),
+    uint3(16814377u, 4353u, 32808u),
+    uint3(33579542u, 16404u, 8706u),
+    uint3(16814377u, 4353u, 32808u),
+    uint3(33579542u, 16404u, 8706u)
+};
+
+// Complete directed radical provenance of an already CERTAIN open sector.
+// x=incident planes, y=positive sides, z=negative sides; remaining incident
+// bits are equations identically zero on this loop. This lookup does not
+// itself choose a root or assert that a flag is admissible.
+bool M8FlowerRadicalSectorSigns(uint node,uint sector,out uint3 signs)
+{
+    signs=0u;
+    if(node>=26u)return false;
+    int4 rule=M8FlowerNode[node];
+    uint3 meta=M8FlowerLineMeta[(uint)rule.w];
+    if(sector>=meta.z)return false;
+    bool reversed=rule.x!=0?rule.x<0:rule.y!=0?rule.y<0:rule.z<0;
+    signs=M8FlowerRadicalSectorPattern[2u*(meta.y+sector)+(reversed?1u:0u)];
+    return true;
+}
 static const float2 M8FlowerTetraUnitBounds = float2(0.577350259, 0.577350318);
 static const int4 M8FlowerTetraLine[8] = {
     int4(9, 12, 11, 10),
@@ -7107,23 +7389,33 @@ bool M8FlowerIntervalsDisjoint(float2 left, float2 right)
     return left.y<right.x || right.y<left.x;
 }
 
-uint M8FlowerClassifyScalarSkinSplit(float2 child[7], uint certainMask)
+uint M8FlowerClassifyScalarSkinSplit(float2 child[7], uint certainMask,
+    uint supportMask)
 {
-    if ((certainMask&0x7fu)!=0x7fu) return M8_FLOWER_SKIN_AMBIGUOUS;
+    if ((supportMask&~0x7fu)!=0u ||
+        (certainMask&supportMask)!=supportMask) return M8_FLOWER_SKIN_AMBIGUOUS;
     [unroll]
     for (uint i=0u;i<7u;i++)
     {
         [unroll]
         for (uint j=i+1u;j<7u;j++)
-            if (M8FlowerIntervalsDisjoint(child[i],child[j]))
+            if ((supportMask&(1u<<i))!=0u && (supportMask&(1u<<j))!=0u &&
+                M8FlowerIntervalsDisjoint(child[i],child[j]))
                 return M8_FLOWER_SKIN_SPLIT;
     }
     return M8_FLOWER_SKIN_UNIFORM;
 }
 
-uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask)
+uint M8FlowerClassifyScalarSkinSplit(float2 child[7], uint certainMask)
 {
-    if ((certainMask&0x7fu)!=0x7fu) return M8_FLOWER_SKIN_AMBIGUOUS;
+    return M8FlowerClassifyScalarSkinSplit(child,certainMask,0x7fu);
+}
+
+uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask,
+    uint supportMask)
+{
+    if ((supportMask&~0x7fu)!=0u ||
+        (certainMask&supportMask)!=supportMask) return M8_FLOWER_SKIN_AMBIGUOUS;
     [unroll]
     for (uint i=0u;i<7u;i++)
     {
@@ -7132,12 +7424,18 @@ uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask)
         {
             [unroll]
             for (uint channel=0u;channel<3u;channel++)
-                if (M8FlowerIntervalsDisjoint(childRgb[3u*i+channel],
+                if ((supportMask&(1u<<i))!=0u && (supportMask&(1u<<j))!=0u &&
+                    M8FlowerIntervalsDisjoint(childRgb[3u*i+channel],
                         childRgb[3u*j+channel]))
                     return M8_FLOWER_SKIN_SPLIT;
         }
     }
     return M8_FLOWER_SKIN_UNIFORM;
+}
+
+uint M8FlowerClassifyRgbSkinSplit(float2 childRgb[21], uint certainMask)
+{
+    return M8FlowerClassifyRgbSkinSplit(childRgb,certainMask,0x7fu);
 }
 
 float M8FlowerSkinBubble(float3 barycentric)
