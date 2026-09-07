@@ -564,7 +564,12 @@ případný bake, serializaci a IO. Reuse šetří klasifikaci, ne celý export.
 
 ## 6.2 Snapshot a determinismus
 
-Export začíná jedním dokončeným durable cutem. Zafixuje:
+Export nejprve výhradně uzavře příjem nového scanu, FINE/ERASE a ostatních
+canonical mutací včetně změny session, designu, poznámek a referencovaných
+assetů. Dokončí již rozpracovanou immutable observation, její fine práci,
+SSD append i ACK a jediný běžný durable commit. Teprve potom čte zdroj.
+Tento operation gate drží po celou dobu exportu, ne jen při pořízení cutu.
+Zafixuje:
 
 ~~~text
 manifest CommitGeneration a ValidEnds
@@ -576,8 +581,12 @@ contract/codegen/serializer version a export options
 ~~~
 
 Export nesmí spojovat stránky různých generací ani přebírat novější fine
-data do starších M8 parents. Během sweepu se připnuté zdroje nekompaktují pryč.
-Scanner po pořízení cutu může pokračovat; export čte historický immutable cut.
+data do starších M8 parents. Již běžící kompakce se před cutem dokončí nebo
+bezpečně zruší a retire; nová se během exportu nepřipustí. Scanner, FINE/ERASE,
+změna session i ostatní canonical mutace zůstávají pozastavené až do konce
+exportu včetně dokončení všech jeho workerů a cleanup. Čte se tento neměnný
+aktuální durable cut za drženým gatem, nikoli historický MVCC snapshot.
+Uvolnění v finally umožní další explicitní operaci; samo znovu nespustí scan.
 
 CPU/GPU parity vyžaduje totožné inputs a dostupnost required evidence.
 GPU COLD versus CPU plně načtené SSD nejsou totožný testovací vstup.
@@ -625,8 +634,9 @@ nevyžaduje doslovně totožný index buffer s live maskovaným fanem.
 
 ## 6.4 Dokončit skutečný live RGBV consumer
 
-V MerkabaGrid.shader je nutné zkontrolovat a dokončit tok až do výstupní
-barvy: vypočtený micro-normal a optical fields nesmějí být mrtvé hodnoty.
+V MerkabaGrid.shader je nutné dokončit tok analytického micro-normal až do
+výstupní barvy podle níže výslovně povoleného V-1. Certifikovaný specular/V-2
+není tímto dodatkem implementován ani nahrazen.
 
 ~~~text
 address       vždy tři generated descents
@@ -662,6 +672,42 @@ L je explicitní presentation vstup, ne odhad zachyceného osvětlení.
 OPTICAL_VALID smí být nastaven jen existujícím evidence predicate. Projít
 celý řetězec producer → persistence → compact sample → fragment; samotná
 existence polí nebo nastavování nuly není implementace certifikované větve.
+
+### 6.4.1 Výslovný prezentační dodatek V-1
+
+V-1 používá pouze existující analytický micro-normal a explicitní material
+vstup `float4 _M8PresentationLight`: xyz je světový směr L, w je 0 nebo 1.
+Výchozí hodnota je (0,0,0,0). Žádná kamera, CaptureView, albedo nebo ambient
+se za L nedosazuje. Směr se normalizuje stejným pořadím FP32 operací na CPU
+i v HLSL; neplatný nebo nulový zapnutý směr není platný prezentační vstup.
+
+~~~text
+color = Ccapture
+pokud enabled && (sample.Flags & OPTICAL_VALID):
+    L  = normalize(explicitPresentationLight.xyz)
+    e0 = dot(N, L)
+    ef = dot(Nmicro, L)
+    pokud e0 > 2^-5:
+        color *= saturate(max(ef, 0) / e0)
+~~~
+
+Pevný práh 2^-5 je výslovně povolená prezentační policy V-1, nikoli
+geometrický epsilon ani důkaz optické certifikace. Vypnuté světlo nebo
+chybějící OPTICAL_VALID vrací původní captured RGB bitově beze změny.
+V-1 je bodový consumer; nevydává svůj vzorek za přesný footprint průměr
+EF z obecného výrazu výše.
+V-1 nevytváří OPTICAL_VALID, nemění jeho producer a nečte sample.Optical
+ani CaptureView. V-2/specular zůstává oddělený; nepřidává se nový BRDF.
+V mění pouze analytický normal, nikdy vertex, depth, silhouette nebo
+ddx/ddy normal. CPU `RelativeDiffuse` je twin téhož výpočtu vedle
+`SkinMicroNormal`. Default unlit export zůstává capture/off; prezentace,
+která výslovně požaduje V-1, musí předat tutéž explicitní L.
+
+Pro graph V s nulovou hranicí platí vektorový plošný integrál
+`integral(Nmicro dAsurface) = Aplanar * N`. Normalizovaný směr integrálu
+je tedy N, ale velikost area-average je `Aplanar/Asurface`, nikoli 1.
+Toto tvrzení nezaměňuje normalizovaný směr za plošný průměr a nezavádí
+momenty, Gram tabulky ani další footprint solver.
 
 ## 6.5 Portable preview a přesný native payload
 
@@ -846,21 +892,30 @@ kopie celé scény a full-archive RAM buffer.
 Jeden export receipt/journal obsahuje:
 
 ~~~text
-source G + pinned base/log ends + document/assets revision
+source G + held current base/log ends + document/assets revision
 contract/codegen/options hash
 next canonical cursor
 completed entry lengths/checksums
 pending / written / unresolved region s důvodem
 ~~~
 
-Po restartu pokračovat jen se stejnými dostupnými source records. Chybějící
-snapshot znamená RESUME_SOURCE_UNAVAILABLE, nikoli pokračování nad novým
-světem. Neúplný poslední spool/ZIP entry se ignoruje nebo obnoví od posledního
-ověřeného boundary; není automaticky dokončený.
+Po restartu pokračovat jen po opětovném výhradním zastavení mutací a ověření
+stejných dostupných source records, cutu a document/assets revision.
+Chybějící nebo změněný zdroj znamená RESUME_SOURCE_UNAVAILABLE, nikoli
+pokračování nad novým světem. Nevzniká povinnost historického MVCC ani
+automatického uchovávání starých verzí. Neúplný poslední spool/ZIP entry se
+ignoruje nebo obnoví od posledního ověřeného boundary; není automaticky
+dokončený.
 
+Cancel je signál workerům, nikoli předčasné uvolnění source gate. Již
+rozpracovaný canonical drain/commit se bezpečně dokončí včetně SSD ACK;
+export awaitne všechny spuštěné read/evaluate/write workery a teprve potom
+v finally uvolní gate. Stejné pořadí platí při chybě a lifecycle teardown.
+CancellationToken se přenáší přes geometry sweep, bake, writers i archive IO.
 Cancel zachová obnovitelný receipt nebo výslovně zahodí pouze vlastní staging.
-Finální název se publikuje až atomickým dokončením. Unresolved region znamená
-PARTIAL s vyjmenovanými mezerami, nikoli COMPLETE.
+Finální název se publikuje až atomickým dokončením; předchozí publikovaný
+výstup při chybě zůstává. Unresolved region znamená PARTIAL s vyjmenovanými
+mezerami, nikoli COMPLETE.
 
 Deterministické soubory vyžadují stejné serializační pořadí, encoder options,
 PNG metadata i ZIP timestamps. Shodná geometrie sama nezaručuje stejné bytes.

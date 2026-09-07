@@ -449,18 +449,21 @@ namespace Genesis.RoomScan
                     parsed = MerkabaArtifactViewer.ParseGlbForPreview(input,
                         input.Length);
 
-                string destination = AssetPath(id);
-                if (File.Exists(destination))
-                    File.Delete(staging);
-                else
-                    MerkabaFilePublishing.Publish(staging, destination);
+                using (parsed)
+                {
+                    string destination = AssetPath(id);
+                    if (File.Exists(destination))
+                        File.Delete(staging);
+                    else
+                        MerkabaFilePublishing.Publish(staging, destination);
 
-                string metadataPath = MetadataPath(id);
-                MerkabaDesignAsset asset = File.Exists(metadataPath)
-                    ? ReadMetadata(metadataPath)
-                    : CreateMetadata(id, sourcePath, parsed);
-                if (!File.Exists(metadataPath)) WriteMetadata(asset);
-                return asset;
+                    string metadataPath = MetadataPath(id);
+                    MerkabaDesignAsset asset = File.Exists(metadataPath)
+                        ? ReadMetadata(metadataPath)
+                        : CreateMetadata(id, sourcePath, parsed);
+                    if (!File.Exists(metadataPath)) WriteMetadata(asset);
+                    return asset;
+                }
             }
             finally
             {
@@ -619,7 +622,7 @@ namespace Genesis.RoomScan
         private Mesh MeshFor(string assetId)
         {
             if (_meshes.TryGetValue(assetId, out MerkabaArtifactViewer.PreviewGlb cached)) return cached.Mesh;
-            MerkabaArtifactViewer.ParsedGlb parsed = Decode(assetId);
+            using MerkabaArtifactViewer.ParsedGlb parsed = Decode(assetId);
             var mesh = MerkabaArtifactViewer.PreviewGlb.Create(parsed, _objectMaterial,
                 "Design Asset " + assetId.Substring(0, 8));
             _meshes.Add(assetId, mesh);
@@ -755,7 +758,7 @@ namespace Genesis.RoomScan
             MerkabaFilePublishing.Publish(temporary, destination);
         }
 
-        private static MerkabaDesignAsset ReadMetadata(string path)
+        internal static MerkabaDesignAsset ReadMetadata(string path)
         {
             MerkabaDesignAsset asset = JsonUtility.FromJson<
                 MerkabaDesignAsset>(File.ReadAllText(path, Encoding.UTF8));
@@ -772,7 +775,7 @@ namespace Genesis.RoomScan
             return asset;
         }
 
-        private static void ValidateId(string value)
+        internal static void ValidateId(string value)
         {
             if (value == null || value.Length != 64)
                 throw new InvalidDataException("Invalid design asset ID.");

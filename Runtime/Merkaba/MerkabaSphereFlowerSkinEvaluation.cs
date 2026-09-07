@@ -226,5 +226,31 @@ namespace Genesis.RoomScan
             float3 value = normal - gradient.x * tangent1 - gradient.y * tangent2;
             return value / math.sqrt(1f + gradient.x * gradient.x + gradient.y * gradient.y);
         }
+
+        // V-1 is an explicitly enabled presentation policy, not an optical
+        // certificate or an estimate of capture lighting. Keep the ordered
+        // operations identical to M8FlowerRelativeDiffuse. Default/off returns
+        // the original bits without evaluating either normal or light.
+        public static float3 RelativeDiffuse(float3 capturedRgb, uint sampleFlags,
+            float3 normal, float3 microNormal, float4 presentationLight)
+        {
+            if (presentationLight.w != 1f || (sampleFlags & 1u) == 0u)
+                return capturedRgb;
+            float squared = presentationLight.x * presentationLight.x +
+                presentationLight.y * presentationLight.y;
+            squared = squared + presentationLight.z * presentationLight.z;
+            if (!(squared > 0f) || !math.isfinite(squared)) return capturedRgb;
+            float length = math.sqrt(squared);
+            float3 light = presentationLight.xyz / length;
+            float e0 = normal.x * light.x + normal.y * light.y;
+            e0 = e0 + normal.z * light.z;
+            // Exactly 2^-5: an explicit V-1 presentation floor, never an
+            // epsilon added to reconstruction or a proof of OPTICAL_VALID.
+            if (!(e0 > 0.03125f)) return capturedRgb;
+            float ef = microNormal.x * light.x + microNormal.y * light.y;
+            ef = ef + microNormal.z * light.z;
+            float response = math.saturate(math.max(ef, 0f) / e0);
+            return capturedRgb * response;
+        }
     }
 }

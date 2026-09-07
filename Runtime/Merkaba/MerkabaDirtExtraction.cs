@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Unity.Mathematics;
 
 namespace Genesis.RoomScan
@@ -77,7 +78,8 @@ namespace Genesis.RoomScan
 
         internal static long Stream(MerkabaSphereFlowerReplayIndex replay,
             Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
-            Action<IReadOnlyList<MerkabaDirtTriangle>> consume)
+            Action<IReadOnlyList<MerkabaDirtTriangle>> consume,
+            CancellationToken cancellationToken = default)
         {
             if (replay == null) throw new ArgumentNullException(nameof(replay));
             if (directCoverage == null)
@@ -88,6 +90,7 @@ namespace Genesis.RoomScan
             foreach (SupportBox box in ThroughSupportBoxes(replay))
                 for (int face = 0; face < 6; face++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     int axis = face >> 1;
                     int other0 = (axis + 1) % 3;
                     int other1 = (axis + 2) % 3;
@@ -99,6 +102,7 @@ namespace Genesis.RoomScan
                     for (int first = lower[other0]; first <= upper[other0]; first++)
                         for (int second = lower[other1]; second <= upper[other1]; second++)
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
                             cell[other0] = first;
                             cell[other1] = second;
                             if (!OwnsFreeCell(replay, box, cell)) continue;
@@ -124,6 +128,7 @@ namespace Genesis.RoomScan
                             }
                         }
                 }
+            cancellationToken.ThrowIfCancellationRequested();
             if (batch.Count != 0) consume(batch);
             return count;
         }

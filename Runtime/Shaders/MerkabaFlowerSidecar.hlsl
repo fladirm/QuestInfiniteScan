@@ -25,6 +25,18 @@
 #define M8_FLOWER_SIDECAR_STALE_SLOT 4u
 #define M8_FLOWER_RESIDENT_RUN_STRIDE 32u
 
+// Observation-transaction receipt in the formerly unused owner cursor.
+// +48 is the frozen scheduling token, +52 retains the original phase read
+// set BEFORE an epoch change/removal. Neither field is a persistent key.
+// +60 keeps its two existing history bits; bits2..21 acknowledge the exact
+// twenty original R2/R3 peers, bit22 acknowledges this owner's local cut.
+#define M8_FLOWER_INVALIDATION_ROOTS 0x000fffffu
+#define M8_FLOWER_INVALIDATION_SOURCE (1u<<28u)
+#define M8_FLOWER_INVALIDATION_LOCAL_PENDING (1u<<29u)
+#define M8_FLOWER_INVALIDATION_PEERS_PENDING (1u<<30u)
+#define M8_FLOWER_INVALIDATION_THROUGH (1u<<31u)
+#define M8_FLOWER_INVALIDATION_LOCAL_DONE (1u<<22u)
+
 #ifndef M8_FLOWER_SRV
 #define M8_FLOWER_SRV(registerName)
 #endif
@@ -129,17 +141,23 @@ bool M8FlowerFindPhase(uint ownerRef,uint key,uint epoch,out M8FlowerDetailRecor
 // Resident run rows append only an allocation address/capacity to the exact
 // 24-byte canonical payload. GroupBase retains group-index semantics: bytes
 // are GroupBase*56 for V and GroupBase*112 for RGB, not a second identity.
-uint M8FlowerFindRunIndex(uint ownerRef,uint key,bool thread,out uint first,out uint count)
+bool M8FlowerReadRunSpan(uint ownerRef,bool thread,out uint first,out uint count)
 {
     first=0u;count=0u;
-    if (!M8FlowerL2KeyValid(key) || !M8FlowerDetailRange(ownerRef,64u))
-        return 0xffffffffu;
+    if(!M8FlowerDetailRange(ownerRef,64u))return false;
     uint ownerOffset=thread?32u:20u;
     first=M8_FLOWER_DETAIL_SOURCE.Load(ownerRef+ownerOffset);
     count=M8_FLOWER_DETAIL_SOURCE.Load(ownerRef+ownerOffset+4u);
-    if (count>M8_FLOWER_PERSISTENT_BYTES/32u) return 0xffffffffu;
+    if(count>M8_FLOWER_PERSISTENT_BYTES/32u)return false;
     if (count!=0u && (thread ? !M8FlowerThreadRange(first,count*32u) :
-        !M8FlowerDetailRange(first,count*32u))) return 0xffffffffu;
+        !M8FlowerDetailRange(first,count*32u)))return false;
+    return true;
+}
+uint M8FlowerFindRunIndex(uint ownerRef,uint key,bool thread,out uint first,out uint count)
+{
+    first=0u;count=0u;
+    if(!M8FlowerL2KeyValid(key) || !M8FlowerReadRunSpan(ownerRef,thread,first,count))
+        return 0xffffffffu;
     uint lo=0u,hi=count;
     [loop] while(lo<hi)
     {
@@ -181,11 +199,19 @@ bool M8FlowerFindThreadRun(uint ownerRef,uint key,uint epoch,
     run.SplitBitsHi=b.x;run.ParentEpoch=b.y;
     return true;
 }
-uint M8FlowerPendingCursor(uint ownerRef,uint observationToken)
+uint2 M8FlowerInvalidationReceipt(uint ownerRef)
 {
-    if(!M8FlowerDetailRange(ownerRef,64u))return 0u;
-    uint2 cursor=M8_FLOWER_DETAIL_SOURCE.Load2(ownerRef+48u);
-    return cursor.x==observationToken?cursor.y:0u;
+    return M8FlowerDetailRange(ownerRef,64u)?
+        M8_FLOWER_DETAIL_SOURCE.Load2(ownerRef+48u):0u.xx;
+}
+bool M8FlowerOriginalInvalidationPending(uint ownerRef,uint node)
+{
+    uint2 receipt=M8FlowerInvalidationReceipt(ownerRef);
+    if(receipt.x==0u)return false;
+    if((receipt.y&M8_FLOWER_INVALIDATION_LOCAL_PENDING)!=0u)return true;
+    return node>=6u && node<26u &&
+        (receipt.y&M8_FLOWER_INVALIDATION_PEERS_PENDING)!=0u &&
+        (receipt.y&(1u<<(node-6u)))!=0u;
 }
 uint M8FlowerTilePendingCursor(uint slot,uint slotGeneration,uint observationToken)
 {
@@ -306,11 +332,6 @@ uint M8FlowerEnsureOwner(uint slot,uint kernelLocal,uint slotGeneration,
     return M8FlowerEnsureOwnerStorage(slot,kernelLocal,slotGeneration,publishing,ownerRef);
 }
 
-void M8FlowerStorePendingCursor(uint ownerRef,uint observationToken,uint cursor)
-{
-    if(M8FlowerDetailRange(ownerRef,64u))
-        _M8FlowerDetailPages.Store2(ownerRef+48u,uint2(observationToken,cursor));
-}
 bool M8FlowerStoreTilePendingCursor(uint slot,uint slotGeneration,uint observationToken,uint cursor)
 {
     if(slot>=32768u || slotGeneration==0u || observationToken==0u)return false;
@@ -329,6 +350,240 @@ bool M8FlowerOwnerWritable(uint ownerRef,uint publishing,uint retired)
     if(!M8FlowerDetailRange(ownerRef,64u) || publishing==0u)return false;
     uint generation=_M8FlowerDetailPages.Load(ownerRef+44u);
     return generation<=retired || generation==publishing;
+}
+
+// This is an address inverse of the actual phase ancestry, not an inference
+// from a nearby root, the skin hub sign or a sector owner. Fine predictions
+// consult this original shared source only when its local phase is present.
+bool M8FlowerPhaseOriginalNode(uint index,out uint node)
+{
+    node=0xffffffffu;
+    if(index<20u){node=index+6u;return true;}
+    uint strand;
+    if(index<92u)strand=index-20u;
+    else
+    {
+        if(index>=668u)return false;
+        uint ordinal=index-92u,petal=ordinal/12u;
+        uint parent=(ordinal/3u)&3u,edge=ordinal%3u;
+        uint level,lineClass;int3 offset;int endpoint,phase,inherited;
+        if(!M8FlowerTryGetChildPhaseLoop(petal,parent+1u,edge+3u,
+            level,offset,lineClass,strand,endpoint,phase,inherited) ||
+            level!=2u || inherited>=0)return false;
+    }
+    M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strand);
+    node=family.RootNode;
+    return node>=6u && node<26u;
+}
+
+bool M8FlowerReadOriginalPhasePresence(uint ownerRef,out uint mask)
+{
+    mask=0u;
+    uint first,count;
+    if(M8FlowerFindPhaseIndex(ownerRef,0u,first,count)==0xffffffffu)return false;
+    uint epoch=M8FlowerGetOwnerEpoch(ownerRef);
+    if(epoch==0u)return false;
+    [loop]for(uint index=0u;index<count;index++)
+    {
+        uint4 record=_M8FlowerDetailPages.Load4(first+16u*index);
+        if(record.w!=epoch || ((record.x>>16u)&7u)>1u)continue;
+        uint dependency;
+        if(asint(record.y)>asint(record.z) ||
+            !M8FlowerTryPhaseDependencyIndex(record.x,dependency))return false;
+        if(dependency<20u)mask|=1u<<dependency;
+    }
+    return true;
+}
+
+// Caller owns the source owner, or the existing detail-arena lease for a
+// receiver outside the touched set. Capture MUST precede every mutation of
+// the phase span or epoch. Re-entry retains that immutable pre-mutation set.
+uint M8FlowerCaptureInvalidation(uint ownerRef,uint observationToken,
+    bool through,bool structural,uint publishing,uint retired,out uint roots)
+{
+    roots=0u;
+    if(observationToken==0u || !M8FlowerDetailRange(ownerRef,64u))
+        return M8_FLOWER_ARENA_INVALID;
+    if(!M8FlowerOwnerWritable(ownerRef,publishing,retired))return M8_FLOWER_ARENA_BUSY;
+    uint2 receipt=_M8FlowerDetailPages.Load2(ownerRef+48u);
+    if(receipt.x!=observationToken)
+    {
+        // An unfinished older transaction may not be silently overwritten.
+        if((receipt.y&(M8_FLOWER_INVALIDATION_LOCAL_PENDING|
+            M8_FLOWER_INVALIDATION_PEERS_PENDING))!=0u)return M8_FLOWER_ARENA_BUSY;
+        if(!M8FlowerReadOriginalPhasePresence(ownerRef,roots))return M8_FLOWER_ARENA_INVALID;
+        receipt=uint2(observationToken,roots);
+        uint history=_M8FlowerDetailPages.Load(ownerRef+60u);
+        _M8FlowerDetailPages.Store(ownerRef+60u,history&3u);
+    }
+    else roots=receipt.y&M8_FLOWER_INVALIDATION_ROOTS;
+    if(through)receipt.y|=M8_FLOWER_INVALIDATION_THROUGH;
+    if(through || structural)
+    {
+        receipt.y|=M8_FLOWER_INVALIDATION_SOURCE;
+        if((_M8FlowerDetailPages.Load(ownerRef+60u)&M8_FLOWER_INVALIDATION_LOCAL_DONE)==0u)
+            receipt.y|=M8_FLOWER_INVALIDATION_LOCAL_PENDING;
+        uint acknowledged=(_M8FlowerDetailPages.Load(ownerRef+60u)>>2u)&M8_FLOWER_INVALIDATION_ROOTS;
+        if((roots&~acknowledged)!=0u)receipt.y|=M8_FLOWER_INVALIDATION_PEERS_PENDING;
+    }
+    DeviceMemoryBarrier();
+    _M8FlowerDetailPages.Store2(ownerRef+48u,receipt);
+    return M8_FLOWER_ARENA_OK;
+}
+
+void M8FlowerAcknowledgeLocalInvalidation(uint ownerRef,uint observationToken)
+{
+    uint2 receipt=M8FlowerInvalidationReceipt(ownerRef);
+    if(receipt.x!=observationToken || observationToken==0u)return;
+    DeviceMemoryBarrier();
+    uint history=_M8FlowerDetailPages.Load(ownerRef+60u);
+    _M8FlowerDetailPages.Store(ownerRef+60u,history|M8_FLOWER_INVALIDATION_LOCAL_DONE);
+    _M8FlowerDetailPages.Store(ownerRef+52u,receipt.y&~M8_FLOWER_INVALIDATION_LOCAL_PENDING);
+}
+
+void M8FlowerAcknowledgePeerInvalidation(uint ownerRef,uint observationToken,uint node)
+{
+    uint2 receipt=M8FlowerInvalidationReceipt(ownerRef);
+    if(receipt.x!=observationToken || observationToken==0u || node<6u || node>=26u)return;
+    // The caller acknowledges only after the exact node^1 receiver's entire
+    // dependent cut succeeded. BUSY never acknowledges a prefix of that cut.
+    DeviceMemoryBarrier();
+    uint history=_M8FlowerDetailPages.Load(ownerRef+60u)|(1u<<(node-6u+2u));
+    _M8FlowerDetailPages.Store(ownerRef+60u,history);
+    uint outstanding=(receipt.y&M8_FLOWER_INVALIDATION_ROOTS)&~(history>>2u);
+    if(outstanding==0u)
+        _M8FlowerDetailPages.Store(ownerRef+52u,receipt.y&~M8_FLOWER_INVALIDATION_PEERS_PENDING);
+}
+
+bool M8FlowerPhaseUsesInvalidatedRoot(uint dependency,uint capturedRoots,uint roots)
+{
+    uint node;
+    if(!M8FlowerPhaseOriginalNode(dependency,node))return false;
+    uint bit=1u<<(node-6u);
+    // Original phase removal is unconditional for a requested relation.
+    // Fine ancestry reads the peer only through a present local coarse term.
+    return (roots&bit)!=0u && (dependency<20u || (capturedRoots&bit)!=0u);
+}
+
+// One non-spinning transaction for phase and dependent run headers. The
+// supplied root mask is an already-proved invalidation request; it is not
+// evidence, and this storage routine performs no dual or geometric decision.
+// allLocal is reserved for the proved full-support source, never a peer.
+uint M8FlowerInvalidateDependentPhases(uint ownerRef,uint observationToken,
+    uint roots,bool allLocal,uint publishing,uint retired,out bool changed)
+{
+    changed=false;roots&=M8_FLOWER_INVALIDATION_ROOTS;
+    if(ownerRef==0u)return M8_FLOWER_ARENA_OK;
+    if(allLocal)
+    {
+        uint2 receipt=M8FlowerInvalidationReceipt(ownerRef);
+        if(observationToken==0u || receipt.x!=observationToken ||
+            (receipt.y&M8_FLOWER_INVALIDATION_THROUGH)==0u)return M8_FLOWER_ARENA_INVALID;
+    }
+    if(!M8FlowerOwnerWritable(ownerRef,publishing,retired))return M8_FLOWER_ARENA_BUSY;
+    M8FlowerArena detail=M8FlowerDetailArena(),thread=M8FlowerThreadArena();
+    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,detail))return M8_FLOWER_ARENA_BUSY;
+    if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,thread))
+    {
+        M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
+        return M8_FLOWER_ARENA_BUSY;
+    }
+    // A receiver may have acquired new fine terms in a previous held
+    // quantum. Gather its CURRENT local read-set under this same lease;
+    // the source receipt separately preserves pre-epoch outgoing relations.
+    // Local epoch changes have retired at the global gather barrier.
+    uint captured;
+    uint status=M8FlowerReadOriginalPhasePresence(ownerRef,captured)?
+        M8_FLOWER_ARENA_OK:M8_FLOWER_ARENA_INVALID;
+    uint first=0u,count=0u,epoch=M8FlowerGetOwnerEpoch(ownerRef);
+    uint4 carriers=0u.xxxx;
+    if(status==M8_FLOWER_ARENA_OK &&
+        M8FlowerFindPhaseIndex(ownerRef,0u,first,count)==0xffffffffu)
+        status=M8_FLOWER_ARENA_INVALID;
+    // All range/address validation and dependency gathering precede any
+    // mutation. A malformed row cannot leave half of the cut published.
+    [loop]for(uint index=0u;status==M8_FLOWER_ARENA_OK && index<count;index++)
+    {
+        uint4 record=_M8FlowerDetailPages.Load4(first+16u*index);
+        if(record.w!=epoch || ((record.x>>16u)&7u)>1u)continue;
+        uint dependency;
+        if(asint(record.y)>asint(record.z) ||
+            !M8FlowerTryPhaseDependencyIndex(record.x,dependency))
+        {status=M8_FLOWER_ARENA_INVALID;break;}
+        if(allLocal || M8FlowerPhaseUsesInvalidatedRoot(dependency,captured,roots))
+            carriers|=M8FlowerPhaseDependentCarriersAt(dependency);
+    }
+    // SourceAnchorAlternatives reads a shared original root even if this
+    // endpoint owns no innovation. Its actual carrier dependents still apply.
+    uint remaining=roots;
+    [loop]while(remaining!=0u)
+    {
+        uint index=(uint)firstbitlow(remaining);remaining&=remaining-1u;
+        carriers|=M8FlowerPhaseDependentCarriersAt(index);
+    }
+    [loop]for(uint kind=0u;status==M8_FLOWER_ARENA_OK && kind<2u;kind++)
+    {
+        uint runFirst,runCount;
+        if(!M8FlowerReadRunSpan(ownerRef,kind!=0u,runFirst,runCount))
+        {status=M8_FLOWER_ARENA_INVALID;break;}
+        [loop]for(uint index=0u;index<runCount;index++)
+        {
+            uint address=runFirst+32u*index;
+            uint key=kind==0u?_M8FlowerDetailPages.Load(address):_M8ThreadAtlasPages.Load(address);
+            if(!M8FlowerL2KeyValid(key))
+            {status=M8_FLOWER_ARENA_INVALID;break;}
+        }
+    }
+    if(status==M8_FLOWER_ARENA_OK)
+    {
+        // R3 first, then R2, under one lease. Keep unrelated phase records
+        // sorted and bit-identical; a selective cut never advances the epoch.
+        [loop]for(uint phasePass=0u;phasePass<2u;phasePass++)
+        {
+            uint kept=0u;
+            [loop]for(uint index=0u;index<count;index++)
+            {
+                uint4 record=_M8FlowerDetailPages.Load4(first+16u*index);
+                uint dependency;
+                bool remove=record.w==epoch && ((record.x>>16u)&7u)==1u-phasePass &&
+                    M8FlowerTryPhaseDependencyIndex(record.x,dependency) &&
+                    (allLocal || M8FlowerPhaseUsesInvalidatedRoot(dependency,captured,roots));
+                if(remove){changed=true;continue;}
+                if(kept!=index)_M8FlowerDetailPages.Store4(first+16u*kept,record);
+                kept++;
+            }
+            count=kept;
+        }
+        _M8FlowerDetailPages.Store(ownerRef+12u,count);
+        [loop]for(uint kind=0u;kind<2u;kind++)
+        {
+            uint runFirst,runCount;
+            M8FlowerReadRunSpan(ownerRef,kind!=0u,runFirst,runCount);
+            [loop]for(uint index=0u;index<runCount;index++)
+            {
+                uint address=runFirst+32u*index;
+                uint key=kind==0u?_M8FlowerDetailPages.Load(address):_M8ThreadAtlasPages.Load(address);
+                uint carrier=M8FlowerL2WedgeIndex((key>>4u)&63u,key&15u)/6u;
+                if(carrier>=128u || (carriers[carrier>>5u]&(1u<<(carrier&31u)))==0u)continue;
+                uint epochAddress=address+(kind==0u?16u:20u);
+                uint runEpoch=kind==0u?_M8FlowerDetailPages.Load(epochAddress):
+                    _M8ThreadAtlasPages.Load(epochAddress);
+                if(runEpoch!=epoch)continue;
+                // Invalid resident header, not a manufactured zero signal.
+                // Keep allocation/program ownership for deferred replacement
+                // or compaction. Existing readers and complete-image capture
+                // skip mismatching epochs before reading a single child.
+                if(kind==0u)_M8FlowerDetailPages.Store(epochAddress,0u);
+                else _M8ThreadAtlasPages.Store(epochAddress,0u);
+                changed=true;
+            }
+        }
+        if(changed)_M8FlowerDetailPages.Store(ownerRef+44u,publishing);
+        if(allLocal)M8FlowerAcknowledgeLocalInvalidation(ownerRef,observationToken);
+    }
+    M8FlowerArenaRelease(_M8ThreadAtlasPages,thread);
+    M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
+    return status;
 }
 
 uint M8FlowerCommitPhase(uint ownerRef,M8FlowerDetailRecord record,
@@ -608,7 +863,8 @@ uint M8FlowerInvalidateOwner(uint slot,uint kernelLocal,uint slotGeneration,
         // RGB/V runs remain logically invalidated by their ParentEpoch.
         _M8FlowerDetailPages.Store(ownerRef+12u,0u);
         _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
-        _M8FlowerDetailPages.Store2(ownerRef+48u,uint2(0u,0u));
+        // The pre-mutation original-phase receipt must survive this epoch
+        // transition until every exact peer has acknowledged its own cut.
         return M8_FLOWER_ARENA_OK;
     }
     M8FlowerArena detail=M8FlowerDetailArena();
@@ -632,7 +888,7 @@ uint M8FlowerInvalidateOwner(uint slot,uint kernelLocal,uint slotGeneration,
     }
     _M8FlowerDetailPages.Store(ownerRef+4u,epoch);
     _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
-    _M8FlowerDetailPages.Store2(ownerRef+48u,uint2(0u,0u));
+    // The exceptional rebase retains the same transient peer receipt too.
     M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
     return M8_FLOWER_ARENA_OK;
 }

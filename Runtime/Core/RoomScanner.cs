@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Genesis.RoomScan.UI;
 using UnityEngine;
@@ -52,6 +53,12 @@ namespace Genesis.RoomScan
         private Task<bool> _quiesceTask;
         private Task _pauseTransitionTask = Task.CompletedTask;
         private Task _disableTeardownTask = Task.CompletedTask;
+        private Task<bool> _exportTask;
+        private CancellationTokenSource _exportCancellation;
+        private bool _exportMutationHeld;
+        private MerkabaArtifactViewer _exportDesignViewer;
+        private Task<bool?> _nativeImportTask;
+        private CancellationTokenSource _nativeImportCancellation;
         private uint _lifecycleGeneration;
         private bool _applicationPaused;
         private bool _resumeAfterPause;
@@ -125,12 +132,15 @@ namespace Genesis.RoomScan
                               (_exporter?.IsExporting ?? false) ||
                               _newSessionPending;
         public ScanOperationState CurrentOperation => _operation;
+        // Current-source lease, not a historical snapshot. It includes the
+        // immutable observation drain and is released only after all export IO.
+        internal bool ExportMutationHeld => _exportMutationHeld;
         public bool FineMode
         {
             get => fineMode;
             set
             {
-                if (fineMode == value) return;
+                if (ExportMutationHeld || fineMode == value) return;
                 fineMode = value;
                 _fineCycleArmed = false;
                 _fineMinimumSurfaceTargetSequence = _depthCapture != null
@@ -385,10 +395,12 @@ namespace Genesis.RoomScan
 
         public async Task StartScanningAsync()
         {
-            if (IsScanning || IsScanStarting) return;
+            if (ExportMutationHeld || _operation.Busy || _newSessionPending ||
+                IsScanning || IsScanStarting) return;
             if (_disableTeardownTask != null && !_disableTeardownTask.IsCompleted)
                 await _disableTeardownTask;
-            if (_destroyed || _disableRequested || !isActiveAndEnabled) return;
+            if (ExportMutationHeld || _operation.Busy || _destroyed ||
+                _disableRequested || !isActiveAndEnabled) return;
             _grid?.ResumeGpuSubmission();
             if (ScanLifecycle == ScanLifecycleState.Quiescing &&
                 !await QuiesceScanningAsync())
@@ -469,6 +481,7 @@ namespace Genesis.RoomScan
 
         internal void SetFineHeldActions(bool refineHeld, bool eraseHeld)
         {
+            if (ExportMutationHeld) refineHeld = eraseHeld = false;
             _fineRefineHeld = refineHeld;
             _fineEraseHeld = eraseHeld;
         }
@@ -632,54 +645,177 @@ namespace Genesis.RoomScan
 
         public Task<bool> ExportGlbAsync() => ExportGlbAsync(null);
 
-        public async Task<bool> ExportGlbAsync(string fileName)
+        public Task<bool> ExportGlbAsync(string fileName,
+            CancellationToken cancellationToken = default) =>
+            BeginExportAsync(fileName, false, cancellationToken);
+
+        public Task<bool> ExportViewerPackageAsync() =>
+            ExportViewerPackageAsync(null);
+
+        public Task<bool> ExportViewerPackageAsync(string fileName,
+            CancellationToken cancellationToken = default) =>
+            BeginExportAsync(fileName, true, cancellationToken);
+
+        public void CancelExport() => _exportCancellation?.Cancel();
+
+        private Task<bool> BeginExportAsync(string fileName, bool viewerPackage,
+            CancellationToken cancellationToken)
         {
-            if (IsBusy) return false;
+            if (IsBusy || IsScanStarting || _destroyed || _disableRequested ||
+                (_pauseTransitionTask != null && !_pauseTransitionTask.IsCompleted) ||
+                (_disableTeardownTask != null && !_disableTeardownTask.IsCompleted) ||
+                cancellationToken.IsCancellationRequested || _exporter == null ||
+                _persistence == null) return Task.FromResult(false);
             if (!TryBeginOperation(ScanOperationKind.ExportGlb,
                     ScanOperationStage.SynchronizingScan,
-                    "Retiring current scan observation")) return false;
+                    "Retiring current scan observation")) return Task.FromResult(false);
+            try
+            {
+                // This synchronous save precedes the mutation lease. No input
+                // update or asynchronous document worker runs between them.
+                _exportDesignViewer = FindAnyObjectByType<MerkabaArtifactViewer>();
+                if (_exportDesignViewer != null && _exportDesignViewer.IsOpen &&
+                    !_exportDesignViewer.SaveDesign())
+                    throw new InvalidOperationException("Could not save the export design source.");
+                _exportCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+                _exportMutationHeld = true;
+                _fineRefineHeld = _fineEraseHeld = _fineCycleArmed = false;
+                _resumeAfterPause = false;
+                _exportTask = RunExportAsync(fileName, viewerPackage,
+                    _exportCancellation.Token);
+                return _exportTask;
+            }
+            catch (Exception exception)
+            {
+                _exportMutationHeld = false;
+                _exportCancellation?.Dispose();
+                _exportCancellation = null;
+                CompleteExportDesignRelease();
+                _exporter.ReportExportFailure(exception);
+                FinishOperation(ScanOperationKind.ExportGlb, false, _exporter.LastStatus);
+                return Task.FromResult(false);
+            }
+        }
+
+        private async Task<bool> RunExportAsync(string fileName, bool viewerPackage,
+            CancellationToken cancellationToken)
+        {
             bool success = false;
             try
             {
-                if (!await QuiesceScanningAsync()) return false;
+                // Cancellation cannot abandon a held GPU observation or its
+                // SSD acknowledgement. Both retire before any source is read.
+                if (!await QuiesceScanningAsync())
+                    throw new InvalidOperationException("Export observation retirement was not proven.");
+                await _persistence.PrepareExportDurableCutAsync(
+                    _exporter.HasResumeReceipt(fileName, viewerPackage));
+                cancellationToken.ThrowIfCancellationRequested();
                 ReportOperation(ScanOperationKind.ExportGlb,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
-                    "Scan synchronized");
-                success = _exporter != null &&
-                    await _exporter.ExportGlbAsync(fileName);
+                    "Scan paused; committed export source held");
+                success = viewerPackage
+                    ? await _exporter.ExportViewerPackageCoreAsync(fileName, cancellationToken)
+                    : await _exporter.ExportGlbCoreAsync(fileName, cancellationToken);
                 return success;
+            }
+            catch (Exception exception)
+            {
+                _exporter.ReportExportFailure(exception);
+                return false;
             }
             finally
             {
+                // Every worker is awaited by the core, including cancellation
+                // and staging cleanup. STOP remains STOP after lease release.
+                _exportMutationHeld = false;
+                _exportCancellation.Dispose();
+                _exportCancellation = null;
+                CompleteExportDesignRelease();
                 FinishOperation(ScanOperationKind.ExportGlb, success,
                     _exporter?.LastStatus ?? "Export unavailable");
             }
         }
 
-        public Task<bool> ExportViewerPackageAsync() =>
-            ExportViewerPackageAsync(null);
-
-        public async Task<bool> ExportViewerPackageAsync(string fileName)
+        private void CompleteExportDesignRelease()
         {
-            if (IsBusy) return false;
-            if (!TryBeginOperation(ScanOperationKind.ExportGlb,
-                    ScanOperationStage.SynchronizingScan,
-                    "Retiring current scan observation")) return false;
+            MerkabaArtifactViewer viewer = _exportDesignViewer;
+            _exportDesignViewer = null;
+            try { viewer?.CompleteDeferredExportClose(); }
+            catch (Exception exception)
+            { Logger.Error("Export design close failed: " + exception); }
+        }
+
+        // null means no native declaration: the caller may use its ordinary
+        // preview reader. A declared invalid package is a failure, not preview.
+        public Task<bool?> ImportNativePackageAsync(string filePath,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsBusy || IsScanStarting || _destroyed || _disableRequested ||
+                (_pauseTransitionTask != null && !_pauseTransitionTask.IsCompleted) ||
+                (_disableTeardownTask != null && !_disableTeardownTask.IsCompleted) ||
+                _persistence == null || cancellationToken.IsCancellationRequested)
+                return Task.FromResult<bool?>(false);
+            if (!TryBeginOperation(ScanOperationKind.Load,
+                ScanOperationStage.RebuildingStorageIndex, "Validating native package"))
+                return Task.FromResult<bool?>(false);
+            _nativeImportCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _nativeImportTask = RunNativeImportAsync(filePath, _nativeImportCancellation.Token);
+            return _nativeImportTask;
+        }
+
+        public void CancelNativeImport() => _nativeImportCancellation?.Cancel();
+
+        private async Task<bool?> RunNativeImportAsync(string filePath,
+            CancellationToken cancellationToken)
+        {
             bool success = false;
+            string status = "Native import unavailable";
             try
             {
-                if (!await QuiesceScanningAsync()) return false;
-                ReportOperation(ScanOperationKind.ExportGlb,
-                    ScanOperationStage.SynchronizingScan, 1L, 1L,
-                    "Scan synchronized");
-                success = _exporter != null &&
-                    await _exporter.ExportViewerPackageAsync(fileName);
+                using MerkabaNativePackage.ValidatedImport package = await Task.Run(() =>
+                    MerkabaNativePackage.TryRead(filePath, cancellationToken));
+                if (package == null)
+                {
+                    success = true;
+                    status = "Preview-only package; no native scan records";
+                    return null;
+                }
+                if (!await QuiesceScanningAsync())
+                    throw new InvalidOperationException("Native import requires proven scan retirement.");
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_persistence.IsDirty)
+                    throw new InvalidOperationException("Save the active scan before importing a native session.");
+                if (!CloseOpenDesignForSessionSwitch())
+                    throw new InvalidOperationException("Could not save and close the current design.");
+                if (_persistence.IsDirty)
+                    throw new InvalidOperationException("Save the changed active design before importing a native session.");
+                Guid importedId = await _persistence.RegisterNativeSessionAsync(package, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                // OPEN owns its ordinary anchor/binding/residency transaction.
+                // Once started, await it rather than cancelling halfway through
+                // canonical source replacement. No imported mesh enters M8.
+                success = await _persistence.OpenSessionAsync(importedId);
+                status = _persistence.LastStatus;
                 return success;
+            }
+            catch (OperationCanceledException)
+            {
+                status = "Native import cancelled; current scan retained";
+                Logger.Info(status);
+                return false;
+            }
+            catch (Exception exception)
+            {
+                status = "Native import failed: " + exception.Message;
+                Logger.Error(status);
+                return false;
             }
             finally
             {
-                FinishOperation(ScanOperationKind.ExportGlb, success,
-                    _exporter?.LastStatus ?? "Export unavailable");
+                _nativeImportCancellation.Dispose();
+                _nativeImportCancellation = null;
+                FinishOperation(ScanOperationKind.Load, success, status);
             }
         }
 
@@ -717,6 +853,7 @@ namespace Genesis.RoomScan
 
         private void UpdateFineAuthorityBoundary()
         {
+            if (ExportMutationHeld) return;
             if (_fineAuthorityActive == fineMode) return;
             if (_integrator == null ||
                 !_integrator.TrySwitchObservationAuthority())
@@ -1189,6 +1326,12 @@ namespace Genesis.RoomScan
         {
             try
             {
+                CancelExport();
+                Task<bool> export = _exportTask;
+                if (export != null) await export;
+                CancelNativeImport();
+                Task<bool?> import = _nativeImportTask;
+                if (import != null) await import;
                 await prior;
                 if (!await QuiesceScanningAsync()) return;
                 if (!ReferenceEquals(_renderer, null))
@@ -1267,7 +1410,7 @@ namespace Genesis.RoomScan
         }
 
         private bool StartIsCurrent(uint generation) =>
-            generation == _lifecycleGeneration &&
+            !ExportMutationHeld && generation == _lifecycleGeneration &&
             ScanLifecycle == ScanLifecycleState.Starting;
 
         internal bool TryBeginOperation(ScanOperationKind kind,

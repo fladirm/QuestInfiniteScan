@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Unity.Mathematics;
 
 namespace Genesis.RoomScan
@@ -9,6 +10,20 @@ namespace Genesis.RoomScan
     // independent of carrier normals, winding, captured colour and material.
     internal sealed class MerkabaFlowerPresentation
     {
+        internal sealed class RequiredSupportUnresolvedException : InvalidOperationException
+        {
+            internal readonly MerkabaTileAddress Tile;
+            internal readonly MerkabaSphereFlowerAuthority.RequiredSupportReceipt Support;
+
+            internal RequiredSupportUnresolvedException(MerkabaTileAddress tile,
+                MerkabaSphereFlowerAuthority.RequiredSupportReceipt support, int evaluatedTriangles)
+                : base($"Required dual support is unresolved for Flower tile {tile}: " +
+                    $"owner={support.Owner}, carrier={support.Carrier}, wedges=0x{support.WedgeMask:x2}; " +
+                    $"junctionPetal={support.JunctionPetal}, rootAlternatives=0x{support.RootAlternatives:x2}; " +
+                    $"page not published ({evaluatedTriangles} evaluated triangles). More support evidence is required.")
+            { Tile = tile; Support = support; }
+        }
+
         internal readonly struct KnotAddress : IEquatable<KnotAddress>
         {
             internal readonly int3 Junction;
@@ -27,6 +42,9 @@ namespace Genesis.RoomScan
             internal readonly uint[] PositionIndices = new uint[7];
             internal MerkabaFlowerSkinDrawHeader SkinHeader;
             internal MerkabaFlowerSkinDrawSample[] SkinSamples;
+            // Explicit RGB topology only; V's independent splits must not
+            // inflate the export material's derived sampling allocation.
+            internal uint2 RgbSplitBits;
             // Transient coverage certificate from the same frozen reader;
             // this is neither a persisted adjacency graph nor scan truth.
             internal uint3 CoveragePairedEdges;
@@ -56,6 +74,8 @@ namespace Genesis.RoomScan
         private const int CoverageOwnerMax = 10;
         private MerkabaSphereFlowerAuthority.SnapshotReader _coverageReader;
         private float2 _coverageErrors;
+        private ulong _requiredSupportVersion;
+        private CancellationToken _cancellationToken;
         private readonly List<CoverageFootprint> _neighborCoverage = new();
         private bool _neighborCoverageReady, _neighborCoverageUnresolved;
 
@@ -71,11 +91,17 @@ namespace Genesis.RoomScan
 
         internal static MerkabaFlowerPresentation Build(
             MerkabaSphereFlowerAuthority.SnapshotReader reader,
-            MerkabaTileAddress tile, float2 planeBounds)
+            MerkabaTileAddress tile, float2 planeBounds,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (reader == null) throw new ArgumentNullException(nameof(reader));
             var result = new MerkabaFlowerPresentation(tile)
-            { _coverageReader = reader, _coverageErrors = planeBounds };
+            {
+                _coverageReader = reader, _coverageErrors = planeBounds,
+                _requiredSupportVersion = reader.RequiredSupportVersion,
+                _cancellationToken = cancellationToken
+            };
             int3 coverageOrigin = MerkabaSpatial.Decode(tile.BlockCoord, tile.LocalAddress, 0);
             var positionsByKnot = new Dictionary<KnotAddress, uint>();
             Span<MerkabaSphereFlowerAuthority.PhaseRootEvidence> roots =
@@ -83,6 +109,7 @@ namespace Genesis.RoomScan
             Span<float3> positions = stackalloc float3[7];
             for (int local = 0; local < MerkabaSpatial.KernelsPerTile; local++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int3 owner = MerkabaSpatial.Decode(tile.BlockCoord, tile.LocalAddress, local);
                 if (!reader.TryReadOwner(owner, out KernelState state, out _))
                     throw new InvalidDataException("Export owner tile is unresolved in its frozen context.");
@@ -93,20 +120,25 @@ namespace Genesis.RoomScan
                 // completed output may feed this snapshot or a later donor.
                 var parent = reader.BeginParent48Snapshot(owner, planeBounds);
                 for (int carrierId = 0; carrierId < MerkabaSphereFlowerAuthority.L2HubCount; carrierId++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     reader.ClassifyPageCarrier(owner, carrierId, planeBounds,
                         out _, out _, out _, roots, positions, parent);
+                }
                 parent.Complete();
                 if (parent.EvaluateCompletion(out var completion) ==
                     MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous)
                     result.UnresolvedWedges++;
                 for (int carrierId = 0; carrierId < MerkabaSphereFlowerAuthority.L2HubCount; carrierId++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var status = parent.ReadCarrier(carrierId, completion,
                         out MerkabaFlowerSymbolRecord symbol, out uint unresolved, roots, positions);
                     result.UnresolvedWedges += math.countbits(unresolved);
                     if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain) continue;
                     var carrier = new Carrier { Owner = owner, Symbol = symbol };
-                    carrier.SkinSamples = reader.ReadSkinSignal(owner, symbol, out carrier.SkinHeader);
+                    carrier.SkinSamples = reader.ReadSkinSignal(owner, symbol, out carrier.SkinHeader,
+                        out carrier.RgbSplitBits);
                     carrier.CoveragePairedEdges = PairedCoverageEdges(reader, coverageOrigin, owner, carrierId,
                         symbol.ActiveWedgeMask, roots, positions, planeBounds);
                     uint used = 1u;
@@ -132,7 +164,18 @@ namespace Genesis.RoomScan
                     result.Carriers.Add(carrier);
                 }
             }
+            // No caller receives a thinner successful page when any required
+            // dual cover was mixed/uncertain. Export's existing transaction
+            // reports this region and preserves its previous published file.
+            result.RequireResolvedSupport();
             return result;
+        }
+
+        private void RequireResolvedSupport()
+        {
+            if (_coverageReader != null &&
+                _coverageReader.TryRequiredSupportSince(_requiredSupportVersion, out var receipt))
+                throw new RequiredSupportUnresolvedException(Tile, receipt, TriangleCount);
         }
 
         internal float3 Position(Carrier carrier, int site) => Positions[checked((int)carrier.PositionIndices[site])];
@@ -162,7 +205,8 @@ namespace Genesis.RoomScan
                     dy < CoverageOwnerMin || dy > CoverageOwnerMax ||
                     dz < CoverageOwnerMin || dz > CoverageOwnerMax) continue;
                 var status = reader.ClassifyPageCarrier(peerOwner, canonicalPeer / 6, errors,
-                    out MerkabaFlowerSymbolRecord peerSymbol, out _, peerRoots, peerPositions);
+                    out MerkabaFlowerSymbolRecord peerSymbol, out _, peerRoots, peerPositions,
+                    requiredSupport: false);
                 if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain ||
                     (peerSymbol.ActiveWedgeMask & (1u << (canonicalPeer % 6))) == 0u) continue;
                 int3 peerSites = MerkabaSphereFlowerAuthority.L2CarrierTriangleIndices(canonicalPeer % 6);
@@ -181,6 +225,7 @@ namespace Genesis.RoomScan
 
         private void ReadNeighborCoverage()
         {
+            _cancellationToken.ThrowIfCancellationRequested();
             if (_neighborCoverageReady) return;
             if (_coverageReader == null)
             { _neighborCoverageUnresolved = true; _neighborCoverageReady = true; return; }
@@ -197,6 +242,7 @@ namespace Genesis.RoomScan
                 for (int y = CoverageOwnerMin; y <= CoverageOwnerMax; y++)
                     for (int x = CoverageOwnerMin; x <= CoverageOwnerMax; x++)
                     {
+                        _cancellationToken.ThrowIfCancellationRequested();
                         if (x >= 0 && x <= 7 && y >= 0 && y <= 7 && z >= 0 && z <= 7) continue;
                         long ox = (long)origin.x + x, oy = (long)origin.y + y, oz = (long)origin.z + z;
                         if (ox < int.MinValue || ox > int.MaxValue || oy < int.MinValue || oy > int.MaxValue ||
@@ -208,6 +254,7 @@ namespace Genesis.RoomScan
                         if (!state.IsOccupied || !state.HasMeasuredSurfacePlane) continue;
                         for (int carrier = 0; carrier < MerkabaSphereFlowerAuthority.L2HubCount; carrier++)
                         {
+                            _cancellationToken.ThrowIfCancellationRequested();
                             var status = _coverageReader.ClassifyPageCarrier(owner, carrier, _coverageErrors,
                                 out MerkabaFlowerSymbolRecord symbol, out _, roots, positions);
                             if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain) continue;
@@ -221,6 +268,7 @@ namespace Genesis.RoomScan
 
         internal MerkabaDirtFaceCoverage DirtCoverage(int3 cell, int face)
         {
+            RequireResolvedSupport();
             uint2 proof = default;
             Span<float3> positions = stackalloc float3[7];
             foreach (Carrier carrier in Carriers)
@@ -263,6 +311,9 @@ namespace Genesis.RoomScan
                 else if (status == MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous ||
                     _neighborCoverageUnresolved) partial |= 1u << half;
             }
+            // Neighbor support becomes required only for an actual DIRT
+            // query. Do not turn failed support into absent direct coverage.
+            RequireResolvedSupport();
             return new MerkabaDirtFaceCoverage(covered, partial);
         }
 

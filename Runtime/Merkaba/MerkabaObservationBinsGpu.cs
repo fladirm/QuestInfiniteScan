@@ -124,10 +124,10 @@ namespace Genesis.RoomScan
         // The editor/graphics backend records the identical complete storage
         // sequence as the native job. Callers cannot accidentally reserve a
         // partial count or skip its allocation publication barrier.
-        internal void Record(CommandBuffer command)
+        internal void Record(CommandBuffer command, bool reset)
         {
             RequireObservation(command);
-            RecordReset(command);
+            if (reset) RecordReset(command);
             RecordCount(command);
             RecordTileRequestPublication(command);
             RecordReserveAndEmit(command);
@@ -254,6 +254,7 @@ namespace Genesis.RoomScan
                 throw new InvalidOperationException("FlowerCommit requires an emitted reservation.");
             command.SetComputeBufferParam(flowerCommit, kernel, MerkabaGrid.FlowerTablesId, _grid.M8FlowerTables);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationRecords", _records);
+            command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationRecordsRead", _records);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationTileBins", _tileBins);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationTileBinsRead", _tileBins);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
@@ -277,13 +278,23 @@ namespace Genesis.RoomScan
         internal void RecordReset(CommandBuffer command)
         {
             RequireObservation(command);
-            BindCommon(command, _reset);
-            Bind(command, _reset, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
-            Bind(command, _reset, "_M8TileBits", _grid.M8TileBits);
-            Bind(command, _reset, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
+            BindReset(command, _shader, _reset);
             command.DispatchCompute(_shader, _reset, 1, 1, 1);
             _countRecorded = false;
             _reservationRecorded = false;
+        }
+
+        internal void BindReset(CommandBuffer command, ComputeShader shader, int kernel)
+        {
+            RequireObservation(command);
+            command.SetComputeIntParam(shader, "_M8ObservationToken", unchecked((int)_observation));
+            command.SetComputeIntParam(shader, "_M8ObservationHotSlotCount", MerkabaSpatial.PhysicalTileCapacity);
+            command.SetComputeBufferParam(shader, kernel, "_M8Counters", _grid.M8Counters);
+            command.SetComputeBufferParam(shader, kernel, "_M8ObservationTileBins", _tileBins);
+            command.SetComputeBufferParam(shader, kernel, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
+            command.SetComputeBufferParam(shader, kernel, "_M8TileBits", _grid.M8TileBits);
+            command.SetComputeBufferParam(shader, kernel, "_M8TileRecordsRead", _grid.M8TileRecords);
+            command.SetComputeBufferParam(shader, kernel, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
         }
 
         // A fence proves only resource retirement, not refinement exhaustion.

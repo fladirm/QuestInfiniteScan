@@ -118,10 +118,10 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 25,
-        "M8 executor pipeline tables must be regenerated for ABI 15");
+    static_assert(kMerkabaExecutorPipelineCount == 23,
+        "M8 executor pipeline tables must be regenerated for ABI 16");
 
-    constexpr uint32_t kExecutorAbiVersion = 15;
+    constexpr uint32_t kExecutorAbiVersion = 16;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
@@ -1397,14 +1397,15 @@ namespace
         const auto used = UsedResources(job);
         const bool flowerCull = job->kind == kJobFlowerReadout &&
             PipelineSelected(job, kFlowerCullPipeline);
+        const bool setupTransfer = flowerCull || job->kind == kJobFineErase;
         const VkPipelineStageFlags bufferStages =
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
             VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
-            (flowerCull ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u);
+            (setupTransfer ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u);
         const VkAccessFlags bufferAccess = VK_ACCESS_SHADER_READ_BIT |
             VK_ACCESS_SHADER_WRITE_BIT |
             VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
-            (flowerCull ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u);
+            (setupTransfer ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u);
         for (uint32_t resource = 0; resource < kResourceCount; ++resource)
         {
             if (!used[resource])
@@ -1455,6 +1456,22 @@ namespace
                     FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
                         "Flower indexed arguments require count word and transfer-destination usage", false);
                     return false;
+                }
+                if (job->kind == kJobFineErase &&
+                    (resource == kResourceCounters || resource == kResourceObservationDispatchArgs))
+                {
+                    VkDeviceSize requiredBytes = 3u * sizeof(uint32_t);
+                    if (resource == kResourceCounters)
+                        for (uint32_t offset : kMerkabaFineEraseCounterResetOffsets)
+                            requiredBytes = std::max(requiredBytes,
+                                VkDeviceSize(offset + sizeof(uint32_t)));
+                    if ((buffer.usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) == 0u ||
+                        buffer.sizeInBytes < requiredBytes)
+                    {
+                        FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                            "ERASE setup requires bounded transfer-destination counter/argument ranges", false);
+                        return false;
+                    }
                 }
                 continue;
             }
@@ -1946,18 +1963,39 @@ namespace
         acquire.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         const bool flowerCull = job->kind == kJobFlowerReadout &&
             PipelineSelected(job, kFlowerCullPipeline);
+        const bool setupTransfer = flowerCull || job->kind == kJobFineErase;
         acquire.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
             VK_ACCESS_SHADER_WRITE_BIT |
             VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
-            (flowerCull ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u);
+            (setupTransfer ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u);
         vkCmdPipelineBarrier(job->commandBuffer,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
                 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
-                (flowerCull ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u),
+                (setupTransfer ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u),
             0, 1, &acquire, 0, nullptr, 0, nullptr);
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, job->queryPool, 0);
+        if (job->kind == kJobFineErase)
+        {
+            // Only the former setup kernel's three transient words; never a
+            // CounterCount clear. Args.yz are values, not zero-filled state.
+            for (uint32_t offset : kMerkabaFineEraseCounterResetOffsets)
+                vkCmdFillBuffer(job->commandBuffer,
+                    job->buffers[kResourceCounters].buffer, offset, sizeof(uint32_t), 0u);
+            VkBuffer arguments = job->buffers[kResourceObservationDispatchArgs].buffer;
+            vkCmdFillBuffer(job->commandBuffer, arguments, 0u, sizeof(uint32_t), 0u);
+            vkCmdFillBuffer(job->commandBuffer, arguments,
+                sizeof(uint32_t), 2u * sizeof(uint32_t), 1u);
+            VkMemoryBarrier setup = {};
+            setup.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            setup.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            setup.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+            vkCmdPipelineBarrier(job->commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                0, 1, &setup, 0, nullptr, 0, nullptr);
+        }
         job->timingDispatchCount = 0u;
         const auto& schedule = kMerkabaExecutorSchedules[job->kind];
         for (uint32_t ordinal = 0; ordinal < schedule.count; ++ordinal)
@@ -2060,7 +2098,8 @@ namespace
         VkPipelineStageFlags waitStage =
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
             VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
-        if (job->kind == kJobFlowerReadout && PipelineSelected(job, kFlowerCullPipeline))
+        if (job->kind == kJobFineErase ||
+            (job->kind == kJobFlowerReadout && PipelineSelected(job, kFlowerCullPipeline)))
             waitStage |= VK_PIPELINE_STAGE_TRANSFER_BIT;
         VkSubmitInfo nativeSubmit = {};
         nativeSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

@@ -17,6 +17,9 @@
 // therefore use the same descriptor as that publication, never an RW/SRV alias.
 #define _M8ChunkTileRefsRead _M8ChunkTileRefs
 #include "MerkabaFlowerTileHalo.hlsl"
+#define M8_FLOWER_GEOMETRY_PACKET_READ
+#define M8_FLOWER_GEOMETRY_BASE_PACKET_READ
+#define M8_FLOWER_SUPPORT_SCRATCH_WORDS 4836
 #include "MerkabaFlowerGeometry.hlsl"
 #include "MerkabaFlowerSupport.hlsl"
 #include "MerkabaFlowerSkinReadout.hlsl"
@@ -38,9 +41,6 @@ float4 _M8FlowerCullPlanes[12];
 float2 _M8FlowerPlaneErrorBounds;
 
 groupshared uint2 m8FlowerPageOwnerSpans[512];
-// Same immutable page lease as count/emit; nine bits of symbolic completion
-// provenance per owner, not persistent topology or an observation gate.
-groupshared uint m8FlowerPageCompletion[512];
 groupshared uint m8FlowerCompileSlot;
 groupshared uint m8FlowerCompileGeneration;
 groupshared uint m8FlowerCompileSlotGeneration;
@@ -254,179 +254,761 @@ void M8FlowerRequestPageEndpoints(uint lane)
     M8QueueColdTileLoad(chunk*64u+address.tileLocal,chunk,address.tileLocal);
 }
 
-// Count, neighboring coverage and emit share this one frozen evaluator. No
-// temporary XYZ, per-world candidates or index lists are allocated. Coverage
-// consumes the given owner but never claims its symbols for the current page.
-uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
-    M8FlowerPageBuild build,uint2 first)
+// One owner / eight carrier requests at a time. These word ranges are a
+// second lifetime of BuildFaces' cell scratch, not a maximum-page cache.
+// Complete root records retain J, Tag, enclosure and Classification verbatim.
+#define M8_FLOWER_PACKET_ORIGINAL 0u          // 52 * (9 + 9 + 1) words
+#define M8_FLOWER_PACKET_SITES 988u           // 8 * 14 * (9 + receipt)
+#define M8_FLOWER_PACKET_FOOTPRINTS 2108u     // 8 * 85 words
+#define M8_FLOWER_PACKET_PEERS 2788u          // 48 * uint2
+#define M8_FLOWER_PACKET_TASKS 2884u          // 8 * uint4
+#define M8_FLOWER_PACKET_PREFIX 2916u         // 8 * uint2
+#define M8_FLOWER_PACKET_CACHE 2932u          // address, ownerRef, flags, unused
+#define M8_FLOWER_PACKET_DIRECT 2936u         // +/- seen planes, conflicts, failures
+#define M8_FLOWER_PACKET_CANDIDATES 2952u     // 8 * (token, child proof, receipt)
+#define M8_FLOWER_PACKET_CONTROL 2976
+#define M8_FLOWER_PACKET_BASES 3072
+// Pure original26 + L1strand72, both signs. These are NOT the postguard raw
+// field of Original19. Keeping the two meanings separate is necessary when a
+// pending invalidation prevents an original read but no ancestor record is
+// consumed by a child. Only requested L1 strands are evaluated.
+#if M8_FLOWER_PACKET_CONTROL + 28 > M8_FLOWER_PACKET_BASES || M8_FLOWER_PACKET_BASES + 196 * 9 > M8_FLOWER_SUPPORT_SCRATCH_WORDS
+#error Flower evidence packet exceeds its shared scratch lifetime.
+#endif
+#define m8PacketStage m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL]
+#define m8PacketFirst m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+1u]
+#define m8PacketChild m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+2u]
+#define m8PacketSelected m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+9u]
+#define m8PacketAmbiguous m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+10u]
+#define m8PacketCompletion m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+11u]
+#define m8PacketTarget m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+16u]
+#define m8PacketValid m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+17u]
+#define m8PacketOwnerValid m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+18u]
+#define M8_FLOWER_PACKET_DIRECT_STAGE 0u
+#define M8_FLOWER_PACKET_PREPARE_STAGE 1u
+#define M8_FLOWER_PACKET_CHILD_STAGE 2u
+#define M8_FLOWER_PACKET_FINAL_STAGE 3u
+#define M8_FLOWER_PACKET_PEER_STAGE 4u
+#define M8_FLOWER_PACKET_COVERAGE_STAGE 5u
+#define M8_FLOWER_PACKET_DONE 6u
+
+// Invocation-private cursors, explicitly reset before each packet use.
+// A speculative site read collects its dependencies; only the classifier's
+// subsequent read of that exact site publishes them to the page receipt.
+static uint m8FlowerPacketTask;
+static uint m8FlowerPacketEndpointReceipt;
+static bool m8FlowerPacketCollectEndpoints;
+static uint m8FlowerPacketRawElement;
+
+uint2 M8FlowerPacketLoad2(uint address)
 {
-    uint2 count=0u;
-    KernelState state=M8LoadKernelStateRead(slot,local);
-    uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
-    if((state.flags&(required|M8_FLOWER_SEED_FLAG))!=required)return count;
+    return uint2(m8FlowerSupportScratch[address],m8FlowerSupportScratch[address+1u]);
+}
+void M8FlowerPacketStore2(uint address,uint2 value)
+{
+    m8FlowerSupportScratch[address]=value.x;m8FlowerSupportScratch[address+1u]=value.y;
+}
+uint M8FlowerPacketLoadWord(uint address) { return m8FlowerSupportScratch[address]; }
+void M8FlowerPacketStoreWord(uint address,uint value) { m8FlowerSupportScratch[address]=value; }
+#include "MerkabaFlowerEvidencePacket.hlsl"
+void M8FlowerPacketStore3(uint address,uint3 value)
+{
+    m8FlowerSupportScratch[address]=value.x;
+    m8FlowerSupportScratch[address+1u]=value.y;
+    m8FlowerSupportScratch[address+2u]=value.z;
+}
+uint3 M8FlowerPacketLoad3(uint address)
+{
+    return uint3(m8FlowerSupportScratch[address],
+        m8FlowerSupportScratch[address+1u],m8FlowerSupportScratch[address+2u]);
+}
+void M8FlowerPacketStorePosition(uint address,float3 position)
+{
+    M8FlowerPacketStore3(address,asuint(position));
+}
+float3 M8FlowerPacketLoadPosition(uint address)
+{
+    return asfloat(M8FlowerPacketLoad3(address));
+}
+
+uint M8FlowerReadOriginalBasePacket(uint ownerRef,int3 owner,uint flags,uint nodeIndex,
+    bool plus,float normalError,float offsetError,out M8FlowerPhaseRootEvidence root)
+{
+    root=(M8FlowerPhaseRootEvidence)0;root.Classification=2u;
+    uint packed=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE];
+    if(packed==0xffffffffu || nodeIndex>=26u)
+    {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return 2u;}
+    int3 localOwner=M8FlowerEndpointOwner(packed&32767u,packed>>15u);
+    bool valid=all(asuint(float2(normalError,offsetError))==asuint(_M8FlowerPlaneErrorBounds));
+    uint address=0u;
+    if(all(owner==localOwner))
+    {
+        valid=valid && flags==m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u];
+        address=M8_FLOWER_PACKET_BASES+9u*(2u*nodeIndex+(plus?1u:0u));
+    }
+    else
+    {
+        uint element=m8FlowerPacketRawElement;
+        if(element>=52u)
+        {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return 2u;}
+        uint sourceNode=element>>1u;
+        valid=valid && nodeIndex==(sourceNode^1u) &&
+            (plus?1u:0u)==(element&1u) &&
+            all(owner==localOwner+M8FlowerNodeAt(sourceNode).xyz);
+        address=M8_FLOWER_PACKET_SITES+10u*element;
+        valid=valid && flags==m8FlowerSupportScratch[address+9u];
+    }
+    if(!valid){InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return 2u;}
+    root=M8FlowerPacketLoadRoot(address);return root.Classification;
+}
+
+bool M8FlowerReadGeometryBasePacket(int3 owner,uint flags,M8FlowerGeometryNode task,
+    uint rootIndex,float normalError,float offsetError,out M8FlowerPhaseRootEvidence root)
+{
+    root=(M8FlowerPhaseRootEvidence)0;root.Classification=2u;
+    uint packed=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE];
+    if(packed==0xffffffffu || task.Level>2u || rootIndex>task.Level || task.Strand>=72u)
+    {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return false;}
+    bool valid=all(owner==M8FlowerEndpointOwner(packed&32767u,packed>>15u)) &&
+        flags==m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u] &&
+        all(asuint(float2(normalError,offsetError))==asuint(_M8FlowerPlaneErrorBounds));
+    uint address=0u;
+    if(rootIndex==0u)
+    {
+        uint element=m8FlowerPacketRawElement;
+        if(element>=112u)
+        {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return false;}
+        uint packetTask=element/14u;
+        uint carrier=m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*packetTask];
+        M8FlowerGeometryNode expected=(M8FlowerGeometryNode)0;
+        bool resolved=M8FlowerL2GeometryNode(
+            M8FlowerL2CarrierKnot(carrier,(element%14u)>>1u),(element&1u)!=0u,expected);
+        valid=valid && resolved;
+        valid=valid && task.Level==expected.Level && task.Line==expected.Line &&
+            all(task.Offset==expected.Offset) && task.Plus==expected.Plus;
+        address=M8_FLOWER_PACKET_SITES+10u*element;
+    }
+    else
+    {
+        M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(task.Strand);
+        valid=valid && (uint)M8FlowerNodeAt(family.RootNode).w==task.Line;
+        uint index=rootIndex==1u?2u*family.RootNode:52u+2u*task.Strand;
+        if(rootIndex==2u)valid=valid &&
+            (m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+25u+(task.Strand>>5u)]&
+                (1u<<(task.Strand&31u)))!=0u;
+        address=M8_FLOWER_PACKET_BASES+9u*(index+(task.Plus?1u:0u));
+    }
+    if(!valid){InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return false;}
+    root=M8FlowerPacketLoadRoot(address);return root.Classification==1u;
+}
+
+uint M8FlowerReadOriginalPacket(uint ownerSlot,uint ownerRef,int3 owner,uint flags,
+    uint nodeIndex,bool plus,float normalError,float offsetError,
+    out M8FlowerPhaseRootEvidence root,out bool provisional,
+    out M8FlowerPhaseRootEvidence rawLocalBase,out uint endpointReceipt)
+{
+    root=(M8FlowerPhaseRootEvidence)0;root.Classification=2u;
+    rawLocalBase=root;provisional=false;endpointReceipt=0u;
+    uint packed=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE];
+    if(nodeIndex>=26u || packed==0xffffffffu || ownerSlot!=(packed&32767u) ||
+        ownerRef!=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+1u] ||
+        flags!=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u] ||
+        any(asuint(float2(normalError,offsetError))!=asuint(_M8FlowerPlaneErrorBounds)) ||
+        any(owner!=M8FlowerEndpointOwner(packed&32767u,packed>>15u)))
+    {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return 2u;}
+    uint address=M8_FLOWER_PACKET_ORIGINAL+19u*(2u*nodeIndex+(plus?1u:0u));
+    uint status=M8FlowerPacketReadOriginal(address,root,rawLocalBase,provisional,endpointReceipt);
+    if(m8FlowerPacketCollectEndpoints)
+    {
+        m8FlowerPacketEndpointReceipt|=endpointReceipt;
+        endpointReceipt=0u;
+    }
+    return status;
+}
+
+bool M8FlowerReadCarrierSitePacket(uint slot,uint local,uint ownerRef,int3 owner,uint flags,
+    uint carrier,uint site,bool plus,float2 errors,out M8FlowerPhaseRootEvidence root)
+{
+    root=(M8FlowerPhaseRootEvidence)0;root.Classification=2u;
+    uint task=m8FlowerPacketTask;
+    if(task>=8u || site>=7u || (m8PacketValid&(1u<<task))==0u ||
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*task]!=carrier ||
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE]!=(slot|(local<<15u)) ||
+        ownerRef!=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+1u] ||
+        flags!=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u] ||
+        any(asuint(errors)!=asuint(_M8FlowerPlaneErrorBounds)))
+    {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return false;}
+    uint address=M8_FLOWER_PACKET_SITES+10u*(14u*task+2u*site+(plus?1u:0u));
+    uint receipt;bool read=M8FlowerPacketReadSite(address,root,receipt);
+    M8FlowerRequireEndpointReceipt(receipt);
+    return read;
+}
+
+// Cooperative acquisition has one pure CarrierRootProof call site for every
+// original, peer and child base. Existing original/site slots are reused for
+// raw peer -> raw child -> synthesized child, with barriers between lifetimes.
+// The separate basis retains PURE original/L1 values, never postguard evidence.
+void M8FlowerPacketAcquire(uint packed,bool sites,uint lane)
+{
+    bool originals=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE]!=packed;
+    // Every wave captures the old identity before lane zero can replace it.
+    // Otherwise a late wave could skip the acquisition barriers as a hit.
+    GroupMemoryBarrierWithGroupSync();
+    if(!originals && !sites)return;
+    uint slot=packed&32767u,local=packed>>15u;
     int3 owner=M8FlowerEndpointOwner(slot,local);
-    uint completion=emit?m8FlowerPageCompletion[local]:0xffffffffu;
-    uint2 failedDirect=0u,parentDirect=0u,pending=0u,proven=0u;
-    M8FlowerDirectAnchors directAnchors;
-    M8FlowerResetDirectAnchors(directAnchors);
-    uint selectedToken=0xffffffffu,sourcePass=emit?2u:0u;
-    bool ambiguousCompletion=false;
-    // D must be complete before the boundary equation is evaluated. Reuse
-    // the identical carrier call site and fixed 48-bit local masks;
-    // do not retain 128 roots/positions or publish a partial completion.
-    [loop]while(true)
+    if(lane==0u && originals)
     {
-    uint childProof=1u;
-    uint itemCount=sourcePass==1u?16u:128u;
-    [loop]for(uint item=0u;item<itemCount;item++)
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE]=packed;
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+1u]=M8FlowerFindOwner(slot,local,
+            M8FlowerEndpointGeneration(slot));
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u]=M8LoadKernelStateRead(slot,local).flags;
+    }
+    if(lane<3u)
     {
-        uint source=sourcePass==1u?M8FlowerL2SourceToWedgeAt(16u*(completion&63u)+item):0u;
-        uint carrier=sourcePass==1u?source/6u:item;
-        M8FlowerSymbolRecord symbol=(M8FlowerSymbolRecord)0;
-        M8FlowerPhaseRootEvidence roots[7];float3 positions[7];
-        uint unresolved=0u,direct=0u,status=0u;
-        uint3 pairedEdges=0u;int3 carrierFirst=0,carrierLast=0;
-        bool collectCoverage=false;
-        // Own carrier, then only its required resident boundary partners.
-        // One evaluator call site also covers D, completion children and
-        // final emission. Keep only one carrier while each peer is consumed;
-        // no page/world root cache, recursive evaluator or extra dispatch.
-        [loop]for(uint visit=0u;visit<7u;visit++)
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+22u+lane]=0u;
+        if(originals)m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+25u+lane]=0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if(sites && lane<112u && (m8PacketValid&(1u<<(lane/14u)))!=0u)
+    {
+        uint carrier=m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*(lane/14u)];
+        uint knot=M8FlowerL2CarrierKnot(carrier,(lane%14u)>>1u);
+        uint begin=M8FlowerL2IncidenceOffsetsAt(knot),end=M8FlowerL2IncidenceOffsetsAt(knot+1u);
+        [loop]for(uint incidence=begin;incidence<end;incidence++)
         {
-            uint2 address=uint2(slot,local);uint targetCarrier=carrier;
-            uint peerWedge=0u;uint3 peerSites=0u;
-            if(visit!=0u)
+            M8FlowerGeometryNode node;
+            if(M8FlowerL2GeometryNodeFromSource(M8FlowerL2IncidenceSourcesAt(incidence),
+                (lane&1u)!=0u,node) && node.Level==2u)
+                InterlockedOr(m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+22u+(node.Strand>>5u)],
+                    1u<<(node.Strand&31u));
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [loop]for(uint phase=0u;phase<5u;phase++)
+    {
+        uint flags=m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u];
+        uint level=0u,lineClass=0u,destination=0u;
+        int3 sourceOwner=owner,offset=0;bool plus=false,evaluate=false;
+        if(phase==0u && lane<196u)
+        {
+            plus=(lane&1u)!=0u;
+            destination=M8_FLOWER_PACKET_BASES+9u*lane;
+            if(lane<52u)
             {
-                if(!collectCoverage)break;
-                if((M8FlowerDrawActiveWedgeMask(symbol)&(1u<<(visit-1u)))==0u)continue;
-                if(!M8FlowerSupportResolveOuterPeer(slot,owner,carrier,visit-1u,
-                    address,peerWedge,peerSites))continue;
-                targetCarrier=peerWedge/6u;
+                int4 node=M8FlowerNodeAt(lane>>1u);
+                offset=node.xyz;lineClass=(uint)node.w;evaluate=originals;
             }
-            M8FlowerSymbolRecord evaluatedSymbol;
-            M8FlowerPhaseRootEvidence evaluatedRoots[7];float3 evaluatedPositions[7];
-            uint evaluatedUnresolved,evaluatedDirect;
-            int3 evaluatedFirst,evaluatedLast;
-            uint evaluatedStatus=M8FlowerPageCarrier(address.x,address.y,targetCarrier,
-                _M8FlowerPlaneErrorBounds,visit==0u?completion:0xffffffffu,
-                visit==0u && sourcePass!=2u,evaluatedSymbol,evaluatedUnresolved,
-                evaluatedDirect,evaluatedRoots,evaluatedPositions,evaluatedFirst,evaluatedLast);
-            if(visit==0u)
+            else
             {
-                symbol=evaluatedSymbol;status=evaluatedStatus;
-                unresolved=evaluatedUnresolved;direct=evaluatedDirect;
-                if(sourcePass==0u)
-                    M8FlowerRecordDirectAnchors(carrier,direct,evaluatedRoots,directAnchors);
-                if(sourcePass!=2u || emit || status!=1u)break;
-                carrierFirst=evaluatedFirst;carrierLast=evaluatedLast;
-                collectCoverage=m8FlowerSupportCoverageNeeded!=0u && all(carrierFirst<=carrierLast);
-                if(!collectCoverage)break;
-                [loop]for(uint site=0u;site<7u;site++)
-                {roots[site]=evaluatedRoots[site];positions[site]=evaluatedPositions[site];}
-            }
-            else if(evaluatedStatus==1u &&
-                (M8FlowerDrawActiveWedgeMask(evaluatedSymbol)&(1u<<(peerWedge%6u)))!=0u)
-            {
-                uint wedge=visit-1u,firstSite=1u+wedge,lastSite=1u+(wedge+1u)%6u;
-                uint axes=M8FlowerSupportPairAxes(roots[firstSite],roots[lastSite],
-                    evaluatedRoots[peerSites.x],evaluatedRoots[peerSites.y],
-                    positions[firstSite],positions[lastSite],positions[0],evaluatedPositions[peerSites.z]);
-                [unroll]for(uint axis=0u;axis<3u;axis++)
-                    if((axes&(1u<<axis))!=0u)pairedEdges[axis]|=1u<<wedge;
+                uint strand=(lane-52u)>>1u,word=strand>>5u,bit=1u<<(strand&31u);
+                uint missing=m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+22u+word]&
+                    ~m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+25u+word];
+                if((missing&bit)!=0u)
+                {
+                    uint4 edge=M8FlowerStrandAt(strand);
+                    M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strand);
+                    offset=M8FlowerNodeAt(edge.x).xyz+M8FlowerNodeAt(edge.y).xyz;
+                    level=1u;lineClass=(uint)M8FlowerNodeAt(family.RootNode).w;evaluate=true;
+                }
             }
         }
-        if(sourcePass==0u)
+        else if(phase==1u && originals && lane<52u)
         {
-            [unroll]for(uint wedge=0u;wedge<6u;wedge++)if((direct&(1u<<wedge))==0u)
+            uint nodeIndex=lane>>1u;
+            // The successful local junction proof bounds owner+d exactly as
+            // in EvaluateOriginalShared. Failed local roots never use a peer.
+            if(m8FlowerSupportScratch[M8_FLOWER_PACKET_BASES+9u*lane+8u]==1u)
             {
-                uint petal=M8FlowerL2WedgeAt(6u*carrier+wedge).y>>4u;
-                failedDirect[petal>>5u]|=1u<<(petal&31u);
+                sourceOwner=owner+M8FlowerNodeAt(nodeIndex).xyz;plus=(lane&1u)!=0u;
+                uint peerSlot,peerLocal,unusedReceipt;KernelState peerState;
+                uint status=M8FlowerReadEndpointWithReceipt(slot,owner,sourceOwner,
+                    peerSlot,peerLocal,peerState,unusedReceipt);
+                destination=M8_FLOWER_PACKET_SITES+10u*lane;
+                m8FlowerSupportScratch[destination+9u]=peerState.flags;
+                if(status==1u)
+                {
+                    int4 node=M8FlowerNodeAt(nodeIndex^1u);
+                    offset=node.xyz;lineClass=(uint)node.w;flags=peerState.flags;evaluate=true;
+                }
             }
-            continue;
         }
-        if(sourcePass==1u)
+        else if(phase==3u && sites && lane<112u && (m8PacketValid&(1u<<(lane/14u)))!=0u)
         {
-            uint bit=1u<<(source%6u);
-            if(status!=1u || (M8FlowerDrawActiveWedgeMask(symbol)&bit)==0u)
+            uint carrier=m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*(lane/14u)];
+            uint knot=M8FlowerL2CarrierKnot(carrier,(lane%14u)>>1u);
+            M8FlowerGeometryNode node;
+            plus=(lane&1u)!=0u;
+            if(M8FlowerL2GeometryNode(knot,plus,node))
             {
-                if((unresolved&bit)==0u){childProof=0u;break;}
-                childProof=2u;
+                level=node.Level;offset=node.Offset;lineClass=node.Line;evaluate=true;
+                destination=M8_FLOWER_PACKET_SITES+10u*lane;
             }
-            continue;
+            else InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
         }
-        if(status!=1u)continue;
-        if(collectCoverage)
-            M8FlowerSupportAccumulateCarrier(positions,M8FlowerDrawActiveWedgeMask(symbol),
-                pairedEdges,carrierFirst,carrierLast);
-        if(coverageOnly)continue;
-        uint active=M8FlowerDrawActiveWedgeMask(symbol);
-        uint signs=M8FlowerDrawRootSigns(symbol),sector=M8FlowerDrawHubSector(symbol);
-        uint bytes;
-        if(!M8FlowerCarrierSkinBytes(symbol.DetailRef,carrier,active,signs,sector,bytes))
-        {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);continue;}
-        if(emit)
+        if(evaluate)
         {
-            uint symbolIndex=first.x+count.x,sampleOffset=first.y+count.y;
-            if(symbolIndex>=build.SymbolCapacity/16u || sampleOffset>build.SampleCapacity ||
-                bytes>build.SampleCapacity-sampleOffset)
-            {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);continue;}
-            float3 captured=float3(state.packedColor&255u,(state.packedColor>>8u)&255u,
-                (state.packedColor>>16u)&255u)*(1.0/255.0);
-            uint threadRef;
-            if(!M8FlowerCompileCarrierSkin(symbol.DetailRef,carrier,active,signs,sector,
-                captured,build.SampleAddress+sampleOffset,bytes,threadRef))
-            {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);continue;}
-            symbol.ThreadRef=threadRef;
-            M8FlowerStoreSymbol(build.SymbolAddress,symbolIndex,symbol);
+            M8FlowerPhaseRootEvidence root;
+            M8FlowerCarrierRootProof(sourceOwner,flags,level,offset,lineClass,plus,
+                _M8FlowerPlaneErrorBounds.x,_M8FlowerPlaneErrorBounds.y,root);
+            M8FlowerPacketStoreRoot(destination,root);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(phase==0u && lane<3u)
+            m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+25u+lane]|=
+                m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+22u+lane];
+        if(phase==2u && originals && lane<52u)
+        {
+            m8FlowerPacketRawElement=lane;
+            M8FlowerPhaseRootEvidence root,raw;bool provisional;uint receipt;
+            M8FlowerEvaluateOriginalShared(slot,m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+1u],
+                owner,m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u],lane>>1u,(lane&1u)!=0u,
+                _M8FlowerPlaneErrorBounds.x,_M8FlowerPlaneErrorBounds.y,root,provisional,raw,receipt);
+            M8FlowerPacketStoreOriginal(M8_FLOWER_PACKET_ORIGINAL+19u*lane,root,raw,provisional,receipt);
+        }
+        if(phase==4u && sites && lane<112u && (m8PacketValid&(1u<<(lane/14u)))!=0u)
+        {
+            uint carrier=m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*(lane/14u)];
+            m8FlowerPacketRawElement=lane;
+            m8FlowerPacketCollectEndpoints=true;m8FlowerPacketEndpointReceipt=0u;
+            M8FlowerPhaseRootEvidence root;
+            bool read=M8FlowerReadL2Knot(slot,m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+1u],
+                owner,m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE+2u],
+                M8FlowerL2CarrierKnot(carrier,(lane%14u)>>1u),(lane&1u)!=0u,
+                _M8FlowerPlaneErrorBounds.x,_M8FlowerPlaneErrorBounds.y,root);
+            m8FlowerPacketCollectEndpoints=false;
+            M8FlowerPacketStoreSite(M8_FLOWER_PACKET_SITES+10u*lane,root,read,m8FlowerPacketEndpointReceipt);
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+
+// Commutative sign receipts: different actual signs conflict, independent of
+// lane scheduling. A conflicting source petal is removed before completion.
+void M8FlowerPacketRecordDirect(uint carrier,uint direct,M8FlowerPhaseRootEvidence roots[7])
+{
+    M8FlowerDirectAnchors delta;M8FlowerResetDirectAnchors(delta);
+    M8FlowerRecordDirectAnchors(carrier,direct,roots,delta);
+    [unroll]for(uint anchor=0u;anchor<3u;anchor++)
+        [unroll]for(uint word=0u;word<2u;word++)
+        {
+            uint seen=delta.Seen[anchor][word],positive=delta.Signs[anchor][word]&seen;
+            InterlockedOr(m8FlowerSupportScratch[M8_FLOWER_PACKET_DIRECT+2u*anchor+word],positive);
+            InterlockedOr(m8FlowerSupportScratch[M8_FLOWER_PACKET_DIRECT+6u+2u*anchor+word],seen&~positive);
+        }
+    [unroll]for(uint word=0u;word<2u;word++)
+        InterlockedOr(m8FlowerSupportScratch[M8_FLOWER_PACKET_DIRECT+12u+word],delta.Conflict[word]);
+    [unroll]for(uint wedge=0u;wedge<6u;wedge++)if((direct&(1u<<wedge))==0u)
+    {
+        uint petal=M8FlowerL2WedgeAt(6u*carrier+wedge).y>>4u;
+        InterlockedOr(m8FlowerSupportScratch[M8_FLOWER_PACKET_DIRECT+14u+(petal>>5u)],1u<<(petal&31u));
+    }
+}
+
+M8FlowerDirectAnchors M8FlowerPacketDirectAnchors()
+{
+    M8FlowerDirectAnchors receipt;receipt.Conflict=M8FlowerPacketLoad2(M8_FLOWER_PACKET_DIRECT+12u);
+    [unroll]for(uint anchor=0u;anchor<3u;anchor++)
+    {
+        uint2 positive=M8FlowerPacketLoad2(M8_FLOWER_PACKET_DIRECT+2u*anchor);
+        uint2 negative=M8FlowerPacketLoad2(M8_FLOWER_PACKET_DIRECT+6u+2u*anchor);
+        receipt.Signs[anchor]=positive;receipt.Seen[anchor]=positive|negative;
+        receipt.Conflict|=positive&negative;
+    }
+    return receipt;
+}
+
+// Lane zero schedules only fixed petal ordinals. All eight candidates finish
+// against immutable D; their children remain ordered, so a proved impossible
+// child cannot request endpoint residency for a later, unneeded child.
+void M8FlowerPacketScheduleCandidates(uint packed,bool coverageOnly)
+{
+    uint2 pending=M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+3u);
+    if(any(pending!=0u))
+    {
+        [unroll]for(uint task=0u;task<8u;task++)
+        {
+            uint token=0xffffffffu;
+            if(any(pending!=0u))
+            {
+                uint word=pending.x!=0u?0u:1u;
+                token=32u*word+(uint)firstbitlow(pending[word]);
+                pending[word]&=pending[word]-1u;
+            }
+            uint address=M8_FLOWER_PACKET_CANDIDATES+3u*task;
+            m8FlowerSupportScratch[address]=token;
+            m8FlowerSupportScratch[address+1u]=0u;
+            m8FlowerSupportScratch[address+2u]=0u;
+        }
+        M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+3u,pending);
+        m8PacketTarget=packed;m8PacketStage=M8_FLOWER_PACKET_PREPARE_STAGE;
+        return;
+    }
+    uint2 direct=M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+5u);
+    uint2 proven=M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+7u);
+    uint2 candidates=M8FlowerCompletionCandidates(direct,proven,proven,proven,proven,uint2(0u,0u));
+    uint selected,status=M8FlowerUniqueCompletion(candidates,selected);
+    if(m8PacketAmbiguous!=0u)status=2u;
+    m8PacketCompletion=status==1u && selected==(m8PacketSelected&63u)?m8PacketSelected:0xffffffffu;
+    if(!coverageOnly)
+    {
+        _M8FlowerPageDirectory.Store(M8FlowerBatchScratch(m8FlowerCompileItem)+
+            M8_FLOWER_BATCH_COMPLETION+(packed>>15u)*4u,m8PacketCompletion);
+        if(status==2u)
+        {
+            InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_UNRESOLVED],1u);
+            InterlockedAdd(_M8Counters[M8_COUNTER_REFINEMENT_UNRESOLVED],1u);
+        }
+    }
+    m8PacketFirst=0u;m8PacketTarget=packed;m8PacketStage=M8_FLOWER_PACKET_FINAL_STAGE;
+}
+
+void M8FlowerPacketTasks(uint packed)
+{
+    m8PacketValid=0u;
+    if(m8PacketStage==M8_FLOWER_PACKET_PEER_STAGE)
+    {
+        uint2 pending=M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+12u);
+        if(!any(pending!=0u)){m8PacketStage=M8_FLOWER_PACKET_COVERAGE_STAGE;return;}
+        uint first=pending.x!=0u?(uint)firstbitlow(pending.x):32u+(uint)firstbitlow(pending.y);
+        uint target=m8FlowerSupportScratch[M8_FLOWER_PACKET_PEERS+2u*first],task=0u;
+        // Equality of a generation-leased physical address only schedules the
+        // exact generated requests. It neither matches geometry nor chooses a
+        // root. At most 48 requests / eight outputs; no hash or queue resource.
+        [loop]for(uint request=0u;request<48u && task<8u;request++)
+        {
+            uint bit=1u<<(request&31u),word=request>>5u;
+            if((pending[word]&bit)==0u ||
+                m8FlowerSupportScratch[M8_FLOWER_PACKET_PEERS+2u*request]!=target)continue;
+            uint metadata=m8FlowerSupportScratch[M8_FLOWER_PACKET_PEERS+2u*request+1u];
+            uint address=M8_FLOWER_PACKET_TASKS+4u*task;
+            m8FlowerSupportScratch[address]=(metadata&1023u)/6u;
+            m8FlowerSupportScratch[address+1u]=0xffffffffu;
+            m8FlowerSupportScratch[address+2u]=0u;
+            m8FlowerSupportScratch[address+3u]=request;
+            pending[word]&=~bit;m8PacketValid|=1u<<task;task++;
+        }
+        M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+12u,pending);
+        m8PacketTarget=target;return;
+    }
+    m8PacketTarget=packed;
+    if(m8PacketStage==M8_FLOWER_PACKET_PREPARE_STAGE ||
+        m8PacketStage==M8_FLOWER_PACKET_COVERAGE_STAGE)return;
+    [unroll]for(uint task=0u;task<8u;task++)
+    {
+        uint carrier=m8PacketFirst+task,completion=0xffffffffu,required=0u,source=0u;
+        if(m8PacketStage==M8_FLOWER_PACKET_CHILD_STAGE)
+        {
+            uint candidate=M8_FLOWER_PACKET_CANDIDATES+3u*task;
+            if(m8FlowerSupportScratch[candidate+1u]==0u)continue;
+            completion=m8FlowerSupportScratch[candidate];
+            source=M8FlowerL2SourceToWedgeAt(16u*(completion&63u)+m8PacketChild);
+            carrier=source/6u;required=1u<<(source%6u);
         }
         else
-            InterlockedAdd(m8FlowerCompileTriangles,countbits(active));
-        count+=uint2(1u,bytes);
+        {
+            if(carrier>=128u)continue;
+            if(m8PacketStage==M8_FLOWER_PACKET_FINAL_STAGE)completion=m8PacketCompletion;
+            required=M8FlowerL2CarrierOwnedMask(carrier);
+        }
+        uint address=M8_FLOWER_PACKET_TASKS+4u*task;
+        m8FlowerSupportScratch[address]=carrier;m8FlowerSupportScratch[address+1u]=completion;
+        m8FlowerSupportScratch[address+2u]=required;m8FlowerSupportScratch[address+3u]=source;
+        m8PacketValid|=1u<<task;
     }
-    if(sourcePass==2u)break;
-    if(sourcePass==0u)
+}
+
+// All 256 lanes enter each owner. 52 original alternatives and the packet's
+// 112 site alternatives are independent lane work; only eight lanes perform
+// carrier projection over that immutable evidence. No lane walks 128 complete
+// carrier/root graphs, and selected phase1 roots come from the same packet.
+uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
+    M8FlowerPageBuild build,uint2 first,uint lane)
+{
+    uint packed=slot|(local<<15u);
+    if(lane==0u)
     {
-        parentDirect=~failedDirect&uint2(0xffffffffu,0xffffu)&
-            M8FlowerDirectAnchorMask(directAnchors);
-        pending=M8FlowerCompletionBoundaryCandidates(parentDirect);
+        uint flags=M8LoadKernelStateRead(slot,local).flags;
+        uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
+        m8PacketOwnerValid=(flags&(required|M8_FLOWER_SEED_FLAG))==required?1u:0u;
     }
-    else if(childProof==1u)
+    GroupMemoryBarrierWithGroupSync();
+    if(m8PacketOwnerValid==0u)return 0u;
+    if(lane<16u)m8FlowerSupportScratch[M8_FLOWER_PACKET_DIRECT+lane]=0u;
+    if(lane==0u)
     {
-        uint petal=completion&63u;
-        proven[petal>>5u]|=1u<<(petal&31u);
-        selectedToken=completion;
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE]=0xffffffffu;
+        M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+3u,0u);
+        M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+5u,0u);
+        M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+7u,0u);
+        M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+12u,0u);
+        M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+14u,0u);
+        m8PacketSelected=0xffffffffu;m8PacketAmbiguous=0u;
+        m8PacketCompletion=emit?_M8FlowerPageDirectory.Load(M8FlowerBatchScratch(m8FlowerCompileItem)+
+            M8_FLOWER_BATCH_COMPLETION+local*4u):0xffffffffu;
+        m8PacketFirst=0u;m8PacketChild=0u;
+        m8PacketStage=emit?M8_FLOWER_PACKET_FINAL_STAGE:M8_FLOWER_PACKET_DIRECT_STAGE;
     }
-    else if(childProof==2u)ambiguousCompletion=true;
-    // Only a finite boundary candidate with actual donor/R3 evidence enters
-    // the sixteen-child pass. All passes use the SAME call above; no nested
-    // full carrier reader or serialized micro-dispatch is introduced.
-    sourcePass=2u;completion=0xffffffffu;
-    [loop]while(any(pending!=0u))
+    m8FlowerPacketCollectEndpoints=false;m8FlowerPacketEndpointReceipt=0u;m8FlowerPacketTask=0u;
+    GroupMemoryBarrierWithGroupSync();
+    [loop]while(m8PacketStage!=M8_FLOWER_PACKET_DONE)
     {
-        uint word=pending.x!=0u?0u:1u;
-        uint petal=32u*word+(uint)firstbitlow(pending[word]);
-        pending[word]&=pending[word]-1u;
-        uint status=M8FlowerPrepareCompletionPetal(slot,local,_M8FlowerPlaneErrorBounds,
-            parentDirect,petal,directAnchors,completion);
-        if(status==1u){sourcePass=1u;break;}
-        if(status==2u)ambiguousCompletion=true;
+        if(lane==0u)M8FlowerPacketTasks(packed);
+        GroupMemoryBarrierWithGroupSync();
+        uint stage=m8PacketStage;
+        if(stage!=M8_FLOWER_PACKET_COVERAGE_STAGE)
+            M8FlowerPacketAcquire(m8PacketTarget,
+                stage!=M8_FLOWER_PACKET_PREPARE_STAGE && m8PacketValid!=0u,lane);
+
+        if(stage==M8_FLOWER_PACKET_PREPARE_STAGE && lane<8u)
+        {
+            uint address=M8_FLOWER_PACKET_CANDIDATES+3u*lane;
+            uint petal=m8FlowerSupportScratch[address];
+            if(petal!=0xffffffffu)
+            {
+                uint token,receipt;
+                uint status=M8FlowerPrepareCompletionPetal(slot,local,_M8FlowerPlaneErrorBounds,
+                    M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+5u),petal,
+                    M8FlowerPacketDirectAnchors(),token,receipt);
+                M8FlowerSupportRequire(receipt);
+                m8FlowerSupportScratch[address]=token;
+                m8FlowerSupportScratch[address+1u]=status==1u?1u:0u;
+                if(status==2u)InterlockedOr(m8PacketAmbiguous,1u);
+            }
+        }
+        M8FlowerSymbolRecord symbol=(M8FlowerSymbolRecord)0;
+        uint status=0u,bytes=0u,active=0u;
+        if(lane<8u && (m8PacketValid&(1u<<lane))!=0u)
+        {
+            uint task=M8_FLOWER_PACKET_TASKS+4u*lane;
+            uint carrier=m8FlowerSupportScratch[task],completion=m8FlowerSupportScratch[task+1u];
+            uint target=m8PacketTarget;
+            M8FlowerPhaseRootEvidence roots[7];float3 positions[7];
+            uint unresolved,direct,receipt;int3 boundsFirst,boundsLast;
+            m8FlowerPacketTask=lane;
+            // The one projection/dual call serves immutable D, each viable
+            // child, the final carrier, and its exact foreign edge partners.
+            status=M8FlowerPageCarrier(target&32767u,target>>15u,carrier,
+                _M8FlowerPlaneErrorBounds,completion,
+                stage==M8_FLOWER_PACKET_DIRECT_STAGE || stage==M8_FLOWER_PACKET_CHILD_STAGE,
+                m8FlowerSupportScratch[task+2u],symbol,unresolved,direct,
+                roots,positions,boundsFirst,boundsLast,receipt);
+            active=M8FlowerDrawActiveWedgeMask(symbol);
+            if(stage==M8_FLOWER_PACKET_DIRECT_STAGE)
+            {
+                M8FlowerSupportRequire(receipt);
+                M8FlowerPacketRecordDirect(carrier,direct,roots);
+            }
+            else if(stage==M8_FLOWER_PACKET_CHILD_STAGE)
+            {
+                uint candidate=M8_FLOWER_PACKET_CANDIDATES+3u*lane;
+                m8FlowerSupportScratch[candidate+2u]|=receipt;
+                uint bit=m8FlowerSupportScratch[task+2u];
+                if(status!=1u || (active&bit)==0u)
+                    m8FlowerSupportScratch[candidate+1u]=(unresolved&bit)==0u?0u:2u;
+            }
+            else if(stage==M8_FLOWER_PACKET_FINAL_STAGE)
+            {
+                M8FlowerSupportRequire(receipt);
+                uint footprint=M8_FLOWER_PACKET_FOOTPRINTS+85u*lane;
+                m8FlowerSupportScratch[footprint+75u]=0u;
+                if(status==1u)
+                {
+                    if(!emit && m8FlowerSupportCoverageNeeded!=0u && all(boundsFirst<=boundsLast))
+                    {
+                        [loop]for(uint site=1u;site<7u;site++)
+                            M8FlowerPacketStoreRoot(footprint+9u*(site-1u),roots[site]);
+                        [loop]for(uint site=0u;site<7u;site++)
+                            M8FlowerPacketStorePosition(footprint+54u+3u*site,positions[site]);
+                        m8FlowerSupportScratch[footprint+75u]=active;
+                        M8FlowerPacketStore3(footprint+76u,asuint(boundsFirst));
+                        M8FlowerPacketStore3(footprint+79u,asuint(boundsLast));
+                        M8FlowerPacketStore3(footprint+82u,0u);
+                    }
+                    if(!coverageOnly)
+                    {
+                        if(!M8FlowerCarrierSkinBytes(symbol.DetailRef,carrier,active,
+                            M8FlowerDrawRootSigns(symbol),M8FlowerDrawHubSector(symbol),bytes))
+                        {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);status=0u;}
+                        else if(!emit)InterlockedAdd(m8FlowerCompileTriangles,countbits(active));
+                    }
+                }
+            }
+            else if(stage==M8_FLOWER_PACKET_PEER_STAGE && status==1u)
+            {
+                uint request=m8FlowerSupportScratch[task+3u];
+                uint metadata=m8FlowerSupportScratch[M8_FLOWER_PACKET_PEERS+2u*request+1u];
+                if((active&(1u<<((metadata&1023u)%6u)))!=0u)
+                {
+                    uint ownTask=request/6u,wedge=request%6u,last=(wedge+1u)%6u;
+                    uint footprint=M8_FLOWER_PACKET_FOOTPRINTS+85u*ownTask;
+                    uint3 sites=uint3((metadata>>10u)&7u,(metadata>>13u)&7u,(metadata>>16u)&7u);
+                    uint axes=M8FlowerSupportPairAxes(
+                        M8FlowerPacketLoadRoot(footprint+9u*wedge),
+                        M8FlowerPacketLoadRoot(footprint+9u*last),roots[sites.x],roots[sites.y],
+                        M8FlowerPacketLoadPosition(footprint+54u+3u*(1u+wedge)),
+                        M8FlowerPacketLoadPosition(footprint+54u+3u*(1u+last)),
+                        M8FlowerPacketLoadPosition(footprint+54u),positions[sites.z]);
+                    [unroll]for(uint axis=0u;axis<3u;axis++)if((axes&(1u<<axis))!=0u)
+                        InterlockedOr(m8FlowerSupportScratch[footprint+82u+axis],1u<<wedge);
+                }
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        if(stage==M8_FLOWER_PACKET_FINAL_STAGE)
+        {
+            if(lane<8u)M8FlowerPacketStore2(M8_FLOWER_PACKET_PREFIX+2u*lane,
+                !coverageOnly && status==1u?uint2(1u,bytes):uint2(0u,0u));
+            GroupMemoryBarrierWithGroupSync();
+            [unroll]for(uint stride=1u;stride<8u;stride<<=1u)
+            {
+                uint2 sum=0u;
+                if(lane<8u)
+                {
+                    sum=M8FlowerPacketLoad2(M8_FLOWER_PACKET_PREFIX+2u*lane);
+                    if(lane>=stride)sum+=M8FlowerPacketLoad2(M8_FLOWER_PACKET_PREFIX+2u*(lane-stride));
+                }
+                GroupMemoryBarrierWithGroupSync();
+                if(lane<8u)M8FlowerPacketStore2(M8_FLOWER_PACKET_PREFIX+2u*lane,sum);
+                GroupMemoryBarrierWithGroupSync();
+            }
+            if(emit && lane<8u && status==1u)
+            {
+                uint2 prefix=lane==0u?uint2(0u,0u):M8FlowerPacketLoad2(M8_FLOWER_PACKET_PREFIX+2u*(lane-1u));
+                uint2 address=first+M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+14u)+prefix;
+                if(address.x>=build.SymbolCapacity/16u || address.y>build.SampleCapacity ||
+                    bytes>build.SampleCapacity-address.y)
+                    InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
+                else
+                {
+                    KernelState state=M8LoadKernelStateRead(slot,local);
+                    float3 captured=float3(state.packedColor&255u,(state.packedColor>>8u)&255u,
+                        (state.packedColor>>16u)&255u)*(1.0/255.0);
+                    uint threadRef,carrier=m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*lane];
+                    if(!M8FlowerCompileCarrierSkin(symbol.DetailRef,carrier,active,
+                        M8FlowerDrawRootSigns(symbol),M8FlowerDrawHubSector(symbol),captured,
+                        build.SampleAddress+address.y,bytes,threadRef))
+                        InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
+                    else
+                    {
+                        symbol.ThreadRef=threadRef;
+                        M8FlowerStoreSymbol(build.SymbolAddress,address.x,symbol);
+                    }
+                }
+            }
+            GroupMemoryBarrierWithGroupSync();
+            if(lane==0u)
+            {
+                M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+14u,
+                    M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+14u)+
+                    M8FlowerPacketLoad2(M8_FLOWER_PACKET_PREFIX+14u));
+                M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+12u,0u);
+            }
+            GroupMemoryBarrierWithGroupSync();
+            if(!emit && lane<48u)
+            {
+                uint ownTask=lane/6u,wedge=lane%6u;
+                uint footprint=M8_FLOWER_PACKET_FOOTPRINTS+85u*ownTask;
+                if((m8FlowerSupportScratch[footprint+75u]&(1u<<wedge))!=0u)
+                {
+                    uint2 address;uint peerWedge;uint3 sites;
+                    if(M8FlowerSupportResolveOuterPeer(slot,M8FlowerEndpointOwner(slot,local),
+                        m8PacketFirst+ownTask,wedge,address,peerWedge,sites))
+                    {
+                        M8FlowerPacketStore2(M8_FLOWER_PACKET_PEERS+2u*lane,
+                            uint2(address.x|(address.y<<15u),
+                                peerWedge|(sites.x<<10u)|(sites.y<<13u)|(sites.z<<16u)));
+                        InterlockedOr(m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+12u+(lane>>5u)],
+                            1u<<(lane&31u));
+                    }
+                }
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+
+        if(stage==M8_FLOWER_PACKET_COVERAGE_STAGE && lane<8u)
+        {
+            uint footprint=M8_FLOWER_PACKET_FOOTPRINTS+85u*lane;
+            uint mask=m8FlowerSupportScratch[footprint+75u];
+            if(mask!=0u)
+            {
+                float3 positions[7];
+                [loop]for(uint site=0u;site<7u;site++)
+                    positions[site]=M8FlowerPacketLoadPosition(footprint+54u+3u*site);
+                M8FlowerSupportAccumulateCarrier(positions,mask,
+                    M8FlowerPacketLoad3(footprint+82u),
+                    asint(M8FlowerPacketLoad3(footprint+76u)),
+                    asint(M8FlowerPacketLoad3(footprint+79u)));
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        bool finishCandidates=false;
+        if(stage==M8_FLOWER_PACKET_CHILD_STAGE)
+        {
+            // A later impossible child drops only its own candidate's earlier
+            // ambiguous dual receipt. Numeric/endpoint rules are unchanged.
+            uint anyPossible=0u;
+            [unroll]for(uint candidate=0u;candidate<8u;candidate++)
+                anyPossible|=m8FlowerSupportScratch[M8_FLOWER_PACKET_CANDIDATES+3u*candidate+1u];
+            finishCandidates=m8PacketChild==15u || anyPossible==0u;
+            if(finishCandidates && lane<8u)
+            {
+                uint address=M8_FLOWER_PACKET_CANDIDATES+3u*lane;
+                uint proof=m8FlowerSupportScratch[address+1u],token=m8FlowerSupportScratch[address];
+                if(proof!=0u)M8FlowerSupportRequire(m8FlowerSupportScratch[address+2u]);
+                if(proof==1u)
+                {
+                    uint petal=token&63u,ignored;
+                    InterlockedOr(m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+7u+(petal>>5u)],
+                        1u<<(petal&31u));
+                    InterlockedExchange(m8PacketSelected,token,ignored);
+                }
+                else if(proof==2u)InterlockedOr(m8PacketAmbiguous,1u);
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(lane==0u)
+        {
+            if(stage==M8_FLOWER_PACKET_DIRECT_STAGE)
+            {
+                m8PacketFirst+=8u;
+                if(m8PacketFirst==128u)
+                {
+                    M8FlowerDirectAnchors receipt=M8FlowerPacketDirectAnchors();
+                    uint2 direct=~M8FlowerPacketLoad2(M8_FLOWER_PACKET_DIRECT+14u)&
+                        uint2(0xffffffffu,0xffffu)&M8FlowerDirectAnchorMask(receipt);
+                    M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+5u,direct);
+                    M8FlowerPacketStore2(M8_FLOWER_PACKET_CONTROL+3u,M8FlowerCompletionBoundaryCandidates(direct));
+                    M8FlowerPacketScheduleCandidates(packed,coverageOnly);
+                }
+            }
+            else if(stage==M8_FLOWER_PACKET_PREPARE_STAGE)
+            {m8PacketChild=0u;m8PacketStage=M8_FLOWER_PACKET_CHILD_STAGE;}
+            else if(stage==M8_FLOWER_PACKET_CHILD_STAGE)
+            {
+                if(finishCandidates)M8FlowerPacketScheduleCandidates(packed,coverageOnly);
+                else m8PacketChild++;
+            }
+            else if(stage==M8_FLOWER_PACKET_FINAL_STAGE)
+            {
+                if(!emit)m8PacketStage=M8_FLOWER_PACKET_PEER_STAGE;
+                else
+                {
+                    m8PacketFirst+=8u;
+                    if(m8PacketFirst==128u)m8PacketStage=M8_FLOWER_PACKET_DONE;
+                }
+            }
+            else if(stage==M8_FLOWER_PACKET_COVERAGE_STAGE)
+            {
+                m8PacketFirst+=8u;
+                m8PacketStage=m8PacketFirst==128u?M8_FLOWER_PACKET_DONE:M8_FLOWER_PACKET_FINAL_STAGE;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
     }
-    if(sourcePass==1u)continue;
-    // 'proven' contains ONLY candidates with all donor, class, orientation,
-    // child-closure and full-dual proofs. These are not placeholder masks.
-    uint2 candidates=M8FlowerCompletionCandidates(parentDirect,proven,proven,
-        proven,proven,uint2(0u,0u));
-    uint selected;uint completionStatus=M8FlowerUniqueCompletion(candidates,selected);
-    if(ambiguousCompletion)completionStatus=2u;
-    completion=completionStatus==1u && selected==(selectedToken&63u)?selectedToken:0xffffffffu;
-    if(completionStatus==2u && !coverageOnly)
-    {
-        InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_UNRESOLVED],1u);
-        InterlockedAdd(_M8Counters[M8_COUNTER_REFINEMENT_UNRESOLVED],1u);
-    }
-    if(!coverageOnly)m8FlowerPageCompletion[local]=completion;
-    }
-    return count;
+    return M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+14u);
 }
 
 // One WG per accepted page, over one bounded immutable native-job lease.
@@ -515,12 +1097,9 @@ void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
         {
             uint local=lane+ownerIndex*256u;
             m8FlowerPageOwnerSpans[local]=_M8FlowerPageDirectory.Load2(scratch+local*8u);
-            m8FlowerPageCompletion[local]=_M8FlowerPageDirectory.Load(scratch+M8_FLOWER_BATCH_COMPLETION+local*4u);
         }
         if(lane<M8_FLOWER_SUPPORT_HALF_WORDS)
             m8FlowerSupportHalves[lane]=_M8FlowerPageDirectory.Load(scratch+M8_FLOWER_BATCH_DIRT_HALVES+lane*4u);
-        if(lane<M8_FLOWER_SUPPORT_FACE_WORDS)
-        {m8FlowerSupportAmbiguousFaces[lane]=0u;m8FlowerSupportPartial[lane]=0u;}
         GroupMemoryBarrierWithGroupSync();
         M8FlowerSupportPrepareSymbols(lane);
         if(lane==0u)
@@ -544,7 +1123,8 @@ void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
         [unroll]for(uint ownerIndex=0u;ownerIndex<2u;ownerIndex++)
         {
             uint local=lane+ownerIndex*256u;
-            m8FlowerPageOwnerSpans[local]=0u;m8FlowerPageCompletion[local]=0xffffffffu;
+            m8FlowerPageOwnerSpans[local]=0u;
+            _M8FlowerPageDirectory.Store(scratch+M8_FLOWER_BATCH_COMPLETION+local*4u,0xffffffffu);
         }
         M8FlowerSupportBuildFaces(lane,256u);
     }
@@ -555,29 +1135,47 @@ void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
     {
         if(phase==2u && m8FlowerCompileStatus!=M8_FLOWER_ARENA_OK)break;
         bool coverageOnly=phase==1u;
-        uint itemCount=2u;
+        uint itemCount=512u;
         if(coverageOnly)
             itemCount=M8FlowerSupportPrepareNeighborCoverage(lane,256u)?
-                (M8_FLOWER_COVERAGE_OWNER_COUNT+255u)/256u:0u;
+                M8_FLOWER_COVERAGE_OWNER_COUNT:0u;
         [loop]for(uint item=0u;item<itemCount;item++)
         {
-            uint ownerSlot=slot,local=lane+256u*item;
-            if(coverageOnly)
+            // The page WG cooperates on this fixed owner domain. Only the
+            // actual HOT/occupied owners enter an evidence packet; coverage
+            // still excludes the 512 central owners already accumulated.
+            if(lane==0u)
             {
-                uint stencilIndex=local;
-                if(stencilIndex>=M8_FLOWER_COVERAGE_OWNER_COUNT)continue;
-                if(!M8FlowerSupportResolveCoverageOwner(slot,stencilIndex,ownerSlot,local))continue;
+                uint ownerSlot=slot,local=item;
+                bool valid=true;
+                if(coverageOnly)valid=M8FlowerSupportResolveCoverageOwner(slot,item,ownerSlot,local);
+                if(valid)
+                {
+                    uint flags=M8LoadKernelStateRead(ownerSlot,local).flags;
+                    uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
+                    valid=(flags&(required|M8_FLOWER_SEED_FLAG))==required;
+                }
+                m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+20u]=
+                    valid?ownerSlot|(local<<15u):0xffffffffu;
             }
+            GroupMemoryBarrierWithGroupSync();
+            uint address=m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+20u];
+            // Every lane must capture this owner's address before lane zero
+            // may replace it for an empty owner's next iteration.
+            GroupMemoryBarrierWithGroupSync();
+            if(address==0xffffffffu)continue;
+            uint ownerSlot=address&32767u,local=address>>15u;
             uint2 first=0u;
             if(phase==2u)first=m8FlowerPageOwnerSpans[local];
-            uint2 count=M8FlowerCompileOwner(ownerSlot,local,phase==2u,coverageOnly,build,first);
-            if(phase==0u)m8FlowerPageOwnerSpans[local]=count;
-            else if(phase==2u)
+            uint2 count=M8FlowerCompileOwner(ownerSlot,local,phase==2u,coverageOnly,build,first,lane);
+            if(lane==0u && phase==0u)m8FlowerPageOwnerSpans[local]=count;
+            else if(lane==0u && phase==2u)
             {
                 uint2 end=local==511u?m8FlowerCompileTotal:m8FlowerPageOwnerSpans[local+1u];
                 if(any(count!=end-first))
                     InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
             }
+            GroupMemoryBarrierWithGroupSync();
         }
         GroupMemoryBarrierWithGroupSync();
         if(phase==1u)
@@ -601,13 +1199,12 @@ void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
             {
                 uint local=lane+ownerIndex*256u;
                 _M8FlowerPageDirectory.Store2(scratch+local*8u,m8FlowerPageOwnerSpans[local]);
-                _M8FlowerPageDirectory.Store(scratch+M8_FLOWER_BATCH_COMPLETION+local*4u,m8FlowerPageCompletion[local]);
             }
             if(lane<M8_FLOWER_SUPPORT_HALF_WORDS)
                 _M8FlowerPageDirectory.Store(scratch+M8_FLOWER_BATCH_DIRT_HALVES+lane*4u,m8FlowerSupportHalves[lane]);
         }
     }
-    if(lane==0u && emitting && m8FlowerHaloUnresolvedReads!=0u)
+    if(lane==0u && emitting && (m8FlowerHaloUnresolvedReads!=0u || m8FlowerSupportUnresolved!=0u))
         m8FlowerCompileStatus=M8_FLOWER_SUPPORT_AMBIGUOUS;
     GroupMemoryBarrierWithGroupSync();
     if(emitting && m8FlowerCompileStatus==M8_FLOWER_ARENA_OK)

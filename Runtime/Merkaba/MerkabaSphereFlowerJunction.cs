@@ -48,6 +48,9 @@ namespace Genesis.RoomScan
             internal uint CertainCount;
             internal uint AmbiguousCount;
             internal uint DetailCount;
+            // Known roots whose dual permission is needed by an actually
+            // admitted, still-unresolved finite candidate (2*axis+sign).
+            internal uint RequiredDualMask;
             internal FloatInterval Scalar;
             internal Interval3 Vector;
         }
@@ -144,7 +147,11 @@ namespace Genesis.RoomScan
                             (rootFlags[alternative] & (1UL << rule.Flag(line))) == 0u)) admitted = false;
                     }
                     if (!admitted) continue;
-                    if (unresolved) result.AmbiguousCount++;
+                    if (unresolved)
+                    {
+                        result.AmbiguousCount++;
+                        result.RequiredDualMask |= required & knownMask & ~(allowedMask | vetoMask);
+                    }
                     else
                     {
                         if (metricDetail) result.DetailCount++;

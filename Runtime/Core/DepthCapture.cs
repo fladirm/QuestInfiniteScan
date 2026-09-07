@@ -1001,7 +1001,6 @@ namespace Genesis.RoomScan
             FreezeDepthCertificateBounds(calibratedDepthErrorLeft, calibratedDepthErrorRight);
             ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush, gridToWorld);
             SetGlobalShaderProperties();
-            RecordDepthCertificate(command);
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
             _preprocessedFrameCount++;
             Updated?.Invoke();
@@ -1116,9 +1115,10 @@ namespace Genesis.RoomScan
             _depthCertificateObservationVersion = version;
         }
 
-        internal void RecordDepthCertificate(CommandBuffer command)
+        internal void RecordDepthCertificate(CommandBuffer command, MerkabaObservationBinsGpu bins)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
+            if (bins == null) throw new ArgumentNullException(nameof(bins));
             if (DepthCertificate == null || depthCertificateCompute == null)
                 throw new InvalidOperationException("Certificate recording requires frozen bounds and its production shader.");
             RenderTexture source = _ownedRawDepth[_heldDepthSlot];
@@ -1129,6 +1129,7 @@ namespace Genesis.RoomScan
             _buildDepthCertificateKernel.Set(command, RefineSrcDepthId, source);
             _buildDepthCertificateKernel.Set(command, DepthCertificateId, _depthCertificate);
             _reduceDepthCertificateKernel.Set(command, DepthCertificateId, _depthCertificate);
+            bins.BindReset(command, depthCertificateCompute, _reduceDepthCertificateKernel.KernelIndex);
             command.DispatchCompute(depthCertificateCompute, _buildDepthCertificateKernel.KernelIndex, 32, 32, 2);
             command.DispatchCompute(depthCertificateCompute, _reduceDepthCertificateKernel.KernelIndex, 1, 1, 2);
         }

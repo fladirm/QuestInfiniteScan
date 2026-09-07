@@ -173,6 +173,8 @@ namespace Genesis.RoomScan.UI
         private MerkabaSpatialBinding? _packageSpatialBinding;
         private Transform _artifactAnchor;
         private bool _ownsArtifactAnchor;
+        private bool _deferredExportClose, _deferredExportDestroy;
+        private bool ExportMutationHeld => _scanner?.ExportMutationHeld == true;
 
         public bool IsOpen { get; private set; }
         public bool HasSessionDesign => _paintEngine != null && _paintEngine.IsOpen;
@@ -184,6 +186,7 @@ namespace Genesis.RoomScan.UI
             get => _paintInputEnabled;
             set
             {
+                if (ExportMutationHeld) return;
                 if (_paintInputEnabled == value) return;
                 _paintInputEnabled = value;
                 CancelPaintStroke();
@@ -200,6 +203,7 @@ namespace Genesis.RoomScan.UI
             get => _objectInputEnabled;
             set
             {
+                if (ExportMutationHeld) return;
                 if (_objectInputEnabled == value) return;
                 _objectInputEnabled = value;
                 _designLibrary?.EndGrab(true);
@@ -243,6 +247,7 @@ namespace Genesis.RoomScan.UI
             get => _paintTool;
             set
             {
+                if (ExportMutationHeld) return;
                 if (_paintTool == value) return;
                 CancelPaintStroke();
                 _paintTool = value;
@@ -297,6 +302,7 @@ namespace Genesis.RoomScan.UI
             get => _worldLocked;
             set
             {
+                if (ExportMutationHeld) return;
                 if (_worldLocked == value) return;
                 if ((_roomAligned || _alignmentPending) && !value)
                 {
@@ -396,6 +402,7 @@ namespace Genesis.RoomScan.UI
 
         private void Update()
         {
+            if (ExportMutationHeld) return;
             PollNoteKeyboard();
             if (!IsOpen || _modelRoot == null) return;
             if (_scanner.IsScanning || _scanner.IsScanStarting)
@@ -426,12 +433,12 @@ namespace Genesis.RoomScan.UI
 
         private void OnApplicationPause(bool paused)
         {
-            if (paused) CancelTransientInput();
+            if (paused && !ExportMutationHeld) CancelTransientInput();
         }
 
         private void OnApplicationFocus(bool focused)
         {
-            if (!focused) CancelTransientInput();
+            if (!focused && !ExportMutationHeld) CancelTransientInput();
         }
 
         public async Task ToggleAsync()
@@ -449,12 +456,29 @@ namespace Genesis.RoomScan.UI
 
         public async Task<bool> OpenArchiveAsync(string archivePath)
         {
+            if (ExportMutationHeld || _scanner.IsBusy || _indexLoadPending) return false;
             if (string.IsNullOrWhiteSpace(archivePath))
             {
                 Status = "3D Tiles ZIP path is empty";
                 return false;
             }
             archivePath = Path.GetFullPath(archivePath);
+            if (!File.Exists(archivePath))
+            {
+                Status = "Model package does not exist";
+                return false;
+            }
+            // Native models restore their own isolated committed session and
+            // ordinary readout. A declared invalid package must not fall back
+            // to a preview, and OPEN owns closing the current design/viewer.
+            bool? native = await _scanner.ImportNativePackageAsync(archivePath);
+            if (native.HasValue)
+            {
+                Status = native.Value ? "Native model opened in scan readout" :
+                    _scanner.CurrentOperation.StatusText;
+                return native.Value;
+            }
+            if (!isActiveAndEnabled || ExportMutationHeld || _scanner.IsBusy) return false;
             if (IsOpen)
             {
                 if (string.Equals(_archivePath, archivePath,
@@ -477,7 +501,7 @@ namespace Genesis.RoomScan.UI
 
             int generation = ++_generation;
             _indexLoadPending = true;
-            Status = "Opening exported 3D Tiles…";
+            Status = "Opening preview-only 3D Tiles…";
             var timer = System.Diagnostics.Stopwatch.StartNew();
             try
             {
@@ -488,12 +512,12 @@ namespace Genesis.RoomScan.UI
                         throw new InvalidOperationException(
                             "Scanner GPU work did not retire for GLB View.");
                 }
-                if (generation != _generation || !isActiveAndEnabled)
+                if (generation != _generation || !isActiveAndEnabled || ExportMutationHeld)
                     return false;
 
                 PackageIndex package = await Task.Run(() =>
                     ReadPackageIndex(archivePath));
-                if (generation != _generation || !isActiveAndEnabled)
+                if (generation != _generation || !isActiveAndEnabled || ExportMutationHeld)
                     return false;
 
                 _savedReadoutEnabled = _scanner.ReadoutDrawEnabled;
@@ -511,7 +535,7 @@ namespace Genesis.RoomScan.UI
                 BindAnnotations();
                 LoadAnnotations();
                 IsOpen = true;
-                Status = $"GLB View · 0/{_tiles.Count} tiles";
+                Status = $"GLB preview-only · 0/{_tiles.Count} tiles";
                 RefreshResidency();
                 Logger.Info($"Merkaba GLB View index ready in " +
                     $"{timer.Elapsed.TotalMilliseconds:F1} ms: " +
@@ -534,6 +558,7 @@ namespace Genesis.RoomScan.UI
 
         public void RequestPackageFromDisk()
         {
+            if (ExportMutationHeld || _scanner.IsBusy) return;
             if (_packagePickerPending || _indexLoadPending)
                 return;
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -584,12 +609,11 @@ namespace Genesis.RoomScan.UI
 
         public void RequestDesignAssetFromDisk()
         {
+            if (ExportMutationHeld || _scanner.IsBusy) return;
             if (_designAssetPickerPending) return;
-            if (_designLibrary == null)
-            {
-                Status = "Open an anchored session before importing objects";
-                return;
-            }
+            // A native GLB opens its own session and does not need a preview
+            // design library. Preview-only assets still require one after the
+            // package discriminator has returned null.
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
             {
@@ -600,7 +624,7 @@ namespace Genesis.RoomScan.UI
                 using var picker = new AndroidJavaClass(
                     "com.genesis.roomscan.MerkabaPackagePicker");
                 _designAssetPickerPending = true;
-                Status = "Choose a GLB design object…";
+                Status = "Choose a native GLB model or preview object…";
                 picker.CallStatic("openGlb", activity, gameObject.name,
                     nameof(OnDesignAssetPickerResult));
             }
@@ -619,6 +643,7 @@ namespace Genesis.RoomScan.UI
         public void OnDesignAssetPickerResult(string result)
         {
             _designAssetPickerPending = false;
+            if (ExportMutationHeld) return;
             if (string.IsNullOrWhiteSpace(result) || result == "CANCELLED")
             {
                 Status = "Design object import cancelled";
@@ -636,31 +661,33 @@ namespace Genesis.RoomScan.UI
         }
 
         public bool SelectDesignAsset(string assetId) =>
-            _designLibrary?.SelectAsset(assetId) ?? false;
+            !ExportMutationHeld && (_designLibrary?.SelectAsset(assetId) ?? false);
 
         public void SetObjectPlacementEnabled(bool enabled)
         {
+            if (ExportMutationHeld) return;
             _designLibrary?.SetPlacementEnabled(enabled);
             RefreshTileColliders();
         }
 
         public bool SelectDesignInstance(int instanceId) =>
-            _designLibrary?.SelectInstance(instanceId) ?? false;
+            !ExportMutationHeld && (_designLibrary?.SelectInstance(instanceId) ?? false);
 
         public bool DuplicateSelectedDesignObject() =>
-            _designLibrary?.DuplicateSelected() ?? false;
+            !ExportMutationHeld && (_designLibrary?.DuplicateSelected() ?? false);
 
         public bool DeleteSelectedDesignObject() =>
-            _designLibrary?.DeleteSelected() ?? false;
+            !ExportMutationHeld && (_designLibrary?.DeleteSelected() ?? false);
 
         public bool ToggleSelectedDesignObjectVisible() =>
-            _designLibrary?.ToggleSelectedVisible() ?? false;
+            !ExportMutationHeld && (_designLibrary?.ToggleSelectedVisible() ?? false);
 
         public bool ToggleSelectedDesignObjectLocked() =>
-            _designLibrary?.ToggleSelectedLocked() ?? false;
+            !ExportMutationHeld && (_designLibrary?.ToggleSelectedLocked() ?? false);
 
         public bool UndoDesign()
         {
+            if (ExportMutationHeld) return false;
             _designLibrary?.EndGrab(true);
             if (_paintEngine == null || !_paintEngine.Undo()) return false;
             _designLibrary?.RefreshInstances();
@@ -671,6 +698,7 @@ namespace Genesis.RoomScan.UI
 
         public bool RedoDesign()
         {
+            if (ExportMutationHeld) return false;
             _designLibrary?.EndGrab(true);
             if (_paintEngine == null || !_paintEngine.Redo()) return false;
             _designLibrary?.RefreshInstances();
@@ -681,19 +709,28 @@ namespace Genesis.RoomScan.UI
 
         private async Task ImportDesignAssetAsync(string importedPath)
         {
+            if (ExportMutationHeld || _scanner.IsBusy) return;
             try
             {
+                bool? native = await _scanner.ImportNativePackageAsync(importedPath);
+                if (native.HasValue)
+                {
+                    Status = native.Value ? "Native model opened in scan readout" :
+                        _scanner.CurrentOperation.StatusText;
+                    return;
+                }
+                if (!isActiveAndEnabled || ExportMutationHeld || _scanner.IsBusy) return;
                 MerkabaDesignLibrary library = _designLibrary ??
                     throw new InvalidOperationException(
                         "Open an anchored session before importing objects.");
                 MerkabaDesignAsset asset = await Task.Run(() =>
                     library.ImportFile(importedPath));
-                if (_designLibrary != library || !IsOpen) return;
+                if (_designLibrary != library || !IsOpen || ExportMutationHeld) return;
                 library.Refresh();
                 library.SelectAsset(asset.id);
                 library.SetPlacementEnabled(true);
                 ObjectInputEnabled = true;
-                Status = "Place " + asset.displayName;
+                Status = "Place preview-only object: " + asset.displayName;
             }
             catch (Exception exception)
             {
@@ -724,8 +761,25 @@ namespace Genesis.RoomScan.UI
 
         public void Close() => Close(false);
 
+        // RoomScanner calls this on the original managed viewer reference,
+        // after every export worker has left and the mutation hold is clear.
+        // No polling task or early teardown of the frozen design is needed.
+        internal void CompleteDeferredExportClose()
+        {
+            if (ExportMutationHeld || !_deferredExportClose) return;
+            bool destroying = _deferredExportDestroy;
+            _deferredExportClose = _deferredExportDestroy = false;
+            Close(destroying);
+        }
+
         private void Close(bool destroying)
         {
+            if (ExportMutationHeld)
+            {
+                _deferredExportClose = true;
+                _deferredExportDestroy |= destroying;
+                return;
+            }
             bool saved = SaveDesign();
             if (!saved && !destroying) return;
             bool wasOpen = IsOpen;
@@ -805,6 +859,7 @@ namespace Genesis.RoomScan.UI
 
         public bool SaveDesign()
         {
+            if (ExportMutationHeld) return false;
             // Freeze completed note input and transient gestures before the
             // existing session SAVE/Save-As cut begins its asynchronous work.
             PollNoteKeyboard();
@@ -876,6 +931,7 @@ namespace Genesis.RoomScan.UI
 
         public void CycleAnnotationMode()
         {
+            if (ExportMutationHeld) return;
             _paintInputEnabled = false;
             CancelPaintStroke();
             CancelAnnotationDrag();
@@ -889,6 +945,7 @@ namespace Genesis.RoomScan.UI
 
         public void DeleteSelectedAnnotation()
         {
+            if (ExportMutationHeld) return;
             AnnotationRecord selected = FindSelectedAnnotation();
             if (selected == null)
             {
@@ -905,6 +962,7 @@ namespace Genesis.RoomScan.UI
 
         public void BeginNoteEdit()
         {
+            if (ExportMutationHeld) return;
             AnnotationRecord selected = FindSelectedAnnotation();
             if (selected == null)
             {
@@ -933,6 +991,7 @@ namespace Genesis.RoomScan.UI
 
         private void PollNoteKeyboard()
         {
+            if (ExportMutationHeld) return;
             if (_noteKeyboard == null) return;
             TouchScreenKeyboard.Status keyboardStatus = _noteKeyboard.status;
             if (keyboardStatus == TouchScreenKeyboard.Status.Visible ||
@@ -976,6 +1035,7 @@ namespace Genesis.RoomScan.UI
 
         private void SetAnnotationNote(int annotationId, string value)
         {
+            if (ExportMutationHeld) return;
             AnnotationRecord annotation = _annotations.Find(item =>
                 item.id == annotationId);
             if (annotation == null) return;
@@ -1411,6 +1471,7 @@ namespace Genesis.RoomScan.UI
 
         private async Task SetRoomAlignedAsync(bool aligned)
         {
+            if (ExportMutationHeld) return;
             if (!aligned)
             {
                 ++_alignmentRevision;
@@ -1443,7 +1504,7 @@ namespace Genesis.RoomScan.UI
                 localized = await manager.LocalizeArtifactAnchorAsync(
                     binding.AnchorUuid);
                 if (generation != _generation || revision !=
-                    _alignmentRevision || !IsOpen || _modelRoot == null)
+                    _alignmentRevision || !IsOpen || _modelRoot == null || ExportMutationHeld)
                 {
                     if (localized.HasValue && localized.Value.owned &&
                         localized.Value.transform != null)
@@ -2801,6 +2862,38 @@ namespace Genesis.RoomScan.UI
             RefreshAnnotationObjects();
         }
 
+        // Native packages preserve this existing document schema, not a new
+        // annotation representation. Absent source notes are explicitly empty.
+        internal static void ValidateNativeAnnotations(string path, bool createEmpty = false)
+        {
+            if (!File.Exists(path))
+            {
+                if (!createEmpty) throw new FileNotFoundException("Native annotations are missing.", path);
+                var empty = new AnnotationFile
+                {
+                    format = "QuestMerkabaAnnotations", version = 2,
+                    nextId = 1, items = Array.Empty<AnnotationRecord>()
+                };
+                File.WriteAllText(path, JsonUtility.ToJson(empty, false), new UTF8Encoding(false));
+            }
+            AnnotationFile file = JsonUtility.FromJson<AnnotationFile>(File.ReadAllText(path, Encoding.UTF8));
+            if (file?.format != "QuestMerkabaAnnotations" || (file.version != 1 && file.version != 2) ||
+                file.items == null || file.nextId <= 0)
+                throw new InvalidDataException("Unsupported native annotation snapshot.");
+            var ids = new HashSet<int>();
+            foreach (AnnotationRecord item in file.items)
+            {
+                if (item == null || item.id <= 0 || !ids.Add(item.id) || item.id >= file.nextId ||
+                    item.points == null || !float.IsFinite(item.width) ||
+                    !float.IsFinite(item.color.r) || !float.IsFinite(item.color.g) ||
+                    !float.IsFinite(item.color.b) || !float.IsFinite(item.color.a))
+                    throw new InvalidDataException("Invalid native annotation identity/style.");
+                foreach (Vector3 point in item.points)
+                    if (!float.IsFinite(point.x) || !float.IsFinite(point.y) || !float.IsFinite(point.z))
+                        throw new InvalidDataException("Nonfinite native annotation coordinate.");
+            }
+        }
+
         private void RefreshResidency()
         {
             if (!IsOpen || _tiles.Count == 0) return;
@@ -2845,8 +2938,7 @@ namespace Genesis.RoomScan.UI
             {
                 long bytes = tile.ResidentBytes > 0L
                     ? tile.ResidentBytes : tile.EstimatedResidentBytes;
-                if (_keptTiles.Count != 0 &&
-                    used + bytes > budget)
+                if (bytes > budget - used)
                     continue;
                 _keptTiles.Add(tile);
                 used = checked(used + bytes);
@@ -2856,7 +2948,7 @@ namespace Genesis.RoomScan.UI
                     DestroyTile(tile);
             StartPendingTileLoads();
             UpdateContinuationMarker(camera);
-            Status = $"GLB View · {LoadedTileCount}/{_tiles.Count} tiles · " +
+            Status = $"GLB preview-only · {LoadedTileCount}/{_tiles.Count} tiles · " +
                 $"{FormatBytes(ResidentDecodedBytes())} resident / " +
                 $"{FormatBytes(_totalModelBytes)} model · " +
                 (loadWholePackage ? "full-load" : "spatial streaming");
@@ -3027,15 +3119,27 @@ namespace Genesis.RoomScan.UI
             _tileLoadsInFlight++;
             var timer = System.Diagnostics.Stopwatch.StartNew();
             string archivePath = _archivePath;
+            long decodedLimit = ResidentDecodedBudgetBytes() / 2L;
             try
             {
-                ParsedGlb parsed = await Task.Run(() => ReadGlbTile(
-                    archivePath, tile));
+                using ParsedGlb parsed = await Task.Run(() => ReadGlbTile(
+                    archivePath, tile, decodedLimit));
                 if (generation != _generation || !IsOpen) return;
                 if (!_keptTiles.Contains(tile)) return;
                 // Keep the same cache policy, but learn the expanded PNG/UV
                 // cost before publication instead of retaining ZIP-size cost.
-                tile.EstimatedResidentBytes = EstimateResidentBytes(parsed.DecodedBytes);
+                long actualResident = EstimateResidentBytes(parsed.DecodedBytes);
+                _totalResidentEstimateBytes = checked(_totalResidentEstimateBytes +
+                    actualResident - tile.EstimatedResidentBytes);
+                tile.EstimatedResidentBytes = actualResident;
+                // PNG compression ratio is not a residency budget. A load
+                // finishing after another tile must still fit actual decoded
+                // CPU/GPU texture+mesh cost before any Unity object exists.
+                if (actualResident > ResidentDecodedBudgetBytes() - ResidentDecodedBytes())
+                {
+                    _keptTiles.Remove(tile);
+                    return;
+                }
                 double parseMilliseconds = timer.Elapsed.TotalMilliseconds;
                 timer.Restart();
                 CreateTileObject(tile, parsed);
@@ -3305,7 +3409,8 @@ namespace Genesis.RoomScan.UI
         private static Vector3 TilesetToUnity(Vector3 value) =>
             new(-value.x, value.z, -value.y);
 
-        private static ParsedGlb ReadGlbTile(string archivePath, Tile tile)
+        private static ParsedGlb ReadGlbTile(string archivePath, Tile tile,
+            long maximumDecodedBytes)
         {
             using var stream = new FileStream(archivePath, FileMode.Open,
                 FileAccess.Read, FileShare.Read, 1024 * 1024,
@@ -3315,19 +3420,22 @@ namespace Genesis.RoomScan.UI
                 throw new InvalidDataException("Missing tile " + tile.Uri);
             using Stream entryStream = entry.Open();
             using var input = new BufferedStream(entryStream, 1024 * 1024);
-            return ParseGlbForPreview(input, entry.Length);
+            return ParseGlbForPreview(input, entry.Length, maximumDecodedBytes);
         }
 
-        internal static ParsedGlb ParseGlbForPreview(byte[] bytes)
+        internal static ParsedGlb ParseGlbForPreview(byte[] bytes,
+            long maximumDecodedBytes = LargePackageBytes / 2L)
         {
             if (bytes == null) throw new ArgumentNullException(nameof(bytes));
             using var input = new MemoryStream(bytes, false);
-            return ParseGlbForPreview(input, bytes.LongLength);
+            return ParseGlbForPreview(input, bytes.LongLength, maximumDecodedBytes);
         }
 
         internal static ParsedGlb ParseGlbForPreview(Stream input,
-            long streamLength)
+            long streamLength, long maximumDecodedBytes = LargePackageBytes / 2L)
         {
+            if (maximumDecodedBytes <= 0L)
+                throw new ArgumentOutOfRangeException(nameof(maximumDecodedBytes));
             if (input == null || !input.CanRead)
                 throw new ArgumentException("GLB input must be readable.",
                     nameof(input));
@@ -3424,6 +3532,18 @@ namespace Genesis.RoomScan.UI
                 uvView = ReadView(document, uv.bufferView);
                 ValidateView(uvView, uv.count, 8, binaryLength);
             }
+            var requiredImages = new bool[document.images?.Length ?? 0];
+            long decodedBytes = checked((long)position.count * (28L + (uvView == null ? 0L : 8L)) +
+                4L * indexCount);
+            foreach (ParsedMaterial material in materials)
+                if (material.Image >= 0 && !requiredImages[material.Image])
+                {
+                    requiredImages[material.Image] = true;
+                    decodedBytes = checked(decodedBytes + CapturedImage.DecodedByteLength);
+                }
+            if (decodedBytes > maximumDecodedBytes)
+                throw new InvalidDataException($"GLB preview needs {decodedBytes} decoded bytes, " +
+                    $"above the {maximumDecodedBytes}-byte resident content budget.");
             var positions = new Vector3[position.count];
             var normals = new Vector3[position.count];
             var colors = new Color32[position.count];
@@ -3523,12 +3643,21 @@ namespace Genesis.RoomScan.UI
                 }
                 binaryCursor += uvView.byteLength;
             }
-            byte[][] images = ReadCapturedImages(input, document, materials, binaryLength, ref binaryCursor, scratch);
-            SkipExactly(input, binaryLength - binaryCursor, scratch);
-            for (int triangle = 0; triangle < indices.Length; triangle += 3)
-                (indices[triangle + 1], indices[triangle + 2]) =
-                    (indices[triangle + 2], indices[triangle + 1]);
-            return new ParsedGlb(positions, normals, colors, indices, uvs, primitiveRanges, materials, images);
+            CapturedImage[] images = ReadCapturedImages(input, document, requiredImages,
+                binaryLength, ref binaryCursor, scratch);
+            try
+            {
+                SkipExactly(input, binaryLength - binaryCursor, scratch);
+                for (int triangle = 0; triangle < indices.Length; triangle += 3)
+                    (indices[triangle + 1], indices[triangle + 2]) =
+                        (indices[triangle + 2], indices[triangle + 1]);
+                return new ParsedGlb(positions, normals, colors, indices, uvs, primitiveRanges, materials, images);
+            }
+            catch
+            {
+                foreach (CapturedImage image in images) image?.Dispose();
+                throw;
+            }
         }
 
         // JsonUtility can construct an absent nested class. Mark only real
@@ -3623,37 +3752,36 @@ namespace Genesis.RoomScan.UI
             return result;
         }
 
-        private static byte[][] ReadCapturedImages(Stream input, GlbDocument document, ParsedMaterial[] materials,
+        private static CapturedImage[] ReadCapturedImages(Stream input, GlbDocument document, bool[] needed,
             int binaryLength, ref long cursor, byte[] scratch)
         {
             int count = document.images?.Length ?? 0;
-            var needed = new bool[count];
-            foreach (ParsedMaterial material in materials)
-                if (material.Image >= 0) needed[material.Image] = true;
-            var result = new byte[count][];
-            for (int image = 0; image < count; image++)
+            var result = new CapturedImage[count];
+            try
             {
-                if (!needed[image]) continue; // No texture allocation for vertex-only RGB or constant DIRT.
-                GlbImage descriptor = document.images[image];
-                if (descriptor == null || descriptor.mimeType != "image/png" || descriptor._m8PreviewHasUri)
-                    throw new InvalidDataException("Flower preview accepts embedded PNG only.");
-                GlbBufferView view = ReadView(document, descriptor.bufferView);
-                if (view.buffer != 0 || view.byteStride != 0 || view.byteOffset < 0 || view.byteLength < 33 ||
-                    view.byteLength > GlbReadBufferBytes ||
-                    (long)view.byteOffset + view.byteLength > binaryLength)
-                    throw new InvalidDataException("Invalid embedded PNG buffer view.");
-                MoveToView(input, view, ref cursor, scratch);
-                byte[] png = new byte[view.byteLength];
-                ReadExactly(input, png, 0, png.Length);
-                cursor += png.Length;
-                if (ReadUInt32(png, 0) != 0x474e5089u || ReadUInt32(png, 4) != 0x0a1a0a0du ||
-                    ReadUInt32(png, 8) != 0x0d000000u || ReadUInt32(png, 12) != 0x52444849u ||
-                    PngUInt32(png, 16) != MerkabaFlowerMaterialBake.Resolution ||
-                    PngUInt32(png, 20) != MerkabaFlowerMaterialBake.Resolution || png[24] != 8 || png[25] != 6)
-                    throw new InvalidDataException("Unsupported Flower PNG dimensions/format.");
-                result[image] = png;
+                for (int image = 0; image < count; image++)
+                {
+                    if (!needed[image]) continue; // Uniform RGB/DIRT never allocate an atlas.
+                    GlbImage descriptor = document.images[image];
+                    if (descriptor == null || descriptor.mimeType != "image/png" || descriptor._m8PreviewHasUri)
+                        throw new InvalidDataException("Flower preview accepts embedded PNG only.");
+                    GlbBufferView view = ReadView(document, descriptor.bufferView);
+                    if (view.buffer != 0 || view.byteStride != 0 || view.byteOffset < 0 || view.byteLength < 33 ||
+                        (long)view.byteOffset + view.byteLength > binaryLength)
+                        throw new InvalidDataException("Invalid embedded PNG buffer view.");
+                    MoveToView(input, view, ref cursor, scratch);
+                    // IO packet size is not an image-size limit. Only the
+                    // bounded PNG packet is resident; IDAT remains on disk.
+                    result[image] = CapturedImage.Read(input, view.byteLength, scratch);
+                    cursor += view.byteLength;
+                }
+                return result;
             }
-            return result;
+            catch
+            {
+                foreach (CapturedImage image in result) image?.Dispose();
+                throw;
+            }
         }
 
         private static uint PngUInt32(byte[] bytes, int offset) =>
@@ -3815,7 +3943,192 @@ namespace Genesis.RoomScan.UI
             }
         }
 
-        internal readonly struct ParsedGlb
+        // A disposable embedded-PNG receipt, not an in-memory PNG array. This
+        // supports only the current writer's noninterlaced RGBA8/filter-0 PNG.
+        // All chunk CRCs are checked while IDAT is copied in bounded packets;
+        // inflate writes one row directly into the readable sRGB Unity texture.
+        internal sealed class CapturedImage : IDisposable
+        {
+            internal const long DecodedByteLength =
+                4L * MerkabaFlowerMaterialBake.Resolution * MerkabaFlowerMaterialBake.Resolution;
+            private static readonly uint[] CrcTable = BuildCrcTable();
+            private readonly FileStream _zlib;
+            private bool _disposed;
+
+            private CapturedImage()
+            {
+                string path = Path.Combine(Path.GetTempPath(), "m8-preview-image-" +
+                    Guid.NewGuid().ToString("N") + ".zlib");
+                _zlib = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite,
+                    FileShare.None, 4096, FileOptions.DeleteOnClose);
+            }
+
+            internal static CapturedImage Read(Stream input, int byteLength, byte[] scratch)
+            {
+                var image = new CapturedImage();
+                try
+                {
+                    ReadExactly(input, scratch, 0, 8);
+                    if (ReadUInt32(scratch, 0) != 0x474e5089u || ReadUInt32(scratch, 4) != 0x0a1a0a0du)
+                        throw new InvalidDataException("Invalid embedded PNG signature.");
+                    long remaining = byteLength - 8L;
+                    bool header = false, srgb = false, idat = false, end = false;
+                    while (remaining >= 12L && !end)
+                    {
+                        ReadExactly(input, scratch, 0, 8);
+                        uint length = PngUInt32(scratch, 0), type = ReadUInt32(scratch, 4);
+                        if (length > remaining - 12L)
+                            throw new InvalidDataException("Embedded PNG chunk exceeds its buffer view.");
+                        uint crc = UpdateCrc(uint.MaxValue, scratch, 4, 4);
+                        bool copy = false;
+                        switch (type)
+                        {
+                            case 0x52444849u: // IHDR
+                                if (header || length != 13u)
+                                    throw new InvalidDataException("Invalid Flower PNG header order.");
+                                header = true;
+                                break;
+                            case 0x42475273u: // sRGB
+                                if (!header || idat || srgb || length != 1u)
+                                    throw new InvalidDataException("Invalid Flower PNG sRGB metadata.");
+                                srgb = true;
+                                break;
+                            case 0x54414449u: // IDAT
+                                if (!header) throw new InvalidDataException("PNG data precedes IHDR.");
+                                copy = idat = true;
+                                break;
+                            case 0x444e4549u: // IEND
+                                if (!idat || length != 0u)
+                                    throw new InvalidDataException("Incomplete Flower PNG image.");
+                                end = true;
+                                break;
+                            default:
+                                throw new InvalidDataException("Unsupported chunk in writer-produced Flower PNG.");
+                        }
+                        long payload = length;
+                        while (payload > 0)
+                        {
+                            int count = (int)Math.Min(payload, scratch.Length);
+                            ReadExactly(input, scratch, 0, count);
+                            crc = UpdateCrc(crc, scratch, 0, count);
+                            if (type == 0x52444849u &&
+                                (PngUInt32(scratch, 0) != MerkabaFlowerMaterialBake.Resolution ||
+                                 PngUInt32(scratch, 4) != MerkabaFlowerMaterialBake.Resolution ||
+                                 scratch[8] != 8 || scratch[9] != 6 || scratch[10] != 0 ||
+                                 scratch[11] != 0 || scratch[12] != 0))
+                                throw new InvalidDataException("Unsupported Flower PNG dimensions/format.");
+                            if (type == 0x42475273u && scratch[0] > 3)
+                                throw new InvalidDataException("Invalid PNG rendering intent.");
+                            if (copy) image._zlib.Write(scratch, 0, count);
+                            payload -= count;
+                        }
+                        ReadExactly(input, scratch, 0, 4);
+                        if (PngUInt32(scratch, 0) != ~crc)
+                            throw new InvalidDataException("Embedded PNG chunk CRC mismatch.");
+                        remaining -= 12L + length;
+                    }
+                    if (!end || remaining != 0 || image._zlib.Length < 6L)
+                        throw new InvalidDataException("Incomplete or trailing Flower PNG data.");
+                    image._zlib.Flush();
+                    return image;
+                }
+                catch { image.Dispose(); throw; }
+            }
+
+            internal void Decode(Texture2D texture)
+            {
+                if (_disposed) throw new ObjectDisposedException(nameof(CapturedImage));
+                int n = MerkabaFlowerMaterialBake.Resolution;
+                if (texture.width != n || texture.height != n || texture.format != TextureFormat.RGBA32)
+                    throw new InvalidDataException("Flower PNG target does not match its decoded byte budget.");
+                _zlib.Position = 0;
+                int cmf = _zlib.ReadByte(), flags = _zlib.ReadByte();
+                if ((cmf & 15) != 8 || (cmf >> 4) > 7 || flags < 0 || (flags & 32) != 0 ||
+                    ((cmf << 8) | flags) % 31 != 0)
+                    throw new InvalidDataException("Unsupported embedded PNG zlib header.");
+                var raw = texture.GetRawTextureData<byte>();
+                if (raw.Length != DecodedByteLength)
+                    throw new InvalidDataException("Flower PNG raw texture capacity mismatch.");
+                var row = new byte[1 + 4 * n];
+                uint a = 1u, b = 0u;
+                using (var encoded = new PngDeflateRange(_zlib, _zlib.Length - 6L))
+                using (var inflate = new DeflateStream(encoded, CompressionMode.Decompress, true))
+                {
+                    for (int y = 0; y < n; y++)
+                    {
+                        ReadExactly(inflate, row, 0, row.Length);
+                        if (row[0] != 0)
+                            throw new InvalidDataException("Unsupported filter in writer-produced Flower PNG.");
+                        foreach (byte value in row)
+                        { a = (a + value) % 65521u; b = (b + a) % 65521u; }
+                        // PNG top row / glTF v=0 maps to Unity's last row.
+                        // Parser's 1-v and SampleCapture's half-texel taps then
+                        // address exactly the writer's sRGB texels.
+                        Unity.Collections.NativeArray<byte>.Copy(row, 1, raw, 4 * n * (n - 1 - y), 4 * n);
+                    }
+                    if (inflate.ReadByte() != -1)
+                        throw new InvalidDataException("PNG inflate exceeds the declared texture dimensions.");
+                }
+                _zlib.Position = _zlib.Length - 4L;
+                ReadExactly(_zlib, row, 0, 4);
+                if (PngUInt32(row, 0) != ((b << 16) | a))
+                    throw new InvalidDataException("PNG decoded Adler32 mismatch.");
+                texture.Apply(false, false); // no mip chain; CPU sampling remains readable
+            }
+
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _zlib.Dispose(); // DeleteOnClose removes only this receipt's temp file.
+            }
+
+            private static uint[] BuildCrcTable()
+            {
+                var result = new uint[256];
+                for (uint index = 0; index < result.Length; index++)
+                {
+                    uint value = index;
+                    for (int bit = 0; bit < 8; bit++)
+                        value = (value >> 1) ^ ((value & 1u) != 0u ? 0xedb88320u : 0u);
+                    result[index] = value;
+                }
+                return result;
+            }
+
+            private static uint UpdateCrc(uint crc, byte[] bytes, int offset, int count)
+            {
+                for (int index = 0; index < count; index++)
+                    crc = CrcTable[(crc ^ bytes[offset + index]) & 255u] ^ (crc >> 8);
+                return crc;
+            }
+
+            private sealed class PngDeflateRange : Stream
+            {
+                private readonly Stream _source;
+                private long _remaining;
+                internal PngDeflateRange(Stream source, long length) { _source = source; _remaining = length; }
+                public override int Read(byte[] buffer, int offset, int count)
+                {
+                    int requested = (int)Math.Min(count, _remaining);
+                    if (requested == 0) return 0;
+                    int read = _source.Read(buffer, offset, requested);
+                    if (read == 0) throw new EndOfStreamException("Truncated PNG deflate stream.");
+                    _remaining -= read; return read;
+                }
+                public override bool CanRead => true;
+                public override bool CanWrite => false;
+                public override bool CanSeek => false;
+                public override long Length => throw new NotSupportedException();
+                public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+                public override void Flush() { }
+                public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+                public override void SetLength(long value) => throw new NotSupportedException();
+                public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            }
+        }
+
+        internal readonly struct ParsedGlb : IDisposable
         {
             internal readonly Vector3[] Positions;
             internal readonly Vector3[] Normals;
@@ -3824,12 +4137,12 @@ namespace Genesis.RoomScan.UI
             internal readonly Vector2[] Uvs;
             internal readonly ParsedPrimitive[] Primitives;
             internal readonly ParsedMaterial[] Materials;
-            internal readonly byte[][] Images;
+            internal readonly CapturedImage[] Images;
             internal readonly long DecodedBytes;
 
             internal ParsedGlb(Vector3[] positions, Vector3[] normals,
                 Color32[] colors, int[] indices, Vector2[] uvs, ParsedPrimitive[] primitives,
-                ParsedMaterial[] materials, byte[][] images)
+                ParsedMaterial[] materials, CapturedImage[] images)
             {
                 Positions = positions;
                 Normals = normals;
@@ -3839,9 +4152,14 @@ namespace Genesis.RoomScan.UI
                 DecodedBytes = checked(positions.LongLength * 12L +
                     normals.LongLength * 12L + colors.LongLength * 4L +
                     indices.LongLength * 4L + uvs.LongLength * 8L);
-                foreach (byte[] png in images)
-                    if (png != null) DecodedBytes = checked(DecodedBytes + png.LongLength +
-                        4L * MerkabaFlowerMaterialBake.Resolution * MerkabaFlowerMaterialBake.Resolution);
+                foreach (CapturedImage image in images)
+                    if (image != null) DecodedBytes = checked(DecodedBytes + CapturedImage.DecodedByteLength);
+            }
+
+            public void Dispose()
+            {
+                if (Images == null) return;
+                foreach (CapturedImage image in Images) image?.Dispose();
             }
         }
 
@@ -3878,6 +4196,8 @@ namespace Genesis.RoomScan.UI
             private PreviewGlb(ParsedGlb parsed, Material template, string name)
             {
                 if (template == null) throw new ArgumentNullException(nameof(template));
+                if (!FitsResidentBudget(EstimateResidentBytes(parsed.DecodedBytes), ResidentDecodedBudgetBytes()))
+                    throw new InvalidDataException("Decoded GLB exceeds the device preview residency budget.");
                 _primitives = parsed.Primitives; _definitions = parsed.Materials;
                 _textures = new Texture2D[parsed.Images.Length];
                 _owned = new Material[_definitions.Length];
@@ -3897,20 +4217,18 @@ namespace Genesis.RoomScan.UI
                     }
                     for (int image = 0; image < _textures.Length; image++)
                     {
-                        byte[] png = parsed.Images[image];
+                        CapturedImage png = parsed.Images[image];
                         if (png == null) continue;
                         if (SystemInfo.maxTextureSize < MerkabaFlowerMaterialBake.Resolution)
                             throw new InvalidDataException("Device cannot represent the captured Flower texture.");
                         // The writer's base-color PNG stores sRGB. Sampling
                         // must decode it to linear captured radiance, not albedo.
-                        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false, false)
+                        var texture = new Texture2D(MerkabaFlowerMaterialBake.Resolution,
+                            MerkabaFlowerMaterialBake.Resolution, TextureFormat.RGBA32, false, false)
                         { name = name + " Captured " + image, hideFlags = HideFlags.DontSave,
                             wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
                         _textures[image] = texture;
-                        if (!ImageConversion.LoadImage(texture, png, false) ||
-                            texture.width != MerkabaFlowerMaterialBake.Resolution ||
-                            texture.height != MerkabaFlowerMaterialBake.Resolution)
-                            throw new InvalidDataException("Could not decode the embedded captured PNG.");
+                        png.Decode(texture);
                     }
                     Materials = CreateBindings(template, _owned);
                 }

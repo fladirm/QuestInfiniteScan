@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -116,8 +117,10 @@ namespace Genesis.RoomScan
             internal bool IsLeaf => Leaf;
         }
 
-        internal static void BeginStreamingPackage(string directory)
+        internal static void BeginStreamingPackage(string directory,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (Directory.Exists(directory))
                 throw new IOException("Tileset staging directory already exists.");
             Directory.CreateDirectory(Path.Combine(directory, "tiles"));
@@ -126,8 +129,10 @@ namespace Genesis.RoomScan
         internal static MerkabaTilesetLeaf WriteStreamingLeaf(
             string directory, int leafIndex, MerkabaFlowerPresentation presentation,
             IProgress<OperationWorkProgress> progress = null,
-            long hardLeafBytes = DefaultHardLeafBytes)
+            long hardLeafBytes = DefaultHardLeafBytes,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (presentation == null) throw new ArgumentNullException(nameof(presentation));
             if (presentation.TriangleCount == 0)
                 throw new InvalidDataException("3D Tiles Flower leaf is empty.");
@@ -140,15 +145,18 @@ namespace Genesis.RoomScan
                 MerkabaSphereFlowerAuthority.DirtGridCoordinate(centre.y),
                 MerkabaSphereFlowerAuthority.DirtGridCoordinate(centre.z));
             return WriteStreamingLeaf(directory, leafIndex, minimum, maximum, origin,
-                stream => MerkabaGlbWriter.Write(stream, presentation, origin, progress), hardLeafBytes);
+                stream => MerkabaGlbWriter.Write(stream, presentation, origin, progress,
+                    cancellationToken, hardLeafBytes), hardLeafBytes, cancellationToken);
         }
 
         internal static MerkabaTilesetLeaf WriteStreamingDirtLeaf(
             string directory, int leafIndex,
             IReadOnlyList<MerkabaDirtTriangle> triangles,
             IProgress<OperationWorkProgress> progress = null,
-            long hardLeafBytes = DefaultHardLeafBytes)
+            long hardLeafBytes = DefaultHardLeafBytes,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (triangles == null) throw new ArgumentNullException(nameof(triangles));
             if (triangles.Count == 0)
                 throw new InvalidDataException("3D Tiles DIRT leaf is empty.");
@@ -156,6 +164,7 @@ namespace Genesis.RoomScan
             int3 maximum = minimum;
             for (int index = 1; index < triangles.Count; index++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 minimum = math.min(minimum, triangles[index].Cell);
                 maximum = math.max(maximum, triangles[index].Cell);
             }
@@ -169,30 +178,46 @@ namespace Genesis.RoomScan
                 MerkabaSphereFlowerAuthority.DirtGridCoordinate(center.z));
             return WriteStreamingLeaf(directory, leafIndex, minimum, maximum,
                 origin, stream => MerkabaGlbWriter.WriteDirt(stream, triangles,
-                    origin, progress), hardLeafBytes);
+                    origin, progress, cancellationToken, hardLeafBytes), hardLeafBytes,
+                cancellationToken);
         }
 
         private static MerkabaTilesetLeaf WriteStreamingLeaf(
             string directory, int leafIndex, int3 minimum, int3 maximum,
             float3 localOrigin, Func<Stream, MerkabaGlbResult> write,
-            long hardLeafBytes)
+            long hardLeafBytes, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (hardLeafBytes <= 0) throw new ArgumentOutOfRangeException(nameof(hardLeafBytes));
             string name = leafIndex.ToString("D6",
                 CultureInfo.InvariantCulture) + ".glb";
             string finalPath = Path.Combine(directory, "tiles", name);
             string temporaryPath = finalPath + ".tmp";
             MerkabaGlbResult result;
-            using (var stream = new FileStream(temporaryPath,
-                       FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                       1024 * 1024, FileOptions.SequentialScan))
+            bool created = false;
+            try
             {
-                result = write(stream);
-                stream.Flush(true);
+                using (var stream = new FileStream(temporaryPath,
+                           FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                           64 * 1024, FileOptions.SequentialScan))
+                {
+                    created = true;
+                    result = write(stream);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    stream.Flush(true);
+                }
+                if (result.ByteLength > hardLeafBytes)
+                    throw new InvalidDataException($"3D Tiles leaf {name} is " +
+                        $"{result.ByteLength} bytes, above {hardLeafBytes}.");
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(temporaryPath, finalPath);
             }
-            if (result.ByteLength > hardLeafBytes)
-                throw new InvalidDataException($"3D Tiles leaf {name} is " +
-                    $"{result.ByteLength} bytes, above {hardLeafBytes}.");
-            File.Move(temporaryPath, finalPath);
+            catch
+            {
+                // Only this invocation's unpublished leaf is disposable.
+                if (created && File.Exists(temporaryPath)) File.Delete(temporaryPath);
+                throw;
+            }
             ConvertGlbBoundsToTileset(result.Minimum, result.Maximum,
                 out Vector3 contentMinimum, out Vector3 contentMaximum);
             return new MerkabaTilesetLeaf(leafIndex, minimum, maximum,
@@ -203,8 +228,11 @@ namespace Genesis.RoomScan
 
         internal static MerkabaTilesetResult CompleteStreamingPackage(
             string directory, IReadOnlyList<MerkabaTilesetLeaf> leaves,
-            MerkabaSpatialBinding? spatialBinding = null)
+            MerkabaSpatialBinding? spatialBinding = null,
+            CancellationToken cancellationToken = default,
+            MerkabaNativePackage.Snapshot nativePackage = null)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (leaves == null || leaves.Count == 0)
                 throw new InvalidDataException("3D Tiles Flower geometry is empty.");
             var nodes = new List<Node>(leaves.Count);
@@ -213,6 +241,7 @@ namespace Genesis.RoomScan
             long totalTriangles = 0L;
             foreach (MerkabaTilesetLeaf leaf in leaves)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 Vector3 translation = ConvertOriginToTileset(leaf.LocalOrigin);
                 nodes.Add(new Node
                 {
@@ -233,9 +262,17 @@ namespace Genesis.RoomScan
                 totalVertices = checked(totalVertices + leaf.VertexCount);
                 totalTriangles = checked(totalTriangles + leaf.TriangleCount);
             }
-            Node root = BuildStreamingHierarchy(nodes, 0, nodes.Count);
-            ResolveBounds(root);
-            string json = BuildTileset(root, spatialBinding);
+            Node root = BuildStreamingHierarchy(nodes, 0, nodes.Count, cancellationToken);
+            ResolveBounds(root, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (nativePackage != null)
+            {
+                nativePackage.WriteDirectory(directory, cancellationToken);
+                totalBytes = checked(totalBytes + nativePackage.ManifestBytes.Length);
+                foreach (MerkabaNativePackage.Entry entry in nativePackage.Manifest.entries)
+                    totalBytes = checked(totalBytes + entry.length);
+            }
+            string json = BuildTileset(root, spatialBinding, nativePackage != null);
             string manifest = Path.Combine(directory, "tileset.json");
             string temporary = manifest + ".tmp";
             using (var stream = new FileStream(temporary, FileMode.CreateNew,
@@ -244,10 +281,18 @@ namespace Genesis.RoomScan
             using (var writer = new StreamWriter(stream,
                        new UTF8Encoding(false), 64 * 1024, true))
             {
-                writer.Write(json);
+                for (int offset = 0; offset < json.Length;)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int count = Math.Min(16 * 1024, json.Length - offset);
+                    writer.Write(json.AsSpan(offset, count));
+                    offset += count;
+                }
                 writer.Flush();
+                cancellationToken.ThrowIfCancellationRequested();
                 stream.Flush(true);
             }
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, manifest);
             totalBytes = checked(totalBytes + new FileInfo(manifest).Length);
             return new MerkabaTilesetResult(leaves.Count, totalBytes,
@@ -255,29 +300,31 @@ namespace Genesis.RoomScan
         }
 
         private static Node BuildStreamingHierarchy(List<Node> leaves,
-            int offset, int count)
+            int offset, int count, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (count == 1) return leaves[offset];
             int lowCount = count / 2;
             return new Node
             {
-                Low = BuildStreamingHierarchy(leaves, offset, lowCount),
+                Low = BuildStreamingHierarchy(leaves, offset, lowCount, cancellationToken),
                 High = BuildStreamingHierarchy(leaves, offset + lowCount,
-                    count - lowCount)
+                    count - lowCount, cancellationToken)
             };
         }
 
-        private static void ResolveBounds(Node node)
+        private static void ResolveBounds(Node node, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (node.IsLeaf) return;
-            ResolveBounds(node.Low);
-            ResolveBounds(node.High);
+            ResolveBounds(node.Low, cancellationToken);
+            ResolveBounds(node.High, cancellationToken);
             node.Minimum = Vector3.Min(node.Low.Minimum, node.High.Minimum);
             node.Maximum = Vector3.Max(node.Low.Maximum, node.High.Maximum);
         }
 
         private static string BuildTileset(Node root,
-            MerkabaSpatialBinding? spatialBinding)
+            MerkabaSpatialBinding? spatialBinding, bool hasNativePackage = false)
         {
             var json = new StringBuilder(4096);
             json.Append("{\"asset\":{\"version\":\"1.1\",\"generator\":")
@@ -289,6 +336,12 @@ namespace Genesis.RoomScan
                 .Append(',')
                 .Append("\"root\":");
             AppendNode(json, root);
+            if (hasNativePackage)
+                json.Append(",\"extras\":{\"M8_flower_thread\":{\"version\":")
+                    .Append(MerkabaNativePackage.Version)
+                    .Append(",\"manifest\":\"")
+                    .Append(MerkabaNativePackage.ManifestRelativePath)
+                    .Append("\"}}");
             json.Append('}');
             return json.ToString();
         }

@@ -106,10 +106,11 @@ namespace Genesis.RoomScan.Editor
             foreach (var section in tables.Sections)
                 output.Append("        internal const int ").Append(section.Name)
                     .Append("RowOffset = ").Append(section.Offset).AppendLine(";");
-            output.AppendLine("        internal static uint4[] CreateRows() => new uint4[]");
+            output.AppendLine("        internal static uint4[] CreateRows() =>");
+            output.AppendLine("            System.Runtime.InteropServices.MemoryMarshal.Cast<uint, uint4>(new System.ReadOnlySpan<uint>(new uint[]");
             output.AppendLine("        {");
             foreach (uint4 row in tables.Rows) AppendTableBlobRow(output, row);
-            output.AppendLine("        };");
+            output.AppendLine("        })).ToArray();");
             output.AppendLine("    }");
             output.AppendLine("}");
             return output.ToString();
@@ -189,13 +190,13 @@ namespace Genesis.RoomScan.Editor
 
         private static void AppendTableBlobRow(StringBuilder output, uint4 words)
         {
-            output.Append("            new uint4(");
+            output.Append("            ");
             for (int axis = 0; axis < 4; axis++)
             {
                 if (axis != 0) output.Append(", ");
                 output.Append("0x").Append(words[axis].ToString("x8", CultureInfo.InvariantCulture)).Append('u');
             }
-            output.AppendLine("),");
+            output.AppendLine(",");
         }
 
         private static uint4[] BuildL2CanonicalOwnerRows()
@@ -357,7 +358,12 @@ namespace Genesis.RoomScan.Editor
             AppendAnchorSectorPetalMasks(output, false, tables);
             AppendTetraFrames(output, tables);
             AppendJunctionRules(output, false, tables);
+            AppendCoordinateForms(output, tables);
+            AppendChildLoopAddresses(output, tables);
+            AppendLoopMetricLengths(output, tables);
+            AppendPlaneDecodeTable(output, tables);
             AppendFunctions(output);
+            AppendPhaseDependencies(output, false, tables);
             AppendJunctionSelector(output);
             AppendPlaneCodec(output, false);
             AppendCarrierRelation(output);
@@ -495,10 +501,10 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
     precise float3 relative=float3(r)*(0.5*M8_FLOWER_LATTICE_STEP);
     float radius=M8FlowerGeometryLoopRadiusAt(lineClass);
     M8FlowerInterval3 firstAbc,secondAbc;
-    if (!M8FlowerPlaneIntervals(firstNormal,firstOffset,relative,radius,lineClass,
-            normalUncertainty,offsetUncertainty,firstAbc) ||
-        !M8FlowerPlaneIntervals(secondNormal,secondOffset,-relative,radius,lineClass,
-            normalUncertainty,offsetUncertainty,secondAbc)) return 2u;
+    if (!M8FlowerPlaneLoopIntervals(firstNormal,firstOffset,relative,radius,lineClass,
+            normalUncertainty,offsetUncertainty,0u,r,firstAbc) ||
+        !M8FlowerPlaneLoopIntervals(secondNormal,secondOffset,-relative,radius,lineClass,
+            normalUncertainty,offsetUncertainty,0u,-r,secondAbc)) return 2u;
     M8FlowerPhaseRootEvidence firstEvidence=(M8FlowerPhaseRootEvidence)0;
     M8FlowerPhaseRootEvidence secondEvidence=(M8FlowerPhaseRootEvidence)0;
     uint firstClass,secondClass;
@@ -538,6 +544,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
             o.AppendLine();
             AppendGeneratedCsPhaseFamilies(o);
             AppendL2Carrier(o, true);
+            AppendPhaseDependencies(o, true);
             AppendRadicalSectorPatterns(o, true);
             AppendAnchorSectorPetalMasks(o, true);
             AppendBoundaryRules(o, true);
@@ -745,6 +752,27 @@ internal static uint4 M8FlowerContradictR1(uint4 state)
     return state;
 }
 ";
+            if (!csharp)
+            {
+                int first = source.IndexOf("    // Every numerator is bounded by 1023;", StringComparison.Ordinal);
+                int last = source.IndexOf("    uint raw =", first, StringComparison.Ordinal);
+                if (first < 0 || last < first) throw new InvalidDataException("Plane decoder emission seam changed.");
+                source = source.Remove(first, last - first).Insert(first, @"
+    uint3 magnitude=(uint3)abs(int3(x,y,z));
+    uint smallest=min(magnitude.x,min(magnitude.y,magnitude.z));
+    uint largest=max(magnitude.x,max(magnitude.y,magnitude.z));
+    uint middle=1023u-smallest-largest;
+    uint index=M8FlowerNormalPrefixAt(smallest)+middle-smallest;
+    float3 decoded=M8FlowerNormalCodeAt(index);
+    normal=float3(magnitude.x==largest?decoded.x:(magnitude.x==middle?decoded.y:decoded.z),
+        magnitude.y==largest?decoded.x:(magnitude.y==middle?decoded.y:decoded.z),
+        magnitude.z==largest?decoded.x:(magnitude.z==middle?decoded.y:decoded.z));
+    normal=asfloat(asuint(normal)|uint3(x<0?0x80000000u:0u,
+        y<0?0x80000000u:0u,z<0?0x80000000u:0u));
+");
+                source=source.Replace("    int offsetCode = raw >= 128u ? (int)raw - 256 : (int)raw;\n    precise float unitOffset = M8FlowerRoundDivide((float)offsetCode,127.0f);",
+                    "    precise float unitOffset = M8FlowerOffsetCodeAt(raw);");
+            }
             output.AppendLine(csharp
                 ? source.Replace("precise ", string.Empty).Replace("[loop] ", string.Empty)
                     .Replace("M8FlowerIsFinite(", "isfinite(")
@@ -1588,6 +1616,184 @@ internal static uint M8FlowerUniqueCompletion(uint2 candidates,out uint petal)
                     .Replace("M8FlowerCompletionNeighbours[petal]", "M8FlowerCompletionNeighboursAt(petal)"));
         }
 
+        private static void AppendCoordinateForms(StringBuilder output, GpuTables tables)
+        {
+            // Only the finite coordinate planes, never a measured plane.
+            // Preserve the oracle's binary32 enclosure, including every
+            // outward-rounding operation at zero sensor uncertainty.
+            int nodeCount = MerkabaSphereFlowerAuthority.NodeClassCount;
+            int count = nodeCount + MerkabaSphereFlowerAuthority.L2KnotCount;
+            var rows = new uint4[count * 6];
+            for (int form = 0; form < count; form++)
+            {
+                int level, line;
+                int3 offset;
+                if (form < nodeCount)
+                {
+                    var node = MerkabaSphereFlowerAuthority.Nodes[form];
+                    level = 0; line = node.LineClass; offset = node.Direction;
+                }
+                else if (!MerkabaSphereFlowerAuthority.TryGetL2KnotLoop(form - nodeCount,
+                    out level, out offset, out line))
+                    throw new InvalidOperationException("Coordinate form has no generated loop.");
+                var loop = MerkabaSphereFlowerAuthority.EvaluateLoop(level,
+                    new MerkabaSphereFlowerAuthority.Long3(offset.x, offset.y, offset.z), line);
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    float3 direction = float3.zero; direction[axis] = 1f;
+                    var abc = MerkabaSphereFlowerAuthority.RestrictPlaneToLoop(
+                        float3.zero, direction, 0f, 0f, 0f, loop);
+                    for (int component = 0; component < 3; component++)
+                        if (!float.IsFinite(abc[component].Lower) ||
+                            !float.IsFinite(abc[component].Upper))
+                            throw new InvalidOperationException("Unbounded generated coordinate form.");
+                    rows[form * 6 + axis * 2] = math.asuint(new float4(
+                        abc.X.Lower, abc.X.Upper, abc.Y.Lower, abc.Y.Upper));
+                    rows[form * 6 + axis * 2 + 1] = math.asuint(new float4(
+                        abc.Z.Lower, abc.Z.Upper, 0f, 0f));
+                }
+            }
+            tables.AppendVectors(output, "M8FlowerCoordinateForm", "float4", rows);
+        }
+
+        private static void AppendChildLoopAddresses(StringBuilder output, GpuTables tables)
+        {
+            var rows = new uint4[MerkabaSphereFlowerAuthority.PetalClassCount * 5 * 6];
+            var creation = new uint[rows.Length];
+            for (int petal = 0; petal < MerkabaSphereFlowerAuthority.PetalClassCount; petal++)
+            for (int parent = 0; parent < 5; parent++)
+            for (int site = 0; site < 6; site++)
+            {
+                if (!MerkabaSphereFlowerAuthority.TryGetChildPhaseLoop(petal, parent, site,
+                    out int level, out int3 offset, out int lineClass, out int strand,
+                    out sbyte endpoint, out sbyte phase, out int inherited) ||
+                    (uint)level > 2u || (uint)lineClass >= 13u || (uint)strand >= 72u ||
+                    (endpoint != 1 && endpoint != -1) || phase < -1 || phase > 1 ||
+                    inherited < -1 || inherited > 2)
+                    throw new InvalidOperationException("Invalid generated child loop address.");
+                uint tag = (uint)level | ((uint)lineClass << 2) | ((uint)strand << 6) |
+                    (endpoint < 0 ? 1u << 13 : 0u) | ((uint)(phase + 1) << 14) |
+                    ((uint)(inherited + 1) << 16);
+                int index = (petal * 5 + parent) * 6 + site;
+                rows[index] = new uint4(
+                    math.asuint(offset.x), math.asuint(offset.y), math.asuint(offset.z), tag);
+                // The same canonical creation address as ResolveSource. An
+                // inherited alias is not a new record. The runtime receives
+                // this finite key, not another family/incidence derivation.
+                if (level != 0 && inherited >= 0) continue;
+                int recordPetal = petal, path = 0, rootNode;
+                if (level == 0)
+                {
+                    rootNode = MerkabaSphereFlowerAuthority.Petals[petal].Node(site);
+                    ulong incidence = MerkabaSphereFlowerAuthority.NodeIncidentPetals[rootNode];
+                    recordPetal = 0;
+                    while ((incidence & (1UL << recordPetal)) == 0UL && recordPetal < 48)
+                        recordPetal++;
+                }
+                else
+                {
+                    var family = MerkabaSphereFlowerAuthority.PhaseFamilies[strand];
+                    rootNode = family.RootNode;
+                    if (level == 1)
+                    {
+                        recordPetal = MerkabaSphereFlowerAuthority.Strands[strand].Petal0;
+                        path = family.FinePath0;
+                    }
+                    else path = 4 * (parent - 1) + (site == 4 ? 1 : 0);
+                }
+                if ((uint)recordPetal >= 48u || (uint)path >= 16u || (uint)rootNode >= 26u)
+                    throw new InvalidOperationException("Invalid generated canonical creation key.");
+                creation[index] = (uint)recordPetal | ((uint)path << 6) | ((uint)rootNode << 10) |
+                    (MerkabaSphereFlowerAuthority.Lines[lineClass].Shell ==
+                        MerkabaSphereFlowerAuthority.Shell.R3Closure ? 1u << 15 : 0u) | 0x80000000u;
+            }
+            tables.AppendVectors(output, "M8FlowerChildLoopAddress", "uint4", rows);
+            tables.AppendScalars(output, "M8FlowerChildCreation", "uint", creation);
+        }
+
+        private static void AppendPlaneDecodeTable(StringBuilder output, GpuTables tables)
+        {
+            // The packed octahedral numerators have L1 norm exactly1023.
+            // Signed permutations share one correctly rounded row. The CPU
+            // decoder remains the independent RNE oracle, not a table reader.
+            var rows=new List<uint4>();
+            var prefix=new uint[342];
+            for(int z=0;z<=341;z++)
+            {
+                prefix[z]=(uint)rows.Count;
+                for(int y=z;y<=(1023-z)/2;y++)
+                {
+                    int x=1023-y-z;
+                    float length=MerkabaSphereFlowerAuthority.M8FlowerRoundSqrt(x*x+y*y+z*z);
+                    rows.Add(math.asuint(new float4(
+                        MerkabaSphereFlowerAuthority.M8FlowerRoundDivide(x,length),
+                        MerkabaSphereFlowerAuthority.M8FlowerRoundDivide(y,length),
+                        MerkabaSphereFlowerAuthority.M8FlowerRoundDivide(z,length),0f)));
+                }
+            }
+            for(uint u=0;u<1024;u++)
+            for(uint v=0;v<1024;v++)
+            {
+                int x=2*(int)u-1023,y=2*(int)v-1023,z=1023-Math.Abs(x)-Math.Abs(y);
+                if(z<0)
+                {
+                    int oldX=x;
+                    x=(x<0?-1:1)*(1023-Math.Abs(y));
+                    y=(y<0?-1:1)*(1023-Math.Abs(oldX));
+                }
+                var magnitudes=math.abs(new int3(x,y,z));
+                int smallest=math.cmin(magnitudes),largest=math.cmax(magnitudes);
+                if(math.csum(magnitudes)!=1023)throw new InvalidDataException("Octahedral numerator support.");
+                int middle=1023-smallest-largest;
+                uint4 row=rows[checked((int)prefix[smallest]+middle-smallest)];
+                uint flags=(u<<MerkabaConstants.SurfacePlaneNormalUShift)|
+                    (v<<MerkabaConstants.SurfacePlaneNormalVShift);
+                MerkabaSphereFlowerAuthority.M8FlowerUnpackPlane(flags,out float3 expected,out _);
+                var signed=new int3(x,y,z);
+                for(int axis=0;axis<3;axis++)
+                {
+                    uint bits=magnitudes[axis]==largest?row.x:(magnitudes[axis]==middle?row.y:row.z);
+                    if(signed[axis]<0)bits|=0x80000000u;
+                    if(bits!=math.asuint(expected[axis]))
+                        throw new InvalidDataException($"Packed normal LUT differs from CPU: {u}/{v}/{axis}.");
+                }
+            }
+            var offsets=new uint[256];
+            for(int raw=0;raw<256;raw++)
+                offsets[raw]=math.asuint(MerkabaSphereFlowerAuthority.M8FlowerRoundDivide(
+                    raw>=128?raw-256:raw,127f));
+            tables.AppendScalars(output,"M8FlowerNormalPrefix","uint",prefix);
+            tables.AppendVectors(output,"M8FlowerNormalCode","float3",rows.ToArray());
+            tables.AppendScalars(output,"M8FlowerOffsetCode","float",offsets);
+        }
+
+        private static void AppendLoopMetricLengths(StringBuilder output, GpuTables tables)
+        {
+            var upper = new List<uint>(27 + 125 + 729);
+            for (int level = 0; level < 3; level++)
+            {
+                int half = 1 << level;
+                float halfStep = 0.5f * MerkabaSphereFlowerAuthority.LevelStep(level);
+                for (int z = -half; z <= half; z++)
+                for (int y = -half; y <= half; y++)
+                for (int x = -half; x <= half; x++)
+                {
+                    var ix = MerkabaSphereFlowerAuthority.FloatInterval.Singleton(halfStep * x);
+                    var iy = MerkabaSphereFlowerAuthority.FloatInterval.Singleton(halfStep * y);
+                    var iz = MerkabaSphereFlowerAuthority.FloatInterval.Singleton(halfStep * z);
+                    var squared = MerkabaSphereFlowerAuthority.FloatInterval.Add(
+                        MerkabaSphereFlowerAuthority.FloatInterval.Add(
+                            MerkabaSphereFlowerAuthority.FloatInterval.Square(ix),
+                            MerkabaSphereFlowerAuthority.FloatInterval.Square(iy)),
+                        MerkabaSphereFlowerAuthority.FloatInterval.Square(iz));
+                    var length = MerkabaSphereFlowerAuthority.FloatInterval.Sqrt(squared);
+                    upper.Add(TableFloatBits(length.Upper));
+                }
+            }
+            if (upper.Count != 881) throw new InvalidOperationException("Incomplete dyadic loop metric table.");
+            tables.AppendScalars(output, "M8FlowerLoopLengthUpper", "float", upper.ToArray());
+        }
+
         private static void AppendChildren(StringBuilder output, GpuTables tables)
         {
             var rows = new uint4[MerkabaSphereFlowerAuthority.ChildPetals.Length];
@@ -1722,7 +1928,112 @@ uint3 M8FlowerL2WedgeKnots(uint hub,uint wedge)
                 }
                 o.AppendLine("        };");
             }
-            else tables.AppendVectors(o, "M8FlowerL2CarrierBranchMasks", "uint4", branches);
+            else
+            {
+                tables.AppendVectors(o, "M8FlowerL2CarrierBranchMasks", "uint4", branches);
+                // Inverse image of each wedge's three sign bits in the fixed
+                // seven-site alphabet. Runtime intersects these finite sets;
+                // it never enumerates all 128 assignments against six wedges.
+                var projections = new uint4[6 * 8];
+                for (int wedge = 0; wedge < 6; wedge++)
+                {
+                    int3 sites = MerkabaSphereFlowerAuthority.L2CarrierTriangleIndices(wedge, false);
+                    for (uint signs = 0; signs < 128u; signs++)
+                    {
+                        uint triple = ((signs >> sites.x) & 1u) |
+                            (((signs >> sites.y) & 1u) << 1) |
+                            (((signs >> sites.z) & 1u) << 2);
+                        projections[8 * wedge + (int)triple][(int)(signs >> 5)] |= 1u << (int)(signs & 31u);
+                    }
+                    uint4 covered = 0u;
+                    for (int triple = 0; triple < 8; triple++)
+                    {
+                        uint4 mask = projections[8 * wedge + triple];
+                        if (math.any((covered & mask) != 0u) || math.csum(math.countbits(mask)) != 16)
+                            throw new InvalidOperationException("Carrier triple projection is not a partition.");
+                        covered |= mask;
+                    }
+                    if (math.any(covered != uint.MaxValue))
+                        throw new InvalidOperationException("Carrier triple projection lost a sign assignment.");
+                }
+                tables.AppendVectors(o, "M8FlowerCarrierTripleMask", "uint4", projections);
+            }
+        }
+
+        private static void AppendPhaseDependencies(StringBuilder o, bool csharp, GpuTables tables = null)
+        {
+            var masks = MerkabaSphereFlowerAuthority.PhaseDependentCarriers;
+            if (masks.Length != MerkabaSphereFlowerAuthority.PhaseDependencyCount)
+                throw new InvalidDataException("Incomplete actual phase-to-carrier dependency table.");
+            if (csharp)
+            {
+                o.AppendLine("        private static uint4[] LoadGeneratedPhaseDependentCarriers() => new uint4[] {");
+                for (int i = 0; i < masks.Length; i++)
+                {
+                    var mask = masks[i];
+                    o.Append("            new uint4(").Append(mask.x).Append("u,")
+                        .Append(mask.y).Append("u,").Append(mask.z).Append("u,")
+                        .Append(mask.w).Append("u)");
+                    Comma(o, i, masks.Length);
+                }
+                o.AppendLine("        };");
+                return;
+            }
+            tables.AppendVectors(o, "M8FlowerPhaseDependentCarriers", "uint4", masks);
+            o.AppendLine(@"
+// Same canonical creation-address inverse as TryPhaseDependencyIndex.
+// Sign/sector remain in the record key. The dependency proof visits both
+// alternatives and every sector guard, so neither changes this read-set.
+bool M8FlowerTryPhaseDependencyIndex(uint key,out uint index)
+{
+    index=0xffffffffu;
+    uint level=key&3u,path=(key>>2u)&15u,petal=(key>>6u)&63u;
+    uint lineClass=(key>>12u)&15u,kind=(key>>16u)&7u,sector=(key>>20u)&31u;
+    if((key>>25u)!=0u || level>=3u || path>=(1u<<(2u*level)) ||
+        petal>=48u || lineClass>=13u)return false;
+    uint3 meta=M8FlowerLineMetaAt(lineClass);
+    if(meta.x<2u || kind!=(meta.x==3u?1u:0u) || sector>=meta.z)return false;
+    if(level==0u)
+    {
+        if(path!=0u)return false;
+        [loop]for(uint anchor=1u;anchor<3u;anchor++)
+        {
+            uint node=M8FlowerPetalNodesAt(petal)[anchor];
+            uint2 incidence=M8FlowerNodeIncidentPetalsAt(node);
+            uint canonical=incidence.x!=0u?(uint)firstbitlow(incidence.x):
+                32u+(uint)firstbitlow(incidence.y);
+            if((uint)M8FlowerNodeAt(node).w!=lineClass || canonical!=petal)continue;
+            index=node-6u;return index<20u;
+        }
+        return false;
+    }
+    if(meta.x!=2u)return false;
+    [loop]for(uint edge=0u;edge<3u;edge++)
+    {
+        if(level==1u)
+        {
+            uint strand=M8FlowerPetalStrandsAt(petal)[edge];
+            M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strand);
+            if((M8FlowerStrandAt(strand).w&255u)!=petal || family.FinePath0!=path ||
+                (uint)M8FlowerNodeAt(family.RootNode).w!=lineClass)continue;
+            index=20u+strand;return true;
+        }
+        uint parent=path/4u,expectedPath=4u*parent+(edge==1u?1u:0u);
+        uint actualLevel,actualLine,strand;int3 offset;int endpoint,phase,inherited;
+        if(expectedPath!=path || !M8FlowerTryGetChildPhaseLoop(petal,parent+1u,edge+3u,
+            actualLevel,offset,actualLine,strand,endpoint,phase,inherited) ||
+            actualLevel!=2u || inherited>=0 || actualLine!=lineClass)continue;
+        index=92u+12u*petal+3u*parent+edge;return true;
+    }
+    return false;
+}
+bool M8FlowerPhaseDependents(uint key,out uint4 carriers)
+{
+    carriers=0u.xxxx;
+    uint index;
+    if(!M8FlowerTryPhaseDependencyIndex(key,index))return false;
+    carriers=M8FlowerPhaseDependentCarriersAt(index);return true;
+}");
         }
 
         private static void AppendL2EdgeIncidence(StringBuilder o, bool csharp, GpuTables tables)
@@ -2051,6 +2362,144 @@ float3 M8FlowerDirtGridPosition(int3 cell, uint face, uint halfFace, uint vertex
                 MerkabaSphereFlowerAuthority.SkinL4State);
             AppendByteTable(output, tables, "M8FlowerSkinL5ChildRank",
                 MerkabaSphereFlowerAuthority.SkinL5ChildRank);
+            AppendSkinFootprints(output, tables);
+        }
+
+        // The complete three-level skin arrangement is finite. Resolve its
+        // parent-thread spans and ordered pullbacks here, never in a scanner
+        // lane. A span contains exactly the chambers with a parent preimage;
+        // an empty span does not remove any logical Flower-7 child.
+        private static void AppendSkinFootprints(StringBuilder output, GpuTables tables)
+        {
+            var chambers = MerkabaSphereFlowerAuthority.SkinChambers;
+            var parents = new List<uint4>[57];
+            var headers = new uint4[57];
+            for (int parent = 0; parent < parents.Length; parent++)
+                parents[parent] = new List<uint4>();
+
+            var third = MerkabaSphereFlowerAuthority.FloatInterval.Divide(
+                MerkabaSphereFlowerAuthority.FloatInterval.Singleton(1f),
+                MerkabaSphereFlowerAuthority.FloatInterval.Singleton(3f));
+            tables.AppendVectors(output, "M8FlowerSkinThird", "float2",
+                new[] { math.asuint(new float4(third.Lower, third.Upper, 0f, 0f)) });
+
+            var forward = new uint4[18];
+            for (int order = 0; order < 6; order++)
+            {
+                var rule = chambers[order];
+                float4 high = 0f, middle = 0f, low = 0f;
+                high[rule.High] = 1f; high[rule.Middle] = -1f;
+                middle[rule.Middle] = 2f; middle[rule.Low] = -2f;
+                low[rule.Low] = 3f;
+                forward[3 * order] = math.asuint(high);
+                forward[3 * order + 1] = math.asuint(middle);
+                forward[3 * order + 2] = math.asuint(low);
+            }
+            tables.AppendVectors(output, "M8FlowerSkinForwardRow", "float4", forward);
+
+            // The inverse matrix depends only on the ordered chamber word,
+            // not the root wedge, thread history, carrier or measured plane.
+            // Evaluate the SAME ordered interval expression as the previous
+            // shader on the three exact basis vectors. Store it once for all
+            // six wedges; no change to any world-space evaluation order.
+            var chartRows = new List<uint4>(258 * 6);
+            int countPerWedge = 1, templateBase = 0;
+            for (int depth = 1; depth <= 3; depth++)
+            {
+                countPerWedge *= 6;
+                for (int word = 0; word < countPerWedge; word++)
+                {
+                    var vertices = new MerkabaSphereFlowerAuthority.FloatInterval[9];
+                    for (int i = 0; i < 9; i++)
+                        vertices[i] = MerkabaSphereFlowerAuthority.FloatInterval.Singleton(i % 4 == 0 ? 1f : 0f);
+                    int divisor = countPerWedge;
+                    for (int level = 0; level < depth; level++)
+                    {
+                        divisor /= 6;
+                        var rule = chambers[(word / divisor) % 6];
+                        var next = new MerkabaSphereFlowerAuthority.FloatInterval[9];
+                        for (int axis = 0; axis < 3; axis++)
+                        {
+                            var h = vertices[3 * rule.High + axis];
+                            var m = vertices[3 * rule.Middle + axis];
+                            var l = vertices[3 * rule.Low + axis];
+                            var sum = MerkabaSphereFlowerAuthority.FloatInterval.Add(h, m);
+                            next[axis] = h;
+                            next[3 + axis] = MerkabaSphereFlowerAuthority.FloatInterval.Multiply(sum,
+                                MerkabaSphereFlowerAuthority.FloatInterval.Singleton(0.5f));
+                            next[6 + axis] = MerkabaSphereFlowerAuthority.FloatInterval.Multiply(
+                                MerkabaSphereFlowerAuthority.FloatInterval.Add(sum, l), third);
+                        }
+                        vertices = next;
+                    }
+                    for (int vertex = 0; vertex < 3; vertex++)
+                    {
+                        var x = vertices[3 * vertex];
+                        var y = vertices[3 * vertex + 1];
+                        var z = vertices[3 * vertex + 2];
+                        chartRows.Add(math.asuint(new float4(x.Lower, x.Upper, y.Lower, y.Upper)));
+                        chartRows.Add(math.asuint(new float4(z.Lower, z.Upper, 0f, 0f)));
+                    }
+                }
+
+                for (int rootWedge = 0; rootWedge < 6; rootWedge++)
+                for (int word = 0; word < countPerWedge; word++)
+                {
+                    int wedge = rootWedge, divisor = countPerWedge;
+                    int c3 = 0, c4 = 0, child = 0;
+                    uint rules = 0u;
+                    for (int level = 0; level < depth; level++)
+                    {
+                        divisor /= 6;
+                        int order = (word / divisor) % 6;
+                        int index = 6 * wedge + order;
+                        var rule = chambers[index];
+                        var basis = chambers[order];
+                        if (rule.High != basis.High || rule.Middle != basis.Middle || rule.Low != basis.Low)
+                            throw new InvalidOperationException("Skin chamber order is not wedge-invariant.");
+                        rules |= (uint)index << (6 * level);
+                        child = rule.ChildSite;
+                        if (level == 0) c3 = child;
+                        if (level == 1) c4 = child;
+                        wedge = rule.ChildWedge;
+                    }
+                    int parent = depth == 1 ? 0 : depth == 2 ?
+                        1 + MerkabaSphereFlowerAuthority.SkinL3ParentThreadIndex(c3) :
+                        8 + MerkabaSphereFlowerAuthority.SkinL4ParentThreadIndex(c3, c4);
+                    if (child >= 7 || parent < 0 || parent >= 57)
+                        throw new InvalidOperationException("Invalid generated skin footprint address.");
+                    uint address = (uint)(depth | (depth > 1 ? c3 << 2 : 0) | (depth > 2 ? c4 << 5 : 0));
+                    if (parents[parent].Count != 0 && headers[parent].z != address)
+                        throw new InvalidOperationException("Skin thread parent aliases canonical addresses.");
+                    headers[parent].z = address;
+                    headers[parent].w |= 1u << rootWedge;
+                    parents[parent].Add(new uint4((uint)(rootWedge | (child << 3) | (depth << 6)),
+                        rules, (uint)(templateBase + word), (uint)(rootWedge * countPerWedge + word)));
+                }
+                templateBase += countPerWedge;
+            }
+            var work = new List<uint4>(1548);
+            for (int parent = 0; parent < parents.Length; parent++)
+            {
+                // Clipped-empty L4 footprints still have their full implicit
+                // identity and may never alias root/L3 in the runtime decoder.
+                if (parents[parent].Count == 0)
+                {
+                    int j4 = parent - 8;
+                    if (j4 < 0) throw new InvalidOperationException("An L2/L3 footprint is empty.");
+                    int canonical = MerkabaSphereFlowerAuthority.SkinThreadToCanonical[
+                        57 * (j4 / 7) + 1 + 8 * (j4 % 7)] - 7;
+                    headers[parent].z = (uint)(3 | ((canonical / 7) << 2) | ((canonical % 7) << 5));
+                }
+                headers[parent].x = (uint)work.Count;
+                headers[parent].y = (uint)parents[parent].Count;
+                work.AddRange(parents[parent]);
+            }
+            if (work.Count != 36 + 216 + 1296 || chartRows.Count != 258 * 6)
+                throw new InvalidOperationException("The full clipped skin chamber domain was not emitted.");
+            tables.AppendVectors(output, "M8FlowerSkinParentWork", "uint4", headers);
+            tables.AppendVectors(output, "M8FlowerSkinFootprintWork", "uint4", work.ToArray());
+            tables.AppendVectors(output, "M8FlowerSkinFootprintChart", "float4", chartRows.ToArray());
         }
 
         private static void AppendUshortTable(StringBuilder output, GpuTables tables,
@@ -2078,6 +2527,23 @@ float3 M8FlowerDirtGridPosition(int3 cell, uint face, uint halfFace, uint vertex
         private static void AppendSectors(StringBuilder output, GpuTables tables)
         {
             int count = MerkabaSphereFlowerAuthority.SectorBoundaries.Length;
+            // Exact cyclic ordering is owned by the CPU authority. Certify
+            // that each consecutive outward-enclosed pair also forms the
+            // strict minor arc used by the two-boundary membership predicate.
+            // A known sector can then be checked directly, without searching
+            // every other disjoint sector again after each phase operation.
+            foreach (var line in MerkabaSphereFlowerAuthority.Lines)
+            for (int sector = 0; sector < line.SectorCount; sector++)
+            {
+                var a = MerkabaSphereFlowerAuthority.SectorBoundaries[line.SectorOffset + sector].Enclosure;
+                var b = MerkabaSphereFlowerAuthority.SectorBoundaries[line.SectorOffset +
+                    (sector + 1) % line.SectorCount].Enclosure;
+                var cross = MerkabaSphereFlowerAuthority.FloatInterval.Subtract(
+                    MerkabaSphereFlowerAuthority.FloatInterval.Multiply(a.X, b.Y),
+                    MerkabaSphereFlowerAuthority.FloatInterval.Multiply(a.Y, b.X));
+                if (!(cross.Lower > 0f))
+                    throw new InvalidOperationException("Sector table does not prove disjoint strict minor arcs.");
+            }
             output.AppendLine("float4 M8FlowerSectorBoundsAt(uint index) { return asfloat(_M8FlowerTables[index]); }");
             var rows = new uint4[count];
             for (int i = 0; i < count; i++)
@@ -2371,6 +2837,8 @@ struct M8FlowerJunctionSelection
     uint CertainCount;
     uint AmbiguousCount;
     uint DetailCount;
+    // Known roots needed by an admitted, still-unresolved finite candidate.
+    uint RequiredDualMask;
     M8FlowerInterval Scalar;
     M8FlowerInterval3 Vector;
 };
@@ -2465,7 +2933,11 @@ M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
                     (rootFlags[alternative][flag>>5u]&(1u<<(flag&31u)))==0u))admitted=false;
             }
             if(!admitted)continue;
-            if(unresolved)result.AmbiguousCount++;
+            if(unresolved)
+            {
+                result.AmbiguousCount++;
+                result.RequiredDualMask|=required&knownMask&~(allowedMask|vetoMask);
+            }
             else
             {
                 if(metricDetail)result.DetailCount++;else result.CertainCount++;
@@ -2906,8 +3378,9 @@ M8FlowerInterval M8FlowerCenterRadius(float center, float radius)
 // Section 5: the caller supplies the frozen calibrated + quantization
 // uncertainty, never an observation score or a manually selected epsilon.
 // relative is the loop-center displacement from this endpoint's M8 owner.
-bool M8FlowerPlaneIntervals(float3 normal, float offset, float3 relative,
+bool M8FlowerPlaneIntervalsCore(float3 normal, float offset, float3 relative,
     float radius, uint lineClass, float normalUncertainty, float offsetUncertainty,
+    float relativeLengthUpper,
     out M8FlowerInterval3 abc)
 {
     abc.x = M8FlowerI(0.0, 0.0); abc.y = abc.x; abc.z = abc.x;
@@ -2928,16 +3401,10 @@ bool M8FlowerPlaneIntervals(float3 normal, float offset, float3 relative,
     precise float cxy = cr.x + cr.y;
     precise float c = radius * (cxy + cr.z);
 
-    M8FlowerInterval lengthSquared = M8FlowerIAdd(M8FlowerIAdd(
-        M8FlowerISquare(M8FlowerI(relative.x, relative.x)),
-        M8FlowerISquare(M8FlowerI(relative.y, relative.y))),
-        M8FlowerISquare(M8FlowerI(relative.z, relative.z)));
-    M8FlowerInterval length = M8FlowerI(0.0, 0.0);
-    if (!M8FlowerISqrt(lengthSquared, length)) return false;
     precise float sa = M8FlowerAbsoluteProductSumUpper(normal, relative) + abs(offset);
     precise float sb = radius * M8FlowerAbsoluteProductSumUpper(normal, e1);
     precise float sc = radius * M8FlowerAbsoluteProductSumUpper(normal, e2);
-    precise float eaMetric = normalUncertainty * length.hi;
+    precise float eaMetric = normalUncertainty * relativeLengthUpper;
     precise float eaOffset = M8FlowerNext(eaMetric) + offsetUncertainty;
     precise float eaRound = M8_FLOWER_GAMMA6_UPPER * M8FlowerNext(sa);
     precise float ea = M8FlowerNext(eaOffset) + M8FlowerNext(eaRound);
@@ -2951,6 +3418,42 @@ bool M8FlowerPlaneIntervals(float3 normal, float offset, float3 relative,
     abc.z = M8FlowerCenterRadius(c, M8FlowerNext(ec));
     return all(M8FlowerIsFinite(float3(abc.x.lo, abc.y.lo, abc.z.lo))) &&
         all(M8FlowerIsFinite(float3(abc.x.hi, abc.y.hi, abc.z.hi)));
+}
+
+// The loop centre is fixed by the generated lattice address. Its interval
+// norm was evaluated once by the Editor with the same ordered primitives.
+// Only the measured plane terms remain live; no root/normal is tabulated.
+bool M8FlowerPlaneLoopIntervals(float3 normal,float offset,float3 relative,
+    float radius,uint lineClass,float normalUncertainty,float offsetUncertainty,
+    uint level,int3 loopOffset,out M8FlowerInterval3 abc)
+{
+    abc=(M8FlowerInterval3)0;
+    if(level>=3u)return false;
+    int halfWidth=1<<(int)level;
+    if(any(loopOffset < -halfWidth) || any(loopOffset > halfWidth))return false;
+    uint side=(uint)(2*halfWidth+1);
+    uint3 index=uint3(loopOffset+halfWidth);
+    uint first=level==0u?0u:level==1u?27u:152u;
+    float length=M8FlowerLoopLengthUpperAt(first+index.x+side*(index.y+side*index.z));
+    return M8FlowerPlaneIntervalsCore(normal,offset,relative,radius,lineClass,
+        normalUncertainty,offsetUncertainty,length,abc);
+}
+
+// General inputs are used by the independent oracle/parity fixtures. The
+// production callers supply their exact generated loop to the entry above.
+bool M8FlowerPlaneIntervals(float3 normal,float offset,float3 relative,
+    float radius,uint lineClass,float normalUncertainty,float offsetUncertainty,
+    out M8FlowerInterval3 abc)
+{
+    abc=(M8FlowerInterval3)0;
+    M8FlowerInterval squared=M8FlowerIAdd(M8FlowerIAdd(
+        M8FlowerISquare(M8FlowerI(relative.x,relative.x)),
+        M8FlowerISquare(M8FlowerI(relative.y,relative.y))),
+        M8FlowerISquare(M8FlowerI(relative.z,relative.z)));
+    M8FlowerInterval length;
+    if(!M8FlowerISqrt(squared,length))return false;
+    return M8FlowerPlaneIntervalsCore(normal,offset,relative,radius,lineClass,
+        normalUncertainty,offsetUncertainty,length.hi,abc);
 }
 
 uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
@@ -3000,6 +3503,20 @@ M8FlowerInterval M8FlowerICross(M8FlowerInterval2 a, M8FlowerInterval2 b)
     return M8FlowerISub(M8FlowerIMul(a.x, b.y), M8FlowerIMul(a.y, b.x));
 }
 
+bool M8FlowerRootInSector(uint lineClass,M8FlowerInterval2 root,uint sector)
+{
+    if(lineClass>=M8_FLOWER_LINE_CLASS_COUNT)return false;
+    uint3 meta=M8FlowerLineMetaAt(lineClass);
+    if(sector>=meta.z)return false;
+    float4 a=M8FlowerSectorBoundsAt(meta.y+sector);
+    uint next=sector+1u==meta.z?0u:sector+1u;
+    float4 b=M8FlowerSectorBoundsAt(meta.y+next);
+    M8FlowerInterval2 start,end;
+    start.x=M8FlowerI(a.x,a.y);start.y=M8FlowerI(a.z,a.w);
+    end.x=M8FlowerI(b.x,b.y);end.y=M8FlowerI(b.z,b.w);
+    return M8FlowerICross(start,root).lo>0.0 && M8FlowerICross(root,end).lo>0.0;
+}
+
 bool M8FlowerRootSector(uint lineClass, M8FlowerInterval2 root, out uint sector)
 {
     sector = 0xffffffffu;
@@ -3008,14 +3525,7 @@ bool M8FlowerRootSector(uint lineClass, M8FlowerInterval2 root, out uint sector)
     [loop]
     for (uint candidate = 0u; candidate < meta.z; candidate++)
     {
-        float4 a = M8FlowerSectorBoundsAt(meta.y + candidate);
-        uint next = candidate + 1u == meta.z ? 0u : candidate + 1u;
-        float4 b = M8FlowerSectorBoundsAt(meta.y + next);
-        M8FlowerInterval2 start, end;
-        start.x = M8FlowerI(a.x, a.y); start.y = M8FlowerI(a.z, a.w);
-        end.x = M8FlowerI(b.x, b.y); end.y = M8FlowerI(b.z, b.w);
-        if (M8FlowerICross(start, root).lo > 0.0 &&
-            M8FlowerICross(root, end).lo > 0.0)
+        if (M8FlowerRootInSector(lineClass,root,candidate))
         {
             if (sector != 0xffffffffu) { sector = 0xffffffffu; return false; }
             sector = candidate;
@@ -3120,13 +3630,10 @@ bool M8FlowerSealBend(M8FlowerInterval2 first, M8FlowerInterval2 second,
     seal.y = M8FlowerI(0.0,0.0);
     bend = M8FlowerI(0.0,0.0);
     sector = 0u;
-    uint secondSector;
     if (!M8FlowerRootSector(lineClass,first,sector) ||
-        !M8FlowerRootSector(lineClass,second,secondSector) ||
-        sector != secondSector || !M8FlowerSealRootIntervals(first,second,seal)) return false;
-    uint sharedSector;
-    if (!M8FlowerRootSector(lineClass,seal,sharedSector) ||
-        sharedSector != sector) return false;
+        !M8FlowerRootInSector(lineClass,second,sector) ||
+        !M8FlowerSealRootIntervals(first,second,seal)) return false;
+    if (!M8FlowerRootInSector(lineClass,seal,sector)) return false;
     // Contract 9.1: qB is the turn from the shared seal to the SECOND
     // endpoint, not the full first-to-second phase displacement.
     return M8FlowerTauInterval(seal,second,bend);
@@ -3163,12 +3670,9 @@ bool M8FlowerRotateInterval(M8FlowerInterval2 prediction,
 {
     root.x = M8FlowerI(0.0,0.0);
     root.y = M8FlowerI(0.0,0.0);
-    uint predictedSector;
-    if (!M8FlowerRootSector(lineClass,prediction,predictedSector) ||
-        predictedSector != sector || !M8FlowerRotatePhaseMetric(prediction,turn,root)) return false;
-    uint synthesizedSector;
-    return M8FlowerRootSector(lineClass,root,synthesizedSector) &&
-        synthesizedSector == sector;
+    if (!M8FlowerRootInSector(lineClass,prediction,sector) ||
+        !M8FlowerRotatePhaseMetric(prediction,turn,root)) return false;
+    return M8FlowerRootInSector(lineClass,root,sector);
 }
 
 bool M8FlowerTau(float2 from, float2 to, out float turn)
@@ -3252,8 +3756,8 @@ bool M8FlowerPhaseRootSector(M8FlowerPhaseRootEvidence evidence, out uint sector
     uint code=(evidence.Tag&M8_FLOWER_BOUNDARY_WITNESS_MASK)>>21u;
     if(code==0u)
     {
-        if(M8FlowerRootSector(lineClass,evidence.Root,sector) && sector==expectedSector)return true;
-        sector=0xffffffffu;return false;
+        if(!M8FlowerRootInSector(lineClass,evidence.Root,expectedSector))return false;
+        sector=expectedSector;return true;
     }
     if(!M8FlowerBoundarySector(lineClass,code-1u,sector) || sector!=expectedSector)
     {sector=0xffffffffu;return false;}
@@ -3276,9 +3780,7 @@ uint M8FlowerRotatePhaseEvidence(M8FlowerPhaseRootEvidence prediction,
     result=prediction;
     result.Tag&=~M8_FLOWER_BOUNDARY_WITNESS_MASK;
     result.Root=rotated;
-    uint actual;
-    result.Classification=M8FlowerRootSector((result.Tag>>3u)&15u,rotated,actual) &&
-        actual==sector ? 1u:2u;
+    result.Classification=M8FlowerRootInSector((result.Tag>>3u)&15u,rotated,sector) ? 1u:2u;
     return result.Classification;
 }
 
@@ -3373,10 +3875,8 @@ uint M8FlowerPredictChildPhase(uint childGeometryLevel, M8FlowerInterval3 childC
     if (rootClass==M8_FLOWER_ROOT_IMPOSSIBLE) return 0u;
     if (rootClass!=M8_FLOWER_ROOT_CERTAIN_SECANT &&
         rootClass!=M8_FLOWER_ROOT_CERTAIN_TANGENT) return 2u;
-    uint sector;
     if (!M8FlowerFinitePhaseRoot(current) ||
-        !M8FlowerRootSector(childLineClass,current,sector) ||
-        sector!=childSector) return 2u;
+        !M8FlowerRootInSector(childLineClass,current,childSector)) return 2u;
     [loop] for (uint i=0u;i<2u;++i)
     {
         if (i>=ancestorCount) break;
@@ -3438,60 +3938,19 @@ bool M8FlowerTryGetChildPhaseLoop(uint petalClass, uint parentContext, uint knot
     inheritedParentNode=-1;
     if (petalClass>=M8_FLOWER_PETAL_CLASS_COUNT || parentContext>=5u || knotSite>=6u)
         return false;
-    uint3 nodes=M8FlowerPetalNodesAt(petalClass).xyz;
-    if (knotSite<3u)
-    {
-        inheritedParentNode=(int)knotSite;
-        uint packed=parentContext==0u ? 2u<<(2u*knotSite) :
-            M8FlowerChildPetalAt(parentContext-1u)[knotSite];
-        uint3 weights=uint3(packed&3u,(packed>>2u)&3u,(packed>>4u)&3u);
-        int rootNode=weights.x==2u ? 0 : weights.y==2u ? 1 : weights.z==2u ? 2 : -1;
-        if (rootNode>=0)
-        {
-            uint sourceNode=nodes[rootNode];
-            int4 source=M8FlowerNodeAt(sourceNode);
-            junctionOffset=source.xyz;
-            lineClass=(uint)source.w;
-            endpointOrientation=M8FlowerDirectionMetaAt(sourceNode).x;
-            return true;
-        }
-        uint edge=weights.x==0u ? 1u : weights.z==0u ? 0u : 2u;
-        strandClass=M8FlowerPetalStrandsAt(petalClass)[edge];
-        uint4 strand=M8FlowerStrandAt(strandClass);
-        M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strandClass);
-        level=1u;
-        junctionOffset=M8FlowerNodeAt(strand.x).xyz+M8FlowerNodeAt(strand.y).xyz;
-        lineClass=(uint)M8FlowerNodeAt(family.RootNode).w;
-        endpointOrientation=M8FlowerDirectionMetaAt(family.RootNode).x;
-        return true;
-    }
-    uint localEdge=knotSite-3u;
-    uint familyEdge=localEdge;
-    int endpoint=1;
-    int childPhase=1;
-    if (parentContext!=0u)
-    {
-        M8FlowerChildPhaseEdgeRule child=M8FlowerGetChildPhaseEdge(parentContext-1u,localEdge);
-        familyEdge=child.Family;
-        endpoint=child.EndpointOrientation;
-        childPhase=child.PhaseOrientation;
-    }
-    strandClass=M8FlowerPetalStrandsAt(petalClass)[familyEdge];
-    M8FlowerPhaseFamilyRule rule=M8FlowerGetPhaseFamily(strandClass);
-    level=parentContext==0u ? 1u : 2u;
-    uint first=localEdge==1u ? 1u : 0u;
-    uint second=localEdge==0u ? 1u : 2u;
-    junctionOffset=M8FlowerPhaseParentNode(petalClass,parentContext,first)+
-        M8FlowerPhaseParentNode(petalClass,parentContext,second);
-    lineClass=(uint)M8FlowerNodeAt(rule.RootNode).w;
-    endpointOrientation=M8FlowerDirectionMetaAt(rule.RootNode).x*endpoint;
-    phaseOrientation=rule.PhaseOrientation*childPhase;
+    uint4 address=M8FlowerChildLoopAddressAt((petalClass*5u+parentContext)*6u+knotSite);
+    junctionOffset=asint(address.xyz);
+    level=address.w&3u;
+    lineClass=(address.w>>2u)&15u;
+    strandClass=(address.w>>6u)&127u;
+    endpointOrientation=1-2*(int)((address.w>>13u)&1u);
+    phaseOrientation=(int)((address.w>>14u)&3u)-1;
+    inheritedParentNode=(int)((address.w>>16u)&3u)-1;
     return true;
 }
 
-uint M8FlowerPredictChildFromFamily(int3 rootOwner, uint petalClass,
-    uint parentContext, uint knotSite, float3 decodedNormal, float decodedOffset,
-    float normalUncertainty, float offsetUncertainty, uint childSector, bool plusRoot,
+uint M8FlowerTransportChildFromFamily(int3 rootOwner, uint petalClass,
+    uint parentContext, uint knotSite, M8FlowerPhaseRootEvidence childBase,
     M8FlowerPhaseRootEvidence parentRoots[3], M8FlowerPhaseRootEvidence ancestorRoots[2],
     M8FlowerDetailRecord ancestorRecords[2], uint ancestorKeys[2], uint ancestorCount,
     uint currentParentEpoch, out M8FlowerPhaseRootEvidence prediction)
@@ -3511,11 +3970,10 @@ uint M8FlowerPredictChildFromFamily(int3 rootOwner, uint petalClass,
         prediction=M8FlowerCopyInheritedPhase(source);
         return prediction.Classification;
     }
-    if (!all(M8FlowerIsFinite(decodedNormal)) || !M8FlowerIsFinite(decodedOffset) ||
-        !M8FlowerIsFinite(normalUncertainty) || !M8FlowerIsFinite(offsetUncertainty) ||
-        normalUncertainty<0.0 || offsetUncertainty<0.0 || ancestorCount>level ||
+    if (childBase.Classification!=1u || !M8FlowerPhaseIdentityValid(childBase) ||
+        (childBase.Tag&7u)!=level || ((childBase.Tag>>3u)&15u)!=lineClass ||
+        any(childBase.Junction!=junction) || ancestorCount>level ||
         level==0u || level>=M8_FLOWER_GEOMETRY_LEVEL_COUNT ||
-        childSector>=M8FlowerLineMetaAt(lineClass).z ||
         (ancestorCount!=0u && currentParentEpoch==0u)) return 2u;
 
     M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strandClass);
@@ -3526,7 +3984,7 @@ uint M8FlowerPredictChildFromFamily(int3 rootOwner, uint petalClass,
     terms[0]=(M8FlowerPhaseTransportTerm)0;
     terms[1]=terms[0];
     uint previousLevel=0u;
-    [unroll] for (uint i=0u;i<2u;++i)
+    [loop] for (uint i=0u;i<2u;++i)
     {
         if (i>=ancestorCount) break;
         uint key=ancestorKeys[i];
@@ -3576,21 +4034,11 @@ uint M8FlowerPredictChildFromFamily(int3 rootOwner, uint petalClass,
         terms[i].Orientation=orientation;
         terms[i].AncestorLevel=sourceLevel;
     }
-    precise float halfStep=0.5*M8FlowerLevelStep(level);
-    precise float3 relative=halfStep*(float3)offset;
-    float radius=M8FlowerGeometryLoopRadiusAt(level*M8_FLOWER_LINE_CLASS_COUNT+lineClass);
-    M8FlowerInterval3 abc;
-    if (!M8FlowerPlaneIntervals(decodedNormal,decodedOffset,relative,radius,lineClass,
-        normalUncertainty,offsetUncertainty,abc)) return 2u;
-    M8FlowerPhaseRootEvidence current=(M8FlowerPhaseRootEvidence)0;
-    uint rootClass;
-    if(!M8FlowerClassifyPlaneRoot(level,lineClass,endpoint<0,plusRoot,decodedNormal,
-        decodedOffset,offset,abc,current.Tag,current.Root,rootClass))
-        return rootClass==M8_FLOWER_ROOT_IMPOSSIBLE ||
-            (rootClass==M8_FLOWER_ROOT_CERTAIN_TANGENT && plusRoot) ? 0u:2u;
-    if(((current.Tag>>8u)&31u)!=childSector)return 2u;
-    current.Junction=junction;
-    current.Classification=1u;
+    // The reader already evaluated this exact child carrier before reading
+    // ancestors. Keep its complete enclosure and boundary witness; transport
+    // changes only the generated endpoint orientation and phase innovations.
+    M8FlowerPhaseRootEvidence current=childBase;
+    current.Tag=(current.Tag&~(1u<<13u))|(endpoint<0?1u<<13u:0u);
     [loop]for(uint i=0u;i<2u;i++)
     {
         if(i>=ancestorCount)break;

@@ -45,6 +45,9 @@ namespace Genesis.RoomScan
 
         public void Clear()
         {
+            RoomScanner scanner = GetComponent<RoomScanner>();
+            if (scanner != null && scanner.ExportMutationHeld)
+                throw new InvalidOperationException("Cannot clear the held export source.");
             ClearGpuWorldForNewScan();
             Cleared?.Invoke();
         }

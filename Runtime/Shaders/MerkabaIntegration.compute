@@ -3,9 +3,7 @@
 // Frozen stereo evidence -> touched-tile Flower commit and certified free support.
 #pragma kernel UpdateObservationDual
 #pragma kernel FinalizeObservation
-#pragma kernel ResetFineErase
 #pragma kernel QueryFineEraseTiles
-#pragma kernel PrepareFineEraseArgs
 #pragma kernel EraseFineTiles
 #pragma kernel FinalizeFineErase
 #pragma use_dxc vulkan
@@ -305,7 +303,8 @@ void M8DualTouchResidentChunk(uint chunk)
         uint reference=_M8ChunkTileRefsRead[chunk*64u+tile];
         if (!M8IsHotRef(reference)) continue;
         uint slot=M8PhysicalSlot(reference);
-        if (_M8TileRecords[M8TileMetaIndex(slot)].w != 0u)
+        if (_M8TileRecords[M8TileMetaIndex(slot)].w != 0u ||
+            _M8TileRecords[M8TileRuntimeIndex(slot)].x==_M8ObservationToken)
             M8DualTouchObservationTile(slot);
     }
 }
@@ -444,7 +443,8 @@ void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
                 InterlockedOr(gDualChanged,1u);
                 if (hot) M8MarkTileDirty(slot);
             }
-            if (hot && (direct || _M8TileRecords[M8TileMetaIndex(slot)].w != 0u))
+            if (hot && (direct || _M8TileRecords[M8TileMetaIndex(slot)].w != 0u ||
+                _M8TileRecords[M8TileRuntimeIndex(slot)].x==_M8ObservationToken))
                 M8DualTouchObservationTile(slot);
         }
     }
@@ -594,10 +594,32 @@ void M8FinalizeObservationCompletion()
     {
         uint failure = M8ObservationFailureReason();
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
-        if(failure==0u && pendingRefinement==0u &&
+        uint stage=_M8Counters[M8_COUNTER_REFINEMENT_STAGE];
+        if(pendingRefinement==0u && (stage&M8_FLOWER_INVALIDATION_STAGE_MASK)!=0u)
+        {
+            // A failed/coarse-pending attempt still owes its already
+            // committed source/peer invalidation. The FIRST boundary retires
+            // all local epochs and required gather/load work before any peer
+            // mutation. The SECOND retires every successful exact peer ACK.
+            if((stage&M8_FLOWER_INVALIDATION_GATHER_STAGE)!=0u)
+                _M8Counters[M8_COUNTER_REFINEMENT_STAGE]=
+                    (stage&3u)|M8_FLOWER_INVALIDATION_PEER_STAGE;
+            else
+                // A late resident source can invalidate an already drained
+                // ancestor. Changed tiles reset their own cursors; replay the
+                // same global root/L1/L2 barriers, not R1 admission/decrement.
+                _M8Counters[M8_COUNTER_REFINEMENT_STAGE]=0u;
+            _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS]++;
+            if((stage&M8_FLOWER_INVALIDATION_GATHER_STAGE)!=0u || failure==0u)
+            {
+                pendingRefinement=1u;
+                _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES]=1u;
+            }
+        }
+        else if(failure==0u && pendingRefinement==0u &&
             _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES]==0u &&
             _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]==0u &&
-            _M8Counters[M8_COUNTER_REFINEMENT_STAGE]<3u)
+            stage<3u)
         {
             // This dispatch barrier publishes every endpoint's completed
             // ancestor stage before any tile can read it in the next stage.
@@ -672,30 +694,19 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
     {
         [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
             M8FlowerMarkTileNeighborhoodDirty(_M8TouchedTileQueueRead[index],
-                _M8DualPublishingGeneration);
+                _M8DualPublishingGeneration, true, true);
         [loop] for (uint pending = lane; pending < gFlowerFinalizeNewTileCount; pending += 128u)
         {
             uint referenceIndex = _M8PendingNewTileRefsRead[pending];
             if (referenceIndex >= MERKABA_M8_CHUNK_CAPACITY * MERKABA_M8_TILES_PER_CHUNK) continue;
-            uint reference = _M8ChunkTileRefsRead[referenceIndex];
+            uint reference = _M8ChunkTileRefs[referenceIndex];
             if (M8IsHotRef(reference))
                 M8FlowerMarkTileNeighborhoodDirty(M8PhysicalSlot(reference),
-                    _M8DualPublishingGeneration);
+                    _M8DualPublishingGeneration, true, true);
         }
     }
     DeviceMemoryBarrierWithGroupSync();
     M8FlowerRetireObservation(lane,128u);
-}
-
-[numthreads(1, 1, 1)]
-void ResetFineErase(uint id : SV_DispatchThreadID)
-{
-    _M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] = 0u;
-    _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] = 0u;
-    _M8ObservationDispatchArgs[0] = 0u;
-    _M8ObservationDispatchArgs[1] = 1u;
-    _M8ObservationDispatchArgs[2] = 1u;
 }
 
 uint M8FineEraseChildMask(int3 parentMin, int parentSpan)
@@ -827,22 +838,18 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
                 InterlockedAdd(_M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT],
                     1u, queueIndex);
                 if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                {
                     _M8TouchedTileQueue[queueIndex] = M8PhysicalSlot(tileRef);
+                    // Publish the bounded prefix as each real queue entry is
+                    // produced. The existing dispatch barrier publishes both
+                    // the queue and final unresolved state to EraseFineTiles.
+                    uint ignored;
+                    InterlockedMax(_M8ObservationDispatchArgs[0], queueIndex + 1u, ignored);
+                }
+                else M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
             }
         }
     }
-}
-
-[numthreads(1, 1, 1)]
-void PrepareFineEraseArgs(uint id : SV_DispatchThreadID)
-{
-    _M8ObservationDispatchArgs[0] =
-        _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u
-        ? min(_M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT],
-            MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-        : 0u;
-    _M8ObservationDispatchArgs[1] = 1u;
-    _M8ObservationDispatchArgs[2] = 1u;
 }
 
 void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
@@ -920,6 +927,10 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
 void EraseFineTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
+    // Query's complete cross-WG result is visible only after the Vulkan /
+    // command-buffer dispatch barrier. A partial/COLD query authorizes no
+    // destructive writes, even though it published some valid queue entries.
+    if (_M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] != 0u) return;
     uint physicalSlot = _M8TouchedTileQueue[groupId.x];
     [unroll]
     for (uint batch = 0u; batch < 4u; batch++)

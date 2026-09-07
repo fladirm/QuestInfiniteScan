@@ -55,6 +55,7 @@ namespace Genesis.RoomScan
         private Color _finePreviewColor;
         private bool _dynamicOcclusionEnabled = true;
         private bool _reportedDrawUnavailable;
+        private Vector4 _presentationLight;
 
         private static readonly int GridToWorldId = Shader.PropertyToID("_MerkabaGridToWorld");
         private static readonly int WorldToGridId = Shader.PropertyToID("_MerkabaWorldToGrid");
@@ -63,6 +64,7 @@ namespace Genesis.RoomScan
         private static readonly int ViewInstancesId = Shader.PropertyToID("_M8FlowerViewInstanceCount");
         private static readonly int GraphicsRetiredId = Shader.PropertyToID("_M8FlowerGraphicsRetiredGeneration");
         private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
+        private static readonly int PresentationLightId = Shader.PropertyToID("_M8PresentationLight");
         private static readonly int FineCursorPositionId = Shader.PropertyToID("_FineCursorPosition");
         private static readonly int FineBrushAxisId = Shader.PropertyToID("_FineBrushAxis");
         private static readonly int FineBrushParamsId = Shader.PropertyToID("_FineBrushParams");
@@ -79,6 +81,28 @@ namespace Genesis.RoomScan
         {
             get => checkerReadoutEnabled;
             set { checkerReadoutEnabled = value; SetKeyword("M8_CHECKER_READOUT", value); }
+        }
+
+        /// <summary>
+        /// Explicit V-1 world-space light direction (xyz), enabled only at w=1.
+        /// Default w=0 preserves captured RGB; no capture/view inference.
+        /// </summary>
+        public Vector4 PresentationLight
+        {
+            get => _presentationLight;
+            set
+            {
+                float4 light = new(value.x, value.y, value.z, value.w);
+                float squared = light.x * light.x + light.y * light.y;
+                squared = squared + light.z * light.z;
+                if (!math.all(math.isfinite(light)) ||
+                    (light.w != 0f && light.w != 1f) ||
+                    (light.w == 1f && (!(squared > 0f) || !math.isfinite(squared))))
+                    throw new ArgumentOutOfRangeException(nameof(value),
+                        "V-1 requires a finite nonzero direction and enabled w=0 or 1.");
+                _presentationLight = value;
+                if (_material != null) _material.SetVector(PresentationLightId, value);
+            }
         }
 
         private void Awake()
@@ -198,6 +222,7 @@ namespace Genesis.RoomScan
                 enableInstancing = true
             };
             _grid.BindFlowerRenderResources(_material);
+            _material.SetVector(PresentationLightId, _presentationLight);
             ApplyOpacityState();
             ApplyFinePreviewState();
             SetKeyword("M8_ENVIRONMENT_OCCLUSION", _dynamicOcclusionEnabled);
@@ -233,7 +258,8 @@ namespace Genesis.RoomScan
                 _grid == null || !_grid.FlowerGraphicsReadAllowed || HasReadoutBuildInFlight)
                 return;
             if (_integrator != null && (_integrator.HasAttemptInFlight ||
-                _integrator.HasFineEraseAttemptInFlight || _integrator.HasPendingFineErase))
+                _integrator.HasFineEraseAttemptInFlight || _integrator.HasPendingFineErase ||
+                _integrator.ObservationHasBoundaryPriority))
                 return;
             // Submit AFTER all views (including XR multipass), not after the
             // first eye: a new native lease must not suppress later readers.

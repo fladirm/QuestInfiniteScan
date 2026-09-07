@@ -218,9 +218,13 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(A.CloseSharedPhaseRoot(synthesis, observed, out _),
                     Is.EqualTo(A.ProofClassification.Certain));
                 _shader.SetInt("_M8ObservationRecordCapacity", records.Count);
-                Bind("_M8ObservationRecords", Upload(records.ToArray(), 16));
-                Bind("_M8ObservationTileBinsRead", Upload(new[]
-                    { new uint4(ObservationToken, (uint)records.Count, 0, (uint)records.Count) }, 16));
+                var observationRecords = Upload(records.ToArray(), 16);
+                Bind("_M8ObservationRecords", observationRecords);
+                Bind("_M8ObservationRecordsRead", observationRecords);
+                var observationBins = Upload(new[]
+                    { new uint4(ObservationToken, (uint)records.Count, 0, (uint)records.Count) }, 16);
+                Bind("_M8ObservationTileBinsRead", observationBins);
+                Bind("_M8ObservationTileBins", observationBins);
                 Bind("_M8TouchedTileQueueRead", Upload(new uint[] { 0 }, 4));
                 Bind("_M8PendingNewTileRefsRead", Upload(new uint[] { 0 }, 4));
                 Bind("_M8ClaimQueue", Upload(new uint2[MerkabaSpatial.ClaimRecordCount], 8));
@@ -237,7 +241,9 @@ namespace Genesis.RoomScan.Tests
                 var chunks = new uint[512]; chunks[0] = 1;
                 Bind("_M8BlockChunkRefsRead", Upload(chunks, 4));
                 var tiles = new uint[64]; tiles[0] = 1;
-                Bind("_M8ChunkTileRefsRead", Upload(tiles, 4));
+                var tileRefs = Upload(tiles, 4);
+                Bind("_M8ChunkTileRefsRead", tileRefs);
+                Bind("_M8ChunkTileRefs", tileRefs);
                 // The actual root-stage R3 reader and skin stage share the
                 // production dual hierarchy. Zero block metadata means the
                 // canonical unmaterialized FULL state; no leaf is invented.
@@ -322,6 +328,13 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(directory[2], Is.EqualTo(ObservationToken));
                     Assert.That(counters[MerkabaGrid.CounterObservationToken], Is.EqualTo(ObservationToken));
                     Assert.That(counters[MerkabaGrid.CounterObservationFailure], Is.Zero);
+                    if (counters[MerkabaGrid.CounterObservationCompleted] == 0u)
+                    {
+                        var pendingMetadata = new uint4[2];
+                        _tileRecords.GetData(pendingMetadata);
+                        Assert.That(pendingMetadata[1].x, Is.EqualTo(ObservationToken),
+                            "Pending fine quanta must retain the once-per-observation R1 stamp.");
+                    }
                     uint stage = counters[MerkabaGrid.CounterRefinementStage];
                     Assert.That(stage, Is.InRange(previousStage, Math.Min(previousStage + 1u, 3u)),
                         "Only the actual GPU finalizer may cross one completed global ancestry barrier.");
@@ -344,8 +357,8 @@ namespace Genesis.RoomScan.Tests
                 var states = new uint4[512]; _states.GetData(states);
                 CollectionAssert.AreEqual(_canonicalStates, states, "Fine drain cannot move the canonical R1 plane.");
                 var metadata = new uint4[2]; _tileRecords.GetData(metadata);
-                Assert.That(metadata[1].x, Is.EqualTo(ObservationToken),
-                    "Fine quanta must retain the once-per-observation R1 stamp.");
+                Assert.That(metadata[1].x, Is.Zero,
+                    "The actual completed-observation retirement must release the R1 stamp.");
                 return records;
             }
 

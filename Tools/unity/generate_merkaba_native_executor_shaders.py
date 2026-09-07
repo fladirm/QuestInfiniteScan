@@ -74,12 +74,8 @@ PIPELINES = (
              "PublishDirtyFlowerPages", "one"),
     Pipeline("CullFlowerPages", "MerkabaReadout.compute",
              "CullFlowerPages", "flower_slots"),
-    Pipeline("ResetFineErase", "MerkabaIntegration.compute",
-             "ResetFineErase", "one"),
     Pipeline("QueryFineEraseTiles", "MerkabaIntegration.compute",
              "QueryFineEraseTiles", "query"),
-    Pipeline("PrepareFineEraseArgs", "MerkabaIntegration.compute",
-             "PrepareFineEraseArgs", "one"),
     Pipeline("EraseFineTiles", "MerkabaIntegration.compute",
              "EraseFineTiles", "observation_indirect"),
     Pipeline("FinalizeFineErase", "MerkabaIntegration.compute",
@@ -103,10 +99,13 @@ def command_schedules():
         if label == "DrainObservationRefinement":
             observation.extend(allocation)
     retry = observation[observation.index("ResetObservationBins"):]
+    # New observations reset bins in eye zero of certificate reduction;
+    # retries keep that certificate and call the same reset helper directly.
+    observation.remove("ResetObservationBins")
     flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
-    fine = labels[index["ResetFineErase"]:]
+    fine = labels[index["QueryFineEraseTiles"]:]
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
         ("ObservationNew", observation), ("ObservationRetry", retry),
         ("FlowerReadout", flower), ("FineErase", fine)))
@@ -572,9 +571,23 @@ def c_string(value: str) -> str:
 
 
 def emit(output: Path, compiled) -> None:
+    # These three transient zero writes replace a scalar ERASE setup kernel.
+    # Derive their byte offsets from the actual counter ABI, not a second
+    # handwritten native layout. No allocator/residency word is included.
+    world = (SHADER_ROOT / "MerkabaWorld.hlsl").read_text(encoding="utf-8")
+    fine_reset_offsets = []
+    for name in ("M8_COUNTER_FINE_ERASE_TILE_COUNT",
+                 "M8_COUNTER_UNRESOLVED_OBSERVATION_TILES",
+                 "M8_COUNTER_OBSERVATION_CHANGE_MASK"):
+        matches = re.findall(r"^#define\s+" + name + r"\s+(\d+)u\s*$", world, re.MULTILINE)
+        if len(matches) != 1:
+            raise RuntimeError(f"missing/ambiguous native ERASE setup counter: {name}")
+        fine_reset_offsets.append(4 * int(matches[0]))
     lines = [
         "// Generated at native-plugin build time. Do not commit this file.",
         f"static constexpr uint32_t kMerkabaExecutorResourceCount = {len(RESOURCE_NAMES)}u;",
+        "static constexpr uint32_t kMerkabaFineEraseCounterResetOffsets[] = {" +
+        ", ".join(f"{offset}u" for offset in fine_reset_offsets) + "};",
         "",
     ]
     for index, (pipeline, words, descriptors, uniforms, global_size) in \
@@ -643,6 +656,8 @@ def main() -> int:
                 "non_allocation_commands": len(indices) - allocation,
                 "between_dispatch_barriers": len(indices) - 1,
                 "optional_flower_passes": name == "FlowerReadout",
+                "setup_transfer_fills": 5 if name == "FineErase" else
+                    1 if name == "FlowerReadout" else 0,
                 "commands": [{"pipeline": PIPELINES[index].label,
                               "dispatch": PIPELINES[index].dispatch} for index in indices]})
         print(json.dumps({"authority": "native embedded command schedules",

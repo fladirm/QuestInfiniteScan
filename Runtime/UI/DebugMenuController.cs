@@ -888,7 +888,7 @@ namespace Genesis.RoomScan.UI
         }
 
         private static string SessionChoice(MerkabaSessionInfo session) =>
-            $"{session.displayName} · {session.Id.ToString("N").Substring(0, 8)}";
+            $"{session.displayName} · {session.Id.ToString("N").Substring(0, 8)} · No thumbnail";
 
         private void BuildSwatchButtons()
         {

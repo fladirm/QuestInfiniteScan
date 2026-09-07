@@ -3,6 +3,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
     Properties
     {
         _ScanOpacity("Scan Opacity", Range(0,1)) = 1
+        _M8PresentationLight("V-1 Light (world xyz, enabled w)", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -81,6 +82,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             CBUFFER_START(UnityPerMaterial)
                 half _ScanOpacity;
+                float4 _M8PresentationLight;
                 float4 _FineCursorPosition;
                 float4 _FineBrushAxis;
                 float4 _FineBrushParams;
@@ -209,12 +211,14 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                         clip(-1.0);
                     float metricV = 0.0;
                     float3 microNormal = normal;
-                    if (frameValid)
+                    if (frameValid && _M8PresentationLight.w == 1.0 &&
+                        (sample.Flags & 1u) != 0u)
                         microNormal = M8FlowerEvaluateSkinNormal(locality, sample,
                             tangentU, tangentV, normal, metricV);
-                    // The certified optical-response consumer is separate from
-                    // reconstruction. Uncertified capture is never relit as albedo.
-                    color = sample.CapturedRgb;
+                    // V-1 does not reinterpret capture as albedo. It is off
+                    // by default and cannot manufacture OPTICAL_VALID.
+                    color = M8FlowerRelativeDiffuse(sample.CapturedRgb,
+                        sample.Flags, normal, microNormal, _M8PresentationLight);
                 }
 #if defined(M8_CHECKER_READOUT)
                 float3 surfaceAxis = abs(cross(ddx(input.worldPosition),

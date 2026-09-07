@@ -305,9 +305,22 @@ uint StereoChromaticSupport(M8FlowerInterval3 world, inout uint stages)
     M8FlowerInterval re = M8FlowerIAdd(M8FlowerIAdd(right.x,right.y),right.z);
     if (le.lo > 0.0 && re.lo > 0.0)
     {
-        if (!M8FlowerIDivPositive(left.x,le,left.x) || !M8FlowerIDivPositive(left.y,le,left.y) ||
-            !M8FlowerIDivPositive(left.z,le,left.z) || !M8FlowerIDivPositive(right.x,re,right.x) ||
-            !M8FlowerIDivPositive(right.y,re,right.y) || !M8FlowerIDivPositive(right.z,re,right.z)) return RGBD_AMBIGUOUS;
+        // One exact divide body; retain left RGB then right RGB order and
+        // the original pre-normalization sums. No reciprocal approximation.
+        M8FlowerInterval channels[6];
+        channels[0]=left.x;channels[1]=left.y;channels[2]=left.z;
+        channels[3]=right.x;channels[4]=right.y;channels[5]=right.z;
+        [loop] for (uint channel=0u;channel<6u;channel++)
+        {
+            M8FlowerInterval normalized;
+            M8FlowerInterval sum=le;
+            if (channel>=3u) sum=re;
+            if (!M8FlowerIDivPositive(channels[channel],sum,normalized))
+                return RGBD_AMBIGUOUS;
+            channels[channel]=normalized;
+        }
+        left.x=channels[0];left.y=channels[1];left.z=channels[2];
+        right.x=channels[3];right.y=channels[4];right.z=channels[5];
     }
     // No fabricated luminance epsilon. Black intervals are compared directly.
     if (!StereoIntersects(left.x,right.x) || !StereoIntersects(left.y,right.y) ||

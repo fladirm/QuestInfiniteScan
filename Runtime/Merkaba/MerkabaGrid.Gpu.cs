@@ -93,6 +93,7 @@ namespace Genesis.RoomScan
         internal const int CounterObservationCompleted = 27;
         internal const int CounterObservationToken = 30;
         internal const int CounterOccupiedKernelCount = 25;
+        internal const int CounterFineEraseTileCount = 26;
         internal const int CounterDualQueryBlocks = 31;
         internal const int CounterWritebackTiles = 32;
         internal const int CounterEvictionNeeded = 34;

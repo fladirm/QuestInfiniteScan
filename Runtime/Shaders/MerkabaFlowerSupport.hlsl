@@ -15,6 +15,9 @@
 #define M8_FLOWER_SUPPORT_FACE_WORDS 96u
 #define M8_FLOWER_SUPPORT_HALF_WORDS 192u
 #define M8_FLOWER_SUPPORT_CELL_COUNT 1000u
+#if !defined(M8_FLOWER_SUPPORT_SCRATCH_WORDS)
+#define M8_FLOWER_SUPPORT_SCRATCH_WORDS M8_FLOWER_SUPPORT_CELL_COUNT
+#endif
 #define M8_FLOWER_SUPPORT_ARENA_CAPACITY 4194304u
 // Every generated knot centre is within owner +/-a/2, and the largest
 // (L0,R3) loop radius is 3a/2. This is only a conservative source exclusion,
@@ -24,16 +27,21 @@
 #define M8_FLOWER_COVERAGE_OWNER_MAX 10
 #define M8_FLOWER_COVERAGE_OWNER_SIDE 13u
 #define M8_FLOWER_COVERAGE_OWNER_COUNT 2197u
+// Transient query receipt only: bit31 is required ambiguity, low27 bits are
+// the actual cold contexts needed by that proof. Never persisted world state.
+#define M8_FLOWER_SUPPORT_REQUIRED 0x80000000u
+#define M8_FLOWER_SUPPORT_COLD_MASK 0x07ffffffu
 
 // Context: resolved dual tile state, existing chunk index, tileLocal, packed
 // physical leaf reference. Uniform ancestors need no positive M8 HOT owner.
 groupshared uint4 m8FlowerSupportHalo[M8_FLOWER_SUPPORT_HALO_COUNT];
 groupshared uint m8FlowerSupportWords[M8_FLOWER_SUPPORT_HALO_COUNT * 16u];
-groupshared uint m8FlowerSupportCells[M8_FLOWER_SUPPORT_CELL_COUNT];
+// BuildFaces owns the first 1000 words until its final collective barrier.
+// Page compilation then reuses this backing for a bounded evidence packet.
+// The refinement-only dual cache does not reference either lifetime.
+groupshared uint m8FlowerSupportScratch[M8_FLOWER_SUPPORT_SCRATCH_WORDS];
 groupshared uint m8FlowerSupportFaces[M8_FLOWER_SUPPORT_FACE_WORDS];
-groupshared uint m8FlowerSupportAmbiguousFaces[M8_FLOWER_SUPPORT_FACE_WORDS];
 groupshared uint m8FlowerSupportHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
-groupshared uint m8FlowerSupportPartial[M8_FLOWER_SUPPORT_FACE_WORDS];
 groupshared uint m8FlowerSupportPartialHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
 groupshared uint m8FlowerSupportWitnessHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
 groupshared uint m8FlowerSupportBoundaryHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
@@ -139,8 +147,6 @@ void M8FlowerSupportCacheDualTile(int3 logicalTile, uint lane, uint laneCount)
             !M8FlowerSupportLeafResident(context.w, context.y, context.z, leafSlot))
             context.x = M8_DUAL_AMBIGUOUS;
         m8FlowerSupportHalo[halo] = context;
-        if (context.x == M8_DUAL_AMBIGUOUS)
-            InterlockedOr(m8FlowerSupportColdHalo, 1u << halo);
     }
     GroupMemoryBarrierWithGroupSync();
 }
@@ -154,6 +160,7 @@ void M8FlowerSupportCacheTile(int3 logicalTile, uint lane, uint laneCount)
     {
         m8FlowerSupportCoverageNeeded=0u;
         m8FlowerSupportCoverageUnresolved=0u;
+        m8FlowerSupportUnresolved=0u;
     }
     GroupMemoryBarrierWithGroupSync();
 }
@@ -166,6 +173,7 @@ void M8FlowerSupportRequestResidency(uint lane, uint laneCount)
     [loop] for (uint halo = lane; halo < M8_FLOWER_SUPPORT_HALO_COUNT;
         halo += laneCount)
     {
+        if ((m8FlowerSupportColdHalo & (1u << halo)) == 0u) continue;
         uint4 context = m8FlowerSupportHalo[halo];
         if (context.x != M8_DUAL_AMBIGUOUS ||
             context.y >= MERKABA_M8_CHUNK_CAPACITY) continue;
@@ -175,13 +183,15 @@ void M8FlowerSupportRequestResidency(uint lane, uint laneCount)
     }
 }
 
-uint M8FlowerSupportOwnerState(int3 relativeOwner)
+uint M8FlowerSupportOwnerState(int3 relativeOwner,out uint coldHalo)
 {
+    coldHalo=0u;
     int3 delta = relativeOwner >> 3;
     if (any(delta < -1) || any(delta > 1)) return M8_DUAL_AMBIGUOUS;
     uint3 halo = uint3(delta + 1);
     uint index = halo.x + 3u * (halo.y + 3u * halo.z);
     uint state = m8FlowerSupportHalo[index].x;
+    if(state==M8_DUAL_AMBIGUOUS)coldHalo=1u<<index;
     if (state != M8_DUAL_MIXED) return state;
     uint3 local = asuint(relativeOwner) & 7u;
     uint kernel = local.x + 8u * (local.y + 8u * local.z);
@@ -190,17 +200,35 @@ uint M8FlowerSupportOwnerState(int3 relativeOwner)
         ? M8_DUAL_THROUGH : M8_DUAL_FULL;
 }
 
-uint M8FlowerSupportFreeCell(int3 relativeCell)
+uint M8FlowerSupportFreeCell(int3 relativeCell,out uint coldHalo)
 {
-    uint packed = 0u;
+    uint packed = 0u;coldHalo=0u;
     [unroll] for (uint corner = 0u; corner < 8u; ++corner)
     {
         int3 offset = int3(corner & 1u, (corner >> 1u) & 1u,
             (corner >> 2u) & 1u);
-        packed |= M8FlowerSupportOwnerState(relativeCell + offset)
-            << (2u * corner);
+        uint cold;
+        packed |= M8FlowerSupportOwnerState(relativeCell + offset,cold) << (2u * corner);
+        coldHalo|=cold;
     }
-    return M8FlowerClassifyFreeCell(packed);
+    uint state=M8FlowerClassifyFreeCell(packed);
+    // A strict THROUGH corner can prove FREE without the other contexts.
+    // Such unused cold corners must not request I/O or block the page.
+    if(state!=M8_FLOWER_CELL_AMBIGUOUS)coldHalo=0u;
+    return state;
+}
+
+uint M8FlowerSupportFreeCell(int3 relativeCell)
+{
+    uint cold;
+    return M8FlowerSupportFreeCell(relativeCell,cold);
+}
+
+void M8FlowerSupportRequire(uint receipt)
+{
+    if((receipt&M8_FLOWER_SUPPORT_REQUIRED)==0u)return;
+    InterlockedOr(m8FlowerSupportUnresolved,M8_FLOWER_SUPPORT_REQUIRED);
+    InterlockedOr(m8FlowerSupportColdHalo,receipt&M8_FLOWER_SUPPORT_COLD_MASK);
 }
 
 uint M8FlowerSupportCellIndex(int3 relativeCell)
@@ -219,7 +247,7 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
     {
         int3 cell = int3(index % 10u, (index / 10u) % 10u,
             index / 100u) - 1;
-        m8FlowerSupportCells[index] = M8FlowerSupportFreeCell(cell);
+        m8FlowerSupportScratch[index] = M8FlowerSupportFreeCell(cell);
     }
     GroupMemoryBarrierWithGroupSync();
     [loop] for (uint faceWord = lane;
@@ -234,8 +262,8 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
             uint kernel = first + bit;
             int3 cell = int3(kernel & 7u, (kernel >> 3u) & 7u,
                 kernel >> 6u);
-            uint own = m8FlowerSupportCells[M8FlowerSupportCellIndex(cell)];
-            uint next = m8FlowerSupportCells[
+            uint own = m8FlowerSupportScratch[M8FlowerSupportCellIndex(cell)];
+            uint next = m8FlowerSupportScratch[
                 M8FlowerSupportCellIndex(cell + direction)];
             uint boundary = M8FlowerClassifyDirtFace(own, next);
             if (boundary == 1u)
@@ -250,11 +278,24 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
                 if (representable) exposed |= 1u << bit;
                 else ambiguous |= 1u << bit;
             }
-            else if (boundary == 2u) ambiguous |= 1u << bit;
+            else if (boundary == 2u)
+            {
+                ambiguous |= 1u << bit;
+                // The generated face predicate already excluded an own FULL
+                // or neighboring FREE cell. Only this required undecidable
+                // pair may turn cached unavailability into a residency read.
+                uint ownCold,nextCold;
+                M8FlowerSupportFreeCell(cell,ownCold);
+                M8FlowerSupportFreeCell(cell+direction,nextCold);
+                InterlockedOr(m8FlowerSupportColdHalo,ownCold|nextCold);
+            }
         }
         m8FlowerSupportFaces[faceWord] = exposed;
         if(exposed!=0u)InterlockedOr(m8FlowerSupportCoverageNeeded,1u);
-        m8FlowerSupportAmbiguousFaces[faceWord] = ambiguous;
+        // This face decision is final for the frozen dual snapshot. Its only
+        // consumer was the final bitwise OR: retain that exact receipt, not
+        // a second 96-word array for the duration of carrier evaluation.
+        InterlockedOr(m8FlowerSupportUnresolved,ambiguous);
         // Absence of proved direct coverage does not suppress DIRT. An
         // occupied owner, unknown direct root, or missing RGB is not coverage.
         m8FlowerSupportHalves[faceWord * 2u] = exposed;
@@ -269,26 +310,8 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
         // the prefix calculation reuses them only after the coverage barrier.
         m8FlowerSupportOffsets[faceWord * 2u] = 0u;
         m8FlowerSupportOffsets[faceWord * 2u + 1u] = 0u;
-        m8FlowerSupportPartial[faceWord] = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
-}
-
-// Exactly one lane writes each faceWord. Masks must come from the actual
-// emitted CONFIRMED/COMPLETED footprint, never an owner bounding box. Covered
-// certifies the whole fixed half-face. Partial explicitly needs the shared
-// direct/support coverage resolver; this helper does not invent a clipped mesh.
-// Unknown/unemitted direct geometry contributes zero to all four masks.
-void M8FlowerSupportApplyCoverage(uint faceWord, uint2 coveredHalves,
-    uint2 partialHalves)
-{
-    uint faces = m8FlowerSupportFaces[faceWord];
-    m8FlowerSupportHalves[faceWord * 2u] = faces &
-        ~(coveredHalves.x | partialHalves.x);
-    m8FlowerSupportHalves[faceWord * 2u + 1u] = faces &
-        ~(coveredHalves.y | partialHalves.y);
-    m8FlowerSupportPartial[faceWord] = faces &
-        (partialHalves.x | partialHalves.y);
 }
 
 bool M8FlowerSupportCoverCells(M8FlowerInterval3 bounds,out int3 firstCell,out int3 lastCell)
@@ -345,15 +368,17 @@ bool M8FlowerSupportWedgeBounds(int3 owner,uint carrier,uint wedge,
 // cover. It is not an M8 owner box. All cells THROUGH proves a veto over the
 // entire represented wedge; all FULL proves no portion is vetoed. Mixed or
 // nonresident covers remain unresolved rather than deleting possible matter.
-uint M8FlowerSupportCoverDual(int3 first,int3 last)
+uint M8FlowerSupportCoverDual(int3 first,int3 last,out uint coldHalo)
 {
+    coldHalo=0u;
     bool full=false,through=false;
     [loop]for(int z=first.z;z<=last.z;z++)
         [loop]for(int y=first.y;y<=last.y;y++)
             [loop]for(int x=first.x;x<=last.x;x++)
             {
-                uint state=M8FlowerSupportFreeCell(int3(x,y,z));
-                if(state==M8_FLOWER_CELL_AMBIGUOUS)return 2u;
+                uint cold;
+                uint state=M8FlowerSupportFreeCell(int3(x,y,z),cold);
+                if(state==M8_FLOWER_CELL_AMBIGUOUS){coldHalo=cold;return 2u;}
                 if(state==M8_FLOWER_CELL_FREE)through=true;
                 else full=true;
                 if(full && through)return 2u;
@@ -362,43 +387,44 @@ uint M8FlowerSupportCoverDual(int3 first,int3 last)
 }
 
 uint M8FlowerSupportWedgeDual(int3 owner,uint carrier,uint wedge,
-    M8FlowerPhaseRootEvidence roots[7],out int3 first,out int3 last)
+    M8FlowerPhaseRootEvidence roots[7],out int3 first,out int3 last,out uint coldHalo)
 {
+    coldHalo=0u;
     M8FlowerInterval3 bounds[3];
     if(!M8FlowerSupportWedgeBounds(owner,carrier,wedge,roots,bounds,first,last))return 2u;
-    return M8FlowerSupportCoverDual(first,last);
+    return M8FlowerSupportCoverDual(first,last,coldHalo);
 }
 
-uint M8FlowerSupportR3RootDual(int3 owner,uint nodeIndex,M8FlowerPhaseRootEvidence root)
+uint M8FlowerSupportR3RootDual(int3 owner,uint nodeIndex,M8FlowerPhaseRootEvidence root,
+    out uint coldHalo)
 {
+    coldHalo=0u;
     if(nodeIndex<18u || nodeIndex>=26u)return 2u;
     int3 relativeOwner=owner-m8FlowerSupportOrigin;
     if(any(relativeOwner < -8) || any(relativeOwner > 15))return 2u;
-    M8FlowerGeometryNode node=(M8FlowerGeometryNode)0;
-    node.Offset=M8FlowerNodeAt(nodeIndex).xyz;node.Line=(uint)M8FlowerNodeAt(nodeIndex).w;
     M8FlowerInterval3 bounds;
-    if(!M8FlowerRootRelativeBounds(node,root,bounds))return 2u;
+    if(!M8FlowerRootNodeRelativeBounds(nodeIndex,root,bounds))return 2u;
     M8FlowerInterval step=M8FlowerI(M8_FLOWER_LATTICE_STEP,M8_FLOWER_LATTICE_STEP);
     bounds.x=M8FlowerIAdd(bounds.x,M8FlowerIMul(M8FlowerI(relativeOwner.x,relativeOwner.x),step));
     bounds.y=M8FlowerIAdd(bounds.y,M8FlowerIMul(M8FlowerI(relativeOwner.y,relativeOwner.y),step));
     bounds.z=M8FlowerIAdd(bounds.z,M8FlowerIMul(M8FlowerI(relativeOwner.z,relativeOwner.z),step));
     int3 first,last;
     if(!M8FlowerSupportCoverCells(bounds,first,last))return 2u;
-    return M8FlowerSupportCoverDual(first,last);
+    return M8FlowerSupportCoverDual(first,last,coldHalo);
 }
 
 // Reuse the source lease and its 27-tile dual cache. Only eight root graphs
 // are evaluated, one at a time. The finite selector consumes compact q/tag
 // evidence, never a fabricated all-allowed mask or a cache of world positions.
 M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
-    uint flags,float2 errors,uint requiredPetal)
+    uint flags,float2 errors,uint requiredPetal,out uint supportReceipt)
 {
-    M8FlowerInterval q[8];uint tags[8];
+    M8FlowerInterval q[8];uint tags[8],cold[8];supportReceipt=0u;
     uint known=0u,ambiguous=0u,allowed=0u,veto=0u;
     uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
     [loop]for(uint i=0u;i<8u;i++)
     {
-        q[i]=M8FlowerI(0,0);tags[i]=0u;
+        q[i]=M8FlowerI(0,0);tags[i]=0u;cold[i]=0u;
         uint axis=i>>1u,bit=1u<<i;
         M8FlowerPhaseRootEvidence observed;
         uint status=M8FlowerReadR3Alternative(slot,ownerRef,owner,flags,axis,(i&1u)!=0u,
@@ -406,12 +432,26 @@ M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 ow
         if(status!=1u){if(status!=0u)ambiguous|=bit;continue;}
         known|=bit;tags[i]=observed.Tag;
         uint node=2u*(uint)M8FlowerTetraLineAt(parity)[axis]+(M8FlowerTetraEtaAt(parity)[axis]<0?1u:0u);
-        uint dual=M8FlowerSupportR3RootDual(owner,node,observed);
+        uint dual=M8FlowerSupportR3RootDual(owner,node,observed,cold[i]);
         if(dual==0u)allowed|=bit;
         else if(dual==1u)veto|=bit;
     }
-    return M8FlowerSelectR3Junction(parity,q,tags,known,ambiguous,allowed,veto,
-        requiredPetal);
+    M8FlowerJunctionSelection result=M8FlowerSelectR3Junction(parity,q,tags,known,ambiguous,
+        allowed,veto,requiredPetal);
+    if(result.RequiredDualMask!=0u)
+    {
+        supportReceipt=M8_FLOWER_SUPPORT_REQUIRED;
+        [loop]for(uint alternative=0u;alternative<8u;alternative++)
+            if((result.RequiredDualMask&(1u<<alternative))!=0u)supportReceipt|=cold[alternative];
+    }
+    return result;
+}
+
+M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
+    uint flags,float2 errors,uint requiredPetal)
+{
+    uint supportReceipt;
+    return M8FlowerReadR3Junction(slot,ownerRef,owner,flags,errors,requiredPetal,supportReceipt);
 }
 
 M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
@@ -423,12 +463,12 @@ M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 ow
 // Same invocation in the count and emit passes; the caller's source lease
 // fixes both M8/detail and dual snapshots between them.
 uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,bool sourceProof,
+    uint completion,bool sourceProof,uint requiredWedges,
     out M8FlowerSymbolRecord symbol,out uint unresolved,
     out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7],
-    out int3 carrierFirst,out int3 carrierLast)
+    out int3 carrierFirst,out int3 carrierLast,out uint supportReceipt)
 {
-    carrierFirst=15;carrierLast=-8;
+    carrierFirst=15;carrierLast=-8;supportReceipt=0u;
     uint status=M8FlowerClassifyL2Carrier(slot,local,carrier,errors,completion,symbol,unresolved,
         directWedges,roots,positions);
     // The raw selector remains owner-local for scan/phase closure. Only the
@@ -447,7 +487,8 @@ uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
     {
         uint bit=1u<<wedge;if((examine&bit)==0u)continue;
         int3 first,last;
-        uint dual=M8FlowerSupportWedgeDual(owner,carrier,wedge,roots,first,last);
+        uint cold;
+        uint dual=M8FlowerSupportWedgeDual(owner,carrier,wedge,roots,first,last,cold);
         if(dual!=0u){active&=~bit;directWedges&=~bit;}
         else if((active&bit)!=0u)
         {
@@ -457,6 +498,8 @@ uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
             carrierFirst=min(carrierFirst,first);carrierLast=max(carrierLast,last);
         }
         if(dual==2u && (owned&bit)!=0u)unresolved|=bit;
+        if(dual==2u && (requiredWedges&bit)!=0u)
+            supportReceipt|=M8_FLOWER_SUPPORT_REQUIRED|cold;
     }
     if(active!=0u)
     {
@@ -486,9 +529,10 @@ uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
     out M8FlowerSymbolRecord symbol,out uint unresolved,
     out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
 {
-    int3 carrierFirst,carrierLast;
+    int3 carrierFirst,carrierLast;uint supportReceipt;
     return M8FlowerPageCarrier(slot,local,carrier,errors,completion,false,
-        symbol,unresolved,directWedges,roots,positions,carrierFirst,carrierLast);
+        M8FlowerL2CarrierOwnedMask(carrier),symbol,unresolved,directWedges,roots,positions,
+        carrierFirst,carrierLast,supportReceipt);
 }
 
 uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
@@ -623,9 +667,9 @@ uint M8FlowerCompletionDonor(uint slot,uint ownerRef,int3 owner,uint flags,
 // The caller MUST still consume all sixteen children at its one shared
 // carrier-evaluation call site before admitting this token as COMPLETED.
 uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
-    uint2 direct,uint petal,M8FlowerDirectAnchors receipt,out uint token)
+    uint2 direct,uint petal,M8FlowerDirectAnchors receipt,out uint token,out uint supportReceipt)
 {
-    token=petal;
+    token=petal;supportReceipt=0u;
     KernelState state=M8LoadKernelStateRead(slot,local);
     int3 owner=M8FlowerEndpointOwner(slot,local);
     uint ownerRef=M8FlowerFindOwner(slot,local,M8FlowerEndpointGeneration(slot));
@@ -641,13 +685,11 @@ uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
         if(status!=1u){uncertain=true;continue;}
         token|=((root.Tag>>7u)&1u)<<(6u+anchor);
         uint nodeIndex=M8FlowerPetalNodesAt(petal)[anchor];
-        M8FlowerGeometryNode node=(M8FlowerGeometryNode)0;
-        node.Offset=M8FlowerNodeAt(nodeIndex).xyz;node.Line=(uint)M8FlowerNodeAt(nodeIndex).w;
-        if(!M8FlowerRootRelativeBounds(node,root,bounds[anchor]))uncertain=true;
+        if(!M8FlowerRootNodeRelativeBounds(nodeIndex,root,bounds[anchor]))uncertain=true;
     }
     if(uncertain)return 2u;
     M8FlowerJunctionSelection junction=M8FlowerReadR3Junction(slot,ownerRef,owner,
-        state.flags,errors,petal);
+        state.flags,errors,petal,supportReceipt);
     if(junction.Classification!=1u)return junction.Classification==0u?0u:2u;
     uint junctionAxis=4u;uint2 rule=M8FlowerJunctionRuleAt(junction.ClassIndex);
     [unroll]for(uint axis=0u;axis<4u;axis++)
@@ -1020,7 +1062,10 @@ void M8FlowerSupportFinalizeCoverage(uint lane,uint laneCount)
         }
         m8FlowerSupportHalves[a]=faces&~(m8FlowerSupportOffsets[a]|partialA);
         m8FlowerSupportHalves[b]=faces&~(m8FlowerSupportOffsets[b]|partialB);
-        m8FlowerSupportPartial[faceWord]=faces&(partialA|partialB);
+        // Do not accumulate this before the complete union barrier: another
+        // carrier may still supply its exact boundary cancellation/witness.
+        // At this point the former Partial array was only reduced by OR.
+        InterlockedOr(m8FlowerSupportUnresolved,faces&(partialA|partialB));
     }
     GroupMemoryBarrierWithGroupSync();
 }
@@ -1034,18 +1079,13 @@ void M8FlowerSupportPrepareSymbols(uint lane)
     GroupMemoryBarrierWithGroupSync();
     if (lane == 0u)
     {
-        uint count = 0u, unresolved = 0u;
+        uint count = 0u;
         [loop] for (uint word = 0u; word < M8_FLOWER_SUPPORT_HALF_WORDS; ++word)
         {
             m8FlowerSupportOffsets[word] = count;
             count += countbits(m8FlowerSupportHalves[word]);
         }
-        [loop] for (uint faceWord = 0u;
-            faceWord < M8_FLOWER_SUPPORT_FACE_WORDS; ++faceWord)
-            unresolved |= m8FlowerSupportAmbiguousFaces[faceWord] |
-                m8FlowerSupportPartial[faceWord];
         m8FlowerSupportSymbolCount = count;
-        m8FlowerSupportUnresolved = unresolved;
     }
     GroupMemoryBarrierWithGroupSync();
 }

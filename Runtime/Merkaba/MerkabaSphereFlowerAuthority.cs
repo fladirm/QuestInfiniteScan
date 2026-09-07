@@ -905,6 +905,8 @@ namespace Genesis.RoomScan
             foreach (uint value in L2IncidenceSources) Word(value);
             foreach (uint4 value in L2CarrierBranchMasks)
                 for (int word = 0; word < 4; word++) Word(value[word]);
+            foreach (uint4 value in PhaseDependentCarriers)
+                for (int word = 0; word < 4; word++) Word(value[word]);
             foreach (ushort value in L2WedgeOwnerOffsets) Word(value);
             foreach (L2WedgeOwnerRule value in L2WedgeOwners)
             {

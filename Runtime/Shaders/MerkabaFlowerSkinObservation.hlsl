@@ -90,98 +90,67 @@ void M8FlowerSkinChamberFootprint(M8FlowerInterval3 parent[3],int3 order,
     child[0]=parent[order.x];
     child[1]=M8FlowerSkinScale(M8FlowerSkinAdd(parent[order.x],parent[order.y]),
         M8FlowerI(0.5,0.5));
-    M8FlowerInterval third;
-    M8FlowerIDivPositive(M8FlowerI(1.0,1.0),M8FlowerI(3.0,3.0),third);
+    float2 generatedThird=M8FlowerSkinThirdAt(0u);
+    M8FlowerInterval third=M8FlowerI(generatedThird.x,generatedThird.y);
     child[2]=M8FlowerSkinScale(M8FlowerSkinAdd(M8FlowerSkinAdd(parent[order.x],
         parent[order.y]),parent[order.z]),third);
 }
 
-void M8FlowerSkinAddChildFootprint(uint child,M8FlowerInterval3 footprintTriangle[3],
-    inout M8FlowerInterval3 footprints[7],inout uint covered)
-{
-    if((covered&(1u<<child))==0u)footprints[child]=footprintTriangle[0];
-    else M8FlowerSkinEnclose(footprints[child],footprintTriangle[0]);
-    M8FlowerSkinEnclose(footprints[child],footprintTriangle[1]);
-    M8FlowerSkinEnclose(footprints[child],footprintTriangle[2]);
-    covered|=1u<<child;
-}
-
-// parentOrdinal is the existing 57-bit THREAD-parent address. All lookups
-// below invert the immutable embroidery, never scan history or camera LOD.
+// parentOrdinal is the existing 57-bit THREAD-parent address. Its canonical
+// identity and clipped support span are resolved once by the Editor codegen.
 bool M8FlowerSkinParentAddress(uint parentOrdinal,out uint depth,out uint c3,out uint c4)
 {
     depth=1u;c3=0u;c4=0u;
     if(parentOrdinal>=57u)return false;
-    if(parentOrdinal==0u)return true;
-    if(parentOrdinal<8u)
-    {
-        depth=2u;
-        c3=M8FlowerSkinThreadToCanonicalAt(57u*(parentOrdinal-1u));
-        return c3<7u;
-    }
-    depth=3u;
-    uint j4=parentOrdinal-8u;
-    uint canonical=M8FlowerSkinThreadToCanonicalAt(57u*(j4/7u)+1u+8u*(j4%7u));
-    if(canonical<7u || canonical>=56u)return false;
-    c3=(canonical-7u)/7u;c4=(canonical-7u)%7u;
+    uint address=M8FlowerSkinParentWorkAt(parentOrdinal).z;
+    depth=address&3u;c3=(address>>2u)&7u;c4=(address>>5u)&7u;
     return true;
 }
 
-// Enumerate the actual generated chamber union, at exactly the requested
-// scan parent. A box encloses each COMPLETE union; extra covered image
-// texels can widen RGB evidence but never manufacture a distinction.
-// Empty generated children stay absent from covered; they are not painted.
-bool M8FlowerSkinChildFootprints(M8FlowerPhaseRootEvidence roots[7],uint parentOrdinal,uint activeWedgeMask,
-    out M8FlowerInterval3 footprints[7],out uint covered)
+// Execute the generated pullback on THIS measured L2 carrier. There is no
+// child search/branch construction here. The three bounded applications keep
+// the original interval operation order; chart-only work is already in SRV.
+void M8FlowerSkinWorkFootprint(M8FlowerInterval3 sites[7],uint4 work,
+    out M8FlowerInterval3 footprintTriangle[3])
 {
-    covered=0u;
-    uint depth,c3,c4;
-    if(activeWedgeMask==0u || activeWedgeMask>=64u ||
-        !M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4))return false;
-    uint siteMask=1u;
-    [unroll]for(uint wedge=0u;wedge<6u;wedge++)
-        if((activeWedgeMask&(1u<<wedge))!=0u)
-        {
-            uint3 indices=M8FlowerSkinWedgeSites(wedge);
-            siteMask|=(1u<<indices.y)|(1u<<indices.z);
-        }
-    M8FlowerInterval3 sites[7];
-    [loop]for(uint site=0u;site<7u;site++)
+    uint3 indices=M8FlowerSkinWedgeSites(work.x&7u);
+    footprintTriangle[0]=sites[indices.x];
+    footprintTriangle[1]=sites[indices.y];
+    footprintTriangle[2]=sites[indices.z];
+    uint depth=(work.x>>6u)&3u;
+    [loop]for(uint level=0u;level<depth;level++)
     {
-        footprints[site]=M8FlowerSkinPoint(0.0.xxx);
-        sites[site]=M8FlowerSkinPoint(0.0.xxx);
-        if((siteMask&(1u<<site))!=0u && !M8FlowerSkinRootWorld(roots[site],sites[site]))return false;
+        uint rule=(work.y>>(6u*level))&63u;
+        M8FlowerInterval3 next[3];
+        M8FlowerSkinChamberFootprint(footprintTriangle,M8FlowerSkinChamberAt(rule).xyz,next);
+        [unroll]for(uint vertex=0u;vertex<3u;vertex++)footprintTriangle[vertex]=next[vertex];
     }
-    [loop]for(uint wedge=0u;wedge<6u;wedge++)
+}
+
+// Consume only this parent's pre-generated complete chamber span. A box
+// encloses each COMPLETE child union; extra covered image texels may widen
+// evidence but cannot manufacture a distinction. Logical-empty children are
+// still implicit Flower-7 addresses, never an existence/allocation decision.
+bool M8FlowerSkinChildFootprint(M8FlowerInterval3 sites[7],uint parentOrdinal,
+    uint activeWedgeMask,uint wantedChild,out M8FlowerInterval3 footprint,out bool covered)
+{
+    covered=false;footprint=M8FlowerSkinPoint(0.0.xxx);
+    uint depth,c3,c4;
+    if(activeWedgeMask==0u || activeWedgeMask>=64u || wantedChild>=7u ||
+        !M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4))return false;
+    uint4 parentWork=M8FlowerSkinParentWorkAt(parentOrdinal);
+    [loop]for(uint index=0u;index<parentWork.y;index++)
     {
-        if((activeWedgeMask&(1u<<wedge))==0u)continue;
-        uint3 indices=M8FlowerSkinWedgeSites(wedge);
-        M8FlowerInterval3 p0[3];
-        p0[0]=sites[indices.x];p0[1]=sites[indices.y];p0[2]=sites[indices.z];
-        [loop]for(uint order3=0u;order3<6u;order3++)
-        {
-            int4 rule3=M8FlowerSkinChamberAt(6u*wedge+order3);
-            uint meta3=asuint(rule3.w),child3=meta3&255u;
-            if(depth>1u && child3!=c3)continue;
-            M8FlowerInterval3 p3[3];M8FlowerSkinChamberFootprint(p0,rule3.xyz,p3);
-            if(depth==1u){M8FlowerSkinAddChildFootprint(child3,p3,footprints,covered);continue;}
-            uint wedge3=(meta3>>8u)&255u;
-            [loop]for(uint order4=0u;order4<6u;order4++)
-            {
-                int4 rule4=M8FlowerSkinChamberAt(6u*wedge3+order4);
-                uint meta4=asuint(rule4.w),child4=meta4&255u;
-                if(depth>2u && child4!=c4)continue;
-                M8FlowerInterval3 p4[3];M8FlowerSkinChamberFootprint(p3,rule4.xyz,p4);
-                if(depth==2u){M8FlowerSkinAddChildFootprint(child4,p4,footprints,covered);continue;}
-                uint wedge4=(meta4>>8u)&255u;
-                [loop]for(uint order5=0u;order5<6u;order5++)
-                {
-                    int4 rule5=M8FlowerSkinChamberAt(6u*wedge4+order5);
-                    M8FlowerInterval3 p5[3];M8FlowerSkinChamberFootprint(p4,rule5.xyz,p5);
-                    M8FlowerSkinAddChildFootprint(asuint(rule5.w)&255u,p5,footprints,covered);
-                }
-            }
-        }
+        uint4 work=M8FlowerSkinFootprintWorkAt(parentWork.x+index);
+        uint wedge=work.x&7u,child=(work.x>>3u)&7u;
+        if(child!=wantedChild || (activeWedgeMask&(1u<<wedge))==0u)continue;
+        M8FlowerInterval3 footprintTriangle[3];
+        M8FlowerSkinWorkFootprint(sites,work,footprintTriangle);
+        if(!covered)footprint=footprintTriangle[0];
+        else M8FlowerSkinEnclose(footprint,footprintTriangle[0]);
+        M8FlowerSkinEnclose(footprint,footprintTriangle[1]);
+        M8FlowerSkinEnclose(footprint,footprintTriangle[2]);
+        covered=true;
     }
     return true;
 }
@@ -382,17 +351,13 @@ bool M8FlowerSkinMetricCoordinates(M8FlowerSkinMetricFrame frame,
     return true;
 }
 
-// Apply the SAME generated chamber matrix to bounded coordinates. Taking
-// its columns on the three exact unit vectors avoids a second transition
-// formula in the sensor consumer.
-M8FlowerInterval3 M8FlowerSkinIntervalChamber(M8FlowerInterval3 value,int3 order)
+// The integer matrix columns are generated, not rediscovered by running the
+// point evaluator three times. Only the measured coordinates remain runtime.
+M8FlowerInterval3 M8FlowerSkinIntervalChamber(M8FlowerInterval3 value,uint rule)
 {
-    float3 x=M8FlowerSkinApplyChamber(float3(1,0,0),order);
-    float3 y=M8FlowerSkinApplyChamber(float3(0,1,0),order);
-    float3 z=M8FlowerSkinApplyChamber(float3(0,0,1),order);
     M8FlowerInterval components[3];
     [loop]for(uint axis=0u;axis<3u;axis++)
-        components[axis]=M8DepthIntervalRow(float4(x[axis],y[axis],z[axis],0),value);
+        components[axis]=M8DepthIntervalRow(M8FlowerSkinForwardRowAt(3u*(rule%6u)+axis),value);
     M8FlowerInterval3 result;
     result.x=components[0];result.y=components[1];result.z=components[2];
     return result;
@@ -557,38 +522,26 @@ bool M8FlowerSkinMetricMeasurement(int2 pixel,int3 owner,uint ownerFlags,
     return true;
 }
 
-// The ordinal enumerates a fixed generated chamber union, not a spatial
-// tree or an adaptive fitting search. Nonmatching parent addresses are
-// geometrically EMPTY, independently of whether any sensor texel exists.
-bool M8FlowerSkinMetricChamber(M8FlowerInterval3 sites[7],uint depth,uint c3,uint c4,uint activeWedgeMask,
-    uint ordinal,out M8FlowerInterval3 footprintTriangle[3],out M8FlowerInterval3 chart[3],
+// Codegen already assigned this work item to its one thread parent. Runtime
+// loads its inverse chart; it never enumerates other parents' chambers.
+bool M8FlowerSkinMetricChamber(M8FlowerInterval3 sites[7],uint activeWedgeMask,
+    uint workIndex,out M8FlowerInterval3 footprintTriangle[3],out M8FlowerInterval3 chart[3],
     out uint3 rules,out uint child)
 {
     rules=0u.xxx;child=0u;
-    uint chambersPerWedge=depth==1u?6u:depth==2u?36u:216u;
-    uint wedge=ordinal/chambersPerWedge;
-    if(wedge>=6u || (activeWedgeMask&(1u<<wedge))==0u)return false;
-    uint remainder=ordinal%chambersPerWedge;
-    uint3 indices=M8FlowerSkinWedgeSites(wedge);
-    footprintTriangle[0]=sites[indices.x];footprintTriangle[1]=sites[indices.y];footprintTriangle[2]=sites[indices.z];
-    chart[0]=M8FlowerSkinPoint(float3(1,0,0));
-    chart[1]=M8FlowerSkinPoint(float3(0,1,0));
-    chart[2]=M8FlowerSkinPoint(float3(0,0,1));
-    [loop]for(uint level=0u;level<depth;level++)
+    uint4 work=M8FlowerSkinFootprintWorkAt(workIndex);
+    uint wedge=work.x&7u;
+    if((activeWedgeMask&(1u<<wedge))==0u)return false;
+    child=(work.x>>3u)&7u;
+    rules=uint3(work.y&63u,(work.y>>6u)&63u,(work.y>>12u)&63u);
+    M8FlowerSkinWorkFootprint(sites,work,footprintTriangle);
+    [loop]for(uint vertex=0u;vertex<3u;vertex++)
     {
-        chambersPerWedge/=6u;
-        uint order=remainder/chambersPerWedge;
-        remainder%=chambersPerWedge;
-        rules[level]=6u*wedge+order;
-        int4 rule=M8FlowerSkinChamberAt(rules[level]);
-        child=asuint(rule.w)&255u;
-        if((level==0u && depth>1u && child!=c3) ||
-            (level==1u && depth>2u && child!=c4))return false;
-        M8FlowerInterval3 nextTriangle[3],nextChart[3];
-        M8FlowerSkinChamberFootprint(footprintTriangle,rule.xyz,nextTriangle);
-        M8FlowerSkinChamberFootprint(chart,rule.xyz,nextChart);
-        [unroll]for(uint i=0u;i<3u;i++){footprintTriangle[i]=nextTriangle[i];chart[i]=nextChart[i];}
-        wedge=(asuint(rule.w)>>8u)&255u;
+        float4 xy=M8FlowerSkinFootprintChartAt(work.z*6u+vertex*2u);
+        float2 z=M8FlowerSkinFootprintChartAt(work.z*6u+vertex*2u+1u).xy;
+        chart[vertex].x=M8FlowerI(xy.x,xy.y);
+        chart[vertex].y=M8FlowerI(xy.z,xy.w);
+        chart[vertex].z=M8FlowerI(z.x,z.y);
     }
     return child<7u;
 }
@@ -601,7 +554,7 @@ bool M8FlowerSkinMetricTerms(M8FlowerInterval3 local,M8FlowerInterval3 chart[3],
     M8FlowerInterval3 parent=M8FlowerSkinTriangleAt(chart,local);
     [loop]for(uint level=0u;level+1u<depth;level++)
     {
-        parent=M8FlowerSkinIntervalChamber(parent,M8FlowerSkinChamberAt(rules[level]).xyz);
+        parent=M8FlowerSkinIntervalChamber(parent,rules[level]);
         if(!M8FlowerSkinClipMetricCoordinates(parent))return false;
         M8FlowerInterval amplitude;
         if(level==0u)amplitude=amplitude3;else amplitude=amplitude4;
@@ -665,63 +618,48 @@ bool M8FlowerSkinMetricHeight(M8FlowerInterval3 position,M8FlowerInterval3 norma
 // encoding, and requires the composed parent+child signal to stay inside
 // the measured graph enclosure in every possibly intersecting pixel cell.
 // There is no least-squares estimate, central-value amplitude, or epsilon.
-uint M8FlowerMeasureMetricSkinChildren(M8FlowerPhaseRootEvidence roots[7],uint parentOrdinal,uint activeWedgeMask,
-    int3 owner,uint ownerFlags,float normalError,float offsetError,
-    M8FlowerSkinMetricRun run,bool existing,out M8FlowerVInterval children[7],
-    out uint supportMask)
+bool M8FlowerMeasureMetricSkinChild(M8FlowerInterval3 sites[7],uint parentOrdinal,
+    uint activeWedgeMask,uint wantedChild,int3 owner,uint ownerFlags,float normalError,float offsetError,
+    M8FlowerSkinMetricRun run,bool existing,out M8FlowerVInterval value,out bool supported)
 {
-    supportMask=0u;
+    value=(M8FlowerVInterval)0;supported=false;
+    if(activeWedgeMask==0u || activeWedgeMask>=64u || wantedChild>=7u)return false;
     uint depth,c3,c4;
-    if(activeWedgeMask==0u || activeWedgeMask>=64u)return M8_FLOWER_SKIN_AMBIGUOUS;
-    uint siteMask=1u;
-    [unroll]for(uint wedge=0u;wedge<6u;wedge++)
-        if((activeWedgeMask&(1u<<wedge))!=0u)
-        {
-            uint3 indices=M8FlowerSkinWedgeSites(wedge);
-            siteMask|=(1u<<indices.y)|(1u<<indices.z);
-        }
-    M8FlowerInterval3 sites[7];
-    M8FlowerInterval amplitudes[7];
-    [loop]for(uint child=0u;child<7u;child++)
-    {
-        children[child]=(M8FlowerVInterval)0; // EMPTY: no metric innovation.
-        amplitudes[child]=M8FlowerI(0,0);
-        sites[child]=M8FlowerSkinPoint(0.0.xxx);
-        if((siteMask&(1u<<child))!=0u && !M8FlowerSkinRootWorld(roots[child],sites[child]))
-            return M8_FLOWER_SKIN_AMBIGUOUS;
-    }
-    if(!M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4))return M8_FLOWER_SKIN_AMBIGUOUS;
+    M8FlowerInterval amplitude=M8FlowerI(0,0);
+    bool constrained=false;
+    if(!M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4))return false;
     M8FlowerInterval amplitude3=M8FlowerI(0,0),amplitude4=M8FlowerI(0,0);
     if(depth>1u && !M8FlowerSkinReadAmplitude(run,existing,3u,c3,c4,amplitude3))
-        return M8_FLOWER_SKIN_AMBIGUOUS;
+        return false;
     if(depth>2u && !M8FlowerSkinReadAmplitude(run,existing,4u,c3,c4,amplitude4))
-        return M8_FLOWER_SKIN_AMBIGUOUS;
+        return false;
     M8FlowerInterval inheritedRange=M8FlowerIAdd(
         M8FlowerIMul(amplitude3,M8FlowerI(0,1)),M8FlowerIMul(amplitude4,M8FlowerI(0,1)));
-    uint chamberCount=depth==1u?36u:depth==2u?216u:1296u;
-    uint constrainedMask=0u;
+    uint4 parentWork=M8FlowerSkinParentWorkAt(parentOrdinal);
     [loop]for(uint reductionPass=0u;reductionPass<2u;reductionPass++)
     {
-        [loop]for(uint ordinal=0u;ordinal<chamberCount;ordinal++)
+        [loop]for(uint ordinal=0u;ordinal<parentWork.y;ordinal++)
         {
+            uint4 work=M8FlowerSkinFootprintWorkAt(parentWork.x+ordinal);
+            if(((work.x>>3u)&7u)!=wantedChild)continue;
             M8FlowerInterval3 footprintTriangle[3],chart[3];uint3 rules;uint child;
-            if(!M8FlowerSkinMetricChamber(sites,depth,c3,c4,activeWedgeMask,ordinal,
+            if(!M8FlowerSkinMetricChamber(sites,activeWedgeMask,parentWork.x+ordinal,
                 footprintTriangle,chart,rules,child))continue;
-            supportMask|=1u<<child;
+            supported=true;
             M8FlowerSkinMetricFrame frame;
-            if(!M8FlowerSkinMetricFrameFromTriangle(footprintTriangle,frame))return M8_FLOWER_SKIN_AMBIGUOUS;
+            if(!M8FlowerSkinMetricFrameFromTriangle(footprintTriangle,frame))return false;
             M8FlowerInterval range=inheritedRange;
-            if(reductionPass!=0u)range=M8FlowerIAdd(range,M8FlowerIMul(amplitudes[child],M8FlowerI(0,1)));
+            if(reductionPass!=0u)range=M8FlowerIAdd(range,M8FlowerIMul(amplitude,M8FlowerI(0,1)));
             int2 first,last;M8FlowerInterval modelDepth;
             if(!M8FlowerSkinMetricPixelCover(frame,footprintTriangle,range,first,last,modelDepth))
-                return M8_FLOWER_SKIN_AMBIGUOUS;
+                return false;
             [loop]for(int y=first.y;y<=last.y;y++)
             [loop]for(int x=first.x;x<=last.x;x++)
             {
                 M8FlowerInterval measuredDepth;
                 M8FlowerInterval3 measuredNormal;
                 if(!M8FlowerSkinMetricMeasurement(int2(x,y),owner,ownerFlags,normalError,offsetError,
-                    measuredDepth,measuredNormal))return M8_FLOWER_SKIN_AMBIGUOUS;
+                    measuredDepth,measuredNormal))return false;
                 // Decode the measured centre first; the validation pass
                 // then decodes the entire model-depth pixel cell. Both use
                 // the same exact inverse projection, not cloned dividers.
@@ -731,13 +669,13 @@ uint M8FlowerMeasureMetricSkinChildren(M8FlowerPhaseRootEvidence roots[7],uint p
                     M8FlowerInterval depth;
                     if(projection==0u)depth=measuredDepth;else depth=modelDepth;
                     if(!M8FlowerSkinDepthCell(int2(x,y),depth,projection!=0u,positions[projection]))
-                        return M8_FLOWER_SKIN_AMBIGUOUS;
+                        return false;
                 }
                 M8FlowerInterval3 measuredPosition=positions[0];
                 M8FlowerInterval3 localitySource=measuredPosition;
                 if(reductionPass!=0u)localitySource=positions[1];
                 M8FlowerInterval3 local;
-                if(!M8FlowerSkinMetricCoordinates(frame,localitySource,local))return M8_FLOWER_SKIN_AMBIGUOUS;
+                if(!M8FlowerSkinMetricCoordinates(frame,localitySource,local))return false;
                 if(reductionPass==0u)
                 {
                     // A possibly outside measurement is not silently
@@ -752,84 +690,79 @@ uint M8FlowerMeasureMetricSkinChildren(M8FlowerPhaseRootEvidence roots[7],uint p
                 M8FlowerInterval height,inherited,bubble;
                 if(!M8FlowerSkinMetricHeight(measuredPosition,measuredNormal,frame,base,height) ||
                     !M8FlowerSkinMetricTerms(local,chart,rules,depth,amplitude3,amplitude4,inherited,bubble))
-                    return M8_FLOWER_SKIN_AMBIGUOUS;
+                    return false;
                 if(reductionPass==0u)
                 {
-                    bool constrained=(constrainedMask&(1u<<child))!=0u;
                     if(!M8FlowerSkinConstrainAmplitude(M8FlowerISub(height,inherited),bubble,
-                        amplitudes[child],constrained))return M8_FLOWER_SKIN_AMBIGUOUS;
-                    if(constrained)constrainedMask|=1u<<child;
+                        amplitude,constrained))return false;
                 }
                 else
                 {
-                    M8FlowerInterval composed=M8FlowerIAdd(inherited,M8FlowerIMul(amplitudes[child],bubble));
+                    M8FlowerInterval composed=M8FlowerIAdd(inherited,M8FlowerIMul(amplitude,bubble));
                     // Requiring the complete composed interval to fit the
                     // measured enclosure is stronger than an overlap test
                     // at a centroid. Incompatible boundary values reject V;
                     // they never move the L2 carrier or replace parent V.
-                    if(composed.lo<height.lo || composed.hi>height.hi)return M8_FLOWER_SKIN_AMBIGUOUS;
+                    if(composed.lo<height.lo || composed.hi>height.hi)return false;
                 }
             }
         }
         if(reductionPass==0u)
         {
-            if((constrainedMask&supportMask)!=supportMask)return M8_FLOWER_SKIN_AMBIGUOUS;
-            [loop]for(uint child=0u;child<7u;child++)
+            if(supported && !constrained)return false;
+            if(supported)
             {
-                if((supportMask&(1u<<child))==0u)continue;
-                if(!M8FlowerSkinEncodeAmplitude(amplitudes[child],children[child]))
-                    return M8_FLOWER_SKIN_AMBIGUOUS;
-                amplitudes[child]=M8FlowerSkinDecodeAmplitude(children[child]);
+                if(!M8FlowerSkinEncodeAmplitude(amplitude,value))return false;
+                amplitude=M8FlowerSkinDecodeAmplitude(value);
             }
         }
     }
-    float2 intervals[7];
-    [loop]for(uint child=0u;child<7u;child++)
-        intervals[child]=float2(amplitudes[child].lo,amplitudes[child].hi);
-    return M8FlowerClassifyScalarSkinSplit(intervals,constrainedMask,supportMask);
+    return true;
 }
 
-uint M8FlowerMeasureRgbSkinChildren(M8FlowerPhaseRootEvidence roots[7],uint parentOrdinal,uint activeWedgeMask,
-    int3 owner,uint ownerFlags,float normalError,float offsetError,
-    M8ThreadColorInterval inherited,out M8ThreadColorInterval children[7],
-    out uint supportMask)
+bool M8FlowerMeasureRgbSkinChild(M8FlowerInterval3 sites[7],uint parentOrdinal,
+    uint activeWedgeMask,uint child,int3 owner,uint ownerFlags,float normalError,float offsetError,
+    M8ThreadColorInterval inherited,out M8ThreadColorInterval value,out bool supported)
 {
-    M8FlowerInterval3 footprints[7];uint covered;
-    supportMask=0u;
-    [loop]for(uint child=0u;child<7u;child++)children[child]=inherited;
-    if(!M8FlowerSkinChildFootprints(roots,parentOrdinal,activeWedgeMask,footprints,covered))
-        return M8_FLOWER_SKIN_AMBIGUOUS;
-    // All seven logical children exist. Only the exact generated chamber
-    // intersection decides whether one has support inside this L2 carrier.
-    // EMPTY is not missing camera evidence and never supplies measured zero.
-    supportMask=covered;
-    if(supportMask==0u)return M8_FLOWER_SKIN_UNIFORM;
-    float2 intervals[21];uint certain=0u;
+    value=inherited;supported=false;
+    M8FlowerInterval3 footprint;
+    if(!M8FlowerSkinChildFootprint(sites,parentOrdinal,activeWedgeMask,child,footprint,supported))
+        return false;
+    // EMPTY inherits the same parent signal, but is not measured evidence.
+    if(!supported)return true;
+    if(!M8FlowerSkinDirectFootprint(footprint,owner,ownerFlags,normalError,offsetError))return false;
+    M8FlowerInterval3 eyeRgb[2];
+    [loop]for(uint eye=0u;eye<2u;eye++)
+        if(!M8FlowerSkinRgbFootprint(eye,footprint,eyeRgb[eye]))return false;
+    M8FlowerInterval3 left=eyeRgb[0],right=eyeRgb[1];
+    float3 lower=max(float3(left.x.lo,left.y.lo,left.z.lo),float3(right.x.lo,right.y.lo,right.z.lo));
+    float3 upper=min(float3(left.x.hi,left.y.hi,left.z.hi),float3(right.x.hi,right.y.hi,right.z.hi));
+    return !any(lower>upper) &&
+        M8ThreadEncodeColorInterval(float4(lower,1.0),float4(upper,1.0),value);
+}
+
+uint M8FlowerClassifyMeasuredRgbSkin(M8ThreadColorInterval children[7],uint certain,uint supportMask)
+{
+    float2 intervals[21];
     [loop]for(uint child=0u;child<7u;child++)
     {
-        intervals[3u*child]=0.0.xx;
-        intervals[3u*child+1u]=0.0.xx;
-        intervals[3u*child+2u]=0.0.xx;
-        if((supportMask&(1u<<child))==0u)continue;
-        if(!M8FlowerSkinDirectFootprint(footprints[child],owner,ownerFlags,normalError,offsetError))
-            return M8_FLOWER_SKIN_AMBIGUOUS;
-        M8FlowerInterval3 eyeRgb[2];
-        [loop]for(uint eye=0u;eye<2u;eye++)
-            if(!M8FlowerSkinRgbFootprint(eye,footprints[child],eyeRgb[eye]))
-                return M8_FLOWER_SKIN_AMBIGUOUS;
-        M8FlowerInterval3 left=eyeRgb[0],right=eyeRgb[1];
-        float3 lower=max(float3(left.x.lo,left.y.lo,left.z.lo),float3(right.x.lo,right.y.lo,right.z.lo));
-        float3 upper=min(float3(left.x.hi,left.y.hi,left.z.hi),float3(right.x.hi,right.y.hi,right.z.hi));
-        if(any(lower>upper) || !M8ThreadEncodeColorInterval(float4(lower,1.0),float4(upper,1.0),children[child]))
-            return M8_FLOWER_SKIN_AMBIGUOUS;
-        // Classification encloses the actual binary16 values persisted.
         uint2 lo=children[child].LowerLinearRgba,hi=children[child].UpperLinearRgba;
         intervals[3u*child]=float2(f16tof32(lo.x&65535u),f16tof32(hi.x&65535u));
         intervals[3u*child+1u]=float2(f16tof32(lo.x>>16u),f16tof32(hi.x>>16u));
         intervals[3u*child+2u]=float2(f16tof32(lo.y&65535u),f16tof32(hi.y&65535u));
-        certain|=1u<<child;
     }
     return M8FlowerClassifyRgbSkinSplit(intervals,certain,supportMask);
+}
+
+uint M8FlowerClassifyMeasuredMetricSkin(M8FlowerVInterval children[7],uint certain,uint supportMask)
+{
+    float2 intervals[7];
+    [loop]for(uint child=0u;child<7u;child++)
+    {
+        M8FlowerInterval value=M8FlowerSkinDecodeAmplitude(children[child]);
+        intervals[child]=float2(value.lo,value.hi);
+    }
+    return M8FlowerClassifyScalarSkinSplit(intervals,certain,supportMask);
 }
 
 // The unused member of a seven-value group inherits the existing signal of
@@ -893,14 +826,26 @@ bool M8FlowerSkinCarrierIdentity(int3 owner,uint flowerKey,uint activeWedgeMask,
     return true;
 }
 
-// Caller supplies a genuinely CERTAIN seven-site carrier selected by the
-// direct/flag predicate, not a guessed sign mask. This commits measurement
-// only: geometry admission and Thread storage do not select each other.
-uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint flowerKey,
-    uint parentOrdinal,uint activeWedgeMask,M8FlowerPhaseRootEvidence roots[7],float normalError,float offsetError,
-    out uint classification,out bool changed)
+// One parent/signal snapshot feeds all seven independent child lanes. The
+// group writer uses this same snapshot after their collective barrier.
+struct M8FlowerSkinGroupContext
 {
-    classification=M8_FLOWER_SKIN_AMBIGUOUS;changed=false;
+    uint OwnerRef;
+    uint Flags;
+    uint Epoch;
+    uint GroupBase;
+    uint2 SplitBits;
+    uint Reserved;
+    bool Existing;
+    bool Measure;
+    M8ThreadColorInterval Inherited;
+};
+
+uint M8FlowerPrepareSkinGroup(uint slot,uint local,uint slotGeneration,uint flowerKey,
+    uint parentOrdinal,uint activeWedgeMask,M8FlowerPhaseRootEvidence roots[7],bool metric,
+    out M8FlowerSkinGroupContext context,out uint classification)
+{
+    context=(M8FlowerSkinGroupContext)0;classification=M8_FLOWER_SKIN_AMBIGUOUS;
     if(slot>=32768u || local>=512u || parentOrdinal>=57u)return M8_FLOWER_ARENA_INVALID;
     uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)],meta=_M8TileRecords[M8TileMetaIndex(slot)];
     if(runtime.w!=slotGeneration || meta.x>=MERKABA_M8_CHUNK_CAPACITY || meta.y>=64u ||
@@ -908,26 +853,50 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
     KernelState state=M8LoadKernelStateRead(slot,local);
     if((state.flags&(M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID|M8_FLOWER_SEED_FLAG))!=
         (M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID))return M8_FLOWER_ARENA_INVALID;
-    int3 owner=M8GlobalKernelCoord(slot,local);
-    if(!M8FlowerSkinCarrierIdentity(owner,flowerKey,activeWedgeMask,roots))return M8_FLOWER_ARENA_INVALID;
-    uint ownerRef=M8FlowerFindOwner(slot,local,slotGeneration),epoch=M8FlowerGetOwnerEpoch(ownerRef);
-    M8ThreadRun run;uint runRef;
-    bool existing=M8FlowerFindThreadRun(ownerRef,flowerKey,epoch,run,runRef);
-    uint2 bits=uint2(run.SplitBitsLo,run.SplitBitsHi);
+    if(!M8FlowerSkinCarrierIdentity(M8GlobalKernelCoord(slot,local),flowerKey,activeWedgeMask,roots))
+        return M8_FLOWER_ARENA_INVALID;
+    context.Flags=state.flags;
+    context.OwnerRef=M8FlowerFindOwner(slot,local,slotGeneration);
+    context.Epoch=M8FlowerGetOwnerEpoch(context.OwnerRef);
+    uint runRef;
+    M8ThreadRun rgb;
+    if(metric)
+    {
+        M8FlowerSkinMetricRun run;
+        context.Existing=M8FlowerFindMetricRun(context.OwnerRef,flowerKey,context.Epoch,run,runRef);
+        context.GroupBase=run.GroupBase;context.SplitBits=uint2(run.SplitBitsLo,run.SplitBitsHi);
+        context.Reserved=run.Reserved;
+    }
+    else
+    {
+        context.Existing=M8FlowerFindThreadRun(context.OwnerRef,flowerKey,context.Epoch,rgb,runRef);
+        context.GroupBase=rgb.GroupBase;context.SplitBits=uint2(rgb.SplitBitsLo,rgb.SplitBitsHi);
+    }
     if(parentOrdinal!=0u)
     {
         uint predecessor=parentOrdinal<8u?0u:1u+(parentOrdinal-8u)/7u;
-        if(!existing || (bits[predecessor>>5u]&(1u<<(predecessor&31u)))==0u)
+        if(!context.Existing || (context.SplitBits[predecessor>>5u]&(1u<<(predecessor&31u)))==0u)
         {classification=M8_FLOWER_SKIN_UNIFORM;return M8_FLOWER_ARENA_OK;}
     }
-    M8ThreadColorInterval canonical[7],thread[7],inherited;
-    if(!M8FlowerSkinInheritedColor(parentOrdinal,state.packedColor,run,existing,inherited))
-        return M8_FLOWER_ARENA_INVALID;
-    uint supportMask;
-    classification=M8FlowerMeasureRgbSkinChildren(roots,parentOrdinal,activeWedgeMask,owner,
-        state.flags,normalError,offsetError,inherited,canonical,supportMask);
+    if(!metric && !M8FlowerSkinInheritedColor(parentOrdinal,state.packedColor,rgb,
+        context.Existing,context.Inherited))return M8_FLOWER_ARENA_INVALID;
+    context.Measure=true;
+    return M8_FLOWER_ARENA_OK;
+}
+
+// The child values below are the complete parallel reduction of this exact
+// prepared group. Only the owner lane publishes after all children retire.
+uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint flowerKey,
+    uint parentOrdinal,M8FlowerSkinGroupContext context,M8ThreadColorInterval canonical[7],
+    uint classification,uint supportMask,out bool changed)
+{
+    changed=false;
+    if(!context.Measure)return M8_FLOWER_ARENA_OK;
+    uint ownerRef=context.OwnerRef;
+    uint2 bits=context.SplitBits;
+    M8ThreadColorInterval thread[7];
     if(supportMask==0u)return M8_FLOWER_ARENA_OK;
-    bool replacing=existing && (bits[parentOrdinal>>5u]&(1u<<(parentOrdinal&31u)))!=0u;
+    bool replacing=context.Existing && (bits[parentOrdinal>>5u]&(1u<<(parentOrdinal&31u)))!=0u;
     if(classification==M8_FLOWER_SKIN_AMBIGUOUS ||
         (classification==M8_FLOWER_SKIN_UNIFORM && !replacing))return M8_FLOWER_ARENA_OK;
     uint depth,c3,c4;
@@ -940,7 +909,7 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
     }
     if(replacing)
     {
-        uint address=112u*(run.GroupBase+M8FlowerSplitRank(bits,parentOrdinal));
+        uint address=112u*(context.GroupBase+M8FlowerSplitRank(bits,parentOrdinal));
         if(!M8FlowerThreadRange(address,112u))return M8_FLOWER_ARENA_INVALID;
         bool same=true;
         [loop]for(uint child=0u;child<7u;child++)
@@ -953,7 +922,7 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
     uint status=M8_FLOWER_ARENA_OK;
     if(ownerRef==0u)
     {
-        status=M8FlowerEnsureOwner(slot,local,slotGeneration,state.flags,_M8DualPublishingGeneration,ownerRef);
+        status=M8FlowerEnsureOwner(slot,local,slotGeneration,context.Flags,_M8DualPublishingGeneration,ownerRef);
         if(status!=M8_FLOWER_ARENA_OK)return status;
         // If the subsequent non-spinning group allocation yields, this
         // successful publication is still progress for the frozen workset.
@@ -970,34 +939,16 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
 }
 
 uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint flowerKey,
-    uint parentOrdinal,uint activeWedgeMask,M8FlowerPhaseRootEvidence roots[7],float normalError,float offsetError,
-    out uint classification,out bool changed)
+    uint parentOrdinal,M8FlowerSkinGroupContext context,M8FlowerVInterval canonical[7],
+    uint classification,uint supportMask,out bool changed)
 {
-    classification=M8_FLOWER_SKIN_AMBIGUOUS;changed=false;
-    if(slot>=32768u || local>=512u || parentOrdinal>=57u)return M8_FLOWER_ARENA_INVALID;
-    uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)],meta=_M8TileRecords[M8TileMetaIndex(slot)];
-    if(runtime.w!=slotGeneration || meta.x>=MERKABA_M8_CHUNK_CAPACITY || meta.y>=64u ||
-        _M8ChunkTileRefsRead[meta.x*64u+meta.y]!=slot+1u)return M8_FLOWER_SIDECAR_STALE_SLOT;
-    KernelState state=M8LoadKernelStateRead(slot,local);
-    if((state.flags&(M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID|M8_FLOWER_SEED_FLAG))!=
-        (M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID))return M8_FLOWER_ARENA_INVALID;
-    int3 owner=M8GlobalKernelCoord(slot,local);
-    if(!M8FlowerSkinCarrierIdentity(owner,flowerKey,activeWedgeMask,roots))return M8_FLOWER_ARENA_INVALID;
-    uint ownerRef=M8FlowerFindOwner(slot,local,slotGeneration),epoch=M8FlowerGetOwnerEpoch(ownerRef);
-    M8FlowerSkinMetricRun run;uint runRef;
-    bool existing=M8FlowerFindMetricRun(ownerRef,flowerKey,epoch,run,runRef);
-    uint2 bits=uint2(run.SplitBitsLo,run.SplitBitsHi);
-    if(parentOrdinal!=0u)
-    {
-        uint predecessor=parentOrdinal<8u?0u:1u+(parentOrdinal-8u)/7u;
-        if(!existing || (bits[predecessor>>5u]&(1u<<(predecessor&31u)))==0u)
-        {classification=M8_FLOWER_SKIN_UNIFORM;return M8_FLOWER_ARENA_OK;}
-    }
-    M8FlowerVInterval canonical[7],thread[7];uint supportMask;
-    classification=M8FlowerMeasureMetricSkinChildren(roots,parentOrdinal,activeWedgeMask,owner,state.flags,
-        normalError,offsetError,run,existing,canonical,supportMask);
+    changed=false;
+    if(!context.Measure)return M8_FLOWER_ARENA_OK;
+    uint ownerRef=context.OwnerRef;
+    uint2 bits=context.SplitBits;
+    M8FlowerVInterval thread[7];
     if(supportMask==0u)return M8_FLOWER_ARENA_OK;
-    bool replacing=existing && (bits[parentOrdinal>>5u]&(1u<<(parentOrdinal&31u)))!=0u;
+    bool replacing=context.Existing && (bits[parentOrdinal>>5u]&(1u<<(parentOrdinal&31u)))!=0u;
     if(classification==M8_FLOWER_SKIN_AMBIGUOUS ||
         (classification==M8_FLOWER_SKIN_UNIFORM && !replacing))return M8_FLOWER_ARENA_OK;
     uint depth,c3,c4;
@@ -1010,8 +961,8 @@ uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint
     }
     if(replacing)
     {
-        uint group=run.GroupBase+M8FlowerSplitRank(bits,parentOrdinal);
-        if(group<run.GroupBase || group>0xffffffffu/56u || !M8FlowerDetailRange(group*56u,56u))
+        uint group=context.GroupBase+M8FlowerSplitRank(bits,parentOrdinal);
+        if(group<context.GroupBase || group>0xffffffffu/56u || !M8FlowerDetailRange(group*56u,56u))
             return M8_FLOWER_ARENA_INVALID;
         bool same=true;
         [loop]for(uint child=0u;child<7u;child++)
@@ -1024,7 +975,7 @@ uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint
     uint status=M8_FLOWER_ARENA_OK;
     if(ownerRef==0u)
     {
-        status=M8FlowerEnsureOwner(slot,local,slotGeneration,state.flags,_M8DualPublishingGeneration,ownerRef);
+        status=M8FlowerEnsureOwner(slot,local,slotGeneration,context.Flags,_M8DualPublishingGeneration,ownerRef);
         if(status!=M8_FLOWER_ARENA_OK)return status;
         M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
     }
@@ -1044,26 +995,8 @@ uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint
 bool M8FlowerSkinParentTouchesWedges(uint parentOrdinal,uint wedgeMask)
 {
     if(wedgeMask==0u)return false;
-    uint depth,c3,c4;
-    if(!M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4))return true;
-    if(depth==1u)return true;
-    [loop]for(uint wedge=0u;wedge<6u;wedge++)
-    {
-        if((wedgeMask&(1u<<wedge))==0u)continue;
-        [loop]for(uint order3=0u;order3<6u;order3++)
-        {
-            uint rule3=asuint(M8FlowerSkinChamberAt(6u*wedge+order3).w);
-            if((rule3&255u)!=c3)continue;
-            if(depth==2u)return true;
-            uint wedge3=(rule3>>8u)&255u;
-            [loop]for(uint order4=0u;order4<6u;order4++)
-            {
-                uint rule4=asuint(M8FlowerSkinChamberAt(6u*wedge3+order4).w);
-                if((rule4&255u)==c4)return true;
-            }
-        }
-    }
-    return false;
+    if(parentOrdinal>=57u)return true;
+    return (M8FlowerSkinParentWorkAt(parentOrdinal).w&wedgeMask)!=0u;
 }
 
 // Both persistent signals consume the SAME finite canonical parent workset.
@@ -1082,50 +1015,5 @@ bool M8FlowerSkinHasRootRefinement(uint slot,uint local,uint slotGeneration,uint
     return rgbSplit || metricSplit;
 }
 
-uint M8FlowerDrainSkinCarrier(uint slot,uint local,uint slotGeneration,uint flowerKey,uint activeWedgeMask,
-    uint unresolvedWedgeMask,M8FlowerPhaseRootEvidence roots[7],float normalError,float offsetError,uint quantum,
-    inout uint canonicalCursor,out uint progressed,out uint ambiguous)
-{
-    progressed=0u;ambiguous=0u;
-    if(canonicalCursor>57u || activeWedgeMask==0u || activeWedgeMask>=64u ||
-        unresolvedWedgeMask>=64u || (activeWedgeMask&unresolvedWedgeMask)!=0u)
-        return M8_FLOWER_ARENA_INVALID;
-    if(canonicalCursor>0u && canonicalCursor<57u &&
-        !M8FlowerSkinHasRootRefinement(slot,local,slotGeneration,flowerKey))
-    {
-        canonicalCursor=57u;progressed=1u;
-        return M8_FLOWER_ARENA_OK;
-    }
-    uint consumed=0u;
-    [loop]while(canonicalCursor<57u && consumed<quantum)
-    {
-        uint parentOrdinal=0u;
-        if(canonicalCursor>0u && canonicalCursor<8u)
-            parentOrdinal=1u+M8FlowerSkinL3ChildRankAt(canonicalCursor-1u);
-        else if(canonicalCursor>=8u)
-            parentOrdinal=8u+M8FlowerSkinL4ParentThreadAt(canonicalCursor-8u);
-        uint rgbClassification=M8_FLOWER_SKIN_AMBIGUOUS,metricClassification=M8_FLOWER_SKIN_AMBIGUOUS;
-        if(!M8FlowerSkinParentTouchesWedges(parentOrdinal,unresolvedWedgeMask))
-        {
-            bool rgbChanged,metricChanged;
-            uint status=M8FlowerCommitRgbSkinSplit(slot,local,slotGeneration,flowerKey,parentOrdinal,activeWedgeMask,
-                roots,normalError,offsetError,rgbClassification,rgbChanged);
-            if(status!=M8_FLOWER_ARENA_OK)return status;
-            if(rgbChanged)progressed++;
-            status=M8FlowerCommitMetricSkinSplit(slot,local,slotGeneration,flowerKey,parentOrdinal,activeWedgeMask,
-                roots,normalError,offsetError,metricClassification,metricChanged);
-            if(status!=M8_FLOWER_ARENA_OK)return status;
-            if(metricChanged)progressed++;
-        }
-        // Genuine information ambiguity exhausts this observation's branch;
-        // it does not become an endless same-input scheduling retry.
-        if(rgbClassification==M8_FLOWER_SKIN_AMBIGUOUS)ambiguous++;
-        if(metricClassification==M8_FLOWER_SKIN_AMBIGUOUS)ambiguous++;
-        canonicalCursor++;consumed++;progressed++;
-        if(canonicalCursor==1u && !M8FlowerSkinHasRootRefinement(slot,local,slotGeneration,flowerKey))
-            canonicalCursor=57u;
-    }
-    return M8_FLOWER_ARENA_OK;
-}
 
 #endif

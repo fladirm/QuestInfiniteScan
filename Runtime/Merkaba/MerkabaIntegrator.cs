@@ -18,16 +18,17 @@ namespace Genesis.RoomScan
         [SerializeField, Range(1f, 8f)] private float maxUpdateDistance = 5f;
 
         private MerkabaGrid _grid;
+        private RoomScanner _scanner;
         private DepthCapture _depthCapture;
         private MerkabaGridRenderer _pageRenderer;
         private int _pageOpportunityFrame = -1;
+        private int _observationRequestedFrame = -1;
+        private bool _observationRequestedIsFine;
         private int _flowerCommitKernel;
         private int _drainRefinementKernel;
         private int _updateObservationDualKernel;
         private int _finalizeKernel;
-        private int _resetFineEraseKernel;
         private int _queryFineEraseKernel;
-        private int _prepareFineEraseKernel;
         private int _eraseFineTilesKernel;
         private int _finalizeFineEraseKernel;
         private bool _initialized;
@@ -72,6 +73,10 @@ namespace Genesis.RoomScan
         // Scheduling budget only. Unconsumed candidates retain the frozen
         // observation and its GPU cursor; this never limits admitted detail.
         private const int RefinementCandidatePassesPerQuantum = 64;
+#if UNITY_EDITOR || !UNITY_ANDROID
+        private static readonly uint[] FineEraseZero = { 0u };
+        private static readonly uint[] FineEraseInitialArguments = { 0u, 1u, 1u };
+#endif
         private readonly bool[] _cameraPairAvailable =
             new bool[CameraObservationSlots];
         private readonly Vector3[] _cameraPosition = new Vector3[4];
@@ -129,6 +134,13 @@ namespace Genesis.RoomScan
         }
         internal bool HasReadyStereoCameraFrame =>
             _readyCameraSlot >= 0 && _cameraPairAvailable[_readyCameraSlot];
+        // Update can request observation while a page job still owns the
+        // lease; renderer polling retires it in LateUpdate. Do not immediately
+        // replace that page job before the scanner's next admission turn.
+        // The explicit post-observation page opportunity remains one quantum.
+        internal bool ObservationHasBoundaryPriority =>
+            _observationRequestedFrame == Time.frameCount &&
+            (_observationRequestedIsFine || _pageOpportunityFrame != Time.frameCount);
         public event Action Integrated;
         internal event Action AuthorityChanged;
         internal event Action FineErased;
@@ -200,6 +212,7 @@ namespace Genesis.RoomScan
         private void Awake()
         {
             _grid = GetComponent<MerkabaGrid>();
+            _scanner = GetComponent<RoomScanner>();
             _depthCapture = GetComponent<DepthCapture>();
             _pageRenderer = GetComponent<MerkabaGridRenderer>();
         }
@@ -265,12 +278,8 @@ namespace Genesis.RoomScan
                 "UpdateObservationDual", MerkabaGpuStage.DualIntegration);
             _finalizeKernel = compute.FindProfiledKernel(
                 "FinalizeObservation", MerkabaGpuStage.SurfaceIntegration);
-            _resetFineEraseKernel = compute.FindProfiledKernel(
-                "ResetFineErase", MerkabaGpuStage.SurfaceIntegration);
             _queryFineEraseKernel = compute.FindProfiledKernel(
                 "QueryFineEraseTiles", MerkabaGpuStage.WorldQuery);
-            _prepareFineEraseKernel = compute.FindProfiledKernel(
-                "PrepareFineEraseArgs", MerkabaGpuStage.SurfaceIntegration);
             _eraseFineTilesKernel = compute.FindProfiledKernel(
                 "EraseFineTiles", MerkabaGpuStage.SurfaceIntegration);
             _finalizeFineEraseKernel = compute.FindProfiledKernel(
@@ -278,8 +287,7 @@ namespace Genesis.RoomScan
             foreach (int kernel in new[]
                      {
                          _flowerCommitKernel, _drainRefinementKernel, _updateObservationDualKernel,
-                         _finalizeKernel, _resetFineEraseKernel,
-                         _queryFineEraseKernel, _prepareFineEraseKernel,
+                         _finalizeKernel, _queryFineEraseKernel,
                          _eraseFineTilesKernel, _finalizeFineEraseKernel
                      })
             {
@@ -312,6 +320,7 @@ namespace Genesis.RoomScan
         internal bool SetStereoCameraData(StereoCameraFrame frame,
             FineBrushDescriptor fineBrush)
         {
+            if (_scanner != null && _scanner.ExportMutationHeld) return false;
             if (!ReferenceEquals(_grid, null) &&
                 _grid.GpuSubmissionSuspended) return false;
             if (!frame.IsValid) return false;
@@ -368,6 +377,7 @@ namespace Genesis.RoomScan
         /// </summary>
         internal bool TrySwitchObservationAuthority()
         {
+            if (_scanner != null && _scanner.ExportMutationHeld) return false;
             if (_observationPrepared || _attemptInFlight ||
                 _cameraObservationHeld || _fineErasePrepared ||
                 _fineEraseAttemptInFlight)
@@ -475,6 +485,7 @@ namespace Genesis.RoomScan
 
         internal bool TryPrepareFineErase(FineBrushDescriptor descriptor)
         {
+            if (_scanner != null && _scanner.ExportMutationHeld) return false;
             if (!descriptor.IsErase || _observationPrepared ||
                 _attemptInFlight || _fineErasePrepared ||
                 (_bins != null && _bins.FrozenObservation != 0u) ||
@@ -579,11 +590,16 @@ namespace Genesis.RoomScan
                 ConfigureFineErase(command, _fineEraseDescriptor);
                 command.SetComputeIntParam(compute, AttemptTokenId,
                     unchecked((int)_fineEraseAttemptToken));
-                command.DispatchComputeProfiled(compute,
-                    _resetFineEraseKernel, 1, 1, 1);
+                // Same bounded setup as native vkCmdFillBuffer. These are
+                // command-stream constant writes, never GPU-count readbacks.
+                command.SetBufferData(_grid.M8Counters, FineEraseZero,
+                    0, MerkabaGrid.CounterFineEraseTileCount, 1);
+                command.SetBufferData(_grid.M8Counters, FineEraseZero,
+                    0, MerkabaGrid.CounterUnresolvedObservationTiles, 1);
+                command.SetBufferData(_grid.M8Counters, FineEraseZero,
+                    0, MerkabaGrid.CounterObservationChangeMask, 1);
+                command.SetBufferData(_grid.M8ObservationDispatchArgs, FineEraseInitialArguments, 0, 0, 3);
                 DispatchFineEraseQuery(command, _fineEraseDescriptor);
-                command.DispatchComputeProfiled(compute,
-                    _prepareFineEraseKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(compute,
                     _eraseFineTilesKernel, _grid.M8ObservationDispatchArgs);
                 command.DispatchComputeProfiled(compute,
@@ -712,9 +728,13 @@ namespace Genesis.RoomScan
                 !Initialize() || _attemptInFlight || _fineErasePrepared ||
                 _fineEraseAttemptInFlight)
                 return false;
-            if (!_grid.ObservationMutationSubmissionAllowed) return false;
             bool newObservation = !_observationPrepared;
-            if (_pageOpportunityFrame == Time.frameCount &&
+            // Existing immutable work must still drain under the export lease.
+            if (newObservation && _scanner != null && _scanner.ExportMutationHeld)
+                return false;
+            bool fineRequest = _observationPrepared ? _heldFineBrush.IsRefine :
+                _readyCameraSlot >= 0 && _cameraFineBrush[_readyCameraSlot].IsRefine;
+            if (!fineRequest && _pageOpportunityFrame == Time.frameCount &&
                 _pageRenderer != null && _pageRenderer.isActiveAndEnabled &&
                 _pageRenderer.ReadoutDrawEnabled)
                 return false;
@@ -732,6 +752,13 @@ namespace Genesis.RoomScan
             }
             else if (!CanRetryPreparedObservation())
                 return false;
+
+            // Record an actual logically eligible request before the lease
+            // gate: it may still be held by a page job that retires later in
+            // this frame. This is scheduling state, not observation evidence.
+            _observationRequestedFrame = Time.frameCount;
+            _observationRequestedIsFine = fineRequest;
+            if (!_grid.ObservationMutationSubmissionAllowed) return false;
 
 #if !UNITY_EDITOR && UNITY_ANDROID
             if (!MerkabaNativeVulkanExecutor.IsAvailable)
@@ -774,6 +801,7 @@ namespace Genesis.RoomScan
                         _depthCapture.ProcessedRawFrameVersion;
                     _observationPrepared = true;
                     BeginObservationBins();
+                    _depthCapture.RecordDepthCertificate(command, _bins);
                 }
 
                 _attemptToken = NextAttemptToken();
@@ -783,7 +811,7 @@ namespace Genesis.RoomScan
                 // FINE/ERASE may have used this shader between quanta.
                 // Rebind the held observation, never current camera state.
                 ConfigureObservation();
-                _bins.Record(command);
+                _bins.Record(command, reset: !newObservation);
                 // All required resident negative support is resolved before
                 // the one touched-tile workgroup can commit direct evidence.
                 DispatchObservationDual(command);
@@ -1465,6 +1493,8 @@ namespace Genesis.RoomScan
 
         public void Clear()
         {
+            if (_scanner != null && _scanner.ExportMutationHeld)
+                throw new InvalidOperationException("Cannot clear the held export source.");
             _grid?.Clear();
             _observationPrepared = false;
             _observationToken = 0u;

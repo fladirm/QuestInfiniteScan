@@ -459,7 +459,8 @@ namespace Genesis.RoomScan.Tests
         {
             // Actual resolved absence in the captured index, not fabricated
             // certain roots/supports. This is a NEGATIVE completion fixture.
-            var reader = new Flower.SnapshotReader(Array.Empty<MerkabaTileSnapshot>(), Array.Empty<MerkabaTileAddress>());
+            var reader = new Flower.SnapshotReader(Array.Empty<MerkabaTileSnapshot>(), Array.Empty<MerkabaTileAddress>(),
+                _ => throw new InvalidOperationException("An empty frozen parent must not query dual support."));
             int3 owner = new(-257, -33, -9);
             var parent = reader.BeginParent48Snapshot(owner, float2.zero);
             Assert.Throws<InvalidOperationException>(() => parent.EvaluateCompletion(out _));

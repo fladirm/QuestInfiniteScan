@@ -146,9 +146,10 @@ int3 M8FlowerEndpointOwner(uint slot,uint kernelLocal)
 #endif
 }
 
-uint M8FlowerReadEndpoint(uint ownerSlot,int3 owner,int3 coordinate,
-    out uint slot,out uint kernelLocal,out KernelState state)
+uint M8FlowerReadEndpointWithReceipt(uint ownerSlot,int3 owner,int3 coordinate,
+    out uint slot,out uint kernelLocal,out KernelState state,out uint receipt)
 {
+    receipt=0u;
     slot=kernelLocal=0u;state=(KernelState)0;
     if(ownerSlot>=MERKABA_M8_PHYSICAL_TILE_CAPACITY)return 2u;
     int3 ownerTile=owner>>3,targetTile=coordinate>>3;
@@ -182,23 +183,36 @@ uint M8FlowerReadEndpoint(uint ownerSlot,int3 owner,int3 coordinate,
     if(!M8FlowerValidateHaloKernel(origin,ownerTile,owner&7,
         sourceSlot,sourceLocal,tileWriteView) || sourceSlot!=ownerSlot)
     {
-#if !defined(M8_FLOWER_HALO_READ_ONLY)
-        InterlockedOr(m8FlowerHaloUnresolvedReads,1u<<sourceHalo);
-#endif
+        receipt=1u<<sourceHalo;
         return 2u;
     }
     if((packed>>30u)==M8_FLOWER_HALO_MISSING)return 0u;
     if(!M8FlowerValidateHaloKernel(packed,targetTile,coordinate&7,
         slot,kernelLocal,tileWriteView))
     {
-#if !defined(M8_FLOWER_HALO_READ_ONLY)
-        InterlockedOr(m8FlowerHaloUnresolvedReads,1u<<halo);
-#endif
+        receipt=1u<<halo;
         return 2u;
     }
     state=M8LoadKernelStateRead(slot,kernelLocal);
     uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
     return (state.flags&(required|M8_FLOWER_SEED_FLAG))==required?1u:0u;
+}
+
+void M8FlowerRequireEndpointReceipt(uint receipt)
+{
+#if !defined(M8_FLOWER_HALO_READ_ONLY)
+    if(receipt!=0u)InterlockedOr(m8FlowerHaloUnresolvedReads,receipt);
+#endif
+}
+
+uint M8FlowerReadEndpoint(uint ownerSlot,int3 owner,int3 coordinate,
+    out uint slot,out uint kernelLocal,out KernelState state)
+{
+    uint receipt;
+    uint result=M8FlowerReadEndpointWithReceipt(ownerSlot,owner,coordinate,
+        slot,kernelLocal,state,receipt);
+    M8FlowerRequireEndpointReceipt(receipt);
+    return result;
 }
 
 #endif

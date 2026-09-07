@@ -97,8 +97,7 @@ bool M8FlowerResolveRootProof(uint tagsAnd,uint tagsOr,M8FlowerInterval2 root,
     }
     // This includes boundary/interior or different-boundary mixtures. Only
     // the full metric intersection may establish an ordinary strict sector.
-    uint strictSector;
-    return M8FlowerRootSector(lineClass,root,strictSector) && strictSector==sector;
+    return M8FlowerRootInSector(lineClass,root,sector);
 }
 
 bool M8FlowerReadRootIntersection(uint kernelLocal,out uint symbolTag,
@@ -217,14 +216,15 @@ bool M8FlowerReadObservationBucket(uint kernelLocal, out uint identity,
 // Failure preserves the existing R1. It cannot choose a different sheet by
 // normal angle, distance, confidence, or a nearest-root match.
 bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
-    float normalUncertainty, float offsetUncertainty)
+    float normalUncertainty, float offsetUncertainty, bool requireSeed = false)
 {
-    if (!M8FlowerHasPlane(previousFlags)) return true;
+    if (!M8FlowerHasPlane(previousFlags)) return !requireSeed;
     if (!M8FlowerHasPlane(incomingFlags) ||
         M8FlowerPlaneFreeSide(previousFlags) !=
         M8FlowerPlaneFreeSide(incomingFlags)) return false;
-    if ((previousFlags & M8_FLOWER_PLANE_STORAGE_MASK) ==
-        (incomingFlags & M8_FLOWER_PLANE_STORAGE_MASK)) return true;
+    bool identical=(previousFlags & M8_FLOWER_PLANE_STORAGE_MASK) ==
+        (incomingFlags & M8_FLOWER_PLANE_STORAGE_MASK);
+    if (identical && !requireSeed) return true;
     uint2 flags=uint2(previousFlags,incomingFlags);
     float3 normals[2];float offsets[2];
     // Preserve previous -> incoming evaluation, with one syntactic copy of
@@ -232,6 +232,7 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
     [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
         M8FlowerUnpackPlane(flags[endpoint],normals[endpoint],offsets[endpoint]);
     bool isolated = false;
+    bool seedWitness = false;
     [loop]
     for (uint direction = 0u; direction < 6u; ++direction)
     {
@@ -239,10 +240,16 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
         precise float3 relative = float3(M8FlowerDirectionAt(direction).xyz) *
             (M8_FLOWER_LATTICE_STEP * 0.5);
         M8FlowerInterval3 abc[2];
+        bool bounded=true;
         [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
-            if(!M8FlowerPlaneIntervals(normals[endpoint],offsets[endpoint],relative,
+            if(!M8FlowerPlaneLoopIntervals(normals[endpoint],offsets[endpoint],relative,
                 M8_FLOWER_R1_RADIUS,lineClass,normalUncertainty,offsetUncertainty,
-                abc[endpoint]))return false;
+                0u,M8FlowerDirectionAt(direction).xyz,abc[endpoint]))bounded=false;
+        if(!bounded)
+        {
+            if(!identical)return false;
+            continue;
+        }
         [loop]
         for (uint rootSign = 0u; rootSign < 2u; ++rootSign)
         {
@@ -254,73 +261,43 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
                     M8FlowerDirectionAt(direction).xyz,abc[endpoint],tags[endpoint],
                     roots[endpoint],classes[endpoint]);
             uint previousClass=classes.x,incomingClass=classes.y;
-            if (previousClass == M8_FLOWER_ROOT_AMBIGUOUS ||
-                incomingClass != previousClass) return false;
-            if (previousClass == M8_FLOWER_ROOT_IMPOSSIBLE ||
-                previousClass == M8_FLOWER_ROOT_COPLANAR) continue;
-            if (rootSign != 0u &&
-                previousClass == M8_FLOWER_ROOT_CERTAIN_TANGENT) continue;
-            if(!certain[0] || !certain[1])return false;
+            if(!identical)
+            {
+                if (previousClass == M8_FLOWER_ROOT_AMBIGUOUS ||
+                    incomingClass != previousClass) return false;
+                if (previousClass == M8_FLOWER_ROOT_IMPOSSIBLE ||
+                    previousClass == M8_FLOWER_ROOT_COPLANAR) continue;
+                if (rootSign != 0u &&
+                    previousClass == M8_FLOWER_ROOT_CERTAIN_TANGENT) continue;
+            }
+            if(!certain[0] || !certain[1])
+            {
+                if(!identical)return false;
+                continue;
+            }
             M8FlowerInterval2 intersection;
             intersection.x=M8FlowerI(max(roots[0].x.lo,roots[1].x.lo),
                 min(roots[0].x.hi,roots[1].x.hi));
             intersection.y=M8FlowerI(max(roots[0].y.lo,roots[1].y.lo),
                 min(roots[0].y.hi,roots[1].y.hi));
             uint sharedTag;
-            if(!M8FlowerResolveRootProof(tags.x&tags.y,tags.x|tags.y,intersection,sharedTag))return false;
+            if(!M8FlowerResolveRootProof(tags.x&tags.y,tags.x|tags.y,intersection,sharedTag))
+            {
+                if(!identical)return false;
+                continue;
+            }
             isolated = true;
+            uint selectedFlag;
+            if(requireSeed && M8FlowerR1RootFlag(direction,sharedTag,selectedFlag))
+            {
+                // Equal packed planes prove compatibility, not existence.
+                // A seed still needs this certain fixed-relation witness.
+                if(identical)return true;
+                seedWitness=true;
+            }
         }
     }
-    return isolated;
-}
-
-// A repeated packed plane is not itself a root certificate. Seed promotion
-// needs a CERTAIN correspondence on one fixed directed R1 relation, with the
-// same algebraic sign and generated sector in both immutable observations.
-bool M8FlowerSeedCorrespondence(uint previousFlags, uint incomingFlags,
-    float normalUncertainty, float offsetUncertainty)
-{
-    if (!M8FlowerHasPlane(previousFlags) || !M8FlowerHasPlane(incomingFlags) ||
-        M8FlowerPlaneFreeSide(previousFlags) != M8FlowerPlaneFreeSide(incomingFlags))
-        return false;
-    float3 previousNormal, incomingNormal;
-    float previousOffset, incomingOffset;
-    M8FlowerUnpackPlane(previousFlags,previousNormal,previousOffset);
-    M8FlowerUnpackPlane(incomingFlags,incomingNormal,incomingOffset);
-    [loop] for (uint direction = 0u; direction < 6u; ++direction)
-    {
-        uint lineClass = (uint)M8FlowerDirectionAt(direction).w;
-        precise float3 relative = float3(M8FlowerDirectionAt(direction).xyz)*
-            (M8_FLOWER_LATTICE_STEP*0.5);
-        M8FlowerInterval3 previousAbc, incomingAbc;
-        if (!M8FlowerPlaneIntervals(previousNormal,previousOffset,relative,
-                M8_FLOWER_R1_RADIUS,lineClass,normalUncertainty,
-                offsetUncertainty,previousAbc) ||
-            !M8FlowerPlaneIntervals(incomingNormal,incomingOffset,relative,
-                M8_FLOWER_R1_RADIUS,lineClass,normalUncertainty,
-                offsetUncertainty,incomingAbc)) continue;
-        [loop] for (uint sign = 0u; sign < 2u; ++sign)
-        {
-            uint previousTag, incomingTag, previousClass, incomingClass;
-            M8FlowerInterval2 previousRoot, incomingRoot;
-            if (!M8FlowerClassifyPlaneRoot(0u,lineClass,
-                    (direction & 1u) != 0u,sign != 0u,previousNormal,previousOffset,
-                    M8FlowerDirectionAt(direction).xyz,previousAbc,previousTag,previousRoot,previousClass) ||
-                !M8FlowerClassifyPlaneRoot(0u,lineClass,
-                    (direction & 1u) != 0u,sign != 0u,incomingNormal,incomingOffset,
-                    M8FlowerDirectionAt(direction).xyz,incomingAbc,incomingTag,incomingRoot,incomingClass)) continue;
-            M8FlowerInterval2 intersection;
-            intersection.x=M8FlowerI(max(previousRoot.x.lo,incomingRoot.x.lo),
-                min(previousRoot.x.hi,incomingRoot.x.hi));
-            intersection.y=M8FlowerI(max(previousRoot.y.lo,incomingRoot.y.lo),
-                min(previousRoot.y.hi,incomingRoot.y.hi));
-            uint sharedTag,selectedFlag;
-            if(M8FlowerResolveRootProof(previousTag&incomingTag,previousTag|incomingTag,
-                    intersection,sharedTag) &&
-                M8FlowerR1RootFlag(direction,sharedTag,selectedFlag))return true;
-        }
-    }
-    return false;
+    return (identical || isolated) && (!requireSeed || seedWitness);
 }
 
 #endif

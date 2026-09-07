@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -42,7 +43,8 @@ namespace Genesis.RoomScan
 
         public bool IsBusy
         {
-            get => _operationBusy || (_restoreReleasedGpuTask != null && !_restoreReleasedGpuTask.IsCompleted);
+            get => _operationBusy || (_scanner?.ExportMutationHeld ?? false) ||
+                (_restoreReleasedGpuTask != null && !_restoreReleasedGpuTask.IsCompleted);
             private set => _operationBusy = value;
         }
         public Guid ActiveSessionId => _activeSession?.Id ?? Guid.Empty;
@@ -142,6 +144,100 @@ namespace Genesis.RoomScan
                 Logger.Error("Merkaba REV-C save failed: " + exception);
                 SetStatus("Save failed: " + exception.Message);
                 return false;
+            }
+            finally
+            {
+                IsBusy = false;
+                StatusChanged?.Invoke();
+            }
+        }
+
+        // The sole export-side mutation is its initial ordinary SAVE. The
+        // scanner already holds admission closed and has retired observation
+        // and erase work. Do not cancel SAVE between append and durable ACK.
+        internal async Task PrepareExportDurableCutAsync(bool resume = false)
+        {
+            if (_scanner == null || !_scanner.ExportMutationHeld ||
+                _operationBusy || _grid == null)
+                throw new InvalidOperationException("Export durable cut requires the exclusive scanner lease.");
+            IsBusy = true;
+            try
+            {
+                await _grid.RetireFlowerExportSourceChangesAsync();
+                if (resume)
+                {
+                    // Do not create a new generation merely by requesting
+                    // resume. The journal still verifies the complete existing
+                    // committed manifest, every source stream and documents.
+                    if (IsDirty || _activeSession == null ||
+                        _grid.CurrentCommittedStorageState().Manifest.SessionUuid != ActiveSessionId)
+                        throw new InvalidDataException("RESUME_SOURCE_UNAVAILABLE: the active source has uncommitted changes or another session.");
+                    SetStatus("Validating unchanged committed export source");
+                    return;
+                }
+                MerkabaStorageCommitResult result = await SaveActiveCoreAsync(
+                    ProgressFor(ScanOperationKind.ExportGlb));
+                _catalog.MarkSaved(_activeSession);
+                IsDirty = false;
+                SetStatus($"Export source saved: {result.CanonicalTileCount} M8 tiles");
+            }
+            finally
+            {
+                IsBusy = false;
+                StatusChanged?.Invoke();
+            }
+        }
+
+        internal MerkabaNativePackage.Source CaptureExportPackageSource()
+        {
+            if (_scanner == null || !_scanner.ExportMutationHeld ||
+                _operationBusy || IsDirty || _activeSession == null)
+                throw new InvalidOperationException("Native package capture requires the held, committed export source.");
+            MerkabaSessionManifest manifest = _grid.CurrentCommittedStorageState().Manifest;
+            if (manifest.SessionUuid != ActiveSessionId || manifest.AnchorUuid != ActiveAnchorUuid)
+                throw new InvalidDataException("Native package source and active session identities differ.");
+            return new MerkabaNativePackage.Source(ActiveSessionDirectory,
+                ActiveDesignPath, ActiveAnnotationsPath, DesignLibraryPath,
+                manifest, ActiveSessionName);
+        }
+
+        internal async Task<Guid> RegisterNativeSessionAsync(
+            MerkabaNativePackage.ValidatedImport package,
+            CancellationToken cancellationToken)
+        {
+            if (package == null) throw new ArgumentNullException(nameof(package));
+            if (IsBusy || IsDirty || (_integrator != null &&
+                (_integrator.HasPendingObservation || _integrator.HasAttemptInFlight ||
+                 _integrator.HasPendingFineErase || _integrator.HasFineEraseAttemptInFlight)))
+                throw new InvalidOperationException("Native import cannot replace an unsaved or active scan.");
+            cancellationToken.ThrowIfCancellationRequested();
+            IsBusy = true;
+            MerkabaSessionInfo created = null;
+            try
+            {
+                // The package was validated in isolation. A new catalog GUID
+                // prevents it from overwriting even the same exported session.
+                created = _catalog.Create(package.Manifest.AnchorUuid, package.DisplayName);
+                string destination = _catalog.SessionDirectory(created.Id);
+                Guid newSessionId = created.Id;
+                string library = DesignLibraryPath;
+                await Task.Run(() => package.Install(destination, newSessionId,
+                    library, cancellationToken));
+                cancellationToken.ThrowIfCancellationRequested();
+                _catalog.MarkSaved(created);
+                SetStatus("Imported native session: " + created.displayName);
+                return newSessionId;
+            }
+            catch
+            {
+                // This directory was created by this failed transaction, not
+                // an existing scan. Awaited Install no longer owns its files.
+                if (created != null)
+                {
+                    _catalog.Delete(created.Id);
+                    Logger.Info($"Removed incomplete imported session {created.Id:D}; existing sessions retained.");
+                }
+                throw;
             }
             finally
             {
@@ -359,6 +455,8 @@ namespace Genesis.RoomScan
         internal async Task BeginNewSessionAsync(Guid anchorUuid,
             string displayName = null)
         {
+            if (IsBusy)
+                throw new InvalidOperationException("Cannot replace the session while an operation holds its source.");
             if (anchorUuid == Guid.Empty)
                 throw new ArgumentException(
                     "A new session requires its persisted room anchor UUID.",

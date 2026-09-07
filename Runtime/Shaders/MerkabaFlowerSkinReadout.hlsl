@@ -498,4 +498,29 @@ float3 M8FlowerEvaluateSkinNormal(M8FlowerSkinLocality locality,
         sqrt(denominatorSquared);
 }
 
+// V-1 only: explicit world-space presentation light, not capture lighting.
+// The CPU RelativeDiffuse twin uses this same ordered scalar calculation.
+// Optical/specular fields and CaptureView residuals are deliberately unused.
+float3 M8FlowerRelativeDiffuse(float3 capturedRgb, uint sampleFlags,
+    float3 normal, float3 microNormal, float4 presentationLight)
+{
+    if (presentationLight.w != 1.0 || (sampleFlags & 1u) == 0u)
+        return capturedRgb;
+    precise float squared = presentationLight.x * presentationLight.x +
+        presentationLight.y * presentationLight.y;
+    squared = squared + presentationLight.z * presentationLight.z;
+    if (!(squared > 0.0) || !M8FlowerIsFinite(squared)) return capturedRgb;
+    precise float length = sqrt(squared);
+    precise float3 light = presentationLight.xyz / length;
+    precise float e0 = normal.x * light.x + normal.y * light.y;
+    e0 = e0 + normal.z * light.z;
+    // The exact 2^-5 floor is presentation policy, not geometry tolerance.
+    if (!(e0 > 0.03125)) return capturedRgb;
+    precise float ef = microNormal.x * light.x + microNormal.y * light.y;
+    ef = ef + microNormal.z * light.z;
+    precise float response = saturate(max(ef, 0.0) / e0);
+    precise float3 result = capturedRgb * response;
+    return result;
+}
+
 #endif

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Unity.Mathematics;
 
@@ -7,29 +8,39 @@ namespace Genesis.RoomScan
 {
     public sealed partial class MerkabaGrid
     {
+        internal Task RetireFlowerExportSourceChangesAsync()
+        {
+            if (_storageReplacementPending)
+                throw new InvalidOperationException("Export cannot acquire a replacing storage source.");
+            // Scanner's busy lease prevents a new idle compaction. Retire an
+            // already running one before selecting the ordinary durable cut.
+            return CancelAndRetireBaseCompactionAsync(true);
+        }
         // The caller already quiesced scan and captured the sorted M8 index.
         // Export reads the same complete tile/sidecar packets as residency,
         // bounded to this tile and its existing 27-tile context. No GPU
         // geometry readback or independently reconstructed surface is used.
         internal Task<MerkabaSphereFlowerAuthority.SnapshotReader> ReadStoredFlowerContextAsync(
             MerkabaTileAddress ownerTile, MerkabaTileAddress[] capturedIndex,
-            MerkabaStorageAppendPosition position)
+            MerkabaStorageAppendPosition position,
+            CancellationToken cancellationToken = default)
         {
             if (capturedIndex == null) throw new ArgumentNullException(nameof(capturedIndex));
             if (_storageReplacementPending)
                 throw new InvalidOperationException("Cannot read Flower geometry while storage authority is changing.");
             EnsureStorage();
-            return _ssdStore.ReadFlowerContextAsync(ownerTile, capturedIndex, position);
+            return _ssdStore.ReadFlowerContextAsync(ownerTile, capturedIndex, position, cancellationToken);
         }
 
         internal Task<long> StreamStoredFlowerDirtAsync(float2 planeBounds,
             MerkabaTileAddress[] capturedIndex, MerkabaStorageAppendPosition position,
-            Action<IReadOnlyList<MerkabaDirtTriangle>> consume)
+            Action<IReadOnlyList<MerkabaDirtTriangle>> consume,
+            CancellationToken cancellationToken = default)
         {
             EnsureStorage();
             if (_storageReplacementPending)
                 throw new InvalidOperationException("Cannot export Flower DIRT while storage authority is changing.");
-            return _ssdStore.StreamFlowerDirtAsync(planeBounds, capturedIndex, position, consume);
+            return _ssdStore.StreamFlowerDirtAsync(planeBounds, capturedIndex, position, consume, cancellationToken);
         }
 
         internal MerkabaTileAddress[] CaptureStoredFlowerSource(out MerkabaStorageAppendPosition position)

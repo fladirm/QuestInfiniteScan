@@ -16,7 +16,6 @@ namespace Genesis.RoomScan
         public string createdUtc;
         public string modifiedUtc;
         public string anchorUuid;
-        public string thumbnailPath;
 
         public Guid Id => Guid.TryParse(sessionId, out Guid value)
             ? value : Guid.Empty;
@@ -106,8 +105,7 @@ namespace Genesis.RoomScan
                 displayName = NormalizeName(displayName, now),
                 createdUtc = now,
                 modifiedUtc = now,
-                anchorUuid = anchorUuid.ToString("D"),
-                thumbnailPath = string.Empty
+                anchorUuid = anchorUuid.ToString("D")
             };
             Write(session);
             return session;

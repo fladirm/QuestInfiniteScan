@@ -227,6 +227,132 @@ namespace Genesis.RoomScan.Tests
                 true, splitL3, 1u << 7, 0u), Is.False);
         }
 
+        [Test]
+        public void RelativeDiffuse_LightOffIsBitIdentical()
+        {
+            float3 captured = math.asfloat(new uint3(0x80000000u, 1u, 0x3eaaaaabu));
+            float3 result = MerkabaSphereFlowerAuthority.RelativeDiffuse(captured, 1u,
+                new float3(float.NaN), new float3(float.PositiveInfinity),
+                new float4(float.NaN, float.NaN, float.NaN, 0f));
+            Assert.That(math.asuint(result), Is.EqualTo(math.asuint(captured)),
+                "Disabled V-1 must return before any normal/light arithmetic.");
+        }
+
+        [Test]
+        public void RelativeDiffuse_UncertifiedOrInvalidLightNeverRelights()
+        {
+            float3 captured = new(0.25f, 0.5f, 0.75f);
+            float3 normal = new(0f, 0f, 1f);
+            float3 opposite = -normal;
+            foreach (uint flags in new[] { 0u, 2u })
+                Assert.That(math.asuint(MerkabaSphereFlowerAuthority.RelativeDiffuse(
+                    captured, flags, normal, opposite, new float4(0f, 0f, 7f, 1f))),
+                    Is.EqualTo(math.asuint(captured)));
+            foreach (float4 light in new[] { new float4(0f, 0f, 0f, 1f),
+                         new float4(float.NaN, 0f, 1f, 1f) })
+                Assert.That(math.asuint(MerkabaSphereFlowerAuthority.RelativeDiffuse(
+                    captured, 1u, normal, opposite, light)),
+                    Is.EqualTo(math.asuint(captured)));
+        }
+
+        [Test]
+        public void RelativeDiffuse_PlanarSignalAndStrictPresentationFloorPreserveCapture()
+        {
+            float3 captured = new(0.25f, 0.5f, 0.75f);
+            float3 normal = new(0f, 0f, 1f);
+            float3 planar = MerkabaSphereFlowerAuthority.SkinMicroNormal(
+                new float3(1f, 0f, 0f), new float3(0f, 1f, 0f), normal, float2.zero);
+            float4 light = new(0f, 0f, 7f, 1f);
+            Assert.That(math.asuint(MerkabaSphereFlowerAuthority.RelativeDiffuse(
+                captured, 1u, normal, planar, light)), Is.EqualTo(math.asuint(captured)));
+
+            const float floor = 0.03125f;
+            uint floorBits = math.asuint(floor);
+            foreach (float cosine in new[] { -floor, 0f,
+                         math.asfloat(floorBits - 1u), floor })
+            {
+                float3 grazing = new(math.sqrt(1f - cosine * cosine), 0f, cosine);
+                Assert.That(math.asuint(MerkabaSphereFlowerAuthority.RelativeDiffuse(
+                    captured, 1u, grazing, -normal, light)),
+                    Is.EqualTo(math.asuint(captured)), $"e0={cosine:R}");
+            }
+            float above = math.asfloat(floorBits + 1u);
+            float3 admitted = new(math.sqrt(1f - above * above), 0f, above);
+            Assert.That(MerkabaSphereFlowerAuthority.RelativeDiffuse(captured, 1u,
+                admitted, -normal, light), Is.EqualTo(float3.zero),
+                "The first FP32 value above 2^-5 must enter V-1; no epsilon band.");
+        }
+
+        [Test]
+        public void RelativeDiffuse_AnalyticMicroNormalDarkensWithoutBrightening()
+        {
+            float3 captured = new(0.25f, 0.5f, 1f);
+            float3 normal = new(0f, 0f, 1f);
+            float3 micro = MerkabaSphereFlowerAuthority.SkinMicroNormal(
+                new float3(1f, 0f, 0f), new float3(0f, 1f, 0f), normal,
+                new float2(0.75f, 0f));
+            Assert.That(math.asuint(MerkabaSphereFlowerAuthority.RelativeDiffuse(
+                captured, 1u, normal, micro, new float4(0f, 0f, 7f, 1f))),
+                Is.EqualTo(math.asuint(captured * (1f / 1.25f))));
+            Assert.That(math.asuint(MerkabaSphereFlowerAuthority.RelativeDiffuse(
+                captured, 1u, normal, micro, new float4(-3f, 0f, 4f, 1f))),
+                Is.EqualTo(math.asuint(captured)), "The response is saturated at one.");
+            Assert.That(MerkabaSphereFlowerAuthority.RelativeDiffuse(captured, 1u,
+                normal, micro, new float4(1f, 0f, 0.25f, 1f)), Is.EqualTo(float3.zero));
+        }
+
+        [Test]
+        public void SkinMicroNormal_AreaIntegralHasPlanarDirectionButNonunitMean()
+        {
+            // On the unit barycentric triangle, integral(lambda^a)=
+            // a0! a1! a2!/(sum(a)+2)!. Each derivative of 729*(xyz)^2
+            // has the same moment 1458*(1!*2!*2!)/7!. Therefore both
+            // chart derivatives integrate to zero, exactly (V=0 at boundary).
+            double derivativeU = 1458d * (2d * 1d * 2d - 1d * 2d * 2d) / 5040d;
+            double derivativeV = 1458d * (2d * 2d * 1d - 1d * 2d * 2d) / 5040d;
+            var exactAreaVector = new double3(-derivativeU, -derivativeV, 0.5d);
+            Assert.That(exactAreaVector, Is.EqualTo(new double3(0d, 0d, 0.5d)));
+
+            // Exercise the actual gradient + micro-normal at a complete
+            // permutation orbit of dyadic interior coordinates. This checks
+            // local area weighting, not an exact quadrature of surface area.
+            float3[] points = { new(0.5f, 0.375f, 0.125f), new(0.5f, 0.125f, 0.375f),
+                new(0.375f, 0.5f, 0.125f), new(0.125f, 0.5f, 0.375f),
+                new(0.375f, 0.125f, 0.5f), new(0.125f, 0.375f, 0.5f) };
+            double3 weightedNormal = default;
+            double surfaceArea = 0d;
+            float2 gradientSum = default;
+            foreach (float3 point in points)
+            {
+                float3 gradient = MerkabaSphereFlowerAuthority.SkinBubbleGradient(point);
+                float2 chartGradient = new float2(gradient.y - gradient.x,
+                    gradient.z - gradient.x) * (1f / 32f);
+                gradientSum += chartGradient;
+                float jacobian = math.sqrt(1f + chartGradient.x * chartGradient.x +
+                    chartGradient.y * chartGradient.y);
+                float3 micro = MerkabaSphereFlowerAuthority.SkinMicroNormal(
+                    new float3(1f, 0f, 0f), new float3(0f, 1f, 0f),
+                    new float3(0f, 0f, 1f), chartGradient);
+                double area = jacobian / 12d;
+                weightedNormal += (double3)micro * area;
+                surfaceArea += area;
+            }
+            Assert.That(gradientSum, Is.EqualTo(float2.zero));
+            // FP32 error allowance from <=32 rounded local operations; this
+            // is a numerical check, not a geometric/certificate epsilon.
+            double unitRoundoff = Math.Pow(2d, -24);
+            double gamma32 = 32d * unitRoundoff / (1d - 32d * unitRoundoff);
+            Assert.That(math.cmax(math.abs(weightedNormal - exactAreaVector)),
+                Is.LessThanOrEqualTo(gamma32 * surfaceArea));
+            Assert.That(surfaceArea, Is.GreaterThan(0.5d));
+            double magnitude = math.length(weightedNormal / surfaceArea);
+            Assert.That(magnitude, Is.LessThan(1d));
+            Assert.That(Math.Abs(magnitude - 0.5d / surfaceArea),
+                Is.LessThanOrEqualTo(gamma32));
+            Assert.That(math.cmax(math.abs(math.normalize(weightedNormal) -
+                    new double3(0d, 0d, 1d))), Is.LessThanOrEqualTo(2d * gamma32));
+        }
+
         private static void AssertLocalOrder(int state, int parentThread,
             Func<int, int> actualRank)
         {

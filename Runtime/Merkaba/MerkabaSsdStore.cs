@@ -132,12 +132,13 @@ namespace Genesis.RoomScan
 
         internal Task<MerkabaSphereFlowerAuthority.SnapshotReader> ReadFlowerContextAsync(
             MerkabaTileAddress tile, MerkabaTileAddress[] capturedIndex,
-            MerkabaStorageAppendPosition position) => Task.Run(() =>
+            MerkabaStorageAppendPosition position,
+            CancellationToken cancellationToken = default) => Task.Run(() =>
         {
             if (capturedIndex == null) throw new ArgumentNullException(nameof(capturedIndex));
             lock (_ioGate)
             lock (_gate)
-                return ReadFlowerContext(tile, capturedIndex, position);
+                return ReadFlowerContext(tile, capturedIndex, position, cancellationToken);
         });
 
         internal MerkabaTileAddress[] CaptureFlowerSource(out MerkabaStorageAppendPosition position)
@@ -160,8 +161,10 @@ namespace Genesis.RoomScan
         }
 
         private MerkabaSphereFlowerAuthority.SnapshotReader ReadFlowerContext(
-            MerkabaTileAddress tile, MerkabaTileAddress[] capturedIndex, MerkabaStorageAppendPosition position)
+            MerkabaTileAddress tile, MerkabaTileAddress[] capturedIndex, MerkabaStorageAppendPosition position,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // One bounded context from the existing index; no mesh snapshot or
             // second coordinate authority. Callers hold the existing I/O gate.
             RequireFlowerPosition(position);
@@ -169,11 +172,16 @@ namespace Genesis.RoomScan
             var snapshots = new MerkabaTileSnapshot[context.Count];
             for (int i = 0; i < snapshots.Length; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 snapshots[i] = ReadOne(context[i]);
                 snapshots[i].Sidecars = _subordinate.CaptureTile(context[i]);
             }
             return new MerkabaSphereFlowerAuthority.SnapshotReader(snapshots, capturedIndex,
-                cell => ReadFlowerCell(position, cell));
+                cell =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return ReadFlowerCell(position, cell);
+                });
         }
 
         private MerkabaSphereFlowerAuthority.ExcavationCellState ReadFlowerCell(
@@ -199,12 +207,14 @@ namespace Genesis.RoomScan
 
         internal Task<long> StreamFlowerDirtAsync(float2 planeBounds,
             MerkabaTileAddress[] index, MerkabaStorageAppendPosition position,
-            Action<IReadOnlyList<MerkabaDirtTriangle>> consume) => Task.Run(() =>
+            Action<IReadOnlyList<MerkabaDirtTriangle>> consume,
+            CancellationToken cancellationToken = default) => Task.Run(() =>
         {
             if (consume == null) throw new ArgumentNullException(nameof(consume));
             lock (_ioGate)
             lock (_gate)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (index == null) throw new ArgumentNullException(nameof(index));
                 RequireFlowerPosition(position);
                 MerkabaTileAddress previous = default;
@@ -216,15 +226,15 @@ namespace Genesis.RoomScan
                     if (page == null || !tile.Equals(previous))
                     {
                         previous = tile;
-                        var reader = ReadFlowerContext(tile, index, position);
-                        page = MerkabaFlowerPresentation.Build(reader, tile, planeBounds);
+                        var reader = ReadFlowerContext(tile, index, position, cancellationToken);
+                        page = MerkabaFlowerPresentation.Build(reader, tile, planeBounds, cancellationToken);
                     }
                     // This is the actual generated direct footprint of the
                     // same FREE-side page used by live compaction. Unknown
                     // direct evidence is not itself coverage or a DIRT veto.
                     return page.DirtCoverage(cell, face);
                 }
-                return MerkabaDirtExtraction.Stream(_subordinate, Coverage, consume);
+                return MerkabaDirtExtraction.Stream(_subordinate, Coverage, consume, cancellationToken);
             }
         });
 

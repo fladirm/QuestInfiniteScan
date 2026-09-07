@@ -45,6 +45,25 @@ namespace Genesis.RoomScan
             }
         }
 
+        // A failed REQUIRED presentation query, not absent geometry and not
+        // an I/O status. The exact symbolic region is enough to report which
+        // support needs evidence; this receipt stores no metric world state.
+        internal readonly struct RequiredSupportReceipt
+        {
+            internal readonly int3 Owner;
+            internal readonly int Carrier;
+            internal readonly uint WedgeMask;
+            internal readonly int JunctionPetal;
+            internal readonly uint RootAlternatives;
+
+            internal RequiredSupportReceipt(int3 owner, int carrier, uint wedgeMask,
+                int junctionPetal = -1, uint rootAlternatives = 0u)
+            {
+                Owner = owner; Carrier = carrier; WedgeMask = wedgeMask;
+                JunctionPetal = junctionPetal; RootAlternatives = rootAlternatives;
+            }
+        }
+
         // One frozen parent Flower, not a graph or a persisted surface. The
         // generated 128*6 source permutation visits every (petal,path) exactly
         // once; any failed child prevents claiming its WHOLE parent petal.
@@ -267,6 +286,7 @@ namespace Genesis.RoomScan
                             JunctionSelection junction = _reader.ReadR3Junction(_owner, _errors, this, petal);
                             if (junction.Classification != JunctionClassification.CertainClosure)
                             {
+                                _reader.RecordRequiredJunctionSupport(_owner, petal, junction.RequiredDualMask);
                                 if (junction.Classification != JunctionClassification.Impossible) ambiguous = true;
                                 continue;
                             }
@@ -484,12 +504,37 @@ namespace Genesis.RoomScan
             private readonly MerkabaTileAddress[] _stored;
             private readonly Dictionary<MerkabaTileAddress, Tile> _tiles = new();
             private readonly Func<int3, ExcavationCellState> _readCell;
+            private ulong _requiredSupportVersion;
+            private RequiredSupportReceipt _requiredSupportReceipt;
+
+            internal ulong RequiredSupportVersion => _requiredSupportVersion;
+
+            internal bool TryRequiredSupportSince(ulong version, out RequiredSupportReceipt receipt)
+            {
+                receipt = _requiredSupportReceipt;
+                return _requiredSupportVersion != version;
+            }
+
+            private void RecordRequiredSupport(int3 owner, int carrier, uint wedgeMask)
+            {
+                if (wedgeMask == 0u) return;
+                _requiredSupportReceipt = new RequiredSupportReceipt(owner, carrier, wedgeMask);
+                _requiredSupportVersion = checked(_requiredSupportVersion + 1UL);
+            }
+
+            internal void RecordRequiredJunctionSupport(int3 owner, int petal, uint rootAlternatives)
+            {
+                if (rootAlternatives == 0u) return;
+                _requiredSupportReceipt = new RequiredSupportReceipt(owner, -1, 0u, petal, rootAlternatives);
+                _requiredSupportVersion = checked(_requiredSupportVersion + 1UL);
+            }
 
             internal SnapshotReader(IEnumerable<MerkabaTileSnapshot> snapshots,
-                MerkabaTileAddress[] storedIndex, Func<int3, ExcavationCellState> readCell = null)
+                MerkabaTileAddress[] storedIndex, Func<int3, ExcavationCellState> readCell)
             {
                 if (snapshots == null) throw new ArgumentNullException(nameof(snapshots));
                 if (storedIndex == null) throw new ArgumentNullException(nameof(storedIndex));
+                if (readCell == null) throw new ArgumentNullException(nameof(readCell));
                 // CaptureStoredTileIndex already returns the immutable sorted
                 // M8 index. Reuse it; do not build a second world address map.
                 _stored = storedIndex;
@@ -518,7 +563,13 @@ namespace Genesis.RoomScan
 
             internal MerkabaFlowerSkinDrawSample[] ReadSkinSignal(int3 owner,
                 in MerkabaFlowerSymbolRecord symbol, out MerkabaFlowerSkinDrawHeader header)
+                => ReadSkinSignal(owner, symbol, out header, out _);
+
+            internal MerkabaFlowerSkinDrawSample[] ReadSkinSignal(int3 owner,
+                in MerkabaFlowerSymbolRecord symbol, out MerkabaFlowerSkinDrawHeader header,
+                out uint2 rgbSplitBits)
             {
+                rgbSplitBits = default;
                 if (!TryReadOwner(owner, out KernelState state, out uint epoch) || !StableR1(state.Flags))
                     throw new InvalidDataException("A direct Flower signal needs its frozen canonical owner.");
                 ResolveOwner(owner, out MerkabaTileAddress address, out int local);
@@ -536,6 +587,7 @@ namespace Genesis.RoomScan
                 {
                     if (!thread.IsValidFor(epoch)) throw new InvalidDataException("Invalid frozen ThreadRun.");
                     rgb = thread;
+                    rgbSplitBits = new uint2(thread.SplitBitsLo, thread.SplitBitsHi);
                     colors = new MerkabaThreadColorGroup[thread.GroupCount];
                     for (int group = 0; group < colors.Length; group++)
                         if (!tile.Colors.TryGetValue((local, checked(thread.GroupBase + (uint)group)), out colors[group]))
@@ -563,14 +615,15 @@ namespace Genesis.RoomScan
 
             internal ProofClassification ClassifyPageCarrier(int3 owner, int carrier, float2 errors,
                 out MerkabaFlowerSymbolRecord symbol, out uint unresolved,
-                Span<PhaseRootEvidence> roots, Span<float3> positions)
+                Span<PhaseRootEvidence> roots, Span<float3> positions, bool requiredSupport = true)
                 => ClassifyPageCarrier(owner, carrier, errors, out symbol, out unresolved,
-                    out _, roots, positions);
+                    out _, roots, positions, requiredSupport: requiredSupport);
 
             internal ProofClassification ClassifyPageCarrier(int3 owner, int carrier, float2 errors,
                 out MerkabaFlowerSymbolRecord symbol, out uint unresolved, out uint directWedges,
                 Span<PhaseRootEvidence> roots, Span<float3> positions,
-                Parent48Snapshot parentSnapshot = null, uint completionToken = uint.MaxValue)
+                Parent48Snapshot parentSnapshot = null, uint completionToken = uint.MaxValue,
+                bool requiredSupport = true)
             {
                 ProofClassification status = ClassifyL2Carrier(owner, carrier, errors,
                     out symbol, out unresolved, out directWedges, roots, positions, parentSnapshot, completionToken);
@@ -587,14 +640,13 @@ namespace Genesis.RoomScan
                 }
                 uint rawActive = symbol.ActiveWedgeMask;
                 uint active = rawActive & owned;
-                uint dualClear = 0u, dualVeto = 0u;
+                uint dualClear = 0u, dualVeto = 0u, requiredAmbiguous = 0u;
                 uint supportNeeded = recordParent ? rawActive : active | directWedges;
                 for (int wedge = 0; wedge < 6; wedge++)
                 {
                     uint bit = 1u << wedge;
                     if ((supportNeeded & bit) == 0u) continue;
-                    ProofClassification dual = _readCell == null ? ProofClassification.Ambiguous :
-                        SupportWedgeDual(owner, carrier, wedge, roots, _readCell);
+                    ProofClassification dual = SupportWedgeDual(owner, carrier, wedge, roots, _readCell);
                     if (dual == ProofClassification.Impossible) dualClear |= bit;
                     else
                     {
@@ -602,8 +654,17 @@ namespace Genesis.RoomScan
                         directWedges &= ~bit;
                         if (dual == ProofClassification.Certain) dualVeto |= bit;
                     }
-                    if (dual == ProofClassification.Ambiguous && (owned & bit) != 0u) unresolved |= bit;
+                    if (dual == ProofClassification.Ambiguous && (owned & bit) != 0u)
+                    {
+                        unresolved |= bit;
+                        requiredAmbiguous |= bit;
+                    }
                 }
+                // The finite classifier still reports its unchanged masks.
+                // A page transaction must ALSO observe this required-support
+                // receipt; returning a remaining active wedge is not closure.
+                // Optional pairing probes do not make an unused halo required.
+                if (requiredSupport) RecordRequiredSupport(owner, carrier, requiredAmbiguous);
                 if (recordParent) parentSnapshot.RecordCarrier(carrier, rawActive, directWedges, dualClear, dualVeto, roots);
                 symbol.OwnerAndCarrier = (symbol.OwnerAndCarrier &
                     ~(MerkabaFlowerSymbolRecord.WedgeMask << MerkabaFlowerSymbolRecord.ActiveWedgeShift)) |
@@ -628,6 +689,8 @@ namespace Genesis.RoomScan
                 Span<PhaseRootEvidence> roots = stackalloc PhaseRootEvidence[7];
                 Span<float3> positions = stackalloc float3[7];
                 bool ambiguous = false;
+                int requiredCarrier = -1;
+                uint requiredWedge = 0u;
                 // The inverse generated source permutation covers this
                 // WHOLE parent: all sixteen children, before owner emission
                 // ownership. There is no new/extrapolated candidate geometry.
@@ -643,11 +706,19 @@ namespace Genesis.RoomScan
                         if ((unresolved & bit) != 0u) { ambiguous = true; continue; }
                         return ProofClassification.Impossible;
                     }
-                    ProofClassification dual = _readCell == null ? ProofClassification.Ambiguous :
-                        SupportWedgeDual(owner, carrier, wedge, roots, _readCell);
+                    ProofClassification dual = SupportWedgeDual(owner, carrier, wedge, roots, _readCell);
                     if (dual == ProofClassification.Certain) return ProofClassification.Impossible;
-                    if (dual != ProofClassification.Impossible) ambiguous = true;
+                    if (dual != ProofClassification.Impossible)
+                    {
+                        ambiguous = true;
+                        requiredCarrier = carrier;
+                        requiredWedge = bit;
+                    }
                 }
+                // A later impossible child makes this entire candidate
+                // irrelevant. Only a still-possible completion can require
+                // resolving an earlier mixed/COLD child support.
+                if (requiredCarrier >= 0) RecordRequiredSupport(owner, requiredCarrier, requiredWedge);
                 return ambiguous ? ProofClassification.Ambiguous : ProofClassification.Certain;
             }
 
@@ -845,7 +916,7 @@ namespace Genesis.RoomScan
             // cover as the full-wedge predicate above.
             internal ProofClassification RootSupportDual(int3 owner, int nodeIndex, PhaseRootEvidence root)
             {
-                if (_readCell == null || (uint)nodeIndex >= NodeClassCount)
+                if ((uint)nodeIndex >= NodeClassCount)
                     return ProofClassification.Ambiguous;
                 NodeRule node = NodesValue[nodeIndex];
                 if (!TryOwnerJunction(owner, 0, node.Direction, out int3 junction) ||

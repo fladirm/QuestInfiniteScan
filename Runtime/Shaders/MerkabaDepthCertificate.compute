@@ -5,6 +5,7 @@
 #define M8_DEPTH_CERTIFICATE_BUILD
 #include "MerkabaDepthCertificate.generated.hlsl"
 #include "MerkabaSphereFlower.generated.hlsl"
+#include "MerkabaObservationBins.hlsl"
 
 Texture2DArray<float> _SrcDepth;
 RWStructuredBuffer<uint2> _M8DepthCertificate;
@@ -117,4 +118,7 @@ void ReduceDepthCertificate(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         }
         GroupMemoryBarrierWithGroupSync();
     }
+    // Eye zero owns the observation reset in this existing 256-lane WG.
+    // Count starts only after the dispatch publishes both eyes and the bins.
+    if (group.z == 0u) M8FlowerResetObservationBins(lane);
 }

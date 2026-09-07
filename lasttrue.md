@@ -7264,3 +7264,197 @@ RUN_08_BATCH_EXECUTION_CHECKPOINT:
     /tmp/m8-runtime-abi15-kdnqMU/compiler.log.
   NEXT=RUN_08 remaining emitted-body duplication; RUN_09 required-support and
     selective invalidation consumers; RUN_10 carrier export/atlas in parallel.
+
+CLOSURE_EXPORT_MUTATION_LEASE_AMENDMENT:
+  AUTHORITY=explicit user clarification: scan and canonical mutations stay
+    paused for the entire export. Closure sections6.2/6.7 updated in both
+    matching copies; immutable REV-C prefix unchanged. No historical MVCC.
+  IMPLEMENTED=RoomScanner owns admission/quiesce/durable-cut/export/finally;
+    public Exporter entrypoints route through that operation. Existing held
+    observation/fine work and SSD append/ACK retire before the ordinary SAVE
+    commit selects the source. Existing idle base compaction retires first.
+  GUARDS=normal scan/start, FINE/ERASE admission, authority switch, canonical
+    clear, direct persistence/session entrypoints and Viewer document mutation
+    remain held. Pending immutable retries remain permitted to finish.
+  CANCEL=token reaches tile/context/coverage evaluation, GLB/3D Tiles bake and
+    writers, DIRT and bounded ZIP copy. Workers are awaited; lifecycle teardown
+    signals cancel then awaits export before resource release. Own staging
+    cleanup precedes lease release; export does not automatically restart scan.
+  STATUS=implementation checkpoint only; full fixture/device acceptance and
+    resumable receipt/package completion remain open in the closure DAG.
+  CHECKS=diff/source checks only here; consolidated compile coordinated by root.
+
+### CURRENT TRUE STATE — closure shader/optical cursor, 2026-09-07 22:05Z
+
+CURRENT_COMMIT=08e5e46 + current working diff; MERKABA_CLOSURE remains OPEN.
+SOURCE_READY=held export/native package; ERASE3 dispatches and ABI16/23 pipelines;
+  scanner/page priority; source-capture/local-epoch/peer-ACK invalidation with
+  retry touched retention; optical V-1 final RGB consumer + ordered CPU twin.
+CODEGEN=finite skin parent work/charts, canonical child creation addresses,
+  128-bit carrier triple projections, 881 dyadic loop length bounds; known
+  sectors checked by two generated boundaries, not re-enumerated. CPU frozen
+  table hash cee1b7c3; no measured root or new geometry authority tabulated.
+IN_PROGRESS=Ohm: readout cooperative 52-original/8-carrier packet;
+  Raman: DrainSkin parallel packet, following completed live invalidation.
+CHECKS=source diff-check and bounded compilation only. Pre-latest-LUT Commit
+  1648052B/96513 instructions, Drain4464864B/259972: size FAIL, not closure.
+  Finalize corrected RW view:43444B/2036 instructions,8RW,no read/write alias.
+NEXT=finish packet sources, consolidated shader/full-suite checks, Kingston
+  Unity Quest APK, coherent commit+push. No new APK or device PASS claimed.
+
+### CURRENT TRUE STATE — requested source checkpoint, 2026-09-07 22:45Z
+
+CURRENT_COMMIT=the checkpoint commit containing this entry; parent 08e5e46.
+CURRENT_CUT=MERKABA_CLOSURE; DAG_STATUS=OPEN, not a completed run or cut.
+AUTHORITY=REV-C plus the current MERKABA_CLOSURE_CONTRACT.md amendments.
+CHECKPOINT_SCOPE=all coordinated closure source changes below; no new APK.
+SOURCE_FREEZE=readout, scanner/refinement and export/persistence writers stopped.
+This entry supersedes older IN_PROGRESS/cursor claims above, not contract text.
+
+IMPLEMENTED_SINCE_PARENT:
+  - Shared bounded evidence-packet codec. Readout cooperatively acquires raw
+    local/peer/child roots before original/shared and synthesized-site phases;
+    one CarrierRootProof callsite. Actual COLD receipts remain consumption-bound.
+  - Drain uses one fine packet, owner phase lanes and 21 child measurement
+    lanes (three groups of seven); original same-observation cursors and
+    publication backpressure remain. Removed superseded serial skin consumers.
+  - Generated finite child/address/incidence projections and packed-plane
+    normal decoding. All 1048576 normal codes compared bitwise against the
+    CPU decoder during codegen. 87723 signed-permutation normal rows; total
+    RO blob 1645664 B / 102854 uint4 rows. Frozen geometry hash cee1b7c3.
+    Measured root/interval algebra is unchanged. Blob source uses a primitive
+    literal array, not 87723 constructor calls in one initialization method.
+  - Known-sector classification reads its two generated boundaries. R1 seed
+    correspondence reuses compatible-carrier evidence instead of a second
+    root solver; identical packed seed planes still require a certain witness.
+  - New-observation reset fused into eye-0 depth-certificate reduction; the
+    existing dispatch boundary precedes Count. Retry retains its standalone
+    reset. No cross-workgroup synchronization replaced by a local barrier.
+  - Native ABI16 / 43 resources / 23 pipelines; ERASE has three dispatches.
+    Explicit queue priority and immutable observation/source-retirement guards.
+  - Export holds canonical/document mutations through quiesce, durable cut,
+    all read/write workers and cancellation. Native GLB/Tiles payload preserves
+    records, RGBV and session documents; imported native data uses live readout.
+  - Shared-carrier export and bounded atlas; unlit preview does not multiply
+    captured RGB twice. Portable preview is not claimed to encode procedural V.
+  - GLB resume journal: source/options/codegen receipt, tile and DIRT cursors,
+    append-tail and atlas-cell checksums, writer restoration. Resume validates
+    the same committed source after quiescing, rather than issuing a new SAVE.
+  - V-1 presentation-light consumer and ordered CPU twin; default/off unchanged.
+    V-1 neither manufactures OPTICAL_VALID nor implements specular/V-2.
+  - Dead thumbnailPath removed; Library uses an explicit text placeholder.
+
+CHECKS_RUN:
+  - Fresh bounded csc: Editor Runtime, Android Player Runtime, Editor/codegen
+    and Tests all PASS; source includes ExportJournal and current generated blob.
+    Test compilation is not a test execution or Unity APK build.
+    Receipts: /tmp/m8-v1-source-compile.wMkoxR/journal-{runtime,player,editor,tests}-csc.log
+    (actual exit codes and output-DLL SHA256; 6/1/0/0 compiler warnings).
+  - Actual native entry compilation, spirv-val and reflected ABI PASS for the
+    following current sources. Size/occupancy gates are independently reported:
+
+    entry                         SPIR-V B  body instructions  size gate  shared B
+    StereoFlowerRefine               828516       49652          REVIEW       96
+    FlowerCommit                   1079720       62615          FAIL      24704
+    DrainObservationRefinement      2978956      175244          FAIL      22800
+    CompactDirtyFlowerSymbols       1536092       89920          FAIL      30024
+    ReduceDepthCertificate + reset     8464         302          PASS       8196
+
+    Shared memory above 16 KiB remains REVIEW; none above exceeds 32 KiB.
+    Compile PASS must not be relabelled shader-size or performance PASS.
+  - Command graph: new observation 17 scheduled / 6 allocation-indirect /
+    11 non-allocation / 16 between-dispatch barriers; retry 15 / 6 / 9 / 14.
+    Readout 7 dispatches; ERASE 3. Actual nonzero counts are device-unmeasured.
+  - Full Unity suite, current full all-entry shader audit, glTF validation,
+    complete native/Unity Quest APK and Quest device acceptance NOT RUN here.
+    Historical 353/357 suite results are not current-tree evidence.
+PERF=not measured on Quest. No FPS, startup or ETA claim.
+SHADER_RECEIPTS=/mnt/kingston-unity/Builds/QuestMerkabaScan/ShaderChecks/
+  closure-packed-normal-stereo, closure-r1-shared-compare,
+  closure-drain-packet, closure-readout-rawbase-normal-lut,
+  closure-certificate-reset (metrics.json + pipeline-0.spv).
+
+REMAINING_CLOSURE — exact continuation cursor:
+
+  OPEN-1 SHADER EXECUTION:
+    ObservationReduction::CompatibleCarrier and FlowerCommit::OwnPlaneEligible,
+    R1FlagWitness, ParentStructureChanged still duplicate deep measured-root
+    work across owner admission/witness/structural checks. Reuse the same
+    per-owner/relation evidence and generated incidence masks at their actual
+    consumers; retain seed, compatible-plane and structural-change predicates.
+    Refinement::PrepareFinePacket/DrainSkinPacket still expand raw-base and
+    ancestor synthesis in separate deep consumers. Factor existing finite
+    packet work, keeping actual child measurements distributed across lanes.
+    Readout::PacketAcquire has one raw root callsite now. Remaining regions are
+    Geometry::ReadOriginalLocal/ApplyGeometryDetail, PredictGeometryNode/
+    TransportChildFromFamily, ReadL2Incidence/CloseSharedPhaseRoot,
+    ClassifyL2Carrier and SkinReadout::CompileCarrierSkin. Reuse endpoint/child
+    evidence inside the current bounded packet; measure actual emitted module
+    after each structural change. No per-function size attribution proved yet.
+    Acceptance: each production entry <=1 MiB AND <=50000 body instructions,
+    <=8 writable bindings, <=32 KiB shared; packet parity and device occupancy.
+
+  OPEN-2 SELECTIVE INVALIDATION — concrete source gap:
+    FlowerSidecar::CaptureInvalidation captures only LOCAL original phase
+    presence. Counterexample: K has no own R2_PHASE, Q=K+d has the node^1
+    R2_PHASE and predicts from the shared original that reads raw K. Deleting
+    K can produce an empty outgoing peer mask, leaving Q's dependent detail.
+    Gather the actual TWO-ENDPOINT pre-mutation read-set using generated
+    relation/dependency mappings and peer phase presence. Retain that receipt
+    under the same observation token; require all affected peer ACKs before
+    source retirement. COLD/BUSY keeps the transaction pending. Do not replace
+    selective invalidation by an epoch blanket, runtime search or new solver.
+    Acceptance includes this peer-only phase example, structural/THROUGH
+    deletion, compatible refinement survival and retry/order parity.
+
+  OPEN-3 COMMAND GRAPH:
+    New observation has 11 non-allocation boundaries, target <=10. The second
+    Reserve after dual publishes the updated touched set; Dual already has
+    8 writable bindings. Only fuse publication if the same global dependency,
+    deterministic touched spans and hardware limits remain true. Otherwise
+    closure section4.1 requires an explicit dependency/device-cost receipt;
+    never hide a dispatch or erase its necessary barrier to satisfy a count.
+
+  OPEN-4 EXPORT/IMPORT:
+    GLB journal is source-complete but crash/cancel/resume behavior untested.
+    Exporter::ClearExport still needs explicit discard of the selected owned
+    .resume receipt; do not remove another export or arbitrary staging directory.
+    Tiles export still needs its canonical leaf cursor and completed-entry
+    receipts connected to the same journal; resume only verified entries,
+    repair the incomplete final entry and reject changed source G/options.
+    Wire ExportViewerPackageCoreAsync/BuildStreamingTilesetAsync/
+    AppendDirtToTilesetAsync; repeat final ZIP assembly from verified leaf files.
+    ArtifactViewer already has ReadPackageIndex/ReadGlbTile/ParseGlbForPreview;
+    do not add another parser to match historical names. Remaining foreign
+    preview gaps: accumulated tile transforms (currently translation-only)
+    and accessor decoding independent of the old fixed Flower GLB stream ABI.
+    CollectTiles computes the matrix, but Tile/CreateTileObject drop rotation
+    and scale. Preserve that full matrix; extend existing preview decoding for
+    optional NORMAL/COLOR, index component types and interleaved accessors.
+    Bound/cancel ReadPackageIndex JSON traversal and reject malformed matrices
+    rather than substituting identity.
+    Native payload restore must remain separate from foreign Mesh preview.
+    Prove current CPU/GPU shared evaluator and fixed-thread RGBV parity;
+    retaining the CPU backend itself is expressly allowed by closure6.1.
+
+  OPEN-5 OPTICAL EVIDENCE:
+    V-1 source consumer is connected, but InstallOpticalProgram is an
+    imported/persisted-program installer, not measured optical certification.
+    Trace and complete the live evidence predicate -> ThreadProgram intervals
+    -> persistence -> compact sample -> consumer per closure6.4. An always-zero
+    flag is not completion; do not invent albedo, ambient or an optical fit.
+    V-2/filtering/specular is not silently folded into the separate V-1 cut.
+
+  OPEN-6 FINAL VALIDATION / APK:
+    Run current full suite; preserve and repair CountReserveEmit,
+    FrozenDepthObservation_NonzeroR2 and both CapturedFlatWall positive fixtures
+    if still failing. Run all-entry shader and command-graph audits, actual
+    GLB validation, then Kingston Unity Quest build (not native .so alone).
+    Finally Quest launch/startup logs, scan/drain/readout, FINE/ERASE, dynamic
+    object add/remove, SAVE/OPEN/anchor, export/import/cancel/resume, controls
+    and sustained memory/performance acceptance. These are unverified, not PASS.
+
+NEXT_ACTION=checkpoint commit/push and handoff requested by user; resume at
+  OPEN-2 correctness and OPEN-1 shader gates, not a new audit or new DAG.
+WORKTREE_SCOPE=commit all coordinated task sources; unrelated .claude/,
+  CLAUDE.md and CLAUDE.md.meta remain untouched and untracked.
