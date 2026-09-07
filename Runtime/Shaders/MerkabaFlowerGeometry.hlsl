@@ -545,15 +545,6 @@ bool M8FlowerL2GeometryNode(uint knot,bool plus,out M8FlowerGeometryNode node)
     return knot<386u && M8FlowerL2GeometryNodeFromSource(M8FlowerL2KnotSource[knot],plus,node);
 }
 
-// Same numbering as L2CarrierKnotIndex: one shared H and six ring knots.
-// Normal, color and wedge ownership never participate in this mapping.
-uint M8FlowerL2CarrierKnot(uint carrier,uint site)
-{
-    if(carrier>=128u || site>=7u)return 0xffffffffu;
-    uint3 knots=M8FlowerL2WedgeKnots(carrier,site==0u?0u:site-1u);
-    return site==0u?knots.x:knots.y;
-}
-
 uint3 M8FlowerL2CarrierTriangle(uint wedge,bool reverse)
 {
     if(wedge>=6u)return 0xffffffffu;

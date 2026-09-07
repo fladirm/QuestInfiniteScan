@@ -7219,3 +7219,11 @@ laser displays the same cached hit. Session design stays anchor-local and
 uses the evaluated package/display frame for preview and ALIGN; no record
 coordinate conversion. paint-row controls follow actual active-tool consumers.
 CHECKS=UXML syntax/diff PASS; Unity input/device acceptance remains RUN_14.
+
+RUN_08_FINITE_LUT_CHECKPOINT=same RO blob now27008B/1688uint4 rows;
+generated canonical L2 wedge owners, seven carrier knots, ownership mask and
+canonical skin source are direct finite lookups. Previous792 rows unchanged;
+768owners/896sites/768wedge incidences/128sources match checkpoint authority.
+No new measured-plane solver, geometry coordinate or resource was introduced.
+COMPILE=combined readout build waits for in-progress batch consumer cut;
+isolated Compact attempt hit that unfinished callsite, not reported as PASS.

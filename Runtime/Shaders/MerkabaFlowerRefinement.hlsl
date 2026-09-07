@@ -365,7 +365,7 @@ void M8FlowerDrainSkinTile(uint slot,uint lane,uint slotGeneration,float2 errors
                 if(classification==2u)M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
                 continue;
             }
-            uint source=M8FlowerL2Wedge[6u*carrier].y;
+            uint source=M8FlowerL2CarrierSource(carrier);
             uint flowerKey=M8FlowerPackL2Key(source&15u,source>>4u,
                 (roots[0].Tag&(1u<<7u))!=0u,(roots[0].Tag>>8u)&31u);
             uint next=parentCursor,progress,ambiguous;

@@ -408,7 +408,7 @@ bool M8FlowerCompileSkinDrawProgram(uint ownerRef,uint flowerKey,float3 rootRgb,
 // using the first generated source wedge as its single canonical spelling.
 uint M8FlowerCarrierSkinKey(uint carrier,uint rootSigns,uint hubSector)
 {
-    uint source=M8FlowerL2Wedge[6u*carrier].y;
+    uint source=M8FlowerL2CarrierSource(carrier);
     return source | ((rootSigns&1u)<<M8_FLOWER_L2_KEY_ROOT_SHIFT) |
         (hubSector<<M8_FLOWER_L2_KEY_SECTOR_SHIFT);
 }
