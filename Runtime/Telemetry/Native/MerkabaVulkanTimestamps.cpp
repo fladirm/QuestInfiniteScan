@@ -108,25 +108,29 @@ namespace
         uint32_t globalSize;
     };
 
+    struct MerkabaEmbeddedSchedule
+    {
+        uint32_t firstPipeline, lastPipeline, count;
+        const uint32_t* pipelines;
+    };
+
 #include "MerkabaNativeExecutorShaders.inc"
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
     static_assert(kMerkabaExecutorPipelineCount == 25,
-        "M8 executor pipeline tables must be regenerated for ABI 11");
+        "M8 executor pipeline tables must be regenerated for ABI 15");
 
-    constexpr uint32_t kExecutorAbiVersion = 11;
-    constexpr uint32_t kObservationPipelineEnd = 16;
-    constexpr uint32_t kObservationAllocationBegin = 6;
-    constexpr uint32_t kObservationAllocationEnd = 9;
-    constexpr uint32_t kObservationReservePipeline = 9;
-    constexpr uint32_t kObservationDualPipeline = 11;
-    constexpr uint32_t kObservationDrainPipeline = 13;
-    constexpr uint32_t kFlowerPipelineBegin = 16;
-    constexpr uint32_t kFlowerCullPipeline = 19;
-    constexpr uint32_t kFineErasePipelineBegin = 20;
-    constexpr uint32_t kMaximumExecutorDispatches = kMerkabaExecutorPipelineCount +
-        1u + kObservationAllocationEnd - kObservationAllocationBegin;
+    constexpr uint32_t kExecutorAbiVersion = 15;
+    constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
+    constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
+    constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
+    constexpr uint32_t kFlowerPublishPipeline = kPipelinePublishDirtyFlowerPages;
+    constexpr uint32_t kFlowerCullPipeline = kPipelineCullFlowerPages;
+    // Existing draw commands/count remain at their original offsets. Count
+    // and emit reuse one aligned GPU-owned indirect packet after that count.
+    constexpr VkDeviceSize kFlowerBatchArgsOffset = (32768u * 20u + 4u + 15u) & ~15u;
+    constexpr uint32_t kMaximumExecutorDispatches = kMerkabaExecutorPipelineCount + 4u;
     constexpr uint32_t kMaximumExecutorQueries = kMaximumExecutorDispatches * 2u + 2u;
     constexpr uint32_t kFlowerSlotGroupCount = 32768u / 128u;
     constexpr VkDeviceSize kMaximumQuestBufferBytes = 128ull * 1024ull * 1024ull;
@@ -1295,37 +1299,20 @@ namespace
     bool PipelineRangeForKind(uint32_t kind, uint32_t* first,
         uint32_t* last)
     {
-        if (kind == kJobObservationNew)
-        {
-            *first = 0;
-            *last = kObservationPipelineEnd;
-            return true;
-        }
-        if (kind == kJobObservationRetry)
-        {
-            *first = 4;
-            *last = kObservationPipelineEnd;
-            return true;
-        }
-        if (kind == kJobFlowerReadout)
-        {
-            *first = kFlowerPipelineBegin;
-            *last = kFineErasePipelineBegin;
-            return true;
-        }
-        if (kind == kJobFineErase)
-        {
-            *first = kFineErasePipelineBegin;
-            *last = kMerkabaExecutorPipelineCount;
-            return true;
-        }
-        return false;
+        if (kind > kJobFineErase) return false;
+        *first = kMerkabaExecutorSchedules[kind].firstPipeline;
+        *last = kMerkabaExecutorSchedules[kind].lastPipeline;
+        return true;
     }
 
     bool PipelineSelected(const ExecutorJob* job, uint32_t pipeline)
     {
-        return job->kind != kJobFlowerReadout ||
-            (job->flowerPassMask & (1u << (pipeline - kFlowerPipelineBegin))) != 0u;
+        if (job->kind != kJobFlowerReadout) return true;
+        uint32_t pass = pipeline == kFlowerPipelineBegin ? 1u :
+            pipeline >= kFlowerPreparePipeline && pipeline <= kFlowerReservePipeline ? 2u :
+            pipeline == kFlowerPublishPipeline ? 4u :
+            pipeline == kFlowerCullPipeline ? 8u : 0u;
+        return (job->flowerPassMask & pass) != 0u;
     }
 
     void FailJob(ExecutorJob* job, VkResult result, const char* operation,
@@ -1859,14 +1846,9 @@ namespace
             return false;
         }
         uint32_t dispatchCount = 0;
-        for (uint32_t pipeline = job->firstPipeline; pipeline < job->lastPipeline; ++pipeline)
-            if (PipelineSelected(job, pipeline)) ++dispatchCount;
-        if (job->firstPipeline <= kObservationDualPipeline &&
-            kObservationDualPipeline < job->lastPipeline)
-            ++dispatchCount;
-        if (job->firstPipeline <= kObservationDrainPipeline &&
-            kObservationDrainPipeline < job->lastPipeline)
-            dispatchCount += kObservationAllocationEnd - kObservationAllocationBegin;
+        const auto& schedule = kMerkabaExecutorSchedules[job->kind];
+        for (uint32_t ordinal = 0; ordinal < schedule.count; ++ordinal)
+            if (PipelineSelected(job, schedule.pipelines[ordinal])) ++dispatchCount;
         if (dispatchCount > kMaximumExecutorDispatches)
         {
             FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
@@ -1910,9 +1892,17 @@ namespace
             vkCmdDispatch(job->commandBuffer, 1, 1, 2);
         else if (std::strcmp(pipeline.dispatch, "flower_slots") == 0)
             vkCmdDispatch(job->commandBuffer, kFlowerSlotGroupCount, 1, 1);
+        else if (std::strcmp(pipeline.dispatch, "flower_batch") == 0)
+            vkCmdDispatchIndirect(job->commandBuffer,
+                job->buffers[kResourceFlowerIndirectCommands].buffer, kFlowerBatchArgsOffset);
         else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);
+        else if (std::strcmp(pipeline.dispatch, "allocation_gate") == 0 ||
+                 std::strcmp(pipeline.dispatch, "allocation_tiles") == 0)
+            vkCmdDispatchIndirect(job->commandBuffer,
+                job->buffers[kResourceObservationDispatchArgs].buffer,
+                std::strcmp(pipeline.dispatch, "allocation_gate") == 0 ? 16u : 32u);
         else
             vkCmdDispatch(job->commandBuffer, 1, 1, 1);
     }
@@ -1969,9 +1959,10 @@ namespace
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, job->queryPool, 0);
         job->timingDispatchCount = 0u;
-        for (uint32_t pipelineIndex = job->firstPipeline;
-            pipelineIndex < job->lastPipeline; ++pipelineIndex)
+        const auto& schedule = kMerkabaExecutorSchedules[job->kind];
+        for (uint32_t ordinal = 0; ordinal < schedule.count; ++ordinal)
         {
+            const uint32_t pipelineIndex = schedule.pipelines[ordinal];
             if (!PipelineSelected(job, pipelineIndex)) continue;
             if (pipelineIndex == kFlowerCullPipeline)
                 RecordFlowerCountReset(job->commandBuffer,
@@ -1989,35 +1980,6 @@ namespace
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
                         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                     0, 1, &barrier, 0, nullptr, 0, nullptr);
-            if (pipelineIndex == kObservationDualPipeline)
-            {
-                // Re-publish the touched queue in the existing reserve
-                // kernel's GPU-selected publication-only mode. The immutable
-                // record offsets/cursors remain exactly as Emit consumed them.
-                if (!RecordTimedDispatch(job, kObservationReservePipeline)) return false;
-                vkCmdPipelineBarrier(job->commandBuffer,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                    0, 1, &barrier, 0, nullptr, 0, nullptr);
-            }
-            if (pipelineIndex == kObservationDrainPipeline)
-            {
-                // Reuse the same storage barriers for claims produced by
-                // UpdateObservationDual. They must run AFTER refinement:
-                // tile installation reuses ObservationDispatchArgs. This is
-                // publication, not another geometry pass or pipeline copy.
-                for (uint32_t allocation = kObservationAllocationBegin;
-                    allocation < kObservationAllocationEnd; ++allocation)
-                {
-                    if (!RecordTimedDispatch(job, allocation)) return false;
-                    vkCmdPipelineBarrier(job->commandBuffer,
-                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                        0, 1, &barrier, 0, nullptr, 0, nullptr);
-                }
-            }
         }
         if (job->timingDispatchCount * 2u + 2u != job->queryCount)
         {
@@ -2248,7 +2210,7 @@ namespace
         {
             std::lock_guard<std::mutex> lock(g_executorMutex);
             const bool cancelled = g_executorInitCancel.load(std::memory_order_acquire);
-            // Release publishes all 25 pipelines and both samplers at once.
+            // Release publishes every pipeline and both samplers at once.
             // No consumer observes the partially constructed arrays. Failed
             // or cancelled objects remain owned until lifecycle shutdown.
             g_executorReady.store(complete && !cancelled, std::memory_order_release);

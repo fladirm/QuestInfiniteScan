@@ -7237,3 +7237,30 @@ PaintEngine member-hiding warning. UI XML/syntax PASS; HMD/USS import pending.
 No synthetic coverage, readout LOD, geometry or new scan authority introduced.
 RUN_08 remains current: batched native compilation exposed malformed SPIR-V
 in PrepareDirtyFlowerBatch; repair in progress, not marked acceptance PASS.
+
+RUN_08_BATCH_EXECUTION_CHECKPOINT:
+  CURRENT_CUT=RUN_08; DAG_STATUS=implementation open, acceptance not PASS.
+  FILES_CHANGED=Codegen/RO blob; Flower page batch/support; observation bins,
+    Commit/Drain/finalization; managed/native queue ABI15; counter consumers.
+  IMPLEMENTED=32-page bounded batch with ordered bitmap prefix and per-page
+    reservation/abort receipts; parallel512-owner prefix; exact support-bound
+    reuse;256-lane page WG. Allocator metadata remains bounded/serialized.
+  TABLES=46 arrays moved into existing105600B/6600uint4 RO blob;14500 original
+    components and1688-row prefix bit-identical; CPU generated unchanged.
+  LEGACY_REMOVED=47 dead counters (105->58), separate observation-counter
+    reset and retirement dispatches. Finalize performs its own WG retirement.
+  COMMANDS=single generated native schedule; allocation miss/installs use
+    GPU indirect packets in existing64B resource.18 scheduled normal commands,
+    6 allocation-gated;12 non-allocation commands, not a measured<=10 PASS.
+  COMPILE=all25 actual embedded SPIR-V compile/spirv-val/reflection PASS;
+    ARM64 native plugin build PASS with6GiB cap; runtime Android C# compile
+    PASS (one pre-existing PaintEngine warning). Not a Unity Quest APK build.
+  SIZE_GATE=FAIL: Stereo853836B/51060body; Commit1439048B/84303body;
+    Drain4789528B/279573body; Compact3332192B/193682body.
+  ABI=all25<=8 writable; maximum reflected shared24704B (Commit), no32KiB breach.
+  TESTS_RUN=compile checks only; full tests/fixtures/device remain RUN_14.
+  PERF=not measured on Quest; no throughput/occupancy claim.
+  RECEIPTS=/tmp/m8-native-tables-rQ9o20.log;
+    /tmp/m8-runtime-abi15-kdnqMU/compiler.log.
+  NEXT=RUN_08 remaining emitted-body duplication; RUN_09 required-support and
+    selective invalidation consumers; RUN_10 carrier export/atlas in parallel.

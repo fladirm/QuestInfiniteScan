@@ -39,11 +39,20 @@ namespace Genesis.RoomScan
         internal const int PageDirtyBitsBase = PageAuxBase + TileCapacity * 32;
         internal const int PageDirtySummaryBase = PageDirtyBitsBase + 1024 * 4;
         internal const int SymbolArenaControl = PageDirtySummaryBase + 32 * 4;
-        internal const int PageDirectoryBytes = SymbolArenaControl + ArenaHeaderBytes +
-            ((1 << (DrawOrder + 1)) - 1) * 4;
+        internal const int DirtyBatchCapacity = 32;
+        internal const int DirtyBatchBase = (SymbolArenaControl + ArenaHeaderBytes +
+            ((1 << (DrawOrder + 1)) - 1) * 4 + 15) & ~15;
+        internal const int DirtyBatchRecordBytes = 64;
+        internal const int DirtyBatchEmitIndices = DirtyBatchBase + DirtyBatchCapacity * DirtyBatchRecordBytes;
+        internal const int DirtyBatchScratchBase = DirtyBatchEmitIndices + DirtyBatchCapacity * sizeof(uint);
+        // Per-page execution proofs only: 512 uint2 exclusive prefixes,
+        // 512 completion tokens, 192 DIRT half-mask words. No world vertices.
+        internal const int DirtyBatchScratchBytes = 512 * 8 + 512 * 4 + 192 * 4;
+        internal const int PageDirectoryBytes = DirtyBatchScratchBase + DirtyBatchCapacity * DirtyBatchScratchBytes;
         internal const int IndirectCommandBytes = 5 * sizeof(uint);
         internal const int IndirectCountOffset = TileCapacity * IndirectCommandBytes;
-        internal const int IndirectBytes = IndirectCountOffset + sizeof(uint);
+        internal const int DirtyBatchDispatchOffset = (IndirectCountOffset + sizeof(uint) + 15) & ~15;
+        internal const int IndirectBytes = DirtyBatchDispatchOffset + 4 * sizeof(uint);
         internal const int MaximumPageSymbols = 512 * 128 + 512 * 6 * 2;
         internal const int VerticesPerSymbol = 7;
         internal const int IndicesPerSymbol = 18;
@@ -174,6 +183,8 @@ namespace Genesis.RoomScan
                     MerkabaFlowerGpuLayout.DrawArenaControl, MerkabaFlowerGpuLayout.DrawOrder);
                 _m8FlowerIndirectCommands.SetData(new uint[] { 0u }, 0,
                     MerkabaFlowerGpuLayout.IndirectCountOffset / 4, 1);
+                _m8FlowerIndirectCommands.SetData(new uint[] { 0u, 1u, 1u, 0u }, 0,
+                    MerkabaFlowerGpuLayout.DirtyBatchDispatchOffset / 4, 4);
             }
         }
 

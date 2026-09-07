@@ -66,7 +66,7 @@ bool M8FlowerObservedLoop(int3 owner, uint direction, float4x4 gridToWorld,
     out M8FlowerObservedLoopFrame result)
 {
     result = (M8FlowerObservedLoopFrame)0;
-    int4 node = M8FlowerDirection[direction];
+    int4 node = M8FlowerDirectionAt(direction);
     float3 j = (float3)M8FlowerJunction(owner,node.xyz);
     M8FlowerInterval halfStep = M8FlowerI(M8_FLOWER_LATTICE_STEP*0.5,M8_FLOWER_LATTICE_STEP*0.5);
     M8FlowerInterval3 grid;
@@ -77,12 +77,12 @@ bool M8FlowerObservedLoop(int3 owner, uint direction, float4x4 gridToWorld,
     result.centre.y = M8DepthIntervalRow(gridToWorld[1],grid);
     result.centre.z = M8DepthIntervalRow(gridToWorld[2],grid);
     M8FlowerInterval step = M8FlowerI(M8_FLOWER_LATTICE_STEP,M8_FLOWER_LATTICE_STEP);
-    float shellFactor = 0.75*(float)M8FlowerLineMeta[node.w].x;
+    float shellFactor = 0.75*(float)M8FlowerLineMetaAt(node.w).x;
     M8FlowerInterval radius;
     if (!M8FlowerISqrt(M8FlowerIMul(M8FlowerIMul(step,step),
             M8FlowerI(shellFactor,shellFactor)),radius)) return false;
-    result.axis1 = M8FlowerObservedLoopAxis(M8FlowerLineE1[node.w],radius,gridToWorld);
-    result.axis2 = M8FlowerObservedLoopAxis(M8FlowerLineE2[node.w],radius,gridToWorld);
+    result.axis1 = M8FlowerObservedLoopAxis(M8FlowerLineE1At(node.w),radius,gridToWorld);
+    result.axis2 = M8FlowerObservedLoopAxis(M8FlowerLineE2At(node.w),radius,gridToWorld);
     return true;
 }
 

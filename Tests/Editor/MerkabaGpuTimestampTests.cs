@@ -21,7 +21,7 @@ namespace Genesis.RoomScan.Tests
             {
                 "DepthPreprocess",
                 "SurfaceIntegration",
-                "CarveIntegration",
+                "DualIntegration",
                 "WorldQuery",
                 "FlowerClassify",
                 "FlowerCompact",

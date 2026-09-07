@@ -81,7 +81,7 @@ bool M8FlowerResolveRootProof(uint tagsAnd,uint tagsOr,M8FlowerInterval2 root,
     uint level=symbolTag&7u,lineClass=(symbolTag>>3u)&15u;
     uint sector=(symbolTag>>8u)&31u;
     if(level>=3u || lineClass>=M8_FLOWER_LINE_CLASS_COUNT ||
-        sector>=M8FlowerLineMeta[lineClass].z)return false;
+        sector>=M8FlowerLineMetaAt(lineClass).z)return false;
     uint witness=0u;
     if(((tagsAnd^tagsOr)&M8_FLOWER_BOUNDARY_WITNESS_MASK)==0u)
         witness=tagsAnd&M8_FLOWER_BOUNDARY_WITNESS_MASK;
@@ -89,7 +89,7 @@ bool M8FlowerResolveRootProof(uint tagsAnd,uint tagsOr,M8FlowerInterval2 root,
     {
         uint boundary=(witness>>21u)-1u,ownerSector;
         if(!M8FlowerBoundarySector(lineClass,boundary,ownerSector) || ownerSector!=sector)return false;
-        float4 cut=M8FlowerSectorBoundsAt(M8FlowerLineMeta[lineClass].y+boundary);
+        float4 cut=M8FlowerSectorBoundsAt(M8FlowerLineMetaAt(lineClass).y+boundary);
         if(root.x.hi<cut.x || cut.y<root.x.lo ||
             root.y.hi<cut.z || cut.w<root.y.lo)return false;
         symbolTag|=witness;
@@ -235,8 +235,8 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
     [loop]
     for (uint direction = 0u; direction < 6u; ++direction)
     {
-        uint lineClass = (uint)M8FlowerDirection[direction].w;
-        precise float3 relative = float3(M8FlowerDirection[direction].xyz) *
+        uint lineClass = (uint)M8FlowerDirectionAt(direction).w;
+        precise float3 relative = float3(M8FlowerDirectionAt(direction).xyz) *
             (M8_FLOWER_LATTICE_STEP * 0.5);
         M8FlowerInterval3 abc[2];
         [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
@@ -251,7 +251,7 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
             [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
                 certain[endpoint]=M8FlowerClassifyPlaneRoot(0u,lineClass,
                     (direction&1u)!=0u,rootSign!=0u,normals[endpoint],offsets[endpoint],
-                    M8FlowerDirection[direction].xyz,abc[endpoint],tags[endpoint],
+                    M8FlowerDirectionAt(direction).xyz,abc[endpoint],tags[endpoint],
                     roots[endpoint],classes[endpoint]);
             uint previousClass=classes.x,incomingClass=classes.y;
             if (previousClass == M8_FLOWER_ROOT_AMBIGUOUS ||
@@ -289,8 +289,8 @@ bool M8FlowerSeedCorrespondence(uint previousFlags, uint incomingFlags,
     M8FlowerUnpackPlane(incomingFlags,incomingNormal,incomingOffset);
     [loop] for (uint direction = 0u; direction < 6u; ++direction)
     {
-        uint lineClass = (uint)M8FlowerDirection[direction].w;
-        precise float3 relative = float3(M8FlowerDirection[direction].xyz)*
+        uint lineClass = (uint)M8FlowerDirectionAt(direction).w;
+        precise float3 relative = float3(M8FlowerDirectionAt(direction).xyz)*
             (M8_FLOWER_LATTICE_STEP*0.5);
         M8FlowerInterval3 previousAbc, incomingAbc;
         if (!M8FlowerPlaneIntervals(previousNormal,previousOffset,relative,
@@ -305,10 +305,10 @@ bool M8FlowerSeedCorrespondence(uint previousFlags, uint incomingFlags,
             M8FlowerInterval2 previousRoot, incomingRoot;
             if (!M8FlowerClassifyPlaneRoot(0u,lineClass,
                     (direction & 1u) != 0u,sign != 0u,previousNormal,previousOffset,
-                    M8FlowerDirection[direction].xyz,previousAbc,previousTag,previousRoot,previousClass) ||
+                    M8FlowerDirectionAt(direction).xyz,previousAbc,previousTag,previousRoot,previousClass) ||
                 !M8FlowerClassifyPlaneRoot(0u,lineClass,
                     (direction & 1u) != 0u,sign != 0u,incomingNormal,incomingOffset,
-                    M8FlowerDirection[direction].xyz,incomingAbc,incomingTag,incomingRoot,incomingClass)) continue;
+                    M8FlowerDirectionAt(direction).xyz,incomingAbc,incomingTag,incomingRoot,incomingClass)) continue;
             M8FlowerInterval2 intersection;
             intersection.x=M8FlowerI(max(previousRoot.x.lo,incomingRoot.x.lo),
                 min(previousRoot.x.hi,incomingRoot.x.hi));

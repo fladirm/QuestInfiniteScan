@@ -40,18 +40,16 @@ PIPELINES = (
              "BuildDepthCertificate", "certificate_local"),
     Pipeline("ReduceDepthCertificate", "MerkabaDepthCertificate.compute",
              "ReduceDepthCertificate", "certificate_root"),
-    Pipeline("ResetObservationCounters", "MerkabaWorld.compute",
-             "ResetObservationCounters", "one"),
     Pipeline("ResetObservationBins", "MerkabaObservationBins.compute",
              "ResetObservationBins", "one"),
     Pipeline("CountObservationBins", "MerkabaObservationBins.compute",
              "CountObservationBins", "depth"),
     Pipeline("ResolveMissingSpatialNodes", "MerkabaObservationBins.compute",
-             "ResolveMissingSpatialNodes", "one"),
+             "ResolveMissingSpatialNodes", "allocation_gate"),
     Pipeline("ResolveObservationTileRequests", "MerkabaObservationBins.compute",
-             "ResolveObservationTileRequests", "one"),
+             "ResolveObservationTileRequests", "allocation_gate"),
     Pipeline("InitializeNewTiles", "MerkabaWorld.compute",
-             "InitializeNewTiles", "observation_indirect"),
+             "InitializeNewTiles", "allocation_tiles"),
     Pipeline("ReserveObservationBins", "MerkabaObservationBins.compute",
              "ReserveObservationBins", "one"),
     Pipeline("EmitObservationBins", "MerkabaObservationBins.compute",
@@ -64,14 +62,16 @@ PIPELINES = (
              "DrainObservationRefinement", "observation_indirect"),
     Pipeline("FinalizeObservation", "MerkabaIntegration.compute",
              "FinalizeObservation", "one"),
-    Pipeline("RetireObservationBins", "MerkabaObservationBins.compute",
-             "RetireObservationBins", "one"),
     Pipeline("ClassifyHotFlowerPages", "MerkabaReadout.compute",
              "ClassifyHotFlowerPages", "flower_slots"),
+    Pipeline("PrepareDirtyFlowerBatch", "MerkabaReadout.compute",
+             "PrepareDirtyFlowerBatch", "one"),
     Pipeline("CompactDirtyFlowerSymbols", "MerkabaReadout.compute",
-             "CompactDirtyFlowerSymbols", "one"),
+             "CompactDirtyFlowerSymbols", "flower_batch"),
+    Pipeline("ReserveDirtyFlowerBatch", "MerkabaReadout.compute",
+             "ReserveDirtyFlowerBatch", "one"),
     Pipeline("PublishDirtyFlowerPages", "MerkabaReadout.compute",
-             "PublishDirtyFlowerPages", "flower_slots"),
+             "PublishDirtyFlowerPages", "one"),
     Pipeline("CullFlowerPages", "MerkabaReadout.compute",
              "CullFlowerPages", "flower_slots"),
     Pipeline("ResetFineErase", "MerkabaIntegration.compute",
@@ -85,6 +85,31 @@ PIPELINES = (
     Pipeline("FinalizeFineErase", "MerkabaIntegration.compute",
              "FinalizeFineErase", "one"),
 )
+
+
+def command_schedules():
+    """The exact serialized command order embedded in the native executor."""
+    labels = [pipeline.label for pipeline in PIPELINES]
+    index = {label: ordinal for ordinal, label in enumerate(labels)}
+    if len(index) != len(labels):
+        raise RuntimeError("duplicate native pipeline identity")
+    observation_end = index["ClassifyHotFlowerPages"]
+    allocation = labels[index["ResolveMissingSpatialNodes"]:index["ReserveObservationBins"]]
+    observation = []
+    for label in labels[:observation_end]:
+        observation.append(label)
+        if label == "UpdateObservationDual":
+            observation.append("ReserveObservationBins")
+        if label == "DrainObservationRefinement":
+            observation.extend(allocation)
+    retry = observation[observation.index("ResetObservationBins"):]
+    flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
+              "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
+              "CompactDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
+    fine = labels[index["ResetFineErase"]:]
+    return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
+        ("ObservationNew", observation), ("ObservationRetry", retry),
+        ("FlowerReadout", flower), ("FineErase", fine)))
 
 
 RESOURCE_NAMES = (
@@ -250,7 +275,9 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
     output = temporary / f"pipeline-{index}.spv"
     command = compile_command(glslang, pipeline, output)
     compiled = run(command)
-    if compiled.returncode != 0:
+    # glslang can return zero when its SPIR-V optimizer reports a malformed
+    # module. Reject that diagnostic before attempting descriptor reflection.
+    if compiled.returncode != 0 or re.search(r"(?im)^error:", compiled.stderr):
         raise RuntimeError(f"{pipeline.label}: glslang failed\n" +
                            compiled.stdout + compiled.stderr)
     payload = output.read_bytes()
@@ -582,6 +609,17 @@ def emit(output: Path, compiled) -> None:
     lines.append(
         "static constexpr uint32_t kMerkabaExecutorPipelineCount = "
         "sizeof(kMerkabaExecutorPipelines) / sizeof(kMerkabaExecutorPipelines[0]);")
+    for index, pipeline in enumerate(PIPELINES):
+        lines.append(f"static constexpr uint32_t kPipeline{pipeline.label} = {index}u;")
+    schedules = command_schedules()
+    for name, indices in schedules:
+        lines.append(f"static const uint32_t kMerkaba{name}Dispatches[] = {{" +
+                     ", ".join(f"{index}u" for index in indices) + "};")
+    lines.append("static const MerkabaEmbeddedSchedule kMerkabaExecutorSchedules[] = {")
+    for name, indices in schedules:
+        lines.append(f"    {{{min(indices)}u, {max(indices) + 1}u, {len(indices)}u, "
+                     f"kMerkaba{name}Dispatches}},")
+    lines.append("};")
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
 
@@ -593,7 +631,25 @@ def main() -> int:
     parser.add_argument("--audit-shader", type=Path, help="compile one entry for the existing compute audit")
     parser.add_argument("--audit-entry", help="entrypoint in --audit-shader")
     parser.add_argument("--artifact-dir", type=Path, help="retain the single audit module and its metrics")
+    parser.add_argument("--command-graph", action="store_true", help="report the exact embedded native schedules; no shader compilation")
     args = parser.parse_args()
+    if args.command_graph:
+        schedules = []
+        for name, indices in command_schedules():
+            allocation = sum(PIPELINES[index].dispatch in
+                             ("allocation_gate", "allocation_tiles") for index in indices)
+            schedules.append({"job": name, "scheduled_dispatches": len(indices),
+                "allocation_indirect_commands": allocation,
+                "non_allocation_commands": len(indices) - allocation,
+                "between_dispatch_barriers": len(indices) - 1,
+                "optional_flower_passes": name == "FlowerReadout",
+                "commands": [{"pipeline": PIPELINES[index].label,
+                              "dispatch": PIPELINES[index].dispatch} for index in indices]})
+        print(json.dumps({"authority": "native embedded command schedules",
+            "normal_dispatch_target": 10, "schedules": schedules,
+            "gpu_nonzero_work": "device measurement required; an indirect call may dispatch zero groups"},
+            indent=2))
+        return 0
     auditing = args.audit_shader is not None
     if auditing:
         if args.output or not args.audit_entry or not args.artifact_dir:

@@ -262,7 +262,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Contain(
                 "#pragma kernel QueryFineEraseTiles"));
             Assert.That(integration, Does.Contain(
-                "M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u"));
+                "M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u"));
             Assert.That(erase, Does.Contain(
                 "M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0)"));
             Assert.That(erase, Does.Contain(

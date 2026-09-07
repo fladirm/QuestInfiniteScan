@@ -19,6 +19,8 @@ namespace Genesis.RoomScan
 
         private MerkabaGrid _grid;
         private DepthCapture _depthCapture;
+        private MerkabaGridRenderer _pageRenderer;
+        private int _pageOpportunityFrame = -1;
         private int _flowerCommitKernel;
         private int _drainRefinementKernel;
         private int _updateObservationDualKernel;
@@ -199,6 +201,7 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _depthCapture = GetComponent<DepthCapture>();
+            _pageRenderer = GetComponent<MerkabaGridRenderer>();
         }
 
         internal void ReleaseOwnedResourcesAfterGpuRetirement()
@@ -259,7 +262,7 @@ namespace Genesis.RoomScan
             _drainRefinementKernel = compute.FindProfiledKernel(
                 "DrainObservationRefinement", MerkabaGpuStage.SurfaceIntegration);
             _updateObservationDualKernel = compute.FindProfiledKernel(
-                "UpdateObservationDual", MerkabaGpuStage.CarveIntegration);
+                "UpdateObservationDual", MerkabaGpuStage.DualIntegration);
             _finalizeKernel = compute.FindProfiledKernel(
                 "FinalizeObservation", MerkabaGpuStage.SurfaceIntegration);
             _resetFineEraseKernel = compute.FindProfiledKernel(
@@ -435,6 +438,11 @@ namespace Genesis.RoomScan
                 $"completionReadbackMs={(nativeAttemptRetiredAt - _nativeAttemptGpuCompleteAt) * 1000.0:F3}");
             _attemptInFlight = false;
             _nativeAttemptCompletionRequested = false;
+            // Leave this frame's post-view queue boundary available to one
+            // bounded page quantum. Retrying in Update immediately would
+            // monopolize the lease for the entire immutable observation.
+            // The held evidence/workset is unchanged; ERASE remains first.
+            _pageOpportunityFrame = Time.frameCount;
             // Certified dual progress is already published at this fence.
             // Notify its consumers even when more resident work is pending
             // or the observation cannot finish. This is not a new observation.
@@ -472,7 +480,7 @@ namespace Genesis.RoomScan
                 (_bins != null && _bins.FrozenObservation != 0u) ||
                 _fineEraseAttemptInFlight || !Initialize())
                 return false;
-            // The completed observation's RetireObservationBins dispatch
+            // The completed observation's fused finalization retirement
             // precedes its completion fence. Merely retiring one retry is
             // insufficient: the frozen reservation still owns this queue.
             _fineEraseDescriptor = descriptor;
@@ -706,6 +714,10 @@ namespace Genesis.RoomScan
                 return false;
             if (!_grid.ObservationMutationSubmissionAllowed) return false;
             bool newObservation = !_observationPrepared;
+            if (_pageOpportunityFrame == Time.frameCount &&
+                _pageRenderer != null && _pageRenderer.isActiveAndEnabled &&
+                _pageRenderer.ReadoutDrawEnabled)
+                return false;
             if (newObservation)
             {
                 if (!DepthCapture.DepthAvailable ||
@@ -757,7 +769,7 @@ namespace Genesis.RoomScan
                         return false;
                     }
                     _observationToken =
-                        _grid.RecordResetObservationGpuCounters(command);
+                        _grid.AllocateObservationToken();
                     _observationDepthVersion =
                         _depthCapture.ProcessedRawFrameVersion;
                     _observationPrepared = true;
@@ -785,9 +797,10 @@ namespace Genesis.RoomScan
                 // same frozen observation. Publish after commit: installation
                 // reuses its indirect argument buffer for tile counts.
                 _bins.RecordTileRequestPublication(command);
+                command.SetComputeBufferParam(compute, _finalizeKernel,
+                    "_M8ObservationTileBins", _bins.TileBins);
                 command.DispatchComputeProfiled(compute, _finalizeKernel,
                     1, 1, 1);
-                _bins.RecordRetirement(command);
 
                 MerkabaGpuTimestamps.End(CaptureOwner.Observation, command,
                     timedSubmission);
@@ -830,7 +843,7 @@ namespace Genesis.RoomScan
                     ReleaseOwnedObservation();
                     return false;
                 }
-                _observationToken = _grid.AllocateNativeObservationToken();
+                _observationToken = _grid.AllocateObservationToken();
                 _observationDepthVersion =
                     _depthCapture.ProcessedRawFrameVersion;
                 _observationPrepared = true;

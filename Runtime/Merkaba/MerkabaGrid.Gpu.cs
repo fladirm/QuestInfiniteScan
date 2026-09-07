@@ -68,7 +68,7 @@ namespace Genesis.RoomScan
         internal const int LoadRequestCapacity = 262144;
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
-        internal const int CounterCount = 105;
+        internal const int CounterCount = 58;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -80,77 +80,42 @@ namespace Genesis.RoomScan
         internal const int CounterBlockOverflow = 7;
         internal const int CounterChunkOverflow = 8;
         internal const int CounterTileStarvation = 9;
-        internal const int CounterValidSurfaceCandidates = 10;
-        internal const int CounterUniqueSurfaceKernels = 11;
-        internal const int CounterUnresolvedSurfaceTiles = 12;
-        internal const int CounterSurfaceTilesAllocated = 13;
-        internal const int CounterScanColdMisses = 14;
-        internal const int CounterCarveCandidateTiles = 17;
-        internal const int CounterCarveActiveKernels = 18;
-        internal const int CounterLoadRequests = 19;
-        internal const int CounterVisibleTiles = 21;
-        internal const int CounterLogicalPrimitives = 22;
-        internal const int CounterRenderPrimitiveOverflow = 23;
-        internal const int CounterLateDrawColdMisses = 24;
-        internal const int CounterCandidateBlocks = 26;
-        internal const int CounterHashHitBlocks = 27;
-        internal const int CounterVisibleChunks = 28;
-        internal const int CounterOccupiedKernelsConsidered = 29;
-        internal const int CounterReadoutPlaneValid = 30;
-        internal const int CounterReadoutEmittedPatches = 31;
-        internal const int CounterHashFull = 38;
-        internal const int CounterFailedReads = 39;
-        internal const int CounterFailedWrites = 40;
-        internal const int CounterStorageBackpressure = 41;
-        internal const int CounterObservationCompleted = 44;
-        internal const int CounterObservationToken = 47;
-        internal const int CounterOccupiedKernelCount = 42;
-        internal const int CounterCarveQueryBlocks = 48;
-        internal const int CounterWritebackTiles = 49;
-        internal const int CounterEvictionNeeded = 51;
-        internal const int CounterObservationFailure = 52;
-        internal const int CounterFailedObservations = 53;
-        internal const int CounterFreeTileCount = 54;
-        internal const int CounterLoadsInstalled = 46;
-        internal const int CounterObservationChangeMask = 56;
-        internal const int CounterDirtyTileCount = 57;
-        internal const int CounterCarveClassifiedUnknown = 58;
-        internal const int CounterCarveEvidenceDecrements = 59;
-        internal const int CounterCarveOccupiedToFree = 60;
-        internal const int CounterCarveBitsRetired = 61;
-        internal const int CounterColdCarveTilesRequested = 62;
-        internal const int CounterUnresolvedCarveTiles = 63;
-        internal const int CounterResidencyEpoch = 64;
-        internal const int CounterReadoutUnresolved = 50;
-        internal const int CounterReadoutBuildStatus = 69;
-        internal const int CounterCarveFreeRadialBase = 70;
-        internal const int CounterJointAcceptedCenter = 78;
-        internal const int CounterJointAcceptedMid = 79;
-        internal const int CounterJointAcceptedEdge = 80;
-        internal const int CounterAuthorityDiscovery = 81;
-        internal const int CounterAuthoritySupport = 82;
-        internal const int CounterAuthorityRevision = 83;
-        internal const int CounterOffAxisMutationBlocked = 84;
-        internal const int CounterSurfaceReplacement = 85;
-        internal const int CounterSameObservationConflict = 86;
-        internal const int CounterReadoutEmittedTriangles = 87;
-        internal const int CounterCarveCheapInvalidProjectionDepth = 88;
-        internal const int CounterCarveCheapNotInFront = 89;
-        internal const int CounterCarveCheapOutsideRayTube = 90;
-        internal const int CounterCarveCheapOutsideOuterAttention = 91;
-        internal const int CounterCarveCheapSurfaceEndpoint = 92;
-        internal const int CounterCarveKernelsEvaluated = 93;
-        internal const int CounterCarveExactIncidenceReject = 94;
-        internal const int CounterCarveExactCertificateReject = 95;
-        internal const int CounterReadoutPlaneLegacyInvalid = 96;
-        internal const int CounterReadoutEmittedVertices = 97;
-        internal const int CounterDualStorageIntentCount = 98;
-        internal const int CounterDualTouchPublication = 99;
-        internal const int CounterRefinementPendingTiles = 100;
-        internal const int CounterRefinementWorkProgress = 101;
-        internal const int CounterRefinementBackpressure = 102;
-        internal const int CounterRefinementUnresolved = 103;
-        internal const int CounterRefinementStage = 104;
+        internal const int CounterUnresolvedSurfaceTiles = 10;
+        internal const int CounterSurfaceTilesAllocated = 11;
+        internal const int CounterScanColdMisses = 12;
+        internal const int CounterLoadRequests = 14;
+        internal const int CounterNewTileQueueCount = 19;
+        internal const int CounterPendingNewTileCount = 20;
+        internal const int CounterHashFull = 21;
+        internal const int CounterFailedReads = 22;
+        internal const int CounterFailedWrites = 23;
+        internal const int CounterStorageBackpressure = 24;
+        internal const int CounterObservationCompleted = 27;
+        internal const int CounterObservationToken = 30;
+        internal const int CounterOccupiedKernelCount = 25;
+        internal const int CounterDualQueryBlocks = 31;
+        internal const int CounterWritebackTiles = 32;
+        internal const int CounterEvictionNeeded = 34;
+        internal const int CounterObservationFailure = 35;
+        internal const int CounterFailedObservations = 36;
+        internal const int CounterFreeTileCount = 37;
+        internal const int CounterLoadsInstalled = 29;
+        internal const int CounterObservationChangeMask = 39;
+        internal const int CounterDirtyTileCount = 40;
+        internal const int CounterThroughEvidenceDecrements = 41;
+        internal const int CounterThroughOccupiedToFree = 42;
+        internal const int CounterUnresolvedObservationTiles = 43;
+        internal const int CounterResidencyEpoch = 44;
+        internal const int CounterReadoutUnresolved = 33;
+        internal const int CounterReadoutEmittedTriangles = 49;
+        internal const int CounterReadoutEmittedVertices = 50;
+        internal const int CounterDualStorageIntentCount = 51;
+        internal const int CounterDualTouchPublication = 52;
+        internal const int CounterRefinementPendingTiles = 53;
+        internal const int CounterRefinementWorkProgress = 54;
+        internal const int CounterRefinementBackpressure = 55;
+        internal const int CounterRefinementUnresolved = 56;
+        internal const int CounterRefinementStage = 57;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
@@ -173,7 +138,6 @@ namespace Genesis.RoomScan
         private int _publishNewBlocksKernel;
         private int _publishNewChunksKernel;
         private int _initializeNewTilesKernel;
-        private int _resetObservationKernel;
         private int _resetClaimQueuesKernel;
         private int _prepareNewTileDispatchKernel;
         private int _prepareEvictionSelectionKernel;
@@ -368,8 +332,6 @@ namespace Genesis.RoomScan
         private static readonly int EvictAllDirtyId =
             Shader.PropertyToID("_M8EvictAllDirty");
         private static readonly int SafeEpochId = Shader.PropertyToID("_M8SafeEpoch");
-        private static readonly int ObservationTokenId =
-            Shader.PropertyToID("_M8ObservationToken");
         private static readonly int ClearBlockArgsId =
             Shader.PropertyToID("_M8ClearBlockArgs");
         private static readonly int ClearChunkArgsId =
@@ -442,7 +404,7 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8FrameDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
-                _m8ObservationDispatchArgs = Allocate(3, sizeof(uint),
+                _m8ObservationDispatchArgs = Allocate(MerkabaObservationBinsGpu.DispatchArgumentWords, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
                 _m8WritebackQueue = Allocate(StreamBatchCapacity,
                     sizeof(uint) * 2);
@@ -461,7 +423,6 @@ namespace Genesis.RoomScan
                 BindWorldBuffers(worldCompute, _publishNewBlocksKernel);
                 BindWorldBuffers(worldCompute, _publishNewChunksKernel);
                 BindWorldBuffers(worldCompute, _initializeNewTilesKernel);
-                BindWorldBuffers(worldCompute, _resetObservationKernel);
                 BindWorldBuffers(worldCompute, _resetClaimQueuesKernel);
                 BindWorldBuffers(worldCompute, _prepareNewTileDispatchKernel);
                 BindWorldBuffers(worldCompute, _prepareEvictionSelectionKernel);
@@ -515,8 +476,6 @@ namespace Genesis.RoomScan
                 "PublishNewChunks", MerkabaGpuStage.SurfaceIntegration);
             _initializeNewTilesKernel = worldCompute.FindProfiledKernel(
                 "InitializeNewTiles", MerkabaGpuStage.SurfaceIntegration);
-            _resetObservationKernel = worldCompute.FindProfiledKernel(
-                "ResetObservationCounters", MerkabaGpuStage.SurfaceIntegration);
             _resetClaimQueuesKernel = worldCompute.FindProfiledKernel(
                 "ResetClaimQueueCounts", MerkabaGpuStage.SurfaceIntegration);
             _prepareNewTileDispatchKernel = worldCompute.FindProfiledKernel(
@@ -1025,29 +984,7 @@ namespace Genesis.RoomScan
                 MerkabaSpatial.BlockCapacity / 256, 1, 1);
         }
 
-        internal uint ResetObservationGpuCounters()
-        {
-            if (!GpuSubmissionAllowed) return 0u;
-            NextObservationToken();
-            worldCompute.SetInt(ObservationTokenId,
-                unchecked((int)_issuedObservationToken));
-            worldCompute.Dispatch(_resetObservationKernel, 1, 1, 1);
-            return _issuedObservationToken;
-        }
-
-        internal uint RecordResetObservationGpuCounters(CommandBuffer command)
-        {
-            if (command == null) throw new ArgumentNullException(nameof(command));
-            if (!GpuSubmissionAllowed) return 0u;
-            NextObservationToken();
-            command.SetComputeIntParam(worldCompute, ObservationTokenId,
-                unchecked((int)_issuedObservationToken));
-            command.DispatchComputeProfiled(worldCompute,
-                _resetObservationKernel, 1, 1, 1);
-            return _issuedObservationToken;
-        }
-
-        internal uint AllocateNativeObservationToken()
+        internal uint AllocateObservationToken()
         {
             if (!GpuSubmissionAllowed) return 0u;
             NextObservationToken();

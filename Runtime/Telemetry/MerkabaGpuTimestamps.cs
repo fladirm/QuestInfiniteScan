@@ -10,7 +10,7 @@ namespace Genesis.RoomScan
     {
         DepthPreprocess,
         SurfaceIntegration,
-        CarveIntegration,
+        DualIntegration,
         WorldQuery,
         FlowerClassify,
         FlowerCompact,
@@ -101,29 +101,15 @@ namespace Genesis.RoomScan
             internal uint ChunkOverflow;
             internal uint TileStarvation;
             internal uint HashFull;
-            internal uint ValidSurfaceCandidates;
-            internal uint UniqueSurfaceKernels;
             internal uint UnresolvedSurfaceTiles;
             internal uint SurfaceTilesAllocated;
             internal uint ScanColdMisses;
-            internal uint CarveQueryBlocks;
-            internal uint CarveCandidateTiles;
-            internal uint CarveActiveKernels;
-            internal uint CarveKernelsEvaluated;
-            internal uint CarveCheapInvalidProjectionDepth;
-            internal uint CarveCheapNotInFront;
-            internal uint CarveCheapOutsideRayTube;
-            internal uint CarveCheapOutsideOuterAttention;
-            internal uint CarveCheapSurfaceEndpoint;
-            internal uint CarveExactIncidenceReject;
-            internal uint CarveExactCertificateReject;
+            internal uint DualQueryBlocks;
             internal uint ObservationChangeMask;
             internal uint DirtyTileCount;
-            internal uint CarveClassifiedUnknown;
-            internal uint CarveEvidenceDecrements;
-            internal uint CarveOccupiedToFree;
-            internal uint CarveBitsRetired;
-            internal uint ColdCarveTilesRequested;
+            internal uint ThroughEvidenceDecrements;
+            internal uint ThroughOccupiedToFree;
+            internal uint UnresolvedObservationTiles;
             internal uint LoadRequests;
             internal uint WritebackTiles;
             internal uint FailedReads;
@@ -133,16 +119,6 @@ namespace Genesis.RoomScan
             internal uint DualTouchPublication;
             internal uint ObservationFailure;
             internal uint FailedObservations;
-            internal readonly uint[] CarveFreeRadial = new uint[8];
-            internal uint JointAcceptedCenter;
-            internal uint JointAcceptedMid;
-            internal uint JointAcceptedEdge;
-            internal uint AuthorityDiscovery;
-            internal uint AuthoritySupport;
-            internal uint AuthorityRevision;
-            internal uint OffAxisMutationBlocked;
-            internal uint SurfaceReplacement;
-            internal uint SameObservationConflict;
             internal readonly uint[] RefineRadial =
                 new uint[RefineMetricValueCount];
             internal float LoadBytesPerSecond;
@@ -157,7 +133,7 @@ namespace Genesis.RoomScan
         {
             "DEPTH_PREPROCESS",
             "SURFACE_INTEGRATION",
-            "CARVE_INTEGRATION",
+            "DUAL_INTEGRATION",
             "M8_WORLD_QUERY",
             "FLOWER_CLASSIFY",
             "FLOWER_COMPACT",
@@ -631,36 +607,12 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterChunkOverflow];
                     sample.TileStarvation = values[
                         MerkabaGrid.CounterTileStarvation];
-                    sample.ValidSurfaceCandidates = values[
-                        MerkabaGrid.CounterValidSurfaceCandidates];
-                    sample.UniqueSurfaceKernels = values[
-                        MerkabaGrid.CounterUniqueSurfaceKernels];
                     sample.UnresolvedSurfaceTiles = values[
                         MerkabaGrid.CounterUnresolvedSurfaceTiles];
                     sample.SurfaceTilesAllocated = values[
                         MerkabaGrid.CounterSurfaceTilesAllocated];
                     sample.ScanColdMisses = values[
                         MerkabaGrid.CounterScanColdMisses];
-                    sample.CarveCandidateTiles = values[
-                        MerkabaGrid.CounterCarveCandidateTiles];
-                    sample.CarveActiveKernels = values[
-                        MerkabaGrid.CounterCarveActiveKernels];
-                    sample.CarveKernelsEvaluated = values[
-                        MerkabaGrid.CounterCarveKernelsEvaluated];
-                    sample.CarveCheapInvalidProjectionDepth = values[
-                        MerkabaGrid.CounterCarveCheapInvalidProjectionDepth];
-                    sample.CarveCheapNotInFront = values[
-                        MerkabaGrid.CounterCarveCheapNotInFront];
-                    sample.CarveCheapOutsideRayTube = values[
-                        MerkabaGrid.CounterCarveCheapOutsideRayTube];
-                    sample.CarveCheapOutsideOuterAttention = values[
-                        MerkabaGrid.CounterCarveCheapOutsideOuterAttention];
-                    sample.CarveCheapSurfaceEndpoint = values[
-                        MerkabaGrid.CounterCarveCheapSurfaceEndpoint];
-                    sample.CarveExactIncidenceReject = values[
-                        MerkabaGrid.CounterCarveExactIncidenceReject];
-                    sample.CarveExactCertificateReject = values[
-                        MerkabaGrid.CounterCarveExactCertificateReject];
                     sample.LoadRequests = values[
                         MerkabaGrid.CounterLoadRequests];
                     sample.HashFull = values[MerkabaGrid.CounterHashFull];
@@ -674,8 +626,8 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterDualStorageIntentCount];
                     sample.DualTouchPublication = values[
                         MerkabaGrid.CounterDualTouchPublication];
-                    sample.CarveQueryBlocks = values[
-                        MerkabaGrid.CounterCarveQueryBlocks];
+                    sample.DualQueryBlocks = values[
+                        MerkabaGrid.CounterDualQueryBlocks];
                     sample.WritebackTiles = values[
                         MerkabaGrid.CounterWritebackTiles];
                     sample.ObservationFailure = values[
@@ -686,37 +638,12 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterObservationChangeMask];
                     sample.DirtyTileCount = values[
                         MerkabaGrid.CounterDirtyTileCount];
-                    sample.CarveClassifiedUnknown = values[
-                        MerkabaGrid.CounterCarveClassifiedUnknown];
-                    sample.CarveEvidenceDecrements = values[
-                        MerkabaGrid.CounterCarveEvidenceDecrements];
-                    sample.CarveOccupiedToFree = values[
-                        MerkabaGrid.CounterCarveOccupiedToFree];
-                    sample.CarveBitsRetired = values[
-                        MerkabaGrid.CounterCarveBitsRetired];
-                    sample.ColdCarveTilesRequested = values[
-                        MerkabaGrid.CounterColdCarveTilesRequested];
-                    for (int radialBin = 0; radialBin < 8; radialBin++)
-                        sample.CarveFreeRadial[radialBin] = values[
-                            MerkabaGrid.CounterCarveFreeRadialBase + radialBin];
-                    sample.JointAcceptedCenter = values[
-                        MerkabaGrid.CounterJointAcceptedCenter];
-                    sample.JointAcceptedMid = values[
-                        MerkabaGrid.CounterJointAcceptedMid];
-                    sample.JointAcceptedEdge = values[
-                        MerkabaGrid.CounterJointAcceptedEdge];
-                    sample.AuthorityDiscovery = values[
-                        MerkabaGrid.CounterAuthorityDiscovery];
-                    sample.AuthoritySupport = values[
-                        MerkabaGrid.CounterAuthoritySupport];
-                    sample.AuthorityRevision = values[
-                        MerkabaGrid.CounterAuthorityRevision];
-                    sample.OffAxisMutationBlocked = values[
-                        MerkabaGrid.CounterOffAxisMutationBlocked];
-                    sample.SurfaceReplacement = values[
-                        MerkabaGrid.CounterSurfaceReplacement];
-                    sample.SameObservationConflict = values[
-                        MerkabaGrid.CounterSameObservationConflict];
+                    sample.ThroughEvidenceDecrements = values[
+                        MerkabaGrid.CounterThroughEvidenceDecrements];
+                    sample.ThroughOccupiedToFree = values[
+                        MerkabaGrid.CounterThroughOccupiedToFree];
+                    sample.UnresolvedObservationTiles = values[
+                        MerkabaGrid.CounterUnresolvedObservationTiles];
                 }
                 sample.PendingReadbacks--;
                 TryLogMetrics(sample);
@@ -757,10 +684,10 @@ namespace Genesis.RoomScan
             _nextCounterLogTime = Time.unscaledTime + SampleIntervalSeconds;
             uint observation = values[MerkabaGrid.CounterObservationToken];
             Logger.Info($"Merkaba metrics-flower observation={observation} " +
-                $"lastCompiledPageActiveTriangles={values[MerkabaGrid.CounterReadoutEmittedTriangles]} " +
-                $"lastCompiledPageIndexedVertexSlots={values[MerkabaGrid.CounterReadoutEmittedVertices]} " +
+                $"compiledBatchActiveTriangles={values[MerkabaGrid.CounterReadoutEmittedTriangles]} " +
+                $"compiledBatchIndexedVertexSlots={values[MerkabaGrid.CounterReadoutEmittedVertices]} " +
                 $"unresolvedPageAttempts={values[MerkabaGrid.CounterReadoutUnresolved]} " +
-                "scope=last-successful-page-counters-not-current-view " +
+                "scope=readout-batch-counters-not-current-view " +
                 "visibleTriangles=NOT_AVAILABLE visibleVertices=NOT_AVAILABLE");
             Logger.Info($"Merkaba metrics-held-refinement observation={observation} " +
                 $"completed={values[MerkabaGrid.CounterObservationCompleted]} " +
@@ -1040,50 +967,17 @@ namespace Genesis.RoomScan
                         $"hashFull={sample.HashFull}");
             Logger.Info($"Merkaba metrics-reconstruction revision=" +
                         $"{sample.Revision} valid={sample.ReadbackValid} " +
-                        $"validSurfaceCandidates={sample.ValidSurfaceCandidates} " +
-                        $"uniqueSurfaceKernels={sample.UniqueSurfaceKernels} " +
                         $"unresolvedSurfaceTiles={sample.UnresolvedSurfaceTiles} " +
                         $"surfaceTilesAllocated={sample.SurfaceTilesAllocated} " +
-                        $"scanColdMisses={sample.ScanColdMisses} " +
-                        $"carveQueryBlocks={sample.CarveQueryBlocks} " +
-                        $"carveCandidateTiles={sample.CarveCandidateTiles}");
-            Logger.Info($"Merkaba metrics-carve-gate revision={sample.Revision} " +
+                        $"scanColdMisses={sample.ScanColdMisses}");
+            Logger.Info($"Merkaba metrics-dual revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
-                        $"carveActiveKernels={sample.CarveActiveKernels} " +
-                        $"cheapInvalidProjectionDepth=" +
-                        $"{sample.CarveCheapInvalidProjectionDepth} " +
-                        $"cheapNotInFront={sample.CarveCheapNotInFront} " +
-                        $"cheapOutsideRayTube=" +
-                        $"{sample.CarveCheapOutsideRayTube} " +
-                        $"cheapOutsideOuterAttention=" +
-                        $"{sample.CarveCheapOutsideOuterAttention} " +
-                        $"cheapSurfaceEndpoint=" +
-                        $"{sample.CarveCheapSurfaceEndpoint}");
-            Logger.Info($"Merkaba metrics-carve-exact revision={sample.Revision} " +
-                        $"valid={sample.ReadbackValid} " +
-                        $"exactCarveEvaluations={sample.CarveKernelsEvaluated} " +
-                        $"dirtyTileCount={sample.DirtyTileCount} " +
-                        $"carveClassifiedUnknown={sample.CarveClassifiedUnknown} " +
-                        $"exactIncidenceReject=" +
-                        $"{sample.CarveExactIncidenceReject} " +
-                        $"exactCertificateReject=" +
-                        $"{sample.CarveExactCertificateReject} " +
-                        $"evidenceDecrements={sample.CarveEvidenceDecrements} " +
-                        $"occupiedToFreeTransitions={sample.CarveOccupiedToFree} " +
-                        $"carveBitsRetired={sample.CarveBitsRetired} " +
-                        $"carveFreeRadial=[{string.Join(",", sample.CarveFreeRadial)}]");
-            Logger.Info($"Merkaba metrics-authority revision={sample.Revision} " +
-                        $"valid={sample.ReadbackValid} " +
+                        $"dualQueryBlocks={sample.DualQueryBlocks} " +
+                        $"throughEvidenceDecrements={sample.ThroughEvidenceDecrements} " +
+                        $"throughOccupiedToFreeTransitions={sample.ThroughOccupiedToFree} " +
+                        $"unresolvedObservationTiles={sample.UnresolvedObservationTiles} " +
                         $"observationChangeMask={sample.ObservationChangeMask} " +
-                        $"jointAcceptedCenter={sample.JointAcceptedCenter} " +
-                        $"jointAcceptedMid={sample.JointAcceptedMid} " +
-                        $"jointAcceptedEdge={sample.JointAcceptedEdge} " +
-                        $"authorityDiscovery={sample.AuthorityDiscovery} " +
-                        $"authoritySupport={sample.AuthoritySupport} " +
-                        $"authorityRevision={sample.AuthorityRevision} " +
-                        $"offAxisMutationBlocked={sample.OffAxisMutationBlocked} " +
-                        $"surfaceReplacement={sample.SurfaceReplacement} " +
-                        $"sameObservationConflict={sample.SameObservationConflict}");
+                        $"dirtyTileCount={sample.DirtyTileCount}");
             Logger.Info($"Merkaba metrics-rgbd revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
                         $"center={FormatRefineBin(sample.RefineRadial, 0)} " +
@@ -1091,7 +985,6 @@ namespace Genesis.RoomScan
                         $"edge={FormatRefineBin(sample.RefineRadial, 2)}");
             Logger.Info($"Merkaba metrics-storage revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
-                        $"coldCarveTilesRequested={sample.ColdCarveTilesRequested} " +
                         $"loadRequests={sample.LoadRequests} " +
                         $"loadBytesPerSecond={sample.LoadBytesPerSecond:F0} " +
                         $"loadLatencyP50={sample.LoadLatencyP50Ms:F2}ms " +

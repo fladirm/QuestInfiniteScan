@@ -1,5 +1,7 @@
 #pragma kernel ClassifyHotFlowerPages
+#pragma kernel PrepareDirtyFlowerBatch
 #pragma kernel CompactDirtyFlowerSymbols
+#pragma kernel ReserveDirtyFlowerBatch
 #pragma kernel PublishDirtyFlowerPages
 #pragma kernel CullFlowerPages
 // Keep bounded generated loops intact in the Quest compiler, as in the
@@ -45,6 +47,170 @@ groupshared uint m8FlowerCompileSlotGeneration;
 groupshared uint m8FlowerCompileStatus;
 groupshared uint m8FlowerCompileTriangles;
 groupshared uint2 m8FlowerCompileTotal;
+groupshared uint m8FlowerCompileItem;
+groupshared uint m8FlowerCompilePhase;
+// Only Prepare uses these arrays. Compact retains its existing page-local
+// scratch, not a 32-page groupshared packet.
+groupshared uint m8FlowerDirtyWords[1024];
+groupshared uint m8FlowerDirtyPrefix[1024];
+groupshared uint m8FlowerDirtyRoot;
+groupshared uint m8FlowerDirtyCursor;
+groupshared uint m8FlowerDirtyBatchCount;
+
+// Integer Blelloch exclusive prefix in canonical local-owner order. The same
+// uint2 sums as the former scalar loop, with 256 lanes and nine tree levels.
+void M8FlowerPrefixOwners(uint lane)
+{
+    [loop]for(uint stride=1u;stride<512u;stride<<=1u)
+    {
+        uint index=(lane+1u)*(stride*2u)-1u;
+        if(index<512u)m8FlowerPageOwnerSpans[index]+=m8FlowerPageOwnerSpans[index-stride];
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if(lane==0u)
+    {
+        m8FlowerCompileTotal=m8FlowerPageOwnerSpans[511u];
+        m8FlowerPageOwnerSpans[511u]=0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [loop]for(uint stride=256u;stride!=0u;stride>>=1u)
+    {
+        uint index=(lane+1u)*(stride*2u)-1u;
+        if(index<512u)
+        {
+            uint2 left=m8FlowerPageOwnerSpans[index-stride];
+            m8FlowerPageOwnerSpans[index-stride]=m8FlowerPageOwnerSpans[index];
+            m8FlowerPageOwnerSpans[index]+=left;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+
+// One ordered bitmap snapshot, not one racing pop per compaction WG. A word
+// belongs to one lane; only claimed bits are atomically removed BEFORE work.
+// Later dirtiness remains set through count/emit and prevents publication.
+[numthreads(256,1,1)]
+void PrepareDirtyFlowerBatch(uint lane:SV_GroupIndex)
+{
+    if(lane==0u)
+    {
+        m8FlowerDirtyBatchCount=_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_COUNT);
+        _M8FlowerIndirectCommands.Store4(M8_FLOWER_BATCH_DISPATCH_ARGS,uint4(0u,1u,1u,0u));
+        // An earlier BUSY publisher still owns its receipts. Do not overwrite
+        // their only addresses: this turn retries retirement only.
+        _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_PHASE,m8FlowerDirtyBatchCount==0u?0u:2u);
+        m8FlowerDirtyRoot=_M8FlowerPageDirectory.Load(0u);
+        m8FlowerDirtyCursor=(_M8FlowerPageDirectory.Load(M8_FLOWER_DIRTY_CURSOR)>>5u)&1023u;
+        if(m8FlowerDirtyBatchCount==0u)
+        {
+            _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES]=0u;
+            _M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES]=0u;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if(m8FlowerDirtyBatchCount!=0u)return;
+    [unroll]for(uint item=0u;item<4u;item++)
+    {
+        uint index=lane+item*256u,word=(m8FlowerDirtyCursor+index)&1023u;
+        uint group=word>>5u,bits=0u;
+        if((m8FlowerDirtyRoot&(1u<<group))!=0u)
+        {
+            uint summary=_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_SUMMARY+group*4u);
+            if((summary&(1u<<(word&31u)))!=0u)
+                bits=_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_BITS+word*4u);
+        }
+        m8FlowerDirtyWords[index]=bits;
+        m8FlowerDirtyPrefix[index]=countbits(bits);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [loop]for(uint stride=1u;stride<1024u;stride<<=1u)
+    {
+        [unroll]for(uint item=0u;item<2u;item++)
+        {
+            uint index=(lane+item*256u+1u)*(2u*stride)-1u;
+            if(index<1024u)m8FlowerDirtyPrefix[index]+=m8FlowerDirtyPrefix[index-stride];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if(lane==0u)
+    {
+        uint dirty=m8FlowerDirtyPrefix[1023u];
+        m8FlowerDirtyBatchCount=min(dirty,M8_FLOWER_BATCH_CAPACITY);
+        _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_DIRTY_COUNT,dirty);
+        _M8FlowerPageDirectory.Store4(M8_FLOWER_BATCH_CLAIMED,
+            uint4(m8FlowerDirtyBatchCount,0u,0u,0u));
+        _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_FAILED,0u);
+        m8FlowerDirtyPrefix[1023u]=0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [loop]for(uint stride=512u;stride!=0u;stride>>=1u)
+    {
+        [unroll]for(uint item=0u;item<2u;item++)
+        {
+            uint index=(lane+item*256u+1u)*(2u*stride)-1u;
+            if(index<1024u)
+            {
+                uint left=m8FlowerDirtyPrefix[index-stride];
+                m8FlowerDirtyPrefix[index-stride]=m8FlowerDirtyPrefix[index];
+                m8FlowerDirtyPrefix[index]+=left;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+    [unroll]for(uint item=0u;item<4u;item++)
+    {
+        uint index=lane+item*256u,first=m8FlowerDirtyPrefix[index];
+        uint bits=m8FlowerDirtyWords[index];
+        if(first>=m8FlowerDirtyBatchCount || bits==0u)continue;
+        uint word=(m8FlowerDirtyCursor+index)&1023u,selected=0u,remaining=bits;
+        uint accepted=min(countbits(bits),m8FlowerDirtyBatchCount-first);
+        [loop]for(uint ordinal=0u;ordinal<accepted;ordinal++)
+        {
+            uint bit=(uint)firstbitlow(remaining);remaining&=remaining-1u;selected|=1u<<bit;
+        }
+        uint previous;
+        _M8FlowerPageDirectory.InterlockedAnd(M8_FLOWER_PAGE_DIRTY_BITS+word*4u,~selected,previous);
+        remaining=selected;
+        [loop]for(uint ordinal=0u;ordinal<accepted;ordinal++)
+        {
+            uint bit=(uint)firstbitlow(remaining);remaining&=remaining-1u;
+            uint slot=word*32u+bit,address=M8FlowerBatchRecord(first+ordinal);
+            uint state=(previous&(1u<<bit))!=0u?M8_FLOWER_BATCH_ITEM_CLAIMED:M8_FLOWER_BATCH_ITEM_ABORT;
+            _M8FlowerPageDirectory.Store4(address,uint4(slot,M8LoadTileRuntimeRead(slot).w,
+                _M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_AUX_BASE+slot*32u),state));
+            _M8FlowerPageDirectory.Store4(address+16u,uint4(0u,0u,0u,0u));
+            _M8FlowerPageDirectory.Store4(address+32u,uint4(0u,0u,0u,0u));
+            _M8FlowerPageDirectory.Store4(address+48u,uint4(0u,0u,0u,0u));
+        }
+        if(first+accepted==m8FlowerDirtyBatchCount)
+            _M8FlowerPageDirectory.Store(M8_FLOWER_DIRTY_CURSOR,((word+1u)&1023u)<<5u);
+        // Clear a summary hint first, then recheck its leaf. Concurrent ORs
+        // can produce stale-positive hints, never lose a live dirty leaf.
+        uint ignored,group=word>>5u;
+        _M8FlowerPageDirectory.InterlockedAnd(M8_FLOWER_PAGE_DIRTY_SUMMARY+group*4u,
+            ~(1u<<(word&31u)),ignored);
+        DeviceMemoryBarrier();
+        if(_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_BITS+word*4u)!=0u)
+            _M8FlowerPageDirectory.InterlockedOr(M8_FLOWER_PAGE_DIRTY_SUMMARY+group*4u,
+                1u<<(word&31u),ignored);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if(lane<32u)
+    {
+        uint ignored;
+        _M8FlowerPageDirectory.InterlockedAnd(0u,~(1u<<lane),ignored);
+        DeviceMemoryBarrier();
+        if(_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_DIRTY_SUMMARY+lane*4u)!=0u)
+            _M8FlowerPageDirectory.InterlockedOr(0u,1u<<lane,ignored);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if(lane==0u)
+    {
+        _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_COUNT,m8FlowerDirtyBatchCount);
+        _M8FlowerIndirectCommands.Store4(M8_FLOWER_BATCH_DISPATCH_ARGS,
+            uint4(m8FlowerDirtyBatchCount,1u,1u,0u));
+    }
+}
 
 // Translation classification and a newly installed page use the same metric
 // and support AABB. This helper has no residency descriptor of its own: Compact
@@ -114,7 +280,7 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
     uint itemCount=sourcePass==1u?16u:128u;
     [loop]for(uint item=0u;item<itemCount;item++)
     {
-        uint source=sourcePass==1u?M8FlowerL2SourceToWedge[16u*(completion&63u)+item]:0u;
+        uint source=sourcePass==1u?M8FlowerL2SourceToWedgeAt(16u*(completion&63u)+item):0u;
         uint carrier=sourcePass==1u?source/6u:item;
         M8FlowerSymbolRecord symbol=(M8FlowerSymbolRecord)0;
         M8FlowerPhaseRootEvidence roots[7];float3 positions[7];
@@ -140,10 +306,11 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
             M8FlowerSymbolRecord evaluatedSymbol;
             M8FlowerPhaseRootEvidence evaluatedRoots[7];float3 evaluatedPositions[7];
             uint evaluatedUnresolved,evaluatedDirect;
+            int3 evaluatedFirst,evaluatedLast;
             uint evaluatedStatus=M8FlowerPageCarrier(address.x,address.y,targetCarrier,
                 _M8FlowerPlaneErrorBounds,visit==0u?completion:0xffffffffu,
                 visit==0u && sourcePass!=2u,evaluatedSymbol,evaluatedUnresolved,
-                evaluatedDirect,evaluatedRoots,evaluatedPositions);
+                evaluatedDirect,evaluatedRoots,evaluatedPositions,evaluatedFirst,evaluatedLast);
             if(visit==0u)
             {
                 symbol=evaluatedSymbol;status=evaluatedStatus;
@@ -151,8 +318,8 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
                 if(sourcePass==0u)
                     M8FlowerRecordDirectAnchors(carrier,direct,evaluatedRoots,directAnchors);
                 if(sourcePass!=2u || emit || status!=1u)break;
-                collectCoverage=M8FlowerSupportCarrierCells(owner,carrier,
-                    M8FlowerDrawActiveWedgeMask(symbol),evaluatedRoots,carrierFirst,carrierLast);
+                carrierFirst=evaluatedFirst;carrierLast=evaluatedLast;
+                collectCoverage=m8FlowerSupportCoverageNeeded!=0u && all(carrierFirst<=carrierLast);
                 if(!collectCoverage)break;
                 [loop]for(uint site=0u;site<7u;site++)
                 {roots[site]=evaluatedRoots[site];positions[site]=evaluatedPositions[site];}
@@ -172,7 +339,7 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
         {
             [unroll]for(uint wedge=0u;wedge<6u;wedge++)if((direct&(1u<<wedge))==0u)
             {
-                uint petal=M8FlowerL2Wedge[6u*carrier+wedge].y>>4u;
+                uint petal=M8FlowerL2WedgeAt(6u*carrier+wedge).y>>4u;
                 failedDirect[petal>>5u]|=1u<<(petal&31u);
             }
             continue;
@@ -262,27 +429,44 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
     return count;
 }
 
-// Exactly one bounded page quantum on the existing serialized native queue.
-// The immutable source lease spans all three passes and final publication.
+// One WG per accepted page, over one bounded immutable native-job lease.
+// Count and emit reuse this exact entry/evaluator with a global Reserve
+// boundary between them. Only compact integer proofs cross that boundary.
 // Failed count/skin validation never publishes a partial page or changes FRONT.
 [numthreads(256,1,1)]
-void CompactDirtyFlowerSymbols(uint lane:SV_GroupIndex)
+void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
 {
     if(lane==0u)
     {
         m8FlowerCompileStatus=M8_FLOWER_ARENA_OK;
         m8FlowerCompileTriangles=0u;m8FlowerCompileTotal=0u;
-        if(!M8FlowerTakeDirtyPage(m8FlowerCompileSlot,m8FlowerCompileGeneration))
-            m8FlowerCompileSlot=0xffffffffu;
+        m8FlowerCompilePhase=_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_PHASE);
+        m8FlowerCompileItem=groupId.x;
+        if(m8FlowerCompilePhase==1u && groupId.x<M8_FLOWER_BATCH_CAPACITY)
+            m8FlowerCompileItem=_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_EMIT_INDICES+4u*groupId.x);
+        m8FlowerCompileSlot=0xffffffffu;m8FlowerCompileGeneration=0u;
         m8FlowerCompileSlotGeneration=0u;
+        if(m8FlowerCompilePhase<2u && m8FlowerCompileItem<M8_FLOWER_BATCH_CAPACITY &&
+            m8FlowerCompileItem<_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_COUNT))
+        {
+            uint4 identity=_M8FlowerPageDirectory.Load4(M8FlowerBatchRecord(m8FlowerCompileItem));
+            uint requiredState=m8FlowerCompilePhase==0u?M8_FLOWER_BATCH_ITEM_CLAIMED:M8_FLOWER_BATCH_ITEM_RESERVED;
+            if(identity.w==requiredState)
+            {
+                m8FlowerCompileSlot=identity.x;m8FlowerCompileGeneration=identity.z;
+                m8FlowerCompileSlotGeneration=identity.y;
+            }
+        }
         if(m8FlowerCompileSlot<32768u)
         {
             uint4 meta=M8LoadTileMetaRead(m8FlowerCompileSlot);
             uint4 runtime=M8LoadTileRuntimeRead(m8FlowerCompileSlot);
-            if(runtime.w!=0u && meta.x<MERKABA_M8_CHUNK_CAPACITY && meta.y<64u &&
+            if(runtime.w!=0u && runtime.w==m8FlowerCompileSlotGeneration &&
+                m8FlowerCompileGeneration!=0u &&
+                M8FlowerPageSourceUnchanged(m8FlowerCompileSlot,m8FlowerCompileGeneration) &&
+                meta.x<MERKABA_M8_CHUNK_CAPACITY && meta.y<64u &&
                 _M8ChunkTileRefsRead[meta.x*64u+meta.y]==m8FlowerCompileSlot+1u)
             {
-                m8FlowerCompileSlotGeneration=runtime.w;
                 uint slot=m8FlowerCompileSlot;
                 uint2 front=_M8FlowerPageDirectory.Load2(
                     M8_FLOWER_PAGE_DIRECTORY_BASE+16u*slot);
@@ -303,30 +487,71 @@ void CompactDirtyFlowerSymbols(uint lane:SV_GroupIndex)
                 // head. Until its first successful publication a retry remains
                 // this same install work; ordinary source dirtiness thereafter
                 // does not reclassify the already published slot lifetime.
-                if(!sameInstallation)
+                if(!sameInstallation && m8FlowerCompilePhase==0u)
                     M8FlowerSetPageResidency(slot,M8FlowerClassifyTileDistance(minimum));
             }
-            else M8FlowerClearRetiredPageResidency(m8FlowerCompileSlot);
+            else
+            {
+                if(runtime.w==0u)M8FlowerClearRetiredPageResidency(m8FlowerCompileSlot);
+                _M8FlowerPageDirectory.Store(M8FlowerBatchRecord(m8FlowerCompileItem)+52u,M8_FLOWER_ARENA_INVALID);
+                M8FlowerSetBatchState(m8FlowerCompileItem,M8_FLOWER_BATCH_ITEM_ABORT);
+                m8FlowerCompileSlot=0xffffffffu;
+            }
         }
     }
     GroupMemoryBarrierWithGroupSync();
     uint slot=m8FlowerCompileSlot,generation=m8FlowerCompileGeneration;
     if(slot>=32768u)return;
-    if(m8FlowerCompileSlotGeneration==0u || generation==0u)
-    {
-        // A retired physical slot has no page source. Installation republishes
-        // its own generation and dirty neighbourhood before it can be drawn.
-        return;
-    }
+    uint batchItem=m8FlowerCompileItem,record=M8FlowerBatchRecord(batchItem),scratch=M8FlowerBatchScratch(batchItem);
+    bool emitting=m8FlowerCompilePhase==1u;
     M8FlowerCacheTileHalo(slot,lane,true);
     int3 logicalTile=m8FlowerHaloTile;
     M8FlowerSupportCacheTile(logicalTile,lane,256u);
-    M8FlowerSupportBuildFaces(lane,256u);
     M8FlowerPageBuild build=(M8FlowerPageBuild)0;
-    // One ordered call site: central count, neighboring coverage, central emit.
-    // Resolve only maps the fixed stencil to resident owners; it never invokes
-    // a second carrier evaluator. All coverage completes before allocation.
-    [loop]for(uint phase=0u;phase<3u;phase++)
+    if(emitting)
+    {
+        build=M8FlowerLoadBatchBuild(batchItem);
+        [unroll]for(uint ownerIndex=0u;ownerIndex<2u;ownerIndex++)
+        {
+            uint local=lane+ownerIndex*256u;
+            m8FlowerPageOwnerSpans[local]=_M8FlowerPageDirectory.Load2(scratch+local*8u);
+            m8FlowerPageCompletion[local]=_M8FlowerPageDirectory.Load(scratch+M8_FLOWER_BATCH_COMPLETION+local*4u);
+        }
+        if(lane<M8_FLOWER_SUPPORT_HALF_WORDS)
+            m8FlowerSupportHalves[lane]=_M8FlowerPageDirectory.Load(scratch+M8_FLOWER_BATCH_DIRT_HALVES+lane*4u);
+        if(lane<M8_FLOWER_SUPPORT_FACE_WORDS)
+        {m8FlowerSupportAmbiguousFaces[lane]=0u;m8FlowerSupportPartial[lane]=0u;}
+        GroupMemoryBarrierWithGroupSync();
+        M8FlowerSupportPrepareSymbols(lane);
+        if(lane==0u)
+        {
+            m8FlowerCompileTotal=_M8FlowerPageDirectory.Load2(record+16u);
+            m8FlowerCompileTriangles=_M8FlowerPageDirectory.Load(record+28u);
+            m8FlowerSupportUnresolved=_M8FlowerPageDirectory.Load(record+56u);
+            m8FlowerHaloUnresolvedReads|=_M8FlowerPageDirectory.Load(record+60u);
+            if(m8FlowerSupportSymbolCount!=_M8FlowerPageDirectory.Load(record+24u) ||
+                m8FlowerHaloUnresolvedReads!=0u)m8FlowerCompileStatus=M8_FLOWER_ARENA_INVALID;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(m8FlowerCompileStatus==M8_FLOWER_ARENA_OK)
+        {
+            uint result=M8FlowerSupportEmitPage(build,m8FlowerCompileTotal.x,lane,256u);
+            if(lane==0u)m8FlowerCompileStatus=result;
+        }
+    }
+    else
+    {
+        [unroll]for(uint ownerIndex=0u;ownerIndex<2u;ownerIndex++)
+        {
+            uint local=lane+ownerIndex*256u;
+            m8FlowerPageOwnerSpans[local]=0u;m8FlowerPageCompletion[local]=0xffffffffu;
+        }
+        M8FlowerSupportBuildFaces(lane,256u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    // Exactly one syntactic evaluator call: count+neighbor phases now precede
+    // the global allocation boundary; emission consumes their saved proofs.
+    [loop]for(uint phase=emitting?2u:0u;phase<(emitting?3u:2u);phase++)
     {
         if(phase==2u && m8FlowerCompileStatus!=M8_FLOWER_ARENA_OK)break;
         bool coverageOnly=phase==1u;
@@ -360,55 +585,118 @@ void CompactDirtyFlowerSymbols(uint lane:SV_GroupIndex)
             M8FlowerRequestPageEndpoints(lane);
             M8FlowerSupportRequestResidency(lane,256u);
             M8FlowerSupportFinalizeCoverage(lane,256u);
+            M8FlowerSupportPrepareSymbols(lane);
+            M8FlowerPrefixOwners(lane);
             if(lane==0u)
             {
-                uint2 sum=0u;
-                [loop]for(uint local=0u;local<512u;local++)
-                {
-                    uint2 count=m8FlowerPageOwnerSpans[local];
-                    m8FlowerPageOwnerSpans[local]=sum;sum+=count;
-                }
-                m8FlowerCompileTotal=sum;
-                if(sum.x>M8_FLOWER_MAX_PAGE_SYMBOLS || sum.y>67108864u)
+                uint2 sum=m8FlowerCompileTotal;
+                if(sum.x>M8_FLOWER_MAX_PAGE_SYMBOLS-m8FlowerSupportSymbolCount || sum.y>67108864u)
                     m8FlowerCompileStatus=M8_FLOWER_ARENA_CAPACITY;
-                if(m8FlowerHaloUnresolvedReads!=0u)
+                if(m8FlowerHaloUnresolvedReads!=0u || m8FlowerSupportUnresolved!=0u ||
+                    m8FlowerSupportOriginValid==0u)
                     m8FlowerCompileStatus=M8_FLOWER_SUPPORT_AMBIGUOUS;
             }
             GroupMemoryBarrierWithGroupSync();
-            if(m8FlowerCompileStatus==M8_FLOWER_ARENA_OK)
+            [unroll]for(uint ownerIndex=0u;ownerIndex<2u;ownerIndex++)
             {
-                uint result=M8FlowerSupportBeginPage(slot,m8FlowerCompileSlotGeneration,
-                    generation,m8FlowerCompileTotal.x,m8FlowerCompileTotal.y,lane,256u,build);
-                if(lane==0u)m8FlowerCompileStatus=result;
-                GroupMemoryBarrierWithGroupSync();
+                uint local=lane+ownerIndex*256u;
+                _M8FlowerPageDirectory.Store2(scratch+local*8u,m8FlowerPageOwnerSpans[local]);
+                _M8FlowerPageDirectory.Store(scratch+M8_FLOWER_BATCH_COMPLETION+local*4u,m8FlowerPageCompletion[local]);
             }
+            if(lane<M8_FLOWER_SUPPORT_HALF_WORDS)
+                _M8FlowerPageDirectory.Store(scratch+M8_FLOWER_BATCH_DIRT_HALVES+lane*4u,m8FlowerSupportHalves[lane]);
         }
     }
-    if(m8FlowerCompileStatus==M8_FLOWER_ARENA_OK)
+    if(lane==0u && emitting && m8FlowerHaloUnresolvedReads!=0u)
+        m8FlowerCompileStatus=M8_FLOWER_SUPPORT_AMBIGUOUS;
+    GroupMemoryBarrierWithGroupSync();
+    if(emitting && m8FlowerCompileStatus==M8_FLOWER_ARENA_OK)
     {
         uint result=M8FlowerSupportFinishPage(build,logicalTile,m8FlowerCompileTotal.x,
             m8FlowerCompileTotal.x,true,m8FlowerCompileTotal.y/64u,lane);
         if(lane==0u)m8FlowerCompileStatus=result;
     }
-    GroupMemoryBarrierWithGroupSync();
+    DeviceMemoryBarrierWithGroupSync();
     if(lane==0u)
     {
+        if(!emitting)
+        {
+            _M8FlowerPageDirectory.Store4(record+16u,uint4(m8FlowerCompileTotal,
+                m8FlowerSupportSymbolCount,m8FlowerCompileTriangles));
+            _M8FlowerPageDirectory.Store2(record+56u,
+                uint2(m8FlowerSupportUnresolved,m8FlowerHaloUnresolvedReads));
+        }
+        _M8FlowerPageDirectory.Store(record+52u,m8FlowerCompileStatus);
         if(m8FlowerCompileStatus!=M8_FLOWER_ARENA_OK)
         {
-            if(build.SymbolCapacity!=0u || build.SampleCapacity!=0u)M8FlowerAbortPage(build);
             M8FlowerMarkPageDirty(slot,generation);
-            _M8Counters[M8_COUNTER_READOUT_UNRESOLVED]+=1u;
-            if(m8FlowerCompileStatus==M8_FLOWER_ARENA_CAPACITY)
-                _M8FlowerPageDirectory.Store(4u,1u);
+            InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_UNRESOLVED],1u);
+            M8FlowerSetBatchState(batchItem,M8_FLOWER_BATCH_ITEM_ABORT);
+        }
+        else M8FlowerSetBatchState(batchItem,emitting?M8_FLOWER_BATCH_ITEM_READY:M8_FLOWER_BATCH_ITEM_COUNTED);
+    }
+}
+
+// Count is complete across ALL page WGs before this entry. The only writer of
+// allocation metadata in this stage holds both trees once for the batch. This
+// makes multiple successful page reservations possible without CAS losers.
+[numthreads(1,1,1)]
+void ReserveDirtyFlowerBatch(uint lane:SV_GroupIndex)
+{
+    if(_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_PHASE)!=0u)return;
+    uint count=min(_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_COUNT),M8_FLOWER_BATCH_CAPACITY);
+    M8FlowerArena symbols=M8FlowerSymbolArena(),samples=M8FlowerDrawArena();
+    bool symbolLease=false;
+    if(count!=0u)symbolLease=M8FlowerArenaAcquire(_M8FlowerPageDirectory,symbols);
+    bool sampleLease=false;
+    if(symbolLease)sampleLease=M8FlowerArenaAcquire(_M8ThreadAtlasPages,samples);
+    uint emitCount=0u;
+    [loop]for(uint item=0u;item<count;item++)
+    {
+        uint address=M8FlowerBatchRecord(item);
+        uint4 identity=_M8FlowerPageDirectory.Load4(address);
+        if(identity.w!=M8_FLOWER_BATCH_ITEM_COUNTED)
+        {
+            if(identity.w==M8_FLOWER_BATCH_ITEM_CLAIMED)
+            {
+                _M8FlowerPageDirectory.Store(address+52u,M8_FLOWER_ARENA_INVALID);
+                M8FlowerSetBatchState(item,M8_FLOWER_BATCH_ITEM_ABORT);
+            }
+            continue;
+        }
+        uint4 amounts=_M8FlowerPageDirectory.Load4(address+16u);
+        uint result=M8_FLOWER_ARENA_BUSY;
+        M8FlowerPageBuild build=(M8FlowerPageBuild)0;
+        if(sampleLease)
+        {
+            result=M8_FLOWER_ARENA_INVALID;
+            if(identity.x<32768u && identity.y!=0u && M8LoadTileRuntimeRead(identity.x).w==identity.y)
+                result=M8FlowerBeginPageLocked(identity.x,identity.y,identity.z,
+                    amounts.x+amounts.z,amounts.y,build);
+        }
+        // Persist before publishing either success OR failure. Even a failed
+        // rollback owns any capacity it could not return; Publish will retry.
+        M8FlowerStoreBatchBuild(item,build);
+        _M8FlowerPageDirectory.Store(address+52u,result);
+        if(result==M8_FLOWER_ARENA_OK)
+        {
+            _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_EMIT_INDICES+4u*emitCount,item);
+            emitCount++;
+            M8FlowerSetBatchState(item,M8_FLOWER_BATCH_ITEM_RESERVED);
         }
         else
         {
-            _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES]=
-                m8FlowerCompileTriangles+m8FlowerSupportSymbolCount;
-            _M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES]=
-                7u*(m8FlowerCompileTotal.x+m8FlowerSupportSymbolCount);
+            if(result==M8_FLOWER_ARENA_CAPACITY)_M8FlowerPageDirectory.Store(4u,1u);
+            M8FlowerMarkPageDirty(identity.x,identity.z);
+            M8FlowerSetBatchState(item,M8_FLOWER_BATCH_ITEM_ABORT);
         }
     }
+    if(sampleLease)M8FlowerArenaRelease(_M8ThreadAtlasPages,samples);
+    if(symbolLease)M8FlowerArenaRelease(_M8FlowerPageDirectory,symbols);
+    _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_RESERVED,emitCount);
+    _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_PHASE,1u);
+    DeviceMemoryBarrier();
+    _M8FlowerIndirectCommands.Store4(M8_FLOWER_BATCH_DISPATCH_ARGS,uint4(emitCount,1u,1u,0u));
 }
 
 #undef _M8ChunkTileRefsRead
@@ -430,16 +718,73 @@ void ClassifyHotFlowerPages(uint dispatchId : SV_DispatchThreadID)
     else M8FlowerClearRetiredPageResidency(slot);
 }
 
-[numthreads(128,1,1)]
-void PublishDirtyFlowerPages(uint slot : SV_DispatchThreadID)
+[numthreads(1,1,1)]
+void PublishDirtyFlowerPages(uint lane:SV_GroupIndex)
 {
-    if(slot>=MERKABA_M8_PHYSICAL_TILE_CAPACITY)return;
-    uint address=M8_FLOWER_PAGE_DIRECTORY_BASE+16u*slot;
-    if(_M8FlowerPageDirectory.Load(address+12u)==0u)return;
-    uint result=M8FlowerPublishPage(slot,M8LoadTileRuntimeRead(slot).w,
-        _M8FlowerGraphicsRetiredGeneration);
-    if(result==M8_FLOWER_ARENA_CAPACITY)
-        _M8FlowerPageDirectory.Store(4u,1u);
+    uint count=min(_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_COUNT),M8_FLOWER_BATCH_CAPACITY);
+    if(count==0u)return;
+    M8FlowerArena symbols=M8FlowerSymbolArena(),samples=M8FlowerDrawArena();
+    if(!M8FlowerArenaAcquire(_M8FlowerPageDirectory,symbols))return;
+    if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,samples))
+    {M8FlowerArenaRelease(_M8FlowerPageDirectory,symbols);return;}
+    uint remaining=0u;
+    [loop]for(uint item=0u;item<count;item++)
+    {
+        uint address=M8FlowerBatchRecord(item);
+        uint4 identity=_M8FlowerPageDirectory.Load4(address);
+        if(identity.w==M8_FLOWER_BATCH_ITEM_RETIRED)continue;
+        M8FlowerPageBuild build=M8FlowerLoadBatchBuild(item);
+        uint result=M8_FLOWER_ARENA_INVALID;bool published=false;
+        if(identity.w==M8_FLOWER_BATCH_ITEM_READY)
+        {
+            uint directory=M8_FLOWER_PAGE_DIRECTORY_BASE+16u*identity.x;
+            uint2 pending=_M8FlowerPageDirectory.Load2(directory+8u);
+            if(pending.x==build.Header && pending.y==build.SourceGeneration)
+            {
+                result=M8FlowerPublishPageLocked(identity.x,M8LoadTileRuntimeRead(identity.x).w,
+                    _M8FlowerGraphicsRetiredGeneration);
+                if(result==M8_FLOWER_ARENA_OK)
+                {
+                    uint2 front=_M8FlowerPageDirectory.Load2(directory);
+                    published=front.x==build.Header && front.y==build.SourceGeneration;
+                    // Ownership has transferred to FRONT, or the stale pending
+                    // allocation has been returned. Never free this receipt again.
+                    build.SymbolCapacity=build.SampleCapacity=0u;
+                }
+            }
+        }
+        else result=M8FlowerAbortPageLocked(build);
+        M8FlowerStoreBatchBuild(item,build);
+        if(result!=M8_FLOWER_ARENA_OK)
+        {
+            _M8FlowerPageDirectory.Store(address+52u,result);
+            remaining++;continue;
+        }
+        uint ignored;
+        if(published)
+        {
+            uint4 amounts=_M8FlowerPageDirectory.Load4(address+16u);
+            _M8FlowerPageDirectory.InterlockedAdd(M8_FLOWER_BATCH_COMMITTED,1u,ignored);
+            InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES],amounts.w+amounts.z);
+            InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES],7u*(amounts.x+amounts.z));
+        }
+        else
+        {
+            // New installation/source dirtiness wins. No old-generation bit
+            // is cleared on retirement; an absent physical slot needs no retry.
+            if(identity.x<32768u && M8LoadTileRuntimeRead(identity.x).w!=0u)
+                M8FlowerMarkPageDirty(identity.x,_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_AUX_BASE+identity.x*32u));
+            uint status=_M8FlowerPageDirectory.Load(address+52u);
+            uint counter=status==M8_FLOWER_ARENA_INVALID?M8_FLOWER_BATCH_FAILED:M8_FLOWER_BATCH_RETRIED;
+            _M8FlowerPageDirectory.InterlockedAdd(counter,1u,ignored);
+        }
+        M8FlowerSetBatchState(item,M8_FLOWER_BATCH_ITEM_RETIRED);
+    }
+    M8FlowerArenaRelease(_M8ThreadAtlasPages,samples);
+    M8FlowerArenaRelease(_M8FlowerPageDirectory,symbols);
+    // BUSY/failure receipts keep the original queue span and all addresses.
+    // Prepare will run retirement-only until each receipt is retired once.
+    if(remaining==0u)_M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_COUNT,0u);
 }
 
 // Current view changes only these commands. The count word is reset by the

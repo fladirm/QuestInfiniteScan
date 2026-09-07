@@ -334,7 +334,7 @@ uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
     out uint2 r1Flags)
 {
     r1Flags=0u.xx;
-    int4 node = M8FlowerDirection[direction];
+    int4 node = M8FlowerDirectionAt(direction);
     uint lineClass = (uint)node.w;
     M8FlowerObservedLoopFrame frame;
     if (!M8FlowerObservedLoop(owner,direction,_MerkabaGridToWorld,frame)) return RGBD_AMBIGUOUS;
@@ -408,7 +408,7 @@ uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bo
     uint edges = 0u, possibleEdges = 0u;
     bool bend = false;
     uint parity = ((uint)owner.x&1u) | (((uint)owner.y&1u)<<1u) | (((uint)owner.z&1u)<<2u);
-    int4 lines = M8FlowerTetraLine[parity], orientation = M8FlowerTetraEta[parity];
+    int4 lines = M8FlowerTetraLineAt(parity), orientation = M8FlowerTetraEtaAt(parity);
     bool unresolved = false;
     // One bounded loop-algebra call site for all shells. R2 follows a
     // certain R1 bend even with one hypothesis; only R3 is conditional on

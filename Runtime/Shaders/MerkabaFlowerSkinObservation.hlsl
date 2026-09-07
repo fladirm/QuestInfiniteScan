@@ -69,12 +69,12 @@ bool M8FlowerSkinRootWorld(M8FlowerPhaseRootEvidence root,out M8FlowerInterval3 
     M8FlowerInterval3 centre;
     centre.x=components[0];centre.y=components[1];centre.z=components[2];
     centre=M8FlowerSkinTransform(_MerkabaGridToWorld,centre);
-    float radius=M8FlowerGeometryLoopRadius[level*13u+lineClass];
+    float radius=M8FlowerGeometryLoopRadiusAt(level*13u+lineClass);
     M8FlowerInterval radiusBound=M8FlowerI(M8FlowerPrevious(radius),M8FlowerNext(radius));
     M8FlowerInterval3 axes[2];
     [loop]for(uint axis=0u;axis<2u;axis++)
-        axes[axis]=M8FlowerObservedLoopAxis(axis==0u?M8FlowerLineE1[lineClass]:
-            M8FlowerLineE2[lineClass],radiusBound,_MerkabaGridToWorld);
+        axes[axis]=M8FlowerObservedLoopAxis(axis==0u?M8FlowerLineE1At(lineClass):
+            M8FlowerLineE2At(lineClass),radiusBound,_MerkabaGridToWorld);
     world=M8FlowerSkinAdd(M8FlowerSkinAdd(centre,M8FlowerSkinScale(axes[0],root.Root.x)),
         M8FlowerSkinScale(axes[1],root.Root.y));
     return all(M8FlowerIsFinite(float4(world.x.lo,world.x.hi,world.y.lo,world.y.hi))) &&
@@ -116,12 +116,12 @@ bool M8FlowerSkinParentAddress(uint parentOrdinal,out uint depth,out uint c3,out
     if(parentOrdinal<8u)
     {
         depth=2u;
-        c3=M8FlowerSkinThreadToCanonical[57u*(parentOrdinal-1u)];
+        c3=M8FlowerSkinThreadToCanonicalAt(57u*(parentOrdinal-1u));
         return c3<7u;
     }
     depth=3u;
     uint j4=parentOrdinal-8u;
-    uint canonical=M8FlowerSkinThreadToCanonical[57u*(j4/7u)+1u+8u*(j4%7u)];
+    uint canonical=M8FlowerSkinThreadToCanonicalAt(57u*(j4/7u)+1u+8u*(j4%7u));
     if(canonical<7u || canonical>=56u)return false;
     c3=(canonical-7u)/7u;c4=(canonical-7u)%7u;
     return true;
@@ -160,7 +160,7 @@ bool M8FlowerSkinChildFootprints(M8FlowerPhaseRootEvidence roots[7],uint parentO
         p0[0]=sites[indices.x];p0[1]=sites[indices.y];p0[2]=sites[indices.z];
         [loop]for(uint order3=0u;order3<6u;order3++)
         {
-            int4 rule3=M8FlowerSkinChamber[6u*wedge+order3];
+            int4 rule3=M8FlowerSkinChamberAt(6u*wedge+order3);
             uint meta3=asuint(rule3.w),child3=meta3&255u;
             if(depth>1u && child3!=c3)continue;
             M8FlowerInterval3 p3[3];M8FlowerSkinChamberFootprint(p0,rule3.xyz,p3);
@@ -168,7 +168,7 @@ bool M8FlowerSkinChildFootprints(M8FlowerPhaseRootEvidence roots[7],uint parentO
             uint wedge3=(meta3>>8u)&255u;
             [loop]for(uint order4=0u;order4<6u;order4++)
             {
-                int4 rule4=M8FlowerSkinChamber[6u*wedge3+order4];
+                int4 rule4=M8FlowerSkinChamberAt(6u*wedge3+order4);
                 uint meta4=asuint(rule4.w),child4=meta4&255u;
                 if(depth>2u && child4!=c4)continue;
                 M8FlowerInterval3 p4[3];M8FlowerSkinChamberFootprint(p3,rule4.xyz,p4);
@@ -176,7 +176,7 @@ bool M8FlowerSkinChildFootprints(M8FlowerPhaseRootEvidence roots[7],uint parentO
                 uint wedge4=(meta4>>8u)&255u;
                 [loop]for(uint order5=0u;order5<6u;order5++)
                 {
-                    int4 rule5=M8FlowerSkinChamber[6u*wedge4+order5];
+                    int4 rule5=M8FlowerSkinChamberAt(6u*wedge4+order5);
                     M8FlowerInterval3 p5[3];M8FlowerSkinChamberFootprint(p4,rule5.xyz,p5);
                     M8FlowerSkinAddChildFootprint(asuint(rule5.w)&255u,p5,footprints,covered);
                 }
@@ -580,7 +580,7 @@ bool M8FlowerSkinMetricChamber(M8FlowerInterval3 sites[7],uint depth,uint c3,uin
         uint order=remainder/chambersPerWedge;
         remainder%=chambersPerWedge;
         rules[level]=6u*wedge+order;
-        int4 rule=M8FlowerSkinChamber[rules[level]];
+        int4 rule=M8FlowerSkinChamberAt(rules[level]);
         child=asuint(rule.w)&255u;
         if((level==0u && depth>1u && child!=c3) ||
             (level==1u && depth>2u && child!=c4))return false;
@@ -601,7 +601,7 @@ bool M8FlowerSkinMetricTerms(M8FlowerInterval3 local,M8FlowerInterval3 chart[3],
     M8FlowerInterval3 parent=M8FlowerSkinTriangleAt(chart,local);
     [loop]for(uint level=0u;level+1u<depth;level++)
     {
-        parent=M8FlowerSkinIntervalChamber(parent,M8FlowerSkinChamber[rules[level]].xyz);
+        parent=M8FlowerSkinIntervalChamber(parent,M8FlowerSkinChamberAt(rules[level]).xyz);
         if(!M8FlowerSkinClipMetricCoordinates(parent))return false;
         M8FlowerInterval amplitude;
         if(level==0u)amplitude=amplitude3;else amplitude=amplitude4;
@@ -934,8 +934,8 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
     M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4);
     [loop]for(uint child=0u;child<7u;child++)
     {
-        uint rank=depth==1u?M8FlowerSkinL3ChildRank[child]:depth==2u?
-            M8FlowerSkinL4ChildRank[7u*c3+child]:M8FlowerSkinL5ChildRank[49u*c3+7u*c4+child];
+        uint rank=depth==1u?M8FlowerSkinL3ChildRankAt(child):depth==2u?
+            M8FlowerSkinL4ChildRankAt(7u*c3+child):M8FlowerSkinL5ChildRankAt(49u*c3+7u*c4+child);
         thread[rank]=canonical[child];
     }
     if(replacing)
@@ -1004,8 +1004,8 @@ uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint
     M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4);
     [loop]for(uint child=0u;child<7u;child++)
     {
-        uint rank=depth==1u?M8FlowerSkinL3ChildRank[child]:depth==2u?
-            M8FlowerSkinL4ChildRank[7u*c3+child]:M8FlowerSkinL5ChildRank[49u*c3+7u*c4+child];
+        uint rank=depth==1u?M8FlowerSkinL3ChildRankAt(child):depth==2u?
+            M8FlowerSkinL4ChildRankAt(7u*c3+child):M8FlowerSkinL5ChildRankAt(49u*c3+7u*c4+child);
         thread[rank]=canonical[child];
     }
     if(replacing)
@@ -1052,13 +1052,13 @@ bool M8FlowerSkinParentTouchesWedges(uint parentOrdinal,uint wedgeMask)
         if((wedgeMask&(1u<<wedge))==0u)continue;
         [loop]for(uint order3=0u;order3<6u;order3++)
         {
-            uint rule3=asuint(M8FlowerSkinChamber[6u*wedge+order3].w);
+            uint rule3=asuint(M8FlowerSkinChamberAt(6u*wedge+order3).w);
             if((rule3&255u)!=c3)continue;
             if(depth==2u)return true;
             uint wedge3=(rule3>>8u)&255u;
             [loop]for(uint order4=0u;order4<6u;order4++)
             {
-                uint rule4=asuint(M8FlowerSkinChamber[6u*wedge3+order4].w);
+                uint rule4=asuint(M8FlowerSkinChamberAt(6u*wedge3+order4).w);
                 if((rule4&255u)==c4)return true;
             }
         }
@@ -1101,9 +1101,9 @@ uint M8FlowerDrainSkinCarrier(uint slot,uint local,uint slotGeneration,uint flow
     {
         uint parentOrdinal=0u;
         if(canonicalCursor>0u && canonicalCursor<8u)
-            parentOrdinal=1u+M8FlowerSkinL3ChildRank[canonicalCursor-1u];
+            parentOrdinal=1u+M8FlowerSkinL3ChildRankAt(canonicalCursor-1u);
         else if(canonicalCursor>=8u)
-            parentOrdinal=8u+M8FlowerSkinL4ParentThread[canonicalCursor-8u];
+            parentOrdinal=8u+M8FlowerSkinL4ParentThreadAt(canonicalCursor-8u);
         uint rgbClassification=M8_FLOWER_SKIN_AMBIGUOUS,metricClassification=M8_FLOWER_SKIN_AMBIGUOUS;
         if(!M8FlowerSkinParentTouchesWedges(parentOrdinal,unresolvedWedgeMask))
         {

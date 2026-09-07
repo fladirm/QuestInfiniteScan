@@ -14,7 +14,7 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 11;
+        internal const int AbiVersion = 15;
         internal const int ResourceCount = 43;
         internal const int PipelineCount = 25;
         // A native observation also dispatches publication Reserve once and
@@ -120,7 +120,6 @@ namespace Genesis.RoomScan
             "StereoFlowerRefine",
             "BuildDepthCertificate",
             "ReduceDepthCertificate",
-            "ResetObservationCounters",
             "ResetObservationBins",
             "CountObservationBins",
             "ResolveMissingSpatialNodes",
@@ -132,9 +131,10 @@ namespace Genesis.RoomScan
             "FlowerCommit",
             "DrainObservationRefinement",
             "FinalizeObservation",
-            "RetireObservationBins",
             "ClassifyHotFlowerPages",
+            "PrepareDirtyFlowerBatch",
             "CompactDirtyFlowerSymbols",
+            "ReserveDirtyFlowerBatch",
             "PublishDirtyFlowerPages",
             "CullFlowerPages",
             "ResetFineErase",

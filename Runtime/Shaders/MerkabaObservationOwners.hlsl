@@ -131,7 +131,10 @@ void M8FlowerCountObservationOwners(int3 firstOwner)
         if ((ready & (1u << owner)) != 0u)
             M8FlowerCountObservationOwner(slots[owner]);
     if (ready != 0xffu)
+    {
         M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
+        InterlockedOr(_M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS], 1u);
+    }
 }
 
 void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,

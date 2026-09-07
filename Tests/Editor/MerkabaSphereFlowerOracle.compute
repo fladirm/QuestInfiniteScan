@@ -31,47 +31,47 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
 
     if (operation == 0)
     {
-        int3 d = M8FlowerLineDirection[index];
-        uint3 meta = M8FlowerLineMeta[index];
+        int3 d = M8FlowerLineDirectionAt(index);
+        uint3 meta = M8FlowerLineMetaAt(index);
         result.Control = int4(d, (int)meta.x);
-        result.A = float4(M8FlowerLineUnit[index], (float)meta.y);
-        result.B = float4(M8FlowerLineE1[index], (float)meta.z);
-        result.C = float4(M8FlowerLineE2[index], 0.0);
+        result.A = float4(M8FlowerLineUnitAt(index), (float)meta.y);
+        result.B = float4(M8FlowerLineE1At(index), (float)meta.z);
+        result.C = float4(M8FlowerLineE2At(index), 0.0);
     }
     else if (operation == 1)
     {
-        result.Control = M8FlowerDirection[index];
-        result.A.xy = (float2)M8FlowerDirectionMeta[index];
+        result.Control = M8FlowerDirectionAt(index);
+        result.A.xy = (float2)M8FlowerDirectionMetaAt(index);
     }
     else if (operation == 2)
     {
-        result.Control = M8FlowerNode[index];
+        result.Control = M8FlowerNodeAt(index);
     }
     else if (operation == 3)
     {
-        result.Control = (int4)M8FlowerStrand[index];
+        result.Control = (int4)M8FlowerStrandAt(index);
     }
     else if (operation == 4)
     {
-        result.Control = (int4)M8FlowerPetalNodes[index];
-        result.A.xyz = (float3)M8FlowerPetalStrands[index];
-        result.B.xyz = (float3)M8FlowerPetalStrandSign[index];
+        result.Control = (int4)M8FlowerPetalNodesAt(index);
+        result.A.xyz = (float3)M8FlowerPetalStrandsAt(index);
+        result.B.xyz = (float3)M8FlowerPetalStrandSignAt(index);
     }
     else if (operation == 5)
     {
-        result.Control.xyz = (int3)M8FlowerChildPetal[index];
+        result.Control.xyz = (int3)M8FlowerChildPetalAt(index);
     }
     else if (operation == 6)
     {
         float4 bounds = M8FlowerSectorBoundsAt(index);
-        result.A = float4(M8FlowerSectorUnit[index], bounds.xy);
+        result.A = float4(M8FlowerSectorUnitAt(index), bounds.xy);
         result.B.xy = bounds.zw;
     }
     else if (operation == 7)
     {
-        result.Control = M8FlowerTetraLine[index];
-        result.A = (float4)M8FlowerTetraEta[index];
-        result.B.x = (float)M8FlowerTetraChirality[index];
+        result.Control = M8FlowerTetraLineAt(index);
+        result.A = (float4)M8FlowerTetraEtaAt(index);
+        result.B.x = (float)M8FlowerTetraChiralityAt(index);
     }
     else if (operation == 8)
     {
@@ -114,7 +114,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     }
     else if (operation == 12)
     {
-        int4 rule = M8FlowerSkinChamber[index];
+        int4 rule = M8FlowerSkinChamberAt(index);
         uint packed = asuint(rule.w);
         result.Control = int4(rule.xyz, (int)(packed & 0xffu));
         result.A.xyz = float3((packed >> 8) & 0xffu,
@@ -123,8 +123,8 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     }
     else if (operation == 13)
     {
-        result.Control.xy = int2(M8FlowerSkinCanonicalToThread[index],
-            M8FlowerSkinThreadToCanonical[index]);
+        result.Control.xy = int2(M8FlowerSkinCanonicalToThreadAt(index),
+            M8FlowerSkinThreadToCanonicalAt(index));
     }
     else if (operation == 14)
     {
@@ -140,18 +140,18 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     }
     else if (operation == 16)
     {
-        result.Control.xy = int2(M8FlowerSkinCanonicalL5ToThread[index],
-            M8FlowerSkinL5ChildRank[index]);
+        result.Control.xy = int2(M8FlowerSkinCanonicalL5ToThreadAt(index),
+            M8FlowerSkinL5ChildRankAt(index));
     }
     else if (operation == 17)
     {
-        result.Control.xy = int2(M8FlowerSkinL3ChildRank[index],
-            M8FlowerSkinL3State[index]);
+        result.Control.xy = int2(M8FlowerSkinL3ChildRankAt(index),
+            M8FlowerSkinL3StateAt(index));
     }
     else if (operation == 18)
     {
-        result.Control.xyz = int3(M8FlowerSkinL4ParentThread[index],
-            M8FlowerSkinL4ChildRank[index], M8FlowerSkinL4State[index]);
+        result.Control.xyz = int3(M8FlowerSkinL4ParentThreadAt(index),
+            M8FlowerSkinL4ChildRankAt(index), M8FlowerSkinL4StateAt(index));
     }
     else if (operation == 19)
     {
@@ -237,7 +237,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
         root.y=M8FlowerI(input.A.z,input.A.w);
         bool certain=false;
         if(index<6u)
-            certain=M8FlowerRootSector((uint)M8FlowerNode[index].w,root,sector);
+            certain=M8FlowerRootSector((uint)M8FlowerNodeAt(index).w,root,sector);
         bool admitted=false;
         if(certain)admitted=M8FlowerR1SectorFlag(index,sector,rootPetal);
         result.Control=int4(tableValid?(int)tablePetal:-1,certain?(int)sector:-1,
@@ -271,13 +271,13 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
         float3 normal;float offset;
         M8FlowerUnpackPlane((uint)input.Control.w,normal,offset);
         precise float3 relative=(0.5*M8FlowerLevelStep(0u))*float3(asint(input.A.xyz));
-        float radius=M8FlowerGeometryLoopRadius[lineClass];
+        float radius=M8FlowerGeometryLoopRadiusAt(lineClass);
         if(index==0u)
         {
-            result.Control=asint(float4(M8FlowerLineE2[lineClass],0.0));
+            result.Control=asint(float4(M8FlowerLineE2At(lineClass),0.0));
             result.A=float4(normal,offset);
             result.B=float4(relative,radius);
-            result.C=float4(M8FlowerLineE1[lineClass],0.0);
+            result.C=float4(M8FlowerLineE1At(lineClass),0.0);
         }
         else
         {
@@ -303,7 +303,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
         bool referenceValid=M8FlowerAnchorRootReferences(index,tag,references);
         M8FlowerPhaseRootEvidence root=(M8FlowerPhaseRootEvidence)0;
         root.Classification=1u;root.Tag=tag;
-        root.Junction=int3(-514,-66,-18)+M8FlowerNode[index].xyz;
+        root.Junction=int3(-514,-66,-18)+M8FlowerNodeAt(index).xyz;
         root.Root.x=M8FlowerI(input.A.x,input.A.y);
         root.Root.y=M8FlowerI(input.A.z,input.A.w);
         uint sector;
@@ -315,7 +315,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     }
     else if(operation==30)
     {
-        uint4 ancestry=M8FlowerL2CarrierBranchMasks[index];
+        uint4 ancestry=M8FlowerL2CarrierBranchMasksAt(index);
         uint pattern=(uint)input.Control.z;
         uint eligible=(ancestry[pattern>>5u]>>(pattern&31u))&1u;
         result.Control=int4((int)index,(int)pattern,(int)eligible,0);
@@ -330,7 +330,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
         uncertain[0]=b.z;uncertain[1]=b.w;uncertain[2]=c.x;
         uncertain[3]=c.y;uncertain[4]=c.z;uncertain[5]=c.w;
         uint signs,active,unresolved;
-        uint4 ancestry=M8FlowerL2CarrierBranchMasks[index];
+        uint4 ancestry=M8FlowerL2CarrierBranchMasksAt(index);
         uint status=M8FlowerCombineCarrierCandidates(certain,uncertain,ancestry,signs,active,unresolved);
         result.Control=int4((int)status,(int)signs,(int)active,(int)unresolved);
         result.A=asfloat(ancestry);

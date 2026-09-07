@@ -4,7 +4,6 @@
 #pragma kernel ResolveMissingSpatialNodes
 #pragma kernel ResolveObservationTileRequests
 #pragma kernel ResetObservationBins
-#pragma kernel RetireObservationBins
 #pragma use_dxc vulkan
 
 #include "MerkabaObservationOwners.hlsl"
@@ -281,9 +280,9 @@ void ResolveObservationTileRequests(uint lane : SV_GroupIndex)
         _M8Counters[M8_COUNTER_FREE_TILE_COUNT] = reservationBase;
         _M8Counters[M8_COUNTER_NEW_TILE_RESERVATION_BASE] = reservationBase;
         _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT] = 0u;
-        _M8ObservationDispatchArgs[0] = installCount;
-        _M8ObservationDispatchArgs[1] = 1u;
-        _M8ObservationDispatchArgs[2] = 1u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS] = installCount;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS+1u] = 1u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS+2u] = 1u;
         if (installCount < m8ObservationInstallCount)
             _M8Counters[M8_COUNTER_TILE_STARVATION] = 1u;
         if (installCount < m8ObservationInstallCount ||
@@ -405,17 +404,46 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
         _M8ObservationDispatchArgs[0] = m8ObservationCanReserve != 0u ? touched : 0u;
         _M8ObservationDispatchArgs[1] = 1u;
         _M8ObservationDispatchArgs[2] = 1u;
+        if (!publicationOnly)
+        {
+            // Count's allocation phase has retired. The dual may append a
+            // new address-only workset; the publication-only reserve MUST
+            // preserve that gate until the following allocation phase.
+            _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS] = 0u;
+            _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS] = 0u;
+        }
         _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION] = 0u;
     }
 }
 
 // Storage lifetime barrier, also used before an allocation retry of the SAME
 // immutable observation. The serialized queue must retire all readers first.
-// It does not release the observation, change its generation, clear failure
-// diagnostics, or mutate M8. Fatal failures remain visible to the caller.
+// A new token starts its transient counters here; retries preserve failures
+// and ancestor stage. No allocator/residency state or M8 is reset.
+groupshared uint m8ObservationBegins;
 [numthreads(256, 1, 1)]
 void ResetObservationBins(uint lane : SV_GroupIndex)
 {
+    if(lane==0u)
+    {
+        m8ObservationBegins=_M8Counters[M8_COUNTER_OBSERVATION_TOKEN]!=_M8ObservationToken?1u:0u;
+        _M8Counters[M8_COUNTER_OBSERVATION_TOKEN]=_M8ObservationToken;
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if(m8ObservationBegins!=0u)
+    {
+        // The dense ABI's disjoint transient ranges. No whole CounterCount
+        // clear: occupancy, free lists and durable residency counters survive.
+        bool zero=(lane>=M8_COUNTER_UNRESOLVED_SURFACE_TILES && lane<=M8_COUNTER_SCAN_COLD_MISSES) ||
+            (lane>=M8_COUNTER_NEW_BLOCK_QUEUE_COUNT && lane<=M8_COUNTER_PENDING_NEW_TILE_COUNT) ||
+            (lane>=M8_COUNTER_FINE_ERASE_TILE_COUNT && lane<=M8_COUNTER_OBSERVATION_COMPLETED) ||
+            lane==M8_COUNTER_DUAL_QUERY_BLOCKS || lane==M8_COUNTER_OBSERVATION_FAILURE ||
+            (lane>=M8_COUNTER_THROUGH_EVIDENCE_DECREMENTS && lane<=M8_COUNTER_UNRESOLVED_OBSERVATION_TILES) ||
+            (lane>=M8_COUNTER_CLEANUP_TOUCHED_COUNT && lane<=M8_COUNTER_CLEANUP_PENDING_COUNT) ||
+            (lane>=M8_COUNTER_DUAL_STORAGE_INTENT_COUNT && lane<=M8_COUNTER_REFINEMENT_STAGE);
+        if(zero)_M8Counters[lane]=0u;
+    }
+    DeviceMemoryBarrierWithGroupSync();
     uint count = min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     for (uint index = lane; index < count; index += 256u)
@@ -448,7 +476,7 @@ void ResetObservationBins(uint lane : SV_GroupIndex)
         // changes made by this quantum should invalidate derived consumers.
         _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] = 0u;
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] = 0u;
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
+        _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] = 0u;
         _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE] = 0u;
         _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES] = 0u;
         _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS] = 0u;
@@ -458,41 +486,11 @@ void ResetObservationBins(uint lane : SV_GroupIndex)
         _M8ObservationDispatchArgs[0] = 0u;
         _M8ObservationDispatchArgs[1] = 1u;
         _M8ObservationDispatchArgs[2] = 1u;
-    }
-}
-
-// Retire only after FinalizeObservation and the last consumer on this queue.
-// A retry retains its immutable evidence and cannot release it on a timer.
-[numthreads(256,1,1)]
-void RetireObservationBins(uint lane : SV_GroupIndex)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u) return;
-    uint touched = min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    for (uint i = lane; i < touched*16u; i += 256u)
-    {
-        uint slot = _M8TouchedTileQueue[i >> 4u];
-        if (slot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) continue;
-        _M8TileBits[M8TileWordIndex(slot,i & 15u)].z = 0u;
-        if ((i & 15u) == 0u)
-        {
-            _M8ObservationTileBins[slot] = 0u.xxxx;
-            _M8TileRecords[M8TileRuntimeIndex(slot)].x = 0u;
-        }
-    }
-    uint pending = min(_M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    for (uint i = lane; i < pending; i += 256u)
-    {
-        uint refIndex = _M8PendingNewTileRefs[i];
-        uint previous;
-        InterlockedCompareExchange(_M8ChunkTileRefs[refIndex],
-            MERKABA_REF_CLAIMED_NEW,MERKABA_REF_EMPTY,previous);
-    }
-    DeviceMemoryBarrierWithGroupSync();
-    if (lane == 0u)
-    {
-        _M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT] = 0u;
-        _M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT] = 0u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS] = 0u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS+1u] = 1u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS+2u] = 1u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS] = 0u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS+1u] = 1u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS+2u] = 1u;
     }
 }

@@ -9,7 +9,6 @@
 #pragma kernel PublishNewBlocks
 #pragma kernel PublishNewChunks
 #pragma kernel InitializeNewTiles
-#pragma kernel ResetObservationCounters
 #pragma kernel ResetClaimQueueCounts
 #pragma kernel PrepareNewTileDispatchArgs
 #pragma kernel PrepareEvictionSelection
@@ -50,7 +49,6 @@ uint _M8LinearGroupsX;
 uint _M8StreamBatchCount;
 uint _M8EvictAllDirty;
 uint _M8SafeEpoch;
-uint _M8ObservationToken;
 uint _M8DualPublishingGeneration;
 uint _M8DualRetiredGeneration;
 uint _M8DualDurableGeneration;
@@ -473,71 +471,6 @@ void PrepareNewTileDispatchArgs(uint id : SV_DispatchThreadID)
         _M8Counters[M8_COUNTER_TILE_STARVATION] = 1u;
     if (reservationCount < pendingClaims || reservationBase < 256u)
         _M8Counters[M8_COUNTER_EVICTION_NEEDED] = 1u;
-}
-
-[numthreads(1, 1, 1)]
-void ResetObservationCounters(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_TOKEN] != _M8ObservationToken)
-        _M8Counters[M8_COUNTER_REFINEMENT_STAGE] = 0u;
-    _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES] = 0u;
-    _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS] = 0u;
-    _M8Counters[M8_COUNTER_REFINEMENT_BACKPRESSURE] = 0u;
-    _M8Counters[M8_COUNTER_REFINEMENT_UNRESOLVED] = 0u;
-    _M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION] = 0u;
-    _M8Counters[M8_COUNTER_VALID_SURFACE_CANDIDATES] = 0u;
-    _M8Counters[M8_COUNTER_UNIQUE_SURFACE_KERNELS] = 0u;
-    _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] = 0u;
-    _M8Counters[M8_COUNTER_SURFACE_TILES_ALLOCATED] = 0u;
-    _M8Counters[M8_COUNTER_SCAN_COLD_MISSES] = 0u;
-    _M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_QUERY_TILES] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_ACTIVE_KERNELS] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_QUERY_BLOCKS] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_CLASSIFIED_UNKNOWN] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_EVIDENCE_DECREMENTS] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_OCCUPIED_TO_FREE] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_BITS_RETIRED] = 0u;
-    _M8Counters[M8_COUNTER_COLD_CARVE_TILES_REQUESTED] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_CHEAP_INVALID_PROJECTION_DEPTH] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_CHEAP_NOT_IN_FRONT] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_CHEAP_OUTSIDE_RAY_TUBE] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_CHEAP_OUTSIDE_OUTER_ATTENTION] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_CHEAP_SURFACE_ENDPOINT] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_EXACT_EVALUATIONS] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_EXACT_INCIDENCE_REJECT] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_EXACT_CERTIFICATE_REJECT] = 0u;
-    _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] = 0u;
-    _M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
-    _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 0u;
-    _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = 0u;
-    _M8Counters[M8_COUNTER_OBSERVATION_TOKEN] = _M8ObservationToken;
-    _M8Counters[M8_COUNTER_CLEANUP_TOUCHED_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_0] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_1] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_2] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_3] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_4] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_5] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_6] = 0u;
-    _M8Counters[M8_COUNTER_CARVE_FREE_RADIAL_7] = 0u;
-    _M8Counters[M8_COUNTER_JOINT_ACCEPTED_CENTER] = 0u;
-    _M8Counters[M8_COUNTER_JOINT_ACCEPTED_MID] = 0u;
-    _M8Counters[M8_COUNTER_JOINT_ACCEPTED_EDGE] = 0u;
-    _M8Counters[M8_COUNTER_AUTHORITY_DISCOVERY] = 0u;
-    _M8Counters[M8_COUNTER_AUTHORITY_SUPPORT] = 0u;
-    _M8Counters[M8_COUNTER_AUTHORITY_REVISION] = 0u;
-    _M8Counters[M8_COUNTER_OFF_AXIS_MUTATION_BLOCKED] = 0u;
-    _M8Counters[M8_COUNTER_SURFACE_REPLACEMENT] = 0u;
-    _M8Counters[M8_COUNTER_SAME_OBSERVATION_CONFLICT] = 0u;
 }
 
 [numthreads(1, 1, 1)]

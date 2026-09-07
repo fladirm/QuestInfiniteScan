@@ -235,7 +235,7 @@ void M8DualObservationPending(uint status)
         M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
     else
     {
-        M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+        M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
         if (status == M8_DUAL_WRITE_RETRY)
             _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
     }
@@ -255,12 +255,13 @@ void M8DualRequestStorage(uint blockOrdinal, uint kind, uint child, uint tile)
         if (previous != count) continue;
         _M8ClaimQueue[MERKABA_M8_CLAIM_BLOCK_OFFSET+count]=
             uint2(blockOrdinal,(kind << 15u) | (tile << 9u) | child);
+        InterlockedOr(_M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS],1u);
         return;
     }
     // A full bounded prefix drains normally. The same held observation
     // retries the unrecorded address; overflow never fabricates free space.
     _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
-    M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+    M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
 }
 
 void M8DualRequestStorage(uint kind, uint child, uint tile)
@@ -492,7 +493,7 @@ void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                 if (M8FindBlock(coordinate,block))
                 {
                     gScanBlockRef=block+1u;
-                    M8CounterIncrement(M8_COUNTER_CARVE_QUERY_BLOCKS);
+                    M8CounterIncrement(M8_COUNTER_DUAL_QUERY_BLOCKS);
                 }
                 else
                 {
@@ -595,7 +596,7 @@ void M8FinalizeObservationCompletion()
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
         if(failure==0u && pendingRefinement==0u &&
             _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES]==0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES]==0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]==0u &&
             _M8Counters[M8_COUNTER_REFINEMENT_STAGE]<3u)
         {
             // This dispatch barrier publishes every endpoint's completed
@@ -613,7 +614,7 @@ void M8FinalizeObservationCompletion()
         }
         else if (failure == 0u && pendingRefinement == 0u &&
             _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u)
+            _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u)
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
     }
     uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
@@ -667,26 +668,30 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
             MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     }
     GroupMemoryBarrierWithGroupSync();
-    if (gFlowerFinalizeSourceReady == 0u) return;
-    [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
-        M8FlowerMarkTileNeighborhoodDirty(_M8TouchedTileQueueRead[index],
-            _M8DualPublishingGeneration);
-    [loop] for (uint pending = lane; pending < gFlowerFinalizeNewTileCount; pending += 128u)
+    if (gFlowerFinalizeSourceReady != 0u)
     {
-        uint referenceIndex = _M8PendingNewTileRefsRead[pending];
-        if (referenceIndex >= MERKABA_M8_CHUNK_CAPACITY * MERKABA_M8_TILES_PER_CHUNK) continue;
-        uint reference = _M8ChunkTileRefsRead[referenceIndex];
-        if (M8IsHotRef(reference))
-            M8FlowerMarkTileNeighborhoodDirty(M8PhysicalSlot(reference),
+        [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
+            M8FlowerMarkTileNeighborhoodDirty(_M8TouchedTileQueueRead[index],
                 _M8DualPublishingGeneration);
+        [loop] for (uint pending = lane; pending < gFlowerFinalizeNewTileCount; pending += 128u)
+        {
+            uint referenceIndex = _M8PendingNewTileRefsRead[pending];
+            if (referenceIndex >= MERKABA_M8_CHUNK_CAPACITY * MERKABA_M8_TILES_PER_CHUNK) continue;
+            uint reference = _M8ChunkTileRefsRead[referenceIndex];
+            if (M8IsHotRef(reference))
+                M8FlowerMarkTileNeighborhoodDirty(M8PhysicalSlot(reference),
+                    _M8DualPublishingGeneration);
+        }
     }
+    DeviceMemoryBarrierWithGroupSync();
+    M8FlowerRetireObservation(lane,128u);
 }
 
 [numthreads(1, 1, 1)]
 void ResetFineErase(uint id : SV_DispatchThreadID)
 {
-    _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
+    _M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT] = 0u;
+    _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] = 0u;
     _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] = 0u;
     _M8ObservationDispatchArgs[0] = 0u;
     _M8ObservationDispatchArgs[1] = 1u;
@@ -780,7 +785,7 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
         if (chunkRef == MERKABA_REF_EMPTY) continue;
         if (chunkRef >= MERKABA_REF_EVICTING)
         {
-            M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
             continue;
         }
         uint chunkIndex = chunkRef - 1u;
@@ -809,17 +814,17 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
                     RequestColdTile(tileRefIndex, chunkIndex, tileLocal,
                         false);
                     M8CounterIncrement(
-                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
+                        M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
                     continue;
                 }
                 if (!M8IsHotRef(tileRef))
                 {
                     M8CounterIncrement(
-                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
+                        M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
                     continue;
                 }
                 uint queueIndex;
-                InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+                InterlockedAdd(_M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT],
                     1u, queueIndex);
                 if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
                     _M8TouchedTileQueue[queueIndex] = M8PhysicalSlot(tileRef);
@@ -832,8 +837,8 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
 void PrepareFineEraseArgs(uint id : SV_DispatchThreadID)
 {
     _M8ObservationDispatchArgs[0] =
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u
-        ? min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+        _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u
+        ? min(_M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         : 0u;
     _M8ObservationDispatchArgs[1] = 1u;
@@ -931,7 +936,7 @@ void FinalizeFineErase(uint lane : SV_GroupIndex)
         gFlowerFinalizeSourceReady = M8FlowerPageSourceReady(_M8DualPublishingGeneration) ? 1u : 0u;
         gFineEraseEpochProgress = 0u;
         gFlowerFinalizeTouchedCount = gFlowerFinalizeSourceReady != 0u ?
-            min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT], MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+            min(_M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT], MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
     }
     GroupMemoryBarrierWithGroupSync();
     [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
@@ -939,7 +944,7 @@ void FinalizeFineErase(uint lane : SV_GroupIndex)
         uint slot = _M8TouchedTileQueueRead[index];
         if (slot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         {
-            M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
             continue;
         }
         uint slotGeneration = M8LoadTileRuntimeRead(slot).w;
@@ -948,7 +953,7 @@ void FinalizeFineErase(uint lane : SV_GroupIndex)
             meta.y >= MERKABA_M8_TILES_PER_CHUNK ||
             _M8ChunkTileRefsRead[meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y] != slot + 1u)
         {
-            M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
             continue;
         }
         bool unresolved = false;
@@ -972,7 +977,7 @@ void FinalizeFineErase(uint lane : SV_GroupIndex)
                 else unresolved = true; // Preserve the exact pending bit for this frozen ERASE retry.
             }
         }
-        if (unresolved) M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+        if (unresolved) M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
         // Even a pending epoch must invalidate presentation of the already
         // erased parent. Neither storage nor page synthesis may bypass .w.
         M8FlowerMarkTileNeighborhoodDirty(slot, _M8DualPublishingGeneration);
@@ -981,7 +986,7 @@ void FinalizeFineErase(uint lane : SV_GroupIndex)
     if (lane == 0u)
     {
         uint completed = gFlowerFinalizeSourceReady != 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u ? 1u : 0u;
+            _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u ? 1u : 0u;
         uint status = gFlowerFinalizeSourceReady != 0u ? 0u : M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY;
         if (_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u || gFineEraseEpochProgress != 0u)
             status |= M8_ATTEMPT_COMPLETION_READOUT_CHANGED;

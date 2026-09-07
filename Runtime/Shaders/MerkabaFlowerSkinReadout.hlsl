@@ -171,17 +171,17 @@ uint M8FlowerSkinDrawIndex(M8FlowerSkinDrawHeader header, uint3 child)
     M8FlowerUnpackSkinSplitBits(header.SplitBitsLo, header.SplitBitsHi,
         root, l3, l4);
     if (root == 0u) return header.FirstSample;
-    uint j3 = M8FlowerSkinL3ChildRank[child.x];
+    uint j3 = M8FlowerSkinL3ChildRankAt(child.x);
     if ((l3 & (1u << j3)) == 0u) return header.FirstSample + 1u + j3;
     uint canonicalParent = 7u * child.x + child.y;
-    uint r4 = M8FlowerSkinL4ChildRank[canonicalParent];
-    uint j4 = M8FlowerSkinL4ParentThread[canonicalParent];
+    uint r4 = M8FlowerSkinL4ChildRankAt(canonicalParent);
+    uint j4 = M8FlowerSkinL4ParentThreadAt(canonicalParent);
     uint word = j4 < 32u ? l4.x : l4.y;
     if ((word & (1u << (j4 & 31u))) == 0u)
         return header.FirstSample + 8u + 7u * M8FlowerRank7(l3, j3) + r4;
     uint terminal = 49u * child.x + 7u * child.y + child.z;
     return header.FirstSample + 8u + 7u * countbits(l3) +
-        7u * M8FlowerRank49(l4, j4) + M8FlowerSkinL5ChildRank[terminal];
+        7u * M8FlowerRank49(l4, j4) + M8FlowerSkinL5ChildRankAt(terminal);
 }
 
 // Used during dirty-page compaction only. regionLevel is the scan-authored
@@ -293,19 +293,19 @@ uint3 M8FlowerSkinGroupChild(uint regionLevel, uint parentThread,
 {
     if (regionLevel == 3u)
     {
-        uint c3 = M8FlowerSkinThreadToCanonical[57u * childThreadRank];
+        uint c3 = M8FlowerSkinThreadToCanonicalAt(57u * childThreadRank);
         return uint3(c3, 0u, 0u);
     }
     if (regionLevel == 4u)
     {
-        uint canonical = M8FlowerSkinThreadToCanonical[
-            57u * parentThread + 1u + 8u * childThreadRank] - 7u;
+        uint canonical = M8FlowerSkinThreadToCanonicalAt(
+            57u * parentThread + 1u + 8u * childThreadRank) - 7u;
         return uint3(canonical / 7u, canonical % 7u, 0u);
     }
     uint j3 = parentThread / 7u;
     uint r4 = parentThread % 7u;
-    uint canonical = M8FlowerSkinThreadToCanonical[
-        57u * j3 + 2u + 8u * r4 + childThreadRank] - 56u;
+    uint canonical = M8FlowerSkinThreadToCanonicalAt(
+        57u * j3 + 2u + 8u * r4 + childThreadRank) - 56u;
     return uint3(canonical / 49u, (canonical / 7u) % 7u, canonical % 7u);
 }
 

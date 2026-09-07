@@ -11,11 +11,14 @@ namespace Genesis.RoomScan
     /// </summary>
     internal sealed class MerkabaObservationBinsGpu : IDisposable
     {
+        internal const int DispatchArgumentWords = 16;
+        internal const uint AllocationDispatchOffset = 16;
+        internal const uint InstallDispatchOffset = 32;
         private readonly ComputeShader _shader;
         private readonly MerkabaGrid _grid;
         private readonly ComputeBuffer _records;
         private readonly ComputeBuffer _tileBins;
-        private readonly int _count, _reserve, _emit, _resolveNodes, _resolveTiles, _installTiles, _reset, _retire;
+        private readonly int _count, _reserve, _emit, _resolveNodes, _resolveTiles, _installTiles, _reset;
         private readonly int[] _size = new int[2];
         private readonly int[] _dualCenterBlock = new int[3];
         private readonly Matrix4x4[] _projectionInverse = new Matrix4x4[2];
@@ -55,7 +58,6 @@ namespace Genesis.RoomScan
             _resolveTiles = shader.FindKernel("ResolveObservationTileRequests");
             _installTiles = grid.WorldCompute.FindKernel("InitializeNewTiles");
             _reset = shader.FindKernel("ResetObservationBins");
-            _retire = shader.FindKernel("RetireObservationBins");
             MerkabaGrid.ValidateGpuBufferAllocation(MerkabaSpatial.PhysicalTileCapacity, 16);
             _tileBins = new ComputeBuffer(MerkabaSpatial.PhysicalTileCapacity, 16);
             try
@@ -143,6 +145,7 @@ namespace Genesis.RoomScan
             Bind(command, _count, "_M8ClaimQueue", _grid.M8ClaimQueue);
             Bind(command, _count, "_M8BlockChunkRefs", _grid.M8BlockChunkRefs);
             Bind(command, _count, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);
+            Bind(command, _count, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
             command.DispatchCompute(_shader, _count, (_size[0] + 7) / 8, (_size[1] + 7) / 8, 1);
             _countRecorded = true;
         }
@@ -160,7 +163,8 @@ namespace Genesis.RoomScan
             Bind(command, _resolveNodes, "_M8BlockPresenceL0", _grid.M8BlockPresenceL0);
             Bind(command, _resolveNodes, "_M8BlockPresenceL1", _grid.M8BlockPresenceL1);
             Bind(command, _resolveNodes, "_M8BlockPresenceL2", _grid.M8BlockPresenceL2);
-            command.DispatchCompute(_shader, _resolveNodes, 1, 1, 1);
+            command.DispatchCompute(_shader, _resolveNodes,
+                _grid.M8ObservationDispatchArgs, AllocationDispatchOffset);
             Bind(command, _resolveTiles, "_M8Counters", _grid.M8Counters);
             Bind(command, _resolveTiles, "_M8ClaimQueue", _grid.M8ClaimQueue);
             Bind(command, _resolveTiles, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);
@@ -170,7 +174,8 @@ namespace Genesis.RoomScan
             Bind(command, _resolveTiles, "_M8LoadRequests", _grid.M8LoadRequests);
             Bind(command, _resolveTiles, "_M8LoadRequestReadCount", _grid.M8LoadRequestReadCount);
             Bind(command, _resolveTiles, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
-            command.DispatchCompute(_shader, _resolveTiles, 1, 1, 1);
+            command.DispatchCompute(_shader, _resolveTiles,
+                _grid.M8ObservationDispatchArgs, AllocationDispatchOffset);
             ComputeShader world = _grid.WorldCompute;
             command.SetComputeBufferParam(world, _installTiles, "_M8ClaimQueueRead", _grid.M8ClaimQueue);
             command.SetComputeBufferParam(world, _installTiles, "_M8Counters", _grid.M8Counters);
@@ -182,7 +187,8 @@ namespace Genesis.RoomScan
             command.SetComputeBufferParam(world, _installTiles, "_M8TileBits", _grid.M8TileBits);
             command.SetComputeBufferParam(world, _installTiles, "_M8TileRecords", _grid.M8TileRecords);
             command.SetComputeBufferParam(world, _installTiles, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);
-            command.DispatchCompute(world, _installTiles, _grid.M8ObservationDispatchArgs, 0);
+            command.DispatchCompute(world, _installTiles,
+                _grid.M8ObservationDispatchArgs, InstallDispatchOffset);
         }
 
         internal void SetDualStorageDomain(CommandBuffer command,
@@ -293,18 +299,6 @@ namespace Genesis.RoomScan
             _exclusions = null;
             _fineBrush = default;
             _observation = 0u;
-        }
-
-        internal void RecordRetirement(CommandBuffer command)
-        {
-            RequireObservation(command);
-            BindCommon(command, _retire);
-            Bind(command, _retire, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
-            Bind(command, _retire, "_M8TileBits", _grid.M8TileBits);
-            Bind(command, _retire, "_M8TileRecords", _grid.M8TileRecords);
-            Bind(command, _retire, "_M8PendingNewTileRefs", _grid.M8PendingNewTileRefs);
-            Bind(command, _retire, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);
-            command.DispatchCompute(_shader, _retire, 1, 1, 1);
         }
 
         private void BindCommon(CommandBuffer command, int kernel)

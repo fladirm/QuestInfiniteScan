@@ -39,7 +39,7 @@ namespace Genesis.RoomScan.Tests
             using var bins = new ComputeBuffer(Slots, 16);
             using var counters = new ComputeBuffer(MerkabaGrid.CounterCount, 4);
             using var touched = new ComputeBuffer(Slots, 4);
-            using var args = new ComputeBuffer(3, 4);
+            using var args = new ComputeBuffer(MerkabaObservationBinsGpu.DispatchArgumentWords, 4);
             using var sources = new ComputeBuffer(count, 16);
             using var records = new ComputeBuffer(count, 16);
             bins.SetData(initial);
@@ -87,7 +87,7 @@ namespace Genesis.RoomScan.Tests
             using var bins = new ComputeBuffer(Slots, 16);
             using var counters = new ComputeBuffer(MerkabaGrid.CounterCount, 4);
             using var touched = new ComputeBuffer(Slots, 4);
-            using var args = new ComputeBuffer(3, 4);
+            using var args = new ComputeBuffer(MerkabaObservationBinsGpu.DispatchArgumentWords, 4);
             var initial = new uint4[Slots];
             foreach (uint perSlot in new[] { 0u, 1u, 64u, 65u, uint.MaxValue })
             {
@@ -168,13 +168,15 @@ namespace Genesis.RoomScan.Tests
             world.AssertEndpointSupport(false);
             uint[] counters = Read<uint>(world.Counters);
             Assert.That(counters[MerkabaGrid.CounterUnresolvedSurfaceTiles], Is.EqualTo(64));
-            Assert.That(counters[34], Is.EqualTo(missing == MerkabaSpatial.EmptyRef ||
+            Assert.That(counters[MerkabaGrid.CounterNewTileQueueCount], Is.EqualTo(missing == MerkabaSpatial.EmptyRef ||
                 missing == MerkabaSpatial.ColdOnSsdRef ? 1u : 0u));
             Assert.That(Read<uint4>(world.Bins)[0].y, Is.EqualTo(256));
             world.ServiceTileRequests();
             counters = Read<uint>(world.Counters);
-            Assert.That(counters[34], Is.Zero, "claim arena released before HOT install");
-            Assert.That(counters[35], Is.EqualTo(missing == MerkabaSpatial.EmptyRef ? 1u : 0u));
+            Assert.That(counters[MerkabaGrid.CounterNewTileQueueCount], Is.Zero,
+                "claim arena released before HOT install");
+            Assert.That(counters[MerkabaGrid.CounterPendingNewTileCount],
+                Is.EqualTo(missing == MerkabaSpatial.EmptyRef ? 1u : 0u));
             Assert.That(counters[MerkabaGrid.CounterLoadRequests],
                 Is.EqualTo(missing == MerkabaSpatial.ColdOnSsdRef ? 1u : 0u));
             world.ResetBins();
@@ -539,9 +541,11 @@ namespace Genesis.RoomScan.Tests
                 _loadCursor = Upload(new uint[1], 4);
                 _sources = Upload(points.Select((p, i) => new uint4(math.asuint(p), (uint)i)).ToArray(), 16);
                 Bins = Upload(new uint4[Slots], 16);
-                Counters = Upload(new uint[MerkabaGrid.CounterCount], 4);
+                var counters = new uint[MerkabaGrid.CounterCount];
+                counters[MerkabaGrid.CounterObservationToken] = Generation;
+                Counters = Upload(counters, 4);
                 Touched = Upload(new uint[Slots], 4);
-                Args = Upload(new uint[3], 4);
+                Args = Upload(new uint[MerkabaObservationBinsGpu.DispatchArgumentWords], 4);
                 Records = Upload(new uint4[Expected.Length], 16);
             }
 
@@ -560,6 +564,7 @@ namespace Genesis.RoomScan.Tests
                 Bind(shader, kernel, Bins, Counters, Expected.Length);
                 shader.SetInt("_ProbeRecordCount", _pointCount);
                 shader.SetBuffer(kernel, "_ProbeRecords", _sources);
+                shader.SetBuffer(kernel, "_M8ObservationDispatchArgs", Args);
                 if (name == "CountOwnersProbe")
                 {
                     shader.SetBuffer(kernel, "_M8HashEntries", _hash);

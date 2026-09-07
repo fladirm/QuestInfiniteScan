@@ -63,7 +63,7 @@ namespace Genesis.RoomScan.Tests
                      {
                          "CountObservationBins", "ReserveObservationBins", "EmitObservationBins",
                          "ResolveMissingSpatialNodes", "ResolveObservationTileRequests",
-                         "ResetObservationBins", "RetireObservationBins"
+                         "ResetObservationBins"
                      })
                 Assert.DoesNotThrow(() => bins.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
@@ -153,6 +153,28 @@ namespace Genesis.RoomScan.Tests
             Assert.That(slots, Has.Length.EqualTo(MerkabaGrid.CounterCount));
             Assert.That(slots, Is.EqualTo(
                 Enumerable.Range(0, MerkabaGrid.CounterCount).ToArray()));
+
+            var shaderSlots = Regex.Matches(world,
+                    @"^#define M8_COUNTER_([A-Z0-9_]+) (\d+)u$",
+                    RegexOptions.Multiline).Cast<Match>()
+                .ToDictionary(match => match.Groups[1].Value,
+                    match => int.Parse(match.Groups[2].Value));
+            foreach (var field in typeof(MerkabaGrid).GetFields(
+                         System.Reflection.BindingFlags.Static |
+                         System.Reflection.BindingFlags.NonPublic))
+            {
+                if (!field.IsLiteral || field.FieldType != typeof(int) ||
+                    !field.Name.StartsWith("Counter", StringComparison.Ordinal))
+                    continue;
+                string name = field.Name == "CounterLoadRequests"
+                    ? "LOAD_REQUEST_COUNT"
+                    : Regex.Replace(field.Name.Substring("Counter".Length),
+                        "([a-z0-9])([A-Z])", "$1_$2").ToUpperInvariant();
+                Assert.That(shaderSlots.TryGetValue(name, out int slot), Is.True,
+                    field.Name + " must name a current shader counter");
+                Assert.That((int)field.GetRawConstantValue(), Is.EqualTo(slot),
+                    field.Name + " must read the same C#/HLSL slot");
+            }
         }
 
         [Test]
@@ -534,8 +556,9 @@ namespace Genesis.RoomScan.Tests
             string grid = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
             Assert.That(integration, Does.Contain(
                 "M8_COUNTER_TOUCHED_TILE_COUNT"));
-            string bins = Source("Runtime/Shaders/MerkabaObservationBins.compute");
-            Assert.That(bins, Does.Contain("void RetireObservationBins"));
+            string bins = Source("Runtime/Shaders/MerkabaObservationBins.hlsl");
+            Assert.That(bins, Does.Contain("void M8FlowerRetireObservation"));
+            Assert.That(integration, Does.Contain("M8FlowerRetireObservation(lane,128u)"));
             Assert.That(bins, Does.Contain("M8_COUNTER_TOUCHED_TILE_COUNT"));
             string clear = Slice(grid, "internal void ClearGpuWorldForNewScan()",
                 "private void ClearUInt(");
@@ -720,8 +743,8 @@ namespace Genesis.RoomScan.Tests
                 "\n}") + "\n}";
             string completion = Slice(integration, "void M8FinalizeObservationCompletion()",
                 "\n}") + "\n}";
-            string cleanup = Slice(Source("Runtime/Shaders/MerkabaObservationBins.compute"),
-                "void RetireObservationBins", "\n}");
+            string cleanup = Slice(Source("Runtime/Shaders/MerkabaObservationBins.hlsl"),
+                "void M8FlowerRetireObservation", "\n}");
 
             Assert.That(finalize, Does.Contain("M8FinalizeObservationCompletion();"));
             Assert.That(completion, Does.Contain(

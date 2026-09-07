@@ -21,12 +21,15 @@
 #define M8_FLOWER_FINE_ACTIVE 1u
 #define M8_FLOWER_FINE_NOVEL 2u
 #define M8_FLOWER_FINE_HAS_PHASE 4u
+// Endpoint presence is transient and disjoint from the three owner flags.
+// The same reset/reduction barrier owns both fields; no extra 512-word bank.
+#define M8_FLOWER_FINE_PRESENCE_SHIFT 3u
+#define M8_FLOWER_FINE_PRESENCE_MASK (15u<<M8_FLOWER_FINE_PRESENCE_SHIFT)
 
 uint _M8RefinementQuantum;
 groupshared uint m8FineOwner[512];
 groupshared uint m8FineState[512];
 groupshared uint m8FinePlane[512];
-groupshared uint m8FinePresence[512];
 groupshared uint m8FineWriteStatus;
 groupshared uint m8FineAnyNovelty;
 groupshared uint m8FineAnyActive;
@@ -63,7 +66,7 @@ void M8FlowerRequestSkinDependencies(uint neededHalo)
 
 uint M8FlowerRootRecordPetal(uint node)
 {
-    uint2 mask=M8FlowerNodeIncidentPetals[node];
+    uint2 mask=M8FlowerNodeIncidentPetalsAt(node);
     return mask.x!=0u?(uint)firstbitlow(mask.x):
         mask.y!=0u?32u+(uint)firstbitlow(mask.y):48u;
 }
@@ -75,7 +78,7 @@ bool M8FlowerGeometryNodeAt(uint ordinal,out M8FlowerGeometryNode task)
     if(ordinal<M8_FLOWER_ROOT_PHASE_TASKS)
     {
         task.RootNode=6u+(ordinal>>1u);
-        int4 node=M8FlowerNode[task.RootNode];
+        int4 node=M8FlowerNodeAt(task.RootNode);
         task.Offset=node.xyz;task.Line=(uint)node.w;
         task.Kind=task.Line>=9u?1u:0u;
         task.Petal=M8FlowerRootRecordPetal(task.RootNode);
@@ -85,15 +88,15 @@ bool M8FlowerGeometryNodeAt(uint ordinal,out M8FlowerGeometryNode task)
     if(ordinal<M8_FLOWER_R2_L1_TASKS)
     {
         task.Strand=ordinal>>1u;
-        uint4 strand=M8FlowerStrand[task.Strand];
+        uint4 strand=M8FlowerStrandAt(task.Strand);
         M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(task.Strand);
         task.Level=1u;task.RootNode=family.RootNode;
-        task.Line=(uint)M8FlowerNode[family.RootNode].w;
-        if(M8FlowerLineMeta[task.Line].x!=2u)return false;
-        task.Offset=M8FlowerNode[strand.x].xyz+M8FlowerNode[strand.y].xyz;
+        task.Line=(uint)M8FlowerNodeAt(family.RootNode).w;
+        if(M8FlowerLineMetaAt(task.Line).x!=2u)return false;
+        task.Offset=M8FlowerNodeAt(strand.x).xyz+M8FlowerNodeAt(strand.y).xyz;
         task.Petal=strand.w&255u;task.Path=family.FinePath0;
         [unroll]for(uint edge=0u;edge<3u;edge++)
-            if(M8FlowerPetalStrands[task.Petal][edge]==task.Strand)
+            if(M8FlowerPetalStrandsAt(task.Petal)[edge]==task.Strand)
                 task.KnotSite=3u+edge;
         return true;
     }
@@ -105,7 +108,7 @@ bool M8FlowerGeometryNodeAt(uint ordinal,out M8FlowerGeometryNode task)
     int endpoint,phase,inherited;
     if(!M8FlowerTryGetChildPhaseLoop(task.Petal,task.ParentContext,task.KnotSite,
         task.Level,task.Offset,task.Line,task.Strand,endpoint,phase,inherited) ||
-        inherited>=0 || M8FlowerLineMeta[task.Line].x!=2u)return false;
+        inherited>=0 || M8FlowerLineMetaAt(task.Line).x!=2u)return false;
     M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(task.Strand);
     task.RootNode=family.RootNode;
     // Within THIS parent context the new AB/AC knot first occurs in child0,
@@ -125,10 +128,10 @@ void M8FlowerReduceFineEndpoint(uint slot,uint lane,M8FlowerGeometryNode task,
     for(uint local=lane;local<512u;local+=128u)
     {
         M8FlowerResetObservationBucket(local);
-        m8FinePresence[local]=0u;
+        m8FineState[local]&=~M8_FLOWER_FINE_PRESENCE_MASK;
     }
     GroupMemoryBarrierWithGroupSync();
-    int3 direction=M8FlowerLineDirection[task.Line];
+    int3 direction=M8FlowerLineDirectionAt(task.Line);
     int3 endpointLocal=(task.Offset-direction)/2+(endpoint==0u?int3(0,0,0):direction);
     uint spanCount=task.Level==0u && any(endpointLocal!=0)?8u:1u;
     [loop]for(uint span=0u;span<spanCount;span++)
@@ -168,7 +171,7 @@ void M8FlowerReduceFineEndpoint(uint slot,uint lane,M8FlowerGeometryNode task,
             if((plane&M8_FLOWER_PLANE_FREE_SIDE)!=
                 (m8FinePlane[local]&M8_FLOWER_PLANE_FREE_SIDE))
             {
-                InterlockedOr(m8FinePresence[local],8u);continue;
+                InterlockedOr(m8FineState[local],8u<<M8_FLOWER_FINE_PRESENCE_SHIFT);continue;
             }
             if(task.Level!=0u)
             {
@@ -187,20 +190,20 @@ void M8FlowerReduceFineEndpoint(uint slot,uint lane,M8FlowerGeometryNode task,
             if(task.Level==0u)relative-=float3(endpointLocal)*M8_FLOWER_LATTICE_STEP;
             M8FlowerInterval3 abc;
             if(!M8FlowerPlaneIntervals(normal,delta,relative,
-                M8FlowerGeometryLoopRadius[task.Level*13u+task.Line],task.Line,
+                M8FlowerGeometryLoopRadiusAt(task.Level*13u+task.Line),task.Line,
                 normalError,offsetError,abc))
             {
-                InterlockedOr(m8FinePresence[local],8u);continue;
+                InterlockedOr(m8FineState[local],8u<<M8_FLOWER_FINE_PRESENCE_SHIFT);continue;
             }
             uint tag,classification;M8FlowerInterval2 root;
             if(M8FlowerClassifyPlaneRoot(task.Level,task.Line,false,task.Plus,
                 normal,delta,loopOffset,abc,tag,root,classification))
             {
-                InterlockedOr(m8FinePresence[local],2u);
+                InterlockedOr(m8FineState[local],2u<<M8_FLOWER_FINE_PRESENCE_SHIFT);
                 M8FlowerIntersectRoot(local,tag,root);
             }
-            else InterlockedOr(m8FinePresence[local],
-                classification==M8_FLOWER_ROOT_IMPOSSIBLE?1u:8u);
+            else InterlockedOr(m8FineState[local],
+                (classification==M8_FLOWER_ROOT_IMPOSSIBLE?1u:8u)<<M8_FLOWER_FINE_PRESENCE_SHIFT);
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -210,7 +213,8 @@ bool M8FlowerFineReadBucket(uint local,int3 junction,out M8FlowerPhaseRootEviden
 {
     root=(M8FlowerPhaseRootEvidence)0;root.Classification=2u;
     uint tag;M8FlowerInterval2 intersection;
-    if(m8FinePresence[local]!=2u || !M8FlowerReadRootIntersection(local,tag,intersection))return false;
+    if((m8FineState[local]&M8_FLOWER_FINE_PRESENCE_MASK)!=(2u<<M8_FLOWER_FINE_PRESENCE_SHIFT) ||
+        !M8FlowerReadRootIntersection(local,tag,intersection))return false;
     root.Junction=junction;
     root.Tag=tag&(0x1fffu|M8_FLOWER_BOUNDARY_WITNESS_MASK);
     root.Root=intersection;
@@ -238,7 +242,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     {
         r3Parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
         [unroll]for(uint i=0u;i<4u;i++)
-            if(M8FlowerTetraLine[r3Parity][i]==(int)task.Line)r3Axis=i;
+            if(M8FlowerTetraLineAt(r3Parity)[i]==(int)task.Line)r3Axis=i;
         if(r3Axis>=4u)return M8_FLOWER_ARENA_INVALID;
     }
     // R3's wrapper used to inline the same full analysis as the R2 branch.
@@ -247,7 +251,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     if(task.Kind==1u)
     {
         analysis=M8FlowerOrientR3PhaseResidual(analysis,(predicted.Tag>>3u)&15u,r3Parity,r3Axis);
-        r3Orientation=M8FlowerTetraEta[r3Parity][r3Axis];
+        r3Orientation=M8FlowerTetraEtaAt(r3Parity)[r3Axis];
     }
     uint key=M8FlowerPackDetailKey(task.Level,task.Path,task.Petal,task.Line,
         task.Kind,task.Plus,(predicted.Tag>>8u)&31u);
@@ -463,7 +467,7 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     // the complete direct/dual attempt; the epoch transaction runs above.
     if(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE]!=0u ||
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES]!=0u ||
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES]!=0u ||
+        _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]!=0u ||
         runtime.x!=_M8ObservationToken)return;
     uint4 bin=_M8ObservationTileBinsRead[slot];
     if(bin.x!=_M8ObservationToken || bin.w!=bin.y ||
@@ -538,36 +542,42 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         {cursor=stageEnd;break;}
         M8FlowerGeometryNode task;
         if(!M8FlowerGeometryNodeAt(cursor,task)){cursor++;continue;}
-        M8FlowerPhaseRootEvidence first[4];
+        // Preserve only metric/tag receipt bits across endpoint reductions.
+        // Junction is the same generated integer identity at both endpoints;
+        // it need not occupy twelve extra private words per lane.
+        uint firstTags[4];float4 firstBounds[4];uint firstCertain=0u;
         [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
         {
             M8FlowerReduceFineEndpoint(slot,lane,task,endpoint,normalError,offsetError);
             [loop]for(uint item=0u;item<4u;item++)
             {
                 uint local=lane+128u*item;
+                if(endpoint!=0u && ((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)==0u ||
+                    (task.Level!=0u&&(m8FineState[local]&M8_FLOWER_FINE_NOVEL)==0u) ||
+                    (firstCertain&(1u<<item))==0u))continue;
                 int3 junction;
-                if(endpoint==0u)
-                {
-                    first[item]=(M8FlowerPhaseRootEvidence)0;first[item].Classification=2u;
-                    if(!M8FlowerPhaseJunction(M8GlobalKernelCoord(slot,local),task.Level+1u,
-                        task.Offset,junction))continue;
-                }
-                else
-                {
-                    if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)==0u ||
-                        (task.Level!=0u&&(m8FineState[local]&M8_FLOWER_FINE_NOVEL)==0u) ||
-                        first[item].Classification!=1u)continue;
-                    junction=first[item].Junction;
-                }
+                if(!M8FlowerPhaseJunction(M8GlobalKernelCoord(slot,local),task.Level+1u,
+                    task.Offset,junction))continue;
                 // Both endpoint reductions use the same identity/intersection
                 // reader. The first root remains private until the second
                 // reduction completes; only endpoint1 may publish a record.
                 M8FlowerPhaseRootEvidence root;
                 bool certain=M8FlowerFineReadBucket(local,junction,root);
-                if(endpoint==0u)first[item]=root;
+                if(endpoint==0u)
+                {
+                    firstTags[item]=root.Tag;
+                    firstBounds[item]=float4(root.Root.x.lo,root.Root.x.hi,root.Root.y.lo,root.Root.y.hi);
+                    if(root.Classification==1u)firstCertain|=1u<<item;
+                }
                 else if(certain)
+                {
+                    M8FlowerPhaseRootEvidence first;
+                    first.Junction=junction;first.Tag=firstTags[item];first.Classification=1u;
+                    first.Root.x=M8FlowerI(firstBounds[item].x,firstBounds[item].y);
+                    first.Root.y=M8FlowerI(firstBounds[item].z,firstBounds[item].w);
                     M8FlowerFineSchedulingStatus(M8FlowerCommitObservedPhase(slot,local,runtime.w,
-                        task,first[item],root,normalError,offsetError));
+                        task,first,root,normalError,offsetError));
+                }
             }
             if(endpoint==0u)
             {
