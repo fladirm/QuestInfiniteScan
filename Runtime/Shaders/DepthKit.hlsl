@@ -2,7 +2,8 @@
 // Adapted from Anaglyph/lasertag DepthKit (MIT)
 
 // Downstream reconstruction consumes one joint four-stream measurement field.
-// The raw Environment Depth L/R array exists only in StereoRgbdRefine.compute.
+// Raw Environment Depth L/R is retained by stereo refinement and the
+// full-support negative-volume certificate; it is not a second surface source.
 Texture2D<float> gsDepthTex;
 Texture2D<float4> gsDepthNormalTex;
 uniform uint2 gsDepthTexSize;

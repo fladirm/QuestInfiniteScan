@@ -198,6 +198,22 @@ namespace Genesis.RoomScan
             currentParentEpoch != 0u && ParentEpoch == currentParentEpoch &&
             Lower <= Upper && MerkabaFlowerDetailKey.TryDecode(Key, out _);
 
+        internal readonly bool TryReadR2Phase(MerkabaFlowerDetailKey expectedKey,
+            uint currentParentEpoch, out int lower, out int upper)
+        {
+            lower = upper = 0;
+            if (Key != expectedKey.Value || !IsValidFor(currentParentEpoch) ||
+                expectedKey.Kind != MerkabaFlowerDetailKind.R2Phase ||
+                (Lower <= 0 && Upper >= 0))
+                return false;
+            // Storage validates identity and epoch, not geometry routing.
+            // The generated channel transport consumes the unchanged Q2.29
+            // endpoints and applies its orientation after outward decoding.
+            lower = Lower;
+            upper = Upper;
+            return true;
+        }
+
         internal readonly int DrawMidpoint => checked((int)(Lower +
             ((long)Upper - Lower) / 2L));
 
@@ -230,7 +246,8 @@ namespace Genesis.RoomScan
     /// <summary>
     /// Opaque owner-local identity of one terminal geometric L2 carrier. The
     /// containing M8 owner supplies world position; this key contains only the
-    /// fixed L0-L2 path and generated Flower identity.
+    /// canonical source representative of the generated L2 carrier. Its six
+    /// source wedges share one skin address, not six independent thread runs.
     /// </summary>
     internal readonly struct MerkabaFlowerL2Key :
         IEquatable<MerkabaFlowerL2Key>
@@ -259,8 +276,12 @@ namespace Genesis.RoomScan
                 throw new ArgumentOutOfRangeException(nameof(petalClass));
             if ((uint)sector > SectorMask)
                 throw new ArgumentOutOfRangeException(nameof(sector));
-            return new MerkabaFlowerL2Key((uint)geometryChildPath |
-                ((uint)petalClass << PetalClassShift) |
+            int carrier = MerkabaSphereFlowerAuthority.L2WedgeIndex(
+                petalClass, geometryChildPath) /
+                MerkabaSphereFlowerAuthority.L2CarrierWedgeCount;
+            uint source = MerkabaSphereFlowerAuthority.L2Wedges[
+                MerkabaSphereFlowerAuthority.L2CarrierWedgeCount * carrier].Source;
+            return new MerkabaFlowerL2Key(source |
                 (rootSign ? 1u << RootSignShift : 0u) |
                 ((uint)sector << SectorShift));
         }
@@ -295,7 +316,6 @@ namespace Genesis.RoomScan
             PetalClassMask);
         internal bool RootSign => ((Value >> RootSignShift) & 1u) != 0u;
         internal int Sector => (int)((Value >> SectorShift) & SectorMask);
-
         public bool Equals(MerkabaFlowerL2Key other) => Value == other.Value;
         public override bool Equals(object obj) =>
             obj is MerkabaFlowerL2Key other && Equals(other);

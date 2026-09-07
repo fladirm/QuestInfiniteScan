@@ -13,19 +13,30 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 2;
-        internal const int ResourceCount = 48;
-        internal const int PipelineCount = 56;
-        internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
+        internal const int AbiVersion = 10;
+        internal const int ResourceCount = 42;
+        internal const int PipelineCount = 25;
+        // A native observation also dispatches publication Reserve once and
+        // its three allocation barriers after DrainObservationRefinement.
+        internal const int MaximumDispatchTimingCount = PipelineCount + 4;
+        internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint
         {
             ObservationNew = 0,
             ObservationRetry = 1,
-            Readout = 2,
-            MeshReadout = 3,
-            FineErase = 4,
-            ObservationBins = 5,
+            FlowerReadout = 2,
+            FineErase = 3,
+        }
+
+        [Flags]
+        internal enum FlowerPasses : uint
+        {
+            None = 0,
+            Classify = 1,
+            Compact = 2,
+            Publish = 4,
+            Cull = 8,
         }
 
         internal enum Resource : int
@@ -50,34 +61,28 @@ namespace Genesis.RoomScan
             PendingNewTileRefs,
             LoadRequests,
             LoadRequestReadCount,
-            SurfaceCandidates,
-            SurfaceQueue,
-            SurfaceWinnerRanks0,
-            SurfaceWinnerRanks1,
-            SurfaceWinnerRanks2,
-            SurfaceWinnerRanks3,
             TouchedTileQueue,
-            CarveTiles,
             ObservationDispatchArgs,
-            CarveDispatchArgs,
             AttemptCompletion,
             RefineMetrics,
             RawDepth,
             RefinedDepth,
             Normals,
-            DilationA,
-            DilationB,
             CameraLeft,
             CameraRight,
-            VisibleTiles,
             FrameDispatchArgs,
-            ReadoutVertices0,
-            ReadoutVertices1,
-            ReadoutIndices,
-            DrawArgs,
             ObservationRecords,
             ObservationTileBins,
             TileHalo,
+            DepthCertificate,
+            DualBlockState,
+            DualChunkState,
+            DualLeaves,
+            FlowerDetailPages,
+            ThreadAtlasPages,
+            FlowerSymbolArena,
+            FlowerPageDirectory,
+            FlowerIndirectCommands,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -105,74 +110,93 @@ namespace Genesis.RoomScan
             internal uint DepthGroupsX;
             internal uint DepthGroupsY;
             internal uint QueryGroups;
-            internal uint ReadoutQueryGroups;
+            internal uint FlowerPassMask;
         }
 
         private static readonly string[] PipelineNames =
         {
-            "StereoRgbdRefine",
-            "InitDepthDilation",
-            "DilateDepthStep[8]",
-            "DilateDepthStep[7]",
-            "DilateDepthStep[6]",
-            "DilateDepthStep[5]",
-            "DilateDepthStep[4]",
-            "DilateDepthStep[3]",
-            "DilateDepthStep[2]",
-            "DilateDepthStep[1]",
-            "DilateDepthStep[0]",
+            "StereoFlowerRefine",
+            "BuildDepthCertificate",
+            "ReduceDepthCertificate",
             "ResetObservationCounters",
-            "DiscoverSurfaceCandidates",
-            "PrepareResolveArgs",
-            "ResolveSurfaceBlocks",
-            "PublishNewBlocks",
-            "ResolveSurfaceChunks",
-            "PublishNewChunks",
-            "ResolveSurfaceTiles",
-            "RetryPendingNewTiles",
-            "PrepareNewTileDispatchArgs",
+            "ResetObservationBins",
+            "CountObservationBins",
+            "ResolveMissingSpatialNodes",
+            "ResolveObservationTileRequests",
             "InitializeNewTiles",
-            "ResetClaimQueueCounts",
-            "InitializeSurfaceWinners",
-            "SelectSurfaceWinners",
-            "QueueResolvedSurfaceCandidates",
-            "QueryCarveTiles",
-            "PrepareIntegrateArgs",
-            "IntegrateSurfaceCandidates",
-            "PrepareCarveArgs",
-            "IntegrateCarveTiles",
+            "ReserveObservationBins",
+            "EmitObservationBins",
+            "UpdateObservationDual",
+            "FlowerCommit",
+            "DrainObservationRefinement",
             "FinalizeObservation",
-            "ClearTouchedSurfaceCandidates",
-            "ResetReadoutBuild",
-            "QueryM8Readout",
-            "PrepareReadoutBuild",
-            "BuildReadoutVertices",
-            "FinalizeReadout",
-            "MeshResetReadoutBuild",
-            "MeshQueryM8Readout",
-            "MeshPrepareReadoutBuild",
-            "ProjectReadoutMeshPins",
-            "BuildReadoutMesh",
-            "MeshFinalizeReadout",
+            "RetireObservationBins",
+            "ClassifyHotFlowerPages",
+            "CompactDirtyFlowerSymbols",
+            "PublishDirtyFlowerPages",
+            "CullFlowerPages",
             "ResetFineErase",
             "QueryFineEraseTiles",
             "PrepareFineEraseArgs",
             "EraseFineTiles",
             "FinalizeFineErase",
-            "ResetObservationBins",
-            "CountObservationBins",
-            "ResolveMissingSpatialNodes",
-            "ResolveObservationTileRequests",
-            "InstallObservationTiles",
-            "ReserveObservationBins",
-            "EmitObservationBins",
         };
 
         private static MerkabaNativeVulkanJob _activeJob;
         private static readonly float[] NextTimingLogTimes =
-            new float[6];
+            new float[4];
 
         internal static bool HasJobInFlight => _activeJob != null;
+
+        // Records a four-byte GPU transfer before the current-view cull.
+        // The command buffer must be outside a render pass; no CPU count data
+        // is uploaded and no readout/page rebuild is implied by head rotation.
+        internal static bool RecordFlowerCullReset(CommandBuffer command,
+            ComputeBuffer arguments)
+        {
+            if (command == null || arguments == null) return false;
+#if !UNITY_EDITOR && UNITY_ANDROID
+            try
+            {
+                if (Native.GetAbiVersion() != AbiVersion ||
+                    Native.FlowerDrawAvailable() == 0) return false;
+                IntPtr callback = Native.FlowerCullResetEvent();
+                int eventId = Native.FlowerCullResetEventId();
+                if (callback == IntPtr.Zero || eventId < 0) return false;
+                command.IssuePluginEventAndData(callback, eventId,
+                    arguments.GetNativeBufferPtr());
+                return true;
+            }
+            catch (DllNotFoundException) { return false; }
+            catch (EntryPointNotFoundException) { return false; }
+#else
+            return false;
+#endif
+        }
+
+        // Called immediately before the sole indexed URP DrawProceduralIndirect.
+        // No command/count/geometry readback and no per-frame allocation.
+        internal static bool RecordFlowerIndirectRegistration(RasterCommandBuffer command,
+            ComputeBuffer arguments)
+        {
+            if (arguments == null) return false;
+#if !UNITY_EDITOR && UNITY_ANDROID
+            try
+            {
+                if (Native.GetAbiVersion() != AbiVersion ||
+                    Native.FlowerDrawAvailable() == 0) return false;
+                command.IssuePluginEventAndData(Native.FlowerDrawEvent(),
+                    Native.FlowerDrawEventId(), arguments.GetNativeBufferPtr());
+                return true;
+            }
+            catch (DllNotFoundException) { return false; }
+            catch (EntryPointNotFoundException) { return false; }
+#else
+            // An editor oracle must explicitly supply its own fixture draw;
+            // never pretend a one-command wrapper emitted the full page list.
+            return false;
+#endif
+        }
 
         internal static bool IsAvailable
         {
@@ -195,7 +219,7 @@ namespace Genesis.RoomScan
         internal static bool TryCreateJob(JobKind kind, uint revision,
             IntPtr[] resources, MerkabaNativeUniformTable uniforms,
             int depthGroupsX, int depthGroupsY, int queryGroups,
-            int readoutQueryGroups, out MerkabaNativeVulkanJob job)
+            int flowerPassMask, out MerkabaNativeVulkanJob job)
         {
             job = null;
             if (_activeJob != null || revision == 0u || resources == null ||
@@ -204,7 +228,15 @@ namespace Genesis.RoomScan
             ValidateDispatch(depthGroupsX);
             ValidateDispatch(depthGroupsY);
             ValidateDispatch(queryGroups);
-            ValidateDispatch(readoutQueryGroups);
+            if (kind == JobKind.FlowerReadout)
+            {
+                if (flowerPassMask <= 0 || (flowerPassMask & ~15) != 0)
+                    throw new ArgumentOutOfRangeException(nameof(flowerPassMask));
+                if (depthGroupsX != 0 || depthGroupsY != 0 || queryGroups != 0)
+                    throw new ArgumentException("Flower jobs dispatch only bounded physical-page stages.");
+            }
+            else if (flowerPassMask != 0)
+                throw new ArgumentOutOfRangeException(nameof(flowerPassMask));
 #if !UNITY_EDITOR && UNITY_ANDROID
             if (!IsAvailable) return false;
             uniforms.Build(out UniformValue[] values, out byte[] data);
@@ -231,7 +263,7 @@ namespace Genesis.RoomScan
                     DepthGroupsX = checked((uint)depthGroupsX),
                     DepthGroupsY = checked((uint)depthGroupsY),
                     QueryGroups = checked((uint)queryGroups),
-                    ReadoutQueryGroups = checked((uint)readoutQueryGroups),
+                    FlowerPassMask = checked((uint)flowerPassMask),
                 };
                 IntPtr handle = Native.CreateJob(ref descriptor);
                 if (handle == IntPtr.Zero) return false;
@@ -271,15 +303,10 @@ namespace Genesis.RoomScan
         }
 
         private static void LogTimings(JobKind kind, uint revision,
-            ulong[] timestamps, int count, double period, int validBits)
+            ulong[] timestamps, uint[] dispatchPipelines, int count, double period, int validBits)
         {
             ulong mask = validBits >= 64 ? ulong.MaxValue :
                 validBits <= 0 ? 0UL : (1UL << validBits) - 1UL;
-            int first = kind == JobKind.ObservationBins ? 49 :
-                kind == JobKind.Readout ? 33 :
-                kind == JobKind.MeshReadout ? 38 :
-                kind == JobKind.FineErase ? 44 :
-                kind == JobKind.ObservationRetry ? 13 : 0;
             int dispatchCount = (count - 2) / 2;
             for (int index = 0; index < dispatchCount; ++index)
             {
@@ -287,21 +314,35 @@ namespace Genesis.RoomScan
                 ulong end = timestamps[2 + index * 2] & mask;
                 double milliseconds = ((end - begin) & mask) * period /
                     1_000_000.0;
+                uint pipeline = dispatchPipelines[index];
+                string stage = pipeline < PipelineNames.Length ? PipelineNames[pipeline] :
+                    $"INVALID_PIPELINE_{pipeline}";
                 Logger.Info($"Merkaba native-queue timing revision={revision} " +
-                    $"stage={PipelineNames[first + index]} " +
+                    $"job={kind} dispatch={index} pipeline={stage} " +
                     $"gpu={milliseconds:F3}ms");
             }
             double total = ((timestamps[count - 1] & mask) -
                 (timestamps[0] & mask) & mask) * period / 1_000_000.0;
             Logger.Info($"Merkaba native-queue timing revision={revision} " +
-                $"total={total:F3}ms dispatches={dispatchCount} " +
-                $"validBits={validBits} queue=plugin-owned-background");
+                $"job={kind} total={total:F3}ms dispatches={dispatchCount} " +
+                $"validBits={validBits} queue=single-serialized-native");
         }
 
         private static class Native
         {
 #if !UNITY_EDITOR && UNITY_ANDROID
             private const string Library = "MerkabaVulkanTimestamps";
+
+            [DllImport(Library, EntryPoint = "MerkabaFlowerDraw_IsAvailable")]
+            internal static extern int FlowerDrawAvailable();
+            [DllImport(Library, EntryPoint = "MerkabaFlowerDraw_GetRenderEventFunc")]
+            internal static extern IntPtr FlowerDrawEvent();
+            [DllImport(Library, EntryPoint = "MerkabaFlowerDraw_GetEventId")]
+            internal static extern int FlowerDrawEventId();
+            [DllImport(Library, EntryPoint = "MerkabaFlowerDraw_GetCullResetEventFunc")]
+            internal static extern IntPtr FlowerCullResetEvent();
+            [DllImport(Library, EntryPoint = "MerkabaFlowerDraw_GetCullResetEventId")]
+            internal static extern int FlowerCullResetEventId();
 
             [DllImport(Library, EntryPoint = "MerkabaExecutor_IsAvailable")]
             internal static extern int IsAvailable();
@@ -322,6 +363,7 @@ namespace Genesis.RoomScan
             [DllImport(Library, EntryPoint = "MerkabaExecutor_ReadTimings")]
             internal static extern int ReadTimings(IntPtr handle,
                 [Out] ulong[] timestamps, int timestampCapacity,
+                [Out] uint[] dispatchPipelines, int dispatchCapacity,
                 out double timestampPeriod, out int validBits);
             [DllImport(Library, EntryPoint = "MerkabaExecutor_DestroyJob")]
             internal static extern int DestroyJob(IntPtr handle);
@@ -454,10 +496,12 @@ namespace Genesis.RoomScan
                 if (!TryClaimTimingLog(_kind)) return;
 #if !UNITY_EDITOR && UNITY_ANDROID
                 var timestamps = new ulong[MaximumTimestampCount];
+                var dispatchPipelines = new uint[MaximumDispatchTimingCount];
                 int count = Native.ReadTimings(_handle, timestamps,
-                    timestamps.Length, out double period, out int validBits);
-                if (count >= 4 && (count & 1) == 0)
-                    LogTimings(_kind, _revision, timestamps, count, period,
+                    timestamps.Length, dispatchPipelines, dispatchPipelines.Length,
+                    out double period, out int validBits);
+                if (count >= 4 && count <= timestamps.Length && (count & 1) == 0)
+                    LogTimings(_kind, _revision, timestamps, dispatchPipelines, count, period,
                         validBits);
                 else
                     Logger.Warning("Merkaba native-queue timing unavailable " +
@@ -532,6 +576,15 @@ namespace Genesis.RoomScan
             WriteFloat(bytes, 0, value.x);
             WriteFloat(bytes, 4, value.y);
             WriteFloat(bytes, 8, value.z);
+            Add(name, bytes);
+        }
+        internal void Vector4(string name, Vector4 value)
+        {
+            byte[] bytes = new byte[16];
+            WriteFloat(bytes, 0, value.x);
+            WriteFloat(bytes, 4, value.y);
+            WriteFloat(bytes, 8, value.z);
+            WriteFloat(bytes, 12, value.w);
             Add(name, bytes);
         }
         internal void Matrix(string name, Matrix4x4 value) => Add(name,

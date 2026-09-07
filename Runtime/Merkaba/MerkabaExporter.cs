@@ -265,6 +265,42 @@ namespace Genesis.RoomScan
                     leaves, spatialBinding));
         }
 
+        // The final shared L2 export pass supplies actual footprint coverage.
+        // These consumers deliberately have no default coverage provider: the
+        // still-active legacy membrane pass is not evidence of DIRT coverage.
+        // Wire them immediately before Complete() / CompleteStreamingPackage()
+        // when that one shared evaluator replaces StreamOwnedMembranesAsync.
+        internal Task<long> AppendDirtToGlbAsync(
+            MerkabaGlbWriter.StreamingSession stream,
+            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
+            IProgress<OperationWorkProgress> progress = null)
+        {
+            if (stream == null) throw new ArgumentNullException(nameof(stream));
+            RequireQuiescedDirtExport();
+            return _grid.StreamStoredDirtAsync(directCoverage,
+                triangles => stream.AppendDirt(triangles, progress));
+        }
+
+        internal Task<long> AppendDirtToTilesetAsync(string staging,
+            IList<MerkabaTilesetLeaf> leaves,
+            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
+            IProgress<OperationWorkProgress> progress = null)
+        {
+            if (leaves == null) throw new ArgumentNullException(nameof(leaves));
+            RequireQuiescedDirtExport();
+            return _grid.StreamStoredDirtAsync(directCoverage, triangles =>
+                leaves.Add(MerkabaTilesetWriter.WriteStreamingDirtLeaf(staging,
+                    leaves.Count, triangles, progress)));
+        }
+
+        private void RequireQuiescedDirtExport()
+        {
+            if (!IsExporting || _grid == null ||
+                (_integrator != null && _integrator.HasPendingObservation))
+                throw new InvalidOperationException(
+                    "DIRT export requires the active quiesced export transaction.");
+        }
+
         private async Task<MerkabaSpatialBinding> CaptureSpatialBindingAsync()
         {
             RoomAnchorManager anchor = await RequireActiveSessionAnchorAsync();

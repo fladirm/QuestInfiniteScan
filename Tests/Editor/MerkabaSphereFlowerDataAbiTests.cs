@@ -12,6 +12,36 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaSphereFlowerDataAbiTests
     {
         [Test]
+        public void R2RecordRead_RequiresExactKeyEpochAndNonzeroInnovation()
+        {
+            var key = MerkabaFlowerDetailKey.Create(1, 0, 0, 3,
+                MerkabaFlowerDetailKind.R2Phase, true, 0);
+            var other = MerkabaFlowerDetailKey.Create(1, 1, 0, 3,
+                MerkabaFlowerDetailKind.R2Phase, true, 0);
+            foreach ((int lower, int upper) in new[] {
+                (1, 3), (int.MaxValue - 2, int.MaxValue),
+                (int.MinValue, int.MinValue + 2), (-3, -1) })
+            {
+                var record = MerkabaFlowerDetailRecord.Create(key, lower, upper, 7u);
+                Assert.That(record.TryReadR2Phase(key, 7u, out int lo, out int hi), Is.True);
+                Assert.That(lo, Is.EqualTo(lower));
+                Assert.That(hi, Is.EqualTo(upper));
+                Assert.That(record.TryReadR2Phase(other, 7u, out _, out _), Is.False);
+                Assert.That(record.TryReadR2Phase(key, 0u, out _, out _), Is.False);
+                Assert.That(record.TryReadR2Phase(key, 8u, out _, out _), Is.False);
+            }
+            foreach ((int lower, int upper) in new[] { (0, 0), (-1, 1), (0, 3), (-3, 0) })
+            {
+                var record = MerkabaFlowerDetailRecord.Create(key, lower, upper, 7u);
+                Assert.That(record.TryReadR2Phase(key, 7u, out _, out _), Is.False);
+            }
+            var r3 = MerkabaFlowerDetailKey.Create(1, 0, 0, 3,
+                MerkabaFlowerDetailKind.R3Phase, true, 0);
+            Assert.That(MerkabaFlowerDetailRecord.Create(r3, 1, 3, 7u)
+                .TryReadR2Phase(r3, 7u, out _, out _), Is.False);
+        }
+
+        [Test]
         public void PackedLayouts_AreExactAndKernelStateRemainsSixteenBytes()
         {
             Assert.That(MerkabaSphereFlowerDataAbi.R1SeedFlag,
@@ -534,28 +564,14 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void Cut02Schema_HasNoProductionBufferOrExecutorBinding()
+        public void NativeResourceAbi_HasOneIndexPerBackingResource()
         {
-            string grid = File.ReadAllText(Path.GetFullPath(
-                "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
-                "MerkabaGrid.Gpu.cs"));
-            string executor = File.ReadAllText(Path.GetFullPath(
-                "Packages/com.genesis.roomscan/Runtime/Telemetry/" +
-                "MerkabaNativeVulkanExecutor.cs"));
-            foreach (string field in new[]
-            {
-                "_m8DualBlock", "_m8DualChunk", "_m8DualLeaf",
-                "_m8FlowerDetail", "_m8ThreadAtlas", "_m8FlowerSymbol"
-            })
-                StringAssert.DoesNotContain(field, grid);
-            foreach (string resource in new[]
-            {
-                "DualBlockState", "DualChunkState", "DualLeaves",
-                "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena"
-            })
-                StringAssert.DoesNotContain(resource, executor);
-            Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
-                Is.EqualTo(45));
+            Array resources = Enum.GetValues(typeof(MerkabaNativeVulkanExecutor.Resource));
+            Assert.That(resources.Length, Is.EqualTo(MerkabaNativeVulkanExecutor.ResourceCount));
+            for (int index = 0; index < resources.Length; ++index)
+                Assert.That(Convert.ToInt32(resources.GetValue(index)), Is.EqualTo(index));
+            foreach (string retired in new[] { "SurfaceWinnerRanks0", "SurfaceQueue", "CarveTiles", "DilationA", "DilationB" })
+                Assert.That(Enum.IsDefined(typeof(MerkabaNativeVulkanExecutor.Resource), retired), Is.False);
         }
 
         [Test, Timeout(60000)]

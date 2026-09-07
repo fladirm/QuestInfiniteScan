@@ -41,8 +41,7 @@ namespace Genesis.RoomScan.Editor
         private static KernelState Occupied(Color32 color)
         {
             KernelState state = default;
-            MerkabaIntegrator.IntegrateClassified(ref state,
-                MerkabaObservationKind.Surface, 1f, color);
+            state.SetOccupiedForFixture(true, color);
             state.Flags = KernelState.SetSurfacePlane(state.Flags,
                 new float3(1, 0, 0), 0f);
             return state;

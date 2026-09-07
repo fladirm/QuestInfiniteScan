@@ -2,7 +2,7 @@
 #ifndef GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
 #define GENESIS_MERKABA_OVERLAP_SHELL_INCLUDED
 
-#include "MerkabaSurfaceOrientation.generated.hlsl"
+#include "MerkabaSphereFlower.generated.hlsl"
 
 #define M8_MEMBRANE_TRIANGLES_PER_PATCH 2u
 #define M8_MEMBRANE_VERTICES_PER_PATCH 4u
@@ -200,7 +200,7 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
             }
             if (!exists ||
                 (candidate.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-                !M8HasSurfacePlane(candidate.flags))
+                !M8FlowerHasPlane(candidate.flags))
                 continue;
             bool separatorUnresolved;
             if (M8MembraneSeparatedByFree(coord, normalOffset,
@@ -214,7 +214,7 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
             }
             float3 candidateNormal;
             float candidateOffset;
-            M8DecodeSurfacePlane(candidate.flags, candidateNormal,
+            M8FlowerUnpackPlane(candidate.flags, candidateNormal,
                 candidateOffset);
             if (M8MembraneDominantAxis(candidateNormal) != dominantAxis ||
                 any(M8MembraneCanonicalSheet(MerkabaNearestGridNormalStep(
@@ -278,11 +278,11 @@ bool M8TryBuildMembranePatch(int3 main, KernelState state,
     patch = (M8OverlapPatch)0;
     unresolved = false;
     if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-        !M8HasSurfacePlane(state.flags))
+        !M8FlowerHasPlane(state.flags))
         return false;
     float3 normal;
     float signedOffset;
-    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
+    M8FlowerUnpackPlane(state.flags, normal, signedOffset);
     int dominantAxis = M8MembraneDominantAxis(normal);
     int tangentAxis0;
     int tangentAxis1;

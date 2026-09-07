@@ -89,10 +89,6 @@ namespace Genesis.RoomScan
         public string LastScanStartError { get; private set; }
         public int ActiveChunkCount => _grid != null ? _grid.ActiveChunkCount : 0;
         public int OccupiedKernelCount => _grid != null ? _grid.OccupiedKernelCount : 0;
-        public int PublishedPrimitiveCount =>
-            _renderer != null ? _renderer.VisiblePrimitiveCount : 0;
-        public int VisibleChunkCount =>
-            _renderer != null ? _renderer.VisibleChunkCount : 0;
         public bool TryGetStoredScanProximity(Vector3 worldPosition,
             out Vector3 worldDirection, out float distance)
         {
@@ -103,8 +99,6 @@ namespace Genesis.RoomScan
             distance = 0f;
             return false;
         }
-        public int VisibleSurfaceKernelCount =>
-            _renderer != null ? _renderer.VisibleSurfaceKernelCount : 0;
         public int IntegrationCount => _integrator != null ? _integrator.IntegrationCount : 0;
         public bool SavedSessionExists => _persistence != null && _persistence.SavedSessionExists;
         public bool AnySessionExists => _persistence != null &&
@@ -167,14 +161,6 @@ namespace Genesis.RoomScan
                 if (_renderer != null) _renderer.ReadoutDrawEnabled = value;
             }
         }
-        public bool MeshReadoutEnabled
-        {
-            get => _renderer != null && _renderer.MeshReadoutEnabled;
-            set
-            {
-                if (_renderer != null) _renderer.MeshReadoutEnabled = value;
-            }
-        }
         public bool CheckerReadoutEnabled
         {
             get => _renderer != null && _renderer.CheckerReadoutEnabled;
@@ -225,6 +211,7 @@ namespace Genesis.RoomScan
             _controllerRay = FindAnyObjectByType<ControllerRayDriver>(
                 FindObjectsInactive.Include);
             _integrator.Integrated += OnIntegrated;
+            _integrator.AuthorityChanged += OnAuthorityChanged;
             _integrator.FineErased += OnFineErased;
             _renderer.SetDynamicOcclusionEnabled(
                 _depthCapture.DynamicOcclusionEnabled);
@@ -390,6 +377,7 @@ namespace Genesis.RoomScan
             _destroyed = true;
             BeginDisableTeardown();
             if (_integrator != null) _integrator.Integrated -= OnIntegrated;
+            if (_integrator != null) _integrator.AuthorityChanged -= OnAuthorityChanged;
             if (_integrator != null) _integrator.FineErased -= OnFineErased;
             if (Instance == this) Instance = null;
         }
@@ -520,7 +508,6 @@ namespace Genesis.RoomScan
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _persistence != null && await _persistence.LoadAsync();
-                if (success) _renderer?.MarkCanonicalReadoutDirty();
                 return success;
             }
             finally
@@ -546,7 +533,6 @@ namespace Genesis.RoomScan
                     "Scan synchronized");
                 success = _persistence != null &&
                     await _persistence.OpenSessionAsync(sessionId);
-                if (success) _renderer?.MarkCanonicalReadoutDirty();
                 return success;
             }
             finally
@@ -991,18 +977,18 @@ namespace Genesis.RoomScan
 
         private void OnIntegrated()
         {
-            if (_integrator != null &&
-                (_integrator.LastObservationChangedReadout ||
-                 (_renderer?.MeshReadoutEnabled ?? false)))
-                _renderer?.MarkCanonicalReadoutDirty();
             _persistence?.MarkDirty();
             Integrated?.Invoke();
+        }
+
+        private void OnAuthorityChanged()
+        {
+            _persistence?.MarkDirty();
         }
 
         private void OnFineErased()
         {
             _fineEraseDescriptor = default;
-            _renderer?.MarkCanonicalReadoutDirty();
             _persistence?.MarkDirty();
             Integrated?.Invoke();
         }
@@ -1032,7 +1018,8 @@ namespace Genesis.RoomScan
                 return _quiesceTask;
             if (ScanLifecycle == ScanLifecycleState.Stopped &&
                 !IsScanning && !(_integrator?.HasPendingObservation ?? false) &&
-                !(_integrator?.HasPendingFineErase ?? false))
+                !(_integrator?.HasPendingFineErase ?? false) &&
+                !(_grid?.HasObservationDurableCut ?? false))
                 return Task.FromResult(true);
             _quiesceTask = QuiesceCoreAsync();
             return _quiesceTask;
@@ -1048,10 +1035,18 @@ namespace Genesis.RoomScan
             _integrator?.BeginObservationQuiesce();
             try
             {
+                // A pressure-triggered cut owns the canonical source until
+                // its existing drain finishes. Keep GPU submission available
+                // before asking the held observation to resume its work.
+                if (!ReferenceEquals(_grid, null))
+                    await _grid.FinishObservationDurableCutAsync();
                 if (!ReferenceEquals(_integrator, null))
                     await _integrator.FinishCurrentFineEraseAsync();
                 if (!ReferenceEquals(_integrator, null))
                     await _integrator.FinishCurrentObservationAsync();
+                // The retiring observation may itself have triggered a cut.
+                if (!ReferenceEquals(_grid, null))
+                    await _grid.FinishObservationDurableCutAsync();
                 Task depthRetirement = !ReferenceEquals(_depthCapture, null)
                     ? _depthCapture.RetireSubmittedDepthCopiesAsync()
                     : Task.CompletedTask;
@@ -1180,6 +1175,11 @@ namespace Genesis.RoomScan
                 if (!await QuiesceScanningAsync()) return;
                 if (!ReferenceEquals(_renderer, null))
                     await _renderer.FinishCurrentReadoutAsync();
+                // Storage remains able to submit its final bounded drain
+                // batches until this await completes; closing submission
+                // first would strand its GPU receipt/acknowledgement work.
+                if (!ReferenceEquals(_grid, null))
+                    await _grid.FinishObservationDurableCutAsync();
                 // Capture the exact stable set only after observation and
                 // capture-copy retirement, but before the final grid marker.
                 Action release = CaptureOwnedGpuResourceRelease();

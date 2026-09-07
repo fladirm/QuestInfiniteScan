@@ -14,15 +14,21 @@ namespace Genesis.RoomScan
         internal readonly MerkabaRecordKind Kind;
         internal readonly byte[] Address;
         internal readonly byte[] Payload;
+        // Capture-only receipt. It is expanded into canonical epoch/tombstone
+        // records inside the append lock, never written as another ABI field.
+        internal readonly bool OwnerEpochRebased;
 
         internal MerkabaAppendRecord(MerkabaRecordKind kind, byte[] address,
-            byte[] payload)
+            byte[] payload, bool ownerEpochRebased = false)
         {
             Address = address ?? throw new ArgumentNullException(nameof(address));
             Payload = payload ?? throw new ArgumentNullException(nameof(payload));
             MerkabaSphereFlowerPersistenceAbi.ValidateRecordShape(kind,
                 address.Length, payload.Length);
             Kind = kind;
+            if (ownerEpochRebased && kind != MerkabaRecordKind.FlowerOwnerEpoch)
+                throw new ArgumentException("Only an owner epoch can carry a rebase receipt.");
+            OwnerEpochRebased = ownerEpochRebased;
         }
     }
 
@@ -464,6 +470,25 @@ namespace Genesis.RoomScan
             ValidatePayload(record);
         }
 
+        internal void ValidateAppendBatch(IReadOnlyList<MerkabaAppendRecord> records,
+            ulong generation, ulong firstSequence)
+        {
+            // Apply has only one state-dependent rejection: owner epoch
+            // transition. Copy those touched epochs, not the complete world,
+            // and preflight the exact ordered batch before appending any byte.
+            var staged = new MerkabaSphereFlowerReplayIndex();
+            var blocks = new HashSet<int3>();
+            var owners = new HashSet<MerkabaOwnerAddress>();
+            AccumulateTouched(records, blocks, owners);
+            foreach (MerkabaOwnerAddress owner in owners)
+                if (_epochs.TryGetValue(owner, out VersionedPayload epoch))
+                    staged._epochs.Add(owner, epoch);
+            ulong sequence = firstSequence;
+            foreach (MerkabaAppendRecord record in records)
+                staged.Apply(record, new MerkabaRecordVersion(generation,
+                    checked(++sequence)));
+        }
+
         internal bool TryGetOwnerEpoch(MerkabaTileAddress tile,
             int kernelLocal, out uint epoch)
         {
@@ -475,6 +500,184 @@ namespace Genesis.RoomScan
             }
             epoch = 0u;
             return false;
+        }
+
+        // Bounded residency/export packet: only this tile, its exact dual
+        // ancestors and its live owner-local fine records. No whole-world copy
+        // and no reconstruction from positive M8 occupancy is performed.
+        internal MerkabaAppendRecord[] CaptureTile(MerkabaTileAddress tile)
+        {
+            var records = CaptureDualPath(tile, MerkabaRecordKind.DualLeaf);
+            CaptureFineTile(tile, records);
+            return records.ToArray();
+        }
+
+        internal void AppendOwnerRebaseRecords(MerkabaTileAddress tile, int kernel,
+            List<MerkabaAppendRecord> records)
+        {
+            var owner = new MerkabaOwnerAddress(tile, kernel);
+            byte[] address = new byte[MerkabaSphereFlowerPersistenceAbi.TileAddressBytes];
+            MerkabaSphereFlowerPersistenceAbi.WriteTileAddress(address, tile);
+            byte[] maximum = new byte[MerkabaFlowerOwnerEpoch.ByteSize];
+            MerkabaSphereFlowerPersistenceAbi.WriteUInt32(maximum, 0, (uint)kernel);
+            MerkabaSphereFlowerPersistenceAbi.WriteUInt32(maximum, 4, uint.MaxValue);
+            byte[] initial = (byte[])maximum.Clone();
+            MerkabaSphereFlowerPersistenceAbi.WriteUInt32(initial, 4, 1u);
+            // A GPU snapshot can cross the wrap before its previous high epoch
+            // was appended. Record the actual wrap boundary explicitly.
+            records.Add(new MerkabaAppendRecord(MerkabaRecordKind.FlowerOwnerEpoch,
+                address, maximum));
+            records.Add(new MerkabaAppendRecord(MerkabaRecordKind.FlowerOwnerEpoch,
+                address, initial));
+            if (!_fineByOwner.TryGetValue(owner, out HashSet<FineAddress> history)) return;
+            var ordered = new List<FineAddress>(history);
+            ordered.Sort((left, right) =>
+            {
+                int kind = left.Kind.CompareTo(right.Kind);
+                return kind != 0 ? kind : left.LocalKey.CompareTo(right.LocalKey);
+            });
+            foreach (FineAddress value in ordered)
+            {
+                byte[] target = new byte[MerkabaSphereFlowerPersistenceAbi.OwnerAddressBytes];
+                MerkabaSphereFlowerPersistenceAbi.WriteOwnerAddress(target, tile, kernel);
+                byte[] payload = new byte[MerkabaTombstoneRecord.ByteSize];
+                MerkabaSphereFlowerPersistenceAbi.WriteUInt32(payload, 0, (uint)value.Kind);
+                MerkabaSphereFlowerPersistenceAbi.WriteUInt32(payload, 4, value.LocalKey);
+                records.Add(new MerkabaAppendRecord(MerkabaRecordKind.Tombstone, target, payload));
+            }
+        }
+
+        internal MerkabaAppendRecord[] CaptureDualNode(MerkabaDualStorageNode node) =>
+            CaptureDualPath(node.Address, node.Kind).ToArray();
+
+        internal bool HasStoredDualLeaf(MerkabaTileAddress tile) =>
+            _dualLeaves.ContainsKey(tile);
+
+        internal uint MaximumDualGeneration()
+        {
+            uint maximum = 0u;
+            // Include explicit ALL_FULL tombstones, even though compaction
+            // need not allocate them in a newly cleared GPU world.
+            foreach (VersionedPayload block in _dualBlocks.Values)
+                maximum = Math.Max(maximum, Read32(block.Payload, 0) >> 2);
+            foreach (VersionedPayload chunk in _dualChunks.Values)
+                maximum = Math.Max(maximum, Read32(chunk.Payload, 20));
+            return maximum;
+        }
+
+        private List<MerkabaAppendRecord> CaptureDualPath(MerkabaTileAddress tile,
+            MerkabaRecordKind scope)
+        {
+            var records = new List<MerkabaAppendRecord>();
+            if (_dualBlocks.TryGetValue(tile.BlockCoord,
+                    out VersionedPayload block))
+            {
+                records.Add(DualRecord(MerkabaRecordKind.DualBlock,
+                    tile.BlockCoord, 0, default, block.Payload));
+                if (BlockState(block) == MerkabaDualNodeState.Mixed)
+                {
+                    if (!_dualChildren.TryGetValue(tile.BlockCoord,
+                            out VersionedPayload children))
+                        throw new InvalidDataException(
+                            "Resident dual block has no MIXED child payload.");
+                    records.Add(DualRecord(MerkabaRecordKind.DualBlockChildren,
+                        tile.BlockCoord, 0, default, children.Payload));
+                    if (scope != MerkabaRecordKind.DualBlock &&
+                        PackedDualState(children.Payload, tile.ChunkLocal) ==
+                        MerkabaDualNodeState.Mixed)
+                    {
+                        var key = new ChunkAddress(tile.BlockCoord,
+                            tile.ChunkLocal);
+                        if (!_dualChunks.TryGetValue(key,
+                                out VersionedPayload chunk))
+                            throw new InvalidDataException(
+                                "Resident dual chunk has no MIXED tile payload.");
+                        records.Add(DualRecord(MerkabaRecordKind.DualChunk,
+                            tile.BlockCoord, tile.ChunkLocal, default,
+                            chunk.Payload));
+                        if (scope == MerkabaRecordKind.DualLeaf &&
+                            (Read64(chunk.Payload, 8) &
+                             (1ul << tile.TileLocal)) != 0ul)
+                        {
+                            if (!_dualLeaves.TryGetValue(tile,
+                                    out VersionedPayload leaf))
+                                throw new InvalidDataException(
+                                    "Resident MIXED dual tile has no leaf.");
+                            records.Add(DualRecord(MerkabaRecordKind.DualLeaf,
+                                tile.BlockCoord, 0, tile, leaf.Payload));
+                        }
+                    }
+                }
+            }
+            return records;
+        }
+
+        private void CaptureFineTile(MerkabaTileAddress tile,
+            List<MerkabaAppendRecord> records)
+        {
+            var programs = new HashSet<uint>();
+            for (int kernel = 0; kernel < MerkabaSpatial.KernelsPerTile; kernel++)
+            {
+                var owner = new MerkabaOwnerAddress(tile, kernel);
+                if (!_epochs.TryGetValue(owner, out VersionedPayload epoch))
+                    continue;
+                byte[] ownerAddress = new byte[
+                    MerkabaSphereFlowerPersistenceAbi.TileAddressBytes];
+                MerkabaSphereFlowerPersistenceAbi.WriteTileAddress(
+                    ownerAddress, tile);
+                records.Add(new MerkabaAppendRecord(
+                    MerkabaRecordKind.FlowerOwnerEpoch, ownerAddress,
+                    (byte[])epoch.Payload.Clone()));
+                if (!_fineByOwner.TryGetValue(owner,
+                        out HashSet<FineAddress> values)) continue;
+                var ordered = new List<FineAddress>(values);
+                ordered.Sort((left, right) =>
+                {
+                    int kind = left.Kind.CompareTo(right.Kind);
+                    return kind != 0 ? kind : left.LocalKey.CompareTo(
+                        right.LocalKey);
+                });
+                foreach (FineAddress value in ordered)
+                {
+                    if (!TryGetFine(tile, kernel, value.Kind, value.LocalKey,
+                            out byte[] payload)) continue;
+                    bool isGroup = value.Kind == MerkabaRecordKind.FlowerVGroup ||
+                        value.Kind == MerkabaRecordKind.ThreadColorGroup;
+                    byte[] address = new byte[isGroup
+                        ? MerkabaSphereFlowerPersistenceAbi.GroupAddressBytes
+                        : MerkabaSphereFlowerPersistenceAbi.OwnerAddressBytes];
+                    if (isGroup)
+                        MerkabaSphereFlowerPersistenceAbi.WriteGroupAddress(
+                            address, tile, kernel, value.LocalKey);
+                    else
+                        MerkabaSphereFlowerPersistenceAbi.WriteOwnerAddress(
+                            address, tile, kernel);
+                    records.Add(new MerkabaAppendRecord(value.Kind,
+                        address, payload));
+                    if (value.Kind == MerkabaRecordKind.ThreadRun)
+                    {
+                        uint program = Read32(payload, 4);
+                        if (program != MerkabaThreadRun.InvalidRef)
+                            programs.Add(program);
+                    }
+                }
+            }
+            var orderedPrograms = new List<uint>(programs);
+            orderedPrograms.Sort();
+            foreach (uint program in orderedPrograms)
+            {
+                if (!_programs.TryGetValue(program,
+                        out VersionedPayload payload))
+                    throw new InvalidDataException(
+                        "Live ThreadRun has no optical program.");
+                byte[] address = new byte[
+                    MerkabaSphereFlowerPersistenceAbi.ProgramAddressBytes];
+                MerkabaSphereFlowerPersistenceAbi.WriteProgramAddress(address,
+                    program);
+                records.Add(new MerkabaAppendRecord(
+                    MerkabaRecordKind.ThreadProgram, address,
+                    (byte[])payload.Payload.Clone()));
+            }
         }
 
         internal bool TryGetFine(MerkabaTileAddress tile, int kernelLocal,
@@ -498,6 +701,9 @@ namespace Genesis.RoomScan
         private bool IsFineReachable(FineAddress address,
             VersionedPayload value, uint epoch)
         {
+            if (_ownerRebases.TryGetValue(address.Owner, out MerkabaRecordVersion rebase) &&
+                value.Version.Generation < rebase.Generation)
+                return false;
             switch (address.Kind)
             {
                 case MerkabaRecordKind.FlowerDetail:
@@ -678,10 +884,9 @@ namespace Genesis.RoomScan
             if (!_fineByOwner.TryGetValue(owner,
                     out HashSet<FineAddress> addresses))
             {
-                if (hasEpoch)
-                    throw new InvalidDataException(
-                        "A sparse Flower owner epoch has no fine-state " +
-                        "history.");
+                // Dirty snapshots may coalesce creation and invalidation of
+                // the first fine payload. The sparse epoch history still has
+                // to survive OPEN, without a fabricated descendant record.
                 return;
             }
             if (!hasEpoch)
@@ -975,13 +1180,14 @@ namespace Genesis.RoomScan
             {
                 if (version.CompareTo(prior.Version) < 0) return;
                 uint previousEpoch = Read32(prior.Payload, 4);
+                if (version.CompareTo(prior.Version) == 0 && nextEpoch != previousEpoch)
+                    throw new InvalidDataException("Conflicting owner epoch snapshots share a record version.");
                 bool same = nextEpoch == previousEpoch;
-                bool increment = previousEpoch != uint.MaxValue &&
-                    nextEpoch == previousEpoch + 1u;
+                bool increment = nextEpoch > previousEpoch;
                 bool rebase = previousEpoch == uint.MaxValue && nextEpoch == 1u;
                 if (!same && !increment && !rebase)
                     throw new InvalidDataException(
-                        "Flower owner epoch must remain stable, increment once, " +
+                        "Flower owner snapshot epoch must remain stable, advance, " +
                         "or transactionally rebase from 0xffffffff to 1.");
                 if (rebase)
                 {
@@ -995,9 +1201,8 @@ namespace Genesis.RoomScan
                         _rebaseTombstonesRequired.Remove(owner);
                 }
             }
-            else if (nextEpoch != 1u)
-                throw new InvalidDataException(
-                    "The first sparse Flower owner epoch must be 1.");
+            // This is a dirty-state log, not an event log. The first durable
+            // snapshot may already include several structural invalidations.
             Put(_epochs, owner, version, record.Payload);
         }
 

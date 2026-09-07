@@ -11,9 +11,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
         {
             Name "MerkabaForward"
             Tags { "LightMode"="UniversalForward" }
-            // The readout emits one zero-thickness canonical sheet, never a
-            // second UNKNOWN-side surface. Both physical sides of that one
-            // sheet therefore use the same disposable vertex stream.
+            // Captured sheets retain two-sided presentation. Direct/complete
+            // provenance and DIRT remain separate fields of the same symbols.
             Cull Off
             Blend One Zero
             ZWrite On
@@ -29,7 +28,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             // These four features are selected on runtime-created materials.
             // Keep every required Release-player variant; shader_feature
             // variants without a serialized material user may be stripped.
-            #pragma multi_compile_local_vertex _ M8_STEREO_MESH
             #pragma multi_compile_local_fragment _ M8_FINE_PREVIEW
             #pragma multi_compile_local_fragment _ M8_ENVIRONMENT_OCCLUSION
             #pragma multi_compile_local_fragment _ M8_ALPHA_COVERAGE
@@ -42,15 +40,9 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             float4x4 _EnvironmentDepthProjectionMatrices[2];
             int _IsOcclusionOn;
             float4x4 _MerkabaGridToWorld;
+            float4x4 _MerkabaWorldToGrid;
 
-            struct MerkabaReadoutVertex
-            {
-                float3 gridPosition;
-                uint packedColor;
-            };
-
-            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices0;
-            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices1;
+            #include "MerkabaFlowerVertex.hlsl"
 
             float M8EnvironmentVisibility(float3 worldPosition)
             {
@@ -91,14 +83,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             struct Attributes
             {
-#if defined(M8_STEREO_MESH)
-                float3 gridPosition0 : POSITION;
-                half4 packedColor0 : COLOR;
-                float3 gridPosition1 : TEXCOORD0;
-                half4 packedColor1 : TEXCOORD1;
-#else
                 uint vertexID : SV_VertexID;
-#endif
 #if UNITY_ANY_INSTANCING_ENABLED
                 UNITY_VERTEX_INPUT_INSTANCE_ID
 #else
@@ -109,53 +94,54 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
-                half3 color : TEXCOORD0;
-                nointerpolation uint hasRgb : TEXCOORD1;
-                float3 worldPosition : TEXCOORD2;
+                float3 worldPosition : TEXCOORD0;
+                float2 chart : TEXCOORD1;
+                nointerpolation uint4 symbol : TEXCOORD2;
+                nointerpolation uint packedColor : TEXCOORD3;
+                nointerpolation uint parentEpoch : TEXCOORD4;
+                nointerpolation uint planeFlags : TEXCOORD5;
+                noperspective float valid : TEXCOORD6;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
             Varyings Vert(Attributes input)
             {
-                Varyings output;
+                Varyings output = (Varyings)0;
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-#if defined(M8_STEREO_MESH)
-                float3 gridPosition = input.gridPosition1;
-                half4 packedColor = input.packedColor1;
-                if (unity_StereoEyeIndex == 0)
-                {
-                    gridPosition = input.gridPosition0;
-                    packedColor = input.packedColor0;
-                }
-                half3 color = packedColor.rgb;
-                uint hasRgb = ((uint)round(saturate(packedColor.a) *
-                    255.0h)) & 1u;
+#if UNITY_ANY_INSTANCING_ENABLED
+                uint pageSlot = unity_InstanceID;
 #else
-                MerkabaReadoutVertex vertex;
-                if (input.vertexID < 6291456u)
-                    vertex = _M8ReadoutVertices0[input.vertexID];
-                else
-                    vertex = _M8ReadoutVertices1[
-                        input.vertexID - 6291456u];
-                float3 gridPosition = vertex.gridPosition;
-                uint rgb = vertex.packedColor & 0x00ffffffu;
-                half3 color = half3(rgb & 255u, (rgb >> 8u) & 255u,
-                    (rgb >> 16u) & 255u) / 255.0h;
-                uint hasRgb = (vertex.packedColor >> 24u) & 1u;
+                uint pageSlot = input.proceduralInstanceID;
 #endif
+                M8FlowerGraphicsVertex vertex;
+                if (!M8FlowerReadGraphicsVertex(input.vertexID, pageSlot, vertex))
+                    return output;
                 float3 worldPosition = mul(_MerkabaGridToWorld,
-                    float4(gridPosition, 1.0)).xyz;
+                    float4(vertex.GridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);
                 output.worldPosition = worldPosition;
-                output.color = color;
-                output.hasRgb = hasRgb;
+                output.chart = vertex.Chart;
+                output.symbol = uint4(vertex.Symbol.OwnerAndCarrier,
+                    vertex.Symbol.RootsAndWedges, vertex.Symbol.DetailRef,
+                    vertex.Symbol.ThreadRef);
+                output.packedColor = vertex.PackedColor;
+                output.parentEpoch = vertex.ParentEpoch;
+                output.planeFlags = vertex.PlaneFlags;
+                output.valid = 1.0;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                // Take derivatives before divergence/discard. They invert the
+                // same L2 raster interpolant, never a sampled metric V field.
+                float3 dpdx = ddx(input.worldPosition);
+                float3 dpdy = ddy(input.worldPosition);
+                float2 duvdx = ddx(input.chart);
+                float2 duvdy = ddy(input.chart);
+                clip(input.valid - 1.0);
 #if defined(M8_ENVIRONMENT_OCCLUSION) && defined(XR_HARD_OCCLUSION)
                 clip(M8EnvironmentVisibility(input.worldPosition) - 0.5);
 #endif
@@ -170,8 +156,60 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                     (half)((coverageHash & 255u) + 0.5) / 256.0h;
                 clip(_ScanOpacity - coverageThreshold);
 #endif
-                half3 color = input.hasRgb != 0u
-                    ? input.color : half3(0.55h, 0.16h, 0.42h);
+                M8FlowerSymbolRecord symbol;
+                symbol.OwnerAndCarrier = input.symbol.x;
+                symbol.RootsAndWedges = input.symbol.y;
+                symbol.DetailRef = input.symbol.z;
+                symbol.ThreadRef = input.symbol.w;
+                float3 color;
+                if (M8FlowerDrawIsDirt(symbol))
+                {
+                    color = M8FlowerDirtSupportLinearRgba.rgb;
+                }
+                else
+                {
+                    uint wedge;
+                    float3 barycentric, chartU, chartV;
+                    if (!M8FlowerCarrierChartWedge(input.chart, wedge,
+                        barycentric, chartU, chartV)) clip(-1.0);
+                    // The six index triangles share seven VS outputs. Only
+                    // this per-fragment mask can reject an arbitrary subset
+                    // without moving a shared boundary position.
+                    if ((M8FlowerDrawActiveWedgeMask(symbol) & (1u << wedge)) == 0u)
+                        clip(-1.0);
+                    float3 tangentU, tangentV, normal, barycentricU, barycentricV;
+                    bool frameValid = M8FlowerGraphicsFrame(input.worldPosition,
+                        input.chart, wedge, dpdx, dpdy, duvdx, duvdy,
+                        tangentU, tangentV, normal, barycentricU, barycentricV);
+                    if (!frameValid)
+                    {
+                        float3 parentNormal; float parentOffset;
+                        M8FlowerUnpackPlane(input.planeFlags, parentNormal, parentOffset);
+                        normal = normalize(mul(parentNormal,
+                            (float3x3)_MerkabaWorldToGrid));
+                        barycentricU = barycentricV = 0.0;
+                    }
+                    if ((M8FlowerDrawReverseWedgeMask(symbol) & (1u << wedge)) != 0u)
+                    {
+                        normal = -normal;
+                        tangentV = -tangentV;
+                        barycentricV = -barycentricV;
+                    }
+                    M8FlowerSkinLocality locality = M8FlowerResolveSkinLocality(
+                        barycentric, wedge, barycentricU, barycentricV);
+                    M8FlowerSkinDrawSample sample;
+                    if (!M8FlowerReadGraphicsSkin(symbol, input.parentEpoch,
+                        wedge, locality, M8FlowerCapturedColor(input.packedColor), sample))
+                        clip(-1.0);
+                    float metricV = 0.0;
+                    float3 microNormal = normal;
+                    if (frameValid)
+                        microNormal = M8FlowerEvaluateSkinNormal(locality, sample,
+                            tangentU, tangentV, normal, metricV);
+                    // The certified optical-response consumer is separate from
+                    // reconstruction. Uncertified capture is never relit as albedo.
+                    color = sample.CapturedRgb;
+                }
 #if defined(M8_CHECKER_READOUT)
                 float3 surfaceAxis = abs(cross(ddx(input.worldPosition),
                     ddy(input.worldPosition)));

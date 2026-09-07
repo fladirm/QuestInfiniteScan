@@ -12,7 +12,10 @@ namespace Genesis.RoomScan
         SurfaceIntegration,
         CarveIntegration,
         WorldQuery,
-        ReadoutBuild,
+        FlowerClassify,
+        FlowerCompact,
+        FlowerPublish,
+        FlowerCull,
         MerkabaDraw,
         Count
     }
@@ -20,7 +23,7 @@ namespace Genesis.RoomScan
     internal enum CaptureOwner : byte
     {
         Observation,
-        ReadoutBuild,
+        FlowerPages,
         Draw,
         DepthSnapshotCopy,
         PcaObservationCopy,
@@ -113,9 +116,9 @@ namespace Genesis.RoomScan
             internal uint CarveCheapOutsideOuterAttention;
             internal uint CarveCheapSurfaceEndpoint;
             internal uint CarveExactIncidenceReject;
-            internal uint CarveExactDilationReject;
-            internal uint CarveClassifiedFree;
-            internal uint CarveClassifiedSurface;
+            internal uint CarveExactCertificateReject;
+            internal uint ObservationChangeMask;
+            internal uint DirtyTileCount;
             internal uint CarveClassifiedUnknown;
             internal uint CarveEvidenceDecrements;
             internal uint CarveOccupiedToFree;
@@ -126,20 +129,8 @@ namespace Genesis.RoomScan
             internal uint FailedReads;
             internal uint FailedWrites;
             internal uint StorageBackpressure;
-            internal uint CandidateBlocks;
-            internal uint HashHitBlocks;
-            internal uint VisibleChunks;
-            internal uint VisibleTiles;
-            internal uint OccupiedKernelsConsidered;
-            internal uint ReadoutPlaneValid;
-            internal uint LogicalPrimitives;
-            internal uint ReadoutEmittedPatches;
-            internal uint ReadoutEmittedTriangles;
-            internal uint LateColdMisses;
-            internal uint RenderPrimitiveOverflow;
-            internal uint ReadoutUnresolved;
-            internal uint ReadoutBuildStatus;
-            internal uint ReadoutPlaneLegacyInvalid;
+            internal uint DualStorageIntents;
+            internal uint DualTouchPublication;
             internal uint ObservationFailure;
             internal uint FailedObservations;
             internal readonly uint[] CarveFreeRadial = new uint[8];
@@ -168,7 +159,10 @@ namespace Genesis.RoomScan
             "SURFACE_INTEGRATION",
             "CARVE_INTEGRATION",
             "M8_WORLD_QUERY",
-            "M8_READOUT_BUILD",
+            "FLOWER_CLASSIFY",
+            "FLOWER_COMPACT",
+            "FLOWER_PUBLISH",
+            "FLOWER_CULL",
             "MERKABA_DRAW"
         };
         private static readonly Dictionary<(ulong Shader, int Kernel), TimingEntry>
@@ -176,7 +170,7 @@ namespace Genesis.RoomScan
         private static readonly List<TimingEntry> EntrySequence =
             new(MaximumTimedEntries);
         private static readonly TimingEntry DrawEntry = new(
-            MerkabaGpuStage.MerkabaDraw, "MerkabaGrid.DrawProceduralIndirect");
+            MerkabaGpuStage.MerkabaDraw, "Flower.DrawIndexedIndirectCount");
         private static readonly TimingEntry PcaHistoryCopyEntry = new(
             MerkabaGpuStage.DepthPreprocess,
             "PassthroughCameraProvider.CopyOwnedHistory");
@@ -636,32 +630,10 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterCarveCheapSurfaceEndpoint];
                     sample.CarveExactIncidenceReject = values[
                         MerkabaGrid.CounterCarveExactIncidenceReject];
-                    sample.CarveExactDilationReject = values[
-                        MerkabaGrid.CounterCarveExactDilationReject];
+                    sample.CarveExactCertificateReject = values[
+                        MerkabaGrid.CounterCarveExactCertificateReject];
                     sample.LoadRequests = values[
                         MerkabaGrid.CounterLoadRequests];
-                    sample.VisibleTiles = values[
-                        MerkabaGrid.CounterVisibleTiles];
-                    sample.LogicalPrimitives = values[
-                        MerkabaGrid.CounterLogicalPrimitives];
-                    sample.RenderPrimitiveOverflow = values[
-                        MerkabaGrid.CounterRenderPrimitiveOverflow];
-                    sample.LateColdMisses = values[
-                        MerkabaGrid.CounterLateDrawColdMisses];
-                    sample.CandidateBlocks = values[
-                        MerkabaGrid.CounterCandidateBlocks];
-                    sample.HashHitBlocks = values[
-                        MerkabaGrid.CounterHashHitBlocks];
-                    sample.VisibleChunks = values[
-                        MerkabaGrid.CounterVisibleChunks];
-                    sample.OccupiedKernelsConsidered = values[
-                        MerkabaGrid.CounterOccupiedKernelsConsidered];
-                    sample.ReadoutPlaneValid = values[
-                        MerkabaGrid.CounterReadoutPlaneValid];
-                    sample.ReadoutEmittedPatches = values[
-                        MerkabaGrid.CounterReadoutEmittedPatches];
-                    sample.ReadoutEmittedTriangles = values[
-                        MerkabaGrid.CounterReadoutEmittedTriangles];
                     sample.HashFull = values[MerkabaGrid.CounterHashFull];
                     sample.FailedReads = values[
                         MerkabaGrid.CounterFailedReads];
@@ -669,6 +641,10 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterFailedWrites];
                     sample.StorageBackpressure = values[
                         MerkabaGrid.CounterStorageBackpressure];
+                    sample.DualStorageIntents = values[
+                        MerkabaGrid.CounterDualStorageIntentCount];
+                    sample.DualTouchPublication = values[
+                        MerkabaGrid.CounterDualTouchPublication];
                     sample.CarveQueryBlocks = values[
                         MerkabaGrid.CounterCarveQueryBlocks];
                     sample.WritebackTiles = values[
@@ -677,10 +653,10 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterObservationFailure];
                     sample.FailedObservations = values[
                         MerkabaGrid.CounterFailedObservations];
-                    sample.CarveClassifiedFree = values[
-                        MerkabaGrid.CounterCarveClassifiedFree];
-                    sample.CarveClassifiedSurface = values[
-                        MerkabaGrid.CounterCarveClassifiedSurface];
+                    sample.ObservationChangeMask = values[
+                        MerkabaGrid.CounterObservationChangeMask];
+                    sample.DirtyTileCount = values[
+                        MerkabaGrid.CounterDirtyTileCount];
                     sample.CarveClassifiedUnknown = values[
                         MerkabaGrid.CounterCarveClassifiedUnknown];
                     sample.CarveEvidenceDecrements = values[
@@ -691,12 +667,6 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterCarveBitsRetired];
                     sample.ColdCarveTilesRequested = values[
                         MerkabaGrid.CounterColdCarveTilesRequested];
-                    sample.ReadoutUnresolved = values[
-                        MerkabaGrid.CounterReadoutUnresolved];
-                    sample.ReadoutBuildStatus = values[
-                        MerkabaGrid.CounterReadoutBuildStatus];
-                    sample.ReadoutPlaneLegacyInvalid = values[
-                        MerkabaGrid.CounterReadoutPlaneLegacyInvalid];
                     for (int radialBin = 0; radialBin < 8; radialBin++)
                         sample.CarveFreeRadial[radialBin] = values[
                             MerkabaGrid.CounterCarveFreeRadialBase + radialBin];
@@ -1036,19 +1006,19 @@ namespace Genesis.RoomScan
             Logger.Info($"Merkaba metrics-carve-exact revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
                         $"exactCarveEvaluations={sample.CarveKernelsEvaluated} " +
-                        $"carveClassifiedFree={sample.CarveClassifiedFree} " +
-                        $"carveClassifiedSurface={sample.CarveClassifiedSurface} " +
+                        $"dirtyTileCount={sample.DirtyTileCount} " +
                         $"carveClassifiedUnknown={sample.CarveClassifiedUnknown} " +
                         $"exactIncidenceReject=" +
                         $"{sample.CarveExactIncidenceReject} " +
-                        $"exactDilationReject=" +
-                        $"{sample.CarveExactDilationReject} " +
+                        $"exactCertificateReject=" +
+                        $"{sample.CarveExactCertificateReject} " +
                         $"evidenceDecrements={sample.CarveEvidenceDecrements} " +
                         $"occupiedToFreeTransitions={sample.CarveOccupiedToFree} " +
                         $"carveBitsRetired={sample.CarveBitsRetired} " +
                         $"carveFreeRadial=[{string.Join(",", sample.CarveFreeRadial)}]");
             Logger.Info($"Merkaba metrics-authority revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
+                        $"observationChangeMask={sample.ObservationChangeMask} " +
                         $"jointAcceptedCenter={sample.JointAcceptedCenter} " +
                         $"jointAcceptedMid={sample.JointAcceptedMid} " +
                         $"jointAcceptedEdge={sample.JointAcceptedEdge} " +
@@ -1077,26 +1047,10 @@ namespace Genesis.RoomScan
                         $"storageBackpressure={sample.StorageBackpressure} " +
                         $"failedReads={sample.FailedReads} " +
                         $"failedWrites={sample.FailedWrites}");
-            Logger.Info($"Merkaba metrics-readout revision={sample.Revision} " +
+            Logger.Info($"Merkaba metrics-observation-publication revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
-                        $"candidateM8Blocks={sample.CandidateBlocks} " +
-                        $"hashHitM8Blocks={sample.HashHitBlocks} " +
-                        $"visibleChunks={sample.VisibleChunks} " +
-                        $"visibleTiles={sample.VisibleTiles} " +
-                        $"occupiedKernelsConsidered={sample.OccupiedKernelsConsidered} " +
-                        $"readoutPlaneValid={sample.ReadoutPlaneValid} " +
-                        $"logicalReadoutTriangles={sample.LogicalPrimitives} " +
-                        $"readoutVertices={sample.LogicalPrimitives * 3u} " +
-                        $"rawEyeInstances={(sample.LogicalPrimitives > 0u ? 2u : 0u)} " +
-                        $"stereoVertexInvocations={sample.LogicalPrimitives * 6u} " +
-                        $"readoutEmittedPatches={sample.ReadoutEmittedPatches} " +
-                        $"readoutEmittedTriangles={sample.ReadoutEmittedTriangles} " +
-                        $"lateDrawColdMisses={sample.LateColdMisses} " +
-                        $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow} " +
-                        $"readoutUnresolved={sample.ReadoutUnresolved} " +
-                        $"readoutPlaneLegacyInvalid=" +
-                        $"{sample.ReadoutPlaneLegacyInvalid} " +
-                        $"readoutBuildStatus={sample.ReadoutBuildStatus} " +
+                        $"dualStorageIntents={sample.DualStorageIntents} " +
+                        $"dualTouchPublication={sample.DualTouchPublication} " +
                         $"observationFailure=0x{sample.ObservationFailure:x} " +
                         $"failedObservations={sample.FailedObservations}");
         }
@@ -1108,7 +1062,7 @@ namespace Genesis.RoomScan
                    ",opposite=" + values[offset + 1] +
                    ",coverage=" + values[offset + 2] +
                    ",chroma=" + values[offset + 3] +
-                   ",census=" + values[offset + 4] +
+                   ",flowerUnresolved=" + values[offset + 4] +
                    ",metric=" + values[offset + 5] +
                    ",unique=" + values[offset + 6] +
                    ",accepted=" + values[offset + 7] + "]";

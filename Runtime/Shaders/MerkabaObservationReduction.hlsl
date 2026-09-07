@@ -71,34 +71,6 @@ float M8FlowerFromOrderedFloat(uint value)
 // the same tile workgroup. Roots of different relations are never pooled.
 // Both coordinates of the analytic root are intersected before selecting a
 // representative; an overlapping x interval alone cannot certify a match.
-bool M8FlowerClassifyObservationRoot(uint level,
-    uint lineClass, bool endpointOrientation, bool plusRoot,
-    M8FlowerInterval3 abc, out uint symbolTag,
-    out M8FlowerInterval2 root, out uint classification)
-{
-    symbolTag = 0u;
-    root.x = M8FlowerI(0.0, 0.0);
-    root.y = M8FlowerI(0.0, 0.0);
-    classification = M8_FLOWER_ROOT_AMBIGUOUS;
-    if (level >= M8_FLOWER_GEOMETRY_LEVEL_COUNT || lineClass >= 13u)
-        return false;
-    classification = M8FlowerRootInterval(abc, plusRoot, root);
-    if (classification != M8_FLOWER_ROOT_CERTAIN_SECANT &&
-        classification != M8_FLOWER_ROOT_CERTAIN_TANGENT) return false;
-    // Delta=0 has a single isolated knot. Keep only the canonical minus
-    // entry when the caller iterates the two algebraic signs.
-    if (classification == M8_FLOWER_ROOT_CERTAIN_TANGENT && plusRoot)
-        return false;
-    uint sector;
-    if (!M8FlowerRootSector(lineClass, root, sector))
-    {
-        classification = M8_FLOWER_ROOT_AMBIGUOUS;
-        return false;
-    }
-    symbolTag = level | (lineClass << 3u) | (plusRoot ? 1u << 7u : 0u) |
-        (sector << 8u) | (endpointOrientation ? 1u << 13u : 0u);
-    return true;
-}
 
 void M8FlowerIntersectRoot(uint kernelLocal, uint symbolTag,
     M8FlowerInterval2 root)
@@ -191,6 +163,109 @@ bool M8FlowerReadObservationBucket(uint kernelLocal, out uint identity,
     sourcePixel = representative & M8_FLOWER_OBSERVATION_PIXEL_MASK;
     return M8FlowerObservationBucketCertain(kernelLocal) &&
         representative != 0xffffffffu;
+}
+
+// Compatibility of two quantized carriers on the SAME arithmetic owner.
+// Failure preserves the existing R1. It cannot choose a different sheet by
+// normal angle, distance, confidence, or a nearest-root match.
+bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
+    float normalUncertainty, float offsetUncertainty)
+{
+    if (!M8FlowerHasPlane(previousFlags)) return true;
+    if (!M8FlowerHasPlane(incomingFlags) ||
+        M8FlowerPlaneFreeSide(previousFlags) !=
+        M8FlowerPlaneFreeSide(incomingFlags)) return false;
+    if ((previousFlags & M8_FLOWER_PLANE_STORAGE_MASK) ==
+        (incomingFlags & M8_FLOWER_PLANE_STORAGE_MASK)) return true;
+    float3 previousNormal, incomingNormal;
+    float previousOffset, incomingOffset;
+    M8FlowerUnpackPlane(previousFlags, previousNormal, previousOffset);
+    M8FlowerUnpackPlane(incomingFlags, incomingNormal, incomingOffset);
+    bool isolated = false;
+    [loop]
+    for (uint direction = 0u; direction < 6u; ++direction)
+    {
+        uint lineClass = (uint)M8FlowerDirection[direction].w;
+        precise float3 relative = float3(M8FlowerDirection[direction].xyz) *
+            (M8_FLOWER_LATTICE_STEP * 0.5);
+        M8FlowerInterval3 previousAbc, incomingAbc;
+        if (!M8FlowerPlaneIntervals(previousNormal, previousOffset, relative,
+                M8_FLOWER_R1_RADIUS, lineClass, normalUncertainty,
+                offsetUncertainty, previousAbc) ||
+            !M8FlowerPlaneIntervals(incomingNormal, incomingOffset, relative,
+                M8_FLOWER_R1_RADIUS, lineClass, normalUncertainty,
+                offsetUncertainty, incomingAbc)) return false;
+        [loop]
+        for (uint rootSign = 0u; rootSign < 2u; ++rootSign)
+        {
+            M8FlowerInterval2 previousRoot, incomingRoot;
+            uint previousClass = M8FlowerRootInterval(previousAbc,
+                rootSign != 0u, previousRoot);
+            uint incomingClass = M8FlowerRootInterval(incomingAbc,
+                rootSign != 0u, incomingRoot);
+            if (previousClass == M8_FLOWER_ROOT_AMBIGUOUS ||
+                incomingClass != previousClass) return false;
+            if (previousClass == M8_FLOWER_ROOT_IMPOSSIBLE ||
+                previousClass == M8_FLOWER_ROOT_COPLANAR) continue;
+            if (rootSign != 0u &&
+                previousClass == M8_FLOWER_ROOT_CERTAIN_TANGENT) continue;
+            uint previousSector, incomingSector;
+            if (!M8FlowerRootSector(lineClass, previousRoot, previousSector) ||
+                !M8FlowerRootSector(lineClass, incomingRoot, incomingSector) ||
+                previousSector != incomingSector ||
+                max(previousRoot.x.lo, incomingRoot.x.lo) >
+                    min(previousRoot.x.hi, incomingRoot.x.hi) ||
+                max(previousRoot.y.lo, incomingRoot.y.lo) >
+                    min(previousRoot.y.hi, incomingRoot.y.hi)) return false;
+            isolated = true;
+        }
+    }
+    return isolated;
+}
+
+// A repeated packed plane is not itself a root certificate. Seed promotion
+// needs a CERTAIN correspondence on one fixed directed R1 relation, with the
+// same algebraic sign and generated sector in both immutable observations.
+bool M8FlowerSeedCorrespondence(uint previousFlags, uint incomingFlags,
+    float normalUncertainty, float offsetUncertainty)
+{
+    if (!M8FlowerHasPlane(previousFlags) || !M8FlowerHasPlane(incomingFlags) ||
+        M8FlowerPlaneFreeSide(previousFlags) != M8FlowerPlaneFreeSide(incomingFlags))
+        return false;
+    float3 previousNormal, incomingNormal;
+    float previousOffset, incomingOffset;
+    M8FlowerUnpackPlane(previousFlags,previousNormal,previousOffset);
+    M8FlowerUnpackPlane(incomingFlags,incomingNormal,incomingOffset);
+    [loop] for (uint direction = 0u; direction < 6u; ++direction)
+    {
+        uint lineClass = (uint)M8FlowerDirection[direction].w;
+        precise float3 relative = float3(M8FlowerDirection[direction].xyz)*
+            (M8_FLOWER_LATTICE_STEP*0.5);
+        M8FlowerInterval3 previousAbc, incomingAbc;
+        if (!M8FlowerPlaneIntervals(previousNormal,previousOffset,relative,
+                M8_FLOWER_R1_RADIUS,lineClass,normalUncertainty,
+                offsetUncertainty,previousAbc) ||
+            !M8FlowerPlaneIntervals(incomingNormal,incomingOffset,relative,
+                M8_FLOWER_R1_RADIUS,lineClass,normalUncertainty,
+                offsetUncertainty,incomingAbc)) continue;
+        [loop] for (uint sign = 0u; sign < 2u; ++sign)
+        {
+            uint previousTag, incomingTag, previousClass, incomingClass;
+            M8FlowerInterval2 previousRoot, incomingRoot;
+            if (!M8FlowerClassifyObservationRoot(0u,lineClass,
+                    (direction & 1u) != 0u,sign != 0u,previousAbc,
+                    previousTag,previousRoot,previousClass) ||
+                !M8FlowerClassifyObservationRoot(0u,lineClass,
+                    (direction & 1u) != 0u,sign != 0u,incomingAbc,
+                    incomingTag,incomingRoot,incomingClass)) continue;
+            if (previousTag == incomingTag &&
+                max(previousRoot.x.lo,incomingRoot.x.lo) <=
+                    min(previousRoot.x.hi,incomingRoot.x.hi) &&
+                max(previousRoot.y.lo,incomingRoot.y.lo) <=
+                    min(previousRoot.y.hi,incomingRoot.y.hi)) return true;
+        }
+    }
+    return false;
 }
 
 #endif

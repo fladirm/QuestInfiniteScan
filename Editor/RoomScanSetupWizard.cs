@@ -225,12 +225,14 @@ namespace Genesis.RoomScan.Editor
 
             AssignAsset(depth, "depthNormalCompute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/DepthNormals.compute");
-            AssignAsset(depth, "depthDilationCompute",
-                "Packages/com.genesis.roomscan/Runtime/Shaders/DepthDilation.compute");
             AssignAsset(depth, "stereoRgbdRefineCompute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/StereoRgbdRefine.compute");
+            AssignAsset(depth, "depthCertificateCompute",
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaDepthCertificate.compute");
             AssignAsset(integrator, "compute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute");
+            AssignAsset(integrator, "observationBins",
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaObservationBins.compute");
             AssignAsset(grid, "worldCompute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaWorld.compute");
             AssignAsset(renderer, "readoutCompute",
@@ -437,6 +439,10 @@ namespace Genesis.RoomScan.Editor
             if (!File.Exists(ScenePath))
                 throw new FileNotFoundException("Prepared Merkaba scene is missing", ScenePath);
 
+            // A successful native .so build does not certify the generated
+            // Flower authority embedded in an APK. Refuse stale/invalid tables
+            // before BuildPlayer can publish a production artifact.
+            MerkabaSphereFlowerCodegen.CheckForBatch();
             ConfigurePlayerSettings();
             string destination = Environment.GetEnvironmentVariable("QIS_MERKABA_APK_PATH");
             if (string.IsNullOrWhiteSpace(destination))

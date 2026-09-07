@@ -264,8 +264,29 @@ namespace Genesis.RoomScan
         }
     }
 
+    /// <summary>
+    /// An exact live append prefix, not a proof that GPU work has drained. The
+    /// coordinator must pair it with the generation-bound GPU drain receipt.
+    /// </summary>
+    internal readonly struct MerkabaStorageAppendPosition
+    {
+        internal readonly ulong Generation;
+        internal readonly ulong RecordSequence;
+        internal readonly object Authority;
+
+        internal MerkabaStorageAppendPosition(object authority,
+            ulong generation, ulong recordSequence)
+        {
+            Authority = authority;
+            Generation = generation;
+            RecordSequence = recordSequence;
+        }
+    }
+
     internal readonly struct MerkabaStorageCommitResult
     {
+        // default is Retry: it must never authorize a durable GPU watermark.
+        internal readonly bool Committed;
         internal readonly ulong Generation;
         internal readonly int CanonicalTileCount;
         internal readonly long DirtyBytes;
@@ -273,6 +294,7 @@ namespace Genesis.RoomScan
         internal MerkabaStorageCommitResult(ulong generation,
             int canonicalTileCount, long dirtyBytes)
         {
+            Committed = true;
             Generation = generation;
             CanonicalTileCount = canonicalTileCount;
             DirtyBytes = dirtyBytes;

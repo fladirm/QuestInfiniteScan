@@ -38,34 +38,28 @@ namespace
         kResourcePendingNewTileRefs,
         kResourceLoadRequests,
         kResourceLoadRequestReadCount,
-        kResourceSurfaceCandidates,
-        kResourceSurfaceQueue,
-        kResourceSurfaceWinnerRanks0,
-        kResourceSurfaceWinnerRanks1,
-        kResourceSurfaceWinnerRanks2,
-        kResourceSurfaceWinnerRanks3,
         kResourceTouchedTileQueue,
-        kResourceCarveTiles,
         kResourceObservationDispatchArgs,
-        kResourceCarveDispatchArgs,
         kResourceAttemptCompletion,
         kResourceRefineMetrics,
         kResourceRawDepth,
         kResourceRefinedDepth,
         kResourceNormals,
-        kResourceDilationA,
-        kResourceDilationB,
         kResourceCameraLeft,
         kResourceCameraRight,
-        kResourceVisibleTiles,
         kResourceFrameDispatchArgs,
-        kResourceReadoutVertices0,
-        kResourceReadoutVertices1,
-        kResourceReadoutIndices,
-        kResourceDrawArgs,
         kResourceObservationRecords,
         kResourceObservationTileBins,
         kResourceTileHalo,
+        kResourceDepthCertificate,
+        kResourceDualBlockState,
+        kResourceDualChunkState,
+        kResourceDualLeaves,
+        kResourceFlowerDetailPages,
+        kResourceThreadAtlasPages,
+        kResourceFlowerSymbolArena,
+        kResourceFlowerPageDirectory,
+        kResourceFlowerIndirectCommands,
         kResourceCount,
     };
 
@@ -110,25 +104,31 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
+    static_assert(kMerkabaExecutorPipelineCount == 25,
+        "M8 executor pipeline tables must be regenerated for ABI 10");
 
-    constexpr uint32_t kExecutorAbiVersion = 2;
-    constexpr uint32_t kObservationPipelineEnd = 33;
-    constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kMeshReadoutPipelineBegin = 38;
-    constexpr uint32_t kFineErasePipelineBegin = 44;
-    constexpr uint32_t kObservationBinsPipelineBegin = 49;
-    constexpr uint32_t kMaximumExecutorQueries =
-        kMerkabaExecutorPipelineCount * 2 + 2;
-    constexpr uint32_t kReadoutResetGroupCount = 1;
+    constexpr uint32_t kExecutorAbiVersion = 10;
+    constexpr uint32_t kObservationPipelineEnd = 16;
+    constexpr uint32_t kObservationAllocationBegin = 6;
+    constexpr uint32_t kObservationAllocationEnd = 9;
+    constexpr uint32_t kObservationReservePipeline = 9;
+    constexpr uint32_t kObservationDualPipeline = 11;
+    constexpr uint32_t kObservationDrainPipeline = 13;
+    constexpr uint32_t kFlowerPipelineBegin = 16;
+    constexpr uint32_t kFlowerCullPipeline = 19;
+    constexpr uint32_t kFineErasePipelineBegin = 20;
+    constexpr uint32_t kMaximumExecutorDispatches = kMerkabaExecutorPipelineCount +
+        1u + kObservationAllocationEnd - kObservationAllocationBegin;
+    constexpr uint32_t kMaximumExecutorQueries = kMaximumExecutorDispatches * 2u + 2u;
+    constexpr uint32_t kFlowerSlotGroupCount = 32768u / 128u;
+    constexpr VkDeviceSize kMaximumQuestBufferBytes = 128ull * 1024ull * 1024ull;
 
     enum ExecutorJobKind : uint32_t
     {
         kJobObservationNew = 0,
         kJobObservationRetry = 1,
-        kJobReadout = 2,
-        kJobMeshReadout = 3,
-        kJobFineErase = 4,
-        kJobObservationBins = 5,
+        kJobFlowerReadout = 2,
+        kJobFineErase = 3,
     };
 
     struct MerkabaUniformValue
@@ -154,7 +154,7 @@ namespace
         uint32_t depthGroupsX;
         uint32_t depthGroupsY;
         uint32_t queryGroups;
-        uint32_t readoutQueryGroups;
+        uint32_t flowerPassMask;
     };
 
     enum ExecutorJobState : int
@@ -191,7 +191,7 @@ namespace
         uint32_t depthGroupsX = 0;
         uint32_t depthGroupsY = 0;
         uint32_t queryGroups = 0;
-        uint32_t readoutQueryGroups = 0;
+        uint32_t flowerPassMask = 0;
         VkBuffer uniformBuffer = VK_NULL_HANDLE;
         VkDeviceMemory uniformMemory = VK_NULL_HANDLE;
         VkMemoryPropertyFlags uniformMemoryFlags = 0;
@@ -208,6 +208,8 @@ namespace
         VkFence acquireFence = VK_NULL_HANDLE;
         VkQueryPool queryPool = VK_NULL_HANDLE;
         std::array<uint64_t, kMaximumExecutorQueries> timestamps = {};
+        std::array<uint32_t, kMaximumExecutorDispatches> timingPipelines = {};
+        uint32_t timingDispatchCount = 0;
         uint32_t firstPipeline = 0;
         uint32_t lastPipeline = 0;
         uint32_t queryCount = 0;
@@ -276,6 +278,12 @@ namespace
     VkCommandPool g_executorCommandPool = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties g_memoryProperties = {};
     VkPhysicalDeviceProperties g_deviceProperties = {};
+    VkPhysicalDeviceFeatures g_enabledDeviceFeatures = {};
+    VkDeviceSize g_deviceMaxBufferSize = 0;
+    VkDeviceSize g_deviceMaxAllocationSize = 0;
+    bool g_enabledShaderFloat16 = false;
+    bool g_enabledTimelineSemaphore = false;
+    bool g_enabledSynchronization2 = false;
     std::array<ExecutorPipeline, kMerkabaExecutorPipelineCount>
         g_executorPipelines = {};
     VkSampler g_bilinearSampler = VK_NULL_HANDLE;
@@ -322,6 +330,133 @@ namespace
         return static_cast<uint64_t>(std::chrono::duration_cast<
             std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
+
+#include "MerkabaFlowerDraw.h"
+
+    bool QueryDeviceRequirements()
+    {
+        VkPhysicalDeviceProperties2 properties = {};
+        properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        vkGetPhysicalDeviceProperties2(g_instance.physicalDevice, &properties);
+        const uint32_t api = properties.properties.apiVersion;
+        if (api < VK_API_VERSION_1_1)
+        {
+            Log("Merkaba unavailable: embedded shaders require Vulkan 1.1.");
+            return false;
+        }
+        uint32_t extensionCount = 0;
+        vkEnumerateDeviceExtensionProperties(g_instance.physicalDevice, nullptr,
+            &extensionCount, nullptr);
+        std::vector<VkExtensionProperties> extensions(extensionCount);
+        if (vkEnumerateDeviceExtensionProperties(g_instance.physicalDevice, nullptr,
+                &extensionCount, extensions.data()) != VK_SUCCESS)
+            extensions.clear();
+        auto hasExtension = [&extensions](const char* name)
+        {
+            return std::any_of(extensions.begin(), extensions.end(),
+                [name](const VkExtensionProperties& value)
+                { return std::strcmp(value.extensionName, name) == 0; });
+        };
+        VkPhysicalDeviceSubgroupProperties subgroup = {};
+        subgroup.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+        VkPhysicalDeviceMaintenance3Properties allocation = {};
+        allocation.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
+        VkPhysicalDeviceSubgroupSizeControlProperties subgroupRange = {};
+        subgroupRange.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES;
+        VkPhysicalDeviceMaintenance4Properties buffer = {};
+        buffer.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES;
+        properties.pNext = &subgroup;
+        subgroup.pNext = &allocation;
+        if (api >= VK_API_VERSION_1_3 || hasExtension(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME))
+        {
+            subgroupRange.pNext = allocation.pNext;
+            allocation.pNext = &subgroupRange;
+        }
+        if (api >= VK_API_VERSION_1_3 || hasExtension(VK_KHR_MAINTENANCE_4_EXTENSION_NAME))
+        {
+            buffer.pNext = allocation.pNext;
+            allocation.pNext = &buffer;
+        }
+        vkGetPhysicalDeviceProperties2(g_instance.physicalDevice, &properties);
+        g_deviceProperties = properties.properties;
+        g_deviceMaxAllocationSize = allocation.maxMemoryAllocationSize;
+        g_deviceMaxBufferSize = buffer.maxBufferSize; // 0 means property unavailable, not a zero-sized device.
+
+        VkPhysicalDeviceFeatures2 features = {};
+        features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        VkPhysicalDeviceVulkan12Features features12 = {};
+        features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        VkPhysicalDeviceShaderFloat16Int8Features float16 = {};
+        float16.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
+        VkPhysicalDeviceTimelineSemaphoreFeatures timeline = {};
+        timeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+        VkPhysicalDeviceSynchronization2Features sync2 = {};
+        sync2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
+        if (api >= VK_API_VERSION_1_2)
+            features.pNext = &features12;
+        else if (hasExtension(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME))
+            features.pNext = &float16;
+        if (api < VK_API_VERSION_1_2 && hasExtension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME))
+        {
+            timeline.pNext = features.pNext;
+            features.pNext = &timeline;
+        }
+        if (api >= VK_API_VERSION_1_3 || hasExtension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME))
+        {
+            sync2.pNext = features.pNext;
+            features.pNext = &sync2;
+        }
+        vkGetPhysicalDeviceFeatures2(g_instance.physicalDevice, &features);
+        g_flowerDrawHardwareSupported = features.features.multiDrawIndirect &&
+            features.features.drawIndirectFirstInstance &&
+            (api >= VK_API_VERSION_1_2 ? features12.drawIndirectCount != VK_FALSE :
+                hasExtension(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME));
+
+        const auto& limits = g_deviceProperties.limits;
+        char message[768];
+        std::snprintf(message, sizeof(message),
+            "Merkaba Vulkan HW: device=%s api=%u.%u.%u driver=0x%x vendor=0x%x deviceId=0x%x",
+            g_deviceProperties.deviceName, VK_VERSION_MAJOR(api), VK_VERSION_MINOR(api),
+            VK_VERSION_PATCH(api), g_deviceProperties.driverVersion,
+            g_deviceProperties.vendorID, g_deviceProperties.deviceID);
+        Log(message);
+        std::snprintf(message, sizeof(message),
+            "Merkaba Vulkan buffers: storageDescriptorRange=%u uniformDescriptorRange=%u "
+            "maxBufferSize=%llu(propertyAvailable=%u) maxMemoryAllocationSize=%llu "
+            "applicationBufferCap=%llu storageOffsetAlignment=%llu uniformOffsetAlignment=%llu pushConstants=%u",
+            limits.maxStorageBufferRange, limits.maxUniformBufferRange,
+            static_cast<unsigned long long>(g_deviceMaxBufferSize), g_deviceMaxBufferSize != 0,
+            static_cast<unsigned long long>(g_deviceMaxAllocationSize),
+            static_cast<unsigned long long>(kMaximumQuestBufferBytes),
+            static_cast<unsigned long long>(limits.minStorageBufferOffsetAlignment),
+            static_cast<unsigned long long>(limits.minUniformBufferOffsetAlignment), limits.maxPushConstantsSize);
+        Log(message);
+        std::snprintf(message, sizeof(message),
+            "Merkaba Vulkan compute: invocations=%u size=%u/%u/%u groups=%u/%u/%u sharedBytes=%u "
+            "subgroup=%u range=%u/%u stages=0x%x operations=0x%x storageBuffers=%u storageImages=%u",
+            limits.maxComputeWorkGroupInvocations, limits.maxComputeWorkGroupSize[0],
+            limits.maxComputeWorkGroupSize[1], limits.maxComputeWorkGroupSize[2],
+            limits.maxComputeWorkGroupCount[0], limits.maxComputeWorkGroupCount[1],
+            limits.maxComputeWorkGroupCount[2], limits.maxComputeSharedMemorySize,
+            subgroup.subgroupSize, subgroupRange.minSubgroupSize, subgroupRange.maxSubgroupSize,
+            subgroup.supportedStages, subgroup.supportedOperations,
+            limits.maxPerStageDescriptorStorageBuffers, limits.maxPerStageDescriptorStorageImages);
+        Log(message);
+        std::snprintf(message, sizeof(message),
+            "Merkaba Vulkan features supported/enabled: float16=%u/%u int64=%u/%u float64=%u/%u "
+            "timeline=%u/%u synchronization2=%u/%u multiDrawIndirect=%u/%u firstInstance=%u/%u "
+            "countDraw=%u/%u; optional numeric/subgroup features are not scanner requirements",
+            api >= VK_API_VERSION_1_2 ? features12.shaderFloat16 : float16.shaderFloat16,
+            g_enabledShaderFloat16, features.features.shaderInt64, g_enabledDeviceFeatures.shaderInt64,
+            features.features.shaderFloat64, g_enabledDeviceFeatures.shaderFloat64,
+            api >= VK_API_VERSION_1_2 ? features12.timelineSemaphore : timeline.timelineSemaphore,
+            g_enabledTimelineSemaphore, sync2.synchronization2,
+            g_enabledSynchronization2, features.features.multiDrawIndirect, g_enabledDeviceFeatures.multiDrawIndirect,
+            features.features.drawIndirectFirstInstance, g_enabledDeviceFeatures.drawIndirectFirstInstance,
+            g_flowerDrawHardwareSupported, g_flowerDrawDeviceEnabled);
+        Log(message);
+        return true;
     }
 
     PFN_vkVoidFunction VKAPI_PTR InterceptGetInstanceProcAddr(
@@ -415,6 +550,57 @@ namespace
         }
 
         VkDeviceCreateInfo modified = *createInfo;
+        // Enable the count-draw extension on pre-1.2 feature chains. When
+        // Unity explicitly supplies Vulkan12Features its chosen enabled
+        // feature remains authoritative; never silently patch a const chain.
+        const VkPhysicalDeviceFeatures* enabled = createInfo->pEnabledFeatures;
+        const VkPhysicalDeviceVulkan12Features* enabled12 = nullptr;
+        bool enabledFloat16 = false, enabledTimeline = false, enabledSync2 = false;
+        for (auto link = static_cast<const VkBaseInStructure*>(createInfo->pNext);
+            link != nullptr; link = link->pNext)
+        {
+            if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2)
+                enabled = &reinterpret_cast<const VkPhysicalDeviceFeatures2*>(link)->features;
+            else if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
+            {
+                enabled12 = reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(link);
+                enabledFloat16 = enabled12->shaderFloat16 != VK_FALSE;
+                enabledTimeline = enabled12->timelineSemaphore != VK_FALSE;
+            }
+            else if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES)
+                enabledFloat16 = reinterpret_cast<const VkPhysicalDeviceShaderFloat16Int8Features*>(link)->shaderFloat16 != VK_FALSE;
+            else if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES)
+                enabledTimeline = reinterpret_cast<const VkPhysicalDeviceTimelineSemaphoreFeatures*>(link)->timelineSemaphore != VK_FALSE;
+            else if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES)
+                enabledSync2 = reinterpret_cast<const VkPhysicalDeviceSynchronization2Features*>(link)->synchronization2 != VK_FALSE;
+            else if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES)
+                enabledSync2 = reinterpret_cast<const VkPhysicalDeviceVulkan13Features*>(link)->synchronization2 != VK_FALSE;
+        }
+        std::vector<const char*> extensions;
+        for (uint32_t i = 0; i < createInfo->enabledExtensionCount; i++)
+            extensions.push_back(createInfo->ppEnabledExtensionNames[i]);
+        bool countExtension = std::any_of(extensions.begin(), extensions.end(),
+            [](const char* name) { return std::strcmp(name, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) == 0; });
+        if (enabled12 == nullptr && !countExtension)
+        {
+            uint32_t count = 0;
+            if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, nullptr) == VK_SUCCESS)
+            {
+                std::vector<VkExtensionProperties> supported(count);
+                if (vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &count, supported.data()) == VK_SUCCESS)
+                    for (const auto& extension : supported)
+                        if (std::strcmp(extension.extensionName, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) == 0)
+                        {
+                            extensions.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+                            countExtension = true;
+                            break;
+                        }
+            }
+        }
+        modified.ppEnabledExtensionNames = extensions.data();
+        modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+        bool countDrawEnabled = enabled != nullptr && enabled->multiDrawIndirect && enabled->drawIndirectFirstInstance &&
+            (enabled12 != nullptr ? enabled12->drawIndirectCount != VK_FALSE : countExtension);
         bool inject = safeCandidates == 1u;
         if (inject)
         {
@@ -434,8 +620,8 @@ namespace
             g_injectedQueueIndex = UINT32_MAX;
         }
 
-        VkResult result = nextCreateDevice(physicalDevice,
-            inject ? &modified : createInfo, allocator, device);
+        VkResult result = nextCreateDevice(physicalDevice, &modified, allocator, device);
+        g_flowerDrawDeviceEnabled = result == VK_SUCCESS && countDrawEnabled;
         g_queueInjected = result == VK_SUCCESS && inject;
         if (result != VK_SUCCESS && inject)
         {
@@ -445,7 +631,13 @@ namespace
             g_queueInjected = false;
             result = nextCreateDevice(physicalDevice, createInfo, allocator,
                 device);
+            g_flowerDrawDeviceEnabled = false;
         }
+        g_enabledDeviceFeatures = result == VK_SUCCESS && enabled != nullptr
+            ? *enabled : VkPhysicalDeviceFeatures{};
+        g_enabledShaderFloat16 = result == VK_SUCCESS && enabledFloat16;
+        g_enabledTimelineSemaphore = result == VK_SUCCESS && enabledTimeline;
+        g_enabledSynchronization2 = result == VK_SUCCESS && enabledSync2;
         if (g_log != nullptr)
         {
             char message[512] = {};
@@ -561,6 +753,32 @@ namespace
         {
             const MerkabaEmbeddedPipeline& embedded =
                 kMerkabaExecutorPipelines[index];
+            const auto& limits = g_deviceProperties.limits;
+            // LocalSize is already in each embedded entry; do not maintain a
+            // handwritten second workgroup table or require the dump's 1024.
+            uint32_t localSize[3] = {};
+            for (uint32_t offset = 5; offset < embedded.wordCount;)
+            {
+                const uint32_t* instruction = embedded.words + offset;
+                uint32_t count = instruction[0] >> 16, opcode = instruction[0] & 0xffffu;
+                if (count == 0 || count > embedded.wordCount - offset) return false;
+                if (opcode == 16u && count == 6u && instruction[2] == 17u) // OpExecutionMode LocalSize
+                    std::copy(instruction + 3, instruction + 6, localSize);
+                if (opcode == 54u) break; // OpFunction: declarations are complete.
+                offset += count;
+            }
+            if (localSize[0] == 0 || localSize[1] == 0 || localSize[2] == 0 ||
+                localSize[0] > limits.maxComputeWorkGroupSize[0] ||
+                localSize[1] > limits.maxComputeWorkGroupSize[1] ||
+                localSize[2] > limits.maxComputeWorkGroupSize[2] ||
+                static_cast<uint64_t>(localSize[0]) * localSize[1] * localSize[2] >
+                    limits.maxComputeWorkGroupInvocations)
+            {
+                Log(embedded.label);
+                LogError("embedded LocalSize exceeds actual compute limits", VK_ERROR_FEATURE_NOT_PRESENT);
+                return false;
+            }
+            uint32_t required[5] = {}; // same descriptor classes as CreateJobDescriptors
             std::vector<VkDescriptorSetLayoutBinding> bindings;
             bindings.reserve(embedded.descriptorCount);
             for (uint32_t descriptorIndex = 0;
@@ -573,8 +791,26 @@ namespace
                 binding.descriptorCount = 1;
                 binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                 binding.descriptorType = DescriptorType(descriptor.kind);
+                uint32_t bucket = descriptor.kind <= kEmbeddedUniformBuffer
+                    ? descriptor.kind : 4u;
+                ++required[bucket];
                 bindings.push_back(binding);
             }
+            if (limits.maxBoundDescriptorSets < 1 ||
+                required[0] > std::min(limits.maxPerStageDescriptorStorageBuffers, limits.maxDescriptorSetStorageBuffers) ||
+                required[1] > std::min(limits.maxPerStageDescriptorSampledImages, limits.maxDescriptorSetSampledImages) ||
+                required[2] > std::min(limits.maxPerStageDescriptorStorageImages, limits.maxDescriptorSetStorageImages) ||
+                required[3] > std::min(limits.maxPerStageDescriptorUniformBuffers, limits.maxDescriptorSetUniformBuffers) ||
+                required[4] > std::min(limits.maxPerStageDescriptorSamplers, limits.maxDescriptorSetSamplers) ||
+                required[0] + required[1] + required[2] + required[3] > limits.maxPerStageResources ||
+                embedded.globalSize > limits.maxUniformBufferRange)
+            {
+                Log(embedded.label);
+                LogError("reflected descriptor requirements exceed actual device limits", VK_ERROR_FEATURE_NOT_PRESENT);
+                return false;
+            }
+            // The <=8 writable-only rule remains the SPIR-V build audit gate.
+            // Vulkan's limits above count both writable AND read-only SSBOs.
             VkDescriptorSetLayoutCreateInfo setInfo = {};
             setInfo.sType =
                 VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -666,7 +902,7 @@ namespace
     bool IsStorageImageResource(uint32_t resource)
     {
         return resource >= static_cast<uint32_t>(kResourceRefinedDepth) &&
-            resource <= static_cast<uint32_t>(kResourceDilationB);
+            resource <= static_cast<uint32_t>(kResourceNormals);
     }
 
     bool PipelineRangeForKind(uint32_t kind, uint32_t* first,
@@ -680,35 +916,29 @@ namespace
         }
         if (kind == kJobObservationRetry)
         {
-            *first = 13;
+            *first = 4;
             *last = kObservationPipelineEnd;
             return true;
         }
-        if (kind == kJobReadout)
+        if (kind == kJobFlowerReadout)
         {
-            *first = kReadoutPipelineBegin;
-            *last = kMeshReadoutPipelineBegin;
-            return true;
-        }
-        if (kind == kJobMeshReadout)
-        {
-            *first = kMeshReadoutPipelineBegin;
+            *first = kFlowerPipelineBegin;
             *last = kFineErasePipelineBegin;
             return true;
         }
         if (kind == kJobFineErase)
         {
             *first = kFineErasePipelineBegin;
-            *last = kObservationBinsPipelineBegin;
-            return true;
-        }
-        if (kind == kJobObservationBins)
-        {
-            *first = kObservationBinsPipelineBegin;
             *last = kMerkabaExecutorPipelineCount;
             return true;
         }
         return false;
+    }
+
+    bool PipelineSelected(const ExecutorJob* job, uint32_t pipeline)
+    {
+        return job->kind != kJobFlowerReadout ||
+            (job->flowerPassMask & (1u << (pipeline - kFlowerPipelineBegin))) != 0u;
     }
 
     void FailJob(ExecutorJob* job, VkResult result, const char* operation,
@@ -775,6 +1005,7 @@ namespace
         for (uint32_t pipelineIndex = job->firstPipeline;
             pipelineIndex < job->lastPipeline; ++pipelineIndex)
         {
+            if (!PipelineSelected(job, pipelineIndex)) continue;
             const MerkabaEmbeddedPipeline& pipeline =
                 kMerkabaExecutorPipelines[pipelineIndex];
             for (uint32_t index = 0; index < pipeline.descriptorCount; ++index)
@@ -790,12 +1021,16 @@ namespace
     bool AccessJobResources(ExecutorJob* job)
     {
         const auto used = UsedResources(job);
+        const bool flowerCull = job->kind == kJobFlowerReadout &&
+            PipelineSelected(job, kFlowerCullPipeline);
         const VkPipelineStageFlags bufferStages =
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+            (flowerCull ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u);
         const VkAccessFlags bufferAccess = VK_ACCESS_SHADER_READ_BIT |
             VK_ACCESS_SHADER_WRITE_BIT |
-            VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+            VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+            (flowerCull ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u);
         for (uint32_t resource = 0; resource < kResourceCount; ++resource)
         {
             if (!used[resource])
@@ -816,6 +1051,35 @@ namespace
                 {
                     FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
                         "IUnityGraphicsVulkan::AccessBuffer", false);
+                    return false;
+                }
+                const UnityVulkanBuffer& buffer = job->buffers[resource];
+                const VkDeviceSize limit = g_deviceMaxBufferSize != 0
+                    ? std::min(kMaximumQuestBufferBytes, g_deviceMaxBufferSize)
+                    : kMaximumQuestBufferBytes;
+                // Allocation size and descriptor range are different limits.
+                // This is the actual VkBuffer, not its shared VkDeviceMemory.
+                // Each descriptor's actual bound range is checked separately.
+                if (buffer.buffer == VK_NULL_HANDLE || buffer.sizeInBytes == 0 ||
+                    static_cast<VkDeviceSize>(buffer.sizeInBytes) > limit)
+                {
+                    char operation[224];
+                    std::snprintf(operation, sizeof(operation),
+                        "buffer resource %u: %llu bytes exceeds actual buffer/policy "
+                        "size %llu (128 MiB application cap), or buffer is invalid",
+                        resource, static_cast<unsigned long long>(buffer.sizeInBytes),
+                        static_cast<unsigned long long>(limit));
+                    FailJob(job, VK_ERROR_INITIALIZATION_FAILED, operation, false);
+                    return false;
+                }
+                if (resource == kResourceFlowerIndirectCommands && flowerCull &&
+                    ((buffer.usage & (VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT)) !=
+                        (VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT) ||
+                     buffer.sizeInBytes < kFlowerCountOffset + sizeof(uint32_t)))
+                {
+                    FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                        "Flower indexed arguments require count word and transfer-destination usage", false);
                     return false;
                 }
                 continue;
@@ -883,12 +1147,26 @@ namespace
         for (uint32_t pipeline = job->firstPipeline;
             pipeline < job->lastPipeline; ++pipeline)
         {
+            if (!PipelineSelected(job, pipeline)) continue;
+            const uint32_t uniformBytes = kMerkabaExecutorPipelines[pipeline].globalSize;
+            if (uniformBytes > g_deviceProperties.limits.maxUniformBufferRange)
+            {
+                FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                    "reflected uniform block exceeds device maxUniformBufferRange", false);
+                return false;
+            }
             job->uniformOffsets[pipeline] = requestedSize;
             requestedSize = AlignUp(requestedSize + std::max(16u,
-                kMerkabaExecutorPipelines[pipeline].globalSize), alignment);
+                uniformBytes), alignment);
         }
         if (requestedSize == 0)
             return true;
+        if (requestedSize > kMaximumQuestBufferBytes)
+        {
+            FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                "native uniform backing buffer exceeds Quest 128 MiB maximum", false);
+            return false;
+        }
 
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -905,6 +1183,12 @@ namespace
         VkMemoryRequirements requirements = {};
         vkGetBufferMemoryRequirements(g_instance.device, job->uniformBuffer,
             &requirements);
+        if (g_deviceMaxAllocationSize != 0 && requirements.size > g_deviceMaxAllocationSize)
+        {
+            FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                "native uniform memory exceeds maxMemoryAllocationSize", false);
+            return false;
+        }
         uint32_t memoryType = 0;
         if (!FindMemoryType(requirements.memoryTypeBits,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
@@ -941,6 +1225,7 @@ namespace
         for (uint32_t pipelineIndex = job->firstPipeline;
             pipelineIndex < job->lastPipeline; ++pipelineIndex)
         {
+            if (!PipelineSelected(job, pipelineIndex)) continue;
             const MerkabaEmbeddedPipeline& pipeline =
                 kMerkabaExecutorPipelines[pipelineIndex];
             uint8_t* destination = static_cast<uint8_t*>(mapped) +
@@ -949,14 +1234,6 @@ namespace
             {
                 const MerkabaEmbeddedUniform& uniform =
                     pipeline.uniforms[index];
-                if (pipelineIndex >= 2 && pipelineIndex <= 10 &&
-                    std::strcmp(uniform.name, "gsDilateStepSize") == 0)
-                {
-                    int32_t step = 1 << (10 - pipelineIndex);
-                    std::memcpy(destination + uniform.offset, &step,
-                        sizeof(step));
-                    continue;
-                }
                 const MerkabaUniformValue* value =
                     FindUniformValue(job, uniform.name);
                 if (value == nullptr || value->size == 0 ||
@@ -995,10 +1272,12 @@ namespace
     {
         uint32_t counts[5] = {};
         uint32_t descriptorCount = 0;
-        uint32_t setCount = job->lastPipeline - job->firstPipeline;
+        uint32_t setCount = 0;
         for (uint32_t pipelineIndex = job->firstPipeline;
             pipelineIndex < job->lastPipeline; ++pipelineIndex)
         {
+            if (!PipelineSelected(job, pipelineIndex)) continue;
+            ++setCount;
             const MerkabaEmbeddedPipeline& pipeline =
                 kMerkabaExecutorPipelines[pipelineIndex];
             descriptorCount += pipeline.descriptorCount;
@@ -1042,21 +1321,30 @@ namespace
         layouts.reserve(setCount);
         for (uint32_t pipelineIndex = job->firstPipeline;
             pipelineIndex < job->lastPipeline; ++pipelineIndex)
+        {
+            if (!PipelineSelected(job, pipelineIndex)) continue;
             layouts.push_back(
                 g_executorPipelines[pipelineIndex].descriptorSetLayout);
+        }
         VkDescriptorSetAllocateInfo allocation = {};
         allocation.sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocation.descriptorPool = job->descriptorPool;
         allocation.descriptorSetCount = setCount;
         allocation.pSetLayouts = layouts.data();
+        std::array<VkDescriptorSet, kMerkabaExecutorPipelineCount> allocatedSets = {};
         result = vkAllocateDescriptorSets(g_instance.device, &allocation,
-            job->descriptorSets.data() + job->firstPipeline);
+            allocatedSets.data());
         if (result != VK_SUCCESS)
         {
             FailJob(job, result, "vkAllocateDescriptorSets", false);
             return false;
         }
+        uint32_t setIndex = 0;
+        for (uint32_t pipelineIndex = job->firstPipeline;
+            pipelineIndex < job->lastPipeline; ++pipelineIndex)
+            if (PipelineSelected(job, pipelineIndex))
+                job->descriptorSets[pipelineIndex] = allocatedSets[setIndex++];
 
         std::vector<VkWriteDescriptorSet> writes;
         std::vector<VkDescriptorBufferInfo> bufferInfos;
@@ -1067,6 +1355,7 @@ namespace
         for (uint32_t pipelineIndex = job->firstPipeline;
             pipelineIndex < job->lastPipeline; ++pipelineIndex)
         {
+            if (!PipelineSelected(job, pipelineIndex)) continue;
             const MerkabaEmbeddedPipeline& pipeline =
                 kMerkabaExecutorPipelines[pipelineIndex];
             for (uint32_t descriptorIndex = 0;
@@ -1119,6 +1408,15 @@ namespace
                         info.buffer = buffer.buffer;
                         info.offset = 0;
                         info.range = buffer.sizeInBytes;
+                        const VkDeviceSize rangeLimit = std::min(kMaximumQuestBufferBytes,
+                            static_cast<VkDeviceSize>(g_deviceProperties.limits.maxStorageBufferRange));
+                        if (info.range == 0 || info.range > rangeLimit)
+                        {
+                            Log(pipeline.label);
+                            FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                                "storage descriptor range exceeds device/128 MiB binding limit", false);
+                            return false;
+                        }
                     }
                     bufferInfos.push_back(info);
                     write.pBufferInfo = &bufferInfos.back();
@@ -1173,8 +1471,22 @@ namespace
             FailJob(job, result, "vkCreateFence", false);
             return false;
         }
-        job->queryCount =
-            (job->lastPipeline - job->firstPipeline) * 2u + 2u;
+        uint32_t dispatchCount = 0;
+        for (uint32_t pipeline = job->firstPipeline; pipeline < job->lastPipeline; ++pipeline)
+            if (PipelineSelected(job, pipeline)) ++dispatchCount;
+        if (job->firstPipeline <= kObservationDualPipeline &&
+            kObservationDualPipeline < job->lastPipeline)
+            ++dispatchCount;
+        if (job->firstPipeline <= kObservationDrainPipeline &&
+            kObservationDrainPipeline < job->lastPipeline)
+            dispatchCount += kObservationAllocationEnd - kObservationAllocationBegin;
+        if (dispatchCount > kMaximumExecutorDispatches)
+        {
+            FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                "native dispatch timestamp capacity", false);
+            return false;
+        }
+        job->queryCount = dispatchCount * 2u + 2u;
         VkQueryPoolCreateInfo queryInfo = {};
         queryInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
         queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -1189,14 +1501,10 @@ namespace
         return true;
     }
 
-    void RecordDispatch(ExecutorJob* job, uint32_t pipelineIndex,
-        uint32_t queryIndex)
+    void RecordDispatch(ExecutorJob* job, uint32_t pipelineIndex)
     {
         const MerkabaEmbeddedPipeline& pipeline =
             kMerkabaExecutorPipelines[pipelineIndex];
-        vkCmdWriteTimestamp(job->commandBuffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool,
-            1u + queryIndex * 2u);
         vkCmdBindPipeline(job->commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             g_executorPipelines[pipelineIndex].pipeline);
         vkCmdBindDescriptorSets(job->commandBuffer,
@@ -1209,24 +1517,39 @@ namespace
                 job->depthGroupsY, 1);
         else if (std::strcmp(pipeline.dispatch, "query") == 0)
             vkCmdDispatch(job->commandBuffer, job->queryGroups, 1, 1);
-        else if (std::strcmp(pipeline.dispatch, "readout_query") == 0)
-            vkCmdDispatch(job->commandBuffer, job->readoutQueryGroups, 1, 1);
-        else if (std::strcmp(pipeline.dispatch, "readout_reset") == 0)
-            vkCmdDispatch(job->commandBuffer, kReadoutResetGroupCount, 1, 1);
+        else if (std::strcmp(pipeline.dispatch, "certificate_local") == 0)
+            vkCmdDispatch(job->commandBuffer, 32, 32, 2);
+        else if (std::strcmp(pipeline.dispatch, "certificate_root") == 0)
+            vkCmdDispatch(job->commandBuffer, 1, 1, 2);
+        else if (std::strcmp(pipeline.dispatch, "flower_slots") == 0)
+            vkCmdDispatch(job->commandBuffer, kFlowerSlotGroupCount, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);
-        else if (std::strcmp(pipeline.dispatch, "carve_indirect") == 0)
-            vkCmdDispatchIndirect(job->commandBuffer,
-                job->buffers[kResourceCarveDispatchArgs].buffer, 0);
-        else if (std::strcmp(pipeline.dispatch, "readout_indirect") == 0)
-            vkCmdDispatchIndirect(job->commandBuffer,
-                job->buffers[kResourceFrameDispatchArgs].buffer, 0);
         else
             vkCmdDispatch(job->commandBuffer, 1, 1, 1);
+    }
+
+    bool RecordTimedDispatch(ExecutorJob* job, uint32_t pipelineIndex)
+    {
+        uint32_t ordinal = job->timingDispatchCount;
+        if (ordinal >= job->timingPipelines.size() ||
+            2u + ordinal * 2u >= job->queryCount - 1u)
+        {
+            FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                "native dispatch timestamp overflow", false);
+            return false;
+        }
+        job->timingPipelines[ordinal] = pipelineIndex;
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool,
-            2u + queryIndex * 2u);
+            1u + ordinal * 2u);
+        RecordDispatch(job, pipelineIndex);
+        vkCmdWriteTimestamp(job->commandBuffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool,
+            2u + ordinal * 2u);
+        ++job->timingDispatchCount;
+        return true;
     }
 
     bool RecordJobCommand(ExecutorJob* job)
@@ -1244,32 +1567,76 @@ namespace
             job->queryCount);
         VkMemoryBarrier acquire = {};
         acquire.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        const bool flowerCull = job->kind == kJobFlowerReadout &&
+            PipelineSelected(job, kFlowerCullPipeline);
         acquire.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
             VK_ACCESS_SHADER_WRITE_BIT |
-            VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+            VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+            (flowerCull ? VK_ACCESS_TRANSFER_WRITE_BIT : 0u);
         vkCmdPipelineBarrier(job->commandBuffer,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+                (flowerCull ? VK_PIPELINE_STAGE_TRANSFER_BIT : 0u),
             0, 1, &acquire, 0, nullptr, 0, nullptr);
         vkCmdWriteTimestamp(job->commandBuffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool, 0);
-        uint32_t queryIndex = 0;
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, job->queryPool, 0);
+        job->timingDispatchCount = 0u;
         for (uint32_t pipelineIndex = job->firstPipeline;
-            pipelineIndex < job->lastPipeline; ++pipelineIndex, ++queryIndex)
+            pipelineIndex < job->lastPipeline; ++pipelineIndex)
         {
-            RecordDispatch(job, pipelineIndex, queryIndex);
+            if (!PipelineSelected(job, pipelineIndex)) continue;
+            if (pipelineIndex == kFlowerCullPipeline)
+                RecordFlowerCountReset(job->commandBuffer,
+                    job->buffers[kResourceFlowerIndirectCommands].buffer);
+            if (!RecordTimedDispatch(job, pipelineIndex)) return false;
             VkMemoryBarrier barrier = {};
             barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
                 VK_ACCESS_SHADER_WRITE_BIT |
                 VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-            vkCmdPipelineBarrier(job->commandBuffer,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                    VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                0, 1, &barrier, 0, nullptr, 0, nullptr);
+            if (job->timingDispatchCount < (job->queryCount - 2u) / 2u)
+                vkCmdPipelineBarrier(job->commandBuffer,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                    0, 1, &barrier, 0, nullptr, 0, nullptr);
+            if (pipelineIndex == kObservationDualPipeline)
+            {
+                // Re-publish the touched queue in the existing reserve
+                // kernel's GPU-selected publication-only mode. The immutable
+                // record offsets/cursors remain exactly as Emit consumed them.
+                if (!RecordTimedDispatch(job, kObservationReservePipeline)) return false;
+                vkCmdPipelineBarrier(job->commandBuffer,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                    0, 1, &barrier, 0, nullptr, 0, nullptr);
+            }
+            if (pipelineIndex == kObservationDrainPipeline)
+            {
+                // Reuse the same storage barriers for claims produced by
+                // UpdateObservationDual. They must run AFTER refinement:
+                // tile installation reuses ObservationDispatchArgs. This is
+                // publication, not another geometry pass or pipeline copy.
+                for (uint32_t allocation = kObservationAllocationBegin;
+                    allocation < kObservationAllocationEnd; ++allocation)
+                {
+                    if (!RecordTimedDispatch(job, allocation)) return false;
+                    vkCmdPipelineBarrier(job->commandBuffer,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                        0, 1, &barrier, 0, nullptr, 0, nullptr);
+                }
+            }
+        }
+        if (job->timingDispatchCount * 2u + 2u != job->queryCount)
+        {
+            FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                "native dispatch timestamp schedule mismatch", false);
+            return false;
         }
         VkMemoryBarrier release = {};
         release.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -1281,7 +1648,7 @@ namespace
             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
             0, 1, &release, 0, nullptr, 0, nullptr);
         vkCmdWriteTimestamp(job->commandBuffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, job->queryPool,
             job->queryCount - 1u);
         result = vkEndCommandBuffer(job->commandBuffer);
         if (result != VK_SUCCESS)
@@ -1344,6 +1711,8 @@ namespace
         VkPipelineStageFlags waitStage =
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
             VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+        if (job->kind == kJobFlowerReadout && PipelineSelected(job, kFlowerCullPipeline))
+            waitStage |= VK_PIPELINE_STAGE_TRANSFER_BIT;
         VkSubmitInfo nativeSubmit = {};
         nativeSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         nativeSubmit.waitSemaphoreCount = 1;
@@ -1370,7 +1739,7 @@ namespace
                 "queue=%u dispatches=%u graphicsWaitOnNative=0",
                 job->revision, job->kind, g_injectedQueueFamily,
                 g_injectedQueueIndex,
-                job->lastPipeline - job->firstPipeline);
+                job->timingDispatchCount);
             UNITY_LOG(g_log, message);
         }
     }
@@ -1456,6 +1825,12 @@ namespace
 
     bool InitializeExecutor()
     {
+        // Every native job records dispatch and total-job timestamps.
+        if (g_timestampValidBits == 0 || g_timestampPeriod <= 0.0)
+        {
+            Log("Merkaba native scanner unavailable: required queue timestamps are unsupported.");
+            return false;
+        }
         if (!g_queueInjected ||
             g_injectedQueueFamily != g_instance.queueFamilyIndex ||
             g_injectedQueueIndex != 1u)
@@ -1645,6 +2020,7 @@ namespace
 
     void ShutdownVulkan()
     {
+        ShutdownFlowerDraw();
         g_state.store(kUnavailable, std::memory_order_release);
         ShutdownExecutor();
         if (g_queryPool != VK_NULL_HANDLE && g_instance.device != VK_NULL_HANDLE)
@@ -1669,9 +2045,9 @@ namespace
             g_instance.physicalDevice == VK_NULL_HANDLE)
             return;
 
-        VkPhysicalDeviceProperties properties = {};
-        vkGetPhysicalDeviceProperties(g_instance.physicalDevice, &properties);
-        g_deviceProperties = properties;
+        if (!QueryDeviceRequirements()) return;
+        const VkPhysicalDeviceProperties& properties = g_deviceProperties;
+        InitializeFlowerDraw();
         vkGetPhysicalDeviceMemoryProperties(g_instance.physicalDevice,
             &g_memoryProperties);
         uint32_t queueCount = 0;
@@ -1688,9 +2064,15 @@ namespace
         g_timestampValidBits =
             queues[g_instance.queueFamilyIndex].timestampValidBits;
         g_timestampPeriod = properties.limits.timestampPeriod;
+        char timestampMessage[224];
+        std::snprintf(timestampMessage, sizeof(timestampMessage),
+            "Merkaba Vulkan timestamps: selectedFamily=%u validBits=%u periodNs=%.9g "
+            "allComputeGraphicsQueues=%u; only the selected queue is required",
+            g_instance.queueFamilyIndex, g_timestampValidBits, g_timestampPeriod,
+            properties.limits.timestampComputeAndGraphics);
+        Log(timestampMessage);
         InitializeExecutor();
-        if (!properties.limits.timestampComputeAndGraphics ||
-            g_timestampValidBits == 0 || g_timestampPeriod <= 0.0)
+        if (g_timestampValidBits == 0 || g_timestampPeriod <= 0.0)
             return;
 
         VkQueryPoolCreateInfo createInfo = {};
@@ -1731,6 +2113,26 @@ namespace
 
 extern "C"
 {
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaFlowerDraw_IsAvailable()
+    {
+        return g_flowerDrawReady.load(std::memory_order_acquire) ? 1 : 0;
+    }
+    UnityRenderingEventAndData UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaFlowerDraw_GetRenderEventFunc()
+    {
+        return RegisterFlowerDrawBuffer;
+    }
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaFlowerDraw_GetEventId()
+    {
+        return g_flowerDrawEvent;
+    }
+    UnityRenderingEventAndData UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaFlowerDraw_GetCullResetEventFunc()
+    {
+        return ResetFlowerCullCount;
+    }
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaFlowerDraw_GetCullResetEventId()
+    {
+        return g_flowerDrawEvent < 0 ? -1 : g_flowerDrawEvent + 1;
+    }
     void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(
         IUnityInterfaces* unityInterfaces)
     {
@@ -1786,17 +2188,16 @@ extern "C"
             descriptor->structSize != sizeof(MerkabaExecutorJobDescriptor) ||
             descriptor->abiVersion != kExecutorAbiVersion ||
             descriptor->revision == 0 ||
-            descriptor->kind > kJobObservationBins ||
+            descriptor->kind > kJobFineErase ||
             descriptor->resourceCount != kResourceCount ||
             descriptor->resources == nullptr ||
             descriptor->uniformValueCount == 0 ||
             descriptor->uniformValues == nullptr ||
             descriptor->uniformData == nullptr ||
             descriptor->uniformDataSize == 0 ||
-            descriptor->depthGroupsX > 65535 ||
-            descriptor->depthGroupsY > 65535 ||
-            descriptor->queryGroups > 65535 ||
-            descriptor->readoutQueryGroups > 65535)
+            descriptor->depthGroupsX > std::min(65535u, g_deviceProperties.limits.maxComputeWorkGroupCount[0]) ||
+            descriptor->depthGroupsY > std::min(65535u, g_deviceProperties.limits.maxComputeWorkGroupCount[1]) ||
+            descriptor->queryGroups > std::min(65535u, g_deviceProperties.limits.maxComputeWorkGroupCount[0]))
             return nullptr;
         if (descriptor->kind == kJobObservationNew &&
             (descriptor->depthGroupsX == 0 ||
@@ -1804,21 +2205,21 @@ extern "C"
              descriptor->queryGroups == 0))
             return nullptr;
         if (descriptor->kind == kJobObservationRetry &&
-            descriptor->queryGroups == 0)
-            return nullptr;
-        if ((descriptor->kind == kJobReadout ||
-             descriptor->kind == kJobMeshReadout) &&
-            descriptor->readoutQueryGroups == 0)
-            return nullptr;
-        if (descriptor->kind == kJobMeshReadout &&
-            (descriptor->depthGroupsX == 0 ||
+            (descriptor->queryGroups == 0 || descriptor->depthGroupsX == 0 ||
              descriptor->depthGroupsY == 0))
+            return nullptr;
+        if (descriptor->kind == kJobFlowerReadout)
+        {
+            if (descriptor->flowerPassMask == 0u || (descriptor->flowerPassMask & ~15u) != 0u ||
+                descriptor->depthGroupsX != 0u || descriptor->depthGroupsY != 0u ||
+                descriptor->queryGroups != 0u ||
+                kFlowerSlotGroupCount > g_deviceProperties.limits.maxComputeWorkGroupCount[0])
+                return nullptr;
+        }
+        else if (descriptor->flowerPassMask != 0u)
             return nullptr;
         if (descriptor->kind == kJobFineErase &&
             descriptor->queryGroups == 0)
-            return nullptr;
-        if (descriptor->kind == kJobObservationBins &&
-            (descriptor->depthGroupsX == 0 || descriptor->depthGroupsY == 0))
             return nullptr;
 
         uint32_t firstPipeline = 0;
@@ -1843,7 +2244,7 @@ extern "C"
         job->depthGroupsX = descriptor->depthGroupsX;
         job->depthGroupsY = descriptor->depthGroupsY;
         job->queryGroups = descriptor->queryGroups;
-        job->readoutQueryGroups = descriptor->readoutQueryGroups;
+        job->flowerPassMask = descriptor->flowerPassMask;
         std::lock_guard<std::mutex> lock(g_executorMutex);
         g_executorJobs.push_back(job);
         return job;
@@ -1979,17 +2380,22 @@ extern "C"
 
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_ReadTimings(
         void* handle, uint64_t* timestamps, int timestampCapacity,
+        uint32_t* dispatchPipelines, int dispatchCapacity,
         double* timestampPeriod, int* validBits)
     {
         ExecutorJob* job = static_cast<ExecutorJob*>(handle);
-        if (job == nullptr || timestamps == nullptr ||
+        if (job == nullptr || timestamps == nullptr || dispatchPipelines == nullptr ||
             timestampPeriod == nullptr || validBits == nullptr ||
             job->state.load(std::memory_order_acquire) != kJobComplete ||
             timestampCapacity < static_cast<int>(job->queryCount) ||
+            dispatchCapacity < static_cast<int>(job->timingDispatchCount) ||
+            job->queryCount != job->timingDispatchCount * 2u + 2u ||
             !CollectJobTimings(job))
             return 0;
         std::copy(job->timestamps.begin(),
             job->timestamps.begin() + job->queryCount, timestamps);
+        std::copy(job->timingPipelines.begin(),
+            job->timingPipelines.begin() + job->timingDispatchCount, dispatchPipelines);
         *timestampPeriod = g_deviceProperties.limits.timestampPeriod;
         *validBits = static_cast<int>(g_timestampValidBits);
         return static_cast<int>(job->queryCount);

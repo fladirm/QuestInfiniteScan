@@ -15,9 +15,8 @@ namespace Genesis.RoomScan
 {
     /// <summary>
     /// Captures stereo depth from the AR occlusion subsystem, runs the mandatory
-    /// true-stereo RGB-D joint solve, and produces
-    /// dilated depth textures consumed by <see cref="MerkabaIntegrator"/> for reversible
-    /// surface/free-space evidence integration.
+    /// true-stereo RGB-D joint solve, and retains its frozen stereo depth
+    /// certificate for full-support negative-volume queries.
     /// </summary>
     [DefaultExecutionOrder(-40)]
     public class DepthCapture : MonoBehaviour
@@ -25,12 +24,18 @@ namespace Genesis.RoomScan
         public static DepthCapture Instance { get; private set; }
 
         [SerializeField] private ComputeShader depthNormalCompute;
-        [SerializeField] private ComputeShader depthDilationCompute;
         [SerializeField] private ComputeShader stereoRgbdRefineCompute;
+        [SerializeField] private ComputeShader depthCertificateCompute;
         [SerializeField] private bool dynamicOcclusionEnabled = true;
 
-        [Header("Dilation")]
-        [SerializeField, Range(0, 12)] private int dilationSteps = 8;
+        [Header("Calibrated depth error bounds: sensor, reprojection, hypothesis, valid")]
+        [SerializeField] private Vector4 calibratedDepthErrorLeft;
+        [SerializeField] private Vector4 calibratedDepthErrorRight;
+        [Header("Calibrated plane errors: normal norm, offset metres, reserved, valid")]
+        [SerializeField] private Vector4 calibratedPlaneErrors;
+        [Header("Calibrated captured linear RGB errors: R, G, B, valid")]
+        [SerializeField] private Vector4 calibratedRgbErrorLeft;
+        [SerializeField] private Vector4 calibratedRgbErrorRight;
 
         private readonly Matrix4x4[] _proj = new Matrix4x4[2];
         private readonly Matrix4x4[] _projInv = new Matrix4x4[2];
@@ -49,6 +54,24 @@ namespace Genesis.RoomScan
         /// <summary>Near and far clip distances (x = near, y = far) for the current depth frame.</summary>
         public Vector2 Planes => _planes;
 
+        // Presentation consumes the same calibrated maximum as reconstruction.
+        internal bool TryGetFlowerPlaneBounds(out Vector2 bounds)
+        {
+            Vector4 sensor = calibratedPlaneErrors;
+            if (sensor.w != 1f || !float.IsFinite(sensor.x) ||
+                !float.IsFinite(sensor.y) || sensor.x < 0f || sensor.y < 0f)
+            {
+                bounds = default;
+                return false;
+            }
+            bounds = new Vector2(
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
+                    sensor.x + 2.0 * Math.Sqrt(18.0) / 1023.0).Upper,
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
+                    sensor.y + (double)MerkabaConstants.LatticeStep / (2.0 * 127.0)).Upper);
+            return true;
+        }
+
         // Shader property IDs
         public static readonly int DepthTexID = Shader.PropertyToID("gsDepthTex");
         public static readonly int DepthTexRWID = Shader.PropertyToID("gsDepthTexRW");
@@ -60,12 +83,6 @@ namespace Genesis.RoomScan
         public static readonly int ViewID = Shader.PropertyToID("gsDepthView");
         public static readonly int ViewInvID = Shader.PropertyToID("gsDepthViewInv");
         public static readonly int InputRawMonoDepthID = Shader.PropertyToID("gsInputRawMonoDepth");
-        public static readonly int DilateSrcID = Shader.PropertyToID("gsDilateSrc");
-        public static readonly int DilateDestID = Shader.PropertyToID("gsDilateDest");
-        public static readonly int DilateStepSizeID = Shader.PropertyToID("gsDilateStepSize");
-        public static readonly int DilatedDepthTexID = Shader.PropertyToID("gsDilatedDepth");
-        public static readonly int VoxDistID = Shader.PropertyToID("gsVoxDist");
-        public static readonly int VoxSizeShaderID = Shader.PropertyToID("gsVoxSize");
         private static readonly int InputProjectionDepthID =
             Shader.PropertyToID("gsInputProjectionDepth");
 
@@ -177,8 +194,6 @@ namespace Genesis.RoomScan
         private ComputeKernelHelper _projectionDepthCopyKernel;
         private ComputeKernelHelper _monoConvertKernel;
         private ComputeKernelHelper _fineSurfaceTargetKernel;
-        private ComputeKernelHelper _initDilateKernel;
-        private ComputeKernelHelper _dilateStepKernel;
         private ComputeKernelHelper _stereoRgbdRefineKernel;
 
         private readonly RenderTexture[] _ownedRawDepth = new RenderTexture[2];
@@ -194,8 +209,6 @@ namespace Genesis.RoomScan
         private int _readyDepthSlot = -1;
         private int _heldDepthSlot = -1;
         private int _latestOwnedDepthSlot = -1;
-        private int _readoutDepthLeaseSlot = -1;
-        private int _readoutDepthLeaseVersion;
         private Texture _depthTex;
         /// <summary>The latest depth frame actually preprocessed for integration.</summary>
         public Texture DepthTex => _depthTex;
@@ -204,12 +217,20 @@ namespace Genesis.RoomScan
         /// <summary>Joint world-space normal from the same four-stream solve as DepthTex.</summary>
         public RenderTexture NormTex => _normTex;
 
-        private RenderTexture _dilationA, _dilationB;
-        private RenderTexture _dilatedDepth;
-        /// <summary>Depth texture after jump-flood dilation, used by the integrator to fill holes near voxel boundaries.</summary>
-        public RenderTexture DilatedDepthTex => _dilatedDepth;
-
         private RenderTexture _refinedDepthTex;
+        private ComputeBuffer _depthCertificate;
+        private ComputeKernelHelper _buildDepthCertificateKernel;
+        private ComputeKernelHelper _reduceDepthCertificateKernel;
+        private readonly Vector4[] _frozenDepthErrorBounds = new Vector4[2];
+        private readonly Vector4[] _frozenRgbErrorBounds = new Vector4[2];
+        private Vector4 _frozenPlaneErrorBounds;
+        private int _depthCertificateObservationVersion;
+        internal static readonly int DepthCertificateId = Shader.PropertyToID("_M8DepthCertificate");
+        private static readonly int DepthErrorBoundsId = Shader.PropertyToID("_M8DepthErrorBounds");
+        private static readonly int PlaneErrorBoundsId = Shader.PropertyToID("_M8PlaneErrorBounds");
+        private static readonly int RgbErrorBoundsId = Shader.PropertyToID("_M8RgbErrorBounds");
+        private static readonly int CertificateWidthId = Shader.PropertyToID("_DepthWidth");
+        private static readonly int CertificateHeightId = Shader.PropertyToID("_DepthHeight");
         private ComputeBuffer _refineMetrics;
         private int _refineMetricValueCount;
         private uint _refineMetricsRevision;
@@ -277,6 +298,9 @@ namespace Genesis.RoomScan
             ? _ownedRawDepth[_readyDepthSlot]
             : _heldDepthSlot >= 0 ? _ownedRawDepth[_heldDepthSlot] : null;
         internal ComputeBuffer RefineMetrics => _refineMetrics;
+        internal ComputeBuffer DepthCertificate => _heldDepthSlot >= 0 &&
+            _depthCertificateObservationVersion == _ownedVersions[_heldDepthSlot]
+                ? _depthCertificate : null;
         internal bool FineSurfaceTargetReadbackPending =>
             _fineSurfaceTargetReadbackPending;
         internal uint FineSurfaceTargetIssuedSequence =>
@@ -294,42 +318,6 @@ namespace Genesis.RoomScan
         /// <summary>Raised only after an integration consumer preprocesses the latest frame.</summary>
         public event Action Updated;
 
-        internal readonly struct ReadoutDepthLease
-        {
-            internal readonly int Slot;
-            internal readonly int Version;
-            internal readonly RenderTexture Texture;
-            internal readonly Matrix4x4 Proj0;
-            internal readonly Matrix4x4 Proj1;
-            internal readonly Matrix4x4 ProjInv0;
-            internal readonly Matrix4x4 ProjInv1;
-            internal readonly Matrix4x4 View0;
-            internal readonly Matrix4x4 View1;
-            internal readonly Matrix4x4 ViewInv0;
-            internal readonly Matrix4x4 ViewInv1;
-
-            internal ReadoutDepthLease(int slot, int version,
-                RenderTexture texture, Matrix4x4 proj0, Matrix4x4 proj1,
-                Matrix4x4 projInv0, Matrix4x4 projInv1,
-                Matrix4x4 view0, Matrix4x4 view1,
-                Matrix4x4 viewInv0, Matrix4x4 viewInv1)
-            {
-                Slot = slot;
-                Version = version;
-                Texture = texture;
-                Proj0 = proj0;
-                Proj1 = proj1;
-                ProjInv0 = projInv0;
-                ProjInv1 = projInv1;
-                View0 = view0;
-                View1 = view1;
-                ViewInv0 = viewInv0;
-                ViewInv1 = viewInv1;
-            }
-
-            internal bool IsValid => Slot >= 0 && Version != 0 &&
-                Texture != null;
-        }
 
         private static readonly Vector3 ScaleFlipZ = new(1, 1, -1);
 
@@ -361,25 +349,25 @@ namespace Genesis.RoomScan
             _monoConvertKernel = new ComputeKernelHelper(depthNormalCompute, "MonoRawDepthToStereo");
             _fineSurfaceTargetKernel = new ComputeKernelHelper(depthNormalCompute,
                 "FineSurfaceTarget");
-            _initDilateKernel = new ComputeKernelHelper(depthDilationCompute, "InitDepthDilation");
-            _dilateStepKernel = new ComputeKernelHelper(depthDilationCompute, "DilateDepthStep");
             MerkabaGpuTimestamps.RegisterKernel(depthNormalCompute,
                 _projectionDepthCopyKernel.KernelIndex,
                 MerkabaGpuStage.DepthPreprocess,
                 "CopyProjectionDepthArray");
-            MerkabaGpuTimestamps.RegisterKernel(depthDilationCompute,
-                _initDilateKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess,
-                "InitDepthDilation");
-            MerkabaGpuTimestamps.RegisterKernel(depthDilationCompute,
-                _dilateStepKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess,
-                "DilateDepthStep");
+            if (depthCertificateCompute == null)
+                throw new Exception("[RoomScan] DepthCertificate compute is required");
+            _buildDepthCertificateKernel = new ComputeKernelHelper(depthCertificateCompute, "BuildDepthCertificate");
+            _reduceDepthCertificateKernel = new ComputeKernelHelper(depthCertificateCompute, "ReduceDepthCertificate");
+            MerkabaGpuTimestamps.RegisterKernel(depthCertificateCompute,
+                _buildDepthCertificateKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess, "BuildDepthCertificate");
+            MerkabaGpuTimestamps.RegisterKernel(depthCertificateCompute,
+                _reduceDepthCertificateKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess, "ReduceDepthCertificate");
             if (stereoRgbdRefineCompute == null)
-                throw new Exception("[RoomScan] StereoRgbdRefine compute is required");
+                throw new Exception("[RoomScan] StereoFlowerRefine compute is required");
             _stereoRgbdRefineKernel = new ComputeKernelHelper(
-                stereoRgbdRefineCompute, "StereoRgbdRefine");
+                stereoRgbdRefineCompute, "StereoFlowerRefine");
             MerkabaGpuTimestamps.RegisterKernel(stereoRgbdRefineCompute,
                 _stereoRgbdRefineKernel.KernelIndex,
-                MerkabaGpuStage.DepthPreprocess, "StereoRgbdRefine");
+                MerkabaGpuStage.DepthPreprocess, "StereoFlowerRefine");
 
             // Disable occlusion manager initially, enable after permission is confirmed
             _arOcclusionManager.enabled = false;
@@ -630,36 +618,7 @@ namespace Genesis.RoomScan
         }
 
         private bool IsDepthSlotWritable(int slot) => slot is >= 0 and < 2 &&
-            slot != _heldDepthSlot && slot != _readyDepthSlot &&
-            slot != _readoutDepthLeaseSlot;
-
-        internal bool TryAcquireReadoutDepth(out ReadoutDepthLease lease)
-        {
-            lease = default;
-            int slot = _latestOwnedDepthSlot;
-            if (_readoutDepthLeaseSlot >= 0 || slot < 0 ||
-                slot == _heldDepthSlot || _ownedRawDepth[slot] == null ||
-                _ownedVersions[slot] == 0)
-                return false;
-            _readoutDepthLeaseSlot = slot;
-            _readoutDepthLeaseVersion = _ownedVersions[slot];
-            lease = new ReadoutDepthLease(slot, _readoutDepthLeaseVersion,
-                _ownedRawDepth[slot], _ownedProj[slot, 0],
-                _ownedProj[slot, 1], _ownedProjInv[slot, 0],
-                _ownedProjInv[slot, 1], _ownedView[slot, 0],
-                _ownedView[slot, 1], _ownedViewInv[slot, 0],
-                _ownedViewInv[slot, 1]);
-            return true;
-        }
-
-        internal void ReleaseReadoutDepth(ReadoutDepthLease lease)
-        {
-            if (!lease.IsValid || lease.Slot != _readoutDepthLeaseSlot ||
-                lease.Version != _readoutDepthLeaseVersion)
-                return;
-            _readoutDepthLeaseSlot = -1;
-            _readoutDepthLeaseVersion = 0;
-        }
+            slot != _heldDepthSlot && slot != _readyDepthSlot;
 
         internal bool RequestFreshDepthFrame()
         {
@@ -786,14 +745,12 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
-        /// Destroys GPU textures (normals, dilation, filtered depth) to free memory.
+        /// Destroys retired GPU depth, normal and certificate resources.
         /// Textures are lazily recreated when the next depth frame arrives.
         /// </summary>
         internal void ReleaseOwnedResourcesAfterGpuRetirement()
         {
             if (_normTex) { Destroy(_normTex); _normTex = null; }
-            if (_dilationA) { Destroy(_dilationA); _dilationA = null; }
-            if (_dilationB) { Destroy(_dilationB); _dilationB = null; }
             for (int slot = 0; slot < _ownedRawDepth.Length; slot++)
             {
                 if (_ownedRawDepth[slot]) Destroy(_ownedRawDepth[slot]);
@@ -805,6 +762,9 @@ namespace Genesis.RoomScan
                 _refineMetrics.Release();
                 _refineMetrics = null;
             }
+            _depthCertificate?.Release();
+            _depthCertificate = null;
+            _depthCertificateObservationVersion = 0;
             if (_fineSurfaceTarget != null)
             {
                 _fineSurfaceTarget.Release();
@@ -822,15 +782,12 @@ namespace Genesis.RoomScan
             _fineSurfaceTargetCompletedSequence = 0u;
             _refineMetricValueCount = 0;
             _refineMetricsRevision = 0u;
-            _dilatedDepth = null;
             _depthTex = null;
             _depthFrameRequested = false;
             _requestedDepthSlot = -1;
             _readyDepthSlot = -1;
             _heldDepthSlot = -1;
             _latestOwnedDepthSlot = -1;
-            _readoutDepthLeaseSlot = -1;
-            _readoutDepthLeaseVersion = 0;
             _processedRawFrameVersion = _latestRawFrameVersion;
             Logger.Info("DepthCapture: GPU resources released");
         }
@@ -839,11 +796,12 @@ namespace Genesis.RoomScan
         {
             UnityEngine.Object[] captured =
             {
-                _normTex, _dilationA, _dilationB,
+                _normTex,
                 _ownedRawDepth[0], _ownedRawDepth[1], _refinedDepthTex
             };
             ComputeBuffer capturedRefineMetrics = _refineMetrics;
             ComputeBuffer capturedFineTarget = _fineSurfaceTarget;
+            ComputeBuffer capturedCertificate = _depthCertificate;
             bool released = false;
             return () =>
             {
@@ -858,6 +816,7 @@ namespace Genesis.RoomScan
                     if (resource != null) UnityEngine.Object.Destroy(resource);
                 capturedRefineMetrics?.Release();
                 capturedFineTarget?.Release();
+                capturedCertificate?.Release();
             };
         }
 
@@ -880,11 +839,15 @@ namespace Genesis.RoomScan
                 rayDirection.sqrMagnitude <= 1e-8f)
                 return _fineSurfaceTargetValid;
 
-            _fineSurfaceTarget ??= new ComputeBuffer(2, 16,
-                ComputeBufferType.Structured)
+            if (_fineSurfaceTarget == null)
             {
-                name = "Fine controller-depth surface target"
-            };
+                MerkabaGrid.ValidateGpuBufferAllocation(2, 16);
+                _fineSurfaceTarget = new ComputeBuffer(2, 16,
+                    ComputeBufferType.Structured)
+                {
+                    name = "Fine controller-depth surface target"
+                };
+            }
             rayDirection.Normalize();
             CommandBuffer command = CommandBufferPool.Get(
                 "Fine controller-depth surface target");
@@ -1022,17 +985,19 @@ namespace Genesis.RoomScan
         /// <summary>
         /// Preprocesses exactly the latest raw frame for the integration tick that will
         /// consume it. Intermediate sensor frames are intentionally never filtered,
-        /// normalised, or dilated.
+        /// normalised, or certified.
         /// </summary>
         internal bool ConsumeLatestDepthFrame(CommandBuffer command,
-            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush)
+            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush,
+            Matrix4x4 gridToWorld)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (!cameraFrame.IsValid || !TryHoldLatestDepthFrame())
                 return false;
-            ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);
+            FreezeDepthCertificateBounds(calibratedDepthErrorLeft, calibratedDepthErrorRight);
+            ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush, gridToWorld);
             SetGlobalShaderProperties();
-            ComputeDilation(command);
+            RecordDepthCertificate(command);
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
             _preprocessedFrameCount++;
             Updated?.Invoke();
@@ -1049,9 +1014,8 @@ namespace Genesis.RoomScan
             EnsureRefinementOutputs(width, height);
             EnsureRefineMetrics(Mathf.CeilToInt(width / 8f) *
                 Mathf.CeilToInt(height / 8f));
-            EnsureDilationOutputs(width, height);
+            FreezeDepthCertificateBounds(calibratedDepthErrorLeft, calibratedDepthErrorRight);
             _depthTex = _refinedDepthTex;
-            _dilatedDepth = _dilationB;
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
             _preprocessedFrameCount++;
             return true;
@@ -1059,16 +1023,12 @@ namespace Genesis.RoomScan
 
         internal void CompleteNativeDepthPreprocess()
         {
-            (_dilationA, _dilationB) = (_dilationB, _dilationA);
-            _dilatedDepth = _dilationA;
             SetGlobalShaderProperties();
             Shader.SetGlobalTexture(NormTexID, _normTex);
-            Shader.SetGlobalTexture(DilatedDepthTexID, _dilatedDepth);
             Updated?.Invoke();
         }
 
-        internal void FillNativeExecutorDepthResources(IntPtr[] resources,
-            bool includesPreprocess)
+        internal void FillNativeExecutorDepthResources(IntPtr[] resources)
         {
             if (resources == null || resources.Length !=
                 MerkabaNativeVulkanExecutor.ResourceCount)
@@ -1085,10 +1045,8 @@ namespace Genesis.RoomScan
                 TexturePtr(_refinedDepthTex);
             resources[(int)MerkabaNativeVulkanExecutor.Resource.Normals] =
                 TexturePtr(_normTex);
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.DilationA] =
-                TexturePtr(_dilationA);
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.DilationB] =
-                TexturePtr(includesPreprocess ? _dilationB : _dilatedDepth);
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.DepthCertificate] =
+                DepthCertificate != null ? DepthCertificate.GetNativeBufferPtr() : IntPtr.Zero;
         }
 
         private bool TryHoldLatestDepthFrame()
@@ -1116,25 +1074,88 @@ namespace Genesis.RoomScan
         public void ReleaseConsumedObservation()
         {
             _heldDepthSlot = -1;
+            _depthCertificateObservationVersion = 0;
+        }
+
+        // The caller supplies the accepted observation's calibrated maximum
+        // sensor eye-z / 3D reprojection displacement / hypothesis eye-z errors
+        // in metres, plus validity in w. Reprojection bounds apply laterally too.
+        // This is neither a quality weight nor a tunable geometry epsilon.
+        // Missing calibration (w != 1) makes that whole eye AMBIGUOUS on GPU.
+        internal void FreezeDepthCertificateBounds(Vector4 left, Vector4 right)
+        {
+            if (_heldDepthSlot < 0 || _ownedRawDepth[_heldDepthSlot] == null)
+                throw new InvalidOperationException("Certificate requires the held immutable stereo depth frame.");
+            int version = _ownedVersions[_heldDepthSlot];
+            if (_depthCertificateObservationVersion != 0)
+            {
+                if (_depthCertificateObservationVersion != version ||
+                    !_frozenDepthErrorBounds[0].Equals(left) || !_frozenDepthErrorBounds[1].Equals(right))
+                    throw new InvalidOperationException("A held observation's certificate bounds cannot change.");
+                return;
+            }
+            RenderTexture source = _ownedRawDepth[_heldDepthSlot];
+            if (source.width <= 0 || source.height <= 0 || source.width > 512 || source.height > 512)
+                throw new InvalidOperationException("Frozen observation exceeds the 512-square contract capacity.");
+            if (_depthCertificate == null)
+            {
+                MerkabaGrid.ValidateGpuBufferAllocation(
+                    MerkabaSphereFlowerAuthority.DepthCertificateNodeCount, 2 * sizeof(uint));
+                _depthCertificate = new ComputeBuffer(MerkabaSphereFlowerAuthority.DepthCertificateNodeCount,
+                    2 * sizeof(uint), ComputeBufferType.Structured) { name = "M8 stereo depth certificate" };
+            }
+            _frozenDepthErrorBounds[0] = left;
+            _frozenDepthErrorBounds[1] = right;
+            _frozenPlaneErrorBounds = calibratedPlaneErrors;
+            _frozenRgbErrorBounds[0] = calibratedRgbErrorLeft;
+            _frozenRgbErrorBounds[1] = calibratedRgbErrorRight;
+            _depthCertificateObservationVersion = version;
+        }
+
+        internal void RecordDepthCertificate(CommandBuffer command)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (DepthCertificate == null || depthCertificateCompute == null)
+                throw new InvalidOperationException("Certificate recording requires frozen bounds and its production shader.");
+            RenderTexture source = _ownedRawDepth[_heldDepthSlot];
+            command.SetComputeIntParam(depthCertificateCompute, CertificateWidthId, source.width);
+            command.SetComputeIntParam(depthCertificateCompute, CertificateHeightId, source.height);
+            command.SetComputeMatrixArrayParam(depthCertificateCompute, RefineDepthProjInvId, _projInv);
+            command.SetComputeVectorArrayParam(depthCertificateCompute, DepthErrorBoundsId, _frozenDepthErrorBounds);
+            _buildDepthCertificateKernel.Set(command, RefineSrcDepthId, source);
+            _buildDepthCertificateKernel.Set(command, DepthCertificateId, _depthCertificate);
+            _reduceDepthCertificateKernel.Set(command, DepthCertificateId, _depthCertificate);
+            command.DispatchCompute(depthCertificateCompute, _buildDepthCertificateKernel.KernelIndex, 32, 32, 2);
+            command.DispatchCompute(depthCertificateCompute, _reduceDepthCertificateKernel.KernelIndex, 1, 1, 2);
+        }
+
+        internal void WriteDepthCertificateUniforms(MerkabaNativeUniformTable values)
+        {
+            if (values == null) throw new ArgumentNullException(nameof(values));
+            if (DepthCertificate == null)
+                throw new InvalidOperationException("Native certificate requires this held observation's frozen bounds.");
+            RenderTexture source = _ownedRawDepth[_heldDepthSlot];
+            values.Int("_DepthWidth", source.width);
+            values.Int("_DepthHeight", source.height);
+            values.Matrices("_DepthProjInv", _projInv);
+            values.Vector4Array("_M8DepthErrorBounds", _frozenDepthErrorBounds);
+            values.Vector4("_M8PlaneErrorBounds", _frozenPlaneErrorBounds);
+            values.Vector4Array("_M8RgbErrorBounds", _frozenRgbErrorBounds);
+        }
+
+        internal void BindDepthCertificate(ComputeShader shader, int kernel)
+        {
+            if (DepthCertificate == null)
+                throw new InvalidOperationException("Certificate must belong to the held observation.");
+            shader.SetBuffer(kernel, DepthCertificateId, _depthCertificate);
+            shader.SetVectorArray(DepthErrorBoundsId, _frozenDepthErrorBounds);
+            shader.SetVector(PlaneErrorBoundsId, _frozenPlaneErrorBounds);
+            shader.SetVectorArray(RgbErrorBoundsId, _frozenRgbErrorBounds);
         }
 
         internal static bool ShouldPreprocessFrame(int latestRawVersion,
             int processedRawVersion) => latestRawVersion != 0 &&
                                         latestRawVersion != processedRawVersion;
-
-        internal static int[] BuildDilationStepSequence(int maximumExponent)
-        {
-            if (maximumExponent is < 0 or > 30)
-                throw new ArgumentOutOfRangeException(nameof(maximumExponent));
-            var result = new int[maximumExponent + 1];
-            int step = 1 << maximumExponent;
-            for (int index = 0; index < result.Length; index++)
-            {
-                result[index] = step;
-                step >>= 1;
-            }
-            return result;
-        }
 
         private void HandleEditorSimulation(AROcclusionFrameEventArgs args,
             long timestampNs)
@@ -1297,7 +1318,8 @@ namespace Genesis.RoomScan
         }
 
         private void ApplyStereoRgbdRefinement(CommandBuffer command,
-            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush)
+            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush,
+            Matrix4x4 gridToWorld)
         {
             if (!cameraFrame.IsValid || _depthTex == null)
                 throw new InvalidOperationException(
@@ -1327,6 +1349,11 @@ namespace Genesis.RoomScan
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewId, _view);
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewInvId,
                 _viewInv);
+            command.SetComputeVectorArrayParam(shader, DepthErrorBoundsId, _frozenDepthErrorBounds);
+            command.SetComputeVectorParam(shader, PlaneErrorBoundsId, _frozenPlaneErrorBounds);
+            command.SetComputeVectorArrayParam(shader, RgbErrorBoundsId, _frozenRgbErrorBounds);
+            command.SetComputeMatrixParam(shader, "_MerkabaGridToWorld", gridToWorld);
+            command.SetComputeMatrixParam(shader, "_MerkabaWorldToGrid", gridToWorld.inverse);
             _stereoRgbdRefineKernel.Set(command, RefineMetricsId,
                 _refineMetrics);
             command.SetComputeIntParam(shader, RefineMetricsEnabledId,
@@ -1355,14 +1382,15 @@ namespace Genesis.RoomScan
 
         private void EnsureRefineMetrics(int groupCount)
         {
-            int valueCount = Math.Max(1, groupCount) *
-                MerkabaGpuTimestamps.RefineMetricValueCount;
+            int valueCount = checked(Math.Max(1, groupCount) *
+                MerkabaGpuTimestamps.RefineMetricValueCount);
             if (_refineMetrics != null &&
                 _refineMetrics.count == valueCount)
             {
                 _refineMetricValueCount = valueCount;
                 return;
             }
+            MerkabaGrid.ValidateGpuBufferAllocation(valueCount, sizeof(uint));
             _refineMetrics?.Release();
             _refineMetrics = new ComputeBuffer(valueCount, sizeof(uint),
                 ComputeBufferType.Structured)
@@ -1408,36 +1436,6 @@ namespace Genesis.RoomScan
             Shader.SetGlobalTexture(DepthTexID, _depthTex);
         }
 
-        private void ComputeDilation(CommandBuffer command)
-        {
-            EnsureDilationOutputs(_depthTex.width, _depthTex.height);
-
-            command.SetComputeFloatParam(depthDilationCompute, VoxDistID,
-                MerkabaConstants.FreeFullClearance);
-            command.SetComputeFloatParam(depthDilationCompute, VoxSizeShaderID,
-                MerkabaConstants.SupportSize);
-
-            _initDilateKernel.Set(command, DepthTexID, _depthTex);
-            _initDilateKernel.Set(command, DilateSrcID, _dilationA);
-            _initDilateKernel.DispatchFit(command, _dilationA.width,
-                _dilationA.height, 1);
-
-            foreach (int stepSize in BuildDilationStepSequence(dilationSteps))
-            {
-                _dilateStepKernel.Set(command, DilateSrcID, _dilationA);
-                _dilateStepKernel.Set(command, DilateDestID, _dilationB);
-                command.SetComputeIntParam(depthDilationCompute,
-                    DilateStepSizeID, stepSize);
-                _dilateStepKernel.DispatchFit(command, _dilationA.width,
-                    _dilationA.height, 1);
-
-                (_dilationA, _dilationB) = (_dilationB, _dilationA);
-            }
-
-            _dilatedDepth = _dilationA;
-            Shader.SetGlobalTexture(DilatedDepthTexID, _dilatedDepth);
-        }
-
         private void EnsureRefinementOutputs(int width, int height)
         {
             if (_refinedDepthTex == null || _refinedDepthTex.width != width ||
@@ -1468,29 +1466,6 @@ namespace Genesis.RoomScan
                 };
                 _normTex.Create();
             }
-        }
-
-        private void EnsureDilationOutputs(int width, int height)
-        {
-            if (_dilationA != null && _dilationA.width == width &&
-                _dilationA.height == height) return;
-            if (_dilationA) Destroy(_dilationA);
-            if (_dilationB) Destroy(_dilationB);
-            var descriptor = new RenderTextureDescriptor
-            {
-                width = width,
-                height = height,
-                volumeDepth = 1,
-                dimension = TextureDimension.Tex2D,
-                autoGenerateMips = false,
-                enableRandomWrite = true,
-                graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat,
-                msaaSamples = 1
-            };
-            _dilationA = new RenderTexture(descriptor);
-            _dilationB = new RenderTexture(descriptor);
-            _dilationA.Create();
-            _dilationB.Create();
         }
 
         private static Matrix4x4 CalculateProjectionMatrix(XRFov fov, XRNearFarPlanes planes)

@@ -32,92 +32,14 @@ class Pipeline:
 
 
 PIPELINES = (
-    Pipeline("StereoRgbdRefine", "StereoRgbdRefine.compute",
-             "StereoRgbdRefine", "refine"),
-    Pipeline("InitDepthDilation", "DepthDilation.compute",
-             "InitDepthDilation", "depth"),
-    *tuple(Pipeline(f"DilateDepthStep[{8-index}]", "DepthDilation.compute",
-                    "DilateDepthStep", "depth",
-                    (("gsDilateSrc", "DilationA" if index % 2 == 0 else
-                      "DilationB"),
-                     ("gsDilateDest", "DilationB" if index % 2 == 0 else
-                      "DilationA"))) for index in range(9)),
+    Pipeline("StereoFlowerRefine", "StereoRgbdRefine.compute",
+             "StereoFlowerRefine", "refine"),
+    Pipeline("BuildDepthCertificate", "MerkabaDepthCertificate.compute",
+             "BuildDepthCertificate", "certificate_local"),
+    Pipeline("ReduceDepthCertificate", "MerkabaDepthCertificate.compute",
+             "ReduceDepthCertificate", "certificate_root"),
     Pipeline("ResetObservationCounters", "MerkabaWorld.compute",
              "ResetObservationCounters", "one"),
-    Pipeline("DiscoverSurfaceCandidates", "MerkabaIntegration.compute",
-             "DiscoverSurfaceCandidates", "depth"),
-    Pipeline("PrepareResolveArgs", "MerkabaIntegration.compute",
-             "PrepareResolveArgs", "one"),
-    Pipeline("ResolveSurfaceBlocks", "MerkabaIntegration.compute",
-             "ResolveSurfaceBlocks", "observation_indirect"),
-    Pipeline("PublishNewBlocks", "MerkabaWorld.compute",
-             "PublishNewBlocks", "observation_indirect"),
-    Pipeline("ResolveSurfaceChunks", "MerkabaIntegration.compute",
-             "ResolveSurfaceChunks", "observation_indirect"),
-    Pipeline("PublishNewChunks", "MerkabaWorld.compute",
-             "PublishNewChunks", "observation_indirect"),
-    Pipeline("ResolveSurfaceTiles", "MerkabaIntegration.compute",
-             "ResolveSurfaceTiles", "observation_indirect"),
-    Pipeline("RetryPendingNewTiles", "MerkabaIntegration.compute",
-             "RetryPendingNewTiles", "observation_indirect"),
-    Pipeline("PrepareNewTileDispatchArgs", "MerkabaWorld.compute",
-             "PrepareNewTileDispatchArgs", "one"),
-    Pipeline("InitializeNewTiles", "MerkabaWorld.compute",
-             "InitializeNewTiles", "observation_indirect"),
-    Pipeline("ResetClaimQueueCounts", "MerkabaWorld.compute",
-             "ResetClaimQueueCounts", "one"),
-    Pipeline("InitializeSurfaceWinners", "MerkabaIntegration.compute",
-             "InitializeSurfaceWinners", "observation_indirect"),
-    Pipeline("SelectSurfaceWinners", "MerkabaIntegration.compute",
-             "SelectSurfaceWinners", "observation_indirect"),
-    Pipeline("QueueResolvedSurfaceCandidates", "MerkabaIntegration.compute",
-             "QueueResolvedSurfaceCandidates", "observation_indirect"),
-    Pipeline("QueryCarveTiles", "MerkabaIntegration.compute",
-             "QueryCarveTiles", "query"),
-    Pipeline("PrepareIntegrateArgs", "MerkabaIntegration.compute",
-             "PrepareIntegrateArgs", "one"),
-    Pipeline("IntegrateSurfaceCandidates", "MerkabaIntegration.compute",
-             "IntegrateSurfaceCandidates", "observation_indirect"),
-    Pipeline("PrepareCarveArgs", "MerkabaIntegration.compute",
-             "PrepareCarveArgs", "one"),
-    Pipeline("IntegrateCarveTiles", "MerkabaIntegration.compute",
-             "IntegrateCarveTiles", "carve_indirect"),
-    Pipeline("FinalizeObservation", "MerkabaIntegration.compute",
-             "FinalizeObservation", "one"),
-    Pipeline("ClearTouchedSurfaceCandidates", "MerkabaWorld.compute",
-             "ClearTouchedSurfaceCandidates", "observation_indirect"),
-    Pipeline("ResetReadoutBuild", "MerkabaReadout.compute",
-             "ResetReadoutBuild", "readout_reset"),
-    Pipeline("QueryM8Readout", "MerkabaReadout.compute",
-             "QueryM8Readout", "readout_query"),
-    Pipeline("PrepareReadoutBuild", "MerkabaReadout.compute",
-             "PrepareReadoutBuild", "one"),
-    Pipeline("BuildReadoutVertices", "MerkabaReadout.compute",
-             "BuildReadoutVertices", "readout_indirect"),
-    Pipeline("FinalizeReadout", "MerkabaReadout.compute",
-             "FinalizeReadout", "one"),
-    Pipeline("MeshResetReadoutBuild", "MerkabaReadout.compute",
-             "ResetReadoutBuild", "readout_reset"),
-    Pipeline("MeshQueryM8Readout", "MerkabaReadout.compute",
-             "QueryM8Readout", "readout_query"),
-    Pipeline("MeshPrepareReadoutBuild", "MerkabaReadout.compute",
-             "PrepareReadoutBuild", "depth"),
-    Pipeline("ProjectReadoutMeshPins", "MerkabaReadout.compute",
-             "ProjectReadoutMeshPins", "readout_indirect"),
-    Pipeline("BuildReadoutMesh", "MerkabaReadout.compute",
-             "BuildReadoutMesh", "depth"),
-    Pipeline("MeshFinalizeReadout", "MerkabaReadout.compute",
-             "FinalizeReadout", "one"),
-    Pipeline("ResetFineErase", "MerkabaIntegration.compute",
-             "ResetFineErase", "one"),
-    Pipeline("QueryFineEraseTiles", "MerkabaIntegration.compute",
-             "QueryFineEraseTiles", "query"),
-    Pipeline("PrepareFineEraseArgs", "MerkabaIntegration.compute",
-             "PrepareFineEraseArgs", "one"),
-    Pipeline("EraseFineTiles", "MerkabaIntegration.compute",
-             "EraseFineTiles", "carve_indirect"),
-    Pipeline("FinalizeFineErase", "MerkabaIntegration.compute",
-             "FinalizeFineErase", "one"),
     Pipeline("ResetObservationBins", "MerkabaObservationBins.compute",
              "ResetObservationBins", "one"),
     Pipeline("CountObservationBins", "MerkabaObservationBins.compute",
@@ -126,12 +48,40 @@ PIPELINES = (
              "ResolveMissingSpatialNodes", "one"),
     Pipeline("ResolveObservationTileRequests", "MerkabaObservationBins.compute",
              "ResolveObservationTileRequests", "one"),
-    Pipeline("InstallObservationTiles", "MerkabaWorld.compute",
+    Pipeline("InitializeNewTiles", "MerkabaWorld.compute",
              "InitializeNewTiles", "observation_indirect"),
     Pipeline("ReserveObservationBins", "MerkabaObservationBins.compute",
              "ReserveObservationBins", "one"),
     Pipeline("EmitObservationBins", "MerkabaObservationBins.compute",
              "EmitObservationBins", "depth"),
+    Pipeline("UpdateObservationDual", "MerkabaIntegration.compute",
+             "UpdateObservationDual", "query"),
+    Pipeline("FlowerCommit", "MerkabaIntegration.compute",
+             "FlowerCommit", "observation_indirect"),
+    Pipeline("DrainObservationRefinement", "MerkabaIntegration.compute",
+             "DrainObservationRefinement", "observation_indirect"),
+    Pipeline("FinalizeObservation", "MerkabaIntegration.compute",
+             "FinalizeObservation", "one"),
+    Pipeline("RetireObservationBins", "MerkabaObservationBins.compute",
+             "RetireObservationBins", "one"),
+    Pipeline("ClassifyHotFlowerPages", "MerkabaReadout.compute",
+             "ClassifyHotFlowerPages", "flower_slots"),
+    Pipeline("CompactDirtyFlowerSymbols", "MerkabaReadout.compute",
+             "CompactDirtyFlowerSymbols", "one"),
+    Pipeline("PublishDirtyFlowerPages", "MerkabaReadout.compute",
+             "PublishDirtyFlowerPages", "flower_slots"),
+    Pipeline("CullFlowerPages", "MerkabaReadout.compute",
+             "CullFlowerPages", "flower_slots"),
+    Pipeline("ResetFineErase", "MerkabaIntegration.compute",
+             "ResetFineErase", "one"),
+    Pipeline("QueryFineEraseTiles", "MerkabaIntegration.compute",
+             "QueryFineEraseTiles", "query"),
+    Pipeline("PrepareFineEraseArgs", "MerkabaIntegration.compute",
+             "PrepareFineEraseArgs", "one"),
+    Pipeline("EraseFineTiles", "MerkabaIntegration.compute",
+             "EraseFineTiles", "observation_indirect"),
+    Pipeline("FinalizeFineErase", "MerkabaIntegration.compute",
+             "FinalizeFineErase", "one"),
 )
 
 
@@ -141,14 +91,12 @@ RESOURCE_NAMES = (
     "ChunkPresence", "KernelStates0", "KernelStates1", "KernelStates2",
     "KernelStates3", "TileBits", "TileRecords", "FreeTileStack",
     "Counters", "ClaimQueue", "PendingNewTileRefs", "LoadRequests",
-    "LoadRequestReadCount", "SurfaceCandidates", "SurfaceQueue",
-    "SurfaceWinnerRanks0", "SurfaceWinnerRanks1", "SurfaceWinnerRanks2",
-    "SurfaceWinnerRanks3", "TouchedTileQueue", "CarveTiles",
-    "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
-    "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "DilationA",
-    "DilationB", "CameraLeft", "CameraRight", "VisibleTiles",
-    "FrameDispatchArgs", "ReadoutVertices0", "ReadoutVertices1",
-    "ReadoutIndices", "DrawArgs", "ObservationRecords", "ObservationTileBins", "TileHalo",
+    "LoadRequestReadCount",
+    "TouchedTileQueue", "ObservationDispatchArgs", "AttemptCompletion",
+    "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "CameraLeft", "CameraRight",
+    "FrameDispatchArgs", "ObservationRecords", "ObservationTileBins", "TileHalo", "DepthCertificate",
+    "DualBlockState", "DualChunkState", "DualLeaves",
+    "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -160,22 +108,18 @@ ALIASES = {
         "ChunkPresence", "KernelStates0", "KernelStates1", "KernelStates2",
         "KernelStates3", "TileBits", "TileRecords", "FreeTileStack",
         "Counters", "ClaimQueue", "PendingNewTileRefs", "LoadRequests",
-        "LoadRequestReadCount", "SurfaceCandidates", "SurfaceQueue",
-        "SurfaceWinnerRanks0", "SurfaceWinnerRanks1", "SurfaceWinnerRanks2",
-        "SurfaceWinnerRanks3", "TouchedTileQueue", "CarveTiles",
-        "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
-        "VisibleTiles", "FrameDispatchArgs", "ReadoutVertices0",
-        "ReadoutVertices1", "ReadoutIndices", "DrawArgs", "ObservationRecords",
-        "ObservationTileBins", "TileHalo")},
+        "LoadRequestReadCount",
+        "TouchedTileQueue", "ObservationDispatchArgs", "AttemptCompletion",
+        "FrameDispatchArgs", "ObservationRecords",
+        "ObservationTileBins", "TileHalo", "DepthCertificate",
+        "DualBlockState", "DualChunkState", "DualLeaves",
+        "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",
     "_DstNormal": "Normals",
     "gsDepthTex": "RefinedDepth",
     "gsDepthNormalTex": "Normals",
-    "gsDilatedDepth": "DilationB",
-    "gsDilateSrc": "DilationA",
-    "gsDilateDest": "DilationB",
     "_MerkabaCameraRgbLeft": "CameraLeft",
     "_MerkabaCameraRgbRight": "CameraRight",
 }
@@ -234,7 +178,7 @@ def patch_storage_image_formats(words: tuple[int, ...], descriptors):
     """Declare the exact Unity RenderTexture storage formats in SPIR-V.
 
     glslang emits every HLSL RWTexture2D<float4> as rgba32f, while the exact
-    production resources are RGBA8_SNORM normals and RGBA16_SFLOAT dilation.
+    production normal resource is RGBA8_SNORM.
     Arithmetic remains the production float code; only OpTypeImage's required
     Vulkan view format is corrected.
     """
@@ -262,8 +206,6 @@ def patch_storage_image_formats(words: tuple[int, ...], descriptors):
 
     required = {
         RESOURCE_IDS["Normals"]: 5,      # SpvImageFormatRgba8Snorm
-        RESOURCE_IDS["DilationA"]: 2,    # SpvImageFormatRgba16f
-        RESOURCE_IDS["DilationB"]: 2,
         RESOURCE_IDS["RefinedDepth"]: 3, # SpvImageFormatR32f
     }
     storage_by_binding = {
@@ -303,6 +245,22 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
     if compiled.returncode != 0:
         raise RuntimeError(f"{pipeline.label}: glslang failed\n" +
                            compiled.stdout + compiled.stderr)
+    payload = output.read_bytes()
+    if len(payload) % 4:
+        raise RuntimeError(f"{pipeline.label}: malformed SPIR-V size")
+    words = struct.unpack(f"<{len(payload) // 4}I", payload)
+    # glslang's source reflection includes dead resource-valued function
+    # parameters (including an unnamed RWByteAddressBuffer). Only descriptors
+    # present in the emitted module belong to the native pipeline ABI.
+    live_bindings: set[int] = set()
+    offset = 5
+    while offset < len(words):
+        count, opcode = words[offset] >> 16, words[offset] & 0xffff
+        if count == 0 or offset + count > len(words):
+            raise RuntimeError(f"{pipeline.label}: malformed SPIR-V instruction")
+        if opcode == 71 and count == 4 and words[offset + 2] == 33:
+            live_bindings.add(words[offset + 3])
+        offset += count
     descriptors: list[tuple[int, int, int]] = []
     uniform_lines: list[str] = []
     uniforms: list[tuple[str, int]] = []
@@ -316,6 +274,8 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
         if section == "Uniform block reflection:" and ": offset " in line:
             name = line.split(": offset", 1)[0]
             binding = parse_int(line, "binding")
+            if binding not in live_bindings:
+                continue
             if name == "$Global":
                 global_size = parse_int(line, "size")
                 global_index = parse_int(line, "index")
@@ -330,6 +290,8 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
                 uniform_lines.append(line)
                 continue
             binding = parse_int(line, "binding")
+            if binding not in live_bindings:
+                continue
             kind = descriptor_kind(name,
                                    re.search(r"\btype ([0-9a-fA-F]+)", line).group(1))
             resource = -1 if kind in (KIND_BILINEAR_SAMPLER,
@@ -346,10 +308,8 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
     uniforms = sorted(set(uniforms), key=lambda item: (item[1], item[0]))
     if len({item[0] for item in descriptors}) != len(descriptors):
         raise RuntimeError(f"{pipeline.label}: duplicate reflected binding")
-    payload = output.read_bytes()
-    if len(payload) % 4:
-        raise RuntimeError(f"{pipeline.label}: malformed SPIR-V size")
-    words = struct.unpack(f"<{len(payload) // 4}I", payload)
+    if {item[0] for item in descriptors} != live_bindings:
+        raise RuntimeError(f"{pipeline.label}: emitted descriptor missing from reflection")
     words = patch_storage_image_formats(words, descriptors)
     output.write_bytes(struct.pack(f"<{len(words)}I", *words))
     validated = run([spirv_val, "--target-env", "vulkan1.1", str(output)])

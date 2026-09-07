@@ -29,20 +29,20 @@ namespace Genesis.RoomScan
         public const float MutationOuterRadius = 2f / 3f;
         public const int MaximumColorConfidence = 65535;
         public const uint NeutralPackedColor = 0xffa0a0a0u;
-        public const float MinimumSurfaceQuality = 0.25f;
 
         public const uint OccupiedFlag = 1u << 0;
         // CUT 02 deliberately leaves this legacy bit untouched. Its final flag
         // dependency is removed and this bit is atomically reclaimed as
         // R1_SEED in CUT 05; the remaining CARVE subsystem exits in CUT 06.
-        public const uint NeedsCarveFlag = 1u << 1;
+        public const uint R1SeedFlag = 1u << 1;
         public const int SurfacePlaneNormalUShift = 2;
         public const int SurfacePlaneNormalVShift = 12;
         public const int SurfacePlaneOffsetShift = 22;
         public const uint SurfacePlaneNormalMask = 0x3ffu;
         public const uint SurfacePlaneOffsetMask = 0xffu;
         public const uint SurfacePlaneValidFlag = 1u << 31;
-        public const uint SurfacePlanePayloadMask = 0xbffffffcu;
+        public const uint SurfacePlaneFreeSideFlag = 1u << 30;
+        public const uint SurfacePlanePayloadMask = 0xfffffffcu;
         public const uint SurfacePlaneStorageMask = 0xfffffffcu;
         public const float SurfacePlaneOffsetRange = HalfSupport;
 

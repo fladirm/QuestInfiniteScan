@@ -7,6 +7,23 @@ using UnityEngine;
 
 namespace Genesis.RoomScan
 {
+    internal readonly struct MerkabaCommitMetadata
+    {
+        internal readonly Guid SessionUuid;
+        internal readonly Guid AnchorUuid;
+        internal readonly Matrix4x4 AnchorAtSave;
+        internal readonly int IntegrationCount;
+
+        internal MerkabaCommitMetadata(Guid sessionUuid, Guid anchorUuid,
+            Matrix4x4 anchorAtSave, int integrationCount)
+        {
+            SessionUuid = sessionUuid;
+            AnchorUuid = anchorUuid;
+            AnchorAtSave = anchorAtSave;
+            IntegrationCount = integrationCount;
+        }
+    }
+
     /// <summary>
     /// REV-B session transaction coordinator. M8 and every subordinate stream
     /// become durable only through one atomically published generation manifest.
@@ -56,6 +73,37 @@ namespace Genesis.RoomScan
             _scanner = GetComponent<RoomScanner>();
             _catalog = new MerkabaSessionCatalog(Path.Combine(
                 Application.persistentDataPath, "MerkabaScan"));
+        }
+
+        // Main-thread capture for an already selected canonical storage cut.
+        // The caller guards source replacement and retains this value through
+        // the drain; later anchor tracking updates cannot change its frame.
+        internal bool TryCaptureCommitMetadata(out MerkabaCommitMetadata metadata)
+        {
+            metadata = default;
+            MerkabaSessionInfo session = _activeSession;
+            if (session == null || _grid == null) return false;
+            Guid sessionUuid = session.Id;
+            Guid anchorUuid = session.AnchorId;
+            if (sessionUuid == Guid.Empty || anchorUuid == Guid.Empty)
+                return false;
+
+            RoomAnchorManager manager = RoomAnchorManager.Instance;
+            RoomSpaceRoot room = RoomSpaceRoot.Instance;
+            if (manager == null || !manager.enabled ||
+                !manager.HasSpatialAnchor || manager.SpatialAnchorUuid != anchorUuid ||
+                room == null)
+                return false;
+            Transform anchorTransform = manager.SpatialAnchorTransform;
+            if (anchorTransform == null || room.CurrentAnchor != anchorTransform ||
+                !anchorTransform.TryGetComponent(out OVRSpatialAnchor anchor) ||
+                anchor.Uuid != anchorUuid || !anchor.Localized || !anchor.IsTracked)
+                return false;
+
+            metadata = new MerkabaCommitMetadata(sessionUuid, anchorUuid,
+                manager.SpatialAnchorMatrix,
+                _integrator != null ? _integrator.IntegrationCount : 0);
+            return true;
         }
 
         public async Task<bool> SaveAsync()
@@ -396,11 +444,10 @@ namespace Genesis.RoomScan
                     false) || anchor.SpatialAnchorUuid != ActiveAnchorUuid)
                 throw new InvalidOperationException(
                     "Active session room anchor could not be localized.");
-            int occupied = Math.Max(0, _grid.M8OccupiedKernelCount);
             return await _grid.CommitStorageAsync(ActiveSessionId,
                 ActiveAnchorUuid, anchor.SpatialAnchorMatrix,
                 _integrator != null ? _integrator.IntegrationCount : 0,
-                checked((uint)occupied), progress);
+                _grid.DrainedOccupiedKernelCount, progress);
         }
 
         internal static void CopyFileDurable(string source, string destination)

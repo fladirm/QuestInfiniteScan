@@ -1,503 +1,525 @@
-// One bounded joint four-stream RGB-D solve. Depth-L supplies only the
-// deterministic reference lattice. Every output endpoint requires local
-// Depth-L/Depth-R plane support and calibrated PCA-L/PCA-R coverage.
-
-#pragma kernel StereoRgbdRefine
-
-SamplerState gsBilinearClampSampler;
+// One immutable four-stream measurement. Depth-L/R supply bounded measured
+// planes; PCA-L/R compare the SAME generated Flower root support. Ambiguity
+// is not a lower confidence endpoint and never selects a central fallback.
+#pragma kernel StereoFlowerRefine
 
 #include "MerkabaStereoCamera.hlsl"
+#define M8_DEPTH_CERTIFICATE_BUILD
+#include "MerkabaDepthCertificate.generated.hlsl"
 
 Texture2DArray<float> _SrcDepth;
 RWTexture2D<float> _DstDepth;
 RWTexture2D<float4> _DstNormal;
 RWStructuredBuffer<uint> _RefineMetrics;
-
-uint _DepthW;
-uint _DepthH;
-float4x4 _DepthProj[2];
-float4x4 _DepthProjInv[2];
-float4x4 _DepthView[2];
-float4x4 _DepthViewInv[2];
-uint _RefineMetricsEnabled;
-uint _RefineMetricGroupsX;
+uint _DepthW, _DepthH;
+float4x4 _DepthProj[2], _DepthProjInv[2], _DepthView[2], _DepthViewInv[2];
+float4x4 _MerkabaGridToWorld, _MerkabaWorldToGrid;
+float4 _M8DepthErrorBounds[2];
+float4 _M8PlaneErrorBounds;
+float4 _M8RgbErrorBounds[2];
+uint _RefineMetricsEnabled, _RefineMetricGroupsX;
 uint _M8FineRefineActive;
-float3 _M8FineCursorPosition;
-float3 _M8FineBrushAxis;
-float _M8FineRadiusSquared;
-float _M8FineLength;
+float3 _M8FineCursorPosition, _M8FineBrushAxis;
+float _M8FineRadiusSquared, _M8FineLength;
 
-#define RGBD_REFERENCE_EYE 0u
-#define RGBD_OPPOSITE_EYE 1u
-#define RGBD_HYPOTHESIS_RADIUS 2
-#define RGBD_MAX_METRIC_CORRECTION 0.0125
-#define RGBD_WORLD_PATCH_STEP 0.0125
-#define RGBD_CENSUS_SAMPLES 8u
-#define RGBD_MAX_CENSUS_MISMATCH 2u
-#define RGBD_MIN_CENSUS_CONTRAST 0.02
-#define RGBD_MAX_CHROMATICITY_DIFFERENCE 0.35
-#define RGBD_MIN_PLANE_ALIGNMENT 0.3
+#define RGBD_HYPOTHESES 5u
+#define RGBD_IMPOSSIBLE 0u
+#define RGBD_CERTAIN 1u
+#define RGBD_AMBIGUOUS 2u
 #define RGBD_STAGE_OPPOSITE 1u
 #define RGBD_STAGE_PCA_COVERAGE 2u
 #define RGBD_STAGE_CHROMATICITY 4u
-#define RGBD_STAGE_CENSUS 8u
+#define RGBD_STAGE_FLOWER 8u
 #define RGBD_METRIC_COUNT 8u
 #define RGBD_METRIC_VALUE_COUNT 24u
-
 groupshared uint gRefineMetrics[RGBD_METRIC_VALUE_COUNT];
 
-bool M8FineContains(float3 worldPosition)
+M8FlowerInterval3 StereoPoint(float3 v)
 {
-    float3 relative = worldPosition - _M8FineCursorPosition;
-    float axial = dot(relative, _M8FineBrushAxis);
-    float3 radial = relative - _M8FineBrushAxis * axial;
-    return axial >= 0.0 && axial <= _M8FineLength &&
-        dot(radial, radial) <= _M8FineRadiusSquared;
+    M8FlowerInterval3 p;
+    p.x = M8FlowerI(v.x,v.x); p.y = M8FlowerI(v.y,v.y); p.z = M8FlowerI(v.z,v.z);
+    return p;
+}
+float3 StereoLower(M8FlowerInterval3 p) { return float3(p.x.lo,p.y.lo,p.z.lo); }
+float3 StereoUpper(M8FlowerInterval3 p) { return float3(p.x.hi,p.y.hi,p.z.hi); }
+M8FlowerInterval3 StereoSubtract(M8FlowerInterval3 a, M8FlowerInterval3 b)
+{
+    a.x = M8FlowerISub(a.x,b.x); a.y = M8FlowerISub(a.y,b.y); a.z = M8FlowerISub(a.z,b.z);
+    return a;
+}
+M8FlowerInterval3 StereoTransform(float4x4 transformMatrix, M8FlowerInterval3 p)
+{
+    M8FlowerInterval3 r;
+    r.x = M8DepthIntervalRow(transformMatrix[0],p);
+    r.y = M8DepthIntervalRow(transformMatrix[1],p);
+    r.z = M8DepthIntervalRow(transformMatrix[2],p);
+    return r;
+}
+M8FlowerInterval3 StereoCross(M8FlowerInterval3 a, M8FlowerInterval3 b)
+{
+    M8FlowerInterval3 c;
+    c.x = M8FlowerISub(M8FlowerIMul(a.y,b.z),M8FlowerIMul(a.z,b.y));
+    c.y = M8FlowerISub(M8FlowerIMul(a.z,b.x),M8FlowerIMul(a.x,b.z));
+    c.z = M8FlowerISub(M8FlowerIMul(a.x,b.y),M8FlowerIMul(a.y,b.x));
+    return c;
+}
+bool StereoLength(M8FlowerInterval3 v, out M8FlowerInterval length)
+{
+    return M8FlowerISqrt(M8FlowerIAdd(M8FlowerIAdd(M8FlowerISquare(v.x),
+        M8FlowerISquare(v.y)),M8FlowerISquare(v.z)),length);
+}
+bool StereoNormalize(M8FlowerInterval3 v, out M8FlowerInterval3 n)
+{
+    n = StereoPoint(0.0.xxx);
+    M8FlowerInterval length;
+    return StereoLength(v,length) && length.lo > 0.0 &&
+        M8FlowerIDivPositive(v.x,length,n.x) &&
+        M8FlowerIDivPositive(v.y,length,n.y) &&
+        M8FlowerIDivPositive(v.z,length,n.z);
+}
+float3 StereoMidpoint(M8FlowerInterval3 p)
+{
+    precise float3 lo = StereoLower(p), hi = StereoUpper(p);
+    return lo+(hi-lo)*0.5;
+}
+bool StereoIntersects(M8FlowerInterval a, M8FlowerInterval b)
+{
+    return a.lo <= b.hi && b.lo <= a.hi;
+}
+bool StereoCalibrationValid()
+{
+    if (_M8PlaneErrorBounds.w != 1.0 || !all(isfinite(_M8PlaneErrorBounds.xy)) ||
+        any(_M8PlaneErrorBounds.xy < 0.0)) return false;
+    [unroll] for (uint eye = 0u; eye < 2u; eye++)
+        if (_M8DepthErrorBounds[eye].w != 1.0 || _M8RgbErrorBounds[eye].w != 1.0 ||
+            !all(isfinite(_M8DepthErrorBounds[eye].xyz)) ||
+            !all(isfinite(_M8RgbErrorBounds[eye].xyz)) ||
+            any(_M8DepthErrorBounds[eye].xyz < 0.0) ||
+            any(_M8RgbErrorBounds[eye].xyz < 0.0)) return false;
+    return _DepthW > 0u && _DepthH > 0u && _DepthW <= 512u && _DepthH <= 512u;
 }
 
-float3 DepthNdcToWorld(uint eye, float2 uv, float depth)
+bool StereoDepthSample(uint eye, int2 pixel, out M8FlowerInterval3 world,
+    out M8FlowerInterval depth, out M8FlowerInterval3 depthRay)
 {
-    float4 clip = float4(float3(uv, depth) * 2.0 - 1.0, 1.0);
-    float4 world = mul(_DepthViewInv[eye],
-        mul(_DepthProjInv[eye], clip));
-    return world.xyz / world.w;
+    world = StereoPoint(0.0.xxx); depth = M8FlowerI(0.0,0.0);
+    depthRay = world;
+    if (any(pixel < 0) || any(pixel >= int2(_DepthW,_DepthH))) return false;
+    float source = _SrcDepth.Load(int4(pixel,eye,0));
+    if (!(source > 0.0 && source < 1.0)) return false;
+    M8FlowerInterval ux,uy;
+    if (!M8FlowerIDivPositive(M8FlowerI(pixel.x+0.5,pixel.x+0.5),
+            M8FlowerI((float)_DepthW,(float)_DepthW),ux) ||
+        !M8FlowerIDivPositive(M8FlowerI(pixel.y+0.5,pixel.y+0.5),
+            M8FlowerI((float)_DepthH,(float)_DepthH),uy)) return false;
+    M8FlowerInterval3 ndc;
+    ndc.x = M8FlowerISub(M8FlowerIMul(ux,M8FlowerI(2.0,2.0)),M8FlowerI(1.0,1.0));
+    ndc.y = M8FlowerISub(M8FlowerIMul(uy,M8FlowerI(2.0,2.0)),M8FlowerI(1.0,1.0));
+    ndc.z = M8FlowerISub(M8FlowerIMul(M8FlowerI(source,source),
+        M8FlowerI(2.0,2.0)),M8FlowerI(1.0,1.0));
+    M8FlowerInterval3 view = StereoTransform(_DepthProjInv[eye],ndc);
+    M8FlowerInterval w = M8DepthIntervalRow(_DepthProjInv[eye][3],ndc);
+    if (!M8FlowerIDivPositive(M8FlowerI(-view.z.hi,-view.z.lo),w,depth)) return false;
+    M8FlowerInterval rayX,rayY;
+    if (!M8FlowerIDivPositive(view.x,M8FlowerI(-view.z.hi,-view.z.lo),rayX) ||
+        !M8FlowerIDivPositive(view.y,M8FlowerI(-view.z.hi,-view.z.lo),rayY)) return false;
+    depthRay.x = rayX; depthRay.y = rayY; depthRay.z = M8FlowerI(-1.0,-1.0);
+    float4 bounds = _M8DepthErrorBounds[eye];
+    M8FlowerInterval dz = M8FlowerIAdd(M8FlowerI(bounds.x,bounds.x),M8FlowerI(bounds.z,bounds.z));
+    depth = M8FlowerIAdd(depth,M8FlowerI(-dz.hi,dz.hi));
+    if (!(depth.lo > 0.0)) return false;
+    M8FlowerInterval reprojection = M8FlowerI(-bounds.y,bounds.y);
+    view.x = M8FlowerIAdd(M8FlowerIMul(rayX,depth),reprojection);
+    view.y = M8FlowerIAdd(M8FlowerIMul(rayY,depth),reprojection);
+    view.z = M8FlowerIAdd(M8FlowerI(-depth.hi,-depth.lo),reprojection);
+    world = StereoTransform(_DepthViewInv[eye],view);
+    return all(isfinite(StereoLower(world))) && all(isfinite(StereoUpper(world)));
 }
 
-float3 DepthEyePosition(uint eye)
+struct StereoMeasuredPlane
 {
-    return float3(_DepthViewInv[eye][0][3],
-        _DepthViewInv[eye][1][3], _DepthViewInv[eye][2][3]);
-}
+    float3 position;
+    float3 normal;
+    M8FlowerInterval3 positionInterval;
+    M8FlowerInterval3 normalInterval;
+    M8FlowerInterval3 depthRay;
+    M8FlowerInterval depth;
+};
 
-float WorldToReferenceDepthNdc(float3 worldPosition)
+bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane)
 {
-    float4 clip = mul(_DepthProj[RGBD_REFERENCE_EYE],
-        mul(_DepthView[RGBD_REFERENCE_EYE], float4(worldPosition, 1.0)));
-    return clip.z / clip.w * 0.5 + 0.5;
-}
-
-bool WorldToDepth(uint eye, float3 worldPosition, out float2 uv)
-{
-    float4 view = mul(_DepthView[eye], float4(worldPosition, 1.0));
-    float4 clip = mul(_DepthProj[eye], view);
-    if (view.z >= -0.001 || clip.w <= 0.0)
+    plane = (StereoMeasuredPlane)0;
+    M8FlowerInterval3 centre,x0,x1,y0,y1;
+    M8FlowerInterval3 unusedRay;
+    M8FlowerInterval unused;
+    // Enclose the sensor's two independent depth derivatives, not a fitted
+    // surface and not an RGB stencil. Missing/degenerate support is unresolved.
+    if (!StereoDepthSample(eye,pixel,centre,plane.depth,plane.depthRay) ||
+        !StereoDepthSample(eye,pixel+int2(-1,0),x0,unused,unusedRay) ||
+        !StereoDepthSample(eye,pixel+int2(1,0),x1,unused,unusedRay) ||
+        !StereoDepthSample(eye,pixel+int2(0,-1),y0,unused,unusedRay) ||
+        !StereoDepthSample(eye,pixel+int2(0,1),y1,unused,unusedRay)) return false;
+    M8FlowerInterval3 normal;
+    if (!StereoNormalize(StereoCross(StereoSubtract(x1,x0),StereoSubtract(y1,y0)),normal))
+        return false;
+    plane.position = StereoMidpoint(centre);
+    plane.normal = normalize(StereoMidpoint(normal));
+    if (!all(isfinite(plane.normal))) return false;
+    M8FlowerInterval normalError;
+    if (!StereoLength(StereoSubtract(normal,StereoPoint(plane.normal)),normalError) ||
+        normalError.hi > _M8PlaneErrorBounds.x) return false;
+    M8FlowerInterval3 delta = StereoSubtract(centre,StereoPoint(plane.position));
+    M8FlowerInterval offset = M8DepthIntervalRow(float4(plane.normal,0.0),delta);
+    if (max(abs(offset.lo),abs(offset.hi)) > _M8PlaneErrorBounds.y) return false;
+    float3 eyePosition = float3(_DepthViewInv[eye][0][3],_DepthViewInv[eye][1][3],_DepthViewInv[eye][2][3]);
+    M8FlowerInterval facing = M8FlowerObservedDot(normal,
+        StereoSubtract(StereoPoint(eyePosition),centre));
+    if (facing.lo <= 0.0 && facing.hi >= 0.0) return false;
+    if (facing.hi < 0.0)
     {
-        uv = -1.0;
-        return false;
+        plane.normal = -plane.normal;
+        normal = StereoSubtract(StereoPoint(0.0.xxx),normal);
     }
-    uv = clip.xy / clip.w * 0.5 + 0.5;
-    return all(uv > 0.005) && all(uv < 0.995);
-}
-
-bool LoadDepthWorld(uint eye, int2 pixel, out float3 worldPosition)
-{
-    worldPosition = 0.0;
-    if (pixel.x < 0 || pixel.y < 0 || pixel.x >= (int)_DepthW ||
-        pixel.y >= (int)_DepthH)
-        return false;
-    float depth = _SrcDepth.Load(int4(pixel, (int)eye, 0));
-    if (depth <= 0.0 || depth >= 1.0) return false;
-    float2 uv = (float2(pixel) + 0.5) / float2(_DepthW, _DepthH);
-    worldPosition = DepthNdcToWorld(eye, uv, depth);
-    return all(worldPosition == worldPosition) &&
-        all(abs(worldPosition) < 1.0e20);
-}
-
-bool SelectPlaneTangent(float3 center, bool negativeValid,
-    float3 negativeWorld, bool positiveValid, float3 positiveWorld,
-    out float3 tangent)
-{
-    tangent = 0.0;
-    if (!negativeValid && !positiveValid) return false;
-    if (negativeValid && positiveValid)
-    {
-        float negativeDistance2 = dot(center - negativeWorld,
-            center - negativeWorld);
-        float positiveDistance2 = dot(positiveWorld - center,
-            positiveWorld - center);
-        tangent = positiveDistance2 <= negativeDistance2
-            ? positiveWorld - center : center - negativeWorld;
-    }
-    else
-        tangent = positiveValid ? positiveWorld - center : center - negativeWorld;
-    return dot(tangent, tangent) > 1e-12;
-}
-
-bool TryDepthPlane(uint eye, int2 centerPixel, out float3 planePoint,
-    out float3 planeNormal)
-{
-    planePoint = 0.0;
-    planeNormal = 0.0;
-    if (!LoadDepthWorld(eye, centerPixel, planePoint)) return false;
-
-    float3 xNegative;
-    float3 xPositive;
-    float3 yNegative;
-    float3 yPositive;
-    bool hasXNegative = LoadDepthWorld(eye, centerPixel + int2(-1, 0),
-        xNegative);
-    bool hasXPositive = LoadDepthWorld(eye, centerPixel + int2(1, 0),
-        xPositive);
-    bool hasYNegative = LoadDepthWorld(eye, centerPixel + int2(0, -1),
-        yNegative);
-    bool hasYPositive = LoadDepthWorld(eye, centerPixel + int2(0, 1),
-        yPositive);
-    float3 tangentX;
-    float3 tangentY;
-    if (!SelectPlaneTangent(planePoint, hasXNegative, xNegative,
-            hasXPositive, xPositive, tangentX) ||
-        !SelectPlaneTangent(planePoint, hasYNegative, yNegative,
-            hasYPositive, yPositive, tangentY))
-        return false;
-
-    float3 crossValue = cross(tangentX, tangentY);
-    float lengthSquared = dot(crossValue, crossValue);
-    if (lengthSquared <= 1e-16) return false;
-    planeNormal = crossValue * rsqrt(lengthSquared);
-    float3 towardEye = DepthEyePosition(eye) - planePoint;
-    if (dot(planeNormal, towardEye) < 0.0) planeNormal = -planeNormal;
+    plane.positionInterval = centre;
+    plane.normalInterval = normal;
     return true;
 }
 
-bool TryProjectedDepthPlane(uint eye, float3 worldPosition,
-    out float3 planePoint, out float3 planeNormal)
+bool StereoOppositePlane(M8FlowerInterval3 world, out StereoMeasuredPlane plane)
 {
-    float2 uv;
-    if (!WorldToDepth(eye, worldPosition, uv))
+    plane = (StereoMeasuredPlane)0;
+    // Interval project the complete small root/hypothesis support directly.
+    // Unlike a THROUGH query this does not traverse a volume certificate.
+    M8FlowerInterval3 eye = StereoTransform(_DepthView[1],world);
+    M8FlowerInterval error = M8FlowerI(-_M8DepthErrorBounds[1].y,_M8DepthErrorBounds[1].y);
+    eye.x = M8FlowerIAdd(eye.x,error); eye.y = M8FlowerIAdd(eye.y,error); eye.z = M8FlowerIAdd(eye.z,error);
+    if (!(eye.z.hi < 0.0)) return false;
+    M8FlowerInterval w = M8DepthIntervalRow(_DepthProj[1][3],eye);
+    M8FlowerInterval x,y,z;
+    if (!M8FlowerIDivPositive(M8DepthIntervalRow(_DepthProj[1][0],eye),w,x) ||
+        !M8FlowerIDivPositive(M8DepthIntervalRow(_DepthProj[1][1],eye),w,y) ||
+        !M8FlowerIDivPositive(M8DepthIntervalRow(_DepthProj[1][2],eye),w,z)) return false;
+    if (z.lo < -1.0 || z.hi > 1.0) return false;
+    x = M8FlowerIMul(M8FlowerIAdd(x,M8FlowerI(1.0,1.0)),M8FlowerI(_DepthW*0.5,_DepthW*0.5));
+    y = M8FlowerIMul(M8FlowerIAdd(y,M8FlowerI(1.0,1.0)),M8FlowerI(_DepthH*0.5,_DepthH*0.5));
+    if (!all(isfinite(float4(x.lo,x.hi,y.lo,y.hi))) || x.lo < 0.0 || y.lo < 0.0 ||
+        x.hi >= _DepthW || y.hi >= _DepthH) return false;
+    int2 pixelMin = int2(floor(x.lo),floor(y.lo)), pixelMax = int2(floor(x.hi),floor(y.hi));
+    if (any(pixelMin != pixelMax)) return false;
+    return StereoDepthPlane(1u,pixelMin,plane);
+}
+
+// The complete uncertain root must fit one calibrated bilinear cell. Its four
+// captured texels enclose every possible bilinear sample. No FOV edge clamp.
+bool StereoRootRgb(uint eye, M8FlowerInterval3 world, out M8FlowerInterval3 rgb)
+{
+    rgb = StereoPoint(0.0.xxx);
+    float3 origin = eye == 0u ? _MerkabaCameraPositionLeft : _MerkabaCameraPositionRight;
+    float4x4 rotation = eye == 0u ? _MerkabaCameraInverseRotationLeft : _MerkabaCameraInverseRotationRight;
+    float2 focal = eye == 0u ? _MerkabaCameraFocalLengthLeft : _MerkabaCameraFocalLengthRight;
+    float2 principal = eye == 0u ? _MerkabaCameraPrincipalPointLeft : _MerkabaCameraPrincipalPointRight;
+    float2 sensor = eye == 0u ? _MerkabaCameraSensorResolutionLeft : _MerkabaCameraSensorResolutionRight;
+    float2 resolution = eye == 0u ? _MerkabaCameraCurrentResolutionLeft : _MerkabaCameraCurrentResolutionRight;
+    if (any(sensor <= 0.0) || any(resolution <= 0.0) || any(focal <= 0.0)) return false;
+    M8FlowerInterval3 local = StereoTransform(rotation,StereoSubtract(world,StereoPoint(origin)));
+    M8FlowerInterval error = M8FlowerI(-_M8DepthErrorBounds[eye].y,_M8DepthErrorBounds[eye].y);
+    local.x = M8FlowerIAdd(local.x,error); local.y = M8FlowerIAdd(local.y,error);
+    local.z = M8FlowerIAdd(local.z,error);
+    M8FlowerInterval x,y;
+    if (!M8FlowerIDivPositive(local.x,local.z,x) || !M8FlowerIDivPositive(local.y,local.z,y)) return false;
+    // Same sensor crop as MerkabaProjectCameraCell:
+    // pixel = (sensorPoint-sensor/2)*max(current/sensor)+current/2-1/2.
+    M8FlowerInterval sx,sy;
+    if (!M8FlowerIDivPositive(M8FlowerI(resolution.x,resolution.x),M8FlowerI(sensor.x,sensor.x),sx) ||
+        !M8FlowerIDivPositive(M8FlowerI(resolution.y,resolution.y),M8FlowerI(sensor.y,sensor.y),sy)) return false;
+    M8FlowerInterval scale = M8FlowerI(max(sx.lo,sy.lo),max(sx.hi,sy.hi));
+    x = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(x,M8FlowerI(focal.x,focal.x)),
+        M8FlowerI(principal.x,principal.x)),M8FlowerI(sensor.x*0.5,sensor.x*0.5));
+    y = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(y,M8FlowerI(focal.y,focal.y)),
+        M8FlowerI(principal.y,principal.y)),M8FlowerI(sensor.y*0.5,sensor.y*0.5));
+    x = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(x,scale),
+        M8FlowerI(resolution.x*0.5,resolution.x*0.5)),M8FlowerI(0.5,0.5));
+    y = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(y,scale),
+        M8FlowerI(resolution.y*0.5,resolution.y*0.5)),M8FlowerI(0.5,0.5));
+    if (!all(isfinite(float4(x.lo,x.hi,y.lo,y.hi)))) return false;
+    int2 p = int2(floor(x.lo),floor(y.lo));
+    if (any(p != int2(floor(x.hi),floor(y.hi))) || any(p < 0) || any(p+1 >= int2(resolution))) return false;
+    x = M8FlowerISub(x,M8FlowerI((float)p.x,(float)p.x));
+    y = M8FlowerISub(y,M8FlowerI((float)p.y,(float)p.y));
+    x = M8FlowerI(max(0.0,x.lo),min(1.0,x.hi));
+    y = M8FlowerI(max(0.0,y.lo),min(1.0,y.hi));
+    // Keep one ordered interval accumulation body in the compiler. This is
+    // nested inside both-eye / root / shell / hypothesis evaluation; unrolling
+    // duplicates the enclosure algebra without adding independent evidence.
+    [loop] for (uint i = 0u; i < 4u; i++)
     {
-        planePoint = 0.0;
-        planeNormal = 0.0;
-        return false;
+        int3 texel = int3(p+int2(i&1u,i>>1u),0);
+        float3 value = eye == 0u ? _MerkabaCameraRgbLeft.Load(texel).rgb :
+            _MerkabaCameraRgbRight.Load(texel).rgb;
+        if (!all(isfinite(value)) || any(value < 0.0)) return false;
+        M8FlowerInterval wx = x;
+        M8FlowerInterval wy = y;
+        if ((i&1u) == 0u) wx = M8FlowerISub(M8FlowerI(1.0,1.0),x);
+        if ((i&2u) == 0u) wy = M8FlowerISub(M8FlowerI(1.0,1.0),y);
+        M8FlowerInterval weight = M8FlowerIMul(wx,wy);
+        rgb.x = M8FlowerIAdd(rgb.x,M8FlowerIMul(weight,M8FlowerI(value.x,value.x)));
+        rgb.y = M8FlowerIAdd(rgb.y,M8FlowerIMul(weight,M8FlowerI(value.y,value.y)));
+        rgb.z = M8FlowerIAdd(rgb.z,M8FlowerIMul(weight,M8FlowerI(value.z,value.z)));
     }
-    int2 pixel = clamp((int2)floor(uv * float2(_DepthW, _DepthH)),
-        int2(0, 0), int2((int)_DepthW - 1, (int)_DepthH - 1));
-    return TryDepthPlane(eye, pixel, planePoint, planeNormal);
-}
-
-bool CameraCoverage(uint eye, float2 uv)
-{
-    float2 resolution = eye == 0u
-        ? _MerkabaCameraCurrentResolutionLeft
-        : _MerkabaCameraCurrentResolutionRight;
-    float2 margin = 2.0 / max(resolution, 1.0);
-    return all(uv > margin) && all(uv < 1.0 - margin);
-}
-
-float CameraLuma(uint eye, float2 uv)
-{
-    float3 rgb = MerkabaSampleCameraRgb(eye, uv);
-    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
-}
-
-void JointTangentBasis(float3 normal, out float3 tangent,
-    out float3 bitangent)
-{
-    float3 helper = abs(normal.y) < 0.9
-        ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
-    tangent = normalize(cross(helper, normal));
-    bitangent = cross(normal, tangent);
-}
-
-bool WorldPatchCensus(uint eye, float3 center, float3 tangent,
-    float3 bitangent, out uint descriptor, out float contrast,
-    out float3 centerRgb)
-{
-    float2 centerUv = MerkabaProjectCameraUv(eye, center);
-    if (!CameraCoverage(eye, centerUv))
-    {
-        descriptor = 0u;
-        contrast = 0.0;
-        centerRgb = 0.0;
-        return false;
-    }
-
-    centerRgb = MerkabaSampleCameraRgb(eye, centerUv);
-    float centerLuma = dot(centerRgb, float3(0.2126, 0.7152, 0.0722));
-    const int2 offsets[8] =
-    {
-        int2(-1, -1), int2(0, -1), int2(1, -1), int2(-1, 0),
-        int2(1, 0), int2(-1, 1), int2(0, 1), int2(1, 1)
-    };
-    descriptor = 0u;
-    contrast = 0.0;
-    [unroll]
-    for (uint sampleIndex = 0u; sampleIndex < RGBD_CENSUS_SAMPLES;
-         sampleIndex++)
-    {
-        float2 metricOffset = float2(offsets[sampleIndex]) *
-            RGBD_WORLD_PATCH_STEP;
-        float3 sampleWorld = center + tangent * metricOffset.x +
-            bitangent * metricOffset.y;
-        float2 uv = MerkabaProjectCameraUv(eye, sampleWorld);
-        if (!CameraCoverage(eye, uv)) return false;
-        float neighbour = CameraLuma(eye, uv);
-        contrast = max(contrast, abs(neighbour - centerLuma));
-        descriptor |= (neighbour >= centerLuma ? 1u : 0u) << sampleIndex;
-    }
+    float3 e = _M8RgbErrorBounds[eye].xyz;
+    rgb.x = M8FlowerI(max(0.0,M8FlowerPrevious(rgb.x.lo-e.x)),M8FlowerNext(rgb.x.hi+e.x));
+    rgb.y = M8FlowerI(max(0.0,M8FlowerPrevious(rgb.y.lo-e.y)),M8FlowerNext(rgb.y.hi+e.y));
+    rgb.z = M8FlowerI(max(0.0,M8FlowerPrevious(rgb.z.lo-e.z)),M8FlowerNext(rgb.z.hi+e.z));
     return true;
 }
 
-bool JointCandidate(float3 referenceEyePosition, float3 referenceRay,
-    float referenceDistance, float3 referenceNormal, float candidateDistance,
-    out float3 worldPosition, out float3 jointNormal,
-    out float geometricCost, out uint censusMismatch,
-    out bool photometricStructure, out bool strictAccepted,
-    out uint completedStages)
+uint StereoChromaticSupport(M8FlowerInterval3 world, inout uint stages)
 {
-    worldPosition = referenceEyePosition + referenceRay * candidateDistance;
-    jointNormal = 0.0;
-    geometricCost = 0.0;
-    censusMismatch = 0u;
-    photometricStructure = false;
-    strictAccepted = false;
-    completedStages = 0u;
-
-    float3 rightPlanePoint;
-    float3 rightNormal;
-    if (!TryProjectedDepthPlane(RGBD_OPPOSITE_EYE, worldPosition,
-            rightPlanePoint, rightNormal))
-        return false;
-
-    if (dot(referenceNormal, rightNormal) < 0.0) rightNormal = -rightNormal;
-    if (dot(referenceNormal, rightNormal) < RGBD_MIN_PLANE_ALIGNMENT)
-        return false;
-    float rightResidual = abs(dot(worldPosition - rightPlanePoint,
-        rightNormal));
-    if (rightResidual > RGBD_MAX_METRIC_CORRECTION) return false;
-    completedStages |= RGBD_STAGE_OPPOSITE;
-
-    jointNormal = normalize(referenceNormal + rightNormal);
-    if (dot(jointNormal, referenceEyePosition - worldPosition) < 0.0)
-        jointNormal = -jointNormal;
-    float3 tangent;
-    float3 bitangent;
-    JointTangentBasis(jointNormal, tangent, bitangent);
-
-    uint leftCensus;
-    uint rightCensus;
-    float leftContrast;
-    float rightContrast;
-    float3 leftRgb;
-    float3 rightRgb;
-    if (!WorldPatchCensus(0u, worldPosition, tangent, bitangent,
-            leftCensus, leftContrast, leftRgb) ||
-        !WorldPatchCensus(1u, worldPosition, tangent, bitangent,
-            rightCensus, rightContrast, rightRgb))
-        return false;
-    completedStages |= RGBD_STAGE_PCA_COVERAGE;
-
-    float leftEnergy = leftRgb.r + leftRgb.g + leftRgb.b;
-    float rightEnergy = rightRgb.r + rightRgb.g + rightRgb.b;
-    if (max(leftEnergy, rightEnergy) > 0.06)
+    M8FlowerInterval3 left,right;
+    if (!StereoRootRgb(0u,world,left) || !StereoRootRgb(1u,world,right)) return RGBD_AMBIGUOUS;
+    stages |= RGBD_STAGE_PCA_COVERAGE;
+    M8FlowerInterval le = M8FlowerIAdd(M8FlowerIAdd(left.x,left.y),left.z);
+    M8FlowerInterval re = M8FlowerIAdd(M8FlowerIAdd(right.x,right.y),right.z);
+    if (le.lo > 0.0 && re.lo > 0.0)
     {
-        float3 leftChromaticity = leftRgb / max(leftEnergy, 0.01);
-        float3 rightChromaticity = rightRgb / max(rightEnergy, 0.01);
-        float3 delta = abs(leftChromaticity - rightChromaticity);
-        if (delta.x + delta.y + delta.z >
-            RGBD_MAX_CHROMATICITY_DIFFERENCE)
-            return true;
+        if (!M8FlowerIDivPositive(left.x,le,left.x) || !M8FlowerIDivPositive(left.y,le,left.y) ||
+            !M8FlowerIDivPositive(left.z,le,left.z) || !M8FlowerIDivPositive(right.x,re,right.x) ||
+            !M8FlowerIDivPositive(right.y,re,right.y) || !M8FlowerIDivPositive(right.z,re,right.z)) return RGBD_AMBIGUOUS;
     }
-    completedStages |= RGBD_STAGE_CHROMATICITY;
-
-    censusMismatch = countbits(leftCensus ^ rightCensus);
-    photometricStructure = max(leftContrast, rightContrast) >=
-        RGBD_MIN_CENSUS_CONTRAST;
-    if (photometricStructure &&
-        censusMismatch > RGBD_MAX_CENSUS_MISMATCH)
-        return true;
-    completedStages |= RGBD_STAGE_CENSUS;
-
-    geometricCost = rightResidual / RGBD_MAX_METRIC_CORRECTION +
-        abs(candidateDistance - referenceDistance) /
-        RGBD_MAX_METRIC_CORRECTION * 0.125;
-    strictAccepted = true;
-    return true;
+    // No fabricated luminance epsilon. Black intervals are compared directly.
+    if (!StereoIntersects(left.x,right.x) || !StereoIntersects(left.y,right.y) ||
+        !StereoIntersects(left.z,right.z)) return RGBD_IMPOSSIBLE;
+    stages |= RGBD_STAGE_CHROMATICITY;
+    return RGBD_CERTAIN;
 }
 
-[numthreads(8, 8, 1)]
-void StereoRgbdRefine(uint2 id : SV_DispatchThreadID,
-    uint groupLane : SV_GroupIndex, uint2 groupId : SV_GroupID)
+StereoMeasuredPlane StereoCanonicalPlane(StereoMeasuredPlane plane)
 {
-    bool metricsEnabled = _RefineMetricsEnabled != 0u;
-    if (metricsEnabled)
+    float3 gridNormal = mul(transpose((float3x3)_MerkabaGridToWorld),plane.normal);
+    float first = gridNormal.x != 0.0 ? gridNormal.x :
+        (gridNormal.y != 0.0 ? gridNormal.y : gridNormal.z);
+    if (first < 0.0)
     {
-        if (groupLane < RGBD_METRIC_VALUE_COUNT)
-            gRefineMetrics[groupLane] = 0u;
+        plane.normal = -plane.normal;
+        plane.normalInterval = StereoSubtract(StereoPoint(0.0.xxx),plane.normalInterval);
+    }
+    return plane;
+}
+
+uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
+    int3 owner, uint direction, inout bool bend, inout uint stages)
+{
+    int4 node = M8FlowerDirection[direction];
+    uint lineClass = (uint)node.w;
+    M8FlowerObservedLoopFrame frame;
+    if (!M8FlowerObservedLoop(owner,direction,_MerkabaGridToWorld,frame)) return RGBD_AMBIGUOUS;
+    M8FlowerInterval3 lp = M8FlowerRestrictObservedPlane(left.normalInterval,left.positionInterval,frame);
+    M8FlowerInterval3 rp = M8FlowerRestrictObservedPlane(right.normalInterval,right.positionInterval,frame);
+    uint supported = 0u;
+    bool unresolved = false;
+    [loop] for (uint sign = 0u; sign < 2u; sign++)
+    {
+        M8FlowerInterval2 a,b;
+        uint ac = M8FlowerRootInterval(lp,sign != 0u,a);
+        uint bc = M8FlowerRootInterval(rp,sign != 0u,b);
+        if (ac == M8_FLOWER_ROOT_IMPOSSIBLE || bc == M8_FLOWER_ROOT_IMPOSSIBLE) continue;
+        if ((ac != M8_FLOWER_ROOT_CERTAIN_SECANT && ac != M8_FLOWER_ROOT_CERTAIN_TANGENT) ||
+            (bc != M8_FLOWER_ROOT_CERTAIN_SECANT && bc != M8_FLOWER_ROOT_CERTAIN_TANGENT))
+        { unresolved = true; continue; }
+        if (sign != 0u && (ac == M8_FLOWER_ROOT_CERTAIN_TANGENT || bc == M8_FLOWER_ROOT_CERTAIN_TANGENT)) continue;
+        M8FlowerInterval2 seal;
+        M8FlowerInterval turn;
+        uint sharedSector;
+        if (!M8FlowerSealBend(a,b,lineClass,seal,turn,sharedSector))
+        { unresolved = true; continue; }
+        M8FlowerInterval3 knot;
+        knot.x = M8FlowerIAdd(frame.centre.x,M8FlowerIAdd(M8FlowerIMul(seal.x,frame.axis1.x),M8FlowerIMul(seal.y,frame.axis2.x)));
+        knot.y = M8FlowerIAdd(frame.centre.y,M8FlowerIAdd(M8FlowerIMul(seal.x,frame.axis1.y),M8FlowerIMul(seal.y,frame.axis2.y)));
+        knot.z = M8FlowerIAdd(frame.centre.z,M8FlowerIAdd(M8FlowerIMul(seal.x,frame.axis1.z),M8FlowerIMul(seal.y,frame.axis2.z)));
+        uint chromatic = StereoChromaticSupport(knot,stages);
+        if (chromatic != RGBD_CERTAIN)
+        { unresolved = unresolved || chromatic == RGBD_AMBIGUOUS; continue; }
+        supported++;
+        bend = bend || turn.lo > 0.0 || turn.hi < 0.0;
+    }
+    return supported != 0u ? RGBD_CERTAIN : (unresolved ? RGBD_AMBIGUOUS : RGBD_IMPOSSIBLE);
+}
+
+uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bool tetra,
+    inout uint stages, out float3 normal)
+{
+    normal = measured.normal;
+    StereoMeasuredPlane opposite;
+    if (!StereoOppositePlane(support,opposite)) return RGBD_AMBIGUOUS;
+    M8FlowerInterval3 delta = StereoSubtract(support,opposite.positionInterval);
+    M8FlowerInterval residual = M8FlowerObservedDot(opposite.normalInterval,delta);
+    if (!StereoIntersects(residual,M8FlowerI(-_M8PlaneErrorBounds.y,_M8PlaneErrorBounds.y))) return RGBD_IMPOSSIBLE;
+    stages |= RGBD_STAGE_OPPOSITE;
+    measured.position = StereoMidpoint(support);
+    measured.positionInterval = support;
+    StereoMeasuredPlane left = StereoCanonicalPlane(measured), right = StereoCanonicalPlane(opposite);
+    float3 grid = mul(_MerkabaWorldToGrid,float4(measured.position,1.0)).xyz/M8_FLOWER_LATTICE_STEP;
+    // J=2K+d must also fit signed int32.
+    if (!all(isfinite(grid)) || any(grid < -1073741824.0) || any(grid > 1073741696.0)) return RGBD_AMBIGUOUS;
+    int3 owner = int3(floor(grid));
+    uint axes = 0u, possibleAxes = 0u;
+    uint edges = 0u, possibleEdges = 0u;
+    bool bend = false;
+    uint parity = ((uint)owner.x&1u) | (((uint)owner.y&1u)<<1u) | (((uint)owner.z&1u)<<2u);
+    int4 lines = M8FlowerTetraLine[parity], orientation = M8FlowerTetraEta[parity];
+    bool unresolved = false;
+    // One bounded loop-algebra call site for all shells. R2 follows a
+    // certain R1 bend even with one hypothesis; only R3 is conditional on
+    // competing hypotheses. Neither shell substitutes for the two R1 axes.
+    [loop] for (uint index = 0u; index < 22u; index++)
+    {
+        if (index == 6u)
+        {
+            if (countbits(possibleAxes) < 2u) return RGBD_IMPOSSIBLE;
+            if (countbits(axes) < 2u) return RGBD_AMBIGUOUS;
+            stages |= RGBD_STAGE_FLOWER;
+            if (!tetra && !bend) return RGBD_CERTAIN;
+        }
+        if (index >= 6u && index < 18u && !bend) continue;
+        if (index == 18u)
+        {
+            if (bend)
+            {
+                if (possibleEdges == 0u) return RGBD_IMPOSSIBLE;
+                if (edges == 0u) return RGBD_AMBIGUOUS;
+            }
+            if (!tetra) return RGBD_CERTAIN;
+        }
+        uint axis = index >= 18u ? index-18u : 0u;
+        uint direction = index < 18u ? index :
+            2u*(uint)lines[axis]+(orientation[axis] < 0 ? 1u : 0u);
+        uint status = StereoLoopSupport(left,right,owner,direction,bend,stages);
+        if (index < 6u)
+        {
+            if (status == RGBD_CERTAIN) axes |= 1u << (index>>1u);
+            if (status != RGBD_IMPOSSIBLE) possibleAxes |= 1u << (index>>1u);
+        }
+        else if (index < 18u)
+        {
+            if (status == RGBD_CERTAIN) edges |= 1u << ((index-6u)>>1u);
+            if (status != RGBD_IMPOSSIBLE) possibleEdges |= 1u << ((index-6u)>>1u);
+        }
+        else
+        {
+            if (status == RGBD_IMPOSSIBLE) return RGBD_IMPOSSIBLE;
+            unresolved = unresolved || status == RGBD_AMBIGUOUS;
+        }
+    }
+    return unresolved ? RGBD_AMBIGUOUS : RGBD_CERTAIN;
+}
+
+[numthreads(8,8,1)]
+void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupIndex,
+    uint2 groupId : SV_GroupID)
+{
+    bool metrics = _RefineMetricsEnabled != 0u;
+    if (metrics)
+    {
+        if (lane < RGBD_METRIC_VALUE_COUNT) gRefineMetrics[lane] = 0u;
         GroupMemoryBarrierWithGroupSync();
     }
-
-    bool inBounds = id.x < _DepthW && id.y < _DepthH;
-    bool rawPlaneValid = false;
-    bool finalAccepted = false;
-    bool uniquePhotometricWinner = false;
-    uint completedStages = 0u;
-    uint radialBin = 0u;
-
-    float metricPriorDistance = 0.0;
-    float3 metricPriorNormal = 0.0;
-    uint bestMismatch = 0xffffffffu;
-    uint secondMismatch = 0xffffffffu;
-    float bestPhotometricCost = 1e20;
-    float bestPhotometricDistance = 0.0;
-    float3 bestPhotometricNormal = 0.0;
-    float bootstrapDistance = 0.0;
-    float3 bootstrapNormal = 0.0;
-    float bootstrapConfidence = 0.0;
-
-    float3 referenceEyePosition = 0.0;
-    float3 referenceRay = 0.0;
-    float referenceDistance = 0.0;
-    if (inBounds)
+    bool raw = false, accepted = false, tetraUsed = false;
+    uint stages = 0u, radialBin = 0u;
+    if (all(id < uint2(_DepthW,_DepthH)))
     {
-        _DstDepth[id] = 0.0;
-        _DstNormal[id] = 0.0;
-        float2 normalizedPixel = (float2(id) + 0.5) /
-            float2(_DepthW, _DepthH);
-        float radial = max(abs(normalizedPixel.x * 2.0 - 1.0),
-            abs(normalizedPixel.y * 2.0 - 1.0));
-        radialBin = min(2u, (uint)floor(radial * 3.0));
-
-        float3 referenceWorld;
-        float3 referenceNormal;
-        rawPlaneValid = TryDepthPlane(RGBD_REFERENCE_EYE, int2(id),
-            referenceWorld, referenceNormal);
-        if (rawPlaneValid)
+        _DstDepth[id] = 0.0; _DstNormal[id] = 0.0.xxxx;
+        float2 uv = (float2(id)+0.5)/float2(_DepthW,_DepthH);
+        radialBin = min(2u,(uint)floor(max(abs(uv.x*2.0-1.0),abs(uv.y*2.0-1.0))*3.0));
+        StereoMeasuredPlane measured;
+        raw = StereoCalibrationValid() && StereoDepthPlane(0u,int2(id),measured);
+        if (raw)
         {
-            referenceEyePosition = DepthEyePosition(RGBD_REFERENCE_EYE);
-            referenceRay = referenceWorld - referenceEyePosition;
-            referenceDistance = length(referenceRay);
-            if (referenceDistance > 0.001)
+            uint candidates = (1u << RGBD_HYPOTHESES)-1u;
+            uint certainCandidates = 0u;
+            float3 selectedWorld = 0.0.xxx, selectedNormal = 0.0.xxx;
+            M8FlowerInterval width;
+            bool boundedWidth = M8FlowerIDivPositive(M8FlowerISub(
+                M8FlowerI(measured.depth.hi,measured.depth.hi),M8FlowerI(measured.depth.lo,measured.depth.lo)),
+                M8FlowerI((float)RGBD_HYPOTHESES,(float)RGBD_HYPOTHESES),width);
+            width.lo = max(0.0,width.lo);
+            // Five fixed bounded intervals exhaust the frozen metric range.
+            // No +/-12.5mm stencil and no observation-dependent ranking.
+            // One evaluator call site, not ten unrolled copies of exact root
+            // algebra. The second phase only visits unresolved hypotheses.
+            [loop] for (uint phase = 0u; phase < 2u; phase++)
             {
-                referenceRay /= referenceDistance;
-                [unroll]
-                for (int hypothesis = -RGBD_HYPOTHESIS_RADIUS;
-                     hypothesis <= RGBD_HYPOTHESIS_RADIUS; hypothesis++)
+                if (!boundedWidth) break;
+                if (phase != 0u)
                 {
-                    float candidateDistance = max(0.001,
-                        referenceDistance + (float)hypothesis *
-                        RGBD_MAX_METRIC_CORRECTION /
-                        (float)RGBD_HYPOTHESIS_RADIUS);
-                    float3 candidateWorld;
-                    float3 candidateNormal;
-                    float geometricCost;
-                    uint mismatch;
-                    bool structured;
-                    bool strictAccepted;
-                    uint candidateStages;
-                    bool candidateValid = JointCandidate(referenceEyePosition,
-                        referenceRay, referenceDistance, referenceNormal,
-                        candidateDistance, candidateWorld, candidateNormal,
-                        geometricCost, mismatch, structured, strictAccepted,
-                        candidateStages);
-                    completedStages |= candidateStages;
-                    if (!candidateValid) continue;
-
-                    if (hypothesis == 0)
+                    if (countbits(candidates) <= 1u) break;
+                    tetraUsed = true;
+                }
+                certainCandidates = 0u;
+                [loop] for (uint h = 0u; h < RGBD_HYPOTHESES; h++)
+                {
+                    if ((candidates & (1u << h)) == 0u) continue;
+                    M8FlowerInterval cutLo = M8FlowerIAdd(M8FlowerI(measured.depth.lo,measured.depth.lo),
+                        M8FlowerIMul(M8FlowerI((float)h,(float)h),width));
+                    M8FlowerInterval cutHi = M8FlowerIAdd(M8FlowerI(measured.depth.lo,measured.depth.lo),
+                        M8FlowerIMul(M8FlowerI((float)(h+1u),(float)(h+1u)),width));
+                    M8FlowerInterval depth = M8FlowerI(
+                        max(measured.depth.lo,cutLo.lo),min(measured.depth.hi,cutHi.hi));
+                    M8FlowerInterval3 view;
+                    M8FlowerInterval reprojection = M8FlowerI(-_M8DepthErrorBounds[0].y,_M8DepthErrorBounds[0].y);
+                    view.x = M8FlowerIAdd(M8FlowerIMul(measured.depthRay.x,depth),reprojection);
+                    view.y = M8FlowerIAdd(M8FlowerIMul(measured.depthRay.y,depth),reprojection);
+                    view.z = M8FlowerIAdd(M8FlowerI(-depth.hi,-depth.lo),reprojection);
+                    M8FlowerInterval3 support = StereoTransform(_DepthViewInv[0],view);
+                    float3 normal;
+                    uint status = StereoCandidate(support,measured,phase != 0u,stages,normal);
+                    if (status == RGBD_IMPOSSIBLE)
+                        candidates &= ~(1u << h);
+                    else if (status == RGBD_CERTAIN)
                     {
-                        if (strictAccepted)
-                        {
-                            metricPriorDistance = candidateDistance;
-                            metricPriorNormal = candidateNormal;
-                        }
-                        else
-                        {
-                            bootstrapDistance = candidateDistance;
-                            bootstrapNormal = candidateNormal;
-                            bootstrapConfidence =
-                                (float)countbits(candidateStages) * 0.25;
-                        }
+                        certainCandidates |= 1u << h;
+                        selectedWorld = StereoMidpoint(support);
+                        selectedNormal = normal;
                     }
-                    if (!strictAccepted || !structured) continue;
-
-                    if (mismatch < bestMismatch)
-                    {
-                        secondMismatch = bestMismatch;
-                        bestMismatch = mismatch;
-                        bestPhotometricCost = geometricCost;
-                        bestPhotometricDistance = candidateDistance;
-                        bestPhotometricNormal = candidateNormal;
-                    }
-                    else if (mismatch == bestMismatch)
-                    {
-                        secondMismatch = bestMismatch;
-                        if (geometricCost < bestPhotometricCost)
-                        {
-                            bestPhotometricCost = geometricCost;
-                            bestPhotometricDistance = candidateDistance;
-                            bestPhotometricNormal = candidateNormal;
-                        }
-                    }
-                    else
-                        secondMismatch = min(secondMismatch, mismatch);
+                }
+            }
+            // AMBIGUOUS competitors survive both phases. They cannot vanish
+            // merely to make a different hypothesis look like a unique root.
+            if (countbits(candidates) == 1u && certainCandidates == candidates)
+            {
+                float3 world = selectedWorld;
+                float4 clip = mul(_DepthProj[0],mul(_DepthView[0],float4(world,1.0)));
+                float depth = clip.z/clip.w*0.5+0.5;
+                accepted = clip.w > 0.0 && depth > 0.0 && depth < 1.0 && all(isfinite(selectedNormal));
+                if (_M8FineRefineActive != 0u)
+                {
+                    float3 relative = world-_M8FineCursorPosition;
+                    float axial = dot(relative,_M8FineBrushAxis);
+                    float3 radial = relative-_M8FineBrushAxis*axial;
+                    accepted = accepted && axial >= 0.0 && axial <= _M8FineLength &&
+                        dot(radial,radial) <= _M8FineRadiusSquared;
+                }
+                if (accepted)
+                {
+                    _DstDepth[id] = depth;
+                    _DstNormal[id] = float4(selectedNormal,1.0);
                 }
             }
         }
-
-        uniquePhotometricWinner = bestPhotometricDistance > 0.0 &&
-            bestMismatch < secondMismatch;
-        if (uniquePhotometricWinner || metricPriorDistance > 0.0 ||
-            bootstrapDistance > 0.0)
-        {
-            float selectedDistance = uniquePhotometricWinner
-                ? bestPhotometricDistance : (metricPriorDistance > 0.0
-                ? metricPriorDistance : bootstrapDistance);
-            float3 selectedNormal = uniquePhotometricWinner
-                ? bestPhotometricNormal : (metricPriorDistance > 0.0
-                ? metricPriorNormal : bootstrapNormal);
-            float selectedConfidence = uniquePhotometricWinner ||
-                metricPriorDistance > 0.0 ? 1.0 : bootstrapConfidence;
-            float3 selectedWorld = referenceEyePosition +
-                referenceRay * selectedDistance;
-            float selectedDepth = WorldToReferenceDepthNdc(selectedWorld);
-            finalAccepted = selectedDepth > 0.0 && selectedDepth < 1.0;
-            if (finalAccepted && _M8FineRefineActive != 0u &&
-                !M8FineContains(selectedWorld))
-                finalAccepted = false;
-            if (finalAccepted)
-            {
-                _DstDepth[id] = selectedDepth;
-                _DstNormal[id] = float4(selectedNormal,
-                    selectedConfidence);
-            }
-        }
     }
-
-    if (metricsEnabled)
+    if (metrics)
     {
-        uint metricMask = 0u;
-        if (rawPlaneValid) metricMask |= 1u << 0u;
-        if (rawPlaneValid && !finalAccepted)
-        {
-            if ((completedStages & RGBD_STAGE_OPPOSITE) == 0u)
-                metricMask |= 1u << 1u;
-            else if ((completedStages & RGBD_STAGE_PCA_COVERAGE) == 0u)
-                metricMask |= 1u << 2u;
-            else if ((completedStages & RGBD_STAGE_CHROMATICITY) == 0u)
-                metricMask |= 1u << 3u;
-            else
-                metricMask |= 1u << 4u;
-        }
-        if (finalAccepted)
-        {
-            metricMask |= 1u << (uniquePhotometricWinner ? 6u : 5u);
-            metricMask |= 1u << 7u;
-        }
-        [unroll]
-        for (uint metric = 0u; metric < RGBD_METRIC_COUNT; metric++)
-        {
-            if ((metricMask & (1u << metric)) != 0u)
-            {
-                uint ignored;
-                InterlockedAdd(gRefineMetrics[radialBin *
-                    RGBD_METRIC_COUNT + metric], 1u, ignored);
-            }
-        }
+        uint mask = raw ? 1u : 0u;
+        if (raw && !accepted)
+            mask |= (stages & RGBD_STAGE_OPPOSITE) == 0u ? 2u :
+                ((stages & RGBD_STAGE_PCA_COVERAGE) == 0u ? 4u :
+                ((stages & RGBD_STAGE_CHROMATICITY) == 0u ? 8u : 16u));
+        if (accepted) mask |= 128u | (tetraUsed ? 64u : 32u);
+        [unroll] for (uint metric = 0u; metric < RGBD_METRIC_COUNT; metric++)
+            if ((mask & (1u << metric)) != 0u)
+                InterlockedAdd(gRefineMetrics[radialBin*RGBD_METRIC_COUNT+metric],1u);
         GroupMemoryBarrierWithGroupSync();
-        if (groupLane < RGBD_METRIC_VALUE_COUNT)
-        {
-            uint groupLinear = groupId.y * _RefineMetricGroupsX + groupId.x;
-            _RefineMetrics[groupLinear * RGBD_METRIC_VALUE_COUNT + groupLane] =
-                gRefineMetrics[groupLane];
-        }
+        if (lane < RGBD_METRIC_VALUE_COUNT)
+            _RefineMetrics[(groupId.y*_RefineMetricGroupsX+groupId.x)*RGBD_METRIC_VALUE_COUNT+lane] =
+                gRefineMetrics[lane];
     }
 }

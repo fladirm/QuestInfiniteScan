@@ -4,15 +4,17 @@
 #include "MerkabaWorld.hlsl"
 #include "MerkabaSphereFlowerDataAbi.generated.hlsl"
 
-// Exactly four words per HOT slot: attempt stamp, count, offset, emit cursor.
+// Exactly four words per HOT slot: observation stamp, count, offset, emit cursor.
 // Count starts at zero after slot installation or touched-only finalization.
 // There is one count pass per reservation; retries retain the frozen evidence,
 // retire the preceding reservation, and start a new count pass.
 RWStructuredBuffer<uint4> _M8ObservationTileBins;
+StructuredBuffer<uint4> _M8ObservationTileBinsRead;
 RWStructuredBuffer<M8ObservationRecord> _M8ObservationRecords;
 RWStructuredBuffer<uint> _M8TouchedTileQueue;
+StructuredBuffer<uint> _M8TouchedTileQueueRead;
 RWStructuredBuffer<uint> _M8ObservationDispatchArgs;
-uint _M8AttemptToken;
+uint _M8ObservationToken;
 uint _M8ObservationHotSlotCount;
 uint _M8ObservationRecordCapacity;
 
@@ -25,7 +27,7 @@ void M8FlowerBinFailure(uint reason)
 // No occupancy, normal, root, or surface selection is performed here.
 void M8FlowerCountObservationOwner(uint physicalSlot)
 {
-    if (_M8AttemptToken == 0u ||
+    if (_M8ObservationToken == 0u ||
         physicalSlot >= _M8ObservationHotSlotCount ||
         physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY)
     {
@@ -35,14 +37,14 @@ void M8FlowerCountObservationOwner(uint physicalSlot)
     InterlockedAdd(_M8ObservationTileBins[physicalSlot].y, 1u);
     uint previousStamp;
     InterlockedExchange(_M8ObservationTileBins[physicalSlot].x,
-        _M8AttemptToken, previousStamp);
+        _M8ObservationToken, previousStamp);
 }
 
 bool M8FlowerEmitObservationOwner(uint physicalSlot, uint kernelLocal,
     uint sourcePixel, uint symbolTag, uint precisionKey)
 {
     if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return false;
-    if (_M8AttemptToken == 0u ||
+    if (_M8ObservationToken == 0u ||
         physicalSlot >= _M8ObservationHotSlotCount ||
         physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY ||
         kernelLocal >= MERKABA_M8_KERNELS_PER_TILE ||
@@ -52,7 +54,7 @@ bool M8FlowerEmitObservationOwner(uint physicalSlot, uint kernelLocal,
         return false;
     }
     uint4 bin = _M8ObservationTileBins[physicalSlot];
-    if (bin.x != _M8AttemptToken || bin.y == 0u)
+    if (bin.x != _M8ObservationToken || bin.y == 0u)
     {
         M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
         return false;

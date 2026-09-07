@@ -15,15 +15,17 @@ namespace Genesis.RoomScan
         private readonly MerkabaGrid _grid;
         private readonly ComputeBuffer _records;
         private readonly ComputeBuffer _tileBins;
-        private readonly int _count, _reserve, _emit, _resolveNodes, _resolveTiles, _installTiles, _reset;
+        private readonly int _count, _reserve, _emit, _resolveNodes, _resolveTiles, _installTiles, _reset, _retire;
         private readonly int[] _size = new int[2];
+        private readonly int[] _dualCenterBlock = new int[3];
         private readonly Matrix4x4[] _projectionInverse = new Matrix4x4[2];
         private readonly Matrix4x4[] _viewInverse = new Matrix4x4[2];
-        private readonly IntPtr[] _nativeResources =
-            new IntPtr[MerkabaNativeVulkanExecutor.ResourceCount];
-        private MerkabaNativeUniformTable _nativeUniforms;
         private Texture _depth, _normal;
         private Matrix4x4 _worldToGrid;
+        private float _maxDistance;
+        private int _exclusionCount;
+        private Vector4[] _exclusions;
+        private FineBrushDescriptor _fineBrush;
         private uint _observation;
         private bool _countRecorded, _reservationRecorded, _disposed;
 
@@ -53,6 +55,8 @@ namespace Genesis.RoomScan
             _resolveTiles = shader.FindKernel("ResolveObservationTileRequests");
             _installTiles = grid.WorldCompute.FindKernel("InitializeNewTiles");
             _reset = shader.FindKernel("ResetObservationBins");
+            _retire = shader.FindKernel("RetireObservationBins");
+            MerkabaGrid.ValidateGpuBufferAllocation(MerkabaSpatial.PhysicalTileCapacity, 16);
             _tileBins = new ComputeBuffer(MerkabaSpatial.PhysicalTileCapacity, 16);
             try
             {
@@ -72,12 +76,17 @@ namespace Genesis.RoomScan
         // happens here. The Integrator must keep its existing input lease.
         internal void Begin(uint observation, Texture acceptedDepth, Texture acceptedNormal,
             in Matrix4x4 referenceProjectionInverse, in Matrix4x4 referenceViewInverse,
-            in Matrix4x4 worldToGrid)
+            in Matrix4x4 worldToGrid, float maxDistance, int exclusionCount,
+            Vector4[] exclusions, in FineBrushDescriptor fineBrush)
         {
             ThrowIfDisposed();
             if (_observation != 0u)
                 throw new InvalidOperationException("The preceding immutable observation is still owned.");
             if (observation == 0u) throw new ArgumentOutOfRangeException(nameof(observation));
+            if (!float.IsFinite(maxDistance) || maxDistance <= 0f ||
+                exclusions == null || exclusions.Length != 64 ||
+                (uint)exclusionCount > 64u)
+                throw new ArgumentException("Invalid frozen observation scope.");
             if (acceptedDepth == null || acceptedNormal == null ||
                 acceptedDepth.width != acceptedNormal.width ||
                 acceptedDepth.height != acceptedNormal.height ||
@@ -93,47 +102,21 @@ namespace Genesis.RoomScan
             _viewInverse[0] = referenceViewInverse;
             _viewInverse[1] = referenceViewInverse;
             _worldToGrid = worldToGrid;
+            _maxDistance = maxDistance;
+            _exclusionCount = exclusionCount;
+            _exclusions = exclusions;
+            _fineBrush = fineBrush;
             _observation = observation;
-            // These uniforms describe one accepted observation, not an XR
-            // frame. Allocation retries reuse this exact table and textures.
-            _nativeUniforms = new MerkabaNativeUniformTable();
-            _nativeUniforms.UInt("_M8AttemptToken", observation);
-            _nativeUniforms.UInt("_M8ObservationHotSlotCount", MerkabaSpatial.PhysicalTileCapacity);
-            _nativeUniforms.UInt("_M8ObservationRecordCapacity", (uint)_records.count);
-            _nativeUniforms.UInt2("gsDepthTexSize", _size[0], _size[1]);
-            _nativeUniforms.Matrices("gsDepthProjInv", _projectionInverse);
-            _nativeUniforms.Matrices("gsDepthViewInv", _viewInverse);
-            _nativeUniforms.Matrix("_MerkabaWorldToGrid", _worldToGrid);
         }
 
-        internal bool TryCreateNativeJob(out MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob job)
+        // Part of the existing native observation job, not a separate queue
+        // or camera lease. Only the two compact storage resources are added.
+        internal void FillNativeResources(IntPtr[] resources)
         {
-            ThrowIfDisposed();
-            if (_observation == 0u) throw new InvalidOperationException("No immutable observation is held.");
-            if (MerkabaNativeVulkanExecutor.HasJobInFlight)
-            {
-                job = null;
-                return false;
-            }
-            _grid.FillNativeExecutorWorldResources(_nativeResources);
-            _nativeResources[(int)MerkabaNativeVulkanExecutor.Resource.ObservationRecords] =
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.ObservationRecords] =
                 _records.GetNativeBufferPtr();
-            _nativeResources[(int)MerkabaNativeVulkanExecutor.Resource.ObservationTileBins] =
+            resources[(int)MerkabaNativeVulkanExecutor.Resource.ObservationTileBins] =
                 _tileBins.GetNativeBufferPtr();
-            _nativeResources[(int)MerkabaNativeVulkanExecutor.Resource.RefinedDepth] =
-                _depth.GetNativeTexturePtr();
-            _nativeResources[(int)MerkabaNativeVulkanExecutor.Resource.Normals] =
-                _normal.GetNativeTexturePtr();
-            bool created = MerkabaNativeVulkanExecutor.TryCreateJob(
-                MerkabaNativeVulkanExecutor.JobKind.ObservationBins, _observation,
-                _nativeResources, _nativeUniforms, (_size[0] + 7) / 8,
-                (_size[1] + 7) / 8, 0, 0, out job);
-            if (created)
-            {
-                _countRecorded = true;
-                _reservationRecorded = true;
-            }
-            return created;
         }
 
         // The editor/graphics backend records the identical complete storage
@@ -142,7 +125,7 @@ namespace Genesis.RoomScan
         internal void Record(CommandBuffer command)
         {
             RequireObservation(command);
-            if (_reservationRecorded) RecordReset(command);
+            RecordReset(command);
             RecordCount(command);
             RecordTileRequestPublication(command);
             RecordReserveAndEmit(command);
@@ -164,14 +147,14 @@ namespace Genesis.RoomScan
             _countRecorded = true;
         }
 
-        private void RecordTileRequestPublication(CommandBuffer command)
+        internal void RecordTileRequestPublication(CommandBuffer command)
         {
             RequireObservation(command);
             if (!_countRecorded)
                 throw new InvalidOperationException("Tile requests must originate in this observation's count pass.");
             Bind(command, _resolveNodes, "_M8Counters", _grid.M8Counters);
-            Bind(command, _resolveNodes, "_M8ClaimQueueRead", _grid.M8ClaimQueue);
-            Bind(command, _resolveNodes, "_M8OwnerRecordsRead", _grid.M8OwnerRecords);
+            Bind(command, _resolveNodes, "_M8ClaimQueue", _grid.M8ClaimQueue);
+            Bind(command, _resolveNodes, "_M8OwnerRecords", _grid.M8OwnerRecords);
             Bind(command, _resolveNodes, "_M8HashEntries", _grid.M8HashEntries);
             Bind(command, _resolveNodes, "_M8BlockChunkRefs", _grid.M8BlockChunkRefs);
             Bind(command, _resolveNodes, "_M8BlockPresenceL0", _grid.M8BlockPresenceL0);
@@ -202,6 +185,31 @@ namespace Genesis.RoomScan
             command.DispatchCompute(world, _installTiles, _grid.M8ObservationDispatchArgs, 0);
         }
 
+        internal void SetDualStorageDomain(CommandBuffer command,
+            Unity.Mathematics.int3 center, int radius, int side)
+        {
+            RequireObservation(command);
+            _dualCenterBlock[0] = center.x;
+            _dualCenterBlock[1] = center.y;
+            _dualCenterBlock[2] = center.z;
+            command.SetComputeIntParams(_shader, "_M8ScanCenterBlock", _dualCenterBlock);
+            command.SetComputeIntParam(_shader, "_M8ScanBlockRadius", radius);
+            command.SetComputeIntParam(_shader, "_M8ScanBlockSide", side);
+        }
+
+        internal void RecordTouchedPublication(CommandBuffer command)
+        {
+            RequireObservation(command);
+            if (!_reservationRecorded)
+                throw new InvalidOperationException("Publish dual touches only after the immutable record spans exist.");
+            // UpdateObservationDual selected publication-only mode on GPU.
+            // This invocation never reserves offsets or clears emit cursors.
+            BindCommon(command, _reserve);
+            Bind(command, _reserve, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
+            Bind(command, _reserve, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
+            command.DispatchCompute(_shader, _reserve, 1, 1, 1);
+        }
+
         private void RecordReserveAndEmit(CommandBuffer command)
         {
             RequireObservation(command);
@@ -217,6 +225,7 @@ namespace Genesis.RoomScan
             Bind(command, _emit, "_M8BlockChunkRefsRead", _grid.M8BlockChunkRefs);
             Bind(command, _emit, "_M8ChunkTileRefsRead", _grid.M8ChunkTileRefs);
             Bind(command, _emit, "_M8ObservationRecords", _records);
+            Bind(command, _emit, "_M8TileBits", _grid.M8TileBits);
             command.DispatchCompute(_shader, _emit, (_size[0] + 7) / 8, (_size[1] + 7) / 8, 1);
             _reservationRecorded = true;
         }
@@ -226,12 +235,23 @@ namespace Genesis.RoomScan
         // No tile count or geometry data is read back to the CPU.
         internal void RecordCommit(CommandBuffer command, ComputeShader flowerCommit, int kernel)
         {
+            RecordBindConsumer(command, flowerCommit, kernel);
+            command.DispatchCompute(flowerCommit, kernel, _grid.M8ObservationDispatchArgs, 0);
+        }
+
+        // Both dual preflight and R1 consume the exact same frozen bins.
+        // Binding is shared; it does not issue another workgroup or readback.
+        internal void RecordBindConsumer(CommandBuffer command, ComputeShader flowerCommit, int kernel)
+        {
             RequireObservation(command);
             if (!_reservationRecorded)
                 throw new InvalidOperationException("FlowerCommit requires an emitted reservation.");
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationRecords", _records);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationTileBins", _tileBins);
+            command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationTileBinsRead", _tileBins);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
+            command.SetComputeBufferParam(flowerCommit, kernel, "_M8TouchedTileQueueRead", _grid.M8TouchedTileQueue);
+            command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8Counters", _grid.M8Counters);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8TileHalo", _grid.M8TileHalo);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8TileRecordsRead", _grid.M8TileRecords);
@@ -239,11 +259,10 @@ namespace Genesis.RoomScan
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8OwnerRecordsRead", _grid.M8OwnerRecords);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8BlockChunkRefsRead", _grid.M8BlockChunkRefs);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ChunkTileRefsRead", _grid.M8ChunkTileRefs);
-            command.SetComputeIntParam(flowerCommit, "_M8AttemptToken", unchecked((int)_observation));
+            command.SetComputeIntParam(flowerCommit, "_M8ObservationToken", unchecked((int)_observation));
             command.SetComputeIntParam(flowerCommit, "_M8ObservationRecordCapacity", _records.count);
             command.SetComputeIntParam(flowerCommit, "_M8ObservationHotSlotCount", MerkabaSpatial.PhysicalTileCapacity);
             BindInput(command, flowerCommit, kernel);
-            command.DispatchCompute(flowerCommit, kernel, _grid.M8ObservationDispatchArgs, 0);
         }
 
         // Queue this only after the preceding reservation's readers. Retrying
@@ -251,10 +270,9 @@ namespace Genesis.RoomScan
         internal void RecordReset(CommandBuffer command)
         {
             RequireObservation(command);
-            if (!_reservationRecorded)
-                throw new InvalidOperationException("Reserve even failed counts before touched-only retirement.");
             BindCommon(command, _reset);
             Bind(command, _reset, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
+            Bind(command, _reset, "_M8TileBits", _grid.M8TileBits);
             Bind(command, _reset, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
             command.DispatchCompute(_shader, _reset, 1, 1, 1);
             _countRecorded = false;
@@ -264,20 +282,33 @@ namespace Genesis.RoomScan
         // A fence proves only resource retirement, not refinement exhaustion.
         // FinalizeObservation remains responsible for the latter; this method
         // must be called from its completion path, never from a camera timer.
-        internal void EndAfterFinalization(GraphicsFence retirement)
+        internal void EndAfterFinalization()
         {
             ThrowIfDisposed();
-            if (_countRecorded || _reservationRecorded || !retirement.passed)
-                throw new InvalidOperationException("Observation storage has not retired.");
+            _countRecorded = false;
+            _reservationRecorded = false;
             _depth = null;
             _normal = null;
-            _nativeUniforms = null;
+            _exclusions = null;
+            _fineBrush = default;
             _observation = 0u;
+        }
+
+        internal void RecordRetirement(CommandBuffer command)
+        {
+            RequireObservation(command);
+            BindCommon(command, _retire);
+            Bind(command, _retire, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
+            Bind(command, _retire, "_M8TileBits", _grid.M8TileBits);
+            Bind(command, _retire, "_M8TileRecords", _grid.M8TileRecords);
+            Bind(command, _retire, "_M8PendingNewTileRefs", _grid.M8PendingNewTileRefs);
+            Bind(command, _retire, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);
+            command.DispatchCompute(_shader, _retire, 1, 1, 1);
         }
 
         private void BindCommon(CommandBuffer command, int kernel)
         {
-            command.SetComputeIntParam(_shader, "_M8AttemptToken", unchecked((int)_observation));
+            command.SetComputeIntParam(_shader, "_M8ObservationToken", unchecked((int)_observation));
             command.SetComputeIntParam(_shader, "_M8ObservationHotSlotCount", MerkabaSpatial.PhysicalTileCapacity);
             command.SetComputeIntParam(_shader, "_M8ObservationRecordCapacity", _records.count);
             Bind(command, kernel, "_M8ObservationTileBins", _tileBins);
@@ -292,6 +323,14 @@ namespace Genesis.RoomScan
             command.SetComputeMatrixArrayParam(shader, "gsDepthProjInv", _projectionInverse);
             command.SetComputeMatrixArrayParam(shader, "gsDepthViewInv", _viewInverse);
             command.SetComputeMatrixParam(shader, "_MerkabaWorldToGrid", _worldToGrid);
+            command.SetComputeFloatParam(shader, "_MerkabaMaxUpdateDistance", _maxDistance);
+            command.SetComputeIntParam(shader, "_MerkabaExclusionCount", _exclusionCount);
+            command.SetComputeVectorArrayParam(shader, "_MerkabaExclusionHeads", _exclusions);
+            command.SetComputeIntParam(shader, "_M8FineRefineActive", _fineBrush.IsRefine ? 1 : 0);
+            command.SetComputeVectorParam(shader, "_M8FineCursorPosition", _fineBrush.CursorPosition);
+            command.SetComputeVectorParam(shader, "_M8FineBrushAxis", _fineBrush.Axis);
+            command.SetComputeFloatParam(shader, "_M8FineRadiusSquared", _fineBrush.Radius*_fineBrush.Radius);
+            command.SetComputeFloatParam(shader, "_M8FineLength", _fineBrush.Length);
         }
 
         private void Bind(CommandBuffer command, int kernel, string name, ComputeBuffer buffer) =>

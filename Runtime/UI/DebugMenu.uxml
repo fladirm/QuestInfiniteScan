@@ -343,17 +343,15 @@
                 <ui:Label name="val-fps" text="--" class="diagnostic-value" />
                 <ui:Label text="Active chunks" class="diagnostic-key" />
                 <ui:Label name="val-chunks" text="0" class="diagnostic-value" />
-                <ui:Label text="Published triangles" class="diagnostic-key" />
-                <ui:Label name="val-kernels" text="0" class="diagnostic-value" />
-                <ui:Label text="Visible chunks" class="diagnostic-key" />
-                <ui:Label name="val-visible" text="0" class="diagnostic-value" />
+                <ui:Label text="Visible Flower symbols" class="diagnostic-key" />
+                <ui:Label name="val-kernels" text="Unavailable" class="diagnostic-value" />
+                <ui:Label text="Visible Flower pages" class="diagnostic-key" />
+                <ui:Label name="val-visible" text="Unavailable" class="diagnostic-value" />
                 <ui:Label text="Controller" class="diagnostic-key" />
                 <ui:Label name="val-pointer" text="--" class="diagnostic-value" />
             </ui:VisualElement>
             <ui:VisualElement class="button-row compact-row">
                 <ui:Button name="btn-readout" text="Readout On"
-                    class="quiet-action" />
-                <ui:Button name="btn-mesh" text="Raw mesh Off"
                     class="quiet-action" />
                 <ui:Button name="btn-occlusion" text="Occlusion On"
                     class="quiet-action" />

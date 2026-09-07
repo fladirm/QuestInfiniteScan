@@ -24,6 +24,20 @@
 #define M8_FLOWER_SYMBOL_SHELL_SHIFT 14u
 #define M8_FLOWER_SYMBOL_STATUS_SHIFT 17u
 #define M8_FLOWER_SYMBOL_SCRATCH_SHIFT 20u
+#define M8_FLOWER_DRAW_DIRT_FLAG 0x00200000u
+#define M8_FLOWER_DRAW_CARRIER_SHIFT 9u
+#define M8_FLOWER_DRAW_CARRIER_MASK 0x0000007fu
+#define M8_FLOWER_DRAW_SHELL_SHIFT 16u
+#define M8_FLOWER_DRAW_FREE_SIDE_FLAG 0x00080000u
+#define M8_FLOWER_DRAW_HINGE_FLAG 0x00100000u
+#define M8_FLOWER_DRAW_ACTIVE_SHIFT 22u
+#define M8_FLOWER_DRAW_WEDGE_MASK 0x0000003fu
+#define M8_FLOWER_DRAW_OWNER_RESERVED_MASK 0xf0000000u
+#define M8_FLOWER_DRAW_ROOT_SIGNS_MASK 0x0000007fu
+#define M8_FLOWER_DRAW_HUB_SECTOR_SHIFT 7u
+#define M8_FLOWER_DRAW_COMPLETED_SHIFT 12u
+#define M8_FLOWER_DRAW_REVERSE_SHIFT 18u
+#define M8_FLOWER_DRAW_ROOTS_RESERVED_MASK 0xff000000u
 
 struct M8DualBlockMeta { uint StateAndGeneration; uint PayloadIndex; };
 struct M8DualBlockChildren { uint Word00; uint Word01; uint Word02; uint Word03; uint Word04; uint Word05; uint Word06; uint Word07; uint Word08; uint Word09; uint Word10; uint Word11; uint Word12; uint Word13; uint Word14; uint Word15; uint Word16; uint Word17; uint Word18; uint Word19; uint Word20; uint Word21; uint Word22; uint Word23; uint Word24; uint Word25; uint Word26; uint Word27; uint Word28; uint Word29; uint Word30; uint Word31; };
@@ -39,7 +53,122 @@ struct M8ThreadColorInterval { uint2 LowerLinearRgba; uint2 UpperLinearRgba; };
 struct M8ThreadColorGroup { M8ThreadColorInterval Child[7]; };
 struct M8ThreadProgramRecord { uint Flags; uint Reserved0; uint Reserved1; uint Reserved2; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };
 struct M8FlowerSymbolKey { int3 Junction; uint Tag; };
+struct M8FlowerSymbolRecord { uint OwnerAndCarrier; uint RootsAndWedges; uint DetailRef; uint ThreadRef; };
 struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint SymbolTag; uint PrecisionKey; };
+
+uint M8FlowerDrawKernelLocal(M8FlowerSymbolRecord value) { return value.OwnerAndCarrier & 511u; }
+uint M8FlowerDrawCarrierId(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_CARRIER_SHIFT) & M8_FLOWER_DRAW_CARRIER_MASK; }
+uint M8FlowerDrawShellMask(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_SHELL_SHIFT) & 7u; }
+bool M8FlowerDrawDirectFreeSide(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier & M8_FLOWER_DRAW_FREE_SIDE_FLAG) != 0u; }
+bool M8FlowerDrawIsHinge(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier & M8_FLOWER_DRAW_HINGE_FLAG) != 0u; }
+bool M8FlowerDrawIsDirt(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier & M8_FLOWER_DRAW_DIRT_FLAG) != 0u; }
+uint M8FlowerDrawActiveWedgeMask(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_ACTIVE_SHIFT) & M8_FLOWER_DRAW_WEDGE_MASK; }
+uint M8FlowerDrawRootSigns(M8FlowerSymbolRecord value) { return value.RootsAndWedges & M8_FLOWER_DRAW_ROOT_SIGNS_MASK; }
+uint M8FlowerDrawHubSector(M8FlowerSymbolRecord value) { return (value.RootsAndWedges >> M8_FLOWER_DRAW_HUB_SECTOR_SHIFT) & 31u; }
+uint M8FlowerDrawCompletedWedgeMask(M8FlowerSymbolRecord value) { return (value.RootsAndWedges >> M8_FLOWER_DRAW_COMPLETED_SHIFT) & M8_FLOWER_DRAW_WEDGE_MASK; }
+uint M8FlowerDrawReverseWedgeMask(M8FlowerSymbolRecord value) { return (value.RootsAndWedges >> M8_FLOWER_DRAW_REVERSE_SHIFT) & M8_FLOWER_DRAW_WEDGE_MASK; }
+
+bool M8FlowerIsCanonicalCarrierSymbol(M8FlowerSymbolRecord value)
+{
+    uint active = M8FlowerDrawActiveWedgeMask(value);
+    return !M8FlowerDrawIsDirt(value) &&
+        (value.OwnerAndCarrier & M8_FLOWER_DRAW_OWNER_RESERVED_MASK) == 0u &&
+        (value.RootsAndWedges & M8_FLOWER_DRAW_ROOTS_RESERVED_MASK) == 0u &&
+        active != 0u &&
+        ((M8FlowerDrawCompletedWedgeMask(value) | M8FlowerDrawReverseWedgeMask(value)) & ~active) == 0u &&
+        value.DetailRef != 0xffffffffu;
+}
+
+// Structural packing only; the producer must already have proved admission.
+bool M8FlowerTryCreateCarrierSymbol(uint kernelLocal, uint carrierId, uint shellMask,
+    bool directFreeSide, bool hinge, uint activeWedgeMask, uint rootSigns, uint hubSector,
+    uint completedWedgeMask, uint reverseWedgeMask, uint detailRef, uint threadRef,
+    out M8FlowerSymbolRecord value)
+{
+    value.OwnerAndCarrier = value.RootsAndWedges = 0xffffffffu;
+    value.DetailRef = value.ThreadRef = 0xffffffffu;
+    if (kernelLocal >= 512u || carrierId > M8_FLOWER_DRAW_CARRIER_MASK || shellMask > 7u ||
+        activeWedgeMask == 0u || activeWedgeMask > M8_FLOWER_DRAW_WEDGE_MASK ||
+        rootSigns > M8_FLOWER_DRAW_ROOT_SIGNS_MASK || hubSector > 31u ||
+        completedWedgeMask > M8_FLOWER_DRAW_WEDGE_MASK || reverseWedgeMask > M8_FLOWER_DRAW_WEDGE_MASK ||
+        ((completedWedgeMask | reverseWedgeMask) & ~activeWedgeMask) != 0u ||
+        detailRef == 0xffffffffu) return false;
+    value.OwnerAndCarrier = kernelLocal | (carrierId << M8_FLOWER_DRAW_CARRIER_SHIFT) |
+        (shellMask << M8_FLOWER_DRAW_SHELL_SHIFT) |
+        (directFreeSide ? M8_FLOWER_DRAW_FREE_SIDE_FLAG : 0u) |
+        (hinge ? M8_FLOWER_DRAW_HINGE_FLAG : 0u) | (activeWedgeMask << M8_FLOWER_DRAW_ACTIVE_SHIFT);
+    value.RootsAndWedges = rootSigns | (hubSector << M8_FLOWER_DRAW_HUB_SECTOR_SHIFT) |
+        (completedWedgeMask << M8_FLOWER_DRAW_COMPLETED_SHIFT) |
+        (reverseWedgeMask << M8_FLOWER_DRAW_REVERSE_SHIFT);
+    value.DetailRef = detailRef;
+    value.ThreadRef = threadRef;
+    return true;
+}
+
+M8FlowerSymbolRecord M8FlowerCreateDirtSymbol(uint kernelLocal, uint face, uint halfFace)
+{
+    M8FlowerSymbolRecord value;
+    value.OwnerAndCarrier = kernelLocal < 512u && face < 6u && halfFace < 2u
+        ? kernelLocal | (face << M8_FLOWER_DRAW_CARRIER_SHIFT) | M8_FLOWER_DRAW_DIRT_FLAG |
+            (1u << M8_FLOWER_DRAW_ACTIVE_SHIFT) : 0xffffffffu;
+    value.RootsAndWedges = halfFace;
+    value.DetailRef = value.ThreadRef = 0xffffffffu;
+    return value;
+}
+
+bool M8FlowerIsCanonicalDirtSymbol(M8FlowerSymbolRecord value)
+{
+    return M8FlowerDrawIsDirt(value) &&
+        (value.OwnerAndCarrier & ~(0xffffu | M8_FLOWER_DRAW_DIRT_FLAG |
+            (1u << M8_FLOWER_DRAW_ACTIVE_SHIFT))) == 0u &&
+        M8FlowerDrawCarrierId(value) < 6u && M8FlowerDrawActiveWedgeMask(value) == 1u &&
+        (value.RootsAndWedges & ~1u) == 0u &&
+        value.DetailRef == 0xffffffffu && value.ThreadRef == 0xffffffffu;
+}
+
+bool M8FlowerTryDirtCell(M8FlowerSymbolRecord value, int3 logicalTile, out int3 cell)
+{
+    cell = 0;
+    if (!M8FlowerIsCanonicalDirtSymbol(value) ||
+        any(logicalTile < -268435456) || any(logicalTile > 268435455)) return false;
+    uint local = M8FlowerDrawKernelLocal(value);
+    cell = logicalTile * 8 + int3(local & 7u, (local >> 3u) & 7u, local >> 6u);
+    return true;
+}
+
+// Directed binary16 storage enclosure. Inputs outside finite half range are
+// rejected, not saturated; signed zero has one canonical stored encoding.
+uint M8ThreadEncodeHalfEndpoint(float value, bool upper)
+{
+    uint bits = f32tof16(value);
+    float decoded = f16tof32(bits);
+    if (upper ? decoded < value : decoded > value)
+    {
+        if ((bits & 0x7fffu) == 0u) bits = upper ? 1u : 0x8001u;
+        else if (((bits & 0x8000u) == 0u) == upper) bits++;
+        else bits--;
+    }
+    return (bits & 0x7fffu) == 0u ? 0u : bits;
+}
+
+bool M8ThreadEncodeColorInterval(float4 lower, float4 upper,
+    out M8ThreadColorInterval value)
+{
+    value.LowerLinearRgba = 0u.xx;
+    value.UpperLinearRgba = 0u.xx;
+    if (!all(isfinite(lower)) || !all(isfinite(upper)) ||
+        any(lower > upper) || any(lower < -65504.0) || any(upper > 65504.0))
+        return false;
+    uint4 lo, hi;
+    [unroll] for (uint channel = 0u; channel < 4u; ++channel)
+    {
+        lo[channel] = M8ThreadEncodeHalfEndpoint(lower[channel], false);
+        hi[channel] = M8ThreadEncodeHalfEndpoint(upper[channel], true);
+    }
+    value.LowerLinearRgba = uint2(lo.x | (lo.y << 16u), lo.z | (lo.w << 16u));
+    value.UpperLinearRgba = uint2(hi.x | (hi.y << 16u), hi.z | (hi.w << 16u));
+    return true;
+}
 
 uint M8FlowerPackDetailKey(uint level, uint childPath,
     uint petalClass, uint channel, uint kind, bool rootSign, uint sector)
@@ -52,14 +181,6 @@ uint M8FlowerPackDetailKey(uint level, uint childPath,
         (sector << M8_FLOWER_DETAIL_SECTOR_SHIFT);
 }
 
-uint M8FlowerPackL2Key(uint geometryChildPath, uint petalClass,
-    bool rootSign, uint sector)
-{
-    return geometryChildPath |
-        (petalClass << M8_FLOWER_L2_KEY_PETAL_SHIFT) |
-        (rootSign ? (1u << M8_FLOWER_L2_KEY_ROOT_SHIFT) : 0u) |
-        (sector << M8_FLOWER_L2_KEY_SECTOR_SHIFT);
-}
 
 uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
     uint sector, bool endpointOrientation, uint shellValidity,

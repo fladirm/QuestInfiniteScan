@@ -1,0 +1,119 @@
+#pragma kernel BuildDepthCertificate
+#pragma kernel ReduceDepthCertificate
+
+#define M8_DEPTH_CERTIFICATE_BUILD
+#include "MerkabaDepthCertificate.generated.hlsl"
+#include "MerkabaSphereFlower.generated.hlsl"
+
+Texture2DArray<float> _SrcDepth;
+RWStructuredBuffer<uint2> _M8DepthCertificate;
+int _DepthWidth;
+int _DepthHeight;
+float4x4 _DepthProjInv[2];
+
+// Frozen calibrated maximum errors in metres:
+// sensor eye-z quantization, 3D reprojection displacement norm, hypothesis eye-z width,
+// and categorical calibration validity. Missing bounds invalidate the eye;
+// zero-filled uniforms must never manufacture a zero-error certificate.
+// The same reprojection bound expands support in xyz during the query, not
+// just source depth: uncertain lateral projection cannot skip a foreground pixel.
+float4 _M8DepthErrorBounds[2];
+
+uint2 M8FrozenDepthCertificate(uint2 pixel, uint eye)
+{
+    if (_DepthWidth <= 0 || _DepthHeight <= 0 || _DepthWidth > 512 || _DepthHeight > 512 ||
+        any(pixel >= uint2(_DepthWidth, _DepthHeight))) return 0u.xx;
+    float depth = _SrcDepth.Load(int4(pixel, eye, 0));
+    float4 bounds = _M8DepthErrorBounds[eye];
+    if (!(depth > 0.0 && depth < 1.0) || bounds.w != 1.0 ||
+        !all(isfinite(bounds.xyz)) || any(bounds.xyz < 0.0)) return 0u.xx;
+    M8FlowerInterval3 ndc;
+    M8FlowerInterval ux, uy;
+    if (!M8FlowerIDivPositive(
+        M8FlowerI((float)pixel.x + 0.5, (float)pixel.x + 0.5),
+        M8FlowerI((float)_DepthWidth, (float)_DepthWidth), ux) ||
+        !M8FlowerIDivPositive(
+        M8FlowerI((float)pixel.y + 0.5, (float)pixel.y + 0.5),
+        M8FlowerI((float)_DepthHeight, (float)_DepthHeight), uy)) return 0u.xx;
+    ndc.x = M8FlowerISub(M8FlowerIMul(ux, M8FlowerI(2.0, 2.0)), M8FlowerI(1.0, 1.0));
+    ndc.y = M8FlowerISub(M8FlowerIMul(uy, M8FlowerI(2.0, 2.0)), M8FlowerI(1.0, 1.0));
+    ndc.z = M8FlowerISub(M8FlowerIMul(M8FlowerI(depth, depth),
+        M8FlowerI(2.0, 2.0)), M8FlowerI(1.0, 1.0));
+    M8FlowerInterval z = M8DepthIntervalRow(_DepthProjInv[eye][2], ndc);
+    M8FlowerInterval w = M8DepthIntervalRow(_DepthProjInv[eye][3], ndc);
+    M8FlowerInterval centre;
+    if (!M8FlowerIDivPositive(M8FlowerI(-z.hi, -z.lo), w, centre)) return 0u.xx;
+    M8FlowerInterval error = M8FlowerIAdd(M8FlowerIAdd(
+        M8FlowerI(bounds.x, bounds.x), M8FlowerI(bounds.y, bounds.y)),
+        M8FlowerI(bounds.z, bounds.z));
+    M8FlowerInterval enclosed = M8FlowerIAdd(centre, M8FlowerI(-error.hi, error.hi));
+    return M8DepthCertificateNode(enclosed.lo, isfinite(enclosed.hi) &&
+        enclosed.lo <= enclosed.hi);
+}
+
+// One 16x16 group creates source level and levels 1..4, sharing the exact
+// four-child reductions. No global barrier is assumed within a dispatch.
+groupshared uint2 m8DepthLocal[1024];
+
+[numthreads(16, 16, 1)]
+void BuildDepthCertificate(uint3 id : SV_DispatchThreadID,
+    uint3 local : SV_GroupThreadID, uint lane : SV_GroupIndex)
+{
+    uint2 value = M8FrozenDepthCertificate(id.xy, id.z);
+    m8DepthLocal[lane] = value;
+    _M8DepthCertificate[M8DepthCertificateAddress(id.z, 0u, id.xy)] = value;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint level = 1u; level <= 4u; level++)
+    {
+        uint side = 1u << level;
+        uint step = side >> 1u;
+        if (all((local.xy & (side - 1u)) == 0u.xx))
+        {
+            value = M8DepthCertificateReduce(m8DepthLocal[lane],
+                m8DepthLocal[lane + step], m8DepthLocal[lane + 16u * step],
+                m8DepthLocal[lane + 17u * step]);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (all((local.xy & (side - 1u)) == 0u.xx))
+        {
+            m8DepthLocal[lane] = value;
+            _M8DepthCertificate[M8DepthCertificateAddress(id.z, level, id.xy >> level)] = value;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+
+// Exactly one group per eye finishes levels 5..9 after the queue's buffer
+// barrier. At most 1024 nodes/8 KiB are shared, independent of world size.
+[numthreads(16, 16, 1)]
+void ReduceDepthCertificate(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
+{
+    [unroll]
+    for (uint i = lane; i < 1024u; i += 256u)
+        m8DepthLocal[i] = _M8DepthCertificate[M8DepthCertificateAddress(
+            group.z, 4u, uint2(i & 31u, i >> 5u))];
+    GroupMemoryBarrierWithGroupSync();
+    [unroll]
+    for (uint level = 5u; level < M8_DEPTH_CERTIFICATE_LEVELS; level++)
+    {
+        uint side = M8_DEPTH_CERTIFICATE_SIDE >> level;
+        uint count = side * side;
+        uint2 value = 0u.xx;
+        if (lane < count)
+        {
+            uint2 xy = uint2(lane % side, lane / side);
+            uint p = 2u * xy.y * (2u * side) + 2u * xy.x;
+            value = M8DepthCertificateReduce(m8DepthLocal[p], m8DepthLocal[p + 1u],
+                m8DepthLocal[p + 2u * side], m8DepthLocal[p + 2u * side + 1u]);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (lane < count)
+        {
+            m8DepthLocal[lane] = value;
+            _M8DepthCertificate[group.z * M8_DEPTH_CERTIFICATE_EYE_STRIDE +
+                M8DepthCertificateOffset(level) + lane] = value;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+}

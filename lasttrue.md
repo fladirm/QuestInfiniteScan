@@ -12,6 +12,8 @@ This contract replaces every previous Sphere–Flower draft.
 
 **REV-C closure:** this revision preserves every REV-B closure, removes acquisition throttling, and freezes the skin representation. Fibonacci is never a refinement gate and never ties detail convergence to new camera observations. One accepted immutable observation must drain every finite child test that its own bounded evidence can resolve; new viewpoints are required only for new information or ambiguity. Geometry ends at L2. Every valid L2 carrier owns the same immutable planar Flower-7-in-Flower L3/L4/L5 address space and the same recursively subtree-contiguous 399-position embroidery. Scan evidence refines only the piecewise RGB and additive metric-V signal written on that fixed thread. Readout always performs the same three exact barycentric descents and never selects a detail level.
 
+**Excavation-support amendment, 2026-09-06:** FULL is the default matter model of the complementary excavation view. Its boundary against certified FREE supplies derived DIRT support where direct surface coverage is missing. This is an explicit model assumption, not fabricated direct sensor evidence. Direct measurements have precedence. Sections 0.1 and 13.4 define this support and supersede the previous veto-only restriction.
+
 No backward-compatibility layer is permitted. No legacy surface authority may remain beside the final path.
 
 Normative terms:
@@ -31,11 +33,11 @@ AMBIGUOUS  insufficient information; request refinement
 The persistent scan truth is exactly:
 
 ```text
-Canonical coarse surface:
+Canonical measured coarse surface:
     M8 KernelState
 
-Persistent negative volume:
-    sparse SEE_THROUGH hierarchy
+Persistent complementary excavation model:
+    sparse SEE_THROUGH hierarchy; implicit FULL is the default matter model
 
 Persistent fine metric detail:
     FlowerDetail sidecar under an M8 FlowerAddress
@@ -51,6 +53,7 @@ Sphere–Flower incidence
 Flower symbols
 petals
 completed petals
+DIRT support from the FREE/FULL excavation boundary
 procedural draw pages
 GLB/3D Tiles geometry
 ```
@@ -67,13 +70,67 @@ surface fitter
 mesh compiler as world truth
 ```
 
-`SEE_THROUGH` means only:
+`SEE_THROUGH` means that the complete represented support was certified as
+visible free volume. The complementary FULL volume is treated as matter by
+the excavation model until visibility removes it. FULL is not a direct
+measurement of a physical surface, but it IS supporting matter in the model;
+it is not merely a passive veto mask.
 
-> The complete represented support was certified as visible free volume.
+## 0.1 Two stored views of the same M8 space
 
-It never means that its boundary is a physical surface.
+Both views use the same signed M8 addresses and are persisted together.
+There is no second coordinate index, persistent mesh or independent world.
 
-`FULL = NOT SEE_THROUGH` is only the conservative complement of proven free space.
+```text
+D(x): direct view
+    SURFACE  direct measured R1 / Sphere-Flower surface
+    UNKNOWN  no direct surface or free-volume evidence resolves this location
+    FREE     certified visible free volume
+
+E(x): complementary excavation view
+    FULL     default matter, until certified visibility removes it
+    FREE     certified visible free volume
+    SURFACE  derived interface: direct surface where available, otherwise DIRT
+```
+
+E.SURFACE is a derived interface, not a third persistent occupancy encoding.
+The two-bit node states in section 2 remain unchanged.
+
+A reliable observation removes only its certified visible prefix:
+
+```text
+camera ---- certified FREE ---- endpoint SURFACE ---- remaining FULL
+```
+
+The endpoint is direct evidence. The unobserved region behind it retains the
+FULL matter assumption. Missing direct geometry does not make that region
+empty. Where a direct room/corner/wall surface is absent, the exposed
+FREE/FULL interface MUST supply DIRT support as defined in section 13.4.
+This support is part of the rendered/exported model, not merely a diagnostic
+overlay, and does NOT require a unique direct Flower completion.
+
+Direct surface has precedence over DIRT for the same represented footprint.
+DIRT does not write an occupied M8 kernel, invent an R1 plane, create R2/R3
+measurement evidence, seed FlowerDetail/ThreadAtlas, or count as a confirmed
+petal in a subsequent direct completion. Its authority is the excavation
+model's boundary itself, not invented sensor evidence.
+
+The distinction is provenance, not an optional support feature: direct
+geometry reconstructs observed surfaces; excavation geometry supports missing
+surfaces using the default FULL matter model. Both are evaluated from the one
+persistent ontology above.
+
+Same-observation endpoint support is excluded from THROUGH before mutation.
+A later direct object restores FULL over its endpoint support and enters
+normal R1 admission. FREE is not an irreversible ban on later matter.
+Conversely, later certified visibility removes contradictory matter and DIRT.
+No DIRT or direct matter may remain inside currently certified FREE.
+
+Two real close parallel sheets MUST NOT be merged just because both exist.
+Only certified free-volume evidence excludes contradictory/front surfaces.
+The boundary at a field-of-view, range or validity frontier may also be DIRT
+under the explicit FULL model; it MUST NOT be labelled as an observed wall.
+No missing captured texture is manufactured for it.
 
 ---
 
@@ -99,7 +156,7 @@ Its position remains implicit:
 C_K=aK,\qquad a=0.025\ {\rm m},\qquad K\in\mathbb Z^3.
 \]
 
-It remains the only coarse positive surface authority.
+It remains the only measured coarse positive surface authority. Derived DIRT support is supplied by the persistent excavation model, not by an additional positive KernelState field.
 
 ## 1.2 First-hit seed encoding
 
@@ -312,7 +369,7 @@ Every dual node has exactly one 2-bit state:
 11 INVALID
 ```
 
-A missing block means `ALL_FULL`.
+A missing block means `ALL_FULL`: the excavation model starts as matter, not as empty space. An unresolved COLD payload is still AMBIGUOUS, not permission to substitute FULL or emit DIRT.
 
 ## 2.2 Block payload
 
@@ -1128,6 +1185,31 @@ no compatible sector/root correspondence
 
 The shared draw root is computed once from the canonically ordered endpoint pair and the same `uS` expression.
 
+## 9.2 Evidence merge, residual extraction and incidence closure
+
+These are three different operations:
+
+```text
+EVIDENCE MERGE != RESIDUAL EXTRACTION != INCIDENCE CLOSURE
+```
+
+Multiple direct measurements claiming the same physical symbol/quantity are
+merged by interval intersection. An empty intersection is conflicting evidence
+and is IMPOSSIBLE for that candidate.
+
+Parent prediction and direct observation are differenced by the exact
+tangent-half-angle residual. They are NOT competing estimates to intersect;
+their separation is precisely the detail being represented. No pred/obs
+overlap requirement is permitted in R2 or R3.
+
+Multiple incident syntheses claiming the same physical child knot are closed
+by interval intersection as in section 10.6. An empty intersection is an
+incidence conflict, not a reason to reject a nonzero prediction residual.
+
+Global invariant:
+
+> Prediction and observation are differenced; peer evidence and shared incidence are intersected.
+
 ---
 
 # 10. Exact R2 analysis/synthesis
@@ -1180,63 +1262,112 @@ c(r)&-s(r)\\s(r)&c(r)\end{pmatrix}u.
 
 No inverse trigonometric function is required.
 
-## 10.2 Parent prediction on the exact child loop
+## 10.2 Self-similar parent-to-child phase transport
 
-For every new R2 child node `c` generated by section 8.5, codegen already knows its exact:
+M8 and its three R1/R2/R3 sphere shells define one fixed 3D Flower lattice.
+L1 and L2 are the two dyadic, self-similar substitutions of the same Flower
+petal from section 8.5. R2_PHASE is not transferred between unrelated loops
+and is never interpolated.
 
-```text
-child J
-lineClass
-canonical E1/E2
-sector
-orientation sign
-```
+For each newly introduced child knot `A+B`, `B+C` or `C+A`, codegen derives
+the exact child J, lineClass, canonical E1/E2, sector, parent-channel mapping
+and orientation sign `sigma_c` from that substitution's incidence. The
+mapping MUST be unique. Failure to derive a unique mapping is a codegen
+contract failure, never a runtime choice or search.
 
-The current parent evaluator `E_L` consists only of:
-
-```text
-M8 R1 carrier
-+ already committed ancestor R2_PHASE records
-+ already committed metric V ancestors where applicable
-```
-
-`E_L` is restricted to the exact child loop using the same `ABC -> analytic root` equations as every other loop. This gives the predicted certain root interval:
+First restrict the canonical M8 R1 carrier to that exact generated child loop:
 
 \[
-U_c^{pred}.
+u_c^{base}=\operatorname{Root}(R1\text{ carrier restricted to exact child loop}).
 \]
 
-A new direct observation gives:
+An ancestor R2_PHASE is a dimensionless tangent-half-angle bend. Its
+self-similar pullback preserves the residual magnitude; only the generated
+channel and orientation transport apply:
 
 \[
-U_c^{obs}.
+\boxed{u_c^{pred}=\mathcal R_{\sigma_c r_{parent}}(u_c^{base})}.
 \]
 
-No interpolation or fitted child plane is introduced.
+With multiple committed ancestor R2_PHASE records, apply their section 10.1
+exact rational rotations in ancestry order, from coarse to fine, using each
+ancestor's generated channel mapping and orientation sign. Every interval
+operation remains outward-rounded and every required root/sector predicate
+must be CERTAIN. No phase halving, interpolation, fitted child plane, runtime
+mapping search or independently selected transform is permitted.
+
+Inherited `2A/2B/2C` knots are never recomputed: reuse the exact parent root,
+including its interval and deterministic draw identity. Only new knots receive
+the prediction above. Direct child evidence supplies the additional innovation:
+
+\[
+r_c=\tau(u_c^{pred},u_c^{obs}).
+\]
+
+Section 10.3 classifies that innovation without a pred/obs overlap requirement.
+Normalized Flower phase is scale-invariant; a child stores only its new
+residual, never a divided or duplicated parent coefficient.
+
+Metric V ancestors MUST NOT enter this prediction. REV-C world geometry ends
+at L2; V belongs exclusively to the fixed L3-L5 skin signal.
 
 ## 10.3 Analysis
 
-If both intervals resolve to the same generated sector/rootSign, the child R2 innovation is:
+U_pred and U_obs are NOT competing estimates to be intersected.
+U_pred is the parent-generated prediction; U_obs is direct evidence.
+Their metric separation is exactly the R2 innovation being represented.
 
-\[
-\boxed{r_c=\tau(U_c^{pred},U_c^{obs})}.
-\]
-
-Interval result:
+First require both roots to be CERTAIN members of the same generated
+child symbolic relation:
 
 ```text
-r_c contains only zero
-    no persistent detail
+same child J
+same lineClass
+same sector
+same rootSign
+compatible canonical orientation
+```
 
-r_c is CERTAIN, sector-preserving and excludes zero
+Then compute
+
+\[
+r_c=\tau(U_{pred},U_{obs})
+\]
+
+without any pred/obs overlap requirement.
+
+Classification:
+
+```text
+r_c == {0}
+    exact parent prediction; write no R2_PHASE
+
+r_c is CERTAIN and excludes zero,
+and synthesis remains inside the generated child sector
     persist one R2_PHASE interval
 
-pred/obs disjoint in the same symbolic relation
-    IMPOSSIBLE at this level
+r_c contains zero but is not exactly {0}
+    AMBIGUOUS; the observation does not prove whether an innovation exists
 
-sector/root ambiguity or tau singularity
-    AMBIGUOUS -> refine/re-observe
+tau denominator contains zero,
+root interval crosses a generated sector boundary,
+or symbolic correspondence is not uniquely CERTAIN
+    AMBIGUOUS / re-evaluate the generated alternatives
+
+the observation is CERTAIN to belong to a different generated symbol
+    this candidate is IMPOSSIBLE; evaluate that other generated symbol
 ```
+
+No condition of the form
+
+```text
+"U_pred and U_obs are disjoint -> IMPOSSIBLE"
+```
+
+exists.
+
+Disjoint U_pred/U_obs intervals inside the same CERTAIN generated relation
+are a normal nonzero R2 residual.
 
 Only the innovation is stored. The predicted child root is always regenerated from the current parent evaluator.
 
@@ -1356,6 +1487,12 @@ q_i=\eta_i\,
 
 with the same interval `τ` algebra as section 10.
 
+This is the prediction-to-observation residual of section 9.2. Its inputs
+MUST NOT be required to overlap. Only peer direct evidence and shared
+incidences that claim the same physical quantity are intersected; a nonzero
+R3 prediction residual is not an evidence conflict merely because pred and
+obs are disjoint.
+
 `q_i` is a dimensionless signed tangent-half-angle residual. Raw `ABC` triples from different loop bases are never added.
 
 ## 11.2 Tetra transform
@@ -1468,7 +1605,7 @@ UNRESOLVED=
 \neg CONFIRMED\land\neg VETO\land\neg UniqueCompletion.
 \]
 
-Dual never creates `A(Σ)`. It only eliminates candidates or narrows their allowed dyadic sectors.
+Dual never creates a direct Flower `A(Σ)` or measured root evidence. Within this direct-symbol algebra it eliminates candidates or narrows allowed sectors. Independently, the same excavation state generates DIRT support under section 13.4; that support is not a CONFIRMED or COMPLETED direct petal.
 
 ---
 
@@ -1558,6 +1695,84 @@ A completed petal:
 A larger hole is completed only if it is one generated petal at a coarser level. Otherwise it remains unresolved.
 
 No new knot position is extrapolated during completion.
+
+---
+
+## 13.4 Excavation DIRT support
+
+DIRT is a derived supporting surface of the FULL matter model. It is not
+the unique direct completion of sections 13.1–13.3 and MUST NOT be restricted
+to that completion gate. A hole in direct geometry may therefore retain
+excavation support even when its direct Flower evidence is unresolved.
+
+The supporting geometry is exactly the exposed boundary of the represented
+FREE volume against FULL, never an arbitrary patch fitted across the hole.
+
+### Exact represented boundary
+
+For an L0 integer lattice coordinate U, define the elementary half-open cell
+
+```text
+Cell(U) = a * (U + [0,1)^3),  a = 0.025 m.
+```
+
+This is a derived subdivision of existing M8 support, not a stored grid.
+A kernel K represents support a*(K+[-1,1)^3); consequently Cell(U) belongs
+exactly to the eight supports K=U+b, b in {0,1}^3.
+
+```text
+FreeCell(U) = OR of SEE_THROUGH(U+b), for all b in {0,1}^3
+
+at least one covering support is certified THROUGH
+    Cell(U) is FREE
+
+all eight covering states resolve and none is THROUGH
+    Cell(U) is FULL in the excavation matter model
+
+otherwise
+    AMBIGUOUS; request residency, do not invent a boundary
+```
+
+Thus the union of FreeCell cells equals the union of the represented
+certified supports. There is no scalar field, surface fit, float weld,
+persistent cell list, or new coordinate index.
+
+For each of the six unit signed axis directions n, a support face exists iff
+
+```text
+FreeCell(U) = FREE
+FreeCell(U+n) = FULL
+```
+
+The face is the exact common face of those cells, with matter on the FULL
+side and presentation normal pointing toward the FREE cell. Its canonical
+identity is the signed existing lattice address U plus n. Only the FREE-side
+owner emits it. Generated face vertex order is fixed and camera-independent.
+A fixed presentation diagonal may split a face into two raster triangles;
+it neither defines nor changes the persistent excavation volume.
+
+The readout suppresses DIRT wherever direct or uniquely COMPLETED Flower
+geometry already covers the same represented surface footprint. Direct
+coverage wins; DIRT must not become a duplicate foreground layer over a
+valid direct surface. A missing RGB sample alone does not create a second
+surface: the existing direct carrier keeps its canonical color fallback.
+
+### Material and lifetime
+
+DIRT uses an explicitly identified support material, not invented captured
+RGB, ThreadAtlas detail or certified optical response. Its material color
+does not assert that the unknown matter was observed to be soil.
+
+DIRT is an actual depth/occlusion-bearing support surface of the model.
+Its inferred origin remains explicit in live symbols and export metadata.
+It cannot feed back as measured occupancy, closure evidence, or completion
+input. Its existence changes only with direct coverage, excavation state or
+required residency, never with head rotation or display LOD.
+
+A later direct surface supersedes its support footprint. A later THROUGH
+certificate removes it. A later inserted direct object may restore FULL
+where earlier observations saw FREE. The two persistent views are committed
+together; no independent persistent DIRT mesh or DIRT log exists.
 
 ---
 
@@ -2025,6 +2240,7 @@ FlowerCommit
     conditional R2
     conditional R3
     dual veto/completion/refinement
+    mark changed excavation boundary / direct-coverage pages dirty for DIRT
     generate complete finite L1/L2 geometry workset
     evaluate exact L2-skin RGB/V split predicates
     commit current-quantum FlowerDetail/Thread work
@@ -2646,47 +2862,97 @@ The presentation BRDF is isolated from reconstruction: changing its closed shade
 
 # 24. Procedural L2 readout ABI
 
-Readout pages contain compact active L2 carrier symbols and derived compact
-skin samples, never persistent vertices, indices or L3/L4/L5 geometry.
+Readout pages contain compact active L2 carrier symbols, derived DIRT support
+symbols and compact skin samples, never persistent vertices, indices or
+L3/L4/L5 geometry. DIRT is derived from the same persistent excavation state;
+it is not a separate stored mesh, world, or fallback scanner.
 
 ## 24.1 Symbol record
 
-One active L2 carrier wedge remains 16 bytes:
+One active L2 carrier, with up to six active wedges, remains 16 bytes.
+A DIRT record still represents one exact presentation half-face.
 
 ```c
 struct FlowerSymbolRecord
 {
-    uint OwnerAndPetal;
-    uint TopologyAndSector;
-    uint DetailRef;          // FlowerSkinMetricRun or invalid
-    uint ThreadRef;          // ThreadRun or invalid
+    uint OwnerAndCarrier;
+    uint RootsAndWedges;
+    uint DetailRef;          // resident owner reference; 0 means no fine state
+    uint ThreadRef;          // one derived carrier skin header; invalid when absent
 }
 ```
 
-`OwnerAndPetal` packs:
+`OwnerAndCarrier` packs:
 
 ```text
-kernelLocal       9 bits
-petalClass        6 bits
-validShellMask    3 bits
-COMPLETED         1 bit
-HINGE             1 bit
-directFreeSide    1 bit
-remaining        11 bits    // MUST be zero
+bits  0..8   kernelLocal          9
+bits  9..15  generated L2 carrier 7   // 0..127
+bits 16..18  validShellMask       3
+bit      19  directFreeSide       1
+bit      20  HINGE                1
+bit      21  DIRT                 1
+bits 22..27  activeWedgeMask      6
+bits 28..31  reserved             4   // MUST be zero
 ```
 
-`TopologyAndSector` packs:
+`RootsAndWedges` packs:
 
 ```text
-sector            5 bits
-rootSign          1 bit
-L2 wedge          3 bits
-wedgeOrientation  1 bit
-remaining        22 bits    // MUST be zero
+bits  0..6   rootSigns            7   // H,R0,R1,R2,R3,R4,R5
+bits  7..11  hubSector            5
+bits 12..17  completedWedgeMask   6   // subset of activeWedgeMask
+bits 18..23  reverseWedgeMask     6   // subset of activeWedgeMask
+bits 24..31  reserved             8   // MUST be zero
 ```
 
-There is no geometry-depth or valid-depth field and no dynamic branch rank.
-Only active canonical or uniquely COMPLETED surface symbols receive records.
+The carrier ID addresses the existing generated `L2Wedges` incidence, not a
+new spatial index. The local position numbering is exactly `H=0, Ri=1+i`.
+Each site retains its original `(level,J,lineClass,sector,rootSign)` identity.
+Its normal, appearance and requesting wedge MUST NOT split that position
+identity. Sector and phase are regenerated by the same certain knot evaluator;
+the record cannot choose an unresolved branch.
+
+There is no geometry-depth, valid-depth or dynamic branch-rank field.
+Only admissible active wedges and uniquely COMPLETED wedges set mask bits.
+A carrier with no active wedges receives no record.
+
+`ThreadRef`, when present, addresses one derived 16-byte skin header in a
+64-byte aligned header slot. All six wedges use that same carrier thread;
+the wedge affects locality evaluation only. Compact RGB/A3/A4/A5 samples
+follow the header slot and are compiled from the same persistent FlowerDetail
+and ThreadAtlas carrier key and owner epoch. Generated source-petal/child-path
+aliases of the same L2 carrier MUST resolve to one canonical skin key, never
+six independent wedge tapes. This creates no additional persistent authority.
+
+For DIRT, the same 16 bytes have this explicit interpretation:
+
+```text
+OwnerAndCarrier.kernelLocal
+    FREE-side elementary cell U within the existing LogicalTile address
+
+OwnerAndCarrier.carrier
+    generated face class: +X, -X, +Y, -Y, +Z, -Z (0..5)
+
+OwnerAndCarrier.DIRT = 1
+OwnerAndCarrier.activeWedgeMask = 1
+
+OwnerAndCarrier other semantic bits
+    0; no measured shell, completion, hinge, or direct free-side claim
+
+RootsAndWedges bit 0
+    presentation half-face 0/1
+
+RootsAndWedges bits 1..31
+    0; no invented Flower sector or branch
+
+DetailRef / ThreadRef
+    invalid; no fabricated metric or captured appearance
+```
+
+The DIRT half-face uses sites 0,1,2; the remaining sites evaluate to site 0,
+so the other five static fan triangles are degenerate. Its positions are the
+existing generated integer Cell(U)/Cell(U+n) interface of section 13.4,
+not direct Flower knots or a persistent mesh.
 
 ## 24.2 Page header
 
@@ -2702,9 +2968,10 @@ struct FlowerPageHeader
 }
 ```
 
-Every drawable symbol evaluates to L2 raster geometry. Missing direct L1/L2
+Every non-DIRT symbol evaluates to L2 raster geometry. Missing direct L1/L2
 innovation means the exact certain parent evaluator is repeatedly restricted
-to L2; it does not authorize invented child geometry.
+to L2; it does not authorize invented child geometry. DIRT symbols instead
+evaluate the exact exposed excavation faces of section 13.4.
 
 ## 24.3 Deterministic page compaction
 
@@ -2724,6 +2991,12 @@ certified optical/material fields
 The derived masks and group offsets allow one final structured sample load per
 fragment. Failed validation or allocation leaves the old FRONT page untouched;
 it never publishes a partial union.
+
+The same dirty-page publication derives DIRT support from resolved excavation
+state and direct coverage. It emits only exposed FREE/FULL interfaces not
+already covered by higher-priority direct/COMPLETED geometry. DIRT consumes
+the same arena and page directory; it allocates no 399-sample skin, no Thread
+run, no fine metric run, and no second queue.
 
 ## 24.4 Directory publication — one native queue
 
@@ -2773,50 +3046,91 @@ never silently shrink draw radius
 
 ## 24.6 Static procedural topology
 
-Immutable vertex-ID tables contain only the two geometric substitutions needed
-to evaluate L2 carrier wedges from section 8.5. They do **not** store world
-geometry. They tell the vertex shader which generated L2 knot/strand sample to
-evaluate. L3/L4/L5 never appear in a vertex-ID table.
-
-Vertex shader input:
+The existing generated L2 incidence supplies seven position sites per carrier:
 
 ```text
-FlowerSymbolRecord
-SV_VertexID
-generated incidence/child tables
-M8 / FlowerDetail
+H=0, R0=1, R1=2, R2=3, R3=4, R4=5, R5=6
 ```
 
-Output:
+The immutable indexed fan is:
 
 ```text
-evaluated L2 Flower position
-canonical L2 wedge barycentrics
-flat Thread/FlowerDetail references
-runtime-evaluated L2 frame
+0,1,2   0,2,3   0,3,4   0,4,5   0,5,6   0,6,1
 ```
 
-Triangles emitted to the rasterizer are presentation tessellation of the
-evaluated L2 Flower carrier; they are never canonical topology. The fragment
-always performs the three generated ordered-barycentric descents, follows the
-scan-authored union mask, loads one compact RGB/A3/A4/A5 sample and evaluates
-the analytic micro-normal.
+It addresses shared positions, not eighteen independent knot evaluations.
+Every site is evaluated on its original generated loop through the same
+L0–L2 evaluator used by export. No XYZ, normal, or float-weld key is added.
+L3/L4/L5 never appear in the vertex-ID table.
+
+One immutable fan index buffer repeats this pattern for a page's bounded
+carrier slots, not for the entire world arena. Its bound is the existing
+512 owners times 128 generated carriers plus 512*6*2 DIRT half-faces:
+71680 records, 1290240 uint indices, 5160960 bytes. Exceeding that page bound
+is a failed publication, never truncation or an alternative geometry path.
+
+Each shared vertex carries a canonical planar chart coordinate. One allowed
+fixed affine convention is:
+
+```text
+H=(0,0)
+R0=(1,0), R1=(1,1), R2=(0,1),
+R3=(-1,0), R4=(-1,-1), R5=(0,-1)
+```
+
+This is only a presentation coordinate convention for the same six W_i.
+Recovering the containing wedge and its affine barycentrics MUST give the
+same barycentrics as direct interpolation of that W_i. It MUST NOT replace
+section 20's Flower child footprints or chamber transitions.
+
+The fragment rejects inactive wedges using activeWedgeMask. This preserves
+seven shared position sites even for an arbitrary active subset; no normal or
+material is appended to a position key to implement that subset. The actual
+runtime L2 frame and analytic V derivatives remain wedge/material attributes,
+not geometry ownership. Raster is two-sided; reverseWedgeMask transports the
+existing generated orientation for material evaluation and export winding.
+
+A source-generation/slot-generation check rejects a stale carrier as a whole.
+The serialized source lease excludes M8/sidecar mutation during its graphics
+use. A failed page build cannot expose a mixture of old and new knots.
+
+Triangles are disposable raster presentation of the evaluated carrier.
+The fragment always performs the three generated ordered-barycentric descents,
+reads the scan-authored union masks and one compact RGB/A3/A4/A5 sample.
+DIRT uses its explicit support material; it never fabricates captured RGBV.
 
 ## 24.7 Draw
 
-Visible page commands are submitted with:
+Visible pages use:
 
 ```text
-one vkCmdDrawIndirectCount
+one vkCmdDrawIndexedIndirectCount
 ```
 
-Each visible page contributes one 16-byte `VkDrawIndirectCommand`.
+Each visible page contributes one 20-byte VkDrawIndexedIndirectCommand:
+
+```text
+indexCount    = 18 * SymbolCount
+instanceCount = viewInstanceCount
+firstIndex    = 0
+vertexOffset  = 7 * FirstSymbol
+firstInstance = physicalPageSlot * viewInstanceCount
+```
+
+viewInstanceCount is 1 for mono/multiview and 2 for instanced stereo, matching
+the active Unity XR variant. It is not a geometry or refinement choice.
+Unity owns the graphics pipeline, index binding and XR render target; the
+existing native serialized dependency chain supplies count-driven submission.
 
 Maximum command memory:
 
 ```text
-32768 pages × 16 B = 512 KiB
+32768 pages * 20 B = 655360 B
+plus one 4-byte GPU count
 ```
+
+The command count is reset in the GPU command stream before current-view
+culling. No CPU readback supplies a vertex, index, page count or draw decision.
 
 ## 24.8 View culling
 
@@ -2971,7 +3285,7 @@ CPU log/index progression continues while the native GPU queue has work in fligh
 
 # 27. GLB and 3D Tiles
 
-Both exporters consume the same CPU Sphere–Flower authority and generated tables as live readout.
+Both exporters consume the same CPU Sphere–Flower/excavation evaluation authority and generated tables as live readout. DIRT support is included from the same resolved FREE/FULL boundary, never from an export-only repair solver.
 
 ## 27.1 Petal ownership
 
@@ -3017,18 +3331,22 @@ flagOrientation
 
 Hinge branches share position but retain separate normals.
 
-## 27.4 Confirmed/completed policy
+## 27.4 Confirmed/completed/support policy
 
 Export includes:
 
 ```text
 CONFIRMED petals
 unique COMPLETED petals
+DIRT support faces from the same excavation evaluator
 ```
 
 Completed petals carry a metadata flag.
 
-They disappear on a later dual veto.
+Completed petals disappear on a later dual veto. DIRT carries explicit inferred
+support metadata, uses the integer (U, face, presentation-half) identity of
+section 13.4, and disappears when excavation removes it or direct coverage
+supersedes it. Its winding faces FREE and does not borrow a direct root sign.
 
 ## 27.5 Color
 
@@ -3040,7 +3358,8 @@ otherwise
     export canonical owner M8 PackedColor
 ```
 
-No RGB inpainting is performed.
+No RGB inpainting is performed. DIRT exports its identified support material,
+not fabricated M8/ThreadAtlas captured color or certified optical detail.
 
 L3/L4/L5 never add export vertices. If output material baking requests
 micro-normal, color or optical values, the exporter evaluates the same fixed
@@ -3064,9 +3383,9 @@ GLB/3D Tiles may materialize:
 - baked base color;
 - baked normals/roughness.
 
-Materialized geometry is the L2 carrier only. These files remain presentation
-products and can never be loaded as canonical M8, FlowerDetail or ThreadAtlas
-truth.
+Materialized geometry is the L2 carrier plus derived DIRT support faces.
+These files remain presentation products and can never be loaded as canonical
+M8, excavation state, FlowerDetail or ThreadAtlas truth.
 
 ---
 
@@ -3268,6 +3587,7 @@ negative-coordinate identity
 13 line-class uniqueness
 fixed endpoint-pair uniqueness for every valid (J,lineClass)
 26/72/48 Flower alphabet counts
+O_h equivariance under all 48 signed axis permutations: nodes, strands, petals, signed boundaries, incident-petal relations and child substitution; winding transports by the determinant and all 48 flags form one orbit
 every strand incidence has the expected two-sided petal relation where topology requires it
 deterministic flag/petal winding
 child midpoint R1/R2/R3 class correctness
@@ -3282,7 +3602,14 @@ rootSign stability under d -> -d
 NO observation-dependent branch renumbering
 parallel-sheet separation through distinct overlap-owner relations
 R2 prediction uses exact generated child loop
+R2 self-similar transport preserves the parent residual magnitude
+R2 parent-channel/orientation transport is uniquely generated for every new child knot
+R2 ancestor rotations use coarse-to-fine ancestry order and outward-rounded Q2.29 intervals
+R2 prediction never reads L3-L5 metric V
 R2 analysis -> synthesis reproduces the observed child root interval
+disjoint same-symbol prediction/observation yields the exact R2 residual
+non-singleton residual containing zero remains AMBIGUOUS
+peer evidence and shared incidence intersect; R2/R3 pred/obs do not
 R2 inherited parent knots remain bit-identical
 R2 shared-child knot interval intersection closure
 R3 forward/inverse tetra transform
@@ -3329,6 +3656,16 @@ compatible parent metric refinement does not spuriously invalidate descendants
 dual uniform-node collapse/expand round trip
 common-prefix THROUGH fast path has zero false positives
 dyadic-cover THROUGH slow path has zero false positives
+FreeCell eight-support union equals the complete represented certified volume
+missing resolved excavation nodes supply the FULL matter default; COLD does not
+DIRT is exactly the exposed resolved FREE/FULL boundary and not a fitted patch
+each support face has one FREE-side owner and deterministic winding
+direct/COMPLETED coverage supersedes DIRT without duplicate foreground faces
+direct geometry holes can retain DIRT without a unique direct completion
+DIRT creates no measured R1/R2/R3, captured RGB, or recursive completion evidence
+DIRT uses the same live/export evaluator, signed addresses, arena and publication
+new direct objects restore FULL over earlier FREE support
+new THROUGH removes previously exposed DIRT
 completed petal count 0/1/>1
 completed petals cannot recursively seed completion
 parent deletion invalidates every descendant
@@ -3360,7 +3697,12 @@ isolated first hit
 repeated isolated real object
 comet-tail depth error
 open direct hole with unique petal
-ambiguous large hole
+ambiguous large direct hole with resolved excavation support
+missing room/cellar corner backed by FULL excavation matter
+missing RGB on an existing direct carrier without duplicate DIRT geometry
+FOV/range frontier DIRT is labelled inferred, never observed wall
+COLD excavation frontier emits no assumed DIRT until resolved
+new object introduced into previously FREE volume
 closed ghost inside THROUGH
 negative coordinates
 tile/chunk/block boundary
@@ -3381,7 +3723,10 @@ parent compatible plane refinement with surviving detail
 parent structural sector change with exact detail invalidation
 ```
 
-No surface is emitted from an unresolved fixture.
+No measured or COMPLETED Flower surface is emitted from unresolved direct
+evidence. A resolved excavation boundary may independently emit DIRT support
+under section 13.4, even where direct geometry is unresolved. Unresolved COLD
+or contradictory excavation state emits no DIRT.
 
 **Cutover gate:** until every proof above passes in the CPU oracle and CPU/HLSL parity suite, production scanner/readout/storage authority remains unchanged. Passing the oracle authorizes implementation; it does not authorize retaining a parallel legacy geometry path after final cutover.
 
@@ -3412,7 +3757,7 @@ R1\ core\\
 R2\ exact\ phase\ refinement\\
 R3\ tetra\ branch/closure\\
 \downarrow\\
-unique\ direct+dual\ completion\ only\\
+unique\ direct\ completion\ +\ excavation\ DIRT\ support\\
 \downarrow\\
 exact\ geometric\ refinement\ through\ L2\\
 \downarrow\\
@@ -3428,7 +3773,7 @@ three\ exact\ barycentric\ descents\\
 \downarrow\\
 analytic\ micro-normal/optical\ response\\
 \downarrow\\
-compact\ procedural\ L2\ sphere-resident\ draw
+compact\ procedural\ L2+DIRT\ sphere-resident\ draw
 \end{array}
 }
 \]
@@ -3441,9 +3786,11 @@ Sphere loops carry exact metric relations.
 R1 keeps a valid surface alive.
 R2 refines its shape.
 R3 proves branch and junction closure.
-SEE_THROUGH only vetoes impossible matter.
-A hole is completed only by one unique finite Flower symbol.
-Ambiguity remains unresolved.
+Certified visibility excavates FREE out of the default FULL matter model.
+The exposed FREE/FULL boundary supplies DIRT support for missing direct geometry.
+Direct surface supersedes DIRT; DIRT does not counterfeit direct measurement.
+Direct Flower completion still requires one unique finite Flower symbol.
+Direct ambiguity does not erase resolved excavation support; unresolved excavation remains unresolved.
 FlowerDetail persists metric refinement.
 ThreadAtlas persists captured RGB novelty.
 L0-L2 are geometry; L3-L5 are the immutable planar Flower-7 skin address.
@@ -3469,14 +3816,14 @@ This ledger is mutable implementation state. Everything above this separator is 
 REPOSITORY=fladirm/QuestInfiniteScan
 MANDATORY_BASE=c34d27f0ecb51500b12209ed5d2fe72b893726f5
 CONTRACT_FILE=M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md
-CONTRACT_BYTES=86895
-CONTRACT_SHA256=a49c511126750cd46cde2fa06f12d27410c94a3f47c50c58114316261fae9c0b
+CONTRACT_BYTES=102416
+CONTRACT_SHA256=11a62ea7ac00230ee547277d7bc3a6211b2c1be2b867485e2cffbc74581680ad
 WORKTREE=/mnt/aidisk/prace/uniscan
 BRANCH=refactor/m8-dual-sphere-flower-rev-b
-CURRENT_COMMIT=HEAD (CUT 3 commit parent: d5551bfba0012c2e72a7071f38d023909bcb23c9)
-CURRENT_CUT=CUT_03_IMPLEMENTED_VALIDATION_DEFERRED
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87 + uncommitted RUN_04
+CURRENT_CUT=RUN_04_IN_PROGRESS
 DAG_REVISION=COMPACT_FOUR_RUNS_2026_09_06
-DAG_AUDIT=PASS
+DAG_AUDIT=PENDING_EXCAVATION_AMENDMENT
 FINAL_DAG_AUDIT=PENDING
 FINAL_CONTRACT_AUDIT=PENDING
 FINAL_LEGACY_AUDIT=PENDING
@@ -3501,26 +3848,26 @@ Existing untracked user-owned `.claude/`, `CLAUDE.md`, and `CLAUDE.md.meta` are 
 
 ```text
 H01 Mandatory ancestry is c34d27f0ecb51500b12209ed5d2fe72b893726f5.
-H02 KernelState remains 16 B and the only canonical coarse positive surface authority.
-H03 SEE_THROUGH is sparse persistent negative-volume evidence only; implicit FULL is never a surface oracle.
+H02 KernelState remains 16 B and the only measured coarse positive surface authority; it never stores derived DIRT.
+H03 Excavation starts as FULL model matter and certified visibility removes FREE; its exposed boundary supplies DIRT support without requiring unique direct completion. DIRT never counterfeits measured evidence.
 H04 FlowerDetail and ThreadAtlas are subordinate persistent truth under an M8 FlowerAddress and sparse parent epoch.
 H05 J_L(K,d)=2*K_L+d=J_L(K+d,-d), including negative coordinates and geometric L0..L2.
 H06 R1=core, R2=native shape refinement, R3=branch/corner/chirality closure; shell is neither LOD nor confidence.
 H07 No branch ranks, nearest-root matching, normal-angle ownership, generic fitting, or magic epsilon.
 H08 ABC/root/SEAL/BEND/R2/R3 use outward-rounded CERTAIN/IMPOSSIBLE/AMBIGUOUS interval algebra.
-H09 Runtime topology is the generated finite 26-node/72-strand/48-petal alphabet; no adjacency/intersection search.
+H09 Direct Flower topology is the generated 26-node/72-strand/48-petal alphabet; DIRT uses the six exact integer excavation face classes. Neither creates a persistent mesh or runtime adjacency graph.
 H10 Geometric child substitution stops at L2 and preserves parent knot identity and boundary orientation exactly.
-H11 Completion is finite candidate intersection with exactly one candidate; completed petals never recursively complete.
+H11 Direct Flower completion requires exactly one finite candidate; neither COMPLETED nor DIRT can recursively seed direct completion. DIRT support is independently derived from excavation.
 H12 THROUGH requires conservative full projected-support proof; AMBIGUOUS performs no destructive write.
 H13 Seeds do not draw or own fine state; stable R1 requires finite incidence or a compatible later observation.
 H14 Reduction is touched-only, deterministic, with exactly one commit workgroup per touched tile.
 H15 L0..L2 are geometry; L3..L5 are always-existing planar Flower-7 skin addresses and can never emit geometry, silhouette or depth.
 H16 RGB cannot create V; RGB is deepest explicit captured radiance while V is additive nested metric innovation with exact boundary value/derivative preservation.
 H17 Captured RGB remains captured radiance; no invented albedo or ambient field.
-H18 Readout is compact procedural L2 symbols plus immutable generated topology, always three skin descents and no validDepth/LOD authority.
+H18 Readout uses one compact arena/publication for L2 and DIRT symbols. L2 skin always executes three descents without validDepth/LOD authority; DIRT evaluates the exact excavation boundary and its support material.
 H19 Head rotation causes zero residency, SSD, topology, page, or Flower rebuild work.
 H20 SAVE is dirty append plus atomic manifest; OPEN rejects tails/orphans and resumes SCAN independently of DRAW/WARM.
-H21 Live, GLB and 3D Tiles use the same L0-L2 evaluator, fixed-thread mapping and RGB/V signal; export mesh is presentation only.
+H21 Live, GLB and 3D Tiles share the L0-L2 evaluator, fixed-thread RGB/V and exact DIRT boundary evaluator/provenance. Export mesh is presentation only.
 H22 One serialized native Vulkan queue; scanner/FINE/ERASE outrank bounded page compaction.
 H23 Superseded authority is removed in its replacement cut; no fallback, alias, flag, or second authority remains.
 H24 Insufficient information yields UNRESOLVED plus a discrete refinement reason, never inferred conventional geometry.
@@ -3811,7 +4158,7 @@ DEPENDS_ON=CUT_03
 FILES_TOUCHED=StereoRgbdRefine.compute; DepthCapture; MerkabaObservation; MerkabaIntegration.compute/Integrator; Grid.Gpu/Storage; existující SphereFlower authority/codegen, DualVisibility, FlowerDetail, ThreadAtlas; native executor/generator
 NEW_AUTHORITY=jediný GPU observation/refinement/ERASE flow zapisující čtyři kontraktní autority přes existující append transaction
 LEGACY_REMOVED=square census; nearest/normal-step/current-frame routing; weighted plane fusion; Discover/Initialize/Select/Queue/IntegrateSurfaceCandidates; winner banks/SurfaceQueue; CARVE kernels/resources; DepthDilation; NeedsCarve význam; provisional fine-state shortcuts
-INVARIANTS=H02-H17,H20,H22-H27; R1 jediný vlastní occupancy; R2/R3 jej nemažou; dual pouze veto; skin nemění L2 geometrii
+INVARIANTS=H02-H17,H20,H22-H27; R1 jediný vlastní measured occupancy; R2/R3 jej nemažou; excavation FULL je výchozí hmota a FREE ji vyžírá, DIRT support je derived; skin nemění L2 geometrii
 CPU_PROOFS=všechny příslušné §29: stereo/root, R1 seed/promotion, dual/certificate, R2/R3/hinge, completion, epoch, split a eager/drain parity
 GPU_TESTS=stejné generované tabulky; jeden WG/tile; immutable work drain; negativní a hierarchy boundaries; zero-false-THROUGH; atomic epoch a sedm child values
 SCENE_FIXTURES=kontraktní geometry/sensor/ghost/hole fixtures; stationary observation; uniform/partial/full skin; RGB-only/V-only; parent refine/delete
@@ -3826,6 +4173,8 @@ Vnitřní implementační pořadí, nikoli další runy:
   support přesnými Flower loops a zavést min-depth/AllValid certificate.
 - Napojit CUT 3 na R1 seed/promotion/retirement a sparse dual update
   s úplným support certificate a direct endpoint precedence.
+- Zachovat dynamické FULL obnovení novým endpointem. Změna excavation nebo
+  direct coverage označí dotčené DIRT pages; žádný nový persistent DIRT svět.
 - Ve stejném commit flow použít generated R2 child-loop residual,
   R3 determinant/chirality a jedinou finite completion/ghost algebru.
 - Doplnit L1/L2 metric records, structural owner epochs, FINE/ERASE
@@ -3845,14 +4194,14 @@ NAME=Dirty L2 pages -> compact RGBV -> cull/draw
 STATUS=PENDING
 DEPENDS_ON=RUN_04
 FILES_TOUCHED=MerkabaReadout.compute; GridRenderer; Grid.Gpu; Grid.shader; RenderFeature; ReadoutCoverage a existující storage residency hooks; sdílený evaluator/codegen; native executor/generator
-NEW_AUTHORITY=derived L2 symbol pages a RGB/V union samples; 64 MiB generational arena; jedna serialized-queue publication; SCAN/DRAW/WARM
+NEW_AUTHORITY=derived L2 + DIRT symbol pages a RGB/V union samples; 64 MiB společná generational arena; jedna serialized-queue publication; SCAN/DRAW/WARM
 LEGACY_REMOVED=oba legacy readout pipelines; MeshReadout; vertex/index/Mesh FRONT/BACK rezervace; octahedron/tip output; camera-dependent rebuild; giant logical sphere stencil a loaded-DRAW gate pro SCAN
-INVARIANTS=H09-H11,H15-H19,H21-H27; pouze L2 raster geometry; thread order; runtime L2 frame; vždy tři sestupy a jeden aligned hot sample
-CPU_PROOFS=§29 page/arena/ownership/winding, exact chamber footprints, 399/343 bijections, thread ranks, RGB/V union, additive V/normal moments a publication
+INVARIANTS=H09-H11,H15-H19,H21-H27; L2 measured geometry + exact DIRT boundary; thread order; runtime L2 frame; pro L2 skin vždy tři sestupy a jeden aligned hot sample; direct coverage má před DIRT přednost
+CPU_PROOFS=§29 page/arena/ownership/winding, exact chamber footprints, 399/343 bijections, thread ranks, RGB/V union, additive V/normal moments, publication; §13.4 FreeCell union, unique DIRT face ownership, COLD ambiguity a no-FREE-interior matter
 GPU_TESTS=CPU/HLSL vertex/signal parity; page failure retains FRONT; epoch validity; single queue; rotation mění jen cull commands
 SCENE_FIXTURES=uniform/partial/full skin se stejnou geometrií; hinge; completed/veto; RGB/V union; head rotation, translation, COLD/WARM a arena capacity
 PERF_CHECKS=odstranit ~480 MiB rezervaci; arena 64 MiB; commands <=512 KiB; jeden vkCmdDrawIndirectCount; žádná L3-L5 geometrie, runtime Fibonacci ani per-frame rebuild
-ACCEPTANCE=renderer používá jen společný L2 evaluator a scan-authored signal; readout nemůže vytvářet detail, měnit subdivision nebo emitovat alternativní surface
+ACCEPTANCE=renderer používá společný L2 evaluator, scan-authored signal a schválený exact excavation DIRT evaluator; nevytváří measured detail ani nemění subdivision; DIRT skutečně podporuje chybějící direct povrch a není jen diagnostic overlay
 ROLLBACK_BOUNDARY=celý readout/residency run; starý renderer není emergency fallback
 ```
 
@@ -3874,7 +4223,7 @@ FILES_TOUCHED=MerkabaExporter/GlbWriter/TilesetWriter; existující SsdStore/rep
 NEW_AUTHORITY=žádná další; všechny consumery napojené na tytéž M8/dual/detail/thread records a společný evaluator
 LEGACY_REMOVED=ExportShell/ExportMembrane, donor/repair/min-cut/float weld, zbývající OverlapShell a jeho codegen po odstranění posledního consumeru; staré lifecycle/save/readout gate a export-only solver
 INVARIANTS=H02-H04,H09-H11,H15-H17,H19-H27; dirty append; manifest-first replay; SCAN readiness nezávislá na DRAW/WARM; export je presentation, nikoli world truth
-CPU_PROOFS=§26 crash/generation/epoch replay a §27 live/export knot+RGBV parity, ownership, winding, RTC a deterministic output
+CPU_PROOFS=§26 crash/generation/epoch replay a §27 live/export knot+RGBV+DIRT parity, ownership, winding, RTC, support provenance a deterministic output
 GPU_TESTS=upload/publication a priority consumerů; žádný nový CPU hot-path geometry solve
 SCENE_FIXTURES=SAVE/OPEN fine+dual, stale descendants, SCAN/STOP/RESUME/WAKE/ALIGN/FINE/ERASE, GLB/3D Tiles, session anchor, controller/two-hand/design, multiroom/stairs/large space
 PERF_CHECKS=O(dirty) SAVE, CPU storage pokračuje při GPU jobu, bounded export streaming; žádný whole-world snapshot rebuild či export repair pass
@@ -3931,6 +4280,7 @@ nikoli automatický PASS ani důvod pro další návrhový run.
 |---|---|
 | §0–1, §3–11: ontology, ABI, geometry, intervaly, R1/R2/R3 | hotové CUT 1/2 + RUN 4; consumers RUN 5/6 |
 | §2, §12–16: sparse dual, full support, seed, completion/ghost | RUN 4; CARVE/dilation odstranění v témže runu |
+| §0.1/13.4: FULL matter model a DIRT support | RUN 4 excavation/dirty producer; RUN 5 shared boundary readout; RUN 6 stejné export faces/provenance; RUN 7 fixtures; žádný nový run |
 | §17–19: bins, observation lifetime a stereo | CUT 3 + RUN 4; winner/queue/square support odstranění v RUN 4 |
 | §20–22: fixed thread, Fib(Tparent), independent splits, RGB/V | hotové codegen/ABI + scan RUN 4 + readout RUN 5 + export RUN 6 |
 | §23–24: micro-normal/optical a procedural pages | RUN 5; obě mesh readout větve a buffery odstraněny zde |
@@ -4684,3 +5034,985 @@ Recovery cursor:
 - Do not change fixed-399/Fibonacci/57-bit/thread-order/additive-V semantics.
 - DAG review copy: `/home/wraith/Stažené/M8-DAG-4-RUNY-K-REVIZI.md`.
 - User requested commit + GitHub push of this CUT 3 handoff and the amended DAG.
+
+## CURRENT TRUE STATE — RUN 04 production cursor, 2026-09-06
+
+```text
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87
+CURRENT_CUT=RUN_04 IN_PROGRESS; not closed, not committed
+DAG_STATUS=CUT_03 handoff committed/pushed; RUN_04 active; RUN_05/06/07 pending
+TESTS_RUN=NONE during this implementation; final tests/benchmarks remain RUN_07
+MANUAL_AUDIT=NOT a closure PASS
+```
+
+Implemented since CUT 03:
+- Replaced the stereo kernel with `StereoFlowerRefine`, connected through
+  DepthCapture, Integrator and native pipeline/reflection. Preserved both
+  depth eyes, both RGB eyes, five bounded hypotheses and immutable input.
+  Removed square census, photometric ranking and bootstrap endpoint fallback.
+- Replaced depth dilation with the generated min-depth/validity certificate:
+  complete projected-support envelope/dyadic cover; interval-enclosed lateral
+  reprojection uncertainty; managed/native resources and host scene switched.
+  `DepthDilation.compute` and its meta are deleted.
+- Removed observation age timeout and its shader/native uniform consumer.
+  Grid transform, scan range and exclusions are frozen at acquisition and
+  rebound on every retry, including after FINE/ERASE used the shared shader.
+  Removed the observation-count-triggered startup world
+  clear. PCA-copy lifecycle retirement now uses a graphics fence, not a pixel
+  readback. This does not claim the full refinement workset drain is connected.
+- Moved the plane codec into one shared CPU/HLSL expression source in
+  SphereFlowerCodegen and connected KernelState, integration and remaining
+  readout/export shader consumers to it. Deleted the OverlapShell-owned
+  `BuildSurfaceOrientationHlsl` and `MerkabaSurfaceOrientation.generated.hlsl`
+  plus its meta. Unrepresentable offsets are rejected, not clamped. Existing
+  spare flag bit 30 now carries the measured free-side sign; 16-byte state
+  size is unchanged. Full seed/epoch/ABI cutover is still part of RUN 04.
+- Removed weighted plane fusion and `sameM8Sheet` from the positive writer.
+  Compatible carrier replacement uses generated R1 root/sector intervals;
+  captured color uses the selected observation instead of historical blending.
+- Removed the 26-neighbour continuing-sheet classifier, its CARVE halo,
+  center-ray/tube classifier and clearance-weighted negative update. The
+  negative M8 consumer now requires full-support certification within scan
+  range and uses the generated R1 contradiction/hysteresis operator. Direct
+  support has precedence. This is not yet persistent sparse-dual integration.
+
+Build-only evidence:
+- Latest C# import/codegen completed: `/mnt/kingston-unity/Builds/run4-through-r1-compile.log`.
+- Complete native rebuild after removing the timeout uniform compiled all
+  48 pipelines and rebuilt the Android plugin. StereoFlowerRefine is
+  3,194,632 SPIR-V bytes; this is compiler output, not a performance result.
+- Latest native rebuild includes the shared plane codec and new negative
+  consumer: all 48 pipelines compiled; positive writer 290,168 bytes, negative
+  consumer 185,080 bytes. Counter count is 98 after deleting the CARVE halo
+  request counter. No build process remains running at this cursor.
+- No semantic, CPU/HLSL, scene, performance or Quest acceptance PASS claimed.
+
+Remaining RUN 04 production work:
+- Connect existing observation bins to the real FlowerCommit consumer; replace
+  and delete old positive winner/queue/routing and remaining CARVE dispatch/
+  query/bindings/ABI resources. Do not recreate removed fusion or 26-neighbour
+  logic. `M8FlowerAdmitR1` is generated but not yet the live direct writer;
+  `M8FlowerContradictR1` is connected to the negative consumer.
+- Complete R1 seed/promotion/retirement, persistent sparse dual (including
+  restoring FULL for new direct objects), R2/R3, completion, owner epochs,
+  fine RGB/V producers and same-observation refinement workset exhaustion.
+- RUN 05 remains procedural L2 readout/residency; RUN 06 shared export/app;
+  RUN 07 single final validation/fix pass. Do not recreate or expand this DAG.
+
+Calibration constraint: authoritative sensor/plane/reprojection/RGB error
+bounds have not been supplied. Serialized bounds default to invalid; stereo
+then accepts no endpoints and the certificate proves no THROUGH. Never invent
+calibration constants or call this a verified functioning scanner yet.
+
+Recovery: continue RUN 04 from this cursor and the current diff. Do not reopen
+CUT 03. Frozen REV-C, fixed 399 positions, thread-order split masks, compile-time
+Fib(Tparent) and additive V are unchanged. User `.claude/` and `CLAUDE.md*`
+remain untouched. Working repository is `/mnt/aidisk/prace/uniscan`, not the
+different `/mnt/aidisk/prace/simplescan` contract.
+
+## CURRENT TRUE STATE — RUN 04 live bins/commit cursor, 2026-09-06
+
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87
+CURRENT_CUT=RUN_04_IN_PROGRESS
+DAG_STATUS=unchanged; RUN 04 -> RUN 05 -> RUN 06 -> RUN 07
+CONTRACT=unchanged immutable REV-C prefix; fixed-399/Fibonacci/nested-V unchanged
+COMMITS_THIS_CONTINUATION=none; RUN 04 is not closed
+
+Implemented and connected:
+- `MerkabaFlowerCommit.hlsl` is now the live direct writer, one workgroup per
+  touched tile, consuming the existing 16-byte ObservationRecords. It reduces
+  compatible plane bounds and fixed R1 root/sector buckets before choosing a
+  representative. Competing certain sectors, empty root intersections and
+  certain/impossible root conflicts do not select a winning surface.
+- Existing occupied-carrier compatibility is classified once per record,
+  cached only in the transient symbol scratch bit. Direct support excludes
+  negative mutation even when the occupied owner rejects that incoming sheet.
+- Managed Integrator and the single native observation job now execute
+  count/publication/reserve/emit/FlowerCommit. There is no separate bins job.
+  Bin stamps use the immutable observation token, not the retry attempt token.
+  Radix publication signals residency progress so allocation retries can drain
+  the same observation without a new viewpoint. Retirement clears only touched
+  bins/direct masks and abandoned claims after FinalizeObservation completes.
+- Count, emit and direct commit share `MerkabaObservationScope.hlsl`: the same
+  frozen scan range, exclusions and FINE brush; out-of-scope measurements do not
+  allocate or request COLD owners.
+- Removed old positive discovery/routing/current-frame-support/winner/queue
+  shader functions and pragmas, their Integrator dispatches/bindings, the four
+  SurfaceWinnerRanks allocations and SurfaceQueue (72 MiB), and their native
+  resource entries. The single 32 MiB allocation is now ObservationRecords.
+  Removed ClearTouchedSurfaceCandidates; its necessary storage retirement is
+  part of RetireObservationBins. Storage publication no longer derives
+  dispatch arguments from the deleted candidate count.
+- Native ABI is 4, resources 41, pipelines 33. Both C#/C++ tables and shader
+  generator changed together. SetupWizard and the host integrator scene now
+  reference MerkabaObservationBins.compute.
+- Reclaimed bit 1 as R1SeedFlag; no NeedsCarve alias/property remains in
+  production. SSD validation accepts strict non-drawing seeds and rejects
+  illegal seed/occupied/plane combinations. Tile load rebuilds the active R1
+  mask from occupied OR seed, not the former CARVE flag.
+- Removed the old CPU weighted integration API and its obsolete fixture uses.
+  Added shared interval SEAL/BEND and rational R2 rotation algebra; stereo
+  consumes the shared SEAL/BEND expression. Fixed carrier compatibility's
+  line-class lookup to use Direction.w, not the orientation sign in Meta.x.
+
+BUILD_EVIDENCE:
+- C# import/codegen completed successfully at
+  `/mnt/kingston-unity/Builds/run4-flower-commit-compile.log` after the scope
+  consolidation. All 33 native pipelines compiled and Android plugin rebuilt;
+  the connected FlowerCommit is 865276 SPIR-V bytes. Both commands exited 0.
+- These are compile results only. No semantic tests, benchmarks, CPU/HLSL
+  parity or Quest acceptance run; execution-mode instruction keeps those for
+  RUN 07. No compiler process remains running at this cursor.
+
+DO_NOT_MISREPORT:
+- Direct first-hit seed and cross-observation admission are connected.
+  The same-observation generated common-flag R1 promotion predicate is NOT
+  connected: the final M8FlowerAdmitR1 call still passes false for that
+  predicate. Do not label R1 promotion or RUN 04 complete, and do not replace
+  the missing incidence predicate with a score/angle/observation-count hack.
+- Persistent sparse-dual GPU update, dependent owner epochs, R2/R3 producers,
+  completion and complete same-observation metric/skin refinement drain remain
+  RUN 04 work. Current negative consumer is still the full-support certificate
+  against M8; remaining CARVE query/dispatch/resources must be replaced in RUN 04.
+- Readout/export replacements are still RUN 05/06. Existing 16-byte attempt
+  completion readback remains; the complete app is NOT claimed readback-free.
+- Calibration bounds remain unsupplied and default invalid; do not invent them.
+
+NEXT_CURSOR=finish RUN 04 from the live FlowerCommit and this diff; do not
+reopen CUT 03 or reconstruct the DAG. The two RGB-D/PCA views remain held for
+the immutable observation. User .claude/ and CLAUDE.md files were not edited.
+
+## CURRENT TRUE STATE — parallel implementation cursor, 2026-09-06
+
+```text
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87 + uncommitted implementation
+CURRENT_CUT=RUN_04_IN_PROGRESS; no newly closed run
+DAG_STATUS=RUN_04 -> RUN_05 -> RUN_06 -> RUN_07 unchanged
+CONTRACT_STATUS=frozen REV-C text unchanged, including fixed399/Fibonacci corrections
+TESTS_RUN=NONE this continuation
+BUILD_THIS_CONTINUATION=NOT_RUN
+APK_THIS_CONTINUATION=NOT_BUILT; no final APK/acceptance claim
+MANUAL_AUDIT=partial changed-source review, NOT full-repository PASS
+```
+
+Execution environment was read from the existing runbook/environment script:
+
+```text
+SOURCE_ROOT=/mnt/aidisk/prace/uniscan
+UNITY_EXECUTABLE=/mnt/kingston-unity/Unity/Hub/Editor/6000.5.9f1/Editor/Unity
+UNITY_HOST_PROJECT=/mnt/kingston-unity/Unity/Projects/QuestMerkabaScanHost
+UNITY_PACKAGE_LINK=Packages/com.genesis.roomscan -> /mnt/aidisk/prace/uniscan
+BUILD_ENTRY=Tools/unity/build_merkaba_apk.sh
+APK_TARGET=/mnt/kingston-unity/Builds/QuestMerkabaScan/QuestMerkabaScan-release.apk
+```
+
+The shell's initial `/mnt/aidisk/prace/simplescan` directory is a different
+worktree, not this pursuit's source root. Historical environment-ledger source
+and contract entries do not override this repository's AGENTS/REV-C/lasttrue.
+No VS Code or IDE was launched. Quest remains unavailable for acceptance.
+
+Implemented changes in this continuation:
+
+- `MerkabaObservationReduction.hlsl` now requires a CERTAIN matching fixed R1
+  root/sector/sign with intersecting phase intervals for seed correspondence;
+  identical packed planes alone cannot promote an unresolved seed.
+- `MerkabaFlowerCommit.hlsl` applies that predicate, uses generated line-class
+  identity and transforms normals as covectors, normalizing before computing
+  the metric plane offset. `MerkabaIntegrator.cs` refuses non-finite or scaled
+  acquisition frames rather than applying metre-calibrated bounds to them.
+- `MerkabaIntegration.compute` shares the complete-support enclosure for
+  owner/tile spans. A tile-wide THROUGH proof can serve all its contained
+  owners; a failed envelope still falls back to the exact per-owner support
+  query. Same-observation direct-support exclusion remains in effect. The
+  unused canonical-octahedron include was removed from this shader. This is
+  not yet the persistent sparse-dual writer or CARVE-resource cutover.
+- `MerkabaSsdStore.cs` publishes M8 plus sidecar append batches through one
+  I/O transaction and rolls back appended stream tails before index publication
+  on a write failure. It no longer clones the whole replay index for append
+  validation. `MerkabaSphereFlowerReplayIndex.cs` preflights touched epochs and
+  captures bounded tile sidecars; `MerkabaTileState.cs` carries the resulting
+  coherent M8/sidecar snapshot. GPU upload/writeback is not yet connected to
+  these sidecar packets.
+- `MerkabaSphereFlowerSkinEvaluation.cs` and
+  `MerkabaFlowerSkinReadout.hlsl` implement CPU/HLSL fixed399 signal evaluation:
+  thread-order masks/rank, epoch checks, RGB/V union, three descents, additive
+  V and a 64-byte sample with inline certified optical values. Codegen owns
+  the shared ordered-chamber transform/Jacobian. These are shared consumers,
+  NOT a connected replacement renderer/exporter; parity has not been run.
+
+### Historical normative dependency report — §10.3 resolved by subsequent user correction
+
+1. RESOLVED: the user explicitly replaced section 10.3 with residual extraction
+   without pred/obs overlap and added the global section 9.2 distinction.
+   The following is the historical counterexample, NOT an active blocker.
+   The former section 10.3 had overlapping incompatible decisions. On the generated
+   xy+ loop sector 0, take singleton unit roots
+   `u=(255/257,32/257)` and `v=(63/65,16/65)` with the same algebraic rootSign.
+   Both lie strictly between the sector boundaries `(1,0)` and
+   `(1/sqrt(6),sqrt(5/6))`. Their exact tangent-half-angle residual is `8/129`:
+   nonzero, nonsingular and sector-preserving. The nonzero-residual clause
+   therefore says to persist R2_PHASE, while the raw pred/obs-disjoint clause
+   says IMPOSSIBLE. Both predicates hold for the same input. No branch-order
+   precedence or conventional fit was invented to suppress this conflict.
+
+   Applied correction: disjoint pred/obs is permitted within a CERTAIN shared
+   generated relation. Peer evidence and same-knot incident syntheses retain
+   their intersection requirements. The corrected source contract and its
+   lasttrue prefix were updated together under explicit user authority.
+
+2. Section 10.2 refers to restricting `E_L` (carrier plus ancestor R2 records)
+   to a child loop but does not define the nonlinear parent strand/cell
+   evaluator or its conversion to child ABC. Existing codegen/oracle proves
+   tau/rotation and integer substitutions, not that missing evaluator. No
+   interpolated child plane, Hessian, fitter or mesh solver was introduced.
+
+3. Section 16.3 needs two non-collinear R1 relations sharing a generated flag.
+   Under the literal section 8 table every `(f,e,c)` flag has one R1 anchor.
+   Distinct R1-anchor masks are disjoint. A translated-relation/sector-to-flag
+   transport is needed; neither its rule nor its generated table is present.
+
+4. Sections 8/20/24 require a shared mapping from nested f/e/c flag cells to
+   the evaluated L2 H/R0..R5 skin carrier. That map is not present. Section
+   24's per-L2 symbol also has no explicit child path while reserved bits must
+   be zero; distinct geometric child identities must not silently alias.
+
+Affected scanner geometry/readout/export replacements remain unclosed. No
+fallback switch, splat, persistent mesh or alternative geometry was added.
+The old readout/export consumers remain explicitly deferred dependencies,
+not final-contract compliance. Persistent dual, GPU fine producers/drain,
+owner-epoch mutation and their residency/writeback still require implementation.
+
+NEXT_CURSOR=resume from these files and the exact unresolved dependencies;
+do not reread historical plans, recreate the DAG, claim full RUN_04/05/06 PASS,
+or build/publish this partial scanner as the completed contract application.
+
+## CURRENT TRUE STATE — excavation proposal analysis, 2026-09-06
+
+The authorized section 10.3 correction IS incorporated in the normative
+contract and this file's identical prefix. Prediction/observation residuals
+do not require overlap; peer evidence and shared-knot incidence still do.
+
+The subsequent proposal `FREE/FULL boundary -> inferred DIRT surface` is
+recorded here as UNRESOLVED, not silently made a normative surface rule.
+It conflicts with FULL's defined meaning in sections 0/0.1 and the finite
+completion requirements in sections 12/13. Its claimed physical implication
+has this counterexample:
+
+Camera at the origin observes a wall at z=5 through a finite field of view.
+In the actual scene, an open neighborhood on both sides of a lateral frustum
+boundary at z=2 is empty. Certified interior supports can become FREE while
+unobserved exterior supports remain implicit FULL. Thus a FREE/FULL boundary
+exists there without any physical surface. A scan-range boundary or a hole in
+depth validity can produce the same information frontier. Labeling it DIRT
+does not supply missing endpoint/root evidence or prove a surface exists.
+
+The proposal's `permanently empty` wording also conflicts with dynamic scenes:
+an object introduced later into previously certified FREE must be admitted by
+new direct evidence, restoring FULL over its endpoint support as section 0.1
+already requires. Historical FREE is not proof against later matter.
+
+Smallest Sphere-Flower-native interpretation preserving current truth:
+use excavation information to eliminate impossible members of an existing
+finite direct Flower completion set; emit only its unique admissible petal.
+A bare FREE/FULL frontier remains unknown, not a knot or a surface. A separately
+labelled, non-authoritative DIRT visualization would require an explicit user
+decision about presentation semantics; it has NOT been implemented or used
+to seed occupancy, refinement, completion or export.
+
+Implementation continues only on unaffected, already authorized mechanisms.
+GPU dual raw buffers are allocated/bound and cleared; native ABI exposes the
+three resources. Sparse hierarchy helpers and the shared storage packet layout
+are present. Grid staging sizes now match the 529/528-record writeback/load
+packets, and dual-node registration is passed to the existing world allocator.
+The storage producer/consumer connection and generation retirement are still
+in progress. No new build/tests/benchmark, commit or APK is claimed.
+
+NEXT_CURSOR=finish the existing dual storage/generation hooks and receive the
+shared residual classifier handoff. Do not re-open the resolved section 10.3
+contradiction. Do not treat this unclosed DIRT proposal as surface authority.
+
+## CURRENT TRUE STATE — RUN_04 dual integration handoff, 2026-09-06
+
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87
+CURRENT_CUT=RUN_04, implementation in progress; NOT closed or validated.
+CONTRACT_SHA256=51656a9c3e43caef5925f726914f863f1e419ac2a6c047ae56c8a7a1d800d28f
+Normative text is unchanged by this handoff. The excavation/DIRT proposal
+above remains unresolved; FULL is not silently reinterpreted as proven matter.
+
+IMPLEMENTED_IN_WORKTREE:
+- UpdateObservationDual now updates the sparse block/chunk/tile hierarchy
+  from full-support certificates. Strict direct supports are marked by Emit
+  before the negative pass and restored to FULL before R1 admission. New
+  objects are not forbidden by earlier free-space evidence.
+- FlowerCommit combines R1 admission and certified negative contradictions
+  in one workgroup per touched tile, including negative-only touched tiles.
+  Tile scratch retains the observation token across retries to prevent
+  repeated R1 admission or evidence decrement in the same resident tile.
+- After FlowerCommit, the existing allocation publication kernels service
+  requests produced by the dual pass before FinalizeObservation. Managed
+  and native dispatches reuse these kernels; no second native queue exists.
+- Dual mutation generations use GPU fence retirement, an OPEN generation
+  floor, and a durable generation watermark. Cold payload retirement is
+  conditional on residency and durable storage, not an assumed CPU epoch.
+- GPU dual writeback/reload/eviction and dual-only OPEN are connected through
+  existing staging and M8 spatial addresses. Uniform dirty nodes use a
+  bounded dirty-bit selection (at most 32 records), not an O(world) SAVE scan.
+  M8 and sidecars append together; ACK checks the captured generation.
+- The shared CPU/generated-HLSL residual classifier now separates peer
+  evidence intersection from parent/observation tau residual extraction.
+  Q2.29 intervals that include zero after outward encoding are AMBIGUOUS,
+  not persisted as proved nonzero innovations. RGB half-interval encoding
+  rounds outward and rejects unrepresentable finite bounds without clamping.
+
+FILES_CHANGED include the Integration/FlowerCommit/ObservationBins shaders,
+MerkabaDualHierarchy.hlsl, MerkabaDualGpuLayout.cs, Grid.Gpu/Storage/DualStorage,
+Integrator, native executor bindings, World.compute, SsdStore, ReplayIndex,
+ThreadAtlas, shared SphereFlower authority and its codegen/HLSL output.
+
+LEGACY_REMOVED: observation QueryCarveTiles/PrepareCarveArgs/IntegrateCarveTiles
+dispatch paths; CarveTiles/CarveDispatchArgs allocations, properties, bindings,
+native resource entries and carve_indirect dispatch mode. FINE/ERASE now uses
+the existing touched queue and observation indirect arguments. Admission has
+an explicit FrozenObservation guard; successful observation retirement clears
+its GPU reservation before releasing the CPU lease. A held retry cannot have
+its queue overwritten. Queue serialization alone is not used as the proof.
+NATIVE_ABI=7; RESOURCE_COUNT=42; PIPELINE_COUNT=31. Shader include regeneration
+belongs to the final build and has NOT been run. Legacy CARVE telemetry names
+still exist; absence of the removed resource names is not a whole-repo audit.
+
+DEFERRED_DEPENDENCIES: GPU fine-detail/Thread producers and same-observation
+drain, atomic owner-epoch mutation, the exact parent-to-child evaluator,
+same-observation R1 flag transport, evaluated L2 skin carrier mapping, and
+replacement procedural renderer/export consumers remain unclosed. Existing
+CPU/skin evaluation helpers are not a completed production renderer/exporter.
+
+TESTS_RUN=none in this implementation phase.
+PERF=not measured; no Quest runtime or zero-readback claim.
+MANUAL_AUDIT=targeted source integration review only, not full RUN_04 PASS.
+No new build, APK, commit, push, or closed run is claimed. Storage readbacks
+transport persistence packets; observation completion and old readout still
+have readbacks, so the application is not yet wholly free of hot-path readback.
+
+NEXT_CURSOR=CARVE resource excision handoffs received; resume exact remaining
+dependencies above. Do not redo the DAG, dual integration handoff, or resolved
+section 10.3 analysis. Do not implement DIRT as a positive surface authority
+without resolving the recorded counterexample.
+
+## CURRENT TRUE STATE — authorized excavation support, 2026-09-06
+
+The user explicitly confirmed FULL as default supporting matter, not merely
+unknown/veto, and required FREE/FULL to supply DIRT where direct geometry is
+missing. This decision SUPERSEDES the previous pending DIRT question and the
+veto-only H03. Do not ask that question again or restore the previous restriction.
+
+CONTRACT_FILE=M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md
+CONTRACT_BYTES=100653
+CONTRACT_SHA256=0097f6b916c8fd1b49f83b443f0be0f587c5bb047769052f6e2502d69d722775
+LASTTRUE_CONTRACT_PREFIX=byte-identical, checked after applying the amendment.
+
+Normative amendment is physically applied to ontology, direct/dual algebra,
+new section 13.4, readout symbols/publication, export, required proofs/scenes,
+and the final invariant. FULL is matter in the model, not a claim of direct
+sensor observation. DIRT is actual rendered/exported depth-bearing support,
+not merely diagnostic. It is independent of the unique direct-completion gate.
+No synthetic R1/R2/R3 evidence or captured RGB is generated from this support.
+
+The boundary is defined exactly from existing represented M8 supports:
+Cell(U) is covered by K=U+b for the eight b in {0,1}^3; any THROUGH covering
+support proves FREE, all resolved non-THROUGH states give model FULL, and
+otherwise residency is AMBIGUOUS. Exposed FREE/FULL faces have a unique
+FREE-side integer owner and six generated axis classes. No new persistent
+coordinate index, mesh, implicit field, fitter, or DIRT log was authorized.
+Direct coverage supersedes DIRT; new direct objects restore earlier FREE;
+new THROUGH removes DIRT. Missing texture alone does not create another surface.
+
+DAG_STATUS=RUN_04 -> RUN_05 -> RUN_06 -> RUN_07 unchanged; amendment obligations
+are assigned in those existing runs. DAG_AUDIT=PENDING_EXCAVATION_AMENDMENT.
+CURRENT_CUT=RUN_04_IN_PROGRESS; no run closed by this contract update.
+DIRT_IMPLEMENTATION=NOT YET CONNECTED. The new support rule is normative now;
+existing scanner dual storage works toward it, but the procedural support
+symbols, publication and exporter still require implementation.
+
+Additional production change in this turn: R1 packed RGB now requires valid
+bilinear-cell coverage from both frozen RGB cameras, using four explicit
+texel loads rather than a clamp sampler. The legacy 0.001 projection epsilon
+and invalid-UV border color path were removed. Depth-L/R, PCA-L/R and the
+five bounded Flower-supported hypotheses were not reduced.
+
+Unrelated exact direct-geometry dependencies remain unresolved: §10.2 lacks
+the ancestor-R2-to-child-ABC restriction operator; §16.3 lacks translated
+R1 evidence-to-flag sector transport; the L2 six-wedge carrier/planarity and
+geometry-child identity mapping are not complete. Agent derivations did not
+invent fitted planes or fake closure to hide those gaps. The DIRT authorization
+does not silently resolve or waive the required direct-geometry equations.
+
+TESTS_RUN=none; BUILD=not run; PERF=not measured; no new commit/push/APK.
+NEXT_CURSOR=implement the authorized exact DIRT support in the existing shared
+readout/export path while retaining all unresolved direct-geometry obligations.
+The DIRT decision is resolved; do not repeat the prior clarification request.
+
+## CURRENT TRUE STATE — connected observation liveness, 2026-09-06
+
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87
+CURRENT_CUT=RUN_04_IN_PROGRESS; no additional run closed.
+CONTRACT_UNCHANGED=the authorized excavation revision above remains normative.
+
+Connected production changes in this continuation:
+- Counter 56 is now ObservationChangeMask, not obsolete CarveClassifiedFree.
+  R1 writes reduce the change bit once per tile workgroup; uniform-block and
+  chunk/leaf dual publications set the dual bit even with no touched HOT R1.
+- FinalizeObservation reports actual changes for pending/failed quanta too.
+  Integrator.AuthorityChanged is connected to RoomScanner readout/persistence
+  invalidation independently of the successful-observation UI event.
+- ResetObservationBins clears the per-attempt change, unresolved-dual and
+  backpressure counters. The old sticky unresolved-dual counter could prevent
+  every later FlowerCommit after the first residency miss.
+- Frozen-observation retry consumes actual authority/residency, acknowledged
+  load-cursor or durable-generation progress. Failed submission does not eat
+  the wake-up; a no-change retry does not wake itself through its own fence.
+- Pending-observation R1-committed tiles are pinned against normal eviction.
+  Writeback-only capture restores them HOT on acknowledgement, retaining the
+  existing once-per-observation token and preventing repeated seed admission.
+- Capacity-only reclaim is connected through the existing storage pump and
+  PrepareLoadedTiles(count=0), at most 256 chunks per quantum, one finite sweep.
+  Only actual COMMITTED reclaim advances residency; no extra pipeline, camera
+  input, readback or timer was introduced. Only proven durable spans qualify.
+
+DIRT code now present: shared CPU/codegen/HLSL cell/face/vertex authority,
+16-byte inferred symbol, GPU halo/face-mask/shared-arena writer, persistent-dual
+extraction and GLB/3D Tiles material/provenance consumers. The GPU support helper
+is NOT yet called by a production page compiler. Ordinary GLB/Viewer entry
+points do NOT yet call the DIRT hooks: actual shared direct-L2 coverage is
+missing. Legacy readout/export remain unclosed; this is not a new fallback mode.
+
+Remaining implementation dependency: automatic durable release before SAVE
+needs a real whole-generation GPU drain receipt. Current SSD pendingGeneration
+is not GPU source generation, and an empty dual root/writeback queue does not
+prove no HOT dirty M8 remains. Example: A+B M8 and C dual change; A+C append
+while B is still dirty. Committing that as the whole observation is forbidden.
+No speculative commit API or false durable watermark was added.
+
+The previously recorded direct-geometry dependencies remain: ancestor-R2
+restriction to exact child ABC (§10.2), translated R1 flag/sector transport
+(§16.3), and the L2 carrier/child-symbol mapping (§8/20/24). They were not
+replaced by fitted planes, mesh topology, or a default all-UNCOVERED provider.
+
+TESTS_RUN=none; BUILD=not run; PERF=not measured; no new commit/push/APK.
+NEXT_CURSOR=all three agent handoffs received. Continue from connected retry/
+storage consumers above; do not redo those changes or claim RUN_04 PASS.
+The unresolved direct-geometry definitions still require explicit closure;
+DIRT authorization does not define them or authorize an alternate evaluator.
+
+## CURRENT TRUE STATE — connected durable source drain, 2026-09-06
+
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87 + uncommitted RUN_04.
+CURRENT_CUT=RUN_04_IN_PROGRESS; no additional run closed.
+CONTRACT_UNCHANGED; RUN_04 -> RUN_05 -> RUN_06 -> RUN_07 unchanged.
+
+Implemented and connected since the preceding cursor:
+- MerkabaGrid.DurableCommit.cs now defines the previously missing coordinator.
+  Memory pressure selects a source cut between completed observation attempts;
+  normal and FINE/ERASE submission use ObservationMutationSubmissionAllowed.
+  Semantic writes pause only for the GPU-to-SSD drain. The CPU manifest/flush
+  task does not hold the GPU source gate or require another camera observation.
+- Counter 57 is exact DirtyTileCount, maintained by atomic dirty transitions.
+  Empty dual gather returns a 32-byte control receipt: held source generation,
+  zero dirty dual nodes, dirty tile count and actual occupied kernel count.
+  Nonempty packets retain their existing layout. A nonzero dirty tile count
+  sends the drain back to tile writeback; an empty queue alone is insufficient.
+- Writeback-only drain uses the transient KEEP_HOT queue bit; ACK retains the
+  physical slot and once-per-observation token. No new GPU buffer or pipeline.
+- SSD CaptureAppendPosition + expected-position CommitAsync reject an overtaking
+  append before publication. Durable generation advances only after Committed.
+  Incomplete rollback/index publication throws, rather than causing infinite
+  stale-prefix retries; successful OPEN/Clear is required to recover that store.
+- SAVE uses the receipt occupancy, not telemetry. Its source/store/generation
+  inputs are captured before asynchronous commit. Quiesce and teardown await the
+  current cut before closing GPU submission; direct Clear rejects an active cut.
+  Storage CPU completion also progresses while GPU submission is suspended.
+- Automatic cut retries are driven by new observation/actual authority changes
+  or an overtaken append prefix, not by read-only dispatch generations. This is
+  the capacity-release integration, not a claim that all fine producers exist.
+
+FILES_CHANGED=this continuation: Grid.DurableCommit.cs/.meta, Grid.Storage.cs,
+Grid.DualStorage.cs, Grid.Gpu.cs, Integrator.cs, Persistence.cs, SsdStore.cs,
+RoomScanner.cs. Prior handoff shader/manifest changes are connected above.
+MANUAL_REVIEW=changed submission/drain/commit/lifecycle paths and dirty shader
+transitions read; not full-run acceptance or a substitute for deferred tests.
+TESTS_RUN=none; BUILD=not run; PERF=not measured; no new commit/push/APK.
+NEXT_CURSOR=do not redo durable coordinator or legacy status discovery. RUN_04
+still needs actual fine-state producers and observation-local refinement;
+recorded exact R1/R2/L2 geometry dependencies are unchanged. The shared Flower
+page compiler/live DIRT coverage and ordinary export entry connections remain
+unimplemented; existing helper presence is not a completed renderer/exporter.
+
+### Fine producer prerequisite — current blocked cursor
+
+The next attempted production task was the real GPU FlowerDetail/ThreadAtlas
+producer, not another storage wrapper. Its ancestor R2 prediction input remains
+undefined in §10.2. Source confirmation: RestrictPlaneToLoop / generated
+M8FlowerPlaneIntervals consume one plane; FlowerCommit supplies the observed R1
+plane. AnalyzePhaseResidual consumes an already predicted root and does not
+produce it. ChildPetal carries integer substitution, not metric restriction.
+There is no existing ancestor-R2-to-child-ABC operator to connect.
+
+User input required: the exact Sphere–Flower-native restriction of committed
+ancestor R2_PHASE onto a different generated child loop (ABC or equivalent root
+formula). Reusing only the R1 plane would discard committed shape, and inventing
+an interpolation/fitter would change the frozen authority. Neither was done.
+No production code, contract text, tests/builds, or run status changed in this
+prerequisite check. Do not repeat source discovery at the next continuation;
+resume the producer from this input when its definition is supplied.
+
+GOAL_STATUS=BLOCKED after the same prerequisite persisted through three
+consecutive goal turns. No new normative definition or implementation of the
+ancestor-R2-to-child-loop restriction was supplied. RUN_04 is not complete;
+all uncommitted implementation work is retained. Resume requires the exact
+§10.2 operator, not another source-discovery pass or a fallback geometry rule.
+
+### RUN_04 resumed — user-defined §10.2 phase pullback, 2026-09-06
+
+The immediately preceding §10.2 prerequisite is SUPERSEDED by the user's
+explicit self-similar transport. The contract and immutable prefix above now
+define the exact child R1 base root followed by the unchanged parent R2
+tangent-half-angle residual, with generated channel/orientation transport.
+Ancestor rotations are coarse-to-fine; inherited knots copy their exact parent
+root. Metric V is excluded from geometry prediction. Do not reopen the old
+off-loop-extension question or substitute an R1-only prediction.
+
+CURRENT_CUT=RUN_04_IN_PROGRESS; no run closed, committed, built or pushed.
+CONTRACT_BYTES=102416
+CONTRACT_SHA256=11a62ea7ac00230ee547277d7bc3a6211b2c1be2b867485e2cffbc74581680ad
+CURRENT_TRUE_STATE=CPU and HLSL ordered phase prediction and outward Q2.29
+endpoint decoding are implemented; finite generated L1/L2 transport rows and
+their codegen/caller connection are being completed. No GPU fine-page producer
+or complete RUN_04 acceptance is implied by these algebra helpers.
+
+Transport convention follows the user's same-facet pullback: use the ordered
+§8.5 barycentric child substitution, not an isometry between unrelated circles.
+The integer child matrices have determinant +2 (normalized determinant +1/4);
+this determines facet orientation, not by itself the full channel mapping.
+The attempted reduction of the parent channel bundle to its single R2 anchor
+was incorrect: use the whole generated strand/loop incidence. Any additional
+canonical vertex reordering must carry its determinant sign.
+
+TESTS_RUN=none; BUILD=not run; PERF=not measured; generation is implementation.
+NEXT_CURSOR=finish the generated transport and connect valid epoch-bound R2
+records to child prediction. Continue the existing RUN_04→05→06→07 DAG.
+The goal tool still reports its historical BLOCKED state; implementation has
+resumed on the user's supplied definition, not on an invented fallback.
+
+### Correction: shared-knot closure is after synthesis, not before residual extraction
+
+The supplied rational parent-to-child operator is implemented. It is no
+longer missing. The subsequent claim of a new shared-ancestry contract
+failure was INCORRECT and is withdrawn. The exact §8.5 example is retained
+below to explain the distinction, not as a production blocker:
+
+```text
+root flag: A=(1,0,0), B=(1,1,0), C=(1,1,1)
+
+L1 child 1 = (A+B, 2B, B+C)
+           = ((2,1,0), (2,2,0), (2,2,1))
+L1 child 3 = (A+B, B+C, C+A)
+           = ((2,1,0), (2,2,1), (2,1,1))
+
+child 1's new C+A at L2: (4,3,1), line YZ+
+child 3's new A+B at L2: (4,3,1), line YZ+
+fixed endpoint pair: (2,1,0), (2,2,1)
+
+child 1 parent R2 = inherited original B (L0, XY+)
+child 3 parent R2 = new original C+A (L1, YZ+)
+```
+
+Thus these are the SAME L2 loop/SYMBOL, not two unrelated circle intersections.
+Set the original L0 residual to zero (no record), and give the admitted L1
+C+A root a nonzero certain residual r1. For any certain base root u inside a
+sector, with r1 small enough that its rotation stays in that sector:
+
+```text
+child 1 prediction = u
+child 3 prediction = R_(sigma*r1)(u) != u
+```
+
+With direct observation u, the first incidence requires no child innovation,
+whereas the second requires -sigma*r1. BOTH synthesize u exactly. Section
+10.6 requires compatible final synthesized root intervals under the same
+transient Sigma. It does NOT require identical parent predictions, ancestor
+chains or local residual coefficients. The persistent key in section 1.3
+includes petal/path and is not the transient Sigma from section 4.
+
+The erroneous proposed gate compared ancestor chains before applying child
+innovations and would reject this valid closure. Remove it; it is not a
+contract requirement. Do not fix that invented requirement by arbitrarily
+choosing one global parent ancestry. Distinct parent-context predictions may
+have distinct local innovations, followed by the exact section 10.6 interval
+intersection of their synthesized shared root. No new contract decision is
+required to permit this: sections 9.2, 10.3, 10.4 and 10.6 already define it.
+
+CURRENT_TRUE_STATE=ordered rotation, exact inherited-copy handling, outward
+Q2.29 decoding and epoch/key-bound record bridge implemented. Correcting the
+mistaken pre-synthesis ancestry gate and global residual-key aliasing. The
+single-R2-anchor interpretation is incorrect and is being removed. In the
+example above D=A+B and F=B+C obey F-D=C-A. The shared DF child loop is an exact
+half-scale translated copy of the CA loop, so its channel support exists in
+both incident facets' lattice even when CA is not one of a facet's vertices.
+Generate channel-local transport from that complete fixed incidence.
+RUN_04 remains open; the supplied operator is not a missing-definition blocker.
+TESTS_RUN=none; no production build, commit, push or APK. A standalone codegen
+compile attempt lacked a Unity math reference before emission; it did not run
+oracle tests or publish generated transport data. No contract failure has
+been established by the example; the erroneous blocker claim is withdrawn.
+
+### RUN_04 closure recovery — 2026-09-06, current working tree
+
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87 (unchanged).
+CURRENT_CUT=RUN_04; STATUS=OPEN; no commit/push/APK.
+Latest user review explicitly authorizes full shader audit and Unity tests now.
+
+IMPLEMENTED: generated transport uses the whole lattice's 72 shared strand
+families, 12 signed child-edge rules and 39 loop radii, not a single R2 anchor.
+Metadata delta=1356 bytes; frozen table hash=0xb3fa3f5f. CPU/HLSL caller builds
+actual decoded-R1 child ABC, applies epoch/key-checked ancestor phase in order,
+and preserves inherited roots exactly. Real codegen compile and CheckForBatch
+of all five generated artifacts passed. Runtime fine-page producer/drain is
+NOT implied by these helpers and still must be connected.
+
+QUEST_BINDINGS: same backing allocations, never cloned buffers. SelectEvictionVictims
+and AcknowledgeWritebackBatch now have 7 writable bindings. Dual restore/rollback
+moved into existing PrepareLoadedTiles (7 RW); InstallLoadedTiles publishes M8
+only (8 RW). Prepared dual refs remain unreadable while M8 is LOADING. FlowerCommit
+has 8 RW after read-only views of three dual buffers, touched queue and tile bins.
+ObservationRecords remains RW because its eligibility prepass writes it.
+Audit now continues across every kernel and returns failure for ANY violation.
+UpdateObservationDual still requires storage-intent/publication separation:
+reuse existing claim arena, ResolveMissingSpatialNodes/ResolveObservationTileRequests
+and reserve's touched-publication pass; no new geometry solver/resource/kernel.
+Uniform sparse fast paths, direct restoration, frozen retries and the 8-RW limit
+must survive this change. export_persistence owns this active edit.
+
+TESTS_RUN: Tools/unity/run_merkaba_tests.sh, kingston Unity 6000.5.9f1, Vulkan.
+First current-tree run: total=360, passed=312, failed=48, skipped=0 (21:32 UTC).
+GPU tests were blocked by Unity rejecting uint4(0u) in generated HLSL, not proof
+of their numeric results. Fixed at shared source and regenerated as explicit
+four-component constructor. Removed obsolete CARVE/winner test requirements;
+retained behavior suites, updated strict plane-bearing persistence fixtures.
+Second full run is in progress. XML root status, not a matching Passed child,
+now determines test-script success. No overall build/test PASS yet.
+
+MAINLINE_DECISION (read-only six-commit review; no merge/cherry-pick):
+- a4613eb: SAF Save As/name/UI and robust viewer import are missing orthogonal UX;
+  adapt in RUN_06, without importing old membrane export or vertex formats.
+- 98009a0: session-bound annotation/design/SaveAs and early UI capture are missing
+  orthogonal UX; adapt in RUN_06 and verify RUN_07 lifecycle regression.
+- 2a813b0: do not port old single-vertex-stream readout ABI; RUN_05 replaces it
+  with procedural Flower symbols and must retain stereo correctness/memory benefit.
+- 4c2577b: do not port old indexed compaction; RUN_05 culls indirect commands only,
+  retaining explicit render resource dependencies and stereo-union visibility.
+- 4112aeb: do not port either morphological export shell solver; remove with its
+  replacement in RUN_06, consuming the shared Flower/unique-completion/DIRT authority.
+- 26fff13: adapt bounded presentation leaf spooling/RTC in RUN_06 over the new
+  Flower stream, without legacy membrane result types or float weld.
+Mandatory base remains c34d27f; the legacy 480-MiB readout removal is still RUN_05.
+
+NEXT_CURSOR: root finishes current Unity failures; export_persistence fixes the
+remaining 15-RW dual stage using the existing storage/publication stages;
+scanner_refinement implements actual frozen peer/child-flag R1 same-observation
+witness; procedural_readout fixed Unity constructor and depth/FINE tests.
+Do not claim RUN_04 closed before actual fine producer/drain, all bindings and
+required closure pass. Do not revive the withdrawn single-anchor/ancestry blocker.
+
+### Implementation cursor — 2026-09-06 22:30 UTC
+
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87; RUN_04=OPEN.
+USER_DIRECTION=continue implementation; defer draw-record granularity/capacity discussion.
+CONTRACT_UNCHANGED; no commit/push/APK; RUN_04 -> RUN_05 -> RUN_06 -> RUN_07 unchanged.
+
+IMPLEMENTED_THIS_CONTINUATION:
+- R1 same-observation admission reads actual distinct frozen peer pixels and
+  generated R1/flag witnesses; no one-pixel self-promotion through eight owners.
+- Dual address-only intents reuse the existing claim arena/publication stages.
+  Complete shader audit passed 64 kernels (before fine drain was added), all <=8 RW.
+- Shared CPU/codegen now exposes carrier SEAL, stored phase synthesis, final
+  shared-root intersection, interval tetra transform and 26 node incidence masks.
+  All generated artifacts regenerated and CheckForBatch byte-exact PASS.
+- Actual GPU R2 producer/drain consumes frozen endpoint records and exact
+  generated ancestry; pending raw tile cursor survives quanta. Structural
+  owner changes use TileBits.w pending epoch mask; observation pin uses Runtime.x.
+- Drain dispatch connected in managed/native observation before storage reuses
+  indirect args. Counters100..103, total104; completion bit30 reports actual
+  refinement progress. Pending work does not require camera motion/new input.
+- Sparse GPU fine allocator/pages connected to world allocation/binding/reset.
+  Complete fine writeback capture and epoch-snapshot replay under implementation;
+  source capture/eviction refuses pending structural epoch masks.
+- Native registered Flower argument buffer maps Unity's single procedural
+  draw to vkCmdDrawIndirectCount, preserving Unity material/XR bindings.
+  Native capability/32768-command checks do not silently fall back to one page.
+- Native shader embedding now reflects only descriptors actually emitted in
+  SPIR-V; dead unnamed glslang function-parameter reflection is not an ABI resource.
+
+BUILD_EVIDENCE=Tools/unity/build_merkaba_vulkan_timestamps.sh PASS, 32 embedded
+pipelines and ARM64 libMerkabaVulkanTimestamps.so installed in kingston Unity host.
+R2 drain standalone glslang+spirv-val PASS:6 RW,10 SRV,20608 B group scratch.
+No current full Unity suite PASS: latest completed XML362/342/20 predates fix
+of reserved HLSL token shared; subsequent FXC-heavy run terminated for loop fix.
+Stereo loop annotations changed compile expansion only, not five hypotheses,
+Depth-L/R, PCA-L/R or interval predicates. No Quest runtime/performance claim.
+
+NEXT_CURSOR:
+scanner_refinement: R3 metric bundle and skin producer; drain structural epochs
+even after partial coarse failure before releasing observation/pins.
+export_persistence: TransferFlowerStorage bounded INSTALL/ACK/RETIRE stage;
+LOADING never publishes HOT before fine/epoch restore, no fine-free rollback to HOT.
+procedural_readout: actual symbol compaction/publication/cull and renderer;
+native count registration API is available. Direct L2 wedge evaluation and
+uniform child-path identity mapping remain unresolved, not fabricated.
+root: integrate the above, compile/build, then actual closure checks. No additional
+run is closed by helper compilation, native build, or an unconnected consumer.
+
+### Resume cursor — 2026-09-06 23:00 UTC
+
+RUN_04=OPEN; HEAD unchanged; no cut commit, push or fresh APK.
+Fine capture/import/ACK/cancel completed and connected under existing storage
+lease. Epoch invalidation now drains before coarse failure; ordinary owner
+epoch advance needs no allocator CAS. R2/R3 endpoint evidence covers all4/8
+halo spans; exact-zero evidence retires an old residual. Skin producer still
+not connected, so observation-local RGBV closure is NOT complete.
+BUILD: native32pipeline ARM64 build PASS; 69kernel SPIR-V audit PASS
+(/tmp/m8-fine-storage-audit.log). Unity Android C#compile and generated-table
+CheckForBatch PASS (/mnt/kingston-unity/Builds/QuestMerkabaScan/compile-flower-current.log).
+Codegen float text uses portable G9, replacing runtime-dependent R spelling;
+existing frozen hash remains0xb3fa3f5f. No fresh full suite/device acceptance.
+Native timing stage offsets corrected after adding Drain; auxiliary publication
+dispatches are still aggregated within their enclosing stage, not individually timed.
+NEXT IMPLEMENTATION: generate actual L2 wheel incidence from §8.5: original
+R1/R2/R3 colours0/1/2, inherited colours retained, midpoint gets missing colour.
+After two substitutions each triangle contains one colour2 hub; incidence yields
+128 hubs with six real neighbours and768 wedges. This is an identified derivation,
+NOT yet implemented/generated proof. Do not replace it with a fitted hexagon.
+Symbol→L2childPath representation still needs exact closure without repurposing
+contract-reserved bits. Procedural allocation registration patch may be partial:
+inspect Grid.FlowerPages before continuing. Both geometry/readout agents hit
+provider usage limit; export agent scope handed off completed.
+GOAL: user requested current REV-C pursuit; create_goal rejected because old
+REV-B goal remains unfinished/blocked. Tools expose no resume/objective update;
+do not mark old objective complete merely to bypass this limitation.
+
+### Resume cursor — L2 incidence / shell synergy / Quest bounds
+
+CURRENT_TRUE_STATE: RUN_04 OPEN; HEAD still70c9f43; no cut commit/push or fresh APK.
+GOAL=ACTIVE (user resumed the existing pursuit); the old blocked line above is
+superseded. Work remains exclusively /mnt/aidisk/prace/uniscan under REV-C.
+Terminal cwd /mnt/aidisk/prace/simplescan is not a target/contract migration;
+no files in simplescan were changed by this continuation.
+
+IMPLEMENTED:
+- Generated actual section8.5 L2 carrier:386 knots,128 six-ring hubs,768 wedges.
+  Creation-incidence offsets387 +sources674 preserve both distinct L2 parent
+  predictions. Root/L1 aliases already share one canonical key. Codegen proves
+  each L2 knot has at most2 creation predictions on the same original loop.
+- Shared MerkabaFlowerGeometry.hlsl now evaluates original knot creation,
+  R2 ancestry/R3 oriented metric records, and intersects every generated
+  creation incidence before returning a certain shared L2 root. Conflicting
+  incidence never picks the requesting wedge's prediction. No XYZ storage.
+- User-requested O_h equivariance proof added to section29 and CPU authority:
+  all48 signed permutations preserve node/strand/petal incidence and child
+  substitution, signed boundaries transport with determinant, flags one orbit.
+  Codegen executes this proof, no runtime symmetry table or matrix added.
+- StereoCandidate no longer skips R2 on a certain R1 bend just because only
+  one hypothesis remains. R3 still requires competing hypotheses; two certain
+  non-collinear R1 axes remain mandatory. Five hypotheses and both RGB/depth
+  eyes retained; no new measurement or heuristic inferred from sphere radii.
+- Existing managed allocators and native descriptor imports reject buffers
+  above min(128MiB,device limit), never clamp capacities or truncate descriptors.
+  Drain binding uses the same frozen two-eye RGB error bounds as stereo.
+- Native ABI9 records each actual native dispatch separately, including
+  repeated auxiliary dispatches. Earlier native build PASS is a .so build,
+  NOT a Quest APK and predates the latest buffer-check changes.
+- DIRT suffix compaction uses the same page/arena transaction and explicit
+  direct completion; incomplete direct prefix cannot publish a page. The
+  helper compiles but live CompactDirtyFlowerSymbols is NOT connected yet.
+
+PROOF/COMPILE EVIDENCE:
+- Portable codegen +CheckForBatch PASS; current generated hash0x9322aee8.
+  Includes exact48-transform symmetry proof and L2 creation-incidence bounds.
+  This checks artifact identity, not all section29 semantics.
+- Shared L2 reader glslang compile PASS after multi-incidence integration.
+- DIRT compiler-entry glslang+spirv-val PASS:128 lanes,3 writable buffers.
+- REV-C/lasttrue contract prefix byte-identical; git diff --check PASS.
+- No new full Unity test suite, no measured Quest performance or device run.
+
+EXACT OPEN DEPENDENCIES (do not claim these are new-evidence ambiguity):
+1. Current BuildSkinChambers misses recursive footprints. Exhaustive traversal
+   of the actual generated36 rows reaches31/49 L4 and115/343 L5 addresses.
+   c3=1 can reach onlyc4={0,1,2,6}; (1,3,0) has no footprint. Existing test
+   only round-tripped the same table; now it also requires all49/343 addresses.
+   This known implementation failure blocks skin closure. No arbitrary child
+   wedge permutation or fabricated empty-child RGB value was substituted.
+2. Direct readout terminal identity still lacks an unambiguous symbol encoding:
+   generated row5=(hub0,petal0,path10,wedge5),row11=(hub1,petal0,path6,wedge5).
+   Uniform DetailRef/ThreadRef are invalid, reserved bits MUST remain zero.
+   Do not claim (petal,wedge) alone uniquely identifies the terminal carrier.
+3. Unique sector/root/admissible7-site carrier predicate is not yet connected;
+   RGB full-footprint producer cannot select all-plus/first-compatible roots.
+   Same-observation skin drain remains incomplete until these inputs close.
+4. Live renderer/export cutover, remaining legacy excision, complete regression
+   and APK generation remain unfinished. Do not erase old FRONT without a
+   complete proven direct replacement; DIRT is not a fallback renderer.
+
+HW SOURCE CURSOR:
+.codex/M8_STEREO_AUTHORITY_CLOSURE.md:420-430 supplies <=8 writable bindings,
+<=128MiB per buffer, readonly aliases, no divergent return before group barrier,
+no cross-workgroup spin/no1x1 data-domain loop. Historical algorithm text in
+that file does not supersede REV-C. M8_SOTA_EXECUTION_PLAN.md:445-453 records
+cooperative tile/halo workgroup guidance, not permission for new variant zoo.
+
+LATEST_HANDOFF: MerkabaFlowerSkinObservation.hlsl now contains actual complete
+two-eye RGB footprint measurement with frozen calibrated bounds, strict joint
+depth carrier coverage, outward binary16 intervals and atomic seven-child
+thread groups. Its bounded57-parent scheduling cursor is CANONICAL order;
+only storage addresses convert to thread order (Fibonacci never schedules).
+The producer body compiles/spirv-validates through an active compiler adapter;
+the live drain cannot invoke it until the unique7-root admission input exists.
+Do not count this helper as full observation/skin closure.
+
+LATEST_COMPILE: Unity Android script compile +CheckForBatch process48214 PASS.
+Prior process52167 failed only on unsupported NUnit Assert.Multiple; replaced
+with one ordinary collection assertion, then recompiled successfully. No tests
+were executed by CheckForBatch. StereoFlowerRefine compile17557+spirv-val PASS.
+All these processes have exited; no active Unity/compiler process remains.
+The new recursive skin coverage assertion is a known semantic FAIL until
+the generated transitions are corrected. No APK build was attempted.
+
+NEXT_CURSOR:
+Correct the actual skin transition coverage from generated Flower geometry;
+do not weaken57bits/399logicaladdresses or silently amend the frozen transform.
+Then resolve direct symbol/admission closure and connect actual consumers.
+
+### Resume cursor — exact skin gate / Quest device requirements
+
+CURRENT_COMMIT=70c9f43fa37f3e70b38072cfc12615af291abc87
+CURRENT_CUT=RUN_04 OPEN; RUN_05/06/07 NOT CLOSED
+PREVIOUS_GOAL_TURN=PROGRESS: user-supplied quest_guide.md saved completely,
+585 lines/15840 bytes with all12 source links. No source claims were independently
+verified by that copy operation; actual device properties must be queried.
+CONTRACT=REV-C prefix unchanged by this continuation; no ontology amendment.
+
+IMPLEMENTED_NOW:
+- Skin.cs editor/codegen authority now checks recursive locality reachability
+  with exact finite transition enumeration, not UV samples or an epsilon.
+  Invalid tables cannot be republished by Generate/CheckForBatch. This is a
+  necessary coverage gate, NOT a replacement for exact geometric footprints.
+- Native actual-device properties/features logging and requirements checking
+  is being completed by export_persistence in the existing executor.
+
+COMPILE/PROOF_EVIDENCE:
+- Portable C# codegen compiled, then correctly FAILED before emitting files:
+  "31/49 L4 and115/343 L5 addresses reachable; first missing(0,1,3)".
+  Evidence: /tmp/m8-skin-check.uqbNKs/codegen.log, process27644 exit134.
+  The earlier CheckForBatch PASS checked artifact identity and insufficient
+  structural predicates; it is NOT current semantic closure. Generated hash
+  0x9322aee8 remains the last artifact hash, not an authorization to cut over.
+- No full Unity test run, no APK, no device test. Skin diff --check PASS.
+
+EXACT_SKIN_FINDING:
+- Current rule is ChildSite=SkinWedgeSites(wedge)[High]. A ring child occurs
+  in four chambers total. All six child wedges are needed after each c3 to
+  allow all seven c4 regions to themselves expose seven c5 regions: if one
+  wedge is missing, an incident ring c4 is reached from at most one remaining
+  wedge, hence at most two next chamber states, which expose at most five
+  sites (hub plus four rings), not seven. Covering six states for every c3
+  would require at least7*6=42 transitions, while the table has36.
+- Therefore merely permuting current ChildWedge values cannot repair full
+  terminal coverage while retaining this max-site rule. This is NOT a proof
+  that every possible Flower representation is impossible. Section20.3 does
+  not supply the geometric child footprints/pullback needed to replace the
+  max-site assumption without choosing a new arbitrary triangular partition.
+- Requested the missing exact Flower-7 footprint/parent-child transform from
+  the user asynchronously. No arbitrary remapping, empty-child measurement,
+  nearest rule, validDepth or new geometry was substituted.
+
+OTHER_OPEN_DEPENDENCIES:
+- Readout identity: the earlier petal/wedge table-row alias alone does NOT
+  prove a collision of fully admissible symbols; sector/root and admission
+  must also be checked. procedural_readout is checking this exact question.
+- scanner_refinement is checking the missing generated flag/sector admission
+  predicate. No all-plus/first-compatible seven-root carrier is authorized.
+- The live skin drain, direct page compiler, renderer/export replacement and
+  full app closure remain incomplete. DIRT is not an emergency fallback.
+
+NATIVE_HW_RESULT=IMPLEMENTED; native ARM64 build PASS exit0, ABI9,
+32 pipelines/47 resources unchanged. Properties2/Features2 log actual limits
+and enabled versus supported features. Embedded LocalSize/descriptor needs,
+actual dispatch dimensions and bound ranges are checked against the device.
+Allocation/buffer size and descriptor range are distinct; no descriptor is
+silently truncated. Optional numeric/subgroup features are only logged.
+Files: Native/MerkabaVulkanTimestamps.cpp and Native/MerkabaFlowerDraw.h.
+Build evidence: /tmp/m8-native-abi9-hardware-build.log.
+SO_SHA256=624ce7f3529d5c2d7d88f9a44f4e912e9a5ba4f2f263775ace147954fb2203c8
+This is a .so build, NOT an APK, device observation or performance proof.
+
+APK_ENTRY=BuildQuestMerkabaScanApk now calls existing CheckForBatch before
+BuildPlayer. Previously that entry did not check the generated Flower tables.
+This prevents producing a success-labelled APK around known-invalid generated
+geometry. The new entry call is manually reviewed, not a completed APK build.
+MANUAL_REVIEW=Skin.cs and RoomScanSetupWizard.cs read completely; native
+Properties2/Features2, pipeline requirements and descriptor-range changes read.
+git diff --check PASS; REV-C/lasttrue prefix byte-identical PASS.
+
+DIRECT_IDENTITY_RESULT=not enough authority to prove an admissible collision
+or unique inverse. Read-only packed-plane fixture0xbb100bfc makes all three
+minus roots of rows5/11 CERTAIN, with sectors(7,7,3)/(7,3,8), so hub-sector
+alone does not establish uniqueness. This is NOT a proof that both are valid
+§8.4 petals: flag-sector membership and analytic strand orientation are still
+missing. Evidence: /tmp/flower-symbol-identity.dEra5l/Program.cs.
+
+NEXT_CURSOR=incorporate final bounded admission finding; await explicit skin
+footprint/flag membership closure before changing the frozen classifier or
+publishing its tables. All native/skin-codegen processes have finished. No
+commit, push, APK or runtime acceptance in this continuation. Do not repeat
+broad audits or treat the old artifact-identity PASS as semantic closure.
+
+### RUN_04 implementation checkpoint — 2026-09-07
+
+CURRENT_COMMIT=checkpoint containing this entry; parent70c9f43
+CURRENT_CUT=RUN_04 OPEN; this checkpoint is NOT a cut-closure/PASS commit.
+USER_EXECUTION_OVERRIDE=checkpoint first, then current build/full suite,
+targeted parity/binning/workgroup fixes and THROUGH/eager-drain proofs.
+Do not restart the DAG or infer acceptance from old test counts.
+
+CURRENT_TRUE_STATE:
+- The working scanner/dual/epoch/storage replacement is checkpointed together
+  with the already-started RUN_05 consumer changes. This is a recoverable task
+  snapshot, not a claim that either run is finished.
+- Observation, ERASE, load/eviction and changed dual ancestors invalidate only
+  affected pages and validated HOT neighbours. ERASE drains owner epochs in
+  its finalizer before the canonical transaction can finish.
+- Page source invalidity now survives dirty-queue removal. Superseded pending
+  allocations are discarded without publishing; only current Publish clears
+  the independent invalid guard. Residency changes preserve that guard.
+- Carrier ABI is16B with seven shared knots/six wedge bits. Managed/native
+  indexed consumers and ABI10 replace their previous readout resource path;
+  this new native ABI has NOT yet been built as a .so or Quest APK.
+- One L2 has one canonical skin key and one ThreadRef/header. The six source
+  wedge aliases no longer create six persistent/draw skin programs. RGB and V
+  remain separate persistent authorities. Phase keys are unchanged.
+- Stale readout counter consumers and guessed stereo vertex statistics were
+  removed. Current timing labels name actual Flower stages; unsupported
+  page/symbol counts are explicitly unavailable, not fabricated zeroes.
+
+OPEN_IMPLEMENTATION_GAPS:
+- Complete generated flag/strand admission is not supplied by the new exact
+  radical provenance alone. No guessed sign mask or loop-normal substitute
+  has been admitted as surface geometry.
+- RGB carrier drain is implemented but has no live caller yet. Complete V
+  measurement/skin drain and direct carrier page production are not closed.
+- The current skin reachability failure remains a real gate; generated key
+  helper edits are not a full generated-table or CPU/HLSL parity PASS.
+
+TESTS_RUN=no new full suite yet; old342/362 and69-kernel audit supplied by the
+user are historical evidence, not current-tree acceptance.
+BUILD=no fresh Unity/Quest build; PERF=not measured; DEVICE=not run.
+LEGACY_REMOVED=preserve the actual diff; no fallback/compatibility is restored.
+NEXT_CURSOR=commit this checkpoint, run the existing Kingston Unity test entry,
+then fix its concrete failures and add the two requested behavioral proofs.

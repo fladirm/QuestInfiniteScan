@@ -16,7 +16,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _boundRoot;
         private Button _start, _save, _saveAs, _load, _new, _rename,
             _deleteSession, _export,
-            _exportTiles, _fine, _readout, _mesh, _occlusion, _checker,
+            _exportTiles, _fine, _readout, _occlusion, _checker,
             _artifactView, _artifactLoad, _annotationMode, _annotationSave,
             _annotationEdit, _annotationDelete, _tabScan, _tabRefine,
             _tabPaint, _tabPlan, _fineRefine, _fineErase,
@@ -153,7 +153,6 @@ namespace Genesis.RoomScan.UI
             _exportTiles = _root.Q<Button>("btn-export-tiles");
             _fine = _root.Q<Button>("btn-fine");
             _readout = _root.Q<Button>("btn-readout");
-            _mesh = _root.Q<Button>("btn-mesh");
             _occlusion = _root.Q<Button>("btn-occlusion");
             _checker = _root.Q<Button>("btn-checker");
             _artifactView = _root.Q<Button>("btn-artifact-view");
@@ -283,12 +282,6 @@ namespace Genesis.RoomScan.UI
                 RoomScanner scanner = RoomScanner.Instance;
                 if (scanner != null)
                     scanner.ReadoutDrawEnabled = !scanner.ReadoutDrawEnabled;
-            });
-            _mesh?.RegisterCallback<ClickEvent>(evt =>
-            {
-                RoomScanner scanner = RoomScanner.Instance;
-                if (scanner != null)
-                    scanner.MeshReadoutEnabled = !scanner.MeshReadoutEnabled;
             });
             _occlusion?.RegisterCallback<ClickEvent>(evt =>
             {
@@ -930,8 +923,10 @@ namespace Genesis.RoomScan.UI
             SetStatus(_scanning, state, scanner.IsScanning ? StatusKind.Good :
                 scanner.IsScanStarting ? StatusKind.Warning : StatusKind.Neutral);
             Set(_chunks, scanner.ActiveChunkCount.ToString());
-            Set(_kernels, scanner.PublishedPrimitiveCount.ToString());
-            Set(_visibleBoundary, scanner.VisibleChunkCount.ToString());
+            // These counts need a completed current-view GPU counter producer;
+            // legacy Query/Build counters are not Flower metrics.
+            Set(_kernels, "Unavailable");
+            Set(_visibleBoundary, "Unavailable");
             string saved = scanner.ActiveSessionId == Guid.Empty
                 ? "No session"
                 : scanner.SessionIsDirty ? "Unsaved changes" : "Saved";
@@ -997,9 +992,6 @@ namespace Genesis.RoomScan.UI
             if (_readout != null)
                 _readout.text = scanner.ReadoutDrawEnabled
                     ? "Readout On" : "Readout Off";
-            if (_mesh != null)
-                _mesh.text = scanner.MeshReadoutEnabled
-                    ? "Raw mesh On" : "Raw mesh Off";
             if (_occlusion != null)
                 _occlusion.text = scanner.DynamicOcclusionEnabled
                     ? "Occlusion On" : "Occlusion Off";
@@ -1061,7 +1053,6 @@ namespace Genesis.RoomScan.UI
             _export?.SetEnabled(!busy);
             _exportTiles?.SetEnabled(!busy);
             _fine?.SetEnabled(!busy);
-            _mesh?.SetEnabled(!busy);
             _occlusion?.SetEnabled(!busy);
             _checker?.SetEnabled(!busy);
             _artifactView?.SetEnabled(!operationBusy && _artifactViewer != null);

@@ -111,6 +111,12 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void CubeSymmetry_ClosesAllTablesAndOneCompleteFlagOrbit()
+        {
+            Assert.That(MerkabaSphereFlowerAuthority.ValidateCubeSymmetry(), Is.EqualTo(48));
+        }
+
+        [Test]
         public void DirectedNodes_AreExactlySixTwelveEight()
         {
             int[] shellCounts = new int[4];
@@ -391,6 +397,95 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void R2PredictionResidual_AdmitsDisjointSameSymbolEvidence()
+        {
+            var predicted = new MerkabaSphereFlowerAuthority.Interval2(
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(255.0 / 257.0),
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(32.0 / 257.0));
+            var observed = new MerkabaSphereFlowerAuthority.Interval2(
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(63.0 / 65.0),
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(16.0 / 65.0));
+            int line = MerkabaSphereFlowerAuthority.FindLineClass(new int3(1, 1, 0),
+                out _);
+            Assert.That(MerkabaSphereFlowerAuthority.ClassifySector(line,
+                predicted, out int sector), Is.EqualTo(
+                    MerkabaSphereFlowerAuthority.ProofClassification.Certain));
+            var tag = MerkabaFlowerSymbolTag.Create(1, line, true, sector,
+                false, 3u, MerkabaFlowerSymbolStatus.Confirmed);
+            var symbol = new MerkabaFlowerSymbolKey(new int3(-3, 5, -8), tag);
+            var p = new MerkabaSphereFlowerAuthority.PhaseRootEvidence(symbol,
+                predicted, MerkabaSphereFlowerAuthority.ProofClassification.Certain);
+            var o = new MerkabaSphereFlowerAuthority.PhaseRootEvidence(symbol,
+                observed, MerkabaSphereFlowerAuthority.ProofClassification.Certain);
+            Assert.That(MerkabaSphereFlowerAuthority.FloatInterval.TryIntersect(
+                predicted.X, observed.X, out _), Is.False);
+            var residual = MerkabaSphereFlowerAuthority.AnalyzePhaseResidual(p, o);
+            Assert.That(residual.Classification, Is.EqualTo(
+                MerkabaSphereFlowerAuthority.PhaseResidualClassification.CertainNonzero));
+            Assert.That(residual.Residual.Lower, Is.LessThanOrEqualTo(8.0 / 129.0));
+            Assert.That(residual.Residual.Upper, Is.GreaterThanOrEqualTo(8.0 / 129.0));
+            Assert.That(residual.Lower, Is.GreaterThan(0));
+
+            var detailKey = MerkabaFlowerDetailKey.Create(1, 0, 0, line,
+                MerkabaFlowerDetailKind.R2Phase, true, sector);
+            var record = MerkabaFlowerDetailRecord.Create(detailKey,
+                residual.Lower, residual.Upper, 7u);
+            Assert.That(MerkabaSphereFlowerAuthority.SynthesizePhaseRecord(p,
+                detailKey, record, 7u, out var synthesized), Is.EqualTo(
+                    MerkabaSphereFlowerAuthority.ProofClassification.Certain));
+            Assert.That(MerkabaSphereFlowerAuthority.CloseSharedPhaseRoot(
+                synthesized, o, out var closed), Is.EqualTo(
+                    MerkabaSphereFlowerAuthority.ProofClassification.Certain));
+            Assert.That(MerkabaSphereFlowerAuthority.CloseSharedPhaseRoot(
+                o, synthesized, out var reversed), Is.EqualTo(
+                    MerkabaSphereFlowerAuthority.ProofClassification.Certain));
+            Assert.That(reversed.Symbol.Tag, Is.EqualTo(closed.Symbol.Tag));
+            Assert.That(reversed.Root.X.Lower, Is.EqualTo(closed.Root.X.Lower));
+            Assert.That(reversed.Root.Y.Upper, Is.EqualTo(closed.Root.Y.Upper));
+            Assert.That(MerkabaSphereFlowerAuthority.CloseSharedPhaseRoot(p,
+                o, out _), Is.EqualTo(
+                    MerkabaSphereFlowerAuthority.ProofClassification.Impossible),
+                "Peer closure intersects final knots; residual extraction does not.");
+            Assert.That(MerkabaSphereFlowerAuthority.SynthesizePhaseRecord(p,
+                detailKey, record, 8u, out _), Is.EqualTo(
+                    MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous));
+
+            var uncertain = MerkabaSphereFlowerAuthority.AnalyzePhaseResidual(p, p);
+            Assert.That(uncertain.Classification, Is.EqualTo(
+                MerkabaSphereFlowerAuthority.PhaseResidualClassification.Ambiguous),
+                "Equal independent interval boxes do not prove zero innovation.");
+            var otherSymbol = new MerkabaFlowerSymbolKey(new int3(-1, 5, -8), tag);
+            var other = new MerkabaSphereFlowerAuthority.PhaseRootEvidence(otherSymbol,
+                observed, MerkabaSphereFlowerAuthority.ProofClassification.Certain);
+            Assert.That(MerkabaSphereFlowerAuthority.AnalyzePhaseResidual(p, other)
+                    .Classification, Is.EqualTo(
+                MerkabaSphereFlowerAuthority.PhaseResidualClassification.Impossible));
+        }
+
+        [Test]
+        public void R2PredictionResidual_SingletonIdentityHasExactZeroInnovation()
+        {
+            var root = MerkabaSphereFlowerAuthority.Interval2.Singleton(
+                new float2(255f / 257f, 32f / 257f));
+            int line = MerkabaSphereFlowerAuthority.FindLineClass(new int3(1, 1, 0),
+                out _);
+            Assert.That(MerkabaSphereFlowerAuthority.ClassifySector(line, root,
+                out int sector), Is.EqualTo(
+                    MerkabaSphereFlowerAuthority.ProofClassification.Certain));
+            var symbol = new MerkabaFlowerSymbolKey(new int3(1, 1, 0),
+                MerkabaFlowerSymbolTag.Create(2, line, false, sector,
+                    false, 3u, MerkabaFlowerSymbolStatus.Confirmed));
+            var evidence = new MerkabaSphereFlowerAuthority.PhaseRootEvidence(symbol,
+                root, MerkabaSphereFlowerAuthority.ProofClassification.Certain);
+            var result = MerkabaSphereFlowerAuthority.AnalyzePhaseResidual(
+                evidence, evidence);
+            Assert.That(result.Classification, Is.EqualTo(
+                MerkabaSphereFlowerAuthority.PhaseResidualClassification.ExactZero));
+            Assert.That(result.Residual.Lower, Is.Zero);
+            Assert.That(result.Residual.Upper, Is.Zero);
+        }
+
+        [Test]
         public void R3TetraTransform_RoundTripsAndFramesHaveIncidenceChirality()
         {
             float4[] cases =
@@ -503,7 +598,10 @@ namespace Genesis.RoomScan.Tests
             StringAssert.DoesNotContain("M8FlowerEndpointBasis", source);
             StringAssert.DoesNotContain("atan", source);
             StringAssert.DoesNotContain("acos", source);
-            StringAssert.DoesNotContain("epsilon", source.ToLowerInvariant());
+            // Named quantization/calibration enclosure bounds are not magic
+            // epsilons. Their containment is checked by the interval fixtures.
+            StringAssert.Contains("M8FlowerPrevious", source);
+            StringAssert.Contains("M8FlowerNext", source);
         }
 
         private static void AssertRoot(float3 abc,

@@ -1417,7 +1417,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(storage, Does.Contain("RegisterLoadedTileAddresses"));
             Assert.That(storage, Does.Contain("CounterHashFull"));
             Assert.That(storage, Does.Contain(
-                "addressedTiles != (ulong)addresses.Length"));
+                "addressedTiles != (ulong)registeredTiles.Count"));
             Assert.That(storage, Does.Not.Contain("LoadStoredSnapshotAsync"));
             Assert.That(storage, Does.Not.Contain("ReadCanonicalSnapshot"));
         }

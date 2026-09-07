@@ -23,7 +23,7 @@ namespace Genesis.RoomScan.Tests
                          "btn-start", "btn-save", "btn-save-as", "btn-load",
                          "btn-new", "btn-rename", "btn-delete-session",
                          "btn-export", "btn-export-tiles", "btn-readout",
-                         "btn-mesh", "btn-occlusion", "btn-checker",
+                         "btn-occlusion", "btn-checker",
                          "btn-artifact-view", "btn-artifact-load",
                          "btn-annotation-mode", "btn-annotation-save",
                          "btn-annotation-edit", "btn-annotation-delete",
@@ -87,9 +87,6 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Slider>("paint-red"), Is.Null);
             Assert.That(root.Q<Slider>("paint-green"), Is.Null);
             Assert.That(root.Q<Slider>("paint-blue"), Is.Null);
-            string source = File.ReadAllText(Path.GetFullPath(path));
-            Assert.That(source, Does.Contain("Published triangles"));
-            Assert.That(source, Does.Contain("Visible chunks"));
             Foldout diagnostics = root.Q<Foldout>("diagnostics-foldout");
             Assert.That(diagnostics, Is.Not.Null);
             Assert.That(diagnostics.value, Is.False);
@@ -104,8 +101,6 @@ namespace Genesis.RoomScan.Tests
                 "scanner.DynamicOcclusionEnabled ="));
             Assert.That(controller, Does.Contain(
                 "scanner.ReadoutDrawEnabled ="));
-            Assert.That(controller, Does.Contain(
-                "scanner.MeshReadoutEnabled ="));
             Assert.That(controller, Does.Contain(
                 "scanner.CheckerReadoutEnabled ="));
             Assert.That(controller, Does.Contain(

@@ -234,9 +234,6 @@ namespace Genesis.RoomScan.Tests
         {
             string directory = Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Shaders");
-            Assert.That(File.ReadAllText(Path.Combine(directory,
-                "MerkabaSurfaceOrientation.generated.hlsl")), Is.EqualTo(
-                MerkabaOverlapShell.BuildSurfaceOrientationHlsl()));
             string generated = File.ReadAllText(Path.Combine(directory,
                 "MerkabaOverlapShell.generated.hlsl"));
             Assert.That(generated,

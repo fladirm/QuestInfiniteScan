@@ -88,6 +88,9 @@ namespace Genesis.RoomScan
                     out L4ChildRank, out L4State, out L5ChildRank);
 #endif
                 ValidateSkinTables();
+#if UNITY_EDITOR
+                ValidateSkinAddressCoverage();
+#endif
             }
         }
 
@@ -593,6 +596,55 @@ namespace Genesis.RoomScan
                 }
             }
         }
+
+#if UNITY_EDITOR
+        private static void ValidateSkinAddressCoverage()
+        {
+            // Each strict ordered chamber maps onto the complete child
+            // simplex. Enumerating transitions therefore proves reachability
+            // exactly, without sampled UVs or a floating-point tolerance.
+            // This is necessary, not sufficient, for the geometric footprint
+            // proof: a bijective thread table alone cannot prove that raster
+            // evaluation can actually address its seven-child regions.
+            var reachedL4 = new bool[SkinL4Count];
+            var reachedL5 = new bool[SkinL5Count];
+            int countL4 = 0;
+            int countL5 = 0;
+            for (int wedge = 0; wedge < SkinWedgeCount; wedge++)
+            for (int order3 = 0; order3 < SkinOrderCount; order3++)
+            {
+                SkinChamberRule r3 = SkinData.Chambers[
+                    SkinOrderCount * wedge + order3];
+                for (int order4 = 0; order4 < SkinOrderCount; order4++)
+                {
+                    SkinChamberRule r4 = SkinData.Chambers[
+                        SkinOrderCount * r3.ChildWedge + order4];
+                    int parent = SkinSiteCount * r3.ChildSite + r4.ChildSite;
+                    if (!reachedL4[parent])
+                    {
+                        reachedL4[parent] = true;
+                        countL4++;
+                    }
+                    for (int order5 = 0; order5 < SkinOrderCount; order5++)
+                    {
+                        SkinChamberRule r5 = SkinData.Chambers[
+                            SkinOrderCount * r4.ChildWedge + order5];
+                        int terminal = SkinSiteCount * parent + r5.ChildSite;
+                        if (reachedL5[terminal]) continue;
+                        reachedL5[terminal] = true;
+                        countL5++;
+                    }
+                }
+            }
+            for (int terminal = 0; terminal < SkinL5Count; terminal++)
+                if (!reachedL5[terminal])
+                    throw new InvalidOperationException(
+                        $"Flower-7 skin footprint closure failed: {countL4}/49 L4 " +
+                        $"and {countL5}/343 L5 addresses reachable; first missing " +
+                        $"(c3,c4,c5)=({terminal / 49},{terminal / 7 % 7},{terminal % 7}). " +
+                        "Do not publish these transitions as exact Flower-7 geometry.");
+        }
+#endif
 
         private static void ValidateLocalStitchRanks(byte[] ranks, int offset)
         {

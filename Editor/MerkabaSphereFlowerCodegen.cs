@@ -23,6 +23,8 @@ namespace Genesis.RoomScan.Editor
             "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaSphereFlowerDataAbi.generated.hlsl";
         public const string GeneratedNativeDataAbiAssetPath =
             "Packages/com.genesis.roomscan/Runtime/Telemetry/Native/MerkabaSphereFlowerDataAbi.h";
+        public const string GeneratedDepthCertificateAssetPath =
+            "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaDepthCertificate.generated.hlsl";
 
         [MenuItem("Quest Infinite Scan/Merkaba/Regenerate Sphere-Flower HLSL")]
         public static void Regenerate()
@@ -32,6 +34,7 @@ namespace Genesis.RoomScan.Editor
             WriteIfChanged(GeneratedDataAbiAssetPath, BuildGeneratedDataAbiHlsl());
             WriteIfChanged(GeneratedNativeDataAbiAssetPath,
                 BuildGeneratedNativeDataAbi());
+            WriteIfChanged(GeneratedDepthCertificateAssetPath, BuildDepthCertificateHlsl());
             Debug.Log("[SphereFlower] Generated exact CPU/HLSL tables.");
         }
 
@@ -44,6 +47,7 @@ namespace Genesis.RoomScan.Editor
             CheckExact(GeneratedDataAbiAssetPath, BuildGeneratedDataAbiHlsl());
             CheckExact(GeneratedNativeDataAbiAssetPath,
                 BuildGeneratedNativeDataAbi());
+            CheckExact(GeneratedDepthCertificateAssetPath, BuildDepthCertificateHlsl());
         }
 
         private static void WriteIfChanged(string assetPath, string expected)
@@ -75,6 +79,7 @@ namespace Genesis.RoomScan.Editor
             output.AppendLine("// Exact finite tables from MerkabaSphereFlowerAuthority.");
             output.AppendLine("#ifndef GENESIS_MERKABA_SPHERE_FLOWER_INCLUDED");
             output.AppendLine("#define GENESIS_MERKABA_SPHERE_FLOWER_INCLUDED");
+            output.AppendLine("#include \"MerkabaSphereFlowerDataAbi.generated.hlsl\"");
             Define(output, "M8_FLOWER_LATTICE_STEP",
                 Number(MerkabaSphereFlowerAuthority.LatticeStep));
             Define(output, "M8_FLOWER_LEVEL_COUNT",
@@ -120,6 +125,14 @@ namespace Genesis.RoomScan.Editor
             Define(output, "M8_FLOWER_SKIN_UNIFORM", "0u");
             Define(output, "M8_FLOWER_SKIN_SPLIT", "1u");
             Define(output, "M8_FLOWER_SKIN_AMBIGUOUS", "2u");
+            Define(output, "M8_FLOWER_NORMAL_QUANTIZATION_UPPER", Number(
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
+                    2.0 * Math.Sqrt(18.0) / 1023.0).Upper));
+            Define(output, "M8_FLOWER_OFFSET_QUANTIZATION_UPPER", Number(
+                MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
+                    MerkabaSphereFlowerAuthority.LatticeStep / (2.0 * 127.0)).Upper));
+            Define(output, "M8_FLOWER_R1_RADIUS", Number((float)(
+                MerkabaSphereFlowerAuthority.LatticeStep * Math.Sqrt(3.0) * 0.5)));
             output.AppendLine();
 
             AppendLines(output);
@@ -128,12 +141,144 @@ namespace Genesis.RoomScan.Editor
             AppendStrands(output);
             AppendPetals(output);
             AppendChildren(output);
+            AppendPhaseFamilies(output);
+            AppendL2Carrier(output, false);
+            AppendExcavation(output);
             AppendSkin(output);
             AppendSectors(output);
+            AppendRadicalSectorPatterns(output, false);
             AppendTetraFrames(output);
             AppendFunctions(output);
+            AppendPlaneCodec(output, false);
+            AppendCarrierRelation(output);
+            output.AppendLine(@"
+bool M8FlowerClassifyObservationRoot(uint level,
+    uint lineClass, bool endpointOrientation, bool plusRoot,
+    M8FlowerInterval3 abc, out uint symbolTag,
+    out M8FlowerInterval2 root, out uint classification)
+{
+    symbolTag = 0u;
+    root.x = M8FlowerI(0.0, 0.0);
+    root.y = M8FlowerI(0.0, 0.0);
+    classification = M8_FLOWER_ROOT_AMBIGUOUS;
+    if (level >= M8_FLOWER_GEOMETRY_LEVEL_COUNT || lineClass >= 13u)
+        return false;
+    classification = M8FlowerRootInterval(abc, plusRoot, root);
+    if (classification != M8_FLOWER_ROOT_CERTAIN_SECANT &&
+        classification != M8_FLOWER_ROOT_CERTAIN_TANGENT) return false;
+    // Delta=0 has a single isolated knot. Keep only the canonical minus
+    // entry when the caller iterates the two algebraic signs.
+    if (classification == M8_FLOWER_ROOT_CERTAIN_TANGENT && plusRoot)
+        return false;
+    uint sector;
+    if (!M8FlowerRootSector(lineClass, root, sector))
+    {
+        classification = M8_FLOWER_ROOT_AMBIGUOUS;
+        return false;
+    }
+    symbolTag = level | (lineClass << 3u) | (plusRoot ? 1u << 7u : 0u) |
+        (sector << 8u) | (endpointOrientation ? 1u << 13u : 0u);
+    return true;
+}
+");
+            output.AppendLine(@"
+bool M8FlowerL2KnotLoop(uint knot, out uint level,
+    out int3 junctionOffset, out uint lineClass)
+{
+    level=0u; junctionOffset=0; lineClass=0u;
+    if(knot>=386u)return false;
+    uint source=M8FlowerL2KnotSource[knot];
+    uint strand; int endpoint,phase,inherited;
+    return M8FlowerTryGetChildPhaseLoop(source&63u,(source>>6u)&7u,
+        (source>>9u)&7u,level,junctionOffset,lineClass,strand,endpoint,phase,inherited);
+}
+
+uint M8FlowerL2WedgeIndex(uint petal, uint childPath)
+{
+    return M8FlowerL2SourceToWedge[16u*petal+childPath];
+}
+
+// Six source wedges address one immutable L2 carrier and therefore one
+// persistent skin thread. Pack canonicalizes that existing source identity;
+// persistent decode below rejects every noncanonical wedge alias.
+uint M8FlowerPackL2Key(uint geometryChildPath,uint petalClass,
+    bool rootSign,uint sector)
+{
+    if(geometryChildPath>=16u || petalClass>=48u || sector>=32u)
+        return 0xffffffffu;
+    uint carrier=M8FlowerL2WedgeIndex(petalClass,geometryChildPath)/6u;
+    uint source=M8FlowerL2Wedge[6u*carrier].y;
+    return source |
+        (rootSign ? (1u<<M8_FLOWER_L2_KEY_ROOT_SHIFT) : 0u) |
+        (sector<<M8_FLOWER_L2_KEY_SECTOR_SHIFT);
+}
+
+bool M8FlowerL2KeyValid(uint key)
+{
+    if((key>>16u)!=0u)return false;
+    uint petal=(key>>M8_FLOWER_L2_KEY_PETAL_SHIFT)&63u;
+    if(petal>=48u)return false;
+    uint canonical=M8FlowerPackL2Key(key&15u,petal,
+        ((key>>M8_FLOWER_L2_KEY_ROOT_SHIFT)&1u)!=0u,
+        (key>>M8_FLOWER_L2_KEY_SECTOR_SHIFT)&31u);
+    return canonical==key;
+}");
             output.AppendLine("#endif");
             return output.ToString();
+        }
+
+        private static void AppendCarrierRelation(StringBuilder output)
+        {
+            output.AppendLine(@"
+// Load the two planes from K=(J-r)/2 and Q=K+r, in that order.
+// Restriction is owner-relative: no large world-coordinate subtraction.
+uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSign,
+    uint firstPlane, uint secondPlane, float normalUncertainty,
+    float offsetUncertainty, out M8FlowerPhaseRootEvidence relation,
+    out M8FlowerInterval bend)
+{
+    relation=(M8FlowerPhaseRootEvidence)0;
+    bend=M8FlowerI(0.0,0.0);
+    if (lineClass>=M8_FLOWER_LINE_CLASS_COUNT) return 0u;
+    int3 r=M8FlowerLineDirection[lineClass];
+    if (any(((asuint(junction)^asuint(r))&1u)!=0u)) return 0u;
+    if (!M8FlowerHasPlane(firstPlane) || !M8FlowerHasPlane(secondPlane) ||
+        (firstPlane&M8_FLOWER_OCCUPIED_FLAG)==0u ||
+        (secondPlane&M8_FLOWER_OCCUPIED_FLAG)==0u ||
+        (firstPlane&M8_FLOWER_SEED_FLAG)!=0u ||
+        (secondPlane&M8_FLOWER_SEED_FLAG)!=0u ||
+        !all(isfinite(float2(normalUncertainty,offsetUncertainty))) ||
+        normalUncertainty<0.0 || offsetUncertainty<0.0) return 2u;
+    float3 firstNormal,secondNormal;
+    float firstOffset,secondOffset;
+    M8FlowerUnpackPlane(firstPlane,firstNormal,firstOffset);
+    M8FlowerUnpackPlane(secondPlane,secondNormal,secondOffset);
+    precise float3 relative=float3(r)*(0.5*M8_FLOWER_LATTICE_STEP);
+    float radius=M8FlowerGeometryLoopRadius[lineClass];
+    M8FlowerInterval3 firstAbc,secondAbc;
+    if (!M8FlowerPlaneIntervals(firstNormal,firstOffset,relative,radius,lineClass,
+            normalUncertainty,offsetUncertainty,firstAbc) ||
+        !M8FlowerPlaneIntervals(secondNormal,secondOffset,-relative,radius,lineClass,
+            normalUncertainty,offsetUncertainty,secondAbc)) return 2u;
+    M8FlowerInterval2 firstRoot,secondRoot;
+    uint firstClass=M8FlowerRootInterval(firstAbc,rootSign,firstRoot);
+    uint secondClass=M8FlowerRootInterval(secondAbc,rootSign,secondRoot);
+    if (firstClass==M8_FLOWER_ROOT_IMPOSSIBLE ||
+        secondClass==M8_FLOWER_ROOT_IMPOSSIBLE) return 0u;
+    if ((firstClass!=M8_FLOWER_ROOT_CERTAIN_SECANT &&
+         firstClass!=M8_FLOWER_ROOT_CERTAIN_TANGENT) ||
+        (secondClass!=M8_FLOWER_ROOT_CERTAIN_SECANT &&
+         secondClass!=M8_FLOWER_ROOT_CERTAIN_TANGENT)) return 2u;
+    M8FlowerInterval2 root;
+    uint sector;
+    if (!M8FlowerSealBend(firstRoot,secondRoot,lineClass,root,bend,sector)) return 2u;
+    relation.Junction=junction;
+    relation.Tag=M8FlowerPackSymbolTag(0u,lineClass,rootSign,sector,false,0u,0u,0u);
+    relation.Root=root;
+    relation.Classification=1u;
+    return 1u;
+}
+");
         }
 
         internal static string BuildGeneratedCs()
@@ -141,6 +286,7 @@ namespace Genesis.RoomScan.Editor
             var o = new StringBuilder(48 * 1024);
             o.AppendLine("// GENERATED by MerkabaSphereFlowerCodegen. DO NOT EDIT.");
             o.AppendLine("using Unity.Mathematics;");
+            o.AppendLine("using static Unity.Mathematics.math;");
             o.AppendLine();
             o.AppendLine("namespace Genesis.RoomScan");
             o.AppendLine("{");
@@ -151,6 +297,17 @@ namespace Genesis.RoomScan.Editor
                     .ToString("x8", CultureInfo.InvariantCulture))
                 .AppendLine("u;");
             o.AppendLine();
+            AppendGeneratedCsPhaseFamilies(o);
+            AppendL2Carrier(o, true);
+            AppendRadicalSectorPatterns(o, true);
+            o.AppendLine("        private static ulong[] LoadGeneratedNodeIncidentPetals() => new ulong[] {");
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.NodeIncidentPetals.Length; i++)
+            {
+                o.Append("            0x").Append(MerkabaSphereFlowerAuthority.NodeIncidentPetals[i]
+                    .ToString("x12", CultureInfo.InvariantCulture)).Append("UL");
+                Comma(o, i, MerkabaSphereFlowerAuthority.NodeIncidentPetals.Length);
+            }
+            o.AppendLine("        };");
             o.AppendLine("        private static void LoadGeneratedTables(");
             o.AppendLine("            out LineRule[] lines, out DirectionRule[] directions,");
             o.AppendLine("            out NodeRule[] nodes, out StrandRule[] strands,");
@@ -166,9 +323,178 @@ namespace Genesis.RoomScan.Editor
             AppendGeneratedCsTetra(o);
             o.AppendLine("        }");
             AppendGeneratedCsSkin(o);
+            AppendPlaneCodec(o, true);
             o.AppendLine("    }");
             o.AppendLine("}");
             return o.ToString();
+        }
+
+        // One expression source, compiled into both the CPU oracle and HLSL.
+        // Bit 30 preserves the measured free-side sign when the plane normal
+        // is canonicalized. No KernelState field or branch ordinal is added.
+        private static void AppendPlaneCodec(StringBuilder output, bool csharp)
+        {
+            void Constant(string name, uint value)
+            {
+                string literal = "0x" + value.ToString("x8",
+                    CultureInfo.InvariantCulture) + "u";
+                output.AppendLine(csharp
+                    ? $"        internal const uint {name} = {literal};"
+                    : $"#define {name} {literal}");
+            }
+            Constant("M8_FLOWER_PLANE_U_SHIFT", MerkabaConstants.SurfacePlaneNormalUShift);
+            Constant("M8_FLOWER_PLANE_V_SHIFT", MerkabaConstants.SurfacePlaneNormalVShift);
+            Constant("M8_FLOWER_PLANE_OFFSET_SHIFT", MerkabaConstants.SurfacePlaneOffsetShift);
+            Constant("M8_FLOWER_PLANE_VALID", MerkabaConstants.SurfacePlaneValidFlag);
+            Constant("M8_FLOWER_PLANE_FREE_SIDE", MerkabaConstants.SurfacePlaneFreeSideFlag);
+            Constant("M8_FLOWER_PLANE_STORAGE_MASK", MerkabaConstants.SurfacePlaneStorageMask);
+            Constant("M8_FLOWER_OCCUPIED_FLAG", MerkabaConstants.OccupiedFlag);
+            Constant("M8_FLOWER_SEED_FLAG", MerkabaSphereFlowerDataAbi.R1SeedFlag);
+            Constant("M8_FLOWER_OCCUPIED_ON", MerkabaConstants.OccupiedOnThreshold);
+            Constant("M8_FLOWER_OCCUPIED_OFF", MerkabaConstants.OccupiedOffThreshold);
+            Constant("M8_FLOWER_EVIDENCE_LIMIT", MerkabaConstants.EvidenceConfidenceLimit);
+            Constant("M8_FLOWER_SURFACE_EVIDENCE", (uint)MerkabaConstants.SurfaceEvidenceScale);
+            Constant("M8_FLOWER_THROUGH_EVIDENCE", (uint)MerkabaConstants.FreeEvidenceScale);
+            string range = Number(MerkabaConstants.SurfacePlaneOffsetRange) + "f";
+            output.AppendLine(csharp
+                ? $"        internal const float M8_FLOWER_PLANE_RANGE = {range};"
+                : $"#define M8_FLOWER_PLANE_RANGE {range}");
+            string source = @"
+internal static bool M8FlowerHasPlane(uint flags)
+{
+    return (flags & M8_FLOWER_PLANE_VALID) != 0u;
+}
+
+internal static uint M8FlowerClearPlane(uint flags)
+{
+    return flags & ~M8_FLOWER_PLANE_STORAGE_MASK;
+}
+
+internal static int M8FlowerPlaneFreeSide(uint flags)
+{
+    return (flags & M8_FLOWER_PLANE_FREE_SIDE) != 0u ? -1 : 1;
+}
+
+internal static float2 M8FlowerOctSigns(float2 value)
+{
+    return float2(value.x < 0.0f ? -1.0f : 1.0f,
+        value.y < 0.0f ? -1.0f : 1.0f);
+}
+
+internal static bool M8FlowerTryPackPlane(uint flags, float3 normal,
+    float signedOffset, out uint packed)
+{
+    packed = flags;
+    if (!all(isfinite(normal)) || !isfinite(signedOffset) ||
+        abs(signedOffset) > M8_FLOWER_PLANE_RANGE) return false;
+    precise float3 square = normal * normal;
+    precise float squareXY = square.x + square.y;
+    precise float lengthSquared = squareXY + square.z;
+    if (!(lengthSquared > 0.0f) || !isfinite(lengthSquared)) return false;
+    precise float normalLength = sqrt(lengthSquared);
+    normal /= normalLength;
+    float first = normal.x != 0.0f ? normal.x :
+        normal.y != 0.0f ? normal.y : normal.z;
+    bool reversed = first < 0.0f;
+    if (reversed)
+    {
+        normal = -normal;
+        signedOffset = -signedOffset;
+    }
+    precise float sumXY = abs(normal.x) + abs(normal.y);
+    precise float sum = sumXY + abs(normal.z);
+    normal /= sum;
+    float2 oct = normal.xy;
+    if (normal.z < 0.0f)
+        oct = (1.0f - abs(oct.yx)) * M8FlowerOctSigns(oct);
+    precise float2 halfOct = oct * 0.5f;
+    precise float2 unitOct = halfOct + 0.5f;
+    precise float2 code = round(unitOct * 1023.0f);
+    precise float normalizedOffset = signedOffset / M8_FLOWER_PLANE_RANGE;
+    int offsetCode = (int)round(normalizedOffset * 127.0f);
+    if (any(code < 0.0f) || any(code > 1023.0f) ||
+        offsetCode < -127 || offsetCode > 127) return false;
+    packed = M8FlowerClearPlane(flags) |
+        ((uint)code.x << (int)M8_FLOWER_PLANE_U_SHIFT) |
+        ((uint)code.y << (int)M8_FLOWER_PLANE_V_SHIFT) |
+        (((uint)offsetCode & 255u) << (int)M8_FLOWER_PLANE_OFFSET_SHIFT) |
+        M8_FLOWER_PLANE_VALID |
+        (reversed ? M8_FLOWER_PLANE_FREE_SIDE : 0u);
+    return true;
+}
+
+internal static void M8FlowerUnpackPlane(uint flags, out float3 normal,
+    out float signedOffset)
+{
+    uint u = (flags >> (int)M8_FLOWER_PLANE_U_SHIFT) & 1023u;
+    uint v = (flags >> (int)M8_FLOWER_PLANE_V_SHIFT) & 1023u;
+    precise float2 unit = float2(u, v) / 1023.0f;
+    precise float2 twice = unit * 2.0f;
+    precise float2 oct = twice - 1.0f;
+    precise float zX = 1.0f - abs(oct.x);
+    normal = float3(oct.x, oct.y, zX - abs(oct.y));
+    if (normal.z < 0.0f)
+        normal.xy = (1.0f - abs(normal.yx)) * M8FlowerOctSigns(normal.xy);
+    precise float3 square = normal * normal;
+    precise float squareXY = square.x + square.y;
+    precise float lengthSquared = squareXY + square.z;
+    precise float normalLength = sqrt(lengthSquared);
+    normal /= normalLength;
+    uint raw = (flags >> (int)M8_FLOWER_PLANE_OFFSET_SHIFT) & 255u;
+    int offsetCode = raw >= 128u ? (int)raw - 256 : (int)raw;
+    precise float unitOffset = (float)offsetCode / 127.0f;
+    signedOffset = unitOffset * M8_FLOWER_PLANE_RANGE;
+}
+
+// The caller proves these predicates from fixed incidence / interval roots.
+// It applies direct admission once per immutable observation, not per quantum.
+internal static uint4 M8FlowerAdmitR1(uint4 state, uint measuredPlane,
+    uint capturedColor, bool compatiblePrior, bool differentObservation,
+    bool sameObservationClosure)
+{
+    if (!M8FlowerHasPlane(measuredPlane)) return state;
+    bool occupied = (state.w & M8_FLOWER_OCCUPIED_FLAG) != 0u;
+    bool seed = !occupied && M8FlowerHasPlane(state.w) &&
+        (state.w & M8_FLOWER_SEED_FLAG) != 0u;
+    if (occupied && !compatiblePrior) return state;
+    bool promote = sameObservationClosure ||
+        (seed && compatiblePrior && differentObservation);
+    uint flags = measuredPlane & M8_FLOWER_PLANE_STORAGE_MASK;
+    int evidence;
+    if (occupied || promote)
+    {
+        int before = occupied || (seed && compatiblePrior) ?
+            max(0, asint(state.x)) : 0;
+        evidence = min((int)M8_FLOWER_EVIDENCE_LIMIT,
+            max((int)M8_FLOWER_OCCUPIED_ON,
+                before + (int)M8_FLOWER_SURFACE_EVIDENCE));
+        flags |= M8_FLOWER_OCCUPIED_FLAG;
+    }
+    else
+    {
+        evidence = min((int)M8_FLOWER_OCCUPIED_ON - 1,
+            (int)M8_FLOWER_SURFACE_EVIDENCE);
+        flags |= M8_FLOWER_SEED_FLAG;
+    }
+    return uint4(asuint(evidence), capturedColor, 1u, flags);
+}
+
+// Only full-support THROUGH may call this. It neither creates negative M8
+// authority nor relies on normal neighbours to keep a contradicted ghost.
+internal static uint4 M8FlowerContradictR1(uint4 state)
+{
+    bool occupied = (state.w & M8_FLOWER_OCCUPIED_FLAG) != 0u;
+    if (!occupied)
+        return (state.w & M8_FLOWER_SEED_FLAG) != 0u ? uint4(0u,0u,0u,0u) : state;
+    int evidence = asint(state.x) - (int)M8_FLOWER_THROUGH_EVIDENCE;
+    if (evidence <= (int)M8_FLOWER_OCCUPIED_OFF) return uint4(0u,0u,0u,0u);
+    state.x = asuint(evidence);
+    return state;
+}
+";
+            output.AppendLine(csharp
+                ? source.Replace("precise ", string.Empty)
+                : source.Replace("internal static ", string.Empty));
         }
 
         internal static string BuildGeneratedDataAbiHlsl()
@@ -224,6 +550,21 @@ namespace Genesis.RoomScan.Editor
                 MerkabaFlowerSymbolTag.StatusShift + "u");
             Define(o, "M8_FLOWER_SYMBOL_SCRATCH_SHIFT",
                 MerkabaFlowerSymbolTag.ScratchShift + "u");
+            Define(o, "M8_FLOWER_DRAW_DIRT_FLAG", "0x" +
+                MerkabaFlowerSymbolRecord.DirtFlag.ToString("x8", CultureInfo.InvariantCulture) + "u");
+            Define(o, "M8_FLOWER_DRAW_CARRIER_SHIFT", MerkabaFlowerSymbolRecord.CarrierIdShift + "u");
+            Define(o, "M8_FLOWER_DRAW_CARRIER_MASK", "0x" + MerkabaFlowerSymbolRecord.CarrierIdMask.ToString("x8", CultureInfo.InvariantCulture) + "u");
+            Define(o, "M8_FLOWER_DRAW_SHELL_SHIFT", MerkabaFlowerSymbolRecord.ShellMaskShift + "u");
+            Define(o, "M8_FLOWER_DRAW_FREE_SIDE_FLAG", "0x" + MerkabaFlowerSymbolRecord.DirectFreeSideFlag.ToString("x8", CultureInfo.InvariantCulture) + "u");
+            Define(o, "M8_FLOWER_DRAW_HINGE_FLAG", "0x" + MerkabaFlowerSymbolRecord.HingeFlag.ToString("x8", CultureInfo.InvariantCulture) + "u");
+            Define(o, "M8_FLOWER_DRAW_ACTIVE_SHIFT", MerkabaFlowerSymbolRecord.ActiveWedgeShift + "u");
+            Define(o, "M8_FLOWER_DRAW_WEDGE_MASK", "0x" + MerkabaFlowerSymbolRecord.WedgeMask.ToString("x8", CultureInfo.InvariantCulture) + "u");
+            Define(o, "M8_FLOWER_DRAW_OWNER_RESERVED_MASK", "0x" + MerkabaFlowerSymbolRecord.OwnerReservedMask.ToString("x8", CultureInfo.InvariantCulture) + "u");
+            Define(o, "M8_FLOWER_DRAW_ROOT_SIGNS_MASK", "0x" + MerkabaFlowerSymbolRecord.RootSignsMask.ToString("x8", CultureInfo.InvariantCulture) + "u");
+            Define(o, "M8_FLOWER_DRAW_HUB_SECTOR_SHIFT", MerkabaFlowerSymbolRecord.HubSectorShift + "u");
+            Define(o, "M8_FLOWER_DRAW_COMPLETED_SHIFT", MerkabaFlowerSymbolRecord.CompletedWedgeShift + "u");
+            Define(o, "M8_FLOWER_DRAW_REVERSE_SHIFT", MerkabaFlowerSymbolRecord.ReverseWedgeShift + "u");
+            Define(o, "M8_FLOWER_DRAW_ROOTS_RESERVED_MASK", "0x" + MerkabaFlowerSymbolRecord.RootsReservedMask.ToString("x8", CultureInfo.InvariantCulture) + "u");
             o.AppendLine();
             o.AppendLine("struct M8DualBlockMeta { uint StateAndGeneration; uint PayloadIndex; };");
             AppendHlslWordStruct(o, "M8DualBlockChildren", 32);
@@ -239,9 +580,124 @@ namespace Genesis.RoomScan.Editor
             o.AppendLine("struct M8ThreadColorGroup { M8ThreadColorInterval Child[7]; };");
             o.AppendLine("struct M8ThreadProgramRecord { uint Flags; uint Reserved0; uint Reserved1; uint Reserved2; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };");
             o.AppendLine("struct M8FlowerSymbolKey { int3 Junction; uint Tag; };");
+            o.AppendLine("struct M8FlowerSymbolRecord { uint OwnerAndCarrier; uint RootsAndWedges; uint DetailRef; uint ThreadRef; };");
             o.AppendLine("struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint SymbolTag; uint PrecisionKey; };");
+            o.AppendLine(@"
+uint M8FlowerDrawKernelLocal(M8FlowerSymbolRecord value) { return value.OwnerAndCarrier & 511u; }
+uint M8FlowerDrawCarrierId(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_CARRIER_SHIFT) & M8_FLOWER_DRAW_CARRIER_MASK; }
+uint M8FlowerDrawShellMask(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_SHELL_SHIFT) & 7u; }
+bool M8FlowerDrawDirectFreeSide(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier & M8_FLOWER_DRAW_FREE_SIDE_FLAG) != 0u; }
+bool M8FlowerDrawIsHinge(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier & M8_FLOWER_DRAW_HINGE_FLAG) != 0u; }
+bool M8FlowerDrawIsDirt(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier & M8_FLOWER_DRAW_DIRT_FLAG) != 0u; }
+uint M8FlowerDrawActiveWedgeMask(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_ACTIVE_SHIFT) & M8_FLOWER_DRAW_WEDGE_MASK; }
+uint M8FlowerDrawRootSigns(M8FlowerSymbolRecord value) { return value.RootsAndWedges & M8_FLOWER_DRAW_ROOT_SIGNS_MASK; }
+uint M8FlowerDrawHubSector(M8FlowerSymbolRecord value) { return (value.RootsAndWedges >> M8_FLOWER_DRAW_HUB_SECTOR_SHIFT) & 31u; }
+uint M8FlowerDrawCompletedWedgeMask(M8FlowerSymbolRecord value) { return (value.RootsAndWedges >> M8_FLOWER_DRAW_COMPLETED_SHIFT) & M8_FLOWER_DRAW_WEDGE_MASK; }
+uint M8FlowerDrawReverseWedgeMask(M8FlowerSymbolRecord value) { return (value.RootsAndWedges >> M8_FLOWER_DRAW_REVERSE_SHIFT) & M8_FLOWER_DRAW_WEDGE_MASK; }
+
+bool M8FlowerIsCanonicalCarrierSymbol(M8FlowerSymbolRecord value)
+{
+    uint active = M8FlowerDrawActiveWedgeMask(value);
+    return !M8FlowerDrawIsDirt(value) &&
+        (value.OwnerAndCarrier & M8_FLOWER_DRAW_OWNER_RESERVED_MASK) == 0u &&
+        (value.RootsAndWedges & M8_FLOWER_DRAW_ROOTS_RESERVED_MASK) == 0u &&
+        active != 0u &&
+        ((M8FlowerDrawCompletedWedgeMask(value) | M8FlowerDrawReverseWedgeMask(value)) & ~active) == 0u &&
+        value.DetailRef != 0xffffffffu;
+}
+
+// Structural packing only; the producer must already have proved admission.
+bool M8FlowerTryCreateCarrierSymbol(uint kernelLocal, uint carrierId, uint shellMask,
+    bool directFreeSide, bool hinge, uint activeWedgeMask, uint rootSigns, uint hubSector,
+    uint completedWedgeMask, uint reverseWedgeMask, uint detailRef, uint threadRef,
+    out M8FlowerSymbolRecord value)
+{
+    value.OwnerAndCarrier = value.RootsAndWedges = 0xffffffffu;
+    value.DetailRef = value.ThreadRef = 0xffffffffu;
+    if (kernelLocal >= 512u || carrierId > M8_FLOWER_DRAW_CARRIER_MASK || shellMask > 7u ||
+        activeWedgeMask == 0u || activeWedgeMask > M8_FLOWER_DRAW_WEDGE_MASK ||
+        rootSigns > M8_FLOWER_DRAW_ROOT_SIGNS_MASK || hubSector > 31u ||
+        completedWedgeMask > M8_FLOWER_DRAW_WEDGE_MASK || reverseWedgeMask > M8_FLOWER_DRAW_WEDGE_MASK ||
+        ((completedWedgeMask | reverseWedgeMask) & ~activeWedgeMask) != 0u ||
+        detailRef == 0xffffffffu) return false;
+    value.OwnerAndCarrier = kernelLocal | (carrierId << M8_FLOWER_DRAW_CARRIER_SHIFT) |
+        (shellMask << M8_FLOWER_DRAW_SHELL_SHIFT) |
+        (directFreeSide ? M8_FLOWER_DRAW_FREE_SIDE_FLAG : 0u) |
+        (hinge ? M8_FLOWER_DRAW_HINGE_FLAG : 0u) | (activeWedgeMask << M8_FLOWER_DRAW_ACTIVE_SHIFT);
+    value.RootsAndWedges = rootSigns | (hubSector << M8_FLOWER_DRAW_HUB_SECTOR_SHIFT) |
+        (completedWedgeMask << M8_FLOWER_DRAW_COMPLETED_SHIFT) |
+        (reverseWedgeMask << M8_FLOWER_DRAW_REVERSE_SHIFT);
+    value.DetailRef = detailRef;
+    value.ThreadRef = threadRef;
+    return true;
+}
+
+M8FlowerSymbolRecord M8FlowerCreateDirtSymbol(uint kernelLocal, uint face, uint halfFace)
+{
+    M8FlowerSymbolRecord value;
+    value.OwnerAndCarrier = kernelLocal < 512u && face < 6u && halfFace < 2u
+        ? kernelLocal | (face << M8_FLOWER_DRAW_CARRIER_SHIFT) | M8_FLOWER_DRAW_DIRT_FLAG |
+            (1u << M8_FLOWER_DRAW_ACTIVE_SHIFT) : 0xffffffffu;
+    value.RootsAndWedges = halfFace;
+    value.DetailRef = value.ThreadRef = 0xffffffffu;
+    return value;
+}
+
+bool M8FlowerIsCanonicalDirtSymbol(M8FlowerSymbolRecord value)
+{
+    return M8FlowerDrawIsDirt(value) &&
+        (value.OwnerAndCarrier & ~(0xffffu | M8_FLOWER_DRAW_DIRT_FLAG |
+            (1u << M8_FLOWER_DRAW_ACTIVE_SHIFT))) == 0u &&
+        M8FlowerDrawCarrierId(value) < 6u && M8FlowerDrawActiveWedgeMask(value) == 1u &&
+        (value.RootsAndWedges & ~1u) == 0u &&
+        value.DetailRef == 0xffffffffu && value.ThreadRef == 0xffffffffu;
+}
+
+bool M8FlowerTryDirtCell(M8FlowerSymbolRecord value, int3 logicalTile, out int3 cell)
+{
+    cell = 0;
+    if (!M8FlowerIsCanonicalDirtSymbol(value) ||
+        any(logicalTile < -268435456) || any(logicalTile > 268435455)) return false;
+    uint local = M8FlowerDrawKernelLocal(value);
+    cell = logicalTile * 8 + int3(local & 7u, (local >> 3u) & 7u, local >> 6u);
+    return true;
+}");
             o.AppendLine();
-            o.AppendLine(@"uint M8FlowerPackDetailKey(uint level, uint childPath,
+            o.AppendLine(@"// Directed binary16 storage enclosure. Inputs outside finite half range are
+// rejected, not saturated; signed zero has one canonical stored encoding.
+uint M8ThreadEncodeHalfEndpoint(float value, bool upper)
+{
+    uint bits = f32tof16(value);
+    float decoded = f16tof32(bits);
+    if (upper ? decoded < value : decoded > value)
+    {
+        if ((bits & 0x7fffu) == 0u) bits = upper ? 1u : 0x8001u;
+        else if (((bits & 0x8000u) == 0u) == upper) bits++;
+        else bits--;
+    }
+    return (bits & 0x7fffu) == 0u ? 0u : bits;
+}
+
+bool M8ThreadEncodeColorInterval(float4 lower, float4 upper,
+    out M8ThreadColorInterval value)
+{
+    value.LowerLinearRgba = 0u.xx;
+    value.UpperLinearRgba = 0u.xx;
+    if (!all(isfinite(lower)) || !all(isfinite(upper)) ||
+        any(lower > upper) || any(lower < -65504.0) || any(upper > 65504.0))
+        return false;
+    uint4 lo, hi;
+    [unroll] for (uint channel = 0u; channel < 4u; ++channel)
+    {
+        lo[channel] = M8ThreadEncodeHalfEndpoint(lower[channel], false);
+        hi[channel] = M8ThreadEncodeHalfEndpoint(upper[channel], true);
+    }
+    value.LowerLinearRgba = uint2(lo.x | (lo.y << 16u), lo.z | (lo.w << 16u));
+    value.UpperLinearRgba = uint2(hi.x | (hi.y << 16u), hi.z | (hi.w << 16u));
+    return true;
+}
+
+uint M8FlowerPackDetailKey(uint level, uint childPath,
     uint petalClass, uint channel, uint kind, bool rootSign, uint sector)
 {
     return level | (childPath << M8_FLOWER_DETAIL_CHILD_PATH_SHIFT) |
@@ -252,14 +708,6 @@ namespace Genesis.RoomScan.Editor
         (sector << M8_FLOWER_DETAIL_SECTOR_SHIFT);
 }
 
-uint M8FlowerPackL2Key(uint geometryChildPath, uint petalClass,
-    bool rootSign, uint sector)
-{
-    return geometryChildPath |
-        (petalClass << M8_FLOWER_L2_KEY_PETAL_SHIFT) |
-        (rootSign ? (1u << M8_FLOWER_L2_KEY_ROOT_SHIFT) : 0u) |
-        (sector << M8_FLOWER_L2_KEY_SECTOR_SHIFT);
-}
 
 uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
     uint sector, bool endpointOrientation, uint shellValidity,
@@ -335,6 +783,9 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
                   "uint32_t captureViewUpper[2]" });
             AppendNativeStruct(o, "FlowerSymbolKey", new[]
                 { "int32_t junction[3]", "uint32_t tag" });
+            AppendNativeStruct(o, "FlowerSymbolRecord", new[]
+                { "uint32_t ownerAndCarrier", "uint32_t rootsAndWedges",
+                  "uint32_t detailRef", "uint32_t threadRef" });
             AppendNativeStruct(o, "ObservationRecord", new[]
                 { "uint32_t tileAndKernel", "uint32_t sourcePixel",
                   "uint32_t symbolTag", "uint32_t precisionKey" });
@@ -374,6 +825,8 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
                 MerkabaThreadProgramRecord.ByteSize);
             AppendNativeSizeAssert(o, "FlowerSymbolKey",
                 MerkabaFlowerSymbolKey.ByteSize);
+            AppendNativeSizeAssert(o, "FlowerSymbolRecord",
+                MerkabaFlowerSymbolRecord.ByteSize);
             AppendNativeSizeAssert(o, "ObservationRecord",
                 MerkabaObservationRecord.ByteSize);
             AppendNativeSizeAssert(o, "RecordHeader",
@@ -640,6 +1093,17 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
 
         private static void AppendNodes(StringBuilder output)
         {
+            output.AppendLine("static const uint2 M8FlowerNodeIncidentPetals[26] = {");
+            for (int i = 0; i < MerkabaSphereFlowerAuthority.NodeIncidentPetals.Length; i++)
+            {
+                ulong mask = MerkabaSphereFlowerAuthority.NodeIncidentPetals[i];
+                if (mask == 0UL || (mask >> 48) != 0UL)
+                    throw new InvalidOperationException("Flower node has invalid generated incidence.");
+                output.Append("    uint2(").Append((uint)mask).Append("u, ")
+                    .Append((uint)(mask >> 32)).Append("u)");
+                Comma(output, i, MerkabaSphereFlowerAuthority.NodeIncidentPetals.Length);
+            }
+            output.AppendLine("};");
             output.AppendLine("static const int4 M8FlowerNode[26] = {");
             for (int i = 0; i < MerkabaSphereFlowerAuthority.Nodes.Length; i++)
             {
@@ -716,6 +1180,293 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
                 Comma(output, i, MerkabaSphereFlowerAuthority.ChildPetals.Length);
             }
             output.AppendLine("};");
+        }
+
+        private static void AppendL2Carrier(StringBuilder o, bool csharp)
+        {
+            var knots = MerkabaSphereFlowerAuthority.L2Knots;
+            var wedges = MerkabaSphereFlowerAuthority.L2Wedges;
+            var inverse = MerkabaSphereFlowerAuthority.L2SourceToWedge;
+            var offsets = MerkabaSphereFlowerAuthority.L2IncidenceOffsets;
+            var sources = MerkabaSphereFlowerAuthority.L2IncidenceSources;
+            if (csharp)
+                o.AppendLine("        private static void LoadGeneratedL2Carrier(out L2KnotRule[] knots, out L2WedgeRule[] wedges, out ushort[] inverse, out ushort[] incidenceOffsets, out uint[] incidenceSources) {");
+            o.AppendLine(csharp ? "            knots = new L2KnotRule[] {" :
+                "static const uint M8FlowerL2KnotSource[386] = {");
+            for (int i = 0; i < knots.Length; i++)
+            {
+                o.Append(csharp ? "                new L2KnotRule(" : "    ").Append(knots[i].Source).Append("u");
+                if (csharp) o.Append(')');
+                Comma(o, i, knots.Length);
+            }
+            o.AppendLine("};");
+            o.AppendLine(csharp ? "            wedges = new L2WedgeRule[] {" :
+                "static const uint2 M8FlowerL2Wedge[768] = {");
+            for (int i = 0; i < wedges.Length; i++)
+            {
+                var w = wedges[i];
+                if (csharp) o.Append("                new L2WedgeRule(").Append(w.Hub).Append(", ")
+                    .Append(w.Ring0).Append(", ").Append(w.Ring1).Append(", ").Append(w.Source).Append(')');
+                else o.Append("    uint2(").Append((uint)w.Hub | ((uint)w.Ring0 << 9) |
+                    ((uint)w.Ring1 << 18)).Append("u, ").Append(w.Source).Append("u)");
+                Comma(o, i, wedges.Length);
+            }
+            o.AppendLine("};");
+            o.AppendLine(csharp ? "            inverse = new ushort[] {" :
+                "static const uint M8FlowerL2SourceToWedge[768] = {");
+            for (int i = 0; i < inverse.Length; i++)
+            {
+                o.Append("    ").Append(inverse[i]);
+                if (!csharp) o.Append('u');
+                Comma(o, i, inverse.Length);
+            }
+            o.AppendLine("};");
+            o.AppendLine(csharp ? "            incidenceOffsets = new ushort[] {" :
+                "static const uint M8FlowerL2IncidenceOffsets[387] = {");
+            for (int i = 0; i < offsets.Length; i++)
+            {
+                o.Append("    ").Append(offsets[i]);
+                if (!csharp) o.Append('u');
+                Comma(o, i, offsets.Length);
+            }
+            o.AppendLine("};");
+            o.AppendLine(csharp ? "            incidenceSources = new uint[] {" :
+                "static const uint M8FlowerL2IncidenceSources[" + sources.Length + "] = {");
+            for (int i = 0; i < sources.Length; i++)
+            {
+                o.Append("    ").Append(sources[i]).Append('u');
+                Comma(o, i, sources.Length);
+            }
+            o.AppendLine("};");
+            if (csharp) o.AppendLine("        }");
+            else o.AppendLine(@"
+uint3 M8FlowerL2WedgeKnots(uint hub, uint wedge)
+{
+    uint packed=M8FlowerL2Wedge[6u*hub+wedge].x;
+    return uint3(packed&511u,(packed>>9u)&511u,(packed>>18u)&511u);
+}");
+        }
+
+        private static void ValidatePhaseFamilyRows()
+        {
+            var families = MerkabaSphereFlowerAuthority.PhaseFamilies;
+            var edges = MerkabaSphereFlowerAuthority.ChildPhaseEdges;
+            if (families.Length != MerkabaSphereFlowerAuthority.StrandClassCount ||
+                edges.Length != MerkabaSphereFlowerAuthority.ChildPetals.Length * 3)
+                throw new InvalidDataException("Generated phase family incidence is incomplete.");
+            foreach (var row in families)
+                if (row.RootNode >= MerkabaSphereFlowerAuthority.NodeClassCount ||
+                    (row.PhaseOrientation != -1 && row.PhaseOrientation != 1) ||
+                    row.FinePath0 >= 4 || row.FinePath1 >= 4 ||
+                    row.RootIncidentPetals == 0UL || (row.RootIncidentPetals >> 48) != 0UL)
+                    throw new InvalidDataException("Generated phase family row is invalid.");
+            foreach (var row in edges)
+                if (row.Family >= 3 ||
+                    (row.EndpointOrientation != -1 && row.EndpointOrientation != 1) ||
+                    (row.PhaseOrientation != -1 && row.PhaseOrientation != 1))
+                    throw new InvalidDataException("Generated child phase edge is invalid.");
+        }
+
+        private static void AppendGeneratedCsPhaseFamilies(StringBuilder o)
+        {
+            ValidatePhaseFamilyRows();
+            o.AppendLine("        private static PhaseFamilyRule[] LoadGeneratedPhaseFamilies() =>");
+            o.AppendLine("            new PhaseFamilyRule[]");
+            o.AppendLine("            {");
+            var families = MerkabaSphereFlowerAuthority.PhaseFamilies;
+            for (int i = 0; i < families.Length; ++i)
+            {
+                var row = families[i];
+                o.Append("                new PhaseFamilyRule(").Append(row.RootNode).Append(", ")
+                    .Append(row.PhaseOrientation).Append(", ").Append(row.FinePath0).Append(", ")
+                    .Append(row.FinePath1).Append(", 0x")
+                    .Append(row.RootIncidentPetals.ToString("x12", CultureInfo.InvariantCulture))
+                    .Append("UL)");
+                Comma(o, i, families.Length);
+            }
+            o.AppendLine("            };");
+            o.AppendLine();
+            o.AppendLine("        private static ChildPhaseEdgeRule[] LoadGeneratedChildPhaseEdges() =>");
+            o.AppendLine("            new ChildPhaseEdgeRule[]");
+            o.AppendLine("            {");
+            var edges = MerkabaSphereFlowerAuthority.ChildPhaseEdges;
+            for (int i = 0; i < edges.Length; ++i)
+            {
+                var row = edges[i];
+                o.Append("                new ChildPhaseEdgeRule(").Append(row.Family).Append(", ")
+                    .Append(row.EndpointOrientation).Append(", ").Append(row.PhaseOrientation)
+                    .Append(")");
+                Comma(o, i, edges.Length);
+            }
+            o.AppendLine("            };");
+            o.AppendLine();
+        }
+
+        private static void AppendPhaseFamilies(StringBuilder o)
+        {
+            ValidatePhaseFamilyRows();
+            var families = MerkabaSphereFlowerAuthority.PhaseFamilies;
+            Define(o, "M8_FLOWER_PHASE_FAMILY_COUNT", families.Length + "u");
+            o.Append("static const uint4 M8FlowerPhaseFamily[").Append(families.Length)
+                .AppendLine("] = {");
+            for (int i = 0; i < families.Length; ++i)
+            {
+                var row = families[i];
+                o.Append("    uint4(").Append(row.Packed).Append("u, ")
+                    .Append((uint)row.RootIncidentPetals).Append("u, ")
+                    .Append((uint)(row.RootIncidentPetals >> 32)).Append("u, 0u)");
+                Comma(o, i, families.Length);
+            }
+            o.AppendLine("};");
+            var edges = MerkabaSphereFlowerAuthority.ChildPhaseEdges;
+            o.Append("static const uint M8FlowerChildPhaseEdge[").Append(edges.Length)
+                .AppendLine("] = {");
+            for (int i = 0; i < edges.Length; ++i)
+            {
+                o.Append("    ").Append(edges[i].Packed).Append("u");
+                Comma(o, i, edges.Length);
+            }
+            o.AppendLine("};");
+            o.AppendLine("static const float M8FlowerGeometryLoopRadius[39] = {");
+            for (int level = 0; level < MerkabaSphereFlowerAuthority.GeometryLevelCount; ++level)
+            for (int line = 0; line < MerkabaSphereFlowerAuthority.LineClassCount; ++line)
+            {
+                float radius = MerkabaSphereFlowerAuthority.EvaluateLoop(level,
+                    new MerkabaSphereFlowerAuthority.Long3(0, 0, 0), line).Radius;
+                o.Append("    ").Append(Number(radius));
+                Comma(o, level * MerkabaSphereFlowerAuthority.LineClassCount + line,
+                    MerkabaSphereFlowerAuthority.GeometryLevelCount *
+                    MerkabaSphereFlowerAuthority.LineClassCount);
+            }
+            o.AppendLine(@"};
+struct M8FlowerPhaseFamilyRule
+{
+    uint RootNode;
+    int PhaseOrientation;
+    uint FinePath0;
+    uint FinePath1;
+    uint2 RootIncidentPetals;
+};
+
+M8FlowerPhaseFamilyRule M8FlowerGetPhaseFamily(uint strandClass)
+{
+    uint4 row=M8FlowerPhaseFamily[strandClass];
+    M8FlowerPhaseFamilyRule rule;
+    rule.RootNode=row.x&31u;
+    rule.PhaseOrientation=(row.x&(1u<<5u))!=0u ? -1 : 1;
+    rule.FinePath0=(row.x>>6u)&3u;
+    rule.FinePath1=(row.x>>8u)&3u;
+    rule.RootIncidentPetals=row.yz;
+    return rule;
+}
+
+struct M8FlowerChildPhaseEdgeRule
+{
+    uint Family;
+    int EndpointOrientation;
+    int PhaseOrientation;
+};
+
+M8FlowerChildPhaseEdgeRule M8FlowerGetChildPhaseEdge(uint child, uint edge)
+{
+    uint row=M8FlowerChildPhaseEdge[child*3u+edge];
+    M8FlowerChildPhaseEdgeRule rule;
+    rule.Family=row&3u;
+    rule.EndpointOrientation=(row&(1u<<2u))!=0u ? -1 : 1;
+    rule.PhaseOrientation=(row&(1u<<3u))!=0u ? -1 : 1;
+    return rule;
+}");
+        }
+
+        private static void AppendExcavation(StringBuilder o)
+        {
+            Define(o, "M8_FLOWER_DIRT_FACE_COUNT", MerkabaSphereFlowerAuthority.DirtFaceClassCount + "u");
+            Define(o, "M8_FLOWER_CELL_FULL", "0u");
+            Define(o, "M8_FLOWER_CELL_FREE", "1u");
+            Define(o, "M8_FLOWER_CELL_AMBIGUOUS", "2u");
+            float4 color = MerkabaSphereFlowerAuthority.DirtSupportLinearRgba;
+            o.Append("static const float4 M8FlowerDirtSupportLinearRgba = float4(")
+                .Append(Number(color.x)).Append(", ").Append(Number(color.y)).Append(", ")
+                .Append(Number(color.z)).Append(", ").Append(Number(color.w)).AppendLine(");");
+            o.AppendLine("static const int3 M8FlowerDirtDirection[6] = {");
+            for (int face = 0; face < 6; ++face)
+            {
+                o.Append("    ").Append(Int3(MerkabaSphereFlowerAuthority.DirtFaceDirection(face)));
+                Comma(o, face, 6);
+            }
+            o.AppendLine("};");
+            o.AppendLine("static const int3 M8FlowerDirtCorner[24] = {");
+            for (int face = 0; face < 6; ++face)
+            for (int corner = 0; corner < 4; ++corner)
+            {
+                o.Append("    ").Append(Int3(MerkabaSphereFlowerAuthority.DirtFaceCorner(face, corner)));
+                Comma(o, face * 4 + corner, 24);
+            }
+            o.AppendLine(@"};
+
+uint M8FlowerClassifyFreeCell(uint packedSupports)
+{
+    if ((packedSupports & 0xffff0000u) != 0u) return M8_FLOWER_CELL_AMBIGUOUS;
+    if ((packedSupports & ~(packedSupports >> 1u) & 0x5555u) != 0u)
+        return M8_FLOWER_CELL_FREE;
+    return packedSupports == 0u ? M8_FLOWER_CELL_FULL : M8_FLOWER_CELL_AMBIGUOUS;
+}
+
+uint M8FlowerClassifyDirtFace(uint source, uint neighbor)
+{
+    if (source == M8_FLOWER_CELL_FULL || neighbor == M8_FLOWER_CELL_FREE) return 0u;
+    return source == M8_FLOWER_CELL_FREE && neighbor == M8_FLOWER_CELL_FULL ? 1u : 2u;
+}
+
+int3 M8FlowerDirtFaceDirection(uint face) { return M8FlowerDirtDirection[face]; }
+
+int3 M8FlowerDirtVertex(int3 cell, uint face, uint halfFace, uint vertex)
+{
+    uint corner = vertex == 0u ? 0u : vertex + halfFace;
+    return cell + M8FlowerDirtCorner[face * 4u + corner];
+}
+
+bool M8FlowerTryDirtVertex(int3 cell, uint face, uint halfFace, uint vertex, out int3 result)
+{
+    result = 0;
+    if (face >= 6u || halfFace >= 2u || vertex >= 3u) return false;
+    uint corner = vertex == 0u ? 0u : vertex + halfFace;
+    int3 offset = M8FlowerDirtCorner[face * 4u + corner];
+    if (any((offset != 0) & (cell == 2147483647))) return false;
+    result = cell + offset;
+    return true;
+}
+
+// Exact integer/40 -> binary32 RN-even, identical to the CPU authority.
+float M8FlowerDirtGridCoordinate(int coordinate)
+{
+    if (coordinate == 0) return 0.0;
+    uint magnitude = coordinate < 0 ? 0u - asuint(coordinate) : asuint(coordinate);
+    int highest = firstbithigh(magnitude);
+    int exponent = highest - 6;
+    bool upper = highest >= 5
+        ? magnitude >= (40u << (highest - 5))
+        : (magnitude << (5 - highest)) >= 40u;
+    if (upper) ++exponent;
+    int shift = 20 - exponent;
+    uint numerator = shift >= 0 ? magnitude << shift : magnitude;
+    uint denominator = shift >= 0 ? 5u : 5u << -shift;
+    uint significand = numerator / denominator;
+    uint twiceRemainder = (numerator - significand * denominator) << 1u;
+    if (twiceRemainder > denominator ||
+        (twiceRemainder == denominator && (significand & 1u) != 0u)) ++significand;
+    if (significand == 0x01000000u) { significand >>= 1u; ++exponent; }
+    uint bits = (coordinate < 0 ? 0x80000000u : 0u) |
+        ((uint)(exponent + 127) << 23u) | (significand & 0x007fffffu);
+    return asfloat(bits);
+}
+
+float3 M8FlowerDirtGridPosition(int3 cell, uint face, uint halfFace, uint vertex)
+{
+    int3 p = M8FlowerDirtVertex(cell, face, halfFace, vertex);
+    return float3(M8FlowerDirtGridCoordinate(p.x), M8FlowerDirtGridCoordinate(p.y),
+        M8FlowerDirtGridCoordinate(p.z));
+}");
         }
 
         private static void AppendSkin(StringBuilder output)
@@ -809,8 +1560,50 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
             output.AppendLine("};");
         }
 
+        private static void AppendRadicalSectorPatterns(StringBuilder output, bool csharp)
+        {
+            var patterns = MerkabaSphereFlowerAuthority.BuildRadicalSectorPatterns();
+            if (csharp)
+                output.AppendLine("        private static RadicalSectorPattern[] LoadGeneratedRadicalSectorPatterns() => new RadicalSectorPattern[] {");
+            else
+                output.Append("static const uint3 M8FlowerRadicalSectorPattern[")
+                    .Append(patterns.Length).AppendLine("] = {");
+            for (int i = 0; i < patterns.Length; i++)
+            {
+                var value = patterns[i];
+                output.Append(csharp ? "            new RadicalSectorPattern(" : "    uint3(")
+                    .Append(value.Incident).Append("u, ")
+                    .Append(value.Positive).Append("u, ")
+                    .Append(value.Negative).Append("u)");
+                Comma(output, i, patterns.Length);
+            }
+            output.AppendLine(csharp ? "        };" : "};");
+            if (csharp) return;
+            output.AppendLine(@"
+// Complete directed radical provenance of an already CERTAIN open sector.
+// x=incident planes, y=positive sides, z=negative sides; remaining incident
+// bits are equations identically zero on this loop. This lookup does not
+// itself choose a root or assert that a flag is admissible.
+bool M8FlowerRadicalSectorSigns(uint node,uint sector,out uint3 signs)
+{
+    signs=0u;
+    if(node>=26u)return false;
+    int4 rule=M8FlowerNode[node];
+    uint3 meta=M8FlowerLineMeta[(uint)rule.w];
+    if(sector>=meta.z)return false;
+    bool reversed=rule.x!=0?rule.x<0:rule.y!=0?rule.y<0:rule.z<0;
+    signs=M8FlowerRadicalSectorPattern[2u*(meta.y+sector)+(reversed?1u:0u)];
+    return true;
+}");
+        }
+
         private static void AppendTetraFrames(StringBuilder output)
         {
+            var unit = MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
+                1.0 / Math.Sqrt(3.0));
+            output.Append("static const float2 M8FlowerTetraUnitBounds = float2(")
+                .Append(Number(unit.Lower)).Append(", ")
+                .Append(Number(unit.Upper)).AppendLine(");");
             output.AppendLine("static const int4 M8FlowerTetraLine[8] = {");
             for (int i = 0; i < MerkabaSphereFlowerAuthority.TetraFrames.Length; i++)
             {
@@ -1262,6 +2055,7 @@ bool M8FlowerRootSector(uint lineClass, M8FlowerInterval2 root, out uint sector)
     sector = 0xffffffffu;
     if (lineClass >= M8_FLOWER_LINE_CLASS_COUNT) return false;
     uint3 meta = M8FlowerLineMeta[lineClass];
+    [loop]
     for (uint candidate = 0u; candidate < meta.z; candidate++)
     {
         float4 a = M8FlowerSectorBounds[meta.y + candidate];
@@ -1337,6 +2131,67 @@ bool M8FlowerRoot(float3 abc, bool plusRoot, out float2 root)
     return true;
 }
 
+bool M8FlowerTauInterval(M8FlowerInterval2 from, M8FlowerInterval2 to,
+    out M8FlowerInterval turn)
+{
+    M8FlowerInterval denominator = M8FlowerIAdd(M8FlowerI(1.0,1.0),
+        M8FlowerIAdd(M8FlowerIMul(from.x,to.x),
+            M8FlowerIMul(from.y,to.y)));
+    return M8FlowerIDivPositive(M8FlowerICross(from,to),denominator,turn);
+}
+
+bool M8FlowerSealBend(M8FlowerInterval2 first, M8FlowerInterval2 second,
+    uint lineClass, out M8FlowerInterval2 seal, out M8FlowerInterval bend,
+    out uint sector)
+{
+    seal.x = M8FlowerI(0.0,0.0);
+    seal.y = M8FlowerI(0.0,0.0);
+    bend = M8FlowerI(0.0,0.0);
+    sector = 0u;
+    uint secondSector;
+    if (!M8FlowerRootSector(lineClass,first,sector) ||
+        !M8FlowerRootSector(lineClass,second,secondSector) ||
+        sector != secondSector) return false;
+    M8FlowerInterval x = M8FlowerIAdd(first.x,second.x);
+    M8FlowerInterval y = M8FlowerIAdd(first.y,second.y);
+    M8FlowerInterval length;
+    if (!M8FlowerISqrt(M8FlowerIAdd(M8FlowerISquare(x),
+            M8FlowerISquare(y)),length) || !(length.lo > 0.0) ||
+        !M8FlowerIDivPositive(x,length,seal.x) ||
+        !M8FlowerIDivPositive(y,length,seal.y)) return false;
+    uint sharedSector;
+    if (!M8FlowerRootSector(lineClass,seal,sharedSector) ||
+        sharedSector != sector) return false;
+    // Contract 9.1: qB is the turn from the shared seal to the SECOND
+    // endpoint, not the full first-to-second phase displacement.
+    return M8FlowerTauInterval(seal,second,bend);
+}
+
+bool M8FlowerRotateInterval(M8FlowerInterval2 prediction,
+    M8FlowerInterval turn, uint lineClass, uint sector,
+    out M8FlowerInterval2 root)
+{
+    root.x = M8FlowerI(0.0,0.0);
+    root.y = M8FlowerI(0.0,0.0);
+    uint predictedSector;
+    if (!M8FlowerRootSector(lineClass,prediction,predictedSector) ||
+        predictedSector != sector) return false;
+    M8FlowerInterval squared = M8FlowerISquare(turn);
+    M8FlowerInterval denominator = M8FlowerIAdd(M8FlowerI(1.0,1.0),squared);
+    M8FlowerInterval c,s;
+    if (!M8FlowerIDivPositive(M8FlowerISub(M8FlowerI(1.0,1.0),squared),
+            denominator,c) ||
+        !M8FlowerIDivPositive(M8FlowerIMul(M8FlowerI(2.0,2.0),turn),
+            denominator,s)) return false;
+    root.x = M8FlowerISub(M8FlowerIMul(c,prediction.x),
+        M8FlowerIMul(s,prediction.y));
+    root.y = M8FlowerIAdd(M8FlowerIMul(s,prediction.x),
+        M8FlowerIMul(c,prediction.y));
+    uint synthesizedSector;
+    return M8FlowerRootSector(lineClass,root,synthesizedSector) &&
+        synthesizedSector == sector;
+}
+
 bool M8FlowerTau(float2 from, float2 to, out float turn)
 {
     precise float denominator = 1.0+dot(from,to);
@@ -1352,6 +2207,577 @@ float2 M8FlowerRotate(float2 root, float turn)
     precise float c = (1.0-rr)*inverse;
     precise float s = 2.0*turn*inverse;
     return float2(c*root.x-s*root.y,s*root.x+c*root.y);
+}
+
+#define M8_FLOWER_PHASE_IMPOSSIBLE 0u
+#define M8_FLOWER_PHASE_EXACT_ZERO 1u
+#define M8_FLOWER_PHASE_CERTAIN_NONZERO 2u
+#define M8_FLOWER_PHASE_AMBIGUOUS 3u
+#define M8_FLOWER_PHASE_PROMOTE 4u
+
+struct M8FlowerPhaseRootEvidence
+{
+    int3 Junction;
+    uint Tag;
+    M8FlowerInterval2 Root;
+    uint Classification; // ProofClassification: impossible=0,certain=1,ambiguous=2
+};
+
+struct M8FlowerPhaseResidualResult
+{
+    uint Classification;
+    M8FlowerInterval Residual;
+    M8FlowerInterval2 Synthesis;
+    int Lower;
+    int Upper;
+};
+
+M8FlowerPhaseResidualResult M8FlowerPhaseResult(uint classification)
+{
+    M8FlowerPhaseResidualResult result;
+    result.Classification=classification;
+    result.Residual=M8FlowerI(0.0,0.0);
+    result.Synthesis.x=M8FlowerI(0.0,0.0);
+    result.Synthesis.y=result.Synthesis.x;
+    result.Lower=0;
+    result.Upper=0;
+    return result;
+}
+
+bool M8FlowerFinitePhaseRoot(M8FlowerInterval2 root)
+{
+    return all(isfinite(float4(root.x.lo,root.x.hi,root.y.lo,root.y.hi))) &&
+        root.x.lo<=root.x.hi && root.y.lo<=root.y.hi;
+}
+
+bool M8FlowerPhaseIdentityValid(M8FlowerPhaseRootEvidence evidence)
+{
+    uint level=evidence.Tag&7u;
+    uint lineClass=(evidence.Tag>>3u)&15u;
+    uint sector=(evidence.Tag>>8u)&31u;
+    if (level>=3u || lineClass>=M8_FLOWER_LINE_CLASS_COUNT ||
+        ((evidence.Tag>>17u)&7u)>5u || !M8FlowerFinitePhaseRoot(evidence.Root))
+        return false;
+    return sector<M8FlowerLineMeta[lineClass].z &&
+        all(((asuint(evidence.Junction)^asuint(M8FlowerLineDirection[lineClass]))&
+            1u)==0u);
+}
+
+struct M8FlowerPhaseTransportTerm
+{
+    int Lower;
+    int Upper;
+    int Orientation;
+    uint AncestorLevel;
+};
+
+bool M8FlowerTryReadR2Phase(M8FlowerDetailRecord record, uint expectedKey,
+    uint currentParentEpoch, out int lower, out int upper)
+{
+    lower=0;
+    upper=0;
+    if (currentParentEpoch==0u || record.ParentEpoch!=currentParentEpoch ||
+        record.Key!=expectedKey || record.Lower>record.Upper ||
+        (record.Lower<=0 && record.Upper>=0) || (expectedKey>>25u)!=0u)
+        return false;
+    uint level=expectedKey&3u;
+    uint path=(expectedKey>>M8_FLOWER_DETAIL_CHILD_PATH_SHIFT)&15u;
+    uint petal=(expectedKey>>M8_FLOWER_DETAIL_PETAL_SHIFT)&63u;
+    uint channel=(expectedKey>>M8_FLOWER_DETAIL_CHANNEL_SHIFT)&15u;
+    uint kind=(expectedKey>>M8_FLOWER_DETAIL_KIND_SHIFT)&7u;
+    uint sector=(expectedKey>>M8_FLOWER_DETAIL_SECTOR_SHIFT)&31u;
+    if (level>=M8_FLOWER_GEOMETRY_LEVEL_COUNT || path>=(1u<<(2u*level)) ||
+        petal>=M8_FLOWER_PETAL_CLASS_COUNT || channel>=M8_FLOWER_LINE_CLASS_COUNT ||
+        kind!=0u) return false;
+    if (sector>=M8FlowerLineMeta[channel].z) return false;
+    // Storage validates the exact key/epoch only. Generated channel incidence
+    // supplies transport; these persistent Q2.29 endpoints remain unchanged.
+    lower=record.Lower;
+    upper=record.Upper;
+    return true;
+}
+
+float M8FlowerDecodePhaseEndpoint(int value, bool upper)
+{
+    uint magnitude=value<0 ? 0u-asuint(value) : asuint(value);
+    precise float roundedMagnitude=(float)magnitude;
+    uint representedMagnitude=(uint)roundedMagnitude;
+    precise float endpoint=(value<0 ? -roundedMagnitude : roundedMagnitude)*
+        (1.0/536870912.0);
+    bool roundedBelow=value<0 ? representedMagnitude>magnitude :
+        representedMagnitude<magnitude;
+    bool roundedAbove=value<0 ? representedMagnitude<magnitude :
+        representedMagnitude>magnitude;
+    if (upper && roundedBelow) return M8FlowerNext(endpoint);
+    if (!upper && roundedAbove) return M8FlowerPrevious(endpoint);
+    return endpoint;
+}
+
+M8FlowerInterval M8FlowerDecodePhaseInterval(int lower, int upper)
+{
+    return M8FlowerI(M8FlowerDecodePhaseEndpoint(lower,false),
+        M8FlowerDecodePhaseEndpoint(upper,true));
+}
+
+// Section 10.2: childCarrierAbc is R1 restricted to the exact generated
+// child loop. Terms come only from its generated ancestor-channel mapping.
+// Runtime never searches mappings and neither halves phase nor includes V.
+uint M8FlowerPredictChildPhase(uint childGeometryLevel, M8FlowerInterval3 childCarrierAbc,
+    uint childLineClass, uint childSector, bool rootSign,
+    M8FlowerPhaseTransportTerm ancestry[2], uint ancestorCount,
+    out M8FlowerInterval2 prediction)
+{
+    prediction.x=M8FlowerI(0.0,0.0);
+    prediction.y=prediction.x;
+    if (childGeometryLevel==0u || childGeometryLevel>=M8_FLOWER_GEOMETRY_LEVEL_COUNT ||
+        ancestorCount>childGeometryLevel || childLineClass>=M8_FLOWER_LINE_CLASS_COUNT ||
+        childSector>=M8FlowerLineMeta[childLineClass].z) return 2u;
+    uint previousLevel=0u;
+    [unroll] for (uint i=0u;i<2u;++i)
+    {
+        if (i>=ancestorCount) break;
+        M8FlowerPhaseTransportTerm term=ancestry[i];
+        if (term.Lower>term.Upper ||
+            (term.Lower<=0 && term.Upper>=0 && (term.Lower!=0 || term.Upper!=0)) ||
+            (term.Orientation!=1 && term.Orientation!=-1) ||
+            term.AncestorLevel>=childGeometryLevel ||
+            (i!=0u && term.AncestorLevel<=previousLevel)) return 2u;
+        previousLevel=term.AncestorLevel;
+    }
+    M8FlowerInterval2 current;
+    uint rootClass=M8FlowerRootInterval(childCarrierAbc,rootSign,current);
+    if (rootClass==M8_FLOWER_ROOT_IMPOSSIBLE) return 0u;
+    if (rootClass!=M8_FLOWER_ROOT_CERTAIN_SECANT &&
+        rootClass!=M8_FLOWER_ROOT_CERTAIN_TANGENT) return 2u;
+    uint sector;
+    if (!M8FlowerFinitePhaseRoot(current) ||
+        !M8FlowerRootSector(childLineClass,current,sector) ||
+        sector!=childSector) return 2u;
+    [unroll] for (uint i=0u;i<2u;++i)
+    {
+        if (i>=ancestorCount) break;
+        M8FlowerPhaseTransportTerm term=ancestry[i];
+        if (term.Lower==0 && term.Upper==0) continue;
+        M8FlowerInterval turn=M8FlowerDecodePhaseInterval(term.Lower,term.Upper);
+        if (term.Orientation<0) turn=M8FlowerI(-turn.hi,-turn.lo);
+        M8FlowerInterval2 rotated;
+        if (!M8FlowerRotateInterval(current,turn,childLineClass,childSector,rotated) ||
+            !M8FlowerFinitePhaseRoot(rotated))
+            return 2u;
+        current=rotated;
+    }
+    prediction=current;
+    return 1u;
+}
+
+M8FlowerPhaseRootEvidence M8FlowerCopyInheritedPhase(M8FlowerPhaseRootEvidence parent)
+{
+    // Keep root interval and draw identity bit-identical. Do not recompute
+    // even the base root of an inherited 2A/2B/2C child address.
+    return parent;
+}
+
+int3 M8FlowerPhaseParentNode(uint petalClass, uint parentContext, uint node)
+{
+    uint3 nodes=M8FlowerPetalNodes[petalClass].xyz;
+    if (parentContext==0u) return M8FlowerNode[nodes[node]].xyz;
+    uint packed=M8FlowerChildPetal[parentContext-1u][node];
+    int3 weights=int3(packed&3u,(packed>>2u)&3u,(packed>>4u)&3u);
+    return weights.x*M8FlowerNode[nodes.x].xyz+
+        weights.y*M8FlowerNode[nodes.y].xyz+
+        weights.z*M8FlowerNode[nodes.z].xyz;
+}
+
+bool M8FlowerPhaseJunction(int3 rootOwner, uint shift, int3 generatedOffset,
+    out int3 junction)
+{
+    junction=0;
+    if (shift==0u || shift>3u) return false;
+    int scale=1<<shift;
+    int3 minimumOwner=(asint(0x80000000u)>>shift)-(generatedOffset>>shift);
+    int3 maximumOwner=(2147483647>>shift)+((scale-1-generatedOffset)>>shift);
+    if (any(rootOwner<minimumOwner) || any(rootOwner>maximumOwner)) return false;
+    junction=asint((asuint(rootOwner)<<shift)+asuint(generatedOffset));
+    return true;
+}
+
+bool M8FlowerTryGetChildPhaseLoop(uint petalClass, uint parentContext, uint knotSite,
+    out uint level, out int3 junctionOffset, out uint lineClass, out uint strandClass,
+    out int endpointOrientation, out int phaseOrientation, out int inheritedParentNode)
+{
+    level=0u;
+    lineClass=0u;
+    strandClass=0u;
+    junctionOffset=0;
+    endpointOrientation=0;
+    phaseOrientation=0;
+    inheritedParentNode=-1;
+    if (petalClass>=M8_FLOWER_PETAL_CLASS_COUNT || parentContext>=5u || knotSite>=6u)
+        return false;
+    uint3 nodes=M8FlowerPetalNodes[petalClass].xyz;
+    if (knotSite<3u)
+    {
+        inheritedParentNode=(int)knotSite;
+        uint packed=parentContext==0u ? 2u<<(2u*knotSite) :
+            M8FlowerChildPetal[parentContext-1u][knotSite];
+        uint3 weights=uint3(packed&3u,(packed>>2u)&3u,(packed>>4u)&3u);
+        int rootNode=weights.x==2u ? 0 : weights.y==2u ? 1 : weights.z==2u ? 2 : -1;
+        if (rootNode>=0)
+        {
+            uint sourceNode=nodes[rootNode];
+            int4 source=M8FlowerNode[sourceNode];
+            junctionOffset=source.xyz;
+            lineClass=(uint)source.w;
+            endpointOrientation=M8FlowerDirectionMeta[sourceNode].x;
+            return true;
+        }
+        uint edge=weights.x==0u ? 1u : weights.z==0u ? 0u : 2u;
+        strandClass=M8FlowerPetalStrands[petalClass][edge];
+        uint4 strand=M8FlowerStrand[strandClass];
+        M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strandClass);
+        level=1u;
+        junctionOffset=M8FlowerNode[strand.x].xyz+M8FlowerNode[strand.y].xyz;
+        lineClass=(uint)M8FlowerNode[family.RootNode].w;
+        endpointOrientation=M8FlowerDirectionMeta[family.RootNode].x;
+        return true;
+    }
+    uint localEdge=knotSite-3u;
+    uint familyEdge=localEdge;
+    int endpoint=1;
+    int childPhase=1;
+    if (parentContext!=0u)
+    {
+        M8FlowerChildPhaseEdgeRule child=M8FlowerGetChildPhaseEdge(parentContext-1u,localEdge);
+        familyEdge=child.Family;
+        endpoint=child.EndpointOrientation;
+        childPhase=child.PhaseOrientation;
+    }
+    strandClass=M8FlowerPetalStrands[petalClass][familyEdge];
+    M8FlowerPhaseFamilyRule rule=M8FlowerGetPhaseFamily(strandClass);
+    level=parentContext==0u ? 1u : 2u;
+    uint first=localEdge==1u ? 1u : 0u;
+    uint second=localEdge==0u ? 1u : 2u;
+    junctionOffset=M8FlowerPhaseParentNode(petalClass,parentContext,first)+
+        M8FlowerPhaseParentNode(petalClass,parentContext,second);
+    lineClass=(uint)M8FlowerNode[rule.RootNode].w;
+    endpointOrientation=M8FlowerDirectionMeta[rule.RootNode].x*endpoint;
+    phaseOrientation=rule.PhaseOrientation*childPhase;
+    return true;
+}
+
+uint M8FlowerPredictChildFromFamily(int3 rootOwner, uint petalClass,
+    uint parentContext, uint knotSite, float3 decodedNormal, float decodedOffset,
+    float normalUncertainty, float offsetUncertainty, uint childSector, bool plusRoot,
+    M8FlowerPhaseRootEvidence parentRoots[3], M8FlowerPhaseRootEvidence ancestorRoots[2],
+    M8FlowerDetailRecord ancestorRecords[2], uint ancestorKeys[2], uint ancestorCount,
+    uint currentParentEpoch, out M8FlowerPhaseRootEvidence prediction)
+{
+    prediction=(M8FlowerPhaseRootEvidence)0;
+    uint level,lineClass,strandClass;
+    int3 offset,junction;
+    int endpoint,phase,inherited;
+    if (!M8FlowerTryGetChildPhaseLoop(petalClass,parentContext,knotSite,
+        level,offset,lineClass,strandClass,endpoint,phase,inherited) ||
+        !M8FlowerPhaseJunction(rootOwner,level+1u,offset,junction)) return 2u;
+    if (inherited>=0)
+    {
+        M8FlowerPhaseRootEvidence source=parentRoots[inherited];
+        if (!M8FlowerPhaseIdentityValid(source) || (source.Tag&7u)!=level ||
+            ((source.Tag>>3u)&15u)!=lineClass || any(source.Junction!=junction)) return 2u;
+        prediction=M8FlowerCopyInheritedPhase(source);
+        return prediction.Classification;
+    }
+    if (!all(isfinite(decodedNormal)) || !isfinite(decodedOffset) ||
+        !isfinite(normalUncertainty) || !isfinite(offsetUncertainty) ||
+        normalUncertainty<0.0 || offsetUncertainty<0.0 || ancestorCount>level ||
+        (ancestorCount!=0u && currentParentEpoch==0u)) return 2u;
+
+    M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strandClass);
+    int4 sourceNode=M8FlowerNode[family.RootNode];
+    uint4 strand=M8FlowerStrand[strandClass];
+    if (M8FlowerLineMeta[(uint)sourceNode.w].x!=2u && ancestorCount!=0u) return 2u;
+    M8FlowerPhaseTransportTerm terms[2];
+    terms[0]=(M8FlowerPhaseTransportTerm)0;
+    terms[1]=terms[0];
+    uint previousLevel=0u;
+    [unroll] for (uint i=0u;i<2u;++i)
+    {
+        if (i>=ancestorCount) break;
+        uint key=ancestorKeys[i];
+        int lower,upper;
+        if (!M8FlowerTryReadR2Phase(ancestorRecords[i],key,currentParentEpoch,lower,upper))
+            return 2u;
+        uint sourceLevel=key&3u;
+        M8FlowerPhaseRootEvidence source=ancestorRoots[i];
+        uint keyChannel=(key>>M8_FLOWER_DETAIL_CHANNEL_SHIFT)&15u;
+        uint keySector=(key>>M8_FLOWER_DETAIL_SECTOR_SHIFT)&31u;
+        uint keyRoot=(key>>M8_FLOWER_DETAIL_ROOT_SHIFT)&1u;
+        uint keyPath=(key>>M8_FLOWER_DETAIL_CHILD_PATH_SHIFT)&15u;
+        uint keyPetal=(key>>M8_FLOWER_DETAIL_PETAL_SHIFT)&63u;
+        if ((i!=0u && sourceLevel<=previousLevel) || sourceLevel>=level ||
+            !M8FlowerPhaseIdentityValid(source) || source.Classification!=1u ||
+            (source.Tag&7u)!=sourceLevel || ((source.Tag>>3u)&15u)!=lineClass ||
+            keyChannel!=lineClass || keySector!=((source.Tag>>8u)&31u) ||
+            keyRoot!=((source.Tag>>7u)&1u)) return 2u;
+        previousLevel=sourceLevel;
+        int3 sourceOffset;
+        int orientation;
+        if (sourceLevel==0u)
+        {
+            if (keyPath!=0u ||
+                (family.RootIncidentPetals[keyPetal>>5u]&(1u<<(keyPetal&31u)))==0u)
+                return 2u;
+            sourceOffset=sourceNode.xyz;
+            orientation=phase;
+        }
+        else
+        {
+            int path=keyPetal==(strand.w&255u) ? (int)family.FinePath0 :
+                keyPetal==((strand.w>>8u)&255u) ? (int)family.FinePath1 : -1;
+            if (path<0 || keyPath!=(uint)path) return 2u;
+            sourceOffset=M8FlowerNode[strand.x].xyz+M8FlowerNode[strand.y].xyz;
+            M8FlowerChildPhaseEdgeRule child=M8FlowerGetChildPhaseEdge(parentContext-1u,knotSite-3u);
+            orientation=child.PhaseOrientation;
+        }
+        int3 sourceJunction;
+        if (!M8FlowerPhaseJunction(rootOwner,sourceLevel+1u,sourceOffset,sourceJunction) ||
+            any(source.Junction!=sourceJunction)) return 2u;
+        terms[i].Lower=lower;
+        terms[i].Upper=upper;
+        terms[i].Orientation=orientation;
+        terms[i].AncestorLevel=sourceLevel;
+    }
+    precise float halfStep=0.5*M8FlowerLevelStep(level);
+    precise float3 relative=halfStep*(float3)offset;
+    float radius=M8FlowerGeometryLoopRadius[level*M8_FLOWER_LINE_CLASS_COUNT+lineClass];
+    M8FlowerInterval3 abc;
+    if (!M8FlowerPlaneIntervals(decodedNormal,decodedOffset,relative,radius,lineClass,
+        normalUncertainty,offsetUncertainty,abc)) return 2u;
+    M8FlowerInterval2 root;
+    uint classification=M8FlowerPredictChildPhase(level,abc,lineClass,childSector,plusRoot,
+        terms,ancestorCount,root);
+    if (classification!=1u) return classification;
+    prediction.Junction=junction;
+    prediction.Tag=M8FlowerPackSymbolTag(level,lineClass,plusRoot,childSector,
+        endpoint<0,0u,0u,0u);
+    prediction.Root=root;
+    prediction.Classification=1u;
+    return 1u;
+}
+
+uint M8FlowerSynthesizePhaseRecord(M8FlowerPhaseRootEvidence prediction,
+    uint expectedKey, M8FlowerDetailRecord record, uint parentEpoch,
+    out M8FlowerPhaseRootEvidence synthesis)
+{
+    synthesis=prediction;
+    synthesis.Classification=2u;
+    uint lineClass=(prediction.Tag>>3u)&15u;
+    uint sector=(prediction.Tag>>8u)&31u;
+    int lower,upper;
+    if (prediction.Classification!=1u || !M8FlowerPhaseIdentityValid(prediction) ||
+        (expectedKey&3u)!=(prediction.Tag&7u) ||
+        ((expectedKey>>M8_FLOWER_DETAIL_CHANNEL_SHIFT)&15u)!=lineClass ||
+        ((expectedKey>>M8_FLOWER_DETAIL_SECTOR_SHIFT)&31u)!=sector ||
+        ((expectedKey>>M8_FLOWER_DETAIL_ROOT_SHIFT)&1u)!=
+            ((prediction.Tag>>7u)&1u) ||
+        !M8FlowerTryReadR2Phase(record,expectedKey,parentEpoch,lower,upper)) return 2u;
+    M8FlowerInterval2 root;
+    if (!M8FlowerRotateInterval(prediction.Root,
+            M8FlowerDecodePhaseInterval(lower,upper),lineClass,sector,root) ||
+        !M8FlowerFinitePhaseRoot(root)) return 2u;
+    synthesis.Root=root;
+    synthesis.Classification=1u;
+    return 1u;
+}
+
+uint M8FlowerSealPhaseRelation(M8FlowerPhaseRootEvidence first,
+    M8FlowerPhaseRootEvidence second, out M8FlowerPhaseRootEvidence relation,
+    out M8FlowerInterval bend)
+{
+    relation=(M8FlowerPhaseRootEvidence)0;
+    bend=M8FlowerI(0.0,0.0);
+    if (first.Classification!=1u || second.Classification!=1u ||
+        !M8FlowerPhaseIdentityValid(first) ||
+        !M8FlowerPhaseIdentityValid(second)) return 2u;
+    if (any(first.Junction!=second.Junction) ||
+        (first.Tag&0x1fffu)!=(second.Tag&0x1fffu)) return 0u;
+    M8FlowerInterval2 root;
+    uint sector;
+    if (!M8FlowerSealBend(first.Root,second.Root,(first.Tag>>3u)&15u,
+            root,bend,sector) || sector!=((first.Tag>>8u)&31u)) return 2u;
+    relation.Junction=first.Junction;
+    relation.Tag=first.Tag&0x1fffu;
+    relation.Root=root;
+    relation.Classification=1u;
+    return 1u;
+}
+
+// Intersect only FINAL roots claiming the same physical knot. Different
+// parent-local predictions and residual programs are intentionally legal.
+uint M8FlowerCloseSharedPhaseRoot(M8FlowerPhaseRootEvidence first,
+    M8FlowerPhaseRootEvidence second, out M8FlowerPhaseRootEvidence closedRoot)
+{
+    closedRoot=first;
+    closedRoot.Classification=2u;
+    if (first.Classification!=1u || second.Classification!=1u ||
+        !M8FlowerPhaseIdentityValid(first) ||
+        !M8FlowerPhaseIdentityValid(second)) return 2u;
+    if (any(first.Junction!=second.Junction) ||
+        (first.Tag&0x1fffu)!=(second.Tag&0x1fffu)) return 0u;
+    float2 lower=max(float2(first.Root.x.lo,first.Root.y.lo),
+        float2(second.Root.x.lo,second.Root.y.lo));
+    float2 upper=min(float2(first.Root.x.hi,first.Root.y.hi),
+        float2(second.Root.x.hi,second.Root.y.hi));
+    if (any(lower>upper)) return 0u;
+    M8FlowerInterval2 root;
+    root.x=M8FlowerI(lower.x,upper.x);
+    root.y=M8FlowerI(lower.y,upper.y);
+    uint sector;
+    if (!M8FlowerRootSector((first.Tag>>3u)&15u,root,sector) ||
+        sector!=((first.Tag>>8u)&31u)) return 2u;
+    closedRoot.Tag=first.Tag&0x1fffu;
+    closedRoot.Root=root;
+    closedRoot.Classification=1u;
+    return 1u;
+}
+
+bool M8FlowerEncodePhaseResidual(M8FlowerInterval residual,
+    out int lower, out int upper)
+{
+    precise float lo=floor(residual.lo*536870912.0);
+    precise float hi=ceil(residual.hi*536870912.0);
+    lower=0;
+    upper=0;
+    if (!(lo>=-2147483648.0) || !(hi<2147483648.0) || lo>hi)
+        return false;
+    lower=(int)lo;
+    upper=(int)hi;
+    return true;
+}
+
+M8FlowerPhaseResidualResult M8FlowerAnalyzePhaseResidual(
+    M8FlowerPhaseRootEvidence predicted, M8FlowerPhaseRootEvidence observed)
+{
+    M8FlowerPhaseResidualResult result=M8FlowerPhaseResult(
+        M8_FLOWER_PHASE_AMBIGUOUS);
+    if (predicted.Classification==0u || observed.Classification==0u)
+        return M8FlowerPhaseResult(M8_FLOWER_PHASE_IMPOSSIBLE);
+    if (predicted.Classification!=1u || observed.Classification!=1u ||
+        !M8FlowerPhaseIdentityValid(predicted) ||
+        !M8FlowerPhaseIdentityValid(observed)) return result;
+
+    uint pLine=(predicted.Tag>>3u)&15u;
+    uint oLine=(observed.Tag>>3u)&15u;
+    uint pSector,oSector;
+    if (!M8FlowerRootSector(pLine,predicted.Root,pSector) ||
+        !M8FlowerRootSector(oLine,observed.Root,oSector)) return result;
+    if (any(predicted.Junction!=observed.Junction) ||
+        (predicted.Tag&0x1fffu)!=(observed.Tag&0x1fffu) ||
+        pSector!=((predicted.Tag>>8u)&31u) ||
+        oSector!=((observed.Tag>>8u)&31u))
+        return M8FlowerPhaseResult(M8_FLOWER_PHASE_IMPOSSIBLE);
+
+    // Exact cross(u,u)=0 only for singleton claims. Equal non-singleton
+    // enclosures do not prove that the two physical values coincide.
+    if (predicted.Root.x.lo==predicted.Root.x.hi &&
+        predicted.Root.y.lo==predicted.Root.y.hi &&
+        observed.Root.x.lo==observed.Root.x.hi &&
+        observed.Root.y.lo==observed.Root.y.hi &&
+        predicted.Root.x.lo==observed.Root.x.lo &&
+        predicted.Root.y.lo==observed.Root.y.lo)
+    {
+        result.Classification=M8_FLOWER_PHASE_EXACT_ZERO;
+        result.Synthesis=predicted.Root;
+        return result;
+    }
+
+    // Prediction and observation are differenced, NEVER intersected.
+    if (!M8FlowerTauInterval(predicted.Root,observed.Root,result.Residual) ||
+        !all(isfinite(float2(result.Residual.lo,result.Residual.hi))))
+        return result;
+    if (result.Residual.lo==0.0 && result.Residual.hi==0.0)
+    {
+        result.Classification=M8_FLOWER_PHASE_EXACT_ZERO;
+        result.Synthesis=predicted.Root;
+        return result;
+    }
+    if (result.Residual.lo<=0.0 && result.Residual.hi>=0.0) return result;
+    if (!M8FlowerEncodePhaseResidual(result.Residual,result.Lower,result.Upper))
+    {
+        result.Classification=M8_FLOWER_PHASE_PROMOTE;
+        return result;
+    }
+    // Nonzero evidence below fixed-point resolution is not a persistable
+    // nonzero interval. Do not round it away from zero or store false detail.
+    if (result.Lower<=0 && result.Upper>=0)
+    {
+        result.Lower=0;
+        result.Upper=0;
+        return result;
+    }
+
+    // Sector admission encloses the Q2.29 interval actually persisted.
+    M8FlowerInterval stored=M8FlowerDecodePhaseInterval(result.Lower,result.Upper);
+    if (M8FlowerRotateInterval(predicted.Root,stored,pLine,pSector,result.Synthesis))
+    {
+        result.Classification=M8_FLOWER_PHASE_CERTAIN_NONZERO;
+        return result;
+    }
+    uint synthesizedSector;
+    if (M8FlowerFinitePhaseRoot(result.Synthesis) &&
+        M8FlowerRootSector(pLine,result.Synthesis,synthesizedSector) &&
+        synthesizedSector!=pSector)
+        result.Classification=M8_FLOWER_PHASE_PROMOTE;
+    result.Lower=0;
+    result.Upper=0;
+    return result;
+}
+
+M8FlowerPhaseResidualResult M8FlowerAnalyzeR3PhaseResidual(
+    M8FlowerPhaseRootEvidence predicted, M8FlowerPhaseRootEvidence observed,
+    uint parity, uint axis)
+{
+    if (parity>=8u || axis>=4u)
+        return M8FlowerPhaseResult(M8_FLOWER_PHASE_AMBIGUOUS);
+    M8FlowerPhaseResidualResult result=M8FlowerAnalyzePhaseResidual(predicted,observed);
+    if (result.Classification!=M8_FLOWER_PHASE_CERTAIN_NONZERO &&
+        result.Classification!=M8_FLOWER_PHASE_EXACT_ZERO) return result;
+    uint lineClass=(predicted.Tag>>3u)&15u;
+    if (M8FlowerTetraLine[parity][axis]!=(int)lineClass)
+        return M8FlowerPhaseResult(M8_FLOWER_PHASE_IMPOSSIBLE);
+    if (M8FlowerTetraEta[parity][axis]>0 ||
+        result.Classification==M8_FLOWER_PHASE_EXACT_ZERO) return result;
+    result.Residual=M8FlowerI(-result.Residual.hi,-result.Residual.lo);
+    if (!M8FlowerEncodePhaseResidual(result.Residual,result.Lower,result.Upper))
+        result.Classification=M8_FLOWER_PHASE_PROMOTE;
+    return result;
+}
+
+void M8FlowerTetraForwardIntervals(M8FlowerInterval q[4],
+    out M8FlowerInterval scalar, out M8FlowerInterval3 tetraVector)
+{
+    scalar=M8FlowerIMul(M8FlowerIAdd(M8FlowerIAdd(M8FlowerIAdd(q[0],q[1]),
+        q[2]),q[3]),M8FlowerI(0.25,0.25));
+    M8FlowerInterval unit=M8FlowerI(M8FlowerTetraUnitBounds.x,
+        M8FlowerTetraUnitBounds.y);
+    M8FlowerInterval components[3];
+    [unroll] for (uint axis=0u;axis<3u;axis++)
+    {
+        M8FlowerInterval component=M8FlowerI(0.0,0.0);
+        [unroll] for (uint i=0u;i<4u;i++)
+        {
+            M8FlowerInterval direction=unit;
+            if (M8FlowerTetraAxis[i][axis]<0.0)
+                direction=M8FlowerI(-unit.hi,-unit.lo);
+            M8FlowerInterval term=M8FlowerIMul(q[i],direction);
+            if (i==0u) component=term;
+            else component=M8FlowerIAdd(component,term);
+        }
+        components[axis]=M8FlowerIMul(component,M8FlowerI(0.75,0.75));
+    }
+    tetraVector.x=components[0];
+    tetraVector.y=components[1];
+    tetraVector.z=components[2];
 }
 
 float4 M8FlowerTetraForward(float4 q)
@@ -1403,18 +2829,36 @@ uint M8FlowerSkinOrder(float3 barycentric, uint wedge)
     return middle==0u ? 4u : 5u;
 }
 
+float3 M8FlowerSkinApplyChamber(float3 value, int3 order)
+{
+    precise float x0=value[order.x];
+    precise float x1=value[order.y];
+    precise float x2=value[order.z];
+    return float3(x0-x1,2.0*(x1-x2),3.0*x2);
+}
+
 uint4 M8FlowerSkinDescend(float3 barycentric, uint wedge,
     out float3 childBarycentric)
 {
     int4 rule=M8FlowerSkinChamber[wedge*6u+
         M8FlowerSkinOrder(barycentric,wedge)];
-    precise float x0=barycentric[rule.x];
-    precise float x1=barycentric[rule.y];
-    precise float x2=barycentric[rule.z];
-    childBarycentric=float3(x0-x1,2.0*(x1-x2),3.0*x2);
+    childBarycentric=M8FlowerSkinApplyChamber(barycentric,rule.xyz);
     uint packed=asuint(rule.w);
     return uint4(packed&0xffu,(packed>>8)&0xffu,
         (packed>>16)&0xffu,(packed>>24)&1u);
+}
+
+uint M8FlowerSkinDescendWithJacobian(inout float3 barycentric,
+    inout uint wedge, inout float3 derivativeU, inout float3 derivativeV)
+{
+    int4 rule=M8FlowerSkinChamber[wedge*6u+
+        M8FlowerSkinOrder(barycentric,wedge)];
+    barycentric=M8FlowerSkinApplyChamber(barycentric,rule.xyz);
+    derivativeU=M8FlowerSkinApplyChamber(derivativeU,rule.xyz);
+    derivativeV=M8FlowerSkinApplyChamber(derivativeV,rule.xyz);
+    uint packed=asuint(rule.w);
+    wedge=(packed>>8u)&0xffu;
+    return packed&0xffu;
 }
 
 uint M8FlowerRank7(uint mask, uint bit)
@@ -1576,6 +3020,265 @@ float M8FlowerNestedV(float3 child3, float3 child4, float3 child5,
 ");
         }
 
+        internal static string BuildDepthCertificateHlsl()
+        {
+            var o = new StringBuilder(8192);
+            o.AppendLine("// GENERATED by MerkabaSphereFlowerCodegen. DO NOT EDIT.");
+            o.AppendLine("#ifndef M8_DEPTH_CERTIFICATE_INCLUDED");
+            o.AppendLine("#define M8_DEPTH_CERTIFICATE_INCLUDED");
+            o.AppendLine("#include \"MerkabaSphereFlower.generated.hlsl\"");
+            Define(o, "M8_DEPTH_CERTIFICATE_SIDE", MerkabaSphereFlowerAuthority.DepthCertificateSide + "u");
+            Define(o, "M8_DEPTH_CERTIFICATE_LEVELS", MerkabaSphereFlowerAuthority.DepthCertificateLevelCount + "u");
+            Define(o, "M8_DEPTH_CERTIFICATE_EYE_STRIDE", MerkabaSphereFlowerAuthority.DepthCertificateEyeStride + "u");
+            Define(o, "M8_DEPTH_CERTIFICATE_STACK", MerkabaSphereFlowerAuthority.DepthCertificateGpuStackCapacity + "u");
+            o.AppendLine(@"
+M8FlowerInterval M8DepthIntervalRow(float4 row, M8FlowerInterval3 positionInterval)
+{
+    return M8FlowerIAdd(M8FlowerIAdd(M8FlowerIAdd(
+        M8FlowerIMul(M8FlowerI(row.x, row.x), positionInterval.x),
+        M8FlowerIMul(M8FlowerI(row.y, row.y), positionInterval.y)),
+        M8FlowerIMul(M8FlowerI(row.z, row.z), positionInterval.z)), M8FlowerI(row.w, row.w));
+}
+
+M8FlowerInterval M8FlowerObservedDot(M8FlowerInterval3 a, M8FlowerInterval3 b)
+{
+    return M8FlowerIAdd(M8FlowerIAdd(M8FlowerIMul(a.x,b.x),M8FlowerIMul(a.y,b.y)),
+        M8FlowerIMul(a.z,b.z));
+}
+
+struct M8FlowerObservedLoopFrame
+{
+    M8FlowerInterval3 centre;
+    M8FlowerInterval3 axis1;
+    M8FlowerInterval3 axis2;
+};
+
+M8FlowerInterval3 M8FlowerObservedLoopAxis(float3 basis, M8FlowerInterval radius,
+    float4x4 gridToWorld)
+{
+    M8FlowerInterval3 grid,world;
+    grid.x = M8FlowerIMul(M8FlowerI(basis.x,basis.x),radius);
+    grid.y = M8FlowerIMul(M8FlowerI(basis.y,basis.y),radius);
+    grid.z = M8FlowerIMul(M8FlowerI(basis.z,basis.z),radius);
+    world.x = M8DepthIntervalRow(float4(gridToWorld[0].xyz,0.0),grid);
+    world.y = M8DepthIntervalRow(float4(gridToWorld[1].xyz,0.0),grid);
+    world.z = M8DepthIntervalRow(float4(gridToWorld[2].xyz,0.0),grid);
+    return world;
+}
+
+// Same generated loop in the held observation's world frame. Integer
+// conversion, radius and matrix operations are enclosed before ABC, so large
+// translated/negative coordinates cannot silently lose a root bound.
+bool M8FlowerObservedLoop(int3 owner, uint direction, float4x4 gridToWorld,
+    out M8FlowerObservedLoopFrame result)
+{
+    result = (M8FlowerObservedLoopFrame)0;
+    int4 node = M8FlowerDirection[direction];
+    float3 j = (float3)M8FlowerJunction(owner,node.xyz);
+    M8FlowerInterval halfStep = M8FlowerI(M8_FLOWER_LATTICE_STEP*0.5,M8_FLOWER_LATTICE_STEP*0.5);
+    M8FlowerInterval3 grid;
+    grid.x = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.x),M8FlowerNext(j.x)),halfStep);
+    grid.y = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.y),M8FlowerNext(j.y)),halfStep);
+    grid.z = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.z),M8FlowerNext(j.z)),halfStep);
+    result.centre.x = M8DepthIntervalRow(gridToWorld[0],grid);
+    result.centre.y = M8DepthIntervalRow(gridToWorld[1],grid);
+    result.centre.z = M8DepthIntervalRow(gridToWorld[2],grid);
+    M8FlowerInterval step = M8FlowerI(M8_FLOWER_LATTICE_STEP,M8_FLOWER_LATTICE_STEP);
+    float shellFactor = 0.75*(float)M8FlowerLineMeta[node.w].x;
+    M8FlowerInterval radius;
+    if (!M8FlowerISqrt(M8FlowerIMul(M8FlowerIMul(step,step),
+            M8FlowerI(shellFactor,shellFactor)),radius)) return false;
+    result.axis1 = M8FlowerObservedLoopAxis(M8FlowerLineE1[node.w],radius,gridToWorld);
+    result.axis2 = M8FlowerObservedLoopAxis(M8FlowerLineE2[node.w],radius,gridToWorld);
+    return true;
+}
+
+M8FlowerInterval3 M8FlowerRestrictObservedPlane(M8FlowerInterval3 normal,
+    M8FlowerInterval3 positionInterval, M8FlowerObservedLoopFrame frame)
+{
+    M8FlowerInterval3 relative,abc;
+    relative.x = M8FlowerISub(frame.centre.x,positionInterval.x);
+    relative.y = M8FlowerISub(frame.centre.y,positionInterval.y);
+    relative.z = M8FlowerISub(frame.centre.z,positionInterval.z);
+    abc.x = M8FlowerObservedDot(normal,relative);
+    abc.y = M8FlowerObservedDot(normal,frame.axis1);
+    abc.z = M8FlowerObservedDot(normal,frame.axis2);
+    return abc;
+}
+
+// Bounds already contain the complete represented support and its metric
+// uncertainty. A projective transform of a convex cube with positive w has
+// its screen extrema at corners. Each corner calculation is itself enclosed.
+bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
+    float4x4 projection, int2 imageSize, float reprojectionError,
+    out int2 pixelMin, out int2 pixelMax,
+    out float supportUpperDepth)
+{
+    pixelMin = imageSize;
+    pixelMax = -1;
+    supportUpperDepth = 0.0;
+    if (!all(isfinite(minimum)) || !all(isfinite(maximum)) || any(maximum < minimum) ||
+        any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
+        !isfinite(reprojectionError) || reprojectionError < 0.0 ||
+        !all(isfinite(view[0])) || !all(isfinite(view[1])) || !all(isfinite(view[2])) ||
+        !all(isfinite(projection[0])) || !all(isfinite(projection[1])) ||
+        !all(isfinite(projection[2])) || !all(isfinite(projection[3])) ||
+        any(view[3] != float4(0.0, 0.0, 0.0, 1.0))) return false;
+    [unroll]
+    for (uint corner = 0u; corner < 8u; corner++)
+    {
+        float3 p = float3((corner & 1u) == 0u ? minimum.x : maximum.x,
+            (corner & 2u) == 0u ? minimum.y : maximum.y,
+            (corner & 4u) == 0u ? minimum.z : maximum.z);
+        M8FlowerInterval3 world;
+        world.x = M8FlowerI(p.x, p.x);
+        world.y = M8FlowerI(p.y, p.y);
+        world.z = M8FlowerI(p.z, p.z);
+        M8FlowerInterval3 eye;
+        M8FlowerInterval error = M8FlowerI(-reprojectionError, reprojectionError);
+        eye.x = M8FlowerIAdd(M8DepthIntervalRow(view[0], world), error);
+        eye.y = M8FlowerIAdd(M8DepthIntervalRow(view[1], world), error);
+        eye.z = M8FlowerIAdd(M8DepthIntervalRow(view[2], world), error);
+        if (!(eye.z.hi < 0.0)) return false;
+        supportUpperDepth = max(supportUpperDepth, -eye.z.lo);
+        M8FlowerInterval w = M8DepthIntervalRow(projection[3], eye);
+        M8FlowerInterval x, y, z;
+        if (!M8FlowerIDivPositive(M8DepthIntervalRow(projection[0], eye), w, x) ||
+            !M8FlowerIDivPositive(M8DepthIntervalRow(projection[1], eye), w, y) ||
+            !M8FlowerIDivPositive(M8DepthIntervalRow(projection[2], eye), w, z)) return false;
+        if (z.lo < -1.0 || z.hi > 1.0) return false;
+        x = M8FlowerIMul(M8FlowerIAdd(x, M8FlowerI(1.0, 1.0)),
+            M8FlowerI((float)imageSize.x * 0.5, (float)imageSize.x * 0.5));
+        y = M8FlowerIMul(M8FlowerIAdd(y, M8FlowerI(1.0, 1.0)),
+            M8FlowerI((float)imageSize.y * 0.5, (float)imageSize.y * 0.5));
+        if (!all(isfinite(float4(x.lo, x.hi, y.lo, y.hi))) ||
+            x.lo < 0.0 || y.lo < 0.0 || x.hi >= imageSize.x || y.hi >= imageSize.y) return false;
+        pixelMin = min(pixelMin, int2(floor(x.lo), floor(y.lo)));
+        pixelMax = max(pixelMax, int2(floor(x.hi), floor(y.hi)));
+    }
+    return isfinite(supportUpperDepth);
+}
+
+uint M8DepthCertificateOffset(uint level)
+{
+    uint side = M8_DEPTH_CERTIFICATE_SIDE >> level;
+    return (4u * M8_DEPTH_CERTIFICATE_SIDE * M8_DEPTH_CERTIFICATE_SIDE -
+        4u * side * side) / 3u;
+}
+
+uint M8DepthCertificateAddress(uint eye, uint level, uint2 xy)
+{
+    return eye * M8_DEPTH_CERTIFICATE_EYE_STRIDE + M8DepthCertificateOffset(level) +
+        xy.y * (M8_DEPTH_CERTIFICATE_SIDE >> level) + xy.x;
+}
+
+uint2 M8DepthCertificateNode(float lower, bool valid)
+{
+    bool accepted = valid && isfinite(lower) && lower > 0.0;
+    return accepted ? uint2(asuint(lower), 1u) : 0u.xx;
+}
+
+uint2 M8DepthCertificateReduce(uint2 a, uint2 b, uint2 c, uint2 d)
+{
+    return M8DepthCertificateNode(min(min(asfloat(a.x), asfloat(b.x)),
+        min(asfloat(c.x), asfloat(d.x))), (a.y & b.y & c.y & d.y) == 1u);
+}
+
+bool M8DepthCertificateProves(uint2 node, float upper)
+{
+    return node.y == 1u && upper >= 0.0 && upper < asfloat(node.x);
+}
+
+uint M8DepthCertificateEnvelopeLevel(uint2 minimum, uint2 maximum)
+{
+    uint difference = (minimum.x ^ maximum.x) | (minimum.y ^ maximum.y);
+    return difference == 0u ? 0u : (uint)firstbithigh(difference) + 1u;
+}
+
+#ifndef M8_DEPTH_CERTIFICATE_BUILD
+StructuredBuffer<uint2> _M8DepthCertificate;
+float4 _M8DepthErrorBounds[2];
+
+// False means AMBIGUOUS, never NOT_THROUGH. Direct endpoint intersection
+// is a separate predicate and takes precedence over this negative evidence.
+bool M8DepthCertificateThrough(uint eye, int2 imageSize, int2 minimum,
+    int2 maximum, float supportUpperDepth)
+{
+    if (eye >= 2u || any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
+        any(minimum < 0) || any(maximum < minimum) || any(maximum >= imageSize) ||
+        !isfinite(supportUpperDepth) || supportUpperDepth < 0.0) return false;
+    uint level = M8DepthCertificateEnvelopeLevel((uint2)minimum, (uint2)maximum);
+    uint2 origin = ((uint2)minimum >> level) << level;
+    if (M8DepthCertificateProves(_M8DepthCertificate[
+        M8DepthCertificateAddress(eye, level, (uint2)minimum >> level)],
+        supportUpperDepth)) return true;
+
+    uint3 stack[M8_DEPTH_CERTIFICATE_STACK];
+    uint count = 1u;
+    stack[0] = uint3(origin, level);
+    [loop]
+    while (count != 0u)
+    {
+        uint3 node = stack[--count];
+        uint2 lo = node.xy;
+        uint2 hi = lo + (1u << node.z) - 1u;
+        if (any(hi < (uint2)minimum) || any(lo > (uint2)maximum)) continue;
+        if (node.z == 0u || (all(lo >= (uint2)minimum) && all(hi <= (uint2)maximum)))
+        {
+            if (!M8DepthCertificateProves(_M8DepthCertificate[
+                M8DepthCertificateAddress(eye, node.z, lo >> node.z)],
+                supportUpperDepth)) return false;
+            continue;
+        }
+        uint childLevel = node.z - 1u;
+        uint childSide = 1u << childLevel;
+        [unroll]
+        for (int child = 3; child >= 0; child--)
+        {
+            uint2 childLo = lo + uint2((uint)child & 1u, (uint)child >> 1u) * childSide;
+            uint2 childHi = childLo + childSide - 1u;
+            if (any(childHi < (uint2)minimum) || any(childLo > (uint2)maximum)) continue;
+            if (count == M8_DEPTH_CERTIFICATE_STACK) return false;
+            stack[count++] = uint3(childLo, childLevel);
+        }
+    }
+    return true;
+}
+
+bool M8DepthCertificateEyeSupport(float3 minimum, float3 maximum,
+    float4x4 view, float4x4 projection, int2 imageSize, uint eye)
+{
+    if (eye >= 2u) return false;
+    float4 errors = _M8DepthErrorBounds[eye];
+    if (errors.w != 1.0 || !all(isfinite(errors.xyz)) || any(errors.xyz < 0.0)) return false;
+    int2 lo, hi;
+    float upper;
+    return M8DepthProjectSupport(minimum, maximum, view, projection,
+            imageSize, errors.y, lo, hi, upper) &&
+        M8DepthCertificateThrough(eye, imageSize, lo, hi, upper);
+}
+
+// 0 = NOT_THROUGH (direct endpoint), 1 = THROUGH_CERTAIN, 2 = AMBIGUOUS.
+// The endpoint predicate is evaluated for the SAME frozen observation before
+// either eye's free-space certificate can be applied to this support.
+uint M8DepthCertificateStereoSupport(float3 minimum, float3 maximum,
+    float4x4 views[2], float4x4 projections[2], int2 imageSize,
+    bool strictEndpointIntersects)
+{
+    if (strictEndpointIntersects) return 0u;
+    [unroll]
+    for (uint eye = 0u; eye < 2u; eye++)
+    {
+        if (M8DepthCertificateEyeSupport(minimum, maximum, views[eye],
+                projections[eye], imageSize, eye)) return 1u;
+    }
+    return 2u;
+}
+#endif
+#endif");
+            return o.ToString();
+        }
+
         private static void Define(StringBuilder output, string name,
             string value) => output.Append("#define ").Append(name).Append(' ')
             .AppendLine(value);
@@ -1650,6 +3353,9 @@ float M8FlowerNestedV(float3 child3, float3 child4, float3 child5,
             Number(value) + "f";
 
         private static string Number(float value) =>
-            value.ToString("R", CultureInfo.InvariantCulture);
+            // Nine significant digits round-trip every binary32 value. The
+            // shortest "R" spelling differs between Unity Mono and .NET;
+            // generated authority must be byte-identical on both hosts.
+            value == 0f ? "0" : value.ToString("G9", CultureInfo.InvariantCulture);
     }
 }

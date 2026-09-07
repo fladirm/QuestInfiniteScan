@@ -20,7 +20,7 @@ namespace Genesis.RoomScan.Tests
         private static void Bind(ComputeShader shader, int kernel,
             ComputeBuffer bins, ComputeBuffer counters, int capacity)
         {
-            shader.SetInt("_M8AttemptToken", Generation);
+            shader.SetInt("_M8ObservationToken", Generation);
             shader.SetInt("_M8ObservationHotSlotCount", Slots);
             shader.SetInt("_M8ObservationRecordCapacity", capacity);
             shader.SetBuffer(kernel, "_M8ObservationTileBins", bins);
@@ -348,6 +348,7 @@ namespace Genesis.RoomScan.Tests
             private readonly ComputeBuffer _sources, _hash, _owners, _claims,
                 _blockRefs, _presence, _pending, _loads, _loadCursor;
             public readonly ComputeBuffer Bins, Counters, Touched, Args, Records, TileRefs;
+            private readonly ComputeBuffer _tileBits;
             public readonly uint4[] Expected;
             private readonly int _pointCount;
 
@@ -404,6 +405,7 @@ namespace Genesis.RoomScan.Tests
                 _owners = Upload(owners, 16);
                 _blockRefs = Upload(blockRefs, 4);
                 TileRefs = Upload(tileRefs, 4);
+                _tileBits = Upload(new uint4[tiles.Count * 16], 16);
                 _claims = Upload(new uint2[MerkabaSpatial.ClaimRecordCount], 8);
                 _presence = Upload(new uint[chunks.Count * 9], 4);
                 _pending = Upload(new uint[Slots], 4);
@@ -473,6 +475,7 @@ namespace Genesis.RoomScan.Tests
                 Bind(shader, kernel, Bins, Counters, Expected.Length);
                 shader.SetBuffer(kernel, "_M8TouchedTileQueue", Touched);
                 shader.SetBuffer(kernel, "_M8ObservationDispatchArgs", Args);
+                shader.SetBuffer(kernel, "_M8TileBits", _tileBits);
                 shader.Dispatch(kernel, 1, 1, 1);
             }
 

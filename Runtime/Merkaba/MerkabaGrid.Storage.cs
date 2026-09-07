@@ -19,6 +19,8 @@ namespace Genesis.RoomScan
             internal readonly uint Y;
             internal readonly uint Z;
             internal readonly uint W;
+            internal Raw16(uint x,uint y,uint z,uint w)
+            { X=x;Y=y;Z=z;W=w; }
         }
 
         private MerkabaSsdStore _ssdStore;
@@ -38,7 +40,29 @@ namespace Genesis.RoomScan
         private bool _loadInstallStatusPending;
         private bool _loadAcknowledgePending;
         private bool _writebackReadbackPending;
+        private bool _fineWritebackContinuePending;
+        private MerkabaTileSnapshot[] _fineWritebackTiles;
+        private List<MerkabaAppendRecord>[] _fineWritebackRecords;
+        private Raw16[] _fineWritebackCursors;
+        private uint[] _fineWritebackGenerations;
+        private ulong _fineWritebackBytes;
+        private bool _fineWritebackAckPending;
+        private bool _fineWritebackAckReady;
+        private MerkabaTileSnapshot[] _fineLoadTiles;
+        private uint[][] _fineLoadRecords;
+        private int[] _fineLoadCursor;
+        private int[] _fineLoadPacketEnd;
+        private bool[] _fineLoadUploadPending;
+        private bool _fineLoadContinuePending;
+        private Exception _fineLoadCancelFailure;
         private Task _writebackStorageTask;
+        private bool _writebackIsDual;
+        private bool _flushTilesDrained;
+        private uint _drainedDualGeneration;
+        private uint _drainSourceGeneration;
+        private uint _drainedOccupiedKernelCount;
+        private bool _drainReceiptValid;
+        private ulong _dualWritebackBytes;
         private int _writebackBatchCount;
         private bool _writebackCompletionPending;
         private Exception _writebackStorageFailure;
@@ -53,6 +77,7 @@ namespace Genesis.RoomScan
         private uint _completedObservationToken;
         private uint _completedObservationFailure;
         private bool _completedObservationChangedReadout;
+        private bool _completedRefinementProgress;
         private uint _completedAttemptToken;
         private uint _residencyEpoch;
         private readonly uint[] _streamControlWord = new uint[1];
@@ -80,15 +105,19 @@ namespace Genesis.RoomScan
             _loadRequestCursor != _observedLoadRequestCount ||
             _loadAddressReadbackPending || _loadStorageTask != null ||
             _loadStorageResult != null || _loadStorageFailure != null ||
-            _loadInstallStatusPending;
+            _loadInstallStatusPending || _fineLoadTiles!=null;
 
         internal uint CompletedObservationToken => _completedObservationToken;
         internal uint CompletedObservationFailure =>
             _completedObservationFailure;
         internal bool CompletedObservationChangedReadout =>
             _completedObservationChangedReadout;
+        internal bool CompletedRefinementProgress => _completedRefinementProgress;
         internal uint CompletedAttemptToken => _completedAttemptToken;
         internal uint ResidencyEpoch => _residencyEpoch;
+        internal uint DrainedOccupiedKernelCount => _drainReceiptValid
+            ? _drainedOccupiedKernelCount
+            : throw new InvalidOperationException("No complete GPU source drain receipt exists.");
 
         private void EnsureStorage()
         {
@@ -111,14 +140,21 @@ namespace Genesis.RoomScan
                 throw new InvalidOperationException(
                     "M8 storage authority is already being replaced.");
 
+            await FinishObservationDurableCutAsync();
             _storageReplacementPending = true;
+            if (_fineWritebackContinuePending)
+            {
+                _fineWritebackContinuePending = false;
+                _writebackReadbackPending = false;
+            }
             try
             {
                 await CancelAndRetireBaseCompactionAsync(false);
                 while (_streamCounterPending ||
                        _attemptCompletionReadbackPending ||
                        _loadAddressReadbackPending ||
-                       _loadInstallStatusPending || _writebackReadbackPending)
+                       _loadInstallStatusPending || _writebackReadbackPending ||
+                       _fineWritebackAckPending)
                     await Task.Yield();
 
                 Task loadTask = _loadStorageTask;
@@ -200,6 +236,9 @@ namespace Genesis.RoomScan
 
         private void ResetStorageRuntimeState()
         {
+            _flushCompletion?.TrySetException(new InvalidOperationException(
+                "GPU world changed before its source drain completed."));
+            _lastAuthorityChangeAttempt = 0u;
             _loadRequestCursor = 0u;
             _observedLoadRequestCount = 0u;
             _loadAddresses = null;
@@ -211,7 +250,18 @@ namespace Genesis.RoomScan
             _loadInstallStatusPending = false;
             _loadAcknowledgePending = false;
             _writebackReadbackPending = false;
+            ResetFineWritebackCapture();
+            _fineWritebackBytes = 0ul;
+            _fineWritebackAckPending = _fineWritebackAckReady = false;
+            ResetFineLoad();
             _writebackStorageTask = null;
+            _writebackIsDual = false;
+            _flushTilesDrained = false;
+            _drainedDualGeneration = 0u;
+            _drainSourceGeneration = 0u;
+            _drainedOccupiedKernelCount = 0u;
+            _drainReceiptValid = false;
+            _dualWritebackBytes = 0ul;
             _writebackBatchCount = 0;
             _writebackCompletionPending = false;
             _writebackStorageFailure = null;
@@ -226,6 +276,7 @@ namespace Genesis.RoomScan
             _completedObservationToken = 0u;
             _completedObservationFailure = 0u;
             _completedObservationChangedReadout = false;
+            _completedRefinementProgress = false;
             _completedAttemptToken = 0u;
             _residencyEpoch = 0u;
             _attemptCompletionReadbackPending = false;
@@ -243,12 +294,14 @@ namespace Genesis.RoomScan
         {
             if (_storageReplacementPending) return;
             CompleteStorageCpuTasks();
+            PumpObservationDurableCut();
             UpdateStorageRates();
             PumpIdleBaseCompaction();
             if (!GpuSubmissionAllowed ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight) return;
             SubmitDeferredStorageControl();
             CompleteStorageGpuWork();
+            PumpObservationDualCapacity();
             if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
                 return;
             _nextStreamPoll = Time.unscaledTime + 0.05f;
@@ -268,7 +321,7 @@ namespace Genesis.RoomScan
                     MerkabaNativeVulkanExecutor.HasJobInFlight) return;
                 if (!_loadAddressReadbackPending && _loadStorageTask == null &&
                     _loadStorageResult == null && _loadStorageFailure == null &&
-                    !_loadInstallStatusPending &&
+                    !_loadInstallStatusPending && _fineLoadTiles==null &&
                     _loadRequestCursor != _observedLoadRequestCount)
                     BeginLoadAddressReadback();
                 uint rawWritebackCount = values[20];
@@ -295,25 +348,25 @@ namespace Genesis.RoomScan
                         _writebackStorageTask == null &&
                         !_writebackCompletionPending)
                     {
-                        if (_flushTotalTiles < 0)
-                            _flushTotalTiles = _flushCompletedTiles;
-                        ReportFlushProgress(true);
-                        _flushAllDirty = false;
-                        _flushCompletion?.TrySetResult(true);
-                        _flushCompletion = null;
-                        _flushProgress = null;
+                        _flushTilesDrained = true;
+                        BeginDualWritebackReadback();
                     }
                 }
                 else if (!_writebackReadbackPending &&
                          _writebackStorageTask == null &&
                          !_writebackCompletionPending &&
-                         (_flushAllDirty ||
+                         ((_flushAllDirty && !_flushTilesDrained) ||
                           values[CounterEvictionNeeded] != 0u))
                 {
-                    SelectEvictionVictims(_flushAllDirty);
-                    _evictionSelectionPendingSample = true;
-                    _nextStreamPoll = 0f;
+                    if (SelectEvictionVictims(_flushAllDirty))
+                    {
+                        _evictionSelectionPendingSample = true;
+                        _nextStreamPoll = 0f;
+                    }
                 }
+                else if (!_writebackReadbackPending && _writebackStorageTask == null &&
+                         !_writebackCompletionPending && writebackCount == 0u)
+                    BeginDualWritebackReadback();
             });
         }
 
@@ -332,6 +385,7 @@ namespace Genesis.RoomScan
             M8HotTileCount = ToInt(hotTiles);
             M8ColdTileCount = ToInt(coldTiles);
             M8OccupiedKernelCount = ToInt(values[CounterOccupiedKernelCount]);
+            ObserveObservationDualCapacity(values);
         }
 
         internal void RequestAttemptCompletion(uint expectedAttemptToken)
@@ -380,7 +434,10 @@ namespace Genesis.RoomScan
                 _completedObservationToken = completion.Y;
                 _completedObservationChangedReadout =
                     (completion.Z & 0x80000000u) != 0u;
-                _completedObservationFailure = completion.Z & 0x7fffffffu;
+                if (_completedObservationChangedReadout)
+                    _lastAuthorityChangeAttempt = completion.X;
+                _completedRefinementProgress = (completion.Z & 0x40000000u) != 0u;
+                _completedObservationFailure = completion.Z & 0x3fffffffu;
                 PublishResidencyEpoch(completion.W);
                 // CPU accounting only. This callback must never enqueue GPU
                 // work after a quiesce retirement marker.
@@ -468,9 +525,10 @@ namespace Genesis.RoomScan
                         new IOException("M8 SSD writeback failed.");
                 else
                 {
-                    _writeBytesTotal += (ulong)_writebackBatchCount *
-                        MerkabaSsdStore.TilePayloadBytes;
-                    if (_flushAllDirty)
+                    _writeBytesTotal += _writebackIsDual ? _dualWritebackBytes :
+                        (ulong)_writebackBatchCount * MerkabaSsdStore.TilePayloadBytes +
+                        _fineWritebackBytes;
+                    if (_flushAllDirty && !_writebackIsDual)
                     {
                         _flushCompletedTiles = checked(_flushCompletedTiles +
                             _writebackBatchCount);
@@ -522,12 +580,13 @@ namespace Genesis.RoomScan
         {
             RoomScanner scanner = RoomScanner.Instance;
             return !_storageReplacementPending && scanner != null &&
+                _observationDrainTask == null && _observationDurableTask == null &&
                 ReferenceEquals(scanner.Grid, this) && !scanner.IsScanning &&
                 scanner.ScanLifecycle == ScanLifecycleState.Stopped &&
                 !scanner.IsBusy && !_streamCounterPending &&
                 !_loadAddressReadbackPending && _loadStorageTask == null &&
                 _loadStorageResult == null && _loadStorageFailure == null &&
-                !_loadInstallStatusPending && !_writebackReadbackPending &&
+                !_loadInstallStatusPending && _fineLoadTiles==null && !_writebackReadbackPending &&
                 _writebackStorageTask == null && !_writebackCompletionPending &&
                 !_flushAllDirty && _flushCompletion == null;
         }
@@ -566,6 +625,17 @@ namespace Genesis.RoomScan
         private void CompleteStorageGpuWork()
         {
             if (!GpuSubmissionAllowed) return;
+            if (_fineLoadContinuePending && !_storageReplacementPending)
+            {
+                _fineLoadContinuePending = false;
+                SubmitLoadedTiles(_fineLoadTiles);
+            }
+            if (_fineWritebackContinuePending && !_storageReplacementPending &&
+                ContinueFlowerWritebackBatch(_fineWritebackTiles.Length))
+            {
+                _fineWritebackContinuePending = false;
+                BeginWritebackReadback(_fineWritebackTiles.Length, true);
+            }
             if (_loadStorageFailure != null)
             {
                 Logger.Error("M8 SSD tile load failed: " +
@@ -590,72 +660,199 @@ namespace Genesis.RoomScan
             if (!_writebackCompletionPending) return;
             int count = _completedWritebackBatchCount;
             Exception failure = _writebackStorageFailure;
+            if (failure == null && !(_writebackIsDual
+                    ? AcknowledgeDualWritebackBatch()
+                    : FinishFlowerWriteback(count))) return;
             _writebackCompletionPending = false;
             _completedWritebackBatchCount = 0;
             _writebackStorageFailure = null;
             if (failure != null)
             {
-                Logger.Error("M8 SSD writeback failed; canonical tiles " +
-                    "returned HOT and remain dirty: " + failure.Message);
+                Logger.Error((_writebackIsDual
+                    ? "Dual SSD writeback failed; dirty node bits remain set: "
+                    : "M8 SSD writeback failed; canonical tiles returned HOT and remain dirty: ") +
+                    failure.Message);
                 _flushCompletion?.TrySetException(failure);
                 _flushCompletion = null;
                 _flushAllDirty = false;
                 _flushProgress = null;
-                FailWritebackBatch(count);
+                if (!_writebackIsDual) FailWritebackBatch(count);
                 _nextStreamPoll = 0f;
             }
-            else
-                AcknowledgeWritebackBatch(count);
+            _writebackIsDual = false;
+            _dualWritebackBytes = 0ul;
+            _fineWritebackBytes = 0ul;
         }
 
         private void SubmitLoadedTiles(MerkabaTileSnapshot[] tiles)
         {
-            if (!GpuSubmissionAllowed)
+            if (!DualMutationSubmissionAllowed)
             {
-                _loadStorageTask = Task.FromResult(tiles);
+                if(_fineLoadTiles!=null)_fineLoadContinuePending=true;
+                else _loadStorageTask = Task.FromResult(tiles);
                 return;
             }
-            var addresses = new MerkabaTileAddress[tiles.Length];
-            var states = new KernelState[tiles.Length *
-                MerkabaSpatial.KernelsPerTile];
-            for (int item = 0; item < tiles.Length; item++)
+            if(_fineLoadTiles==null)
             {
-                addresses[item] = tiles[item].Address;
-                Array.Copy(tiles[item].States, 0, states,
-                    item * MerkabaSpatial.KernelsPerTile,
-                    MerkabaSpatial.KernelsPerTile);
+                _fineLoadTiles=tiles;
+                _fineLoadRecords=new uint[tiles.Length][];
+                _fineLoadCursor=new int[tiles.Length];
+                _fineLoadPacketEnd=new int[tiles.Length];
+                _fineLoadUploadPending=new bool[tiles.Length];
+                var addresses = new MerkabaTileAddress[tiles.Length];
+                var states = new KernelState[tiles.Length * MerkabaDualGpuLayout.LoadTileRecords];
+                for (int item = 0; item < tiles.Length; item++)
+                {
+                    addresses[item] = tiles[item].Address;
+                    Array.Copy(tiles[item].States, 0, states,
+                        item * MerkabaDualGpuLayout.LoadTileRecords, MerkabaSpatial.KernelsPerTile);
+                    EncodeDualLoadPacket(tiles[item], states,
+                        item * MerkabaDualGpuLayout.LoadTileRecords + MerkabaSpatial.KernelsPerTile);
+                    _fineLoadRecords[item]=MerkabaFlowerPageStorage.EncodeLoadRecords(
+                        tiles[item].Address,tiles[item].Sidecars);
+                }
+                _m8LoadStagingAddresses.SetData(addresses,0,0,addresses.Length);
+                _m8LoadStagingStates.SetData(states,0,0,states.Length);
+                for(int item=0;item<tiles.Length;item++)UploadFineLoadPacket(item);
             }
-            _m8LoadStagingAddresses.SetData(addresses, 0, 0, addresses.Length);
-            _m8LoadStagingStates.SetData(states, 0, 0, states.Length);
-            InstallLoadedTiles(tiles.Length);
+            else
+                for(int item=0;item<tiles.Length;item++)
+                    if(_fineLoadUploadPending[item])UploadFineLoadPacket(item);
+            bool cancelling=_fineLoadCancelFailure!=null;
+            if (!(cancelling ? CancelLoadedFlowerTiles(tiles.Length) : InstallLoadedTiles(tiles.Length)))
+            {
+                _fineLoadContinuePending=true;
+                return;
+            }
             _loadInstallStatusPending = true;
             int generation = _gpuGeneration;
-            AsyncGPUReadback.Request(_m8LoadStagingAddresses,
-                tiles.Length * 16,
+            // One bounded storage status read, not per-owner readbacks and not
+            // an input to geometry. Resident allocator/cursor words stay GPU-only.
+            AsyncGPUReadback.Request(_m8LoadStagingStates,
+                tiles.Length * MerkabaDualGpuLayout.LoadTileRecords * 16,
                 0, request =>
                 {
                     _loadInstallStatusPending = false;
                     if (generation != _gpuGeneration) return;
                     if (_storageReplacementPending) return;
-                    bool complete = !request.hasError;
-                    if (complete)
+                    if(request.hasError)
                     {
-                        var statuses = request.GetData<Raw16>();
-                        for (int index = 0; index < statuses.Length; index++)
-                            complete &= (statuses[index].W & 0x80000000u) != 0u;
+                        // GPU cursor is retained exactly; the same bounded
+                        // packet can safely be retried after a transport error.
+                        _fineLoadContinuePending=true;
+                        return;
+                    }
+                    bool complete=true;
+                    var statuses=request.GetData<Raw16>();
+                    for(int item=0;item<tiles.Length;item++)
+                    {
+                        int first=FineLoadFirst(item);
+                        Raw16 status=statuses[first];
+                        if(cancelling)
+                        {
+                            complete &= status.W==5u;
+                            continue;
+                        }
+                        if(status.W==4u)
+                        {
+                            _fineLoadCancelFailure=new InvalidDataException("GPU rejected a canonical fine-page storage packet.");
+                            _fineLoadContinuePending=true;
+                            return;
+                        }
+                        if(status.W==2u)continue;
+                        complete=false;
+                        if(status.W==1u)
+                        {
+                            if(status.Y!=status.X || _fineLoadPacketEnd[item]<=_fineLoadCursor[item])
+                            {
+                                _fineLoadCancelFailure=new InvalidDataException("Fine load packet made no canonical progress.");
+                                _fineLoadContinuePending=true;
+                                return;
+                            }
+                            _fineLoadCursor[item]=_fineLoadPacketEnd[item];
+                            _fineLoadUploadPending[item]=true;
+                        }
                     }
                     if (complete)
                     {
+                        if(cancelling)
+                        {
+                            _loadStorageFailure=_fineLoadCancelFailure;
+                            ResetFineLoad();
+                            return;
+                        }
                         _loadRequestCursor += (uint)tiles.Length;
                         AcknowledgeLoadRequests();
                         _loadAddresses = null;
+                        ResetFineLoad();
                     }
                     else
                     {
-                        _loadStorageTask = Task.FromResult(tiles);
-                        _nextStreamPoll = Time.unscaledTime + 0.05f;
+                        _fineLoadContinuePending=true;
                     }
                 });
+        }
+
+        private static int FineLoadFirst(int item) => item*MerkabaDualGpuLayout.LoadTileRecords+
+            MerkabaSpatial.KernelsPerTile+MerkabaDualGpuLayout.StoragePacketRecords;
+
+        private void UploadFineLoadPacket(int item)
+        {
+            uint[] words=_fineLoadRecords[item];
+            int begin=_fineLoadCursor[item],end=begin;
+            while(end<words.Length)
+            {
+                int count=checked(4+((int)words[end+3]+15)/16*4);
+                if(count>words.Length-end)throw new InvalidDataException("Truncated fine load image.");
+                if(end-begin+count>MerkabaDualGpuLayout.FineLoadBodyWords)break;
+                end+=count;
+            }
+            if(end==begin && end!=words.Length)
+                throw new InvalidDataException("Fine load record exceeds a bounded packet.");
+            _fineLoadPacketEnd[item]=end;
+            int first=FineLoadFirst(item);
+            var header=new Raw16[1];
+            header[0]=new Raw16((uint)(end-begin),0u,end==words.Length?1u:0u,0u);
+            _m8LoadStagingStates.SetData(header,0,first,1);
+            _fineLoadUploadPending[item]=false;
+            if(end==begin)return;
+            var payload=new Raw16[(end-begin)/4];
+            for(int row=0;row<payload.Length;row++)
+            {
+                int word=begin+4*row;
+                payload[row]=new Raw16(words[word],words[word+1],words[word+2],words[word+3]);
+            }
+            _m8LoadStagingStates.SetData(payload,0,first+MerkabaDualGpuLayout.FineLoadHeaderRecords,payload.Length);
+        }
+
+        private void ResetFineLoad()
+        {
+            _fineLoadTiles=null;
+            _fineLoadRecords=null;
+            _fineLoadCursor=null;
+            _fineLoadPacketEnd=null;
+            _fineLoadUploadPending=null;
+            _fineLoadContinuePending=false;
+            _fineLoadCancelFailure=null;
+        }
+
+        private bool FinishFlowerWriteback(int count)
+        {
+            if(_fineWritebackAckReady)
+            {
+                _fineWritebackAckReady=false;
+                return true;
+            }
+            if(_fineWritebackAckPending || !AcknowledgeWritebackBatch(count))return false;
+            _fineWritebackAckPending=true;
+            int generation=_gpuGeneration;
+            AsyncGPUReadback.Request(_m8Counters,sizeof(uint),20*sizeof(uint),request=>
+            {
+                _fineWritebackAckPending=false;
+                if(generation!=_gpuGeneration || _storageReplacementPending)return;
+                if(!request.hasError)_fineWritebackAckReady=request.GetData<uint>()[0]==0u;
+            });
+            return false;
         }
 
         private void UploadLoadAddresses(MerkabaTileAddress[] addresses)
@@ -677,11 +874,20 @@ namespace Genesis.RoomScan
             _loadAcknowledgePending = false;
         }
 
-        private void BeginWritebackReadback(int count)
+        private void BeginWritebackReadback(int count, bool continuation = false)
         {
             if (_storageReplacementPending || !GpuSubmissionAllowed) return;
+            _writebackIsDual = false;
             _writebackReadbackPending = true;
-            int rawCount = count * (MerkabaSpatial.KernelsPerTile + 1);
+            if (!continuation)
+            {
+                _fineWritebackTiles = new MerkabaTileSnapshot[count];
+                _fineWritebackRecords = new List<MerkabaAppendRecord>[count];
+                _fineWritebackCursors = new Raw16[count];
+                _fineWritebackGenerations = new uint[count];
+                _fineWritebackBytes = 0ul;
+            }
+            int rawCount = count * MerkabaDualGpuLayout.WritebackTileRecords;
             int generation = _gpuGeneration;
             AsyncGPUReadback.Request(_m8WritebackStaging, rawCount * 16, 0,
                 request =>
@@ -692,6 +898,8 @@ namespace Genesis.RoomScan
                         return;
                     if (request.hasError)
                     {
+                        ResetFineWritebackCapture();
+                        _fineWritebackBytes = 0ul;
                         Logger.Error("M8 writeback staging readback failed; " +
                                      "canonical tiles return HOT and dirty.");
                         if (generation == _gpuGeneration)
@@ -710,37 +918,120 @@ namespace Genesis.RoomScan
                         }
                         return;
                     }
-                    var raw = request.GetData<Raw16>();
-                    var tiles = new List<MerkabaTileSnapshot>(count);
-                    for (int item = 0; item < count; item++)
-                    {
-                        int baseIndex = item *
-                            (MerkabaSpatial.KernelsPerTile + 1);
-                        Raw16 header = raw[baseIndex];
-                        var states = new KernelState[MerkabaSpatial.KernelsPerTile];
-                        for (int kernel = 0; kernel < states.Length; kernel++)
-                        {
-                            Raw16 value = raw[baseIndex + 1 + kernel];
-                            states[kernel].OccupancyEvidence =
-                                unchecked((int)value.X);
-                            states[kernel].PackedColor = value.Y;
-                            states[kernel].ColorConfidence = value.Z;
-                            states[kernel].Flags = value.W;
-                        }
-                        tiles.Add(new MerkabaTileSnapshot
-                        {
-                            Address = new MerkabaTileAddress(new int3(
-                                unchecked((int)header.X),
-                                unchecked((int)header.Y),
-                                unchecked((int)header.Z)), header.W),
-                            States = states
-                        });
-                    }
-                    EnsureStorage();
                     _writebackBatchCount = count;
                     _writeIoStartedAt = Time.realtimeSinceStartupAsDouble;
-                    _writebackStorageTask = _ssdStore.AppendM8TilesAsync(tiles);
+                    try
+                    {
+                        var raw = request.GetData<Raw16>();
+                        bool complete = true;
+                        for (int item = 0; item < count; item++)
+                        {
+                            int baseIndex = item * MerkabaDualGpuLayout.WritebackTileRecords;
+                            Raw16 header = raw[baseIndex];
+                            if (!continuation)
+                            {
+                                var states = new KernelState[MerkabaSpatial.KernelsPerTile];
+                                for (int kernel = 0; kernel < states.Length; kernel++)
+                                {
+                                    Raw16 value = raw[baseIndex + 1 + kernel];
+                                    states[kernel].OccupancyEvidence = unchecked((int)value.X);
+                                    states[kernel].PackedColor = value.Y;
+                                    states[kernel].ColorConfidence = value.Z;
+                                    states[kernel].Flags = value.W;
+                                }
+                                var tile = new MerkabaTileSnapshot
+                                {
+                                    Address = new MerkabaTileAddress(new int3(
+                                        unchecked((int)header.X), unchecked((int)header.Y),
+                                        unchecked((int)header.Z)), header.W),
+                                    States = states
+                                };
+                                tile.Sidecars = DecodeDualWritebackPacket(raw,
+                                    baseIndex + 1 + MerkabaSpatial.KernelsPerTile, tile.Address);
+                                _fineWritebackTiles[item] = tile;
+                                _fineWritebackRecords[item] = new List<MerkabaAppendRecord>();
+                            }
+                            else
+                            {
+                                MerkabaTileAddress address = _fineWritebackTiles[item].Address;
+                                if (header.X != unchecked((uint)address.BlockCoord.x) ||
+                                    header.Y != unchecked((uint)address.BlockCoord.y) ||
+                                    header.Z != unchecked((uint)address.BlockCoord.z) ||
+                                    header.W != address.LocalAddress)
+                                    throw new InvalidDataException("Fine capture changed its frozen tile address.");
+                            }
+                            int first = baseIndex + 1 + MerkabaSpatial.KernelsPerTile +
+                                MerkabaDualGpuLayout.StoragePacketRecords;
+                            Raw16 capture = raw[first];
+                            Raw16 cursor = raw[first + 1];
+                            if (capture.X > MerkabaDualGpuLayout.FineStorageBodyWords ||
+                                (capture.X & 3u) != 0u || capture.Y > 1u || capture.Z != 0u ||
+                                capture.W == 0u || cursor.X > 512u || cursor.Y > 3u ||
+                                (capture.Y != 0u) != (cursor.X == 512u) ||
+                                (continuation && capture.W != _fineWritebackGenerations[item]) ||
+                                (capture.Y == 0u && CompareFineCaptureCursor(cursor,
+                                    _fineWritebackCursors[item]) <= 0))
+                                throw new InvalidDataException("Fine capture is incomplete, stale or made no progress.");
+                            _fineWritebackGenerations[item] = capture.W;
+                            _fineWritebackCursors[item] = cursor;
+                            if (capture.X != 0u)
+                            {
+                                var words = new uint[checked((int)capture.X)];
+                                for (int word = 0; word < words.Length; word += 4)
+                                {
+                                    Raw16 value = raw[first + 2 + word / 4];
+                                    words[word] = value.X; words[word + 1] = value.Y;
+                                    words[word + 2] = value.Z; words[word + 3] = value.W;
+                                }
+                                _fineWritebackRecords[item].AddRange(
+                                    MerkabaFlowerPageStorage.DecodeCaptureRecords(
+                                        _fineWritebackTiles[item].Address, words));
+                                _fineWritebackBytes += capture.X * sizeof(uint);
+                            }
+                            complete &= capture.Y != 0u;
+                        }
+                        if (!complete)
+                        {
+                            _fineWritebackContinuePending = true;
+                            _writebackReadbackPending = true;
+                            return;
+                        }
+                        MerkabaTileSnapshot[] tiles = _fineWritebackTiles;
+                        for (int item = 0; item < count; item++)
+                        {
+                            var combined = new List<MerkabaAppendRecord>(tiles[item].Sidecars);
+                            combined.AddRange(_fineWritebackRecords[item]);
+                            tiles[item].Sidecars = combined.ToArray();
+                        }
+                        ResetFineWritebackCapture();
+                        EnsureStorage();
+                        _writebackStorageTask = _ssdStore.AppendObservationBatchAsync(
+                            tiles, CollectWritebackRecords(tiles), completeFineImages: true);
+                    }
+                    catch (Exception failure)
+                    {
+                        ResetFineWritebackCapture();
+                        _writebackStorageTask = Task.FromException(failure);
+                    }
                 });
+        }
+
+        private void ResetFineWritebackCapture()
+        {
+            _fineWritebackContinuePending = false;
+            _fineWritebackTiles = null;
+            _fineWritebackRecords = null;
+            _fineWritebackCursors = null;
+            _fineWritebackGenerations = null;
+        }
+
+        private static int CompareFineCaptureCursor(Raw16 left, Raw16 right)
+        {
+            int order = left.X.CompareTo(right.X);
+            if (order == 0) order = left.Y.CompareTo(right.Y);
+            if (order == 0) order = left.Z.CompareTo(right.Z);
+            if (order == 0) order = left.W.CompareTo(right.W);
+            return order;
         }
 
         private void SubmitDeferredStorageControl()
@@ -816,6 +1107,11 @@ namespace Genesis.RoomScan
                     "Cannot flush M8 tiles while GPU submission is quiesced."));
             if (_flushCompletion != null) return _flushCompletion.Task;
             _flushAllDirty = true;
+            _flushTilesDrained = false;
+            _drainedDualGeneration = 0u;
+            _drainSourceGeneration = _dualPublishedGeneration;
+            _drainedOccupiedKernelCount = 0u;
+            _drainReceiptValid = false;
             _flushProgress = progress;
             _flushCompletedTiles = 0;
             _flushTotalTiles = -1;
@@ -874,6 +1170,17 @@ namespace Genesis.RoomScan
             return _ssdStore.ReadAsync(addresses);
         }
 
+        internal Task<long> StreamStoredDirtAsync(
+            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
+            Action<IReadOnlyList<MerkabaDirtTriangle>> consume)
+        {
+            EnsureStorage();
+            if (_storageReplacementPending)
+                throw new InvalidOperationException(
+                    "Cannot export DIRT while storage authority is changing.");
+            return _ssdStore.StreamDirtAsync(directCoverage, consume);
+        }
+
         internal async Task<MerkabaStorageCommitResult> CommitStorageAsync(
             Guid sessionUuid, Guid anchorUuid, Matrix4x4 anchorAtSave,
             int integrationCount, uint occupiedKernelCount,
@@ -883,9 +1190,23 @@ namespace Genesis.RoomScan
             if (_storageReplacementPending)
                 throw new InvalidOperationException(
                     "Cannot commit while storage authority is changing.");
-            MerkabaStorageCommitResult result = await _ssdStore.CommitAsync(
-                sessionUuid, anchorUuid, anchorAtSave, integrationCount,
-                occupiedKernelCount, progress);
+            await FinishObservationDurableCutAsync();
+            if (!_drainReceiptValid || occupiedKernelCount != _drainedOccupiedKernelCount)
+                throw new InvalidDataException(
+                    "Commit requires its complete GPU source drain receipt.");
+            uint sourceGeneration = _drainedDualGeneration;
+            int world = _gpuGeneration;
+            MerkabaSsdStore store = _ssdStore;
+            MerkabaStorageAppendPosition position = store.CaptureAppendPosition();
+            MerkabaStorageCommitResult result = await store.CommitAsync(
+                position, sessionUuid, anchorUuid, anchorAtSave,
+                integrationCount, occupiedKernelCount, progress);
+            if (!result.Committed)
+                throw new InvalidOperationException(
+                    "Storage advanced beyond the captured source; drain again before committing.");
+            if (world == _gpuGeneration && ReferenceEquals(store, _ssdStore) &&
+                sourceGeneration != 0u)
+                AcknowledgeDualDurableGeneration(sourceGeneration);
             _baseCompactionRequested = true;
             return result;
         }
@@ -935,6 +1256,14 @@ namespace Genesis.RoomScan
                 if (addresses.Length != openState.IndexedTileCount)
                     throw new InvalidDataException(
                         "Committed M8 index count changed during load.");
+                MerkabaDualStorageNode[] dualNodes =
+                    _ssdStore.SnapshotDualNodes(out uint maximumDualGeneration);
+                RestoreDualGenerationFloor(maximumDualGeneration);
+                await RegisterDualStorageNodesAsync(dualNodes, progress);
+                var registeredTiles = new HashSet<MerkabaTileAddress>(addresses);
+                foreach (MerkabaDualStorageNode node in dualNodes)
+                    if (node.Kind == MerkabaRecordKind.DualLeaf)
+                        registeredTiles.Add(node.Address);
                 int batches = DivideRoundUp(addresses.Length,
                     StreamBatchCapacity);
                 int completedBatches = 0;
@@ -967,7 +1296,7 @@ namespace Genesis.RoomScan
                 if (counters[CounterBlockOverflow] != 0u ||
                     counters[CounterChunkOverflow] != 0u ||
                     counters[CounterHashFull] != 0u ||
-                    addressedTiles != (ulong)addresses.Length)
+                    addressedTiles != (ulong)registeredTiles.Count)
                 {
                     ClearGpuWorldForNewScan();
                     throw new InvalidDataException(

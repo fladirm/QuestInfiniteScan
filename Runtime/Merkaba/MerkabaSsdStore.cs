@@ -30,6 +30,8 @@ namespace Genesis.RoomScan
 
         private readonly object _gate = new();
         private readonly object _ioGate = new();
+        private object _appendAuthority = new();
+        private Exception _appendPublicationFailure;
         private readonly Dictionary<MerkabaTileAddress, Location> _index = new();
         private readonly Dictionary<int3, HashSet<MerkabaTileAddress>>
             _indexedTilesByBlock = new();
@@ -108,8 +110,84 @@ namespace Genesis.RoomScan
             get { lock (_gate) return _index.Count; }
         }
 
+        internal Task<long> StreamDirtAsync(
+            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
+            Action<IReadOnlyList<MerkabaDirtTriangle>> consume)
+        {
+            if (directCoverage == null)
+                throw new ArgumentNullException(nameof(directCoverage));
+            if (consume == null) throw new ArgumentNullException(nameof(consume));
+            // Export is already quiesced. Hold the exact replay generation while
+            // synchronously consuming bounded batches; do not clone the world or
+            // let a later append change the FREE/FULL relation mid-file. Coverage
+            // is the prepared shared L2 evaluator, never an asynchronous readback.
+            return Task.Run(() =>
+            {
+                lock (_ioGate)
+                lock (_gate)
+                    return MerkabaDirtExtraction.Stream(_subordinate,
+                        directCoverage, consume);
+            });
+        }
+
         internal bool HasCommittedSession => File.Exists(ManifestPath);
         internal MerkabaSphereFlowerReplayIndex Subordinate => _subordinate;
+
+        internal MerkabaDualStorageNode[] SnapshotDualNodes(out uint maximumGeneration)
+        {
+            var nodes = new List<MerkabaDualStorageNode>();
+            maximumGeneration = 0u;
+            lock (_gate)
+            {
+                maximumGeneration = _subordinate.MaximumDualGeneration();
+                foreach (MerkabaAppendRecord record in _subordinate.CanonicalDualRecords())
+                {
+                    MerkabaTileAddress address;
+                    if (record.Kind == MerkabaRecordKind.DualBlock)
+                        address = new MerkabaTileAddress(
+                            MerkabaSphereFlowerPersistenceAbi.ReadBlockAddress(record.Address), 0u);
+                    else if (record.Kind == MerkabaRecordKind.DualChunk)
+                    {
+                        MerkabaSphereFlowerPersistenceAbi.ReadChunkAddress(record.Address,
+                            out int3 block, out int chunk);
+                        address = new MerkabaTileAddress(block, (uint)chunk);
+                    }
+                    else if (record.Kind == MerkabaRecordKind.DualLeaf)
+                        address = MerkabaSphereFlowerPersistenceAbi.ReadTileAddress(record.Address);
+                    else continue;
+                    nodes.Add(new MerkabaDualStorageNode(record.Kind, address));
+                }
+            }
+            nodes.Sort((left, right) =>
+            {
+                int kind = left.Kind.CompareTo(right.Kind);
+                return kind != 0 ? kind : left.Address.CompareTo(right.Address);
+            });
+            return nodes.ToArray();
+        }
+
+        internal Task<MerkabaTileSnapshot[]> ReadDualNodesAsync(
+            IReadOnlyList<MerkabaDualStorageNode> nodes)
+        {
+            if (nodes == null) throw new ArgumentNullException(nameof(nodes));
+            if (nodes.Count > MerkabaGrid.StreamBatchCapacity)
+                throw new InvalidDataException("Dual residency batch exceeds 32 nodes.");
+            var requested = new MerkabaDualStorageNode[nodes.Count];
+            for (int index = 0; index < requested.Length; index++) requested[index] = nodes[index];
+            return Task.Run(() =>
+            {
+                var result = new MerkabaTileSnapshot[requested.Length];
+                lock (_ioGate)
+                lock (_gate)
+                    for (int index = 0; index < result.Length; index++)
+                        result[index] = new MerkabaTileSnapshot
+                        {
+                            Address = requested[index].Address,
+                            Sidecars = _subordinate.CaptureDualNode(requested[index])
+                        };
+                return result;
+            });
+        }
 
         internal Task<MerkabaSessionOpenState> OpenCommittedAsync(
             IProgress<OperationWorkProgress> progress = null) =>
@@ -175,6 +253,8 @@ namespace Genesis.RoomScan
                     _dirtyM8Tiles.Clear();
                     _dirtyDualBlocks.Clear();
                     _dirtyFineOwners.Clear();
+                    _appendAuthority = new object();
+                    _appendPublicationFailure = null;
                 }
                 progress?.Report(new OperationWorkProgress(
                     ScanOperationStage.RebuildingStorageIndex, totalBytes,
@@ -210,156 +290,264 @@ namespace Genesis.RoomScan
 
         internal Task AppendM8TilesAsync(
             IReadOnlyList<MerkabaTileSnapshot> tiles) =>
-            Task.Run(() => AppendM8Tiles(tiles));
+            AppendObservationBatchAsync(tiles, Array.Empty<MerkabaAppendRecord>());
 
-        internal void AppendM8Tiles(IReadOnlyList<MerkabaTileSnapshot> tiles)
+        internal void AppendM8Tiles(IReadOnlyList<MerkabaTileSnapshot> tiles) =>
+            AppendObservationBatch(tiles, Array.Empty<MerkabaAppendRecord>());
+
+        internal Task AppendSphereFlowerRecordsAsync(
+            IReadOnlyList<MerkabaAppendRecord> records) =>
+            AppendObservationBatchAsync(Array.Empty<MerkabaTileSnapshot>(), records);
+
+        internal void AppendSphereFlowerRecords(
+            IReadOnlyList<MerkabaAppendRecord> records) =>
+            AppendObservationBatch(Array.Empty<MerkabaTileSnapshot>(), records);
+
+        internal Task AppendObservationBatchAsync(
+            IReadOnlyList<MerkabaTileSnapshot> tiles,
+            IReadOnlyList<MerkabaAppendRecord> sidecars,
+            bool completeFineImages = false) =>
+            Task.Run(() => AppendObservationBatch(tiles, sidecars, completeFineImages));
+
+        // One publication boundary for M8, sparse dual, owner epochs, metric
+        // detail and ThreadAtlas. Consumers never observe M8 from this batch
+        // without its corresponding structural invalidation / fine records.
+        internal void AppendObservationBatch(
+            IReadOnlyList<MerkabaTileSnapshot> tiles,
+            IReadOnlyList<MerkabaAppendRecord> sidecars,
+            bool completeFineImages = false)
         {
             if (tiles == null) throw new ArgumentNullException(nameof(tiles));
-            if (tiles.Count == 0) return;
+            if (sidecars == null) throw new ArgumentNullException(nameof(sidecars));
             if (tiles.Count > MerkabaGrid.StreamBatchCapacity)
-                throw new InvalidDataException(
-                    "M8 writeback batch exceeds 32 tiles.");
-            foreach (MerkabaTileSnapshot tile in tiles) ValidateTile(tile);
+                throw new InvalidDataException("M8 writeback batch exceeds 32 tiles.");
+            if (tiles.Count == 0 && sidecars.Count == 0) return;
+            var tileSet = new HashSet<MerkabaTileAddress>();
+            foreach (MerkabaTileSnapshot tile in tiles)
+            {
+                ValidateTile(tile);
+                if (!tileSet.Add(tile.Address))
+                    throw new InvalidDataException("Duplicate tile in writeback batch.");
+            }
+            var byStream = new SortedDictionary<MerkabaStorageStream,
+                List<MerkabaAppendRecord>>();
+            foreach (MerkabaAppendRecord input in sidecars)
+            {
+                if (input == null) throw new ArgumentException(
+                    "Append record is null.", nameof(sidecars));
+                if (input.Kind == MerkabaRecordKind.M8Tile)
+                    throw new ArgumentException(
+                        "M8 state belongs in the tile batch.", nameof(sidecars));
+                var record = new MerkabaAppendRecord(input.Kind,
+                    (byte[])input.Address.Clone(), (byte[])input.Payload.Clone(),
+                    input.OwnerEpochRebased);
+                if (record.OwnerEpochRebased && !completeFineImages)
+                    throw new InvalidDataException("Epoch rebase requires a complete frozen fine image.");
+                MerkabaStorageStream stream = StreamFor(record);
+                if (!byStream.TryGetValue(stream, out List<MerkabaAppendRecord> list))
+                    byStream.Add(stream, list = new List<MerkabaAppendRecord>());
+                list.Add(record);
+            }
+            var orderedSidecars = new List<MerkabaAppendRecord>(sidecars.Count);
+            foreach (List<MerkabaAppendRecord> list in byStream.Values)
+                orderedSidecars.AddRange(list);
 
             lock (_ioGate)
             {
+                if (completeFineImages)
+                {
+                    var rebasePrefix = new List<MerkabaAppendRecord>();
+                    // Capture is complete only after every bounded GPU fine
+                    // packet has retired. Missing same-epoch records become
+                    // explicit log deletions, never resurrected replay tails.
+                    lock (_gate)
+                    {
+                        foreach (MerkabaTileSnapshot tile in tiles)
+                        {
+                            foreach (MerkabaAppendRecord record in tile.Sidecars)
+                                if (record.OwnerEpochRebased)
+                                    _subordinate.AppendOwnerRebaseRecords(tile.Address,
+                                        checked((int)MerkabaSphereFlowerPersistenceAbi.ReadUInt32(
+                                            record.Payload, 0)), rebasePrefix);
+                            MerkabaFlowerPageStorage.AppendRemovedRecordTombstones(
+                                tile.Address, _subordinate.CaptureTile(tile.Address),
+                                tile.Sidecars, orderedSidecars);
+                        }
+                    }
+                    orderedSidecars.Sort((left, right) => left.Kind.CompareTo(right.Kind));
+                    // Tombstone the complete pre-wrap history before any
+                    // re-observed current-epoch values, including Thread data.
+                    orderedSidecars.InsertRange(0, rebasePrefix);
+                    byStream.Clear();
+                    foreach (MerkabaAppendRecord record in orderedSidecars)
+                    {
+                        MerkabaStorageStream target = StreamFor(record);
+                        if (!byStream.TryGetValue(target, out List<MerkabaAppendRecord> list))
+                            byStream.Add(target, list = new List<MerkabaAppendRecord>());
+                        list.Add(record);
+                    }
+                    orderedSidecars.Clear();
+                    foreach (List<MerkabaAppendRecord> list in byStream.Values)
+                        orderedSidecars.AddRange(list);
+                }
                 Directory.CreateDirectory(_directory);
-                long originalLength = PrepareAppendEnd(
-                    MerkabaStorageStream.M8Live);
+                ulong finalSequence = checked(_recordSequence +
+                    (ulong)tiles.Count + (ulong)orderedSidecars.Count);
+                var priorLengths = new Dictionary<MerkabaStorageStream, long>();
                 var pending = new List<PendingM8Location>(tiles.Count);
-                ulong nextSequence = _recordSequence;
+                object publishedAuthority = new object();
+                object precedingAuthority;
+                lock (_gate)
+                {
+                    ThrowIfAppendPublicationFailed();
+                    if (_appendAuthority == null)
+                        throw new InvalidOperationException(
+                            "Another append is still being published.");
+                    _subordinate.ValidateAppendBatch(orderedSidecars,
+                        _pendingGeneration, checked(_recordSequence + (ulong)tiles.Count));
+                    precedingAuthority = _appendAuthority;
+                    // A capture racing this un-published write is not a usable
+                    // append prefix. On failure, only a complete tail rollback
+                    // can make the preceding prefix valid again.
+                    _appendAuthority = null;
+                }
+                ulong sequence = _recordSequence;
                 try
                 {
-                    using var stream = OpenAppendAtExactEnd(M8LivePath,
-                        originalLength);
-                    foreach (MerkabaTileSnapshot tile in tiles)
+                    if (tiles.Count != 0)
                     {
-                        byte[] address = new byte[
-                            MerkabaSphereFlowerPersistenceAbi.TileAddressBytes];
-                        MerkabaSphereFlowerPersistenceAbi.WriteTileAddress(
-                            address, tile.Address);
-                        byte[] payload = EncodeStates(tile.States);
-                        var record = new MerkabaAppendRecord(
-                            MerkabaRecordKind.M8Tile, address, payload);
-                        long payloadOffset = WriteRecord(stream, record,
-                            _pendingGeneration);
-                        nextSequence++;
-                        pending.Add(new PendingM8Location(tile, new Location(
-                            M8LivePath, payloadOffset, _pendingGeneration,
-                            nextSequence, CountOccupied(tile.States))));
+                        long original = PrepareAppendEnd(MerkabaStorageStream.M8Live);
+                        priorLengths.Add(MerkabaStorageStream.M8Live, original);
+                        using var stream = OpenAppendAtExactEnd(M8LivePath, original);
+                        foreach (MerkabaTileSnapshot tile in tiles)
+                        {
+                            byte[] address = new byte[
+                                MerkabaSphereFlowerPersistenceAbi.TileAddressBytes];
+                            MerkabaSphereFlowerPersistenceAbi.WriteTileAddress(address,
+                                tile.Address);
+                            var record = new MerkabaAppendRecord(MerkabaRecordKind.M8Tile,
+                                address, EncodeStates(tile.States));
+                            long payloadOffset = WriteRecord(stream, record,
+                                _pendingGeneration);
+                            pending.Add(new PendingM8Location(tile, new Location(
+                                M8LivePath, payloadOffset, _pendingGeneration,
+                                ++sequence, CountOccupied(tile.States))));
+                        }
+                        stream.Flush();
                     }
-                    stream.Flush();
+                    foreach (KeyValuePair<MerkabaStorageStream,
+                                 List<MerkabaAppendRecord>> pair in byStream)
+                    {
+                        long original = PrepareAppendEnd(pair.Key);
+                        priorLengths.Add(pair.Key, original);
+                        using var stream = OpenAppendAtExactEnd(PathFor(pair.Key), original);
+                        foreach (MerkabaAppendRecord record in pair.Value)
+                            WriteRecord(stream, record, _pendingGeneration);
+                        stream.Flush();
+                    }
                 }
-                catch
+                catch (Exception appendFailure)
                 {
-                    TruncateFile(M8LivePath, originalLength);
+                    // No index has been published yet. Restore only the exact
+                    // touched stream tails; the committed manifest is untouched.
+                    Exception rollbackFailure = null;
+                    foreach (KeyValuePair<MerkabaStorageStream, long> prior in priorLengths)
+                    {
+                        try { TruncateFile(PathFor(prior.Key), prior.Value); }
+                        catch (Exception failure) { rollbackFailure ??= failure; }
+                    }
+                    if (rollbackFailure != null)
+                    {
+                        var failure = new IOException(
+                            "Append rollback failed; the store remains closed to publication until OPEN or Clear.",
+                            new AggregateException(appendFailure, rollbackFailure));
+                        lock (_gate) _appendPublicationFailure = failure;
+                        throw failure;
+                    }
+                    lock (_gate) _appendAuthority = precedingAuthority;
                     throw;
                 }
 
                 lock (_gate)
                 {
-                    foreach (PendingM8Location update in pending)
+                    try
                     {
-                        if (_index.TryGetValue(update.Tile.Address,
-                                out Location previous))
-                            _indexedOccupiedKernelCount -=
-                                previous.OccupiedKernelCount;
-                        _index[update.Tile.Address] = update.Location;
-                        _indexedOccupiedKernelCount = checked(
-                            _indexedOccupiedKernelCount +
-                            update.Location.OccupiedKernelCount);
-                        IndexTileBlock(update.Tile.Address);
-                        _dirtyM8Tiles.Add(update.Tile.Address);
-                        update.Tile.Generation = update.Location.Generation;
+                        foreach (MerkabaAppendRecord record in orderedSidecars)
+                            _subordinate.Apply(record, new MerkabaRecordVersion(
+                                _pendingGeneration, ++sequence));
+                        foreach (PendingM8Location update in pending)
+                        {
+                            if (_index.TryGetValue(update.Tile.Address, out Location previous))
+                                _indexedOccupiedKernelCount -= previous.OccupiedKernelCount;
+                            _index[update.Tile.Address] = update.Location;
+                            _indexedOccupiedKernelCount = checked(_indexedOccupiedKernelCount +
+                                update.Location.OccupiedKernelCount);
+                            IndexTileBlock(update.Tile.Address);
+                            _dirtyM8Tiles.Add(update.Tile.Address);
+                            update.Tile.Generation = update.Location.Generation;
+                        }
+                        foreach (MerkabaStorageStream stream in priorLengths.Keys)
+                            _dirtyStreams.Add(stream);
+                        MerkabaSphereFlowerReplayIndex.AccumulateTouched(orderedSidecars,
+                            _dirtyDualBlocks, _dirtyFineOwners);
+                        _recordSequence = finalSequence;
+                        _appendAuthority = publishedAuthority;
                     }
-                    _recordSequence = nextSequence;
-                    _dirtyStreams.Add(MerkabaStorageStream.M8Live);
+                    catch (Exception failure)
+                    {
+                        _appendPublicationFailure = failure;
+                        throw;
+                    }
                 }
             }
         }
 
-        internal Task AppendSphereFlowerRecordsAsync(
-            IReadOnlyList<MerkabaAppendRecord> records) =>
-            Task.Run(() => AppendSphereFlowerRecords(records));
-
-        internal void AppendSphereFlowerRecords(
-            IReadOnlyList<MerkabaAppendRecord> records)
+        internal MerkabaStorageAppendPosition CaptureAppendPosition()
         {
-            if (records == null) throw new ArgumentNullException(nameof(records));
-            if (records.Count == 0) return;
-
-            var byStream = new Dictionary<MerkabaStorageStream,
-                List<MerkabaAppendRecord>>();
-            foreach (MerkabaAppendRecord record in records)
+            lock (_gate)
             {
-                if (record == null) throw new ArgumentException(
-                    "Append record is null.", nameof(records));
-                if (record.Kind == MerkabaRecordKind.M8Tile)
-                    throw new ArgumentException(
-                        "M8 tiles use AppendM8Tiles.", nameof(records));
-                MerkabaStorageStream target = StreamFor(record);
-                if (!byStream.TryGetValue(target,
-                        out List<MerkabaAppendRecord> list))
-                {
-                    list = new List<MerkabaAppendRecord>();
-                    byStream.Add(target, list);
-                }
-                list.Add(record);
+                ThrowIfAppendPublicationFailed();
+                return new MerkabaStorageAppendPosition(_appendAuthority,
+                    _pendingGeneration, _recordSequence);
             }
+        }
 
+        internal Task<MerkabaStorageCommitResult> CommitAsync(
+            MerkabaStorageAppendPosition expectedPosition,
+            Guid sessionUuid, Guid anchorUuid,
+            UnityEngine.Matrix4x4 anchorAtSave, int integrationCount,
+            uint occupiedKernelCount,
+            IProgress<OperationWorkProgress> progress = null,
+            Action<MerkabaCommitStage> crashProbe = null) => Task.Run(() =>
+                Commit(expectedPosition, sessionUuid, anchorUuid, anchorAtSave,
+                    integrationCount, occupiedKernelCount, progress, crashProbe));
+
+        internal MerkabaStorageCommitResult Commit(
+            MerkabaStorageAppendPosition expectedPosition,
+            Guid sessionUuid, Guid anchorUuid,
+            UnityEngine.Matrix4x4 anchorAtSave, int integrationCount,
+            uint occupiedKernelCount,
+            IProgress<OperationWorkProgress> progress = null,
+            Action<MerkabaCommitStage> crashProbe = null)
+        {
+            // All append/publication paths use this same I/O lock. Check before
+            // flushing or writing a manifest, and keep the lock through publish:
+            // a later CPU append cannot be accidentally included in this cut.
+            // A later GPU quantum is independent and may continue meanwhile.
             lock (_ioGate)
             {
-                Directory.CreateDirectory(_directory);
-                var originalLengths = new Dictionary<MerkabaStorageStream, long>();
-                ulong nextSequence = _recordSequence;
-                var validated = new MerkabaSphereFlowerReplayIndex();
-                lock (_gate) validated.CopyFrom(_subordinate);
-                var streams = new List<MerkabaStorageStream>(byStream.Keys);
-                streams.Sort();
-                foreach (MerkabaStorageStream storageStream in streams)
-                    foreach (MerkabaAppendRecord record in byStream[storageStream])
-                    {
-                        nextSequence++;
-                        validated.Apply(record, new MerkabaRecordVersion(
-                            _pendingGeneration, nextSequence));
-                    }
-                nextSequence = _recordSequence;
-                try
-                {
-                    foreach (MerkabaStorageStream storageStream in streams)
-                    {
-                        List<MerkabaAppendRecord> streamRecords =
-                            byStream[storageStream];
-                        string path = PathFor(storageStream);
-                        long originalLength = PrepareAppendEnd(storageStream);
-                        originalLengths[storageStream] = originalLength;
-                        using var stream = OpenAppendAtExactEnd(path,
-                            originalLength);
-                        foreach (MerkabaAppendRecord record in streamRecords)
-                        {
-                            nextSequence++;
-                            WriteRecord(stream, record, _pendingGeneration);
-                        }
-                        stream.Flush();
-                    }
-                }
-                catch
-                {
-                    foreach (KeyValuePair<MerkabaStorageStream, long> prior in
-                             originalLengths)
-                        TruncateFile(PathFor(prior.Key), prior.Value);
-                    throw;
-                }
-
                 lock (_gate)
                 {
-                    _subordinate.CopyFrom(validated);
-                    foreach (MerkabaStorageStream stream in streams)
-                        _dirtyStreams.Add(stream);
-                    MerkabaSphereFlowerReplayIndex.AccumulateTouched(records,
-                        _dirtyDualBlocks, _dirtyFineOwners);
-                    _recordSequence = nextSequence;
+                    ThrowIfAppendPublicationFailed();
+                    if (expectedPosition.Authority == null ||
+                        !ReferenceEquals(expectedPosition.Authority,
+                            _appendAuthority) ||
+                        expectedPosition.Generation != _pendingGeneration ||
+                        expectedPosition.RecordSequence != _recordSequence)
+                        return default;
                 }
+                return Commit(sessionUuid, anchorUuid, anchorAtSave,
+                    integrationCount, occupiedKernelCount, progress, crashProbe);
             }
         }
 
@@ -384,8 +572,12 @@ namespace Genesis.RoomScan
                 throw new ArgumentOutOfRangeException(nameof(integrationCount));
             lock (_ioGate)
             {
-                Directory.CreateDirectory(_directory);
                 lock (_gate)
+                {
+                    ThrowIfAppendPublicationFailed();
+                    if (_appendAuthority == null)
+                        throw new InvalidDataException(
+                            "An incomplete append cannot be committed; reopen the committed store.");
                     if (_manifest != null &&
                         (_manifest.SessionUuid != sessionUuid ||
                          _manifest.AnchorUuid != anchorUuid))
@@ -393,6 +585,8 @@ namespace Genesis.RoomScan
                             "A committed storage root cannot be relabeled with " +
                             "another session or anchor identity; use an exact " +
                             "session clone for SAVE AS.");
+                }
+                Directory.CreateDirectory(_directory);
                 MerkabaTileAddress[] dirtyM8Tiles;
                 int3[] dirtyDualBlocks;
                 MerkabaOwnerAddress[] dirtyFineOwners;
@@ -528,6 +722,7 @@ namespace Genesis.RoomScan
                 ulong sequenceBefore;
                 lock (_gate)
                 {
+                    ThrowIfAppendPublicationFailed();
                     if (_manifest == null)
                         throw new InvalidOperationException(
                             "Only a committed session can be compacted.");
@@ -778,8 +973,15 @@ namespace Genesis.RoomScan
             if (addresses.Count > MerkabaGrid.StreamBatchCapacity)
                 throw new InvalidDataException("M8 load batch exceeds 32 tiles.");
             var result = new MerkabaTileSnapshot[addresses.Count];
-            for (int i = 0; i < addresses.Count; i++)
-                result[i] = ReadOne(addresses[i]);
+            lock (_ioGate)
+            {
+                for (int i = 0; i < addresses.Count; i++)
+                {
+                    result[i] = ReadOne(addresses[i]);
+                    lock (_gate)
+                        result[i].Sidecars = _subordinate.CaptureTile(addresses[i]);
+                }
+            }
             return result;
         });
 
@@ -853,6 +1055,8 @@ namespace Genesis.RoomScan
                     _pendingGeneration = 1ul;
                     _recordSequence = 0ul;
                     _indexedOccupiedKernelCount = 0ul;
+                    _appendAuthority = new object();
+                    _appendPublicationFailure = null;
                 }
             }
         }
@@ -942,9 +1146,17 @@ namespace Genesis.RoomScan
             lock (_gate)
             {
                 if (!_index.TryGetValue(address, out location))
+                {
+                    if (_subordinate.HasStoredDualLeaf(address))
+                        return new MerkabaTileSnapshot
+                        {
+                            Address = address,
+                            States = new KernelState[MerkabaSpatial.KernelsPerTile]
+                        };
                     throw new FileNotFoundException(
                         $"M8 tile {address.LocalAddress} at " +
                         $"{address.BlockCoord} is absent from storage.");
+                }
             }
             using var stream = new FileStream(location.Path, FileMode.Open,
                 FileAccess.Read, FileShare.ReadWrite, 16 * 1024,
@@ -1140,6 +1352,14 @@ namespace Genesis.RoomScan
             }
         }
 
+        private void ThrowIfAppendPublicationFailed()
+        {
+            if (_appendPublicationFailure != null)
+                throw new IOException(
+                    "The append index is incomplete; reopen the committed store before retrying publication.",
+                    _appendPublicationFailure);
+        }
+
         private void AdoptCompactionManifest(MerkabaSessionManifest manifest,
             IReadOnlyList<MerkabaTileAddress> addresses,
             IReadOnlyList<Location> locations, ulong sequence)
@@ -1150,6 +1370,7 @@ namespace Genesis.RoomScan
             lock (_gate)
             {
                 _manifest = manifest;
+                _appendAuthority = new object();
                 for (int i = 0; i < addresses.Count; i++)
                     _index[addresses[i]] = locations[i];
                 _recordSequence = sequence;
@@ -1250,13 +1471,20 @@ namespace Genesis.RoomScan
 
         private static void Validate(KernelState state)
         {
-            if (state.OccupancyEvidence < MerkabaConstants.MinimumEvidence ||
+            bool seed = (state.Flags & MerkabaConstants.R1SeedFlag) != 0u;
+            bool plane = state.HasMeasuredSurfacePlane;
+            bool validR1 = state.IsOccupied
+                ? plane && !seed && state.OccupancyEvidence > MerkabaConstants.OccupiedOffThreshold
+                : seed
+                    ? plane && state.OccupancyEvidence > 0 &&
+                        state.OccupancyEvidence < MerkabaConstants.OccupiedOnThreshold
+                    : !plane && state.OccupancyEvidence == 0;
+            if (!validR1 || state.OccupancyEvidence < 0 ||
                 state.OccupancyEvidence > MerkabaConstants.MaximumEvidence ||
                 state.ColorConfidence > MerkabaConstants.MaximumColorConfidence ||
                 (state.Flags & ~(MerkabaConstants.OccupiedFlag |
-                                 MerkabaConstants.NeedsCarveFlag |
-                                 MerkabaConstants.SurfacePlanePayloadMask)) != 0u ||
-                (!state.IsOccupied && state.HasMeasuredSurfacePlane))
+                                 MerkabaConstants.R1SeedFlag |
+                                 MerkabaConstants.SurfacePlanePayloadMask)) != 0u)
                 throw new InvalidDataException("M8 KernelState is out of range.");
         }
 

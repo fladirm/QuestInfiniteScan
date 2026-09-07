@@ -29,12 +29,26 @@ namespace Genesis.RoomScan
         }
     }
 
-    /// <summary>Indexed GLB 2.0 writer for the read-only export membrane.</summary>
+    /// <summary>GLB presentation writer; DIRT remains explicitly inferred.</summary>
     internal static class MerkabaGlbWriter
     {
         private const uint GlbMagic = 0x46546C67u;
         private const uint JsonChunkType = 0x4E4F534Au;
         private const uint BinaryChunkType = 0x004E4942u;
+
+        private readonly struct PrimitiveRange
+        {
+            internal readonly int FirstIndex;
+            internal readonly int IndexCount;
+            internal readonly bool Dirt;
+
+            internal PrimitiveRange(int firstIndex, int indexCount, bool dirt)
+            {
+                FirstIndex = firstIndex;
+                IndexCount = indexCount;
+                Dirt = dirt;
+            }
+        }
 
         private readonly struct GeometryPlan
         {
@@ -128,6 +142,7 @@ namespace Genesis.RoomScan
             private int _vertexCount;
             private int _indexCount;
             private int _primitiveCount;
+            private readonly List<PrimitiveRange> _ranges = new();
             private Vector3 _minimum = new(float.PositiveInfinity,
                 float.PositiveInfinity, float.PositiveInfinity);
             private Vector3 _maximum = new(float.NegativeInfinity,
@@ -158,13 +173,20 @@ namespace Genesis.RoomScan
 
             internal void Append(MerkabaExportMembraneResult membrane,
                 IProgress<OperationWorkProgress> progress = null)
+                => AppendPlan(Plan(membrane, float3.zero, progress), false);
+
+            internal void AppendDirt(IReadOnlyList<MerkabaDirtTriangle> triangles,
+                IProgress<OperationWorkProgress> progress = null)
+                => AppendPlan(PlanDirt(triangles, float3.zero, progress), true);
+
+            private void AppendPlan(GeometryPlan plan, bool dirt)
             {
                 ThrowIfClosed();
                 if (_completed)
                     throw new InvalidOperationException(
                         "The bounded GLB stream is already complete.");
-                GeometryPlan plan = Plan(membrane, float3.zero, progress);
                 int baseVertex = _vertexCount;
+                AddRange(_ranges, _indexCount, plan.IndexCount, dirt);
                 _vertexCount = checked(_vertexCount + plan.VertexCount);
                 _indexCount = checked(_indexCount + plan.IndexCount);
                 _primitiveCount = checked(_primitiveCount +
@@ -225,7 +247,7 @@ namespace Genesis.RoomScan
                 string json = BuildJson(_vertexCount, _indexCount,
                     binaryLength, positionsOffset, positionsLength,
                     normalsOffset, normalsLength, colorsOffset, colorsLength,
-                    indicesOffset, indicesLength, _minimum, _maximum);
+                    indicesOffset, indicesLength, _minimum, _maximum, _ranges);
                 byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
                 int paddedJsonLength = Align4(jsonBytes.Length);
                 long totalLength = checked(12L + 8L + paddedJsonLength + 8L +
@@ -349,6 +371,24 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException("GLB membrane is empty.");
 
             GeometryPlan plan = Plan(membrane, localOrigin, progress);
+            return WritePlan(destination, plan, false, progress);
+        }
+
+        internal static MerkabaGlbResult WriteDirt(Stream destination,
+            IReadOnlyList<MerkabaDirtTriangle> triangles, float3 localOrigin,
+            IProgress<OperationWorkProgress> progress = null)
+        {
+            if (destination == null || !destination.CanWrite)
+                throw new ArgumentException("GLB destination must be writable.",
+                    nameof(destination));
+            return WritePlan(destination, PlanDirt(triangles, localOrigin,
+                progress), true, progress);
+        }
+
+        private static MerkabaGlbResult WritePlan(Stream destination,
+            GeometryPlan plan, bool dirt,
+            IProgress<OperationWorkProgress> progress)
+        {
             long positionsOffset = 0;
             long positionsLength = checked((long)plan.VertexCount * 12);
             long normalsOffset = positionsOffset + positionsLength;
@@ -365,7 +405,8 @@ namespace Genesis.RoomScan
             string json = BuildJson(plan.VertexCount, plan.IndexCount,
                 binaryLength, positionsOffset, positionsLength, normalsOffset,
                 normalsLength, colorsOffset, colorsLength, indicesOffset,
-                indicesLength, plan.Minimum, plan.Maximum);
+                indicesLength, plan.Minimum, plan.Maximum,
+                new[] { new PrimitiveRange(0, plan.IndexCount, dirt) });
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             int paddedJsonLength = Align4(jsonBytes.Length);
             long totalLength = checked(12L + 8L + paddedJsonLength + 8L +
@@ -532,6 +573,67 @@ namespace Genesis.RoomScan
             indices.Add(c);
         }
 
+        private static GeometryPlan PlanDirt(
+            IReadOnlyList<MerkabaDirtTriangle> triangles, float3 localOrigin,
+            IProgress<OperationWorkProgress> progress)
+        {
+            if (triangles == null)
+                throw new ArgumentNullException(nameof(triangles));
+            int indexCount = CheckedIndexCountForPrimitiveCount(triangles.Count);
+            var vertices = new List<GeometryVertex>(indexCount);
+            var indices = new List<uint>(indexCount);
+            Vector3 minimum = new(float.PositiveInfinity,
+                float.PositiveInfinity, float.PositiveInfinity);
+            Vector3 maximum = new(float.NegativeInfinity,
+                float.NegativeInfinity, float.NegativeInfinity);
+            for (int triangleIndex = 0; triangleIndex < triangles.Count;
+                 triangleIndex++)
+            {
+                MerkabaDirtTriangle triangle = triangles[triangleIndex];
+                float3 normal = -MerkabaSphereFlowerAuthority
+                    .DirtFaceDirection(triangle.Face);
+                uint first = checked((uint)vertices.Count);
+                for (int vertex = 0; vertex < 3; vertex++)
+                {
+                    // Canonical rounding happens before subtracting RTC. No
+                    // floating weld or measured-plane surrogate is involved.
+                    float3 position = MerkabaSphereFlowerAuthority
+                        .DirtFaceGridPosition(triangle.Cell, triangle.Face,
+                            triangle.Half, vertex) - localOrigin;
+                    vertices.Add(new GeometryVertex(position, normal, 0xffffffffu));
+                    Vector3 converted = Convert(position);
+                    minimum = Vector3.Min(minimum, converted);
+                    maximum = Vector3.Max(maximum, converted);
+                }
+                // Unity -> glTF reflects X; reverse the shared face winding.
+                AddTriangle(indices, first, first + 2u, first + 1u);
+            }
+            Report(progress, ScanOperationStage.BuildingMerkabaGeometry,
+                triangles.Count, triangles.Count,
+                $"Materialized {triangles.Count} inferred DIRT triangles");
+            return new GeometryPlan(vertices, indices, triangles.Count,
+                minimum, maximum);
+        }
+
+        private static void AddRange(List<PrimitiveRange> ranges, int first,
+            int count, bool dirt)
+        {
+            if (count == 0) return;
+            if (ranges.Count != 0)
+            {
+                PrimitiveRange previous = ranges[ranges.Count - 1];
+                if (previous.Dirt == dirt &&
+                    checked(previous.FirstIndex + previous.IndexCount) == first)
+                {
+                    ranges[ranges.Count - 1] = new PrimitiveRange(
+                        previous.FirstIndex, checked(previous.IndexCount + count),
+                        dirt);
+                    return;
+                }
+            }
+            ranges.Add(new PrimitiveRange(first, count, dirt));
+        }
+
         private static void WriteIndices(BinaryWriter writer,
             GeometryPlan plan, IProgress<OperationWorkProgress> progress,
             long binaryOffset, long totalLength)
@@ -580,20 +682,44 @@ namespace Genesis.RoomScan
             long binaryLength, long positionsOffset, long positionsLength,
             long normalsOffset, long normalsLength, long colorsOffset,
             long colorsLength, long indicesOffset, long indicesLength,
-            Vector3 minimum, Vector3 maximum)
+            Vector3 minimum, Vector3 maximum,
+            IReadOnlyList<PrimitiveRange> ranges)
         {
             string min = $"[{Number(minimum.x)},{Number(minimum.y)},{Number(minimum.z)}]";
             string max = $"[{Number(maximum.x)},{Number(maximum.y)},{Number(maximum.z)}]";
+            bool hasDirt = false;
+            foreach (PrimitiveRange range in ranges) hasDirt |= range.Dirt;
             var json = new StringBuilder(1400);
             json.Append("{\"asset\":{\"version\":\"2.0\",\"generator\":\"Quest Infinite Merkaba\"},");
             json.Append("\"scene\":0,\"scenes\":[{\"nodes\":[0]}],");
             json.Append("\"nodes\":[{\"name\":\"MerkabaGrid\",\"mesh\":0}],");
-            json.Append("\"meshes\":[{\"name\":\"M8 Measured Membrane\",\"primitives\":[{");
-            json.Append("\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"COLOR_0\":2},");
-            json.Append("\"indices\":3,\"material\":0,\"mode\":4}]}],");
+            json.Append("\"meshes\":[{\"name\":\"M8 Presentation\",\"primitives\":[");
+            for (int primitive = 0; primitive < ranges.Count; primitive++)
+            {
+                if (primitive != 0) json.Append(',');
+                PrimitiveRange range = ranges[primitive];
+                json.Append("{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"COLOR_0\":2},");
+                json.Append("\"indices\":").Append(3 + primitive)
+                    .Append(",\"material\":").Append(range.Dirt ? 1 : 0)
+                    .Append(",\"mode\":4");
+                if (range.Dirt)
+                    json.Append(",\"extras\":{\"m8Provenance\":\"DIRT\",\"inferredSupport\":true,\"capturedRadiance\":false}");
+                json.Append('}');
+            }
+            json.Append("]}],");
             json.Append("\"materials\":[{\"name\":\"M8 Membrane Matte\",");
             json.Append("\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,1,1,1],");
-            json.Append("\"metallicFactor\":0,\"roughnessFactor\":0.85},\"doubleSided\":true}],");
+            json.Append("\"metallicFactor\":0,\"roughnessFactor\":0.85},\"doubleSided\":true}");
+            if (hasDirt)
+            {
+                float4 support = MerkabaSphereFlowerAuthority.DirtSupportLinearRgba;
+                json.Append(",{\"name\":\"M8 DIRT Inferred Support\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[")
+                    .Append(Number(support.x)).Append(',').Append(Number(support.y))
+                    .Append(',').Append(Number(support.z)).Append(',')
+                    .Append(Number(support.w)).Append("],\"metallicFactor\":0,\"roughnessFactor\":1},\"doubleSided\":false,")
+                    .Append("\"extras\":{\"m8Provenance\":\"DIRT\",\"capturedRadiance\":false,\"opticalValid\":false}}");
+            }
+            json.Append("],");
             json.Append("\"buffers\":[{\"byteLength\":").Append(binaryLength).Append("}],");
             json.Append("\"bufferViews\":[");
             BufferView(json, positionsOffset, positionsLength, 34962); json.Append(',');
@@ -608,8 +734,23 @@ namespace Genesis.RoomScan
                 .Append(vertexCount).Append(",\"type\":\"VEC3\"},");
             json.Append("{\"bufferView\":2,\"componentType\":5121,\"normalized\":true,\"count\":")
                 .Append(vertexCount).Append(",\"type\":\"VEC4\"},");
-            json.Append("{\"bufferView\":3,\"componentType\":5125,\"count\":")
-                .Append(indexCount).Append(",\"type\":\"SCALAR\"}]}");
+            int coveredIndices = 0;
+            for (int primitive = 0; primitive < ranges.Count; primitive++)
+            {
+                PrimitiveRange range = ranges[primitive];
+                if (range.FirstIndex != coveredIndices || range.IndexCount <= 0 ||
+                    range.IndexCount % 3 != 0)
+                    throw new InvalidDataException("GLB primitive ranges are not a contiguous triangle partition.");
+                coveredIndices = checked(coveredIndices + range.IndexCount);
+                if (primitive != 0) json.Append(',');
+                json.Append("{\"bufferView\":3,\"byteOffset\":")
+                    .Append(checked((long)range.FirstIndex * 4L))
+                    .Append(",\"componentType\":5125,\"count\":")
+                    .Append(range.IndexCount).Append(",\"type\":\"SCALAR\"}");
+            }
+            if (coveredIndices != indexCount)
+                throw new InvalidDataException("GLB primitive ranges do not cover the index buffer.");
+            json.Append("]}");
             return json.ToString();
         }
 

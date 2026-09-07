@@ -5,16 +5,23 @@
 #pragma kernel ProjectReadoutMeshPins
 #pragma kernel BuildReadoutMesh
 #pragma kernel FinalizeReadout
+#pragma kernel ClassifyHotFlowerPages
+#pragma kernel PublishDirtyFlowerPages
+#pragma kernel CullFlowerPages
 
 #include "MerkabaWorld.hlsl"
-#include "MerkabaSurfaceOrientation.generated.hlsl"
+#include "MerkabaSphereFlower.generated.hlsl"
+#define M8_FLOWER_SIDECAR_WRITE
+#define M8_FLOWER_PAGE_WRITE
+#include "MerkabaFlowerPages.hlsl"
+#include "MerkabaFlowerSkinReadout.hlsl"
 
 #define MERKABA_LATTICE_STEP 0.025
 #define MERKABA_HALF_SUPPORT 0.025
 #define MERKABA_OCCUPIED_FLAG 1u
 #define M8_READOUT_VERTICES_PER_TRIANGLE 3u
 #define M8_READOUT_SEAM_OVERLAP \
-    (MERKABA_SURFACE_PLANE_OFFSET_RANGE / 127.0)
+    (M8_FLOWER_PLANE_RANGE / 127.0)
 #define M8_MESH_MAX_DIMENSION 512u
 #define M8_MESH_MAX_PIXELS \
     (M8_MESH_MAX_DIMENSION * M8_MESH_MAX_DIMENSION)
@@ -55,6 +62,12 @@ int _M8QueryBlockRadius;
 int _M8QueryBlockSide;
 uint _M8MeshReadoutEnabled;
 uint2 _M8MeshDepthSize;
+float _M8ScanDistance;
+uint _M8FlowerGraphicsRetiredGeneration;
+uint _M8FlowerClassifySingleSlot;
+uint _M8FlowerClassifySlot;
+uint _M8FlowerViewInstanceCount;
+float4 _M8FlowerCullPlanes[12];
 float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 float4x4 _M8MeshDepthProj0;
@@ -65,6 +78,87 @@ float4x4 _M8MeshDepthView0;
 float4x4 _M8MeshDepthView1;
 float4x4 _M8MeshDepthViewInv0;
 float4x4 _M8MeshDepthViewInv1;
+
+// Translation/install-only residency classification, bounded by HOT capacity.
+// It neither traverses a logical sphere stencil nor compiles surface symbols.
+[numthreads(128,1,1)]
+void ClassifyHotFlowerPages(uint dispatchId : SV_DispatchThreadID)
+{
+    if(_M8FlowerClassifySingleSlot!=0u && dispatchId!=0u)return;
+    uint slot=_M8FlowerClassifySingleSlot!=0u?_M8FlowerClassifySlot:dispatchId;
+    if(slot>=MERKABA_M8_PHYSICAL_TILE_CAPACITY)return;
+    uint4 meta=M8LoadTileMetaRead(slot);
+    uint4 runtime=M8LoadTileRuntimeRead(slot);
+    uint classification=0u;
+    if(runtime.w!=0u && meta.x<MERKABA_M8_CHUNK_CAPACITY && meta.y<64u &&
+        _M8ChunkTileRefsRead[meta.x*64u+meta.y]==slot+1u)
+    {
+        int3 minimum=M8GlobalKernelCoordRead(slot,0u);
+        bool warm=MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8WarmDistance,
+            _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
+            MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
+        bool draw=warm && MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8RenderDistance,
+            _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
+            MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
+        bool scan=draw && MerkabaM8GridAabbIntersectsDistance(minimum,8,_M8ScanDistance,
+            _M8CameraGridMeters,_M8GridMetricDiagonal,_M8GridMetricCross,
+            MERKABA_LATTICE_STEP,MERKABA_HALF_SUPPORT);
+        classification=scan?3u:(draw?2u:(warm?1u:0u));
+    }
+    M8FlowerSetPageResidency(slot,classification);
+}
+
+[numthreads(128,1,1)]
+void PublishDirtyFlowerPages(uint slot : SV_DispatchThreadID)
+{
+    if(slot>=MERKABA_M8_PHYSICAL_TILE_CAPACITY)return;
+    uint address=M8_FLOWER_PAGE_DIRECTORY_BASE+16u*slot;
+    if(_M8FlowerPageDirectory.Load(address+12u)==0u)return;
+    uint result=M8FlowerPublishPage(slot,M8LoadTileRuntimeRead(slot).w,
+        _M8FlowerGraphicsRetiredGeneration);
+    if(result==M8_FLOWER_ARENA_CAPACITY)
+        _M8FlowerPageDirectory.Store(4u,1u);
+}
+
+// Current view changes only these commands. The count word is reset by the
+// command stream immediately before this dispatch, never by a racing lane.
+[numthreads(128,1,1)]
+void CullFlowerPages(uint slot : SV_DispatchThreadID)
+{
+    if(slot>=MERKABA_M8_PHYSICAL_TILE_CAPACITY ||
+        (_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_AUX_BASE+32u*slot+4u)&
+            M8_FLOWER_PAGE_RESIDENCY_MASK)<2u)return;
+    M8FlowerPageHeader page;
+    if(!M8FlowerFrontPage(slot,page) || page.SymbolCount==0u)return;
+    if(_M8FlowerPageDirectory.Load(M8_FLOWER_PAGE_AUX_BASE+32u*slot+28u)!=
+        M8LoadTileRuntimeRead(slot).w)return;
+    float3 minimum=(float3(page.LogicalTile)*8.0-1.0)*MERKABA_LATTICE_STEP;
+    float3 maximum=(float3(page.LogicalTile)*8.0+8.0)*MERKABA_LATTICE_STEP;
+    bool visible=false;
+    [unroll]for(uint eye=0u;eye<2u;eye++)
+    {
+        bool inside=true;
+        [unroll]for(uint plane=0u;plane<6u;plane++)
+        {
+            float4 p=_M8FlowerCullPlanes[eye*6u+plane];
+            float3 positive=float3(p.x>=0.0?maximum.x:minimum.x,
+                p.y>=0.0?maximum.y:minimum.y,p.z>=0.0?maximum.z:minimum.z);
+            inside=inside && dot(p.xyz,positive)+p.w>=0.0;
+        }
+        visible=visible || inside;
+    }
+    uint views=_M8FlowerViewInstanceCount;
+    if(!visible || (views!=1u && views!=2u))return;
+    uint command;
+    _M8FlowerIndirectCommands.InterlockedAdd(M8_FLOWER_INDIRECT_COUNT,1u,command);
+    // At most one invocation per physical page, so command<32768 structurally.
+    // Also bound the store if a rejected/reset command stream is replayed.
+    if(command>=32768u)return;
+    uint address=command*M8_FLOWER_INDIRECT_STRIDE;
+    _M8FlowerIndirectCommands.Store4(address,uint4(page.SymbolCount*18u,views,
+        0u,page.FirstSymbol*7u));
+    _M8FlowerIndirectCommands.Store(address+16u,slot*views);
+}
 
 #define M8_READOUT_VERTEX_STRIDE 16u
 
@@ -730,7 +824,7 @@ void BuildReadoutVertices(uint3 groupId : SV_GroupID,
         {
             state = M8LoadKernelStateRead(physicalSlot, kernelLocal);
             measured = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u &&
-                M8HasSurfacePlane(state.flags);
+                M8FlowerHasPlane(state.flags);
             if (measured)
             {
                 int3 globalCoord = context.tileOrigin + int3(
@@ -953,11 +1047,11 @@ void ProjectReadoutMeshPins(uint3 groupId : SV_GroupID,
             continue;
         KernelState state = M8LoadKernelStateRead(physicalSlot, kernelLocal);
         if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-            !M8HasSurfacePlane(state.flags))
+            !M8FlowerHasPlane(state.flags))
             continue;
         float3 normalGrid;
         float signedOffset;
-        M8DecodeSurfacePlane(state.flags, normalGrid, signedOffset);
+        M8FlowerUnpackPlane(state.flags, normalGrid, signedOffset);
         int3 globalCoord = M8GlobalKernelCoordRead(physicalSlot, kernelLocal);
         float3 pinGrid = (float3)globalCoord * MERKABA_LATTICE_STEP +
             normalGrid * signedOffset;
@@ -1022,11 +1116,11 @@ M8MeshVertex M8LoadMeshVertex(uint eye, uint2 pixel)
     uint kernelLocal = handle & 511u;
     KernelState state = M8LoadKernelStateRead(physicalSlot, kernelLocal);
     if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-        !M8HasSurfacePlane(state.flags))
+        !M8FlowerHasPlane(state.flags))
         return result;
     float3 normalGrid;
     float signedOffset;
-    M8DecodeSurfacePlane(state.flags, normalGrid, signedOffset);
+    M8FlowerUnpackPlane(state.flags, normalGrid, signedOffset);
     int3 globalCoord = M8GlobalKernelCoordRead(physicalSlot, kernelLocal);
     float3 pinGrid = (float3)globalCoord * MERKABA_LATTICE_STEP +
         normalGrid * signedOffset;

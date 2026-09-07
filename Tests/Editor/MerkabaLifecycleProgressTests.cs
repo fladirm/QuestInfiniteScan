@@ -140,11 +140,6 @@ namespace Genesis.RoomScan.Tests
             Assert.That(start, Does.Contain(
                 "RequestCameraPermissionAsync()"));
 
-            string open = Slice(scanner,
-                "public async Task<bool> LoadAsync()",
-                "public async Task<bool> SaveAsAsync(string displayName)");
-            Assert.That(open, Does.Contain("MarkCanonicalReadoutDirty()"));
-
             string renderer = Source(
                 "Runtime/Merkaba/MerkabaGridRenderer.cs");
             Assert.That(renderer, Does.Not.Contain(
@@ -241,23 +236,30 @@ namespace Genesis.RoomScan.Tests
                 "_gpuSubmissionSuspended = true"));
             foreach (string method in new[]
                      {
-                         "internal void SelectEvictionVictims",
-                         "internal void AcknowledgeWritebackBatch",
+                         "internal bool SelectEvictionVictims",
+                         "internal bool AcknowledgeWritebackBatch",
                          "internal void FailWritebackBatch",
-                         "internal void InstallLoadedTiles",
+                         "internal bool InstallLoadedTiles",
                          "internal void FailLoadedTiles",
                          "internal void RegisterLoadedTileAddresses"
                      })
             {
                 int start = gpu.IndexOf(method, StringComparison.Ordinal);
+                Assert.That(start, Is.GreaterThanOrEqualTo(0), method);
                 int next = gpu.IndexOf("\n        internal ", start + 1,
                     StringComparison.Ordinal);
                 string body = next > start
                     ? gpu.Substring(start, next - start)
                     : gpu.Substring(start);
-                Assert.That(body, Does.Contain(
-                    "if (!GpuSubmissionAllowed) return;"), method);
+                Assert.That(body.Contains("if (!GpuSubmissionAllowed) return;") ||
+                    body.Contains("if (!DualMutationSubmissionAllowed) return false;") ||
+                    body.Contains("return ExecuteDualWorldBatch("), Is.True, method);
             }
+            string dualBatch = Slice(gpu, "private bool ExecuteDualWorldBatch(",
+                "internal void FailLoadedTiles");
+            Assert.That(dualBatch, Does.Contain("if (!DualMutationSubmissionAllowed) return false;"));
+            Assert.That(Source("Runtime/Merkaba/MerkabaGrid.DualStorage.cs"),
+                Does.Contain("GpuSubmissionAllowed"));
         }
 
         [Test]
@@ -414,6 +416,8 @@ namespace Genesis.RoomScan.Tests
                 var states = new KernelState[MerkabaSpatial.KernelsPerTile];
                 states[0].SetOccupiedForFixture(true,
                     new UnityEngine.Color32(1, 2, 3, 255));
+                states[0].Flags = KernelState.SetSurfacePlane(states[0].Flags,
+                    new float3(0, 0, 1), 0f);
                 await store.AppendM8TilesAsync(new[]
                 {
                     new MerkabaTileSnapshot

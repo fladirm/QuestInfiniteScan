@@ -15,9 +15,8 @@
 #define MERKABA_M8_READOUT_TRIANGLE_CAPACITY 4194304u
 #define MERKABA_M8_LOAD_REQUEST_CAPACITY 262144u
 #define MERKABA_M8_LOAD_REQUEST_MASK 262143u
-#define MERKABA_M8_SURFACE_CANDIDATE_CAPACITY 2097152u
 #define MERKABA_EXPORT_KNOWN_FREE -512
-#define MERKABA_NEEDS_CARVE_FLAG 2u
+#define MERKABA_R1_SEED_FLAG 2u
 #define MERKABA_M8_CHUNK_PRESENCE_STRIDE 9u
 #define MERKABA_M8_OWNER_CHUNK_OFFSET MERKABA_M8_BLOCK_CAPACITY
 #define MERKABA_M8_CLAIM_BLOCK_OFFSET 0u
@@ -81,8 +80,10 @@
 #define M8_COUNTER_FAILED_OBSERVATIONS 53u
 #define M8_COUNTER_FREE_TILE_COUNT 54u
 #define M8_COUNTER_EVICTION_CLEAN_BUDGET 55u
-#define M8_COUNTER_CARVE_CLASSIFIED_FREE 56u
-#define M8_COUNTER_CARVE_CLASSIFIED_SURFACE 57u
+#define M8_COUNTER_OBSERVATION_CHANGE_MASK 56u
+#define M8_OBSERVATION_CHANGED_R1 1u
+#define M8_OBSERVATION_CHANGED_DUAL 2u
+#define M8_COUNTER_DIRTY_TILE_COUNT 57u
 #define M8_COUNTER_CARVE_CLASSIFIED_UNKNOWN 58u
 #define M8_COUNTER_CARVE_EVIDENCE_DECREMENTS 59u
 #define M8_COUNTER_CARVE_OCCUPIED_TO_FREE 60u
@@ -126,20 +127,52 @@
 #define M8_COUNTER_CARVE_CHEAP_SURFACE_ENDPOINT 92u
 #define M8_COUNTER_CARVE_EXACT_EVALUATIONS 93u
 #define M8_COUNTER_CARVE_EXACT_INCIDENCE_REJECT 94u
-#define M8_COUNTER_CARVE_EXACT_DILATION_REJECT 95u
+#define M8_COUNTER_CARVE_EXACT_CERTIFICATE_REJECT 95u
 #define M8_COUNTER_READOUT_PLANE_LEGACY_INVALID 96u
 #define M8_COUNTER_READOUT_EMITTED_VERTICES 97u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST 98u
-#define M8_COUNTER_COUNT 99u
+#define M8_COUNTER_DUAL_STORAGE_INTENT_COUNT 98u
+#define M8_COUNTER_DUAL_TOUCH_PUBLICATION 99u
+#define M8_COUNTER_REFINEMENT_PENDING_TILES 100u
+#define M8_COUNTER_REFINEMENT_WORK_PROGRESS 101u
+#define M8_COUNTER_REFINEMENT_BACKPRESSURE 102u
+#define M8_COUNTER_REFINEMENT_UNRESOLVED 103u
+#define M8_COUNTER_COUNT 104u
+
+// Observation-local address intents reuse the released BLOCK claim span.
+// They contain no surface evidence and are consumed by the existing storage
+// publication barrier before that span is used for the next observation.
+#define M8_DUAL_INTENT_BLOCK 0u
+#define M8_DUAL_INTENT_CHUNK 1u
+#define M8_DUAL_INTENT_TILE_EMPTY 2u
+#define M8_DUAL_INTENT_TILE_COLD 3u
+#define M8_DUAL_TILE_INTENT_EMPTY 0x80000000u
+#define M8_DUAL_TILE_INTENT_COLD 0x80000001u
+
+bool M8ObservationBlockAddress(int3 center, int radius, int side,
+    uint ordinal, out int3 coordinate)
+{
+    coordinate=0;
+    // 1625^3 fits uint32; block limits keep all 256 kernel coordinates
+    // representable, including signed negative-coordinate boundaries.
+    if (radius < 0 || radius > 812 || side != 2*radius+1) return false;
+    uint width=(uint)side;
+    if (ordinal >= width*width*width) return false;
+    int3 offset=int3(ordinal % width,(ordinal/width) % width,
+        ordinal/(width*width))-radius;
+    if (any(center < -8388608-offset) || any(center > 8388607-offset))
+        return false;
+    coordinate=center+offset;
+    return true;
+}
 
 #define M8_OBSERVATION_FAILURE_SURFACE_CAPACITY 1u
 #define M8_OBSERVATION_FAILURE_BLOCK_CAPACITY 2u
 #define M8_OBSERVATION_FAILURE_CHUNK_CAPACITY 4u
 #define M8_OBSERVATION_FAILURE_HASH_CAPACITY 8u
-#define M8_OBSERVATION_FAILURE_TIMEOUT 16u
 #define M8_OBSERVATION_FAILURE_PHYSICAL_CAPACITY 32u
 #define M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY 64u
 #define M8_ATTEMPT_COMPLETION_READOUT_CHANGED 0x80000000u
+#define M8_ATTEMPT_COMPLETION_REFINEMENT_PROGRESS 0x40000000u
 
 struct KernelState
 {
@@ -309,6 +342,34 @@ uint M8TileMetaIndex(uint physicalSlot)
 uint M8TileRuntimeIndex(uint physicalSlot)
 {
     return physicalSlot * 2u + 1u;
+}
+
+// The runtime dirty bit and this exact count change together at a source
+// mutation/storage acknowledgement. Receipt capture executes after those
+// kernels retire under the source-cut lease; it never samples mid-transition.
+// Multiple kernels in one tile may mark concurrently, but only 0 -> 1 counts.
+void M8MarkTileDirty(uint physicalSlot)
+{
+    uint previous;
+    InterlockedOr(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y, 1u, previous);
+    if ((previous & 1u) == 0u)
+    {
+        uint ignored;
+        InterlockedAdd(_M8Counters[M8_COUNTER_DIRTY_TILE_COUNT], 1u, ignored);
+    }
+}
+
+void M8ClearTileDirty(uint physicalSlot)
+{
+    uint previous;
+    InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y,
+        0xfffffffeu, previous);
+    if ((previous & 1u) != 0u)
+    {
+        uint ignored;
+        InterlockedAdd(_M8Counters[M8_COUNTER_DIRTY_TILE_COUNT],
+            0xffffffffu, ignored);
+    }
 }
 
 // Slot lifetime, not surface/fine-detail generation. A halo is refreshed at

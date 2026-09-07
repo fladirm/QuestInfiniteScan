@@ -236,6 +236,8 @@ namespace Genesis.RoomScan.Tests
             var states = new KernelState[MerkabaSpatial.KernelsPerTile];
             states[kernel].SetOccupiedForFixture(true,
                 new Color32(12, 34, 56, 255));
+            states[kernel].Flags = KernelState.SetSurfacePlane(states[kernel].Flags,
+                new float3(0, 0, 1), 0f);
             return new MerkabaTileSnapshot
             {
                 Address = new MerkabaTileAddress(blockCoord, (uint)kernel),

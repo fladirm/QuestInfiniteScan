@@ -22,6 +22,10 @@ namespace Genesis.RoomScan
         public const int PetalClassCount = 48;
         public const int MaximumSectorCount = 32;
         public const int ChildPetalCount = 4;
+        public const int ChildPhaseParentContextCount = 5;
+        public const int ChildPhaseKnotSiteCount = 6;
+        public const int PhaseFamilyCount = StrandClassCount;
+        public const int ChildPhaseEdgeCount = ChildPetalCount * 3;
         public const int TetraFrameCount = 8;
 
         private const double FloatUnitRoundoff = 1.0 / 16777216.0;
@@ -47,6 +51,71 @@ namespace Genesis.RoomScan
             Impossible = 0,
             Certain = 1,
             Ambiguous = 2
+        }
+
+        internal enum PhaseResidualClassification : byte
+        {
+            Impossible = 0,
+            ExactZero = 1,
+            CertainNonzero = 2,
+            Ambiguous = 3,
+            Promote = 4
+        }
+
+        /// <summary>Transient certain-root claim, already transported to the
+        /// canonical loop orientation. It is not a persisted branch identity.</summary>
+        internal readonly struct PhaseRootEvidence
+        {
+            internal readonly MerkabaFlowerSymbolKey Symbol;
+            internal readonly Interval2 Root;
+            internal readonly ProofClassification Classification;
+
+            internal PhaseRootEvidence(MerkabaFlowerSymbolKey symbol,
+                Interval2 root, ProofClassification classification)
+            {
+                Symbol = symbol;
+                Root = root;
+                Classification = classification;
+            }
+        }
+
+        internal readonly struct PhaseResidualResult
+        {
+            internal readonly PhaseResidualClassification Classification;
+            internal readonly FloatInterval Residual;
+            internal readonly Interval2 Synthesis;
+            internal readonly int Lower;
+            internal readonly int Upper;
+
+            internal PhaseResidualResult(PhaseResidualClassification classification,
+                FloatInterval residual = default, Interval2 synthesis = default,
+                int lower = 0, int upper = 0)
+            {
+                Classification = classification;
+                Residual = residual;
+                Synthesis = synthesis;
+                Lower = lower;
+                Upper = upper;
+            }
+        }
+
+        /// <summary>One already committed R2 innovation selected by generated
+        /// ancestry incidence. It contains no V and no fitted plane.</summary>
+        internal readonly struct PhaseTransportTerm
+        {
+            internal readonly int Lower;
+            internal readonly int Upper;
+            internal readonly sbyte Orientation;
+            internal readonly byte AncestorLevel;
+
+            internal PhaseTransportTerm(int lower, int upper,
+                sbyte orientation, byte ancestorLevel)
+            {
+                Lower = lower;
+                Upper = upper;
+                Orientation = orientation;
+                AncestorLevel = ancestorLevel;
+            }
         }
 
         public readonly struct FloatInterval : IEquatable<FloatInterval>
@@ -406,7 +475,64 @@ namespace Genesis.RoomScan
                 Vertex1 = vertex1;
                 Vertex2 = vertex2;
             }
+
+            public byte Vertex(int index) => index switch
+            {
+                0 => Vertex0,
+                1 => Vertex1,
+                2 => Vertex2,
+                _ => throw new ArgumentOutOfRangeException(nameof(index))
+            };
         }
+
+        /// <summary>The whole-Flower loop family of one existing strand.
+        /// RootNode is the directed difference of its two anchors, not the
+        /// R2 anchor of either incident petal. Fine paths only identify
+        /// duplicate incidence within each of those two parent contexts.</summary>
+        public readonly struct PhaseFamilyRule
+        {
+            public readonly byte RootNode;
+            public readonly sbyte PhaseOrientation;
+            public readonly byte FinePath0;
+            public readonly byte FinePath1;
+            public readonly ulong RootIncidentPetals;
+
+            internal PhaseFamilyRule(byte rootNode, sbyte phaseOrientation,
+                byte finePath0, byte finePath1, ulong rootIncidentPetals)
+            {
+                RootNode = rootNode;
+                PhaseOrientation = phaseOrientation;
+                FinePath0 = finePath0;
+                FinePath1 = finePath1;
+                RootIncidentPetals = rootIncidentPetals;
+            }
+
+            public uint Packed => (uint)RootNode |
+                (PhaseOrientation < 0 ? 1u << 5 : 0u) |
+                ((uint)FinePath0 << 6) | ((uint)FinePath1 << 8);
+        }
+
+        /// <summary>Exact child-edge substitution into AB/BC/AC families.
+        /// Endpoint reversal does not reverse the canonical loop phase.</summary>
+        public readonly struct ChildPhaseEdgeRule
+        {
+            public readonly byte Family;
+            public readonly sbyte EndpointOrientation;
+            public readonly sbyte PhaseOrientation;
+
+            internal ChildPhaseEdgeRule(byte family, sbyte endpointOrientation,
+                sbyte phaseOrientation)
+            {
+                Family = family;
+                EndpointOrientation = endpointOrientation;
+                PhaseOrientation = phaseOrientation;
+            }
+
+            public uint Packed => (uint)Family |
+                (EndpointOrientation < 0 ? 1u << 2 : 0u) |
+                (PhaseOrientation < 0 ? 1u << 3 : 0u);
+        }
+
 
         public readonly struct SectorBoundary
         {
@@ -492,8 +618,11 @@ namespace Genesis.RoomScan
         private static readonly NodeRule[] NodesValue;
         private static readonly StrandRule[] StrandsValue;
         private static readonly PetalRule[] PetalsValue;
+        private static readonly ulong[] NodeIncidentPetalsValue;
         private static readonly SectorBoundary[] SectorBoundariesValue;
         private static readonly TetraFrameRule[] TetraFramesValue;
+        private static readonly PhaseFamilyRule[] PhaseFamiliesValue;
+        private static readonly ChildPhaseEdgeRule[] ChildPhaseEdgesValue;
 
         private static readonly ChildPetalRule[] ChildPetalsValue =
         {
@@ -531,16 +660,32 @@ namespace Genesis.RoomScan
             DirectionsValue = directions;
             NodesValue = nodes;
             PetalsValue = petals;
+            NodeIncidentPetalsValue = new ulong[NodeClassCount];
+            for (int p = 0; p < petals.Length; p++)
+            {
+                ulong bit = 1UL << p;
+                NodeIncidentPetalsValue[petals[p].FaceNode] |= bit;
+                NodeIncidentPetalsValue[petals[p].EdgeNode] |= bit;
+                NodeIncidentPetalsValue[petals[p].CornerNode] |= bit;
+            }
             StrandsValue = strands;
             LinesValue = lines;
             SectorBoundariesValue = sectors;
             TetraFramesValue = tetraFrames;
+            PhaseFamiliesValue = BuildPhaseFamilies();
+            ChildPhaseEdgesValue = BuildChildPhaseEdges();
 #else
             LoadGeneratedTables(out LinesValue, out DirectionsValue,
                 out NodesValue, out StrandsValue, out PetalsValue,
                 out SectorBoundariesValue, out TetraFramesValue);
+            PhaseFamiliesValue = LoadGeneratedPhaseFamilies();
+            ChildPhaseEdgesValue = LoadGeneratedChildPhaseEdges();
+            NodeIncidentPetalsValue = LoadGeneratedNodeIncidentPetals();
 #endif
             ValidateFrozenTables();
+#if UNITY_EDITOR
+            ValidateCubeSymmetry();
+#endif
         }
 
         public static ReadOnlySpan<LineRule> Lines => LinesValue;
@@ -548,10 +693,14 @@ namespace Genesis.RoomScan
         public static ReadOnlySpan<NodeRule> Nodes => NodesValue;
         public static ReadOnlySpan<StrandRule> Strands => StrandsValue;
         public static ReadOnlySpan<PetalRule> Petals => PetalsValue;
+        public static ReadOnlySpan<ulong> NodeIncidentPetals => NodeIncidentPetalsValue;
         public static ReadOnlySpan<ChildPetalRule> ChildPetals => ChildPetalsValue;
         public static ReadOnlySpan<SectorBoundary> SectorBoundaries =>
             SectorBoundariesValue;
         public static ReadOnlySpan<TetraFrameRule> TetraFrames => TetraFramesValue;
+        public static ReadOnlySpan<PhaseFamilyRule> PhaseFamilies => PhaseFamiliesValue;
+        public static ReadOnlySpan<ChildPhaseEdgeRule> ChildPhaseEdges => ChildPhaseEdgesValue;
+
 
         /// <summary>
         /// FNV-1a over every frozen topology word in its canonical serialized
@@ -668,6 +817,25 @@ namespace Genesis.RoomScan
             foreach (byte value in SkinL4ChildRank) Word(value);
             foreach (byte value in SkinL4State) Word(value);
             foreach (byte value in SkinL5ChildRank) Word(value);
+            foreach (PhaseFamilyRule value in PhaseFamiliesValue)
+            {
+                Word(value.Packed);
+                Word((uint)value.RootIncidentPetals);
+                Word((uint)(value.RootIncidentPetals >> 32));
+                Word(0u);
+            }
+            foreach (ChildPhaseEdgeRule value in ChildPhaseEdgesValue) Word(value.Packed);
+            foreach (L2KnotRule value in L2Knots) Word(value.Source);
+            foreach (L2WedgeRule value in L2Wedges)
+            {
+                Word(value.Hub); Word(value.Ring0); Word(value.Ring1); Word(value.Source);
+            }
+            foreach (ushort value in L2SourceToWedge) Word(value);
+            foreach (ushort value in L2IncidenceOffsets) Word(value);
+            foreach (uint value in L2IncidenceSources) Word(value);
+            for (int level = 0; level < GeometryLevelCount; level++)
+                for (int line = 0; line < LineClassCount; line++)
+                    Word(math.asuint(EvaluateLoop(level, default, line).Radius));
             return hash;
         }
 
@@ -869,15 +1037,23 @@ namespace Genesis.RoomScan
             if (q.ContainsZero)
                 return new RootResult(RootClassification.Ambiguous,
                     default, default);
+            FloatInterval minusA = new(-abc.X.Upper, -abc.X.Lower);
+            FloatInterval baseX = FloatInterval.Multiply(minusA, abc.Y);
+            FloatInterval baseY = FloatInterval.Multiply(minusA, abc.Z);
+            if (classification == RootClassification.CertainTangent)
+            {
+                // The classifier proved exact equality. Re-subtracting
+                // outward-rounded Q-A² would manufacture uncertainty here.
+                var tangent = new Interval2(FloatInterval.Divide(baseX, q),
+                    FloatInterval.Divide(baseY, q));
+                return new RootResult(classification, tangent, tangent);
+            }
             FloatInterval delta = FloatInterval.Subtract(q,
                 FloatInterval.Square(abc.X));
             if (delta.Lower < 0f)
                 return new RootResult(RootClassification.Ambiguous,
                     default, default);
             FloatInterval rootDelta = FloatInterval.Sqrt(delta);
-            FloatInterval minusA = new(-abc.X.Upper, -abc.X.Lower);
-            FloatInterval baseX = FloatInterval.Multiply(minusA, abc.Y);
-            FloatInterval baseY = FloatInterval.Multiply(minusA, abc.Z);
             FloatInterval turnX = FloatInterval.Multiply(rootDelta,
                 new FloatInterval(-abc.Z.Upper, -abc.Z.Lower));
             FloatInterval turnY = FloatInterval.Multiply(rootDelta, abc.Y);
@@ -945,7 +1121,7 @@ namespace Genesis.RoomScan
             FloatInterval numerator = Cross(from, to);
             FloatInterval denominator = FloatInterval.Add(
                 FloatInterval.Singleton(1f), Dot(from, to));
-            if (denominator.ContainsZero)
+            if (!(denominator.Lower > 0f))
             {
                 value = default;
                 return ProofClassification.Ambiguous;
@@ -964,6 +1140,603 @@ namespace Genesis.RoomScan
                 s * root.x + c * root.y);
         }
 
+        public static ProofClassification SealBend(Interval2 first,
+            Interval2 second, int lineClass, out Interval2 seal,
+            out FloatInterval bend, out int sector)
+        {
+            seal = default;
+            bend = default;
+            sector = -1;
+            if (ClassifySector(lineClass, first, out sector) !=
+                    ProofClassification.Certain ||
+                ClassifySector(lineClass, second, out int secondSector) !=
+                    ProofClassification.Certain || sector != secondSector)
+                return ProofClassification.Ambiguous;
+            FloatInterval x = FloatInterval.Add(first.X, second.X);
+            FloatInterval y = FloatInterval.Add(first.Y, second.Y);
+            FloatInterval length = FloatInterval.Sqrt(FloatInterval.Add(
+                FloatInterval.Square(x), FloatInterval.Square(y)));
+            if (!(length.Lower > 0f)) return ProofClassification.Ambiguous;
+            seal = new Interval2(FloatInterval.Divide(x, length),
+                FloatInterval.Divide(y, length));
+            if (ClassifySector(lineClass, seal, out int sharedSector) !=
+                    ProofClassification.Certain || sharedSector != sector)
+                return ProofClassification.Ambiguous;
+            return TangentHalfAngle(seal, second, out bend);
+        }
+
+        public static ProofClassification RotateTangentHalfAngle(
+            Interval2 prediction, FloatInterval turn, int lineClass,
+            int sector, out Interval2 root)
+        {
+            root = default;
+            if (ClassifySector(lineClass, prediction, out int predictedSector) !=
+                    ProofClassification.Certain || predictedSector != sector)
+                return ProofClassification.Ambiguous;
+            FloatInterval one = FloatInterval.Singleton(1f);
+            FloatInterval squared = FloatInterval.Square(turn);
+            FloatInterval denominator = FloatInterval.Add(one, squared);
+            FloatInterval c = FloatInterval.Divide(
+                FloatInterval.Subtract(one, squared), denominator);
+            FloatInterval s = FloatInterval.Divide(FloatInterval.Multiply(
+                FloatInterval.Singleton(2f), turn), denominator);
+            root = new Interval2(FloatInterval.Subtract(
+                    FloatInterval.Multiply(c, prediction.X),
+                    FloatInterval.Multiply(s, prediction.Y)),
+                FloatInterval.Add(FloatInterval.Multiply(s, prediction.X),
+                    FloatInterval.Multiply(c, prediction.Y)));
+            return ClassifySector(lineClass, root, out int synthesizedSector) ==
+                    ProofClassification.Certain && synthesizedSector == sector
+                ? ProofClassification.Certain : ProofClassification.Ambiguous;
+        }
+
+        internal static FloatInterval DecodePhaseInterval(int lower, int upper)
+        {
+            if (lower > upper)
+                throw new ArgumentOutOfRangeException(nameof(lower));
+            // Both products are exact in binary64. A direct int->float cast
+            // before scaling can round an endpoint into the stored interval.
+            const double inverseScale = 1.0 / 536870912.0;
+            return new FloatInterval(
+                FloatInterval.Enclose(lower * inverseScale).Lower,
+                FloatInterval.Enclose(upper * inverseScale).Upper);
+        }
+
+        /// <summary>Section 10.2 prediction for a NEW generated child knot.
+        /// Inherited knots do not enter this method: their parent root and
+        /// draw identity are copied verbatim by the substitution consumer.
+        /// The caller obtains ancestry terms only from generated transport
+        /// rows and valid owner-epoch records, in coarse-to-fine order.</summary>
+        internal static ProofClassification PredictChildPhase(
+            int childGeometryLevel, Interval3 childCarrierAbc,
+            int childLineClass, int childSector, bool plusRoot,
+            ReadOnlySpan<PhaseTransportTerm> ancestry, out Interval2 prediction)
+        {
+            prediction = default;
+            if (childGeometryLevel <= 0 || childGeometryLevel >= GeometryLevelCount ||
+                (uint)childLineClass >= LineClassCount ||
+                (uint)childSector >= LinesValue[childLineClass].SectorCount ||
+                ancestry.Length > childGeometryLevel)
+                return ProofClassification.Ambiguous;
+            for (int component = 0; component < 3; component++)
+                if (!float.IsFinite(childCarrierAbc[component].Lower) ||
+                    !float.IsFinite(childCarrierAbc[component].Upper))
+                    return ProofClassification.Ambiguous;
+            int previousLevel = -1;
+            for (int i = 0; i < ancestry.Length; i++)
+            {
+                PhaseTransportTerm term = ancestry[i];
+                if (term.Lower > term.Upper ||
+                    (term.Lower <= 0 && term.Upper >= 0 &&
+                        (term.Lower != 0 || term.Upper != 0)) ||
+                    (term.Orientation != -1 && term.Orientation != 1) ||
+                    term.AncestorLevel <= previousLevel ||
+                    term.AncestorLevel >= childGeometryLevel)
+                    return ProofClassification.Ambiguous;
+                previousLevel = term.AncestorLevel;
+            }
+
+            RootResult basis = EvaluateRoots(childCarrierAbc);
+            if (basis.Classification == RootClassification.Impossible)
+                return ProofClassification.Impossible;
+            if (basis.Classification != RootClassification.CertainSecant &&
+                basis.Classification != RootClassification.CertainTangent)
+                return ProofClassification.Ambiguous;
+            Interval2 current = plusRoot ? basis.Plus : basis.Minus;
+            if (!IsFinitePhaseRoot(current) ||
+                ClassifySector(childLineClass, current, out int baseSector) !=
+                    ProofClassification.Certain || baseSector != childSector)
+                return ProofClassification.Ambiguous;
+
+            for (int i = 0; i < ancestry.Length; i++)
+            {
+                PhaseTransportTerm term = ancestry[i];
+                FloatInterval residual = DecodePhaseInterval(term.Lower, term.Upper);
+                if (term.Orientation < 0)
+                    residual = new FloatInterval(-residual.Upper, -residual.Lower);
+                // Identity is an exact copy, not another rounded rotation.
+                if (residual.IsSingleton && residual.Lower == 0f) continue;
+                if (RotateTangentHalfAngle(current, residual, childLineClass,
+                        childSector, out Interval2 rotated) != ProofClassification.Certain ||
+                    !IsFinitePhaseRoot(rotated))
+                    return ProofClassification.Ambiguous;
+                current = rotated;
+            }
+            prediction = current;
+            return ProofClassification.Certain;
+        }
+
+        /// <summary>Exact child loop and its source family from generated
+        /// incidence. An inherited site returns its ORIGINAL level/J/line;
+        /// the consumer must copy the corresponding parent root verbatim.</summary>
+        internal static bool TryGetChildPhaseLoop(int petalClass, int parentContext,
+            int knotSite, out int level, out int3 junctionOffset, out int lineClass,
+            out int strandClass, out sbyte endpointOrientation,
+            out sbyte phaseOrientation, out int inheritedParentNode)
+        {
+            level = lineClass = strandClass = 0;
+            junctionOffset = default;
+            endpointOrientation = phaseOrientation = 0;
+            inheritedParentNode = -1;
+            if ((uint)petalClass >= PetalClassCount ||
+                (uint)parentContext >= ChildPhaseParentContextCount ||
+                (uint)knotSite >= ChildPhaseKnotSiteCount)
+                return false;
+            PetalRule petal = PetalsValue[petalClass];
+            if (knotSite < 3)
+            {
+                inheritedParentNode = knotSite;
+                byte packed = parentContext == 0
+                    ? (byte)(2 << (2 * knotSite))
+                    : ChildPetalsValue[parentContext - 1].Vertex(knotSite);
+                int3 weights = ChildCoefficients(packed);
+                int rootNode = weights.x == 2 ? 0 : weights.y == 2 ? 1 :
+                    weights.z == 2 ? 2 : -1;
+                if (rootNode >= 0)
+                {
+                    NodeRule source = NodesValue[petal.Node(rootNode)];
+                    junctionOffset = source.Direction;
+                    lineClass = source.LineClass;
+                    endpointOrientation = source.Orientation;
+                    return true;
+                }
+                int edge = weights.x == 0 ? 1 : weights.z == 0 ? 0 : 2;
+                strandClass = petal.Strand(edge);
+                StrandRule strand = StrandsValue[strandClass];
+                NodeRule family = NodesValue[PhaseFamiliesValue[strandClass].RootNode];
+                level = 1;
+                junctionOffset = NodesValue[strand.Node0].Direction +
+                    NodesValue[strand.Node1].Direction;
+                lineClass = family.LineClass;
+                endpointOrientation = family.Orientation;
+                return true;
+            }
+
+            int localEdge = knotSite - 3;
+            int familyEdge = localEdge;
+            sbyte endpoint = 1;
+            sbyte childPhase = 1;
+            if (parentContext != 0)
+            {
+                ChildPhaseEdgeRule child = ChildPhaseEdgesValue[
+                    (parentContext - 1) * 3 + localEdge];
+                familyEdge = child.Family;
+                endpoint = child.EndpointOrientation;
+                childPhase = child.PhaseOrientation;
+            }
+            strandClass = petal.Strand(familyEdge);
+            PhaseFamilyRule rule = PhaseFamiliesValue[strandClass];
+            NodeRule channel = NodesValue[rule.RootNode];
+            level = parentContext == 0 ? 1 : 2;
+            junctionOffset = PhaseParentNode(petal, parentContext, EdgeFirst(localEdge)) +
+                PhaseParentNode(petal, parentContext, EdgeSecond(localEdge));
+            lineClass = channel.LineClass;
+            endpointOrientation = checked((sbyte)(channel.Orientation * endpoint));
+            phaseOrientation = checked((sbyte)(rule.PhaseOrientation * childPhase));
+            return true;
+        }
+
+        private static bool TryOwnerJunction(int3 owner, int level, int3 offset,
+            out int3 junction)
+        {
+            long scale = 2L << level;
+            long x = scale * owner.x + offset.x;
+            long y = scale * owner.y + offset.y;
+            long z = scale * owner.z + offset.z;
+            junction = default;
+            if (x < int.MinValue || x > int.MaxValue || y < int.MinValue ||
+                y > int.MaxValue || z < int.MinValue || z > int.MaxValue)
+                return false;
+            junction = new int3((int)x, (int)y, (int)z);
+            return true;
+        }
+
+        /// <summary>Production/oracle bridge: restrict the decoded canonical
+        /// R1 plane to the ACTUAL child loop in owner-local coordinates, then
+        /// consume only epoch-valid innovations from its whole-loop family.
+        /// No source channel is inferred from a petal's lone R2 anchor.
+        /// Different parent-local predictions remain separate; section 10.6
+        /// intersects their synthesized roots, not their innovations.</summary>
+        internal static ProofClassification PredictChildFromFamily(int3 rootOwner,
+            int petalClass, int parentContext, int knotSite,
+            float3 decodedNormal, float decodedOffset,
+            float normalUncertainty, float offsetUncertainty,
+            int childSector, bool plusRoot,
+            ReadOnlySpan<PhaseRootEvidence> parentRoots,
+            ReadOnlySpan<PhaseRootEvidence> ancestorRoots,
+            ReadOnlySpan<MerkabaFlowerDetailRecord> ancestorRecords,
+            ReadOnlySpan<MerkabaFlowerDetailKey> ancestorKeys,
+            uint currentParentEpoch, out PhaseRootEvidence prediction)
+        {
+            prediction = default;
+            if (!TryGetChildPhaseLoop(petalClass, parentContext, knotSite,
+                    out int level, out int3 offset, out int line, out int strandClass,
+                    out sbyte endpoint, out sbyte phase, out int inherited) ||
+                !TryOwnerJunction(rootOwner, level, offset, out int3 junction))
+                return ProofClassification.Ambiguous;
+            if (inherited >= 0)
+            {
+                if (parentRoots.Length != 3 ||
+                    !TryPhaseIdentity(parentRoots[inherited], out var inheritedTag) ||
+                    inheritedTag.Level != level || inheritedTag.LineClass != line ||
+                    math.any(parentRoots[inherited].Symbol.Junction != junction))
+                    return ProofClassification.Ambiguous;
+                prediction = parentRoots[inherited];
+                return prediction.Classification;
+            }
+            if (!math.all(math.isfinite(decodedNormal)) ||
+                !float.IsFinite(decodedOffset) || !float.IsFinite(normalUncertainty) ||
+                !float.IsFinite(offsetUncertainty) || normalUncertainty < 0f ||
+                offsetUncertainty < 0f ||
+                ancestorRecords.Length != ancestorKeys.Length ||
+                ancestorRecords.Length != ancestorRoots.Length ||
+                ancestorRecords.Length > level ||
+                (ancestorRecords.Length != 0 && currentParentEpoch == 0u))
+                return ProofClassification.Ambiguous;
+
+            PhaseFamilyRule family = PhaseFamiliesValue[strandClass];
+            NodeRule source = NodesValue[family.RootNode];
+            StrandRule strand = StrandsValue[strandClass];
+            if (source.Shell != Shell.R2Shape && ancestorRecords.Length != 0)
+                return ProofClassification.Ambiguous;
+            Span<PhaseTransportTerm> terms = stackalloc PhaseTransportTerm[2];
+            int previousLevel = -1;
+            for (int i = 0; i < ancestorRecords.Length; i++)
+            {
+                MerkabaFlowerDetailKey key = ancestorKeys[i];
+                int sourceLevel = key.GeometryLevel;
+                if (sourceLevel <= previousLevel || sourceLevel >= level ||
+                    !TryPhaseIdentity(ancestorRoots[i], out var sourceTag) ||
+                    ancestorRoots[i].Classification != ProofClassification.Certain ||
+                    sourceTag.Level != sourceLevel || sourceTag.LineClass != line ||
+                    key.Channel != line || key.Sector != sourceTag.Sector ||
+                    key.RootSign != sourceTag.RootSign)
+                    return ProofClassification.Ambiguous;
+                previousLevel = sourceLevel;
+                int3 sourceOffset;
+                sbyte orientation;
+                if (sourceLevel == 0)
+                {
+                    if (key.GeometryChildPath != 0 ||
+                        (family.RootIncidentPetals & (1UL << key.PetalClass)) == 0)
+                        return ProofClassification.Ambiguous;
+                    sourceOffset = source.Direction;
+                    orientation = phase;
+                }
+                else
+                {
+                    int path = key.PetalClass == strand.Petal0 ? family.FinePath0 :
+                        key.PetalClass == strand.Petal1 ? family.FinePath1 : -1;
+                    if (path < 0 || key.GeometryChildPath != path)
+                        return ProofClassification.Ambiguous;
+                    sourceOffset = NodesValue[strand.Node0].Direction +
+                        NodesValue[strand.Node1].Direction;
+                    orientation = ChildPhaseEdgesValue[(parentContext - 1) * 3 +
+                        knotSite - 3].PhaseOrientation;
+                }
+                if (!TryOwnerJunction(rootOwner, sourceLevel, sourceOffset,
+                        out int3 sourceJunction) ||
+                    math.any(ancestorRoots[i].Symbol.Junction != sourceJunction) ||
+                    !ancestorRecords[i].TryReadR2Phase(key, currentParentEpoch,
+                        out int lower, out int upper))
+                    return ProofClassification.Ambiguous;
+                terms[i] = new PhaseTransportTerm(lower, upper, orientation,
+                    checked((byte)sourceLevel));
+            }
+            LoopFrame loop = EvaluateLoop(level,
+                new Long3(offset.x, offset.y, offset.z), line);
+            Interval3 abc = RestrictPlaneToLoop(float3.zero, decodedNormal,
+                decodedOffset, normalUncertainty, offsetUncertainty, loop);
+            ProofClassification classification = PredictChildPhase(level, abc,
+                line, childSector, plusRoot, terms[..ancestorRecords.Length],
+                out Interval2 root);
+            if (classification != ProofClassification.Certain) return classification;
+            var tag = MerkabaFlowerSymbolTag.Create(level, line, plusRoot,
+                childSector, endpoint < 0, 0, MerkabaFlowerSymbolStatus.Confirmed);
+            prediction = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(junction,
+                tag), root, ProofClassification.Certain);
+            return ProofClassification.Certain;
+        }
+
+
+        /// <summary>SEAL/BEND over roots from the canonically ordered fixed
+        /// endpoints, at any geometric level. This is not peer-evidence merge
+        /// and must not intersect the endpoint roots before extracting bend.</summary>
+        internal static ProofClassification SealPhaseRelation(
+            PhaseRootEvidence first, PhaseRootEvidence second,
+            out PhaseRootEvidence relation, out FloatInterval bend)
+        {
+            relation = default;
+            bend = default;
+            if (first.Classification != ProofClassification.Certain ||
+                second.Classification != ProofClassification.Certain ||
+                !TryPhaseIdentity(first, out var tag) ||
+                !TryPhaseIdentity(second, out _))
+                return ProofClassification.Ambiguous;
+            if (math.any(first.Symbol.Junction != second.Symbol.Junction) ||
+                (first.Symbol.Tag & 0x1fffu) != (second.Symbol.Tag & 0x1fffu))
+                return ProofClassification.Impossible;
+            ProofClassification result = SealBend(first.Root, second.Root,
+                tag.LineClass, out Interval2 root, out bend, out int sector);
+            if (result != ProofClassification.Certain || sector != tag.Sector)
+                return ProofClassification.Ambiguous;
+            var canonical = MerkabaFlowerSymbolTag.Create(tag.Level,
+                tag.LineClass, tag.RootSign, tag.Sector, false, 0u,
+                MerkabaFlowerSymbolStatus.Confirmed);
+            relation = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(
+                first.Symbol.Junction, canonical), root, ProofClassification.Certain);
+            return ProofClassification.Certain;
+        }
+
+        /// <summary>Evaluate one fixed L0 endpoint pair in the common loop
+        /// basis. The caller loads K=(J-r)/2 and Q=K+r in exactly that order.
+        /// Position arithmetic is owner-relative; distant or negative tile
+        /// coordinates cannot perturb the ABC evidence or its branch.</summary>
+        internal static ProofClassification EvaluateCarrierRelation(int3 junction,
+            int lineClass, bool rootSign, uint firstPlane, uint secondPlane,
+            float normalUncertainty, float offsetUncertainty,
+            out PhaseRootEvidence seal, out FloatInterval bend)
+        {
+            seal = default;
+            bend = default;
+            if ((uint)lineClass >= LineClassCount ||
+                !TryResolveEndpointPair(new Long3(junction.x, junction.y,
+                    junction.z), lineClass, out _, out _))
+                return ProofClassification.Impossible;
+            if (!M8FlowerHasPlane(firstPlane) || !M8FlowerHasPlane(secondPlane) ||
+                (firstPlane & M8_FLOWER_OCCUPIED_FLAG) == 0u ||
+                (secondPlane & M8_FLOWER_OCCUPIED_FLAG) == 0u ||
+                (firstPlane & M8_FLOWER_SEED_FLAG) != 0u ||
+                (secondPlane & M8_FLOWER_SEED_FLAG) != 0u ||
+                !float.IsFinite(normalUncertainty) ||
+                !float.IsFinite(offsetUncertainty) ||
+                normalUncertainty < 0f || offsetUncertainty < 0f)
+                return ProofClassification.Ambiguous;
+            M8FlowerUnpackPlane(firstPlane, out float3 firstNormal,
+                out float firstOffset);
+            M8FlowerUnpackPlane(secondPlane, out float3 secondNormal,
+                out float secondOffset);
+            int3 r = LinesValue[lineClass].Direction;
+            LoopFrame firstLoop = EvaluateLoop(0, new Long3(r.x, r.y, r.z), lineClass);
+            LoopFrame secondLoop = EvaluateLoop(0, new Long3(-r.x, -r.y, -r.z), lineClass);
+            RootResult first = EvaluateRoots(RestrictPlaneToLoop(float3.zero,
+                firstNormal, firstOffset, normalUncertainty, offsetUncertainty, firstLoop));
+            RootResult second = EvaluateRoots(RestrictPlaneToLoop(float3.zero,
+                secondNormal, secondOffset, normalUncertainty, offsetUncertainty, secondLoop));
+            if (first.Classification == RootClassification.Impossible ||
+                second.Classification == RootClassification.Impossible)
+                return ProofClassification.Impossible;
+            if ((first.Classification != RootClassification.CertainSecant &&
+                 first.Classification != RootClassification.CertainTangent) ||
+                (second.Classification != RootClassification.CertainSecant &&
+                 second.Classification != RootClassification.CertainTangent))
+                return ProofClassification.Ambiguous;
+            ProofClassification result = SealBend(rootSign ? first.Plus : first.Minus,
+                rootSign ? second.Plus : second.Minus, lineClass,
+                out Interval2 root, out bend, out int sector);
+            if (result != ProofClassification.Certain) return result;
+            var tag = MerkabaFlowerSymbolTag.Create(0, lineClass, rootSign, sector,
+                false, 0u, MerkabaFlowerSymbolStatus.Confirmed);
+            seal = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(junction, tag),
+                root, ProofClassification.Certain);
+            return ProofClassification.Certain;
+        }
+
+        /// <summary>Apply one committed innovation to its regenerated
+        /// prediction. Absence is handled by the caller; an invalid/stale
+        /// record must never masquerade as an exact-zero innovation.</summary>
+        internal static ProofClassification SynthesizePhaseRecord(
+            PhaseRootEvidence prediction, MerkabaFlowerDetailKey expectedKey,
+            MerkabaFlowerDetailRecord record, uint parentEpoch,
+            out PhaseRootEvidence synthesis)
+        {
+            synthesis = default;
+            if (prediction.Classification != ProofClassification.Certain ||
+                !TryPhaseIdentity(prediction, out var tag) ||
+                expectedKey.GeometryLevel != tag.Level ||
+                expectedKey.Channel != tag.LineClass ||
+                expectedKey.Sector != tag.Sector ||
+                expectedKey.RootSign != tag.RootSign ||
+                !record.TryReadR2Phase(expectedKey, parentEpoch,
+                    out int lower, out int upper))
+                return ProofClassification.Ambiguous;
+            if (RotateTangentHalfAngle(prediction.Root,
+                    DecodePhaseInterval(lower, upper), tag.LineClass,
+                    tag.Sector, out Interval2 root) != ProofClassification.Certain ||
+                !IsFinitePhaseRoot(root))
+                return ProofClassification.Ambiguous;
+            synthesis = new PhaseRootEvidence(prediction.Symbol, root,
+                ProofClassification.Certain);
+            return ProofClassification.Certain;
+        }
+
+        /// <summary>Section 10.6 closes final child roots, never ancestry
+        /// programs, parent predictions or residual coefficients. Endpoint
+        /// orientation and scratch status are not physical knot identity.</summary>
+        internal static ProofClassification CloseSharedPhaseRoot(
+            PhaseRootEvidence first, PhaseRootEvidence second,
+            out PhaseRootEvidence shared)
+        {
+            shared = default;
+            if (first.Classification != ProofClassification.Certain ||
+                second.Classification != ProofClassification.Certain ||
+                !TryPhaseIdentity(first, out var tag) ||
+                !TryPhaseIdentity(second, out _))
+                return ProofClassification.Ambiguous;
+            if (math.any(first.Symbol.Junction != second.Symbol.Junction) ||
+                (first.Symbol.Tag & 0x1fffu) != (second.Symbol.Tag & 0x1fffu))
+                return ProofClassification.Impossible;
+            float xLower = math.max(first.Root.X.Lower, second.Root.X.Lower);
+            float xUpper = math.min(first.Root.X.Upper, second.Root.X.Upper);
+            float yLower = math.max(first.Root.Y.Lower, second.Root.Y.Lower);
+            float yUpper = math.min(first.Root.Y.Upper, second.Root.Y.Upper);
+            if (xLower > xUpper || yLower > yUpper)
+                return ProofClassification.Impossible;
+            var root = new Interval2(new FloatInterval(xLower, xUpper),
+                new FloatInterval(yLower, yUpper));
+            if (ClassifySector(tag.LineClass, root, out int sector) !=
+                    ProofClassification.Certain || sector != tag.Sector)
+                return ProofClassification.Ambiguous;
+            // Canonicalize the derived tag so reversing incidence order
+            // cannot change a published shared symbol's scratch bits.
+            var canonical = MerkabaFlowerSymbolTag.Create(tag.Level,
+                tag.LineClass, tag.RootSign, tag.Sector, false, 0,
+                MerkabaFlowerSymbolStatus.Confirmed);
+            shared = new PhaseRootEvidence(new MerkabaFlowerSymbolKey(
+                first.Symbol.Junction, canonical), root, ProofClassification.Certain);
+            return ProofClassification.Certain;
+        }
+
+        private static bool IsFinitePhaseRoot(Interval2 root) =>
+            math.all(math.isfinite(new float4(root.X.Lower, root.X.Upper,
+                root.Y.Lower, root.Y.Upper)));
+
+        private static bool TryPhaseIdentity(PhaseRootEvidence evidence,
+            out MerkabaFlowerSymbolTag tag)
+        {
+            if (!MerkabaFlowerSymbolTag.TryDecode(evidence.Symbol.Tag, out tag) ||
+                tag.Level >= GeometryLevelCount || !IsFinitePhaseRoot(evidence.Root))
+                return false;
+            int3 direction = LinesValue[tag.LineClass].Direction;
+            return math.all(((math.asuint(evidence.Symbol.Junction) ^
+                math.asuint(direction)) & 1u) == 0u);
+        }
+
+        private static bool TryEncodePhaseResidual(FloatInterval residual,
+            out int lower, out int upper)
+        {
+            const double scale = 536870912.0;
+            double lo = Math.Floor(residual.Lower * scale);
+            double hi = Math.Ceiling(residual.Upper * scale);
+            lower = 0;
+            upper = 0;
+            if (double.IsNaN(lo) || double.IsNaN(hi) ||
+                lo < int.MinValue || hi > int.MaxValue || lo > hi) return false;
+            lower = (int)lo;
+            upper = (int)hi;
+            return true;
+        }
+
+        /// <summary>Prediction is differenced from direct evidence. Unlike
+        /// peer-evidence merge and incidence closure, this operation never
+        /// intersects the input phase intervals.</summary>
+        internal static PhaseResidualResult AnalyzePhaseResidual(
+            PhaseRootEvidence predicted, PhaseRootEvidence observed)
+        {
+            if (predicted.Classification == ProofClassification.Impossible ||
+                observed.Classification == ProofClassification.Impossible)
+                return new PhaseResidualResult(PhaseResidualClassification.Impossible);
+            if (predicted.Classification != ProofClassification.Certain ||
+                observed.Classification != ProofClassification.Certain ||
+                !TryPhaseIdentity(predicted, out var p) ||
+                !TryPhaseIdentity(observed, out var o))
+                return new PhaseResidualResult(PhaseResidualClassification.Ambiguous);
+
+            // Roots that cannot be placed wholly inside one generated sector
+            // are unresolved even when their tentative packed tags agree.
+            if (ClassifySector(p.LineClass, predicted.Root, out int pSector) !=
+                    ProofClassification.Certain ||
+                ClassifySector(o.LineClass, observed.Root, out int oSector) !=
+                    ProofClassification.Certain)
+                return new PhaseResidualResult(PhaseResidualClassification.Ambiguous);
+            if (!math.all(predicted.Symbol.Junction == observed.Symbol.Junction) ||
+                (predicted.Symbol.Tag & 0x1fffu) !=
+                    (observed.Symbol.Tag & 0x1fffu) ||
+                pSector != p.Sector || oSector != o.Sector)
+                return new PhaseResidualResult(PhaseResidualClassification.Impossible);
+
+            // The exact identity cross(u,u)=0 avoids artificial interval
+            // dependency inflation, but only for singleton values. Equal
+            // non-singleton boxes do not prove equal physical roots.
+            if (predicted.Root.X.IsSingleton && predicted.Root.Y.IsSingleton &&
+                observed.Root.X.IsSingleton && observed.Root.Y.IsSingleton &&
+                predicted.Root.X.Lower == observed.Root.X.Lower &&
+                predicted.Root.Y.Lower == observed.Root.Y.Lower)
+                return new PhaseResidualResult(PhaseResidualClassification.ExactZero,
+                    FloatInterval.Singleton(0f), predicted.Root);
+
+            if (TangentHalfAngle(predicted.Root, observed.Root, out var residual) !=
+                    ProofClassification.Certain ||
+                !float.IsFinite(residual.Lower) || !float.IsFinite(residual.Upper))
+                return new PhaseResidualResult(PhaseResidualClassification.Ambiguous);
+            if (residual.IsSingleton && residual.Lower == 0f)
+                return new PhaseResidualResult(PhaseResidualClassification.ExactZero,
+                    residual, predicted.Root);
+            if (residual.ContainsZero)
+                return new PhaseResidualResult(PhaseResidualClassification.Ambiguous,
+                    residual);
+            if (!TryEncodePhaseResidual(residual, out int lower, out int upper))
+                return new PhaseResidualResult(PhaseResidualClassification.Promote,
+                    residual);
+            if (lower <= 0 && upper >= 0)
+                return new PhaseResidualResult(PhaseResidualClassification.Ambiguous,
+                    residual);
+
+            // Quantize outward before checking the synthesis: the interval
+            // actually persisted must remain representable in its sector.
+            FloatInterval stored = DecodePhaseInterval(lower, upper);
+            if (RotateTangentHalfAngle(predicted.Root, stored, p.LineClass,
+                    p.Sector, out var synthesis) == ProofClassification.Certain)
+                return new PhaseResidualResult(PhaseResidualClassification.CertainNonzero,
+                    residual, synthesis, lower, upper);
+
+            // An unresolved enclosure is not proof that another level is
+            // required. Promotion is reserved for proven representation failure.
+            bool differentSector = IsFinitePhaseRoot(synthesis) &&
+                ClassifySector(p.LineClass, synthesis, out int sector) ==
+                    ProofClassification.Certain && sector != p.Sector;
+            return new PhaseResidualResult(differentSector
+                    ? PhaseResidualClassification.Promote
+                    : PhaseResidualClassification.Ambiguous,
+                residual, synthesis);
+        }
+
+        internal static PhaseResidualResult AnalyzeR3PhaseResidual(
+            PhaseRootEvidence predicted, PhaseRootEvidence observed,
+            int parity, int axis)
+        {
+            if ((uint)parity >= TetraFrameCount || (uint)axis >= 4u)
+                return new PhaseResidualResult(PhaseResidualClassification.Ambiguous);
+            var result = AnalyzePhaseResidual(predicted, observed);
+            if (result.Classification != PhaseResidualClassification.CertainNonzero &&
+                result.Classification != PhaseResidualClassification.ExactZero)
+                return result;
+            TetraFrameRule frame = TetraFramesValue[parity];
+            int line = (int)((predicted.Symbol.Tag >> 3) & 15u);
+            if (frame.LineClasses[axis] != line)
+                return new PhaseResidualResult(PhaseResidualClassification.Impossible);
+            if (frame.Eta[axis] > 0 ||
+                result.Classification == PhaseResidualClassification.ExactZero)
+                return result;
+            var oriented = new FloatInterval(-result.Residual.Upper,
+                -result.Residual.Lower);
+            if (!TryEncodePhaseResidual(oriented, out int lower, out int upper))
+                return new PhaseResidualResult(PhaseResidualClassification.Promote,
+                    oriented, result.Synthesis);
+            return new PhaseResidualResult(result.Classification, oriented,
+                result.Synthesis, lower, upper);
+        }
+
         public static float4 TetraForward(float4 q)
         {
             float scalar = 0.25f * (q.x + q.y + q.z + q.w);
@@ -971,6 +1744,33 @@ namespace Genesis.RoomScan
                 q.y * TetraUnit(1) + q.z * TetraUnit(2) +
                 q.w * TetraUnit(3));
             return new float4(scalar, vector);
+        }
+
+        // Metric closure must consume the complete q intervals, not the
+        // presentation midpoints accepted by the scalar convenience overload.
+        internal static void TetraForwardIntervals(ReadOnlySpan<FloatInterval> q,
+            out FloatInterval scalar, out Interval3 vector)
+        {
+            if (q.Length != 4) throw new ArgumentException("Four R3 axes required.", nameof(q));
+            FloatInterval sum = FloatInterval.Add(FloatInterval.Add(
+                FloatInterval.Add(q[0], q[1]), q[2]), q[3]);
+            scalar = FloatInterval.Multiply(sum, FloatInterval.Singleton(0.25f));
+            FloatInterval unit = FloatInterval.Enclose(1.0 / Math.Sqrt(3.0));
+            Span<FloatInterval> coordinates = stackalloc FloatInterval[3];
+            for (int axis = 0; axis < 3; axis++)
+            {
+                FloatInterval component = FloatInterval.Singleton(0f);
+                for (int i = 0; i < 4; i++)
+                {
+                    FloatInterval direction = TetraAxesInteger[i][axis] > 0
+                        ? unit : new FloatInterval(-unit.Upper, -unit.Lower);
+                    FloatInterval term = FloatInterval.Multiply(q[i], direction);
+                    component = i == 0 ? term : FloatInterval.Add(component, term);
+                }
+                coordinates[axis] = FloatInterval.Multiply(component,
+                    FloatInterval.Singleton(0.75f));
+            }
+            vector = new Interval3(coordinates[0], coordinates[1], coordinates[2]);
         }
 
         public static float4 TetraInverse(float scalar, float3 vector) => new(
@@ -1047,6 +1847,144 @@ namespace Genesis.RoomScan
             return output;
         }
 
+        private static int3 ChildCoefficients(byte packed)
+        {
+            DecodeBarycentric(packed, out int a, out int b, out int c);
+            return new int3(a, b, c);
+        }
+
+        private static int EdgeFirst(int edge) => edge == 1 ? 1 : 0;
+        private static int EdgeSecond(int edge) => edge == 0 ? 1 : 2;
+
+        private static int3 PhaseParentNode(PetalRule petal, int context, int node)
+        {
+            if (context == 0) return NodesValue[petal.Node(node)].Direction;
+            int3 weights = ChildCoefficients(ChildPetalsValue[context - 1].Vertex(node));
+            return weights.x * NodesValue[petal.FaceNode].Direction +
+                weights.y * NodesValue[petal.EdgeNode].Direction +
+                weights.z * NodesValue[petal.CornerNode].Direction;
+        }
+
+#if UNITY_EDITOR
+        private static byte FineFamilyPath(int petalClass, int strandClass)
+        {
+            PetalRule petal = PetalsValue[petalClass];
+            int edge = -1;
+            for (int i = 0; i < 3; i++)
+                if (petal.Strand(i) == strandClass)
+                {
+                    if (edge >= 0) throw new InvalidOperationException(
+                        "A parent repeats the same strand family.");
+                    edge = i;
+                }
+            if (edge < 0) throw new InvalidOperationException(
+                "A strand has no incidence in its declared parent.");
+            byte site = (byte)((1 << (2 * EdgeFirst(edge))) |
+                (1 << (2 * EdgeSecond(edge))));
+            for (byte child = 0; child < ChildPetalCount; child++)
+            {
+                ChildPetalRule rule = ChildPetalsValue[child];
+                if (rule.Vertex0 == site || rule.Vertex1 == site || rule.Vertex2 == site)
+                    return child;
+            }
+            throw new InvalidOperationException("A strand has no generated child incidence.");
+        }
+
+        private static PhaseFamilyRule[] BuildPhaseFamilies()
+        {
+            var output = new PhaseFamilyRule[PhaseFamilyCount];
+            for (int strandClass = 0; strandClass < output.Length; strandClass++)
+            {
+                StrandRule strand = StrandsValue[strandClass];
+                int3 p = NodesValue[strand.Node0].Direction;
+                int3 q = NodesValue[strand.Node1].Direction;
+                int3 direction = q - p;
+                int source = -1;
+                for (int node = 0; node < NodesValue.Length; node++)
+                    if (math.all(NodesValue[node].Direction == direction))
+                    {
+                        if (source >= 0) throw new InvalidOperationException(
+                            "Whole-Flower source channel incidence is not unique.");
+                        source = node;
+                    }
+                if (source < 0) throw new InvalidOperationException(
+                    $"Strand {strandClass} has no whole-Flower source channel {direction}.");
+
+                NodeRule family = NodesValue[source];
+                int3 childJ = p + q;
+                int3 canonical = LinesValue[family.LineClass].Direction;
+                if (math.any(((math.asuint(childJ) ^ math.asuint(canonical)) & 1u) != 0u) ||
+                    math.any(childJ != direction + 2 * p))
+                    throw new InvalidOperationException(
+                        "Strand endpoints violate exact loop homothety.");
+                // X_child = X_source/2 + a_source*p/2. The positive
+                // homothety preserves the canonical E1/E2 phase orientation;
+                // endpoint orientation is separate even for negative d.
+                sbyte phaseOrientation = checked((sbyte)Math.Sign(Dot(direction,
+                    NodesValue[source].Direction)));
+                ulong incident = 0;
+                for (int petal = 0; petal < PetalsValue.Length; petal++)
+                    for (int node = 0; node < 3; node++)
+                        if (PetalsValue[petal].Node(node) == source)
+                            incident |= 1UL << petal;
+                if (incident == 0 || phaseOrientation != 1)
+                    throw new InvalidOperationException(
+                        "A source family has no positively oriented generated incidence.");
+                output[strandClass] = new PhaseFamilyRule(checked((byte)source),
+                    phaseOrientation, FineFamilyPath(strand.Petal0, strandClass),
+                    FineFamilyPath(strand.Petal1, strandClass), incident);
+            }
+            return output;
+        }
+
+        private static ChildPhaseEdgeRule[] BuildChildPhaseEdges()
+        {
+            var output = new ChildPhaseEdgeRule[ChildPhaseEdgeCount];
+            int3[] families = { new(-1, 1, 0), new(0, -1, 1), new(-1, 0, 1) };
+            for (int child = 0; child < ChildPetalCount; child++)
+                for (int edge = 0; edge < 3; edge++)
+                {
+                    ChildPetalRule rule = ChildPetalsValue[child];
+                    int3 difference = ChildCoefficients(rule.Vertex(EdgeSecond(edge))) -
+                        ChildCoefficients(rule.Vertex(EdgeFirst(edge)));
+                    int found = -1;
+                    sbyte endpoint = 0;
+                    for (int family = 0; family < families.Length; family++)
+                    {
+                        int sign = math.all(difference == families[family]) ? 1 :
+                            math.all(difference == -families[family]) ? -1 : 0;
+                        if (sign == 0) continue;
+                        if (found >= 0) throw new InvalidOperationException(
+                            "A child edge has competing parent channel families.");
+                        found = family;
+                        endpoint = checked((sbyte)sign);
+                    }
+                    if (found < 0) throw new InvalidOperationException(
+                        "A child edge is not an exact translated parent channel.");
+                    int3 oriented = endpoint * difference;
+                    sbyte phase = checked((sbyte)Math.Sign(Dot(oriented, families[found])));
+                    // Check all 48 spatial flags, not just the abstract
+                    // barycentric pattern. Every child loop is the same-line
+                    // half-sized translated source loop.
+                    foreach (PetalRule petal in PetalsValue)
+                    {
+                        int3 u = PhaseParentNode(petal, child + 1, EdgeFirst(edge));
+                        int3 v = PhaseParentNode(petal, child + 1, EdgeSecond(edge));
+                        int3 p = PhaseParentNode(petal, 0, EdgeFirst(found));
+                        int3 q = PhaseParentNode(petal, 0, EdgeSecond(found));
+                        if (endpoint < 0) (u, v) = (v, u);
+                        if (math.any(v - u != q - p) || math.any(u - p != v - q) ||
+                            math.any(u + v != p + q + 2 * (u - p)))
+                            throw new InvalidOperationException(
+                                "A child loop violates exact whole-family homothety.");
+                    }
+                    output[child * 3 + edge] = new ChildPhaseEdgeRule(
+                        checked((byte)found), endpoint, phase);
+                }
+            return output;
+        }
+#endif
+
         private static void ValidateFrozenTables()
         {
             if (DirectionsValue.Length != DirectedRelationCount ||
@@ -1054,7 +1992,9 @@ namespace Genesis.RoomScan
                 StrandsValue.Length != StrandClassCount ||
                 PetalsValue.Length != PetalClassCount ||
                 LinesValue.Length != LineClassCount ||
-                TetraFramesValue.Length != TetraFrameCount)
+                TetraFramesValue.Length != TetraFrameCount ||
+                PhaseFamiliesValue.Length != PhaseFamilyCount ||
+                ChildPhaseEdgesValue.Length != ChildPhaseEdgeCount)
                 throw new InvalidOperationException(
                     "Frozen Sphere-Flower table cardinality is invalid.");
             for (int i = 0; i < LinesValue.Length; i++)
@@ -1068,6 +2008,107 @@ namespace Genesis.RoomScan
                         $"Frozen line {i} has an invalid sector span.");
             }
         }
+
+#if UNITY_EDITOR
+        // Exact O_h action on the production tables. Codegen executes this;
+        // no symmetry table, matrix or search is added to the GPU hot path.
+        public static int ValidateCubeSymmetry()
+        {
+            var nodes = new int[NodeClassCount];
+            var petals = new int[PetalClassCount];
+            var strands = new int[StrandClassCount];
+            int count = 0;
+            ulong orbit = 0;
+            void Require(bool condition)
+            {
+                if (!condition) throw new InvalidOperationException(
+                    $"Sphere-Flower O_h equivariance failed at transform {count}.");
+            }
+            for (int x = 0; x < 3; x++)
+            for (int y = 0; y < 3; y++)
+            {
+                if (x == y) continue;
+                int z = 3 - x - y;
+                for (int signs = 0; signs < 8; signs++)
+                {
+                    int3 s = new((signs & 1) == 0 ? 1 : -1,
+                        (signs & 2) == 0 ? 1 : -1, (signs & 4) == 0 ? 1 : -1);
+                    int3 Map(int3 v) => s * new int3(v[x], v[y], v[z]);
+                    int determinant = Determinant(Map(new int3(1, 0, 0)),
+                        Map(new int3(0, 1, 0)), Map(new int3(0, 0, 1)));
+                    Require(Math.Abs(determinant) == 1);
+                    for (int n = 0; n < nodes.Length; n++)
+                    {
+                        int3 d = Map(NodesValue[n].Direction);
+                        nodes[n] = FindNode(NodesValue, d);
+                        Require(NodesValue[nodes[n]].Shell == NodesValue[n].Shell &&
+                            Dot(d, d) == (int)NodesValue[n].Shell &&
+                            FindLineClass(d, out _) == NodesValue[nodes[n]].LineClass);
+                    }
+                    for (int p = 0; p < petals.Length; p++)
+                    {
+                        PetalRule a = PetalsValue[p];
+                        int mapped = -1;
+                        for (int q = 0; q < petals.Length; q++)
+                        {
+                            PetalRule b = PetalsValue[q];
+                            if (b.FaceNode == nodes[a.FaceNode] &&
+                                b.EdgeNode == nodes[a.EdgeNode] &&
+                                b.CornerNode == nodes[a.CornerNode])
+                            { Require(mapped < 0); mapped = q; }
+                        }
+                        Require(mapped >= 0);
+                        petals[p] = mapped;
+                        Require(PetalsValue[mapped].Orientation == determinant * a.Orientation);
+                        // Integer child substitution commutes with every
+                        // rotation/reflection, including inherited anchors.
+                        for (int context = 0; context < 5; context++)
+                        for (int corner = 0; corner < 3; corner++)
+                            Require(math.all(Map(PhaseParentNode(a, context, corner)) ==
+                                PhaseParentNode(PetalsValue[mapped], context, corner)));
+                    }
+                    orbit |= 1UL << petals[0];
+                    for (int e = 0; e < strands.Length; e++)
+                    {
+                        StrandRule a = StrandsValue[e];
+                        int low = Math.Min(nodes[a.Node0], nodes[a.Node1]);
+                        int high = Math.Max(nodes[a.Node0], nodes[a.Node1]);
+                        int mapped = -1;
+                        for (int q = 0; q < strands.Length; q++)
+                        {
+                            StrandRule b = StrandsValue[q];
+                            if (b.Node0 == low && b.Node1 == high && b.IncidenceKind == a.IncidenceKind)
+                            { Require(mapped < 0); mapped = q; }
+                        }
+                        Require(mapped >= 0);
+                        strands[e] = mapped;
+                        StrandRule target = StrandsValue[mapped];
+                        Require(((1UL << petals[a.Petal0]) | (1UL << petals[a.Petal1])) ==
+                            ((1UL << target.Petal0) | (1UL << target.Petal1)));
+                    }
+                    for (int p = 0; p < petals.Length; p++)
+                    for (int edge = 0; edge < 3; edge++)
+                    {
+                        PetalRule a = PetalsValue[p], b = PetalsValue[petals[p]];
+                        StrandRule strand = StrandsValue[a.Strand(edge)];
+                        int orientation = nodes[strand.Node0] < nodes[strand.Node1] ? 1 : -1;
+                        Require(b.Strand(edge) == strands[a.Strand(edge)] &&
+                            b.StrandSign(edge) == determinant * orientation * a.StrandSign(edge));
+                    }
+                    for (int n = 0; n < nodes.Length; n++)
+                    {
+                        ulong mapped = 0, source = NodeIncidentPetalsValue[n];
+                        for (int p = 0; p < petals.Length; p++)
+                            if ((source & (1UL << p)) != 0) mapped |= 1UL << petals[p];
+                        Require(mapped == NodeIncidentPetalsValue[nodes[n]]);
+                    }
+                    count++;
+                }
+            }
+            Require(count == 48 && orbit == (1UL << PetalClassCount) - 1UL);
+            return count;
+        }
+#endif
 
         private static void BuildPetalsAndStrands(NodeRule[] nodes,
             out PetalRule[] petals, out StrandRule[] strands)
@@ -1173,44 +2214,8 @@ namespace Genesis.RoomScan
             for (int lineClass = 0; lineClass < LineClassCount; lineClass++)
             {
                 int3 line = CanonicalLinesValue[lineClass];
-                var incident = new List<int3>(18);
-                for (int petalIndex = 0; petalIndex < petals.Length; petalIndex++)
-                {
-                    PetalRule petal = petals[petalIndex];
-                    bool contains = false;
-                    for (int nodeIndex = 0; nodeIndex < 3; nodeIndex++)
-                    {
-                        int3 direction = nodes[petal.Node(nodeIndex)].Direction;
-                        if (math.all(direction == line) ||
-                            math.all(direction == -line)) contains = true;
-                    }
-                    if (!contains) continue;
-                    for (int nodeIndex = 0; nodeIndex < 3; nodeIndex++)
-                        AddUnique(incident,
-                            nodes[petal.Node(nodeIndex)].Direction);
-                }
-
-                var exact = new List<ExactBoundaryPoint>(32);
-                foreach (int3 plane in incident)
-                {
-                    BuildBoundaryPoints(line, plane, exact);
-                }
-                exact.Sort((left, right) => CompareAroundLine(line,
-                    left, right));
-                for (int i = exact.Count - 1; i > 0; i--)
-                {
-                    if (ExactBoundaryPoint.SquaredDistanceSign(exact[i - 1],
-                            exact[i]) == 0)
-                        exact.RemoveAt(i);
-                }
-                if (exact.Count > 1 &&
-                    ExactBoundaryPoint.SquaredDistanceSign(exact[0],
-                        exact[exact.Count - 1]) == 0)
-                    exact.RemoveAt(exact.Count - 1);
-                if (exact.Count == 0 || exact.Count > MaximumSectorCount)
-                    throw new InvalidOperationException(
-                        $"Line {lineClass} generated {exact.Count} sectors.");
-
+                List<ExactBoundaryPoint> exact = BuildLineBoundaryPoints(
+                    petals, nodes, line);
                 ComputeBasis(line, out float3 unit, out float3 e1,
                     out float3 e2);
                 ushort offset = checked((ushort)boundaries.Count);
@@ -1224,6 +2229,50 @@ namespace Genesis.RoomScan
                     e1, e2, offset, checked((byte)exact.Count));
             }
             allBoundaries = boundaries.ToArray();
+        }
+
+        // The exact cuts are retained through this shared builder so sector
+        // provenance can use the same algebraic points as phase classification.
+        // Their sorted order is never reconstructed by angular sampling.
+        private static List<ExactBoundaryPoint> BuildLineBoundaryPoints(
+            PetalRule[] petals, NodeRule[] nodes, int3 line)
+        {
+            var incident = new List<int3>(18);
+            for (int petalIndex = 0; petalIndex < petals.Length; petalIndex++)
+            {
+                PetalRule petal = petals[petalIndex];
+                bool contains = false;
+                for (int nodeIndex = 0; nodeIndex < 3; nodeIndex++)
+                {
+                    int3 direction = nodes[petal.Node(nodeIndex)].Direction;
+                    if (math.all(direction == line) ||
+                        math.all(direction == -line)) contains = true;
+                }
+                if (!contains) continue;
+                for (int nodeIndex = 0; nodeIndex < 3; nodeIndex++)
+                    AddUnique(incident,
+                        nodes[petal.Node(nodeIndex)].Direction);
+            }
+
+            var exact = new List<ExactBoundaryPoint>(32);
+            foreach (int3 plane in incident)
+                BuildBoundaryPoints(line, plane, exact);
+            exact.Sort((left, right) => CompareAroundLine(line,
+                left, right));
+            for (int i = exact.Count - 1; i > 0; i--)
+            {
+                if (ExactBoundaryPoint.SquaredDistanceSign(exact[i - 1],
+                        exact[i]) == 0)
+                    exact.RemoveAt(i);
+            }
+            if (exact.Count > 1 &&
+                ExactBoundaryPoint.SquaredDistanceSign(exact[0],
+                    exact[exact.Count - 1]) == 0)
+                exact.RemoveAt(exact.Count - 1);
+            if (exact.Count == 0 || exact.Count > MaximumSectorCount)
+                throw new InvalidOperationException(
+                    $"Line {line} generated {exact.Count} sectors.");
+            return exact;
         }
 
         private static TetraFrameRule[] BuildTetraFrames()
@@ -1257,12 +2306,18 @@ namespace Genesis.RoomScan
         private static void BuildBoundaryPoints(int3 line, int3 plane,
             List<ExactBoundaryPoint> output)
         {
+            BuildBoundaryPoints(line, plane, new Rational(Dot(plane, plane), 2),
+                output);
+        }
+
+        private static void BuildBoundaryPoints(int3 line, int3 plane,
+            Rational planeOffset, List<ExactBoundaryPoint> output)
+        {
             int3 direction = Cross(line, plane);
             int directionSquared = Dot(direction, direction);
             if (directionSquared == 0) return;
 
             Rational lineOffset = new(Dot(line, line), 2);
-            Rational planeOffset = new(Dot(plane, plane), 2);
             int3 planeCross = Cross(plane, direction);
             int3 directionCross = Cross(direction, line);
             Rational3 origin = (Scale(lineOffset, planeCross) +

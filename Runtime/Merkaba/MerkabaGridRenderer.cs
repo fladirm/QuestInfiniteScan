@@ -1,253 +1,121 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Serialization;
+using UnityEngine.XR;
 
 namespace Genesis.RoomScan
 {
-    /// <summary>Disposable GPU readout rebuilt from M8 and drawn once per XR frame.</summary>
+    /// <summary>The sole procedural consumer of immutable Flower pages.</summary>
     [DisallowMultipleComponent]
     public sealed class MerkabaGridRenderer : MonoBehaviour
     {
         private static MerkabaGridRenderer _active;
-
         [FormerlySerializedAs("frameCompilerCompute")]
         [SerializeField] private ComputeShader readoutCompute;
         [SerializeField] private Shader renderShader;
         [SerializeField, Range(2f, 24f)] private float renderDistance = 12f;
-        [SerializeField, Range(5f, 30f)] private float readoutBuildHz = 15f;
-        [SerializeField, Range(0f, 4f)]
-        private float readoutTranslationGuard = 1f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
         [SerializeField] private bool readoutDrawEnabled = true;
-        [SerializeField] private bool meshReadoutEnabled;
         [SerializeField] private bool checkerReadoutEnabled;
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
         private DepthCapture _depthCapture;
-        private readonly Material[] _materials = new Material[2];
-        private int _resetKernel;
-        private int _queryKernel;
-        private int _prepareKernel;
-        private int _buildKernel;
-        private int _projectMeshKernel;
-        private int _buildMeshKernel;
-        private int _finalizeKernel;
+        private Material _material;
+        private int _classifyKernel, _compactKernel, _publishKernel, _cullKernel;
         private bool _initialized;
         private volatile bool _gpuSubmissionSuspended;
-        private bool _statusReadbackPending;
-        private float _nextStatusReadback;
-        private float _nextReadoutBuild;
-        private bool _canonicalDirty = true;
-        private bool _buildInFlight;
-        private int _frontReadout;
-        private uint _sourceGeneration = 1u;
-        private uint _submissionRevision;
-        private uint _publishedRevision;
-        private uint _lifecycleGeneration = 1u;
-        private ReadoutBuildTicket _pendingBuild;
-        private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
-            _nativeReadoutJob;
-        private bool _nativeReadoutGpuComplete;
-        private double _nativeReadoutSubmittedAt;
-        private double _nativeReadoutGpuCompleteAt;
-        private bool _buildBlocked;
-        private bool _blockedOnResidency;
-        private uint _blockedSourceGeneration;
-        private uint _blockedResidencyEpoch;
-        private bool _hasPublishedCoverage;
-        private bool _awaitingResidencyChange;
         private uint _readoutRevision;
-        private uint _buildResidencyEpoch;
+        private bool _hasResidencyCell;
+        private int3 _residencyCell;
+        private Matrix4x4 _classifiedGridToWorld;
+        private bool _classificationPending;
+        private bool _nativeClassification;
+        private int3 _nativeResidencyCell;
+        private Matrix4x4 _nativeGridToWorld;
+        private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob _nativeReadoutJob;
+        private uint _nativeGeneration;
+        private bool _managedBuildInFlight;
+        private GraphicsFence _managedBuildFence;
+        private bool _viewReady;
+        private int _viewFrame = -1;
+        private readonly Vector4[] _cullPlanes = new Vector4[12];
+        private readonly Plane[] _eyePlanes = new Plane[6];
         private FineBrushDescriptor _finePreviewDescriptor;
         private Color _finePreviewColor;
         private bool _dynamicOcclusionEnabled = true;
+        private bool _reportedDrawUnavailable;
 
-        private readonly struct ReadoutBuildTicket
-        {
-            internal readonly int Slot;
-            internal readonly uint Revision;
-            internal readonly uint LifecycleGeneration;
-            internal readonly uint SourceGeneration;
-            internal readonly uint ResidencyEpoch;
-            internal readonly Matrix4x4 GridToWorld;
-            internal readonly bool MeshReadout;
-            internal readonly DepthCapture.ReadoutDepthLease DepthLease;
+        private static readonly int GridToWorldId = Shader.PropertyToID("_MerkabaGridToWorld");
+        private static readonly int WorldToGridId = Shader.PropertyToID("_MerkabaWorldToGrid");
+        private static readonly int PlaneBoundsId = Shader.PropertyToID("_M8FlowerPlaneErrorBounds");
+        private static readonly int CullPlanesId = Shader.PropertyToID("_M8FlowerCullPlanes");
+        private static readonly int ViewInstancesId = Shader.PropertyToID("_M8FlowerViewInstanceCount");
+        private static readonly int GraphicsRetiredId = Shader.PropertyToID("_M8FlowerGraphicsRetiredGeneration");
+        private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
+        private static readonly int FineCursorPositionId = Shader.PropertyToID("_FineCursorPosition");
+        private static readonly int FineBrushAxisId = Shader.PropertyToID("_FineBrushAxis");
+        private static readonly int FineBrushParamsId = Shader.PropertyToID("_FineBrushParams");
+        private static readonly int FinePreviewColorId = Shader.PropertyToID("_FinePreviewColor");
 
-            internal ReadoutBuildTicket(int slot, uint revision,
-                uint lifecycleGeneration, uint sourceGeneration,
-                uint residencyEpoch, Matrix4x4 gridToWorld, bool meshReadout,
-                DepthCapture.ReadoutDepthLease depthLease)
-            {
-                Slot = slot;
-                Revision = revision;
-                LifecycleGeneration = lifecycleGeneration;
-                SourceGeneration = sourceGeneration;
-                ResidencyEpoch = residencyEpoch;
-                GridToWorld = gridToWorld;
-                MeshReadout = meshReadout;
-                DepthLease = depthLease;
-            }
-        }
-
-        public int VisiblePrimitiveCount { get; private set; }
-        public int VisibleSurfaceKernelCount { get; private set; }
-        public int VisibleChunkCount { get; private set; }
-        public int VisibleTileCount { get; private set; }
-        public int LateDrawColdMisses { get; private set; }
-        public bool RenderPrimitiveOverflow { get; private set; }
-        internal bool HasReadoutBuildInFlight => _buildInFlight;
+        internal bool HasReadoutBuildInFlight => _nativeReadoutJob != null || _managedBuildInFlight;
         public float ScanOpacity
         {
             get => scanOpacity;
-            set
-            {
-                scanOpacity = Mathf.Clamp01(value);
-                ApplyOpacityState();
-            }
+            set { scanOpacity = Mathf.Clamp01(value); ApplyOpacityState(); }
         }
-        public bool ReadoutDrawEnabled
-        {
-            get => readoutDrawEnabled;
-            set => readoutDrawEnabled = value;
-        }
-        public bool MeshReadoutEnabled
-        {
-            get => meshReadoutEnabled;
-            set
-            {
-                if (meshReadoutEnabled == value) return;
-                meshReadoutEnabled = value;
-                if (value && checkerReadoutEnabled)
-                {
-                    checkerReadoutEnabled = false;
-                    ApplyCheckerReadoutState();
-                }
-                MarkCanonicalReadoutDirty();
-                Logger.Info("Merkaba live readout mode: " +
-                    (value ? "stereo depth mesh" : "canonical patches"));
-            }
-        }
+        public bool ReadoutDrawEnabled { get => readoutDrawEnabled; set => readoutDrawEnabled = value; }
         public bool CheckerReadoutEnabled
         {
             get => checkerReadoutEnabled;
-            set
-            {
-                if (checkerReadoutEnabled == value) return;
-                checkerReadoutEnabled = value;
-                if (value && meshReadoutEnabled)
-                {
-                    meshReadoutEnabled = false;
-                    MarkCanonicalReadoutDirty();
-                }
-                ApplyCheckerReadoutState();
-                Logger.Info("Merkaba coverage checker: " +
-                    (value ? "enabled" : "disabled"));
-            }
+            set { checkerReadoutEnabled = value; SetKeyword("M8_CHECKER_READOUT", value); }
         }
-
-        internal void SetDynamicOcclusionEnabled(bool enabled)
-        {
-            _dynamicOcclusionEnabled = enabled;
-            ApplyRasterFeatureState();
-        }
-
-        private static readonly int GridToWorldId =
-            Shader.PropertyToID("_MerkabaGridToWorld");
-        private static readonly int VisibleTilesId =
-            Shader.PropertyToID("_M8VisibleTiles");
-        private static readonly int ReadoutVertices0Id =
-            Shader.PropertyToID("_M8ReadoutVertices0");
-        private static readonly int ReadoutVertices1Id =
-            Shader.PropertyToID("_M8ReadoutVertices1");
-        private static readonly int ReadoutIndicesId =
-            Shader.PropertyToID("_M8ReadoutIndices");
-        private static readonly int FrameDispatchArgsId =
-            Shader.PropertyToID("_M8FrameDispatchArgs");
-        private static readonly int DrawArgsId = Shader.PropertyToID("_M8DrawArgs");
-        private static readonly int MeshEnabledId =
-            Shader.PropertyToID("_M8MeshReadoutEnabled");
-        private static readonly int MeshDepthId = Shader.PropertyToID("_SrcDepth");
-        private static readonly int MeshDepthSizeId =
-            Shader.PropertyToID("_M8MeshDepthSize");
-        private static readonly int MeshGridToWorldId =
-            Shader.PropertyToID("_MerkabaGridToWorld");
-        private static readonly int MeshWorldToGridId =
-            Shader.PropertyToID("_MerkabaWorldToGrid");
-        private static readonly int MeshDepthProj0Id =
-            Shader.PropertyToID("_M8MeshDepthProj0");
-        private static readonly int MeshDepthProj1Id =
-            Shader.PropertyToID("_M8MeshDepthProj1");
-        private static readonly int MeshDepthProjInv0Id =
-            Shader.PropertyToID("_M8MeshDepthProjInv0");
-        private static readonly int MeshDepthProjInv1Id =
-            Shader.PropertyToID("_M8MeshDepthProjInv1");
-        private static readonly int MeshDepthView0Id =
-            Shader.PropertyToID("_M8MeshDepthView0");
-        private static readonly int MeshDepthView1Id =
-            Shader.PropertyToID("_M8MeshDepthView1");
-        private static readonly int MeshDepthViewInv0Id =
-            Shader.PropertyToID("_M8MeshDepthViewInv0");
-        private static readonly int MeshDepthViewInv1Id =
-            Shader.PropertyToID("_M8MeshDepthViewInv1");
-        private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
-        private static readonly int FineCursorPositionId =
-            Shader.PropertyToID("_FineCursorPosition");
-        private static readonly int FineBrushAxisId =
-            Shader.PropertyToID("_FineBrushAxis");
-        private static readonly int FineBrushParamsId =
-            Shader.PropertyToID("_FineBrushParams");
-        private static readonly int FinePreviewColorId =
-            Shader.PropertyToID("_FinePreviewColor");
 
         private void Awake()
         {
             _grid = GetComponent<MerkabaGrid>();
             _integrator = GetComponent<MerkabaIntegrator>();
             _depthCapture = GetComponent<DepthCapture>();
-            if (_grid != null) _grid.Cleared += MarkCanonicalReadoutDirty;
+            if (_grid != null)
+            {
+                _grid.RegisterFlowerReadoutConsumer();
+                _grid.Cleared += OnWorldCleared;
+            }
         }
 
         private void OnEnable()
         {
             if (!_gpuSubmissionSuspended) _active = this;
+            RenderPipelineManager.endContextRendering += OnContextRendered;
         }
 
         private void OnDisable()
         {
             if (_active == this) _active = null;
+            RenderPipelineManager.endContextRendering -= OnContextRendered;
         }
 
         private void OnDestroy()
         {
             if (_active == this) _active = null;
-            if (_grid != null) _grid.Cleared -= MarkCanonicalReadoutDirty;
-            InvalidatePublicationCallbacks();
+            RenderPipelineManager.endContextRendering -= OnContextRendered;
+            if (_grid != null) _grid.Cleared -= OnWorldCleared;
         }
 
-        internal void MarkCanonicalReadoutDirty()
+        private void OnWorldCleared()
         {
-            _canonicalDirty = true;
-            unchecked
-            {
-                _sourceGeneration++;
-                if (_sourceGeneration == 0u) _sourceGeneration = 1u;
-            }
-        }
-
-        internal void SetFineSurfacePreview(FineBrushDescriptor descriptor,
-            Color color)
-        {
-            _finePreviewDescriptor = descriptor;
-            _finePreviewColor = color;
-            ApplyFinePreviewState();
+            _hasResidencyCell = false;
+            _viewReady = false;
         }
 
         internal void SuspendGpuSubmission()
         {
             _gpuSubmissionSuspended = true;
+            _viewReady = false;
             if (_active == this) _active = null;
         }
 
@@ -259,72 +127,44 @@ namespace Genesis.RoomScan
 
         internal async Task FinishCurrentReadoutAsync()
         {
-            while (_buildInFlight || _nativeReadoutJob != null)
+            while (HasReadoutBuildInFlight)
             {
-                PollNativeReadoutBuild();
-                await Task.Yield();
+                PollReadoutCompletion();
+                if (HasReadoutBuildInFlight) await Task.Yield();
             }
-        }
-
-        internal void ReleaseOwnedResourcesAfterGpuRetirement()
-        {
-            InvalidatePublicationCallbacks();
-            for (int slot = 0; slot < 2; slot++)
-            {
-                if (_materials[slot] != null) Destroy(_materials[slot]);
-                _materials[slot] = null;
-            }
-            _initialized = false;
-            _statusReadbackPending = false;
-            _canonicalDirty = true;
-            _buildInFlight = false;
-            _frontReadout = 0;
-            _submissionRevision = 0u;
-            _publishedRevision = 0u;
-            _pendingBuild = default;
-            _buildBlocked = false;
-            _blockedOnResidency = false;
-            _hasPublishedCoverage = false;
-            _awaitingResidencyChange = false;
-        }
-
-        private void InvalidatePublicationCallbacks()
-        {
-            unchecked
-            {
-                _lifecycleGeneration++;
-                if (_lifecycleGeneration == 0u) _lifecycleGeneration = 1u;
-            }
-            _buildInFlight = false;
-            _statusReadbackPending = false;
         }
 
         internal Action CaptureOwnedGpuResourceRelease()
         {
-            Material[] captured = { _materials[0], _materials[1] };
+            Material captured = _material;
             bool released = false;
             return () =>
             {
                 if (released) return;
                 released = true;
-                if (this != null)
-                    ReleaseOwnedResourcesAfterGpuRetirement();
-                else
-                    foreach (Material material in captured)
-                        if (material != null)
-                            UnityEngine.Object.Destroy(material);
+                if (this != null) ReleaseOwnedResourcesAfterGpuRetirement();
+                else if (captured != null) Destroy(captured);
             };
         }
 
-        internal static bool TryGetActive(Camera camera,
-            out MerkabaGridRenderer renderer)
+        internal void ReleaseOwnedResourcesAfterGpuRetirement()
+        {
+            if (_material != null) Destroy(_material);
+            _material = null;
+            _initialized = false;
+            _viewReady = false;
+            _hasResidencyCell = false;
+            _managedBuildInFlight = false;
+            _readoutRevision = 0u;
+        }
+
+        internal static bool TryGetActive(Camera camera, out MerkabaGridRenderer renderer)
         {
             renderer = _active;
-            return renderer != null && renderer._initialized &&
-                   renderer.readoutDrawEnabled &&
-                   !renderer._gpuSubmissionSuspended &&
-                   !renderer._grid.GpuSubmissionSuspended &&
-                   renderer.isActiveAndEnabled && camera == Camera.main;
+            return renderer != null && renderer._initialized && renderer.readoutDrawEnabled &&
+                !renderer._gpuSubmissionSuspended && renderer._grid != null &&
+                renderer._grid.FlowerGraphicsReadAllowed && renderer.isActiveAndEnabled &&
+                camera == Camera.main;
         }
 
         private bool Initialize()
@@ -332,723 +172,317 @@ namespace Genesis.RoomScan
             if (_initialized) return true;
             if (_grid == null || readoutCompute == null || renderShader == null)
             {
-                Logger.Error("Merkaba readout assets are not wired.");
+                Logger.Error("Merkaba Flower readout assets are not wired.");
                 enabled = false;
                 return false;
             }
             _grid.EnsureGpuResources();
-            _resetKernel = readoutCompute.FindProfiledKernel(
-                "ResetReadoutBuild", MerkabaGpuStage.WorldQuery);
-            _queryKernel = readoutCompute.FindProfiledKernel(
-                "QueryM8Readout", MerkabaGpuStage.WorldQuery);
-            _prepareKernel = readoutCompute.FindProfiledKernel(
-                "PrepareReadoutBuild", MerkabaGpuStage.ReadoutBuild);
-            _buildKernel = readoutCompute.FindProfiledKernel(
-                "BuildReadoutVertices", MerkabaGpuStage.ReadoutBuild);
-            _projectMeshKernel = readoutCompute.FindProfiledKernel(
-                "ProjectReadoutMeshPins", MerkabaGpuStage.ReadoutBuild);
-            _buildMeshKernel = readoutCompute.FindProfiledKernel(
-                "BuildReadoutMesh", MerkabaGpuStage.ReadoutBuild);
-            _finalizeKernel = readoutCompute.FindProfiledKernel(
-                "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
-            foreach (int kernel in new[]
-                     {
-                         _resetKernel, _queryKernel, _prepareKernel,
-                         _buildKernel,
-                         _projectMeshKernel, _buildMeshKernel, _finalizeKernel
-                     })
-            {
+            _classifyKernel = readoutCompute.FindProfiledKernel("ClassifyHotFlowerPages", MerkabaGpuStage.FlowerClassify);
+            _compactKernel = readoutCompute.FindProfiledKernel("CompactDirtyFlowerSymbols", MerkabaGpuStage.FlowerCompact);
+            _publishKernel = readoutCompute.FindProfiledKernel("PublishDirtyFlowerPages", MerkabaGpuStage.FlowerPublish);
+            _cullKernel = readoutCompute.FindProfiledKernel("CullFlowerPages", MerkabaGpuStage.FlowerCull);
+            foreach (int kernel in new[] { _classifyKernel, _compactKernel, _publishKernel, _cullKernel })
                 _grid.BindWorldBuffers(readoutCompute, kernel);
-                readoutCompute.SetBuffer(kernel, VisibleTilesId,
-                    _grid.M8VisibleTiles);
-                readoutCompute.SetBuffer(kernel, "_M8VisibleTilesRead",
-                    _grid.M8VisibleTiles);
-                readoutCompute.SetBuffer(kernel, FrameDispatchArgsId,
-                    _grid.M8FrameDispatchArgs);
-            }
-            for (int slot = 0; slot < 2; slot++)
+            _material = new Material(renderShader)
             {
-                _materials[slot] = new Material(renderShader)
-                {
-                    name = $"Merkaba M8 Readout {slot}"
-                };
-                _materials[slot].SetBuffer(ReadoutVertices0Id,
-                    _grid.GetM8ReadoutVertices0(slot));
-                _materials[slot].SetBuffer(ReadoutVertices1Id,
-                    _grid.GetM8ReadoutVertices1(slot));
-            }
+                name = "Merkaba Sphere-Flower procedural readout",
+                enableInstancing = true
+            };
+            _grid.BindFlowerRenderResources(_material);
             ApplyOpacityState();
             ApplyFinePreviewState();
-            ApplyRasterFeatureState();
-            ApplyCheckerReadoutState();
+            SetKeyword("M8_ENVIRONMENT_OCCLUSION", _dynamicOcclusionEnabled);
+            SetKeyword("M8_CHECKER_READOUT", checkerReadoutEnabled);
             _initialized = true;
             return true;
         }
 
         private void LateUpdate()
         {
-            if (_gpuSubmissionSuspended || _grid == null ||
-                _grid.GpuSubmissionSuspended) return;
+            PollReadoutCompletion();
+            if (_gpuSubmissionSuspended || _grid == null || _grid.GpuSubmissionSuspended || Camera.main == null)
+                return;
+            if (!Initialize()) return;
+            _material.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
+            _material.SetMatrix(WorldToGridId, _grid.GridToWorldMatrix.inverse);
+            _material.SetVector(PlaneBoundsId, PlaneBounds());
+        }
+
+        private Vector4 PlaneBounds()
+        {
+            if (_depthCapture != null && _depthCapture.TryGetFlowerPlaneBounds(out Vector2 bounds))
+                return new Vector4(bounds.x, bounds.y, 0f, 1f);
+            // Missing calibration cannot authorize a measured root. DIRT does
+            // not use this measured-plane predicate.
+            return new Vector4(float.PositiveInfinity, float.PositiveInfinity, 0f, 0f);
+        }
+
+        private void OnContextRendered(ScriptableRenderContext context, List<Camera> cameras)
+        {
             Camera camera = Camera.main;
-            if (camera == null || !Initialize())
+            if (camera == null || !cameras.Contains(camera) || !_initialized || _gpuSubmissionSuspended ||
+                _grid == null || !_grid.FlowerGraphicsReadAllowed || HasReadoutBuildInFlight)
                 return;
-
-            PollNativeReadoutBuild();
-
-            for (int slot = 0; slot < 2; slot++)
-                _materials[slot].SetMatrix(GridToWorldId,
-                    _grid.GridToWorldMatrix);
-            bool coverageDirty = !_hasPublishedCoverage;
-            bool residencyChanged = _awaitingResidencyChange &&
-                _grid.ResidencyEpoch != _buildResidencyEpoch;
-            bool scannerWork = _integrator != null &&
-                (_integrator.HasPendingObservation ||
-                 _integrator.HasAttemptInFlight ||
-                 _integrator.HasPendingFineErase ||
-                 _integrator.HasFineEraseAttemptInFlight);
-            bool scanQueueBusy = _buildInFlight || scannerWork ||
-                MerkabaNativeVulkanExecutor.HasJobInFlight ||
-                _nativeReadoutJob != null;
-            bool buildRequested = _canonicalDirty || coverageDirty || residencyChanged;
-            if (_buildBlocked && !HasBuildReasonChanged())
-                buildRequested = false;
-            if (!scanQueueBusy && buildRequested &&
-                Time.unscaledTime >= _nextReadoutBuild)
-                SubmitReadoutBuild(camera);
-
-            RequestStatusIfDue();
+            if (_integrator != null && (_integrator.HasAttemptInFlight ||
+                _integrator.HasFineEraseAttemptInFlight || _integrator.HasPendingFineErase))
+                return;
+            // Submit AFTER all views (including XR multipass), not after the
+            // first eye: a new native lease must not suppress later readers.
+            try { SubmitPageQuantum(camera); }
+            catch (Exception exception) { Logger.Error("Flower page scheduling failed: " + exception.Message); }
         }
 
-        private void SubmitReadoutBuild(Camera camera)
+        private void ConfigureResidency(Camera camera, out Vector3 cameraGrid,
+            out Vector3 metricDiagonal, out Vector3 metricCross, out int3 cell)
         {
-            if (_buildInFlight) return;
-            DepthCapture.ReadoutDepthLease depthLease = default;
-            if (meshReadoutEnabled && (_depthCapture == null ||
-                !_depthCapture.TryAcquireReadoutDepth(out depthLease)))
-                return;
-            int backSlot = 1 - _frontReadout;
-            uint revision = NextNonZero(ref _submissionRevision);
-            var ticket = new ReadoutBuildTicket(backSlot, revision,
-                _lifecycleGeneration, _sourceGeneration,
-                _grid.ResidencyEpoch, _grid.GridToWorldMatrix,
-                meshReadoutEnabled, depthLease);
-            ApplyReadoutModeState(backSlot, ticket.MeshReadout);
+            Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
+            cameraGrid = gridToWorld.inverse.MultiplyPoint3x4(camera.transform.position);
+            cell = (int3)math.floor((float3)cameraGrid / (MerkabaConstants.LatticeStep * 8f));
+            MerkabaReadoutCoverage.WriteGridMetric(gridToWorld, out metricDiagonal, out metricCross);
+            _classificationPending = !_hasResidencyCell || math.any(cell != _residencyCell) ||
+                gridToWorld != _classifiedGridToWorld;
+        }
+
+        private float ScanDistance => _integrator != null ? _integrator.MaxUpdateDistance : 0f;
+        private float DrawDistance => Mathf.Max(renderDistance, ScanDistance);
+        private float WarmDistance => DrawDistance + MerkabaSpatial.BlockWorldSize;
+
+        private void SubmitPageQuantum(Camera camera)
+        {
+            ConfigureResidency(camera, out Vector3 center, out Vector3 diagonal, out Vector3 cross, out int3 cell);
+            uint revision = NextNonZero(ref _readoutRevision);
 #if !UNITY_EDITOR && UNITY_ANDROID
-            SubmitNativeReadoutBuild(camera, ticket);
-            return;
-#else
-            int querySide = ConfigureReadout(camera);
-            int meshGroupsX = ticket.MeshReadout
-                ? Mathf.CeilToInt(depthLease.Texture.width / 8f) : 1;
-            int meshGroupsY = ticket.MeshReadout
-                ? Mathf.CeilToInt(depthLease.Texture.height / 8f) : 1;
-            CommandBuffer command = CommandBufferPool.Get(
-                "Merkaba M8 readout build");
-            bool submitted = false;
-            bool timedSubmission = false;
-            _buildInFlight = true;
-            _pendingBuild = ticket;
-            try
-            {
-                timedSubmission = MerkabaGpuTimestamps.TryAcquire(
-                    CaptureOwner.ReadoutBuild,
-                    _readoutRevision == 0u ? 1u : _readoutRevision, command);
-                command.SetComputeBufferParam(readoutCompute, _buildKernel,
-                    ReadoutVertices0Id,
-                    _grid.GetM8ReadoutVertices0(backSlot));
-                command.SetComputeBufferParam(readoutCompute, _buildKernel,
-                    ReadoutVertices1Id,
-                    _grid.GetM8ReadoutVertices1(backSlot));
-                command.SetComputeBufferParam(readoutCompute, _buildKernel,
-                    ReadoutIndicesId, _grid.GetM8ReadoutIndices(backSlot));
-                command.SetComputeBufferParam(readoutCompute, _finalizeKernel,
-                    DrawArgsId, _grid.GetM8DrawArgs(backSlot));
-                ConfigureMeshReadoutCommand(command, ticket);
-                command.DispatchComputeProfiled(readoutCompute,
-                    _resetKernel, ticket.MeshReadout ? 1 :
-                        MerkabaGrid.ReadoutResetGroupCount, 1, 1);
-                command.DispatchComputeProfiled(readoutCompute,
-                    _queryKernel, querySide * querySide * querySide, 1, 1);
-                command.DispatchComputeProfiled(readoutCompute,
-                    _prepareKernel, meshGroupsX, meshGroupsY, 1);
-                if (ticket.MeshReadout)
-                {
-                    command.DispatchComputeProfiled(readoutCompute,
-                        _projectMeshKernel, _grid.M8FrameDispatchArgs);
-                    command.DispatchComputeProfiled(readoutCompute,
-                        _buildMeshKernel, meshGroupsX, meshGroupsY, 1);
-                }
-                else
-                {
-                    command.DispatchComputeProfiled(readoutCompute,
-                        _buildKernel, _grid.M8FrameDispatchArgs);
-                }
-                command.DispatchComputeProfiled(readoutCompute,
-                    _finalizeKernel, 1, 1, 1);
-                MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
-                    timedSubmission);
-                Graphics.ExecuteCommandBuffer(command);
-                submitted = true;
-                if (timedSubmission)
-                    MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
-            }
-            catch (Exception exception)
-            {
-                Logger.Error("Merkaba readout submission failed: " +
-                    exception.Message);
-            }
-            finally
-            {
-                MerkabaGpuTimestamps.Complete(CaptureOwner.ReadoutBuild,
-                    timedSubmission, submitted);
-                CommandBufferPool.Release(command);
-            }
-            if (!submitted)
-            {
-                ReleaseDepthLease(ticket);
-                _buildInFlight = false;
-                _pendingBuild = default;
-                _canonicalDirty = true;
-                return;
-            }
-            unchecked
-            {
-                _readoutRevision++;
-                if (_readoutRevision == 0u) _readoutRevision = 1u;
-            }
-            if (_sourceGeneration == ticket.SourceGeneration)
-                _canonicalDirty = false;
-            _nextReadoutBuild = Time.unscaledTime +
-                1f / Mathf.Max(1f, readoutBuildHz);
-            try
-            {
-                AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint),
-                    MerkabaGrid.CounterReadoutBuildStatus * sizeof(uint),
-                    request => CompleteReadoutBuild(ticket, request));
-            }
-            catch (Exception exception)
-            {
-                ReleaseDepthLease(ticket);
-                _buildInFlight = false;
-                _pendingBuild = default;
-                _canonicalDirty = true;
-                Logger.Warning($"Merkaba readout completion request failed: " +
-                    exception.Message);
-            }
-#endif
-        }
-
-        private void PollNativeReadoutBuild()
-        {
-            if (_nativeReadoutJob == null) return;
-            if (_nativeReadoutGpuComplete) return;
-            if (!_nativeReadoutJob.Poll(out string error)) return;
-            ReadoutBuildTicket ticket = _pendingBuild;
-            bool succeeded = string.IsNullOrEmpty(error);
-            if (!succeeded)
-            {
-                ReleaseDepthLease(ticket);
-                _nativeReadoutJob.Dispose();
-                _nativeReadoutJob = null;
-                _nativeReadoutGpuComplete = false;
-                _buildInFlight = false;
-                _pendingBuild = default;
-                _canonicalDirty = true;
-                Logger.Error(error);
-                return;
-            }
-            _nativeReadoutGpuComplete = true;
-            _nativeReadoutGpuCompleteAt = Time.realtimeSinceStartupAsDouble;
-            MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob =
-                _nativeReadoutJob;
-            try
-            {
-                AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint),
-                    MerkabaGrid.CounterReadoutBuildStatus * sizeof(uint),
-                    request => CompleteNativeReadoutBuild(ticket, nativeJob,
-                        request));
-            }
-            catch (Exception exception)
-            {
-                ReleaseDepthLease(ticket);
-                nativeJob.Dispose();
-                if (ReferenceEquals(_nativeReadoutJob, nativeJob))
-                    _nativeReadoutJob = null;
-                _nativeReadoutGpuComplete = false;
-                _buildInFlight = false;
-                _pendingBuild = default;
-                _canonicalDirty = true;
-                Logger.Warning("Merkaba readout completion request failed: " +
-                    exception.Message);
-            }
-        }
-
-#if !UNITY_EDITOR && UNITY_ANDROID
-        private void SubmitNativeReadoutBuild(Camera camera,
-            ReadoutBuildTicket ticket)
-        {
-            if (MerkabaNativeVulkanExecutor.HasJobInFlight)
-            {
-                ReleaseDepthLease(ticket);
-                return;
-            }
-            MerkabaNativeUniformTable uniforms =
-                BuildNativeReadoutUniforms(camera, ticket,
-                    out int queryGroups, out int depthGroupsX,
-                    out int depthGroupsY);
-            var resources = new IntPtr[
-                MerkabaNativeVulkanExecutor.ResourceCount];
+            var uniforms = new MerkabaNativeUniformTable();
+            uniforms.Vector3("_M8CameraGridMeters", center);
+            uniforms.Vector3("_M8GridMetricDiagonal", diagonal);
+            uniforms.Vector3("_M8GridMetricCross", cross);
+            uniforms.Float("_M8RenderDistance", DrawDistance);
+            uniforms.Float("_M8WarmDistance", WarmDistance);
+            uniforms.Float("_M8ScanDistance", ScanDistance);
+            uniforms.UInt("_M8FlowerClassifySingleSlot", 0u);
+            uniforms.UInt("_M8FlowerClassifySlot", 0u);
+            Vector4 planeBounds = PlaneBounds();
+            uniforms.Vector2("_M8FlowerPlaneErrorBounds", new Vector2(planeBounds.x, planeBounds.y));
+            uniforms.Matrix("_MerkabaGridToWorld", _grid.GridToWorldMatrix);
+            var resources = new IntPtr[MerkabaNativeVulkanExecutor.ResourceCount];
             _grid.FillNativeExecutorWorldResources(resources);
-            if (ticket.MeshReadout)
-                resources[(int)MerkabaNativeVulkanExecutor.Resource.RawDepth] =
-                    ticket.DepthLease.Texture.GetNativeTexturePtr();
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices0] =
-                _grid.GetM8ReadoutVertices0(ticket.Slot).GetNativeBufferPtr();
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutVertices1] =
-                _grid.GetM8ReadoutVertices1(ticket.Slot).GetNativeBufferPtr();
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.ReadoutIndices] =
-                _grid.GetM8ReadoutIndices(ticket.Slot).GetNativeBufferPtr();
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.DrawArgs] =
-                _grid.GetM8DrawArgs(ticket.Slot).GetNativeBufferPtr();
-            if (!MerkabaNativeVulkanExecutor.TryCreateJob(
-                    ticket.MeshReadout
-                        ? MerkabaNativeVulkanExecutor.JobKind.MeshReadout
-                        : MerkabaNativeVulkanExecutor.JobKind.Readout,
-                    ticket.Revision, resources, uniforms, depthGroupsX,
-                    depthGroupsY, 0,
-                    queryGroups, out var nativeJob))
-            {
-                ReleaseDepthLease(ticket);
-                return;
-            }
-
-            CommandBuffer command = CommandBufferPool.Get(
-                "Merkaba native readout submit");
+            uint generation = _grid.BeginNativeDualMutation(uniforms);
+            uniforms.UInt("_M8FlowerGraphicsRetiredGeneration", _grid.FlowerGraphicsRetiredGeneration);
+            var passes = MerkabaNativeVulkanExecutor.FlowerPasses.Compact |
+                MerkabaNativeVulkanExecutor.FlowerPasses.Publish;
+            if (_classificationPending) passes |= MerkabaNativeVulkanExecutor.FlowerPasses.Classify;
+            MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob job = null;
+            CommandBuffer command = CommandBufferPool.Get("Merkaba bounded Flower page publication");
             bool recorded = false;
-            _buildInFlight = true;
-            _pendingBuild = ticket;
             try
             {
-                nativeJob.RecordPrepareAndSubmit(command);
-                recorded = true;
-                Graphics.ExecuteCommandBuffer(command);
-                _nativeReadoutJob = nativeJob;
-                _nativeReadoutGpuComplete = false;
-                _nativeReadoutSubmittedAt = Time.realtimeSinceStartupAsDouble;
-                _nativeReadoutGpuCompleteAt = 0.0;
-                if (_sourceGeneration == ticket.SourceGeneration)
-                    _canonicalDirty = false;
-                _nextReadoutBuild = Time.unscaledTime +
-                    1f / Mathf.Max(1f, readoutBuildHz);
-            }
-            catch (Exception exception)
-            {
-                if (recorded)
+                if (!MerkabaNativeVulkanExecutor.TryCreateJob(MerkabaNativeVulkanExecutor.JobKind.FlowerReadout,
+                    revision, resources, uniforms, 0, 0, 0, (int)passes, out job))
                 {
-                    _nativeReadoutJob = nativeJob;
-                    _nativeReadoutGpuComplete = false;
-                    _nativeReadoutSubmittedAt = Time.realtimeSinceStartupAsDouble;
-                    _nativeReadoutGpuCompleteAt = 0.0;
-                    Logger.Error("Merkaba native readout submission became " +
-                        "uncertain; BACK remains quarantined: " +
-                        exception.Message);
+                    _grid.CancelDualMutationBeforeSubmit(generation);
                     return;
                 }
-                nativeJob.CancelBeforeExecution();
-                nativeJob.Dispose();
-                ReleaseDepthLease(ticket);
-                _buildInFlight = false;
-                _pendingBuild = default;
-                _canonicalDirty = true;
+                job.RecordPrepareAndSubmit(command);
+                recorded = true;
+                _nativeReadoutJob = job;
+                _nativeGeneration = generation;
+                _nativeClassification = _classificationPending;
+                _nativeResidencyCell = cell;
+                _nativeGridToWorld = _grid.GridToWorldMatrix;
+                Graphics.ExecuteCommandBuffer(command);
             }
-            finally
+            catch (Exception exception)
             {
-                CommandBufferPool.Release(command);
+                if (!recorded)
+                {
+                    job?.CancelBeforeExecution();
+                    job?.Dispose();
+                    _grid.CancelDualMutationBeforeSubmit(generation);
+                }
+                else _grid.CompleteNativeDualMutation(generation, false);
+                Logger.Error("Flower page submission failed: " + exception.Message);
             }
-        }
-
-        private MerkabaNativeUniformTable BuildNativeReadoutUniforms(
-            Camera camera, ReadoutBuildTicket ticket, out int queryGroups,
-            out int depthGroupsX, out int depthGroupsY)
-        {
-            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
-            Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
-                camera.transform.position);
-            var global = new Unity.Mathematics.int3(
-                Mathf.FloorToInt(cameraGridMeters.x /
-                    MerkabaConstants.LatticeStep),
-                Mathf.FloorToInt(cameraGridMeters.y /
-                    MerkabaConstants.LatticeStep),
-                Mathf.FloorToInt(cameraGridMeters.z /
-                    MerkabaConstants.LatticeStep));
-            Unity.Mathematics.int3 centerBlock =
-                MerkabaSpatial.Encode(global).BlockCoord;
-            float coverageDistance = renderDistance + readoutTranslationGuard;
-            float warmDistance = coverageDistance +
-                MerkabaSpatial.BlockWorldSize;
-            int radius = Mathf.CeilToInt(warmDistance /
-                MerkabaSpatial.BlockWorldSize) + 1;
-            int side = radius * 2 + 1;
-            queryGroups = checked(side * side * side);
-            MerkabaReadoutCoverage.WriteGridMetric(_grid.GridToWorldMatrix,
-                out Vector3 metricDiagonal, out Vector3 metricCross);
-            var values = new MerkabaNativeUniformTable();
-            values.Vector3("_M8CameraGridMeters", cameraGridMeters);
-            values.Vector3("_M8GridMetricDiagonal", metricDiagonal);
-            values.Vector3("_M8GridMetricCross", metricCross);
-            values.Float("_M8RenderDistance", coverageDistance);
-            values.Float("_M8WarmDistance", warmDistance);
-            values.Float("_M8DependencyDistance", coverageDistance);
-            values.Int3("_M8QueryCenterBlock", centerBlock.x,
-                centerBlock.y, centerBlock.z);
-            values.Int("_M8QueryBlockRadius", radius);
-            values.Int("_M8QueryBlockSide", side);
-            values.UInt("_M8MeshReadoutEnabled",
-                ticket.MeshReadout ? 1u : 0u);
-            values.Matrix("_MerkabaGridToWorld", ticket.GridToWorld);
-            values.Matrix("_MerkabaWorldToGrid", ticket.GridToWorld.inverse);
-            if (ticket.MeshReadout)
+            finally { CommandBufferPool.Release(command); }
+#else
+            CommandBuffer command = CommandBufferPool.Get("Merkaba bounded Flower page publication");
+            uint generation = 0u;
+            bool submitted = false;
+            bool timed = false;
+            try
             {
-                RenderTexture depth = ticket.DepthLease.Texture;
-                depthGroupsX = Mathf.CeilToInt(depth.width / 8f);
-                depthGroupsY = Mathf.CeilToInt(depth.height / 8f);
-                values.UInt2("_M8MeshDepthSize", depth.width, depth.height);
-                AddMeshDepthUniforms(values, ticket.DepthLease);
+                generation = _grid.RecordDualMutation(command, readoutCompute);
+                timed = MerkabaGpuTimestamps.TryAcquire(CaptureOwner.FlowerPages, revision, command);
+                command.SetComputeIntParam(readoutCompute, GraphicsRetiredId,
+                    checked((int)_grid.FlowerGraphicsRetiredGeneration));
+                command.SetComputeVectorParam(readoutCompute, "_M8CameraGridMeters", center);
+                command.SetComputeVectorParam(readoutCompute, "_M8GridMetricDiagonal", diagonal);
+                command.SetComputeVectorParam(readoutCompute, "_M8GridMetricCross", cross);
+                command.SetComputeFloatParam(readoutCompute, "_M8RenderDistance", DrawDistance);
+                command.SetComputeFloatParam(readoutCompute, "_M8WarmDistance", WarmDistance);
+                command.SetComputeFloatParam(readoutCompute, "_M8ScanDistance", ScanDistance);
+                command.SetComputeIntParam(readoutCompute, "_M8FlowerClassifySingleSlot", 0);
+                command.SetComputeIntParam(readoutCompute, "_M8FlowerClassifySlot", 0);
+                command.SetComputeVectorParam(readoutCompute, PlaneBoundsId, PlaneBounds());
+                command.SetComputeMatrixParam(readoutCompute, GridToWorldId, _grid.GridToWorldMatrix);
+                if (_classificationPending)
+                    command.DispatchComputeProfiled(readoutCompute, _classifyKernel, 256, 1, 1);
+                command.DispatchComputeProfiled(readoutCompute, _compactKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(readoutCompute, _publishKernel, 256, 1, 1);
+                MerkabaGpuTimestamps.End(CaptureOwner.FlowerPages, command, timed);
+                _managedBuildFence = command.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation,
+                    SynchronisationStageFlags.AllGPUOperations);
+                _grid.SubmitDualMutation(command, generation);
+                submitted = true;
+                MerkabaGpuTimestamps.Complete(CaptureOwner.FlowerPages, timed, true);
+                _managedBuildInFlight = true;
+                if (_classificationPending) PublishResidencyCell(cell, _grid.GridToWorldMatrix);
             }
-            else
+            catch (Exception exception)
             {
-                depthGroupsX = 1;
-                depthGroupsY = 1;
-                values.UInt2("_M8MeshDepthSize", 1, 1);
+                if (!submitted)
+                {
+                    MerkabaGpuTimestamps.Complete(CaptureOwner.FlowerPages, timed, false);
+                    _grid.CancelDualMutationBeforeSubmit(generation);
+                }
+                Logger.Error("Flower page submission failed: " + exception.Message);
             }
-            return values;
-        }
+            finally { CommandBufferPool.Release(command); }
 #endif
-
-        private void ConfigureMeshReadoutCommand(CommandBuffer command,
-            ReadoutBuildTicket ticket)
-        {
-            command.SetComputeIntParam(readoutCompute, MeshEnabledId,
-                ticket.MeshReadout ? 1 : 0);
-            command.SetComputeMatrixParam(readoutCompute, MeshGridToWorldId,
-                ticket.GridToWorld);
-            command.SetComputeMatrixParam(readoutCompute, MeshWorldToGridId,
-                ticket.GridToWorld.inverse);
-            if (!ticket.MeshReadout) return;
-            BindMeshPublication(command, _prepareKernel, ticket.Slot);
-            BindMeshPublication(command, _projectMeshKernel, ticket.Slot);
-            BindMeshPublication(command, _buildMeshKernel, ticket.Slot);
-            DepthCapture.ReadoutDepthLease lease = ticket.DepthLease;
-            command.SetComputeTextureParam(readoutCompute,
-                _projectMeshKernel, MeshDepthId, lease.Texture);
-            command.SetComputeTextureParam(readoutCompute,
-                _buildMeshKernel, MeshDepthId, lease.Texture);
-            command.SetComputeIntParams(readoutCompute, MeshDepthSizeId,
-                lease.Texture.width, lease.Texture.height);
-            SetMeshDepthMatrices(command, lease);
         }
 
-        private void BindMeshPublication(CommandBuffer command, int kernel,
-            int slot)
+        private void PublishResidencyCell(int3 cell, Matrix4x4 gridToWorld)
         {
-            command.SetComputeBufferParam(readoutCompute, kernel,
-                ReadoutVertices0Id, _grid.GetM8ReadoutVertices0(slot));
-            command.SetComputeBufferParam(readoutCompute, kernel,
-                ReadoutVertices1Id, _grid.GetM8ReadoutVertices1(slot));
+            _residencyCell = cell;
+            _classifiedGridToWorld = gridToWorld;
+            _hasResidencyCell = true;
         }
 
-        private void SetMeshDepthMatrices(CommandBuffer command,
-            DepthCapture.ReadoutDepthLease lease)
+        private void PollReadoutCompletion()
         {
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthProj0Id,
-                lease.Proj0);
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthProj1Id,
-                lease.Proj1);
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthProjInv0Id,
-                lease.ProjInv0);
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthProjInv1Id,
-                lease.ProjInv1);
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthView0Id,
-                lease.View0);
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthView1Id,
-                lease.View1);
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthViewInv0Id,
-                lease.ViewInv0);
-            command.SetComputeMatrixParam(readoutCompute, MeshDepthViewInv1Id,
-                lease.ViewInv1);
+            if (_managedBuildInFlight && _managedBuildFence.passed) _managedBuildInFlight = false;
+            if (_nativeReadoutJob == null || !_nativeReadoutJob.Poll(out string error)) return;
+            bool succeeded = string.IsNullOrEmpty(error);
+            _grid.CompleteNativeDualMutation(_nativeGeneration, succeeded);
+            _nativeReadoutJob.Dispose();
+            _nativeReadoutJob = null;
+            _nativeGeneration = 0u;
+            if (!succeeded) { Logger.Error(error); return; }
+            if (_nativeClassification) PublishResidencyCell(_nativeResidencyCell, _nativeGridToWorld);
+            // FRONT is GPU-atomic. CPU completion never reads a status word to
+            // select a buffer or to authorize a draw.
         }
 
-        private static void AddMeshDepthUniforms(
-            MerkabaNativeUniformTable values,
-            DepthCapture.ReadoutDepthLease lease)
+        internal void RecordViewCull(CommandBuffer command, Camera camera)
         {
-            values.Matrix("_M8MeshDepthProj0", lease.Proj0);
-            values.Matrix("_M8MeshDepthProj1", lease.Proj1);
-            values.Matrix("_M8MeshDepthProjInv0", lease.ProjInv0);
-            values.Matrix("_M8MeshDepthProjInv1", lease.ProjInv1);
-            values.Matrix("_M8MeshDepthView0", lease.View0);
-            values.Matrix("_M8MeshDepthView1", lease.View1);
-            values.Matrix("_M8MeshDepthViewInv0", lease.ViewInv0);
-            values.Matrix("_M8MeshDepthViewInv1", lease.ViewInv1);
-        }
-
-        private void ReleaseDepthLease(ReadoutBuildTicket ticket)
-        {
-            if (ticket.MeshReadout)
-                _depthCapture?.ReleaseReadoutDepth(ticket.DepthLease);
-        }
-
-        private void ApplyReadoutModeState(int slot, bool mesh)
-        {
-            Material material = slot is >= 0 and < 2 ? _materials[slot] : null;
-            if (material == null) return;
-            if (mesh) material.EnableKeyword("M8_STEREO_MESH");
-            else material.DisableKeyword("M8_STEREO_MESH");
-            ApplyCheckerReadoutState(material);
-        }
-
-        private void CompleteNativeReadoutBuild(ReadoutBuildTicket ticket,
-            MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob,
-            AsyncGPUReadbackRequest request)
-        {
-            nativeJob?.Dispose();
-            if (ReferenceEquals(_nativeReadoutJob, nativeJob))
-                _nativeReadoutJob = null;
-            _nativeReadoutGpuComplete = false;
-            double retiredAt = Time.realtimeSinceStartupAsDouble;
-            uint status = request.hasError ? uint.MaxValue :
-                request.GetData<uint>()[0];
-            Logger.Info("Merkaba native readout publication " +
-                $"revision={ticket.Revision} slot={ticket.Slot} " +
-                $"totalMs={(retiredAt - _nativeReadoutSubmittedAt) * 1000.0:F3} " +
-                $"completionReadbackMs={(retiredAt - _nativeReadoutGpuCompleteAt) * 1000.0:F3} " +
-                $"status={status}");
-            CompleteReadoutBuild(ticket, request);
-        }
-
-        private void CompleteReadoutBuild(ReadoutBuildTicket ticket,
-            AsyncGPUReadbackRequest request)
-        {
-            ReleaseDepthLease(ticket);
-            if (this == null || ticket.LifecycleGeneration !=
-                _lifecycleGeneration)
-                return;
-            if (!_buildInFlight || ticket.Revision != _pendingBuild.Revision ||
-                ticket.Slot != _pendingBuild.Slot)
-                return;
-
-            _buildInFlight = false;
-            _pendingBuild = default;
-            if (request.hasError)
+            _viewReady = false;
+            if (command == null || camera == null || !_initialized || !_grid.FlowerGraphicsReadAllowed ||
+                _gpuSubmissionSuspended || !readoutDrawEnabled) return;
+            uint views = camera.stereoEnabled &&
+                XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.SinglePassInstanced ? 2u : 1u;
+            Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
+            for (int eye = 0; eye < 2; eye++)
             {
-                _canonicalDirty = true;
+                Matrix4x4 view = camera.stereoEnabled
+                    ? camera.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : camera.worldToCameraMatrix;
+                Matrix4x4 projection = camera.stereoEnabled
+                    ? camera.GetStereoProjectionMatrix((Camera.StereoscopicEye)eye) : camera.projectionMatrix;
+                GeometryUtility.CalculateFrustumPlanes(projection * view * gridToWorld, _eyePlanes);
+                for (int plane = 0; plane < 6; plane++)
+                {
+                    Plane p = _eyePlanes[plane];
+                    if (!float.IsFinite(p.normal.x) || !float.IsFinite(p.normal.y) ||
+                        !float.IsFinite(p.normal.z) || !float.IsFinite(p.distance)) return;
+                    _cullPlanes[6 * eye + plane] = new Vector4(p.normal.x, p.normal.y, p.normal.z, p.distance);
+                }
+            }
+            if (!MerkabaNativeVulkanExecutor.RecordFlowerCullReset(command, _grid.M8FlowerIndirectCommands))
+            {
+                ReportDrawUnavailable();
                 return;
             }
-
-            uint status = request.GetData<uint>()[0];
-            if (status == 3u)
-            {
-                _frontReadout = ticket.Slot;
-                _publishedRevision = ticket.Revision;
-                _hasPublishedCoverage = true;
-                _awaitingResidencyChange = false;
-                _buildResidencyEpoch = ticket.ResidencyEpoch;
-                _buildBlocked = false;
-                _blockedOnResidency = false;
-                if (_sourceGeneration != ticket.SourceGeneration)
-                    _canonicalDirty = true;
-                return;
-            }
-
-            _buildBlocked = true;
-            _blockedOnResidency = status == 1u;
-            _blockedSourceGeneration = ticket.SourceGeneration;
-            _blockedResidencyEpoch = ticket.ResidencyEpoch;
-            _awaitingResidencyChange = _blockedOnResidency;
-            _buildResidencyEpoch = ticket.ResidencyEpoch;
-            if (_sourceGeneration != ticket.SourceGeneration)
-                _canonicalDirty = true;
-        }
-
-        private bool HasBuildReasonChanged()
-        {
-            if (_sourceGeneration != _blockedSourceGeneration)
-                return true;
-            return _blockedOnResidency &&
-                _grid.ResidencyEpoch != _blockedResidencyEpoch;
+            command.SetComputeVectorArrayParam(readoutCompute, CullPlanesId, _cullPlanes);
+            command.SetComputeIntParam(readoutCompute, ViewInstancesId, checked((int)views));
+            bool timed = MerkabaGpuTimestamps.TryAcquire(CaptureOwner.FlowerPages,
+                _readoutRevision == 0u ? 1u : _readoutRevision, command);
+            command.DispatchComputeProfiled(readoutCompute, _cullKernel, 256, 1, 1);
+            MerkabaGpuTimestamps.End(CaptureOwner.FlowerPages, command, timed);
+            MerkabaGpuTimestamps.Complete(CaptureOwner.FlowerPages, timed, true);
+            _viewFrame = Time.frameCount;
+            _viewReady = true;
         }
 
         internal void RecordRenderPass(RasterCommandBuffer command)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));
-            if (!readoutDrawEnabled || _gpuSubmissionSuspended || _grid == null ||
-                _grid.GpuSubmissionSuspended)
+            if (!_viewReady || _viewFrame != Time.frameCount || !_initialized || _gpuSubmissionSuspended ||
+                !_grid.FlowerGraphicsReadAllowed || !readoutDrawEnabled || scanOpacity <= 0f) return;
+            if (!MerkabaNativeVulkanExecutor.RecordFlowerIndirectRegistration(command, _grid.M8FlowerIndirectCommands))
+            {
+                ReportDrawUnavailable();
                 return;
-            int front = _frontReadout;
-            Material material = _materials[front];
-            Mesh mesh = _grid.GetM8ReadoutMesh(front);
-            ComputeBuffer drawArgs = _grid.GetM8DrawArgs(front);
-            bool canDraw = _initialized && mesh != null && material != null &&
-                scanOpacity > 0.001f;
-            bool timedSubmission = canDraw && MerkabaGpuTimestamps.TryAcquire(
-                CaptureOwner.Draw,
+            }
+            bool timed = MerkabaGpuTimestamps.TryAcquire(CaptureOwner.Draw,
                 _readoutRevision == 0u ? 1u : _readoutRevision, command);
-            if (canDraw)
-                command.DrawMeshInstancedIndirectProfiled(mesh, 0,
-                    material, 0, drawArgs, 0);
-            MerkabaGpuTimestamps.End(CaptureOwner.Draw, command,
-                timedSubmission);
-            MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timedSubmission,
-                true);
+            command.DrawProceduralIndirect(_grid.M8FlowerIndices, Matrix4x4.identity,
+                _material, 0, MeshTopology.Triangles, _grid.M8FlowerIndirectCommands, 0);
+            MerkabaGpuTimestamps.End(CaptureOwner.Draw, command, timed);
+            MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timed, true);
         }
 
-        private int ConfigureReadout(Camera camera)
+        internal void SetDynamicOcclusionEnabled(bool enabled)
         {
-            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
-            Vector3 cameraGridMeters = worldToGrid.MultiplyPoint3x4(
-                camera.transform.position);
-            var global = new Unity.Mathematics.int3(
-                Mathf.FloorToInt(cameraGridMeters.x / MerkabaConstants.LatticeStep),
-                Mathf.FloorToInt(cameraGridMeters.y / MerkabaConstants.LatticeStep),
-                Mathf.FloorToInt(cameraGridMeters.z / MerkabaConstants.LatticeStep));
-            Unity.Mathematics.int3 centerBlock = MerkabaSpatial.Encode(global).BlockCoord;
-            float coverageDistance = renderDistance + readoutTranslationGuard;
-            float warmDistance = coverageDistance +
-                MerkabaSpatial.BlockWorldSize;
-            int radius = Mathf.CeilToInt(warmDistance /
-                MerkabaSpatial.BlockWorldSize) + 1;
-            int side = radius * 2 + 1;
+            _dynamicOcclusionEnabled = enabled;
+            SetKeyword("M8_ENVIRONMENT_OCCLUSION", enabled);
+        }
 
-            readoutCompute.SetVector("_M8CameraGridMeters",
-                cameraGridMeters);
-            MerkabaReadoutCoverage.WriteGridMetric(
-                _grid.GridToWorldMatrix, out Vector3 metricDiagonal,
-                out Vector3 metricCross);
-            readoutCompute.SetVector("_M8GridMetricDiagonal",
-                metricDiagonal);
-            readoutCompute.SetVector("_M8GridMetricCross", metricCross);
-            readoutCompute.SetFloat("_M8RenderDistance", coverageDistance);
-            readoutCompute.SetFloat("_M8WarmDistance", warmDistance);
-            readoutCompute.SetFloat("_M8DependencyDistance",
-                coverageDistance);
-            readoutCompute.SetInts("_M8QueryCenterBlock", centerBlock.x,
-                centerBlock.y, centerBlock.z);
-            readoutCompute.SetInt("_M8QueryBlockRadius", radius);
-            readoutCompute.SetInt("_M8QueryBlockSide", side);
-            return side;
+        private void ReportDrawUnavailable()
+        {
+            if (_reportedDrawUnavailable) return;
+            _reportedDrawUnavailable = true;
+            Logger.Error("Flower indexed indirect-count draw is unavailable; no legacy mesh fallback exists.");
+        }
+
+        internal void SetFineSurfacePreview(FineBrushDescriptor descriptor, Color color)
+        {
+            _finePreviewDescriptor = descriptor;
+            _finePreviewColor = color;
+            ApplyFinePreviewState();
+        }
+
+        private void SetKeyword(string keyword, bool enabled)
+        {
+            if (_material == null) return;
+            if (enabled) _material.EnableKeyword(keyword);
+            else _material.DisableKeyword(keyword);
         }
 
         private void ApplyOpacityState()
         {
-            bool coverage = scanOpacity < 0.999f;
-            for (int slot = 0; slot < 2; slot++)
-            {
-                Material material = _materials[slot];
-                if (material == null) continue;
-                material.SetFloat(ScanOpacityId, scanOpacity);
-                if (coverage) material.EnableKeyword("M8_ALPHA_COVERAGE");
-                else material.DisableKeyword("M8_ALPHA_COVERAGE");
-                material.renderQueue = (int)RenderQueue.Geometry;
-            }
+            if (_material == null) return;
+            _material.SetFloat(ScanOpacityId, scanOpacity);
+            _material.renderQueue = (int)RenderQueue.Geometry;
+            SetKeyword("M8_ALPHA_COVERAGE", scanOpacity < 1f);
         }
 
         private void ApplyFinePreviewState()
         {
+            if (_material == null) return;
             bool active = _finePreviewDescriptor.IsActive;
             Color tint = _finePreviewColor;
             tint.a = 0.25f;
-            Vector4 parameters = active
-                ? new Vector4(1f,
-                    _finePreviewDescriptor.Radius *
-                    _finePreviewDescriptor.Radius,
-                    _finePreviewDescriptor.Length, 0f)
-                : Vector4.zero;
-            for (int slot = 0; slot < 2; slot++)
-            {
-                Material material = _materials[slot];
-                if (material == null) continue;
-                material.SetVector(FineCursorPositionId,
-                    _finePreviewDescriptor.CursorPosition);
-                material.SetVector(FineBrushAxisId,
-                    _finePreviewDescriptor.Axis);
-                material.SetVector(FineBrushParamsId, parameters);
-                material.SetColor(FinePreviewColorId, tint);
-                if (active) material.EnableKeyword("M8_FINE_PREVIEW");
-                else material.DisableKeyword("M8_FINE_PREVIEW");
-            }
-        }
-
-        private void ApplyRasterFeatureState()
-        {
-            for (int slot = 0; slot < 2; slot++)
-            {
-                Material material = _materials[slot];
-                if (material == null) continue;
-                if (_dynamicOcclusionEnabled)
-                    material.EnableKeyword("M8_ENVIRONMENT_OCCLUSION");
-                else
-                    material.DisableKeyword("M8_ENVIRONMENT_OCCLUSION");
-            }
-            ApplyOpacityState();
-        }
-
-        private void ApplyCheckerReadoutState()
-        {
-            for (int slot = 0; slot < 2; slot++)
-            {
-                Material material = _materials[slot];
-                if (material == null) continue;
-                ApplyCheckerReadoutState(material);
-            }
-        }
-
-        private void ApplyCheckerReadoutState(Material material)
-        {
-            bool standardReadout =
-                !material.IsKeywordEnabled("M8_STEREO_MESH");
-            if (checkerReadoutEnabled && standardReadout)
-                material.EnableKeyword("M8_CHECKER_READOUT");
-            else
-                material.DisableKeyword("M8_CHECKER_READOUT");
-        }
-
-        private void RequestStatusIfDue()
-        {
-            if (_grid == null || _grid.GpuSubmissionSuspended ||
-                MerkabaNativeVulkanExecutor.HasJobInFlight ||
-                _statusReadbackPending || Time.unscaledTime < _nextStatusReadback)
-                return;
-            _statusReadbackPending = true;
-            _nextStatusReadback = Time.unscaledTime + 1f;
-            uint lifecycleGeneration = _lifecycleGeneration;
-            AsyncGPUReadback.Request(_grid.M8Counters, request =>
-            {
-                if (this == null || lifecycleGeneration !=
-                    _lifecycleGeneration)
-                    return;
-                _statusReadbackPending = false;
-                if (request.hasError) return;
-                var counters = request.GetData<uint>();
-                VisibleTileCount = ToInt(counters[21]);
-                VisiblePrimitiveCount = ToInt(counters[22]);
-                LateDrawColdMisses = ToInt(counters[24]);
-                VisibleChunkCount = ToInt(counters[28]);
-                VisibleSurfaceKernelCount = ToInt(counters[29]);
-                RenderPrimitiveOverflow = counters[23] != 0u;
-            });
+            _material.SetVector(FineCursorPositionId, _finePreviewDescriptor.CursorPosition);
+            _material.SetVector(FineBrushAxisId, _finePreviewDescriptor.Axis);
+            _material.SetVector(FineBrushParamsId, active ? new Vector4(1f,
+                _finePreviewDescriptor.Radius * _finePreviewDescriptor.Radius,
+                _finePreviewDescriptor.Length, 0f) : Vector4.zero);
+            _material.SetColor(FinePreviewColorId, tint);
+            SetKeyword("M8_FINE_PREVIEW", active);
         }
 
         private static uint NextNonZero(ref uint value)
         {
-            unchecked
-            {
-                value++;
-                if (value == 0u) value = 1u;
-                return value;
-            }
+            unchecked { if (++value == 0u) value = 1u; }
+            return value;
         }
-
-        private static int ToInt(uint value) =>
-            value > int.MaxValue ? int.MaxValue : (int)value;
     }
 }

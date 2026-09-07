@@ -84,6 +84,12 @@ struct FlowerSymbolKey {
     int32_t junction[3];
     uint32_t tag;
 };
+struct FlowerSymbolRecord {
+    uint32_t ownerAndCarrier;
+    uint32_t rootsAndWedges;
+    uint32_t detailRef;
+    uint32_t threadRef;
+};
 struct ObservationRecord {
     uint32_t tileAndKernel;
     uint32_t sourcePixel;
@@ -120,6 +126,7 @@ static_assert(sizeof(ThreadColorInterval) == 16u);
 static_assert(sizeof(ThreadColorGroup) == 112u);
 static_assert(sizeof(ThreadProgramRecord) == 48u);
 static_assert(sizeof(FlowerSymbolKey) == 16u);
+static_assert(sizeof(FlowerSymbolRecord) == 16u);
 static_assert(sizeof(ObservationRecord) == 16u);
 static_assert(sizeof(RecordHeader) == 28u);
 static_assert(sizeof(TombstoneRecord) == 8u);

@@ -240,6 +240,45 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException("3D Tiles leaf membrane is empty.");
             Bounds(items, out int3 minimum, out int3 maximum, out _);
             float3 localOrigin = LocalOrigin(minimum, maximum);
+            return WriteStreamingLeaf(directory, leafIndex, minimum, maximum,
+                localOrigin, stream => MerkabaGlbWriter.Write(stream, membrane,
+                    localOrigin, progress), hardLeafBytes);
+        }
+
+        internal static MerkabaTilesetLeaf WriteStreamingDirtLeaf(
+            string directory, int leafIndex,
+            IReadOnlyList<MerkabaDirtTriangle> triangles,
+            IProgress<OperationWorkProgress> progress = null,
+            long hardLeafBytes = DefaultHardLeafBytes)
+        {
+            if (triangles == null) throw new ArgumentNullException(nameof(triangles));
+            if (triangles.Count == 0)
+                throw new InvalidDataException("3D Tiles DIRT leaf is empty.");
+            int3 minimum = triangles[0].Cell;
+            int3 maximum = minimum;
+            for (int index = 1; index < triangles.Count; index++)
+            {
+                minimum = math.min(minimum, triangles[index].Cell);
+                maximum = math.max(maximum, triangles[index].Cell);
+            }
+            int3 center = new(
+                (int)(((long)minimum.x + maximum.x) >> 1),
+                (int)(((long)minimum.y + maximum.y) >> 1),
+                (int)(((long)minimum.z + maximum.z) >> 1));
+            float3 origin = new(
+                MerkabaSphereFlowerAuthority.DirtGridCoordinate(center.x),
+                MerkabaSphereFlowerAuthority.DirtGridCoordinate(center.y),
+                MerkabaSphereFlowerAuthority.DirtGridCoordinate(center.z));
+            return WriteStreamingLeaf(directory, leafIndex, minimum, maximum,
+                origin, stream => MerkabaGlbWriter.WriteDirt(stream, triangles,
+                    origin, progress), hardLeafBytes);
+        }
+
+        private static MerkabaTilesetLeaf WriteStreamingLeaf(
+            string directory, int leafIndex, int3 minimum, int3 maximum,
+            float3 localOrigin, Func<Stream, MerkabaGlbResult> write,
+            long hardLeafBytes)
+        {
             string name = leafIndex.ToString("D6",
                 CultureInfo.InvariantCulture) + ".glb";
             string finalPath = Path.Combine(directory, "tiles", name);
@@ -249,8 +288,7 @@ namespace Genesis.RoomScan
                        FileMode.CreateNew, FileAccess.Write, FileShare.None,
                        1024 * 1024, FileOptions.SequentialScan))
             {
-                result = MerkabaGlbWriter.Write(stream, membrane,
-                    localOrigin, progress);
+                result = write(stream);
                 stream.Flush(true);
             }
             if (result.ByteLength > hardLeafBytes)

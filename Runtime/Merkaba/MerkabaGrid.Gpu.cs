@@ -12,10 +12,31 @@ namespace Genesis.RoomScan
     {
         private volatile bool _gpuSubmissionSuspended;
         private Task _gpuRetirementTask = Task.CompletedTask;
+        private const uint DualGenerationLimit = 0x3fffffffu;
+        private uint _dualGenerationSequence;
+        private uint _dualPublishedGeneration;
+        private uint _dualRetiredGeneration;
+        private uint _dualDurableGeneration;
+        private uint _dualMutationGeneration;
+        private uint _dualReclaimCursor;
+        private bool _dualNativeMutation;
+        private bool _dualSubmissionUncertain;
+        private GraphicsFence _dualRetirementFence;
+        private uint _dualRetirementFenceGeneration;
+        private bool _dualRetirementFencePending;
+        private static readonly int DualPublishingGenerationId =
+            Shader.PropertyToID("_M8DualPublishingGeneration");
+        private static readonly int DualRetiredGenerationId =
+            Shader.PropertyToID("_M8DualRetiredGeneration");
+        private static readonly int DualDurableGenerationId =
+            Shader.PropertyToID("_M8DualDurableGeneration");
+        private static readonly int DualReclaimCursorId =
+            Shader.PropertyToID("_M8DualReclaimCursor");
+        private static readonly int DrainSourceGenerationId =
+            Shader.PropertyToID("_M8DrainSourceGeneration");
         [Header("M8 GPU World")]
         [SerializeField] private ComputeShader worldCompute;
 
-        internal const int SurfaceCandidateCapacity = 2_097_152;
         // Frozen future data strides only. CUT 02 allocates and binds none of
         // these resources; their owning production cuts do so exactly once.
         internal const int DualBlockMetaStride =
@@ -44,24 +65,10 @@ namespace Genesis.RoomScan
             MerkabaSphereFlowerDataAbi.FlowerSymbolStride;
         internal const int ObservationRecordStride =
             MerkabaSphereFlowerDataAbi.ObservationRecordStride;
-        internal const int SurfaceQueueCapacity = 1_048_576;
         internal const int LoadRequestCapacity = 262144;
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
-        internal const int ReadoutTriangleCapacityPerBuffer = 2_097_152;
-        internal const int ReadoutTriangleCapacity =
-            ReadoutTriangleCapacityPerBuffer * 2;
-        internal const int ReadoutVertexCapacityPerBuffer =
-            ReadoutTriangleCapacityPerBuffer *
-            MerkabaCanonicalGeometry.VerticesPerPrimitive;
-        internal const int ReadoutVertexStride = 16;
-        internal const int ReadoutIndexCapacity = ReadoutTriangleCapacity *
-            MerkabaCanonicalGeometry.VerticesPerPrimitive;
-        internal const int ReadoutIndexStorageCount = ReadoutIndexCapacity;
-        internal const int ReadoutVisibleBufferCount =
-            MerkabaSpatial.PhysicalTileCapacity;
-        internal const int ReadoutResetGroupCount = 1;
-        internal const int CounterCount = 99;
+        internal const int CounterCount = 104;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -95,6 +102,8 @@ namespace Genesis.RoomScan
         internal const int CounterFailedReads = 39;
         internal const int CounterFailedWrites = 40;
         internal const int CounterStorageBackpressure = 41;
+        internal const int CounterObservationCompleted = 44;
+        internal const int CounterObservationToken = 47;
         internal const int CounterOccupiedKernelCount = 42;
         internal const int CounterCarveQueryBlocks = 48;
         internal const int CounterWritebackTiles = 49;
@@ -103,8 +112,8 @@ namespace Genesis.RoomScan
         internal const int CounterFailedObservations = 53;
         internal const int CounterFreeTileCount = 54;
         internal const int CounterLoadsInstalled = 46;
-        internal const int CounterCarveClassifiedFree = 56;
-        internal const int CounterCarveClassifiedSurface = 57;
+        internal const int CounterObservationChangeMask = 56;
+        internal const int CounterDirtyTileCount = 57;
         internal const int CounterCarveClassifiedUnknown = 58;
         internal const int CounterCarveEvidenceDecrements = 59;
         internal const int CounterCarveOccupiedToFree = 60;
@@ -132,18 +141,28 @@ namespace Genesis.RoomScan
         internal const int CounterCarveCheapSurfaceEndpoint = 92;
         internal const int CounterCarveKernelsEvaluated = 93;
         internal const int CounterCarveExactIncidenceReject = 94;
-        internal const int CounterCarveExactDilationReject = 95;
+        internal const int CounterCarveExactCertificateReject = 95;
         internal const int CounterReadoutPlaneLegacyInvalid = 96;
         internal const int CounterReadoutEmittedVertices = 97;
+        internal const int CounterDualStorageIntentCount = 98;
+        internal const int CounterDualTouchPublication = 99;
+        internal const int CounterRefinementPendingTiles = 100;
+        internal const int CounterRefinementWorkProgress = 101;
+        internal const int CounterRefinementBackpressure = 102;
+        internal const int CounterRefinementUnresolved = 103;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
         internal bool GpuSubmissionSuspended => _gpuSubmissionSuspended;
+        internal bool DualMutationSubmissionAllowed => GpuSubmissionAllowed &&
+            _dualMutationGeneration == 0u &&
+            !MerkabaNativeVulkanExecutor.HasJobInFlight;
 
         private bool _gpuReady;
         private int _gpuGeneration;
 
         private int _clearUIntKernel;
+        private int _clearRawKernel;
         private int _clearInt4Kernel;
         private int _initializeFreeTilesKernel;
         private int _resetCountersKernel;
@@ -156,10 +175,12 @@ namespace Genesis.RoomScan
         private int _resetObservationKernel;
         private int _resetClaimQueuesKernel;
         private int _prepareNewTileDispatchKernel;
-        private int _clearTouchedCandidatesKernel;
         private int _prepareEvictionSelectionKernel;
         private int _selectEvictionVictimsKernel;
         private int _gatherWritebackBatchKernel;
+        private int _transferFlowerStorageKernel;
+        private int _gatherDualWritebackBatchKernel;
+        private int _acknowledgeDualWritebackBatchKernel;
         private int _acknowledgeWritebackBatchKernel;
         private int _failWritebackBatchKernel;
         private int _prepareLoadedTilesKernel;
@@ -183,6 +204,9 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8TileBits;
         private ComputeBuffer _m8TileRecords;
         private ComputeBuffer _m8TileHalo;
+        private ComputeBuffer _m8DualBlockState;
+        private ComputeBuffer _m8DualChunkState;
+        private ComputeBuffer _m8DualLeaves;
         private ComputeBuffer _m8FreeTileStack;
         private ComputeBuffer _m8Counters;
         private ComputeBuffer _m8AttemptCompletion;
@@ -190,25 +214,9 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8PendingNewTileRefs;
         private ComputeBuffer _m8LoadRequests;
         private ComputeBuffer _m8LoadRequestReadCount;
-        private ComputeBuffer _m8SurfaceCandidates;
-        private ComputeBuffer _m8SurfaceQueue;
-        private ComputeBuffer _m8SurfaceWinnerRanks0;
-        private ComputeBuffer _m8SurfaceWinnerRanks1;
-        private ComputeBuffer _m8SurfaceWinnerRanks2;
-        private ComputeBuffer _m8SurfaceWinnerRanks3;
+        private ComputeBuffer _m8ObservationRecords;
         private ComputeBuffer _m8TouchedTileQueue;
-        private ComputeBuffer _m8CarveTiles;
-        private ComputeBuffer _m8CarveDispatchArgs;
-        private ComputeBuffer _m8VisibleTiles;
-        private readonly Mesh[] _m8ReadoutMeshes = new Mesh[2];
-        private readonly GraphicsBuffer[] _m8ReadoutVertices0 =
-            new GraphicsBuffer[2];
-        private readonly GraphicsBuffer[] _m8ReadoutVertices1 =
-            new GraphicsBuffer[2];
-        private readonly GraphicsBuffer[] _m8ReadoutIndices =
-            new GraphicsBuffer[2];
         private ComputeBuffer _m8FrameDispatchArgs;
-        private readonly ComputeBuffer[] _m8DrawArgs = new ComputeBuffer[2];
         private ComputeBuffer _m8ObservationDispatchArgs;
         private ComputeBuffer _m8WritebackQueue;
         private ComputeBuffer _m8WritebackStaging;
@@ -234,6 +242,9 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8TileBits => _m8TileBits;
         internal ComputeBuffer M8TileRecords => _m8TileRecords;
         internal ComputeBuffer M8TileHalo => _m8TileHalo;
+        internal ComputeBuffer M8DualBlockState => _m8DualBlockState;
+        internal ComputeBuffer M8DualChunkState => _m8DualChunkState;
+        internal ComputeBuffer M8DualLeaves => _m8DualLeaves;
         internal ComputeBuffer M8FreeTileStack => _m8FreeTileStack;
         internal ComputeBuffer M8Counters => _m8Counters;
         internal ComputeBuffer M8AttemptCompletion => _m8AttemptCompletion;
@@ -242,31 +253,9 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8LoadRequests => _m8LoadRequests;
         internal ComputeBuffer M8LoadRequestReadCount =>
             _m8LoadRequestReadCount;
-        internal ComputeBuffer M8SurfaceCandidates => _m8SurfaceCandidates;
-        internal ComputeBuffer M8SurfaceQueue => _m8SurfaceQueue;
-        internal ComputeBuffer M8SurfaceWinnerRanks0 =>
-            _m8SurfaceWinnerRanks0;
-        internal ComputeBuffer M8SurfaceWinnerRanks1 =>
-            _m8SurfaceWinnerRanks1;
-        internal ComputeBuffer M8SurfaceWinnerRanks2 =>
-            _m8SurfaceWinnerRanks2;
-        internal ComputeBuffer M8SurfaceWinnerRanks3 =>
-            _m8SurfaceWinnerRanks3;
+        internal ComputeBuffer M8ObservationRecords => _m8ObservationRecords;
         internal ComputeBuffer M8TouchedTileQueue => _m8TouchedTileQueue;
-        internal ComputeBuffer M8CarveTiles => _m8CarveTiles;
-        internal ComputeBuffer M8CarveDispatchArgs => _m8CarveDispatchArgs;
-        internal ComputeBuffer M8VisibleTiles => _m8VisibleTiles;
-        internal Mesh GetM8ReadoutMesh(int slot) =>
-            _m8ReadoutMeshes[ValidateReadoutSlot(slot)];
-        internal GraphicsBuffer GetM8ReadoutVertices0(int slot) =>
-            _m8ReadoutVertices0[ValidateReadoutSlot(slot)];
-        internal GraphicsBuffer GetM8ReadoutVertices1(int slot) =>
-            _m8ReadoutVertices1[ValidateReadoutSlot(slot)];
-        internal GraphicsBuffer GetM8ReadoutIndices(int slot) =>
-            _m8ReadoutIndices[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8FrameDispatchArgs => _m8FrameDispatchArgs;
-        internal ComputeBuffer GetM8DrawArgs(int slot) =>
-            _m8DrawArgs[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8ObservationDispatchArgs => _m8ObservationDispatchArgs;
         internal ComputeBuffer M8WritebackQueue => _m8WritebackQueue;
         internal ComputeBuffer M8WritebackStaging => _m8WritebackStaging;
@@ -311,6 +300,14 @@ namespace Genesis.RoomScan
             Set(MerkabaNativeVulkanExecutor.Resource.TileRecords,
                 _m8TileRecords);
             Set(MerkabaNativeVulkanExecutor.Resource.TileHalo, _m8TileHalo);
+            Set(MerkabaNativeVulkanExecutor.Resource.DualBlockState, _m8DualBlockState);
+            Set(MerkabaNativeVulkanExecutor.Resource.DualChunkState, _m8DualChunkState);
+            Set(MerkabaNativeVulkanExecutor.Resource.DualLeaves, _m8DualLeaves);
+            Set(MerkabaNativeVulkanExecutor.Resource.FlowerDetailPages, _m8FlowerDetailPages);
+            Set(MerkabaNativeVulkanExecutor.Resource.ThreadAtlasPages, _m8ThreadAtlasPages);
+            Set(MerkabaNativeVulkanExecutor.Resource.FlowerSymbolArena, _m8FlowerSymbolArena);
+            Set(MerkabaNativeVulkanExecutor.Resource.FlowerPageDirectory, _m8FlowerPageDirectory);
+            Set(MerkabaNativeVulkanExecutor.Resource.FlowerIndirectCommands, _m8FlowerIndirectCommands);
             Set(MerkabaNativeVulkanExecutor.Resource.FreeTileStack,
                 _m8FreeTileStack);
             Set(MerkabaNativeVulkanExecutor.Resource.Counters, _m8Counters);
@@ -322,36 +319,34 @@ namespace Genesis.RoomScan
                 _m8LoadRequests);
             Set(MerkabaNativeVulkanExecutor.Resource.LoadRequestReadCount,
                 _m8LoadRequestReadCount);
-            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceCandidates,
-                _m8SurfaceCandidates);
-            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceQueue,
-                _m8SurfaceQueue);
-            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks0,
-                _m8SurfaceWinnerRanks0);
-            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks1,
-                _m8SurfaceWinnerRanks1);
-            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks2,
-                _m8SurfaceWinnerRanks2);
-            Set(MerkabaNativeVulkanExecutor.Resource.SurfaceWinnerRanks3,
-                _m8SurfaceWinnerRanks3);
+            Set(MerkabaNativeVulkanExecutor.Resource.ObservationRecords,
+                _m8ObservationRecords);
             Set(MerkabaNativeVulkanExecutor.Resource.TouchedTileQueue,
                 _m8TouchedTileQueue);
-            Set(MerkabaNativeVulkanExecutor.Resource.CarveTiles,
-                _m8CarveTiles);
             Set(MerkabaNativeVulkanExecutor.Resource.ObservationDispatchArgs,
                 _m8ObservationDispatchArgs);
-            Set(MerkabaNativeVulkanExecutor.Resource.CarveDispatchArgs,
-                _m8CarveDispatchArgs);
             Set(MerkabaNativeVulkanExecutor.Resource.AttemptCompletion,
                 _m8AttemptCompletion);
-            Set(MerkabaNativeVulkanExecutor.Resource.VisibleTiles,
-                _m8VisibleTiles);
             Set(MerkabaNativeVulkanExecutor.Resource.FrameDispatchArgs,
                 _m8FrameDispatchArgs);
         }
 
         internal bool GpuReady => _gpuReady;
         internal Matrix4x4 GridToWorldMatrix => transform.localToWorldMatrix;
+        internal bool FlowerGraphicsReadAllowed => GpuSubmissionAllowed &&
+            _dualMutationGeneration == 0u && !_dualSubmissionUncertain &&
+            !MerkabaNativeVulkanExecutor.HasJobInFlight;
+
+        // The existing serialized lease waits for every preceding raw reader.
+        internal uint FlowerGraphicsRetiredGeneration
+        {
+            get
+            {
+                if (_dualMutationGeneration == 0u)
+                    throw new InvalidOperationException("Flower publication requires the serialized GPU lease.");
+                return _dualPublishedGeneration;
+            }
+        }
         internal int M8BlockCount { get; private set; }
         internal int M8ChunkCount { get; private set; }
         internal int M8HotTileCount { get; private set; }
@@ -414,10 +409,17 @@ namespace Genesis.RoomScan
                 _m8TileRecords = Allocate(MerkabaSpatial.TileRecordCount, 16);
                 _m8TileHalo = Allocate(MerkabaSpatial.PhysicalTileCapacity * 27,
                     sizeof(uint));
+                _m8DualBlockState = Allocate(MerkabaDualGpuLayout.BlockBufferBytes / 4,
+                    sizeof(uint), ComputeBufferType.Raw);
+                _m8DualChunkState = Allocate(MerkabaDualGpuLayout.ChunkBufferBytes / 4,
+                    sizeof(uint), ComputeBufferType.Raw);
+                _m8DualLeaves = Allocate(MerkabaDualGpuLayout.LeafBufferBytes / 4,
+                    sizeof(uint), ComputeBufferType.Raw);
                 _m8FreeTileStack = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
                 _m8AttemptCompletion = Allocate(1, sizeof(uint) * 4);
+                AllocateFlowerPages();
 
                 _m8ClaimQueue = Allocate(MerkabaSpatial.ClaimRecordCount,
                     sizeof(uint) * 2);
@@ -425,27 +427,9 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8LoadRequests = Allocate(LoadRequestCapacity, 16);
                 _m8LoadRequestReadCount = Allocate(1, sizeof(uint));
-                _m8SurfaceCandidates = Allocate(SurfaceCandidateCapacity, 16);
-                _m8SurfaceQueue = Allocate(SurfaceQueueCapacity,
-                    sizeof(uint) * 2);
-                _m8SurfaceWinnerRanks0 = Allocate(bankStateCount, sizeof(uint));
-                _m8SurfaceWinnerRanks1 = Allocate(bankStateCount, sizeof(uint));
-                _m8SurfaceWinnerRanks2 = Allocate(bankStateCount, sizeof(uint));
-                _m8SurfaceWinnerRanks3 = Allocate(bankStateCount, sizeof(uint));
+                _m8ObservationRecords = Allocate(MerkabaObservationRecord.Capacity, MerkabaObservationRecord.ByteSize);
                 _m8TouchedTileQueue = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
-                _m8CarveTiles = Allocate(MerkabaSpatial.PhysicalTileCapacity,
-                    sizeof(uint));
-                _m8CarveDispatchArgs = Allocate(3, sizeof(uint),
-                    ComputeBufferType.IndirectArguments);
-                _m8VisibleTiles = Allocate(ReadoutVisibleBufferCount,
-                    sizeof(uint) * 2);
-                for (int slot = 0; slot < 2; slot++)
-                {
-                    _m8ReadoutMeshes[slot] = AllocateReadoutMesh(slot);
-                    _m8DrawArgs[slot] = Allocate(5, sizeof(uint),
-                        ComputeBufferType.IndirectArguments);
-                }
                 _m8FrameDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
                 _m8ObservationDispatchArgs = Allocate(3, sizeof(uint),
@@ -453,10 +437,10 @@ namespace Genesis.RoomScan
                 _m8WritebackQueue = Allocate(StreamBatchCapacity,
                     sizeof(uint) * 2);
                 _m8WritebackStaging = Allocate(StreamBatchCapacity *
-                    (MerkabaSpatial.KernelsPerTile + 1), 16);
+                    MerkabaDualGpuLayout.WritebackTileRecords, 16);
                 _m8LoadStagingAddresses = Allocate(StreamBatchCapacity, 16);
                 _m8LoadStagingStates = Allocate(StreamBatchCapacity *
-                    MerkabaSpatial.KernelsPerTile, 16);
+                    MerkabaDualGpuLayout.LoadTileRecords, 16);
                 _m8HashBenchmarkOutput = Allocate(MerkabaSpatial.BlockCapacity, 16);
 
                 BindWorldBuffers(worldCompute, _initializeFreeTilesKernel);
@@ -470,10 +454,12 @@ namespace Genesis.RoomScan
                 BindWorldBuffers(worldCompute, _resetObservationKernel);
                 BindWorldBuffers(worldCompute, _resetClaimQueuesKernel);
                 BindWorldBuffers(worldCompute, _prepareNewTileDispatchKernel);
-                BindWorldBuffers(worldCompute, _clearTouchedCandidatesKernel);
                 BindWorldBuffers(worldCompute, _prepareEvictionSelectionKernel);
                 BindWorldBuffers(worldCompute, _selectEvictionVictimsKernel);
                 BindWorldBuffers(worldCompute, _gatherWritebackBatchKernel);
+                BindWorldBuffers(worldCompute, _transferFlowerStorageKernel);
+                BindWorldBuffers(worldCompute, _gatherDualWritebackBatchKernel);
+                BindWorldBuffers(worldCompute, _acknowledgeDualWritebackBatchKernel);
                 BindWorldBuffers(worldCompute, _acknowledgeWritebackBatchKernel);
                 BindWorldBuffers(worldCompute, _failWritebackBatchKernel);
                 BindWorldBuffers(worldCompute, _prepareLoadedTilesKernel);
@@ -526,15 +512,17 @@ namespace Genesis.RoomScan
             _prepareNewTileDispatchKernel = worldCompute.FindProfiledKernel(
                 "PrepareNewTileDispatchArgs",
                 MerkabaGpuStage.SurfaceIntegration);
-            _clearTouchedCandidatesKernel = worldCompute.FindProfiledKernel(
-                "ClearTouchedSurfaceCandidates",
-                MerkabaGpuStage.SurfaceIntegration);
             _prepareEvictionSelectionKernel =
                 worldCompute.FindKernel("PrepareEvictionSelection");
             _selectEvictionVictimsKernel =
                 worldCompute.FindKernel("SelectEvictionVictims");
             _gatherWritebackBatchKernel =
                 worldCompute.FindKernel("GatherWritebackBatch");
+            _transferFlowerStorageKernel = worldCompute.FindKernel("TransferFlowerStorage");
+            _gatherDualWritebackBatchKernel =
+                worldCompute.FindKernel("GatherDualWritebackBatch");
+            _acknowledgeDualWritebackBatchKernel =
+                worldCompute.FindKernel("AcknowledgeDualWritebackBatch");
             _acknowledgeWritebackBatchKernel =
                 worldCompute.FindKernel("AcknowledgeWritebackBatch");
             _failWritebackBatchKernel =
@@ -551,78 +539,37 @@ namespace Genesis.RoomScan
         private ComputeBuffer Allocate(int count, int stride,
             ComputeBufferType type = ComputeBufferType.Structured)
         {
+            ValidateGpuBufferAllocation(count, stride);
             var buffer = new ComputeBuffer(count, stride, type);
             _allGpuBuffers.Add(buffer);
             return buffer;
         }
 
-        private Mesh AllocateReadoutMesh(int slot)
+        internal const long MaximumGpuBufferBytes = 128L * 1024 * 1024;
+
+        internal static void ValidateGpuBufferAllocation(int count, int stride)
         {
-            var mesh = new Mesh
-            {
-                name = $"Merkaba M8 Readout Publication {slot}",
-                indexFormat = IndexFormat.UInt32,
-                bounds = new Bounds(Vector3.zero,
-                    Vector3.one * 1_000_000f)
-            };
-            GraphicsBuffer vertices0 = null;
-            GraphicsBuffer vertices1 = null;
-            GraphicsBuffer indices = null;
-            try
-            {
-                mesh.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
-                mesh.indexBufferTarget |= GraphicsBuffer.Target.Raw;
-                mesh.SetVertexBufferParams(ReadoutVertexCapacityPerBuffer,
-                    new VertexAttributeDescriptor(VertexAttribute.Position,
-                        VertexAttributeFormat.Float32, 3, 0),
-                    new VertexAttributeDescriptor(VertexAttribute.Color,
-                        VertexAttributeFormat.UNorm8, 4, 0),
-                    new VertexAttributeDescriptor(VertexAttribute.TexCoord0,
-                        VertexAttributeFormat.Float32, 3, 1),
-                    new VertexAttributeDescriptor(VertexAttribute.TexCoord1,
-                        VertexAttributeFormat.UNorm8, 4, 1));
-                mesh.SetIndexBufferParams(ReadoutIndexStorageCount,
-                    IndexFormat.UInt32);
-                mesh.subMeshCount = 1;
-                mesh.SetSubMesh(0, new SubMeshDescriptor(0,
-                        ReadoutIndexCapacity, MeshTopology.Triangles)
-                    {
-                        firstVertex = 0,
-                        vertexCount = ReadoutVertexCapacityPerBuffer,
-                        bounds = mesh.bounds
-                    }, MeshUpdateFlags.DontRecalculateBounds |
-                       MeshUpdateFlags.DontValidateIndices |
-                       MeshUpdateFlags.DontNotifyMeshUsers);
-                if (mesh.GetVertexBufferStride(0) != ReadoutVertexStride ||
-                    mesh.GetVertexBufferStride(1) != ReadoutVertexStride ||
-                    mesh.GetVertexAttributeOffset(VertexAttribute.Color) != 12 ||
-                    mesh.GetVertexAttributeOffset(VertexAttribute.TexCoord1) != 12)
-                    throw new InvalidOperationException(
-                        "M8 readout Mesh vertex ABI must be two 16-byte streams.");
-                // The readout compiler owns the GPU contents. Keeping Unity's
-                // parallel CPU copy would duplicate hundreds of MiB without
-                // ever becoming authoritative or readable by this pipeline.
-                mesh.UploadMeshData(true);
-                vertices0 = mesh.GetVertexBuffer(0);
-                vertices1 = mesh.GetVertexBuffer(1);
-                indices = mesh.GetIndexBuffer();
-                _m8ReadoutVertices0[slot] = vertices0;
-                _m8ReadoutVertices1[slot] = vertices1;
-                _m8ReadoutIndices[slot] = indices;
-                return mesh;
-            }
-            catch
-            {
-                vertices0?.Dispose();
-                vertices1?.Dispose();
-                indices?.Dispose();
-                Destroy(mesh);
-                throw;
-            }
+            if (count <= 0) throw new ArgumentOutOfRangeException(nameof(count));
+            if (stride <= 0) throw new ArgumentOutOfRangeException(nameof(stride));
+            long bytes = checked((long)count * stride);
+            long limit = Math.Min(MaximumGpuBufferBytes, SystemInfo.maxGraphicsBufferSize);
+            if (bytes > limit)
+                throw new InvalidOperationException(
+                    $"M8 buffer allocation {count} × {stride} = {bytes} bytes exceeds " +
+                    $"the {limit}-byte device/Quest limit (128 MiB maximum per buffer). " +
+                    "Contract capacities cannot be silently reduced.");
         }
+
 
         internal void BindWorldBuffers(ComputeShader shader, int kernel)
         {
+            BindFlowerPages(shader, kernel);
+            shader.SetBuffer(kernel, "_M8DualBlockState", _m8DualBlockState);
+            shader.SetBuffer(kernel, "_M8DualChunkState", _m8DualChunkState);
+            shader.SetBuffer(kernel, "_M8DualLeaves", _m8DualLeaves);
+            shader.SetBuffer(kernel, "_M8DualBlockStateRead", _m8DualBlockState);
+            shader.SetBuffer(kernel, "_M8DualChunkStateRead", _m8DualChunkState);
+            shader.SetBuffer(kernel, "_M8DualLeavesRead", _m8DualLeaves);
             shader.SetBuffer(kernel, "_M8HashEntries", _m8HashEntries);
             shader.SetBuffer(kernel, "_M8HashEntriesRead", _m8HashEntries);
             shader.SetBuffer(kernel, "_M8OwnerRecords", _m8OwnerRecords);
@@ -673,25 +620,229 @@ namespace Genesis.RoomScan
                 _m8LoadStagingAddresses);
             shader.SetBuffer(kernel, "_M8LoadStagingStates",
                 _m8LoadStagingStates);
+            shader.SetBuffer(kernel, "_M8LoadStagingStatesWrite",
+                _m8LoadStagingStates);
         }
 
-        internal void SelectEvictionVictims(bool allDirty)
+        private uint ReserveDualMutation()
         {
-            if (!GpuSubmissionAllowed) return;
-            worldCompute.SetInt(EvictAllDirtyId, allDirty ? 1 : 0);
-            worldCompute.SetInt(SafeEpochId, 3);
-            worldCompute.Dispatch(_prepareEvictionSelectionKernel, 1, 1, 1);
-            worldCompute.Dispatch(_selectEvictionVictimsKernel,
-                DivideRoundUp(MerkabaSpatial.PhysicalTileCapacity, 256), 1, 1);
-            worldCompute.Dispatch(_gatherWritebackBatchKernel,
-                StreamBatchCapacity, 1, 1);
+            if (!GpuSubmissionAllowed || _dualMutationGeneration != 0u ||
+                MerkabaNativeVulkanExecutor.HasJobInFlight)
+                throw new InvalidOperationException(
+                    "Dual mutation requires the exclusive serialized GPU lease.");
+            if (!SystemInfo.supportsGraphicsFence)
+                throw new NotSupportedException(
+                    "Dual generation retirement requires GPU fences.");
+            PollDualRetirement();
+            if (_dualGenerationSequence == DualGenerationLimit)
+            {
+                _gpuSubmissionSuspended = true;
+                throw new InvalidOperationException(
+                    "Dual generation capacity exhausted; wrapping is forbidden.");
+            }
+            _dualMutationGeneration = ++_dualGenerationSequence;
+            return _dualMutationGeneration;
         }
 
-        internal void AcknowledgeWritebackBatch(int count)
+        // All raw-dual access is on the graphics queue or the one serialized
+        // native job. The graphics fence covers *all* preceding readers, not
+        // only the preceding writer. Its GPU wait executes before the shader
+        // sees the retired bound. CPU retirement is advanced separately.
+        internal uint RecordDualMutation(CommandBuffer command, ComputeShader shader)
         {
-            if (!GpuSubmissionAllowed) return;
-            worldCompute.SetInt(StreamBatchCountId, count);
-            worldCompute.Dispatch(_acknowledgeWritebackBatchKernel, 1, 1, 1);
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (shader == null) throw new ArgumentNullException(nameof(shader));
+            uint generation = ReserveDualMutation();
+            try
+            {
+                GraphicsFence prior = command.CreateGraphicsFence(
+                    GraphicsFenceType.AsyncQueueSynchronisation,
+                    SynchronisationStageFlags.AllGPUOperations);
+                command.WaitOnAsyncGraphicsFence(prior);
+                command.SetComputeIntParam(shader, DualPublishingGenerationId,
+                    checked((int)generation));
+                command.SetComputeIntParam(shader, DualRetiredGenerationId,
+                    checked((int)_dualPublishedGeneration));
+                command.SetComputeIntParam(shader, DualDurableGenerationId,
+                    checked((int)_dualDurableGeneration));
+                return generation;
+            }
+            catch
+            {
+                CancelDualMutationBeforeSubmit(generation);
+                throw;
+            }
+        }
+
+        internal void SubmitDualMutation(CommandBuffer command, uint generation)
+        {
+            if (generation == 0u || generation != _dualMutationGeneration ||
+                _dualNativeMutation)
+                throw new InvalidOperationException("Invalid dual GPU lease.");
+            GraphicsFence retired = command.CreateGraphicsFence(
+                GraphicsFenceType.AsyncQueueSynchronisation,
+                SynchronisationStageFlags.AllGPUOperations);
+            try { Graphics.ExecuteCommandBuffer(command); }
+            catch
+            {
+                // Unity may already have accepted the command. Neither this
+                // generation nor its buffers may be recycled speculatively.
+                _dualSubmissionUncertain = true;
+                _gpuSubmissionSuspended = true;
+                throw;
+            }
+            _dualPublishedGeneration = generation;
+            _dualRetirementFence = retired;
+            _dualRetirementFenceGeneration = generation;
+            _dualRetirementFencePending = true;
+            _dualMutationGeneration = 0u;
+        }
+
+        internal uint BeginNativeDualMutation(MerkabaNativeUniformTable uniforms)
+        {
+            if (uniforms == null) throw new ArgumentNullException(nameof(uniforms));
+            uint generation = ReserveDualMutation();
+            _dualNativeMutation = true;
+            try
+            {
+                uniforms.UInt("_M8DualPublishingGeneration", generation);
+                // SubmitExecutorJob waits graphicsReady after all preceding
+                // graphics work. No later raw reader can enter during this lease.
+                uniforms.UInt("_M8DualRetiredGeneration", _dualPublishedGeneration);
+                uniforms.UInt("_M8DualDurableGeneration", _dualDurableGeneration);
+                return generation;
+            }
+            catch
+            {
+                CancelDualMutationBeforeSubmit(generation);
+                throw;
+            }
+        }
+
+        internal void CompleteNativeDualMutation(uint generation, bool completed)
+        {
+            if (generation == 0u || generation != _dualMutationGeneration ||
+                !_dualNativeMutation)
+                throw new InvalidOperationException("Invalid native dual GPU lease.");
+            if (!completed)
+            {
+                _dualSubmissionUncertain = true;
+                _gpuSubmissionSuspended = true;
+                return;
+            }
+            // Called only after Poll confirms nativeFence AND acquireFence.
+            _dualPublishedGeneration = generation;
+            _dualRetiredGeneration = generation;
+            _dualRetirementFencePending = false;
+            _dualMutationGeneration = 0u;
+            _dualNativeMutation = false;
+        }
+
+        internal void CancelDualMutationBeforeSubmit(uint generation)
+        {
+            if (generation == 0u || _dualMutationGeneration != generation ||
+                _dualSubmissionUncertain) return;
+            _dualMutationGeneration = 0u;
+            _dualNativeMutation = false;
+        }
+
+        private void PollDualRetirement()
+        {
+            if (!_dualRetirementFencePending || !_dualRetirementFence.passed) return;
+            _dualRetiredGeneration = Math.Max(_dualRetiredGeneration,
+                _dualRetirementFenceGeneration);
+            _dualRetirementFencePending = false;
+        }
+
+        internal void RestoreDualGenerationFloor(uint maximum)
+        {
+            if (maximum > DualGenerationLimit || !_storageReplacementPending ||
+                !GpuSubmissionAllowed || !SystemInfo.supportsGraphicsFence ||
+                _dualMutationGeneration != 0u ||
+                MerkabaNativeVulkanExecutor.HasJobInFlight)
+                throw new InvalidOperationException("Invalid quiesced dual OPEN generation.");
+            _dualGenerationSequence = Math.Max(_dualGenerationSequence, maximum);
+            _dualPublishedGeneration = Math.Max(_dualPublishedGeneration, maximum);
+            _dualDurableGeneration = maximum;
+            // Imported historical generations have no live native readers.
+            // Prior graphics work still retires on its real queued fence.
+            CommandBuffer command = CommandBufferPool.Get("Merkaba dual OPEN retirement");
+            try
+            {
+                _dualRetirementFence = command.CreateGraphicsFence(
+                    GraphicsFenceType.AsyncQueueSynchronisation,
+                    SynchronisationStageFlags.AllGPUOperations);
+                _dualRetirementFenceGeneration = _dualPublishedGeneration;
+                Graphics.ExecuteCommandBuffer(command);
+                _dualRetirementFencePending = true;
+            }
+            catch
+            {
+                _dualSubmissionUncertain = true;
+                _gpuSubmissionSuspended = true;
+                throw;
+            }
+            finally { CommandBufferPool.Release(command); }
+        }
+
+        internal void AcknowledgeDualDurableGeneration(uint generation)
+        {
+            if (generation > _dualPublishedGeneration || generation > DualGenerationLimit)
+                throw new InvalidOperationException("Unpublished dual generation cannot be durable.");
+            _dualDurableGeneration = Math.Max(_dualDurableGeneration, generation);
+        }
+
+        internal bool SelectEvictionVictims(bool allDirty)
+        {
+            if (!DualMutationSubmissionAllowed) return false;
+            CommandBuffer command = CommandBufferPool.Get("Merkaba dual eviction");
+            uint generation = 0u;
+            try
+            {
+                generation = RecordDualMutation(command, worldCompute);
+                command.SetComputeIntParam(worldCompute, EvictAllDirtyId, allDirty ? 1 : 0);
+                command.SetComputeIntParam(worldCompute, SafeEpochId, 3);
+                command.SetComputeIntParam(worldCompute, "_M8FlowerCaptureContinue", 0);
+                command.DispatchCompute(worldCompute, _prepareEvictionSelectionKernel, 1, 1, 1);
+                command.DispatchCompute(worldCompute, _selectEvictionVictimsKernel,
+                    DivideRoundUp(MerkabaSpatial.PhysicalTileCapacity, 256), 1, 1);
+                command.DispatchCompute(worldCompute, _gatherWritebackBatchKernel,
+                    StreamBatchCapacity, 1, 1);
+                SubmitDualMutation(command, generation);
+                return true;
+            }
+            finally
+            {
+                CancelDualMutationBeforeSubmit(generation);
+                CommandBufferPool.Release(command);
+            }
+        }
+
+        internal bool AcknowledgeWritebackBatch(int count)
+        {
+            return ExecuteDualWorldBatch(_acknowledgeWritebackBatchKernel, count, false);
+        }
+
+        private bool ContinueFlowerWritebackBatch(int count)
+        {
+            if (!DualMutationSubmissionAllowed) return false;
+            if (count < 1 || count > StreamBatchCapacity)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            CommandBuffer command = CommandBufferPool.Get("Merkaba fine storage continuation");
+            uint generation = 0u;
+            try
+            {
+                generation = RecordDualMutation(command, worldCompute);
+                command.SetComputeIntParam(worldCompute, "_M8FlowerCaptureContinue", 1);
+                command.DispatchCompute(worldCompute, _gatherWritebackBatchKernel, count, 1, 1);
+                SubmitDualMutation(command, generation);
+                return true;
+            }
+            finally
+            {
+                CancelDualMutationBeforeSubmit(generation);
+                CommandBufferPool.Release(command);
+            }
         }
 
         internal void FailWritebackBatch(int count)
@@ -701,12 +852,80 @@ namespace Genesis.RoomScan
             worldCompute.Dispatch(_failWritebackBatchKernel, 1, 1, 1);
         }
 
-        internal void InstallLoadedTiles(int count)
+        internal bool InstallLoadedTiles(int count)
         {
-            if (!GpuSubmissionAllowed) return;
-            worldCompute.SetInt(StreamBatchCountId, count);
-            worldCompute.Dispatch(_prepareLoadedTilesKernel, 1, 1, 1);
-            worldCompute.Dispatch(_installLoadedTilesKernel, count, 1, 1);
+            return ExecuteDualWorldBatch(_installLoadedTilesKernel, count, true);
+        }
+
+        private bool CancelLoadedFlowerTiles(int count) =>
+            ExecuteDualWorldBatch(_failLoadedTilesKernel,count,false);
+
+        // The existing prepare kernel reclaims at most 256 physical chunks.
+        // Count zero installs nothing and never touches load staging. This
+        // uses the same serialized lease, not an additional pipeline/queue.
+        private bool ReclaimObservationDualReferences(uint firstChunk)
+        {
+            if (firstChunk >= (uint)MerkabaSpatial.ChunkCapacity)
+                throw new ArgumentOutOfRangeException(nameof(firstChunk));
+            return ExecuteDualWorldBatch(_installLoadedTilesKernel, 0, true,
+                firstChunk);
+        }
+
+        internal bool GatherDualWritebackBatch(uint sourceGeneration = 0u) =>
+            ExecuteDualWorldBatch(_gatherDualWritebackBatchKernel,
+                StreamBatchCapacity, false, null, sourceGeneration);
+
+        internal bool AcknowledgeDualWritebackBatch() =>
+            ExecuteDualWorldBatch(_acknowledgeDualWritebackBatchKernel, StreamBatchCapacity, false);
+
+        private bool ExecuteDualWorldBatch(int kernel, int count, bool install,
+            uint? firstReclaimChunk = null, uint sourceGeneration = 0u)
+        {
+            if (!DualMutationSubmissionAllowed) return false;
+            if (count < 0 || count > StreamBatchCapacity)
+                throw new ArgumentOutOfRangeException(nameof(count));
+            CommandBuffer command = CommandBufferPool.Get("Merkaba dual storage batch");
+            uint generation = 0u;
+            try
+            {
+                generation = RecordDualMutation(command, worldCompute);
+                command.SetComputeIntParam(worldCompute, StreamBatchCountId, count);
+                command.SetComputeIntParam(worldCompute, DrainSourceGenerationId,
+                    checked((int)sourceGeneration));
+                if (install)
+                {
+                    command.SetComputeIntParam(worldCompute, DualReclaimCursorId,
+                        checked((int)(firstReclaimChunk ?? _dualReclaimCursor)));
+                    command.DispatchCompute(worldCompute, _prepareLoadedTilesKernel, 1, 1, 1);
+                    if(count!=0)
+                    {
+                        command.SetComputeIntParam(worldCompute,"_M8FlowerStorageMode",0);
+                        command.DispatchCompute(worldCompute,_transferFlowerStorageKernel,1,1,1);
+                    }
+                }
+                else if(kernel==_acknowledgeWritebackBatchKernel)
+                {
+                    command.SetComputeIntParam(worldCompute,"_M8FlowerStorageMode",1);
+                    command.DispatchCompute(worldCompute,_transferFlowerStorageKernel,1,1,1);
+                }
+                else if(kernel==_failLoadedTilesKernel)
+                {
+                    command.SetComputeIntParam(worldCompute,"_M8FlowerStorageMode",2);
+                    command.DispatchCompute(worldCompute,_transferFlowerStorageKernel,1,1,1);
+                }
+                if (!install || count != 0)
+                    command.DispatchCompute(worldCompute, kernel, install ? count : 1, 1, 1);
+                SubmitDualMutation(command, generation);
+                if (install && !firstReclaimChunk.HasValue)
+                    _dualReclaimCursor = (_dualReclaimCursor + 256u) %
+                        (uint)MerkabaSpatial.ChunkCapacity;
+                return true;
+            }
+            finally
+            {
+                CancelDualMutationBeforeSubmit(generation);
+                CommandBufferPool.Release(command);
+            }
         }
 
         internal void FailLoadedTiles(int count)
@@ -716,10 +935,11 @@ namespace Genesis.RoomScan
             worldCompute.Dispatch(_failLoadedTilesKernel, 1, 1, 1);
         }
 
-        internal void RegisterLoadedTileAddresses(int count)
+        internal void RegisterLoadedTileAddresses(int count, int dualNodeKind = 0)
         {
             if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
+            worldCompute.SetInt("_M8RegisterDualNodeKind", dualNodeKind);
             // At most 32 unique addresses participate. In the legal worst
             // case CLAIMED/colliding blocks serialize one address per round;
             // two final rounds then publish its chunk and tile path. Explicit
@@ -780,11 +1000,13 @@ namespace Genesis.RoomScan
 
         private void NextObservationToken()
         {
-            unchecked
+            if (_issuedObservationToken == uint.MaxValue)
             {
-                _issuedObservationToken++;
-                if (_issuedObservationToken == 0u) _issuedObservationToken = 1u;
+                _gpuSubmissionSuspended = true;
+                throw new InvalidOperationException(
+                    "Observation identity capacity exhausted; HOT R1 stamps cannot wrap.");
             }
+            ++_issuedObservationToken;
         }
 
         internal void PublishClaimedBlocks()
@@ -846,27 +1068,12 @@ namespace Genesis.RoomScan
                 _prepareNewTileDispatchKernel, 1, 1, 1);
         }
 
-        internal void ClearTouchedSurfaceCandidates()
-        {
-            if (!GpuSubmissionAllowed) return;
-            worldCompute.SetBuffer(_clearTouchedCandidatesKernel,
-                "_M8TouchedTileQueue", _m8TouchedTileQueue);
-            worldCompute.DispatchIndirect(_clearTouchedCandidatesKernel,
-                _m8ObservationDispatchArgs);
-        }
-
-        internal void RecordClearTouchedSurfaceCandidates(CommandBuffer command)
-        {
-            if (!GpuSubmissionAllowed) return;
-            command.SetComputeBufferParam(worldCompute,
-                _clearTouchedCandidatesKernel, "_M8TouchedTileQueue",
-                _m8TouchedTileQueue);
-            command.DispatchComputeProfiled(worldCompute,
-                _clearTouchedCandidatesKernel, _m8ObservationDispatchArgs);
-        }
-
         private void InitializeGpuWorld()
         {
+            _clearRawKernel = worldCompute.FindKernel("ClearRawBuffer");
+            ClearRaw(_m8DualBlockState);
+            ClearRaw(_m8DualChunkState);
+            ClearRaw(_m8DualLeaves);
             ClearInt4(_m8HashEntries, MerkabaSpatial.HashEntryCount);
             ClearUInt(_m8BlockChunkRefs, _m8BlockChunkRefs.count);
             ClearUInt(_m8BlockPresenceL0, _m8BlockPresenceL0.count);
@@ -877,22 +1084,29 @@ namespace Genesis.RoomScan
             ClearUInt(_m8Counters, _m8Counters.count);
             ClearUInt(_m8LoadRequestReadCount, 1);
             ClearUInt(_m8FrameDispatchArgs, _m8FrameDispatchArgs.count);
-            for (int slot = 0; slot < 2; slot++)
-                ClearUInt(_m8DrawArgs[slot], _m8DrawArgs[slot].count);
             ClearUInt(_m8ObservationDispatchArgs, _m8ObservationDispatchArgs.count);
-            ClearUInt(_m8CarveDispatchArgs, _m8CarveDispatchArgs.count);
             worldCompute.Dispatch(_resetCountersKernel, 1, 1, 1);
             worldCompute.Dispatch(_initializeFreeTilesKernel,
                 DivideRoundUp(MerkabaSpatial.PhysicalTileCapacity, 256), 1, 1);
             M8BlockCount = M8ChunkCount = M8HotTileCount = M8ColdTileCount = 0;
             M8OccupiedKernelCount = 0;
+            ResetDualGpuLifecycle();
             ResetStorageRuntimeState();
         }
 
         internal void ClearGpuWorldForNewScan()
         {
             if (!GpuSubmissionAllowed) return;
+            if (HasObservationDurableCut)
+                throw new InvalidOperationException(
+                    "Retire the observation storage cut before clearing its GPU source.");
+            if (!DualMutationSubmissionAllowed)
+                throw new InvalidOperationException("Cannot clear a leased dual GPU world.");
             _gpuGeneration++;
+            ResetFlowerPagesAfterRetirement();
+            ClearRaw(_m8DualBlockState);
+            ClearRaw(_m8DualChunkState);
+            ClearRaw(_m8DualLeaves);
             worldCompute.Dispatch(_prepareAllocatedClearKernel, 1, 1, 1);
             worldCompute.DispatchIndirect(_clearAllocatedBlocksKernel,
                 _m8FrameDispatchArgs);
@@ -902,23 +1116,38 @@ namespace Genesis.RoomScan
             ClearUInt(_m8Counters, _m8Counters.count);
             ClearUInt(_m8LoadRequestReadCount, 1);
             ClearUInt(_m8FrameDispatchArgs, _m8FrameDispatchArgs.count);
-            for (int slot = 0; slot < 2; slot++)
-                ClearUInt(_m8DrawArgs[slot], _m8DrawArgs[slot].count);
             ClearUInt(_m8ObservationDispatchArgs,
                 _m8ObservationDispatchArgs.count);
-            ClearUInt(_m8CarveDispatchArgs, _m8CarveDispatchArgs.count);
             worldCompute.Dispatch(_resetCountersKernel, 1, 1, 1);
             worldCompute.Dispatch(_initializeFreeTilesKernel,
                 DivideRoundUp(MerkabaSpatial.PhysicalTileCapacity, 256), 1, 1);
             M8BlockCount = M8ChunkCount = M8HotTileCount = M8ColdTileCount = 0;
             M8OccupiedKernelCount = 0;
+            ResetDualGpuLifecycle();
             ResetStorageRuntimeState();
+        }
+
+        private void ResetDualGpuLifecycle()
+        {
+            _dualGenerationSequence = _dualPublishedGeneration =
+                _dualRetiredGeneration = _dualDurableGeneration =
+                _dualMutationGeneration = _dualRetirementFenceGeneration =
+                _dualReclaimCursor = 0u;
+            _dualNativeMutation = _dualSubmissionUncertain =
+                _dualRetirementFencePending = false;
+            _dualRetirementFence = default;
         }
 
         private void ClearUInt(ComputeBuffer buffer, int count)
         {
             worldCompute.SetBuffer(_clearUIntKernel, ClearUIntsId, buffer);
             DispatchLinear(_clearUIntKernel, count);
+        }
+
+        private void ClearRaw(ComputeBuffer buffer)
+        {
+            worldCompute.SetBuffer(_clearRawKernel, "_M8ClearRaw", buffer);
+            DispatchLinear(_clearRawKernel, buffer.count);
         }
 
         private void ClearInt4(ComputeBuffer buffer, int count)
@@ -942,7 +1171,7 @@ namespace Genesis.RoomScan
 
         private void Update()
         {
-            if (GpuSubmissionAllowed) PumpStorage();
+            if (_gpuReady) PumpStorage();
         }
 
         private static int ToInt(uint value) =>
@@ -981,13 +1210,7 @@ namespace Genesis.RoomScan
         internal Action CaptureOwnedGpuResourceRelease()
         {
             ComputeBuffer[] captured = _allGpuBuffers.ToArray();
-            GraphicsBuffer[] capturedVertices0 =
-                (GraphicsBuffer[])_m8ReadoutVertices0.Clone();
-            GraphicsBuffer[] capturedVertices1 =
-                (GraphicsBuffer[])_m8ReadoutVertices1.Clone();
-            GraphicsBuffer[] capturedIndices =
-                (GraphicsBuffer[])_m8ReadoutIndices.Clone();
-            Mesh[] capturedMeshes = (Mesh[])_m8ReadoutMeshes.Clone();
+            GraphicsBuffer capturedIndices = _m8FlowerIndices;
             bool released = false;
             return () =>
             {
@@ -999,8 +1222,7 @@ namespace Genesis.RoomScan
                     return;
                 }
                 foreach (ComputeBuffer buffer in captured) buffer?.Release();
-                ReleaseReadoutMeshes(capturedVertices0, capturedVertices1,
-                    capturedIndices, capturedMeshes);
+                capturedIndices?.Dispose();
             };
         }
 
@@ -1012,8 +1234,9 @@ namespace Genesis.RoomScan
             _gpuGeneration++;
             foreach (ComputeBuffer buffer in _allGpuBuffers) buffer?.Release();
             _allGpuBuffers.Clear();
-            ReleaseReadoutMeshes(_m8ReadoutVertices0,
-                _m8ReadoutVertices1, _m8ReadoutIndices, _m8ReadoutMeshes);
+            ForgetFlowerPagesAfterRelease();
+            _m8FlowerIndices?.Dispose();
+            _m8FlowerIndices = null;
             _m8HashEntries = null;
             _m8OwnerRecords = null;
             _m8BlockChunkRefs = null;
@@ -1029,43 +1252,22 @@ namespace Genesis.RoomScan
             _m8TileBits = null;
             _m8TileRecords = null;
             _m8TileHalo = null;
-            for (int slot = 0; slot < 2; slot++)
-            {
-                _m8ReadoutMeshes[slot] = null;
-                _m8ReadoutVertices0[slot] = null;
-                _m8ReadoutVertices1[slot] = null;
-                _m8ReadoutIndices[slot] = null;
-                _m8DrawArgs[slot] = null;
-            }
+            _m8DualBlockState = null;
+            _m8DualChunkState = null;
+            _m8DualLeaves = null;
             _m8FreeTileStack = null;
             _m8Counters = null;
             _m8AttemptCompletion = null;
             _m8ClaimQueue = null;
+            _m8ObservationRecords = null;
+            _m8TouchedTileQueue = null;
+            _m8ObservationDispatchArgs = null;
             _m8LoadRequestReadCount = null;
             _m8HashBenchmarkOutput = null;
+            ResetDualGpuLifecycle();
             ResetStorageRuntimeState();
             _gpuReady = false;
         }
 
-        private static void ReleaseReadoutMeshes(
-            GraphicsBuffer[] vertices0, GraphicsBuffer[] vertices1,
-            GraphicsBuffer[] indices, Mesh[] meshes)
-        {
-            for (int slot = 0; slot < 2; slot++)
-            {
-                vertices0[slot]?.Dispose();
-                vertices1[slot]?.Dispose();
-                indices[slot]?.Dispose();
-                if (meshes[slot] != null)
-                    UnityEngine.Object.Destroy(meshes[slot]);
-            }
-        }
-
-        private static int ValidateReadoutSlot(int slot)
-        {
-            if ((uint)slot >= 2u)
-                throw new ArgumentOutOfRangeException(nameof(slot));
-            return slot;
-        }
     }
 }

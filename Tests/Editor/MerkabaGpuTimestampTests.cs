@@ -15,7 +15,7 @@ namespace Genesis.RoomScan.Tests
             MerkabaGpuTimestamps.SetAvailableForTests(false);
 
         [Test]
-        public void StageContract_IncludesFiveComputeDomainsAndActualDraw()
+        public void StageContract_IncludesFlowerPageStagesAndActualDraw()
         {
             Assert.That(Enum.GetNames(typeof(MerkabaGpuStage)), Is.EqualTo(new[]
             {
@@ -23,11 +23,14 @@ namespace Genesis.RoomScan.Tests
                 "SurfaceIntegration",
                 "CarveIntegration",
                 "WorldQuery",
-                "ReadoutBuild",
+                "FlowerClassify",
+                "FlowerCompact",
+                "FlowerPublish",
+                "FlowerCull",
                 "MerkabaDraw",
                 "Count"
             }));
-            Assert.That((int)MerkabaGpuStage.Count, Is.EqualTo(6));
+            Assert.That((int)MerkabaGpuStage.Count, Is.EqualTo(9));
         }
 
         [Test]
@@ -36,7 +39,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(Enum.GetNames(typeof(CaptureOwner)), Is.EqualTo(new[]
             {
                 "Observation",
-                "ReadoutBuild",
+                "FlowerPages",
                 "Draw",
                 "DepthSnapshotCopy",
                 "PcaObservationCopy",
@@ -53,7 +56,7 @@ namespace Genesis.RoomScan.Tests
             CaptureOwner[] order =
             {
                 CaptureOwner.Observation,
-                CaptureOwner.ReadoutBuild,
+                CaptureOwner.FlowerPages,
                 CaptureOwner.Draw,
                 CaptureOwner.DepthSnapshotCopy,
                 CaptureOwner.PcaObservationCopy,
@@ -80,29 +83,29 @@ namespace Genesis.RoomScan.Tests
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaReadout.compute");
-            int query = frame.FindProfiledKernel("QueryM8Readout",
-                MerkabaGpuStage.WorldQuery);
-            int compile = frame.FindProfiledKernel("BuildReadoutVertices",
-                MerkabaGpuStage.ReadoutBuild);
+            int classify = frame.FindProfiledKernel("ClassifyHotFlowerPages",
+                MerkabaGpuStage.FlowerClassify);
+            int compact = frame.FindProfiledKernel("CompactDirtyFlowerSymbols",
+                MerkabaGpuStage.FlowerCompact);
             using var command = new CommandBuffer();
             MerkabaGpuTimestamps.SetAvailableForTests(true);
             MerkabaGpuTimestamps.SetScheduledOwnerForTests(
-                CaptureOwner.ReadoutBuild);
+                CaptureOwner.FlowerPages);
             bool acquired = MerkabaGpuTimestamps.TryAcquire(
-                CaptureOwner.ReadoutBuild, 73u, command);
+                CaptureOwner.FlowerPages, 73u, command);
             Assert.That(acquired, Is.True);
-            command.DispatchComputeProfiled(frame, query, 1, 1, 1);
-            command.DispatchComputeProfiled(frame, compile, 1, 1, 1);
-            MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
+            command.DispatchComputeProfiled(frame, classify, 1, 1, 1);
+            command.DispatchComputeProfiled(frame, compact, 1, 1, 1);
+            MerkabaGpuTimestamps.End(CaptureOwner.FlowerPages, command,
                 acquired);
-            MerkabaGpuTimestamps.Complete(CaptureOwner.ReadoutBuild,
+            MerkabaGpuTimestamps.Complete(CaptureOwner.FlowerPages,
                 acquired, true);
 
             Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(),
                 Is.EqualTo(new[]
                 {
-                    MerkabaGpuStage.WorldQuery,
-                    MerkabaGpuStage.ReadoutBuild
+                    MerkabaGpuStage.FlowerClassify,
+                    MerkabaGpuStage.FlowerCompact
                 }));
         }
 
@@ -112,14 +115,14 @@ namespace Genesis.RoomScan.Tests
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaReadout.compute");
-            int query = frame.FindProfiledKernel("QueryM8Readout",
-                MerkabaGpuStage.WorldQuery);
+            int classify = frame.FindProfiledKernel("ClassifyHotFlowerPages",
+                MerkabaGpuStage.FlowerClassify);
             using var command = new CommandBuffer();
 
             MerkabaGpuTimestamps.SetAvailableForTests(false);
             Assert.That(MerkabaGpuTimestamps.TryAcquire(
                 CaptureOwner.Observation, 1u, command), Is.False);
-            command.DispatchComputeProfiled(frame, query, 1, 1, 1);
+            command.DispatchComputeProfiled(frame, classify, 1, 1, 1);
             Assert.That(MerkabaGpuTimestamps.RecordedStagesForTests(), Is.Empty);
         }
 
@@ -190,7 +193,7 @@ namespace Genesis.RoomScan.Tests
                     acquired, true);
                 MerkabaGpuTimestamps.ResolveSampleForTests(true);
                 Assert.That(MerkabaGpuTimestamps.ScheduledOwnerForTests,
-                    Is.EqualTo(CaptureOwner.ReadoutBuild));
+                    Is.EqualTo(CaptureOwner.FlowerPages));
             }
             finally
             {
@@ -228,7 +231,7 @@ namespace Genesis.RoomScan.Tests
         public void TimestampSample_RejectsWrongOwnerAndEntryOverrun()
         {
             Assert.That(MerkabaGpuTimestamps.IsTimestampSampleValid(1, false,
-                CaptureOwner.ReadoutBuild, CaptureOwner.Draw,
+                CaptureOwner.FlowerPages, CaptureOwner.Draw,
                 9u, 9u, 1, 1), Is.False);
             Assert.That(MerkabaGpuTimestamps.IsEntryTotalWithinSubmission(
                 10_000.0, 11_000.0), Is.True);
@@ -245,7 +248,7 @@ namespace Genesis.RoomScan.Tests
             int ownerABase = MerkabaGpuTimestamps.OwnerQueryBaseForTests(
                 CaptureOwner.Observation);
             int ownerBBase = MerkabaGpuTimestamps.OwnerQueryBaseForTests(
-                CaptureOwner.ReadoutBuild);
+                CaptureOwner.FlowerPages);
 
             Array.Clear(queries, ownerABase, stride);
 
@@ -279,8 +282,6 @@ namespace Genesis.RoomScan.Tests
             }
             Assert.That(managed, Does.Contain("command.IssuePluginEvent"));
             Assert.That(managed, Does.Contain("command.DispatchCompute"));
-            Assert.That(managed, Does.Contain(
-                "command.DrawMeshInstancedIndirect"));
             Assert.That(native, Does.Contain("VK_QUERY_TYPE_TIMESTAMP"));
             Assert.That(native, Does.Contain("vkCmdWriteTimestamp"));
             Assert.That(native, Does.Contain(
@@ -304,8 +305,6 @@ namespace Genesis.RoomScan.Tests
             Assert.That(managed, Does.Contain("BlitPcaHistoryProfiled"));
             Assert.That(managed, Does.Contain("Native.CopyBegin"));
             Assert.That(renderer, Does.Contain("DispatchComputeProfiled"));
-            Assert.That(renderer, Does.Contain(
-                "DrawMeshInstancedIndirectProfiled"));
             Assert.That(renderer, Does.Not.Contain(
                 "Graphics.DrawProceduralIndirect"));
             Assert.That(feature, Does.Contain("AddRasterRenderPass"));
@@ -375,14 +374,14 @@ namespace Genesis.RoomScan.Tests
                 "Graphics.ExecuteCommandBuffer(command)");
             AssertEndBeforeExecute(Source(
                     "Runtime/Merkaba/MerkabaGridRenderer.cs"),
-                "End(CaptureOwner.ReadoutBuild",
-                "Graphics.ExecuteCommandBuffer(command)");
+                "End(CaptureOwner.FlowerPages",
+                "_grid.SubmitDualMutation(command, generation)");
 
             string renderer = Source(
                 "Runtime/Merkaba/MerkabaGridRenderer.cs");
             AssertOrdered(renderer,
-                "TryAcquire(\n                CaptureOwner.Draw",
-                "DrawMeshInstancedIndirectProfiled",
+                "TryAcquire(CaptureOwner.Draw",
+                "command.DrawProceduralIndirect",
                 "End(CaptureOwner.Draw",
                 "Complete(CaptureOwner.Draw");
         }

@@ -131,6 +131,8 @@ namespace Genesis.RoomScan.Tests
             for (int ring = 1; ring < 7; ring++)
                 Assert.That(footprintChambers[ring], Is.EqualTo(4));
 
+            var reachableL4 = new HashSet<int>();
+            var reachableL5 = new HashSet<int>();
             for (int wedge = 0; wedge < 6; wedge++)
             for (int order3 = 0; order3 < 6; order3++)
             for (int order4 = 0; order4 < 6; order4++)
@@ -142,6 +144,9 @@ namespace Genesis.RoomScan.Tests
                     .SkinChambers[6 * expected3.ChildWedge + order4];
                 var expected5 = MerkabaSphereFlowerAuthority
                     .SkinChambers[6 * expected4.ChildWedge + order5];
+                reachableL4.Add(7 * expected3.ChildSite + expected4.ChildSite);
+                reachableL5.Add(49 * expected3.ChildSite +
+                    7 * expected4.ChildSite + expected5.ChildSite);
                 float3 bc5 = OrderedPoint(expected5);
                 float3 bc4 = InvertDescent(expected5, bc5);
                 float3 bc3 = InvertDescent(expected4, bc4);
@@ -162,6 +167,13 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(math.cmax(math.abs(actual5 - bc5)),
                     Is.LessThanOrEqualTo(3e-6f));
             }
+            // A successful round trip through the SAME transition table
+            // alone does not prove that it represents all Flower children.
+            // Every chamber is affinely onto its child simplex, so this
+            // finite enumeration covers every nonempty terminal interior.
+            Assert.That(new[] { reachableL4.Count, reachableL5.Count },
+                Is.EqualTo(new[] { 49, 343 }),
+                "The fixed thread must not contain unreachable L4/L5 locality addresses.");
         }
 
         [Test]

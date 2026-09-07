@@ -154,8 +154,16 @@ void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
         int3 coordinate = firstOwner + M8FlowerOverlapDelta(owner);
         uint3 local = asuint(coordinate) & 7u;
         uint kernelLocal = local.x + 8u * (local.y + 8u * local.z);
-        M8FlowerEmitObservationOwner(slots[owner], kernelLocal,
-            sourcePixel, symbolTag, precisionKey);
+        if (M8FlowerEmitObservationOwner(slots[owner], kernelLocal,
+                sourcePixel, symbolTag, precisionKey))
+        {
+            // Publish endpoint support before the dual pass. The immutable
+            // joint field has already accepted this endpoint; no existing
+            // sheet or parent prediction may erase its support. This bit is
+            // attempt scratch, not positive occupancy or a drawable seed.
+            InterlockedOr(_M8TileBits[M8TileWordIndex(slots[owner],
+                kernelLocal >> 5u)].z, 1u << (kernelLocal & 31u));
+        }
     }
 }
 

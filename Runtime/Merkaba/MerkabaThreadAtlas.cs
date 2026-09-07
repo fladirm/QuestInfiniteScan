@@ -58,6 +58,43 @@ namespace Genesis.RoomScan
         internal half4 LowerLinearRgba;
         internal half4 UpperLinearRgba;
 
+        // Persist an enclosure, never nearest-half endpoints that can shrink
+        // the measured interval. Overflow is unrepresentable, not a clamp.
+        internal static bool TryEncode(float4 lower, float4 upper,
+            out MerkabaThreadColorInterval value)
+        {
+            value = default;
+            if (!math.all(math.isfinite(lower)) ||
+                !math.all(math.isfinite(upper)) || !math.all(lower <= upper) ||
+                math.any(lower < -65504f) || math.any(upper > 65504f))
+                return false;
+            for (int channel = 0; channel < 4; channel++)
+            {
+                value.LowerLinearRgba[channel] = EncodeEndpoint(lower[channel], false);
+                value.UpperLinearRgba[channel] = EncodeEndpoint(upper[channel], true);
+            }
+            return true;
+        }
+
+        private static half EncodeEndpoint(float value, bool upper)
+        {
+            half rounded = (half)value;
+            float decoded = rounded;
+            uint bits = rounded.value;
+            if (upper ? decoded < value : decoded > value)
+            {
+                if ((bits & 0x7fffu) == 0u)
+                    bits = upper ? 1u : 0x8001u;
+                else if (((bits & 0x8000u) == 0u) == upper)
+                    bits++;
+                else
+                    bits--;
+            }
+            // Sign of zero is not captured-radiance identity.
+            if ((bits & 0x7fffu) == 0u) bits = 0u;
+            return new half { value = (ushort)bits };
+        }
+
         internal readonly bool IsCanonical
         {
             get

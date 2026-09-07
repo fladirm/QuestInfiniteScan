@@ -11,6 +11,7 @@ namespace Genesis.RoomScan
         private sealed class PassData
         {
             internal MerkabaGridRenderer Renderer;
+            internal Camera Camera;
         }
 
         private sealed class MerkabaPass : ScriptableRenderPass
@@ -31,14 +32,28 @@ namespace Genesis.RoomScan
                 if (_renderer == null) return;
                 UniversalResourceData resources =
                     frameData.Get<UniversalResourceData>();
+                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+                using (var cull = renderGraph.AddUnsafePass<PassData>(
+                    "Merkaba Flower current-view cull", out PassData cullData))
+                {
+                    cullData.Renderer = _renderer;
+                    cullData.Camera = cameraData.camera;
+                    cull.AllowPassCulling(false);
+                    cull.AllowGlobalStateModification(true);
+                    cull.UseTexture(resources.activeColorTexture, AccessFlags.ReadWrite);
+                    cull.SetRenderFunc(static (PassData data, UnsafeGraphContext context) =>
+                        data.Renderer.RecordViewCull(
+                            CommandBufferHelpers.GetNativeCommandBuffer(context.cmd), data.Camera));
+                }
                 using var builder = renderGraph.AddRasterRenderPass<PassData>(
-                    "Merkaba M8 Readout", out PassData passData);
+                    "Merkaba Flower indexed readout", out PassData passData);
                 passData.Renderer = _renderer;
                 builder.SetRenderAttachment(resources.activeColorTexture, 0,
                     AccessFlags.ReadWrite);
                 builder.SetRenderAttachmentDepth(resources.activeDepthTexture,
                     AccessFlags.ReadWrite);
                 builder.AllowPassCulling(false);
+                builder.AllowGlobalStateModification(true);
                 builder.SetRenderFunc(static (PassData data,
                     RasterGraphContext context) =>
                     data.Renderer.RecordRenderPass(context.cmd));

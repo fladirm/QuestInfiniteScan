@@ -12,6 +12,8 @@ This contract replaces every previous Sphere–Flower draft.
 
 **REV-C closure:** this revision preserves every REV-B closure, removes acquisition throttling, and freezes the skin representation. Fibonacci is never a refinement gate and never ties detail convergence to new camera observations. One accepted immutable observation must drain every finite child test that its own bounded evidence can resolve; new viewpoints are required only for new information or ambiguity. Geometry ends at L2. Every valid L2 carrier owns the same immutable planar Flower-7-in-Flower L3/L4/L5 address space and the same recursively subtree-contiguous 399-position embroidery. Scan evidence refines only the piecewise RGB and additive metric-V signal written on that fixed thread. Readout always performs the same three exact barycentric descents and never selects a detail level.
 
+**Excavation-support amendment, 2026-09-06:** FULL is the default matter model of the complementary excavation view. Its boundary against certified FREE supplies derived DIRT support where direct surface coverage is missing. This is an explicit model assumption, not fabricated direct sensor evidence. Direct measurements have precedence. Sections 0.1 and 13.4 define this support and supersede the previous veto-only restriction.
+
 No backward-compatibility layer is permitted. No legacy surface authority may remain beside the final path.
 
 Normative terms:
@@ -31,11 +33,11 @@ AMBIGUOUS  insufficient information; request refinement
 The persistent scan truth is exactly:
 
 ```text
-Canonical coarse surface:
+Canonical measured coarse surface:
     M8 KernelState
 
-Persistent negative volume:
-    sparse SEE_THROUGH hierarchy
+Persistent complementary excavation model:
+    sparse SEE_THROUGH hierarchy; implicit FULL is the default matter model
 
 Persistent fine metric detail:
     FlowerDetail sidecar under an M8 FlowerAddress
@@ -51,6 +53,7 @@ Sphere–Flower incidence
 Flower symbols
 petals
 completed petals
+DIRT support from the FREE/FULL excavation boundary
 procedural draw pages
 GLB/3D Tiles geometry
 ```
@@ -67,13 +70,67 @@ surface fitter
 mesh compiler as world truth
 ```
 
-`SEE_THROUGH` means only:
+`SEE_THROUGH` means that the complete represented support was certified as
+visible free volume. The complementary FULL volume is treated as matter by
+the excavation model until visibility removes it. FULL is not a direct
+measurement of a physical surface, but it IS supporting matter in the model;
+it is not merely a passive veto mask.
 
-> The complete represented support was certified as visible free volume.
+## 0.1 Two stored views of the same M8 space
 
-It never means that its boundary is a physical surface.
+Both views use the same signed M8 addresses and are persisted together.
+There is no second coordinate index, persistent mesh or independent world.
 
-`FULL = NOT SEE_THROUGH` is only the conservative complement of proven free space.
+```text
+D(x): direct view
+    SURFACE  direct measured R1 / Sphere-Flower surface
+    UNKNOWN  no direct surface or free-volume evidence resolves this location
+    FREE     certified visible free volume
+
+E(x): complementary excavation view
+    FULL     default matter, until certified visibility removes it
+    FREE     certified visible free volume
+    SURFACE  derived interface: direct surface where available, otherwise DIRT
+```
+
+E.SURFACE is a derived interface, not a third persistent occupancy encoding.
+The two-bit node states in section 2 remain unchanged.
+
+A reliable observation removes only its certified visible prefix:
+
+```text
+camera ---- certified FREE ---- endpoint SURFACE ---- remaining FULL
+```
+
+The endpoint is direct evidence. The unobserved region behind it retains the
+FULL matter assumption. Missing direct geometry does not make that region
+empty. Where a direct room/corner/wall surface is absent, the exposed
+FREE/FULL interface MUST supply DIRT support as defined in section 13.4.
+This support is part of the rendered/exported model, not merely a diagnostic
+overlay, and does NOT require a unique direct Flower completion.
+
+Direct surface has precedence over DIRT for the same represented footprint.
+DIRT does not write an occupied M8 kernel, invent an R1 plane, create R2/R3
+measurement evidence, seed FlowerDetail/ThreadAtlas, or count as a confirmed
+petal in a subsequent direct completion. Its authority is the excavation
+model's boundary itself, not invented sensor evidence.
+
+The distinction is provenance, not an optional support feature: direct
+geometry reconstructs observed surfaces; excavation geometry supports missing
+surfaces using the default FULL matter model. Both are evaluated from the one
+persistent ontology above.
+
+Same-observation endpoint support is excluded from THROUGH before mutation.
+A later direct object restores FULL over its endpoint support and enters
+normal R1 admission. FREE is not an irreversible ban on later matter.
+Conversely, later certified visibility removes contradictory matter and DIRT.
+No DIRT or direct matter may remain inside currently certified FREE.
+
+Two real close parallel sheets MUST NOT be merged just because both exist.
+Only certified free-volume evidence excludes contradictory/front surfaces.
+The boundary at a field-of-view, range or validity frontier may also be DIRT
+under the explicit FULL model; it MUST NOT be labelled as an observed wall.
+No missing captured texture is manufactured for it.
 
 ---
 
@@ -99,7 +156,7 @@ Its position remains implicit:
 C_K=aK,\qquad a=0.025\ {\rm m},\qquad K\in\mathbb Z^3.
 \]
 
-It remains the only coarse positive surface authority.
+It remains the only measured coarse positive surface authority. Derived DIRT support is supplied by the persistent excavation model, not by an additional positive KernelState field.
 
 ## 1.2 First-hit seed encoding
 
@@ -312,7 +369,7 @@ Every dual node has exactly one 2-bit state:
 11 INVALID
 ```
 
-A missing block means `ALL_FULL`.
+A missing block means `ALL_FULL`: the excavation model starts as matter, not as empty space. An unresolved COLD payload is still AMBIGUOUS, not permission to substitute FULL or emit DIRT.
 
 ## 2.2 Block payload
 
@@ -1128,6 +1185,31 @@ no compatible sector/root correspondence
 
 The shared draw root is computed once from the canonically ordered endpoint pair and the same `uS` expression.
 
+## 9.2 Evidence merge, residual extraction and incidence closure
+
+These are three different operations:
+
+```text
+EVIDENCE MERGE != RESIDUAL EXTRACTION != INCIDENCE CLOSURE
+```
+
+Multiple direct measurements claiming the same physical symbol/quantity are
+merged by interval intersection. An empty intersection is conflicting evidence
+and is IMPOSSIBLE for that candidate.
+
+Parent prediction and direct observation are differenced by the exact
+tangent-half-angle residual. They are NOT competing estimates to intersect;
+their separation is precisely the detail being represented. No pred/obs
+overlap requirement is permitted in R2 or R3.
+
+Multiple incident syntheses claiming the same physical child knot are closed
+by interval intersection as in section 10.6. An empty intersection is an
+incidence conflict, not a reason to reject a nonzero prediction residual.
+
+Global invariant:
+
+> Prediction and observation are differenced; peer evidence and shared incidence are intersected.
+
 ---
 
 # 10. Exact R2 analysis/synthesis
@@ -1180,63 +1262,112 @@ c(r)&-s(r)\\s(r)&c(r)\end{pmatrix}u.
 
 No inverse trigonometric function is required.
 
-## 10.2 Parent prediction on the exact child loop
+## 10.2 Self-similar parent-to-child phase transport
 
-For every new R2 child node `c` generated by section 8.5, codegen already knows its exact:
+M8 and its three R1/R2/R3 sphere shells define one fixed 3D Flower lattice.
+L1 and L2 are the two dyadic, self-similar substitutions of the same Flower
+petal from section 8.5. R2_PHASE is not transferred between unrelated loops
+and is never interpolated.
 
-```text
-child J
-lineClass
-canonical E1/E2
-sector
-orientation sign
-```
+For each newly introduced child knot `A+B`, `B+C` or `C+A`, codegen derives
+the exact child J, lineClass, canonical E1/E2, sector, parent-channel mapping
+and orientation sign `sigma_c` from that substitution's incidence. The
+mapping MUST be unique. Failure to derive a unique mapping is a codegen
+contract failure, never a runtime choice or search.
 
-The current parent evaluator `E_L` consists only of:
-
-```text
-M8 R1 carrier
-+ already committed ancestor R2_PHASE records
-+ already committed metric V ancestors where applicable
-```
-
-`E_L` is restricted to the exact child loop using the same `ABC -> analytic root` equations as every other loop. This gives the predicted certain root interval:
+First restrict the canonical M8 R1 carrier to that exact generated child loop:
 
 \[
-U_c^{pred}.
+u_c^{base}=\operatorname{Root}(R1\text{ carrier restricted to exact child loop}).
 \]
 
-A new direct observation gives:
+An ancestor R2_PHASE is a dimensionless tangent-half-angle bend. Its
+self-similar pullback preserves the residual magnitude; only the generated
+channel and orientation transport apply:
 
 \[
-U_c^{obs}.
+\boxed{u_c^{pred}=\mathcal R_{\sigma_c r_{parent}}(u_c^{base})}.
 \]
 
-No interpolation or fitted child plane is introduced.
+With multiple committed ancestor R2_PHASE records, apply their section 10.1
+exact rational rotations in ancestry order, from coarse to fine, using each
+ancestor's generated channel mapping and orientation sign. Every interval
+operation remains outward-rounded and every required root/sector predicate
+must be CERTAIN. No phase halving, interpolation, fitted child plane, runtime
+mapping search or independently selected transform is permitted.
+
+Inherited `2A/2B/2C` knots are never recomputed: reuse the exact parent root,
+including its interval and deterministic draw identity. Only new knots receive
+the prediction above. Direct child evidence supplies the additional innovation:
+
+\[
+r_c=\tau(u_c^{pred},u_c^{obs}).
+\]
+
+Section 10.3 classifies that innovation without a pred/obs overlap requirement.
+Normalized Flower phase is scale-invariant; a child stores only its new
+residual, never a divided or duplicated parent coefficient.
+
+Metric V ancestors MUST NOT enter this prediction. REV-C world geometry ends
+at L2; V belongs exclusively to the fixed L3-L5 skin signal.
 
 ## 10.3 Analysis
 
-If both intervals resolve to the same generated sector/rootSign, the child R2 innovation is:
+U_pred and U_obs are NOT competing estimates to be intersected.
+U_pred is the parent-generated prediction; U_obs is direct evidence.
+Their metric separation is exactly the R2 innovation being represented.
 
-\[
-\boxed{r_c=\tau(U_c^{pred},U_c^{obs})}.
-\]
-
-Interval result:
+First require both roots to be CERTAIN members of the same generated
+child symbolic relation:
 
 ```text
-r_c contains only zero
-    no persistent detail
+same child J
+same lineClass
+same sector
+same rootSign
+compatible canonical orientation
+```
 
-r_c is CERTAIN, sector-preserving and excludes zero
+Then compute
+
+\[
+r_c=\tau(U_{pred},U_{obs})
+\]
+
+without any pred/obs overlap requirement.
+
+Classification:
+
+```text
+r_c == {0}
+    exact parent prediction; write no R2_PHASE
+
+r_c is CERTAIN and excludes zero,
+and synthesis remains inside the generated child sector
     persist one R2_PHASE interval
 
-pred/obs disjoint in the same symbolic relation
-    IMPOSSIBLE at this level
+r_c contains zero but is not exactly {0}
+    AMBIGUOUS; the observation does not prove whether an innovation exists
 
-sector/root ambiguity or tau singularity
-    AMBIGUOUS -> refine/re-observe
+tau denominator contains zero,
+root interval crosses a generated sector boundary,
+or symbolic correspondence is not uniquely CERTAIN
+    AMBIGUOUS / re-evaluate the generated alternatives
+
+the observation is CERTAIN to belong to a different generated symbol
+    this candidate is IMPOSSIBLE; evaluate that other generated symbol
 ```
+
+No condition of the form
+
+```text
+"U_pred and U_obs are disjoint -> IMPOSSIBLE"
+```
+
+exists.
+
+Disjoint U_pred/U_obs intervals inside the same CERTAIN generated relation
+are a normal nonzero R2 residual.
 
 Only the innovation is stored. The predicted child root is always regenerated from the current parent evaluator.
 
@@ -1356,6 +1487,12 @@ q_i=\eta_i\,
 
 with the same interval `τ` algebra as section 10.
 
+This is the prediction-to-observation residual of section 9.2. Its inputs
+MUST NOT be required to overlap. Only peer direct evidence and shared
+incidences that claim the same physical quantity are intersected; a nonzero
+R3 prediction residual is not an evidence conflict merely because pred and
+obs are disjoint.
+
 `q_i` is a dimensionless signed tangent-half-angle residual. Raw `ABC` triples from different loop bases are never added.
 
 ## 11.2 Tetra transform
@@ -1468,7 +1605,7 @@ UNRESOLVED=
 \neg CONFIRMED\land\neg VETO\land\neg UniqueCompletion.
 \]
 
-Dual never creates `A(Σ)`. It only eliminates candidates or narrows their allowed dyadic sectors.
+Dual never creates a direct Flower `A(Σ)` or measured root evidence. Within this direct-symbol algebra it eliminates candidates or narrows allowed sectors. Independently, the same excavation state generates DIRT support under section 13.4; that support is not a CONFIRMED or COMPLETED direct petal.
 
 ---
 
@@ -1558,6 +1695,84 @@ A completed petal:
 A larger hole is completed only if it is one generated petal at a coarser level. Otherwise it remains unresolved.
 
 No new knot position is extrapolated during completion.
+
+---
+
+## 13.4 Excavation DIRT support
+
+DIRT is a derived supporting surface of the FULL matter model. It is not
+the unique direct completion of sections 13.1–13.3 and MUST NOT be restricted
+to that completion gate. A hole in direct geometry may therefore retain
+excavation support even when its direct Flower evidence is unresolved.
+
+The supporting geometry is exactly the exposed boundary of the represented
+FREE volume against FULL, never an arbitrary patch fitted across the hole.
+
+### Exact represented boundary
+
+For an L0 integer lattice coordinate U, define the elementary half-open cell
+
+```text
+Cell(U) = a * (U + [0,1)^3),  a = 0.025 m.
+```
+
+This is a derived subdivision of existing M8 support, not a stored grid.
+A kernel K represents support a*(K+[-1,1)^3); consequently Cell(U) belongs
+exactly to the eight supports K=U+b, b in {0,1}^3.
+
+```text
+FreeCell(U) = OR of SEE_THROUGH(U+b), for all b in {0,1}^3
+
+at least one covering support is certified THROUGH
+    Cell(U) is FREE
+
+all eight covering states resolve and none is THROUGH
+    Cell(U) is FULL in the excavation matter model
+
+otherwise
+    AMBIGUOUS; request residency, do not invent a boundary
+```
+
+Thus the union of FreeCell cells equals the union of the represented
+certified supports. There is no scalar field, surface fit, float weld,
+persistent cell list, or new coordinate index.
+
+For each of the six unit signed axis directions n, a support face exists iff
+
+```text
+FreeCell(U) = FREE
+FreeCell(U+n) = FULL
+```
+
+The face is the exact common face of those cells, with matter on the FULL
+side and presentation normal pointing toward the FREE cell. Its canonical
+identity is the signed existing lattice address U plus n. Only the FREE-side
+owner emits it. Generated face vertex order is fixed and camera-independent.
+A fixed presentation diagonal may split a face into two raster triangles;
+it neither defines nor changes the persistent excavation volume.
+
+The readout suppresses DIRT wherever direct or uniquely COMPLETED Flower
+geometry already covers the same represented surface footprint. Direct
+coverage wins; DIRT must not become a duplicate foreground layer over a
+valid direct surface. A missing RGB sample alone does not create a second
+surface: the existing direct carrier keeps its canonical color fallback.
+
+### Material and lifetime
+
+DIRT uses an explicitly identified support material, not invented captured
+RGB, ThreadAtlas detail or certified optical response. Its material color
+does not assert that the unknown matter was observed to be soil.
+
+DIRT is an actual depth/occlusion-bearing support surface of the model.
+Its inferred origin remains explicit in live symbols and export metadata.
+It cannot feed back as measured occupancy, closure evidence, or completion
+input. Its existence changes only with direct coverage, excavation state or
+required residency, never with head rotation or display LOD.
+
+A later direct surface supersedes its support footprint. A later THROUGH
+certificate removes it. A later inserted direct object may restore FULL
+where earlier observations saw FREE. The two persistent views are committed
+together; no independent persistent DIRT mesh or DIRT log exists.
 
 ---
 
@@ -2025,6 +2240,7 @@ FlowerCommit
     conditional R2
     conditional R3
     dual veto/completion/refinement
+    mark changed excavation boundary / direct-coverage pages dirty for DIRT
     generate complete finite L1/L2 geometry workset
     evaluate exact L2-skin RGB/V split predicates
     commit current-quantum FlowerDetail/Thread work
@@ -2646,47 +2862,97 @@ The presentation BRDF is isolated from reconstruction: changing its closed shade
 
 # 24. Procedural L2 readout ABI
 
-Readout pages contain compact active L2 carrier symbols and derived compact
-skin samples, never persistent vertices, indices or L3/L4/L5 geometry.
+Readout pages contain compact active L2 carrier symbols, derived DIRT support
+symbols and compact skin samples, never persistent vertices, indices or
+L3/L4/L5 geometry. DIRT is derived from the same persistent excavation state;
+it is not a separate stored mesh, world, or fallback scanner.
 
 ## 24.1 Symbol record
 
-One active L2 carrier wedge remains 16 bytes:
+One active L2 carrier, with up to six active wedges, remains 16 bytes.
+A DIRT record still represents one exact presentation half-face.
 
 ```c
 struct FlowerSymbolRecord
 {
-    uint OwnerAndPetal;
-    uint TopologyAndSector;
-    uint DetailRef;          // FlowerSkinMetricRun or invalid
-    uint ThreadRef;          // ThreadRun or invalid
+    uint OwnerAndCarrier;
+    uint RootsAndWedges;
+    uint DetailRef;          // resident owner reference; 0 means no fine state
+    uint ThreadRef;          // one derived carrier skin header; invalid when absent
 }
 ```
 
-`OwnerAndPetal` packs:
+`OwnerAndCarrier` packs:
 
 ```text
-kernelLocal       9 bits
-petalClass        6 bits
-validShellMask    3 bits
-COMPLETED         1 bit
-HINGE             1 bit
-directFreeSide    1 bit
-remaining        11 bits    // MUST be zero
+bits  0..8   kernelLocal          9
+bits  9..15  generated L2 carrier 7   // 0..127
+bits 16..18  validShellMask       3
+bit      19  directFreeSide       1
+bit      20  HINGE                1
+bit      21  DIRT                 1
+bits 22..27  activeWedgeMask      6
+bits 28..31  reserved             4   // MUST be zero
 ```
 
-`TopologyAndSector` packs:
+`RootsAndWedges` packs:
 
 ```text
-sector            5 bits
-rootSign          1 bit
-L2 wedge          3 bits
-wedgeOrientation  1 bit
-remaining        22 bits    // MUST be zero
+bits  0..6   rootSigns            7   // H,R0,R1,R2,R3,R4,R5
+bits  7..11  hubSector            5
+bits 12..17  completedWedgeMask   6   // subset of activeWedgeMask
+bits 18..23  reverseWedgeMask     6   // subset of activeWedgeMask
+bits 24..31  reserved             8   // MUST be zero
 ```
 
-There is no geometry-depth or valid-depth field and no dynamic branch rank.
-Only active canonical or uniquely COMPLETED surface symbols receive records.
+The carrier ID addresses the existing generated `L2Wedges` incidence, not a
+new spatial index. The local position numbering is exactly `H=0, Ri=1+i`.
+Each site retains its original `(level,J,lineClass,sector,rootSign)` identity.
+Its normal, appearance and requesting wedge MUST NOT split that position
+identity. Sector and phase are regenerated by the same certain knot evaluator;
+the record cannot choose an unresolved branch.
+
+There is no geometry-depth, valid-depth or dynamic branch-rank field.
+Only admissible active wedges and uniquely COMPLETED wedges set mask bits.
+A carrier with no active wedges receives no record.
+
+`ThreadRef`, when present, addresses one derived 16-byte skin header in a
+64-byte aligned header slot. All six wedges use that same carrier thread;
+the wedge affects locality evaluation only. Compact RGB/A3/A4/A5 samples
+follow the header slot and are compiled from the same persistent FlowerDetail
+and ThreadAtlas carrier key and owner epoch. Generated source-petal/child-path
+aliases of the same L2 carrier MUST resolve to one canonical skin key, never
+six independent wedge tapes. This creates no additional persistent authority.
+
+For DIRT, the same 16 bytes have this explicit interpretation:
+
+```text
+OwnerAndCarrier.kernelLocal
+    FREE-side elementary cell U within the existing LogicalTile address
+
+OwnerAndCarrier.carrier
+    generated face class: +X, -X, +Y, -Y, +Z, -Z (0..5)
+
+OwnerAndCarrier.DIRT = 1
+OwnerAndCarrier.activeWedgeMask = 1
+
+OwnerAndCarrier other semantic bits
+    0; no measured shell, completion, hinge, or direct free-side claim
+
+RootsAndWedges bit 0
+    presentation half-face 0/1
+
+RootsAndWedges bits 1..31
+    0; no invented Flower sector or branch
+
+DetailRef / ThreadRef
+    invalid; no fabricated metric or captured appearance
+```
+
+The DIRT half-face uses sites 0,1,2; the remaining sites evaluate to site 0,
+so the other five static fan triangles are degenerate. Its positions are the
+existing generated integer Cell(U)/Cell(U+n) interface of section 13.4,
+not direct Flower knots or a persistent mesh.
 
 ## 24.2 Page header
 
@@ -2702,9 +2968,10 @@ struct FlowerPageHeader
 }
 ```
 
-Every drawable symbol evaluates to L2 raster geometry. Missing direct L1/L2
+Every non-DIRT symbol evaluates to L2 raster geometry. Missing direct L1/L2
 innovation means the exact certain parent evaluator is repeatedly restricted
-to L2; it does not authorize invented child geometry.
+to L2; it does not authorize invented child geometry. DIRT symbols instead
+evaluate the exact exposed excavation faces of section 13.4.
 
 ## 24.3 Deterministic page compaction
 
@@ -2724,6 +2991,12 @@ certified optical/material fields
 The derived masks and group offsets allow one final structured sample load per
 fragment. Failed validation or allocation leaves the old FRONT page untouched;
 it never publishes a partial union.
+
+The same dirty-page publication derives DIRT support from resolved excavation
+state and direct coverage. It emits only exposed FREE/FULL interfaces not
+already covered by higher-priority direct/COMPLETED geometry. DIRT consumes
+the same arena and page directory; it allocates no 399-sample skin, no Thread
+run, no fine metric run, and no second queue.
 
 ## 24.4 Directory publication — one native queue
 
@@ -2773,50 +3046,91 @@ never silently shrink draw radius
 
 ## 24.6 Static procedural topology
 
-Immutable vertex-ID tables contain only the two geometric substitutions needed
-to evaluate L2 carrier wedges from section 8.5. They do **not** store world
-geometry. They tell the vertex shader which generated L2 knot/strand sample to
-evaluate. L3/L4/L5 never appear in a vertex-ID table.
-
-Vertex shader input:
+The existing generated L2 incidence supplies seven position sites per carrier:
 
 ```text
-FlowerSymbolRecord
-SV_VertexID
-generated incidence/child tables
-M8 / FlowerDetail
+H=0, R0=1, R1=2, R2=3, R3=4, R4=5, R5=6
 ```
 
-Output:
+The immutable indexed fan is:
 
 ```text
-evaluated L2 Flower position
-canonical L2 wedge barycentrics
-flat Thread/FlowerDetail references
-runtime-evaluated L2 frame
+0,1,2   0,2,3   0,3,4   0,4,5   0,5,6   0,6,1
 ```
 
-Triangles emitted to the rasterizer are presentation tessellation of the
-evaluated L2 Flower carrier; they are never canonical topology. The fragment
-always performs the three generated ordered-barycentric descents, follows the
-scan-authored union mask, loads one compact RGB/A3/A4/A5 sample and evaluates
-the analytic micro-normal.
+It addresses shared positions, not eighteen independent knot evaluations.
+Every site is evaluated on its original generated loop through the same
+L0–L2 evaluator used by export. No XYZ, normal, or float-weld key is added.
+L3/L4/L5 never appear in the vertex-ID table.
+
+One immutable fan index buffer repeats this pattern for a page's bounded
+carrier slots, not for the entire world arena. Its bound is the existing
+512 owners times 128 generated carriers plus 512*6*2 DIRT half-faces:
+71680 records, 1290240 uint indices, 5160960 bytes. Exceeding that page bound
+is a failed publication, never truncation or an alternative geometry path.
+
+Each shared vertex carries a canonical planar chart coordinate. One allowed
+fixed affine convention is:
+
+```text
+H=(0,0)
+R0=(1,0), R1=(1,1), R2=(0,1),
+R3=(-1,0), R4=(-1,-1), R5=(0,-1)
+```
+
+This is only a presentation coordinate convention for the same six W_i.
+Recovering the containing wedge and its affine barycentrics MUST give the
+same barycentrics as direct interpolation of that W_i. It MUST NOT replace
+section 20's Flower child footprints or chamber transitions.
+
+The fragment rejects inactive wedges using activeWedgeMask. This preserves
+seven shared position sites even for an arbitrary active subset; no normal or
+material is appended to a position key to implement that subset. The actual
+runtime L2 frame and analytic V derivatives remain wedge/material attributes,
+not geometry ownership. Raster is two-sided; reverseWedgeMask transports the
+existing generated orientation for material evaluation and export winding.
+
+A source-generation/slot-generation check rejects a stale carrier as a whole.
+The serialized source lease excludes M8/sidecar mutation during its graphics
+use. A failed page build cannot expose a mixture of old and new knots.
+
+Triangles are disposable raster presentation of the evaluated carrier.
+The fragment always performs the three generated ordered-barycentric descents,
+reads the scan-authored union masks and one compact RGB/A3/A4/A5 sample.
+DIRT uses its explicit support material; it never fabricates captured RGBV.
 
 ## 24.7 Draw
 
-Visible page commands are submitted with:
+Visible pages use:
 
 ```text
-one vkCmdDrawIndirectCount
+one vkCmdDrawIndexedIndirectCount
 ```
 
-Each visible page contributes one 16-byte `VkDrawIndirectCommand`.
+Each visible page contributes one 20-byte VkDrawIndexedIndirectCommand:
+
+```text
+indexCount    = 18 * SymbolCount
+instanceCount = viewInstanceCount
+firstIndex    = 0
+vertexOffset  = 7 * FirstSymbol
+firstInstance = physicalPageSlot * viewInstanceCount
+```
+
+viewInstanceCount is 1 for mono/multiview and 2 for instanced stereo, matching
+the active Unity XR variant. It is not a geometry or refinement choice.
+Unity owns the graphics pipeline, index binding and XR render target; the
+existing native serialized dependency chain supplies count-driven submission.
 
 Maximum command memory:
 
 ```text
-32768 pages × 16 B = 512 KiB
+32768 pages * 20 B = 655360 B
+plus one 4-byte GPU count
 ```
+
+The command count is reset in the GPU command stream before current-view
+culling. No CPU readback supplies a vertex, index, page count or draw decision.
 
 ## 24.8 View culling
 
@@ -2971,7 +3285,7 @@ CPU log/index progression continues while the native GPU queue has work in fligh
 
 # 27. GLB and 3D Tiles
 
-Both exporters consume the same CPU Sphere–Flower authority and generated tables as live readout.
+Both exporters consume the same CPU Sphere–Flower/excavation evaluation authority and generated tables as live readout. DIRT support is included from the same resolved FREE/FULL boundary, never from an export-only repair solver.
 
 ## 27.1 Petal ownership
 
@@ -3017,18 +3331,22 @@ flagOrientation
 
 Hinge branches share position but retain separate normals.
 
-## 27.4 Confirmed/completed policy
+## 27.4 Confirmed/completed/support policy
 
 Export includes:
 
 ```text
 CONFIRMED petals
 unique COMPLETED petals
+DIRT support faces from the same excavation evaluator
 ```
 
 Completed petals carry a metadata flag.
 
-They disappear on a later dual veto.
+Completed petals disappear on a later dual veto. DIRT carries explicit inferred
+support metadata, uses the integer (U, face, presentation-half) identity of
+section 13.4, and disappears when excavation removes it or direct coverage
+supersedes it. Its winding faces FREE and does not borrow a direct root sign.
 
 ## 27.5 Color
 
@@ -3040,7 +3358,8 @@ otherwise
     export canonical owner M8 PackedColor
 ```
 
-No RGB inpainting is performed.
+No RGB inpainting is performed. DIRT exports its identified support material,
+not fabricated M8/ThreadAtlas captured color or certified optical detail.
 
 L3/L4/L5 never add export vertices. If output material baking requests
 micro-normal, color or optical values, the exporter evaluates the same fixed
@@ -3064,9 +3383,9 @@ GLB/3D Tiles may materialize:
 - baked base color;
 - baked normals/roughness.
 
-Materialized geometry is the L2 carrier only. These files remain presentation
-products and can never be loaded as canonical M8, FlowerDetail or ThreadAtlas
-truth.
+Materialized geometry is the L2 carrier plus derived DIRT support faces.
+These files remain presentation products and can never be loaded as canonical
+M8, excavation state, FlowerDetail or ThreadAtlas truth.
 
 ---
 
@@ -3268,6 +3587,7 @@ negative-coordinate identity
 13 line-class uniqueness
 fixed endpoint-pair uniqueness for every valid (J,lineClass)
 26/72/48 Flower alphabet counts
+O_h equivariance under all 48 signed axis permutations: nodes, strands, petals, signed boundaries, incident-petal relations and child substitution; winding transports by the determinant and all 48 flags form one orbit
 every strand incidence has the expected two-sided petal relation where topology requires it
 deterministic flag/petal winding
 child midpoint R1/R2/R3 class correctness
@@ -3282,7 +3602,14 @@ rootSign stability under d -> -d
 NO observation-dependent branch renumbering
 parallel-sheet separation through distinct overlap-owner relations
 R2 prediction uses exact generated child loop
+R2 self-similar transport preserves the parent residual magnitude
+R2 parent-channel/orientation transport is uniquely generated for every new child knot
+R2 ancestor rotations use coarse-to-fine ancestry order and outward-rounded Q2.29 intervals
+R2 prediction never reads L3-L5 metric V
 R2 analysis -> synthesis reproduces the observed child root interval
+disjoint same-symbol prediction/observation yields the exact R2 residual
+non-singleton residual containing zero remains AMBIGUOUS
+peer evidence and shared incidence intersect; R2/R3 pred/obs do not
 R2 inherited parent knots remain bit-identical
 R2 shared-child knot interval intersection closure
 R3 forward/inverse tetra transform
@@ -3329,6 +3656,16 @@ compatible parent metric refinement does not spuriously invalidate descendants
 dual uniform-node collapse/expand round trip
 common-prefix THROUGH fast path has zero false positives
 dyadic-cover THROUGH slow path has zero false positives
+FreeCell eight-support union equals the complete represented certified volume
+missing resolved excavation nodes supply the FULL matter default; COLD does not
+DIRT is exactly the exposed resolved FREE/FULL boundary and not a fitted patch
+each support face has one FREE-side owner and deterministic winding
+direct/COMPLETED coverage supersedes DIRT without duplicate foreground faces
+direct geometry holes can retain DIRT without a unique direct completion
+DIRT creates no measured R1/R2/R3, captured RGB, or recursive completion evidence
+DIRT uses the same live/export evaluator, signed addresses, arena and publication
+new direct objects restore FULL over earlier FREE support
+new THROUGH removes previously exposed DIRT
 completed petal count 0/1/>1
 completed petals cannot recursively seed completion
 parent deletion invalidates every descendant
@@ -3360,7 +3697,12 @@ isolated first hit
 repeated isolated real object
 comet-tail depth error
 open direct hole with unique petal
-ambiguous large hole
+ambiguous large direct hole with resolved excavation support
+missing room/cellar corner backed by FULL excavation matter
+missing RGB on an existing direct carrier without duplicate DIRT geometry
+FOV/range frontier DIRT is labelled inferred, never observed wall
+COLD excavation frontier emits no assumed DIRT until resolved
+new object introduced into previously FREE volume
 closed ghost inside THROUGH
 negative coordinates
 tile/chunk/block boundary
@@ -3381,7 +3723,10 @@ parent compatible plane refinement with surviving detail
 parent structural sector change with exact detail invalidation
 ```
 
-No surface is emitted from an unresolved fixture.
+No measured or COMPLETED Flower surface is emitted from unresolved direct
+evidence. A resolved excavation boundary may independently emit DIRT support
+under section 13.4, even where direct geometry is unresolved. Unresolved COLD
+or contradictory excavation state emits no DIRT.
 
 **Cutover gate:** until every proof above passes in the CPU oracle and CPU/HLSL parity suite, production scanner/readout/storage authority remains unchanged. Passing the oracle authorizes implementation; it does not authorize retaining a parallel legacy geometry path after final cutover.
 
@@ -3412,7 +3757,7 @@ R1\ core\\
 R2\ exact\ phase\ refinement\\
 R3\ tetra\ branch/closure\\
 \downarrow\\
-unique\ direct+dual\ completion\ only\\
+unique\ direct\ completion\ +\ excavation\ DIRT\ support\\
 \downarrow\\
 exact\ geometric\ refinement\ through\ L2\\
 \downarrow\\
@@ -3428,7 +3773,7 @@ three\ exact\ barycentric\ descents\\
 \downarrow\\
 analytic\ micro-normal/optical\ response\\
 \downarrow\\
-compact\ procedural\ L2\ sphere-resident\ draw
+compact\ procedural\ L2+DIRT\ sphere-resident\ draw
 \end{array}
 }
 \]
@@ -3441,9 +3786,11 @@ Sphere loops carry exact metric relations.
 R1 keeps a valid surface alive.
 R2 refines its shape.
 R3 proves branch and junction closure.
-SEE_THROUGH only vetoes impossible matter.
-A hole is completed only by one unique finite Flower symbol.
-Ambiguity remains unresolved.
+Certified visibility excavates FREE out of the default FULL matter model.
+The exposed FREE/FULL boundary supplies DIRT support for missing direct geometry.
+Direct surface supersedes DIRT; DIRT does not counterfeit direct measurement.
+Direct Flower completion still requires one unique finite Flower symbol.
+Direct ambiguity does not erase resolved excavation support; unresolved excavation remains unresolved.
 FlowerDetail persists metric refinement.
 ThreadAtlas persists captured RGB novelty.
 L0-L2 are geometry; L3-L5 are the immutable planar Flower-7 skin address.

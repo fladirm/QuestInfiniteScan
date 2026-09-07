@@ -1,18 +1,7 @@
-// GPU-authoritative M8 SURFACE DISCOVER/INTEGRATE and Q_SCAN carve.
-#pragma kernel DiscoverSurfaceCandidates
-#pragma kernel PrepareResolveArgs
-#pragma kernel ResolveSurfaceBlocks
-#pragma kernel ResolveSurfaceChunks
-#pragma kernel ResolveSurfaceTiles
-#pragma kernel InitializeSurfaceWinners
-#pragma kernel SelectSurfaceWinners
-#pragma kernel QueueResolvedSurfaceCandidates
-#pragma kernel RetryPendingNewTiles
-#pragma kernel PrepareIntegrateArgs
-#pragma kernel IntegrateSurfaceCandidates
-#pragma kernel QueryCarveTiles
-#pragma kernel PrepareCarveArgs
-#pragma kernel IntegrateCarveTiles
+#pragma kernel FlowerCommit
+#pragma kernel DrainObservationRefinement
+// Frozen stereo evidence -> touched-tile Flower commit and certified free support.
+#pragma kernel UpdateObservationDual
 #pragma kernel FinalizeObservation
 #pragma kernel ResetFineErase
 #pragma kernel QueryFineEraseTiles
@@ -21,111 +10,40 @@
 #pragma kernel FinalizeFineErase
 
 #include "DepthKit.hlsl"
-#include "MerkabaCanonicalGeometry.generated.hlsl"
-#include "MerkabaSurfaceOrientation.generated.hlsl"
+#include "MerkabaSphereFlower.generated.hlsl"
 #include "MerkabaStereoCamera.hlsl"
 #include "MerkabaWorld.hlsl"
+#include "MerkabaDepthCertificate.generated.hlsl"
+#include "MerkabaObservationBins.hlsl"
+#include "MerkabaObservationOwners.hlsl"
+#include "MerkabaObservationScope.hlsl"
+#include "MerkabaDualHierarchy.hlsl"
 
 #define MERKABA_LATTICE_STEP 0.025
 #define MERKABA_SUPPORT_SIZE 0.050
 #define MERKABA_HALF_SUPPORT 0.025
 #define MERKABA_OCCUPIED_ON 512
 #define MERKABA_OCCUPIED_OFF 128
-#define MERKABA_SURFACE_SCALE 640.0
-#define MERKABA_FREE_SCALE 256.0
 #define MERKABA_EVIDENCE_CONFIDENCE_LIMIT 2560
-#define MERKABA_FREE_FULL_CLEARANCE 0.150
-#define MERKABA_REVISION_MIN_INCIDENCE 0.3
-// Frozen from the Quest 3S centre/mid/edge calibration on 2026-08-30:
-// full authority in the central third, deterministic fade to zero at 2/3.
-#define MERKABA_MUTATION_INNER_RADIUS (1.0 / 3.0)
 #define MERKABA_OCCUPIED_FLAG 1u
-#define MERKABA_DEPTH_DISPARITY 0.5
-#define MERKABA_SURFACE_QUEUE_CAPACITY 1048576u
-#define MERKABA_MEASUREMENT_PIXEL_MASK 0x00000fffu
-#define MERKABA_MEASUREMENT_PACKED_MASK 0x00ffffffu
-#define MERKABA_SURFACE_ROUTE_SHIFT 24u
-#define MERKABA_SURFACE_ROUTE_UNROUTED 0
-#define MERKABA_SURFACE_ROUTE_VALID 1
-#define MERKABA_SURFACE_ROUTE_UNRESOLVED 2
-#define MERKABA_SURFACE_ROUTE_INVALID 3
-#define MERKABA_SURFACE_ROUTE_MASK 3
-#define MERKABA_SURFACE_AUTHORITY_SHIFT 26u
-#define MERKABA_SURFACE_AUTHORITY_MASK 3
-#define MERKABA_SURFACE_AUTHORITY_NONE 0
-#define MERKABA_SURFACE_AUTHORITY_DISCOVERY 1
-#define MERKABA_SURFACE_AUTHORITY_SUPPORT 2
-#define MERKABA_SURFACE_AUTHORITY_REVISION 3
-#define MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED 0x10000000u
-#define MERKABA_SURFACE_FLAG_REPLACEMENT 0x20000000u
-#define MERKABA_SURFACE_FLAG_STRICT 0x40000000u
-#define MERKABA_SURFACE_FLAG_FAST_ADMISSION 0x80000000u
-#define MERKABA_SURFACE_WINNER_EMPTY 0xffffffffu
-
-RWStructuredBuffer<int4> _M8SurfaceCandidates;
-StructuredBuffer<int4> _M8SurfaceCandidatesRead;
-RWStructuredBuffer<uint2> _M8SurfaceQueue;
-StructuredBuffer<uint2> _M8SurfaceQueueRead;
-RWStructuredBuffer<uint> _M8SurfaceWinnerRanks0;
-RWStructuredBuffer<uint> _M8SurfaceWinnerRanks1;
-RWStructuredBuffer<uint> _M8SurfaceWinnerRanks2;
-RWStructuredBuffer<uint> _M8SurfaceWinnerRanks3;
-StructuredBuffer<uint> _M8SurfaceWinnerRanks0Read;
-StructuredBuffer<uint> _M8SurfaceWinnerRanks1Read;
-StructuredBuffer<uint> _M8SurfaceWinnerRanks2Read;
-StructuredBuffer<uint> _M8SurfaceWinnerRanks3Read;
-RWStructuredBuffer<uint> _M8TouchedTileQueue;
-RWStructuredBuffer<uint> _M8CarveTiles;
-StructuredBuffer<uint> _M8CarveTilesRead;
-RWStructuredBuffer<uint> _M8ObservationDispatchArgs;
-RWStructuredBuffer<uint> _M8CarveDispatchArgs;
 RWStructuredBuffer<uint4> _M8AttemptCompletion;
 
 float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
-float _MerkabaMaxUpdateDistance;
-float _MerkabaMutationOuterRadius;
+float4 _M8PlaneErrorBounds;
 
-Texture2D<float4> gsDilatedDepth;
-
-int _MerkabaExclusionCount;
-float3 _MerkabaExclusionHeads[64];
-
-#define EXCLUSION_TOP 0.25
-#define EXCLUSION_BOTTOM 1.7
-#define EXCLUSION_RADIUS 0.6
-
-int _M8AbortObservation;
 uint _M8AttemptToken;
+uint _M8DualPublishingGeneration;
+uint _M8DualRetiredGeneration;
 
 float3 _M8ScanCameraWorld;
 int3 _M8ScanCenterBlock;
 int _M8ScanBlockRadius;
 int _M8ScanBlockSide;
 float4 _M8ScanCoveragePlanes[8];
-uint _M8FineRefineActive;
-float3 _M8FineCursorPosition;
-float3 _M8FineBrushAxis;
-float _M8FineRadiusSquared;
-float _M8FineLength;
-
-bool M8FineContains(float3 worldPosition)
-{
-    float3 relative = worldPosition - _M8FineCursorPosition;
-    float axial = dot(relative, _M8FineBrushAxis);
-    float3 radial = relative - _M8FineBrushAxis * axial;
-    return axial >= 0.0 && axial <= _M8FineLength &&
-        dot(radial, radial) <= _M8FineRadiusSquared;
-}
-
 uint M8ObservationFailureReason()
 {
-    uint reason = _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
-    if (_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] != 0u)
-        reason |= M8_OBSERVATION_FAILURE_SURFACE_CAPACITY;
-    if (_M8AbortObservation != 0)
-        reason |= M8_OBSERVATION_FAILURE_TIMEOUT;
-    return reason;
+    return _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
 }
 
 uint PackRgb(uint r, uint g, uint b)
@@ -133,655 +51,88 @@ uint PackRgb(uint r, uint g, uint b)
     return r | (g << 8u) | (b << 16u) | (255u << 24u);
 }
 
-void AccumulateColor(inout KernelState state, float3 observed, float quality)
+bool M8SupportInsideMutationScope(M8FlowerInterval3 support)
 {
-    uint incomingWeight = (uint)clamp(round(quality * 256.0), 1.0, 256.0);
-    uint oldWeight = min(state.colorConfidence, 65535u);
-    uint3 observedRgb = (uint3)round(saturate(observed) * 255.0);
-    if (oldWeight == 0u)
+    [loop] for (int index=0; index<_MerkabaExclusionCount; ++index)
     {
-        state.packedColor = PackRgb(observedRgb.r, observedRgb.g,
-            observedRgb.b);
-        state.colorConfidence = incomingWeight;
-        return;
+        float3 head=_MerkabaExclusionHeads[index];
+        M8FlowerInterval bottom=M8FlowerISub(M8FlowerI(head.y,head.y),
+            M8FlowerI(EXCLUSION_BOTTOM,EXCLUSION_BOTTOM));
+        M8FlowerInterval top=M8FlowerIAdd(M8FlowerI(head.y,head.y),
+            M8FlowerI(EXCLUSION_TOP,EXCLUSION_TOP));
+        M8FlowerInterval radial=M8FlowerIAdd(
+            M8FlowerISquare(M8FlowerISub(support.x,M8FlowerI(head.x,head.x))),
+            M8FlowerISquare(M8FlowerISub(support.z,M8FlowerI(head.z,head.z))));
+        M8FlowerInterval radius=M8FlowerISquare(M8FlowerI(EXCLUSION_RADIUS,EXCLUSION_RADIUS));
+        if (support.y.hi >= bottom.lo && support.y.lo <= top.hi && radial.lo <= radius.hi)
+            return false;
     }
-    uint3 old = uint3(state.packedColor & 255u,
-        (state.packedColor >> 8u) & 255u,
-        (state.packedColor >> 16u) & 255u);
-    uint divisor = oldWeight + incomingWeight;
-    uint3 blended = (old * oldWeight + observedRgb * incomingWeight +
-        divisor / 2u) / divisor;
-    state.packedColor = PackRgb(blended.r, blended.g, blended.b);
-    state.colorConfidence = min(65535u, divisor);
+    if (_M8FineRefineActive == 0u) return true;
+    M8FlowerInterval3 relative;
+    relative.x=M8FlowerISub(support.x,M8FlowerI(_M8FineCursorPosition.x,_M8FineCursorPosition.x));
+    relative.y=M8FlowerISub(support.y,M8FlowerI(_M8FineCursorPosition.y,_M8FineCursorPosition.y));
+    relative.z=M8FlowerISub(support.z,M8FlowerI(_M8FineCursorPosition.z,_M8FineCursorPosition.z));
+    M8FlowerInterval ax=M8FlowerI(_M8FineBrushAxis.x,_M8FineBrushAxis.x);
+    M8FlowerInterval ay=M8FlowerI(_M8FineBrushAxis.y,_M8FineBrushAxis.y);
+    M8FlowerInterval az=M8FlowerI(_M8FineBrushAxis.z,_M8FineBrushAxis.z);
+    M8FlowerInterval axial=M8FlowerIAdd(M8FlowerIAdd(M8FlowerIMul(relative.x,ax),
+        M8FlowerIMul(relative.y,ay)),M8FlowerIMul(relative.z,az));
+    if (axial.lo < 0.0 || axial.hi > _M8FineLength) return false;
+    M8FlowerInterval radial=M8FlowerIAdd(M8FlowerIAdd(
+        M8FlowerISquare(M8FlowerISub(relative.x,M8FlowerIMul(axial,ax))),
+        M8FlowerISquare(M8FlowerISub(relative.y,M8FlowerIMul(axial,ay)))),
+        M8FlowerISquare(M8FlowerISub(relative.z,M8FlowerIMul(axial,az))));
+    return radial.hi <= _M8FineRadiusSquared;
 }
 
-bool IsExcluded(float3 worldPosition)
+
+bool M8SupportThrough(int3 firstOwner, uint ownerSpan)
 {
-    [loop]
-    for (int exclusion = 0; exclusion < _MerkabaExclusionCount; exclusion++)
+    if (!isfinite(_MerkabaMaxUpdateDistance) ||
+        !(_MerkabaMaxUpdateDistance > 0.0) || ownerSpan == 0u ||
+        ownerSpan > MERKABA_M8_BLOCK_KERNEL_SPAN) return false;
+    // The union of n consecutive owner supports is [first-1, first+n]
+    // in each axis. Enclose that complete cube before projection; the same
+    // certificate is valid for a kernel, tile, chunk or block. Integer to
+    // float conversion is enclosed before adding the span, including at
+    // negative and large signed coordinates.
+    M8FlowerInterval3 gridSupport;
+    float3 centre = float3(firstOwner);
+    M8FlowerInterval extent = M8FlowerI(-1.0, (float)ownerSpan);
+    M8FlowerInterval step = M8FlowerI(M8_FLOWER_LATTICE_STEP, M8_FLOWER_LATTICE_STEP);
+    gridSupport.x = M8FlowerIMul(M8FlowerIAdd(M8FlowerI(
+        M8FlowerPrevious(centre.x), M8FlowerNext(centre.x)),
+        extent), step);
+    gridSupport.y = M8FlowerIMul(M8FlowerIAdd(M8FlowerI(
+        M8FlowerPrevious(centre.y), M8FlowerNext(centre.y)),
+        extent), step);
+    gridSupport.z = M8FlowerIMul(M8FlowerIAdd(M8FlowerI(
+        M8FlowerPrevious(centre.z), M8FlowerNext(centre.z)),
+        extent), step);
+    M8FlowerInterval3 support;
+    support.x = M8DepthIntervalRow(_MerkabaGridToWorld[0], gridSupport);
+    support.y = M8DepthIntervalRow(_MerkabaGridToWorld[1], gridSupport);
+    support.z = M8DepthIntervalRow(_MerkabaGridToWorld[2], gridSupport);
+    if (!M8SupportInsideMutationScope(support)) return false;
+    float3 minimum = float3(support.x.lo, support.y.lo, support.z.lo);
+    float3 maximum = float3(support.x.hi, support.y.hi, support.z.hi);
+    M8FlowerInterval rangeSquared = M8FlowerISquare(M8FlowerI(
+        _MerkabaMaxUpdateDistance, _MerkabaMaxUpdateDistance));
+    [unroll]
+    for (uint eye = 0u; eye < 2u; ++eye)
     {
-        float3 head = _MerkabaExclusionHeads[exclusion];
-        float2 difference = worldPosition.xz - head.xz;
-        if (dot(difference, difference) < EXCLUSION_RADIUS * EXCLUSION_RADIUS &&
-            worldPosition.y < head.y + EXCLUSION_TOP &&
-            worldPosition.y > head.y - EXCLUSION_BOTTOM)
+        float3 origin = float3(gsDepthViewInv[eye][0][3],
+            gsDepthViewInv[eye][1][3], gsDepthViewInv[eye][2][3]);
+        M8FlowerInterval distanceSquared = M8FlowerIAdd(M8FlowerIAdd(
+            M8FlowerISquare(M8FlowerISub(support.x, M8FlowerI(origin.x,origin.x))),
+            M8FlowerISquare(M8FlowerISub(support.y, M8FlowerI(origin.y,origin.y)))),
+            M8FlowerISquare(M8FlowerISub(support.z, M8FlowerI(origin.z,origin.z))));
+        if (distanceSquared.hi > rangeSquared.lo) continue;
+        if (M8DepthCertificateEyeSupport(minimum, maximum, gsDepthView[eye],
+                gsDepthProj[eye], (int2)gsDepthTexSize, eye))
             return true;
     }
     return false;
-}
-
-int MerkabaRoundNearest(float value)
-{
-    return value >= 0.0 ? (int)floor(value + 0.5) : (int)ceil(value - 0.5);
-}
-
-int3 MerkabaNearestKernel(float3 gridPosition)
-{
-    return int3(MerkabaRoundNearest(gridPosition.x),
-        MerkabaRoundNearest(gridPosition.y),
-        MerkabaRoundNearest(gridPosition.z));
-}
-
-bool TrySurfaceMeasurement(uint2 pixel, out float3 worldSurface,
-    out int3 surfaceKernel, out float3 surfaceNormal, out float quality,
-    out float measurementConfidence)
-{
-    worldSurface = 0.0;
-    surfaceKernel = 0;
-    surfaceNormal = 0.0;
-    quality = 0.0;
-    measurementConfidence = 0.0;
-    if (any(pixel >= gsDepthTexSize) || pixel.x >
-        MERKABA_MEASUREMENT_PIXEL_MASK || pixel.y >
-        MERKABA_MEASUREMENT_PIXEL_MASK)
-        return false;
-
-    float depthNdc = gsDepthTex.Load(int3(pixel, 0));
-    if (depthNdc <= 0.0 || depthNdc >= 1.0) return false;
-    float2 uv = ((float2)pixel + 0.5) / (float2)gsDepthTexSize;
-    worldSurface = gsDepthNDCtoWorld(float3(uv, depthNdc));
-    if (IsExcluded(worldSurface)) return false;
-
-    float3 eyeToSurface = worldSurface - gsDepthEyePos();
-    float measuredDistance = length(eyeToSurface);
-    if (measuredDistance <= 0.05 ||
-        measuredDistance > _MerkabaMaxUpdateDistance)
-        return false;
-    float4 normalSample = gsDepthNormalTex.Load(int3(pixel, 0));
-    surfaceNormal = normalSample.xyz;
-    measurementConfidence = normalSample.w;
-    if (dot(surfaceNormal, surfaceNormal) < 0.25) return false;
-    if (measurementConfidence <= 0.0) return false;
-    float normalFacing = -dot(eyeToSurface, surfaceNormal) / measuredDistance;
-
-    float distanceFactor = saturate(1.0 - measuredDistance /
-        _MerkabaMaxUpdateDistance);
-    quality = distanceFactor * saturate(normalFacing);
-
-    float3 gridSurface = mul(_MerkabaWorldToGrid,
-        float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
-    surfaceKernel = MerkabaNearestKernel(gridSurface);
-    return true;
-}
-
-bool TryMerkabaDepthRadialPosition(float3 worldPosition,
-    out float radialPosition)
-{
-    radialPosition = 0.0;
-    [unroll]
-    for (uint eye = 0u; eye < 2u; eye++)
-    {
-        float4 hcs = mul(gsDepthProj[eye], mul(gsDepthView[eye],
-            float4(worldPosition, 1.0)));
-        if (hcs.w <= 0.0) return false;
-        float2 uv = gsDepthHCStoNDC(hcs).xy;
-        if (any(uv < 0.0) || any(uv > 1.0)) return false;
-        radialPosition = max(radialPosition,
-            max(abs(uv.x * 2.0 - 1.0), abs(uv.y * 2.0 - 1.0)));
-    }
-    return true;
-}
-
-float3 MerkabaDepthEyePosition(uint eye)
-{
-    return float3(gsDepthViewInv[eye][0][3],
-        gsDepthViewInv[eye][1][3], gsDepthViewInv[eye][2][3]);
-}
-
-float MerkabaMutationAttentionFromRadial(float3 worldSurface,
-    float3 surfaceNormal, float radialPosition)
-{
-    float3 origin = (MerkabaDepthEyePosition(0u) +
-        MerkabaDepthEyePosition(1u)) * 0.5;
-    float3 ray = worldSurface - origin;
-    float rayLength = length(ray);
-    if (rayLength <= 0.001) return 0.0;
-    float incidence = -dot(ray / rayLength, surfaceNormal);
-    if (incidence < MERKABA_REVISION_MIN_INCIDENCE)
-        return 0.0;
-    if (_M8FineRefineActive != 0u)
-        return M8FineContains(worldSurface) ? 1.0 : 0.0;
-    if (radialPosition >= _MerkabaMutationOuterRadius) return 0.0;
-    float transition = saturate((_MerkabaMutationOuterRadius -
-        radialPosition) / (_MerkabaMutationOuterRadius -
-        MERKABA_MUTATION_INNER_RADIUS));
-    return transition * transition * (3.0 - 2.0 * transition);
-}
-
-float MerkabaMutationAttention(float3 worldSurface, float3 surfaceNormal,
-    out float radialPosition)
-{
-    if (_M8FineRefineActive != 0u)
-    {
-        radialPosition = 0.0;
-        return MerkabaMutationAttentionFromRadial(worldSurface,
-            surfaceNormal, radialPosition);
-    }
-    if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
-        return 0.0;
-    return MerkabaMutationAttentionFromRadial(worldSurface, surfaceNormal,
-        radialPosition);
-}
-
-uint MerkabaPackMeasurementPixel(uint2 pixel)
-{
-    return (pixel.x & MERKABA_MEASUREMENT_PIXEL_MASK) |
-        ((pixel.y & MERKABA_MEASUREMENT_PIXEL_MASK) << 12u);
-}
-
-uint2 MerkabaSurfacePixel(int packedMetadata)
-{
-    uint metadata = asuint(packedMetadata);
-    return uint2(metadata & MERKABA_MEASUREMENT_PIXEL_MASK,
-        (metadata >> 12u) & MERKABA_MEASUREMENT_PIXEL_MASK);
-}
-
-int MerkabaPackSurfaceMetadata(uint2 pixel, int route, int authority,
-    bool offAxisBlocked, bool replacement, bool strictMeasurement)
-{
-    uint metadata = MerkabaPackMeasurementPixel(pixel) |
-        ((uint)route << MERKABA_SURFACE_ROUTE_SHIFT) |
-        ((uint)authority << MERKABA_SURFACE_AUTHORITY_SHIFT) |
-        (offAxisBlocked ? MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED : 0u) |
-        (replacement ? MERKABA_SURFACE_FLAG_REPLACEMENT : 0u) |
-        (strictMeasurement ? MERKABA_SURFACE_FLAG_STRICT : 0u);
-    return asint(metadata);
-}
-
-int MerkabaSurfaceRoute(int packedRoute)
-{
-    return (int)((asuint(packedRoute) >> MERKABA_SURFACE_ROUTE_SHIFT) &
-        MERKABA_SURFACE_ROUTE_MASK);
-}
-
-int MerkabaSurfaceAuthority(int packedRoute)
-{
-    return (int)((asuint(packedRoute) >> MERKABA_SURFACE_AUTHORITY_SHIFT) &
-        MERKABA_SURFACE_AUTHORITY_MASK);
-}
-
-int3 MerkabaNearestNormalStep(float3 worldNormal)
-{
-    return MerkabaNearestGridNormalStep(mul(
-        (float3x3)_MerkabaWorldToGrid, worldNormal));
-}
-
-bool M8FindSurfaceBlock(int3 blockCoord, out uint blockIndex)
-{
-    blockIndex = 0u;
-    uint2 buckets = MerkabaHashBucketSearchOrder(blockCoord);
-    [unroll]
-    for (uint bucketOrder = 0u; bucketOrder < 2u; bucketOrder++)
-    {
-        uint bucket = bucketOrder == 0u ? buckets.x : buckets.y;
-        [unroll]
-        for (uint slot = 0u; slot < MERKABA_M8_HASH_SLOTS_PER_BUCKET; slot++)
-        {
-            M8HashEntry entry = _M8HashEntries[
-                M8HashEntryIndex(bucket, slot)];
-            if (entry.blockRef != MERKABA_REF_EMPTY &&
-                entry.blockRef != MERKABA_REF_CLAIMED_NEW &&
-                all(entry.blockCoord == blockCoord))
-            {
-                blockIndex = entry.blockRef - 1u;
-                return blockIndex < MERKABA_M8_BLOCK_CAPACITY;
-            }
-        }
-    }
-    return false;
-}
-
-int M8InspectSurfaceOwner(int3 globalCoord,
-    MerkabaM8Address nearestAddress, bool nearestBlockReady,
-    uint nearestBlockIndex, out bool occupied, out KernelState state)
-{
-    occupied = false;
-    state = (KernelState)0;
-    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
-    bool sameBlock = all(address.blockCoord == nearestAddress.blockCoord);
-    uint blockIndex = nearestBlockIndex;
-    if (sameBlock)
-    {
-        if (!nearestBlockReady) return 0;
-    }
-    else if (!M8FindSurfaceBlock(address.blockCoord, blockIndex)) return 0;
-    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY) return 0;
-    if (chunkRef == MERKABA_REF_CLAIMED_NEW) return 2;
-    uint chunkIndex = chunkRef - 1u;
-    if (chunkIndex >= MERKABA_M8_CHUNK_CAPACITY) return 2;
-    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
-        address.tileLocal;
-    uint tileRef = _M8ChunkTileRefsRead[tileRefIndex];
-    if (tileRef == MERKABA_REF_EMPTY) return 0;
-    if (!M8IsHotRef(tileRef)) return 2;
-    uint physicalSlot = M8PhysicalSlot(tileRef);
-    uint word = M8TileWordIndex(physicalSlot, address.kernelLocal >> 5u);
-    occupied = (_M8TileBitsRead[word].x &
-        (1u << (address.kernelLocal & 31u))) != 0u;
-    if (occupied)
-        state = M8LoadKernelStateRead(physicalSlot, address.kernelLocal);
-    return occupied ? 1 : 0;
-}
-
-bool M8IsCurrentFrameSheetSupport(int2 pixel, float3 worldSurface,
-    float3 worldNormal, int3 measuredStep, out bool strictSupport)
-{
-    strictSupport = false;
-    if (any(pixel < 0) || any(pixel >= (int2)gsDepthTexSize)) return false;
-    float4 normalSample = gsDepthNormalTex.Load(int3(pixel, 0));
-    if (normalSample.w <= 0.0 ||
-        dot(normalSample.xyz, normalSample.xyz) < 0.25)
-        return false;
-    float depth = gsDepthTex.Load(int3(pixel, 0));
-    if (depth <= 0.0 || depth >= 1.0) return false;
-
-    float3 neighbourNormal = normalize(normalSample.xyz);
-    int3 neighbourStep = MerkabaNearestNormalStep(neighbourNormal);
-    if (!all(neighbourStep == measuredStep) &&
-        !all(neighbourStep == -measuredStep))
-        return false;
-
-    float2 uv = ((float2)pixel + 0.5) / (float2)gsDepthTexSize;
-    float3 neighbourWorld = gsDepthNDCtoWorld(float3(uv, depth));
-    float3 delta = neighbourWorld - worldSurface;
-    float tolerance = MERKABA_LATTICE_STEP * 0.5 + 1.0e-6;
-    bool compatible = dot(delta, delta) <=
-            MERKABA_HALF_SUPPORT * MERKABA_HALF_SUPPORT + 1.0e-6 &&
-        abs(dot(delta, worldNormal)) <= tolerance &&
-        abs(dot(delta, neighbourNormal)) <= tolerance;
-    strictSupport = compatible && normalSample.w >= 1.0;
-    return compatible;
-}
-
-bool M8HasCurrentFramePlanarSupport(uint2 sourcePixel,
-    float3 worldSurface, float3 worldNormal, int3 measuredStep,
-    out bool hasStrictSupport)
-{
-    int2 pixel = (int2)sourcePixel;
-    bool negative0Strict;
-    bool positive0Strict;
-    bool negative1Strict;
-    bool positive1Strict;
-    bool negative0 = M8IsCurrentFrameSheetSupport(pixel + int2(-1, 0),
-        worldSurface, worldNormal, measuredStep, negative0Strict);
-    bool positive0 = M8IsCurrentFrameSheetSupport(pixel + int2(1, 0),
-        worldSurface, worldNormal, measuredStep, positive0Strict);
-    bool negative1 = M8IsCurrentFrameSheetSupport(pixel + int2(0, -1),
-        worldSurface, worldNormal, measuredStep, negative1Strict);
-    bool positive1 = M8IsCurrentFrameSheetSupport(pixel + int2(0, 1),
-        worldSurface, worldNormal, measuredStep, positive1Strict);
-    bool axis0 = negative0 || positive0;
-    bool axis1 = negative1 || positive1;
-    bool strictAxis0 = (negative0 && negative0Strict) ||
-        (positive0 && positive0Strict);
-    bool strictAxis1 = (negative1 && negative1Strict) ||
-        (positive1 && positive1Strict);
-    // A weak sample may fill a hole inside a strict 2D observation, but may
-    // never extend a strict edge into a weak depth tail.
-    hasStrictSupport = strictAxis0 && strictAxis1;
-    return axis0 && axis1;
-}
-
-bool MerkabaOwnerCompatible(int3 ownerCoord, float3 worldSurface,
-    float3 worldNormal, float3 rayOrigin, float3 rayDirection,
-    float endpointDistance, out float alongError,
-    out float perpendicularError)
-{
-    float3 ownerWorld = mul(_MerkabaGridToWorld,
-        float4((float3)ownerCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
-    float3 originToOwner = ownerWorld - rayOrigin;
-    float ownerDistance = dot(originToOwner, rayDirection);
-    float3 closestOnRay = rayOrigin + rayDirection * ownerDistance;
-    alongError = abs(endpointDistance - ownerDistance);
-    perpendicularError = distance(ownerWorld, closestOnRay);
-    float ownerPlaneOffset = dot(worldSurface - ownerWorld, worldNormal);
-    return ownerDistance > 0.0 &&
-        alongError <= MERKABA_SUPPORT_SIZE &&
-        perpendicularError <= MERKABA_HALF_SUPPORT &&
-        abs(ownerPlaneOffset) <=
-            MERKABA_SURFACE_PLANE_OFFSET_RANGE + 1.0e-6;
-}
-
-bool MerkabaLexicographicallyLess(int3 left, int3 right)
-{
-    return left.x < right.x ||
-        (left.x == right.x && (left.y < right.y ||
-        (left.y == right.y && left.z < right.z)));
-}
-
-int RouteSurfaceCandidate(int3 seedCoord, uint2 sourcePixel,
-    out int3 targetCoord)
-{
-    targetCoord = seedCoord;
-    float3 worldSurface;
-    int3 nearestKernel;
-    float3 surfaceNormal;
-    float quality;
-    float measurementConfidence;
-    if (!TrySurfaceMeasurement(sourcePixel, worldSurface, nearestKernel,
-            surfaceNormal, quality, measurementConfidence))
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, false);
-    bool strictMeasurement = measurementConfidence >= 1.0;
-    if (!strictMeasurement && quality <= 0.0)
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, false);
-    if (_M8FineRefineActive != 0u && !strictMeasurement)
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, false);
-
-    float3 worldNormal = normalize(surfaceNormal);
-    int3 normalStep = MerkabaNearestNormalStep(surfaceNormal);
-    MerkabaM8Address nearestAddress = MerkabaAddressOf(nearestKernel);
-    uint nearestBlockIndex = 0u;
-    bool nearestBlockReady = M8FindSurfaceBlock(nearestAddress.blockCoord,
-        nearestBlockIndex);
-
-    if (!strictMeasurement)
-    {
-        targetCoord = nearestKernel;
-        bool occupied;
-        KernelState targetState;
-        int targetStatus = M8InspectSurfaceOwner(nearestKernel,
-            nearestAddress, nearestBlockReady, nearestBlockIndex, occupied,
-            targetState);
-        if (targetStatus == 2)
-            return MerkabaPackSurfaceMetadata(sourcePixel,
-                MERKABA_SURFACE_ROUTE_UNRESOLVED,
-                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
-        if (occupied)
-            return MerkabaPackSurfaceMetadata(sourcePixel,
-                MERKABA_SURFACE_ROUTE_INVALID,
-                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false);
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_VALID,
-            MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false, false);
-    }
-
-    float3 rayOrigin = (MerkabaDepthEyePosition(0u) +
-        MerkabaDepthEyePosition(1u)) * 0.5;
-    float3 ray = worldSurface - rayOrigin;
-    float endpointDistance = length(ray);
-    if (endpointDistance <= 0.001)
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_INVALID, MERKABA_SURFACE_AUTHORITY_NONE,
-            false, false, true);
-    ray /= endpointDistance;
-    int3 ownerCandidates[3] =
-    {
-        nearestKernel,
-        nearestKernel + normalStep,
-        nearestKernel - normalStep
-    };
-    bool foundOwner = false;
-    bool unresolved = false;
-    int3 unresolvedOwner = nearestKernel;
-    int3 bestOwner = nearestKernel;
-    float bestAlong = 1.0e20;
-    float bestPerpendicular = 1.0e20;
-    [unroll]
-    for (uint candidateIndex = 0u; candidateIndex < 3u; candidateIndex++)
-    {
-        int3 ownerCoord = ownerCandidates[candidateIndex];
-        float alongError;
-        float perpendicularError;
-        if (!MerkabaOwnerCompatible(ownerCoord, worldSurface, worldNormal,
-                rayOrigin, ray, endpointDistance, alongError,
-                perpendicularError))
-            continue;
-        bool occupied;
-        KernelState ownerState;
-        int state = M8InspectSurfaceOwner(ownerCoord, nearestAddress,
-            nearestBlockReady, nearestBlockIndex, occupied, ownerState);
-        if (state == 2)
-        {
-            if (!unresolved) unresolvedOwner = ownerCoord;
-            unresolved = true;
-            continue;
-        }
-        if (!occupied) continue;
-        bool better = !foundOwner || alongError < bestAlong - 1.0e-6 ||
-            (abs(alongError - bestAlong) <= 1.0e-6 &&
-            (perpendicularError < bestPerpendicular - 1.0e-6 ||
-            (abs(perpendicularError - bestPerpendicular) <= 1.0e-6 &&
-            MerkabaLexicographicallyLess(ownerCoord, bestOwner))));
-        if (better)
-        {
-            foundOwner = true;
-            bestOwner = ownerCoord;
-            bestAlong = alongError;
-            bestPerpendicular = perpendicularError;
-        }
-    }
-    if (unresolved)
-    {
-        targetCoord = unresolvedOwner;
-        return MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_UNRESOLVED,
-            MERKABA_SURFACE_AUTHORITY_NONE, false, false,
-            strictMeasurement);
-    }
-    if (!foundOwner)
-    {
-        targetCoord = nearestKernel;
-        int metadata = MerkabaPackSurfaceMetadata(sourcePixel,
-            MERKABA_SURFACE_ROUTE_VALID,
-            MERKABA_SURFACE_AUTHORITY_DISCOVERY, false, false,
-            strictMeasurement);
-        bool hasStrictCurrentSupport;
-        if (_M8FineRefineActive == 0u &&
-            M8HasCurrentFramePlanarSupport(sourcePixel, worldSurface,
-                worldNormal, normalStep, hasStrictCurrentSupport) &&
-            hasStrictCurrentSupport)
-            metadata = asint(asuint(metadata) |
-                MERKABA_SURFACE_FLAG_FAST_ADMISSION);
-        return metadata;
-    }
-
-    float radialPosition;
-    float attention = MerkabaMutationAttention(worldSurface, surfaceNormal,
-        radialPosition);
-    bool revision = attention > 0.0;
-    // Attention selects update authority, never geometric ownership. The
-    // exact target-local measured plane represents the sub-lattice surface.
-    targetCoord = bestOwner;
-    return MerkabaPackSurfaceMetadata(sourcePixel,
-        MERKABA_SURFACE_ROUTE_VALID,
-        revision ? MERKABA_SURFACE_AUTHORITY_REVISION :
-            MERKABA_SURFACE_AUTHORITY_SUPPORT,
-        false, false, true);
-}
-
-float MerkabaFreeDistanceWeight(float clearance)
-{
-    return saturate((clearance - MERKABA_HALF_SUPPORT) /
-        (MERKABA_FREE_FULL_CLEARANCE - MERKABA_HALF_SUPPORT));
-}
-
-#define MERKABA_CHEAP_RAY_CANDIDATE 0u
-#define MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH 1u
-#define MERKABA_CHEAP_RAY_NOT_IN_FRONT 2u
-#define MERKABA_CHEAP_RAY_OUTSIDE_TUBE 3u
-#define MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION 4u
-
-#define MERKABA_EXACT_REJECT_NONE 0u
-#define MERKABA_EXACT_REJECT_INCIDENCE 1u
-#define MERKABA_EXACT_REJECT_DILATION 2u
-#define MERKABA_EXACT_REJECT_OTHER 3u
-
-uint CheapFrozenRayGate(int3 globalCoord, float3 worldPosition,
-    out uint2 pixel, out float3 worldSurface, out int3 surfaceKernel,
-    out float radialPosition, out bool surfaceEndpoint)
-{
-    pixel = 0u;
-    worldSurface = 0.0;
-    surfaceKernel = 0;
-    radialPosition = 2.0;
-    surfaceEndpoint = false;
-    if (IsExcluded(worldPosition))
-        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
-    float3 viewPosition = mul(gsDepthView[0],
-        float4(worldPosition, 1.0)).xyz;
-    if (viewPosition.z > -0.05)
-        return MERKABA_CHEAP_RAY_NOT_IN_FRONT;
-    float3 ndc = gsDepthWorldToNDC(worldPosition);
-    if (ndc.x < 0.01 || ndc.x > 0.99 || ndc.y < 0.01 || ndc.y > 0.99)
-        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
-    pixel = min((uint2)(ndc.xy * (float2)gsDepthTexSize),
-        gsDepthTexSize - 1u);
-    if (pixel.x > MERKABA_MEASUREMENT_PIXEL_MASK ||
-        pixel.y > MERKABA_MEASUREMENT_PIXEL_MASK)
-        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
-    float depthNdc = gsDepthTex.Load(int3(pixel, 0));
-    if (depthNdc <= 0.0 || depthNdc >= 1.0)
-        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
-    float2 uv = ((float2)pixel + 0.5) / (float2)gsDepthTexSize;
-    worldSurface = gsDepthNDCtoWorld(float3(uv, depthNdc));
-    if (IsExcluded(worldSurface))
-        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
-    float3 eyeToSurface = worldSurface - gsDepthEyePos();
-    float measuredDistance = length(eyeToSurface);
-    if (measuredDistance <= 0.05 ||
-        measuredDistance > _MerkabaMaxUpdateDistance)
-        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
-    float3 gridSurface = mul(_MerkabaWorldToGrid,
-        float4(worldSurface, 1.0)).xyz / MERKABA_LATTICE_STEP;
-    surfaceKernel = MerkabaNearestKernel(gridSurface);
-    surfaceEndpoint = all(globalCoord == surfaceKernel);
-
-    // gsDepthTex is defined on the frozen reference depth-eye raster. The
-    // endpoint is joint four-stream truth, but its exact ray origin is eye 0.
-    float3 rayOrigin = MerkabaDepthEyePosition(0u);
-    float3 measuredRay = worldSurface - rayOrigin;
-    float rayDistance = length(measuredRay);
-    if (rayDistance <= 0.001)
-        return MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH;
-    if (!surfaceEndpoint)
-    {
-        float3 rayDirection = measuredRay / rayDistance;
-        float3 originToKernel = worldPosition - rayOrigin;
-        float kernelDistance = dot(originToKernel, rayDirection);
-        if (kernelDistance <= 0.0)
-            return MERKABA_CHEAP_RAY_NOT_IN_FRONT;
-        float3 closestOnRay = rayOrigin + rayDirection * kernelDistance;
-        float perpendicularDistance = distance(worldPosition, closestOnRay);
-        if (perpendicularDistance > MERKABA_HALF_SUPPORT ||
-            kernelDistance >= rayDistance - MERKABA_HALF_SUPPORT)
-            return MERKABA_CHEAP_RAY_OUTSIDE_TUBE;
-    }
-
-    if (_M8FineRefineActive != 0u)
-    {
-        radialPosition = 0.0;
-        if (!M8FineContains(worldSurface))
-            return MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION;
-    }
-    else if (!TryMerkabaDepthRadialPosition(worldSurface, radialPosition) ||
-             radialPosition >= _MerkabaMutationOuterRadius)
-        return MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION;
-    return MERKABA_CHEAP_RAY_CANDIDATE;
-}
-
-bool ExactFrozenRayClassify(int3 globalCoord, float3 worldPosition,
-    uint2 pixel, float3 worldSurface, int3 surfaceKernel,
-    float radialPosition, out int kind, out float evidenceWeight,
-    out float endpointClearance, out uint rejection)
-{
-    kind = 0;
-    evidenceWeight = 0.0;
-    endpointClearance = 0.0;
-    rejection = MERKABA_EXACT_REJECT_OTHER;
-    float4 normalSample = gsDepthNormalTex.Load(int3(pixel, 0));
-    float3 surfaceNormal = normalSample.xyz;
-    if (dot(surfaceNormal, surfaceNormal) < 0.25) return false;
-    float3 eyeToSurface = worldSurface - gsDepthEyePos();
-    float measuredEyeDistance = length(eyeToSurface);
-    if (measuredEyeDistance <= 0.05 ||
-        measuredEyeDistance > _MerkabaMaxUpdateDistance)
-        return false;
-    float normalFacing = -dot(eyeToSurface, surfaceNormal) /
-        measuredEyeDistance;
-    float distanceFactor = saturate(1.0 - measuredEyeDistance /
-        _MerkabaMaxUpdateDistance);
-    float quality = distanceFactor * saturate(normalFacing);
-    float attention = MerkabaMutationAttentionFromRadial(worldSurface,
-        surfaceNormal, radialPosition);
-    if (attention <= 0.0)
-    {
-        rejection = MERKABA_EXACT_REJECT_INCIDENCE;
-        return false;
-    }
-
-    float3 rayOrigin = MerkabaDepthEyePosition(0u);
-    float3 measuredRay = worldSurface - rayOrigin;
-    float measuredDistance = length(measuredRay);
-    if (measuredDistance <= 0.001) return false;
-    float3 rayDirection = measuredRay / measuredDistance;
-    float3 originToKernel = worldPosition - rayOrigin;
-    float kernelDistance = dot(originToKernel, rayDirection);
-    if (kernelDistance <= 0.0) return false;
-    float3 closestOnRay = rayOrigin + rayDirection * kernelDistance;
-    float perpendicularDistance = distance(worldPosition, closestOnRay);
-    if (perpendicularDistance > MERKABA_HALF_SUPPORT) return false;
-    endpointClearance = measuredDistance - kernelDistance;
-    if (all(globalCoord == surfaceKernel))
-    {
-        kind = 2;
-        evidenceWeight = quality * quality;
-        rejection = MERKABA_EXACT_REJECT_NONE;
-    }
-    else if (kernelDistance < measuredDistance - MERKABA_HALF_SUPPORT)
-    {
-        // Canonical mutation is strict; FREE keeps the same exact
-        // foreground-protected four-stream endpoint authority.
-        if (normalSample.w < 1.0) return false;
-        float jointDepth = gsDepthTex.Load(int3(pixel, 0));
-        float dilatedDepth = gsDilatedDepth.Load(int3(pixel, 0)).z;
-        if (dilatedDepth <= 0.0 || dilatedDepth >= 1.0 ||
-            gsDepthNDCToLinear(jointDepth) >=
-            gsDepthNDCToLinear(dilatedDepth) + MERKABA_DEPTH_DISPARITY)
-        {
-            rejection = MERKABA_EXACT_REJECT_DILATION;
-            return false;
-        }
-        kind = 1;
-        float spatialAttention = _M8FineRefineActive != 0u
-            ? 1.0 : attention;
-        evidenceWeight = quality * quality *
-            MerkabaFreeDistanceWeight(endpointClearance) * spatialAttention;
-        rejection = MERKABA_EXACT_REJECT_NONE;
-    }
-    else
-        return false;
-
-    // One exact kernel owns SURFACE. Other kernels receive only the transient
-    // signed-clearance evidence of this validated four-stream endpoint.
-    return true;
 }
 
 void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
@@ -798,7 +149,7 @@ void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
     else
     {
         state.flags &= ~MERKABA_OCCUPIED_FLAG;
-        state.flags = M8ClearSurfacePlane(state.flags);
+        state.flags = M8FlowerClearPlane(state.flags);
     }
     if (occupiedBefore == occupiedAfter) return;
 
@@ -823,7 +174,7 @@ void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
     }
 }
 
-void EnsureCarveActive(uint physicalSlot, uint kernelLocal)
+void M8MarkR1Active(uint physicalSlot, uint kernelLocal)
 {
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
     uint bit = 1u << (kernelLocal & 31u);
@@ -837,83 +188,9 @@ void EnsureCarveActive(uint physicalSlot, uint kernelLocal)
     }
 }
 
-void AppendSurfaceCandidate(int3 globalCoord, uint2 sourcePixel)
-{
-    uint index;
-    InterlockedAdd(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT], 1u,
-        index);
-    if (index < MERKABA_M8_SURFACE_CANDIDATE_CAPACITY)
-    {
-        _M8SurfaceCandidates[index] = int4(globalCoord,
-            MerkabaPackSurfaceMetadata(sourcePixel,
-                MERKABA_SURFACE_ROUTE_UNROUTED,
-                MERKABA_SURFACE_AUTHORITY_NONE, false, false, false));
-        M8CounterIncrement(M8_COUNTER_VALID_SURFACE_CANDIDATES);
-    }
-    else
-        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] = 1u;
-}
-
-groupshared uint gJointAcceptedRadial[3];
-
-[numthreads(8, 8, 1)]
-void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID,
-    uint thread : SV_GroupIndex)
-{
-    if (thread < 3u) gJointAcceptedRadial[thread] = 0u;
-    GroupMemoryBarrierWithGroupSync();
-
-    if (id.x < gsDepthTexSize.x && id.y < gsDepthTexSize.y)
-    {
-        float3 worldSurface;
-        int3 surfaceKernel;
-        float3 surfaceNormal;
-        float quality;
-        float measurementConfidence;
-        if (TrySurfaceMeasurement(id.xy, worldSurface, surfaceKernel,
-                surfaceNormal, quality, measurementConfidence))
-        {
-            float radialPosition;
-            if (TryMerkabaDepthRadialPosition(worldSurface, radialPosition))
-            {
-                uint radialBand = radialPosition < (1.0 / 3.0) ? 0u :
-                    (radialPosition < (2.0 / 3.0) ? 1u : 2u);
-                uint ignored;
-                InterlockedAdd(gJointAcceptedRadial[radialBand], 1u,
-                    ignored);
-            }
-            AppendSurfaceCandidate(surfaceKernel, id.xy);
-        }
-    }
-
-    GroupMemoryBarrierWithGroupSync();
-    if (thread < 3u && gJointAcceptedRadial[thread] != 0u)
-    {
-        uint ignored;
-        InterlockedAdd(
-            _M8Counters[M8_COUNTER_JOINT_ACCEPTED_CENTER + thread],
-            gJointAcceptedRadial[thread], ignored);
-    }
-}
-
-[numthreads(1, 1, 1)]
-void PrepareResolveArgs(uint id : SV_DispatchThreadID)
-{
-    // CARVE discovery is attempt-local. Surface candidates remain latched for
-    // the immutable observation until one fully-resident attempt commits it.
-    _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
-    _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
-    uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
-    uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
-    uint failure = completed == 0u ? M8ObservationFailureReason() :
-        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
-    _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
-    _M8ObservationDispatchArgs[0] = completed == 0u && failure == 0u
-        ? (count + 63u) / 64u : 0u;
-    _M8ObservationDispatchArgs[1] = 1u;
-    _M8ObservationDispatchArgs[2] = 1u;
-}
+#include "MerkabaFlowerCommit.hlsl"
+#include "MerkabaFlowerRefinement.hlsl"
+#include "MerkabaFlowerPageInvalidation.hlsl"
 
 bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     bool scanRequest)
@@ -922,572 +199,6 @@ bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     if (scanRequest && queued)
         M8CounterIncrement(M8_COUNTER_SCAN_COLD_MISSES);
     return queued;
-}
-
-void RequestSurfaceOwnerLoad(int3 globalCoord)
-{
-    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
-    uint blockIndex;
-    if (!M8FindBlock(address.blockCoord, blockIndex)) return;
-    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY ||
-        chunkRef == MERKABA_REF_CLAIMED_NEW) return;
-    uint chunkIndex = chunkRef - 1u;
-    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
-        address.tileLocal;
-    if (_M8ChunkTileRefs[tileRefIndex] == MERKABA_REF_COLD_ON_SSD)
-        RequestColdTile(tileRefIndex, chunkIndex, address.tileLocal, true);
-}
-
-bool CandidateAt(uint id, out MerkabaM8Address address)
-{
-    uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
-    if (id >= count)
-    {
-        address = (MerkabaM8Address)0;
-        return false;
-    }
-    int4 candidate = _M8SurfaceCandidatesRead[id];
-    address = MerkabaAddressOf(candidate.xyz);
-    return MerkabaSurfaceRoute(candidate.w) ==
-        MERKABA_SURFACE_ROUTE_VALID;
-}
-
-[numthreads(64, 1, 1)]
-void ResolveSurfaceBlocks(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
-    if (id >= count) return;
-    int4 candidate = _M8SurfaceCandidates[id];
-    int3 targetCoord;
-    int metadata = RouteSurfaceCandidate(candidate.xyz,
-        MerkabaSurfacePixel(candidate.w), targetCoord);
-    _M8SurfaceCandidates[id] = int4(targetCoord, metadata);
-    if (MerkabaSurfaceRoute(metadata) != MERKABA_SURFACE_ROUTE_VALID) return;
-    MerkabaM8Address address = MerkabaAddressOf(targetCoord);
-    uint blockIndex = 0u;
-    uint failureReason = 0u;
-    M8FindOrClaimBlock(address.blockCoord, blockIndex, failureReason);
-    if (failureReason != 0u)
-    {
-        uint ignored;
-        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
-            failureReason, ignored);
-    }
-}
-
-[numthreads(64, 1, 1)]
-void ResolveSurfaceChunks(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
-    MerkabaM8Address address = (MerkabaM8Address)0;
-    if (!CandidateAt(id, address)) return;
-    uint blockIndex = 0u;
-    if (!M8FindBlock(address.blockCoord, blockIndex)) return;
-    uint chunkIndex = 0u;
-    uint failureReason = 0u;
-    M8FindOrClaimChunk(blockIndex, address.chunkLocal, chunkIndex,
-        failureReason);
-    if (failureReason != 0u)
-    {
-        uint ignored;
-        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
-            failureReason, ignored);
-    }
-}
-
-[numthreads(64, 1, 1)]
-void ResolveSurfaceTiles(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
-    MerkabaM8Address address = (MerkabaM8Address)0;
-    if (!CandidateAt(id, address)) return;
-    uint blockIndex = 0u;
-    if (!M8FindBlock(address.blockCoord, blockIndex)) return;
-    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY ||
-        chunkRef >= MERKABA_REF_EVICTING) return;
-    uint chunkIndex = chunkRef - 1u;
-    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
-        address.tileLocal;
-    uint tileRef = _M8ChunkTileRefs[tileRefIndex];
-    if (tileRef == MERKABA_REF_EMPTY)
-    {
-        uint prior;
-        InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex],
-            MERKABA_REF_EMPTY, MERKABA_REF_CLAIMED_NEW, prior);
-        if (prior == MERKABA_REF_EMPTY)
-        {
-            uint d1 = (address.tileLocal >> 3u) & 7u;
-            uint d0 = address.tileLocal & 7u;
-            uint ignored;
-            InterlockedOr(
-                _M8ChunkPresence[M8ChunkPresenceL0Index(chunkIndex)],
-                1u << d1, ignored);
-            InterlockedOr(
-                _M8ChunkPresence[M8ChunkPresenceL1Index(chunkIndex, d1)],
-                1u << d0, ignored);
-            uint pendingIndex;
-            InterlockedAdd(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
-                1u, pendingIndex);
-            if (pendingIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                _M8PendingNewTileRefs[pendingIndex] = tileRefIndex;
-            else
-            {
-                InterlockedCompareExchange(
-                    _M8ChunkTileRefs[tileRefIndex],
-                    MERKABA_REF_CLAIMED_NEW, MERKABA_REF_EMPTY, prior);
-                InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
-                    M8_OBSERVATION_FAILURE_PHYSICAL_CAPACITY, ignored);
-            }
-        }
-        return;
-    }
-    if (tileRef == MERKABA_REF_COLD_ON_SSD)
-    {
-        RequestColdTile(tileRefIndex, chunkIndex, address.tileLocal, true);
-        return;
-    }
-}
-
-bool M8TrySurfaceTargetHot(int3 globalCoord, out uint physicalSlot,
-    out uint kernelLocal)
-{
-    physicalSlot = 0u;
-    kernelLocal = 0u;
-    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
-    uint blockIndex = 0u;
-    if (!M8FindBlock(address.blockCoord, blockIndex)) return false;
-    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY ||
-        chunkRef >= MERKABA_REF_EVICTING) return false;
-    uint chunkIndex = chunkRef - 1u;
-    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
-        address.tileLocal;
-    uint tileRef = _M8ChunkTileRefsRead[tileRefIndex];
-    if (!M8IsHotRef(tileRef)) return false;
-    physicalSlot = M8PhysicalSlot(tileRef);
-    kernelLocal = address.kernelLocal;
-    return true;
-}
-
-// InitializeSurfaceWinners can also queue a COLD load and therefore uses the
-// writable tile-ref authority. Selection/queue use the read-only helper above.
-bool M8TrySurfaceTargetHotForLoad(int3 globalCoord, out uint physicalSlot,
-    out uint kernelLocal)
-{
-    physicalSlot = 0u;
-    kernelLocal = 0u;
-    MerkabaM8Address address = MerkabaAddressOf(globalCoord);
-    uint blockIndex = 0u;
-    if (!M8FindBlock(address.blockCoord, blockIndex)) return false;
-    uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-        MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY ||
-        chunkRef >= MERKABA_REF_EVICTING) return false;
-    uint chunkIndex = chunkRef - 1u;
-    uint tileRef = _M8ChunkTileRefs[chunkIndex *
-        MERKABA_M8_TILES_PER_CHUNK + address.tileLocal];
-    if (!M8IsHotRef(tileRef)) return false;
-    physicalSlot = M8PhysicalSlot(tileRef);
-    kernelLocal = address.kernelLocal;
-    return true;
-}
-
-void M8ResetSurfaceWinner(uint physicalSlot, uint kernelLocal)
-{
-    uint index = M8BankStateIndex(physicalSlot, kernelLocal);
-    uint bank = physicalSlot >> MERKABA_M8_TILE_BANK_SHIFT;
-    if (bank == 0u) _M8SurfaceWinnerRanks0[index] =
-        MERKABA_SURFACE_WINNER_EMPTY;
-    else if (bank == 1u) _M8SurfaceWinnerRanks1[index] =
-        MERKABA_SURFACE_WINNER_EMPTY;
-    else if (bank == 2u) _M8SurfaceWinnerRanks2[index] =
-        MERKABA_SURFACE_WINNER_EMPTY;
-    else _M8SurfaceWinnerRanks3[index] = MERKABA_SURFACE_WINNER_EMPTY;
-}
-
-void M8SelectSurfaceWinner(uint physicalSlot, uint kernelLocal, uint rank)
-{
-    uint index = M8BankStateIndex(physicalSlot, kernelLocal);
-    uint bank = physicalSlot >> MERKABA_M8_TILE_BANK_SHIFT;
-    uint ignored;
-    if (bank == 0u) InterlockedMin(_M8SurfaceWinnerRanks0[index], rank,
-        ignored);
-    else if (bank == 1u) InterlockedMin(_M8SurfaceWinnerRanks1[index], rank,
-        ignored);
-    else if (bank == 2u) InterlockedMin(_M8SurfaceWinnerRanks2[index], rank,
-        ignored);
-    else InterlockedMin(_M8SurfaceWinnerRanks3[index], rank, ignored);
-}
-
-uint M8LoadSurfaceWinner(uint physicalSlot, uint kernelLocal)
-{
-    uint index = M8BankStateIndex(physicalSlot, kernelLocal);
-    uint bank = physicalSlot >> MERKABA_M8_TILE_BANK_SHIFT;
-    if (bank == 0u) return _M8SurfaceWinnerRanks0Read[index];
-    if (bank == 1u) return _M8SurfaceWinnerRanks1Read[index];
-    if (bank == 2u) return _M8SurfaceWinnerRanks2Read[index];
-    return _M8SurfaceWinnerRanks3Read[index];
-}
-
-bool ObserveFrozenSurfaceWinner(uint physicalSlot, uint kernelLocal,
-    out int kind, out float evidenceWeight, out float radialPosition)
-{
-    kind = 0;
-    evidenceWeight = 0.0;
-    radialPosition = 2.0;
-    uint winnerRank = M8LoadSurfaceWinner(physicalSlot, kernelLocal);
-    if (winnerRank == MERKABA_SURFACE_WINNER_EMPTY) return false;
-
-    // S4 stores the deterministic winning immutable joint source pixel in
-    // the low 24 bits of the rank. A kernel committed as SURFACE by this
-    // observation must be classified from that exact measurement, never by
-    // reprojecting center(K) to a different joint pixel.
-    uint2 sourcePixel = MerkabaSurfacePixel(asint(
-        winnerRank & MERKABA_MEASUREMENT_PACKED_MASK));
-    float3 worldSurface;
-    int3 measuredKernel;
-    float3 surfaceNormal;
-    float quality;
-    float measurementConfidence;
-    if (!TrySurfaceMeasurement(sourcePixel, worldSurface, measuredKernel,
-            surfaceNormal, quality, measurementConfidence))
-        return false;
-    MerkabaMutationAttention(worldSurface, surfaceNormal, radialPosition);
-    kind = 2;
-    return true;
-}
-
-bool M8TrySurfaceWinnerRank(int3 targetCoord, int packedMetadata,
-    out uint rank)
-{
-    rank = MERKABA_SURFACE_WINNER_EMPTY;
-    uint2 sourcePixel = MerkabaSurfacePixel(packedMetadata);
-    float3 worldSurface;
-    int3 measuredKernel;
-    float3 surfaceNormal;
-    float quality;
-    float measurementConfidence;
-    if (!TrySurfaceMeasurement(sourcePixel, worldSurface, measuredKernel,
-            surfaceNormal, quality, measurementConfidence))
-        return false;
-
-    int authority = MerkabaSurfaceAuthority(packedMetadata);
-    uint authorityRank = authority == MERKABA_SURFACE_AUTHORITY_REVISION ? 0u :
-        (authority == MERKABA_SURFACE_AUTHORITY_SUPPORT ? 1u :
-        (authority == MERKABA_SURFACE_AUTHORITY_DISCOVERY ? 2u : 3u));
-    if (authorityRank == 3u) return false;
-
-    float3 targetWorld = mul(_MerkabaGridToWorld,
-        float4((float3)targetCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
-    float residual = distance(worldSurface, targetWorld);
-    uint residualRank = min(15u, (uint)floor(saturate(
-        residual / MERKABA_HALF_SUPPORT) * 16.0));
-    float3 eyeToSurface = worldSurface - gsDepthEyePos();
-    float eyeDistance = length(eyeToSurface);
-    float incidence = eyeDistance > 0.001
-        ? saturate(-dot(eyeToSurface / eyeDistance, surfaceNormal)) : 0.0;
-    uint incidenceRank = min(3u, (uint)floor((1.0 - incidence) * 4.0));
-    rank = (authorityRank << 30u) | (residualRank << 26u) |
-        (incidenceRank << 24u) |
-        (asuint(packedMetadata) & MERKABA_MEASUREMENT_PACKED_MASK);
-    return true;
-}
-
-void M8TouchSurfaceTarget(uint physicalSlot)
-{
-    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =
-        _M8Counters[M8_COUNTER_FRAME_EPOCH];
-    uint touchedBefore;
-    InterlockedCompareExchange(
-        _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].x,
-        0u, 1u, touchedBefore);
-    if (touchedBefore == 0u)
-    {
-        uint touchedIndex;
-        InterlockedAdd(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT], 1u,
-            touchedIndex);
-        if (touchedIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-            _M8TouchedTileQueue[touchedIndex] = physicalSlot;
-    }
-}
-
-[numthreads(64, 1, 1)]
-void InitializeSurfaceWinners(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
-    uint candidateCount = min(
-        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
-    if (id >= candidateCount) return;
-    int4 candidate = _M8SurfaceCandidatesRead[id];
-    int route = MerkabaSurfaceRoute(candidate.w);
-    if (route == MERKABA_SURFACE_ROUTE_UNRESOLVED)
-    {
-        RequestSurfaceOwnerLoad(candidate.xyz);
-        M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
-        return;
-    }
-    if (route != MERKABA_SURFACE_ROUTE_VALID) return;
-    uint physicalSlot;
-    uint kernelLocal;
-    if (!M8TrySurfaceTargetHotForLoad(candidate.xyz, physicalSlot,
-            kernelLocal))
-    {
-        RequestSurfaceOwnerLoad(candidate.xyz);
-        M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
-        return;
-    }
-    M8ResetSurfaceWinner(physicalSlot, kernelLocal);
-}
-
-[numthreads(64, 1, 1)]
-void SelectSurfaceWinners(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
-    uint candidateCount = min(
-        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
-    if (id >= candidateCount) return;
-    int4 candidate = _M8SurfaceCandidatesRead[id];
-    if (MerkabaSurfaceRoute(candidate.w) != MERKABA_SURFACE_ROUTE_VALID)
-        return;
-    uint physicalSlot;
-    uint kernelLocal;
-    if (!M8TrySurfaceTargetHot(candidate.xyz, physicalSlot, kernelLocal))
-        return;
-    uint rank;
-    if (!M8TrySurfaceWinnerRank(candidate.xyz, candidate.w, rank))
-    {
-        uint ignored;
-        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
-            M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY, ignored);
-        return;
-    }
-    M8SelectSurfaceWinner(physicalSlot, kernelLocal, rank);
-}
-
-[numthreads(64, 1, 1)]
-void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
-    uint candidateCount = min(
-        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
-        MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
-    if (id >= candidateCount) return;
-    int4 candidate = _M8SurfaceCandidatesRead[id];
-    if (MerkabaSurfaceRoute(candidate.w) != MERKABA_SURFACE_ROUTE_VALID)
-        return;
-    uint physicalSlot;
-    uint kernelLocal;
-    if (!M8TrySurfaceTargetHot(candidate.xyz, physicalSlot, kernelLocal))
-    {
-        M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
-        return;
-    }
-    uint winner = M8LoadSurfaceWinner(physicalSlot, kernelLocal);
-    if (winner == MERKABA_SURFACE_WINNER_EMPTY) return;
-    uint winnerPixel = winner & MERKABA_MEASUREMENT_PACKED_MASK;
-    uint candidatePixel = asuint(candidate.w) &
-        MERKABA_MEASUREMENT_PACKED_MASK;
-    if (candidatePixel != winnerPixel) return;
-
-    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
-    uint bit = 1u << (kernelLocal & 31u);
-    uint previous;
-    InterlockedOr(_M8TileBits[wordIndex].z, bit, previous);
-    if ((previous & bit) != 0u) return;
-    M8TouchSurfaceTarget(physicalSlot);
-
-    int authority = MerkabaSurfaceAuthority(candidate.w);
-    if (authority == MERKABA_SURFACE_AUTHORITY_DISCOVERY)
-        M8CounterIncrement(M8_COUNTER_AUTHORITY_DISCOVERY);
-    else if (authority == MERKABA_SURFACE_AUTHORITY_SUPPORT)
-        M8CounterIncrement(M8_COUNTER_AUTHORITY_SUPPORT);
-    else if (authority == MERKABA_SURFACE_AUTHORITY_REVISION)
-        M8CounterIncrement(M8_COUNTER_AUTHORITY_REVISION);
-    uint metadata = asuint(candidate.w);
-    if ((metadata & MERKABA_SURFACE_FLAG_OFF_AXIS_BLOCKED) != 0u)
-        M8CounterIncrement(M8_COUNTER_OFF_AXIS_MUTATION_BLOCKED);
-    if ((metadata & MERKABA_SURFACE_FLAG_REPLACEMENT) != 0u)
-        M8CounterIncrement(M8_COUNTER_SURFACE_REPLACEMENT);
-
-    uint queueIndex;
-    InterlockedAdd(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT], 1u,
-        queueIndex);
-    if (queueIndex < MERKABA_SURFACE_QUEUE_CAPACITY)
-    {
-        uint key = physicalSlot * MERKABA_M8_KERNELS_PER_TILE +
-            kernelLocal;
-        _M8SurfaceQueue[queueIndex] = uint2(key, metadata);
-        M8CounterIncrement(M8_COUNTER_UNIQUE_SURFACE_KERNELS);
-    }
-    else
-        _M8Counters[M8_COUNTER_SURFACE_CANDIDATE_OVERFLOW] = 1u;
-}
-
-[numthreads(64, 1, 1)]
-void RetryPendingNewTiles(uint id : SV_DispatchThreadID)
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
-    uint count = min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    if (id >= count) return;
-    uint tileRefIndex = _M8PendingNewTileRefsRead[id];
-    if (_M8ChunkTileRefsRead[tileRefIndex] != MERKABA_REF_CLAIMED_NEW) return;
-    uint queueIndex;
-    InterlockedAdd(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT], 1u,
-        queueIndex);
-    if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-        _M8ClaimQueue[MERKABA_M8_CLAIM_TILE_OFFSET + queueIndex] =
-            uint2(tileRefIndex, 0u);
-}
-
-[numthreads(1, 1, 1)]
-void PrepareIntegrateArgs(uint id : SV_DispatchThreadID)
-{
-    uint count = min(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT],
-        MERKABA_SURFACE_QUEUE_CAPACITY);
-    uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
-    uint failure = completed == 0u ? M8ObservationFailureReason() :
-        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
-    _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
-    _M8ObservationDispatchArgs[0] =
-        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
-        completed == 0u && failure == 0u
-        ? (count + 63u) / 64u : 0u;
-    _M8ObservationDispatchArgs[1] = 1u;
-    _M8ObservationDispatchArgs[2] = 1u;
-}
-
-[numthreads(64, 1, 1)]
-void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
-{
-    uint count = min(_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT],
-        MERKABA_SURFACE_QUEUE_CAPACITY);
-    if (id >= count) return;
-    uint2 queued = _M8SurfaceQueueRead[id];
-    uint key = queued.x;
-    uint physicalSlot = key / MERKABA_M8_KERNELS_PER_TILE;
-    uint kernelLocal = key % MERKABA_M8_KERNELS_PER_TILE;
-    uint2 sourcePixel = MerkabaSurfacePixel(asint(queued.y));
-    float3 worldSurface;
-    int3 measuredKernel;
-    float3 surfaceNormal;
-    float quality;
-    float measurementConfidence;
-    if (!TrySurfaceMeasurement(sourcePixel, worldSurface, measuredKernel,
-            surfaceNormal, quality, measurementConfidence))
-        return;
-
-    int3 targetKernel = M8GlobalKernelCoord(physicalSlot, kernelLocal);
-    float3 targetWorld = mul(_MerkabaGridToWorld,
-        float4((float3)targetKernel * MERKABA_LATTICE_STEP, 1.0)).xyz;
-    if (_M8FineRefineActive != 0u && !M8FineContains(targetWorld)) return;
-
-    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
-    int evidenceBefore = state.evidence;
-    bool hadMeasuredPlaneBefore = M8HasSurfacePlane(state.flags);
-    int authority = MerkabaSurfaceAuthority(asint(queued.y));
-    bool strictMeasurement = (queued.y & MERKABA_SURFACE_FLAG_STRICT) != 0u;
-    bool fastAdmission = (queued.y &
-        MERKABA_SURFACE_FLAG_FAST_ADMISSION) != 0u;
-    if (!strictMeasurement && authority !=
-            MERKABA_SURFACE_AUTHORITY_DISCOVERY)
-        return;
-    int surfaceDelta = max(1, (int)round(
-        quality * quality * measurementConfidence *
-        MERKABA_SURFACE_SCALE));
-    // A strict, user-selected FINE observation is explicit local authority.
-    // It does not wait through automatic-scan admission hysteresis.
-    if (_M8FineRefineActive != 0u)
-        surfaceDelta = max(surfaceDelta,
-            MERKABA_OCCUPIED_ON - max(state.evidence, 0));
-    if (fastAdmission && strictMeasurement && authority ==
-            MERKABA_SURFACE_AUTHORITY_DISCOVERY)
-        surfaceDelta = max(surfaceDelta,
-            MERKABA_OCCUPIED_ON - max(state.evidence, 0));
-    UpdateOccupancy(physicalSlot, kernelLocal, state, surfaceDelta);
-    bool acceptObservedColor = true;
-    if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u)
-    {
-        float3 worldNormal = normalize(surfaceNormal);
-        float3 newNormalGrid = normalize(mul(
-            (float3x3)_MerkabaWorldToGrid, surfaceNormal));
-        float newOffset = dot(worldSurface - targetWorld, worldNormal);
-        bool storeExactPlane = authority !=
-            MERKABA_SURFACE_AUTHORITY_SUPPORT || !hadMeasuredPlaneBefore;
-        if (storeExactPlane)
-            state.flags = M8SetSurfacePlane(state.flags, newNormalGrid,
-                newOffset);
-        else
-        {
-            float3 oldNormalGrid;
-            float oldOffset;
-            M8DecodeSurfacePlane(state.flags, oldNormalGrid, oldOffset);
-            int3 oldStep = MerkabaNearestGridNormalStep(oldNormalGrid);
-            int3 newStep = MerkabaNearestGridNormalStep(newNormalGrid);
-            bool sameM8Sheet = all(oldStep == newStep) ||
-                all(oldStep == -newStep);
-            if (sameM8Sheet)
-            {
-                if (dot(oldNormalGrid, newNormalGrid) < 0.0)
-                {
-                    newNormalGrid = -newNormalGrid;
-                    newOffset = -newOffset;
-                }
-                float oldWeight = max(1.0, (float)max(evidenceBefore, 0));
-                float newWeight = (float)surfaceDelta;
-                float3 weightedNormal = oldNormalGrid * oldWeight +
-                    newNormalGrid * newWeight;
-                float weightedOffset = oldOffset * oldWeight +
-                    newOffset * newWeight;
-                float normalLength = length(weightedNormal);
-                if (normalLength > 1.0e-6)
-                {
-                    float3 fusedNormalGrid = weightedNormal / normalLength;
-                    float fusedOffset = weightedOffset / normalLength;
-                    if (abs(fusedOffset) <=
-                        MERKABA_SURFACE_PLANE_OFFSET_RANGE + 1.0e-6)
-                        state.flags = M8SetSurfacePlane(state.flags,
-                            fusedNormalGrid, fusedOffset);
-                    else
-                        state.flags = M8SetSurfacePlane(state.flags,
-                            newNormalGrid, newOffset);
-                }
-                else
-                    state.flags = M8SetSurfacePlane(state.flags,
-                        newNormalGrid, newOffset);
-            }
-            else
-                acceptObservedColor = false;
-        }
-    }
-    state.flags |= MERKABA_NEEDS_CARVE_FLAG;
-    float2 leftUv = MerkabaProjectCameraUv(0u, worldSurface);
-    float2 rightUv = MerkabaProjectCameraUv(1u, worldSurface);
-    float3 observedRgb = (MerkabaSampleCameraRgb(0u, leftUv) +
-        MerkabaSampleCameraRgb(1u, rightUv)) * 0.5;
-    if (acceptObservedColor)
-        AccumulateColor(state, observedRgb,
-            quality * measurementConfidence);
-    M8StoreKernelState(physicalSlot, kernelLocal, state);
-    EnsureCarveActive(physicalSlot, kernelLocal);
-    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
 }
 
 uint M8ScanChildMask(int3 parentMin, int parentSpan)
@@ -1502,604 +213,385 @@ uint M8ScanChildMask(int3 parentMin, int parentSpan)
     return support;
 }
 
+// One workgroup owns one existing signed M8 block. No second spatial
+// index exists: allocation requests use the same block/chunk/tile barriers.
 groupshared uint gScanBlockRef;
+groupshared uint gScanBlockOrdinal;
 groupshared int3 gScanBlockMin;
 groupshared uint gScanSupport4;
-groupshared uint gScanSupport3[8];
+groupshared uint gDualDirectChunks[16];
+groupshared uint gDualHasDirect;
+groupshared uint gDualBlockFinished;
+groupshared uint gDualWholeCertificate;
+groupshared uint gDualChanged;
+groupshared uint gDualBeginStatus;
 
-[numthreads(64, 1, 1)]
-void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
+void M8DualObservationPending(uint status)
 {
-    uint linearBlockIndex = groupId.x;
-    if (thread == 0u)
+    if (status == M8_DUAL_WRITE_INVALID)
+        M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
+    else
     {
-        gScanBlockRef = 0u;
-        gScanSupport4 = 0u;
-        uint side = (uint)_M8ScanBlockSide;
-        bool observationReady =
-            _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
-            _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u;
-        if (observationReady && linearBlockIndex < side * side * side)
-        {
-            int3 offset;
-            offset.x = (int)(linearBlockIndex % side) - _M8ScanBlockRadius;
-            offset.y = (int)((linearBlockIndex / side) % side) -
-                _M8ScanBlockRadius;
-            offset.z = (int)(linearBlockIndex / (side * side)) -
-                _M8ScanBlockRadius;
-            int3 blockCoord = _M8ScanCenterBlock + offset;
-            gScanBlockMin = blockCoord * MERKABA_M8_BLOCK_KERNEL_SPAN;
-            gScanSupport4 = M8ScanChildMask(gScanBlockMin, 256);
-            if (gScanSupport4 != 0u)
-            {
-                uint blockIndex = 0u;
-                if (M8FindBlock(blockCoord, blockIndex))
-                {
-                    gScanBlockRef = blockIndex + 1u;
-                    M8CounterIncrement(M8_COUNTER_CARVE_QUERY_BLOCKS);
-                }
-            }
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (thread < 8u)
-    {
-        uint d4ForMask = thread;
-        gScanSupport3[d4ForMask] = 0u;
-        if (gScanBlockRef != 0u)
-        {
-            uint maskBlockIndex = gScanBlockRef - 1u;
-            if (((_M8BlockPresenceL0Read[maskBlockIndex] & gScanSupport4) &
-                (1u << d4ForMask)) != 0u)
-            {
-                int3 min4ForMask = gScanBlockMin +
-                    MerkabaM8OctantOffset(d4ForMask, 128);
-                gScanSupport3[d4ForMask] = M8ScanChildMask(min4ForMask, 128);
-            }
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (gScanBlockRef == 0u) return;
-
-    uint blockIndex = gScanBlockRef - 1u;
-    int3 blockMin = gScanBlockMin;
-    uint d4 = thread >> 3u;
-    uint d3 = thread & 7u;
-    if (((gScanSupport4 >> d4) & 1u) == 0u ||
-        (((_M8BlockPresenceL1Read[blockIndex * 8u + d4] &
-        gScanSupport3[d4]) >> d3) & 1u) == 0u) return;
-
-    int3 min4 = blockMin + MerkabaM8OctantOffset(d4, 128);
-    int3 min3 = min4 + MerkabaM8OctantOffset(d3, 64);
-    uint scan2 = M8ScanChildMask(min3, 64);
-    uint support2 = (_M8BlockPresenceL2Read[blockIndex * 64u +
-        d4 * 8u + d3] & 255u) & scan2;
-    while (support2 != 0u)
-    {
-        uint d2 = (uint)firstbitlow(support2);
-        support2 &= support2 - 1u;
-        uint chunkLocal = (d4 << 6u) | (d3 << 3u) | d2;
-        uint chunkRef = _M8BlockChunkRefsRead[blockIndex * 512u + chunkLocal];
-        if (chunkRef == 0u || chunkRef >= MERKABA_REF_EVICTING) continue;
-        uint chunkIndex = chunkRef - 1u;
-        int3 min2 = min3 + MerkabaM8OctantOffset(d2, 32);
-        uint scan1 = M8ScanChildMask(min2, 32);
-        uint support1 =
-            (_M8ChunkPresenceRead[M8ChunkPresenceL0Index(chunkIndex)] &
-            255u) & scan1;
-        while (support1 != 0u)
-        {
-            uint d1 = (uint)firstbitlow(support1);
-            support1 &= support1 - 1u;
-            int3 min1 = min2 + MerkabaM8OctantOffset(d1, 16);
-            uint scan0 = M8ScanChildMask(min1, 16);
-            uint support0 =
-                (_M8ChunkPresenceRead[
-                    M8ChunkPresenceL1Index(chunkIndex, d1)] & 255u) & scan0;
-            while (support0 != 0u)
-            {
-                uint d0 = (uint)firstbitlow(support0);
-                support0 &= support0 - 1u;
-                uint tileLocal = (d1 << 3u) | d0;
-                uint tileRefIndex = chunkIndex * 64u + tileLocal;
-                uint tileRef = _M8ChunkTileRefs[tileRefIndex];
-                if (tileRef == MERKABA_REF_COLD_ON_SSD)
-                {
-                    if (RequestColdTile(tileRefIndex, chunkIndex, tileLocal,
-                        true))
-                        M8CounterIncrement(
-                            M8_COUNTER_COLD_CARVE_TILES_REQUESTED);
-                    M8CounterIncrement(
-                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
-                    continue;
-                }
-                if (!M8IsHotRef(tileRef))
-                {
-                    M8CounterIncrement(
-                        M8_COUNTER_UNRESOLVED_CARVE_TILES);
-                    continue;
-                }
-                uint physicalSlot = M8PhysicalSlot(tileRef);
-                if (_M8TileRecords[M8TileMetaIndex(physicalSlot)].w == 0u)
-                    continue;
-                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =
-                    _M8Counters[M8_COUNTER_FRAME_EPOCH];
-                uint queueIndex;
-                InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
-                    1u, queueIndex);
-                if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                    _M8CarveTiles[queueIndex] = physicalSlot;
-                M8CounterIncrement(M8_COUNTER_CARVE_QUERY_TILES);
-            }
-        }
+        M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+        if (status == M8_DUAL_WRITE_RETRY)
+            _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
     }
 }
 
-[numthreads(1, 1, 1)]
-void PrepareCarveArgs(uint id : SV_DispatchThreadID)
+void M8DualRequestStorage(uint kind, uint child, uint tile)
 {
-    uint count = min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    _M8CarveDispatchArgs[0] =
-        _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
-        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
-        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u
-        ? count : 0u;
-    _M8CarveDispatchArgs[1] = 1u;
-    _M8CarveDispatchArgs[2] = 1u;
-    _M8Counters[M8_COUNTER_CARVE_HALO_LOAD_REQUEST] = 0xffffffffu;
-}
-
-#define M8_CARVE_HALO_TILE_COUNT 27u
-#define M8_CARVE_HALO_WORD_COUNT \
-    (M8_CARVE_HALO_TILE_COUNT * MERKABA_M8_TILE_WORDS)
-#define M8_CARVE_TILE_UNRESOLVED_BIT 0x80000000u
-#define M8_CARVE_TILE_UNRESOLVED_NO_REQUEST 0xfffffffeu
-#define M8_CARVE_TILE_MISSING 0xffffffffu
-
-groupshared uint gCarveWords[16];
-groupshared uint gCarveHaloSlots[M8_CARVE_HALO_TILE_COUNT];
-groupshared uint gCarveOccupiedWords[M8_CARVE_HALO_WORD_COUNT];
-groupshared int3 gCarveTileOrigin;
-groupshared uint gCarveStats[23];
-
-struct M8CarveTileContext
-{
-    uint physicalSlot;
-    int3 tileOrigin;
-    int3 blockCoord;
-    uint blockIndex;
-    uint chunkIndex;
-    uint chunkLocal;
-};
-
-uint M8CarveHaloTileIndex(int3 tileOffset)
-{
-    return (uint)(tileOffset.x + 1) +
-        (uint)(tileOffset.y + 1) * 3u +
-        (uint)(tileOffset.z + 1) * 9u;
-}
-
-int3 M8CarveHaloTileOffset(uint index)
-{
-    uint z = index >= 18u ? 2u : index >= 9u ? 1u : 0u;
-    uint remainder = index - z * 9u;
-    uint y = remainder >= 6u ? 2u : remainder >= 3u ? 1u : 0u;
-    uint x = remainder - y * 3u;
-    return int3((int)x - 1, (int)y - 1, (int)z - 1);
-}
-
-M8CarveTileContext M8CarveContext(uint physicalSlot)
-{
-    M8CarveTileContext context;
-    context.physicalSlot = physicalSlot;
-    context.tileOrigin = M8GlobalKernelCoord(physicalSlot, 0u);
-    uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
-    uint2 owner = M8LoadChunkOwnerRead(meta.x);
-    context.blockCoord = M8LoadBlockCoordRead(owner.x);
-    context.blockIndex = owner.x;
-    context.chunkIndex = meta.x;
-    context.chunkLocal = owner.y;
-    return context;
-}
-
-uint M8ResolveCarveHaloTile(M8CarveTileContext context, int3 tileOffset)
-{
-    if (!any(tileOffset != 0)) return context.physicalSlot;
-
-    MerkabaM8Address address = MerkabaAddressOf(
-        context.tileOrigin + tileOffset * 8);
-    uint blockIndex = context.blockIndex;
-    if (!all(address.blockCoord == context.blockCoord) &&
-        !M8FindBlock(address.blockCoord, blockIndex))
-        return M8_CARVE_TILE_MISSING;
-
-    uint chunkIndex = context.chunkIndex;
-    if (blockIndex != context.blockIndex ||
-        address.chunkLocal != context.chunkLocal)
+    // Count's claims have already been published. No allocation or geometry
+    // is performed here; storage reconstructs this frozen domain address.
+    [loop] for (uint attempt=0u; attempt<4u; ++attempt)
     {
-        uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
-            MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-        if (chunkRef == MERKABA_REF_EMPTY)
-            return M8_CARVE_TILE_MISSING;
-        if (chunkRef >= MERKABA_REF_EVICTING)
-            return M8_CARVE_TILE_UNRESOLVED_NO_REQUEST;
-        chunkIndex = chunkRef - 1u;
-        if (chunkIndex >= MERKABA_M8_CHUNK_CAPACITY)
-            return M8_CARVE_TILE_UNRESOLVED_NO_REQUEST;
+        uint count=_M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT];
+        if (count >= MERKABA_M8_BLOCK_CAPACITY) break;
+        uint previous;
+        InterlockedCompareExchange(_M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT],
+            count,count+1u,previous);
+        if (previous != count) continue;
+        _M8ClaimQueue[MERKABA_M8_CLAIM_BLOCK_OFFSET+count]=
+            uint2(gScanBlockOrdinal,(kind << 15u) | (tile << 9u) | child);
+        return;
     }
-
-    uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
-        address.tileLocal;
-    uint tileRef = _M8ChunkTileRefsRead[tileRefIndex];
-    if (tileRef == MERKABA_REF_EMPTY)
-        return M8_CARVE_TILE_MISSING;
-    if (!M8IsHotRef(tileRef))
-        return M8_CARVE_TILE_UNRESOLVED_BIT | tileRefIndex;
-    return M8PhysicalSlot(tileRef);
+    // A full bounded prefix drains normally. The same held observation
+    // retries the unrecorded address; overflow never fabricates free space.
+    _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
+    M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
 }
 
-bool M8TryLoadCarveHaloState(int3 globalCoord, out KernelState state,
-    out bool resolved)
+// Emit has marked every accepted direct owner. Negative-only tiles only
+// stamp their bin; the existing Reserve kernel publishes the touched queue.
+void M8DualTouchObservationTile(uint slot)
 {
-    state = (KernelState)0;
-    int3 relative = globalCoord - gCarveTileOrigin;
-    int3 tileOffset = int3(relative.x < 0 ? -1 : relative.x >= 8 ? 1 : 0,
-        relative.y < 0 ? -1 : relative.y >= 8 ? 1 : 0,
-        relative.z < 0 ? -1 : relative.z >= 8 ? 1 : 0);
-    uint tileIndex = M8CarveHaloTileIndex(tileOffset);
-    uint slot = gCarveHaloSlots[tileIndex];
-    if (slot == M8_CARVE_TILE_UNRESOLVED_NO_REQUEST)
+    uint previous;
+    InterlockedExchange(_M8ObservationTileBins[slot].x,_M8ObservationToken,previous);
+    if (previous != _M8ObservationToken)
     {
-        uint ignored;
-        InterlockedMax(_M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES],
-            1u, ignored);
-        resolved = false;
-        return false;
+        _M8ObservationTileBins[slot].y=0u;
+        _M8ObservationTileBins[slot].z=0u;
+        _M8ObservationTileBins[slot].w=0u;
     }
-    if (slot != M8_CARVE_TILE_MISSING &&
-        (slot & M8_CARVE_TILE_UNRESOLVED_BIT) != 0u)
-    {
-        uint ignored;
-        InterlockedMin(_M8Counters[M8_COUNTER_CARVE_HALO_LOAD_REQUEST],
-            slot & ~M8_CARVE_TILE_UNRESOLVED_BIT, ignored);
-        resolved = false;
-        return false;
-    }
-    resolved = true;
-    if (slot == M8_CARVE_TILE_MISSING) return false;
-
-    int3 local = relative - tileOffset * 8;
-    uint kernelLocal = (uint)local.x | ((uint)local.y << 3u) |
-        ((uint)local.z << 6u);
-    uint occupied = gCarveOccupiedWords[tileIndex *
-        MERKABA_M8_TILE_WORDS + (kernelLocal >> 5u)];
-    if ((occupied & (1u << (kernelLocal & 31u))) == 0u) return false;
-    state = M8LoadKernelState(slot, kernelLocal);
-    return (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
+    _M8TileRecords[M8TileRuntimeIndex(slot)].z=_M8Counters[M8_COUNTER_FRAME_EPOCH];
 }
 
-bool M8CarvePlanesContinueSheet(int3 mainCoord, KernelState mainState,
-    int3 neighbourCoord, KernelState neighbourState)
+bool M8DualChunkHasDirect(uint chunk)
 {
-    if (!M8HasSurfacePlane(mainState.flags) ||
-        !M8HasSurfacePlane(neighbourState.flags))
-        return false;
-    float3 mainNormal;
-    float mainOffset;
-    float3 neighbourNormal;
-    float neighbourOffset;
-    M8DecodeSurfacePlane(mainState.flags, mainNormal, mainOffset);
-    M8DecodeSurfacePlane(neighbourState.flags, neighbourNormal,
-        neighbourOffset);
-    int3 mainStep = MerkabaNearestGridNormalStep(mainNormal);
-    int3 neighbourStep = MerkabaNearestGridNormalStep(neighbourNormal);
-    if (!all(mainStep == neighbourStep) &&
-        !all(mainStep == -neighbourStep))
-        return false;
-    if (dot(mainNormal, neighbourNormal) < 0.0)
+    if (chunk >= MERKABA_M8_CHUNK_CAPACITY) return false;
+    [loop] for (uint tile=0u; tile<64u; ++tile)
     {
-        neighbourNormal = -neighbourNormal;
-        neighbourOffset = -neighbourOffset;
-    }
-    float3 mainPoint = (float3)mainCoord * MERKABA_LATTICE_STEP +
-        mainNormal * mainOffset;
-    float3 neighbourPoint = (float3)neighbourCoord *
-        MERKABA_LATTICE_STEP + neighbourNormal * neighbourOffset;
-    float3 delta = neighbourPoint - mainPoint;
-    float tolerance = MERKABA_LATTICE_STEP * 0.5 + 1.0e-6;
-    return abs(dot(delta, mainNormal)) <= tolerance &&
-        abs(dot(delta, neighbourNormal)) <= tolerance;
-}
-
-bool M8HasContinuingCarveSheet(int3 mainCoord, KernelState mainState,
-    out bool resolved)
-{
-    resolved = true;
-    // This exact 26-neighbour test runs only when one FREE update would cross
-    // the occupied threshold.  Keep its deterministic order, but do not clone
-    // the complete plane decoder/compatibility path 26 times into every lane.
-    // Unity's Vulkan compiler otherwise exceeds the recommended Adreno
-    // register budget for this 128-lane kernel.
-    [loop]
-    for (int z = -1; z <= 1; z++)
-    [loop]
-    for (int y = -1; y <= 1; y++)
-    [loop]
-    for (int x = -1; x <= 1; x++)
-    {
-        if (x == 0 && y == 0 && z == 0) continue;
-        int3 neighbourCoord = mainCoord + int3(x, y, z);
-        KernelState neighbourState;
-        bool neighbourResolved;
-        if (!M8TryLoadCarveHaloState(neighbourCoord, neighbourState,
-                neighbourResolved))
-        {
-            if (!neighbourResolved) resolved = false;
-            continue;
-        }
-        if (M8CarvePlanesContinueSheet(mainCoord, mainState,
-                neighbourCoord, neighbourState))
-            return true;
+        uint reference=_M8ChunkTileRefsRead[chunk*64u+tile];
+        if (!M8IsHotRef(reference)) continue;
+        uint slot=M8PhysicalSlot(reference);
+        uint4 bin=_M8ObservationTileBins[slot];
+        if (bin.x == _M8ObservationToken && bin.y != 0u) return true;
     }
     return false;
 }
 
-bool RetireCarveActive(uint physicalSlot, uint kernelLocal)
+void M8DualTouchResidentChunk(uint chunk)
 {
-    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
-    uint bit = 1u << (kernelLocal & 31u);
-    uint previous;
-    InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previous);
-    if ((previous & bit) == 0u) return false;
-    uint ignored;
-    InterlockedAdd(_M8TileRecords[M8TileMetaIndex(physicalSlot)].w,
-        0xffffffffu, ignored);
-    return true;
-}
-
-void FlushCarveStat(uint counterIndex, uint value)
-{
-    if (value == 0u) return;
-    uint ignored;
-    InterlockedAdd(_M8Counters[counterIndex], value, ignored);
-}
-
-void RecordCheapCarveResult(uint gate, bool surfaceEndpoint)
-{
-    uint ignored;
-    if (gate == MERKABA_CHEAP_RAY_INVALID_PROJECTION_DEPTH)
-        InterlockedAdd(gCarveStats[15], 1u, ignored);
-    else if (gate == MERKABA_CHEAP_RAY_NOT_IN_FRONT)
-        InterlockedAdd(gCarveStats[16], 1u, ignored);
-    else if (gate == MERKABA_CHEAP_RAY_OUTSIDE_TUBE)
-        InterlockedAdd(gCarveStats[17], 1u, ignored);
-    else if (gate == MERKABA_CHEAP_RAY_OUTSIDE_OUTER_ATTENTION)
-        InterlockedAdd(gCarveStats[18], 1u, ignored);
-    if (surfaceEndpoint)
-        InterlockedAdd(gCarveStats[19], 1u, ignored);
-}
-
-void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
-{
-    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
-    uint bit = 1u << (kernelLocal & 31u);
-    uint ignored;
-    InterlockedAdd(gCarveStats[0], 1u, ignored);
-    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
-    float3 worldPosition = mul(_MerkabaGridToWorld,
-        float4((float3)globalCoord * MERKABA_LATTICE_STEP, 1.0)).xyz;
-    if (_M8FineRefineActive != 0u && !M8FineContains(worldPosition)) return;
-
-    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
-    bool occupiedBefore = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
-    bool alreadyStrongFree = !occupiedBefore &&
-        state.evidence <= MERKABA_EXPORT_KNOWN_FREE;
-    if (alreadyStrongFree)
+    [loop] for (uint tile=0u; tile<64u; ++tile)
     {
-        if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) != 0u)
+        uint reference=_M8ChunkTileRefsRead[chunk*64u+tile];
+        if (!M8IsHotRef(reference)) continue;
+        uint slot=M8PhysicalSlot(reference);
+        if (_M8TileRecords[M8TileMetaIndex(slot)].w != 0u)
+            M8DualTouchObservationTile(slot);
+    }
+}
+
+void M8DualRequestChunkPayload(uint chunk, uint child)
+{
+    if (chunk >= MERKABA_M8_CHUNK_CAPACITY) return;
+    [loop] for (uint tile=0u; tile<64u; ++tile)
+    {
+        uint index=chunk*64u+tile;
+        if (_M8ChunkTileRefsRead[index] == MERKABA_REF_COLD_ON_SSD)
+            M8DualRequestStorage(M8_DUAL_INTENT_TILE_COLD,child,tile);
+    }
+}
+
+void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
+{
+    bool hasDirect=(gDualDirectChunks[child >> 5u] & (1u << (child & 31u))) != 0u;
+    bool through=false;
+    if (!hasDirect)
+        through=gDualWholeCertificate != 0u || M8SupportThrough(minimum,32u);
+    uint chunk;
+    if (through)
+    {
+        uint result=M8DualWriteChunkUniform(block,child,M8_DUAL_THROUGH,
+            _M8DualPublishingGeneration,_M8DualRetiredGeneration);
+        if (result <= M8_DUAL_WRITE_COMMITTED)
         {
-            state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
-            M8StoreKernelState(physicalSlot, kernelLocal, state);
-            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+            if (result == M8_DUAL_WRITE_COMMITTED) InterlockedOr(gDualChanged,1u);
+            if (M8DualResolveChunk(block,child,chunk)) M8DualTouchResidentChunk(chunk);
+            return;
         }
-        if (RetireCarveActive(physicalSlot, kernelLocal))
-            InterlockedAdd(gCarveStats[6], 1u, ignored);
+        if (result == M8_DUAL_WRITE_INVALID)
+        {
+            M8DualObservationPending(result);
+            return;
+        }
+        // A COLD child is not discarded even when the enclosing current
+        // certificate succeeds. Descend to request its exact stored support.
+    }
+
+    if (!M8DualResolveChunk(block,child,chunk))
+    {
+        M8DualRequestStorage(M8_DUAL_INTENT_CHUNK,child,0u);
+        M8DualObservationPending(M8_DUAL_WRITE_RETRY);
+        return;
+    }
+    M8DualChunkPayload payload;
+    uint result=M8DualBeginChunk(block,child,_M8DualPublishingGeneration,
+        _M8DualRetiredGeneration,chunk,payload);
+    if (result > M8_DUAL_WRITE_COMMITTED)
+    {
+        M8DualRequestChunkPayload(chunk,child);
+        M8DualObservationPending(result);
         return;
     }
 
-    int observationKind = 0;
-    float evidenceWeight = 0.0;
-    float endpointClearance = 0.0;
-    float radialPosition = 2.0;
-    bool currentSurfaceCandidate = (_M8TileBits[wordIndex].z & bit) != 0u;
-    if (currentSurfaceCandidate)
+    uint firstMask=through ? 255u : M8ScanChildMask(minimum,32);
+    [loop] while (firstMask != 0u)
     {
-        ObserveFrozenSurfaceWinner(physicalSlot, kernelLocal,
-            observationKind, evidenceWeight, radialPosition);
-    }
-    else
-    {
-        uint2 pixel;
-        float3 worldSurface;
-        int3 surfaceKernel;
-        bool surfaceEndpoint;
-        uint gate = CheapFrozenRayGate(globalCoord, worldPosition, pixel,
-            worldSurface, surfaceKernel, radialPosition, surfaceEndpoint);
-        RecordCheapCarveResult(gate, surfaceEndpoint);
-        if (gate == MERKABA_CHEAP_RAY_CANDIDATE)
+        uint d1=(uint)firstbitlow(firstMask);
+        firstMask &= firstMask-1u;
+        int3 firstMinimum=minimum+MerkabaM8OctantOffset(d1,16);
+        uint secondMask=through ? 255u : M8ScanChildMask(firstMinimum,16);
+        [loop] while (secondMask != 0u)
         {
-            InterlockedAdd(gCarveStats[20], 1u, ignored);
-            uint rejection;
-            bool classified = ExactFrozenRayClassify(globalCoord,
-                worldPosition, pixel,
-                worldSurface, surfaceKernel, radialPosition,
-                observationKind, evidenceWeight, endpointClearance,
-                rejection);
-            if (!classified)
+            uint d0=(uint)firstbitlow(secondMask);
+            secondMask &= secondMask-1u;
+            uint tile=(d1 << 3u) | d0;
+            int3 tileMinimum=firstMinimum+MerkabaM8OctantOffset(d0,8);
+            uint referenceIndex=chunk*64u+tile;
+            uint reference=_M8ChunkTileRefsRead[referenceIndex];
+            bool hot=M8IsHotRef(reference);
+            uint slot=hot ? M8PhysicalSlot(reference) : M8_DUAL_NO_REF;
+            bool direct=false;
+            if (hot)
             {
-                InterlockedAdd(gCarveStats[3], 1u, ignored);
-                if (rejection == MERKABA_EXACT_REJECT_INCIDENCE)
-                    InterlockedAdd(gCarveStats[21], 1u, ignored);
-                else if (rejection == MERKABA_EXACT_REJECT_DILATION)
-                    InterlockedAdd(gCarveStats[22], 1u, ignored);
+                uint4 bin=_M8ObservationTileBins[slot];
+                direct=bin.x == _M8ObservationToken && bin.y != 0u;
+            }
+            uint words[16];
+            uint previous=M8DualReadPreparedTileWords(chunk,payload,tile,words);
+            if (previous == M8_DUAL_AMBIGUOUS)
+            {
+                if (reference == MERKABA_REF_COLD_ON_SSD)
+                    M8DualRequestStorage(M8_DUAL_INTENT_TILE_COLD,child,tile);
+                M8DualObservationPending(M8_DUAL_WRITE_COLD);
+                continue;
+            }
+
+            bool entire=false;
+            if (!direct) entire=through || M8SupportThrough(tileMinimum,8u);
+            if (entire)
+            {
+                [unroll] for (uint word=0u; word<16u; ++word) words[word]=0xffffffffu;
+            }
+            else
+            {
+                [loop] for (uint word=0u; word<16u; ++word)
+                {
+                    uint endpoints=direct ? _M8TileBitsRead[M8TileWordIndex(slot,word)].z : 0u;
+                    // Restore all strict direct supports before any possible
+                    // canonical positive write, including incompatible owners.
+                    words[word] &= ~endpoints;
+                    [loop] for (uint bit=0u; bit<32u; ++bit)
+                    {
+                        uint mask=1u << bit;
+                        if (((words[word] | endpoints) & mask) != 0u) continue;
+                        uint local=word*32u+bit;
+                        int3 owner=tileMinimum+int3(local & 7u,(local >> 3u) & 7u,local >> 6u);
+                        if (M8SupportThrough(owner,1u)) words[word] |= mask;
+                    }
+                }
+            }
+            uint anyValue=0u, allValues=0xffffffffu;
+            [unroll] for (uint word=0u; word<16u; ++word)
+            { anyValue |= words[word]; allValues &= words[word]; }
+            bool mixed=anyValue != 0u && allValues != 0xffffffffu;
+            if (mixed && !hot)
+            {
+                if (reference == MERKABA_REF_EMPTY || reference == MERKABA_REF_COLD_ON_SSD)
+                    M8DualRequestStorage(reference == MERKABA_REF_EMPTY ?
+                        M8_DUAL_INTENT_TILE_EMPTY : M8_DUAL_INTENT_TILE_COLD,child,tile);
+                M8DualObservationPending(M8_DUAL_WRITE_COLD);
+                continue;
+            }
+            result=M8DualWriteTileWords(block,child,chunk,tile,slot,
+                _M8DualPublishingGeneration,_M8DualRetiredGeneration,payload,words);
+            if (result > M8_DUAL_WRITE_COMMITTED)
+            {
+                M8DualObservationPending(result);
+                continue;
+            }
+            if (result == M8_DUAL_WRITE_COMMITTED)
+            {
+                InterlockedOr(gDualChanged,1u);
+                if (hot) M8MarkTileDirty(slot);
+            }
+            if (hot && (direct || _M8TileRecords[M8TileMetaIndex(slot)].w != 0u))
+                M8DualTouchObservationTile(slot);
+        }
+    }
+}
+
+[numthreads(64,1,1)]
+void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
+{
+    if (lane == 0u)
+    {
+        gScanBlockRef=0u;
+        gScanBlockOrdinal=group.x;
+        gScanSupport4=0u;
+        gDualHasDirect=0u;
+        gDualBlockFinished=0u;
+        gDualWholeCertificate=0u;
+        gDualChanged=0u;
+        gDualBeginStatus=M8_DUAL_WRITE_RETRY;
+        if (group.x == 0u) _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION]=1u;
+        bool ready=_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
+            _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u;
+        if (ready && (_M8ObservationToken == 0u || _M8DualPublishingGeneration == 0u ||
+            _M8DualPublishingGeneration > M8_DUAL_MAX_GENERATION ||
+            _M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] != 0u ||
+            _M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT] != 0u ||
+            _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT] != 0u))
+        {
+            M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
+            ready=false;
+        }
+        int3 coordinate;
+        if (ready && !M8ObservationBlockAddress(_M8ScanCenterBlock,
+            _M8ScanBlockRadius,_M8ScanBlockSide,group.x,coordinate))
+        {
+            M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
+            ready=false;
+        }
+        if (ready)
+        {
+            gScanBlockMin=coordinate*MERKABA_M8_BLOCK_KERNEL_SPAN;
+            gScanSupport4=M8ScanChildMask(gScanBlockMin,256);
+            if (gScanSupport4 != 0u)
+            {
+                uint block;
+                if (M8FindBlock(coordinate,block))
+                {
+                    gScanBlockRef=block+1u;
+                    M8CounterIncrement(M8_COUNTER_CARVE_QUERY_BLOCKS);
+                }
+                else
+                {
+                    M8DualRequestStorage(M8_DUAL_INTENT_BLOCK,0u,0u);
+                    M8DualObservationPending(M8_DUAL_WRITE_RETRY);
+                }
             }
         }
     }
+    if (lane < 16u) gDualDirectChunks[lane]=0u;
+    GroupMemoryBarrierWithGroupSync();
+    if (gScanBlockRef == 0u) return;
+    uint block=gScanBlockRef-1u;
 
-    if (observationKind == 1)
+    // Direct exclusion is explicit at every uniform ancestor fast path.
+    // Only existing M8 relations are inspected; an empty relation has no
+    // accepted positive bin because Emit completed before this dispatch.
+    [loop] for (uint child=lane; child<512u; child+=64u)
     {
-        InterlockedAdd(gCarveStats[1], 1u, ignored);
-        uint radialBin = min(7u,
-            (uint)floor(saturate(radialPosition) * 8.0));
-        InterlockedAdd(gCarveStats[7u + radialBin], 1u, ignored);
-        int evidenceBefore = state.evidence;
-        int decrement = max(1, (int)round(evidenceWeight *
-            MERKABA_FREE_SCALE));
-        int candidateEvidence = evidenceBefore - decrement;
-        if (occupiedBefore && candidateEvidence <= MERKABA_OCCUPIED_OFF)
+        uint chunk;
+        if (!M8DualResolveChunk(block,child,chunk)) continue;
+        if (M8DualChunkHasDirect(chunk))
         {
-            bool haloResolved;
-            bool continuingSheet = M8HasContinuingCarveSheet(globalCoord,
-                state, haloResolved);
-            bool mayClear = endpointClearance >=
-                    MERKABA_FREE_FULL_CLEARANCE &&
-                !currentSurfaceCandidate && haloResolved &&
-                !continuingSheet;
-            if (!mayClear)
-                decrement = min(decrement, max(0,
-                    evidenceBefore - (MERKABA_OCCUPIED_OFF + 1)));
-        }
-        if (decrement > 0)
-            UpdateOccupancy(physicalSlot, kernelLocal, state, -decrement);
-        bool occupiedAfter = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
-        if (state.evidence < evidenceBefore)
-            InterlockedAdd(gCarveStats[4], 1u, ignored);
-        if (occupiedBefore && !occupiedAfter)
-            InterlockedAdd(gCarveStats[5], 1u, ignored);
-        if (!occupiedAfter && state.evidence <= MERKABA_EXPORT_KNOWN_FREE)
-        {
-            state.flags &= ~MERKABA_NEEDS_CARVE_FLAG;
-            if (RetireCarveActive(physicalSlot, kernelLocal))
-                InterlockedAdd(gCarveStats[6], 1u, ignored);
-        }
-        if (state.evidence != evidenceBefore)
-        {
-            M8StoreKernelState(physicalSlot, kernelLocal, state);
-            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+            InterlockedOr(gDualDirectChunks[child >> 5u],1u << (child & 31u));
+            InterlockedOr(gDualHasDirect,1u);
         }
     }
-    else if (observationKind == 2)
+    GroupMemoryBarrierWithGroupSync();
+    if (lane == 0u)
     {
-        InterlockedAdd(gCarveStats[2], 1u, ignored);
-        if ((state.flags & MERKABA_NEEDS_CARVE_FLAG) == 0u)
+        if (gDualHasDirect == 0u)
+            gDualWholeCertificate=M8SupportThrough(gScanBlockMin,256u) ? 1u : 0u;
+        if (gDualWholeCertificate != 0u)
         {
-            state.flags |= MERKABA_NEEDS_CARVE_FLAG;
-            M8StoreKernelState(physicalSlot, kernelLocal, state);
-            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+            uint result=M8DualWriteBlockUniform(block,M8_DUAL_THROUGH,
+                _M8DualPublishingGeneration,_M8DualRetiredGeneration);
+            if (result == M8_DUAL_WRITE_COMMITTED)
+                InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
+                    M8_OBSERVATION_CHANGED_DUAL);
+            if (result <= M8_DUAL_WRITE_COMMITTED) gDualBlockFinished=1u;
+            else if (result == M8_DUAL_WRITE_INVALID) M8DualObservationPending(result);
         }
+        if (gDualBlockFinished == 0u)
+        {
+            gDualBeginStatus=M8DualBeginBlock(block,_M8DualPublishingGeneration,
+                _M8DualRetiredGeneration);
+            if (gDualBeginStatus > M8_DUAL_WRITE_COMMITTED)
+                M8DualObservationPending(gDualBeginStatus);
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if (gDualBlockFinished != 0u)
+    {
+        [loop] for (uint child=lane; child<512u; child+=64u)
+        {
+            uint chunk;
+            if (M8DualResolveChunk(block,child,chunk)) M8DualTouchResidentChunk(chunk);
+        }
+        return;
+    }
+    if (gDualBeginStatus > M8_DUAL_WRITE_COMMITTED) return;
+    uint d4=lane >> 3u, d3=lane & 7u;
+    if ((gScanSupport4 & (1u << d4)) != 0u)
+    {
+        int3 min4=gScanBlockMin+MerkabaM8OctantOffset(d4,128);
+        uint second=M8ScanChildMask(min4,128);
+        if ((second & (1u << d3)) != 0u)
+        {
+            int3 min3=min4+MerkabaM8OctantOffset(d3,64);
+            uint children=M8ScanChildMask(min3,64);
+            [loop] while (children != 0u)
+            {
+                uint d2=(uint)firstbitlow(children);
+                children &= children-1u;
+                M8DualProcessObservationChunk(block,(d4 << 6u) | (d3 << 3u) | d2,
+                    min3+MerkabaM8OctantOffset(d2,32));
+            }
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    // Partial certified dual progress may publish, but the global pending
+    // counter holds ALL R1/evidence writes until this observation can finish.
+    if (lane == 0u && gDualChanged != 0u)
+    {
+        uint result=M8DualEndBlock(block,_M8DualPublishingGeneration);
+        // Tile/chunk changes have already committed, even if a later
+        // allocation fails or this observation needs another resident quantum.
+        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
+            M8_OBSERVATION_CHANGED_DUAL);
+        if (result > M8_DUAL_WRITE_COMMITTED) M8DualObservationPending(result);
     }
 }
 
-[numthreads(128, 1, 1)]
-void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
-    uint thread : SV_GroupIndex)
+void M8FinalizeObservationCompletion()
 {
-    uint physicalSlot = _M8CarveTilesRead[groupId.x];
-    if (thread == 0u)
-        gCarveTileOrigin = M8GlobalKernelCoord(physicalSlot, 0u);
-    if (thread < 16u)
-    {
-        uint wordIndex = M8TileWordIndex(physicalSlot, thread);
-        gCarveWords[thread] = _M8TileBits[wordIndex].y;
-    }
-    if (thread < 23u) gCarveStats[thread] = 0u;
-    if (thread < M8_CARVE_HALO_TILE_COUNT)
-    {
-        M8CarveTileContext context = M8CarveContext(physicalSlot);
-        uint slot = M8ResolveCarveHaloTile(context,
-            M8CarveHaloTileOffset(thread));
-        gCarveHaloSlots[thread] = slot;
-        [unroll]
-        for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; word++)
-            gCarveOccupiedWords[thread * MERKABA_M8_TILE_WORDS + word] =
-                slot < MERKABA_M8_PHYSICAL_TILE_CAPACITY
-                ? _M8TileBits[M8TileWordIndex(slot, word)].x : 0u;
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    // Keeping this fixed four-iteration loop rolled avoids replicating the
-    // large exact classifier four times in the mobile Vulkan program. All
-    // 128 lanes still cooperatively cover the complete 512-kernel tile.
-    [loop]
-    for (uint batch = 0u; batch < 4u; batch++)
-    {
-        uint kernelLocal = thread + batch * 128u;
-        uint word = gCarveWords[kernelLocal >> 5u];
-        uint bit = 1u << (kernelLocal & 31u);
-        if ((word & bit) != 0u)
-            IntegrateCarveKernel(physicalSlot, kernelLocal);
-    }
-
-    GroupMemoryBarrierWithGroupSync();
-    if (thread == 0u)
-    {
-        FlushCarveStat(M8_COUNTER_CARVE_ACTIVE_KERNELS, gCarveStats[0]);
-        FlushCarveStat(M8_COUNTER_CARVE_CLASSIFIED_FREE, gCarveStats[1]);
-        FlushCarveStat(M8_COUNTER_CARVE_CLASSIFIED_SURFACE, gCarveStats[2]);
-        FlushCarveStat(M8_COUNTER_CARVE_CLASSIFIED_UNKNOWN, gCarveStats[3]);
-        FlushCarveStat(M8_COUNTER_CARVE_EVIDENCE_DECREMENTS, gCarveStats[4]);
-        FlushCarveStat(M8_COUNTER_CARVE_OCCUPIED_TO_FREE, gCarveStats[5]);
-        FlushCarveStat(M8_COUNTER_CARVE_BITS_RETIRED, gCarveStats[6]);
-        [unroll]
-        for (uint radialBin = 0u; radialBin < 8u; radialBin++)
-            FlushCarveStat(M8_COUNTER_CARVE_FREE_RADIAL_0 + radialBin,
-                gCarveStats[7u + radialBin]);
-        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_INVALID_PROJECTION_DEPTH,
-            gCarveStats[15]);
-        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_NOT_IN_FRONT,
-            gCarveStats[16]);
-        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_OUTSIDE_RAY_TUBE,
-            gCarveStats[17]);
-        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_OUTSIDE_OUTER_ATTENTION,
-            gCarveStats[18]);
-        FlushCarveStat(M8_COUNTER_CARVE_CHEAP_SURFACE_ENDPOINT,
-            gCarveStats[19]);
-        FlushCarveStat(M8_COUNTER_CARVE_EXACT_EVALUATIONS,
-            gCarveStats[20]);
-        FlushCarveStat(M8_COUNTER_CARVE_EXACT_INCIDENCE_REJECT,
-            gCarveStats[21]);
-        FlushCarveStat(M8_COUNTER_CARVE_EXACT_DILATION_REJECT,
-            gCarveStats[22]);
-    }
-}
-
-[numthreads(1, 1, 1)]
-void FinalizeObservation(uint id : SV_DispatchThreadID)
-{
-    uint haloRequest =
-        _M8Counters[M8_COUNTER_CARVE_HALO_LOAD_REQUEST];
-    if (haloRequest != 0xffffffffu)
-    {
-        uint chunkIndex = haloRequest / MERKABA_M8_TILES_PER_CHUNK;
-        uint tileLocal = haloRequest % MERKABA_M8_TILES_PER_CHUNK;
-        if (_M8ChunkTileRefs[haloRequest] == MERKABA_REF_COLD_ON_SSD &&
-            RequestColdTile(haloRequest, chunkIndex, tileLocal, true))
-            M8CounterIncrement(M8_COUNTER_COLD_CARVE_TILES_REQUESTED);
-        M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
-    }
+    uint pendingRefinement = _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES];
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u)
     {
         uint failure = M8ObservationFailureReason();
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
-        if (failure != 0u)
+        if (failure != 0u && pendingRefinement == 0u)
         {
             _M8Counters[M8_COUNTER_FAILED_OBSERVATIONS] += 1u;
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
         }
-        else if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
+        else if (failure == 0u && pendingRefinement == 0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
             _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u)
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
     }
@@ -2111,9 +603,11 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
     uint pendingCount = completed != 0u && failure != 0u
         ? min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
-    bool readoutChanged = completed != 0u && failure == 0u &&
-        (_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT] != 0u ||
-         _M8Counters[M8_COUNTER_CARVE_OCCUPIED_TO_FREE] != 0u);
+    // A uniform dual node can change without touching any HOT R1 tile.
+    // Report actual publication independently of successful observation
+    // completion: failed/pending attempts may retain certified dual progress.
+    bool readoutChanged =
+        _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u;
     _M8Counters[M8_COUNTER_CLEANUP_TOUCHED_COUNT] = touchedCount;
     _M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT] = pendingCount;
     _M8ObservationDispatchArgs[0] = max(touchedCount, pendingCount);
@@ -2123,8 +617,48 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
         completed != 0u ?
             _M8Counters[M8_COUNTER_OBSERVATION_TOKEN] : 0u,
         failure | (readoutChanged ?
-            M8_ATTEMPT_COMPLETION_READOUT_CHANGED : 0u),
+            M8_ATTEMPT_COMPLETION_READOUT_CHANGED : 0u) |
+            (_M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS] != 0u ?
+                M8_ATTEMPT_COMPLETION_REFINEMENT_PROGRESS : 0u),
         _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+}
+
+groupshared uint gFlowerFinalizeSourceReady;
+groupshared uint gFlowerFinalizeTouchedCount;
+groupshared uint gFlowerFinalizeNewTileCount;
+
+[numthreads(128, 1, 1)]
+void FinalizeObservation(uint lane : SV_GroupIndex)
+{
+    if (lane == 0u)
+    {
+        gFlowerFinalizeSourceReady = M8FlowerPageSourceReady(_M8DualPublishingGeneration) ? 1u : 0u;
+        M8FinalizeObservationCompletion();
+        // Pending quanta can commit real R2/RGB/V data without completing the
+        // immutable observation. Invalidate those consumers before cleanup,
+        // not only on the successful final observation quantum.
+        gFlowerFinalizeTouchedCount = _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u ?
+            min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT], MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+        // InitializeNewTiles already needs eight writable bindings. Its real
+        // installed addresses remain in this existing bounded pending list
+        // until the immediately following retirement barrier; no ninth UAV.
+        gFlowerFinalizeNewTileCount = min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gFlowerFinalizeSourceReady == 0u) return;
+    [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
+        M8FlowerMarkTileNeighborhoodDirty(_M8TouchedTileQueueRead[index],
+            _M8DualPublishingGeneration);
+    [loop] for (uint pending = lane; pending < gFlowerFinalizeNewTileCount; pending += 128u)
+    {
+        uint referenceIndex = _M8PendingNewTileRefsRead[pending];
+        if (referenceIndex >= MERKABA_M8_CHUNK_CAPACITY * MERKABA_M8_TILES_PER_CHUNK) continue;
+        uint reference = _M8ChunkTileRefsRead[referenceIndex];
+        if (M8IsHotRef(reference))
+            M8FlowerMarkTileNeighborhoodDirty(M8PhysicalSlot(reference),
+                _M8DualPublishingGeneration);
+    }
 }
 
 [numthreads(1, 1, 1)]
@@ -2132,9 +666,10 @@ void ResetFineErase(uint id : SV_DispatchThreadID)
 {
     _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
-    _M8CarveDispatchArgs[0] = 0u;
-    _M8CarveDispatchArgs[1] = 1u;
-    _M8CarveDispatchArgs[2] = 1u;
+    _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] = 0u;
+    _M8ObservationDispatchArgs[0] = 0u;
+    _M8ObservationDispatchArgs[1] = 1u;
+    _M8ObservationDispatchArgs[2] = 1u;
 }
 
 uint M8FineEraseChildMask(int3 parentMin, int parentSpan)
@@ -2266,7 +801,7 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
                 InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
                     1u, queueIndex);
                 if (queueIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                    _M8CarveTiles[queueIndex] = M8PhysicalSlot(tileRef);
+                    _M8TouchedTileQueue[queueIndex] = M8PhysicalSlot(tileRef);
             }
         }
     }
@@ -2275,13 +810,13 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
 [numthreads(1, 1, 1)]
 void PrepareFineEraseArgs(uint id : SV_DispatchThreadID)
 {
-    _M8CarveDispatchArgs[0] =
+    _M8ObservationDispatchArgs[0] =
         _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u
         ? min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         : 0u;
-    _M8CarveDispatchArgs[1] = 1u;
-    _M8CarveDispatchArgs[2] = 1u;
+    _M8ObservationDispatchArgs[1] = 1u;
+    _M8ObservationDispatchArgs[2] = 1u;
 }
 
 void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
@@ -2299,11 +834,11 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
     {
         state = M8LoadKernelState(physicalSlot, kernelLocal);
         stateLoaded = true;
-        if (M8HasSurfacePlane(state.flags))
+        if (M8FlowerHasPlane(state.flags))
         {
             float3 normalGrid;
             float signedOffset;
-            M8DecodeSurfacePlane(state.flags, normalGrid, signedOffset);
+            M8FlowerUnpackPlane(state.flags, normalGrid, signedOffset);
             worldPosition = mul(_MerkabaGridToWorld,
                 float4(gridPosition + normalGrid * signedOffset, 1.0)).xyz;
         }
@@ -2337,29 +872,102 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
         InterlockedAdd(_M8TileRecords[M8TileMetaIndex(physicalSlot)].w,
             0xffffffffu, ignored);
     }
-    if (stateChanged)
-        M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0);
-    if (stateChanged || occupied || carveActive ||
-        (previousCandidate & bit) != 0u)
-        _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+    bool structuralChange = stateChanged || occupied || carveActive ||
+        (previousCandidate & bit) != 0u;
+    if (structuralChange)
+    {
+        // Match direct R1 structural mutation: storage cannot capture this
+        // tile until the finalizer has committed the owner epoch and cleared
+        // this bit. Keep the four-bank ERASE writer at eight UAVs.
+        uint ignored;
+        InterlockedOr(_M8TileBits[wordIndex].w, bit, ignored);
+        DeviceMemoryBarrier();
+        if (stateChanged)
+            M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0);
+        M8MarkTileDirty(physicalSlot);
+        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
+            M8_OBSERVATION_CHANGED_R1, ignored);
+    }
 }
 
 [numthreads(128, 1, 1)]
 void EraseFineTiles(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
-    uint physicalSlot = _M8CarveTilesRead[groupId.x];
+    uint physicalSlot = _M8TouchedTileQueue[groupId.x];
     [unroll]
     for (uint batch = 0u; batch < 4u; batch++)
         M8EraseFineKernel(physicalSlot, thread + batch * 128u);
 }
 
-[numthreads(1, 1, 1)]
-void FinalizeFineErase(uint id : SV_DispatchThreadID)
+groupshared uint gFineEraseEpochProgress;
+
+[numthreads(128, 1, 1)]
+void FinalizeFineErase(uint lane : SV_GroupIndex)
 {
-    uint completed =
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u ? 1u : 0u;
-    _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
-        completed != 0u ? _M8AttemptToken : 0u, 0u,
-        _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+    if (lane == 0u)
+    {
+        gFlowerFinalizeSourceReady = M8FlowerPageSourceReady(_M8DualPublishingGeneration) ? 1u : 0u;
+        gFineEraseEpochProgress = 0u;
+        gFlowerFinalizeTouchedCount = gFlowerFinalizeSourceReady != 0u ?
+            min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT], MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
+    {
+        uint slot = _M8TouchedTileQueueRead[index];
+        if (slot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+        {
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+            continue;
+        }
+        uint slotGeneration = M8LoadTileRuntimeRead(slot).w;
+        uint4 meta = M8LoadTileMetaRead(slot);
+        if (slotGeneration == 0u || meta.x >= MERKABA_M8_CHUNK_CAPACITY ||
+            meta.y >= MERKABA_M8_TILES_PER_CHUNK ||
+            _M8ChunkTileRefsRead[meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y] != slot + 1u)
+        {
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+            continue;
+        }
+        bool unresolved = false;
+        [loop] for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; ++word)
+        {
+            uint wordIndex = M8TileWordIndex(slot, word);
+            uint pending = _M8TileBits[wordIndex].w;
+            [loop] while (pending != 0u)
+            {
+                uint bit = (uint)firstbitlow(pending);
+                pending &= pending - 1u;
+                uint result = M8FlowerInvalidateOwner(slot, word * 32u + bit,
+                    slotGeneration, _M8DualPublishingGeneration, _M8DualRetiredGeneration);
+                if (result == M8_FLOWER_ARENA_OK)
+                {
+                    DeviceMemoryBarrier();
+                    uint ignored;
+                    InterlockedAnd(_M8TileBits[wordIndex].w, ~(1u << bit), ignored);
+                    InterlockedOr(gFineEraseEpochProgress, 1u);
+                }
+                else unresolved = true; // Preserve the exact pending bit for this frozen ERASE retry.
+            }
+        }
+        if (unresolved) M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+        // Even a pending epoch must invalidate presentation of the already
+        // erased parent. Neither storage nor page synthesis may bypass .w.
+        M8FlowerMarkTileNeighborhoodDirty(slot, _M8DualPublishingGeneration);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if (lane == 0u)
+    {
+        uint completed = gFlowerFinalizeSourceReady != 0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u ? 1u : 0u;
+        uint status = gFlowerFinalizeSourceReady != 0u ? 0u : M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY;
+        if (_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u || gFineEraseEpochProgress != 0u)
+            status |= M8_ATTEMPT_COMPLETION_READOUT_CHANGED;
+        if (gFineEraseEpochProgress != 0u) status |= M8_ATTEMPT_COMPLETION_REFINEMENT_PROGRESS;
+        _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
+            completed != 0u ? _M8AttemptToken : 0u,
+            status,
+            _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+    }
 }

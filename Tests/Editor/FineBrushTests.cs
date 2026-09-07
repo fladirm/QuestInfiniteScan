@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
@@ -59,6 +61,7 @@ namespace Genesis.RoomScan.Tests
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
+            string scope = Source("Runtime/Shaders/MerkabaObservationScope.hlsl");
             string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
             string controller = Source(
                 "Runtime/UI/ControllerRayDriver.cs");
@@ -74,9 +77,13 @@ namespace Genesis.RoomScan.Tests
             AssertCylinderPredicate(shader, "_FineCursorPosition.xyz",
                 "_FineBrushAxis.xyz", "_FineBrushParams.z",
                 "_FineBrushParams.y");
-            AssertCylinderPredicate(integration, "_M8FineCursorPosition",
+            AssertCylinderPredicate(scope, "_M8FineCursorPosition",
                 "_M8FineBrushAxis", "_M8FineLength",
                 "_M8FineRadiusSquared");
+            Assert.That(integration, Does.Contain("M8FineContains(worldPosition)"));
+            Assert.That(integration, Does.Contain("axial.lo < 0.0 || axial.hi > _M8FineLength"),
+                "Destructive whole-support mutations must keep the entire interval inside the same cylinder.");
+            Assert.That(integration, Does.Contain("radial.hi <= _M8FineRadiusSquared"));
             AssertCylinderPredicate(refine, "_M8FineCursorPosition",
                 "_M8FineBrushAxis", "_M8FineLength",
                 "_M8FineRadiusSquared");
@@ -112,32 +119,58 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void FineRefineMasksJointSolveAndAdmitsStrictHitImmediately()
+        public void FineRefineMasksJointSolveAndUsesTheSharedR1Admission()
         {
             string refine = Source("Runtime/Shaders/StereoRgbdRefine.compute");
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
+            string commit = Source("Runtime/Shaders/MerkabaFlowerCommit.hlsl");
+            string bins = Source("Runtime/Shaders/MerkabaObservationBins.compute");
             string scanner = Source("Runtime/Core/RoomScanner.cs");
 
             int selectedWorld = refine.IndexOf("float3 selectedWorld",
                 StringComparison.Ordinal);
-            int mask = refine.IndexOf("!M8FineContains(selectedWorld)",
+            int mask = refine.IndexOf("if (_M8FineRefineActive != 0u)",
                 StringComparison.Ordinal);
-            int publish = refine.IndexOf("_DstDepth[id] = selectedDepth",
+            int publish = refine.IndexOf("_DstDepth[id] = depth;",
                 StringComparison.Ordinal);
             Assert.That(selectedWorld, Is.GreaterThanOrEqualTo(0));
             Assert.That(mask, Is.GreaterThan(selectedWorld));
             Assert.That(publish, Is.GreaterThan(mask));
             Assert.That(integration, Does.Contain(
-                "!M8FineContains(targetWorld)"));
-            Assert.That(integration, Does.Contain(
                 "!M8FineContains(worldPosition)"));
-            Assert.That(integration, Does.Contain(
-                "MERKABA_OCCUPIED_ON - max(state.evidence, 0)"));
+            Assert.That(commit, Does.Contain("M8ObservationContains(worldPosition,gsDepthEyePos())"));
+            Assert.That(bins, Does.Contain("M8ObservationContains(world,gsDepthEyePos())"));
+            Assert.That(commit, Does.Contain("M8FlowerAdmitR1("));
+            Assert.That(commit, Does.Not.Contain("MERKABA_OCCUPIED_ON - max(state.evidence, 0)"),
+                "FINE selects the measurement support; it cannot bypass first-hit R1 seed/closure rules.");
             Assert.That(integration, Does.Not.Contain("M8FineWeight"));
             Assert.That(integration, Does.Not.Contain("fineWeight"));
             Assert.That(scanner, Does.Contain("RequestFreshDepthFrame()"));
             Assert.That(refine, Does.Not.Contain("AppendSurfaceCandidate"));
+        }
+
+        [Test]
+        public void FineStrictFirstHitRemainsASeedUntilR1ClosureOrNewObservation()
+        {
+            uint plane = KernelState.SetSurfacePlane(0u, new float3(0f, 0f, 1f), 0f);
+            uint4 seed = MerkabaSphereFlowerAuthority.M8FlowerAdmitR1(
+                uint4.zero, plane, 0xff556677u, false, true, false);
+            Assert.That(seed.w & MerkabaConstants.OccupiedFlag, Is.Zero);
+            Assert.That(seed.w & MerkabaConstants.R1SeedFlag, Is.Not.Zero);
+            Assert.That(math.asint(seed.x), Is.LessThan(MerkabaConstants.OccupiedOnThreshold));
+
+            uint4 sameObservation = MerkabaSphereFlowerAuthority.M8FlowerAdmitR1(
+                seed, plane, 0xff556677u, true, false, false);
+            Assert.That(sameObservation.w & MerkabaConstants.OccupiedFlag, Is.Zero);
+            uint4 repeated = MerkabaSphereFlowerAuthority.M8FlowerAdmitR1(
+                seed, plane, 0xff556677u, true, true, false);
+            uint4 localClosure = MerkabaSphereFlowerAuthority.M8FlowerAdmitR1(
+                uint4.zero, plane, 0xff556677u, false, false, true);
+            Assert.That(repeated.w & MerkabaConstants.OccupiedFlag, Is.Not.Zero);
+            Assert.That(localClosure.w & MerkabaConstants.OccupiedFlag, Is.Not.Zero);
+            Assert.That(repeated.w & MerkabaConstants.R1SeedFlag, Is.Zero);
+            Assert.That(localClosure.w & MerkabaConstants.R1SeedFlag, Is.Zero);
         }
 
         [Test]
@@ -267,12 +300,13 @@ namespace Genesis.RoomScan.Tests
         private static void AssertCylinderPredicate(string source,
             string cursor, string axis, string length, string radiusSquared)
         {
+            source = Regex.Replace(source, @"\s+", string.Empty);
             Assert.That(source, Does.Contain(cursor));
             Assert.That(source, Does.Contain(axis));
-            Assert.That(source, Does.Contain("axial >= 0.0"));
-            Assert.That(source, Does.Contain("axial <= " + length));
+            Assert.That(source, Does.Contain("axial>=0.0"));
+            Assert.That(source, Does.Contain("axial<=" + length));
             Assert.That(source, Does.Contain(
-                "dot(radial, radial) <= " + radiusSquared));
+                "dot(radial,radial)<=" + radiusSquared));
         }
 
         private static string Slice(string source, string start, string end)
