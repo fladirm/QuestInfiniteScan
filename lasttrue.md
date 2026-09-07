@@ -7532,3 +7532,77 @@ NEXT_ACTION=OPEN-2 peer-only fixture, then the 18 stale/behavioural suite
   failures per section10.1, then OPEN-1 fan-out for the three FAIL entries.
 WORKTREE_SCOPE=Runtime/Shaders/MerkabaFlowerRefinement.hlsl and lasttrue.md;
   unrelated .claude/, CLAUDE.md and CLAUDE.md.meta remain untouched and untracked.
+
+---
+
+### CURRENT TRUE STATE — suite repair per closure section10.1, 2026-09-08 03:40Z
+
+MEASURED: total=362 passed=359 failed=3 (baseline at 96b34c4 was 344/18).
+Fifteen failures were repaired; none was deleted and no threshold was lowered.
+
+MOVED INVARIANTS — assertion rewritten at the new site:
+  ExportGlbAsync()/ExportViewerPackageAsync() are no longer async; both
+    overloads delegate to BeginExportAsync, where the quiesce-before-read
+    ordering now lives and is asserted against both exporter core calls.
+  RecordDepthCertificate moved from DepthCapture.ConsumeLatestDepthFrame to
+    MerkabaIntegrator; the producer-callback prohibition is unchanged and the
+    single recording entry point is asserted on both sides.
+  M8_COUNTER_RESIDENCY_EPOCH 64u -> 44u after the CARVE counter excision.
+  _save?.SetEnabled(!busy) -> (!operationBusy && ActiveSessionId != Guid.Empty).
+  StereoRootRgb per-eye literals -> one loop over eye.
+  _bins.Record(command) -> _bins.Record(command, reset: !newObservation).
+  BuildStreamingTilesetAsync / BeginStreamingPackage / AppendDirtToTilesetAsync /
+    ReadStoredFlowerContextAsync / MerkabaFlowerPresentation.Build /
+    ReadGlbTile all gained cancellation and package arguments.
+
+REPLACED ARCHITECTURE — behavioural test substituted:
+  btn-export-tiles is gone; one export action selects its destination from the
+    export-format dropdown. The test now proves both canonical formats stay
+    reachable and that the controller routes each one, instead of asserting a
+    removed control.
+  design-panel is no longer a ScrollView; one console-body carries every mode
+    panel. The test proves the design workflow stays inside that scroll view.
+  diagnostics-foldout is no longer a Foldout but a hidden destination panel.
+    The test proves it exists, is hidden by default and is closable.
+  static const tables became shared read-only buffer accessors. The oracle
+    alphabet test now proves the accessors exist, that no table is a static
+    const array again, and that the generated blob row offsets still encode
+    72 strands / 48 petals / 36 chambers / 399 thread / 343 L5 positions.
+    This is strictly stronger than the previous string match.
+  GLB emits the shared seven-site packet, not 18 vertices per carrier. The
+    normal-stride assertion derives its stride from result.VertexCount, and
+    VertexCount=14 vs IndexCount=36 is asserted as the sharing invariant.
+  The GLB spool file set follows the writer's accessor set; the test names the
+    required streams instead of a frozen count that grows with UV/atlas.
+  Atlas texel readback is expressed in cell-local coordinates via
+    CellSize/Gutter. Both original invariants are kept verbatim: no row flip
+    and no filtering blend, plus a probed>0 guard so it cannot pass vacuously.
+  UVs are seven shared chart sites, all inside one atlas cell.
+
+FIXTURE GAP, NOT A PRODUCT DEFECT:
+  QuestArtifactPreview... supplied differing RGB samples but left RgbSplitBits
+  empty. The atlas correctly demands a scan-authored RGB split; the fixture
+  now declares the L2 split it claims.
+
+REMAINING 3 — all pre-existing at 96b34c4, none caused or weakened here:
+  PlaneIntervals_EncloseCpuQuantizationAndOrderedOperationBounds
+    GPU probe status 7 where 1 is required, plane 0.
+  FrozenDepthObservation_NonzeroR2IsBitIdenticalAcrossQuantaAndBackpressure
+    drain reports 0 where 1 is required.
+  TestOnlyGpuConsumer_SeesIdenticalPackedFieldsAndStrides
+    uint[58] index 0 differs: CPU 70, GPU 37.
+    Excluded by inspection, so the next attempt need not repeat it:
+      HLSL struct M8DualBlockMeta { uint StateAndGeneration; uint PayloadIndex; }
+        matches the C# [StructLayout(Sequential, Pack=4)] pair.
+      C# packing is (generation << 2) | state, so Create(Mixed,17,23) = 70.
+      Upload is Marshal.SizeOf = 8 bytes, one element, ComputeBufferType.Structured.
+      The probe declares 58 outputs, indices 0..57, and index 0 is unambiguously
+        block.StateAndGeneration.
+      37 = (9 << 2) | 1 is data no caller wrote, so this is neither a field
+        order nor an output ordering drift. Instrument the binding/compiled ABI
+        include next; do not re-audit the declarations.
+
+NEXT_ACTION=APK build and install for device testing, then the three GPU
+  failures above, then OPEN-1 fan-out for the three shader size FAIL entries.
+WORKTREE_SCOPE=Tests/Editor sources and lasttrue.md; unrelated .claude/,
+  CLAUDE.md and CLAUDE.md.meta remain untouched and untracked.

@@ -22,7 +22,7 @@ namespace Genesis.RoomScan.Tests
                      {
                          "btn-start", "btn-save", "btn-save-as", "btn-load",
                          "btn-new", "btn-rename", "btn-delete-session",
-                         "btn-export", "btn-export-tiles", "btn-readout",
+                         "btn-export", "btn-readout",
                          "btn-occlusion", "btn-checker",
                          "btn-artifact-view", "btn-artifact-load",
                          "btn-annotation-mode", "btn-annotation-save",
@@ -45,6 +45,22 @@ namespace Genesis.RoomScan.Tests
                      })
                 Assert.That(root.Q<Button>(button), Is.Not.Null, button);
 
+            // The separate btn-export-tiles is gone: one export action now
+            // takes its destination from export-format. Assert the behavioural
+            // invariant instead of the removed control - both canonical export
+            // formats stay reachable and the controller routes each one.
+            DropdownField exportFormat = root.Q<DropdownField>("export-format");
+            Assert.That(exportFormat, Is.Not.Null, "export-format");
+            Assert.That(root.Q<TextField>("export-name"), Is.Not.Null, "export-name");
+            string exportRouting = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs"));
+            Assert.That(exportRouting, Does.Contain("ExportViewerPackageAsync(name)"),
+                "3D Tiles export must stay reachable from the single export action.");
+            Assert.That(exportRouting, Does.Contain("ExportGlbAsync(name)"),
+                "GLB export must stay reachable from the single export action.");
+            Assert.That(exportRouting, Does.Contain("_exportFormat"),
+                "The export action must select its format from export-format.");
+
             Slider opacity = root.Q<Slider>("scan-opacity");
             Assert.That(opacity, Is.Not.Null);
             Assert.That(opacity.lowValue, Is.EqualTo(0f));
@@ -60,7 +76,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Label>("val-artifact"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("scan-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("refine-panel"), Is.Not.Null);
-            Assert.That(root.Q<ScrollView>("design-panel"), Is.Not.Null);
+            // One console-level ScrollView now carries every mode panel, so
+            // design-panel is a plain element inside it. The invariant is that
+            // the design workflow stays scrollable, not which node scrolls.
+            Assert.That(root.Q<VisualElement>("design-panel"), Is.Not.Null);
+            ScrollView consoleBody = root.Q<ScrollView>("console-body");
+            Assert.That(consoleBody, Is.Not.Null, "console-body");
+            Assert.That(consoleBody.Q<VisualElement>("design-panel"), Is.Not.Null,
+                "the design workflow must remain inside the scrollable console body");
             Assert.That(root.Q<VisualElement>("view-panel"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-swatch"), Is.Not.Null);
             Assert.That(root.Q<VisualElement>("paint-color-wheel"), Is.Not.Null);
@@ -87,9 +110,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(root.Q<Slider>("paint-red"), Is.Null);
             Assert.That(root.Q<Slider>("paint-green"), Is.Null);
             Assert.That(root.Q<Slider>("paint-blue"), Is.Null);
-            Foldout diagnostics = root.Q<Foldout>("diagnostics-foldout");
-            Assert.That(diagnostics, Is.Not.Null);
-            Assert.That(diagnostics.value, Is.False);
+            // Diagnostics became a hidden destination panel instead of an
+            // inline Foldout. The invariant is unchanged: it exists, it is
+            // not shown by default, and it stays out of the workflow panels.
+            VisualElement diagnostics = root.Q<VisualElement>("diagnostics-foldout");
+            Assert.That(diagnostics, Is.Not.Null, "diagnostics-foldout");
+            Assert.That(diagnostics.ClassListContains("mode-panel--hidden"), Is.True,
+                "Diagnostics must not be visible in the production surface by default.");
+            Assert.That(root.Q<Button>("btn-diagnostics-back"), Is.Not.Null,
+                "The diagnostics destination must be closable.");
             string controller = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs"));
             Assert.That(controller, Does.Contain(
@@ -286,7 +315,12 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain("M8FlowerReadGraphicsSkin("));
             Assert.That(source, Does.Not.Contain("fwidth"));
             Assert.That(source, Does.Not.Contain("pixelDistance"));
-            Assert.That(source, Does.Contain("color = sample.CapturedRgb;"));
+            // Captured radiance is still the only colour source; the V-1 cut
+            // routes it through the certified relative-diffuse consumer, which
+            // is identity when the light is off or OPTICAL_VALID is unset.
+            Assert.That(source, Does.Contain("color = M8FlowerRelativeDiffuse(sample.CapturedRgb,"));
+            Assert.That(source, Does.Not.Contain("_Albedo"));
+            Assert.That(source, Does.Not.Contain("ambientColor"));
             Assert.That(source, Does.Contain("M8FlowerCapturedColor(input.packedColor)"));
             Assert.That(source, Does.Contain("color = M8FlowerDirtSupportLinearRgba.rgb;"),
                 "Derived DIRT presentation must not masquerade as captured RGB.");
@@ -361,7 +395,7 @@ namespace Genesis.RoomScan.Tests
             string source = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/UI/DebugMenuController.cs"));
 
-            Assert.That(source, Does.Contain("_save?.SetEnabled(!busy)"));
+            Assert.That(source, Does.Contain("_save?.SetEnabled(!operationBusy && scanner.ActiveSessionId != Guid.Empty)"));
             Assert.That(source, Does.Contain("_export?.SetEnabled(!busy)"));
             Assert.That(source, Does.Not.Contain(
                 "scanner.ActiveChunkCount > 0"));

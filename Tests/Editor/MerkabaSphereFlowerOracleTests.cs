@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -1146,14 +1147,33 @@ namespace Genesis.RoomScan.Tests
             string source = File.ReadAllText(path);
             StringAssert.Contains("#define M8_FLOWER_SECTOR_BOUNDARY_COUNT 264u",
                 source);
-            StringAssert.Contains("static const uint4 M8FlowerStrand[72]", source);
-            StringAssert.Contains("static const uint4 M8FlowerPetalNodes[48]", source);
+            // The frozen tables are carried by the shared read-only buffer, not
+            // by per-invocation static const arrays. The alphabet invariant is
+            // unchanged: the same accessors must exist and the generated blob
+            // row offsets must still encode exactly 72/48/36/399/343.
+            StringAssert.Contains("M8FlowerStrandAt", source);
+            StringAssert.Contains("M8FlowerPetalNodesAt", source);
             StringAssert.Contains("M8FlowerClassifyRoot", source);
-            StringAssert.Contains("static const int4 M8FlowerSkinChamber[36]",
-                source);
-            StringAssert.Contains("M8FlowerSkinCanonicalToThread[399]", source);
-            StringAssert.Contains("M8FlowerSkinCanonicalL5ToThread[343]", source);
+            StringAssert.Contains("M8FlowerSkinChamberAt", source);
+            StringAssert.Contains("M8FlowerSkinCanonicalToThreadAt", source);
+            StringAssert.Contains("M8FlowerSkinCanonicalL5ToThreadAt", source);
             StringAssert.Contains("M8FlowerNestedV", source);
+            // Two scalar constants remain by design; no table may be a
+            // per-invocation static const array again.
+            Assert.That(Regex.Matches(source, @"static const \w+ \w+\[").Count,
+                Is.Zero, "generated tables must stay in the shared read-only buffer");
+            Assert.That(MerkabaFlowerTableBlob.PetalNodesRowOffset -
+                MerkabaFlowerTableBlob.StrandRowOffset, Is.EqualTo(72), "strands");
+            Assert.That(MerkabaFlowerTableBlob.PetalStrandsRowOffset -
+                MerkabaFlowerTableBlob.PetalNodesRowOffset, Is.EqualTo(48), "petals");
+            Assert.That(MerkabaFlowerTableBlob.SkinCanonicalToThreadRowOffset -
+                MerkabaFlowerTableBlob.SkinChamberRowOffset, Is.EqualTo(36), "chambers");
+            Assert.That(MerkabaFlowerTableBlob.SkinThreadToCanonicalRowOffset -
+                MerkabaFlowerTableBlob.SkinCanonicalToThreadRowOffset,
+                Is.EqualTo(100), "399 thread positions packed four per row");
+            Assert.That(MerkabaFlowerTableBlob.SkinL3ChildRankRowOffset -
+                MerkabaFlowerTableBlob.SkinCanonicalL5ToThreadRowOffset,
+                Is.EqualTo(86), "343 L5 addresses packed four per row");
             StringAssert.DoesNotContain("M8FlowerDeformedLoopUnit", source);
             StringAssert.DoesNotContain("M8FlowerEndpointBasis", source);
             StringAssert.DoesNotContain("atan", source);

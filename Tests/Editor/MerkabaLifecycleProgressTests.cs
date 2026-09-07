@@ -84,7 +84,7 @@ namespace Genesis.RoomScan.Tests
 
             string create = Slice(scanner,
                 "public async Task NewClearAsync()",
-                "public async Task<bool> ExportGlbAsync()");
+                "public Task<bool> ExportGlbAsync()");
             Assert.That(create, Does.Contain(
                 "EnsureSessionAnchorAsync(Guid.Empty,\n" +
                 "                        true)"));

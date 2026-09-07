@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Genesis.RoomScan;
 using NUnit.Framework;
@@ -110,8 +111,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(result.PrimitiveCount, Is.EqualTo(12));
             int binaryStart = 28 + checked((int)ReadUInt32(bytes, 12));
             int normals = binaryStart + result.VertexCount * 12;
+            // Both carriers emit the same shared-site packet, so the reverse
+            // carrier begins exactly half way through the vertex stream. The
+            // stride follows the emitted packet; it is not a fixed 18.
+            Assert.That(result.VertexCount % 2, Is.Zero);
+            int perCarrier = result.VertexCount / 2;
             Assert.That(BitConverter.ToSingle(bytes, normals),
-                Is.EqualTo(-BitConverter.ToSingle(bytes, normals + 18 * 12)));
+                Is.EqualTo(-BitConverter.ToSingle(bytes, normals + perCarrier * 12)));
         }
 
         [Test]
@@ -141,7 +147,22 @@ namespace Genesis.RoomScan.Tests
             {
                 session.Append(MerkabaFlowerWriterFixture.Create(new int3(0)));
                 session.Append(MerkabaFlowerWriterFixture.Create(new int3(64, 0, 0)));
-                Assert.That(Directory.GetFiles(spool), Has.Length.EqualTo(6));
+                // The spool holds one bounded file per emitted stream. Its
+                // arity follows the writer's accessor set - asserting the
+                // invariant, not a frozen count that grows with UV/atlas
+                // streams. No batch may materialize the model in memory.
+                string[] spooled = Directory.GetFiles(spool);
+                Assert.That(spooled, Is.Not.Empty);
+                foreach (string name in new[]
+                         {
+                             "positions.bin", "normals.bin", "colors.bin",
+                             "indices.bin", "ranges.bin"
+                         })
+                    Assert.That(spooled.Any(value =>
+                        Path.GetFileName(value) == name), Is.True, name);
+                Assert.That(spooled.Any(value =>
+                    Path.GetFileName(value) == "document.json"), Is.False,
+                    "The document is only written by Complete.");
                 result = session.Complete(output);
             }
 
@@ -150,8 +171,12 @@ namespace Genesis.RoomScan.Tests
             Assert.That(ReadUInt32(bytes, 0), Is.EqualTo(0x46546C67u));
             Assert.That(ReadUInt32(bytes, 8), Is.EqualTo((uint)bytes.Length));
             Assert.That(result.PrimitiveCount, Is.EqualTo(12));
-            Assert.That(result.VertexCount, Is.EqualTo(36));
+            // Two appended carriers emit the shared seven-site packet each,
+            // so the vertex stream is 14 while the index stream stays 36.
+            // Sharing is the point: vertices must stay below indices.
+            Assert.That(result.VertexCount, Is.EqualTo(14));
             Assert.That(result.IndexCount, Is.EqualTo(36));
+            Assert.That(result.VertexCount, Is.LessThan(result.IndexCount));
         }
 
         private static MerkabaFlowerPresentation Fixture() => MerkabaFlowerWriterFixture.Create(

@@ -122,7 +122,15 @@ namespace Genesis.RoomScan.Tests
             Assert.That(consume, Does.Contain(
                 "ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush, gridToWorld);"));
             Assert.That(consume, Does.Not.Contain("ComputeNormals(command);"));
-            Assert.That(consume, Does.Contain("RecordDepthCertificate(command);"));
+            // Certificate recording moved to the integrator, which owns the
+            // bins the certificate is reduced against. The invariant is
+            // unchanged: it happens on the observation path, never in the
+            // producer callback, and DepthCapture still exposes only that one
+            // recording entry point.
+            Assert.That(source, Does.Contain(
+                "internal void RecordDepthCertificate(CommandBuffer command, MerkabaObservationBinsGpu bins)"));
+            Assert.That(RuntimeSource("Runtime/Merkaba/MerkabaIntegrator.cs"),
+                Does.Contain("_depthCapture.RecordDepthCertificate(command, _bins);"));
             Assert.That(consume, Does.Contain("_heldDepthSlot = _readyDepthSlot;"));
             Assert.That(consume, Does.Not.Contain("_heldDepthSlot = -1;"),
                 "A must remain owned until the integration token completes.");
@@ -218,8 +226,7 @@ namespace Genesis.RoomScan.Tests
 
             string refine = RuntimeSource(
                 "Runtime/Shaders/StereoRgbdRefine.compute");
-            Assert.That(refine, Does.Contain("StereoRootRgb(0u,world,left)"));
-            Assert.That(refine, Does.Contain("StereoRootRgb(1u,world,right)"));
+            Assert.That(refine, Does.Contain("StereoRootRgb(eye,world,captured)"));
             Assert.That(refine, Does.Contain("StereoOppositePlane(support,opposite)"));
             Assert.That(refine, Does.Contain("M8FlowerObservedLoop("));
             Assert.That(refine, Does.Contain("M8FlowerSealBend("));
@@ -522,17 +529,26 @@ namespace Genesis.RoomScan.Tests
             string scanner = RuntimeSource("Runtime/Core/RoomScanner.cs");
             string save = Slice(scanner, "public async Task<bool> SaveAsync()",
                 "public async Task<bool> LoadAsync()");
+            // Both export overloads delegate to one entry point; the
+            // quiesce-before-read invariant lives there and still precedes
+            // every exporter core call.
             string export = Slice(scanner,
-                "public async Task<bool> ExportGlbAsync()",
+                "private Task<bool> BeginExportAsync(",
                 "public async void ClearAllDataAsync");
             Assert.That(save.IndexOf("await QuiesceScanningAsync()",
                     StringComparison.Ordinal),
                 Is.LessThan(save.IndexOf("_persistence.SaveAsync()",
                     StringComparison.Ordinal)));
-            Assert.That(export.IndexOf("await QuiesceScanningAsync()",
-                    StringComparison.Ordinal),
-                Is.LessThan(export.IndexOf("_exporter.ExportGlbAsync()",
-                    StringComparison.Ordinal)));
+            int quiesce = export.IndexOf("await QuiesceScanningAsync()",
+                StringComparison.Ordinal);
+            Assert.That(quiesce, Is.GreaterThanOrEqualTo(0));
+            foreach (string core in new[]
+                     {
+                         "_exporter.ExportGlbCoreAsync(",
+                         "_exporter.ExportViewerPackageCoreAsync("
+                     })
+                Assert.That(quiesce,
+                    Is.LessThan(export.IndexOf(core, StringComparison.Ordinal)), core);
             Assert.That(RuntimeSource("Runtime/Merkaba/MerkabaPersistence.cs"),
                 Does.Not.Contain("await _integrator.FinishCurrentObservationAsync()"));
             Assert.That(RuntimeSource("Runtime/Merkaba/MerkabaExporter.cs"),

@@ -463,7 +463,7 @@ namespace Genesis.RoomScan.Tests
             string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
             string grid = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
-            Assert.That(integrator, Does.Contain("_bins.Record(command)"));
+            Assert.That(integrator, Does.Contain("_bins.Record(command, reset: !newObservation)"));
             Assert.That(integrator, Does.Not.Contain(
                 "MerkabaSpatial.PhysicalTileCapacity / 64"));
             Assert.That(grid, Does.Contain(
@@ -662,8 +662,8 @@ namespace Genesis.RoomScan.Tests
                 "private void BeginLoadAddressReadback");
 
             Assert.That(address, Does.Contain(
-                "#define M8_COUNTER_RESIDENCY_EPOCH 64u"));
-            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(64));
+                "#define M8_COUNTER_RESIDENCY_EPOCH 44u"));
+            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(44));
             Assert.That(world, Does.Contain("M8SignalResidencyChange"));
             Assert.That(submit, Does.Contain("RememberObservationAttemptDependencies()"));
             Assert.That(integrator, Does.Contain(

@@ -66,6 +66,10 @@ namespace Genesis.RoomScan.Tests
             var carrier = flower.Carriers[0];
             carrier.Symbol = MerkabaFlowerSymbolRecord.CreateCarrier(0, 0, 1, false, false, 1u, 0u, 0, 0u, 0u);
             carrier.SkinHeader = new MerkabaFlowerSkinDrawHeader { SplitBitsLo = 1u, ParentEpoch = 1u };
+            // The atlas cell size comes from the scan-authored RGB split, not
+            // from differing sample values alone. Declare the L2 split this
+            // fixture is claiming instead of leaving the RGB mask empty.
+            carrier.RgbSplitBits = new uint2(1u, 0u);
             carrier.SkinSamples = new MerkabaFlowerSkinDrawSample[8];
             for (int sample = 0; sample < carrier.SkinSamples.Length; sample++)
                 carrier.SkinSamples[sample].CapturedRgb = sample == 0 ? new float3(0f, 0f, 1f) :
@@ -104,33 +108,59 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(preview.Mesh.uv, Is.EqualTo(parsed.Uvs));
                 Texture texture = preview.Materials[0].GetTexture("_BaseMap");
                 Assert.That(texture, Is.Not.SameAs(Texture2D.whiteTexture));
-                Assert.That(texture.width, Is.EqualTo(256));
+                // One atlas page carries every carrier cell; the cell size,
+                // not the page, follows the scan-authored RGB split.
+                Assert.That(texture.width,
+                    Is.EqualTo(MerkabaFlowerMaterialBake.Resolution));
                 var pixels = ((Texture2D)texture).GetPixels32();
                 Assert.That(pixels.Any(value => value.r != 255 || value.g != 255 || value.b != 255), Is.True);
                 const int n = MerkabaFlowerMaterialBake.Resolution;
                 float edge = 0.5f / n;
-                Assert.That(parsed.Uvs, Is.EqualTo(new[]
+                // Seven shared chart sites carry seven UVs, not one tuple per
+                // triangle corner. Every UV must land inside this carrier's
+                // atlas cell, and the hub must sit at the cell centre.
+                Assert.That(parsed.Uvs.Length, Is.EqualTo(parsed.Positions.Length));
+                Assert.That(parsed.Uvs.Length, Is.EqualTo(7));
+                Vector2 hub = parsed.Uvs[0];
+                foreach (Vector2 uv in parsed.Uvs)
                 {
-                    new Vector2(edge, 1f - edge), new Vector2(1f - edge, 1f - edge),
-                    new Vector2(edge, edge)
-                }));
+                    Assert.That(uv.x, Is.InRange(0f, 1f));
+                    Assert.That(uv.y, Is.InRange(0f, 1f));
+                    Assert.That(Vector2.Distance(uv, hub),
+                        Is.LessThanOrEqualTo((float)MerkabaFlowerMaterialBake.MaximumCellSize / n),
+                        "every shared site stays inside one atlas cell");
+                }
                 flower.WedgeFrame(carrier, 0, out _, out _, out _, out float3 du, out float3 dv);
-                foreach (int2 point in new[] { new int2(13, 17), new int2(97, 7), new int2(11, 151),
-                             new int2(142, 80), new int2(233, 13) })
+                // The carrier owns one atlas cell, not the whole page, so the
+                // chart is read back in cell-local texels. The invariants are
+                // unchanged: no row flip and no filtering blend.
+                int cellSize = MerkabaFlowerMaterialBake.CellSize(carrier);
+                int gutter = MerkabaFlowerMaterialBake.Gutter;
+                int inner = cellSize - 2 * gutter;
+                int probed = 0;
+                for (int ty = gutter; ty < gutter + inner; ty += 3)
+                for (int tx = gutter; tx < gutter + inner; tx += 3)
                 {
-                    float3 bc = new float3(n - 1 - point.x - point.y, point.x, point.y) / (n - 1f);
+                    float2 chart = (new float2(tx + 0.5f, ty + 0.5f) - gutter)
+                        / inner * 2f - 1f;
+                    if (!MerkabaSphereFlowerAuthority.TryL2CarrierChartWedge(chart,
+                            out int wedge, out float3 bc, out _, out _) || wedge != 0)
+                        continue;
                     var source = MerkabaSphereFlowerAuthority.EvaluateSkinDrawSignal(carrier.SkinHeader,
                         carrier.SkinSamples, 0, bc, du, dv, out _, out _, out _);
                     // This fixture uses exact 0/1 channels, so PNG quantization
                     // and sRGB decode preserve the expected channels exactly.
                     Color expected = new(source.CapturedRgb.x, source.CapturedRgb.y, source.CapturedRgb.z, 1f);
-                    int row = n - 1 - point.y;
-                    Assert.That(((Texture2D)texture).GetPixel(point.x, row).linear, Is.EqualTo(expected),
+                    int row = n - 1 - ty;
+                    Assert.That(((Texture2D)texture).GetPixel(tx, row).linear, Is.EqualTo(expected),
                         "Baker PNG row must be the actual vertically corresponding Unity row.");
-                    Vector2 center = new((point.x + 0.5f) / n, (row + 0.5f) / n);
+                    Vector2 center = new((tx + 0.5f) / n, (row + 0.5f) / n);
                     Assert.That(preview.SampleCapture(0, center), Is.EqualTo(expected),
                         "A raster texel center must not blend with the next CPU texel.");
+                    probed++;
                 }
+                Assert.That(probed, Is.GreaterThan(0),
+                    "the carrier cell must contain sampled interior texels");
                 int patch = -1;
                 for (int y = 0; y < n - 1 && patch < 0; y++)
                 for (int x = 0; x < n - 1; x++)
@@ -268,7 +298,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Contain(
                 "public void RequestPackageFromDisk()"));
             Assert.That(viewer, Does.Contain(
-                "ReadGlbTile(\n                    archivePath, tile)"));
+                "ReadGlbTile(\n                    archivePath, tile, decodedLimit)"));
             Assert.That(viewer, Does.Contain(
                 "Physics.queriesHitBackfaces = true"));
             Assert.That(viewer, Does.Contain(
@@ -638,11 +668,11 @@ namespace Genesis.RoomScan.Tests
                 "CompressionLevel.NoCompression"));
             Assert.That(exporter, Does.Not.Contain("PublishDirectory("));
             Assert.That(exporter, Does.Contain(
-                "public async Task<bool> ExportViewerPackageAsync()"));
+                "public Task<bool> ExportViewerPackageAsync()"));
             Assert.That(exporter, Does.Contain("Streamed "));
             Assert.That(exporter, Does.Contain(
                 "BuildStreamingTilesetAsync(\n" +
-                "                    staging, spatialBinding, progress)"));
+                "                    staging, spatialBinding, progress, cancellationToken, nativePackage)"));
             Assert.That(exporter, Does.Contain(
                 "await CaptureSpatialBindingAsync()"));
             Assert.That(exporter, Does.Contain(
@@ -655,25 +685,25 @@ namespace Genesis.RoomScan.Tests
                 "anchor.SpatialAnchorMatrix.inverse *\n" +
                 "                _grid.GridToWorldMatrix"));
             Assert.That(exporter, Does.Contain(
-                "MerkabaTilesetWriter.BeginStreamingPackage(staging)"));
+                "MerkabaTilesetWriter.BeginStreamingPackage(staging, cancellationToken)"));
             Assert.That(exporter, Does.Contain(
                 "MerkabaTilesetWriter.WriteStreamingLeaf(staging"));
             Assert.That(exporter, Does.Contain(
                 "MerkabaTilesetWriter.CompleteStreamingPackage(staging"));
             Assert.That(exporter, Does.Contain("CaptureStoredFlowerSource(out _exportPosition)"));
-            Assert.That(exporter, Does.Contain("ReadStoredFlowerContextAsync(addresses[index], addresses, _exportPosition)"));
-            Assert.That(exporter, Does.Contain("MerkabaFlowerPresentation.Build(reader, address, planeBounds)"));
+            Assert.That(exporter, Does.Contain("ReadStoredFlowerContextAsync(addresses[index], addresses,\n                        _exportPosition, cancellationToken)"));
+            Assert.That(exporter, Does.Contain("MerkabaFlowerPresentation.Build(reader, address, planeBounds,\n                        cancellationToken)"));
             foreach (string field in new[]
                      {
                          "occupiedOwners=", "carriers=", "triangles=", "unresolvedWedges="
                      })
                 Assert.That(exporter, Does.Contain(field), field);
-            Assert.That(exporter, Does.Contain("AppendDirtToTilesetAsync(staging, leaves, progress)"));
+            Assert.That(exporter, Does.Contain("AppendDirtToTilesetAsync(staging, leaves, progress, cancellationToken)"));
             Assert.That(exporter, Does.Contain("StreamStoredFlowerDirtAsync(_exportPlaneBounds, _exportTiles,"));
             Assert.That(exporter, Does.Not.Contain(
                 "CaptureStoredSnapshotAsync(anchorUuid"));
             int viewerExport = exporter.IndexOf(
-                "public async Task<bool> ExportViewerPackageAsync()",
+                "public Task<bool> ExportViewerPackageAsync()",
                 StringComparison.Ordinal);
             int nextMethod = exporter.IndexOf(
                 "private async Task StreamOwnedFlowersAsync(", viewerExport,
