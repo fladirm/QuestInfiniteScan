@@ -20,7 +20,7 @@ alias_bases=(
   M8ChunkTileRefs M8ChunkPresence M8KernelStates0 M8KernelStates1
   M8KernelStates2 M8KernelStates3 M8TileBits M8TileRecords
   M8FreeTileStack M8Counters M8ClaimQueue M8PendingNewTileRefs
-  M8WritebackQueue M8LoadStagingAddresses M8VisibleTiles
+  M8WritebackQueue M8LoadStagingAddresses
   M8DualBlockState M8DualChunkState M8DualLeaves
   M8ObservationTileBins M8TouchedTileQueue
   M8FlowerDetailPages M8ThreadAtlasPages
@@ -63,22 +63,6 @@ for shader in "${shaders[@]}"; do
       echo "FAIL: $kernel SPIR-V validation/disassembly failed" >&2
       failed_kernel_count=$((failed_kernel_count + 1))
       continue
-    fi
-
-    if [[ "$kernel" == "BuildReadoutVertices" ]]; then
-      if grep -Eq 'OpTypeInt 64|Op[US](Div|Mod)|OpSRem' "$assembly"; then
-        echo "FAIL: $kernel regressed to int64/integer div/mod" >&2
-        kernel_failed=1
-      fi
-      if ! grep -Eq 'OpExecutionMode .* LocalSize 128 1 1' "$assembly"; then
-        echo "FAIL: $kernel is not the frozen 128-lane tile workgroup" >&2
-        kernel_failed=1
-      fi
-      barrier_count=$(grep -c 'OpControlBarrier' "$assembly" || true)
-      if (( barrier_count > 8 )); then
-        echo "FAIL: $kernel contains $barrier_count group barriers (>8)" >&2
-        kernel_failed=1
-      fi
     fi
 
     if [[ "$kernel" == "SphereFlowerOracle" ||

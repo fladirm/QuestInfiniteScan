@@ -6238,3 +6238,46 @@ FILES_CHANGED=the exact diff from PARENT_COMMIT; unrelated.claude/,CLAUDE.md and
 CLAUDE.md.meta remain excluded. This is a verified checkpoint, not RUN_04 PASS.
 NEXT_CURSOR=preserve the now-green clipped-skin, THROUGH and real R2 drain
 proofs; finish actual shared carrier admission and its skin/page consumers.
+
+### RUN_04/RUN_05 dead readout excision — 2026-09-07 03:50:14 UTC
+
+CURRENT_COMMIT=SELF; PARENT_COMMIT=eada6eee1a19f315ca7b696065a61830d454e112
+CURRENT_CUT=RUN_04 OPEN; RUN_05 producer integration remains OPEN.
+IMPLEMENTED=removed the seven unused legacy readout entry points and their
+vertex/index streams, depth-mesh/pin path, uniforms and helpers. The existing
+ClassifyHotFlowerPages, PublishDirtyFlowerPages and CullFlowerPages bodies are
+unchanged. Removed the three unreferenced whole-mesh capacity constants and
+the obsolete audit branch/alias for those deleted resources. No new geometry,
+optical formula, fallback, empty replacement kernel or dispatch was added.
+FILES_CHANGED=Runtime/Shaders/MerkabaReadout.compute;
+Runtime/Shaders/MerkabaWorld.hlsl;
+Tools/shaders/audit_merkaba_compute_spirv.sh; lasttrue.md implementation ledger.
+LEGACY_REMOVED=ResetReadoutBuild, QueryM8Readout, PrepareReadoutBuild,
+BuildReadoutVertices, ProjectReadoutMeshPins, BuildReadoutMesh, FinalizeReadout;
+their readout vertex/index bindings and obsolete mesh capacity constants.
+MANUAL_AUDIT=remaining readout shader and changed constant/audit hunks reviewed;
+direct Runtime/Editor/Tests/Tools search finds no deleted entry/buffer/capacity
+names. Existing managed/native consumers already target the Flower pipeline.
+This removes dead code, not a working fallback behind the missing producer.
+TESTS_RUN=fresh SPIR-V compile/validation and binding audit PASS,68 kernels,
+writable buffer/image bindings<=8, no RW/read alias pairs. bash -n and
+git diff --check PASS. The first audit invocation was invalidated by an edit
+to its running shell script and ended with a shell parse error; it is NOT
+acceptance evidence. The unmodified rerun completed with exit0:
+LOG=/mnt/kingston-unity/Builds/UniscanClippedSkin/TestResults/readout-excision-spirv.log
+FULL_SUITE=not rerun for this dead-code-only change. Latest prior result remains
+391 total/390 PASS/1 FAIL at the preceding checkpoint; CompactDirtyFlowerSymbols
+is still absent. No Quest APK/runtime/performance acceptance is claimed.
+CONTRACT_CHANGE=none; immutable REV-C prefix unchanged.
+REMAINING=the section8.4.2 flag/sector admissibility rule is still needed by the
+shared live carrier selector, RGB/V drain and real page producer. Exact sectors,
+directed radical sign provenance and L2 incidence exist; they do not specify
+which sign combinations belong to a flag. Requested that precise missing
+relation from the user rather than introducing a root-selection heuristic.
+Partial direct/DIRT coverage and later RUN_06/RUN_07 consumers remain open.
+GOAL_TOOL_STATE=blocked; available goal tools cannot resume or rewrite an
+unfinished goal. Work continued directly under the user's amended REV-C task;
+the old tool objective is not implementation authority.
+NEXT_CURSOR=do not repeat the resolved36-chamber/clipped-support question or
+completed proofs. Resume the shared selector when its exact flag/sector
+relation is supplied; do not replace CompactDirtyFlowerSymbols with a stub.
