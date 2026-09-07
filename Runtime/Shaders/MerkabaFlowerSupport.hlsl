@@ -296,7 +296,7 @@ bool M8FlowerSupportCoverCells(M8FlowerInterval3 bounds,out int3 firstCell,out i
     firstCell=lastCell=0;
     M8FlowerInterval components[3];
     components[0]=bounds.x;components[1]=bounds.y;components[2]=bounds.z;
-    [unroll]for(uint axis=0u;axis<3u;axis++)
+    [loop]for(uint axis=0u;axis<3u;axis++)
     {
         M8FlowerInterval cells;
         if(!M8FlowerIDivPositive(components[axis],
@@ -322,7 +322,7 @@ bool M8FlowerSupportWedgeBounds(int3 owner,uint carrier,uint wedge,
         M8FlowerI(M8_FLOWER_LATTICE_STEP,M8_FLOWER_LATTICE_STEP));
     translation.z=M8FlowerIMul(M8FlowerI(relativeOwner.z,relativeOwner.z),
         M8FlowerI(M8_FLOWER_LATTICE_STEP,M8_FLOWER_LATTICE_STEP));
-    [unroll]for(uint vertex=0u;vertex<3u;vertex++)
+    [loop]for(uint vertex=0u;vertex<3u;vertex++)
     {
         M8FlowerInterval3 relative;
         uint site=sites[vertex];
@@ -391,7 +391,7 @@ uint M8FlowerSupportR3RootDual(int3 owner,uint nodeIndex,M8FlowerPhaseRootEviden
 // are evaluated, one at a time. The finite selector consumes compact q/tag
 // evidence, never a fabricated all-allowed mask or a cache of world positions.
 M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
-    uint flags,float2 errors)
+    uint flags,float2 errors,bool incidentReferences,uint requiredPetal)
 {
     M8FlowerInterval q[8];uint tags[8];
     uint known=0u,ambiguous=0u,allowed=0u,veto=0u;
@@ -410,16 +410,24 @@ M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 ow
         if(dual==0u)allowed|=bit;
         else if(dual==1u)veto|=bit;
     }
-    return M8FlowerSelectR3Junction(parity,q,tags,known,ambiguous,allowed,veto);
+    return M8FlowerSelectR3Junction(parity,q,tags,known,ambiguous,allowed,veto,
+        incidentReferences,requiredPetal);
+}
+
+M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
+    uint flags,float2 errors)
+{
+    return M8FlowerReadR3Junction(slot,ownerRef,owner,flags,errors,false,0xffffffffu);
 }
 
 // Same invocation in the count and emit passes; the caller's source lease
 // fixes both M8/detail and dual snapshots between them.
 uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
+    uint completion,bool sourceProof,
     out M8FlowerSymbolRecord symbol,out uint unresolved,
     out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
 {
-    uint status=M8FlowerClassifyL2Carrier(slot,local,carrier,errors,symbol,unresolved,
+    uint status=M8FlowerClassifyL2Carrier(slot,local,carrier,errors,completion,symbol,unresolved,
         directWedges,roots,positions);
     // The raw selector remains owner-local for scan/phase closure. Only the
     // generated canonical incident owner emits each complete three-knot
@@ -427,7 +435,7 @@ uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
     // page. This decision uses no normal, sampled position or residency tie.
     uint owned=0u;
     [unroll]for(uint wedge=0u;wedge<6u;wedge++)
-        if(M8FlowerOwnsL2Wedge(carrier,wedge))owned|=1u<<wedge;
+        if(sourceProof || M8FlowerOwnsL2Wedge(carrier,wedge))owned|=1u<<wedge;
     unresolved&=owned;
     if(status!=1u)return status==2u && unresolved!=0u?2u:0u;
     uint active=M8FlowerDrawActiveWedgeMask(symbol)&owned;
@@ -459,12 +467,115 @@ uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
 }
 
 uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
+    uint completion,
+    out M8FlowerSymbolRecord symbol,out uint unresolved,
+    out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
+{
+    return M8FlowerPageCarrier(slot,local,carrier,errors,completion,false,
+        symbol,unresolved,directWedges,roots,positions);
+}
+
+uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
+    out M8FlowerSymbolRecord symbol,out uint unresolved,
+    out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
+{
+    return M8FlowerPageCarrier(slot,local,carrier,errors,0xffffffffu,
+        symbol,unresolved,directWedges,roots,positions);
+}
+
+uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
     out M8FlowerSymbolRecord symbol,out uint unresolved,
     out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
 {
     uint directWedges;
     return M8FlowerPageCarrier(slot,local,carrier,errors,symbol,unresolved,
         directWedges,roots,positions);
+}
+
+// Completion consumes only the frozen direct boundary. A derived result is
+// never inserted into this input, including while another candidate is read.
+uint M8FlowerCompletionDonor(uint slot,uint ownerRef,int3 owner,uint flags,
+    float2 errors,uint petal,uint anchor,uint2 direct,out M8FlowerPhaseRootEvidence selected)
+{
+    selected=(M8FlowerPhaseRootEvidence)0;
+    uint node=M8FlowerPetalNodes[petal][anchor];
+    uint2 donors=M8FlowerCompletionNeighbours[petal]&M8FlowerNodeIncidentPetals[node]&direct;
+    bool found=false;
+    [loop]for(uint word=0u;word<2u;word++)
+    {
+        uint bits=donors[word];
+        [loop]while(bits!=0u)
+        {
+            uint donor=32u*word+(uint)firstbitlow(bits);bits&=bits-1u;
+            uint matches=0u;M8FlowerPhaseRootEvidence root=(M8FlowerPhaseRootEvidence)0;
+            [loop]for(uint sign=0u;sign<2u;sign++)
+            {
+                M8FlowerPhaseRootEvidence candidate;bool provisional;uint2 allowed;
+                uint status=M8FlowerReadOriginalShared(slot,ownerRef,owner,flags,node,sign!=0u,
+                    errors.x,errors.y,candidate,provisional);
+                if(status==0u)continue;
+                if(status!=1u || !M8FlowerAnchorRootFlags(node,candidate.Tag,allowed))return 2u;
+                if((allowed[donor>>5u]&(1u<<(donor&31u)))==0u)continue;
+                if(provisional || matches!=0u)return 2u;
+                root=candidate;matches|=1u<<sign;
+            }
+            if(matches==0u)return 2u;
+            uint2 allowed,references;
+            if(!M8FlowerAnchorRootFlags(node,root.Tag,allowed))return 2u;
+            if(M8FlowerAnchorBoundaryReferences(node,root.Tag,references))allowed|=references;
+            if((allowed[petal>>5u]&(1u<<(petal&31u)))==0u)return 0u;
+            if(!found){selected=root;found=true;continue;}
+            if(any(selected.Junction!=root.Junction) ||
+                ((selected.Tag^root.Tag)&0x1fffu)!=0u)return 0u;
+            M8FlowerPhaseRootEvidence closed;
+            uint status=M8FlowerCloseSharedPhaseRoot(selected,root,closed);
+            if(status!=1u)return status;
+            selected=closed;
+        }
+    }
+    return found?1u:0u;
+}
+
+// Prove the three existing anchors and this flag's R3/orientation context.
+// The caller MUST still consume all sixteen children at its one shared
+// carrier-evaluation call site before admitting this token as COMPLETED.
+uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
+    uint2 direct,uint petal,out uint token)
+{
+    token=petal;
+    KernelState state=M8LoadKernelStateRead(slot,local);
+    int3 owner=M8FlowerEndpointOwner(slot,local);
+    uint ownerRef=M8FlowerFindOwner(slot,local,M8FlowerEndpointGeneration(slot));
+    uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
+    float3 normal;float delta;M8FlowerUnpackPlane(state.flags,normal,delta);
+    bool uncertain=false;M8FlowerInterval3 bounds[3];
+    [loop]for(uint anchor=0u;anchor<3u;anchor++)
+    {
+        M8FlowerPhaseRootEvidence root;
+        uint status=M8FlowerCompletionDonor(slot,ownerRef,owner,state.flags,errors,
+            petal,anchor,direct,root);
+        if(status==0u)return 0u;
+        if(status!=1u){uncertain=true;continue;}
+        token|=((root.Tag>>7u)&1u)<<(6u+anchor);
+        uint nodeIndex=M8FlowerPetalNodes[petal][anchor];
+        M8FlowerGeometryNode node=(M8FlowerGeometryNode)0;
+        node.Offset=M8FlowerNode[nodeIndex].xyz;node.Line=(uint)M8FlowerNode[nodeIndex].w;
+        if(!M8FlowerRootRelativeBounds(node,root,bounds[anchor]))uncertain=true;
+    }
+    if(uncertain)return 2u;
+    M8FlowerJunctionSelection junction=M8FlowerReadR3Junction(slot,ownerRef,owner,
+        state.flags,errors,true,petal);
+    if(junction.Classification!=1u)return junction.Classification==0u?0u:2u;
+    uint junctionAxis=4u;uint2 rule=M8FlowerJunctionRule[junction.ClassIndex];
+    [unroll]for(uint axis=0u;axis<4u;axis++)
+    {
+        uint lineClass=(uint)M8FlowerTetraLine[parity][axis];
+        if(((rule.y>>(6u*(lineClass-9u)))&63u)==petal)junctionAxis=axis;
+    }
+    if(junctionAxis==4u || ((token>>8u)&1u)!=((junction.RootSigns>>junctionAxis)&1u))return 0u;
+    if(M8FlowerPetalNodes[petal].w==0u)
+    {M8FlowerInterval3 swap=bounds[1];bounds[1]=bounds[2];bounds[2]=swap;}
+    return M8FlowerCarrierWedgeOrientation(bounds[0],bounds[1],bounds[2],normal,errors.x);
 }
 
 M8FlowerInterval M8FlowerSupportDifference(float a,float b)
@@ -709,53 +820,42 @@ uint M8FlowerSupportCarrierCoverage(float3 positions[7],uint active,int3 cell,ui
         positions,active,0u,cell,face,halfFace));
 }
 
-uint3 M8FlowerSupportPairedOuterEdges(uint slot,int3 owner,uint carrier,uint active,
-    M8FlowerPhaseRootEvidence roots[7],float3 positions[7],float2 errors)
+// Resolve the generated partner only. The page workgroup evaluates it through
+// its SAME carrier call site, then applies PairAxes to the two actual results.
+// Calling PageCarrier here would inline a second complete geometry evaluator.
+bool M8FlowerSupportResolveOuterPeer(uint slot,int3 owner,uint carrier,uint wedge,
+    out uint2 peerAddress,out uint canonicalWedge,out uint3 peerSites)
 {
-    uint3 paired=0u;
-    [loop]for(uint wedge=0u;wedge<6u;wedge++)
-    {
-        if((active&(1u<<wedge))==0u)continue;
-        uint peerWedge,peerEdge;bool reversed;
-        if(!M8FlowerL2AcrossEdge(6u*carrier+wedge,1u,peerWedge,peerEdge,reversed) || !reversed)continue;
-        int3 delta;uint canonicalWedge,permutation;
-        if(!M8FlowerCanonicalL2WedgeOwner(peerWedge/6u,peerWedge%6u,
-            delta,canonicalWedge,permutation))continue;
-        int3 relative=(owner-m8FlowerSupportOrigin)+delta;
-        // A partner must belong to the exact complete coverage stencil.
-        // Being somewhere in the resident halo alone is not sufficient.
-        if(any(relative<M8_FLOWER_COVERAGE_OWNER_MIN) || any(relative>M8_FLOWER_COVERAGE_OWNER_MAX))continue;
-        if(any(m8FlowerSupportOrigin>2147483647-max(relative,0)) ||
-            any(m8FlowerSupportOrigin<(-2147483647-1)-min(relative,0)))continue;
-        int3 peerOwner=m8FlowerSupportOrigin+relative;
-        uint peerSlot,local;KernelState peerState;
-        if(M8FlowerReadEndpoint(slot,owner,peerOwner,peerSlot,local,peerState)!=1u)continue;
-        M8FlowerSymbolRecord peerSymbol;uint unresolved;
-        M8FlowerPhaseRootEvidence peerRoots[7];float3 peerPositions[7];
-        if(M8FlowerPageCarrier(peerSlot,local,canonicalWedge/6u,errors,
-            peerSymbol,unresolved,peerRoots,peerPositions)!=1u ||
-            (M8FlowerDrawActiveWedgeMask(peerSymbol)&(1u<<(canonicalWedge%6u)))==0u)continue;
-        uint3 peerSites=M8FlowerL2CarrierTriangle(canonicalWedge%6u,false);
-        uint firstSite=peerSites[(permutation>>(2u*((peerEdge+1u)%3u)))&3u];
-        uint lastSite=peerSites[(permutation>>(2u*peerEdge))&3u];
-        uint thirdSite=peerSites[(permutation>>(2u*((peerEdge+2u)%3u)))&3u];
-        uint first=1u+wedge,last=1u+(wedge+1u)%6u;
-        uint axes=M8FlowerSupportPairAxes(roots[first],roots[last],peerRoots[firstSite],peerRoots[lastSite],
-            positions[first],positions[last],positions[0],peerPositions[thirdSite]);
-        [unroll]for(uint axis=0u;axis<3u;axis++)if((axes&(1u<<axis))!=0u)paired[axis]|=1u<<wedge;
-    }
-    return paired;
+    peerAddress=0u;canonicalWedge=0u;peerSites=0u;
+    uint peerWedge,peerEdge;bool reversed;
+    if(!M8FlowerL2AcrossEdge(6u*carrier+wedge,1u,peerWedge,peerEdge,reversed) || !reversed)return false;
+    int3 delta;uint permutation;
+    if(!M8FlowerCanonicalL2WedgeOwner(peerWedge/6u,peerWedge%6u,
+        delta,canonicalWedge,permutation))return false;
+    int3 relative=(owner-m8FlowerSupportOrigin)+delta;
+    // Being somewhere in the resident halo is not sufficient: the partner
+    // must belong to this exact complete coverage stencil.
+    if(any(relative<M8_FLOWER_COVERAGE_OWNER_MIN) || any(relative>M8_FLOWER_COVERAGE_OWNER_MAX))return false;
+    if(any(m8FlowerSupportOrigin>2147483647-max(relative,0)) ||
+        any(m8FlowerSupportOrigin<(-2147483647-1)-min(relative,0)))return false;
+    int3 peerOwner=m8FlowerSupportOrigin+relative;
+    uint peerSlot,local;KernelState peerState;
+    if(M8FlowerReadEndpoint(slot,owner,peerOwner,peerSlot,local,peerState)!=1u)return false;
+    peerAddress=uint2(peerSlot,local);
+    uint3 sites=M8FlowerL2CarrierTriangle(canonicalWedge%6u,false);
+    peerSites=uint3(sites[(permutation>>(2u*((peerEdge+1u)%3u)))&3u],
+        sites[(permutation>>(2u*peerEdge))&3u],
+        sites[(permutation>>(2u*((peerEdge+2u)%3u)))&3u]);
+    return true;
 }
 
-// Called independently by owner lanes for actually admitted/emitted carrier
-// wedges (including a genuinely unique completion). Atomics only accumulate
-// proof bits; scheduling cannot erase another lane's complete-coverage proof.
-void M8FlowerSupportAccumulateCarrier(uint slot,int3 owner,uint carrier,M8FlowerSymbolRecord symbol,
-    M8FlowerPhaseRootEvidence roots[7],float3 positions[7],float2 errors)
+// Bound the work before requesting partners; out-of-page carriers do not
+// trigger even a resident peer read. Reused by the subsequent accumulation.
+bool M8FlowerSupportCarrierCells(int3 owner,uint carrier,uint active,
+    M8FlowerPhaseRootEvidence roots[7],out int3 carrierFirst,out int3 carrierLast)
 {
-    if(m8FlowerSupportCoverageNeeded==0u)return;
-    uint active=M8FlowerDrawActiveWedgeMask(symbol);
-    int3 carrierFirst=15,carrierLast=-8;
+    carrierFirst=15;carrierLast=-8;
+    if(m8FlowerSupportCoverageNeeded==0u)return false;
     bool anyBounds=false;
     [loop]for(uint wedge=0u;wedge<6u;wedge++)
     {
@@ -764,12 +864,19 @@ void M8FlowerSupportAccumulateCarrier(uint slot,int3 owner,uint carrier,M8Flower
         if(!M8FlowerSupportWedgeBounds(owner,carrier,wedge,roots,bounds,first,last))continue;
         carrierFirst=min(carrierFirst,first);carrierLast=max(carrierLast,last);anyBounds=true;
     }
-    if(!anyBounds)return;
+    if(!anyBounds)return false;
     // A boundary face belongs to either adjacent U. Include the lower
     // neighbour at an exact integer coordinate; bounds are metric-derived.
     carrierFirst=max(carrierFirst-1,0);carrierLast=min(carrierLast,7);
-    if(any(carrierFirst>carrierLast))return;
-    uint3 pairedEdges=M8FlowerSupportPairedOuterEdges(slot,owner,carrier,active,roots,positions,errors);
+    return all(carrierFirst<=carrierLast);
+}
+
+// Called independently by owner lanes for actually admitted/emitted carrier
+// wedges (including a genuinely unique completion). Atomics only accumulate
+// proof bits; scheduling cannot erase another lane's complete-coverage proof.
+void M8FlowerSupportAccumulateCarrier(float3 positions[7],uint active,uint3 pairedEdges,
+    int3 carrierFirst,int3 carrierLast)
+{
     [loop]for(uint face=0u;face<6u;face++)
     {
         [loop]for(int z=carrierFirst.z;z<=carrierLast.z;z++)
@@ -780,7 +887,7 @@ void M8FlowerSupportAccumulateCarrier(uint slot,int3 owner,uint carrier,M8Flower
                         uint faceWord=face*16u+(local>>5u);
                         if((m8FlowerSupportFaces[faceWord]&bit)==0u)continue;
                         int3 cell=m8FlowerSupportOrigin+int3(x,y,z);
-                        [unroll]for(uint halfFace=0u;halfFace<2u;halfFace++)
+                        [loop]for(uint halfFace=0u;halfFace<2u;halfFace++)
                         {
                             uint proof=M8FlowerSupportCarrierCoverageProof(positions,active,pairedEdges[face>>1u],cell,face,halfFace);
                             uint word=2u*faceWord+halfFace;

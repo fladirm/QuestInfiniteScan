@@ -88,9 +88,20 @@ namespace Genesis.RoomScan
                     throw new InvalidDataException("Export owner tile is unresolved in its frozen context.");
                 if (!state.IsOccupied || !state.HasMeasuredSurfacePlane) continue;
                 result.OccupiedOwners++;
+                // The first complete source pass freezes D. Its descendants
+                // prove the WHOLE parent, before emission ownership. No
+                // completed output may feed this snapshot or a later donor.
+                var parent = reader.BeginParent48Snapshot(owner, planeBounds);
+                for (int carrierId = 0; carrierId < MerkabaSphereFlowerAuthority.L2HubCount; carrierId++)
+                    reader.ClassifyPageCarrier(owner, carrierId, planeBounds,
+                        out _, out _, out _, roots, positions, parent);
+                parent.Complete();
+                if (parent.EvaluateCompletion(out var completion) ==
+                    MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous)
+                    result.UnresolvedWedges++;
                 for (int carrierId = 0; carrierId < MerkabaSphereFlowerAuthority.L2HubCount; carrierId++)
                 {
-                    var status = reader.ClassifyPageCarrier(owner, carrierId, planeBounds,
+                    var status = parent.ReadCarrier(carrierId, completion,
                         out MerkabaFlowerSymbolRecord symbol, out uint unresolved, roots, positions);
                     result.UnresolvedWedges += math.countbits(unresolved);
                     if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain) continue;

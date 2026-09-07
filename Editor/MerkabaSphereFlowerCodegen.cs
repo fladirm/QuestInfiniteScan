@@ -1397,12 +1397,9 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
 // The generated neighbour test is exactly the signed72x48 boundary equation,
 // not a flood fill. Caller masks must prove the actual shared roots, symbol,
 // R1/R2/R3 closure, orientation and complete-support dual exclusion.
-internal static uint2 M8FlowerCompletionCandidates(uint2 confirmedDirect,
-    uint2 uniqueRoots,uint2 uniqueSymbols,uint2 certainShells,
-    uint2 certainOrientation,uint2 dualVeto)
+internal static uint2 M8FlowerCompletionBoundaryCandidates(uint2 confirmedDirect)
 {
-    uint2 candidates=uniqueRoots&uniqueSymbols&certainShells&certainOrientation&
-        ~dualVeto&~confirmedDirect&uint2(0xffffffffu,0xffffu);
+    uint2 candidates=~confirmedDirect&uint2(0xffffffffu,0xffffu);
     uint2 result=uint2(0u,0u);
     [loop] for(int petal=0;petal<48;++petal)
     {
@@ -1412,6 +1409,14 @@ internal static uint2 M8FlowerCompletionCandidates(uint2 confirmedDirect,
         if(all((confirmedDirect&neighbours)==neighbours))result[petal>>5]|=bit;
     }
     return result;
+}
+
+internal static uint2 M8FlowerCompletionCandidates(uint2 confirmedDirect,
+    uint2 uniqueRoots,uint2 uniqueSymbols,uint2 certainShells,
+    uint2 certainOrientation,uint2 dualVeto)
+{
+    return M8FlowerCompletionBoundaryCandidates(confirmedDirect)&
+        uniqueRoots&uniqueSymbols&certainShells&certainOrientation&~dualVeto;
 }
 
 internal static uint M8FlowerUniqueCompletion(uint2 candidates,out uint petal)
@@ -2140,11 +2145,12 @@ bool M8FlowerRadicalSectorSigns(uint node,uint sector,out uint3 signs)
 
         private static void AppendAnchorSectorPetalMasks(StringBuilder output, bool csharp)
         {
-            for (int kind = 0; kind < 2; kind++)
+            for (int kind = 0; kind < 3; kind++)
             {
                 var masks = kind == 0 ? MerkabaSphereFlowerAuthority.AnchorSectorPetalMasks :
-                    MerkabaSphereFlowerAuthority.AnchorBoundaryPetalMasks;
-                string name = kind == 0 ? "Sector" : "Boundary";
+                    kind == 1 ? MerkabaSphereFlowerAuthority.AnchorBoundaryPetalMasks :
+                    MerkabaSphereFlowerAuthority.AnchorBoundaryReferencePetalMasks;
+                string name = kind == 0 ? "Sector" : kind == 1 ? "Boundary" : "BoundaryReference";
                 output.Append(csharp
                     ? "        private static ulong[] LoadGeneratedAnchor" + name + "PetalMasks() => new ulong[] {\n"
                     : "static const uint2 M8FlowerAnchor" + name + "PetalMask[" + masks.Length + "] = {\n");
@@ -2187,6 +2193,23 @@ bool M8FlowerAnchorRootFlags(uint node,uint proofTag,out uint2 mask)
     uint owner;
     if(!M8FlowerBoundarySector(lineClass,code-1u,owner) || owner!=sector)return false;
     mask=M8FlowerAnchorBoundaryPetalMask[2u*(M8FlowerLineMeta[lineClass].y+code-1u)+(node&1u)];
+    return true;
+}
+
+// Closed incidence of an existing certified boundary knot, not its owner.
+// Only a non-provisional confirmed donor may supply this retained witness.
+// No ordinary direct admission or numerical-touch fallback calls this API.
+bool M8FlowerAnchorBoundaryReferences(uint node,uint proofTag,out uint2 mask)
+{
+    mask=0u;
+    uint code=(proofTag>>21u)&63u;
+    if(node>=26u || code==0u)return false;
+    uint lineClass=(uint)M8FlowerNode[node].w;
+    if(((proofTag>>3u)&15u)!=lineClass)return false;
+    uint owner;
+    if(!M8FlowerBoundarySector(lineClass,code-1u,owner) || owner!=((proofTag>>8u)&31u))return false;
+    mask=M8FlowerAnchorBoundaryReferencePetalMask[
+        2u*(M8FlowerLineMeta[lineClass].y+code-1u)+(node&1u)];
     return true;
 }
 
@@ -2253,11 +2276,12 @@ bool M8FlowerJunctionFinite(M8FlowerInterval value)
 
 M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
     M8FlowerInterval q[8],uint observedTags[8],uint knownMask,
-    uint ambiguousMask,uint allowedMask,uint vetoMask)
+    uint ambiguousMask,uint allowedMask,uint vetoMask,bool incidentReferences,uint requiredPetal)
 {
     M8FlowerJunctionSelection result=(M8FlowerJunctionSelection)0;
     result.Classification=2u;result.ClassIndex=0xffffffffu;result.RootSigns=0xffffffffu;
-    if(parity>=8u || ((knownMask|ambiguousMask|allowedMask|vetoMask)&~255u)!=0u ||
+    if(parity>=8u || (requiredPetal!=0xffffffffu && requiredPetal>=48u) ||
+        ((knownMask|ambiguousMask|allowedMask|vetoMask)&~255u)!=0u ||
         (knownMask&ambiguousMask)!=0u)return result;
     int4 frameLines=M8FlowerTetraLine[parity],frameEta=M8FlowerTetraEta[parity];
     uint2 rootFlags[8];
@@ -2275,6 +2299,9 @@ M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
         {
             knownMask&=~bit;ambiguousMask|=bit;continue;
         }
+        // Only completion's actual non-provisional donor path enables this.
+        uint2 references;
+        if(incidentReferences && M8FlowerAnchorBoundaryReferences(node,tag,references))flags|=references;
         rootFlags[alternative]=flags;
     }
     uint selectedClass=0xffffffffu,selectedSigns=0xffffffffu;
@@ -2316,6 +2343,11 @@ M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
         [loop] for(uint candidate=0u;candidate<12u;candidate++)
         {
             uint2 rule=M8FlowerJunctionRule[candidate];
+            // Only junction classes incident to the requested completion flag
+            // participate in this particular flag's uniqueness decision.
+            if(requiredPetal!=0xffffffffu && (rule.y&63u)!=requiredPetal &&
+                ((rule.y>>6u)&63u)!=requiredPetal && ((rule.y>>12u)&63u)!=requiredPetal &&
+                ((rule.y>>18u)&63u)!=requiredPetal)continue;
             int chirality=(rule.y&(1u<<30u))==0u?1:-1;
             if(chirality!=branchChirality)continue;
             bool admitted=true;
@@ -2347,6 +2379,14 @@ M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
     result.ClassIndex=selectedClass;result.RootSigns=selectedSigns;
     result.Scalar=selectedScalar;result.Vector=selectedVector;
     return result;
+}
+
+M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
+    M8FlowerInterval q[8],uint observedTags[8],uint knownMask,
+    uint ambiguousMask,uint allowedMask,uint vetoMask)
+{
+    return M8FlowerSelectR3Junction(parity,q,observedTags,knownMask,
+        ambiguousMask,allowedMask,vetoMask,false,0xffffffffu);
 }
 ");
         }

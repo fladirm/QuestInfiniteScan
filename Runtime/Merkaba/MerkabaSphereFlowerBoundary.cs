@@ -32,7 +32,99 @@ namespace Genesis.RoomScan
 
         public static ReadOnlySpan<BoundaryRule> BoundaryRules => BoundaryData.Rules;
 
+        private static class BoundaryReferenceData
+        {
 #if UNITY_EDITOR
+            internal static readonly ulong[] Masks = BuildAnchorBoundaryReferences();
+#else
+            internal static readonly ulong[] Masks = LoadGeneratedAnchorBoundaryReferencePetalMasks();
+#endif
+        }
+
+        public static ReadOnlySpan<ulong> AnchorBoundaryReferencePetalMasks => BoundaryReferenceData.Masks;
+
+        // Reference incidence is not ownership/admission. This entry consumes
+        // a retained, already-certified exact boundary witness from an existing
+        // non-provisional confirmed donor. It never changes that donor's Sigma,
+        // half-open sector, algebraic sign or metric interval. Without such a
+        // witness, even numerical contact has no boundary reference authority.
+        public static bool TryGetAnchorBoundaryReferences(int node, uint proofTag, out ulong mask)
+        {
+            mask = 0;
+            uint code = (proofTag & BoundaryWitnessMask) >> 21;
+            if ((uint)node >= NodesValue.Length || code == 0u) return false;
+            NodeRule anchor = NodesValue[node];
+            if (((proofTag >> 3) & 15u) != anchor.LineClass) return false;
+            LineRule line = LinesValue[anchor.LineClass];
+            if (code > line.SectorCount ||
+                BoundaryRules[line.SectorOffset + (int)code - 1].Owner != ((proofTag >> 8) & 31u))
+                return false;
+            mask = BoundaryReferenceData.Masks[2 * (line.SectorOffset + (int)code - 1) +
+                (anchor.Orientation < 0 ? 1 : 0)];
+            return true;
+        }
+
+#if UNITY_EDITOR
+        public static ulong[] BuildAnchorBoundaryReferences()
+        {
+            var masks = new ulong[2 * SectorBoundariesValue.Length];
+            for (int node = 0; node < NodesValue.Length; node++)
+            {
+                NodeRule anchor = NodesValue[node];
+                LineRule line = LinesValue[anchor.LineClass];
+                var cuts = BuildLineBoundaryPoints(PetalsValue, NodesValue, line.Direction);
+                if (cuts.Count != line.SectorCount)
+                    throw new InvalidOperationException("Boundary references differ from the exact loop arrangement.");
+                for (int boundary = 0; boundary < cuts.Count; boundary++)
+                {
+                    ExactBoundaryPoint cut = cuts[boundary];
+                    ulong references = 0;
+                    for (int petal = 0; petal < PetalClassCount; petal++)
+                    {
+                        if ((NodeIncidentPetalsValue[node] & (1UL << petal)) == 0u) continue;
+                        PetalRule candidate = PetalsValue[petal];
+                        bool maximal = true;
+                        // Closed versions of the SAME two max-Phi decisions.
+                        // Equal-shell constants cancel exactly. All ties are
+                        // references; only PowerFlagAtCut owns a tied point.
+                        foreach (PetalRule other in PetalsValue)
+                        {
+                            if (other.FaceNode != candidate.FaceNode) continue;
+                            if (SectorPredicateLimit(line.Direction, anchor.Direction, cut,
+                                NodesValue[candidate.EdgeNode].Direction - NodesValue[other.EdgeNode].Direction,
+                                Rational.Zero, 0) < 0) maximal = false;
+                            if (other.EdgeNode == candidate.EdgeNode &&
+                                SectorPredicateLimit(line.Direction, anchor.Direction, cut,
+                                    NodesValue[candidate.CornerNode].Direction - NodesValue[other.CornerNode].Direction,
+                                    Rational.Zero, 0) < 0) maximal = false;
+                        }
+                        if (!maximal) continue;
+                        int selected = PowerFlagAtCut(PetalsValue, NodesValue, line.Direction,
+                            anchor.Direction, candidate.FaceNode, cut, 0);
+                        if (selected != petal)
+                        {
+                            PetalRule owner = PetalsValue[selected];
+                            int3 equality = candidate.EdgeNode != owner.EdgeNode
+                                ? NodesValue[candidate.EdgeNode].Direction - NodesValue[owner.EdgeNode].Direction
+                                : NodesValue[candidate.CornerNode].Direction - NodesValue[owner.CornerNode].Direction;
+                            if (SectorPredicateLimit(line.Direction, anchor.Direction, cut,
+                                equality, Rational.Zero, 0) != 0)
+                                throw new InvalidOperationException("A non-owning boundary reference lacks exact power equality.");
+                        }
+                        references |= 1UL << petal;
+                    }
+                    ulong at = AnchorFlagMaskAtCut(PetalsValue, NodesValue, line.Direction, node, cut, 0);
+                    ulong before = AnchorFlagMaskAtCut(PetalsValue, NodesValue, line.Direction, node, cut, -1);
+                    ulong after = AnchorFlagMaskAtCut(PetalsValue, NodesValue, line.Direction, node, cut, 1);
+                    if ((references & ~NodeIncidentPetalsValue[node]) != 0u ||
+                        ((at | before | after) & ~references) != 0u)
+                        throw new InvalidOperationException("Closed boundary references lost an incident half-open owner.");
+                    masks[2 * (line.SectorOffset + boundary) + (anchor.Orientation < 0 ? 1 : 0)] = references;
+                }
+            }
+            return masks;
+        }
+
         private static BigInteger BoundaryIntegerSqrt(BigInteger value)
         {
             if (value.Sign < 0) throw new ArgumentOutOfRangeException(nameof(value));

@@ -860,6 +860,11 @@ namespace Genesis.RoomScan
                 Word((uint)mask);
                 Word((uint)(mask >> 32));
             }
+            foreach (ulong mask in AnchorBoundaryReferencePetalMasks)
+            {
+                Word((uint)mask);
+                Word((uint)(mask >> 32));
+            }
             foreach (ushort offset in L2BoundaryFlagOffsets) Word(offset);
             foreach (byte index in L2BoundaryFlagIndices) Word(index);
             foreach (ulong mask in L2BoundaryFlagMasks)

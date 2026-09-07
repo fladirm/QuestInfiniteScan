@@ -269,14 +269,20 @@ bool M8FlowerApplyGeometryDetail(uint ownerRef,uint epoch,int3 owner,
 }
 
 uint M8FlowerReadOriginalLocal(uint ownerRef,int3 owner,uint flags,uint nodeIndex,
-    bool plus,float normalError,float offsetError,out M8FlowerPhaseRootEvidence root)
+    bool plus,float normalError,float offsetError,out M8FlowerPhaseRootEvidence root,
+    out M8FlowerPhaseRootEvidence rawBase)
 {
     root=(M8FlowerPhaseRootEvidence)0;
+    rawBase=root;
     const uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
     if(nodeIndex>=26u || (flags&(required|M8_FLOWER_SEED_FLAG))!=required)return 0u;
     int4 source=M8FlowerNode[nodeIndex];
     uint status=M8FlowerCarrierRootProof(owner,flags,0u,source.xyz,(uint)source.w,
         plus,normalError,offsetError,root);
+    // Preserve the actual R1 prediction before any endpoint-local R2/R3
+    // innovation. R3 residuals must never use the synthesized observation as
+    // their prediction, nor re-evaluate a second copy of the exact root graph.
+    rawBase=root;
     if(status!=1u)return status;
     M8FlowerGeometryNode node=(M8FlowerGeometryNode)0;
     node.Offset=source.xyz;node.Line=(uint)source.w;node.RootNode=nodeIndex;node.Plus=plus;
@@ -289,16 +295,26 @@ uint M8FlowerReadOriginalLocal(uint ownerRef,int3 owner,uint flags,uint nodeInde
     return root.Classification;
 }
 
+uint M8FlowerReadOriginalLocal(uint ownerRef,int3 owner,uint flags,uint nodeIndex,
+    bool plus,float normalError,float offsetError,out M8FlowerPhaseRootEvidence root)
+{
+    M8FlowerPhaseRootEvidence rawBase;
+    return M8FlowerReadOriginalLocal(ownerRef,owner,flags,nodeIndex,plus,
+        normalError,offsetError,root,rawBase);
+}
+
 #if defined(MERKABA_WORLD_INCLUDED)
 // Both exact endpoints synthesize their OWN plane/epoch/key before SEAL.
 // The immutable 27-tile lease supplies the neighbour, never a spatial search.
 uint M8FlowerReadOriginalShared(uint ownerSlot,uint ownerRef,int3 owner,uint flags,
     uint nodeIndex,bool plus,float normalError,float offsetError,
-    out M8FlowerPhaseRootEvidence root,out bool provisional)
+    out M8FlowerPhaseRootEvidence root,out bool provisional,
+    out M8FlowerPhaseRootEvidence rawLocalBase)
 {
     provisional=false;
     M8FlowerPhaseRootEvidence localRoot=(M8FlowerPhaseRootEvidence)0;
     root=localRoot;
+    rawLocalBase=localRoot;
     uint status=0u,endpointRef=ownerRef,endpointFlags=flags;
     int3 endpointOwner=owner;
     // Keep local -> peer evaluation order, but one syntactic exact-root call
@@ -323,8 +339,10 @@ uint M8FlowerReadOriginalShared(uint ownerSlot,uint ownerRef,int3 owner,uint fla
             endpointRef=M8FlowerFindOwner(peerSlot,peerLocal,M8FlowerEndpointGeneration(peerSlot));
             endpointFlags=peerState.flags;
         }
+        M8FlowerPhaseRootEvidence endpointBase;
         status=M8FlowerReadOriginalLocal(endpointRef,endpointOwner,endpointFlags,
-            nodeIndex^endpoint,plus,normalError,offsetError,root);
+            nodeIndex^endpoint,plus,normalError,offsetError,root,endpointBase);
+        if(endpoint==0u)rawLocalBase=endpointBase;
         if(status!=1u)
         {
             if(endpoint!=0u)root=localRoot;
@@ -338,6 +356,15 @@ uint M8FlowerReadOriginalShared(uint ownerSlot,uint ownerRef,int3 owner,uint fla
     status=M8FlowerSealPhaseRelation(first,second,root,bend);
     root.Classification=status;
     return status;
+}
+
+uint M8FlowerReadOriginalShared(uint ownerSlot,uint ownerRef,int3 owner,uint flags,
+    uint nodeIndex,bool plus,float normalError,float offsetError,
+    out M8FlowerPhaseRootEvidence root,out bool provisional)
+{
+    M8FlowerPhaseRootEvidence rawLocalBase;
+    return M8FlowerReadOriginalShared(ownerSlot,ownerRef,owner,flags,nodeIndex,plus,
+        normalError,offsetError,root,provisional,rawLocalBase);
 }
 
 uint M8FlowerReadOriginalShared(uint ownerSlot,uint ownerRef,int3 owner,uint flags,
@@ -391,12 +418,12 @@ uint M8FlowerReadR3Alternative(uint ownerSlot,uint ownerRef,int3 owner,uint flag
     uint lineClass=(uint)M8FlowerTetraLine[parity][axis];
     uint node=2u*lineClass+(M8FlowerTetraEta[parity][axis]<0?1u:0u);
     M8FlowerPhaseRootEvidence prediction;
-    uint status=M8FlowerCarrierRootProof(owner,flags,0u,M8FlowerNode[node].xyz,lineClass,
-        plus,errors.x,errors.y,prediction);
-    if(status!=1u)return status;
     bool provisional;
-    status=M8FlowerReadOriginalShared(ownerSlot,ownerRef,owner,flags,node,plus,
-        errors.x,errors.y,observed,provisional);
+    uint status=M8FlowerReadOriginalShared(ownerSlot,ownerRef,owner,flags,node,plus,
+        errors.x,errors.y,observed,provisional,prediction);
+    // The former raw-prediction guard returned before producing observed
+    // evidence. Keep that failure output unchanged while sharing its work.
+    if(prediction.Classification!=1u)observed=(M8FlowerPhaseRootEvidence)0;
     if(status!=1u)return status;
     if(provisional)return 2u;
     return M8FlowerR3MetricResidual(prediction,observed,parity,axis,q);
@@ -845,13 +872,15 @@ bool M8FlowerReadL2WedgeRoots(uint ownerSlot,uint ownerRef,int3 owner,uint flags
 // Original source-anchor admission reads the very same synthesized endpoint
 // relation as the terminal reader. The generated mask is applied AFTER SEAL.
 uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags,
-    uint petal,uint anchorIndex,float2 errors,out bool direct)
+    uint petal,uint anchorIndex,float2 errors,uint completion,out bool direct)
 {
     direct=false;
     uint node=M8FlowerPetalNodes[petal][anchorIndex];
+    bool completedSource=completion!=0xffffffffu && (completion&63u)==petal;
     uint admitted=0u,unresolved=0u,provisionalSigns=0u;
     [loop]for(uint sign=0u;sign<2u;sign++)
     {
+        if(completedSource && sign!=((completion>>(6u+anchorIndex))&1u))continue;
         M8FlowerPhaseRootEvidence root;
         bool provisional;
         uint status=M8FlowerReadOriginalShared(slot,ownerRef,owner,flags,node,sign!=0u,
@@ -860,6 +889,8 @@ uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags
         uint2 allowed;
         if(status!=1u || !M8FlowerAnchorRootFlags(node,root.Tag,allowed))
         {unresolved|=1u<<sign;continue;}
+        uint2 references;
+        if(completedSource && M8FlowerAnchorBoundaryReferences(node,root.Tag,references))allowed|=references;
         if((allowed[petal>>5u]&(1u<<(petal&31u)))!=0u)
         {
             admitted|=1u<<sign;
@@ -867,14 +898,44 @@ uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags
         }
     }
     if(unresolved!=0u || countbits(admitted)>1u)return 2u;
-    direct=admitted!=0u && (admitted&provisionalSigns)==0u;
+    if(completedSource && (admitted&provisionalSigns)!=0u)return 2u;
+    direct=!completedSource && admitted!=0u && (admitted&provisionalSigns)==0u;
     return admitted!=0u?1u:0u;
+}
+
+uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags,
+    uint petal,uint anchorIndex,float2 errors,out bool direct)
+{
+    return M8FlowerSourceAnchorAdmission(slot,ownerRef,owner,flags,
+        petal,anchorIndex,errors,0xffffffffu,direct);
+}
+
+uint M8FlowerCompletionFlagContainment(uint petal,uint knot,uint tag,
+    M8FlowerInterval3 position,uint completion)
+{
+    if(completion!=0xffffffffu && (completion&63u)==petal)
+    {
+        M8FlowerGeometryNode original;
+        if(M8FlowerL2GeometryNode(knot,((tag>>7u)&1u)!=0u,original) && original.Level==0u)
+        {
+            [unroll]for(uint anchor=0u;anchor<3u;anchor++)
+            {
+                uint node=M8FlowerPetalNodes[petal][anchor];uint2 references;
+                if(!all(original.Offset==M8FlowerNode[node].xyz))continue;
+                if(((tag>>7u)&1u)!=((completion>>(6u+anchor))&1u))return 0u;
+                if(M8FlowerAnchorBoundaryReferences(node,tag,references) &&
+                    (references[petal>>5u]&(1u<<(petal&31u)))!=0u)return 1u;
+            }
+        }
+    }
+    return M8FlowerSourceFlagContainment(petal,knot,tag,position);
 }
 
 // Actual direct producer input. The caller holds the page/observation source
 // lease and has cached its 27 tile refs. This function creates no fine state,
 // does not complete holes, and does not turn a dual boundary into evidence.
 uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
+    uint completion,
     out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
     out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
 {
@@ -914,6 +975,7 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
                 if(read && M8FlowerRootRelativeBounds(knot,root,support[index]))
                 {
                     known|=bit;uint sector;
+                    proofTags[index]=root.Tag&~M8_FLOWER_BOUNDARY_WITNESS_MASK;
                     if((root.Tag&M8_FLOWER_BOUNDARY_WITNESS_MASK)!=0u &&
                         M8FlowerPhaseRootSector(root,sector))proofTags[index]=root.Tag;
                 }
@@ -939,7 +1001,7 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
         {
             bool directAnchor;
             uint status=M8FlowerSourceAnchorAdmission(slot,ownerRef,owner,state.flags,
-                petal,anchor,errors,directAnchor);
+                petal,anchor,errors,completion,directAnchor);
             directParent=directParent&&directAnchor;
             if(status==0u){parentStatus=0u;break;}
             if(status!=1u)parentStatus=2u;
@@ -957,8 +1019,9 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
             [unroll]for(uint vertex=0u;vertex<3u;vertex++)
             {
                 if((known&(1u<<index[vertex]))==0u)continue;
-                uint status=M8FlowerSourceFlagContainment(petal,
-                    M8FlowerL2CarrierKnot(carrier,sites[vertex]),proofTags[index[vertex]],support[index[vertex]]);
+                uint status=M8FlowerCompletionFlagContainment(petal,
+                    M8FlowerL2CarrierKnot(carrier,sites[vertex]),proofTags[index[vertex]],
+                    support[index[vertex]],completion);
                 if(status==0u){impossible=true;break;}
                 if(status!=1u)resolved=false;
             }
@@ -980,15 +1043,27 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
         used|=1u|(1u<<(1u+wedge))|(1u<<(1u+(wedge+1u)%6u));
     }
     bool reverse=M8FlowerPlaneFreeSide(state.flags)<0;
+    uint completed=0u;
+    [unroll]for(uint wedge=0u;wedge<6u;wedge++)
+        if(completion!=0xffffffffu && (M8FlowerL2Wedge[6u*carrier+wedge].y>>4u)==(completion&63u))
+            completed|=active&(1u<<wedge);
     // This direct stage proves R1 support. Higher-shell metric evaluation
     // alone must not fabricate R3 branch closure or COMPLETED evidence.
     if(!M8FlowerTryCreateCarrierSymbol(local,carrier,1u,reverse,false,active,signs,
-        (roots[0].Tag>>8u)&31u,0u,reverse?active:0u,ownerRef,0xffffffffu,symbol))
+        (roots[0].Tag>>8u)&31u,completed,reverse?active:0u,ownerRef,0xffffffffu,symbol))
     {unresolvedWedges|=active;return 2u;}
     // Provisional R2/R3 is lawful R1 presentation but is never direct
     // boundary evidence. Preserve that distinction without gating occupancy.
     directWedges=active&directParents;
     return 1u;
+}
+
+uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
+    out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
+    out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
+{
+    return M8FlowerClassifyL2Carrier(slot,local,carrier,errors,0xffffffffu,
+        symbol,unresolvedWedges,directWedges,roots,positions);
 }
 
 uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,

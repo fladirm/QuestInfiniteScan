@@ -60,11 +60,13 @@ namespace Genesis.RoomScan
         // footprint certificate. Completion must still prove its own footprint.
         internal static JunctionSelection SelectR3Junction(int parity,
             ReadOnlySpan<FloatInterval> q, ReadOnlySpan<uint> observedTags,
-            uint knownMask, uint ambiguousMask, uint allowedMask, uint vetoMask)
+            uint knownMask, uint ambiguousMask, uint allowedMask, uint vetoMask,
+            bool incidentReferences = false, int requiredPetal = -1)
         {
             var result = new JunctionSelection { Classification = JunctionClassification.Ambiguous,
                 ClassIndex = uint.MaxValue, RootSigns = uint.MaxValue };
             if ((uint)parity >= TetraFrameCount || q.Length != 8 || observedTags.Length != 8 ||
+                (requiredPetal != -1 && (uint)requiredPetal >= PetalClassCount) ||
                 ((knownMask | ambiguousMask | allowedMask | vetoMask) & ~255u) != 0u ||
                 (knownMask & ambiguousMask) != 0u) return result;
 
@@ -86,6 +88,11 @@ namespace Genesis.RoomScan
                     ambiguousMask |= bit;
                     continue;
                 }
+                // Completion may reference the closed incidence of its
+                // already-confirmed donor. This does not alter root ownership
+                // and cannot make a numerical boundary touch admissible.
+                if (incidentReferences && TryGetAnchorBoundaryReferences(node, tag, out ulong references))
+                    flags |= references;
                 rootFlags[alternative] = flags;
             }
 
@@ -126,6 +133,11 @@ namespace Genesis.RoomScan
                 for (int candidate = 0; candidate < JunctionClassCount; candidate++)
                 {
                     JunctionRule rule = JunctionData.Rules[candidate];
+                    // Section13 asks for closure of THIS flag. Unrelated
+                    // junction classes are not competing completions of it.
+                    if (requiredPetal >= 0 && rule.Flag(9) != requiredPetal &&
+                        rule.Flag(10) != requiredPetal && rule.Flag(11) != requiredPetal &&
+                        rule.Flag(12) != requiredPetal) continue;
                     if (rule.Chirality != branchChirality) continue;
                     bool admitted = true;
                     for (int axis = 0; axis < 4; axis++)
