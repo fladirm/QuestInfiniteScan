@@ -475,6 +475,8 @@ void PrepareNewTileDispatchArgs(uint id : SV_DispatchThreadID)
 [numthreads(1, 1, 1)]
 void ResetObservationCounters(uint id : SV_DispatchThreadID)
 {
+    if (_M8Counters[M8_COUNTER_OBSERVATION_TOKEN] != _M8ObservationToken)
+        _M8Counters[M8_COUNTER_REFINEMENT_STAGE] = 0u;
     _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES] = 0u;
     _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS] = 0u;
     _M8Counters[M8_COUNTER_REFINEMENT_BACKPRESSURE] = 0u;

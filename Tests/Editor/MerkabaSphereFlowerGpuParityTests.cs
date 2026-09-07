@@ -603,6 +603,476 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
+        [Test]
+        public void DirectedR1SectorFlags_MatchIndependentPowerOrderAndStrictBoundaries()
+        {
+            List<OracleCase> cases = R1SectorFlagCases(out List<int4> expected);
+            AssertR1SectorFlagCpu(cases, expected);
+        }
+
+        [Test, Timeout(60000)]
+        public void DirectedR1SectorFlags_ActualHlslMatchesIndependentPowerOrder()
+        {
+            List<OracleCase> cases = R1SectorFlagCases(out List<int4> expected);
+            AssertR1SectorFlagCpu(cases, expected);
+            OracleCase[] results = Dispatch(cases);
+            for (int i = 0; i < cases.Count; i++)
+                Assert.That(results[i].Control, Is.EqualTo(expected[i]),
+                    $"R1 HLSL face/sector={cases[i].Control.yz}, interval={cases[i].A}");
+        }
+
+        private static List<OracleCase> R1SectorFlagCases(out List<int4> expected)
+        {
+            var cases = new List<OracleCase>();
+            expected = new List<int4>();
+            ulong everyFace = 0ul;
+            bool exercisesBoundAboveOne = false;
+            for (int node = 0; node < 6; node++)
+            {
+                var face = MerkabaSphereFlowerAuthority.Nodes[node];
+                var line = MerkabaSphereFlowerAuthority.Lines[face.LineClass];
+                ulong covered = 0ul;
+                for (int sector = 0; sector < line.SectorCount; sector++)
+                {
+                    int petal = -1;
+                    // Weighted sums of adjacent endpoints lie strictly inside
+                    // their (< pi) sector. This samples the frozen chart; it
+                    // does not regenerate its cuts or assume their flag IDs.
+                    for (int numerator = 1; numerator <= 3; numerator++)
+                    {
+                        float2 phase = R1SectorInterior(face.LineClass, sector, numerator);
+                        int independent = IndependentR1PowerFlag(node, phase,
+                            ref exercisesBoundAboveOne);
+                        if (petal >= 0) Assert.That(independent, Is.EqualTo(petal));
+                        petal = independent;
+                        cases.Add(new OracleCase(26, node)
+                        {
+                            Control = new int4(26, node, sector, 0),
+                            A = new float4(phase.x, phase.x, phase.y, phase.y)
+                        });
+                        expected.Add(new int4(petal, sector, petal, 1));
+                    }
+                    covered |= 1ul << petal;
+                    var boundary = MerkabaSphereFlowerAuthority.SectorBoundaries[
+                        line.SectorOffset + sector].Enclosure;
+                    cases.Add(new OracleCase(26, node)
+                    {
+                        Control = new int4(26, node, sector, 0),
+                        A = new float4(boundary.X.Lower, boundary.X.Upper,
+                            boundary.Y.Lower, boundary.Y.Upper)
+                    });
+                    expected.Add(new int4(petal, -1, -1, 0));
+                    float2 before = R1SectorInterior(face.LineClass,
+                        (sector + line.SectorCount - 1) % line.SectorCount, 2);
+                    float2 after = R1SectorInterior(face.LineClass, sector, 2);
+                    cases.Add(new OracleCase(26, node)
+                    {
+                        Control = new int4(26, node, sector, 0),
+                        A = new float4(Math.Min(boundary.X.Lower, Math.Min(before.x, after.x)),
+                            Math.Max(boundary.X.Upper, Math.Max(before.x, after.x)),
+                            Math.Min(boundary.Y.Lower, Math.Min(before.y, after.y)),
+                            Math.Max(boundary.Y.Upper, Math.Max(before.y, after.y)))
+                    });
+                    expected.Add(new int4(petal, -1, -1, 0));
+                }
+                ulong incident = 0ul;
+                for (int petal = 0; petal < MerkabaSphereFlowerAuthority.Petals.Length; petal++)
+                    if (MerkabaSphereFlowerAuthority.Petals[petal].FaceNode == node)
+                        incident |= 1ul << petal;
+                Assert.That(math.countbits((uint)covered) + math.countbits((uint)(covered >> 32)),
+                    Is.EqualTo(8), $"directed face {face.Direction}");
+                Assert.That(covered, Is.EqualTo(incident));
+                everyFace |= covered;
+                foreach (int invalidSector in new[] { -1, (int)line.SectorCount })
+                {
+                    cases.Add(new OracleCase(26, node)
+                        { Control = new int4(26, node, invalidSector, 0) });
+                    expected.Add(new int4(-1, -1, -1, 0));
+                }
+            }
+            Assert.That(everyFace, Is.EqualTo((1ul << 48) - 1ul));
+            Assert.That(exercisesBoundAboveOne, Is.True,
+                "The accepted xi clip is 2, not the superseded bound 1.");
+            foreach (int invalidNode in new[] { -1, 6, 25, 26 })
+            {
+                cases.Add(new OracleCase(26, invalidNode));
+                expected.Add(new int4(-1, -1, -1, 0));
+            }
+            return cases;
+        }
+
+        private static float2 R1SectorInterior(int lineClass, int sector, int numerator)
+        {
+            var line = MerkabaSphereFlowerAuthority.Lines[lineClass];
+            float2 start = MerkabaSphereFlowerAuthority.SectorBoundaries[
+                line.SectorOffset + sector].Unit;
+            float2 end = MerkabaSphereFlowerAuthority.SectorBoundaries[
+                line.SectorOffset + (sector + 1) % line.SectorCount].Unit;
+            double x = (4 - numerator) * (double)start.x + numerator * (double)end.x;
+            double y = (4 - numerator) * (double)start.y + numerator * (double)end.y;
+            double length = Math.Sqrt(x * x + y * y);
+            Assert.That(length, Is.GreaterThan(0d));
+            return new float2((float)(x / length), (float)(y / length));
+        }
+
+        private static int IndependentR1PowerFlag(int faceNode, float2 phase,
+            ref bool exercisesBoundAboveOne)
+        {
+            var face = MerkabaSphereFlowerAuthority.Nodes[faceNode];
+            var line = MerkabaSphereFlowerAuthority.Lines[face.LineClass];
+            double3 point = 0.5d * new double3(face.Direction.x, face.Direction.y, face.Direction.z) +
+                (Math.Sqrt(3d) / 2d) *
+                (phase.x * new double3(line.E1.x, line.E1.y, line.E1.z) +
+                 phase.y * new double3(line.E2.x, line.E2.y, line.E2.z));
+            // For equal shell radii, maximal q.X is exactly minimal sphere
+            // power. Enumerate the four legal edges directly in coordinates,
+            // independently of SectorPetalMasks and the production sign code.
+            int faceAxis = face.Direction.x != 0 ? 0 : face.Direction.y != 0 ? 1 : 2;
+            int edgeAxis = -1;
+            int3 edge = default;
+            double best = double.NegativeInfinity;
+            for (int axis = 0; axis < 3; axis++)
+            {
+                if (axis == faceAxis) continue;
+                for (int sign = -1; sign <= 1; sign += 2)
+                {
+                    int3 candidate = face.Direction;
+                    candidate[axis] += sign;
+                    double powerOrder = candidate.x * point.x + candidate.y * point.y +
+                        candidate.z * point.z;
+                    Assert.That(powerOrder, Is.Not.EqualTo(best), "Interior edge order cannot tie.");
+                    if (powerOrder <= best) continue;
+                    best = powerOrder;
+                    edge = candidate;
+                    edgeAxis = axis;
+                }
+            }
+            int cornerAxis = 3 - faceAxis - edgeAxis;
+            Assert.That(point[cornerAxis], Is.Not.EqualTo(0d), "Interior corner order cannot tie.");
+            int3 corner = edge;
+            corner[cornerAxis] = point[cornerAxis] > 0d ? 1 : -1;
+            double edgeXi = 2d * edge[edgeAxis] * point[edgeAxis];
+            double cornerXi = 2d * corner[cornerAxis] * point[cornerAxis];
+            Assert.That(cornerXi, Is.GreaterThan(0d));
+            Assert.That(edgeXi, Is.GreaterThan(cornerXi));
+            Assert.That(edgeXi, Is.LessThanOrEqualTo(2d));
+            exercisesBoundAboveOne |= edgeXi > 1d;
+            for (int p = 0; p < MerkabaSphereFlowerAuthority.Petals.Length; p++)
+            {
+                var flag = MerkabaSphereFlowerAuthority.Petals[p];
+                if (flag.FaceNode == faceNode &&
+                    math.all(MerkabaSphereFlowerAuthority.Nodes[flag.EdgeNode].Direction == edge) &&
+                    math.all(MerkabaSphereFlowerAuthority.Nodes[flag.CornerNode].Direction == corner))
+                    return p;
+            }
+            Assert.Fail("Independent same-shell power maximum has no incident Flower flag.");
+            return -1;
+        }
+
+        private static void AssertR1SectorFlagCpu(List<OracleCase> cases, List<int4> expected)
+        {
+            for (int i = 0; i < cases.Count; i++)
+            {
+                OracleCase input = cases[i];
+                int node = input.Control.y, requestedSector = input.Control.z;
+                bool tableValid = MerkabaSphereFlowerAuthority.TryGetR1SectorFlag(node,
+                    requestedSector, out int tablePetal);
+                int sector = -1, rootPetal = -1;
+                bool certain = false;
+                if ((uint)node < 6u)
+                {
+                    var root = new MerkabaSphereFlowerAuthority.Interval2(
+                        new MerkabaSphereFlowerAuthority.FloatInterval(input.A.x, input.A.y),
+                        new MerkabaSphereFlowerAuthority.FloatInterval(input.A.z, input.A.w));
+                    certain = MerkabaSphereFlowerAuthority.ClassifySector(
+                        MerkabaSphereFlowerAuthority.Nodes[node].LineClass, root, out sector) ==
+                        MerkabaSphereFlowerAuthority.ProofClassification.Certain;
+                }
+                bool admitted = certain && MerkabaSphereFlowerAuthority.TryGetR1SectorFlag(
+                    node, sector, out rootPetal);
+                Assert.That(new int4(tableValid ? tablePetal : -1, certain ? sector : -1,
+                    admitted ? rootPetal : -1, admitted ? 1 : 0), Is.EqualTo(expected[i]),
+                    $"R1 CPU face/sector={node}/{requestedSector}, interval={input.A}");
+                if (!tableValid) continue;
+                var face = MerkabaSphereFlowerAuthority.Nodes[node];
+                var line = MerkabaSphereFlowerAuthority.Lines[face.LineClass];
+                ulong mask = MerkabaSphereFlowerAuthority.R1SectorPetalMasks[
+                    2 * (line.SectorOffset + requestedSector) + (face.Orientation < 0 ? 1 : 0)];
+                Assert.That(mask, Is.EqualTo(1ul << expected[i].x));
+            }
+        }
+
+        [Test, Timeout(60000)]
+        public void R1RootAndRelationSelectors_ExactIdentityParityAndBoundedAnalyticContainment()
+        {
+            var cases = new List<OracleCase>(640);
+            float3[] normals =
+            {
+                math.normalize(new float3(2f, 3f, 5f)),
+                math.normalize(new float3(7f, -4f, 2f)),
+                // Near tangent on X: both distinct roots can lie in one flag.
+                math.normalize(new float3(17f, 9f, 4f))
+            };
+            for (int plane = 0; plane < normals.Length; plane++)
+            for (int petal = 0; petal < 48; petal++)
+            {
+                int3 owner = (petal & 1) == 0 ? new int3(-257, -33, -9) : new int3(256, 32, 8);
+                int3 direction = MerkabaSphereFlowerAuthority.Nodes[
+                    MerkabaSphereFlowerAuthority.Petals[petal].FaceNode].Direction;
+                uint flags = KernelState.SetSurfacePlane(MerkabaConstants.OccupiedFlag,
+                    normals[plane], 0f);
+                KernelState.DecodeSurfacePlane(flags, out float3 decodedNormal, out float decodedOffset);
+                uint neighbour = KernelState.SetSurfacePlane(MerkabaConstants.OccupiedFlag,
+                    decodedNormal, decodedOffset - MerkabaSphereFlowerAuthority.LevelStep(0) *
+                        math.dot(decodedNormal, (float3)direction));
+                cases.Add(R1SelectorCase(false, owner, flags, neighbour, petal));
+                cases.Add(R1SelectorCase(true, owner, flags, neighbour, petal));
+                cases.Add(R1SelectorCase(true, owner, flags, 0u, petal));
+                cases.Add(R1SelectorCase(true, owner, flags,
+                    (neighbour & ~MerkabaConstants.OccupiedFlag) | MerkabaConstants.R1SeedFlag, petal));
+            }
+            for (int face = 0; face < 6; face++)
+            {
+                int petal = -1;
+                for (int p = 0; p < 48 && petal < 0; p++)
+                    if (MerkabaSphereFlowerAuthority.Petals[p].FaceNode == face) petal = p;
+                uint flags = KernelState.SetSurfacePlane(MerkabaConstants.OccupiedFlag, normals[0], 0f);
+                cases.Add(R1SelectorCase(false, new int3(-8, -32, -256), 0u, 0u, petal));
+                cases.Add(R1SelectorCase(false, new int3(-8, -32, -256),
+                    (flags & ~MerkabaConstants.OccupiedFlag) | MerkabaConstants.R1SeedFlag, 0u, petal));
+                cases.Add(R1SelectorCase(false, new int3(-8, -32, -256), flags, 0u,
+                    petal, 2f, 0.05f));
+            }
+
+            OracleCase[] results = Dispatch(cases);
+            uint seenStatuses = 0u;
+            bool multipleCertainAlternatives = false;
+            for (int i = 0; i < cases.Count; i++)
+            {
+                OracleCase input = cases[i];
+                int3 owner = math.asint(input.A.xyz);
+                uint flags = unchecked((uint)input.Control.w), neighbour = math.asuint(input.A.w);
+                int petal = input.Control.z;
+                var expected = R1SelectorByExplicitSigns(input);
+                var cpu = input.Control.y == 0
+                    ? MerkabaSphereFlowerAuthority.SelectR1FlagRoots(owner, flags, petal, input.B.x, input.B.y)
+                    : MerkabaSphereFlowerAuthority.SelectR1FlagRelation(owner, flags, neighbour,
+                        petal, input.B.x, input.B.y);
+                var status = cpu.Classify(out var unique);
+                Assert.That(cpu.CandidateMask, Is.EqualTo(expected.CandidateMask), $"candidate case {i}");
+                Assert.That(cpu.UnresolvedMask, Is.EqualTo(expected.UnresolvedMask), $"unresolved case {i}");
+                Assert.That(status, Is.EqualTo(expected.Classify(out _)), $"status case {i}");
+                uint tags = cpu.Minus.Symbol.Tag | (cpu.Plus.Symbol.Tag << 16);
+                Assert.That(results[i].Control, Is.EqualTo(new int4((int)cpu.CandidateMask,
+                    (int)cpu.UnresolvedMask, (int)status, unchecked((int)tags))),
+                    $"selector case {i}, mode/petal={input.Control.yz}, owner={owner}, " +
+                    $"flags={flags:x8}, neighbour={neighbour:x8}");
+                Assert.That(math.asint(results[i].C.xyz), Is.EqualTo(unique.Symbol.Junction));
+                Assert.That(math.asuint(results[i].C.w), Is.EqualTo(unique.Symbol.Tag));
+                seenStatuses |= 1u << (int)status;
+                multipleCertainAlternatives |= cpu.CandidateMask == 3u;
+                for (int sign = 0; sign < 2; sign++)
+                {
+                    if ((cpu.CandidateMask & (1u << sign)) == 0u) continue;
+                    var cpuRoot = sign == 0 ? cpu.Minus : cpu.Plus;
+                    var expectedRoot = sign == 0 ? expected.Minus : expected.Plus;
+                    float4 cpuBounds = RootBounds(cpuRoot.Root);
+                    AssertBits(cpuBounds, RootBounds(expectedRoot.Root), $"explicit sign case {i}/{sign}");
+                    float4 gpuBounds = sign == 0 ? results[i].A : results[i].B;
+                    Assert.That(math.all(math.isfinite(gpuBounds)), Is.True);
+                    Assert.That(gpuBounds.x, Is.LessThanOrEqualTo(gpuBounds.y));
+                    Assert.That(gpuBounds.z, Is.LessThanOrEqualTo(gpuBounds.w));
+                    Assert.That(Math.Max(gpuBounds.x, cpuBounds.x),
+                        Is.LessThanOrEqualTo(Math.Min(gpuBounds.y, cpuBounds.y)));
+                    Assert.That(Math.Max(gpuBounds.z, cpuBounds.z),
+                        Is.LessThanOrEqualTo(Math.Min(gpuBounds.w, cpuBounds.w)));
+                    if (math.any(math.asuint(gpuBounds) != math.asuint(cpuBounds)))
+                        LogR1RootIntermediateParity(input);
+                    AssertBits(gpuBounds, cpuBounds,
+                        $"root endpoint case={i}, mode={input.Control.y}, petal={petal}, sign={sign}, " +
+                        $"owner={owner}, flags={flags:x8}, neighbour={neighbour:x8}, errors={input.B.xy}; " +
+                        $"CPU={BoundsHex(cpuBounds)}, HLSL={BoundsHex(gpuBounds)}");
+                    double2 analytic = AnalyticR1SelectorRoot(input, sign != 0);
+                    foreach (float4 bounds in new[] { cpuBounds, gpuBounds })
+                    {
+                        Assert.That(analytic.x, Is.InRange((double)bounds.x, (double)bounds.y),
+                            $"analytic x containment case {i}/{sign}");
+                        Assert.That(analytic.y, Is.InRange((double)bounds.z, (double)bounds.w),
+                            $"analytic y containment case {i}/{sign}");
+                    }
+                }
+            }
+            Assert.That(seenStatuses, Is.EqualTo(7u), "Fixtures must exercise absent, certain and ambiguous results.");
+            Assert.That(multipleCertainAlternatives, Is.True,
+                "The near-tangent plane must retain both analytic alternatives, never choose one.");
+        }
+
+        private static OracleCase R1SelectorCase(bool relation, int3 owner, uint flags,
+            uint neighbourFlags, int petal, float normalError = 0f, float offsetError = 0f) => new(27)
+        {
+            Control = new int4(27, relation ? 1 : 0, petal, unchecked((int)flags)),
+            A = new float4(math.asfloat(owner), math.asfloat(neighbourFlags)),
+            B = new float4(normalError, offsetError, 0f, 0f)
+        };
+
+        private static void LogR1RootIntermediateParity(OracleCase input)
+        {
+            var face = MerkabaSphereFlowerAuthority.Nodes[
+                MerkabaSphereFlowerAuthority.Petals[input.Control.z].FaceNode];
+            LogPlane(unchecked((uint)input.Control.w), face.Direction, "owner");
+            if (input.Control.y != 0)
+                LogPlane(math.asuint(input.A.w), -face.Direction, "neighbour");
+
+            void LogPlane(uint flags, int3 direction, string endpoint)
+            {
+                MerkabaSphereFlowerAuthority.M8FlowerUnpackPlane(flags, out float3 normal, out float offset);
+                var loop = MerkabaSphereFlowerAuthority.EvaluateLoop(0,
+                    new MerkabaSphereFlowerAuthority.Long3(direction.x, direction.y, direction.z), face.LineClass);
+                var abc = MerkabaSphereFlowerAuthority.RestrictPlaneToLoop(float3.zero,
+                    normal, offset, input.B.x, input.B.y, loop);
+                var q = MerkabaSphereFlowerAuthority.FloatInterval.Add(
+                    MerkabaSphereFlowerAuthority.FloatInterval.Square(abc.Y),
+                    MerkabaSphereFlowerAuthority.FloatInterval.Square(abc.Z));
+                var delta = MerkabaSphereFlowerAuthority.FloatInterval.Subtract(q,
+                    MerkabaSphereFlowerAuthority.FloatInterval.Square(abc.X));
+                bool sqrtValid = MerkabaSphereFlowerAuthority.FloatInterval.TrySqrt(delta, out var turn);
+                var expected = new OracleCase[3];
+                expected[0].Control = math.asint(new float4(loop.E2, 0f));
+                expected[0].A = new float4(normal, offset);
+                expected[0].B = new float4(loop.Center, loop.Radius);
+                expected[0].C = new float4(loop.E1, 0f);
+                expected[1].Control = new int4(1, sqrtValid ? 1 : 0,
+                    (int)MerkabaSphereFlowerAuthority.ClassifyRoots(abc), 0);
+                expected[1].A = new float4(abc.X.Lower, abc.X.Upper, abc.Y.Lower, abc.Y.Upper);
+                expected[1].B = new float4(abc.Z.Lower, abc.Z.Upper, q.Lower, q.Upper);
+                expected[1].C = new float4(delta.Lower, delta.Upper, turn.Lower, turn.Upper);
+                expected[2] = expected[1];
+                var probes = new List<OracleCase>(3);
+                for (int stage = 0; stage < 3; stage++)
+                    probes.Add(new OracleCase(28, stage)
+                    {
+                        Control = new int4(28, stage, face.LineClass, unchecked((int)flags)),
+                        A = new float4(math.asfloat(direction), input.B.x),
+                        B = new float4(normal, offset),
+                        C = new float4(input.B.y, 0f, 0f, 0f)
+                    });
+                OracleCase[] actual = Dispatch(probes);
+                string[] labels = { "decode: A=normal/offset B=relative/radius C=E1 Control=E2",
+                    "production: A=ABCxy B=ABCz/Q C=delta/sqrt",
+                    "CPU-decoded plane injected: A=ABCxy B=ABCz/Q C=delta/sqrt" };
+                for (int stage = 0; stage < 3; stage++)
+                {
+                    bool same = math.all(actual[stage].Control == expected[stage].Control) &&
+                        math.all(math.asuint(actual[stage].A) == math.asuint(expected[stage].A)) &&
+                        math.all(math.asuint(actual[stage].B) == math.asuint(expected[stage].B)) &&
+                        math.all(math.asuint(actual[stage].C) == math.asuint(expected[stage].C));
+                    TestContext.WriteLine($"R1 intermediate {endpoint} flags={flags:x8} stage={stage} " +
+                        $"bitsEqual={same} {labels[stage]}; " +
+                        $"CPU control={expected[stage].Control} A={BoundsHex(expected[stage].A)} " +
+                        $"B={BoundsHex(expected[stage].B)} C={BoundsHex(expected[stage].C)}; " +
+                        $"HLSL control={actual[stage].Control} A={BoundsHex(actual[stage].A)} " +
+                        $"B={BoundsHex(actual[stage].B)} C={BoundsHex(actual[stage].C)}");
+                }
+            }
+        }
+
+        private static MerkabaSphereFlowerAuthority.R1FlagRoots R1SelectorByExplicitSigns(OracleCase input)
+        {
+            int3 owner = math.asint(input.A.xyz);
+            uint flags = unchecked((uint)input.Control.w);
+            const uint required = MerkabaConstants.OccupiedFlag | MerkabaConstants.SurfacePlaneValidFlag;
+            if ((flags & (required | MerkabaConstants.R1SeedFlag)) != required) return default;
+            int petal = input.Control.z;
+            int faceNode = MerkabaSphereFlowerAuthority.Petals[petal].FaceNode;
+            var face = MerkabaSphereFlowerAuthority.Nodes[faceNode];
+            uint candidates = 0u, unresolved = 0u;
+            MerkabaSphereFlowerAuthority.PhaseRootEvidence minus = default, plus = default;
+            for (int sign = 0; sign < 2; sign++)
+            {
+                var proof = MerkabaSphereFlowerAuthority.CarrierRootProof(owner, flags, 0,
+                    face.Direction, face.LineClass, sign != 0, input.B.x, input.B.y, out var root);
+                if (proof == MerkabaSphereFlowerAuthority.ProofClassification.Impossible) continue;
+                if (proof != MerkabaSphereFlowerAuthority.ProofClassification.Certain)
+                { unresolved |= 1u << sign; continue; }
+                Assert.That(MerkabaFlowerSymbolTag.TryDecode(root.Symbol.Tag, out var tag), Is.True);
+                Assert.That(MerkabaSphereFlowerAuthority.TryGetR1SectorFlag(faceNode, tag.Sector,
+                    out int selected), Is.True);
+                if (selected != petal) continue;
+                if (input.Control.y != 0)
+                {
+                    FixedR1EndpointPlanes(input, root.Symbol.Junction, face.LineClass,
+                        out uint first, out uint second);
+                    proof = MerkabaSphereFlowerAuthority.EvaluateCarrierRelation(root.Symbol.Junction,
+                        face.LineClass, sign != 0, first, second, input.B.x, input.B.y, out root, out _);
+                    if (proof == MerkabaSphereFlowerAuthority.ProofClassification.Impossible) continue;
+                    if (proof != MerkabaSphereFlowerAuthority.ProofClassification.Certain)
+                    { unresolved |= 1u << sign; continue; }
+                    Assert.That(MerkabaFlowerSymbolTag.TryDecode(root.Symbol.Tag, out tag), Is.True);
+                    Assert.That(MerkabaSphereFlowerAuthority.TryGetR1SectorFlag(faceNode, tag.Sector,
+                        out selected), Is.True);
+                    if (selected != petal) { unresolved |= 1u << sign; continue; }
+                }
+                candidates |= 1u << sign;
+                if (sign == 0) minus = root; else plus = root;
+            }
+            return new MerkabaSphereFlowerAuthority.R1FlagRoots(candidates, unresolved, minus, plus);
+        }
+
+        private static void FixedR1EndpointPlanes(OracleCase input, int3 junction, int lineClass,
+            out uint first, out uint second)
+        {
+            int3 owner = math.asint(input.A.xyz);
+            Assert.That(MerkabaSphereFlowerAuthority.TryResolveEndpointPair(
+                new MerkabaSphereFlowerAuthority.Long3(junction.x, junction.y, junction.z), lineClass,
+                out var firstOwner, out var secondOwner), Is.True);
+            bool ownerFirst = firstOwner.X == owner.x && firstOwner.Y == owner.y && firstOwner.Z == owner.z;
+            var actualOwner = ownerFirst ? firstOwner : secondOwner;
+            Assert.That(new int3((int)actualOwner.X, (int)actualOwner.Y, (int)actualOwner.Z), Is.EqualTo(owner));
+            uint ownerFlags = unchecked((uint)input.Control.w), neighbourFlags = math.asuint(input.A.w);
+            first = ownerFirst ? ownerFlags : neighbourFlags;
+            second = ownerFirst ? neighbourFlags : ownerFlags;
+        }
+
+        private static double2 AnalyticR1SelectorRoot(OracleCase input, bool plus)
+        {
+            int petal = input.Control.z;
+            var face = MerkabaSphereFlowerAuthority.Nodes[MerkabaSphereFlowerAuthority.Petals[petal].FaceNode];
+            uint flags = unchecked((uint)input.Control.w);
+            if (input.Control.y == 0) return AnalyticR1Root(flags, face.Direction, face.LineClass, plus);
+            int3 owner = math.asint(input.A.xyz), junction = 2 * owner + face.Direction;
+            FixedR1EndpointPlanes(input, junction, face.LineClass, out uint first, out uint second);
+            int3 r = MerkabaSphereFlowerAuthority.Lines[face.LineClass].Direction;
+            double2 sum = AnalyticR1Root(first, r, face.LineClass, plus) +
+                AnalyticR1Root(second, -r, face.LineClass, plus);
+            double norm = Math.Sqrt(sum.x * sum.x + sum.y * sum.y);
+            Assert.That(norm, Is.GreaterThan(0d));
+            return sum / norm;
+        }
+
+        private static double2 AnalyticR1Root(uint flags, int3 offset, int lineClass, bool plus)
+        {
+            KernelState.DecodeSurfacePlane(flags, out float3 normal, out float delta);
+            var loop = MerkabaSphereFlowerAuthority.EvaluateLoop(0,
+                new MerkabaSphereFlowerAuthority.Long3(offset.x, offset.y, offset.z), lineClass);
+            double a = (double)normal.x * loop.Center.x + (double)normal.y * loop.Center.y +
+                (double)normal.z * loop.Center.z - delta;
+            double b = loop.Radius * ((double)normal.x * loop.E1.x + (double)normal.y * loop.E1.y +
+                (double)normal.z * loop.E1.z);
+            double c = loop.Radius * ((double)normal.x * loop.E2.x + (double)normal.y * loop.E2.y +
+                (double)normal.z * loop.E2.z);
+            double q = b * b + c * c, discriminant = q - a * a;
+            Assert.That(q, Is.GreaterThan(0d));
+            Assert.That(discriminant, Is.GreaterThanOrEqualTo(0d));
+            double turn = (plus ? 1d : -1d) * Math.Sqrt(discriminant);
+            return new double2((-a * b - turn * c) / q, (-a * c + turn * b) / q);
+        }
+
+        private static float4 RootBounds(MerkabaSphereFlowerAuthority.Interval2 root) => new(
+            root.X.Lower, root.X.Upper, root.Y.Lower, root.Y.Upper);
+
+        private static string BoundsHex(float4 value) =>
+            $"{math.asuint(value.x):x8}/{math.asuint(value.y):x8}/{math.asuint(value.z):x8}/{math.asuint(value.w):x8}";
+
         private static OracleCase[] Dispatch(List<OracleCase> cases,
             string kernelName = "SphereFlowerOracle")
         {

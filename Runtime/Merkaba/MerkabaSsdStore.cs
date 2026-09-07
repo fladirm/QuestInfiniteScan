@@ -130,6 +130,104 @@ namespace Genesis.RoomScan
             });
         }
 
+        internal Task<MerkabaSphereFlowerAuthority.SnapshotReader> ReadFlowerContextAsync(
+            MerkabaTileAddress tile, MerkabaTileAddress[] capturedIndex,
+            MerkabaStorageAppendPosition position) => Task.Run(() =>
+        {
+            if (capturedIndex == null) throw new ArgumentNullException(nameof(capturedIndex));
+            lock (_ioGate)
+            lock (_gate)
+                return ReadFlowerContext(tile, capturedIndex, position);
+        });
+
+        internal MerkabaTileAddress[] CaptureFlowerSource(out MerkabaStorageAppendPosition position)
+        {
+            lock (_ioGate)
+            lock (_gate)
+            {
+                position = CaptureAppendPosition();
+                RequireFlowerPosition(position);
+                return SnapshotSortedAddresses();
+            }
+        }
+
+        private void RequireFlowerPosition(MerkabaStorageAppendPosition position)
+        {
+            ThrowIfAppendPublicationFailed();
+            if (position.Authority == null || !ReferenceEquals(position.Authority, _appendAuthority) ||
+                position.Generation != _pendingGeneration || position.RecordSequence != _recordSequence)
+                throw new InvalidOperationException("The frozen Flower export source changed during evaluation.");
+        }
+
+        private MerkabaSphereFlowerAuthority.SnapshotReader ReadFlowerContext(
+            MerkabaTileAddress tile, MerkabaTileAddress[] capturedIndex, MerkabaStorageAppendPosition position)
+        {
+            // One bounded context from the existing index; no mesh snapshot or
+            // second coordinate authority. Callers hold the existing I/O gate.
+            RequireFlowerPosition(position);
+            List<MerkabaTileAddress> context = MerkabaGrid.FlowerContextAddresses(tile, capturedIndex);
+            var snapshots = new MerkabaTileSnapshot[context.Count];
+            for (int i = 0; i < snapshots.Length; i++)
+            {
+                snapshots[i] = ReadOne(context[i]);
+                snapshots[i].Sidecars = _subordinate.CaptureTile(context[i]);
+            }
+            return new MerkabaSphereFlowerAuthority.SnapshotReader(snapshots, capturedIndex,
+                cell => ReadFlowerCell(position, cell));
+        }
+
+        private MerkabaSphereFlowerAuthority.ExcavationCellState ReadFlowerCell(
+            MerkabaStorageAppendPosition position, int3 cell)
+        {
+            lock (_gate)
+            {
+                RequireFlowerPosition(position);
+                Span<MerkabaDualReadResult> supports = stackalloc MerkabaDualReadResult[8];
+                for (int bit = 0; bit < 8; bit++)
+                {
+                    long x = (long)cell.x + (bit & 1), y = (long)cell.y + ((bit >> 1) & 1),
+                        z = (long)cell.z + ((bit >> 2) & 1);
+                    if (x > int.MaxValue || y > int.MaxValue || z > int.MaxValue)
+                        return MerkabaSphereFlowerAuthority.ExcavationCellState.Ambiguous;
+                    MerkabaSpatial.Address address = MerkabaSpatial.Encode(new int3((int)x, (int)y, (int)z));
+                    supports[bit] = _subordinate.ReadDual(new MerkabaTileAddress(address.BlockCoord,
+                        address.LocalAddress), address.KernelLocal);
+                }
+                return MerkabaSphereFlowerAuthority.ClassifyFreeCell(supports);
+            }
+        }
+
+        internal Task<long> StreamFlowerDirtAsync(float2 planeBounds,
+            MerkabaTileAddress[] index, MerkabaStorageAppendPosition position,
+            Action<IReadOnlyList<MerkabaDirtTriangle>> consume) => Task.Run(() =>
+        {
+            if (consume == null) throw new ArgumentNullException(nameof(consume));
+            lock (_ioGate)
+            lock (_gate)
+            {
+                if (index == null) throw new ArgumentNullException(nameof(index));
+                RequireFlowerPosition(position);
+                MerkabaTileAddress previous = default;
+                MerkabaFlowerPresentation page = null;
+                MerkabaDirtFaceCoverage Coverage(int3 cell, int face)
+                {
+                    MerkabaSpatial.Address address = MerkabaSpatial.Encode(cell);
+                    var tile = new MerkabaTileAddress(address.BlockCoord, address.LocalAddress);
+                    if (page == null || !tile.Equals(previous))
+                    {
+                        previous = tile;
+                        var reader = ReadFlowerContext(tile, index, position);
+                        page = MerkabaFlowerPresentation.Build(reader, tile, planeBounds);
+                    }
+                    // This is the actual generated direct footprint of the
+                    // same FREE-side page used by live compaction. Unknown
+                    // direct evidence is not itself coverage or a DIRT veto.
+                    return page.DirtCoverage(cell, face);
+                }
+                return MerkabaDirtExtraction.Stream(_subordinate, Coverage, consume);
+            }
+        });
+
         internal bool HasCommittedSession => File.Exists(ManifestPath);
         internal MerkabaSphereFlowerReplayIndex Subordinate => _subordinate;
 

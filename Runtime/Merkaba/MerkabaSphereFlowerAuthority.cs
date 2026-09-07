@@ -133,7 +133,8 @@ namespace Genesis.RoomScan
 
             public bool IsSingleton => Lower == Upper;
             public bool ContainsZero => Lower <= 0f && Upper >= 0f;
-            public float Midpoint => Lower + (Upper - Lower) * 0.5f;
+            public float Midpoint => OrderedAdd(Lower,
+                OrderedMultiply(OrderedSubtract(Upper, Lower), 0.5f));
 
             public static FloatInterval Singleton(float value) =>
                 new(value, value);
@@ -163,27 +164,43 @@ namespace Genesis.RoomScan
                 return new FloatInterval(lower.Lower, upper.Upper);
             }
 
+            // These are the production binary32 operations emitted as
+            // M8FlowerI*. Enclose remains the independent exact-to-float
+            // conversion used when generating algebraic constants.
+            private bool IsExactZero =>
+                ((math.asuint(Lower) | math.asuint(Upper)) & 0x7fffffffu) == 0u;
+
             public static FloatInterval Add(FloatInterval left,
-                FloatInterval right) => new(
-                Enclose((double)left.Lower + right.Lower).Lower,
-                Enclose((double)left.Upper + right.Upper).Upper);
+                FloatInterval right)
+            {
+                if (left.IsExactZero) return right;
+                if (right.IsExactZero) return left;
+                return new FloatInterval(PreviousFloat(OrderedAdd(left.Lower, right.Lower)),
+                    NextFloat(OrderedAdd(left.Upper, right.Upper)));
+            }
 
             public static FloatInterval Subtract(FloatInterval left,
-                FloatInterval right) => new(
-                Enclose((double)left.Lower - right.Upper).Lower,
-                Enclose((double)left.Upper - right.Lower).Upper);
+                FloatInterval right)
+            {
+                if (right.IsExactZero) return left;
+                if (left.IsExactZero) return new FloatInterval(-right.Upper, -right.Lower);
+                return new FloatInterval(PreviousFloat(OrderedSubtract(left.Lower, right.Upper)),
+                    NextFloat(OrderedSubtract(left.Upper, right.Lower)));
+            }
 
             public static FloatInterval Multiply(FloatInterval left,
                 FloatInterval right)
             {
-                double p0 = (double)left.Lower * right.Lower;
-                double p1 = (double)left.Lower * right.Upper;
-                double p2 = (double)left.Upper * right.Lower;
-                double p3 = (double)left.Upper * right.Upper;
-                double minimum = Math.Min(Math.Min(p0, p1), Math.Min(p2, p3));
-                double maximum = Math.Max(Math.Max(p0, p1), Math.Max(p2, p3));
-                return new FloatInterval(Enclose(minimum).Lower,
-                    Enclose(maximum).Upper);
+                if ((left.IsExactZero && float.IsFinite(right.Lower) && float.IsFinite(right.Upper)) ||
+                    (right.IsExactZero && float.IsFinite(left.Lower) && float.IsFinite(left.Upper)))
+                    return Singleton(0f);
+                float p0 = OrderedMultiply(left.Lower, right.Lower);
+                float p1 = OrderedMultiply(left.Lower, right.Upper);
+                float p2 = OrderedMultiply(left.Upper, right.Lower);
+                float p3 = OrderedMultiply(left.Upper, right.Upper);
+                float minimum = Math.Min(Math.Min(p0, p1), Math.Min(p2, p3));
+                float maximum = Math.Max(Math.Max(p0, p1), Math.Max(p2, p3));
+                return new FloatInterval(PreviousFloat(minimum), NextFloat(maximum));
             }
 
             public static FloatInterval Divide(FloatInterval numerator,
@@ -192,29 +209,66 @@ namespace Genesis.RoomScan
                 if (denominator.ContainsZero)
                     throw new DivideByZeroException(
                         "An interval divisor may not contain zero.");
-                return Multiply(numerator, new FloatInterval(
-                    Enclose(1.0 / denominator.Upper).Lower,
-                    Enclose(1.0 / denominator.Lower).Upper));
+                if (denominator.Upper < 0f)
+                {
+                    numerator = new FloatInterval(-numerator.Upper, -numerator.Lower);
+                    denominator = new FloatInterval(-denominator.Upper, -denominator.Lower);
+                }
+                if (!TryDividePositive(numerator, denominator, out FloatInterval result))
+                    throw new ArgumentOutOfRangeException(nameof(denominator),
+                        "A production interval quotient must have finite certified endpoints.");
+                return result;
+            }
+
+            internal static bool TryDividePositive(FloatInterval numerator,
+                FloatInterval denominator, out FloatInterval result)
+            {
+                result = default;
+                if (!(denominator.Lower > 0f) || !float.IsFinite(denominator.Upper) ||
+                    !float.IsFinite(numerator.Lower) || !float.IsFinite(numerator.Upper)) return false;
+                if (!TryDivideEnclosed(numerator.Lower, numerator.Lower < 0f
+                        ? denominator.Lower : denominator.Upper, out FloatInterval lower) ||
+                    !TryDivideEnclosed(numerator.Upper, numerator.Upper < 0f
+                        ? denominator.Upper : denominator.Lower, out FloatInterval upper)) return false;
+                result = new FloatInterval(lower.Lower, upper.Upper);
+                return true;
             }
 
             public static FloatInterval Square(FloatInterval value)
             {
+                if (value.IsExactZero) return Singleton(0f);
                 if (value.ContainsZero)
                 {
-                    double maximum = Math.Max((double)value.Lower * value.Lower,
-                        (double)value.Upper * value.Upper);
-                    return new FloatInterval(0f, Enclose(maximum).Upper);
+                    float maximum = Math.Max(OrderedMultiply(value.Lower, value.Lower),
+                        OrderedMultiply(value.Upper, value.Upper));
+                    return new FloatInterval(0f, NextFloat(maximum));
                 }
                 return Multiply(value, value);
             }
 
             public static FloatInterval Sqrt(FloatInterval value)
             {
-                if (value.Lower < 0f)
+                if (!TrySqrt(value, out FloatInterval result))
                     throw new ArgumentOutOfRangeException(nameof(value));
-                return new FloatInterval(
-                    Enclose(Math.Sqrt(value.Lower)).Lower,
-                    Enclose(Math.Sqrt(value.Upper)).Upper);
+                return result;
+            }
+
+            internal static bool TrySqrt(FloatInterval value, out FloatInterval result)
+            {
+                result = default;
+                if (!(value.Lower >= 0f) || !float.IsFinite(value.Upper)) return false;
+                float lower = M8FlowerRoundSqrt(value.Lower);
+                float upper = M8FlowerRoundSqrt(value.Upper);
+                float lo = Math.Max(0f, PreviousFloat(lower));
+                float hi = NextFloat(upper);
+                // A product of two binary32 values has at most 48 significant
+                // bits and lies within binary64's exponent range. These exact
+                // products implement the shader's dyadic certificate, not an
+                // epsilon or an assumed accuracy of the sqrt hint.
+                if (!float.IsFinite(hi) || (double)lo * lo > value.Lower ||
+                    (double)hi * hi < value.Upper) return false;
+                result = new FloatInterval(lo, hi);
+                return true;
             }
 
             public static FloatInterval Abs(FloatInterval value)
@@ -790,6 +844,11 @@ namespace Genesis.RoomScan
                 Word(math.asuint(value.Enclosure.Y.Lower));
                 Word(math.asuint(value.Enclosure.Y.Upper));
             }
+            foreach (ulong mask in AnchorSectorPetalMasks)
+            {
+                Word((uint)mask);
+                Word((uint)(mask >> 32));
+            }
             foreach (TetraFrameRule value in TetraFramesValue)
             {
                 for (int i = 0; i < 4; i++)
@@ -833,6 +892,14 @@ namespace Genesis.RoomScan
             foreach (ushort value in L2SourceToWedge) Word(value);
             foreach (ushort value in L2IncidenceOffsets) Word(value);
             foreach (uint value in L2IncidenceSources) Word(value);
+            foreach (ushort value in L2WedgeOwnerOffsets) Word(value);
+            foreach (L2WedgeOwnerRule value in L2WedgeOwners)
+            {
+                Word(unchecked((uint)value.OwnerOffset.x));
+                Word(unchecked((uint)value.OwnerOffset.y));
+                Word(unchecked((uint)value.OwnerOffset.z));
+                Word(value.Packed);
+            }
             for (int level = 0; level < GeometryLevelCount; level++)
                 for (int line = 0; line < LineClassCount; line++)
                     Word(math.asuint(EvaluateLoop(level, default, line).Radius));
@@ -952,34 +1019,46 @@ namespace Genesis.RoomScan
             float normalUncertainty, float offsetUncertainty,
             LoopFrame loop)
         {
-            if (normalUncertainty < 0f || offsetUncertainty < 0f)
+            if (!math.all(math.isfinite(decodedNormal)) ||
+                !math.all(math.isfinite(loop.Center)) || !math.all(math.isfinite(kernelCenter)) ||
+                !float.IsFinite(decodedOffset) || !float.IsFinite(loop.Radius) ||
+                !float.IsFinite(normalUncertainty) || !float.IsFinite(offsetUncertainty) ||
+                !(loop.Radius > 0f) || normalUncertainty < 0f || offsetUncertainty < 0f)
                 throw new ArgumentOutOfRangeException(nameof(normalUncertainty));
-            float3 relative = loop.Center - kernelCenter;
-            float a = (float)((double)OrderedDot(decodedNormal, relative) - decodedOffset);
-            float b = (float)((double)loop.Radius * OrderedDot(decodedNormal, loop.E1));
-            float c = (float)((double)loop.Radius * OrderedDot(decodedNormal, loop.E2));
+            float3 relative = new(OrderedSubtract(loop.Center.x, kernelCenter.x),
+                OrderedSubtract(loop.Center.y, kernelCenter.y),
+                OrderedSubtract(loop.Center.z, kernelCenter.z));
+            float a = OrderedSubtract(OrderedDot(decodedNormal, relative), decodedOffset);
+            float b = OrderedMultiply(loop.Radius, OrderedDot(decodedNormal, loop.E1));
+            float c = OrderedMultiply(loop.Radius, OrderedDot(decodedNormal, loop.E2));
 
-            double sumA = Math.Abs((double)decodedNormal.x * relative.x) +
-                Math.Abs((double)decodedNormal.y * relative.y) +
-                Math.Abs((double)decodedNormal.z * relative.z) +
-                Math.Abs(decodedOffset);
-            double sumB = Math.Abs((double)loop.Radius * decodedNormal.x * loop.E1.x) +
-                Math.Abs((double)loop.Radius * decodedNormal.y * loop.E1.y) +
-                Math.Abs((double)loop.Radius * decodedNormal.z * loop.E1.z);
-            double sumC = Math.Abs((double)loop.Radius * decodedNormal.x * loop.E2.x) +
-                Math.Abs((double)loop.Radius * decodedNormal.y * loop.E2.y) +
-                Math.Abs((double)loop.Radius * decodedNormal.z * loop.E2.z);
+            // Exact operation order of generated M8FlowerPlaneIntervals. The
+            // double, minimally rounded mathematical enclosure is not the
+            // production enclosure: its midpoint would differ from live HLSL.
+            FloatInterval lengthSquared = FloatInterval.Add(FloatInterval.Add(
+                FloatInterval.Square(FloatInterval.Singleton(relative.x)),
+                FloatInterval.Square(FloatInterval.Singleton(relative.y))),
+                FloatInterval.Square(FloatInterval.Singleton(relative.z)));
+            FloatInterval length = FloatInterval.Sqrt(lengthSquared);
+            float sumA = OrderedAdd(AbsoluteProductSumUpper(decodedNormal, relative), Math.Abs(decodedOffset));
+            float sumB = OrderedMultiply(loop.Radius, AbsoluteProductSumUpper(decodedNormal, loop.E1));
+            float sumC = OrderedMultiply(loop.Radius, AbsoluteProductSumUpper(decodedNormal, loop.E2));
+            float gamma6 = FloatInterval.Enclose(Gamma(6)).Upper;
+            float gamma7 = FloatInterval.Enclose(Gamma(7)).Upper;
 
-            double boundA = normalUncertainty * math.length(relative) +
-                offsetUncertainty + Gamma(6) * sumA;
-            double boundB = loop.Radius * normalUncertainty +
-                Gamma(7) * sumB;
-            double boundC = loop.Radius * normalUncertainty +
-                Gamma(7) * sumC;
+            float metricA = OrderedMultiply(normalUncertainty, length.Upper);
+            float offsetA = OrderedAdd(NextFloat(metricA), offsetUncertainty);
+            float roundA = OrderedMultiply(gamma6, NextFloat(sumA));
+            float boundA = OrderedAdd(NextFloat(offsetA), NextFloat(roundA));
+            float radialMetric = OrderedMultiply(loop.Radius, normalUncertainty);
+            float roundB = OrderedMultiply(gamma7, NextFloat(sumB));
+            float roundC = OrderedMultiply(gamma7, NextFloat(sumC));
+            float boundB = OrderedAdd(NextFloat(radialMetric), NextFloat(roundB));
+            float boundC = OrderedAdd(NextFloat(radialMetric), NextFloat(roundC));
 
-            return new Interval3(FloatInterval.FromCenterRadius(a, boundA),
-                FloatInterval.FromCenterRadius(b, boundB),
-                FloatInterval.FromCenterRadius(c, boundC));
+            return new Interval3(OrderedCenterRadius(a, NextFloat(boundA)),
+                OrderedCenterRadius(b, NextFloat(boundB)),
+                OrderedCenterRadius(c, NextFloat(boundC)));
         }
 
         // Each cast is one binary32 rounding boundary matching the generated
@@ -987,11 +1066,68 @@ namespace Genesis.RoomScan
         // contract the sum and therefore is not the section-5 operation order.
         private static float OrderedDot(float3 left, float3 right)
         {
-            float x = (float)((double)left.x * right.x);
-            float y = (float)((double)left.y * right.y);
-            float z = (float)((double)left.z * right.z);
-            float xy = (float)((double)x + y);
-            return (float)((double)xy + z);
+            float x = OrderedMultiply(left.x, right.x);
+            float y = OrderedMultiply(left.y, right.y);
+            float z = OrderedMultiply(left.z, right.z);
+            return OrderedAdd(OrderedAdd(x, y), z);
+        }
+
+        private static float OrderedAdd(float left, float right) =>
+            (float)((double)left + right);
+
+        private static float OrderedSubtract(float left, float right) =>
+            (float)((double)left - right);
+
+        private static float OrderedMultiply(float left, float right) =>
+            (float)((double)left * right);
+
+        private static float AbsoluteProductSumUpper(float3 left, float3 right)
+        {
+            float x = NextFloat(Math.Abs(OrderedMultiply(left.x, right.x)));
+            float y = NextFloat(Math.Abs(OrderedMultiply(left.y, right.y)));
+            float z = NextFloat(Math.Abs(OrderedMultiply(left.z, right.z)));
+            return NextFloat(OrderedAdd(NextFloat(OrderedAdd(x, y)), z));
+        }
+
+        private static FloatInterval OrderedCenterRadius(float center, float radius) =>
+            new(PreviousFloat(OrderedSubtract(center, radius)),
+                NextFloat(OrderedAdd(center, radius)));
+
+        // The shader's DivideEnclosed uses exact dyadic product comparisons.
+        // Binary64 represents every product of two finite binary32 operands
+        // exactly, so the same tight bracket needs no reciprocal multiplication
+        // and no dependency on the host's initial division hint.
+        private static bool TryDivideEnclosed(float numerator, float denominator,
+            out FloatInterval result)
+        {
+            result = default;
+            if (!float.IsFinite(numerator) || !float.IsFinite(denominator) ||
+                !(denominator > 0f)) return false;
+            uint sign = math.asuint(numerator) & 0x80000000u;
+            float positive = math.asfloat(math.asuint(numerator) & 0x7fffffffu);
+            if (positive == 0f) return true;
+            const uint maximum = 0x7f7fffffu;
+            float hint = (float)((double)positive / denominator);
+            uint centre = Math.Min(math.asuint(hint), maximum);
+            uint lo = centre > 0u ? centre - 1u : 0u;
+            uint hi = centre < maximum ? centre + 1u : maximum;
+            if ((double)math.asfloat(lo) * denominator > positive) lo = 0u;
+            if ((double)math.asfloat(hi) * denominator < positive) hi = maximum;
+            if ((double)math.asfloat(hi) * denominator < positive) return false;
+            while (hi - lo > 1u)
+            {
+                uint middle = lo + ((hi - lo) >> 1);
+                double product = (double)math.asfloat(middle) * denominator;
+                if (product == positive) { lo = middle; hi = middle; break; }
+                if (product < positive) lo = middle;
+                else hi = middle;
+            }
+            if ((double)math.asfloat(lo) * denominator == positive) hi = lo;
+            else if ((double)math.asfloat(hi) * denominator == positive) lo = hi;
+            result = sign == 0u
+                ? new FloatInterval(math.asfloat(lo), math.asfloat(hi))
+                : new FloatInterval(math.asfloat(hi | sign), math.asfloat(lo | sign));
+            return true;
         }
 
         public static RootClassification ClassifyRoots(Interval3 abc)
@@ -1004,7 +1140,7 @@ namespace Genesis.RoomScan
 
             FloatInterval q = FloatInterval.Add(FloatInterval.Square(abc.Y),
                 FloatInterval.Square(abc.Z));
-            FloatInterval a2 = FloatInterval.Square(FloatInterval.Abs(abc.X));
+            FloatInterval a2 = FloatInterval.Square(abc.X);
 
             if (q.IsSingleton && q.Lower == 0f)
             {
@@ -1027,6 +1163,10 @@ namespace Genesis.RoomScan
 
         public static RootResult EvaluateRoots(Interval3 abc)
         {
+            if (!float.IsFinite(abc.X.Lower) || !float.IsFinite(abc.X.Upper) ||
+                !float.IsFinite(abc.Y.Lower) || !float.IsFinite(abc.Y.Upper) ||
+                !float.IsFinite(abc.Z.Lower) || !float.IsFinite(abc.Z.Upper))
+                return new RootResult(RootClassification.Ambiguous, default, default);
             RootClassification classification = ClassifyRoots(abc);
             if (classification != RootClassification.CertainSecant &&
                 classification != RootClassification.CertainTangent)
@@ -1034,9 +1174,6 @@ namespace Genesis.RoomScan
 
             FloatInterval q = FloatInterval.Add(FloatInterval.Square(abc.Y),
                 FloatInterval.Square(abc.Z));
-            if (q.ContainsZero)
-                return new RootResult(RootClassification.Ambiguous,
-                    default, default);
             FloatInterval minusA = new(-abc.X.Upper, -abc.X.Lower);
             FloatInterval baseX = FloatInterval.Multiply(minusA, abc.Y);
             FloatInterval baseY = FloatInterval.Multiply(minusA, abc.Z);
@@ -1044,26 +1181,36 @@ namespace Genesis.RoomScan
             {
                 // The classifier proved exact equality. Re-subtracting
                 // outward-rounded Q-A² would manufacture uncertainty here.
-                var tangent = new Interval2(FloatInterval.Divide(baseX, q),
-                    FloatInterval.Divide(baseY, q));
+                bool xValid = FloatInterval.TryDividePositive(baseX, q, out FloatInterval x);
+                bool yValid = FloatInterval.TryDividePositive(baseY, q, out FloatInterval y);
+                if (!xValid || !yValid)
+                    return new RootResult(RootClassification.Ambiguous, default, default);
+                var tangent = new Interval2(x, y);
                 return new RootResult(classification, tangent, tangent);
             }
             FloatInterval delta = FloatInterval.Subtract(q,
                 FloatInterval.Square(abc.X));
-            if (delta.Lower < 0f)
+            if (!FloatInterval.TrySqrt(delta, out FloatInterval rootDelta))
                 return new RootResult(RootClassification.Ambiguous,
                     default, default);
-            FloatInterval rootDelta = FloatInterval.Sqrt(delta);
-            FloatInterval turnX = FloatInterval.Multiply(rootDelta,
-                new FloatInterval(-abc.Z.Upper, -abc.Z.Lower));
-            FloatInterval turnY = FloatInterval.Multiply(rootDelta, abc.Y);
-
-            Interval2 minus = new(
-                FloatInterval.Divide(FloatInterval.Subtract(baseX, turnX), q),
-                FloatInterval.Divide(FloatInterval.Subtract(baseY, turnY), q));
-            Interval2 plus = new(
-                FloatInterval.Divide(FloatInterval.Add(baseX, turnX), q),
-                FloatInterval.Divide(FloatInterval.Add(baseY, turnY), q));
+            // M8FlowerRootInterval negates the turn BEFORE multiplication for
+            // the minus branch, then uses IAdd for both signs. Preserve even
+            // exact-zero/signed-zero operation boundaries, not just algebraic
+            // equivalence of subtracting a previously evaluated positive turn.
+            FloatInterval negativeTurn = new(-rootDelta.Upper, -rootDelta.Lower);
+            FloatInterval minusC = new(-abc.Z.Upper, -abc.Z.Lower);
+            FloatInterval minusX = FloatInterval.Add(baseX, FloatInterval.Multiply(negativeTurn, minusC));
+            FloatInterval minusY = FloatInterval.Add(baseY, FloatInterval.Multiply(negativeTurn, abc.Y));
+            FloatInterval plusX = FloatInterval.Add(baseX, FloatInterval.Multiply(rootDelta, minusC));
+            FloatInterval plusY = FloatInterval.Add(baseY, FloatInterval.Multiply(rootDelta, abc.Y));
+            bool minusXValid = FloatInterval.TryDividePositive(minusX, q, out FloatInterval mx);
+            bool minusYValid = FloatInterval.TryDividePositive(minusY, q, out FloatInterval my);
+            bool plusXValid = FloatInterval.TryDividePositive(plusX, q, out FloatInterval px);
+            bool plusYValid = FloatInterval.TryDividePositive(plusY, q, out FloatInterval py);
+            if (!minusXValid || !minusYValid || !plusXValid || !plusYValid)
+                return new RootResult(RootClassification.Ambiguous, default, default);
+            Interval2 minus = new(mx, my);
+            Interval2 plus = new(px, py);
             return new RootResult(classification, minus, plus);
         }
 
@@ -1121,13 +1268,8 @@ namespace Genesis.RoomScan
             FloatInterval numerator = Cross(from, to);
             FloatInterval denominator = FloatInterval.Add(
                 FloatInterval.Singleton(1f), Dot(from, to));
-            if (!(denominator.Lower > 0f))
-            {
-                value = default;
-                return ProofClassification.Ambiguous;
-            }
-            value = FloatInterval.Divide(numerator, denominator);
-            return ProofClassification.Certain;
+            return FloatInterval.TryDividePositive(numerator, denominator, out value)
+                ? ProofClassification.Certain : ProofClassification.Ambiguous;
         }
 
         public static float2 RotateTangentHalfAngle(float2 root, float turn)
@@ -1154,11 +1296,13 @@ namespace Genesis.RoomScan
                 return ProofClassification.Ambiguous;
             FloatInterval x = FloatInterval.Add(first.X, second.X);
             FloatInterval y = FloatInterval.Add(first.Y, second.Y);
-            FloatInterval length = FloatInterval.Sqrt(FloatInterval.Add(
-                FloatInterval.Square(x), FloatInterval.Square(y)));
-            if (!(length.Lower > 0f)) return ProofClassification.Ambiguous;
-            seal = new Interval2(FloatInterval.Divide(x, length),
-                FloatInterval.Divide(y, length));
+            if (!FloatInterval.TrySqrt(FloatInterval.Add(FloatInterval.Square(x),
+                    FloatInterval.Square(y)), out FloatInterval length) ||
+                !(length.Lower > 0f) ||
+                !FloatInterval.TryDividePositive(x, length, out FloatInterval sealX) ||
+                !FloatInterval.TryDividePositive(y, length, out FloatInterval sealY))
+                return ProofClassification.Ambiguous;
+            seal = new Interval2(sealX, sealY);
             if (ClassifySector(lineClass, seal, out int sharedSector) !=
                     ProofClassification.Certain || sharedSector != sector)
                 return ProofClassification.Ambiguous;
@@ -1176,10 +1320,10 @@ namespace Genesis.RoomScan
             FloatInterval one = FloatInterval.Singleton(1f);
             FloatInterval squared = FloatInterval.Square(turn);
             FloatInterval denominator = FloatInterval.Add(one, squared);
-            FloatInterval c = FloatInterval.Divide(
-                FloatInterval.Subtract(one, squared), denominator);
-            FloatInterval s = FloatInterval.Divide(FloatInterval.Multiply(
-                FloatInterval.Singleton(2f), turn), denominator);
+            if (!FloatInterval.TryDividePositive(FloatInterval.Subtract(one, squared),
+                    denominator, out FloatInterval c) ||
+                !FloatInterval.TryDividePositive(FloatInterval.Multiply(FloatInterval.Singleton(2f), turn),
+                    denominator, out FloatInterval s)) return ProofClassification.Ambiguous;
             root = new Interval2(FloatInterval.Subtract(
                     FloatInterval.Multiply(c, prediction.X),
                     FloatInterval.Multiply(s, prediction.Y)),
@@ -2257,6 +2401,7 @@ namespace Genesis.RoomScan
             var exact = new List<ExactBoundaryPoint>(32);
             foreach (int3 plane in incident)
                 BuildBoundaryPoints(line, plane, exact);
+            AddAnchorFlagOrderCuts(petals, nodes, line, exact);
             exact.Sort((left, right) => CompareAroundLine(line,
                 left, right));
             for (int i = exact.Count - 1; i > 0; i--)

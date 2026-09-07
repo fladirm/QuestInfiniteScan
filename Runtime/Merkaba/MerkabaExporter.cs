@@ -22,6 +22,10 @@ namespace Genesis.RoomScan
         private MerkabaIntegrator _integrator;
         private MerkabaPersistence _persistence;
         private RoomScanner _scanner;
+        private DepthCapture _depthCapture;
+        private MerkabaTileAddress[] _exportTiles;
+        private MerkabaStorageAppendPosition _exportPosition;
+        private float2 _exportPlaneBounds;
 
         public bool IsExporting { get; private set; }
         public string LastExportPath { get; private set; }
@@ -39,6 +43,7 @@ namespace Genesis.RoomScan
             _integrator = GetComponent<MerkabaIntegrator>();
             _persistence = GetComponent<MerkabaPersistence>();
             _scanner = GetComponent<RoomScanner>();
+            _depthCapture = GetComponent<DepthCapture>();
         }
 
         public async Task<bool> ExportGlbAsync()
@@ -61,6 +66,7 @@ namespace Genesis.RoomScan
                             ScanOperationKind.ExportGlb, value));
                 await RequireActiveSessionAnchorAsync();
                 await _grid.FlushAllDirtyTilesAsync(progress);
+                CaptureExportSource();
                 await Task.Run(() =>
                 {
                     Directory.CreateDirectory(directory);
@@ -74,12 +80,13 @@ namespace Genesis.RoomScan
                            new MerkabaGlbWriter.StreamingSession(
                            spoolDirectory))
                 {
-                    await StreamOwnedMembranesAsync(async (membrane, _, _) =>
+                    await StreamOwnedFlowersAsync(async (flower, _, _) =>
                     {
                         await Task.Run(() =>
-                            streamSession.Append(membrane, progress));
-                        metrics.Add(membrane);
+                            streamSession.Append(flower, progress));
+                        metrics.Add(flower);
                     }, progress, false);
+                    metrics.DirtTriangles = await AppendDirtToGlbAsync(streamSession, progress);
                     result = await Task.Run(() =>
                     {
                         using var output = new FileStream(temporary,
@@ -104,16 +111,16 @@ namespace Genesis.RoomScan
                 Logger.Info("Merkaba GLB metrics " +
                             $"canonical={metrics.CanonicalOccupiedCount} " +
                             $"measuredPlane={metrics.MeasuredPlaneOccupiedCount} " +
-                            $"membraneMeasured={metrics.MeasuredPatchCount} " +
-                            $"inferredGray={metrics.InferredPatchCount} " +
-                            $"unresolvedPlane={metrics.UnresolvedMeasuredPlaneCount} " +
-                            $"removed={metrics.RemovedBehindMembraneCount} " +
+                            $"confirmedL2={metrics.MeasuredPatchCount} " +
+                            $"completedL2={metrics.InferredPatchCount} " +
+                            $"unresolvedWedges={metrics.UnresolvedMeasuredPlaneCount} " +
+                            $"dirt={metrics.DirtTriangles} " +
                             $"vertices={result.VertexCount} " +
                             $"triangles={result.PrimitiveCount} bytes={result.ByteLength}");
                 SetStatus($"GLB: {result.PrimitiveCount} triangles, " +
                           $"{metrics.MeasuredPatchCount} measured, " +
-                          $"{metrics.InferredPatchCount} gray inferred, " +
-                          $"{metrics.UnresolvedMeasuredPlaneCount} unresolved planes");
+                          $"{metrics.InferredPatchCount} completed, " +
+                          $"{metrics.UnresolvedMeasuredPlaneCount} unresolved wedges");
                 return true;
             }
             catch (Exception exception)
@@ -128,6 +135,8 @@ namespace Genesis.RoomScan
             finally
             {
                 IsExporting = false;
+                _exportTiles = null;
+                _exportPosition = default;
                 StatusChanged?.Invoke();
             }
         }
@@ -154,6 +163,7 @@ namespace Genesis.RoomScan
                 await _grid.FlushAllDirtyTilesAsync(progress);
                 MerkabaSpatialBinding spatialBinding =
                     await CaptureSpatialBindingAsync();
+                CaptureExportSource();
                 byte[] viewerHtml = LoadViewerResource(ViewerResourceRoot);
                 byte[] threeLicense = LoadViewerResource(
                     ViewerResourceRoot + "ThreeLicense");
@@ -206,6 +216,8 @@ namespace Genesis.RoomScan
                 if (File.Exists(temporaryArchive))
                     File.Delete(temporaryArchive);
                 IsExporting = false;
+                _exportTiles = null;
+                _exportPosition = default;
                 StatusChanged?.Invoke();
             }
         }
@@ -248,7 +260,7 @@ namespace Genesis.RoomScan
         {
             MerkabaTilesetWriter.BeginStreamingPackage(staging);
             var leaves = new List<MerkabaTilesetLeaf>();
-            await StreamOwnedMembranesAsync(async (owned, groupIndex,
+            await StreamOwnedFlowersAsync(async (owned, groupIndex,
                 groupCount) =>
             {
                 int leafIndex = leaves.Count;
@@ -260,42 +272,49 @@ namespace Genesis.RoomScan
                     ScanOperationStage.WritingFile, groupIndex + 1, groupCount,
                     $"Streamed spatial leaf {groupIndex + 1}/{groupCount}"));
             }, progress, true);
+            await AppendDirtToTilesetAsync(staging, leaves, progress);
             return await Task.Run(() =>
                 MerkabaTilesetWriter.CompleteStreamingPackage(staging,
                     leaves, spatialBinding));
         }
 
-        // The final shared L2 export pass supplies actual footprint coverage.
-        // These consumers deliberately have no default coverage provider: the
-        // still-active legacy membrane pass is not evidence of DIRT coverage.
-        // Wire them immediately before Complete() / CompleteStreamingPackage()
-        // when that one shared evaluator replaces StreamOwnedMembranesAsync.
+        // The same frozen source and shared direct/dual evaluator supplies
+        // coverage. No caller can substitute an owner box or an all-uncovered
+        // shortcut beside the final ordinary export path.
         internal Task<long> AppendDirtToGlbAsync(
             MerkabaGlbWriter.StreamingSession stream,
-            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
             IProgress<OperationWorkProgress> progress = null)
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             RequireQuiescedDirtExport();
-            return _grid.StreamStoredDirtAsync(directCoverage,
+            return _grid.StreamStoredFlowerDirtAsync(_exportPlaneBounds, _exportTiles, _exportPosition,
                 triangles => stream.AppendDirt(triangles, progress));
         }
 
         internal Task<long> AppendDirtToTilesetAsync(string staging,
             IList<MerkabaTilesetLeaf> leaves,
-            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
             IProgress<OperationWorkProgress> progress = null)
         {
             if (leaves == null) throw new ArgumentNullException(nameof(leaves));
             RequireQuiescedDirtExport();
-            return _grid.StreamStoredDirtAsync(directCoverage, triangles =>
+            return _grid.StreamStoredFlowerDirtAsync(_exportPlaneBounds, _exportTiles, _exportPosition, triangles =>
                 leaves.Add(MerkabaTilesetWriter.WriteStreamingDirtLeaf(staging,
                     leaves.Count, triangles, progress)));
         }
 
+        private float2 ExportPlaneBounds() => _depthCapture != null &&
+            _depthCapture.TryGetFlowerPlaneBounds(out Vector2 bounds)
+                ? new float2(bounds.x, bounds.y) : new float2(float.PositiveInfinity);
+
+        private void CaptureExportSource()
+        {
+            _exportTiles = _grid.CaptureStoredFlowerSource(out _exportPosition);
+            _exportPlaneBounds = ExportPlaneBounds();
+        }
+
         private void RequireQuiescedDirtExport()
         {
-            if (!IsExporting || _grid == null ||
+            if (!IsExporting || _grid == null || _exportTiles == null ||
                 (_integrator != null && _integrator.HasPendingObservation))
                 throw new InvalidOperationException(
                     "DIRT export requires the active quiesced export transaction.");
@@ -335,234 +354,29 @@ namespace Genesis.RoomScan
             return anchor;
         }
 
-        private async Task StreamOwnedMembranesAsync(
-            Func<MerkabaExportMembraneResult, int, int, Task> consume,
+        private async Task StreamOwnedFlowersAsync(
+            Func<MerkabaFlowerPresentation, int, int, Task> consume,
             IProgress<OperationWorkProgress> progress, bool tilesetLeaves)
         {
-            MerkabaTileAddress[] addresses = _grid.CaptureStoredTileIndex();
-            if (addresses.Length == 0)
-                throw new InvalidDataException(
-                    "Export invariant failed at stored canonical data: " +
-                    "storedTiles=0.");
-            var available = new HashSet<MerkabaTileAddress>(addresses);
-            var ownerGroups = new Dictionary<MerkabaTileAddress,
-                List<MerkabaTileAddress>>();
-            foreach (MerkabaTileAddress address in addresses)
+            MerkabaTileAddress[] addresses = _exportTiles ?? throw new InvalidOperationException("Flower export has no frozen source.");
+            float2 planeBounds = _exportPlaneBounds;
+            for (int index = 0; index < addresses.Length; index++)
             {
-                var key = new MerkabaTileAddress(address.BlockCoord,
-                    (uint)address.ChunkLocal);
-                if (!ownerGroups.TryGetValue(key,
-                        out List<MerkabaTileAddress> owners))
-                {
-                    owners = new List<MerkabaTileAddress>(
-                        MerkabaSpatial.TilesPerChunk);
-                    ownerGroups.Add(key, owners);
-                }
-                owners.Add(address);
+                var reader = await _grid.ReadStoredFlowerContextAsync(addresses[index], addresses, _exportPosition)
+                    .ConfigureAwait(false);
+                MerkabaTileAddress address = addresses[index];
+                MerkabaFlowerPresentation presentation = await Task.Run(() =>
+                    MerkabaFlowerPresentation.Build(reader, address, planeBounds)).ConfigureAwait(false);
+                if (presentation.TriangleCount != 0)
+                    await consume(presentation, index, addresses.Length).ConfigureAwait(false);
+                progress?.Report(new OperationWorkProgress(
+                    ScanOperationStage.BuildingMerkabaGeometry, index + 1, addresses.Length,
+                    $"Evaluated fixed L2 Flower tile {index + 1}/{addresses.Length}"));
+                if (tilesetLeaves)
+                    Logger.Info($"Merkaba 3D Tiles Flower owner={address} " +
+                        $"occupiedOwners={presentation.OccupiedOwners} carriers={presentation.Carriers.Count} " +
+                        $"triangles={presentation.TriangleCount} unresolvedWedges={presentation.UnresolvedWedges}");
             }
-            var keys = new List<MerkabaTileAddress>(ownerGroups.Keys);
-            keys.Sort();
-            long totalNonzeroStates = 0L;
-            long totalOccupiedOwners = 0L;
-            long totalMeasuredOwners = 0L;
-            int emittedGroups = 0;
-            for (int groupIndex = 0; groupIndex < keys.Count; groupIndex++)
-            {
-                MerkabaTileAddress ownerKey = keys[groupIndex];
-                List<MerkabaTileAddress> owners = ownerGroups[ownerKey];
-                owners.Sort();
-                var ownerSet = new HashSet<MerkabaTileAddress>(owners);
-                int nonzeroStates = 0;
-                int occupiedOwners = 0;
-                int measuredOwners = 0;
-                int membranePatches = 0;
-                int ownedPatches = 0;
-                bool emittedLeaf = false;
-                var contextSet = new HashSet<MerkabaTileAddress>(owners);
-                foreach (MerkabaTileAddress owner in owners)
-                {
-                    int3 origin = MerkabaSpatial.Decode(owner.BlockCoord,
-                        owner.LocalAddress, 0);
-                    for (int z = -1; z <= 1; z++)
-                    for (int y = -1; y <= 1; y++)
-                    for (int x = -1; x <= 1; x++)
-                    {
-                        MerkabaSpatial.Address neighbour =
-                            MerkabaSpatial.Encode(origin +
-                            new int3(x, y, z) * MerkabaSpatial.TileSize);
-                        var neighbourAddress = new MerkabaTileAddress(
-                            neighbour.BlockCoord,
-                            (uint)(neighbour.ChunkLocal |
-                            (neighbour.TileLocal << 9)));
-                        if (available.Contains(neighbourAddress))
-                            contextSet.Add(neighbourAddress);
-                    }
-                }
-                var context = new List<MerkabaTileAddress>(contextSet);
-                context.Sort();
-                var evidence = new Dictionary<int3, KernelState>(
-                    context.Count * MerkabaSpatial.KernelsPerTile / 4);
-                for (int offset = 0; offset < context.Count;
-                     offset += MerkabaGrid.StreamBatchCapacity)
-                {
-                    int count = Math.Min(MerkabaGrid.StreamBatchCapacity,
-                        context.Count - offset);
-                    var batch = context.GetRange(offset, count);
-                    MerkabaTileSnapshot[] tiles = await _grid
-                        .ReadStoredTilesAsync(batch).ConfigureAwait(false);
-                    foreach (MerkabaTileSnapshot tile in tiles)
-                    {
-                        bool ownerTile = ownerSet.Contains(tile.Address);
-                        for (int kernel = 0; kernel < tile.States.Length;
-                             kernel++)
-                        {
-                            KernelState state = tile.States[kernel];
-                            if (state.OccupancyEvidence == 0 &&
-                                state.Flags == 0u &&
-                                state.ColorConfidence == 0u) continue;
-                            if (ownerTile)
-                            {
-                                nonzeroStates++;
-                                if (state.IsOccupied)
-                                {
-                                    occupiedOwners++;
-                                    if (state.HasMeasuredSurfacePlane)
-                                        measuredOwners++;
-                                }
-                            }
-                            int3 coord = MerkabaSpatial.Decode(
-                                tile.Address.BlockCoord,
-                                tile.Address.LocalAddress, kernel);
-                            evidence.Add(coord, state);
-                        }
-                    }
-                }
-                totalNonzeroStates += nonzeroStates;
-                totalOccupiedOwners += occupiedOwners;
-                totalMeasuredOwners += measuredOwners;
-                if (occupiedOwners == 0)
-                {
-                    LogOwnerGroup(tilesetLeaves, ownerKey, owners.Count,
-                        nonzeroStates, occupiedOwners, measuredOwners,
-                        membranePatches, ownedPatches, emittedLeaf);
-                    continue;
-                }
-                MerkabaExportMembraneResult local;
-                try
-                {
-                    local = await Task.Run(() => MerkabaExportMembrane.Build(
-                        MerkabaExportShell.Build(evidence)));
-                }
-                catch (Exception exception)
-                {
-                    throw new InvalidDataException(
-                        "Export invariant failed at measured membrane for " +
-                        $"owner {OwnerChunkLabel(ownerKey)}: " +
-                        $"storedTiles={owners.Count} " +
-                        $"nonzeroStates={nonzeroStates} " +
-                        $"occupiedOwners={occupiedOwners} " +
-                        $"measuredOwners={measuredOwners}. " +
-                        exception.Message, exception);
-                }
-                membranePatches = local.Patches.Count;
-                MerkabaExportMembraneResult owned = OwnChunk(local, ownerKey);
-                ownedPatches = owned.Patches.Count;
-                ValidateOwnedMeasuredPatches(ownerKey, owners.Count,
-                    nonzeroStates, occupiedOwners, measuredOwners,
-                    membranePatches, ownedPatches);
-                if (ownedPatches == 0)
-                {
-                    LogOwnerGroup(tilesetLeaves, ownerKey, owners.Count,
-                        nonzeroStates, occupiedOwners, measuredOwners,
-                        membranePatches, ownedPatches, emittedLeaf);
-                    continue;
-                }
-                await consume(owned, groupIndex, keys.Count);
-                emittedLeaf = true;
-                emittedGroups++;
-                LogOwnerGroup(tilesetLeaves, ownerKey, owners.Count,
-                    nonzeroStates, occupiedOwners, measuredOwners,
-                    membranePatches, ownedPatches, emittedLeaf);
-            }
-            if (emittedGroups == 0)
-                throw new InvalidDataException(
-                    "Export produced no consumable owner groups: " +
-                    $"storedTiles={addresses.Length} " +
-                    $"nonzeroStates={totalNonzeroStates} " +
-                    $"occupiedOwners={totalOccupiedOwners} " +
-                    $"measuredOwners={totalMeasuredOwners} " +
-                    "emittedLeaf=0.");
-        }
-
-        private static void LogOwnerGroup(bool enabled,
-            MerkabaTileAddress ownerKey, int storedTiles, int nonzeroStates,
-            int occupiedOwners, int measuredOwners, int membranePatches,
-            int ownedPatches, bool emittedLeaf)
-        {
-            if (!enabled) return;
-            Logger.Info("Merkaba 3D Tiles owner=" +
-                $"{OwnerChunkLabel(ownerKey)} storedTiles={storedTiles} " +
-                $"nonzeroStates={nonzeroStates} " +
-                $"occupiedOwners={occupiedOwners} " +
-                $"measuredOwners={measuredOwners} " +
-                $"membranePatches={membranePatches} " +
-                $"ownedPatches={ownedPatches} " +
-                $"emittedLeaf={(emittedLeaf ? 1 : 0)}");
-        }
-
-        private static string OwnerChunkLabel(MerkabaTileAddress key) =>
-            $"({key.BlockCoord.x},{key.BlockCoord.y},{key.BlockCoord.z})/" +
-            key.ChunkLocal;
-
-        internal static void ValidateOwnedMeasuredPatches(
-            MerkabaTileAddress ownerKey, int storedTiles, int nonzeroStates,
-            int occupiedOwners, int measuredOwners, int membranePatches,
-            int ownedPatches)
-        {
-            if (occupiedOwners == 0 || measuredOwners == 0 ||
-                ownedPatches != 0) return;
-            throw new InvalidDataException(
-                "Export invariant failed at spatial ownership for " +
-                $"owner {OwnerChunkLabel(ownerKey)}: " +
-                $"storedTiles={storedTiles} " +
-                $"nonzeroStates={nonzeroStates} " +
-                $"occupiedOwners={occupiedOwners} " +
-                $"measuredOwners={measuredOwners} " +
-                $"membranePatches={membranePatches} " +
-                "ownedPatches=0 emittedLeaf=0.");
-        }
-
-        private static bool IsOwnedByChunk(int3 coord,
-            MerkabaTileAddress ownerKey)
-        {
-            MerkabaSpatial.Address address = MerkabaSpatial.Encode(coord);
-            return math.all(address.BlockCoord == ownerKey.BlockCoord) &&
-                address.ChunkLocal == ownerKey.ChunkLocal;
-        }
-
-        internal static MerkabaExportMembraneResult OwnChunk(
-            MerkabaExportMembraneResult source, MerkabaTileAddress ownerKey)
-        {
-            var patches = source.Patches.FindAll(patch =>
-                IsOwnedByChunk(patch.Coord, ownerKey));
-            int measured = 0;
-            int inferred = 0;
-            foreach (MerkabaExportMembranePatch patch in patches)
-                if (patch.IsInferred) inferred++;
-                else measured++;
-            var canonicalOwned = new List<int3>();
-            foreach (int3 coord in source.CanonicalOccupiedCoordinates)
-                if (IsOwnedByChunk(coord, ownerKey)) canonicalOwned.Add(coord);
-            var measuredOwned = new List<int3>();
-            foreach (int3 coord in source.MeasuredPlaneCoordinates)
-                if (IsOwnedByChunk(coord, ownerKey)) measuredOwned.Add(coord);
-            var removedBehind = new List<int3>();
-            foreach (int3 coord in source.RemovedBehindCoordinates)
-                if (IsOwnedByChunk(coord, ownerKey)) removedBehind.Add(coord);
-            return new MerkabaExportMembraneResult(patches,
-                canonicalOwned.ToArray(), measuredOwned.ToArray(),
-                measured, inferred, removedBehind.ToArray(),
-                source.PartitionCutCount);
         }
 
         private sealed class ExportMetrics
@@ -572,18 +386,16 @@ namespace Genesis.RoomScan
             internal long MeasuredPatchCount;
             internal long InferredPatchCount;
             internal long UnresolvedMeasuredPlaneCount;
-            internal long RemovedBehindMembraneCount;
+            internal long DirtTriangles;
 
-            internal void Add(MerkabaExportMembraneResult result)
+            internal void Add(MerkabaFlowerPresentation result)
             {
-                CanonicalOccupiedCount += result.CanonicalOccupiedCount;
-                MeasuredPlaneOccupiedCount += result.MeasuredPlaneOccupiedCount;
-                MeasuredPatchCount += result.MeasuredPatchCount;
-                InferredPatchCount += result.InferredPatchCount;
-                UnresolvedMeasuredPlaneCount +=
-                    result.UnresolvedMeasuredPlaneCount;
-                RemovedBehindMembraneCount +=
-                    result.RemovedBehindMembraneCount;
+                CanonicalOccupiedCount += result.OccupiedOwners;
+                MeasuredPlaneOccupiedCount += result.OccupiedOwners;
+                MeasuredPatchCount += result.TriangleCount;
+                UnresolvedMeasuredPlaneCount += result.UnresolvedWedges;
+                foreach (var carrier in result.Carriers)
+                    InferredPatchCount += math.countbits(carrier.Symbol.CompletedWedgeMask);
             }
         }
 

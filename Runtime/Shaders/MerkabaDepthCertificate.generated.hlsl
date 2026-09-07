@@ -9,16 +9,28 @@
 
 M8FlowerInterval M8DepthIntervalRow(float4 row, M8FlowerInterval3 positionInterval)
 {
-    return M8FlowerIAdd(M8FlowerIAdd(M8FlowerIAdd(
-        M8FlowerIMul(M8FlowerI(row.x, row.x), positionInterval.x),
-        M8FlowerIMul(M8FlowerI(row.y, row.y), positionInterval.y)),
-        M8FlowerIMul(M8FlowerI(row.z, row.z), positionInterval.z)), M8FlowerI(row.w, row.w));
+    M8FlowerInterval result=M8FlowerI(0.0,0.0);
+    [loop] for(uint axis=0u;axis<3u;++axis)
+    {
+        M8FlowerInterval component=axis==0u?positionInterval.x:
+            (axis==1u?positionInterval.y:positionInterval.z);
+        M8FlowerInterval product=M8FlowerIMul(M8FlowerI(row[axis],row[axis]),component);
+        result=axis==0u?product:M8FlowerIAdd(result,product);
+    }
+    return M8FlowerIAdd(result,M8FlowerI(row.w,row.w));
 }
 
 M8FlowerInterval M8FlowerObservedDot(M8FlowerInterval3 a, M8FlowerInterval3 b)
 {
-    return M8FlowerIAdd(M8FlowerIAdd(M8FlowerIMul(a.x,b.x),M8FlowerIMul(a.y,b.y)),
-        M8FlowerIMul(a.z,b.z));
+    M8FlowerInterval result=M8FlowerI(0.0,0.0);
+    [loop] for(uint axis=0u;axis<3u;++axis)
+    {
+        M8FlowerInterval left=axis==0u?a.x:(axis==1u?a.y:a.z);
+        M8FlowerInterval right=axis==0u?b.x:(axis==1u?b.y:b.z);
+        M8FlowerInterval product=M8FlowerIMul(left,right);
+        result=axis==0u?product:M8FlowerIAdd(result,product);
+    }
+    return result;
 }
 
 struct M8FlowerObservedLoopFrame
@@ -99,7 +111,7 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
         !all(M8FlowerIsFinite(projection[0])) || !all(M8FlowerIsFinite(projection[1])) ||
         !all(M8FlowerIsFinite(projection[2])) || !all(M8FlowerIsFinite(projection[3])) ||
         any(view[3] != float4(0.0, 0.0, 0.0, 1.0))) return false;
-    [unroll]
+    [loop]
     for (uint corner = 0u; corner < 8u; corner++)
     {
         float3 p = float3((corner & 1u) == 0u ? minimum.x : maximum.x,
@@ -117,10 +129,11 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
         if (!(eye.z.hi < 0.0)) return false;
         supportUpperDepth = max(supportUpperDepth, -eye.z.lo);
         M8FlowerInterval w = M8DepthIntervalRow(projection[3], eye);
-        M8FlowerInterval x, y, z;
-        if (!M8FlowerIDivPositive(M8DepthIntervalRow(projection[0], eye), w, x) ||
-            !M8FlowerIDivPositive(M8DepthIntervalRow(projection[1], eye), w, y) ||
-            !M8FlowerIDivPositive(M8DepthIntervalRow(projection[2], eye), w, z)) return false;
+        M8FlowerInterval projected[3];
+        [loop]for(uint axis=0u;axis<3u;axis++)
+            if(!M8FlowerIDivPositive(M8DepthIntervalRow(projection[axis],eye),w,
+                projected[axis]))return false;
+        M8FlowerInterval x=projected[0],y=projected[1],z=projected[2];
         if (z.lo < -1.0 || z.hi > 1.0) return false;
         x = M8FlowerIMul(M8FlowerIAdd(x, M8FlowerI(1.0, 1.0)),
             M8FlowerI((float)imageSize.x * 0.5, (float)imageSize.x * 0.5));

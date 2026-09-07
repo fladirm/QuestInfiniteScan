@@ -3,7 +3,7 @@
 #pragma target 5.0
 #pragma use_dxc vulkan
 
-#include "../../Runtime/Shaders/MerkabaSphereFlower.generated.hlsl"
+#include "../../Runtime/Shaders/MerkabaFlowerGeometry.hlsl"
 
 struct SphereFlowerOracleCase
 {
@@ -227,6 +227,73 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
             scalar, certainMask, supportMask);
         result.Control.y = (int)M8FlowerClassifyRgbSkinSplit(
             rgb, certainMask, supportMask);
+    }
+    else if (operation == 26)
+    {
+        uint tablePetal=0xffffffffu,sector=0xffffffffu,rootPetal=0xffffffffu;
+        bool tableValid=M8FlowerR1SectorFlag(index,(uint)input.Control.z,tablePetal);
+        M8FlowerInterval2 root;
+        root.x=M8FlowerI(input.A.x,input.A.y);
+        root.y=M8FlowerI(input.A.z,input.A.w);
+        bool certain=false;
+        if(index<6u)
+            certain=M8FlowerRootSector((uint)M8FlowerNode[index].w,root,sector);
+        bool admitted=false;
+        if(certain)admitted=M8FlowerR1SectorFlag(index,sector,rootPetal);
+        result.Control=int4(tableValid?(int)tablePetal:-1,certain?(int)sector:-1,
+            admitted?(int)rootPetal:-1,admitted?1:0);
+    }
+    else if(operation==27)
+    {
+        M8FlowerR1FlagRoots candidates;
+        M8FlowerPhaseRootEvidence uniqueRoot;
+        uint status;
+        if(index==0u)
+            status=M8FlowerSelectR1FlagRoots(asint(input.A.xyz),(uint)input.Control.w,
+                (uint)input.Control.z,input.B.x,input.B.y,candidates,uniqueRoot);
+        else
+            status=M8FlowerSelectR1FlagRelation(asint(input.A.xyz),(uint)input.Control.w,
+                asuint(input.A.w),(uint)input.Control.z,input.B.x,input.B.y,candidates,uniqueRoot);
+        result.Control=int4((int)candidates.CandidateMask,(int)candidates.UnresolvedMask,
+            (int)status,asint(candidates.Minus.Tag|(candidates.Plus.Tag<<16u)));
+        result.A=float4(candidates.Minus.Root.x.lo,candidates.Minus.Root.x.hi,
+            candidates.Minus.Root.y.lo,candidates.Minus.Root.y.hi);
+        result.B=float4(candidates.Plus.Root.x.lo,candidates.Plus.Root.x.hi,
+            candidates.Plus.Root.y.lo,candidates.Plus.Root.y.hi);
+        result.C=asfloat(uint4(asuint(uniqueRoot.Junction),uniqueRoot.Tag));
+    }
+    else if(operation==28)
+    {
+        // Diagnostic of the production helpers, not another root solver.
+        // Stage 2 injects the CPU-decoded plane solely to distinguish plane
+        // decoding from downstream interval arithmetic in a failed parity case.
+        uint lineClass=(uint)input.Control.z;
+        float3 normal;float offset;
+        M8FlowerUnpackPlane((uint)input.Control.w,normal,offset);
+        precise float3 relative=(0.5*M8FlowerLevelStep(0u))*float3(asint(input.A.xyz));
+        float radius=M8FlowerGeometryLoopRadius[lineClass];
+        if(index==0u)
+        {
+            result.Control=asint(float4(M8FlowerLineE2[lineClass],0.0));
+            result.A=float4(normal,offset);
+            result.B=float4(relative,radius);
+            result.C=float4(M8FlowerLineE1[lineClass],0.0);
+        }
+        else
+        {
+            if(index==2u){normal=input.B.xyz;offset=input.B.w;}
+            M8FlowerInterval3 abc;
+            bool valid=M8FlowerPlaneIntervals(normal,offset,relative,radius,lineClass,
+                input.A.w,input.C.x,abc);
+            M8FlowerInterval q=M8FlowerIAdd(M8FlowerISquare(abc.y),M8FlowerISquare(abc.z));
+            M8FlowerInterval delta=M8FlowerISub(q,M8FlowerISquare(abc.x));
+            M8FlowerInterval turn;
+            bool sqrtValid=M8FlowerISqrt(delta,turn);
+            result.Control=int4(valid?1:0,sqrtValid?1:0,(int)M8FlowerClassifyRoot(abc),0);
+            result.A=float4(abc.x.lo,abc.x.hi,abc.y.lo,abc.y.hi);
+            result.B=float4(abc.z.lo,abc.z.hi,q.lo,q.hi);
+            result.C=float4(delta.lo,delta.hi,turn.lo,turn.hi);
+        }
     }
     _SphereFlowerOracleResults[id] = result;
 }

@@ -902,7 +902,10 @@ No root is emitted from an ambiguous interval.
 
 ## 7.1 Generated phase sectors
 
-Each loop is cut only by radical planes belonging to incident `R1⊂R2⊂R3` cube flags.
+Each loop is cut by radical planes belonging to incident `R1⊂R2⊂R3` cube flags.
+The R1 face loops additionally include the exact same-shell power-order
+boundaries required by section 8.4.2. These are differences of incident
+radical-plane functions, not new measured planes or fitted geometry.
 
 For an incident direction \(q\), substitute the loop into:
 
@@ -917,6 +920,12 @@ This produces a fixed equation:
 \]
 
 Its exact algebraic roots partition the loop into half-open sectors.
+
+For R1, codegen uses the common arrangement of the radical cuts and the
+incident edge/edge and corner/corner equality cuts from section 8.4.2.
+All such cuts use the same exact loop/plane solver. A changed ordering may
+never remain hidden inside one sector. Codegen re-proves the section 1.3
+five-bit sector bound before publishing the shared CPU/HLSL tables.
 
 All coefficients belong to:
 
@@ -1061,6 +1070,56 @@ A flag petal is admissible only when:
 6. no node/strand/petal support is dual-vetoed.
 
 R2/R3 direct measurement is not required for basic R1 existence. When absent, the R1 carrier may predict the corresponding higher-shell anchor **only as provisional geometry inside the same unique flag**. Such a prediction does not create persistent R2/R3 detail and cannot by itself prove a hole completion.
+
+### 8.4.2 Exact R1 face-sector flag admission
+
+For a fixed directed R1 face carrier \(f=s_i e_i\), use the existing power
+residual:
+
+\[
+\Phi_q(X)=q\cdot(X-C_K)-\frac{a_L}{2}(q\cdot q).
+\]
+
+Select the maximum `Phi` among the four R2 edge directions incident to
+`f`, then the maximum among the two R3 corner directions incident to that
+selected edge. Exact ties use the smaller frozen generated `Node` ordinal
+at each step. No observed score, distance, epsilon or runtime search is used.
+
+Candidates compared at each step belong to the same shell, so their
+constant terms cancel:
+
+\[
+\Phi_a-\Phi_b=(a-b)\cdot(X-C_K).
+\]
+
+In the chart \(\xi=2(X-C_K)/a_L\), the R1 shared loop and selected flag
+\(f\subset e=f+s_j e_j\subset c=e+s_k e_k\) obey:
+
+\[
+s_i\xi_i=1,\qquad \xi_j^2+\xi_k^2=3,
+\qquad 0\le s_k\xi_k\le s_j\xi_j\le2.
+\]
+
+The support half-width is `a_L`, hence the chart clipping bound is exactly
+`2`, not `1`. On the R1 loop the bound is redundant because the absolute
+tangential coordinates are at most \(\sqrt3<2\). Signs and relative order
+partition each face into eight flag cells, giving the existing 48 flags.
+This face chart does not replace or flatten the R2/R3 world loops.
+
+Codegen uses the existing `Petal[48]` incidence, exact loop boundaries and
+exact sign algebra on the power differences. The sign at a certified
+sector interior may be evaluated by its exact positive-angle boundary
+limit; no finite angular step or sampled adjacency is permitted.
+It emits one `Sector→PetalMask` for each directed R1 face and sector.
+Each mask MUST contain exactly one incident flag; all eight flags of each
+face MUST be covered. Zero or multiple incompatible flags is a codegen
+failure, not a runtime choice.
+
+The half-open equality convention defines exact ownership only.
+Section 7.1 still requires a root interval strictly inside one sector:
+touching or crossing an order boundary is `AMBIGUOUS`, not a tie-based
+permission to emit an uncertain root. Direction, sector and rootSign
+transport remain the generated shared-loop conventions.
 
 ## 8.5 Child substitution
 
@@ -3619,6 +3678,11 @@ loop basis endpoint invariance
 all root degeneracies
 interval containment / outward rounding
 root sector stability
+R1 same-shell power-order cuts are complete in the shared sector arrangement
+R1 clipping is exactly 2 in xi=2*(X-C)/aL and preserves every R1 world loop
+each directed R1 sector selects exactly one incident flag and covers all eight face flags
+exact equality ownership follows frozen Node ordinal; boundary-crossing intervals remain AMBIGUOUS
+R1 Sector-to-PetalMask is exhaustively CPU/HLSL identical and maxSectorCount<=32
 rootSign stability under d -> -d
 NO observation-dependent branch renumbering
 parallel-sheet separation through distinct overlap-owner relations
@@ -6281,3 +6345,192 @@ the old tool objective is not implementation authority.
 NEXT_CURSOR=do not repeat the resolved36-chamber/clipped-support question or
 completed proofs. Resume the shared selector when its exact flag/sector
 relation is supplied; do not replace CompactDirtyFlowerSymbols with a stub.
+
+### Supplied flag-order rule; clipping counterexample — 2026-09-07 04:26:29 UTC
+
+CURRENT_COMMIT=8cf7081d9cfb995e89daa55bf933dd2da3b43fcc
+CURRENT_CUT=RUN_04 OPEN. The user supplied the missing order predicate:
+given an R1 face f, maximize Phi among its four incident R2 edges, then among
+the chosen edge's two R3 corners; resolve exact ties canonically in codegen.
+DO_NOT_REQUEST_A_MANUAL_SIGN_TABLE_AGAIN. Pairwise same-shell Phi differences
+are linear predicates and can use the existing exact boundary/sign solver.
+
+COUNTEREXAMPLE_TO_THE_SUPPLIED_CLIP=for f=(1,0,0), at every geometry level,
+the existing section3.5 loop satisfies x-Cx=aL/2 and
+(y-Cy)^2+(z-Cz)^2=3*aL^2/4. With the proposed xi=2*(X-C)/aL this is
+xi_y^2+xi_z^2=3. But 0<=s_k*xi_k<=s_j*xi_j<=1 implies that the same sum
+is <=2. Therefore the supplied clipping admits no R1 loop point at all;
+all eight flags of each face are empty. Equality tie-breaking cannot fix this.
+The unclipped order inequalities are not equivalent to the clipped formula.
+
+MINIMUM_NATIVE_CORRECTION_PROPOSED=if parent support means the existing M8
+support [C-aL,C+aL), its bound in this xi chart is2, not1. This preserves all
+world loops and the supplied winner/order predicate. It requires an explicit
+user decision before replacing the stated bound. A differently normalized
+face chart would instead need its actual world-to-chart map.
+CODEGEN_CONSEQUENCE=Phi_a-Phi_b=0 order boundaries can cross old radical
+sectors; the common arrangement must include the required order cuts and
+re-prove maxSectorCount<=32 before any new sector/flag lookup is published.
+STATE=production/generated files and the immutable REV-C prefix unchanged;
+no guessed mask, silent clipping change, root heuristic or new solver added.
+PROOF=exact algebra from the contract and EvaluateLoop, not a new GPU test.
+NEXT_CURSOR=the relative-order rule is supplied; only the inconsistent
+clipping/chart definition needs correction before implementing that lookup.
+
+### R1 power-order admission implemented — 2026-09-07
+
+CURRENT_COMMIT=8cf7081d9cfb995e89daa55bf933dd2da3b43fcc
+CURRENT_CUT=RUN_04 OPEN.
+USER_DECISION=clipping2 explicitly confirmed; the preceding bound1 question
+is resolved. Do not request a manual sign table, a different chart, or another
+support decision. No world radius, basis, Fibonacci route or skin topology changes.
+CONTRACT_CHANGE=authorized sections7.1/8.4.2/29 amendment; exact same update
+applied to the REV-C file and lasttrue prefix.
+IMPLEMENTED=existing exact radical solver now includes R1 same-shell
+edge/edge and corner/corner equality cuts; exact positive-angle interior
+signs select maximum edge then corner via frozen Petal incidence.
+Exact equality uses minimum frozen Node ordinal; interval boundary roots
+remain AMBIGUOUS. No finite-step sampling or invented geometric solver.
+GENERATED=24 sectors per R1 line,6 per R2 line,12 per R3 line;
+156 total boundaries;144 directed R1 masks, each exactly one incident flag;
+all eight flags per directed face covered; maxSectorCount24<=32.
+CODEGEN=PASS using Kingston Unity6000.5.9f1 GenerateForBatch, exit0.
+LOG=/mnt/kingston-unity/Builds/UniscanR1Order/TestResults/codegen.log
+CPU/HLSL tables regenerated from the same authority, including table hash.
+CONSUMERS=R1 peer witness, seed correspondence and chromatically certain
+stereo support use the generated directed-face lookup. The old16-sector
+witness guard is replaced with generated sectorCount and field-width guard.
+No parent/child face equality was guessed.
+IN_PROGRESS=exhaustive CPU/actual-HLSL order/clip fixtures, production SPIR-V
+audit, shared direct flag-root reader and live carrier producer continuation.
+BUILD=codegen/editor compilation passed; no APK/Quest runtime/perf claimed.
+RUN_04_CLOSURE=NOT PASS. CompactDirtyFlowerSymbols and complete RGB/V drain
+remain actual implementation dependencies, not empty kernels to satisfy tests.
+NEXT_CURSOR=continue from the generated R1 order lookup and its consumers;
+do not reopen the resolved clipping2 or36-chamber skin questions.
+
+R1_ORDER_TARGETED_PROOFS=PASS4/4,2026-09-07T04:55:43Z.
+Actual HLSL and independent CPU power-order tests each cover736cases:
+all6directed faces,24sectors per face,three interior samples per sector,
+all48flags,strict boundary enclosures/crossings,and invalid addresses.
+The independent order fixture verifies accepted coordinates above1 and<=2;
+it does not merely compare two copies of the generated mask.
+GeneratedHlsl_IsBitIdenticalAndMatchesCpuOracle and the exact sector ABI
+count test also PASS. Test duration0.886s, Unity process exit0.
+RESULTS=/mnt/kingston-unity/Builds/UniscanR1Order/TestResults/r1-order-results.xml
+SPIRV=PASS68kernels,exit0,writable storage<=8,no RW/read aliases.
+LOG=/mnt/kingston-unity/Builds/UniscanR1Order/TestResults/spirv.log
+PREFIX_CHECK=REV-C and lasttrue prefix byte-identical,110215bytes.
+
+R1_READER_IMPLEMENTED=bounded typed CarrierRootProof now serves the existing
+bool geometry reader. New CPU/HLSL SelectR1FlagRoots filters the two fixed
+algebraic signs by the directed face lookup; SelectR1FlagRelation also uses
+the canonical endpoint pair and existing SEAL evaluator. Candidate/unresolved
+masks are scratch only, not persisted branches. These selectors still need
+their full direct page/scan callers; they are not a complete Compact producer.
+R1_READER_VALIDATION=pending; do not confuse the preceding green lookup
+proofs with acceptance of this later reader patch or of all RUN_04.
+
+### CURRENT TRUE STATE — 2026-09-07, shared L2 reader implementation
+
+CURRENT_COMMIT=8cf7081d9cfb995e89daa55bf933dd2da3b43fcc
+CURRENT_CUT=RUN_04 OPEN; no closed-cut commit or APK/runtime acceptance yet.
+ANCHOR_ORDER=the same supplied max-Phi rule now generates incident masks on
+all original R1/R2/R3 loops. Exact pruning removes only order cuts whose
+incident mask is unchanged on both sides and at equality; radical cuts stay.
+GENERATED=24/12/30 sectors by shell,264 boundaries,528 directed anchor masks;
+max30<=32. R1 remains the first144 masks of this single table, not a second
+authority. Higher-shell loops are not clipped to the R1 face plane.
+CODEGEN=PASS, Kingston Unity6000.5.9f1; all five generated outputs are built
+and proved before the first output is written. Latest log:
+/mnt/kingston-unity/Builds/UniscanR1Order/TestResults/canonical-rounding-codegen2.log
+CPU_HLSL_ROOT_PARITY=PASS, strict endpoint-bit comparison as well as symbolic
+identity and independent analytic containment; no tolerance substituted.
+Exact adjacent-float midpoint/RNE decisions now share one emitted source for
+plane decoding and interval sqrt. Targeted test1/1,32.11s,06:24:31Z:
+/mnt/kingston-unity/Builds/UniscanR1Order/TestResults/canonical-rounding-parity2-results.xml
+IMPLEMENTING=endpoint-local synthesis followed by canonical ordered SEAL;
+read-only indexed-vertex halo, source-generation validation and bindings;
+finite7-site carrier admission; complete-footprint RGB/V reducer and frozen
+observation drain; same SSD-backed CPU reader for export.
+READOUT_RESOURCE_VIEW=FlowerDetail is SRV during compaction; only the existing
+ThreadAtlas draw pool is writable. No extra buffer, queue or authority.
+REMAINING=real CompactDirtyFlowerSymbols producer with direct/completed/DIRT
+coverage, shared carrier admission consumers and full RGB/V drain closure.
+TEST_SCOPE=the preceding targeted root parity is not a full-suite/scene/Quest
+result. Last full suite before these changes was392/394; obsolete SSD text
+assertion was subsequently fixed and passed its targeted run.
+PERF=not measured on Quest. BUILD=editor/codegen only, not an Android APK.
+NEXT_CURSOR=finish the actual shared reader/carrier/skin call sites; do not
+reopen clipping2,36chambers,Fibonacci order,or the now-fixed RNE parity gap.
+
+### CURRENT TRUE STATE — shared producer and staged observation wiring
+
+CURRENT_COMMIT=8cf7081d9cfb995e89daa55bf933dd2da3b43fcc; RUN_04 still OPEN.
+GOAL_PURSUIT=active as returned by get_goal; its old REV-B objective text
+does not override the amended REV-C authority above.
+IMPLEMENTED=actual CompactDirtyFlowerSymbols count/reserve/emit/skin/page
+publication; descriptor-correct shared endpoint halo; requested-COLD mask;
+root/L1/L2/skin GPU stage publication using existing counter buffer slot104;
+same-observation RGB/V drain and actual FinalizeObservation fixture wiring.
+READOUT=real direct carrier classifier + interval-support dual veto + DIRT
+coverage are now called, not a no-op/always-unresolved replacement kernel.
+STILL_OPEN=parent48 completion/junction decision and cross-carrier partial
+direct/DIRT union coverage; final CPU/GPU/export support parity.
+BUILD_FINDING=reachable shared integer/RNE callgraph overflows glslang's
+default inliner ID bound. Unoptimized SPIR-V is not accepted as a workaround.
+FIX_IN_PROGRESS=consolidate repeated scalar calls into fixed ordered endpoint
+loops in the SAME codegen (UnpackPlane, interval divide/sqrt); no changed
+rounding, epsilon, geometry, source ontology or extra dispatch.
+CODEGEN=bounded-inline-codegen2/3/6 PASS on Kingston Unity6000.5.9f1;
+attempts4/5 exposed stale export fixture calls, fixed before6. Latest
+bounded-integer-codegen PASS includes exact integer division/sqrt and the
+generated whole-wedge owner incidence. Logs under
+/mnt/kingston-unity/Builds/UniscanR1Order/TestResults.
+READOUT_COMPILE=CompactDirtyFlowerSymbols glslang+spirv-val PASS with fresh
+bounded-readout3.spv: 256 lanes,20 storage bindings(13 SRV/7 RW),13928 bytes
+groupshared. This is a compiler/resource result, not a Quest runtime result.
+REMAINING_COMPILE=the earlier Drain inliner overflow is now fixed; fresh
+staged-drain-integer.spv passes ordinary glslang and spirv-val(vulkan1.1).
+Reflection:17 storage buffers(7 RW/10 RO),zero RW/read aliases,128 lanes,
+20624 bytes groupshared. No relaxed ID/buffer/workgroup limits are used.
+EXPORT=ordinary GLB/Tiles now use the frozen shared reader, complete-support
+dual veto, DIRT coverage, captured-color/V material bake and canonical owner
+mapping. Shell/Membrane producers and float weld removed with old consumers;
+writer/RTC/progress/design test sources migrated, NOT RUN.
+VALIDATION=full current suite/APK/device/performance NOT RUN. RUN_04/05/06
+are not closed merely because individual producer/compiler seams now work.
+NEXT_CURSOR=completion/junction decision and cross-carrier partial coverage.
+For the latter, generate the finite original-knot edge incidence alongside
+the existing whole-wedge owners, then consume the same CPU/HLSL mapping.
+Do not restart the geometry/contract investigation or claim an APK from a
+native-only build.
+
+### CURRENT TRUE STATE — integer-kernel implementation checkpoint
+
+CHECKPOINT_PARENT=8cf7081d9cfb995e89daa55bf933dd2da3b43fcc.
+CURRENT_COMMIT=the git HEAD containing this checkpoint; no self-referential
+commit hash is embedded. RUN_04=OPEN; RUN_05=IMPLEMENTING; RUN_06=IMPLEMENTING.
+FILES_CHANGED=shared codegen/numerics, actual procedural producer, staged
+same-observation RGB/V drain, generated owner incidence, frozen CPU reader,
+GLB/Tiles consumers and presentation material bake; migrated writer fixtures.
+NUMERIC_AUTHORITY=unchanged tight directed binary32 division and canonical
+round-to-nearest sqrt. Integer quotient/remainder(max23 fraction bits) and
+restoring sqrt(exact24 bit-pairs) replace the approximate-hint search graph.
+Signed zero/subnormal/carry/overflow decisions remain explicit IEEE-bit
+operations. No epsilon, approximate geometry or relaxed parity assertion.
+EVIDENCE=Kingston Unity codegen PASS; ordinary production Drain compile and
+SPIR-V validation PASS. Fresh integer-readout glslang compile and
+spirv-val(vulkan1.1) PASS. These are build checks, not a runtime test suite.
+TESTS_RUN=no new Unity/runtime suite in this implementation checkpoint.
+PERF=not measured; APK=not built; QUEST_DEVICE_RUNTIME=not run.
+MANUAL_AUDIT=changed numerical equations checked including subnormal
+normalization, odd negative sqrt exponent and finite upper overflow;
+this is not a full cut/contract/legacy closure audit.
+LEGACY_REMOVED=export Shell/Membrane solvers, their old producer overloads
+and obsolete solver-specific tests; writer tests now use presentation input.
+Unrelated .claude/CLAUDE files are excluded from this checkpoint.
+DEFERRED_DEPENDENCIES=parent48 completion/junction predicate; cross-carrier
+partial direct/DIRT union; final shared-reader/parity/runtime/perf validation.
+NEXT_CUT=finish those existing RUN_04/RUN_05 seams; do not mark any run PASS
+merely because production shaders now compile.

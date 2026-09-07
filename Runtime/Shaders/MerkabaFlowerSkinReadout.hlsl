@@ -347,7 +347,7 @@ bool M8FlowerSkinResidentLayout(uint ownerRef,uint flowerKey,
     return canonical && valid;
 }
 
-#if defined(M8_FLOWER_SIDECAR_WRITE)
+#if defined(M8_FLOWER_SIDECAR_WRITE) || defined(M8_FLOWER_THREAD_DRAW_WRITE)
 void M8FlowerStoreSkinDrawSample(uint address,M8FlowerSkinDrawSample sample)
 {
     _M8ThreadAtlasPages.Store4(address,uint4(asuint(sample.CapturedRgb),sample.Flags));

@@ -10,6 +10,7 @@
 #pragma kernel FinalizeFineErase
 #pragma use_dxc vulkan
 
+#define M8_FLOWER_ENDPOINT_TILE_WRITE_VIEW
 #include "DepthKit.hlsl"
 #include "MerkabaSphereFlower.generated.hlsl"
 #include "MerkabaStereoCamera.hlsl"
@@ -190,6 +191,7 @@ void M8MarkR1Active(uint physicalSlot, uint kernelLocal)
 }
 
 #include "MerkabaFlowerCommit.hlsl"
+void M8DualRequestStorage(uint blockOrdinal,uint kind,uint child,uint tile);
 #include "MerkabaFlowerRefinement.hlsl"
 #include "MerkabaFlowerPageInvalidation.hlsl"
 
@@ -239,7 +241,7 @@ void M8DualObservationPending(uint status)
     }
 }
 
-void M8DualRequestStorage(uint kind, uint child, uint tile)
+void M8DualRequestStorage(uint blockOrdinal, uint kind, uint child, uint tile)
 {
     // Count's claims have already been published. No allocation or geometry
     // is performed here; storage reconstructs this frozen domain address.
@@ -252,13 +254,18 @@ void M8DualRequestStorage(uint kind, uint child, uint tile)
             count,count+1u,previous);
         if (previous != count) continue;
         _M8ClaimQueue[MERKABA_M8_CLAIM_BLOCK_OFFSET+count]=
-            uint2(gScanBlockOrdinal,(kind << 15u) | (tile << 9u) | child);
+            uint2(blockOrdinal,(kind << 15u) | (tile << 9u) | child);
         return;
     }
     // A full bounded prefix drains normally. The same held observation
     // retries the unrecorded address; overflow never fabricates free space.
     _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
     M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+}
+
+void M8DualRequestStorage(uint kind, uint child, uint tile)
+{
+    M8DualRequestStorage(gScanBlockOrdinal,kind,child,tile);
 }
 
 // Emit has marked every accepted direct owner. Negative-only tiles only
@@ -586,6 +593,19 @@ void M8FinalizeObservationCompletion()
     {
         uint failure = M8ObservationFailureReason();
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
+        if(failure==0u && pendingRefinement==0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES]==0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES]==0u &&
+            _M8Counters[M8_COUNTER_REFINEMENT_STAGE]<3u)
+        {
+            // This dispatch barrier publishes every endpoint's completed
+            // ancestor stage before any tile can read it in the next stage.
+            // The same immutable observation, images and bins stay held.
+            _M8Counters[M8_COUNTER_REFINEMENT_STAGE]++;
+            _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS]++;
+            pendingRefinement=1u;
+            _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES]=1u;
+        }
         if (failure != 0u && pendingRefinement == 0u)
         {
             _M8Counters[M8_COUNTER_FAILED_OBSERVATIONS] += 1u;

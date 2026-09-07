@@ -29,11 +29,14 @@ ByteAddressBuffer _M8FlowerDetailPagesRead;
 ByteAddressBuffer _M8ThreadAtlasPagesRead;
 #if defined(M8_FLOWER_SIDECAR_WRITE)
 RWByteAddressBuffer _M8FlowerDetailPages;
-RWByteAddressBuffer _M8ThreadAtlasPages;
 #define M8_FLOWER_DETAIL_SOURCE _M8FlowerDetailPages
-#define M8_FLOWER_THREAD_SOURCE _M8ThreadAtlasPages
 #else
 #define M8_FLOWER_DETAIL_SOURCE _M8FlowerDetailPagesRead
+#endif
+#if defined(M8_FLOWER_SIDECAR_WRITE) || defined(M8_FLOWER_THREAD_DRAW_WRITE)
+RWByteAddressBuffer _M8ThreadAtlasPages;
+#define M8_FLOWER_THREAD_SOURCE _M8ThreadAtlasPages
+#else
 #define M8_FLOWER_THREAD_SOURCE _M8ThreadAtlasPagesRead
 #endif
 
@@ -213,6 +216,15 @@ bool M8FlowerLogicalProgramRef(uint programRef,out uint logicalProgramRef,bool r
     return logicalProgramRef!=0xffffffffu;
 }
 
+// Pure thread-order addressing is shared by canonical split writers and
+// derived draw compaction; it does not require writable FlowerDetail.
+uint M8FlowerSplitRank(uint2 bits,uint ordinal)
+{
+    if(ordinal<32u)
+        return countbits(bits.x&((1u<<ordinal)-1u));
+    return countbits(bits.x)+countbits(bits.y&((1u<<(ordinal-32u))-1u));
+}
+
 #if defined(M8_FLOWER_SIDECAR_WRITE)
 bool M8FlowerRetainOpticalLocked(uint programRef)
 {
@@ -371,13 +383,6 @@ bool M8FlowerCanonicalSplit(uint2 bits)
     M8FlowerUnpackSkinSplitBits(bits.x,bits.y,root,l3,l4);
     return M8FlowerSkinSplitClosure(root,l3,l4);
 }
-uint M8FlowerSplitRank(uint2 bits,uint ordinal)
-{
-    if(ordinal<32u)
-        return countbits(bits.x&((1u<<ordinal)-1u));
-    return countbits(bits.x)+countbits(bits.y&((1u<<(ordinal-32u))-1u));
-}
-
 // Both RGB and V use this same allocation/publication path. The supplied
 // words are already interval-proven observations; this routine neither votes
 // on geometry nor invents the seven values required by an atomic split.

@@ -308,8 +308,10 @@ StereoMeasuredPlane StereoCanonicalPlane(StereoMeasuredPlane plane)
 }
 
 uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
-    int3 owner, uint direction, inout bool bend, inout uint stages)
+    int3 owner, uint direction, inout bool bend, inout uint stages,
+    out uint2 r1Flags)
 {
+    r1Flags=0u.xx;
     int4 node = M8FlowerDirection[direction];
     uint lineClass = (uint)node.w;
     M8FlowerObservedLoopFrame frame;
@@ -333,6 +335,13 @@ uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
         uint sharedSector;
         if (!M8FlowerSealBend(a,b,lineClass,seal,turn,sharedSector))
         { unresolved = true; continue; }
+        uint selectedR1Flag=48u;
+        // This root already has one strict common sector in this owner's
+        // directed R1 face frame. The face-chart lookup does not classify
+        // R2/R3 loops and never changes the algebraic root sign.
+        if (direction<6u &&
+            !M8FlowerR1SectorFlag(direction,sharedSector,selectedR1Flag))
+        { unresolved = true; continue; }
         M8FlowerInterval3 knot;
         knot.x = M8FlowerIAdd(frame.centre.x,M8FlowerIAdd(M8FlowerIMul(seal.x,frame.axis1.x),M8FlowerIMul(seal.y,frame.axis2.x)));
         knot.y = M8FlowerIAdd(frame.centre.y,M8FlowerIAdd(M8FlowerIMul(seal.x,frame.axis1.y),M8FlowerIMul(seal.y,frame.axis2.y)));
@@ -341,6 +350,8 @@ uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
         if (chromatic != RGBD_CERTAIN)
         { unresolved = unresolved || chromatic == RGBD_AMBIGUOUS; continue; }
         supported++;
+        if (selectedR1Flag<48u)
+            r1Flags[selectedR1Flag>>5u] |= 1u<<(selectedR1Flag&31u);
         bend = bend || turn.lo > 0.0 || turn.hi < 0.0;
     }
     return supported != 0u ? RGBD_CERTAIN : (unresolved ? RGBD_AMBIGUOUS : RGBD_IMPOSSIBLE);
@@ -394,10 +405,11 @@ uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bo
         uint axis = index >= 18u ? index-18u : 0u;
         uint direction = index < 18u ? index :
             2u*(uint)lines[axis]+(orientation[axis] < 0 ? 1u : 0u);
-        uint status = StereoLoopSupport(left,right,owner,direction,bend,stages);
+        uint2 r1Flags;
+        uint status = StereoLoopSupport(left,right,owner,direction,bend,stages,r1Flags);
         if (index < 6u)
         {
-            if (status == RGBD_CERTAIN) axes |= 1u << (index>>1u);
+            if (status == RGBD_CERTAIN && any(r1Flags!=0u.xx)) axes |= 1u << (index>>1u);
             if (status != RGBD_IMPOSSIBLE) possibleAxes |= 1u << (index>>1u);
         }
         else if (index < 18u)

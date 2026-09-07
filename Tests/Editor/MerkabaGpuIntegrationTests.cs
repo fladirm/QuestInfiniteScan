@@ -559,12 +559,30 @@ namespace Genesis.RoomScan.Tests
                 "MERKABA_REF_LOADING, MERKABA_REF_COLD_ON_SSD"));
             Assert.That(world, Does.Contain(
                 "_M8ChunkTileRefs[refIndex] = gLoadSlot + 1u"));
-            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
             Assert.That(address, Does.Contain("bool M8IsHotRef"));
-            Assert.That(readout, Does.Contain(
-                "if (tileRef == MERKABA_REF_COLD_ON_SSD)"));
-            Assert.That(readout, Does.Contain(
-                "M8_COUNTER_READOUT_UNRESOLVED"));
+
+            // The current readers require both a HOT dual reference and the
+            // published M8 slot/generation. A staged LOADING leaf, COLD ref or
+            // reused slot therefore stays AMBIGUOUS, never empty/free.
+            string dual = Source("Runtime/Shaders/MerkabaDualHierarchy.hlsl");
+            string resident = Slice(dual, "bool M8DualLeafResident", "uint M8DualLeafReference");
+            Assert.That(resident, Does.Contain("(packed >> 30u) != 2u"));
+            Assert.That(resident, Does.Contain("generation != 0u && slotGeneration == generation"));
+            Assert.That(resident, Does.Contain("meta.x == chunk && meta.y == tile"));
+            Assert.That(resident, Does.Contain("_M8ChunkTileRefsRead[chunk*64u+tile] == slot+1u"));
+            string tileRead = Slice(dual, "uint M8DualReadTile", "uint M8DualReadKernelAt");
+            Assert.That(tileRead, Does.Contain("M8DualLeafResident("));
+            Assert.That(tileRead, Does.Contain("? M8_DUAL_MIXED : M8_DUAL_AMBIGUOUS"));
+            string support = Slice(Source("Runtime/Shaders/MerkabaFlowerSupport.hlsl"),
+                "uint4 M8FlowerSupportResolveTile", "void M8FlowerSupportCacheTile");
+            Assert.That(support, Does.Contain("if (!M8DualLeafResident("));
+            Assert.That(support, Does.Contain("context.x = M8_DUAL_AMBIGUOUS"));
+
+            string front = Slice(Source("Runtime/Shaders/MerkabaFlowerPages.hlsl"),
+                "bool M8FlowerFrontPage", "M8FlowerSymbolRecord M8FlowerLoadSymbol");
+            Assert.That(front, Does.Contain("source.y&M8_FLOWER_PAGE_SOURCE_INVALID"));
+            Assert.That(front, Does.Contain("source.x!=directory.y"));
+            Assert.That(front, Does.Contain("header.Generation==directory.y"));
             Assert.That(integration, Does.Contain(
                 "M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u"));
         }

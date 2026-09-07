@@ -9,7 +9,7 @@ groupshared uint m8FlowerOwnerSource[512];
 groupshared uint m8FlowerOwnerPrecision[512];
 groupshared uint m8FlowerRootPresence[512];
 // Six directed R1 relations, each with two algebraic signs. Each five-bit
-// field is 0 (no witness) or 1+sector; R1 has sixteen generated sectors.
+// field is 0 (no witness) or 1+sector; R1 has 24 generated order sectors.
 groupshared uint2 m8FlowerR1Witness[512];
 groupshared uint m8FlowerDualReady;
 groupshared uint m8FlowerR1Changed;
@@ -555,9 +555,14 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                 max(prior.z,m8FlowerRootLowerY[ownerLocal])>min(prior.w,m8FlowerRootUpperY[ownerLocal]))
                 continue;
             uint sector=(ownTags[witnessOwner]>>8u)&31u;
-            // The exact generated R1 table contains sixteen sectors. Never
-            // truncate a changed ABI table into this five-bit witness field.
-            if (sector>=16u) continue;
+            uint selectedFlag;
+            // The relation is expressed in THIS endpoint owner's face frame,
+            // even though the other endpoint supplied the second root. Only
+            // its generated selected flag is incident at this certain phase.
+            // Do not transport that face flag into a child petal implicitly.
+            if (sector>=M8FlowerLineMeta[lineClass].z || sector>=31u ||
+                !M8FlowerR1SectorFlag(direction,sector,selectedFlag) ||
+                M8FlowerPetalNodes[selectedFlag].x!=direction) continue;
             m8FlowerR1Witness[ownerLocal][plus?1u:0u] |=
                 (sector+1u)<<(5u*direction);
         }

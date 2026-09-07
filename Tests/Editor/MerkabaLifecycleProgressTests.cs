@@ -477,26 +477,11 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void ExportReportsMeasuredGeometryAndOutputBytes()
         {
-            KernelState state = new()
-            {
-                OccupancyEvidence = MerkabaConstants.OccupiedOnThreshold,
-                PackedColor = KernelState.PackColor(
-                    new UnityEngine.Color32(1, 2, 3, 255)),
-                ColorConfidence = 1,
-                Flags = MerkabaConstants.OccupiedFlag
-            };
-            state.Flags = KernelState.SetSurfacePlane(state.Flags,
-                new float3(1, 0, 0), 0f);
-            var evidence = new Dictionary<int3, KernelState>
-            {
-                [new int3(0, 0, 0)] = state
-            };
-            MerkabaExportMembraneResult membrane = MerkabaExportMembrane.Build(
-                MerkabaExportShell.Build(evidence));
+            MerkabaFlowerPresentation flower = MerkabaFlowerWriterFixture.Create();
             var progress = new RecordingProgress();
             using var stream = new MemoryStream();
-            MerkabaGlbResult result = MerkabaGlbWriter.Write(stream, membrane,
-                progress);
+            MerkabaGlbResult result = MerkabaGlbWriter.Write(stream, flower,
+                float3.zero, progress);
             Assert.That(result.ByteLength, Is.EqualTo(stream.Length));
             AssertStageIsMeasured(progress.Values,
                 ScanOperationStage.BuildingMerkabaGeometry);

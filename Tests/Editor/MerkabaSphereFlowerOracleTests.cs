@@ -182,7 +182,7 @@ namespace Genesis.RoomScan.Tests
                 var rule = MerkabaSphereFlowerAuthority.Lines[line];
                 int expected = rule.Shell switch
                 {
-                    MerkabaSphereFlowerAuthority.Shell.R1Core => 16,
+                    MerkabaSphereFlowerAuthority.Shell.R1Core => 24,
                     MerkabaSphereFlowerAuthority.Shell.R2Shape => 6,
                     MerkabaSphereFlowerAuthority.Shell.R3Closure => 12,
                     _ => throw new InvalidOperationException()
@@ -218,7 +218,7 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(classified, Is.EqualTo(sector));
                 }
             }
-            Assert.That(total, Is.EqualTo(132));
+            Assert.That(total, Is.EqualTo(156));
             Assert.That(MerkabaSphereFlowerAuthority.SectorBoundaries.Length,
                 Is.EqualTo(total));
         }
@@ -584,7 +584,7 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaSphereFlower.generated.hlsl");
             string source = File.ReadAllText(path);
-            StringAssert.Contains("#define M8_FLOWER_SECTOR_BOUNDARY_COUNT 132u",
+            StringAssert.Contains("#define M8_FLOWER_SECTOR_BOUNDARY_COUNT 156u",
                 source);
             StringAssert.Contains("static const uint4 M8FlowerStrand[72]", source);
             StringAssert.Contains("static const uint4 M8FlowerPetalNodes[48]", source);

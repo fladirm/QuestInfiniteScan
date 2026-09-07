@@ -66,9 +66,9 @@ namespace Genesis.RoomScan.Tests
             private static readonly int3 SecondOwner = new(4, 3, 3);
             private readonly List<ComputeBuffer> _buffers = new();
             private readonly ComputeShader _shader;
-            private readonly int _kernel;
+            private readonly int _kernel, _finalizeKernel;
             private readonly ComputeBuffer _counters, _details, _tileRecords, _states;
-            private readonly Texture2D _depth, _normals;
+            private readonly Texture2D _depth, _normals, _rgb;
             private readonly uint4[] _canonicalStates;
             private uint _publishingGeneration;
 
@@ -78,6 +78,7 @@ namespace Genesis.RoomScan.Tests
                     "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute"));
                 Assert.That(_shader, Is.Not.Null);
                 _kernel = _shader.FindKernel("DrainObservationRefinement");
+                _finalizeKernel = _shader.FindKernel("FinalizeObservation");
 
                 // An ordinary orthographic projection: the two pixel centres
                 // lie on the fixed relation endpoints plus the measured normal
@@ -106,6 +107,9 @@ namespace Genesis.RoomScan.Tests
                 _normals = MakeTexture(TextureFormat.RGBAFloat,
                     new Color(normal.x, normal.y, normal.z, 1),
                     new Color(normal.x, normal.y, normal.z, 1));
+                _rgb = MakeTexture(TextureFormat.RGBAFloat,
+                    new Color(128f / 255f, 128f / 255f, 128f / 255f, 1),
+                    new Color(128f / 255f, 128f / 255f, 128f / 255f, 1));
                 _shader.SetTexture(_kernel, "gsDepthTex", _depth);
                 _shader.SetTexture(_kernel, "gsDepthNormalTex", _normals);
                 _shader.SetInts("gsDepthTexSize", 2, 1);
@@ -118,11 +122,40 @@ namespace Genesis.RoomScan.Tests
                 // Ideal calibrated measurement; the production kernel still
                 // adds the mandatory normal/offset quantization enclosures.
                 _shader.SetVector("_M8PlaneErrorBounds", new Vector4(0, 0, 0, 1));
+                _shader.SetVectorArray("_M8DepthErrorBounds", new[]
+                    { new Vector4(0, 0, 0, 1), new Vector4(0, 0, 0, 1) });
+                _shader.SetVectorArray("_M8RgbErrorBounds", new[]
+                    { new Vector4(0, 0, 0, 1), new Vector4(0, 0, 0, 1) });
+                Matrix4x4 rgbRotation = Matrix4x4.identity;
+                rgbRotation.SetColumn(0, new Vector4(right.x, right.y, right.z, 0));
+                rgbRotation.SetColumn(1, new Vector4(up.x, up.y, up.z, 0));
+                rgbRotation.SetColumn(2, new Vector4(-normal.x, -normal.y, -normal.z, 0));
+                foreach (string eyeName in new[] { "Left", "Right" })
+                {
+                    _shader.SetTexture(_kernel, "_MerkabaCameraRgb" + eyeName, _rgb);
+                    _shader.SetVector("_MerkabaCameraPosition" + eyeName, eye);
+                    _shader.SetMatrix("_MerkabaCameraInverseRotation" + eyeName, rgbRotation.inverse);
+                    _shader.SetVector("_MerkabaCameraFocalLength" + eyeName,
+                        new Vector4(1f / halfWidth, 0.5f / A.LatticeStep, 0, 0));
+                    _shader.SetVector("_MerkabaCameraPrincipalPoint" + eyeName,
+                        new Vector4(1, 0.5f, 0, 0));
+                    _shader.SetVector("_MerkabaCameraSensorResolution" + eyeName,
+                        new Vector4(2, 1, 0, 0));
+                    _shader.SetVector("_MerkabaCameraCurrentResolution" + eyeName,
+                        new Vector4(2, 1, 0, 0));
+                }
+                // Both captured rows really have height one. They cannot
+                // certify a complete RGB bilinear cell: the production skin
+                // stage must consume that ambiguity, not invent RGB detail or
+                // hold this stationary phase fixture forever.
                 _shader.SetFloat("_MerkabaMaxUpdateDistance", 2f);
                 _shader.SetInt("_MerkabaExclusionCount", 0);
                 _shader.SetInt("_M8FineRefineActive", 0);
                 _shader.SetInt("_M8ObservationToken", (int)ObservationToken);
                 _shader.SetInt("_M8ObservationHotSlotCount", 1);
+                _shader.SetInts("_M8ScanCenterBlock", 0, 0, 0);
+                _shader.SetInt("_M8ScanBlockRadius", 2);
+                _shader.SetInt("_M8ScanBlockSide", 5);
 
                 var records = new List<uint4>(16);
                 for (int pixel = 0; pixel < 2; pixel++)
@@ -144,6 +177,10 @@ namespace Genesis.RoomScan.Tests
                 Bind("_M8ObservationTileBinsRead", Upload(new[]
                     { new uint4(ObservationToken, (uint)records.Count, 0, (uint)records.Count) }, 16));
                 Bind("_M8TouchedTileQueueRead", Upload(new uint[] { 0 }, 4));
+                Bind("_M8PendingNewTileRefsRead", Upload(new uint[] { 0 }, 4));
+                Bind("_M8ClaimQueue", Upload(new uint2[MerkabaSpatial.ClaimRecordCount], 8));
+                Bind("_M8ObservationDispatchArgs", Upload(new uint[] { 1, 1, 1 }, 4));
+                Bind("_M8AttemptCompletion", Upload(new uint4[1], 16));
 
                 // Exactly the existing Block -> Chunk -> Tile coordinate ABI.
                 var hash = new uint4[MerkabaSpatial.HashEntryCount];
@@ -193,6 +230,9 @@ namespace Genesis.RoomScan.Tests
                 var threads = Raw(MerkabaFlowerGpuLayout.ThreadPersistentBufferBytes);
                 InitializeArena(threads, MerkabaFlowerGpuLayout.ThreadArenaControl);
                 Bind("_M8ThreadAtlasPages", threads);
+                var pages = Raw(MerkabaFlowerGpuLayout.PageDirectoryBytes);
+                pages.SetData(new uint[MerkabaFlowerGpuLayout.PageDirectoryBytes / 4]);
+                Bind("_M8FlowerPageDirectory", pages);
             }
 
             internal uint[] Drain(int quantum, bool backpressure)
@@ -206,6 +246,8 @@ namespace Genesis.RoomScan.Tests
                     uint[] counters = Dispatch(PhaseTaskCount);
                     Assert.That(counters[MerkabaGrid.CounterRefinementPendingTiles], Is.EqualTo(1u));
                     Assert.That(counters[MerkabaGrid.CounterRefinementBackpressure], Is.GreaterThan(0u));
+                    Assert.That(counters[MerkabaGrid.CounterRefinementStage], Is.Zero);
+                    Assert.That(counters[MerkabaGrid.CounterObservationCompleted], Is.Zero);
                     Assert.That(CanonicalRecords(), Is.Empty);
                     Assert.That(ReadDirectory()[3], Is.LessThan((uint)PhaseTaskCount));
                     // GetData above has retired this dispatch. Releasing the
@@ -214,6 +256,7 @@ namespace Genesis.RoomScan.Tests
                         MerkabaFlowerGpuLayout.DetailArenaControl / 4, 1);
                 }
                 bool complete = false;
+                uint previousStage = 0u, visitedStages = 1u;
                 for (int attempt = 0; attempt < PhaseTaskCount * 4; attempt++)
                 {
                     uint[] counters = Dispatch(quantum);
@@ -222,11 +265,22 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(directory[2], Is.EqualTo(ObservationToken));
                     Assert.That(counters[MerkabaGrid.CounterObservationToken], Is.EqualTo(ObservationToken));
                     Assert.That(counters[MerkabaGrid.CounterObservationFailure], Is.Zero);
+                    uint stage = counters[MerkabaGrid.CounterRefinementStage];
+                    Assert.That(stage, Is.InRange(previousStage, Math.Min(previousStage + 1u, 3u)),
+                        "Only the actual GPU finalizer may cross one completed global ancestry barrier.");
+                    previousStage = stage;
+                    visitedStages |= 1u << (int)stage;
+                    if (stage < 3u)
+                        Assert.That(counters[MerkabaGrid.CounterObservationCompleted], Is.Zero,
+                            "Root/L1/L2 completion cannot release frozen RGB/V work.");
                     if (directory[3] == PhaseTaskCount &&
-                        counters[MerkabaGrid.CounterRefinementPendingTiles] == 0)
+                        counters[MerkabaGrid.CounterRefinementPendingTiles] == 0 &&
+                        stage == 3u && counters[MerkabaGrid.CounterObservationCompleted] != 0u)
                     { complete = true; break; }
                 }
                 Assert.That(complete, Is.True, "The frozen observation must drain without another camera input.");
+                Assert.That(visitedStages, Is.EqualTo(15u),
+                    "The same observation must pass the real root, L1, L2 and skin GPU stages.");
                 uint[] records = CanonicalRecords();
                 Dispatch(quantum);
                 CollectionAssert.AreEqual(records, CanonicalRecords(), "A completed cursor must be idempotent.");
@@ -243,10 +297,13 @@ namespace Genesis.RoomScan.Tests
                 // Only per-quantum telemetry is reset. Canonical state,
                 // source pixels, bins, matrices and token remain immutable.
                 _counters.SetData(new uint[4], 0, MerkabaGrid.CounterRefinementPendingTiles, 4);
+                _counters.SetData(new uint[1], 0, MerkabaGrid.CounterObservationChangeMask, 1);
                 _shader.SetInt("_M8RefinementQuantum", quantum);
                 _shader.SetInt("_M8DualRetiredGeneration", (int)_publishingGeneration);
                 _shader.SetInt("_M8DualPublishingGeneration", (int)++_publishingGeneration);
+                _shader.SetInt("_M8AttemptToken", (int)_publishingGeneration);
                 _shader.Dispatch(_kernel, 1, 1, 1);
+                _shader.Dispatch(_finalizeKernel, 1, 1, 1);
                 var counters = new uint[MerkabaGrid.CounterCount];
                 _counters.GetData(counters); // Test-only readback; also the true retirement boundary.
                 return counters;
@@ -278,7 +335,11 @@ namespace Genesis.RoomScan.Tests
 
             private uint[] ReadDirectory() => ReadWords(_details, MerkabaFlowerGpuLayout.TileDirectoryBase, 4);
             private static uint Local(int3 owner) => (uint)(owner.x + 8 * (owner.y + 8 * owner.z));
-            private void Bind(string name, ComputeBuffer buffer) => _shader.SetBuffer(_kernel, name, buffer);
+            private void Bind(string name, ComputeBuffer buffer)
+            {
+                _shader.SetBuffer(_kernel, name, buffer);
+                _shader.SetBuffer(_finalizeKernel, name, buffer);
+            }
             private ComputeBuffer Upload<T>(T[] values, int stride) where T : struct
             {
                 var buffer = new ComputeBuffer(values.Length, stride);
@@ -311,6 +372,7 @@ namespace Genesis.RoomScan.Tests
                 foreach (ComputeBuffer buffer in _buffers) buffer.Dispose();
                 UnityEngine.Object.DestroyImmediate(_depth);
                 UnityEngine.Object.DestroyImmediate(_normals);
+                UnityEngine.Object.DestroyImmediate(_rgb);
                 UnityEngine.Object.DestroyImmediate(_shader);
             }
         }

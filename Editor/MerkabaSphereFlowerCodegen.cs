@@ -29,12 +29,19 @@ namespace Genesis.RoomScan.Editor
         [MenuItem("Quest Infinite Scan/Merkaba/Regenerate Sphere-Flower HLSL")]
         public static void Regenerate()
         {
-            WriteIfChanged(GeneratedAssetPath, BuildGeneratedHlsl());
-            WriteIfChanged(GeneratedCsAssetPath, BuildGeneratedCs());
-            WriteIfChanged(GeneratedDataAbiAssetPath, BuildGeneratedDataAbiHlsl());
-            WriteIfChanged(GeneratedNativeDataAbiAssetPath,
-                BuildGeneratedNativeDataAbi());
-            WriteIfChanged(GeneratedDepthCertificateAssetPath, BuildDepthCertificateHlsl());
+            // Resolve every algebra/ABI proof before publishing any consumer.
+            // A failed sector or child proof must not leave HLSL from a new
+            // authority beside C# or native tables from the previous one.
+            string hlsl = BuildGeneratedHlsl();
+            string csharp = BuildGeneratedCs();
+            string dataAbi = BuildGeneratedDataAbiHlsl();
+            string nativeAbi = BuildGeneratedNativeDataAbi();
+            string depthCertificate = BuildDepthCertificateHlsl();
+            WriteIfChanged(GeneratedAssetPath, hlsl);
+            WriteIfChanged(GeneratedCsAssetPath, csharp);
+            WriteIfChanged(GeneratedDataAbiAssetPath, dataAbi);
+            WriteIfChanged(GeneratedNativeDataAbiAssetPath, nativeAbi);
+            WriteIfChanged(GeneratedDepthCertificateAssetPath, depthCertificate);
             Debug.Log("[SphereFlower] Generated exact CPU/HLSL tables.");
         }
 
@@ -147,6 +154,7 @@ namespace Genesis.RoomScan.Editor
             AppendSkin(output);
             AppendSectors(output);
             AppendRadicalSectorPatterns(output, false);
+            AppendAnchorSectorPetalMasks(output, false);
             AppendTetraFrames(output);
             AppendFunctions(output);
             AppendPlaneCodec(output, false);
@@ -300,6 +308,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
             AppendGeneratedCsPhaseFamilies(o);
             AppendL2Carrier(o, true);
             AppendRadicalSectorPatterns(o, true);
+            AppendAnchorSectorPetalMasks(o, true);
             o.AppendLine("        private static ulong[] LoadGeneratedNodeIncidentPetals() => new ulong[] {");
             for (int i = 0; i < MerkabaSphereFlowerAuthority.NodeIncidentPetals.Length; i++)
             {
@@ -359,6 +368,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
             output.AppendLine(csharp
                 ? $"        internal const float M8_FLOWER_PLANE_RANGE = {range};"
                 : $"#define M8_FLOWER_PLANE_RANGE {range}");
+            AppendCanonicalRounding(output, csharp);
             string source = @"
 internal static bool M8FlowerHasPlane(uint flags)
 {
@@ -428,7 +438,10 @@ internal static void M8FlowerUnpackPlane(uint flags, out float3 normal,
 {
     uint u = (flags >> (int)M8_FLOWER_PLANE_U_SHIFT) & 1023u;
     uint v = (flags >> (int)M8_FLOWER_PLANE_V_SHIFT) & 1023u;
-    precise float2 unit = float2(u, v) / 1023.0f;
+    uint2 encoded = uint2(u,v);
+    precise float2 unit = float2(0.0f,0.0f);
+    [loop] for(uint axis=0u;axis<2u;axis++)
+        unit[(int)axis] = M8FlowerRoundDivide((float)encoded[(int)axis],1023.0f);
     precise float2 twice = unit * 2.0f;
     precise float2 oct = twice - 1.0f;
     precise float zX = 1.0f - abs(oct.x);
@@ -438,11 +451,12 @@ internal static void M8FlowerUnpackPlane(uint flags, out float3 normal,
     precise float3 square = normal * normal;
     precise float squareXY = square.x + square.y;
     precise float lengthSquared = squareXY + square.z;
-    precise float normalLength = sqrt(lengthSquared);
-    normal /= normalLength;
+    precise float normalLength = M8FlowerRoundSqrt(lengthSquared);
+    [loop] for(uint axis=0u;axis<3u;axis++)
+        normal[(int)axis] = M8FlowerRoundDivide(normal[(int)axis],normalLength);
     uint raw = (flags >> (int)M8_FLOWER_PLANE_OFFSET_SHIFT) & 255u;
     int offsetCode = raw >= 128u ? (int)raw - 256 : (int)raw;
-    precise float unitOffset = (float)offsetCode / 127.0f;
+    precise float unitOffset = M8FlowerRoundDivide((float)offsetCode,127.0f);
     signedOffset = unitOffset * M8_FLOWER_PLANE_RANGE;
 }
 
@@ -493,7 +507,127 @@ internal static uint4 M8FlowerContradictR1(uint4 state)
 }
 ";
             output.AppendLine(csharp
-                ? source.Replace("precise ", string.Empty).Replace("M8FlowerIsFinite(", "isfinite(")
+                ? source.Replace("precise ", string.Empty).Replace("[loop] ", string.Empty)
+                    .Replace("M8FlowerIsFinite(", "isfinite(")
+                : source.Replace("internal static ", string.Empty));
+        }
+
+        // One canonical round-to-nearest-even decision source for the CPU and
+        // HLSL consumers. Sqrt is a bounded integer restoring square root;
+        // quotient midpoint products use binary64 on CPU and uint2 on GPU.
+        // Neither decision depends on native approximate sqrt/divide behavior.
+        private static void AppendCanonicalRounding(StringBuilder output, bool csharp)
+        {
+            output.AppendLine(csharp ? @"
+internal static uint2 M8FlowerPositiveQuotientBracket(float numerator,float denominator)
+{
+    if(!TryDivideEnclosed(numerator,denominator,out FloatInterval bracket))
+        return uint2(0xffffffffu,0xffffffffu);
+    return uint2(asuint(bracket.Lower),asuint(bracket.Upper));
+}
+
+internal static int M8FlowerCompareRoundMidpoint(uint lo,uint hi,float denominator,
+    float value)
+{
+    double sum=(double)asfloat(lo)+asfloat(hi);
+    double product=sum*denominator;
+    double target=2.0*value;
+    return product<target?-1:(product>target?1:0);
+}
+" : @"
+uint2 M8FlowerPositiveQuotientBracket(float numerator,float denominator)
+{
+    M8FlowerInterval bracket;
+    if(!M8FlowerDivideEnclosed(numerator,denominator,bracket))
+        return uint2(0xffffffffu,0xffffffffu);
+    return uint2(asuint(bracket.lo),asuint(bracket.hi));
+}
+
+int M8FlowerCompareRoundMidpoint(uint lo,uint hi,float denominator,
+    float value)
+{
+    // lo/hi are adjacent positive binary32 values. Their exact sum has
+    // <=25 mantissa bits, so its product fits the existing 64-bit
+    // split-multiply primitive (<=49 bits, including a power-of-two boundary).
+    uint eLo=(lo>>23u)&255u,eHi=(hi>>23u)&255u;
+    uint mLo=(lo&0x7fffffu)|(eLo!=0u?0x800000u:0u);
+    uint mHi=(hi&0x7fffffu)|(eHi!=0u?0x800000u:0u);
+    int xLo=eLo==0u?-149:(int)eLo-150;
+    int xHi=eHi==0u?-149:(int)eHi-150;
+    int exponent=min(xLo,xHi);
+    uint sum=(mLo<<(uint)(xLo-exponent))+(mHi<<(uint)(xHi-exponent));
+    M8FlowerDyadicSquare product;
+    product.nonzero=1u;
+    uint bits=asuint(denominator),e=(bits>>23u)&255u;
+    uint mantissa=(bits&0x7fffffu)|(e!=0u?0x800000u:0u);
+    product.coefficient=M8FlowerMultiply24(sum,mantissa);
+    product.exponent=exponent+(e==0u?-149:(int)e-150);
+    M8FlowerDyadicSquare target=M8FlowerProductDyadic(value,1.0);
+    target.exponent+=1;
+    return M8FlowerCompareDyadic(product,target);
+}
+");
+            string source = @"
+internal static uint M8FlowerNearestBracket(uint lo,uint hi,int midpointComparison)
+{
+    if(lo==hi)return lo;
+    if(midpointComparison<0)return hi;
+    if(midpointComparison>0)return lo;
+    return (lo&1u)==0u?lo:hi;
+}
+
+internal static float M8FlowerRoundDivide(float numerator,float denominator)
+{
+    uint n=asuint(numerator),d=asuint(denominator);
+    uint magnitude=n&0x7fffffffu;
+    if(magnitude>=0x7f800000u || d==0u || d>=0x7f800000u)
+        return asfloat(0x7fc00000u);
+    if(magnitude==0u)return numerator;
+    float positive=asfloat(magnitude);
+    uint2 bracket=M8FlowerPositiveQuotientBracket(positive,denominator);
+    if(bracket.x==0xffffffffu)return asfloat(0x7fc00000u);
+    uint rounded=bracket.x;
+    if(bracket.x!=bracket.y)
+        rounded=M8FlowerNearestBracket(bracket.x,bracket.y,
+            M8FlowerCompareRoundMidpoint(bracket.x,bracket.y,denominator,positive));
+    return asfloat(rounded|(n&0x80000000u));
+}
+
+internal static float M8FlowerRoundSqrt(float value)
+{
+    uint bits=asuint(value);
+    if((bits&0x7fffffffu)==0u)return value;
+    if(bits>=0x7f800000u)return asfloat(0x7fc00000u);
+    uint encodedExponent=bits>>23;
+    uint mantissa=(bits&0x7fffffu)|(encodedExponent!=0u?0x800000u:0u);
+    int exponent=encodedExponent!=0u?(int)encodedExponent-127:-126;
+    [loop] while(mantissa<0x800000u){mantissa<<=1;--exponent;}
+    int parity=exponent&1;
+    int shift=23+parity;
+    uint2 radicand=uint2(mantissa<<shift,mantissa>>(32-shift));
+    uint root=0u,remainder=0u;
+    // D=mantissa*2^(23+parity) has at most48bits. Consume exactly24
+    // bit-pairs; remainder stays below2^27, so no uint64/float64 is needed.
+    [loop] for(int pair=23;pair>=0;--pair)
+    {
+        int pairShift=2*pair;
+        uint digit=pairShift>=32?radicand.y>>(pairShift-32):radicand.x>>pairShift;
+        remainder=(remainder<<2)|(digit&3u);
+        root<<=1;
+        uint trial=(root<<1)|1u;
+        if(remainder>=trial){remainder-=trial;root|=1u;}
+    }
+    // D=q^2+r. The midpoint square is q^2+q+1/4: integral D can
+    // never tie, and nearest rounding increments q exactly when r>q.
+    if(remainder>root)++root;
+    int rootExponent=(exponent-parity)/2;
+    // All positive binary32 square roots are normal. Addition also handles
+    // the carry when rounding a24bit significand across a power of two.
+    return asfloat(((uint)(rootExponent+127)<<23)+root-0x800000u);
+}
+";
+            output.AppendLine(csharp
+                ? source.Replace("precise ", string.Empty).Replace("[loop] ", string.Empty)
                 : source.Replace("internal static ", string.Empty));
         }
 
@@ -1253,6 +1387,62 @@ uint3 M8FlowerL2WedgeKnots(uint hub, uint wedge)
     uint packed=M8FlowerL2Wedge[6u*hub+wedge].x;
     return uint3(packed&511u,(packed>>9u)&511u,(packed>>18u)&511u);
 }");
+            AppendL2WedgeOwners(o,csharp);
+        }
+
+        private static void AppendL2WedgeOwners(StringBuilder o, bool csharp)
+        {
+            var offsets=MerkabaSphereFlowerAuthority.L2WedgeOwnerOffsets;
+            var owners=MerkabaSphereFlowerAuthority.L2WedgeOwners;
+            if(csharp)o.AppendLine("        private static void LoadGeneratedL2WedgeOwners(out ushort[] offsets, out L2WedgeOwnerRule[] owners) {");
+            o.AppendLine(csharp?"            offsets = new ushort[] {":
+                "static const uint M8FlowerL2WedgeOwnerOffsets["+offsets.Length+"] = {");
+            for(int i=0;i<offsets.Length;i++)
+            {
+                o.Append("    ").Append(offsets[i]);
+                if(!csharp)o.Append('u');
+                Comma(o,i,offsets.Length);
+            }
+            o.AppendLine("};");
+            o.AppendLine(csharp?"            owners = new L2WedgeOwnerRule[] {":
+                "static const int4 M8FlowerL2WedgeOwners["+owners.Length+"] = {");
+            for(int i=0;i<owners.Length;i++)
+            {
+                var owner=owners[i];
+                o.Append(csharp?"    new L2WedgeOwnerRule(new int3(":"    int4(")
+                    .Append(owner.OwnerOffset.x).Append(", ")
+                    .Append(owner.OwnerOffset.y).Append(", ")
+                    .Append(owner.OwnerOffset.z);
+                if(csharp)o.Append("), ").Append(owner.PartnerWedge)
+                    .Append(", ").Append(owner.VertexMap).Append(')');
+                else o.Append(", ").Append(owner.Packed).Append(')');
+                Comma(o,i,owners.Length);
+            }
+            o.AppendLine("};");
+            if(csharp)o.AppendLine("        }");
+            else o.AppendLine(@"
+// Whole-petal identity, not one shared knot or a position/normal weld.
+// Codegen sorts incident owners lexicographically, then their local wedge.
+bool M8FlowerCanonicalL2WedgeOwner(uint carrier,uint wedge,
+    out int3 ownerOffset,out uint partnerWedge,out uint vertexMap)
+{
+    ownerOffset=0;partnerWedge=vertexMap=0u;
+    if(carrier>=128u || wedge>=6u)return false;
+    uint index=6u*carrier+wedge;
+    uint first=M8FlowerL2WedgeOwnerOffsets[index];
+    if(first==M8FlowerL2WedgeOwnerOffsets[index+1u])return false;
+    int4 row=M8FlowerL2WedgeOwners[first];
+    ownerOffset=row.xyz;partnerWedge=(uint)row.w&1023u;
+    vertexMap=((uint)row.w>>10u)&63u;
+    return true;
+}
+
+bool M8FlowerOwnsL2Wedge(uint carrier,uint wedge)
+{
+    int3 delta;uint partner,permutation;
+    return M8FlowerCanonicalL2WedgeOwner(carrier,wedge,delta,partner,permutation) &&
+        all(delta==0) && partner==6u*carrier+wedge;
+}");
         }
 
         private static void ValidatePhaseFamilyRows()
@@ -1605,6 +1795,51 @@ bool M8FlowerRadicalSectorSigns(uint node,uint sector,out uint3 signs)
 }");
         }
 
+        private static void AppendAnchorSectorPetalMasks(StringBuilder output, bool csharp)
+        {
+            var masks = MerkabaSphereFlowerAuthority.AnchorSectorPetalMasks;
+            output.Append(csharp
+                ? "        private static ulong[] LoadGeneratedAnchorSectorPetalMasks() => new ulong[] {\n"
+                : "static const uint2 M8FlowerAnchorSectorPetalMask[" + masks.Length + "] = {\n");
+            for (int i = 0; i < masks.Length; i++)
+            {
+                if (csharp)
+                    output.Append("            0x").Append(masks[i].ToString("x12",
+                        CultureInfo.InvariantCulture)).Append("UL");
+                else
+                    output.Append("    uint2(").Append((uint)masks[i]).Append("u, ")
+                        .Append((uint)(masks[i] >> 32)).Append("u)");
+                Comma(output, i, masks.Length);
+            }
+            output.AppendLine(csharp ? "        };" : "};");
+            if (csharp) return;
+            output.AppendLine(@"
+// Same-shell power order on the actual directed sphere anchor. An empty
+// higher-shell mask is a valid sector with no incident eligible flag; it is
+// not an unresolved table entry or permission to invent another branch.
+bool M8FlowerAnchorSectorFlags(uint node,uint sector,out uint2 mask)
+{
+    mask=0u;
+    if(node>=26u)return false;
+    uint3 meta=M8FlowerLineMeta[(uint)M8FlowerNode[node].w];
+    if(sector>=meta.z)return false;
+    mask=M8FlowerAnchorSectorPetalMask[2u*(meta.y+sector)+(node&1u)];
+    return true;
+}
+
+// The given directed R1 face and its strict sector select exactly one flag.
+// Equality ownership was proved by codegen; uncertain intervals crossing an
+// order boundary still require refinement in M8FlowerClassifySector.
+bool M8FlowerR1SectorFlag(uint node,uint sector,out uint petal)
+{
+    petal=0xffffffffu;
+    uint2 mask;
+    if(node>=6u || !M8FlowerAnchorSectorFlags(node,sector,mask))return false;
+    petal=mask.x!=0u?(uint)firstbitlow(mask.x):32u+(uint)firstbitlow(mask.y);
+    return true;
+}");
+        }
+
         private static void AppendTetraFrames(StringBuilder output)
         {
             var unit = MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
@@ -1871,9 +2106,7 @@ uint M8FlowerClassifyRoot(M8FlowerInterval3 abc)
     return M8_FLOWER_ROOT_AMBIGUOUS;
 }
 
-// Exact dyadic comparisons certify the bounds around native sqrt/division.
-// An implementation's approximate instruction can only cause AMBIGUOUS;
-// its result is never accepted merely because it is within a chosen epsilon.
+// Exact dyadic comparisons certify interval products and midpoint decisions.
 M8FlowerDyadicSquare M8FlowerProductDyadic(float left, float right)
 {
     M8FlowerDyadicSquare result;
@@ -1905,17 +2138,6 @@ int M8FlowerCompareDyadic(M8FlowerDyadicSquare a, M8FlowerDyadicSquare b)
     return ca.x == cb.x ? 0 : (ca.x < cb.x ? -1 : 1);
 }
 
-int M8FlowerCompareSignedProduct(float left, float positiveRight, float value)
-{
-    M8FlowerDyadicSquare a = M8FlowerProductDyadic(left, positiveRight);
-    M8FlowerDyadicSquare b = M8FlowerProductDyadic(value, 1.0);
-    bool negativeA = a.nonzero != 0u && (asuint(left) >> 31u) != 0u;
-    bool negativeB = b.nonzero != 0u && (asuint(value) >> 31u) != 0u;
-    if (negativeA != negativeB) return negativeA ? -1 : 1;
-    int magnitude = M8FlowerCompareDyadic(a, b);
-    return negativeA ? -magnitude : magnitude;
-}
-
 bool M8FlowerDivideEnclosed(float numerator, float denominator,
     out M8FlowerInterval result)
 {
@@ -1927,38 +2149,35 @@ bool M8FlowerDivideEnclosed(float numerator, float denominator,
     uint sign = asuint(numerator) & 0x80000000u;
     uint magnitude = asuint(numerator) & 0x7fffffffu;
     if (magnitude == 0u) return true;
-    float positive = asfloat(magnitude);
-    precise float quotient = positive / denominator;
-    // Native division is only a starting hint, not a one-ULP accuracy
-    // assumption. Exact dyadic products find an enclosing binary32 bracket.
-    // Positive finite floats are monotonically ordered by their uint bits;
-    // 32 doublings cover that entire domain, including flushed subnormals.
-    const uint maximum = 0x7f7fffffu;
-    uint centre = min(asuint(quotient) & 0x7fffffffu, maximum);
-    uint lo = centre, hi = centre, step = 1u;
-    bool bracketed = false;
-    [loop] for (uint bit = 0u; bit < 32u; bit++)
+    uint nEncoded=magnitude>>23u,dEncoded=denominatorBits>>23u;
+    uint n=(magnitude&0x7fffffu)|(nEncoded!=0u?0x800000u:0u);
+    uint d=(denominatorBits&0x7fffffu)|(dEncoded!=0u?0x800000u:0u);
+    int nExponent=nEncoded!=0u?(int)nEncoded-127:-126;
+    int dExponent=dEncoded!=0u?(int)dEncoded-127:-126;
+    [loop] while(n<0x800000u){n<<=1u;--nExponent;}
+    [loop] while(d<0x800000u){d<<=1u;--dExponent;}
+    int exponent=nExponent-dExponent;
+    if(n<d){n<<=1u;--exponent;}
+    if(exponent>127)return false;
+    uint lo=0u,hi=1u;
+    if(exponent>=-149)
     {
-        lo = centre > step ? centre - step : 0u;
-        hi = step > maximum - centre ? maximum : centre + step;
-        int lower = M8FlowerCompareSignedProduct(asfloat(lo), denominator, positive);
-        int upper = M8FlowerCompareSignedProduct(asfloat(hi), denominator, positive);
-        if (lower <= 0 && upper >= 0) { bracketed = true; break; }
-        if (hi == maximum && upper < 0) return false; // proved finite overflow
-        step <<= 1u;
+        // d<=n<2d. Integer long division emits exactly the representable
+        // significand bits, never more than23; every remainder is <2d.
+        uint fractionBits=exponent>=-126?23u:(uint)(exponent+149);
+        uint quotient=1u,remainder=n-d;
+        [loop] for(uint bit=0u;bit<fractionBits;++bit)
+        {
+            if(remainder==0u){quotient<<=fractionBits-bit;break;}
+            remainder<<=1u;quotient<<=1u;
+            if(remainder>=d){remainder-=d;quotient|=1u;}
+        }
+        lo=exponent>=-126?((uint)(exponent+127)<<23u)|(quotient&0x7fffffu):quotient;
+        hi=lo+(remainder!=0u?1u:0u);
+        if(hi>=0x7f800000u)return false;
     }
-    if (!bracketed) return false;
-    // Tight directed bounds do not depend on the driver's division hint.
-    [loop] while (hi - lo > 1u)
-    {
-        uint middle = lo + ((hi - lo) >> 1u);
-        int comparison = M8FlowerCompareSignedProduct(asfloat(middle), denominator, positive);
-        if (comparison == 0) { lo = middle; hi = middle; break; }
-        if (comparison < 0) lo = middle;
-        else hi = middle;
-    }
-    if (M8FlowerCompareSignedProduct(asfloat(lo), denominator, positive) == 0) hi = lo;
-    else if (M8FlowerCompareSignedProduct(asfloat(hi), denominator, positive) == 0) lo = hi;
+    // Underflow has the exact [0,min-subnormal] enclosure. Subnormal to
+    // normal carry is valid; only maxfinite to infinity was rejected above.
     if (sign == 0u) result = M8FlowerI(asfloat(lo),asfloat(hi));
     else result = M8FlowerI(asfloat(hi | sign),asfloat(lo | sign));
     return true;
@@ -1981,32 +2200,42 @@ bool M8FlowerIDivPositive(M8FlowerInterval numerator,
     uint lowerOrder = lowerNegative ? ~nLo : nLo | 0x80000000u;
     uint upperOrder = upperNegative ? ~nHi : nHi | 0x80000000u;
     if (lowerOrder > upperOrder) return false;
-    M8FlowerInterval lower = M8FlowerI(0.0, 0.0);
-    M8FlowerInterval upper = lower;
-    bool lowerValid = M8FlowerDivideEnclosed(numerator.lo,
-        lowerNegative ? denominator.lo : denominator.hi, lower);
-    bool upperValid = M8FlowerDivideEnclosed(numerator.hi,
-        upperNegative ? denominator.hi : denominator.lo, upper);
-    if (!lowerValid || !upperValid) return false;
-    result = M8FlowerI(lower.lo, upper.hi);
+    float2 numerators = float2(numerator.lo,numerator.hi);
+    float2 denominators = float2(lowerNegative ? denominator.lo : denominator.hi,
+        upperNegative ? denominator.hi : denominator.lo);
+    float2 endpoints = 0.0;
+    [loop] for(uint endpoint=0u;endpoint<2u;endpoint++)
+    {
+        M8FlowerInterval enclosed;
+        if(!M8FlowerDivideEnclosed(numerators[endpoint],denominators[endpoint],enclosed))return false;
+        endpoints[endpoint]=endpoint==0u?enclosed.lo:enclosed.hi;
+    }
+    result = M8FlowerI(endpoints.x,endpoints.y);
     return true;
 }
+
+// The canonical rounding implementation follows the interval primitives
+// whose exact dyadic enclosure it reuses.
+float M8FlowerRoundSqrt(float value);
 
 bool M8FlowerISqrt(M8FlowerInterval value, out M8FlowerInterval result)
 {
     result = M8FlowerI(0.0, 0.0);
     if (!(value.lo >= 0.0) || value.lo > value.hi || !M8FlowerIsFinite(value.hi))
         return false;
-    precise float lower = sqrt(value.lo);
-    precise float upper = sqrt(value.hi);
-    float lo = max(0.0, M8FlowerPrevious(lower));
-    float hi = M8FlowerNext(upper);
-    if (!M8FlowerIsFinite(hi) ||
-        M8FlowerCompareDyadic(M8FlowerSquareDyadic(lo),
-            M8FlowerProductDyadic(value.lo, 1.0)) > 0 ||
-        M8FlowerCompareDyadic(M8FlowerSquareDyadic(hi),
-            M8FlowerProductDyadic(value.hi, 1.0)) < 0) return false;
-    result = M8FlowerI(lo, hi);
+    float2 values=float2(value.lo,value.hi);
+    precise float2 rounded=0.0;
+    [loop] for(uint endpoint=0u;endpoint<2u;endpoint++)
+        rounded[endpoint]=M8FlowerRoundSqrt(values[endpoint]);
+    float2 enclosed=float2(max(0.0,M8FlowerPrevious(rounded.x)),M8FlowerNext(rounded.y));
+    if(!M8FlowerIsFinite(enclosed.y))return false;
+    [loop] for(uint endpoint=0u;endpoint<2u;endpoint++)
+    {
+        int comparison=M8FlowerCompareDyadic(M8FlowerSquareDyadic(enclosed[endpoint]),
+            M8FlowerProductDyadic(values[endpoint],1.0));
+        if(endpoint==0u?comparison>0:comparison<0)return false;
+    }
+    result = M8FlowerI(enclosed.x,enclosed.y);
     return true;
 }
 
@@ -2105,9 +2334,16 @@ uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
         x = M8FlowerIAdd(x, M8FlowerIMul(turn, M8FlowerI(-abc.z.hi, -abc.z.lo)));
         y = M8FlowerIAdd(y, M8FlowerIMul(turn, abc.y));
     }
-    bool xValid = M8FlowerIDivPositive(x, q, root.x);
-    bool yValid = M8FlowerIDivPositive(y, q, root.y);
-    if (!xValid || !yValid) return M8_FLOWER_ROOT_AMBIGUOUS;
+    bool valid=true;
+    [loop]for(uint axis=0u;axis<2u;axis++)
+    {
+        M8FlowerInterval numerator=axis==0u?x:y;
+        M8FlowerInterval component;
+        bool componentValid=M8FlowerIDivPositive(numerator,q,component);
+        if(axis==0u)root.x=component;else root.y=component;
+        valid=valid && componentValid;
+    }
+    if(!valid)return M8_FLOWER_ROOT_AMBIGUOUS;
     return classification;
 }
 
@@ -2222,9 +2458,15 @@ bool M8FlowerSealBend(M8FlowerInterval2 first, M8FlowerInterval2 second,
     M8FlowerInterval y = M8FlowerIAdd(first.y,second.y);
     M8FlowerInterval length;
     if (!M8FlowerISqrt(M8FlowerIAdd(M8FlowerISquare(x),
-            M8FlowerISquare(y)),length) || !(length.lo > 0.0) ||
-        !M8FlowerIDivPositive(x,length,seal.x) ||
-        !M8FlowerIDivPositive(y,length,seal.y)) return false;
+            M8FlowerISquare(y)),length) || !(length.lo > 0.0))return false;
+    [loop]for(uint axis=0u;axis<2u;axis++)
+    {
+        M8FlowerInterval numerator=axis==0u?x:y;
+        M8FlowerInterval component;
+        bool valid=M8FlowerIDivPositive(numerator,length,component);
+        if(axis==0u)seal.x=component;else seal.y=component;
+        if(!valid)return false;
+    }
     uint sharedSector;
     if (!M8FlowerRootSector(lineClass,seal,sharedSector) ||
         sharedSector != sector) return false;
@@ -2245,10 +2487,16 @@ bool M8FlowerRotateInterval(M8FlowerInterval2 prediction,
     M8FlowerInterval squared = M8FlowerISquare(turn);
     M8FlowerInterval denominator = M8FlowerIAdd(M8FlowerI(1.0,1.0),squared);
     M8FlowerInterval c,s;
-    if (!M8FlowerIDivPositive(M8FlowerISub(M8FlowerI(1.0,1.0),squared),
-            denominator,c) ||
-        !M8FlowerIDivPositive(M8FlowerIMul(M8FlowerI(2.0,2.0),turn),
-            denominator,s)) return false;
+    c=M8FlowerI(0.0,0.0);s=c;
+    [loop]for(uint axis=0u;axis<2u;axis++)
+    {
+        M8FlowerInterval numerator=axis==0u?
+            M8FlowerISub(M8FlowerI(1.0,1.0),squared):
+            M8FlowerIMul(M8FlowerI(2.0,2.0),turn);
+        M8FlowerInterval component;
+        if(!M8FlowerIDivPositive(numerator,denominator,component))return false;
+        if(axis==0u)c=component;else s=component;
+    }
     root.x = M8FlowerISub(M8FlowerIMul(c,prediction.x),
         M8FlowerIMul(s,prediction.y));
     root.y = M8FlowerIAdd(M8FlowerIMul(s,prediction.x),
@@ -2399,7 +2647,7 @@ uint M8FlowerPredictChildPhase(uint childGeometryLevel, M8FlowerInterval3 childC
         ancestorCount>childGeometryLevel || childLineClass>=M8_FLOWER_LINE_CLASS_COUNT ||
         childSector>=M8FlowerLineMeta[childLineClass].z) return 2u;
     uint previousLevel=0u;
-    [unroll] for (uint i=0u;i<2u;++i)
+    [loop] for (uint i=0u;i<2u;++i)
     {
         if (i>=ancestorCount) break;
         M8FlowerPhaseTransportTerm term=ancestry[i];
@@ -2419,7 +2667,7 @@ uint M8FlowerPredictChildPhase(uint childGeometryLevel, M8FlowerInterval3 childC
     if (!M8FlowerFinitePhaseRoot(current) ||
         !M8FlowerRootSector(childLineClass,current,sector) ||
         sector!=childSector) return 2u;
-    [unroll] for (uint i=0u;i<2u;++i)
+    [loop] for (uint i=0u;i<2u;++i)
     {
         if (i>=ancestorCount) break;
         M8FlowerPhaseTransportTerm term=ancestry[i];
@@ -3116,16 +3364,28 @@ float M8FlowerNestedV(float3 child3, float3 child4, float3 child5,
             o.AppendLine(@"
 M8FlowerInterval M8DepthIntervalRow(float4 row, M8FlowerInterval3 positionInterval)
 {
-    return M8FlowerIAdd(M8FlowerIAdd(M8FlowerIAdd(
-        M8FlowerIMul(M8FlowerI(row.x, row.x), positionInterval.x),
-        M8FlowerIMul(M8FlowerI(row.y, row.y), positionInterval.y)),
-        M8FlowerIMul(M8FlowerI(row.z, row.z), positionInterval.z)), M8FlowerI(row.w, row.w));
+    M8FlowerInterval result=M8FlowerI(0.0,0.0);
+    [loop] for(uint axis=0u;axis<3u;++axis)
+    {
+        M8FlowerInterval component=axis==0u?positionInterval.x:
+            (axis==1u?positionInterval.y:positionInterval.z);
+        M8FlowerInterval product=M8FlowerIMul(M8FlowerI(row[axis],row[axis]),component);
+        result=axis==0u?product:M8FlowerIAdd(result,product);
+    }
+    return M8FlowerIAdd(result,M8FlowerI(row.w,row.w));
 }
 
 M8FlowerInterval M8FlowerObservedDot(M8FlowerInterval3 a, M8FlowerInterval3 b)
 {
-    return M8FlowerIAdd(M8FlowerIAdd(M8FlowerIMul(a.x,b.x),M8FlowerIMul(a.y,b.y)),
-        M8FlowerIMul(a.z,b.z));
+    M8FlowerInterval result=M8FlowerI(0.0,0.0);
+    [loop] for(uint axis=0u;axis<3u;++axis)
+    {
+        M8FlowerInterval left=axis==0u?a.x:(axis==1u?a.y:a.z);
+        M8FlowerInterval right=axis==0u?b.x:(axis==1u?b.y:b.z);
+        M8FlowerInterval product=M8FlowerIMul(left,right);
+        result=axis==0u?product:M8FlowerIAdd(result,product);
+    }
+    return result;
 }
 
 struct M8FlowerObservedLoopFrame
@@ -3206,7 +3466,7 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
         !all(M8FlowerIsFinite(projection[0])) || !all(M8FlowerIsFinite(projection[1])) ||
         !all(M8FlowerIsFinite(projection[2])) || !all(M8FlowerIsFinite(projection[3])) ||
         any(view[3] != float4(0.0, 0.0, 0.0, 1.0))) return false;
-    [unroll]
+    [loop]
     for (uint corner = 0u; corner < 8u; corner++)
     {
         float3 p = float3((corner & 1u) == 0u ? minimum.x : maximum.x,
@@ -3224,10 +3484,11 @@ bool M8DepthProjectSupport(float3 minimum, float3 maximum, float4x4 view,
         if (!(eye.z.hi < 0.0)) return false;
         supportUpperDepth = max(supportUpperDepth, -eye.z.lo);
         M8FlowerInterval w = M8DepthIntervalRow(projection[3], eye);
-        M8FlowerInterval x, y, z;
-        if (!M8FlowerIDivPositive(M8DepthIntervalRow(projection[0], eye), w, x) ||
-            !M8FlowerIDivPositive(M8DepthIntervalRow(projection[1], eye), w, y) ||
-            !M8FlowerIDivPositive(M8DepthIntervalRow(projection[2], eye), w, z)) return false;
+        M8FlowerInterval projected[3];
+        [loop]for(uint axis=0u;axis<3u;axis++)
+            if(!M8FlowerIDivPositive(M8DepthIntervalRow(projection[axis],eye),w,
+                projected[axis]))return false;
+        M8FlowerInterval x=projected[0],y=projected[1],z=projected[2];
         if (z.lo < -1.0 || z.hi > 1.0) return false;
         x = M8FlowerIMul(M8FlowerIAdd(x, M8FlowerI(1.0, 1.0)),
             M8FlowerI((float)imageSize.x * 0.5, (float)imageSize.x * 0.5));

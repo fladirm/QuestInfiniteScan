@@ -39,6 +39,63 @@ namespace Genesis.RoomScan
             { Hub = hub; Ring0 = ring0; Ring1 = ring1; Source = source; }
         }
 
+        // One row is an exact translation of all three original loop
+        // identities, not a match of one shared knot or of sampled positions.
+        // VertexMap transports self H/R0/R1 to the partner's H/R0/R1. The
+        // canonical line basis is unchanged, so sector/root-sign travel with
+        // that permutation unchanged; normals/materials are not identity.
+        public readonly struct L2WedgeOwnerRule
+        {
+            public readonly int3 OwnerOffset;
+            public readonly ushort PartnerWedge;
+            public readonly byte VertexMap;
+            public uint Packed => (uint)PartnerWedge | (uint)VertexMap << 10;
+            internal L2WedgeOwnerRule(int3 ownerOffset, ushort partnerWedge, byte vertexMap)
+            { OwnerOffset = ownerOffset; PartnerWedge = partnerWedge; VertexMap = vertexMap; }
+            public int PartnerSite(int selfSite)
+            {
+                if ((uint)selfSite >= 3u) throw new ArgumentOutOfRangeException(nameof(selfSite));
+                return (VertexMap >> (2 * selfSite)) & 3;
+            }
+        }
+
+        private static class L2OwnershipData
+        {
+            internal static readonly ushort[] Offsets;
+            internal static readonly L2WedgeOwnerRule[] Owners;
+            static L2OwnershipData()
+            {
+#if UNITY_EDITOR
+                BuildL2WedgeOwners(out Offsets, out Owners);
+#else
+                LoadGeneratedL2WedgeOwners(out Offsets, out Owners);
+#endif
+                if (Offsets.Length != L2WedgeCount + 1 || Offsets[0] != 0 ||
+                    Offsets[L2WedgeCount] != Owners.Length)
+                    throw new InvalidOperationException("Invalid L2 incident-owner table extent.");
+                for (int wedge = 0; wedge < L2WedgeCount; wedge++)
+                {
+                    int first = Offsets[wedge], end = Offsets[wedge + 1];
+                    bool containsSelf = false;
+                    if (first >= end)
+                        throw new InvalidOperationException("An L2 wedge has no canonical owner.");
+                    for (int index = first; index < end; index++)
+                    {
+                        L2WedgeOwnerRule row = Owners[index];
+                        uint sites = 0u;
+                        for (int site = 0; site < 3; site++) sites |= 1u << row.PartnerSite(site);
+                        if (row.PartnerWedge >= L2WedgeCount || row.VertexMap >= 64 || sites != 7u ||
+                            (index != first && CompareWedgeOwners(Owners[index - 1], row) >= 0))
+                            throw new InvalidOperationException("Noncanonical L2 incident-owner permutation/order.");
+                        containsSelf |= math.all(row.OwnerOffset == 0) &&
+                            row.PartnerWedge == wedge && row.VertexMap == 36;
+                    }
+                    if (!containsSelf)
+                        throw new InvalidOperationException("L2 incident ownership lost its identity translation.");
+                }
+            }
+        }
+
         private static class CarrierData
         {
             internal static readonly L2KnotRule[] Knots;
@@ -65,6 +122,49 @@ namespace Genesis.RoomScan
         public static ReadOnlySpan<ushort> L2SourceToWedge => CarrierData.SourceToWedge;
         public static ReadOnlySpan<ushort> L2IncidenceOffsets => CarrierData.IncidenceOffsets;
         public static ReadOnlySpan<uint> L2IncidenceSources => CarrierData.IncidenceSources;
+        public static ReadOnlySpan<ushort> L2WedgeOwnerOffsets => L2OwnershipData.Offsets;
+        public static ReadOnlySpan<L2WedgeOwnerRule> L2WedgeOwners => L2OwnershipData.Owners;
+
+        // Ownership is per actual wedge. A carrier can own a strict subset
+        // of its six wedges. Equal owner coordinates use the generated wedge
+        // ordinal as the secondary tie, never source traversal order.
+        public static bool L2OwnsWedge(int carrier, int wedge)
+        {
+            if ((uint)carrier >= L2HubCount || (uint)wedge >= L2CarrierWedgeCount)
+                return false;
+            int index = L2CarrierWedgeCount * carrier + wedge;
+            L2WedgeOwnerRule row = L2OwnershipData.Owners[L2OwnershipData.Offsets[index]];
+            return math.all(row.OwnerOffset == 0) && row.PartnerWedge == index;
+        }
+
+        public static bool TryL2CanonicalWedgeOwner(int3 owner, int carrier, int wedge,
+            out int3 canonicalOwner, out int partnerWedge, out byte vertexMap)
+        {
+            canonicalOwner = default;
+            partnerWedge = 0;
+            vertexMap = 0;
+            if ((uint)carrier >= L2HubCount || (uint)wedge >= L2CarrierWedgeCount)
+                return false;
+            int index = L2CarrierWedgeCount * carrier + wedge;
+            L2WedgeOwnerRule row = L2OwnershipData.Owners[L2OwnershipData.Offsets[index]];
+            long x = (long)owner.x + row.OwnerOffset.x;
+            long y = (long)owner.y + row.OwnerOffset.y;
+            long z = (long)owner.z + row.OwnerOffset.z;
+            if (x < int.MinValue || x > int.MaxValue || y < int.MinValue || y > int.MaxValue ||
+                z < int.MinValue || z > int.MaxValue) return false;
+            canonicalOwner = new int3((int)x, (int)y, (int)z);
+            partnerWedge = row.PartnerWedge;
+            vertexMap = row.VertexMap;
+            return true;
+        }
+
+        private static int CompareWedgeOwners(L2WedgeOwnerRule a, L2WedgeOwnerRule b)
+        {
+            int order = a.OwnerOffset.x.CompareTo(b.OwnerOffset.x);
+            if (order == 0) order = a.OwnerOffset.y.CompareTo(b.OwnerOffset.y);
+            if (order == 0) order = a.OwnerOffset.z.CompareTo(b.OwnerOffset.z);
+            return order != 0 ? order : a.PartnerWedge.CompareTo(b.PartnerWedge);
+        }
 
         public static bool TryGetL2KnotLoop(int knot, out int level,
             out int3 junctionOffset, out int lineClass)
@@ -215,6 +315,137 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
+        private readonly struct L2OwnerFootprint
+        {
+            internal readonly int3 Types;
+            internal readonly int3 First;
+            internal readonly int3 Second;
+            internal readonly int3 Third;
+            internal readonly int3 Sites;
+            internal L2OwnerFootprint(int3 types, int3 first, int3 second, int3 third, int3 sites)
+            { Types = types; First = first; Second = second; Third = third; Sites = sites; }
+            internal int3 Position(int rank) => rank == 0 ? First : rank == 1 ? Second : Third;
+        }
+
+        private static void BuildL2WedgeOwners(out ushort[] offsets, out L2WedgeOwnerRule[] owners)
+        {
+            // At original level L the symbolic junction is 2^(L+1) K + J.
+            // Q=2^(2-L) J puts only those integer identities on common L2
+            // scale: two owners differ by Delta iff Qself-Qpeer=8 Delta.
+            // Type (original level,line) remains part of every comparison.
+            var footprints = new L2OwnerFootprint[L2WedgeCount];
+            var groups = new Dictionary<(int3 Type, int3 Edge0, int3 Edge1, int3 Residue), List<int>>();
+            for (int wedge = 0; wedge < L2WedgeCount; wedge++)
+            {
+                L2WedgeRule row = CarrierData.Wedges[wedge];
+                int3 knots = new int3(row.Hub, row.Ring0, row.Ring1);
+                var positions = new int3[3];
+                int3 types = default, order = new int3(0, 1, 2);
+                for (int site = 0; site < 3; site++)
+                {
+                    if (!TryGetL2KnotLoop(knots[site], out int level, out int3 junction, out int line) ||
+                        (uint)level >= GeometryLevelCount || (uint)line >= LineClassCount)
+                        throw new InvalidOperationException("L2 ownership requires an original exact loop.");
+                    types[site] = (level << 4) | line;
+                    positions[site] = junction << (2 - level);
+                }
+                for (int first = 0; first < 2; first++)
+                    for (int second = first + 1; second < 3; second++)
+                    {
+                        int a = order[first], b = order[second];
+                        int comparison = types[a].CompareTo(types[b]);
+                        if (comparison == 0) comparison = CompareCarrierAddress(positions[a], positions[b]);
+                        if (comparison == 0)
+                            throw new InvalidOperationException("One L2 wedge repeats an entire loop identity.");
+                        if (comparison > 0) { order[first] = b; order[second] = a; }
+                    }
+                var footprint = new L2OwnerFootprint(new int3(types[order.x], types[order.y], types[order.z]),
+                    positions[order.x], positions[order.y], positions[order.z], order);
+                footprints[wedge] = footprint;
+                var key = (footprint.Types, footprint.Second - footprint.First,
+                    footprint.Third - footprint.First, footprint.First & 7);
+                if (!groups.TryGetValue(key, out var group))
+                { group = new List<int>(); groups.Add(key, group); }
+                group.Add(wedge);
+            }
+
+            var result = new List<L2WedgeOwnerRule>();
+            offsets = new ushort[L2WedgeCount + 1];
+            for (int wedge = 0; wedge < L2WedgeCount; wedge++)
+            {
+                offsets[wedge] = checked((ushort)result.Count);
+                L2OwnerFootprint self = footprints[wedge];
+                var group = groups[(self.Types, self.Second - self.First,
+                    self.Third - self.First, self.First & 7)];
+                var rows = new List<L2WedgeOwnerRule>(group.Count);
+                foreach (int partner in group)
+                {
+                    L2OwnerFootprint peer = footprints[partner];
+                    int3 difference = self.First - peer.First;
+                    if (math.any((difference & 7) != 0))
+                        throw new InvalidOperationException("An incident owner is not on the M8 lattice.");
+                    int3 delta = difference / 8;
+                    // The full matched facet must also have the same
+                    // original R1 endpoint relation. Admission at a peer
+                    // cannot substitute some other source face just because
+                    // one terminal loop happens to coincide.
+                    NodeRule selfFace = NodesValue[PetalsValue[CarrierData.Wedges[wedge].Petal].Node(0)];
+                    NodeRule peerFace = NodesValue[PetalsValue[CarrierData.Wedges[partner].Petal].Node(0)];
+                    if (selfFace.LineClass != peerFace.LineClass ||
+                        math.any(selfFace.Direction != peerFace.Direction + 2 * delta))
+                        throw new InvalidOperationException("A translated whole petal changes its stable R1 source relation.");
+                    int vertexMap = 0;
+                    for (int rank = 0; rank < 3; rank++)
+                    {
+                        int level = self.Types[rank] >> 4;
+                        int shift = 2 - level;
+                        if (self.Types[rank] != peer.Types[rank] ||
+                            math.any((self.Position(rank) >> shift) !=
+                                (peer.Position(rank) >> shift) + (delta << (level + 1))))
+                            throw new InvalidOperationException("Incident owners do not share the complete three-loop petal.");
+                        vertexMap |= peer.Sites[rank] << (2 * self.Sites[rank]);
+                    }
+                    rows.Add(new L2WedgeOwnerRule(delta, checked((ushort)partner), checked((byte)vertexMap)));
+                }
+                rows.Sort(CompareWedgeOwners);
+                result.AddRange(rows);
+            }
+            offsets[L2WedgeCount] = checked((ushort)result.Count);
+            owners = result.ToArray();
+
+            // Exhaustive group closure proves canonical ownership is the
+            // same from every incident owner and preserves all three slots.
+            for (int wedge = 0; wedge < L2WedgeCount; wedge++)
+            {
+                L2WedgeOwnerRule canonical = owners[offsets[wedge]];
+                for (int index = offsets[wedge]; index < offsets[wedge + 1]; index++)
+                {
+                    L2WedgeOwnerRule incidence = owners[index];
+                    L2WedgeOwnerRule peerCanonical = owners[offsets[incidence.PartnerWedge]];
+                    if (canonical.PartnerWedge != peerCanonical.PartnerWedge ||
+                        math.any(canonical.OwnerOffset != incidence.OwnerOffset + peerCanonical.OwnerOffset))
+                        throw new InvalidOperationException("L2 owner translations do not have a unique canonical representative.");
+                    for (int site = 0; site < 3; site++)
+                        if (canonical.PartnerSite(site) != peerCanonical.PartnerSite(incidence.PartnerSite(site)))
+                            throw new InvalidOperationException("L2 owner translation changes a canonical sector/root-sign slot.");
+                    bool inverseFound = false;
+                    for (int other = offsets[incidence.PartnerWedge];
+                        other < offsets[incidence.PartnerWedge + 1]; other++)
+                    {
+                        L2WedgeOwnerRule inverse = owners[other];
+                        if (inverse.PartnerWedge != wedge ||
+                            math.any(inverse.OwnerOffset != -incidence.OwnerOffset)) continue;
+                        for (int site = 0; site < 3; site++)
+                            if (inverse.PartnerSite(incidence.PartnerSite(site)) != site)
+                                throw new InvalidOperationException("L2 owner translation is not invertible.");
+                        inverseFound = true;
+                    }
+                    if (!inverseFound)
+                        throw new InvalidOperationException("An L2 incident-owner translation has no inverse.");
+                }
+            }
+        }
+
         private readonly struct CarrierTriangle
         {
             internal readonly int3 Knots;

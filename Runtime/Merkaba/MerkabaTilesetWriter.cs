@@ -88,37 +88,20 @@ namespace Genesis.RoomScan
     }
 
     /// <summary>
-    /// Dependency-free 3D Tiles 1.1 packaging over the finished membrane/GLB
-    /// authority. Spatial ownership partitions emission only; every leaf retains
+    /// Dependency-free 3D Tiles 1.1 packaging over the shared Sphere-Flower/excavation
+    /// evaluator. Spatial ownership partitions emission only; every leaf retains
     /// the complete canonical occupancy context used by the monolithic writer.
     /// </summary>
     internal static class MerkabaTilesetWriter
     {
-        internal const long DefaultTargetLeafBytes = 128L * 1024 * 1024;
         internal const long DefaultHardLeafBytes = 256L * 1024 * 1024;
-        private const long GlbHeaderReserve = 2L * 1024;
-        private const long MeasuredPatchBytes = 4L * 28L + 6L * 4L;
         private const string EmptyNodeGeometricError = "1e30";
-
-        private readonly struct Item
-        {
-            internal readonly int3 Coord;
-            internal readonly int Index;
-            internal readonly long EstimatedBytes;
-
-            internal Item(int3 coord, int index, long estimatedBytes)
-            {
-                Coord = coord;
-                Index = index;
-                EstimatedBytes = estimatedBytes;
-            }
-        }
 
         private sealed class Node
         {
             internal int3 MinimumCoord;
             internal int3 MaximumCoord;
-            internal List<Item> Items;
+            internal bool Leaf;
             internal Node Low;
             internal Node High;
             internal int LeafIndex = -1;
@@ -130,96 +113,7 @@ namespace Genesis.RoomScan
             internal long ContentBytes;
             internal int VertexCount;
             internal int TriangleCount;
-            internal bool IsLeaf => Items != null;
-        }
-
-        internal static MerkabaTilesetResult WritePackage(string directory,
-            MerkabaExportMembraneResult membrane,
-            IProgress<OperationWorkProgress> progress = null,
-            long targetLeafBytes = DefaultTargetLeafBytes,
-            long hardLeafBytes = DefaultHardLeafBytes,
-            MerkabaSpatialBinding? spatialBinding = null)
-        {
-            if (string.IsNullOrWhiteSpace(directory))
-                throw new ArgumentException("Tileset directory is required.",
-                    nameof(directory));
-            if (membrane == null) throw new ArgumentNullException(nameof(membrane));
-            if (targetLeafBytes <= GlbHeaderReserve ||
-                hardLeafBytes < targetLeafBytes)
-                throw new ArgumentOutOfRangeException(nameof(targetLeafBytes));
-            if (Directory.Exists(directory))
-                throw new IOException("Tileset staging directory already exists.");
-
-            List<Item> items = BuildItems(membrane);
-            if (items.Count == 0)
-                throw new InvalidDataException("3D Tiles membrane is empty.");
-            long leafBudget = targetLeafBytes - GlbHeaderReserve;
-            Node root = Partition(items, leafBudget);
-            var leaves = new List<Node>();
-            AssignLeaves(root, leaves);
-
-            Directory.CreateDirectory(Path.Combine(directory, "tiles"));
-            long totalBytes = 0L;
-            long totalVertices = 0L;
-            long totalTriangles = 0L;
-            for (int leafIndex = 0; leafIndex < leaves.Count; leafIndex++)
-            {
-                Node leaf = leaves[leafIndex];
-                leaf.LocalOrigin = LocalOrigin(leaf.MinimumCoord,
-                    leaf.MaximumCoord);
-                MerkabaExportMembraneResult owned = OwnedMembrane(membrane,
-                    leaf.Items);
-                string name = leafIndex.ToString("D6",
-                    CultureInfo.InvariantCulture) + ".glb";
-                string finalPath = Path.Combine(directory, "tiles", name);
-                string temporaryPath = finalPath + ".tmp";
-                MerkabaGlbResult result;
-                using (var stream = new FileStream(temporaryPath,
-                           FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                           1024 * 1024, FileOptions.SequentialScan))
-                {
-                    result = MerkabaGlbWriter.Write(stream, owned,
-                        leaf.LocalOrigin, progress);
-                    stream.Flush(true);
-                }
-                if (result.ByteLength > hardLeafBytes)
-                    throw new InvalidDataException($"3D Tiles leaf {name} is " +
-                        $"{result.ByteLength} bytes, above {hardLeafBytes}.");
-                File.Move(temporaryPath, finalPath);
-                leaf.ContentBytes = result.ByteLength;
-                leaf.VertexCount = result.VertexCount;
-                leaf.TriangleCount = result.PrimitiveCount;
-                ConvertGlbBoundsToTileset(result.Minimum, result.Maximum,
-                    out leaf.ContentMinimum, out leaf.ContentMaximum);
-                Vector3 translation = ConvertOriginToTileset(leaf.LocalOrigin);
-                leaf.Minimum = leaf.ContentMinimum + translation;
-                leaf.Maximum = leaf.ContentMaximum + translation;
-                totalBytes = checked(totalBytes + result.ByteLength);
-                totalVertices = checked(totalVertices + result.VertexCount);
-                totalTriangles = checked(totalTriangles + result.PrimitiveCount);
-                progress?.Report(new OperationWorkProgress(
-                    ScanOperationStage.WritingFile, leafIndex + 1, leaves.Count,
-                    $"Wrote 3D Tiles leaf {leafIndex + 1}/{leaves.Count}"));
-            }
-
-            ResolveBounds(root);
-            string json = BuildTileset(root, spatialBinding);
-            string manifest = Path.Combine(directory, "tileset.json");
-            string manifestTemporary = manifest + ".tmp";
-            using (var stream = new FileStream(manifestTemporary,
-                       FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                       64 * 1024, FileOptions.None))
-            using (var writer = new StreamWriter(stream,
-                       new UTF8Encoding(false), 64 * 1024, true))
-            {
-                writer.Write(json);
-                writer.Flush();
-                stream.Flush(true);
-            }
-            File.Move(manifestTemporary, manifest);
-            totalBytes = checked(totalBytes + new FileInfo(manifest).Length);
-            return new MerkabaTilesetResult(leaves.Count, totalBytes,
-                totalVertices, totalTriangles);
+            internal bool IsLeaf => Leaf;
         }
 
         internal static void BeginStreamingPackage(string directory)
@@ -230,19 +124,23 @@ namespace Genesis.RoomScan
         }
 
         internal static MerkabaTilesetLeaf WriteStreamingLeaf(
-            string directory, int leafIndex,
-            MerkabaExportMembraneResult membrane,
+            string directory, int leafIndex, MerkabaFlowerPresentation presentation,
             IProgress<OperationWorkProgress> progress = null,
             long hardLeafBytes = DefaultHardLeafBytes)
         {
-            List<Item> items = BuildItems(membrane);
-            if (items.Count == 0)
-                throw new InvalidDataException("3D Tiles leaf membrane is empty.");
-            Bounds(items, out int3 minimum, out int3 maximum, out _);
-            float3 localOrigin = LocalOrigin(minimum, maximum);
-            return WriteStreamingLeaf(directory, leafIndex, minimum, maximum,
-                localOrigin, stream => MerkabaGlbWriter.Write(stream, membrane,
-                    localOrigin, progress), hardLeafBytes);
+            if (presentation == null) throw new ArgumentNullException(nameof(presentation));
+            if (presentation.TriangleCount == 0)
+                throw new InvalidDataException("3D Tiles Flower leaf is empty.");
+            int3 minimum = MerkabaSpatial.Decode(presentation.Tile.BlockCoord,
+                presentation.Tile.LocalAddress, 0);
+            int3 maximum = minimum + 7;
+            int3 centre = minimum + 4;
+            float3 origin = new(
+                MerkabaSphereFlowerAuthority.DirtGridCoordinate(centre.x),
+                MerkabaSphereFlowerAuthority.DirtGridCoordinate(centre.y),
+                MerkabaSphereFlowerAuthority.DirtGridCoordinate(centre.z));
+            return WriteStreamingLeaf(directory, leafIndex, minimum, maximum, origin,
+                stream => MerkabaGlbWriter.Write(stream, presentation, origin, progress), hardLeafBytes);
         }
 
         internal static MerkabaTilesetLeaf WriteStreamingDirtLeaf(
@@ -308,7 +206,7 @@ namespace Genesis.RoomScan
             MerkabaSpatialBinding? spatialBinding = null)
         {
             if (leaves == null || leaves.Count == 0)
-                throw new InvalidDataException("3D Tiles membrane is empty.");
+                throw new InvalidDataException("3D Tiles Flower geometry is empty.");
             var nodes = new List<Node>(leaves.Count);
             long totalBytes = 0L;
             long totalVertices = 0L;
@@ -318,7 +216,7 @@ namespace Genesis.RoomScan
                 Vector3 translation = ConvertOriginToTileset(leaf.LocalOrigin);
                 nodes.Add(new Node
                 {
-                    Items = new List<Item>(),
+                    Leaf = true,
                     LeafIndex = leaf.Index,
                     MinimumCoord = leaf.MinimumCoord,
                     MaximumCoord = leaf.MaximumCoord,
@@ -367,106 +265,6 @@ namespace Genesis.RoomScan
                 High = BuildStreamingHierarchy(leaves, offset + lowCount,
                     count - lowCount)
             };
-        }
-
-        private static List<Item> BuildItems(
-            MerkabaExportMembraneResult membrane)
-        {
-            var items = new List<Item>(membrane.Patches.Count);
-            for (int index = 0; index < membrane.Patches.Count; index++)
-                items.Add(new Item(membrane.Patches[index].Coord, index,
-                    MeasuredPatchBytes));
-            items.Sort(CompareItems);
-            return items;
-        }
-
-        private static Node Partition(List<Item> items, long leafBudget)
-        {
-            Bounds(items, out int3 minimum, out int3 maximum,
-                out long estimatedBytes);
-            var node = new Node
-            {
-                MinimumCoord = minimum,
-                MaximumCoord = maximum
-            };
-            if (estimatedBytes <= leafBudget)
-            {
-                node.Items = items;
-                return node;
-            }
-
-            int3 span = maximum - minimum;
-            int axis = span.x >= span.y && span.x >= span.z ? 0 :
-                span.y >= span.z ? 1 : 2;
-            if (span[axis] == 0)
-                throw new InvalidDataException(
-                    "One canonical owner exceeds the 3D Tiles leaf budget.");
-            int cut = minimum[axis] + span[axis] / 2;
-            var low = new List<Item>();
-            var high = new List<Item>();
-            foreach (Item item in items)
-            {
-                if (item.Coord[axis] <= cut) low.Add(item);
-                else high.Add(item);
-            }
-            if (low.Count == 0 || high.Count == 0)
-                throw new InvalidDataException(
-                    "Deterministic M8 spatial partition did not advance.");
-            node.Low = Partition(low, leafBudget);
-            node.High = Partition(high, leafBudget);
-            return node;
-        }
-
-        private static void Bounds(List<Item> items, out int3 minimum,
-            out int3 maximum, out long bytes)
-        {
-            minimum = new int3(int.MaxValue);
-            maximum = new int3(int.MinValue);
-            bytes = 0L;
-            foreach (Item item in items)
-            {
-                minimum = math.min(minimum, item.Coord);
-                maximum = math.max(maximum, item.Coord);
-                bytes = checked(bytes + item.EstimatedBytes);
-            }
-        }
-
-        private static void AssignLeaves(Node node, List<Node> leaves)
-        {
-            if (node.IsLeaf)
-            {
-                node.LeafIndex = leaves.Count;
-                leaves.Add(node);
-                return;
-            }
-            AssignLeaves(node.Low, leaves);
-            AssignLeaves(node.High, leaves);
-        }
-
-        private static MerkabaExportMembraneResult OwnedMembrane(
-            MerkabaExportMembraneResult source, List<Item> items)
-        {
-            var patches = new List<MerkabaExportMembranePatch>();
-            foreach (Item item in items)
-                patches.Add(source.Patches[item.Index]);
-            patches.Sort((left, right) => CompareCoords(left.Coord, right.Coord));
-            int measured = 0, inferred = 0;
-            foreach (MerkabaExportMembranePatch patch in patches)
-            {
-                if (patch.IsInferred) inferred++;
-                else measured++;
-            }
-            return new MerkabaExportMembraneResult(patches,
-                source.CanonicalOccupiedCoordinates,
-                source.MeasuredPlaneCoordinates, measured, inferred,
-                Array.Empty<int3>(),
-                source.PartitionCutCount);
-        }
-
-        private static float3 LocalOrigin(int3 minimum, int3 maximum)
-        {
-            int3 center = minimum + (maximum - minimum) / 2;
-            return (float3)center * MerkabaConstants.LatticeStep;
         }
 
         private static void ResolveBounds(Node node)
@@ -572,18 +370,5 @@ namespace Genesis.RoomScan
         private static string Number(float value) =>
             value.ToString("R", CultureInfo.InvariantCulture);
 
-        private static int CompareItems(Item left, Item right)
-        {
-            int coordinate = CompareCoords(left.Coord, right.Coord);
-            if (coordinate != 0) return coordinate;
-            return left.Index.CompareTo(right.Index);
-        }
-
-        private static int CompareCoords(int3 left, int3 right)
-        {
-            if (left.x != right.x) return left.x.CompareTo(right.x);
-            if (left.y != right.y) return left.y.CompareTo(right.y);
-            return left.z.CompareTo(right.z);
-        }
     }
 }

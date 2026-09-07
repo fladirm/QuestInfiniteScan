@@ -41,13 +41,33 @@ namespace Genesis.RoomScan
             internal readonly int FirstIndex;
             internal readonly int IndexCount;
             internal readonly bool Dirt;
+            internal readonly bool Completed;
+            internal readonly int Texture;
 
-            internal PrimitiveRange(int firstIndex, int indexCount, bool dirt)
+            internal PrimitiveRange(int firstIndex, int indexCount, bool dirt,
+                bool completed = false, int texture = -1)
             {
                 FirstIndex = firstIndex;
                 IndexCount = indexCount;
                 Dirt = dirt;
+                Completed = completed;
+                Texture = texture;
             }
+        }
+
+        private readonly struct ImageRange
+        {
+            internal readonly long Offset;
+            internal readonly int Length;
+            internal ImageRange(long offset, int length) { Offset = offset; Length = length; }
+        }
+
+        private readonly struct BakedMaterial
+        {
+            internal readonly int ColorImage, NormalImage;
+            internal readonly MerkabaFlowerSkinDrawSample Source;
+            internal BakedMaterial(int colorImage, int normalImage, MerkabaFlowerSkinDrawSample source)
+            { ColorImage = colorImage; NormalImage = normalImage; Source = source; }
         }
 
         private readonly struct GeometryPlan
@@ -78,53 +98,20 @@ namespace Genesis.RoomScan
             internal readonly float3 Position;
             internal readonly float3 Normal;
             internal readonly uint PackedColor;
+            internal readonly float2 Uv;
 
             internal GeometryVertex(float3 position, float3 normal,
-                uint packedColor)
+                uint packedColor, float2 uv = default)
             {
                 Position = position;
                 Normal = normal;
                 PackedColor = packedColor;
-            }
-        }
-
-        private readonly struct VertexKey : IEquatable<VertexKey>
-        {
-            private readonly int _px, _py, _pz;
-            private readonly int _nx, _ny, _nz;
-            private readonly uint _color;
-
-            internal VertexKey(in GeometryVertex vertex)
-            {
-                _px = BitConverter.SingleToInt32Bits(vertex.Position.x);
-                _py = BitConverter.SingleToInt32Bits(vertex.Position.y);
-                _pz = BitConverter.SingleToInt32Bits(vertex.Position.z);
-                _nx = BitConverter.SingleToInt32Bits(vertex.Normal.x);
-                _ny = BitConverter.SingleToInt32Bits(vertex.Normal.y);
-                _nz = BitConverter.SingleToInt32Bits(vertex.Normal.z);
-                _color = vertex.PackedColor;
-            }
-
-            public bool Equals(VertexKey other) =>
-                _px == other._px && _py == other._py && _pz == other._pz &&
-                _nx == other._nx && _ny == other._ny && _nz == other._nz &&
-                _color == other._color;
-
-            public override bool Equals(object obj) =>
-                obj is VertexKey other && Equals(other);
-
-            public override int GetHashCode()
-            {
-                var hash = new HashCode();
-                hash.Add(_px); hash.Add(_py); hash.Add(_pz);
-                hash.Add(_nx); hash.Add(_ny); hash.Add(_nz);
-                hash.Add(_color);
-                return hash.ToHashCode();
+                Uv = uv;
             }
         }
 
         /// <summary>
-        /// Bounded-memory GLB assembly. Each spatial membrane batch is indexed
+        /// Bounded-memory GLB assembly. Each spatial Flower batch is indexed
         /// independently and appended to sequential attribute/index spools; the
         /// complete GLB is published only after all batches have succeeded.
         /// </summary>
@@ -135,14 +122,19 @@ namespace Genesis.RoomScan
             private readonly FileStream _normals;
             private readonly FileStream _colors;
             private readonly FileStream _indices;
+            private readonly FileStream _uvs;
+            private readonly FileStream _images;
             private readonly BinaryWriter _positionWriter;
             private readonly BinaryWriter _normalWriter;
             private readonly BinaryWriter _colorWriter;
             private readonly BinaryWriter _indexWriter;
+            private readonly BinaryWriter _uvWriter;
             private int _vertexCount;
             private int _indexCount;
             private int _primitiveCount;
             private readonly List<PrimitiveRange> _ranges = new();
+            private readonly List<ImageRange> _imageRanges = new();
+            private readonly List<BakedMaterial> _materials = new();
             private Vector3 _minimum = new(float.PositiveInfinity,
                 float.PositiveInfinity, float.PositiveInfinity);
             private Vector3 _maximum = new(float.NegativeInfinity,
@@ -164,29 +156,90 @@ namespace Genesis.RoomScan
                 _normals = Open("normals.bin");
                 _colors = Open("colors.bin");
                 _indices = Open("indices.bin");
+                _uvs = Open("uv.bin");
+                _images = Open("images.bin");
                 var encoding = new UTF8Encoding(false);
                 _positionWriter = new BinaryWriter(_positions, encoding, true);
                 _normalWriter = new BinaryWriter(_normals, encoding, true);
                 _colorWriter = new BinaryWriter(_colors, encoding, true);
                 _indexWriter = new BinaryWriter(_indices, encoding, true);
+                _uvWriter = new BinaryWriter(_uvs, encoding, true);
             }
-
-            internal void Append(MerkabaExportMembraneResult membrane,
-                IProgress<OperationWorkProgress> progress = null)
-                => AppendPlan(Plan(membrane, float3.zero, progress), false);
 
             internal void AppendDirt(IReadOnlyList<MerkabaDirtTriangle> triangles,
                 IProgress<OperationWorkProgress> progress = null)
                 => AppendPlan(PlanDirt(triangles, float3.zero, progress), true);
 
-            private void AppendPlan(GeometryPlan plan, bool dirt)
+            internal void Append(MerkabaFlowerPresentation presentation,
+                IProgress<OperationWorkProgress> progress = null, float3 localOrigin = default)
+            {
+                if (presentation == null) throw new ArgumentNullException(nameof(presentation));
+                foreach (MerkabaFlowerPresentation.Carrier carrier in presentation.Carriers)
+                {
+                    bool bake = MerkabaFlowerMaterialBake.HasChromaticDetail(carrier);
+                    bool metric = MerkabaFlowerMaterialBake.HasMetricDetail(carrier);
+                    bool optical = (carrier.SkinSamples[0].Flags & 1u) != 0u;
+                    for (int wedge = 0; wedge < 6; wedge++)
+                    {
+                        if ((carrier.Symbol.ActiveWedgeMask & (1u << wedge)) == 0u) continue;
+                        int texture = -1;
+                        if (bake || metric || optical)
+                        {
+                            byte[] colorPng = null, normalPng = null;
+                            if (bake || metric)
+                                MerkabaFlowerMaterialBake.Bake(presentation, carrier, wedge, bake, metric,
+                                    out colorPng, out normalPng);
+                            texture = _materials.Count;
+                            _materials.Add(new BakedMaterial(StoreImage(colorPng), StoreImage(normalPng), carrier.SkinSamples[0]));
+                        }
+                        presentation.WedgeFrame(carrier, wedge, out _, out _, out float3 normal, out _, out _);
+                        bool reverse = (carrier.Symbol.ReverseWedgeMask & (1u << wedge)) != 0u;
+                        if (reverse) normal = -normal;
+                        float3 color = bake ? new float3(1f) : carrier.SkinSamples[0].CapturedRgb;
+                        uint packed = MerkabaFlowerMaterialBake.LinearByte(color.x) |
+                            ((uint)MerkabaFlowerMaterialBake.LinearByte(color.y) << 8) |
+                            ((uint)MerkabaFlowerMaterialBake.LinearByte(color.z) << 16) | 0xff000000u;
+                        float edge = 0.5f / MerkabaFlowerMaterialBake.Resolution;
+                        var vertices = new List<GeometryVertex>(3)
+                        {
+                            new(presentation.Position(carrier, 0) - localOrigin, normal, packed, new float2(edge, edge)),
+                            new(presentation.Position(carrier, 1 + wedge) - localOrigin, normal, packed, new float2(1f - edge, edge)),
+                            new(presentation.Position(carrier, 1 + (wedge + 1) % 6) - localOrigin, normal, packed, new float2(edge, 1f - edge))
+                        };
+                        // glTF has a single index for the attribute tuple. It
+                        // may materialize a corner more than once for chart/
+                        // normal attributes; every position came from the ONE
+                        // symbolic position index, never a float weld.
+                        var indices = reverse ? new List<uint> { 0u, 1u, 2u } : new List<uint> { 0u, 2u, 1u };
+                        Vector3 lo = Convert(vertices[0].Position), hi = lo;
+                        for (int vertex = 1; vertex < 3; vertex++)
+                        { lo = Vector3.Min(lo, Convert(vertices[vertex].Position)); hi = Vector3.Max(hi, Convert(vertices[vertex].Position)); }
+                        AppendPlan(new GeometryPlan(vertices, indices, 1, lo, hi), false,
+                            (carrier.Symbol.CompletedWedgeMask & (1u << wedge)) != 0u, texture);
+                    }
+                }
+                Report(progress, ScanOperationStage.BuildingMerkabaGeometry, presentation.TriangleCount,
+                    presentation.TriangleCount, "Materialized shared L2 Flower positions and captured-radiance materials");
+            }
+
+            private int StoreImage(byte[] png)
+            {
+                if (png == null) return -1;
+                int index = _imageRanges.Count;
+                _imageRanges.Add(new ImageRange(_images.Position, png.Length));
+                _images.Write(png, 0, png.Length);
+                while ((_images.Position & 3L) != 0L) _images.WriteByte(0);
+                return index;
+            }
+
+            private void AppendPlan(GeometryPlan plan, bool dirt, bool completed = false, int texture = -1)
             {
                 ThrowIfClosed();
                 if (_completed)
                     throw new InvalidOperationException(
                         "The bounded GLB stream is already complete.");
                 int baseVertex = _vertexCount;
-                AddRange(_ranges, _indexCount, plan.IndexCount, dirt);
+                AddRange(_ranges, _indexCount, plan.IndexCount, dirt, completed, texture);
                 _vertexCount = checked(_vertexCount + plan.VertexCount);
                 _indexCount = checked(_indexCount + plan.IndexCount);
                 _primitiveCount = checked(_primitiveCount +
@@ -210,6 +263,8 @@ namespace Genesis.RoomScan
                     _colorWriter.Write(color.g);
                     _colorWriter.Write(color.b);
                     _colorWriter.Write((byte)255);
+                    _uvWriter.Write(vertex.Uv.x);
+                    _uvWriter.Write(vertex.Uv.y);
                 }
                 foreach (uint index in plan.Indices)
                     _indexWriter.Write(checked((uint)baseVertex + index));
@@ -223,7 +278,7 @@ namespace Genesis.RoomScan
                     throw new InvalidOperationException(
                         "The bounded GLB stream is already complete.");
                 if (_primitiveCount == 0)
-                    throw new InvalidDataException("GLB membrane is empty.");
+                    throw new InvalidDataException("GLB Flower geometry is empty.");
                 if (destination == null || !destination.CanWrite)
                     throw new ArgumentException(
                         "GLB destination must be writable.",
@@ -238,7 +293,10 @@ namespace Genesis.RoomScan
                 long colorsLength = _colors.Length;
                 long indicesOffset = checked(colorsOffset + colorsLength);
                 long indicesLength = _indices.Length;
-                long binaryLength = checked(indicesOffset + indicesLength);
+                long uvsOffset = checked(indicesOffset + indicesLength);
+                long uvsLength = _uvs.Length;
+                long imagesOffset = checked(uvsOffset + uvsLength);
+                long binaryLength = checked(imagesOffset + _images.Length);
                 if (binaryLength > uint.MaxValue)
                     throw new InvalidDataException(
                         "GLB binary chunk exceeds the 4 GiB container limit; " +
@@ -247,7 +305,8 @@ namespace Genesis.RoomScan
                 string json = BuildJson(_vertexCount, _indexCount,
                     binaryLength, positionsOffset, positionsLength,
                     normalsOffset, normalsLength, colorsOffset, colorsLength,
-                    indicesOffset, indicesLength, _minimum, _maximum, _ranges);
+                    indicesOffset, indicesLength, _minimum, _maximum, _ranges,
+                    uvsOffset, uvsLength, imagesOffset, _imageRanges, _materials);
                 byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
                 int paddedJsonLength = Align4(jsonBytes.Length);
                 long totalLength = checked(12L + 8L + paddedJsonLength + 8L +
@@ -288,6 +347,10 @@ namespace Genesis.RoomScan
                     totalLength, "Wrote bounded COLOR_0 data");
                 Copy(_indices, destination);
                 completed += indicesLength;
+                Copy(_uvs, destination);
+                completed += uvsLength;
+                Copy(_images, destination);
+                completed += _images.Length;
                 writer.Flush();
                 if (completed != totalLength)
                     throw new InvalidDataException(
@@ -298,6 +361,7 @@ namespace Genesis.RoomScan
                     throw new InvalidDataException(
                         $"GLB length mismatch: {written} != {totalLength}.");
                 _completed = true;
+                Report(progress, ScanOperationStage.WritingFile, totalLength, totalLength, "GLB bytes written");
                 return new MerkabaGlbResult(written, _vertexCount,
                     _indexCount, _primitiveCount, _minimum, _maximum);
             }
@@ -310,10 +374,13 @@ namespace Genesis.RoomScan
                 _normalWriter.Dispose();
                 _colorWriter.Dispose();
                 _indexWriter.Dispose();
+                _uvWriter.Dispose();
                 _positions.Dispose();
                 _normals.Dispose();
                 _colors.Dispose();
                 _indices.Dispose();
+                _uvs.Dispose();
+                _images.Dispose();
                 if (Directory.Exists(_directory))
                     Directory.Delete(_directory, true);
             }
@@ -329,14 +396,18 @@ namespace Genesis.RoomScan
                 _normalWriter.Flush();
                 _colorWriter.Flush();
                 _indexWriter.Flush();
+                _uvWriter.Flush();
                 _positions.Flush();
                 _normals.Flush();
                 _colors.Flush();
                 _indices.Flush();
+                _uvs.Flush();
+                _images.Flush();
                 if (_positions.Length != checked((long)_vertexCount * 12L) ||
                     _normals.Length != checked((long)_vertexCount * 12L) ||
                     _colors.Length != checked((long)_vertexCount * 4L) ||
-                    _indices.Length != checked((long)_indexCount * 4L))
+                    _indices.Length != checked((long)_indexCount * 4L) ||
+                    _uvs.Length != checked((long)_vertexCount * 8L))
                     throw new InvalidDataException(
                         "Bounded GLB spool length mismatch.");
             }
@@ -355,23 +426,13 @@ namespace Genesis.RoomScan
         }
 
         internal static MerkabaGlbResult Write(Stream destination,
-            MerkabaExportMembraneResult membrane,
-            IProgress<OperationWorkProgress> progress = null) =>
-            Write(destination, membrane, float3.zero, progress);
-
-        internal static MerkabaGlbResult Write(Stream destination,
-            MerkabaExportMembraneResult membrane, float3 localOrigin,
+            MerkabaFlowerPresentation presentation, float3 localOrigin,
             IProgress<OperationWorkProgress> progress = null)
         {
-            if (destination == null || !destination.CanWrite)
-                throw new ArgumentException("GLB destination must be writable.",
-                    nameof(destination));
-            if (membrane == null) throw new ArgumentNullException(nameof(membrane));
-            if (membrane.Patches.Count == 0)
-                throw new InvalidDataException("GLB membrane is empty.");
-
-            GeometryPlan plan = Plan(membrane, localOrigin, progress);
-            return WritePlan(destination, plan, false, progress);
+            string spool = Path.Combine(Path.GetTempPath(), "m8-flower-glb-" + Guid.NewGuid().ToString("N"));
+            using var session = new StreamingSession(spool);
+            session.Append(presentation, progress, localOrigin);
+            return session.Complete(destination, progress);
         }
 
         internal static MerkabaGlbResult WriteDirt(Stream destination,
@@ -489,7 +550,7 @@ namespace Genesis.RoomScan
         internal static int CheckedIndexCountForPrimitiveCount(long primitiveCount)
         {
             if (primitiveCount <= 0)
-                throw new InvalidDataException("GLB membrane is empty.");
+                throw new InvalidDataException("GLB Flower geometry is empty.");
             try
             {
                 long indices = checked(primitiveCount * 3L);
@@ -504,65 +565,6 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException(
                     "GLB geometry exceeds the 4 GiB container limit.", exception);
             }
-        }
-
-        private static GeometryPlan Plan(MerkabaExportMembraneResult membrane,
-            float3 localOrigin, IProgress<OperationWorkProgress> progress)
-        {
-            int primitiveCount = checked(membrane.Patches.Count * 2);
-            int indexCapacity = CheckedIndexCountForPrimitiveCount(
-                primitiveCount);
-            var vertices = new List<GeometryVertex>(Math.Min(indexCapacity,
-                checked(membrane.Patches.Count * 4)));
-            var indices = new List<uint>(indexCapacity);
-            var vertexLookup = new Dictionary<VertexKey, uint>();
-
-            Vector3 minimum = new(float.PositiveInfinity, float.PositiveInfinity,
-                float.PositiveInfinity);
-            Vector3 maximum = new(float.NegativeInfinity, float.NegativeInfinity,
-                float.NegativeInfinity);
-            uint AddVertex(float3 position, float3 normal, uint packedColor)
-            {
-                var vertex = new GeometryVertex(position - localOrigin,
-                    normal, packedColor);
-                var key = new VertexKey(vertex);
-                if (vertexLookup.TryGetValue(key, out uint existing))
-                    return existing;
-                uint index = checked((uint)vertices.Count);
-                vertices.Add(vertex);
-                vertexLookup.Add(key, index);
-                Vector3 value = Convert(vertex.Position);
-                minimum = Vector3.Min(minimum, value);
-                maximum = Vector3.Max(maximum, value);
-                return index;
-            }
-
-            int completedPrimitives = 0;
-            foreach (MerkabaExportMembranePatch patch in membrane.Patches)
-            {
-                uint v0 = AddVertex(patch.Corner00, patch.Normal,
-                    patch.PackedColor);
-                uint v1 = AddVertex(patch.Corner10, patch.Normal,
-                    patch.PackedColor);
-                uint v2 = AddVertex(patch.Corner11, patch.Normal,
-                    patch.PackedColor);
-                uint v3 = AddVertex(patch.Corner01, patch.Normal,
-                    patch.PackedColor);
-                AddTriangle(indices, v0, v2, v1);
-                AddTriangle(indices, v0, v3, v2);
-                completedPrimitives += 2;
-                if (completedPrimitives == primitiveCount ||
-                    (completedPrimitives & 0xffff) == 0)
-                    Report(progress, ScanOperationStage.BuildingMerkabaGeometry,
-                        completedPrimitives, primitiveCount,
-                        $"Built {completedPrimitives}/{primitiveCount} export triangles");
-            }
-            if (completedPrimitives != primitiveCount ||
-                indices.Count != indexCapacity)
-                throw new InvalidDataException(
-                    "GLB indexed geometry construction count mismatch.");
-            return new GeometryPlan(vertices, indices, primitiveCount,
-                minimum, maximum);
         }
 
         private static void AddTriangle(List<uint> indices, uint a, uint b,
@@ -616,22 +618,22 @@ namespace Genesis.RoomScan
         }
 
         private static void AddRange(List<PrimitiveRange> ranges, int first,
-            int count, bool dirt)
+            int count, bool dirt, bool completed = false, int texture = -1)
         {
             if (count == 0) return;
             if (ranges.Count != 0)
             {
                 PrimitiveRange previous = ranges[ranges.Count - 1];
-                if (previous.Dirt == dirt &&
+                if (previous.Dirt == dirt && previous.Completed == completed && previous.Texture == texture &&
                     checked(previous.FirstIndex + previous.IndexCount) == first)
                 {
                     ranges[ranges.Count - 1] = new PrimitiveRange(
                         previous.FirstIndex, checked(previous.IndexCount + count),
-                        dirt);
+                        dirt, completed, texture);
                     return;
                 }
             }
-            ranges.Add(new PrimitiveRange(first, count, dirt));
+            ranges.Add(new PrimitiveRange(first, count, dirt, completed, texture));
         }
 
         private static void WriteIndices(BinaryWriter writer,
@@ -683,14 +685,21 @@ namespace Genesis.RoomScan
             long normalsOffset, long normalsLength, long colorsOffset,
             long colorsLength, long indicesOffset, long indicesLength,
             Vector3 minimum, Vector3 maximum,
-            IReadOnlyList<PrimitiveRange> ranges)
+            IReadOnlyList<PrimitiveRange> ranges, long uvsOffset = 0,
+            long uvsLength = 0, long imagesOffset = 0,
+            IReadOnlyList<ImageRange> images = null, IReadOnlyList<BakedMaterial> materials = null)
         {
             string min = $"[{Number(minimum.x)},{Number(minimum.y)},{Number(minimum.z)}]";
             string max = $"[{Number(maximum.x)},{Number(maximum.y)},{Number(maximum.z)}]";
             bool hasDirt = false;
             foreach (PrimitiveRange range in ranges) hasDirt |= range.Dirt;
+            int imageCount = images?.Count ?? 0;
+            int materialCount = materials?.Count ?? 0;
+            int textureMaterial = hasDirt ? 2 : 1;
+            int uvAccessor = 3 + ranges.Count;
             var json = new StringBuilder(1400);
             json.Append("{\"asset\":{\"version\":\"2.0\",\"generator\":\"Quest Infinite Merkaba\"},");
+            json.Append("\"extensionsUsed\":[\"KHR_materials_unlit\"],");
             json.Append("\"scene\":0,\"scenes\":[{\"nodes\":[0]}],");
             json.Append("\"nodes\":[{\"name\":\"MerkabaGrid\",\"mesh\":0}],");
             json.Append("\"meshes\":[{\"name\":\"M8 Presentation\",\"primitives\":[");
@@ -698,18 +707,29 @@ namespace Genesis.RoomScan
             {
                 if (primitive != 0) json.Append(',');
                 PrimitiveRange range = ranges[primitive];
-                json.Append("{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"COLOR_0\":2},");
+                json.Append("{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"COLOR_0\":2");
+                if (range.Texture >= 0)
+                {
+                    if (range.Texture >= materialCount || uvsLength == 0)
+                        throw new InvalidDataException("A Flower material references no completed texture bake.");
+                    json.Append(",\"TEXCOORD_0\":").Append(uvAccessor);
+                }
+                json.Append("},");
                 json.Append("\"indices\":").Append(3 + primitive)
-                    .Append(",\"material\":").Append(range.Dirt ? 1 : 0)
+                    .Append(",\"material\":").Append(range.Dirt ? 1 : range.Texture >= 0 ? textureMaterial + range.Texture : 0)
                     .Append(",\"mode\":4");
                 if (range.Dirt)
                     json.Append(",\"extras\":{\"m8Provenance\":\"DIRT\",\"inferredSupport\":true,\"capturedRadiance\":false}");
+                else
+                    json.Append(",\"extras\":{\"m8Provenance\":\"")
+                        .Append(range.Completed ? "COMPLETED" : "CONFIRMED")
+                        .Append("\",\"capturedRadiance\":true}");
                 json.Append('}');
             }
             json.Append("]}],");
-            json.Append("\"materials\":[{\"name\":\"M8 Membrane Matte\",");
+            json.Append("\"materials\":[{\"name\":\"M8 Captured Radiance\",");
             json.Append("\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,1,1,1],");
-            json.Append("\"metallicFactor\":0,\"roughnessFactor\":0.85},\"doubleSided\":true}");
+            json.Append("\"metallicFactor\":0,\"roughnessFactor\":1},\"doubleSided\":true,\"extensions\":{\"KHR_materials_unlit\":{}}}");
             if (hasDirt)
             {
                 float4 support = MerkabaSphereFlowerAuthority.DirtSupportLinearRgba;
@@ -719,13 +739,62 @@ namespace Genesis.RoomScan
                     .Append(Number(support.w)).Append("],\"metallicFactor\":0,\"roughnessFactor\":1},\"doubleSided\":false,")
                     .Append("\"extras\":{\"m8Provenance\":\"DIRT\",\"capturedRadiance\":false,\"opticalValid\":false}}");
             }
+            for (int materialIndex = 0; materialIndex < materialCount; materialIndex++)
+            {
+                BakedMaterial material = materials[materialIndex];
+                bool optical = (material.Source.Flags & 1u) != 0u;
+                json.Append(",{\"name\":\"M8 Fixed Flower Thread\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,1,1,1]");
+                if (material.ColorImage >= 0)
+                    json.Append(",\"baseColorTexture\":{\"index\":").Append(material.ColorImage).Append('}');
+                json.Append(",\"metallicFactor\":0,\"roughnessFactor\":")
+                    .Append(Number(optical ? math.clamp(material.Source.Optical.w, 0f, 1f) : 1f)).Append('}');
+                if (material.NormalImage >= 0)
+                    json.Append(",\"normalTexture\":{\"index\":").Append(material.NormalImage).Append('}');
+                json.Append(",\"doubleSided\":true,\"extensions\":{\"KHR_materials_unlit\":{}},\"extras\":{\"capturedRadiance\":true,\"flowerDescents\":3,\"bakeWidth\":")
+                    .Append(MerkabaFlowerMaterialBake.Resolution)
+                    .Append(",\"normalBakeAvailable\":").Append(material.NormalImage >= 0 ? "true" : "false")
+                    .Append(",\"opticalValid\":").Append(optical ? "true" : "false");
+                if (optical)
+                {
+                    json.Append(",\"certifiedOpticalMidpoint\":"); Vector4Json(json, material.Source.Optical);
+                    json.Append(",\"certifiedCaptureViewMidpoint\":"); Vector4Json(json, material.Source.CaptureView);
+                }
+                // Standard unlit viewers preserve captured RGB. The baked
+                // metric normal and certified optical metadata remain available
+                // to presentation renderers; they never relight it as albedo.
+                json.Append("}}");
+            }
             json.Append("],");
+            if (imageCount > 0)
+            {
+                json.Append("\"samplers\":[{\"magFilter\":9729,\"minFilter\":9729,\"wrapS\":33071,\"wrapT\":33071}],\"textures\":[");
+                for (int image = 0; image < imageCount; image++)
+                {
+                    if (image != 0) json.Append(',');
+                    json.Append("{\"sampler\":0,\"source\":").Append(image).Append('}');
+                }
+                json.Append("],\"images\":[");
+                for (int image = 0; image < imageCount; image++)
+                {
+                    if (image != 0) json.Append(',');
+                    json.Append("{\"bufferView\":").Append(5 + image).Append(",\"mimeType\":\"image/png\"}");
+                }
+                json.Append("],");
+            }
             json.Append("\"buffers\":[{\"byteLength\":").Append(binaryLength).Append("}],");
             json.Append("\"bufferViews\":[");
             BufferView(json, positionsOffset, positionsLength, 34962); json.Append(',');
             BufferView(json, normalsOffset, normalsLength, 34962); json.Append(',');
             BufferView(json, colorsOffset, colorsLength, 34962); json.Append(',');
-            BufferView(json, indicesOffset, indicesLength, 34963); json.Append("],");
+            BufferView(json, indicesOffset, indicesLength, 34963);
+            if (uvsLength != 0)
+            { json.Append(','); BufferView(json, uvsOffset, uvsLength, 34962); }
+            for (int image = 0; image < imageCount; image++)
+            {
+                json.Append(',');
+                BufferView(json, checked(imagesOffset + images[image].Offset), images[image].Length, 0);
+            }
+            json.Append("],");
             json.Append("\"accessors\":[");
             json.Append("{\"bufferView\":0,\"componentType\":5126,\"count\":")
                 .Append(vertexCount).Append(",\"type\":\"VEC3\",\"min\":")
@@ -750,6 +819,9 @@ namespace Genesis.RoomScan
             }
             if (coveredIndices != indexCount)
                 throw new InvalidDataException("GLB primitive ranges do not cover the index buffer.");
+            if (uvsLength != 0)
+                json.Append(",{\"bufferView\":4,\"componentType\":5126,\"count\":")
+                    .Append(vertexCount).Append(",\"type\":\"VEC2\"}");
             json.Append("]}");
             return json.ToString();
         }
@@ -758,12 +830,16 @@ namespace Genesis.RoomScan
             long length, int target)
         {
             json.Append("{\"buffer\":0,\"byteOffset\":").Append(offset)
-                .Append(",\"byteLength\":").Append(length)
-                .Append(",\"target\":").Append(target).Append('}');
+                .Append(",\"byteLength\":").Append(length);
+            if (target != 0) json.Append(",\"target\":").Append(target);
+            json.Append('}');
         }
 
         private static string Number(float value) =>
             value.ToString("R", CultureInfo.InvariantCulture);
+        private static void Vector4Json(StringBuilder json, float4 value) =>
+            json.Append('[').Append(Number(value.x)).Append(',').Append(Number(value.y)).Append(',')
+                .Append(Number(value.z)).Append(',').Append(Number(value.w)).Append(']');
         private static int Align4(int value) => (value + 3) & ~3;
     }
 }

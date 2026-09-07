@@ -177,10 +177,12 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
         M8FlowerPlaneFreeSide(incomingFlags)) return false;
     if ((previousFlags & M8_FLOWER_PLANE_STORAGE_MASK) ==
         (incomingFlags & M8_FLOWER_PLANE_STORAGE_MASK)) return true;
-    float3 previousNormal, incomingNormal;
-    float previousOffset, incomingOffset;
-    M8FlowerUnpackPlane(previousFlags, previousNormal, previousOffset);
-    M8FlowerUnpackPlane(incomingFlags, incomingNormal, incomingOffset);
+    uint2 flags=uint2(previousFlags,incomingFlags);
+    float3 normals[2];float offsets[2];
+    // Preserve previous -> incoming evaluation, with one syntactic copy of
+    // the exact decoder/root algebra in the native HLSL legalization path.
+    [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
+        M8FlowerUnpackPlane(flags[endpoint],normals[endpoint],offsets[endpoint]);
     bool isolated = false;
     [loop]
     for (uint direction = 0u; direction < 6u; ++direction)
@@ -188,35 +190,30 @@ bool M8FlowerCompatibleCarrier(uint previousFlags, uint incomingFlags,
         uint lineClass = (uint)M8FlowerDirection[direction].w;
         precise float3 relative = float3(M8FlowerDirection[direction].xyz) *
             (M8_FLOWER_LATTICE_STEP * 0.5);
-        M8FlowerInterval3 previousAbc, incomingAbc;
-        if (!M8FlowerPlaneIntervals(previousNormal, previousOffset, relative,
-                M8_FLOWER_R1_RADIUS, lineClass, normalUncertainty,
-                offsetUncertainty, previousAbc) ||
-            !M8FlowerPlaneIntervals(incomingNormal, incomingOffset, relative,
-                M8_FLOWER_R1_RADIUS, lineClass, normalUncertainty,
-                offsetUncertainty, incomingAbc)) return false;
+        M8FlowerInterval3 abc[2];
+        [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
+            if(!M8FlowerPlaneIntervals(normals[endpoint],offsets[endpoint],relative,
+                M8_FLOWER_R1_RADIUS,lineClass,normalUncertainty,offsetUncertainty,
+                abc[endpoint]))return false;
         [loop]
         for (uint rootSign = 0u; rootSign < 2u; ++rootSign)
         {
-            M8FlowerInterval2 previousRoot, incomingRoot;
-            uint previousClass = M8FlowerRootInterval(previousAbc,
-                rootSign != 0u, previousRoot);
-            uint incomingClass = M8FlowerRootInterval(incomingAbc,
-                rootSign != 0u, incomingRoot);
+            M8FlowerInterval2 roots[2];uint2 classes=0u;
+            [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
+                classes[endpoint]=M8FlowerRootInterval(abc[endpoint],rootSign!=0u,roots[endpoint]);
+            uint previousClass=classes.x,incomingClass=classes.y;
             if (previousClass == M8_FLOWER_ROOT_AMBIGUOUS ||
                 incomingClass != previousClass) return false;
             if (previousClass == M8_FLOWER_ROOT_IMPOSSIBLE ||
                 previousClass == M8_FLOWER_ROOT_COPLANAR) continue;
             if (rootSign != 0u &&
                 previousClass == M8_FLOWER_ROOT_CERTAIN_TANGENT) continue;
-            uint previousSector, incomingSector;
-            if (!M8FlowerRootSector(lineClass, previousRoot, previousSector) ||
-                !M8FlowerRootSector(lineClass, incomingRoot, incomingSector) ||
-                previousSector != incomingSector ||
-                max(previousRoot.x.lo, incomingRoot.x.lo) >
-                    min(previousRoot.x.hi, incomingRoot.x.hi) ||
-                max(previousRoot.y.lo, incomingRoot.y.lo) >
-                    min(previousRoot.y.hi, incomingRoot.y.hi)) return false;
+            uint2 sectors=0u;
+            [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
+                if(!M8FlowerRootSector(lineClass,roots[endpoint],sectors[endpoint]))return false;
+            if(sectors.x!=sectors.y ||
+                max(roots[0].x.lo,roots[1].x.lo)>min(roots[0].x.hi,roots[1].x.hi) ||
+                max(roots[0].y.lo,roots[1].y.lo)>min(roots[0].y.hi,roots[1].y.hi))return false;
             isolated = true;
         }
     }
@@ -258,7 +255,11 @@ bool M8FlowerSeedCorrespondence(uint previousFlags, uint incomingFlags,
                 !M8FlowerClassifyObservationRoot(0u,lineClass,
                     (direction & 1u) != 0u,sign != 0u,incomingAbc,
                     incomingTag,incomingRoot,incomingClass)) continue;
+            uint previousFlag,incomingFlag;
             if (previousTag == incomingTag &&
+                M8FlowerR1SectorFlag(direction,(previousTag>>8u)&31u,previousFlag) &&
+                M8FlowerR1SectorFlag(direction,(incomingTag>>8u)&31u,incomingFlag) &&
+                previousFlag==incomingFlag &&
                 max(previousRoot.x.lo,incomingRoot.x.lo) <=
                     min(previousRoot.x.hi,incomingRoot.x.hi) &&
                 max(previousRoot.y.lo,incomingRoot.y.lo) <=

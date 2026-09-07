@@ -211,18 +211,9 @@ namespace Genesis.RoomScan.Tests
 
         private static byte[] CreateGlb()
         {
-            KernelState state = default;
-            state.SetOccupiedForFixture(true, new Color32(80, 140, 220, 255));
-            state.Flags = KernelState.SetSurfacePlane(state.Flags,
-                new float3(0f, 1f, 0f), 0f);
-            var evidence = new Dictionary<int3, KernelState>
-            {
-                [new int3(0, 0, 0)] = state
-            };
-            MerkabaExportMembraneResult membrane =
-                MerkabaExportMembrane.Build(MerkabaExportShell.Build(evidence));
+            MerkabaFlowerPresentation flower = MerkabaFlowerWriterFixture.Create();
             using var stream = new MemoryStream();
-            _ = MerkabaGlbWriter.Write(stream, membrane);
+            _ = MerkabaGlbWriter.Write(stream, flower, float3.zero);
             return stream.ToArray();
         }
     }

@@ -68,7 +68,7 @@ namespace Genesis.RoomScan
         internal const int LoadRequestCapacity = 262144;
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
-        internal const int CounterCount = 104;
+        internal const int CounterCount = 105;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -150,6 +150,7 @@ namespace Genesis.RoomScan
         internal const int CounterRefinementWorkProgress = 101;
         internal const int CounterRefinementBackpressure = 102;
         internal const int CounterRefinementUnresolved = 103;
+        internal const int CounterRefinementStage = 104;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
@@ -598,6 +599,8 @@ namespace Genesis.RoomScan
             shader.SetBuffer(kernel, "_M8TileBitsRead", _m8TileBits);
             shader.SetBuffer(kernel, "_M8TileRecords", _m8TileRecords);
             shader.SetBuffer(kernel, "_M8TileRecordsRead", _m8TileRecords);
+            shader.SetBuffer(kernel, "_M8TileHalo", _m8TileHalo);
+            shader.SetBuffer(kernel, "_M8TileHaloRead", _m8TileHalo);
             shader.SetBuffer(kernel, "_M8FreeTileStack", _m8FreeTileStack);
             shader.SetBuffer(kernel, "_M8FreeTileStackRead", _m8FreeTileStack);
             shader.SetBuffer(kernel, "_M8Counters", _m8Counters);

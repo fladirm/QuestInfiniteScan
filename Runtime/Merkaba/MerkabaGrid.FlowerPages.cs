@@ -142,6 +142,9 @@ namespace Genesis.RoomScan
             material.SetBuffer("_M8KernelStates2Read", _m8KernelStates2);
             material.SetBuffer("_M8KernelStates3Read", _m8KernelStates3);
             material.SetBuffer("_M8TileRecordsRead", _m8TileRecords);
+            material.SetBuffer("_M8TileHaloRead", _m8TileHalo);
+            material.SetBuffer("_M8OwnerRecordsRead", _m8OwnerRecords);
+            material.SetBuffer("_M8ChunkTileRefsRead", _m8ChunkTileRefs);
             material.SetBuffer("_M8FlowerDetailPagesRead", _m8FlowerDetailPages);
             material.SetBuffer("_M8ThreadAtlasPagesRead", _m8ThreadAtlasPages);
             material.SetBuffer("_M8FlowerSymbolArenaRead", _m8FlowerSymbolArena);

@@ -3,6 +3,8 @@
 
 #include "MerkabaWorld.hlsl"
 #include "MerkabaFlowerPages.hlsl"
+#define M8_FLOWER_HALO_READ_ONLY
+#include "MerkabaFlowerTileHalo.hlsl"
 #include "MerkabaFlowerGeometry.hlsl"
 #include "MerkabaFlowerSkinReadout.hlsl"
 
@@ -73,10 +75,19 @@ bool M8FlowerReadGraphicsVertex(uint vertexId,uint pageSlot,
     result.PackedColor=state.packedColor;
     result.PlaneFlags=state.flags;
     uint carrier=M8FlowerDrawCarrierId(result.Symbol);
+    if(site!=0u)
+    {
+        uint adjacent=(1u<<(site-1u))|(1u<<((site+4u)%6u));
+        // An unused site has no admitted branch. Collapse only that disposable
+        // fan corner to H instead of evaluating a fabricated default sign or
+        // stretching an inactive triangle to an invalid position.
+        if((M8FlowerDrawActiveWedgeMask(result.Symbol)&adjacent)==0u)
+        {site=0u;result.Chart=0.0;}
+    }
     uint knot=M8FlowerL2CarrierKnot(carrier,site);
     bool plus=(M8FlowerDrawRootSigns(result.Symbol)&(1u<<site))!=0u;
     M8FlowerPhaseRootEvidence root;
-    if(!M8FlowerReadL2Knot(ownerRef,owner,state.flags,knot,plus,
+    if(!M8FlowerReadL2Knot(pageSlot,ownerRef,owner,state.flags,knot,plus,
         _M8FlowerPlaneErrorBounds.x,_M8FlowerPlaneErrorBounds.y,root))return false;
     if(site==0u && ((root.Tag>>8u)&31u)!=M8FlowerDrawHubSector(result.Symbol))return false;
     return M8FlowerRootGridPosition(root,result.GridPosition);

@@ -14,6 +14,9 @@
 #define M8_FLOWER_R2_L1_TASKS 144u
 #define M8_FLOWER_R2_L2_TASKS 1152u
 #define M8_FLOWER_PHASE_TASKS (M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS+M8_FLOWER_R2_L2_TASKS)
+#define M8_FLOWER_SKIN_CURSOR_BASE (M8_FLOWER_PHASE_TASKS+1u)
+#define M8_FLOWER_SKIN_PARENTS 57u
+#define M8_FLOWER_SKIN_CARRIERS 128u
 #define M8_FLOWER_FINE_ACTIVE 1u
 #define M8_FLOWER_FINE_NOVEL 2u
 #define M8_FLOWER_FINE_HAS_PHASE 4u
@@ -25,6 +28,37 @@ groupshared uint m8FinePlane[512];
 groupshared uint m8FinePresence[512];
 groupshared uint m8FineWriteStatus;
 groupshared uint m8FineAnyNovelty;
+groupshared uint m8FineAnyActive;
+groupshared uint m8FineSkinNext;
+groupshared uint m8FineSkinConsumed;
+
+// Required COLD endpoint addresses reuse the already drained block-claim
+// prefix and the same frozen storage domain. This adds no coordinate index,
+// world scan, or semantic claim about the unresolved surface.
+void M8FlowerRequestSkinDependencies(uint neededHalo)
+{
+    [loop]while(neededHalo!=0u)
+    {
+        uint halo=(uint)firstbitlow(neededHalo);neededHalo&=neededHalo-1u;
+        if(halo>=M8_FLOWER_HALO_COUNT)continue;
+        if((m8FlowerHalo[halo]>>30u)!=M8_FLOWER_HALO_COLD)
+        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
+        int3 tile=m8FlowerHaloTile+M8FlowerHaloDelta(halo);
+        if(any(tile< -268435456) || any(tile>268435455))
+        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
+        MerkabaM8Address address=MerkabaAddressOf(tile*8);
+        int3 relative=address.blockCoord-_M8ScanCenterBlock+_M8ScanBlockRadius;
+        if(_M8ScanBlockSide<=0 || any(relative<0) || any(relative>=_M8ScanBlockSide))
+        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
+        uint side=(uint)_M8ScanBlockSide;
+        uint ordinal=(uint)relative.x+side*((uint)relative.y+side*(uint)relative.z);
+        int3 decoded;
+        if(!M8ObservationBlockAddress(_M8ScanCenterBlock,_M8ScanBlockRadius,_M8ScanBlockSide,
+            ordinal,decoded) || any(decoded!=address.blockCoord))
+        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
+        M8DualRequestStorage(ordinal,M8_DUAL_INTENT_TILE_COLD,address.chunkLocal,address.tileLocal);
+    }
+}
 
 uint M8FlowerRootRecordPetal(uint node)
 {
@@ -194,7 +228,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     int3 owner=M8GlobalKernelCoord(slot,local);
     uint ownerRef=m8FineOwner[local],epoch=M8FlowerGetOwnerEpoch(ownerRef);
     M8FlowerPhaseRootEvidence predicted;
-    if(!M8FlowerPredictGeometryNode(ownerRef,epoch,owner,m8FinePlane[local],task,
+    if(!M8FlowerPredictGeometryNode(slot,ownerRef,epoch,owner,m8FinePlane[local],task,
         normalError,offsetError,predicted))return M8_FLOWER_ARENA_OK;
     M8FlowerPhaseResidualResult analysis;
     int r3Orientation=1;
@@ -303,7 +337,7 @@ bool M8FlowerR3MetricBundle(uint ownerRef,int3 owner,uint flags,uint rootSigns,
     uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
     M8FlowerInterval q[4];
     int branch=M8FlowerTetraChirality[parity];
-    [unroll]for(uint axis=0u;axis<4u;axis++)
+    [loop]for(uint axis=0u;axis<4u;axis++)
     {
         uint lineClass=(uint)M8FlowerTetraLine[parity][axis];
         uint node=2u*lineClass+(M8FlowerTetraEta[parity][axis]<0?1u:0u);
@@ -326,6 +360,82 @@ bool M8FlowerR3MetricBundle(uint ownerRef,int3 owner,uint flags,uint rootSigns,
     return true;
 }
 
+// All phase stages have retired before this is called. A carrier reads one
+// immutable selected root bundle, then drains both signal authorities. The
+// minimum unfinished parent is the tile cursor; already committed groups
+// replay idempotently when another owner yields on capacity or residency.
+void M8FlowerDrainSkinTile(uint slot,uint lane,uint slotGeneration,float2 errors,
+    inout uint cursor,inout uint consumed)
+{
+    [loop]while(cursor>=M8_FLOWER_SKIN_CURSOR_BASE && consumed<_M8RefinementQuantum)
+    {
+        uint task=cursor-M8_FLOWER_SKIN_CURSOR_BASE;
+        uint carrier=task/M8_FLOWER_SKIN_PARENTS,parentCursor=task%M8_FLOWER_SKIN_PARENTS;
+        if(carrier>=M8_FLOWER_SKIN_CARRIERS){cursor=M8_FLOWER_PHASE_TASKS;break;}
+        if(lane==0u)
+        {
+            m8FineSkinNext=M8_FLOWER_SKIN_PARENTS;
+            m8FineSkinConsumed=1u;
+            m8FlowerHaloUnresolvedReads=0u;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        uint budget=_M8RefinementQuantum-consumed;
+        [loop]for(uint local=lane;local<512u;local+=128u)
+        {
+            if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)==0u)continue;
+            M8FlowerSymbolRecord symbol;uint unresolved;
+            M8FlowerPhaseRootEvidence roots[7];float3 positions[7];
+            uint classification=M8FlowerClassifyL2Carrier(slot,local,carrier,errors,
+                symbol,unresolved,roots,positions);
+            if(classification!=1u)
+            {
+                if(classification==2u)M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
+                continue;
+            }
+            uint source=M8FlowerL2Wedge[6u*carrier].y;
+            uint flowerKey=M8FlowerPackL2Key(source&15u,source>>4u,
+                (roots[0].Tag&(1u<<7u))!=0u,(roots[0].Tag>>8u)&31u);
+            uint next=parentCursor,progress,ambiguous;
+            uint status=M8FlowerDrainSkinCarrier(slot,local,slotGeneration,flowerKey,
+                M8FlowerDrawActiveWedgeMask(symbol),unresolved,roots,errors.x,errors.y,
+                budget,next,progress,ambiguous);
+            if(progress!=0u)InterlockedAdd(_M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS],progress);
+            InterlockedMax(m8FineSkinConsumed,min(budget,max(1u,progress)));
+            if(ambiguous!=0u)InterlockedAdd(_M8Counters[M8_COUNTER_REFINEMENT_UNRESOLVED],ambiguous);
+            M8FlowerFineSchedulingStatus(status);
+            InterlockedMin(m8FineSkinNext,next);
+        }
+        DeviceMemoryBarrierWithGroupSync();
+        if(m8FlowerHaloUnresolvedReads!=0u)
+        {
+            if(lane==0u)M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
+            // Revisit the same parent after the actual requested COLD data
+            // becomes resident. This is scheduling, not new camera evidence.
+            if(lane==0u)m8FineWriteStatus=M8_FLOWER_ARENA_BUSY;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if(m8FineWriteStatus!=0u)break;
+        uint next=m8FineSkinNext;
+        if(next<=parentCursor)
+        {
+            if(lane==0u)m8FineWriteStatus=M8_FLOWER_ARENA_INVALID;
+            GroupMemoryBarrierWithGroupSync();
+            break;
+        }
+        // A proved absent/uniform carrier can prune all57 parents after
+        // one finite classification. It consumes at least one budget unit,
+        // without spending57 empty quanta or using Fibonacci as a scheduler.
+        consumed+=min(budget,m8FineSkinConsumed);
+        if(next==M8_FLOWER_SKIN_PARENTS)
+        {
+            cursor=carrier+1u==M8_FLOWER_SKIN_CARRIERS?M8_FLOWER_PHASE_TASKS:
+                M8_FLOWER_SKIN_CURSOR_BASE+(carrier+1u)*M8_FLOWER_SKIN_PARENTS;
+        }
+        else cursor=M8_FLOWER_SKIN_CURSOR_BASE+carrier*M8_FLOWER_SKIN_PARENTS+next;
+        if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
+    }
+}
+
 [numthreads(128,1,1)]
 void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
@@ -342,7 +452,7 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
         return;
     }
-    if(lane==0u){m8FineWriteStatus=0u;m8FineAnyNovelty=0u;}
+    if(lane==0u){m8FineWriteStatus=0u;m8FineAnyNovelty=0u;m8FineAnyActive=0u;}
     GroupMemoryBarrierWithGroupSync();
     // Invalidation and the preceding M8 publication are one source
     // transaction. Storage cannot capture a tile while these bits remain.
@@ -387,7 +497,17 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         (bin.y!=0u&&(bin.z>=_M8ObservationRecordCapacity ||
             bin.y>_M8ObservationRecordCapacity-bin.z)))return;
     uint cursor=M8FlowerTilePendingCursor(slot,runtime.w,_M8ObservationToken);
-    if(cursor>=M8_FLOWER_PHASE_TASKS)return;
+    uint stage=_M8Counters[M8_COUNTER_REFINEMENT_STAGE];
+    uint stageBegin=stage==0u?0u:stage==1u?M8_FLOWER_ROOT_PHASE_TASKS:
+        stage==2u?M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS:M8_FLOWER_SKIN_CURSOR_BASE;
+    uint stageEnd=stage==0u?M8_FLOWER_ROOT_PHASE_TASKS:stage==1u?
+        M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS:M8_FLOWER_PHASE_TASKS;
+    if(cursor==M8_FLOWER_PHASE_TASKS || (stage<3u && cursor>=stageEnd))return;
+    if(stage>3u || cursor<stageBegin)
+    {
+        if(lane==0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
+        return;
+    }
     if(bin.y==0u)
     {
         if(lane==0u)M8FlowerStoreTilePendingCursor(slot,runtime.w,
@@ -418,6 +538,7 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         uint plane;float3 world;
         if(!M8FlowerMeasurement(record.SourcePixel,M8GlobalKernelCoord(slot,local),plane,world))continue;
         uint state=M8_FLOWER_FINE_ACTIVE;
+        InterlockedOr(m8FineAnyActive,1u);
         // Identical plane evidence and no ancestor innovation cannot prove
         // a new nonzero child residual. This exact-equality case prunes a
         // flat carrier without a variance score or blind dyadic expansion.
@@ -428,29 +549,42 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         if((state&M8_FLOWER_FINE_NOVEL)!=0u)InterlockedOr(m8FineAnyNovelty,1u);
     }
     GroupMemoryBarrierWithGroupSync();
+    if(m8FineAnyActive==0u)
+    {
+        if(lane==0u)M8FlowerStoreTilePendingCursor(slot,runtime.w,
+            _M8ObservationToken,M8_FLOWER_PHASE_TASKS);
+        return;
+    }
     M8FlowerCacheTileHalo(slot,lane,false,true);
     float normalError=M8FlowerNext(_M8PlaneErrorBounds.x+M8_FLOWER_NORMAL_QUANTIZATION_UPPER);
     float offsetError=M8FlowerNext(_M8PlaneErrorBounds.y+M8_FLOWER_OFFSET_QUANTIZATION_UPPER);
     uint consumed=0u;
-    [loop]while(cursor<M8_FLOWER_PHASE_TASKS && consumed<_M8RefinementQuantum)
+    [loop]while(stage<3u && cursor<stageEnd && consumed<_M8RefinementQuantum)
     {
         if(cursor>=M8_FLOWER_ROOT_PHASE_TASKS && m8FineAnyNovelty==0u)
-        {cursor=M8_FLOWER_PHASE_TASKS;break;}
+        {cursor=stageEnd;break;}
         M8FlowerGeometryNode task;
         if(!M8FlowerGeometryNodeAt(cursor,task)){cursor++;continue;}
-        M8FlowerReduceFineEndpoint(slot,lane,task,0u,normalError,offsetError);
         M8FlowerPhaseRootEvidence first[4];
-        [unroll]for(uint item=0u;item<4u;item++)
+        [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
         {
-            uint local=lane+128u*item;
-            int3 junction;
-            first[item]=(M8FlowerPhaseRootEvidence)0;first[item].Classification=2u;
-            if(M8FlowerPhaseJunction(M8GlobalKernelCoord(slot,local),task.Level+1u,
-                task.Offset,junction))M8FlowerFineReadBucket(local,junction,first[item]);
+            M8FlowerReduceFineEndpoint(slot,lane,task,endpoint,normalError,offsetError);
+            if(endpoint==0u)
+            {
+                [loop]for(uint item=0u;item<4u;item++)
+                {
+                    uint local=lane+128u*item;
+                    int3 junction;
+                    first[item]=(M8FlowerPhaseRootEvidence)0;first[item].Classification=2u;
+                    if(M8FlowerPhaseJunction(M8GlobalKernelCoord(slot,local),task.Level+1u,
+                        task.Offset,junction))M8FlowerFineReadBucket(local,junction,first[item]);
+                }
+                // The loop index is workgroup-uniform. Retain first roots
+                // privately before endpoint1 reuses the shared reduction.
+                GroupMemoryBarrierWithGroupSync();
+            }
         }
-        GroupMemoryBarrierWithGroupSync();
-        M8FlowerReduceFineEndpoint(slot,lane,task,1u,normalError,offsetError);
-        [unroll]for(uint item=0u;item<4u;item++)
+        [loop]for(uint item=0u;item<4u;item++)
         {
             uint local=lane+128u*item;
             if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)==0u ||
@@ -462,6 +596,15 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
                 task,first[item],second,normalError,offsetError));
         }
         DeviceMemoryBarrierWithGroupSync();
+        if(m8FlowerHaloUnresolvedReads!=0u)
+        {
+            if(lane==0u)
+            {
+                M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
+                m8FineWriteStatus=M8_FLOWER_ARENA_BUSY;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
         if(m8FineWriteStatus!=0u)break;
         cursor++;consumed++;
         if(cursor==M8_FLOWER_ROOT_PHASE_TASKS)
@@ -485,11 +628,15 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         }
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
     }
+    if(stage==2u && cursor==M8_FLOWER_PHASE_TASKS && m8FineWriteStatus==0u)
+        cursor=M8_FLOWER_SKIN_CURSOR_BASE;
+    if(stage==3u)
+        M8FlowerDrainSkinTile(slot,lane,runtime.w,float2(normalError,offsetError),cursor,consumed);
     if(lane==0u)
     {
         if(!M8FlowerStoreTilePendingCursor(slot,runtime.w,_M8ObservationToken,cursor))
             m8FineWriteStatus=M8_FLOWER_SIDECAR_STALE_SLOT;
-        if(cursor<M8_FLOWER_PHASE_TASKS || m8FineWriteStatus!=0u)
+        if((stage<3u?cursor<stageEnd:cursor!=M8_FLOWER_PHASE_TASKS) || m8FineWriteStatus!=0u)
             M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
         if(m8FineWriteStatus!=0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
     }

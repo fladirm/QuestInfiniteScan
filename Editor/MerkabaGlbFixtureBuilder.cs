@@ -7,7 +7,8 @@ using UnityEngine;
 
 namespace Genesis.RoomScan.Editor
 {
-    /// <summary>Writes a deterministic production-writer fixture for external validation.</summary>
+    /// <summary>Writes a deterministic DIRT presentation-writer fixture.
+    /// This checks the file consumer, not scan admission or surface closure.</summary>
     internal static class MerkabaGlbFixtureBuilder
     {
         public static void BuildMerkabaGlbFixture()
@@ -18,33 +19,22 @@ namespace Genesis.RoomScan.Editor
                 path = Path.GetFullPath(Path.Combine("Builds", "merkaba-fixture.glb"));
             Directory.CreateDirectory(Path.GetDirectoryName(path));
 
-            var evidence = new Dictionary<int3, KernelState>
-            {
-                [new int3(-1, 0, 0)] = Occupied(new Color32(40, 150, 245, 255)),
-                [new int3(0, 0, 0)] = Occupied(new Color32(40, 150, 245, 255)),
-                [new int3(0, 1, 0)] = Occupied(new Color32(245, 150, 40, 255)),
-                [new int3(31, -1, 0)] = Occupied(new Color32(90, 220, 120, 255)),
-                [new int3(32, -1, 0)] = Occupied(new Color32(90, 220, 120, 255))
-            };
-            MerkabaExportMembraneResult membrane = MerkabaExportMembrane.Build(
-                MerkabaExportShell.Build(evidence));
+            // Only symbolic FREE-side cell/face identities are supplied.
+            // The production Flower evaluator generates every position;
+            // there is no fixture-only surface solver or float weld.
+            var triangles = new List<MerkabaDirtTriangle>();
+            foreach (int3 cell in new[] { new int3(-1, 0, 0), new int3(32, -1, 0) })
+                for (int face = 0; face < 6; face++)
+                    for (int half = 0; half < 2; half++)
+                        triangles.Add(new MerkabaDirtTriangle(cell, face, half));
             using var stream = new FileStream(path, FileMode.Create, FileAccess.Write,
                 FileShare.None);
-            MerkabaGlbResult result = MerkabaGlbWriter.Write(stream, membrane);
+            MerkabaGlbResult result = MerkabaGlbWriter.WriteDirt(stream, triangles, float3.zero);
             stream.Flush(true);
             if (result.VertexCount == 0 || new FileInfo(path).Length == 0)
                 throw new InvalidDataException("Production Merkaba writer emitted no geometry.");
             Debug.Log($"[QuestMerkabaScan] GLB Fixture Succeeded: {path} " +
                 $"({result.VertexCount} vertices, {result.ByteLength} bytes)");
-        }
-
-        private static KernelState Occupied(Color32 color)
-        {
-            KernelState state = default;
-            state.SetOccupiedForFixture(true, color);
-            state.Flags = KernelState.SetSurfacePlane(state.Flags,
-                new float3(1, 0, 0), 0f);
-            return state;
         }
     }
 }

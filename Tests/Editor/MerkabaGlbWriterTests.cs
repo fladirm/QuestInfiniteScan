@@ -12,9 +12,9 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaGlbWriterTests
     {
         [Test]
-        public void GlbContainsIndexedMeasuredColorPbrMembraneAndIsDeterministic()
+        public void GlbContainsIndexedCapturedRadianceFlowerAndIsDeterministic()
         {
-            MerkabaExportMembraneResult fixture = Fixture();
+            MerkabaFlowerPresentation fixture = Fixture();
             byte[] first = Write(fixture, out MerkabaGlbResult firstResult);
             byte[] second = Write(fixture, out MerkabaGlbResult secondResult);
             Assert.That(second, Is.EqualTo(first));
@@ -59,81 +59,59 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void SingleMeasuredKernelExportsOneSupportPatchNotMerkabaSoup()
+        public void OneExplicitL2CarrierMaterializesOnlyItsSixWedges()
         {
-            var evidence = new Dictionary<int3, KernelState>
-            {
-                [new int3(0)] = Measured(new float3(1, 0, 0), 0.007f,
-                    new Color32(180, 100, 20, 255))
-            };
-            MerkabaExportMembraneResult membrane = Membrane(evidence);
-            byte[] bytes = Write(membrane, out MerkabaGlbResult result);
-
+            MerkabaFlowerPresentation flower = MerkabaFlowerWriterFixture.Create(new int3(0));
+            byte[] bytes = Write(flower, out MerkabaGlbResult result);
             Assert.That(bytes, Is.Not.Empty);
-            Assert.That(result.PrimitiveCount, Is.EqualTo(2));
-            Assert.That(result.VertexCount, Is.EqualTo(4));
-            Assert.That(result.IndexCount, Is.EqualTo(6));
-
+            Assert.That(flower.Positions.Count, Is.EqualTo(7));
+            Assert.That(result.PrimitiveCount, Is.EqualTo(6));
+            Assert.That(result.IndexCount, Is.EqualTo(18));
             int jsonLength = checked((int)ReadUInt32(bytes, 12));
             int binaryStart = 20 + jsonLength + 8;
             int normalsOffset = result.VertexCount * 12;
             for (int vertex = 0; vertex < result.VertexCount; vertex++)
             {
                 int offset = binaryStart + normalsOffset + vertex * 12;
-                Assert.That(Math.Abs(BitConverter.ToSingle(bytes, offset)),
-                    Is.GreaterThan(0.99f));
-                Assert.That(Math.Abs(BitConverter.ToSingle(bytes, offset + 4)),
-                    Is.LessThan(0.01f));
-                Assert.That(Math.Abs(BitConverter.ToSingle(bytes, offset + 8)),
-                    Is.LessThan(0.01f));
+                Assert.That(Math.Abs(BitConverter.ToSingle(bytes, offset)), Is.EqualTo(1f));
+                Assert.That(BitConverter.ToSingle(bytes, offset + 4), Is.Zero);
+                Assert.That(BitConverter.ToSingle(bytes, offset + 8), Is.Zero);
             }
         }
 
         [Test]
-        public void ParallelMeasuredLayersRemainDistinctIndexedGeometry()
+        public void ParallelSymbolicCarriersRemainDistinctGeometry()
         {
-            KernelState state = Measured(new float3(1, 0, 0), 0f,
-                new Color32(90, 150, 210, 255));
-            var evidence = new Dictionary<int3, KernelState>
-            {
-                [new int3(0, 0, 0)] = state,
-                [new int3(1, 0, 0)] = state
-            };
-            MerkabaExportMembraneResult membrane = Membrane(evidence);
-
-            byte[] bytes = Write(membrane, out MerkabaGlbResult result);
-            Assert.That(bytes, Is.Not.Empty);
-            Assert.That(membrane.MeasuredPatchCount, Is.EqualTo(2));
-            Assert.That(result.PrimitiveCount, Is.EqualTo(4));
-            Assert.That(result.VertexCount, Is.EqualTo(8));
-            Assert.That(result.IndexCount, Is.EqualTo(12));
+            MerkabaFlowerPresentation flower = MerkabaFlowerWriterFixture.Create(new int3(0), new int3(1, 0, 0));
+            Write(flower, out MerkabaGlbResult result);
+            Assert.That(flower.Positions.Count, Is.EqualTo(14));
+            Assert.That(result.PrimitiveCount, Is.EqualTo(12));
+            Assert.That(result.IndexCount, Is.EqualTo(36));
+            Assert.That(flower.Carriers[0].PositionIndices, Is.Not.EqualTo(flower.Carriers[1].PositionIndices));
         }
 
         [Test]
-        public void ExactSharedMeasuredSeamReusesIndexedVertices()
+        public void SharedPositionIndicesRemainIndependentOfCarrierNormals()
         {
-            KernelState state = Measured(new float3(1, 0, 0), 0f,
-                new Color32(90, 150, 210, 255));
-            int3 firstCoord = new(0, 0, 0);
-            int3 secondCoord = new(0, 1, 0);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(firstCoord, state,
-                out MerkabaOverlapShell.Patch first), Is.True);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(secondCoord, state,
-                out MerkabaOverlapShell.Patch second), Is.True);
-            var patches = new List<MerkabaExportMembranePatch>
+            MerkabaFlowerPresentation flower = MerkabaFlowerWriterFixture.Create();
+            var first = flower.Carriers[0];
+            var reverse = new MerkabaFlowerPresentation.Carrier
             {
-                ExportPatch(first), ExportPatch(second)
+                Owner = first.Owner,
+                Symbol = MerkabaFlowerSymbolRecord.CreateCarrier(0, 0, 1, true, true, 63u, 0u, 0, 0u, 63u),
+                SkinHeader = first.SkinHeader, SkinSamples = first.SkinSamples
             };
-            var membrane = new MerkabaExportMembraneResult(patches,
-                new[] { firstCoord, secondCoord },
-                new[] { firstCoord, secondCoord }, 2, 0,
-                Array.Empty<int3>(), 0);
-
-            Write(membrane, out MerkabaGlbResult result);
-            Assert.That(result.PrimitiveCount, Is.EqualTo(4));
-            Assert.That(result.VertexCount, Is.EqualTo(6));
-            Assert.That(result.VertexCount,
-                Is.LessThan(membrane.Patches.Count * 4));
+            Array.Copy(first.PositionIndices, reverse.PositionIndices, 7);
+            flower.Carriers.Add(reverse); flower.TriangleCount += 6;
+            byte[] bytes = Write(flower, out MerkabaGlbResult result);
+            Assert.That(flower.Knots.Count, Is.EqualTo(7));
+            Assert.That(flower.Positions.Count, Is.EqualTo(7));
+            Assert.That(reverse.PositionIndices, Is.EqualTo(first.PositionIndices));
+            Assert.That(result.PrimitiveCount, Is.EqualTo(12));
+            int binaryStart = 28 + checked((int)ReadUInt32(bytes, 12));
+            int normals = binaryStart + result.VertexCount * 12;
+            Assert.That(BitConverter.ToSingle(bytes, normals),
+                Is.EqualTo(-BitConverter.ToSingle(bytes, normals + 18 * 12)));
         }
 
         [Test]
@@ -161,17 +139,9 @@ namespace Genesis.RoomScan.Tests
             using var output = new MemoryStream();
             using (var session = new MerkabaGlbWriter.StreamingSession(spool))
             {
-                session.Append(Membrane(new Dictionary<int3, KernelState>
-                {
-                    [new int3(0, 0, 0)] = Measured(new float3(1, 0, 0),
-                        0f, new Color32(20, 40, 60, 255))
-                }));
-                session.Append(Membrane(new Dictionary<int3, KernelState>
-                {
-                    [new int3(64, 0, 0)] = Measured(new float3(1, 0, 0),
-                        0f, new Color32(80, 100, 120, 255))
-                }));
-                Assert.That(Directory.GetFiles(spool), Has.Length.EqualTo(4));
+                session.Append(MerkabaFlowerWriterFixture.Create(new int3(0)));
+                session.Append(MerkabaFlowerWriterFixture.Create(new int3(64, 0, 0)));
+                Assert.That(Directory.GetFiles(spool), Has.Length.EqualTo(6));
                 result = session.Complete(output);
             }
 
@@ -179,50 +149,21 @@ namespace Genesis.RoomScan.Tests
             Assert.That(Directory.Exists(spool), Is.False);
             Assert.That(ReadUInt32(bytes, 0), Is.EqualTo(0x46546C67u));
             Assert.That(ReadUInt32(bytes, 8), Is.EqualTo((uint)bytes.Length));
-            Assert.That(result.PrimitiveCount, Is.EqualTo(4));
-            Assert.That(result.VertexCount, Is.EqualTo(8));
-            Assert.That(result.IndexCount, Is.EqualTo(12));
+            Assert.That(result.PrimitiveCount, Is.EqualTo(12));
+            Assert.That(result.VertexCount, Is.EqualTo(36));
+            Assert.That(result.IndexCount, Is.EqualTo(36));
         }
 
-        private static MerkabaExportMembraneResult Fixture()
-        {
-            Color32 color = new(25, 100, 220, 255);
-            var evidence = new Dictionary<int3, KernelState>
-            {
-                [new int3(-1, 0, 0)] = Measured(new float3(1, 0, 0), 0f, color),
-                [new int3(0, 0, 0)] = Measured(new float3(1, 0, 0), 0f, color),
-                [new int3(31, 1, 0)] = Measured(new float3(0, 1, 0), 0f, color),
-                [new int3(32, 1, 0)] = Measured(new float3(0, 1, 0), 0f, color)
-            };
-            return Membrane(evidence);
-        }
+        private static MerkabaFlowerPresentation Fixture() => MerkabaFlowerWriterFixture.Create(
+            new int3(-1, 0, 0), new int3(0), new int3(31, 1, 0), new int3(32, 1, 0));
 
-        private static MerkabaExportMembraneResult Membrane(
-            IReadOnlyDictionary<int3, KernelState> evidence) =>
-            MerkabaExportMembrane.Build(MerkabaExportShell.Build(evidence));
-
-        private static KernelState Measured(float3 normal, float offset,
-            Color32 color)
-        {
-            KernelState state = default;
-            state.SetOccupiedForFixture(true, color);
-            state.Flags = KernelState.SetSurfacePlane(state.Flags, normal, offset);
-            return state;
-        }
-
-        private static byte[] Write(MerkabaExportMembraneResult fixture,
+        private static byte[] Write(MerkabaFlowerPresentation fixture,
             out MerkabaGlbResult result)
         {
             using var stream = new MemoryStream();
-            result = MerkabaGlbWriter.Write(stream, fixture);
+            result = MerkabaGlbWriter.Write(stream, fixture, float3.zero);
             return stream.ToArray();
         }
-
-        private static MerkabaExportMembranePatch ExportPatch(
-            MerkabaOverlapShell.Patch patch) => new(patch.Main, patch.Normal,
-            patch.Corner00.GridPosition, patch.Corner10.GridPosition,
-            patch.Corner11.GridPosition, patch.Corner01.GridPosition,
-            patch.Corner00.PackedColor, false);
 
         private static uint ReadUInt32(byte[] bytes, int offset) =>
             BitConverter.ToUInt32(bytes, offset);

@@ -19,11 +19,11 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void QuestArtifactPreviewReadsTheFrozenWriterAbiBackIntoUnitySpace()
         {
-            MerkabaExportMembraneResult membrane = Fixture();
+            MerkabaFlowerPresentation flower = Fixture();
             Vector3 origin = new(0.25f, -0.5f, 0.75f);
             Vector3 center = new(0.1f, 0.2f, 0.3f);
             using var stream = new MemoryStream();
-            _ = MerkabaGlbWriter.Write(stream, membrane, origin);
+            _ = MerkabaGlbWriter.Write(stream, flower, origin);
             byte[] glb = stream.ToArray();
 
             MerkabaArtifactViewer.ParsedGlb parsed =
@@ -39,10 +39,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(parsed.Indices.Length % 3, Is.Zero);
             Assert.That(parsed.Positions.Any(value =>
                 Vector3.Distance(value + origin - center,
-                    (Vector3)membrane.Patches[0].Corner00 - center) < 1e-6f),
+                    (Vector3)flower.Positions[0] - center) < 1e-6f),
                 Is.True);
-            Color32 expected = KernelState.UnpackColor(
-                membrane.Patches[0].PackedColor);
+            Color32 expected = new(25, 100, 220, 255);
             Assert.That(parsed.Colors.Any(value => value.r == expected.r &&
                 value.g == expected.g && value.b == expected.b), Is.True);
             Assert.That(streamedParsed.Positions, Is.EqualTo(parsed.Positions));
@@ -175,10 +174,9 @@ namespace Genesis.RoomScan.Tests
                     Quaternion.Euler(0f, 37f, 0f), Vector3.one);
                 var expected = new MerkabaSpatialBinding(uuid,
                     anchorFromPackage);
-                _ = MerkabaTilesetWriter.WritePackage(root, Fixture(),
-                    targetLeafBytes: 1_000_000,
+                _ = MerkabaFlowerWriterFixture.StreamPackage(root, Fixture(),
                     hardLeafBytes: 2_000_000,
-                    spatialBinding: expected);
+                    binding: expected);
 
                 string json = File.ReadAllText(Path.Combine(root,
                     "tileset.json"));
@@ -308,21 +306,20 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void TiledLeavesComposeTheExactMonolithicTriangleUnion()
         {
-            MerkabaExportMembraneResult membrane = Fixture();
+            MerkabaFlowerPresentation flower = Fixture();
             string root = TemporaryDirectory();
             try
             {
-                MerkabaTilesetResult result = MerkabaTilesetWriter.WritePackage(
-                    root, membrane, targetLeafBytes: 3000,
-                    hardLeafBytes: 8000);
+                MerkabaTilesetResult result = MerkabaFlowerWriterFixture.StreamPackage(
+                    root, flower, hardLeafBytes: 8000);
                 Assert.That(result.TileCount, Is.GreaterThan(1));
                 Assert.That(result.TriangleCount,
-                    Is.EqualTo(membrane.Patches.Count * 2));
+                    Is.EqualTo(flower.TriangleCount));
 
                 List<string> monolithic;
                 using (var stream = new MemoryStream())
                 {
-                    _ = MerkabaGlbWriter.Write(stream, membrane);
+                    _ = MerkabaGlbWriter.Write(stream, flower, float3.zero);
                     monolithic = Triangles(stream.ToArray(), Vector3.zero,
                         rotateGlbToTileset: true);
                 }
@@ -338,17 +335,15 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void PackageIsStandardBoundedAndByteDeterministic()
         {
-            MerkabaExportMembraneResult membrane = Fixture();
+            MerkabaFlowerPresentation flower = Fixture();
             string first = TemporaryDirectory();
             string second = TemporaryDirectory();
             try
             {
-                MerkabaTilesetResult a = MerkabaTilesetWriter.WritePackage(
-                    first, membrane, targetLeafBytes: 3000,
-                    hardLeafBytes: 8000);
-                MerkabaTilesetResult b = MerkabaTilesetWriter.WritePackage(
-                    second, membrane, targetLeafBytes: 3000,
-                    hardLeafBytes: 8000);
+                MerkabaTilesetResult a = MerkabaFlowerWriterFixture.StreamPackage(
+                    first, flower, hardLeafBytes: 8000);
+                MerkabaTilesetResult b = MerkabaFlowerWriterFixture.StreamPackage(
+                    second, flower, hardLeafBytes: 8000);
                 Assert.That(b.TileCount, Is.EqualTo(a.TileCount));
                 string json = File.ReadAllText(Path.Combine(first,
                     "tileset.json"));
@@ -393,14 +388,14 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void StreamingPackagePublishesManifestAfterBoundedLeaves()
         {
-            MerkabaExportMembraneResult membrane = Fixture();
+            MerkabaFlowerPresentation flower = Fixture();
             string root = TemporaryDirectory();
             try
             {
                 MerkabaTilesetWriter.BeginStreamingPackage(root);
                 MerkabaTilesetLeaf leaf =
                     MerkabaTilesetWriter.WriteStreamingLeaf(root, 0,
-                        membrane, hardLeafBytes: 1_000_000);
+                        flower, hardLeafBytes: 1_000_000);
                 Assert.That(File.Exists(Path.Combine(root, "tiles",
                     "000000.glb")), Is.True);
                 Assert.That(File.Exists(Path.Combine(root,
@@ -411,7 +406,7 @@ namespace Genesis.RoomScan.Tests
                         new[] { leaf });
                 Assert.That(result.TileCount, Is.EqualTo(1));
                 Assert.That(result.TriangleCount,
-                    Is.EqualTo(membrane.Patches.Count * 2));
+                    Is.EqualTo(flower.TriangleCount));
                 string json = File.ReadAllText(Path.Combine(root,
                     "tileset.json"));
                 Assert.That(json, Does.Contain(
@@ -424,7 +419,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void StreamingPackageRejectsZeroLeavesAndOwnedMeasuredPatchExists()
+        public void StreamingPackageRejectsEmptyPresentationWithoutPublishingManifest()
         {
             string root = TemporaryDirectory();
             try
@@ -433,31 +428,18 @@ namespace Genesis.RoomScan.Tests
                 Assert.Throws<InvalidDataException>(() =>
                     MerkabaTilesetWriter.CompleteStreamingPackage(root,
                         Array.Empty<MerkabaTilesetLeaf>()));
+                var empty = new MerkabaFlowerPresentation(default);
+                Assert.Throws<InvalidDataException>(() =>
+                    MerkabaTilesetWriter.WriteStreamingLeaf(root, 0, empty));
+                Assert.That(File.Exists(Path.Combine(root, "tileset.json")), Is.False);
+                Assert.That(Directory.GetFiles(Path.Combine(root, "tiles")), Is.Empty);
 
-                MerkabaExportMembraneResult membrane = Fixture();
-                int3 coord = membrane.Patches[0].Coord;
-                MerkabaSpatial.Address address = MerkabaSpatial.Encode(coord);
-                var owner = new MerkabaTileAddress(address.BlockCoord,
-                    (uint)address.ChunkLocal);
-                MerkabaExportMembraneResult owned = MerkabaExporter.OwnChunk(
-                    membrane, owner);
-                Assert.That(owned.Patches.Any(patch =>
-                    math.all(patch.Coord == coord)), Is.True);
-
-                InvalidDataException failure = Assert.Throws<InvalidDataException>(
-                    () => MerkabaExporter.ValidateOwnedMeasuredPatches(owner,
-                        storedTiles: 4, nonzeroStates: 7,
-                        occupiedOwners: 2, measuredOwners: 1,
-                        membranePatches: 3, ownedPatches: 0));
-                Assert.That(failure.Message, Does.Contain(
-                    "Export invariant failed at spatial ownership"));
-                Assert.That(failure.Message, Does.Contain("storedTiles=4"));
-                Assert.That(failure.Message, Does.Contain("ownedPatches=0"));
-                Assert.DoesNotThrow(() =>
-                    MerkabaExporter.ValidateOwnedMeasuredPatches(owner,
-                        storedTiles: 4, nonzeroStates: 7,
-                        occupiedOwners: 2, measuredOwners: 1,
-                        membranePatches: 3, ownedPatches: 1));
+                MerkabaFlowerPresentation flower = MerkabaFlowerWriterFixture.Create();
+                MerkabaTilesetLeaf leaf = MerkabaTilesetWriter.WriteStreamingLeaf(root, 0, flower);
+                MerkabaTilesetResult result = MerkabaTilesetWriter.CompleteStreamingPackage(root,
+                    new[] { leaf });
+                Assert.That(result.TriangleCount, Is.EqualTo(flower.TriangleCount));
+                Assert.That(File.Exists(Path.Combine(root, "tileset.json")), Is.True);
             }
             finally
             {
@@ -507,26 +489,23 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaTilesetWriter.WriteStreamingLeaf(staging"));
             Assert.That(exporter, Does.Contain(
                 "MerkabaTilesetWriter.CompleteStreamingPackage(staging"));
-            Assert.That(exporter, Does.Contain(
-                "offset += MerkabaGrid.StreamBatchCapacity"));
-            Assert.That(exporter, Does.Contain(
-                "ValidateOwnedMeasuredPatches(ownerKey"));
-            Assert.That(exporter, Does.Contain(
-                "Export invariant failed at spatial ownership"));
+            Assert.That(exporter, Does.Contain("CaptureStoredFlowerSource(out _exportPosition)"));
+            Assert.That(exporter, Does.Contain("ReadStoredFlowerContextAsync(addresses[index], addresses, _exportPosition)"));
+            Assert.That(exporter, Does.Contain("MerkabaFlowerPresentation.Build(reader, address, planeBounds)"));
             foreach (string field in new[]
                      {
-                         "storedTiles=", "nonzeroStates=", "occupiedOwners=",
-                         "measuredOwners=", "membranePatches=",
-                         "ownedPatches=", "emittedLeaf="
+                         "occupiedOwners=", "carriers=", "triangles=", "unresolvedWedges="
                      })
                 Assert.That(exporter, Does.Contain(field), field);
+            Assert.That(exporter, Does.Contain("AppendDirtToTilesetAsync(staging, leaves, progress)"));
+            Assert.That(exporter, Does.Contain("StreamStoredFlowerDirtAsync(_exportPlaneBounds, _exportTiles,"));
             Assert.That(exporter, Does.Not.Contain(
                 "CaptureStoredSnapshotAsync(anchorUuid"));
             int viewerExport = exporter.IndexOf(
                 "public async Task<bool> ExportViewerPackageAsync()",
                 StringComparison.Ordinal);
             int nextMethod = exporter.IndexOf(
-                "private async Task StreamOwnedMembranesAsync(", viewerExport,
+                "private async Task StreamOwnedFlowersAsync(", viewerExport,
                 StringComparison.Ordinal);
             string scalablePath = exporter.Substring(viewerExport,
                 nextMethod - viewerExport);
@@ -534,12 +513,18 @@ namespace Genesis.RoomScan.Tests
             Assert.That(exporter, Does.Contain(
                 "new MerkabaGlbWriter.StreamingSession("));
             Assert.That(exporter, Does.Contain(
-                "StreamOwnedMembranesAsync(async (membrane"));
+                "StreamOwnedFlowersAsync(async (flower"));
             Assert.That(exporter, Does.Contain(
-                "StreamOwnedMembranesAsync(async (owned"));
+                "StreamOwnedFlowersAsync(async (owned"));
             Assert.That(scalablePath, Does.Contain(
                 "BuildStreamingTilesetAsync("));
-            Assert.That(storage, Does.Contain("CaptureStoredTileIndex()"));
+            string reader = Source("Runtime/Merkaba/MerkabaGrid.Reader.cs");
+            string store = Source("Runtime/Merkaba/MerkabaSsdStore.cs");
+            Assert.That(reader, Does.Contain("FlowerContextAddresses("));
+            Assert.That(reader, Does.Contain("z = -1; z <= 1"));
+            Assert.That(reader, Does.Contain("Array.BinarySearch(capturedIndex"));
+            Assert.That(store, Does.Contain("RequireFlowerPosition(position)"));
+            Assert.That(store, Does.Contain("_subordinate.CaptureTile("));
             Assert.That(storage, Does.Contain("ReadStoredTilesAsync("));
         }
 
@@ -649,18 +634,17 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void OfflineArchiveIsDeterministicAndContainsCompletePackage()
         {
-            MerkabaExportMembraneResult membrane = Fixture();
+            MerkabaFlowerPresentation flower = Fixture();
             string first = TemporaryDirectory();
             string second = TemporaryDirectory();
             string firstArchive = first + ".zip";
             string secondArchive = second + ".zip";
             try
             {
-                MerkabaTilesetResult package = MerkabaTilesetWriter.WritePackage(
-                    first, membrane, targetLeafBytes: 3000,
+                MerkabaTilesetResult package = MerkabaFlowerWriterFixture.StreamPackage(
+                    first, flower, hardLeafBytes: 8000);
+                _ = MerkabaFlowerWriterFixture.StreamPackage(second, flower,
                     hardLeafBytes: 8000);
-                _ = MerkabaTilesetWriter.WritePackage(second, membrane,
-                    targetLeafBytes: 3000, hardLeafBytes: 8000);
                 WriteViewerAssets(first);
                 WriteViewerAssets(second);
 
@@ -697,22 +681,13 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
-        private static MerkabaExportMembraneResult Fixture()
+        private static MerkabaFlowerPresentation Fixture()
         {
-            var evidence = new Dictionary<int3, KernelState>();
+            var owners = new List<int3>();
             for (int y = -10; y < 10; y++)
             for (int z = -2; z < 2; z++)
-            {
-                int3 coord = new(-3, y, z);
-                KernelState state = default;
-                state.SetOccupiedForFixture(true,
-                    new Color32((byte)(y + 32), (byte)(z + 32), 180, 255));
-                state.Flags = KernelState.SetSurfacePlane(state.Flags,
-                    new float3(1f, 0.15f, 0.05f), 0.004f);
-                evidence.Add(coord, state);
-            }
-            return MerkabaExportMembrane.Build(
-                MerkabaExportShell.Build(evidence));
+                owners.Add(new int3(-3, y, z));
+            return MerkabaFlowerWriterFixture.Create(owners.ToArray());
         }
 
         private static List<string> TiledTriangles(string root)
@@ -761,7 +736,13 @@ namespace Genesis.RoomScan.Tests
                 vertices[index] = vertex + translation;
             }
             int indexOffset = binaryStart + vertexCount * 28;
-            int indexCount = checked((glb.Length - indexOffset) / 4);
+            int indexCount = 0;
+            foreach (Match scalar in Regex.Matches(json,
+                         @"""componentType"":5125,""count"":(\d+),""type"":""SCALAR"""))
+                indexCount = checked(indexCount + int.Parse(scalar.Groups[1].Value,
+                    CultureInfo.InvariantCulture));
+            Assert.That(indexCount, Is.GreaterThan(0));
+            Assert.That(indexCount % 3, Is.Zero);
             var triangles = new List<string>(indexCount / 3);
             for (int index = 0; index < indexCount; index += 3)
             {

@@ -133,7 +133,9 @@
 #define M8_COUNTER_REFINEMENT_WORK_PROGRESS 101u
 #define M8_COUNTER_REFINEMENT_BACKPRESSURE 102u
 #define M8_COUNTER_REFINEMENT_UNRESOLVED 103u
-#define M8_COUNTER_COUNT 104u
+// Published only between dispatches: root phase, L1 phase, L2 phase, skin.
+#define M8_COUNTER_REFINEMENT_STAGE 104u
+#define M8_COUNTER_COUNT 105u
 
 // Observation-local address intents reuse the released BLOCK claim span.
 // They contain no surface evidence and are consumed by the existing storage

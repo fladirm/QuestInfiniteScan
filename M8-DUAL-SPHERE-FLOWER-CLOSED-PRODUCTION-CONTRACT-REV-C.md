@@ -902,7 +902,10 @@ No root is emitted from an ambiguous interval.
 
 ## 7.1 Generated phase sectors
 
-Each loop is cut only by radical planes belonging to incident `R1⊂R2⊂R3` cube flags.
+Each loop is cut by radical planes belonging to incident `R1⊂R2⊂R3` cube flags.
+The R1 face loops additionally include the exact same-shell power-order
+boundaries required by section 8.4.2. These are differences of incident
+radical-plane functions, not new measured planes or fitted geometry.
 
 For an incident direction \(q\), substitute the loop into:
 
@@ -917,6 +920,12 @@ This produces a fixed equation:
 \]
 
 Its exact algebraic roots partition the loop into half-open sectors.
+
+For R1, codegen uses the common arrangement of the radical cuts and the
+incident edge/edge and corner/corner equality cuts from section 8.4.2.
+All such cuts use the same exact loop/plane solver. A changed ordering may
+never remain hidden inside one sector. Codegen re-proves the section 1.3
+five-bit sector bound before publishing the shared CPU/HLSL tables.
 
 All coefficients belong to:
 
@@ -1061,6 +1070,56 @@ A flag petal is admissible only when:
 6. no node/strand/petal support is dual-vetoed.
 
 R2/R3 direct measurement is not required for basic R1 existence. When absent, the R1 carrier may predict the corresponding higher-shell anchor **only as provisional geometry inside the same unique flag**. Such a prediction does not create persistent R2/R3 detail and cannot by itself prove a hole completion.
+
+### 8.4.2 Exact R1 face-sector flag admission
+
+For a fixed directed R1 face carrier \(f=s_i e_i\), use the existing power
+residual:
+
+\[
+\Phi_q(X)=q\cdot(X-C_K)-\frac{a_L}{2}(q\cdot q).
+\]
+
+Select the maximum `Phi` among the four R2 edge directions incident to
+`f`, then the maximum among the two R3 corner directions incident to that
+selected edge. Exact ties use the smaller frozen generated `Node` ordinal
+at each step. No observed score, distance, epsilon or runtime search is used.
+
+Candidates compared at each step belong to the same shell, so their
+constant terms cancel:
+
+\[
+\Phi_a-\Phi_b=(a-b)\cdot(X-C_K).
+\]
+
+In the chart \(\xi=2(X-C_K)/a_L\), the R1 shared loop and selected flag
+\(f\subset e=f+s_j e_j\subset c=e+s_k e_k\) obey:
+
+\[
+s_i\xi_i=1,\qquad \xi_j^2+\xi_k^2=3,
+\qquad 0\le s_k\xi_k\le s_j\xi_j\le2.
+\]
+
+The support half-width is `a_L`, hence the chart clipping bound is exactly
+`2`, not `1`. On the R1 loop the bound is redundant because the absolute
+tangential coordinates are at most \(\sqrt3<2\). Signs and relative order
+partition each face into eight flag cells, giving the existing 48 flags.
+This face chart does not replace or flatten the R2/R3 world loops.
+
+Codegen uses the existing `Petal[48]` incidence, exact loop boundaries and
+exact sign algebra on the power differences. The sign at a certified
+sector interior may be evaluated by its exact positive-angle boundary
+limit; no finite angular step or sampled adjacency is permitted.
+It emits one `Sector→PetalMask` for each directed R1 face and sector.
+Each mask MUST contain exactly one incident flag; all eight flags of each
+face MUST be covered. Zero or multiple incompatible flags is a codegen
+failure, not a runtime choice.
+
+The half-open equality convention defines exact ownership only.
+Section 7.1 still requires a root interval strictly inside one sector:
+touching or crossing an order boundary is `AMBIGUOUS`, not a tie-based
+permission to emit an uncertain root. Direction, sector and rootSign
+transport remain the generated shared-loop conventions.
 
 ## 8.5 Child substitution
 
@@ -3619,6 +3678,11 @@ loop basis endpoint invariance
 all root degeneracies
 interval containment / outward rounding
 root sector stability
+R1 same-shell power-order cuts are complete in the shared sector arrangement
+R1 clipping is exactly 2 in xi=2*(X-C)/aL and preserves every R1 world loop
+each directed R1 sector selects exactly one incident flag and covers all eight face flags
+exact equality ownership follows frozen Node ordinal; boundary-crossing intervals remain AMBIGUOUS
+R1 Sector-to-PetalMask is exhaustively CPU/HLSL identical and maxSectorCount<=32
 rootSign stability under d -> -d
 NO observation-dependent branch renumbering
 parallel-sheet separation through distinct overlap-owner relations
