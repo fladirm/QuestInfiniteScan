@@ -70,6 +70,7 @@ namespace Genesis.RoomScan.UI
 
         private MerkabaExporter _exporter;
         private RoomScanner _scanner;
+        private MerkabaPersistence _persistence;
         private ControllerRayDriver _rayDriver;
         private MerkabaPaintEngine _paintEngine;
         private MerkabaDesignLibrary _designLibrary;
@@ -164,6 +165,10 @@ namespace Genesis.RoomScan.UI
         private long _totalModelBytes;
         private long _totalResidentEstimateBytes;
         private string _archivePath;
+        private string _annotationPath;
+        private Guid _annotationSessionId;
+        private bool _annotationsDirty;
+        private bool _annotationsLoaded;
         private MerkabaSpatialBinding? _packageSpatialBinding;
         private Transform _artifactAnchor;
         private bool _ownsArtifactAnchor;
@@ -339,7 +344,7 @@ namespace Genesis.RoomScan.UI
             set
             {
                 AnnotationRecord selected = FindSelectedAnnotation();
-                if (selected != null) selected.note = value ?? string.Empty;
+                if (selected != null) SetAnnotationNote(selected.id, value);
             }
         }
 
@@ -354,21 +359,33 @@ namespace Genesis.RoomScan.UI
             }
         }
 
-        private string AnnotationPath
+        private void BindAnnotations()
         {
-            get
+            _annotationSessionId = Guid.Empty;
+            // A foreign preview never adopts or dirties the active session's
+            // notes. A matching anchored package uses that session's document.
+            if (_persistence != null && _persistence.HasActiveSession &&
+                _packageSpatialBinding.HasValue &&
+                _packageSpatialBinding.Value.IsValid &&
+                _packageSpatialBinding.Value.AnchorUuid ==
+                    _persistence.ActiveAnchorUuid)
             {
-                string archive = _archivePath ?? _exporter.ViewerPackagePath;
-                return Path.Combine(Path.GetDirectoryName(archive),
+                _annotationSessionId = _persistence.ActiveSessionId;
+                _annotationPath = _persistence.ActiveAnnotationsPath;
+                return;
+            }
+            string archive = _archivePath;
+            _annotationPath = string.IsNullOrWhiteSpace(archive) ? null :
+                Path.Combine(Path.GetDirectoryName(archive),
                     Path.GetFileNameWithoutExtension(archive) +
                     ".annotations.json");
-            }
         }
 
         private void Awake()
         {
             _exporter = GetComponent<MerkabaExporter>();
             _scanner = GetComponent<RoomScanner>();
+            _persistence = GetComponent<MerkabaPersistence>();
             _rayDriver = FindAnyObjectByType<ControllerRayDriver>();
             _paintEngine = GetComponent<MerkabaPaintEngine>() ??
                 gameObject.AddComponent<MerkabaPaintEngine>();
@@ -384,6 +401,11 @@ namespace Genesis.RoomScan.UI
                 Close();
                 return;
             }
+            if (_scanner.IsBusy)
+            {
+                CancelTransientInput();
+                return;
+            }
             HandleViewerInput();
             if (Time.unscaledTime >= _nextResidencyRefresh)
             {
@@ -395,7 +417,7 @@ namespace Genesis.RoomScan.UI
         private void OnDisable() => Close();
         private void OnDestroy()
         {
-            Close();
+            Close(true);
             if (_paintEngine != null)
                 _paintEngine.Changed -= OnPaintChanged;
         }
@@ -437,6 +459,7 @@ namespace Genesis.RoomScan.UI
                         StringComparison.Ordinal))
                     return true;
                 Close();
+                if (IsOpen) return false;
             }
             if (_indexLoadPending) return false;
             if (previewShader == null)
@@ -483,6 +506,7 @@ namespace Genesis.RoomScan.UI
                 _packageSpatialBinding = package.SpatialBinding;
                 CreatePreview(package);
                 OpenSessionDesign();
+                BindAnnotations();
                 LoadAnnotations();
                 IsOpen = true;
                 Status = $"GLB View · 0/{_tiles.Count} tiles";
@@ -696,8 +720,12 @@ namespace Genesis.RoomScan.UI
             }
         }
 
-        public void Close()
+        public void Close() => Close(false);
+
+        private void Close(bool destroying)
         {
+            bool saved = SaveDesign();
+            if (!saved && !destroying) return;
             bool wasOpen = IsOpen;
             ++_generation;
             ++_alignmentRevision;
@@ -718,10 +746,13 @@ namespace Genesis.RoomScan.UI
             {
                 _designLibrary?.CloseRuntime();
                 _designLibrary = null;
-                _paintEngine.Save();
                 _paintEngine.Close();
             }
             _annotations.Clear();
+            _annotationPath = null;
+            _annotationSessionId = Guid.Empty;
+            _annotationsDirty = false;
+            _annotationsLoaded = false;
             _annotationObjects.Clear();
             foreach (Tile tile in _tiles) DestroyTile(tile);
             _tiles.Clear();
@@ -766,17 +797,29 @@ namespace Genesis.RoomScan.UI
                 Physics.queriesHitBackfaces = _savedQueriesHitBackfaces;
                 _ownsQueriesHitBackfaces = false;
             }
-            if (wasOpen) Status = "GLB View closed";
+            if (wasOpen && saved) Status = "GLB View closed";
         }
 
-        public bool SaveDesign() => _paintEngine == null ||
-            _paintEngine.Save();
+        public bool SaveDesign()
+        {
+            // Freeze completed note input and transient gestures before the
+            // existing session SAVE/Save-As cut begins its asynchronous work.
+            PollNoteKeyboard();
+            CloseNoteKeyboard();
+            CancelTransientInput();
+            bool annotationsSaved = TrySaveAnnotations();
+            bool paintSaved = _paintEngine == null || _paintEngine.Save();
+            if (!paintSaved) Status = "Session design save failed";
+            return annotationsSaved && paintSaved;
+        }
 
         internal void RebindSessionDesign()
         {
             if (!IsOpen) return;
-            if (_paintEngine != null && !_paintEngine.Save()) return;
+            if (!SaveDesign()) return;
             OpenSessionDesign();
+            BindAnnotations();
+            LoadAnnotations();
         }
 
         private void OpenSessionDesign()
@@ -833,6 +876,7 @@ namespace Genesis.RoomScan.UI
             CloseNoteKeyboard();
             _annotations.Remove(selected);
             _selectedAnnotationId = 0;
+            MarkAnnotationsDirty();
             RefreshAnnotationObjects();
             Status = $"Deleted {selected.type} #{selected.id}";
         }
@@ -912,16 +956,49 @@ namespace Genesis.RoomScan.UI
         {
             AnnotationRecord annotation = _annotations.Find(item =>
                 item.id == annotationId);
-            if (annotation != null) annotation.note = value ?? string.Empty;
+            if (annotation == null) return;
+            string note = value ?? string.Empty;
+            if (string.Equals(annotation.note, note,
+                    StringComparison.Ordinal)) return;
+            annotation.note = note;
+            MarkAnnotationsDirty();
         }
 
         public void SaveAnnotations()
         {
+            if (!IsOpen)
+            {
+                Status = "Open a model before saving annotations";
+                return;
+            }
+            if (!SaveDesign()) return;
+            Status = $"Saved {_annotations.Count} survey annotations " +
+                $"and {_paintEngine?.StrokeCount ?? 0} paint strokes";
+        }
+
+        private void MarkAnnotationsDirty()
+        {
+            _annotationsDirty = true;
+            if (_annotationSessionId != Guid.Empty && _persistence != null &&
+                _annotationSessionId == _persistence.ActiveSessionId)
+                _persistence.MarkDirty();
+        }
+
+        private bool TrySaveAnnotations()
+        {
+            if (!_annotationsDirty) return true;
             try
             {
-                string directory = Path.GetDirectoryName(AnnotationPath);
+                if (!_annotationsLoaded || string.IsNullOrWhiteSpace(_annotationPath))
+                    throw new IOException("Annotation document is not safely loaded.");
+                // This path belongs to the loaded document, not whichever
+                // session became active while Save-As was awaiting storage.
+                string path = _annotationPath;
+                string directory = Path.GetDirectoryName(path);
+                if (string.IsNullOrWhiteSpace(directory))
+                    throw new IOException("Annotation destination has no directory.");
                 Directory.CreateDirectory(directory);
-                string temporary = AnnotationPath + ".tmp";
+                string temporary = path + ".tmp";
                 var file = new AnnotationFile
                 {
                     format = "QuestMerkabaAnnotations",
@@ -938,16 +1015,15 @@ namespace Genesis.RoomScan.UI
                     stream.Write(bytes, 0, bytes.Length);
                     stream.Flush(true);
                 }
-                MerkabaFilePublishing.Publish(temporary, AnnotationPath);
-                if (!SaveDesign())
-                    throw new IOException("Session design could not be saved.");
-                Status = $"Saved {_annotations.Count} survey annotations " +
-                    $"and {_paintEngine?.StrokeCount ?? 0} paint strokes";
+                MerkabaFilePublishing.Publish(temporary, path);
+                _annotationsDirty = false;
+                return true;
             }
             catch (Exception exception)
             {
                 Logger.Error("Could not save GLB View annotations: " + exception);
                 Status = "Annotation save failed: " + exception.Message;
+                return false;
             }
         }
 
@@ -1295,6 +1371,7 @@ namespace Genesis.RoomScan.UI
                         _annotationPoseGrab.ControllerPosition);
                 annotation.points[index] = WorldToScanPoint(world);
             }
+            MarkAnnotationsDirty();
             UpdateAnnotationObject(annotation);
         }
 
@@ -1930,6 +2007,7 @@ namespace Genesis.RoomScan.UI
             CancelAnnotationDrag();
             _annotations.Add(annotation);
             _selectedAnnotationId = annotation.id;
+            MarkAnnotationsDirty();
             RefreshAnnotationObjects();
             Status = $"Added {annotation.type} #{annotation.id}";
         }
@@ -1980,6 +2058,7 @@ namespace Genesis.RoomScan.UI
             };
             _annotations.Add(annotation);
             _selectedAnnotationId = annotation.id;
+            MarkAnnotationsDirty();
             RefreshAnnotationObjects();
             Status = $"Added {annotation.type} #{annotation.id}";
         }
@@ -2026,6 +2105,7 @@ namespace Genesis.RoomScan.UI
                         _moveHandleIndex, targetScan, MinimumAnnotationDrag);
                 else
                     selected.points[_moveHandleIndex] = targetScan;
+                MarkAnnotationsDirty();
                 UpdateAnnotationObject(selected);
                 return;
             }
@@ -2033,6 +2113,7 @@ namespace Genesis.RoomScan.UI
             Vector3 deltaScan = _modelRoot.InverseTransformVector(deltaWorld);
             for (int index = 0; index < selected.points.Length; index++)
                 selected.points[index] = _moveOriginalPoints[index] + deltaScan;
+            MarkAnnotationsDirty();
             UpdateAnnotationObject(selected);
         }
 
@@ -2619,20 +2700,31 @@ namespace Genesis.RoomScan.UI
         {
             _annotations.Clear();
             _nextAnnotationId = 1;
-            if (!File.Exists(AnnotationPath))
+            _selectedAnnotationId = 0;
+            _annotationsDirty = false;
+            _annotationsLoaded = false;
+            if (string.IsNullOrWhiteSpace(_annotationPath))
             {
+                RefreshAnnotationObjects();
+                return;
+            }
+            if (!File.Exists(_annotationPath))
+            {
+                _annotationsLoaded = true;
                 RefreshAnnotationObjects();
                 return;
             }
             try
             {
                 AnnotationFile file = JsonUtility.FromJson<AnnotationFile>(
-                    File.ReadAllText(AnnotationPath));
+                    File.ReadAllText(_annotationPath));
                 if (file?.format != "QuestMerkabaAnnotations" ||
                     (file.version != 1 && file.version != 2) ||
-                    file.items == null) return;
+                    file.items == null)
+                    throw new InvalidDataException("Unsupported annotation document.");
                 _annotations.AddRange(file.items);
                 _nextAnnotationId = Mathf.Max(file.nextId, 1);
+                _annotationsLoaded = true;
                 bool migrated = false;
                 bool canMigratePaint = _paintEngine != null &&
                     _paintEngine.IsOpen && _packageSpatialBinding.HasValue &&
@@ -2671,7 +2763,11 @@ namespace Genesis.RoomScan.UI
                         migrated = true;
                     }
                 }
-                if (migrated) SaveAnnotations();
+                if (migrated)
+                {
+                    MarkAnnotationsDirty();
+                    SaveDesign();
+                }
             }
             catch (Exception exception)
             {

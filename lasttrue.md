@@ -7206,3 +7206,10 @@ persistable URI permissions. Current viewer resolves the last named ZIP.
 Existing status label displays native startup progress/failure from ABI11.
 CHECKS=Android36/Unity Java8 compile and UXML syntax PASS; C#/device pending14.
 No exporter geometry or presentation authority was changed by this UI slice.
+
+RUN_11_NOTES_CHECKPOINT=annotations bound to the loaded document/session;
+dirty mutations join SaveDesign, Save-As copies the durable file before
+storage-root switch, rebind loads the next document. Foreign anchored previews
+do not mark another active session dirty. Failed save does not silently close
+the live workspace. Existing annotation coordinates/format remain unchanged.
+CHECKS=diff syntax only; C#/session round trip remains RUN_14.
