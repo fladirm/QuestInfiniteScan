@@ -7458,3 +7458,77 @@ NEXT_ACTION=checkpoint commit/push and handoff requested by user; resume at
   OPEN-2 correctness and OPEN-1 shader gates, not a new audit or new DAG.
 WORKTREE_SCOPE=commit all coordinated task sources; unrelated .claude/,
   CLAUDE.md and CLAUDE.md.meta remain untouched and untracked.
+
+---
+
+### CURRENT TRUE STATE — OPEN-2 two-endpoint read-set, 2026-09-08 01:20Z
+
+OPEN-2 SOURCE FIX APPLIED — Runtime/Shaders/MerkabaFlowerRefinement.hlsl:
+  M8FlowerDrainPeerInvalidations gathered only the locally captured roots, so a
+  SOURCE whose own original phase presence is empty was skipped entirely: its
+  PEERS_PENDING was never set by M8FlowerCaptureInvalidation and the peer
+  holding the node^1 phase — predicting from the shared original that reads the
+  raw source endpoint — kept its dependent detail after the source was deleted.
+  The stale comment above M8FlowerResolveInvalidationPeer asserted exactly that
+  disproven assumption and is corrected.
+    gather now gates on M8_FLOWER_INVALIDATION_SOURCE; mutation keeps its
+      existing PEERS_PENDING gate.
+    gather walks all 20 generated relations once, reads the resident peer's
+      M8FlowerReadOriginalPhasePresence and admits the relation when the peer
+      carries bit ((node^1)-6).
+    a failed presence read admits the relation rather than stranding dependent
+      peer detail; this stays per-relation and never becomes an epoch blanket.
+    the completed two-endpoint read-set is stored back into the same receipt
+      under the same observation token and re-arms PEERS_PENDING, so source
+      retirement still requires every affected peer ACK.
+    COLD/BUSY peers keep the transaction pending through the existing
+      m8FlowerHaloUnresolvedReads/residency-request path; no new solver, no
+      runtime search, no epoch blanket.
+  Emitted module cost: DrainObservationRefinement 2 978 956 B -> 2 989 480 B
+  (+0.35%). No gate verdict changes; that entry remains an OPEN-1 FAIL.
+
+MEASURED SHADER BASELINE at 96b34c4, all-entry audit, EXIT=1:
+  FAIL 3 of 67 (production=51 native=23 oracle=16)
+    FlowerCommit                 1079720 B  62615 body  GS=24704  FAIL
+    DrainObservationRefinement   2978956 B 175244 body  GS=22800  FAIL
+    CompactDirtyFlowerSymbols    1536092 B  89920 body  GS=30024  FAIL
+    StereoFlowerRefine            828516 B  49652 body            REVIEW
+    UpdateObservationDual         619016 B  37365 body            REVIEW
+  CompactDirtyFlowerSymbols groupshared 30024 B is close to the 32768 B hard
+  limit; any further shared growth in that entry fails outright.
+
+MEASURED FULL SUITE — corrects the earlier 357/353/4 figure:
+  baseline 96b34c4, no local change: total=362 passed=344 failed=18
+  with the OPEN-2 fix applied:       total=362 passed=344 failed=18
+  set difference in both directions is empty: zero regressions, zero repairs.
+  Receipt: /mnt/kingston-unity/Builds/TestResults/merkaba-results.xml, 09-08 01:05.
+  The handover checkpoint is NOT suite-green. OPEN-6 must carry 18, not 4.
+
+  The 18 are dominated by source-shape assertions whose invariant moved during
+  the RUN_08/10/11/13 refactors, e.g.
+    OwnedDepthSnapshot_IsPreprocessedOnlyOnConsume
+      Expected: String containing "RecordDepthCertificate(command);"
+    TrueStereoRgbdContract_IsFailClosedAndWorldReprojected
+      Expected: String containing "StereoRootRgb(0u,world,left)"
+    NewTileWork_UsesMeasuredIndirectDomainsInsteadOfCacheCapacity
+      Expected: String containing "_bins.Record(command)"
+  plus behavioural C# failures in export/session/preview/menu and the already
+  tracked FrozenDepthObservation_NonzeroR2 and PlaneIntervals entries.
+  Per closure section10.1 each one is decided individually: rewrite the
+  assertion where the invariant survived and moved, replace with a behavioural
+  test where the asserted architecture is genuinely gone. Do not delete a
+  failing positive fixture to make the suite green.
+
+OPEN-2 REMAINING: the peer-only phase fixture itself. The harness exists —
+  Tests/Editor/MerkabaObservationDrainGpuTests.cs binds the full resource set,
+  starts from an empty detail arena and lets DrainObservationRefinement author
+  the shared phase from a real observation. Required shape: observation authors
+  the shared phase, the source is then marked structural under a new token,
+  both invalidation stages run, and the peer's dependent detail must be gone.
+  Also required by OPEN-2 acceptance: structural/THROUGH deletion, compatible
+  refinement survival and retry/order parity.
+
+NEXT_ACTION=OPEN-2 peer-only fixture, then the 18 stale/behavioural suite
+  failures per section10.1, then OPEN-1 fan-out for the three FAIL entries.
+WORKTREE_SCOPE=Runtime/Shaders/MerkabaFlowerRefinement.hlsl and lasttrue.md;
+  unrelated .claude/, CLAUDE.md and CLAUDE.md.meta remain untouched and untracked.
