@@ -1241,7 +1241,9 @@ namespace Genesis.RoomScan.Tests
                 ComputeBufferType.Structured);
             using var output = new ComputeBuffer(cases.Count, stride,
                 ComputeBufferType.Structured);
+            using var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
             input.SetData(cases);
+            shader.SetBuffer(kernel, MerkabaGrid.FlowerTablesId, flowerTables);
             shader.SetBuffer(kernel, "_SphereFlowerOracleCases", input);
             shader.SetBuffer(kernel, "_SphereFlowerOracleResults", output);
             shader.SetInt("_SphereFlowerOracleCaseCount", cases.Count);

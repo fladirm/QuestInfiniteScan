@@ -150,18 +150,32 @@ struct StereoMeasuredPlane
 bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane)
 {
     plane = (StereoMeasuredPlane)0;
-    M8FlowerInterval3 centre,x0,x1,y0,y1;
-    M8FlowerInterval3 unusedRay;
-    M8FlowerInterval unused;
+    M8FlowerInterval3 centre = StereoPoint(0.0.xxx);
+    M8FlowerInterval3 previous = centre, dx = centre, dy = centre;
     // Enclose the sensor's two independent depth derivatives, not a fitted
     // surface and not an RGB stencil. Missing/degenerate support is unresolved.
-    if (!StereoDepthSample(eye,pixel,centre,plane.depth,plane.depthRay) ||
-        !StereoDepthSample(eye,pixel+int2(-1,0),x0,unused,unusedRay) ||
-        !StereoDepthSample(eye,pixel+int2(1,0),x1,unused,unusedRay) ||
-        !StereoDepthSample(eye,pixel+int2(0,-1),y0,unused,unusedRay) ||
-        !StereoDepthSample(eye,pixel+int2(0,1),y1,unused,unusedRay)) return false;
+    // One decoder call site keeps interval reprojection from being inlined
+    // five times. Preserve centre, -X, +X, -Y, +Y and its first-invalid return.
+    [loop] for (uint sampleIndex = 0u; sampleIndex < 5u; ++sampleIndex)
+    {
+        int2 offset = sampleIndex == 0u ? int2(0,0) :
+            (sampleIndex < 3u ? int2(sampleIndex == 1u ? -1 : 1,0) :
+                int2(0,sampleIndex == 3u ? -1 : 1));
+        M8FlowerInterval3 samplePoint, ray;
+        M8FlowerInterval depth;
+        if (!StereoDepthSample(eye,pixel+offset,samplePoint,depth,ray)) return false;
+        if (sampleIndex == 0u)
+        {
+            centre = samplePoint;
+            plane.depth = depth;
+            plane.depthRay = ray;
+        }
+        else if ((sampleIndex & 1u) != 0u) previous = samplePoint;
+        else if (sampleIndex == 2u) dx = StereoSubtract(samplePoint,previous);
+        else dy = StereoSubtract(samplePoint,previous);
+    }
     M8FlowerInterval3 normal;
-    if (!StereoNormalize(StereoCross(StereoSubtract(x1,x0),StereoSubtract(y1,y0)),normal))
+    if (!StereoNormalize(StereoCross(dx,dy),normal))
         return false;
     plane.position = StereoMidpoint(centre);
     plane.normal = normalize(StereoMidpoint(normal));
@@ -277,7 +291,15 @@ bool StereoRootRgb(uint eye, M8FlowerInterval3 world, out M8FlowerInterval3 rgb)
 uint StereoChromaticSupport(M8FlowerInterval3 world, inout uint stages)
 {
     M8FlowerInterval3 left,right;
-    if (!StereoRootRgb(0u,world,left) || !StereoRootRgb(1u,world,right)) return RGBD_AMBIGUOUS;
+    // Both eyes use the same interval projection, with the same left/right
+    // order and first-invalid result; do not inline that decoder twice.
+    [loop] for (uint eye = 0u; eye < 2u; eye++)
+    {
+        M8FlowerInterval3 captured;
+        if (!StereoRootRgb(eye,world,captured)) return RGBD_AMBIGUOUS;
+        if (eye == 0u) left = captured;
+        else right = captured;
+    }
     stages |= RGBD_STAGE_PCA_COVERAGE;
     M8FlowerInterval le = M8FlowerIAdd(M8FlowerIAdd(left.x,left.y),left.z);
     M8FlowerInterval re = M8FlowerIAdd(M8FlowerIAdd(right.x,right.y),right.z);
@@ -323,8 +345,16 @@ uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
     [loop] for (uint sign = 0u; sign < 2u; sign++)
     {
         M8FlowerInterval2 a,b;
-        uint ac = M8FlowerRootInterval(lp,sign != 0u,a);
-        uint bc = M8FlowerRootInterval(rp,sign != 0u,b);
+        uint ac = M8_FLOWER_ROOT_AMBIGUOUS, bc = M8_FLOWER_ROOT_AMBIGUOUS;
+        [loop] for (uint eye = 0u; eye < 2u; eye++)
+        {
+            M8FlowerInterval3 coefficients = lp;
+            if (eye != 0u) coefficients = rp;
+            M8FlowerInterval2 eyeRoot;
+            uint classification = M8FlowerRootInterval(coefficients,sign != 0u,eyeRoot);
+            if (eye == 0u) { a = eyeRoot; ac = classification; }
+            else { b = eyeRoot; bc = classification; }
+        }
         if (ac == M8_FLOWER_ROOT_IMPOSSIBLE || bc == M8_FLOWER_ROOT_IMPOSSIBLE) continue;
         if ((ac != M8_FLOWER_ROOT_CERTAIN_SECANT && ac != M8_FLOWER_ROOT_CERTAIN_TANGENT) ||
             (bc != M8_FLOWER_ROOT_CERTAIN_SECANT && bc != M8_FLOWER_ROOT_CERTAIN_TANGENT))

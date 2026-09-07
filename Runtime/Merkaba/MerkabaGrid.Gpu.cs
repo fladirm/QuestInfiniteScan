@@ -205,6 +205,7 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8TileBits;
         private ComputeBuffer _m8TileRecords;
         private ComputeBuffer _m8TileHalo;
+        private ComputeBuffer _m8FlowerTables;
         private ComputeBuffer _m8DualBlockState;
         private ComputeBuffer _m8DualChunkState;
         private ComputeBuffer _m8DualLeaves;
@@ -228,6 +229,8 @@ namespace Genesis.RoomScan
         private readonly List<ComputeBuffer> _allGpuBuffers = new();
 
         internal ComputeShader WorldCompute => worldCompute;
+        internal ComputeBuffer M8FlowerTables => _m8FlowerTables;
+        internal static readonly int FlowerTablesId = Shader.PropertyToID("_M8FlowerTables");
         internal ComputeBuffer M8HashEntries => _m8HashEntries;
         internal ComputeBuffer M8OwnerRecords => _m8OwnerRecords;
         internal ComputeBuffer M8BlockChunkRefs => _m8BlockChunkRefs;
@@ -309,6 +312,7 @@ namespace Genesis.RoomScan
             Set(MerkabaNativeVulkanExecutor.Resource.FlowerSymbolArena, _m8FlowerSymbolArena);
             Set(MerkabaNativeVulkanExecutor.Resource.FlowerPageDirectory, _m8FlowerPageDirectory);
             Set(MerkabaNativeVulkanExecutor.Resource.FlowerIndirectCommands, _m8FlowerIndirectCommands);
+            Set(MerkabaNativeVulkanExecutor.Resource.FlowerTables, _m8FlowerTables);
             Set(MerkabaNativeVulkanExecutor.Resource.FreeTileStack,
                 _m8FreeTileStack);
             Set(MerkabaNativeVulkanExecutor.Resource.Counters, _m8Counters);
@@ -420,6 +424,11 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
                 _m8AttemptCompletion = Allocate(1, sizeof(uint) * 4);
+                // Immutable generated lookup, shared by depth, scan and draw.
+                // It lives until the same captured GPU retirement as the world
+                // buffers and is never cleared by an observation or new scan.
+                _m8FlowerTables = CreateFlowerTableBuffer();
+                _allGpuBuffers.Add(_m8FlowerTables);
                 AllocateFlowerPages();
 
                 _m8ClaimQueue = Allocate(MerkabaSpatial.ClaimRecordCount,
@@ -546,6 +555,31 @@ namespace Genesis.RoomScan
             return buffer;
         }
 
+        // Standalone GPU proofs use this same upload, with their own explicit
+        // fixture disposal. Production calls it once per grid GPU lifetime.
+        internal static ComputeBuffer CreateFlowerTableBuffer()
+        {
+            const int stride = 4 * sizeof(uint);
+            var rows = MerkabaFlowerTableBlob.CreateRows();
+            if (rows == null || rows.Length != MerkabaFlowerTableBlob.RowCount ||
+                (long)rows.Length * stride != MerkabaFlowerTableBlob.ByteSize ||
+                MerkabaFlowerTableBlob.TableHash != MerkabaSphereFlowerAuthority.FrozenTableHash)
+                throw new InvalidOperationException("Generated Flower table payload/hash is stale.");
+            ValidateGpuBufferAllocation(rows.Length, stride);
+            var buffer = new ComputeBuffer(rows.Length, stride, ComputeBufferType.Structured)
+                { name = "M8 immutable generated Flower tables" };
+            try
+            {
+                buffer.SetData(rows);
+                return buffer;
+            }
+            catch
+            {
+                buffer.Release();
+                throw;
+            }
+        }
+
         internal const long MaximumGpuBufferBytes = 128L * 1024 * 1024;
 
         internal static void ValidateGpuBufferAllocation(int count, int stride)
@@ -564,6 +598,7 @@ namespace Genesis.RoomScan
 
         internal void BindWorldBuffers(ComputeShader shader, int kernel)
         {
+            shader.SetBuffer(kernel, FlowerTablesId, _m8FlowerTables);
             BindFlowerPages(shader, kernel);
             shader.SetBuffer(kernel, "_M8DualBlockState", _m8DualBlockState);
             shader.SetBuffer(kernel, "_M8DualChunkState", _m8DualChunkState);
@@ -1273,6 +1308,7 @@ namespace Genesis.RoomScan
             _m8TileBits = null;
             _m8TileRecords = null;
             _m8TileHalo = null;
+            _m8FlowerTables = null;
             _m8DualBlockState = null;
             _m8DualChunkState = null;
             _m8DualLeaves = null;

@@ -89,7 +89,7 @@ bool M8FlowerResolveRootProof(uint tagsAnd,uint tagsOr,M8FlowerInterval2 root,
     {
         uint boundary=(witness>>21u)-1u,ownerSector;
         if(!M8FlowerBoundarySector(lineClass,boundary,ownerSector) || ownerSector!=sector)return false;
-        float4 cut=M8FlowerSectorBounds[M8FlowerLineMeta[lineClass].y+boundary];
+        float4 cut=M8FlowerSectorBoundsAt(M8FlowerLineMeta[lineClass].y+boundary);
         if(root.x.hi<cut.x || cut.y<root.x.lo ||
             root.y.hi<cut.z || cut.w<root.y.lo)return false;
         symbolTag|=witness;

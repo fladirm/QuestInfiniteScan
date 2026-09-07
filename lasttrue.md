@@ -7183,3 +7183,18 @@ RUN_08_GATE_CHECKPOINT=exact native payload size/body/GS/binding/ABI receipts
 implemented in the existing generator and compute audit. Syntax checks PASS;
 full shader gate NOT RUN and known oversized production modules remain FAIL.
 This commit freezes the approved closure and measuring gate, not runtime repair.
+
+RUN_08_STARTUP_TABLE_CHECKPOINT=ABI11,43 resources; one12672B/792uint4
+read-only sector blob replaces per-invocation constant-array copies. All3168
+words match the previous SPIR-V constants. CPU/codegen/HLSL and managed,
+native, graphics and oracle bindings use the same generated payload.
+Native startup negotiates required supported features, compiles on one host
+worker, publishes READY/FAILED, logs each compile directly on Android and
+atomically persists a bounded device/driver/shader-keyed pipeline cache.
+Stereo/refinement callsites consolidated without changing interval equations.
+COMPILE=all25 embedded entrypoints compiled/spirv-val; actual Android ARM64
+plugin build PASS in6GiB bounded scope. This is NOT a Unity/Quest APK build.
+SIZE_GATE=OPEN/FAIL; Drain4857076B, Stereo859508B/51060body instructions.
+TESTS=full suite deferred RUN_14; DEVICE=not run on this source.
+NEXT=RUN_08 dirty-page batching/parallel prefix, finite lookup and command graph;
+RUN_11 export picker/name and session-note checkpoints proceed independently.

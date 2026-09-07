@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -13,8 +14,8 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 10;
-        internal const int ResourceCount = 42;
+        internal const int AbiVersion = 11;
+        internal const int ResourceCount = 43;
         internal const int PipelineCount = 25;
         // A native observation also dispatches publication Reserve once and
         // its three allocation barriers after DrainObservationRefinement.
@@ -83,6 +84,7 @@ namespace Genesis.RoomScan
             FlowerSymbolArena,
             FlowerPageDirectory,
             FlowerIndirectCommands,
+            FlowerTables,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -150,6 +152,20 @@ namespace Genesis.RoomScan
         private static double _heldObservationStartedAt;
         private static double _nextObservationTimingAt;
         private static ObservationTiming _observationTiming;
+        private static bool _startupConfigured;
+        private static bool _startupConfigurationFailed;
+        private static bool _startupFailureLogged;
+        private static int _startupLastState;
+        private static uint _startupLastPipeline = uint.MaxValue;
+        private static int _startupLastError;
+        private static string _startupSummary = "Native pipelines: waiting for initialization";
+
+        internal static string StartupSummary
+        {
+            get { _ = IsAvailable; return _startupSummary; }
+        }
+
+        internal static bool StartupFailed => _startupConfigurationFailed || _startupLastState < 0;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetTimingSamples()
@@ -158,6 +174,40 @@ namespace Genesis.RoomScan
             _heldObservationStartedAt = 0.0;
             _nextObservationTimingAt = 0.0;
             _observationTiming = null;
+            _startupConfigured = false;
+            _startupConfigurationFailed = false;
+            _startupFailureLogged = false;
+            _startupLastState = 0;
+            _startupLastPipeline = uint.MaxValue;
+            _startupLastError = 0;
+            _startupSummary = "Native pipelines: waiting for initialization";
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void ConfigureStartup()
+        {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            if (_startupConfigured) return;
+            _startupConfigured = true;
+            try
+            {
+                if (Native.GetAbiVersion() != AbiVersion)
+                    throw new InvalidOperationException("Native executor ABI does not match this application.");
+                string directory = Path.Combine(Application.persistentDataPath, "merkaba-pipeline-cache");
+                Directory.CreateDirectory(directory);
+                if (Native.ConfigureStartup(directory) != 0)
+                    throw new InvalidOperationException("Native pipeline startup configuration failed.");
+            }
+            catch (Exception error) when (error is DllNotFoundException ||
+                error is EntryPointNotFoundException || error is IOException ||
+                error is UnauthorizedAccessException || error is InvalidOperationException)
+            {
+                _startupFailureLogged = true;
+                _startupConfigurationFailed = true;
+                _startupSummary = "Native startup FAILED: " + error.Message;
+                Logger.Error($"Merkaba native startup FAILED: {error.Message}");
+            }
+#endif
         }
 
         // One bounded accumulator for the one immutable observation. A retry
@@ -269,8 +319,32 @@ namespace Genesis.RoomScan
 #if !UNITY_EDITOR && UNITY_ANDROID
                 try
                 {
-                    return Native.IsAvailable() != 0 &&
-                        Native.GetAbiVersion() == AbiVersion;
+                    ConfigureStartup();
+                    if (_startupConfigurationFailed) return false;
+                    int startup = Native.GetStartupStatus(out uint pipeline, out int error);
+                    if (startup != _startupLastState || pipeline != _startupLastPipeline || error != _startupLastError)
+                    {
+                        _startupLastState = startup;
+                        _startupLastPipeline = pipeline;
+                        _startupLastError = error;
+                        string name = pipeline < PipelineNames.Length ? PipelineNames[pipeline] : "device/cache setup";
+                        _startupSummary = startup < 0 ? $"Native startup FAILED: {name}, VkResult={error}"
+                            : startup == 2 ? "Native pipelines: ready"
+                            : startup == 1 ? $"Native pipelines: compiling {name}"
+                            : "Native pipelines: waiting for device/cache path";
+                    }
+                    if (startup < 0)
+                    {
+                        if (!_startupFailureLogged)
+                        {
+                            _startupFailureLogged = true;
+                            string name = pipeline < PipelineNames.Length ? PipelineNames[pipeline] : "device/setup";
+                            Logger.Error($"Merkaba native startup FAILED: pipeline={name} VkResult={error}; scanner disabled.");
+                        }
+                        return false;
+                    }
+                    _startupFailureLogged = false;
+                    return startup == 2 && Native.IsAvailable() != 0;
                 }
                 catch (DllNotFoundException) { return false; }
                 catch (EntryPointNotFoundException) { return false; }
@@ -426,6 +500,10 @@ namespace Genesis.RoomScan
 
             [DllImport(Library, EntryPoint = "MerkabaExecutor_IsAvailable")]
             internal static extern int IsAvailable();
+            [DllImport(Library, EntryPoint = "MerkabaExecutor_ConfigureStartup")]
+            internal static extern int ConfigureStartup([MarshalAs(UnmanagedType.LPUTF8Str)] string directory);
+            [DllImport(Library, EntryPoint = "MerkabaExecutor_GetStartupStatus")]
+            internal static extern int GetStartupStatus(out uint pipeline, out int error);
             [DllImport(Library, EntryPoint = "MerkabaExecutor_GetAbiVersion")]
             internal static extern uint GetAbiVersion();
             [DllImport(Library, EntryPoint = "MerkabaExecutor_CreateJob")]

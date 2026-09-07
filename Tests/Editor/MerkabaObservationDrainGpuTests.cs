@@ -79,6 +79,9 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(_shader, Is.Not.Null);
                 _kernel = _shader.FindKernel("DrainObservationRefinement");
                 _finalizeKernel = _shader.FindKernel("FinalizeObservation");
+                var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
+                _buffers.Add(flowerTables);
+                Bind("_M8FlowerTables", flowerTables);
 
                 // An ordinary orthographic projection: the two pixel centres
                 // lie on the fixed relation endpoints plus the measured normal

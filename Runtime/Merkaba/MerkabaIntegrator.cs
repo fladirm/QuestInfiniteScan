@@ -724,8 +724,8 @@ namespace Genesis.RoomScan
 #if !UNITY_EDITOR && UNITY_ANDROID
             if (!MerkabaNativeVulkanExecutor.IsAvailable)
             {
-                Logger.Error("Merkaba native scanner queue is unavailable; " +
-                    "graphics-queue fallback is forbidden on Quest.");
+                // Availability owns startup/failure logging. A driver compile
+                // in progress is not an error to spam once per XR frame.
                 return false;
             }
             return TrySubmitNativeObservationAttempt(newObservation);

@@ -10,9 +10,16 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
+#include <exception>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
+#include <fcntl.h>
+#include <unistd.h>
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 
 namespace
 {
@@ -60,6 +67,7 @@ namespace
         kResourceFlowerSymbolArena,
         kResourceFlowerPageDirectory,
         kResourceFlowerIndirectCommands,
+        kResourceFlowerTables,
         kResourceCount,
     };
 
@@ -105,9 +113,9 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
     static_assert(kMerkabaExecutorPipelineCount == 25,
-        "M8 executor pipeline tables must be regenerated for ABI 10");
+        "M8 executor pipeline tables must be regenerated for ABI 11");
 
-    constexpr uint32_t kExecutorAbiVersion = 10;
+    constexpr uint32_t kExecutorAbiVersion = 11;
     constexpr uint32_t kObservationPipelineEnd = 16;
     constexpr uint32_t kObservationAllocationBegin = 6;
     constexpr uint32_t kObservationAllocationEnd = 9;
@@ -292,7 +300,19 @@ namespace
     std::vector<ExecutorJob*> g_executorJobs;
     int g_executorEventBase = 0;
     bool g_executorEventsReserved = false;
-    bool g_executorReady = false;
+    std::atomic<bool> g_executorReady{false};
+    std::atomic<bool> g_executorInitCancel{true};
+    std::thread g_executorInitWorker;
+    // 0 waiting for device/path, 1 compiling, 2 ready, -1 failed.
+    std::atomic<int32_t> g_executorInitStatus{0};
+    std::atomic<uint32_t> g_executorInitPipeline{UINT32_MAX};
+    std::atomic<int32_t> g_executorInitError{VK_SUCCESS};
+    bool g_executorInitConfigured = false; // protected by g_executorMutex
+    std::string g_executorCacheDirectory;
+    std::string g_executorCacheFile;
+    uint64_t g_executorShaderHash = 0;
+    VkPipelineCache g_executorPipelineCache = VK_NULL_HANDLE;
+    thread_local bool g_onExecutorInitWorker = false;
     VkQueryPool g_queryPool = VK_NULL_HANDLE;
     std::atomic<int> g_state{kUnavailable};
     uint32_t g_entryCount = 0;
@@ -308,21 +328,38 @@ namespace
     int g_eventBase = 0;
     bool g_eventsReserved = false;
 
+    void WriteNativeLog(const char* message, bool error)
+    {
+        if (message == nullptr) return;
+#if defined(__ANDROID__)
+        // Driver compile failures must be visible even before Unity polls
+        // availability. Android logging is safe on the host compiler thread.
+        __android_log_print(error ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO,
+            "MerkabaNative", "%s", message);
+#else
+        if (!g_onExecutorInitWorker && g_log != nullptr)
+        {
+            if (error) UNITY_LOG_ERROR(g_log, message);
+            else UNITY_LOG(g_log, message);
+        }
+        else std::fprintf(stderr, "%s\n", message);
+#endif
+    }
+
     void Log(const char* message)
     {
-        if (g_log != nullptr && message != nullptr)
-            UNITY_LOG(g_log, message);
+        WriteNativeLog(message, false);
     }
 
     void LogError(const char* operation, VkResult result)
     {
-        if (g_log == nullptr)
-            return;
         char message[384] = {};
         std::snprintf(message, sizeof(message),
             "Merkaba native scanner: %s failed VkResult=%d", operation,
             static_cast<int>(result));
-        UNITY_LOG_ERROR(g_log, message);
+        if (g_onExecutorInitWorker || g_executorInitStatus.load(std::memory_order_relaxed) != 2)
+            g_executorInitError.store(static_cast<int32_t>(result), std::memory_order_relaxed);
+        WriteNativeLog(message, true);
     }
 
     uint64_t MonotonicNs()
@@ -550,17 +587,29 @@ namespace
         }
 
         VkDeviceCreateInfo modified = *createInfo;
-        // Enable the count-draw extension on pre-1.2 feature chains. When
-        // Unity explicitly supplies Vulkan12Features its chosen enabled
-        // feature remains authoritative; never silently patch a const chain.
+        // Negotiate the three features used by the existing indexed-count
+        // readout. Supported features are not enabled automatically by Vulkan.
+        // All Unity settings and extension-chain payloads stay unchanged apart
+        // from these supported requirements; never write into Unity's const chain.
         const VkPhysicalDeviceFeatures* enabled = createInfo->pEnabledFeatures;
+        const VkPhysicalDeviceFeatures2* enabled2 = nullptr;
         const VkPhysicalDeviceVulkan12Features* enabled12 = nullptr;
         bool enabledFloat16 = false, enabledTimeline = false, enabledSync2 = false;
+        bool separateVulkan12Features = false;
+        uint32_t featureLink = 0;
         for (auto link = static_cast<const VkBaseInStructure*>(createInfo->pNext);
             link != nullptr; link = link->pNext)
         {
+            char chainMessage[160] = {};
+            std::snprintf(chainMessage, sizeof(chainMessage),
+                "Merkaba vkCreateDevice pNext[%u]: sType=%u",
+                featureLink++, static_cast<uint32_t>(link->sType));
+            Log(chainMessage);
             if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2)
-                enabled = &reinterpret_cast<const VkPhysicalDeviceFeatures2*>(link)->features;
+            {
+                enabled2 = reinterpret_cast<const VkPhysicalDeviceFeatures2*>(link);
+                enabled = &enabled2->features;
+            }
             else if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
             {
                 enabled12 = reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(link);
@@ -575,12 +624,52 @@ namespace
                 enabledSync2 = reinterpret_cast<const VkPhysicalDeviceSynchronization2Features*>(link)->synchronization2 != VK_FALSE;
             else if (link->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES)
                 enabledSync2 = reinterpret_cast<const VkPhysicalDeviceVulkan13Features*>(link)->synchronization2 != VK_FALSE;
+            // These promoted structs cannot coexist with a newly inserted
+            // Vulkan12Features struct (VkDeviceCreateInfo-pNext-02830).
+            switch (link->sType)
+            {
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES:
+                case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES:
+                    separateVulkan12Features = true;
+                    break;
+                default: break;
+            }
         }
         std::vector<const char*> extensions;
         for (uint32_t i = 0; i < createInfo->enabledExtensionCount; i++)
             extensions.push_back(createInfo->ppEnabledExtensionNames[i]);
         bool countExtension = std::any_of(extensions.begin(), extensions.end(),
-            [](const char* name) { return std::strcmp(name, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) == 0; });
+            [](const char* name) { return name != nullptr &&
+                std::strcmp(name, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) == 0; });
+        const bool requestedCount = enabled12 != nullptr ? enabled12->drawIndirectCount != VK_FALSE : countExtension;
+        VkPhysicalDeviceProperties supportedProperties = {};
+        vkGetPhysicalDeviceProperties(physicalDevice, &supportedProperties);
+        VkPhysicalDeviceFeatures2 supportedFeatures = {};
+        supportedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        VkPhysicalDeviceVulkan12Features supported12 = {};
+        supported12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        if (supportedProperties.apiVersion >= VK_API_VERSION_1_2)
+        {
+            supportedFeatures.pNext = &supported12;
+            vkGetPhysicalDeviceFeatures2(physicalDevice, &supportedFeatures);
+        }
+        else
+            vkGetPhysicalDeviceFeatures(physicalDevice, &supportedFeatures.features);
+
+        // Without a Vulkan12 feature struct, the advertised KHR extension is
+        // the legal count-draw path. Do not append Vulkan12 over Unity's
+        // individual promoted feature structs (VkDeviceCreateInfo-02830).
         if (enabled12 == nullptr && !countExtension)
         {
             uint32_t count = 0;
@@ -599,8 +688,160 @@ namespace
         }
         modified.ppEnabledExtensionNames = extensions.data();
         modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-        bool countDrawEnabled = enabled != nullptr && enabled->multiDrawIndirect && enabled->drawIndirectFirstInstance &&
+        VkPhysicalDeviceFeatures negotiatedCore = enabled != nullptr ? *enabled : VkPhysicalDeviceFeatures{};
+        const VkPhysicalDeviceFeatures requestedCore = negotiatedCore;
+        if (supportedFeatures.features.multiDrawIndirect)
+            negotiatedCore.multiDrawIndirect = VK_TRUE;
+        if (supportedFeatures.features.drawIndirectFirstInstance)
+            negotiatedCore.drawIndirectFirstInstance = VK_TRUE;
+        const bool changeCore = enabled2 != nullptr &&
+            (negotiatedCore.multiDrawIndirect != requestedCore.multiDrawIndirect ||
+             negotiatedCore.drawIndirectFirstInstance != requestedCore.drawIndirectFirstInstance);
+        const bool changeCount = enabled12 != nullptr && supported12.drawIndirectCount &&
+            enabled12->drawIndirectCount == VK_FALSE;
+
+        // Copy only the prefix through the last modified feature. Its tail
+        // remains the original opaque chain. These are the SDK/Unity feature
+        // structures, not a guessed byte size or a second feature authority.
+        // Unrecognized prefix payloads cannot safely be copied or bypassed.
+        auto featureSize = [](VkStructureType type) -> size_t
+        {
+#define M8_FEATURE_SIZE(tag, type) case tag: return sizeof(type)
+            switch (type)
+            {
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, VkPhysicalDeviceFeatures2);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, VkPhysicalDeviceVulkan11Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, VkPhysicalDeviceVulkan12Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, VkPhysicalDeviceVulkan13Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES, VkPhysicalDevice16BitStorageFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES, VkPhysicalDeviceMultiviewFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES, VkPhysicalDeviceVariablePointersFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_FEATURES, VkPhysicalDeviceProtectedMemoryFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES, VkPhysicalDeviceSamplerYcbcrConversionFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES, VkPhysicalDeviceShaderDrawParametersFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES, VkPhysicalDevice8BitStorageFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES, VkPhysicalDeviceShaderAtomicInt64Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES, VkPhysicalDeviceShaderFloat16Int8Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES, VkPhysicalDeviceDescriptorIndexingFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES, VkPhysicalDeviceScalarBlockLayoutFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES, VkPhysicalDeviceImagelessFramebufferFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES, VkPhysicalDeviceUniformBufferStandardLayoutFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES, VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES, VkPhysicalDeviceSeparateDepthStencilLayoutsFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES, VkPhysicalDeviceHostQueryResetFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES, VkPhysicalDeviceTimelineSemaphoreFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES, VkPhysicalDeviceBufferDeviceAddressFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES, VkPhysicalDeviceVulkanMemoryModelFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES, VkPhysicalDeviceSynchronization2Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES, VkPhysicalDeviceDynamicRenderingFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES, VkPhysicalDeviceMaintenance4Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT, VkPhysicalDeviceFragmentDensityMapFeaturesEXT);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_2_FEATURES_EXT, VkPhysicalDeviceFragmentDensityMap2FeaturesEXT);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_QCOM, VkPhysicalDeviceFragmentDensityMapOffsetFeaturesQCOM);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR, VkPhysicalDeviceFragmentShadingRateFeaturesKHR);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT, VkPhysicalDeviceRobustness2FeaturesEXT);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES, VkPhysicalDeviceTextureCompressionASTCHDRFeatures);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_DEVICE_GROUP_DEVICE_CREATE_INFO, VkDeviceGroupDeviceCreateInfo);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_DEVICE_PRIVATE_DATA_CREATE_INFO, VkDevicePrivateDataCreateInfo);
+                default: return 0;
+            }
+#undef M8_FEATURE_SIZE
+        };
+        const VkBaseInStructure* lastChanged = nullptr;
+        for (auto link = static_cast<const VkBaseInStructure*>(createInfo->pNext);
+            link != nullptr; link = link->pNext)
+            if ((changeCore && link == reinterpret_cast<const VkBaseInStructure*>(enabled2)) ||
+                (changeCount && link == reinterpret_cast<const VkBaseInStructure*>(enabled12)))
+                lastChanged = link;
+        std::vector<std::vector<uint64_t>> featureCopies;
+        VkBaseOutStructure* previousCopy = nullptr;
+        if (lastChanged != nullptr)
+        {
+            for (auto link = static_cast<const VkBaseInStructure*>(createInfo->pNext);
+                link != nullptr; link = link->pNext)
+            {
+                const size_t bytes = featureSize(link->sType);
+                if (bytes == 0u)
+                {
+                    char message[224] = {};
+                    std::snprintf(message, sizeof(message),
+                        "Merkaba required Flower features: cannot preserve opaque pNext sType=%u before modified feature",
+                        static_cast<uint32_t>(link->sType));
+                    LogError(message, VK_ERROR_FEATURE_NOT_PRESENT);
+                    g_flowerDrawDeviceEnabled = false;
+                    return VK_ERROR_FEATURE_NOT_PRESENT;
+                }
+                featureCopies.emplace_back((bytes + sizeof(uint64_t) - 1u) / sizeof(uint64_t));
+                std::memcpy(featureCopies.back().data(), link, bytes);
+                auto copy = reinterpret_cast<VkBaseOutStructure*>(featureCopies.back().data());
+                if (previousCopy == nullptr) modified.pNext = copy;
+                else previousCopy->pNext = copy;
+                previousCopy = copy;
+                if (copy->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2)
+                {
+                    auto features = reinterpret_cast<VkPhysicalDeviceFeatures2*>(copy);
+                    features->features = negotiatedCore;
+                    enabled = &features->features;
+                }
+                if (copy->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
+                {
+                    auto features = reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(copy);
+                    if (changeCount) features->drawIndirectCount = VK_TRUE;
+                    enabled12 = features;
+                }
+                if (link == lastChanged) break;
+            }
+        }
+        if (enabled2 == nullptr)
+        {
+            modified.pEnabledFeatures = &negotiatedCore;
+            enabled = &negotiatedCore;
+        }
+        else modified.pEnabledFeatures = nullptr; // VkDeviceCreateInfo-00373.
+        VkPhysicalDeviceVulkan12Features added12 = {};
+        if (enabled12 == nullptr && !countExtension && supported12.drawIndirectCount &&
+            !separateVulkan12Features)
+        {
+            // A core-only implementation need not advertise the promoted
+            // extension. This insertion is legal only without its conflicting
+            // individual feature structs; all unrelated Unity nodes remain.
+            added12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+            added12.pNext = const_cast<void*>(modified.pNext);
+            added12.drawIndirectCount = VK_TRUE;
+            // These extension names already enable their promoted feature
+            // implicitly when Vulkan12Features is absent. Preserve that
+            // existing Unity request explicitly when inserting the struct
+            // (VkDeviceCreateInfo-02832/02833/02834/02835).
+            for (const char* extension : extensions)
+            {
+                if (extension == nullptr) continue;
+                if (std::strcmp(extension, VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME) == 0)
+                    added12.samplerMirrorClampToEdge = VK_TRUE;
+                else if (std::strcmp(extension, VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) == 0)
+                    added12.descriptorIndexing = VK_TRUE;
+                else if (std::strcmp(extension, VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME) == 0)
+                    added12.samplerFilterMinmax = VK_TRUE;
+                else if (std::strcmp(extension, VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME) == 0)
+                {
+                    added12.shaderOutputViewportIndex = VK_TRUE;
+                    added12.shaderOutputLayer = VK_TRUE;
+                }
+            }
+            modified.pNext = &added12;
+            enabled12 = &added12;
+        }
+        const bool countDrawEnabled = enabled != nullptr && enabled->multiDrawIndirect && enabled->drawIndirectFirstInstance &&
             (enabled12 != nullptr ? enabled12->drawIndirectCount != VK_FALSE : countExtension);
+        char featureMessage[512] = {};
+        std::snprintf(featureMessage, sizeof(featureMessage),
+            "Merkaba Flower feature negotiation: multiDraw supported/requested/enabled=%u/%u/%u "
+            "firstInstance=%u/%u/%u count=%u/%u/%u Vulkan12=%u KHR=%u",
+            supportedFeatures.features.multiDrawIndirect, requestedCore.multiDrawIndirect, negotiatedCore.multiDrawIndirect,
+            supportedFeatures.features.drawIndirectFirstInstance, requestedCore.drawIndirectFirstInstance,
+            negotiatedCore.drawIndirectFirstInstance, supported12.drawIndirectCount || countExtension,
+            requestedCount, enabled12 != nullptr ? enabled12->drawIndirectCount : countExtension,
+            enabled12 != nullptr, countExtension);
+        Log(featureMessage);
         bool inject = safeCandidates == 1u;
         if (inject)
         {
@@ -621,7 +862,6 @@ namespace
         }
 
         VkResult result = nextCreateDevice(physicalDevice, &modified, allocator, device);
-        g_flowerDrawDeviceEnabled = result == VK_SUCCESS && countDrawEnabled;
         g_queueInjected = result == VK_SUCCESS && inject;
         if (result != VK_SUCCESS && inject)
         {
@@ -629,10 +869,13 @@ namespace
             g_injectedQueueFamily = UINT32_MAX;
             g_injectedQueueIndex = UINT32_MAX;
             g_queueInjected = false;
-            result = nextCreateDevice(physicalDevice, createInfo, allocator,
-                device);
-            g_flowerDrawDeviceEnabled = false;
+            // Retrying Unity's original queues must not undo the independent
+            // supported feature negotiation or falsely report it as enabled.
+            modified.pQueueCreateInfos = createInfo->pQueueCreateInfos;
+            modified.queueCreateInfoCount = createInfo->queueCreateInfoCount;
+            result = nextCreateDevice(physicalDevice, &modified, allocator, device);
         }
+        g_flowerDrawDeviceEnabled = result == VK_SUCCESS && countDrawEnabled;
         g_enabledDeviceFeatures = result == VK_SUCCESS && enabled != nullptr
             ? *enabled : VkPhysicalDeviceFeatures{};
         g_enabledShaderFloat16 = result == VK_SUCCESS && enabledFloat16;
@@ -644,11 +887,11 @@ namespace
             std::snprintf(message, sizeof(message),
                 "Merkaba vkCreateDevice verdict: safeCandidates=%u "
                 "injected=%u family=%u queueIndex=%u queue1Priority=0.100 "
-                "globalPriorityClassShared=%u result=%d",
+                "globalPriorityClassShared=%u result=%d flowerFeaturesEnabled=%u",
                 safeCandidates, g_queueInjected ? 1u : 0u,
                 g_injectedQueueFamily, g_injectedQueueIndex,
                 globalPriorityEnabled ? 1u : 0u,
-                static_cast<int>(result));
+                static_cast<int>(result), g_flowerDrawDeviceEnabled ? 1u : 0u);
             UNITY_LOG(g_log, message);
         }
         return result;
@@ -746,13 +989,139 @@ namespace
         pipeline = {};
     }
 
+    uint64_t CacheHash(const void* data, size_t bytes, uint64_t hash = 14695981039346656037ull)
+    {
+        const auto* cursor = static_cast<const uint8_t*>(data);
+        for (size_t i = 0; i < bytes; ++i)
+            hash = (hash ^ cursor[i]) * 1099511628211ull;
+        return hash;
+    }
+
+    // This envelope only detects truncated/corrupted driver cache files; it
+    // never identifies geometry. Vulkan still owns all pipeline cache keys.
+    struct PipelineCacheReceipt
+    {
+        uint64_t bytes;
+        uint64_t checksum;
+        uint64_t shaderHash;
+        uint32_t abi;
+        uint32_t driver;
+    };
+    static_assert(sizeof(PipelineCacheReceipt) == 32, "cache receipt layout");
+    constexpr size_t kMaximumPipelineCacheBytes = 64u * 1024u * 1024u;
+
+    bool CreateExecutorPipelineCache()
+    {
+        uint64_t shaderHash = CacheHash(&kExecutorAbiVersion, sizeof(kExecutorAbiVersion));
+        for (const MerkabaEmbeddedPipeline& pipeline : kMerkabaExecutorPipelines)
+            shaderHash = CacheHash(pipeline.words,
+                pipeline.wordCount * sizeof(uint32_t), shaderHash);
+        g_executorShaderHash = shaderHash;
+        // One atomic-replaced file bounds SSD use across application updates.
+        // Shader/ABI/driver keys live in the receipt, device UUID in Vulkan's header.
+        g_executorCacheFile = g_executorCacheDirectory + "/pipelines.bin";
+        std::vector<uint8_t> data;
+        FILE* file = std::fopen(g_executorCacheFile.c_str(), "rb");
+        if (file != nullptr)
+        {
+            PipelineCacheReceipt receipt = {};
+            if (std::fread(&receipt, sizeof(receipt), 1, file) == 1 &&
+                receipt.abi == kExecutorAbiVersion && receipt.shaderHash == shaderHash &&
+                receipt.driver == g_deviceProperties.driverVersion &&
+                receipt.bytes >= 32u && receipt.bytes <= kMaximumPipelineCacheBytes)
+            {
+                data.resize(static_cast<size_t>(receipt.bytes));
+                if (std::fread(data.data(), 1, data.size(), file) != data.size() ||
+                    std::fgetc(file) != EOF || std::ferror(file) ||
+                    CacheHash(data.data(), data.size()) != receipt.checksum)
+                    data.clear();
+            }
+            std::fclose(file);
+            if (!data.empty())
+            {
+                // VkPipelineCacheHeaderVersionOne is explicitly little-endian
+                // and 32 bytes; decode it without relying on struct padding.
+                auto word = [&data](size_t offset) -> uint32_t {
+                    return uint32_t(data[offset]) | (uint32_t(data[offset + 1]) << 8) |
+                        (uint32_t(data[offset + 2]) << 16) | (uint32_t(data[offset + 3]) << 24);
+                };
+                if (word(0) != 32u || word(4) != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
+                    word(8) != g_deviceProperties.vendorID || word(12) != g_deviceProperties.deviceID ||
+                    std::memcmp(data.data() + 16, g_deviceProperties.pipelineCacheUUID, VK_UUID_SIZE) != 0)
+                    data.clear();
+            }
+        }
+        const size_t initialBytes = data.size();
+        VkPipelineCacheCreateInfo info = {};
+        info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        info.initialDataSize = initialBytes;
+        info.pInitialData = data.empty() ? nullptr : data.data();
+        VkResult result = vkCreatePipelineCache(g_instance.device, &info, nullptr,
+            &g_executorPipelineCache);
+        char message[256] = {};
+        std::snprintf(message, sizeof(message),
+            "Merkaba pipeline cache: state=%s bytes=%zu shaderHash=%016llx result=%d",
+            initialBytes == 0 ? "cold" : "loaded", initialBytes,
+            static_cast<unsigned long long>(shaderHash), static_cast<int>(result));
+        Log(message);
+        if (result != VK_SUCCESS) LogError("vkCreatePipelineCache", result);
+        return result == VK_SUCCESS;
+    }
+
+    void PersistExecutorPipelineCache()
+    {
+        if (g_executorPipelineCache == VK_NULL_HANDLE) return;
+        size_t bytes = 0;
+        VkResult result = vkGetPipelineCacheData(g_instance.device, g_executorPipelineCache, &bytes, nullptr);
+        if (result != VK_SUCCESS || bytes < 32u || bytes > kMaximumPipelineCacheBytes)
+        {
+            Log("Merkaba pipeline cache: not persisted; driver size/query exceeds bounded cache.");
+            return;
+        }
+        std::vector<uint8_t> data(bytes);
+        result = vkGetPipelineCacheData(g_instance.device, g_executorPipelineCache, &bytes, data.data());
+        if (result != VK_SUCCESS)
+        {
+            Log("Merkaba pipeline cache: incomplete query; previous durable cache retained.");
+            return;
+        }
+        PipelineCacheReceipt receipt{bytes, CacheHash(data.data(), bytes),
+            g_executorShaderHash, kExecutorAbiVersion, g_deviceProperties.driverVersion};
+        const std::string temporary = g_executorCacheFile + ".tmp";
+        FILE* file = std::fopen(temporary.c_str(), "wb");
+        if (file == nullptr)
+        {
+            Log("Merkaba pipeline cache: cannot open private cache output.");
+            return;
+        }
+        bool saved = std::fwrite(&receipt, sizeof(receipt), 1, file) == 1 &&
+            std::fwrite(data.data(), 1, bytes, file) == bytes &&
+            std::fflush(file) == 0 && fsync(fileno(file)) == 0;
+        if (std::fclose(file) != 0) saved = false;
+        if (saved) saved = std::rename(temporary.c_str(), g_executorCacheFile.c_str()) == 0;
+        if (saved)
+        {
+            int directory = open(g_executorCacheDirectory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+            if (directory >= 0) { saved = fsync(directory) == 0; close(directory); }
+            else saved = false;
+        }
+        else std::remove(temporary.c_str());
+        char message[192] = {};
+        std::snprintf(message, sizeof(message),
+            "Merkaba pipeline cache: save=%s bytes=%zu", saved ? "durable" : "failed", bytes);
+        Log(message);
+    }
+
     bool CreateExecutorPipelines()
     {
+        if (!CreateExecutorPipelineCache()) return false;
         for (uint32_t index = 0; index < kMerkabaExecutorPipelineCount;
             ++index)
         {
+            if (g_executorInitCancel.load(std::memory_order_acquire)) return false;
             const MerkabaEmbeddedPipeline& embedded =
                 kMerkabaExecutorPipelines[index];
+            g_executorInitPipeline.store(index, std::memory_order_release);
             const auto& limits = g_deviceProperties.limits;
             // LocalSize is already in each embedded entry; do not maintain a
             // handwritten second workgroup table or require the dump's 1024.
@@ -859,9 +1228,26 @@ namespace
                 VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
             pipelineInfo.stage = stage;
             pipelineInfo.layout = g_executorPipelines[index].pipelineLayout;
+            if (g_executorInitCancel.load(std::memory_order_acquire))
+            {
+                vkDestroyShaderModule(g_instance.device, module, nullptr);
+                return false;
+            }
+            char compileMessage[256] = {};
+            std::snprintf(compileMessage, sizeof(compileMessage),
+                "Merkaba native pipeline compile begin: index=%u name=%s bytes=%zu",
+                index, embedded.label, embedded.wordCount * sizeof(uint32_t));
+            Log(compileMessage);
+            const uint64_t compileStart = MonotonicNs();
             result = vkCreateComputePipelines(g_instance.device,
-                VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+                g_executorPipelineCache, 1, &pipelineInfo, nullptr,
                 &g_executorPipelines[index].pipeline);
+            std::snprintf(compileMessage, sizeof(compileMessage),
+                "Merkaba native pipeline compile end: index=%u name=%s ms=%.3f result=%d",
+                index, embedded.label,
+                static_cast<double>(MonotonicNs() - compileStart) / 1.0e6,
+                static_cast<int>(result));
+            Log(compileMessage);
             vkDestroyShaderModule(g_instance.device, module, nullptr);
             if (result != VK_SUCCESS)
             {
@@ -870,6 +1256,7 @@ namespace
             }
         }
 
+        if (g_executorInitCancel.load(std::memory_order_acquire)) return false;
         VkSamplerCreateInfo sampler = {};
         sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -1661,14 +2048,14 @@ namespace
 
     void PrepareExecutorJob(ExecutorJob* job)
     {
-        if (job == nullptr || !g_executorReady)
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        if (job == nullptr || !g_executorReady.load(std::memory_order_acquire))
             return;
         int expected = kJobCreated;
         if (!job->state.compare_exchange_strong(expected, kJobPreparing,
                 std::memory_order_acq_rel))
             return;
         job->prepareStartNs = MonotonicNs();
-        std::lock_guard<std::mutex> lock(g_executorMutex);
         bool complete = AccessJobResources(job) && CreateJobUniforms(job) &&
             CreateJobDescriptors(job) && CreateJobCommandObjects(job) &&
             RecordJobCommand(job);
@@ -1796,7 +2183,17 @@ namespace
 
     void ShutdownExecutor()
     {
-        g_executorReady = false;
+        {
+            std::lock_guard<std::mutex> lock(g_executorMutex);
+            g_executorInitCancel.store(true, std::memory_order_release);
+            g_executorReady.store(false, std::memory_order_release);
+            g_executorInitConfigured = false;
+        }
+        // The worker never invokes shutdown (including on failure). Do not
+        // hold its publication mutex across join. A running driver call cannot
+        // be interrupted; only lifecycle shutdown waits for its return.
+        if (g_executorInitWorker.joinable()) g_executorInitWorker.join();
+        g_executorInitStatus.store(0, std::memory_order_release);
         if (g_instance.device == VK_NULL_HANDLE)
             return;
         // Lifecycle shutdown is the only blocking point. Normal XR frames never
@@ -1823,8 +2220,77 @@ namespace
         g_scannerQueue = VK_NULL_HANDLE;
     }
 
+    void InitializeExecutorPipelinesWorker()
+    {
+        g_onExecutorInitWorker = true;
+        const uint64_t started = MonotonicNs();
+        bool complete = false;
+        try
+        {
+            complete = CreateExecutorPipelines();
+        }
+        catch (const std::exception& error)
+        {
+            LogError(error.what(), VK_ERROR_INITIALIZATION_FAILED);
+        }
+        catch (...)
+        {
+            LogError("unexpected host compiler exception", VK_ERROR_INITIALIZATION_FAILED);
+        }
+        if (!g_executorInitCancel.load(std::memory_order_acquire))
+        {
+            try { PersistExecutorPipelineCache(); }
+            catch (const std::exception& error) { WriteNativeLog(error.what(), true); }
+        }
+        if (g_executorPipelineCache != VK_NULL_HANDLE)
+            vkDestroyPipelineCache(g_instance.device, g_executorPipelineCache, nullptr);
+        g_executorPipelineCache = VK_NULL_HANDLE;
+        {
+            std::lock_guard<std::mutex> lock(g_executorMutex);
+            const bool cancelled = g_executorInitCancel.load(std::memory_order_acquire);
+            // Release publishes all 25 pipelines and both samplers at once.
+            // No consumer observes the partially constructed arrays. Failed
+            // or cancelled objects remain owned until lifecycle shutdown.
+            g_executorReady.store(complete && !cancelled, std::memory_order_release);
+            g_executorInitStatus.store(cancelled ? 0 : complete ? 2 : -1, std::memory_order_release);
+            char message[320] = {};
+            std::snprintf(message, sizeof(message),
+                "Merkaba native init worker: state=%s family=%u requiredPipelines=%u elapsedMs=%.3f",
+                cancelled ? "cancelled" : complete ? "ready" : "failed",
+                g_injectedQueueFamily, kMerkabaExecutorPipelineCount,
+                static_cast<double>(MonotonicNs() - started) / 1.0e6);
+            WriteNativeLog(message, !complete && !cancelled);
+        }
+        g_onExecutorInitWorker = false;
+    }
+
+    // Called with g_executorMutex held, after both Unity event setup and the
+    // managed app-private cache path have arrived, in either order.
+    bool StartExecutorPipelinesWorker()
+    {
+        if (!g_executorInitConfigured || g_executorCacheDirectory.empty() ||
+            g_executorInitWorker.joinable()) return true;
+        g_executorInitCancel.store(false, std::memory_order_release);
+        g_executorInitPipeline.store(UINT32_MAX, std::memory_order_relaxed);
+        g_executorInitError.store(VK_SUCCESS, std::memory_order_relaxed);
+        g_executorInitStatus.store(1, std::memory_order_release);
+        try { g_executorInitWorker = std::thread(InitializeExecutorPipelinesWorker); }
+        catch (const std::exception& error)
+        {
+            g_executorInitCancel.store(true, std::memory_order_release);
+            g_executorInitError.store(VK_ERROR_INITIALIZATION_FAILED, std::memory_order_relaxed);
+            g_executorInitStatus.store(-1, std::memory_order_release);
+            WriteNativeLog(error.what(), true);
+            return false;
+        }
+        Log("Merkaba native scanner initializing: one host pipeline worker, cached driver data; no Unity wait.");
+        return true;
+    }
+
     bool InitializeExecutor()
     {
+        if (g_executorInitWorker.joinable()) return false;
+        g_executorReady.store(false, std::memory_order_release);
         // Every native job records dispatch and total-job timestamps.
         if (g_timestampValidBits == 0 || g_timestampPeriod <= 0.0)
         {
@@ -1861,8 +2327,6 @@ namespace
             LogError("vkCreateCommandPool", result);
             return false;
         }
-        if (!CreateExecutorPipelines())
-            return false;
         if (!g_executorEventsReserved)
         {
             g_executorEventBase = g_graphics->ReserveEventIDRange(3);
@@ -1887,17 +2351,11 @@ namespace
             kUnityVulkanEventConfigFlag_SyncWorkerThreads;
         g_vulkan->ConfigureEvent(g_executorEventBase + 1, &submitConfig);
         g_vulkan->ConfigureEvent(g_executorEventBase + 2, &submitConfig);
-        g_executorReady = true;
-        if (g_log != nullptr)
-        {
-            char message[384] = {};
-            std::snprintf(message, sizeof(message),
-                "Merkaba native scanner ready: family=%u queue=1 "
-                "pipelines=%u queue0WaitsNative=0",
-                g_injectedQueueFamily, kMerkabaExecutorPipelineCount);
-            UNITY_LOG(g_log, message);
-        }
-        return true;
+        // Managed startup supplies Application.persistentDataPath before any
+        // job can be created; native never guesses the Android package path.
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        g_executorInitConfigured = true;
+        return StartExecutorPipelinesWorker();
     }
 
     bool TryRecordingState(UnityVulkanRecordingState* recording)
@@ -2020,9 +2478,10 @@ namespace
 
     void ShutdownVulkan()
     {
-        ShutdownFlowerDraw();
+        g_flowerDrawReady.store(false, std::memory_order_release);
         g_state.store(kUnavailable, std::memory_order_release);
         ShutdownExecutor();
+        ShutdownFlowerDraw();
         if (g_queryPool != VK_NULL_HANDLE && g_instance.device != VK_NULL_HANDLE)
             vkDestroyQueryPool(g_instance.device, g_queryPool, nullptr);
         g_queryPool = VK_NULL_HANDLE;
@@ -2045,7 +2504,12 @@ namespace
             g_instance.physicalDevice == VK_NULL_HANDLE)
             return;
 
-        if (!QueryDeviceRequirements()) return;
+        if (!QueryDeviceRequirements())
+        {
+            g_executorInitError.store(VK_ERROR_FEATURE_NOT_PRESENT, std::memory_order_relaxed);
+            g_executorInitStatus.store(-1, std::memory_order_release);
+            return;
+        }
         const VkPhysicalDeviceProperties& properties = g_deviceProperties;
         InitializeFlowerDraw();
         vkGetPhysicalDeviceMemoryProperties(g_instance.physicalDevice,
@@ -2071,7 +2535,12 @@ namespace
             g_instance.queueFamilyIndex, g_timestampValidBits, g_timestampPeriod,
             properties.limits.timestampComputeAndGraphics);
         Log(timestampMessage);
-        InitializeExecutor();
+        if (!InitializeExecutor())
+        {
+            if (g_executorInitError.load(std::memory_order_relaxed) == VK_SUCCESS)
+                g_executorInitError.store(VK_ERROR_INITIALIZATION_FAILED, std::memory_order_relaxed);
+            g_executorInitStatus.store(-1, std::memory_order_release);
+        }
         if (g_timestampValidBits == 0 || g_timestampPeriod <= 0.0)
             return;
 
@@ -2172,7 +2641,26 @@ extern "C"
 
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_IsAvailable()
     {
-        return g_executorReady && g_scannerQueue != VK_NULL_HANDLE ? 1 : 0;
+        return g_executorReady.load(std::memory_order_acquire) ? 1 : 0;
+    }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_ConfigureStartup(const char* cacheDirectory)
+    {
+        if (cacheDirectory == nullptr || cacheDirectory[0] != '/' ||
+            std::strlen(cacheDirectory) > 3072u) return -1;
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        if (!g_executorCacheDirectory.empty() && g_executorCacheDirectory != cacheDirectory)
+            return -1; // never change a worker's path while it owns cache IO
+        g_executorCacheDirectory = cacheDirectory;
+        return StartExecutorPipelinesWorker() ? 0 : -1;
+    }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_GetStartupStatus(uint32_t* pipeline, int32_t* error)
+    {
+        const int32_t status = g_executorInitStatus.load(std::memory_order_acquire);
+        if (pipeline != nullptr) *pipeline = g_executorInitPipeline.load(std::memory_order_acquire);
+        if (error != nullptr) *error = g_executorInitError.load(std::memory_order_relaxed);
+        return status;
     }
 
     uint32_t UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
@@ -2184,7 +2672,8 @@ extern "C"
     void* UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_CreateJob(
         const MerkabaExecutorJobDescriptor* descriptor)
     {
-        if (!g_executorReady || descriptor == nullptr ||
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        if (!g_executorReady.load(std::memory_order_acquire) || descriptor == nullptr ||
             descriptor->structSize != sizeof(MerkabaExecutorJobDescriptor) ||
             descriptor->abiVersion != kExecutorAbiVersion ||
             descriptor->revision == 0 ||
@@ -2245,7 +2734,6 @@ extern "C"
         job->depthGroupsY = descriptor->depthGroupsY;
         job->queryGroups = descriptor->queryGroups;
         job->flowerPassMask = descriptor->flowerPassMask;
-        std::lock_guard<std::mutex> lock(g_executorMutex);
         g_executorJobs.push_back(job);
         return job;
     }
@@ -2276,7 +2764,7 @@ extern "C"
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_GetEventId(
         int offset)
     {
-        return g_executorReady && offset >= 0 && offset < 3
+        return g_executorReady.load(std::memory_order_acquire) && offset >= 0 && offset < 3
             ? g_executorEventBase + offset : 0;
     }
 

@@ -63,7 +63,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     }
     else if (operation == 6)
     {
-        float4 bounds = M8FlowerSectorBounds[index];
+        float4 bounds = M8FlowerSectorBoundsAt(index);
         result.A = float4(M8FlowerSectorUnit[index], bounds.xy);
         result.B.xy = bounds.zw;
     }

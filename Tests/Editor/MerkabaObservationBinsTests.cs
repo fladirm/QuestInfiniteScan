@@ -341,6 +341,8 @@ namespace Genesis.RoomScan.Tests
             input.SetData(cases);
             ComputeShader shader = Shader("Tests/Editor/MerkabaObservationBinsProbe.compute");
             int kernel = shader.FindKernel("RootIntervalsProbe");
+            using var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
+            shader.SetBuffer(kernel, MerkabaGrid.FlowerTablesId, flowerTables);
             shader.SetInt("_ProbeRecordCount", count);
             shader.SetBuffer(kernel, "_ProbeCoefficients", input);
             shader.SetBuffer(kernel, "_ProbeReduced", results);

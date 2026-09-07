@@ -99,6 +99,7 @@ RESOURCE_NAMES = (
     "FrameDispatchArgs", "ObservationRecords", "ObservationTileBins", "TileHalo", "DepthCertificate",
     "DualBlockState", "DualChunkState", "DualLeaves",
     "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands",
+    "FlowerTables",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -115,7 +116,7 @@ ALIASES = {
         "FrameDispatchArgs", "ObservationRecords",
         "ObservationTileBins", "TileHalo", "DepthCertificate",
         "DualBlockState", "DualChunkState", "DualLeaves",
-        "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands")},
+        "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands", "FlowerTables")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",

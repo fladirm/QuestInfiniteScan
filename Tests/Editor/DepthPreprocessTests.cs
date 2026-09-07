@@ -565,6 +565,8 @@ namespace Genesis.RoomScan.Tests
             const int height = 15;
             ComputeShader compute = LoadCompute("StereoRgbdRefine.compute");
             int kernel = compute.FindKernel("StereoFlowerRefine");
+            using var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
+            compute.SetBuffer(kernel, MerkabaGrid.FlowerTablesId, flowerTables);
             Matrix4x4 projection = Matrix4x4.Perspective(90f,
                 width / (float)height, 0.1f, 10f);
             float sourceDepth = DepthNdc(projection, 1f);
@@ -656,6 +658,8 @@ namespace Genesis.RoomScan.Tests
             const int height = 15;
             ComputeShader compute = LoadCompute("StereoRgbdRefine.compute");
             int kernel = compute.FindKernel("StereoFlowerRefine");
+            using var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
+            compute.SetBuffer(kernel, MerkabaGrid.FlowerTablesId, flowerTables);
             Matrix4x4 projection = Matrix4x4.Perspective(90f,
                 width / (float)height, 0.1f, 10f);
             float sourceDepth = DepthNdc(projection, 1f);

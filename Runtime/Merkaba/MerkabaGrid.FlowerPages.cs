@@ -137,6 +137,7 @@ namespace Genesis.RoomScan
         internal void BindFlowerRenderResources(Material material)
         {
             if (material == null) throw new ArgumentNullException(nameof(material));
+            material.SetBuffer(FlowerTablesId, _m8FlowerTables);
             material.SetBuffer("_M8KernelStates0Read", _m8KernelStates0);
             material.SetBuffer("_M8KernelStates1Read", _m8KernelStates1);
             material.SetBuffer("_M8KernelStates2Read", _m8KernelStates2);

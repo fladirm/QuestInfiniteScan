@@ -246,6 +246,7 @@ namespace Genesis.RoomScan
             RequireObservation(command);
             if (!_reservationRecorded)
                 throw new InvalidOperationException("FlowerCommit requires an emitted reservation.");
+            command.SetComputeBufferParam(flowerCommit, kernel, MerkabaGrid.FlowerTablesId, _grid.M8FlowerTables);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationRecords", _records);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationTileBins", _tileBins);
             command.SetComputeBufferParam(flowerCommit, kernel, "_M8ObservationTileBinsRead", _tileBins);
@@ -308,6 +309,7 @@ namespace Genesis.RoomScan
 
         private void BindCommon(CommandBuffer command, int kernel)
         {
+            Bind(command, kernel, "_M8FlowerTables", _grid.M8FlowerTables);
             command.SetComputeIntParam(_shader, "_M8ObservationToken", unchecked((int)_observation));
             command.SetComputeIntParam(_shader, "_M8ObservationHotSlotCount", MerkabaSpatial.PhysicalTileCapacity);
             command.SetComputeIntParam(_shader, "_M8ObservationRecordCapacity", _records.count);

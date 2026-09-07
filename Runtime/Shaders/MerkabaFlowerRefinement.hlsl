@@ -232,19 +232,23 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     M8FlowerPhaseRootEvidence predicted;
     if(!M8FlowerPredictGeometryNode(slot,ownerRef,epoch,owner,m8FinePlane[local],task,
         normalError,offsetError,predicted))return M8_FLOWER_ARENA_OK;
-    M8FlowerPhaseResidualResult analysis;
     int r3Orientation=1;
+    uint r3Parity=0u,r3Axis=4u;
     if(task.Kind==1u)
     {
-        uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
-        uint axis=4u;
+        r3Parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
         [unroll]for(uint i=0u;i<4u;i++)
-            if(M8FlowerTetraLine[parity][i]==(int)task.Line)axis=i;
-        if(axis>=4u)return M8_FLOWER_ARENA_INVALID;
-        analysis=M8FlowerAnalyzeR3PhaseResidual(predicted,observed,parity,axis);
-        r3Orientation=M8FlowerTetraEta[parity][axis];
+            if(M8FlowerTetraLine[r3Parity][i]==(int)task.Line)r3Axis=i;
+        if(r3Axis>=4u)return M8_FLOWER_ARENA_INVALID;
     }
-    else analysis=M8FlowerAnalyzePhaseResidual(predicted,observed);
+    // R3's wrapper used to inline the same full analysis as the R2 branch.
+    // Preserve its axis guard before the one shared ordered evaluation.
+    M8FlowerPhaseResidualResult analysis=M8FlowerAnalyzePhaseResidual(predicted,observed);
+    if(task.Kind==1u)
+    {
+        analysis=M8FlowerOrientR3PhaseResidual(analysis,(predicted.Tag>>3u)&15u,r3Parity,r3Axis);
+        r3Orientation=M8FlowerTetraEta[r3Parity][r3Axis];
+    }
     uint key=M8FlowerPackDetailKey(task.Level,task.Path,task.Petal,task.Line,
         task.Kind,task.Plus,(predicted.Tag>>8u)&31u);
     if(analysis.Classification!=M8_FLOWER_PHASE_CERTAIN_NONZERO)
@@ -282,10 +286,10 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     M8FlowerDetailRecord record;
     record.Key=key;
     record.Lower=analysis.Lower;record.Upper=analysis.Upper;record.ParentEpoch=epoch;
-    M8FlowerPhaseRootEvidence synthesized,closedRoot;
+    M8FlowerInterval phase;
     if(task.Kind==0u)
     {
-        if(M8FlowerSynthesizePhaseRecord(predicted,record.Key,record,epoch,synthesized)!=1u)
+        if(!M8FlowerPreparePhaseRecordSynthesis(predicted,record.Key,record,epoch,phase))
             return M8_FLOWER_ARENA_OK;
     }
     else
@@ -293,11 +297,16 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
         // R3 stores eta*tau. Undo ONLY that generated orientation for the
         // physical root synthesis. A measured metric record is not a
         // declaration of a unique chirally valid junction/petal class.
-        M8FlowerInterval phase=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
+        phase=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
         if(r3Orientation<0)phase=M8FlowerI(-phase.hi,-phase.lo);
-        if(M8FlowerRotatePhaseEvidence(predicted,phase,synthesized)!=1u)
-            return M8_FLOWER_ARENA_OK;
     }
+    // Record admission differs between R2 and R3, but their ordered metric
+    // rotation is identical. Keep it at one live call site, not two inlined
+    // evaluator copies. Preserve the R2-only finite postcondition verbatim.
+    M8FlowerPhaseRootEvidence synthesized,closedRoot;
+    if(M8FlowerRotatePhaseEvidence(predicted,phase,synthesized)!=1u ||
+        (task.Kind==0u && !M8FlowerFinitePhaseRoot(synthesized.Root)))
+        return M8_FLOWER_ARENA_OK;
     if(M8FlowerCloseSharedPhaseRoot(synthesized,observed,closedRoot)!=1u)
         return M8_FLOWER_ARENA_OK;
     // Non-spinning allocation may split one candidate across GPU quanta.
@@ -533,31 +542,39 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
         {
             M8FlowerReduceFineEndpoint(slot,lane,task,endpoint,normalError,offsetError);
+            [loop]for(uint item=0u;item<4u;item++)
+            {
+                uint local=lane+128u*item;
+                int3 junction;
+                if(endpoint==0u)
+                {
+                    first[item]=(M8FlowerPhaseRootEvidence)0;first[item].Classification=2u;
+                    if(!M8FlowerPhaseJunction(M8GlobalKernelCoord(slot,local),task.Level+1u,
+                        task.Offset,junction))continue;
+                }
+                else
+                {
+                    if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)==0u ||
+                        (task.Level!=0u&&(m8FineState[local]&M8_FLOWER_FINE_NOVEL)==0u) ||
+                        first[item].Classification!=1u)continue;
+                    junction=first[item].Junction;
+                }
+                // Both endpoint reductions use the same identity/intersection
+                // reader. The first root remains private until the second
+                // reduction completes; only endpoint1 may publish a record.
+                M8FlowerPhaseRootEvidence root;
+                bool certain=M8FlowerFineReadBucket(local,junction,root);
+                if(endpoint==0u)first[item]=root;
+                else if(certain)
+                    M8FlowerFineSchedulingStatus(M8FlowerCommitObservedPhase(slot,local,runtime.w,
+                        task,first[item],root,normalError,offsetError));
+            }
             if(endpoint==0u)
             {
-                [loop]for(uint item=0u;item<4u;item++)
-                {
-                    uint local=lane+128u*item;
-                    int3 junction;
-                    first[item]=(M8FlowerPhaseRootEvidence)0;first[item].Classification=2u;
-                    if(M8FlowerPhaseJunction(M8GlobalKernelCoord(slot,local),task.Level+1u,
-                        task.Offset,junction))M8FlowerFineReadBucket(local,junction,first[item]);
-                }
                 // The loop index is workgroup-uniform. Retain first roots
                 // privately before endpoint1 reuses the shared reduction.
                 GroupMemoryBarrierWithGroupSync();
             }
-        }
-        [loop]for(uint item=0u;item<4u;item++)
-        {
-            uint local=lane+128u*item;
-            if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)==0u ||
-                (task.Level!=0u&&(m8FineState[local]&M8_FLOWER_FINE_NOVEL)==0u))continue;
-            M8FlowerPhaseRootEvidence second;
-            if(first[item].Classification!=1u ||
-                !M8FlowerFineReadBucket(local,first[item].Junction,second))continue;
-            M8FlowerFineSchedulingStatus(M8FlowerCommitObservedPhase(slot,local,runtime.w,
-                task,first[item],second,normalError,offsetError));
         }
         DeviceMemoryBarrierWithGroupSync();
         if(m8FlowerHaloUnresolvedReads!=0u)
