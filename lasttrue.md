@@ -7213,3 +7213,9 @@ storage-root switch, rebind loads the next document. Foreign anchored previews
 do not mark another active session dirty. Failed save does not silently close
 the live workspace. Existing annotation coordinates/format remain unchanged.
 CHECKS=diff syntax only; C#/session round trip remains RUN_14.
+
+RUN_11_WORKSPACE_CHECKPOINT=UI ray ownership before paint/annotation input;
+laser displays the same cached hit. Session design stays anchor-local and
+uses the evaluated package/display frame for preview and ALIGN; no record
+coordinate conversion. paint-row controls follow actual active-tool consumers.
+CHECKS=UXML syntax/diff PASS; Unity input/device acceptance remains RUN_14.

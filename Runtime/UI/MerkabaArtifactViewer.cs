@@ -75,6 +75,7 @@ namespace Genesis.RoomScan.UI
         private MerkabaPaintEngine _paintEngine;
         private MerkabaDesignLibrary _designLibrary;
         private Transform _modelRoot;
+        private Transform _designDisplayRoot;
         private Transform _annotationRoot;
         private GameObject _backdrop;
         private GameObject _continuationMarker;
@@ -771,6 +772,7 @@ namespace Genesis.RoomScan.UI
             _annotationHitPreview = null;
             if (_modelRoot != null) Destroy(_modelRoot.gameObject);
             _modelRoot = null;
+            _designDisplayRoot = null;
             _annotationRoot = null;
             ReleaseArtifactAnchor();
             if (_modelMaterial != null) Destroy(_modelMaterial);
@@ -830,20 +832,39 @@ namespace Genesis.RoomScan.UI
             _designLibrary = null;
             _paintEngine.Save();
             _paintEngine.Close();
-            Transform roomRoot = RoomSpaceRoot.RoomSpaceReady
-                ? RoomSpaceRoot.Instance.transform : null;
+            if (_designDisplayRoot != null)
+                Destroy(_designDisplayRoot.gameObject);
+            _designDisplayRoot = null;
             string path = _scanner?.ActiveDesignPath;
-            if (roomRoot == null || string.IsNullOrWhiteSpace(path))
+            if (!RoomSpaceRoot.RoomSpaceReady || _modelRoot == null ||
+                string.IsNullOrWhiteSpace(path) ||
+                !_packageSpatialBinding.HasValue ||
+                !_packageSpatialBinding.Value.IsValid ||
+                _packageSpatialBinding.Value.AnchorUuid !=
+                    _scanner.ActiveAnchorUuid)
             {
-                Logger.Warning("Design paint is unavailable until an anchored " +
-                    "scan session is active.");
+                Logger.Warning("Session design requires the preview package's " +
+                    "actual anchor to match the active anchored session.");
                 return;
             }
-            _paintEngine.Open(roomRoot, previewShader, path);
+            Matrix4x4 local = ComposeSessionDesignLocal(
+                _packageSpatialBinding.Value.AnchorFromPackage, _scanCenter);
+            if (!TryDecomposeTransform(local, out Vector3 position,
+                    out Quaternion rotation, out Vector3 scale))
+            {
+                Logger.Warning("Session design display frame is invalid.");
+                return;
+            }
+            _designDisplayRoot = new GameObject("Session Design Display").transform;
+            _designDisplayRoot.SetParent(_modelRoot, false);
+            _designDisplayRoot.localPosition = position;
+            _designDisplayRoot.localRotation = rotation;
+            _designDisplayRoot.localScale = scale;
+            _paintEngine.Open(_designDisplayRoot, previewShader, path);
             string libraryPath = _scanner?.DesignLibraryPath;
             if (string.IsNullOrWhiteSpace(libraryPath)) return;
             _designLibrary = new MerkabaDesignLibrary(libraryPath);
-            _designLibrary.Open(_paintEngine.Document, roomRoot,
+            _designLibrary.Open(_paintEngine.Document, _designDisplayRoot,
                 previewShader, _paintEngine.MarkDocumentChanged,
                 _paintEngine.BeginDocumentChange,
                 _paintEngine.CommitDocumentChange,
@@ -1516,6 +1537,12 @@ namespace Genesis.RoomScan.UI
         internal static Matrix4x4 ComposeAlignedModelLocal(
             Matrix4x4 anchorFromPackage, Vector3 scanCenter) =>
             anchorFromPackage * Matrix4x4.Translate(scanCenter);
+
+        // Existing design documents stay anchor-local. Only their presentation
+        // follows the centered/scaled model, and ALIGN cancels this transform.
+        internal static Matrix4x4 ComposeSessionDesignLocal(
+            Matrix4x4 anchorFromPackage, Vector3 scanCenter) =>
+            Matrix4x4.Translate(-scanCenter) * anchorFromPackage.inverse;
 
         internal static bool TryDecomposeTransform(Matrix4x4 matrix,
             out Vector3 position, out Quaternion rotation, out Vector3 scale)
@@ -2748,12 +2775,8 @@ namespace Genesis.RoomScan.UI
                                 MerkabaDesignTool.SurfaceBrush,
                             _ => MerkabaDesignTool.SpatialBrush
                         };
-                        Matrix4x4 anchorFromPackage =
-                            _packageSpatialBinding.Value.AnchorFromPackage;
-                        Transform roomRoot = RoomSpaceRoot.Instance.transform;
                         Vector3[] points = Array.ConvertAll(annotation.points,
-                            point => roomRoot.TransformPoint(
-                                anchorFromPackage.MultiplyPoint3x4(point)));
+                            AnnotationWorldPoint);
                         if (!_paintEngine.ImportLegacy(tool,
                                 annotation.styled ? annotation.color :
                                     Color.white,

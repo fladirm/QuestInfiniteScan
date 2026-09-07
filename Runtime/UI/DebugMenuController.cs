@@ -52,7 +52,10 @@ namespace Genesis.RoomScan.UI
         private VisualElement _scanPanel, _refinePanel, _paintPanel, _planPanel,
             _paintColorSwatch, _paintColorWheel, _paintColorCursor, _recentSwatches,
             _savedSwatches, _paintSpraySettings, _paintWorkspace,
-            _objectsWorkspace, _designHistoryActions;
+            _objectsWorkspace, _designHistoryActions, _paintColorCard,
+            _paintPalette, _paintRowValue, _paintRowAlpha, _paintRowWidth,
+            _paintRowFlow, _paintRowHardness, _paintRowSaturation,
+            _paintRowShape;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
         private MerkabaArtifactViewer _artifactViewer;
@@ -251,6 +254,15 @@ namespace Genesis.RoomScan.UI
             _paintScatter = _root.Q<Slider>("paint-scatter");
             _paintSpraySettings = _root.Q<VisualElement>(
                 "paint-spray-settings");
+            _paintColorCard = _root.Q<VisualElement>("paint-color-card");
+            _paintPalette = _root.Q<VisualElement>("paint-palette");
+            _paintRowValue = _root.Q<VisualElement>("paint-row-value");
+            _paintRowAlpha = _root.Q<VisualElement>("paint-row-alpha");
+            _paintRowWidth = _root.Q<VisualElement>("paint-row-width");
+            _paintRowFlow = _root.Q<VisualElement>("paint-row-flow");
+            _paintRowHardness = _root.Q<VisualElement>("paint-row-hardness");
+            _paintRowSaturation = _root.Q<VisualElement>("paint-row-saturation");
+            _paintRowShape = _root.Q<VisualElement>("paint-row-shape");
             _paintWorkspace = _root.Q<VisualElement>("paint-workspace");
             _objectsWorkspace = _root.Q<VisualElement>("objects-workspace");
             _designHistoryActions = _root.Q<VisualElement>(
@@ -1281,11 +1293,35 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer.PaintShape == MerkabaBrushShape.Round);
             _paintShapeSquare?.EnableInClassList("segment--selected",
                 _artifactViewer.PaintShape == MerkabaBrushShape.Square);
+            bool eraser = tool == MerkabaArtifactPaintTool.Erase;
+            bool eyedropper = tool == MerkabaArtifactPaintTool.Eyedropper;
+            bool painting = !eraser && !eyedropper;
+            bool surfaceBrush = tool is MerkabaArtifactPaintTool.Brush or
+                MerkabaArtifactPaintTool.SurfaceBrush;
+            SetDisplayed(_paintColorCard, !eraser);
+            SetDisplayed(_paintPalette, !eraser);
+            SetDisplayed(_paintColorWheel, painting);
+            SetDisplayed(_paintRowValue, painting);
+            SetDisplayed(_paintRowAlpha, painting);
+            SetDisplayed(_paintRowWidth, !eyedropper);
+            // Line color also consumes flow and saturation in the existing
+            // PaintEngine, but its tube does not consume hardness or shape.
+            SetDisplayed(_paintRowFlow, painting);
+            SetDisplayed(_paintRowSaturation, painting);
+            SetDisplayed(_paintRowHardness, surfaceBrush);
+            SetDisplayed(_paintRowShape, painting &&
+                tool != MerkabaArtifactPaintTool.Line);
             _paintSpraySettings?.EnableInClassList("mode-panel--hidden",
                 tool != MerkabaArtifactPaintTool.Spray);
             if (_paintView != null)
                 _paintView.text = _artifactViewer.IsOpen
                     ? "GLB VIEW  ON" : "GLB VIEW  OFF";
+        }
+
+        private static void SetDisplayed(VisualElement element, bool visible)
+        {
+            if (element != null) element.style.display = visible
+                ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         private void RefreshObjectControls()
