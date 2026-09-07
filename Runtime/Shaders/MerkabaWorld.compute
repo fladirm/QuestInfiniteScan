@@ -25,6 +25,9 @@
 #pragma kernel FailLoadedTiles
 #pragma kernel RegisterLoadedTileAddresses
 #pragma kernel BenchmarkM8Pcg3d
+// Match the Vulkan frontend used by integration/readout and preserve explicit
+// loop control in the nested sparse storage/publication routines.
+#pragma use_dxc vulkan
 
 #include "MerkabaWorld.hlsl"
 #include "MerkabaDualHierarchy.hlsl"

@@ -11,7 +11,7 @@
 #define M8_FLOWER_HALO_INVALID 3u
 #define M8_FLOWER_HALO_SLOT_MASK 0x7fffu
 
-StructuredBuffer<uint> _M8TileHaloRead;
+StructuredBuffer<uint> _M8TileHaloRead M8_FLOWER_SRV(t11);
 #if !defined(M8_FLOWER_HALO_READ_ONLY)
 RWStructuredBuffer<uint> _M8TileHalo;
 groupshared uint m8FlowerHalo[M8_FLOWER_HALO_COUNT];

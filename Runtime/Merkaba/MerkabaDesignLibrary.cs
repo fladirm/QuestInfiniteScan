@@ -36,7 +36,7 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_BaseColor");
         private readonly string _root;
         private readonly List<MerkabaDesignAsset> _assets = new();
-        private readonly Dictionary<string, Mesh> _meshes = new();
+        private readonly Dictionary<string, MerkabaArtifactViewer.PreviewGlb> _meshes = new();
         private readonly Dictionary<int, InstanceVisual> _visuals = new();
         private MerkabaDesignDocument _document;
         private Transform _roomRoot;
@@ -122,7 +122,7 @@ namespace Genesis.RoomScan
             _visuals.Clear();
             if (_ghost != null) DestroyObject(_ghost);
             if (_objectRoot != null) DestroyObject(_objectRoot.gameObject);
-            foreach (Mesh mesh in _meshes.Values) DestroyObject(mesh);
+            foreach (MerkabaArtifactViewer.PreviewGlb mesh in _meshes.Values) mesh.Dispose();
             _meshes.Clear();
             if (_objectMaterial != null) DestroyObject(_objectMaterial);
             if (_ghostMaterial != null) DestroyObject(_ghostMaterial);
@@ -598,7 +598,7 @@ namespace Genesis.RoomScan
                 var filter = geometry.AddComponent<MeshFilter>();
                 filter.sharedMesh = mesh;
                 var renderer = geometry.AddComponent<MeshRenderer>();
-                renderer.sharedMaterial = _objectMaterial;
+                renderer.sharedMaterials = _meshes[instance.assetId].Materials;
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
                 var collider = geometry.AddComponent<MeshCollider>();
@@ -618,20 +618,12 @@ namespace Genesis.RoomScan
 
         private Mesh MeshFor(string assetId)
         {
-            if (_meshes.TryGetValue(assetId, out Mesh cached)) return cached;
+            if (_meshes.TryGetValue(assetId, out MerkabaArtifactViewer.PreviewGlb cached)) return cached.Mesh;
             MerkabaArtifactViewer.ParsedGlb parsed = Decode(assetId);
-            var mesh = new Mesh
-            {
-                name = "Design Asset " + assetId.Substring(0, 8),
-                indexFormat = IndexFormat.UInt32,
-                vertices = parsed.Positions,
-                normals = parsed.Normals,
-                colors32 = parsed.Colors,
-                triangles = parsed.Indices
-            };
-            mesh.RecalculateBounds();
+            var mesh = MerkabaArtifactViewer.PreviewGlb.Create(parsed, _objectMaterial,
+                "Design Asset " + assetId.Substring(0, 8));
             _meshes.Add(assetId, mesh);
-            return mesh;
+            return mesh.Mesh;
         }
 
         private void EnsureGhost()
@@ -655,7 +647,7 @@ namespace Genesis.RoomScan
             var filter = geometry.AddComponent<MeshFilter>();
             filter.sharedMesh = mesh;
             var renderer = geometry.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = _ghostMaterial;
+            renderer.sharedMaterials = _meshes[asset.id].GhostMaterials(_ghostMaterial);
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             _ghostAssetId = asset.id;

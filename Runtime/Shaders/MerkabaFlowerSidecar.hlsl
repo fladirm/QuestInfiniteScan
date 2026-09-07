@@ -25,8 +25,11 @@
 #define M8_FLOWER_SIDECAR_STALE_SLOT 4u
 #define M8_FLOWER_RESIDENT_RUN_STRIDE 32u
 
-ByteAddressBuffer _M8FlowerDetailPagesRead;
-ByteAddressBuffer _M8ThreadAtlasPagesRead;
+#ifndef M8_FLOWER_SRV
+#define M8_FLOWER_SRV(registerName)
+#endif
+ByteAddressBuffer _M8FlowerDetailPagesRead M8_FLOWER_SRV(t7);
+ByteAddressBuffer _M8ThreadAtlasPagesRead M8_FLOWER_SRV(t8);
 #if defined(M8_FLOWER_SIDECAR_WRITE)
 RWByteAddressBuffer _M8FlowerDetailPages;
 #define M8_FLOWER_DETAIL_SOURCE _M8FlowerDetailPages

@@ -12,10 +12,13 @@ M8FlowerInterval M8DepthIntervalRow(float4 row, M8FlowerInterval3 positionInterv
     M8FlowerInterval result=M8FlowerI(0.0,0.0);
     [loop] for(uint axis=0u;axis<3u;++axis)
     {
-        M8FlowerInterval component=axis==0u?positionInterval.x:
-            (axis==1u?positionInterval.y:positionInterval.z);
+        M8FlowerInterval component;
+        if(axis==0u)component=positionInterval.x;
+        else if(axis==1u)component=positionInterval.y;
+        else component=positionInterval.z;
         M8FlowerInterval product=M8FlowerIMul(M8FlowerI(row[axis],row[axis]),component);
-        result=axis==0u?product:M8FlowerIAdd(result,product);
+        if(axis==0u)result=product;
+        else result=M8FlowerIAdd(result,product);
     }
     return M8FlowerIAdd(result,M8FlowerI(row.w,row.w));
 }
@@ -25,10 +28,13 @@ M8FlowerInterval M8FlowerObservedDot(M8FlowerInterval3 a, M8FlowerInterval3 b)
     M8FlowerInterval result=M8FlowerI(0.0,0.0);
     [loop] for(uint axis=0u;axis<3u;++axis)
     {
-        M8FlowerInterval left=axis==0u?a.x:(axis==1u?a.y:a.z);
-        M8FlowerInterval right=axis==0u?b.x:(axis==1u?b.y:b.z);
+        M8FlowerInterval left,right;
+        if(axis==0u){left=a.x;right=b.x;}
+        else if(axis==1u){left=a.y;right=b.y;}
+        else{left=a.z;right=b.z;}
         M8FlowerInterval product=M8FlowerIMul(left,right);
-        result=axis==0u?product:M8FlowerIAdd(result,product);
+        if(axis==0u)result=product;
+        else result=M8FlowerIAdd(result,product);
     }
     return result;
 }

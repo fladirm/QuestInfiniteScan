@@ -341,7 +341,10 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/MerkabaGridRenderer.cs"));
             Assert.That(renderer, Does.Contain("RecordFlowerIndirectRegistration("));
             Assert.That(renderer, Does.Contain(
-                "command.DrawProceduralIndirect(_grid.M8FlowerIndices, Matrix4x4.identity,"));
+                "command.DrawProceduralIndirectProfiled(_grid.M8FlowerIndices, Matrix4x4.identity,"));
+            string timestamps = File.ReadAllText(Path.GetFullPath(
+                "Packages/com.genesis.roomscan/Runtime/Telemetry/MerkabaGpuTimestamps.cs"));
+            Assert.That(timestamps, Does.Contain("command.DrawProceduralIndirect("));
             Assert.That(renderer, Does.Not.Contain("ReadoutVertices"));
             Assert.That(renderer, Does.Not.Contain("meshReadoutEnabled"));
             Assert.That(source, Does.Not.Contain("logicalPrimitive"));

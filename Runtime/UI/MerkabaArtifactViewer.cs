@@ -48,6 +48,8 @@ namespace Genesis.RoomScan.UI
         private const uint JsonChunkType = 0x4e4f534au;
         private const uint BinaryChunkType = 0x004e4942u;
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+        private static readonly int CapturedColorFactorId = Shader.PropertyToID("_CapturedColorFactor");
+        private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
         private static readonly int SourceBlendId = Shader.PropertyToID("_SrcBlend");
         private static readonly int DestinationBlendId = Shader.PropertyToID("_DstBlend");
         private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
@@ -1511,6 +1513,7 @@ namespace Genesis.RoomScan.UI
                 _previewOpacity < 0.999f ? 1f : 0f);
             foreach (Tile tile in _tiles)
             {
+                tile.Presentation?.ApplyStyle(_modelMaterial);
                 MeshRenderer renderer = tile.Object != null
                     ? tile.Object.GetComponent<MeshRenderer>() : null;
                 if (renderer != null) renderer.enabled = visible;
@@ -2144,6 +2147,8 @@ namespace Genesis.RoomScan.UI
                 Color color = Color.white;
                 bool hasColor = sampleColor && TryInterpolateVertexColor(
                     tile.Mesh, hit, out color);
+                if (hasColor && tile.Presentation != null)
+                    color *= tile.Presentation.SampleCapture(hit.triangleIndex, hit.textureCoord);
                 modelHit = new ModelHit(hit.point, hit.normal, color,
                     hasColor);
                 found = true;
@@ -2908,6 +2913,9 @@ namespace Genesis.RoomScan.UI
                     archivePath, tile));
                 if (generation != _generation || !IsOpen) return;
                 if (!_keptTiles.Contains(tile)) return;
+                // Keep the same cache policy, but learn the expanded PNG/UV
+                // cost before publication instead of retaining ZIP-size cost.
+                tile.EstimatedResidentBytes = EstimateResidentBytes(parsed.DecodedBytes);
                 double parseMilliseconds = timer.Elapsed.TotalMilliseconds;
                 timer.Restart();
                 CreateTileObject(tile, parsed);
@@ -2939,16 +2947,8 @@ namespace Genesis.RoomScan.UI
 
         private void CreateTileObject(Tile tile, ParsedGlb parsed)
         {
-            var mesh = new Mesh
-            {
-                name = "Merkaba " + tile.Uri,
-                indexFormat = IndexFormat.UInt32
-            };
-            mesh.vertices = parsed.Positions;
-            mesh.normals = parsed.Normals;
-            mesh.colors32 = parsed.Colors;
-            mesh.triangles = parsed.Indices;
-            mesh.RecalculateBounds();
+            PreviewGlb presentation = PreviewGlb.Create(parsed, _modelMaterial, "Merkaba " + tile.Uri);
+            Mesh mesh = presentation.Mesh;
 
             var tileObject = new GameObject(tile.Uri.Replace('/', '_'));
             tileObject.transform.SetParent(_modelRoot, false);
@@ -2956,12 +2956,13 @@ namespace Genesis.RoomScan.UI
             var filter = tileObject.AddComponent<MeshFilter>();
             filter.sharedMesh = mesh;
             var renderer = tileObject.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = _modelMaterial;
+            renderer.sharedMaterials = presentation.Materials;
             renderer.enabled = _previewOpacity > 0.001f;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             tile.Object = tileObject;
             tile.Mesh = mesh;
+            tile.Presentation = presentation;
             tile.ResidentBytes = EstimateResidentBytes(parsed.DecodedBytes);
             if (TileCollidersRequired()) EnsureTileCollider(tile);
         }
@@ -3002,9 +3003,10 @@ namespace Genesis.RoomScan.UI
         private static void DestroyTile(Tile tile)
         {
             if (tile.Object != null) Destroy(tile.Object);
-            if (tile.Mesh != null) Destroy(tile.Mesh);
+            tile.Presentation?.Dispose();
             tile.Object = null;
             tile.Mesh = null;
+            tile.Presentation = null;
             tile.Collider = null;
             tile.ResidentBytes = 0L;
         }
@@ -3238,36 +3240,76 @@ namespace Genesis.RoomScan.UI
                 28L + jsonLength + binaryLengthValue != streamLength)
                 throw new InvalidDataException("Invalid GLB binary chunk.");
             int binaryLength = (int)binaryLengthValue;
-            GlbDocument document = JsonUtility.FromJson<GlbDocument>(json);
+            GlbDocument document = JsonUtility.FromJson<GlbDocument>(MarkCapturedTexturePresence(json));
             if (document?.bufferViews == null ||
-                document.bufferViews.Length != 4 || document.accessors == null ||
-                document.accessors.Length != 4)
+                document.accessors == null || document.meshes == null || document.meshes.Length != 1 ||
+                document.meshes[0]?.primitives == null || document.meshes[0].primitives.Length == 0)
                 throw new InvalidDataException("Unsupported GLB layout.");
-            GlbAccessor position = document.accessors[0];
-            GlbAccessor normal = document.accessors[1];
-            GlbAccessor color = document.accessors[2];
-            GlbAccessor index = document.accessors[3];
+            GlbPrimitive[] primitives = document.meshes[0].primitives;
+            GlbAttributes attributes = primitives[0]?.attributes ??
+                throw new InvalidDataException("GLB primitive has no vertex attributes.");
+            GlbAccessor position = ReadAccessor(document, attributes.POSITION);
+            GlbAccessor normal = ReadAccessor(document, attributes.NORMAL);
+            GlbAccessor color = ReadAccessor(document, attributes.COLOR_0);
             if (position.componentType != 5126 || position.type != "VEC3" ||
                 normal.componentType != 5126 || normal.type != "VEC3" ||
                 color.componentType != 5121 || color.type != "VEC4" ||
-                !color.normalized || index.componentType != 5125 ||
-                index.type != "SCALAR" || position.count != normal.count ||
-                position.count != color.count || index.count % 3 != 0)
+                !color.normalized || position.count <= 0 || position.count != normal.count ||
+                position.count != color.count || position.byteOffset != 0 || normal.byteOffset != 0 || color.byteOffset != 0)
                 throw new InvalidDataException("Unsupported GLB accessor ABI.");
-            ValidateView(document.bufferViews[0], position.count, 12,
-                binaryLength);
-            ValidateView(document.bufferViews[1], normal.count, 12,
-                binaryLength);
-            ValidateView(document.bufferViews[2], color.count, 4,
-                binaryLength);
-            ValidateView(document.bufferViews[3], index.count, 4,
-                binaryLength);
+            GlbBufferView positionView = ReadView(document, position.bufferView);
+            GlbBufferView normalView = ReadView(document, normal.bufferView);
+            GlbBufferView colorView = ReadView(document, color.bufferView);
+            GlbBufferView indexView = null;
+            ParsedMaterial[] materials = ReadMaterials(document);
+            var primitiveRanges = new ParsedPrimitive[primitives.Length];
+            int indexViewId = -1, indexCount = 0, primitiveOrdinal = 0, uvAccessorId = -1;
+            foreach (GlbPrimitive primitive in primitives)
+            {
+                if (primitive?.attributes == null || primitive.mode != 4 ||
+                    primitive.attributes.POSITION != attributes.POSITION ||
+                    primitive.attributes.NORMAL != attributes.NORMAL || primitive.attributes.COLOR_0 != attributes.COLOR_0)
+                    throw new InvalidDataException("GLB primitives must share the current Flower vertex streams.");
+                GlbAccessor index = ReadAccessor(document, primitive.indices);
+                if (index.componentType != 5125 || index.type != "SCALAR" || index.count <= 0 ||
+                    index.count % 3 != 0 || index.normalized || index.byteOffset != (long)indexCount * 4L ||
+                    (indexViewId >= 0 && index.bufferView != indexViewId))
+                    throw new InvalidDataException("GLB primitive indices are not a contiguous triangle partition.");
+                indexViewId = index.bufferView;
+                indexView = ReadView(document, indexViewId);
+                if ((uint)primitive.material >= materials.Length)
+                    throw new InvalidDataException("Invalid GLB primitive material.");
+                if (materials[primitive.material].Image >= 0)
+                {
+                    int uv = primitive.attributes.TEXCOORD_0;
+                    if (uv < 0) throw new InvalidDataException("Captured texture has no UV stream.");
+                    if (uvAccessorId >= 0 && uvAccessorId != uv)
+                        throw new InvalidDataException("Flower primitives must share one UV stream.");
+                    uvAccessorId = uv;
+                }
+                primitiveRanges[primitiveOrdinal++] = new ParsedPrimitive(indexCount, index.count, primitive.material);
+                indexCount = checked(indexCount + index.count);
+            }
+            ValidateView(positionView, position.count, 12, binaryLength);
+            ValidateView(normalView, normal.count, 12, binaryLength);
+            ValidateView(colorView, color.count, 4, binaryLength);
+            ValidateView(indexView, indexCount, 4, binaryLength);
+            GlbBufferView uvView = null;
+            if (uvAccessorId >= 0)
+            {
+                GlbAccessor uv = ReadAccessor(document, uvAccessorId);
+                if (uv.componentType != 5126 || uv.type != "VEC2" || uv.normalized ||
+                    uv.byteOffset != 0 || uv.count != position.count)
+                    throw new InvalidDataException("Invalid Flower UV accessor.");
+                uvView = ReadView(document, uv.bufferView);
+                ValidateView(uvView, uv.count, 8, binaryLength);
+            }
             var positions = new Vector3[position.count];
             var normals = new Vector3[position.count];
             var colors = new Color32[position.count];
-            var indices = new int[index.count];
+            var indices = new int[indexCount];
             long binaryCursor = 0L;
-            MoveToView(input, document.bufferViews[0], ref binaryCursor,
+            MoveToView(input, positionView, ref binaryCursor,
                 scratch);
             for (int vertexBase = 0; vertexBase < position.count;)
             {
@@ -3285,8 +3327,8 @@ namespace Genesis.RoomScan.UI
                 }
                 vertexBase += batch;
             }
-            binaryCursor += document.bufferViews[0].byteLength;
-            MoveToView(input, document.bufferViews[1], ref binaryCursor,
+            binaryCursor += positionView.byteLength;
+            MoveToView(input, normalView, ref binaryCursor,
                 scratch);
             for (int vertexBase = 0; vertexBase < normal.count;)
             {
@@ -3304,8 +3346,8 @@ namespace Genesis.RoomScan.UI
                 }
                 vertexBase += batch;
             }
-            binaryCursor += document.bufferViews[1].byteLength;
-            MoveToView(input, document.bufferViews[2], ref binaryCursor,
+            binaryCursor += normalView.byteLength;
+            MoveToView(input, colorView, ref binaryCursor,
                 scratch);
             for (int vertexBase = 0; vertexBase < color.count;)
             {
@@ -3321,12 +3363,12 @@ namespace Genesis.RoomScan.UI
                 }
                 vertexBase += batch;
             }
-            binaryCursor += document.bufferViews[2].byteLength;
-            MoveToView(input, document.bufferViews[3], ref binaryCursor,
+            binaryCursor += colorView.byteLength;
+            MoveToView(input, indexView, ref binaryCursor,
                 scratch);
-            for (int valueBase = 0; valueBase < index.count;)
+            for (int valueBase = 0; valueBase < indexCount;)
             {
-                int batch = Math.Min(index.count - valueBase,
+                int batch = Math.Min(indexCount - valueBase,
                     scratch.Length / 4);
                 ReadExactly(input, scratch, 0, batch * 4);
                 for (int local = 0; local < batch; local++)
@@ -3339,13 +3381,164 @@ namespace Genesis.RoomScan.UI
                 }
                 valueBase += batch;
             }
-            binaryCursor += document.bufferViews[3].byteLength;
+            binaryCursor += indexView.byteLength;
+            Vector2[] uvs = uvView == null ? Array.Empty<Vector2>() : new Vector2[position.count];
+            if (uvView != null)
+            {
+                MoveToView(input, uvView, ref binaryCursor, scratch);
+                for (int vertexBase = 0; vertexBase < uvs.Length;)
+                {
+                    int batch = Math.Min(uvs.Length - vertexBase, scratch.Length / 8);
+                    ReadExactly(input, scratch, 0, batch * 8);
+                    for (int local = 0; local < batch; local++)
+                    {
+                        float u = ReadSingle(scratch, 8 * local), v = ReadSingle(scratch, 8 * local + 4);
+                        if (!float.IsFinite(u) || !float.IsFinite(v))
+                            throw new InvalidDataException("Non-finite Flower UV.");
+                        // glTF image origin is upper-left; Unity's texture
+                        // sampling origin is lower-left. Geometry is untouched.
+                        uvs[vertexBase + local] = new Vector2(u, 1f - v);
+                    }
+                    vertexBase += batch;
+                }
+                binaryCursor += uvView.byteLength;
+            }
+            byte[][] images = ReadCapturedImages(input, document, materials, binaryLength, ref binaryCursor, scratch);
             SkipExactly(input, binaryLength - binaryCursor, scratch);
             for (int triangle = 0; triangle < indices.Length; triangle += 3)
                 (indices[triangle + 1], indices[triangle + 2]) =
                     (indices[triangle + 2], indices[triangle + 1]);
-            return new ParsedGlb(positions, normals, colors, indices);
+            return new ParsedGlb(positions, normals, colors, indices, uvs, primitiveRanges, materials, images);
         }
+
+        // JsonUtility can construct an absent nested class. Mark only real
+        // property tokens before decoding; this is not a second JSON parser.
+        // The writer emits unescaped property names. Escaped string VALUES
+        // are skipped intact, and cannot introduce a presence marker.
+        private static string MarkCapturedTexturePresence(string json)
+        {
+            StringBuilder marked = null;
+            int copied = 0;
+            for (int cursor = 0; cursor < json.Length;)
+            {
+                if (json[cursor] != '"') { cursor++; continue; }
+                int token = cursor++, first = cursor;
+                bool escaped = false;
+                while (cursor < json.Length && json[cursor] != '"')
+                {
+                    if (json[cursor] == '\\') { escaped = true; cursor += 2; }
+                    else cursor++;
+                }
+                if (cursor >= json.Length) throw new InvalidDataException("Unterminated GLB JSON string.");
+                int end = cursor++;
+                int colon = cursor;
+                while (colon < json.Length && char.IsWhiteSpace(json[colon])) colon++;
+                if (colon == json.Length || json[colon] != ':') continue;
+                if (escaped) throw new InvalidDataException("Unsupported escaped Flower property name.");
+                ReadOnlySpan<char> key = json.AsSpan(first, end - first);
+                if (key.StartsWith("_m8Preview", StringComparison.Ordinal))
+                    throw new InvalidDataException("Reserved Flower preview property.");
+                string marker;
+                int value = colon + 1;
+                while (value < json.Length && char.IsWhiteSpace(json[value])) value++;
+                if (key.SequenceEqual("baseColorTexture"))
+                {
+                    if (value == json.Length || json[value] != '{')
+                        throw new InvalidDataException("Captured texture reference must be an object.");
+                    marker = "_m8PreviewHasBaseColorTexture";
+                }
+                else if (key.SequenceEqual("index"))
+                {
+                    int last = value;
+                    while (last < json.Length && json[last] >= '0' && json[last] <= '9') last++;
+                    int separator = last;
+                    while (separator < json.Length && char.IsWhiteSpace(json[separator])) separator++;
+                    if (last == value || (last - value > 1 && json[value] == '0') || separator == json.Length ||
+                        (json[separator] != ',' && json[separator] != '}') ||
+                        !int.TryParse(json.AsSpan(value, last - value), out _))
+                        throw new InvalidDataException("Captured texture index must be a nonnegative Int32.");
+                    marker = "_m8PreviewHasIndex";
+                }
+                else if (key.SequenceEqual("uri")) marker = "_m8PreviewHasUri";
+                else continue;
+                marked ??= new StringBuilder(json.Length);
+                marked.Append(json, copied, token - copied);
+                marked.Append('"').Append(marker).Append("\":true,");
+                copied = token;
+            }
+            return marked == null ? json : marked.Append(json, copied, json.Length - copied).ToString();
+        }
+
+        private static ParsedMaterial[] ReadMaterials(GlbDocument document)
+        {
+            if (document.materials == null || document.materials.Length == 0)
+                throw new InvalidDataException("Flower GLB has no presentation materials.");
+            var result = new ParsedMaterial[document.materials.Length];
+            for (int index = 0; index < result.Length; index++)
+            {
+                GlbPbr pbr = document.materials[index]?.pbrMetallicRoughness ??
+                    throw new InvalidDataException("Invalid Flower material.");
+                float[] values = pbr.baseColorFactor;
+                if (values == null || values.Length != 4)
+                    throw new InvalidDataException("Invalid captured color factor.");
+                foreach (float value in values)
+                    if (!float.IsFinite(value) || value < 0f || value > 1f)
+                        throw new InvalidDataException("Invalid captured color factor.");
+                int image = -1;
+                if (pbr._m8PreviewHasBaseColorTexture)
+                {
+                    if (pbr.baseColorTexture == null || !pbr.baseColorTexture._m8PreviewHasIndex)
+                        throw new InvalidDataException("Captured texture reference has no index.");
+                    int texture = pbr.baseColorTexture.index;
+                    if (pbr.baseColorTexture.texCoord != 0 || document.textures == null ||
+                        (uint)texture >= document.textures.Length || document.textures[texture] == null ||
+                        document.textures[texture].sampler != 0)
+                        throw new InvalidDataException("Unsupported captured texture reference.");
+                    image = document.textures[texture].source;
+                    if (document.images == null || (uint)image >= document.images.Length)
+                        throw new InvalidDataException("Captured texture has no embedded image.");
+                }
+                result[index] = new ParsedMaterial(new Color(values[0], values[1], values[2], values[3]), image);
+            }
+            return result;
+        }
+
+        private static byte[][] ReadCapturedImages(Stream input, GlbDocument document, ParsedMaterial[] materials,
+            int binaryLength, ref long cursor, byte[] scratch)
+        {
+            int count = document.images?.Length ?? 0;
+            var needed = new bool[count];
+            foreach (ParsedMaterial material in materials)
+                if (material.Image >= 0) needed[material.Image] = true;
+            var result = new byte[count][];
+            for (int image = 0; image < count; image++)
+            {
+                if (!needed[image]) continue; // No texture allocation for vertex-only RGB or constant DIRT.
+                GlbImage descriptor = document.images[image];
+                if (descriptor == null || descriptor.mimeType != "image/png" || descriptor._m8PreviewHasUri)
+                    throw new InvalidDataException("Flower preview accepts embedded PNG only.");
+                GlbBufferView view = ReadView(document, descriptor.bufferView);
+                if (view.buffer != 0 || view.byteStride != 0 || view.byteOffset < 0 || view.byteLength < 33 ||
+                    view.byteLength > GlbReadBufferBytes ||
+                    (long)view.byteOffset + view.byteLength > binaryLength)
+                    throw new InvalidDataException("Invalid embedded PNG buffer view.");
+                MoveToView(input, view, ref cursor, scratch);
+                byte[] png = new byte[view.byteLength];
+                ReadExactly(input, png, 0, png.Length);
+                cursor += png.Length;
+                if (ReadUInt32(png, 0) != 0x474e5089u || ReadUInt32(png, 4) != 0x0a1a0a0du ||
+                    ReadUInt32(png, 8) != 0x0d000000u || ReadUInt32(png, 12) != 0x52444849u ||
+                    PngUInt32(png, 16) != MerkabaFlowerMaterialBake.Resolution ||
+                    PngUInt32(png, 20) != MerkabaFlowerMaterialBake.Resolution || png[24] != 8 || png[25] != 6)
+                    throw new InvalidDataException("Unsupported Flower PNG dimensions/format.");
+                result[image] = png;
+            }
+            return result;
+        }
+
+        private static uint PngUInt32(byte[] bytes, int offset) =>
+            (uint)bytes[offset] << 24 | (uint)bytes[offset + 1] << 16 |
+            (uint)bytes[offset + 2] << 8 | bytes[offset + 3];
 
         private static void MoveToView(Stream input, GlbBufferView view,
             ref long cursor, byte[] scratch)
@@ -3383,10 +3576,25 @@ namespace Genesis.RoomScan.UI
         private static void ValidateView(GlbBufferView view, int count,
             int stride, long binaryLength)
         {
-            if (view == null || view.byteOffset < 0 || view.byteLength !=
+            if (view == null || view.buffer != 0 || (view.byteStride != 0 && view.byteStride != stride) ||
+                count < 0 || view.byteOffset < 0 || view.byteLength !=
                 checked(count * stride) || view.byteOffset + (long)view.byteLength >
                 binaryLength)
                 throw new InvalidDataException("Invalid GLB buffer view.");
+        }
+
+        private static GlbAccessor ReadAccessor(GlbDocument document, int index)
+        {
+            if ((uint)index >= document.accessors.Length || document.accessors[index] == null)
+                throw new InvalidDataException("Invalid GLB accessor reference.");
+            return document.accessors[index];
+        }
+
+        private static GlbBufferView ReadView(GlbDocument document, int index)
+        {
+            if ((uint)index >= document.bufferViews.Length || document.bufferViews[index] == null)
+                throw new InvalidDataException("Invalid GLB buffer-view reference.");
+            return document.bufferViews[index];
         }
 
         private static uint ReadUInt32(byte[] bytes, int offset)
@@ -3405,13 +3613,14 @@ namespace Genesis.RoomScan.UI
         {
             internal readonly string Uri;
             internal readonly long ArchiveBytes;
-            internal readonly long EstimatedResidentBytes;
+            internal long EstimatedResidentBytes;
             internal readonly Vector3 OriginUnity;
             internal readonly Bounds Bounds;
             internal bool Loading;
             internal bool Failed;
             internal GameObject Object;
             internal Mesh Mesh;
+            internal PreviewGlb Presentation;
             internal MeshCollider Collider;
             internal long ResidentBytes;
 
@@ -3492,18 +3701,189 @@ namespace Genesis.RoomScan.UI
             internal readonly Vector3[] Normals;
             internal readonly Color32[] Colors;
             internal readonly int[] Indices;
+            internal readonly Vector2[] Uvs;
+            internal readonly ParsedPrimitive[] Primitives;
+            internal readonly ParsedMaterial[] Materials;
+            internal readonly byte[][] Images;
             internal readonly long DecodedBytes;
 
             internal ParsedGlb(Vector3[] positions, Vector3[] normals,
-                Color32[] colors, int[] indices)
+                Color32[] colors, int[] indices, Vector2[] uvs, ParsedPrimitive[] primitives,
+                ParsedMaterial[] materials, byte[][] images)
             {
                 Positions = positions;
                 Normals = normals;
                 Colors = colors;
                 Indices = indices;
+                Uvs = uvs; Primitives = primitives; Materials = materials; Images = images;
                 DecodedBytes = checked(positions.LongLength * 12L +
                     normals.LongLength * 12L + colors.LongLength * 4L +
-                    indices.LongLength * 4L);
+                    indices.LongLength * 4L + uvs.LongLength * 8L);
+                foreach (byte[] png in images)
+                    if (png != null) DecodedBytes = checked(DecodedBytes + png.LongLength +
+                        4L * MerkabaFlowerMaterialBake.Resolution * MerkabaFlowerMaterialBake.Resolution);
+            }
+        }
+
+        internal readonly struct ParsedPrimitive
+        {
+            internal readonly int FirstIndex, IndexCount, Material;
+            internal ParsedPrimitive(int first, int count, int material)
+            { FirstIndex = first; IndexCount = count; Material = material; }
+        }
+
+        internal readonly struct ParsedMaterial
+        {
+            internal readonly Color ColorFactor;
+            internal readonly int Image;
+            internal ParsedMaterial(Color factor, int image) { ColorFactor = factor; Image = image; }
+        }
+
+        // Unity-owned presentation objects shared by the tiled preview and
+        // design library. Decoding/parsing above remains safe off-thread;
+        // this constructor and disposal run only on Unity's main thread.
+        internal sealed class PreviewGlb : IDisposable
+        {
+            internal readonly Mesh Mesh;
+            internal readonly Material[] Materials;
+            private readonly Texture2D[] _textures;
+            private readonly ParsedPrimitive[] _primitives;
+            private readonly ParsedMaterial[] _definitions;
+            private readonly Material[] _owned;
+            private Material[] _ghostOwned, _ghostBindings;
+            private bool _disposed;
+
+            internal static PreviewGlb Create(ParsedGlb parsed, Material template, string name) => new(parsed, template, name);
+
+            private PreviewGlb(ParsedGlb parsed, Material template, string name)
+            {
+                if (template == null) throw new ArgumentNullException(nameof(template));
+                _primitives = parsed.Primitives; _definitions = parsed.Materials;
+                _textures = new Texture2D[parsed.Images.Length];
+                _owned = new Material[_definitions.Length];
+                Mesh = new Mesh { name = name, indexFormat = IndexFormat.UInt32 };
+                try
+                {
+                    Mesh.vertices = parsed.Positions; Mesh.normals = parsed.Normals;
+                    Mesh.colors32 = parsed.Colors; Mesh.triangles = parsed.Indices;
+                    if (parsed.Uvs.Length != 0) Mesh.uv = parsed.Uvs;
+                    Mesh.RecalculateBounds();
+                    Mesh.subMeshCount = _primitives.Length;
+                    for (int primitive = 0; primitive < _primitives.Length; primitive++)
+                    {
+                        ParsedPrimitive range = _primitives[primitive];
+                        Mesh.SetSubMesh(primitive, new SubMeshDescriptor(range.FirstIndex, range.IndexCount, MeshTopology.Triangles)
+                        { bounds = Mesh.bounds, firstVertex = 0, vertexCount = Mesh.vertexCount }, MeshUpdateFlags.DontRecalculateBounds);
+                    }
+                    for (int image = 0; image < _textures.Length; image++)
+                    {
+                        byte[] png = parsed.Images[image];
+                        if (png == null) continue;
+                        if (SystemInfo.maxTextureSize < MerkabaFlowerMaterialBake.Resolution)
+                            throw new InvalidDataException("Device cannot represent the captured Flower texture.");
+                        // The writer's base-color PNG stores sRGB. Sampling
+                        // must decode it to linear captured radiance, not albedo.
+                        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false, false)
+                        { name = name + " Captured " + image, hideFlags = HideFlags.DontSave,
+                            wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+                        _textures[image] = texture;
+                        if (!ImageConversion.LoadImage(texture, png, false) ||
+                            texture.width != MerkabaFlowerMaterialBake.Resolution ||
+                            texture.height != MerkabaFlowerMaterialBake.Resolution)
+                            throw new InvalidDataException("Could not decode the embedded captured PNG.");
+                    }
+                    Materials = CreateBindings(template, _owned);
+                }
+                catch { Dispose(); throw; }
+            }
+
+            internal void ApplyStyle(Material template)
+            {
+                for (int index = 0; index < _owned.Length; index++) ApplyMaterial(_owned[index], template, index);
+            }
+
+            internal Material[] GhostMaterials(Material template)
+            {
+                if (_ghostBindings != null) return _ghostBindings;
+                _ghostOwned = new Material[_definitions.Length];
+                try { return _ghostBindings = CreateBindings(template, _ghostOwned); }
+                catch
+                {
+                    foreach (Material material in _ghostOwned) Release(material);
+                    _ghostOwned = null; throw;
+                }
+            }
+
+            private Material[] CreateBindings(Material template, Material[] owned)
+            {
+                for (int index = 0; index < owned.Length; index++)
+                {
+                    owned[index] = new Material(template) { name = template.name + " GLB " + index,
+                        hideFlags = HideFlags.DontSave };
+                    ApplyMaterial(owned[index], template, index);
+                }
+                var bindings = new Material[_primitives.Length];
+                for (int primitive = 0; primitive < bindings.Length; primitive++)
+                    bindings[primitive] = owned[_primitives[primitive].Material];
+                return bindings;
+            }
+
+            private void ApplyMaterial(Material material, Material template, int index)
+            {
+                material.CopyPropertiesFromMaterial(template);
+                ParsedMaterial source = _definitions[index];
+                material.SetColor(CapturedColorFactorId, source.ColorFactor);
+                material.SetTexture(BaseMapId, source.Image >= 0 ? _textures[source.Image] : Texture2D.whiteTexture);
+            }
+
+            internal Color SampleCapture(int triangle, Vector2 uv)
+            {
+                int first = 0, last = _primitives.Length - 1;
+                long index = 3L * triangle;
+                while (first <= last)
+                {
+                    int middle = first + (last - first) / 2;
+                    ParsedPrimitive range = _primitives[middle];
+                    if (index < range.FirstIndex) { last = middle - 1; continue; }
+                    if (index >= (long)range.FirstIndex + range.IndexCount) { first = middle + 1; continue; }
+                    ParsedMaterial source = _definitions[range.Material];
+                    Color sample = source.Image < 0 ? Color.white : SampleCapturedTexture(_textures[source.Image], uv);
+                    return source.ColorFactor * sample;
+                }
+                return Color.white;
+            }
+
+            private static Color SampleCapturedTexture(Texture2D texture, Vector2 uv)
+            {
+                // Match the raster sampler: normalized coordinates address
+                // texel CENTERS at (i+0.5)/size. Decode each sRGB tap before
+                // filtering, never the already blended encoded RGB value.
+                float x = Mathf.Clamp01(uv.x) * texture.width - 0.5f;
+                float y = Mathf.Clamp01(uv.y) * texture.height - 0.5f;
+                int ix = Mathf.FloorToInt(x), iy = Mathf.FloorToInt(y);
+                float tx = x - ix, ty = y - iy;
+                int x0 = Mathf.Clamp(ix, 0, texture.width - 1), x1 = Mathf.Clamp(ix + 1, 0, texture.width - 1);
+                int y0 = Mathf.Clamp(iy, 0, texture.height - 1), y1 = Mathf.Clamp(iy + 1, 0, texture.height - 1);
+                Color a = texture.GetPixel(x0, y0).linear, b = texture.GetPixel(x1, y0).linear;
+                Color c = texture.GetPixel(x0, y1).linear, d = texture.GetPixel(x1, y1).linear;
+                return Color.LerpUnclamped(Color.LerpUnclamped(a, b, tx), Color.LerpUnclamped(c, d, tx), ty);
+            }
+
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                Release(Mesh);
+                foreach (Material material in _owned) Release(material);
+                if (_ghostOwned != null) foreach (Material material in _ghostOwned) Release(material);
+                foreach (Texture2D texture in _textures) Release(texture);
+            }
+
+            private static void Release(UnityEngine.Object value)
+            {
+                if (value == null) return;
+                if (Application.isPlaying) UnityEngine.Object.Destroy(value);
+                else UnityEngine.Object.DestroyImmediate(value);
             }
         }
 
@@ -3560,18 +3940,73 @@ namespace Genesis.RoomScan.UI
         {
             public GlbBufferView[] bufferViews;
             public GlbAccessor[] accessors;
+            public GlbMesh[] meshes;
+            public GlbMaterial[] materials;
+            public GlbTexture[] textures;
+            public GlbImage[] images;
+        }
+
+        [Serializable]
+        private sealed class GlbMesh { public GlbPrimitive[] primitives; }
+
+        [Serializable]
+        private sealed class GlbPrimitive
+        {
+            public GlbAttributes attributes;
+            public int indices = -1;
+            public int mode = 4;
+            public int material = -1;
+        }
+
+        [Serializable]
+        private sealed class GlbAttributes
+        {
+            public int POSITION = -1;
+            public int NORMAL = -1;
+            public int COLOR_0 = -1;
+            public int TEXCOORD_0 = -1;
+        }
+
+        [Serializable]
+        private sealed class GlbMaterial { public GlbPbr pbrMetallicRoughness; }
+        [Serializable]
+        private sealed class GlbPbr
+        {
+            public float[] baseColorFactor;
+            public GlbTextureInfo baseColorTexture;
+            public bool _m8PreviewHasBaseColorTexture;
+        }
+        [Serializable]
+        private sealed class GlbTextureInfo
+        {
+            public int index = -1;
+            public int texCoord;
+            public bool _m8PreviewHasIndex;
+        }
+        [Serializable]
+        private sealed class GlbTexture { public int source = -1; public int sampler; }
+        [Serializable]
+        private sealed class GlbImage
+        {
+            public int bufferView = -1;
+            public string mimeType;
+            public bool _m8PreviewHasUri;
         }
 
         [Serializable]
         private sealed class GlbBufferView
         {
+            public int buffer;
             public int byteOffset;
             public int byteLength;
+            public int byteStride;
         }
 
         [Serializable]
         private sealed class GlbAccessor
         {
+            public int bufferView = -1;
+            public int byteOffset;
             public int componentType;
             public int count;
             public string type;

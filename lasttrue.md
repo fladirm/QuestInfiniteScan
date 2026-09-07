@@ -1074,7 +1074,8 @@ These tables encode incidence only; no runtime mesh adjacency is reconstructed.
 A flag petal is admissible only when:
 
 1. all required anchor roots are `CERTAIN` or are exact inherited parent roots;
-2. all roots lie in the generated sectors of the same flag;
+2. every root has one certain canonical generated sector identity, and the
+   petal uses that root through the generated Node/Strand/Petal incidence;
 3. each shared-loop endpoint correspondence satisfies section 7.3;
 4. the three boundary-strand tangent/orientation intervals are nondegenerate;
 5. winding agrees with the direct free-side orientation;
@@ -1082,7 +1083,7 @@ A flag petal is admissible only when:
 
 R2/R3 direct measurement is not required for basic R1 existence. When absent, the R1 carrier may predict the corresponding higher-shell anchor **only as provisional geometry inside the same unique flag**. Such a prediction does not create persistent R2/R3 detail and cannot by itself prove a hole completion.
 
-### 8.4.2 Exact R1 face-sector flag admission
+### 8.4.2 Exact R1 root ownership and shared-anchor incidence
 
 For a fixed directed R1 face carrier \(f=s_i e_i\), use the existing power
 residual:
@@ -1091,7 +1092,7 @@ residual:
 \Phi_q(X)=q\cdot(X-C_K)-\frac{a_L}{2}(q\cdot q).
 \]
 
-Select the maximum `Phi` among the four R2 edge directions incident to
+For canonical root ownership only, select the maximum `Phi` among the four R2 edge directions incident to
 `f`, then the maximum among the two R3 corner directions incident to that
 selected edge. Exact ties use the smaller frozen generated `Node` ordinal
 at each step. No observed score, distance, epsilon or runtime search is used.
@@ -1115,7 +1116,9 @@ The support half-width is `a_L`, hence the chart clipping bound is exactly
 `2`, not `1`. On the R1 loop the bound is redundant because the absolute
 tangential coordinates are at most \(\sqrt3<2\). Signs and relative order
 partition each face into eight flag cells, giving the existing 48 flags.
-This face chart does not replace or flatten the R2/R3 world loops.
+This face chart does not replace or flatten the R2/R3 world loops. It
+classifies the canonical owner of a root, not the admissibility of a
+neighbouring petal that references that root.
 
 Codegen uses the existing `Petal[48]` incidence, exact loop boundaries and
 exact sign algebra on the power differences. The sign at a certified
@@ -1135,6 +1138,36 @@ enclosure crosses the boundary. The strict-interior condition in section
 exact symbolic equality proof is still `AMBIGUOUS`; no epsilon or interval
 clamp is permitted. Direction, sector and rootSign transport remain the
 generated shared-loop conventions.
+
+Canonical root ownership and topological petal incidence are distinct:
+
+```text
+RootOwner(root) = canonical half-open sector/flag ownership
+PetalUsesRoot(petal,root) = generated Node/Strand/Petal incidence
+
+PetalUsesRoot MUST NOT require Petal == RootOwner.
+```
+
+`Sector→PetalMask` supplies only canonical root ownership and unique
+symbolic identity. All petals incident to that root under the generated
+incidence may reference the same identity, including when its canonical
+owner is another petal. This applies to certain interior roots as well as
+symbolically proved boundary roots. It does not duplicate roots, create
+geometry, change a rootSign or sector, or modify a metric enclosure.
+
+An anchor reference MUST NOT be tested against the intersection of its
+incident petals' sector-owner interior constraints. In particular, a
+completion donor MUST NOT require a shared R1 knot to lie simultaneously
+inside both donors' owner cells. Those cells classify ownership; incidence
+defines sharing. Every reference still requires a CERTAIN root, the exact
+generated loop identity, compatible shared-root evidence and the existing
+orientation, closure and dual predicates. Numeric boundary touching without
+symbolic equality remains AMBIGUOUS.
+
+There is one canonical boundary-root identity, not one copy per incident
+petal. Runtime and export references resolve that same identity. The
+geometric domain of a generated child knot remains its exact generated
+loop; a referencing petal's ownership region must not replace that domain.
 
 ## 8.5 Child substitution
 
@@ -1725,12 +1758,19 @@ b_e=-B_{ep};
 \]
 
 2. adding it removes all three corresponding defects;
-3. all three knot/root intervals already exist uniquely from incident confirmed petals;
+3. all three knot/root intervals already exist uniquely from incident confirmed
+   petals, through generated incidence rather than sector-owner equality;
 4. its generated petal/junction class, sector and rootSign are unique;
 5. R1 is certain;
 6. required R2/R3 closure for that particular flag is certain;
 7. no portion of its metric interval is `THROUGH_CERTAIN`;
 8. its generated anchor/tangent orientation determinant interval excludes zero.
+
+Donors supply the actual root identities selected by their confirmed direct
+geometry. Evidence for the same shared knot is intersected as before; the
+donors' root-ownership interior constraints are not intersected. Completion
+does not reselect a donor root by petal ownership, invent a root, or merge
+different sector/rootSign identities.
 
 Candidate bitmask:
 
@@ -3694,6 +3734,11 @@ loop basis endpoint invariance
 all root degeneracies
 interval containment / outward rounding
 root sector stability
+canonical half-open root ownership is independent of petal anchor incidence
+every generated incident petal references the same unchanged root identity and enclosure
+strict and exact-boundary root references never intersect donor owner-cell interiors
+actual confirmed donor root selections are preserved through completion
+positive parent48 completion uses actual shared knots, not synthetic candidate masks
 R1 same-shell power-order cuts are complete in the shared sector arrangement
 R1 clipping is exactly 2 in xi=2*(X-C)/aL and preserves every R1 world loop
 each directed R1 sector selects exactly one incident flag and covers all eight face flags
@@ -6862,3 +6907,227 @@ PURSUIT_PRODUCT_STATE=existing goal is still BLOCKED in the product. An actual
 create_goal attempt failed because that unfinished goal already exists; no
 available tool resumes it. Work continues, but automatic pursuit is not
 claimed active and the old unfinished objective is not falsely marked complete.
+
+### RUN_07 consolidated validation / repair cursor — 2026-09-07
+
+CURRENT_COMMIT=b4054557ab9f935dfa11dfd576a9ead01ee449e4; pushed to the existing
+refactor/m8-dual-sphere-flower-rev-b remote branch. Current repairs are uncommitted.
+CONTRACT=unchanged; REV-C remains the immutable byte-identical prefix.
+MODULE_RECEIPTS=completion-final Compact/Commit/Drain ordinary glslang and
+spirv-val PASS. Respectively: 7/8/7 writable storage bindings; 17520/26752/22804
+bytes groupshared; 256/128/128 lanes. These are NOT device performance results.
+NATIVE_BUILD=completion-native-build-fixed.log PASS: all25 executor pipelines
+embedded and Android native plugin built. Fixed reflection uses actual emitted
+SPIR-V descriptor-variable identity, not omitted/dead source parameters.
+LEGACY_REMOVED=CanonicalGeometry/OverlapShell CPU authorities, both old editor
+generators, their generated HLSL and obsolete tests/metas; recoverable in Git.
+FIRST_FULL_SUITE=Run07/TestResults/merkaba-results.xml: 275/336 passed,61 failed.
+REPAIRS=Unity-incompatible struct ternaries replaced in codegen with identical
+ordered if/else expressions and regenerated; exact singleton hinge witness
+preserves the complete interval; bounded drain fixtures use actual certain
+sectors and nonzero records; viewer/design now consume the writer's submeshes,
+material factors and captured textures. No contract epsilon or new geometry.
+RERUN=Run07Repair01/TestResults/merkaba-results.xml: 330/338 passed,8 failed,
+0 skipped, completed exit2. All generated CPU/HLSL parity tests passed and no
+C#/HLSL compile error remains in that run. Six failures share the optional
+GLB baseColorTexture presence bug; CountReserveEmit exceeded its unchanged
+30-second test timeout during the cold run; GPU Drain lacked three dual SRVs.
+The three real dual backing buffers are now bound in the fixture; no uploaded
+roots, threshold changes, timeout increases, or empty-output parity claims.
+GLB presence and exact linear four-tap eyedropper repairs are now source-ready,
+with concrete row/texel/blend and malformed-input fixtures. These last repairs
+have not yet been rerun in Unity; source-ready is not a test PASS.
+COMPLETION_BLOCKER=do NOT apply the initially suspected boundary-reference-only
+fix. It is insufficient. Both required direct edge-neighbours must reference
+the same physical R1 knot, but even their closed face-sector domains are
+disjoint. This was checked against all48 actual generated neighbour rows and
+every corresponding R1 open-sector and closed-boundary reference mask.
+EXACT_COUNTEREXAMPLE=petal0 has f=(-1,0,0), e=(-1,-1,0), c=(-1,-1,-1).
+Its required face donors are1 and4; the third edge neighbour is16. In the
+contract chart: p0 has y<=z<=0; donor1 has z>=0 and y<=-z; donor4 has z<=y<=0.
+A shared F knot forces z=0 and y=z, hence y=z=0, but its R1 loop requires
+y*y+z*z=3. The clipping2 bound and exact boundary equality cannot fix this.
+GENERAL_PROOF=write u=s_j*xi_j, v=s_k*xi_k. The candidate domain is 0<=v<=u,
+its FE neighbour is 0<=-v<=u and its FC neighbour is 0<=u<=v. Their common
+knot would require u=v=0 against u*u+v*v=3. Signed permutations cover all48.
+DECISION_REQUIRED=the face-sector admissibility applied to shared direct
+anchors and the required same-knot incidence closure cannot both produce a
+positive completion fixture. No existing sign/child transport changes this
+original R1 knot identity. Do not weaken closure, widen masks, move/clamp roots
+or claim a positive fixture. Contract amendment/interpretation requires the
+user's explicit decision; contract text has NOT been changed.
+RUN_STATUS=RUN04/05/06 acceptance remains OPEN; RUN07 fixes in progress.
+APK=NOT_BUILT; QUEST_RUNTIME=NOT_RUN; PERF=NOT_MEASURED.
+
+### RUN_04 approved ownership/incidence correction — 2026-09-07
+
+USER_DECISION=explicitly approved: RootOwner is canonical half-open sector/flag
+ownership; PetalUsesRoot is generated incidence and MUST NOT require equality
+with RootOwner. The previous completion blocker is authorized for correction.
+CONTRACT_CHANGED=only this approved clarification in sections8.4/8.4.2/13.2
+and its proof obligations in29; the same exact text is applied to REV-C and
+the lasttrue.md contract prefix. Geometry, root identity, intervals, original
+and dyadic loop equations, canonical owner tie-break and four authorities stay.
+IMPLEMENTATION_CURSOR=replace ownership-mask admission with generated anchor
+incidence for direct and completed geometry. Keep actual selected direct
+donor root receipts; do not invent/reselect signs from ownership regions.
+CPU=CarrierAdmission/Reader/Junction. GPU=FlowerGeometry/FlowerSupport and
+single authoritative codegen. Generated output is refreshed only by codegen.
+VALIDATION_PENDING=affected CPU/HLSL sharing proofs and actual positive parent48
+completion; previous330/338 suite predates this approved correction. Existing
+GLB and drain-binding fixes remain source-ready, not newly claimed PASS.
+CURRENT_COMMIT=b4054557ab9f935dfa11dfd576a9ead01ee449e4; no closed-run commit
+has been claimed for the unvalidated correction. RUN04 remains open until
+actual closure; do not reopen the superseded ownership-intersection problem.
+
+### RUN_04 ownership/incidence validation cursor — 2026-09-07 13:15Z
+
+IMPLEMENTED=canonical ownership and shared anchor incidence are separate in
+CPU/GPU admission and completion. Direct donor receipts retain actual chosen
+roots; no owner-interior intersection, boundary-only reference exception,
+root re-ranking, extra dispatch or persistent XYZ was added. Obsolete
+BoundaryReference/L2BoundaryFlag tables and two unused wedge-reader wrappers
+are removed. Existing exact boundary ownership and full enclosures remain.
+CODEGEN=PASS; ownership-incidence-codegen.log; generated hash=0xc0f90ea1.
+CONTRACT_PREFIX=byte-for-byte cmp PASS after the authorized amendment.
+SPIRV=69/69 PASS; ownership-incidence-compute-audit.log. Compact/Commit/Drain
+RW=7/8/7; groupshared=17520/26752/22804 bytes; no alias or FP64. The two dead
+wrapper deletions followed this audit and do not change its active callgraph.
+NATIVE_BUILD=25 pipelines and Android ARM64 plugin PASS;
+ownership-incidence-native-build.log. This is NOT an APK or Quest runtime test.
+TESTS_RUN=Run07Repair02/TestResults/merkaba-results.xml, actual Unity/Vulkan:
+349/352 passed,3 failed,0 skipped; duration440.387s; no C#/HLSL compile errors.
+Actual generated CPU/HLSL parity, ownership/incidence parity, GLB capture
+material/texture tests and unchanged CountReserveEmit test PASS.
+FAILURES=GPU frozen-observation drain commits no nonzero R2; two new honest
+flat-wall positive fixtures emit no direct carrier. Empty outputs are failures,
+not eager/drain or surface proofs. Positive parent48 completion remains unproved.
+BOUNDED_DIAGNOSIS=same frozen world planes X/offset0 and (1,2,3)/offset0.006,
+all eight arithmetic overlap owners333+(0/1)^3, mandatory quantization bounds:
+active=0 and D=0. Axis wall already has ambiguous original roots; oblique wall
+has certain triples but no agreement in the finite carrier combiner. Merely
+grouping by hub sign does not solve it. This is NOT a proved contract conflict.
+NEXT_IMPLEMENTATION=actual GPU drain gate; generated parent/child branch
+constraints in admission. No arbitrary sign, reduced bound or replacement
+geometry is authorized. RUN04 remains OPEN; APK NOT_BUILT; Quest NOT_RUN.
+
+### RUN_04 exact codec and ancestor-branch cursor — 2026-09-07 13:45Z
+
+CODEC_REPAIR=the shared CPU/HLSL oct decoder now normalizes exact integer
+code-centre numerators. The former early binary32 division by1023 destroyed
+equal-component identities (u=v=682 produced unequal x/y/z), preventing exact
+boundary proofs. This is evaluation of the same rational oct centre, not a
+new codebook, geometry equation, tolerance, field or pipeline stage. Its
+binary32 output intentionally corrects the premature rounding; it is not
+claimed bit-identical to the previous faulty decoder.
+CODEGEN=exact-oct-codegen.log PASS. TARGETED_TESTS=exact-oct-targeted-results.xml:
+1/5 PASS,4 FAIL; includes one temporary stage diagnostic in addition to the
+three existing failures. Exhaustive1024^2 codec symmetry/error proof PASS;
+max vector error8.9268448371064223e-8 < gamma3=1.788139663006007e-7.
+GPU_EVIDENCE=actual frozen-pixel task4/6 now reaches CERTAIN parent prediction,
+measured endpoint reduction and SEAL. Residual excludes zero, but its full
+outward-Q2.29 synthesis crosses a sector boundary: correctly AMBIGUOUS, not a
+zero-residual or missing-binding failure. The original positive test input is
+not a proved representable R2 fixture. Gates and quantization bounds remain.
+READOUT_REPAIR_IN_PROGRESS=generated ancestry consistency for seven carrier
+sites: a child prediction and a selected site naming its actual ancestor
+must use the same rootSign already consumed by that prediction. Derive the
+finite mask from existing phase-family incidence, never from observed scores,
+owner-cell clipping, normal-angle choices or a new branch convention. Both
+sign alternatives and all remaining ambiguity are retained.
+NEXT=finish CPU/HLSL generated-mask wiring; regenerate; run affected parity
+and an actually representable frozen-pixel drain fixture. Keep the failing
+axis-wall fixtures; do not replace them with an easier orientation and call
+flat-wall closure proved. No new run closure, commit, APK or device PASS.
+
+### RUN_04 / APK compiler repair cursor — 2026-09-07
+
+ANCESTRY_IMPLEMENTED=finite masks derived from existing phase-family incidence
+are consumed identically by CPU and HLSL; generated authority hash0x618c4aa1.
+Run07Repair03 actual Unity/Vulkan=353/357 PASS,4 FAIL,0 skipped. The two actual
+ancestor-mask GPU parity proofs and both N111 shared-knot fixtures PASS.
+Two failures were unchanged Count/Drain timeouts during cold compilation;
+the new nonzero frozen-pixel drain result is NOT yet proved. Two other failures
+were synthetic quantized X/offset0 snapshots incorrectly asserted as certain.
+Those identical X inputs are retained as explicit unresolved/no-emission tests;
+N111 positive assertions, production bounds, rules and timeouts are unchanged.
+This synthetic M8 fixture has no camera/view angle and is not a device scene.
+POSITIVE_PARENT48_COMPLETION=still unproved; current real N111 receipt has D=0.
+Neither incidence parity nor the negative empty-parent receipt proves positive
+unique completion. RUN04/05/06 acceptance remains OPEN.
+
+APK_ATTEMPT_1=failed actual Android shaders: graphics automatic SRV binding
+collisions and legacy FXC/HLSLcc forced-unroll conflict in CompactDirtyFlowerSymbols.
+REPAIRS=graphics-only explicit t0..t11 SRVs and t12 environment texture; same
+resource names/backing and unchanged compute ABI. Readout uses native Vulkan
+DXC like the procedural graphics pass, retaining the bounded generated loops.
+No geometry equation, root interval, workgroup size or dispatch was changed.
+ACTUAL_GRAPHICS_CHECK=quest-graphics-compile-repair.log PASS for both Android
+multiview variants (minimal and all-feature/instancing), exit0; peak4.4GiB.
+HOST_MEMORY=APK script now encloses the complete compiler/Gradle process tree
+in a systemd scope: MemoryHigh12GiB, MemoryMax16GiB, MemorySwapMax2GiB; two host
+CPU cores and two Unity job workers. This does not serialize GPU workgroups.
+CURRENT_BUILD=exec session17096, scope run-p3632042-i3678882.scope; driver
+/mnt/kingston-unity/Builds/UniscanR1Order/TestResults/quest-apk-build-repair-driver.log.
+Native25 pipelines rebuilt successfully; actual Unity Android player build
+running. Do not restart a live build or treat the old September6 APK as new.
+NEXT=finish current APK; verify actual fresh artifact, then warm final tests
+and remaining completion evidence. No final contract/device/performance PASS.
+
+### APK compiler failure / exact continuation — 2026-09-07 15:49Z
+
+APK_ATTEMPT_2=FAILED, exit137. systemd journal for
+run-p3632042-i3678882.scope records systemd-oomd killing the build tree at
+15:49:22Z; peak12.5GiB RAM plus2GiB swap. The16GiB hard limit was not reached.
+Actual Android compilation completed128 graphics variants,9 integration
+variants and4 readout variants (57.15s). It stopped during MerkabaWorld's27
+variants. No new APK was produced; the September6 artifact remains stale.
+REPAIR_IN_PROGRESS=MerkabaWorld now explicitly selects Vulkan DXC, matching
+integration/readout. No shader equation, workgroup size, storage layout,
+dispatch boundary or ontology changes. This is a compiler-path repair, not
+a proved runtime performance improvement. RAM scope limits are unchanged.
+NEXT=retry the real bounded Android build and report its actual outcome.
+
+### CURRENT TRUE STATE — fresh Quest APK, 2026-09-07 16:04Z
+
+CURRENT_COMMIT=b4054557ab9f935dfa11dfd576a9ead01ee449e4 plus the existing
+uncommitted implementation/repair tree. No new closed-run commit is claimed.
+APK_ATTEMPT_3=PASS, exec43382 exit0. MerkabaWorld's27 Android Vulkan variants
+compiled through DXC in2.94s, zero local/remote cache hits. The previous
+graphics/integration/readout compiler repairs also passed the real build.
+Full Unity Android IL2CPP/Gradle build and fresh-mtime/success-marker checks PASS.
+APK=/mnt/kingston-unity/Builds/QuestMerkabaScan/QuestMerkabaScan-release.apk
+APK_MTIME=2026-09-07 18:04:14.437321800 +0200
+APK_BYTES=92206786
+APK_SHA256=ff3b6b2b9e7accb8ed02cb61b0d3889e282c9c502da318815175e643bf47f903
+PACKAGE=com.genesis.questmerkabascan; versionCode8; versionName0.1.0;
+minSdk32; targetSdk36; native-code=arm64-v8a. apksigner verify PASS (v2).
+PACKAGED_NATIVE=libMerkabaVulkanTimestamps.so and libil2cpp.so verified present.
+BUILD_LOG=/mnt/kingston-unity/Builds/QuestMerkabaScan/build.log
+DRIVER_LOG=/mnt/kingston-unity/Builds/UniscanR1Order/TestResults/quest-apk-build-world-dxc-driver.log
+HOST_LIMITS=MemoryHigh12GiB/MemoryMax16GiB/MemorySwapMax2GiB remained unchanged.
+After all shader compilation completed, only this build scope's CPU affinity
+was widened from0-1 to0-7 for C++/Gradle. No GPU execution setting changed.
+LAST_MEASURED_MEMORY_PEAK=10863464448 bytes; no OOM in this successful attempt.
+QUEST_DEVICE_RUNTIME=NOT_RUN; device performance and full contract closure
+are not implied by this test APK. Positive Parent48 completion evidence and
+the warm frozen-observation GPU drain parity remain outstanding as recorded
+above. RUN04/05/06 acceptance remains OPEN. Do not repeat this APK build merely
+because context was compacted; the actual fresh artifact and evidence exist.
+NEXT=handoff this APK for testing, then resume the outstanding consolidated
+validation/repair cursor; no ontology, contract or geometry redesign.
+
+### User-requested checkpoint / device handoff — 2026-09-07 16:08Z
+
+CURRENT_COMMIT=the implementation checkpoint containing this ledger entry;
+parent=b4054557ab9f935dfa11dfd576a9ead01ee449e4. The user explicitly requested
+commit and push now. This checkpoint does not claim closed-run acceptance.
+QUEST_ACCESS=explicitly reauthorized by the user for install and log capture.
+DEVICE=340YC20G7X0QZ4, adb modelQuest_3S; package UID10178.
+INSTALL=adb install -r PASS for the exact ff3b6b2b APK above;
+device lastUpdateTime2026-09-07 18:08:15, versionCode8/versionName0.1.0.
+APP_LAUNCH=left to the user; no am start, force-stop or app-data clear issued.
+DEVICE_LOG=/mnt/kingston-unity/Builds/QuestMerkabaScan/DeviceLogs/quest-20260907-180815-apk-ff3b6b2b.log
+Log capture is restricted to this package UID from installation time onward;
+device log buffers were not cleared. Runtime acceptance remains unproved.
+NEXT=observe this installed APK's user-driven run and repair concrete findings.

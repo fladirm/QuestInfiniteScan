@@ -860,18 +860,6 @@ namespace Genesis.RoomScan
                 Word((uint)mask);
                 Word((uint)(mask >> 32));
             }
-            foreach (ulong mask in AnchorBoundaryReferencePetalMasks)
-            {
-                Word((uint)mask);
-                Word((uint)(mask >> 32));
-            }
-            foreach (ushort offset in L2BoundaryFlagOffsets) Word(offset);
-            foreach (byte index in L2BoundaryFlagIndices) Word(index);
-            foreach (ulong mask in L2BoundaryFlagMasks)
-            {
-                Word((uint)mask);
-                Word((uint)(mask >> 32));
-            }
             foreach (TetraFrameRule value in TetraFramesValue)
             {
                 for (int i = 0; i < 4; i++)
@@ -915,6 +903,8 @@ namespace Genesis.RoomScan
             foreach (ushort value in L2SourceToWedge) Word(value);
             foreach (ushort value in L2IncidenceOffsets) Word(value);
             foreach (uint value in L2IncidenceSources) Word(value);
+            foreach (uint4 value in L2CarrierBranchMasks)
+                for (int word = 0; word < 4; word++) Word(value[word]);
             foreach (ushort value in L2WedgeOwnerOffsets) Word(value);
             foreach (L2WedgeOwnerRule value in L2WedgeOwners)
             {
@@ -2048,9 +2038,27 @@ namespace Genesis.RoomScan
                 FloatInterval.Square(root.Y));
             if (norm.Upper < 1f || norm.Lower > 1f)
                 return ProofClassification.Impossible;
-            return norm.IsSingleton && norm.Lower == 1f
+            return (norm.IsSingleton && norm.Lower == 1f) || ExactSingletonHinge(first, second)
                 ? ProofClassification.Certain
                 : ProofClassification.Ambiguous;
+        }
+
+        // Exact CPU oracle witness for the EXISTING homogeneous intersection,
+        // not a production surface solver. Six finite singleton binary32
+        // coefficients have a common dyadic scale, which cancels from this
+        // equality. Preserve the complete outward-rounded root enclosure.
+        private static bool ExactSingletonHinge(Interval3 first, Interval3 second)
+        {
+            if (!first.X.IsSingleton || !first.Y.IsSingleton || !first.Z.IsSingleton ||
+                !second.X.IsSingleton || !second.Y.IsSingleton || !second.Z.IsSingleton ||
+                !TryBinary32Units(first.X.Lower, out BigInteger a) ||
+                !TryBinary32Units(first.Y.Lower, out BigInteger b) ||
+                !TryBinary32Units(first.Z.Lower, out BigInteger c) ||
+                !TryBinary32Units(second.X.Lower, out BigInteger d) ||
+                !TryBinary32Units(second.Y.Lower, out BigInteger e) ||
+                !TryBinary32Units(second.Z.Lower, out BigInteger f)) return false;
+            BigInteger x = b * f - c * e, y = c * d - a * f, z = a * e - b * d;
+            return !x.IsZero && y * y + z * z == x * x;
         }
 
         public static void DecodeBarycentric(byte packed, out int a,

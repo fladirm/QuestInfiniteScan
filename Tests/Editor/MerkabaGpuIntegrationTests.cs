@@ -573,10 +573,15 @@ namespace Genesis.RoomScan.Tests
             string tileRead = Slice(dual, "uint M8DualReadTile", "uint M8DualReadKernelAt");
             Assert.That(tileRead, Does.Contain("M8DualLeafResident("));
             Assert.That(tileRead, Does.Contain("? M8_DUAL_MIXED : M8_DUAL_AMBIGUOUS"));
-            string support = Slice(Source("Runtime/Shaders/MerkabaFlowerSupport.hlsl"),
+            string supportSource = Source("Runtime/Shaders/MerkabaFlowerSupport.hlsl");
+            string support = Slice(supportSource,
                 "uint4 M8FlowerSupportResolveTile", "void M8FlowerSupportCacheTile");
-            Assert.That(support, Does.Contain("if (!M8DualLeafResident("));
+            Assert.That(support, Does.Contain("if (!M8FlowerSupportLeafResident("));
             Assert.That(support, Does.Contain("context.x = M8_DUAL_AMBIGUOUS"));
+            string supportResident = Slice(supportSource,
+                "bool M8FlowerSupportLeafResident", "uint4 M8FlowerSupportResolveTile");
+            Assert.That(supportResident, Does.Contain("return M8DualLeafResident(packed,chunk,tile,slot,true)"));
+            Assert.That(supportResident, Does.Contain("return M8DualLeafResident(packed,chunk,tile,slot,false)"));
 
             string front = Slice(Source("Runtime/Shaders/MerkabaFlowerPages.hlsl"),
                 "bool M8FlowerFrontPage", "M8FlowerSymbolRecord M8FlowerLoadSymbol");
@@ -770,7 +775,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(managed, Does.Contain(
                 "TimingLogIntervalSeconds = 5f"));
             Assert.That(managed, Does.Contain(
-                "if (!TryClaimTimingLog(_kind)) return"));
+                "bool log = TryClaimTimingLog(_kind)"));
+            Assert.That(managed, Does.Contain(
+                "if (!log && !_sampleObservation) return"));
+            Assert.That(managed, Does.Contain("sample.PipelineDispatches[pipeline]++"));
             Assert.That(integrator, Does.Contain("JobKind.ObservationNew"));
             Assert.That(integrator, Does.Contain("JobKind.ObservationRetry"));
             Assert.That(integrator, Does.Contain("JobKind.FineErase"));

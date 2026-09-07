@@ -249,19 +249,50 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
     if len(payload) % 4:
         raise RuntimeError(f"{pipeline.label}: malformed SPIR-V size")
     words = struct.unpack(f"<{len(payload) // 4}I", payload)
-    # glslang's source reflection includes dead resource-valued function
-    # parameters (including an unnamed RWByteAddressBuffer). Only descriptors
-    # present in the emitted module belong to the native pipeline ABI.
-    live_bindings: set[int] = set()
+    # Source reflection can report a resource-valued function parameter while
+    # omitting the live buffer passed to it. Reflect buffer identity from the
+    # emitted descriptor variable, not that parameter or its shared block type.
+    names: dict[int, str] = {}
+    bindings: dict[int, int] = {}
+    descriptor_sets: dict[int, int] = {}
+    variables: dict[int, tuple[int, int]] = {}
+    pointers: dict[int, int] = {}
     offset = 5
     while offset < len(words):
         count, opcode = words[offset] >> 16, words[offset] & 0xffff
         if count == 0 or offset + count > len(words):
             raise RuntimeError(f"{pipeline.label}: malformed SPIR-V instruction")
-        if opcode == 71 and count == 4 and words[offset + 2] == 33:
-            live_bindings.add(words[offset + 3])
+        if opcode == 5 and count >= 3:  # OpName
+            encoded = struct.pack(f"<{count - 2}I",
+                                  *words[offset + 2:offset + count])
+            names[words[offset + 1]] = encoded.split(b"\0", 1)[0].decode("utf-8")
+        elif opcode == 71 and count == 4:  # OpDecorate
+            if words[offset + 2] == 33:  # Binding
+                bindings[words[offset + 1]] = words[offset + 3]
+            elif words[offset + 2] == 34:  # DescriptorSet
+                descriptor_sets[words[offset + 1]] = words[offset + 3]
+        elif opcode == 59 and count >= 4:  # OpVariable
+            variables[words[offset + 2]] = (words[offset + 1], words[offset + 3])
+        elif opcode == 32 and count == 4:  # OpTypePointer
+            pointers[words[offset + 1]] = words[offset + 3]
         offset += count
+    live_bindings = set(bindings.values())
+    if len(live_bindings) != len(bindings):
+        raise RuntimeError(f"{pipeline.label}: duplicate emitted binding")
     descriptors: list[tuple[int, int, int]] = []
+    global_binding = -1
+    for variable, binding in bindings.items():
+        if variable not in variables or descriptor_sets.get(variable) != 0:
+            raise RuntimeError(f"{pipeline.label}: invalid native descriptor {binding}")
+        pointer, storage_class = variables[variable]
+        if storage_class == 12:  # StorageBuffer
+            descriptors.append((binding, KIND_STORAGE_BUFFER,
+                                resource_id(pipeline, names.get(variable, ""))))
+        elif storage_class == 2:  # Uniform
+            if names.get(pointers.get(pointer)) != "$Global" or global_binding >= 0:
+                raise RuntimeError(f"{pipeline.label}: unsupported uniform buffer {binding}")
+            global_binding = binding
+            descriptors.append((binding, KIND_UNIFORM_BUFFER, -1))
     uniform_lines: list[str] = []
     uniforms: list[tuple[str, int]] = []
     global_size = 0
@@ -276,13 +307,9 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
             binding = parse_int(line, "binding")
             if binding not in live_bindings:
                 continue
-            if name == "$Global":
+            if name == "$Global" and binding == global_binding:
                 global_size = parse_int(line, "size")
                 global_index = parse_int(line, "index")
-                descriptors.append((binding, KIND_UNIFORM_BUFFER, -1))
-            else:
-                descriptors.append((binding, KIND_STORAGE_BUFFER,
-                                    resource_id(pipeline, name)))
         elif section == "Uniform reflection:" and ": offset " in line:
             name = line.split(": offset", 1)[0]
             offset = parse_int(line, "offset")
@@ -304,6 +331,8 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
             continue
         name = line.split(": offset", 1)[0]
         uniforms.append((name, parse_int(line, "offset")))
+    if global_binding >= 0 and (global_index < 0 or global_size <= 0):
+        raise RuntimeError(f"{pipeline.label}: emitted globals missing from reflection")
     descriptors.sort()
     uniforms = sorted(set(uniforms), key=lambda item: (item[1], item[0]))
     if len({item[0] for item in descriptors}) != len(descriptors):

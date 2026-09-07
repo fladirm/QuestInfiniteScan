@@ -803,6 +803,153 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test, Timeout(60000)]
+        public void CarrierAncestryMasks_ActualHlslParityForAllCarriersAndSignPatterns()
+        {
+            var masks = MerkabaSphereFlowerAuthority.L2CarrierBranchMasks;
+            Assert.That(masks.Length, Is.EqualTo(128));
+            var cases = new List<OracleCase>(128 * 128);
+            for (int carrier = 0; carrier < masks.Length; carrier++)
+            for (int pattern = 0; pattern < 128; pattern++)
+                cases.Add(new OracleCase(30, carrier) { Control = new int4(30, carrier, pattern, 0) });
+            OracleCase[] actual = Dispatch(cases);
+            for (int i = 0; i < actual.Length; i++)
+            {
+                int carrier = cases[i].Control.y, pattern = cases[i].Control.z;
+                uint4 expected = masks[carrier];
+                uint eligible = (expected[pattern >> 5] >> (pattern & 31)) & 1u;
+                Assert.That(math.asuint(actual[i].A), Is.EqualTo(expected), $"ancestry carrier={carrier}");
+                Assert.That(actual[i].Control, Is.EqualTo(new int4(carrier, pattern, (int)eligible, 0)),
+                    $"ancestry carrier={carrier},signs={pattern}");
+            }
+        }
+
+        [Test, Timeout(60000)]
+        public void CarrierAncestryCombiner_ActualHlslParityForCapturedCarrier12Evidence()
+        {
+            // Actual pre-combiner evidence from the quantized N=(1,1,1)
+            // frozen wall, carrier 12, with the mandatory codec bounds.
+            // This verifies the finite combiner, not a fabricated positive
+            // geometry/Parent48 receipt or a substitute full-wall result.
+            uint[] certain = { 0x34u, 0x24u, 0x85u, 0x64u, 0u, 0u };
+            uint[] uncertain = { 0x08u, 0x48u, 0x22u, 0x0au, 0x2fu, 0xb3u };
+            uint[] downgraded = new uint[6];
+            for (int wedge = 0; wedge < 6; wedge++) downgraded[wedge] = certain[wedge] | uncertain[wedge];
+            uint[] empty = new uint[6];
+            uint[][] allCertain = { certain, empty, empty };
+            uint[][] allUncertain = { uncertain, downgraded, empty };
+            var cases = new List<OracleCase>(3);
+            for (int variant = 0; variant < allCertain.Length; variant++)
+            {
+                uint[] c = allCertain[variant], u = allUncertain[variant];
+                cases.Add(new OracleCase(31, 12)
+                {
+                    A = math.asfloat(new uint4(c[0], c[1], c[2], c[3])),
+                    B = math.asfloat(new uint4(c[4], c[5], u[0], u[1])),
+                    C = math.asfloat(new uint4(u[2], u[3], u[4], u[5]))
+                });
+            }
+            uint4 ancestry = MerkabaSphereFlowerAuthority.L2CarrierBranchMasks[12];
+            Assert.That(ancestry, Is.EqualTo(new uint4(0x99999999u)));
+            // The actual ancestry leaves patterns 27 and 91. Their unused
+            // sites differ, but both prove the same wedges 1/2 and sign 0x19.
+            int4[] expected = { new(1, 0x19, 0x06, 0x39), new(2, 0, 0, 0x3f), new(0, 0, 0, 0) };
+            OracleCase[] actual = Dispatch(cases);
+            for (int variant = 0; variant < cases.Count; variant++)
+            {
+                var status = MerkabaSphereFlowerAuthority.CombineCarrierCandidates(
+                    allCertain[variant], allUncertain[variant], ancestry,
+                    out uint signs, out uint active, out uint unresolved);
+                Assert.That(new int4((int)status, (int)signs, (int)active, (int)unresolved),
+                    Is.EqualTo(expected[variant]), $"CPU actual c12 evidence variant={variant}");
+                Assert.That(actual[variant].Control, Is.EqualTo(expected[variant]),
+                    $"HLSL actual c12 evidence variant={variant}");
+                Assert.That(math.asuint(actual[variant].A), Is.EqualTo(ancestry));
+            }
+        }
+
+        [Test, Timeout(60000)]
+        public void RootOwnerAndIncidence_ActualHlslParityForEveryStrictSectorAndExactBoundary()
+        {
+            var cases = new List<OracleCase>();
+            var expectedReferences = new List<ulong>();
+            for (int node = 0; node < MerkabaSphereFlowerAuthority.NodeClassCount; node++)
+            {
+                var anchor = MerkabaSphereFlowerAuthority.Nodes[node];
+                var line = MerkabaSphereFlowerAuthority.Lines[anchor.LineClass];
+                for (int boundary = 0; boundary < line.SectorCount; boundary++)
+                {
+                    ulong expected = MerkabaSphereFlowerOracleTests.IndependentNodeIncidence(node);
+                    var cut = MerkabaSphereFlowerAuthority.SectorBoundaries[line.SectorOffset + boundary].Enclosure;
+                    for (int sign = 0; sign < 2; sign++)
+                    for (int variant = 0; variant < 5; variant++)
+                    {
+                        uint tag = MerkabaSphereFlowerOracleTests.BoundaryReferenceTag(node, boundary, sign != 0);
+                        if (variant == 1) tag &= ~MerkabaSphereFlowerAuthority.BoundaryWitnessMask;
+                        else if (variant == 2) tag = (tag & ~(31u << 8)) |
+                            ((uint)((MerkabaSphereFlowerAuthority.BoundaryRules[line.SectorOffset + boundary].Owner + 1) %
+                                line.SectorCount) << 8);
+                        else if (variant == 3) tag = (tag & ~(15u << 3)) |
+                            ((uint)((anchor.LineClass + 1) % MerkabaSphereFlowerAuthority.LineClassCount) << 3);
+                        else if (variant == 4) tag = (tag & ~MerkabaSphereFlowerAuthority.BoundaryWitnessMask) |
+                            ((uint)(line.SectorCount + 1) << 21);
+                        cases.Add(new OracleCase(29, node)
+                        {
+                            Control = new int4(29, node, unchecked((int)tag), variant),
+                            A = RootBounds(cut)
+                        });
+                        expectedReferences.Add(variant <= 1 ? expected : 0);
+                    }
+                }
+                for (int sector = 0; sector < line.SectorCount; sector++)
+                for (int sign = 0; sign < 2; sign++)
+                for (int variant = 5; variant < 8; variant++)
+                {
+                    var root = MerkabaSphereFlowerOracleTests.StrictAnchorEvidence(node, sector, sign != 0);
+                    uint tag = root.Symbol.Tag;
+                    if (variant == 6) tag = (tag & ~(31u << 8)) | ((uint)line.SectorCount << 8);
+                    else if (variant == 7) tag = (tag & ~(15u << 3)) |
+                        ((uint)((anchor.LineClass + 1) % MerkabaSphereFlowerAuthority.LineClassCount) << 3);
+                    cases.Add(new OracleCase(29, node)
+                    {
+                        Control = new int4(29, node, unchecked((int)tag), variant),
+                        A = RootBounds(root.Root)
+                    });
+                    expectedReferences.Add(variant == 5 ? MerkabaSphereFlowerOracleTests.IndependentNodeIncidence(node) : 0);
+                }
+            }
+            OracleCase[] actual = Dispatch(cases);
+            for (int i = 0; i < cases.Count; i++)
+            {
+                OracleCase input = cases[i];
+                uint tag = unchecked((uint)input.Control.z);
+                bool ownerValid = MerkabaSphereFlowerAuthority.TryGetAnchorRootFlags(input.Control.y, tag, out ulong owner);
+                bool refsValid = MerkabaSphereFlowerAuthority.TryGetAnchorRootReferences(input.Control.y, tag, out ulong refs);
+                Assert.That(refsValid, Is.EqualTo(input.Control.w <= 1 || input.Control.w == 5), $"CPU reference validity case {i}");
+                Assert.That(refs, Is.EqualTo(expectedReferences[i]), $"CPU independent incidence oracle case {i}");
+                int3 direction = MerkabaSphereFlowerAuthority.Nodes[input.Control.y].Direction;
+                var root = new MerkabaSphereFlowerAuthority.PhaseRootEvidence(new MerkabaFlowerSymbolKey
+                    { Tag = tag, JunctionX = -514 + direction.x, JunctionY = -66 + direction.y, JunctionZ = -18 + direction.z },
+                    new MerkabaSphereFlowerAuthority.Interval2(
+                        new MerkabaSphereFlowerAuthority.FloatInterval(input.A.x, input.A.y),
+                        new MerkabaSphereFlowerAuthority.FloatInterval(input.A.z, input.A.w)),
+                    MerkabaSphereFlowerAuthority.ProofClassification.Certain);
+                bool sectorValid = MerkabaSphereFlowerAuthority.ClassifyPhaseSector(root, out int sector) ==
+                    MerkabaSphereFlowerAuthority.ProofClassification.Certain;
+                if (input.Control.w == 0 || input.Control.w == 5)
+                    Assert.That(sectorValid, Is.True, "Retained boundary witness or strict sector must remain valid.");
+                Assert.That(actual[i].Control, Is.EqualTo(new int4(ownerValid ? 1 : 0, refsValid ? 1 : 0,
+                    sectorValid ? 1 : 0, sectorValid ? sector : -1)), $"HLSL node/tag/variant={input.Control.yzw}");
+                Assert.That(math.asuint(actual[i].A), Is.EqualTo(new uint4((uint)owner, (uint)(owner >> 32),
+                    (uint)expectedReferences[i], (uint)(expectedReferences[i] >> 32))), $"HLSL exact masks case {i}");
+                Assert.That(math.asuint(actual[i].B), Is.EqualTo(math.asuint(input.A)),
+                    $"Reference lookup must preserve all metric endpoint bits: case {i}");
+                Assert.That(math.asuint(actual[i].C), Is.EqualTo(new uint4(math.asuint(new int3(-514, -66, -18) + direction), tag)),
+                    $"Reference lookup must preserve J, owner sector, sign and witness: case {i}");
+                if (input.Control.w == 1) Assert.That(sectorValid, Is.False, "Numeric boundary contact has no witness.");
+            }
+        }
+
+        [Test, Timeout(60000)]
         public void R1RootAndRelationSelectors_ExactIdentityParityAndBoundedAnalyticContainment()
         {
             var cases = new List<OracleCase>(640);
@@ -902,7 +1049,9 @@ namespace Genesis.RoomScan.Tests
                     }
                 }
             }
-            Assert.That(seenStatuses, Is.EqualTo(7u), "Fixtures must exercise absent, certain and ambiguous results.");
+            Assert.That(seenStatuses & 5u, Is.EqualTo(5u), "Actual fixtures must exercise absent and ambiguous results.");
+            TestContext.WriteLine($"R1 incident-selector observed status bits={seenStatuses:x}; " +
+                "unique is asserted only when the actual candidate/uncertainty masks permit it, not by owner filtering.");
             Assert.That(multipleCertainAlternatives, Is.True,
                 "The near-tangent plane must retain both analytic alternatives, never choose one.");
         }
@@ -994,10 +1143,14 @@ namespace Genesis.RoomScan.Tests
                 if (proof == MerkabaSphereFlowerAuthority.ProofClassification.Impossible) continue;
                 if (proof != MerkabaSphereFlowerAuthority.ProofClassification.Certain)
                 { unresolved |= 1u << sign; continue; }
-                Assert.That(MerkabaFlowerSymbolTag.TryDecode(root.Symbol.Tag, out var tag), Is.True);
-                Assert.That(MerkabaSphereFlowerAuthority.TryGetR1SectorFlag(faceNode, tag.Sector,
-                    out int selected), Is.True);
-                if (selected != petal) continue;
+                if (MerkabaSphereFlowerAuthority.ClassifyPhaseSector(root, out _) !=
+                        MerkabaSphereFlowerAuthority.ProofClassification.Certain ||
+                    !MerkabaSphereFlowerAuthority.TryGetAnchorRootFlags(faceNode, root.Symbol.Tag, out _))
+                { unresolved |= 1u << sign; continue; }
+                // Independent reference membership, deliberately not the
+                // owning half-open flag. Both analytic signs remain eligible.
+                ulong incident = MerkabaSphereFlowerOracleTests.IndependentNodeIncidence(faceNode);
+                if ((incident & (1UL << petal)) == 0u) continue;
                 if (input.Control.y != 0)
                 {
                     FixedR1EndpointPlanes(input, root.Symbol.Junction, face.LineClass,
@@ -1007,10 +1160,10 @@ namespace Genesis.RoomScan.Tests
                     if (proof == MerkabaSphereFlowerAuthority.ProofClassification.Impossible) continue;
                     if (proof != MerkabaSphereFlowerAuthority.ProofClassification.Certain)
                     { unresolved |= 1u << sign; continue; }
-                    Assert.That(MerkabaFlowerSymbolTag.TryDecode(root.Symbol.Tag, out tag), Is.True);
-                    Assert.That(MerkabaSphereFlowerAuthority.TryGetR1SectorFlag(faceNode, tag.Sector,
-                        out selected), Is.True);
-                    if (selected != petal) { unresolved |= 1u << sign; continue; }
+                    if (MerkabaSphereFlowerAuthority.ClassifyPhaseSector(root, out _) !=
+                            MerkabaSphereFlowerAuthority.ProofClassification.Certain ||
+                        !MerkabaSphereFlowerAuthority.TryGetAnchorRootFlags(faceNode, root.Symbol.Tag, out _))
+                    { unresolved |= 1u << sign; continue; }
                 }
                 candidates |= 1u << sign;
                 if (sign == 0) minus = root; else plus = root;

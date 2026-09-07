@@ -61,7 +61,7 @@ namespace Genesis.RoomScan
         internal static JunctionSelection SelectR3Junction(int parity,
             ReadOnlySpan<FloatInterval> q, ReadOnlySpan<uint> observedTags,
             uint knownMask, uint ambiguousMask, uint allowedMask, uint vetoMask,
-            bool incidentReferences = false, int requiredPetal = -1)
+            int requiredPetal = -1)
         {
             var result = new JunctionSelection { Classification = JunctionClassification.Ambiguous,
                 ClassIndex = uint.MaxValue, RootSigns = uint.MaxValue };
@@ -82,17 +82,12 @@ namespace Genesis.RoomScan
                 uint tag = observedTags[alternative];
                 if ((tag & 7u) >= GeometryLevelCount || ((tag >> 3) & 15u) != line ||
                     ((tag >> 7) & 1u) != (alternative & 1) || !JunctionFinite(q[alternative]) ||
-                    !TryGetAnchorRootFlags(node, tag, out ulong flags))
+                    !TryGetAnchorRootReferences(node, tag, out ulong flags))
                 {
                     knownMask &= ~bit;
                     ambiguousMask |= bit;
                     continue;
                 }
-                // Completion may reference the closed incidence of its
-                // already-confirmed donor. This does not alter root ownership
-                // and cannot make a numerical boundary touch admissible.
-                if (incidentReferences && TryGetAnchorBoundaryReferences(node, tag, out ulong references))
-                    flags |= references;
                 rootFlags[alternative] = flags;
             }
 

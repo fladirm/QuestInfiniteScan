@@ -270,10 +270,14 @@ void MerkabaGridSheetTangents(int3 step, out int3 tangent0,
     tangent1 = int3(step.z, 0, -step.x);
 }
 
+#ifndef M8_FLOWER_SRV
+#define M8_FLOWER_SRV(registerName)
+#endif
+
 RWStructuredBuffer<M8HashEntry> _M8HashEntries;
 StructuredBuffer<M8HashEntry> _M8HashEntriesRead;
 RWStructuredBuffer<uint4> _M8OwnerRecords;
-StructuredBuffer<uint4> _M8OwnerRecordsRead;
+StructuredBuffer<uint4> _M8OwnerRecordsRead M8_FLOWER_SRV(t0);
 RWStructuredBuffer<uint> _M8BlockChunkRefs;
 StructuredBuffer<uint> _M8BlockChunkRefsRead;
 RWStructuredBuffer<uint> _M8BlockPresenceL0;
@@ -284,7 +288,7 @@ StructuredBuffer<uint> _M8BlockPresenceL1Read;
 StructuredBuffer<uint> _M8BlockPresenceL2Read;
 
 RWStructuredBuffer<uint> _M8ChunkTileRefs;
-StructuredBuffer<uint> _M8ChunkTileRefsRead;
+StructuredBuffer<uint> _M8ChunkTileRefsRead M8_FLOWER_SRV(t1);
 RWStructuredBuffer<uint> _M8ChunkPresence;
 StructuredBuffer<uint> _M8ChunkPresenceRead;
 
@@ -292,14 +296,14 @@ RWStructuredBuffer<KernelState> _M8KernelStates0;
 RWStructuredBuffer<KernelState> _M8KernelStates1;
 RWStructuredBuffer<KernelState> _M8KernelStates2;
 RWStructuredBuffer<KernelState> _M8KernelStates3;
-StructuredBuffer<KernelState> _M8KernelStates0Read;
-StructuredBuffer<KernelState> _M8KernelStates1Read;
-StructuredBuffer<KernelState> _M8KernelStates2Read;
-StructuredBuffer<KernelState> _M8KernelStates3Read;
+StructuredBuffer<KernelState> _M8KernelStates0Read M8_FLOWER_SRV(t2);
+StructuredBuffer<KernelState> _M8KernelStates1Read M8_FLOWER_SRV(t3);
+StructuredBuffer<KernelState> _M8KernelStates2Read M8_FLOWER_SRV(t4);
+StructuredBuffer<KernelState> _M8KernelStates3Read M8_FLOWER_SRV(t5);
 RWStructuredBuffer<uint4> _M8TileBits;
 StructuredBuffer<uint4> _M8TileBitsRead;
 RWStructuredBuffer<uint4> _M8TileRecords;
-StructuredBuffer<uint4> _M8TileRecordsRead;
+StructuredBuffer<uint4> _M8TileRecordsRead M8_FLOWER_SRV(t6);
 RWStructuredBuffer<uint> _M8FreeTileStack;
 StructuredBuffer<uint> _M8FreeTileStackRead;
 RWStructuredBuffer<uint> _M8Counters;

@@ -295,6 +295,46 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
             result.C=float4(delta.lo,delta.hi,turn.lo,turn.hi);
         }
     }
+    else if(operation==29)
+    {
+        uint tag=(uint)input.Control.z;
+        uint2 owner=uint2(0u,0u),references=uint2(0u,0u);
+        bool ownerValid=M8FlowerAnchorRootFlags(index,tag,owner);
+        bool referenceValid=M8FlowerAnchorRootReferences(index,tag,references);
+        M8FlowerPhaseRootEvidence root=(M8FlowerPhaseRootEvidence)0;
+        root.Classification=1u;root.Tag=tag;
+        root.Junction=int3(-514,-66,-18)+M8FlowerNode[index].xyz;
+        root.Root.x=M8FlowerI(input.A.x,input.A.y);
+        root.Root.y=M8FlowerI(input.A.z,input.A.w);
+        uint sector;
+        bool sectorValid=M8FlowerPhaseRootSector(root,sector);
+        result.Control=int4(ownerValid?1:0,referenceValid?1:0,sectorValid?1:0,sectorValid?(int)sector:-1);
+        result.A=asfloat(uint4(owner,references));
+        result.B=float4(root.Root.x.lo,root.Root.x.hi,root.Root.y.lo,root.Root.y.hi);
+        result.C=asfloat(uint4(asuint(root.Junction),root.Tag));
+    }
+    else if(operation==30)
+    {
+        uint4 ancestry=M8FlowerL2CarrierBranchMasks[index];
+        uint pattern=(uint)input.Control.z;
+        uint eligible=(ancestry[pattern>>5u]>>(pattern&31u))&1u;
+        result.Control=int4((int)index,(int)pattern,(int)eligible,0);
+        result.A=asfloat(ancestry);
+    }
+    else if(operation==31)
+    {
+        uint certain[6],uncertain[6];
+        uint4 a=asuint(input.A),b=asuint(input.B),c=asuint(input.C);
+        certain[0]=a.x;certain[1]=a.y;certain[2]=a.z;certain[3]=a.w;
+        certain[4]=b.x;certain[5]=b.y;
+        uncertain[0]=b.z;uncertain[1]=b.w;uncertain[2]=c.x;
+        uncertain[3]=c.y;uncertain[4]=c.z;uncertain[5]=c.w;
+        uint signs,active,unresolved;
+        uint4 ancestry=M8FlowerL2CarrierBranchMasks[index];
+        uint status=M8FlowerCombineCarrierCandidates(certain,uncertain,ancestry,signs,active,unresolved);
+        result.Control=int4((int)status,(int)signs,(int)active,(int)unresolved);
+        result.A=asfloat(ancestry);
+    }
     _SphereFlowerOracleResults[id] = result;
 }
 

@@ -431,6 +431,35 @@ namespace Genesis.RoomScan.Editor
             if (property != null) property.stringValue = value;
         }
 
+        // Compile the actual Android multiview pass before spending a player
+        // build on a graphics-only compiler failure. Vulkan compiles both
+        // stages here; this never substitutes the native compute compiler.
+        public static void ValidateQuestMerkabaGraphics()
+        {
+            const string path = "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader";
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
+            if (shader == null) throw new FileNotFoundException("Flower graphics shader is missing", path);
+            var pass = ShaderUtil.GetShaderData(shader).GetSubshader(0).GetPass(0);
+            string[][] variants =
+            {
+                new[] { "STEREO_MULTIVIEW_ON", "M8_FINE_PREVIEW" },
+                new[] { "STEREO_MULTIVIEW_ON", "INSTANCING_ON", "XR_LINEAR_DEPTH",
+                    "XR_HARD_OCCLUSION", "M8_FINE_PREVIEW", "M8_ENVIRONMENT_OCCLUSION",
+                    "M8_ALPHA_COVERAGE", "M8_CHECKER_READOUT" }
+            };
+            foreach (string[] keywords in variants)
+            {
+                var compiled = pass.CompileVariant(UnityEditor.Rendering.ShaderType.Vertex,
+                    keywords, UnityEditor.Rendering.ShaderCompilerPlatform.Vulkan, BuildTarget.Android);
+                foreach (var message in compiled.Messages)
+                    if (message.severity == UnityEditor.Rendering.ShaderCompilerMessageSeverity.Error)
+                        throw new BuildFailedException(message.message);
+                if (!compiled.Success || compiled.ShaderData.Length == 0)
+                    throw new BuildFailedException("Android Flower multiview shader did not compile.");
+                Debug.Log($"[QuestMerkabaScan] Graphics compile PASS: {string.Join(" ", keywords)}");
+            }
+        }
+
         /// <summary>Batch entry point used after a successful prepare invocation.</summary>
         public static void BuildQuestMerkabaScanApk()
         {

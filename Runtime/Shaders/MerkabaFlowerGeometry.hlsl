@@ -134,7 +134,7 @@ uint M8FlowerSelectAnchorFlagRoots(int3 owner,uint flags,uint petal,uint anchorI
             sign!=0u,normalError,offsetError,root);
         if(result==0u)continue;
         uint2 allowed;
-        if(result!=1u || !M8FlowerAnchorRootFlags(anchor,root.Tag,allowed))
+        if(result!=1u || !M8FlowerAnchorRootReferences(anchor,root.Tag,allowed))
         {candidates.UnresolvedMask|=1u<<sign;continue;}
         if((allowed[petal>>5u]&(1u<<(petal&31u)))==0u)continue;
         candidates.CandidateMask|=1u<<sign;
@@ -176,7 +176,7 @@ uint M8FlowerSelectAnchorFlagRelation(int3 owner,uint flags,uint neighbourFlags,
             reversed?neighbourFlags:flags,reversed?flags:neighbourFlags,
             normalError,offsetError,relation,bend);
         uint2 allowed=0u;
-        if(result==1u && (!M8FlowerAnchorRootFlags(anchorNode,relation.Tag,allowed) ||
+        if(result==1u && (!M8FlowerAnchorRootReferences(anchorNode,relation.Tag,allowed) ||
             (allowed[petal>>5u]&(1u<<(petal&31u)))==0u))result=2u;
         if(result!=1u)
         {
@@ -196,20 +196,6 @@ uint M8FlowerSelectR1FlagRelation(int3 owner,uint flags,uint neighbourFlags,
     out M8FlowerPhaseRootEvidence uniqueRoot)
 {
     return M8FlowerSelectAnchorFlagRelation(owner,flags,neighbourFlags,petal,0u,
-        normalError,offsetError,candidates,uniqueRoot);
-}
-
-// Use the wedge's geometric source, not the canonical skin-key source:
-// the six incident wedges of one carrier need not belong to one root flag.
-uint M8FlowerSelectL2WedgeR1FlagRoots(int3 owner,uint flags,uint carrier,uint wedge,
-    float normalError,float offsetError,out M8FlowerR1FlagRoots candidates,
-    out M8FlowerPhaseRootEvidence uniqueRoot)
-{
-    candidates=(M8FlowerR1FlagRoots)0;
-    if(carrier>=128u || wedge>=6u)
-        return M8FlowerR1FlagRootStatus(candidates,uniqueRoot);
-    uint source=M8FlowerL2Wedge[6u*carrier+wedge].y;
-    return M8FlowerSelectR1FlagRoots(owner,flags,source>>4u,
         normalError,offsetError,candidates,uniqueRoot);
 }
 
@@ -666,33 +652,30 @@ M8FlowerInterval M8FlowerCarrierDot(int3 direction,M8FlowerInterval3 position)
         M8FlowerIMul(M8FlowerI(direction.z,direction.z),position.z));
 }
 
-// Phi differences of equal-shell sites have no constant term. For the
-// actual source flag f<e<c, max-edge then max-corner is exactly
-// (c-e).X >= 0 and ((e-f)-(c-e)).X >= 0. This applies on the child's OWN
-// loop, without importing an R1 face equation, radius or support box.
-uint M8FlowerSourceFlagContainment(uint petal,uint knot,uint proofTag,M8FlowerInterval3 position)
+// A source cell uses its generated knots, not every root owner's flag
+// interior. The actual source/path proves incidence; the retained tag still
+// belongs to the knot's original loop and keeps its canonical sector owner.
+uint M8FlowerSourceFlagContainment(uint petal,uint childPath,uint knot,
+    uint proofTag,M8FlowerInterval3 position)
 {
-    if(petal>=48u)return 0u;
-    uint3 nodes=M8FlowerPetalNodes[petal].xyz;
-    int3 edge=M8FlowerNode[nodes.y].xyz-M8FlowerNode[nodes.x].xyz;
-    int3 corner=M8FlowerNode[nodes.z].xyz-M8FlowerNode[nodes.y].xyz;
-    M8FlowerInterval cornerOrder=M8FlowerCarrierDot(corner,position);
-    M8FlowerInterval edgeOrder=M8FlowerCarrierDot(edge-corner,position);
-    if(cornerOrder.hi<0.0 || edgeOrder.hi<0.0)return 0u;
-    if(cornerOrder.lo>0.0 && edgeOrder.lo>0.0)return 1u;
+    if(petal>=48u || childPath>=16u || knot>=386u)return 0u;
+    uint wedge=M8FlowerL2WedgeIndex(petal,childPath);
+    if(wedge>=768u || all(M8FlowerL2WedgeKnots(wedge/6u,wedge%6u)!=knot))return 0u;
+    M8FlowerGeometryNode original;
+    if(!M8FlowerL2GeometryNode(knot,((proofTag>>7u)&1u)!=0u,original))return 0u;
+    if((proofTag&7u)!=original.Level || ((proofTag>>3u)&15u)!=original.Line ||
+        ((proofTag>>17u)&7u)>5u)return 2u;
+    uint sector=(proofTag>>8u)&31u;
+    if(sector>=M8FlowerLineMeta[original.Line].z)return 2u;
     uint code=(proofTag&M8_FLOWER_BOUNDARY_WITNESS_MASK)>>21u;
-    M8FlowerGeometryNode original;uint sector;uint2 allowed;
-    // Only a previously certified exact-boundary reader result can use this
-    // lookup. Its original knot supplies the child translation; a source
-    // petal is never substituted for the knot's actual loop identity.
-    if(code!=0u && M8FlowerL2GeometryNode(knot,((proofTag>>7u)&1u)!=0u,original) &&
-        (proofTag&7u)==original.Level && ((proofTag>>3u)&15u)==original.Line &&
-        M8FlowerBoundarySector(original.Line,code-1u,sector) && sector==((proofTag>>8u)&31u) &&
-        M8FlowerL2BoundaryFlags(knot,code-1u,allowed))
-        return (allowed[petal>>5u]&(1u<<(petal&31u)))!=0u?1u:0u;
-    // Numeric touching/crossing without that proof remains unresolved.
-    // No metric bound is narrowed, and orientation still uses the full bound.
-    return 2u;
+    uint boundaryOwner;
+    if(code!=0u && (!M8FlowerBoundarySector(original.Line,code-1u,boundaryOwner) ||
+        boundaryOwner!=sector))return 2u;
+    if(!all(M8FlowerIsFinite(float3(position.x.lo,position.y.lo,position.z.lo))) ||
+        !all(M8FlowerIsFinite(float3(position.x.hi,position.y.hi,position.z.hi))) ||
+        position.x.lo>position.x.hi || position.y.lo>position.y.hi ||
+        position.z.lo>position.z.hi)return 2u;
+    return 1u;
 }
 
 uint M8FlowerCarrierWedgeOrientation(M8FlowerInterval3 a,M8FlowerInterval3 b,
@@ -728,7 +711,7 @@ uint M8FlowerCarrierTriple(uint signs,uint wedge)
 // actual possible wedges participate, so unused site bits cannot manufacture
 // ambiguity. A wedge is emitted only if every surviving pattern agrees on
 // its CERTAIN triple; incompatible alternatives remain explicitly unresolved.
-uint M8FlowerCombineCarrierCandidates(uint certain[6],uint uncertain[6],
+uint M8FlowerCombineCarrierCandidates(uint certain[6],uint uncertain[6],uint4 admissibleSigns,
     out uint signs,out uint active,out uint unresolved)
 {
     signs=active=unresolved=0u;
@@ -738,6 +721,10 @@ uint M8FlowerCombineCarrierCandidates(uint certain[6],uint uncertain[6],
     uint first=0xffffffffu,agreed=potential;
     [loop]for(uint candidate=0u;candidate<128u;candidate++)
     {
+        // A synthesized child and a selected site naming its actual ancestor
+        // must use the same generated branch. This never chooses between the
+        // remaining compatible or unresolved alternatives.
+        if((admissibleSigns[candidate>>5u]&(1u<<(candidate&31u)))==0u)continue;
         bool possible=true;uint certainWedges=0u;
         [unroll]for(uint wedge=0u;wedge<6u;wedge++)
         {
@@ -811,73 +798,16 @@ bool M8FlowerReadL2Knot(uint ownerSlot,uint ownerRef,int3 owner,uint flags,uint 
     return root.Classification==1u;
 }
 
-// rootSigns encodes the three requested algebraic alternatives. Admissible
-// flags and shared incidence are still classified by the caller; this reader
-// never chooses an alternative by distance or by a root ordinal.
-bool M8FlowerReadL2WedgeRoots(uint ownerSlot,uint ownerRef,int3 owner,uint flags,uint hub,uint wedge,
-    uint rootSigns,float normalError,float offsetError,
-    out M8FlowerPhaseRootEvidence roots[3])
+// Original source alternatives read the terminal reader's synthesized SEAL.
+// Two available signs are finite choices for joint carrier closure, not an
+// independent ambiguity and not a reason to intersect root-owner interiors.
+void M8FlowerSourceAnchorAlternatives(uint slot,uint ownerRef,int3 owner,uint flags,
+    uint petal,uint anchorIndex,float2 errors,uint completion,
+    out uint available,out uint uncertain,out uint nonprovisional)
 {
-    [unroll]for(uint i=0u;i<3u;i++)
-    { roots[i]=(M8FlowerPhaseRootEvidence)0;roots[i].Classification=2u; }
-    if(hub>=128u || wedge>=6u || rootSigns>=8u)return false;
-    M8FlowerR1FlagRoots faceCandidates;
-    M8FlowerPhaseRootEvidence uniqueFace;
-    uint faceStatus=M8FlowerSelectL2WedgeR1FlagRoots(owner,flags,hub,wedge,
-        normalError,offsetError,faceCandidates,uniqueFace);
-    // A proven absent parent flag cannot acquire children. Ambiguous parent
-    // alternatives remain the admission caller's finite candidate set; this
-    // explicit-sign knot reader does not turn their ambiguity into certainty.
-    if(faceStatus==0u)return false;
-    uint source=M8FlowerL2Wedge[6u*hub+wedge].y;
-    uint face=M8FlowerPetalNodes[source>>4u].x;
-    int3 faceJunction;
-    if(!M8FlowerPhaseJunction(owner,1u,M8FlowerNode[face].xyz,faceJunction))return false;
-    uint3 knots=M8FlowerL2WedgeKnots(hub,wedge);
-    [loop]for(uint node=0u;node<3u;node++)
-    {
-        if(!M8FlowerReadL2Knot(ownerSlot,ownerRef,owner,flags,knots[node],
-            (rootSigns&(1u<<node))!=0u,normalError,offsetError,roots[node]))return false;
-        // Apply the face lookup only to this EXACT inherited L0 R1 symbol.
-        // New child R1 loops and all R2/R3 anchors keep their own frames.
-        if((roots[node].Tag&7u)==0u &&
-            ((roots[node].Tag>>3u)&15u)==(uint)M8FlowerNode[face].w &&
-            all(roots[node].Junction==faceJunction) &&
-            (faceCandidates.CandidateMask&(1u<<((roots[node].Tag>>7u)&1u)))==0u)
-            return false;
-    }
-    // Higher ORIGINAL anchors use the same power order on their own exact
-    // loops. The generated mask contains no R1 face equation or M8 box clip.
-    // A new child loop is not substituted for one of these original anchors.
-    [loop]for(uint anchorIndex=1u;anchorIndex<3u;anchorIndex++)
-    {
-        M8FlowerR1FlagRoots anchorCandidates;
-        M8FlowerPhaseRootEvidence uniqueAnchor;
-        uint status=M8FlowerSelectAnchorFlagRoots(owner,flags,source>>4u,anchorIndex,
-            normalError,offsetError,anchorCandidates,uniqueAnchor);
-        if(status==0u)return false;
-        uint anchor=M8FlowerPetalNodes[source>>4u][anchorIndex];
-        int3 junction;
-        if(!M8FlowerPhaseJunction(owner,1u,M8FlowerNode[anchor].xyz,junction))return false;
-        [unroll]for(uint nodeIndex=0u;nodeIndex<3u;nodeIndex++)
-            if((roots[nodeIndex].Tag&7u)==0u &&
-                ((roots[nodeIndex].Tag>>3u)&15u)==(uint)M8FlowerNode[anchor].w &&
-                all(roots[nodeIndex].Junction==junction) &&
-                (anchorCandidates.CandidateMask&(1u<<((roots[nodeIndex].Tag>>7u)&1u)))==0u)
-                return false;
-    }
-    return true;
-}
-
-// Original source-anchor admission reads the very same synthesized endpoint
-// relation as the terminal reader. The generated mask is applied AFTER SEAL.
-uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags,
-    uint petal,uint anchorIndex,float2 errors,uint completion,out bool direct)
-{
-    direct=false;
+    available=uncertain=nonprovisional=0u;
     uint node=M8FlowerPetalNodes[petal][anchorIndex];
     bool completedSource=completion!=0xffffffffu && (completion&63u)==petal;
-    uint admitted=0u,unresolved=0u,provisionalSigns=0u;
     [loop]for(uint sign=0u;sign<2u;sign++)
     {
         if(completedSource && sign!=((completion>>(6u+anchorIndex))&1u))continue;
@@ -886,49 +816,15 @@ uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags
         uint status=M8FlowerReadOriginalShared(slot,ownerRef,owner,flags,node,sign!=0u,
             errors.x,errors.y,root,provisional);
         if(status==0u)continue;
-        uint2 allowed;
-        if(status!=1u || !M8FlowerAnchorRootFlags(node,root.Tag,allowed))
-        {unresolved|=1u<<sign;continue;}
-        uint2 references;
-        if(completedSource && M8FlowerAnchorBoundaryReferences(node,root.Tag,references))allowed|=references;
-        if((allowed[petal>>5u]&(1u<<(petal&31u)))!=0u)
-        {
-            admitted|=1u<<sign;
-            if(provisional)provisionalSigns|=1u<<sign;
-        }
+        uint2 allowed;uint sector;
+        if(status!=1u || !M8FlowerPhaseRootSector(root,sector) ||
+            !M8FlowerAnchorRootReferences(node,root.Tag,allowed))
+        {uncertain|=1u<<sign;continue;}
+        if((allowed[petal>>5u]&(1u<<(petal&31u)))==0u)continue;
+        if(completedSource && provisional){uncertain|=1u<<sign;continue;}
+        available|=1u<<sign;
+        if(!provisional && !completedSource)nonprovisional|=1u<<sign;
     }
-    if(unresolved!=0u || countbits(admitted)>1u)return 2u;
-    if(completedSource && (admitted&provisionalSigns)!=0u)return 2u;
-    direct=!completedSource && admitted!=0u && (admitted&provisionalSigns)==0u;
-    return admitted!=0u?1u:0u;
-}
-
-uint M8FlowerSourceAnchorAdmission(uint slot,uint ownerRef,int3 owner,uint flags,
-    uint petal,uint anchorIndex,float2 errors,out bool direct)
-{
-    return M8FlowerSourceAnchorAdmission(slot,ownerRef,owner,flags,
-        petal,anchorIndex,errors,0xffffffffu,direct);
-}
-
-uint M8FlowerCompletionFlagContainment(uint petal,uint knot,uint tag,
-    M8FlowerInterval3 position,uint completion)
-{
-    if(completion!=0xffffffffu && (completion&63u)==petal)
-    {
-        M8FlowerGeometryNode original;
-        if(M8FlowerL2GeometryNode(knot,((tag>>7u)&1u)!=0u,original) && original.Level==0u)
-        {
-            [unroll]for(uint anchor=0u;anchor<3u;anchor++)
-            {
-                uint node=M8FlowerPetalNodes[petal][anchor];uint2 references;
-                if(!all(original.Offset==M8FlowerNode[node].xyz))continue;
-                if(((tag>>7u)&1u)!=((completion>>(6u+anchor))&1u))return 0u;
-                if(M8FlowerAnchorBoundaryReferences(node,tag,references) &&
-                    (references[petal>>5u]&(1u<<(petal&31u)))!=0u)return 1u;
-            }
-        }
-    }
-    return M8FlowerSourceFlagContainment(petal,knot,tag,position);
 }
 
 // Actual direct producer input. The caller holds the page/observation source
@@ -990,23 +886,25 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
         }
       }
       if(phase!=0u)break;
-    uint certain[6],uncertain[6];
+    uint certain[6],uncertain[6],directTriples[6];
     [loop]for(uint wedge=0u;wedge<6u;wedge++)
     {
-        certain[wedge]=uncertain[wedge]=0u;
-        uint petal=M8FlowerL2Wedge[6u*carrier+wedge].y>>4u;
+        certain[wedge]=uncertain[wedge]=directTriples[wedge]=0u;
+        uint source=M8FlowerL2Wedge[6u*carrier+wedge].y;
+        uint petal=source>>4u,path=source&15u;
         uint parentStatus=1u;
         bool directParent=true;
+        uint3 anchorAvailable=0u,anchorUncertain=0u,anchorDirect=0u;
         [loop]for(uint anchor=0u;anchor<3u;anchor++)
         {
-            bool directAnchor;
-            uint status=M8FlowerSourceAnchorAdmission(slot,ownerRef,owner,state.flags,
-                petal,anchor,errors,completion,directAnchor);
-            directParent=directParent&&directAnchor;
-            if(status==0u){parentStatus=0u;break;}
-            if(status!=1u)parentStatus=2u;
+            uint available,pending,direct;
+            M8FlowerSourceAnchorAlternatives(slot,ownerRef,owner,state.flags,
+                petal,anchor,errors,completion,available,pending,direct);
+            anchorAvailable[anchor]=available;anchorUncertain[anchor]=pending;
+            anchorDirect[anchor]=direct;directParent=directParent && direct!=0u;
+            if((available|pending)==0u){parentStatus=0u;break;}
+            if(available==0u)parentStatus=2u;
         }
-        if(parentStatus==1u && directParent)directParents|=1u<<wedge;
         if(parentStatus==0u)continue;
         uint3 sites=M8FlowerL2CarrierTriangle(wedge,false);
         [loop]for(uint triple=0u;triple<8u;triple++)
@@ -1016,12 +914,32 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
             if((needed&~(known|unknown))!=0u)continue;
             bool resolved=parentStatus==1u && (needed&~known)==0u;
             bool impossible=false;
+            bool tripleDirect=directParent;
             [unroll]for(uint vertex=0u;vertex<3u;vertex++)
             {
+                uint knot=M8FlowerL2CarrierKnot(carrier,sites[vertex]);
+                M8FlowerGeometryNode original;
+                if(!M8FlowerL2GeometryNode(knot,(index[vertex]&1u)!=0u,original))
+                {impossible=true;break;}
+                if(original.Level==0u)
+                {
+                    uint anchor=3u;
+                    [unroll]for(uint candidate=0u;candidate<3u;candidate++)
+                    {
+                        uint node=M8FlowerPetalNodes[petal][candidate];
+                        if((uint)M8FlowerNode[node].w==original.Line &&
+                            all(M8FlowerNode[node].xyz==original.Offset))anchor=candidate;
+                    }
+                    if(anchor==3u){impossible=true;break;}
+                    uint signBit=1u<<(index[vertex]&1u);
+                    if(((anchorAvailable[anchor]|anchorUncertain[anchor])&signBit)==0u)
+                    {impossible=true;break;}
+                    resolved=resolved && (anchorAvailable[anchor]&signBit)!=0u;
+                    tripleDirect=tripleDirect && (anchorDirect[anchor]&signBit)!=0u;
+                }
                 if((known&(1u<<index[vertex]))==0u)continue;
-                uint status=M8FlowerCompletionFlagContainment(petal,
-                    M8FlowerL2CarrierKnot(carrier,sites[vertex]),proofTags[index[vertex]],
-                    support[index[vertex]],completion);
+                uint status=M8FlowerSourceFlagContainment(petal,path,knot,
+                    proofTags[index[vertex]],support[index[vertex]]);
                 if(status==0u){impossible=true;break;}
                 if(status!=1u)resolved=false;
             }
@@ -1033,14 +951,23 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
                 if(orientation==0u)continue;
                 if(orientation!=1u)resolved=false;
             }
-            if(resolved)certain[wedge]|=1u<<triple;
+            if(resolved)
+            {
+                certain[wedge]|=1u<<triple;
+                if(tripleDirect)directTriples[wedge]|=1u<<triple;
+            }
             else uncertain[wedge]|=1u<<triple;
         }
     }
-    uint result=M8FlowerCombineCarrierCandidates(certain,uncertain,signs,active,unresolvedWedges);
+    uint result=M8FlowerCombineCarrierCandidates(certain,uncertain,
+        M8FlowerL2CarrierBranchMasks[carrier],signs,active,unresolvedWedges);
     if(result!=1u)return result;
     [unroll]for(uint wedge=0u;wedge<6u;wedge++)if((active&(1u<<wedge))!=0u)
+    {
         used|=1u|(1u<<(1u+wedge))|(1u<<(1u+(wedge+1u)%6u));
+        if((directTriples[wedge]&(1u<<M8FlowerCarrierTriple(signs,wedge)))!=0u)
+            directParents|=1u<<wedge;
+    }
     }
     bool reverse=M8FlowerPlaneFreeSide(state.flags)<0;
     uint completed=0u;
@@ -1054,7 +981,7 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
     {unresolvedWedges|=active;return 2u;}
     // Provisional R2/R3 is lawful R1 presentation but is never direct
     // boundary evidence. Preserve that distinction without gating occupancy.
-    directWedges=active&directParents;
+    directWedges=active&directParents&~completed;
     return 1u;
 }
 

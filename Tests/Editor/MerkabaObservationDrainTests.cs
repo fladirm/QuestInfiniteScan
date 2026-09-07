@@ -193,25 +193,41 @@ namespace Genesis.RoomScan.Tests
             Assert.That(A.Lines[line].Shell, Is.EqualTo(A.Shell.R2Shape));
             var loop = A.EvaluateLoop(level, new A.Long3(offset.x, offset.y, offset.z), line);
             var fixture = new Fixture { Normal = loop.E1,
-                Offset = math.dot(loop.E1, loop.Center) - loop.Radius / 8f };
-            // Exact synthetic reduced-evidence arc:
-            // u(q)=(-2q/(1+q²),(1-q²)/(1+q²)), -1/128 <= q <= 1/128.
-            // Both components have non-singleton, outward-rounded bounds.
-            // This is fixture evidence, not an added production epsilon.
-            float xMaximum = A.FloatInterval.Enclose(256.0 / 16385.0).Upper;
-            float yMinimum = A.FloatInterval.Enclose(16383.0 / 16385.0).Lower;
-            var measured = new A.Interval2(new A.FloatInterval(-xMaximum, xMaximum),
-                new A.FloatInterval(yMinimum, 1f));
-            Assert.That(TryCase(fixture, petal, 0, site, true, measured,
+                Offset = math.dot(loop.E1, loop.Center) - loop.Radius / 32f };
+            // These two independent, immutable direct observations lie
+            // strictly inside the generated R2 sector. The former arc around
+            // q=0 crossed an authorized order cut and is correctly AMBIGUOUS.
+            // L1: 31/1024 <= q <= 33/1024; L2: 95/1024 <= q <= 97/1024.
+            // Both use u(q)=(-2q/(1+q²),(1-q²)/(1+q²)), with nonzero
+            // outward-rounded widths. Neither evidence interval is computed
+            // from prediction. Mandatory R1 uncertainty remains unchanged.
+            var firstMeasured = MeasuredArc(31, 33, 1024);
+            var secondMeasured = MeasuredArc(95, 97, 1024);
+            Assert.That(TryCase(fixture, petal, 0, site, true, firstMeasured,
                 Array.Empty<A.PhaseRootEvidence>(), Array.Empty<MerkabaFlowerDetailRecord>(),
                 Array.Empty<MerkabaFlowerDetailKey>(), out var first, out var firstRecord,
                 out var firstRoot), Is.True, "The fixed L1 innovation must be CERTAIN and nonzero.");
-            Assert.That(TryCase(fixture, petal, 1, site, true, measured,
+            Assert.That(TryCase(fixture, petal, 1, site, true, secondMeasured,
                 new[] { firstRoot }, new[] { firstRecord }, new[] { first.Key },
                 out var second, out _, out _), Is.True,
                 "The fixed L2 innovation must remain CERTAIN after committed L1 synthesis.");
             fixture.Phases = new[] { first, second };
             return fixture;
+        }
+
+        private static A.Interval2 MeasuredArc(int first, int last, int denominator)
+        {
+            // On 0<q<1 both coordinates decrease, so exact rational endpoint
+            // values bound the entire observed arc, not just two samples.
+            Assert.That(first, Is.GreaterThan(0));
+            Assert.That(last, Is.GreaterThan(first).And.LessThan(denominator));
+            double d2 = denominator * denominator;
+            var xFirst = A.FloatInterval.Enclose(-2.0 * first * denominator / (d2 + first * first));
+            var xLast = A.FloatInterval.Enclose(-2.0 * last * denominator / (d2 + last * last));
+            var yFirst = A.FloatInterval.Enclose((d2 - first * first) / (d2 + first * first));
+            var yLast = A.FloatInterval.Enclose((d2 - last * last) / (d2 + last * last));
+            return new A.Interval2(new A.FloatInterval(xLast.Lower, xFirst.Upper),
+                new A.FloatInterval(yLast.Lower, yFirst.Upper));
         }
 
         private static bool TryCase(Fixture fixture, int petal, int context, int site,

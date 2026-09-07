@@ -1074,7 +1074,8 @@ These tables encode incidence only; no runtime mesh adjacency is reconstructed.
 A flag petal is admissible only when:
 
 1. all required anchor roots are `CERTAIN` or are exact inherited parent roots;
-2. all roots lie in the generated sectors of the same flag;
+2. every root has one certain canonical generated sector identity, and the
+   petal uses that root through the generated Node/Strand/Petal incidence;
 3. each shared-loop endpoint correspondence satisfies section 7.3;
 4. the three boundary-strand tangent/orientation intervals are nondegenerate;
 5. winding agrees with the direct free-side orientation;
@@ -1082,7 +1083,7 @@ A flag petal is admissible only when:
 
 R2/R3 direct measurement is not required for basic R1 existence. When absent, the R1 carrier may predict the corresponding higher-shell anchor **only as provisional geometry inside the same unique flag**. Such a prediction does not create persistent R2/R3 detail and cannot by itself prove a hole completion.
 
-### 8.4.2 Exact R1 face-sector flag admission
+### 8.4.2 Exact R1 root ownership and shared-anchor incidence
 
 For a fixed directed R1 face carrier \(f=s_i e_i\), use the existing power
 residual:
@@ -1091,7 +1092,7 @@ residual:
 \Phi_q(X)=q\cdot(X-C_K)-\frac{a_L}{2}(q\cdot q).
 \]
 
-Select the maximum `Phi` among the four R2 edge directions incident to
+For canonical root ownership only, select the maximum `Phi` among the four R2 edge directions incident to
 `f`, then the maximum among the two R3 corner directions incident to that
 selected edge. Exact ties use the smaller frozen generated `Node` ordinal
 at each step. No observed score, distance, epsilon or runtime search is used.
@@ -1115,7 +1116,9 @@ The support half-width is `a_L`, hence the chart clipping bound is exactly
 `2`, not `1`. On the R1 loop the bound is redundant because the absolute
 tangential coordinates are at most \(\sqrt3<2\). Signs and relative order
 partition each face into eight flag cells, giving the existing 48 flags.
-This face chart does not replace or flatten the R2/R3 world loops.
+This face chart does not replace or flatten the R2/R3 world loops. It
+classifies the canonical owner of a root, not the admissibility of a
+neighbouring petal that references that root.
 
 Codegen uses the existing `Petal[48]` incidence, exact loop boundaries and
 exact sign algebra on the power differences. The sign at a certified
@@ -1135,6 +1138,36 @@ enclosure crosses the boundary. The strict-interior condition in section
 exact symbolic equality proof is still `AMBIGUOUS`; no epsilon or interval
 clamp is permitted. Direction, sector and rootSign transport remain the
 generated shared-loop conventions.
+
+Canonical root ownership and topological petal incidence are distinct:
+
+```text
+RootOwner(root) = canonical half-open sector/flag ownership
+PetalUsesRoot(petal,root) = generated Node/Strand/Petal incidence
+
+PetalUsesRoot MUST NOT require Petal == RootOwner.
+```
+
+`Sector→PetalMask` supplies only canonical root ownership and unique
+symbolic identity. All petals incident to that root under the generated
+incidence may reference the same identity, including when its canonical
+owner is another petal. This applies to certain interior roots as well as
+symbolically proved boundary roots. It does not duplicate roots, create
+geometry, change a rootSign or sector, or modify a metric enclosure.
+
+An anchor reference MUST NOT be tested against the intersection of its
+incident petals' sector-owner interior constraints. In particular, a
+completion donor MUST NOT require a shared R1 knot to lie simultaneously
+inside both donors' owner cells. Those cells classify ownership; incidence
+defines sharing. Every reference still requires a CERTAIN root, the exact
+generated loop identity, compatible shared-root evidence and the existing
+orientation, closure and dual predicates. Numeric boundary touching without
+symbolic equality remains AMBIGUOUS.
+
+There is one canonical boundary-root identity, not one copy per incident
+petal. Runtime and export references resolve that same identity. The
+geometric domain of a generated child knot remains its exact generated
+loop; a referencing petal's ownership region must not replace that domain.
 
 ## 8.5 Child substitution
 
@@ -1725,12 +1758,19 @@ b_e=-B_{ep};
 \]
 
 2. adding it removes all three corresponding defects;
-3. all three knot/root intervals already exist uniquely from incident confirmed petals;
+3. all three knot/root intervals already exist uniquely from incident confirmed
+   petals, through generated incidence rather than sector-owner equality;
 4. its generated petal/junction class, sector and rootSign are unique;
 5. R1 is certain;
 6. required R2/R3 closure for that particular flag is certain;
 7. no portion of its metric interval is `THROUGH_CERTAIN`;
 8. its generated anchor/tangent orientation determinant interval excludes zero.
+
+Donors supply the actual root identities selected by their confirmed direct
+geometry. Evidence for the same shared knot is intersected as before; the
+donors' root-ownership interior constraints are not intersected. Completion
+does not reselect a donor root by petal ownership, invent a root, or merge
+different sector/rootSign identities.
 
 Candidate bitmask:
 
@@ -3694,6 +3734,11 @@ loop basis endpoint invariance
 all root degeneracies
 interval containment / outward rounding
 root sector stability
+canonical half-open root ownership is independent of petal anchor incidence
+every generated incident petal references the same unchanged root identity and enclosure
+strict and exact-boundary root references never intersect donor owner-cell interiors
+actual confirmed donor root selections are preserved through completion
+positive parent48 completion uses actual shared knots, not synthetic candidate masks
 R1 same-shell power-order cuts are complete in the shared sector arrangement
 R1 clipping is exactly 2 in xi=2*(X-C)/aL and preserves every R1 world loop
 each directed R1 sector selects exactly one incident flag and covers all eight face flags

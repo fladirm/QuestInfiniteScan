@@ -478,16 +478,21 @@ internal static void M8FlowerUnpackPlane(uint flags, out float3 normal,
 {
     uint u = (flags >> (int)M8_FLOWER_PLANE_U_SHIFT) & 1023u;
     uint v = (flags >> (int)M8_FLOWER_PLANE_V_SHIFT) & 1023u;
-    uint2 encoded = uint2(u,v);
-    precise float2 unit = float2(0.0f,0.0f);
-    [loop] for(uint axis=0u;axis<2u;axis++)
-        unit[(int)axis] = M8FlowerRoundDivide((float)encoded[(int)axis],1023.0f);
-    precise float2 twice = unit * 2.0f;
-    precise float2 oct = twice - 1.0f;
-    precise float zX = 1.0f - abs(oct.x);
-    normal = float3(oct.x, oct.y, zX - abs(oct.y));
-    if (normal.z < 0.0f)
-        normal.xy = (1.0f - abs(normal.yx)) * M8FlowerOctSigns(normal.xy);
+    // Exact numerators of the same octahedral code centre, with denominator
+    // 1023. This common positive factor cancels during normalization; decoding
+    // it first in binary32 would break exact equal-component symmetries.
+    int x = 2 * (int)u - 1023;
+    int y = 2 * (int)v - 1023;
+    int z = 1023 - abs(x) - abs(y);
+    if (z < 0)
+    {
+        int previousX = x;
+        x = (x < 0 ? -1 : 1) * (1023 - abs(y));
+        y = (y < 0 ? -1 : 1) * (1023 - abs(previousX));
+    }
+    // Every numerator is bounded by 1023; the integer squares and their sum
+    // are exactly representable in binary32 before the shared RNE operations.
+    normal = float3(x, y, z);
     precise float3 square = normal * normal;
     precise float squareXY = square.x + square.y;
     precise float lengthSquared = squareXY + square.z;
@@ -1514,72 +1519,21 @@ uint3 M8FlowerL2WedgeKnots(uint hub, uint wedge)
 }");
             AppendL2WedgeOwners(o,csharp);
             AppendL2EdgeIncidence(o,csharp);
-            AppendL2BoundaryFlags(o,csharp);
-        }
-
-        private static void AppendL2BoundaryFlags(StringBuilder o, bool csharp)
-        {
-            var offsets = MerkabaSphereFlowerAuthority.L2BoundaryFlagOffsets;
-            var indices = MerkabaSphereFlowerAuthority.L2BoundaryFlagIndices;
-            var masks = MerkabaSphereFlowerAuthority.L2BoundaryFlagMasks;
-            int offsetWords = (offsets.Length + 1) / 2, indexWords = (indices.Length + 3) / 4;
-            if (offsets.Length != MerkabaSphereFlowerAuthority.L2KnotCount + 1 ||
-                offsets[offsets.Length - 1] != indices.Length || masks.Length > 256 ||
-                4 * (offsetWords + indexWords) + 8 * masks.Length > 65536)
-                throw new InvalidDataException("Invalid compact L2 boundary flag lookup.");
-            if (csharp)
-                o.AppendLine("        private static void LoadGeneratedL2BoundaryFlags(out ushort[] offsets, out byte[] indices, out ulong[] masks) {");
-            o.AppendLine(csharp ? "            offsets = new ushort[] {" :
-                "static const uint M8FlowerL2BoundaryFlagOffsets[" + offsetWords + "] = {");
-            int count = csharp ? offsets.Length : offsetWords;
-            for (int i = 0; i < count; i++)
+            var branches = MerkabaSphereFlowerAuthority.L2CarrierBranchMasks;
+            if (branches.Length != MerkabaSphereFlowerAuthority.L2HubCount)
+                throw new InvalidDataException("Incomplete generated carrier ancestry constraints.");
+            o.AppendLine(csharp ?
+                "        private static uint4[] LoadGeneratedL2CarrierBranchMasks() => new uint4[] {" :
+                "static const uint4 M8FlowerL2CarrierBranchMasks[128] = {");
+            for (int i = 0; i < branches.Length; i++)
             {
-                uint word = csharp ? offsets[i] : offsets[2 * i];
-                if (!csharp && 2 * i + 1 < offsets.Length) word |= (uint)offsets[2 * i + 1] << 16;
-                o.Append("    ").Append(word);
-                if (!csharp) o.Append('u');
-                Comma(o, i, count);
+                var mask = branches[i];
+                o.Append(csharp ? "            new uint4(" : "    uint4(")
+                    .Append(mask.x).Append("u,").Append(mask.y).Append("u,")
+                    .Append(mask.z).Append("u,").Append(mask.w).Append("u)");
+                Comma(o, i, branches.Length);
             }
-            o.AppendLine("};");
-            o.AppendLine(csharp ? "            indices = new byte[] {" :
-                "static const uint M8FlowerL2BoundaryFlagIndices[" + indexWords + "] = {");
-            count = csharp ? indices.Length : indexWords;
-            for (int i = 0; i < count; i++)
-            {
-                uint word = csharp ? indices[i] : 0u;
-                if (!csharp)
-                    for (int part = 0; part < 4 && 4 * i + part < indices.Length; part++)
-                        word |= (uint)indices[4 * i + part] << (8 * part);
-                o.Append("    ").Append(word);
-                if (!csharp) o.Append('u');
-                Comma(o, i, count);
-            }
-            o.AppendLine("};");
-            o.AppendLine(csharp ? "            masks = new ulong[] {" :
-                "static const uint2 M8FlowerL2BoundaryFlagMasks[" + masks.Length + "] = {");
-            for (int i = 0; i < masks.Length; i++)
-            {
-                if (csharp) o.Append("    0x").Append(masks[i].ToString("x16", CultureInfo.InvariantCulture)).Append("UL");
-                else o.Append("    uint2(").Append((uint)masks[i]).Append("u, ")
-                    .Append((uint)(masks[i] >> 32)).Append("u)");
-                Comma(o, i, masks.Length);
-            }
-            o.AppendLine("};");
-            if (csharp) o.AppendLine("        }");
-            else o.AppendLine(@"
-// Exact source-flag ownership at the original knot's translated boundary.
-// The caller must retain a certified boundary witness and verify its knot.
-bool M8FlowerL2BoundaryFlags(uint knot,uint boundary,out uint2 mask)
-{
-    mask=0u;if(knot>=386u)return false;
-    uint start=(M8FlowerL2BoundaryFlagOffsets[knot>>1u]>>((knot&1u)*16u))&65535u;
-    uint next=knot+1u;
-    uint end=(M8FlowerL2BoundaryFlagOffsets[next>>1u]>>((next&1u)*16u))&65535u;
-    if(boundary>=end-start)return false;
-    uint entry=start+boundary;
-    uint index=(M8FlowerL2BoundaryFlagIndices[entry>>2u]>>((entry&3u)*8u))&255u;
-    mask=M8FlowerL2BoundaryFlagMasks[index];return true;
-}");
+            o.AppendLine(csharp ? "        };" : "};");
         }
 
         private static void AppendL2EdgeIncidence(StringBuilder o, bool csharp)
@@ -2145,12 +2099,11 @@ bool M8FlowerRadicalSectorSigns(uint node,uint sector,out uint3 signs)
 
         private static void AppendAnchorSectorPetalMasks(StringBuilder output, bool csharp)
         {
-            for (int kind = 0; kind < 3; kind++)
+            for (int kind = 0; kind < 2; kind++)
             {
                 var masks = kind == 0 ? MerkabaSphereFlowerAuthority.AnchorSectorPetalMasks :
-                    kind == 1 ? MerkabaSphereFlowerAuthority.AnchorBoundaryPetalMasks :
-                    MerkabaSphereFlowerAuthority.AnchorBoundaryReferencePetalMasks;
-                string name = kind == 0 ? "Sector" : kind == 1 ? "Boundary" : "BoundaryReference";
+                    MerkabaSphereFlowerAuthority.AnchorBoundaryPetalMasks;
+                string name = kind == 0 ? "Sector" : "Boundary";
                 output.Append(csharp
                     ? "        private static ulong[] LoadGeneratedAnchor" + name + "PetalMasks() => new ulong[] {\n"
                     : "static const uint2 M8FlowerAnchor" + name + "PetalMask[" + masks.Length + "] = {\n");
@@ -2196,20 +2149,12 @@ bool M8FlowerAnchorRootFlags(uint node,uint proofTag,out uint2 mask)
     return true;
 }
 
-// Closed incidence of an existing certified boundary knot, not its owner.
-// Only a non-provisional confirmed donor may supply this retained witness.
-// No ordinary direct admission or numerical-touch fallback calls this API.
-bool M8FlowerAnchorBoundaryReferences(uint node,uint proofTag,out uint2 mask)
+// Root ownership is unique; reference incidence is the fixed Flower lattice.
+// Referencing the same certified root never changes its tag or metric bound.
+bool M8FlowerAnchorRootReferences(uint node,uint proofTag,out uint2 mask)
 {
-    mask=0u;
-    uint code=(proofTag>>21u)&63u;
-    if(node>=26u || code==0u)return false;
-    uint lineClass=(uint)M8FlowerNode[node].w;
-    if(((proofTag>>3u)&15u)!=lineClass)return false;
-    uint owner;
-    if(!M8FlowerBoundarySector(lineClass,code-1u,owner) || owner!=((proofTag>>8u)&31u))return false;
-    mask=M8FlowerAnchorBoundaryReferencePetalMask[
-        2u*(M8FlowerLineMeta[lineClass].y+code-1u)+(node&1u)];
+    if(!M8FlowerAnchorRootFlags(node,proofTag,mask))return false;
+    mask=M8FlowerNodeIncidentPetals[node];
     return true;
 }
 
@@ -2276,7 +2221,7 @@ bool M8FlowerJunctionFinite(M8FlowerInterval value)
 
 M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
     M8FlowerInterval q[8],uint observedTags[8],uint knownMask,
-    uint ambiguousMask,uint allowedMask,uint vetoMask,bool incidentReferences,uint requiredPetal)
+    uint ambiguousMask,uint allowedMask,uint vetoMask,uint requiredPetal)
 {
     M8FlowerJunctionSelection result=(M8FlowerJunctionSelection)0;
     result.Classification=2u;result.ClassIndex=0xffffffffu;result.RootSigns=0xffffffffu;
@@ -2295,13 +2240,10 @@ M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
         uint tag=observedTags[alternative];uint2 flags;
         if((tag&7u)>=M8_FLOWER_GEOMETRY_LEVEL_COUNT || ((tag>>3u)&15u)!=lineClass ||
             ((tag>>7u)&1u)!=(alternative&1u) || !M8FlowerJunctionFinite(q[alternative]) ||
-            !M8FlowerAnchorRootFlags(node,tag,flags))
+            !M8FlowerAnchorRootReferences(node,tag,flags))
         {
             knownMask&=~bit;ambiguousMask|=bit;continue;
         }
-        // Only completion's actual non-provisional donor path enables this.
-        uint2 references;
-        if(incidentReferences && M8FlowerAnchorBoundaryReferences(node,tag,references))flags|=references;
         rootFlags[alternative]=flags;
     }
     uint selectedClass=0xffffffffu,selectedSigns=0xffffffffu;
@@ -2386,7 +2328,7 @@ M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
     uint ambiguousMask,uint allowedMask,uint vetoMask)
 {
     return M8FlowerSelectR3Junction(parity,q,observedTags,knownMask,
-        ambiguousMask,allowedMask,vetoMask,false,0xffffffffu);
+        ambiguousMask,allowedMask,vetoMask,0xffffffffu);
 }
 ");
         }
@@ -2885,7 +2827,8 @@ uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
     bool valid=true;
     [loop]for(uint axis=0u;axis<2u;axis++)
     {
-        M8FlowerInterval numerator=axis==0u?x:y;
+        M8FlowerInterval numerator;
+        if(axis==0u)numerator=x;else numerator=y;
         M8FlowerInterval component;
         bool componentValid=M8FlowerIDivPositive(numerator,q,component);
         if(axis==0u)root.x=component;else root.y=component;
@@ -3002,7 +2945,8 @@ bool M8FlowerSealRootIntervals(M8FlowerInterval2 first, M8FlowerInterval2 second
             M8FlowerISquare(y)),length) || !(length.lo > 0.0))return false;
     [loop]for(uint axis=0u;axis<2u;axis++)
     {
-        M8FlowerInterval numerator=axis==0u?x:y;
+        M8FlowerInterval numerator;
+        if(axis==0u)numerator=x;else numerator=y;
         M8FlowerInterval component;
         bool valid=M8FlowerIDivPositive(numerator,length,component);
         if(axis==0u)seal.x=component;else seal.y=component;
@@ -3042,9 +2986,9 @@ bool M8FlowerRotatePhaseMetric(M8FlowerInterval2 prediction,
     c=M8FlowerI(0.0,0.0);s=c;
     [loop]for(uint axis=0u;axis<2u;axis++)
     {
-        M8FlowerInterval numerator=axis==0u?
-            M8FlowerISub(M8FlowerI(1.0,1.0),squared):
-            M8FlowerIMul(M8FlowerI(2.0,2.0),turn);
+        M8FlowerInterval numerator;
+        if(axis==0u)numerator=M8FlowerISub(M8FlowerI(1.0,1.0),squared);
+        else numerator=M8FlowerIMul(M8FlowerI(2.0,2.0),turn);
         M8FlowerInterval component;
         if(!M8FlowerIDivPositive(numerator,denominator,component))return false;
         if(axis==0u)c=component;else s=component;
@@ -4009,10 +3953,13 @@ M8FlowerInterval M8DepthIntervalRow(float4 row, M8FlowerInterval3 positionInterv
     M8FlowerInterval result=M8FlowerI(0.0,0.0);
     [loop] for(uint axis=0u;axis<3u;++axis)
     {
-        M8FlowerInterval component=axis==0u?positionInterval.x:
-            (axis==1u?positionInterval.y:positionInterval.z);
+        M8FlowerInterval component;
+        if(axis==0u)component=positionInterval.x;
+        else if(axis==1u)component=positionInterval.y;
+        else component=positionInterval.z;
         M8FlowerInterval product=M8FlowerIMul(M8FlowerI(row[axis],row[axis]),component);
-        result=axis==0u?product:M8FlowerIAdd(result,product);
+        if(axis==0u)result=product;
+        else result=M8FlowerIAdd(result,product);
     }
     return M8FlowerIAdd(result,M8FlowerI(row.w,row.w));
 }
@@ -4022,10 +3969,13 @@ M8FlowerInterval M8FlowerObservedDot(M8FlowerInterval3 a, M8FlowerInterval3 b)
     M8FlowerInterval result=M8FlowerI(0.0,0.0);
     [loop] for(uint axis=0u;axis<3u;++axis)
     {
-        M8FlowerInterval left=axis==0u?a.x:(axis==1u?a.y:a.z);
-        M8FlowerInterval right=axis==0u?b.x:(axis==1u?b.y:b.z);
+        M8FlowerInterval left,right;
+        if(axis==0u){left=a.x;right=b.x;}
+        else if(axis==1u){left=a.y;right=b.y;}
+        else{left=a.z;right=b.z;}
         M8FlowerInterval product=M8FlowerIMul(left,right);
-        result=axis==0u?product:M8FlowerIAdd(result,product);
+        if(axis==0u)result=product;
+        else result=M8FlowerIAdd(result,product);
     }
     return result;
 }

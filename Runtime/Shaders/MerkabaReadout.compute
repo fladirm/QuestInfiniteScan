@@ -2,6 +2,10 @@
 #pragma kernel CompactDirtyFlowerSymbols
 #pragma kernel PublishDirtyFlowerPages
 #pragma kernel CullFlowerPages
+// Keep bounded generated loops intact in the Quest compiler, as in the
+// procedural graphics pass. The FXC/HLSLcc route tries to unroll the exact
+// codec through its callers and rejects its explicit loop attributes.
+#pragma use_dxc vulkan
 
 #include "MerkabaWorld.hlsl"
 #define M8_FLOWER_THREAD_DRAW_WRITE
@@ -97,6 +101,8 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
     int3 owner=M8FlowerEndpointOwner(slot,local);
     uint completion=emit?m8FlowerPageCompletion[local]:0xffffffffu;
     uint2 failedDirect=0u,parentDirect=0u,pending=0u,proven=0u;
+    M8FlowerDirectAnchors directAnchors;
+    M8FlowerResetDirectAnchors(directAnchors);
     uint selectedToken=0xffffffffu,sourcePass=emit?2u:0u;
     bool ambiguousCompletion=false;
     // D must be complete before the boundary equation is evaluated. Reuse
@@ -136,12 +142,14 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
             uint evaluatedUnresolved,evaluatedDirect;
             uint evaluatedStatus=M8FlowerPageCarrier(address.x,address.y,targetCarrier,
                 _M8FlowerPlaneErrorBounds,visit==0u?completion:0xffffffffu,
-                visit==0u && sourcePass==1u,evaluatedSymbol,evaluatedUnresolved,
+                visit==0u && sourcePass!=2u,evaluatedSymbol,evaluatedUnresolved,
                 evaluatedDirect,evaluatedRoots,evaluatedPositions);
             if(visit==0u)
             {
                 symbol=evaluatedSymbol;status=evaluatedStatus;
                 unresolved=evaluatedUnresolved;direct=evaluatedDirect;
+                if(sourcePass==0u)
+                    M8FlowerRecordDirectAnchors(carrier,direct,evaluatedRoots,directAnchors);
                 if(sourcePass!=2u || emit || status!=1u)break;
                 collectCoverage=M8FlowerSupportCarrierCells(owner,carrier,
                     M8FlowerDrawActiveWedgeMask(symbol),evaluatedRoots,carrierFirst,carrierLast);
@@ -211,7 +219,8 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
     if(sourcePass==2u)break;
     if(sourcePass==0u)
     {
-        parentDirect=~failedDirect&uint2(0xffffffffu,0xffffu);
+        parentDirect=~failedDirect&uint2(0xffffffffu,0xffffu)&
+            M8FlowerDirectAnchorMask(directAnchors);
         pending=M8FlowerCompletionBoundaryCandidates(parentDirect);
     }
     else if(childProof==1u)
@@ -231,7 +240,7 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
         uint petal=32u*word+(uint)firstbitlow(pending[word]);
         pending[word]&=pending[word]-1u;
         uint status=M8FlowerPrepareCompletionPetal(slot,local,_M8FlowerPlaneErrorBounds,
-            parentDirect,petal,completion);
+            parentDirect,petal,directAnchors,completion);
         if(status==1u){sourcePass=1u;break;}
         if(status==2u)ambiguousCompletion=true;
     }

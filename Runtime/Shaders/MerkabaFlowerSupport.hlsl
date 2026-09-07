@@ -391,7 +391,7 @@ uint M8FlowerSupportR3RootDual(int3 owner,uint nodeIndex,M8FlowerPhaseRootEviden
 // are evaluated, one at a time. The finite selector consumes compact q/tag
 // evidence, never a fabricated all-allowed mask or a cache of world positions.
 M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
-    uint flags,float2 errors,bool incidentReferences,uint requiredPetal)
+    uint flags,float2 errors,uint requiredPetal)
 {
     M8FlowerInterval q[8];uint tags[8];
     uint known=0u,ambiguous=0u,allowed=0u,veto=0u;
@@ -411,13 +411,13 @@ M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 ow
         else if(dual==1u)veto|=bit;
     }
     return M8FlowerSelectR3Junction(parity,q,tags,known,ambiguous,allowed,veto,
-        incidentReferences,requiredPetal);
+        requiredPetal);
 }
 
 M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
     uint flags,float2 errors)
 {
-    return M8FlowerReadR3Junction(slot,ownerRef,owner,flags,errors,false,0xffffffffu);
+    return M8FlowerReadR3Junction(slot,ownerRef,owner,flags,errors,0xffffffffu);
 }
 
 // Same invocation in the count and emit passes; the caller's source lease
@@ -492,10 +492,77 @@ uint M8FlowerPageCarrier(uint slot,uint local,uint carrier,float2 errors,
         directWedges,roots,positions);
 }
 
-// Completion consumes only the frozen direct boundary. A derived result is
-// never inserted into this input, including while another candidate is read.
+// The immutable direct pass records the actual selected original anchors.
+// These are 48-bit sign/seen planes, not another root or position cache.
+// Same owner/node/sign under the source lease reproduces the identical
+// symbolic root and enclosure; disagreements remove the whole source petal.
+struct M8FlowerDirectAnchors
+{
+    uint2 Signs[3];
+    uint2 Seen[3];
+    uint2 Conflict;
+};
+
+void M8FlowerResetDirectAnchors(out M8FlowerDirectAnchors receipt)
+{
+    [unroll]for(uint anchor=0u;anchor<3u;anchor++)
+    {receipt.Signs[anchor]=0u;receipt.Seen[anchor]=0u;}
+    receipt.Conflict=0u;
+}
+
+void M8FlowerRecordDirectAnchors(uint carrier,uint directWedges,
+    M8FlowerPhaseRootEvidence roots[7],inout M8FlowerDirectAnchors receipt)
+{
+    [loop]for(uint wedge=0u;wedge<6u;wedge++)
+    {
+        if((directWedges&(1u<<wedge))==0u)continue;
+        uint petal=M8FlowerL2Wedge[6u*carrier+wedge].y>>4u;
+        uint word=petal>>5u,bit=1u<<(petal&31u);
+        uint3 sites=M8FlowerL2CarrierTriangle(wedge,false);
+        [loop]for(uint vertex=0u;vertex<3u;vertex++)
+        {
+            uint site=sites[vertex],sign=(roots[site].Tag>>7u)&1u;
+            M8FlowerGeometryNode original;
+            if(!M8FlowerL2GeometryNode(M8FlowerL2CarrierKnot(carrier,site),sign!=0u,original))
+            {receipt.Conflict[word]|=bit;continue;}
+            if(original.Level!=0u)continue;
+            uint anchor=3u,node=0u;
+            [unroll]for(uint candidate=0u;candidate<3u;candidate++)
+            {
+                uint incident=M8FlowerPetalNodes[petal][candidate];
+                if((uint)M8FlowerNode[incident].w==original.Line &&
+                    all(M8FlowerNode[incident].xyz==original.Offset))
+                {anchor=candidate;node=incident;}
+            }
+            uint2 references;uint sector;
+            if(anchor==3u || roots[site].Classification!=1u || (roots[site].Tag&7u)!=0u ||
+                !M8FlowerPhaseRootSector(roots[site],sector) ||
+                !M8FlowerAnchorRootReferences(node,roots[site].Tag,references) ||
+                (references[word]&bit)==0u)
+            {receipt.Conflict[word]|=bit;continue;}
+            if((receipt.Seen[anchor][word]&bit)!=0u &&
+                (((receipt.Signs[anchor][word]&bit)!=0u)!=(sign!=0u)))
+                receipt.Conflict[word]|=bit;
+            else
+            {
+                receipt.Seen[anchor][word]|=bit;
+                if(sign!=0u)receipt.Signs[anchor][word]|=bit;
+            }
+        }
+    }
+}
+
+uint2 M8FlowerDirectAnchorMask(M8FlowerDirectAnchors receipt)
+{
+    return receipt.Seen[0]&receipt.Seen[1]&receipt.Seen[2]&~receipt.Conflict;
+}
+
+// Completion consumes only the frozen direct boundary. The stored sign is
+// regenerated through the SAME endpoint reader; root-owner masks never
+// reselect it. Derived results are never inserted into this receipt.
 uint M8FlowerCompletionDonor(uint slot,uint ownerRef,int3 owner,uint flags,
-    float2 errors,uint petal,uint anchor,uint2 direct,out M8FlowerPhaseRootEvidence selected)
+    float2 errors,uint petal,uint anchor,uint2 direct,M8FlowerDirectAnchors receipt,
+    out M8FlowerPhaseRootEvidence selected)
 {
     selected=(M8FlowerPhaseRootEvidence)0;
     uint node=M8FlowerPetalNodes[petal][anchor];
@@ -506,25 +573,25 @@ uint M8FlowerCompletionDonor(uint slot,uint ownerRef,int3 owner,uint flags,
         uint bits=donors[word];
         [loop]while(bits!=0u)
         {
-            uint donor=32u*word+(uint)firstbitlow(bits);bits&=bits-1u;
-            uint matches=0u;M8FlowerPhaseRootEvidence root=(M8FlowerPhaseRootEvidence)0;
-            [loop]for(uint sign=0u;sign<2u;sign++)
-            {
-                M8FlowerPhaseRootEvidence candidate;bool provisional;uint2 allowed;
-                uint status=M8FlowerReadOriginalShared(slot,ownerRef,owner,flags,node,sign!=0u,
-                    errors.x,errors.y,candidate,provisional);
-                if(status==0u)continue;
-                if(status!=1u || !M8FlowerAnchorRootFlags(node,candidate.Tag,allowed))return 2u;
-                if((allowed[donor>>5u]&(1u<<(donor&31u)))==0u)continue;
-                if(provisional || matches!=0u)return 2u;
-                root=candidate;matches|=1u<<sign;
-            }
-            if(matches==0u)return 2u;
-            uint2 allowed,references;
-            if(!M8FlowerAnchorRootFlags(node,root.Tag,allowed))return 2u;
-            if(M8FlowerAnchorBoundaryReferences(node,root.Tag,references))allowed|=references;
+            uint donor=32u*word+(uint)firstbitlow(bits),bit=1u<<(donor&31u);
+            bits&=bits-1u;
+            uint donorAnchor=3u;
+            [unroll]for(uint candidate=0u;candidate<3u;candidate++)
+                if(M8FlowerPetalNodes[donor][candidate]==node)donorAnchor=candidate;
+            if(donorAnchor==3u || (receipt.Seen[donorAnchor][word]&bit)==0u ||
+                (receipt.Conflict[word]&bit)!=0u)return 2u;
+            bool sign=(receipt.Signs[donorAnchor][word]&bit)!=0u;
+            M8FlowerPhaseRootEvidence root;bool provisional;uint2 allowed;uint sector;
+            uint read=M8FlowerReadOriginalShared(slot,ownerRef,owner,flags,node,sign,
+                errors.x,errors.y,root,provisional);
+            if(read!=1u || provisional || !M8FlowerPhaseRootSector(root,sector) ||
+                !M8FlowerAnchorRootReferences(node,root.Tag,allowed) ||
+                (allowed[word]&bit)==0u)return 2u;
             if((allowed[petal>>5u]&(1u<<(petal&31u)))==0u)return 0u;
-            if(!found){selected=root;found=true;continue;}
+            if(!found)
+            {
+                selected=root;found=true;continue;
+            }
             if(any(selected.Junction!=root.Junction) ||
                 ((selected.Tag^root.Tag)&0x1fffu)!=0u)return 0u;
             M8FlowerPhaseRootEvidence closed;
@@ -540,7 +607,7 @@ uint M8FlowerCompletionDonor(uint slot,uint ownerRef,int3 owner,uint flags,
 // The caller MUST still consume all sixteen children at its one shared
 // carrier-evaluation call site before admitting this token as COMPLETED.
 uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
-    uint2 direct,uint petal,out uint token)
+    uint2 direct,uint petal,M8FlowerDirectAnchors receipt,out uint token)
 {
     token=petal;
     KernelState state=M8LoadKernelStateRead(slot,local);
@@ -553,7 +620,7 @@ uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
     {
         M8FlowerPhaseRootEvidence root;
         uint status=M8FlowerCompletionDonor(slot,ownerRef,owner,state.flags,errors,
-            petal,anchor,direct,root);
+            petal,anchor,direct,receipt,root);
         if(status==0u)return 0u;
         if(status!=1u){uncertain=true;continue;}
         token|=((root.Tag>>7u)&1u)<<(6u+anchor);
@@ -564,7 +631,7 @@ uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
     }
     if(uncertain)return 2u;
     M8FlowerJunctionSelection junction=M8FlowerReadR3Junction(slot,ownerRef,owner,
-        state.flags,errors,true,petal);
+        state.flags,errors,petal);
     if(junction.Classification!=1u)return junction.Classification==0u?0u:2u;
     uint junctionAxis=4u;uint2 rule=M8FlowerJunctionRule[junction.ClassIndex];
     [unroll]for(uint axis=0u;axis<4u;axis++)

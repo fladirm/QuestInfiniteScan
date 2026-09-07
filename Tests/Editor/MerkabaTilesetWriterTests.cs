@@ -37,6 +37,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(parsed.Normals.Length, Is.EqualTo(parsed.Positions.Length));
             Assert.That(parsed.Colors.Length, Is.EqualTo(parsed.Positions.Length));
             Assert.That(parsed.Indices.Length % 3, Is.Zero);
+            Assert.That(parsed.Indices.Length, Is.EqualTo(3 * flower.TriangleCount),
+                "Every current primitive/index accessor must be consumed, not only accessor 3.");
+            Assert.That(parsed.Primitives.Sum(value => value.IndexCount), Is.EqualTo(parsed.Indices.Length));
+            Assert.That(parsed.Images.All(value => value == null), Is.True,
+                "Uniform captured RGB needs no decoded texture.");
+            Assert.That(parsed.Materials.All(value => value.Image == -1), Is.True,
+                "An absent baseColorTexture is not JsonUtility's constructed default texture reference.");
             Assert.That(parsed.Positions.Any(value =>
                 Vector3.Distance(value + origin - center,
                     (Vector3)flower.Positions[0] - center) < 1e-6f),
@@ -50,6 +57,170 @@ namespace Genesis.RoomScan.Tests
             Assert.That(streamedParsed.Indices, Is.EqualTo(parsed.Indices));
             Assert.That(streamedParsed.DecodedBytes, Is.EqualTo(
                 parsed.DecodedBytes));
+        }
+
+        [Test]
+        public void QuestArtifactPreviewConsumesCapturedTextureSubmeshAndKeepsStyleSeparate()
+        {
+            MerkabaFlowerPresentation flower = MerkabaFlowerWriterFixture.Create();
+            var carrier = flower.Carriers[0];
+            carrier.Symbol = MerkabaFlowerSymbolRecord.CreateCarrier(0, 0, 1, false, false, 1u, 0u, 0, 0u, 0u);
+            carrier.SkinHeader = new MerkabaFlowerSkinDrawHeader { SplitBitsLo = 1u, ParentEpoch = 1u };
+            carrier.SkinSamples = new MerkabaFlowerSkinDrawSample[8];
+            for (int sample = 0; sample < carrier.SkinSamples.Length; sample++)
+                carrier.SkinSamples[sample].CapturedRgb = sample == 0 ? new float3(0f, 0f, 1f) :
+                    (sample & 1) == 0 ? new float3(1f, 0f, 0f) : new float3(0f, 1f, 0f);
+            flower.TriangleCount = 1;
+            using var stream = new MemoryStream();
+            MerkabaGlbWriter.Write(stream, flower, float3.zero);
+            var parsed = MerkabaArtifactViewer.ParseGlbForPreview(stream.ToArray());
+            Assert.That(parsed.Indices.Length, Is.EqualTo(3));
+            Assert.That(parsed.Uvs.Length, Is.EqualTo(parsed.Positions.Length));
+            Assert.That(parsed.Primitives.Length, Is.EqualTo(1));
+            int materialIndex = parsed.Primitives[0].Material;
+            int imageIndex = parsed.Materials[materialIndex].Image;
+            Assert.That(imageIndex, Is.GreaterThanOrEqualTo(0));
+            Assert.That(parsed.Images[imageIndex], Is.Not.Null);
+            Assert.That(parsed.Materials[0].Image, Is.EqualTo(-1),
+                "A uniform material remains untextured even when another material embeds a texture.");
+            foreach (string uri in new[] { "\"\"", "\"https://invalid.example/capture.png\"", "null" })
+            {
+                byte[] external = RewritePreviewJson(stream.ToArray(), json => json.Replace(
+                    "\"mimeType\":\"image/png\"", "\"mimeType\":\"image/png\",\"uri\":" + uri));
+                Assert.Throws<InvalidDataException>(() => MerkabaArtifactViewer.ParseGlbForPreview(external),
+                    "Image URI presence is forbidden, including empty/default-like values.");
+            }
+            Assert.That(parsed.DecodedBytes, Is.GreaterThanOrEqualTo(4L * 256 * 256));
+            var shader = UnityEditor.AssetDatabase.LoadAssetAtPath<Shader>(
+                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaArtifactPreview.shader");
+            Assert.That(shader, Is.Not.Null);
+            var template = new Material(shader);
+            try
+            {
+                MerkabaArtifactViewer.ConfigureMaterial(template, Color.white, true);
+                using var preview = MerkabaArtifactViewer.PreviewGlb.Create(parsed, template, "Captured fixture");
+                Assert.That(preview.Mesh.subMeshCount, Is.EqualTo(1));
+                Assert.That(preview.Mesh.triangles, Is.EqualTo(parsed.Indices));
+                Assert.That(preview.Mesh.uv, Is.EqualTo(parsed.Uvs));
+                Texture texture = preview.Materials[0].GetTexture("_BaseMap");
+                Assert.That(texture, Is.Not.SameAs(Texture2D.whiteTexture));
+                Assert.That(texture.width, Is.EqualTo(256));
+                var pixels = ((Texture2D)texture).GetPixels32();
+                Assert.That(pixels.Any(value => value.r != 255 || value.g != 255 || value.b != 255), Is.True);
+                const int n = MerkabaFlowerMaterialBake.Resolution;
+                float edge = 0.5f / n;
+                Assert.That(parsed.Uvs, Is.EqualTo(new[]
+                {
+                    new Vector2(edge, 1f - edge), new Vector2(1f - edge, 1f - edge),
+                    new Vector2(edge, edge)
+                }));
+                flower.WedgeFrame(carrier, 0, out _, out _, out _, out float3 du, out float3 dv);
+                foreach (int2 point in new[] { new int2(13, 17), new int2(97, 7), new int2(11, 151),
+                             new int2(142, 80), new int2(233, 13) })
+                {
+                    float3 bc = new float3(n - 1 - point.x - point.y, point.x, point.y) / (n - 1f);
+                    var source = MerkabaSphereFlowerAuthority.EvaluateSkinDrawSignal(carrier.SkinHeader,
+                        carrier.SkinSamples, 0, bc, du, dv, out _, out _, out _);
+                    // This fixture uses exact 0/1 channels, so PNG quantization
+                    // and sRGB decode preserve the expected channels exactly.
+                    Color expected = new(source.CapturedRgb.x, source.CapturedRgb.y, source.CapturedRgb.z, 1f);
+                    int row = n - 1 - point.y;
+                    Assert.That(((Texture2D)texture).GetPixel(point.x, row).linear, Is.EqualTo(expected),
+                        "Baker PNG row must be the actual vertically corresponding Unity row.");
+                    Vector2 center = new((point.x + 0.5f) / n, (row + 0.5f) / n);
+                    Assert.That(preview.SampleCapture(0, center), Is.EqualTo(expected),
+                        "A raster texel center must not blend with the next CPU texel.");
+                }
+                int patch = -1;
+                for (int y = 0; y < n - 1 && patch < 0; y++)
+                for (int x = 0; x < n - 1; x++)
+                {
+                    int p = y * n + x;
+                    if (pixels[p].Equals(pixels[p + 1]) && pixels[p].Equals(pixels[p + n]) &&
+                        pixels[p].Equals(pixels[p + n + 1])) continue;
+                    patch = p; break;
+                }
+                Assert.That(patch, Is.GreaterThanOrEqualTo(0), "Fixture must exercise actual chromatic filtering.");
+                Color mean = (((Color)pixels[patch]).linear + ((Color)pixels[patch + 1]).linear +
+                    ((Color)pixels[patch + n]).linear + ((Color)pixels[patch + n + 1]).linear) * 0.25f;
+                Assert.That(preview.SampleCapture(0, new Vector2((patch % n + 1f) / n, (patch / n + 1f) / n)),
+                    Is.EqualTo(mean), "Decode all four sRGB taps BEFORE the linear blend.");
+                Assert.That(preview.SampleCapture(0, new Vector2(-1f, -1f)),
+                    Is.EqualTo(((Color)pixels[0]).linear));
+                Assert.That(preview.SampleCapture(0, new Vector2(2f, 2f)),
+                    Is.EqualTo(((Color)pixels[pixels.Length - 1]).linear));
+                template.SetColor("_BaseColor", new Color(0.2f, 0.4f, 0.6f, 0.5f));
+                preview.ApplyStyle(template);
+                Assert.That(preview.Materials[0].GetTexture("_BaseMap"), Is.SameAs(texture));
+                Assert.That(preview.Materials[0].GetColor("_CapturedColorFactor"),
+                    Is.EqualTo(parsed.Materials[materialIndex].ColorFactor));
+            }
+            finally { UnityEngine.Object.DestroyImmediate(template); }
+        }
+
+        [TestCase("\"baseColorTexture\":null")]
+        [TestCase("\"baseColorTexture\":{}")]
+        [TestCase("\"baseColorTexture\":[]")]
+        [TestCase("\"baseColorTexture\":{\"index\":-1}")]
+        [TestCase("\"baseColorTexture\":{\"index\":2147483648}")]
+        [TestCase("\"baseColorTexture\":{\"index\":\"0\"}")]
+        [TestCase("\"baseColorTexture\":{\"index\":0}")]
+        [TestCase("\"_m8PreviewHasBaseColorTexture\":true")]
+        [TestCase("\"_m8PreviewHasIndex\":true")]
+        public void QuestArtifactPreviewRejectsMalformedPresentTextureWithoutFallback(string property)
+        {
+            using var stream = new MemoryStream();
+            MerkabaGlbWriter.Write(stream, MerkabaFlowerWriterFixture.Create(), float3.zero);
+            byte[] malformed = RewritePreviewJson(stream.ToArray(), json => json.Replace(
+                "\"pbrMetallicRoughness\":{", "\"pbrMetallicRoughness\":{" + property + ","));
+            Assert.Throws<InvalidDataException>(() => MerkabaArtifactViewer.ParseGlbForPreview(malformed));
+        }
+
+        [Test]
+        public void QuestArtifactPreviewIgnoresTextureWordsInsideJsonStringValues()
+        {
+            using var stream = new MemoryStream();
+            MerkabaGlbWriter.Write(stream, MerkabaFlowerWriterFixture.Create(), float3.zero);
+            byte[] glb = RewritePreviewJson(stream.ToArray(), json =>
+                "{\"note\":\"\\\"baseColorTexture\\\":{\\\"index\\\":0},_m8PreviewHasIndex\"," + json.Substring(1));
+            var parsed = MerkabaArtifactViewer.ParseGlbForPreview(glb);
+            Assert.That(parsed.Materials.All(value => value.Image == -1), Is.True);
+            Assert.That(parsed.Images.All(value => value == null), Is.True);
+        }
+
+        private static byte[] RewritePreviewJson(byte[] glb, Func<string, string> rewrite)
+        {
+            int oldLength = checked((int)BitConverter.ToUInt32(glb, 12));
+            string json = Encoding.UTF8.GetString(glb, 20, oldLength).TrimEnd(' ', '\0');
+            byte[] changed = Encoding.UTF8.GetBytes(rewrite(json));
+            int length = checked((changed.Length + 3) & ~3);
+            using var output = new MemoryStream();
+            using var writer = new BinaryWriter(output);
+            writer.Write(0x46546c67u); writer.Write(2u);
+            writer.Write(checked((uint)(glb.Length - oldLength + length)));
+            writer.Write(length); writer.Write(0x4e4f534au); writer.Write(changed);
+            for (int pad = changed.Length; pad < length; pad++) writer.Write((byte)' ');
+            writer.Write(glb, 20 + oldLength, glb.Length - 20 - oldLength);
+            return output.ToArray();
+        }
+
+        [Test]
+        public void QuestArtifactPreviewConsumesDirtFactorWithoutAllocatingTexture()
+        {
+            using var stream = new MemoryStream();
+            MerkabaGlbWriter.WriteDirt(stream, new[] { new MerkabaDirtTriangle(new int3(-8), 0, 0) }, float3.zero);
+            var parsed = MerkabaArtifactViewer.ParseGlbForPreview(stream.ToArray());
+            ParsedDirtAssertions(parsed);
+        }
+
+        private static void ParsedDirtAssertions(MerkabaArtifactViewer.ParsedGlb parsed)
+        {
+            Assert.That(parsed.Indices.Length, Is.EqualTo(3));
+            Assert.That(parsed.Images.All(value => value == null), Is.True);
+            var material = parsed.Materials[parsed.Primitives[0].Material];
+            Assert.That(material.Image, Is.EqualTo(-1));
+            float4 support = MerkabaSphereFlowerAuthority.DirtSupportLinearRgba;
+            Assert.That(material.ColorFactor, Is.EqualTo(new Color(support.x, support.y, support.z, support.w)));
         }
 
         [Test]
@@ -457,10 +628,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(tileset, Does.Contain("MerkabaGlbWriter.Write"));
             Assert.That(tileset, Does.Not.Contain("LargeGlbWriter"));
             Assert.That(tileset, Does.Contain("float3 LocalOrigin"));
-            Assert.That(tileset.IndexOf("File.Move(temporaryPath, finalPath)",
-                    StringComparison.Ordinal), Is.LessThan(tileset.IndexOf(
-                    "File.Move(manifestTemporary, manifest)",
-                    StringComparison.Ordinal)));
+            int leafPublish = tileset.IndexOf("File.Move(temporaryPath, finalPath)", StringComparison.Ordinal);
+            int manifestPublish = tileset.IndexOf("File.Move(temporary, manifest)", StringComparison.Ordinal);
+            Assert.That(leafPublish, Is.GreaterThanOrEqualTo(0), "Bounded GLB leaf must be published.");
+            Assert.That(manifestPublish, Is.GreaterThan(leafPublish), "Durable manifest publication must follow its leaves.");
             Assert.That(exporter, Does.Contain(
                 "MerkabaFilePublishing.Publish(temporaryArchive,"));
             Assert.That(exporter, Does.Contain(

@@ -3,6 +3,8 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
     Properties
     {
         _BaseColor("Base Color", Color) = (1, 1, 1, 1)
+        _CapturedColorFactor("Captured Material Factor", Color) = (1, 1, 1, 1)
+        _BaseMap("Captured RGB", 2D) = "white" {}
         [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend("Source Blend", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend("Destination Blend", Float) = 0
         [Toggle] _ZWrite("Depth Write", Float) = 1
@@ -39,14 +41,18 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _BaseColor;
+                half4 _CapturedColorFactor;
                 half4 _PlanColor;
                 half _AlphaDither;
             CBUFFER_END
+            TEXTURE2D(_BaseMap);
+            SAMPLER(sampler_BaseMap);
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
                 half4 color : COLOR;
+                float2 uv : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -55,6 +61,7 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
                 float4 positionCS : SV_POSITION;
                 float3 worldPosition : TEXCOORD0;
                 half4 color : COLOR;
+                float2 uv : TEXCOORD1;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -66,14 +73,15 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
                 output.worldPosition = TransformObjectToWorld(
                     input.positionOS.xyz);
                 output.positionCS = TransformWorldToHClip(output.worldPosition);
-                output.color = input.color * _BaseColor;
+                output.color = input.color * _BaseColor * _CapturedColorFactor;
+                output.uv = input.uv;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-                half4 displayColor = input.color;
+                half4 displayColor = input.color * SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
 #if defined(M8_ARTIFACT_PLAN)
                 displayColor = _PlanColor;
 #endif

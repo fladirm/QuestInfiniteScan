@@ -40,8 +40,8 @@ struct M8FlowerPageBuild
     uint SampleCapacity;
 };
 
-ByteAddressBuffer _M8FlowerSymbolArenaRead;
-ByteAddressBuffer _M8FlowerPageDirectoryRead;
+ByteAddressBuffer _M8FlowerSymbolArenaRead M8_FLOWER_SRV(t9);
+ByteAddressBuffer _M8FlowerPageDirectoryRead M8_FLOWER_SRV(t10);
 #if defined(M8_FLOWER_PAGE_WRITE)
 RWByteAddressBuffer _M8FlowerSymbolArena;
 RWByteAddressBuffer _M8FlowerPageDirectory;

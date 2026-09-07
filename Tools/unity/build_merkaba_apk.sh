@@ -2,6 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# Keep the whole compiler/Gradle process tree inside a bounded host-only
+# scope. A shader compiler failure must not exhaust RAM in the Codex session.
+# CPU affinity limits concurrent compiler workers, not the generated GPU WGs.
+if [[ "${QIS_UNITY_BUILD_SCOPE:-0}" != 1 ]]; then
+  exec systemd-run --user --scope --quiet \
+    -p MemoryHigh=12G -p MemoryMax=16G -p MemorySwapMax=2G \
+    taskset --cpu-list "${QIS_UNITY_BUILD_CPUS:-0-1}" \
+    env QIS_UNITY_BUILD_SCOPE=1 bash "${SCRIPT_DIR}/build_merkaba_apk.sh" "$@"
+fi
 source "${SCRIPT_DIR}/../storage/dev_environment.sh"
 ulimit -n 65536
 "${SCRIPT_DIR}/verify_unity_install.sh" >/dev/null
@@ -22,6 +31,7 @@ fi
 "${QIS_UNITY_EXECUTABLE}" \
   -batchmode \
   -nographics \
+  -job-worker-count 2 \
   -buildTarget Android \
   -projectPath "${QIS_UNITY_HOST_PROJECT}" \
   -executeMethod Genesis.RoomScan.Editor.RoomScanSetupWizard.PrepareQuestMerkabaScanProject \
@@ -36,6 +46,7 @@ fi
 "${QIS_UNITY_EXECUTABLE}" \
   -batchmode \
   -nographics \
+  -job-worker-count 2 \
   -buildTarget Android \
   -projectPath "${QIS_UNITY_HOST_PROJECT}" \
   -executeMethod Genesis.RoomScan.Editor.RoomScanSetupWizard.BuildQuestMerkabaScanApk \

@@ -40,8 +40,9 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.xr.arfoundation/Assets/Shaders/Utils.hlsl"
-            TEXTURE2D_ARRAY_FLOAT(_EnvironmentDepthTexture);
-            SAMPLER(sampler_EnvironmentDepthTexture);
+            // t0..t11 are the shared Flower SRVs (FlowerVertex.hlsl).
+            TEXTURE2D_ARRAY_FLOAT(_EnvironmentDepthTexture) : register(t12);
+            SAMPLER(sampler_EnvironmentDepthTexture) : register(s0);
             float4x4 _EnvironmentDepthProjectionMatrices[2];
             int _IsOcclusionOn;
             float4x4 _MerkabaGridToWorld;

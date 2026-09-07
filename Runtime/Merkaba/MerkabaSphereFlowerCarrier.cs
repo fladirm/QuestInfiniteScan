@@ -125,6 +125,26 @@ namespace Genesis.RoomScan
         public static ReadOnlySpan<ushort> L2WedgeOwnerOffsets => L2OwnershipData.Offsets;
         public static ReadOnlySpan<L2WedgeOwnerRule> L2WedgeOwners => L2OwnershipData.Owners;
 
+        private static class L2BranchData
+        {
+#if UNITY_EDITOR
+            internal static readonly uint4[] Masks = BuildL2CarrierBranchMasks();
+#else
+            internal static readonly uint4[] Masks = LoadGeneratedL2CarrierBranchMasks();
+#endif
+            static L2BranchData()
+            {
+                if (Masks.Length != L2HubCount)
+                    throw new InvalidOperationException("Invalid L2 prediction-branch table extent.");
+            }
+        }
+
+        // Bit s admits the seven root-sign bits of assignment s. This is
+        // only prediction ancestry consistency, not geometric admission:
+        // a selected ancestor must have the same canonical root sign used
+        // by the selected child's prediction. Both uniform signs survive.
+        public static ReadOnlySpan<uint4> L2CarrierBranchMasks => L2BranchData.Masks;
+
         private static class L2EdgeData
         {
 #if UNITY_EDITOR
@@ -340,6 +360,112 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
+        private static uint4[] BuildL2CarrierBranchMasks()
+        {
+            var result = new uint4[L2HubCount];
+            for (int carrier = 0; carrier < L2HubCount; carrier++)
+            {
+                var levels = new int[L2CarrierSiteCount];
+                var lines = new int[L2CarrierSiteCount];
+                var offsets = new int3[L2CarrierSiteCount];
+                var required = new uint[L2CarrierSiteCount];
+                var ancestry = new List<(int Child, int Ancestor)>();
+                for (int site = 0; site < L2CarrierSiteCount; site++)
+                {
+                    int knot = L2CarrierKnotIndex(carrier, site);
+                    if (!TryGetL2KnotLoop(knot, out levels[site], out offsets[site], out lines[site]))
+                        throw new InvalidOperationException("L2 branch transport requires an exact original loop.");
+                    for (int previous = 0; previous < site; previous++)
+                        if (levels[site] == levels[previous] && lines[site] == lines[previous] &&
+                            math.all(offsets[site] == offsets[previous]))
+                            throw new InvalidOperationException("An L2 carrier repeats an original loop identity.");
+                }
+
+                for (int site = 0; site < L2CarrierSiteCount; site++)
+                {
+                    int knot = L2CarrierKnotIndex(carrier, site);
+                    int first = CarrierData.IncidenceOffsets[knot];
+                    int end = CarrierData.IncidenceOffsets[knot + 1];
+                    for (int incidence = first; incidence < end; incidence++)
+                    {
+                        var source = new L2KnotRule(CarrierData.IncidenceSources[incidence]);
+                        if (!TryGetChildPhaseLoop(source.Petal, source.ParentContext, source.KnotSite,
+                            out int level, out int3 offset, out int line, out int strandIndex,
+                            out sbyte endpointOrientation, out sbyte phaseOrientation, out int inherited) ||
+                            level != levels[site] || line != lines[site] || math.any(offset != offsets[site]))
+                            throw new InvalidOperationException("A creation incidence changes its selected L2 loop.");
+                        if (level == 0) continue;
+                        if (level > 2 || inherited >= 0 || (uint)strandIndex >= PhaseFamiliesValue.Length ||
+                            Math.Abs((int)endpointOrientation) != 1 || Math.Abs((int)phaseOrientation) != 1)
+                            throw new InvalidOperationException("Invalid new-knot prediction ancestry.");
+                        PhaseFamilyRule family = PhaseFamiliesValue[strandIndex];
+                        StrandRule strand = StrandsValue[strandIndex];
+                        NodeRule root = NodesValue[family.RootNode];
+                        if (root.LineClass != line)
+                            throw new InvalidOperationException("Prediction ancestry changes the canonical loop basis.");
+
+                        // These are precisely PredictGeometryNode's two
+                        // possible source addresses. Each is read with the
+                        // child's task.Plus, even when its R2 record is absent.
+                        // Endpoint reversal and residual phase orientation do
+                        // not flip that algebraic branch. Distinct creation
+                        // contexts may have different ancestry; check every
+                        // source without requiring identical whole traces.
+                        for (int ancestorLevel = 0; ancestorLevel < level; ancestorLevel++)
+                        {
+                            int3 ancestorOffset = ancestorLevel == 0 ? root.Direction :
+                                NodesValue[strand.Node0].Direction + NodesValue[strand.Node1].Direction;
+                            int matched = -1;
+                            for (int ancestorSite = 0; ancestorSite < L2CarrierSiteCount; ancestorSite++)
+                            {
+                                if (levels[ancestorSite] != ancestorLevel || lines[ancestorSite] != line ||
+                                    math.any(offsets[ancestorSite] != ancestorOffset)) continue;
+                                if (matched >= 0)
+                                    throw new InvalidOperationException("Prediction ancestry has multiple selected loop identities.");
+                                matched = ancestorSite;
+                            }
+                            // An ancestor outside these seven sites creates
+                            // no extra root/record requirement for this carrier.
+                            if (matched < 0) continue;
+                            required[site] |= 1u << matched;
+                            ancestry.Add((site, matched));
+                        }
+                    }
+                }
+
+                uint4 mask = default;
+                for (uint signs = 0u; signs < 128u; signs++)
+                {
+                    bool valid = true;
+                    foreach (var pair in ancestry)
+                        valid &= ((signs >> pair.Child) & 1u) == ((signs >> pair.Ancestor) & 1u);
+                    if (valid) mask[(int)(signs >> 5)] |= 1u << (int)(signs & 31u);
+                }
+                // Exhaustively validate the emitted truth table against all
+                // actual creation-source obligations, including complements.
+                // For example c77's knot272 reads selected L1 knot74; c12's
+                // knot145 reads selected L1 knot40. Neither relation chooses a
+                // sign: the selected child and ancestor bits must agree.
+                for (uint signs = 0u; signs < 128u; signs++)
+                {
+                    bool valid = true;
+                    for (int site = 0; site < L2CarrierSiteCount; site++)
+                    {
+                        uint selectedAncestors = signs & required[site];
+                        valid &= ((signs >> site) & 1u) == 0u ? selectedAncestors == 0u :
+                            selectedAncestors == required[site];
+                    }
+                    bool emitted = (mask[(int)(signs >> 5)] & (1u << (int)(signs & 31u))) != 0u;
+                    uint complement = signs ^ 127u;
+                    bool mirrored = (mask[(int)(complement >> 5)] & (1u << (int)(complement & 31u))) != 0u;
+                    if (emitted != valid || emitted != mirrored || ((signs == 0u || signs == 127u) && !emitted))
+                        throw new InvalidOperationException("L2 prediction-branch truth table changes a source root sign.");
+                }
+                result[carrier] = mask;
+            }
+            return result;
+        }
+
         private static ushort[] BuildL2EdgeIncidence()
         {
             var edges = new Dictionary<(int First, int Last), List<(int Wedge, int Edge, int First, int Last)>>();

@@ -89,7 +89,14 @@ namespace Genesis.RoomScan.Tests
                 Vector3 up = Vector3.Cross(normal, right);
                 Vector3 center = (Vector3)(float3)FirstOwner * A.LatticeStep +
                     direction * (A.LatticeStep * 0.5f);
-                const float measuredOffset = 0.006f;
+                // Both independent planes and the outward residual synthesis
+                // fit strictly inside the same generated R2 sector. The old
+                // coarse=0 / measured=0.006 pair had nonzero tau but its full
+                // synthesized enclosure crossed a sector and was not storable.
+                // These are ordinary offset-code centres, not uploaded roots;
+                // mandatory quantization and calibrated errors are unchanged.
+                const float coarseOffset = -32f * A.LatticeStep / 127f;
+                const float measuredOffset = -56f * A.LatticeStep / 127f;
                 Matrix4x4 viewInverse = Matrix4x4.identity;
                 viewInverse.SetColumn(0, new Vector4(right.x, right.y, right.z, 0));
                 viewInverse.SetColumn(1, new Vector4(up.x, up.y, up.z, 0));
@@ -158,20 +165,55 @@ namespace Genesis.RoomScan.Tests
                 _shader.SetInt("_M8ScanBlockSide", 5);
 
                 var records = new List<uint4>(16);
+                var measuredPlanes = new uint[2];
                 for (int pixel = 0; pixel < 2; pixel++)
                 {
                     Vector4 h = viewInverse * (projection.inverse *
                         new Vector4(pixel == 0 ? -0.5f : 0.5f, 0, depth * 2f - 1f, 1));
                     float3 world = new(h.x / h.w, h.y / h.w, h.z / h.w);
                     int3 first = (int3)math.floor(world / A.LatticeStep);
+                    int3 endpoint = pixel == 0 ? FirstOwner : SecondOwner;
+                    bool endpointIncluded = false;
                     for (int ordinal = 0; ordinal < 8; ordinal++)
                     {
                         int3 owner = A.OverlapOwner(first, ordinal);
                         Assert.That(math.all(owner >= 0 & owner < 8), Is.True,
                             "Every emitted observation owner must fit this one-tile fixture.");
+                        endpointIncluded |= math.all(owner == endpoint);
                         records.Add(new uint4(Local(owner), (uint)pixel, 0, 0));
                     }
+                    Assert.That(endpointIncluded, Is.True,
+                        "The actual reprojected pixel must belong to its fixed relation endpoint.");
+                    // The same camera/depth world sample supplies the CPU
+                    // representability precondition. No derived root is sent
+                    // to the GPU: it independently reduces the frozen records.
+                    float3 n = (float3)normal;
+                    float3 squared = n * n;
+                    n /= math.sqrt((squared.x + squared.y) + squared.z);
+                    float3 terms = (world - (float3)endpoint * A.LatticeStep) * n;
+                    measuredPlanes[pixel] = KernelState.SetSurfacePlane(
+                        MerkabaConstants.OccupiedFlag, n, (terms.x + terms.y) + terms.z);
                 }
+                uint coarsePlane = KernelState.SetSurfacePlane(MerkabaConstants.OccupiedFlag,
+                    (float3)normal, coarseOffset);
+                float normalError = math.asfloat(math.asuint(A.FloatInterval.Enclose(
+                    2.0 * Math.Sqrt(18.0) / 1023.0).Upper) + 1u);
+                float offsetError = math.asfloat(math.asuint(A.FloatInterval.Enclose(
+                    (double)A.LatticeStep / (2.0 * 127.0)).Upper) + 1u);
+                int3 relation = SecondOwner - FirstOwner;
+                Assert.That(A.CarrierRootProof(FirstOwner, coarsePlane, 0, relation, 4, false,
+                    normalError, offsetError, out var predicted), Is.EqualTo(A.ProofClassification.Certain));
+                Assert.That(A.EvaluateCarrierRelation(FirstOwner + SecondOwner, 4, false,
+                    measuredPlanes[0], measuredPlanes[1], normalError, offsetError,
+                    out var observed, out _), Is.EqualTo(A.ProofClassification.Certain));
+                var residual = A.AnalyzePhaseResidual(predicted, observed);
+                Assert.That(residual.Classification, Is.EqualTo(A.PhaseResidualClassification.CertainNonzero),
+                    "The actual frozen camera input must prove a representable nonzero residual before GPU execution.");
+                Assert.That(A.RotatePhaseEvidence(predicted,
+                    A.DecodePhaseInterval(residual.Lower, residual.Upper), out var synthesis),
+                    Is.EqualTo(A.ProofClassification.Certain));
+                Assert.That(A.CloseSharedPhaseRoot(synthesis, observed, out _),
+                    Is.EqualTo(A.ProofClassification.Certain));
                 _shader.SetInt("_M8ObservationRecordCapacity", records.Count);
                 Bind("_M8ObservationRecords", Upload(records.ToArray(), 16));
                 Bind("_M8ObservationTileBinsRead", Upload(new[]
@@ -193,6 +235,20 @@ namespace Genesis.RoomScan.Tests
                 Bind("_M8BlockChunkRefsRead", Upload(chunks, 4));
                 var tiles = new uint[64]; tiles[0] = 1;
                 Bind("_M8ChunkTileRefsRead", Upload(tiles, 4));
+                // The actual root-stage R3 reader and skin stage share the
+                // production dual hierarchy. Zero block metadata means the
+                // canonical unmaterialized FULL state; no leaf is invented.
+                foreach ((string name, int bytes) in new[]
+                {
+                    ("_M8DualBlockStateRead", MerkabaDualGpuLayout.BlockBufferBytes),
+                    ("_M8DualChunkStateRead", MerkabaDualGpuLayout.ChunkBufferBytes),
+                    ("_M8DualLeavesRead", MerkabaDualGpuLayout.LeafBufferBytes)
+                })
+                {
+                    var dual = Raw(bytes);
+                    dual.SetData(new uint[bytes / sizeof(uint)]);
+                    Bind(name, dual);
+                }
                 _tileRecords = Upload(new[] { new uint4(0, 0, 2, 0),
                     new uint4(ObservationToken, 0, 0, SlotGeneration) }, 16);
                 Bind("_M8TileRecords", _tileRecords);
@@ -202,10 +258,8 @@ namespace Genesis.RoomScan.Tests
                 foreach (int3 owner in new[] { FirstOwner, SecondOwner })
                 {
                     uint local = Local(owner);
-                    uint flags = KernelState.SetSurfacePlane(MerkabaConstants.OccupiedFlag,
-                        (float3)normal, 0f);
                     _canonicalStates[local] = new uint4((uint)MerkabaConstants.OccupiedOnThreshold,
-                        0xff808080u, 1, flags);
+                        0xff808080u, 1, coarsePlane);
                     bits[local >> 5].x |= 1u << (int)(local & 31u);
                 }
                 _states = Upload(_canonicalStates, 16);

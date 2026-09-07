@@ -1,6 +1,14 @@
 #ifndef GENESIS_MERKABA_FLOWER_VERTEX_INCLUDED
 #define GENESIS_MERKABA_FLOWER_VERTEX_INCLUDED
 
+// One graphics-only SRV register space across StructuredBuffer and raw views.
+// Unity's Vulkan DXC reflection must not auto-assign overlapping bindings when
+// multiview/fragment variants strip different portions of the shared readers.
+// t0 owner records, t1 chunk refs, t2..5 M8 banks, t6 tile records,
+// t7 detail, t8 thread/draw samples, t9 symbols, t10 directory, t11 halo.
+// MerkabaGrid.shader reserves t12 for its environment-depth texture.
+// Compute includes leave this annotation empty; resources/backing do not change.
+#define M8_FLOWER_SRV(registerName) : register(registerName)
 #include "MerkabaWorld.hlsl"
 #include "MerkabaFlowerPages.hlsl"
 #define M8_FLOWER_HALO_READ_ONLY
