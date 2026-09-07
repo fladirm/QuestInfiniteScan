@@ -23,6 +23,48 @@ struct M8FlowerGeometryNode
     bool Plus;
 };
 
+// A resolved metric bundle is NOT a generated junction-class decision.
+// q entries are usable only under ResolvedAxes; a missing entry is not zero.
+struct M8FlowerR3MetricEvidence
+{
+    M8FlowerInterval Scalar;
+    M8FlowerInterval3 Vector;
+    uint ResolvedAxes;
+    uint ExactZeroAxes;
+    uint ProvisionalAxes;
+    int BranchChirality;
+};
+
+bool M8FlowerGeometryTetraParity(int3 owner,M8FlowerGeometryNode node,out uint parity)
+{
+    parity=0u;
+    if(node.Level>2u || node.Line>=13u)return false;
+    int endpoint;
+    if(node.Level==0u)
+    {
+        if(node.RootNode>=26u || (uint)M8FlowerNode[node.RootNode].w!=node.Line ||
+            any(M8FlowerNode[node.RootNode].xyz!=node.Offset))return false;
+        endpoint=(node.RootNode&1u)==0u?1:-1;
+    }
+    else
+    {
+        uint level,lineClass,strand;int3 offset;int phase,inherited;
+        if(!M8FlowerTryGetChildPhaseLoop(node.Petal,node.ParentContext,node.KnotSite,
+            level,offset,lineClass,strand,endpoint,phase,inherited) || inherited>=0 ||
+            level!=node.Level || lineClass!=node.Line || any(offset!=node.Offset))return false;
+    }
+    if(endpoint!=1 && endpoint!=-1)return false;
+    int3 junction;
+    if(!M8FlowerPhaseJunction(owner,node.Level+1u,node.Offset,junction))return false;
+    int3 direction=endpoint*M8FlowerNode[2u*node.Line].xyz;
+    if(any(((junction^direction)&1)!=0))return false;
+    // Exact (J-d)/2 without overflowing J-d at INT_MIN/INT_MAX. The
+    // directed endpoint comes from substitution incidence, never +level.
+    int3 cell=(junction>>1)+(((junction&1)-direction)/2);
+    parity=((uint)cell.x&1u)|(((uint)cell.y&1u)<<1u)|(((uint)cell.z&1u)<<2u);
+    return true;
+}
+
 uint M8FlowerCarrierRootProof(int3 owner,uint flags,uint level,int3 offset,
     uint lineClass,bool plus,float normalError,float offsetError,
     out M8FlowerPhaseRootEvidence root)
@@ -223,7 +265,9 @@ bool M8FlowerApplyGeometryDetail(uint ownerRef,uint epoch,int3 owner,
         return status==1u;
     }
     // R3 stores eta*tau. Eta belongs to THIS endpoint's level-local frame.
-    uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
+    uint parity;
+    if(!M8FlowerGeometryTetraParity(owner,node,parity))
+    {root.Classification=2u;return false;}
     int eta=0;
     [unroll]for(uint axis=0u;axis<4u;axis++)
         if(M8FlowerTetraLine[parity][axis]==(int)node.Line)eta=M8FlowerTetraEta[parity][axis];
@@ -315,6 +359,77 @@ uint M8FlowerReadOriginalShared(uint ownerSlot,uint ownerRef,int3 owner,uint fla
     bool provisional;
     return M8FlowerReadOriginalShared(ownerSlot,ownerRef,owner,flags,nodeIndex,plus,
         normalError,offsetError,root,provisional);
+}
+
+// Metric enclosure and novelty are different predicates. A finite, proven
+// q interval around zero is usable closure evidence, but does not establish
+// that an innovation is exactly zero or authorize a persistent R3_PHASE.
+uint M8FlowerR3MetricResidual(M8FlowerPhaseRootEvidence predicted,M8FlowerPhaseRootEvidence observed,
+    uint parity,uint axis,out M8FlowerInterval q)
+{
+    q=M8FlowerI(0,0);
+    if(predicted.Classification==0u || observed.Classification==0u)return 0u;
+    if(parity>=8u || axis>=4u || predicted.Classification!=1u || observed.Classification!=1u ||
+        !M8FlowerPhaseIdentityValid(predicted) || !M8FlowerPhaseIdentityValid(observed))return 2u;
+    uint lineClass=(predicted.Tag>>3u)&15u,pSector,oSector;
+    if(!M8FlowerRootSector(lineClass,predicted.Root,pSector) ||
+        !M8FlowerRootSector((observed.Tag>>3u)&15u,observed.Root,oSector))return 2u;
+    if(any(predicted.Junction!=observed.Junction) ||
+        (predicted.Tag&0x1fffu)!=(observed.Tag&0x1fffu) ||
+        pSector!=((predicted.Tag>>8u)&31u) || oSector!=((observed.Tag>>8u)&31u) ||
+        (uint)M8FlowerTetraLine[parity][axis]!=lineClass)return 0u;
+    bool exactIdentity=predicted.Root.x.lo==predicted.Root.x.hi &&
+        predicted.Root.y.lo==predicted.Root.y.hi && observed.Root.x.lo==observed.Root.x.hi &&
+        observed.Root.y.lo==observed.Root.y.hi && predicted.Root.x.lo==observed.Root.x.lo &&
+        predicted.Root.y.lo==observed.Root.y.lo;
+    if(!exactIdentity && (!M8FlowerTauInterval(predicted.Root,observed.Root,q) ||
+        !all(M8FlowerIsFinite(float2(q.lo,q.hi)))))return 2u;
+    if(M8FlowerTetraEta[parity][axis]<0)q=M8FlowerI(-q.hi,-q.lo);
+    return 1u;
+}
+
+// Original R3 anchors are inherited unchanged by both R2 substitutions.
+// Their R1+R2 prediction therefore remains this exact original R1 root.
+// Observed roots use each endpoint's committed innovation before canonical
+// SEAL; a provisional missing peer can never establish even a zero residual.
+uint M8FlowerReadR3MetricBundle(uint ownerSlot,uint ownerRef,int3 owner,uint flags,
+    uint rootSigns,float2 errors,out M8FlowerInterval q[4],out M8FlowerR3MetricEvidence evidence)
+{
+    evidence=(M8FlowerR3MetricEvidence)0;
+    [unroll]for(uint axis=0u;axis<4u;axis++)q[axis]=M8FlowerI(0,0);
+    const uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
+    if(rootSigns>=16u || (flags&(required|M8_FLOWER_SEED_FLAG))!=required)return 0u;
+    uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
+    evidence.BranchChirality=M8FlowerTetraChirality[parity];
+    uint impossible=0u;
+    [loop]for(uint axis=0u;axis<4u;axis++)
+    {
+        bool plus=(rootSigns&(1u<<axis))!=0u;
+        evidence.BranchChirality*=plus?1:-1;
+        uint lineClass=(uint)M8FlowerTetraLine[parity][axis];
+        uint node=2u*lineClass+(M8FlowerTetraEta[parity][axis]<0?1u:0u);
+        M8FlowerPhaseRootEvidence prediction,observed;
+        uint status=M8FlowerCarrierRootProof(owner,flags,0u,M8FlowerNode[node].xyz,lineClass,
+            plus,errors.x,errors.y,prediction);
+        if(status!=1u){if(status==0u)impossible|=1u<<axis;continue;}
+        bool provisional;
+        status=M8FlowerReadOriginalShared(ownerSlot,ownerRef,owner,flags,node,plus,
+            errors.x,errors.y,observed,provisional);
+        if(provisional)evidence.ProvisionalAxes|=1u<<axis;
+        if(status!=1u || provisional){if(status==0u)impossible|=1u<<axis;continue;}
+        status=M8FlowerR3MetricResidual(prediction,observed,parity,axis,q[axis]);
+        if(status!=1u){if(status==0u)impossible|=1u<<axis;continue;}
+        evidence.ResolvedAxes|=1u<<axis;
+        if(q[axis].lo==0.0 && q[axis].hi==0.0)evidence.ExactZeroAxes|=1u<<axis;
+    }
+    if(impossible!=0u)return 0u;
+    if(evidence.ResolvedAxes!=15u)return 2u;
+    M8FlowerTetraForwardIntervals(q,evidence.Scalar,evidence.Vector);
+    if(!all(M8FlowerIsFinite(float4(evidence.Scalar.lo,evidence.Scalar.hi,
+            evidence.Vector.x.lo,evidence.Vector.x.hi))) ||
+        !all(M8FlowerIsFinite(float4(evidence.Vector.y.lo,evidence.Vector.y.hi,
+            evidence.Vector.z.lo,evidence.Vector.z.hi))))return 2u;
+    return 1u;
 }
 
 bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 owner,uint flags,

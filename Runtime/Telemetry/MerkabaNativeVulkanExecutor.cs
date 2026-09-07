@@ -145,6 +145,70 @@ namespace Genesis.RoomScan
         private static MerkabaNativeVulkanJob _activeJob;
         private static readonly float[] NextTimingLogTimes =
             new float[4];
+        private static readonly ulong[] TimingScratch = new ulong[MaximumTimestampCount];
+        private static readonly uint[] PipelineScratch = new uint[MaximumDispatchTimingCount];
+        private static double _heldObservationStartedAt;
+        private static double _nextObservationTimingAt;
+        private static ObservationTiming _observationTiming;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetTimingSamples()
+        {
+            Array.Clear(NextTimingLogTimes, 0, NextTimingLogTimes.Length);
+            _heldObservationStartedAt = 0.0;
+            _nextObservationTimingAt = 0.0;
+            _observationTiming = null;
+        }
+
+        // One bounded accumulator for the one immutable observation. A retry
+        // contributes another quantum, never another acquisition or sample.
+        private sealed class ObservationTiming
+        {
+            internal uint Token;
+            internal double StartedAt;
+            internal int Quanta;
+            internal int TimedQuanta;
+            internal int UnresolvedQuanta;
+            internal bool Valid = true;
+            internal double GpuMilliseconds;
+            internal double PublicationMilliseconds;
+            internal readonly double[] PipelineMilliseconds = new double[PipelineCount];
+            internal readonly int[] PipelineDispatches = new int[PipelineCount];
+        }
+
+        internal static void BeginHeldObservationTiming() =>
+            _heldObservationStartedAt = Time.realtimeSinceStartupAsDouble;
+
+        internal static void ObserveHeldPublication(uint observation, bool completed,
+            double publicationMilliseconds)
+        {
+            ObservationTiming sample = _observationTiming;
+            if (sample == null || sample.Token != observation) return;
+            sample.PublicationMilliseconds += Math.Max(0.0, publicationMilliseconds);
+            if (!completed) sample.UnresolvedQuanta++;
+        }
+
+        internal static void EndHeldObservationTiming(uint observation, bool completed,
+            uint failureReason)
+        {
+            ObservationTiming sample = _observationTiming;
+            if (sample == null || sample.Token != observation) return;
+            _observationTiming = null;
+            for (int pipeline = 0; pipeline < PipelineCount; pipeline++)
+                if (sample.PipelineDispatches[pipeline] != 0)
+                    Logger.Info($"Merkaba held-observation kernel observation={observation} " +
+                        $"pipeline={PipelineNames[pipeline]} dispatches={sample.PipelineDispatches[pipeline]} " +
+                        $"gpuSumMs={sample.PipelineMilliseconds[pipeline]:F3}");
+            Logger.Info($"Merkaba held-observation pipeline observation={observation} " +
+                $"completed={completed} failure=0x{failureReason:x} " +
+                $"quanta={sample.Quanta} timedQuanta={sample.TimedQuanta} " +
+                $"unresolvedQuanta={sample.UnresolvedQuanta} " +
+                $"timingValid={sample.Valid && sample.TimedQuanta == sample.Quanta} " +
+                $"gpuSumMs={sample.GpuMilliseconds:F3} " +
+                $"heldWallMs={(Time.realtimeSinceStartupAsDouble - sample.StartedAt) * 1000.0:F3} " +
+                $"publicationReadbackMs={sample.PublicationMilliseconds:F3} " +
+                "scope=complete-frozen-observation queue=single-serialized-native");
+        }
 
         internal static bool HasJobInFlight => _activeJob != null;
 
@@ -267,7 +331,8 @@ namespace Genesis.RoomScan
                 };
                 IntPtr handle = Native.CreateJob(ref descriptor);
                 if (handle == IntPtr.Zero) return false;
-                job = new MerkabaNativeVulkanJob(handle, kind, revision);
+                uniforms.TryReadUInt("_M8ObservationToken", out uint observation);
+                job = new MerkabaNativeVulkanJob(handle, kind, revision, observation);
                 _activeJob = job;
                 return true;
             }
@@ -302,7 +367,22 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        private static void LogTimings(JobKind kind, uint revision,
+        private static bool ValidTimings(int count, double period, int validBits)
+        {
+            if (count < 4 || count > MaximumTimestampCount || (count & 1) != 0 ||
+                period <= 0.0 || double.IsNaN(period) || double.IsInfinity(period) ||
+                validBits <= 0 || validBits > 64) return false;
+            for (int index = 0; index < (count - 2) / 2; index++)
+                if (PipelineScratch[index] >= PipelineCount) return false;
+            ulong mask = validBits == 64 ? ulong.MaxValue : (1UL << validBits) - 1UL;
+            ulong total = (TimingScratch[count - 1] - TimingScratch[0]) & mask;
+            for (int index = 0; index < (count - 2) / 2; index++)
+                if (((TimingScratch[2 + index * 2] - TimingScratch[1 + index * 2]) & mask) > total)
+                    return false;
+            return true;
+        }
+
+        private static void LogTimings(JobKind kind, uint revision, uint observation,
             ulong[] timestamps, uint[] dispatchPipelines, int count, double period, int validBits)
         {
             ulong mask = validBits >= 64 ? ulong.MaxValue :
@@ -318,13 +398,13 @@ namespace Genesis.RoomScan
                 string stage = pipeline < PipelineNames.Length ? PipelineNames[pipeline] :
                     $"INVALID_PIPELINE_{pipeline}";
                 Logger.Info($"Merkaba native-queue timing revision={revision} " +
-                    $"job={kind} dispatch={index} pipeline={stage} " +
+                    $"observation={observation} job={kind} dispatch={index} pipeline={stage} " +
                     $"gpu={milliseconds:F3}ms");
             }
             double total = ((timestamps[count - 1] & mask) -
                 (timestamps[0] & mask) & mask) * period / 1_000_000.0;
             Logger.Info($"Merkaba native-queue timing revision={revision} " +
-                $"job={kind} total={total:F3}ms dispatches={dispatchCount} " +
+                $"observation={observation} job={kind} total={total:F3}ms dispatches={dispatchCount} " +
                 $"validBits={validBits} queue=single-serialized-native");
         }
 
@@ -375,17 +455,20 @@ namespace Genesis.RoomScan
             private IntPtr _handle;
             private readonly JobKind _kind;
             private readonly uint _revision;
+            private readonly uint _observation;
+            private bool _sampleObservation;
             private bool _recorded;
             private bool _acquireRecorded;
             private bool _terminal;
             private bool _timingsLogged;
 
             internal MerkabaNativeVulkanJob(IntPtr handle, JobKind kind,
-                uint revision)
+                uint revision, uint observation = 0u)
             {
                 _handle = handle;
                 _kind = kind;
                 _revision = revision;
+                _observation = observation;
             }
 
             internal uint Revision => _revision;
@@ -407,6 +490,20 @@ namespace Genesis.RoomScan
                 command.IssuePluginEventAndData(callback, prepareEvent, _handle);
                 command.IssuePluginEventAndData(callback, submitEvent, _handle);
                 _recorded = true;
+                if (_kind == JobKind.ObservationNew && _observation != 0u &&
+                    Time.realtimeSinceStartupAsDouble >= _nextObservationTimingAt)
+                {
+                    _nextObservationTimingAt = Time.realtimeSinceStartupAsDouble + TimingLogIntervalSeconds;
+                    _observationTiming = new ObservationTiming
+                    {
+                        Token = _observation,
+                        StartedAt = _heldObservationStartedAt > 0.0 ? _heldObservationStartedAt :
+                            Time.realtimeSinceStartupAsDouble
+                    };
+                }
+                _sampleObservation = (_kind == JobKind.ObservationNew || _kind == JobKind.ObservationRetry) &&
+                    _observationTiming != null && _observationTiming.Token == _observation;
+                if (_sampleObservation) _observationTiming.Quanta++;
 #else
                 throw new PlatformNotSupportedException();
 #endif
@@ -493,17 +590,34 @@ namespace Genesis.RoomScan
             {
                 if (_timingsLogged) return;
                 _timingsLogged = true;
-                if (!TryClaimTimingLog(_kind)) return;
+                bool log = TryClaimTimingLog(_kind);
+                if (!log && !_sampleObservation) return;
 #if !UNITY_EDITOR && UNITY_ANDROID
-                var timestamps = new ulong[MaximumTimestampCount];
-                var dispatchPipelines = new uint[MaximumDispatchTimingCount];
-                int count = Native.ReadTimings(_handle, timestamps,
-                    timestamps.Length, dispatchPipelines, dispatchPipelines.Length,
+                int count = Native.ReadTimings(_handle, TimingScratch,
+                    TimingScratch.Length, PipelineScratch, PipelineScratch.Length,
                     out double period, out int validBits);
-                if (count >= 4 && count <= timestamps.Length && (count & 1) == 0)
-                    LogTimings(_kind, _revision, timestamps, dispatchPipelines, count, period,
-                        validBits);
-                else
+                bool valid = ValidTimings(count, period, validBits);
+                ObservationTiming sample = _sampleObservation ? _observationTiming : null;
+                if (sample != null && sample.Token == _observation)
+                {
+                    sample.Valid &= valid;
+                    if (valid)
+                    {
+                        sample.TimedQuanta++;
+                        ulong mask = validBits == 64 ? ulong.MaxValue : (1UL << validBits) - 1UL;
+                        sample.GpuMilliseconds += ((TimingScratch[count - 1] - TimingScratch[0]) & mask) * period / 1_000_000.0;
+                        for (int index = 0; index < (count - 2) / 2; index++)
+                        {
+                            int pipeline = (int)PipelineScratch[index];
+                            sample.PipelineDispatches[pipeline]++;
+                            sample.PipelineMilliseconds[pipeline] +=
+                                ((TimingScratch[2 + index * 2] - TimingScratch[1 + index * 2]) & mask) * period / 1_000_000.0;
+                        }
+                    }
+                }
+                if (valid && log)
+                    LogTimings(_kind, _revision, _observation, TimingScratch, PipelineScratch, count, period, validBits);
+                else if (!valid)
                     Logger.Warning("Merkaba native-queue timing unavailable " +
                         $"for revision {_revision}; completion remains valid.");
 #endif
@@ -625,6 +739,20 @@ namespace Genesis.RoomScan
             if (values.Length == 0 || data.Length == 0)
                 throw new InvalidOperationException(
                     "Native scanner job has no uniform ABI values.");
+        }
+
+        internal bool TryReadUInt(string name, out uint value)
+        {
+            Build(out var values, out var data);
+            uint hash = NameHash(name);
+            foreach (var entry in values)
+                if (entry.NameHash == hash && entry.Size == sizeof(uint))
+                {
+                    value = BitConverter.ToUInt32(data, checked((int)entry.Offset));
+                    return true;
+                }
+            value = 0u;
+            return false;
         }
 
         private void Add(string name, byte[] bytes)

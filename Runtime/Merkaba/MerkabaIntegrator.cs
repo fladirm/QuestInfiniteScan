@@ -425,6 +425,10 @@ namespace Genesis.RoomScan
             _nativeAttemptJob = null;
             _nativeAttemptGpuComplete = false;
             double nativeAttemptRetiredAt = Time.realtimeSinceStartupAsDouble;
+            MerkabaNativeVulkanExecutor.ObserveHeldPublication(_observationToken,
+                _grid.CompletedObservationToken == _observationToken,
+                _nativeAttemptGpuCompleteAt > 0.0
+                    ? (nativeAttemptRetiredAt - _nativeAttemptGpuCompleteAt) * 1000.0 : 0.0);
             Logger.Info("Merkaba native observation publication " +
                 $"attempt={_attemptToken} " +
                 $"totalMs={(nativeAttemptRetiredAt - _nativeAttemptSubmittedAt) * 1000.0:F3} " +
@@ -1073,6 +1077,8 @@ namespace Genesis.RoomScan
 
         private bool FinishObservation(uint failureReason)
         {
+            MerkabaNativeVulkanExecutor.EndHeldObservationTiming(_observationToken,
+                failureReason == 0u, failureReason);
             _observationPrepared = false;
             _observationToken = 0u;
             _observationDepthVersion = 0;
@@ -1306,6 +1312,7 @@ namespace Genesis.RoomScan
                 !_cameraPairAvailable[_readyCameraSlot])
                 throw new InvalidOperationException(
                     "A complete synchronized PCA pair is required.");
+            MerkabaNativeVulkanExecutor.BeginHeldObservationTiming();
             _cameraObservationHeld = true;
             _heldCameraSlot = _readyCameraSlot;
             _heldFineBrush = _cameraFineBrush[_heldCameraSlot];
@@ -1325,6 +1332,8 @@ namespace Genesis.RoomScan
 
         private void ReleaseOwnedObservation()
         {
+            MerkabaNativeVulkanExecutor.EndHeldObservationTiming(_observationToken,
+                false, 0u);
             if (_bins != null && _bins.FrozenObservation != 0u)
                 _bins.EndAfterFinalization();
             _depthCapture?.ReleaseConsumedObservation();

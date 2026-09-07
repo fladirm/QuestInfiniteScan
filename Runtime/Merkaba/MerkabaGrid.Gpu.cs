@@ -514,23 +514,23 @@ namespace Genesis.RoomScan
                 "PrepareNewTileDispatchArgs",
                 MerkabaGpuStage.SurfaceIntegration);
             _prepareEvictionSelectionKernel =
-                worldCompute.FindKernel("PrepareEvictionSelection");
+                worldCompute.FindProfiledKernel("PrepareEvictionSelection", MerkabaGpuStage.WorldQuery);
             _selectEvictionVictimsKernel =
-                worldCompute.FindKernel("SelectEvictionVictims");
+                worldCompute.FindProfiledKernel("SelectEvictionVictims", MerkabaGpuStage.WorldQuery);
             _gatherWritebackBatchKernel =
-                worldCompute.FindKernel("GatherWritebackBatch");
-            _transferFlowerStorageKernel = worldCompute.FindKernel("TransferFlowerStorage");
+                worldCompute.FindProfiledKernel("GatherWritebackBatch", MerkabaGpuStage.WorldQuery);
+            _transferFlowerStorageKernel = worldCompute.FindProfiledKernel("TransferFlowerStorage", MerkabaGpuStage.WorldQuery);
             _gatherDualWritebackBatchKernel =
-                worldCompute.FindKernel("GatherDualWritebackBatch");
+                worldCompute.FindProfiledKernel("GatherDualWritebackBatch", MerkabaGpuStage.WorldQuery);
             _acknowledgeDualWritebackBatchKernel =
-                worldCompute.FindKernel("AcknowledgeDualWritebackBatch");
+                worldCompute.FindProfiledKernel("AcknowledgeDualWritebackBatch", MerkabaGpuStage.WorldQuery);
             _acknowledgeWritebackBatchKernel =
-                worldCompute.FindKernel("AcknowledgeWritebackBatch");
+                worldCompute.FindProfiledKernel("AcknowledgeWritebackBatch", MerkabaGpuStage.WorldQuery);
             _failWritebackBatchKernel =
                 worldCompute.FindKernel("FailWritebackBatch");
-            _prepareLoadedTilesKernel = worldCompute.FindKernel("PrepareLoadedTiles");
-            _installLoadedTilesKernel = worldCompute.FindKernel("InstallLoadedTiles");
-            _failLoadedTilesKernel = worldCompute.FindKernel("FailLoadedTiles");
+            _prepareLoadedTilesKernel = worldCompute.FindProfiledKernel("PrepareLoadedTiles", MerkabaGpuStage.WorldQuery);
+            _installLoadedTilesKernel = worldCompute.FindProfiledKernel("InstallLoadedTiles", MerkabaGpuStage.WorldQuery);
+            _failLoadedTilesKernel = worldCompute.FindProfiledKernel("FailLoadedTiles", MerkabaGpuStage.WorldQuery);
             _registerLoadedTileAddressesKernel =
                 worldCompute.FindKernel("RegisterLoadedTileAddresses");
             _benchmarkHashKernel = worldCompute.FindProfiledKernel(
@@ -800,22 +800,28 @@ namespace Genesis.RoomScan
             if (!DualMutationSubmissionAllowed) return false;
             CommandBuffer command = CommandBufferPool.Get("Merkaba dual eviction");
             uint generation = 0u;
+            bool timed = false, submitted = false;
             try
             {
                 generation = RecordDualMutation(command, worldCompute);
+                timed = MerkabaGpuTimestamps.TryAcquireStorage(generation, command);
                 command.SetComputeIntParam(worldCompute, EvictAllDirtyId, allDirty ? 1 : 0);
                 command.SetComputeIntParam(worldCompute, SafeEpochId, 3);
                 command.SetComputeIntParam(worldCompute, "_M8FlowerCaptureContinue", 0);
-                command.DispatchCompute(worldCompute, _prepareEvictionSelectionKernel, 1, 1, 1);
-                command.DispatchCompute(worldCompute, _selectEvictionVictimsKernel,
+                command.DispatchComputeProfiled(worldCompute, _prepareEvictionSelectionKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(worldCompute, _selectEvictionVictimsKernel,
                     DivideRoundUp(MerkabaSpatial.PhysicalTileCapacity, 256), 1, 1);
-                command.DispatchCompute(worldCompute, _gatherWritebackBatchKernel,
+                command.DispatchComputeProfiled(worldCompute, _gatherWritebackBatchKernel,
                     StreamBatchCapacity, 1, 1);
+                MerkabaGpuTimestamps.End(CaptureOwner.Observation, command, timed);
                 SubmitDualMutation(command, generation);
+                submitted = true;
+                MerkabaGpuTimestamps.Complete(CaptureOwner.Observation, timed, true);
                 return true;
             }
             finally
             {
+                if (!submitted) MerkabaGpuTimestamps.Complete(CaptureOwner.Observation, timed, false);
                 CancelDualMutationBeforeSubmit(generation);
                 CommandBufferPool.Release(command);
             }
@@ -833,16 +839,22 @@ namespace Genesis.RoomScan
                 throw new ArgumentOutOfRangeException(nameof(count));
             CommandBuffer command = CommandBufferPool.Get("Merkaba fine storage continuation");
             uint generation = 0u;
+            bool timed = false, submitted = false;
             try
             {
                 generation = RecordDualMutation(command, worldCompute);
+                timed = MerkabaGpuTimestamps.TryAcquireStorage(generation, command);
                 command.SetComputeIntParam(worldCompute, "_M8FlowerCaptureContinue", 1);
-                command.DispatchCompute(worldCompute, _gatherWritebackBatchKernel, count, 1, 1);
+                command.DispatchComputeProfiled(worldCompute, _gatherWritebackBatchKernel, count, 1, 1);
+                MerkabaGpuTimestamps.End(CaptureOwner.Observation, command, timed);
                 SubmitDualMutation(command, generation);
+                submitted = true;
+                MerkabaGpuTimestamps.Complete(CaptureOwner.Observation, timed, true);
                 return true;
             }
             finally
             {
+                if (!submitted) MerkabaGpuTimestamps.Complete(CaptureOwner.Observation, timed, false);
                 CancelDualMutationBeforeSubmit(generation);
                 CommandBufferPool.Release(command);
             }
@@ -889,9 +901,11 @@ namespace Genesis.RoomScan
                 throw new ArgumentOutOfRangeException(nameof(count));
             CommandBuffer command = CommandBufferPool.Get("Merkaba dual storage batch");
             uint generation = 0u;
+            bool timed = false, submitted = false;
             try
             {
                 generation = RecordDualMutation(command, worldCompute);
+                timed = MerkabaGpuTimestamps.TryAcquireStorage(generation, command);
                 command.SetComputeIntParam(worldCompute, StreamBatchCountId, count);
                 command.SetComputeIntParam(worldCompute, DrainSourceGenerationId,
                     checked((int)sourceGeneration));
@@ -899,26 +913,29 @@ namespace Genesis.RoomScan
                 {
                     command.SetComputeIntParam(worldCompute, DualReclaimCursorId,
                         checked((int)(firstReclaimChunk ?? _dualReclaimCursor)));
-                    command.DispatchCompute(worldCompute, _prepareLoadedTilesKernel, 1, 1, 1);
+                    command.DispatchComputeProfiled(worldCompute, _prepareLoadedTilesKernel, 1, 1, 1);
                     if(count!=0)
                     {
                         command.SetComputeIntParam(worldCompute,"_M8FlowerStorageMode",0);
-                        command.DispatchCompute(worldCompute,_transferFlowerStorageKernel,1,1,1);
+                        command.DispatchComputeProfiled(worldCompute,_transferFlowerStorageKernel,1,1,1);
                     }
                 }
                 else if(kernel==_acknowledgeWritebackBatchKernel)
                 {
                     command.SetComputeIntParam(worldCompute,"_M8FlowerStorageMode",1);
-                    command.DispatchCompute(worldCompute,_transferFlowerStorageKernel,1,1,1);
+                    command.DispatchComputeProfiled(worldCompute,_transferFlowerStorageKernel,1,1,1);
                 }
                 else if(kernel==_failLoadedTilesKernel)
                 {
                     command.SetComputeIntParam(worldCompute,"_M8FlowerStorageMode",2);
-                    command.DispatchCompute(worldCompute,_transferFlowerStorageKernel,1,1,1);
+                    command.DispatchComputeProfiled(worldCompute,_transferFlowerStorageKernel,1,1,1);
                 }
                 if (!install || count != 0)
-                    command.DispatchCompute(worldCompute, kernel, install ? count : 1, 1, 1);
+                    command.DispatchComputeProfiled(worldCompute, kernel, install ? count : 1, 1, 1);
+                MerkabaGpuTimestamps.End(CaptureOwner.Observation, command, timed);
                 SubmitDualMutation(command, generation);
+                submitted = true;
+                MerkabaGpuTimestamps.Complete(CaptureOwner.Observation, timed, true);
                 if (install && !firstReclaimChunk.HasValue)
                     _dualReclaimCursor = (_dualReclaimCursor + 256u) %
                         (uint)MerkabaSpatial.ChunkCapacity;
@@ -926,6 +943,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                if (!submitted) MerkabaGpuTimestamps.Complete(CaptureOwner.Observation, timed, false);
                 CancelDualMutationBeforeSubmit(generation);
                 CommandBufferPool.Release(command);
             }

@@ -900,6 +900,7 @@ namespace Genesis.RoomScan
                 Word(unchecked((uint)value.OwnerOffset.z));
                 Word(value.Packed);
             }
+            foreach (ushort value in L2EdgeIncidence) Word(value);
             for (int level = 0; level < GeometryLevelCount; level++)
                 for (int line = 0; line < LineClassCount; line++)
                     Word(math.asuint(EvaluateLoop(level, default, line).Radius));

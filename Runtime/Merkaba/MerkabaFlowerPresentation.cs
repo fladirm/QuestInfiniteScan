@@ -27,6 +27,9 @@ namespace Genesis.RoomScan
             internal readonly uint[] PositionIndices = new uint[7];
             internal MerkabaFlowerSkinDrawHeader SkinHeader;
             internal MerkabaFlowerSkinDrawSample[] SkinSamples;
+            // Transient coverage certificate from the same frozen reader;
+            // this is neither a persisted adjacency graph nor scan truth.
+            internal uint3 CoveragePairedEdges;
         }
 
         internal readonly List<KnotAddress> Knots = new();
@@ -64,6 +67,8 @@ namespace Genesis.RoomScan
                     if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain) continue;
                     var carrier = new Carrier { Owner = owner, Symbol = symbol };
                     carrier.SkinSamples = reader.ReadSkinSignal(owner, symbol, out carrier.SkinHeader);
+                    carrier.CoveragePairedEdges = PairedCoverageEdges(reader, owner, carrierId,
+                        symbol.ActiveWedgeMask, roots, positions, planeBounds);
                     uint used = 1u;
                     for (int wedge = 0; wedge < 6; wedge++)
                         if ((symbol.ActiveWedgeMask & (1u << wedge)) != 0u)
@@ -92,9 +97,47 @@ namespace Genesis.RoomScan
 
         internal float3 Position(Carrier carrier, int site) => Positions[checked((int)carrier.PositionIndices[site])];
 
+        private static uint3 PairedCoverageEdges(MerkabaSphereFlowerAuthority.SnapshotReader reader,
+            int3 owner, int carrier, uint active,
+            ReadOnlySpan<MerkabaSphereFlowerAuthority.PhaseRootEvidence> roots,
+            ReadOnlySpan<float3> positions, float2 errors)
+        {
+            uint3 paired = default;
+            Span<MerkabaSphereFlowerAuthority.PhaseRootEvidence> peerRoots =
+                stackalloc MerkabaSphereFlowerAuthority.PhaseRootEvidence[7];
+            Span<float3> peerPositions = stackalloc float3[7];
+            for (int wedge = 0; wedge < 6; wedge++)
+            {
+                if ((active & (1u << wedge)) == 0u ||
+                    !MerkabaSphereFlowerAuthority.TryL2AcrossEdge(6 * carrier + wedge, 1,
+                        out int peer, out int peerEdge, out bool reversed) || !reversed ||
+                    !MerkabaSphereFlowerAuthority.TryL2CanonicalWedgeOwner(owner, peer / 6, peer % 6,
+                        out int3 peerOwner, out int canonicalPeer, out byte permutation)) continue;
+                // Exactly the live page's complete 512-owner iteration set.
+                // Merely having a halo snapshot is not proof that its other
+                // boundaries were included in this page's union reduction.
+                if (math.any((peerOwner >> 3) != (owner >> 3))) continue;
+                var status = reader.ClassifyPageCarrier(peerOwner, canonicalPeer / 6, errors,
+                    out MerkabaFlowerSymbolRecord peerSymbol, out _, peerRoots, peerPositions);
+                if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain ||
+                    (peerSymbol.ActiveWedgeMask & (1u << (canonicalPeer % 6))) == 0u) continue;
+                int3 peerSites = MerkabaSphereFlowerAuthority.L2CarrierTriangleIndices(canonicalPeer % 6);
+                int firstSite = peerSites[(permutation >> (2 * ((peerEdge + 1) % 3))) & 3];
+                int lastSite = peerSites[(permutation >> (2 * peerEdge)) & 3];
+                int thirdSite = peerSites[(permutation >> (2 * ((peerEdge + 2) % 3))) & 3];
+                int first = 1 + wedge, last = 1 + (wedge + 1) % 6;
+                uint axes = MerkabaSphereFlowerAuthority.SupportPairAxes(roots[first], roots[last],
+                    peerRoots[firstSite], peerRoots[lastSite], positions[first], positions[last],
+                    positions[0], peerPositions[thirdSite]);
+                for (int axis = 0; axis < 3; axis++)
+                    if ((axes & (1u << axis)) != 0u) paired[axis] |= 1u << wedge;
+            }
+            return paired;
+        }
+
         internal MerkabaDirtFaceCoverage DirtCoverage(int3 cell, int face)
         {
-            uint covered = 0u, partial = 0u;
+            uint2 proof = default;
             Span<float3> positions = stackalloc float3[7];
             foreach (Carrier carrier in Carriers)
             {
@@ -107,16 +150,19 @@ namespace Genesis.RoomScan
                     if ((used & (1u << site)) != 0u) positions[site] = Position(carrier, site);
                 for (int half = 0; half < 2; half++)
                 {
-                    uint bit = 1u << half;
-                    if ((covered & bit) != 0u) continue;
-                    var status = MerkabaSphereFlowerAuthority.SupportCarrierCoverage(positions,
-                        carrier.Symbol.ActiveWedgeMask, cell, face, half);
-                    if (status == MerkabaSphereFlowerAuthority.ProofClassification.Certain) covered |= bit;
-                    else if (status == MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous) partial |= bit;
+                    if ((proof[half] & MerkabaSphereFlowerAuthority.SupportCoverageComplete) != 0u) continue;
+                    proof[half] |= MerkabaSphereFlowerAuthority.SupportCarrierCoverageProof(positions,
+                        carrier.Symbol.ActiveWedgeMask, carrier.CoveragePairedEdges[face >> 1], cell, face, half);
                 }
-                if (covered == 3u) break;
             }
-            return new MerkabaDirtFaceCoverage(covered, partial & ~covered);
+            uint covered = 0u, partial = 0u;
+            for (int half = 0; half < 2; half++)
+            {
+                var status = MerkabaSphereFlowerAuthority.SupportCoverageResult(proof[half]);
+                if (status == MerkabaSphereFlowerAuthority.ProofClassification.Certain) covered |= 1u << half;
+                else if (status == MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous) partial |= 1u << half;
+            }
+            return new MerkabaDirtFaceCoverage(covered, partial);
         }
 
         internal void WedgeFrame(Carrier carrier, int wedge, out float3 tangent1,

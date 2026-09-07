@@ -187,6 +187,9 @@ namespace Genesis.RoomScan
         private static CaptureOwner _activeOwner;
         private static uint _revision;
         private static float _nextSampleTime;
+        private static float _nextCounterLogTime;
+        private static float _lastStorageSubmissionTime;
+        private static bool _storageCapture;
         private static bool _submissionBegan;
         private static bool _submissionEnded;
         private static int _lastCoverageSeen;
@@ -213,6 +216,9 @@ namespace Genesis.RoomScan
             _activeOwner = CaptureOwner.Count;
             _revision = 0u;
             _nextSampleTime = float.PositiveInfinity;
+            _nextCounterLogTime = 0f;
+            _lastStorageSubmissionTime = float.NegativeInfinity;
+            _storageCapture = false;
             _submissionBegan = false;
             _submissionEnded = false;
             _lastCoverageSeen = -1;
@@ -288,9 +294,31 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        private static bool TryAcquireState(CaptureOwner owner, uint revision)
+        internal static bool TryAcquireStorage(uint revision, CommandBuffer command)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            _lastStorageSubmissionTime = Time.unscaledTime;
+            // Native observations have their own query pool. Reuse that idle
+            // managed owner slot for actual serialized storage batches, with
+            // an explicit log scope; the native timestamp owner ABI is unchanged.
+            if (!TryAcquireState(CaptureOwner.Observation, revision, true)) return false;
+            RecordProfileBegin(command);
+            return true;
+        }
+
+        private static bool TryAcquireState(CaptureOwner owner, uint revision,
+            bool storage = false)
         {
             Poll();
+#if !UNITY_EDITOR && UNITY_ANDROID
+            // Android scanner dispatches are already timed by the native job
+            // query pool. Waiting for its removed managed observation owner
+            // would permanently starve current-view cull and real draw samples.
+            if (_state == CaptureState.Idle && _scheduledOwner == CaptureOwner.Observation &&
+                MerkabaNativeVulkanExecutor.IsAvailable && !storage &&
+                Time.unscaledTime - _lastStorageSubmissionTime > SampleIntervalSeconds)
+                AdvanceScheduledOwner();
+#endif
             if ((uint)owner >= (uint)CaptureOwner.Count ||
                 _state != CaptureState.Idle || revision == 0u ||
                 owner != _scheduledOwner)
@@ -319,6 +347,7 @@ namespace Genesis.RoomScan
             _submissionBegan = false;
             _submissionEnded = false;
             _activeOwner = owner;
+            _storageCapture = storage;
             _state = CaptureState.Recording;
             return true;
         }
@@ -719,6 +748,33 @@ namespace Genesis.RoomScan
             }
         }
 
+        // Consumes the existing storage telemetry snapshot. This method never
+        // requests a GPU readback and never influences scan/publication/LOD.
+        internal static void ObserveStorageCounterSample(Unity.Collections.NativeArray<uint> values)
+        {
+            if (values.Length < MerkabaGrid.CounterCount || Time.unscaledTime < _nextCounterLogTime)
+                return;
+            _nextCounterLogTime = Time.unscaledTime + SampleIntervalSeconds;
+            uint observation = values[MerkabaGrid.CounterObservationToken];
+            Logger.Info($"Merkaba metrics-flower observation={observation} " +
+                $"lastCompiledPageActiveTriangles={values[MerkabaGrid.CounterReadoutEmittedTriangles]} " +
+                $"lastCompiledPageIndexedVertexSlots={values[MerkabaGrid.CounterReadoutEmittedVertices]} " +
+                $"unresolvedPageAttempts={values[MerkabaGrid.CounterReadoutUnresolved]} " +
+                "scope=last-successful-page-counters-not-current-view " +
+                "visibleTriangles=NOT_AVAILABLE visibleVertices=NOT_AVAILABLE");
+            Logger.Info($"Merkaba metrics-held-refinement observation={observation} " +
+                $"completed={values[MerkabaGrid.CounterObservationCompleted]} " +
+                $"pendingTiles={values[MerkabaGrid.CounterRefinementPendingTiles]} " +
+                $"quantumProgress={values[MerkabaGrid.CounterRefinementWorkProgress]} " +
+                $"backpressure={values[MerkabaGrid.CounterRefinementBackpressure]} " +
+                $"unresolved={values[MerkabaGrid.CounterRefinementUnresolved]} " +
+                $"stage={values[MerkabaGrid.CounterRefinementStage]} " +
+                $"storageBackpressure={values[MerkabaGrid.CounterStorageBackpressure]} " +
+                $"residencyEpoch={values[MerkabaGrid.CounterResidencyEpoch]} " +
+                $"failure=0x{values[MerkabaGrid.CounterObservationFailure]:x} " +
+                "source=existing-asynchronous-counter-snapshot");
+        }
+
         internal static bool IsTimestampSampleValid(int status, bool overflow,
             CaptureOwner capturedOwner, CaptureOwner expectedOwner,
             ulong capturedRevision, ulong expectedRevision, int actualEntries,
@@ -872,7 +928,7 @@ namespace Genesis.RoomScan
                 TimingEntry entry = ranked[index].Key;
                 Aggregate value = ranked[index].Value;
                 UpdateSession(entry, value);
-                Logger.Info($"Merkaba gpu-operation owner={_activeOwner} " +
+                Logger.Info($"Merkaba gpu-operation owner={(_storageCapture ? "Storage" : _activeOwner.ToString())} " +
                             $"revision={_revision} " +
                             $"rank={index + 1} stage=" +
                             $"{StageNames[(int)entry.Stage]} " +
@@ -884,14 +940,14 @@ namespace Genesis.RoomScan
             for (int stage = 0; stage < stageTotals.Length; stage++)
             {
                 Aggregate value = stageTotals[stage];
-                Logger.Info($"Merkaba gpu-stage owner={_activeOwner} " +
+                Logger.Info($"Merkaba gpu-stage owner={(_storageCapture ? "Storage" : _activeOwner.ToString())} " +
                             $"revision={_revision} " +
                             $"stage={StageNames[stage]} " +
                             $"invocations={value.Invocations} " +
                             $"total={value.TotalNanoseconds / 1_000_000.0:F3}ms " +
                             $"maximum={value.MaximumNanoseconds / 1_000_000.0:F3}ms");
             }
-            Logger.Info($"Merkaba gpu-sample owner={_activeOwner} " +
+            Logger.Info($"Merkaba gpu-sample owner={(_storageCapture ? "Storage" : _activeOwner.ToString())} " +
                         $"revision={_revision} " +
                         $"submissionGpuMs=" +
                         $"{submissionNanoseconds / 1_000_000.0:F3} " +
@@ -1084,6 +1140,7 @@ namespace Genesis.RoomScan
             _submissionBegan = false;
             _submissionEnded = false;
             _activeOwner = CaptureOwner.Count;
+            _storageCapture = false;
         }
 
 #if UNITY_EDITOR

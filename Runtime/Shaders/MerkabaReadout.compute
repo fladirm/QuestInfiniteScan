@@ -96,7 +96,8 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,
         }
         else
         {
-            M8FlowerSupportAccumulateCarrier(owner,carrier,symbol,roots,positions);
+            M8FlowerSupportAccumulateCarrier(slot,owner,carrier,symbol,roots,positions,
+                _M8FlowerPlaneErrorBounds);
             InterlockedAdd(m8FlowerCompileTriangles,countbits(active));
         }
         count+=uint2(1u,bytes);

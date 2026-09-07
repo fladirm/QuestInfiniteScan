@@ -475,13 +475,48 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        // Exact counterpart of the shader's finite fan-union certificate.
-        // No geometric graph, area sum, projection or tolerance is introduced.
-        internal static ProofClassification SupportCarrierCoverage(ReadOnlySpan<float3> positions,
-            uint active, int3 cell, int face, int halfFace)
+        private static bool SupportSameRoot(PhaseRootEvidence first, PhaseRootEvidence second) =>
+            first.Classification == ProofClassification.Certain && second.Classification == ProofClassification.Certain &&
+            math.all(first.Symbol.Junction == second.Symbol.Junction) &&
+            (first.Symbol.Tag & 0x1fffu) == (second.Symbol.Tag & 0x1fffu) &&
+            math.all(math.asuint(new float4(first.Root.X.Lower, first.Root.X.Upper, first.Root.Y.Lower, first.Root.Y.Upper)) ==
+                math.asuint(new float4(second.Root.X.Lower, second.Root.X.Upper, second.Root.Y.Lower, second.Root.Y.Upper)));
+
+        // An existing generated edge incidence must identify the endpoints
+        // first. These exact symbols/intervals reproduce the same positions;
+        // coincident positions or normals alone are never identity.
+        internal static uint SupportPairAxes(PhaseRootEvidence firstRoot, PhaseRootEvidence lastRoot,
+            PhaseRootEvidence peerFirst, PhaseRootEvidence peerLast,
+            float3 first, float3 last, float3 ownThird, float3 peerThird)
         {
-            if (positions.Length != 7 || (active & ~63u) != 0u || (uint)face >= 6u || (uint)halfFace >= 2u)
-                return ProofClassification.Ambiguous;
+            if (!SupportSameRoot(firstRoot, peerFirst) || !SupportSameRoot(lastRoot, peerLast)) return 0u;
+            uint axes = 0u;
+            for (int axis = 0; axis < 3; axis++)
+            {
+                if (first[axis] != last[axis] || first[axis] != ownThird[axis] || first[axis] != peerThird[axis]) continue;
+                int u = (axis + 1) % 3, v = (axis + 2) % 3;
+                float2 a = new float2(first[u], first[v]), b = new float2(last[u], last[v]);
+                FloatInterval own = SupportOrient2(a, b, new float2(ownThird[u], ownThird[v]));
+                FloatInterval peer = SupportOrient2(a, b, new float2(peerThird[u], peerThird[v]));
+                if ((own.Lower > 0f && peer.Upper < 0f) || (own.Upper < 0f && peer.Lower > 0f)) axes |= 1u << axis;
+            }
+            return axes;
+        }
+
+        internal const uint SupportCoverageOverlap = 1u;
+        internal const uint SupportCoverageWitness = 2u;
+        internal const uint SupportCoverageBoundary = 4u;
+        internal const uint SupportCoverageComplete = 8u;
+
+        // OR these contributions across the COMPLETE source set, then call
+        // SupportCoverageResult once. A local witness is not early coverage:
+        // another carrier can still contribute an uncancelled hole boundary.
+        internal static uint SupportCarrierCoverageProof(ReadOnlySpan<float3> positions,
+            uint active, uint pairedOuterEdges, int3 cell, int face, int halfFace)
+        {
+            if (positions.Length != 7 || ((active | pairedOuterEdges) & ~63u) != 0u ||
+                (uint)face >= 6u || (uint)halfFace >= 2u)
+                return SupportCoverageOverlap | SupportCoverageBoundary;
             int axis = face >> 1, u = (axis + 1) % 3, v = (axis + 2) % 3;
             Span<float2> half = stackalloc float2[3], sites = stackalloc float2[7];
             float plane = DirtFaceGridPosition(cell, face, halfFace, 0)[axis];
@@ -502,24 +537,32 @@ namespace Genesis.RoomScan
                 direct[0] = positions[0]; direct[1] = positions[first]; direct[2] = positions[last];
                 int directWinding = SupportWinding(SupportOrient2(sites[0], sites[first], sites[last]));
                 if (directWinding == 0 || (commonWinding != 0 && directWinding != commonWinding))
-                    return ProofClassification.Ambiguous;
+                    return SupportCoverageOverlap | SupportCoverageBoundary;
                 commonWinding = directWinding;
                 ProofClassification individual = SupportTriangleCoverage(direct, cell, face, halfFace);
-                if (individual == ProofClassification.Certain) return ProofClassification.Certain;
+                if (individual == ProofClassification.Certain) return SupportCoverageOverlap | SupportCoverageComplete;
                 overlaps |= individual == ProofClassification.Ambiguous;
             }
-            if (!overlaps) return ProofClassification.Impossible;
+            if (!overlaps) return 0u;
             int winding = SupportWinding(SupportOrient2(half[0], half[1], half[2]));
-            if (winding == 0) return ProofClassification.Ambiguous;
+            if (winding == 0) return SupportCoverageOverlap | SupportCoverageBoundary;
+            uint proof = SupportCoverageOverlap;
+            bool ownBoundary = false;
             for (int wedge = 0; wedge < 6; wedge++)
             {
                 if ((coplanar & (1u << wedge)) == 0u) continue;
                 int first = 1 + wedge, last = 1 + (wedge + 1) % 6;
-                if (SupportSegmentMayEnter(sites[first], sites[last], half, winding)) return ProofClassification.Ambiguous;
+                if (SupportSegmentMayEnter(sites[first], sites[last], half, winding))
+                {
+                    ownBoundary = true;
+                    if ((pairedOuterEdges & (1u << wedge)) == 0u) proof |= SupportCoverageBoundary;
+                }
                 if ((coplanar & (1u << ((wedge + 5) % 6))) == 0u &&
-                    SupportSegmentMayEnter(sites[0], sites[first], half, winding)) return ProofClassification.Ambiguous;
+                    SupportSegmentMayEnter(sites[0], sites[first], half, winding))
+                { ownBoundary = true; proof |= SupportCoverageBoundary; }
                 if ((coplanar & (1u << ((wedge + 1) % 6))) == 0u &&
-                    SupportSegmentMayEnter(sites[last], sites[0], half, winding)) return ProofClassification.Ambiguous;
+                    SupportSegmentMayEnter(sites[last], sites[0], half, winding))
+                { ownBoundary = true; proof |= SupportCoverageBoundary; }
             }
             Span<FloatInterval> witness = stackalloc FloatInterval[2];
             for (int component = 0; component < 2; component++)
@@ -529,8 +572,23 @@ namespace Genesis.RoomScan
             var interior = new Interval2(witness[0], witness[1]);
             for (int wedge = 0; wedge < 6; wedge++)
                 if ((coplanar & (1u << wedge)) != 0u && SupportContainsWitness(sites[0],
-                    sites[1 + wedge], sites[1 + (wedge + 1) % 6], interior)) return ProofClassification.Certain;
-            return ProofClassification.Ambiguous;
+                    sites[1 + wedge], sites[1 + (wedge + 1) % 6], interior)) proof |= SupportCoverageWitness;
+            if (!ownBoundary && (proof & SupportCoverageWitness) != 0u) proof |= SupportCoverageComplete;
+            return proof;
+        }
+
+        internal static ProofClassification SupportCoverageResult(uint proof)
+        {
+            if ((proof & SupportCoverageComplete) != 0u ||
+                (proof & (SupportCoverageWitness | SupportCoverageBoundary)) == SupportCoverageWitness)
+                return ProofClassification.Certain;
+            return (proof & SupportCoverageOverlap) != 0u ? ProofClassification.Ambiguous : ProofClassification.Impossible;
+        }
+
+        internal static ProofClassification SupportCarrierCoverage(ReadOnlySpan<float3> positions,
+            uint active, int3 cell, int face, int halfFace)
+        {
+            return SupportCoverageResult(SupportCarrierCoverageProof(positions, active, 0u, cell, face, halfFace));
         }
 
         // A same-shell power comparison has no constant term. Generate its

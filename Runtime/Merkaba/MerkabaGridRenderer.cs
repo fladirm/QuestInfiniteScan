@@ -423,7 +423,7 @@ namespace Genesis.RoomScan
             }
             bool timed = MerkabaGpuTimestamps.TryAcquire(CaptureOwner.Draw,
                 _readoutRevision == 0u ? 1u : _readoutRevision, command);
-            command.DrawProceduralIndirect(_grid.M8FlowerIndices, Matrix4x4.identity,
+            command.DrawProceduralIndirectProfiled(_grid.M8FlowerIndices, Matrix4x4.identity,
                 _material, 0, MeshTopology.Triangles, _grid.M8FlowerIndirectCommands, 0);
             MerkabaGpuTimestamps.End(CaptureOwner.Draw, command, timed);
             MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timed, true);

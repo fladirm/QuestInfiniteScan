@@ -8,6 +8,24 @@ namespace Genesis.RoomScan
 {
     public static partial class MerkabaSphereFlowerAuthority
     {
+        // Metric evidence only: resolved axes do not select a generated
+        // junction class. A zero q slot without its resolved bit is absent.
+        internal readonly struct R3MetricEvidence
+        {
+            internal readonly FloatInterval Scalar;
+            internal readonly Interval3 Vector;
+            internal readonly uint ResolvedAxes, ExactZeroAxes, ProvisionalAxes;
+            internal readonly int BranchChirality;
+
+            internal R3MetricEvidence(FloatInterval scalar, Interval3 vector,
+                uint resolved, uint exactZero, uint provisional, int chirality)
+            {
+                Scalar = scalar; Vector = vector;
+                ResolvedAxes = resolved; ExactZeroAxes = exactZero;
+                ProvisionalAxes = provisional; BranchChirality = chirality;
+            }
+        }
+
         /// <summary>Read-only CPU view of the same frozen M8/sidecar tile
         /// packets used by residency. Missing context remains unresolved;
         /// only absence in the captured storage index means absent M8 data.
@@ -268,8 +286,33 @@ namespace Genesis.RoomScan
                 (flags & (M8_FLOWER_OCCUPIED_FLAG | M8_FLOWER_PLANE_VALID | M8_FLOWER_SEED_FLAG)) ==
                 (M8_FLOWER_OCCUPIED_FLAG | M8_FLOWER_PLANE_VALID);
 
+            private static bool TryGeometryTetraParity(int3 owner, GeometryNode node, out int parity)
+            {
+                parity = 0;
+                if ((uint)node.Level >= GeometryLevelCount || (uint)node.Line >= LineClassCount) return false;
+                sbyte endpoint;
+                if (node.Level == 0)
+                {
+                    if ((uint)node.RootNode >= NodeClassCount || NodesValue[node.RootNode].LineClass != node.Line ||
+                        math.any(NodesValue[node.RootNode].Direction != node.Offset)) return false;
+                    endpoint = NodesValue[node.RootNode].Orientation;
+                }
+                else if (!TryGetChildPhaseLoop(node.Petal, node.ParentContext, node.KnotSite,
+                    out int level, out int3 offset, out int line, out _, out endpoint, out _, out int inherited) ||
+                    inherited >= 0 || level != node.Level || line != node.Line || math.any(offset != node.Offset))
+                    return false;
+                if ((endpoint != 1 && endpoint != -1) ||
+                    !TryOwnerJunction(owner, node.Level, node.Offset, out int3 junction)) return false;
+                int3 direction = endpoint * LinesValue[node.Line].Direction;
+                if (math.any(((junction ^ direction) & 1) != 0)) return false;
+                // Same overflow-safe exact (J-directedEndpoint)/2 as HLSL.
+                int3 cell = (junction >> 1) + (((junction & 1) - direction) / 2);
+                parity = (cell.x & 1) | ((cell.y & 1) << 1) | ((cell.z & 1) << 2);
+                return true;
+            }
+
             private ProofClassification ApplyOwnPhase(int3 owner, uint epoch, MerkabaFlowerDetailKey key,
-                PhaseRootEvidence prediction, out PhaseRootEvidence root)
+                GeometryNode node, PhaseRootEvidence prediction, out PhaseRootEvidence root)
             {
                 root = prediction;
                 if (!TryReadPhase(owner, epoch, key, out MerkabaFlowerDetailRecord record))
@@ -287,7 +330,7 @@ namespace Genesis.RoomScan
                 }
                 root = WithStatus(prediction, ProofClassification.Ambiguous);
                 if (key.Kind != MerkabaFlowerDetailKind.R3Phase) return ProofClassification.Ambiguous;
-                int parity = (owner.x & 1) | ((owner.y & 1) << 1) | ((owner.z & 1) << 2);
+                if (!TryGeometryTetraParity(owner, node, out int parity)) return ProofClassification.Ambiguous;
                 int eta = 0;
                 for (int axis = 0; axis < 4; axis++)
                     if (TetraFramesValue[parity].LineClasses[axis] == key.Channel)
@@ -318,7 +361,12 @@ namespace Genesis.RoomScan
                 var key = MerkabaFlowerDetailKey.Create(0, 0, FirstPetal(NodeIncidentPetalsValue[nodeIndex]),
                     node.LineClass, node.Shell == Shell.R3Closure ? MerkabaFlowerDetailKind.R3Phase :
                         MerkabaFlowerDetailKind.R2Phase, plus, (int)((root.Symbol.Tag >> 8) & 31u));
-                return ApplyOwnPhase(owner, epoch, key, root, out root);
+                var geometryNode = new GeometryNode
+                {
+                    Line = node.LineClass, Offset = node.Direction, RootNode = nodeIndex,
+                    Petal = key.PetalClass, Plus = plus, Kind = key.Kind
+                };
+                return ApplyOwnPhase(owner, epoch, key, geometryNode, root, out root);
             }
 
             internal ProofClassification ReadOriginalShared(int3 owner, int nodeIndex, bool plus,
@@ -361,6 +409,78 @@ namespace Genesis.RoomScan
                     node.Orientation > 0 ? other : local, out root, out _);
                 root = WithStatus(root, status);
                 return status;
+            }
+
+            private static ProofClassification R3MetricResidual(PhaseRootEvidence predicted,
+                PhaseRootEvidence observed, int parity, int axis, out FloatInterval q)
+            {
+                q = FloatInterval.Singleton(0f);
+                if (predicted.Classification == ProofClassification.Impossible ||
+                    observed.Classification == ProofClassification.Impossible) return ProofClassification.Impossible;
+                if ((uint)parity >= TetraFrameCount || (uint)axis >= 4u ||
+                    predicted.Classification != ProofClassification.Certain || observed.Classification != ProofClassification.Certain ||
+                    !TryPhaseIdentity(predicted, out var p) || !TryPhaseIdentity(observed, out var o))
+                    return ProofClassification.Ambiguous;
+                if (ClassifySector(p.LineClass, predicted.Root, out int pSector) != ProofClassification.Certain ||
+                    ClassifySector(o.LineClass, observed.Root, out int oSector) != ProofClassification.Certain)
+                    return ProofClassification.Ambiguous;
+                if (math.any(predicted.Symbol.Junction != observed.Symbol.Junction) ||
+                    (predicted.Symbol.Tag & 0x1fffu) != (observed.Symbol.Tag & 0x1fffu) ||
+                    pSector != p.Sector || oSector != o.Sector || TetraFramesValue[parity].LineClasses[axis] != p.LineClass)
+                    return ProofClassification.Impossible;
+                bool exactIdentity = predicted.Root.X.IsSingleton && predicted.Root.Y.IsSingleton &&
+                    observed.Root.X.IsSingleton && observed.Root.Y.IsSingleton &&
+                    predicted.Root.X.Lower == observed.Root.X.Lower && predicted.Root.Y.Lower == observed.Root.Y.Lower;
+                if (!exactIdentity && (TangentHalfAngle(predicted.Root, observed.Root, out q) != ProofClassification.Certain ||
+                    !float.IsFinite(q.Lower) || !float.IsFinite(q.Upper))) return ProofClassification.Ambiguous;
+                if (TetraFramesValue[parity].Eta[axis] < 0) q = new FloatInterval(-q.Upper, -q.Lower);
+                return ProofClassification.Certain;
+            }
+
+            internal ProofClassification ReadR3MetricBundle(int3 owner, uint rootSigns, float2 errors,
+                Span<FloatInterval> q, out R3MetricEvidence evidence)
+            {
+                if (q.Length != 4) throw new ArgumentException("Four canonical R3 axes are required.", nameof(q));
+                q.Clear(); evidence = default;
+                if (rootSigns >= 16u) return ProofClassification.Impossible;
+                if (!TryReadOwner(owner, out KernelState state, out _)) return ProofClassification.Ambiguous;
+                if (!StableR1(state.Flags)) return ProofClassification.Impossible;
+                int parity = (owner.x & 1) | ((owner.y & 1) << 1) | ((owner.z & 1) << 2);
+                TetraFrameRule frame = TetraFramesValue[parity];
+                int chirality = frame.Chirality;
+                uint resolved = 0u, exactZero = 0u, provisionalAxes = 0u, impossible = 0u;
+                for (int axis = 0; axis < 4; axis++)
+                {
+                    bool plus = (rootSigns & (1u << axis)) != 0u;
+                    chirality *= plus ? 1 : -1;
+                    int line = frame.LineClasses[axis];
+                    int node = 2 * line + (frame.Eta[axis] < 0 ? 1 : 0);
+                    // R2 substitutions keep every original R3 anchor exact;
+                    // no child phase is added to this inherited prediction.
+                    ProofClassification status = CarrierRootProof(owner, state.Flags, 0,
+                        NodesValue[node].Direction, line, plus, errors.x, errors.y, out PhaseRootEvidence prediction);
+                    if (status != ProofClassification.Certain)
+                    { if (status == ProofClassification.Impossible) impossible |= 1u << axis; continue; }
+                    status = ReadOriginalShared(owner, node, plus, errors.x, errors.y,
+                        out PhaseRootEvidence observed, out bool provisional);
+                    if (provisional) provisionalAxes |= 1u << axis;
+                    if (status != ProofClassification.Certain || provisional)
+                    { if (status == ProofClassification.Impossible) impossible |= 1u << axis; continue; }
+                    status = R3MetricResidual(prediction, observed, parity, axis, out q[axis]);
+                    if (status != ProofClassification.Certain)
+                    { if (status == ProofClassification.Impossible) impossible |= 1u << axis; continue; }
+                    resolved |= 1u << axis;
+                    if (q[axis].IsSingleton && q[axis].Lower == 0f) exactZero |= 1u << axis;
+                }
+                FloatInterval scalar = default; Interval3 vector = default;
+                if (impossible == 0u && resolved == 15u) TetraForwardIntervals(q, out scalar, out vector);
+                evidence = new R3MetricEvidence(scalar, vector, resolved, exactZero, provisionalAxes, chirality);
+                if (impossible != 0u) return ProofClassification.Impossible;
+                if (resolved != 15u ||
+                    !math.all(math.isfinite(new float4(scalar.Lower, scalar.Upper, vector.X.Lower, vector.X.Upper))) ||
+                    !math.all(math.isfinite(new float4(vector.Y.Lower, vector.Y.Upper, vector.Z.Lower, vector.Z.Upper))))
+                    return ProofClassification.Ambiguous;
+                return ProofClassification.Certain;
             }
 
             private static PhaseRootEvidence WithStatus(PhaseRootEvidence root, ProofClassification status) =>
@@ -489,7 +609,7 @@ namespace Genesis.RoomScan
                 if (LinesValue[node.Line].Shell == Shell.R1Core) return true;
                 var key = MerkabaFlowerDetailKey.Create(node.Level, node.Path, node.Petal,
                     node.Line, node.Kind, plus, (int)((root.Symbol.Tag >> 8) & 31u));
-                return ApplyOwnPhase(owner, epoch, key, root, out root) == ProofClassification.Certain;
+                return ApplyOwnPhase(owner, epoch, key, node, root, out root) == ProofClassification.Certain;
             }
 
             internal bool ReadL2Knot(int3 owner, int knot, bool plus, float normalError,

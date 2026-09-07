@@ -6534,3 +6534,77 @@ DEFERRED_DEPENDENCIES=parent48 completion/junction predicate; cross-carrier
 partial direct/DIRT union; final shared-reader/parity/runtime/perf validation.
 NEXT_CUT=finish those existing RUN_04/RUN_05 seams; do not mark any run PASS
 merely because production shaders now compile.
+
+### CURRENT TRUE STATE — shared coverage, R3 metric reader and telemetry
+
+CHECKPOINT_PARENT=239863f; CURRENT_COMMIT=git HEAD containing this entry.
+RUN_04=OPEN; RUN_05=IMPLEMENTING; RUN_06=IMPLEMENTING.
+IMPLEMENTED=AcrossEdge2304 generated original-knot incidences with unique
+partner/orientation/involution proof; actual GPU and CPU direct-coverage
+OR-union with exact paired edges, covered witness and remaining boundary.
+CPU export caller now consumes the same union. Both enumerate the same
+512-owner page domain; a partner outside that domain never silently cancels
+an edge. Cross-page partial coverage remains unresolved, not false FULL.
+IMPLEMENTED_R3=shared actual endpoint-local synthesis/SEAL metric reader,
+q[4]/qs/qv/chirality and resolved/exact-zero/provisional masks; finite
+zero-containing residual is not relabelled exact zero. Child frame parity
+uses generated integer endpoint K_L, never a manual +L flip.
+IMPLEMENTED_COMPLETION_CORE=one emitted CPU/HLSL 48-petal boundary predicate,
+derived and proved from the existing signed72x48 incidence. It accepts only
+an immutable direct mask plus separately proved candidate masks and returns
+0/1/>1. The full parent/junction admission consumer is STILL NOT COMPLETE.
+IMPLEMENTED_TELEMETRY=actual draw timestamps, Android scheduler progression,
+sum of native quanta belonging to one frozen observation, existing sampled
+counter logging, and individual/storage-batch Transfer/Gather/Install/ACK
+timestamps. No new synchronous readback, GPU queue or native resource ABI.
+Counter87/97 describe the last successful compact page, not visible totals.
+CODEGEN=shared-coverage-codegen and shared-coverage-telemetry-codegen PASS
+in Kingston Unity6000.5.9f1. Generated-table proofs ran during emission.
+GPU_COMPILE=actual Drain/Finalize ordinary glslang+spirv-val(vulkan1.1) PASS;
+Drain7RW/10RO,128lanes,20624B GS; Finalize4RW/7RO,128lanes,12B GS; no aliases.
+Actual Compact ordinary glslang+spirv-val(vulkan1.1) PASS;
+shared-coverage-readout.spv:7RW/13RO,256lanes,15464B GS,4177632B SPIR-V,
+zero writable-image bindings and zero RW/read aliases. No compiler limit raised.
+TESTS_RUN=no new Unity/runtime suite; APK=not built; PERF=not measured.
+MANUAL_AUDIT=targeted source/equation inspection only; full cut closure NOT PASS.
+
+### R1_BOUNDARY_GATE — exact counterexample; contract text unchanged
+
+STATUS=mathematical admission blocker for literal sections7.1/8.4.2,
+confirmed independently against current generated tables and CPU/HLSL readers.
+Take the physical plane z=0 and any dyadic level with lattice step h=a_L.
+For R1 directions +/-X or +/-Y, the shared loop centre has z=h*Kz and
+radius rho=sqrt(3)*h/2<h. It intersects z=0 only for integer Kz=0.
+The resulting unit phases in the canonical X/Y loop bases are (+/-1,0).
+Those are actual generated corner/corner power-order boundaries: the two
+incident corners differing by +/-Z have equal Phi on this entire plane.
+For R1 directions +/-Z the complete loop instead lies in the parallel plane
+z=h*(Kz+/-1/2), so no integer Kz gives an isolated root on z=0.
+
+Authority.cs ClassifySector requires BOTH interval Cross.Lower>0;
+generated HLSL M8FlowerRootSector has the same strict predicate.
+Even an exact singleton boundary root fails. Every sound quantization/sensor
+enclosure containing the actual plane root therefore fails too; re-observing
+or refining cannot remove that true boundary point. This applies to R1,
+not to missing R2/R3, and already prevents L0 certain-sector admission.
+The same arithmetic holds at every dyadic level; there is no child escape.
+
+EVIDENCE=Authority.cs EvaluateLoop/ClassifySector and generated X/Y sector
+endpoints(+/-1,0); contract8.4.2 explicitly classifies touching as AMBIGUOUS.
+This is an exact geometric counterexample, not an unrun fixture reported PASS.
+IMPACT=literal admission cannot reconstruct an exactly lattice-aligned wall
+as a certain direct R1 surface. It conflicts with the functional flat-wall/
+all-orientation closure target. Compilation does not resolve this condition.
+NO_WORKAROUND=no jitter, rotated hidden lattice, epsilon, fitter, fabricated
+root/sector or legacy surface fallback has been introduced.
+MINIMAL_NATIVE_CORRECTION_DIRECTION=distinguish a mathematically certain
+root on a generated sewing boundary from an unresolved physical root;
+resolve the compatible boundary incidence/ownership by the frozen generator
+while retaining its complete metric enclosure. This requires an explicit
+amendment of strict-sector admission and its consumers, not an unauthorized
+replacement of > by >= or the removal of interval uncertainty.
+DECISION_REQUIRED=authoritative boundary-root admission semantics. Contract
+prefix remains byte-for-byte unchanged pending the user's decision.
+NEXT_CURSOR=do not reopen numerical/codegen compile work or invent junction
+chirality; finish independent integration only, then resume R1/completion
+admission from the explicitly approved boundary amendment.

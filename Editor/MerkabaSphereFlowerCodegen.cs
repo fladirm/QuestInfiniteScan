@@ -147,6 +147,7 @@ namespace Genesis.RoomScan.Editor
             AppendNodes(output);
             AppendStrands(output);
             AppendPetals(output);
+            AppendCompletion(output, false);
             AppendChildren(output);
             AppendPhaseFamilies(output);
             AppendL2Carrier(output, false);
@@ -309,6 +310,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
             AppendL2Carrier(o, true);
             AppendRadicalSectorPatterns(o, true);
             AppendAnchorSectorPetalMasks(o, true);
+            AppendCompletion(o, true);
             o.AppendLine("        private static ulong[] LoadGeneratedNodeIncidentPetals() => new ulong[] {");
             for (int i = 0; i < MerkabaSphereFlowerAuthority.NodeIncidentPetals.Length; i++)
             {
@@ -1310,6 +1312,86 @@ uint M8FlowerPackSymbolTag(uint level, uint lineClass, bool rootSign,
             output.AppendLine("};");
         }
 
+        private static void AppendCompletion(StringBuilder output, bool csharp)
+        {
+            output.AppendLine(csharp
+                ? "        private static readonly uint2[] M8FlowerCompletionNeighbours = new uint2[] {"
+                : "static const uint2 M8FlowerCompletionNeighbours[48] = {");
+            var petals = MerkabaSphereFlowerAuthority.Petals;
+            var strands = MerkabaSphereFlowerAuthority.Strands;
+            for (int petal = 0; petal < petals.Length; petal++)
+            {
+                ulong neighbours = 0;
+                for (int edge = 0; edge < 3; edge++)
+                {
+                    var strand = strands[petals[petal].Strand(edge)];
+                    int other = strand.Petal0 == petal ? strand.Petal1 : strand.Petal0;
+                    if (other == petal || (strand.Petal0 != petal && strand.Petal1 != petal))
+                        throw new InvalidOperationException("Completion strand lacks its two-sided petal incidence.");
+                    int otherEdge = -1;
+                    for (int i = 0; i < 3; i++)
+                        if (petals[other].Strand(i) == petals[petal].Strand(edge)) otherEdge = i;
+                    if (otherEdge < 0 || petals[petal].StrandSign(edge) != -petals[other].StrandSign(otherEdge))
+                        throw new InvalidOperationException("Completion boundary signs are not opposite.");
+                    // For an absent p, b_e=B_ep*x_p+B_eq*x_q=-B_ep iff
+                    // x_q=1. Prove all four local binary assignments rather
+                    // than approximate B*x or reconstruct adjacency at runtime.
+                    for (int self = 0; self < 2; self++)
+                    for (int peer = 0; peer < 2; peer++)
+                    {
+                        int boundary = petals[petal].StrandSign(edge) * self +
+                            petals[other].StrandSign(otherEdge) * peer;
+                        if ((self == 0 && boundary == -petals[petal].StrandSign(edge)) !=
+                            (self == 0 && peer == 1))
+                            throw new InvalidOperationException("Completion boundary reduction is not exact.");
+                    }
+                    neighbours |= 1UL << other;
+                }
+                if (math.countbits((uint)neighbours) + math.countbits((uint)(neighbours >> 32)) != 3)
+                    throw new InvalidOperationException("A Flower petal requires three distinct boundary neighbours.");
+                output.Append(csharp ? "            new uint2(" : "    uint2(")
+                    .Append((uint)neighbours).Append("u, ").Append((uint)(neighbours >> 32)).Append("u)");
+                Comma(output, petal, petals.Length);
+            }
+            output.AppendLine("};");
+            string source = @"
+// Section13: the direct mask is immutable input and excludes COMPLETED/DIRT.
+// The generated neighbour test is exactly the signed72x48 boundary equation,
+// not a flood fill. Caller masks must prove the actual shared roots, symbol,
+// R1/R2/R3 closure, orientation and complete-support dual exclusion.
+internal static uint2 M8FlowerCompletionCandidates(uint2 confirmedDirect,
+    uint2 uniqueRoots,uint2 uniqueSymbols,uint2 certainShells,
+    uint2 certainOrientation,uint2 dualVeto)
+{
+    uint2 candidates=uniqueRoots&uniqueSymbols&certainShells&certainOrientation&
+        ~dualVeto&~confirmedDirect&uint2(0xffffffffu,0xffffu);
+    uint2 result=uint2(0u,0u);
+    [loop] for(int petal=0;petal<48;++petal)
+    {
+        uint bit=1u<<(petal&31);
+        if((candidates[petal>>5]&bit)==0u)continue;
+        uint2 neighbours=M8FlowerCompletionNeighbours[petal];
+        if(all((confirmedDirect&neighbours)==neighbours))result[petal>>5]|=bit;
+    }
+    return result;
+}
+
+internal static uint M8FlowerUniqueCompletion(uint2 candidates,out uint petal)
+{
+    petal=0xffffffffu;
+    if((candidates.y&0xffff0000u)!=0u)return 2u;
+    int count=(int)countbits(candidates.x)+(int)countbits(candidates.y);
+    if(count==0)return 0u;
+    if(count!=1)return 2u;
+    petal=candidates.x!=0u?(uint)firstbitlow(candidates.x):32u+(uint)firstbitlow(candidates.y);
+    return 1u;
+}
+";
+            output.AppendLine(csharp
+                ? source.Replace("[loop] ", string.Empty).Replace("firstbitlow(", "tzcnt(")
+                : source.Replace("internal static ", string.Empty));
+        }
+
         private static void AppendChildren(StringBuilder output)
         {
             output.AppendLine("static const uint3 M8FlowerChildPetal[4] = {");
@@ -1388,6 +1470,34 @@ uint3 M8FlowerL2WedgeKnots(uint hub, uint wedge)
     return uint3(packed&511u,(packed>>9u)&511u,(packed>>18u)&511u);
 }");
             AppendL2WedgeOwners(o,csharp);
+            AppendL2EdgeIncidence(o,csharp);
+        }
+
+        private static void AppendL2EdgeIncidence(StringBuilder o, bool csharp)
+        {
+            var edges=MerkabaSphereFlowerAuthority.L2EdgeIncidence;
+            if(edges.Length!=MerkabaSphereFlowerAuthority.L2WedgeCount*3)
+                throw new InvalidDataException("Incomplete exact L2 across-edge incidence.");
+            if(csharp)o.AppendLine("        private static ushort[] LoadGeneratedL2EdgeIncidence() => new ushort[] {");
+            else o.Append("static const uint M8FlowerL2EdgeIncidence[").Append(edges.Length).AppendLine("] = {");
+            for(int i=0;i<edges.Length;i++)
+            {
+                o.Append("    ").Append(edges[i]);
+                if(!csharp)o.Append('u');
+                Comma(o,i,edges.Length);
+            }
+            o.AppendLine("};");
+            if(!csharp)o.AppendLine(@"
+// Each edge has exactly one partner with the same two original typed knots.
+bool M8FlowerL2AcrossEdge(uint wedge,uint edge,
+    out uint partnerWedge,out uint partnerEdge,out bool reversed)
+{
+    partnerWedge=partnerEdge=0u;reversed=false;
+    if(wedge>=768u || edge>=3u)return false;
+    uint row=M8FlowerL2EdgeIncidence[3u*wedge+edge];
+    partnerWedge=row&1023u;partnerEdge=(row>>10u)&3u;reversed=(row&4096u)!=0u;
+    return partnerWedge<768u && partnerEdge<3u;
+}");
         }
 
         private static void AppendL2WedgeOwners(StringBuilder o, bool csharp)

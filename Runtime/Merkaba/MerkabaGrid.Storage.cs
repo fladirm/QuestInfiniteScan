@@ -377,6 +377,7 @@ namespace Genesis.RoomScan
 
         private void ApplySampledCounters(Unity.Collections.NativeArray<uint> values)
         {
+            MerkabaGpuTimestamps.ObserveStorageCounterSample(values);
             uint hotTiles = values[CounterHotTileCount];
             uint coldTiles = values[CounterColdTileCount];
             PublishResidencyEpoch(values[CounterResidencyEpoch]);

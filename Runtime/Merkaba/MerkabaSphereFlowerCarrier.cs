@@ -125,6 +125,31 @@ namespace Genesis.RoomScan
         public static ReadOnlySpan<ushort> L2WedgeOwnerOffsets => L2OwnershipData.Offsets;
         public static ReadOnlySpan<L2WedgeOwnerRule> L2WedgeOwners => L2OwnershipData.Owners;
 
+        private static class L2EdgeData
+        {
+#if UNITY_EDITOR
+            internal static readonly ushort[] Across = BuildL2EdgeIncidence();
+#else
+            internal static readonly ushort[] Across = LoadGeneratedL2EdgeIncidence();
+#endif
+        }
+
+        // Edge slots follow the actual oriented H,R0,R1 triangle: 0=H-R0,
+        // 1=R0-R1, 2=R1-H. Packed partner: wedge10, edge2, reversal1.
+        public static ReadOnlySpan<ushort> L2EdgeIncidence => L2EdgeData.Across;
+
+        public static bool TryL2AcrossEdge(int wedge, int edge,
+            out int partnerWedge, out int partnerEdge, out bool reversed)
+        {
+            partnerWedge = partnerEdge = 0; reversed = false;
+            if ((uint)wedge >= L2WedgeCount || (uint)edge >= 3u) return false;
+            ushort row = L2EdgeData.Across[3 * wedge + edge];
+            partnerWedge = row & 1023;
+            partnerEdge = (row >> 10) & 3;
+            reversed = (row & 4096) != 0;
+            return partnerWedge < L2WedgeCount && partnerEdge < 3;
+        }
+
         // Ownership is per actual wedge. A carrier can own a strict subset
         // of its six wedges. Equal owner coordinates use the generated wedge
         // ordinal as the secondary tie, never source traversal order.
@@ -315,6 +340,54 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
+        private static ushort[] BuildL2EdgeIncidence()
+        {
+            var edges = new Dictionary<(int First, int Last), List<(int Wedge, int Edge, int First, int Last)>>();
+            for (int wedge = 0; wedge < L2WedgeCount; wedge++)
+            {
+                L2WedgeRule row = CarrierData.Wedges[wedge];
+                int3 knots = new int3(row.Hub, row.Ring0, row.Ring1);
+                for (int edge = 0; edge < 3; edge++)
+                {
+                    int first = knots[edge], last = knots[(edge + 1) % 3];
+                    if (first == last)
+                        throw new InvalidOperationException("L2 edge repeats an original typed knot.");
+                    // CarrierData has already proved every catalog entry's
+                    // original (L,J,line) and every duplicate source incidence.
+                    var key = (Math.Min(first, last), Math.Max(first, last));
+                    if (!edges.TryGetValue(key, out var incident))
+                    { incident = new List<(int, int, int, int)>(2); edges.Add(key, incident); }
+                    incident.Add((wedge, edge, first, last));
+                }
+            }
+            var result = new ushort[L2WedgeCount * 3];
+            foreach (var incident in edges.Values)
+            {
+                if (incident.Count != 2)
+                    throw new InvalidOperationException("A complete L2 lattice edge must have exactly two incident petals.");
+                for (int side = 0; side < 2; side++)
+                {
+                    var self = incident[side]; var peer = incident[1 - side];
+                    bool reversed = self.First == peer.Last && self.Last == peer.First;
+                    if (self.Wedge == peer.Wedge || !reversed ||
+                        !SameL2KnotLoop(CarrierData.Knots[self.First], CarrierData.Knots[peer.Last]) ||
+                        !SameL2KnotLoop(CarrierData.Knots[self.Last], CarrierData.Knots[peer.First]))
+                        throw new InvalidOperationException("L2 edge incidence does not preserve the two oriented typed knots.");
+                    result[3 * self.Wedge + self.Edge] = checked((ushort)(peer.Wedge | peer.Edge << 10 | 1 << 12));
+                }
+            }
+            for (int wedge = 0; wedge < L2WedgeCount; wedge++)
+                for (int edge = 0; edge < 3; edge++)
+                {
+                    ushort peer = result[3 * wedge + edge];
+                    ushort inverse = result[3 * (peer & 1023) + ((peer >> 10) & 3)];
+                    if ((inverse & 1023) != wedge || ((inverse >> 10) & 3) != edge ||
+                        (peer & inverse & 4096) == 0)
+                        throw new InvalidOperationException("L2 across-edge incidence is not an involution.");
+                }
+            return result;
+        }
+
         private readonly struct L2OwnerFootprint
         {
             internal readonly int3 Types;

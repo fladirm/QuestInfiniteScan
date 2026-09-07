@@ -27,6 +27,8 @@ groupshared uint m8FlowerSupportAmbiguousFaces[M8_FLOWER_SUPPORT_FACE_WORDS];
 groupshared uint m8FlowerSupportHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
 groupshared uint m8FlowerSupportPartial[M8_FLOWER_SUPPORT_FACE_WORDS];
 groupshared uint m8FlowerSupportPartialHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
+groupshared uint m8FlowerSupportWitnessHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
+groupshared uint m8FlowerSupportBoundaryHalves[M8_FLOWER_SUPPORT_HALF_WORDS];
 groupshared uint m8FlowerSupportOffsets[M8_FLOWER_SUPPORT_HALF_WORDS];
 groupshared uint m8FlowerSupportColdHalo;
 groupshared uint m8FlowerSupportSymbolCount;
@@ -226,6 +228,10 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
         m8FlowerSupportHalves[faceWord * 2u + 1u] = exposed;
         m8FlowerSupportPartialHalves[faceWord * 2u] = 0u;
         m8FlowerSupportPartialHalves[faceWord * 2u + 1u] = 0u;
+        m8FlowerSupportWitnessHalves[faceWord * 2u] = 0u;
+        m8FlowerSupportWitnessHalves[faceWord * 2u + 1u] = 0u;
+        m8FlowerSupportBoundaryHalves[faceWord * 2u] = 0u;
+        m8FlowerSupportBoundaryHalves[faceWord * 2u + 1u] = 0u;
         // Before PrepareSymbols these words hold proved complete coverage;
         // the prefix calculation reuses them only after the coverage barrier.
         m8FlowerSupportOffsets[faceWord * 2u] = 0u;
@@ -475,11 +481,47 @@ bool M8FlowerSupportContainsWitness(float2 a,float2 b,float2 c,M8FlowerInterval2
     return true;
 }
 
-// Union of the actual active coplanar fan, not six independent whole-half
-// tests. The generated fan cancels a spoke iff both incident wedges exist.
-// Its remaining oriented edges contain every boundary of this union even
-// when unrelated triangles overlap. No summed-area assumption is required.
-uint M8FlowerSupportCarrierCoverage(float3 positions[7],uint active,int3 cell,uint face,uint halfFace)
+// A generated edge match precedes this comparison. Equal midpoint positions
+// alone are never identity. Equal complete symbols and frozen root intervals
+// reproduce the same two endpoints through the shared position evaluator.
+bool M8FlowerSupportSameRoot(M8FlowerPhaseRootEvidence a,M8FlowerPhaseRootEvidence b)
+{
+    return a.Classification==1u && b.Classification==1u && all(a.Junction==b.Junction) &&
+        (a.Tag&0x1fffu)==(b.Tag&0x1fffu) &&
+        all(asuint(float4(a.Root.x.lo,a.Root.x.hi,a.Root.y.lo,a.Root.y.hi))==
+            asuint(float4(b.Root.x.lo,b.Root.x.hi,b.Root.y.lo,b.Root.y.hi)));
+}
+
+uint M8FlowerSupportPairAxes(M8FlowerPhaseRootEvidence firstRoot,M8FlowerPhaseRootEvidence lastRoot,
+    M8FlowerPhaseRootEvidence peerFirst,M8FlowerPhaseRootEvidence peerLast,
+    float3 first,float3 last,float3 ownThird,float3 peerThird)
+{
+    if(!M8FlowerSupportSameRoot(firstRoot,peerFirst) ||
+        !M8FlowerSupportSameRoot(lastRoot,peerLast))return 0u;
+    uint axes=0u;
+    [unroll]for(uint axis=0u;axis<3u;axis++)
+    {
+        if(first[axis]!=last[axis] || first[axis]!=ownThird[axis] || first[axis]!=peerThird[axis])continue;
+        uint u=(axis+1u)%3u,v=(axis+2u)%3u;
+        float2 a=float2(first[u],first[v]),b=float2(last[u],last[v]);
+        M8FlowerInterval own=M8FlowerSupportOrient2(a,b,float2(ownThird[u],ownThird[v]));
+        M8FlowerInterval peer=M8FlowerSupportOrient2(a,b,float2(peerThird[u],peerThird[v]));
+        // Coincident edges on the SAME side do not cancel a union boundary.
+        if((own.lo>0.0 && peer.hi<0.0) || (own.hi<0.0 && peer.lo>0.0))axes|=1u<<axis;
+    }
+    return axes;
+}
+
+#define M8_FLOWER_COVERAGE_OVERLAP 1u
+#define M8_FLOWER_COVERAGE_WITNESS 2u
+#define M8_FLOWER_COVERAGE_BOUNDARY 4u
+#define M8_FLOWER_COVERAGE_COMPLETE 8u
+
+// A contribution to the finite closed union, not an area sum. Internal fan
+// spokes cancel locally. An outer edge cancels only after an exact generated
+// partner was read and proved present on the opposite side of that SAME edge.
+uint M8FlowerSupportCarrierCoverageProof(float3 positions[7],uint active,uint pairedOuterEdges,
+    int3 cell,uint face,uint halfFace)
 {
     float3 halfWorld[3];
     [unroll]for(uint sampleIndex=0u;sampleIndex<3u;sampleIndex++)
@@ -499,10 +541,11 @@ uint M8FlowerSupportCarrierCoverage(float3 positions[7],uint active,int3 cell,ui
         M8FlowerInterval area=M8FlowerSupportOrient2(float2(directVertices[0][u],directVertices[0][v]),
             float2(directVertices[1][u],directVertices[1][v]),float2(directVertices[2][u],directVertices[2][v]));
         int directWinding=area.lo>0.0?1:area.hi<0.0?-1:0;
-        if(directWinding==0 || (commonWinding!=0 && directWinding!=commonWinding))return 2u;
+        if(directWinding==0 || (commonWinding!=0 && directWinding!=commonWinding))
+            return M8_FLOWER_COVERAGE_OVERLAP|M8_FLOWER_COVERAGE_BOUNDARY;
         commonWinding=directWinding;
         uint individual=M8FlowerSupportTriangleCoverage(directVertices,cell,face,halfFace);
-        if(individual==1u)return 1u;
+        if(individual==1u)return M8_FLOWER_COVERAGE_OVERLAP|M8_FLOWER_COVERAGE_COMPLETE;
         overlaps=overlaps || individual==2u;
     }
     if(!overlaps)return 0u;
@@ -512,16 +555,24 @@ uint M8FlowerSupportCarrierCoverage(float3 positions[7],uint active,int3 cell,ui
     [unroll]for(uint site=0u;site<7u;site++)sites2d[site]=float2(positions[site][u],positions[site][v]);
     M8FlowerInterval orientation=M8FlowerSupportOrient2(halfVertices[0],halfVertices[1],halfVertices[2]);
     int winding=orientation.lo>0.0?1:orientation.hi<0.0?-1:0;
-    if(winding==0)return 2u;
+    if(winding==0)return M8_FLOWER_COVERAGE_OVERLAP|M8_FLOWER_COVERAGE_BOUNDARY;
+    uint proof=M8_FLOWER_COVERAGE_OVERLAP;
+    bool ownBoundary=false;
     [loop]for(uint wedge=0u;wedge<6u;wedge++)
     {
         if((coplanar&(1u<<wedge))==0u)continue;
         uint first=1u+wedge,last=1u+(wedge+1u)%6u;
-        if(M8FlowerSupportSegmentMayEnter(sites2d[first],sites2d[last],halfVertices,winding))return 2u;
+        if(M8FlowerSupportSegmentMayEnter(sites2d[first],sites2d[last],halfVertices,winding))
+        {
+            ownBoundary=true;
+            if((pairedOuterEdges&(1u<<wedge))==0u)proof|=M8_FLOWER_COVERAGE_BOUNDARY;
+        }
         if((coplanar&(1u<<((wedge+5u)%6u)))==0u &&
-            M8FlowerSupportSegmentMayEnter(sites2d[0],sites2d[first],halfVertices,winding))return 2u;
+            M8FlowerSupportSegmentMayEnter(sites2d[0],sites2d[first],halfVertices,winding))
+        {ownBoundary=true;proof|=M8_FLOWER_COVERAGE_BOUNDARY;}
         if((coplanar&(1u<<((wedge+1u)%6u)))==0u &&
-            M8FlowerSupportSegmentMayEnter(sites2d[last],sites2d[0],halfVertices,winding))return 2u;
+            M8FlowerSupportSegmentMayEnter(sites2d[last],sites2d[0],halfVertices,winding))
+        {ownBoundary=true;proof|=M8_FLOWER_COVERAGE_BOUNDARY;}
     }
     // A strictly interior dyadic barycentric witness. If no possible union
     // boundary enters the connected open half and this point is covered,
@@ -537,15 +588,63 @@ uint M8FlowerSupportCarrierCoverage(float3 positions[7],uint active,int3 cell,ui
         M8FlowerI(0.25,0.25));
     [loop]for(uint wedge=0u;wedge<6u;wedge++)
         if((coplanar&(1u<<wedge))!=0u && M8FlowerSupportContainsWitness(sites2d[0],
-            sites2d[1u+wedge],sites2d[1u+(wedge+1u)%6u],witness))return 1u;
-    return 2u;
+            sites2d[1u+wedge],sites2d[1u+(wedge+1u)%6u],witness))proof|=M8_FLOWER_COVERAGE_WITNESS;
+    if(!ownBoundary && (proof&M8_FLOWER_COVERAGE_WITNESS)!=0u)proof|=M8_FLOWER_COVERAGE_COMPLETE;
+    return proof;
+}
+
+uint M8FlowerSupportCoverageResult(uint proof)
+{
+    if((proof&M8_FLOWER_COVERAGE_COMPLETE)!=0u ||
+        (proof&(M8_FLOWER_COVERAGE_WITNESS|M8_FLOWER_COVERAGE_BOUNDARY))==M8_FLOWER_COVERAGE_WITNESS)return 1u;
+    return (proof&M8_FLOWER_COVERAGE_OVERLAP)!=0u?2u:0u;
+}
+
+uint M8FlowerSupportCarrierCoverage(float3 positions[7],uint active,int3 cell,uint face,uint halfFace)
+{
+    return M8FlowerSupportCoverageResult(M8FlowerSupportCarrierCoverageProof(
+        positions,active,0u,cell,face,halfFace));
+}
+
+uint3 M8FlowerSupportPairedOuterEdges(uint slot,int3 owner,uint carrier,uint active,
+    M8FlowerPhaseRootEvidence roots[7],float3 positions[7],float2 errors)
+{
+    uint3 paired=0u;
+    [loop]for(uint wedge=0u;wedge<6u;wedge++)
+    {
+        if((active&(1u<<wedge))==0u)continue;
+        uint peerWedge,peerEdge;bool reversed;
+        if(!M8FlowerL2AcrossEdge(6u*carrier+wedge,1u,peerWedge,peerEdge,reversed) || !reversed)continue;
+        int3 delta;uint canonicalWedge,permutation;
+        if(!M8FlowerCanonicalL2WedgeOwner(peerWedge/6u,peerWedge%6u,
+            delta,canonicalWedge,permutation))continue;
+        int3 relative=(owner&7)+delta;
+        // Only cancel against contributors in the same COMPLETE iteration
+        // set. A halo partner not accumulated by this page retains boundary.
+        if(any(relative<0) || any(relative>7))continue;
+        uint local=(uint)(relative.x+8*(relative.y+8*relative.z));
+        M8FlowerSymbolRecord peerSymbol;uint unresolved;
+        M8FlowerPhaseRootEvidence peerRoots[7];float3 peerPositions[7];
+        if(M8FlowerPageCarrier(slot,local,canonicalWedge/6u,errors,
+            peerSymbol,unresolved,peerRoots,peerPositions)!=1u ||
+            (M8FlowerDrawActiveWedgeMask(peerSymbol)&(1u<<(canonicalWedge%6u)))==0u)continue;
+        uint3 peerSites=M8FlowerL2CarrierTriangle(canonicalWedge%6u,false);
+        uint firstSite=peerSites[(permutation>>(2u*((peerEdge+1u)%3u)))&3u];
+        uint lastSite=peerSites[(permutation>>(2u*peerEdge))&3u];
+        uint thirdSite=peerSites[(permutation>>(2u*((peerEdge+2u)%3u)))&3u];
+        uint first=1u+wedge,last=1u+(wedge+1u)%6u;
+        uint axes=M8FlowerSupportPairAxes(roots[first],roots[last],peerRoots[firstSite],peerRoots[lastSite],
+            positions[first],positions[last],positions[0],peerPositions[thirdSite]);
+        [unroll]for(uint axis=0u;axis<3u;axis++)if((axes&(1u<<axis))!=0u)paired[axis]|=1u<<wedge;
+    }
+    return paired;
 }
 
 // Called independently by owner lanes for actually admitted/emitted carrier
 // wedges (including a genuinely unique completion). Atomics only accumulate
 // proof bits; scheduling cannot erase another lane's complete-coverage proof.
-void M8FlowerSupportAccumulateCarrier(int3 owner,uint carrier,M8FlowerSymbolRecord symbol,
-    M8FlowerPhaseRootEvidence roots[7],float3 positions[7])
+void M8FlowerSupportAccumulateCarrier(uint slot,int3 owner,uint carrier,M8FlowerSymbolRecord symbol,
+    M8FlowerPhaseRootEvidence roots[7],float3 positions[7],float2 errors)
 {
     uint active=M8FlowerDrawActiveWedgeMask(symbol);
     int3 carrierFirst=15,carrierLast=-8;
@@ -558,6 +657,7 @@ void M8FlowerSupportAccumulateCarrier(int3 owner,uint carrier,M8FlowerSymbolReco
         carrierFirst=min(carrierFirst,first);carrierLast=max(carrierLast,last);anyBounds=true;
     }
     if(!anyBounds)return;
+    uint3 pairedEdges=M8FlowerSupportPairedOuterEdges(slot,owner,carrier,active,roots,positions,errors);
     // A boundary face belongs to either adjacent U. Include the lower
     // neighbour at an exact integer coordinate; bounds are metric-derived.
     carrierFirst=max(carrierFirst-1,0);carrierLast=min(carrierLast,7);
@@ -573,10 +673,15 @@ void M8FlowerSupportAccumulateCarrier(int3 owner,uint carrier,M8FlowerSymbolReco
                         int3 cell=m8FlowerSupportOrigin+int3(x,y,z);
                         [unroll]for(uint halfFace=0u;halfFace<2u;halfFace++)
                         {
-                            uint coverage=M8FlowerSupportCarrierCoverage(positions,active,cell,face,halfFace);
+                            uint proof=M8FlowerSupportCarrierCoverageProof(positions,active,pairedEdges[face>>1u],cell,face,halfFace);
                             uint word=2u*faceWord+halfFace;
-                            if(coverage==1u)InterlockedOr(m8FlowerSupportOffsets[word],bit);
-                            else if(coverage==2u)InterlockedOr(m8FlowerSupportPartialHalves[word],bit);
+                            // A local witness only proves the full union
+                            // after ALL contributors' remaining boundaries
+                            // were accumulated. Do not promote it early.
+                            if((proof&M8_FLOWER_COVERAGE_COMPLETE)!=0u)InterlockedOr(m8FlowerSupportOffsets[word],bit);
+                            if((proof&M8_FLOWER_COVERAGE_OVERLAP)!=0u)InterlockedOr(m8FlowerSupportPartialHalves[word],bit);
+                            if((proof&M8_FLOWER_COVERAGE_WITNESS)!=0u)InterlockedOr(m8FlowerSupportWitnessHalves[word],bit);
+                            if((proof&M8_FLOWER_COVERAGE_BOUNDARY)!=0u)InterlockedOr(m8FlowerSupportBoundaryHalves[word],bit);
                         }
                     }
     }
@@ -589,6 +694,8 @@ void M8FlowerSupportFinalizeCoverage(uint lane,uint laneCount)
     {
         uint faces=m8FlowerSupportFaces[faceWord];
         uint a=faceWord*2u,b=a+1u;
+        m8FlowerSupportOffsets[a]|=m8FlowerSupportWitnessHalves[a]&~m8FlowerSupportBoundaryHalves[a];
+        m8FlowerSupportOffsets[b]|=m8FlowerSupportWitnessHalves[b]&~m8FlowerSupportBoundaryHalves[b];
         uint partialA=m8FlowerSupportPartialHalves[a]&~m8FlowerSupportOffsets[a];
         uint partialB=m8FlowerSupportPartialHalves[b]&~m8FlowerSupportOffsets[b];
         m8FlowerSupportHalves[a]=faces&~(m8FlowerSupportOffsets[a]|partialA);
