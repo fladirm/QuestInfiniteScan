@@ -5,7 +5,9 @@ using UnityEngine.UIElements;
 namespace Genesis.RoomScan.UI
 {
     /// <summary>Donor-proven right-controller UI pointer with laser and cursor feedback.</summary>
-    [DefaultExecutionOrder(-1000)]
+    // The installed Meta SDK's OVRManager runs at -100 and publishes OVRInput
+    // in Update. Resolve UI capture after it, before default-order consumers.
+    [DefaultExecutionOrder(-50)]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(OVRInputModule))]
     public sealed class ControllerRayDriver : MonoBehaviour

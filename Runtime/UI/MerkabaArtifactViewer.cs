@@ -175,6 +175,7 @@ namespace Genesis.RoomScan.UI
         private bool _ownsArtifactAnchor;
 
         public bool IsOpen { get; private set; }
+        public bool HasSessionDesign => _paintEngine != null && _paintEngine.IsOpen;
         public string Status { get; private set; } = "GLB View closed";
         public string AnnotationModeText => _annotationMode.ToString().ToUpperInvariant();
         public bool HasSelectedAnnotation => FindSelectedAnnotation() != null;

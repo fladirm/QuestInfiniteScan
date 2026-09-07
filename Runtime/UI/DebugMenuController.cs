@@ -17,7 +17,7 @@ namespace Genesis.RoomScan.UI
         private VisualElement _boundRoot;
         private Button _start, _save, _saveAs, _load, _new, _rename,
             _deleteSession, _export,
-            _exportTiles, _exportSaveAs, _fine, _readout, _occlusion, _checker,
+            _exportSaveAs, _fine, _readout, _occlusion, _checker,
             _artifactView, _artifactLoad, _annotationMode, _annotationSave,
             _annotationEdit, _annotationDelete, _tabScan, _tabRefine,
             _tabPaint, _tabPlan, _fineRefine, _fineErase,
@@ -27,18 +27,22 @@ namespace Genesis.RoomScan.UI
             _designPaint, _designObjects, _objectImport, _objectPlace,
             _objectSelect, _objectDuplicate, _objectVisible, _objectLock,
             _objectDelete, _designUndo, _designRedo,
-            _saveSwatch, _planView, _planStyle;
+            _saveSwatch, _planView, _planStyle, _library, _overflow,
+            _libraryBack, _diagnosticsBack, _libraryScans, _libraryExports,
+            _libraryModels, _viewLibrary, _objectLibrary, _libraryUseObject;
         private Label _sessionNameLabel, _scanning, _chunks, _kernels,
             _visibleBoundary;
         private Label _saved, _exportStatus, _pointer, _fps, _proximity;
         private Label _exportSaveAsStatus;
+        private Label _anchorStatus, _lastExport, _libraryModelStatus,
+            _libraryModelCount, _selectedObjectAsset, _paintToolName;
         private Label _artifactStatus, _objectStatus;
         private Label _paintStatus, _paintWidthValue, _paintFlowValue,
             _paintHardnessValue, _paintSaturationValue, _paintDensityValue,
             _paintScatterValue;
         private TextField _sessionName, _annotationNote, _exportName;
         private DropdownField _sessionPicker, _objectAssetPicker,
-            _objectInstancePicker;
+            _objectInstancePicker, _exportFormat;
         private Slider _opacity;
         private Slider _paintValue, _paintAlpha, _paintWidth, _paintFlow,
             _paintHardness, _paintSaturationSlider, _paintDensity,
@@ -55,7 +59,8 @@ namespace Genesis.RoomScan.UI
             _objectsWorkspace, _designHistoryActions, _paintColorCard,
             _paintPalette, _paintRowValue, _paintRowAlpha, _paintRowWidth,
             _paintRowFlow, _paintRowHardness, _paintRowSaturation,
-            _paintRowShape;
+            _paintRowShape, _modeTabs, _libraryPanel, _libraryScansPanel,
+            _libraryExportsPanel, _libraryModelsPanel, _diagnosticsPanel;
         private ProgressBar _operationProgress;
         private ControllerRayDriver _rayDriver;
         private MerkabaArtifactViewer _artifactViewer;
@@ -82,6 +87,13 @@ namespace Genesis.RoomScan.UI
         private Color _lastRecentColor;
         private bool _exportFileSavePending;
         private string _exportFileSaveStatus = string.Empty;
+        private ConsoleDestination _destination;
+        private LibraryTab _libraryTab;
+        private bool _exportAsTiles;
+
+        private bool DesignInteractionActive =>
+            _destination == ConsoleDestination.Tools &&
+            _selectedTab == MenuTab.Design;
 
         public bool IsVisible => _visible;
 
@@ -108,6 +120,7 @@ namespace Genesis.RoomScan.UI
                 Bind();
                 _boundRoot = _root;
             }
+            ApplyNavigation();
         }
 
         private void OnDestroy()
@@ -157,8 +170,17 @@ namespace Genesis.RoomScan.UI
             _rename = _root.Q<Button>("btn-rename");
             _deleteSession = _root.Q<Button>("btn-delete-session");
             _export = _root.Q<Button>("btn-export");
-            _exportTiles = _root.Q<Button>("btn-export-tiles");
             _exportSaveAs = _root.Q<Button>("btn-export-save-as");
+            _library = _root.Q<Button>("btn-library");
+            _overflow = _root.Q<Button>("btn-overflow");
+            _libraryBack = _root.Q<Button>("btn-library-back");
+            _diagnosticsBack = _root.Q<Button>("btn-diagnostics-back");
+            _libraryScans = _root.Q<Button>("btn-library-scans");
+            _libraryExports = _root.Q<Button>("btn-library-exports");
+            _libraryModels = _root.Q<Button>("btn-library-models");
+            _viewLibrary = _root.Q<Button>("btn-view-library");
+            _objectLibrary = _root.Q<Button>("btn-object-library");
+            _libraryUseObject = _root.Q<Button>("btn-library-use-object");
             _fine = _root.Q<Button>("btn-fine");
             _readout = _root.Q<Button>("btn-readout");
             _occlusion = _root.Q<Button>("btn-occlusion");
@@ -207,6 +229,13 @@ namespace Genesis.RoomScan.UI
             _sessionName = _root.Q<TextField>("session-name");
             _exportName = _root.Q<TextField>("export-name");
             _sessionPicker = _root.Q<DropdownField>("session-picker");
+            _exportFormat = _root.Q<DropdownField>("export-format");
+            if (_exportFormat != null)
+            {
+                _exportFormat.choices = new List<string> { "GLB", "3D Tiles ZIP" };
+                _exportFormat.SetValueWithoutNotify(_exportAsTiles
+                    ? "3D Tiles ZIP" : "GLB");
+            }
             _objectAssetPicker = _root.Q<DropdownField>(
                 "object-asset-picker");
             _objectInstancePicker = _root.Q<DropdownField>(
@@ -220,6 +249,12 @@ namespace Genesis.RoomScan.UI
             _proximity = _root.Q<Label>("val-proximity");
             _exportStatus = _root.Q<Label>("val-export");
             _exportSaveAsStatus = _root.Q<Label>("val-export-save-as");
+            _anchorStatus = _root.Q<Label>("val-anchor");
+            _lastExport = _root.Q<Label>("val-last-export");
+            _libraryModelStatus = _root.Q<Label>("val-library-model-status");
+            _libraryModelCount = _root.Q<Label>("val-library-model-count");
+            _selectedObjectAsset = _root.Q<Label>("val-selected-object-asset");
+            _paintToolName = _root.Q<Label>("val-paint-tool-name");
             _pointer = _root.Q<Label>("val-pointer");
             _fps = _root.Q<Label>("val-fps");
             _artifactStatus = _root.Q<Label>("val-artifact");
@@ -235,6 +270,12 @@ namespace Genesis.RoomScan.UI
             _refinePanel = _root.Q<VisualElement>("refine-panel");
             _paintPanel = _root.Q<VisualElement>("design-panel");
             _planPanel = _root.Q<VisualElement>("view-panel");
+            _modeTabs = _root.Q<VisualElement>("mode-tabs");
+            _libraryPanel = _root.Q<VisualElement>("library-panel");
+            _libraryScansPanel = _root.Q<VisualElement>("library-scans");
+            _libraryExportsPanel = _root.Q<VisualElement>("library-exports");
+            _libraryModelsPanel = _root.Q<VisualElement>("library-models");
+            _diagnosticsPanel = _root.Q<VisualElement>("diagnostics-foldout");
             _paintColorSwatch = _root.Q<VisualElement>("paint-color-swatch");
             _paintColorWheel = _root.Q<VisualElement>("paint-color-wheel");
             _paintColorCursor = _root.Q<VisualElement>("paint-color-cursor");
@@ -288,11 +329,35 @@ namespace Genesis.RoomScan.UI
             _rename?.RegisterCallback<ClickEvent>(evt => RenameActiveSession());
             _deleteSession?.RegisterCallback<ClickEvent>(evt =>
                 _ = DeleteSelectedSessionAsync());
-            _export?.RegisterCallback<ClickEvent>(evt => _ = ExportAsync(false));
-            _exportTiles?.RegisterCallback<ClickEvent>(evt =>
-                _ = ExportAsync(true));
+            _export?.RegisterCallback<ClickEvent>(evt =>
+                _ = ExportAsync(_exportAsTiles));
+            _exportFormat?.RegisterValueChangedCallback(evt =>
+            {
+                _exportAsTiles = evt.newValue == "3D Tiles ZIP";
+                RefreshStatus();
+            });
             _exportSaveAs?.RegisterCallback<ClickEvent>(evt =>
                 RequestExportSaveAs());
+            _library?.RegisterCallback<ClickEvent>(evt =>
+                ShowLibrary(_libraryTab));
+            _overflow?.RegisterCallback<ClickEvent>(evt =>
+            {
+                _destination = _destination == ConsoleDestination.Diagnostics
+                    ? ConsoleDestination.Tools : ConsoleDestination.Diagnostics;
+                ApplyNavigation();
+            });
+            _libraryBack?.RegisterCallback<ClickEvent>(evt => CloseDestination());
+            _diagnosticsBack?.RegisterCallback<ClickEvent>(evt => CloseDestination());
+            _libraryScans?.RegisterCallback<ClickEvent>(evt => ShowLibrary(LibraryTab.Scans));
+            _libraryExports?.RegisterCallback<ClickEvent>(evt => ShowLibrary(LibraryTab.Exports));
+            _libraryModels?.RegisterCallback<ClickEvent>(evt => ShowLibrary(LibraryTab.Models));
+            _viewLibrary?.RegisterCallback<ClickEvent>(evt => ShowLibrary(LibraryTab.Models));
+            _objectLibrary?.RegisterCallback<ClickEvent>(evt => ShowLibrary(LibraryTab.Models));
+            _libraryUseObject?.RegisterCallback<ClickEvent>(evt =>
+            {
+                SetDesignSubmode(DesignSubmode.Objects);
+                SetTab(MenuTab.Design);
+            });
             _fine?.RegisterCallback<ClickEvent>(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
@@ -355,11 +420,7 @@ namespace Genesis.RoomScan.UI
                 if (_artifactViewer != null) _ = _artifactViewer.ToggleAsync();
             });
             _paintLoad?.RegisterCallback<ClickEvent>(evt =>
-            {
-                _artifactViewer ??=
-                    FindAnyObjectByType<MerkabaArtifactViewer>();
-                _artifactViewer?.RequestPackageFromDisk();
-            });
+                ShowLibrary(LibraryTab.Models));
             _paintSave?.RegisterCallback<ClickEvent>(evt =>
                 _artifactViewer?.SaveAnnotations());
             _paintBrush?.RegisterCallback<ClickEvent>(evt =>
@@ -509,21 +570,50 @@ namespace Genesis.RoomScan.UI
         private void SetTab(MenuTab tab)
         {
             _selectedTab = tab;
-            if (_scanPanel != null)
-                _scanPanel.style.display = tab == MenuTab.Scan
-                    ? DisplayStyle.Flex : DisplayStyle.None;
-            if (_refinePanel != null)
-                _refinePanel.style.display = tab == MenuTab.Refine
-                    ? DisplayStyle.Flex : DisplayStyle.None;
-            if (_paintPanel != null)
-                _paintPanel.style.display = tab == MenuTab.Design
-                    ? DisplayStyle.Flex : DisplayStyle.None;
-            if (_planPanel != null)
-                _planPanel.style.display = tab == MenuTab.View
-                    ? DisplayStyle.Flex : DisplayStyle.None;
-            if (_designHistoryActions != null)
-                _designHistoryActions.style.display = tab == MenuTab.Design
-                    ? DisplayStyle.Flex : DisplayStyle.None;
+            _destination = ConsoleDestination.Tools;
+            ApplyNavigation();
+            RefreshStatus();
+        }
+
+        private void ShowLibrary(LibraryTab tab)
+        {
+            _destination = ConsoleDestination.Library;
+            _libraryTab = tab;
+            if (tab == LibraryTab.Scans) RefreshSessionChoices();
+            ApplyNavigation();
+            RefreshStatus();
+        }
+
+        private void CloseDestination()
+        {
+            _destination = ConsoleDestination.Tools;
+            ApplyNavigation();
+            RefreshStatus();
+        }
+
+        private void ApplyNavigation()
+        {
+            bool tools = _destination == ConsoleDestination.Tools;
+            bool library = _destination == ConsoleDestination.Library;
+            MenuTab tab = _selectedTab;
+            SetDisplayed(_modeTabs, tools);
+            SetDisplayed(_scanPanel, tools && tab == MenuTab.Scan);
+            SetDisplayed(_refinePanel, tools && tab == MenuTab.Refine);
+            SetDisplayed(_paintPanel, tools && tab == MenuTab.Design);
+            SetDisplayed(_planPanel, tools && tab == MenuTab.View);
+            SetDisplayed(_libraryPanel, library);
+            SetDisplayed(_diagnosticsPanel,
+                _destination == ConsoleDestination.Diagnostics);
+            SetDisplayed(_libraryScansPanel, _libraryTab == LibraryTab.Scans);
+            SetDisplayed(_libraryExportsPanel, _libraryTab == LibraryTab.Exports);
+            SetDisplayed(_libraryModelsPanel, _libraryTab == LibraryTab.Models);
+            SetDisplayed(_designHistoryActions, true);
+            _libraryScans?.EnableInClassList("segment--selected", _libraryTab == LibraryTab.Scans);
+            _libraryExports?.EnableInClassList("segment--selected", _libraryTab == LibraryTab.Exports);
+            _libraryModels?.EnableInClassList("segment--selected", _libraryTab == LibraryTab.Models);
+            _library?.EnableInClassList("session-heading--selected", library);
+            _overflow?.EnableInClassList("segment--selected",
+                _destination == ConsoleDestination.Diagnostics);
             _tabScan?.EnableInClassList("mode-tab--selected",
                 tab == MenuTab.Scan);
             _tabRefine?.EnableInClassList("mode-tab--selected",
@@ -532,15 +622,7 @@ namespace Genesis.RoomScan.UI
                 tab == MenuTab.Design);
             _tabPlan?.EnableInClassList("mode-tab--selected",
                 tab == MenuTab.View);
-            if (_artifactViewer != null)
-            {
-                bool design = tab == MenuTab.Design;
-                _artifactViewer.PaintInputEnabled = design &&
-                    _designSubmode == DesignSubmode.Paint;
-                _artifactViewer.ObjectInputEnabled = design &&
-                    _designSubmode == DesignSubmode.Objects;
-            }
-            RefreshStatus();
+            SetDesignSubmode(_designSubmode);
         }
 
         private void SelectFineTool(bool erase)
@@ -585,7 +667,7 @@ namespace Genesis.RoomScan.UI
             _designObjects?.EnableInClassList("segment--selected", !paint);
             if (_artifactViewer != null)
             {
-                bool design = _selectedTab == MenuTab.Design;
+                bool design = DesignInteractionActive;
                 _artifactViewer.PaintInputEnabled = design && paint;
                 _artifactViewer.ObjectInputEnabled = design && !paint;
             }
@@ -1035,6 +1117,7 @@ namespace Genesis.RoomScan.UI
             }
 #endif
             SetStatus(_scanning, state, scanKind);
+            RefreshAnchorStatus(scanner);
             Set(_chunks, scanner.ActiveChunkCount.ToString());
             // These counts need a completed current-view GPU counter producer;
             // legacy Query/Build counters are not Flower metrics.
@@ -1078,6 +1161,9 @@ namespace Genesis.RoomScan.UI
             SetStatus(_proximity, _proximityText, _proximityKind);
             Set(_exportStatus, scanner.ExportStatus);
             Set(_exportSaveAsStatus, _exportFileSaveStatus);
+            Set(_lastExport, string.IsNullOrWhiteSpace(scanner.LastExportPath)
+                ? "No export in this application session"
+                : Path.GetFileName(scanner.LastExportPath));
             _rayDriver ??= FindAnyObjectByType<ControllerRayDriver>();
             SetStatus(_pointer, _rayDriver == null ? "Missing" :
                 _rayDriver.HasTrackedPose ? "Tracked · trigger selects" :
@@ -1089,6 +1175,8 @@ namespace Genesis.RoomScan.UI
                 "GLB View unavailable");
             Set(_paintStatus, _artifactViewer?.Status ??
                 "GLB View unavailable");
+            Set(_libraryModelStatus, _artifactViewer?.Status ??
+                "Model viewer unavailable");
 
             float opacity = scanner.ScanOpacity;
             if (_artifactViewer != null)
@@ -1116,7 +1204,7 @@ namespace Genesis.RoomScan.UI
                     ? "Checker On" : "Checker Off";
             if (_artifactView != null)
                 _artifactView.text = _artifactViewer != null &&
-                    _artifactViewer.IsOpen ? "GLB VIEW  ON" : "GLB VIEW  OFF";
+                    _artifactViewer.IsOpen ? "CLOSE MODEL" : "OPEN LAST EXPORT";
             if (_annotationMode != null)
                 _annotationMode.text = "NOTE  " +
                     (_artifactViewer?.AnnotationModeText ?? "OFF");
@@ -1127,9 +1215,7 @@ namespace Genesis.RoomScan.UI
                 _artifactViewer?.WorldLocked ?? true);
             _artifactRoomAlign?.SetValueWithoutNotify(
                 _artifactViewer?.RoomAligned ?? false);
-            if (_planView != null)
-                _planView.text = _artifactViewer != null &&
-                    _artifactViewer.IsOpen ? "VIEW  ON" : "VIEW  OFF";
+            if (_planView != null) _planView.text = "MODEL";
             if (_planStyle != null)
             {
                 bool plan = _artifactViewer?.PlanViewEnabled ?? false;
@@ -1143,29 +1229,36 @@ namespace Genesis.RoomScan.UI
             RefreshOperation(operation);
             if (_start != null) _start.text = scanner.IsScanStarting
                 ? "STARTING…" : scanner.IsScanning ? "STOP SCAN" : "START SCAN";
+            _start?.EnableInClassList("primary-action--stop", scanner.IsScanning);
+            _artifactView?.EnableInClassList("primary-action--stop",
+                _artifactViewer?.IsOpen ?? false);
+            _paintView?.EnableInClassList("primary-action--stop",
+                _artifactViewer?.IsOpen ?? false);
             if (_save != null) _save.text = operation.Busy &&
                 operation.Kind == ScanOperationKind.Save ? "SAVING…" : "SAVE";
             if (_load != null) _load.text = operation.Busy &&
                 operation.Kind == ScanOperationKind.Load ? "LOADING…" : "LOAD";
             if (_export != null) _export.text = operation.Busy &&
                 operation.Kind == ScanOperationKind.ExportGlb
-                ? "EXPORTING…" : "EXPORT GLB";
-            if (_exportTiles != null) _exportTiles.text = operation.Busy &&
-                operation.Kind == ScanOperationKind.ExportGlb
-                ? "EXPORTING…" : "EXPORT 3D TILES";
+                ? "EXPORTING…" : _exportAsTiles ? "EXPORT 3D TILES" : "EXPORT GLB";
 
             bool reviewing = _artifactViewer?.IsOpen ?? false;
             bool operationBusy = scanner.IsBusy || _exportFileSavePending;
             bool busy = operationBusy || reviewing;
+            bool sessionDesign = _artifactViewer?.HasSessionDesign ?? false;
             _start?.SetEnabled(!busy && !scanner.IsScanStarting);
-            _save?.SetEnabled(!busy);
-            _saveAs?.SetEnabled(!busy && scanner.ActiveSessionId != Guid.Empty);
-            _load?.SetEnabled(!busy && _selectedSessionIndex >= 0);
-            _new?.SetEnabled(!busy);
-            _rename?.SetEnabled(!busy && scanner.ActiveSessionId != Guid.Empty);
-            _deleteSession?.SetEnabled(!busy && _selectedSessionIndex >= 0);
+            // RoomScanner's existing save/close-before-switch handlers own
+            // these transitions even while a session design is being viewed.
+            _save?.SetEnabled(!operationBusy && scanner.ActiveSessionId != Guid.Empty);
+            _saveAs?.SetEnabled(!operationBusy && scanner.ActiveSessionId != Guid.Empty);
+            _load?.SetEnabled(!operationBusy && _selectedSessionIndex >= 0);
+            _new?.SetEnabled(!operationBusy);
+            _rename?.SetEnabled(!operationBusy && scanner.ActiveSessionId != Guid.Empty);
+            _deleteSession?.SetEnabled(!operationBusy && _selectedSessionIndex >= 0);
+            _sessionPicker?.SetEnabled(!operationBusy);
+            _sessionName?.SetEnabled(!operationBusy);
             _export?.SetEnabled(!busy);
-            _exportTiles?.SetEnabled(!busy);
+            _exportFormat?.SetEnabled(!busy);
             _exportName?.SetEnabled(!busy);
             _exportSaveAs?.SetEnabled(!busy &&
                 !string.IsNullOrEmpty(scanner.LastExportPath));
@@ -1187,23 +1280,25 @@ namespace Genesis.RoomScan.UI
             _paintView?.SetEnabled(!operationBusy && _artifactViewer != null);
             _paintLoad?.SetEnabled(!operationBusy && _artifactViewer != null);
             _paintSave?.SetEnabled(!operationBusy && reviewing);
-            _paintBrush?.SetEnabled(!operationBusy && reviewing);
-            _paintLine?.SetEnabled(!operationBusy && reviewing);
-            _paintSurface?.SetEnabled(!operationBusy && reviewing);
-            _paintSpatial?.SetEnabled(!operationBusy && reviewing);
-            _paintSpray?.SetEnabled(!operationBusy && reviewing);
-            _paintErase?.SetEnabled(!operationBusy && reviewing);
-            _paintEyedropper?.SetEnabled(!operationBusy && reviewing);
-            _paintShapeRound?.SetEnabled(!operationBusy && reviewing);
-            _paintShapeSquare?.SetEnabled(!operationBusy && reviewing);
-            _designPaint?.SetEnabled(!operationBusy && reviewing);
-            _designObjects?.SetEnabled(!operationBusy && reviewing);
-            bool objectMode = reviewing &&
+            _paintBrush?.SetEnabled(!operationBusy && sessionDesign);
+            _paintLine?.SetEnabled(!operationBusy && sessionDesign);
+            _paintSurface?.SetEnabled(!operationBusy && sessionDesign);
+            _paintSpatial?.SetEnabled(!operationBusy && sessionDesign);
+            _paintSpray?.SetEnabled(!operationBusy && sessionDesign);
+            _paintErase?.SetEnabled(!operationBusy && sessionDesign);
+            _paintEyedropper?.SetEnabled(!operationBusy && sessionDesign);
+            _paintShapeRound?.SetEnabled(!operationBusy && sessionDesign);
+            _paintShapeSquare?.SetEnabled(!operationBusy && sessionDesign);
+            _designPaint?.SetEnabled(!operationBusy);
+            _designObjects?.SetEnabled(!operationBusy);
+            bool objectMode = sessionDesign &&
                 _designSubmode == DesignSubmode.Objects;
             bool hasAssets = (_artifactViewer?.DesignAssets.Count ?? 0) > 0;
             bool hasObject = (_artifactViewer?.SelectedDesignInstanceId ?? 0)
                 != 0;
-            _objectImport?.SetEnabled(!operationBusy && reviewing);
+            _objectImport?.SetEnabled(!operationBusy && sessionDesign);
+            _libraryUseObject?.SetEnabled(!operationBusy && sessionDesign &&
+                !string.IsNullOrEmpty(_artifactViewer?.SelectedDesignAssetId));
             _objectPlace?.SetEnabled(!operationBusy && objectMode && hasAssets);
             _objectSelect?.SetEnabled(!operationBusy && objectMode);
             _objectDuplicate?.SetEnabled(!operationBusy && objectMode &&
@@ -1212,14 +1307,14 @@ namespace Genesis.RoomScan.UI
                 hasObject);
             _objectLock?.SetEnabled(!operationBusy && objectMode && hasObject);
             _objectDelete?.SetEnabled(!operationBusy && objectMode && hasObject);
-            _objectAssetPicker?.SetEnabled(!operationBusy && objectMode &&
+            _objectAssetPicker?.SetEnabled(!operationBusy && sessionDesign &&
                 hasAssets);
             _objectInstancePicker?.SetEnabled(!operationBusy && objectMode &&
                 (_artifactViewer?.DesignInstances.Count ?? 0) > 0);
             _objectSurfaceSnap?.SetEnabled(!operationBusy && objectMode);
             _objectUprightSnap?.SetEnabled(!operationBusy && objectMode);
             _objectGridSnap?.SetEnabled(!operationBusy && objectMode);
-            bool designMode = reviewing && _selectedTab == MenuTab.Design;
+            bool designMode = sessionDesign && DesignInteractionActive;
             _designUndo?.SetEnabled(!operationBusy && designMode &&
                 (_artifactViewer?.CanUndoDesign ?? false));
             _designRedo?.SetEnabled(!operationBusy && designMode &&
@@ -1229,11 +1324,36 @@ namespace Genesis.RoomScan.UI
             _planStyle?.SetEnabled(!operationBusy && reviewing);
         }
 
+        private void RefreshAnchorStatus(RoomScanner scanner)
+        {
+            RoomAnchorManager manager = RoomAnchorManager.Instance;
+            if (scanner.ActiveAnchorUuid == Guid.Empty)
+            {
+                SetStatus(_anchorStatus, "No active session", StatusKind.Neutral);
+                return;
+            }
+            if (manager == null || !manager.HasSpatialAnchor ||
+                manager.SpatialAnchorUuid != scanner.ActiveAnchorUuid)
+            {
+                SetStatus(_anchorStatus, "Awaiting session anchor", StatusKind.Warning);
+                return;
+            }
+            Transform anchor = manager.SpatialAnchorTransform;
+            bool localized = anchor != null &&
+                anchor.TryGetComponent(out OVRSpatialAnchor spatial) &&
+                spatial.Localized && spatial.IsTracked;
+            bool bound = localized && RoomSpaceRoot.Instance != null &&
+                RoomSpaceRoot.Instance.CurrentAnchor == anchor;
+            SetStatus(_anchorStatus, bound ? "Localized and bound" :
+                localized ? "Awaiting room binding" : "Not localized / tracked",
+                bound ? StatusKind.Good : StatusKind.Warning);
+        }
+
         private void RefreshPaintControls()
         {
             if (_artifactViewer == null) return;
             _artifactViewer.PaintInputEnabled =
-                _selectedTab == MenuTab.Design &&
+                DesignInteractionActive &&
                 _designSubmode == DesignSubmode.Paint;
             Color color = _artifactViewer.PaintColor;
             if (_paintWheelPointer < 0 && (!_hasLastRecentColor ||
@@ -1275,6 +1395,14 @@ namespace Genesis.RoomScan.UI
                 _paintColorSwatch.style.backgroundColor = color;
             UpdatePaintColorCursor();
             MerkabaArtifactPaintTool tool = _artifactViewer.PaintTool;
+            Set(_paintToolName, tool switch
+            {
+                MerkabaArtifactPaintTool.SurfaceBrush => "Surface\nbrush",
+                MerkabaArtifactPaintTool.SpatialBrush => "3D brush",
+                MerkabaArtifactPaintTool.Eyedropper => "Pick color",
+                MerkabaArtifactPaintTool.Erase => "Eraser",
+                _ => tool.ToString()
+            });
             _paintBrush?.EnableInClassList("tool-button--selected",
                 tool == MerkabaArtifactPaintTool.Brush);
             _paintLine?.EnableInClassList("tool-button--selected",
@@ -1315,7 +1443,7 @@ namespace Genesis.RoomScan.UI
                 tool != MerkabaArtifactPaintTool.Spray);
             if (_paintView != null)
                 _paintView.text = _artifactViewer.IsOpen
-                    ? "GLB VIEW  ON" : "GLB VIEW  OFF";
+                    ? "CLOSE MODEL" : "OPEN LAST EXPORT";
         }
 
         private static void SetDisplayed(VisualElement element, bool visible)
@@ -1328,7 +1456,7 @@ namespace Genesis.RoomScan.UI
         {
             if (_artifactViewer == null) return;
             _artifactViewer.ObjectInputEnabled =
-                _selectedTab == MenuTab.Design &&
+                DesignInteractionActive &&
                 _designSubmode == DesignSubmode.Objects;
             IReadOnlyList<MerkabaDesignAsset> assets =
                 _artifactViewer.DesignAssets;
@@ -1353,6 +1481,11 @@ namespace Genesis.RoomScan.UI
                 asset.id == _artifactViewer.SelectedDesignAssetId);
             _objectAssetPicker?.SetValueWithoutNotify(selectedAsset != null
                 ? ObjectAssetChoice(selectedAsset) : string.Empty);
+            Set(_selectedObjectAsset, selectedAsset != null
+                ? ObjectAssetChoice(selectedAsset) : "Choose an asset in Library → Models");
+            Set(_libraryModelCount, _artifactViewer.HasSessionDesign
+                ? $"{assets.Count} library assets · {_artifactViewer.DesignInstances.Count} placed in this session"
+                : "No matching session design library open");
 
             IReadOnlyList<MerkabaDesignInstance> instances =
                 _artifactViewer.DesignInstances;
@@ -1432,7 +1565,10 @@ namespace Genesis.RoomScan.UI
                 ? DisplayStyle.Flex : DisplayStyle.None;
             if (!hasOperation) return;
 
-            Set(_operationStage, operation.StatusText);
+            SetStatus(_operationStage, operation.StatusText,
+                operation.Stage == ScanOperationStage.Failed ? StatusKind.Error :
+                operation.Stage == ScanOperationStage.Complete ? StatusKind.Good :
+                StatusKind.Neutral);
             bool indeterminate = operation.IsIndeterminate;
             if (_operationProgress != null)
             {
@@ -1472,5 +1608,7 @@ namespace Genesis.RoomScan.UI
         private enum StatusKind { Neutral, Good, Warning, Error }
         private enum MenuTab { Scan, Refine, Design, View }
         private enum DesignSubmode { Paint, Objects }
+        private enum ConsoleDestination { Tools, Library, Diagnostics }
+        private enum LibraryTab { Scans, Exports, Models }
     }
 }

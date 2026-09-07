@@ -7227,3 +7227,13 @@ canonical skin source are direct finite lookups. Previous792 rows unchanged;
 No new measured-plane solver, geometry coordinate or resource was introduced.
 COMPILE=combined readout build waits for in-progress batch consumer cut;
 isolated Compact attempt hit that unfinished callsite, not reported as PASS.
+
+RUN_13_UI_CHECKPOINT=Library Scans/Exports/Models under session action;
+diagnostics in overflow, one named/formatted export action, seven paint tools
+and active-only inspector. 144 controller queries resolve to typed UXML IDs.
+Actual SDK input order is OVRManager(-100), ray(-50), consumers(0).
+COMPILE=actual Android runtime C# response compiled PASS, one pre-existing
+PaintEngine member-hiding warning. UI XML/syntax PASS; HMD/USS import pending.
+No synthetic coverage, readout LOD, geometry or new scan authority introduced.
+RUN_08 remains current: batched native compilation exposed malformed SPIR-V
+in PrepareDirtyFlowerBatch; repair in progress, not marked acceptance PASS.

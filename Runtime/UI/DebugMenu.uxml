@@ -6,24 +6,26 @@
     <Style src="DebugMenu.uss" />
     <ui:VisualElement name="debug-root" class="workspace">
         <ui:VisualElement class="top-bar">
-            <ui:VisualElement class="session-heading">
+            <ui:Button name="btn-library" tooltip="Library: scans, exports and models"
+                class="session-heading">
                 <ui:Label name="val-session-name" text="No session"
-                    class="session-name" />
+                    picking-mode="Ignore" class="session-name" />
                 <ui:Label name="val-scanning" text="Stopped"
-                    class="session-state" />
-            </ui:VisualElement>
-            <ui:VisualElement name="design-history-actions"
-                class="history-actions mode-panel--hidden">
+                    picking-mode="Ignore" class="session-state" />
+                <ui:Label name="val-saved" text="Not saved"
+                    picking-mode="Ignore" class="save-state" />
+            </ui:Button>
+            <ui:VisualElement name="design-history-actions" class="history-actions">
                 <ui:Button name="btn-design-undo" text="Undo"
                     class="history-action" />
                 <ui:Button name="btn-design-redo" text="Redo"
                     class="history-action button-last" />
             </ui:VisualElement>
-            <ui:Label name="val-saved" text="Not saved"
-                class="save-state" />
+            <ui:Button name="btn-overflow" text="…" tooltip="Diagnostics"
+                class="overflow-action" />
         </ui:VisualElement>
 
-        <ui:VisualElement class="mode-tabs">
+        <ui:VisualElement name="mode-tabs" class="mode-tabs">
             <ui:Button name="btn-tab-scan" text="SCAN"
                 class="mode-tab mode-tab--selected" />
             <ui:Button name="btn-tab-refine" text="REFINE"
@@ -41,335 +43,388 @@
                 high-value="100" title="0%" class="operation-progress" />
         </ui:VisualElement>
 
-        <ui:VisualElement name="scan-panel" class="mode-panel">
-            <ui:Button name="btn-start" text="START SCAN"
-                class="primary-action" />
-            <ui:Label name="val-proximity" text="No stored region"
-                class="proximity" />
-
-            <ui:Label text="Session" class="section-title" />
-            <ui:VisualElement class="card">
-                <ui:DropdownField name="session-picker" label="Saved sessions"
-                    class="field" />
-                <ui:TextField name="session-name" label="Name"
-                    value="" class="field" />
-                <ui:VisualElement class="button-row">
-                    <ui:Button name="btn-new" text="New"
-                        class="secondary-action" />
-                    <ui:Button name="btn-load" text="Open"
-                        class="secondary-action" />
-                    <ui:Button name="btn-save" text="Save"
-                        class="secondary-action button-last" />
-                </ui:VisualElement>
-                <ui:VisualElement class="button-row compact-row">
-                    <ui:Button name="btn-save-as" text="Save As"
-                        class="quiet-action" />
-                    <ui:Button name="btn-rename" text="Rename"
-                        class="quiet-action" />
-                    <ui:Button name="btn-delete-session" text="Delete"
-                        class="danger-action button-last" />
-                </ui:VisualElement>
-            </ui:VisualElement>
-
-            <ui:Label text="Export" class="section-title" />
-            <ui:VisualElement name="export-card" class="card export-card">
-                <ui:TextField name="export-name" label="File name"
-                    value="QuestMerkabaScan" max-length="64" class="field export-name" />
-                <ui:VisualElement class="button-row compact-row">
-                    <ui:Button name="btn-export" text="Export GLB"
-                        class="secondary-action" />
-                    <ui:Button name="btn-export-tiles" text="Export 3D Tiles"
-                        class="secondary-action button-last" />
-                </ui:VisualElement>
-                <ui:Button name="btn-export-save-as" text="Save last export as…"
-                    class="quiet-action export-save-as button-last" />
-                <ui:Label text="Writes to app storage. Save As chooses a destination in Quest Files."
-                    class="supporting-status" />
-                <ui:Label name="val-export" text="Not exported"
-                    class="supporting-status" />
-                <ui:Label name="val-export-save-as" text=""
-                    class="supporting-status" />
-            </ui:VisualElement>
-        </ui:VisualElement>
-
-        <ui:VisualElement name="refine-panel"
-            class="mode-panel mode-panel--hidden">
-            <ui:VisualElement class="segmented-row">
-                <ui:Button name="btn-fine-refine" text="REFINE"
-                    class="segment segment--selected segment--refine" />
-                <ui:Button name="btn-fine-erase" text="ERASE"
-                    class="segment segment--erase button-last" />
-            </ui:VisualElement>
-            <ui:Button name="btn-fine" text="ENABLE HAND TOOL"
-                class="primary-action refine-action" />
-            <ui:VisualElement class="card tool-card">
-                <ui:VisualElement class="control-row">
-                    <ui:Label text="Radius" class="control-label" />
-                    <ui:Slider name="fine-radius" low-value="0.01"
-                        high-value="0.5" value="0.1" class="control-slider" />
-                    <ui:Label name="val-fine-radius" text="10 cm"
-                        class="control-value" />
-                </ui:VisualElement>
-                <ui:VisualElement class="control-row">
-                    <ui:Label text="Length" class="control-label" />
-                    <ui:Slider name="fine-length" low-value="0.025"
-                        high-value="2" value="0.25" class="control-slider" />
-                    <ui:Label name="val-fine-length" text="25 cm"
-                        class="control-value" />
-                </ui:VisualElement>
-            </ui:VisualElement>
-            <ui:Label text="Right trigger applies the selected cylinder. Right grip always erases."
-                class="help-text" />
-        </ui:VisualElement>
-
-        <ui:ScrollView name="design-panel" mode="Vertical"
+        <ui:ScrollView name="console-body" mode="Vertical"
             horizontal-scroller-visibility="Hidden"
-            vertical-scroller-visibility="Auto"
-            class="mode-panel design-scroll mode-panel--hidden">
-            <ui:VisualElement class="segmented-row">
-                <ui:Button name="btn-design-paint" text="PAINT"
-                    class="segment segment--selected" />
-                <ui:Button name="btn-design-objects" text="OBJECTS"
-                    class="segment button-last" />
-            </ui:VisualElement>
-            <ui:VisualElement name="paint-workspace">
-                <ui:VisualElement class="button-row">
-                    <ui:Button name="btn-paint-view" text="Open model"
-                        class="secondary-action" />
-                    <ui:Button name="btn-paint-load" text="Load model"
-                        class="secondary-action" />
-                    <ui:Button name="btn-paint-save" text="Save design"
-                        class="secondary-action button-last" />
-                </ui:VisualElement>
-                <ui:Label name="val-paint-status" text="Open a model to design"
-                    class="supporting-status" />
+            vertical-scroller-visibility="Auto" class="console-body">
+            <ui:VisualElement name="scan-panel" class="mode-panel">
+                <ui:Button name="btn-start" text="START SCAN"
+                    class="primary-action" />
+                <ui:Label name="val-proximity" text="No stored region"
+                    class="proximity" />
 
-                <ui:Label text="Tool" class="section-title" />
-                <ui:VisualElement class="tool-grid">
-                    <ui:Button name="btn-paint-brush" text="Brush"
-                        class="tool-button" />
-                    <ui:Button name="btn-paint-surface" text="Surface"
-                        class="tool-button tool-button--selected" />
-                    <ui:Button name="btn-paint-spatial" text="3D Brush"
-                        class="tool-button" />
-                    <ui:Button name="btn-paint-spray" text="Spray"
-                        class="tool-button" />
-                    <ui:Button name="btn-paint-line" text="Line"
-                        class="tool-button" />
-                    <ui:Button name="btn-paint-erase" text="Eraser"
-                        class="tool-button" />
-                    <ui:Button name="btn-paint-eyedropper" text="Eyedropper"
-                        class="tool-button button-last" />
+                <ui:VisualElement class="card scan-state-card">
+                    <ui:VisualElement class="control-row">
+                        <ui:Label text="Room anchor" class="control-label" />
+                        <ui:Label name="val-anchor" text="Unavailable" class="state-value" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="control-row">
+                        <ui:Label text="Active chunks" class="control-label" />
+                        <ui:Label name="val-chunks" text="0" class="state-value" />
+                    </ui:VisualElement>
+                    <ui:Label text="L2 geometry · fixed L3–L5 signal" class="supporting-status" />
+                    <ui:Label text="Coverage and certified volume: unavailable — no measured counter producer."
+                        class="supporting-status" />
                 </ui:VisualElement>
-
-                <ui:VisualElement name="paint-color-card" class="color-card">
-                    <ui:VisualElement name="paint-color-wheel"
-                        class="paint-color-wheel">
-                        <ui:VisualElement name="paint-color-cursor"
-                            picking-mode="Ignore" class="paint-color-cursor" />
-                    </ui:VisualElement>
-                    <ui:VisualElement class="color-controls">
-                        <ui:VisualElement name="paint-color-swatch"
-                            class="paint-color-swatch" />
-                        <ui:VisualElement name="paint-row-value" class="control-row">
-                            <ui:Label text="Value" class="mini-label" />
-                            <ui:Slider name="paint-value" low-value="0"
-                                high-value="1" value="1"
-                                class="control-slider" />
-                        </ui:VisualElement>
-                        <ui:VisualElement name="paint-row-alpha" class="control-row">
-                            <ui:Label text="Opacity" class="mini-label" />
-                            <ui:Slider name="paint-alpha" low-value="0.01"
-                                high-value="1" value="0.85"
-                                class="control-slider" />
-                        </ui:VisualElement>
-                        <ui:Button name="btn-save-swatch" text="Save color"
-                            class="quiet-action button-last" />
-                    </ui:VisualElement>
-                </ui:VisualElement>
-                <ui:VisualElement name="paint-palette">
-                    <ui:Label text="Recent" class="mini-section" />
-                    <ui:VisualElement name="recent-swatches" class="swatch-row" />
-                    <ui:Label text="Saved" class="mini-section" />
-                    <ui:VisualElement name="saved-swatches" class="swatch-row" />
-                </ui:VisualElement>
-
-                <ui:VisualElement class="card tool-card">
-                    <ui:VisualElement name="paint-row-width" class="control-row">
-                        <ui:Label text="Size" class="control-label" />
-                        <ui:Slider name="paint-width" low-value="0.002"
-                            high-value="0.1" value="0.01"
-                            class="control-slider" />
-                        <ui:Label name="val-paint-width" text="10 mm"
-                            class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement name="paint-row-flow" class="control-row">
-                        <ui:Label text="Flow" class="control-label" />
-                        <ui:Slider name="paint-flow" low-value="0.01"
-                            high-value="1" value="0.65"
-                            class="control-slider" />
-                        <ui:Label name="val-paint-flow" text="65%"
-                            class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement name="paint-row-hardness" class="control-row">
-                        <ui:Label text="Hardness" class="control-label" />
-                        <ui:Slider name="paint-hardness" low-value="0"
-                            high-value="1" value="0.8"
-                            class="control-slider" />
-                        <ui:Label name="val-paint-hardness" text="80%"
-                            class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement name="paint-row-saturation" class="control-row">
-                        <ui:Label text="Saturation" class="control-label" />
-                        <ui:Slider name="paint-saturation" low-value="0"
-                            high-value="1" value="1"
-                            class="control-slider" />
-                        <ui:Label name="val-paint-saturation" text="100%"
-                            class="control-value" />
-                    </ui:VisualElement>
-                    <ui:VisualElement name="paint-row-shape" class="control-row">
-                        <ui:Label text="Shape" class="control-label" />
-                        <ui:VisualElement class="segmented-row shape-row">
-                            <ui:Button name="btn-paint-round" text="Round"
-                                class="segment segment--selected" />
-                            <ui:Button name="btn-paint-square" text="Square"
-                                class="segment button-last" />
-                        </ui:VisualElement>
-                    </ui:VisualElement>
-                    <ui:VisualElement name="paint-spray-settings"
-                        class="mode-panel--hidden">
-                        <ui:VisualElement class="control-row">
-                            <ui:Label text="Density" class="control-label" />
-                            <ui:Slider name="paint-density" low-value="1"
-                                high-value="300" value="90"
-                                class="control-slider" />
-                            <ui:Label name="val-paint-density" text="90/s"
-                                class="control-value" />
-                        </ui:VisualElement>
-                        <ui:VisualElement class="control-row">
-                            <ui:Label text="Scatter" class="control-label" />
-                            <ui:Slider name="paint-scatter" low-value="0.005"
-                                high-value="0.25" value="0.04"
-                                class="control-slider" />
-                            <ui:Label name="val-paint-scatter" text="4 cm"
-                                class="control-value" />
-                        </ui:VisualElement>
-                    </ui:VisualElement>
-                </ui:VisualElement>
-            </ui:VisualElement>
-
-            <ui:VisualElement name="objects-workspace"
-                class="mode-panel--hidden">
-                <ui:Label text="Object library" class="section-title" />
-                <ui:VisualElement class="button-row">
-                    <ui:Button name="btn-object-import" text="Import GLB"
-                        class="secondary-action" />
-                    <ui:Button name="btn-object-place" text="Place"
-                        class="primary-action" />
-                    <ui:Button name="btn-object-select" text="Select"
-                        class="secondary-action button-last" />
-                </ui:VisualElement>
-                <ui:DropdownField name="object-asset-picker" label="Asset"
-                    class="field" />
-                <ui:DropdownField name="object-instance-picker"
-                    label="Placed object" class="field" />
-                <ui:VisualElement class="button-row">
-                    <ui:Button name="btn-object-duplicate" text="Duplicate"
-                        class="secondary-action" />
-                    <ui:Button name="btn-object-visible" text="Hide"
-                        class="quiet-action" />
-                    <ui:Button name="btn-object-lock" text="Lock"
-                        class="quiet-action" />
-                    <ui:Button name="btn-object-delete" text="Delete"
-                        class="danger-action button-last" />
-                </ui:VisualElement>
-                <ui:VisualElement class="card tool-card">
-                    <ui:Toggle name="object-surface-snap"
-                        label="Surface snap" value="true"
-                        class="inline-toggle" />
-                    <ui:Toggle name="object-upright-snap"
-                        label="Upright snap" value="true"
-                        class="inline-toggle" />
-                    <ui:Toggle name="object-grid-snap" label="5 cm grid"
-                        value="false" class="inline-toggle" />
-                </ui:VisualElement>
-                <ui:Label name="val-object-status"
-                    text="Import a GLB or select a library asset"
-                    class="supporting-status" />
-                <ui:Label text="Trigger places/selects. Right grip moves and rotates. Two grips rotate and scale."
+                <ui:Label text="Select the session name above for Library, Save and Export."
                     class="help-text" />
             </ui:VisualElement>
 
-        </ui:ScrollView>
+            <ui:VisualElement name="refine-panel"
+                class="mode-panel mode-panel--hidden">
+                <ui:VisualElement class="segmented-row">
+                    <ui:Button name="btn-fine-refine" text="REFINE"
+                        class="segment segment--selected segment--refine" />
+                    <ui:Button name="btn-fine-erase" text="ERASE"
+                        class="segment segment--erase button-last" />
+                </ui:VisualElement>
+                <ui:Button name="btn-fine" text="ENABLE HAND TOOL"
+                    class="primary-action refine-action" />
+                <ui:VisualElement class="card tool-card">
+                    <ui:VisualElement class="control-row">
+                        <ui:Label text="Radius" class="control-label" />
+                        <ui:Slider name="fine-radius" low-value="0.01"
+                            high-value="0.5" value="0.1" class="control-slider" />
+                        <ui:Label name="val-fine-radius" text="10 cm"
+                            class="control-value" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="control-row">
+                        <ui:Label text="Reach" class="control-label" />
+                        <ui:Slider name="fine-length" low-value="0.025"
+                            high-value="2" value="0.25" class="control-slider" />
+                        <ui:Label name="val-fine-length" text="25 cm"
+                            class="control-value" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:Label text="Right trigger applies the selected cylinder. Right grip always erases."
+                    class="help-text" />
+            </ui:VisualElement>
 
-        <ui:VisualElement name="view-panel"
-            class="mode-panel mode-panel--hidden">
-            <ui:VisualElement class="button-row">
-                <ui:Button name="btn-artifact-view" text="Open export"
-                    class="primary-action" />
-                <ui:Button name="btn-artifact-load" text="Load model"
-                    class="secondary-action button-last" />
+            <ui:VisualElement name="design-panel"
+                class="mode-panel mode-panel--hidden">
+                <ui:VisualElement class="segmented-row">
+                    <ui:Button name="btn-design-paint" text="PAINT"
+                        class="segment segment--selected" />
+                    <ui:Button name="btn-design-objects" text="OBJECTS"
+                        class="segment button-last" />
+                </ui:VisualElement>
+                <ui:VisualElement name="paint-workspace">
+                    <ui:VisualElement class="button-row">
+                        <ui:Button name="btn-paint-view" text="Open model"
+                            class="primary-action" />
+                        <ui:Button name="btn-paint-load" text="Models…"
+                            class="secondary-action" />
+                        <ui:Button name="btn-paint-save" text="Save design"
+                            class="secondary-action button-last" />
+                    </ui:VisualElement>
+                    <ui:Label name="val-paint-status" text="Open a model to design"
+                        class="supporting-status" />
+
+                    <ui:VisualElement class="paint-tool-ring">
+                        <ui:Label name="val-paint-tool-name" text="Surface"
+                            picking-mode="Ignore" class="paint-tool-center" />
+                        <ui:Button name="btn-paint-brush" text="Brush"
+                            class="tool-button tool-slot-0" />
+                        <ui:Button name="btn-paint-surface" text="Surface"
+                            class="tool-button tool-slot-1 tool-button--selected" />
+                        <ui:Button name="btn-paint-spatial" text="3D brush"
+                            class="tool-button tool-slot-2" />
+                        <ui:Button name="btn-paint-spray" text="Spray"
+                            class="tool-button tool-slot-3" />
+                        <ui:Button name="btn-paint-line" text="Line"
+                            class="tool-button tool-slot-4" />
+                        <ui:Button name="btn-paint-erase" text="Eraser"
+                            class="tool-button tool-slot-5" />
+                        <ui:Button name="btn-paint-eyedropper" text="Pick"
+                            class="tool-button tool-slot-6" />
+                    </ui:VisualElement>
+
+                    <ui:VisualElement name="paint-color-card" class="color-card">
+                        <ui:VisualElement name="paint-color-wheel"
+                            class="paint-color-wheel">
+                            <ui:VisualElement name="paint-color-cursor"
+                                picking-mode="Ignore" class="paint-color-cursor" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="color-controls">
+                            <ui:VisualElement name="paint-color-swatch"
+                                class="paint-color-swatch" />
+                            <ui:VisualElement name="paint-row-value" class="control-row">
+                                <ui:Label text="Value" class="mini-label" />
+                                <ui:Slider name="paint-value" low-value="0"
+                                    high-value="1" value="1"
+                                    class="control-slider" />
+                            </ui:VisualElement>
+                            <ui:VisualElement name="paint-row-alpha" class="control-row">
+                                <ui:Label text="Opacity" class="mini-label" />
+                                <ui:Slider name="paint-alpha" low-value="0.01"
+                                    high-value="1" value="0.85"
+                                    class="control-slider" />
+                            </ui:VisualElement>
+                            <ui:Button name="btn-save-swatch" text="Save color"
+                                class="quiet-action button-last" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="paint-palette">
+                        <ui:Label text="Recent" class="mini-section" />
+                        <ui:VisualElement name="recent-swatches" class="swatch-row" />
+                        <ui:Label text="Saved" class="mini-section" />
+                        <ui:VisualElement name="saved-swatches" class="swatch-row" />
+                    </ui:VisualElement>
+
+                    <ui:VisualElement class="card tool-card">
+                        <ui:VisualElement name="paint-row-width" class="control-row">
+                            <ui:Label text="Size" class="control-label" />
+                            <ui:Slider name="paint-width" low-value="0.002"
+                                high-value="0.1" value="0.01"
+                                class="control-slider" />
+                            <ui:Label name="val-paint-width" text="10 mm"
+                                class="control-value" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-flow" class="control-row">
+                            <ui:Label text="Flow" class="control-label" />
+                            <ui:Slider name="paint-flow" low-value="0.01"
+                                high-value="1" value="0.65"
+                                class="control-slider" />
+                            <ui:Label name="val-paint-flow" text="65%"
+                                class="control-value" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-hardness" class="control-row">
+                            <ui:Label text="Hardness" class="control-label" />
+                            <ui:Slider name="paint-hardness" low-value="0"
+                                high-value="1" value="0.8"
+                                class="control-slider" />
+                            <ui:Label name="val-paint-hardness" text="80%"
+                                class="control-value" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-saturation" class="control-row">
+                            <ui:Label text="Saturation" class="control-label" />
+                            <ui:Slider name="paint-saturation" low-value="0"
+                                high-value="1" value="1"
+                                class="control-slider" />
+                            <ui:Label name="val-paint-saturation" text="100%"
+                                class="control-value" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-row-shape" class="control-row">
+                            <ui:Label text="Shape" class="control-label" />
+                            <ui:VisualElement class="segmented-row shape-row">
+                                <ui:Button name="btn-paint-round" text="Round"
+                                    class="segment segment--selected" />
+                                <ui:Button name="btn-paint-square" text="Square"
+                                    class="segment button-last" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                        <ui:VisualElement name="paint-spray-settings"
+                            class="mode-panel--hidden">
+                            <ui:VisualElement class="control-row">
+                                <ui:Label text="Density" class="control-label" />
+                                <ui:Slider name="paint-density" low-value="1"
+                                    high-value="300" value="90"
+                                    class="control-slider" />
+                                <ui:Label name="val-paint-density" text="90/s"
+                                    class="control-value" />
+                            </ui:VisualElement>
+                            <ui:VisualElement class="control-row">
+                                <ui:Label text="Scatter" class="control-label" />
+                                <ui:Slider name="paint-scatter" low-value="0.005"
+                                    high-value="0.25" value="0.04"
+                                    class="control-slider" />
+                                <ui:Label name="val-paint-scatter" text="4 cm"
+                                    class="control-value" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+
+                <ui:VisualElement name="objects-workspace"
+                    class="mode-panel--hidden">
+                    <ui:Label text="Object library" class="section-title" />
+                    <ui:VisualElement class="button-row">
+                        <ui:Button name="btn-object-library" text="Models…"
+                            class="secondary-action" />
+                        <ui:Button name="btn-object-place" text="Place"
+                            class="primary-action" />
+                        <ui:Button name="btn-object-select" text="Select"
+                            class="secondary-action button-last" />
+                    </ui:VisualElement>
+                    <ui:Label name="val-selected-object-asset" text="No library asset selected"
+                        class="supporting-status" />
+                    <ui:DropdownField name="object-instance-picker"
+                        label="Placed object" class="field" />
+                    <ui:VisualElement class="button-row">
+                        <ui:Button name="btn-object-duplicate" text="Duplicate"
+                            class="secondary-action" />
+                        <ui:Button name="btn-object-visible" text="Hide"
+                            class="quiet-action" />
+                        <ui:Button name="btn-object-lock" text="Lock"
+                            class="quiet-action" />
+                        <ui:Button name="btn-object-delete" text="Delete"
+                            class="danger-action button-last" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="card tool-card">
+                        <ui:Toggle name="object-surface-snap"
+                            label="Surface snap" value="true"
+                            class="inline-toggle" />
+                        <ui:Toggle name="object-upright-snap"
+                            label="Upright snap" value="true"
+                            class="inline-toggle" />
+                        <ui:Toggle name="object-grid-snap" label="5 cm grid"
+                            value="false" class="inline-toggle" />
+                    </ui:VisualElement>
+                    <ui:Label name="val-object-status"
+                        text="Import a GLB or select a library asset"
+                        class="supporting-status" />
+                    <ui:Label text="Trigger places/selects. Right grip moves and rotates. Two grips rotate and scale."
+                        class="help-text" />
+                </ui:VisualElement>
+
             </ui:VisualElement>
-            <ui:Label name="val-artifact" text="Viewer closed"
-                class="supporting-status" />
-            <ui:VisualElement class="segmented-row">
-                <ui:Button name="btn-plan-model" text="MODEL"
-                    class="segment segment--selected" />
-                <ui:Button name="btn-plan-style" text="PLAN"
-                    class="segment button-last" />
+
+            <ui:VisualElement name="view-panel"
+                class="mode-panel mode-panel--hidden">
+                <ui:VisualElement class="button-row">
+                    <ui:Button name="btn-artifact-view" text="Open export"
+                        class="primary-action" />
+                    <ui:Button name="btn-view-library" text="Models…"
+                        class="secondary-action button-last" />
+                </ui:VisualElement>
+                <ui:Label name="val-artifact" text="Viewer closed"
+                    class="supporting-status" />
+                <ui:VisualElement class="segmented-row">
+                    <ui:Button name="btn-plan-model" text="MODEL"
+                        class="segment segment--selected" />
+                    <ui:Button name="btn-plan-style" text="PLAN"
+                        class="segment button-last" />
+                </ui:VisualElement>
+                <ui:VisualElement class="card">
+                    <ui:Toggle name="artifact-world-lock" label="World Lock"
+                        value="true" class="inline-toggle" />
+                    <ui:Toggle name="artifact-room-align" label="Align 1:1"
+                        value="false" class="inline-toggle" />
+                    <ui:VisualElement class="control-row">
+                        <ui:Label text="Opacity" class="control-label" />
+                        <ui:Slider name="scan-opacity" low-value="0"
+                            high-value="1" value="1" class="control-slider" />
+                        <ui:Label name="val-opacity" text="100%"
+                            class="control-value" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:Foldout name="survey-notes" text="Measurements &amp; notes"
+                    value="false" class="survey-notes">
+                    <ui:VisualElement class="button-row">
+                        <ui:Button name="btn-annotation-mode" text="Tool: Off"
+                            class="secondary-action" />
+                        <ui:Button name="btn-annotation-edit" text="Edit note"
+                            class="secondary-action" />
+                        <ui:Button name="btn-annotation-delete" text="Delete"
+                            class="danger-action button-last" />
+                    </ui:VisualElement>
+                    <ui:TextField name="annotation-note" label="Selected note"
+                        class="field" />
+                    <ui:Button name="btn-annotation-save" text="Save measurements"
+                        class="quiet-action button-last" />
+                </ui:Foldout>
+                <ui:Label text="Right grip moves. Two grips scale and rotate. Trigger draws or edits the active mark."
+                    class="help-text" />
             </ui:VisualElement>
-            <ui:VisualElement class="card">
-                <ui:Toggle name="artifact-world-lock" label="World Lock"
-                    value="true" class="inline-toggle" />
-                <ui:Toggle name="artifact-room-align" label="Align 1:1"
-                    value="false" class="inline-toggle" />
-                <ui:VisualElement class="control-row">
-                    <ui:Label text="Opacity" class="control-label" />
-                    <ui:Slider name="scan-opacity" low-value="0"
-                        high-value="1" value="1" class="control-slider" />
-                    <ui:Label name="val-opacity" text="100%"
-                        class="control-value" />
+
+            <ui:VisualElement name="library-panel" class="mode-panel mode-panel--hidden">
+                <ui:VisualElement class="sheet-heading">
+                    <ui:Button name="btn-library-back" text="Back" class="back-action" />
+                    <ui:Label text="Library" class="sheet-title" />
+                </ui:VisualElement>
+                <ui:VisualElement class="segmented-row">
+                    <ui:Button name="btn-library-scans" text="Scans" class="segment segment--selected" />
+                    <ui:Button name="btn-library-exports" text="Exports" class="segment" />
+                    <ui:Button name="btn-library-models" text="Models" class="segment button-last" />
+                </ui:VisualElement>
+                <ui:VisualElement name="library-scans">
+                    <ui:Label text="Scans on this headset" class="section-title" />
+                    <ui:VisualElement class="card">
+                        <ui:DropdownField name="session-picker" label="Saved sessions"
+                            class="field" />
+                        <ui:TextField name="session-name" label="Name"
+                            value="" class="field" />
+                        <ui:VisualElement class="button-row">
+                            <ui:Button name="btn-new" text="New scan"
+                                class="primary-action" />
+                            <ui:Button name="btn-load" text="Open"
+                                class="secondary-action" />
+                            <ui:Button name="btn-save" text="Save"
+                                class="secondary-action button-last" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="button-row compact-row">
+                            <ui:Button name="btn-save-as" text="Save As"
+                                class="quiet-action" />
+                            <ui:Button name="btn-rename" text="Rename"
+                                class="quiet-action" />
+                            <ui:Button name="btn-delete-session" text="Delete"
+                                class="danger-action button-last" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="library-exports" class="mode-panel--hidden">
+                    <ui:Label text="Export" class="section-title" />
+                    <ui:VisualElement name="export-card" class="card export-card">
+                        <ui:TextField name="export-name" label="File name"
+                            value="QuestMerkabaScan" max-length="64" class="field export-name" />
+                        <ui:DropdownField name="export-format" label="Format" class="field" />
+                        <ui:Button name="btn-export" text="Export GLB"
+                            class="primary-action button-last" />
+                        <ui:Label name="val-last-export" text="No export in this application session"
+                            class="supporting-status" />
+                        <ui:Button name="btn-export-save-as" text="Save last export as…"
+                            class="quiet-action export-save-as button-last" />
+                        <ui:Label text="Writes to app storage. Save As chooses a destination in Quest Files."
+                            class="supporting-status" />
+                        <ui:Label name="val-export" text="Not exported"
+                            class="supporting-status" />
+                        <ui:Label name="val-export-save-as" text=""
+                            class="supporting-status" />
+                    </ui:VisualElement>
+                    <ui:Label text="Close the viewer before exporting a canonical scan."
+                        class="help-text" />
+                </ui:VisualElement>
+                <ui:VisualElement name="library-models" class="mode-panel--hidden">
+                    <ui:Button name="btn-artifact-load" text="Open 3D Tiles package…"
+                        class="primary-action library-primary" />
+                    <ui:Button name="btn-object-import" text="Import GLB object…"
+                        class="secondary-action library-secondary" />
+                    <ui:Label name="val-library-model-status" text="No model open"
+                        class="supporting-status" />
+                    <ui:Label text="A preview stays separate from the scan. Object design requires a matching anchored session."
+                        class="help-text" />
+                    <ui:DropdownField name="object-asset-picker" label="Library asset"
+                        class="field" />
+                    <ui:Button name="btn-library-use-object" text="Use selected asset in Design"
+                        class="quiet-action button-last" />
+                    <ui:Label name="val-library-model-count" text="No session design library open"
+                        class="supporting-status" />
                 </ui:VisualElement>
             </ui:VisualElement>
-            <ui:Label text="Measurements &amp; notes" class="section-title" />
-            <ui:VisualElement class="button-row">
-                <ui:Button name="btn-annotation-mode" text="Tool: Off"
-                    class="secondary-action" />
-                <ui:Button name="btn-annotation-edit" text="Edit note"
-                    class="secondary-action" />
-                <ui:Button name="btn-annotation-delete" text="Delete"
-                    class="danger-action button-last" />
-            </ui:VisualElement>
-            <ui:TextField name="annotation-note" label="Selected note"
-                class="field" />
-            <ui:Button name="btn-annotation-save" text="Save measurements"
-                class="quiet-action button-last" />
-            <ui:Label text="Right grip moves. Two grips scale and rotate. Trigger draws or edits the active mark."
-                class="help-text" />
-        </ui:VisualElement>
 
-        <ui:Foldout name="diagnostics-foldout" text="Diagnostics" value="false"
-            class="diagnostics">
-            <ui:VisualElement class="diagnostic-grid">
-                <ui:Label text="FPS" class="diagnostic-key" />
-                <ui:Label name="val-fps" text="--" class="diagnostic-value" />
-                <ui:Label text="Active chunks" class="diagnostic-key" />
-                <ui:Label name="val-chunks" text="0" class="diagnostic-value" />
-                <ui:Label text="Visible Flower symbols" class="diagnostic-key" />
-                <ui:Label name="val-kernels" text="Unavailable" class="diagnostic-value" />
-                <ui:Label text="Visible Flower pages" class="diagnostic-key" />
-                <ui:Label name="val-visible" text="Unavailable" class="diagnostic-value" />
-                <ui:Label text="Controller" class="diagnostic-key" />
-                <ui:Label name="val-pointer" text="--" class="diagnostic-value" />
+            <ui:VisualElement name="diagnostics-foldout" class="diagnostics mode-panel--hidden">
+                <ui:VisualElement class="sheet-heading">
+                    <ui:Button name="btn-diagnostics-back" text="Back" class="back-action" />
+                    <ui:Label text="Diagnostics" class="sheet-title" />
+                </ui:VisualElement>
+                <ui:VisualElement class="diagnostic-grid">
+                    <ui:Label text="FPS" class="diagnostic-key" />
+                    <ui:Label name="val-fps" text="--" class="diagnostic-value" />
+                    <ui:Label text="Visible Flower symbols" class="diagnostic-key" />
+                    <ui:Label name="val-kernels" text="Unavailable" class="diagnostic-value" />
+                    <ui:Label text="Visible Flower pages" class="diagnostic-key" />
+                    <ui:Label name="val-visible" text="Unavailable" class="diagnostic-value" />
+                    <ui:Label text="Controller" class="diagnostic-key" />
+                    <ui:Label name="val-pointer" text="--" class="diagnostic-value" />
+                </ui:VisualElement>
+                <ui:VisualElement class="button-row compact-row">
+                    <ui:Button name="btn-readout" text="Readout On"
+                        class="quiet-action" />
+                    <ui:Button name="btn-occlusion" text="Occlusion On"
+                        class="quiet-action" />
+                    <ui:Button name="btn-checker" text="Checker Off"
+                        class="quiet-action button-last" />
+                </ui:VisualElement>
             </ui:VisualElement>
-            <ui:VisualElement class="button-row compact-row">
-                <ui:Button name="btn-readout" text="Readout On"
-                    class="quiet-action" />
-                <ui:Button name="btn-occlusion" text="Occlusion On"
-                    class="quiet-action" />
-                <ui:Button name="btn-checker" text="Checker Off"
-                    class="quiet-action button-last" />
-            </ui:VisualElement>
-        </ui:Foldout>
+        </ui:ScrollView>
     </ui:VisualElement>
 </ui:UXML>
