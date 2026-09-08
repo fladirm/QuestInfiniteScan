@@ -8738,3 +8738,33 @@ that too, along with the suspend/quiesce/readout/durable order.
 Tools/unity/run_merkaba_tests.sh: 365 total, 365 passed, 0 failed.
 DEVICE ACCEPTANCE PENDING for the session lifecycle itself: new session, open
 session and delete-active are untested on the headset after this change.
+
+### DEVICE ACCEPTANCE — warm cache and the session lifecycle, 2026-09-08 22:17Z
+
+APK 22:16:49 from da37199, same Quest, second launch of the same shader ABI.
+
+  pipeline cache: state=loaded bytes=3716444 shaderHash=1d19b93a115de546 result=0
+  native init worker: state=ready family=0 requiredPipelines=26 elapsedMs=116.242
+
+116 ms against 226 164 ms cold. The 152 s CompactDirtyFlowerSymbols compile is a
+first-run cost per shader ABI, not a per-launch cost. That does not close OPEN-1
+-- the module is still over the 1 MiB gate and the cold compile still evicted
+four system processes -- but the severity is a one-time install cost, and the
+ledger should not have implied otherwise.
+
+  [RoomScan] Started a new empty anchored Merkaba session
+             7f9b28f2-c21e-ed83-af16-cd44aca687cd
+
+Zero occurrences of "leased dual GPU world" in this run. The new-session path
+now completes under exactly the conditions that broke it: the native scanner was
+ready 18 s earlier and the FlowerReadout job is submitted every rendered frame,
+so the lease was held and was waited out rather than refused. OpenSessionAsync
+and DeleteSessionAsync-on-active share QuiesceForWorldClearAsync but were not
+exercised on the headset and stay PENDING.
+
+DEPTH IS STILL NOT CONSUMED AND THAT IS UNTOUCHED BY TODAY'S WORK.
+DepthCapture reports rawFrames climbing past 5644 with preprocessed=0
+ready=False depthAvail=False isOcclusionOn=0, while occMgr.enabled=True
+running=True shaderOcc=True hardKeyword=True globalDepth=True. observation=0
+throughout. Frames arrive and no observation is formed, so no scan, drain,
+FINE/ERASE, save/open or export has been proven. OPEN-6 remains open.
