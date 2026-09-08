@@ -8911,3 +8911,57 @@ Tools/unity/run_merkaba_tests.sh: 367 total, 367 passed, 0 failed. The new
 fixture asserts every native uniform is named exactly once across the
 observation builder and the certificate writer it calls.
 APK 22:50:33 deployed. DEVICE ACCEPTANCE PENDING for the scan itself.
+
+### PREVIEW BUDGET AND THE VIEWER'S PRODUCERS, 23:0xZ
+
+TWO ALLOCATIONS PRECEDED EVERY BUDGET CHECK. ParseGlbForPreview read the JSON
+chunk with `new byte[jsonLength]` bounded only by int.MaxValue and the stream
+length, then UTF8.GetString allocated a UTF-16 string up to twice that, all
+before maximumDecodedBytes was consulted. A large foreign model is therefore an
+out-of-memory kill rather than a rejection, and the default budget for a library
+import is LargePackageBytes/2 = 512 MiB, so nothing else stood in the way. The
+JSON chunk is glTF structure, not payload: this writer emits a few KB, and a
+foreign file's JSON grows with accessor and material count rather than with
+vertex data. It now has its own 32 MiB cap, also clamped by the caller's budget.
+
+PAGE PUBLICATION NOW FOLLOWS THE READOUT DRAW. Opening the artifact viewer sets
+ReadoutDrawEnabled=false and restores it on close, which stops the draw through
+TryGetActive. OnContextRendered did not check it, so the FlowerReadout job kept
+being submitted every frame while nothing consumed the result. Published pages
+have exactly one consumer, MerkabaFlowerVertex.hlsl. Publishing them with the
+draw off is work nobody reads and it competes with paint and with an export
+started from that same viewer. MerkabaGridRenderer.cs already gated another path
+on !readoutDrawEnabled, so this follows the file's own rule.
+
+THE FOREIGN ACCESSOR REWRITE IS PARKED, DELIBERATELY. Optional NORMAL/COLOR,
+index component types and interleaved accessors are OPEN-4 work for importing
+foreign models into the design layer, which is not on the stated priority path
+(scan, draw, export GLB and 3D Tiles, then paint into a loaded package). The
+reader is forward-only because a zip entry stream cannot seek, so interleaving
+needs each view buffered once and released after decode - one largest view of
+peak, not their sum. Designed, not applied.
+
+OPEN-4 IS PARTLY STALE AND THE LEDGER SHOULD SAY SO. Verified against the code:
+the full tile matrix IS carried (CollectTiles decomposes it and CreateTileObject
+applies localRotation/localScale, and DecomposeTilesetTransform rejects
+non-finite, degenerate, sheared and mirrored transforms rather than substituting
+identity); DiscardResumeReceipt exists with a test. Three of five listed items
+are already closed. Only the accessor decoding and the Tiles leaf cursor/journal
+remain unverified.
+
+WHERE PAINT ACTUALLY WRITES, AND THE GAP THAT MATTERS.
+MerkabaPaintEngine writes a MerkabaDesignDocument of strokes and instances, never
+M8, so closure's "derived only" holds and paint cannot become a truth producer.
+But OpenSessionDesign binds the engine to _scanner.ActiveDesignPath and refuses
+to open unless the previewed package's anchor equals the ACTIVE session anchor:
+  "Session design requires the preview package's actual anchor to match the
+   active anchored session."
+So loading an already-exported 3D Tiles package from another session, or with no
+active session, leaves nothing to paint into, and what does open is stored under
+the session rather than with the package. The requirement is an ARTIFACT-LOCAL
+design: bound to the loaded package and saveable straight back into it. The right
+frame is package space via _packageSpatialBinding.AnchorFromPackage, not the room
+anchor, so the result survives reopening in another session or on a PC. NOT
+IMPLEMENTED; this is the next cut.
+
+Tools/unity/run_merkaba_tests.sh: 367 total, 367 passed, 0 failed.

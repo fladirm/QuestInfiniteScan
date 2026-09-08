@@ -358,6 +358,23 @@ namespace Genesis.RoomScan.Tests
                 "page publication must yield to a pending canonical flush");
             Assert.That(quantum, Is.GreaterThan(yields),
                 "the yield must be decided before a new page quantum is submitted");
+
+            // Published pages have exactly one consumer, the flower vertex
+            // draw. Opening the artifact viewer turns that draw off so an
+            // exported model can be rotated and aligned against a clean room;
+            // continuing to publish pages there is work nobody reads, and it
+            // competes with paint and with an export started from the viewer.
+            int drawGate = renderer.IndexOf("!readoutDrawEnabled", submit,
+                StringComparison.Ordinal);
+            Assert.That(drawGate, Is.GreaterThan(submit),
+                "page publication must follow the readout draw");
+            Assert.That(drawGate, Is.LessThan(quantum));
+            string viewer = Source("Runtime/UI/MerkabaArtifactViewer.cs");
+            Assert.That(viewer, Does.Contain("_scanner.ReadoutDrawEnabled = false;"),
+                "opening the viewer must turn the scanner draw off");
+            Assert.That(viewer, Does.Contain(
+                    "_scanner.ReadoutDrawEnabled = _savedReadoutEnabled;"),
+                "closing it must restore what the user had");
         }
 
         private static MerkabaTileSnapshot Tile(int3 blockCoord, int kernel)

@@ -31,6 +31,9 @@ namespace Genesis.RoomScan.UI
         private const long LargePackageBytes = 1024L * 1024L * 1024L;
         private const int MaximumConcurrentTileLoads = 4;
         private const int GlbReadBufferBytes = 1024 * 1024;
+        // Admits well over a hundred thousand accessors while keeping a
+        // structure chunk from becoming an allocation attack on the headset.
+        private const long MaximumGlbJsonBytes = 32L * 1024L * 1024L;
         private const float InputDeadZone = 0.12f;
         private const float TranslationSpeed = 0.45f;
         private const float RotationSpeed = 75f;
@@ -3504,6 +3507,17 @@ namespace Genesis.RoomScan.UI
                 jsonLengthValue < 2u || 20L + jsonLengthValue + 8L >
                 streamLength)
                 throw new InvalidDataException("Invalid GLB JSON chunk.");
+            // The JSON chunk is glTF structure, not payload: this writer emits
+            // a few KB and a foreign file's JSON grows with accessor/material
+            // count, not with vertex data. Without a cap of its own a large
+            // model allocates the chunk, plus a UTF-16 string twice its size,
+            // BEFORE any resident-content budget is consulted, which is an out
+            // of memory kill rather than a rejection.
+            if (jsonLengthValue > MaximumGlbJsonBytes ||
+                jsonLengthValue > (ulong)maximumDecodedBytes)
+                throw new InvalidDataException(
+                    $"GLB JSON chunk is {jsonLengthValue} bytes, above the " +
+                    $"{Math.Min(MaximumGlbJsonBytes, maximumDecodedBytes)}-byte preview structure budget.");
             int jsonLength = (int)jsonLengthValue;
             byte[] jsonBytes = new byte[jsonLength];
             ReadExactly(input, jsonBytes, 0, jsonBytes.Length);

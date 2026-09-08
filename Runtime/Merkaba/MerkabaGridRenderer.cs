@@ -268,8 +268,16 @@ namespace Genesis.RoomScan
             Camera camera = Camera.main;
             if (camera == null || !cameras.Contains(camera) || !_initialized || _gpuSubmissionSuspended ||
                 _grid == null || !_grid.FlowerGraphicsReadAllowed || HasReadoutBuildInFlight ||
-                _pagePublicationPaused || _grid.HasPendingCanonicalFlush)
+                _pagePublicationPaused || !readoutDrawEnabled ||
+                _grid.HasPendingCanonicalFlush)
                 return;
+            // Published pages have exactly one consumer, the flower vertex
+            // draw. With the readout draw off - which is what opening the
+            // artifact viewer does, so the exported model can be rotated and
+            // aligned against a clean room - publishing more of them is work
+            // nobody reads, competing with paint and with an export started
+            // from that same viewer. Dirty pages simply wait, exactly as they
+            // do while a canonical flush holds priority.
             if (_integrator != null && (_integrator.HasAttemptInFlight ||
                 _integrator.HasFineEraseAttemptInFlight || _integrator.HasPendingFineErase ||
                 _integrator.ObservationHasBoundaryPriority))
