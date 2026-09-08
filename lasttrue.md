@@ -7743,3 +7743,26 @@ another leaf rewrite.
 
 OPEN-1 STATUS=FlowerCommit closed; Drain and CompactDirtyFlowerSymbols open.
 DEVICE ACCEPTANCE PENDING.
+
+---
+
+### CURRENT TRUE STATE — OPEN-4 owned resume receipt discard, 2026-09-08 04:20Z
+
+ClearExport deleted the published artefacts and their .tmp siblings but left
+the .resume journal behind, so clearing an export and exporting the same name
+again resumed a cursor the user believed was gone. ClearExport now discards
+the receipt for exactly the two destinations it already owns, ExportPath and
+ViewerPackagePath.
+
+IT CANNOT REMOVE ANYTHING ELSE, and that is the tested part: a directory that
+does not carry the journal's own source.json is not a receipt and is left
+untouched however it is named, a symbolic link is never followed, and a
+missing destination or a null/empty name is ordinary rather than a failure.
+Tests/Editor/MerkabaTilesetWriterTests.cs
+ClearExportDiscardsOnlyItsOwnResumeReceipt covers all four.
+
+Tools/unity/run_merkaba_tests.sh: 363 total, 362 passed, 1 failed.
+
+OPEN-4 STATUS=tile transform and resume discard closed. Still open: the Tiles
+canonical leaf cursor and completed-entry receipts on the same journal, and
+preview accessor decoding independent of the fixed Flower GLB stream ABI.

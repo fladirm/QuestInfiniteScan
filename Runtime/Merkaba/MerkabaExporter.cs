@@ -293,6 +293,8 @@ namespace Genesis.RoomScan
                     Directory.Delete(legacyDirectory, true);
                 if (Directory.Exists(legacyDirectory + ".tmp"))
                     Directory.Delete(legacyDirectory + ".tmp", true);
+                DiscardResumeReceipt(ExportPath);
+                DiscardResumeReceipt(ViewerPackagePath);
                 LastExportPath = null;
                 SetStatus("Not exported");
             }
@@ -301,6 +303,22 @@ namespace Genesis.RoomScan
                 Logger.Error("Could not clear Merkaba GLB export: " + exception.Message);
                 SetStatus("Export clear failed: " + exception.Message);
             }
+        }
+
+        /// <summary>Discards the resume receipt this exporter owns for one
+        /// selected destination. A directory that does not carry the journal's
+        /// own source record is not a receipt and is left alone, and a symbolic
+        /// link is never followed, so clearing an export can never remove
+        /// another export or an arbitrary staging directory.</summary>
+        internal static void DiscardResumeReceipt(string destination)
+        {
+            if (string.IsNullOrEmpty(destination)) return;
+            string journalDirectory = destination + ".resume";
+            if (!Directory.Exists(journalDirectory) ||
+                !MerkabaExportJournal.Exists(journalDirectory)) return;
+            if ((File.GetAttributes(journalDirectory) &
+                FileAttributes.ReparsePoint) != 0) return;
+            Directory.Delete(journalDirectory, true);
         }
 
         private void SetStatus(string status)

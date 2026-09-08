@@ -992,6 +992,47 @@ namespace Genesis.RoomScan.Tests
         private static string Source(string relative) =>
             File.ReadAllText(SourcePath(relative));
 
+        [Test]
+        public void ClearExportDiscardsOnlyItsOwnResumeReceipt()
+        {
+            string root = Path.Combine(Path.GetTempPath(),
+                "merkaba-clear-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                string owned = Path.Combine(root, "scan.glb");
+                string receipt = owned + ".resume";
+                Directory.CreateDirectory(Path.Combine(receipt, "content"));
+                File.WriteAllText(Path.Combine(receipt, "source.json"), "{}");
+                File.WriteAllText(Path.Combine(receipt, "content", "positions.bin"), "x");
+                Assert.That(MerkabaExportJournal.Exists(receipt), Is.True);
+
+                // A directory that carries no journal record is not a receipt.
+                // Clearing an export must never remove it, however it is named.
+                string foreign = Path.Combine(root, "other.glb");
+                string foreignDirectory = foreign + ".resume";
+                Directory.CreateDirectory(foreignDirectory);
+                File.WriteAllText(Path.Combine(foreignDirectory, "notes.txt"), "keep");
+
+                MerkabaExporter.DiscardResumeReceipt(owned);
+                MerkabaExporter.DiscardResumeReceipt(foreign);
+                Assert.That(Directory.Exists(receipt), Is.False,
+                    "The selected owned resume receipt must be discarded.");
+                Assert.That(File.Exists(Path.Combine(foreignDirectory, "notes.txt")),
+                    Is.True, "A directory without a journal record is not a receipt.");
+
+                // A missing destination and a destination with no receipt at
+                // all are both ordinary, not failures.
+                MerkabaExporter.DiscardResumeReceipt(Path.Combine(root, "absent.glb"));
+                MerkabaExporter.DiscardResumeReceipt(null);
+                MerkabaExporter.DiscardResumeReceipt(string.Empty);
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
         private static string SourcePath(string relative) =>
             Path.GetFullPath("Packages/com.genesis.roomscan/" + relative);
     }
