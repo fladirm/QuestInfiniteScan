@@ -8660,3 +8660,42 @@ Tools/shaders/audit_merkaba_compute_spirv.sh: 70 kernels, 1 FAIL, and that FAIL
 is CompactDirtyFlowerSymbols over the 1 MiB gate, which is OPEN-1 and predates
 this change. Two alias FAILs are gone. Tools/unity/run_merkaba_tests.sh: 364/364.
 DEVICE ACCEPTANCE PENDING.
+
+### DEVICE ACCEPTANCE — all 26 pipelines create, 2026-09-08 22:05Z
+
+Quest 340YC20G7X0QZ4, APK built 22:00:30 from f1c3b40, cold pipeline cache.
+
+  init worker: state=ready family=0 requiredPipelines=26 elapsedMs=226164.148
+
+No VkResult=-13 and no "scanner disabled". The three entries this work targeted:
+
+  index=13 ResolveFlowerCarriers     ms= 18729.149  result=0
+  index=14 DrainFlowerSkinRgb        ms=   460.384  result=0
+  index=15 DrainFlowerSkinV          ms=  4649.229  result=0
+
+ResolveFlowerCarriers creates at 721 068 B. The build that failed with -13 was
+715 124 B. It is now 5 944 B LARGER and it creates. That settles the size
+hypothesis by measurement rather than by argument: the discriminator was the
+longest dynamically indexed function-scope array, 14 -> 3. Seven is also proven
+acceptable now, which is what mattered for the skin entries, because seven is
+M8ThreadColorInterval children[7] and M8FlowerVInterval children[7] and could
+not have been reduced without changing the data model.
+
+WHAT THIS DOES NOT PROVE. Pipeline creation and readout dispatch are proven;
+scanning is not. The native queue runs FlowerReadout with real timestamps
+(5 dispatches, total=0.052 ms, validBits=48, single-serialized-native), but
+DepthCapture reports rawFrames=18881 preprocessed=0 ready=False depthAvail=False
+isOcclusionOn=0 and observation=0. Depth frames arrive and are not consumed. No
+observation, drain, FINE/ERASE, save/open or export has been exercised. OPEN-6
+acceptance is untouched by this run.
+
+OPEN-1 IS NOT CLOSED AND THIS RUN MADE THAT WORSE, NOT BETTER.
+CompactDirtyFlowerSymbols compiles in 152 500 ms of the 226 164 ms cold startup
+and its module is 1 236 104 B against the 1 MiB gate. During that compile the
+Adreno compiler drove the device past its low watermark and lowmemorykiller
+killed four system processes to make room: horizon.platform.providers,
+com.android.settings, com.oculus.updater and com.oculus.horizon. Our process
+survived at 2.39 GB RSS with 4.7 MB swap. A 3.8 minute cold start that evicts
+the system shell is a defect with a device receipt now, not an audit number.
+
+Warm cache is unmeasured; state=cold on this run.
