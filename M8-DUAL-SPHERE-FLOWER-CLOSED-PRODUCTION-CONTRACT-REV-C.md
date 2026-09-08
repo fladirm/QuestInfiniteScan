@@ -2372,16 +2372,23 @@ FlowerCommit
     commit current-quantum FlowerDetail/Thread work
 
 DrainObservationRefinement
-    consume remaining work from the SAME immutable observation
-    no new camera input required
-    stop only at workset exhaustion or AMBIGUOUS evidence boundary
+    the finite tile-local consequences reachable inside THIS transaction
+    root -> L1 -> L2 -> skin are dependency barriers of one command graph
+    never a continuation of this snapshot into a later frame
 
 FinalizeObservation
+    publish the canonical generation
+    mark the changed readout pages dirty
+    RELEASE THE SNAPSHOT
 ```
 
-`DrainObservationRefinement` is a semantic obligation, not a mandatory extra micro-dispatch. Production MAY fuse it into `FlowerCommit` or process the fixed L2-skin stages in one workgroup/dispatch. The implementation MUST prefer fused local work over a dispatch zoo. Its order is a scheduler implementation detail and MUST NOT use Fibonacci.
+`DrainObservationRefinement` is a semantic obligation, not a mandatory extra micro-dispatch. Production MAY fuse it into `FlowerCommit` or process the fixed L2-skin stages in one workgroup/dispatch. The implementation MUST prefer fused local work over a dispatch zoo. Its order is a scheduler implementation detail and MUST NOT use Fibonacci. Several entry points MAY remain where an Adreno shader-size limit requires them; none of them may mean "continue this snapshot next frame".
 
-The immutable observation may be released only after all work that it can make CERTAIN has either committed or been proven unnecessary. AMBIGUOUS children are not pending compute; they require new evidence and therefore do not keep the observation alive.
+One snapshot is one bounded synchronous scan transaction. It is never retained to exhaust derived refinement work. The snapshot processes all directly addressed resident evidence and all finite tile-local consequences reachable in that transaction, commits them to canonical world state, marks derived readout pages dirty, and retires. COLD dependencies are requested and skipped; AMBIGUOUS evidence is skipped; neither retains the snapshot. Further geometry, excavation and skin refinement is driven by later observations against the persistent world. No per-observation cursor, pending tile, refinement quantum or continuation workset survives `FinalizeObservation`.
+
+The persistent M8/dual/FlowerDetail/ThreadAtlas world is the refinement memory. A camera observation is evidence, not a work queue.
+
+The same rule binds the excavation view: what a snapshot certified THROUGH it stores, and what it did not certify simply stays FULL. FULL is re-examined by a NEW observation with a new camera, never by re-running the same frozen certificate.
 
 Sparse allocation barriers do not contain geometry decisions.
 

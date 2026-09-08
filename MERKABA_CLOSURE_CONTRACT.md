@@ -177,7 +177,7 @@ V nemění L2 vertices, silhouette ani depth
 
 one WG per touched tile; nynější source FlowerCommit má 128 lanes × 4 ownery
 StereoFlowerRefine 8×8; depth certificate se skutečnými global barriers
-count → reserve → emit; immutable observation přežije veškerý pending compute
+count → reserve → emit; snapshot je jedna bounded synchronní transakce a nepřežívá ji
 SCAN/draw hot path GPU-only; CPU oracle/storage/export nejsou geometry fallback
 
 jedna serialized native job chain, bez dalších GPU queues
@@ -269,19 +269,34 @@ publikace napříč touched tiles zůstává skutečnou globální bariérou.
 Allocation retry používá GPU-generated nonzero indirect práci pouze při
 allocation miss. Žádné CPU čtení počtů kvůli rozhodnutí, zda pokračovat.
 
-## 4.3 Observation-local refinement
+## 4.3 Snapshot jako jedna bounded transakce
 
-FlowerCommit uzavře práci, jejíž dependencies jsou tile-local a dostupné
-v daném kvantu. Zbytek zapisuje do jednoho bounded continuation worksetu.
+Jeden snapshot je jedna bounded synchronní scan transakce. Nikdy se nedrží
+kvůli domletí derived refinement práce. Snapshot zpracuje všechnu přímo
+adresovanou resident evidence a všechny finite tile-local důsledky dosažitelné
+v té transakci, commitne je do canonical world state, označí derived readout
+pages dirty a retiruje.
 
-Work item obsahuje implicitní Flower adresu, immutable observation token,
-stage/ancestor dependency a potřebnou generation identity; ne nový surface
-state machine. Child se zpracuje až po dokončení svých required ancestors.
+COLD dependency se zažádá a přeskočí; AMBIGUOUS evidence se přeskočí; ani jedno
+snapshot nedrží. Kvůli COLD ani AMBIGUOUS se nesmí vymyslet FULL, FREE ani
+surface: znamenají „na tento update nemám právo", ne „drž snímek a čekej".
 
-Drain dostane jen zbylou práci. Finalize uvolní observaci až při vyčerpání
-CERTAIN worksetu; AMBIGUOUS child žádá nové evidence, ne další compute.
-Stejná observace i při stojící kameře musí dojít do stejného výsledku jako
-eager evaluation. Změna pořadí ani kvanta nesmí změnit intervaly.
+Další geometry, excavation a skin refinement pohánějí POZDĚJŠÍ observace nad
+persistentním světem. Žádný per-observation cursor, pending tile, refinement
+quantum ani continuation workset nepřežije FinalizeObservation.
+
+Persistentní M8 / dual / FlowerDetail / ThreadAtlas svět JE refinement memory.
+Camera observation je evidence, ne pracovní fronta.
+
+root → L1 → L2 → skin zůstávají skutečné dependency barriers, ale všechny čtyři
+patří do JEDNOHO snapshot command graphu, ne do čtyř dalších pokusů o tentýž
+snímek. Work item nese implicitní Flower adresu, observation token a potřebnou
+generation identity; ne nový surface state machine. Child se zpracuje po svých
+required ancestors uvnitř téže transakce.
+
+Determinismus je tím silnější, ne slabší: bez krájení nemá pořadí ani kvantum
+co změnit. Transient scratch, list nebo receipt smí existovat uvnitř jednoho
+GPU submitu; po FinalizeObservation musí být pryč.
 
 ## 4.4 Dirty pages — bezpečný batch
 

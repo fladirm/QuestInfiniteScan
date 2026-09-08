@@ -9429,3 +9429,53 @@ dispatches=8 on those jobs, whether attempt stops climbing, whether
 proof the relic erase actually runs.
 
 Contracts untouched; all of this is ledger only.
+
+### THE CONTRACTS CARRIED THE WRONG INVARIANT, AND THAT IS WHY THE CODE DOES
+
+Corrected on explicit instruction, because no amount of reimplementation helps
+while two normative documents mandate the wrong model.
+
+REV-C section 18 said DrainObservationRefinement must "consume remaining work
+from the SAME immutable observation" and that "The immutable observation may be
+released only after all work that it can make CERTAIN has either committed or
+been proven unnecessary". Closure section 3 said "immutable observation prezije
+veskery pending compute", and closure 4.3 froze the bounded continuation
+workset with eager-equivalence per quantum. Together they turn a realtime
+scanner into a grinding buffer, and the implementation followed them faithfully.
+
+Replaced by the snapshot transaction model:
+  One snapshot is one bounded synchronous scan transaction. It is never retained
+  to exhaust derived refinement work. It processes all directly addressed
+  resident evidence and all finite tile-local consequences reachable in that
+  transaction, commits them to canonical world state, marks derived readout
+  pages dirty, and retires. COLD dependencies are requested and skipped;
+  AMBIGUOUS evidence is skipped; neither retains the snapshot. Further geometry,
+  excavation and skin refinement is driven by LATER observations against the
+  persistent world. No per-observation cursor, pending tile, refinement quantum
+  or continuation workset survives FinalizeObservation.
+  The persistent M8 / dual / FlowerDetail / ThreadAtlas world IS the refinement
+  memory. A camera observation is evidence, not a work queue.
+
+root -> L1 -> L2 -> skin stay real dependency barriers, but all four belong to
+ONE snapshot command graph rather than four further attempts at the same frame.
+Determinism gets stronger, not weaker: with no slicing there is no ordering or
+quantum left to change a result. Transient scratch, lists and receipts may exist
+inside one GPU submit and must be gone after FinalizeObservation.
+
+The excavation view binds to the same rule, which settles a question I got wrong
+twice today: what a snapshot certified THROUGH it stores, what it did not
+certify stays FULL, and FULL is re-examined by a NEW observation with a new
+camera - never by re-running the same frozen certificate 135 times.
+
+Measured consequence of the old model, for the record: observation=1 held from
+00:34, stage=1 and pendingTiles=1 unchanged across 50 s of sampling while the
+attempt counter passed 200, residencyEpoch static at 6, compiledBatchActiveTriangles=0.
+The device was re-asking the same question about the same tile on a frame a
+minute old while ~3000 newer depth frames went unlooked at. My own contribution
+to that was the 64-tile receipt region: M8_FLOWER_SKIN_RECEIPT_TILES bounds a
+per-(tile, owner) table at 512 x 192 B per tile, so touched tiles beyond queue
+index 64 incremented REFINEMENT_PENDING_TILES and returned, every attempt,
+forever. Indexed by group.x, which never changes between attempts, that is not a
+bounded workset - it is permanent exclusion. It existed only to carry state
+across the resolve/RGB/V split, which itself exists only because of an Adreno
+module-size limit. Under the new model there is nothing to carry.
