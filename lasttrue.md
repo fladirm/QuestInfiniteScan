@@ -8411,3 +8411,37 @@ M8FlowerReadL2Knot, emitted once whatever the trip count. The 415 412 B of L2
 rediscovery only leaves the skin module if the skin reads those roots from the
 canonical phase records through M8_FLOWER_GEOMETRY_PACKET_READ instead of
 re-deriving them.
+
+---
+
+### CURRENT TRUE STATE — the drain is two entry points on one chain, 2026-09-08 17:05Z
+
+STEP 2 OF THE GEOMETRY/SKIN BOUNDARY REPAIR. Not two algorithms: one
+serialized continuation chain entered at the boundary the contract already
+freezes, geometry through L2 and L3..L5 as signal only.
+
+  DrainFlowerGeometry   stages 0..2, the former mode 0    882 492 B / 47 076
+  DrainFlowerSkin       stage 3, the former mode 2      1 638 848 B / 86 328
+  before the split                                     2 149 788 B /113 557
+
+THE SPLIT IS BY PREPROCESSOR, NOT BY A RUNTIME FLAG, AND THAT IS THE POINT.
+The body moved to MerkabaFlowerDrainBody.hlsl with no include guard and is
+included twice under M8_DRAIN_SKIN 0 and 1. A runtime flag would leave both
+branches in both modules, which is the entire cost this split exists to
+remove. Each entry returns immediately outside its own stage class, while the
+invalidation stages still pass through both so epoch hygiene is never skipped.
+
+Wired through: the two #pragma kernel entries, the native generator PIPELINES
+in cursor order with the allocation barriers now following DrainFlowerSkin,
+PipelineNames in MerkabaNativeVulkanExecutor, MerkabaIntegrator's single
+kernel handle becoming two that are bound and dispatched back to back with no
+barrier between them because they are mutually exclusive by stage, and both
+tests that resolved the kernel by name. MerkabaObservationDrainGpuTests now
+drives the whole chain through both entry points.
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
+
+STEP 3 IS THE ONE THAT MATTERS AND IT IS NOT DONE. DrainFlowerSkin still
+rediscovers the L2 carrier it is supposed to consume: M8FlowerPrepareFineSites
+then M8FlowerClassifyL2Carrier run before either signal, 415 412 B of geometry
+discovery inside a signal stage.

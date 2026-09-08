@@ -25,7 +25,8 @@ namespace Genesis.RoomScan
         private int _observationRequestedFrame = -1;
         private bool _observationRequestedIsFine;
         private int _flowerCommitKernel;
-        private int _drainRefinementKernel;
+        private int _drainGeometryKernel;
+        private int _drainSkinKernel;
         private int _updateObservationDualKernel;
         private int _finalizeKernel;
         private int _queryFineEraseKernel;
@@ -272,8 +273,14 @@ namespace Genesis.RoomScan
                 _grid.M8ObservationRecords);
             _flowerCommitKernel = compute.FindProfiledKernel(
                 "FlowerCommit", MerkabaGpuStage.SurfaceIntegration);
-            _drainRefinementKernel = compute.FindProfiledKernel(
-                "DrainObservationRefinement", MerkabaGpuStage.SurfaceIntegration);
+            // One serialized continuation chain, two entry points. Geometry
+            // serves stages 0..2 and skin serves stage 3; the global Finalize
+            // barrier already keeps them apart, so neither carries the other's
+            // code and neither needs a barrier between them.
+            _drainGeometryKernel = compute.FindProfiledKernel(
+                "DrainFlowerGeometry", MerkabaGpuStage.SurfaceIntegration);
+            _drainSkinKernel = compute.FindProfiledKernel(
+                "DrainFlowerSkin", MerkabaGpuStage.SurfaceIntegration);
             _updateObservationDualKernel = compute.FindProfiledKernel(
                 "UpdateObservationDual", MerkabaGpuStage.DualIntegration);
             _finalizeKernel = compute.FindProfiledKernel(
@@ -286,7 +293,8 @@ namespace Genesis.RoomScan
                 "FinalizeFineErase", MerkabaGpuStage.SurfaceIntegration);
             foreach (int kernel in new[]
                      {
-                         _flowerCommitKernel, _drainRefinementKernel, _updateObservationDualKernel,
+                         _flowerCommitKernel, _drainGeometryKernel, _drainSkinKernel,
+                         _updateObservationDualKernel,
                          _finalizeKernel, _queryFineEraseKernel,
                          _eraseFineTilesKernel, _finalizeFineEraseKernel
                      })
@@ -820,7 +828,8 @@ namespace Genesis.RoomScan
                 // The same touched dispatch consumes only GPU-resident
                 // candidates and advances its cursor before storage can reuse
                 // the indirect arguments. No camera acquisition or readback.
-                _bins.RecordCommit(command, compute, _drainRefinementKernel);
+                _bins.RecordCommit(command, compute, _drainGeometryKernel);
+                _bins.RecordCommit(command, compute, _drainSkinKernel);
                 // Negative-volume claims are storage dependencies of this
                 // same frozen observation. Publish after commit: installation
                 // reuses its indirect argument buffer for tile counts.
@@ -1215,8 +1224,10 @@ namespace Genesis.RoomScan
             BindDepth(_updateObservationDualKernel);
             BindDepth(_flowerCommitKernel);
             BindCamera(_flowerCommitKernel);
-            BindDepth(_drainRefinementKernel);
-            BindCamera(_drainRefinementKernel);
+            BindDepth(_drainGeometryKernel);
+            BindCamera(_drainGeometryKernel);
+            BindDepth(_drainSkinKernel);
+            BindCamera(_drainSkinKernel);
             compute.SetInt("_M8RefinementQuantum", RefinementCandidatePassesPerQuantum);
         }
 

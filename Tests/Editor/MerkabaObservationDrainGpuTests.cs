@@ -65,7 +65,7 @@ namespace Genesis.RoomScan.Tests
             private static readonly int3 SecondOwner = new(4, 3, 3);
             private readonly List<ComputeBuffer> _buffers = new();
             private readonly ComputeShader _shader;
-            private readonly int _kernel, _finalizeKernel;
+            private readonly int _kernel, _skinKernel, _finalizeKernel;
             private readonly ComputeBuffer _counters, _details, _tileRecords, _states;
             private readonly Texture2D _depth, _normals, _rgb;
             private readonly uint4[] _canonicalStates;
@@ -76,7 +76,11 @@ namespace Genesis.RoomScan.Tests
                 _shader = UnityEngine.Object.Instantiate(AssetDatabase.LoadAssetAtPath<ComputeShader>(
                     "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute"));
                 Assert.That(_shader, Is.Not.Null);
-                _kernel = _shader.FindKernel("DrainObservationRefinement");
+                // The drain is two entry points over one continuation
+                // chain. This proof drives the whole chain, so it dispatches
+                // both; each returns immediately outside its own stage class.
+                _kernel = _shader.FindKernel("DrainFlowerGeometry");
+                _skinKernel = _shader.FindKernel("DrainFlowerSkin");
                 _finalizeKernel = _shader.FindKernel("FinalizeObservation");
                 var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
                 _buffers.Add(flowerTables);
@@ -121,6 +125,8 @@ namespace Genesis.RoomScan.Tests
                     new Color(128f / 255f, 128f / 255f, 128f / 255f, 1));
                 _shader.SetTexture(_kernel, "gsDepthTex", _depth);
                 _shader.SetTexture(_kernel, "gsDepthNormalTex", _normals);
+                _shader.SetTexture(_skinKernel, "gsDepthTex", _depth);
+                _shader.SetTexture(_skinKernel, "gsDepthNormalTex", _normals);
                 _shader.SetInts("gsDepthTexSize", 2, 1);
                 _shader.SetMatrixArray("gsDepthProj", new[] { projection, projection });
                 _shader.SetMatrixArray("gsDepthProjInv", new[] { projection.inverse, projection.inverse });
@@ -142,6 +148,7 @@ namespace Genesis.RoomScan.Tests
                 foreach (string eyeName in new[] { "Left", "Right" })
                 {
                     _shader.SetTexture(_kernel, "_MerkabaCameraRgb" + eyeName, _rgb);
+                    _shader.SetTexture(_skinKernel, "_MerkabaCameraRgb" + eyeName, _rgb);
                     _shader.SetVector("_MerkabaCameraPosition" + eyeName, eye);
                     _shader.SetMatrix("_MerkabaCameraInverseRotation" + eyeName, rgbRotation.inverse);
                     _shader.SetVector("_MerkabaCameraFocalLength" + eyeName,
@@ -372,6 +379,7 @@ namespace Genesis.RoomScan.Tests
                 _shader.SetInt("_M8DualPublishingGeneration", (int)++_publishingGeneration);
                 _shader.SetInt("_M8AttemptToken", (int)_publishingGeneration);
                 _shader.Dispatch(_kernel, 1, 1, 1);
+                _shader.Dispatch(_skinKernel, 1, 1, 1);
                 _shader.Dispatch(_finalizeKernel, 1, 1, 1);
                 var counters = new uint[MerkabaGrid.CounterCount];
                 _counters.GetData(counters); // Test-only readback; also the true retirement boundary.
@@ -407,6 +415,7 @@ namespace Genesis.RoomScan.Tests
             private void Bind(string name, ComputeBuffer buffer)
             {
                 _shader.SetBuffer(_kernel, name, buffer);
+                _shader.SetBuffer(_skinKernel, name, buffer);
                 _shader.SetBuffer(_finalizeKernel, name, buffer);
             }
             private ComputeBuffer Upload<T>(T[] values, int stride) where T : struct

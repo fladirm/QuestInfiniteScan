@@ -18,7 +18,7 @@ namespace Genesis.RoomScan
         internal const int ResourceCount = 43;
         internal const int PipelineCount = 23;
         // A native observation also dispatches publication Reserve once and
-        // its three allocation barriers after DrainObservationRefinement.
+        // its three allocation barriers after DrainFlowerSkin.
         internal const int MaximumDispatchTimingCount = PipelineCount + 4;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
@@ -129,7 +129,8 @@ namespace Genesis.RoomScan
             "EmitObservationBins",
             "UpdateObservationDual",
             "FlowerCommit",
-            "DrainObservationRefinement",
+            "DrainFlowerGeometry",
+            "DrainFlowerSkin",
             "FinalizeObservation",
             "ClassifyHotFlowerPages",
             "PrepareDirtyFlowerBatch",
