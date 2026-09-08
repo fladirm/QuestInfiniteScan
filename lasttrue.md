@@ -9176,3 +9176,51 @@ stays worth doing and is additive, but it is the second-order one: it removes
 repetition of a cost that should not be large in the first place.
 
 Neither is implemented.
+
+### THE MENTAL MODEL I WAS MISSING — M8 IS ADDRESSED, NOT TRAVERSED
+
+Two more corrections from the user, and together they change the shape of the
+dual fix rather than its size. I had written "drive the descent from the sparse
+index". There is no descent to drive.
+
+ADDRESSING, NOT WALKING. Two hashmaps:
+  block     MerkabaPcg3d(blockCoord) -> two buckets of four slots, 2-choice
+            cuckoo, at most eight probes, O(1). M8FindBlock is exactly that.
+  residency 32768 HOT physical tiles in four banks, the same PCG3D 2-choice
+            cuckoo, COLD on SSD.
+And the frozen address is signed int3 -> block 256^3 / five octant digits /
+tile 8^3 / 512 kernels, so even the levels between are pure INDEXING:
+_M8BlockChunkRefs is 512 entries per block and _M8ChunkTileRefs is 64 per chunk,
+reached as chunk*64+tile. Nothing about this structure is searched or walked.
+
+THE TILE IS BUILT MORE CLEVERLY THAN IT IS USED. _M8TileBits is uint4 per word
+with M8TileWordIndex(physicalSlot, word) over words 0..15, so a tile carries
+16 x 32 = 512 bits per channel - one bit per kernel - across FOUR channels.
+FlowerCommit reads it as _M8TileBits[M8TileWordIndex(slot,lane)].z with one lane
+per word, so sixteen lanes cover an entire tile in one read each. Whether a tile
+is empty, uniform or mixed, and which kernels are set, is therefore bit
+arithmetic on sixteen words, addressed in O(1) from the physical slot. No
+per-kernel visit, no geometric descent.
+
+THE WORK SET IS ALREADY ENUMERATED. CountObservationBins and EmitObservationBins
+produce _M8ObservationRecords and _M8ObservationTileBins in 0.043 + 0.048 ms.
+That is the addressed set of owners the observation actually touched, binned per
+tile. The dual re-derives from geometry what those passes already published for
+almost nothing.
+
+SO THE DUAL'S SHAPE IS WRONG TWICE OVER, not slow. It enumerates up to 512 chunk
+slots per block and 64 tile slots per chunk from M8ScanChildMask, a geometric
+intersection test, and only asks at the leaf whether anything exists. Against a
+structure that is addressed in O(1) and a tile that answers uniformity from a
+512-bit mask, that is the wrong operation, and 31.5 ms per 6.4 m block is what
+the wrong operation costs. It is an auxiliary guard against artefacts, so it must
+be cheap by construction, not merely optimised.
+
+WHAT I HAD PROPOSED AND WHY IT WAS STILL WRONG. "Descend only into existing
+children" keeps the traversal and merely prunes it. The correct shape starts from
+the addressed work - the observation's binned tiles - resolves each by hash,
+answers uniformity from the tile masks, and uses the coarse depth certificate
+only to certify whole volumes that need no per-tile answer at all. Skipping the
+dual on an unchanged retry remains additive and is now third in order.
+
+Not implemented. Recorded so the next cut starts from the right operation.
