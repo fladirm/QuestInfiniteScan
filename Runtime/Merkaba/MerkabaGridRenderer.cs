@@ -255,7 +255,8 @@ namespace Genesis.RoomScan
         {
             Camera camera = Camera.main;
             if (camera == null || !cameras.Contains(camera) || !_initialized || _gpuSubmissionSuspended ||
-                _grid == null || !_grid.FlowerGraphicsReadAllowed || HasReadoutBuildInFlight)
+                _grid == null || !_grid.FlowerGraphicsReadAllowed || HasReadoutBuildInFlight ||
+                _grid.HasPendingCanonicalFlush)
                 return;
             if (_integrator != null && (_integrator.HasAttemptInFlight ||
                 _integrator.HasFineEraseAttemptInFlight || _integrator.HasPendingFineErase ||

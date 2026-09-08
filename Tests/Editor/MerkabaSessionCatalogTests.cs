@@ -296,6 +296,42 @@ namespace Genesis.RoomScan.Tests
                 "SAVE AS retains the GPU world and must not quiesce for a clear");
         }
 
+        // PumpStorage gates its GPU section on HasJobInFlight, and the
+        // dirty-page readout job lives about 42 ms and is resubmitted every
+        // rendered frame, so once the native scanner is ready it holds the
+        // queue continuously. On device a save then never left "Counting dirty
+        // canonical tiles". Closure 4.7 orders bounded work FINE/ERASE ->
+        // observation -> dirty page -> WARM, so the readout must yield to a
+        // pending canonical flush rather than starve it.
+        [Test]
+        public void DirtyPageReadout_YieldsToAPendingCanonicalFlush()
+        {
+            string storage = Source("Runtime/Merkaba/MerkabaGrid.Storage.cs");
+            Assert.That(storage, Does.Contain(
+                "internal bool HasPendingCanonicalFlush => _flushCompletion != null;"),
+                "the pending canonical flush must be observable by the renderer");
+            int pump = storage.IndexOf("private void PumpStorage()",
+                StringComparison.Ordinal);
+            int gate = storage.IndexOf(
+                "MerkabaNativeVulkanExecutor.HasJobInFlight) return;", pump,
+                StringComparison.Ordinal);
+            Assert.That(gate, Is.GreaterThan(pump),
+                "PumpStorage still defers its GPU section to the native queue");
+
+            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
+            int submit = renderer.IndexOf(
+                "private void OnContextRendered(", StringComparison.Ordinal);
+            int yields = renderer.IndexOf("_grid.HasPendingCanonicalFlush",
+                submit, StringComparison.Ordinal);
+            int quantum = renderer.IndexOf("SubmitPageQuantum(camera)", submit,
+                StringComparison.Ordinal);
+            Assert.That(submit, Is.GreaterThanOrEqualTo(0));
+            Assert.That(yields, Is.GreaterThan(submit),
+                "page publication must yield to a pending canonical flush");
+            Assert.That(quantum, Is.GreaterThan(yields),
+                "the yield must be decided before a new page quantum is submitted");
+        }
+
         private static MerkabaTileSnapshot Tile(int3 blockCoord, int kernel)
         {
             var states = new KernelState[MerkabaSpatial.KernelsPerTile];

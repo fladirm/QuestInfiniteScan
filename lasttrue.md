@@ -8768,3 +8768,42 @@ ready=False depthAvail=False isOcclusionOn=0, while occMgr.enabled=True
 running=True shaderOcc=True hardKeyword=True globalDepth=True. observation=0
 throughout. Frames arrive and no observation is formed, so no scan, drain,
 FINE/ERASE, save/open or export has been proven. OPEN-6 remains open.
+
+### THE SECOND CONSEQUENCE OF A BUSY NATIVE QUEUE — save counting, 22:2xZ
+
+Reported from the headset: SAVE sits on "Counting dirty canonical tiles".
+
+PumpStorage gates its whole GPU section on
+  if (!GpuSubmissionAllowed || MerkabaNativeVulkanExecutor.HasJobInFlight) return;
+and the dirty-page readout job measures lifetimeMs=42.6 (queueFenceMs=28.4,
+acquireFenceMs=13.0) while being resubmitted from OnContextRendered every
+rendered frame.
+
+BE PRECISE ABOUT THE MECHANISM: THIS IS DEGRADATION, NOT DEADLOCK. The pump is
+driven from MerkabaGrid.Gpu.cs and does get a window between a job completing in
+LateUpdate's poll and the next frame's submission. What makes the flush crawl is
+that the counter readback is an AsyncGPUReadback whose CALLBACK re-checks the
+same gate: if a new job started while the readback was in flight the sampled
+counters are discarded and the attempt is retried only after the 0.05 s
+_nextStreamPoll throttle. With the queue occupied most of the time most attempts
+are thrown away, so the flush advances at a small fraction of its rate. I first
+wrote "starved" and "never"; the evidence says slow, which is what "trva" meant.
+
+THE FIX IS THE PRIORITY THE CONTRACT ALREADY STATES, NOT A RELAXED GATE.
+Closure 4.7: "Mezi bounded jobs/kvanty plati priorita FINE/ERASE -> observation
+-> dirty page -> WARM." The dirty-page readout is the lowest bounded rank above
+WARM, so it must yield to a pending canonical flush instead of competing with
+it. MerkabaGridRenderer.OnContextRendered already yields to the integrator's
+observation and fine-erase work; MerkabaGrid.HasPendingCanonicalFlush joins that
+same condition, so no new page quantum is submitted while a flush is pending and
+the in-flight one drains within about 42 ms. One authority, and it covers every
+flush caller including autosave and export rather than each save entry point.
+
+SAME CLASS, NOT YET ADDRESSED: BeginLoadAddressReadback and the writeback batch
+sit behind the same gate and the same discard-on-callback pattern, so COLD tile
+loading and writeback are slowed by a busy queue in exactly this way. They are
+not covered by the flush priority and no device evidence has been collected for
+them. Recorded as suspected, not fixed.
+
+Tools/unity/run_merkaba_tests.sh: 366 total, 366 passed, 0 failed.
+DEVICE ACCEPTANCE PENDING for save.

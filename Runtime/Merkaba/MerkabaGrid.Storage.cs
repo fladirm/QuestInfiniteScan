@@ -290,6 +290,15 @@ namespace Genesis.RoomScan
             _loadBytesPerSecond = _writeBytesPerSecond = 0f;
         }
 
+        // Closure 4.7 orders bounded jobs FINE/ERASE -> observation -> dirty
+        // page -> WARM, so a pending canonical flush outranks the dirty-page
+        // readout. It has to be published, because PumpStorage's GPU section is
+        // gated on HasJobInFlight and the readout job lives about 42 ms and is
+        // resubmitted every frame: once the native scanner is ready it occupies
+        // the queue continuously and the flush never leaves
+        // "Counting dirty canonical tiles".
+        internal bool HasPendingCanonicalFlush => _flushCompletion != null;
+
         private void PumpStorage()
         {
             if (_storageReplacementPending) return;
