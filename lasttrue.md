@@ -8076,3 +8076,42 @@ lever is unchanged and unstarted: move lattice-determined evaluation out of the
 shader into the generated tables, per the closure. Local rewrites, kernel
 splitting by stage and spirv-opt have all now been measured and none reaches
 this.
+
+---
+
+### CURRENT TRUE STATE — correction: the draw fix does NOT work, 2026-09-08 14:05Z
+
+I REPORTED THE DRAW REJECTIONS AS ZERO. THAT WAS WRONG, AND THE ERROR WAS MINE,
+NOT THE DEVICE'S. The counting pipeline used
+
+  grep -o "MerkabaNative([0-9]*): .*"
+
+but logcat writes "MerkabaNative( 2623):" with a space before the pid, so the
+pattern never matched, the pipeline produced nothing, and I read empty output
+as a count of zero. Commit 2aada51 and the ledger entry above it both state
+that all three rejection messages dropped to zero. They did not. Counted
+correctly with a plain "Flower draw rejected" match:
+
+  dev2  before any fix              fence 2 622   draw 2 060   (27 318 lines)
+  dev4  fence fix                   fence     0   draw 9 072   (27 318 lines)
+  dev5  cull in its own pass        fence     0   draw 6 185   (18 657 lines)
+  dev7  same source, restored       fence     0   draw 5 441   (16 425 lines)
+
+Normalized per captured line the rejection rate is identical in dev4, dev5 and
+dev7. MOVING THE CULL TO ITS OWN BeforeRendering PASS CHANGED NOTHING.
+
+THE FENCE FIX IS UNAFFECTED AND STILL PROVEN: 2 622 exceptions before, zero in
+every capture after, across comparable rendering runs.
+
+WHY THE NEXT STEP IS A MEASUREMENT AND NOT A FOURTH GUESS. ResetFlowerCullCount
+emitted one message for three different preconditions — Unity not recording,
+no current command buffer, or subPassIndex >= 0 — so the text
+"requires an outside-render-pass command buffer" was an assumption about which
+one failed, and every guess costs a full device build. Each precondition now
+reports itself, and the render-pass case also prints subPassIndex and whether
+renderPass and framebuffer are set.
+
+OPEN DEFECT B STATUS=cause not yet identified; three attempts measured and
+rejected (attachment dependency, EnsureOutside precondition, separate
+BeforeRendering pass). The cull pass split is retained because it is correct
+in its own right, not because it fixed this.

@@ -62,11 +62,30 @@ void UNITY_INTERFACE_API ResetFlowerCullCount(int eventId, void* resource)
     }
     // Resource access may change Unity's recording state, so query it only
     // afterwards. The caller is the existing outside-render-pass cull stage.
+    // Each precondition reports itself: one shared message cannot say whether
+    // Unity was not recording, had no command buffer, or was inside a render
+    // pass, and guessing between them costs a device build per guess.
     UnityVulkanRecordingState recording = {};
-    if (!g_vulkan->CommandRecordingState(&recording, kUnityVulkanGraphicsQueueAccess_DontCare) ||
-        recording.commandBuffer == VK_NULL_HANDLE || recording.subPassIndex >= 0)
+    if (!g_vulkan->CommandRecordingState(&recording, kUnityVulkanGraphicsQueueAccess_DontCare))
     {
-        Log("Flower cull count reset requires an outside-render-pass command buffer.");
+        Log("Flower cull count reset: Unity reported no command recording state.");
+        return;
+    }
+    if (recording.commandBuffer == VK_NULL_HANDLE)
+    {
+        Log("Flower cull count reset: Unity has no current command buffer.");
+        return;
+    }
+    if (recording.subPassIndex >= 0)
+    {
+        char message[192] = {};
+        std::snprintf(message, sizeof(message),
+            "Flower cull count reset requires an outside-render-pass command "
+            "buffer; subPassIndex=%d renderPass=%s framebuffer=%s",
+            recording.subPassIndex,
+            recording.renderPass == VK_NULL_HANDLE ? "null" : "set",
+            recording.framebuffer == VK_NULL_HANDLE ? "null" : "set");
+        Log(message);
         return;
     }
     RecordFlowerCountReset(recording.commandBuffer, buffer.buffer);
