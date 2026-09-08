@@ -9036,3 +9036,84 @@ whichever it can and derives the package pose from that one; version 1 packages
 keep working with their single anchor.
 
 Tools/unity/run_merkaba_tests.sh: 368 total, 368 passed, 0 failed.
+
+### DEVICE MEASUREMENT — 0.5 fps AND NOTHING DRAWN HAVE ONE CAUSE, 23:22Z
+
+Scan running on the Quest, APK 23:17:35. Per-dispatch GPU timestamps from the
+native queue, one ObservationRetry:
+
+  dispatch=0  ResetObservationBins             0.007 ms
+  dispatch=1  CountObservationBins             0.043 ms
+  dispatch=5  ReserveObservationBins           0.342 ms
+  dispatch=7  UpdateObservationDual         3932.243 ms   <-- everything
+  dispatch=9  FlowerCommit                     0.003 ms
+  dispatch=10 DrainFlowerGeometry              0.002 ms
+  dispatch=11 ResolveFlowerCarriers            0.002 ms
+  dispatch=12 DrainFlowerSkinRgb               0.002 ms
+  dispatch=13 DrainFlowerSkinV                 0.002 ms
+  dispatch=17 FinalizeObservation              0.009 ms
+
+  observation=6 UpdateObservationDual dispatches=8 gpuSumMs=26237.036
+  observation=7 UpdateObservationDual dispatches=9 gpuSumMs=30833.007
+  BuildDepthCertificate 0.300 ms   ReduceDepthCertificate 0.023 ms
+  observation attempt unresolved observation=8 attempt=53
+  attemptResidencyEpoch=24 currentResidencyEpoch=24
+  metrics-held-refinement completed=0 pendingTiles=1 quantumProgress=1 stage=1
+  gpu-coverage registered=39 seen=6 missing=33
+
+DO NOT MISREAD gpu-coverage: it is telemetry name coverage, 33 pipelines simply
+have not run yet. It is a consequence, not the cause.
+
+WHAT THE DUAL IS, ONTOLOGICALLY. A depth sample asserts two things: the surface
+is OCCUPIED and the whole volume between the camera and it is FREE. The dual is
+that free-space certification. It walks block 6.4 m -> chunk 0.8 m -> tile 0.2 m
+and writes ALL_THROUGH at the COARSEST node it can prove entirely in front of
+the surface, descending only into MIXED. That is what makes carving affordable,
+because most of a room is air.
+
+THE ALGORITHM IS RIGHT AND IS NOT THE BUG. M8_DEPTH_CERTIFICATE_SIDE 512 with
+10 levels per eye is a full min/max pyramid; M8DepthCertificateThrough takes ONE
+lookup at the envelope level and only then descends a bounded quadtree, accepting
+fully contained nodes at their own level and pruning the rest. M8SupportThrough
+encloses the owner-support union in exact interval arithmetic before projecting.
+M8SupportThrough is consulted at block span 256 and chunk span 32 with
+`through ? 255u : M8ScanChildMask(...)` pruning. That is 4.7 implemented as
+written.
+
+THE MISUNDERSTANDING IS THE CONTINUATION, NOT THE DUAL. The generator builds
+    retry = observation[observation.index("ResetObservationBins"):]
+so a RETRY of a FROZEN observation re-runs UpdateObservationDual. The dual is a
+function of the frozen depth, the frozen pose and the resident block set, all
+immutable inside one observation, and the log proves the inputs did not move:
+attemptResidencyEpoch equals currentResidencyEpoch. So the same free space is
+re-certified for 4 s on every attempt while the refinement advances
+quantumProgress=1. Closure 4.3 states the rule in one line: "Drain dostane jen
+zbylou praci."
+
+AND THE QUANTUM MAKES IT A HUNDRED-FOLD. RefinementCandidatePassesPerQuantum is
+64. One tile owes M8_FLOWER_PHASE_TASKS (1336 in the harness) plus the skin
+cursor of 128 carriers x 57 = 7296, so about 8600 cursor positions, i.e. roughly
+135 attempts per tile. 135 attempts x 4 s of unchangeable dual is about nine
+minutes for ONE tile.
+
+WHY NOTHING IS DRAWN IS THE SAME FACT. Completion needs stage 3 with
+pendingTiles 0; the device sits at stage=1 pendingTiles=1, so
+CompletedObservationToken is never stamped, nothing retires into the readout, and
+the flower entries run 2 us because at stage 1 they are handed one quantum of
+nothing. This is not a draw defect. FinalizeObservation owns the stage machine
+(MerkabaIntegration.compute 600-630), NOT the dual, so a retry that omits the
+dual still advances.
+
+NEXT, IN THIS ORDER, NEITHER DONE:
+  1. Omit UpdateObservationDual and its publication-only ReserveObservationBins
+     from the retry schedule while the inputs are unchanged - same observation
+     token, same residency epoch, empty new block/chunk/tile queues. Those are
+     exactly the counters the dual already reads for its own `ready`, so no new
+     state is introduced. It changes the native schedule, so it raises the
+     executor ABI.
+  2. The quantum. 135 attempts per tile is stepping, not continuation. Measure
+     what one quantum actually costs before changing 64, rather than guessing.
+
+The first dual pass itself is also slow - 125 blocks at 5 m radius, 31.5 ms per
+6.4 m block - but that is a separate question worth its own measurement once the
+50-to-135x repetition is gone.
