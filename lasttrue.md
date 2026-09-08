@@ -8115,3 +8115,61 @@ OPEN DEFECT B STATUS=cause not yet identified; three attempts measured and
 rejected (attachment dependency, EnsureOutside precondition, separate
 BeforeRendering pass). The cull pass split is retained because it is correct
 in its own right, not because it fixed this.
+
+---
+
+### CURRENT TRUE STATE — the flower draw was never accepted; two native defects, 2026-09-08 14:20Z
+
+DEFECT B IS FIXED AND MEASURED. It was two separate native defects, and
+neither was where the first three attempts looked. Counted with an unambiguous
+match across four device captures, each fix removing exactly one layer:
+
+  capture  lines   draw rejected  cull reset  wrapper rejected
+  dev8     16 542          5 480       5 480             5 480
+  dev9      5 577          5 475           0                 0
+  dev10     5 544          5 442           0                 0
+  dev11        102             0           0                 0
+
+DEFECT B1, THE RENDER PASS TEST WAS ITSELF WRONG. ResetFlowerCullCount rejected
+on recording.subPassIndex >= 0. IUnityGraphicsVulkan.h documents subPassIndex
+as "-1 if not inside a render pass", but the instrumented build measured, every
+frame:
+
+  subPassIndex=0 renderPass=null framebuffer=null
+
+Unity 6000.5 on Quest reports subPassIndex 0 while genuinely outside a render
+pass. The condition was therefore true unconditionally and rejected every
+frame no matter where the caller ran, which is exactly why removing the colour
+attachment dependency, setting EnsureOutside and moving the cull to its own
+BeforeRendering pass all measured as no change. They could not have worked.
+The render pass handle is now the authority: a render pass cannot be in
+progress without one.
+
+DEFECT B2, A LEGAL ZERO STRIDE WAS TREATED AS INVALID. With B1 fixed the
+wrapper still rejected every draw. The instrumented message named the term:
+
+  registered=1 ready=1 countDraw=1 buffer=match offset=0 drawCount=1
+  stride=0 expectedStride=20
+
+Vulkan ignores stride when drawCount is one, so Unity is entitled to pass zero
+and does. The guard now accepts zero or the exact command stride; the wrapper
+substitutes kFlowerCommandStride itself for its own count draw.
+
+THE INSTRUMENTATION IS KEPT, NOT REVERTED. One shared message across three
+recording preconditions and seven draw terms is what made three consecutive
+diagnoses guesses, at one device build each. Each condition now reports itself
+with its value, and that is what found both defects.
+
+THE FLOWER DRAW HAS THEREFORE NEVER BEEN ACCEPTED ON DEVICE since this code was
+written. It is accepted now: the whole per-frame rejection stream is gone and a
+100 s capture is 102 lines.
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
+
+WHAT REMAINS IS OPEN-1 ALONE:
+  [RoomScan] Merkaba native startup FAILED: pipeline=FlowerCommit
+  VkResult=-13; scanner disabled.
+The draw path runs; the scanner does not, because the native executor requires
+all 23 pipelines and FlowerCommit is refused at 944 896 B. Target against the
+671 652 B proven to compile: FlowerCommit -29 percent,
+CompactDirtyFlowerSymbols -50 percent, DrainObservationRefinement -74 percent.

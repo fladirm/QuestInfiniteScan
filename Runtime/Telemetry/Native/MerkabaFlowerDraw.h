@@ -76,14 +76,21 @@ void UNITY_INTERFACE_API ResetFlowerCullCount(int eventId, void* resource)
         Log("Flower cull count reset: Unity has no current command buffer.");
         return;
     }
-    if (recording.subPassIndex >= 0)
+    // The render pass handle is the authority, not subPassIndex.
+    // IUnityGraphicsVulkan.h documents subPassIndex as "-1 if not inside a
+    // render pass", but Unity 6000.5 on Quest reports subPassIndex=0 with
+    // renderPass=VK_NULL_HANDLE and framebuffer=VK_NULL_HANDLE while genuinely
+    // outside one. Testing subPassIndex >= 0 therefore rejected every frame no
+    // matter where the caller ran, which is why three separate attempts to
+    // move the caller outside a render pass changed nothing. A render pass
+    // cannot be in progress without its handle.
+    if (recording.renderPass != VK_NULL_HANDLE)
     {
         char message[192] = {};
         std::snprintf(message, sizeof(message),
             "Flower cull count reset requires an outside-render-pass command "
-            "buffer; subPassIndex=%d renderPass=%s framebuffer=%s",
+            "buffer; subPassIndex=%d framebuffer=%s",
             recording.subPassIndex,
-            recording.renderPass == VK_NULL_HANDLE ? "null" : "set",
             recording.framebuffer == VK_NULL_HANDLE ? "null" : "set");
         Log(message);
         return;
@@ -102,12 +109,33 @@ void VKAPI_PTR FlowerDrawIndexedIndirect(VkCommandBuffer command, VkBuffer buffe
     {
         const bool registrationValid = g_flowerDrawRegistrationValid.exchange(
             false, std::memory_order_acq_rel);
+        // A stride of zero is accepted because Vulkan ignores stride when
+        // drawCount is one, so Unity is entitled to pass zero and measurably
+        // does: this exact term rejected every frame on device with
+        // stride=0 expectedStride=20 while every other term matched. The
+        // wrapper substitutes kFlowerCommandStride itself below.
+        // Report the failing term with its value. One shared message across
+        // seven conditions turns every diagnosis into a guess, and each guess
+        // costs a full device build.
         if (!registrationValid || !g_flowerDrawReady.load(std::memory_order_acquire) ||
             g_flowerCountDraw == nullptr || buffer == VK_NULL_HANDLE ||
             buffer != g_flowerDrawBuffer.load(std::memory_order_acquire) ||
-            offset != 0 || drawCount != 1 || stride != kFlowerCommandStride)
+            offset != 0 || drawCount != 1 ||
+            (stride != 0 && stride != kFlowerCommandStride))
         {
-            Log("Flower draw rejected: invalid registered indexed indirect invocation.");
+            char message[256] = {};
+            std::snprintf(message, sizeof(message),
+                "Flower draw rejected: registered=%d ready=%d countDraw=%d "
+                "buffer=%s offset=%llu drawCount=%u stride=%u expectedStride=%u",
+                registrationValid ? 1 : 0,
+                g_flowerDrawReady.load(std::memory_order_acquire) ? 1 : 0,
+                g_flowerCountDraw != nullptr ? 1 : 0,
+                buffer == VK_NULL_HANDLE ? "null"
+                    : (buffer == g_flowerDrawBuffer.load(std::memory_order_acquire)
+                        ? "match" : "mismatch"),
+                static_cast<unsigned long long>(offset), drawCount, stride,
+                kFlowerCommandStride);
+            Log(message);
             return;
         }
         // Unity binds the immutable index template, material and XR state.
