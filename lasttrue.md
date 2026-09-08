@@ -7808,3 +7808,75 @@ with "Launch is blocked because: a Reprojected OS dialog is currently
 showing". The process sat at 0% CPU with all 18 threads asleep and emitted no
 MerkabaNative line at all, so pipeline creation was never reached and nothing
 about the driver can be claimed from this run. DEVICE ACCEPTANCE PENDING.
+
+---
+
+### CURRENT TRUE STATE — OPEN-1 residual and OPEN-2 fixture cost, measured, 2026-09-08 05:40Z
+
+OPEN-1: THE SPLIT DOES NOT CLOSE THE GATE, AND THAT IS MEASURED, NOT ASSUMED.
+DrainObservationRefinement already carries a GPU-side stage counter, and stage
+3 is the skin phase, which the call-graph attribution shows is 67 percent of
+its interval-operation sites. Compiling the kernel with M8FlowerDrainSkinPacket
+stubbed gives the exact size of the phase half:
+
+  full drain                   2 595 448 B / 136 755 instructions
+  phase half, skin removed     1 151 508 B /  60 341 instructions
+
+Both halves therefore stay above 1 MiB and above 50 000. A two-entry split by
+the existing stage would not have needed a new barrier — the two entries are
+mutually exclusive on the stage, so OPEN-3's boundary count would not move —
+but it does not reach the gate, so it buys nothing and was not made.
+
+CompactDirtyFlowerSymbols is the same shape: 100 percent of its interval sites
+arrive through the single subtree M8FlowerCompileOwner, and below that the
+mass spreads again (PageCarrier 36 percent, PacketAcquire 35 percent,
+PrepareCompletionPetal 20 percent). There is no dominant site to hoist.
+
+WHAT REMAINS IS AN ALGEBRA CHANGE, NOT A RESTRUCTURING. glslang inlines every
+HLSL function, so cost is call-site count times body size, and the sites are
+spread across the whole exact-interval evaluation. Collapsing repeated call
+edges into runtime loops was measured too: folding M8FlowerRootInSector's two
+M8FlowerICross calls and M8FlowerICross's two M8FlowerIMul calls took the
+drain only from 2 595 448/136 755 to 2 434 992/130 027, about 5 percent, and
+the remaining collapsible edges are the same order. spirv-opt was measured and
+rejected above. The lawful lever is the one the closure already names: move
+lattice-determined evaluation out of the shader into the generated tables and
+read it, rather than recomputing it per site. That is a deliberate cut with
+real exactness risk and it is NOT started here.
+
+  OPEN-1 STATUS=FlowerCommit closed (FAIL -> REVIEW). DrainObservationRefinement
+  2 595 448 B/136 755 and CompactDirtyFlowerSymbols 1 335 616 B/70 069 remain
+  FAIL. 2 of 67 kernels fail the gate, from 3 at the handover checkpoint.
+
+OPEN-2: WHAT THE PEER-ONLY FIXTURE ACTUALLY COSTS, established by building it
+far enough to measure and then removing it rather than committing a fixture
+that proves nothing.
+
+  The frozen harness can drive FlowerCommit: it needs only the writable
+  _M8KernelStates0..3 bindings and the depth/normal/RGB textures bound to that
+  kernel as well. Everything else FlowerCommit reads is already bound.
+  A COMPLETED OBSERVATION RETIRES BOTH THE TOUCHED-TILE COUNT AND THE BIN
+  SPAN. A second observation must republish both, exactly as the bins stage
+  does; without that FlowerCommit exits at its group.x guard and nothing runs.
+  With them republished it runs correctly and re-arms the R1 stamp
+  (tileRecords runtime.x becomes the new token, tile bits .z reaches 12).
+  A STRUCTURAL CAPTURE CANNOT BE PRODUCED FROM THE FINE STAGE ALONE. Three
+  distinct attempts were measured, all leaving structural bits at zero and the
+  stage at zero: a 25 degree tilt of the measured normal, an observation of
+  the same surface from its other side, and seeding the coarse source with the
+  opposite plane free side. That is the documented contract, not a defect —
+  M8FlowerCompatibleCarrier preserves the existing R1 on failure and never
+  chooses a different sheet. Clearing the coarse occupancy flag and its tile
+  bit did not make the commit re-admit either.
+  THE STRUCTURAL PATH IS AUTHORED BY THE COARSE EVIDENCE STAGE, so the
+  peer-only fixture needs the full observation pipeline — bins, dual, commit,
+  drain — not the three kernels the frozen harness binds today. That is the
+  real remaining cost of OPEN-2 acceptance.
+
+  OPEN-2 STATUS=source fix committed at edf7b78; the fixture needs a
+  full-pipeline harness and is not written.
+
+NEXT_ACTION=OPEN-5 optical evidence chain; then OPEN-2's full-pipeline harness;
+  OPEN-1's remaining two kernels need the tabulation cut, not another rewrite.
+WORKTREE_SCOPE=lasttrue.md only; unrelated .claude/, CLAUDE.md and
+  CLAUDE.md.meta remain untouched and untracked.
