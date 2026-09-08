@@ -8278,3 +8278,105 @@ another local rewrite.
 
 APP STATE ON DEVICE: killed by the OS during pipeline creation, so it is not
 running. Nothing about the draw path changed; that fix is unaffected.
+
+---
+
+### CURRENT TRUE STATE — what each part of the drain MEANS, 2026-09-08 16:10Z
+
+THIS ENTRY EXISTS BECAUSE THE PRECEDING WORK WAS SYNTACTIC. Counting
+instructions, collapsing call sites and flattening arrays reduced the modules
+but produced two wrong conclusions and one broken semantic, because none of it
+asked what the code is FOR. The reading below is by meaning; the byte figures
+are attached to purposes, not to functions.
+
+WHAT THE DRAIN IS. Closure section4.3: FlowerCommit closes the work whose
+dependencies are tile-local and available inside its quantum, and THE DRAIN
+GETS ONLY WHAT IS LEFT. It is the continuation-workset consumer, walking one
+linear cursor. Stages advance only across the global Finalize barrier, because
+a child may not be processed before its required ancestors are complete.
+
+  cursor 0                      .. ROOT_PHASE_TASKS   R2/R3 root phase, stage 0
+  .. + R2_L1_TASKS (144)                              level 1 children, stage 1
+  .. + R2_L2_TASKS = PHASE_TASKS                      level 2 children, stage 2
+  SKIN_CURSOR_BASE .. 128 carriers x 57 parent steps  skin, stage 3
+
+THE THREE MODES, BY MEANING:
+
+  mode 0, stage<3, 419 764 B
+    Seals the shared phase root of a junction J = 2K+d. Both endpoints must
+    evaluate the identical circle bit-identically. This is the geometric truth
+    the whole lattice rests on.
+  mode 1, once after the root phase, 109 748 B
+    Post-root R3 junction check. IT PRODUCES NOTHING. M8FlowerReadR3Junction's
+    only consumer here is M8_COUNTER_REFINEMENT_UNRESOLVED, and that counter is
+    read by exactly one place in the repository, the telemetry string in
+    MerkabaGpuTimestamps.cs:697. 99 112 B of exact interval algebra for a debug
+    counter. It cannot be deleted from the codebase, because the same function
+    IS productive in M8FlowerPrepareCompletionPetal in the readout, where its
+    classification gates the completion petal. In the drain it is diagnostics.
+  mode 2, stage==3, 1 348 288 B
+    Skin: captured RGB radiance and the V microrelief on L3-L5.
+  shared base, 469 628 B
+    Guards, invalidation drain, cursor and task decode, and PrepareFinePacket,
+    which fills the packet of original phase roots.
+
+FOUR CONSEQUENCES THAT FOLLOW FROM MEANING, NOT FROM BYTE COUNTS:
+
+  1. GEOMETRY AND SIGNAL ARE ALREADY SEPARATE. The frozen invariant says
+     geometry terminates at L2 and L3/L4/L5 are signal only. Modes 0 and 1 run
+     only at stage<3, mode 2 only at stage==3; they never coexist in one
+     dispatch. Splitting them is not an invention, it only makes the module
+     reflect a boundary that already governs execution.
+  2. MODE 1 IS DIAGNOSTIC, not a producer. See above.
+  3. RGB AND V SHARE A LOOP FOR PUBLICATION ORDER, NOT FOR COMPUTATION. The
+     source says why: "A BUSY RGB writer cannot fall through into V
+     publication." Their bodies are five percent similar by line. They are two
+     independent captured authorities, 222 112 B and 429 264 B.
+  4. THE COMPUTE-ONCE-THEN-READ MECHANISM ALREADY EXISTS, AND THAT CORRECTS
+     MY EARLIER PLAN. M8FlowerReadOriginalShared switches on
+     M8_FLOWER_GEOMETRY_PACKET_READ between recomputing the original shared
+     root and reading it from the fine packet, and both
+     MerkabaFlowerRefinement.hlsl and MerkabaReadout.compute already define it.
+     The lever is pulled, and at the right level: a per-observation packet
+     rather than a static table, because the values depend on the MEASURED
+     plane, not on the lattice. My earlier "move it into the generated tables"
+     framing was one level off; the design had already solved it correctly.
+
+WHERE THE DECOMPOSITION ACTUALLY BINDS. The skin stage divides by meaning into
+a chart, which is where on the surface the sample sits, and two signals, which
+is what is measured there:
+
+  chart   PrepareFineSites 310 656 + ClassifyL2Carrier 104 756
+          + frame/chamber/pixel-cover about 281 500        = 696 912 B
+  signal  RGB 222 112   |   V 429 264
+
+Both signals need the chart. Base plus chart is 1 166 540 B, ALREADY ABOVE THE
+825 KB THE DEVICE ACCEPTS BEFORE EITHER SIGNAL IS ADDED, so splitting RGB from
+V does not by itself close anything. Closing it requires publishing the chart
+so a second pass reads instead of recomputing it, and the chart currently lives
+in groupshared inside one workgroup. That is a data-flow change, not a code
+move, and it is NOT made here.
+
+WHAT THIS COMMIT CONTAINS. The seven reduction banks were seven groupshared
+arrays reached through a seven-way switch in M8FlowerPacketLoadWord and
+M8FlowerPacketStoreWord, but the switch only re-derived an offset the address
+already carried. They are now one flat bank. Storage is unchanged at 14 336
+groupshared bytes.
+
+  DrainObservationRefinement 2 351 204 B /126 167 -> 2 253 604 B /118 954
+  CompactDirtyFlowerSymbols  1 217 516 B / 64 998 -> unchanged
+  FlowerCommit                 825 256 B / 43 847 ->   826 324 B / 43 909
+
+FlowerCommit rises by 1 068 bytes, one tenth of one percent, because it uses
+the banks by name and now carries the bank offset; it stays far below the
+944 896 B that failed and just above the 825 256 B proven to compile.
+
+THE FIRST ATTEMPT AT THIS WAS WRONG AND THE SUITE CAUGHT IT. I masked the
+address flat, but the switch had a default arm: banks at or above six aliased
+onto the representative bank, and the fine packet really does use such
+addresses, since M8_FINE_PACKET_READY is 3456 and the skin control region runs
+past it. The exact mapping is min(address>>9,6)*512 + (address&511), which is
+the identity below 3584 and folds onto bank six above it. That is the second
+time in this session a model replaced a measurement and was wrong.
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.

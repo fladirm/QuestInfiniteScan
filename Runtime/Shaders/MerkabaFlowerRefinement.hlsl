@@ -63,34 +63,22 @@ static float2 m8FinePacketErrors;
 static bool m8FinePacketCollectEndpoints;
 static uint m8FinePacketEndpointReceipt;
 
+// Exactly the mapping the seven-way switch performed, including its default
+// arm: banks at or above six aliased onto the representative bank, so the
+// index is min(address>>9,6)*512 + (address&511), not a flat address mask.
+uint M8FlowerPacketAddress(uint address)
+{
+    return min(address >> 9u, 6u) * 512u + (address & 511u);
+}
+
 uint M8FlowerPacketLoadWord(uint address)
 {
-    uint index=address&511u;
-    switch(address>>9u)
-    {
-        case 0u:return m8FlowerTagIntersection[index];
-        case 1u:return m8FlowerTagUnion[index];
-        case 2u:return m8FlowerLower[index];
-        case 3u:return m8FlowerUpper[index];
-        case 4u:return m8FlowerRootLowerY[index];
-        case 5u:return m8FlowerRootUpperY[index];
-        default:return m8FlowerRepresentative[index];
-    }
+    return m8FlowerReductionBank[M8FlowerPacketAddress(address)];
 }
 
 void M8FlowerPacketStoreWord(uint address,uint value)
 {
-    uint index=address&511u;
-    switch(address>>9u)
-    {
-        case 0u:m8FlowerTagIntersection[index]=value;break;
-        case 1u:m8FlowerTagUnion[index]=value;break;
-        case 2u:m8FlowerLower[index]=value;break;
-        case 3u:m8FlowerUpper[index]=value;break;
-        case 4u:m8FlowerRootLowerY[index]=value;break;
-        case 5u:m8FlowerRootUpperY[index]=value;break;
-        default:m8FlowerRepresentative[index]=value;break;
-    }
+    m8FlowerReductionBank[M8FlowerPacketAddress(address)] = value;
 }
 
 bool M8FlowerFinePacketIdentity(uint slot,uint local,uint ownerRef,int3 owner,uint flags,float2 errors)

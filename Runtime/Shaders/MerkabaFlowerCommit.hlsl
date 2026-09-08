@@ -471,18 +471,18 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
             float centre = float4(normal,offset)[component];
             M8FlowerInterval interval = M8FlowerCenterRadius(centre,
                 component == 3u ? offsetError : normalError);
-            InterlockedMax(m8FlowerLower[local],M8FlowerOrderedFloat(interval.lo));
-            InterlockedMin(m8FlowerUpper[local],M8FlowerOrderedFloat(interval.hi));
+            InterlockedMax(m8FlowerReductionBank[1024u+local],M8FlowerOrderedFloat(interval.lo));
+            InterlockedMin(m8FlowerReductionBank[1536u+local],M8FlowerOrderedFloat(interval.hi));
             uint freeSide = plane & M8_FLOWER_PLANE_FREE_SIDE;
-            InterlockedAnd(m8FlowerTagIntersection[local],freeSide);
-            InterlockedOr(m8FlowerTagUnion[local],freeSide);
+            InterlockedAnd(m8FlowerReductionBank[0u+local],freeSide);
+            InterlockedOr(m8FlowerReductionBank[512u+local],freeSide);
             InterlockedMin(m8FlowerOwnerSource[local],record.SourcePixel);
         }
         GroupMemoryBarrierWithGroupSync();
         for (uint local = lane; local < 512u; local += 128u)
             if (m8FlowerOwnerSource[local] != 0xffffffffu &&
-                (m8FlowerLower[local] > m8FlowerUpper[local] ||
-                 m8FlowerTagIntersection[local] != m8FlowerTagUnion[local]))
+                (m8FlowerReductionBank[1024u+local] > m8FlowerReductionBank[1536u+local] ||
+                 m8FlowerReductionBank[0u+local] != m8FlowerReductionBank[512u+local]))
                 M8FlowerRejectOwner(local);
         GroupMemoryBarrierWithGroupSync();
     }
@@ -492,7 +492,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
     for (uint sideLocal=lane; sideLocal<512u; sideLocal+=128u)
         if (m8FlowerOwnerSource[sideLocal]!=0xffffffffu)
             m8FlowerOwnerSource[sideLocal] |=
-                m8FlowerTagIntersection[sideLocal]&M8_FLOWER_PLANE_FREE_SIDE;
+                m8FlowerReductionBank[0u+sideLocal]&M8_FLOWER_PLANE_FREE_SIDE;
     GroupMemoryBarrierWithGroupSync();
     [loop] for (uint relation = 0u; relation < 12u; ++relation)
     {
@@ -554,7 +554,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                         int3 k=q-step;
                         if (any(k<0) || any(k>7)) continue;
                         local=(uint)k.x+8u*((uint)k.y+8u*(uint)k.z);
-                        representative=m8FlowerRepresentative[local];
+                        representative=m8FlowerReductionBank[3072u+local];
                         if (representative==0xffffffffu) continue;
                     }
                     if (M8FlowerOwnerIsRejected(local)) continue;
@@ -607,7 +607,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
             {
                 for (uint local=lane; local<512u; local+=128u)
                     if (m8FlowerRootPresence[local]==3u ||
-                        (m8FlowerTagIntersection[local]!=0xffffffffu &&
+                        (m8FlowerReductionBank[0u+local]!=0xffffffffu &&
                          !M8FlowerRootBucketCertain(local)))
                         M8FlowerRejectOwner(local);
                 GroupMemoryBarrierWithGroupSync();
@@ -616,7 +616,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
             {
                 for (uint local=lane; local<512u; local+=128u)
                     m8FlowerOwnerPrecision[local]=min(m8FlowerOwnerPrecision[local],
-                        m8FlowerRepresentative[local]);
+                        m8FlowerReductionBank[3072u+local]);
                 GroupMemoryBarrierWithGroupSync();
                 // Four compact own receipts survive only the peer pass.
                 // Peer conflict cannot reject the owner's independent seed.
@@ -625,18 +625,18 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                     uint local=lane+128u*owned;
                     M8FlowerInterval2 root;
                     bool certain=M8FlowerReadRootIntersection(local,ownTags[owned],root);
-                    ownBounds[owned]=uint4(m8FlowerLower[local],m8FlowerUpper[local],
-                        m8FlowerRootLowerY[local],m8FlowerRootUpperY[local]);
+                    ownBounds[owned]=uint4(m8FlowerReductionBank[1024u+local],m8FlowerReductionBank[1536u+local],
+                        m8FlowerReductionBank[2048u+local],m8FlowerReductionBank[2560u+local]);
                     if (!M8FlowerOwnerIsRejected(local) &&
-                        m8FlowerRepresentative[local]!=0xffffffffu && certain)
+                        m8FlowerReductionBank[3072u+local]!=0xffffffffu && certain)
                         ownCertain|=1u<<owned;
                     // Keep the representative until peer identity comparison.
-                    m8FlowerTagIntersection[local]=0xffffffffu;
-                    m8FlowerTagUnion[local]=0u;
-                    m8FlowerLower[local]=0u;
-                    m8FlowerUpper[local]=0xffffffffu;
-                    m8FlowerRootLowerY[local]=0u;
-                    m8FlowerRootUpperY[local]=0xffffffffu;
+                    m8FlowerReductionBank[0u+local]=0xffffffffu;
+                    m8FlowerReductionBank[512u+local]=0u;
+                    m8FlowerReductionBank[1024u+local]=0u;
+                    m8FlowerReductionBank[1536u+local]=0xffffffffu;
+                    m8FlowerReductionBank[2048u+local]=0u;
+                    m8FlowerReductionBank[2560u+local]=0xffffffffu;
                     m8FlowerRootPresence[local]=0u;
                 }
                 GroupMemoryBarrierWithGroupSync();
@@ -652,11 +652,11 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                 continue;
             M8FlowerInterval2 intersection;
             intersection.x=M8FlowerI(
-                M8FlowerFromOrderedFloat(max(prior.x,m8FlowerLower[ownerLocal])),
-                M8FlowerFromOrderedFloat(min(prior.y,m8FlowerUpper[ownerLocal])));
+                M8FlowerFromOrderedFloat(max(prior.x,m8FlowerReductionBank[1024u+ownerLocal])),
+                M8FlowerFromOrderedFloat(min(prior.y,m8FlowerReductionBank[1536u+ownerLocal])));
             intersection.y=M8FlowerI(
-                M8FlowerFromOrderedFloat(max(prior.z,m8FlowerRootLowerY[ownerLocal])),
-                M8FlowerFromOrderedFloat(min(prior.w,m8FlowerRootUpperY[ownerLocal])));
+                M8FlowerFromOrderedFloat(max(prior.z,m8FlowerReductionBank[2048u+ownerLocal])),
+                M8FlowerFromOrderedFloat(min(prior.w,m8FlowerReductionBank[2560u+ownerLocal])));
             uint sharedTag;
             if(!M8FlowerResolveRootProof(ownTags[witnessOwner]&peerTag,
                 ownTags[witnessOwner]|peerTag,intersection,sharedTag))continue;

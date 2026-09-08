@@ -13,44 +13,45 @@
 #define M8_FLOWER_OBSERVATION_PIXEL_MASK 0x0003ffffu
 #define M8_FLOWER_OBSERVATION_WIDTH_MAX 4095u
 
-groupshared uint m8FlowerTagIntersection[M8_FLOWER_REDUCTION_OWNER_COUNT];
-groupshared uint m8FlowerTagUnion[M8_FLOWER_REDUCTION_OWNER_COUNT];
+// One flat bank, addressed exactly the way the fine packet already addresses
+// it: bank*512 + owner. These were seven separate arrays reached through a
+// seven-way switch in M8FlowerPacketLoadWord and M8FlowerPacketStoreWord, but
+// the switch only re-derived an offset the address already carried, so it is
+// now a single index. Same storage, same 14 336 groupshared bytes.
+#define M8_FLOWER_REDUCTION_BANK_WORDS (7u*M8_FLOWER_REDUCTION_OWNER_COUNT)
+groupshared uint m8FlowerReductionBank[M8_FLOWER_REDUCTION_BANK_WORDS];
+
 // Bias signed Q2.29 endpoints into monotonically ordered uints so the atomic
 // comparison has the same signed semantics in every Unity/native backend.
-groupshared uint m8FlowerLower[M8_FLOWER_REDUCTION_OWNER_COUNT];
-groupshared uint m8FlowerUpper[M8_FLOWER_REDUCTION_OWNER_COUNT];
-groupshared uint m8FlowerRootLowerY[M8_FLOWER_REDUCTION_OWNER_COUNT];
-groupshared uint m8FlowerRootUpperY[M8_FLOWER_REDUCTION_OWNER_COUNT];
-groupshared uint m8FlowerRepresentative[M8_FLOWER_REDUCTION_OWNER_COUNT];
 
 void M8FlowerResetObservationBucket(uint kernelLocal)
 {
-    m8FlowerTagIntersection[kernelLocal] = 0xffffffffu;
-    m8FlowerTagUnion[kernelLocal] = 0u;
-    m8FlowerLower[kernelLocal] = 0u;
-    m8FlowerUpper[kernelLocal] = 0xffffffffu;
-    m8FlowerRootLowerY[kernelLocal] = 0u;
-    m8FlowerRootUpperY[kernelLocal] = 0xffffffffu;
-    m8FlowerRepresentative[kernelLocal] = 0xffffffffu;
+    m8FlowerReductionBank[0u+kernelLocal] = 0xffffffffu;
+    m8FlowerReductionBank[512u+kernelLocal] = 0u;
+    m8FlowerReductionBank[1024u+kernelLocal] = 0u;
+    m8FlowerReductionBank[1536u+kernelLocal] = 0xffffffffu;
+    m8FlowerReductionBank[2048u+kernelLocal] = 0u;
+    m8FlowerReductionBank[2560u+kernelLocal] = 0xffffffffu;
+    m8FlowerReductionBank[3072u+kernelLocal] = 0xffffffffu;
 }
 
 void M8FlowerIntersectObservation(uint kernelLocal, uint symbolTag,
     int lower, int upper)
 {
     uint identity = symbolTag & M8_FLOWER_OBSERVATION_IDENTITY_MASK;
-    InterlockedAnd(m8FlowerTagIntersection[kernelLocal], identity);
-    InterlockedOr(m8FlowerTagUnion[kernelLocal], identity |
+    InterlockedAnd(m8FlowerReductionBank[0u+kernelLocal], identity);
+    InterlockedOr(m8FlowerReductionBank[512u+kernelLocal], identity |
         (lower > upper ? M8_FLOWER_OBSERVATION_CONFLICT_BIT : 0u));
-    InterlockedMax(m8FlowerLower[kernelLocal], asuint(lower) ^ 0x80000000u);
-    InterlockedMin(m8FlowerUpper[kernelLocal], asuint(upper) ^ 0x80000000u);
+    InterlockedMax(m8FlowerReductionBank[1024u+kernelLocal], asuint(lower) ^ 0x80000000u);
+    InterlockedMin(m8FlowerReductionBank[1536u+kernelLocal], asuint(upper) ^ 0x80000000u);
 }
 
 bool M8FlowerObservationBucketCertain(uint kernelLocal)
 {
-    return m8FlowerTagIntersection[kernelLocal] ==
-            m8FlowerTagUnion[kernelLocal] &&
-        m8FlowerLower[kernelLocal] <= m8FlowerUpper[kernelLocal] &&
-        m8FlowerRootLowerY[kernelLocal] <= m8FlowerRootUpperY[kernelLocal];
+    return m8FlowerReductionBank[0u+kernelLocal] ==
+            m8FlowerReductionBank[512u+kernelLocal] &&
+        m8FlowerReductionBank[1024u+kernelLocal] <= m8FlowerReductionBank[1536u+kernelLocal] &&
+        m8FlowerReductionBank[2048u+kernelLocal] <= m8FlowerReductionBank[2560u+kernelLocal];
 }
 
 uint M8FlowerOrderedFloat(float value)
@@ -103,12 +104,12 @@ bool M8FlowerResolveRootProof(uint tagsAnd,uint tagsOr,M8FlowerInterval2 root,
 bool M8FlowerReadRootIntersection(uint kernelLocal,out uint symbolTag,
     out M8FlowerInterval2 root)
 {
-    root.x=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerLower[kernelLocal]),
-        M8FlowerFromOrderedFloat(m8FlowerUpper[kernelLocal]));
-    root.y=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerRootLowerY[kernelLocal]),
-        M8FlowerFromOrderedFloat(m8FlowerRootUpperY[kernelLocal]));
-    return M8FlowerResolveRootProof(m8FlowerTagIntersection[kernelLocal],
-        m8FlowerTagUnion[kernelLocal],root,symbolTag);
+    root.x=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerReductionBank[1024u+kernelLocal]),
+        M8FlowerFromOrderedFloat(m8FlowerReductionBank[1536u+kernelLocal]));
+    root.y=M8FlowerI(M8FlowerFromOrderedFloat(m8FlowerReductionBank[2048u+kernelLocal]),
+        M8FlowerFromOrderedFloat(m8FlowerReductionBank[2560u+kernelLocal]));
+    return M8FlowerResolveRootProof(m8FlowerReductionBank[0u+kernelLocal],
+        m8FlowerReductionBank[512u+kernelLocal],root,symbolTag);
 }
 
 bool M8FlowerRootBucketCertain(uint kernelLocal)
@@ -126,12 +127,12 @@ void M8FlowerIntersectRoot(uint kernelLocal, uint symbolTag,
     M8FlowerInterval2 root)
 {
     uint claim=symbolTag&(M8_FLOWER_OBSERVATION_IDENTITY_MASK|M8_FLOWER_BOUNDARY_WITNESS_MASK);
-    InterlockedAnd(m8FlowerTagIntersection[kernelLocal], claim);
-    InterlockedOr(m8FlowerTagUnion[kernelLocal], claim);
-    InterlockedMax(m8FlowerLower[kernelLocal], M8FlowerOrderedFloat(root.x.lo));
-    InterlockedMin(m8FlowerUpper[kernelLocal], M8FlowerOrderedFloat(root.x.hi));
-    InterlockedMax(m8FlowerRootLowerY[kernelLocal], M8FlowerOrderedFloat(root.y.lo));
-    InterlockedMin(m8FlowerRootUpperY[kernelLocal], M8FlowerOrderedFloat(root.y.hi));
+    InterlockedAnd(m8FlowerReductionBank[0u+kernelLocal], claim);
+    InterlockedOr(m8FlowerReductionBank[512u+kernelLocal], claim);
+    InterlockedMax(m8FlowerReductionBank[1024u+kernelLocal], M8FlowerOrderedFloat(root.x.lo));
+    InterlockedMin(m8FlowerReductionBank[1536u+kernelLocal], M8FlowerOrderedFloat(root.x.hi));
+    InterlockedMax(m8FlowerReductionBank[2048u+kernelLocal], M8FlowerOrderedFloat(root.y.lo));
+    InterlockedMin(m8FlowerReductionBank[2560u+kernelLocal], M8FlowerOrderedFloat(root.y.hi));
 }
 
 bool M8FlowerIntersectClassifiedRoot(uint kernelLocal, uint level,
@@ -144,7 +145,7 @@ bool M8FlowerIntersectClassifiedRoot(uint kernelLocal, uint level,
             endpointOrientation, plusRoot, abc, symbolTag, root, classification))
     {
         if (classification == M8_FLOWER_ROOT_AMBIGUOUS)
-            InterlockedOr(m8FlowerTagUnion[kernelLocal],
+            InterlockedOr(m8FlowerReductionBank[512u+kernelLocal],
                 M8_FLOWER_OBSERVATION_CONFLICT_BIT);
         return false;
     }
@@ -178,14 +179,14 @@ void M8FlowerSelectRootRepresentative(uint kernelLocal, uint symbolTag,
     if (!M8FlowerReadRootIntersection(kernelLocal,bucketTag,intersection) ||
         ((bucketTag^symbolTag)&M8_FLOWER_OBSERVATION_IDENTITY_MASK)!=0u) return;
     uint key = M8FlowerObservationPrecisionKey(classification, root, sourcePixel);
-    InterlockedMin(m8FlowerRepresentative[kernelLocal], key);
+    InterlockedMin(m8FlowerReductionBank[3072u+kernelLocal], key);
 }
 
 bool M8FlowerReadRootBucket(uint kernelLocal, out uint symbolTag,
     out M8FlowerInterval2 root, out uint sourcePixel)
 {
     bool certain=M8FlowerReadRootIntersection(kernelLocal,symbolTag,root);
-    uint representative = m8FlowerRepresentative[kernelLocal];
+    uint representative = m8FlowerReductionBank[3072u+kernelLocal];
     sourcePixel = representative & M8_FLOWER_OBSERVATION_PIXEL_MASK;
     return certain && representative != 0xffffffffu;
 }
@@ -197,16 +198,16 @@ void M8FlowerSelectObservationRepresentative(uint kernelLocal,
     uint precisionKey)
 {
     if (M8FlowerObservationBucketCertain(kernelLocal))
-        InterlockedMin(m8FlowerRepresentative[kernelLocal], precisionKey);
+        InterlockedMin(m8FlowerReductionBank[3072u+kernelLocal], precisionKey);
 }
 
 bool M8FlowerReadObservationBucket(uint kernelLocal, out uint identity,
     out int lower, out int upper, out uint sourcePixel)
 {
-    identity = m8FlowerTagIntersection[kernelLocal];
-    lower = asint(m8FlowerLower[kernelLocal] ^ 0x80000000u);
-    upper = asint(m8FlowerUpper[kernelLocal] ^ 0x80000000u);
-    uint representative = m8FlowerRepresentative[kernelLocal];
+    identity = m8FlowerReductionBank[0u+kernelLocal];
+    lower = asint(m8FlowerReductionBank[1024u+kernelLocal] ^ 0x80000000u);
+    upper = asint(m8FlowerReductionBank[1536u+kernelLocal] ^ 0x80000000u);
+    uint representative = m8FlowerReductionBank[3072u+kernelLocal];
     sourcePixel = representative & M8_FLOWER_OBSERVATION_PIXEL_MASK;
     return M8FlowerObservationBucketCertain(kernelLocal) &&
         representative != 0xffffffffu;
