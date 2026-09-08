@@ -1021,7 +1021,11 @@ namespace Genesis.RoomScan
             values.UInt("_DepthW", checked((uint)width));
             values.UInt("_DepthH", checked((uint)height));
             values.Matrices("_DepthProj", _depthCapture.Proj);
-            values.Matrices("_DepthProjInv", _depthCapture.ProjInv);
+            // _DepthProjInv belongs to the held observation's frozen set and is
+            // written by WriteDepthCertificateUniforms below. Writing it here
+            // too made the uniform table reject the whole observation with
+            // "Duplicate native uniform value", so the frame stayed held and
+            // never became ready: the scan reported active and produced nothing.
             values.Matrices("_DepthView", _depthCapture.View);
             values.Matrices("_DepthViewInv", _depthCapture.ViewInv);
             values.UInt("_RefineMetricsEnabled", 0u);

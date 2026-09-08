@@ -8873,3 +8873,41 @@ loading and writeback degrade the same way a save did. No device evidence yet.
 Tools/unity/run_merkaba_tests.sh: 366 total, 366 passed, 0 failed.
 APK 22:39:43 deployed. DEVICE ACCEPTANCE PENDING for save, load, open,
 delete-active, export and import.
+
+### ONE DUPLICATE UNIFORM WEDGED THE WHOLE APP, 22:41Z
+
+Depth finally reached the observation path (preprocessed=1, depthAvail=True,
+held=True) and immediately:
+
+  InvalidOperationException: Duplicate native uniform value: _DepthProjInv
+
+BuildNativeObservationUniforms writes _DepthProjInv and then calls
+_depthCapture.WriteDepthCertificateUniforms(values), which writes it again into
+the same table. Both read the same array (DepthCapture.ProjInv => _projInv), so
+it is a pure duplication with identical values. It has been latent since
+c1d2cfd "wip(m8): checkpoint native scanner queue" and only became reachable now
+because depth had never been consumed before. A scan of both writers finds
+_DepthProjInv is the ONLY name written twice out of 45.
+
+_DepthProjInv belongs to the held observation's frozen set, which is what
+WriteDepthCertificateUniforms documents, so the observation builder's copy is
+the one that goes.
+
+THE REAL FRAGILITY IS THAT ONE THROW WEDGES EVERYTHING, PERMANENTLY.
+BuildNativeObservationUniforms runs at MerkabaIntegrator.cs:907, BEFORE
+BeginNativeDualMutation and outside the try/catch that guards TryCreateJob. When
+it throws, the observation has already been prepared, its token allocated and
+its bins begun, but nothing is submitted and the hold is never released. The next
+frame retries the identical deterministic input and throws again, forever. The
+frame stays held=True ready=False, so QuiesceScanningAsync never completes,
+so ScanLifecycle stays Quiescing, so IsBusy stays true, so the UI disables SAVE,
+LOAD, NEW and DELETE. That is the whole observed symptom set from one line:
+"scan active but nothing appears" plus "cannot click save". A deterministic
+exception is a programming error, not evidence ambiguity, and closure 4.3's
+retry rules do not cover it; retrying it identically forever is wrong. NOT FIXED
+YET, recorded as the next cut.
+
+Tools/unity/run_merkaba_tests.sh: 367 total, 367 passed, 0 failed. The new
+fixture asserts every native uniform is named exactly once across the
+observation builder and the certificate writer it calls.
+APK 22:50:33 deployed. DEVICE ACCEPTANCE PENDING for the scan itself.

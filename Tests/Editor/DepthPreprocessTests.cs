@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -521,6 +524,40 @@ namespace Genesis.RoomScan.Tests
             Assert.That(tracking, Does.Contain(
                 "OVRPlugin.GetNodeOrientationTracked("));
             Assert.That(tracking, Does.Contain("OVRPlugin.Node.EyeCenter"));
+        }
+
+        // MerkabaNativeUniformTable rejects a repeated name, and it rejects the
+        // whole observation with it. _DepthProjInv was written both by the
+        // observation builder and by the certificate writer it calls, which had
+        // been latent since the native queue checkpoint because depth never
+        // reached this path. When it finally did, every frame stayed held and
+        // never became ready: the scan reported active and produced nothing.
+        [Test]
+        public void NativeObservationUniforms_NameEveryValueExactlyOnce()
+        {
+            string integrator = Slice(
+                RuntimeSource("Runtime/Merkaba/MerkabaIntegrator.cs"),
+                "private MerkabaNativeUniformTable BuildNativeObservationUniforms(",
+                "private bool CanRetryPreparedObservation()");
+            string certificate = Slice(
+                RuntimeSource("Runtime/Core/DepthCapture.cs"),
+                "internal void WriteDepthCertificateUniforms(",
+                "internal void BindDepthCertificate(");
+            Assert.That(integrator, Does.Contain(
+                    "_depthCapture.WriteDepthCertificateUniforms(values)"),
+                "the certificate set is written into the same table");
+
+            var names = new List<string>();
+            foreach (string source in new[] { integrator, certificate })
+                foreach (Match match in Regex.Matches(source,
+                             "values\\.\\w+\\(\"([^\"]+)\""))
+                    names.Add(match.Groups[1].Value);
+            Assert.That(names, Is.Not.Empty);
+            var repeated = names.GroupBy(name => name)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key).ToArray();
+            Assert.That(repeated, Is.Empty,
+                "one writer per native uniform: " + string.Join(", ", repeated));
         }
 
         [Test]
