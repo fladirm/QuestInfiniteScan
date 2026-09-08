@@ -1276,7 +1276,8 @@ namespace Genesis.RoomScan.UI
             _annotationDelete?.SetEnabled(!operationBusy && reviewing &&
                 (_artifactViewer?.HasSelectedAnnotation ?? false));
             _artifactWorldLock?.SetEnabled(!operationBusy && reviewing);
-            _artifactRoomAlign?.SetEnabled(!operationBusy && reviewing);
+            _artifactRoomAlign?.SetEnabled(!operationBusy && reviewing &&
+                (_artifactViewer?.CanAlignToRoom ?? false));
             _paintView?.SetEnabled(!operationBusy && _artifactViewer != null);
             _paintLoad?.SetEnabled(!operationBusy && _artifactViewer != null);
             _paintSave?.SetEnabled(!operationBusy && reviewing);

@@ -377,6 +377,50 @@ namespace Genesis.RoomScan.Tests
                 "closing it must restore what the user had");
         }
 
+        // A loaded 3D Tiles export is the one thing this viewer exists for, so
+        // it must open, be viewed and be painted even with no anchor; only
+        // ALIGN 1:1 is meaningless without one. Refusing the whole design
+        // unless the package matched the ACTIVE session anchor left a foreign
+        // export with nothing to paint into. BindAnnotations already had the
+        // right rule for notes; the design now follows it instead of inventing
+        // a second one. Paint is a MerkabaDesignDocument and never reaches M8,
+        // so closure's derived-only rule holds in both cases.
+        [Test]
+        public void ForeignPackage_OpensAndPaintsWithoutAnAnchor()
+        {
+            string viewer = Source("Runtime/UI/MerkabaArtifactViewer.cs");
+            int open = viewer.IndexOf("private void OpenSessionDesign()",
+                StringComparison.Ordinal);
+            int end = viewer.IndexOf("private void", open + 10,
+                StringComparison.Ordinal);
+            Assert.That(open, Is.GreaterThanOrEqualTo(0));
+            string body = viewer.Substring(open, end - open);
+            Assert.That(body, Does.Contain("anchoredToActiveSession"),
+                "the design must branch on ownership, not refuse");
+            Assert.That(body, Does.Contain("ArtifactDesignPath(_archivePath)"),
+                "a foreign package must get its own design beside the archive");
+            Assert.That(body, Does.Not.Contain(
+                    "Session design requires the preview package's"),
+                "the outright refusal must be gone");
+
+            // The sidecar sits with the notes the same package already keeps.
+            Assert.That(viewer, Does.Contain("\".design.json\""));
+            Assert.That(viewer, Does.Contain("\".annotations.json\""));
+
+            // Align is the only capability an anchorless package loses.
+            Assert.That(viewer, Does.Contain("public bool CanAlignToRoom => IsOpen &&"));
+            Assert.That(viewer, Does.Contain(
+                    "\"ALIGN 1:1 unavailable: package has no spatial binding\""),
+                "and the runtime must still refuse it, not just hide it");
+            string menu = Source("Runtime/UI/DebugMenuController.cs");
+            Assert.That(menu, Does.Contain("_artifactViewer?.CanAlignToRoom"),
+                "the toggle must not promise an alignment the package cannot do");
+            int paint = menu.IndexOf("_paintBrush?.SetEnabled", StringComparison.Ordinal);
+            Assert.That(paint, Is.GreaterThanOrEqualTo(0));
+            Assert.That(menu.Substring(paint, 80), Does.Not.Contain("CanAlignToRoom"),
+                "painting must not depend on being alignable");
+        }
+
         private static MerkabaTileSnapshot Tile(int3 blockCoord, int kernel)
         {
             var states = new KernelState[MerkabaSpatial.KernelsPerTile];

@@ -8965,3 +8965,74 @@ anchor, so the result survives reopening in another session or on a PC. NOT
 IMPLEMENTED; this is the next cut.
 
 Tools/unity/run_merkaba_tests.sh: 367 total, 367 passed, 0 failed.
+
+### A LOADED PACKAGE OWNS ITS OWN PAINT, 23:1xZ
+
+OpenSessionDesign refused to open unless the previewed package's anchor equalled
+the ACTIVE session anchor, so a loaded 3D Tiles export from another session, or
+with no session at all, had nothing to paint into - the one thing the viewer
+exists for. BindAnnotations already had the right rule for notes: a matching
+anchored package edits that session's document, a foreign preview keeps its own
+beside the archive. The design now follows that same rule instead of a second
+mechanism, with a ".design.json" sidecar next to the ".annotations.json" the same
+package already keeps.
+
+PER PACKAGE BY CONSTRUCTION. The sidecar path is derived from the archive path,
+and OpenSessionDesign saves and closes the engine before reopening it, so loading
+a different package cannot show the previous one's paint. The honest limit of a
+sidecar: moving or renaming the .zip leaves the paint behind. Writing the design
+INTO the zip is the transport-correct answer and is not done yet.
+
+WHY THIS CANNOT REACH TRUTH. Paint and placed library objects are a
+MerkabaDesignDocument of strokes and instances; MerkabaPaintEngine never writes
+M8. Samples are stored in the engine root's LOCAL space, so a foreign package's
+paint lives in that package's own model frame and survives reopening elsewhere
+and a later align, because it never referenced the room. Closure keeps membrane,
+readout, GLB and 3D Tiles derived-only, and 8.3 states it directly: "Cizi glTF
+neni anchorovany canonical scan."
+
+ALIGN IS THE ONLY THING AN ANCHORLESS PACKAGE LOSES. SetRoomAlignedAsync already
+refused with "ALIGN 1:1 unavailable: package has no spatial binding", so the
+runtime was right; the toggle just promised it anyway. CanAlignToRoom now gates
+the toggle, and the test asserts painting does NOT depend on being alignable.
+
+### THE PANELAK SCENARIO AND WHY 6.4 m IS NOT ARBITRARY
+
+Scan seven floors of 200 m2, save on the seventh, reopen on the fourth, align
+the whole building. Two halves, and only one of them works today.
+
+DRAWING IT ALREADY WORKS, and better than a draw distance. The viewer computes
+frustum planes, scores every tile by in-view plus squared distance from the
+camera with priority for the tile under the pointer, sorts, and keeps tiles only
+while the resident budget lasts, destroying the rest; the status line reports
+"full-load" versus "spatial streaming".
+
+ALIGNING IT DOES NOT. MerkabaSpatialBinding carries exactly ONE AnchorUuid and
+one AnchorFromPackage. A single ground-floor anchor cannot be relocalized from
+the fourth floor - the anchor is not in the current map. That is a platform
+limit, not a bug.
+
+THE FIX THE USER PROPOSED IS EXACTLY ONE M8 BLOCK. MerkabaSpatial.BlockKernelSpan
+is 256 and the lattice step is 0.025 m, so a block is 256 * 0.025 = 6.4 m, and
+GlobalCoord = BlockCoord * BlockKernelSpan + Local. Every MerkabaTileAddress
+already carries BlockCoord, so grouping tiles by anchor volume costs no new
+index. Anchors stay sparse in exactly the way the lattice is sparse: one per
+OCCUPIED block, nothing for empty space. For 200 m2 floors that is about 9 blocks
+per storey and 4 blocks of height over 20 m, so roughly 36 anchors for a whole
+building - and standing on the fourth floor you are inside a block whose anchor
+is in the current map.
+
+CONTRACT CHECK: 8.3 fixes the transform as anchorNow * inverse(anchorAtSave) *
+sceneGridToWorld. That is a per-anchor relation, not a claim that there is one
+anchor; each block anchor satisfies it with its own AnchorFromPackage. 8.3 also
+demands an explicit state, retry or manual ALIGN on failure and forbids an
+assumed identity transform, which is already the behaviour. So this adds inputs
+to one existing frame rather than a second spatial authority.
+
+WHAT IT TOUCHES, NOT YET IMPLEMENTED: the binding becomes a set of
+(BlockCoord, anchorUuid, anchorFromPackage) with a package version bump from 1;
+the scan creates an anchor per newly occupied block; the viewer localizes
+whichever it can and derives the package pose from that one; version 1 packages
+keep working with their single anchor.
+
+Tools/unity/run_merkaba_tests.sh: 368 total, 368 passed, 0 failed.

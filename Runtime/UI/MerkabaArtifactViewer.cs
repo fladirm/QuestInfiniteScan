@@ -181,6 +181,14 @@ namespace Genesis.RoomScan.UI
 
         public bool IsOpen { get; private set; }
         public bool HasSessionDesign => _paintEngine != null && _paintEngine.IsOpen;
+
+        // A package without a spatial binding opens, is viewed and is painted
+        // like any other; only ALIGN 1:1 is meaningless for it, because there
+        // is no anchor to localize against. SetRoomAlignedAsync already
+        // refuses and says so, but offering the toggle promises something the
+        // package cannot deliver.
+        public bool CanAlignToRoom => IsOpen &&
+            _packageSpatialBinding.HasValue && _packageSpatialBinding.Value.IsValid;
         public string Status { get; private set; } = "GLB View closed";
         public string AnnotationModeText => _annotationMode.ToString().ToUpperInvariant();
         public bool HasSelectedAnnotation => FindSelectedAnnotation() != null;
@@ -368,6 +376,16 @@ namespace Genesis.RoomScan.UI
                     if (tile.Object != null) count++;
                 return count;
             }
+        }
+
+        // Mirrors the ".annotations.json" sidecar BindAnnotations writes, so a
+        // foreign package keeps its paint and its notes in the same place.
+        internal static string ArtifactDesignPath(string archivePath)
+        {
+            if (string.IsNullOrWhiteSpace(archivePath)) return null;
+            string directory = Path.GetDirectoryName(archivePath);
+            return string.IsNullOrEmpty(directory) ? null : Path.Combine(directory,
+                Path.GetFileNameWithoutExtension(archivePath) + ".design.json");
         }
 
         private void BindAnnotations()
@@ -894,25 +912,55 @@ namespace Genesis.RoomScan.UI
             if (_designDisplayRoot != null)
                 Destroy(_designDisplayRoot.gameObject);
             _designDisplayRoot = null;
-            string path = _scanner?.ActiveDesignPath;
-            if (!RoomSpaceRoot.RoomSpaceReady || _modelRoot == null ||
-                string.IsNullOrWhiteSpace(path) ||
-                !_packageSpatialBinding.HasValue ||
-                !_packageSpatialBinding.Value.IsValid ||
-                _packageSpatialBinding.Value.AnchorUuid !=
-                    _scanner.ActiveAnchorUuid)
+            if (!RoomSpaceRoot.RoomSpaceReady || _modelRoot == null)
             {
-                Logger.Warning("Session design requires the preview package's " +
-                    "actual anchor to match the active anchored session.");
+                Logger.Warning("A design needs the bound room space and a preview model.");
                 return;
             }
-            Matrix4x4 local = ComposeSessionDesignLocal(
-                _packageSpatialBinding.Value.AnchorFromPackage, _scanCenter);
-            if (!TryDecomposeTransform(local, out Vector3 position,
-                    out Quaternion rotation, out Vector3 scale))
+            // Same rule BindAnnotations already applies to notes: a package
+            // anchored to the ACTIVE session edits that session's design, and
+            // a foreign package owns its own beside the archive. Refusing the
+            // foreign case outright left a loaded 3D Tiles export with nothing
+            // to paint into, which is the one thing this viewer is for. Paint
+            // and placed objects are a MerkabaDesignDocument and never reach
+            // M8, so closure's derived-only rule holds either way.
+            bool anchoredToActiveSession = _scanner != null &&
+                _packageSpatialBinding.HasValue &&
+                _packageSpatialBinding.Value.IsValid &&
+                _packageSpatialBinding.Value.AnchorUuid ==
+                    _scanner.ActiveAnchorUuid &&
+                !string.IsNullOrWhiteSpace(_scanner.ActiveDesignPath);
+            string path;
+            Vector3 position;
+            Quaternion rotation;
+            Vector3 scale;
+            if (anchoredToActiveSession)
             {
-                Logger.Warning("Session design display frame is invalid.");
-                return;
+                path = _scanner.ActiveDesignPath;
+                Matrix4x4 local = ComposeSessionDesignLocal(
+                    _packageSpatialBinding.Value.AnchorFromPackage, _scanCenter);
+                if (!TryDecomposeTransform(local, out position,
+                        out rotation, out scale))
+                {
+                    Logger.Warning("Session design display frame is invalid.");
+                    return;
+                }
+            }
+            else
+            {
+                path = ArtifactDesignPath(_archivePath);
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    Logger.Warning("A foreign package design needs its archive path.");
+                    return;
+                }
+                // The engine stores samples in its root's local space, so a
+                // foreign package's paint lives in that package's own model
+                // frame. It then survives reopening in another session, and
+                // after a world align, because it never referenced the room.
+                position = Vector3.zero;
+                rotation = Quaternion.identity;
+                scale = Vector3.one;
             }
             _designDisplayRoot = new GameObject("Session Design Display").transform;
             _designDisplayRoot.SetParent(_modelRoot, false);
