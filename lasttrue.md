@@ -9224,3 +9224,59 @@ only to certify whole volumes that need no per-tile answer at all. Skipping the
 dual on an unchanged retry remains additive and is now third in order.
 
 Not implemented. Recorded so the next cut starts from the right operation.
+
+### MEASURED: OPTIMISING THE PER-KERNEL LOOP IS THE WRONG TRADE
+
+REV-C section 2 is the authority on the dual and settles several things I had
+been inferring:
+
+  00 ALL_FULL  01 ALL_THROUGH  10 MIXED  11 INVALID
+  "A missing block means ALL_FULL: the excavation model starts as matter, not as
+   empty space."
+  DualLeaf { uint ThroughBits[16]; }  512 bits per mixed tile, 2 MiB for 32768.
+
+So the world begins as MATTER and the scan excavates see-through space; a missing
+block is solid, not unknown. And the per-kernel 512-bit leaf is SPECIFIED, not a
+misuse - the NODE hierarchy ends at the tile, which is what "the smallest dual is
+20 cm" means. The chunk carries NonFullMask and MixedMask and the leaf is reached
+by a popcount prefix, so leaf selection is addressing too. Closure 5.2's 0/1/2 is
+the QUERY; REV-C's four states are the STORED state. I had conflated them.
+
+I IMPLEMENTED THE IN-SPEC SPEEDUP AND THEN REVERTED IT ON MEASUREMENT.
+The certificate descent stops at the tile and then tests all 512 kernels one at a
+time. M8SupportThrough encloses the union of a span's owner supports, so
+certifying spans 4 and 2 first and marking a certified span whole is exact. It
+passed 368/368, including
+FrozenDepthObservation_NonzeroR2IsBitIdenticalAcrossQuantaAndBackpressure, which
+drives a real frozen observation through the whole GPU chain and requires
+bit-identical canonical records. So exactness was proven, not asserted.
+
+It still went back, because of what it costs:
+  UpdateObservationDual  494 360 -> 694 876 B (+40%), body 24 925 -> 34 924
+M8SupportThrough is inlined three times instead of once. That entry carries FOUR
+64-entry dynamically indexed function arrays, and today's device evidence is that
+creation breaks on the COMBINATION of module size and that pressure -
+ResolveFlowerCarriers failed at 715 124 B. Taking this one to 694 876 B risks the
+whole scanner failing to initialise, and the reward is about 2.5x on an operation
+that REV-C says should not be expensive at all. 3932 ms -> ~1570 ms does not make
+the scan work either, because the observation still needs ~135 attempts.
+
+WHY THE CERTIFICATE CANNOT DO BETTER AS BUILT. The node is uint2 holding the
+MINIMUM depth and a validity flag - M8DepthCertificateNode(min(min(a.x,b.x),
+min(c.x,d.x)), ...). It can prove THROUGH and nothing else, which is exactly
+REV-B's closure line "certifies THROUGH over the full projected support". ALL_FULL
+- the common case behind a surface - is therefore only reachable by excluding all
+512 kernels. A cheap ALL_FULL needs a maximum-depth channel alongside the
+minimum, which is a change to the certificate codegen, and that is where the real
+remaining cost is.
+
+WHAT I WILL NOT GUESS AT. The 135x factor is the retry re-running the dual, and
+skipping it is NOT merely dropping a dispatch: the dual is a generation-keyed
+transaction. M8DualBeginBlock takes _M8DualPublishingGeneration, every write
+carries publishing and retired generations, and each attempt is issued a NEW
+generation. Skipping the pass leaves the dual state on an older generation, and I
+have not established what validates against that. I have been corrected four
+times on this subsystem today and twice proposed the wrong operation, so this
+stops here rather than shipping a fifth guess into the carver.
+
+Suite 368/368 with the change; reverted afterwards, so the tree is unchanged.
