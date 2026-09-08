@@ -7880,3 +7880,58 @@ NEXT_ACTION=OPEN-5 optical evidence chain; then OPEN-2's full-pipeline harness;
   OPEN-1's remaining two kernels need the tabulation cut, not another rewrite.
 WORKTREE_SCOPE=lasttrue.md only; unrelated .claude/, CLAUDE.md and
   CLAUDE.md.meta remain untouched and untracked.
+
+---
+
+### CURRENT TRUE STATE — OPEN-5 optical evidence receipt, 2026-09-08 06:15Z
+
+TRACED THE WHOLE CHAIN AS THE CLOSURE ASKS: live evidence predicate ->
+ThreadProgram intervals -> persistence -> compact sample -> consumer.
+
+  producer      NONE EXISTS. Every occurrence of OpticalLower, OpticalUpper,
+                CaptureViewLower and CaptureViewUpper in Runtime/ is a read, a
+                store or a persistence copy. Nothing computes them from
+                measurement.
+  install       M8FlowerInstallOpticalProgram (MerkabaFlowerSidecar.hlsl:1126)
+                is reached only from MerkabaFlowerStorageTransfer.hlsl:118,
+                the header.x==10 record of the load/import path. It installs a
+                program that already exists; it certifies nothing.
+  persistence   MerkabaThreadProgramFlags.OpticalValid = 1u<<0, stored and
+                restored intact.
+  sample        MerkabaFlowerSkinReadout.hlsl:277 copies that one bit to
+                sample.Flags. In a live scan it is therefore always zero.
+  consumer      COMPLETE AND CORRECT, and now guarded.
+
+THE CONSUMER SIDE IS DONE. M8FlowerRelativeDiffuse and the CPU RelativeDiffuse
+implement closure section6.4.1 exactly: normalize L, e0 = N.L, the explicit
+2^-5 presentation floor, ef = Nmicro.L, saturate(max(ef,0)/e0), and a
+bit-identical captured colour whenever the light is off, the direction is not
+a valid presentation input, or OPTICAL_VALID is unset. MerkabaGrid.shader only
+evaluates the micro-normal when the light is enabled AND the sample carries
+OPTICAL_VALID, so V-1 cannot manufacture the flag.
+
+WHAT THIS SESSION ADDED IS THE MISSING TWIN GUARD, not a producer. CLAUDE.md
+requires the hand-maintained CPU and HLSL twins to change together with a
+parity test, and RelativeDiffuse had none: the only check was that
+MerkabaGrid.shader mentions the call. MerkabaSphereFlowerSkinTests
+RelativeDiffuse_CpuAndHlslTwinsCarryTheSameOperationOrder now extracts both
+function bodies and asserts the same fourteen operations appear in the same
+order in both, plus that each text has exactly three untouched-capture exits.
+Only the Mathematics namespace prefix and HLSL's precise qualifier are
+normalized away; every operation and its order is compared as written.
+
+THE PRODUCER IS NOT WRITTEN, AND WRITING IT HERE WOULD VIOLATE THE CLOSURE.
+Section 6.4 states that a certified optical formula without a closed consumer
+in the current code is an explicit implementation gap of this run and NOT
+permission to invent another material authority, and it forbids adding an
+albedo estimate, an ambient field or a new optical fitting rule. Section 6.4.1
+states that V-1 does not create OPTICAL_VALID and does not change its
+producer. There is no existing certified predicate anywhere in the repository
+to connect, so closing OPEN-5 by authoring one would mean inventing exactly
+the material authority both sections forbid. An always-zero flag is not
+completion, and neither is a fabricated certification.
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
+
+OPEN-5 STATUS=chain traced, consumer complete and now twin-guarded, producer
+declared an explicit gap under closure section6.4 rather than invented.

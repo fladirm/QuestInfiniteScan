@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -423,6 +424,85 @@ namespace Genesis.RoomScan.Tests
                 count += (int)((word >> shift) & 1u);
             }
             return count;
+        }
+
+        [Test]
+        public void RelativeDiffuse_CpuAndHlslTwinsCarryTheSameOperationOrder()
+        {
+            // These two are hand-maintained texts, not one compiled source, so
+            // nothing but a test keeps them the same computation. The order of
+            // the FP32 operations is the contract, not merely their presence:
+            // the closure requires the CPU and HLSL twins to normalize and
+            // combine in the identical order.
+            string cpu = Body(File.ReadAllText(Package(
+                    "Runtime/Merkaba/MerkabaSphereFlowerSkinEvaluation.cs")),
+                "RelativeDiffuse(");
+            string hlsl = Body(File.ReadAllText(Package(
+                    "Runtime/Shaders/MerkabaFlowerSkinReadout.hlsl")),
+                "M8FlowerRelativeDiffuse(");
+            string[] steps =
+            {
+                "presentationLight.w != 1",
+                "(sampleFlags & 1u) == 0u",
+                "presentationLight.x * presentationLight.x +",
+                "presentationLight.y * presentationLight.y",
+                "squared + presentationLight.z * presentationLight.z",
+                "sqrt(squared)",
+                "presentationLight.xyz / length",
+                "normal.x * light.x + normal.y * light.y",
+                "e0 + normal.z * light.z",
+                "0.03125",
+                "microNormal.x * light.x + microNormal.y * light.y",
+                "ef + microNormal.z * light.z",
+                "saturate(max(ef, 0",
+                "capturedRgb * response"
+            };
+            int cpuAt = -1, hlslAt = -1;
+            foreach (string step in steps)
+            {
+                int inCpu = cpu.IndexOf(step, StringComparison.Ordinal);
+                int inHlsl = hlsl.IndexOf(step, StringComparison.Ordinal);
+                Assert.That(inCpu, Is.GreaterThan(cpuAt),
+                    "CPU RelativeDiffuse must carry this step, in order: " + step);
+                Assert.That(inHlsl, Is.GreaterThan(hlslAt),
+                    "HLSL RelativeDiffuse must carry this step, in order: " + step);
+                cpuAt = inCpu; hlslAt = inHlsl;
+            }
+            // The uncertified and light-off exits return the capture itself,
+            // never a scaled or defaulted colour, in both texts.
+            Assert.That(CountOf(cpu, "return capturedRgb;"), Is.EqualTo(3));
+            Assert.That(CountOf(hlsl, "return capturedRgb;"), Is.EqualTo(3));
+        }
+
+        private static string Package(string relative) =>
+            Path.GetFullPath("Packages/com.genesis.roomscan/" + relative);
+
+        private static int CountOf(string text, string value)
+        {
+            int count = 0, at = 0;
+            while ((at = text.IndexOf(value, at, StringComparison.Ordinal)) >= 0)
+            { count++; at += value.Length; }
+            return count;
+        }
+
+        private static string Body(string source, string signature)
+        {
+            int at = source.IndexOf(signature, StringComparison.Ordinal);
+            Assert.That(at, Is.GreaterThanOrEqualTo(0), signature);
+            int open = source.IndexOf('{', at);
+            int depth = 1, index = open + 1;
+            while (depth > 0)
+            {
+                if (source[index] == '{') depth++;
+                else if (source[index] == '}') depth--;
+                index++;
+            }
+            // Only the two language spellings are normalized away: the
+            // Mathematics namespace prefix and HLSL's precise qualifier. Every
+            // operation and its order stays exactly as written.
+            return source.Substring(open, index - open)
+                .Replace("math.", string.Empty)
+                .Replace("precise ", string.Empty);
         }
     }
 }
