@@ -141,6 +141,10 @@ namespace
         kJobObservationRetry = 1,
         kJobFlowerReadout = 2,
         kJobFineErase = 3,
+        // Drain the immutable observation's remaining workset. Stereo, the
+        // certificate, the bins and the dual belong to the observation, not to
+        // a refinement quantum.
+        kJobObservationContinue = 4,
     };
 
     struct MerkabaUniformValue
@@ -1299,7 +1303,7 @@ namespace
     bool PipelineRangeForKind(uint32_t kind, uint32_t* first,
         uint32_t* last)
     {
-        if (kind > kJobFineErase) return false;
+        if (kind > kJobObservationContinue) return false;
         *first = kMerkabaExecutorSchedules[kind].firstPipeline;
         *last = kMerkabaExecutorSchedules[kind].lastPipeline;
         return true;
@@ -2678,7 +2682,7 @@ extern "C"
             descriptor->structSize != sizeof(MerkabaExecutorJobDescriptor) ||
             descriptor->abiVersion != kExecutorAbiVersion ||
             descriptor->revision == 0 ||
-            descriptor->kind > kJobFineErase ||
+            descriptor->kind > kJobObservationContinue ||
             descriptor->resourceCount != kResourceCount ||
             descriptor->resources == nullptr ||
             descriptor->uniformValueCount == 0 ||

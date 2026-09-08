@@ -9343,3 +9343,89 @@ retire, and the device picture follows exactly: pendingTiles=1, unresolved=0,
 stage=1, attempt 53 and climbing, residency epoch static at 24. Counters exist -
 M8_COUNTER_DUAL_STORAGE_INTENT_COUNT 51, M8_COUNTER_DUAL_TOUCH_PUBLICATION 52 -
 so this is measurable rather than arguable. Not yet measured.
+
+### THE DUAL BELONGS TO THE OBSERVATION TOKEN, NOT THE ATTEMPT TOKEN
+
+The generator built the retry schedule as everything from ResetObservationBins
+onward, so every refinement quantum replayed the whole acquisition side -
+stereo, the depth certificate, the bins, and UpdateObservationDual. On device
+that was 3932 ms of a 3933 ms attempt, 8 to 9 dual dispatches and 26 to 31 s of
+GPU per observation, while refinement advanced quantumProgress=1 and
+attemptResidencyEpoch stayed equal to currentResidencyEpoch. Closure 4.3 states
+the rule: "Drain dostane jen zbylou praci."
+
+A new schedule and job kind, ObservationContinue, carries exactly eight
+dispatches:
+  DrainFlowerGeometry, ResolveFlowerCarriers, DrainFlowerSkinRgb,
+  DrainFlowerSkinV, ResolveMissingSpatialNodes, ResolveObservationTileRequests,
+  InitializeNewTiles, FinalizeObservation
+No stereo, no certificate, no count/emit, no dual, and no FlowerCommit - that one
+belongs to the immutable observation. The allocation barriers stay because the
+drain can still request tiles. Executor ABI 18 -> 19, and the kind is appended
+last so existing kinds keep their index.
+
+The decision needed no new state. CanRetryPreparedObservation already knew WHY it
+was resuming and threw the reason away into one bool; it is now split:
+  _resumeNeedsAcquisition = ResidencyEpoch moved || loadCursor moved ||
+                            durableGeneration moved
+Those three are the only reasons the acquisition side must run again. Refinement
+progress alone takes the continuation, which is exactly REV-C's rule that FULL is
+re-examined by a NEW observation and never because the same token entered another
+quantum.
+
+TWO THINGS THAT WOULD HAVE BROKEN IT SILENTLY. The native side validated
+`kind > kJobFineErase` in two places and would have rejected the new kind. And
+the dual lease is CPU-side: CompleteNativeDualMutation runs after the fence, not
+inside the dual kernel, and M8DualChunkCanonical does NOT compare the payload
+generation against the current publishing generation - it only range-checks. So
+omitting the dual leaves no open transaction and no stale-invalid payload. That
+was the thing I earlier refused to guess at.
+
+### AMBIGUOUS WAS THREE DIFFERENT THINGS AND ONE OF THEM COULD NOT MAKE PROGRESS
+
+M8DualLeafResident fails for three unrelated reasons: the ref is COLD, or the
+slot is HOT but its generation, meta or back reference no longer describes this
+tile, or the chunk payload is not canonical. All three collapsed into
+M8_DUAL_AMBIGUOUS, and the caller then requested storage ONLY when the tile
+reference was COLD_ON_SSD before pending the observation. So a HOT tile with a
+stale leaf ref requested nothing and pended forever - a real liveness hole.
+
+Now separated:
+  M8_DUAL_READ_COLD    residency dependency: request the load, pend, and the
+                       retry arrives with a moved residency epoch
+  M8_DUAL_READ_STALE   the leaf ref no longer describes this tile, so the words
+                       are zero, the volume is recomputed and the write rebinds
+                       it - repair, never a wait
+  M8_DUAL_AMBIGUOUS    the payload itself is not canonical, which BeginChunk
+                       should have prevented, so it fails the transaction
+                       instead of waiting for evidence that cannot arrive
+REV-C's "AMBIGUOUS child is not pending compute; it needs new evidence" is why
+these cannot share one scheduler state.
+
+### A VERIFICATION HOLE OF MY OWN, WORTH MORE THAN EITHER CUT
+
+I reported "SUITE 369/369" for code that does not compile. Two separate traps:
+  - run_merkaba_tests.sh only does `test -s` on the results XML, so when Unity
+    writes no new file the OLD results parse as Passed;
+  - and the EditMode run can pass on a CACHED assembly, while the player build
+    compiles fresh and caught error CS0103 immediately (a `kind` declared inside
+    one try block and logged from another).
+Worse, my own chain piped the build through `tail`, so the pipeline's exit code
+was tail's and a FAILED build still ran the deploy, which reported
+"DEPLOYED ... Success" while installing the 23:50:57 APK. Three cuts appeared to
+be on the device and were not.
+The chain now checks that the results XML mtime advanced, does not mask the
+build's exit code, and refuses to deploy unless the APK mtime advanced. The suite
+is not a compile gate; the player build is.
+
+Suite 369/369 on a verified-fresh XML. Shader audit: 70 kernels, 1 FAIL, and that
+one is CompactDirtyFlowerSymbols over the 1 MiB gate, which is OPEN-1 and
+deferred by explicit instruction. UpdateObservationDual 497 068 B / body 25 063
+after both cuts, against 494 360 / 24 925 before the span shortcut.
+APK 00:20:57 deployed through both freshness gates.
+DEVICE ACCEPTANCE PENDING: kind=ObservationContinue in the submit log,
+dispatches=8 on those jobs, whether attempt stops climbing, whether
+"observation complete" appears, and M8_COUNTER_THROUGH_EVIDENCE_DECREMENTS as
+proof the relic erase actually runs.
+
+Contracts untouched; all of this is ledger only.

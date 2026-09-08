@@ -811,6 +811,80 @@ namespace Genesis.RoomScan.Tests
             Assert.That(generator, Does.Contain("FinalizeFineErase"));
         }
 
+        // Stereo, the depth certificate, the bins and the dual excavation are the
+        // work of ONE immutable observation. A refinement quantum carries no new
+        // visibility, so re-running them cannot change a single certified node.
+        // On device the retry schedule paid UpdateObservationDual for 3932 ms of
+        // a 3933 ms attempt, ~135 times per tile, which is why nothing ever
+        // retired. Closure 4.3: "Drain dostane jen zbylou praci." REV-C keeps
+        // FULL re-examinable by a NEW observation, never by the same token
+        // entering another quantum.
+        [Test]
+        public void RefinementContinuation_DoesNotReacquireOrRecertifyTheObservation()
+        {
+            string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
+            string generator = Source(
+                "Tools/unity/generate_merkaba_native_executor_shaders.py");
+
+            // Only a real dependency change may re-acquire.
+            Assert.That(integrator, Does.Contain("_resumeNeedsAcquisition ="));
+            Assert.That(integrator, Does.Contain(
+                "JobKind.ObservationContinue"));
+            int decide = integrator.IndexOf("JobKind kind = newObservation",
+                StringComparison.Ordinal);
+            Assert.That(decide, Is.GreaterThanOrEqualTo(0),
+                "the kind must be chosen in one place");
+            int branch = integrator.IndexOf("_resumeNeedsAcquisition", decide,
+                StringComparison.Ordinal);
+            Assert.That(branch, Is.GreaterThan(decide),
+                "the kind must branch on whether acquisition is needed");
+            int retryKind = integrator.IndexOf("JobKind.ObservationRetry", branch,
+                StringComparison.Ordinal);
+            int continueKind = integrator.IndexOf("JobKind.ObservationContinue",
+                branch, StringComparison.Ordinal);
+            Assert.That(retryKind, Is.GreaterThan(branch));
+            Assert.That(continueKind, Is.GreaterThan(retryKind),
+                "acquisition-needed takes the retry, everything else continues");
+
+            // Refinement progress alone must not set it.
+            int assign = integrator.IndexOf("_resumeNeedsAcquisition =",
+                StringComparison.Ordinal);
+            int assignEnd = integrator.IndexOf(';', assign);
+            string condition = integrator.Substring(assign, assignEnd - assign);
+            Assert.That(condition, Does.Contain("ResidencyEpoch"));
+            Assert.That(condition, Does.Contain("loadCursor"));
+            Assert.That(condition, Does.Contain("durableGeneration"));
+            Assert.That(condition, Does.Not.Contain("_retryAfterPublishedChange"),
+                "a refinement quantum is not a dependency change");
+
+            // The continuation schedule drains and finalizes, nothing else.
+            int schedule = generator.IndexOf("continuation = [",
+                StringComparison.Ordinal);
+            int scheduleEnd = generator.IndexOf("[\"FinalizeObservation\"]",
+                schedule, StringComparison.Ordinal);
+            Assert.That(schedule, Is.GreaterThanOrEqualTo(0));
+            Assert.That(scheduleEnd, Is.GreaterThan(schedule));
+            string body = generator.Substring(schedule, scheduleEnd - schedule);
+            foreach (string reacquired in new[]
+            {
+                "UpdateObservationDual", "CountObservationBins",
+                "EmitObservationBins", "ReserveObservationBins",
+                "BuildDepthCertificate", "ReduceDepthCertificate",
+                "StereoFlowerRefine", "ResetObservationBins", "FlowerCommit"
+            })
+                Assert.That(body, Does.Not.Contain(reacquired),
+                    reacquired + " belongs to the immutable observation");
+            foreach (string drained in new[]
+            {
+                "DrainFlowerGeometry", "ResolveFlowerCarriers",
+                "DrainFlowerSkinRgb", "DrainFlowerSkinV"
+            })
+                Assert.That(body, Does.Contain(drained),
+                    drained + " is the remaining work a continuation owes");
+            Assert.That(generator, Does.Contain("(\"ObservationContinue\", continuation)"),
+                "the schedule must be embedded, and last so existing kinds keep their index");
+        }
+
         [Test]
         public void NativeScannerUniforms_PackMatricesForSpirvRowMajorLayout()
         {

@@ -390,13 +390,29 @@ void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
             }
             uint words[16];
             uint previous=M8DualReadPreparedTileWords(chunk,payload,tile,words);
-            if (previous == M8_DUAL_AMBIGUOUS)
+            // A COLD leaf is a residency dependency: ask for it and wait, so
+            // the retry arrives with a moved residency epoch.
+            if (previous == M8_DUAL_READ_COLD ||
+                reference == MERKABA_REF_COLD_ON_SSD)
             {
-                if (reference == MERKABA_REF_COLD_ON_SSD)
+                if (reference == MERKABA_REF_COLD_ON_SSD ||
+                    previous == M8_DUAL_READ_COLD)
                     M8DualRequestStorage(M8_DUAL_INTENT_TILE_COLD,child,tile);
                 M8DualObservationPending(M8_DUAL_WRITE_COLD);
                 continue;
             }
+            // A non-canonical chunk payload is structural: BeginChunk above
+            // should have prevented it, so it fails the transaction instead of
+            // waiting for evidence that will never arrive.
+            if (previous == M8_DUAL_AMBIGUOUS)
+            {
+                M8DualObservationPending(M8_DUAL_WRITE_INVALID);
+                continue;
+            }
+            // M8_DUAL_READ_STALE falls through deliberately. A HOT slot whose
+            // leaf ref no longer describes this tile carries zero words, so the
+            // volume below is recomputed and the write rebinds it. Treating that
+            // as COLD requested no load and pended the observation forever.
 
             bool entire=false;
             if (!direct) entire=through || M8SupportThrough(tileMinimum,8u);

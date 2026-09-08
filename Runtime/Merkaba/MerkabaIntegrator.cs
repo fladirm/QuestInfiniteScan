@@ -51,6 +51,9 @@ namespace Genesis.RoomScan
         private uint _attemptLoadRequestCursor;
         private uint _attemptDualDurableGeneration;
         private bool _retryAfterPublishedChange;
+        // Set by CanRetryPreparedObservation: true only when a real dependency
+        // moved, which is the one case a resume must re-acquire.
+        private bool _resumeNeedsAcquisition;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeAttemptJob;
         private bool _nativeAttemptIncludesPreprocess;
@@ -910,12 +913,18 @@ namespace Genesis.RoomScan
             _nativeAttemptDualGeneration = _grid.BeginNativeDualMutation(uniforms);
             MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob;
             bool created;
+            // The dual belongs to the observation token, never to the attempt
+            // token. A quantum that only advanced refinement drains the
+            // remaining workset and finalizes; it does not re-certify free
+            // space it has no new evidence about.
+            MerkabaNativeVulkanExecutor.JobKind kind = newObservation
+                ? MerkabaNativeVulkanExecutor.JobKind.ObservationNew
+                : _resumeNeedsAcquisition
+                    ? MerkabaNativeVulkanExecutor.JobKind.ObservationRetry
+                    : MerkabaNativeVulkanExecutor.JobKind.ObservationContinue;
             try
             {
-                created = MerkabaNativeVulkanExecutor.TryCreateJob(
-                    newObservation
-                        ? MerkabaNativeVulkanExecutor.JobKind.ObservationNew
-                        : MerkabaNativeVulkanExecutor.JobKind.ObservationRetry,
+                created = MerkabaNativeVulkanExecutor.TryCreateJob(kind,
                     _attemptToken, resources, uniforms, depthGroupsX,
                     depthGroupsY, queryGroups, 0, out nativeJob);
             }
@@ -957,6 +966,7 @@ namespace Genesis.RoomScan
                 Logger.Info("Merkaba native observation submitted " +
                     $"observation={_observationToken} " +
                     $"attempt={_attemptToken} " +
+                    $"kind={kind} " +
                     $"retry={!newObservation} queue=1");
                 return true;
             }
@@ -1116,10 +1126,17 @@ namespace Genesis.RoomScan
             // Actual reference reclaim increments ResidencyEpoch; completed
             // load acknowledgements free request capacity; durability advances
             // the exact bound used to release cold reference spans.
-            return _retryAfterPublishedChange ||
-                   _grid.ResidencyEpoch != _attemptResidencyEpoch ||
-                   loadCursor != _attemptLoadRequestCursor ||
-                   durableGeneration != _attemptDualDurableGeneration;
+            //
+            // These three are the only reasons the ACQUISITION side has to run
+            // again: a reference was reclaimed, a load landed, or durability
+            // moved. Refinement progress on its own carries no new visibility,
+            // so re-acquiring stereo, the certificate, the bins and the whole
+            // dual excavation cannot change one certified node.
+            _resumeNeedsAcquisition =
+                _grid.ResidencyEpoch != _attemptResidencyEpoch ||
+                loadCursor != _attemptLoadRequestCursor ||
+                durableGeneration != _attemptDualDurableGeneration;
+            return _retryAfterPublishedChange || _resumeNeedsAcquisition;
         }
 
         private void RememberObservationAttemptDependencies()

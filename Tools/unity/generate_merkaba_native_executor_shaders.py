@@ -108,13 +108,25 @@ def command_schedules():
     # New observations reset bins in eye zero of certificate reduction;
     # retries keep that certificate and call the same reset helper directly.
     observation.remove("ResetObservationBins")
+    # Stereo, the depth certificate, the bins and the dual excavation are the
+    # work of ONE immutable observation. A refinement quantum carries no new
+    # visibility, so re-running them cannot change a single certified node and
+    # only pays for the whole acquisition side again; closure 4.3 says the drain
+    # gets the remaining work. A continuation therefore drains the workset and
+    # finalizes, and keeps the allocation barriers because the drain may still
+    # request tiles. Retry stays for an actual dependency change - residency,
+    # load acknowledgement or durability - where the acquisition side must run.
+    continuation = ["DrainFlowerGeometry", "ResolveFlowerCarriers",
+                    "DrainFlowerSkinRgb", "DrainFlowerSkinV"] + list(allocation) + \
+                   ["FinalizeObservation"]
     flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
     fine = labels[index["QueryFineEraseTiles"]:]
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
         ("ObservationNew", observation), ("ObservationRetry", retry),
-        ("FlowerReadout", flower), ("FineErase", fine)))
+        ("FlowerReadout", flower), ("FineErase", fine),
+        ("ObservationContinue", continuation)))
 
 
 RESOURCE_NAMES = (

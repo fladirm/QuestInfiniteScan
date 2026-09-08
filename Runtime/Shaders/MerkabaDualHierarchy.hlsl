@@ -17,6 +17,17 @@ ByteAddressBuffer _M8DualLeavesRead;
 #define M8_DUAL_THROUGH 1u
 #define M8_DUAL_MIXED 2u
 #define M8_DUAL_AMBIGUOUS 3u
+// A failed prepared-leaf read has three different meanings and they must not
+// share one scheduler state. COLD is a residency DEPENDENCY: enqueue the load
+// and retry once residency moves. STALE is a HOT slot whose leaf ref no longer
+// describes this tile - wrong generation, wrong meta, or no back reference - so
+// the volume is recomputed and rebound, never pended. M8_DUAL_AMBIGUOUS keeps
+// its structural meaning: the chunk payload itself is not canonical, which
+// BeginChunk should already have prevented, so it is a transaction failure
+// rather than something to wait for. Collapsing STALE into COLD requested no
+// load and pended forever, which is a real liveness hole.
+#define M8_DUAL_READ_COLD 4u
+#define M8_DUAL_READ_STALE 5u
 #define M8_DUAL_WRITE_UNCHANGED 0u
 #define M8_DUAL_WRITE_COMMITTED 1u
 #define M8_DUAL_WRITE_RETRY 2u
@@ -410,9 +421,14 @@ uint M8DualReadPreparedTileWords(uint chunk, M8DualChunkPayload payload,
         M8DualChunkCanonical(payload) ? M8DualChunkTileState(payload,tile) :
         M8_DUAL_AMBIGUOUS;
     uint slot=M8_DUAL_NO_REF;
-    if (state == M8_DUAL_MIXED &&
-        !M8DualLeafResident(M8DualLeafReference(payload,tile),chunk,tile,slot,true))
-        state=M8_DUAL_AMBIGUOUS;
+    if (state == M8_DUAL_MIXED)
+    {
+        uint packed=M8DualLeafReference(payload,tile);
+        if (!M8DualLeafResident(packed,chunk,tile,slot,true))
+            state=(packed & M8_DUAL_COLD_REF) != 0u &&
+                (packed & M8_DUAL_HOT_REF) == 0u ?
+                M8_DUAL_READ_COLD : M8_DUAL_READ_STALE;
+    }
     [unroll] for (uint word=0u; word<16u; ++word)
         words[word]=state == M8_DUAL_MIXED ? _M8DualLeaves.Load(slot*64u+word*4u) :
             state == M8_DUAL_THROUGH ? 0xffffffffu : 0u;
@@ -532,8 +548,11 @@ uint M8DualWriteKernelBit(uint block, uint child, uint chunk, uint tile,
 {
     if (kernel >= 512u) return M8_DUAL_WRITE_INVALID;
     uint words[16];
-    if (M8DualReadPreparedTileWords(chunk,payload,tile,words) == M8_DUAL_AMBIGUOUS)
-        return M8_DUAL_WRITE_COLD;
+    uint prepared=M8DualReadPreparedTileWords(chunk,payload,tile,words);
+    if (prepared == M8_DUAL_READ_COLD) return M8_DUAL_WRITE_COLD;
+    if (prepared == M8_DUAL_AMBIGUOUS) return M8_DUAL_WRITE_INVALID;
+    // A STALE ref carries zero words, so the bit is set on a fresh volume and
+    // M8DualWriteTileWords rebinds the leaf. That is the repair, not a wait.
     uint word=kernel >> 5u, bit=1u << (kernel & 31u);
     words[word]=(words[word] & ~bit) | (through ? bit : 0u);
     return M8DualWriteTileWords(block,child,chunk,tile,hotSlot,publishing,retired,

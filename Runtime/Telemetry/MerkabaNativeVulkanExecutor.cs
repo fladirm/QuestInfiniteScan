@@ -17,7 +17,7 @@ namespace Genesis.RoomScan
         // ABI 18: the drain is four entry points on one continuation chain,
         // geometry, carrier resolve, RGB signal and V signal, so the pipeline
         // table is 26 entries.
-        internal const int AbiVersion = 18;
+        internal const int AbiVersion = 19;
         internal const int ResourceCount = 43;
         internal const int PipelineCount = 23;
         // A native observation also dispatches publication Reserve once and
@@ -31,6 +31,8 @@ namespace Genesis.RoomScan
             ObservationRetry = 1,
             FlowerReadout = 2,
             FineErase = 3,
+            // Only the remaining workset of an immutable observation.
+            ObservationContinue = 4,
         }
 
         [Flags]
