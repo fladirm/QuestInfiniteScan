@@ -7606,3 +7606,61 @@ NEXT_ACTION=APK build and install for device testing, then the three GPU
   failures above, then OPEN-1 fan-out for the three shader size FAIL entries.
 WORKTREE_SCOPE=Tests/Editor sources and lasttrue.md; unrelated .claude/,
   CLAUDE.md and CLAUDE.md.meta remain untouched and untracked.
+
+---
+
+### CURRENT TRUE STATE — OPEN-3 dependency/device-cost receipt, 2026-09-08 02:10Z
+
+OPEN-3 asked for <=10 non-allocation boundaries on a new observation, or an
+explicit dependency/device-cost receipt for the eleventh. Measured graph from
+Tools/shaders/audit_merkaba_command_graph.sh at 85db10c:
+
+  new observation   17 commands, 16 barriers, 11 non-allocation
+  retry             15 commands, 14 barriers,  9 non-allocation
+
+The eleven non-allocation boundaries are:
+  StereoFlowerRefine, BuildDepthCertificate, ReduceDepthCertificate,
+  CountObservationBins, ReserveObservationBins, EmitObservationBins,
+  UpdateObservationDual, ReserveObservationBins (second), FlowerCommit,
+  DrainObservationRefinement, FinalizeObservation.
+
+THE SECOND RESERVE CANNOT BE FUSED. Two independent blockers, either alone
+sufficient; the ledger's own test is "only fuse if the same global dependency
+and hardware limits remain true", and both fail.
+
+1. GLOBAL DEPENDENCY. ReserveObservationBins is a single 256-lane workgroup
+   running a complete prefix scan over the per-slot bin counts
+   (MerkabaObservationBins.compute:326-352, publicationOnly gated on
+   M8_COUNTER_DUAL_TOUCH_PUBLICATION). UpdateObservationDual writes those
+   counts from many groups, so the scan cannot run inside it; a dispatch has
+   no global barrier. FlowerCommit reads its reserved span in every group, so
+   the scan must be complete before its first group starts. The boundary is
+   the dependency, not a scheduling choice.
+
+2. DEVICE BUDGET. Writable storage bindings, measured per entry point:
+     UpdateObservationDual  8/8  _M8ClaimQueue _M8Counters _M8DualBlockState
+                                 _M8DualChunkState _M8DualLeaves
+                                 _M8ObservationDispatchArgs
+                                 _M8ObservationTileBins _M8TileRecords
+     ReserveObservationBins 4    _M8Counters _M8ObservationDispatchArgs
+                                 _M8ObservationTileBins _M8TouchedTileQueue
+     FlowerCommit           8/8
+     CountObservationBins   8/8
+     FinalizeObservation    8/8
+   Reserve \ Dual is exactly one buffer, _M8TouchedTileQueue, so the fused
+   union is 9 > 8. Dual, Commit, Count and Finalize are each already at the
+   hard limit, so no neighbour can host it either.
+
+No other pair is fusible: Build/Reduce certificate is a pyramid with a real
+global barrier between its two halves, and Count -> Reserve -> Emit is the
+same count/scan/write dependency at the depth domain.
+
+THE ONLY LAWFUL PATH TO TEN is making the Drain continuation conditional.
+REV-C and closure section4.2 already frame DrainObservationRefinement as a
+semantic obligation rather than a mandatory micro-dispatch: when the work fits
+inside the same tile quantum it belongs inside FlowerCommit, and only genuine
+finite remaining work should reach a second dispatch. That is OPEN-1 packet
+work, not a command-graph trick, and it must not be faked by hiding a dispatch
+or removing a necessary barrier to satisfy a count.
+
+OPEN-3 STATUS=receipt delivered; count stays 11 until OPEN-1 folds the drain.
