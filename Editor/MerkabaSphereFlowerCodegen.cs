@@ -3005,20 +3005,25 @@ M8FlowerJunctionSelection M8FlowerSelectR3Junction(uint parity,
         {
             o.AppendLine(@"
 
+// Selection, not control flow. Every interval operation inlines this pair,
+// so a branch here costs a merge block and a phi at ~2300 inlined sites.
+// The guard order is preserved: the zero test wins, then the infinity test.
+// Bit identity with the branching text was proved exhaustively over all
+// 2^32 encodings, denormals, both zeros, both infinities and NaN included.
 float M8FlowerNext(float v)
 {
     uint b = asuint(v);
-    if ((b & 0x7fffffffu) == 0u) return asfloat(1u);
-    if (b == 0x7f800000u) return v;
-    return asfloat((b & 0x80000000u) == 0u ? b + 1u : b - 1u);
+    uint step = (b & 0x80000000u) == 0u ? b + 1u : b - 1u;
+    step = b == 0x7f800000u ? b : step;
+    return asfloat((b & 0x7fffffffu) == 0u ? 1u : step);
 }
 
 float M8FlowerPrevious(float v)
 {
     uint b = asuint(v);
-    if ((b & 0x7fffffffu) == 0u) return asfloat(0x80000001u);
-    if (b == 0xff800000u) return v;
-    return asfloat((b & 0x80000000u) == 0u ? b - 1u : b + 1u);
+    uint step = (b & 0x80000000u) == 0u ? b - 1u : b + 1u;
+    step = b == 0xff800000u ? b : step;
+    return asfloat((b & 0x7fffffffu) == 0u ? 0x80000001u : step);
 }
 
 M8FlowerInterval M8FlowerI(float lo, float hi)
@@ -3034,42 +3039,54 @@ bool M8FlowerIZero(M8FlowerInterval a)
     return ((asuint(a.lo) | asuint(a.hi)) & 0x7fffffffu) == 0u;
 }
 
+// Selection, not control flow, for the same reason as M8FlowerNext. The
+// guarded expressions were already emitted statically under the branch, so
+// evaluating them unconditionally and discarding the result is strictly
+// smaller. Guard priority is preserved exactly by the select order.
 M8FlowerInterval M8FlowerIAdd(M8FlowerInterval a, M8FlowerInterval b)
 {
-    if (M8FlowerIZero(a)) return b;
-    if (M8FlowerIZero(b)) return a;
     precise float lo = a.lo+b.lo;
     precise float hi = a.hi+b.hi;
-    return M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
+    M8FlowerInterval r = M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
+    bool za = M8FlowerIZero(a), zb = M8FlowerIZero(b);
+    r.lo = za ? b.lo : (zb ? a.lo : r.lo);
+    r.hi = za ? b.hi : (zb ? a.hi : r.hi);
+    return r;
 }
 
 M8FlowerInterval M8FlowerISub(M8FlowerInterval a, M8FlowerInterval b)
 {
-    if (M8FlowerIZero(b)) return a;
-    if (M8FlowerIZero(a)) return M8FlowerI(-b.hi,-b.lo);
     precise float lo = a.lo-b.hi;
     precise float hi = a.hi-b.lo;
-    return M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
+    M8FlowerInterval r = M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
+    bool za = M8FlowerIZero(a), zb = M8FlowerIZero(b);
+    r.lo = zb ? a.lo : (za ? -b.hi : r.lo);
+    r.hi = zb ? a.hi : (za ? -b.lo : r.hi);
+    return r;
 }
 
 M8FlowerInterval M8FlowerIMul(M8FlowerInterval a, M8FlowerInterval b)
 {
-    if ((M8FlowerIZero(a) && all((asuint(float2(b.lo,b.hi)) & 0x7f800000u) != 0x7f800000u)) ||
-        (M8FlowerIZero(b) && all((asuint(float2(a.lo,a.hi)) & 0x7f800000u) != 0x7f800000u)))
-        return M8FlowerI(0.0,0.0);
+    bool exact =
+        (M8FlowerIZero(a) && all((asuint(float2(b.lo,b.hi)) & 0x7f800000u) != 0x7f800000u)) ||
+        (M8FlowerIZero(b) && all((asuint(float2(a.lo,a.hi)) & 0x7f800000u) != 0x7f800000u));
     precise float4 p = float4(a.lo * b.lo, a.lo * b.hi,
         a.hi * b.lo, a.hi * b.hi);
-    return M8FlowerI(M8FlowerPrevious(min(min(p.x,p.y),min(p.z,p.w))),
+    M8FlowerInterval r = M8FlowerI(M8FlowerPrevious(min(min(p.x,p.y),min(p.z,p.w))),
         M8FlowerNext(max(max(p.x,p.y),max(p.z,p.w))));
+    r.lo = exact ? 0.0 : r.lo;
+    r.hi = exact ? 0.0 : r.hi;
+    return r;
 }
 
 M8FlowerInterval M8FlowerISquare(M8FlowerInterval a)
 {
-    if (M8FlowerIZero(a)) return M8FlowerI(0.0,0.0);
-    if (a.lo <= 0.0 && a.hi >= 0.0)
-        return M8FlowerI(0.0,
-            M8FlowerNext(max(a.lo*a.lo,a.hi*a.hi)));
-    return M8FlowerIMul(a,a);
+    M8FlowerInterval r = M8FlowerIMul(a,a);
+    bool za = M8FlowerIZero(a), spanning = a.lo <= 0.0 && a.hi >= 0.0;
+    precise float spanningHigh = M8FlowerNext(max(a.lo*a.lo,a.hi*a.hi));
+    r.lo = (za || spanning) ? 0.0 : r.lo;
+    r.hi = za ? 0.0 : (spanning ? spanningHigh : r.hi);
+    return r;
 }
 
 struct M8FlowerDyadicSquare

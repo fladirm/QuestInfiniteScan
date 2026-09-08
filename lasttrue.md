@@ -7664,3 +7664,82 @@ work, not a command-graph trick, and it must not be faked by hiding a dispatch
 or removing a necessary barrier to satisfy a count.
 
 OPEN-3 STATUS=receipt delivered; count stays 11 until OPEN-1 folds the drain.
+
+---
+
+### CURRENT TRUE STATE — OPEN-1 exact interval arithmetic without control flow, 2026-09-08 03:05Z
+
+MEASURED CAUSE, not the ledger's assumption. The ledger named three sites in
+MerkabaFlowerCommit.hlsl that "do the same deep work three times". Stubbing
+each candidate and recompiling showed that is not where the mass is:
+
+  stub M8FlowerCompatibleCarrier     1 079 720 -> 748 016 B
+  stub M8FlowerParentStructureChanged 1 079 720 -> 787 804 B
+  stub M8FlowerR1FlagWitness          1 079 720 -> 983 844 B
+
+Those overlap because each drags the same interval algebra with it. Compiling
+with -g and histogramming every SPIR-V instruction by source line gave the
+real answer: 51 304 of FlowerCommit's 62 615 body instructions come from
+MerkabaSphereFlower.generated.hlsl, and over 28 000 of them from lines
+495-560 alone — M8FlowerNext, M8FlowerPrevious and the four interval
+operations. glslangValidator inlines every HLSL function (there is exactly
+one OpFunction in the module and [noinline] is not a glslang attribute), so
+static cost is call-site count times body size. A static call-graph walk from
+each entry point gives the multiplicities:
+
+  DrainObservationRefinement  IZero 3567  Next 2401  Previous 1852  IMul 1017
+  CompactDirtyFlowerSymbols   IZero 2814  Next 1879  Previous 1463  IMul  805
+  FlowerCommit                Next   529  IZero  480  Previous  249  IMul  144
+
+Each branch inside those leaves therefore costs a selection merge and a phi
+at every one of those sites. M8FlowerNext and M8FlowerPrevious were rewritten
+as pure selection, and the four interval operations evaluate their guarded
+expression unconditionally and select the result — the guarded expression was
+already emitted statically under the branch, so this is strictly smaller and
+never adds an operation to the module.
+
+SEMANTICS ARE UNCHANGED, AND PROVEN SO, NOT ASSUMED. The ULP-step pair was
+checked exhaustively over all 2^32 binary32 encodings: both zeros, both
+infinities, every denormal and every NaN. Mismatches: 0. Guard priority in
+the four interval operations is preserved exactly by select order, and the
+bit-inspecting zero test is kept as it is — a flushed denormal is not the
+exact zero interval, so a float comparison is not a lawful substitute.
+
+THE GLSLANG GATE ALONE IS NOT SUFFICIENT EVIDENCE. The first revision used a
+conditional operator on the M8FlowerInterval struct. glslang accepts it; the
+Unity Vulkan front end rejects it with "conditional operator only supports
+results with numeric scalar, vector, or matrix types", which took the suite
+from 18 failures to 44 and left the probes reading unbound memory. The fix is
+per-component scalar selection. Run Tools/unity/run_merkaba_tests.sh, never
+the SPIR-V audit alone, before believing a shader edit.
+
+MEASURED RESULT — Tools/shaders/audit_merkaba_compute_spirv.sh:
+
+  FlowerCommit                1 079 720 B / 62 615  FAIL
+                           ->   944 896 B / 49 137  REVIEW
+  CompactDirtyFlowerSymbols   1 536 092 B / 89 920  FAIL
+                           -> 1 335 616 B / 70 069  FAIL
+  DrainObservationRefinement  2 978 956 B /175 244  FAIL
+                           -> 2 595 448 B /136 755  FAIL
+
+  failing kernels 3 -> 2 of 67.
+
+Tools/unity/run_merkaba_tests.sh: 362 total, 361 passed, 1 failed, 0 shader
+errors. The remaining failure is the known OPEN-6 entry
+FrozenDepthObservation_NonzeroR2IsBitIdenticalAcrossQuantaAndBackpressure.
+
+spirv-opt IS NOT THE ANSWER AND WAS MEASURED, NOT GUESSED: -O gives
+FlowerCommit 944 896 -> 855 020 B, Drain 2 595 448 -> 2 431 404 B, and makes
+CompactDirtyFlowerSymbols LARGER, 1 335 616 -> 2 084 088 B, because it
+unrolls. It cannot close the remaining two.
+
+REMAINING WORK IS STRUCTURAL, NOT LOCAL. Drain must lose 64 percent and
+CompactDirtyFlowerSymbols 29 percent of their body instructions. The
+attribution shows no single dominant site: the largest single contributor of
+interval-operation call sites in Drain is M8FlowerRootInSector at 750 of
+roughly 3 500. That is a fan-out of the exact algebra across the whole
+kernel, so the lawful lever is the reachable call graph per dispatch, not
+another leaf rewrite.
+
+OPEN-1 STATUS=FlowerCommit closed; Drain and CompactDirtyFlowerSymbols open.
+DEVICE ACCEPTANCE PENDING.
