@@ -717,6 +717,11 @@ namespace Genesis.RoomScan.Tests
             using var b12 = Buffer(observation);
             using var output = new ComputeBuffer(58, sizeof(uint),
                 ComputeBufferType.Structured);
+            // The generated alphabet now lives in the shared read-only table
+            // buffer, so this standalone proof must upload it exactly as
+            // production does. Without it the consumer reads unbound memory.
+            using var tables = MerkabaGrid.CreateFlowerTableBuffer();
+            shader.SetBuffer(kernel, "_M8FlowerTables", tables);
             shader.SetBuffer(kernel, "_DualBlock", b0);
             shader.SetBuffer(kernel, "_DualChildren", b1);
             shader.SetBuffer(kernel, "_DualChunk", b2);

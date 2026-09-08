@@ -448,6 +448,11 @@ namespace Genesis.RoomScan.Tests
             input.SetData(inputs);
             ComputeShader shader = Shader("Tests/Editor/MerkabaObservationBinsProbe.compute");
             int kernel = shader.FindKernel("PlaneIntervalsProbe");
+            // The generated alphabet now lives in the shared read-only table
+            // buffer, so a standalone proof must upload it exactly as
+            // production does. Without it the probe reads unbound memory.
+            using var tables = MerkabaGrid.CreateFlowerTableBuffer();
+            shader.SetBuffer(kernel, "_M8FlowerTables", tables);
             shader.SetInt("_ProbeRecordCount", expected.Count);
             shader.SetBuffer(kernel, "_ProbeCoefficients", input);
             shader.SetBuffer(kernel, "_ProbeReduced", results);
