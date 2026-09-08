@@ -495,7 +495,7 @@ namespace Genesis.RoomScan
             bool success = false;
             try
             {
-                if (!await QuiesceScanningAsync()) return false;
+                if (!await BeginFrozenWorldOperationAsync()) return false;
                 if (!SaveOpenDesign()) return false;
                 ReportOperation(ScanOperationKind.Save,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
@@ -505,6 +505,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                EndFrozenWorldOperation();
                 FinishOperation(ScanOperationKind.Save, success,
                     _persistence?.LastStatus ?? "Save unavailable");
             }
@@ -519,7 +520,7 @@ namespace Genesis.RoomScan
             bool success = false;
             try
             {
-                if (!await QuiesceScanningAsync()) return false;
+                if (!await BeginFrozenWorldOperationAsync()) return false;
                 if (!CloseOpenDesignForSessionSwitch()) return false;
                 ReportOperation(ScanOperationKind.Load,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
@@ -529,23 +530,30 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                EndFrozenWorldOperation();
                 FinishOperation(ScanOperationKind.Load, success,
                     _persistence?.LastStatus ?? "Load unavailable");
             }
         }
 
-        // Clearing the GPU world requires that the native queue owns no lease:
-        // MerkabaGrid.ClearGpuWorldForNewScan refuses a leased dual world. The
-        // readout job is submitted every rendered frame once the native scanner
-        // is ready, so quiescing scanning alone never reaches that state. This
-        // is the order DisableTeardownCoreAsync already established, and per
-        // closure 4.7 the in-flight job is waited out, never preempted by a CPU
-        // flag. The renderer's submission gate is not the grid's: suspending it
-        // stops new readout jobs while GpuSubmissionAllowed stays true, which
-        // SwitchStorageRootAsync requires.
-        private async Task<bool> QuiesceForWorldClearAsync()
+        // A canonical M8 tile is complete at every instant; a running scan only
+        // keeps refining it. So SAVE, LOAD, OPEN, DELETE, NEW, EXPORT and
+        // IMPORT do not wait for anything to "finish" - they take the world as
+        // it stands and then own it exclusively. Two producers have to stop for
+        // that to be true: the scan, and the dirty-page readout job, which is
+        // resubmitted every rendered frame once the native scanner is ready and
+        // otherwise keeps competing for the queue the operation needs. Leaving
+        // it running is what made a new session fail on a leased dual world and
+        // a save crawl on "Counting dirty canonical tiles".
+        //
+        // This is the order DisableTeardownCoreAsync already established, and
+        // closure 4.7 requires the in-flight job be waited out rather than
+        // preempted by a CPU flag. The renderer's submission gate is not the
+        // grid's: suspending it stops new readout jobs while GpuSubmissionAllowed
+        // stays true, which SwitchStorageRootAsync requires when it clears.
+        private async Task<bool> BeginFrozenWorldOperationAsync()
         {
-            _renderer?.SuspendGpuSubmission();
+            _renderer?.PausePagePublication();
             if (!await QuiesceScanningAsync()) return false;
             if (!ReferenceEquals(_renderer, null))
                 await _renderer.FinishCurrentReadoutAsync();
@@ -554,11 +562,7 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        private void ResumeSubmissionAfterWorldClear()
-        {
-            if (_applicationPaused || _disableRequested || _destroyed) return;
-            _renderer?.ResumeGpuSubmission();
-        }
+        private void EndFrozenWorldOperation() => _renderer?.ResumePagePublication();
 
         public async Task<bool> OpenSessionAsync(Guid sessionId)
         {
@@ -569,7 +573,7 @@ namespace Genesis.RoomScan
             bool success = false;
             try
             {
-                if (!await QuiesceForWorldClearAsync()) return false;
+                if (!await BeginFrozenWorldOperationAsync()) return false;
                 if (!CloseOpenDesignForSessionSwitch()) return false;
                 ReportOperation(ScanOperationKind.Load,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
@@ -580,7 +584,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
-                ResumeSubmissionAfterWorldClear();
+                EndFrozenWorldOperation();
                 FinishOperation(ScanOperationKind.Load, success,
                     _persistence?.LastStatus ?? "Open unavailable");
             }
@@ -595,7 +599,7 @@ namespace Genesis.RoomScan
             bool success = false;
             try
             {
-                if (!await QuiesceScanningAsync()) return false;
+                if (!await BeginFrozenWorldOperationAsync()) return false;
                 if (!SaveOpenDesign()) return false;
                 ReportOperation(ScanOperationKind.Save,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
@@ -609,6 +613,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                EndFrozenWorldOperation();
                 FinishOperation(ScanOperationKind.Save, success,
                     _persistence?.LastStatus ?? "Save As unavailable");
             }
@@ -626,7 +631,7 @@ namespace Genesis.RoomScan
             // is deleted without touching the native queue.
             if (wasActive)
             {
-                if (!await QuiesceForWorldClearAsync()) return false;
+                if (!await BeginFrozenWorldOperationAsync()) return false;
             }
             else if (!await QuiesceScanningAsync()) return false;
             try
@@ -637,7 +642,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
-                if (wasActive) ResumeSubmissionAfterWorldClear();
+                if (wasActive) EndFrozenWorldOperation();
             }
         }
 
@@ -649,7 +654,7 @@ namespace Genesis.RoomScan
             _newSessionPending = true;
             try
             {
-                if (!await QuiesceForWorldClearAsync()) return;
+                if (!await BeginFrozenWorldOperationAsync()) return;
                 if (!CloseOpenDesignForSessionSwitch()) return;
                 _anchorManager ??= RoomAnchorManager.Instance ??
                     FindAnyObjectByType<RoomAnchorManager>(
@@ -678,7 +683,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
-                ResumeSubmissionAfterWorldClear();
+                EndFrozenWorldOperation();
                 _newSessionPending = false;
             }
         }
@@ -746,7 +751,7 @@ namespace Genesis.RoomScan
             {
                 // Cancellation cannot abandon a held GPU observation or its
                 // SSD acknowledgement. Both retire before any source is read.
-                if (!await QuiesceScanningAsync())
+                if (!await BeginFrozenWorldOperationAsync())
                     throw new InvalidOperationException("Export observation retirement was not proven.");
                 await _persistence.PrepareExportDurableCutAsync(
                     _exporter.HasResumeReceipt(fileName, viewerPackage));
@@ -768,6 +773,7 @@ namespace Genesis.RoomScan
             {
                 // Every worker is awaited by the core, including cancellation
                 // and staging cleanup. STOP remains STOP after lease release.
+                EndFrozenWorldOperation();
                 _exportMutationHeld = false;
                 _exportCancellation.Dispose();
                 _exportCancellation = null;
@@ -821,7 +827,7 @@ namespace Genesis.RoomScan
                     status = "Preview-only package; no native scan records";
                     return null;
                 }
-                if (!await QuiesceScanningAsync())
+                if (!await BeginFrozenWorldOperationAsync())
                     throw new InvalidOperationException("Native import requires proven scan retirement.");
                 cancellationToken.ThrowIfCancellationRequested();
                 if (_persistence.IsDirty)
@@ -853,6 +859,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                EndFrozenWorldOperation();
                 _nativeImportCancellation.Dispose();
                 _nativeImportCancellation = null;
                 FinishOperation(ScanOperationKind.Load, success, status);

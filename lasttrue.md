@@ -8807,3 +8807,69 @@ them. Recorded as suspected, not fixed.
 
 Tools/unity/run_merkaba_tests.sh: 366 total, 366 passed, 0 failed.
 DEVICE ACCEPTANCE PENDING for save.
+
+### EVERY ACTION AND WHAT IT MEANS FOR THE WORLD, 22:39Z
+
+The user stated the ontology plainly and it is the right one: a canonical M8
+tile is COMPLETE at every instant. A running scan does not leave tiles
+half-built, it keeps refining finished ones. So SAVE does not mean "let the
+pending work finish", it means "take this instant". Nothing drains.
+
+Two producers have to stop for an operation to own that instant: the scan, and
+the dirty-page readout job. Only the first was ever stopped. The readout is
+resubmitted from OnContextRendered every rendered frame once the native scanner
+is ready, which is why one root cause produced three different faults: a leased
+dual world on NEW, a crawling flush on SAVE, and quiet competition everywhere
+else. Walking every action:
+
+  action        meaning for the world              held before          now
+  scan on/off   the producer of evidence           scan                 scan
+  SAVE          freeze this instant, write dirty   scan only            frozen
+  SAVE AS       same instant, new destination      scan only            frozen
+  LOAD          REPLACE the world from SSD         scan only            frozen
+  OPEN          replace the world from SSD         frozen               frozen
+  DELETE active replace the world with empty       frozen               frozen
+  NEW           empty world on a new anchor        frozen               frozen
+  EXPORT        derived artifact, never truth      scan only            frozen
+  IMPORT        register a package, then OPEN      scan only            frozen
+  CLEAR ALL     delegates to NEW                   inherits             inherits
+  rename        catalog label only                 nothing              nothing
+
+LOAD was heading for the same lease guard that broke NEW and had not been hit
+yet only because it had not been tried. EXPORT covers GLB and 3D Tiles together
+because ExportGlbCoreAsync and ExportViewerPackageCoreAsync share RunExportAsync.
+
+WHAT MUST NOT BE FROZEN, WHICH MATTERS AS MUCH. The refine tab's FINE and
+FINE/ERASE are producers, and closure 4.7 ranks them ABOVE observation and
+dirty page, so freezing them would inverting the contract's own priority.
+OnContextRendered already yields to HasAttemptInFlight,
+HasFineEraseAttemptInFlight, HasPendingFineErase and ObservationHasBoundaryPriority;
+that is correct and untouched. The view toggles mutate nothing. Design, paint,
+objects and annotations are the document layer, not M8: closure keeps membrane,
+readout, GLB and 3D Tiles "derived only", and the import path states it in code
+as "No imported mesh enters M8."
+
+I ALMOST SHIPPED A REGRESSION AND THE CONTRACT CAUGHT IT.
+SuspendGpuSubmission also clears _active, and MerkabaGridRenderer.TryGetActive
+gates the flower draw on it. Using it for a frozen-world operation would have
+blanked the scanned geometry for the whole of a minutes-long EXPORT. Closure 4.5
+says "Renderer nesmi vyhladovet kvuli jedne dlouho zijici observaci". The pause
+is now PausePagePublication, which stops only the submission of new page quanta;
+published pages keep drawing and the separate cull path is untouched.
+
+A POSITIVE FIXTURE FAILED AND IT WAS RIGHT TO.
+DepthPreprocessTests.SaveAndExport_AwaitSharedQuiesceBeforeExplicitOperation
+guards "quiesce precedes the read"; renaming the entry point hid the quiesce
+behind a helper. Per closure 10.1 it was adapted, not deleted, and while doing
+so one of its asserts turned out to be vacuous after the rename: a bare IndexOf
+returning -1 satisfies "less than" and would have let the quiesce disappear
+unnoticed. It is now anchored at >= 0 and additionally requires the helper to
+retire the observation and wait the readout out.
+
+STILL SUSPECTED, NOT FIXED: BeginLoadAddressReadback and the writeback batch
+share PumpStorage's gate and its discard-on-callback pattern, so COLD tile
+loading and writeback degrade the same way a save did. No device evidence yet.
+
+Tools/unity/run_merkaba_tests.sh: 366 total, 366 passed, 0 failed.
+APK 22:39:43 deployed. DEVICE ACCEPTANCE PENDING for save, load, open,
+delete-active, export and import.

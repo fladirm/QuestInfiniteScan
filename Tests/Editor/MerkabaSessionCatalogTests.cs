@@ -231,24 +231,26 @@ namespace Genesis.RoomScan.Tests
             Assert.That(storage, Does.Contain("ClearGpuWorldForNewScan()"));
         }
 
-        // ClearGpuWorldForNewScan refuses a leased dual GPU world, and the
-        // native readout job is submitted every rendered frame once the
-        // scanner is ready. Quiescing scanning alone therefore never reaches a
-        // clearable state: on device this surfaced as "Cannot clear a leased
-        // dual GPU world" the first time a new session was requested after all
-        // 26 pipelines created. Every path that replaces the world must wait
-        // the in-flight job out, which closure 4.7 requires over a CPU flag.
+        // A canonical M8 tile is complete at every instant and a running scan
+        // only refines it, so a storage or transfer operation takes the world
+        // as it stands rather than waiting for work to finish. That requires
+        // both producers to stop: the scan, and the dirty-page readout job,
+        // which is resubmitted every rendered frame once the native scanner is
+        // ready. On device, leaving it running made a new session fail with
+        // "Cannot clear a leased dual GPU world" and made a save crawl on
+        // "Counting dirty canonical tiles". Closure 4.7 requires the in-flight
+        // job be waited out, not preempted by a CPU flag.
         [Test]
-        public void WorldReplacingSessionPaths_WaitOutTheNativeLeaseBeforeClearing()
+        public void EveryFrozenWorldOperation_StopsTheScanAndTheReadout()
         {
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             int helper = scanner.IndexOf(
-                "private async Task<bool> QuiesceForWorldClearAsync()",
+                "private async Task<bool> BeginFrozenWorldOperationAsync()",
                 StringComparison.Ordinal);
             Assert.That(helper, Is.GreaterThanOrEqualTo(0),
-                "the world-clear quiesce helper must exist");
+                "the frozen-world operation helper must exist");
 
-            int suspend = scanner.IndexOf("_renderer?.SuspendGpuSubmission()",
+            int suspend = scanner.IndexOf("_renderer?.PausePagePublication()",
                 helper, StringComparison.Ordinal);
             int quiesce = scanner.IndexOf("await QuiesceScanningAsync()",
                 suspend, StringComparison.Ordinal);
@@ -259,41 +261,67 @@ namespace Genesis.RoomScan.Tests
                 "await _grid.FinishObservationDurableCutAsync()", readout,
                 StringComparison.Ordinal);
             Assert.That(suspend, Is.GreaterThan(helper),
-                "new native readout jobs must stop before the wait");
+                "new readout jobs must stop before the wait");
             Assert.That(quiesce, Is.GreaterThan(suspend));
             Assert.That(readout, Is.GreaterThan(quiesce),
                 "the in-flight readout job must be awaited, not preempted");
             Assert.That(durable, Is.GreaterThan(readout));
 
+            // Every action that writes, replaces, reads out or receives the
+            // world takes it frozen. Missing one is how the readout kept
+            // competing with the operation the user actually asked for.
             foreach (string entry in new[]
             {
+                "public async Task<bool> SaveAsync()",
+                "public async Task<bool> SaveAsAsync(string displayName)",
+                "public async Task<bool> LoadAsync()",
                 "public async Task<bool> OpenSessionAsync(Guid sessionId)",
                 "public async Task<bool> DeleteSessionAsync(Guid sessionId)",
-                "public async Task NewClearAsync(string displayName)"
+                "public async Task NewClearAsync(string displayName)",
+                "private async Task<bool> RunExportAsync(",
+                "private async Task<bool?> RunNativeImportAsync("
             })
             {
                 int start = scanner.IndexOf(entry, StringComparison.Ordinal);
                 Assert.That(start, Is.GreaterThanOrEqualTo(0), entry);
-                int guard = scanner.IndexOf("await QuiesceForWorldClearAsync()",
-                    start, StringComparison.Ordinal);
-                int resume = scanner.IndexOf("ResumeSubmissionAfterWorldClear()",
-                    start, StringComparison.Ordinal);
-                Assert.That(guard, Is.GreaterThan(start),
-                    entry + " must quiesce the native lease before clearing");
-                Assert.That(resume, Is.GreaterThan(guard),
-                    entry + " must resume renderer submission afterwards");
+                int begins = scanner.IndexOf(
+                    "await BeginFrozenWorldOperationAsync()", start,
+                    StringComparison.Ordinal);
+                int ends = scanner.IndexOf("EndFrozenWorldOperation()", begins,
+                    StringComparison.Ordinal);
+                Assert.That(begins, Is.GreaterThan(start),
+                    entry + " must take the world frozen");
+                Assert.That(ends, Is.GreaterThan(begins),
+                    entry + " must release the readout again");
             }
 
-            // SAVE AS keeps the GPU world, so it must not stall the renderer.
-            int saveAs = scanner.IndexOf(
-                "public async Task<bool> SaveAsAsync(string displayName)",
+            // ClearAllData is NEW, so it inherits the rule rather than
+            // repeating it; asserting that keeps a second path from appearing.
+            int clearAll = scanner.IndexOf(
+                "public async void ClearAllDataAsync(", StringComparison.Ordinal);
+            int delegated = scanner.IndexOf("await NewClearAsync()", clearAll,
                 StringComparison.Ordinal);
-            int saveAsEnd = scanner.IndexOf("public bool RenameActiveSession",
-                saveAs, StringComparison.Ordinal);
-            Assert.That(saveAs, Is.GreaterThanOrEqualTo(0));
-            Assert.That(scanner.IndexOf("QuiesceForWorldClearAsync", saveAs,
-                    StringComparison.Ordinal), Is.Not.InRange(saveAs, saveAsEnd),
-                "SAVE AS retains the GPU world and must not quiesce for a clear");
+            Assert.That(delegated, Is.GreaterThan(clearAll),
+                "ClearAllData must delegate to NEW, not clear the world itself");
+
+            // The operation needs the native queue, not the screen. Pausing via
+            // SuspendGpuSubmission would clear _active, and TryGetActive gates
+            // the flower draw on it, so a minutes-long export would blank the
+            // scanned geometry. Closure 4.5: "Renderer nesmi vyhladovet".
+            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
+            int active = renderer.IndexOf(
+                "internal static bool TryGetActive(", StringComparison.Ordinal);
+            int activeEnd = renderer.IndexOf("private bool Initialize()", active,
+                StringComparison.Ordinal);
+            Assert.That(active, Is.GreaterThanOrEqualTo(0));
+            Assert.That(renderer.IndexOf("_pagePublicationPaused", active,
+                    StringComparison.Ordinal), Is.Not.InRange(active, activeEnd),
+                "the flower draw must survive a frozen-world operation");
+            Assert.That(scanner.IndexOf("SuspendGpuSubmission", helper,
+                    StringComparison.Ordinal),
+                Is.Not.InRange(helper, scanner.IndexOf(
+                    "private void EndFrozenWorldOperation", StringComparison.Ordinal)),
+                "a frozen-world operation must not suspend the whole renderer");
         }
 
         // PumpStorage gates its GPU section on HasJobInFlight, and the

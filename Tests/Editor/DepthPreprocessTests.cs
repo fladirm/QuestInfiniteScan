@@ -535,12 +535,27 @@ namespace Genesis.RoomScan.Tests
             string export = Slice(scanner,
                 "private Task<bool> BeginExportAsync(",
                 "public async void ClearAllDataAsync");
-            Assert.That(save.IndexOf("await QuiesceScanningAsync()",
-                    StringComparison.Ordinal),
+            // The quiesce now travels inside BeginFrozenWorldOperationAsync,
+            // which also stops the dirty-page readout, so the invariant is
+            // stated against that entry point. Anchor it at >= 0 first: a bare
+            // IndexOf that returns -1 satisfies "less than" vacuously and would
+            // let the quiesce disappear unnoticed.
+            int saveQuiesce = save.IndexOf(
+                "await BeginFrozenWorldOperationAsync()", StringComparison.Ordinal);
+            Assert.That(saveQuiesce, Is.GreaterThanOrEqualTo(0));
+            Assert.That(saveQuiesce,
                 Is.LessThan(save.IndexOf("_persistence.SaveAsync()",
                     StringComparison.Ordinal)));
-            int quiesce = export.IndexOf("await QuiesceScanningAsync()",
-                StringComparison.Ordinal);
+            string helper = Slice(scanner,
+                "private async Task<bool> BeginFrozenWorldOperationAsync()",
+                "private void EndFrozenWorldOperation()");
+            Assert.That(helper, Does.Contain("await QuiesceScanningAsync()"),
+                "the frozen-world entry point must still retire the observation");
+            Assert.That(helper, Does.Contain(
+                    "await _renderer.FinishCurrentReadoutAsync()"),
+                "and must wait the in-flight dirty-page readout out");
+            int quiesce = export.IndexOf(
+                "await BeginFrozenWorldOperationAsync()", StringComparison.Ordinal);
             Assert.That(quiesce, Is.GreaterThanOrEqualTo(0));
             foreach (string core in new[]
                      {

@@ -14,6 +14,7 @@ namespace Genesis.RoomScan
     public sealed class MerkabaGridRenderer : MonoBehaviour
     {
         private static MerkabaGridRenderer _active;
+        private bool _pagePublicationPaused;
         [FormerlySerializedAs("frameCompilerCompute")]
         [SerializeField] private ComputeShader readoutCompute;
         [SerializeField] private Shader renderShader;
@@ -142,6 +143,17 @@ namespace Genesis.RoomScan
             _viewReady = false;
         }
 
+        // A frozen-world operation needs the native queue, not the screen.
+        // SuspendGpuSubmission also clears _active, and TryGetActive gates the
+        // flower draw on it, so suspending for the length of a SAVE or a
+        // minutes-long EXPORT would blank the scanned geometry in the headset.
+        // Closure 4.5 forbids exactly that: "Renderer nesmi vyhladovet". This
+        // pause stops only the submission of new page quanta; already published
+        // pages keep drawing and the separate cull path is untouched.
+        internal void PausePagePublication() => _pagePublicationPaused = true;
+
+        internal void ResumePagePublication() => _pagePublicationPaused = false;
+
         internal void SuspendGpuSubmission()
         {
             _gpuSubmissionSuspended = true;
@@ -256,7 +268,7 @@ namespace Genesis.RoomScan
             Camera camera = Camera.main;
             if (camera == null || !cameras.Contains(camera) || !_initialized || _gpuSubmissionSuspended ||
                 _grid == null || !_grid.FlowerGraphicsReadAllowed || HasReadoutBuildInFlight ||
-                _grid.HasPendingCanonicalFlush)
+                _pagePublicationPaused || _grid.HasPendingCanonicalFlush)
                 return;
             if (_integrator != null && (_integrator.HasAttemptInFlight ||
                 _integrator.HasFineEraseAttemptInFlight || _integrator.HasPendingFineErase ||
