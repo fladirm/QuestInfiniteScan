@@ -408,17 +408,55 @@ void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
             {
                 [loop] for (uint word=0u; word<16u; ++word)
                 {
-                    uint endpoints=direct ? _M8TileBitsRead[M8TileWordIndex(slot,word)].z : 0u;
                     // Restore all strict direct supports before any possible
                     // canonical positive write, including incompatible owners.
-                    words[word] &= ~endpoints;
-                    [loop] for (uint bit=0u; bit<32u; ++bit)
+                    words[word] &= ~(direct ? _M8TileBitsRead[
+                        M8TileWordIndex(slot,word)].z : 0u);
+                }
+                // The certificate descent stopped at the tile and then proved
+                // all 512 kernels one at a time. M8SupportThrough encloses the
+                // union support [first-1, first+n], and a kernel's own cube
+                // [owner-1, owner+1] lies inside its span's cube, so a
+                // certified span proves every kernel in it and marking the span
+                // whole is bit-identical. Spans 4 and 2 carry the same
+                // certificate as every level above the tile.
+                //
+                // The span is a VARIABLE, so this reader is inlined once. Three
+                // constant-span calls inlined it three times and took the entry
+                // from 494 KB to 695 KB, and on this driver creation breaks on
+                // module size combined with indexed-array pressure.
+                [loop] for (uint level=0u; level<3u; ++level)
+                {
+                    uint span=4u >> level, side=8u >> (2u-level);
+                    [loop] for (uint cell=0u; cell<side*side*side; ++cell)
                     {
-                        uint mask=1u << bit;
-                        if (((words[word] | endpoints) & mask) != 0u) continue;
-                        uint local=word*32u+bit;
-                        int3 owner=tileMinimum+int3(local & 7u,(local >> 3u) & 7u,local >> 6u);
-                        if (M8SupportThrough(owner,1u)) words[word] |= mask;
+                        uint3 base=uint3(cell%side,(cell/side)%side,
+                            cell/(side*side))*span;
+                        // Every kernel already accounted for means no proof is
+                        // needed; at span one this is the original skip.
+                        uint pending=0u;
+                        [loop] for (uint row=0u; row<span*span; ++row)
+                        {
+                            uint local=((base.z+row/span) << 6u)|
+                                ((base.y+row%span) << 3u)|base.x;
+                            uint word=local >> 5u;
+                            uint endpoints=direct ? _M8TileBitsRead[
+                                M8TileWordIndex(slot,word)].z : 0u;
+                            uint run=((1u << span)-1u) << (local & 31u);
+                            if ((run & ~(words[word]|endpoints)) != 0u) pending=1u;
+                        }
+                        if (pending == 0u) continue;
+                        if (!M8SupportThrough(tileMinimum+(int3)base,span)) continue;
+                        [loop] for (uint row=0u; row<span*span; ++row)
+                        {
+                            uint local=((base.z+row/span) << 6u)|
+                                ((base.y+row%span) << 3u)|base.x;
+                            uint word=local >> 5u;
+                            uint endpoints=direct ? _M8TileBitsRead[
+                                M8TileWordIndex(slot,word)].z : 0u;
+                            words[word]|=(((1u << span)-1u) << (local & 31u))
+                                & ~endpoints;
+                        }
                     }
                 }
             }

@@ -9280,3 +9280,66 @@ times on this subsystem today and twice proposed the wrong operation, so this
 stops here rather than shipping a fifth guess into the carver.
 
 Suite 368/368 with the change; reverted afterwards, so the tree is unchanged.
+
+### THE SPAN SHORTCUT, WITH ONE READER CALL SITE
+
+Reinstated after the revert, now costing almost nothing. M8SupportThrough
+encloses the union support [first-1, first+n], and a kernel's own cube
+[owner-1, owner+1] lies inside its span's cube; the projected rect of a
+contained box is contained and its upper depth bound is no larger, and
+M8DepthCertificateThrough requires upper < minDepth over the rect, so a
+certified span proves every kernel inside it. Parent true implies child true;
+parent FALSE implies nothing, which is why an uncertified span still descends.
+
+The span travels as a VARIABLE through one loop over levels 4, 2 and 1, so the
+reader is inlined once:
+  three constant-span calls   494 360 -> 694 876 B  (+40.6%)
+  one variable-span call site 494 360 -> 496 460 B  (+0.4%), body +111
+That matters because this entry carries four 64-entry dynamically indexed
+function arrays and today's device evidence is that creation breaks on size
+combined with that pressure; ResolveFlowerCarriers failed at 715 124 B.
+
+Suite 368/368, including
+FrozenDepthObservation_NonzeroR2IsBitIdenticalAcrossQuantaAndBackpressure, which
+drives a real frozen observation through the whole GPU chain and requires
+bit-identical canonical records. Exactness is proven, not asserted.
+
+### CORRECTION — "ALL_FULL IS NEVER RECORDED" WAS WRONG
+
+I claimed the cost never falls because FULL is unprovable and therefore never
+stored. M8DualWriteTileWords disproves it:
+  uint state = allZero == 0u ? M8_DUAL_FULL :
+      allOne == 0xffffffffu ? M8_DUAL_THROUGH : M8_DUAL_MIXED;
+An all-zero result records M8_DUAL_FULL, and M8DualReadPreparedTileWords hands
+back zeros for it, so the tile is examined again next observation. That is
+CORRECT, not a defect: matter may be excavated later, and REV-B says FULL is only
+"the conservative complement of proven free space". The repetition is the model
+working, so that idea is withdrawn.
+
+### WHY THE RELIC ERASE IS REAL AND WHY IT NEVER RUNS
+
+Verified end to end. MerkabaFlowerCommit.hlsl M8FlowerApplyDualVeto:
+  if (M8DualReadKernelAt(block,child,tile,local,true,true) != M8_DUAL_THROUGH) return;
+  uint4 next = M8FlowerContradictR1(...);
+and M8FlowerContradictR1 subtracts M8_FLOWER_THROUGH_EVIDENCE (256) and zeroes
+the kernel once evidence falls to OCCUPIED_OFF, with its own comment about not
+keeping "a contradicted ghost". Two counters record it,
+M8_COUNTER_THROUGH_EVIDENCE_DECREMENTS and M8_COUNTER_THROUGH_OCCUPIED_TO_FREE.
+So certified see-through space does erase a person's wake and a moved object's
+relic, exactly as described, and it needs the per-kernel leaf because
+M8DualReadKernelAt asks per kernel.
+
+It never runs on the device because FlowerCommit is gated on
+M8_COUNTER_TOUCHED_TILE_COUNT and the observation never retires; FlowerCommit
+measures 0.003 ms.
+
+### NEXT SUSPECT, NOT YET CONFIRMED
+
+M8DualReadPreparedTileWords returns M8_DUAL_AMBIGUOUS when the chunk payload is
+not canonical or when a MIXED leaf is not resident (M8DualLeafResident), and the
+caller then requests storage and marks the observation pending. If MIXED leaves
+cannot stay resident, every mixed tile is AMBIGUOUS, the observation can never
+retire, and the device picture follows exactly: pendingTiles=1, unresolved=0,
+stage=1, attempt 53 and climbing, residency epoch static at 24. Counters exist -
+M8_COUNTER_DUAL_STORAGE_INTENT_COUNT 51, M8_COUNTER_DUAL_TOUCH_PUBLICATION 52 -
+so this is measurable rather than arguable. Not yet measured.
