@@ -8233,3 +8233,48 @@ caught it, and it is the same suite that would catch an algebra change.
 OPEN-1 STATUS=FlowerCommit 825 256 B awaiting the device. Drain and
 CompactDirtyFlowerSymbols still FAIL the gate; Drain needs a different lever
 than call-site collapsing.
+
+---
+
+### CURRENT TRUE STATE — FlowerCommit compiles; the real failure mode is compiler memory, 2026-09-08 14:55Z
+
+FLOWERCOMMIT IS CLOSED, MEASURED ON 340YC20G7X0QZ4:
+
+  index=10 UpdateObservationDual    494 360 B   ms=4229.430   result=0
+  index=11 FlowerCommit             825 256 B   ms=9988.440   result=0
+  index=12 DrainObservationRefinement 2 351 204 B  killed while compiling
+
+At 944 896 B this same pipeline failed with VkResult=-13. At 825 256 B it
+compiles. The driver's practical boundary therefore lies between 825 256 and
+944 896 bytes, a fourteen percent bracket, and that is the first hard number
+we have for it.
+
+THAT CORRECTS THE TARGETS I PUBLISHED EARLIER. They were computed against
+671 652 B, the only size then known to compile, so they were too pessimistic:
+
+  CompactDirtyFlowerSymbols 1 217 516 B   was -50 percent, is about -32
+  DrainObservationRefinement 2 351 204 B  was -74 percent, is about -65
+
+IT IS NOT A SIZE LIMIT. IT IS THE DRIVER'S SHADER COMPILER EXHAUSTING MEMORY,
+and the kernel log names it:
+
+  14:51:03 lowmemorykiller: Kill 'com.genesis.questmerkabascan' (9926),
+  to free 3355860kb rss, and 1839952kB swap; reason: low watermark is breached
+
+Compiling the 2 351 204 B Drain module ran the Adreno compiler for more than
+270 seconds and grew the process to 3.3 GB resident plus 1.8 GB of swap until
+Android killed it. Cost is strongly superlinear in module size: 494 360 B
+takes 4.2 s, 825 256 B takes 10.0 s, 2 351 204 B does not finish. This also
+explains why the 944 896 B module returned VkResult=-13 after only 6.7 s,
+LESS than the 10.0 s a successful smaller compile takes: that reads as an
+allocation failure inside the compiler, not a threshold test.
+
+CONSEQUENCE FOR THE REMAINING WORK. Every shipped module must land under about
+825 KB, and the two that do not are now the only thing between this build and
+a running scanner. Call-site collapsing gave FlowerCommit 12.7 percent and is
+mined out; CompactDirtyFlowerSymbols needs roughly a third and Drain roughly
+two thirds, which for Drain means splitting the entry point rather than
+another local rewrite.
+
+APP STATE ON DEVICE: killed by the OS during pipeline creation, so it is not
+running. Nothing about the draw path changed; that fix is unaffected.
