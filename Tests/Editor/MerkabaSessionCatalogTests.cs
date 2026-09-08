@@ -231,6 +231,71 @@ namespace Genesis.RoomScan.Tests
             Assert.That(storage, Does.Contain("ClearGpuWorldForNewScan()"));
         }
 
+        // ClearGpuWorldForNewScan refuses a leased dual GPU world, and the
+        // native readout job is submitted every rendered frame once the
+        // scanner is ready. Quiescing scanning alone therefore never reaches a
+        // clearable state: on device this surfaced as "Cannot clear a leased
+        // dual GPU world" the first time a new session was requested after all
+        // 26 pipelines created. Every path that replaces the world must wait
+        // the in-flight job out, which closure 4.7 requires over a CPU flag.
+        [Test]
+        public void WorldReplacingSessionPaths_WaitOutTheNativeLeaseBeforeClearing()
+        {
+            string scanner = Source("Runtime/Core/RoomScanner.cs");
+            int helper = scanner.IndexOf(
+                "private async Task<bool> QuiesceForWorldClearAsync()",
+                StringComparison.Ordinal);
+            Assert.That(helper, Is.GreaterThanOrEqualTo(0),
+                "the world-clear quiesce helper must exist");
+
+            int suspend = scanner.IndexOf("_renderer?.SuspendGpuSubmission()",
+                helper, StringComparison.Ordinal);
+            int quiesce = scanner.IndexOf("await QuiesceScanningAsync()",
+                suspend, StringComparison.Ordinal);
+            int readout = scanner.IndexOf(
+                "await _renderer.FinishCurrentReadoutAsync()", quiesce,
+                StringComparison.Ordinal);
+            int durable = scanner.IndexOf(
+                "await _grid.FinishObservationDurableCutAsync()", readout,
+                StringComparison.Ordinal);
+            Assert.That(suspend, Is.GreaterThan(helper),
+                "new native readout jobs must stop before the wait");
+            Assert.That(quiesce, Is.GreaterThan(suspend));
+            Assert.That(readout, Is.GreaterThan(quiesce),
+                "the in-flight readout job must be awaited, not preempted");
+            Assert.That(durable, Is.GreaterThan(readout));
+
+            foreach (string entry in new[]
+            {
+                "public async Task<bool> OpenSessionAsync(Guid sessionId)",
+                "public async Task<bool> DeleteSessionAsync(Guid sessionId)",
+                "public async Task NewClearAsync(string displayName)"
+            })
+            {
+                int start = scanner.IndexOf(entry, StringComparison.Ordinal);
+                Assert.That(start, Is.GreaterThanOrEqualTo(0), entry);
+                int guard = scanner.IndexOf("await QuiesceForWorldClearAsync()",
+                    start, StringComparison.Ordinal);
+                int resume = scanner.IndexOf("ResumeSubmissionAfterWorldClear()",
+                    start, StringComparison.Ordinal);
+                Assert.That(guard, Is.GreaterThan(start),
+                    entry + " must quiesce the native lease before clearing");
+                Assert.That(resume, Is.GreaterThan(guard),
+                    entry + " must resume renderer submission afterwards");
+            }
+
+            // SAVE AS keeps the GPU world, so it must not stall the renderer.
+            int saveAs = scanner.IndexOf(
+                "public async Task<bool> SaveAsAsync(string displayName)",
+                StringComparison.Ordinal);
+            int saveAsEnd = scanner.IndexOf("public bool RenameActiveSession",
+                saveAs, StringComparison.Ordinal);
+            Assert.That(saveAs, Is.GreaterThanOrEqualTo(0));
+            Assert.That(scanner.IndexOf("QuiesceForWorldClearAsync", saveAs,
+                    StringComparison.Ordinal), Is.Not.InRange(saveAs, saveAsEnd),
+                "SAVE AS retains the GPU world and must not quiesce for a clear");
+        }
+
         private static MerkabaTileSnapshot Tile(int3 blockCoord, int kernel)
         {
             var states = new KernelState[MerkabaSpatial.KernelsPerTile];

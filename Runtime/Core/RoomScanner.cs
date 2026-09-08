@@ -534,6 +534,32 @@ namespace Genesis.RoomScan
             }
         }
 
+        // Clearing the GPU world requires that the native queue owns no lease:
+        // MerkabaGrid.ClearGpuWorldForNewScan refuses a leased dual world. The
+        // readout job is submitted every rendered frame once the native scanner
+        // is ready, so quiescing scanning alone never reaches that state. This
+        // is the order DisableTeardownCoreAsync already established, and per
+        // closure 4.7 the in-flight job is waited out, never preempted by a CPU
+        // flag. The renderer's submission gate is not the grid's: suspending it
+        // stops new readout jobs while GpuSubmissionAllowed stays true, which
+        // SwitchStorageRootAsync requires.
+        private async Task<bool> QuiesceForWorldClearAsync()
+        {
+            _renderer?.SuspendGpuSubmission();
+            if (!await QuiesceScanningAsync()) return false;
+            if (!ReferenceEquals(_renderer, null))
+                await _renderer.FinishCurrentReadoutAsync();
+            if (!ReferenceEquals(_grid, null))
+                await _grid.FinishObservationDurableCutAsync();
+            return true;
+        }
+
+        private void ResumeSubmissionAfterWorldClear()
+        {
+            if (_applicationPaused || _disableRequested || _destroyed) return;
+            _renderer?.ResumeGpuSubmission();
+        }
+
         public async Task<bool> OpenSessionAsync(Guid sessionId)
         {
             if (IsBusy || sessionId == Guid.Empty) return false;
@@ -543,7 +569,7 @@ namespace Genesis.RoomScan
             bool success = false;
             try
             {
-                if (!await QuiesceScanningAsync()) return false;
+                if (!await QuiesceForWorldClearAsync()) return false;
                 if (!CloseOpenDesignForSessionSwitch()) return false;
                 ReportOperation(ScanOperationKind.Load,
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
@@ -554,6 +580,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                ResumeSubmissionAfterWorldClear();
                 FinishOperation(ScanOperationKind.Load, success,
                     _persistence?.LastStatus ?? "Open unavailable");
             }
@@ -595,11 +622,23 @@ namespace Genesis.RoomScan
         {
             if (IsBusy || sessionId == Guid.Empty) return false;
             bool wasActive = sessionId == ActiveSessionId;
-            if (!await QuiesceScanningAsync()) return false;
-            if (wasActive && !CloseOpenDesignForSessionSwitch()) return false;
-            bool deleted = _persistence != null &&
-                await _persistence.DeleteSessionAsync(sessionId);
-            return deleted;
+            // Only the active session replaces the GPU world; a stored session
+            // is deleted without touching the native queue.
+            if (wasActive)
+            {
+                if (!await QuiesceForWorldClearAsync()) return false;
+            }
+            else if (!await QuiesceScanningAsync()) return false;
+            try
+            {
+                if (wasActive && !CloseOpenDesignForSessionSwitch()) return false;
+                return _persistence != null &&
+                    await _persistence.DeleteSessionAsync(sessionId);
+            }
+            finally
+            {
+                if (wasActive) ResumeSubmissionAfterWorldClear();
+            }
         }
 
         public async Task NewClearAsync() => await NewClearAsync(null);
@@ -610,7 +649,7 @@ namespace Genesis.RoomScan
             _newSessionPending = true;
             try
             {
-                if (!await QuiesceScanningAsync()) return;
+                if (!await QuiesceForWorldClearAsync()) return;
                 if (!CloseOpenDesignForSessionSwitch()) return;
                 _anchorManager ??= RoomAnchorManager.Instance ??
                     FindAnyObjectByType<RoomAnchorManager>(
@@ -639,6 +678,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
+                ResumeSubmissionAfterWorldClear();
                 _newSessionPending = false;
             }
         }

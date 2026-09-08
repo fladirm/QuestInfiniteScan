@@ -8699,3 +8699,42 @@ survived at 2.39 GB RSS with 4.7 MB swap. A 3.8 minute cold start that evicts
 the system shell is a defect with a device receipt now, not an audit number.
 
 Warm cache is unmeasured; state=cold on this run.
+
+### THE NEXT BUG THE WORKING PIPELINES EXPOSED — leased dual world, 22:06Z
+
+With all 26 pipelines created, the first attempt to start a new session failed:
+
+  [RoomScan] Could not create a new Merkaba session:
+  System.InvalidOperationException: Cannot clear a leased dual GPU world.
+
+This was never reachable before. ClearGpuWorldForNewScan refuses to clear while
+MerkabaNativeVulkanExecutor.HasJobInFlight, and the FlowerReadout job is
+submitted from OnContextRendered on every rendered frame once the native
+scanner is ready. While the scanner was disabled no job existed and the guard
+was always satisfied. Now it is essentially never satisfied, so NewClearAsync,
+OpenSessionAsync and DeleteSessionAsync-on-the-active-session could not
+complete: all four _integrator.Clear() sites reach the same guard, and those
+three paths only called QuiesceScanningAsync, which stops scanning and leaves
+the readout job running.
+
+THE FIX IS THE ORDER THIS CODE ALREADY ESTABLISHED, NOT A NEW ONE.
+DisableTeardownCoreAsync already solves exactly this: suspend the renderer,
+quiesce scanning, then AWAIT FinishCurrentReadoutAsync and
+FinishObservationDurableCutAsync. That is now QuiesceForWorldClearAsync and the
+three world-replacing paths use it. Closure 4.7 is explicit that in-flight
+Vulkan work is waited out rather than preempted by a CPU flag, which is why the
+existing await primitives are reused instead of relaxing the guard.
+
+The two _gpuSubmissionSuspended fields are NOT the same flag and that is what
+makes this safe. MerkabaGrid's field drives GpuSubmissionAllowed, which
+SwitchStorageRootAsync requires to be true when it clears. MerkabaGridRenderer's
+field only gates OnContextRendered. Suspending the renderer stops new readout
+jobs while leaving GpuSubmissionAllowed true.
+
+SaveAsAsync deliberately keeps the GPU world, so it still uses the plain
+scanning quiesce and must not stall the renderer; the regression test asserts
+that too, along with the suspend/quiesce/readout/durable order.
+
+Tools/unity/run_merkaba_tests.sh: 365 total, 365 passed, 0 failed.
+DEVICE ACCEPTANCE PENDING for the session lifecycle itself: new session, open
+session and delete-active are untested on the headset after this change.
