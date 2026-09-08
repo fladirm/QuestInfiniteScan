@@ -8008,4 +8008,18 @@ confirms the check is right: subPassIndex is "-1 if not inside a render pass".
 Being outside a render pass therefore has to be structural. The cull now runs
 in its own MerkabaCullPass at RenderPassEvent.BeforeRendering, before URP opens
 the render pass that the draw at BeforeRenderingTransparents renders into.
-NOT YET VERIFIED ON DEVICE.
+MEASURED ON DEVICE: all three rejection messages drop from 8 328 in one capture
+to ZERO. The flower draw is no longer refused. Suite 364 total, 364 passed.
+
+WHAT STILL BLOCKS THE SCANNER IS OPEN-1 ALONE:
+  [RoomScan] Merkaba native startup FAILED: pipeline=FlowerCommit
+  VkResult=-13; scanner disabled.
+
+THE NEXT MEASUREMENT IS PREPARED AND ISOLATES THE CONFOUND. Halving the
+groupshared owner arrays — M8_FLOWER_REDUCTION_OWNER_COUNT 512 to 256 and the
+four FlowerCommit arrays to 256 — takes groupshared from 24 704 B to about
+12 352 B while the module stays 944 896 B, byte for byte, at 49 139 versus
+49 137 instructions. A build of that variant answers whether the driver
+rejects the module for its size or for its groupshared. It is a throwaway
+diagnostic: the arrays would be too small to be correct, so it must never be
+committed.

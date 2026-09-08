@@ -167,6 +167,13 @@ void InitializeFlowerDraw()
     config.renderPassPrecondition = kUnityVulkanRenderPass_DontCare;
     config.graphicsQueueAccess = kUnityVulkanGraphicsQueueAccess_DontCare;
     config.flags = kUnityVulkanEventConfigFlag_SyncWorkerThreads;
+    // Both events stay DontCare on purpose. ResetFlowerCullCount requires an
+    // outside-render-pass command buffer, but the precondition cannot deliver
+    // it here: IUnityGraphicsVulkan states that EnsureOutside is undefined in
+    // combination with the SRP RenderPass API, which URP's render graph uses,
+    // and setting it changed nothing on device. The caller must therefore be
+    // outside a render pass by construction, which is why the cull runs in its
+    // own BeforeRendering pass rather than beside the draw.
     g_vulkan->ConfigureEvent(g_flowerDrawEvent, &config);
     g_vulkan->ConfigureEvent(g_flowerDrawEvent + 1, &config);
     g_flowerDrawReady.store(true, std::memory_order_release);
