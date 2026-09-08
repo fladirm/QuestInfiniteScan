@@ -1,5 +1,6 @@
 #pragma kernel FlowerCommit
 #pragma kernel DrainFlowerGeometry
+#pragma kernel AdvanceRefinementStage
 #pragma kernel ResolveFlowerCarriers
 #pragma kernel DrainFlowerSkinRgb
 #pragma kernel DrainFlowerSkinV
@@ -646,55 +647,20 @@ void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 
 void M8FinalizeObservationCompletion()
 {
-    uint pendingRefinement = _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES];
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u)
     {
         uint failure = M8ObservationFailureReason();
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
-        uint stage=_M8Counters[M8_COUNTER_REFINEMENT_STAGE];
-        if(pendingRefinement==0u && (stage&M8_FLOWER_INVALIDATION_STAGE_MASK)!=0u)
-        {
-            // A failed/coarse-pending attempt still owes its already
-            // committed source/peer invalidation. The FIRST boundary retires
-            // all local epochs and required gather/load work before any peer
-            // mutation. The SECOND retires every successful exact peer ACK.
-            if((stage&M8_FLOWER_INVALIDATION_GATHER_STAGE)!=0u)
-                _M8Counters[M8_COUNTER_REFINEMENT_STAGE]=
-                    (stage&3u)|M8_FLOWER_INVALIDATION_PEER_STAGE;
-            else
-                // A late resident source can invalidate an already drained
-                // ancestor. Changed tiles reset their own cursors; replay the
-                // same global root/L1/L2 barriers, not R1 admission/decrement.
-                _M8Counters[M8_COUNTER_REFINEMENT_STAGE]=0u;
-            _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS]++;
-            if((stage&M8_FLOWER_INVALIDATION_GATHER_STAGE)!=0u || failure==0u)
-            {
-                pendingRefinement=1u;
-                _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES]=1u;
-            }
-        }
-        else if(failure==0u && pendingRefinement==0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES]==0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]==0u &&
-            stage<3u)
-        {
-            // This dispatch barrier publishes every endpoint's completed
-            // ancestor stage before any tile can read it in the next stage.
-            // The same immutable observation, images and bins stay held.
-            _M8Counters[M8_COUNTER_REFINEMENT_STAGE]++;
-            _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS]++;
-            pendingRefinement=1u;
-            _M8Counters[M8_COUNTER_REFINEMENT_PENDING_TILES]=1u;
-        }
-        if (failure != 0u && pendingRefinement == 0u)
-        {
+        // A snapshot is one bounded synchronous scan transaction. Its stage
+        // barriers already ran inside this command graph, so there is nothing
+        // left to schedule here and nothing to hold the frame for. A COLD tile
+        // was requested and skipped, an AMBIGUOUS dual read was skipped, a tile
+        // that did not exhaust its budget kept its cursor in the world; none of
+        // them may retain a snapshot, because the next snapshot arrives with a
+        // newer camera over an already better world. Publish, mark, release.
+        if (failure != 0u)
             _M8Counters[M8_COUNTER_FAILED_OBSERVATIONS] += 1u;
-            _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
-        }
-        else if (failure == 0u && pendingRefinement == 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u)
-            _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
+        _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
     }
     uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
     uint failure = _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
@@ -722,6 +688,38 @@ void M8FinalizeObservationCompletion()
             (_M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS] != 0u ?
                 M8_ATTEMPT_COMPLETION_REFINEMENT_PROGRESS : 0u),
         _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+}
+
+// root -> L1 -> L2 -> skin are dependency barriers of ONE snapshot command
+// graph. A workgroup cannot publish the next stage, because on this hardware
+// sibling groups of the same dispatch have not necessarily started yet and
+// would read a stage they were not scheduled for. The barrier is therefore a
+// dispatch of its own: one group, one lane, between the drains.
+[numthreads(1, 1, 1)]
+void AdvanceRefinementStage()
+{
+    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
+    // The source/peer invalidation cut outranks refinement: an already
+    // committed structural change may not be left behind with its old fine
+    // epoch. It owns a persistent phase in the world, so it is finished by
+    // whichever snapshots follow, and no snapshot is ever held for it.
+    uint owed = _M8Counters[M8_COUNTER_INVALIDATION_OWED];
+    if (owed != 0u)
+    {
+        // Advance only when every writer of this phase succeeded. A busy
+        // arena leaves the phase where it is; the next snapshot retries it
+        // against a world that has moved on, not against a stale frame.
+        if ((owed & M8_FLOWER_INVALIDATION_WRITE_FAILED) != 0u)
+            _M8Counters[M8_COUNTER_INVALIDATION_OWED] =
+                owed & ~M8_FLOWER_INVALIDATION_WRITE_FAILED;
+        else
+            _M8Counters[M8_COUNTER_INVALIDATION_OWED] =
+                owed == M8_FLOWER_INVALIDATION_GATHER_PHASE
+                    ? M8_FLOWER_INVALIDATION_PEER_PHASE : 0u;
+        return;
+    }
+    uint stage = _M8Counters[M8_COUNTER_REFINEMENT_STAGE];
+    if (stage < 3u) _M8Counters[M8_COUNTER_REFINEMENT_STAGE] = stage + 1u;
 }
 
 groupshared uint gFlowerFinalizeSourceReady;

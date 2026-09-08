@@ -14,25 +14,27 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 18: the drain is four entry points on one continuation chain,
-        // geometry, carrier resolve, RGB signal and V signal, so the pipeline
-        // table is 26 entries.
-        internal const int AbiVersion = 19;
+        // ABI 20: one snapshot is one bounded synchronous scan transaction.
+        // The drain is four entry points - geometry, carrier resolve, RGB
+        // signal, V signal - and the stage barrier between them is its own
+        // one-group dispatch, so the pipeline table is 27 entries.
+        internal const int AbiVersion = 20;
         internal const int ResourceCount = 43;
-        internal const int PipelineCount = 23;
-        // A native observation also dispatches publication Reserve once and
-        // its three allocation barriers after DrainFlowerSkinV.
-        internal const int MaximumDispatchTimingCount = PipelineCount + 4;
+        internal const int PipelineCount = 27;
+        // One observation also repeats Count for the allocation round trip,
+        // dispatches publication Reserve once, advances the stage three times
+        // and runs its allocation barriers twice.
+        internal const int MaximumDispatchTimingCount = PipelineCount + 8;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint
         {
-            ObservationNew = 0,
-            ObservationRetry = 1,
-            FlowerReadout = 2,
-            FineErase = 3,
-            // Only the remaining workset of an immutable observation.
-            ObservationContinue = 4,
+            // One snapshot is one bounded synchronous scan transaction, so there
+            // is exactly one observation kind. A retry or a continuation would
+            // be a second attempt at a frame the world has already moved past.
+            Observation = 0,
+            FlowerReadout = 1,
+            FineErase = 2,
         }
 
         [Flags]
@@ -135,6 +137,7 @@ namespace Genesis.RoomScan
             "UpdateObservationDual",
             "FlowerCommit",
             "DrainFlowerGeometry",
+            "AdvanceRefinementStage",
             "ResolveFlowerCarriers",
             "DrainFlowerSkinRgb",
             "DrainFlowerSkinV",
@@ -574,7 +577,7 @@ namespace Genesis.RoomScan
                 command.IssuePluginEventAndData(callback, prepareEvent, _handle);
                 command.IssuePluginEventAndData(callback, submitEvent, _handle);
                 _recorded = true;
-                if (_kind == JobKind.ObservationNew && _observation != 0u &&
+                if (_kind == JobKind.Observation && _observation != 0u &&
                     Time.realtimeSinceStartupAsDouble >= _nextObservationTimingAt)
                 {
                     _nextObservationTimingAt = Time.realtimeSinceStartupAsDouble + TimingLogIntervalSeconds;
@@ -585,7 +588,7 @@ namespace Genesis.RoomScan
                             Time.realtimeSinceStartupAsDouble
                     };
                 }
-                _sampleObservation = (_kind == JobKind.ObservationNew || _kind == JobKind.ObservationRetry) &&
+                _sampleObservation = _kind == JobKind.Observation &&
                     _observationTiming != null && _observationTiming.Token == _observation;
                 if (_sampleObservation) _observationTiming.Quanta++;
 #else

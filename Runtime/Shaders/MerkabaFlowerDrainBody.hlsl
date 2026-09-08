@@ -23,8 +23,10 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
     }
     if(group.x>=M8_FLOWER_SKIN_RECEIPT_TILES)
     {
-        // Bounded receipt region: a tile beyond it is deferred through the
-        // existing pending counter, not given a new allocation.
+        // The receipt arena is what one snapshot can carry between its resolve
+        // and signal dispatches. A tile past it is simply not skinned by THIS
+        // snapshot; its geometry already committed and the next snapshot, with
+        // its own touched queue, skins it. Nothing is owed and nothing is held.
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
         return;
     }
@@ -32,28 +34,40 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
         m8FineReceiptTile=group.x;}
     GroupMemoryBarrierWithGroupSync();
     uint stage=_M8Counters[M8_COUNTER_REFINEMENT_STAGE];
+    // The owed invalidation cut is a property of the world, so it is read from
+    // its own persistent counter. While a cut is owed no refinement runs at
+    // all: no tile may advance fine evidence past a structural change whose
+    // epoch has not been retired yet.
+    uint phase=_M8Counters[M8_COUNTER_INVALIDATION_OWED]&
+        M8_FLOWER_INVALIDATION_PHASE_MASK;
     // Each entry point serves one side of the frozen geometry/signal
     // boundary. Geometry is stages 0..2, skin is stage 3, and the global
     // Finalize barrier already guarantees they never overlap, so the other
     // side's code is not merely unreached here, it is not emitted at all.
 #if M8_DRAIN_SKIN
-    if((stage&M8_FLOWER_INVALIDATION_STAGE_MASK)==0u && stage!=3u)return;
+    if(phase==0u && stage!=3u)return;
 #else
-    if((stage&M8_FLOWER_INVALIDATION_STAGE_MASK)==0u && stage==3u)return;
+    if(phase==0u && stage==3u)return;
 #endif
 #if !M8_DRAIN_SKIN
     // The invalidation writer belongs to geometry. The signal stages never
     // author epochs, so carrying its code would only put a geometry writer
     // inside a signal module.
-    M8FlowerDrainLocalInvalidations(slot,lane,runtime.w,stage);
-    if((stage&M8_FLOWER_INVALIDATION_STAGE_MASK)!=0u && m8FineWriteStatus==0u)
+    M8FlowerDrainLocalInvalidations(slot,lane,runtime.w,phase);
+    if(phase!=0u && m8FineWriteStatus==0u)
         M8FlowerDrainPeerInvalidations(slot,lane,runtime.w,
-            (stage&M8_FLOWER_INVALIDATION_GATHER_STAGE)==0u);
+            phase==M8_FLOWER_INVALIDATION_PEER_PHASE);
 #endif
     if(m8FineWriteStatus!=0u)
     {
         if(lane==0u)
         {
+            // A failed invalidation writer keeps its phase where it is, so
+            // the next snapshot repeats that phase. Ordinary refinement that
+            // ran out of its bounded budget signals nothing.
+            if(phase!=0u)
+                InterlockedOr(_M8Counters[M8_COUNTER_INVALIDATION_OWED],
+                    M8_FLOWER_INVALIDATION_WRITE_FAILED);
             M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
             M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
         }
@@ -62,32 +76,50 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
     // No phase or skin writer runs between the global gather and peer ACK
     // boundaries. Finalize retains even a failed observation until both cuts
     // retire. This precedes bin.y==0, cursor and evidence-failure early outs.
-    if((stage&M8_FLOWER_INVALIDATION_STAGE_MASK)!=0u)return;
+    if(phase!=0u)return;
     // Even a later coarse allocation/error must not strand an earlier M8
     // structural change with its old fine epoch. Only metric work waits for
     // the complete direct/dual attempt; the epoch transaction runs above.
+    // UNRESOLVED_OBSERVATION_TILES counts tiles this snapshot skipped: a COLD
+    // dual chunk, a kernel the dual has not certified FULL, a bin the allocator
+    // only created now. Those are the normal state of a world whose default is
+    // UNKNOWN, so a global veto on them meant no tile ever refined. The two
+    // conditions that really are global stay: a measurement-identity failure,
+    // and a parent whose once-only R1 commit still holds its read lease.
     if(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE]!=0u ||
+        _M8Counters[M8_COUNTER_FINE_LEASE_BUSY]!=0u ||
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES]!=0u ||
-        _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]!=0u ||
         runtime.x!=_M8ObservationToken)return;
     uint4 bin=_M8ObservationTileBinsRead[slot];
     if(bin.x!=_M8ObservationToken || bin.w!=bin.y ||
         (bin.y!=0u&&(bin.z>=_M8ObservationRecordCapacity ||
             bin.y>_M8ObservationRecordCapacity-bin.z)))return;
-    uint cursor=M8FlowerTilePendingCursor(slot,runtime.w,_M8ObservationToken);
+    // The persistent FlowerDetail world is the refinement memory, so the
+    // cursor is keyed by the slot generation alone. Keyed by the observation
+    // token it restarted at zero every snapshot, which is why the old model
+    // had to hold one snapshot until the whole worklist drained. It now
+    // survives snapshots and dies with the tile generation that changed.
+    uint cursor=M8FlowerTileRefinementCursor(slot,runtime.w);
     uint stageBegin=stage==0u?0u:stage==1u?M8_FLOWER_ROOT_PHASE_TASKS:
         stage==2u?M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS:M8_FLOWER_SKIN_CURSOR_BASE;
     uint stageEnd=stage==0u?M8_FLOWER_ROOT_PHASE_TASKS:stage==1u?
         M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS:M8_FLOWER_PHASE_TASKS;
     if(cursor==M8_FLOWER_PHASE_TASKS || (stage<3u && cursor>=stageEnd))return;
-    if(stage>3u || cursor<stageBegin)
+    if(stage>3u)
     {
         if(lane==0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
         return;
     }
+    // Stages are dependency barriers of one snapshot command graph, so every
+    // tile passes all four dispatches in order. Tiles do not advance at the
+    // same rate: one still inside the root span when the L1 barrier arrives
+    // has simply not reached that dependency yet, and continues its roots in
+    // the next snapshot's root dispatch. That is progress, not an identity
+    // failure - the cursor is monotone and lives in the world.
+    if(cursor<stageBegin)return;
     if(bin.y==0u)
     {
-        if(lane==0u)M8FlowerStoreTilePendingCursor(slot,runtime.w,
+        if(lane==0u)M8FlowerStoreTileRefinementCursor(slot,runtime.w,
             _M8ObservationToken,M8_FLOWER_PHASE_TASKS);
         return;
     }
@@ -128,7 +160,7 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
     GroupMemoryBarrierWithGroupSync();
     if(m8FineAnyActive==0u)
     {
-        if(lane==0u)M8FlowerStoreTilePendingCursor(slot,runtime.w,
+        if(lane==0u)M8FlowerStoreTileRefinementCursor(slot,runtime.w,
             _M8ObservationToken,M8_FLOWER_PHASE_TASKS);
         return;
     }
@@ -308,11 +340,11 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
         // leave the stored cursor exactly as they found it, which also makes
         // their retry idempotent under the same observation token.
 #if M8_DRAIN_SKIN && (M8_DRAIN_RESOLVE || M8_DRAIN_SIGNAL==0)
-        if(!M8FlowerStoreTilePendingCursor(slot,runtime.w,_M8ObservationToken,entryCursor))
+        if(!M8FlowerStoreTileRefinementCursor(slot,runtime.w,_M8ObservationToken,entryCursor))
             m8FineWriteStatus=M8_FLOWER_SIDECAR_STALE_SLOT;
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
 #else
-        if(!M8FlowerStoreTilePendingCursor(slot,runtime.w,_M8ObservationToken,cursor))
+        if(!M8FlowerStoreTileRefinementCursor(slot,runtime.w,_M8ObservationToken,cursor))
             m8FineWriteStatus=M8_FLOWER_SIDECAR_STALE_SLOT;
         if((stage<3u?cursor<stageEnd:cursor!=M8_FLOWER_PHASE_TASKS) || m8FineWriteStatus!=0u)
             M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);

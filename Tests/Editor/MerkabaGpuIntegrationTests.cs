@@ -464,7 +464,7 @@ namespace Genesis.RoomScan.Tests
             string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
             string grid = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
-            Assert.That(integrator, Does.Contain("_bins.Record(command, reset: !newObservation)"));
+            Assert.That(integrator, Does.Contain("_bins.Record(command, reset: false)"));
             Assert.That(integrator, Does.Not.Contain(
                 "MerkabaSpatial.PhysicalTileCapacity / 64"));
             Assert.That(grid, Does.Contain(
@@ -650,15 +650,6 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Merkaba/MerkabaGrid.Storage.cs");
             string integrator = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
-            string submit = Slice(integrator,
-                "internal bool TrySubmitObservationAttempt()",
-                "private bool CanRetryPreparedObservation()");
-            string retire = Slice(integrator,
-                "internal bool TryRetireObservationAttempt()",
-                "internal bool TrySubmitObservationAttempt()");
-            string retry = Slice(integrator,
-                "private bool CanRetryPreparedObservation()",
-                "private void RememberObservationAttemptDependencies()");
             string apply = Slice(storage, "private void ApplySampledCounters",
                 "private void BeginLoadAddressReadback");
 
@@ -666,13 +657,12 @@ namespace Genesis.RoomScan.Tests
                 "#define M8_COUNTER_RESIDENCY_EPOCH 44u"));
             Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(44));
             Assert.That(world, Does.Contain("M8SignalResidencyChange"));
-            Assert.That(submit, Does.Contain("RememberObservationAttemptDependencies()"));
-            Assert.That(integrator, Does.Contain(
-                "_attemptResidencyEpoch = _grid.ResidencyEpoch"));
-            Assert.That(retire, Does.Not.Contain(
-                "_attemptResidencyEpoch ="));
-            Assert.That(retry, Does.Contain(
-                "_grid.ResidencyEpoch != _attemptResidencyEpoch"));
+            // The epoch is still the GPU-owned signal that a reference span was
+            // reclaimed. It is no longer a reason to resubmit a frame: a
+            // snapshot is released at its fence, so the next snapshot simply
+            // reads the newer residency.
+            Assert.That(integrator, Does.Not.Contain("_attemptResidencyEpoch"),
+                "residency movement is not a reason to re-attempt a snapshot");
             Assert.That(apply, Does.Contain(
                 "PublishResidencyEpoch(values[CounterResidencyEpoch])"));
             Assert.That(storage, Does.Not.Contain(
@@ -692,7 +682,7 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
             string submit = Slice(integrator,
                 "internal bool TrySubmitObservationAttempt()",
-                "private bool CanRetryPreparedObservation()");
+                "private bool TrySubmitNativeObservationAttempt()");
             string storage = Source(
                 "Runtime/Merkaba/MerkabaGrid.Storage.cs");
             string pump = Slice(storage, "private void PumpStorage()",
@@ -803,86 +793,121 @@ namespace Genesis.RoomScan.Tests
             Assert.That(managed, Does.Contain(
                 "if (!log && !_sampleObservation) return"));
             Assert.That(managed, Does.Contain("sample.PipelineDispatches[pipeline]++"));
-            Assert.That(integrator, Does.Contain("JobKind.ObservationNew"));
-            Assert.That(integrator, Does.Contain("JobKind.ObservationRetry"));
+            Assert.That(integrator, Does.Contain("JobKind.Observation;"));
             Assert.That(integrator, Does.Contain("JobKind.FineErase"));
             Assert.That(generator, Does.Contain("StereoRgbdRefine"));
             Assert.That(generator, Does.Contain("FinalizeObservation"));
             Assert.That(generator, Does.Contain("FinalizeFineErase"));
         }
 
-        // Stereo, the depth certificate, the bins and the dual excavation are the
-        // work of ONE immutable observation. A refinement quantum carries no new
-        // visibility, so re-running them cannot change a single certified node.
-        // On device the retry schedule paid UpdateObservationDual for 3932 ms of
-        // a 3933 ms attempt, ~135 times per tile, which is why nothing ever
-        // retired. Closure 4.3: "Drain dostane jen zbylou praci." REV-C keeps
-        // FULL re-examinable by a NEW observation, never by the same token
-        // entering another quantum.
+        // REV-C 18 and closure 4.3 used to say the drain gets "the remaining
+        // work of the SAME immutable observation", which turned a realtime
+        // scanner into a grinding buffer: on device one snapshot was re-entered
+        // past 200 attempts with obs=1 stage=1 pendingTiles=1 frozen for 50 s
+        // and zero triangles, while ~3000 newer depth frames went unread. The
+        // corrected contract: one snapshot is one bounded synchronous scan
+        // transaction, the persistent M8/dual/FlowerDetail/ThreadAtlas world is
+        // the refinement memory, and a camera observation is evidence, not a
+        // work queue.
         [Test]
-        public void RefinementContinuation_DoesNotReacquireOrRecertifyTheObservation()
+        public void OneSnapshotIsOneBoundedScanTransaction()
         {
             string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
             string generator = Source(
                 "Tools/unity/generate_merkaba_native_executor_shaders.py");
+            string executor = Source(
+                "Runtime/Telemetry/MerkabaNativeVulkanExecutor.cs");
+            string native = Source(
+                "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp");
+            string drain = Source("Runtime/Shaders/MerkabaFlowerDrainBody.hlsl");
+            string completion = Slice(
+                Source("Runtime/Shaders/MerkabaIntegration.compute"),
+                "void M8FinalizeObservationCompletion()", "\n}") + "\n}";
 
-            // Only a real dependency change may re-acquire.
-            Assert.That(integrator, Does.Contain("_resumeNeedsAcquisition ="));
-            Assert.That(integrator, Does.Contain(
-                "JobKind.ObservationContinue"));
-            int decide = integrator.IndexOf("JobKind kind = newObservation",
-                StringComparison.Ordinal);
-            Assert.That(decide, Is.GreaterThanOrEqualTo(0),
-                "the kind must be chosen in one place");
-            int branch = integrator.IndexOf("_resumeNeedsAcquisition", decide,
-                StringComparison.Ordinal);
-            Assert.That(branch, Is.GreaterThan(decide),
-                "the kind must branch on whether acquisition is needed");
-            int retryKind = integrator.IndexOf("JobKind.ObservationRetry", branch,
-                StringComparison.Ordinal);
-            int continueKind = integrator.IndexOf("JobKind.ObservationContinue",
-                branch, StringComparison.Ordinal);
-            Assert.That(retryKind, Is.GreaterThan(branch));
-            Assert.That(continueKind, Is.GreaterThan(retryKind),
-                "acquisition-needed takes the retry, everything else continues");
-
-            // Refinement progress alone must not set it.
-            int assign = integrator.IndexOf("_resumeNeedsAcquisition =",
-                StringComparison.Ordinal);
-            int assignEnd = integrator.IndexOf(';', assign);
-            string condition = integrator.Substring(assign, assignEnd - assign);
-            Assert.That(condition, Does.Contain("ResidencyEpoch"));
-            Assert.That(condition, Does.Contain("loadCursor"));
-            Assert.That(condition, Does.Contain("durableGeneration"));
-            Assert.That(condition, Does.Not.Contain("_retryAfterPublishedChange"),
-                "a refinement quantum is not a dependency change");
-
-            // The continuation schedule drains and finalizes, nothing else.
-            int schedule = generator.IndexOf("continuation = [",
-                StringComparison.Ordinal);
-            int scheduleEnd = generator.IndexOf("[\"FinalizeObservation\"]",
-                schedule, StringComparison.Ordinal);
-            Assert.That(schedule, Is.GreaterThanOrEqualTo(0));
-            Assert.That(scheduleEnd, Is.GreaterThan(schedule));
-            string body = generator.Substring(schedule, scheduleEnd - schedule);
-            foreach (string reacquired in new[]
+            // Nothing resumes a prepared snapshot.
+            foreach (string resumed in new[]
             {
-                "UpdateObservationDual", "CountObservationBins",
-                "EmitObservationBins", "ReserveObservationBins",
-                "BuildDepthCertificate", "ReduceDepthCertificate",
-                "StereoFlowerRefine", "ResetObservationBins", "FlowerCommit"
+                "CanRetryPreparedObservation", "_resumeNeedsAcquisition",
+                "_waitingForDependency", "_retryAfterPublishedChange",
+                "RememberObservationAttemptDependencies", "newObservation",
+                "JobKind.ObservationRetry", "JobKind.ObservationContinue"
             })
-                Assert.That(body, Does.Not.Contain(reacquired),
-                    reacquired + " belongs to the immutable observation");
-            foreach (string drained in new[]
-            {
-                "DrainFlowerGeometry", "ResolveFlowerCarriers",
-                "DrainFlowerSkinRgb", "DrainFlowerSkinV"
-            })
-                Assert.That(body, Does.Contain(drained),
-                    drained + " is the remaining work a continuation owes");
-            Assert.That(generator, Does.Contain("(\"ObservationContinue\", continuation)"),
-                "the schedule must be embedded, and last so existing kinds keep their index");
+                Assert.That(integrator, Does.Not.Contain(resumed),
+                    resumed + " is a second attempt at one frame");
+            Assert.That(executor, Does.Not.Contain("ObservationRetry"));
+            Assert.That(executor, Does.Not.Contain("ObservationContinue"));
+            Assert.That(native, Does.Not.Contain("kJobObservationRetry"));
+            Assert.That(native, Does.Not.Contain("kJobObservationContinue"));
+            Assert.That(native, Does.Contain("kJobKindCount = 3,"));
+
+            // Finalize publishes and releases; it schedules nothing.
+            Assert.That(completion, Does.Contain(
+                "_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;"));
+            Assert.That(completion, Does.Not.Contain(
+                "M8_COUNTER_REFINEMENT_PENDING_TILES"),
+                "a tile that did not finish its budget may not hold a snapshot");
+            Assert.That(completion, Does.Not.Contain("M8_COUNTER_REFINEMENT_STAGE"),
+                "the stage is a barrier index inside the graph, not a life stage");
+
+            // The stage barriers are dispatches of this one graph, and the
+            // allocation round trip that used to need a retry is a barrier too.
+            int observation = generator.IndexOf("observation = [",
+                StringComparison.Ordinal);
+            int observationEnd = generator.IndexOf("\"FinalizeObservation\",",
+                observation, StringComparison.Ordinal);
+            Assert.That(observation, Is.GreaterThanOrEqualTo(0));
+            Assert.That(observationEnd, Is.GreaterThan(observation));
+            string schedule = generator.Substring(observation,
+                observationEnd - observation);
+            Assert.That(Regex.Matches(schedule, "\"DrainFlowerGeometry\"").Count,
+                Is.EqualTo(3), "root, L1 and L2 are three barriers of ONE graph");
+            Assert.That(Regex.Matches(schedule, "\"AdvanceRefinementStage\"").Count,
+                Is.EqualTo(3), "a workgroup may not publish its own dispatch stage");
+            Assert.That(Regex.Matches(schedule, "\"CountObservationBins\"").Count,
+                Is.EqualTo(2), "count, allocate, count again - inside one graph");
+            Assert.That(generator, Does.Contain("(\"Observation\", observation)"));
+            Assert.That(generator, Does.Not.Contain("continuation = ["));
+            Assert.That(generator, Does.Not.Contain("retry = "));
+            Assert.That(generator, Does.Not.Contain("(\"ObservationRetry\","));
+            Assert.That(generator, Does.Not.Contain("(\"ObservationContinue\","));
+
+            // The tile cursor is the world's refinement memory, not a workset
+            // the observation owns. Keyed by the observation it restarted at
+            // zero every snapshot, which is what forced the retention.
+            Assert.That(drain, Does.Contain(
+                "M8FlowerTileRefinementCursor(slot,runtime.w)"));
+            Assert.That(drain, Does.Not.Contain("M8FlowerTilePendingCursor"));
+            // A COLD dual chunk or a kernel the dual has not certified FULL is
+            // the normal state of a world whose default is UNKNOWN. Vetoing all
+            // refinement on it meant no tile ever refined at all.
+            Assert.That(drain, Does.Not.Contain(
+                "_M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]!=0u"));
+            Assert.That(drain, Does.Contain(
+                "_M8Counters[M8_COUNTER_FINE_LEASE_BUSY]!=0u"),
+                "the R1 read lease is the one genuine cross-tile veto");
+        }
+
+        // The managed and native ABI constants live in two files and are
+        // compared at runtime, so a one-sided bump does not fail the build or
+        // the suite - it ships and the scanner refuses to start with "Native
+        // executor ABI does not match this application", which reads on device
+        // as a scan that claims to run and produces no chunks. That is exactly
+        // what a schedule change did here.
+        [Test]
+        public void ExecutorAbiVersion_MatchesBetweenManagedAndNative()
+        {
+            string managed = Source(
+                "Runtime/Telemetry/MerkabaNativeVulkanExecutor.cs");
+            string native = Source(
+                "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp");
+            Match csharp = Regex.Match(managed,
+                @"internal const int AbiVersion = (\d+);");
+            Match cpp = Regex.Match(native,
+                @"constexpr uint32_t kExecutorAbiVersion = (\d+);");
+            Assert.That(csharp.Success, Is.True, "managed ABI constant");
+            Assert.That(cpp.Success, Is.True, "native ABI constant");
+            Assert.That(cpp.Groups[1].Value, Is.EqualTo(csharp.Groups[1].Value),
+                "a schedule, resource or pipeline change must bump BOTH sides");
         }
 
         [Test]

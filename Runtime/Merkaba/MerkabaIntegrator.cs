@@ -26,6 +26,7 @@ namespace Genesis.RoomScan
         private bool _observationRequestedIsFine;
         private int _flowerCommitKernel;
         private int _drainGeometryKernel;
+        private int _advanceStageKernel;
         private int _resolveCarriersKernel;
         private int _drainSkinRgbKernel;
         private int _drainSkinVKernel;
@@ -44,16 +45,8 @@ namespace Genesis.RoomScan
         private int _observationExclusionCount;
         private int _observationDepthVersion;
         private bool _attemptInFlight;
-        private bool _waitingForDependency;
         private uint _attemptSequence;
         private uint _attemptToken;
-        private uint _attemptResidencyEpoch;
-        private uint _attemptLoadRequestCursor;
-        private uint _attemptDualDurableGeneration;
-        private bool _retryAfterPublishedChange;
-        // Set by CanRetryPreparedObservation: true only when a real dependency
-        // moved, which is the one case a resume must re-acquire.
-        private bool _resumeNeedsAcquisition;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeAttemptJob;
         private bool _nativeAttemptIncludesPreprocess;
@@ -76,8 +69,11 @@ namespace Genesis.RoomScan
 
         private const int CameraEyeCount = 2;
         private const int CameraObservationSlots = 2;
-        // Scheduling budget only. Unconsumed candidates retain the frozen
-        // observation and its GPU cursor; this never limits admitted detail.
+        // How much refinement ONE bounded snapshot contributes per tile. It is
+        // not a continuation quantum: unconsumed candidates retain nothing, the
+        // snapshot releases at its fence, and the tile's cursor stays in the
+        // world for whichever snapshot comes next. It never limits admitted
+        // detail, only how much of it a single frame pays for.
         private const int RefinementCandidatePassesPerQuantum = 64;
 #if UNITY_EDITOR || !UNITY_ANDROID
         private static readonly uint[] FineEraseZero = { 0u };
@@ -278,12 +274,15 @@ namespace Genesis.RoomScan
                 _grid.M8ObservationRecords);
             _flowerCommitKernel = compute.FindProfiledKernel(
                 "FlowerCommit", MerkabaGpuStage.SurfaceIntegration);
-            // One serialized continuation chain, two entry points. Geometry
-            // serves stages 0..2 and skin serves stage 3; the global Finalize
-            // barrier already keeps them apart, so neither carries the other's
-            // code and neither needs a barrier between them.
+            // Two entry points over one snapshot. Geometry serves the root, L1
+            // and L2 barriers and skin serves the fourth; neither carries the
+            // other's code. The barrier between them is a dispatch of its own,
+            // because a workgroup cannot publish a stage its own sibling groups
+            // may not have read yet.
             _drainGeometryKernel = compute.FindProfiledKernel(
                 "DrainFlowerGeometry", MerkabaGpuStage.SurfaceIntegration);
+            _advanceStageKernel = compute.FindProfiledKernel(
+                "AdvanceRefinementStage", MerkabaGpuStage.SurfaceIntegration);
             // The resolver predicts the parent, applies the persisted
             // residual and classifies the carrier exactly once; the two
             // signal passes consume its receipt and repeat none of it.
@@ -305,7 +304,8 @@ namespace Genesis.RoomScan
                 "FinalizeFineErase", MerkabaGpuStage.SurfaceIntegration);
             foreach (int kernel in new[]
                      {
-                         _flowerCommitKernel, _drainGeometryKernel, _resolveCarriersKernel,
+                         _flowerCommitKernel, _drainGeometryKernel,
+                         _advanceStageKernel, _resolveCarriersKernel,
                          _drainSkinRgbKernel, _drainSkinVKernel,
                          _updateObservationDualKernel,
                          _finalizeKernel, _queryFineEraseKernel,
@@ -489,19 +489,16 @@ namespace Genesis.RoomScan
                 return FinishObservation(_grid.CompletedObservationFailure);
             }
 
-            _waitingForDependency = true;
-            // A completed quantum may have released reference spans or
-            // published other certain work even though a later block could
-            // not finish. Consume that real progress once, against the same
-            // immutable observation. A no-change retry cannot re-arm itself.
-            _retryAfterPublishedChange = _grid.CompletedObservationChangedReadout ||
-                _grid.CompletedRefinementProgress;
-            Logger.Info("Merkaba observation attempt unresolved " +
-                        $"observation={_observationToken} " +
+            // FinalizeObservation publishes and releases unconditionally, so a
+            // retired attempt whose token did not complete means the graph did
+            // not reach its finalize dispatch. Release the snapshot rather than
+            // holding it: the certified work is already published, and the next
+            // snapshot observes a newer world with a newer camera.
+            Logger.Error("Merkaba observation did not reach its finalize " +
+                        $"dispatch; observation={_observationToken} " +
                         $"attempt={_attemptToken} " +
-                        $"attemptResidencyEpoch={_attemptResidencyEpoch} " +
-                        $"currentResidencyEpoch={_grid.ResidencyEpoch}");
-            return false;
+                        $"completed={_grid.CompletedObservationToken}");
+            return FinishObservation(_grid.CompletedObservationFailure);
         }
 
         internal bool TryPrepareFineErase(FineBrushDescriptor descriptor)
@@ -749,30 +746,26 @@ namespace Genesis.RoomScan
                 !Initialize() || _attemptInFlight || _fineErasePrepared ||
                 _fineEraseAttemptInFlight)
                 return false;
-            bool newObservation = !_observationPrepared;
-            // Existing immutable work must still drain under the export lease.
-            if (newObservation && _scanner != null && _scanner.ExportMutationHeld)
-                return false;
-            bool fineRequest = _observationPrepared ? _heldFineBrush.IsRefine :
-                _readyCameraSlot >= 0 && _cameraFineBrush[_readyCameraSlot].IsRefine;
+            // A snapshot is acquired, submitted as one bounded transaction and
+            // released at its fence. There is nothing to resume: while one is
+            // prepared, the only thing that may happen to it is retirement.
+            if (_observationPrepared) return false;
+            if (_scanner != null && _scanner.ExportMutationHeld) return false;
+            bool fineRequest = _readyCameraSlot >= 0 &&
+                _cameraFineBrush[_readyCameraSlot].IsRefine;
             if (!fineRequest && _pageOpportunityFrame == Time.frameCount &&
                 _pageRenderer != null && _pageRenderer.isActiveAndEnabled &&
                 _pageRenderer.ReadoutDrawEnabled)
                 return false;
-            if (newObservation)
-            {
-                if (!DepthCapture.DepthAvailable ||
-                    !_depthCapture.HasUnprocessedFrame ||
-                    !HasReadyStereoCameraFrame)
-                    return false;
-                // Calibration intervals and the 25 mm lattice are metric.
-                // Reject a scaled/sheared scene hierarchy before either eye
-                // or a depth observation is leased; do not silently rescale
-                // measured errors or reinterpret the canonical scan space.
-                if (!HasRigidObservationFrame()) return false;
-            }
-            else if (!CanRetryPreparedObservation())
+            if (!DepthCapture.DepthAvailable ||
+                !_depthCapture.HasUnprocessedFrame ||
+                !HasReadyStereoCameraFrame)
                 return false;
+            // Calibration intervals and the 25 mm lattice are metric.
+            // Reject a scaled/sheared scene hierarchy before either eye
+            // or a depth observation is leased; do not silently rescale
+            // measured errors or reinterpret the canonical scan space.
+            if (!HasRigidObservationFrame()) return false;
 
             // Record an actual logically eligible request before the lease
             // gate: it may still be held by a page job that retires later in
@@ -788,7 +781,7 @@ namespace Genesis.RoomScan
                 // in progress is not an error to spam once per XR frame.
                 return false;
             }
-            return TrySubmitNativeObservationAttempt(newObservation);
+            return TrySubmitNativeObservationAttempt();
 #else
 
             CommandBuffer command = CommandBufferPool.Get(
@@ -798,12 +791,10 @@ namespace Genesis.RoomScan
             uint dualGeneration = 0u;
             try
             {
-                if (newObservation)
-                    timedSubmission = MerkabaGpuTimestamps.TryAcquire(
-                        CaptureOwner.Observation,
-                        unchecked((uint)Math.Max(1, IntegrationCount + 1)),
-                        command);
-                if (newObservation)
+                timedSubmission = MerkabaGpuTimestamps.TryAcquire(
+                    CaptureOwner.Observation,
+                    unchecked((uint)Math.Max(1, IntegrationCount + 1)),
+                    command);
                 {
                     AcquireCameraObservation();
                     bool consumed = _depthCapture.ConsumeLatestDepthFrame(
@@ -829,19 +820,24 @@ namespace Genesis.RoomScan
                 dualGeneration = _grid.RecordDualMutation(command, compute);
                 command.SetComputeIntParam(compute, AttemptTokenId,
                     unchecked((int)_attemptToken));
-                // FINE/ERASE may have used this shader between quanta.
-                // Rebind the held observation, never current camera state.
+                // FINE/ERASE may have used this shader since the last
+                // snapshot. Bind this snapshot's own observation.
                 ConfigureObservation();
-                _bins.Record(command, reset: !newObservation);
+                _bins.Record(command, reset: false);
                 // All required resident negative support is resolved before
                 // the one touched-tile workgroup can commit direct evidence.
                 DispatchObservationDual(command);
                 _bins.RecordTouchedPublication(command);
                 _bins.RecordCommit(command, compute, _flowerCommitKernel);
-                // The same touched dispatch consumes only GPU-resident
-                // candidates and advances its cursor before storage can reuse
-                // the indirect arguments. No camera acquisition or readback.
-                _bins.RecordCommit(command, compute, _drainGeometryKernel);
+                // root, L1 and L2 are three dependency barriers of THIS
+                // snapshot, each followed by its own one-group stage advance.
+                // No camera acquisition and no readback between them.
+                for (int barrier = 0; barrier < 3; barrier++)
+                {
+                    _bins.RecordCommit(command, compute, _drainGeometryKernel);
+                    command.DispatchComputeProfiled(compute, _advanceStageKernel,
+                        1, 1, 1);
+                }
                 // Resolve, then RGB, then V. Each returns immediately outside
                 // its own stage, and only V advances the shared cursor.
                 _bins.RecordCommit(command, compute, _resolveCarriersKernel);
@@ -860,18 +856,14 @@ namespace Genesis.RoomScan
                     timedSubmission);
                 _grid.SubmitDualMutation(command, dualGeneration);
                 submitted = true;
-                RememberObservationAttemptDependencies();
                 if (timedSubmission)
                     MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
                 _attemptInFlight = true;
-                _waitingForDependency = false;
                 _grid.RequestAttemptCompletion(_attemptToken);
-                Logger.Info("Merkaba observation attempt submitted " +
+                Logger.Info("Merkaba observation submitted " +
                             $"observation={_observationToken} " +
                             $"attempt={_attemptToken} " +
-                            $"depthVersion={_observationDepthVersion} " +
-                            $"residencyEpoch={_attemptResidencyEpoch} " +
-                            $"retry={!newObservation}");
+                            $"depthVersion={_observationDepthVersion}");
                 return true;
             }
             finally
@@ -885,10 +877,9 @@ namespace Genesis.RoomScan
         }
 
 #if !UNITY_EDITOR && UNITY_ANDROID
-        private bool TrySubmitNativeObservationAttempt(bool newObservation)
+        private bool TrySubmitNativeObservationAttempt()
         {
             if (MerkabaNativeVulkanExecutor.HasJobInFlight) return false;
-            if (newObservation)
             {
                 AcquireCameraObservation();
                 if (!_depthCapture.PrepareLatestDepthFrameForNative(
@@ -913,15 +904,10 @@ namespace Genesis.RoomScan
             _nativeAttemptDualGeneration = _grid.BeginNativeDualMutation(uniforms);
             MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob;
             bool created;
-            // The dual belongs to the observation token, never to the attempt
-            // token. A quantum that only advanced refinement drains the
-            // remaining workset and finalizes; it does not re-certify free
-            // space it has no new evidence about.
-            MerkabaNativeVulkanExecutor.JobKind kind = newObservation
-                ? MerkabaNativeVulkanExecutor.JobKind.ObservationNew
-                : _resumeNeedsAcquisition
-                    ? MerkabaNativeVulkanExecutor.JobKind.ObservationRetry
-                    : MerkabaNativeVulkanExecutor.JobKind.ObservationContinue;
+            // The dual belongs to the observation token. One kind: acquire the
+            // evidence, refine against it, publish, release.
+            const MerkabaNativeVulkanExecutor.JobKind kind =
+                MerkabaNativeVulkanExecutor.JobKind.Observation;
             try
             {
                 created = MerkabaNativeVulkanExecutor.TryCreateJob(kind,
@@ -938,11 +924,8 @@ namespace Genesis.RoomScan
             {
                 _grid.CancelDualMutationBeforeSubmit(_nativeAttemptDualGeneration);
                 _nativeAttemptDualGeneration = 0u;
-                if (newObservation)
-                {
-                    ReleaseOwnedObservation();
-                    _observationPrepared = false;
-                }
+                ReleaseOwnedObservation();
+                _observationPrepared = false;
                 return false;
             }
 
@@ -955,19 +938,16 @@ namespace Genesis.RoomScan
                 recorded = true;
                 Graphics.ExecuteCommandBuffer(command);
                 _nativeAttemptJob = nativeJob;
-                _nativeAttemptIncludesPreprocess = newObservation;
+                _nativeAttemptIncludesPreprocess = true;
                 _nativeAttemptGpuComplete = false;
                 _nativeAttemptCompletionRequested = false;
                 _nativeAttemptSubmittedAt = Time.realtimeSinceStartupAsDouble;
                 _nativeAttemptGpuCompleteAt = 0.0;
-                RememberObservationAttemptDependencies();
                 _attemptInFlight = true;
-                _waitingForDependency = false;
                 Logger.Info("Merkaba native observation submitted " +
                     $"observation={_observationToken} " +
                     $"attempt={_attemptToken} " +
-                    $"kind={kind} " +
-                    $"retry={!newObservation} queue=1");
+                    $"kind={kind} queue=1");
                 return true;
             }
             catch (Exception exception)
@@ -978,11 +958,10 @@ namespace Genesis.RoomScan
                     // Retain every lease and native object until its fence becomes
                     // terminal; never recycle sensor/world resources here.
                     _nativeAttemptJob = nativeJob;
-                    _nativeAttemptIncludesPreprocess = newObservation;
+                    _nativeAttemptIncludesPreprocess = true;
                     _nativeAttemptGpuComplete = false;
                     _nativeAttemptSubmittedAt = Time.realtimeSinceStartupAsDouble;
                     _nativeAttemptGpuCompleteAt = 0.0;
-                    RememberObservationAttemptDependencies();
                     _attemptInFlight = true;
                     Logger.Error("Merkaba native submit became uncertain; " +
                         $"resources quarantined until terminal fence: " +
@@ -993,11 +972,8 @@ namespace Genesis.RoomScan
                 nativeJob.Dispose();
                 _grid.CancelDualMutationBeforeSubmit(_nativeAttemptDualGeneration);
                 _nativeAttemptDualGeneration = 0u;
-                if (newObservation)
-                {
-                    ReleaseOwnedObservation();
-                    _observationPrepared = false;
-                }
+                ReleaseOwnedObservation();
+                _observationPrepared = false;
                 return false;
             }
             finally
@@ -1115,41 +1091,6 @@ namespace Genesis.RoomScan
         }
 #endif
 
-        private bool CanRetryPreparedObservation()
-        {
-            if (!_observationPrepared || _attemptInFlight ||
-                !_waitingForDependency) return false;
-            _grid.CaptureObservationDependencyState(out uint loadCursor,
-                out uint durableGeneration);
-            // Retirement of this attempt alone is not progress: using its
-            // generation would resubmit forever after every no-op quantum.
-            // Actual reference reclaim increments ResidencyEpoch; completed
-            // load acknowledgements free request capacity; durability advances
-            // the exact bound used to release cold reference spans.
-            //
-            // These three are the only reasons the ACQUISITION side has to run
-            // again: a reference was reclaimed, a load landed, or durability
-            // moved. Refinement progress on its own carries no new visibility,
-            // so re-acquiring stereo, the certificate, the bins and the whole
-            // dual excavation cannot change one certified node.
-            _resumeNeedsAcquisition =
-                _grid.ResidencyEpoch != _attemptResidencyEpoch ||
-                loadCursor != _attemptLoadRequestCursor ||
-                durableGeneration != _attemptDualDurableGeneration;
-            return _retryAfterPublishedChange || _resumeNeedsAcquisition;
-        }
-
-        private void RememberObservationAttemptDependencies()
-        {
-            // Only consume a wake-up after the GPU submission was accepted.
-            // Failed native job creation must not swallow the sole available
-            // dependency change and strand the held observation indefinitely.
-            _attemptResidencyEpoch = _grid.ResidencyEpoch;
-            _grid.CaptureObservationDependencyState(out _attemptLoadRequestCursor,
-                out _attemptDualDurableGeneration);
-            _retryAfterPublishedChange = false;
-        }
-
         private uint NextAttemptToken()
         {
             unchecked
@@ -1169,11 +1110,6 @@ namespace Genesis.RoomScan
             _observationDepthVersion = 0;
             _attemptInFlight = false;
             _attemptToken = 0u;
-            _waitingForDependency = false;
-            _attemptResidencyEpoch = 0u;
-            _attemptLoadRequestCursor = 0u;
-            _attemptDualDurableGeneration = 0u;
-            _retryAfterPublishedChange = false;
             ReleaseOwnedObservation();
             if (failureReason != 0u)
             {
@@ -1553,11 +1489,6 @@ namespace Genesis.RoomScan
             _observationDepthVersion = 0;
             _attemptInFlight = false;
             _attemptToken = 0u;
-            _waitingForDependency = false;
-            _attemptResidencyEpoch = 0u;
-            _attemptLoadRequestCursor = 0u;
-            _attemptDualDurableGeneration = 0u;
-            _retryAfterPublishedChange = false;
             _fineErasePrepared = false;
             _fineEraseAttemptInFlight = false;
             _fineEraseWaitingForDependency = false;

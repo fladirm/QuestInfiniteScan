@@ -486,13 +486,17 @@ namespace Genesis.RoomScan.Tests
 
             string integrator = RuntimeSource(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
-            string retry = Slice(integrator,
-                "private bool CanRetryPreparedObservation()",
-                "private void RememberObservationAttemptDependencies()");
-            Assert.That(retry, Does.Contain("ResidencyEpoch"));
-            Assert.That(retry, Does.Contain("_attemptResidencyEpoch"));
-            Assert.That(retry, Does.Contain("_attemptLoadRequestCursor"));
-            Assert.That(retry, Does.Contain("_attemptDualDurableGeneration"));
+            string submit = Slice(integrator,
+                "internal bool TrySubmitObservationAttempt()",
+                "private bool TrySubmitNativeObservationAttempt()");
+            string retire = Slice(integrator,
+                "internal bool TryRetireObservationAttempt()",
+                "internal bool TryPrepareFineErase(");
+            // A prepared snapshot is never resubmitted: the only thing that may
+            // happen to it is retirement, and retirement always releases it.
+            Assert.That(submit, Does.Contain("if (_observationPrepared) return false;"));
+            Assert.That(retire, Does.Contain("return FinishObservation("));
+            Assert.That(retire, Does.Not.Contain("return false;\n            }\n\n            _waiting"));
             Assert.That(integrator, Does.Not.Contain("ObservationTimedOut"),
                 "Already-supported work must not expire while awaiting a storage dependency.");
 
@@ -538,7 +542,7 @@ namespace Genesis.RoomScan.Tests
             string integrator = Slice(
                 RuntimeSource("Runtime/Merkaba/MerkabaIntegrator.cs"),
                 "private MerkabaNativeUniformTable BuildNativeObservationUniforms(",
-                "private bool CanRetryPreparedObservation()");
+                "private uint NextAttemptToken()");
             string certificate = Slice(
                 RuntimeSource("Runtime/Core/DepthCapture.cs"),
                 "internal void WriteDepthCertificateUniforms(",

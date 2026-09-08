@@ -12,9 +12,16 @@ StructuredBuffer<M8ObservationRecord> _M8ObservationRecordsRead;
 
 // The low two bits retain the existing root/L1/L2/skin stage. These two
 // transaction states reuse its existing held-observation Finalize barrier.
-#define M8_FLOWER_INVALIDATION_GATHER_STAGE (1u<<8u)
-#define M8_FLOWER_INVALIDATION_PEER_STAGE (1u<<9u)
-#define M8_FLOWER_INVALIDATION_STAGE_MASK (M8_FLOWER_INVALIDATION_GATHER_STAGE|M8_FLOWER_INVALIDATION_PEER_STAGE)
+// The invalidation cut has its own persistent phase, not two bits borrowed
+// from the refinement stage. The refinement stage is transient - it is the
+// barrier index inside one snapshot graph and resets with every snapshot -
+// whereas an owed cut is a property of the world and must outlive the frame
+// that discovered it. GATHER retires all local epochs and required gather or
+// load work; PEER retires every successful exact peer ACK.
+#define M8_FLOWER_INVALIDATION_GATHER_PHASE 1u
+#define M8_FLOWER_INVALIDATION_PEER_PHASE 2u
+#define M8_FLOWER_INVALIDATION_PHASE_MASK 3u
+#define M8_FLOWER_INVALIDATION_WRITE_FAILED (1u<<8u)
 
 groupshared uint m8FlowerOwnerSource[512];
 groupshared uint m8FlowerOwnerPrecision[512];
@@ -254,7 +261,8 @@ bool M8FlowerBeginR1FineInvalidation(uint slot,uint local,bool through,bool stru
         M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
         return false;
     }
-    InterlockedOr(_M8Counters[M8_COUNTER_REFINEMENT_STAGE],M8_FLOWER_INVALIDATION_GATHER_STAGE);
+    InterlockedOr(_M8Counters[M8_COUNTER_INVALIDATION_OWED],
+        M8_FLOWER_INVALIDATION_GATHER_PHASE);
     return true;
 }
 
@@ -404,6 +412,9 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
             M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
             // No other tile may advance fine evidence against a parent
             // whose once-only R1 commit is still waiting for its read lease.
+            // This is the one cross-tile veto the drain still honours, and it
+            // is a transient write conflict, not the world being UNKNOWN.
+            M8CounterIncrement(M8_COUNTER_FINE_LEASE_BUSY);
             M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
         }
         return;

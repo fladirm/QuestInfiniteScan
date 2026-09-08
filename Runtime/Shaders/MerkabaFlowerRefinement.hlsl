@@ -485,9 +485,10 @@ void M8FlowerInvalidationChanged(uint slot,uint generation)
 {
     M8MarkTileDirty(slot);
     InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],4u);
-    // A changed ancestor cannot leave this same observation's already
-    // advanced phase/skin cursor behind. Unaffected tiles retain theirs.
-    if(!M8FlowerStoreTilePendingCursor(slot,generation,_M8ObservationToken,0u))
+    // A changed ancestor cannot leave the tile's already advanced phase/skin
+    // cursor behind: what it refined is no longer what the world holds.
+    // Unaffected tiles retain theirs.
+    if(!M8FlowerStoreTileRefinementCursor(slot,generation,_M8ObservationToken,0u))
         M8FlowerFineSchedulingStatus(M8_FLOWER_SIDECAR_STALE_SLOT);
     M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
 }
@@ -518,10 +519,12 @@ uint M8FlowerResolveInvalidationPeer(uint local,uint node,out uint peerSlot,out 
     return 0x100u;
 }
 
-void M8FlowerDrainLocalInvalidations(uint slot,uint lane,uint generation,uint stage)
+void M8FlowerDrainLocalInvalidations(uint slot,uint lane,uint generation,uint phase)
 {
-    bool gathering=(stage&M8_FLOWER_INVALIDATION_GATHER_STAGE)!=0u;
-    bool mutating=(stage&M8_FLOWER_INVALIDATION_PEER_STAGE)!=0u && !gathering;
+    bool gathering=(phase&M8_FLOWER_INVALIDATION_PHASE_MASK)==
+        M8_FLOWER_INVALIDATION_GATHER_PHASE;
+    bool mutating=(phase&M8_FLOWER_INVALIDATION_PHASE_MASK)==
+        M8_FLOWER_INVALIDATION_PEER_PHASE;
     [loop]for(uint local=lane;local<512u;local+=128u)
     {
         uint word=M8TileWordIndex(slot,local>>5u),bit=1u<<(local&31u);

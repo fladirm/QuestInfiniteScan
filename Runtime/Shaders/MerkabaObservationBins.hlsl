@@ -139,6 +139,9 @@ void M8FlowerResetObservationBins(uint lane)
             (lane>=M8_COUNTER_THROUGH_EVIDENCE_DECREMENTS && lane<=M8_COUNTER_UNRESOLVED_OBSERVATION_TILES) ||
             (lane>=M8_COUNTER_CLEANUP_TOUCHED_COUNT && lane<=M8_COUNTER_CLEANUP_PENDING_COUNT) ||
             (lane>=M8_COUNTER_DUAL_STORAGE_INTENT_COUNT && lane<=M8_COUNTER_REFINEMENT_STAGE);
+        // INVALIDATION_OWED is deliberately absent from every transient range.
+        // An owed source/peer cut belongs to the world, not to the frame that
+        // discovered it, and is finished by whichever snapshots follow.
         if(zero)_M8Counters[lane]=0u;
     }
     DeviceMemoryBarrierWithGroupSync();
@@ -187,6 +190,7 @@ void M8FlowerResetObservationBins(uint lane)
         _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS] = 0u;
         _M8Counters[M8_COUNTER_REFINEMENT_BACKPRESSURE] = 0u;
         _M8Counters[M8_COUNTER_REFINEMENT_UNRESOLVED] = 0u;
+        _M8Counters[M8_COUNTER_FINE_LEASE_BUSY] = 0u;
         _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION] = 0u;
         _M8ObservationDispatchArgs[0] = 0u;
         _M8ObservationDispatchArgs[1] = 1u;

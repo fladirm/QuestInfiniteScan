@@ -60,6 +60,8 @@ PIPELINES = (
              "FlowerCommit", "observation_indirect"),
     Pipeline("DrainFlowerGeometry", "MerkabaIntegration.compute",
              "DrainFlowerGeometry", "observation_indirect"),
+    Pipeline("AdvanceRefinementStage", "MerkabaIntegration.compute",
+             "AdvanceRefinementStage", "one"),
     Pipeline("ResolveFlowerCarriers", "MerkabaIntegration.compute",
              "ResolveFlowerCarriers", "observation_indirect"),
     Pipeline("DrainFlowerSkinRgb", "MerkabaIntegration.compute",
@@ -95,38 +97,45 @@ def command_schedules():
     index = {label: ordinal for ordinal, label in enumerate(labels)}
     if len(index) != len(labels):
         raise RuntimeError("duplicate native pipeline identity")
-    observation_end = index["ClassifyHotFlowerPages"]
     allocation = labels[index["ResolveMissingSpatialNodes"]:index["ReserveObservationBins"]]
-    observation = []
-    for label in labels[:observation_end]:
-        observation.append(label)
-        if label == "UpdateObservationDual":
-            observation.append("ReserveObservationBins")
-        if label == "DrainFlowerSkinV":
-            observation.extend(allocation)
-    retry = observation[observation.index("ResetObservationBins"):]
-    # New observations reset bins in eye zero of certificate reduction;
-    # retries keep that certificate and call the same reset helper directly.
-    observation.remove("ResetObservationBins")
-    # Stereo, the depth certificate, the bins and the dual excavation are the
-    # work of ONE immutable observation. A refinement quantum carries no new
-    # visibility, so re-running them cannot change a single certified node and
-    # only pays for the whole acquisition side again; closure 4.3 says the drain
-    # gets the remaining work. A continuation therefore drains the workset and
-    # finalizes, and keeps the allocation barriers because the drain may still
-    # request tiles. Retry stays for an actual dependency change - residency,
-    # load acknowledgement or durability - where the acquisition side must run.
-    continuation = ["DrainFlowerGeometry", "ResolveFlowerCarriers",
-                    "DrainFlowerSkinRgb", "DrainFlowerSkinV"] + list(allocation) + \
-                   ["FinalizeObservation"]
+    # One snapshot is one bounded synchronous scan transaction. Everything the
+    # snapshot owes is a barrier INSIDE this one graph: there is no second
+    # attempt at the same frame, no retry, no continuation and no workset that
+    # outlives FinalizeObservation. The order is written out rather than
+    # filtered out of the pipeline list, because the order IS the contract.
+    observation = [
+        # Acquire the evidence. A new observation resets the bins in eye zero
+        # of certificate reduction.
+        "StereoFlowerRefine", "BuildDepthCertificate", "ReduceDepthCertificate",
+        # Counting discovers the owners whose tiles do not exist yet. The
+        # allocator creates them and the SAME snapshot counts again against a
+        # complete world - the round trip ObservationRetry used to perform as a
+        # second frame, done here as two barriers. Emit consumes that count.
+        "CountObservationBins", *allocation,
+        "ResetObservationBins", "CountObservationBins",
+        "ReserveObservationBins", "EmitObservationBins",
+        # Excavate the complementary view, then reserve what its requests need.
+        "UpdateObservationDual", "ReserveObservationBins",
+        # Commit the direct evidence, then refine: root -> L1 -> L2 -> skin.
+        # Each advance is its own one-group dispatch, because a workgroup
+        # cannot publish a stage its own sibling groups may not have read yet.
+        "FlowerCommit",
+        "DrainFlowerGeometry", "AdvanceRefinementStage",
+        "DrainFlowerGeometry", "AdvanceRefinementStage",
+        "DrainFlowerGeometry", "AdvanceRefinementStage",
+        "ResolveFlowerCarriers", "DrainFlowerSkinRgb", "DrainFlowerSkinV",
+        # The drain may have requested residency for what it could not read.
+        *allocation,
+        # Publish the canonical generation, mark the dirty pages, RELEASE.
+        "FinalizeObservation",
+    ]
     flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
     fine = labels[index["QueryFineEraseTiles"]:]
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
-        ("ObservationNew", observation), ("ObservationRetry", retry),
-        ("FlowerReadout", flower), ("FineErase", fine),
-        ("ObservationContinue", continuation)))
+        ("Observation", observation),
+        ("FlowerReadout", flower), ("FineErase", fine)))
 
 
 RESOURCE_NAMES = (

@@ -128,8 +128,14 @@ namespace Genesis.RoomScan
         {
             RequireObservation(command);
             if (reset) RecordReset(command);
+            // Counting is what discovers the owners whose tiles do not exist
+            // yet. The allocator creates them, and then this SAME snapshot
+            // counts again against a complete world - the round trip that used
+            // to require a second frame. Emit consumes the second count.
             RecordCount(command);
             RecordTileRequestPublication(command);
+            RecordReset(command);
+            RecordCount(command);
             RecordReserveAndEmit(command);
         }
 

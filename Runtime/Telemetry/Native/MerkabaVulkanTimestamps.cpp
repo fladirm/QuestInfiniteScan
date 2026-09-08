@@ -118,10 +118,10 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 26,
-        "M8 executor pipeline tables must be regenerated for ABI 18");
+    static_assert(kMerkabaExecutorPipelineCount == 27,
+        "M8 executor pipeline tables must be regenerated for ABI 20");
 
-    constexpr uint32_t kExecutorAbiVersion = 18;
+    constexpr uint32_t kExecutorAbiVersion = 20;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
@@ -130,21 +130,20 @@ namespace
     // Existing draw commands/count remain at their original offsets. Count
     // and emit reuse one aligned GPU-owned indirect packet after that count.
     constexpr VkDeviceSize kFlowerBatchArgsOffset = (32768u * 20u + 4u + 15u) & ~15u;
-    constexpr uint32_t kMaximumExecutorDispatches = kMerkabaExecutorPipelineCount + 4u;
+    constexpr uint32_t kMaximumExecutorDispatches = kMerkabaExecutorPipelineCount + 8u;
     constexpr uint32_t kMaximumExecutorQueries = kMaximumExecutorDispatches * 2u + 2u;
     constexpr uint32_t kFlowerSlotGroupCount = 32768u / 128u;
     constexpr VkDeviceSize kMaximumQuestBufferBytes = 128ull * 1024ull * 1024ull;
 
     enum ExecutorJobKind : uint32_t
     {
-        kJobObservationNew = 0,
-        kJobObservationRetry = 1,
-        kJobFlowerReadout = 2,
-        kJobFineErase = 3,
-        // Drain the immutable observation's remaining workset. Stereo, the
-        // certificate, the bins and the dual belong to the observation, not to
-        // a refinement quantum.
-        kJobObservationContinue = 4,
+        // One snapshot is one bounded synchronous scan transaction, so there is
+        // exactly one observation kind. A retry or a continuation would be a
+        // second attempt at a frame the world has already moved past.
+        kJobObservation = 0,
+        kJobFlowerReadout = 1,
+        kJobFineErase = 2,
+        kJobKindCount = 3,
     };
 
     struct MerkabaUniformValue
@@ -196,7 +195,7 @@ namespace
     struct ExecutorJob
     {
         std::atomic<int> state{kJobCreated};
-        uint32_t kind = kJobObservationNew;
+        uint32_t kind = kJobObservation;
         uint32_t revision = 0;
         std::array<void*, kResourceCount> nativeResources = {};
         std::array<UnityVulkanBuffer, kResourceCount> buffers = {};
@@ -1303,7 +1302,7 @@ namespace
     bool PipelineRangeForKind(uint32_t kind, uint32_t* first,
         uint32_t* last)
     {
-        if (kind > kJobObservationContinue) return false;
+        if (kind >= kJobKindCount) return false;
         *first = kMerkabaExecutorSchedules[kind].firstPipeline;
         *last = kMerkabaExecutorSchedules[kind].lastPipeline;
         return true;
@@ -2682,7 +2681,7 @@ extern "C"
             descriptor->structSize != sizeof(MerkabaExecutorJobDescriptor) ||
             descriptor->abiVersion != kExecutorAbiVersion ||
             descriptor->revision == 0 ||
-            descriptor->kind > kJobObservationContinue ||
+            descriptor->kind >= kJobKindCount ||
             descriptor->resourceCount != kResourceCount ||
             descriptor->resources == nullptr ||
             descriptor->uniformValueCount == 0 ||
@@ -2693,14 +2692,10 @@ extern "C"
             descriptor->depthGroupsY > std::min(65535u, g_deviceProperties.limits.maxComputeWorkGroupCount[1]) ||
             descriptor->queryGroups > std::min(65535u, g_deviceProperties.limits.maxComputeWorkGroupCount[0]))
             return nullptr;
-        if (descriptor->kind == kJobObservationNew &&
+        if (descriptor->kind == kJobObservation &&
             (descriptor->depthGroupsX == 0 ||
              descriptor->depthGroupsY == 0 ||
              descriptor->queryGroups == 0))
-            return nullptr;
-        if (descriptor->kind == kJobObservationRetry &&
-            (descriptor->queryGroups == 0 || descriptor->depthGroupsX == 0 ||
-             descriptor->depthGroupsY == 0))
             return nullptr;
         if (descriptor->kind == kJobFlowerReadout)
         {

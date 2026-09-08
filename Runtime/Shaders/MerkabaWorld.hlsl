@@ -82,7 +82,17 @@
 #define M8_COUNTER_REFINEMENT_UNRESOLVED 56u
 // Published only between dispatches: root phase, L1 phase, L2 phase, skin.
 #define M8_COUNTER_REFINEMENT_STAGE 57u
-#define M8_COUNTER_COUNT 58u
+// The source/peer invalidation cut is the ONE cross-tile dependency that a
+// snapshot may still owe when its refinement dispatches are done: an already
+// committed structural change must not be left behind with its old fine epoch.
+// It has its own counter because REFINEMENT_PENDING_TILES is now telemetry -
+// tiles a bounded snapshot did not finish - and must never retain a snapshot.
+#define M8_COUNTER_INVALIDATION_OWED 58u
+// A parent whose once-only R1 commit is still waiting for its read lease may
+// not have fine evidence advanced against it by any tile. That is a genuine
+// within-snapshot dependency, unlike a COLD or not-yet-FULL dual read.
+#define M8_COUNTER_FINE_LEASE_BUSY 59u
+#define M8_COUNTER_COUNT 60u
 
 // Observation-local address intents reuse the released BLOCK claim span.
 // They contain no surface evidence and are consumed by the existing storage
