@@ -8380,3 +8380,34 @@ the identity below 3584 and folds onto bank six above it. That is the second
 time in this session a model replaced a measurement and was wrong.
 
 Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
+
+---
+
+### CURRENT TRUE STATE — the drain's diagnostic mode is gone, 2026-09-08 16:35Z
+
+STEP 1 OF THE GEOMETRY/SKIN BOUNDARY REPAIR. The drain had three modes; the
+middle one produced no state at all. M8FlowerReadR3Junction ran once after the
+root phase and its only consumer was M8_COUNTER_REFINEMENT_UNRESOLVED, which
+the whole repository reads in exactly one place, the telemetry string in
+MerkabaGpuTimestamps.cs:697. The branch ended in junctionCheck=false and
+continue, advancing no cursor and admitting no record, exactly as its own
+comment said.
+
+Removed from the production drain: the mode selector's diagnostic arm, the
+junctionCheck loop guard, the per-owner R3 read and its counter increment, and
+the M8FlowerSupportCacheDualTile warm-up that hung in the same branch.
+M8FlowerReadR3Junction ITSELF IS UNTOUCHED and stays where it is functionally
+required, in M8FlowerPrepareCompletionPetal, where its classification gates the
+completion petal.
+
+  DrainObservationRefinement 2 253 604 B /118 954 -> 2 149 788 B /113 557
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
+
+NEXT, AND STATED BEFORE IT IS ATTEMPTED SO IT CANNOT BE FUDGED: cutting
+M8FlowerPrepareFineSites from fourteen alternatives to the seven selected ones
+reduces RUNTIME work but NOT module size, because its 310 656 B is the body of
+M8FlowerReadL2Knot, emitted once whatever the trip count. The 415 412 B of L2
+rediscovery only leaves the skin module if the skin reads those roots from the
+canonical phase records through M8_FLOWER_GEOMETRY_PACKET_READ instead of
+re-deriving them.

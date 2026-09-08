@@ -1069,11 +1069,15 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     float normalError=M8FlowerNext(_M8PlaneErrorBounds.x+M8_FLOWER_NORMAL_QUANTIZATION_UPPER);
     float offsetError=M8FlowerNext(_M8PlaneErrorBounds.y+M8_FLOWER_OFFSET_QUANTIZATION_UPPER);
     uint consumed=0u;
-    bool junctionCheck=false;
-    [loop]while(junctionCheck || (consumed<_M8RefinementQuantum &&
-        (stage<3u?cursor<stageEnd:cursor>=M8_FLOWER_SKIN_CURSOR_BASE)))
+    // Two modes only. The post-root R3 junction pass that used to run here
+    // produced no state: its sole consumer was M8_COUNTER_REFINEMENT_UNRESOLVED,
+    // a telemetry counter read only by MerkabaGpuTimestamps. Geometry keeps
+    // stages 0..2 and skin is stage 3; M8FlowerReadR3Junction remains where it
+    // is functionally required, in M8FlowerPrepareCompletionPetal.
+    [loop]while(consumed<_M8RefinementQuantum &&
+        (stage<3u?cursor<stageEnd:cursor>=M8_FLOWER_SKIN_CURSOR_BASE))
     {
-        uint mode=junctionCheck?1u:stage==3u?2u:0u;
+        uint mode=stage==3u?2u:0u;
         uint budget=_M8RefinementQuantum-consumed;
         uint carrier=0u,parentCursor=0u;
         M8FlowerGeometryNode task=(M8FlowerGeometryNode)0;
@@ -1128,8 +1132,6 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
                 GroupMemoryBarrierWithGroupSync();
             }
         }
-        else if(mode==1u)
-            M8FlowerSupportCacheDualTile(M8GlobalKernelCoord(slot,0u)>>3,lane,128u);
         else
         {
             uint ordinal=cursor-M8_FLOWER_SKIN_CURSOR_BASE;
@@ -1168,26 +1170,9 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
                         task,observed,normalError,offsetError));
                 }
             }
-            else if(mode==1u && lane<count)
-            {
-                uint local=first+lane;
-                if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)!=0u && m8FineOwner[local]!=0u)
-                {
-                    M8FlowerJunctionSelection junction=M8FlowerReadR3Junction(slot,m8FineOwner[local],
-                        M8GlobalKernelCoord(slot,local),m8FinePlane[local],float2(normalError,offsetError));
-                    if(junction.Classification!=1u)M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
-                }
-            }
             else if(mode==2u)
                 M8FlowerDrainSkinPacket(slot,lane,runtime.w,carrier,parentCursor,budget,float2(normalError,offsetError));
             DeviceMemoryBarrierWithGroupSync();
-        }
-        if(mode==1u)
-        {
-            // This is the existing post-root diagnostic consumer. It neither
-            // admits a metric record as a junction nor advances another task.
-            junctionCheck=false;
-            continue;
         }
         if(m8FlowerHaloUnresolvedReads!=0u && lane==0u)
         {
@@ -1199,7 +1184,6 @@ void DrainObservationRefinement(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         if(mode==0u)
         {
             cursor++;consumed++;
-            junctionCheck=cursor==M8_FLOWER_ROOT_PHASE_TASKS;
         }
         else
         {
