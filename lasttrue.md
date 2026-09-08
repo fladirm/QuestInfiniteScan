@@ -8173,3 +8173,63 @@ The draw path runs; the scanner does not, because the native executor requires
 all 23 pipelines and FlowerCommit is refused at 944 896 B. Target against the
 671 652 B proven to compile: FlowerCommit -29 percent,
 CompactDirtyFlowerSymbols -50 percent, DrainObservationRefinement -74 percent.
+
+---
+
+### CURRENT TRUE STATE — OPEN-1 cut: emit the algebra once, not per site, 2026-09-08 15:10Z
+
+THE FRAMING WAS CORRECTED BEFORE THE CUT, AND THE CORRECTION MATTERS. Nothing
+here changes the algebra. Every value is the same value; it is simply no longer
+emitted several times per call site. Two measurements set the direction:
+
+  1. THE LATTICE DATA IS ALREADY PRECOMPUTED. Every M8Flower...At(index) is a
+     one-line read from _M8FlowerTables costing about 3.6 instructions. There
+     is no table left to add. What remains is arithmetic over the MEASURED
+     plane, whose alphabet is a 1024x1024 octahedral code plus 256 offset
+     codes, so it cannot be tabulated.
+  2. IT IS NOT A GLSLANG ARTEFACT EITHER. Unity's own DXC output for the same
+     kernels, extracted from Library/ShaderCache, is the same order:
+       MerkabaIntegration  2 462 692 / 871 696 / 550 660 B
+       ours (glslang)      2 595 448 / 944 896 / 494 360 B
+     Switching compilers would buy about eight percent, not a factor.
+
+WHAT THE CUT ACTUALLY DOES, all in the codegen authority and regenerated:
+
+  M8FlowerClassifyRoot computed q = IAdd(ISquare(y),ISquare(z)) and
+  aa = ISquare(x), and its only caller M8FlowerRootInterval computed q AGAIN
+  immediately afterwards. It now publishes both. Hoisting them above the
+  exact-equality exit changes no result because they are pure functions of abc.
+
+  Five sites emitted the same arithmetic with different operands and now emit
+  one body inside a loop: M8FlowerICross's two multiplies, M8FlowerRootInSector's
+  two crosses, M8FlowerRootInterval's two component multiplies and its two
+  secant updates, M8FlowerRotatePhaseMetric's four rotation multiplies, and
+  M8FlowerSealPhaseRelation's two independent endpoint sector proofs. The &&
+  short circuit was dropped only where the callee is pure.
+
+MEASURED, Tools/shaders/audit_merkaba_compute_spirv.sh:
+
+  FlowerCommit                 944 896 B / 49 137  ->  825 256 B / 43 847
+  CompactDirtyFlowerSymbols  1 335 616 B / 70 069  -> 1 217 516 B / 64 998
+  DrainObservationRefinement 2 595 448 B /136 755  -> 2 351 204 B /126 167
+
+Cumulative with the earlier interval-selection cut, FlowerCommit is down from
+1 079 720 B to 825 256 B, a fall of 23.6 percent, and is now below the
+871 696 B that Unity's own compiler produces for it.
+
+THE STATIC MODEL OVERSTATES THIS AND THE MEASUREMENT IS THE AUTHORITY. Static
+interval-operation call sites in Drain fell 14 007 -> 4 598, sixty-seven
+percent, while the module fell 9.4 percent. Do not plan the next cut from the
+call-site count. The remaining collapsible edges are now small, the largest
+worth 231 sites, so this technique is mined out.
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed, 0 shader
+errors. The first attempt failed 18 tests because M8FlowerClassifyRoot is also
+called by MerkabaObservationBinsProbe and MerkabaSphereFlowerOracle, which my
+search for callers had not covered; each now forwards through one local helper
+rather than restating the extra outputs at five sites. The parity suite is what
+caught it, and it is the same suite that would catch an algebra change.
+
+OPEN-1 STATUS=FlowerCommit 825 256 B awaiting the device. Drain and
+CompactDirtyFlowerSymbols still FAIL the gate; Drain needs a different lever
+than call-site collapsing.

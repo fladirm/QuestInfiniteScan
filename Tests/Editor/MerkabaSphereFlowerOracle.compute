@@ -5,6 +5,15 @@
 
 #include "../../Runtime/Shaders/MerkabaFlowerGeometry.hlsl"
 
+// The production classifier now publishes the q and aa enclosures its only
+// caller needs, so these proofs keep asking the same question through one
+// local forwarder rather than restating the extra outputs at five sites.
+uint M8FlowerProbeClassifyRoot(M8FlowerInterval3 abc)
+{
+    M8FlowerInterval q, aa;
+    return M8FlowerClassifyRoot(abc, q, aa);
+}
+
 struct SphereFlowerOracleCase
 {
     int4 Control;
@@ -96,7 +105,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
         abc.y = M8FlowerI(input.A.y, input.A.y);
         abc.z = M8FlowerI(input.A.z, input.A.z);
         result.Control.x = valid ? 1 : 0;
-        result.Control.y = (int)M8FlowerClassifyRoot(abc);
+        result.Control.y = (int)M8FlowerProbeClassifyRoot(abc);
         result.A.xy = root;
     }
     else if (operation == 10)
@@ -132,7 +141,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
         abc.x = M8FlowerI(input.A.x, input.A.y);
         abc.y = M8FlowerI(input.A.z, input.A.w);
         abc.z = M8FlowerI(input.B.x, input.B.y);
-        result.Control.x = (int)M8FlowerClassifyRoot(abc);
+        result.Control.x = (int)M8FlowerProbeClassifyRoot(abc);
     }
     else if (operation == 15)
     {
@@ -289,7 +298,7 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
             M8FlowerInterval delta=M8FlowerISub(q,M8FlowerISquare(abc.x));
             M8FlowerInterval turn;
             bool sqrtValid=M8FlowerISqrt(delta,turn);
-            result.Control=int4(valid?1:0,sqrtValid?1:0,(int)M8FlowerClassifyRoot(abc),0);
+            result.Control=int4(valid?1:0,sqrtValid?1:0,(int)M8FlowerProbeClassifyRoot(abc),0);
             result.A=float4(abc.x.lo,abc.x.hi,abc.y.lo,abc.y.hi);
             result.B=float4(abc.z.lo,abc.z.hi,q.lo,q.hi);
             result.C=float4(delta.lo,delta.hi,turn.lo,turn.hi);

@@ -13,6 +13,15 @@
 #include "../../Runtime/Shaders/MerkabaObservationReduction.hlsl"
 #include "../../Runtime/Shaders/MerkabaObservationOwners.hlsl"
 
+// The production classifier now publishes the q and aa enclosures its only
+// caller needs, so these proofs keep asking the same question through one
+// local forwarder rather than restating the extra outputs at five sites.
+uint M8FlowerProbeClassifyRoot(M8FlowerInterval3 abc)
+{
+    M8FlowerInterval q, aa;
+    return M8FlowerClassifyRoot(abc, q, aa);
+}
+
 StructuredBuffer<uint4> _ProbeRecords;
 StructuredBuffer<int2> _ProbeIntervals;
 RWStructuredBuffer<uint4> _ProbeReduced;
@@ -68,7 +77,7 @@ void RootIntervalsProbe(uint id : SV_DispatchThreadID)
         classification == M8_FLOWER_ROOT_CERTAIN_TANGENT)
         certain = M8FlowerRootSector((uint)b.w, root, sector);
     _ProbeReduced[id] = uint4(classification, sector, certain ? 1u : 0u,
-        M8FlowerClassifyRoot(abc));
+        M8FlowerProbeClassifyRoot(abc));
     _ProbeRootIntervals[id] = float4(root.x.lo, root.x.hi, root.y.lo, root.y.hi);
 }
 
@@ -95,7 +104,7 @@ void RootIntervalStagesProbe(uint id : SV_DispatchThreadID)
     M8FlowerInterval rootX, rootY;
     bool xValid = M8FlowerIDivPositive(x, q, rootX);
     bool yValid = M8FlowerIDivPositive(y, q, rootY);
-    _ProbeReduced[0] = uint4(M8FlowerClassifyRoot(abc),
+    _ProbeReduced[0] = uint4(M8FlowerProbeClassifyRoot(abc),
         sqrtValid ? 1u : 0u, xValid ? 1u : 0u, yValid ? 1u : 0u);
     _ProbeRootIntervals[0] = float4(q.lo, q.hi, delta.lo, delta.hi);
     _ProbeRootIntervals[1] = float4(turn.lo, turn.hi, x.lo, x.hi);

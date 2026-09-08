@@ -704,16 +704,21 @@ bool M8FlowerExactSquaredEquality(float a, float b, float c)
     return M8FlowerEqual64(sa.coefficient,sum);
 }
 
-uint M8FlowerClassifyRoot(M8FlowerInterval3 abc)
+// The caller needs the same q and aa immediately afterwards, so publish
+// them instead of making it repeat the identical enclosure. They are pure
+// functions of abc, so hoisting them above the exact-equality exit changes
+// no result; it only stops one M8FlowerIAdd of two M8FlowerISquare and one
+// further M8FlowerISquare from being emitted a second time per call site.
+uint M8FlowerClassifyRoot(M8FlowerInterval3 abc,
+    out M8FlowerInterval q, out M8FlowerInterval aa)
 {
+    q = M8FlowerIAdd(M8FlowerISquare(abc.y), M8FlowerISquare(abc.z));
+    aa = M8FlowerISquare(abc.x);
     if (abc.x.lo == abc.x.hi && abc.y.lo == abc.y.hi &&
         abc.z.lo == abc.z.hi &&
         M8FlowerExactSquaredEquality(abc.x.lo,abc.y.lo,abc.z.lo))
         return abc.y.lo == 0.0 && abc.z.lo == 0.0 ?
             M8_FLOWER_ROOT_COPLANAR : M8_FLOWER_ROOT_CERTAIN_TANGENT;
-    M8FlowerInterval q = M8FlowerIAdd(M8FlowerISquare(abc.y),
-        M8FlowerISquare(abc.z));
-    M8FlowerInterval aa = M8FlowerISquare(abc.x);
     if (q.lo == 0.0 && q.hi == 0.0)
     {
         if (abc.x.lo == abc.x.hi)
@@ -969,24 +974,35 @@ uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
         !all(M8FlowerIsFinite(float3(abc.x.hi, abc.y.hi, abc.z.hi))) ||
         abc.x.lo > abc.x.hi || abc.y.lo > abc.y.hi || abc.z.lo > abc.z.hi)
         return M8_FLOWER_ROOT_AMBIGUOUS;
-    uint classification = M8FlowerClassifyRoot(abc);
+    M8FlowerInterval q, aa;
+    uint classification = M8FlowerClassifyRoot(abc, q, aa);
     if (classification != M8_FLOWER_ROOT_CERTAIN_SECANT &&
         classification != M8_FLOWER_ROOT_CERTAIN_TANGENT) return classification;
-    M8FlowerInterval q = M8FlowerIAdd(M8FlowerISquare(abc.y),
-        M8FlowerISquare(abc.z));
     M8FlowerInterval minusA = M8FlowerI(-abc.x.hi, -abc.x.lo);
-    M8FlowerInterval x = M8FlowerIMul(minusA, abc.y);
-    M8FlowerInterval y = M8FlowerIMul(minusA, abc.z);
+    // One multiply body for both components; the operands differ, not the
+    // arithmetic, and the loop keeps it emitted once instead of twice.
+    M8FlowerInterval xy[2];
+    M8FlowerInterval second[2] = { abc.y, abc.z };
+    [loop] for (uint component = 0u; component < 2u; component++)
+        xy[component] = M8FlowerIMul(minusA, second[component]);
+    M8FlowerInterval x = xy[0];
+    M8FlowerInterval y = xy[1];
     // Exact singleton tangency was established by dyadic equality, so no
     // uncertain subtraction around delta=0 is used to invent a second root.
     if (classification == M8_FLOWER_ROOT_CERTAIN_SECANT)
     {
-        M8FlowerInterval delta = M8FlowerISub(q, M8FlowerISquare(abc.x));
+        M8FlowerInterval delta = M8FlowerISub(q, aa);
         M8FlowerInterval turn = M8FlowerI(0.0, 0.0);
         if (!M8FlowerISqrt(delta, turn)) return M8_FLOWER_ROOT_AMBIGUOUS;
         if (!plusRoot) turn = M8FlowerI(-turn.hi, -turn.lo);
-        x = M8FlowerIAdd(x, M8FlowerIMul(turn, M8FlowerI(-abc.z.hi, -abc.z.lo)));
-        y = M8FlowerIAdd(y, M8FlowerIMul(turn, abc.y));
+        M8FlowerInterval addend[2] =
+            { M8FlowerI(-abc.z.hi, -abc.z.lo), abc.y };
+        M8FlowerInterval sum[2] = { x, y };
+        [loop] for (uint component = 0u; component < 2u; component++)
+            sum[component] = M8FlowerIAdd(sum[component],
+                M8FlowerIMul(turn, addend[component]));
+        x = sum[0];
+        y = sum[1];
     }
     bool valid=true;
     [loop]for(uint axis=0u;axis<2u;axis++)
@@ -1004,7 +1020,10 @@ uint M8FlowerRootInterval(M8FlowerInterval3 abc, bool plusRoot,
 
 M8FlowerInterval M8FlowerICross(M8FlowerInterval2 a, M8FlowerInterval2 b)
 {
-    return M8FlowerISub(M8FlowerIMul(a.x, b.y), M8FlowerIMul(a.y, b.x));
+    M8FlowerInterval left[2] = { a.x, a.y }, right[2] = { b.y, b.x }, term[2];
+    [loop] for (uint index = 0u; index < 2u; index++)
+        term[index] = M8FlowerIMul(left[index], right[index]);
+    return M8FlowerISub(term[0], term[1]);
 }
 
 bool M8FlowerRootInSector(uint lineClass,M8FlowerInterval2 root,uint sector)
@@ -1018,7 +1037,13 @@ bool M8FlowerRootInSector(uint lineClass,M8FlowerInterval2 root,uint sector)
     M8FlowerInterval2 start,end;
     start.x=M8FlowerI(a.x,a.y);start.y=M8FlowerI(a.z,a.w);
     end.x=M8FlowerI(b.x,b.y);end.y=M8FlowerI(b.z,b.w);
-    return M8FlowerICross(start,root).lo>0.0 && M8FlowerICross(root,end).lo>0.0;
+    // One cross body for both boundaries. M8FlowerICross is pure, so losing
+    // the && short circuit changes no result.
+    M8FlowerInterval2 from[2] = { start, root }, to[2] = { root, end };
+    bool inside = true;
+    [loop] for (uint side = 0u; side < 2u; side++)
+        inside = inside && M8FlowerICross(from[side], to[side]).lo > 0.0;
+    return inside;
 }
 
 bool M8FlowerRootSector(uint lineClass, M8FlowerInterval2 root, out uint sector)
@@ -1161,10 +1186,22 @@ bool M8FlowerRotatePhaseMetric(M8FlowerInterval2 prediction,
         if(!M8FlowerIDivPositive(numerator,denominator,component))return false;
         if(axis==0u)c=component;else s=component;
     }
-    root.x = M8FlowerISub(M8FlowerIMul(c,prediction.x),
-        M8FlowerIMul(s,prediction.y));
-    root.y = M8FlowerIAdd(M8FlowerIMul(s,prediction.x),
-        M8FlowerIMul(c,prediction.y));
+    // The rotation is the same two products per component with the cosine
+    // and sine exchanged, so emit one multiply pair and select the combining
+    // sign. Four multiply bodies become two.
+    M8FlowerInterval leading[2] = { c, s }, trailing[2] = { s, c };
+    M8FlowerInterval rotated[2];
+    [loop] for (uint component = 0u; component < 2u; component++)
+    {
+        M8FlowerInterval head = M8FlowerIMul(leading[component], prediction.x);
+        M8FlowerInterval tail = M8FlowerIMul(trailing[component], prediction.y);
+        M8FlowerInterval difference = M8FlowerISub(head, tail);
+        M8FlowerInterval total = M8FlowerIAdd(head, tail);
+        rotated[component].lo = component == 0u ? difference.lo : total.lo;
+        rotated[component].hi = component == 0u ? difference.hi : total.hi;
+    }
+    root.x = rotated[0];
+    root.y = rotated[1];
     return all(M8FlowerIsFinite(float4(root.x.lo,root.x.hi,root.y.lo,root.y.hi)));
 }
 
@@ -1605,8 +1642,16 @@ uint M8FlowerSealPhaseRelation(M8FlowerPhaseRootEvidence first,
         (first.Tag&0x1fffu)!=(second.Tag&0x1fffu)) return 0u;
     M8FlowerInterval2 root;
     uint firstSector,secondSector,sector;
-    if (!M8FlowerPhaseRootSector(first,firstSector) ||
-        !M8FlowerPhaseRootSector(second,secondSector) ||
+    // Both endpoints run the identical sector proof, so emit it once.
+    M8FlowerPhaseRootEvidence endpoint[2] = { first, second };
+    uint endpointSector[2] = { 0xffffffffu, 0xffffffffu };
+    bool sectorProved = true;
+    [loop] for (uint side = 0u; side < 2u; side++)
+        sectorProved = M8FlowerPhaseRootSector(endpoint[side],
+            endpointSector[side]) && sectorProved;
+    firstSector = endpointSector[0];
+    secondSector = endpointSector[1];
+    if (!sectorProved ||
         firstSector!=((first.Tag>>8u)&31u) || secondSector!=firstSector ||
         !M8FlowerSealRootIntervals(first.Root,second.Root,root))return 2u;
     M8FlowerPhaseRootEvidence candidate=(M8FlowerPhaseRootEvidence)0;
