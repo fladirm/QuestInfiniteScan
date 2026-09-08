@@ -14,7 +14,9 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 16;
+        // ABI 17: DrainObservationRefinement became DrainFlowerGeometry and
+        // DrainFlowerSkin, so the pipeline table is 24 entries, not 23.
+        internal const int AbiVersion = 17;
         internal const int ResourceCount = 43;
         internal const int PipelineCount = 23;
         // A native observation also dispatches publication Reserve once and

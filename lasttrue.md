@@ -8445,3 +8445,46 @@ STEP 3 IS THE ONE THAT MATTERS AND IT IS NOT DONE. DrainFlowerSkin still
 rediscovers the L2 carrier it is supposed to consume: M8FlowerPrepareFineSites
 then M8FlowerClassifyL2Carrier run before either signal, 415 412 B of geometry
 discovery inside a signal stage.
+
+---
+
+### CURRENT TRUE STATE — the split verified on device, ABI 17, 2026-09-08 16:15Z
+
+THE SPLIT ENTRY POINTS WERE MEASURED ON 340YC20G7X0QZ4, and the first build
+attempt failed before reaching the device, which is worth recording because I
+briefly reported it as a success. The native executor pins its pipeline count:
+
+  static_assert(kMerkabaExecutorPipelineCount == 23)  ->  '24 == 23'
+
+Splitting the drain makes it 24, so the build stopped and the deploy never ran;
+what I measured at that moment was the previous APK. Fixed as an ABI change
+rather than a loosened assertion: kExecutorAbiVersion 16 -> 17 on both the
+native and the C# side, since the pipeline table genuinely changed shape.
+
+MEASURED, cold cache, after the real deploy:
+
+  index=11 FlowerCommit          825 256 B   ms= 9 092   result=0
+  index=12 DrainFlowerGeometry   882 492 B   ms=24 537   result=0
+  index=13 DrainFlowerSkin     1 638 848 B   ms=83 643   result=-13
+           and the compile evicted horizonos.openxr.runtimebroker,
+           com.android.settings and com.android.providers.calendar
+
+THE DRIVER BRACKET IS NOW 882 492 ACCEPTED, 944 896 REFUSED. That is the first
+accepted size above 825 256 and it puts the estimated resolver, about 878 kB,
+below a proven bound rather than inside an unknown one.
+
+COMPILE COST IS STEEPLY SUPERLINEAR AND THAT MATTERS FOR THE TARGET:
+825 256 B takes 9.1 s, 882 492 B takes 24.5 s, 1 638 848 B takes 83.6 s and
+then fails. Just under the bracket is not a safe place to sit; the resolver
+should be aimed nearer 800 kB than 880 kB.
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
+
+NEXT, AND THE STORAGE SHAPE IS DECIDED BY A BOUND, NOT A PREFERENCE. A fixed
+receipt table per (touched tile, owner) is impossible: _M8TouchedTileQueue has
+PhysicalTileCapacity 32768 entries, so 32768 x 512 x 224 B is 3.7 GB. The
+receipt therefore goes in the bounded transient arena the decision allows: one
+block of 512 slots per touched tile, one atomic reservation per workgroup, the
+block base in a small per-tile table, and BUSY with deferral through the
+existing REFINEMENT_PENDING_TILES beyond capacity. Starting capacity is 128
+blocks, 14.7 MB, to be raised only if the device shows deferral thrashing.
