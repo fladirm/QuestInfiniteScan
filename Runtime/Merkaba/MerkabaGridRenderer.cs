@@ -370,7 +370,10 @@ namespace Genesis.RoomScan
                     _grid.M8FlowerIndirectCommands, MerkabaFlowerGpuLayout.DirtyBatchDispatchOffset);
                 command.DispatchComputeProfiled(readoutCompute, _publishKernel, 1, 1, 1);
                 MerkabaGpuTimestamps.End(CaptureOwner.FlowerPages, command, timed);
-                _managedBuildFence = command.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation,
+                // PollReadoutCompletion reads this on the CPU, so it must
+                // be a CPU-synchronisation fence; see MerkabaGrid.Gpu.
+                _managedBuildFence = command.CreateGraphicsFence(
+                    GraphicsFenceType.CPUSynchronisation,
                     SynchronisationStageFlags.AllGPUOperations);
                 _grid.SubmitDualMutation(command, generation);
                 submitted = true;

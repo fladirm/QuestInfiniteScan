@@ -7935,3 +7935,77 @@ Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
 
 OPEN-5 STATUS=chain traced, consumer complete and now twin-guarded, producer
 declared an explicit gap under closure section6.4 rather than invented.
+
+---
+
+### CURRENT TRUE STATE — device run, two real defects found and one fixed, 2026-09-08 13:35Z
+
+THE APK RUNS ON THE HEADSET NOW. Measured on 340YC20G7X0QZ4 with the headset
+worn, so this supersedes the earlier PENDING note for launch itself.
+
+CORRECTION TO AN EARLIER CLAIM IN THIS SESSION. I wrote that the build got
+past pipeline creation. It does not. A clean capture from process start:
+
+  index=10 UpdateObservationDual bytes=494360  ms=1.965    result=0
+  index=11 FlowerCommit          bytes=944896  ms=2084.557 result=-13
+  vkCreateComputePipelines failed VkResult=-13
+  init worker: state=failed family=0 requiredPipelines=23 elapsedMs=2122
+
+What I had actually observed was g_flowerDrawReady being true, and that flag is
+set in InitializeFlowerDraw during device initialization, BEFORE any compute
+pipeline is created. It proves nothing about them.
+
+The interval-arithmetic cut did move this: FlowerCommit went from 1 079 720 B
+failing after 26 499 ms to 944 896 B failing after 2 085 ms, a 13x shorter
+compile. The driver still rejects it. Every pipeline that succeeds is at most
+494 360 B, every one that fails is above 900 KB, and the three failing kernels
+are also the only ones with more than 16 KiB of groupshared, so module size
+and groupshared size are still confounded by the available evidence. Do not
+assert either as the cause.
+
+spirv-opt SATURATES AND CANNOT CLOSE THIS. Measured on the actual 944 896 B
+module: -O 855 020, -Os 853 940, -O -Os 854 036, and a hand-tuned redundancy
+pass list 854 684. About ten percent, then nothing.
+
+DEFECT A, FIXED AND PROVEN ON DEVICE. Every frame threw
+
+  NotSupportedException: Cannot determine if this AsyncQueueSynchronisation
+  GraphicsFence has passed as this platform does not support async compute.
+    at GraphicsFence.get_passed ()
+    at MerkabaGrid.PollDualRetirement () -> ReserveDualMutation ()
+    -> RecordDualMutation () -> ExecuteDualWorldBatch ()
+
+Three fences were created as AsyncQueueSynchronisation and then read on the
+CPU: _dualRetirementFence, MerkabaGridRenderer._managedBuildFence and the PCA
+copy retirement fence in MerkabaIntegrator. An async-queue fence is only CPU
+queryable where the platform supports async compute, and Quest does not. All
+three now use GraphicsFenceType.CPUSynchronisation, which is the type meant
+for CPU polling; the stage flag is unchanged so they still signal after all
+preceding GPU work. The one genuine GPU-side wait, the fence handed to
+WaitOnAsyncGraphicsFence, stays AsyncQueueSynchronisation.
+AFTER THE FIX THE EXCEPTION COUNT IS ZERO over a 150 s capture, from every
+frame before.
+
+DEFECT B, DIAGNOSED, FIRST TWO ATTEMPTS MEASURED AND REJECTED. Every frame:
+
+  Flower cull count reset requires an outside-render-pass command buffer.
+  Flower indexed wrapper rejected: current-view cull count was not reset.
+  Flower draw rejected: invalid registered indexed indirect invocation.
+
+ResetFlowerCullCount refuses to record its transfer when CommandRecordingState
+reports subPassIndex >= 0, so g_flowerCountResetBuffer stays null, the
+registration finds no matching reset and every draw is dropped. The header
+confirms the check is right: subPassIndex is "-1 if not inside a render pass".
+
+  ATTEMPT 1, removing UseTexture(activeColorTexture, ReadWrite) from the unsafe
+  cull pass: no change on device. Kept anyway, because the cull writes only the
+  indirect argument buffer and declaring the active colour target was wrong.
+  ATTEMPT 2, kUnityVulkanRenderPass_EnsureOutside on the reset event: no change
+  on device, 8 328 rejections in one capture. REVERTED, because
+  IUnityGraphicsVulkan.h states plainly that EnsureOutside "is undefined" in
+  combination with the SRP RenderPass API, and URP's render graph uses it.
+
+Being outside a render pass therefore has to be structural. The cull now runs
+in its own MerkabaCullPass at RenderPassEvent.BeforeRendering, before URP opens
+the render pass that the draw at BeforeRenderingTransparents renders into.
+NOT YET VERIFIED ON DEVICE.

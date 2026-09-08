@@ -678,8 +678,14 @@ namespace Genesis.RoomScan
             if (generation == 0u || generation != _dualMutationGeneration ||
                 _dualNativeMutation)
                 throw new InvalidOperationException("Invalid dual GPU lease.");
+            // CPU synchronisation, because PollDualRetirement is the only
+            // consumer and it reads this on the CPU. An async-queue fence
+            // cannot be queried from the CPU unless the platform supports
+            // async compute, and Quest does not: GraphicsFence.passed throws
+            // NotSupportedException there. The stage flag is unchanged, so the
+            // fence still signals after all preceding GPU work.
             GraphicsFence retired = command.CreateGraphicsFence(
-                GraphicsFenceType.AsyncQueueSynchronisation,
+                GraphicsFenceType.CPUSynchronisation,
                 SynchronisationStageFlags.AllGPUOperations);
             try { Graphics.ExecuteCommandBuffer(command); }
             catch
@@ -769,7 +775,7 @@ namespace Genesis.RoomScan
             try
             {
                 _dualRetirementFence = command.CreateGraphicsFence(
-                    GraphicsFenceType.AsyncQueueSynchronisation,
+                    GraphicsFenceType.CPUSynchronisation,
                     SynchronisationStageFlags.AllGPUOperations);
                 _dualRetirementFenceGeneration = _dualPublishedGeneration;
                 Graphics.ExecuteCommandBuffer(command);

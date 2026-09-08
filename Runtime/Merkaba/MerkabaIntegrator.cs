@@ -1470,8 +1470,10 @@ namespace Genesis.RoomScan
                 "Merkaba PCA copy retirement");
             try
             {
+                // RetireCameraCopiesAsync awaits this on the CPU, so it
+                // must be a CPU-synchronisation fence; see MerkabaGrid.Gpu.
                 GraphicsFence fence = command.CreateGraphicsFence(
-                    GraphicsFenceType.AsyncQueueSynchronisation,
+                    GraphicsFenceType.CPUSynchronisation,
                     SynchronisationStageFlags.AllGPUOperations);
                 Graphics.ExecuteCommandBuffer(command);
                 _cameraCopyRetirementTask = RetireCameraCopiesAsync(fence,
