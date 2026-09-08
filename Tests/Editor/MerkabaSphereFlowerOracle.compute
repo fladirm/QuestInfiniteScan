@@ -332,12 +332,17 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
     }
     else if(operation==31)
     {
-        uint certain[6],uncertain[6];
+        // The six wedge triple masks are eight bits each and now travel
+        // packed. The fixture still supplies one mask per wedge; only the
+        // carrier changed, so this exercises the production packing too.
+        uint2 certain=0u,uncertain=0u;
         uint4 a=asuint(input.A),b=asuint(input.B),c=asuint(input.C);
-        certain[0]=a.x;certain[1]=a.y;certain[2]=a.z;certain[3]=a.w;
-        certain[4]=b.x;certain[5]=b.y;
-        uncertain[0]=b.z;uncertain[1]=b.w;uncertain[2]=c.x;
-        uncertain[3]=c.y;uncertain[4]=c.z;uncertain[5]=c.w;
+        M8FlowerSetWedgeByte(certain,0u,a.x);M8FlowerSetWedgeByte(certain,1u,a.y);
+        M8FlowerSetWedgeByte(certain,2u,a.z);M8FlowerSetWedgeByte(certain,3u,a.w);
+        M8FlowerSetWedgeByte(certain,4u,b.x);M8FlowerSetWedgeByte(certain,5u,b.y);
+        M8FlowerSetWedgeByte(uncertain,0u,b.z);M8FlowerSetWedgeByte(uncertain,1u,b.w);
+        M8FlowerSetWedgeByte(uncertain,2u,c.x);M8FlowerSetWedgeByte(uncertain,3u,c.y);
+        M8FlowerSetWedgeByte(uncertain,4u,c.z);M8FlowerSetWedgeByte(uncertain,5u,c.w);
         uint signs,active,unresolved;
         uint4 ancestry=M8FlowerL2CarrierBranchMasksAt(index);
         uint status=M8FlowerCombineCarrierCandidates(certain,uncertain,ancestry,signs,active,unresolved);

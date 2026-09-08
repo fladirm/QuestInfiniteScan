@@ -8576,3 +8576,52 @@ an unwritten receipt as an already finished parent and step the cursor straight
 over that carrier's skin work, silently dropping it. The quantum is now bounded
 to the entry carrier and the next triple picks the successor up. Sizes moved by
 +152 B, which is the guard itself.
+
+THE SIZE HYPOTHESIS WAS WRONG AND THE MEASUREMENT SAYS SO. ResolveFlowerCarriers
+failed pipeline creation at 715 124 B while DrainFlowerGeometry succeeded at
+882 708 B. I had spent a day on "the boundary lies between 882 492 and 944 896
+bytes". It does not. Disassembling the five flower entry points and counting
+what the driver actually has to allocate:
+
+  entry                    instr   blocks  locVars  GS      maxDynArray  device
+  FlowerCommit             45 419   4 606   259     24 704       4       creates
+  DrainFlowerGeometry      48 605   4 946   284     20 616       4       creates
+  ResolveFlowerCarriers    38 799   3 473   254     20 628      14       VK -13
+  DrainFlowerSkinRgb       20 998   1 951    96     20 628      28       untested
+  DrainFlowerSkinV         31 315   2 663   168     20 628      28       untested
+
+The failing entry is the SMALLEST of the three tested by instructions, blocks
+and local variables, and its groupshared is within twelve bytes of one that
+creates. Every one of those metrics fails to separate creates from fails. One
+metric separates them completely: the longest dynamically indexed function-scope
+array. Both entries the driver accepts top out at four. In ResolveFlowerCarriers
+the two longest were M8FlowerInterval3 support[14] and uint proofTags[14], and
+all ten access chains into them are dynamic, zero static.
+
+That is not a new rule. It is 4.5 measured: "Rozdelit nezavisle owner/carrier/
+site polozky mezi lanes ... Neprenaset vsechny kandidaty v lokalnich polich
+jednoho lane."
+
+THE FIX IS WHERE THE CANDIDATES ARE ENUMERATED, NOT WHAT THEY ARE. A wedge's
+eight triples reference only the six alternatives of its own three sites, so
+the candidates are now enumerated inside the wedge that consumes them: same
+reader, same arithmetic, same intervals, same order. The six per-wedge triple
+masks are eight bits each, so certain/uncertain/directTriples travel packed in
+two words instead of three six-entry arrays. glslang's HLSL front end does not
+honour [unroll] here, so the seven published roots are named rather than looped.
+ResolveFlowerCarriers now has no dynamically indexed function array longer than
+three, below both entries the driver accepts.
+
+WHAT IT COST. ResolveFlowerCarriers 715 276 -> 721 068 B, +0.8 percent, because
+the wedge-local read costs one more inlined reader. CompactDirtyFlowerSymbols
+1 217 516 -> 1 236 104 B; it shares the classifier and it was already over the
+1 MiB gate, so I made a failing gate 1.5 percent worse and it stays OPEN-1.
+
+WHAT IS STILL UNPROVEN. Only 4 (creates) and 14 (fails) are measured. Nothing
+between five and thirteen is. The skin entries still carry uint words[28],
+float2 intervals[21] and a row of seven-entry children arrays; 28 and 21 are
+flattenings of the seven-child ontology, seven is the ontology itself.
+
+Tools/shaders/audit_merkaba_compute_spirv.sh: all 70 kernels compile; 3 FAIL,
+none new to this change. Tools/unity/run_merkaba_tests.sh: 364/364.
+DEVICE ACCEPTANCE PENDING.
