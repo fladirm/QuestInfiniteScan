@@ -9117,3 +9117,62 @@ NEXT, IN THIS ORDER, NEITHER DONE:
 The first dual pass itself is also slow - 125 blocks at 5 m radius, 31.5 ms per
 6.4 m block - but that is a separate question worth its own measurement once the
 50-to-135x repetition is gone.
+
+### CORRECTION — THE ARRAY RULE I RECORDED IS TOO STRONG
+
+Earlier today I wrote that no production entry may carry a dynamically indexed
+function-scope array longer than four. UpdateObservationDual falsifies it from
+the same build: it carries FOUR 64-entry and THREE 16-entry dynamically indexed
+function arrays and it creates on the device in 3263 ms.
+
+  entry                        bytes    body    maxDynArray  device
+  UpdateObservationDual       494 360  24 925        64       creates
+  ResolveFlowerCarriers (old) 715 124  ~37 300       14       VK -13
+  DrainFlowerGeometry         882 708  47 089         4       creates
+  FlowerCommit                826 324  43 907         4       creates
+
+So neither metric predicts creation on its own: a small module tolerates 64-entry
+indexed arrays, and a large one failed at 14. The honest statement is that the
+driver's limit is the COMBINATION of module size and the register/scratch
+pressure those arrays create. Today's fix is still consistent with that - removing
+the arrays let a LARGER module create - but the rule as written was stronger than
+the evidence, and anything relying on "<= 4" as a threshold should not.
+
+### THE DUAL IS THE SECOND OF A PAIR, AND THAT CHANGES THE DIAGNOSIS
+
+Corrected framing from the user, and it is right. The primary scan is M8 evidence:
+occupied, free and unknown, with ON 512 / OFF 128 / SURFACE 640 / FREE 256 and
+0.150 m clearance. The dual - M8DualBlockState, M8DualChunkState, M8DualLeaves -
+is the SECOND, auxiliary structure: an aid to refinement and a defence against
+artefacts. A guard has no business costing 3932 ms of a 3933 ms attempt.
+
+WHAT THE DESCENT ACTUALLY DOES. Per block, 64 lanes cover the 8x8 (d4,d3) octant
+pairs at spans 128 and 64 from M8ScanChildMask, which is a GEOMETRIC test of what
+intersects the scan volume. That reaches up to 512 chunk slots per block, and
+inside each chunk that is not certified through, two more geometric masks at
+spans 32 and 16 reach up to 8x8 = 64 tile slots. Existence is consulted only at
+the LEAF, via _M8ChunkTileRefsRead[chunk*64+tile] - after the visit has been paid
+for. Worst case that is 32768 slot visits per 6.4 m block, and the measurement is
+31.5 ms per block over 125 blocks.
+
+Closure 4.7 says the opposite in one clause: "MIXED rozvijí pouze nutne potomky
+V EXISTUJICIM block/chunk/tile indexu." The descent must be driven BY the sparse
+index intersected with the scan volume, not by enumerating the volume and asking
+at the leaf whether anything is there. For a room scanned at 25 mm the occupied
+set is a thin shell, so the existing-index descent visits a small fraction of
+those slots.
+
+IT NEEDS NO NEW BINDING. UpdateObservationDual already binds
+_M8BlockChunkRefsRead, which says which of a block's 512 chunks exist, and
+_M8ChunkTileRefsRead, which says which of a chunk's 64 tiles exist - both
+read-only, both already there. The coarse certificate keeps its job: uniform
+volumes are certified at block or chunk level with no descent at all, and COLD
+children are still requested from SSD. Nothing has to visit a tile that does not
+exist.
+
+SO THE ORDER OF WORK CHANGES. Driving the descent from the existing index is the
+primary fix and needs no ABI change. Omitting the dual from an unchanged retry
+stays worth doing and is additive, but it is the second-order one: it removes
+repetition of a cost that should not be large in the first place.
+
+Neither is implemented.
