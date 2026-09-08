@@ -286,6 +286,14 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
             cursor=next==57u?(carrier+1u==128u?M8_FLOWER_PHASE_TASKS:
                 M8_FLOWER_SKIN_CURSOR_BASE+(carrier+1u)*57u):
                 M8_FLOWER_SKIN_CURSOR_BASE+carrier*57u+next;
+            // One dispatch triple resolves and consumes exactly one L2
+            // carrier. Resolve is per carrier, so crossing this boundary
+            // inside the loop would run the signal passes against receipts
+            // that were never written for the next carrier, read them as an
+            // already finished parent and step the cursor straight over that
+            // carrier's skin work. The next triple picks it up instead.
+            if(cursor<M8_FLOWER_SKIN_CURSOR_BASE ||
+                (cursor-M8_FLOWER_SKIN_CURSOR_BASE)/M8_FLOWER_SKIN_PARENTS!=carrier)break;
         }
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
     }

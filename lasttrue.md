@@ -8568,3 +8568,11 @@ proof burns its whole 5 344-attempt budget. The frozen-world harness now binds
 the read-only view, as production always did through BindFlowerPages.
 
 DEVICE ACCEPTANCE PENDING for the four new pipelines.
+
+ONE DISPATCH TRIPLE OWNS EXACTLY ONE L2 CARRIER. The skin cursor advance could
+cross into carrier+1 inside the loop while the resolver had written receipts
+only for the carrier the triple entered with. The signal passes would then read
+an unwritten receipt as an already finished parent and step the cursor straight
+over that carrier's skin work, silently dropping it. The quantum is now bounded
+to the entry carrier and the next triple picks the successor up. Sizes moved by
++152 B, which is the guard itself.
