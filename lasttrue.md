@@ -8023,3 +8023,56 @@ four FlowerCommit arrays to 256 — takes groupshared from 24 704 B to about
 rejects the module for its size or for its groupshared. It is a throwaway
 diagnostic: the arrays would be too small to be correct, so it must never be
 committed.
+
+---
+
+### CURRENT TRUE STATE — OPEN-1 cause isolated, target quantified, 2026-09-08 13:55Z
+
+TWO CANDIDATE CAUSES WERE CONFOUNDED IN EVERY EARLIER OBSERVATION: the three
+kernels the driver rejects are also the only three with more than 16 KiB of
+groupshared. A throwaway diagnostic build separated them. Halving the owner
+arrays — M8_FLOWER_REDUCTION_OWNER_COUNT 512 to 256 and the four FlowerCommit
+arrays to 256 — drops groupshared from 24 704 B to about 12 352 B while the
+module stays 944 896 B BYTE FOR BYTE, 49 139 versus 49 137 instructions. On
+device FlowerCommit still failed:
+
+  index=11 name=FlowerCommit ms=6739.409 result=-13
+
+GROUPSHARED IS NOT THE CAUSE. The diagnostic was reverted and never committed;
+its arrays were deliberately too small to be correct.
+
+That run had a cold pipeline cache, so it also gives the first real compile
+times and the first hard bracket on the driver's limit:
+
+  index=0  StereoFlowerRefine      671 652 B   7 574 ms   result=0
+  index=10 UpdateObservationDual   494 360 B   3 324 ms   result=0
+  index=11 FlowerCommit            944 896 B   6 739 ms   result=-13
+
+IT IS NOT A TIMEOUT EITHER: the 671 652 B module compiled for LONGER than the
+944 896 B one that failed, and succeeded. The driver's boundary lies strictly
+between 671 652 B and 944 896 B.
+
+SPIRV-OPT IS NOT A GLOBAL FIX, MEASURED ON ALL SHIPPED HEAVY KERNELS with -Os,
+every output spirv-val clean:
+
+  FlowerCommit                944 896 ->   853 940   -10 percent
+  StereoFlowerRefine          671 652 ->   628 256   -6 percent
+  DrainObservationRefinement 2 595 448 -> 2 431 120   -6 percent
+  CompactDirtyFlowerSymbols  1 335 616 -> 2 084 192   +56 percent, GROWS
+  UpdateObservationDual         494 360 ->   539 376   +9 percent, GROWS
+
+It helps one kernel by ten percent and inflates two others, one of which
+currently compiles. It cannot be adopted.
+
+THE TARGET IS NOW A NUMBER, NOT A GUESS. Against the 671 652 B that is proven
+to compile from a cold cache:
+
+  FlowerCommit                944 896 B   needs about -29 percent
+  CompactDirtyFlowerSymbols 1 335 616 B   needs about -50 percent
+  DrainObservationRefinement 2 595 448 B   needs about -74 percent
+
+OPEN-1 STATUS=cause isolated to module size, target quantified. The remaining
+lever is unchanged and unstarted: move lattice-determined evaluation out of the
+shader into the generated tables, per the closure. Local rewrites, kernel
+splitting by stage and spirv-opt have all now been measured and none reaches
+this.
