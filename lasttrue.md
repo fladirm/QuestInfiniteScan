@@ -8488,3 +8488,83 @@ block of 512 slots per touched tile, one atomic reservation per workgroup, the
 block base in a small per-tile table, and BUSY with deferral through the
 existing REFINEMENT_PENDING_TILES beyond capacity. Starting capacity is 128
 blocks, 14.7 MB, to be raised only if the device shows deferral thrashing.
+
+---
+
+### CURRENT TRUE STATE — the drain is four stages on one chain, 2026-09-08 21:00Z
+
+THE GEOMETRY/SKIN BOUNDARY IS REPAIRED. The skin stage no longer rediscovers
+the L2 carrier it is supposed to consume. The chain is
+
+  DrainFlowerGeometry -> ResolveFlowerCarriers -> DrainFlowerSkinRgb
+                      -> DrainFlowerSkinV -> Finalize
+
+and the resolver is the ONLY place that predicts a parent, applies the
+persisted R2/R3 residual, classifies the carrier, selects the seven actual L2
+sites and converts them to complete world intervals.
+
+  DrainFlowerGeometry     882 708 B / 47 089   writable bindings 7
+  ResolveFlowerCarriers   715 124 B / 37 293   writable bindings 6
+  DrainFlowerSkinRgb      382 572 B / 19 812   writable bindings 6
+  DrainFlowerSkinV        581 760 B / 29 791   writable bindings 6
+  before, one skin entry 1 638 848 B / 86 328
+
+Three of the four are far below the 882 492 B the driver has accepted, and
+DrainFlowerSkinRgb is under even the 524 288 B soft threshold. 26 pipelines
+embed with no FAIL.
+
+THE ACCEPTANCE IS A MEASUREMENT, NOT A READING. Stubbing M8FlowerReadL2Knot,
+M8FlowerApplyGeometryDetail, M8FlowerClassifyL2Carrier,
+M8FlowerPredictGeometryNode and M8FlowerEvaluateOriginalShared changes
+DrainFlowerSkinRgb and DrainFlowerSkinV by EXACTLY ZERO BYTES. No geometry
+admission survives in either signal pass.
+
+WHAT ACTUALLY BROKE THE SIZE WAS THE SHARED DRAIN BODY, exactly as the
+decision predicted. The signal entries were dragging the geometry prologue:
+the invalidation writer and M8FlowerPrepareFinePacket. Confining the
+invalidation writer to geometry and the original shared-root packet to
+geometry and the resolver took V from 911 048 to 581 760 and the resolver from
+837 092 to 715 124.
+
+THE RECEIPT IS NOT A NEW WORLD. Three storage attempts were rejected on
+evidence before the fourth was written:
+  a dense (touched tile, owner) table is 32768 x 512 x 224 B = 3.7 GB;
+  a new arena is a parallel allocator beside the one the tile/owner ontology
+    already implies;
+  _M8FlowerPageDirectory is declared writable only under M8_FLOWER_PAGE_WRITE,
+    which the readout defines and the observation deliberately does not, so
+    writing receipts there would have made the observation a page writer.
+What remains is a bounded transient region of _M8FlowerDetailPages, the buffer
+the drain already writes, addressed as base + tileItem*block + local*192 with
+no allocator and no directory. It sits after the persistent arena and
+M8FlowerDetailRange refuses it, so no persistent path can reach it. Lifetime is
+the observation token plus slot generation. 64 tiles in flight; a tile beyond
+that defers through the existing REFINEMENT_PENDING_TILES rather than
+allocating.
+
+Identity in the receipt is integer and generated: FlowerKey, activeWedgeMask,
+rootSigns and the site mask, plus token, generation, parent cursor and status.
+The seven world intervals use the same packing M8FlowerFineStoreWorld already
+uses, so complete intervals are preserved by construction. Identity is never
+derived back from them.
+
+THE RGB TO V TRANSACTION SURVIVES THE SPLIT. RGB publishes RGB_OK or RGB_BUSY
+into the receipt and V consumes only RGB_OK, which is the same rule the shared
+barrier used to enforce inside one dispatch. Only V advances the cursor; the
+resolver and RGB store the cursor they entered with, so their retry is
+idempotent under the same observation token and cannot skip work the
+observation still owes.
+
+Tools/unity/run_merkaba_tests.sh: 364 total, 364 passed, 0 failed.
+
+TWO MISTAKES OF MINE COST ABOUT FORTY MINUTES AND BOTH WERE THE SAME KIND.
+A wait keyed on `pgrep -f "Editor/Unity"` matched my own waiting shells, whose
+command lines contain that string, so five of them span forever matching each
+other. And the running log had already printed
+"Property (_M8FlowerDetailPagesRead) at kernel index (3) is not set" twenty
+minutes before I acted on it; I waited for a complete failure list that could
+never arrive, because without that binding the drain never completes and the
+proof burns its whole 5 344-attempt budget. The frozen-world harness now binds
+the read-only view, as production always did through BindFlowerPages.
+
+DEVICE ACCEPTANCE PENDING for the four new pipelines.

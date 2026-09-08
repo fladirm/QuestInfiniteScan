@@ -21,7 +21,17 @@ namespace Genesis.RoomScan
             TileCapacity * TileDirectoryStride;
         internal const int DetailDataBase = (DetailArenaControl +
             ArenaHeaderBytes + ((1 << (PersistentOrder + 1)) - 1) * 4 + 255) & ~255;
-        internal const int DetailBufferBytes = DetailDataBase + PersistentBytes;
+        // Attempt-local resolved L2 carrier receipts. Same buffer the drain
+        // already writes, same (tile item, owner local) indexing the tile and
+        // owner ontology already uses, no allocator and no directory. It is
+        // not part of the FlowerDetail record set: nothing here is keyed,
+        // published, serialized or read after the observation retires.
+        internal const int SkinReceiptTiles = 64;
+        internal const int SkinReceiptStride = 192;
+        internal const int SkinReceiptTileBytes = 512 * SkinReceiptStride;
+        internal const int SkinReceiptBase = (DetailDataBase + PersistentBytes + 255) & ~255;
+        internal const int SkinReceiptBytes = SkinReceiptTiles * SkinReceiptTileBytes;
+        internal const int DetailBufferBytes = SkinReceiptBase + SkinReceiptBytes;
         internal const int ThreadArenaControl = 0;
         internal const int ThreadDataBase = (ArenaHeaderBytes +
             ((1 << (PersistentOrder + 1)) - 1) * 4 + 255) & ~255;

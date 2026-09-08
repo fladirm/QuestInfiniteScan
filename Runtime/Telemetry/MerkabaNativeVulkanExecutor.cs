@@ -14,13 +14,14 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 17: DrainObservationRefinement became DrainFlowerGeometry and
-        // DrainFlowerSkin, so the pipeline table is 24 entries, not 23.
-        internal const int AbiVersion = 17;
+        // ABI 18: the drain is four entry points on one continuation chain,
+        // geometry, carrier resolve, RGB signal and V signal, so the pipeline
+        // table is 26 entries.
+        internal const int AbiVersion = 18;
         internal const int ResourceCount = 43;
         internal const int PipelineCount = 23;
         // A native observation also dispatches publication Reserve once and
-        // its three allocation barriers after DrainFlowerSkin.
+        // its three allocation barriers after DrainFlowerSkinV.
         internal const int MaximumDispatchTimingCount = PipelineCount + 4;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
@@ -132,7 +133,9 @@ namespace Genesis.RoomScan
             "UpdateObservationDual",
             "FlowerCommit",
             "DrainFlowerGeometry",
-            "DrainFlowerSkin",
+            "ResolveFlowerCarriers",
+            "DrainFlowerSkinRgb",
+            "DrainFlowerSkinV",
             "FinalizeObservation",
             "ClassifyHotFlowerPages",
             "PrepareDirtyFlowerBatch",

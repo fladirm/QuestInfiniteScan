@@ -55,7 +55,8 @@ namespace Genesis.RoomScan.Tests
             foreach (string kernel in new[]
                      {
                          "FlowerCommit", "UpdateObservationDual", "FinalizeObservation",
-                         "DrainFlowerGeometry", "DrainFlowerSkin", "QueryFineEraseTiles",
+                         "DrainFlowerGeometry", "ResolveFlowerCarriers",
+                         "DrainFlowerSkinRgb", "DrainFlowerSkinV", "QueryFineEraseTiles",
                          "EraseFineTiles", "FinalizeFineErase"
                      })
                 Assert.DoesNotThrow(() => integration.FindKernel(kernel), kernel);

@@ -21,7 +21,15 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
         return;
     }
-    if(lane==0u){m8FineWriteStatus=0u;m8FineAnyNovelty=0u;m8FineAnyActive=0u;}
+    if(group.x>=M8_FLOWER_SKIN_RECEIPT_TILES)
+    {
+        // Bounded receipt region: a tile beyond it is deferred through the
+        // existing pending counter, not given a new allocation.
+        if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
+        return;
+    }
+    if(lane==0u){m8FineWriteStatus=0u;m8FineAnyNovelty=0u;m8FineAnyActive=0u;
+        m8FineReceiptTile=group.x;}
     GroupMemoryBarrierWithGroupSync();
     uint stage=_M8Counters[M8_COUNTER_REFINEMENT_STAGE];
     // Each entry point serves one side of the frozen geometry/signal
@@ -33,10 +41,15 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
 #else
     if((stage&M8_FLOWER_INVALIDATION_STAGE_MASK)==0u && stage==3u)return;
 #endif
+#if !M8_DRAIN_SKIN
+    // The invalidation writer belongs to geometry. The signal stages never
+    // author epochs, so carrying its code would only put a geometry writer
+    // inside a signal module.
     M8FlowerDrainLocalInvalidations(slot,lane,runtime.w,stage);
     if((stage&M8_FLOWER_INVALIDATION_STAGE_MASK)!=0u && m8FineWriteStatus==0u)
         M8FlowerDrainPeerInvalidations(slot,lane,runtime.w,
             (stage&M8_FLOWER_INVALIDATION_GATHER_STAGE)==0u);
+#endif
     if(m8FineWriteStatus!=0u)
     {
         if(lane==0u)
@@ -122,6 +135,9 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
     M8FlowerCacheTileHalo(slot,lane,false,true);
     float normalError=M8FlowerNext(_M8PlaneErrorBounds.x+M8_FLOWER_NORMAL_QUANTIZATION_UPPER);
     float offsetError=M8FlowerNext(_M8PlaneErrorBounds.y+M8_FLOWER_OFFSET_QUANTIZATION_UPPER);
+    // The cursor this entry started from. The resolver and the RGB pass must
+    // leave it untouched; only the V pass publishes an advance.
+    uint entryCursor=cursor;
     uint consumed=0u;
     // Two modes only. The post-root R3 junction pass that used to run here
     // produced no state: its sole consumer was M8_COUNTER_REFINEMENT_UNRESOLVED,
@@ -212,8 +228,13 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
         [loop]for(uint first=0u;first<512u;first+=ownerBatch)
         {
             uint count=min(ownerBatch,512u-first);
+#if !M8_DRAIN_SKIN || M8_DRAIN_RESOLVE
+            // The original shared-root packet feeds parent prediction, so it
+            // belongs to geometry and to the resolver. A signal pass consumes
+            // the resolved receipt and must never rebuild it.
             M8FlowerPrepareFinePacket(slot,lane,runtime.w,first,count,alternatives,
                 singleAlternative,carrier,float2(normalError,offsetError));
+#endif
             if(mode==0u && lane<count)
             {
                 uint local=first+lane,item=first>>7u;
@@ -229,7 +250,16 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
                 }
             }
             else if(mode==2u)
-                M8FlowerDrainSkinPacket(slot,lane,runtime.w,carrier,parentCursor,budget,float2(normalError,offsetError));
+#if M8_DRAIN_RESOLVE
+                M8FlowerResolveSkinCarrier(slot,lane,runtime.w,carrier,parentCursor,
+                    float2(normalError,offsetError));
+#elif M8_DRAIN_SIGNAL==0
+                M8FlowerDrainSkinRgb(slot,lane,runtime.w,carrier,parentCursor,budget,
+                    float2(normalError,offsetError));
+#else
+                M8FlowerDrainSkinV(slot,lane,runtime.w,carrier,parentCursor,budget,
+                    float2(normalError,offsetError));
+#endif
             DeviceMemoryBarrierWithGroupSync();
         }
         if(m8FlowerHaloUnresolvedReads!=0u && lane==0u)
@@ -263,10 +293,22 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
         cursor=M8_FLOWER_SKIN_CURSOR_BASE;
     if(lane==0u)
     {
+        // The three skin entries walk one cursor. Only the last of them, the
+        // V signal, may advance it: the resolver and the RGB pass have not
+        // finished the parent step, and moving the cursor under them would
+        // let a retry skip work the observation still owes. They therefore
+        // leave the stored cursor exactly as they found it, which also makes
+        // their retry idempotent under the same observation token.
+#if M8_DRAIN_SKIN && (M8_DRAIN_RESOLVE || M8_DRAIN_SIGNAL==0)
+        if(!M8FlowerStoreTilePendingCursor(slot,runtime.w,_M8ObservationToken,entryCursor))
+            m8FineWriteStatus=M8_FLOWER_SIDECAR_STALE_SLOT;
+        if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
+#else
         if(!M8FlowerStoreTilePendingCursor(slot,runtime.w,_M8ObservationToken,cursor))
             m8FineWriteStatus=M8_FLOWER_SIDECAR_STALE_SLOT;
         if((stage<3u?cursor<stageEnd:cursor!=M8_FLOWER_PHASE_TASKS) || m8FineWriteStatus!=0u)
             M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
+#endif
         if(m8FineWriteStatus!=0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
     }
 }

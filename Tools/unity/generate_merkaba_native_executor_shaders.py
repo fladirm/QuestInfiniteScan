@@ -60,8 +60,12 @@ PIPELINES = (
              "FlowerCommit", "observation_indirect"),
     Pipeline("DrainFlowerGeometry", "MerkabaIntegration.compute",
              "DrainFlowerGeometry", "observation_indirect"),
-    Pipeline("DrainFlowerSkin", "MerkabaIntegration.compute",
-             "DrainFlowerSkin", "observation_indirect"),
+    Pipeline("ResolveFlowerCarriers", "MerkabaIntegration.compute",
+             "ResolveFlowerCarriers", "observation_indirect"),
+    Pipeline("DrainFlowerSkinRgb", "MerkabaIntegration.compute",
+             "DrainFlowerSkinRgb", "observation_indirect"),
+    Pipeline("DrainFlowerSkinV", "MerkabaIntegration.compute",
+             "DrainFlowerSkinV", "observation_indirect"),
     Pipeline("FinalizeObservation", "MerkabaIntegration.compute",
              "FinalizeObservation", "one"),
     Pipeline("ClassifyHotFlowerPages", "MerkabaReadout.compute",
@@ -98,7 +102,7 @@ def command_schedules():
         observation.append(label)
         if label == "UpdateObservationDual":
             observation.append("ReserveObservationBins")
-        if label == "DrainFlowerSkin":
+        if label == "DrainFlowerSkinV":
             observation.extend(allocation)
     retry = observation[observation.index("ResetObservationBins"):]
     # New observations reset bins in eye zero of certificate reduction;

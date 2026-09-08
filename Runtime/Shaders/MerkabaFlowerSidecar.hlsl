@@ -18,6 +18,37 @@
 #define M8_FLOWER_ARENA_META_BYTES(o) (32u+((1u<<((o)+1u))-1u)*4u)
 #define M8_FLOWER_DETAIL_CONTROL (64u+32768u*16u)
 #define M8_FLOWER_DETAIL_DATA M8_FLOWER_ALIGN256(M8_FLOWER_DETAIL_CONTROL+M8_FLOWER_ARENA_META_BYTES(17u))
+// Attempt-local resolved L2 carrier receipts, after the persistent arena in
+// the same buffer the drain already writes. One item per touched tile in
+// flight, one record per owner local 0..511: exactly the tile/owner indexing
+// the ontology already uses, with no allocator, no directory and no second
+// addressing. Nothing here is keyed into the FlowerDetail record set,
+// published, serialized or read once the observation retires; M8FlowerDetailRange
+// still refuses it, so no persistent path can reach it.
+#define M8_FLOWER_SKIN_RECEIPT_TILES 64u
+#define M8_FLOWER_SKIN_RECEIPT_STRIDE 192u
+#define M8_FLOWER_SKIN_RECEIPT_TILE_BYTES (512u*M8_FLOWER_SKIN_RECEIPT_STRIDE)
+#define M8_FLOWER_SKIN_RECEIPT_BASE \
+    M8_FLOWER_ALIGN256(M8_FLOWER_DETAIL_DATA+M8_FLOWER_PERSISTENT_BYTES)
+// Words 0..3 are exactly the existing sixteen-byte FlowerSymbolRecord, so the
+// carrier identity is the published ABI and never a second description of it.
+#define M8_FLOWER_SKIN_RECEIPT_SYMBOL 0u
+#define M8_FLOWER_SKIN_RECEIPT_TOKEN 16u
+#define M8_FLOWER_SKIN_RECEIPT_GENERATION 20u
+#define M8_FLOWER_SKIN_RECEIPT_PARENT_CURSOR 24u
+#define M8_FLOWER_SKIN_RECEIPT_SITE_VALID 28u
+#define M8_FLOWER_SKIN_RECEIPT_STATUS 32u
+#define M8_FLOWER_SKIN_RECEIPT_WORLD 40u
+#define M8_FLOWER_SKIN_RECEIPT_STATUS_EMPTY 0u
+#define M8_FLOWER_SKIN_RECEIPT_STATUS_RESOLVED 1u
+#define M8_FLOWER_SKIN_RECEIPT_STATUS_RGB_OK 2u
+#define M8_FLOWER_SKIN_RECEIPT_STATUS_RGB_BUSY 3u
+
+uint M8FlowerSkinReceipt(uint tileItem,uint ownerLocal)
+{
+    return M8_FLOWER_SKIN_RECEIPT_BASE+tileItem*M8_FLOWER_SKIN_RECEIPT_TILE_BYTES+
+        ownerLocal*M8_FLOWER_SKIN_RECEIPT_STRIDE;
+}
 #define M8_FLOWER_THREAD_CONTROL 0u
 #define M8_FLOWER_THREAD_DATA M8_FLOWER_ALIGN256(M8_FLOWER_ARENA_META_BYTES(17u))
 #define M8_FLOWER_DRAW_CONTROL (M8_FLOWER_THREAD_DATA+M8_FLOWER_PERSISTENT_BYTES)

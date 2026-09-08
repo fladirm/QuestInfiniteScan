@@ -1,6 +1,8 @@
 #pragma kernel FlowerCommit
 #pragma kernel DrainFlowerGeometry
-#pragma kernel DrainFlowerSkin
+#pragma kernel ResolveFlowerCarriers
+#pragma kernel DrainFlowerSkinRgb
+#pragma kernel DrainFlowerSkinV
 // Frozen stereo evidence -> touched-tile Flower commit and certified free support.
 #pragma kernel UpdateObservationDual
 #pragma kernel FinalizeObservation
