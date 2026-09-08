@@ -61,7 +61,6 @@ namespace Genesis.RoomScan.Tests
             private const uint ObservationToken = 37u;
             private const uint SlotGeneration = 1u;
             private const int PhaseTaskCount = 1336;
-            private const int TouchedTileCountCounter = 15; // M8_COUNTER_TOUCHED_TILE_COUNT
             private static readonly int3 FirstOwner = new(3, 4, 3);
             private static readonly int3 SecondOwner = new(4, 3, 3);
             private readonly List<ComputeBuffer> _buffers = new();
@@ -282,7 +281,7 @@ namespace Genesis.RoomScan.Tests
                 counters[MerkabaGrid.CounterHotTileCount] = 1;
                 counters[MerkabaGrid.CounterOccupiedKernelCount] = 2;
                 counters[MerkabaGrid.CounterObservationToken] = ObservationToken;
-                counters[TouchedTileCountCounter] = 1;
+                counters[MerkabaGrid.CounterTouchedTileCount] = 1;
                 _counters = Upload(counters, 4);
                 Bind("_M8Counters", _counters);
 

@@ -83,6 +83,7 @@ namespace Genesis.RoomScan
         internal const int CounterUnresolvedSurfaceTiles = 10;
         internal const int CounterSurfaceTilesAllocated = 11;
         internal const int CounterScanColdMisses = 12;
+        internal const int CounterTouchedTileCount = 13;
         internal const int CounterLoadRequests = 14;
         internal const int CounterNewTileQueueCount = 19;
         internal const int CounterPendingNewTileCount = 20;

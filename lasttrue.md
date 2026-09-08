@@ -7766,3 +7766,45 @@ Tools/unity/run_merkaba_tests.sh: 363 total, 362 passed, 1 failed.
 OPEN-4 STATUS=tile transform and resume discard closed. Still open: the Tiles
 canonical leaf cursor and completed-entry receipts on the same journal, and
 preview accessor decoding independent of the fixed Flower GLB stream ABI.
+
+---
+
+### CURRENT TRUE STATE — OPEN-6 suite green, stale counter slot found, 2026-09-08 04:55Z
+
+MEASURED: Tools/unity/run_merkaba_tests.sh result=Passed total=363 passed=363
+failed=0 skipped=0. The baseline at the handover checkpoint 96b34c4 was
+362/344/18.
+
+THE LAST FAILURE WAS A STALE ABI LITERAL IN THE FIXTURE, NOT A PRODUCTION
+DEFECT, and it was found by measurement rather than by reading. Instrumenting
+one drain-only dispatch showed pendingTiles=0, workProgress=0, an all-zero
+tile directory and an all-zero arena — the kernel had returned before its
+first guard could even fail. MerkabaObservationDrainGpuTests carried
+
+  private const int TouchedTileCountCounter = 15; // M8_COUNTER_TOUCHED_TILE_COUNT
+
+but MerkabaWorld.hlsl defines M8_COUNTER_TOUCHED_TILE_COUNT as 13; slot 15 is
+M8_COUNTER_WRITEBACK_COUNT. The fixture therefore raised the writeback count
+and left the touched-tile count at zero, so DrainObservationRefinement exited
+at group.x>=min(touchedTileCount,32768) on its very first line and no stage
+ever ran. FrozenDepthObservation_NonzeroR2 had been asserting against a
+kernel that never executed.
+
+THE FIX REMOVES THE LITERAL RATHER THAN CORRECTING IT. MerkabaGrid gains
+CounterTouchedTileCount=13 and the fixture reads it from there. That constant
+is covered by the existing MerkabaGpuIntegrationTests
+M8CounterAbi_UsesEverySlotExactlyOnce, which checks every MerkabaGrid.Counter*
+field against the shader define, so this particular drift cannot recur
+silently. No threshold was lowered and no fixture was deleted.
+
+OPEN-6 STATUS=suite closed at 363/363. DEVICE ACCEPTANCE PENDING.
+
+DEVICE, MEASURED THIS SESSION: Tools/unity/build_merkaba_apk.sh produced
+QuestMerkabaScan-release.apk (79 018 072 B) and deploy_merkaba_apk.sh
+installed it on 340YC20G7X0QZ4 successfully. It could not be exercised. The
+headset is not being worn, so HorizonOS paused the activity immediately
+(wm_pause_activity ... sleep, then makeInvisible) and refused the relaunch
+with "Launch is blocked because: a Reprojected OS dialog is currently
+showing". The process sat at 0% CPU with all 18 threads asleep and emitted no
+MerkabaNative line at all, so pipeline creation was never reached and nothing
+about the driver can be claimed from this run. DEVICE ACCEPTANCE PENDING.
