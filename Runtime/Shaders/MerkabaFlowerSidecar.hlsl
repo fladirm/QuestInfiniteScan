@@ -676,7 +676,7 @@ bool M8FlowerCanonicalSplit(uint2 bits)
 // words are already interval-proven observations; this routine neither votes
 // on geometry nor invents the seven values required by an atomic split.
 uint M8FlowerCommitSkinGroupLocked(uint ownerRef,uint flowerKey,
-    uint parentOrdinal,uint childWords[28],bool thread,uint publishing,
+    uint parentOrdinal,uint4 childWords[7],bool thread,uint publishing,
     RWByteAddressBuffer payload,M8FlowerArena pool)
 {
     uint epoch=M8FlowerGetOwnerEpoch(ownerRef);
@@ -746,7 +746,13 @@ uint M8FlowerCommitSkinGroupLocked(uint ownerRef,uint flowerKey,
         [loop]for(uint word=0u;word<groupBytes/4u;word++)
         {
             uint value;
-            if(group==rank)value=childWords[word];
+            // One entry per child rather than a flat twenty-eight word
+            // staging array: thread groups fill all four components, metric
+            // groups the first two. Same words in the same order.
+            uint4 owned=childWords[thread?(word>>2u):(word>>1u)];
+            uint component=thread?(word&3u):(word&1u);
+            if(group==rank)value=component==0u?owned.x:component==1u?owned.y:
+                component==2u?owned.z:owned.w;
             else value=payload.Load((oldBase+oldGroup)*groupBytes+4u*word);
             payload.Store(destination+4u*word,value);
         }
@@ -791,14 +797,13 @@ uint M8FlowerCommitMetricGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
     if(parentOrdinal>=57u || !M8FlowerL2KeyValid(flowerKey) ||
         M8FlowerGetOwnerEpoch(ownerRef)==0u ||
         !M8FlowerOwnerWritable(ownerRef,publishing,retired))return M8_FLOWER_ARENA_INVALID;
-    uint words[28];
+    uint4 words[7];
     [unroll]for(uint child=0u;child<7u;child++)
     {
         if(children[child].Lower>children[child].Upper)return M8_FLOWER_ARENA_INVALID;
-        words[2u*child]=asuint(children[child].Lower);
-        words[2u*child+1u]=asuint(children[child].Upper);
+        words[child]=uint4(asuint(children[child].Lower),
+            asuint(children[child].Upper),0u,0u);
     }
-    [unroll]for(uint word=14u;word<28u;word++)words[word]=0u;
     M8FlowerArena pool=M8FlowerDetailArena();
     if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
     uint result=M8FlowerCommitSkinGroupLocked(ownerRef,flowerKey,parentOrdinal,
@@ -813,7 +818,7 @@ uint M8FlowerCommitThreadGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
     if(parentOrdinal>=57u || !M8FlowerL2KeyValid(flowerKey) ||
         M8FlowerGetOwnerEpoch(ownerRef)==0u ||
         !M8FlowerOwnerWritable(ownerRef,publishing,retired))return M8_FLOWER_ARENA_INVALID;
-    uint words[28];
+    uint4 words[7];
     [unroll]for(uint child=0u;child<7u;child++)
     {
         uint2 lo=children[child].LowerLinearRgba,hi=children[child].UpperLinearRgba;
@@ -822,8 +827,7 @@ uint M8FlowerCommitThreadGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
         float4 b=float4(f16tof32(hi.x&65535u),f16tof32(hi.x>>16u),
             f16tof32(hi.y&65535u),f16tof32(hi.y>>16u));
         if(!all(M8FlowerIsFinite(a)) || !all(M8FlowerIsFinite(b)) || any(a>b))return M8_FLOWER_ARENA_INVALID;
-        words[4u*child]=lo.x;words[4u*child+1u]=lo.y;
-        words[4u*child+2u]=hi.x;words[4u*child+3u]=hi.y;
+        words[child]=uint4(lo.x,lo.y,hi.x,hi.y);
     }
     M8FlowerArena detail=M8FlowerDetailArena(),pool=M8FlowerThreadArena();
     if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,detail))return M8_FLOWER_ARENA_BUSY;

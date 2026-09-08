@@ -741,17 +741,28 @@ bool M8FlowerMeasureRgbSkinChild(M8FlowerInterval3 sites[7],uint parentOrdinal,
         M8ThreadEncodeColorInterval(float4(lower,1.0),float4(upper,1.0),value);
 }
 
+// The RGB split test is the scalar split test applied to each channel and
+// ORed, so it is evaluated one channel at a time. Identical existential,
+// identical guard, identical short circuit; what goes is the twenty-one
+// entry flattening of a seven-child group. The generated twenty-one entry
+// form stays the parity authority and the oracle still exercises it.
 uint M8FlowerClassifyMeasuredRgbSkin(M8ThreadColorInterval children[7],uint certain,uint supportMask)
 {
-    float2 intervals[21];
-    [loop]for(uint child=0u;child<7u;child++)
+    [unroll]for(uint channel=0u;channel<3u;channel++)
     {
-        uint2 lo=children[child].LowerLinearRgba,hi=children[child].UpperLinearRgba;
-        intervals[3u*child]=float2(f16tof32(lo.x&65535u),f16tof32(hi.x&65535u));
-        intervals[3u*child+1u]=float2(f16tof32(lo.x>>16u),f16tof32(hi.x>>16u));
-        intervals[3u*child+2u]=float2(f16tof32(lo.y&65535u),f16tof32(hi.y&65535u));
+        float2 intervals[7];
+        [loop]for(uint child=0u;child<7u;child++)
+        {
+            uint2 lo=children[child].LowerLinearRgba,hi=children[child].UpperLinearRgba;
+            uint packedLo=channel==2u?lo.y:lo.x,packedHi=channel==2u?hi.y:hi.x;
+            uint shift=channel==1u?16u:0u;
+            intervals[child]=float2(f16tof32((packedLo>>shift)&65535u),
+                f16tof32((packedHi>>shift)&65535u));
+        }
+        uint channelResult=M8FlowerClassifyScalarSkinSplit(intervals,certain,supportMask);
+        if(channelResult!=M8_FLOWER_SKIN_UNIFORM)return channelResult;
     }
-    return M8FlowerClassifyRgbSkinSplit(intervals,certain,supportMask);
+    return M8_FLOWER_SKIN_UNIFORM;
 }
 
 uint M8FlowerClassifyMeasuredMetricSkin(M8FlowerVInterval children[7],uint certain,uint supportMask)

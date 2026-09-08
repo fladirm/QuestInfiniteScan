@@ -8625,3 +8625,38 @@ flattenings of the seven-child ontology, seven is the ontology itself.
 Tools/shaders/audit_merkaba_compute_spirv.sh: all 70 kernels compile; 3 FAIL,
 none new to this change. Tools/unity/run_merkaba_tests.sh: 364/364.
 DEVICE ACCEPTANCE PENDING.
+
+THE SKIN ENTRIES CARRIED TWO FLATTENINGS AND ONE ALIAS. Neither flattening was
+the ontology. float2 intervals[21] is a seven-child group flattened over three
+channels; the RGB split test is exactly the scalar split test applied per
+channel and ORed, so it is now evaluated one channel at a time against
+float2 intervals[7]. Identical existential, identical guard, identical short
+circuit. The generated twenty-one entry form stays the parity authority and the
+oracle still calls it, so no fixture was lost. uint words[28] is a seven-child
+group flattened over four words; the commit path now carries one uint4 per
+child and the consumer selects the component. The split algebra itself was NOT
+touched: children read from the packet are not revalidated at that point, so
+replacing the pairwise test with a max-lo/min-hi reduction would have changed
+SPLIT for an inverted interval. Correct on valid input is not the same as
+identical.
+
+M8FlowerRestoreSkinCarrier read receipts through _M8FlowerDetailPagesRead while
+the same kernels bind _M8FlowerDetailPages for writing, which is the RW/read
+alias pair the audit forbids. It now reads through M8_FLOWER_DETAIL_SOURCE,
+the convention this file already had. RO bindings fall 13 -> 12 and both skin
+entries lose the FAIL.
+
+  entry                  maxDynArray before -> after   bytes
+  ResolveFlowerCarriers        14 -> 3        715 276 -> 721 068
+  DrainFlowerSkinRgb           28 -> 7        382 724 -> 382 424
+  DrainFlowerSkinV             28 -> 7        581 920 -> 581 684
+
+Seven is where it stops, because seven is M8FlowerVInterval children[7] and
+M8ThreadColorInterval children[7]: the seven-child group itself. Reducing that
+would be a data model change, not a compile surface change. The device run now
+asks exactly one question that four and fourteen do not already answer.
+
+Tools/shaders/audit_merkaba_compute_spirv.sh: 70 kernels, 1 FAIL, and that FAIL
+is CompactDirtyFlowerSymbols over the 1 MiB gate, which is OPEN-1 and predates
+this change. Two alias FAILs are gone. Tools/unity/run_merkaba_tests.sh: 364/364.
+DEVICE ACCEPTANCE PENDING.

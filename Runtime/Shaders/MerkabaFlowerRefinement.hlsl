@@ -831,9 +831,9 @@ void M8FlowerRestoreSkinCarrier(uint slot,uint lane,uint generation,uint require
     {
         uint local=m8FinePacketFirst+lane,control=M8FlowerFineSkinControl(lane);
         uint receipt=M8FlowerSkinReceipt(m8FineReceiptTile,local);
-        uint4 identity=_M8FlowerDetailPagesRead.Load4(receipt+M8_FLOWER_SKIN_RECEIPT_SYMBOL);
-        uint4 lifetime=_M8FlowerDetailPagesRead.Load4(receipt+M8_FLOWER_SKIN_RECEIPT_TOKEN);
-        uint status=_M8FlowerDetailPagesRead.Load(receipt+M8_FLOWER_SKIN_RECEIPT_STATUS);
+        uint4 identity=M8_FLOWER_DETAIL_SOURCE.Load4(receipt+M8_FLOWER_SKIN_RECEIPT_SYMBOL);
+        uint4 lifetime=M8_FLOWER_DETAIL_SOURCE.Load4(receipt+M8_FLOWER_SKIN_RECEIPT_TOKEN);
+        uint status=M8_FLOWER_DETAIL_SOURCE.Load(receipt+M8_FLOWER_SKIN_RECEIPT_STATUS);
         bool live=lifetime.x==_M8ObservationToken && lifetime.y==generation &&
             status==requiredStatus;
         M8FlowerPacketStoreWord(control,live?identity.x:0u);
@@ -851,7 +851,7 @@ void M8FlowerRestoreSkinCarrier(uint slot,uint lane,uint generation,uint require
                 (live && (lifetime.w&(1u<<site))!=0u)?1u:0u);
         [unroll]for(uint word=0u;word<42u;word++)
             M8FlowerPacketStoreWord(M8_FINE_PACKET_WORLD_SITES+6u*7u*lane+word,
-                live?_M8FlowerDetailPagesRead.Load(receipt+M8_FLOWER_SKIN_RECEIPT_WORLD+4u*word):0u);
+                live?M8_FLOWER_DETAIL_SOURCE.Load(receipt+M8_FLOWER_SKIN_RECEIPT_WORLD+4u*word):0u);
     }
     GroupMemoryBarrierWithGroupSync();
 }
