@@ -3177,6 +3177,8 @@ namespace Genesis.RoomScan.UI
             var tileObject = new GameObject(tile.Uri.Replace('/', '_'));
             tileObject.transform.SetParent(_modelRoot, false);
             tileObject.transform.localPosition = tile.OriginUnity - _scanCenter;
+            tileObject.transform.localRotation = tile.RotationUnity;
+            tileObject.transform.localScale = tile.ScaleUnity;
             var filter = tileObject.AddComponent<MeshFilter>();
             filter.sharedMesh = mesh;
             var renderer = tileObject.AddComponent<MeshRenderer>();
@@ -3325,8 +3327,13 @@ namespace Genesis.RoomScan.UI
                     node.content.uri);
                 ZipArchiveEntry entry = archive.GetEntry(uri) ??
                     throw new InvalidDataException("Missing tile " + uri);
-                output.Add(new Tile(uri, entry.Length,
-                    TilesetToUnity(current.MultiplyPoint3x4(Vector3.zero)),
+                // The accumulated transform already drives the bounding box.
+                // Carry its rotation and scale to the tile as well; dropping
+                // them placed a rotated or scaled foreign tile at the right
+                // point with the wrong orientation.
+                DecomposeTilesetTransform(current, uri,
+                    out Vector3 origin, out Quaternion rotation, out Vector3 scale);
+                output.Add(new Tile(uri, entry.Length, origin, rotation, scale,
                     ConvertTilesetBox(node.boundingVolume?.box, current)));
             }
             if (node.children == null) return;
@@ -3408,6 +3415,48 @@ namespace Genesis.RoomScan.UI
 
         private static Vector3 TilesetToUnity(Vector3 value) =>
             new(-value.x, value.z, -value.y);
+
+        // x_unity = -x_tiles, y_unity = z_tiles, z_unity = -y_tiles. The basis
+        // is orthonormal, so its inverse is its transpose and the Unity-space
+        // placement is C * transform * C^T.
+        private static readonly Matrix4x4 TilesetAxisChange = new(
+            new Vector4(-1f, 0f, 0f, 0f), new Vector4(0f, 0f, -1f, 0f),
+            new Vector4(0f, 1f, 0f, 0f), new Vector4(0f, 0f, 0f, 1f));
+
+        /// <summary>Splits an accumulated 3D Tiles node transform into the
+        /// Unity TRS a Transform can represent. A sheared or degenerate matrix
+        /// is rejected; it is never replaced by identity.</summary>
+        private static void DecomposeTilesetTransform(Matrix4x4 transform,
+            string uri, out Vector3 origin, out Quaternion rotation,
+            out Vector3 scale)
+        {
+            Matrix4x4 unity = TilesetAxisChange * transform *
+                TilesetAxisChange.transpose;
+            for (int index = 0; index < 16; index++)
+                if (!float.IsFinite(unity[index]))
+                    throw new InvalidDataException(
+                        "Tile " + uri + " has a non-finite transform.");
+            Vector3 x = unity.GetColumn(0), y = unity.GetColumn(1),
+                z = unity.GetColumn(2);
+            float lx = x.magnitude, ly = y.magnitude, lz = z.magnitude;
+            if (lx <= 1e-6f || ly <= 1e-6f || lz <= 1e-6f)
+                throw new InvalidDataException(
+                    "Tile " + uri + " has a degenerate transform.");
+            x /= lx; y /= ly; z /= lz;
+            const float orthogonal = 1e-3f;
+            if (Mathf.Abs(Vector3.Dot(x, y)) > orthogonal ||
+                Mathf.Abs(Vector3.Dot(y, z)) > orthogonal ||
+                Mathf.Abs(Vector3.Dot(x, z)) > orthogonal)
+                throw new InvalidDataException(
+                    "Tile " + uri + " has a sheared transform a Unity " +
+                    "Transform cannot represent.");
+            // A negative determinant is a mirrored tile. Fold it into one axis
+            // so the rotation stays a rotation instead of silently vanishing.
+            if (Vector3.Dot(Vector3.Cross(x, y), z) < 0f) { x = -x; lx = -lx; }
+            origin = unity.GetColumn(3);
+            rotation = Quaternion.LookRotation(z, y);
+            scale = new Vector3(lx, ly, lz);
+        }
 
         private static ParsedGlb ReadGlbTile(string archivePath, Tile tile,
             long maximumDecodedBytes)
@@ -3863,6 +3912,8 @@ namespace Genesis.RoomScan.UI
             internal readonly long ArchiveBytes;
             internal long EstimatedResidentBytes;
             internal readonly Vector3 OriginUnity;
+            internal readonly Quaternion RotationUnity;
+            internal readonly Vector3 ScaleUnity;
             internal readonly Bounds Bounds;
             internal bool Loading;
             internal bool Failed;
@@ -3873,12 +3924,14 @@ namespace Genesis.RoomScan.UI
             internal long ResidentBytes;
 
             internal Tile(string uri, long archiveBytes, Vector3 originUnity,
-                Bounds bounds)
+                Quaternion rotationUnity, Vector3 scaleUnity, Bounds bounds)
             {
                 Uri = uri;
                 ArchiveBytes = archiveBytes;
                 EstimatedResidentBytes = EstimateResidentBytes(archiveBytes);
                 OriginUnity = originUnity;
+                RotationUnity = rotationUnity;
+                ScaleUnity = scaleUnity;
                 Bounds = bounds;
             }
         }
