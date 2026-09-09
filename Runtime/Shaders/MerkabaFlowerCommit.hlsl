@@ -266,6 +266,29 @@ bool M8FlowerBeginR1FineInvalidation(uint slot,uint local,bool through,bool stru
     return true;
 }
 
+// One publication point for "this tile's direct evidence moved in this
+// snapshot", shared by both commit exits.
+//
+// The refinement cursor says how far this tile has refined AGAINST THE PLANE
+// IT HELD. New direct evidence changed that plane, so the rest of the walk
+// would refine against evidence the world no longer holds. Reset it: the
+// records keep their epoch, and re-walking recommits identical rows where
+// nothing moved and tighter ones where it did. A structural change resets the
+// epoch as well, through M8FlowerInvalidationChanged; this is the smaller case
+// M8FlowerParentStructureChanged deliberately calls compatible.
+//
+// This is also why the cursor may live in the world at all: it is invalidated
+// by what invalidates the thing it refined, not by every camera frame that
+// happens to look at this tile.
+void M8FlowerPublishR1Change(uint slot)
+{
+    if (m8FlowerR1Changed == 0u) return;
+    InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
+        M8_OBSERVATION_CHANGED_R1);
+    M8FlowerStoreTileRefinementCursor(slot,
+        _M8TileRecords[M8TileRuntimeIndex(slot)].w,_M8ObservationToken,0u);
+}
+
 bool M8FlowerStoreR1(uint slot, uint local, KernelState before, uint4 value)
 {
     if (all(value == uint4(asuint(before.evidence),before.packedColor,
@@ -426,9 +449,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         DeviceMemoryBarrierWithGroupSync();
         if (lane == 0u)
         {
-            if (m8FlowerR1Changed != 0u)
-                InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
-                    M8_OBSERVATION_CHANGED_R1);
+            M8FlowerPublishR1Change(slot);
             _M8TileRecords[M8TileRuntimeIndex(slot)].x=_M8ObservationToken;
         }
         return;
@@ -726,9 +747,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
     DeviceMemoryBarrierWithGroupSync();
     if (lane == 0u)
     {
-        if (m8FlowerR1Changed != 0u)
-            InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
-                M8_OBSERVATION_CHANGED_R1);
+        M8FlowerPublishR1Change(slot);
         _M8TileRecords[M8TileRuntimeIndex(slot)].x=_M8ObservationToken;
     }
 }

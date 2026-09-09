@@ -391,8 +391,10 @@ void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
             }
             uint words[16];
             uint previous=M8DualReadPreparedTileWords(chunk,payload,tile,words);
-            // A COLD leaf is a residency dependency: ask for it and wait, so
-            // the retry arrives with a moved residency epoch.
+            // A COLD leaf is a residency dependency: enqueue the request and
+            // skip this tile. The snapshot does not wait for it - a later
+            // snapshot reads it once resident. Nothing here invents FULL, FREE
+            // or surface for a tile whose evidence has not arrived.
             if (previous == M8_DUAL_READ_COLD ||
                 reference == MERKABA_REF_COLD_ON_SSD)
             {
@@ -414,6 +416,7 @@ void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
             // leaf ref no longer describes this tile carries zero words, so the
             // volume below is recomputed and the write rebinds it. Treating that
             // as COLD requested no load and pended the observation forever.
+            // Neither branch above retains the snapshot; both only skip.
 
             bool entire=false;
             if (!direct) entire=through || M8SupportThrough(tileMinimum,8u);
