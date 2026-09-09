@@ -352,10 +352,16 @@ void M8FlowerApplyDualVeto(uint slot, uint local, uint block, uint child, uint t
 [numthreads(128,1,1)]
 void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 {
+    // UNRESOLVED_OBSERVATION_TILES is telemetry, not a gate. Every tile below
+    // already proves its own dependencies locally: the structural triple
+    // (runtime.w, tileMeta, ChunkTileRefs), then m8FlowerDualReady over this
+    // tile's own endpoints, then the all-or-no-M8 invalidation preflight. Each
+    // of those failure paths increments the counter, so reading it here let one
+    // unresolved tile - or one dual block that merely asked storage to retry -
+    // veto every other tile that had proved itself. Readiness is local.
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u ||
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u ||
-        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] != 0u ||
-        _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] != 0u) return;
+        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] != 0u) return;
     if (group.x >= min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY)) return;
     uint slot = _M8TouchedTileQueueRead[group.x];

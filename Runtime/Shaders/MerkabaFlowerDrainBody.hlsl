@@ -21,17 +21,24 @@ void M8_DRAIN_BODY_NAME(uint3 group,uint lane)
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
         return;
     }
+#if M8_DRAIN_SKIN
+    // The receipt arena is a physical scratch bound and it belongs to skin
+    // alone: m8FineReceiptTile addresses it, and only M8FlowerStoreSkinCarrier
+    // and M8FlowerRestoreSkinCarrier read it. Geometry authors no receipt, so
+    // gating it here deferred committed geometry for no capacity reason at all.
+    // A tile past the arena is not skinned by THIS snapshot; its geometry still
+    // commits now and the next snapshot, with its own touched queue, skins it.
     if(group.x>=M8_FLOWER_SKIN_RECEIPT_TILES)
     {
-        // The receipt arena is what one snapshot can carry between its resolve
-        // and signal dispatches. A tile past it is simply not skinned by THIS
-        // snapshot; its geometry already committed and the next snapshot, with
-        // its own touched queue, skins it. Nothing is owed and nothing is held.
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
         return;
     }
+#endif
     if(lane==0u){m8FineWriteStatus=0u;m8FineAnyNovelty=0u;m8FineAnyActive=0u;
-        m8FineReceiptTile=group.x;}
+#if M8_DRAIN_SKIN
+        m8FineReceiptTile=group.x;
+#endif
+        }
     GroupMemoryBarrierWithGroupSync();
     uint stage=_M8Counters[M8_COUNTER_REFINEMENT_STAGE];
     // The owed invalidation cut is a property of the world, so it is read from
