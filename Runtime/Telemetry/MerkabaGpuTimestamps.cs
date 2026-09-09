@@ -39,7 +39,7 @@ namespace Genesis.RoomScan
     internal static class MerkabaGpuTimestamps
     {
         internal const int RefineRadialBinCount = 3;
-        internal const int RefineMetricCount = 8;
+        internal const int RefineMetricCount = 20;
         internal const int RefineMetricValueCount =
             RefineRadialBinCount * RefineMetricCount;
 
@@ -90,6 +90,7 @@ namespace Genesis.RoomScan
             internal bool ReadbackValid = true;
             internal bool Logged;
             internal bool MetricsCaptureRequested;
+            internal bool RefineAvailable;
             internal uint BlockCount;
             internal uint ChunkCount;
             internal uint HotTiles;
@@ -164,6 +165,8 @@ namespace Genesis.RoomScan
         private static uint _revision;
         private static float _nextSampleTime;
         private static float _nextCounterLogTime;
+        private static float _nextNativeRefineSampleTime;
+        private static bool _nativeRefineReadbackPending;
         private static float _lastStorageSubmissionTime;
         private static bool _storageCapture;
         private static bool _submissionBegan;
@@ -180,6 +183,9 @@ namespace Genesis.RoomScan
         internal static bool IsOwnerRecording(CaptureOwner owner) =>
             _state == CaptureState.Recording && _activeOwner == owner;
         internal static uint CurrentRevision => _revision;
+        internal static bool ShouldCaptureNativeRefineMetrics =>
+            !_nativeRefineReadbackPending &&
+            Time.unscaledTime >= _nextNativeRefineSampleTime;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void Reset()
@@ -193,6 +199,8 @@ namespace Genesis.RoomScan
             _revision = 0u;
             _nextSampleTime = float.PositiveInfinity;
             _nextCounterLogTime = 0f;
+            _nextNativeRefineSampleTime = 0f;
+            _nativeRefineReadbackPending = false;
             _lastStorageSubmissionTime = float.NegativeInfinity;
             _storageCapture = false;
             _submissionBegan = false;
@@ -662,6 +670,7 @@ namespace Genesis.RoomScan
                             sample.ReadbackValid = false;
                         else
                         {
+                            sample.RefineAvailable = true;
                             var values = request.GetData<uint>();
                             for (int index = 0; index < values.Length; index++)
                             {
@@ -672,6 +681,50 @@ namespace Genesis.RoomScan
                         sample.PendingReadbacks--;
                         TryLogMetrics(sample);
                     });
+            }
+        }
+
+        // Called after native fence completion and Unity ownership reacquisition,
+        // before the next observation can overwrite the per-WG counters. This
+        // sampled readback never holds an observation or participates in admission.
+        internal static void CaptureNativeRefineMetrics(ComputeBuffer buffer,
+            int valueCount, uint observation, uint attempt, int depthVersion)
+        {
+            _nextNativeRefineSampleTime = Time.unscaledTime + SampleIntervalSeconds;
+            if (_nativeRefineReadbackPending) return;
+            string identity = $"observation={observation} attempt={attempt} " +
+                $"depthVersion={depthVersion} source=native";
+            if (buffer == null || valueCount <= 0 ||
+                valueCount % RefineMetricValueCount != 0)
+            {
+                Logger.Warning($"Merkaba metrics-rgbd {identity} available=false reason=buffer");
+                return;
+            }
+            _nativeRefineReadbackPending = true;
+            try
+            {
+                AsyncGPUReadback.Request(buffer, checked(valueCount * sizeof(uint)), 0, request =>
+                {
+                    _nativeRefineReadbackPending = false;
+                    if (request.hasError)
+                    {
+                        Logger.Warning($"Merkaba metrics-rgbd {identity} available=false reason=readback");
+                        return;
+                    }
+                    var totals = new uint[RefineMetricValueCount];
+                    var values = request.GetData<uint>();
+                    for (int index = 0; index < values.Length; index++)
+                        totals[index % RefineMetricValueCount] += values[index];
+                    Logger.Info($"Merkaba metrics-rgbd {identity} available=true " +
+                        $"center={FormatRefineBin(totals, 0)} " +
+                        $"mid={FormatRefineBin(totals, 1)} " +
+                        $"edge={FormatRefineBin(totals, 2)}");
+                });
+            }
+            catch (Exception exception)
+            {
+                _nativeRefineReadbackPending = false;
+                Logger.Warning($"Merkaba metrics-rgbd {identity} available=false reason={exception.Message}");
             }
         }
 
@@ -979,7 +1032,7 @@ namespace Genesis.RoomScan
                         $"observationChangeMask={sample.ObservationChangeMask} " +
                         $"dirtyTileCount={sample.DirtyTileCount}");
             Logger.Info($"Merkaba metrics-rgbd revision={sample.Revision} " +
-                        $"valid={sample.ReadbackValid} " +
+                        $"available={sample.RefineAvailable} valid={sample.ReadbackValid} " +
                         $"center={FormatRefineBin(sample.RefineRadial, 0)} " +
                         $"mid={FormatRefineBin(sample.RefineRadial, 1)} " +
                         $"edge={FormatRefineBin(sample.RefineRadial, 2)}");
@@ -1004,17 +1057,29 @@ namespace Genesis.RoomScan
                         $"failedObservations={sample.FailedObservations}");
         }
 
-        private static string FormatRefineBin(uint[] values, int radialBin)
+        internal static string FormatRefineBin(uint[] values, int radialBin)
         {
             int offset = radialBin * RefineMetricCount;
-            return "[raw=" + values[offset] +
-                   ",opposite=" + values[offset + 1] +
-                   ",coverage=" + values[offset + 2] +
-                   ",chroma=" + values[offset + 3] +
+            return "[planeAccepted=" + values[offset] +
+                   ",noOppositeSupport=" + values[offset + 1] +
+                   ",noRgbCoverage=" + values[offset + 2] +
+                   ",noChromaticSupport=" + values[offset + 3] +
                    ",flowerUnresolved=" + values[offset + 4] +
-                   ",metric=" + values[offset + 5] +
-                   ",unique=" + values[offset + 6] +
-                   ",accepted=" + values[offset + 7] + "]";
+                   ",acceptedWithoutR3=" + values[offset + 5] +
+                   ",acceptedWithR3=" + values[offset + 6] +
+                   ",accepted=" + values[offset + 7] +
+                   ",sourceDepthValid=" + values[offset + 8] +
+                   ",calibrationInvalid=" + values[offset + 9] +
+                   ",planeDepthSupportInvalid=" + values[offset + 10] +
+                   ",planeNormalDegenerate=" + values[offset + 11] +
+                   ",planeNormalBoundRejected=" + values[offset + 12] +
+                   ",planeOffsetBoundRejected=" + values[offset + 13] +
+                   ",planeFacingUnresolved=" + values[offset + 14] +
+                   ",nonUniqueHypotheses=" + values[offset + 15] +
+                   ",ambiguousSingleHypothesis=" + values[offset + 16] +
+                   ",clipOrFineRejected=" + values[offset + 17] +
+                   ",zeroHypotheses=" + values[offset + 18] +
+                   ",hypothesisWidthInvalid=" + values[offset + 19] + "]";
         }
 
         private static void CancelFrame()

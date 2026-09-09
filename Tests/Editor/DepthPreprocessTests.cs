@@ -630,8 +630,9 @@ namespace Genesis.RoomScan.Tests
 
         // Includes cold Vulkan driver/pipeline compilation, not just the
         // tiny fixture dispatch. Device frame-time acceptance is separate.
-        [Test, Timeout(120000)]
-        public void JointSolve_TexturelessFourStreamPlane_DoesNotChooseAnAmbiguousHypothesis()
+        [TestCase(true), TestCase(false), Timeout(120000)]
+        public void JointSolve_TexturelessFourStreamPlane_DoesNotChooseAnAmbiguousHypothesis(
+            bool calibrationValid)
         {
             const int width = 17;
             const int height = 15;
@@ -673,6 +674,8 @@ namespace Genesis.RoomScan.Tests
                 compute.SetMatrixArray("_DepthView", views);
                 compute.SetMatrixArray("_DepthViewInv", views);
                 BindSyntheticStereoBounds(compute);
+                if (!calibrationValid)
+                    compute.SetVector("_M8PlaneErrorBounds", Vector4.zero);
                 compute.SetBuffer(kernel, "_RefineMetrics", refineMetrics);
                 compute.SetInt("_RefineMetricsEnabled", 1);
                 compute.SetInt("_RefineMetricGroupsX", metricGroupsX);
@@ -697,12 +700,14 @@ namespace Genesis.RoomScan.Tests
                     MerkabaGpuTimestamps.RefineMetricValueCount];
                 for (int index = 0; index < metricValues.Length; index++)
                     radial[index % radial.Length] += metricValues[index];
-                uint measured = 0u;
+                uint measured = 0u, sourceValid = 0u, invalidCalibration = 0u;
                 for (int bin = 0; bin <
                      MerkabaGpuTimestamps.RefineRadialBinCount; bin++)
                 {
                     int offset = bin * MerkabaGpuTimestamps.RefineMetricCount;
                     measured += radial[offset];
+                    sourceValid += radial[offset + 8];
+                    invalidCalibration += radial[offset + 9];
                     uint rejected = radial[offset + 1] + radial[offset + 2] +
                                     radial[offset + 3] + radial[offset + 4];
                     Assert.That(radial[offset], Is.EqualTo(
@@ -710,8 +715,14 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(radial[offset + 7], Is.EqualTo(
                         radial[offset + 5] + radial[offset + 6]));
                 }
-                Assert.That(measured, Is.GreaterThan(0u),
-                    "The fixture must reach bounded depth evidence, not pass because calibration or the input was missing.");
+                Assert.That(sourceValid, Is.EqualTo(width * height));
+                Assert.That(invalidCalibration, Is.EqualTo(calibrationValid ? 0 : width * height));
+                if (calibrationValid)
+                    Assert.That(measured, Is.GreaterThan(0u),
+                        "The fixture must reach bounded depth evidence, not pass because calibration or the input was missing.");
+                else
+                    Assert.That(measured, Is.Zero,
+                        "Missing calibration is distinct from missing raw depth and must not create an endpoint.");
             }
             finally
             {

@@ -31,8 +31,8 @@ float _M8FineRadiusSquared, _M8FineLength;
 #define RGBD_STAGE_PCA_COVERAGE 2u
 #define RGBD_STAGE_CHROMATICITY 4u
 #define RGBD_STAGE_FLOWER 8u
-#define RGBD_METRIC_COUNT 8u
-#define RGBD_METRIC_VALUE_COUNT 24u
+#define RGBD_METRIC_COUNT 20u
+#define RGBD_METRIC_VALUE_COUNT (3u * RGBD_METRIC_COUNT)
 groupshared uint gRefineMetrics[RGBD_METRIC_VALUE_COUNT];
 
 M8FlowerInterval3 StereoPoint(float3 v)
@@ -147,9 +147,11 @@ struct StereoMeasuredPlane
     M8FlowerInterval depth;
 };
 
-bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane)
+bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane,
+    out uint rejectionMetric)
 {
     plane = (StereoMeasuredPlane)0;
+    rejectionMetric = 10u; // Invalid five-point depth support.
     M8FlowerInterval3 centre = StereoPoint(0.0.xxx);
     M8FlowerInterval3 previous = centre, dx = centre, dy = centre;
     // Enclose the sensor's two independent depth derivatives, not a fitted
@@ -174,18 +176,22 @@ bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane)
         else if (sampleIndex == 2u) dx = StereoSubtract(samplePoint,previous);
         else dy = StereoSubtract(samplePoint,previous);
     }
+    rejectionMetric = 11u; // Degenerate/nonfinite measured normal.
     M8FlowerInterval3 normal;
     if (!StereoNormalize(StereoCross(dx,dy),normal))
         return false;
     plane.position = StereoMidpoint(centre);
     plane.normal = normalize(StereoMidpoint(normal));
     if (!all(M8FlowerIsFinite(plane.normal))) return false;
+    rejectionMetric = 12u;
     M8FlowerInterval normalError;
     if (!StereoLength(StereoSubtract(normal,StereoPoint(plane.normal)),normalError) ||
         normalError.hi > _M8PlaneErrorBounds.x) return false;
+    rejectionMetric = 13u;
     M8FlowerInterval3 delta = StereoSubtract(centre,StereoPoint(plane.position));
     M8FlowerInterval offset = M8DepthIntervalRow(float4(plane.normal,0.0),delta);
     if (max(abs(offset.lo),abs(offset.hi)) > _M8PlaneErrorBounds.y) return false;
+    rejectionMetric = 14u;
     float3 eyePosition = float3(_DepthViewInv[eye][0][3],_DepthViewInv[eye][1][3],_DepthViewInv[eye][2][3]);
     M8FlowerInterval facing = M8FlowerObservedDot(normal,
         StereoSubtract(StereoPoint(eyePosition),centre));
@@ -197,6 +203,7 @@ bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane)
     }
     plane.positionInterval = centre;
     plane.normalInterval = normal;
+    rejectionMetric = 0u;
     return true;
 }
 
@@ -221,7 +228,8 @@ bool StereoOppositePlane(M8FlowerInterval3 world, out StereoMeasuredPlane plane)
         x.hi >= _DepthW || y.hi >= _DepthH) return false;
     int2 pixelMin = int2(floor(x.lo),floor(y.lo)), pixelMax = int2(floor(x.hi),floor(y.hi));
     if (any(pixelMin != pixelMax)) return false;
-    return StereoDepthPlane(1u,pixelMin,plane);
+    uint rejectionMetric;
+    return StereoDepthPlane(1u,pixelMin,plane,rejectionMetric);
 }
 
 // The complete uncertain root must fit one calibrated bilinear cell. Its four
@@ -480,14 +488,23 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
         GroupMemoryBarrierWithGroupSync();
     }
     bool raw = false, accepted = false, tetraUsed = false;
-    uint stages = 0u, radialBin = 0u;
+    uint stages = 0u, radialBin = 0u, diagnosticMask = 0u;
     if (all(id < uint2(_DepthW,_DepthH)))
     {
         _DstDepth[id] = 0.0; _DstNormal[id] = 0.0.xxxx;
         float2 uv = (float2(id)+0.5)/float2(_DepthW,_DepthH);
         radialBin = min(2u,(uint)floor(max(abs(uv.x*2.0-1.0),abs(uv.y*2.0-1.0))*3.0));
         StereoMeasuredPlane measured;
-        raw = StereoCalibrationValid() && StereoDepthPlane(0u,int2(id),measured);
+        bool calibrationValid = StereoCalibrationValid();
+        uint rejectionMetric = 0u;
+        raw = calibrationValid && StereoDepthPlane(0u,int2(id),measured,rejectionMetric);
+        if (metrics)
+        {
+            float source = _SrcDepth.Load(int4(id,0,0));
+            if (source > 0.0 && source < 1.0) diagnosticMask |= 1u << 8u;
+            if (!calibrationValid) diagnosticMask |= 1u << 9u;
+            else if (!raw) diagnosticMask |= 1u << rejectionMetric;
+        }
         if (raw)
         {
             uint candidates = (1u << RGBD_HYPOTHESES)-1u;
@@ -540,6 +557,14 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
             }
             // AMBIGUOUS competitors survive both phases. They cannot vanish
             // merely to make a different hypothesis look like a unique root.
+            if (metrics)
+            {
+                uint survivors = countbits(candidates);
+                if (!boundedWidth) diagnosticMask |= 1u << 19u;
+                else if (survivors == 0u) diagnosticMask |= 1u << 18u;
+                else if (survivors > 1u) diagnosticMask |= 1u << 15u;
+                else if (certainCandidates != candidates) diagnosticMask |= 1u << 16u;
+            }
             if (countbits(candidates) == 1u && certainCandidates == candidates)
             {
                 float3 world = selectedWorld;
@@ -559,12 +584,13 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
                     _DstDepth[id] = depth;
                     _DstNormal[id] = float4(selectedNormal,1.0);
                 }
+                else if (metrics) diagnosticMask |= 1u << 17u;
             }
         }
     }
     if (metrics)
     {
-        uint mask = raw ? 1u : 0u;
+        uint mask = diagnosticMask | (raw ? 1u : 0u);
         if (raw && !accepted)
             mask |= (stages & RGBD_STAGE_OPPOSITE) == 0u ? 2u :
                 ((stages & RGBD_STAGE_PCA_COVERAGE) == 0u ? 4u :

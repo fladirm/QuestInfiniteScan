@@ -9479,3 +9479,51 @@ forever. Indexed by group.x, which never changes between attempts, that is not a
 bounded workset - it is permanent exclusion. It existed only to carry state
 across the resolve/RGB/V split, which itself exists only because of an Adreno
 module-size limit. Under the new model there is nothing to carry.
+
+### 2026-09-09 LIVE_SCAN_RECOVERY — calibration, native evidence, wake
+
+BASE=769e49f + preserved pre-existing working changes (Claude dual/codegen,
+native metrics toggle/logging and UI). No prior cut is reopened or claimed PASS.
+SCOPE=repair the diagnosed empty-observation and wake/new-live-run flow, then
+the existing Unity Quest APK build. No Flower algebra/ontology changes.
+PURSUIT=the product still exposes an obsolete paused REV-B goal; this ledger
+is the current task cursor, not a claim that that goal was resumed/completed.
+
+DAG:
+  RECOVERY_1 calibration profile -> scene/bootstrap -> frozen uniforms ->
+    startup/build validation. IMPLEMENTED, tests PASS. Real calibrated bounds are missing;
+    source requested from user. No guessed bounds or validity-bit bypass.
+  RECOVERY_2 native observation-bound metrics and truthful counter meanings.
+    IMPLEMENTED; sampled readback bound to native observation/attempt/depth,
+    20 counters per radial bin, no change to endpoint acceptance predicates.
+  RECOVERY_3 anchor recovery, discard unsaved live run on explicit new scan,
+    dirty only on actual canonical/document changes. IMPLEMENTED, tests PASS;
+    actual headset pause/wake acceptance still pending.
+  RECOVERY_4 [1,2,3] tests -> fixes -> existing bounded Unity APK build.
+    TESTS PASS; APK preflight blocked by missing measured calibration asset.
+    Device acceptance is separate and must not be inferred from APK.
+
+CURSOR=RECOVERY_4 awaiting actual calibration source/data from user. The old
+generated host scene had all five calibration vectors zero; setup recreated
+that scene, StereoCalibrationValid rejected w!=1, and the same invalid bounds
+prevented THROUGH certification. Native metrics enable alone previously did
+not bind a revision or enqueue a native metrics readback; that is now wired.
+Calibration SSOT=host Assets/Settings/MerkabaStereoCalibration.asset, referenced
+by regenerated scene; source/provenance plus all five finite bounded streams
+required. This run did not invent or populate that missing profile.
+TESTS_RUN=full Unity EditMode 380/380 PASS, 2026-09-09 21:11:53Z,
+  /mnt/kingston-unity/Builds/TestResults/merkaba-results.xml.
+  Includes valid/invalid calibration GPU cases and empty-observation dirty test.
+SHADER_CHECK=exact native StereoFlowerRefine compile/reflection/spirv-val PASS;
+  metric gate REVIEW (no FAIL): 655976 bytes, 33609 body instructions,
+  8x8x1, 240 B groupshared, 3 writable bindings, 2 barriers.
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/RecoveryStereoAudit/metrics.json.
+  Full 71-entry audit was not rerun; existing OPEN-1 is not claimed closed.
+BUILD=Tools/unity/build_merkaba_apk.sh invoked; exit 1 at calibration preflight.
+  Required: /mnt/kingston-unity/Unity/Projects/QuestMerkabaScanHost/Assets/Settings/MerkabaStereoCalibration.asset.
+  No fresh APK or deployment; previous APK retained. No synthetic fixture
+  values promoted into production; sensor bounds remain an external input.
+NEXT=populate documented actual profile, rerun bounded APK build, then measure
+  accepted endpoints -> allocated/touched tiles -> occupancy/direct/dual/draw
+  and pause/wake/Start on Quest. Green tests do not certify live capture.
+DEVICE_ACCEPTANCE=pending.

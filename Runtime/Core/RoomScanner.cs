@@ -89,6 +89,7 @@ namespace Genesis.RoomScan
         private bool _headTrackingBlocked;
         private float _lastHeadTrackingWarningTime;
         private bool _newSessionPending;
+        private bool _newLiveScanRequired;
 
         public bool IsScanning { get; private set; }
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
@@ -410,6 +411,17 @@ namespace Genesis.RoomScan
             LastScanStartError = null;
             try
             {
+                if (_depthCapture == null)
+                    throw new InvalidOperationException("DepthCapture is unavailable.");
+                _depthCapture.RequireValidCalibration();
+                if (_newLiveScanRequired)
+                {
+                    await NewClearAsync(null);
+                    if (_newLiveScanRequired || _applicationPaused || _destroyed || _disableRequested)
+                        return;
+                    generation = NextLifecycleGeneration();
+                    ScanLifecycle = ScanLifecycleState.Starting;
+                }
                 await EnsureRoomAnchorAsync();
                 if (!StartIsCurrent(generation)) return;
                 if (_persistence != null)
@@ -526,6 +538,7 @@ namespace Genesis.RoomScan
                     ScanOperationStage.SynchronizingScan, 1L, 1L,
                     "Scan synchronized");
                 success = _persistence != null && await _persistence.LoadAsync();
+                if (success) _newLiveScanRequired = false;
                 return success;
             }
             finally
@@ -580,6 +593,7 @@ namespace Genesis.RoomScan
                     "Scan synchronized");
                 success = _persistence != null &&
                     await _persistence.OpenSessionAsync(sessionId);
+                if (success) _newLiveScanRequired = false;
                 return success;
             }
             finally
@@ -671,6 +685,9 @@ namespace Genesis.RoomScan
                     _anchorManager.SpatialAnchorUuid, displayName);
                 _integrator?.Clear();
                 await Task.Yield();
+                _newLiveScanRequired = false;
+                _resumeAnchorUuid = Guid.Empty;
+                _resumeAfterPause = false;
                 LastScanStartError = null;
                 Logger.Info("Started a new empty anchored Merkaba session " +
                     _anchorManager.SpatialAnchorUuid.ToString("D"));
@@ -1171,7 +1188,6 @@ namespace Genesis.RoomScan
 
         private void OnIntegrated()
         {
-            _persistence?.MarkDirty();
             Integrated?.Invoke();
         }
 
@@ -1183,7 +1199,6 @@ namespace Genesis.RoomScan
         private void OnFineErased()
         {
             _fineEraseDescriptor = default;
-            _persistence?.MarkDirty();
             Integrated?.Invoke();
         }
 
@@ -1285,6 +1300,18 @@ namespace Genesis.RoomScan
                 if (_applicationPaused || _disableRequested || _destroyed ||
                     !isActiveAndEnabled)
                     return;
+                // Sensor lifecycle is independent of whether a saved/live
+                // anchor can be localized. Failure must still permit NEW.
+                if (_depthCapture != null &&
+                    !await _depthCapture.RestoreEnvironmentDepthAfterApplicationResumeAsync())
+                {
+                    LastScanStartError = "Environment Depth did not recover after wake.";
+                    Logger.Error(LastScanStartError);
+                    _resumeAfterPause = false;
+                    return;
+                }
+                if (_applicationPaused || _disableRequested || _destroyed || !isActiveAndEnabled)
+                    return;
                 if (_resumeAfterPause)
                 {
                     if (!await WaitForTrackedHeadPoseAsync())
@@ -1314,20 +1341,17 @@ namespace Genesis.RoomScan
                         _anchorManager.SpatialAnchorUuid != _resumeAnchorUuid)
                     {
                         _resumeAfterPause = false;
-                        LastScanStartError = "Room anchor not localized";
+                        if (!_applicationPaused && !_disableRequested && !_destroyed &&
+                            _persistence.ActiveAnchorUuid == _resumeAnchorUuid)
+                            _newLiveScanRequired = true;
+                        LastScanStartError = "Room anchor did not recover. Start begins a new live scan; saved sessions are kept.";
                         Logger.Error("Application resume could not localize " +
                             $"session anchor {_resumeAnchorUuid:D}.");
                         return;
                     }
                 }
-                if (_depthCapture != null &&
-                    !await _depthCapture
-                        .RestoreEnvironmentDepthAfterApplicationResumeAsync())
-                {
-                    Logger.Error("Application resume did not restore a fresh " +
-                        "Environment Depth stream.");
+                if (_applicationPaused || _disableRequested || _destroyed || !isActiveAndEnabled)
                     return;
-                }
                 if (!_resumeAfterPause) return;
                 _resumeAfterPause = false;
                 await StartScanningAsync();

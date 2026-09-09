@@ -32,6 +32,20 @@ namespace Genesis.RoomScan.Editor
         private string _status = "Ready";
         private bool _busy;
 
+        internal static StereoCalibrationProfile RequireCalibrationProfile()
+        {
+            var profile = AssetDatabase.LoadAssetAtPath<StereoCalibrationProfile>(
+                StereoCalibrationProfile.HostAssetPath);
+            if (profile == null)
+                throw new BuildFailedException("Missing measured stereo calibration: " +
+                    StereoCalibrationProfile.HostAssetPath +
+                    ". Create a Quest Merkaba/Stereo calibration profile with documented bounds; " +
+                    "the scene generator does not invent calibration values.");
+            if (!profile.TryValidate(out string error))
+                throw new BuildFailedException(error);
+            return profile;
+        }
+
         [MenuItem("Quest Merkaba/Setup Target Host")]
         private static void Open() =>
             GetWindow<RoomScanSetupWizard>(false, "Quest Merkaba Setup");
@@ -103,6 +117,7 @@ namespace Genesis.RoomScan.Editor
                     "Prepare with -buildTarget Android so Unity completes its target switch " +
                     "before the setup method runs.");
 
+            RequireCalibrationProfile();
             ConfigurePlayerSettings();
             EnsureURPSetup();
             await VRProjectBootstrap.FixAllAsync(CheckSeverity.Recommended);
@@ -213,6 +228,8 @@ namespace Genesis.RoomScan.Editor
             scannerObject.transform.localScale = Vector3.one;
 
             DepthCapture depth = GetOrAdd<DepthCapture>(scannerObject);
+            AssignAsset(depth, "calibrationProfile", StereoCalibrationProfile.HostAssetPath);
+            depth.RequireValidCalibration();
             GetOrAdd<PassthroughCameraProvider>(scannerObject);
             MerkabaGrid grid = GetOrAdd<MerkabaGrid>(scannerObject);
             MerkabaIntegrator integrator = GetOrAdd<MerkabaIntegrator>(scannerObject);
@@ -467,6 +484,13 @@ namespace Genesis.RoomScan.Editor
                 throw new InvalidOperationException("APK build requires -buildTarget Android.");
             if (!File.Exists(ScenePath))
                 throw new FileNotFoundException("Prepared Merkaba scene is missing", ScenePath);
+
+            RequireCalibrationProfile();
+            Scene preparedScene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            DepthCapture preparedDepth = FindAny<DepthCapture>();
+            if (preparedDepth == null || preparedDepth.gameObject.scene != preparedScene)
+                throw new BuildFailedException("Prepared scanner scene has no DepthCapture.");
+            preparedDepth.RequireValidCalibration();
 
             // A successful native .so build does not certify the generated
             // Flower authority embedded in an APK. Refuse stale/invalid tables

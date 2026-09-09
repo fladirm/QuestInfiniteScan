@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
 {
@@ -106,7 +108,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ResumeLocalizesExactAnchorBeforeRestoringSensors()
+        public void ResumeRestoresDepthIndependentlyButRequiresExactAnchorBeforeScanning()
         {
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string transition = Slice(scanner,
@@ -119,12 +121,52 @@ namespace Genesis.RoomScan.Tests
             int depth = transition.IndexOf(
                 "RestoreEnvironmentDepthAfterApplicationResumeAsync()",
                 StringComparison.Ordinal);
-            Assert.That(anchor, Is.GreaterThanOrEqualTo(0));
-            Assert.That(depth, Is.GreaterThan(anchor));
+            int start = transition.IndexOf("await StartScanningAsync();", StringComparison.Ordinal);
+            Assert.That(depth, Is.GreaterThanOrEqualTo(0));
+            Assert.That(anchor, Is.GreaterThan(depth),
+                "A lost room anchor must not leave Environment Depth suspended after wake.");
+            Assert.That(start, Is.GreaterThan(anchor),
+                "Restoring the depth subsystem does not authorize unanchored scan observations.");
             Assert.That(transition, Does.Contain(
                 "LastScanStartError = \"Room anchor not localized\""));
             Assert.That(transition, Does.Not.Contain(
                 "EnsureSessionAnchorAsync(Guid.Empty"));
+            Assert.That(transition, Does.Contain("_newLiveScanRequired = true"));
+            Assert.That(transition, Does.Not.Contain("await NewClearAsync"),
+                "A failed automatic resume must not discard the current live scan without Start/New.");
+
+            string manager = Source("Runtime/Core/RoomAnchorManager.cs");
+            string ensure = Slice(manager, "private async Task<bool> EnsureSessionAnchorCoreAsync",
+                "private async Task<(Guid uuid, Matrix4x4 matrix)?> CreateAndSaveSpatialAnchorAsync");
+            Assert.That(ensure, Does.Contain("await WaitForActiveSpatialAnchorReadyAsync()"));
+            Assert.That(ensure, Does.Contain("_activeSpatialAnchor.Uuid == requiredUuid"),
+                "A bound matching anchor is re-tracked, not reloaded as another unbound anchor.");
+        }
+
+        [Test]
+        public void EmptyObservationAndEraseReceiptsDoNotMarkTheSessionDirty()
+        {
+            var host = new GameObject("Empty observation lifecycle");
+            host.SetActive(false);
+            try
+            {
+                RoomScanner scanner = host.AddComponent<RoomScanner>();
+                MerkabaPersistence persistence = host.GetComponent<MerkabaPersistence>();
+                const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic;
+                typeof(RoomScanner).GetField("_persistence", fields).SetValue(scanner, persistence);
+                typeof(MerkabaPersistence).GetField("_activeSession", fields)
+                    .SetValue(persistence, new MerkabaSessionInfo { sessionId = Guid.NewGuid().ToString("D") });
+                int notifications = 0;
+                scanner.Integrated += () => notifications++;
+                typeof(RoomScanner).GetMethod("OnIntegrated", fields).Invoke(scanner, null);
+                typeof(RoomScanner).GetMethod("OnFineErased", fields).Invoke(scanner, null);
+                Assert.That(notifications, Is.EqualTo(2));
+                Assert.That(persistence.IsDirty, Is.False);
+                typeof(RoomScanner).GetMethod("OnAuthorityChanged", fields).Invoke(scanner, null);
+                Assert.That(persistence.IsDirty, Is.True,
+                    "Actual canonical changes, including partial publications, still require SAVE.");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(host); }
         }
 
         [Test]

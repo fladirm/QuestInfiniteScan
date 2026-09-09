@@ -230,16 +230,6 @@ namespace Genesis.RoomScan
                 return false;
             }
 
-            if (requiredUuid != Guid.Empty && _activeSpatialAnchor != null &&
-                _activeSpatialAnchor.Uuid == requiredUuid)
-            {
-                if (_activeSpatialAnchor.Localized &&
-                    _activeSpatialAnchor.IsTracked)
-                    return RoomSpaceRoot.Instance != null &&
-                        await RoomSpaceRoot.WaitForAnchorBindAsync(
-                            _activeSpatialAnchor.transform);
-            }
-
             Task<bool> pending = _ensureSessionAnchorTask;
             if (pending != null && !pending.IsCompleted &&
                 (_ensureSessionAnchorUuid != requiredUuid ||
@@ -278,8 +268,19 @@ namespace Genesis.RoomScan
         {
             if (requiredUuid != Guid.Empty)
             {
-                Matrix4x4? localized = await LoadSpatialAnchorAsync(requiredUuid);
-                if (!localized.HasValue) return false;
+                if (_activeSpatialAnchor != null && _activeSpatialAnchor.Uuid == requiredUuid)
+                {
+                    // A bound anchor can temporarily lose tracking on wake.
+                    // Loading it again as an unbound anchor is not recovery.
+                    if (!await WaitForActiveSpatialAnchorReadyAsync()) return false;
+                    if (_activeSpatialAnchor == null || _activeSpatialAnchor.Uuid != requiredUuid)
+                        return false;
+                }
+                else
+                {
+                    Matrix4x4? localized = await LoadSpatialAnchorAsync(requiredUuid);
+                    if (!localized.HasValue) return false;
+                }
             }
             else
             {

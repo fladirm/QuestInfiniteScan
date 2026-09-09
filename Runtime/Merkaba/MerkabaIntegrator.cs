@@ -50,6 +50,7 @@ namespace Genesis.RoomScan
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeAttemptJob;
         private bool _nativeAttemptIncludesPreprocess;
+        private bool _nativeAttemptCapturesRefineMetrics;
         private bool _nativeAttemptGpuComplete;
         private bool _nativeAttemptCompletionRequested;
         private uint _nativeAttemptDualGeneration;
@@ -439,7 +440,9 @@ namespace Genesis.RoomScan
                         return false;
                     }
                     if (_nativeAttemptIncludesPreprocess)
-                        _depthCapture.CompleteNativeDepthPreprocess();
+                        _depthCapture.CompleteNativeDepthPreprocess(
+                            _nativeAttemptCapturesRefineMetrics, _observationToken,
+                            _attemptToken, _observationDepthVersion);
                     _nativeAttemptIncludesPreprocess = false;
                     _nativeAttemptGpuComplete = true;
                     _nativeAttemptGpuCompleteAt = Time.realtimeSinceStartupAsDouble;
@@ -1014,7 +1017,9 @@ namespace Genesis.RoomScan
             // never became ready: the scan reported active and produced nothing.
             values.Matrices("_DepthView", _depthCapture.View);
             values.Matrices("_DepthViewInv", _depthCapture.ViewInv);
-            values.UInt("_RefineMetricsEnabled", 0u);
+            _nativeAttemptCapturesRefineMetrics =
+                MerkabaGpuTimestamps.ShouldCaptureNativeRefineMetrics;
+            values.UInt("_RefineMetricsEnabled", _nativeAttemptCapturesRefineMetrics ? 1u : 0u);
             values.UInt("_RefineMetricGroupsX",
                 checked((uint)Mathf.CeilToInt(width / 8f)));
             values.UInt2("gsDepthTexSize", width, height);

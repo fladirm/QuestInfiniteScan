@@ -1125,9 +1125,10 @@ namespace Genesis.RoomScan.UI
             Set(_visibleBoundary, "Unavailable");
             string saved = scanner.ActiveSessionId == Guid.Empty
                 ? "No session"
-                : scanner.SessionIsDirty ? "Unsaved changes" : "Saved";
-            SetStatus(_saved, saved, scanner.SessionIsDirty
-                ? StatusKind.Warning : scanner.ActiveSessionId != Guid.Empty
+                : !scanner.SavedSessionExists ? "Live scan"
+                : scanner.SessionIsDirty ? "Live changes" : "Saved";
+            SetStatus(_saved, saved, scanner.SessionIsDirty || !scanner.SavedSessionExists
+                ? StatusKind.Neutral : scanner.ActiveSessionId != Guid.Empty
                     ? StatusKind.Good : StatusKind.Neutral);
             if (Time.unscaledTime >= _nextProximityRefresh)
             {

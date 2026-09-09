@@ -28,14 +28,16 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader depthCertificateCompute;
         [SerializeField] private bool dynamicOcclusionEnabled = true;
 
-        [Header("Calibrated depth error bounds: sensor, reprojection, hypothesis, valid")]
-        [SerializeField] private Vector4 calibratedDepthErrorLeft;
-        [SerializeField] private Vector4 calibratedDepthErrorRight;
-        [Header("Calibrated plane errors: normal norm, offset metres, reserved, valid")]
-        [SerializeField] private Vector4 calibratedPlaneErrors;
-        [Header("Calibrated captured linear RGB errors: R, G, B, valid")]
-        [SerializeField] private Vector4 calibratedRgbErrorLeft;
-        [SerializeField] private Vector4 calibratedRgbErrorRight;
+        [SerializeField] private StereoCalibrationProfile calibrationProfile;
+
+        internal void RequireValidCalibration()
+        {
+            if (calibrationProfile == null)
+                throw new InvalidOperationException("Stereo calibration profile is missing: " +
+                    StereoCalibrationProfile.HostAssetPath);
+            if (!calibrationProfile.TryValidate(out string error))
+                throw new InvalidOperationException(error);
+        }
 
         private readonly Matrix4x4[] _proj = new Matrix4x4[2];
         private readonly Matrix4x4[] _projInv = new Matrix4x4[2];
@@ -57,13 +59,12 @@ namespace Genesis.RoomScan
         // Presentation consumes the same calibrated maximum as reconstruction.
         internal bool TryGetFlowerPlaneBounds(out Vector2 bounds)
         {
-            Vector4 sensor = calibratedPlaneErrors;
-            if (sensor.w != 1f || !float.IsFinite(sensor.x) ||
-                !float.IsFinite(sensor.y) || sensor.x < 0f || sensor.y < 0f)
+            if (calibrationProfile == null || !calibrationProfile.TryValidate(out _))
             {
                 bounds = default;
                 return false;
             }
+            Vector4 sensor = calibrationProfile.Plane;
             bounds = new Vector2(
                 MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
                     sensor.x + 2.0 * Math.Sqrt(18.0) / 1023.0).Upper,
@@ -998,7 +999,7 @@ namespace Genesis.RoomScan
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (!cameraFrame.IsValid || !TryHoldLatestDepthFrame())
                 return false;
-            FreezeDepthCertificateBounds(calibratedDepthErrorLeft, calibratedDepthErrorRight);
+            FreezeDepthCertificateBounds();
             ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush, gridToWorld);
             SetGlobalShaderProperties();
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
@@ -1017,15 +1018,19 @@ namespace Genesis.RoomScan
             EnsureRefinementOutputs(width, height);
             EnsureRefineMetrics(Mathf.CeilToInt(width / 8f) *
                 Mathf.CeilToInt(height / 8f));
-            FreezeDepthCertificateBounds(calibratedDepthErrorLeft, calibratedDepthErrorRight);
+            FreezeDepthCertificateBounds();
             _depthTex = _refinedDepthTex;
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
-            _preprocessedFrameCount++;
             return true;
         }
 
-        internal void CompleteNativeDepthPreprocess()
+        internal void CompleteNativeDepthPreprocess(bool captureMetrics,
+            uint observation, uint attempt, int depthVersion)
         {
+            _preprocessedFrameCount++;
+            if (captureMetrics)
+                MerkabaGpuTimestamps.CaptureNativeRefineMetrics(_refineMetrics,
+                    _refineMetricValueCount, observation, attempt, depthVersion);
             SetGlobalShaderProperties();
             Shader.SetGlobalTexture(NormTexID, _normTex);
             Updated?.Invoke();
@@ -1080,20 +1085,26 @@ namespace Genesis.RoomScan
             _depthCertificateObservationVersion = 0;
         }
 
-        // The caller supplies the accepted observation's calibrated maximum
+        // The profile supplies the accepted observation's calibrated maximum
         // sensor eye-z / 3D reprojection displacement / hypothesis eye-z errors
         // in metres, plus validity in w. Reprojection bounds apply laterally too.
         // This is neither a quality weight nor a tunable geometry epsilon.
         // Missing calibration (w != 1) makes that whole eye AMBIGUOUS on GPU.
-        internal void FreezeDepthCertificateBounds(Vector4 left, Vector4 right)
+        private void FreezeDepthCertificateBounds()
         {
+            RequireValidCalibration();
+            Vector4 left = calibrationProfile.DepthLeft;
+            Vector4 right = calibrationProfile.DepthRight;
             if (_heldDepthSlot < 0 || _ownedRawDepth[_heldDepthSlot] == null)
                 throw new InvalidOperationException("Certificate requires the held immutable stereo depth frame.");
             int version = _ownedVersions[_heldDepthSlot];
             if (_depthCertificateObservationVersion != 0)
             {
                 if (_depthCertificateObservationVersion != version ||
-                    !_frozenDepthErrorBounds[0].Equals(left) || !_frozenDepthErrorBounds[1].Equals(right))
+                    !_frozenDepthErrorBounds[0].Equals(left) || !_frozenDepthErrorBounds[1].Equals(right) ||
+                    !_frozenPlaneErrorBounds.Equals(calibrationProfile.Plane) ||
+                    !_frozenRgbErrorBounds[0].Equals(calibrationProfile.RgbLeft) ||
+                    !_frozenRgbErrorBounds[1].Equals(calibrationProfile.RgbRight))
                     throw new InvalidOperationException("A held observation's certificate bounds cannot change.");
                 return;
             }
@@ -1109,9 +1120,9 @@ namespace Genesis.RoomScan
             }
             _frozenDepthErrorBounds[0] = left;
             _frozenDepthErrorBounds[1] = right;
-            _frozenPlaneErrorBounds = calibratedPlaneErrors;
-            _frozenRgbErrorBounds[0] = calibratedRgbErrorLeft;
-            _frozenRgbErrorBounds[1] = calibratedRgbErrorRight;
+            _frozenPlaneErrorBounds = calibrationProfile.Plane;
+            _frozenRgbErrorBounds[0] = calibrationProfile.RgbLeft;
+            _frozenRgbErrorBounds[1] = calibrationProfile.RgbRight;
             _depthCertificateObservationVersion = version;
         }
 
