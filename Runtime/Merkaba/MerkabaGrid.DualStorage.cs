@@ -54,7 +54,7 @@ namespace Genesis.RoomScan
                 (uint)MerkabaSpatial.ChunkCapacity);
             _dualCapacityBackpressure = observation != 0u &&
                 observation == _issuedObservationToken &&
-                values[CounterObservationCompleted] == 0u &&
+                values[CounterObservationCompleted] != 0u &&
                 values[CounterObservationFailure] == 0u &&
                 values[CounterStorageBackpressure] != 0u;
         }
@@ -67,7 +67,7 @@ namespace Genesis.RoomScan
             if (!_dualCapacityBackpressure || _storageReplacementPending ||
                 _dualCapacitySampleGpuGeneration != _gpuGeneration ||
                 _dualCapacitySampleObservation != _issuedObservationToken ||
-                _dualCapacitySampleObservation == _completedObservationToken ||
+                _dualCapacitySampleObservation != _retiredObservationToken ||
                 !DualMutationSubmissionAllowed || HasUnresolvedStorageRequests ||
                 _dualDurableGeneration == 0u || _dualCapacitySampleChunkCount == 0u)
                 return;

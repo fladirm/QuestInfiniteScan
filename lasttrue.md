@@ -10061,3 +10061,40 @@ NEXT=RT2 OPEN: ERASE currently deletes M8 before its pending epoch finalizer;
   RT4 must cover footprint selection against the exact chamber oracle, including
   boundary-spanning pixels, projection ambiguity and independent RGB/V novelty.
 TESTS/APK/INSTALL/DEVICE=not run. No measured speedup or full-rewrite acceptance.
+
+## RT2 — transactional ERASE and fence-only retirement (after 08c2617)
+
+CHANGE=ERASE prepares zero M8 through the shared R1 epoch/peer/publication
+  path. No M8-first destructive write or pending epoch finalizer remains.
+  The five-stage graph reuses InvalidateFlowerPeers and PublishFlowerR1;
+  all counters/indirect headers are reset before this job. Native pipeline
+  membership follows the generated schedule, not its enclosing index range.
+  A COLD peer uses the existing SSD request queue and skips only its dependent
+  mutation. Explicit ERASE does not run parent-plane structural classification.
+  Shared publication updates occupancy/active bits and clears its changed bit.
+  Fine tokens use the common observation allocator, distinct from attempt IDs.
+  Removed held-brush dependency retries and completion-result CPU readback for
+  BOTH scan and ERASE. Retirement follows GPU fences; GPU counters still own
+  work/results. Storage metadata records the retired token only, and its existing
+  pressure maintenance recognizes completed one-shot observations. CPU has no
+  new geometry backend. Dirty UI bookkeeping is conservative after a mutation;
+  actual world dirty records remain GPU-authored. No buffers added/enlarged.
+ABI=24; 31 pipelines, 44 resources; FineErase executes five existing pipelines.
+COMPILE=Unity C#/Editor codegen PASS in
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-erase-retirement.log.
+  Necessary exact glslang/spirv-val PASS, not a full audit:
+  /tmp/m8-rt2-erase-bindings-z2mogf89:
+    ERASE 67196 B / 3309 body / 124 B shared / 8 RW / 128 lanes;
+    SHA256=47fd53436877904c4c20d3a9fc7e8f34c6d74976e99a8f745274759119ede950;
+    FlowerCommit 865740 B / 46243 body / 24700 B shared / 8 RW / 128.
+  /tmp/m8-rt2-erase-final-h8l_o2uo:
+    query 25924 B / 1050 body / 52 B shared / 5 RW / 64;
+    finalizer 23516 B / 948 body / 8 B shared / 6 RW / 128.
+  /tmp/m8-rt2-erase-qjwrhbr1:
+    peer 55064 B / 2717 body / 120 B shared / 5 RW;
+    publisher 10916 B / 309 body / 0 B shared / 7 RW.
+NEXT=RT2 conditional allocation/recount; owner-local allocator/contention;
+  malformed-peer publication handling and remaining dual global gates. RT3
+  readout/export decode and V atlas remain. Do not redo this ERASE/retirement cut.
+TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set not rebuilt;
+  final native build and integrated acceptance belong to RT4, not this checkpoint.

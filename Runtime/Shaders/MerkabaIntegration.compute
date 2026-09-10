@@ -270,8 +270,8 @@ void M8DualRequestStorage(uint blockOrdinal, uint kind, uint child, uint tile)
         InterlockedOr(_M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS],1u);
         return;
     }
-    // A full bounded prefix drains normally. The same held observation
-    // retries the unrecorded address; overflow never fabricates free space.
+    // Capacity is local to this request. The snapshot finalizes without
+    // inventing free space or retaining an unrecorded address as pending work.
     _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
     M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
 }
@@ -699,13 +699,13 @@ void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         }
     }
     DeviceMemoryBarrierWithGroupSync();
-    // Partial certified dual progress may publish, but the global pending
-    // counter holds ALL R1/evidence writes until this observation can finish.
+    // Publish the certified changes. Unresolved supports are local skips;
+    // they do not hold this snapshot or unrelated positive evidence.
     if (lane == 0u && gDualChanged != 0u)
     {
         uint result=M8DualEndBlock(block,_M8DualPublishingGeneration);
         // Tile/chunk changes have already committed, even if a later
-        // allocation fails or this observation needs another resident quantum.
+        // allocation fails for another support in this observation.
         InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
             M8_OBSERVATION_CHANGED_DUAL);
         if (result > M8_DUAL_WRITE_COMMITTED) M8DualObservationPending(result);
@@ -720,11 +720,9 @@ void M8FinalizeObservationCompletion()
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
         // A snapshot is one bounded synchronous scan transaction. Its stage
         // barriers already ran inside this command graph, so there is nothing
-        // left to schedule here and nothing to hold the frame for. A COLD tile
-        // was requested and skipped, an AMBIGUOUS dual read was skipped, a tile
-        // that did not exhaust its budget kept its cursor in the world; none of
-        // them may retain a snapshot, because the next snapshot arrives with a
-        // newer camera over an already better world. Publish, mark, release.
+        // left to schedule here and nothing to hold the frame for. COLD and
+        // AMBIGUOUS dependencies were skipped locally. All reached resident
+        // work has run; no cursor or semantic work survives this transaction.
         if (failure != 0u)
             _M8Counters[M8_COUNTER_FAILED_OBSERVATIONS] += 1u;
         _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
@@ -942,159 +940,78 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
     }
 }
 
-void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
+void M8EraseFineKernel(uint slot,uint local)
 {
-    int3 globalCoord = M8GlobalKernelCoord(physicalSlot, kernelLocal);
-    uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
-    uint bit = 1u << (kernelLocal & 31u);
-    uint occupiedWord = _M8TileBits[wordIndex].x;
-    float3 gridPosition = (float3)globalCoord * MERKABA_LATTICE_STEP;
-    float3 worldPosition = mul(_MerkabaGridToWorld,
-        float4(gridPosition, 1.0)).xyz;
-    KernelState state;
-    bool stateLoaded = false;
-    if ((occupiedWord & bit) != 0u)
+    KernelState before=M8LoadKernelStateRead(slot,local);
+    if(all(uint4(asuint(before.evidence),before.packedColor,before.colorConfidence,before.flags)==0u))return;
+    float3 grid=float3(M8GlobalKernelCoord(slot,local))*MERKABA_LATTICE_STEP;
+    if((before.flags&M8_FLOWER_OCCUPIED_FLAG)!=0u && M8FlowerHasPlane(before.flags))
     {
-        state = M8LoadKernelState(physicalSlot, kernelLocal);
-        stateLoaded = true;
-        if (M8FlowerHasPlane(state.flags))
-        {
-            float3 normalGrid;
-            float signedOffset;
-            M8FlowerUnpackPlane(state.flags, normalGrid, signedOffset);
-            worldPosition = mul(_MerkabaGridToWorld,
-                float4(gridPosition + normalGrid * signedOffset, 1.0)).xyz;
-        }
+        float3 normal;float offset;
+        M8FlowerUnpackPlane(before.flags,normal,offset);
+        grid+=normal*offset;
     }
-    if (!M8FineContains(worldPosition)) return;
+    if(!M8FineContains(mul(_MerkabaGridToWorld,float4(grid,1.0)).xyz))return;
+    // The explicit ERASE cuts the sparse epoch before preparing the zero M8
+    // value. A failed owner/peer preflight leaves that owner's M8 untouched.
+    M8FlowerPrepareR1(slot,local,before,uint4(0u,0u,0u,0u),true,false,true);
+}
 
-    uint previousOccupied;
-    uint previousCarve;
-    uint previousCandidate;
-    InterlockedAnd(_M8TileBits[wordIndex].x, ~bit, previousOccupied);
-    InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previousCarve);
-    InterlockedAnd(_M8TileBits[wordIndex].z, ~bit, previousCandidate);
-
-    if (!stateLoaded)
-        state = M8LoadKernelState(physicalSlot, kernelLocal);
-    bool stateChanged = state.evidence != 0 || state.packedColor != 0u ||
-        state.colorConfidence != 0u || state.flags != 0u;
-    bool occupied = (previousOccupied & bit) != 0u;
-    bool carveActive = (previousCarve & bit) != 0u;
-    if (occupied)
+[numthreads(128,1,1)]
+void EraseFineTiles(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+{
+    if(group.x>=min(_M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY))return;
+    uint slot=_M8TouchedTileQueueRead[group.x];
+    if(slot>=MERKABA_M8_PHYSICAL_TILE_CAPACITY)return;
+    uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)];
+    uint4 meta=_M8TileRecords[M8TileMetaIndex(slot)];
+    if(runtime.w==0u || meta.x>=MERKABA_M8_CHUNK_CAPACITY || meta.y>=64u ||
+        _M8ChunkTileRefsRead[meta.x*64u+meta.y]!=slot+1u)
     {
-        uint ignored;
-        InterlockedAdd(_M8TileRecords[M8TileMetaIndex(physicalSlot)].z,
-            0xffffffffu, ignored);
-        InterlockedAdd(_M8Counters[M8_COUNTER_OCCUPIED_KERNEL_COUNT],
-            0xffffffffu, ignored);
+        if(lane==0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
+        return;
     }
-    if (carveActive)
+    if(lane==0u)m8FlowerR1Changed=0u;
+    M8FlowerCacheTileHalo(slot,lane,false,true);
+    // COLD query results do not veto unrelated resident brush targets.
+    [loop]for(uint local=lane;local<512u;local+=128u)M8EraseFineKernel(slot,local);
+    DeviceMemoryBarrierWithGroupSync();
+    if(lane==0u)
     {
-        uint ignored;
-        InterlockedAdd(_M8TileRecords[M8TileMetaIndex(physicalSlot)].w,
-            0xffffffffu, ignored);
-    }
-    bool structuralChange = stateChanged || occupied || carveActive ||
-        (previousCandidate & bit) != 0u;
-    if (structuralChange)
-    {
-        // Match direct R1 structural mutation: storage cannot capture this
-        // tile until the finalizer has committed the owner epoch and cleared
-        // this bit. Keep the four-bank ERASE writer at eight UAVs.
-        uint ignored;
-        InterlockedOr(_M8TileBits[wordIndex].w, bit, ignored);
-        DeviceMemoryBarrier();
-        if (stateChanged)
-            M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0);
-        M8MarkTileDirty(physicalSlot);
-        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
-            M8_OBSERVATION_CHANGED_R1, ignored);
+        M8FlowerPublishR1Change(slot);
+        _M8TileRecords[M8TileRuntimeIndex(slot)].x=_M8ObservationToken;
     }
 }
 
-[numthreads(128, 1, 1)]
-void EraseFineTiles(uint3 groupId : SV_GroupID,
-    uint thread : SV_GroupIndex)
+[numthreads(128,1,1)]
+void FinalizeFineErase(uint lane:SV_GroupIndex)
 {
-    // Query's complete cross-WG result is visible only after the Vulkan /
-    // command-buffer dispatch barrier. A partial/COLD query authorizes no
-    // destructive writes, even though it published some valid queue entries.
-    if (_M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] != 0u) return;
-    uint physicalSlot = _M8TouchedTileQueue[groupId.x];
-    [unroll]
-    for (uint batch = 0u; batch < 4u; batch++)
-        M8EraseFineKernel(physicalSlot, thread + batch * 128u);
-}
-
-groupshared uint gFineEraseEpochProgress;
-
-[numthreads(128, 1, 1)]
-void FinalizeFineErase(uint lane : SV_GroupIndex)
-{
-    if (lane == 0u)
+    if(lane==0u)
     {
-        gFlowerFinalizeSourceReady = M8FlowerPageSourceReady(_M8DualPublishingGeneration) ? 1u : 0u;
-        gFineEraseEpochProgress = 0u;
-        gFlowerFinalizeTouchedCount = gFlowerFinalizeSourceReady != 0u ?
-            min(_M8Counters[M8_COUNTER_FINE_ERASE_TILE_COUNT], MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+        gFlowerFinalizeSourceReady=M8FlowerPageSourceReady(_M8DualPublishingGeneration)?1u:0u;
+        gFlowerFinalizeTouchedCount=min(_M8FlowerSignalItems.Load(M8_FLOWER_CHANGE_TILE_COUNT),
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     }
     GroupMemoryBarrierWithGroupSync();
-    [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
+    if(gFlowerFinalizeSourceReady!=0u)
     {
-        uint slot = _M8TouchedTileQueueRead[index];
-        if (slot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+        [loop]for(uint index=lane;index<gFlowerFinalizeTouchedCount;index+=128u)
         {
-            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-            continue;
+            uint slot=_M8FlowerSignalItems.Load(M8_FLOWER_CHANGE_TILE_QUEUE+4u*index);
+            M8FlowerMarkTileNeighborhoodDirty(slot,_M8DualPublishingGeneration,true,true);
         }
-        uint slotGeneration = M8LoadTileRuntimeRead(slot).w;
-        uint4 meta = M8LoadTileMetaRead(slot);
-        if (slotGeneration == 0u || meta.x >= MERKABA_M8_CHUNK_CAPACITY ||
-            meta.y >= MERKABA_M8_TILES_PER_CHUNK ||
-            _M8ChunkTileRefsRead[meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y] != slot + 1u)
-        {
-            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-            continue;
-        }
-        bool unresolved = false;
-        [loop] for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; ++word)
-        {
-            uint wordIndex = M8TileWordIndex(slot, word);
-            uint pending = _M8TileBits[wordIndex].w;
-            [loop] while (pending != 0u)
-            {
-                uint bit = (uint)firstbitlow(pending);
-                pending &= pending - 1u;
-                uint result = M8FlowerInvalidateOwner(slot, word * 32u + bit,
-                    slotGeneration, _M8DualPublishingGeneration, _M8DualRetiredGeneration);
-                if (result == M8_FLOWER_ARENA_OK)
-                {
-                    DeviceMemoryBarrier();
-                    uint ignored;
-                    InterlockedAnd(_M8TileBits[wordIndex].w, ~(1u << bit), ignored);
-                    InterlockedOr(gFineEraseEpochProgress, 1u);
-                }
-                else unresolved = true; // Preserve the exact pending bit for this frozen ERASE retry.
-            }
-        }
-        if (unresolved) M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-        // Even a pending epoch must invalidate presentation of the already
-        // erased parent. Neither storage nor page synthesis may bypass .w.
-        M8FlowerMarkTileNeighborhoodDirty(slot, _M8DualPublishingGeneration);
     }
     DeviceMemoryBarrierWithGroupSync();
-    if (lane == 0u)
+    if(lane==0u)
     {
-        uint completed = gFlowerFinalizeSourceReady != 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u ? 1u : 0u;
-        uint status = gFlowerFinalizeSourceReady != 0u ? 0u : M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY;
-        if (_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u || gFineEraseEpochProgress != 0u)
-            status |= M8_ATTEMPT_COMPLETION_READOUT_CHANGED;
-        if (gFineEraseEpochProgress != 0u) status |= M8_ATTEMPT_COMPLETION_REFINEMENT_PROGRESS;
-        _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
-            completed != 0u ? _M8AttemptToken : 0u,
-            status,
+        uint status=_M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
+        if(gFlowerFinalizeSourceReady==0u)status|=M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY;
+        if(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK]!=0u)
+            status|=M8_ATTEMPT_COMPLETION_READOUT_CHANGED;
+        _M8AttemptCompletion[0]=uint4(_M8AttemptToken,_M8ObservationToken,status,
             _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
     }
+    // No pending epoch bits, descriptor retry or packet survives this job.
+    if(lane<16u)_M8FlowerSignalItems.Store(4u*lane,0u);
 }

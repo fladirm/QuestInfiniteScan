@@ -110,7 +110,7 @@ grouping pass; owner WGs load it without repeating spatial hash discovery.
 Two endpoint ranges use the unchanged metric/root/intersection predicates.
 Peer ranges must belong to the current stamped bin, including after NEW/OPEN.
 
-ABI=23, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
+ABI=24, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
 snapshot buffer reuses dense 32-byte R1 changes (capacity 1,044,350) before
 grouping, then holds record indices, stamped tile/owner ranges and skin items.
 Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
@@ -126,7 +126,7 @@ phase source after its endpoint buckets retire. The resolver now evaluates
 their exact combination/publication remains scalar. Ordered COLD dependency
 early-outs remain intact. CPU did not gain any hotpath work.
 
-CURRENT CHANGE=the resolver projects current measured-owner pixel footprints
+SKIN REACH=the resolver projects current measured-owner pixel footprints
 onto evaluated L2 wedge frames and descends through the three existing generated
 chambers. It retains every possible intersected branch; 57 reached group bits
 occupy the unused final 8 bytes of the existing 224-byte SignalItem. RGB/V use
@@ -135,16 +135,30 @@ retains the wedge's possible support masks rather than suppressing RGB or
 manufacturing certainty. Actual seven-child complete-support predicates are
 unchanged. This is a snapshot work mask, not persistent subdivision/cursor.
 
-NEXT=RT2 ERASE pending epoch path, conditional sparse allocation and owner-local
-storage/allocator outcomes.
-In particular parallel owner writers must not turn allocator contention into
-unreported lost detail. Start at Integration.compute QueryFineEraseTiles /
-EraseFineTiles / FinalizeFineErase and the native/managed FineErase graph.
-The old ERASE finalizer still invalidates epochs after M8 deletion and retains
-pending .w bits; replace it with same-transaction preparation/publication.
-Do not redo grouping, required roots, footprint selection or the fixed level
-graph. RT4 must prove conservative footprint reach against the existing exact
-chamber oracle, including boundaries and unavailable projection bounds.
+CURRENT CHANGE=ERASE now uses the shared R1 preparation/epoch cut, unique peer
+invalidation and M8 publisher in one GPU job. The finalizer only dirties affected
+pages and retires the transient header. COLD peers enqueue existing SSD loads;
+unrelated resident brush targets proceed. No M8-first deletion, pending epoch
+finalizer, held ERASE retry or residency-epoch wait remains. Its token comes from
+the same unique observation-token allocator; no collision with scan stamps.
+Native schedule membership is explicit, so reusing peer/publication pipelines
+does not import every pipeline between their numeric indices into ERASE.
+
+RETIREMENT=scan and ERASE release at their GPU fences, not an AttemptCompletion
+readback. RequestAttemptCompletion and its CPU result fields/callback are gone.
+GPU indirect counts still own work. Existing SSD counter telemetry/IO remains;
+storage capacity maintenance now recognizes a retired one-shot observation,
+not the removed unfinished-observation condition. UI dirtiness is conservative
+after a retired mutation; it does not select geometry or schedule refinement.
+
+NEXT=RT2 conditional sparse allocation/recount and owner-local allocator outcomes.
+Start at ObservationBins.compute / ObservationBinsGpu and the native observation
+schedule; hot-resident snapshots still execute unconditional recount/setup.
+Parallel owner writers must not turn allocator contention into lost detail.
+Also close malformed-peer publication handling and remaining dual global gates.
+Do not redo grouping, required roots, footprint reach, ERASE or fence retirement.
+RT4 must cover exact reach, partial/COLD ERASE, epochs/peer invalidation, native
+schedule membership and no completion-readback-dependent scan decisions.
 
 COMPILE=Unity Editor codegen/C# previously PASS in realtime-rt2-actual-owners.log.
 This shader-only change: targeted exact native compile/spirv-val PASS in
@@ -153,6 +167,18 @@ This shader-only change: targeted exact native compile/spirv-val PASS in
 /tmp/m8-rt2-skin-reach-3hv4y2in: 307940/503004 B / 15835/25509 body /
 204 B shared / 4 RW / 64 lanes. No additional dispatch or buffer allocation.
 No CPU geometry backend or scan-decision readback added.
+
+ERASE COMPILE=Unity C#/Editor codegen PASS:
+/mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-erase-retirement.log.
+Targeted exact native shader compile/spirv-val PASS, not full audit:
+/tmp/m8-rt2-erase-bindings-z2mogf89 (ERASE, FlowerCommit),
+/tmp/m8-rt2-erase-final-h8l_o2uo (query/finalizer),
+/tmp/m8-rt2-erase-qjwrhbr1 (shared peer/publisher).
+ERASE 67196 B / 3309 body / 124 B shared / 8 RW / 128 lanes;
+query 25924 B / 1050 body / 52 B shared / 5 RW / 64 lanes;
+finalizer 23516 B / 948 body / 8 B shared / 6 RW / 128 lanes.
+Native plugin/full embedded set is not rebuilt; ABI24 is compiled into the
+final plugin/APK only in RT4. No APK, suite, device test or speedup claim.
 
 RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export
 paths still need replacement; export V atlas remains. RT4 full tests, shader

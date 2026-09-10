@@ -71,6 +71,8 @@ void PublishFlowerR1(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     if(M8FlowerHasPlane(after.flags)||(after.flags&M8_FLOWER_OCCUPIED_FLAG)!=0u)
         M8MarkR1Active(slot,local);
     else M8FlowerUnmarkR1Active(slot,local);
+    if(all(value==0u))
+        InterlockedAnd(_M8TileBits[M8TileWordIndex(slot,local>>5u)].z,~(1u<<(local&31u)));
     DeviceMemoryBarrier();
     InterlockedAnd(_M8TileBits[M8TileWordIndex(slot,local>>5u)].w,~(1u<<(local&31u)));
 }

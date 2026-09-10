@@ -15,7 +15,7 @@ namespace Genesis.RoomScan
     {
         private const float TimingLogIntervalSeconds = 5f;
         // ABI 23: GPU-grouped measured owners feed fixed geometry dependencies.
-        internal const int AbiVersion = 23;
+        internal const int AbiVersion = 24;
         internal const int ResourceCount = 44;
         internal const int PipelineCount = 31;
         // A snapshot may repeat allocation, Count and Reserve. Leave room for

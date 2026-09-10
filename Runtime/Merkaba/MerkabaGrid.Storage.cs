@@ -26,8 +26,6 @@ namespace Genesis.RoomScan
         private MerkabaSsdStore _ssdStore;
         private string _storageDirectory;
         private bool _streamCounterPending;
-        private bool _attemptCompletionReadbackPending;
-        private uint _attemptCompletionExpectedToken;
         private bool _evictionSelectionPendingSample;
         private float _nextStreamPoll;
         private uint _loadRequestCursor;
@@ -74,11 +72,7 @@ namespace Genesis.RoomScan
         private int _flushCompletedTiles;
         private int _flushTotalTiles = -1;
         private uint _issuedObservationToken;
-        private uint _completedObservationToken;
-        private uint _completedObservationFailure;
-        private bool _completedObservationChangedReadout;
-        private bool _completedRefinementProgress;
-        private uint _completedAttemptToken;
+        private uint _retiredObservationToken;
         private uint _residencyEpoch;
         private readonly uint[] _streamControlWord = new uint[1];
         private readonly double[] _loadLatencies = new double[64];
@@ -107,13 +101,6 @@ namespace Genesis.RoomScan
             _loadStorageResult != null || _loadStorageFailure != null ||
             _loadInstallStatusPending || _fineLoadTiles!=null;
 
-        internal uint CompletedObservationToken => _completedObservationToken;
-        internal uint CompletedObservationFailure =>
-            _completedObservationFailure;
-        internal bool CompletedObservationChangedReadout =>
-            _completedObservationChangedReadout;
-        internal bool CompletedRefinementProgress => _completedRefinementProgress;
-        internal uint CompletedAttemptToken => _completedAttemptToken;
         internal uint ResidencyEpoch => _residencyEpoch;
         internal uint DrainedOccupiedKernelCount => _drainReceiptValid
             ? _drainedOccupiedKernelCount
@@ -151,7 +138,6 @@ namespace Genesis.RoomScan
             {
                 await CancelAndRetireBaseCompactionAsync(false);
                 while (_streamCounterPending ||
-                       _attemptCompletionReadbackPending ||
                        _loadAddressReadbackPending ||
                        _loadInstallStatusPending || _writebackReadbackPending ||
                        _fineWritebackAckPending)
@@ -238,7 +224,6 @@ namespace Genesis.RoomScan
         {
             _flushCompletion?.TrySetException(new InvalidOperationException(
                 "GPU world changed before its source drain completed."));
-            _lastAuthorityChangeAttempt = 0u;
             _loadRequestCursor = 0u;
             _observedLoadRequestCount = 0u;
             _loadAddresses = null;
@@ -273,14 +258,8 @@ namespace Genesis.RoomScan
             _flushCompletedTiles = 0;
             _flushTotalTiles = -1;
             _issuedObservationToken = 0u;
-            _completedObservationToken = 0u;
-            _completedObservationFailure = 0u;
-            _completedObservationChangedReadout = false;
-            _completedRefinementProgress = false;
-            _completedAttemptToken = 0u;
+            _retiredObservationToken = 0u;
             _residencyEpoch = 0u;
-            _attemptCompletionReadbackPending = false;
-            _attemptCompletionExpectedToken = 0u;
             _loadLatencyCount = _loadLatencyCursor = 0;
             _writeLatencyCount = _writeLatencyCursor = 0;
             _loadIoStartedAt = _writeIoStartedAt = 0.0;
@@ -398,60 +377,13 @@ namespace Genesis.RoomScan
             ObserveObservationDualCapacity(values);
         }
 
-        internal void RequestAttemptCompletion(uint expectedAttemptToken)
+        internal void ObserveMutationRetirement(uint observationToken)
         {
-            if (!GpuSubmissionAllowed || _m8AttemptCompletion == null)
-                throw new InvalidOperationException(
-                    "Attempt completion cannot be requested while GPU submission is suspended.");
-            if (expectedAttemptToken == 0u)
-                throw new ArgumentOutOfRangeException(
-                    nameof(expectedAttemptToken));
-            if (_attemptCompletionReadbackPending)
-                throw new InvalidOperationException(
-                    "Only one observation attempt may await completion.");
-
-            _attemptCompletionReadbackPending = true;
-            _attemptCompletionExpectedToken = expectedAttemptToken;
-            int generation = _gpuGeneration;
-            AsyncGPUReadback.Request(_m8AttemptCompletion, request =>
-            {
-                // A stale callback must not clear or publish a newer request.
-                if (generation != _gpuGeneration ||
-                    expectedAttemptToken != _attemptCompletionExpectedToken)
-                    return;
-
-                _attemptCompletionReadbackPending = false;
-                _attemptCompletionExpectedToken = 0u;
-                if (request.hasError)
-                {
-                    Logger.Error("M8 exact attempt-completion readback failed; " +
-                                 $"attempt={expectedAttemptToken}.");
-                    return;
-                }
-
-                Unity.Collections.NativeArray<Raw16> values =
-                    request.GetData<Raw16>();
-                if (values.Length != 1 || values[0].X != expectedAttemptToken)
-                {
-                    uint actual = values.Length == 1 ? values[0].X : 0u;
-                    Logger.Error("Ignored stale M8 attempt-completion record; " +
-                                 $"expected={expectedAttemptToken} actual={actual}.");
-                    return;
-                }
-
-                Raw16 completion = values[0];
-                _completedAttemptToken = completion.X;
-                _completedObservationToken = completion.Y;
-                _completedObservationChangedReadout =
-                    (completion.Z & 0x80000000u) != 0u;
-                if (_completedObservationChangedReadout)
-                    _lastAuthorityChangeAttempt = completion.X;
-                _completedRefinementProgress = (completion.Z & 0x40000000u) != 0u;
-                _completedObservationFailure = completion.Z & 0x3fffffffu;
-                PublishResidencyEpoch(completion.W);
-                // CPU accounting only. This callback must never enqueue GPU
-                // work after a quiesce retirement marker.
-            });
+            if (observationToken == 0u)
+                throw new ArgumentOutOfRangeException(nameof(observationToken));
+            // CPU storage bookkeeping after the GPU fence, not a reconstruction
+            // result. Actual dirty records/epochs remain selected on the GPU.
+            _retiredObservationToken = observationToken;
         }
 
         private void PublishResidencyEpoch(uint candidate)

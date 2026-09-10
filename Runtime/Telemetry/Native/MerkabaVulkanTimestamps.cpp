@@ -120,9 +120,9 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
     static_assert(kMerkabaExecutorPipelineCount == 31,
-        "M8 executor pipeline tables must be regenerated for ABI 23");
+        "M8 executor pipeline tables must be regenerated for ABI 24");
 
-    constexpr uint32_t kExecutorAbiVersion = 23;
+    constexpr uint32_t kExecutorAbiVersion = 24;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
@@ -1312,7 +1312,11 @@ namespace
 
     bool PipelineSelected(const ExecutorJob* job, uint32_t pipeline)
     {
-        if (job->kind != kJobFlowerReadout) return true;
+        const auto& schedule = kMerkabaExecutorSchedules[job->kind];
+        bool present = false;
+        for (uint32_t ordinal = 0; ordinal < schedule.count; ++ordinal)
+            present |= schedule.pipelines[ordinal] == pipeline;
+        if (!present || job->kind != kJobFlowerReadout) return present;
         uint32_t pass = pipeline == kFlowerPipelineBegin ? 1u :
             pipeline >= kFlowerPreparePipeline && pipeline <= kFlowerReservePipeline ? 2u :
             pipeline == kFlowerPublishPipeline ? 4u :
@@ -1479,7 +1483,8 @@ namespace
                         return false;
                     }
                 }
-                if (job->kind == kJobObservation && resource == kResourceFlowerSignalItems &&
+                if ((job->kind == kJobObservation || job->kind == kJobFineErase) &&
+                    resource == kResourceFlowerSignalItems &&
                     ((buffer.usage & (VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT)) !=
                         (VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT) ||
@@ -2002,7 +2007,7 @@ namespace
             0, 1, &acquire, 0, nullptr, 0, nullptr);
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, job->queryPool, 0);
-        if (job->kind == kJobObservation)
+        if (job->kind == kJobObservation || job->kind == kJobFineErase)
         {
             // No data/count readback: discard the previous snapshot's handoff.
             VkBuffer signals = job->buffers[kResourceFlowerSignalItems].buffer;
@@ -2016,8 +2021,8 @@ namespace
         }
         if (job->kind == kJobFineErase)
         {
-            // Only the former setup kernel's three transient words; never a
-            // CounterCount clear. Args.yz are values, not zero-filled state.
+            // Clear this job's transient counters, not residency/world totals.
+            // Args.yz are values, not zero-filled state.
             for (uint32_t offset : kMerkabaFineEraseCounterResetOffsets)
                 vkCmdFillBuffer(job->commandBuffer,
                     job->buffers[kResourceCounters].buffer, offset, sizeof(uint32_t), 0u);
@@ -2167,7 +2172,7 @@ namespace
         VkPipelineStageFlags waitStage =
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
             VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
-        if (job->kind == kJobFineErase ||
+        if (job->kind == kJobObservation || job->kind == kJobFineErase ||
             (job->kind == kJobFlowerReadout && PipelineSelected(job, kFlowerCullPipeline)))
             waitStage |= VK_PIPELINE_STAGE_TRANSFER_BIT;
         VkSubmitInfo nativeSubmit = {};

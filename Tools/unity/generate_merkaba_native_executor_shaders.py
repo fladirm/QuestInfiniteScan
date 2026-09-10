@@ -105,6 +105,17 @@ PIPELINES = (
 )
 
 
+FINE_ERASE_RESET_COUNTERS = (
+    "M8_COUNTER_FINE_ERASE_TILE_COUNT",
+    "M8_COUNTER_UNRESOLVED_OBSERVATION_TILES",
+    "M8_COUNTER_OBSERVATION_CHANGE_MASK",
+    "M8_COUNTER_OBSERVATION_FAILURE",
+    "M8_COUNTER_REFINEMENT_WORK_PROGRESS",
+    "M8_COUNTER_REFINEMENT_BACKPRESSURE",
+    "M8_COUNTER_STORAGE_BACKPRESSURE",
+)
+
+
 def command_schedules():
     """The exact serialized command order embedded in the native executor."""
     labels = [pipeline.label for pipeline in PIPELINES]
@@ -144,7 +155,8 @@ def command_schedules():
     flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
-    fine = labels[index["QueryFineEraseTiles"]:]
+    fine = ("QueryFineEraseTiles", "EraseFineTiles", "InvalidateFlowerPeers",
+            "PublishFlowerR1", "FinalizeFineErase")
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
         ("Observation", observation),
         ("FlowerReadout", flower), ("FineErase", fine)))
@@ -626,9 +638,7 @@ def emit(output: Path, compiled) -> None:
     # handwritten native layout. No allocator/residency word is included.
     world = (SHADER_ROOT / "MerkabaWorld.hlsl").read_text(encoding="utf-8")
     fine_reset_offsets = []
-    for name in ("M8_COUNTER_FINE_ERASE_TILE_COUNT",
-                 "M8_COUNTER_UNRESOLVED_OBSERVATION_TILES",
-                 "M8_COUNTER_OBSERVATION_CHANGE_MASK"):
+    for name in FINE_ERASE_RESET_COUNTERS:
         matches = re.findall(r"^#define\s+" + name + r"\s+(\d+)u\s*$", world, re.MULTILINE)
         if len(matches) != 1:
             raise RuntimeError(f"missing/ambiguous native ERASE setup counter: {name}")
@@ -706,8 +716,8 @@ def main() -> int:
                 "non_allocation_commands": len(indices) - allocation,
                 "between_dispatch_barriers": len(indices) - 1,
                 "optional_flower_passes": name == "FlowerReadout",
-                "setup_transfer_fills": 5 if name == "FineErase" else
-                    1 if name == "FlowerReadout" else 0,
+                "setup_transfer_fills": len(FINE_ERASE_RESET_COUNTERS) + 9 if name == "FineErase" else
+                    1 if name == "FlowerReadout" else 7,
                 "commands": [{"pipeline": PIPELINES[index].label,
                               "dispatch": PIPELINES[index].dispatch} for index in indices]})
         print(json.dumps({"authority": "native embedded command schedules",

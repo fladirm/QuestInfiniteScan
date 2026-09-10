@@ -16,7 +16,6 @@ namespace Genesis.RoomScan
         private uint _observationCommitSource;
         private uint _observationCommitToken;
         private uint _observationCommitChange;
-        private uint _lastAuthorityChangeAttempt;
         private bool _observationCommitRetry;
         private int _observationCommitWaiters;
         private Exception _observationCommitFailure;
@@ -120,14 +119,13 @@ namespace Genesis.RoomScan
                 _baseCompactionTask != null || !_dualCapacityBackpressure ||
                 _dualCapacitySampleGpuGeneration != _gpuGeneration ||
                 _dualCapacitySampleObservation != _issuedObservationToken ||
-                _dualCapacitySampleObservation == _completedObservationToken ||
-                _completedAttemptToken == 0u || _attemptCompletionReadbackPending ||
+                _dualCapacitySampleObservation != _retiredObservationToken ||
                 !DualMutationSubmissionAllowed || _dualPublishedGeneration == 0u)
                 return;
             if (!_observationCommitRetry &&
                 _observationCommitWorld == _gpuGeneration &&
                 _observationCommitToken == _dualCapacitySampleObservation &&
-                _observationCommitChange == _lastAuthorityChangeAttempt)
+                _observationCommitChange == _retiredObservationToken)
                 return;
 
             if (_observationCommitIntegrator == null)
@@ -149,7 +147,7 @@ namespace Genesis.RoomScan
             _observationCommitWorld = _gpuGeneration;
             _observationCommitSource = _dualPublishedGeneration;
             _observationCommitToken = _dualCapacitySampleObservation;
-            _observationCommitChange = _lastAuthorityChangeAttempt;
+            _observationCommitChange = _retiredObservationToken;
             _observationCommitRetry = false;
             _observationDrainTask = FlushAllDirtyTilesAsync();
         }

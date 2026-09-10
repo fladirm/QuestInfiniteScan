@@ -216,7 +216,23 @@ bool M8FlowerParentStructureChanged(uint previous,uint next)
     return false;
 }
 
-bool M8FlowerR1PeersWritable(uint local)
+void M8FlowerRequestErasePeer(uint halo)
+{
+    // ERASE has no observation allocation pass. Request the existing COLD
+    // address directly through the same SSD load queue as its brush query.
+    int3 tile=m8FlowerHaloTile+M8FlowerHaloDelta(halo);
+    if(any(tile< -268435456) || any(tile>268435455))
+    {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);return;}
+    MerkabaM8Address address=MerkabaAddressOf(tile*8);
+    uint block;
+    if(!M8FindBlock(address.blockCoord,block))return;
+    uint chunkRef=_M8BlockChunkRefsRead[block*512u+address.chunkLocal];
+    if(chunkRef==MERKABA_REF_EMPTY || chunkRef>=MERKABA_REF_EVICTING)return;
+    uint chunk=chunkRef-1u;
+    M8QueueColdTileLoad(chunk*64u+address.tileLocal,chunk,address.tileLocal);
+}
+
+bool M8FlowerR1PeersWritable(uint local,bool erase)
 {
     int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
     [loop]for(uint node=6u;node<26u;node++)
@@ -228,7 +244,8 @@ bool M8FlowerR1PeersWritable(uint local)
         if(state==M8_FLOWER_HALO_MISSING)continue;
         if(state==M8_FLOWER_HALO_COLD)
         {
-            M8FlowerRequestSkinDependencies(1u<<halo);
+            if(erase)M8FlowerRequestErasePeer(halo);
+            else M8FlowerRequestSkinDependencies(1u<<halo);
             return false;
         }
         uint peerSlot,peerLocal;
@@ -248,14 +265,12 @@ void M8FlowerPublishR1Change(uint slot)
         M8_OBSERVATION_CHANGED_R1);
 }
 
-bool M8FlowerStoreR1(uint slot, uint local, KernelState before, uint4 value,bool through)
+bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
+    bool structural,bool through,bool erase)
 {
-    if (all(value == uint4(asuint(before.evidence),before.packedColor,
-            before.colorConfidence,before.flags))) return true;
-    bool structural=M8FlowerParentStructureChanged(before.flags,value.w);
     uint generation=_M8TileRecords[M8TileRuntimeIndex(slot)].w;
     uint ownerRef=M8FlowerFindOwner(slot,local,generation);
-    if((structural||through) && !M8FlowerR1PeersWritable(local))
+    if((structural||through) && !M8FlowerR1PeersWritable(local,erase))
     {M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);return false;}
     uint address;
     if(!M8FlowerReserveR1Change(address))
@@ -293,6 +308,14 @@ bool M8FlowerStoreR1(uint slot, uint local, KernelState before, uint4 value,bool
     M8MarkTileDirty(slot);
     InterlockedOr(m8FlowerR1Changed,1u);
     return true;
+}
+
+bool M8FlowerStoreR1(uint slot,uint local,KernelState before,uint4 value,bool through)
+{
+    if(all(value==uint4(asuint(before.evidence),before.packedColor,
+        before.colorConfidence,before.flags)))return true;
+    return M8FlowerPrepareR1(slot,local,before,value,
+        M8FlowerParentStructureChanged(before.flags,value.w),through,false);
 }
 
 // This branch applies certified free volume to measured R1 evidence. The
