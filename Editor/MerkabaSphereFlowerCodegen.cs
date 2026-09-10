@@ -779,10 +779,9 @@ internal static uint4 M8FlowerContradictR1(uint4 state)
                 : source.Replace("internal static ", string.Empty));
         }
 
-        // One canonical round-to-nearest-even decision source for the CPU and
-        // HLSL consumers. Sqrt is a bounded integer restoring square root;
-        // quotient midpoint products use binary64 on CPU and uint2 on GPU.
-        // Neither decision depends on native approximate sqrt/divide behavior.
+        // Native FP supplies only a normal-range estimate. Exact integer
+        // remainders recover the same bracket/RNE result on CPU and GPU.
+        // No bit-at-a-time arithmetic in the production instruction stream.
         private static void AppendCanonicalRounding(StringBuilder output, bool csharp)
         {
             output.AppendLine(csharp ? @"
@@ -868,25 +867,31 @@ internal static float M8FlowerRoundSqrt(float value)
     uint encodedExponent=bits>>23;
     uint mantissa=(bits&0x7fffffu)|(encodedExponent!=0u?0x800000u:0u);
     int exponent=encodedExponent!=0u?(int)encodedExponent-127:-126;
-    [loop] while(mantissa<0x800000u){mantissa<<=1;--exponent;}
+    int normalization=23-firstbithigh(mantissa);
+    mantissa<<=normalization;exponent-=normalization;
     int parity=exponent&1;
     int shift=23+parity;
-    uint2 radicand=uint2(mantissa<<shift,mantissa>>(32-shift));
-    uint root=0u,remainder=0u;
-    // D=mantissa*2^(23+parity) has at most48bits. Consume exactly24
-    // bit-pairs; remainder stays below2^27, so no uint64/float64 is needed.
-    [loop] for(int pair=23;pair>=0;--pair)
+    // Normalize even subnormals into [1,4). Vulkan InverseSqrt is <=2 ULP;
+    // multiplying by this normal input adds <=0.5 ULP. In the integer-root
+    // scale the total error is <4.5, hence at most five floor corrections.
+    // https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#spirvenv-precision-operation
+    float scaled=asfloat(((uint)(127+parity)<<23)|(mantissa&0x7fffffu));
+    precise float hint=scaled*rsqrt(scaled);
+    uint root=(uint)(hint*8388608.0f);
+    // |D-root^2| < 2^28. Its low word interpreted as signed is the EXACT
+    // remainder even though D and the square separately have up to48 bits.
+    int remainder=asint((mantissa<<shift)-root*root);
+    [unroll] for(int correction=0;correction<5;++correction)
     {
-        int pairShift=2*pair;
-        uint digit=pairShift>=32?radicand.y>>(pairShift-32):radicand.x>>pairShift;
-        remainder=(remainder<<2)|(digit&3u);
-        root<<=1;
-        uint trial=(root<<1)|1u;
-        if(remainder>=trial){remainder-=trial;root|=1u;}
+        int down=remainder<0?1:0;
+        int up=remainder>=(int)(2u*root+1u)?1:0;
+        remainder+=down*(int)(2u*root-1u)-up*(int)(2u*root+1u);
+        root=(uint)((int)root+up-down);
     }
+    if(remainder<0 || remainder>=(int)(2u*root+1u))return asfloat(0x7fc00000u);
     // D=q^2+r. The midpoint square is q^2+q+1/4: integral D can
     // never tie, and nearest rounding increments q exactly when r>q.
-    if(remainder>root)++root;
+    if((uint)remainder>root)++root;
     int rootExponent=(exponent-parity)/2;
     // All positive binary32 square roots are normal. Addition also handles
     // the carry when rounding a24bit significand across a power of two.
@@ -895,6 +900,8 @@ internal static float M8FlowerRoundSqrt(float value)
 ";
             output.AppendLine(csharp
                 ? source.Replace("precise ", string.Empty).Replace("[loop] ", string.Empty)
+                    .Replace("[unroll] ", string.Empty)
+                    .Replace("firstbithigh(mantissa)", "(31-lzcnt(mantissa))")
                 : source.Replace("internal static ", string.Empty));
         }
 
@@ -1792,6 +1799,23 @@ internal static uint M8FlowerUniqueCompletion(uint2 candidates,out uint petal)
             }
             if (upper.Count != 881) throw new InvalidOperationException("Incomplete dyadic loop metric table.");
             tables.AppendScalars(output, "M8FlowerLoopLengthUpper", "float", upper.ToArray());
+            // Sensor-loop radii are finite lattice data too. Preserve the
+            // exact former ordered enclosure, once in the Editor, not once
+            // per pixel/hypothesis/loop on the headset.
+            var radii = new uint4[MerkabaSphereFlowerAuthority.LineClassCount];
+            var step = MerkabaSphereFlowerAuthority.FloatInterval.Singleton(
+                (float)MerkabaSphereFlowerAuthority.LatticeStep);
+            for (int line = 0; line < radii.Length; ++line)
+            {
+                var direction = MerkabaSphereFlowerAuthority.Lines[line].Direction;
+                var factor = MerkabaSphereFlowerAuthority.FloatInterval.Singleton(
+                    0.75f * math.dot(direction, direction));
+                var radius = MerkabaSphereFlowerAuthority.FloatInterval.Sqrt(
+                    MerkabaSphereFlowerAuthority.FloatInterval.Multiply(
+                        MerkabaSphereFlowerAuthority.FloatInterval.Multiply(step, step), factor));
+                radii[line] = new uint4(math.asuint(radius.Lower), math.asuint(radius.Upper), 0u, 0u);
+            }
+            tables.AppendVectors(output, "M8FlowerObservedRadius", "float2", radii);
         }
 
         private static void AppendChildren(StringBuilder output, GpuTables tables)
@@ -3295,26 +3319,33 @@ bool M8FlowerDivideEnclosed(float numerator, float denominator,
     uint d=(denominatorBits&0x7fffffu)|(dEncoded!=0u?0x800000u:0u);
     int nExponent=nEncoded!=0u?(int)nEncoded-127:-126;
     int dExponent=dEncoded!=0u?(int)dEncoded-127:-126;
-    [loop] while(n<0x800000u){n<<=1u;--nExponent;}
-    [loop] while(d<0x800000u){d<<=1u;--dExponent;}
+    uint nShift=23u-(uint)firstbithigh(n),dShift=23u-(uint)firstbithigh(d);
+    n<<=nShift;d<<=dShift;nExponent-=(int)nShift;dExponent-=(int)dShift;
     int exponent=nExponent-dExponent;
     if(n<d){n<<=1u;--exponent;}
     if(exponent>127)return false;
     uint lo=0u,hi=1u;
     if(exponent>=-149)
     {
-        // d<=n<2d. Integer long division emits exactly the representable
-        // significand bits, never more than23; every remainder is <2d.
+        // d<=n<2d, both exactly representable normal FP32 values. Vulkan
+        // OpFDiv is <=2.5 ULP here; scaling by a power of two is exact.
+        // Thus floor(hint) differs from the exact integer quotient by <=3.
         uint fractionBits=exponent>=-126?23u:(uint)(exponent+149);
-        uint quotient=1u,remainder=n-d;
-        [loop] for(uint bit=0u;bit<fractionBits;++bit)
+        precise float hint=(float)n/(float)d;
+        uint quotient=(uint)(hint*(float)(1u<<fractionBits));
+        // The difference is <4*d<2^26, so signed low-word subtraction is
+        // exact. No uint64, subnormal FP arithmetic or reciprocal authority.
+        int remainder=asint((n<<fractionBits)-quotient*d);
+        [unroll] for(uint correction=0u;correction<3u;++correction)
         {
-            if(remainder==0u){quotient<<=fractionBits-bit;break;}
-            remainder<<=1u;quotient<<=1u;
-            if(remainder>=d){remainder-=d;quotient|=1u;}
+            int down=remainder<0?1:0;
+            int up=remainder>=(int)d?1:0;
+            quotient=(uint)((int)quotient+up-down);
+            remainder+=(down-up)*(int)d;
         }
+        if(remainder<0 || remainder>=(int)d)return false;
         lo=exponent>=-126?((uint)(exponent+127)<<23u)|(quotient&0x7fffffu):quotient;
-        hi=lo+(remainder!=0u?1u:0u);
+        hi=lo+(remainder!=0?1u:0u);
         if(hi>=0x7f800000u)return false;
     }
     // Underflow has the exact [0,min-subnormal] enclosure. Subnormal to
@@ -3370,12 +3401,10 @@ bool M8FlowerISqrt(M8FlowerInterval value, out M8FlowerInterval result)
         rounded[endpoint]=M8FlowerRoundSqrt(values[endpoint]);
     float2 enclosed=float2(max(0.0,M8FlowerPrevious(rounded.x)),M8FlowerNext(rounded.y));
     if(!M8FlowerIsFinite(enclosed.y))return false;
-    [loop] for(uint endpoint=0u;endpoint<2u;endpoint++)
-    {
-        int comparison=M8FlowerCompareDyadic(M8FlowerSquareDyadic(enclosed[endpoint]),
-            M8FlowerProductDyadic(values[endpoint],1.0));
-        if(endpoint==0u?comparison>0:comparison<0)return false;
-    }
+    // RoundSqrt has already established the exact integer floor bracket and
+    // rounded it to nearest. Its adjacent floats therefore enclose sqrt;
+    // squaring both endpoints with a second dyadic solver proves nothing new.
+    if(!all(M8FlowerIsFinite(rounded)))return false;
     result = M8FlowerI(enclosed.x,enclosed.y);
     return true;
 }
@@ -4688,28 +4717,31 @@ M8FlowerInterval3 M8FlowerObservedLoopAxis(float3 basis, M8FlowerInterval radius
     return world;
 }
 
-// Same generated loop in the held observation's world frame. Integer
-// conversion, radius and matrix operations are enclosed before ABC, so large
-// translated/negative coordinates cannot silently lose a root bound.
-bool M8FlowerObservedLoop(int3 owner, uint direction, float4x4 gridToWorld,
-    out M8FlowerObservedLoopFrame result)
+// The centre depends on the owner; the two axes only on the observation's
+// rigid frame and line class. Callers may share axes across a whole WG.
+M8FlowerInterval3 M8FlowerObservedLoopCentre(int3 owner, int3 direction,
+    float4x4 gridToWorld)
 {
-    result = (M8FlowerObservedLoopFrame)0;
-    int4 node = M8FlowerDirectionAt(direction);
-    float3 j = (float3)M8FlowerJunction(owner,node.xyz);
+    float3 j = (float3)M8FlowerJunction(owner,direction);
     M8FlowerInterval halfStep = M8FlowerI(M8_FLOWER_LATTICE_STEP*0.5,M8_FLOWER_LATTICE_STEP*0.5);
     M8FlowerInterval3 grid;
     grid.x = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.x),M8FlowerNext(j.x)),halfStep);
     grid.y = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.y),M8FlowerNext(j.y)),halfStep);
     grid.z = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.z),M8FlowerNext(j.z)),halfStep);
-    result.centre.x = M8DepthIntervalRow(gridToWorld[0],grid);
-    result.centre.y = M8DepthIntervalRow(gridToWorld[1],grid);
-    result.centre.z = M8DepthIntervalRow(gridToWorld[2],grid);
-    M8FlowerInterval step = M8FlowerI(M8_FLOWER_LATTICE_STEP,M8_FLOWER_LATTICE_STEP);
-    float shellFactor = 0.75*(float)M8FlowerLineMetaAt(node.w).x;
-    M8FlowerInterval radius;
-    if (!M8FlowerISqrt(M8FlowerIMul(M8FlowerIMul(step,step),
-            M8FlowerI(shellFactor,shellFactor)),radius)) return false;
+    M8FlowerInterval3 centre;
+    centre.x = M8DepthIntervalRow(gridToWorld[0],grid);
+    centre.y = M8DepthIntervalRow(gridToWorld[1],grid);
+    centre.z = M8DepthIntervalRow(gridToWorld[2],grid);
+    return centre;
+}
+
+bool M8FlowerObservedLoop(int3 owner, uint direction, float4x4 gridToWorld,
+    out M8FlowerObservedLoopFrame result)
+{
+    int4 node = M8FlowerDirectionAt(direction);
+    result.centre = M8FlowerObservedLoopCentre(owner,node.xyz,gridToWorld);
+    float2 bounds = M8FlowerObservedRadiusAt(node.w);
+    M8FlowerInterval radius = M8FlowerI(bounds.x,bounds.y);
     result.axis1 = M8FlowerObservedLoopAxis(M8FlowerLineE1At(node.w),radius,gridToWorld);
     result.axis2 = M8FlowerObservedLoopAxis(M8FlowerLineE2At(node.w),radius,gridToWorld);
     return true;

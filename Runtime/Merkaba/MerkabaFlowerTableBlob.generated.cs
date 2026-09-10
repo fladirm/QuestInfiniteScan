@@ -5,8 +5,8 @@ namespace Genesis.RoomScan
 {
     internal static class MerkabaFlowerTableBlob
     {
-        internal const int ByteSize = 1645664;
-        internal const int RowCount = 102854;
+        internal const int ByteSize = 1645872;
+        internal const int RowCount = 102867;
         internal const uint TableHash = 0xcee1b7c3u;
         internal const int SectorBoundsRowOffset = 0;
         internal const int BoundaryRationalRowOffset = 264;
@@ -69,10 +69,11 @@ namespace Genesis.RoomScan
         internal const int ChildLoopAddressRowOffset = 12292;
         internal const int ChildCreationRowOffset = 13732;
         internal const int LoopLengthUpperRowOffset = 14092;
-        internal const int NormalPrefixRowOffset = 14313;
-        internal const int NormalCodeRowOffset = 14399;
-        internal const int OffsetCodeRowOffset = 102122;
-        internal const int PhaseDependentCarriersRowOffset = 102186;
+        internal const int ObservedRadiusRowOffset = 14313;
+        internal const int NormalPrefixRowOffset = 14326;
+        internal const int NormalCodeRowOffset = 14412;
+        internal const int OffsetCodeRowOffset = 102135;
+        internal const int PhaseDependentCarriersRowOffset = 102199;
         internal static uint4[] CreateRows() =>
             System.Runtime.InteropServices.MemoryMarshal.Cast<uint, uint4>(new System.ReadOnlySpan<uint>(new uint[]
         {
@@ -14389,6 +14390,19 @@ namespace Genesis.RoomScan
             0x3cb15cafu, 0x3ca3eb86u, 0x3c99999cu, 0x3c930f93u,
             0x3c90d0c5u, 0x3c930f93u, 0x3c99999cu, 0x3ca3eb86u,
             0x3cb15cafu, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x3cb15cabu, 0x3cb15cafu, 0x00000000u, 0x00000000u,
+            0x3cb15cabu, 0x3cb15cafu, 0x00000000u, 0x00000000u,
+            0x3cb15cabu, 0x3cb15cafu, 0x00000000u, 0x00000000u,
+            0x3cfad3e6u, 0x3cfad3eau, 0x00000000u, 0x00000000u,
+            0x3cfad3e6u, 0x3cfad3eau, 0x00000000u, 0x00000000u,
+            0x3cfad3e6u, 0x3cfad3eau, 0x00000000u, 0x00000000u,
+            0x3cfad3e6u, 0x3cfad3eau, 0x00000000u, 0x00000000u,
+            0x3cfad3e6u, 0x3cfad3eau, 0x00000000u, 0x00000000u,
+            0x3cfad3e6u, 0x3cfad3eau, 0x00000000u, 0x00000000u,
+            0x3d199998u, 0x3d19999cu, 0x00000000u, 0x00000000u,
+            0x3d199998u, 0x3d19999cu, 0x00000000u, 0x00000000u,
+            0x3d199998u, 0x3d19999cu, 0x00000000u, 0x00000000u,
+            0x3d199998u, 0x3d19999cu, 0x00000000u, 0x00000000u,
             0x00000000u, 0x00000200u, 0x000003ffu, 0x000005fcu,
             0x000007f8u, 0x000009f2u, 0x00000bebu, 0x00000de2u,
             0x00000fd8u, 0x000011ccu, 0x000013bfu, 0x000015b0u,

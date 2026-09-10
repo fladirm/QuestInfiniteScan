@@ -7,6 +7,7 @@
 #pragma kernel RootIntervalStagesProbe
 #pragma kernel PlaneIntervalsProbe
 #pragma kernel DivisionBoundsProbe
+#pragma kernel CanonicalSqrtProbe
 #pragma use_dxc vulkan
 
 #include "../../Runtime/Shaders/MerkabaObservationBins.hlsl"
@@ -28,6 +29,13 @@ RWStructuredBuffer<uint4> _ProbeReduced;
 uint _ProbeRecordCount;
 StructuredBuffer<float4> _ProbeCoefficients;
 RWStructuredBuffer<float4> _ProbeRootIntervals;
+
+[numthreads(64, 1, 1)]
+void CanonicalSqrtProbe(uint id : SV_DispatchThreadID)
+{
+    if (id < _ProbeRecordCount)
+        _ProbeReduced[id] = uint4(asuint(M8FlowerRoundSqrt(asfloat(_ProbeRecords[id].x))),0u,0u,0u);
+}
 
 [numthreads(64, 1, 1)]
 void DivisionBoundsProbe(uint id : SV_DispatchThreadID)

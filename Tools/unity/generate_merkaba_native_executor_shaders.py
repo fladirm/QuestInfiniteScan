@@ -22,6 +22,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SHADER_ROOT = ROOT / "Runtime" / "Shaders"
+# Run the same lossless post-link cleanup on PC for embedding AND audit.
+# No reassociation, relaxed precision, inlining or loop unrolling. Compact IDs
+# also remove glslang's large unused ID range from the mobile compiler input.
+SPIRV_CLEANUP = ("--preserve-bindings", "--redundancy-elimination",
+                 "--eliminate-dead-code-aggressive", "--merge-blocks", "--compact-ids")
 
 
 @dataclass(frozen=True)
@@ -402,6 +407,15 @@ def compile_pipeline(glslang: str, spirv_val: str, temporary: Path,
         raise RuntimeError(f"{pipeline.label}: emitted descriptor missing from reflection")
     words = patch_storage_image_formats(words, descriptors)
     output.write_bytes(struct.pack(f"<{len(words)}I", *words))
+    optimized = temporary / f"pipeline-{index}-optimized.spv"
+    cleanup = run([require("spirv-opt"), "--target-env=vulkan1.1",
+                   *SPIRV_CLEANUP, str(output), "-o", str(optimized)])
+    if cleanup.returncode != 0:
+        raise RuntimeError(f"{pipeline.label}: SPIR-V cleanup failed\n" +
+                           cleanup.stdout + cleanup.stderr)
+    optimized.replace(output)
+    payload = output.read_bytes()
+    words = struct.unpack(f"<{len(payload) // 4}I", payload)
     validated = run([spirv_val, "--target-env", "vulkan1.1", str(output)])
     if validated.returncode != 0:
         raise RuntimeError(f"{pipeline.label}: spirv-val failed\n" +
@@ -565,7 +579,9 @@ def metric_report(words, pipeline: Pipeline, command: list[str], compiler_versio
     report = spirv_metrics(words, pipeline.entry)
     report.update(source=pipeline.source, profile="oracle" if oracle else "production",
                   native_embedding_payload=native, compiler=command[0], compiler_version=compiler_version,
-                  compile_command=command, postprocess="native storage-image formats" if native else "none")
+                  compile_command=command,
+                  postprocess=("native storage-image formats + " + " ".join(SPIRV_CLEANUP))
+                      if native else "none")
     failures, reviews = [], []
     # Oracle modules deliberately contain many operation branches. Report their
     # sizes, but do not mislabel them as a production shader-size failure.

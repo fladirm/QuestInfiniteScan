@@ -146,8 +146,8 @@ namespace Genesis.RoomScan
                 throw new InvalidOperationException("Retire the preceding bin reservation before recounting.");
             BindCommon(command, _count);
             BindInput(command, _shader, _count);
+            Bind(command, _count, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
             Bind(command, _count, "_M8HashEntries", _grid.M8HashEntries);
-            Bind(command, _count, "_M8OwnerRecords", _grid.M8OwnerRecords);
             Bind(command, _count, "_M8ClaimQueue", _grid.M8ClaimQueue);
             Bind(command, _count, "_M8BlockChunkRefs", _grid.M8BlockChunkRefs);
             Bind(command, _count, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);

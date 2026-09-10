@@ -545,7 +545,6 @@ bool M8FindOrClaimBlock(int3 blockCoord, out uint blockIndex,
         return false;
     }
     _M8HashEntries[firstEmpty].blockCoord = blockCoord;
-    _M8OwnerRecords[allocated] = uint4(asuint(blockCoord), 0u);
     uint queueIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT], 1u,
         queueIndex);
@@ -593,8 +592,6 @@ bool M8FindOrClaimChunk(uint blockIndex, uint chunkLocal,
         chunkIndex = 0u;
         return false;
     }
-    _M8OwnerRecords[MERKABA_M8_OWNER_CHUNK_OFFSET + allocated] =
-        uint4(blockIndex, chunkLocal, 0u, 0u);
     uint queueIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT], 1u,
         queueIndex);
@@ -603,6 +600,23 @@ bool M8FindOrClaimChunk(uint blockIndex, uint chunkLocal,
             uint2(refIndex, allocated);
     chunkIndex = allocated;
     return false;
+}
+
+// Claims contain the complete address. Owner records are initialized at the
+// existing publication barrier, not by each endpoint claimant. In particular,
+// Count needs no ninth writable descriptor for redundant owner-address stores.
+void M8PublishBlockClaim(uint2 claim)
+{
+    _M8OwnerRecords[claim.y] = uint4(asuint(_M8HashEntries[claim.x].blockCoord), 0u);
+    _M8HashEntries[claim.x].blockRef = claim.y + 1u;
+}
+
+uint2 M8PublishChunkOwner(uint2 claim)
+{
+    uint2 owner = uint2(claim.x / MERKABA_M8_BLOCK_CHUNK_COUNT,
+        claim.x % MERKABA_M8_BLOCK_CHUNK_COUNT);
+    _M8OwnerRecords[MERKABA_M8_OWNER_CHUNK_OFFSET + claim.y] = uint4(owner, 0u, 0u);
+    return owner;
 }
 
 M8TileAddress M8LogicalAddress(uint chunkIndex, uint tileLocal)

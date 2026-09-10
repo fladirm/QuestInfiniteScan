@@ -23,7 +23,7 @@ else
   exit 2
 fi
 
-for tool in python3 rg glslangValidator spirv-dis spirv-val; do
+for tool in python3 rg glslangValidator spirv-opt spirv-dis spirv-val; do
   command -v "$tool" >/dev/null || {
     echo "FAIL: required shader audit tool is missing: $tool" >&2
     exit 1
@@ -75,8 +75,9 @@ for shader in "${shaders[@]}"; do
     metrics="$entry_dir/metrics.json"
     # The native generator owns the flags and final storage-image format patch.
     # Its native PIPELINES are also checked against the emitted descriptor ABI.
-    # Other runtime/oracle entries use those same flags, without pretending to
-    # be an embedded native pipeline. No extra spirv-opt pass changes the metric.
+    # Native entries include the SAME PC post-link cleanup as APK embedding;
+    # the audit never optimizes a different payload just to reduce its metric.
+    # Other runtime/oracle entries do not pretend to be an embedded pipeline.
     if ! python3 "$generator" --audit-shader "$shader" --audit-entry "$kernel" \
       --artifact-dir "$entry_dir" >"$entry_dir/compile.log" 2>&1; then
       echo "FAIL: $shader kernel $kernel did not compile" >&2

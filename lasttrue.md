@@ -9568,3 +9568,42 @@ DEVICE_ACCEPTANCE=pending.
 NEXT=install this APK and measure
   accepted endpoints -> requested/HOT/touched tiles -> occupancy -> draw,
   and verify pause/wake/explicit Start. No calibration asset is requested.
+
+### 2026-09-10 LIVE_SCAN_RECOVERY — endpoint bins and mobile execution
+
+BASE=153918d. Contracts/ontology unchanged. SimpleScan is reference only.
+MEASURED_BASELINE=installed bf42fea6 APK: accepted stereo endpoints exist,
+  but unresolved neighbours veto all HOT emission. StereoFlowerRefine takes
+  2902–5817 ms; touched/occupied/triangles remain zero despite HOT tiles.
+DAG:
+  LIVE_1 local missing-owner admission; Count publishes its touched set before
+    allocation/recount; claims publish owner records at the storage barrier.
+    IMPLEMENTED, Count=8 writable bindings; no extra dispatch or persistent field.
+  LIVE_2 shared native divide/sqrt hints with exact integer corrections;
+    reuse five R1 results, immutable radius LUT and per-WG observed loop axes.
+    IMPLEMENTED; four sensor streams and both depth/RGB support remain required.
+  LIVE_3 PC SPIR-V redundancy/ID cleanup, exact embedded-payload audit;
+    driver/UUID-valid pipeline cache survives unrelated shader changes.
+    Parallel elementary DIRT faces replace the serial 32-face word evaluator.
+    IMPLEMENTED, but Compact remains OPEN-1 (not a green closure claim).
+  LIVE_4 full tests, APK, install/start, measure endpoint->occupancy->draw and
+    actual stereo GPU time. TESTS + APK + INSTALL PASS; DEVICE MEASUREMENT PENDING.
+TESTS=378/378 full Unity EditMode PASS, 2026-09-10 16:54:17Z–16:55:29Z.
+  Includes missing-owner HOT emission, allocation Count/Reset without Reserve,
+  post-Count install exclusion, exponent-wide division and exact sqrt parity.
+AUDIT=72 entries compiled/validated, 71/72 engineering gates pass.
+  ONLY FAIL: CompactDirtyFlowerSymbols=1143316 B / 60686 body / 30024 B GS.
+  StereoFlowerRefine=423780 B / 21292 body / 864 B GS / 8x8 / 3 writable.
+  Receipt=/mnt/kingston-unity/Builds/QuestMerkabaScan/recovery-full-audit.log
+BUILD=Tools/unity/build_merkaba_apk.sh PASS, 2026-09-10 17:05Z.
+  Native 27 pipelines + Unity Android IL2CPP arm64 + release packaging.
+  APK=/mnt/kingston-unity/Builds/QuestMerkabaScan/QuestMerkabaScan-release.apk
+  APK_BYTES=75506362
+  APK_SHA256=9eb0ab065e4fda3869f6c85adb94da069d198c58f92cd0f6c8bfd9f251779c62
+INSTALL=adb install -r SUCCESS, Quest 3S 340YC20G7X0QZ4; installed base.apk SHA256
+  matches the build above. Activity launch PASS, process 9945; headset asleep.
+  Device log=/mnt/kingston-unity/Builds/QuestMerkabaScan/evidence/recovery-live.log
+CURSOR=LIVE_4, installed and launched; waiting for worn-headset scan measurement.
+  No device performance or visible-surface success claimed yet; OPEN-1 remains.
+  PC builds SPIR-V; the actual Adreno driver still compiles device machine code.
+  Never describe a Vulkan pipeline cache as a portable PC-compiled Quest binary.

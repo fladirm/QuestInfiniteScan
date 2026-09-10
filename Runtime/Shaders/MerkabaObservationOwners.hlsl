@@ -140,20 +140,18 @@ void M8FlowerCountObservationOwners(int3 firstOwner)
 void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
     uint symbolTag, uint precisionKey)
 {
-    // An allocation retry must recount the same frozen observation after
-    // touched-bin retirement. Never silently drop newly resident owners.
-    if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] != 0u) return;
     uint slots[8];
     uint ready;
     M8FlowerResolveObservationOwners(firstOwner, false, slots, ready);
-    if (ready != 0xffu)
-    {
-        M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-        return;
-    }
     [unroll]
     for (uint owner = 0u; owner < 8u; owner++)
     {
+        if ((ready & (1u << owner)) == 0u) continue;
+        // Count/Reserve own the exact output spans. An owner installed after
+        // Count has no stamped span yet and joins a later snapshot; a COLD
+        // neighbour never suppresses the owners counted in this one.
+        uint4 bin = _M8ObservationTileBins[slots[owner]];
+        if (bin.x != _M8ObservationToken || bin.y == 0u) continue;
         int3 coordinate = firstOwner + M8FlowerOverlapDelta(owner);
         uint3 local = asuint(coordinate) & 7u;
         uint kernelLocal = local.x + 8u * (local.y + 8u * local.z);

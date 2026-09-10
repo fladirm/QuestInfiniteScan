@@ -231,7 +231,9 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Shaders/StereoRgbdRefine.compute");
             Assert.That(refine, Does.Contain("MerkabaTrySampleCameraRgb(eye,StereoMidpoint(world),captured)"));
             Assert.That(refine, Does.Contain("StereoOppositePlane(support,opposite)"));
-            Assert.That(refine, Does.Contain("M8FlowerObservedLoop("));
+            Assert.That(refine, Does.Contain("M8FlowerObservedLoopCentre("));
+            Assert.That(refine, Does.Contain("M8FlowerObservedRadiusAt("));
+            Assert.That(refine, Does.Contain("gStereoLoopAxes["));
             Assert.That(refine, Does.Contain("M8FlowerSealBend("));
             Assert.That(refine, Does.Contain("countbits(axes) < 2u"));
             Assert.That(refine, Does.Contain("countbits(candidates) == 1u"));

@@ -39,6 +39,7 @@ float _M8FineRadiusSquared, _M8FineLength;
 #define RGBD_METRIC_COUNT 20u
 #define RGBD_METRIC_VALUE_COUNT (3u * RGBD_METRIC_COUNT)
 groupshared uint gRefineMetrics[RGBD_METRIC_VALUE_COUNT];
+groupshared M8FlowerInterval3 gStereoLoopAxes[2u*M8_FLOWER_LINE_CLASS_COUNT];
 
 M8FlowerInterval3 StereoPoint(float3 v)
 {
@@ -286,7 +287,9 @@ uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
     int4 node = M8FlowerDirectionAt(direction);
     uint lineClass = (uint)node.w;
     M8FlowerObservedLoopFrame frame;
-    if (!M8FlowerObservedLoop(owner,direction,_MerkabaGridToWorld,frame)) return RGBD_AMBIGUOUS;
+    frame.centre = M8FlowerObservedLoopCentre(owner,node.xyz,_MerkabaGridToWorld);
+    frame.axis1 = gStereoLoopAxes[2u*lineClass];
+    frame.axis2 = gStereoLoopAxes[2u*lineClass+1u];
     M8FlowerInterval3 lp = M8FlowerRestrictObservedPlane(left.normalInterval,left.positionInterval,frame);
     M8FlowerInterval3 rp = M8FlowerRestrictObservedPlane(right.normalInterval,right.positionInterval,frame);
     uint supported = 0u;
@@ -337,7 +340,7 @@ uint StereoLoopSupport(StereoMeasuredPlane left, StereoMeasuredPlane right,
 }
 
 uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bool tetra,
-    inout uint stages, out float3 normal)
+    inout bool bend, inout uint stages, out float3 normal)
 {
     normal = measured.normal;
     StereoMeasuredPlane opposite;
@@ -362,24 +365,14 @@ uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bo
     int3 owner = int3(floor(grid));
     uint axes = 0u, possibleAxes = 0u;
     uint edges = 0u, possibleEdges = 0u;
-    bool bend = false;
     uint parity = ((uint)owner.x&1u) | (((uint)owner.y&1u)<<1u) | (((uint)owner.z&1u)<<2u);
     int4 lines = M8FlowerTetraLineAt(parity), orientation = M8FlowerTetraEtaAt(parity);
     bool unresolved = false;
-    // One bounded loop-algebra call site for all shells. R2 follows a
-    // certain R1 bend even with one hypothesis; only R3 is conditional on
-    // competing hypotheses. Neither shell substitutes for the two R1 axes.
-    [loop] for (uint index = 0u; index < 22u; index++)
+    // The closure pass consumes the R1 result already computed for THIS
+    // hypothesis. It neither rebuilds its six R1 loops nor retries ambiguous
+    // R1 evidence. Only additional R2/R3 information is evaluated here.
+    [loop] for (uint index = tetra ? 6u : 0u; index < (tetra ? 22u : 6u); index++)
     {
-        if (index == 6u)
-        {
-            if (countbits(possibleAxes) < 2u) return RGBD_IMPOSSIBLE;
-            if (countbits(axes) < 2u) return RGBD_AMBIGUOUS;
-            stages |= RGBD_STAGE_FLOWER;
-            // R2/R3 refine an existing R1 measurement. They cannot veto its
-            // basic existence merely because finer evidence is ambiguous.
-            if (!tetra) return RGBD_CERTAIN;
-        }
         if (index >= 6u && index < 18u && !bend) continue;
         if (index == 18u)
         {
@@ -411,6 +404,12 @@ uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bo
             unresolved = unresolved || status == RGBD_AMBIGUOUS;
         }
     }
+    if (!tetra)
+    {
+        if (countbits(possibleAxes) < 2u) return RGBD_IMPOSSIBLE;
+        if (countbits(axes) < 2u) return RGBD_AMBIGUOUS;
+        stages |= RGBD_STAGE_FLOWER;
+    }
     return unresolved ? RGBD_AMBIGUOUS : RGBD_CERTAIN;
 }
 
@@ -419,11 +418,17 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
     uint2 groupId : SV_GroupID)
 {
     bool metrics = _RefineMetricsEnabled != 0u;
-    if (metrics)
+    if (lane < M8_FLOWER_LINE_CLASS_COUNT)
     {
-        if (lane < RGBD_METRIC_VALUE_COUNT) gRefineMetrics[lane] = 0u;
-        GroupMemoryBarrierWithGroupSync();
+        float2 bounds = M8FlowerObservedRadiusAt(lane);
+        M8FlowerInterval radius = M8FlowerI(bounds.x,bounds.y);
+        gStereoLoopAxes[2u*lane] = M8FlowerObservedLoopAxis(
+            M8FlowerLineE1At(lane),radius,_MerkabaGridToWorld);
+        gStereoLoopAxes[2u*lane+1u] = M8FlowerObservedLoopAxis(
+            M8FlowerLineE2At(lane),radius,_MerkabaGridToWorld);
     }
+    if (metrics && lane < RGBD_METRIC_VALUE_COUNT) gRefineMetrics[lane] = 0u;
+    GroupMemoryBarrierWithGroupSync();
     bool raw = false, accepted = false, tetraUsed = false;
     uint stages = 0u, radialBin = 0u, diagnosticMask = 0u;
     if (all(id < uint2(_DepthW,_DepthH)))
@@ -446,6 +451,7 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
         {
             uint candidates = (1u << RGBD_HYPOTHESES)-1u;
             uint certainCandidates = 0u, selectedHypothesis = 2u;
+            uint r1CertainCandidates = 0u, r1BendCandidates = 0u;
             bool metricPriorAccepted = false;
             float3 priorNormal = measured.normal;
             float3 selectedWorld = measured.position, selectedNormal = measured.normal;
@@ -466,6 +472,8 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
                 [loop] for (uint h = 0u; h < RGBD_HYPOTHESES; h++)
                 {
                     if ((candidates & (1u << h)) == 0u) continue;
+                    if (phase != 0u && (r1CertainCandidates & (1u << h)) == 0u)
+                        continue;
                     float shift = ((float)h-2.0)*(RGBD_METRIC_RADIUS*0.5)/rayLength;
                     M8FlowerInterval depth = M8FlowerIAdd(measured.depth,M8FlowerI(shift,shift));
                     if (!(depth.lo > 0.0)) { candidates &= ~(1u << h); continue; }
@@ -476,7 +484,13 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
                     M8FlowerInterval3 support = measured.positionInterval;
                     if (h != 2u) support = StereoTransform(_DepthViewInv[0],view);
                     float3 normal;
-                    uint status = StereoCandidate(support,measured,phase != 0u,stages,normal);
+                    bool bend = (r1BendCandidates & (1u << h)) != 0u;
+                    uint status = StereoCandidate(support,measured,phase != 0u,bend,stages,normal);
+                    if (phase == 0u)
+                    {
+                        if (status == RGBD_CERTAIN) r1CertainCandidates |= 1u << h;
+                        if (bend) r1BendCandidates |= 1u << h;
+                    }
                     if (phase == 0u && h == 2u && status == RGBD_CERTAIN)
                     {
                         metricPriorAccepted = true;

@@ -59,28 +59,31 @@ M8FlowerInterval3 M8FlowerObservedLoopAxis(float3 basis, M8FlowerInterval radius
     return world;
 }
 
-// Same generated loop in the held observation's world frame. Integer
-// conversion, radius and matrix operations are enclosed before ABC, so large
-// translated/negative coordinates cannot silently lose a root bound.
-bool M8FlowerObservedLoop(int3 owner, uint direction, float4x4 gridToWorld,
-    out M8FlowerObservedLoopFrame result)
+// The centre depends on the owner; the two axes only on the observation's
+// rigid frame and line class. Callers may share axes across a whole WG.
+M8FlowerInterval3 M8FlowerObservedLoopCentre(int3 owner, int3 direction,
+    float4x4 gridToWorld)
 {
-    result = (M8FlowerObservedLoopFrame)0;
-    int4 node = M8FlowerDirectionAt(direction);
-    float3 j = (float3)M8FlowerJunction(owner,node.xyz);
+    float3 j = (float3)M8FlowerJunction(owner,direction);
     M8FlowerInterval halfStep = M8FlowerI(M8_FLOWER_LATTICE_STEP*0.5,M8_FLOWER_LATTICE_STEP*0.5);
     M8FlowerInterval3 grid;
     grid.x = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.x),M8FlowerNext(j.x)),halfStep);
     grid.y = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.y),M8FlowerNext(j.y)),halfStep);
     grid.z = M8FlowerIMul(M8FlowerI(M8FlowerPrevious(j.z),M8FlowerNext(j.z)),halfStep);
-    result.centre.x = M8DepthIntervalRow(gridToWorld[0],grid);
-    result.centre.y = M8DepthIntervalRow(gridToWorld[1],grid);
-    result.centre.z = M8DepthIntervalRow(gridToWorld[2],grid);
-    M8FlowerInterval step = M8FlowerI(M8_FLOWER_LATTICE_STEP,M8_FLOWER_LATTICE_STEP);
-    float shellFactor = 0.75*(float)M8FlowerLineMetaAt(node.w).x;
-    M8FlowerInterval radius;
-    if (!M8FlowerISqrt(M8FlowerIMul(M8FlowerIMul(step,step),
-            M8FlowerI(shellFactor,shellFactor)),radius)) return false;
+    M8FlowerInterval3 centre;
+    centre.x = M8DepthIntervalRow(gridToWorld[0],grid);
+    centre.y = M8DepthIntervalRow(gridToWorld[1],grid);
+    centre.z = M8DepthIntervalRow(gridToWorld[2],grid);
+    return centre;
+}
+
+bool M8FlowerObservedLoop(int3 owner, uint direction, float4x4 gridToWorld,
+    out M8FlowerObservedLoopFrame result)
+{
+    int4 node = M8FlowerDirectionAt(direction);
+    result.centre = M8FlowerObservedLoopCentre(owner,node.xyz,gridToWorld);
+    float2 bounds = M8FlowerObservedRadiusAt(node.w);
+    M8FlowerInterval radius = M8FlowerI(bounds.x,bounds.y);
     result.axis1 = M8FlowerObservedLoopAxis(M8FlowerLineE1At(node.w),radius,gridToWorld);
     result.axis2 = M8FlowerObservedLoopAxis(M8FlowerLineE2At(node.w),radius,gridToWorld);
     return true;

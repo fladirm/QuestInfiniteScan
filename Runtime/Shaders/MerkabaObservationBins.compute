@@ -146,14 +146,14 @@ void ResolveMissingSpatialNodes(uint lane : SV_GroupIndex)
     for (uint i = lane; i < blocks; i += 256u)
     {
         uint2 claim = _M8ClaimQueue[MERKABA_M8_CLAIM_BLOCK_OFFSET + i];
-        _M8HashEntries[claim.x].blockRef = claim.y + 1u;
+        M8PublishBlockClaim(claim);
     }
     uint chunks = min(_M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT],
         MERKABA_M8_CHUNK_CAPACITY);
     for (uint j = lane; j < chunks; j += 256u)
     {
         uint2 claim = _M8ClaimQueue[MERKABA_M8_CLAIM_CHUNK_OFFSET + j];
-        uint2 owner = _M8OwnerRecords[MERKABA_M8_OWNER_CHUNK_OFFSET+claim.y].xy;
+        uint2 owner = M8PublishChunkOwner(claim);
         uint d4 = (owner.y >> 6u) & 7u;
         uint d3 = (owner.y >> 3u) & 7u;
         uint d2 = owner.y & 7u;
@@ -358,8 +358,9 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
             m8ObservationTotal.x > _M8ObservationRecordCapacity)
             failure |= M8_OBSERVATION_FAILURE_SURFACE_CAPACITY;
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] = failure;
-        m8ObservationCanReserve = failure == 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u ? 1u : 0u;
+        // Missing owners request residency locally. They do not cancel the
+        // stamped counts of independent resident owners in this snapshot.
+        m8ObservationCanReserve = failure == 0u ? 1u : 0u;
     }
     GroupMemoryBarrierWithGroupSync();
 

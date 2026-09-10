@@ -12677,25 +12677,31 @@ internal static float M8FlowerRoundSqrt(float value)
     uint encodedExponent=bits>>23;
     uint mantissa=(bits&0x7fffffu)|(encodedExponent!=0u?0x800000u:0u);
     int exponent=encodedExponent!=0u?(int)encodedExponent-127:-126;
-    while(mantissa<0x800000u){mantissa<<=1;--exponent;}
+    int normalization=23-(31-lzcnt(mantissa));
+    mantissa<<=normalization;exponent-=normalization;
     int parity=exponent&1;
     int shift=23+parity;
-    uint2 radicand=uint2(mantissa<<shift,mantissa>>(32-shift));
-    uint root=0u,remainder=0u;
-    // D=mantissa*2^(23+parity) has at most48bits. Consume exactly24
-    // bit-pairs; remainder stays below2^27, so no uint64/float64 is needed.
-    for(int pair=23;pair>=0;--pair)
+    // Normalize even subnormals into [1,4). Vulkan InverseSqrt is <=2 ULP;
+    // multiplying by this normal input adds <=0.5 ULP. In the integer-root
+    // scale the total error is <4.5, hence at most five floor corrections.
+    // https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#spirvenv-precision-operation
+    float scaled=asfloat(((uint)(127+parity)<<23)|(mantissa&0x7fffffu));
+    float hint=scaled*rsqrt(scaled);
+    uint root=(uint)(hint*8388608.0f);
+    // |D-root^2| < 2^28. Its low word interpreted as signed is the EXACT
+    // remainder even though D and the square separately have up to48 bits.
+    int remainder=asint((mantissa<<shift)-root*root);
+    for(int correction=0;correction<5;++correction)
     {
-        int pairShift=2*pair;
-        uint digit=pairShift>=32?radicand.y>>(pairShift-32):radicand.x>>pairShift;
-        remainder=(remainder<<2)|(digit&3u);
-        root<<=1;
-        uint trial=(root<<1)|1u;
-        if(remainder>=trial){remainder-=trial;root|=1u;}
+        int down=remainder<0?1:0;
+        int up=remainder>=(int)(2u*root+1u)?1:0;
+        remainder+=down*(int)(2u*root-1u)-up*(int)(2u*root+1u);
+        root=(uint)((int)root+up-down);
     }
+    if(remainder<0 || remainder>=(int)(2u*root+1u))return asfloat(0x7fc00000u);
     // D=q^2+r. The midpoint square is q^2+q+1/4: integral D can
     // never tie, and nearest rounding increments q exactly when r>q.
-    if(remainder>root)++root;
+    if((uint)remainder>root)++root;
     int rootExponent=(exponent-parity)/2;
     // All positive binary32 square roots are normal. Addition also handles
     // the carry when rounding a24bit significand across a power of two.

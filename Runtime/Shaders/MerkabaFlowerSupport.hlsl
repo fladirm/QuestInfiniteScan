@@ -249,53 +249,49 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
             index / 100u) - 1;
         m8FlowerSupportScratch[index] = M8FlowerSupportFreeCell(cell);
     }
+    [loop] for (uint faceWord = lane;
+        faceWord < M8_FLOWER_SUPPORT_FACE_WORDS; faceWord += laneCount)
+        m8FlowerSupportFaces[faceWord] = 0u;
+    GroupMemoryBarrierWithGroupSync();
+    // One lane evaluates one elementary face, not a fully unrolled word of
+    // 32 faces. Only the final bit masks are shared; the exact cell and vertex
+    // predicates have one instruction-stream instance for the whole page.
+    [loop] for (uint item = lane; item < 6u * 512u; item += laneCount)
+    {
+        uint face = item >> 9u, kernel = item & 511u;
+        uint faceWord = face * 16u + (kernel >> 5u);
+        uint bit = 1u << (kernel & 31u);
+        int3 cell = int3(kernel & 7u, (kernel >> 3u) & 7u, kernel >> 6u);
+        int3 direction = M8FlowerDirtFaceDirection(face);
+        uint own = m8FlowerSupportScratch[M8FlowerSupportCellIndex(cell)];
+        uint next = m8FlowerSupportScratch[M8FlowerSupportCellIndex(cell + direction)];
+        uint boundary = M8FlowerClassifyDirtFace(own, next);
+        if (boundary == 1u)
+        {
+            bool representable = m8FlowerSupportOriginValid != 0u;
+            int3 latticeVertex;
+            [loop] for (uint vertex = 0u; vertex < 6u; ++vertex)
+                representable = M8FlowerTryDirtVertex(m8FlowerSupportOrigin + cell,
+                    face, vertex / 3u, vertex % 3u, latticeVertex) && representable;
+            if (representable) InterlockedOr(m8FlowerSupportFaces[faceWord], bit);
+            else InterlockedOr(m8FlowerSupportUnresolved, bit);
+        }
+        else if (boundary == 2u)
+        {
+            InterlockedOr(m8FlowerSupportUnresolved, bit);
+            // Only a required undecidable face may request a cold context.
+            uint ownCold, nextCold;
+            M8FlowerSupportFreeCell(cell, ownCold);
+            M8FlowerSupportFreeCell(cell + direction, nextCold);
+            InterlockedOr(m8FlowerSupportColdHalo, ownCold | nextCold);
+        }
+    }
     GroupMemoryBarrierWithGroupSync();
     [loop] for (uint faceWord = lane;
         faceWord < M8_FLOWER_SUPPORT_FACE_WORDS; faceWord += laneCount)
     {
-        uint face = faceWord >> 4u;
-        uint first = (faceWord & 15u) << 5u;
-        int3 direction = M8FlowerDirtFaceDirection(face);
-        uint exposed = 0u, ambiguous = 0u;
-        [unroll] for (uint bit = 0u; bit < 32u; ++bit)
-        {
-            uint kernel = first + bit;
-            int3 cell = int3(kernel & 7u, (kernel >> 3u) & 7u,
-                kernel >> 6u);
-            uint own = m8FlowerSupportScratch[M8FlowerSupportCellIndex(cell)];
-            uint next = m8FlowerSupportScratch[
-                M8FlowerSupportCellIndex(cell + direction)];
-            uint boundary = M8FlowerClassifyDirtFace(own, next);
-            if (boundary == 1u)
-            {
-                bool representable = m8FlowerSupportOriginValid != 0u;
-                int3 latticeVertex;
-                [unroll] for (uint halfFace = 0u; halfFace < 2u; ++halfFace)
-                    [unroll] for (uint vertex = 0u; vertex < 3u; ++vertex)
-                        representable = M8FlowerTryDirtVertex(
-                            m8FlowerSupportOrigin + cell, face, halfFace, vertex,
-                            latticeVertex) && representable;
-                if (representable) exposed |= 1u << bit;
-                else ambiguous |= 1u << bit;
-            }
-            else if (boundary == 2u)
-            {
-                ambiguous |= 1u << bit;
-                // The generated face predicate already excluded an own FULL
-                // or neighboring FREE cell. Only this required undecidable
-                // pair may turn cached unavailability into a residency read.
-                uint ownCold,nextCold;
-                M8FlowerSupportFreeCell(cell,ownCold);
-                M8FlowerSupportFreeCell(cell+direction,nextCold);
-                InterlockedOr(m8FlowerSupportColdHalo,ownCold|nextCold);
-            }
-        }
-        m8FlowerSupportFaces[faceWord] = exposed;
+        uint exposed = m8FlowerSupportFaces[faceWord];
         if(exposed!=0u)InterlockedOr(m8FlowerSupportCoverageNeeded,1u);
-        // This face decision is final for the frozen dual snapshot. Its only
-        // consumer was the final bitwise OR: retain that exact receipt, not
-        // a second 96-word array for the duration of carrier evaluation.
-        InterlockedOr(m8FlowerSupportUnresolved,ambiguous);
         // Absence of proved direct coverage does not suppress DIRT. An
         // occupied owner, unknown direct root, or missing RGB is not coverage.
         m8FlowerSupportHalves[faceWord * 2u] = exposed;

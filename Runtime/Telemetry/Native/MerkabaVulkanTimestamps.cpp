@@ -1025,7 +1025,9 @@ namespace
                 pipeline.wordCount * sizeof(uint32_t), shaderHash);
         g_executorShaderHash = shaderHash;
         // One atomic-replaced file bounds SSD use across application updates.
-        // Shader/ABI/driver keys live in the receipt, device UUID in Vulkan's header.
+        // Shader/ABI hashes are provenance, not cache compatibility. Vulkan
+        // keys entries by SPIR-V, specialization and pipeline layout already;
+        // changing one shader must not discard every unchanged pipeline.
         g_executorCacheFile = g_executorCacheDirectory + "/pipelines.bin";
         std::vector<uint8_t> data;
         FILE* file = std::fopen(g_executorCacheFile.c_str(), "rb");
@@ -1033,7 +1035,6 @@ namespace
         {
             PipelineCacheReceipt receipt = {};
             if (std::fread(&receipt, sizeof(receipt), 1, file) == 1 &&
-                receipt.abi == kExecutorAbiVersion && receipt.shaderHash == shaderHash &&
                 receipt.driver == g_deviceProperties.driverVersion &&
                 receipt.bytes >= 32u && receipt.bytes <= kMaximumPipelineCacheBytes)
             {

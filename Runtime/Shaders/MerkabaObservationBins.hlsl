@@ -6,8 +6,9 @@
 
 // Exactly four words per HOT slot: observation stamp, count, offset, emit cursor.
 // Count starts at zero after slot installation or touched-only finalization.
-// There is one count pass per reservation; retries retain the frozen evidence,
-// retire the preceding reservation, and start a new count pass.
+// Each count pass registers its touched slots immediately. Allocation discovery
+// can therefore retire precisely those counts before the final count, without
+// depending on a Reserve dispatch that has not happened yet.
 RWStructuredBuffer<uint4> _M8ObservationTileBins;
 StructuredBuffer<uint4> _M8ObservationTileBinsRead;
 RWStructuredBuffer<M8ObservationRecord> _M8ObservationRecords;
@@ -42,6 +43,15 @@ void M8FlowerCountObservationOwner(uint physicalSlot)
     uint previousStamp;
     InterlockedExchange(_M8ObservationTileBins[physicalSlot].x,
         _M8ObservationToken, previousStamp);
+    if (previousStamp != _M8ObservationToken)
+    {
+        uint touched;
+        InterlockedAdd(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT], 1u, touched);
+        if (touched < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+            _M8TouchedTileQueue[touched] = physicalSlot;
+        else
+            M8FlowerBinFailure(M8_OBSERVATION_FAILURE_PHYSICAL_CAPACITY);
+    }
 }
 
 bool M8FlowerEmitObservationOwner(uint physicalSlot, uint kernelLocal,

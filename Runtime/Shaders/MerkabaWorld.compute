@@ -371,7 +371,7 @@ void PublishNewBlocks(uint id : SV_DispatchThreadID)
         MERKABA_M8_BLOCK_CAPACITY);
     if (id >= count) return;
     uint2 claim = _M8ClaimQueueRead[MERKABA_M8_CLAIM_BLOCK_OFFSET + id];
-    _M8HashEntries[claim.x].blockRef = claim.y + 1u;
+    M8PublishBlockClaim(claim);
 }
 
 [numthreads(64, 1, 1)]
@@ -382,7 +382,7 @@ void PublishNewChunks(uint id : SV_DispatchThreadID)
     if (id >= count) return;
     uint2 claim = _M8ClaimQueueRead[MERKABA_M8_CLAIM_CHUNK_OFFSET + id];
     uint chunkIndex = claim.y;
-    uint2 owner = M8LoadChunkOwnerRead(chunkIndex);
+    uint2 owner = M8PublishChunkOwner(claim);
     uint chunkLocal = owner.y;
     uint d4 = (chunkLocal >> 6u) & 7u;
     uint d3 = (chunkLocal >> 3u) & 7u;
