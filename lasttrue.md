@@ -9603,7 +9603,56 @@ BUILD=Tools/unity/build_merkaba_apk.sh PASS, 2026-09-10 17:05Z.
 INSTALL=adb install -r SUCCESS, Quest 3S 340YC20G7X0QZ4; installed base.apk SHA256
   matches the build above. Activity launch PASS, process 9945; headset asleep.
   Device log=/mnt/kingston-unity/Builds/QuestMerkabaScan/evidence/recovery-live.log
-CURSOR=LIVE_4, installed and launched; waiting for worn-headset scan measurement.
-  No device performance or visible-surface success claimed yet; OPEN-1 remains.
+DEVICE_FAILURE=9eb0ab06 APK startup failed at StereoFlowerRefine with VkResult=-13.
+  Same exact module fails in an isolated Adreno pipeline-link probe without a
+  cache; previous shader succeeds. Removing ONLY spirv-opt redundancy-elimination
+  restores linking. Arithmetic, workgroups, admission and geometry are unchanged.
+  Driver=Adreno 740 0x80345009; failure is not attributed to pipeline cache.
+STEREO_FIX=remove redundancy-elimination globally. Intermediate stereo module:
+  449720 B / 22617 body / 864 B GS, SHA256
+  d47c614637e0ed238d31360481eec391018631673b8769411acabae7d6c935d0.
+  Isolated device comparison: old module=-13 / 2300.908 ms;
+  fixed module=VK_SUCCESS / 2934.392 ms. These are LINK times, not dispatch times.
+  Receipt=/mnt/kingston-unity/Builds/QuestMerkabaScan/evidence/vk13-link-comparison.log
+BUILD_UPDATE=full Unity Quest APK PASS, 2026-09-10 17:35Z; 75616334 bytes.
+  APK_SHA256=96512f717e9cb6b36fead792fbfaf5f40a276991ebb9a6974ed6178133dcba21
+  Native 27-pipeline validation/reflection/embedding PASS. Full EditMode suite
+  was not rerun: only the native post-link pass changed; prior 378/378 receipt
+  does not replace actual Adreno pipeline creation.
+INTERMEDIATE_DEVICE=96512f71 APK installed/hash-verified and launched. Stereo
+  linked in-app (3375.808 ms, result=0), as did the following 19 pipelines.
+  CompactDirtyFlowerSymbols then failed -13 after 58837.775 ms.
+COMPACT_ISOLATION=the same current shader without merge-blocks links on-device,
+  cache=NONE, result=0, 73088.415 ms. Dead-code removal leaves that module's bytes
+  identical, isolating merge-blocks as the additional failing pass.
+  Raw+ID-compacted module=1226716 B / 64985 body / 30024 B GS, SHA256
+  8f8b2b17275d7d3093ad067234b93d32c8616b043400fe0e6a48b18da456dd8d.
+  Receipt=/mnt/kingston-unity/Builds/QuestMerkabaScan/evidence/vk13-compact-raw-link.log
+FINAL_FIX=postprocess only --preserve-bindings --compact-ids. Preserve glslang's
+  instruction/control-flow graph; no additional CSE or CFG transformations.
+  No changes to shader arithmetic, workgroups, scan admission or geometry.
+FINAL_BUILD=full native + Unity Quest APK PASS, 2026-09-10 17:48Z; 75619618 bytes.
+  APK_SHA256=6d00af922a4211caa966d89e353beab89591143ebccacf55712035aa1edc613a
+  All 27 exact embedded modules compiled/validated/reflected with ID-only cleanup.
+FINAL_LINK=27/27 exact final modules link on Adreno 740 0x80345009, cache=NONE.
+  First batch returned Stereo/Depth/UpdateDual/FlowerCommit success; its channel
+  ended during DrainFlowerGeometry without a result, so Drain was rerun alone:
+  VK_SUCCESS, 26645.526 ms. Remaining 22 modules: 22 success / 0 failures,
+  including CompactDirtyFlowerSymbols=VK_SUCCESS / 73592.169 ms.
+  Receipts=evidence/vk13-all-final-link.log + vk13-final-rest-link.log;
+  isolated Drain result is recorded above; these are LINK, not dispatch times.
+FINAL_INSTALL=adb install -r SUCCESS; installed base.apk SHA256 equals
+  6d00af922a4211caa966d89e353beab89591143ebccacf55712035aa1edc613a.
+  Activity launch PASS; PID=15252. Live log=evidence/vk13-final-live.log.
+FINAL_APP_LINK=27/27 in-app pipelines VK_SUCCESS, 2026-09-10 18:00:56Z.
+  StereoFlowerRefine=3290.838 ms; CompactDirtyFlowerSymbols=81646.855 ms.
+  Native cache saved durably, 9869935 bytes. Both reported native -13 failures
+  are fixed in the installed APK, not merely in the standalone probe.
+  MRUK's separate PcaGpuProviderVulkan pipeline logs a link failure during
+  startup; this is not one of the 27 native executor pipelines and is not
+  counted as fixed here. Scan/render acceptance still requires live measurement.
+CURSOR=LIVE_4, all native pipelines initialized; first scan observations starting.
+  No scan-success claim; OPEN-1
+  (compact shader size) remains separate from this link-failure repair.
   PC builds SPIR-V; the actual Adreno driver still compiles device machine code.
   Never describe a Vulkan pipeline cache as a portable PC-compiled Quest binary.

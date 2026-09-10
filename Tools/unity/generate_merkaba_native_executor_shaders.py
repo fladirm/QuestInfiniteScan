@@ -22,11 +22,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SHADER_ROOT = ROOT / "Runtime" / "Shaders"
-# Run the same lossless post-link cleanup on PC for embedding AND audit.
-# No reassociation, relaxed precision, inlining or loop unrolling. Compact IDs
-# also remove glslang's large unused ID range from the mobile compiler input.
-SPIRV_CLEANUP = ("--preserve-bindings", "--redundancy-elimination",
-                 "--eliminate-dead-code-aggressive", "--merge-blocks", "--compact-ids")
+# Apply the same ID compaction on PC for embedding AND audit. Preserve
+# glslang's instruction/control-flow graph: on Adreno 740 driver 0x80345009,
+# extra redundancy-elimination breaks StereoFlowerRefine and merge-blocks
+# breaks CompactDirtyFlowerSymbols (-13). Both original graphs link on that
+# device without a cache. spirv-val alone cannot detect these driver failures.
+SPIRV_CLEANUP = ("--preserve-bindings", "--compact-ids")
 
 
 @dataclass(frozen=True)
