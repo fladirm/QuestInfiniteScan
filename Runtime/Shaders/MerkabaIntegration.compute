@@ -1,6 +1,9 @@
 #pragma kernel FlowerCommit
-#pragma kernel DrainFlowerGeometry
-#pragma kernel AdvanceRefinementStage
+#pragma kernel InvalidateFlowerPeers
+#pragma kernel PublishFlowerR1
+#pragma kernel IntegrateFlowerRoot
+#pragma kernel IntegrateFlowerL1
+#pragma kernel IntegrateFlowerL2
 #pragma kernel ResolveFlowerCarriers
 #pragma kernel DrainFlowerSkinRgb
 #pragma kernel DrainFlowerSkinV
@@ -196,6 +199,7 @@ void M8MarkR1Active(uint physicalSlot, uint kernelLocal)
 void M8DualRequestStorage(uint blockOrdinal,uint kind,uint child,uint tile);
 #include "MerkabaFlowerRefinement.hlsl"
 #include "MerkabaFlowerPageInvalidation.hlsl"
+#include "MerkabaFlowerChanges.hlsl"
 
 bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     bool scanRequest)
@@ -751,37 +755,6 @@ void M8FinalizeObservationCompletion()
         _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
 }
 
-// root -> L1 -> L2 -> skin are dependency barriers of ONE snapshot command
-// graph. A workgroup cannot publish the next stage, because on this hardware
-// sibling groups of the same dispatch have not necessarily started yet and
-// would read a stage they were not scheduled for. The barrier is therefore a
-// dispatch of its own: one group, one lane, between the drains.
-[numthreads(1, 1, 1)]
-void AdvanceRefinementStage()
-{
-    if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u) return;
-    // The source/peer invalidation cut outranks refinement: an already
-    // committed structural change may not be left behind with its old fine
-    // epoch. It owns a persistent phase in the world, so it is finished by
-    // whichever snapshots follow, and no snapshot is ever held for it.
-    uint owed = _M8Counters[M8_COUNTER_INVALIDATION_OWED];
-    if (owed != 0u)
-    {
-        // Advance only when every writer of this phase succeeded. A busy
-        // arena leaves the phase where it is; the next snapshot retries it
-        // against a world that has moved on, not against a stale frame.
-        if ((owed & M8_FLOWER_INVALIDATION_WRITE_FAILED) != 0u)
-            _M8Counters[M8_COUNTER_INVALIDATION_OWED] =
-                owed & ~M8_FLOWER_INVALIDATION_WRITE_FAILED;
-        else
-            _M8Counters[M8_COUNTER_INVALIDATION_OWED] =
-                owed == M8_FLOWER_INVALIDATION_GATHER_PHASE
-                    ? M8_FLOWER_INVALIDATION_PEER_PHASE : 0u;
-        return;
-    }
-    uint stage = _M8Counters[M8_COUNTER_REFINEMENT_STAGE];
-    if (stage < 3u) _M8Counters[M8_COUNTER_REFINEMENT_STAGE] = stage + 1u;
-}
 
 groupshared uint gFlowerFinalizeSourceReady;
 groupshared uint gFlowerFinalizeTouchedCount;
@@ -794,9 +767,8 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
     {
         gFlowerFinalizeSourceReady = M8FlowerPageSourceReady(_M8DualPublishingGeneration) ? 1u : 0u;
         M8FinalizeObservationCompletion();
-        // Pending quanta can commit real R2/RGB/V data without completing the
-        // immutable observation. Invalidate those consumers before cleanup,
-        // not only on the successful final observation quantum.
+        // Every actual R1/R2/RGB/V change invalidates its consumers before
+        // this snapshot's packets and touched stamps are retired.
         gFlowerFinalizeTouchedCount = _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u ?
             min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT], MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
         // InitializeNewTiles already needs eight writable bindings. Its real

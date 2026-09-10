@@ -16,7 +16,7 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaObservationDrainGpuTests
     {
         [Test, Timeout(120000)]
-        public void FrozenDepthObservation_NonzeroR2IsBitIdenticalAcrossQuantaAndBackpressure()
+        public void FrozenDepthObservation_NonzeroR2CompletesWithoutCursorAfterLocalBackpressure()
         {
             Assert.That(SystemInfo.supportsComputeShaders, Is.True,
                 "A missing GPU cannot satisfy the production drain proof.");
@@ -24,16 +24,16 @@ namespace Genesis.RoomScan.Tests
             uint[] eager;
             using (var world = new FrozenWorld())
             {
-                eager = world.Drain(1336, false);
+                eager = world.Drain(false);
                 AssertNonzeroR2(eager);
             }
-            foreach (int quantum in new[] { 1, 7, 64 })
+            foreach (bool backpressure in new[] { false, true })
             {
                 using var world = new FrozenWorld();
-                uint[] split = world.Drain(quantum, true);
+                uint[] split = world.Drain(backpressure);
                 AssertNonzeroR2(split);
                 CollectionAssert.AreEqual(eager, split,
-                    $"The same frozen pixels must commit identical owner/key/Lower/Upper/epoch words; quantum={quantum}.");
+                    "The same frozen pixels must commit identical owner/key/Lower/Upper/epoch words.");
             }
         }
 
@@ -60,14 +60,14 @@ namespace Genesis.RoomScan.Tests
         {
             private const uint ObservationToken = 37u;
             private const uint SlotGeneration = 1u;
-            private const int PhaseTaskCount = 1336;
             private static readonly int3 FirstOwner = new(3, 4, 3);
             private static readonly int3 SecondOwner = new(4, 3, 3);
             private readonly List<ComputeBuffer> _buffers = new();
             private readonly ComputeShader _shader;
-            private readonly int _kernel, _advanceKernel, _resolveKernel,
+            private readonly int[] _geometryKernels;
+            private readonly int _resolveKernel,
                 _skinRgbKernel, _skinVKernel, _finalizeKernel;
-            private readonly ComputeBuffer _counters, _details, _tileRecords, _states;
+            private readonly ComputeBuffer _counters, _details, _tileRecords, _states, _signals;
             // What a completed snapshot's retirement clears, so the harness can
             // stand in for the acquisition side of the NEXT snapshot exactly as
             // FlowerCommit and EmitObservationBins do in production.
@@ -82,12 +82,8 @@ namespace Genesis.RoomScan.Tests
                 _shader = UnityEngine.Object.Instantiate(AssetDatabase.LoadAssetAtPath<ComputeShader>(
                     "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute"));
                 Assert.That(_shader, Is.Not.Null);
-                // The drain is two entry points over one snapshot graph. This
-                // proof drives the whole graph, so it dispatches both; each
-                // returns immediately outside its own stage class. The stage
-                // barrier between them is its own one-group dispatch.
-                _kernel = _shader.FindKernel("DrainFlowerGeometry");
-                _advanceKernel = _shader.FindKernel("AdvanceRefinementStage");
+                _geometryKernels = new[] { _shader.FindKernel("IntegrateFlowerRoot"),
+                    _shader.FindKernel("IntegrateFlowerL1"), _shader.FindKernel("IntegrateFlowerL2") };
                 _resolveKernel = _shader.FindKernel("ResolveFlowerCarriers");
                 _skinRgbKernel = _shader.FindKernel("DrainFlowerSkinRgb");
                 _skinVKernel = _shader.FindKernel("DrainFlowerSkinV");
@@ -133,8 +129,11 @@ namespace Genesis.RoomScan.Tests
                 _rgb = MakeTexture(TextureFormat.RGBAFloat,
                     new Color(128f / 255f, 128f / 255f, 128f / 255f, 1),
                     new Color(128f / 255f, 128f / 255f, 128f / 255f, 1));
-                _shader.SetTexture(_kernel, "gsDepthTex", _depth);
-                _shader.SetTexture(_kernel, "gsDepthNormalTex", _normals);
+                foreach (int kernel in _geometryKernels)
+                {
+                    _shader.SetTexture(kernel, "gsDepthTex", _depth);
+                    _shader.SetTexture(kernel, "gsDepthNormalTex", _normals);
+                }
                 _shader.SetTexture(_resolveKernel, "gsDepthTex", _depth);
                 _shader.SetTexture(_resolveKernel, "gsDepthNormalTex", _normals);
                 _shader.SetTexture(_skinRgbKernel, "gsDepthTex", _depth);
@@ -161,7 +160,8 @@ namespace Genesis.RoomScan.Tests
                 rgbRotation.SetColumn(2, new Vector4(-normal.x, -normal.y, -normal.z, 0));
                 foreach (string eyeName in new[] { "Left", "Right" })
                 {
-                    _shader.SetTexture(_kernel, "_MerkabaCameraRgb" + eyeName, _rgb);
+                    foreach (int kernel in _geometryKernels)
+                        _shader.SetTexture(kernel, "_MerkabaCameraRgb" + eyeName, _rgb);
                     _shader.SetTexture(_resolveKernel, "_MerkabaCameraRgb" + eyeName, _rgb);
                     _shader.SetTexture(_skinRgbKernel, "_MerkabaCameraRgb" + eyeName, _rgb);
                     _shader.SetTexture(_skinVKernel, "_MerkabaCameraRgb" + eyeName, _rgb);
@@ -324,89 +324,59 @@ namespace Genesis.RoomScan.Tests
                 var threads = Raw(MerkabaFlowerGpuLayout.ThreadPersistentBufferBytes);
                 InitializeArena(threads, MerkabaFlowerGpuLayout.ThreadArenaControl);
                 Bind("_M8ThreadAtlasPages", threads);
+                Bind("_M8ThreadAtlasPagesRead", threads);
+                _signals = new ComputeBuffer(MerkabaFlowerGpuLayout.SignalBufferBytes / 4, 4,
+                    ComputeBufferType.Raw | ComputeBufferType.IndirectArguments);
+                _buffers.Add(_signals);
+                Bind("_M8FlowerSignalItems", _signals);
+                Bind("_M8FlowerSignalItemsRead", _signals);
                 var pages = Raw(MerkabaFlowerGpuLayout.PageDirectoryBytes);
                 pages.SetData(new uint[MerkabaFlowerGpuLayout.PageDirectoryBytes / 4]);
                 Bind("_M8FlowerPageDirectory", pages);
             }
 
-            internal uint[] Drain(int quantum, bool backpressure)
+            internal uint[] Drain(bool backpressure)
             {
                 if (backpressure)
                 {
-                    // Hold the actual allocator lease, not a fabricated
-                    // reduction result. A real nonzero candidate must stall.
                     _details.SetData(new uint[] { 1 }, 0,
                         MerkabaFlowerGpuLayout.DetailArenaControl / 4, 1);
-                    uint[] counters = Snapshot(PhaseTaskCount);
-                    Assert.That(counters[MerkabaGrid.CounterRefinementPendingTiles], Is.EqualTo(1u));
-                    Assert.That(counters[MerkabaGrid.CounterRefinementBackpressure], Is.GreaterThan(0u));
+                    uint[] blocked = Snapshot();
+                    Assert.That(blocked[MerkabaGrid.CounterRefinementBackpressure], Is.GreaterThan(0u));
+                    Assert.That(blocked[MerkabaGrid.CounterObservationCompleted], Is.Not.Zero);
                     Assert.That(CanonicalRecords(), Is.Empty);
-                    Assert.That(ReadDirectory()[3], Is.LessThan((uint)PhaseTaskCount));
-                    // A stalled snapshot still releases: it published nothing,
-                    // and the next snapshot resumes from the cursor the world
-                    // kept. GetData above has retired this dispatch.
-                    Assert.That(counters[MerkabaGrid.CounterObservationCompleted],
-                        Is.Not.Zero,
-                        "A snapshot is bounded: backpressure may not hold it.");
                     _details.SetData(new uint[] { 0 }, 0,
                         MerkabaFlowerGpuLayout.DetailArenaControl / 4, 1);
                 }
-                bool complete = false;
-                uint previousStage = 0u, visitedStages = 0u;
-                // Each iteration is ONE bounded snapshot over the same frozen
-                // pixels: it advances the tile's cursor by at most its quantum,
-                // publishes, and releases. The cursor lives in the world, keyed
-                // by the slot generation, so the next snapshot continues it.
-                for (int attempt = 0; attempt < PhaseTaskCount * 4; attempt++)
-                {
-                    uint[] counters = Snapshot(quantum);
-                    uint[] directory = ReadDirectory();
-                    Assert.That(directory[1], Is.EqualTo(SlotGeneration));
-                    Assert.That(counters[MerkabaGrid.CounterObservationToken], Is.EqualTo(ObservationToken));
-                    Assert.That(counters[MerkabaGrid.CounterObservationFailure], Is.Zero);
-                    Assert.That(counters[MerkabaGrid.CounterObservationCompleted], Is.Not.Zero,
-                        "Every snapshot publishes and releases at its own fence.");
-                    // Inside one snapshot graph the barrier index walks 0..3 and
-                    // arrives at the skin. It is not a life stage of the frame.
-                    uint stage = counters[MerkabaGrid.CounterRefinementStage];
-                    Assert.That(stage, Is.EqualTo(3u),
-                        "The four barriers belong to ONE snapshot command graph.");
-                    previousStage = stage;
-                    visitedStages |= 1u << (int)stage;
-                    // The cursor is monotone across snapshots and never resets
-                    // to zero while the generation stands.
-                    Assert.That(directory[3], Is.GreaterThanOrEqualTo(0u));
-                    var pendingMetadata = new uint4[2];
-                    _tileRecords.GetData(pendingMetadata);
-                    Assert.That(pendingMetadata[1].x, Is.Zero,
-                        "A released snapshot leaves no R1 stamp behind.");
-                    if (directory[3] == PhaseTaskCount &&
-                        counters[MerkabaGrid.CounterRefinementPendingTiles] == 0)
-                    { complete = true; break; }
-                }
-                Assert.That(complete, Is.True,
-                    "Successive bounded snapshots over the same frozen pixels must converge.");
-                Assert.That(visitedStages, Is.EqualTo(8u),
-                    "Each snapshot must reach the real skin barrier inside its own graph.");
-                Assert.That(previousStage, Is.EqualTo(3u));
+                uint[] counters = Snapshot();
+                Assert.That(counters[MerkabaGrid.CounterObservationFailure], Is.Zero);
+                Assert.That(counters[MerkabaGrid.CounterObservationCompleted], Is.Not.Zero);
+                Assert.That(counters[MerkabaGrid.CounterRefinementPendingTiles], Is.Zero,
+                    "Resident reached work must finish in this snapshot, without a saved cursor.");
+                uint[] directory = ReadDirectory();
+                Assert.That(directory[1], Is.EqualTo(SlotGeneration));
+                Assert.That(directory[2], Is.Zero);
+                Assert.That(directory[3], Is.Zero, "The tile directory cannot retain a program counter.");
                 uint[] records = CanonicalRecords();
-                Snapshot(quantum);
-                CollectionAssert.AreEqual(records, CanonicalRecords(), "A completed cursor must be idempotent.");
+                Snapshot();
+                CollectionAssert.AreEqual(records, CanonicalRecords(),
+                    "Re-observing identical evidence must be idempotent.");
                 var states = new uint4[512]; _states.GetData(states);
-                CollectionAssert.AreEqual(_canonicalStates, states, "Fine drain cannot move the canonical R1 plane.");
+                CollectionAssert.AreEqual(_canonicalStates, states,
+                    "Fine integration cannot move the canonical R1 plane.");
                 var metadata = new uint4[2]; _tileRecords.GetData(metadata);
                 Assert.That(metadata[1].x, Is.Zero,
-                    "The actual completed-observation retirement must release the R1 stamp.");
+                    "Completed observation retirement must release its R1 stamp.");
                 return records;
             }
 
             // One bounded synchronous scan transaction, in the same order the
-            // native schedule embeds: commit, then root, L1, L2 and skin with a
-            // one-group barrier between them, then finalize. What the harness
+            // native schedule embeds: commit, then root, L1, L2 and skin with
+            // fixed dispatch barriers, then finalize. What the harness
             // does before it is what the acquisition side does in production -
             // stamp the touched tile and emit its bin - because a released
             // snapshot's retirement clears exactly those.
-            private uint[] Snapshot(int quantum)
+            private uint[] Snapshot()
             {
                 _bins.SetData(_binsSeed);
                 _bits.SetData(_bitsSeed);
@@ -416,22 +386,17 @@ namespace Genesis.RoomScan.Tests
                 // for a snapshot. Canonical state, source pixels, the frozen
                 // records, matrices and the token remain immutable.
                 _counters.SetData(new uint[4], 0, MerkabaGrid.CounterRefinementPendingTiles, 4);
-                _counters.SetData(new uint[1], 0, MerkabaGrid.CounterRefinementStage, 1);
                 _counters.SetData(new uint[1], 0, MerkabaGrid.CounterObservationCompleted, 1);
                 _counters.SetData(new uint[1], 0, MerkabaGrid.CounterObservationChangeMask, 1);
                 _counters.SetData(new[] { 1u }, 0, MerkabaGrid.CounterTouchedTileCount, 1);
-                _shader.SetInt("_M8RefinementQuantum", quantum);
                 _shader.SetInt("_M8DualRetiredGeneration", (int)_publishingGeneration);
                 _shader.SetInt("_M8DualPublishingGeneration", (int)++_publishingGeneration);
                 _shader.SetInt("_M8AttemptToken", (int)_publishingGeneration);
-                for (int barrier = 0; barrier < 3; barrier++)
-                {
-                    _shader.Dispatch(_kernel, 1, 1, 1);
-                    _shader.Dispatch(_advanceKernel, 1, 1, 1);
-                }
+                _signals.SetData(MerkabaFlowerGpuLayout.CreateSignalInitialHeader());
+                foreach (int kernel in _geometryKernels) _shader.Dispatch(kernel, 1, 1, 1);
                 _shader.Dispatch(_resolveKernel, 1, 1, 1);
-                _shader.Dispatch(_skinRgbKernel, 1, 1, 1);
-                _shader.Dispatch(_skinVKernel, 1, 1, 1);
+                _shader.DispatchIndirect(_skinRgbKernel, _signals, MerkabaFlowerGpuLayout.SignalDispatchOffset);
+                _shader.DispatchIndirect(_skinVKernel, _signals, MerkabaFlowerGpuLayout.SignalDispatchOffset);
                 _shader.Dispatch(_finalizeKernel, 1, 1, 1);
                 var counters = new uint[MerkabaGrid.CounterCount];
                 _counters.GetData(counters); // Test-only readback; also the true retirement boundary.
@@ -466,8 +431,7 @@ namespace Genesis.RoomScan.Tests
             private static uint Local(int3 owner) => (uint)(owner.x + 8 * (owner.y + 8 * owner.z));
             private void Bind(string name, ComputeBuffer buffer)
             {
-                _shader.SetBuffer(_kernel, name, buffer);
-                _shader.SetBuffer(_advanceKernel, name, buffer);
+                foreach (int kernel in _geometryKernels) _shader.SetBuffer(kernel, name, buffer);
                 _shader.SetBuffer(_resolveKernel, name, buffer);
                 _shader.SetBuffer(_skinRgbKernel, name, buffer);
                 _shader.SetBuffer(_skinVKernel, name, buffer);

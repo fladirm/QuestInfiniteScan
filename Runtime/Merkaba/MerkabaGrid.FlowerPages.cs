@@ -27,6 +27,14 @@ namespace Genesis.RoomScan
         internal const int SignalHeaderBytes = 64;
         internal const int SignalItemBytes = 224;
         internal const int SignalDispatchOffset = 16;
+        internal const int ChangeDispatchOffset = 32;
+        internal const int ChangeTileDispatchOffset = 48;
+        internal static uint[] CreateSignalInitialHeader()
+        {
+            var words = new uint[(SignalHeaderBytes + 4096) / 4];
+            words[5] = words[6] = words[9] = words[10] = words[13] = words[14] = 1u;
+            return words;
+        }
         internal const int ThreadArenaControl = 0;
         internal const int ThreadDataBase = (ArenaHeaderBytes +
             ((1 << (PersistentOrder + 1)) - 1) * 4 + 255) & ~255;

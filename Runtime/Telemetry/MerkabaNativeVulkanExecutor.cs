@@ -14,13 +14,12 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 21: compact signal handoff is snapshot-local, outside FlowerDetail.
-        internal const int AbiVersion = 21;
+        // ABI 22: snapshot-local R1 publication and fixed geometry dependencies.
+        internal const int AbiVersion = 22;
         internal const int ResourceCount = 44;
-        internal const int PipelineCount = 27;
-        // One observation also repeats Count for the allocation round trip,
-        // dispatches publication Reserve once, advances the stage three times
-        // and runs its allocation barriers twice.
+        internal const int PipelineCount = 30;
+        // A snapshot may repeat allocation, Count and Reserve. Leave room for
+        // those occurrences as well as the distinct pipeline entrypoints.
         internal const int MaximumDispatchTimingCount = PipelineCount + 8;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
@@ -134,8 +133,11 @@ namespace Genesis.RoomScan
             "EmitObservationBins",
             "UpdateObservationDual",
             "FlowerCommit",
-            "DrainFlowerGeometry",
-            "AdvanceRefinementStage",
+            "InvalidateFlowerPeers",
+            "PublishFlowerR1",
+            "IntegrateFlowerRoot",
+            "IntegrateFlowerL1",
+            "IntegrateFlowerL2",
             "ResolveFlowerCarriers",
             "DrainFlowerSkinRgb",
             "DrainFlowerSkinV",

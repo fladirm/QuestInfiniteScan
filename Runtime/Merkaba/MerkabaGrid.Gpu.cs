@@ -68,7 +68,7 @@ namespace Genesis.RoomScan
         internal const int LoadRequestCapacity = 262144;
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
-        internal const int CounterCount = 60;
+        internal const int CounterCount = 57;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -117,9 +117,6 @@ namespace Genesis.RoomScan
         internal const int CounterRefinementWorkProgress = 54;
         internal const int CounterRefinementBackpressure = 55;
         internal const int CounterRefinementUnresolved = 56;
-        internal const int CounterRefinementStage = 57;
-        internal const int CounterInvalidationOwed = 58;
-        internal const int CounterFineLeaseBusy = 59;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;

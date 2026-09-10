@@ -788,8 +788,7 @@ void M8FlowerPacketAcquire(uint packed,bool sites,uint lane)
                 uint address=M8_FLOWER_PACKET_ORIGINAL+19u*element;
                 M8FlowerPacketStoreRoot(address,root);
                 uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
-                bool guarded=M8FlowerOriginalInvalidationPending(ownerRef,element>>1u) ||
-                    (flags&(required|M8_FLOWER_SEED_FLAG))!=required;
+                bool guarded=(flags&(required|M8_FLOWER_SEED_FLAG))!=required;
                 m8FlowerSupportScratch[address+18u]=(receipt&M8_FLOWER_PACKET_RECEIPT_MASK)|
                     (provisional?M8_FLOWER_PACKET_CONTROL_BIT:0u)|
                     (guarded?M8_FLOWER_PACKET_RAW_GUARD|(raw.Classification<<27u):0u);

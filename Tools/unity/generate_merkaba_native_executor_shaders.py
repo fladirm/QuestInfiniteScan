@@ -64,10 +64,16 @@ PIPELINES = (
              "UpdateObservationDual", "query"),
     Pipeline("FlowerCommit", "MerkabaIntegration.compute",
              "FlowerCommit", "observation_indirect"),
-    Pipeline("DrainFlowerGeometry", "MerkabaIntegration.compute",
-             "DrainFlowerGeometry", "observation_indirect"),
-    Pipeline("AdvanceRefinementStage", "MerkabaIntegration.compute",
-             "AdvanceRefinementStage", "one"),
+    Pipeline("InvalidateFlowerPeers", "MerkabaIntegration.compute",
+             "InvalidateFlowerPeers", "changed_flower_tiles"),
+    Pipeline("PublishFlowerR1", "MerkabaIntegration.compute",
+             "PublishFlowerR1", "flower_r1_changes"),
+    Pipeline("IntegrateFlowerRoot", "MerkabaIntegration.compute",
+             "IntegrateFlowerRoot", "observation_indirect"),
+    Pipeline("IntegrateFlowerL1", "MerkabaIntegration.compute",
+             "IntegrateFlowerL1", "observation_indirect"),
+    Pipeline("IntegrateFlowerL2", "MerkabaIntegration.compute",
+             "IntegrateFlowerL2", "observation_indirect"),
     Pipeline("ResolveFlowerCarriers", "MerkabaIntegration.compute",
              "ResolveFlowerCarriers", "observation_indirect"),
     Pipeline("DrainFlowerSkinRgb", "MerkabaIntegration.compute",
@@ -122,13 +128,11 @@ def command_schedules():
         "ReserveObservationBins", "EmitObservationBins",
         # Excavate the complementary view, then reserve what its requests need.
         "UpdateObservationDual", "ReserveObservationBins",
-        # Commit the direct evidence, then refine: root -> L1 -> L2 -> skin.
-        # Each advance is its own one-group dispatch, because a workgroup
-        # cannot publish a stage its own sibling groups may not have read yet.
-        "FlowerCommit",
-        "DrainFlowerGeometry", "AdvanceRefinementStage",
-        "DrainFlowerGeometry", "AdvanceRefinementStage",
-        "DrainFlowerGeometry", "AdvanceRefinementStage",
+        # Prepared R1/epoch changes -> unique receiver cuts -> M8 publication.
+        # Fixed level entrypoints encode true dependency barriers; no stage
+        # counter, ACK program or one-thread advance dispatch exists.
+        "FlowerCommit", "InvalidateFlowerPeers", "PublishFlowerR1",
+        "IntegrateFlowerRoot", "IntegrateFlowerL1", "IntegrateFlowerL2",
         "ResolveFlowerCarriers", "DrainFlowerSkinRgb", "DrainFlowerSkinV",
         # The drain may have requested residency for what it could not read.
         *allocation,

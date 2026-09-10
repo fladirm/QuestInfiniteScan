@@ -5,23 +5,13 @@
 #include "MerkabaObservationReduction.hlsl"
 #define M8_FLOWER_SIDECAR_WRITE
 #include "MerkabaFlowerSidecar.hlsl"
+#include "MerkabaFlowerSignalItems.hlsl"
 
 // Same immutable record backing as Emit. No scratch eligibility writes may
 // alias this view; own eligibility is checked at its existing plane reader.
 StructuredBuffer<M8ObservationRecord> _M8ObservationRecordsRead;
 
-// The low two bits retain the existing root/L1/L2/skin stage. These two
-// transaction states reuse its existing held-observation Finalize barrier.
-// The invalidation cut has its own persistent phase, not two bits borrowed
-// from the refinement stage. The refinement stage is transient - it is the
-// barrier index inside one snapshot graph and resets with every snapshot -
-// whereas an owed cut is a property of the world and must outlive the frame
-// that discovered it. GATHER retires all local epochs and required gather or
-// load work; PEER retires every successful exact peer ACK.
-#define M8_FLOWER_INVALIDATION_GATHER_PHASE 1u
-#define M8_FLOWER_INVALIDATION_PEER_PHASE 2u
-#define M8_FLOWER_INVALIDATION_PHASE_MASK 3u
-#define M8_FLOWER_INVALIDATION_WRITE_FAILED (1u<<8u)
+void M8FlowerRequestSkinDependencies(uint neededHalo);
 
 groupshared uint m8FlowerOwnerSource[512];
 groupshared uint m8FlowerOwnerPrecision[512];
@@ -104,7 +94,7 @@ bool M8FlowerInputPlane(M8ObservationRecord record, uint slot,
 bool M8FlowerOwnPlaneEligible(uint slot,uint local,uint plane,
     float normalError,float offsetError)
 {
-    KernelState previous=M8LoadKernelState(slot,local);
+    KernelState previous=M8LoadKernelStateRead(slot,local);
     return (previous.flags&M8_FLOWER_OCCUPIED_FLAG)==0u ||
         M8FlowerCompatibleCarrier(previous.flags,plane,normalError,offsetError);
 }
@@ -227,23 +217,26 @@ bool M8FlowerParentStructureChanged(uint previous,uint next)
     return false;
 }
 
-bool M8FlowerBeginR1FineInvalidation(uint slot,uint local,bool through,bool structural)
+bool M8FlowerR1PeersWritable(uint local)
 {
-    uint ownerRef=M8FlowerFindOwner(slot,local,_M8TileRecords[M8TileRuntimeIndex(slot)].w);
-    if(ownerRef==0u)return true;
-    // The collective capture below has already checked every source owner
-    // before the FIRST M8 write. This call only marks that captured receipt.
-    uint2 receipt=M8FlowerInvalidationReceipt(ownerRef);
-    uint roots;
-    if(receipt.x!=_M8ObservationToken ||
-        M8FlowerCaptureInvalidation(ownerRef,_M8ObservationToken,through,structural,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration,roots)!=M8_FLOWER_ARENA_OK)
+    int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
+    [loop]for(uint node=6u;node<26u;node++)
     {
-        M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-        return false;
+        int3 relative=origin+M8FlowerNodeAt(node).xyz;
+        uint3 cell=(uint3)((relative>>3)+1);
+        uint halo=cell.x+3u*(cell.y+3u*cell.z);
+        uint state=m8FlowerHalo[halo]>>30u;
+        if(state==M8_FLOWER_HALO_MISSING)continue;
+        if(state==M8_FLOWER_HALO_COLD)
+        {
+            M8FlowerRequestSkinDependencies(1u<<halo);
+            return false;
+        }
+        uint peerSlot,peerLocal;
+        if(state!=M8_FLOWER_HALO_HOT || !M8FlowerHaloKernel(relative,peerSlot,peerLocal,true))return false;
+        uint peer=M8FlowerFindOwner(peerSlot,peerLocal,_M8TileRecords[M8TileRuntimeIndex(peerSlot)].w);
+        if(peer!=0u && !M8FlowerOwnerWritable(peer,_M8DualPublishingGeneration,_M8DualRetiredGeneration))return false;
     }
-    InterlockedOr(_M8Counters[M8_COUNTER_INVALIDATION_OWED],
-        M8_FLOWER_INVALIDATION_GATHER_PHASE);
     return true;
 }
 
@@ -256,28 +249,48 @@ void M8FlowerPublishR1Change(uint slot)
         M8_OBSERVATION_CHANGED_R1);
 }
 
-bool M8FlowerStoreR1(uint slot, uint local, KernelState before, uint4 value)
+bool M8FlowerStoreR1(uint slot, uint local, KernelState before, uint4 value,bool through)
 {
     if (all(value == uint4(asuint(before.evidence),before.packedColor,
             before.colorConfidence,before.flags))) return true;
     bool structural=M8FlowerParentStructureChanged(before.flags,value.w);
-    if(structural && !M8FlowerBeginR1FineInvalidation(slot,local,false,true))return false;
-    // Both the receipt and pending read guard precede occupancy counters,
-    // flags and the packed plane. Epoch invalidation follows in THIS same
-    // submission's Drain, never after a peer-load/gather retry.
+    uint generation=_M8TileRecords[M8TileRuntimeIndex(slot)].w;
+    uint ownerRef=M8FlowerFindOwner(slot,local,generation);
+    if((structural||through) && !M8FlowerR1PeersWritable(local))
+    {M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);return false;}
+    uint address;
+    if(!M8FlowerReserveR1Change(address))
+    {M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);return false;}
+    uint status=M8_FLOWER_ARENA_OK;
     if(structural)
-        InterlockedOr(_M8TileBits[M8TileWordIndex(slot,local>>5u)].w,
-            1u<<(local&31u));
-    KernelState after = before;
-    UpdateOccupancy(slot,local,after,asint(value.x)-before.evidence);
-    after.evidence = asint(value.x);
-    after.packedColor = value.y;
-    after.colorConfidence = value.z;
-    after.flags = value.w;
-    M8StoreKernelState(slot,local,after);
-    if (M8FlowerHasPlane(after.flags) || (after.flags & M8_FLOWER_OCCUPIED_FLAG) != 0u)
-        M8MarkR1Active(slot,local);
-    else M8FlowerUnmarkR1Active(slot,local);
+        status=M8FlowerInvalidateOwner(slot,local,generation,
+            _M8DualPublishingGeneration,_M8DualRetiredGeneration);
+    else if(through)
+    {
+        bool changed;
+        status=M8FlowerInvalidateDependentPhases(ownerRef,M8_FLOWER_INVALIDATION_ROOTS,true,
+            _M8DualPublishingGeneration,_M8DualRetiredGeneration,changed);
+    }
+    if(status!=M8_FLOWER_ARENA_OK)
+    {M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);return false;}
+    if(structural||through)
+    {
+        InterlockedOr(_M8TileBits[M8TileWordIndex(slot,local>>5u)].w,1u<<(local&31u));
+        M8FlowerQueueChangedTile(slot);
+        int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
+        [loop]for(uint node=6u;node<26u;node++)
+        {
+            uint peerSlot,peerLocal;
+            if(M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,peerSlot,peerLocal,false))
+                M8FlowerQueueChangedTile(peerSlot);
+        }
+    }
+    // Epoch/run invalidation, peer cut and this prepared M8 value are one
+    // serialized snapshot transaction. M8 publication follows the peer barrier;
+    // no persistent ACK, candidate cursor or future snapshot is involved.
+    _M8FlowerSignalItems.Store4(address+16u,value);
+    DeviceMemoryBarrier();
+    _M8FlowerSignalItems.Store4(address,uint4((slot<<9u)|local,generation,before.flags,1u));
     M8MarkTileDirty(slot);
     InterlockedOr(m8FlowerR1Changed,1u);
     return true;
@@ -294,7 +307,7 @@ void M8FlowerApplyDualVeto(uint slot, uint local, uint block, uint child, uint t
     float3 world=mul(_MerkabaGridToWorld,float4(float3(owner)*M8_FLOWER_LATTICE_STEP,1.0)).xyz;
     if (!M8ObservationContains(world,gsDepthEyePos())) return;
     if (M8DualReadKernelAt(block,child,tile,local,true,true) != M8_DUAL_THROUGH) return;
-    KernelState before=M8LoadKernelState(slot,local);
+    KernelState before=M8LoadKernelStateRead(slot,local);
     if (!M8FlowerHasPlane(before.flags) && (before.flags & M8_FLOWER_OCCUPIED_FLAG) == 0u)
     {
         M8FlowerUnmarkR1Active(slot,local);
@@ -302,10 +315,9 @@ void M8FlowerApplyDualVeto(uint slot, uint local, uint block, uint child, uint t
     }
     // Full-support THROUGH invalidates dependent fine state even while a
     // stable R1 remains above OFF. Direct endpoints were excluded above.
-    if(!M8FlowerBeginR1FineInvalidation(slot,local,true,false))return;
     uint4 next=M8FlowerContradictR1(uint4(asuint(before.evidence),before.packedColor,
         before.colorConfidence,before.flags));
-    if(!M8FlowerStoreR1(slot,local,before,next))return;
+    if(!M8FlowerStoreR1(slot,local,before,next,true))return;
     if (asint(next.x) < before.evidence)
         M8CounterIncrement(M8_COUNTER_THROUGH_EVIDENCE_DECREMENTS);
     if ((before.flags & M8_FLOWER_OCCUPIED_FLAG) != 0u &&
@@ -319,16 +331,10 @@ void M8FlowerApplyDualVeto(uint slot, uint local, uint block, uint child, uint t
 [numthreads(128,1,1)]
 void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 {
-    // UNRESOLVED_OBSERVATION_TILES is telemetry, not a gate. Every tile below
-    // already proves its own dependencies locally: the structural triple
-    // (runtime.w, tileMeta, ChunkTileRefs), then m8FlowerDualReady over this
-    // tile's own endpoints, then the all-or-no-M8 invalidation preflight. Each
-    // of those failure paths increments the counter, so reading it here let one
-    // unresolved tile - or one dual block that merely asked storage to retry -
-    // veto every other tile that had proved itself. Readiness is local.
+    // Missing residency counters are telemetry, not global admission gates.
+    // Validate this bin/slot and its own endpoint/epoch dependencies below.
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u ||
-        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u ||
-        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] != 0u) return;
+        _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return;
     if (group.x >= min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY)) return;
     uint slot = _M8TouchedTileQueueRead[group.x];
@@ -341,9 +347,8 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         if (lane == 0u) M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
         return;
     }
-    // Runtime.x is the once-only R1 stamp. TileBits.w is reserved for the
-    // 512 pending structural owner invalidations consumed by the fine drain.
-    // Keep the stamp across retries; slot installation initializes it to 0.
+    // Runtime.x stamps preparation of this snapshot. TileBits.w identifies
+    // its changed sources only until the peer cut and M8 publication barrier.
     uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)];
     if (runtime.x == _M8ObservationToken) return;
     uint4 tileMeta=_M8TileRecords[M8TileMetaIndex(slot)];
@@ -382,39 +387,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         if (lane == 0u) M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
         return;
     }
-    // All-or-no-M8 preflight: a BUSY old reader must not let some owners
-    // decrement and then replay those decrements when this tile retries.
-    // Capture existing phase presence before any structural store or clear.
-    [loop]for(uint local=lane;local<512u;local+=128u)
-    {
-        uint ownerRef=M8FlowerFindOwner(slot,local,runtime.w);
-        if(ownerRef==0u)continue;
-        uint roots;
-        uint status=M8FlowerCaptureInvalidation(ownerRef,_M8ObservationToken,false,false,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration,roots);
-        if(status!=M8_FLOWER_ARENA_OK)
-        {
-            InterlockedAnd(m8FlowerDualReady,0u);
-            if(status!=M8_FLOWER_ARENA_BUSY)
-                M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-        }
-    }
-    DeviceMemoryBarrierWithGroupSync();
-    if(m8FlowerDualReady==0u)
-    {
-        if(lane==0u && _M8Counters[M8_COUNTER_OBSERVATION_FAILURE]==0u)
-        {
-            M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
-            M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
-            // No other tile may advance fine evidence against a parent
-            // whose once-only R1 commit is still waiting for its read lease.
-            // This is the one cross-tile veto the drain still honours, and it
-            // is a transient write conflict, not the world being UNKNOWN.
-            M8CounterIncrement(M8_COUNTER_FINE_LEASE_BUSY);
-            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-        }
-        return;
-    }
+    M8FlowerCacheTileHalo(slot,lane,false,true);
     if (bin.y == 0u)
     {
         [loop] for (uint local=lane; local<512u; local+=128u)
@@ -427,7 +400,6 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         }
         return;
     }
-    M8FlowerCacheTileHalo(slot,lane,false,true);
     for (uint local = lane; local < 512u; local += 128u)
     {
         m8FlowerOwnerSource[local] = 0xffffffffu;
@@ -696,7 +668,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         float3 world;
         if (!M8FlowerMeasurement(source,M8GlobalKernelCoord(slot,local),plane,world))
             continue;
-        KernelState before = M8LoadKernelState(slot,local);
+        KernelState before = M8LoadKernelStateRead(slot,local);
         bool seed=(before.flags & M8_FLOWER_OCCUPIED_FLAG)==0u &&
             (before.flags & M8_FLOWER_SEED_FLAG)!=0u;
         bool compatible=M8FlowerCompatibleCarrier(before.flags,plane,
@@ -712,7 +684,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
             M8FlowerR1FlagWitness(m8FlowerR1Witness[local],plane,normalError,offsetError));
         // This is one direct admission for the frozen observation. No
         // closure pass or new observation is implied by storing its seed.
-        M8FlowerStoreR1(slot,local,before,next);
+        M8FlowerStoreR1(slot,local,before,next,false);
     }
     DeviceMemoryBarrierWithGroupSync();
     [loop] for (uint local=lane; local<512u; local+=128u)

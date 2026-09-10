@@ -469,175 +469,6 @@ void M8FlowerFineSchedulingStatus(uint status)
     if(status!=M8_FLOWER_ARENA_OK)InterlockedMax(m8FineWriteStatus,status);
 }
 
-void M8FlowerInvalidationChanged(uint slot,uint generation)
-{
-    M8MarkTileDirty(slot);
-    InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],4u);
-    M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
-}
-
-// Every generated relation of this source can require a peer cut, not only
-// the ones it holds locally: the peer may own the node^1 phase that predicts
-// from the shared original reading this raw endpoint. Its exact endpoint is
-// K+Node[node].xyz and its canonical relation is node^1.
-// No occupancy gate: OFF may have cleared R1 while its epoch receipt lives.
-uint M8FlowerResolveInvalidationPeer(uint local,uint node,out uint peerSlot,out uint peerLocal)
-{
-    peerSlot=peerLocal=0u;
-    int3 relative=int3(local&7u,(local>>3u)&7u,local>>6u)+M8FlowerNodeAt(node).xyz;
-    int3 delta=relative>>3;
-    if(any(delta < -1) || any(delta > 1))return M8_FLOWER_ARENA_INVALID;
-    uint3 index=uint3(delta+1);
-    uint halo=index.x+3u*(index.y+3u*index.z);
-    uint state=m8FlowerHalo[halo]>>30u;
-    if(state==M8_FLOWER_HALO_MISSING)return M8_FLOWER_ARENA_OK;
-    if(state==M8_FLOWER_HALO_COLD)
-    {
-        InterlockedOr(m8FlowerHaloUnresolvedReads,1u<<halo);
-        return M8_FLOWER_ARENA_BUSY;
-    }
-    if(state!=M8_FLOWER_HALO_HOT)return M8_FLOWER_ARENA_INVALID;
-    if(!M8FlowerHaloKernel(relative,peerSlot,peerLocal,true))return M8_FLOWER_ARENA_BUSY;
-    // Zero is a real slot; return a separate existence bit in this status.
-    return 0x100u;
-}
-
-void M8FlowerDrainLocalInvalidations(uint slot,uint lane,uint generation,uint phase)
-{
-    bool gathering=(phase&M8_FLOWER_INVALIDATION_PHASE_MASK)==
-        M8_FLOWER_INVALIDATION_GATHER_PHASE;
-    bool mutating=(phase&M8_FLOWER_INVALIDATION_PHASE_MASK)==
-        M8_FLOWER_INVALIDATION_PEER_PHASE;
-    [loop]for(uint local=lane;local<512u;local+=128u)
-    {
-        uint word=M8TileWordIndex(slot,local>>5u),bit=1u<<(local&31u);
-        bool structural=(_M8TileBits[word].w&bit)!=0u;
-        if(!structural && !gathering)continue;
-        uint ownerRef=M8FlowerFindOwner(slot,local,generation);
-        uint2 receipt=M8FlowerInvalidationReceipt(ownerRef);
-        bool source=receipt.x==_M8ObservationToken &&
-            (receipt.y&M8_FLOWER_INVALIDATION_SOURCE)!=0u;
-        if(structural)
-        {
-            // All source captures retired at Commit -> Drain. A structural
-            // write must never first advance its epoch during peer mutation.
-            if(ownerRef!=0u && (!source || !gathering || mutating))
-            {M8FlowerFineSchedulingStatus(M8_FLOWER_ARENA_INVALID);continue;}
-            uint status=M8FlowerInvalidateOwner(slot,local,generation,
-                _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-            if(status!=M8_FLOWER_ARENA_OK)
-            {M8FlowerFineSchedulingStatus(status);continue;}
-            if(source)M8FlowerAcknowledgeLocalInvalidation(ownerRef,_M8ObservationToken);
-            DeviceMemoryBarrier();
-            InterlockedAnd(_M8TileBits[word].w,~bit);
-            M8FlowerInvalidationChanged(slot,generation);
-        }
-        else if(source && (receipt.y&M8_FLOWER_INVALIDATION_THROUGH)!=0u &&
-            (receipt.y&M8_FLOWER_INVALIDATION_LOCAL_PENDING)!=0u)
-        {
-            bool changed;
-            // The entire source support was certified THROUGH in Commit.
-            // Every original R2/R3 relation of that support is invalidated;
-            // unrelated R1 and the source owner's epoch remain untouched.
-            uint status=M8FlowerInvalidateDependentPhases(ownerRef,_M8ObservationToken,
-                M8_FLOWER_INVALIDATION_ROOTS,true,
-                _M8DualPublishingGeneration,_M8DualRetiredGeneration,changed);
-            M8FlowerFineSchedulingStatus(status);
-            if(status==M8_FLOWER_ARENA_OK)
-                M8FlowerInvalidationChanged(slot,generation);
-        }
-    }
-    DeviceMemoryBarrierWithGroupSync();
-}
-
-// Gather is residency/read-set work only; it never edits another owner.
-// Finalize's existing dispatch boundary starts the mutation phase only when
-// every touched source completed this gather and its immediate local cut.
-void M8FlowerDrainPeerInvalidations(uint slot,uint lane,uint generation,bool mutate)
-{
-    M8FlowerCacheTileHalo(slot,lane,false,true);
-    [loop]for(uint local=lane;local<512u;local+=128u)
-    {
-        uint ownerRef=M8FlowerFindOwner(slot,local,generation);
-        uint2 receipt=M8FlowerInvalidationReceipt(ownerRef);
-        // Gather must reach every SOURCE, including one whose own original
-        // phase presence is empty: its peer may still hold the node^1 phase
-        // predicting from the shared original that reads this raw endpoint.
-        // Mutation keeps the existing pending-only gate.
-        if(receipt.x!=_M8ObservationToken)continue;
-        if((receipt.y&(mutate?M8_FLOWER_INVALIDATION_PEERS_PENDING
-            :M8_FLOWER_INVALIDATION_SOURCE))==0u)continue;
-        if((receipt.y&M8_FLOWER_INVALIDATION_LOCAL_PENDING)!=0u)
-        {M8FlowerFineSchedulingStatus(M8_FLOWER_ARENA_BUSY);continue;}
-        uint acknowledged=(_M8FlowerDetailPages.Load(ownerRef+60u)>>2u)&M8_FLOWER_INVALIDATION_ROOTS;
-        uint captured=receipt.y&M8_FLOWER_INVALIDATION_ROOTS,discovered=captured;
-        // The pre-mutation read-set has two endpoints. Gather probes every
-        // generated relation once; mutation walks only what is still owed.
-        uint remaining=mutate?(captured&~acknowledged):M8_FLOWER_INVALIDATION_ROOTS;
-        [loop]while(remaining!=0u)
-        {
-            uint dependency=(uint)firstbitlow(remaining);remaining&=remaining-1u;
-            uint node=dependency+6u,peerSlot,peerLocal;
-            uint status=M8FlowerResolveInvalidationPeer(local,node,peerSlot,peerLocal);
-            if(status!=M8_FLOWER_ARENA_OK && status!=0x100u)
-            {M8FlowerFineSchedulingStatus(status);continue;}
-            bool resident=status==0x100u;
-            if(resident)
-                _M8TileRecords[M8TileRuntimeIndex(peerSlot)].z=_M8Counters[M8_COUNTER_FRAME_EPOCH];
-            if(!mutate)
-            {
-                if(!resident || (discovered&(1u<<dependency))!=0u)continue;
-                uint gatherGeneration=_M8TileRecords[M8TileRuntimeIndex(peerSlot)].w;
-                uint gatherRef=M8FlowerFindOwner(peerSlot,peerLocal,gatherGeneration);
-                if(gatherRef==0u)continue;
-                uint peerRoots;
-                // A failed presence read is not proof of absence. Admit the
-                // relation instead of stranding a dependent peer detail; this
-                // stays per-relation and never becomes an epoch blanket.
-                if(!M8FlowerReadOriginalPhasePresence(gatherRef,peerRoots) ||
-                    (peerRoots&(1u<<((node^1u)-6u)))!=0u)
-                    discovered|=1u<<dependency;
-                continue;
-            }
-            if(resident)
-            {
-                uint peerGeneration=_M8TileRecords[M8TileRuntimeIndex(peerSlot)].w;
-                uint peerRef=M8FlowerFindOwner(peerSlot,peerLocal,peerGeneration);
-                bool changed;
-                status=M8FlowerInvalidateDependentPhases(peerRef,_M8ObservationToken,
-                    1u<<((node^1u)-6u),false,
-                    _M8DualPublishingGeneration,_M8DualRetiredGeneration,changed);
-                if(status!=M8_FLOWER_ARENA_OK)
-                {M8FlowerFineSchedulingStatus(status);continue;}
-                if(changed)M8FlowerInvalidationChanged(peerSlot,peerGeneration);
-            }
-            // MISSING is an actual absent endpoint, not COLD or a failed
-            // read. Both it and an atomic successful cut acknowledge exactly
-            // this relation. Partial/BUSY cuts never clear the source guard.
-            M8FlowerAcknowledgePeerInvalidation(ownerRef,_M8ObservationToken,node);
-            M8FlowerInvalidationChanged(slot,generation);
-        }
-        if(!mutate && discovered!=captured)
-        {
-            // Retain the completed two-endpoint read-set under this same
-            // observation token. Mutation and source retirement then require
-            // the peer ACKs that a local-only capture could not have known.
-            receipt.y=(receipt.y&~M8_FLOWER_INVALIDATION_ROOTS)|discovered;
-            if((discovered&~acknowledged)!=0u)
-                receipt.y|=M8_FLOWER_INVALIDATION_PEERS_PENDING;
-            DeviceMemoryBarrier();
-            _M8FlowerDetailPages.Store2(ownerRef+48u,receipt);
-            M8FlowerInvalidationChanged(slot,generation);
-        }
-    }
-    DeviceMemoryBarrierWithGroupSync();
-    if(lane==0u && m8FlowerHaloUnresolvedReads!=0u)
-    {
-        M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
-        m8FineWriteStatus=max(m8FineWriteStatus,M8_FLOWER_ARENA_BUSY);
-    }
-    GroupMemoryBarrierWithGroupSync();
-}
 
 // Original roots, selected sites and world enclosures have disjoint ranges.
 uint M8FlowerFineSkinControl(uint ownerIndex)
@@ -772,9 +603,21 @@ groupshared uint m8SignalStatus;
 #include "MerkabaFlowerResolveSignals.hlsl"
 
 [numthreads(128,1,1)]
-void DrainFlowerGeometry(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+void IntegrateFlowerRoot(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
-    M8FlowerDrainGeometryBody(group,lane);
+    M8FlowerDrainGeometryBody(group,lane,0u);
+}
+
+[numthreads(128,1,1)]
+void IntegrateFlowerL1(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+{
+    M8FlowerDrainGeometryBody(group,lane,1u);
+}
+
+[numthreads(128,1,1)]
+void IntegrateFlowerL2(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+{
+    M8FlowerDrainGeometryBody(group,lane,2u);
 }
 
 [numthreads(128,1,1)]

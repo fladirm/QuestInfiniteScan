@@ -1,5 +1,5 @@
 // Geometry dependency stage. Skin uses its own observation-local signal items.
-void M8FlowerDrainGeometryBody(uint3 group,uint lane)
+void M8FlowerDrainGeometryBody(uint3 group,uint lane,uint stage)
 {
     if(_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED]!=0u ||
         group.x>=min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],32768u))return;
@@ -17,30 +17,7 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane)
     if(lane==0u){m8FineWriteStatus=0u;m8FineAnyNovelty=0u;m8FineAnyActive=0u;
         }
     GroupMemoryBarrierWithGroupSync();
-    uint stage=_M8Counters[M8_COUNTER_REFINEMENT_STAGE];
-    uint phase=_M8Counters[M8_COUNTER_INVALIDATION_OWED]&
-        M8_FLOWER_INVALIDATION_PHASE_MASK;
-    if(phase==0u && stage==3u)return;
-    M8FlowerDrainLocalInvalidations(slot,lane,runtime.w,phase);
-    if(phase!=0u && m8FineWriteStatus==0u)
-        M8FlowerDrainPeerInvalidations(slot,lane,runtime.w,
-            phase==M8_FLOWER_INVALIDATION_PEER_PHASE);
-    if(m8FineWriteStatus!=0u)
-    {
-        if(lane==0u)
-        {
-            if(phase!=0u)
-                InterlockedOr(_M8Counters[M8_COUNTER_INVALIDATION_OWED],
-                    M8_FLOWER_INVALIDATION_WRITE_FAILED);
-            M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
-            M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
-        }
-        return;
-    }
-    if(phase!=0u)return;
     if(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE]!=0u ||
-        _M8Counters[M8_COUNTER_FINE_LEASE_BUSY]!=0u ||
-        _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES]!=0u ||
         runtime.x!=_M8ObservationToken)return;
     uint4 bin=_M8ObservationTileBinsRead[slot];
     if(bin.x!=_M8ObservationToken || bin.w!=bin.y ||

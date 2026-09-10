@@ -9909,3 +9909,37 @@ NEXT=remove persistent owner/peer invalidation receipt/ACK and global
   RT3 presentation compiler/export V remain separate unfinished work.
 TESTS=not run; APK=not built; INSTALL=not run; DEVICE=not run. No speedup or
   full-rewrite acceptance claim; full validation remains RT4.
+
+## 2026-09-10T22:12Z — RT2 snapshot-local R1/epoch publication checkpoint
+
+CURSOR=RT2 OPEN. RT1 implementation checkpoint retained; RT3/RT4 not started.
+CHANGE=removed persistent owner invalidation receipts/ACK, INVALIDATION_OWED,
+  stage/lease counters and AdvanceRefinementStage. R1 changes are prepared in
+  observation scratch; structural owner epochs retain the existing exact
+  invalidation/rebase rules. Unique receiver tiles pull changed-source bits
+  and invalidate dependent peer phases before PublishFlowerR1 writes M8.
+  Root/L1/L2 now have fixed GPU entrypoints with real dependency barriers.
+  COLD receiver preflight skips only its source change. Unresolved surface
+  counts no longer globally suppress R1 or the three geometry entrypoints.
+  The 32 MiB SignalItems buffer holds the transient receiver queue and reuses
+  prepared-R1 payload only after publication. No CPU solver, geometry readback,
+  new persistent field or alternate geometry introduced. Native/managed ABI22,
+  30 pipeline identities, 44 resources. Removed predecessor consumers directly.
+COMPILE=Unity Editor codegen/C# completed successfully:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-epoch-publish.log:752
+  Native pipeline count assertions were then synchronized to 30/ABI22.
+  Targeted exact native glslang/spirv-val only, not full audit or native/APK build:
+  /tmp/m8-rt2-epoch-cut-d7h_ua82/pipeline-0.spv
+  FlowerCommit 866380 B / 46261 body / 24704 B shared / 8 RW / 128 lanes;
+  SHA256=a3da4d0bb08f10d1bbd468648858389737dd751c81ccbf4949c51f1e0add82ec.
+  Root 529972 B / 27656 body / 20704 B shared / 5 RW;
+  L1 730320 B / 38162 body / 20704 B shared / 5 RW;
+  L2 730240 B / 38162 body / 20704 B shared / 5 RW.
+  /tmp/m8-rt2-r1-transaction-final-4e7h_920 also compiled peer invalidation
+  (55064 B / 2717 body / 120 B shared / 5 RW), R1 publication
+  (10584 B / 293 body / 7 RW), resolver and Finalize. git diff --check PASS.
+NEXT=actual measured-owner fan-out, local tile/owner COLD/write outcomes,
+  footprint-directed skin evidence and resolver's eager original alternatives.
+  ERASE pending invalidation and tile-wide dual-write guard remain to close.
+  RT3 presentation packet/export V and RT4 integrated acceptance remain open.
+TESTS=not run; APK=not built; INSTALL=not run; DEVICE=not run. No timing claim.

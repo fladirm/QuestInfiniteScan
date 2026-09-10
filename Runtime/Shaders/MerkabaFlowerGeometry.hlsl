@@ -270,13 +270,6 @@ uint M8FlowerReadOriginalLocal(uint ownerRef,int3 owner,uint flags,uint nodeInde
     rawBase=root;
     const uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
     if(nodeIndex>=26u)return 0u;
-    if(M8FlowerOriginalInvalidationPending(ownerRef,nodeIndex))
-    {
-        // A transaction receipt is missing residency/work, not a new root
-        // or a zero phase. Keep shared reads unresolved until local epoch
-        // publication and all actually dependent peer cuts are acknowledged.
-        root.Classification=2u;rawBase=root;return 2u;
-    }
     if((flags&(required|M8_FLOWER_SEED_FLAG))!=required)return 0u;
     int4 source=M8FlowerNodeAt(nodeIndex);
 #if defined(M8_FLOWER_GEOMETRY_BASE_PACKET_READ)

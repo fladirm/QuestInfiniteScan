@@ -15,7 +15,6 @@ void M8FlowerResolveCarriersBody(uint3 group,uint lane)
         _M8ChunkTileRefsRead[meta.x*64u+meta.y]!=slot+1u ||
         bin.x!=_M8ObservationToken || bin.y==0u || bin.w!=bin.y ||
         bin.z>=_M8ObservationRecordCapacity || bin.y>_M8ObservationRecordCapacity-bin.z)return;
-    if((_M8Counters[M8_COUNTER_INVALIDATION_OWED]&M8_FLOWER_INVALIDATION_PHASE_MASK)!=0u)return;
     if(lane<16u)m8FineActiveOwners[lane]=0u;
     [loop]for(uint local=lane;local<512u;local+=128u)
     {

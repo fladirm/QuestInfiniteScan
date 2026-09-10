@@ -748,7 +748,6 @@ namespace Genesis.RoomScan
                 $"quantumProgress={values[MerkabaGrid.CounterRefinementWorkProgress]} " +
                 $"backpressure={values[MerkabaGrid.CounterRefinementBackpressure]} " +
                 $"unresolved={values[MerkabaGrid.CounterRefinementUnresolved]} " +
-                $"stage={values[MerkabaGrid.CounterRefinementStage]} " +
                 $"storageBackpressure={values[MerkabaGrid.CounterStorageBackpressure]} " +
                 $"residencyEpoch={values[MerkabaGrid.CounterResidencyEpoch]} " +
                 $"failure=0x{values[MerkabaGrid.CounterObservationFailure]:x} " +
