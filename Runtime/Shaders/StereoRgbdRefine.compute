@@ -1,6 +1,6 @@
-// One immutable four-stream measurement. Depth-L/R supply bounded measured
-// planes; PCA-L/R compare the SAME generated Flower root support. Ambiguity
-// is not a lower confidence endpoint and never selects a central fallback.
+// One immutable four-stream measurement. Depth-L/R establish metric support;
+// PCA-L/R compare the SAME generated Flower roots. Ambiguous RGB refinement
+// leaves a stereo-supported measured depth intact; it does not invent a root.
 #pragma kernel StereoFlowerRefine
 #pragma use_dxc vulkan
 
@@ -24,6 +24,11 @@ float3 _M8FineCursorPosition, _M8FineBrushAxis;
 float _M8FineRadiusSquared, _M8FineLength;
 
 #define RGBD_HYPOTHESES 5u
+// The original realtime sensor policy, independent of Flower topology:
+// at most half an L0 step of stereo correction, with two-sided RGB/depth support.
+#define RGBD_METRIC_RADIUS (0.5 * M8_FLOWER_LATTICE_STEP)
+#define RGBD_MIN_PLANE_ALIGNMENT 0.3
+#define RGBD_MAX_CHROMATICITY_DIFFERENCE 0.35
 #define RGBD_IMPOSSIBLE 0u
 #define RGBD_CERTAIN 1u
 #define RGBD_AMBIGUOUS 2u
@@ -87,7 +92,7 @@ bool StereoIntersects(M8FlowerInterval a, M8FlowerInterval b)
 {
     return a.lo <= b.hi && b.lo <= a.hi;
 }
-bool StereoCalibrationValid()
+bool StereoObservationValid()
 {
     if (_M8PlaneErrorBounds.w != 1.0 || !all(M8FlowerIsFinite(_M8PlaneErrorBounds.xy)) ||
         any(_M8PlaneErrorBounds.xy < 0.0)) return false;
@@ -126,7 +131,8 @@ bool StereoDepthSample(uint eye, int2 pixel, out M8FlowerInterval3 world,
         !M8FlowerIDivPositive(view.y,M8FlowerI(-view.z.hi,-view.z.lo),rayY)) return false;
     depthRay.x = rayX; depthRay.y = rayY; depthRay.z = M8FlowerI(-1.0,-1.0);
     float4 bounds = _M8DepthErrorBounds[eye];
-    M8FlowerInterval dz = M8FlowerIAdd(M8FlowerI(bounds.x,bounds.x),M8FlowerI(bounds.z,bounds.z));
+    // z belongs to excavation clearance, never to the measured plane.
+    M8FlowerInterval dz = M8FlowerI(bounds.x,bounds.x);
     depth = M8FlowerIAdd(depth,M8FlowerI(-dz.hi,dz.hi));
     if (!(depth.lo > 0.0)) return false;
     M8FlowerInterval reprojection = M8FlowerI(-bounds.y,bounds.y);
@@ -151,13 +157,14 @@ bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane,
     out uint rejectionMetric)
 {
     plane = (StereoMeasuredPlane)0;
-    rejectionMetric = 10u; // Invalid five-point depth support.
+    rejectionMetric = 10u; // Missing centre or independent depth derivatives.
     M8FlowerInterval3 centre = StereoPoint(0.0.xxx);
-    M8FlowerInterval3 previous = centre, dx = centre, dy = centre;
-    // Enclose the sensor's two independent depth derivatives, not a fitted
-    // surface and not an RGB stencil. Missing/degenerate support is unresolved.
-    // One decoder call site keeps interval reprojection from being inlined
-    // five times. Preserve centre, -X, +X, -Y, +Y and its first-invalid return.
+    M8FlowerInterval3 dx = centre, dy = centre;
+    bool hasX = false, hasY = false;
+    float distanceX = 0.0, distanceY = 0.0;
+    // Choose the nearer valid depth neighbour on each axis, as in simplescan.
+    // Do not differentiate across an occlusion edge when the other side is
+    // available. This is sensor support, not a surface fit or an RGB stencil.
     [loop] for (uint sampleIndex = 0u; sampleIndex < 5u; ++sampleIndex)
     {
         int2 offset = sampleIndex == 0u ? int2(0,0) :
@@ -165,17 +172,32 @@ bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane,
                 int2(0,sampleIndex == 3u ? -1 : 1));
         M8FlowerInterval3 samplePoint, ray;
         M8FlowerInterval depth;
-        if (!StereoDepthSample(eye,pixel+offset,samplePoint,depth,ray)) return false;
+        if (!StereoDepthSample(eye,pixel+offset,samplePoint,depth,ray))
+        {
+            if (sampleIndex == 0u) return false;
+            continue;
+        }
         if (sampleIndex == 0u)
         {
             centre = samplePoint;
             plane.depth = depth;
             plane.depthRay = ray;
         }
-        else if ((sampleIndex & 1u) != 0u) previous = samplePoint;
-        else if (sampleIndex == 2u) dx = StereoSubtract(samplePoint,previous);
-        else dy = StereoSubtract(samplePoint,previous);
+        else
+        {
+            M8FlowerInterval3 tangent;
+            if ((sampleIndex & 1u) != 0u) tangent = StereoSubtract(centre,samplePoint);
+            else tangent = StereoSubtract(samplePoint,centre);
+            float3 central = StereoMidpoint(tangent);
+            float distance = dot(central,central);
+            if (sampleIndex < 3u)
+            {
+                if (!hasX || distance <= distanceX) { dx = tangent; distanceX = distance; hasX = true; }
+            }
+            else if (!hasY || distance <= distanceY) { dy = tangent; distanceY = distance; hasY = true; }
+        }
     }
+    if (!hasX || !hasY) return false;
     rejectionMetric = 11u; // Degenerate/nonfinite measured normal.
     M8FlowerInterval3 normal;
     if (!StereoNormalize(StereoCross(dx,dy),normal))
@@ -183,14 +205,6 @@ bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane,
     plane.position = StereoMidpoint(centre);
     plane.normal = normalize(StereoMidpoint(normal));
     if (!all(M8FlowerIsFinite(plane.normal))) return false;
-    rejectionMetric = 12u;
-    M8FlowerInterval normalError;
-    if (!StereoLength(StereoSubtract(normal,StereoPoint(plane.normal)),normalError) ||
-        normalError.hi > _M8PlaneErrorBounds.x) return false;
-    rejectionMetric = 13u;
-    M8FlowerInterval3 delta = StereoSubtract(centre,StereoPoint(plane.position));
-    M8FlowerInterval offset = M8DepthIntervalRow(float4(plane.normal,0.0),delta);
-    if (max(abs(offset.lo),abs(offset.hi)) > _M8PlaneErrorBounds.y) return false;
     rejectionMetric = 14u;
     float3 eyePosition = float3(_DepthViewInv[eye][0][3],_DepthViewInv[eye][1][3],_DepthViewInv[eye][2][3]);
     M8FlowerInterval facing = M8FlowerObservedDot(normal,
@@ -210,129 +224,43 @@ bool StereoDepthPlane(uint eye, int2 pixel, out StereoMeasuredPlane plane,
 bool StereoOppositePlane(M8FlowerInterval3 world, out StereoMeasuredPlane plane)
 {
     plane = (StereoMeasuredPlane)0;
-    // Interval project the complete small root/hypothesis support directly.
-    // Unlike a THROUGH query this does not traverse a volume certificate.
-    M8FlowerInterval3 eye = StereoTransform(_DepthView[1],world);
-    M8FlowerInterval error = M8FlowerI(-_M8DepthErrorBounds[1].y,_M8DepthErrorBounds[1].y);
-    eye.x = M8FlowerIAdd(eye.x,error); eye.y = M8FlowerIAdd(eye.y,error); eye.z = M8FlowerIAdd(eye.z,error);
-    if (!(eye.z.hi < 0.0)) return false;
-    M8FlowerInterval w = M8DepthIntervalRow(_DepthProj[1][3],eye);
-    M8FlowerInterval x,y,z;
-    if (!M8FlowerIDivPositive(M8DepthIntervalRow(_DepthProj[1][0],eye),w,x) ||
-        !M8FlowerIDivPositive(M8DepthIntervalRow(_DepthProj[1][1],eye),w,y) ||
-        !M8FlowerIDivPositive(M8DepthIntervalRow(_DepthProj[1][2],eye),w,z)) return false;
-    if (z.lo < -1.0 || z.hi > 1.0) return false;
-    x = M8FlowerIMul(M8FlowerIAdd(x,M8FlowerI(1.0,1.0)),M8FlowerI(_DepthW*0.5,_DepthW*0.5));
-    y = M8FlowerIMul(M8FlowerIAdd(y,M8FlowerI(1.0,1.0)),M8FlowerI(_DepthH*0.5,_DepthH*0.5));
-    if (!all(M8FlowerIsFinite(float4(x.lo,x.hi,y.lo,y.hi))) || x.lo < 0.0 || y.lo < 0.0 ||
-        x.hi >= _DepthW || y.hi >= _DepthH) return false;
-    int2 pixelMin = int2(floor(x.lo),floor(y.lo)), pixelMax = int2(floor(x.hi),floor(y.hi));
-    if (any(pixelMin != pixelMax)) return false;
+    // Sample the actual opposite depth image at the measured hypothesis.
+    // Crossing a texel boundary is not a sensor failure; invalid/FOV samples are.
+    precise float4 clip = mul(_DepthProj[1],
+        mul(_DepthView[1],float4(StereoMidpoint(world),1.0)));
+    if (!all(M8FlowerIsFinite(clip)) || !(clip.w > 0.0)) return false;
+    precise float3 ndc = clip.xyz/clip.w;
+    if (ndc.z <= -1.0 || ndc.z >= 1.0) return false;
+    precise float2 pixel = (ndc.xy*0.5+0.5)*float2(_DepthW,_DepthH);
+    if (any(pixel < 0.0) || any(pixel >= float2(_DepthW,_DepthH))) return false;
     uint rejectionMetric;
-    return StereoDepthPlane(1u,pixelMin,plane,rejectionMetric);
+    return StereoDepthPlane(1u,int2(floor(pixel)),plane,rejectionMetric);
 }
 
-// The complete uncertain root must fit one calibrated bilinear cell. Its four
-// captured texels enclose every possible bilinear sample. No FOV edge clamp.
-bool StereoRootRgb(uint eye, M8FlowerInterval3 world, out M8FlowerInterval3 rgb)
-{
-    rgb = StereoPoint(0.0.xxx);
-    float3 origin = eye == 0u ? _MerkabaCameraPositionLeft : _MerkabaCameraPositionRight;
-    float4x4 rotation = eye == 0u ? _MerkabaCameraInverseRotationLeft : _MerkabaCameraInverseRotationRight;
-    float2 focal = eye == 0u ? _MerkabaCameraFocalLengthLeft : _MerkabaCameraFocalLengthRight;
-    float2 principal = eye == 0u ? _MerkabaCameraPrincipalPointLeft : _MerkabaCameraPrincipalPointRight;
-    float2 sensor = eye == 0u ? _MerkabaCameraSensorResolutionLeft : _MerkabaCameraSensorResolutionRight;
-    float2 resolution = eye == 0u ? _MerkabaCameraCurrentResolutionLeft : _MerkabaCameraCurrentResolutionRight;
-    if (any(sensor <= 0.0) || any(resolution <= 0.0) || any(focal <= 0.0)) return false;
-    M8FlowerInterval3 local = StereoTransform(rotation,StereoSubtract(world,StereoPoint(origin)));
-    M8FlowerInterval error = M8FlowerI(-_M8DepthErrorBounds[eye].y,_M8DepthErrorBounds[eye].y);
-    local.x = M8FlowerIAdd(local.x,error); local.y = M8FlowerIAdd(local.y,error);
-    local.z = M8FlowerIAdd(local.z,error);
-    M8FlowerInterval x,y;
-    if (!M8FlowerIDivPositive(local.x,local.z,x) || !M8FlowerIDivPositive(local.y,local.z,y)) return false;
-    // Same sensor crop as MerkabaProjectCameraCell:
-    // pixel = (sensorPoint-sensor/2)*max(current/sensor)+current/2-1/2.
-    M8FlowerInterval sx,sy;
-    if (!M8FlowerIDivPositive(M8FlowerI(resolution.x,resolution.x),M8FlowerI(sensor.x,sensor.x),sx) ||
-        !M8FlowerIDivPositive(M8FlowerI(resolution.y,resolution.y),M8FlowerI(sensor.y,sensor.y),sy)) return false;
-    M8FlowerInterval scale = M8FlowerI(max(sx.lo,sy.lo),max(sx.hi,sy.hi));
-    x = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(x,M8FlowerI(focal.x,focal.x)),
-        M8FlowerI(principal.x,principal.x)),M8FlowerI(sensor.x*0.5,sensor.x*0.5));
-    y = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(y,M8FlowerI(focal.y,focal.y)),
-        M8FlowerI(principal.y,principal.y)),M8FlowerI(sensor.y*0.5,sensor.y*0.5));
-    x = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(x,scale),
-        M8FlowerI(resolution.x*0.5,resolution.x*0.5)),M8FlowerI(0.5,0.5));
-    y = M8FlowerISub(M8FlowerIAdd(M8FlowerIMul(y,scale),
-        M8FlowerI(resolution.y*0.5,resolution.y*0.5)),M8FlowerI(0.5,0.5));
-    if (!all(M8FlowerIsFinite(float4(x.lo,x.hi,y.lo,y.hi)))) return false;
-    int2 p = int2(floor(x.lo),floor(y.lo));
-    if (any(p != int2(floor(x.hi),floor(y.hi))) || any(p < 0) || any(p+1 >= int2(resolution))) return false;
-    x = M8FlowerISub(x,M8FlowerI((float)p.x,(float)p.x));
-    y = M8FlowerISub(y,M8FlowerI((float)p.y,(float)p.y));
-    x = M8FlowerI(max(0.0,x.lo),min(1.0,x.hi));
-    y = M8FlowerI(max(0.0,y.lo),min(1.0,y.hi));
-    // Keep one ordered interval accumulation body in the compiler. This is
-    // nested inside both-eye / root / shell / hypothesis evaluation; unrolling
-    // duplicates the enclosure algebra without adding independent evidence.
-    [loop] for (uint i = 0u; i < 4u; i++)
-    {
-        int3 texel = int3(p+int2(i&1u,i>>1u),0);
-        float3 value = eye == 0u ? _MerkabaCameraRgbLeft.Load(texel).rgb :
-            _MerkabaCameraRgbRight.Load(texel).rgb;
-        if (!all(M8FlowerIsFinite(value)) || any(value < 0.0)) return false;
-        M8FlowerInterval wx = x;
-        M8FlowerInterval wy = y;
-        if ((i&1u) == 0u) wx = M8FlowerISub(M8FlowerI(1.0,1.0),x);
-        if ((i&2u) == 0u) wy = M8FlowerISub(M8FlowerI(1.0,1.0),y);
-        M8FlowerInterval weight = M8FlowerIMul(wx,wy);
-        rgb.x = M8FlowerIAdd(rgb.x,M8FlowerIMul(weight,M8FlowerI(value.x,value.x)));
-        rgb.y = M8FlowerIAdd(rgb.y,M8FlowerIMul(weight,M8FlowerI(value.y,value.y)));
-        rgb.z = M8FlowerIAdd(rgb.z,M8FlowerIMul(weight,M8FlowerI(value.z,value.z)));
-    }
-    float3 e = _M8RgbErrorBounds[eye].xyz;
-    rgb.x = M8FlowerI(max(0.0,M8FlowerPrevious(rgb.x.lo-e.x)),M8FlowerNext(rgb.x.hi+e.x));
-    rgb.y = M8FlowerI(max(0.0,M8FlowerPrevious(rgb.y.lo-e.y)),M8FlowerNext(rgb.y.hi+e.y));
-    rgb.z = M8FlowerI(max(0.0,M8FlowerPrevious(rgb.z.lo-e.z)),M8FlowerNext(rgb.z.hi+e.z));
-    return true;
-}
-
+// Camera intrinsics, crop and bilinear sampling have one implementation.
+// Generated Flower roots supply the sample locations; no square RGB census.
 uint StereoChromaticSupport(M8FlowerInterval3 world, inout uint stages)
 {
-    M8FlowerInterval3 left,right;
-    // Both eyes use the same interval projection, with the same left/right
-    // order and first-invalid result; do not inline that decoder twice.
+    float3 left = 0.0.xxx, right = 0.0.xxx;
     [loop] for (uint eye = 0u; eye < 2u; eye++)
     {
-        M8FlowerInterval3 captured;
-        if (!StereoRootRgb(eye,world,captured)) return RGBD_AMBIGUOUS;
+        float3 captured;
+        if (!MerkabaTrySampleCameraRgb(eye,StereoMidpoint(world),captured))
+            return RGBD_AMBIGUOUS;
         if (eye == 0u) left = captured;
         else right = captured;
     }
     stages |= RGBD_STAGE_PCA_COVERAGE;
-    M8FlowerInterval le = M8FlowerIAdd(M8FlowerIAdd(left.x,left.y),left.z);
-    M8FlowerInterval re = M8FlowerIAdd(M8FlowerIAdd(right.x,right.y),right.z);
-    if (le.lo > 0.0 && re.lo > 0.0)
+    float le = left.x+left.y+left.z, re = right.x+right.y+right.z;
+    // Quantized black has no chromatic direction. It can support measured
+    // depth, but cannot establish a unique photometric correction.
+    float black = 3.0/255.0;
+    if (le <= black || re <= black)
     {
-        // One exact divide body; retain left RGB then right RGB order and
-        // the original pre-normalization sums. No reciprocal approximation.
-        M8FlowerInterval channels[6];
-        channels[0]=left.x;channels[1]=left.y;channels[2]=left.z;
-        channels[3]=right.x;channels[4]=right.y;channels[5]=right.z;
-        [loop] for (uint channel=0u;channel<6u;channel++)
-        {
-            M8FlowerInterval normalized;
-            M8FlowerInterval sum=le;
-            if (channel>=3u) sum=re;
-            if (!M8FlowerIDivPositive(channels[channel],sum,normalized))
-                return RGBD_AMBIGUOUS;
-            channels[channel]=normalized;
-        }
-        left.x=channels[0];left.y=channels[1];left.z=channels[2];
-        right.x=channels[3];right.y=channels[4];right.z=channels[5];
+        if (le > black || re > black) return RGBD_IMPOSSIBLE;
     }
-    // No fabricated luminance epsilon. Black intervals are compared directly.
-    if (!StereoIntersects(left.x,right.x) || !StereoIntersects(left.y,right.y) ||
-        !StereoIntersects(left.z,right.z)) return RGBD_IMPOSSIBLE;
+    else if (dot(abs(left/le-right/re),1.0.xxx) > RGBD_MAX_CHROMATICITY_DIFFERENCE)
+        return RGBD_IMPOSSIBLE;
     stages |= RGBD_STAGE_CHROMATICITY;
     return RGBD_CERTAIN;
 }
@@ -414,9 +342,16 @@ uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bo
     normal = measured.normal;
     StereoMeasuredPlane opposite;
     if (!StereoOppositePlane(support,opposite)) return RGBD_AMBIGUOUS;
+    if (dot(measured.normal,opposite.normal) < 0.0)
+    {
+        opposite.normal = -opposite.normal;
+        opposite.normalInterval = StereoSubtract(StereoPoint(0.0.xxx),opposite.normalInterval);
+    }
+    if (dot(measured.normal,opposite.normal) < RGBD_MIN_PLANE_ALIGNMENT) return RGBD_IMPOSSIBLE;
     M8FlowerInterval3 delta = StereoSubtract(support,opposite.positionInterval);
     M8FlowerInterval residual = M8FlowerObservedDot(opposite.normalInterval,delta);
-    if (!StereoIntersects(residual,M8FlowerI(-_M8PlaneErrorBounds.y,_M8PlaneErrorBounds.y))) return RGBD_IMPOSSIBLE;
+    if (!StereoIntersects(residual,M8FlowerI(-RGBD_METRIC_RADIUS,RGBD_METRIC_RADIUS))) return RGBD_IMPOSSIBLE;
+    normal = normalize(measured.normal+opposite.normal);
     stages |= RGBD_STAGE_OPPOSITE;
     measured.position = StereoMidpoint(support);
     measured.positionInterval = support;
@@ -441,7 +376,9 @@ uint StereoCandidate(M8FlowerInterval3 support, StereoMeasuredPlane measured, bo
             if (countbits(possibleAxes) < 2u) return RGBD_IMPOSSIBLE;
             if (countbits(axes) < 2u) return RGBD_AMBIGUOUS;
             stages |= RGBD_STAGE_FLOWER;
-            if (!tetra && !bend) return RGBD_CERTAIN;
+            // R2/R3 refine an existing R1 measurement. They cannot veto its
+            // basic existence merely because finer evidence is ambiguous.
+            if (!tetra) return RGBD_CERTAIN;
         }
         if (index >= 6u && index < 18u && !bend) continue;
         if (index == 18u)
@@ -495,33 +432,31 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
         float2 uv = (float2(id)+0.5)/float2(_DepthW,_DepthH);
         radialBin = min(2u,(uint)floor(max(abs(uv.x*2.0-1.0),abs(uv.y*2.0-1.0))*3.0));
         StereoMeasuredPlane measured;
-        bool calibrationValid = StereoCalibrationValid();
+        bool observationValid = StereoObservationValid();
         uint rejectionMetric = 0u;
-        raw = calibrationValid && StereoDepthPlane(0u,int2(id),measured,rejectionMetric);
+        raw = observationValid && StereoDepthPlane(0u,int2(id),measured,rejectionMetric);
         if (metrics)
         {
             float source = _SrcDepth.Load(int4(id,0,0));
             if (source > 0.0 && source < 1.0) diagnosticMask |= 1u << 8u;
-            if (!calibrationValid) diagnosticMask |= 1u << 9u;
+            if (!observationValid) diagnosticMask |= 1u << 9u;
             else if (!raw) diagnosticMask |= 1u << rejectionMetric;
         }
         if (raw)
         {
             uint candidates = (1u << RGBD_HYPOTHESES)-1u;
-            uint certainCandidates = 0u;
-            float3 selectedWorld = 0.0.xxx, selectedNormal = 0.0.xxx;
-            M8FlowerInterval width;
-            bool boundedWidth = M8FlowerIDivPositive(M8FlowerISub(
-                M8FlowerI(measured.depth.hi,measured.depth.hi),M8FlowerI(measured.depth.lo,measured.depth.lo)),
-                M8FlowerI((float)RGBD_HYPOTHESES,(float)RGBD_HYPOTHESES),width);
-            width.lo = max(0.0,width.lo);
-            // Five fixed bounded intervals exhaust the frozen metric range.
-            // No +/-12.5mm stencil and no observation-dependent ranking.
-            // One evaluator call site, not ten unrolled copies of exact root
-            // algebra. The second phase only visits unresolved hypotheses.
+            uint certainCandidates = 0u, selectedHypothesis = 2u;
+            bool metricPriorAccepted = false;
+            float3 priorNormal = measured.normal;
+            float3 selectedWorld = measured.position, selectedNormal = measured.normal;
+            float rayLength = length(StereoMidpoint(measured.depthRay));
+            bool validRange = M8FlowerIsFinite(rayLength) && rayLength > 0.0;
+            // Five distinct metric hypotheses around the actual depth reading.
+            // Their range is a realtime correction budget, NOT a statement of
+            // certified sensor accuracy. One call site for all hypotheses/shells.
             [loop] for (uint phase = 0u; phase < 2u; phase++)
             {
-                if (!boundedWidth) break;
+                if (!validRange) break;
                 if (phase != 0u)
                 {
                     if (countbits(candidates) <= 1u) break;
@@ -531,20 +466,22 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
                 [loop] for (uint h = 0u; h < RGBD_HYPOTHESES; h++)
                 {
                     if ((candidates & (1u << h)) == 0u) continue;
-                    M8FlowerInterval cutLo = M8FlowerIAdd(M8FlowerI(measured.depth.lo,measured.depth.lo),
-                        M8FlowerIMul(M8FlowerI((float)h,(float)h),width));
-                    M8FlowerInterval cutHi = M8FlowerIAdd(M8FlowerI(measured.depth.lo,measured.depth.lo),
-                        M8FlowerIMul(M8FlowerI((float)(h+1u),(float)(h+1u)),width));
-                    M8FlowerInterval depth = M8FlowerI(
-                        max(measured.depth.lo,cutLo.lo),min(measured.depth.hi,cutHi.hi));
+                    float shift = ((float)h-2.0)*(RGBD_METRIC_RADIUS*0.5)/rayLength;
+                    M8FlowerInterval depth = M8FlowerIAdd(measured.depth,M8FlowerI(shift,shift));
+                    if (!(depth.lo > 0.0)) { candidates &= ~(1u << h); continue; }
                     M8FlowerInterval3 view;
-                    M8FlowerInterval reprojection = M8FlowerI(-_M8DepthErrorBounds[0].y,_M8DepthErrorBounds[0].y);
-                    view.x = M8FlowerIAdd(M8FlowerIMul(measured.depthRay.x,depth),reprojection);
-                    view.y = M8FlowerIAdd(M8FlowerIMul(measured.depthRay.y,depth),reprojection);
-                    view.z = M8FlowerIAdd(M8FlowerI(-depth.hi,-depth.lo),reprojection);
-                    M8FlowerInterval3 support = StereoTransform(_DepthViewInv[0],view);
+                    view.x = M8FlowerIMul(measured.depthRay.x,depth);
+                    view.y = M8FlowerIMul(measured.depthRay.y,depth);
+                    view.z = M8FlowerI(-depth.hi,-depth.lo);
+                    M8FlowerInterval3 support = measured.positionInterval;
+                    if (h != 2u) support = StereoTransform(_DepthViewInv[0],view);
                     float3 normal;
                     uint status = StereoCandidate(support,measured,phase != 0u,stages,normal);
+                    if (phase == 0u && h == 2u && status == RGBD_CERTAIN)
+                    {
+                        metricPriorAccepted = true;
+                        priorNormal = normal;
+                    }
                     if (status == RGBD_IMPOSSIBLE)
                         candidates &= ~(1u << h);
                     else if (status == RGBD_CERTAIN)
@@ -552,25 +489,36 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
                         certainCandidates |= 1u << h;
                         selectedWorld = StereoMidpoint(support);
                         selectedNormal = normal;
+                        selectedHypothesis = h;
                     }
                 }
             }
-            // AMBIGUOUS competitors survive both phases. They cannot vanish
-            // merely to make a different hypothesis look like a unique root.
+            bool uniqueCorrection = countbits(candidates) == 1u && certainCandidates == candidates;
             if (metrics)
             {
                 uint survivors = countbits(candidates);
-                if (!boundedWidth) diagnosticMask |= 1u << 19u;
+                if (!validRange) diagnosticMask |= 1u << 19u;
                 else if (survivors == 0u) diagnosticMask |= 1u << 18u;
                 else if (survivors > 1u) diagnosticMask |= 1u << 15u;
                 else if (certainCandidates != candidates) diagnosticMask |= 1u << 16u;
             }
-            if (countbits(candidates) == 1u && certainCandidates == candidates)
+            // An ambiguous correction is not an ambiguous original depth.
+            // Keep the original only if BOTH depth planes and BOTH RGB views
+            // supported its generated R1 relations. No mono/confidence fallback.
+            if (!uniqueCorrection && metricPriorAccepted)
+            {
+                selectedWorld = measured.position;
+                selectedNormal = priorNormal;
+                selectedHypothesis = 2u;
+            }
+            if (uniqueCorrection || metricPriorAccepted)
             {
                 float3 world = selectedWorld;
                 float4 clip = mul(_DepthProj[0],mul(_DepthView[0],float4(world,1.0)));
-                float depth = clip.z/clip.w*0.5+0.5;
-                accepted = clip.w > 0.0 && depth > 0.0 && depth < 1.0 && all(M8FlowerIsFinite(selectedNormal));
+                float depth = selectedHypothesis == 2u ?
+                    _SrcDepth.Load(int4(id,0,0)) : clip.z/clip.w*0.5+0.5;
+                accepted = clip.w > 0.0 && depth > 0.0 && depth < 1.0 &&
+                    all(M8FlowerIsFinite(selectedNormal));
                 if (_M8FineRefineActive != 0u)
                 {
                     float3 relative = world-_M8FineCursorPosition;
@@ -583,6 +531,7 @@ void StereoFlowerRefine(uint2 id : SV_DispatchThreadID, uint lane : SV_GroupInde
                 {
                     _DstDepth[id] = depth;
                     _DstNormal[id] = float4(selectedNormal,1.0);
+                    if (metrics) diagnosticMask |= 1u << (selectedHypothesis == 2u ? 12u : 13u);
                 }
                 else if (metrics) diagnosticMask |= 1u << 17u;
             }

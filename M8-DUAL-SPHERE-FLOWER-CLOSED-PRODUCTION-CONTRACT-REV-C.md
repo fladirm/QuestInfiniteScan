@@ -717,13 +717,22 @@ A conservative vector-normal bound is:
 \epsilon_{N,q}=\frac{2\sqrt{18}}{1023}.
 \]
 
-Accepted observations provide fixed calibrated maximum bounds:
+The realtime frontend accepts a digital measurement using both depth views
+and both captured RGB views (§19). It does NOT require an external sensor
+accuracy certificate, a laboratory error profile, or a user-supplied asset.
 
 \[
-\epsilon_{N,s},\qquad \epsilon_{\delta,s}.
+\epsilon_{N,s},\qquad \epsilon_{\delta,s}
 \]
 
-Observations exceeding them are invalid, not downweighted.
+describe additional enclosure of that accepted measurement, not guaranteed
+physical sensor accuracy. With no additional representation error these terms
+are zero; stored-plane quantization and ordered FP32 operation bounds still
+apply. Zero here is NOT a claim of zero physical depth noise.
+
+CERTAIN/IMPOSSIBLE classify the generated geometry relative to accepted
+observations. Sensor admission is the realtime four-stream consistency policy;
+it is not a metrological certification of the environment.
 
 Persistent plane bounds:
 
@@ -2048,13 +2057,17 @@ Each valid depth pixel supplies:
 z\in[z^-,z^+].
 \]
 
-The interval contains:
+The interval encloses the captured digital depth and ordered reprojection
+operations. Negative-volume queries additionally reserve one L0 lattice step
+of clearance before the observed hit. This is a conservative realtime scan
+policy, NOT a claimed maximum physical sensor error.
 
-- sensor quantization;
-- calibration reprojection error;
-- stereo hypothesis width.
-
-An invalid pixel has no interval.
+The frozen GPU vector is `(metric enclosure, reprojection enclosure,
+visibility clearance, valid)`. The clearance is used only by the THROUGH
+certificate, never by plane derivatives, R2 prediction, or skin V measurement.
+The standard capture path uses `(0,0,a,1)`; FP32 enclosure is performed by
+the evaluator, not omitted. Actual SDK per-eye intrinsics and poses remain
+mandatory. Invalid/missing pixels never become free volume.
 
 ## 15.2 Certificate hierarchy
 
@@ -2437,7 +2450,28 @@ Thus:
 sensor\ support=world\ Flower\ support.
 \]
 
-A hypothesis with ambiguous projection or insufficient valid root support remains unresolved.
+A hypothesis with invalid projection or insufficient valid root support
+remains unresolved. The measured Depth-L position is the metric prior, tested
+against Depth-R and both RGB images at generated R1 roots. Five distinct
+hypotheses span at most ±a/2 along its viewing ray. Both depth normals must be
+compatible (absolute aligned dot >= 0.3); the opposite-plane residual must lie
+within a/2. The accepted endpoint normal uses both measured depth normals.
+
+RGB comparison uses the existing per-eye camera projection and bilinear
+sampler at generated root positions. Chromaticity L1 difference <= 0.35 is
+the realtime consistency policy inherited from simplescan, not a topology
+score or an interval-equality proof. Quantized black carries no chromatic
+direction. Crossing a bilinear texel boundary is not a missing observation.
+
+A uniquely supported correction may refine the metric prior. If correction
+hypotheses remain ambiguous but the original measured depth has valid
+two-depth/two-RGB R1 support, retain that measured depth unchanged. Ambiguity
+in refinement MUST NOT erase this basic R1 evidence. Without that support,
+do not fabricate an endpoint. No mono fallback or lower-confidence bypass.
+
+R2/R3 ambiguity remains local to refinement and cannot independently veto
+basic supported R1 existence. Flower root/sector/incidence interval predicates
+and the L0–L2 / L3–L5 geometry/skin split are unchanged.
 
 No tangent PCA or arbitrary square stencil is introduced.
 

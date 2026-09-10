@@ -229,7 +229,7 @@ namespace Genesis.RoomScan.Tests
 
             string refine = RuntimeSource(
                 "Runtime/Shaders/StereoRgbdRefine.compute");
-            Assert.That(refine, Does.Contain("StereoRootRgb(eye,world,captured)"));
+            Assert.That(refine, Does.Contain("MerkabaTrySampleCameraRgb(eye,StereoMidpoint(world),captured)"));
             Assert.That(refine, Does.Contain("StereoOppositePlane(support,opposite)"));
             Assert.That(refine, Does.Contain("M8FlowerObservedLoop("));
             Assert.That(refine, Does.Contain("M8FlowerSealBend("));
@@ -239,7 +239,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(refine, Does.Contain("_DstDepth[id] = 0.0;"));
             Assert.That(refine, Does.Contain("_DstNormal[id] = 0.0.xxxx;"));
             Assert.That(refine, Does.Contain("RGBD_HYPOTHESES 5u"));
-            Assert.That(refine, Does.Contain("StereoCalibrationValid()"));
+            Assert.That(refine, Does.Contain("StereoObservationValid()"));
+            Assert.That(refine, Does.Contain("!uniqueCorrection && metricPriorAccepted"));
             Assert.That(refine, Does.Contain("StereoIntersects(residual,"));
             Assert.That(refine, Does.Not.Contain("WorldPatchCensus"));
             Assert.That(refine, Does.Not.Contain("JointTangentBasis"));
@@ -631,8 +632,8 @@ namespace Genesis.RoomScan.Tests
         // Includes cold Vulkan driver/pipeline compilation, not just the
         // tiny fixture dispatch. Device frame-time acceptance is separate.
         [TestCase(true), TestCase(false), Timeout(120000)]
-        public void JointSolve_TexturelessFourStreamPlane_DoesNotChooseAnAmbiguousHypothesis(
-            bool calibrationValid)
+        public void JointSolve_TexturelessPlane_KeepsMeasuredDepthOnlyWithOppositeSupport(
+            bool oppositeDepthValid)
         {
             const int width = 17;
             const int height = 15;
@@ -644,7 +645,7 @@ namespace Genesis.RoomScan.Tests
                 width / (float)height, 0.1f, 10f);
             float sourceDepth = DepthNdc(projection, 1f);
             Texture2DArray depth = MakeDepth(width, height, sourceDepth,
-                sourceDepth);
+                oppositeDepthValid ? sourceDepth : 0f);
             Texture2D pcaLeft = MakeSolidRgb(width, height,
                 new Color(0.4f, 0.4f, 0.4f, 1f));
             Texture2D pcaRight = MakeSolidRgb(width, height,
@@ -674,8 +675,6 @@ namespace Genesis.RoomScan.Tests
                 compute.SetMatrixArray("_DepthView", views);
                 compute.SetMatrixArray("_DepthViewInv", views);
                 BindSyntheticStereoBounds(compute);
-                if (!calibrationValid)
-                    compute.SetVector("_M8PlaneErrorBounds", Vector4.zero);
                 compute.SetBuffer(kernel, "_RefineMetrics", refineMetrics);
                 compute.SetInt("_RefineMetricsEnabled", 1);
                 compute.SetInt("_RefineMetricGroupsX", metricGroupsX);
@@ -689,10 +688,15 @@ namespace Genesis.RoomScan.Tests
                     .GetData<float>()[center];
                 float4 normal = Read2D(outputNormal, width, height)
                     .GetData<float4>()[center];
-                Assert.That(refined, Is.Zero,
-                    "The identical textureless views cannot select one of five bounded hypotheses; no central-prior fallback is an endpoint.");
+                Assert.That(refined, Is.EqualTo(oppositeDepthValid ? sourceDepth : 0f),
+                    "Ambiguous RGB correction must retain stereo-supported measured depth, never invent support when the other depth eye is missing.");
                 AssertFinite(normal, "joint normal");
-                Assert.That(normal, Is.EqualTo(float4.zero));
+                if (oppositeDepthValid)
+                {
+                    Assert.That(normal.w, Is.EqualTo(1f));
+                    Assert.That(math.dot(normal.xyz, new float3(0f,0f,1f)), Is.GreaterThan(0.999f));
+                }
+                else Assert.That(normal, Is.EqualTo(float4.zero));
 
                 var metricValues = new uint[refineMetrics.count];
                 refineMetrics.GetData(metricValues);
@@ -700,14 +704,14 @@ namespace Genesis.RoomScan.Tests
                     MerkabaGpuTimestamps.RefineMetricValueCount];
                 for (int index = 0; index < metricValues.Length; index++)
                     radial[index % radial.Length] += metricValues[index];
-                uint measured = 0u, sourceValid = 0u, invalidCalibration = 0u;
+                uint measured = 0u, sourceValid = 0u, invalidObservation = 0u;
                 for (int bin = 0; bin <
                      MerkabaGpuTimestamps.RefineRadialBinCount; bin++)
                 {
                     int offset = bin * MerkabaGpuTimestamps.RefineMetricCount;
                     measured += radial[offset];
                     sourceValid += radial[offset + 8];
-                    invalidCalibration += radial[offset + 9];
+                    invalidObservation += radial[offset + 9];
                     uint rejected = radial[offset + 1] + radial[offset + 2] +
                                     radial[offset + 3] + radial[offset + 4];
                     Assert.That(radial[offset], Is.EqualTo(
@@ -716,13 +720,9 @@ namespace Genesis.RoomScan.Tests
                         radial[offset + 5] + radial[offset + 6]));
                 }
                 Assert.That(sourceValid, Is.EqualTo(width * height));
-                Assert.That(invalidCalibration, Is.EqualTo(calibrationValid ? 0 : width * height));
-                if (calibrationValid)
-                    Assert.That(measured, Is.GreaterThan(0u),
-                        "The fixture must reach bounded depth evidence, not pass because calibration or the input was missing.");
-                else
-                    Assert.That(measured, Is.Zero,
-                        "Missing calibration is distinct from missing raw depth and must not create an endpoint.");
+                Assert.That(invalidObservation, Is.Zero);
+                Assert.That(measured, Is.GreaterThan(0u),
+                    "Both cases must reach measured reference depth; only the opposite-eye support differs.");
             }
             finally
             {
@@ -956,12 +956,13 @@ namespace Genesis.RoomScan.Tests
 
         private static void BindSyntheticStereoBounds(ComputeShader compute)
         {
-            // Known fixture error bounds, not production acceptance thresholds.
-            var depth = new Vector4(0.000005f, 0.000001f, 0.000005f, 1f);
-            var rgb = new Vector4(0.5f / 255f, 0.5f / 255f, 0.5f / 255f, 1f);
+            // Exercise the exact shipping observation policy, not a synthetic
+            // laboratory profile that the real device never supplies.
+            var depth = DepthCapture.ObservationDepthBounds;
+            var rgb = DepthCapture.ObservationRgbBounds;
             compute.SetVectorArray("_M8DepthErrorBounds", new[] { depth, depth });
             compute.SetVectorArray("_M8RgbErrorBounds", new[] { rgb, rgb });
-            compute.SetVector("_M8PlaneErrorBounds", new Vector4(0.01f, 0.0001f, 0f, 1f));
+            compute.SetVector("_M8PlaneErrorBounds", DepthCapture.ObservationPlaneBounds);
             // Avoid making all analytic roots exact sector-boundary cases.
             Matrix4x4 grid = Matrix4x4.Translate(new Vector3(0.00575f, 0.00675f, 0.00775f));
             compute.SetMatrix("_MerkabaGridToWorld", grid);

@@ -413,7 +413,6 @@ namespace Genesis.RoomScan
             {
                 if (_depthCapture == null)
                     throw new InvalidOperationException("DepthCapture is unavailable.");
-                _depthCapture.RequireValidCalibration();
                 if (_newLiveScanRequired)
                 {
                     await NewClearAsync(null);

@@ -258,8 +258,8 @@ namespace Genesis.RoomScan
         {
             if (_depthCapture != null && _depthCapture.TryGetFlowerPlaneBounds(out Vector2 bounds))
                 return new Vector4(bounds.x, bounds.y, 0f, 1f);
-            // Missing calibration cannot authorize a measured root. DIRT does
-            // not use this measured-plane predicate.
+            // An unbound scanner context cannot evaluate a measured root.
+            // No external sensor calibration asset is required.
             return new Vector4(float.PositiveInfinity, float.PositiveInfinity, 0f, 0f);
         }
 

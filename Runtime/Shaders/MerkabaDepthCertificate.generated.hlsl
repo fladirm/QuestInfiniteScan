@@ -193,51 +193,181 @@ uint M8DepthCertificateEnvelopeLevel(uint2 minimum, uint2 maximum)
 StructuredBuffer<uint2> _M8DepthCertificate;
 float4 _M8DepthErrorBounds[2];
 
+// ---------------------------------------------------------------------------
+// One dyadic cover, two entry adapters. The rules below - the admission test,
+// the common-prefix query and what a node means - exist exactly once. A scalar
+// caller walks them on its own stack; a cooperative caller walks the same rules
+// breadth-first across its workgroup. Neither is a second geometric authority
+// and neither may drift, because both call M8DepthCertificateBegin and
+// M8DepthCertificateVisit and nothing else decides coverage.
+// ---------------------------------------------------------------------------
+
+// 0 = REFUSED outright, 1 = PROVED by the common prefix, 2 = descend from root.
+uint M8DepthCertificateBegin(uint eye, int2 imageSize, int2 minimum,
+    int2 maximum, float supportUpperDepth, out uint3 root)
+{
+    root = uint3(0u, 0u, 0u);
+    if (eye >= 2u || any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
+        any(minimum < 0) || any(maximum < minimum) || any(maximum >= imageSize) ||
+        !M8FlowerIsFinite(supportUpperDepth) || supportUpperDepth < 0.0) return 0u;
+    uint level = M8DepthCertificateEnvelopeLevel((uint2)minimum, (uint2)maximum);
+    root = uint3(((uint2)minimum >> level) << level, level);
+    if (M8DepthCertificateProves(_M8DepthCertificate[
+        M8DepthCertificateAddress(eye, level, (uint2)minimum >> level)],
+        supportUpperDepth)) return 1u;
+    return 2u;
+}
+
+// 0 = node proved, 1 = node refutes the whole support, 2 = split into 4,
+// 3 = node lies outside the support and contributes nothing.
+uint M8DepthCertificateVisit(uint eye, uint3 node, int2 minimum, int2 maximum,
+    float supportUpperDepth)
+{
+    uint2 lo = node.xy;
+    uint2 hi = lo + (1u << node.z) - 1u;
+    if (any(hi < (uint2)minimum) || any(lo > (uint2)maximum)) return 3u;
+    if (node.z == 0u || (all(lo >= (uint2)minimum) && all(hi <= (uint2)maximum)))
+        return M8DepthCertificateProves(_M8DepthCertificate[
+            M8DepthCertificateAddress(eye, node.z, lo >> node.z)],
+            supportUpperDepth) ? 0u : 1u;
+    return 2u;
+}
+
+// The four children of a split node that still meet the support. Shared so the
+// two adapters enumerate children in one order and one containment rule.
+uint M8DepthCertificateChildren(uint3 node, int2 minimum, int2 maximum,
+    out uint3 children[4])
+{
+    uint childLevel = node.z - 1u;
+    uint childSide = 1u << childLevel;
+    uint produced = 0u;
+    [unroll]
+    for (int child = 3; child >= 0; child--)
+    {
+        uint2 childLo = node.xy + uint2((uint)child & 1u, (uint)child >> 1u) * childSide;
+        uint2 childHi = childLo + childSide - 1u;
+        if (any(childHi < (uint2)minimum) || any(childLo > (uint2)maximum)) continue;
+        children[produced++] = uint3(childLo, childLevel);
+    }
+    [unroll]
+    for (uint pad = produced; pad < 4u; pad++) children[pad] = uint3(0u, 0u, 0u);
+    return produced;
+}
+
 // False means AMBIGUOUS, never NOT_THROUGH. Direct endpoint intersection
 // is a separate predicate and takes precedence over this negative evidence.
 bool M8DepthCertificateThrough(uint eye, int2 imageSize, int2 minimum,
     int2 maximum, float supportUpperDepth)
 {
-    if (eye >= 2u || any(imageSize <= 0) || any(imageSize > (int)M8_DEPTH_CERTIFICATE_SIDE) ||
-        any(minimum < 0) || any(maximum < minimum) || any(maximum >= imageSize) ||
-        !M8FlowerIsFinite(supportUpperDepth) || supportUpperDepth < 0.0) return false;
-    uint level = M8DepthCertificateEnvelopeLevel((uint2)minimum, (uint2)maximum);
-    uint2 origin = ((uint2)minimum >> level) << level;
-    if (M8DepthCertificateProves(_M8DepthCertificate[
-        M8DepthCertificateAddress(eye, level, (uint2)minimum >> level)],
-        supportUpperDepth)) return true;
+    uint3 root;
+    uint begin = M8DepthCertificateBegin(eye, imageSize, minimum, maximum,
+        supportUpperDepth, root);
+    if (begin != 2u) return begin == 1u;
 
     uint3 stack[M8_DEPTH_CERTIFICATE_STACK];
     uint count = 1u;
-    stack[0] = uint3(origin, level);
+    stack[0] = root;
     [loop]
     while (count != 0u)
     {
         uint3 node = stack[--count];
-        uint2 lo = node.xy;
-        uint2 hi = lo + (1u << node.z) - 1u;
-        if (any(hi < (uint2)minimum) || any(lo > (uint2)maximum)) continue;
-        if (node.z == 0u || (all(lo >= (uint2)minimum) && all(hi <= (uint2)maximum)))
+        uint verdict = M8DepthCertificateVisit(eye, node, minimum, maximum,
+            supportUpperDepth);
+        if (verdict == 1u) return false;
+        if (verdict != 2u) continue;
+        uint3 children[4];
+        uint produced = M8DepthCertificateChildren(node, minimum, maximum, children);
+        [loop]
+        for (uint child = 0u; child < produced; child++)
         {
-            if (!M8DepthCertificateProves(_M8DepthCertificate[
-                M8DepthCertificateAddress(eye, node.z, lo >> node.z)],
-                supportUpperDepth)) return false;
-            continue;
-        }
-        uint childLevel = node.z - 1u;
-        uint childSide = 1u << childLevel;
-        [unroll]
-        for (int child = 3; child >= 0; child--)
-        {
-            uint2 childLo = lo + uint2((uint)child & 1u, (uint)child >> 1u) * childSide;
-            uint2 childHi = childLo + childSide - 1u;
-            if (any(childHi < (uint2)minimum) || any(childLo > (uint2)maximum)) continue;
             if (count == M8_DEPTH_CERTIFICATE_STACK) return false;
-            stack[count++] = uint3(childLo, childLevel);
+            stack[count++] = children[child];
         }
     }
     return true;
 }
+
+#ifdef M8_DEPTH_CERTIFICATE_COOPERATIVE
+// The cooperative adapter. Same Begin, same Visit, same Children as the scalar
+// walk above; only the traversal order differs - breadth-first across the
+// workgroup instead of depth-first on one lane's private stack. A dyadic cover
+// is a conjunction over the nodes it selects, and conjunction does not care in
+// which order its terms are evaluated, so this returns what the scalar adapter
+// returns for the same support.
+//
+// Overflow stays conservative on both sides: the scalar walk refuses when its
+// stack is full, this refuses when the level frontier is, and refusing means
+// AMBIGUOUS, never THROUGH. The two limits are reached on different supports,
+// so overflow is the one case where the adapters may disagree - and they
+// disagree only by both being safe.
+//
+// EVERY lane of the workgroup must reach this call. It carries workgroup
+// barriers, so it may not be entered from a lane-divergent branch.
+#define M8_DEPTH_CERTIFICATE_FRONTIER 128u
+groupshared uint3 gM8CertFrontier[2][M8_DEPTH_CERTIFICATE_FRONTIER];
+groupshared uint gM8CertFrontierCount[2];
+groupshared uint gM8CertBegin;
+groupshared uint gM8CertRefuted;
+
+bool M8DepthCertificateThroughShared(uint eye, int2 imageSize, int2 minimum,
+    int2 maximum, float supportUpperDepth, uint lane, uint laneCount)
+{
+    if (lane == 0u)
+    {
+        uint3 root;
+        gM8CertBegin = M8DepthCertificateBegin(eye, imageSize, minimum, maximum,
+            supportUpperDepth, root);
+        gM8CertRefuted = 0u;
+        gM8CertFrontierCount[0] = (gM8CertBegin == 2u) ? 1u : 0u;
+        gM8CertFrontierCount[1] = 0u;
+        gM8CertFrontier[0][0] = root;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gM8CertBegin != 2u) return gM8CertBegin == 1u;
+
+    uint source = 0u;
+    // The frontier descends one certificate level per iteration and the root
+    // level is bounded by the pyramid, so this cannot spin.
+    [loop]
+    for (uint level = 0u; level <= M8_DEPTH_CERTIFICATE_LEVELS; level++)
+    {
+        // Uniform across the workgroup: every lane reads the same groupshared
+        // count behind the same barrier, so this break is not divergent.
+        uint count = gM8CertFrontierCount[source];
+        if (count == 0u) break;
+        uint target = 1u - source;
+        [loop]
+        for (uint index = lane; index < count; index += laneCount)
+        {
+            uint3 node = gM8CertFrontier[source][index];
+            uint verdict = M8DepthCertificateVisit(eye, node, minimum, maximum,
+                supportUpperDepth);
+            if (verdict == 1u) { InterlockedOr(gM8CertRefuted, 1u); continue; }
+            if (verdict != 2u) continue;
+            uint3 children[4];
+            uint produced = M8DepthCertificateChildren(node, minimum, maximum,
+                children);
+            if (produced == 0u) continue;
+            uint base;
+            InterlockedAdd(gM8CertFrontierCount[target], produced, base);
+            if (base + produced > M8_DEPTH_CERTIFICATE_FRONTIER)
+            {
+                InterlockedOr(gM8CertRefuted, 1u);
+                continue;
+            }
+            [loop]
+            for (uint child = 0u; child < produced; child++)
+                gM8CertFrontier[target][base + child] = children[child];
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (gM8CertRefuted != 0u) return false;
+        if (lane == 0u) gM8CertFrontierCount[source] = 0u;
+        source = target;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    return true;
+}
+#endif
 
 bool M8DepthCertificateEyeSupport(float3 minimum, float3 maximum,
     float4x4 view, float4x4 projection, int2 imageSize, uint eye)
@@ -251,6 +381,31 @@ bool M8DepthCertificateEyeSupport(float3 minimum, float3 maximum,
             imageSize, errors.y, lo, hi, upper) &&
         M8DepthCertificateThrough(eye, imageSize, lo, hi, upper);
 }
+
+#ifdef M8_DEPTH_CERTIFICATE_COOPERATIVE
+// The cooperative twin of the call above. The admission test and the interval
+// projection are the same text executed by every lane on the same inputs, so
+// every lane derives the same lo/hi/upper; only the cover is shared out. It
+// carries the barriers of M8DepthCertificateThroughShared and therefore has
+// the same rule: the whole workgroup enters, or none of it does.
+bool M8DepthCertificateEyeSupportShared(float3 minimum, float3 maximum,
+    float4x4 view, float4x4 projection, int2 imageSize, uint eye,
+    uint lane, uint laneCount)
+{
+    float4 errors = _M8DepthErrorBounds[eye];
+    int2 lo, hi;
+    float upper;
+    bool projected = eye < 2u && errors.w == 1.0 &&
+        all(M8FlowerIsFinite(errors.xyz)) && !any(errors.xyz < 0.0) &&
+        M8DepthProjectSupport(minimum, maximum, view, projection,
+            imageSize, errors.y, lo, hi, upper);
+    // Uniform: the guard above reads no lane-varying state, so either every
+    // lane reaches the shared cover or none does.
+    if (!projected) return false;
+    return M8DepthCertificateThroughShared(eye, imageSize, lo, hi, upper,
+        lane, laneCount);
+}
+#endif
 
 // 0 = NOT_THROUGH (direct endpoint), 1 = THROUGH_CERTAIN, 2 = AMBIGUOUS.
 // The endpoint predicate is evaluated for the SAME frozen observation before

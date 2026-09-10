@@ -717,13 +717,22 @@ A conservative vector-normal bound is:
 \epsilon_{N,q}=\frac{2\sqrt{18}}{1023}.
 \]
 
-Accepted observations provide fixed calibrated maximum bounds:
+The realtime frontend accepts a digital measurement using both depth views
+and both captured RGB views (§19). It does NOT require an external sensor
+accuracy certificate, a laboratory error profile, or a user-supplied asset.
 
 \[
-\epsilon_{N,s},\qquad \epsilon_{\delta,s}.
+\epsilon_{N,s},\qquad \epsilon_{\delta,s}
 \]
 
-Observations exceeding them are invalid, not downweighted.
+describe additional enclosure of that accepted measurement, not guaranteed
+physical sensor accuracy. With no additional representation error these terms
+are zero; stored-plane quantization and ordered FP32 operation bounds still
+apply. Zero here is NOT a claim of zero physical depth noise.
+
+CERTAIN/IMPOSSIBLE classify the generated geometry relative to accepted
+observations. Sensor admission is the realtime four-stream consistency policy;
+it is not a metrological certification of the environment.
 
 Persistent plane bounds:
 
@@ -2048,13 +2057,17 @@ Each valid depth pixel supplies:
 z\in[z^-,z^+].
 \]
 
-The interval contains:
+The interval encloses the captured digital depth and ordered reprojection
+operations. Negative-volume queries additionally reserve one L0 lattice step
+of clearance before the observed hit. This is a conservative realtime scan
+policy, NOT a claimed maximum physical sensor error.
 
-- sensor quantization;
-- calibration reprojection error;
-- stereo hypothesis width.
-
-An invalid pixel has no interval.
+The frozen GPU vector is `(metric enclosure, reprojection enclosure,
+visibility clearance, valid)`. The clearance is used only by the THROUGH
+certificate, never by plane derivatives, R2 prediction, or skin V measurement.
+The standard capture path uses `(0,0,a,1)`; FP32 enclosure is performed by
+the evaluator, not omitted. Actual SDK per-eye intrinsics and poses remain
+mandatory. Invalid/missing pixels never become free volume.
 
 ## 15.2 Certificate hierarchy
 
@@ -2372,16 +2385,23 @@ FlowerCommit
     commit current-quantum FlowerDetail/Thread work
 
 DrainObservationRefinement
-    consume remaining work from the SAME immutable observation
-    no new camera input required
-    stop only at workset exhaustion or AMBIGUOUS evidence boundary
+    the finite tile-local consequences reachable inside THIS transaction
+    root -> L1 -> L2 -> skin are dependency barriers of one command graph
+    never a continuation of this snapshot into a later frame
 
 FinalizeObservation
+    publish the canonical generation
+    mark the changed readout pages dirty
+    RELEASE THE SNAPSHOT
 ```
 
-`DrainObservationRefinement` is a semantic obligation, not a mandatory extra micro-dispatch. Production MAY fuse it into `FlowerCommit` or process the fixed L2-skin stages in one workgroup/dispatch. The implementation MUST prefer fused local work over a dispatch zoo. Its order is a scheduler implementation detail and MUST NOT use Fibonacci.
+`DrainObservationRefinement` is a semantic obligation, not a mandatory extra micro-dispatch. Production MAY fuse it into `FlowerCommit` or process the fixed L2-skin stages in one workgroup/dispatch. The implementation MUST prefer fused local work over a dispatch zoo. Its order is a scheduler implementation detail and MUST NOT use Fibonacci. Several entry points MAY remain where an Adreno shader-size limit requires them; none of them may mean "continue this snapshot next frame".
 
-The immutable observation may be released only after all work that it can make CERTAIN has either committed or been proven unnecessary. AMBIGUOUS children are not pending compute; they require new evidence and therefore do not keep the observation alive.
+One snapshot is one bounded synchronous scan transaction. It is never retained to exhaust derived refinement work. The snapshot processes all directly addressed resident evidence and all finite tile-local consequences reachable in that transaction, commits them to canonical world state, marks derived readout pages dirty, and retires. COLD dependencies are requested and skipped; AMBIGUOUS evidence is skipped; neither retains the snapshot. Further geometry, excavation and skin refinement is driven by later observations against the persistent world. No per-observation cursor, pending tile, refinement quantum or continuation workset survives `FinalizeObservation`.
+
+The persistent M8/dual/FlowerDetail/ThreadAtlas world is the refinement memory. A camera observation is evidence, not a work queue.
+
+The same rule binds the excavation view: what a snapshot certified THROUGH it stores, and what it did not certify simply stays FULL. FULL is re-examined by a NEW observation with a new camera, never by re-running the same frozen certificate.
 
 Sparse allocation barriers do not contain geometry decisions.
 
@@ -2430,7 +2450,28 @@ Thus:
 sensor\ support=world\ Flower\ support.
 \]
 
-A hypothesis with ambiguous projection or insufficient valid root support remains unresolved.
+A hypothesis with invalid projection or insufficient valid root support
+remains unresolved. The measured Depth-L position is the metric prior, tested
+against Depth-R and both RGB images at generated R1 roots. Five distinct
+hypotheses span at most ±a/2 along its viewing ray. Both depth normals must be
+compatible (absolute aligned dot >= 0.3); the opposite-plane residual must lie
+within a/2. The accepted endpoint normal uses both measured depth normals.
+
+RGB comparison uses the existing per-eye camera projection and bilinear
+sampler at generated root positions. Chromaticity L1 difference <= 0.35 is
+the realtime consistency policy inherited from simplescan, not a topology
+score or an interval-equality proof. Quantized black carries no chromatic
+direction. Crossing a bilinear texel boundary is not a missing observation.
+
+A uniquely supported correction may refine the metric prior. If correction
+hypotheses remain ambiguous but the original measured depth has valid
+two-depth/two-RGB R1 support, retain that measured depth unchanged. Ambiguity
+in refinement MUST NOT erase this basic R1 evidence. Without that support,
+do not fabricate an endpoint. No mono fallback or lower-confidence bypass.
+
+R2/R3 ambiguity remains local to refinement and cannot independently veto
+basic supported R1 existence. Flower root/sector/incidence interval predicates
+and the L0–L2 / L3–L5 geometry/skin split are unchanged.
 
 No tangent PCA or arbitrary square stencil is introduced.
 
@@ -9480,50 +9521,50 @@ bounded workset - it is permanent exclusion. It existed only to carry state
 across the resolve/RGB/V split, which itself exists only because of an Adreno
 module-size limit. Under the new model there is nothing to carry.
 
-### 2026-09-09 LIVE_SCAN_RECOVERY — calibration, native evidence, wake
+### 2026-09-10 LIVE_SCAN_RECOVERY — realtime admission, native evidence, wake
 
-BASE=769e49f + preserved pre-existing working changes (Claude dual/codegen,
-native metrics toggle/logging and UI). No prior cut is reopened or claimed PASS.
-SCOPE=repair the diagnosed empty-observation and wake/new-live-run flow, then
-the existing Unity Quest APK build. No Flower algebra/ontology changes.
-PURSUIT=the product still exposes an obsolete paused REV-B goal; this ledger
-is the current task cursor, not a claim that that goal was resumed/completed.
+BASE=cf39413 + preserved Claude dual/codegen/metrics/UI changes.
+SCOPE=restore actual four-stream realtime admission; preserve Flower algebra,
+shared addresses, native single queue, scan/wake lifecycle and measured metrics.
+USER_CLARIFICATION=external certified sensor errors were a mistaken interpretation.
+The scanner uses SDK camera/depth calibration and realtime consistency, not a
+laboratory profile. REV-C §5.1/§15.1/§19 and the immutable prefix agree.
+PURSUIT=product goal remains the obsolete paused REV-B goal; this is the cursor.
 
 DAG:
-  RECOVERY_1 calibration profile -> scene/bootstrap -> frozen uniforms ->
-    startup/build validation. IMPLEMENTED, tests PASS. Real calibrated bounds are missing;
-    source requested from user. No guessed bounds or validity-bit bypass.
-  RECOVERY_2 native observation-bound metrics and truthful counter meanings.
-    IMPLEMENTED; sampled readback bound to native observation/attempt/depth,
-    20 counters per radial bin, no change to endpoint acceptance predicates.
-  RECOVERY_3 anchor recovery, discard unsaved live run on explicit new scan,
-    dirty only on actual canonical/document changes. IMPLEMENTED, tests PASS;
-    actual headset pause/wake acceptance still pending.
-  RECOVERY_4 [1,2,3] tests -> fixes -> existing bounded Unity APK build.
-    TESTS PASS; APK preflight blocked by missing measured calibration asset.
-    Device acceptance is separate and must not be inferred from APK.
+  RECOVERY_1 remove profile/build/start gates; freeze digital representation
+    bounds + separate THROUGH clearance. Stereo retains an original depth
+    supported by both depth and RGB eyes when correction remains ambiguous.
+    Generated Flower roots replace the old census. IMPLEMENTED; GPU tests PASS.
+  RECOVERY_2 native observation/attempt/depth-bound metrics. IMPLEMENTED.
+    metricPriorAccepted and metricCorrectionAccepted distinguish the two cases.
+  RECOVERY_3 anchor wake recovery and explicit new-live-scan restart; actual
+    authority changes alone mark dirty. IMPLEMENTED in cf39413, preserved.
+  RECOVERY_4 [1,2,3] full Unity suite -> fixes -> bounded Unity Quest APK build
+    -> device measurement. TESTS + APK PASS; device measurement pending.
 
-CURSOR=RECOVERY_4 awaiting actual calibration source/data from user. The old
-generated host scene had all five calibration vectors zero; setup recreated
-that scene, StereoCalibrationValid rejected w!=1, and the same invalid bounds
-prevented THROUGH certification. Native metrics enable alone previously did
-not bind a revision or enqueue a native metrics readback; that is now wired.
-Calibration SSOT=host Assets/Settings/MerkabaStereoCalibration.asset, referenced
-by regenerated scene; source/provenance plus all five finite bounded streams
-required. This run did not invent or populate that missing profile.
-TESTS_RUN=full Unity EditMode 380/380 PASS, 2026-09-09 21:11:53Z,
-  /mnt/kingston-unity/Builds/TestResults/merkaba-results.xml.
-  Includes valid/invalid calibration GPU cases and empty-observation dirty test.
-SHADER_CHECK=exact native StereoFlowerRefine compile/reflection/spirv-val PASS;
-  metric gate REVIEW (no FAIL): 655976 bytes, 33609 body instructions,
-  8x8x1, 240 B groupshared, 3 writable bindings, 2 barriers.
-  /mnt/kingston-unity/Builds/QuestMerkabaScan/RecoveryStereoAudit/metrics.json.
-  Full 71-entry audit was not rerun; existing OPEN-1 is not claimed closed.
-BUILD=Tools/unity/build_merkaba_apk.sh invoked; exit 1 at calibration preflight.
-  Required: /mnt/kingston-unity/Unity/Projects/QuestMerkabaScanHost/Assets/Settings/MerkabaStereoCalibration.asset.
-  No fresh APK or deployment; previous APK retained. No synthetic fixture
-  values promoted into production; sensor bounds remain an external input.
-NEXT=populate documented actual profile, rerun bounded APK build, then measure
-  accepted endpoints -> allocated/touched tiles -> occupancy/direct/dual/draw
-  and pause/wake/Start on Quest. Green tests do not certify live capture.
+CURSOR=RECOVERY_4 fresh APK ready for device acceptance. Native StereoFlowerRefine
+  compile PASS, metric gate REVIEW (no FAIL): 479132 B / 24544 body instructions /
+  240 B groupshared / 8x8 / 3 writable. Unity DXC + generated-table parity PASS.
+  Positive textureless-wall test now requires a real accepted endpoint with
+  unmodified measured depth; missing opposite depth and disjoint RGB reject.
+PREVIOUS_RECEIPT=380/380 in cf39413 included the wrong profile gate and an
+  intentionally empty textureless fixture; it did NOT prove live admission.
+TESTS=375/375 full Unity EditMode PASS, 2026-09-10 12:01:19Z–12:02:02Z.
+  Removed 8 obsolete external-profile test cases, added 3 observation-policy
+  tests, corrected the existing positive/negative GPU stereo fixtures.
+  /mnt/kingston-unity/Builds/TestResults/merkaba-results.xml
+BUILD=Tools/unity/build_merkaba_apk.sh PASS, 2026-09-10 12:07Z.
+  Native 27 pipelines + Unity Android IL2CPP arm64 + release packaging.
+  APK=/mnt/kingston-unity/Builds/QuestMerkabaScan/QuestMerkabaScan-release.apk
+  APK_BYTES=76383070
+  APK_SHA256=bf42fea6724f792d6f6a36730864af6e163b3b1ebada987c9b8ed283b4e03934
+  MemoryHigh=12G, MemoryMax=16G, MemorySwapMax=2G, CPU affinity 0–1.
+  Full 71-entry audit/device performance were not rerun or claimed PASS.
+CHECKPOINT=includes preserved pre-existing Claude cooperative dual/codegen,
+  residency metrics and UI build stamp, as tested and packaged in this APK.
+  Untracked agent/session files are not included or deleted.
 DEVICE_ACCEPTANCE=pending.
+NEXT=install this APK and measure
+  accepted endpoints -> requested/HOT/touched tiles -> occupancy -> draw,
+  and verify pause/wake/explicit Start. No calibration asset is requested.

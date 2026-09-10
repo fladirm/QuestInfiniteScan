@@ -230,6 +230,10 @@ groupshared uint gDualBlockFinished;
 groupshared uint gDualWholeCertificate;
 groupshared uint gDualChanged;
 groupshared uint gDualBeginStatus;
+// The dual state this block had BEFORE this observation, read from the
+// read-only snapshot. Work selection needs to know what is already carved;
+// proving it again would write the word it already holds.
+groupshared uint gDualStoredBlockState;
 
 void M8DualObservationPending(uint status)
 {
@@ -324,9 +328,26 @@ void M8DualRequestChunkPayload(uint chunk, uint child)
     }
 }
 
+// What this chunk already was, before this observation touched anything. The
+// prepared per-chunk mask is only meaningful under a MIXED block, so a uniform
+// block answers for all of its children.
+uint M8DualStoredChunkState(uint block, uint child)
+{
+    return gDualStoredBlockState == M8_DUAL_MIXED
+        ? M8DualPreparedChunkState(block,child,false)
+        : gDualStoredBlockState;
+}
+
 void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
 {
     bool hasDirect=(gDualDirectChunks[child >> 5u] & (1u << (child & 31u))) != 0u;
+    // Determine the change first, prove it second. Excavation is persistent:
+    // a chunk already stored as certified FREE, with no endpoint of THIS
+    // observation reaching into it, has nothing this snapshot could alter.
+    // Certifying it again costs a full dyadic cover to conclude THROUGH, and
+    // then writes the word it already holds. The steady state must be free.
+    uint stored=M8DualStoredChunkState(block,child);
+    if (!hasDirect && stored == M8_DUAL_THROUGH) return;
     bool through=false;
     if (!hasDirect)
         through=gDualWholeCertificate != 0u || M8SupportThrough(minimum,32u);
@@ -352,6 +373,35 @@ void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
 
     if (!M8DualResolveChunk(block,child,chunk))
     {
+        // FULL is the default of the excavation model, not a stored record, so
+        // a chunk with no payload is already entirely FULL and correct. A
+        // failed parent certificate is a reason to test the children, never a
+        // reason to allocate: the children's addresses are arithmetic and need
+        // no payload. Descend logically, and ask storage for a payload only
+        // once some leaf is certified FREE - otherwise the implicit FULL stands
+        // and this observation owes nothing. Asking anyway also raised
+        // STORAGE_BACKPRESSURE, which reads as memory pressure and is not.
+        bool owed=hasDirect || through;
+        uint probeFirst=owed ? 0u : M8ScanChildMask(minimum,32);
+        [loop] while (probeFirst != 0u)
+        {
+            uint p1=(uint)firstbitlow(probeFirst);
+            probeFirst &= probeFirst-1u;
+            int3 probeMinimum=minimum+MerkabaM8OctantOffset(p1,16);
+            uint probeSecond=M8ScanChildMask(probeMinimum,16);
+            [loop] while (probeSecond != 0u)
+            {
+                uint p0=(uint)firstbitlow(probeSecond);
+                probeSecond &= probeSecond-1u;
+                if (M8SupportThrough(probeMinimum+MerkabaM8OctantOffset(p0,8),8u))
+                {
+                    owed=true;
+                    break;
+                }
+            }
+            if (owed) break;
+        }
+        if (!owed) return;
         M8DualRequestStorage(M8_DUAL_INTENT_CHUNK,child,0u);
         M8DualObservationPending(M8_DUAL_WRITE_RETRY);
         return;
@@ -518,6 +568,7 @@ void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
     {
         gScanBlockRef=0u;
         gScanBlockOrdinal=group.x;
+        gDualStoredBlockState=M8_DUAL_FULL;
         gScanSupport4=0u;
         gDualHasDirect=0u;
         gDualBlockFinished=0u;
@@ -554,6 +605,13 @@ void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                 if (M8FindBlock(coordinate,block))
                 {
                     gScanBlockRef=block+1u;
+                    // Read through the writable binding this kernel already
+                    // holds; a read-only alias of the same buffer is refused by
+                    // the SPIR-V audit. One workgroup owns one block and this
+                    // runs before M8DualBeginBlock, so it is the pre-observation
+                    // state regardless.
+                    M8DualBlockMeta storedMeta;
+                    gDualStoredBlockState=M8DualReadBlock(block,storedMeta,false);
                     M8CounterIncrement(M8_COUNTER_DUAL_QUERY_BLOCKS);
                 }
                 else

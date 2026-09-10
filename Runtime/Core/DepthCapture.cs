@@ -28,16 +28,15 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader depthCertificateCompute;
         [SerializeField] private bool dynamicOcclusionEnabled = true;
 
-        [SerializeField] private StereoCalibrationProfile calibrationProfile;
-
-        internal void RequireValidCalibration()
-        {
-            if (calibrationProfile == null)
-                throw new InvalidOperationException("Stereo calibration profile is missing: " +
-                    StereoCalibrationProfile.HostAssetPath);
-            if (!calibrationProfile.TryValidate(out string error))
-                throw new InvalidOperationException(error);
-        }
+        // Bounds describe the representation of an accepted digital measurement,
+        // not a laboratory certificate for the physical sensor. The SDK supplies
+        // the actual per-frame intrinsics/poses. z is visibility clearance only;
+        // it must never broaden the measured plane or a skin innovation.
+        internal static Vector4 ObservationDepthBounds =>
+            new(0f, 0f, MerkabaConstants.LatticeStep, 1f);
+        internal static Vector4 ObservationPlaneBounds => new(0f, 0f, 0f, 1f);
+        internal static Vector4 ObservationRgbBounds =>
+            new(0.5f / 255f, 0.5f / 255f, 0.5f / 255f, 1f);
 
         private readonly Matrix4x4[] _proj = new Matrix4x4[2];
         private readonly Matrix4x4[] _projInv = new Matrix4x4[2];
@@ -56,20 +55,14 @@ namespace Genesis.RoomScan
         /// <summary>Near and far clip distances (x = near, y = far) for the current depth frame.</summary>
         public Vector2 Planes => _planes;
 
-        // Presentation consumes the same calibrated maximum as reconstruction.
+        // Presentation and reconstruction enclose the same stored plane codes.
         internal bool TryGetFlowerPlaneBounds(out Vector2 bounds)
         {
-            if (calibrationProfile == null || !calibrationProfile.TryValidate(out _))
-            {
-                bounds = default;
-                return false;
-            }
-            Vector4 sensor = calibrationProfile.Plane;
             bounds = new Vector2(
                 MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
-                    sensor.x + 2.0 * Math.Sqrt(18.0) / 1023.0).Upper,
+                    2.0 * Math.Sqrt(18.0) / 1023.0).Upper,
                 MerkabaSphereFlowerAuthority.FloatInterval.Enclose(
-                    sensor.y + (double)MerkabaConstants.LatticeStep / (2.0 * 127.0)).Upper);
+                    (double)MerkabaConstants.LatticeStep / (2.0 * 127.0)).Upper);
             return true;
         }
 
@@ -1085,16 +1078,13 @@ namespace Genesis.RoomScan
             _depthCertificateObservationVersion = 0;
         }
 
-        // The profile supplies the accepted observation's calibrated maximum
-        // sensor eye-z / 3D reprojection displacement / hypothesis eye-z errors
-        // in metres, plus validity in w. Reprojection bounds apply laterally too.
-        // This is neither a quality weight nor a tunable geometry epsilon.
-        // Missing calibration (w != 1) makes that whole eye AMBIGUOUS on GPU.
+        // Freeze the realtime observation policy with its four captured streams.
+        // FP32 operations are enclosed by the generated interval evaluator;
+        // free-volume clearance is independent of endpoint/skin resolution.
         private void FreezeDepthCertificateBounds()
         {
-            RequireValidCalibration();
-            Vector4 left = calibrationProfile.DepthLeft;
-            Vector4 right = calibrationProfile.DepthRight;
+            Vector4 left = ObservationDepthBounds;
+            Vector4 right = ObservationDepthBounds;
             if (_heldDepthSlot < 0 || _ownedRawDepth[_heldDepthSlot] == null)
                 throw new InvalidOperationException("Certificate requires the held immutable stereo depth frame.");
             int version = _ownedVersions[_heldDepthSlot];
@@ -1102,9 +1092,9 @@ namespace Genesis.RoomScan
             {
                 if (_depthCertificateObservationVersion != version ||
                     !_frozenDepthErrorBounds[0].Equals(left) || !_frozenDepthErrorBounds[1].Equals(right) ||
-                    !_frozenPlaneErrorBounds.Equals(calibrationProfile.Plane) ||
-                    !_frozenRgbErrorBounds[0].Equals(calibrationProfile.RgbLeft) ||
-                    !_frozenRgbErrorBounds[1].Equals(calibrationProfile.RgbRight))
+                    !_frozenPlaneErrorBounds.Equals(ObservationPlaneBounds) ||
+                    !_frozenRgbErrorBounds[0].Equals(ObservationRgbBounds) ||
+                    !_frozenRgbErrorBounds[1].Equals(ObservationRgbBounds))
                     throw new InvalidOperationException("A held observation's certificate bounds cannot change.");
                 return;
             }
@@ -1120,9 +1110,9 @@ namespace Genesis.RoomScan
             }
             _frozenDepthErrorBounds[0] = left;
             _frozenDepthErrorBounds[1] = right;
-            _frozenPlaneErrorBounds = calibrationProfile.Plane;
-            _frozenRgbErrorBounds[0] = calibrationProfile.RgbLeft;
-            _frozenRgbErrorBounds[1] = calibrationProfile.RgbRight;
+            _frozenPlaneErrorBounds = ObservationPlaneBounds;
+            _frozenRgbErrorBounds[0] = ObservationRgbBounds;
+            _frozenRgbErrorBounds[1] = ObservationRgbBounds;
             _depthCertificateObservationVersion = version;
         }
 

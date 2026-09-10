@@ -753,6 +753,31 @@ namespace Genesis.RoomScan
                 $"residencyEpoch={values[MerkabaGrid.CounterResidencyEpoch]} " +
                 $"failure=0x{values[MerkabaGrid.CounterObservationFailure]:x} " +
                 "source=existing-asynchronous-counter-snapshot");
+            // The residency chain, in the order a measured endpoint travels it:
+            // a candidate needs a tile, a tile needs a slot, a slot needs the
+            // block/chunk above it, and only a touched tile reaches FlowerCommit.
+            // Without these the first empty link is indistinguishable from the
+            // last, and an empty readout looks the same at every stage.
+            Logger.Info($"Merkaba metrics-residency observation={observation} " +
+                $"hotTiles={values[MerkabaGrid.CounterHotTileCount]} " +
+                $"coldTiles={values[MerkabaGrid.CounterColdTileCount]} " +
+                $"freeTiles={values[MerkabaGrid.CounterFreeTileCount]} " +
+                $"surfaceTilesAllocated={values[MerkabaGrid.CounterSurfaceTilesAllocated]} " +
+                $"newTileQueue={values[MerkabaGrid.CounterNewTileQueueCount]} " +
+                $"pendingNewTiles={values[MerkabaGrid.CounterPendingNewTileCount]} " +
+                $"touchedTiles={values[MerkabaGrid.CounterTouchedTileCount]} " +
+                $"dirtyTiles={values[MerkabaGrid.CounterDirtyTileCount]} " +
+                $"occupiedKernels={values[MerkabaGrid.CounterOccupiedKernelCount]} " +
+                $"unresolvedSurfaceTiles={values[MerkabaGrid.CounterUnresolvedSurfaceTiles]} " +
+                $"unresolvedObservationTiles={values[MerkabaGrid.CounterUnresolvedObservationTiles]} " +
+                $"tileStarvation={values[MerkabaGrid.CounterTileStarvation]} " +
+                $"blockOverflow={values[MerkabaGrid.CounterBlockOverflow]} " +
+                $"chunkOverflow={values[MerkabaGrid.CounterChunkOverflow]} " +
+                $"hashFull={values[MerkabaGrid.CounterHashFull]} " +
+                $"failedReads={values[MerkabaGrid.CounterFailedReads]} " +
+                $"failedWrites={values[MerkabaGrid.CounterFailedWrites]} " +
+                $"dualQueryBlocks={values[MerkabaGrid.CounterDualQueryBlocks]} " +
+                $"changeMask=0x{values[MerkabaGrid.CounterObservationChangeMask]:x}");
         }
 
         internal static bool IsTimestampSampleValid(int status, bool overflow,
@@ -1069,11 +1094,11 @@ namespace Genesis.RoomScan
                    ",acceptedWithR3=" + values[offset + 6] +
                    ",accepted=" + values[offset + 7] +
                    ",sourceDepthValid=" + values[offset + 8] +
-                   ",calibrationInvalid=" + values[offset + 9] +
+                   ",observationInvalid=" + values[offset + 9] +
                    ",planeDepthSupportInvalid=" + values[offset + 10] +
                    ",planeNormalDegenerate=" + values[offset + 11] +
-                   ",planeNormalBoundRejected=" + values[offset + 12] +
-                   ",planeOffsetBoundRejected=" + values[offset + 13] +
+                   ",metricPriorAccepted=" + values[offset + 12] +
+                   ",metricCorrectionAccepted=" + values[offset + 13] +
                    ",planeFacingUnresolved=" + values[offset + 14] +
                    ",nonUniqueHypotheses=" + values[offset + 15] +
                    ",ambiguousSingleHypothesis=" + values[offset + 16] +

@@ -23,6 +23,8 @@
             </ui:VisualElement>
             <ui:Button name="btn-overflow" text="…" tooltip="Diagnostics"
                 class="overflow-action" />
+            <ui:Label name="val-build-stamp" text="build ?"
+                picking-mode="Ignore" class="build-stamp" />
         </ui:VisualElement>
 
         <ui:VisualElement name="mode-tabs" class="mode-tabs">

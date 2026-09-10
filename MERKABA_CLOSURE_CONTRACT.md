@@ -18,6 +18,12 @@ povolená „execution optimalizace“.
 Engineering rozpočty níže jsou výslovně zvolené cíle. Nejsou vydávány za
 matematické důsledky Flower geometrie.
 
+Upřesnění realtime vstupu: „certifikace“ je interní klasifikace nad přijatým
+měřením, ne požadavek na laboratorní přesnost senzoru. REV-C §5.1/§15.1/§19
+zachovávají čtyři skutečné streamy, projekční parametry SDK a Flower predicates;
+nevyžadují externí kalibrační profil. Nejednoznačná RGB korekce nesmí potlačit
+původní depth, pokud má podporu obou depth a obou RGB pohledů.
+
 ---
 
 # §1 Výchozí evidence a skutečně otevřené mezery

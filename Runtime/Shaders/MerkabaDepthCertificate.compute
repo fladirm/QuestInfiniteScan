@@ -13,10 +13,9 @@ int _DepthWidth;
 int _DepthHeight;
 float4x4 _DepthProjInv[2];
 
-// Frozen calibrated maximum errors in metres:
-// sensor eye-z quantization, 3D reprojection displacement norm, hypothesis eye-z width,
-// and categorical calibration validity. Missing bounds invalidate the eye;
-// zero-filled uniforms must never manufacture a zero-error certificate.
+// Frozen realtime representation policy in metres: metric enclosure,
+// reprojection enclosure, visibility clearance, observation validity.
+// A missing observation cannot manufacture a visibility certificate.
 // The same reprojection bound expands support in xyz during the query, not
 // just source depth: uncertain lateral projection cannot skip a foreground pixel.
 float4 _M8DepthErrorBounds[2];

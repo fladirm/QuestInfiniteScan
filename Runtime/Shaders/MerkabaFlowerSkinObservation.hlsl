@@ -511,7 +511,8 @@ bool M8FlowerSkinMetricMeasurement(int2 pixel,int3 owner,uint ownerFlags,
     M8FlowerInterval z=M8DepthIntervalRow(gsDepthProjInv[0][2],clip);
     M8FlowerInterval w=M8DepthIntervalRow(gsDepthProjInv[0][3],clip);
     if(!M8FlowerIDivPositive(M8FlowerI(-z.hi,-z.lo),w,depth))return false;
-    M8FlowerInterval error=M8FlowerIAdd(M8FlowerI(errors.x,errors.x),M8FlowerI(errors.z,errors.z));
+    // z is the excavation clearance, not uncertainty in the measured skin.
+    M8FlowerInterval error=M8FlowerI(errors.x,errors.x);
     depth=M8FlowerIAdd(depth,M8FlowerI(-error.hi,error.hi));
     float3 measured=gsDepthNormalTex.Load(int3(pixel,0)).xyz;
     M8FlowerInterval nError=M8FlowerI(-_M8PlaneErrorBounds.x,_M8PlaneErrorBounds.x);

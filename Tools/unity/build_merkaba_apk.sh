@@ -18,12 +18,6 @@ export GRADLE_USER_HOME="${QIS_GRADLE_USER_HOME}"
 export ANDROID_SDK_ROOT="${QIS_ANDROID_SDK_ROOT}"
 export ANDROID_HOME="${QIS_ANDROID_SDK_ROOT}"
 
-CALIBRATION_PROFILE="${QIS_UNITY_HOST_PROJECT}/Assets/Settings/MerkabaStereoCalibration.asset"
-if [[ ! -s "${CALIBRATION_PROFILE}" ]]; then
-  printf 'FAIL: measured stereo calibration profile missing: %s\n' "${CALIBRATION_PROFILE}" >&2
-  exit 1
-fi
-
 mkdir -p "${QIS_MERKABA_BUILD_DIR}" "${GRADLE_USER_HOME}"
 "${SCRIPT_DIR}/build_merkaba_vulkan_timestamps.sh" \
   "${QIS_UNITY_HOST_PROJECT}"

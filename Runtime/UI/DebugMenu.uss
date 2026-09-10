@@ -10,6 +10,17 @@
     border-radius: 18px;
     color: rgb(236, 238, 241);
 }
+/* Which APK is actually running. Deliberately tiny and dim: it is a witness,
+   not a control, and it must never be mistaken for scan state. */
+.build-stamp {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.45);
+    -unity-text-align: middle-right;
+    margin-left: 6px;
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
 .top-bar {
     min-height: 54px;
     flex-direction: row;
