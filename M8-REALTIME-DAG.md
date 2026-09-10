@@ -164,11 +164,20 @@ The observation graph records 40 commands: 18 allocation/reset indirect,
 in accounting; no <=10-dispatch or speedup acceptance is claimed. C# timing
 capacity is codegen-checked against this complete schedule.
 
-NEXT=RT2 owner-local allocator outcomes: parallel owner writers must not turn
-global arena-lock contention into lost available detail. Close malformed-peer
-publication handling and verify complete THROUGH deletion against the current
-contract. Do not redo grouping, roots, footprint reach, ERASE, fence retirement
-or conditional allocation. RT3 remains next after these RT2 gaps.
+OWNER UPDATES=existing owner lookup, phase replacement/insertion within its
+allocation and phase removal no longer acquire the global buddy lease. Existing
+RGB/V split replacement writes exactly seven values in place, preserving the
+allocation, other groups, masks and program. RGB uses uint4, V uint2 transfers.
+Only actual skin growth leases its payload arena; RGB no longer leases the
+unrelated detail arena. Exclusive measured-owner WGs and raw-reader retirement
+remain required. Actual allocation/epoch-wrap contention is still OPEN.
+
+NEXT=RT2 actual-growth allocator contention and malformed-peer publication.
+Do not add a spinning global lock, drop BUSY work as capacity, or retain a
+snapshot/cursor. Complete-through hysteresis already matches retained REV-C
+14.1; do not silently replace that explicit evidence rule during this execution
+rewrite. Do not redo grouping, roots, footprint reach, ERASE, fence retirement,
+conditional allocation or existing-value updates. RT3 follows RT2 closure.
 RT4 must cover exact reach, partial/COLD ERASE, epochs/peer invalidation, native
 schedule membership and no completion-readback-dependent scan decisions.
 

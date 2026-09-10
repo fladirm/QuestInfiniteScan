@@ -4,8 +4,8 @@
 // Resident allocation metadata only. No node of this tree is scan geometry.
 // A node stores the largest free power-of-two block below it, plus one;
 // zero means unavailable. A wholly free node lazily initializes its children.
-// One non-spinning CAS grants a short metadata lease. Contention is pending
-// computation, distinct from capacity exhaustion, and keeps the observation.
+// One non-spinning CAS grants a short metadata lease. BUSY is distinct from
+// capacity exhaustion; neither authorizes retaining a snapshot or work cursor.
 #define M8_FLOWER_ARENA_OK 0u
 #define M8_FLOWER_ARENA_BUSY 1u
 #define M8_FLOWER_ARENA_CAPACITY 2u

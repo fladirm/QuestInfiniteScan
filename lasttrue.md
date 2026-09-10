@@ -10129,3 +10129,23 @@ NEXT=RT2 OPEN: owner-local allocator contention, malformed-peer publication
   and complete THROUGH policy. RT3 readout/export and RT4 still remain.
 TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set not rebuilt;
   this is an implementation checkpoint, not full rewrite acceptance.
+
+## RT2 — allocation-free updates stay owner-local (after e705f94)
+
+CHANGE=existing owner lookup, phase writes within allocated capacity and phase
+  removal no longer lease the global allocator. RGB/V replacement updates only
+  its seven values in place (uint4/uint2), retaining allocation, other groups,
+  split masks and optical program. Actual skin growth alone leases its payload
+  pool; RGB does not lease the unrelated detail pool. All callers retain the
+  exclusive measured-owner WG and raw-reader retirement requirements. No CPU
+  geometry, new buffer, new dispatch, persistent cursor or spin lock added.
+COMPILE=exact target glslang/spirv-val PASS in
+  /tmp/m8-rt2-owner-updates-votomwa5:
+  Root 511764 B / 26681 body / 14572 shared / 5 RW;
+  L1 709220 B / 37085 / 14580 / 5; L2 709164 B / 37085 / 14580 / 5;
+  RGB 309324 B / 15915 / 204 / 4; V 504556 B / 25603 / 204 / 4.
+NEXT=RT2 actual allocation/growth and epoch-wrap contention remain, as does
+  malformed-peer publication. Do not reinterpret BUSY as exhausted capacity.
+  Retained REV-C14.1 explicitly uses R1 hysteresis under full THROUGH; no
+  evidence-policy change was made while removing execution gates. RT3 and
+  integrated RT4 remain. TESTS/APK/INSTALL/DEVICE=not run.

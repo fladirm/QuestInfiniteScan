@@ -6,7 +6,7 @@
 
 // The matching C# constants are MerkabaFlowerGpuLayout. Only canonical epoch,
 // record, run and group payloads cross persistence; these resident indices,
-// capacities, locks and frozen-work cursors are never serialized.
+// capacities and locks are never serialized. There is no refinement cursor.
 #define M8_FLOWER_TILE_DIRECTORY 64u
 #define M8_FLOWER_TILE_DIRECTORY_STRIDE 16u
 #define M8_FLOWER_OWNER_INDEX_BYTES 2048u
@@ -254,6 +254,8 @@ uint M8FlowerEnsureOwnerStorage(uint slot,uint kernelLocal,uint slotGeneration,
     ownerRef=0u;
     if(slot>=32768u || kernelLocal>=512u || slotGeneration==0u || publishing==0u)
         return M8_FLOWER_ARENA_INVALID;
+    ownerRef=M8FlowerFindOwner(slot,kernelLocal,slotGeneration);
+    if(ownerRef!=0u)return M8_FLOWER_ARENA_OK;
     M8FlowerArena pool=M8FlowerDetailArena();
     if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
     uint directory=M8_FLOWER_TILE_DIRECTORY+16u*slot;
@@ -476,7 +478,6 @@ uint M8FlowerCommitPhase(uint ownerRef,M8FlowerDetailRecord record,
         M8FlowerGetOwnerEpoch(ownerRef)!=record.ParentEpoch ||
         !M8FlowerOwnerWritable(ownerRef,publishing,retired))return M8_FLOWER_ARENA_INVALID;
     M8FlowerArena pool=M8FlowerDetailArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
     uint first,count;
     uint index=M8FlowerFindPhaseIndex(ownerRef,record.Key,first,count);
     uint result=M8_FLOWER_ARENA_OK;
@@ -487,6 +488,10 @@ uint M8FlowerCommitPhase(uint ownerRef,M8FlowerDetailRecord record,
     uint required=(count+(existing?0u:1u))*16u;
     if(result==M8_FLOWER_ARENA_OK && required>capacity)
     {
+        // The measured-owner WG is the only writer of this sorted phase span.
+        // Lease the shared allocator only when its allocation actually grows;
+        // replacing/inserting into existing capacity is owner-local work.
+        if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
         uint replacement,newCapacity;
         result=M8FlowerArenaAllocateLocked(_M8FlowerDetailPages,pool,required,replacement,newCapacity);
         if(result==M8_FLOWER_ARENA_OK)
@@ -496,6 +501,7 @@ uint M8FlowerCommitPhase(uint ownerRef,M8FlowerDetailRecord record,
             if(capacity!=0u)M8FlowerArenaFreeLocked(_M8FlowerDetailPages,pool,first,capacity);
             first=replacement;capacity=newCapacity;
         }
+        M8FlowerArenaRelease(_M8FlowerDetailPages,pool);
     }
     if(result==M8_FLOWER_ARENA_OK)
     {
@@ -513,7 +519,6 @@ uint M8FlowerCommitPhase(uint ownerRef,M8FlowerDetailRecord record,
         uint history=_M8FlowerDetailPages.Load(ownerRef+60u);
         _M8FlowerDetailPages.Store(ownerRef+60u,history|1u);
     }
-    M8FlowerArenaRelease(_M8FlowerDetailPages,pool);
     return result;
 }
 
@@ -527,7 +532,7 @@ bool M8FlowerCanonicalSplit(uint2 bits)
 // Both RGB and V use this same allocation/publication path. The supplied
 // words are already interval-proven observations; this routine neither votes
 // on geometry nor invents the seven values required by an atomic split.
-uint M8FlowerCommitSkinGroupLocked(uint ownerRef,uint flowerKey,
+uint M8FlowerCommitSkinGroup(uint ownerRef,uint flowerKey,
     uint parentOrdinal,uint4 childWords[7],bool thread,uint publishing,
     RWByteAddressBuffer payload,M8FlowerArena pool)
 {
@@ -567,22 +572,34 @@ uint M8FlowerCommitSkinGroupLocked(uint ownerRef,uint flowerKey,
         (thread ? !M8FlowerThreadRange(oldBase*groupBytes,oldGroups*groupBytes) :
             !M8FlowerDetailRange(oldBase*groupBytes,oldGroups*groupBytes))))
         return M8_FLOWER_ARENA_INVALID;
-    uint allocation,allocationCapacity;
-    uint result=M8FlowerArenaAllocateLocked(payload,pool,groups*groupBytes+groupBytes-1u,
-        allocation,allocationCapacity);
-    if(result!=M8_FLOWER_ARENA_OK)return result;
-    uint groupBase=(allocation+groupBytes-1u)/groupBytes;
     uint newFirst=first;
     uint ownerOffset=thread?32u:20u;
     uint capacity=_M8FlowerDetailPages.Load(ownerRef+ownerOffset+8u);
     uint newCapacity=capacity;
     uint required=(count+(existing?0u:1u))*32u;
+    if(replacing && required>capacity)return M8_FLOWER_ARENA_INVALID;
+    uint allocation=oldAllocation.x,allocationCapacity=oldAllocation.y;
+    uint groupBase=oldBase,result=M8_FLOWER_ARENA_OK;
+    if(!replacing)
+    {
+        // One signal WG owns this owner's run directory. An existing split
+        // needs only its seven replacement values, not a new allocation or
+        // a copy of every unrelated group. Raw-reader retirement is checked
+        // by the caller before either path may mutate this owner.
+        if(!M8FlowerArenaAcquire(payload,pool))return M8_FLOWER_ARENA_BUSY;
+        result=M8FlowerArenaAllocateLocked(payload,pool,groups*groupBytes+groupBytes-1u,
+            allocation,allocationCapacity);
+        if(result!=M8_FLOWER_ARENA_OK)
+        {M8FlowerArenaRelease(payload,pool);return result;}
+        groupBase=(allocation+groupBytes-1u)/groupBytes;
+    }
     if(required>capacity)
     {
         result=M8FlowerArenaAllocateLocked(payload,pool,required,newFirst,newCapacity);
         if(result!=M8_FLOWER_ARENA_OK)
         {
             M8FlowerArenaFreeLocked(payload,pool,allocation,allocationCapacity);
+            M8FlowerArenaRelease(payload,pool);
             return result;
         }
         [loop]for(uint item=0u;item<count;item++)
@@ -591,22 +608,21 @@ uint M8FlowerCommitSkinGroupLocked(uint ownerRef,uint flowerKey,
             payload.Store4(newFirst+32u*item+16u,payload.Load4(first+32u*item+16u));
         }
     }
-    [loop]for(uint group=0u;group<groups;group++)
+    [loop]for(uint group=replacing?rank:0u;group<(replacing?rank+1u:groups);group++)
     {
         uint destination=(groupBase+group)*groupBytes;
         uint oldGroup=group-(group>rank && !replacing?1u:0u);
-        [loop]for(uint word=0u;word<groupBytes/4u;word++)
+        [loop]for(uint child=0u;child<7u;child++)
         {
-            uint value;
-            // One entry per child rather than a flat twenty-eight word
-            // staging array: thread groups fill all four components, metric
-            // groups the first two. Same words in the same order.
-            uint4 owned=childWords[thread?(word>>2u):(word>>1u)];
-            uint component=thread?(word&3u):(word&1u);
-            if(group==rank)value=component==0u?owned.x:component==1u?owned.y:
-                component==2u?owned.z:owned.w;
-            else value=payload.Load((oldBase+oldGroup)*groupBytes+4u*word);
-            payload.Store(destination+4u*word,value);
+            uint4 value=childWords[child];
+            if(group!=rank)
+            {
+                uint source=(oldBase+oldGroup)*groupBytes;
+                if(thread)value=payload.Load4(source+16u*child);
+                else value.xy=payload.Load2(source+8u*child);
+            }
+            if(thread)payload.Store4(destination+16u*child,value);
+            else payload.Store2(destination+8u*child,value.xy);
         }
     }
     if(!existing)
@@ -637,9 +653,10 @@ uint M8FlowerCommitSkinGroupLocked(uint ownerRef,uint flowerKey,
     _M8FlowerDetailPages.Store(ownerRef+60u,history|1u);
     if(newFirst!=first && capacity!=0u)
         M8FlowerArenaFreeLocked(payload,pool,first,capacity);
-    if(oldAllocation.y!=0u)
+    if(!replacing && oldAllocation.y!=0u)
         M8FlowerArenaFreeLocked(payload,pool,oldAllocation.x,oldAllocation.y);
     if(staleProgram!=0xffffffffu)M8FlowerReleaseOpticalLocked(staleProgram);
+    if(!replacing)M8FlowerArenaRelease(payload,pool);
     return M8_FLOWER_ARENA_OK;
 }
 
@@ -656,12 +673,8 @@ uint M8FlowerCommitMetricGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
         words[child]=uint4(asuint(children[child].Lower),
             asuint(children[child].Upper),0u,0u);
     }
-    M8FlowerArena pool=M8FlowerDetailArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
-    uint result=M8FlowerCommitSkinGroupLocked(ownerRef,flowerKey,parentOrdinal,
-        words,false,publishing,_M8FlowerDetailPages,pool);
-    M8FlowerArenaRelease(_M8FlowerDetailPages,pool);
-    return result;
+    return M8FlowerCommitSkinGroup(ownerRef,flowerKey,parentOrdinal,
+        words,false,publishing,_M8FlowerDetailPages,M8FlowerDetailArena());
 }
 
 uint M8FlowerCommitThreadGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
@@ -681,18 +694,8 @@ uint M8FlowerCommitThreadGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
         if(!all(M8FlowerIsFinite(a)) || !all(M8FlowerIsFinite(b)) || any(a>b))return M8_FLOWER_ARENA_INVALID;
         words[child]=uint4(lo.x,lo.y,hi.x,hi.y);
     }
-    M8FlowerArena detail=M8FlowerDetailArena(),pool=M8FlowerThreadArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,detail))return M8_FLOWER_ARENA_BUSY;
-    if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,pool))
-    {
-        M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
-        return M8_FLOWER_ARENA_BUSY;
-    }
-    uint result=M8FlowerCommitSkinGroupLocked(ownerRef,flowerKey,parentOrdinal,
-        words,true,publishing,_M8ThreadAtlasPages,pool);
-    M8FlowerArenaRelease(_M8ThreadAtlasPages,pool);
-    M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
-    return result;
+    return M8FlowerCommitSkinGroup(ownerRef,flowerKey,parentOrdinal,
+        words,true,publishing,_M8ThreadAtlasPages,M8FlowerThreadArena());
 }
 
 void M8FlowerFreeOwnerPayloadLocked(uint ownerRef)
@@ -780,8 +783,8 @@ uint M8FlowerInvalidateOwner(uint slot,uint kernelLocal,uint slotGeneration,
 uint M8FlowerRemovePhase(uint ownerRef,uint key,uint publishing,uint retired)
 {
     if(!M8FlowerOwnerWritable(ownerRef,publishing,retired))return M8_FLOWER_ARENA_BUSY;
-    M8FlowerArena pool=M8FlowerDetailArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
+    // Exclusive measured-owner mutation; this retains its allocation and
+    // cannot contend with a different owner's allocator or phase updates.
     uint first,count;uint index=M8FlowerFindPhaseIndex(ownerRef,key,first,count);
     if(index<count && _M8FlowerDetailPages.Load(first+16u*index)==key)
     {
@@ -790,7 +793,6 @@ uint M8FlowerRemovePhase(uint ownerRef,uint key,uint publishing,uint retired)
         _M8FlowerDetailPages.Store(ownerRef+12u,count-1u);
         _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
     }
-    M8FlowerArenaRelease(_M8FlowerDetailPages,pool);
     // Removal becomes an exact persistent tombstone at complete-image append;
     // omission in a partial capture is never interpreted as removal.
     return index==0xffffffffu?M8_FLOWER_ARENA_INVALID:M8_FLOWER_ARENA_OK;
