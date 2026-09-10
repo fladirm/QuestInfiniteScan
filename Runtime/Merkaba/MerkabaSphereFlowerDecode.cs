@@ -49,6 +49,44 @@ namespace Genesis.RoomScan
         internal static ReadOnlySpan<uint4> DecodeCarrierPetals => CarrierDecodeData.Carriers;
         internal static ReadOnlySpan<uint4> CarrierTripleMasks => CarrierDecodeData.Triples;
 
+        private static class ChildLoopDecodeData
+        {
+#if UNITY_EDITOR
+            internal static readonly uint4[] Addresses;
+            internal static readonly uint[] Creations;
+            static ChildLoopDecodeData() => BuildChildLoopDecode(out Addresses, out Creations);
+#else
+            internal static readonly uint4[] Addresses = LoadGeneratedChildLoopAddresses();
+            internal static readonly uint[] Creations = LoadGeneratedChildLoopCreations();
+#endif
+        }
+
+        internal static ReadOnlySpan<uint4> ChildLoopAddresses => ChildLoopDecodeData.Addresses;
+        internal static ReadOnlySpan<uint> ChildLoopCreations => ChildLoopDecodeData.Creations;
+
+        internal static bool TryGetChildPhaseLoop(int petalClass, int parentContext,
+            int knotSite, out int level, out int3 junctionOffset, out int lineClass,
+            out int strandClass, out sbyte endpointOrientation,
+            out sbyte phaseOrientation, out int inheritedParentNode)
+        {
+            level = lineClass = strandClass = 0;
+            junctionOffset = default;
+            endpointOrientation = phaseOrientation = 0;
+            inheritedParentNode = -1;
+            if ((uint)petalClass >= PetalClassCount ||
+                (uint)parentContext >= ChildPhaseParentContextCount ||
+                (uint)knotSite >= ChildPhaseKnotSiteCount) return false;
+            uint4 row = ChildLoopAddresses[(petalClass * 5 + parentContext) * 6 + knotSite];
+            junctionOffset = math.asint(row.xyz);
+            level = (int)(row.w & 3u);
+            lineClass = (int)((row.w >> 2) & 15u);
+            strandClass = (int)((row.w >> 6) & 127u);
+            endpointOrientation = (sbyte)((row.w & (1u << 13)) != 0u ? -1 : 1);
+            phaseOrientation = (sbyte)((int)((row.w >> 14) & 3u) - 1);
+            inheritedParentNode = (int)((row.w >> 16) & 3u) - 1;
+            return true;
+        }
+
         // A compact iterator over reached immutable identities. No search
         // ordinal is retained in the world or across observation boundaries.
         internal static bool TakeReachedCarrier(ref uint4 pending, out int carrier)
@@ -100,6 +138,53 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
+        private static void BuildChildLoopDecode(out uint4[] rows, out uint[] creation)
+        {
+            rows = new uint4[PetalClassCount * 5 * 6];
+            creation = new uint[rows.Length];
+            for (int petal = 0; petal < PetalClassCount; petal++)
+            for (int parent = 0; parent < 5; parent++)
+            for (int site = 0; site < 6; site++)
+            {
+                if (!ComputeChildPhaseLoop(petal, parent, site,
+                    out int level, out int3 offset, out int lineClass, out int strand,
+                    out sbyte endpoint, out sbyte phase, out int inherited) ||
+                    (uint)level > 2u || (uint)lineClass >= 13u || (uint)strand >= 72u ||
+                    (endpoint != 1 && endpoint != -1) || phase < -1 || phase > 1 ||
+                    inherited < -1 || inherited > 2)
+                    throw new InvalidOperationException("Invalid generated child loop address.");
+                uint tag = (uint)level | ((uint)lineClass << 2) | ((uint)strand << 6) |
+                    (endpoint < 0 ? 1u << 13 : 0u) | ((uint)(phase + 1) << 14) |
+                    ((uint)(inherited + 1) << 16);
+                int index = (petal * 5 + parent) * 6 + site;
+                rows[index] = new uint4(math.asuint(offset), tag);
+                if (level != 0 && inherited >= 0) continue;
+                int recordPetal = petal, path = 0, rootNode;
+                if (level == 0)
+                {
+                    rootNode = PetalsValue[petal].Node(site);
+                    ulong incidence = NodeIncidentPetalsValue[rootNode];
+                    recordPetal = (uint)incidence != 0u ? math.tzcnt((uint)incidence) :
+                        32 + math.tzcnt((uint)(incidence >> 32));
+                }
+                else
+                {
+                    PhaseFamilyRule family = PhaseFamiliesValue[strand];
+                    rootNode = family.RootNode;
+                    if (level == 1)
+                    {
+                        recordPetal = StrandsValue[strand].Petal0;
+                        path = family.FinePath0;
+                    }
+                    else path = 4 * (parent - 1) + (site == 4 ? 1 : 0);
+                }
+                if ((uint)recordPetal >= 48u || (uint)path >= 16u || (uint)rootNode >= 26u)
+                    throw new InvalidOperationException("Invalid generated canonical creation key.");
+                creation[index] = (uint)recordPetal | ((uint)path << 6) | ((uint)rootNode << 10) |
+                    (LinesValue[lineClass].Shell == Shell.R3Closure ? 1u << 15 : 0u) | 0x80000000u;
+            }
+        }
+
         private static void BuildCarrierReach(out uint4[] petals, out uint4[] carriers)
         {
             petals = new uint4[PetalClassCount];

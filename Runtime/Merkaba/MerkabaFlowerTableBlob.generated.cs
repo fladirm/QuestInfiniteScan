@@ -7,7 +7,7 @@ namespace Genesis.RoomScan
     {
         internal const int ByteSize = 1650512;
         internal const int RowCount = 103157;
-        internal const uint TableHash = 0xb3350354u;
+        internal const uint TableHash = 0x3ab4f650u;
         internal const int SectorBoundsRowOffset = 0;
         internal const int BoundaryRationalRowOffset = 264;
         internal const int BoundaryIrrationalOwnerRowOffset = 528;

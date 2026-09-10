@@ -7,6 +7,27 @@ namespace Genesis.RoomScan.Tests
     public sealed class MerkabaSphereFlowerDecodeTests
     {
         [Test]
+        public void ChildLoopLookup_IsExhaustivelyIdenticalToIncidenceOracle()
+        {
+            for (int petal = 0; petal < A.PetalClassCount; petal++)
+            for (int parent = 0; parent < 5; parent++)
+            for (int site = 0; site < 6; site++)
+            {
+                Assert.That(A.ComputeChildPhaseLoop(petal, parent, site, out int level,
+                    out int3 offset, out int line, out int strand, out sbyte endpoint,
+                    out sbyte phase, out int inherited), Is.True);
+                Assert.That(A.TryGetChildPhaseLoop(petal, parent, site, out int actualLevel,
+                    out int3 actualOffset, out int actualLine, out int actualStrand, out sbyte actualEndpoint,
+                    out sbyte actualPhase, out int actualInherited), Is.True);
+                Assert.That((actualLevel, actualLine, actualStrand, actualEndpoint, actualPhase, actualInherited),
+                    Is.EqualTo((level, line, strand, endpoint, phase, inherited)));
+                Assert.That(math.all(actualOffset == offset), Is.True);
+                uint creation = A.ChildLoopCreations[(petal * 5 + parent) * 6 + site];
+                Assert.That((creation & 0x80000000u) != 0u, Is.EqualTo(level == 0 || inherited < 0));
+            }
+        }
+
+        [Test]
         public void ReachedCarriers_AgreeWithIndependentSourceIncidence()
         {
             Check(0u);

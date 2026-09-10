@@ -861,6 +861,9 @@ namespace Genesis.RoomScan
                 for (int word = 0; word < 4; word++) Word(row[word]);
             foreach (uint4 row in CarrierTripleMasks)
                 for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint4 row in ChildLoopAddresses)
+                for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint key in ChildLoopCreations) Word(key);
             foreach (BoundaryRule rule in BoundaryRules)
             {
                 for (int axis = 0; axis < 4; axis++) Word(unchecked((uint)rule.Rational[axis]));
@@ -1444,10 +1447,11 @@ namespace Genesis.RoomScan
             return ProofClassification.Certain;
         }
 
-        /// <summary>Exact child loop and its source family from generated
+#if UNITY_EDITOR
+        /// <summary>Codegen oracle for a child loop and its source family.
         /// incidence. An inherited site returns its ORIGINAL level/J/line;
         /// the consumer must copy the corresponding parent root verbatim.</summary>
-        internal static bool TryGetChildPhaseLoop(int petalClass, int parentContext,
+        internal static bool ComputeChildPhaseLoop(int petalClass, int parentContext,
             int knotSite, out int level, out int3 junctionOffset, out int lineClass,
             out int strandClass, out sbyte endpointOrientation,
             out sbyte phaseOrientation, out int inheritedParentNode)
@@ -1513,6 +1517,7 @@ namespace Genesis.RoomScan
             phaseOrientation = checked((sbyte)(rule.PhaseOrientation * childPhase));
             return true;
         }
+#endif
 
         private static bool TryOwnerJunction(int3 owner, int level, int3 offset,
             out int3 junction)

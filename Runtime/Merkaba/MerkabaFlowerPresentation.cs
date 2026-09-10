@@ -118,7 +118,7 @@ namespace Genesis.RoomScan
                 // Inverse source incidence reaches the candidates before
                 // child metric evaluation. Completion still requires every
                 // actual child of its parent, before emission ownership.
-                var parent = reader.BeginParent48Snapshot(owner, planeBounds);
+                var parent = reader.BeginFlowerDecode(owner, planeBounds);
                 uint4 pending = parent.ReachedCarriers;
                 int carrierId;
                 while (MerkabaSphereFlowerAuthority.TakeReachedCarrier(ref pending, out carrierId))
@@ -257,12 +257,14 @@ namespace Genesis.RoomScan
                         if (!_coverageReader.TryReadOwner(owner, out KernelState state, out _))
                         { _neighborCoverageUnresolved = true; continue; }
                         if (!state.IsOccupied || !state.HasMeasuredSurfacePlane) continue;
-                        uint4 pending = _coverageReader.ReachedCarrierMask(owner, _coverageErrors);
+                        var decode = _coverageReader.BeginFlowerDecode(owner, _coverageErrors);
+                        uint4 pending = decode.ReachedCarriers;
                         while (MerkabaSphereFlowerAuthority.TakeReachedCarrier(ref pending, out int carrier))
                         {
                             _cancellationToken.ThrowIfCancellationRequested();
                             var status = _coverageReader.ClassifyPageCarrier(owner, carrier, _coverageErrors,
-                                out MerkabaFlowerSymbolRecord symbol, out _, roots, positions);
+                                out MerkabaFlowerSymbolRecord symbol, out _, out _, roots, positions,
+                                decode, recordParentDirect: false);
                             if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain) continue;
                             uint3 paired = PairedCoverageEdges(_coverageReader, origin, owner, carrier,
                                 symbol.ActiveWedgeMask, roots, positions, _coverageErrors);

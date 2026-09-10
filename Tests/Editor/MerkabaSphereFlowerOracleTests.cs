@@ -463,7 +463,7 @@ namespace Genesis.RoomScan.Tests
             var reader = new Flower.SnapshotReader(Array.Empty<MerkabaTileSnapshot>(), Array.Empty<MerkabaTileAddress>(),
                 _ => throw new InvalidOperationException("An empty frozen parent must not query dual support."));
             int3 owner = new(-257, -33, -9);
-            var parent = reader.BeginParent48Snapshot(owner, float2.zero);
+            var parent = reader.BeginFlowerDecode(owner, float2.zero);
             Assert.Throws<InvalidOperationException>(() => parent.EvaluateCompletion(out _));
             Span<Flower.PhaseRootEvidence> roots = stackalloc Flower.PhaseRootEvidence[7];
             Span<float3> positions = stackalloc float3[7];
@@ -493,7 +493,7 @@ namespace Genesis.RoomScan.Tests
             int3 owner = new(x, y, z);
             float3 normal = bodyDiagonal ? new float3(1f) : new float3(1f, 0f, 0f);
             var reader = FrozenWallReader(owner, normal, 0f, out float2 errors);
-            var parent = reader.BeginParent48Snapshot(owner, errors);
+            var parent = reader.BeginFlowerDecode(owner, errors);
             Span<Flower.PhaseRootEvidence> roots = stackalloc Flower.PhaseRootEvidence[7];
             Span<float3> positions = stackalloc float3[7];
             var shared = new Dictionary<int4, (uint4 Phase, uint3 Position)>();
@@ -569,7 +569,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(certainRoots, Is.Zero, "This quantized input has no certified original R1 root.");
             Assert.That(ambiguousRoots, Is.GreaterThan(0), "Unresolved root evidence must not be treated as absence.");
 
-            var parent = reader.BeginParent48Snapshot(owner, errors);
+            var parent = reader.BeginFlowerDecode(owner, errors);
             Span<Flower.PhaseRootEvidence> roots = stackalloc Flower.PhaseRootEvidence[7];
             Span<float3> positions = stackalloc float3[7];
             int ambiguousCarriers = 0;

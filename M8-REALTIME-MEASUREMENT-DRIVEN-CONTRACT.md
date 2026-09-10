@@ -249,6 +249,10 @@ build. Respect quest_guide: banked <=128 MiB SSBO bindings, <=32 KiB WG shared
 memory (target 12–16 KiB), <=8 writable bindings, bounded WG/register lifetimes,
 generated RO lookups, no CPU readback for scan/draw decisions. GPU->SSD and
 export transfers are not reconstruction authority and must remain explicit.
+CPU oracle/codegen is not a realtime execution backend. SENSOR, scan world
+updates, live page compilation and draw MUST execute on the GPU; no CPU
+DecodeFlower or fallback may enter that hot path. The frozen export backend
+in §9 is offline, never a producer of live pages or scan evidence.
 
 Commit each coherent replacement with consumers rewired and its predecessor
 removed. Do not leave a compile-broken checkpoint labelled a closed cut.

@@ -9767,3 +9767,33 @@ GATE=shader-size FAIL remains; source selection is not elimination of the
 TESTS=two independent finite-incidence/triple-inverse tests added, not run.
   Full suite/ABI/shader/GLB validation deferred to RT4 after complete rewire.
 APK=not built; INSTALL=not run; DEVICE=not run. Active rewrite goal unchanged.
+
+### 2026-09-10 REALTIME_RT1 — reached read reuse and GPU carrier fan-out
+
+CURSOR=RT1 OPEN. This checkpoint is not completion of the decoder/rewrite.
+CODEGEN=one frozen child-loop address/creation table for CPU/HLSL. Exact
+  incidence derivation is editor/oracle-only; the player reads generated data.
+CPU=offline frozen export/oracle only. Disposable FlowerDecode evaluates only
+  requested original/child knots, reuses direct results and re-evaluates only
+  completion-affected carriers. No CPU scan/live-readout fallback was added.
+GPU=one wedge/sign predicate shared by consumers; readout maps actual batch
+  source anchors and sign triples onto lanes. Metric site supports are reused
+  from the disjoint owner-prefix scratch lifetime, not recomputed per triple.
+  Endpoint receipts retain prefix dependency semantics; masked alternatives
+  do not create unrelated COLD dependencies. No new persistent fields.
+COMPILE=Unity GenerateForBatch/current C# PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt1-child-lookup-compile.log
+  Exact native Compact/spirv-val PASS; artifact
+  /tmp/m8-rt1-cooperative-final-5xye3nov/pipeline-0.spv
+  1248772 B / 66194 body instructions / 31340 B shared / 7 RW / 256 lanes;
+  SHA256=2b1d95d770b3831b272c4addb5135220989aa56e6f1e303f6bd7f77accfc5f39.
+  ResolveFlowerCarriers/spirv-val PASS; artifact
+  /tmp/m8-rt1-cooperative-5g0u8j2m/pipeline-1.spv
+  707884 B / 36752 body / 20628 B shared / 6 RW / 128 lanes.
+GATE=Compact size/instruction FAIL remains. Parallel distribution is not a
+  measured speedup and does not remove the original/base acquisition packet.
+NEXT=M8FlowerPacketAcquire reached L1/L2 dependency decode; then RT2 removes
+  the persistent cursor/task/receipt model. RT3 export V/rewrite remains open.
+TESTS=child lookup/oracle exhaustive test added, not run. Existing positive
+  fixtures retained; only their decoder factory name changed.
+APK=not built; INSTALL=not run; DEVICE=not run. Only RT4 may run those gates.

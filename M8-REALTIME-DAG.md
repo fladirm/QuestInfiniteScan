@@ -5,6 +5,8 @@ BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
 GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
 CURRENT=RT1
 STATE=implementation
+HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
+  not a runtime fallback. Frozen offline export remains outside that hotpath.
 DELIVERY_GATE=No APK, install or Quest verification in RT1–RT3. Only RT4,
   after the complete rewrite. Intermediate cuts use compile/codegen checks
   and commits, not device builds or acceptance runs.
@@ -99,10 +101,20 @@ the unconditional 0..127 walks in those consumers are removed. Parent coverage
 accounts for excluded constructions without inventing direct evidence.
 CPU seven-root-sign closure now uses the same generated triple inverse as HLSL.
 This is necessary-source selection, NOT the completed actual-branch decoder.
-NEXT=reach L1/L2 child relations from admitted constructions/present phases;
-remove the remaining 52-original/site metric packet and Parent48 reconstruction
-in the shared decoder. Do not mistake the selection mask for resolved geometry.
-Compile/codegen PASS; Compact still 1242872 B / 65864 body / 30124 B shared:
-shader-size gate OPEN. No tests, APK, install or device run in this checkpoint.
+RT1 third checkpoint: CPU frozen decoder memoizes only requested original/knot
+reads and direct results; completion evaluates actual boundary candidates and
+revisits only affected carriers. This CPU decoder is NOT used by live scan or
+readout. Child-loop address/creation is now one editor-generated lookup for
+CPU and GPU; the incidence derivation is editor/oracle-only.
+GPU carrier wedge/sign predicates now run as independent lane items. Shared
+site supports are evaluated once; owner-prefix scratch is reused between its
+disjoint lifetimes. Original endpoint and selected-site receipts stay exact.
+NEXT=replace M8FlowerPacketAcquire's original/base/site reconstruction packet
+with reached L1/L2 dependencies and present-phase decode, then RT2's world
+cursor/1336-task/receipt removal. Selection/cooperative fan-out is not the
+completed decoder; no RT1/RT2 closure may be inferred from this checkpoint.
+Compile/codegen PASS. Compact 1248772 B / 66194 body / 31340 B shared, 7 RW:
+shader-size gate OPEN; no runtime speedup claim. ResolveFlowerCarriers compile
+PASS, 707884 B / 36752 body / 20628 B shared. No tests/APK/install/device run.
 RT1 remains OPEN; RT2/RT3 not complete. Baseline tests 378/378 and installed
 APK 03280202 are not rewrite acceptance. Delivery still waits for RT4.

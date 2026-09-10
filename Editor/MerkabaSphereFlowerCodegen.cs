@@ -359,7 +359,7 @@ namespace Genesis.RoomScan.Editor
             AppendTetraFrames(output, tables);
             AppendJunctionRules(output, false, tables);
             AppendCoordinateForms(output, tables);
-            AppendChildLoopAddresses(output, tables);
+            AppendChildLoopAddresses(output, false, tables);
             AppendR1WitnessDecode(output, false, tables);
             AppendLoopMetricLengths(output, tables);
             AppendPlaneDecodeTable(output, tables);
@@ -549,6 +549,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
             AppendRadicalSectorPatterns(o, true);
             AppendAnchorSectorPetalMasks(o, true);
             AppendR1WitnessDecode(o, true);
+            AppendChildLoopAddresses(o, true);
             AppendBoundaryRules(o, true);
             AppendCompletion(o, true);
             AppendJunctionRules(o, true);
@@ -1665,59 +1666,25 @@ internal static uint M8FlowerUniqueCompletion(uint2 candidates,out uint petal)
             tables.AppendVectors(output, "M8FlowerCoordinateForm", "float4", rows);
         }
 
-        private static void AppendChildLoopAddresses(StringBuilder output, GpuTables tables)
+        private static void AppendChildLoopAddresses(StringBuilder output, bool csharp, GpuTables tables = null)
         {
-            var rows = new uint4[MerkabaSphereFlowerAuthority.PetalClassCount * 5 * 6];
-            var creation = new uint[rows.Length];
-            for (int petal = 0; petal < MerkabaSphereFlowerAuthority.PetalClassCount; petal++)
-            for (int parent = 0; parent < 5; parent++)
-            for (int site = 0; site < 6; site++)
+            ReadOnlySpan<uint4> rows = MerkabaSphereFlowerAuthority.ChildLoopAddresses;
+            ReadOnlySpan<uint> creation = MerkabaSphereFlowerAuthority.ChildLoopCreations;
+            if (!csharp)
             {
-                if (!MerkabaSphereFlowerAuthority.TryGetChildPhaseLoop(petal, parent, site,
-                    out int level, out int3 offset, out int lineClass, out int strand,
-                    out sbyte endpoint, out sbyte phase, out int inherited) ||
-                    (uint)level > 2u || (uint)lineClass >= 13u || (uint)strand >= 72u ||
-                    (endpoint != 1 && endpoint != -1) || phase < -1 || phase > 1 ||
-                    inherited < -1 || inherited > 2)
-                    throw new InvalidOperationException("Invalid generated child loop address.");
-                uint tag = (uint)level | ((uint)lineClass << 2) | ((uint)strand << 6) |
-                    (endpoint < 0 ? 1u << 13 : 0u) | ((uint)(phase + 1) << 14) |
-                    ((uint)(inherited + 1) << 16);
-                int index = (petal * 5 + parent) * 6 + site;
-                rows[index] = new uint4(
-                    math.asuint(offset.x), math.asuint(offset.y), math.asuint(offset.z), tag);
-                // The same canonical creation address as ResolveSource. An
-                // inherited alias is not a new record. The runtime receives
-                // this finite key, not another family/incidence derivation.
-                if (level != 0 && inherited >= 0) continue;
-                int recordPetal = petal, path = 0, rootNode;
-                if (level == 0)
-                {
-                    rootNode = MerkabaSphereFlowerAuthority.Petals[petal].Node(site);
-                    ulong incidence = MerkabaSphereFlowerAuthority.NodeIncidentPetals[rootNode];
-                    recordPetal = 0;
-                    while ((incidence & (1UL << recordPetal)) == 0UL && recordPetal < 48)
-                        recordPetal++;
-                }
-                else
-                {
-                    var family = MerkabaSphereFlowerAuthority.PhaseFamilies[strand];
-                    rootNode = family.RootNode;
-                    if (level == 1)
-                    {
-                        recordPetal = MerkabaSphereFlowerAuthority.Strands[strand].Petal0;
-                        path = family.FinePath0;
-                    }
-                    else path = 4 * (parent - 1) + (site == 4 ? 1 : 0);
-                }
-                if ((uint)recordPetal >= 48u || (uint)path >= 16u || (uint)rootNode >= 26u)
-                    throw new InvalidOperationException("Invalid generated canonical creation key.");
-                creation[index] = (uint)recordPetal | ((uint)path << 6) | ((uint)rootNode << 10) |
-                    (MerkabaSphereFlowerAuthority.Lines[lineClass].Shell ==
-                        MerkabaSphereFlowerAuthority.Shell.R3Closure ? 1u << 15 : 0u) | 0x80000000u;
+                tables.AppendVectors(output, "M8FlowerChildLoopAddress", "uint4", rows);
+                tables.AppendScalars(output, "M8FlowerChildCreation", "uint", creation);
+                return;
             }
-            tables.AppendVectors(output, "M8FlowerChildLoopAddress", "uint4", rows);
-            tables.AppendScalars(output, "M8FlowerChildCreation", "uint", creation);
+            output.AppendLine("        private static uint4[] LoadGeneratedChildLoopAddresses() => new uint4[] {");
+            foreach (uint4 row in rows)
+                output.Append("            new uint4(").Append(row.x).Append("u,")
+                    .Append(row.y).Append("u,").Append(row.z).Append("u,")
+                    .Append(row.w).AppendLine("u),");
+            output.AppendLine("        };");
+            output.AppendLine("        private static uint[] LoadGeneratedChildLoopCreations() => new uint[] {");
+            foreach (uint key in creation) output.Append("            ").Append(key).AppendLine("u,");
+            output.AppendLine("        };");
         }
 
         private static void AppendPlaneDecodeTable(StringBuilder output, GpuTables tables)
