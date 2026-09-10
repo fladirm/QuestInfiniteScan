@@ -46,24 +46,15 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane)
     if(bin.x!=_M8ObservationToken || bin.w!=bin.y ||
         (bin.y!=0u&&(bin.z>=_M8ObservationRecordCapacity ||
             bin.y>_M8ObservationRecordCapacity-bin.z)))return;
-    uint cursor=M8FlowerTileRefinementCursor(slot,runtime.w);
-    uint stageBegin=stage==0u?0u:stage==1u?M8_FLOWER_ROOT_PHASE_TASKS:
-        M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS;
-    uint stageEnd=stage==0u?M8_FLOWER_ROOT_PHASE_TASKS:stage==1u?
-        M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS:M8_FLOWER_PHASE_TASKS;
-    if(cursor==M8_FLOWER_PHASE_TASKS || (stage<3u && cursor>=stageEnd))return;
-    if(stage>3u)
+    if(stage>=3u)
     {
         if(lane==0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
         return;
     }
-    if(cursor<stageBegin)return;
-    if(bin.y==0u)
-    {
-        if(lane==0u)M8FlowerStoreTileRefinementCursor(slot,runtime.w,
-            _M8ObservationToken,M8_FLOWER_PHASE_TASKS);
-        return;
-    }
+    if(bin.y==0u)return;
+    for(uint word=lane;word<M8_FLOWER_OBSERVED_RELATION_WORDS;word+=128u)
+        m8FineReachedRelations[word]=0u;
+    if(lane<16u)m8FineObservedCells[lane]=0u;
     for(uint local=lane;local<512u;local+=128u)
     {
         KernelState state=M8LoadKernelStateRead(slot,local);
@@ -91,27 +82,27 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane)
             state|=M8_FLOWER_FINE_NOVEL;
         InterlockedOr(m8FineState[local],state);
         if((state&M8_FLOWER_FINE_NOVEL)!=0u)InterlockedOr(m8FineAnyNovelty,1u);
+        M8FlowerReachObservedRelations(stage,M8GlobalKernelCoord(slot,local),world);
     }
     GroupMemoryBarrierWithGroupSync();
-    if(m8FineAnyActive==0u)
-    {
-        if(lane==0u)M8FlowerStoreTileRefinementCursor(slot,runtime.w,
-            _M8ObservationToken,M8_FLOWER_PHASE_TASKS);
-        return;
-    }
+    if(m8FineAnyActive==0u || (stage!=0u && m8FineAnyNovelty==0u))return;
+    M8FlowerExpandObservedCells(stage,lane);
     M8FlowerCacheTileHalo(slot,lane,false,true);
     float normalError=M8FlowerNext(_M8PlaneErrorBounds.x+M8_FLOWER_NORMAL_QUANTIZATION_UPPER);
     float offsetError=M8FlowerNext(_M8PlaneErrorBounds.y+M8_FLOWER_OFFSET_QUANTIZATION_UPPER);
-    uint consumed=0u;
-    [loop]while(consumed<_M8RefinementQuantum &&
-        cursor<stageEnd)
+    uint words=(M8FlowerObservedRelationLevelsAt(stage).y+31u)/32u;
+    [loop]for(uint word=0u;word<words;word++)
     {
-        M8FlowerGeometryNode task=(M8FlowerGeometryNode)0;
+    uint pending=m8FineReachedRelations[word];
+    [loop]while(pending!=0u)
+    {
+        uint relation=32u*word+(uint)firstbitlow(pending);
+        pending&=pending-1u;
+        [loop]for(uint sign=0u;sign<2u;sign++)
+        {
+        M8FlowerGeometryNode task=M8FlowerObservedRelation(stage,relation,sign!=0u);
         uint observedTags[4];float4 observedBounds[4];uint observedCertain=0u;
         {
-            if(cursor>=M8_FLOWER_ROOT_PHASE_TASKS && m8FineAnyNovelty==0u)
-            {cursor=stageEnd;break;}
-            if(!M8FlowerGeometryNodeAt(cursor,task)){cursor++;continue;}
             [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
             {
                 M8FlowerReduceFineEndpoint(slot,lane,task,endpoint,normalError,offsetError);
@@ -186,16 +177,18 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane)
             m8FineWriteStatus=M8_FLOWER_ARENA_BUSY;
         }
         GroupMemoryBarrierWithGroupSync();
-        if(m8FineWriteStatus!=0u)break;
-        cursor++;consumed++;
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
+        }
+        if(m8FineWriteStatus!=0u)break;
+    }
+    if(m8FineWriteStatus!=0u)break;
     }
     if(lane==0u)
     {
-        if(!M8FlowerStoreTileRefinementCursor(slot,runtime.w,_M8ObservationToken,cursor))
-            m8FineWriteStatus=M8_FLOWER_SIDECAR_STALE_SLOT;
-        if(cursor<stageEnd || m8FineWriteStatus!=0u)
+        if(m8FineWriteStatus!=0u)
+        {
             M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
-        if(m8FineWriteStatus!=0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
+            M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
+        }
     }
 }

@@ -9868,3 +9868,44 @@ NEXT=replace GeometryNodeAt/1336 tasks/RefinementQuantum/TileRefinementCursor
   replacement. RT3 still removes the presentation compiler and adds export V.
 TESTS=not run; APK=not built; INSTALL=not run; DEVICE=not run. No performance
   claim and no whole-rewrite acceptance. Integrated validation belongs to RT4.
+
+## RT2 receipt — observation-reached phase addresses, 2026-09-10
+
+BASE=fb98efa. RT2 remains OPEN; RT3/RT4 not started.
+IMPLEMENTED=removed production GeometryNodeAt, PHASE_TASKS/1336 catalogue,
+  RefinementQuantum and both TileRefinementCursor read/write helpers plus
+  their commit/invalidation/managed consumers. No reconstruction cursor is
+  written in the FlowerDetail tile directory. Its spare words are not state.
+  Editor-only BuildObservedRelations derives 20 original, 24 L1 and 192 L2
+  unsigned relation addresses from the existing Nodes/Strands/ChildLoop
+  tables, retaining both signs and distinct L2 parent predictions. It also
+  emits the inverse of the exact endpoint-support predicate over 64 L1 and
+  512 L2 half-open cells, into the same generated RO blob and frozen hash.
+  GPU source records mark cells once; separate lanes expand occupied cells,
+  not every pixel's candidate list. Only reached relation bits enter metric
+  classification/reduction. No CPU work-list builder, geometry backend,
+  scan readback, sampled plane table or alternate surface authority added.
+PRESERVED=prediction/observation residual vs peer intersection, quantized
+  plane enclosures, endpoint orientation, RootOwner/incidence separation,
+  canonical record keys and exact child transport. Cell addressing corrects
+  the float division hint with the original ordered endpoint products; it
+  neither clamps a measurement nor adds an epsilon.
+COMPILE=Unity Editor codegen/C# PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-reached-relations.log:781
+  Exact native glslang compile/spirv-val PASS (not APK/full audit):
+  /tmp/m8-rt2-reached-relations-ayd5w1v3/pipeline-0.spv
+  DrainFlowerGeometry 853000 B / 45212 body / 20704 B shared / 7 RW / 128 lanes;
+  SHA256=9bf43e6f5a34efaec0f629b12bcdd322d5951de8820d0d73aa0878512988c971.
+  pipeline-1.spv FlowerCommit 779156 B / 41266 body / 24704 B shared / 8 RW;
+  SHA256=08748b2b1677549a2451753584a1ebc5441d2a9b6887bb053139aa0d206e95c1.
+  pipeline-2.spv ResolveFlowerCarriers 718364 B / 36967 body / 20692 B shared / 6 RW;
+  SHA256=297078b670d331c337e49c78152f34e9af556a37cc3c23b9dab05974b783042b.
+NEXT=remove persistent owner/peer invalidation receipt/ACK and global
+  INVALIDATION_OWED/AdvanceRefinementStage. Epoch must change with structural
+  M8 mutation. Rewire every pending-invalidation reader, then fixed-level
+  geometry work over actual owners, with local COLD/write outcomes. Current
+  tile-wide reduction and failure gates are not final fan-out. Finish actual
+  parent/footprint skin reach and resolver's eager original acquisition.
+  RT3 presentation compiler/export V remain separate unfinished work.
+TESTS=not run; APK=not built; INSTALL=not run; DEVICE=not run. No speedup or
+  full-rewrite acceptance claim; full validation remains RT4.

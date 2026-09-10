@@ -107,17 +107,30 @@ The two signals are independent. Native/managed resource and dispatch ABI 21
 is wired; snapshot completion/token bounds the handoff's semantic lifetime.
 No CPU solver/readback was introduced. No APK/device/test-suite run.
 
-NEXT=RT2 geometry: replace GeometryNodeAt/1336-task/RefinementQuantum and
-TileRefinementCursor, including the deferred owner/peer invalidation program,
-with observation-reached root/L1/L2 dependencies and transactional epochs.
-The geometry stage machine remains OPEN, not renamed or declared complete.
+RT2 geometry checkpoint: GeometryNodeAt, the 1336-task catalogue, quantum and
+TileRefinementCursor have been removed from production. Editor derives phase
+addresses (20 original, 24 L1, 192 L2 unsigned relations) and inverse support
+cell incidence from the existing child-loop authority. GPU measurements mark
+dyadic cells; lanes expand each touched cell once into reached relation bits.
+Only reached bits, both signs, enter the unchanged metric/peer predicates.
+This is a conservative inverse of the existing endpoint-support filter, not
+a claim that all actual-parent/footprint routing and fan-out are finished.
+
+NEXT=RT2 deferred owner/peer invalidation: publish structural epochs with M8,
+remove persistent receipt/ACK and INVALIDATION_OWED/AdvanceRefinementStage,
+then dispatch fixed dependency levels over actual measured owners. Current
+geometry still reduces a touched tile per WG and has tile-wide write/COLD
+failure gates. Replace those with local publication outcomes; do not declare
+this checkpoint the completed measurement-driven scanner.
 Also finish pixel/footprint-to-generated-child reach before all skin evidence
 work; the current compact signal consumers retain complete footprint predicates
 and prune by actual signal splits, but do not yet have that fine routing.
 Resolver acquisition still retains an original-root packet for one active
 owner; remove its remaining eager alternatives with reached dependencies.
-Start at MerkabaFlowerDrainBody/Refinement/Commit/Sidecar and native schedule;
-do not redo the completed signal-buffer handoff or RT1 codegen tables.
+Start at MerkabaFlowerCommit::StoreR1/BeginR1FineInvalidation,
+FlowerRefinement::DrainLocal/PeerInvalidations and Sidecar::CaptureInvalidation,
+then rewire the native/managed graph and the readers of pending invalidation.
+Do not redo the signal-buffer handoff or completed reached-relation codegen.
 
 RT3 still owns removal of the remaining presentation reconstruction packet,
 completion/count/emit re-evaluation and export V atlas. RT1 did not close those

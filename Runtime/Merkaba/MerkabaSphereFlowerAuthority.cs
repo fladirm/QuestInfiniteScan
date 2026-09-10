@@ -864,6 +864,13 @@ namespace Genesis.RoomScan
             foreach (uint4 row in ChildLoopAddresses)
                 for (int word = 0; word < 4; word++) Word(row[word]);
             foreach (uint key in ChildLoopCreations) Word(key);
+            foreach (uint4 row in ObservedRelations)
+                for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint4 row in ObservedRelationCells)
+                for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint4 row in ObservedRelationLevels)
+                for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint reference in ObservedRelationReferences) Word(reference);
             foreach (BoundaryRule rule in BoundaryRules)
             {
                 for (int axis = 0; axis < 4; axis++) Word(unchecked((uint)rule.Rational[axis]));

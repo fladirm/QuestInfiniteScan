@@ -213,19 +213,6 @@ bool M8FlowerOriginalInvalidationPending(uint ownerRef,uint node)
         (receipt.y&M8_FLOWER_INVALIDATION_PEERS_PENDING)!=0u &&
         (receipt.y&(1u<<(node-6u)))!=0u;
 }
-// How far this tile's own refinement has come, in the world that holds it.
-// It is keyed by the slot generation, not by an observation: a snapshot is
-// evidence, and the tile's refinement memory outlives it. A generation change
-// is the only thing that resets it, because that is the only thing that
-// invalidates what was already refined. The last observation token is stored
-// beside it for telemetry and never gates the read.
-uint M8FlowerTileRefinementCursor(uint slot,uint slotGeneration)
-{
-    if(slot>=32768u || slotGeneration==0u)return 0u;
-    uint4 tile=M8_FLOWER_DETAIL_SOURCE.Load4(M8_FLOWER_TILE_DIRECTORY+16u*slot);
-    return tile.y==slotGeneration ? tile.w : 0u;
-}
-
 // ProgramRef retains its canonical 48-byte record index. Allocation metadata
 // and reference counts live in the resident block prefix, never in the record.
 bool M8FlowerOpticalAllocation(uint programRef,bool readOnly,out uint allocation)
@@ -336,20 +323,6 @@ uint M8FlowerEnsureOwner(uint slot,uint kernelLocal,uint slotGeneration,
     if((canonicalFlags&(M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID|M8_FLOWER_SEED_FLAG))!=
         (M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID))return M8_FLOWER_ARENA_INVALID;
     return M8FlowerEnsureOwnerStorage(slot,kernelLocal,slotGeneration,publishing,ownerRef);
-}
-
-bool M8FlowerStoreTileRefinementCursor(uint slot,uint slotGeneration,
-    uint lastObservation,uint cursor)
-{
-    if(slot>=32768u || slotGeneration==0u)return false;
-    uint address=M8_FLOWER_TILE_DIRECTORY+16u*slot;
-    uint2 tile=_M8FlowerDetailPages.Load2(address);
-    if(tile.x!=0u && tile.y!=slotGeneration)return false;
-    _M8FlowerDetailPages.Store(address+4u,slotGeneration);
-    // Word z keeps the observation that last contributed, for telemetry only.
-    // Nothing gates on it; the cursor belongs to the generation.
-    _M8FlowerDetailPages.Store2(address+8u,uint2(lastObservation,cursor));
-    return true;
 }
 
 // Caller owns the single serialized raw-reader lease. A previous published

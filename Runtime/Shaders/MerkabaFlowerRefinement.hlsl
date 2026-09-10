@@ -9,15 +9,8 @@
 #include "MerkabaFlowerEvidencePacket.hlsl"
 #include "MerkabaFlowerSignalItems.hlsl"
 
-// One group owns a touched tile throughout this finite, observation-local
-// program. A cursor is compute state only; it never enters a metric key.
-// The two child levels use the SAME generated family tables as readout.
-#define M8_FLOWER_R2_ROOT_TASKS 24u
-#define M8_FLOWER_R3_ROOT_TASKS 16u
-#define M8_FLOWER_ROOT_PHASE_TASKS (M8_FLOWER_R2_ROOT_TASKS+M8_FLOWER_R3_ROOT_TASKS)
-#define M8_FLOWER_R2_L1_TASKS 144u
-#define M8_FLOWER_R2_L2_TASKS 1152u
-#define M8_FLOWER_PHASE_TASKS (M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS+M8_FLOWER_R2_L2_TASKS)
+// Observation supports address generated relations. A reached bit is only
+// workgroup scratch; neither it nor an iteration cursor belongs to the world.
 #define M8_FLOWER_FINE_ACTIVE 1u
 #define M8_FLOWER_FINE_NOVEL 2u
 #define M8_FLOWER_FINE_HAS_PHASE 4u
@@ -26,7 +19,8 @@
 #define M8_FLOWER_FINE_PRESENCE_SHIFT 3u
 #define M8_FLOWER_FINE_PRESENCE_MASK (15u<<M8_FLOWER_FINE_PRESENCE_SHIFT)
 
-uint _M8RefinementQuantum;
+groupshared uint m8FineReachedRelations[M8_FLOWER_OBSERVED_RELATION_WORDS];
+groupshared uint m8FineObservedCells[16]; // 8^3 L2 cells; not owner/child existence.
 groupshared uint m8FineOwner[512];
 groupshared uint m8FineState[512];
 groupshared uint m8FinePlane[512];
@@ -202,57 +196,61 @@ void M8FlowerRequestSkinDependencies(uint neededHalo)
     }
 }
 
-uint M8FlowerRootRecordPetal(uint node)
+M8FlowerGeometryNode M8FlowerObservedRelation(uint level,uint relation,bool plus)
 {
-    uint2 mask=M8FlowerNodeIncidentPetalsAt(node);
-    return mask.x!=0u?(uint)firstbitlow(mask.x):
-        mask.y!=0u?32u+(uint)firstbitlow(mask.y):48u;
+    uint index=M8FlowerObservedRelationLevelsAt(level).x+relation;
+    uint4 address=M8FlowerObservedRelationsAt(2u*index);
+    uint key=M8FlowerObservedRelationsAt(2u*index+1u).x;
+    M8FlowerGeometryNode node=(M8FlowerGeometryNode)0;
+    node.Level=level;node.Offset=asint(address.xyz);
+    node.Line=(address.w>>2u)&15u;node.Strand=(address.w>>6u)&127u;
+    node.Petal=key&63u;node.Path=(key>>6u)&15u;
+    node.RootNode=(key>>10u)&31u;node.Kind=(key>>15u)&1u;
+    node.ParentContext=(key>>16u)&7u;node.KnotSite=(key>>19u)&7u;
+    node.Plus=plus;
+    return node;
 }
 
-bool M8FlowerGeometryNodeAt(uint ordinal,out M8FlowerGeometryNode task)
+void M8FlowerReachObservedRelations(uint level,int3 owner,float3 world)
 {
-    task=(M8FlowerGeometryNode)0;
-    task.Plus=(ordinal&1u)!=0u;
-    if(ordinal<M8_FLOWER_ROOT_PHASE_TASKS)
+    uint4 table=M8FlowerObservedRelationLevelsAt(level);
+    uint cellIndex=0u;
+    if(level!=0u)
     {
-        task.RootNode=6u+(ordinal>>1u);
-        int4 node=M8FlowerNodeAt(task.RootNode);
-        task.Offset=node.xyz;task.Line=(uint)node.w;
-        task.Kind=task.Line>=9u?1u:0u;
-        task.Petal=M8FlowerRootRecordPetal(task.RootNode);
-        return task.Petal<48u;
+        precise float3 grid=mul(_MerkabaWorldToGrid,float4(world,1.0)).xyz;
+        precise float3 relative=grid-float3(owner)*M8_FLOWER_LATTICE_STEP;
+        float step=M8FlowerLevelStep(level);
+        int half=1<<(int)level;
+        // Correct the division hint using the SAME ordered products as the
+        // endpoint-support predicate. No epsilon, shifted point or clamp.
+        int3 cell=(int3)floor(relative/step);
+        cell-=int3(relative<float3(cell)*step);
+        cell+=int3(relative>=float3(cell+1)*step);
+        if(any(cell< -half)||any(cell>=half))return;
+        uint3 local=(uint3)(cell+half);
+        cellIndex=local.x+table.w*(local.y+table.w*local.z);
     }
-    ordinal-=M8_FLOWER_ROOT_PHASE_TASKS;
-    if(ordinal<M8_FLOWER_R2_L1_TASKS)
+    InterlockedOr(m8FineObservedCells[cellIndex>>5u],1u<<(cellIndex&31u));
+}
+
+void M8FlowerExpandObservedCells(uint level,uint lane)
+{
+    uint4 table=M8FlowerObservedRelationLevelsAt(level);
+    // Each occupied support cell is expanded once, regardless of the number
+    // of source pixels in it. Lanes own different cells; no per-pixel walk of
+    // the relation alphabet and no CPU-produced work list.
+    uint cells=table.w*table.w*table.w;
+    [loop]for(uint cell=lane;cell<cells;cell+=128u)
     {
-        task.Strand=ordinal>>1u;
-        uint4 strand=M8FlowerStrandAt(task.Strand);
-        M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(task.Strand);
-        task.Level=1u;task.RootNode=family.RootNode;
-        task.Line=(uint)M8FlowerNodeAt(family.RootNode).w;
-        if(M8FlowerLineMetaAt(task.Line).x!=2u)return false;
-        task.Offset=M8FlowerNodeAt(strand.x).xyz+M8FlowerNodeAt(strand.y).xyz;
-        task.Petal=strand.w&255u;task.Path=family.FinePath0;
-        [unroll]for(uint edge=0u;edge<3u;edge++)
-            if(M8FlowerPetalStrandsAt(task.Petal)[edge]==task.Strand)
-                task.KnotSite=3u+edge;
-        return true;
+        if((m8FineObservedCells[cell>>5u]&(1u<<(cell&31u)))==0u)continue;
+        uint4 cover=M8FlowerObservedRelationCellsAt(table.z+cell);
+        [loop]for(uint item=0u;item<cover.y;item++)
+        {
+            uint relation=M8FlowerObservedRelationReferencesAt(cover.x+item);
+            InterlockedOr(m8FineReachedRelations[relation>>5u],1u<<(relation&31u));
+        }
     }
-    ordinal-=M8_FLOWER_R2_L1_TASKS;
-    if(ordinal>=M8_FLOWER_R2_L2_TASKS)return false;
-    task.Petal=ordinal/24u;
-    task.ParentContext=1u+((ordinal/6u)&3u);
-    task.KnotSite=3u+((ordinal>>1u)%3u);
-    int endpoint,phase,inherited;
-    if(!M8FlowerTryGetChildPhaseLoop(task.Petal,task.ParentContext,task.KnotSite,
-        task.Level,task.Offset,task.Line,task.Strand,endpoint,phase,inherited) ||
-        inherited>=0 || M8FlowerLineMetaAt(task.Line).x!=2u)return false;
-    M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(task.Strand);
-    task.RootNode=family.RootNode;
-    // Within THIS parent context the new AB/AC knot first occurs in child0,
-    // BC in child1. Different parent predictions retain their own records.
-    task.Path=4u*(task.ParentContext-1u)+(task.KnotSite==4u?1u:0u);
-    return true;
+    GroupMemoryBarrierWithGroupSync();
 }
 
 // Every record is visited once per fixed endpoint, never paired with another
@@ -448,9 +446,8 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
         return M8_FLOWER_ARENA_OK;
     if(M8FlowerCloseSharedPhaseRoot(synthesized,observed,closedRoot)!=1u)
         return M8_FLOWER_ARENA_OK;
-    // Non-spinning allocation may split one candidate across GPU quanta.
-    // Already-published identical owners must not contend for the arena
-    // again, otherwise a group could wait forever for simultaneous success.
+    // Identical stored evidence needs no allocator transaction. Contention
+    // is a local storage result, never a retained refinement program.
     M8FlowerDetailRecord previous;
     if(M8FlowerFindPhase(ownerRef,record.Key,epoch,previous) &&
         previous.Lower==record.Lower && previous.Upper==record.Upper)
@@ -476,11 +473,6 @@ void M8FlowerInvalidationChanged(uint slot,uint generation)
 {
     M8MarkTileDirty(slot);
     InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],4u);
-    // A changed ancestor cannot leave the tile's already advanced phase/skin
-    // cursor behind: what it refined is no longer what the world holds.
-    // Unaffected tiles retain theirs.
-    if(!M8FlowerStoreTileRefinementCursor(slot,generation,_M8ObservationToken,0u))
-        M8FlowerFineSchedulingStatus(M8_FLOWER_SIDECAR_STALE_SLOT);
     M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
 }
 

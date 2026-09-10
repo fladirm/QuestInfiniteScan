@@ -15,6 +15,24 @@ namespace Genesis.RoomScan.Editor
             Emit("R1WitnessPeers", MerkabaSphereFlowerAuthority.R1WitnessPeers);
             Emit("DecodePetalCarriers", MerkabaSphereFlowerAuthority.DecodePetalCarriers);
             Emit("DecodeCarrierPetals", MerkabaSphereFlowerAuthority.DecodeCarrierPetals);
+            Emit("ObservedRelations", MerkabaSphereFlowerAuthority.ObservedRelations);
+            Emit("ObservedRelationCells", MerkabaSphereFlowerAuthority.ObservedRelationCells);
+            Emit("ObservedRelationLevels", MerkabaSphereFlowerAuthority.ObservedRelationLevels);
+            ReadOnlySpan<uint> references = MerkabaSphereFlowerAuthority.ObservedRelationReferences;
+            if (csharp)
+            {
+                output.AppendLine("        private static uint[] LoadGeneratedObservedRelationReferences() => new uint[] {");
+                foreach (uint reference in references) output.Append("            ").Append(reference).AppendLine("u,");
+                output.AppendLine("        };");
+            }
+            else
+            {
+                tables.AppendScalars(output, "M8FlowerObservedRelationReferences", "uint", references);
+                uint words = 0;
+                foreach (uint4 level in MerkabaSphereFlowerAuthority.ObservedRelationLevels)
+                    words = math.max(words, (level.y + 31u) / 32u);
+                output.Append("#define M8_FLOWER_OBSERVED_RELATION_WORDS ").Append(words).AppendLine("u");
+            }
             if (csharp)
             {
                 Emit("CarrierTripleMasks", MerkabaSphereFlowerAuthority.CarrierTripleMasks);

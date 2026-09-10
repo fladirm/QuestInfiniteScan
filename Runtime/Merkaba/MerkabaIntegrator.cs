@@ -70,12 +70,6 @@ namespace Genesis.RoomScan
 
         private const int CameraEyeCount = 2;
         private const int CameraObservationSlots = 2;
-        // How much refinement ONE bounded snapshot contributes per tile. It is
-        // not a continuation quantum: unconsumed candidates retain nothing, the
-        // snapshot releases at its fence, and the tile's cursor stays in the
-        // world for whichever snapshot comes next. It never limits admitted
-        // detail, only how much of it a single frame pays for.
-        private const int RefinementCandidatePassesPerQuantum = 64;
 #if UNITY_EDITOR || !UNITY_ANDROID
         private static readonly uint[] FineEraseZero = { 0u };
         private static readonly uint[] FineEraseInitialArguments = { 0u, 1u, 1u };
@@ -1038,7 +1032,6 @@ namespace Genesis.RoomScan
             values.UInt("_M8ObservationHotSlotCount", MerkabaSpatial.PhysicalTileCapacity);
             values.UInt("_M8ObservationRecordCapacity", MerkabaObservationRecord.Capacity);
             values.UInt("_M8AttemptToken", _attemptToken);
-            values.UInt("_M8RefinementQuantum", RefinementCandidatePassesPerQuantum);
             Matrix4x4 gridToWorld = _observationGridToWorld;
             Matrix4x4 worldToGrid = _observationWorldToGrid;
             values.Matrix("_MerkabaGridToWorld", gridToWorld);
@@ -1217,7 +1210,6 @@ namespace Genesis.RoomScan
             BindDepth(_drainSkinVKernel);
             BindCamera(_drainSkinVKernel);
             compute.SetBuffer(_drainSkinVKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
-            compute.SetInt("_M8RefinementQuantum", RefinementCandidatePassesPerQuantum);
         }
 
         private static readonly uint[] SignalInitialHeader =
