@@ -1960,29 +1960,8 @@ uint3 M8FlowerL2WedgeKnots(uint hub,uint wedge)
                 // Inverse image of each wedge's three sign bits in the fixed
                 // seven-site alphabet. Runtime intersects these finite sets;
                 // it never enumerates all 128 assignments against six wedges.
-                var projections = new uint4[6 * 8];
-                for (int wedge = 0; wedge < 6; wedge++)
-                {
-                    int3 sites = MerkabaSphereFlowerAuthority.L2CarrierTriangleIndices(wedge, false);
-                    for (uint signs = 0; signs < 128u; signs++)
-                    {
-                        uint triple = ((signs >> sites.x) & 1u) |
-                            (((signs >> sites.y) & 1u) << 1) |
-                            (((signs >> sites.z) & 1u) << 2);
-                        projections[8 * wedge + (int)triple][(int)(signs >> 5)] |= 1u << (int)(signs & 31u);
-                    }
-                    uint4 covered = 0u;
-                    for (int triple = 0; triple < 8; triple++)
-                    {
-                        uint4 mask = projections[8 * wedge + triple];
-                        if (math.any((covered & mask) != 0u) || math.csum(math.countbits(mask)) != 16)
-                            throw new InvalidOperationException("Carrier triple projection is not a partition.");
-                        covered |= mask;
-                    }
-                    if (math.any(covered != uint.MaxValue))
-                        throw new InvalidOperationException("Carrier triple projection lost a sign assignment.");
-                }
-                tables.AppendVectors(o, "M8FlowerCarrierTripleMask", "uint4", projections);
+                tables.AppendVectors(o, "M8FlowerCarrierTripleMask", "uint4",
+                    MerkabaSphereFlowerAuthority.CarrierTripleMasks);
             }
         }
 

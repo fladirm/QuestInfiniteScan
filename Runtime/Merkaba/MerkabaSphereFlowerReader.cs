@@ -85,6 +85,8 @@ namespace Genesis.RoomScan
             private bool _completionEvaluated;
             private ParentCompletionSelection _completion;
 
+            internal uint4 ReachedCarriers { get; private set; }
+
             internal bool IsComplete { get; private set; }
             internal ulong ConfirmedDirect { get; private set; }
             internal ulong UniqueRoots { get; private set; }
@@ -110,6 +112,12 @@ namespace Genesis.RoomScan
                     _original[index] = new PhaseRootEvidence(root.Symbol, root.Root, status);
                     if (provisional) _provisional |= 1UL << index;
                 }
+                uint absent = 0u;
+                for (int node = 0; node < NodeClassCount; node++)
+                    if (_original[2 * node].Classification == ProofClassification.Impossible &&
+                        _original[2 * node + 1].Classification == ProofClassification.Impossible)
+                        absent |= 1u << node;
+                ReachedCarriers = M8FlowerReachedCarriers(absent);
             }
 
             internal void RequireSource(SnapshotReader reader, int3 owner, float2 errors)
@@ -184,8 +192,20 @@ namespace Genesis.RoomScan
             internal void Complete()
             {
                 if (IsComplete) return;
-                if (!math.all(_visited == new uint4(uint.MaxValue)))
-                    throw new InvalidOperationException("Parent48 requires the complete 128-carrier/768-child source pass.");
+                if (math.any((_visited & ReachedCarriers) != ReachedCarriers))
+                    throw new InvalidOperationException("Parent completion requires every reached carrier.");
+                // Unreached carriers have a proved absent source anchor, not
+                // an untested metric candidate. Account for their source
+                // incidence without evaluating any child loop or dual cover.
+                uint4 excluded = ~_visited;
+                while (TakeReachedCarrier(ref excluded, out int carrier))
+                {
+                    uint4 mask = DecodeCarrierPetals[carrier];
+                    ulong petals = mask.x | ((ulong)mask.y << 32);
+                    _failedDirect |= petals;
+                    _failedOrientation |= petals;
+                    _failedDualClear |= petals;
+                }
                 ConfirmedDirect = PetalMask & ~_failedDirect & ~_directAnchorConflict &
                     _directAnchorSeen[0] & _directAnchorSeen[1] & _directAnchorSeen[2];
                 CertainOrientation = PetalMask & ~_failedOrientation;
@@ -560,6 +580,27 @@ namespace Genesis.RoomScan
             }
 
             internal Parent48Snapshot BeginParent48Snapshot(int3 owner, float2 errors) => new(this, owner, errors);
+
+            // The same generated necessary-source test as GPU Decode. Only
+            // proved absence excludes a construction; unresolved endpoint
+            // residency or a second possible sign cannot be treated as absent.
+            internal uint4 ReachedCarrierMask(int3 owner, float2 errors)
+            {
+                if (!TryReadOwner(owner, out KernelState state, out _))
+                    throw new InvalidDataException("Reached-carrier decode requires a resolved frozen owner.");
+                if (!StableR1(state.Flags)) return default;
+                uint absent = 0u;
+                for (int node = 0; node < NodeClassCount; node++)
+                {
+                    bool possible = false;
+                    for (int sign = 0; sign < 2; sign++)
+                        if (ReadOriginalShared(owner, node, sign != 0, errors.x, errors.y,
+                                out _, out _) != ProofClassification.Impossible)
+                        { possible = true; break; }
+                    if (!possible) absent |= 1u << node;
+                }
+                return M8FlowerReachedCarriers(absent);
+            }
 
             internal MerkabaFlowerSkinDrawSample[] ReadSkinSignal(int3 owner,
                 in MerkabaFlowerSymbolRecord symbol, out MerkabaFlowerSkinDrawHeader header)

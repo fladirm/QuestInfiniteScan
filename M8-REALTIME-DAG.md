@@ -92,6 +92,17 @@ loops, six direction masks and same-construction peer masks. Production
 M8FlowerR1FlagWitness now visits reached loop bits instead of 48*4*3 flags.
 Root ownership is unchanged; peer lookup is generated child incidence.
 Unity codegen and native FlowerCommit compile PASS; no tests/APK/device run.
-Next: generated reached carrier decode shared by CPU/HLSL; RT1 remains OPEN.
-Then RT2 removes the old snapshot task/cursor program, RT3 rewires presentation.
-Baseline tests 378/378 and installed APK 03280202 are not rewrite acceptance.
+RT1 second checkpoint: shared generated M8FlowerReachedCarriers selects by
+original-anchor incidence (absence only), not by root ownership. GPU direct
+and final carrier requests plus CPU export/neighbor coverage pop reached bits;
+the unconditional 0..127 walks in those consumers are removed. Parent coverage
+accounts for excluded constructions without inventing direct evidence.
+CPU seven-root-sign closure now uses the same generated triple inverse as HLSL.
+This is necessary-source selection, NOT the completed actual-branch decoder.
+NEXT=reach L1/L2 child relations from admitted constructions/present phases;
+remove the remaining 52-original/site metric packet and Parent48 reconstruction
+in the shared decoder. Do not mistake the selection mask for resolved geometry.
+Compile/codegen PASS; Compact still 1242872 B / 65864 body / 30124 B shared:
+shader-size gate OPEN. No tests, APK, install or device run in this checkpoint.
+RT1 remains OPEN; RT2/RT3 not complete. Baseline tests 378/378 and installed
+APK 03280202 are not rewrite acceptance. Delivery still waits for RT4.

@@ -327,35 +327,33 @@ namespace Genesis.RoomScan
                 if ((certain[wedge] | uncertain[wedge]) != 0u) potential |= 1u << wedge;
             }
             if (potential == 0u) return ProofClassification.Impossible;
-            uint first = uint.MaxValue, agreed = potential;
-            for (uint candidate = 0u; candidate < 128u; candidate++)
+            uint4 surviving = admissibleSigns;
+            for (int wedge = 0; wedge < 6; wedge++)
             {
-                if ((admissibleSigns[(int)(candidate >> 5)] & (1u << (int)(candidate & 31u))) == 0u)
-                    continue;
-                bool possible = true;
-                uint certainWedges = 0u;
-                for (int wedge = 0; wedge < 6; wedge++)
+                uint alternatives = certain[wedge] | uncertain[wedge];
+                if (alternatives == 0u) continue;
+                uint4 allowed = 0u;
+                while (alternatives != 0u)
                 {
-                    uint bit = 1u << wedge;
-                    if ((potential & bit) == 0u) continue;
-                    uint tripleBit = 1u << (int)CarrierTriple(candidate, wedge);
-                    if (((certain[wedge] | uncertain[wedge]) & tripleBit) == 0u)
-                    { possible = false; break; }
-                    if ((certain[wedge] & tripleBit) != 0u) certainWedges |= bit;
+                    int triple = math.tzcnt(alternatives);
+                    alternatives &= alternatives - 1u;
+                    allowed |= CarrierTripleMasks[8 * wedge + triple];
                 }
-                if (!possible) continue;
-                if (first == uint.MaxValue) { first = candidate; agreed &= certainWedges; }
-                else
-                {
-                    agreed &= certainWedges;
-                    for (int wedge = 0; wedge < 6; wedge++)
-                        if (CarrierTriple(first, wedge) != CarrierTriple(candidate, wedge))
-                            agreed &= ~(1u << wedge);
-                }
+                surviving &= allowed;
             }
-            if (first == uint.MaxValue)
+            if (math.all(surviving == 0u))
             { unresolved = potential; return ProofClassification.Ambiguous; }
-            active = agreed;
+            int word = surviving.x != 0u ? 0 : surviving.y != 0u ? 1 : surviving.z != 0u ? 2 : 3;
+            uint first = (uint)(32 * word + math.tzcnt(surviving[word]));
+            for (int wedge = 0; wedge < 6; wedge++)
+            {
+                uint bit = 1u << wedge;
+                if ((potential & bit) == 0u) continue;
+                int triple = (int)CarrierTriple(first, wedge);
+                if ((certain[wedge] & (1u << triple)) == 0u) continue;
+                if (math.all((surviving & ~CarrierTripleMasks[8 * wedge + triple]) == 0u))
+                    active |= bit;
+            }
             unresolved = potential & ~active;
             uint used = 0u;
             for (int wedge = 0; wedge < 6; wedge++)

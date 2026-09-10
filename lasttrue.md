@@ -9744,3 +9744,26 @@ COMPILE=Unity GenerateForBatch PASS; native FlowerCommit ID-only SPIR-V compile
 TESTS=not run; APK=not built; DEVICE=not run, per final-only delivery gate.
 REMAINING=actual-carrier DecodeFlower, RT2 cursor/task/receipt removal, RT3
   readout/export rewire and V normal atlas, then integrated RT4 acceptance.
+
+### 2026-09-10 REALTIME_RT1 — shared source reach and inverse sign closure
+
+CURSOR=RT1 OPEN, necessary-source selection implemented; actual child/branch
+  decode and replacement of the original/site metric packet remain next.
+PRODUCTION=one generated M8FlowerReachedCarriers CPU/HLSL integer recipe.
+  Proved absence of both signs excludes that node's incident constructions;
+  unknown roots never exclude. Inverse petal/carrier tables replace blind
+  carrier ranges in GPU direct/final batches and CPU export/halo coverage.
+  Excluded children are still failures of whole-parent direct coverage; they
+  cannot fabricate COMPLETED donors. Partial GPU batches clear unused slots.
+  CPU seven-site sign closure now consumes the same generated 6*8 inverse
+  masks as HLSL instead of evaluating every 128-bit assignment individually.
+COMPILE=Unity codegen/current C# consumers PASS, receipt
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt1-reached-compile.log.
+  Exact native Compact compile/spirv-val PASS, /tmp/m8-rt1-decode.3h1s13vy:
+  1242872 B, 65864 body instructions, 30124 B shared, 7 writable bindings,
+  SHA256=2655f0fad18f767b6dcf62a908a14901f74203b7ce4ebf5518e551e55a156247.
+GATE=shader-size FAIL remains; source selection is not elimination of the
+  remaining metric/coverage compiler. No runtime speedup is claimed.
+TESTS=two independent finite-incidence/triple-inverse tests added, not run.
+  Full suite/ABI/shader/GLB validation deferred to RT4 after complete rewire.
+APK=not built; INSTALL=not run; DEVICE=not run. Active rewrite goal unchanged.

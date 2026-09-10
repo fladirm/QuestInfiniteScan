@@ -115,11 +115,13 @@ namespace Genesis.RoomScan
                     throw new InvalidDataException("Export owner tile is unresolved in its frozen context.");
                 if (!state.IsOccupied || !state.HasMeasuredSurfacePlane) continue;
                 result.OccupiedOwners++;
-                // The first complete source pass freezes D. Its descendants
-                // prove the WHOLE parent, before emission ownership. No
-                // completed output may feed this snapshot or a later donor.
+                // Inverse source incidence reaches the candidates before
+                // child metric evaluation. Completion still requires every
+                // actual child of its parent, before emission ownership.
                 var parent = reader.BeginParent48Snapshot(owner, planeBounds);
-                for (int carrierId = 0; carrierId < MerkabaSphereFlowerAuthority.L2HubCount; carrierId++)
+                uint4 pending = parent.ReachedCarriers;
+                int carrierId;
+                while (MerkabaSphereFlowerAuthority.TakeReachedCarrier(ref pending, out carrierId))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     reader.ClassifyPageCarrier(owner, carrierId, planeBounds,
@@ -129,7 +131,10 @@ namespace Genesis.RoomScan
                 if (parent.EvaluateCompletion(out var completion) ==
                     MerkabaSphereFlowerAuthority.ProofClassification.Ambiguous)
                     result.UnresolvedWedges++;
-                for (int carrierId = 0; carrierId < MerkabaSphereFlowerAuthority.L2HubCount; carrierId++)
+                pending = parent.ReachedCarriers;
+                if (completion.Classification == MerkabaSphereFlowerAuthority.ProofClassification.Certain)
+                    pending |= MerkabaSphereFlowerAuthority.DecodePetalCarriers[completion.CompletedPetal];
+                while (MerkabaSphereFlowerAuthority.TakeReachedCarrier(ref pending, out carrierId))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var status = parent.ReadCarrier(carrierId, completion,
@@ -252,7 +257,8 @@ namespace Genesis.RoomScan
                         if (!_coverageReader.TryReadOwner(owner, out KernelState state, out _))
                         { _neighborCoverageUnresolved = true; continue; }
                         if (!state.IsOccupied || !state.HasMeasuredSurfacePlane) continue;
-                        for (int carrier = 0; carrier < MerkabaSphereFlowerAuthority.L2HubCount; carrier++)
+                        uint4 pending = _coverageReader.ReachedCarrierMask(owner, _coverageErrors);
+                        while (MerkabaSphereFlowerAuthority.TakeReachedCarrier(ref pending, out int carrier))
                         {
                             _cancellationToken.ThrowIfCancellationRequested();
                             var status = _coverageReader.ClassifyPageCarrier(owner, carrier, _coverageErrors,

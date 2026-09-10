@@ -855,6 +855,12 @@ namespace Genesis.RoomScan
                 for (int word = 0; word < 4; word++) Word(row[word]);
             foreach (uint4 row in R1WitnessPeers)
                 for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint4 row in DecodePetalCarriers)
+                for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint4 row in DecodeCarrierPetals)
+                for (int word = 0; word < 4; word++) Word(row[word]);
+            foreach (uint4 row in CarrierTripleMasks)
+                for (int word = 0; word < 4; word++) Word(row[word]);
             foreach (BoundaryRule rule in BoundaryRules)
             {
                 for (int axis = 0; axis < 4; axis++) Word(unchecked((uint)rule.Rational[axis]));

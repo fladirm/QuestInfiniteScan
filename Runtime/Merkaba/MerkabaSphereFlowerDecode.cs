@@ -32,6 +32,35 @@ namespace Genesis.RoomScan
         internal static ReadOnlySpan<uint4> R1WitnessDirections => R1WitnessDecodeData.Tables.Directions;
         internal static ReadOnlySpan<uint4> R1WitnessPeers => R1WitnessDecodeData.Tables.Peers;
 
+        private static class CarrierDecodeData
+        {
+#if UNITY_EDITOR
+            internal static readonly uint4[] Petals, Carriers;
+            internal static readonly uint4[] Triples = BuildCarrierTripleMasks();
+            static CarrierDecodeData() => BuildCarrierReach(out Petals, out Carriers);
+#else
+            internal static readonly uint4[] Petals = LoadGeneratedDecodePetalCarriers();
+            internal static readonly uint4[] Carriers = LoadGeneratedDecodeCarrierPetals();
+            internal static readonly uint4[] Triples = LoadGeneratedCarrierTripleMasks();
+#endif
+        }
+
+        internal static ReadOnlySpan<uint4> DecodePetalCarriers => CarrierDecodeData.Petals;
+        internal static ReadOnlySpan<uint4> DecodeCarrierPetals => CarrierDecodeData.Carriers;
+        internal static ReadOnlySpan<uint4> CarrierTripleMasks => CarrierDecodeData.Triples;
+
+        // A compact iterator over reached immutable identities. No search
+        // ordinal is retained in the world or across observation boundaries.
+        internal static bool TakeReachedCarrier(ref uint4 pending, out int carrier)
+        {
+            carrier = -1;
+            if (math.all(pending == 0u)) return false;
+            int word = pending.x != 0u ? 0 : pending.y != 0u ? 1 : pending.z != 0u ? 2 : 3;
+            carrier = 32 * word + math.tzcnt(pending[word]);
+            pending[word] &= pending[word] - 1u;
+            return true;
+        }
+
         internal static uint3 ReachedR1WitnessLoops(uint2 witness)
         {
             uint3 reached = default;
@@ -71,6 +100,43 @@ namespace Genesis.RoomScan
         }
 
 #if UNITY_EDITOR
+        private static void BuildCarrierReach(out uint4[] petals, out uint4[] carriers)
+        {
+            petals = new uint4[PetalClassCount];
+            carriers = new uint4[L2HubCount];
+            for (int petal = 0; petal < PetalClassCount; petal++)
+                for (int path = 0; path < 16; path++)
+                {
+                    int wedge = L2WedgeIndex(petal, path), carrier = wedge / 6;
+                    if (L2Wedges[wedge].Source != 16 * petal + path)
+                        throw new InvalidOperationException("Broken child-to-carrier inverse incidence.");
+                    petals[petal][carrier >> 5] |= 1u << (carrier & 31);
+                    carriers[carrier][petal >> 5] |= 1u << (petal & 31);
+                }
+        }
+
+        private static uint4[] BuildCarrierTripleMasks()
+        {
+            var masks = new uint4[6 * 8];
+            for (int wedge = 0; wedge < 6; wedge++)
+            {
+                for (uint signs = 0; signs < 128u; signs++)
+                    masks[8 * wedge + (int)CarrierTriple(signs, wedge)][(int)(signs >> 5)] |=
+                        1u << (int)(signs & 31u);
+                uint4 covered = 0u;
+                for (int triple = 0; triple < 8; triple++)
+                {
+                    uint4 mask = masks[8 * wedge + triple];
+                    if (math.any((covered & mask) != 0u) || math.csum(math.countbits(mask)) != 16)
+                        throw new InvalidOperationException("Carrier triple inverse is not a partition.");
+                    covered |= mask;
+                }
+                if (math.any(covered != uint.MaxValue))
+                    throw new InvalidOperationException("Carrier triple inverse lost a root-sign assignment.");
+            }
+            return masks;
+        }
+
         private static R1WitnessDecodeTables BuildR1WitnessDecode()
         {
             var indices = new Dictionary<uint4, int>();
