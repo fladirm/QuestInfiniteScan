@@ -68,6 +68,7 @@ namespace
         kResourceFlowerPageDirectory,
         kResourceFlowerIndirectCommands,
         kResourceFlowerTables,
+        kResourceFlowerSignalItems,
         kResourceCount,
     };
 
@@ -119,9 +120,9 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
     static_assert(kMerkabaExecutorPipelineCount == 27,
-        "M8 executor pipeline tables must be regenerated for ABI 20");
+        "M8 executor pipeline tables must be regenerated for ABI 21");
 
-    constexpr uint32_t kExecutorAbiVersion = 20;
+    constexpr uint32_t kExecutorAbiVersion = 21;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
@@ -1401,7 +1402,8 @@ namespace
         const auto used = UsedResources(job);
         const bool flowerCull = job->kind == kJobFlowerReadout &&
             PipelineSelected(job, kFlowerCullPipeline);
-        const bool setupTransfer = flowerCull || job->kind == kJobFineErase;
+        const bool setupTransfer = flowerCull || job->kind == kJobFineErase ||
+            job->kind == kJobObservation;
         const VkPipelineStageFlags bufferStages =
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
             VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
@@ -1476,6 +1478,16 @@ namespace
                             "ERASE setup requires bounded transfer-destination counter/argument ranges", false);
                         return false;
                     }
+                }
+                if (job->kind == kJobObservation && resource == kResourceFlowerSignalItems &&
+                    ((buffer.usage & (VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT)) !=
+                        (VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT) ||
+                     buffer.sizeInBytes != 32u * 1024u * 1024u))
+                {
+                    FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                        "Signal items require the bounded raw/indirect/transfer ABI", false);
+                    return false;
                 }
                 continue;
             }
@@ -1919,6 +1931,9 @@ namespace
         else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);
+        else if (std::strcmp(pipeline.dispatch, "signal_items") == 0)
+            vkCmdDispatchIndirect(job->commandBuffer,
+                job->buffers[kResourceFlowerSignalItems].buffer, 16u);
         else if (std::strcmp(pipeline.dispatch, "allocation_gate") == 0 ||
                  std::strcmp(pipeline.dispatch, "allocation_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
@@ -1967,7 +1982,8 @@ namespace
         acquire.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         const bool flowerCull = job->kind == kJobFlowerReadout &&
             PipelineSelected(job, kFlowerCullPipeline);
-        const bool setupTransfer = flowerCull || job->kind == kJobFineErase;
+        const bool setupTransfer = flowerCull || job->kind == kJobFineErase ||
+            job->kind == kJobObservation;
         acquire.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
             VK_ACCESS_SHADER_WRITE_BIT |
             VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
@@ -1980,6 +1996,14 @@ namespace
             0, 1, &acquire, 0, nullptr, 0, nullptr);
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, job->queryPool, 0);
+        if (job->kind == kJobObservation)
+        {
+            // No data/count readback: discard the previous snapshot's handoff.
+            VkBuffer signals = job->buffers[kResourceFlowerSignalItems].buffer;
+            vkCmdFillBuffer(job->commandBuffer, signals, 0u, 20u, 0u);
+            vkCmdFillBuffer(job->commandBuffer, signals, 20u, 8u, 1u);
+            vkCmdFillBuffer(job->commandBuffer, signals, 28u, 36u, 0u);
+        }
         if (job->kind == kJobFineErase)
         {
             // Only the former setup kernel's three transient words; never a
@@ -1991,6 +2015,9 @@ namespace
             vkCmdFillBuffer(job->commandBuffer, arguments, 0u, sizeof(uint32_t), 0u);
             vkCmdFillBuffer(job->commandBuffer, arguments,
                 sizeof(uint32_t), 2u * sizeof(uint32_t), 1u);
+        }
+        if (job->kind == kJobObservation || job->kind == kJobFineErase)
+        {
             VkMemoryBarrier setup = {};
             setup.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             setup.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;

@@ -98,17 +98,35 @@ dependencies. Missing phase families do not trigger ancestor root evaluation.
 The duplicate pure-original array is removed; complete raw/shared evidence and
 invalidation guards remain distinct. No change to root ownership or geometry.
 
-NEXT=RT2: replace the persisted 1336-task/cursor/quantum program and fixed skin
-receipts with observation-reached relations and compact snapshot-local signal
-items; update native dispatch/resource consumers together. Start with
-MerkabaFlowerRefinement.hlsl, MerkabaFlowerDrainBody.hlsl and their Sidecar/
-Integration/native schedule consumers. Do not revisit the completed RT1 tables.
+RT2 checkpoint: fixed 64-tile/512-owner skin receipts have been removed from
+FlowerDetail. The resolver visits measured owners and generated reached
+carriers, appending validated SignalItems into a separate 32 MiB GPU buffer.
+GPU indirect RGB/V consumers serialize each owner's run writers, execute the
+three fixed signal substitutions, and neither read nor advance a world cursor.
+The two signals are independent. Native/managed resource and dispatch ABI 21
+is wired; snapshot completion/token bounds the handoff's semantic lifetime.
+No CPU solver/readback was introduced. No APK/device/test-suite run.
+
+NEXT=RT2 geometry: replace GeometryNodeAt/1336-task/RefinementQuantum and
+TileRefinementCursor, including the deferred owner/peer invalidation program,
+with observation-reached root/L1/L2 dependencies and transactional epochs.
+The geometry stage machine remains OPEN, not renamed or declared complete.
+Also finish pixel/footprint-to-generated-child reach before all skin evidence
+work; the current compact signal consumers retain complete footprint predicates
+and prune by actual signal splits, but do not yet have that fine routing.
+Resolver acquisition still retains an original-root packet for one active
+owner; remove its remaining eager alternatives with reached dependencies.
+Start at MerkabaFlowerDrainBody/Refinement/Commit/Sidecar and native schedule;
+do not redo the completed signal-buffer handoff or RT1 codegen tables.
 
 RT3 still owns removal of the remaining presentation reconstruction packet,
 completion/count/emit re-evaluation and export V atlas. RT1 did not close those
-tasks or the shader-size gate. Compact compile: 1263272 B / 67046 body /
+tasks or the shader-size gate. Last RT1 Compact compile: 1263272 B / 67046 body /
 29464 B shared / 7 RW / 256 lanes. ResolveFlowerCarriers: 708072 B / 36758 body /
-20628 B shared / 6 RW. Unity codegen/C# and exact native compile/spirv-val PASS.
+20628 B shared / 6 RW at RT1. Current RT2 resolver: 718424 B / 36967 body /
+20692 B shared / 6 RW. Signal RGB: 305536 B / 15696 body; V: 500384 B /
+25370 body; both 64 lanes / 204 B shared / 4 RW. Finalize retains 8 RW.
+Unity codegen/C# and targeted native shader compile/spirv-val PASS.
 No tests/APK/install/device run. No measured speedup claim. Baseline tests
 378/378 and installed APK 03280202 are not rewrite acceptance. RT2 and RT3
 must finish before RT4 validates and delivers the complete rewrite.

@@ -14,12 +14,9 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 20: one snapshot is one bounded synchronous scan transaction.
-        // The drain is four entry points - geometry, carrier resolve, RGB
-        // signal, V signal - and the stage barrier between them is its own
-        // one-group dispatch, so the pipeline table is 27 entries.
-        internal const int AbiVersion = 20;
-        internal const int ResourceCount = 43;
+        // ABI 21: compact signal handoff is snapshot-local, outside FlowerDetail.
+        internal const int AbiVersion = 21;
+        internal const int ResourceCount = 44;
         internal const int PipelineCount = 27;
         // One observation also repeats Count for the allocation round trip,
         // dispatches publication Reserve once, advances the stage three times
@@ -92,6 +89,7 @@ namespace Genesis.RoomScan
             FlowerPageDirectory,
             FlowerIndirectCommands,
             FlowerTables,
+            FlowerSignalItems,
         }
 
         [StructLayout(LayoutKind.Sequential)]

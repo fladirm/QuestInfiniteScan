@@ -854,7 +854,7 @@ struct M8FlowerSkinGroupContext
 };
 
 uint M8FlowerPrepareSkinGroup(uint slot,uint local,uint slotGeneration,uint flowerKey,
-    uint parentOrdinal,uint activeWedgeMask,M8FlowerPhaseRootEvidence roots[7],bool metric,
+    uint parentOrdinal,uint activeWedgeMask,uint sourceFlags,bool metric,
     out M8FlowerSkinGroupContext context,out uint classification)
 {
     context=(M8FlowerSkinGroupContext)0;classification=M8_FLOWER_SKIN_AMBIGUOUS;
@@ -865,7 +865,11 @@ uint M8FlowerPrepareSkinGroup(uint slot,uint local,uint slotGeneration,uint flow
     KernelState state=M8LoadKernelStateRead(slot,local);
     if((state.flags&(M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID|M8_FLOWER_SEED_FLAG))!=
         (M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID))return M8_FLOWER_ARENA_INVALID;
-    if(!M8FlowerSkinCarrierIdentity(M8GlobalKernelCoord(slot,local),flowerKey,activeWedgeMask,roots))
+    // The resolver validated every symbolic site before publishing its immutable
+    // observation item. Signal stages check that source, not uninitialized roots
+    // from a different workgroup or a second geometry solve.
+    if(state.flags!=sourceFlags || !M8FlowerL2KeyValid(flowerKey) ||
+        activeWedgeMask==0u || activeWedgeMask>=64u)
         return M8_FLOWER_ARENA_INVALID;
     context.Flags=state.flags;
     context.OwnerRef=M8FlowerFindOwner(slot,local,slotGeneration);
@@ -1010,22 +1014,5 @@ bool M8FlowerSkinParentTouchesWedges(uint parentOrdinal,uint wedgeMask)
     if(parentOrdinal>=57u)return true;
     return (M8FlowerSkinParentWorkAt(parentOrdinal).w&wedgeMask)!=0u;
 }
-
-// Both persistent signals consume the SAME finite canonical parent workset.
-// A successful RGB write does not consume a still-blocked V write (or vice
-// versa); retry replays the exact seven-value comparison before advancing.
-// The physical masks remain separate. Their union belongs only to readout.
-bool M8FlowerSkinHasRootRefinement(uint slot,uint local,uint slotGeneration,uint flowerKey)
-{
-    uint ownerRef=M8FlowerFindOwner(slot,local,slotGeneration);
-    uint epoch=M8FlowerGetOwnerEpoch(ownerRef),runRef;
-    M8ThreadRun rgb;M8FlowerSkinMetricRun metric;
-    bool rgbSplit=M8FlowerFindThreadRun(ownerRef,flowerKey,epoch,rgb,runRef) &&
-        (rgb.SplitBitsLo&1u)!=0u;
-    bool metricSplit=M8FlowerFindMetricRun(ownerRef,flowerKey,epoch,metric,runRef) &&
-        (metric.SplitBitsLo&1u)!=0u;
-    return rgbSplit || metricSplit;
-}
-
 
 #endif

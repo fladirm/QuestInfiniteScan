@@ -9825,3 +9825,46 @@ TESTS=source-node union and shell-reach/oracle comparison added, not run.
 NEXT=RT2 observation-reached work replacing cursors/tasks/quantum/skin receipts
   with all shader/native consumers in the same cut. Do not restart RT1.
 APK=not built; INSTALL=not run; DEVICE=not run. Active goal continues.
+
+### 2026-09-10 REALTIME_RT2 — GPU snapshot-local signal handoff checkpoint
+
+CURSOR=RT2 OPEN. Skin handoff replaced; geometry task/cursor replacement next.
+PRODUCTION=removed fixed 64-tile/512-owner skin receipts from FlowerDetail,
+  their RGB_OK gate, skin cursor/quantum branches and the old signal helper.
+  Resolver visits measured owners and generated reached-carrier masks; only
+  validated resolved carriers append observation-local SignalItems. The GPU
+  owns count/owner manifests/indirect arguments. Owner manifests serialize that
+  owner's sorted run writers; actual carrier links live only in this snapshot.
+  RGB and V independently evaluate three fixed substitutions over their signal
+  splits, with complete-support predicates unchanged. No CPU geometry, no
+  scheduling readback, no world-coordinate persistent records were introduced.
+ABI=21 / 44 resources. Separate 32 MiB scratch; 64 B header, 16 B owner manifest,
+  224 B signal item. Source owner/generation/token/flags and epoch guard all
+  reads. Overflow is explicit and does not publish a partial owner's list.
+  Finalize's completed flag kills the handoff; next snapshot resets the header
+  with bounded GPU transfer commands. No ninth writable binding in Finalize.
+FIXED=old 192 B receipt wrote 208 B; world-site producer lacked its collective
+  barrier; signal consumer attempted root validation from unrestored site
+  scratch. Identity is now validated once by the resolver and transferred,
+  not recomputed or trusted from another workgroup's uninitialized roots.
+COMPILE=Unity codegen/C# resource consumers PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-signal-compile.log:706
+  Targeted native shader compile/spirv-val PASS (not full native/APK build):
+  /tmp/m8-rt2-signal64-x4jj35kz/pipeline-0.spv
+  RGB 305536 B / 15696 body / 204 B shared / 4 RW / 64 lanes;
+  SHA256=ef12e9a29fa5e7c7ddf99ecfae824996db01134c2fd21689e471845042a4d183.
+  /tmp/m8-rt2-signal64-x4jj35kz/pipeline-1.spv
+  V 500384 B / 25370 body / 204 B shared / 4 RW / 64 lanes;
+  SHA256=a91491c3c9f80dbb311b931055a9a1fad6b233e57cc3724b0fb3b39ce9b8aae7.
+  /tmp/m8-rt2-signal-final-sibepc7k/pipeline-0.spv
+  Resolver 718424 B / 36967 body / 20692 B shared / 6 RW / 128 lanes;
+  SHA256=23e1fa1e489f4b9c11e1399747d4561272dc3989012eabf70a8e60f866f0ae31.
+  /tmp/m8-rt2-signal-final-sibepc7k/pipeline-1.spv
+  Finalize 41744 B / 1938 body / 12 B shared / 8 RW / 128 lanes.
+NEXT=replace GeometryNodeAt/1336 tasks/RefinementQuantum/TileRefinementCursor
+  and deferred owner/peer invalidation in FlowerDrainBody/Refinement/Commit/
+  Sidecar/native graph. Finish evidence-footprint child routing and remaining
+  eager resolver root acquisition. These are OPEN, not hidden by the skin
+  replacement. RT3 still removes the presentation compiler and adds export V.
+TESTS=not run; APK=not built; INSTALL=not run; DEVICE=not run. No performance
+  claim and no whole-rewrite acceptance. Integrated validation belongs to RT4.

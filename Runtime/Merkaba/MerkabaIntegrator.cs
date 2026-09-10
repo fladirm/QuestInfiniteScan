@@ -826,6 +826,8 @@ namespace Genesis.RoomScan
                 // FINE/ERASE may have used this shader since the last
                 // snapshot. Bind this snapshot's own observation.
                 ConfigureObservation();
+                command.SetBufferData(_grid.M8FlowerSignalItems,
+                    SignalInitialHeader, 0, 0, SignalInitialHeader.Length);
                 _bins.Record(command, reset: false);
                 // All required resident negative support is resolved before
                 // the one touched-tile workgroup can commit direct evidence.
@@ -841,11 +843,15 @@ namespace Genesis.RoomScan
                     command.DispatchComputeProfiled(compute, _advanceStageKernel,
                         1, 1, 1);
                 }
-                // Resolve, then RGB, then V. Each returns immediately outside
-                // its own stage, and only V advances the shared cursor.
+                // Resolver publishes compact snapshot-local items. Both signal
+                // consumers use GPU-owned counts, never touched-tile cursors.
                 _bins.RecordCommit(command, compute, _resolveCarriersKernel);
-                _bins.RecordCommit(command, compute, _drainSkinRgbKernel);
-                _bins.RecordCommit(command, compute, _drainSkinVKernel);
+                _bins.RecordBindConsumer(command, compute, _drainSkinRgbKernel);
+                command.DispatchComputeProfiled(compute, _drainSkinRgbKernel,
+                    _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.SignalDispatchOffset);
+                _bins.RecordBindConsumer(command, compute, _drainSkinVKernel);
+                command.DispatchComputeProfiled(compute, _drainSkinVKernel,
+                    _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.SignalDispatchOffset);
                 // Negative-volume claims are storage dependencies of this
                 // same frozen observation. Publish after commit: installation
                 // reuses its indirect argument buffer for tile counts.
@@ -1204,12 +1210,18 @@ namespace Genesis.RoomScan
             BindCamera(_drainGeometryKernel);
             BindDepth(_resolveCarriersKernel);
             BindCamera(_resolveCarriersKernel);
+            compute.SetBuffer(_resolveCarriersKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
             BindDepth(_drainSkinRgbKernel);
             BindCamera(_drainSkinRgbKernel);
+            compute.SetBuffer(_drainSkinRgbKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             BindDepth(_drainSkinVKernel);
             BindCamera(_drainSkinVKernel);
+            compute.SetBuffer(_drainSkinVKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             compute.SetInt("_M8RefinementQuantum", RefinementCandidatePassesPerQuantum);
         }
+
+        private static readonly uint[] SignalInitialHeader =
+            { 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
         private void BindDepth(int kernel)
         {

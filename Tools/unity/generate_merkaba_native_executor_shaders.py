@@ -71,9 +71,9 @@ PIPELINES = (
     Pipeline("ResolveFlowerCarriers", "MerkabaIntegration.compute",
              "ResolveFlowerCarriers", "observation_indirect"),
     Pipeline("DrainFlowerSkinRgb", "MerkabaIntegration.compute",
-             "DrainFlowerSkinRgb", "observation_indirect"),
+             "DrainFlowerSkinRgb", "signal_items"),
     Pipeline("DrainFlowerSkinV", "MerkabaIntegration.compute",
-             "DrainFlowerSkinV", "observation_indirect"),
+             "DrainFlowerSkinV", "signal_items"),
     Pipeline("FinalizeObservation", "MerkabaIntegration.compute",
              "FinalizeObservation", "one"),
     Pipeline("ClassifyHotFlowerPages", "MerkabaReadout.compute",
@@ -156,7 +156,7 @@ RESOURCE_NAMES = (
     "FrameDispatchArgs", "ObservationRecords", "ObservationTileBins", "TileHalo", "DepthCertificate",
     "DualBlockState", "DualChunkState", "DualLeaves",
     "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands",
-    "FlowerTables",
+    "FlowerTables", "FlowerSignalItems",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -173,7 +173,7 @@ ALIASES = {
         "FrameDispatchArgs", "ObservationRecords",
         "ObservationTileBins", "TileHalo", "DepthCertificate",
         "DualBlockState", "DualChunkState", "DualLeaves",
-        "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands", "FlowerTables")},
+        "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands", "FlowerTables", "FlowerSignalItems")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",

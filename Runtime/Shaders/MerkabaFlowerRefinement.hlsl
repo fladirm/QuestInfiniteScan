@@ -2,13 +2,12 @@
 #define GENESIS_MERKABA_FLOWER_REFINEMENT_INCLUDED
 
 #define M8_FLOWER_GEOMETRY_PACKET_READ
-// Which side of the skin stage this translation unit builds. The resolver
-// predicts, applies residuals and classifies exactly once; the signal passes
-// only consume its receipt.
+// Geometry stays on GPU; signal stages consume the resolver's snapshot items.
 #include "MerkabaFlowerGeometry.hlsl"
 #include "MerkabaFlowerSupport.hlsl"
 #include "MerkabaFlowerSkinObservation.hlsl"
 #include "MerkabaFlowerEvidencePacket.hlsl"
+#include "MerkabaFlowerSignalItems.hlsl"
 
 // One group owns a touched tile throughout this finite, observation-local
 // program. A cursor is compute state only; it never enters a metric key.
@@ -19,9 +18,6 @@
 #define M8_FLOWER_R2_L1_TASKS 144u
 #define M8_FLOWER_R2_L2_TASKS 1152u
 #define M8_FLOWER_PHASE_TASKS (M8_FLOWER_ROOT_PHASE_TASKS+M8_FLOWER_R2_L1_TASKS+M8_FLOWER_R2_L2_TASKS)
-#define M8_FLOWER_SKIN_CURSOR_BASE (M8_FLOWER_PHASE_TASKS+1u)
-#define M8_FLOWER_SKIN_PARENTS 57u
-#define M8_FLOWER_SKIN_CARRIERS 128u
 #define M8_FLOWER_FINE_ACTIVE 1u
 #define M8_FLOWER_FINE_NOVEL 2u
 #define M8_FLOWER_FINE_HAS_PHASE 4u
@@ -37,28 +33,23 @@ groupshared uint m8FinePlane[512];
 groupshared uint m8FineWriteStatus;
 groupshared uint m8FineAnyNovelty;
 groupshared uint m8FineAnyActive;
-groupshared uint m8FineSkinNext;
-groupshared uint m8FineSkinConsumed;
-// Which receipt block this workgroup owns. One item per touched tile in
-// flight; tiles beyond the bounded region defer through the existing pending
-// counter rather than allocating anything.
-groupshared uint m8FineReceiptTile;
+groupshared uint m8FineSignalFirst;
+groupshared uint m8FineSignalLast;
+groupshared uint m8FineSignalCount;
+groupshared uint m8FineSignalFailed;
+groupshared uint m8FineActiveOwners[16];
+groupshared uint m8FineAbsentNodes;
 
 // Phase buckets are dead after endpoint1 SEAL, before this packet is filled.
 // Reuse their seven existing 512-word banks; no additional shared allocation.
-// Skin: 3 owners * (52 original alternatives * 19 + 14 site roots * 10)
-// = 3384 words. Phase: 128 owners * one actual family alternative * 19
-// = 2432 words. Both fit the existing 3584 words including packet controls.
+// Geometry: 128 owners * one family * 19 = 2432 words. Signal resolution
+// retains one owner's original roots while its reached carriers reuse sites.
+// World enclosures/validity must not alias originals used by the next carrier.
 #define M8_FINE_PACKET_SITES 2964u
 #define M8_FINE_PACKET_SKIN_CONTROL 3384u
 #define M8_FINE_PACKET_SKIN_STRIDE 24u
-#define M8_FINE_PACKET_READY 3456u
-#define M8_FINE_PACKET_WORLD_SITES 0u
-#define M8_FINE_PACKET_CONTEXT 128u
-#define M8_FINE_PACKET_CONTEXT_STRIDE 13u
-#define M8_FINE_PACKET_WORLD_VALID 176u
-#define M8_FINE_PACKET_SIGNAL_VALUES 256u
-#define M8_FINE_PACKET_SIGNAL_FLAGS 352u
+#define M8_FINE_PACKET_WORLD_SITES 2500u
+#define M8_FINE_PACKET_WORLD_VALID 2544u
 
 static uint m8FinePacketSlot;
 static uint m8FinePacketFirst;
@@ -656,60 +647,10 @@ void M8FlowerDrainPeerInvalidations(uint slot,uint lane,uint generation,bool mut
     GroupMemoryBarrierWithGroupSync();
 }
 
-// The selected site packet remains immutable while its original-root region
-// is recycled for world enclosures and complete seven-child measurements.
+// Original roots, selected sites and world enclosures have disjoint ranges.
 uint M8FlowerFineSkinControl(uint ownerIndex)
 {
     return M8_FINE_PACKET_SKIN_CONTROL+M8_FINE_PACKET_SKIN_STRIDE*ownerIndex;
-}
-
-void M8FlowerFineSkinRoots(uint ownerIndex,out M8FlowerPhaseRootEvidence roots[7])
-{
-    uint control=M8FlowerFineSkinControl(ownerIndex);
-    uint signs=M8FlowerPacketLoadWord(control+3u);
-    uint sites=M8FlowerPacketLoadWord(control+10u);
-    [loop]for(uint site=0u;site<7u;site++)
-    {
-        roots[site]=(M8FlowerPhaseRootEvidence)0;
-        if((sites&(1u<<site))!=0u)
-            roots[site]=M8FlowerPacketLoadRoot(M8_FINE_PACKET_SITES+
-                10u*(14u*ownerIndex+2u*site+((signs>>site)&1u)));
-    }
-}
-
-void M8FlowerFineStoreSkinContext(uint ownerIndex,M8FlowerSkinGroupContext context)
-{
-    uint address=M8_FINE_PACKET_CONTEXT+M8_FINE_PACKET_CONTEXT_STRIDE*ownerIndex;
-    M8FlowerPacketStoreWord(address,context.OwnerRef);
-    M8FlowerPacketStoreWord(address+1u,context.Flags);
-    M8FlowerPacketStoreWord(address+2u,context.Epoch);
-    M8FlowerPacketStoreWord(address+3u,context.GroupBase);
-    M8FlowerPacketStoreWord(address+4u,context.SplitBits.x);
-    M8FlowerPacketStoreWord(address+5u,context.SplitBits.y);
-    M8FlowerPacketStoreWord(address+6u,context.Reserved);
-    M8FlowerPacketStoreWord(address+7u,context.Existing?1u:0u);
-    M8FlowerPacketStoreWord(address+8u,context.Measure?1u:0u);
-    M8FlowerPacketStoreWord(address+9u,context.Inherited.LowerLinearRgba.x);
-    M8FlowerPacketStoreWord(address+10u,context.Inherited.LowerLinearRgba.y);
-    M8FlowerPacketStoreWord(address+11u,context.Inherited.UpperLinearRgba.x);
-    M8FlowerPacketStoreWord(address+12u,context.Inherited.UpperLinearRgba.y);
-}
-
-M8FlowerSkinGroupContext M8FlowerFineLoadSkinContext(uint ownerIndex)
-{
-    uint address=M8_FINE_PACKET_CONTEXT+M8_FINE_PACKET_CONTEXT_STRIDE*ownerIndex;
-    M8FlowerSkinGroupContext context;
-    context.OwnerRef=M8FlowerPacketLoadWord(address);
-    context.Flags=M8FlowerPacketLoadWord(address+1u);
-    context.Epoch=M8FlowerPacketLoadWord(address+2u);
-    context.GroupBase=M8FlowerPacketLoadWord(address+3u);
-    context.SplitBits=uint2(M8FlowerPacketLoadWord(address+4u),M8FlowerPacketLoadWord(address+5u));
-    context.Reserved=M8FlowerPacketLoadWord(address+6u);
-    context.Existing=M8FlowerPacketLoadWord(address+7u)!=0u;
-    context.Measure=M8FlowerPacketLoadWord(address+8u)!=0u;
-    context.Inherited.LowerLinearRgba=uint2(M8FlowerPacketLoadWord(address+9u),M8FlowerPacketLoadWord(address+10u));
-    context.Inherited.UpperLinearRgba=uint2(M8FlowerPacketLoadWord(address+11u),M8FlowerPacketLoadWord(address+12u));
-    return context;
 }
 
 void M8FlowerFineStoreWorld(uint index,M8FlowerInterval3 world)
@@ -723,31 +664,17 @@ void M8FlowerFineStoreWorld(uint index,M8FlowerInterval3 world)
     M8FlowerPacketStoreWord(address+5u,asuint(world.z.hi));
 }
 
-M8FlowerInterval3 M8FlowerFineLoadWorld(uint index)
-{
-    uint address=M8_FINE_PACKET_WORLD_SITES+6u*index;
-    M8FlowerInterval3 world;
-    world.x=M8FlowerI(asfloat(M8FlowerPacketLoadWord(address)),asfloat(M8FlowerPacketLoadWord(address+1u)));
-    world.y=M8FlowerI(asfloat(M8FlowerPacketLoadWord(address+2u)),asfloat(M8FlowerPacketLoadWord(address+3u)));
-    world.z=M8FlowerI(asfloat(M8FlowerPacketLoadWord(address+4u)),asfloat(M8FlowerPacketLoadWord(address+5u)));
-    return world;
-}
 
-// One tile still owns its cursor. The packet fans out the actual 3*7 child
-// footprints and their full measurement rectangles, not just root loading.
-// RGB publishes before V, and each parent retires before its descendants.
-// The resolved L2 carrier. This is the only place that predicts a parent,
-// applies the persisted R2/R3 residual, classifies the carrier, selects the
-// seven actual L2 sites and converts them to complete world intervals. The
-// signal passes consume the receipt and never repeat any of it.
+// Geometry is evaluated once. Only resolved, identity-checked carriers append
+// an item; the two signal stages consume its immutable world enclosures.
 void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier,
-    uint parentCursor,float2 errors)
+    float2 errors)
 {
     M8FlowerPrepareFineSites(lane);
     if(lane<m8FinePacketCount)
     {
         uint local=m8FinePacketFirst+lane,control=M8FlowerFineSkinControl(lane);
-        uint key=0u,active=0u,unresolved=0u,signs=0u,sites=0u,next=57u;
+        uint key=0u,active=0u,unresolved=0u,signs=0u,sites=0u;
         if((m8FineState[local]&M8_FLOWER_FINE_ACTIVE)!=0u)
         {
             M8FlowerSymbolRecord symbol;
@@ -760,11 +687,12 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
                 key=M8FlowerPackL2Key(source&15u,source>>4u,
                     (roots[0].Tag&(1u<<7u))!=0u,(roots[0].Tag>>8u)&31u);
                 active=M8FlowerDrawActiveWedgeMask(symbol);
-                signs=M8FlowerDrawRootSigns(symbol);sites=1u;next=parentCursor;
+                signs=M8FlowerDrawRootSigns(symbol);sites=1u;
                 [unroll]for(uint wedge=0u;wedge<6u;wedge++)
                     if((active&(1u<<wedge))!=0u)
                         sites|=(1u<<(1u+wedge))|(1u<<(1u+(wedge+1u)%6u));
-                if(next>0u && !M8FlowerSkinHasRootRefinement(slot,local,generation,key))next=57u;
+                if(!M8FlowerSkinCarrierIdentity(M8GlobalKernelCoord(slot,local),key,active,roots))
+                {active=0u;sites=0u;M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);}
             }
             else if(classification==2u)M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
         }
@@ -772,15 +700,10 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
         M8FlowerPacketStoreWord(control+1u,active);
         M8FlowerPacketStoreWord(control+2u,unresolved);
         M8FlowerPacketStoreWord(control+3u,signs);
-        M8FlowerPacketStoreWord(control+4u,next);
-        M8FlowerPacketStoreWord(control+5u,0u);
-        M8FlowerPacketStoreWord(control+6u,0u);
-        M8FlowerPacketStoreWord(control+7u,0u);
-        M8FlowerPacketStoreWord(control+8u,M8_FLOWER_ARENA_OK);
         M8FlowerPacketStoreWord(control+10u,sites);
     }
-    // Every classifier has finished using original roots before world sites
-    // overwrite the original region. Site roots keep their separate lifetime.
+    // Selected roots and world enclosures have disjoint shared lifetimes.
+    // The owner's original roots remain reusable by its other reached carriers.
     GroupMemoryBarrierWithGroupSync();
     if(lane<7u*m8FinePacketCount)
     {
@@ -797,114 +720,64 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
         M8FlowerFineStoreWorld(lane,world);
         M8FlowerPacketStoreWord(M8_FINE_PACKET_WORLD_VALID+lane,valid?1u:0u);
     }
+    GroupMemoryBarrierWithGroupSync();
     if(lane<m8FinePacketCount)
     {
         uint local=m8FinePacketFirst+lane,control=M8FlowerFineSkinControl(lane);
-        uint receipt=M8FlowerSkinReceipt(m8FineReceiptTile,local);
         uint siteValid=0u;
         [unroll]for(uint site=0u;site<7u;site++)
             if(M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_VALID+7u*lane+site)!=0u)
                 siteValid|=1u<<site;
-        // Carrier identity, in the same integer words the packet already
-        // uses: FlowerKey, activeWedgeMask, rootSigns and the site mask
-        // derived from them. It is never derived back from the world
-        // intervals that follow it.
-        _M8FlowerDetailPages.Store4(receipt+M8_FLOWER_SKIN_RECEIPT_SYMBOL,
-            uint4(M8FlowerPacketLoadWord(control),M8FlowerPacketLoadWord(control+1u),
-                M8FlowerPacketLoadWord(control+3u),M8FlowerPacketLoadWord(control+10u)));
-        _M8FlowerDetailPages.Store4(receipt+M8_FLOWER_SKIN_RECEIPT_TOKEN,
-            uint4(_M8ObservationToken,generation,parentCursor,siteValid));
-        _M8FlowerDetailPages.Store(receipt+M8_FLOWER_SKIN_RECEIPT_STATUS,
-            M8FlowerPacketLoadWord(control+4u)<57u?
-                M8_FLOWER_SKIN_RECEIPT_STATUS_RESOLVED:M8_FLOWER_SKIN_RECEIPT_STATUS_EMPTY);
-        [unroll]for(uint word=0u;word<42u;word++)
-            _M8FlowerDetailPages.Store(receipt+M8_FLOWER_SKIN_RECEIPT_WORLD+4u*word,
-                M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_SITES+6u*7u*lane+word));
+        uint sites=M8FlowerPacketLoadWord(control+10u),active=M8FlowerPacketLoadWord(control+1u);
+        if(active!=0u && (siteValid&sites)==sites && m8FlowerHaloUnresolvedReads==0u)
+        {
+            uint item;
+            if(M8FlowerReserveSignalItem(item))
+            {
+                _M8FlowerSignalItems.Store4(item+M8_FLOWER_SIGNAL_SOURCE,
+                    uint4((slot<<9u)|local,generation,_M8ObservationToken,m8FinePlane[local]));
+                _M8FlowerSignalItems.Store4(item+M8_FLOWER_SIGNAL_SYMBOL,
+                    uint4(M8FlowerPacketLoadWord(control),active,
+                        M8FlowerPacketLoadWord(control+2u),siteValid));
+                _M8FlowerSignalItems.Store4(item+M8_FLOWER_SIGNAL_REACH,
+                    uint4(sites,0u,M8FlowerGetOwnerEpoch(m8FineOwner[local]),0u));
+                [loop]for(uint word=0u;word<42u;word++)
+                    _M8FlowerSignalItems.Store(item+M8_FLOWER_SIGNAL_WORLD+4u*word,
+                        M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_SITES+42u*lane+word));
+                // One resolver WG owns this owner; no concurrent run-header
+                // writers are introduced when the signal work is dispatched.
+                if(m8FineSignalCount==0u)m8FineSignalFirst=item;
+                else _M8FlowerSignalItems.Store(m8FineSignalLast+M8_FLOWER_SIGNAL_NEXT,item);
+                m8FineSignalLast=item;m8FineSignalCount++;
+            }
+            else m8FineSignalFailed=1u;
+        }
     }
     GroupMemoryBarrierWithGroupSync();
 }
 
-// The signal side of the skin stage. It consumes the receipt the resolver
-// wrote and performs no parent prediction, no residual application and no
-// carrier classification; a receipt from another token or generation is not
-// consumed at all.
-void M8FlowerRestoreSkinCarrier(uint slot,uint lane,uint generation,uint requiredStatus)
-{
-    if(lane<m8FinePacketCount)
-    {
-        uint local=m8FinePacketFirst+lane,control=M8FlowerFineSkinControl(lane);
-        uint receipt=M8FlowerSkinReceipt(m8FineReceiptTile,local);
-        uint4 identity=M8_FLOWER_DETAIL_SOURCE.Load4(receipt+M8_FLOWER_SKIN_RECEIPT_SYMBOL);
-        uint4 lifetime=M8_FLOWER_DETAIL_SOURCE.Load4(receipt+M8_FLOWER_SKIN_RECEIPT_TOKEN);
-        uint status=M8_FLOWER_DETAIL_SOURCE.Load(receipt+M8_FLOWER_SKIN_RECEIPT_STATUS);
-        bool live=lifetime.x==_M8ObservationToken && lifetime.y==generation &&
-            status==requiredStatus;
-        M8FlowerPacketStoreWord(control,live?identity.x:0u);
-        M8FlowerPacketStoreWord(control+1u,live?identity.y:0u);
-        M8FlowerPacketStoreWord(control+2u,0u);
-        M8FlowerPacketStoreWord(control+3u,live?identity.z:0u);
-        M8FlowerPacketStoreWord(control+4u,live?lifetime.z:57u);
-        M8FlowerPacketStoreWord(control+5u,0u);
-        M8FlowerPacketStoreWord(control+6u,0u);
-        M8FlowerPacketStoreWord(control+7u,0u);
-        M8FlowerPacketStoreWord(control+8u,M8_FLOWER_ARENA_OK);
-        M8FlowerPacketStoreWord(control+10u,live?identity.w:0u);
-        [unroll]for(uint site=0u;site<7u;site++)
-            M8FlowerPacketStoreWord(M8_FINE_PACKET_WORLD_VALID+7u*lane+site,
-                (live && (lifetime.w&(1u<<site))!=0u)?1u:0u);
-        [unroll]for(uint word=0u;word<42u;word++)
-            M8FlowerPacketStoreWord(M8_FINE_PACKET_WORLD_SITES+6u*7u*lane+word,
-                live?M8_FLOWER_DETAIL_SOURCE.Load(receipt+M8_FLOWER_SKIN_RECEIPT_WORLD+4u*word):0u);
-    }
-    GroupMemoryBarrierWithGroupSync();
-}
+groupshared M8FlowerSkinGroupContext m8SignalContext;
+groupshared uint4 m8SignalValues[7];
+groupshared uint m8SignalFlags[7];
+groupshared uint2 m8SignalParents;
+groupshared uint m8SignalStatus;
 
 #define M8_SKIN_PACKET_NAME M8FlowerDrainSkinRgb
 #define M8_SKIN_SIGNAL 0
-#include "MerkabaFlowerSkinSignalBody.hlsl"
+#include "MerkabaFlowerSignalBody.hlsl"
 #undef M8_SKIN_PACKET_NAME
 #undef M8_SKIN_SIGNAL
 
 #define M8_SKIN_PACKET_NAME M8FlowerDrainSkinV
 #define M8_SKIN_SIGNAL 1
-#include "MerkabaFlowerSkinSignalBody.hlsl"
+#include "MerkabaFlowerSignalBody.hlsl"
 #undef M8_SKIN_PACKET_NAME
 #undef M8_SKIN_SIGNAL
 
 
-#define M8_DRAIN_BODY_NAME M8FlowerDrainGeometryBody
-#define M8_DRAIN_SKIN 0
 #include "MerkabaFlowerDrainBody.hlsl"
-#undef M8_DRAIN_BODY_NAME
-#undef M8_DRAIN_SKIN
 
-#define M8_DRAIN_BODY_NAME M8FlowerResolveCarriersBody
-#define M8_DRAIN_SKIN 1
-#define M8_DRAIN_RESOLVE 1
-#include "MerkabaFlowerDrainBody.hlsl"
-#undef M8_DRAIN_BODY_NAME
-#undef M8_DRAIN_SKIN
-#undef M8_DRAIN_RESOLVE
-
-#define M8_DRAIN_BODY_NAME M8FlowerDrainSkinRgbBody
-#define M8_DRAIN_SKIN 1
-#define M8_DRAIN_RESOLVE 0
-#define M8_DRAIN_SIGNAL 0
-#include "MerkabaFlowerDrainBody.hlsl"
-#undef M8_DRAIN_BODY_NAME
-#undef M8_DRAIN_SKIN
-#undef M8_DRAIN_RESOLVE
-#undef M8_DRAIN_SIGNAL
-
-#define M8_DRAIN_BODY_NAME M8FlowerDrainSkinVBody
-#define M8_DRAIN_SKIN 1
-#define M8_DRAIN_RESOLVE 0
-#define M8_DRAIN_SIGNAL 1
-#include "MerkabaFlowerDrainBody.hlsl"
-#undef M8_DRAIN_BODY_NAME
-#undef M8_DRAIN_SKIN
-#undef M8_DRAIN_RESOLVE
-#undef M8_DRAIN_SIGNAL
+#include "MerkabaFlowerResolveSignals.hlsl"
 
 [numthreads(128,1,1)]
 void DrainFlowerGeometry(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
@@ -918,16 +791,16 @@ void ResolveFlowerCarriers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     M8FlowerResolveCarriersBody(group,lane);
 }
 
-[numthreads(128,1,1)]
+[numthreads(64,1,1)]
 void DrainFlowerSkinRgb(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
-    M8FlowerDrainSkinRgbBody(group,lane);
+    M8FlowerDrainSkinRgb(group,lane);
 }
 
-[numthreads(128,1,1)]
+[numthreads(64,1,1)]
 void DrainFlowerSkinV(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
-    M8FlowerDrainSkinVBody(group,lane);
+    M8FlowerDrainSkinV(group,lane);
 }
 
 #endif

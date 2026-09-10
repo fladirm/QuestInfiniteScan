@@ -185,6 +185,7 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8LoadRequests;
         private ComputeBuffer _m8LoadRequestReadCount;
         private ComputeBuffer _m8ObservationRecords;
+        private ComputeBuffer _m8FlowerSignalItems;
         private ComputeBuffer _m8TouchedTileQueue;
         private ComputeBuffer _m8FrameDispatchArgs;
         private ComputeBuffer _m8ObservationDispatchArgs;
@@ -226,6 +227,7 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8LoadRequestReadCount =>
             _m8LoadRequestReadCount;
         internal ComputeBuffer M8ObservationRecords => _m8ObservationRecords;
+        internal ComputeBuffer M8FlowerSignalItems => _m8FlowerSignalItems;
         internal ComputeBuffer M8TouchedTileQueue => _m8TouchedTileQueue;
         internal ComputeBuffer M8FrameDispatchArgs => _m8FrameDispatchArgs;
         internal ComputeBuffer M8ObservationDispatchArgs => _m8ObservationDispatchArgs;
@@ -294,6 +296,8 @@ namespace Genesis.RoomScan
                 _m8LoadRequestReadCount);
             Set(MerkabaNativeVulkanExecutor.Resource.ObservationRecords,
                 _m8ObservationRecords);
+            Set(MerkabaNativeVulkanExecutor.Resource.FlowerSignalItems,
+                _m8FlowerSignalItems);
             Set(MerkabaNativeVulkanExecutor.Resource.TouchedTileQueue,
                 _m8TouchedTileQueue);
             Set(MerkabaNativeVulkanExecutor.Resource.ObservationDispatchArgs,
@@ -404,6 +408,9 @@ namespace Genesis.RoomScan
                 _m8LoadRequests = Allocate(LoadRequestCapacity, 16);
                 _m8LoadRequestReadCount = Allocate(1, sizeof(uint));
                 _m8ObservationRecords = Allocate(MerkabaObservationRecord.Capacity, MerkabaObservationRecord.ByteSize);
+                _m8FlowerSignalItems = Allocate(MerkabaFlowerGpuLayout.SignalBufferBytes / 4,
+                    4, ComputeBufferType.Raw | ComputeBufferType.IndirectArguments);
+                _m8FlowerSignalItems.name = "M8 snapshot-local signal items";
                 _m8TouchedTileQueue = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8FrameDispatchArgs = Allocate(3, sizeof(uint),
@@ -1264,6 +1271,7 @@ namespace Genesis.RoomScan
             _m8AttemptCompletion = null;
             _m8ClaimQueue = null;
             _m8ObservationRecords = null;
+            _m8FlowerSignalItems = null;
             _m8TouchedTileQueue = null;
             _m8ObservationDispatchArgs = null;
             _m8LoadRequestReadCount = null;
