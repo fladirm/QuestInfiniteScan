@@ -87,9 +87,11 @@ the new contract is actually satisfied; otherwise record the exact open gap.
 
 ## Current handoff
 
-RT1 start: existing AnchorSectorPetalMasks are canonical root OWNERSHIP.
-TryGetAnchorRootReferences already separates generated incident petals.
-M8FlowerR1FlagWitness currently revisits generated child loops in 48*4*3;
-its replacement must use child construction incidence, not owner-mask AND.
-No rewrite implementation is marked complete yet. Baseline tests 378/378 and
-installed APK 03280202 are baseline receipts, not rewrite acceptance.
+RT1 R1 admission replacement implemented: codegen emits 54 unique child R1
+loops, six direction masks and same-construction peer masks. Production
+M8FlowerR1FlagWitness now visits reached loop bits instead of 48*4*3 flags.
+Root ownership is unchanged; peer lookup is generated child incidence.
+Unity codegen and native FlowerCommit compile PASS; no tests/APK/device run.
+Next: generated reached carrier decode shared by CPU/HLSL; RT1 remains OPEN.
+Then RT2 removes the old snapshot task/cursor program, RT3 rewires presentation.
+Baseline tests 378/378 and installed APK 03280202 are not rewrite acceptance.

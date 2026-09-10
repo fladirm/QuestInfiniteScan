@@ -14,7 +14,7 @@ namespace Genesis.RoomScan.Editor
     /// enumerated from MerkabaSphereFlowerAuthority; no topology is maintained
     /// independently in this generator.
     /// </summary>
-    public static class MerkabaSphereFlowerCodegen
+    public static partial class MerkabaSphereFlowerCodegen
     {
         public const string GeneratedAssetPath =
             "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaSphereFlower.generated.hlsl";
@@ -360,6 +360,7 @@ namespace Genesis.RoomScan.Editor
             AppendJunctionRules(output, false, tables);
             AppendCoordinateForms(output, tables);
             AppendChildLoopAddresses(output, tables);
+            AppendR1WitnessDecode(output, false, tables);
             AppendLoopMetricLengths(output, tables);
             AppendPlaneDecodeTable(output, tables);
             AppendFunctions(output);
@@ -547,6 +548,7 @@ uint M8FlowerEvaluateCarrierRelation(int3 junction, uint lineClass, bool rootSig
             AppendPhaseDependencies(o, true);
             AppendRadicalSectorPatterns(o, true);
             AppendAnchorSectorPetalMasks(o, true);
+            AppendR1WitnessDecode(o, true);
             AppendBoundaryRules(o, true);
             AppendCompletion(o, true);
             AppendJunctionRules(o, true);

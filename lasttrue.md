@@ -9728,3 +9728,19 @@ SCOPE=replace persistent cursor/1336-task/quantum/receipt/exhaustive production
 USER_DELIVERY_GATE=APK build, installation and Quest acceptance ONLY after the
   ENTIRE rewrite, in RT4. RT1–RT3: implementation, necessary compile/codegen
   checks, coherent intermediate commits. Baseline 378/378 is not RT acceptance.
+
+### 2026-09-10 REALTIME_RT1 — generated R1 witness incidence checkpoint
+
+CURSOR=RT1 OPEN; R1 admission replacement implemented, carrier decode next.
+CODEGEN=54 unique exact child R1 loops + six reached-direction masks + peer
+  incidence. The 48*4*3 enumeration runs only in the editor generator.
+PRODUCTION=M8FlowerR1FlagWitness consumes reached loop bits and peer masks;
+  no independent RootOwner mask intersection, changed metric predicate or
+  persisted branch ordinal. CPU counterpart shares the frozen tables.
+COMPILE=Unity GenerateForBatch PASS; native FlowerCommit ID-only SPIR-V compile
+  PASS: 780768 B, 41358 body instructions, 24704 B shared, 8 writable bindings.
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt1-codegen.log
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt1-r1-compile.log
+TESTS=not run; APK=not built; DEVICE=not run, per final-only delivery gate.
+REMAINING=actual-carrier DecodeFlower, RT2 cursor/task/receipt removal, RT3
+  readout/export rewire and V normal atlas, then integrated RT4 acceptance.

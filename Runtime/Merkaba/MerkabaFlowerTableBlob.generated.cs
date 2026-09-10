@@ -5,9 +5,9 @@ namespace Genesis.RoomScan
 {
     internal static class MerkabaFlowerTableBlob
     {
-        internal const int ByteSize = 1645872;
-        internal const int RowCount = 102867;
-        internal const uint TableHash = 0xcee1b7c3u;
+        internal const int ByteSize = 1647696;
+        internal const int RowCount = 102981;
+        internal const uint TableHash = 0xceae0f9du;
         internal const int SectorBoundsRowOffset = 0;
         internal const int BoundaryRationalRowOffset = 264;
         internal const int BoundaryIrrationalOwnerRowOffset = 528;
@@ -68,12 +68,15 @@ namespace Genesis.RoomScan
         internal const int CoordinateFormRowOffset = 9820;
         internal const int ChildLoopAddressRowOffset = 12292;
         internal const int ChildCreationRowOffset = 13732;
-        internal const int LoopLengthUpperRowOffset = 14092;
-        internal const int ObservedRadiusRowOffset = 14313;
-        internal const int NormalPrefixRowOffset = 14326;
-        internal const int NormalCodeRowOffset = 14412;
-        internal const int OffsetCodeRowOffset = 102135;
-        internal const int PhaseDependentCarriersRowOffset = 102199;
+        internal const int R1WitnessLoopsRowOffset = 14092;
+        internal const int R1WitnessDirectionsRowOffset = 14146;
+        internal const int R1WitnessPeersRowOffset = 14152;
+        internal const int LoopLengthUpperRowOffset = 14206;
+        internal const int ObservedRadiusRowOffset = 14427;
+        internal const int NormalPrefixRowOffset = 14440;
+        internal const int NormalCodeRowOffset = 14526;
+        internal const int OffsetCodeRowOffset = 102249;
+        internal const int PhaseDependentCarriersRowOffset = 102313;
         internal static uint4[] CreateRows() =>
             System.Runtime.InteropServices.MemoryMarshal.Cast<uint, uint4>(new System.ReadOnlySpan<uint>(new uint[]
         {
@@ -14169,6 +14172,120 @@ namespace Genesis.RoomScan
             0x00000000u, 0x00000000u, 0x8000c80bu, 0x80000a2fu,
             0x8000026fu, 0x80001a2fu, 0x00000000u, 0x00000000u,
             0x00000000u, 0x80001b2fu, 0x80000b6fu, 0x8000032fu,
+            0xffffffffu, 0x00000000u, 0x00000000u, 0x00000004u,
+            0xfffffffeu, 0xffffffffu, 0x00000000u, 0x0000000du,
+            0xfffffffeu, 0xfffffffeu, 0xffffffffu, 0x00000015u,
+            0xfffffffeu, 0xfffffffeu, 0x00000001u, 0x00000011u,
+            0xfffffffeu, 0x00000001u, 0x00000000u, 0x00000009u,
+            0xfffffffeu, 0x00000002u, 0xffffffffu, 0x00000015u,
+            0xfffffffeu, 0x00000002u, 0x00000001u, 0x00000011u,
+            0xfffffffeu, 0x00000000u, 0xffffffffu, 0x00000015u,
+            0xfffffffeu, 0xffffffffu, 0xfffffffeu, 0x0000000du,
+            0xfffffffeu, 0x00000001u, 0xfffffffeu, 0x00000009u,
+            0xfffffffeu, 0x00000000u, 0x00000001u, 0x00000011u,
+            0xfffffffeu, 0xffffffffu, 0x00000002u, 0x0000000du,
+            0xfffffffeu, 0x00000001u, 0x00000002u, 0x00000009u,
+            0x00000001u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00000002u, 0xffffffffu, 0x00000000u, 0x0000000du,
+            0x00000002u, 0xfffffffeu, 0xffffffffu, 0x00000015u,
+            0x00000002u, 0xfffffffeu, 0x00000001u, 0x00000011u,
+            0x00000002u, 0x00000001u, 0x00000000u, 0x00000009u,
+            0x00000002u, 0x00000002u, 0xffffffffu, 0x00000015u,
+            0x00000002u, 0x00000002u, 0x00000001u, 0x00000011u,
+            0x00000002u, 0x00000000u, 0xffffffffu, 0x00000015u,
+            0x00000002u, 0xffffffffu, 0xfffffffeu, 0x0000000du,
+            0x00000002u, 0x00000001u, 0xfffffffeu, 0x00000009u,
+            0x00000002u, 0x00000000u, 0x00000001u, 0x00000011u,
+            0x00000002u, 0xffffffffu, 0x00000002u, 0x0000000du,
+            0x00000002u, 0x00000001u, 0x00000002u, 0x00000009u,
+            0x00000000u, 0xffffffffu, 0x00000000u, 0x0000000cu,
+            0xffffffffu, 0xfffffffeu, 0x00000000u, 0x00000005u,
+            0x00000001u, 0xfffffffeu, 0x00000000u, 0x00000001u,
+            0x00000000u, 0xfffffffeu, 0xffffffffu, 0x00000015u,
+            0xffffffffu, 0xfffffffeu, 0xfffffffeu, 0x00000005u,
+            0x00000001u, 0xfffffffeu, 0xfffffffeu, 0x00000001u,
+            0x00000000u, 0xfffffffeu, 0x00000001u, 0x00000011u,
+            0xffffffffu, 0xfffffffeu, 0x00000002u, 0x00000005u,
+            0x00000001u, 0xfffffffeu, 0x00000002u, 0x00000001u,
+            0x00000000u, 0x00000001u, 0x00000000u, 0x00000008u,
+            0xffffffffu, 0x00000002u, 0x00000000u, 0x00000005u,
+            0x00000001u, 0x00000002u, 0x00000000u, 0x00000001u,
+            0x00000000u, 0x00000002u, 0xffffffffu, 0x00000015u,
+            0xffffffffu, 0x00000002u, 0xfffffffeu, 0x00000005u,
+            0x00000001u, 0x00000002u, 0xfffffffeu, 0x00000001u,
+            0x00000000u, 0x00000002u, 0x00000001u, 0x00000011u,
+            0xffffffffu, 0x00000002u, 0x00000002u, 0x00000005u,
+            0x00000001u, 0x00000002u, 0x00000002u, 0x00000001u,
+            0x00000000u, 0x00000000u, 0xffffffffu, 0x00000014u,
+            0xffffffffu, 0x00000000u, 0xfffffffeu, 0x00000005u,
+            0x00000001u, 0x00000000u, 0xfffffffeu, 0x00000001u,
+            0x00000000u, 0xffffffffu, 0xfffffffeu, 0x0000000du,
+            0x00000000u, 0x00000001u, 0xfffffffeu, 0x00000009u,
+            0x00000000u, 0x00000000u, 0x00000001u, 0x00000010u,
+            0xffffffffu, 0x00000000u, 0x00000002u, 0x00000005u,
+            0x00000001u, 0x00000000u, 0x00000002u, 0x00000001u,
+            0x00000000u, 0xffffffffu, 0x00000002u, 0x0000000du,
+            0x00000000u, 0x00000001u, 0x00000002u, 0x00000009u,
+            0x90002000u, 0x00084924u, 0x00000000u, 0x00000000u,
+            0x48000001u, 0x00042492u, 0x00000000u, 0x00000000u,
+            0x02421210u, 0x00210008u, 0x00000000u, 0x00000000u,
+            0x05204902u, 0x00108000u, 0x00000000u, 0x00000000u,
+            0x00890448u, 0x00020201u, 0x00000000u, 0x00000000u,
+            0x201480a4u, 0x00001040u, 0x00000000u, 0x00000000u,
+            0x00000492u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x0000000du, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x08000002u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x08000002u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00000061u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00000010u, 0x00000010u, 0x00000000u, 0x00000000u,
+            0x00000010u, 0x00000010u, 0x00000000u, 0x00000000u,
+            0x00000301u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00000080u, 0x00002000u, 0x00000000u, 0x00000000u,
+            0x00000080u, 0x00002000u, 0x00000000u, 0x00000000u,
+            0x00001801u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00000400u, 0x00040000u, 0x00000000u, 0x00000000u,
+            0x00000400u, 0x00040000u, 0x00000000u, 0x00000000u,
+            0x00924000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x0001a000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x10004000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x10004000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x000c2000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00020000u, 0x00000020u, 0x00000000u, 0x00000000u,
+            0x00020000u, 0x00000020u, 0x00000000u, 0x00000000u,
+            0x00602000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00100000u, 0x00004000u, 0x00000000u, 0x00000000u,
+            0x00100000u, 0x00004000u, 0x00000000u, 0x00000000u,
+            0x03002000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x00800000u, 0x00080000u, 0x00000000u, 0x00000000u,
+            0x00800000u, 0x00080000u, 0x00000000u, 0x00000000u,
+            0x38000000u, 0x00000001u, 0x00000000u, 0x00000000u,
+            0x0400000cu, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x04018000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0xc4000000u, 0x00000000u, 0x00000000u, 0x00000000u,
+            0x20000000u, 0x00008000u, 0x00000000u, 0x00000000u,
+            0x20000000u, 0x00008000u, 0x00000000u, 0x00000000u,
+            0x04000000u, 0x00000006u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00100001u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00100001u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00000270u, 0x00000000u, 0x00000000u,
+            0x00000060u, 0x00000008u, 0x00000000u, 0x00000000u,
+            0x000c0000u, 0x00000008u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00000188u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00010040u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00010040u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00000c08u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00200200u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00200200u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x0001e000u, 0x00000000u, 0x00000000u,
+            0x00000300u, 0x00001000u, 0x00000000u, 0x00000000u,
+            0x00600000u, 0x00001000u, 0x00000000u, 0x00000000u,
+            0xc0000000u, 0x00001000u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00001180u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x003c0000u, 0x00000000u, 0x00000000u,
+            0x00001800u, 0x00020000u, 0x00000000u, 0x00000000u,
+            0x03000000u, 0x00020000u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00020006u, 0x00000000u, 0x00000000u,
+            0x00000000u, 0x00020c00u, 0x00000000u, 0x00000000u,
             0x3cb15cafu, 0x3c90d0c5u, 0x3cb15cafu, 0x3c90d0c5u,
             0x3c4ccccfu, 0x3c90d0c5u, 0x3cb15cafu, 0x3c90d0c5u,
             0x3cb15cafu, 0x3c90d0c5u, 0x3c4ccccfu, 0x3c90d0c5u,

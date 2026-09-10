@@ -109,9 +109,9 @@ bool M8FlowerOwnPlaneEligible(uint slot,uint local,uint plane,
         M8FlowerCompatibleCarrier(previous.flags,plane,normalError,offsetError);
 }
 
-// A common generated child flag may contain two R1 loop nodes even though
-// its parent has just one R1 anchor. Check the actual inherited/new loop
-// sectors using bounded plane evidence; R2/R3 nodes never gate admission.
+// Decode inverse child incidence from the reached R1 directions. Metric
+// roots are evaluated once per reached loop, not once per theoretical flag.
+// Generated peer masks share a child construction, not a root owner cell.
 bool M8FlowerR1FlagWitness(uint2 witness, uint plane,
     float normalError, float offsetError)
 {
@@ -123,57 +123,38 @@ bool M8FlowerR1FlagWitness(uint2 witness, uint plane,
     float3 normal;
     float offset;
     M8FlowerUnpackPlane(plane,normal,offset);
-    // Root nodes and the 72 immutable strand classes are the only possible
-    // tests. Shared child nodes reuse the result, not another root solve.
-    uint3 tested=0u.xxx, certain=0u.xxx;
-    [loop] for (uint petal=0u; petal<48u; petal++)
+    uint3 pending=0u,admitted=0u;
+    [unroll]for(uint direction=0u;direction<6u;direction++)
+        if((((witness.x|witness.y)>>(5u*direction))&31u)!=0u)
+            pending|=M8FlowerR1WitnessDirectionsAt(direction).xyz;
+    [loop]for(uint word=0u;word<3u;word++)
     {
-        [loop] for (uint child=0u; child<4u; child++)
+        [loop]while(pending[word]!=0u)
         {
-            uint supportedAxes=0u;
-            [loop] for (uint node=0u; node<3u; node++)
+            uint bit=(uint)firstbitlow(pending[word]),index=word*32u+bit;
+            pending[word]&=pending[word]-1u;
+            uint4 row=M8FlowerR1WitnessLoopsAt(index);
+            int3 junction=asint(row.xyz);
+            uint level=row.w&3u,direction=row.w>>2u,lineClass=direction>>1u;
+            precise float3 relative=float3(junction)*
+                (M8_FLOWER_LATTICE_STEP*(level==0u?0.5:0.25));
+            M8FlowerInterval3 abc;
+            if(!M8FlowerPlaneLoopIntervals(normal,offset,relative,
+                M8FlowerGeometryLoopRadiusAt(level*13u+lineClass),lineClass,
+                normalError,offsetError,level,junction,abc))continue;
+            bool certain=false;
+            [loop]for(uint sign=0u;sign<2u;sign++)
             {
-                uint level,lineClass,strandClass;
-                int3 junction;
-                int endpoint,phase,inherited;
-                if (!M8FlowerTryGetChildPhaseLoop(petal,child+1u,node,
-                        level,junction,lineClass,strandClass,endpoint,phase,inherited) ||
-                    lineClass>=3u) continue;
-                uint direction=2u*lineClass+(endpoint<0?1u:0u);
-                uint minus=(witness.x>>(5u*direction))&31u;
-                uint plus=(witness.y>>(5u*direction))&31u;
-                if ((minus|plus)==0u) continue;
-                uint cache=level==0u?72u+direction:strandClass;
-                uint word=cache>>5u,bit=1u<<(cache&31u);
-                if ((tested[word]&bit)==0u)
-                {
-                    tested[word]|=bit;
-                    precise float3 relative=float3(junction)*
-                        (M8_FLOWER_LATTICE_STEP*(level==0u?0.5:0.25));
-                    M8FlowerInterval3 abc;
-                    bool admitted=false;
-                    if (M8FlowerPlaneLoopIntervals(normal,offset,relative,
-                            M8FlowerGeometryLoopRadiusAt(level*13u+lineClass),lineClass,
-                            normalError,offsetError,level,junction,abc))
-                    {
-                        [loop] for (uint sign=0u; sign<2u; sign++)
-                        {
-                            uint expected=sign==0u?minus:plus;
-                            if (expected==0u) continue;
-                            uint tag,classification;
-                            M8FlowerInterval2 root;
-                            if (M8FlowerClassifyPlaneRoot(level,lineClass,
-                                    endpoint<0,sign!=0u,normal,offset,junction,abc,
-                                    tag,root,classification) &&
-                                ((tag>>8u)&31u)==expected-1u)
-                                admitted=true;
-                        }
-                    }
-                    if (admitted) certain[word]|=bit;
-                }
-                if ((certain[word]&bit)!=0u) supportedAxes|=1u<<lineClass;
+                uint expected=(witness[sign]>>(5u*direction))&31u;
+                if(expected==0u)continue;
+                uint tag,classification;M8FlowerInterval2 root;
+                if(M8FlowerClassifyPlaneRoot(level,lineClass,(direction&1u)!=0u,
+                    sign!=0u,normal,offset,junction,abc,tag,root,classification) &&
+                    ((tag>>8u)&31u)==expected-1u)certain=true;
             }
-            if (countbits(supportedAxes)>=2u) return true;
+            if(!certain)continue;
+            if(any((M8FlowerR1WitnessPeersAt(index).xyz&admitted)!=0u))return true;
+            admitted[word]|=1u<<bit;
         }
     }
     return false;

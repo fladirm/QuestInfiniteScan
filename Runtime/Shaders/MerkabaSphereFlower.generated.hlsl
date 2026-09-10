@@ -25,7 +25,7 @@ struct M8FlowerInterval3 { M8FlowerInterval x; M8FlowerInterval y; M8FlowerInter
 #define M8_FLOWER_SKIN_TERMINAL_COUNT 343u
 #define M8_FLOWER_SKIN_SPLIT_BIT_COUNT 57u
 #define M8_FLOWER_SECTOR_BOUNDARY_COUNT 264u
-#define M8_FLOWER_TABLE_HASH 0xcee1b7c3u
+#define M8_FLOWER_TABLE_HASH 0xceae0f9du
 #define M8_FLOWER_L2_CANONICAL_OWNER_ROW_BASE 792u
 #define M8_FLOWER_L2_CARRIER_ROW_BASE 1560u
 #define M8_FLOWER_ROOT_IMPOSSIBLE 0u
@@ -486,11 +486,14 @@ uint2 M8FlowerJunctionRuleAt(uint index) { return _M8FlowerTables[9808u+index].x
 float4 M8FlowerCoordinateFormAt(uint index) { return asfloat(_M8FlowerTables[9820u+index]); }
 uint4 M8FlowerChildLoopAddressAt(uint index) { return _M8FlowerTables[12292u+index]; }
 uint M8FlowerChildCreationAt(uint index) { return _M8FlowerTables[13732u+(index>>2u)][index&3u]; }
-float M8FlowerLoopLengthUpperAt(uint index) { return asfloat(_M8FlowerTables[14092u+(index>>2u)][index&3u]); }
-float2 M8FlowerObservedRadiusAt(uint index) { return asfloat(_M8FlowerTables[14313u+index]).xy; }
-uint M8FlowerNormalPrefixAt(uint index) { return _M8FlowerTables[14326u+(index>>2u)][index&3u]; }
-float3 M8FlowerNormalCodeAt(uint index) { return asfloat(_M8FlowerTables[14412u+index]).xyz; }
-float M8FlowerOffsetCodeAt(uint index) { return asfloat(_M8FlowerTables[102135u+(index>>2u)][index&3u]); }
+uint4 M8FlowerR1WitnessLoopsAt(uint index) { return _M8FlowerTables[14092u+index]; }
+uint4 M8FlowerR1WitnessDirectionsAt(uint index) { return _M8FlowerTables[14146u+index]; }
+uint4 M8FlowerR1WitnessPeersAt(uint index) { return _M8FlowerTables[14152u+index]; }
+float M8FlowerLoopLengthUpperAt(uint index) { return asfloat(_M8FlowerTables[14206u+(index>>2u)][index&3u]); }
+float2 M8FlowerObservedRadiusAt(uint index) { return asfloat(_M8FlowerTables[14427u+index]).xy; }
+uint M8FlowerNormalPrefixAt(uint index) { return _M8FlowerTables[14440u+(index>>2u)][index&3u]; }
+float3 M8FlowerNormalCodeAt(uint index) { return asfloat(_M8FlowerTables[14526u+index]).xyz; }
+float M8FlowerOffsetCodeAt(uint index) { return asfloat(_M8FlowerTables[102249u+(index>>2u)][index&3u]); }
 
 
 // Selection, not control flow. Every interval operation inlines this pair,
@@ -2115,7 +2118,7 @@ float M8FlowerNestedV(float3 child3, float3 child4, float3 child5,
         amplitude.z*M8FlowerSkinBubble(child5);
 }
 
-uint4 M8FlowerPhaseDependentCarriersAt(uint index) { return _M8FlowerTables[102199u+index]; }
+uint4 M8FlowerPhaseDependentCarriersAt(uint index) { return _M8FlowerTables[102313u+index]; }
 
 // Same canonical creation-address inverse as TryPhaseDependencyIndex.
 // Sign/sector remain in the record key. The dependency proof visits both
