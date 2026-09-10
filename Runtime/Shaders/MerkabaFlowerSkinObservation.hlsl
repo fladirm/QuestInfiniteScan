@@ -297,7 +297,7 @@ struct M8FlowerSkinMetricFrame
     M8FlowerInterval Determinant;
 };
 
-bool M8FlowerSkinMetricFrameFromTriangle(M8FlowerInterval3 footprintTriangle[3],
+bool M8FlowerSkinChartFrameFromTriangle(M8FlowerInterval3 footprintTriangle[3],
     out M8FlowerSkinMetricFrame frame)
 {
     frame=(M8FlowerSkinMetricFrame)0;
@@ -309,7 +309,13 @@ bool M8FlowerSkinMetricFrameFromTriangle(M8FlowerInterval3 footprintTriangle[3],
     frame.VV=M8FlowerObservedDot(frame.EdgeV,frame.EdgeV);
     frame.Determinant=M8FlowerISub(M8FlowerIMul(frame.UU,frame.VV),
         M8FlowerISquare(frame.UV));
-    if(!(frame.Determinant.lo>0.0))return false;
+    return frame.Determinant.lo>0.0;
+}
+
+bool M8FlowerSkinMetricFrameFromTriangle(M8FlowerInterval3 footprintTriangle[3],
+    out M8FlowerSkinMetricFrame frame)
+{
+    if(!M8FlowerSkinChartFrameFromTriangle(footprintTriangle,frame))return false;
     M8FlowerInterval3 crossValue=M8FlowerSkinCross(frame.EdgeU,frame.EdgeV);
     M8FlowerInterval length;
     if(!M8FlowerISqrt(M8FlowerIAdd(M8FlowerIAdd(M8FlowerISquare(crossValue.x),
@@ -376,6 +382,79 @@ bool M8FlowerSkinClipMetricCoordinates(inout M8FlowerInterval3 barycentric)
     if(sum.lo>1.0 || sum.hi<1.0)return false;
     barycentric.x=M8FlowerI(lo.x,hi.x);barycentric.y=M8FlowerI(lo.y,hi.y);
     barycentric.z=M8FlowerI(lo.z,hi.z);
+    return true;
+}
+
+// Work selection over a measured footprint, not root/sector ownership. Every
+// possibly intersected ordered chamber is retained, including shared edges.
+// Complete-support measurement below still owns certainty and split creation.
+uint M8FlowerSkinPossibleChambers(M8FlowerInterval3 barycentric,uint wedge)
+{
+    float3 lo=float3(barycentric.x.lo,barycentric.y.lo,barycentric.z.lo);
+    float3 hi=float3(barycentric.x.hi,barycentric.y.hi,barycentric.z.hi);
+    uint mask=0u;
+    [loop]for(uint order=0u;order<6u;order++)
+    {
+        int3 p=M8FlowerSkinChamberAt(6u*wedge+order).xyz;
+        if(hi[p.x]>=lo[p.y] && hi[p.y]>=lo[p.z] && hi[p.x]>=lo[p.z])mask|=1u<<order;
+    }
+    return mask;
+}
+
+uint M8FlowerSkinReachChamber(M8FlowerInterval3 parent,uint rule,
+    out M8FlowerInterval3 child,out uint site,out uint wedge)
+{
+    uint address=asuint(M8FlowerSkinChamberAt(rule).w);
+    site=address&255u;wedge=(address>>8u)&255u;
+    child=M8FlowerSkinIntervalChamber(parent,rule);
+    if(!all(M8FlowerIsFinite(float4(child.x.lo,child.x.hi,child.y.lo,child.y.hi))) ||
+        !all(M8FlowerIsFinite(float2(child.z.lo,child.z.hi))))return 2u;
+    return M8FlowerSkinClipMetricCoordinates(child)?1u:0u;
+}
+
+// Three generated descents. The resulting work unit is the seven-value split
+// group, not a terminal color sample: all L5 siblings share one L4 parent bit.
+// Stop after the first reached L5 sibling of that group; its complete seven
+// footprints are measured together when the split predicate is evaluated.
+bool M8FlowerSkinFootprintParents(M8FlowerInterval3 barycentric,uint wedge,out uint2 parents)
+{
+    parents=0u;
+    if(!all(M8FlowerIsFinite(float4(barycentric.x.lo,barycentric.x.hi,
+        barycentric.y.lo,barycentric.y.hi))) ||
+        !all(M8FlowerIsFinite(float2(barycentric.z.lo,barycentric.z.hi))))return false;
+    if(!M8FlowerSkinClipMetricCoordinates(barycentric))return true;
+    uint pending3=M8FlowerSkinPossibleChambers(barycentric,wedge);
+    [loop]while(pending3!=0u)
+    {
+        uint order3=(uint)firstbitlow(pending3);pending3&=pending3-1u;
+        M8FlowerInterval3 bc3;uint c3,w3;
+        uint state3=M8FlowerSkinReachChamber(barycentric,6u*wedge+order3,bc3,c3,w3);
+        if(state3==2u)return false;
+        if(state3==0u)continue;
+        uint pending4=M8FlowerSkinPossibleChambers(bc3,w3);
+        [loop]while(pending4!=0u)
+        {
+            uint order4=(uint)firstbitlow(pending4);pending4&=pending4-1u;
+            M8FlowerInterval3 bc4;uint c4,w4;
+            uint state4=M8FlowerSkinReachChamber(bc3,6u*w3+order4,bc4,c4,w4);
+            if(state4==2u)return false;
+            if(state4==0u)continue;
+            uint pending5=M8FlowerSkinPossibleChambers(bc4,w4);
+            [loop]while(pending5!=0u)
+            {
+                uint order5=(uint)firstbitlow(pending5);pending5&=pending5-1u;
+                M8FlowerInterval3 bc5;uint c5,w5;
+                uint state5=M8FlowerSkinReachChamber(bc4,6u*w4+order5,bc5,c5,w5);
+                if(state5==2u)return false;
+                if(state5==0u)continue;
+                uint j3=M8FlowerSkinL3ChildRankAt(c3);
+                uint parent4=8u+7u*j3+M8FlowerSkinL4ChildRankAt(7u*c3+c4);
+                parents.x|=1u|(1u<<(1u+j3));
+                parents[parent4>>5u]|=1u<<(parent4&31u);
+                break;
+            }
+        }
+    }
     return true;
 }
 

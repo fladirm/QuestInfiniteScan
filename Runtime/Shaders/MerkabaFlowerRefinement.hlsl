@@ -37,6 +37,9 @@ groupshared uint m8FineSourceNodes;
 groupshared uint m8FineAnchorAlternatives[18];
 groupshared uint m8FineAnchorReceipts[18];
 groupshared uint2 m8FineCarrierTriples[3];
+groupshared M8FlowerSkinMetricFrame m8FineSkinFrames[6];
+groupshared uint2 m8FineSkinReached;
+groupshared uint m8FineSkinUnboundedWedges;
 
 void M8FlowerLoadObservedHalo(uint slot,uint lane)
 {
@@ -557,12 +560,82 @@ void M8FlowerFineStoreWorld(uint index,M8FlowerInterval3 world)
     M8FlowerPacketStoreWord(address+5u,asuint(world.z.hi));
 }
 
+M8FlowerInterval3 M8FlowerFineLoadWorld(uint index)
+{
+    uint address=M8_FINE_PACKET_WORLD_SITES+6u*index;
+    M8FlowerInterval3 world;
+    world.x=M8FlowerI(asfloat(M8FlowerPacketLoadWord(address)),asfloat(M8FlowerPacketLoadWord(address+1u)));
+    world.y=M8FlowerI(asfloat(M8FlowerPacketLoadWord(address+2u)),asfloat(M8FlowerPacketLoadWord(address+3u)));
+    world.z=M8FlowerI(asfloat(M8FlowerPacketLoadWord(address+4u)),asfloat(M8FlowerPacketLoadWord(address+5u)));
+    return world;
+}
+
+void M8FlowerReachFineSkin(uint4 measured,uint lane,float2 errors)
+{
+    uint slot=measured.x>>9u,local=measured.x&511u;
+    uint active=M8FlowerPacketLoadWord(M8FlowerFineSkinControl()+1u);
+    if(lane==0u){m8FineSkinReached=0u;m8FineSkinUnboundedWedges=0u;}
+    GroupMemoryBarrierWithGroupSync();
+    if(active==0u || m8FlowerHaloUnresolvedReads!=0u)return;
+    if(lane<6u && (active&(1u<<lane))!=0u)
+    {
+        uint3 sites=M8FlowerSkinWedgeSites(lane);
+        M8FlowerInterval3 support[3];
+        support[0]=M8FlowerFineLoadWorld(sites.x);
+        support[1]=M8FlowerFineLoadWorld(sites.y);
+        support[2]=M8FlowerFineLoadWorld(sites.z);
+        M8FlowerSkinMetricFrame frame;
+        if(!M8FlowerSkinChartFrameFromTriangle(support,frame))
+            InterlockedOr(m8FineSkinUnboundedWedges,1u<<lane);
+        m8FineSkinFrames[lane]=frame;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    uint bounded=active&~m8FineSkinUnboundedWedges;
+    int3 owner=M8FlowerEndpointOwner(slot,local);
+    [loop]for(uint index=lane;index<measured.z;index+=128u)
+    {
+        M8ObservationRecord record=_M8ObservationRecordsRead[M8FlowerMeasuredRecordIndex(measured.y,index)];
+        int2 pixel=int2(record.SourcePixel%gsDepthTexSize.x,record.SourcePixel/gsDepthTexSize.x);
+        M8FlowerInterval depth;M8FlowerInterval3 normal,world;
+        if(!M8FlowerSkinMetricMeasurement(pixel,owner,m8FinePlane,errors.x,errors.y,depth,normal) ||
+            !M8FlowerSkinDepthCell(pixel,depth,true,world))
+        {
+            // Metric projection is not RGB admission. If its enclosure is
+            // unavailable, retain possible signal work for both consumers;
+            // each will apply its own complete-support measurement predicate.
+            InterlockedOr(m8FineSkinUnboundedWedges,active);continue;
+        }
+        uint wedges=bounded;
+        [loop]while(wedges!=0u)
+        {
+            uint wedge=(uint)firstbitlow(wedges);wedges&=wedges-1u;
+            M8FlowerInterval3 barycentric;uint2 reached;
+            if(!M8FlowerSkinMetricCoordinates(m8FineSkinFrames[wedge],world,barycentric) ||
+                !M8FlowerSkinFootprintParents(barycentric,wedge,reached))
+                InterlockedOr(m8FineSkinUnboundedWedges,1u<<wedge);
+            else
+            {
+                InterlockedOr(m8FineSkinReached.x,reached.x);
+                InterlockedOr(m8FineSkinReached.y,reached.y);
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    // A failed enclosure cannot prove that a footprint misses a child. Retain
+    // that wedge's generated possible groups; this is selection only, never
+    // new certainty. Independent lanes read finite support masks, not signals.
+    if(lane<57u && (M8FlowerSkinParentWorkAt(lane).w&m8FineSkinUnboundedWedges)!=0u)
+        InterlockedOr(m8FineSkinReached[lane>>5u],1u<<(lane&31u));
+    GroupMemoryBarrierWithGroupSync();
+}
+
 
 // Geometry is evaluated once. Only resolved, identity-checked carriers append
 // an item; the two signal stages consume its immutable world enclosures.
-void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier,
+void M8FlowerResolveSkinCarrier(uint4 measured,uint lane,uint carrier,
     float2 errors)
 {
+    uint slot=measured.x>>9u,generation=measured.w;
     M8FlowerPrepareFineSites(lane);
     M8FlowerPrepareFineAlternatives(lane);
     if(lane==0u)
@@ -615,6 +688,7 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
         M8FlowerPacketStoreWord(M8_FINE_PACKET_WORLD_VALID+lane,valid?1u:0u);
     }
     GroupMemoryBarrierWithGroupSync();
+    M8FlowerReachFineSkin(measured,lane,errors);
     if(lane==0u)
     {
         uint local=m8FinePacketLocal,control=M8FlowerFineSkinControl();
@@ -623,7 +697,8 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
             if(M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_VALID+site)!=0u)
                 siteValid|=1u<<site;
         uint sites=M8FlowerPacketLoadWord(control+10u),active=M8FlowerPacketLoadWord(control+1u);
-        if(active!=0u && (siteValid&sites)==sites && m8FlowerHaloUnresolvedReads==0u)
+        if(active!=0u && (siteValid&sites)==sites && m8FlowerHaloUnresolvedReads==0u &&
+            any(m8FineSkinReached!=0u))
         {
             uint item;
             if(M8FlowerReserveSignalItem(item))
@@ -635,6 +710,7 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
                         M8FlowerPacketLoadWord(control+2u),siteValid));
                 _M8FlowerSignalItems.Store4(item+M8_FLOWER_SIGNAL_REACH,
                     uint4(sites,0u,M8FlowerGetOwnerEpoch(m8FineOwner),0u));
+                _M8FlowerSignalItems.Store2(item+M8_FLOWER_SIGNAL_PARENTS,m8FineSkinReached);
                 [loop]for(uint word=0u;word<42u;word++)
                     _M8FlowerSignalItems.Store(item+M8_FLOWER_SIGNAL_WORLD+4u*word,
                         M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_SITES+word));

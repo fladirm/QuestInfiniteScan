@@ -23,6 +23,7 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
         uint4 source=_M8FlowerSignalItemsRead.Load4(item+M8_FLOWER_SIGNAL_SOURCE);
         uint4 symbol=_M8FlowerSignalItemsRead.Load4(item+M8_FLOWER_SIGNAL_SYMBOL);
         uint4 reach=_M8FlowerSignalItemsRead.Load4(item+M8_FLOWER_SIGNAL_REACH);
+        uint2 reachedParents=_M8FlowerSignalItemsRead.Load2(item+M8_FLOWER_SIGNAL_PARENTS);
         uint next=reach.w;
         KernelState state=M8LoadKernelStateRead(slot,local);
         uint ownerRef=M8FlowerFindOwner(slot,local,generation);
@@ -30,7 +31,9 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
             source.z==_M8ObservationToken && source.w==state.flags &&
             (reach.x&symbol.w)==reach.x && symbol.y!=0u &&
             (reach.z==0u || reach.z==M8FlowerGetOwnerEpoch(ownerRef));
-        if(!live){item=next;continue;}
+        if(!live || !any(reachedParents!=0u)){item=next;continue;}
+        if(!M8FlowerCanonicalSplit(reachedParents))
+        {if(lane==0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);item=next;continue;}
         M8FlowerInterval3 sites[7];
         if(lane<7u)
         {
@@ -44,7 +47,7 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
                 sites[site].z=M8FlowerI(z.x,z.y);
             }
         }
-        if(lane==0u){m8SignalParents=uint2(1u,0u);m8SignalStatus=M8_FLOWER_ARENA_OK;}
+        if(lane==0u){m8SignalParents=uint2(reachedParents.x&1u,0u);m8SignalStatus=M8_FLOWER_ARENA_OK;}
         GroupMemoryBarrierWithGroupSync();
         // Three fixed substitutions. Masks die with this dispatch; no cursor,
         // quantum, level mode or future observation participates in evaluation.
@@ -136,7 +139,8 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
                             if((support&(1u<<child))==0u)continue;
                             uint ordinal=depth==0u?1u+M8FlowerSkinL3ChildRankAt(child):
                                 8u+7u*(parent-1u)+M8FlowerSkinL4ChildRankAt(7u*c3+child);
-                            m8SignalParents[ordinal>>5u]|=1u<<(ordinal&31u);
+                            uint bit=1u<<(ordinal&31u);
+                            m8SignalParents[ordinal>>5u]|=reachedParents[ordinal>>5u]&bit;
                         }
                     }
                 }

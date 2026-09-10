@@ -34,6 +34,9 @@
 #define M8_FLOWER_SIGNAL_REACH 32u
 #define M8_FLOWER_SIGNAL_WORLD 48u
 #define M8_FLOWER_SIGNAL_NEXT 44u
+// The last eight bytes of the existing aligned item hold reached split groups.
+// These are snapshot-local work bits, never persistent scan-authored splits.
+#define M8_FLOWER_SIGNAL_PARENTS 216u
 
 RWByteAddressBuffer _M8FlowerSignalItems;
 ByteAddressBuffer _M8FlowerSignalItemsRead;

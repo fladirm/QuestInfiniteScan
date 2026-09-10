@@ -75,7 +75,7 @@ void M8FlowerResolveCarriersBody(uint3 group,uint lane)
                 }
                 else
                 {
-                    M8FlowerResolveSkinCarrier(slot,lane,runtime.w,carrier,errors);
+                    M8FlowerResolveSkinCarrier(measured,lane,carrier,errors);
                     if(lane==0u && m8FlowerHaloUnresolvedReads!=0u)
                         M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
                 }

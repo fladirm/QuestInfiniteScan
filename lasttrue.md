@@ -10030,3 +10030,34 @@ NEXT=RT2 OPEN: measured-footprint skin reach; ERASE epoch path; conditional
   allocation; local allocator/contention outcomes. RT3 readout/export decode
   and V atlas remain; RT4 integrated acceptance has not begun.
 TESTS/APK/INSTALL/DEVICE=not run. No measured speedup or completed-rewrite claim.
+
+## RT2 — measured-footprint skin reach (after a8de0b9)
+
+CHANGE=current measured-owner records project their whole bounded pixel cells
+  onto the evaluated L2 wedge charts. The existing generated chamber transforms
+  select reached L3/L4/L5 localities, conservatively retaining shared-boundary
+  alternatives. Seven-value split groups are deduplicated in a transient 57-bit
+  mask stored in the final unused 8 bytes of the existing 224-byte SignalItem.
+  RGB and V consume that same reached-group mask; no 399-position sweep or
+  persistent work state was added. Every stored split still requires the
+  unchanged full seven-child support predicate. Metric projection failure does
+  not veto RGB: generated possible wedge-support groups remain eligible for
+  their independent signal predicates. Empty reached carriers allocate nothing.
+  Six chart frames are shared by the owner's source-pixel lanes, not rebuilt
+  per measurement. Frame arithmetic was factored from the existing metric
+  frame without changing its ordered Gram/normal expressions. No CPU hotpath,
+  readback, extra dispatch, allocation or external ABI change.
+COMPILE=necessary exact native glslang/spirv-val PASS, not full audit/tests:
+  /tmp/m8-rt2-reach-final-ifmx1p13/pipeline-0.spv
+  ResolveFlowerCarriers 935964 B / 48376 body / 15464 B shared / 6 RW / 128;
+  SHA256=6eeaddc4763f14ab782362809a2d4f599ded2a275c9b0bdcc77f9a3c4d2ed662.
+  /tmp/m8-rt2-skin-reach-3hv4y2in/pipeline-{1,2}.spv
+  RGB 307940 B / 15835 body; V 503004 B / 25509 body;
+  both 204 B shared / 4 RW / 64 lanes. git diff --check PASS.
+NEXT=RT2 OPEN: ERASE currently deletes M8 before its pending epoch finalizer;
+  replace through the shared same-transaction preparation/peer/publication
+  path and remove retry consumers. Then conditional allocation and local
+  allocator/contention outcomes. RT3 readout/export and RT4 remain unfinished.
+  RT4 must cover footprint selection against the exact chamber oracle, including
+  boundary-spanning pixels, projection ambiguity and independent RGB/V novelty.
+TESTS/APK/INSTALL/DEVICE=not run. No measured speedup or full-rewrite acceptance.

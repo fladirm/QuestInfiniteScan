@@ -117,7 +117,7 @@ Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
 failed tile does not publish partial owner ranges, and no semantic work survives
 Finalize. These are transient budgets, not world or logical-thread limits.
 
-CURRENT CHANGE=resolver original evidence is acquired only through R1-led source
+REQUIRED ROOTS=resolver original evidence is acquired only through R1-led source
 survivors and generated knot dependencies with present phase records. A known
 mask guards every packet read; original evidence is reused by actual carriers,
 not eagerly evaluated as 52 tasks. Geometry reacquires only a required coarse
@@ -126,18 +126,32 @@ phase source after its endpoint buckets retire. The resolver now evaluates
 their exact combination/publication remains scalar. Ordered COLD dependency
 early-outs remain intact. CPU did not gain any hotpath work.
 
-NEXT=RT2 footprint-directed skin evidence. Finish ERASE pending epoch
-path, conditional sparse allocation and owner-local storage/allocator outcomes.
+CURRENT CHANGE=the resolver projects current measured-owner pixel footprints
+onto evaluated L2 wedge frames and descends through the three existing generated
+chambers. It retains every possible intersected branch; 57 reached group bits
+occupy the unused final 8 bytes of the existing 224-byte SignalItem. RGB/V use
+those bits to visit only reached split groups. An unavailable metric enclosure
+retains the wedge's possible support masks rather than suppressing RGB or
+manufacturing certainty. Actual seven-child complete-support predicates are
+unchanged. This is a snapshot work mask, not persistent subdivision/cursor.
+
+NEXT=RT2 ERASE pending epoch path, conditional sparse allocation and owner-local
+storage/allocator outcomes.
 In particular parallel owner writers must not turn allocator contention into
-unreported lost detail. Start at SignalBody / SkinObservation for footprint
-reach, or Integration.compute ERASE consumers. Do not redo grouping, required
-original acquisition, the fixed level graph or R1/peer epoch cut.
+unreported lost detail. Start at Integration.compute QueryFineEraseTiles /
+EraseFineTiles / FinalizeFineErase and the native/managed FineErase graph.
+The old ERASE finalizer still invalidates epochs after M8 deletion and retains
+pending .w bits; replace it with same-transaction preparation/publication.
+Do not redo grouping, required roots, footprint selection or the fixed level
+graph. RT4 must prove conservative footprint reach against the existing exact
+chamber oracle, including boundaries and unavailable projection bounds.
 
 COMPILE=Unity Editor codegen/C# previously PASS in realtime-rt2-actual-owners.log.
 This shader-only change: targeted exact native compile/spirv-val PASS in
-/tmp/m8-rt2-cooperative-carriers-878ozbso. Resolver 710932 B / 36608 body /
-14684 B shared / 6 RW; Root 511080 B / 26643 body / 14572 B shared / 5 RW;
-L1/L2 708536/708480 B, 37047 body / 14580 B shared / 5 RW, all 128 lanes.
+/tmp/m8-rt2-reach-final-ifmx1p13: resolver 935964 B / 48376 body /
+15464 B shared / 6 RW / 128 lanes. RGB/V compile in
+/tmp/m8-rt2-skin-reach-3hv4y2in: 307940/503004 B / 15835/25509 body /
+204 B shared / 4 RW / 64 lanes. No additional dispatch or buffer allocation.
 No CPU geometry backend or scan-decision readback added.
 
 RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export
