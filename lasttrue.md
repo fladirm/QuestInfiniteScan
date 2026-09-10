@@ -9943,3 +9943,28 @@ NEXT=actual measured-owner fan-out, local tile/owner COLD/write outcomes,
   ERASE pending invalidation and tile-wide dual-write guard remain to close.
   RT3 presentation packet/export V and RT4 integrated acceptance remain open.
 TESTS=not run; APK=not built; INSTALL=not run; DEVICE=not run. No timing claim.
+
+## RT2 — local dual/fine outcomes (after c4f358b)
+
+CHANGE=removed the whole-tile dual-ready gate. Only the owner whose strict
+  endpoint failed to restore FULL skips positive publication; unrelated R1
+  owners and negative work continue. Geometry COLD/write status no longer
+  breaks the remaining reached relations. Individual metric/epoch/capacity
+  predicates still reject their own mutation; residency requests are emitted
+  at the end of the finite stage. No deferred work survives the snapshot.
+  Bin reset no longer retains a post-commit retry stamp: it is only acquisition
+  or the same-snapshot sparse-allocation recount, before world mutation.
+COMPILE=exact native glslang/spirv-val PASS in
+  /tmp/m8-rt2-local-outcomes-40nr7jxx/pipeline-{0..5}.spv:
+  FlowerCommit 865844 B / 46218 body / 24700 B shared / 8 RW;
+  Root 528996 B / 27612 body / 20704 B shared / 5 RW;
+  L1 729036 B / 38107 body / 20704 B shared / 5 RW;
+  L2 728956 B / 38107 body / 20704 B shared / 5 RW;
+  ResetObservationBins 6252 B / 164 body / 5 RW;
+  ReduceDepthCertificate 7952 B / 287 body / 6 RW. git diff --check PASS.
+NEXT=RT2 OPEN: actual-owner fan-out (no per-owner whole-bin rescan),
+  footprint-directed skin and reached original-root acquisition, ERASE epoch
+  path, conditional allocation and local malformed/capacity outcomes. RT3/4
+  remain unfinished. CPU oracle/codegen is outside the GPU hotpath; no CPU
+  geometry backend or new runtime readback was added.
+TESTS/APK/INSTALL/DEVICE=not run, per RT4 delivery gate. No timing claim.

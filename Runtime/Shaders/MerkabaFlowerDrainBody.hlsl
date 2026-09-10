@@ -142,26 +142,26 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane,uint stage)
                     observed.Tag=observedTags[item];observed.Classification=1u;
                     observed.Root.x=M8FlowerI(observedBounds[item].x,observedBounds[item].y);
                     observed.Root.y=M8FlowerI(observedBounds[item].z,observedBounds[item].w);
-                    M8FlowerFineSchedulingStatus(M8FlowerCommitObservedPhase(slot,local,runtime.w,
+                    M8FlowerRecordFineWriteStatus(M8FlowerCommitObservedPhase(slot,local,runtime.w,
                         task,observed,normalError,offsetError));
                 }
             }
             DeviceMemoryBarrierWithGroupSync();
         }
-        if(m8FlowerHaloUnresolvedReads!=0u && lane==0u)
-        {
-            M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
-            m8FineWriteStatus=M8_FLOWER_ARENA_BUSY;
-        }
-        GroupMemoryBarrierWithGroupSync();
         if(lane==0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
         }
-        if(m8FineWriteStatus!=0u)break;
     }
-    if(m8FineWriteStatus!=0u)break;
     }
     if(lane==0u)
     {
+        // Each failed owner/relation has already skipped its own mutation.
+        // Drain the finite reached set even if another write was busy; no
+        // tile-wide early exit or deferred program is created by that result.
+        if(m8FlowerHaloUnresolvedReads!=0u)
+        {
+            M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
+            M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
+        }
         if(m8FineWriteStatus!=0u)
         {
             M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);

@@ -126,9 +126,12 @@ buffer reuses its prepared-R1 payload for skin only after a GPU transfer barrier
 Native/managed ABI 22 has 30 pipeline identities; no resource added in this cut.
 
 NEXT=RT2 actual measured-owner fan-out and local publication outcomes. Current
-geometry still reduces a touched tile per WG and has tile-wide write/COLD
-failure gates. Replace those with local publication outcomes; do not declare
-this checkpoint the completed measurement-driven scanner.
+geometry still reduces a touched tile per WG. The tile-wide dual-ready gate
+has been replaced by a per-owner FULL guard before positive publication;
+negative work and unrelated owners continue. Geometry COLD/write status no
+longer breaks the reached-relation loops; residency requests are collected
+after that finite work. Malformed input/publication failures still need their
+own exact handling. Do not call this the completed measurement-driven scanner.
 Also finish pixel/footprint-to-generated-child reach before all skin evidence
 work; the current compact signal consumers retain complete footprint predicates
 and prune by actual signal splits, but do not yet have that fine routing.
@@ -137,8 +140,7 @@ owner; remove its remaining eager alternatives with reached dependencies.
 Start at FlowerDrainBody and ReduceFineEndpoint: reached masks are still a
 tile-wide union and the packet walks four owner batches. Keep observation
 record grouping on GPU, without rescanning every tile bin for each owner.
-Review the remaining tile-wide dual-write guard and ERASE pending invalidation
-path as part of RT2; this checkpoint did not close either. Do not redo the
+Finish the ERASE pending invalidation path as part of RT2. Do not redo the
 signal-buffer handoff, epoch cut or completed reached-relation codegen.
 
 RT3 still owns removal of the remaining presentation reconstruction packet,
@@ -146,9 +148,9 @@ completion/count/emit re-evaluation and export V atlas. RT1 did not close those
 tasks or the shader-size gate. Last RT1 Compact compile: 1263272 B / 67046 body /
 29464 B shared / 7 RW / 256 lanes. ResolveFlowerCarriers: 708072 B / 36758 body /
 20628 B shared / 6 RW at RT1. Current RT2 resolver: 718424 B / 36967 body /
-20692 B shared / 6 RW. Epoch-cut FlowerCommit: 866380 B / 46261 body /
-24704 B shared / 8 RW. Root: 529972 B / 27656 body / 5 RW; L1:
-730320 B / 38162 body / 5 RW; L2: 730240 B / 38162 body / 5 RW.
+20692 B shared / 6 RW. Local-outcome FlowerCommit: 865844 B / 46218 body /
+24700 B shared / 8 RW. Root: 528996 B / 27612 body / 5 RW; L1:
+729036 B / 38107 body / 5 RW; L2: 728956 B / 38107 body / 5 RW.
 Signal RGB: 305536 B / 15696 body; V: 500384 B /
 25370 body; both 64 lanes / 204 B shared / 4 RW. Finalize retains 8 RW.
 Unity codegen/C# and targeted native shader compile/spirv-val PASS.

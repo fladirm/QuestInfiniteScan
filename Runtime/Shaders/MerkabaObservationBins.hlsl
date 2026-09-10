@@ -91,7 +91,7 @@ bool M8FlowerEmitObservationOwner(uint physicalSlot, uint kernelLocal,
 }
 
 // Called only by the single finalization WG, after its publication barrier.
-// A pending quantum retains the complete frozen observation and its bins.
+// Every snapshot ends here, including one with local COLD/capacity outcomes.
 void M8FlowerRetireObservation(uint lane, uint laneCount)
 {
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u) return;
@@ -125,10 +125,9 @@ void M8FlowerRetireObservation(uint lane, uint laneCount)
     }
 }
 
-// Storage lifetime barrier, also used before an allocation retry of the SAME
-// immutable observation. The serialized queue must retire all readers first.
-// A new token starts its transient counters here; retries preserve failures
-// and ancestor stage. No allocator/residency state or M8 is reset.
+// Storage lifetime barrier before acquisition and the same-snapshot allocation
+// recount. Both occur before world mutation. No allocator/residency or M8 state
+// is reset; there is no post-commit retry or ancestor stage to preserve.
 groupshared uint m8ObservationBegins;
 void M8FlowerResetObservationBins(uint lane)
 {
@@ -168,18 +167,9 @@ void M8FlowerResetObservationBins(uint lane)
             M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
             continue;
         }
-        // Keep this held observation's committed sources in the later
-        // publication-only touched set even when OFF cleared every active
-        // R1 in a negative-only tile. Its runtime stamp also pins the actual
-        // slot generation until peer invalidation has acknowledged all work.
-        // The ordinary count reserve still excludes these zero-count bins.
-        bool committed=m8ObservationBegins==0u &&
-            M8LoadTileRuntimeRead(slot).x==_M8ObservationToken;
-        _M8ObservationTileBins[slot] = uint4(committed?_M8ObservationToken:0u,0u,0u,0u);
-        // The same frozen observation is re-emitted after a retry. Clear
-        // only its touched endpoint mask, leaving occupancy/active bits
-        // intact; neither old slot contents nor a failed emit may survive
-        // as direct precedence for the new reservation.
+        _M8ObservationTileBins[slot] = 0u.xxxx;
+        // Recount re-emits this snapshot after sparse installs. Retire only
+        // its old endpoint mask; occupancy and active R1 bits remain intact.
         [unroll] for (uint word = 0u; word < 16u; ++word)
             _M8TileBits[M8TileWordIndex(slot, word)].z = 0u;
     }
@@ -187,8 +177,7 @@ void M8FlowerResetObservationBins(uint lane)
     if (lane == 0u)
     {
         _M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT] = 0u;
-        // The previous attempt's completion has already been consumed. Only
-        // changes made by this quantum should invalidate derived consumers.
+        // Mutation starts only after the final count/reserve/emit boundary.
         _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] = 0u;
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] = 0u;
         _M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] = 0u;

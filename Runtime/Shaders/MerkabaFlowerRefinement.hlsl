@@ -286,9 +286,8 @@ void M8FlowerReduceFineEndpoint(uint slot,uint lane,M8FlowerGeometryNode task,
         {
             M8ObservationRecord record=_M8ObservationRecordsRead[bin.z+index];
             uint recordLocal=record.TileAndKernel&511u;
-            // Identity words survive re-emission. A retry correctly skips
-            // already-committed R1 and still consumes this immutable fine
-            // evidence, independent of positive R1 admission eligibility.
+            // Read the immutable endpoint identity even when it did not win
+            // positive R1 admission. Peer evidence is not owner eligibility.
             if((record.TileAndKernel>>9u)!=sourceSlot)continue;
             int3 q=int3(recordLocal&7u,(recordLocal>>3u)&7u,recordLocal>>6u);
             int3 k=q;
@@ -358,7 +357,7 @@ bool M8FlowerFineReadBucket(uint local,int3 junction,out M8FlowerPhaseRootEviden
     return M8FlowerPhaseIdentityValid(root);
 }
 
-// Returns scheduling status only. AMBIGUOUS metric evidence is a locally
+// Returns storage status only. AMBIGUOUS metric evidence is a locally
 // exhausted candidate, not a GPU-capacity retry and never an invented root.
 uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     M8FlowerGeometryNode task,M8FlowerPhaseRootEvidence observed,
@@ -464,7 +463,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     return status;
 }
 
-void M8FlowerFineSchedulingStatus(uint status)
+void M8FlowerRecordFineWriteStatus(uint status)
 {
     if(status!=M8_FLOWER_ARENA_OK)InterlockedMax(m8FineWriteStatus,status);
 }

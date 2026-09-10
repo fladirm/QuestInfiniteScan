@@ -20,7 +20,6 @@ groupshared uint m8FlowerRootPresence[512];
 // field is 0 (no witness) or 1+sector; R1 has 24 generated order sectors.
 // x.bit31 reuses a non-sector bit for this owner's rejection state.
 groupshared uint2 m8FlowerR1Witness[512];
-groupshared uint m8FlowerDualReady;
 groupshared uint m8FlowerR1Changed;
 
 #define M8_FLOWER_OWNER_REJECTED (1u<<31u)
@@ -363,30 +362,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         return;
     }
     uint2 chunkOwner=M8LoadChunkOwnerRead(tileMeta.x);
-    if (lane == 0u)
-    {
-        m8FlowerDualReady=1u;
-        m8FlowerR1Changed=0u;
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (lane < 16u)
-    {
-        uint endpoints=_M8TileBits[M8TileWordIndex(slot,lane)].z;
-        [loop] while (endpoints != 0u)
-        {
-            uint bit=(uint)firstbitlow(endpoints);
-            endpoints &= endpoints-1u;
-            if (M8DualReadKernelAt(chunkOwner.x,chunkOwner.y,tileMeta.y,lane*32u+bit,
-                true,true) != M8_DUAL_FULL)
-                InterlockedAnd(m8FlowerDualReady,0u);
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (m8FlowerDualReady == 0u)
-    {
-        if (lane == 0u) M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-        return;
-    }
+    if (lane == 0u) m8FlowerR1Changed=0u;
     M8FlowerCacheTileHalo(slot,lane,false,true);
     if (bin.y == 0u)
     {
@@ -661,6 +637,15 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         InterlockedOr(_M8TileBits[M8TileWordIndex(slot,local >> 5u)].z,
             1u << (local & 31u));
         if (M8FlowerOwnerIsRejected(local)) continue;
+        // The strict endpoint must have restored its own support before
+        // positive publication. A COLD/failed dual write for another owner
+        // cannot discard this owner's evidence or this tile's negative work.
+        if (M8DualReadKernelAt(chunkOwner.x,chunkOwner.y,tileMeta.y,local,
+                true,true) != M8_DUAL_FULL)
+        {
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
+            continue;
+        }
         uint representative = m8FlowerOwnerPrecision[local];
         if (representative != 0xffffffffu)
             source = representative & M8_FLOWER_OBSERVATION_PIXEL_MASK;
