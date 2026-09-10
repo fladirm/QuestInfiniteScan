@@ -10002,3 +10002,31 @@ NEXT=RT2 OPEN: required-only original acquisition and footprint-directed skin,
   ERASE epoch path, conditional allocation and local allocator outcomes.
   RT3 readout/export rewrite and V atlas remain, RT4 acceptance has not begun.
 TESTS/APK/INSTALL/DEVICE=not run. No timing or full-rewrite acceptance claim.
+
+## RT2 — required original evidence and cooperative carrier closure (after 24fc51d)
+
+CHANGE=removed the resolver's unconditional 52-original acquisition. R1 source
+  incidence selects the required higher shells; surviving carriers request
+  inherited knots and only the present phase families' original dependencies.
+  One shared known/requested mask pair guards exact cached evidence. The cache
+  is owner/snapshot-local and not a task list or persistent refinement state.
+  Geometry requests a coarse original only when that innovation participates
+  in the reached child's prediction; endpoint reduction banks retire first.
+  Resolver source anchors (18) and wedge/sign predicates (48) now occupy
+  independent lanes instead of the scalar carrier evaluator's nested loops.
+  The existing deterministic combination and canonical symbol publication
+  consume those same predicates. COLD dependency collection preserves each
+  source wedge's ordered early-out. No geometry/RootOwner rule changed.
+  Removed obsolete multi-owner/52-or-single packet modes. No CPU solver,
+  scan readback, extra dispatch, buffer or ABI change.
+COMPILE=necessary exact native glslang/spirv-val PASS, not a full audit:
+  /tmp/m8-rt2-cooperative-carriers-878ozbso/pipeline-{0..3}.spv
+  Resolver 710932 B / 36608 body / 14684 B shared / 6 RW;
+  SHA256=5cf4bbc58cfda02b835fedada71d4a47b57e08b6dab58e4e6b6938f0cdd7ef5d.
+  Root 511080 B / 26643 body / 14572 B shared / 5 RW;
+  L1 708536 B and L2 708480 B / 37047 body / 14580 B shared / 5 RW.
+  All four use 128 lanes. git diff --check PASS. No C# or codegen ABI changed.
+NEXT=RT2 OPEN: measured-footprint skin reach; ERASE epoch path; conditional
+  allocation; local allocator/contention outcomes. RT3 readout/export decode
+  and V atlas remain; RT4 integrated acceptance has not begun.
+TESTS/APK/INSTALL/DEVICE=not run. No measured speedup or completed-rewrite claim.

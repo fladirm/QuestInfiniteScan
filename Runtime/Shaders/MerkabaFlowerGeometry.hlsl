@@ -814,6 +814,25 @@ uint M8FlowerCombineCarrierCandidates(uint2 certain,uint2 uncertain,uint4 admiss
 }
 
 #if defined(MERKABA_WORLD_INCLUDED)
+// Original evidence consumed by this generated creation address. An inherited
+// knot uses its original directly; a new child uses one only when a coarse
+// phase record actually participates in its prediction. L1 phase transport
+// restricts the current plane to its generated loop and adds no original read.
+uint M8FlowerGeometryOriginalDependency(uint ownerRef,uint epoch,M8FlowerGeometryNode node)
+{
+    uint original=node.RootNode;
+    if(node.Level!=0u)
+    {
+        M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(node.Strand);
+        uint petal=family.RootIncidentPetals.x!=0u?(uint)firstbitlow(family.RootIncidentPetals.x):
+            32u+(uint)firstbitlow(family.RootIncidentPetals.y);
+        if(!M8FlowerHasPhaseFamily(ownerRef,epoch,0u,0u,petal,node.Line,node.Plus))
+            return 0xffffffffu;
+        original=family.RootNode;
+    }
+    return 2u*original+(node.Plus?1u:0u);
+}
+
 bool M8FlowerReadL2Incidence(uint ownerSlot,uint ownerRef,int3 owner,uint flags,uint source,bool plus,
     float normalError,float offsetError,out M8FlowerPhaseRootEvidence root)
 {
@@ -989,7 +1008,7 @@ uint M8FlowerClassifyCarrierTriple(uint slot,uint local,uint ownerRef,int3 owner
     return resolved?(direct?5u:1u):2u;
 }
 
-#if defined(M8_FLOWER_CARRIER_BATCH_READ)
+#if defined(M8_FLOWER_CARRIER_BATCH_READ) || defined(M8_FLOWER_CARRIER_ALTERNATIVES_READ)
 void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 errors,
     uint completion,out uint2 certain,out uint2 uncertain,out uint2 direct);
 #else

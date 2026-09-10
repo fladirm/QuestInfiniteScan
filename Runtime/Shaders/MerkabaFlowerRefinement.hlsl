@@ -2,6 +2,7 @@
 #define GENESIS_MERKABA_FLOWER_REFINEMENT_INCLUDED
 
 #define M8_FLOWER_GEOMETRY_PACKET_READ
+#define M8_FLOWER_CARRIER_ALTERNATIVES_READ
 // Geometry stays on GPU; signal stages consume the resolver's snapshot items.
 #include "MerkabaFlowerGeometry.hlsl"
 #include "MerkabaFlowerSupport.hlsl"
@@ -30,6 +31,12 @@ groupshared uint m8FineSignalLast;
 groupshared uint m8FineSignalCount;
 groupshared uint m8FineSignalFailed;
 groupshared uint m8FineAbsentNodes;
+groupshared uint2 m8FineOriginalKnown;
+groupshared uint2 m8FineOriginalRequired;
+groupshared uint m8FineSourceNodes;
+groupshared uint m8FineAnchorAlternatives[18];
+groupshared uint m8FineAnchorReceipts[18];
+groupshared uint2 m8FineCarrierTriples[3];
 
 void M8FlowerLoadObservedHalo(uint slot,uint lane)
 {
@@ -50,15 +57,11 @@ void M8FlowerLoadObservedHalo(uint slot,uint lane)
 // World enclosures/validity must not alias originals used by the next carrier.
 #define M8_FINE_PACKET_SITES 2964u
 #define M8_FINE_PACKET_SKIN_CONTROL 3384u
-#define M8_FINE_PACKET_SKIN_STRIDE 24u
 #define M8_FINE_PACKET_WORLD_SITES 2500u
 #define M8_FINE_PACKET_WORLD_VALID 2544u
 
 static uint m8FinePacketSlot;
-static uint m8FinePacketFirst;
-static uint m8FinePacketCount;
-static uint m8FinePacketAlternatives;
-static uint m8FinePacketSingleAlternative;
+static uint m8FinePacketLocal;
 static uint m8FinePacketCarrier;
 static float2 m8FinePacketErrors;
 static bool m8FinePacketCollectEndpoints;
@@ -84,8 +87,7 @@ void M8FlowerPacketStoreWord(uint address,uint value)
 
 bool M8FlowerFinePacketIdentity(uint slot,uint local,uint ownerRef,int3 owner,uint flags,float2 errors)
 {
-    return slot==m8FinePacketSlot && local>=m8FinePacketFirst &&
-        local-m8FinePacketFirst<m8FinePacketCount && ownerRef==m8FineOwner &&
+    return slot==m8FinePacketSlot && local==m8FinePacketLocal && ownerRef==m8FineOwner &&
         flags==m8FinePlane && all(owner==M8FlowerEndpointOwner(slot,local)) &&
         all(asuint(errors)==asuint(m8FinePacketErrors));
 }
@@ -102,12 +104,9 @@ uint M8FlowerReadOriginalPacket(uint ownerSlot,uint ownerRef,int3 owner,uint fla
     uint alternative=2u*nodeIndex+(plus?1u:0u);
     if(any(relative<0) || any(relative>=8) || nodeIndex>=26u ||
         !M8FlowerFinePacketIdentity(ownerSlot,local,ownerRef,owner,flags,float2(normalError,offsetError)) ||
-        (m8FinePacketAlternatives!=52u &&
-            (m8FinePacketAlternatives!=1u || alternative!=m8FinePacketSingleAlternative)))
+        (m8FineOriginalKnown[min(alternative>>5u,1u)]&(1u<<(alternative&31u)))==0u)
     {InterlockedMax(m8FineWriteStatus,M8_FLOWER_ARENA_INVALID);return 2u;}
-    uint item=(local-m8FinePacketFirst)*m8FinePacketAlternatives+
-        (m8FinePacketAlternatives==52u?alternative:0u);
-    uint status=M8FlowerPacketReadOriginal(19u*item,root,rawLocalBase,provisional,endpointReceipt);
+    uint status=M8FlowerPacketReadOriginal(19u*alternative,root,rawLocalBase,provisional,endpointReceipt);
     if(m8FinePacketCollectEndpoints)
     {
         m8FinePacketEndpointReceipt|=endpointReceipt;
@@ -120,61 +119,142 @@ bool M8FlowerReadCarrierSitePacket(uint slot,uint local,uint ownerRef,int3 owner
     uint carrier,uint site,bool plus,float2 errors,out M8FlowerPhaseRootEvidence root)
 {
     root=(M8FlowerPhaseRootEvidence)0;root.Classification=2u;
-    if(m8FinePacketAlternatives!=52u || site>=7u || carrier!=m8FinePacketCarrier ||
+    if(site>=7u || carrier!=m8FinePacketCarrier ||
         !M8FlowerFinePacketIdentity(slot,local,ownerRef,owner,flags,errors))
     {InterlockedMax(m8FineWriteStatus,M8_FLOWER_ARENA_INVALID);return false;}
-    uint address=M8_FINE_PACKET_SITES+10u*(14u*(local-m8FinePacketFirst)+2u*site+(plus?1u:0u));
+    uint address=M8_FINE_PACKET_SITES+10u*(2u*site+(plus?1u:0u));
     uint receipt;
     bool read=M8FlowerPacketReadSite(address,root,receipt);
     M8FlowerRequireEndpointReceipt(receipt);
     return read;
 }
 
-// This is the one original-root evaluation call site for phase ancestry,
-// the R3 check and skin. Unused speculative alternatives publish no COLD
-// receipt. The consumer later requires only its actual cached reads.
-void M8FlowerPrepareFinePacket(uint slot,uint lane,uint generation,uint first,uint count,
-    uint alternatives,uint singleAlternative,uint carrier,float2 errors)
+void M8FlowerBeginFinePacket(uint slot,uint lane,uint generation,uint local,float2 errors)
 {
-    m8FinePacketSlot=slot;m8FinePacketFirst=first;m8FinePacketCount=count;
-    m8FinePacketAlternatives=alternatives;m8FinePacketSingleAlternative=singleAlternative;
-    m8FinePacketCarrier=carrier;m8FinePacketErrors=errors;
+    m8FinePacketSlot=slot;m8FinePacketLocal=local;m8FinePacketErrors=errors;
     m8FinePacketCollectEndpoints=false;m8FinePacketEndpointReceipt=0u;
-    if(lane<count)
-        m8FineOwner=M8FlowerFindOwner(slot,first+lane,generation);
-    GroupMemoryBarrierWithGroupSync();
-    [loop]for(uint item=lane;item<count*alternatives;item+=128u)
+    if(lane==0u)
     {
-        uint local=first+item/alternatives;
-        if((m8FineState&M8_FLOWER_FINE_ACTIVE)==0u)continue;
-        uint alternative=alternatives==52u?item%52u:singleAlternative;
-        M8FlowerPhaseRootEvidence root,raw;bool provisional;uint receipt;
-        M8FlowerEvaluateOriginalShared(slot,m8FineOwner,M8FlowerEndpointOwner(slot,local),
-            m8FinePlane,alternative>>1u,(alternative&1u)!=0u,errors.x,errors.y,
-            root,provisional,raw,receipt);
-        M8FlowerPacketStoreOriginal(19u*item,root,raw,provisional,receipt);
+        m8FineOwner=M8FlowerFindOwner(slot,local,generation);
+        m8FineOriginalKnown=0u;m8FineOriginalRequired=0u;
     }
     GroupMemoryBarrierWithGroupSync();
 }
 
+void M8FlowerRequireFineOriginal(uint alternative)
+{
+    if(alternative<52u)
+        InterlockedOr(m8FineOriginalRequired[alternative>>5u],1u<<(alternative&31u));
+}
+
+// One lane per newly requested relation. Known means evaluated in this exact
+// owner/plane packet, not CERTAIN; absent and unresolved roots keep their full
+// original evidence too. Only an actual consumer forwards a COLD receipt.
+void M8FlowerAcquireFineOriginals(uint lane)
+{
+    GroupMemoryBarrierWithGroupSync();
+    uint2 pending=m8FineOriginalRequired&~m8FineOriginalKnown;
+    if(lane<52u && (pending[lane>>5u]&(1u<<(lane&31u)))!=0u)
+    {
+        M8FlowerPhaseRootEvidence root,raw;bool provisional;uint receipt;
+        M8FlowerEvaluateOriginalShared(m8FinePacketSlot,m8FineOwner,
+            M8FlowerEndpointOwner(m8FinePacketSlot,m8FinePacketLocal),
+            m8FinePlane,lane>>1u,(lane&1u)!=0u,m8FinePacketErrors.x,m8FinePacketErrors.y,
+            root,provisional,raw,receipt);
+        M8FlowerPacketStoreOriginal(19u*lane,root,raw,provisional,receipt);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if(lane==0u)m8FineOriginalKnown|=pending;
+    GroupMemoryBarrierWithGroupSync();
+}
+
+void M8FlowerRequireFineSite(uint site,bool plus)
+{
+    uint knot=M8FlowerL2CarrierKnot(m8FinePacketCarrier,site);
+    uint first=M8FlowerL2IncidenceOffsetsAt(knot),end=M8FlowerL2IncidenceOffsetsAt(knot+1u);
+    uint epoch=M8FlowerGetOwnerEpoch(m8FineOwner);
+    [loop]for(uint incidence=first;incidence<end;incidence++)
+    {
+        M8FlowerGeometryNode node;
+        if(M8FlowerL2GeometryNodeFromSource(M8FlowerL2IncidenceSourcesAt(incidence),plus,node))
+            M8FlowerRequireFineOriginal(M8FlowerGeometryOriginalDependency(m8FineOwner,epoch,node));
+    }
+}
+
 void M8FlowerPrepareFineSites(uint lane)
 {
-    if(lane<14u*m8FinePacketCount)
+    if(lane<14u)
     {
-        uint local=m8FinePacketFirst+lane/14u,alternative=lane%14u;
         if((m8FineState&M8_FLOWER_FINE_ACTIVE)!=0u)
         {
             M8FlowerPhaseRootEvidence root;
             m8FinePacketCollectEndpoints=true;m8FinePacketEndpointReceipt=0u;
             bool read=M8FlowerReadL2Knot(m8FinePacketSlot,m8FineOwner,
-                M8FlowerEndpointOwner(m8FinePacketSlot,local),m8FinePlane,
-                M8FlowerL2CarrierKnot(m8FinePacketCarrier,alternative>>1u),(alternative&1u)!=0u,
+                M8FlowerEndpointOwner(m8FinePacketSlot,m8FinePacketLocal),m8FinePlane,
+                M8FlowerL2CarrierKnot(m8FinePacketCarrier,lane>>1u),(lane&1u)!=0u,
                 m8FinePacketErrors.x,m8FinePacketErrors.y,root);
             m8FinePacketCollectEndpoints=false;
             M8FlowerPacketStoreSite(M8_FINE_PACKET_SITES+10u*lane,root,read,m8FinePacketEndpointReceipt);
         }
     }
     GroupMemoryBarrierWithGroupSync();
+}
+
+// Eighteen independent source incidences, then 6*8 independent wedge/sign
+// predicates. Only the deterministic combination/publication is scalar.
+// Both stages consume the same acquired roots, never another geometry solve.
+void M8FlowerPrepareFineAlternatives(uint lane)
+{
+    uint slot=m8FinePacketSlot,local=m8FinePacketLocal,carrier=m8FinePacketCarrier;
+    int3 owner=M8FlowerEndpointOwner(slot,local);
+    if(lane<3u)m8FineCarrierTriples[lane]=0u;
+    if(lane<18u)
+    {
+        uint petal=M8FlowerL2WedgeAt(6u*carrier+lane/3u).y>>4u;
+        uint available,uncertain,direct;
+        m8FinePacketCollectEndpoints=true;m8FinePacketEndpointReceipt=0u;
+        M8FlowerSourceAnchorAlternatives(slot,m8FineOwner,owner,m8FinePlane,
+            petal,lane%3u,m8FinePacketErrors,0xffffffffu,available,uncertain,direct);
+        m8FinePacketCollectEndpoints=false;
+        m8FineAnchorAlternatives[lane]=available|(uncertain<<2u)|(direct<<4u);
+        m8FineAnchorReceipts[lane]=m8FinePacketEndpointReceipt;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if(lane<6u)
+    {
+        // Match the source predicate's ordered early-out. A later independent
+        // lane's speculative COLD anchor is not this wedge's dependency.
+        [loop]for(uint anchor=0u;anchor<3u;anchor++)
+        {
+            uint index=3u*lane+anchor;
+            M8FlowerRequireEndpointReceipt(m8FineAnchorReceipts[index]);
+            if((m8FineAnchorAlternatives[index]&15u)==0u)break;
+        }
+    }
+    if(lane<48u)
+    {
+        uint wedge=lane>>3u,triple=lane&7u;
+        uint3 anchors=uint3(m8FineAnchorAlternatives[3u*wedge],
+            m8FineAnchorAlternatives[3u*wedge+1u],m8FineAnchorAlternatives[3u*wedge+2u]);
+        float3 normal;float delta;M8FlowerUnpackPlane(m8FinePlane,normal,delta);
+        uint result=M8FlowerClassifyCarrierTriple(slot,local,m8FineOwner,owner,m8FinePlane,
+            carrier,wedge,triple,m8FinePacketErrors,normal,anchors&3u,(anchors>>2u)&3u,(anchors>>4u)&3u);
+        uint word=wedge>>2u,bit=1u<<(8u*(wedge&3u)+triple);
+        if((result&1u)!=0u)InterlockedOr(m8FineCarrierTriples[0][word],bit);
+        if((result&2u)!=0u)InterlockedOr(m8FineCarrierTriples[1][word],bit);
+        if((result&4u)!=0u)InterlockedOr(m8FineCarrierTriples[2][word],bit);
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+
+void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 errors,
+    uint completion,out uint2 certain,out uint2 uncertain,out uint2 direct)
+{
+    certain=uncertain=direct=0u;
+    if(slot!=m8FinePacketSlot || local!=m8FinePacketLocal || carrier!=m8FinePacketCarrier ||
+        any(asuint(errors)!=asuint(m8FinePacketErrors)) || completion!=0xffffffffu)
+    {InterlockedMax(m8FineWriteStatus,M8_FLOWER_ARENA_INVALID);return;}
+    certain=m8FineCarrierTriples[0];uncertain=m8FineCarrierTriples[1];direct=m8FineCarrierTriples[2];
 }
 
 // Required COLD endpoint addresses reuse the already drained block-claim
@@ -461,9 +541,9 @@ void M8FlowerRecordFineWriteStatus(uint status)
 
 
 // Original roots, selected sites and world enclosures have disjoint ranges.
-uint M8FlowerFineSkinControl(uint ownerIndex)
+uint M8FlowerFineSkinControl()
 {
-    return M8_FINE_PACKET_SKIN_CONTROL+M8_FINE_PACKET_SKIN_STRIDE*ownerIndex;
+    return M8_FINE_PACKET_SKIN_CONTROL;
 }
 
 void M8FlowerFineStoreWorld(uint index,M8FlowerInterval3 world)
@@ -484,9 +564,10 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
     float2 errors)
 {
     M8FlowerPrepareFineSites(lane);
-    if(lane<m8FinePacketCount)
+    M8FlowerPrepareFineAlternatives(lane);
+    if(lane==0u)
     {
-        uint local=m8FinePacketFirst+lane,control=M8FlowerFineSkinControl(lane);
+        uint local=m8FinePacketLocal,control=M8FlowerFineSkinControl();
         uint key=0u,active=0u,unresolved=0u,signs=0u,sites=0u;
         if((m8FineState&M8_FLOWER_FINE_ACTIVE)!=0u)
         {
@@ -518,28 +599,28 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
     // Selected roots and world enclosures have disjoint shared lifetimes.
     // The owner's original roots remain reusable by its other reached carriers.
     GroupMemoryBarrierWithGroupSync();
-    if(lane<7u*m8FinePacketCount)
+    if(lane<7u)
     {
-        uint ownerIndex=lane/7u,site=lane%7u,control=M8FlowerFineSkinControl(ownerIndex);
+        uint site=lane,control=M8FlowerFineSkinControl();
         uint sites=M8FlowerPacketLoadWord(control+10u),signs=M8FlowerPacketLoadWord(control+3u);
         M8FlowerInterval3 world=M8FlowerSkinPoint(0.0.xxx);
         bool valid=true;
         if((sites&(1u<<site))!=0u)
         {
             M8FlowerPhaseRootEvidence root=M8FlowerPacketLoadRoot(M8_FINE_PACKET_SITES+
-                10u*(14u*ownerIndex+2u*site+((signs>>site)&1u)));
+                10u*(2u*site+((signs>>site)&1u)));
             valid=M8FlowerSkinRootWorld(root,world);
         }
         M8FlowerFineStoreWorld(lane,world);
         M8FlowerPacketStoreWord(M8_FINE_PACKET_WORLD_VALID+lane,valid?1u:0u);
     }
     GroupMemoryBarrierWithGroupSync();
-    if(lane<m8FinePacketCount)
+    if(lane==0u)
     {
-        uint local=m8FinePacketFirst+lane,control=M8FlowerFineSkinControl(lane);
+        uint local=m8FinePacketLocal,control=M8FlowerFineSkinControl();
         uint siteValid=0u;
         [unroll]for(uint site=0u;site<7u;site++)
-            if(M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_VALID+7u*lane+site)!=0u)
+            if(M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_VALID+site)!=0u)
                 siteValid|=1u<<site;
         uint sites=M8FlowerPacketLoadWord(control+10u),active=M8FlowerPacketLoadWord(control+1u);
         if(active!=0u && (siteValid&sites)==sites && m8FlowerHaloUnresolvedReads==0u)
@@ -556,7 +637,7 @@ void M8FlowerResolveSkinCarrier(uint slot,uint lane,uint generation,uint carrier
                     uint4(sites,0u,M8FlowerGetOwnerEpoch(m8FineOwner),0u));
                 [loop]for(uint word=0u;word<42u;word++)
                     _M8FlowerSignalItems.Store(item+M8_FLOWER_SIGNAL_WORLD+4u*word,
-                        M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_SITES+42u*lane+word));
+                        M8FlowerPacketLoadWord(M8_FINE_PACKET_WORLD_SITES+word));
                 // One resolver WG owns this owner; no concurrent run-header
                 // writers are introduced when the signal work is dispatched.
                 if(m8FineSignalCount==0u)m8FineSignalFirst=item;

@@ -70,10 +70,16 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane,uint stage)
                     }
                     GroupMemoryBarrierWithGroupSync();
                 }
-                uint alternatives=task.Level==0u?0u:1u;
-                uint original=task.Level==0u?0u:
-                    2u*M8FlowerGetPhaseFamily(task.Strand).RootNode+(task.Plus?1u:0u);
-                M8FlowerPrepareFinePacket(slot,lane,runtime.w,local,1u,alternatives,original,0u,errors);
+                // Endpoint reductions reused the same shared banks. Rebind the
+                // packet after SEAL; never reuse roots overwritten by a bucket.
+                if(stage!=0u)
+                {
+                    M8FlowerBeginFinePacket(slot,lane,runtime.w,local,errors);
+                    if(lane==0u && observed.Classification==1u)
+                        M8FlowerRequireFineOriginal(M8FlowerGeometryOriginalDependency(
+                            m8FineOwner,M8FlowerGetOwnerEpoch(m8FineOwner),task));
+                    M8FlowerAcquireFineOriginals(lane);
+                }
                 if(lane==0u && observed.Classification==1u)
                     M8FlowerRecordFineWriteStatus(M8FlowerCommitObservedPhase(slot,local,runtime.w,
                         task,observed,errors.x,errors.y));

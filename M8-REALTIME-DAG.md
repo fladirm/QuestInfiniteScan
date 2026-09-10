@@ -100,7 +100,7 @@ invalidation/ACK, INVALIDATION_OWED or AdvanceRefinementStage. Structural epoch
 cuts, unique receiver invalidation and R1 publication share this snapshot's
 serialized GPU graph. R1 FULL admission and fine COLD/write outcomes are local.
 
-CURRENT CHANGE=PrepareFlowerOwners groups immutable record indices by actual
+MEASURED OWNERS=PrepareFlowerOwners groups immutable record indices by actual
 measured owner using a tile-local parallel histogram/prefix/scatter. A stamped
 16-word mask/rank index gives the fixed peer's range without a whole-bin rescan.
 Root/L1/L2 and the carrier resolver dispatch one WG per measured owner using
@@ -117,18 +117,27 @@ Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
 failed tile does not publish partial owner ranges, and no semantic work survives
 Finalize. These are transient budgets, not world or logical-thread limits.
 
-NEXT=RT2 footprint-directed skin evidence and resolver original-root acquisition.
-The resolver still acquires 52 originals for one active owner; replace eager
-alternatives with required source/phase dependencies. Finish ERASE pending epoch
+CURRENT CHANGE=resolver original evidence is acquired only through R1-led source
+survivors and generated knot dependencies with present phase records. A known
+mask guards every packet read; original evidence is reused by actual carriers,
+not eagerly evaluated as 52 tasks. Geometry reacquires only a required coarse
+phase source after its endpoint buckets retire. The resolver now evaluates
+18 source incidences and 48 wedge/sign predicates on independent lanes; only
+their exact combination/publication remains scalar. Ordered COLD dependency
+early-outs remain intact. CPU did not gain any hotpath work.
+
+NEXT=RT2 footprint-directed skin evidence. Finish ERASE pending epoch
 path, conditional sparse allocation and owner-local storage/allocator outcomes.
 In particular parallel owner writers must not turn allocator contention into
-unreported lost detail. Start at FlowerResolveSignals / PrepareFinePacket and
-SignalBody; do not redo grouping, the fixed level graph or R1/peer epoch cut.
+unreported lost detail. Start at SignalBody / SkinObservation for footprint
+reach, or Integration.compute ERASE consumers. Do not redo grouping, required
+original acquisition, the fixed level graph or R1/peer epoch cut.
 
-COMPILE=Unity Editor codegen/C# PASS in realtime-rt2-actual-owners.log.
-Targeted exact native compile/spirv-val PASS: grouped-lookup Prepare 26316 B /
-1070 body / 6232 B shared / 4 RW; resolver 704608 B / 36263 body /
-14496 B shared / 6 RW. Root/L1/L2 use 14564 B shared / 5 RW each.
+COMPILE=Unity Editor codegen/C# previously PASS in realtime-rt2-actual-owners.log.
+This shader-only change: targeted exact native compile/spirv-val PASS in
+/tmp/m8-rt2-cooperative-carriers-878ozbso. Resolver 710932 B / 36608 body /
+14684 B shared / 6 RW; Root 511080 B / 26643 body / 14572 B shared / 5 RW;
+L1/L2 708536/708480 B, 37047 body / 14580 B shared / 5 RW, all 128 lanes.
 No CPU geometry backend or scan-decision readback added.
 
 RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export

@@ -30,34 +30,63 @@ void M8FlowerResolveCarriersBody(uint3 group,uint lane)
     M8FlowerLoadObservedHalo(slot,lane);
     float2 errors=float2(M8FlowerNext(_M8PlaneErrorBounds.x+M8_FLOWER_NORMAL_QUANTIZATION_UPPER),
         M8FlowerNext(_M8PlaneErrorBounds.y+M8_FLOWER_OFFSET_QUANTIZATION_UPPER));
-    M8FlowerPrepareFinePacket(slot,lane,runtime.w,local,1u,52u,0u,0u,errors);
-    if(lane<26u)
+    M8FlowerBeginFinePacket(slot,lane,runtime.w,local,errors);
+    // R1 -> reached R2 -> reached R3 -> actual carriers. The single acquisition
+    // call serves both source selection and the selected knots' phase ancestry.
+    // No camera-independent 52-root evaluation or per-owner candidate program.
+    [loop]for(uint shell=0u;shell<4u;shell++)
     {
-        M8FlowerPhaseRootEvidence a,b,raw;bool provisional;uint receipt;
-        uint sa=M8FlowerPacketReadOriginal(38u*lane,a,raw,provisional,receipt);
-        uint sb=M8FlowerPacketReadOriginal(38u*lane+19u,b,raw,provisional,receipt);
-        if(sa==0u && sb==0u)InterlockedOr(m8FineAbsentNodes,1u<<lane);
-    }
-    GroupMemoryBarrierWithGroupSync();
-    uint4 carriers=M8FlowerReachedCarriers(m8FineAbsentNodes);
-    [loop]for(uint word=0u;word<4u;word++)
-    {
-        uint pending=carriers[word];
-        [loop]while(pending!=0u)
+        uint4 reached=M8FlowerReachedCarriers(m8FineAbsentNodes);
+        uint4 work=shell<3u?uint4(1u,0u,0u,0u):reached;
+        [loop]for(uint word=0u;word<4u;word++)
         {
-            uint carrier=32u*word+(uint)firstbitlow(pending);pending&=pending-1u;
-            m8FinePacketCarrier=carrier;
-            if(lane==0u)m8FlowerHaloUnresolvedReads=0u;
-            GroupMemoryBarrierWithGroupSync();
-            M8FlowerResolveSkinCarrier(slot,lane,runtime.w,carrier,errors);
-            if(lane==0u && m8FlowerHaloUnresolvedReads!=0u)
-                M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
-            GroupMemoryBarrierWithGroupSync();
+            uint pending=work[word];
+            [loop]while(pending!=0u)
+            {
+                uint carrier=32u*word+(uint)firstbitlow(pending);pending&=pending-1u;
+                m8FinePacketCarrier=carrier;
+                if(lane==0u)
+                {
+                    m8FlowerHaloUnresolvedReads=0u;m8FineOriginalRequired=0u;
+                    m8FineSourceNodes=shell==0u?63u:
+                        shell==3u?M8FlowerDecodeCarrierPetalsAt(carrier).z:0u;
+                }
+                GroupMemoryBarrierWithGroupSync();
+                if(shell==1u || shell==2u)
+                {
+                    if((reached[lane>>5u]&(1u<<(lane&31u)))!=0u)
+                        InterlockedOr(m8FineSourceNodes,M8FlowerDecodeCarrierPetalsAt(lane).z&
+                            (shell==1u?0x0003ffc0u:0x03fc0000u));
+                }
+                GroupMemoryBarrierWithGroupSync();
+                if(lane<52u && (m8FineSourceNodes&(1u<<(lane>>1u)))!=0u)
+                    M8FlowerRequireFineOriginal(lane);
+                if(shell==3u && lane<14u)M8FlowerRequireFineSite(lane>>1u,(lane&1u)!=0u);
+                M8FlowerAcquireFineOriginals(lane);
+                if(shell<3u)
+                {
+                    if(lane<26u && (m8FineSourceNodes&(1u<<lane))!=0u)
+                    {
+                        M8FlowerPhaseRootEvidence a,b,raw;bool provisional;uint receipt;
+                        uint sa=M8FlowerPacketReadOriginal(38u*lane,a,raw,provisional,receipt);
+                        uint sb=M8FlowerPacketReadOriginal(38u*lane+19u,b,raw,provisional,receipt);
+                        if(sa==0u && sb==0u)InterlockedOr(m8FineAbsentNodes,1u<<lane);
+                    }
+                }
+                else
+                {
+                    M8FlowerResolveSkinCarrier(slot,lane,runtime.w,carrier,errors);
+                    if(lane==0u && m8FlowerHaloUnresolvedReads!=0u)
+                        M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
+                }
+                GroupMemoryBarrierWithGroupSync();
+            }
         }
     }
     if(lane==0u)
     {
-        if(m8FineSignalFailed==0u)
+        if(m8FineWriteStatus!=0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
+        if(m8FineSignalFailed==0u && m8FineWriteStatus==0u)
             M8FlowerPublishSignalOwner(measured.x,m8FineSignalFirst,m8FineSignalCount,runtime.w);
         else M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
     }
