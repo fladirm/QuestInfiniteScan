@@ -9968,3 +9968,37 @@ NEXT=RT2 OPEN: actual-owner fan-out (no per-owner whole-bin rescan),
   remain unfinished. CPU oracle/codegen is outside the GPU hotpath; no CPU
   geometry backend or new runtime readback was added.
 TESTS/APK/INSTALL/DEVICE=not run, per RT4 delivery gate. No timing claim.
+
+## RT2 — GPU measured-owner grouping (after 09ec72d)
+
+CHANGE=PrepareFlowerOwners groups immutable record indices with a parallel
+  tile histogram/exclusive prefix/scatter. Actual owner manifests and stamped
+  mask/rank words replace repeated scans of whole tile/halo bins. Root/L1/L2
+  and resolver dispatch one WG per measured owner, through GPU indirect args.
+  Three 512-word owner banks, four-owner private arrays and owner batch loops
+  were removed. Only that owner's reached cells/relations are evaluated.
+  The fixed peer endpoint uses its grouped range and the current bin stamp;
+  stale scratch after NEW/OPEN cannot supply peer evidence. The existing
+  27-address halo is generated once per tile and loaded by every owner WG.
+  Metric operations, root identity, shared closure and quantization unchanged.
+ABI=23 / 31 pipelines / 44 resources. Native and Unity command paths rewired.
+  Still one 32 MiB snapshot buffer: dense R1 payload is dead before grouping;
+  grouped source indices/owner ranges remain read-only through the resolver;
+  disjoint compact skin items feed RGB/V. R1 capacity=1,044,350 changes;
+  measured owners/skin items capacity=79,343 each. No world-address or thread
+  topology limit changed. Capacity failure is local/explicit, no partial tile
+  owner range is published. CPU did not gain a solver, worklist or readback.
+COMPILE=Unity codegen/C# PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-actual-owners.log:733
+  Necessary native compile/spirv-val, not full audit/APK:
+  /tmp/m8-rt2-grouped-lookup-ler08fhr: Prepare 26316 B / 1070 body /
+  6232 B shared / 4 RW; resolver 704608 B / 36263 body / 14496 B shared / 6 RW.
+  /tmp/m8-rt2-owner-scope-2whk_lvs: Root 513456 B / 26773 body;
+  L1 704848 B / 36818 body; L2 704792 B / 36818 body;
+  all three 14564 B shared / 5 RW / 128 lanes.
+  /tmp/m8-rt2-actual-owners-jct_drnr: R1 preparation/publication and both
+  skin consumers compile; R1 still 8 RW, RGB/V still 4 RW. diff --check PASS.
+NEXT=RT2 OPEN: required-only original acquisition and footprint-directed skin,
+  ERASE epoch path, conditional allocation and local allocator outcomes.
+  RT3 readout/export rewrite and V atlas remain, RT4 acceptance has not begun.
+TESTS/APK/INSTALL/DEVICE=not run. No timing or full-rewrite acceptance claim.

@@ -1,6 +1,7 @@
 #pragma kernel FlowerCommit
 #pragma kernel InvalidateFlowerPeers
 #pragma kernel PublishFlowerR1
+#pragma kernel PrepareFlowerOwners
 #pragma kernel IntegrateFlowerRoot
 #pragma kernel IntegrateFlowerL1
 #pragma kernel IntegrateFlowerL2
@@ -200,6 +201,7 @@ void M8DualRequestStorage(uint blockOrdinal,uint kind,uint child,uint tile);
 #include "MerkabaFlowerRefinement.hlsl"
 #include "MerkabaFlowerPageInvalidation.hlsl"
 #include "MerkabaFlowerChanges.hlsl"
+#include "MerkabaFlowerObservedOwners.hlsl"
 
 bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     bool scanRequest)

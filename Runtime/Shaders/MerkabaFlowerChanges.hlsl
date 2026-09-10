@@ -51,8 +51,8 @@ void InvalidateFlowerPeers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 void PublishFlowerR1(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
     uint index=128u*group.x+lane;
-    if(index>=min(_M8FlowerSignalItemsRead.Load(M8_FLOWER_SIGNAL_COUNT),M8_FLOWER_SIGNAL_CAPACITY))return;
-    uint address=M8FlowerSignalAddress(index);
+    if(index>=min(_M8FlowerSignalItemsRead.Load(M8_FLOWER_SIGNAL_COUNT),M8_FLOWER_R1_CHANGE_CAPACITY))return;
+    uint address=M8FlowerR1ChangeAddress(index);
     uint4 source=_M8FlowerSignalItemsRead.Load4(address);
     if(source.w==0u)return;
     uint slot=source.x>>9u,local=source.x&511u;

@@ -119,10 +119,10 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 30,
-        "M8 executor pipeline tables must be regenerated for ABI 22");
+    static_assert(kMerkabaExecutorPipelineCount == 31,
+        "M8 executor pipeline tables must be regenerated for ABI 23");
 
-    constexpr uint32_t kExecutorAbiVersion = 22;
+    constexpr uint32_t kExecutorAbiVersion = 23;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
@@ -1935,10 +1935,11 @@ namespace
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceFlowerSignalItems].buffer, 16u);
         else if (std::strcmp(pipeline.dispatch, "flower_r1_changes") == 0 ||
+                 std::strcmp(pipeline.dispatch, "measured_flower_owners") == 0 ||
                  std::strcmp(pipeline.dispatch, "changed_flower_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceFlowerSignalItems].buffer,
-                std::strcmp(pipeline.dispatch, "flower_r1_changes") == 0 ? 32u : 48u);
+                std::strcmp(pipeline.dispatch, "changed_flower_tiles") == 0 ? 48u : 32u);
         else if (std::strcmp(pipeline.dispatch, "allocation_gate") == 0 ||
                  std::strcmp(pipeline.dispatch, "allocation_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
@@ -2043,23 +2044,32 @@ namespace
             const uint32_t pipelineIndex = schedule.pipelines[ordinal];
             if (!PipelineSelected(job, pipelineIndex)) continue;
             if (job->kind == kJobObservation &&
-                std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "ResolveFlowerCarriers") == 0)
+                (std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "PrepareFlowerOwners") == 0 ||
+                 std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "ResolveFlowerCarriers") == 0))
             {
-                // R1 change payloads are dead after PublishFlowerR1. Reset
-                // their shared item counter before the signal producer, on
-                // the GPU queue and without reading a count back to the CPU.
+                // R1 has no readers after publication. Grouping reuses its
+                // indirect arguments; skin reuses the item counter later.
                 VkMemoryBarrier reuse = {};
                 reuse.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-                reuse.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+                reuse.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                    VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
                 reuse.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-                vkCmdPipelineBarrier(job->commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                vkCmdPipelineBarrier(job->commandBuffer,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                     VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &reuse, 0, nullptr, 0, nullptr);
-                vkCmdFillBuffer(job->commandBuffer,
-                    job->buffers[kResourceFlowerSignalItems].buffer, 0u, 12u, 0u);
+                VkBuffer scratch = job->buffers[kResourceFlowerSignalItems].buffer;
+                if (std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "PrepareFlowerOwners") == 0)
+                {
+                    vkCmdFillBuffer(job->commandBuffer, scratch, 28u, 8u, 0u);
+                    vkCmdFillBuffer(job->commandBuffer, scratch, 36u, 8u, 1u);
+                }
+                else vkCmdFillBuffer(job->commandBuffer, scratch, 0u, 12u, 0u);
                 reuse.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-                reuse.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+                reuse.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                    VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
                 vkCmdPipelineBarrier(job->commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &reuse, 0, nullptr, 0, nullptr);
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                    0, 1, &reuse, 0, nullptr, 0, nullptr);
             }
             if (pipelineIndex == kFlowerCullPipeline)
                 RecordFlowerCountReset(job->commandBuffer,

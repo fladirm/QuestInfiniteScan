@@ -27,6 +27,7 @@ namespace Genesis.RoomScan
         private int _flowerCommitKernel;
         private int _invalidatePeersKernel;
         private int _publishR1Kernel;
+        private int _prepareFlowerOwnersKernel;
         private int _geometryRootKernel;
         private int _geometryL1Kernel;
         private int _geometryL2Kernel;
@@ -276,6 +277,8 @@ namespace Genesis.RoomScan
                 "InvalidateFlowerPeers", MerkabaGpuStage.SurfaceIntegration);
             _publishR1Kernel = compute.FindProfiledKernel(
                 "PublishFlowerR1", MerkabaGpuStage.SurfaceIntegration);
+            _prepareFlowerOwnersKernel = compute.FindProfiledKernel(
+                "PrepareFlowerOwners", MerkabaGpuStage.SurfaceIntegration);
             _geometryRootKernel = compute.FindProfiledKernel(
                 "IntegrateFlowerRoot", MerkabaGpuStage.SurfaceIntegration);
             _geometryL1Kernel = compute.FindProfiledKernel(
@@ -303,7 +306,7 @@ namespace Genesis.RoomScan
                 "FinalizeFineErase", MerkabaGpuStage.SurfaceIntegration);
             foreach (int kernel in new[]
                      {
-                         _flowerCommitKernel, _invalidatePeersKernel, _publishR1Kernel,
+                         _flowerCommitKernel, _invalidatePeersKernel, _publishR1Kernel, _prepareFlowerOwnersKernel,
                          _geometryRootKernel, _geometryL1Kernel, _geometryL2Kernel,
                          _resolveCarriersKernel,
                          _drainSkinRgbKernel, _drainSkinVKernel,
@@ -839,15 +842,17 @@ namespace Genesis.RoomScan
                 _bins.RecordBindConsumer(command, compute, _publishR1Kernel);
                 command.DispatchComputeProfiled(compute, _publishR1Kernel,
                     _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.ChangeDispatchOffset);
-                _bins.RecordCommit(command, compute, _geometryRootKernel);
-                _bins.RecordCommit(command, compute, _geometryL1Kernel);
-                _bins.RecordCommit(command, compute, _geometryL2Kernel);
+                command.SetBufferData(_grid.M8FlowerSignalItems, SignalInitialHeader, 7, 7, 4);
+                _bins.RecordCommit(command, compute, _prepareFlowerOwnersKernel);
+                RecordMeasuredOwnerDispatch(command, _geometryRootKernel);
+                RecordMeasuredOwnerDispatch(command, _geometryL1Kernel);
+                RecordMeasuredOwnerDispatch(command, _geometryL2Kernel);
                 // Prepared R1 items have no reader after the publication
                 // barrier. Reuse their physical payload, not their work state.
                 command.SetBufferData(_grid.M8FlowerSignalItems, SignalInitialHeader, 0, 0, 3);
                 // Resolver publishes compact snapshot-local items. Both signal
                 // consumers use GPU-owned counts, never touched-tile cursors.
-                _bins.RecordCommit(command, compute, _resolveCarriersKernel);
+                RecordMeasuredOwnerDispatch(command, _resolveCarriersKernel);
                 _bins.RecordBindConsumer(command, compute, _drainSkinRgbKernel);
                 command.DispatchComputeProfiled(compute, _drainSkinRgbKernel,
                     _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.SignalDispatchOffset);
@@ -1210,6 +1215,10 @@ namespace Genesis.RoomScan
             compute.SetBuffer(_flowerCommitKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_invalidatePeersKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_publishR1Kernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_prepareFlowerOwnersKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_geometryRootKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_geometryL1Kernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_geometryL2Kernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             BindDepth(_geometryRootKernel);
             BindCamera(_geometryRootKernel);
             BindDepth(_geometryL1Kernel);
@@ -1219,6 +1228,7 @@ namespace Genesis.RoomScan
             BindDepth(_resolveCarriersKernel);
             BindCamera(_resolveCarriersKernel);
             compute.SetBuffer(_resolveCarriersKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_resolveCarriersKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             BindDepth(_drainSkinRgbKernel);
             BindCamera(_drainSkinRgbKernel);
             compute.SetBuffer(_drainSkinRgbKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
@@ -1228,6 +1238,13 @@ namespace Genesis.RoomScan
         }
 
         private static readonly uint[] SignalInitialHeader = MerkabaFlowerGpuLayout.CreateSignalInitialHeader();
+
+        private void RecordMeasuredOwnerDispatch(CommandBuffer command, int kernel)
+        {
+            _bins.RecordBindConsumer(command, compute, kernel);
+            command.DispatchComputeProfiled(compute, kernel, _grid.M8FlowerSignalItems,
+                MerkabaFlowerGpuLayout.MeasuredOwnerDispatchOffset);
+        }
 
         private void BindDepth(int kernel)
         {

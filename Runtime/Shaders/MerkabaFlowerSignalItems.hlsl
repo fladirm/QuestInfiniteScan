@@ -7,8 +7,17 @@
 #define M8_FLOWER_SIGNAL_BUFFER_BYTES (32u * 1024u * 1024u)
 #define M8_FLOWER_CHANGE_TILE_BITS M8_FLOWER_SIGNAL_HEADER_BYTES
 #define M8_FLOWER_CHANGE_TILE_QUEUE (M8_FLOWER_CHANGE_TILE_BITS + 4096u)
-#define M8_FLOWER_SIGNAL_OWNERS_BASE (M8_FLOWER_CHANGE_TILE_QUEUE + 32768u * 4u)
-#define M8_FLOWER_SIGNAL_CAPACITY ((M8_FLOWER_SIGNAL_BUFFER_BYTES - M8_FLOWER_SIGNAL_OWNERS_BASE) / (M8_FLOWER_SIGNAL_ITEM_BYTES + 16u))
+#define M8_FLOWER_MEASURED_TILES_BASE (M8_FLOWER_CHANGE_TILE_QUEUE + 32768u * 4u)
+#define M8_FLOWER_R1_CHANGES_BASE M8_FLOWER_MEASURED_TILES_BASE
+#define M8_FLOWER_R1_CHANGE_CAPACITY ((M8_FLOWER_SIGNAL_BUFFER_BYTES-M8_FLOWER_R1_CHANGES_BASE)/32u)
+// Per touched tile: stamped header, then 16 (owner mask, compact base) pairs.
+// Existing physical-slot addressing only; never another world index.
+#define M8_FLOWER_MEASURED_TILE_BYTES 144u
+#define M8_FLOWER_RECORD_INDEX_BASE (M8_FLOWER_MEASURED_TILES_BASE + 32768u * M8_FLOWER_MEASURED_TILE_BYTES)
+#define M8_FLOWER_RECORD_INDEX_CAPACITY (2u * 1024u * 1024u)
+#define M8_FLOWER_MEASURED_OWNERS_BASE (M8_FLOWER_RECORD_INDEX_BASE + 4u * M8_FLOWER_RECORD_INDEX_CAPACITY)
+#define M8_FLOWER_SIGNAL_CAPACITY ((M8_FLOWER_SIGNAL_BUFFER_BYTES - M8_FLOWER_MEASURED_OWNERS_BASE) / (M8_FLOWER_SIGNAL_ITEM_BYTES + 32u))
+#define M8_FLOWER_SIGNAL_OWNERS_BASE (M8_FLOWER_MEASURED_OWNERS_BASE + 16u * M8_FLOWER_SIGNAL_CAPACITY)
 #define M8_FLOWER_SIGNAL_ITEMS_BASE (M8_FLOWER_SIGNAL_OWNERS_BASE + 16u * M8_FLOWER_SIGNAL_CAPACITY)
 #define M8_FLOWER_SIGNAL_COUNT 0u
 #define M8_FLOWER_SIGNAL_OVERFLOW 4u
@@ -17,6 +26,9 @@
 #define M8_FLOWER_CHANGE_TILE_COUNT 12u
 #define M8_FLOWER_CHANGE_DISPATCH 32u
 #define M8_FLOWER_CHANGE_TILE_DISPATCH 48u
+#define M8_FLOWER_MEASURED_OWNER_COUNT 28u
+// Prepared R1 indirect arguments are dead before measured-owner grouping.
+#define M8_FLOWER_MEASURED_OWNER_DISPATCH M8_FLOWER_CHANGE_DISPATCH
 #define M8_FLOWER_SIGNAL_SOURCE 0u
 #define M8_FLOWER_SIGNAL_SYMBOL 16u
 #define M8_FLOWER_SIGNAL_REACH 32u
@@ -26,9 +38,47 @@
 RWByteAddressBuffer _M8FlowerSignalItems;
 ByteAddressBuffer _M8FlowerSignalItemsRead;
 
+bool M8FlowerReadMeasuredGroup(uint3 group,out uint4 owner)
+{
+    uint ordinal=group.x+65535u*group.y;
+    owner=0u;
+    if(ordinal>=min(_M8FlowerSignalItemsRead.Load(M8_FLOWER_MEASURED_OWNER_COUNT),
+        M8_FLOWER_SIGNAL_CAPACITY))return false;
+    owner=_M8FlowerSignalItemsRead.Load4(M8_FLOWER_MEASURED_OWNERS_BASE+16u*ordinal);
+    return owner.w!=0u && owner.z!=0u && (owner.x>>9u)<32768u &&
+        owner.y<M8_FLOWER_RECORD_INDEX_CAPACITY && owner.z<=M8_FLOWER_RECORD_INDEX_CAPACITY-owner.y;
+}
+
+bool M8FlowerFindMeasuredOwner(uint slot,uint local,uint generation,uint token,out uint4 owner)
+{
+    owner=0u;
+    if(slot>=32768u || local>=512u)return false;
+    uint address=M8_FLOWER_MEASURED_TILES_BASE+slot*M8_FLOWER_MEASURED_TILE_BYTES;
+    uint4 tile=_M8FlowerSignalItemsRead.Load4(address);
+    if(tile.x!=token || tile.y!=generation)return false;
+    uint2 word=_M8FlowerSignalItemsRead.Load2(address+16u+8u*(local>>5u));
+    uint bit=1u<<(local&31u);
+    if((word.x&bit)==0u)return false;
+    uint ordinal=word.y+countbits(word.x&(bit-1u));
+    if(ordinal<tile.z || ordinal-tile.z>=tile.w || ordinal>=M8_FLOWER_SIGNAL_CAPACITY)return false;
+    owner=_M8FlowerSignalItemsRead.Load4(M8_FLOWER_MEASURED_OWNERS_BASE+16u*ordinal);
+    return owner.x==((slot<<9u)|local) && owner.w==generation && owner.z!=0u &&
+        owner.y<M8_FLOWER_RECORD_INDEX_CAPACITY && owner.z<=M8_FLOWER_RECORD_INDEX_CAPACITY-owner.y;
+}
+
+uint M8FlowerMeasuredRecordIndex(uint first,uint index)
+{
+    return _M8FlowerSignalItemsRead.Load(M8_FLOWER_RECORD_INDEX_BASE+4u*(first+index));
+}
+
 uint M8FlowerSignalAddress(uint item)
 {
     return M8_FLOWER_SIGNAL_ITEMS_BASE + item * M8_FLOWER_SIGNAL_ITEM_BYTES;
+}
+
+uint M8FlowerR1ChangeAddress(uint item)
+{
+    return M8_FLOWER_R1_CHANGES_BASE+32u*item;
 }
 
 bool M8FlowerReserveSignalItem(out uint address)
@@ -71,15 +121,14 @@ bool M8FlowerReadSignalOwner(uint3 group, out uint4 owner)
     return owner.z!=0u && owner.z<=128u;
 }
 
-// The same item payload has two disjoint lifetimes in a snapshot: prepared
-// R1 changes, then skin signals. A GPU transfer barrier resets its count only
-// after PublishFlowerR1 has consumed every prepared change.
+// The transient payload has disjoint lifetimes: dense 32-byte prepared R1,
+// then measured-owner record indices and compact 224-byte skin signals.
 bool M8FlowerReserveR1Change(out uint address)
 {
     uint ordinal;
     _M8FlowerSignalItems.InterlockedAdd(M8_FLOWER_SIGNAL_COUNT,1u,ordinal);
-    address=M8FlowerSignalAddress(min(ordinal,M8_FLOWER_SIGNAL_CAPACITY-1u));
-    if(ordinal>=M8_FLOWER_SIGNAL_CAPACITY)
+    address=M8FlowerR1ChangeAddress(min(ordinal,M8_FLOWER_R1_CHANGE_CAPACITY-1u));
+    if(ordinal>=M8_FLOWER_R1_CHANGE_CAPACITY)
     {
         uint ignored;
         _M8FlowerSignalItems.InterlockedOr(M8_FLOWER_SIGNAL_OVERFLOW,1u,ignored);

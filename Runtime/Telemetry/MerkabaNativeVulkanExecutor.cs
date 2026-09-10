@@ -14,10 +14,10 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 22: snapshot-local R1 publication and fixed geometry dependencies.
-        internal const int AbiVersion = 22;
+        // ABI 23: GPU-grouped measured owners feed fixed geometry dependencies.
+        internal const int AbiVersion = 23;
         internal const int ResourceCount = 44;
-        internal const int PipelineCount = 30;
+        internal const int PipelineCount = 31;
         // A snapshot may repeat allocation, Count and Reserve. Leave room for
         // those occurrences as well as the distinct pipeline entrypoints.
         internal const int MaximumDispatchTimingCount = PipelineCount + 8;
@@ -135,6 +135,7 @@ namespace Genesis.RoomScan
             "FlowerCommit",
             "InvalidateFlowerPeers",
             "PublishFlowerR1",
+            "PrepareFlowerOwners",
             "IntegrateFlowerRoot",
             "IntegrateFlowerL1",
             "IntegrateFlowerL2",

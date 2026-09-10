@@ -89,71 +89,50 @@ the new contract is actually satisfied; otherwise record the exact open gap.
 
 ## Current handoff
 
-RT1 generated selection/transport implementation is complete: R1 witness
-incidence, source/carrier masks, child creation addresses, sign-triple inverse,
-and present-phase ancestry are shared by CPU oracle/export and GPU consumers.
-GPU acquisition starts with R1 and requests higher-shell anchors only through
-surviving source masks; carrier batches request their own inherited/phase
-dependencies. Missing phase families do not trigger ancestor root evaluation.
-The duplicate pure-original array is removed; complete raw/shared evidence and
-invalidation guards remain distinct. No change to root ownership or geometry.
+RT1 generated selection/transport is an implementation checkpoint, not RT4
+acceptance. Its root ownership/incidence distinction, source/carrier masks,
+child addresses and phase ancestry are already wired; do not regenerate a new
+geometry or redo that cut.
 
-RT2 checkpoint: fixed 64-tile/512-owner skin receipts have been removed from
-FlowerDetail. The resolver visits measured owners and generated reached
-carriers, appending validated SignalItems into a separate 32 MiB GPU buffer.
-GPU indirect RGB/V consumers serialize each owner's run writers, execute the
-three fixed signal substitutions, and neither read nor advance a world cursor.
-The two signals are independent. Native/managed resource and dispatch ABI 22
-is wired; snapshot completion/token bounds the handoff's semantic lifetime.
-No CPU solver/readback was introduced. No APK/device/test-suite run.
+RT2 implemented: separate observation-local SignalItems, no fixed receipt in
+FlowerDetail; no 1336-task catalogue, quantum, TileRefinementCursor, persistent
+invalidation/ACK, INVALIDATION_OWED or AdvanceRefinementStage. Structural epoch
+cuts, unique receiver invalidation and R1 publication share this snapshot's
+serialized GPU graph. R1 FULL admission and fine COLD/write outcomes are local.
 
-RT2 geometry checkpoint: GeometryNodeAt, the 1336-task catalogue, quantum and
-TileRefinementCursor have been removed from production. Editor derives phase
-addresses (20 original, 24 L1, 192 L2 unsigned relations) and inverse support
-cell incidence from the existing child-loop authority. GPU measurements mark
-dyadic cells; lanes expand each touched cell once into reached relation bits.
-Only reached bits, both signs, enter the unchanged metric/peer predicates.
-This is a conservative inverse of the existing endpoint-support filter, not
-a claim that all actual-parent/footprint routing and fan-out are finished.
+CURRENT CHANGE=PrepareFlowerOwners groups immutable record indices by actual
+measured owner using a tile-local parallel histogram/prefix/scatter. A stamped
+16-word mask/rank index gives the fixed peer's range without a whole-bin rescan.
+Root/L1/L2 and the carrier resolver dispatch one WG per measured owner using
+GPU indirect counts, not four 128-owner batches. Their three 512-word owner
+banks are gone. The existing 27-address halo is resolved once by the tile
+grouping pass; owner WGs load it without repeating spatial hash discovery.
+Two endpoint ranges use the unchanged metric/root/intersection predicates.
+Peer ranges must belong to the current stamped bin, including after NEW/OPEN.
 
-RT2 epoch checkpoint: persistent invalidation receipts/ACK and the three stage,
-owed/lease counters are removed. FlowerCommit prepares R1 changes and applies
-structural owner epochs; an observation-local deduplicated receiver queue
-invalidates dependent peer phases, then PublishFlowerR1 writes M8. The same
-native queue completes these dependencies before fixed Root/L1/L2 entrypoints.
-No AdvanceRefinementStage or world program counter remains. The 32 MiB transient
-buffer reuses its prepared-R1 payload for skin only after a GPU transfer barrier.
-Native/managed ABI 22 has 30 pipeline identities; no resource added in this cut.
+ABI=23, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
+snapshot buffer reuses dense 32-byte R1 changes (capacity 1,044,350) before
+grouping, then holds record indices, stamped tile/owner ranges and skin items.
+Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
+failed tile does not publish partial owner ranges, and no semantic work survives
+Finalize. These are transient budgets, not world or logical-thread limits.
 
-NEXT=RT2 actual measured-owner fan-out and local publication outcomes. Current
-geometry still reduces a touched tile per WG. The tile-wide dual-ready gate
-has been replaced by a per-owner FULL guard before positive publication;
-negative work and unrelated owners continue. Geometry COLD/write status no
-longer breaks the reached-relation loops; residency requests are collected
-after that finite work. Malformed input/publication failures still need their
-own exact handling. Do not call this the completed measurement-driven scanner.
-Also finish pixel/footprint-to-generated-child reach before all skin evidence
-work; the current compact signal consumers retain complete footprint predicates
-and prune by actual signal splits, but do not yet have that fine routing.
-Resolver acquisition still retains an original-root packet for one active
-owner; remove its remaining eager alternatives with reached dependencies.
-Start at FlowerDrainBody and ReduceFineEndpoint: reached masks are still a
-tile-wide union and the packet walks four owner batches. Keep observation
-record grouping on GPU, without rescanning every tile bin for each owner.
-Finish the ERASE pending invalidation path as part of RT2. Do not redo the
-signal-buffer handoff, epoch cut or completed reached-relation codegen.
+NEXT=RT2 footprint-directed skin evidence and resolver original-root acquisition.
+The resolver still acquires 52 originals for one active owner; replace eager
+alternatives with required source/phase dependencies. Finish ERASE pending epoch
+path, conditional sparse allocation and owner-local storage/allocator outcomes.
+In particular parallel owner writers must not turn allocator contention into
+unreported lost detail. Start at FlowerResolveSignals / PrepareFinePacket and
+SignalBody; do not redo grouping, the fixed level graph or R1/peer epoch cut.
 
-RT3 still owns removal of the remaining presentation reconstruction packet,
-completion/count/emit re-evaluation and export V atlas. RT1 did not close those
-tasks or the shader-size gate. Last RT1 Compact compile: 1263272 B / 67046 body /
-29464 B shared / 7 RW / 256 lanes. ResolveFlowerCarriers: 708072 B / 36758 body /
-20628 B shared / 6 RW at RT1. Current RT2 resolver: 718424 B / 36967 body /
-20692 B shared / 6 RW. Local-outcome FlowerCommit: 865844 B / 46218 body /
-24700 B shared / 8 RW. Root: 528996 B / 27612 body / 5 RW; L1:
-729036 B / 38107 body / 5 RW; L2: 728956 B / 38107 body / 5 RW.
-Signal RGB: 305536 B / 15696 body; V: 500384 B /
-25370 body; both 64 lanes / 204 B shared / 4 RW. Finalize retains 8 RW.
-Unity codegen/C# and targeted native shader compile/spirv-val PASS.
-No tests/APK/install/device run. No measured speedup claim. Baseline tests
-378/378 and installed APK 03280202 are not rewrite acceptance. RT2 and RT3
-must finish before RT4 validates and delivers the complete rewrite.
+COMPILE=Unity Editor codegen/C# PASS in realtime-rt2-actual-owners.log.
+Targeted exact native compile/spirv-val PASS: grouped-lookup Prepare 26316 B /
+1070 body / 6232 B shared / 4 RW; resolver 704608 B / 36263 body /
+14496 B shared / 6 RW. Root/L1/L2 use 14564 B shared / 5 RW each.
+No CPU geometry backend or scan-decision readback added.
+
+RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export
+paths still need replacement; export V atlas remains. RT4 full tests, shader
+and command graph gates, Unity Quest APK, install and device acceptance have
+NOT run. Baseline tests/APK are not rewrite acceptance. Do not start RT4 or
+claim completed rewrite until RT2 and RT3 are fully connected.

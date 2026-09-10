@@ -29,6 +29,7 @@ namespace Genesis.RoomScan
         internal const int SignalDispatchOffset = 16;
         internal const int ChangeDispatchOffset = 32;
         internal const int ChangeTileDispatchOffset = 48;
+        internal const int MeasuredOwnerDispatchOffset = ChangeDispatchOffset;
         internal static uint[] CreateSignalInitialHeader()
         {
             var words = new uint[(SignalHeaderBytes + 4096) / 4];

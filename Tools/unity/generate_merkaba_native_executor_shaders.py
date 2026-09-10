@@ -68,14 +68,16 @@ PIPELINES = (
              "InvalidateFlowerPeers", "changed_flower_tiles"),
     Pipeline("PublishFlowerR1", "MerkabaIntegration.compute",
              "PublishFlowerR1", "flower_r1_changes"),
+    Pipeline("PrepareFlowerOwners", "MerkabaIntegration.compute",
+             "PrepareFlowerOwners", "observation_indirect"),
     Pipeline("IntegrateFlowerRoot", "MerkabaIntegration.compute",
-             "IntegrateFlowerRoot", "observation_indirect"),
+             "IntegrateFlowerRoot", "measured_flower_owners"),
     Pipeline("IntegrateFlowerL1", "MerkabaIntegration.compute",
-             "IntegrateFlowerL1", "observation_indirect"),
+             "IntegrateFlowerL1", "measured_flower_owners"),
     Pipeline("IntegrateFlowerL2", "MerkabaIntegration.compute",
-             "IntegrateFlowerL2", "observation_indirect"),
+             "IntegrateFlowerL2", "measured_flower_owners"),
     Pipeline("ResolveFlowerCarriers", "MerkabaIntegration.compute",
-             "ResolveFlowerCarriers", "observation_indirect"),
+             "ResolveFlowerCarriers", "measured_flower_owners"),
     Pipeline("DrainFlowerSkinRgb", "MerkabaIntegration.compute",
              "DrainFlowerSkinRgb", "signal_items"),
     Pipeline("DrainFlowerSkinV", "MerkabaIntegration.compute",
@@ -131,7 +133,7 @@ def command_schedules():
         # Prepared R1/epoch changes -> unique receiver cuts -> M8 publication.
         # Fixed level entrypoints encode true dependency barriers; no stage
         # counter, ACK program or one-thread advance dispatch exists.
-        "FlowerCommit", "InvalidateFlowerPeers", "PublishFlowerR1",
+        "FlowerCommit", "InvalidateFlowerPeers", "PublishFlowerR1", "PrepareFlowerOwners",
         "IntegrateFlowerRoot", "IntegrateFlowerL1", "IntegrateFlowerL2",
         "ResolveFlowerCarriers", "DrainFlowerSkinRgb", "DrainFlowerSkinV",
         # The drain may have requested residency for what it could not read.

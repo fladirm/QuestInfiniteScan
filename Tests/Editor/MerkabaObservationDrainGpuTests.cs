@@ -65,7 +65,7 @@ namespace Genesis.RoomScan.Tests
             private readonly List<ComputeBuffer> _buffers = new();
             private readonly ComputeShader _shader;
             private readonly int[] _geometryKernels;
-            private readonly int _resolveKernel,
+            private readonly int _prepareOwnersKernel, _resolveKernel,
                 _skinRgbKernel, _skinVKernel, _finalizeKernel;
             private readonly ComputeBuffer _counters, _details, _tileRecords, _states, _signals;
             // What a completed snapshot's retirement clears, so the harness can
@@ -84,6 +84,7 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(_shader, Is.Not.Null);
                 _geometryKernels = new[] { _shader.FindKernel("IntegrateFlowerRoot"),
                     _shader.FindKernel("IntegrateFlowerL1"), _shader.FindKernel("IntegrateFlowerL2") };
+                _prepareOwnersKernel = _shader.FindKernel("PrepareFlowerOwners");
                 _resolveKernel = _shader.FindKernel("ResolveFlowerCarriers");
                 _skinRgbKernel = _shader.FindKernel("DrainFlowerSkinRgb");
                 _skinVKernel = _shader.FindKernel("DrainFlowerSkinV");
@@ -268,6 +269,9 @@ namespace Genesis.RoomScan.Tests
                 var tileRefs = Upload(tiles, 4);
                 Bind("_M8ChunkTileRefsRead", tileRefs);
                 Bind("_M8ChunkTileRefs", tileRefs);
+                var halo = Upload(new uint[27], 4);
+                Bind("_M8TileHalo", halo);
+                Bind("_M8TileHaloRead", halo);
                 // The actual root-stage R3 reader and skin stage share the
                 // production dual hierarchy. Zero block metadata means the
                 // canonical unmaterialized FULL state; no leaf is invented.
@@ -393,8 +397,10 @@ namespace Genesis.RoomScan.Tests
                 _shader.SetInt("_M8DualPublishingGeneration", (int)++_publishingGeneration);
                 _shader.SetInt("_M8AttemptToken", (int)_publishingGeneration);
                 _signals.SetData(MerkabaFlowerGpuLayout.CreateSignalInitialHeader());
-                foreach (int kernel in _geometryKernels) _shader.Dispatch(kernel, 1, 1, 1);
-                _shader.Dispatch(_resolveKernel, 1, 1, 1);
+                _shader.Dispatch(_prepareOwnersKernel, 1, 1, 1);
+                foreach (int kernel in _geometryKernels)
+                    _shader.DispatchIndirect(kernel, _signals, MerkabaFlowerGpuLayout.MeasuredOwnerDispatchOffset);
+                _shader.DispatchIndirect(_resolveKernel, _signals, MerkabaFlowerGpuLayout.MeasuredOwnerDispatchOffset);
                 _shader.DispatchIndirect(_skinRgbKernel, _signals, MerkabaFlowerGpuLayout.SignalDispatchOffset);
                 _shader.DispatchIndirect(_skinVKernel, _signals, MerkabaFlowerGpuLayout.SignalDispatchOffset);
                 _shader.Dispatch(_finalizeKernel, 1, 1, 1);
@@ -432,6 +438,7 @@ namespace Genesis.RoomScan.Tests
             private void Bind(string name, ComputeBuffer buffer)
             {
                 foreach (int kernel in _geometryKernels) _shader.SetBuffer(kernel, name, buffer);
+                _shader.SetBuffer(_prepareOwnersKernel, name, buffer);
                 _shader.SetBuffer(_resolveKernel, name, buffer);
                 _shader.SetBuffer(_skinRgbKernel, name, buffer);
                 _shader.SetBuffer(_skinVKernel, name, buffer);
