@@ -484,12 +484,16 @@ bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 ow
     uint count=0u;
     M8FlowerPhaseFamilyRule family=(M8FlowerPhaseFamilyRule)0;
     uint4 strand=0u;uint sourcePetal=0u;
-    // The same exact R1 restriction evaluates child base, coarse source and
-    // (only for L2) L1 source, in that order. One call site keeps the shared
-    // interval/rounding implementation from being triplicated by inlining.
+    // A generated ancestor address is not work by itself. Only a present
+    // phase family consumes its metric source; a plain R1 plane needs just
+    // the reached child's exact loop restriction.
     [loop]for(uint rootIndex=0u;rootIndex<=task.Level;rootIndex++)
     {
         uint sourceLevel=rootIndex==0u?task.Level:rootIndex-1u;
+        uint sourcePath=rootIndex==1u?0u:family.FinePath0;
+        uint recordPetal=rootIndex==1u?sourcePetal:strand.w&255u;
+        if(rootIndex!=0u && !M8FlowerHasPhaseFamily(ownerRef,epoch,sourceLevel,
+            sourcePath,recordPetal,task.Line,task.Plus))continue;
         int3 sourceOffset=task.Offset;
         if(rootIndex==1u)sourceOffset=M8FlowerNodeAt(family.RootNode).xyz;
         else if(rootIndex==2u)sourceOffset=M8FlowerNodeAt(strand.x).xyz+M8FlowerNodeAt(strand.y).xyz;
@@ -515,14 +519,7 @@ bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 ow
                 32u+(uint)firstbitlow(family.RootIncidentPetals.y);
             continue;
         }
-        uint sourcePath=rootIndex==1u?0u:family.FinePath0;
-        uint recordPetal=rootIndex==1u?sourcePetal:strand.w&255u;
-        if(!certain)
-        {
-            if(M8FlowerHasPhaseFamily(ownerRef,epoch,sourceLevel,sourcePath,recordPetal,
-                task.Line,task.Plus))return false;
-            continue;
-        }
+        if(!certain)return false;
         uint key=M8FlowerPackDetailKey(sourceLevel,sourcePath,recordPetal,
             task.Line,0u,task.Plus,(source.Tag>>8u)&31u);
         M8FlowerDetailRecord record;

@@ -9797,3 +9797,31 @@ NEXT=M8FlowerPacketAcquire reached L1/L2 dependency decode; then RT2 removes
 TESTS=child lookup/oracle exhaustive test added, not run. Existing positive
   fixtures retained; only their decoder factory name changed.
 APK=not built; INSTALL=not run; DEVICE=not run. Only RT4 may run those gates.
+
+### 2026-09-10 REALTIME_RT1 — demanded GPU roots and present-phase ancestry
+
+CURSOR=RT1 generated selection/transport implementation closed; RT2 OPEN.
+  This is a compile checkpoint, not integrated/device acceptance. RT3 still
+  owns replacement of the remaining presentation packet/count/emit structure.
+PRODUCTION=generated carrier source-node masks drive progressive R1/R2/R3
+  acquisition. Only reached roots/peers occupy lanes; carrier batches request
+  inherited knots and present phase ancestry. CPU oracle/frozen export uses
+  the same incidence and skips absent phase sources; never a live backend.
+  Removed the separate pure-original array. Shared roots, complete pure bases,
+  pending-invalidation raw outputs and endpoint receipts retain their meanings.
+COMPILE=Unity codegen/C# PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt1-demanded-compile.log:676
+  Exact native compile/spirv-val PASS:
+  /tmp/m8-rt1-demanded-r35azpxu/pipeline-0.spv
+  Compact: 1263272 B / 67046 body / 29464 B shared / 7 RW / 256 lanes;
+  SHA256=d7d6f52149b2ad831063aa7ce0f28a3394df039002d0e12ce47bd31f899da205.
+  /tmp/m8-rt1-demanded-r35azpxu/pipeline-1.spv
+  ResolveFlowerCarriers: 708072 B / 36758 body / 20628 B shared / 6 RW;
+  SHA256=5c25c4e189973a65447043498151f880b8c8c3d7d17705860e2815109963c93b.
+GATE=Compact size/instructions still FAIL. Shared payload -1876 B versus
+  previous checkpoint; no speedup/device claim. Source-demand selection does
+  not substitute for RT2 execution replacement or RT3 presentation removal.
+TESTS=source-node union and shell-reach/oracle comparison added, not run.
+NEXT=RT2 observation-reached work replacing cursors/tasks/quantum/skin receipts
+  with all shader/native consumers in the same cut. Do not restart RT1.
+APK=not built; INSTALL=not run; DEVICE=not run. Active goal continues.

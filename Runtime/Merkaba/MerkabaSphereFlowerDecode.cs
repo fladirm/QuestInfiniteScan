@@ -46,6 +46,8 @@ namespace Genesis.RoomScan
         }
 
         internal static ReadOnlySpan<uint4> DecodePetalCarriers => CarrierDecodeData.Petals;
+        // xy: source-petal incidence; z: union of those sources' original
+        // anchor nodes. Generated addressing metadata, not another root set.
         internal static ReadOnlySpan<uint4> DecodeCarrierPetals => CarrierDecodeData.Carriers;
         internal static ReadOnlySpan<uint4> CarrierTripleMasks => CarrierDecodeData.Triples;
 
@@ -197,6 +199,9 @@ namespace Genesis.RoomScan
                         throw new InvalidOperationException("Broken child-to-carrier inverse incidence.");
                     petals[petal][carrier >> 5] |= 1u << (carrier & 31);
                     carriers[carrier][petal >> 5] |= 1u << (petal & 31);
+                    PetalRule source = PetalsValue[petal];
+                    carriers[carrier].z |= (1u << source.Node(0)) |
+                        (1u << source.Node(1)) | (1u << source.Node(2));
                 }
         }
 

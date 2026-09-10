@@ -1178,10 +1178,11 @@ namespace Genesis.RoomScan
                 int count = 0;
                 PhaseFamilyRule family = PhaseFamiliesValue[task.Strand];
                 int sourcePetal = FirstPetal(family.RootIncidentPetals);
-                if (CarrierRootProof(owner, flags, 0, NodesValue[family.RootNode].Direction,
-                    task.Line, task.Plus, normalError, offsetError, out PhaseRootEvidence source) ==
-                    ProofClassification.Certain)
+                if (HasPhaseFamily(owner, epoch, 0, 0, sourcePetal, task.Line, task.Plus))
                 {
+                    if (CarrierRootProof(owner, flags, 0, NodesValue[family.RootNode].Direction,
+                        task.Line, task.Plus, normalError, offsetError, out PhaseRootEvidence source) !=
+                        ProofClassification.Certain) return false;
                     var key = MerkabaFlowerDetailKey.Create(0, 0, sourcePetal, task.Line,
                         MerkabaFlowerDetailKind.R2Phase, task.Plus, (int)((source.Symbol.Tag >> 8) & 31u));
                     if (TryReadPhase(owner, epoch, key, out MerkabaFlowerDetailRecord record))
@@ -1196,14 +1197,16 @@ namespace Genesis.RoomScan
                         ancestors[count] = shared; records[count] = record; keys[count] = key; count++;
                     }
                 }
-                else if (HasPhaseFamily(owner, epoch, 0, 0, sourcePetal, task.Line, task.Plus)) return false;
                 if (task.Level == 2)
                 {
                     StrandRule strand = StrandsValue[task.Strand];
-                    int3 sourceOffset = NodesValue[strand.Node0].Direction + NodesValue[strand.Node1].Direction;
-                    if (CarrierRootProof(owner, flags, 1, sourceOffset, task.Line, task.Plus,
-                        normalError, offsetError, out source) == ProofClassification.Certain)
+                    if (HasPhaseFamily(owner, epoch, 1, family.FinePath0, strand.Petal0,
+                        task.Line, task.Plus))
                     {
+                        int3 sourceOffset = NodesValue[strand.Node0].Direction + NodesValue[strand.Node1].Direction;
+                        if (CarrierRootProof(owner, flags, 1, sourceOffset, task.Line, task.Plus,
+                            normalError, offsetError, out PhaseRootEvidence source) !=
+                            ProofClassification.Certain) return false;
                         var key = MerkabaFlowerDetailKey.Create(1, family.FinePath0, strand.Petal0,
                             task.Line, MerkabaFlowerDetailKind.R2Phase, task.Plus,
                             (int)((source.Symbol.Tag >> 8) & 31u));
@@ -1222,8 +1225,6 @@ namespace Genesis.RoomScan
                             ancestors[count] = synthesized; records[count] = record; keys[count] = key; count++;
                         }
                     }
-                    else if (HasPhaseFamily(owner, epoch, 1, family.FinePath0,
-                        strand.Petal0, task.Line, task.Plus)) return false;
                 }
                 M8FlowerUnpackPlane(flags, out float3 normal, out float delta);
                 return PredictChildFromFamily(owner, task.Petal, task.ParentContext, task.KnotSite,

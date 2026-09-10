@@ -3,7 +3,7 @@
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
 GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
-CURRENT=RT1
+CURRENT=RT2
 STATE=implementation
 HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
   not a runtime fallback. Frozen offline export remains outside that hotpath.
@@ -17,7 +17,7 @@ RUN08 or historical stalled goals. Never infer completion from an old APK.
 
 ## RT1 — generated reached-symbol decode
 
-Depends: baseline. Status: OPEN.
+Depends: baseline. Status: IMPLEMENTED; compile checkpoint, integrated acceptance in RT4.
 
 Files: MerkabaSphereFlowerAuthority partials, CarrierAdmission, Carrier,
 Editor/MerkabaSphereFlowerCodegen.cs, generated CPU/HLSL/blob, shared decode
@@ -35,7 +35,7 @@ available; compile coherent; commit with receipt. No new surface authority.
 
 ## RT2 — snapshot-local scanner and skin
 
-Depends: RT1. Status: NOT STARTED.
+Depends: RT1. Status: OPEN.
 
 Files: MerkabaFlowerRefinement/DrainBody/Commit/Sidecar/SkinSignalBody,
 MerkabaIntegration.compute, ObservationBins, Integrator, native executor
@@ -89,32 +89,26 @@ the new contract is actually satisfied; otherwise record the exact open gap.
 
 ## Current handoff
 
-RT1 R1 admission replacement implemented: codegen emits 54 unique child R1
-loops, six direction masks and same-construction peer masks. Production
-M8FlowerR1FlagWitness now visits reached loop bits instead of 48*4*3 flags.
-Root ownership is unchanged; peer lookup is generated child incidence.
-Unity codegen and native FlowerCommit compile PASS; no tests/APK/device run.
-RT1 second checkpoint: shared generated M8FlowerReachedCarriers selects by
-original-anchor incidence (absence only), not by root ownership. GPU direct
-and final carrier requests plus CPU export/neighbor coverage pop reached bits;
-the unconditional 0..127 walks in those consumers are removed. Parent coverage
-accounts for excluded constructions without inventing direct evidence.
-CPU seven-root-sign closure now uses the same generated triple inverse as HLSL.
-This is necessary-source selection, NOT the completed actual-branch decoder.
-RT1 third checkpoint: CPU frozen decoder memoizes only requested original/knot
-reads and direct results; completion evaluates actual boundary candidates and
-revisits only affected carriers. This CPU decoder is NOT used by live scan or
-readout. Child-loop address/creation is now one editor-generated lookup for
-CPU and GPU; the incidence derivation is editor/oracle-only.
-GPU carrier wedge/sign predicates now run as independent lane items. Shared
-site supports are evaluated once; owner-prefix scratch is reused between its
-disjoint lifetimes. Original endpoint and selected-site receipts stay exact.
-NEXT=replace M8FlowerPacketAcquire's original/base/site reconstruction packet
-with reached L1/L2 dependencies and present-phase decode, then RT2's world
-cursor/1336-task/receipt removal. Selection/cooperative fan-out is not the
-completed decoder; no RT1/RT2 closure may be inferred from this checkpoint.
-Compile/codegen PASS. Compact 1248772 B / 66194 body / 31340 B shared, 7 RW:
-shader-size gate OPEN; no runtime speedup claim. ResolveFlowerCarriers compile
-PASS, 707884 B / 36752 body / 20628 B shared. No tests/APK/install/device run.
-RT1 remains OPEN; RT2/RT3 not complete. Baseline tests 378/378 and installed
-APK 03280202 are not rewrite acceptance. Delivery still waits for RT4.
+RT1 generated selection/transport implementation is complete: R1 witness
+incidence, source/carrier masks, child creation addresses, sign-triple inverse,
+and present-phase ancestry are shared by CPU oracle/export and GPU consumers.
+GPU acquisition starts with R1 and requests higher-shell anchors only through
+surviving source masks; carrier batches request their own inherited/phase
+dependencies. Missing phase families do not trigger ancestor root evaluation.
+The duplicate pure-original array is removed; complete raw/shared evidence and
+invalidation guards remain distinct. No change to root ownership or geometry.
+
+NEXT=RT2: replace the persisted 1336-task/cursor/quantum program and fixed skin
+receipts with observation-reached relations and compact snapshot-local signal
+items; update native dispatch/resource consumers together. Start with
+MerkabaFlowerRefinement.hlsl, MerkabaFlowerDrainBody.hlsl and their Sidecar/
+Integration/native schedule consumers. Do not revisit the completed RT1 tables.
+
+RT3 still owns removal of the remaining presentation reconstruction packet,
+completion/count/emit re-evaluation and export V atlas. RT1 did not close those
+tasks or the shader-size gate. Compact compile: 1263272 B / 67046 body /
+29464 B shared / 7 RW / 256 lanes. ResolveFlowerCarriers: 708072 B / 36758 body /
+20628 B shared / 6 RW. Unity codegen/C# and exact native compile/spirv-val PASS.
+No tests/APK/install/device run. No measured speedup claim. Baseline tests
+378/378 and installed APK 03280202 are not rewrite acceptance. RT2 and RT3
+must finish before RT4 validates and delivers the complete rewrite.

@@ -67,6 +67,55 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void CarrierSourceNodes_AreExactGeneratedAnchorUnion()
+        {
+            for (int carrier = 0; carrier < A.L2HubCount; carrier++)
+            {
+                uint expected = 0u;
+                for (int wedge = 0; wedge < 6; wedge++)
+                {
+                    var source = A.Petals[A.L2Wedges[6 * carrier + wedge].Petal];
+                    for (int anchor = 0; anchor < 3; anchor++)
+                        expected |= 1u << source.Node(anchor);
+                }
+                Assert.That(A.DecodeCarrierPetals[carrier].z, Is.EqualTo(expected));
+            }
+        }
+
+        [Test]
+        public void ShellReachedDecode_DoesNotOmitAnySurvivingSource()
+        {
+            Check(0u); Check(0x03ffffffu);
+            for (int node = 0; node < 26; node++)
+            {
+                Check(1u << node); Check(0x03ffffffu ^ (1u << node));
+            }
+            foreach (var source in A.Petals)
+                for (int subset = 0; subset < 8; subset++)
+                {
+                    uint absent = 0u;
+                    for (int anchor = 0; anchor < 3; anchor++)
+                        if ((subset & (1 << anchor)) != 0) absent |= 1u << source.Node(anchor);
+                    Check(absent);
+                }
+
+            static void Check(uint absent)
+            {
+                uint knownAbsent = absent & 63u;
+                for (int shell = 1; shell < 3; shell++)
+                {
+                    uint reachedNodes = 0u;
+                    uint4 pending = A.M8FlowerReachedCarriers(knownAbsent);
+                    while (A.TakeReachedCarrier(ref pending, out int carrier))
+                        reachedNodes |= A.DecodeCarrierPetals[carrier].z;
+                    knownAbsent |= absent & reachedNodes & (shell == 1 ? 0x0003ffc0u : 0x03fc0000u);
+                }
+                Assert.That(math.all(A.M8FlowerReachedCarriers(knownAbsent) ==
+                    A.M8FlowerReachedCarriers(absent)), Is.True, $"Absent: 0x{absent:x8}");
+            }
+        }
+
+        [Test]
         public void CarrierTripleInverse_CoversExactlyEachSevenSiteAssignment()
         {
             for (int wedge = 0; wedge < 6; wedge++)
