@@ -9712,3 +9712,19 @@ CURSOR=SENSOR_3; installed and launched, DEVICE ACCEPTANCE PENDING. Reconnect
   the headset and measure stereo/Compact dispatch times, occupied kernels and
   emitted triangles. Neither runtime speedup nor a visible scan is yet proven
   for this APK. Do not confuse the 44 kB stereo module with measured GPU time.
+
+### 2026-09-10 REALTIME_REWRITE — new user-authorized execution authority
+
+BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
+AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
+CURSOR=M8-REALTIME-DAG.md, RT1 OPEN. Historical RUN/CUT cursors are superseded.
+GOAL=old REV-B goal no longer exists; the replacement 'stop' instruction was
+  completed, then the new measurement-driven full rewrite goal was created.
+SCOPE=replace persistent cursor/1336-task/quantum/receipt/exhaustive production
+  decode model, preserving the specified M8/Flower geometry and fixed skin.
+  Shared generated decode serves observation-reached integration, readout and
+  frozen export; exhaustive enumeration is test-only. No local performance
+  patch is presented as completion of this rewrite.
+USER_DELIVERY_GATE=APK build, installation and Quest acceptance ONLY after the
+  ENTIRE rewrite, in RT4. RT1–RT3: implementation, necessary compile/codegen
+  checks, coherent intermediate commits. Baseline 378/378 is not RT acceptance.

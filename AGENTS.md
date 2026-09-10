@@ -1,10 +1,13 @@
 # Repository execution authority
 
 Read and follow
-[`M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md`](M8-DUAL-SPHERE-FLOWER-CLOSED-PRODUCTION-CONTRACT-REV-C.md)
-and then [`lasttrue.md`](lasttrue.md) before changing this repository.
+[`M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md`](M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md),
+[`M8-REALTIME-DAG.md`](M8-REALTIME-DAG.md), and the latest implementation receipt
+in [`lasttrue.md`](lasttrue.md) before changing this repository.
 
-The immutable prefix of `lasttrue.md` is the byte-for-byte REV-C production
-contract. The ledger below it is the only implementation-state authority.
-[`contr.md`](contr.md) and every older design/audit document are historical and
-must not override REV-C.
+The new user-authorized realtime contract supersedes old execution/runbook
+instructions. REV-C remains the referenced geometry/data authority except for
+its explicitly superseded execution clauses. Its immutable `lasttrue.md`
+prefix is preserved, not a competing scheduler instruction. The new DAG owns
+the task cursor; the ledger records receipts. `contr.md`, the prior closure
+contract and old RUN/CUT cursors are historical; do not resume them.
