@@ -14,6 +14,7 @@ namespace Genesis.RoomScan
         internal const int DispatchArgumentWords = 16;
         internal const uint AllocationDispatchOffset = 16;
         internal const uint InstallDispatchOffset = 32;
+        internal const uint RecountDispatchOffset = 48;
         private readonly ComputeShader _shader;
         private readonly MerkabaGrid _grid;
         private readonly ComputeBuffer _records;
@@ -73,9 +74,8 @@ namespace Genesis.RoomScan
             }
         }
 
-        // Inputs must be the accepted immutable RUN-04 joint field, not the
-        // old confidence-valued stereo output. No copy or camera acquisition
-        // happens here. The Integrator must keep its existing input lease.
+        // Keep the sensor field immutable. The GPU reader admits strict
+        // endpoints separately from bootstrap; this recorder never chooses.
         internal void Begin(uint observation, Texture acceptedDepth, Texture acceptedNormal,
             in Matrix4x4 referenceProjectionInverse, in Matrix4x4 referenceViewInverse,
             in Matrix4x4 worldToGrid, float maxDistance, int exclusionCount,
@@ -128,18 +128,24 @@ namespace Genesis.RoomScan
         {
             RequireObservation(command);
             if (reset) RecordReset(command);
-            // Counting is what discovers the owners whose tiles do not exist
-            // yet. The allocator creates them, and then this SAME snapshot
-            // counts again against a complete world - the round trip that used
-            // to require a second frame. Emit consumes the second count.
+            // Existing HOT counts survive unchanged. Only actual sparse claims
+            // dispatch publication/reset; only new addresses dispatch recount.
             RecordCount(command);
+            // Three address dependencies: block, chunk, tile. The kernels are
+            // reused; each absent request records zero indirect work.
+            for (int level = 0; level < 3; ++level)
+            {
+                RecordTileRequestPublication(command);
+                RecordReset(command, recount: true);
+                RecordCount(command, recount: true);
+            }
+            // A contended final discovery may have queued storage-only work.
+            // Publish it before the dual reuses the same claim backing.
             RecordTileRequestPublication(command);
-            RecordReset(command);
-            RecordCount(command);
             RecordReserveAndEmit(command);
         }
 
-        private void RecordCount(CommandBuffer command)
+        private void RecordCount(CommandBuffer command, bool recount = false)
         {
             RequireObservation(command);
             if (_countRecorded)
@@ -152,7 +158,10 @@ namespace Genesis.RoomScan
             Bind(command, _count, "_M8BlockChunkRefs", _grid.M8BlockChunkRefs);
             Bind(command, _count, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);
             Bind(command, _count, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
-            command.DispatchCompute(_shader, _count, (_size[0] + 7) / 8, (_size[1] + 7) / 8, 1);
+            if (recount)
+                command.DispatchCompute(_shader, _count, _grid.M8ObservationDispatchArgs, RecountDispatchOffset);
+            else
+                command.DispatchCompute(_shader, _count, (_size[0] + 7) / 8, (_size[1] + 7) / 8, 1);
             _countRecorded = true;
         }
 
@@ -242,7 +251,7 @@ namespace Genesis.RoomScan
             _reservationRecorded = true;
         }
 
-        // RUN-04 supplies the production FlowerCommit kernel. This dispatch is
+        // The production FlowerCommit dispatch is
         // GPU-indirect: unresolved allocation/overflow produces zero groups.
         // No tile count or geometry data is read back to the CPU.
         internal void RecordCommit(CommandBuffer command, ComputeShader flowerCommit, int kernel)
@@ -279,13 +288,15 @@ namespace Genesis.RoomScan
             BindInput(command, flowerCommit, kernel);
         }
 
-        // Queue this only after the preceding reservation's readers. Retrying
-        // does not replace the frozen field or change its observation token.
-        internal void RecordReset(CommandBuffer command)
+        // Initial reset or a same-snapshot sparse-allocation recount boundary.
+        internal void RecordReset(CommandBuffer command, bool recount = false)
         {
             RequireObservation(command);
             BindReset(command, _shader, _reset);
-            command.DispatchCompute(_shader, _reset, 1, 1, 1);
+            if (recount)
+                command.DispatchCompute(_shader, _reset, _grid.M8ObservationDispatchArgs, AllocationDispatchOffset);
+            else
+                command.DispatchCompute(_shader, _reset, 1, 1, 1);
             _countRecorded = false;
             _reservationRecorded = false;
         }

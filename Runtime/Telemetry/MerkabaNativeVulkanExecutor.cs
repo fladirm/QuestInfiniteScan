@@ -14,13 +14,13 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 23: GPU-grouped measured owners feed fixed geometry dependencies.
-        internal const int AbiVersion = 24;
+        // ABI 25: per-command indirect modes include conditional sparse recount.
+        internal const int AbiVersion = 25;
         internal const int ResourceCount = 44;
         internal const int PipelineCount = 31;
-        // A snapshot may repeat allocation, Count and Reserve. Leave room for
-        // those occurrences as well as the distinct pipeline entrypoints.
-        internal const int MaximumDispatchTimingCount = PipelineCount + 8;
+        // Native codegen verifies this against the longest complete schedule,
+        // including indirect commands whose GPU work count may be zero.
+        internal const int MaximumDispatchTimingCount = 40;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint

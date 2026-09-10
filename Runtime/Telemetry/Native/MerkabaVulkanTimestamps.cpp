@@ -113,6 +113,7 @@ namespace
     {
         uint32_t firstPipeline, lastPipeline, count;
         const uint32_t* pipelines;
+        const char* const* dispatchModes;
     };
 
 #include "MerkabaNativeExecutorShaders.inc"
@@ -120,9 +121,9 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
     static_assert(kMerkabaExecutorPipelineCount == 31,
-        "M8 executor pipeline tables must be regenerated for ABI 24");
+        "M8 executor pipeline tables must be regenerated for ABI 25");
 
-    constexpr uint32_t kExecutorAbiVersion = 24;
+    constexpr uint32_t kExecutorAbiVersion = 25;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
@@ -131,7 +132,7 @@ namespace
     // Existing draw commands/count remain at their original offsets. Count
     // and emit reuse one aligned GPU-owned indirect packet after that count.
     constexpr VkDeviceSize kFlowerBatchArgsOffset = (32768u * 20u + 4u + 15u) & ~15u;
-    constexpr uint32_t kMaximumExecutorDispatches = kMerkabaExecutorPipelineCount + 8u;
+    constexpr uint32_t kMaximumExecutorDispatches = kMerkabaExecutorMaximumDispatches;
     constexpr uint32_t kMaximumExecutorQueries = kMaximumExecutorDispatches * 2u + 2u;
     constexpr uint32_t kFlowerSlotGroupCount = 32768u / 128u;
     constexpr VkDeviceSize kMaximumQuestBufferBytes = 128ull * 1024ull * 1024ull;
@@ -1467,6 +1468,14 @@ namespace
                         "Flower indexed arguments require count word and transfer-destination usage", false);
                     return false;
                 }
+                if (resource == kResourceObservationDispatchArgs &&
+                    ((buffer.usage & VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) == 0u ||
+                     buffer.sizeInBytes < 64u))
+                {
+                    FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
+                        "Observation arguments require four aligned indirect packets", false);
+                    return false;
+                }
                 if (job->kind == kJobFineErase &&
                     (resource == kResourceCounters || resource == kResourceObservationDispatchArgs))
                 {
@@ -1908,53 +1917,54 @@ namespace
         return true;
     }
 
-    void RecordDispatch(ExecutorJob* job, uint32_t pipelineIndex)
+    void RecordDispatch(ExecutorJob* job, uint32_t pipelineIndex, const char* dispatch)
     {
-        const MerkabaEmbeddedPipeline& pipeline =
-            kMerkabaExecutorPipelines[pipelineIndex];
         vkCmdBindPipeline(job->commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
             g_executorPipelines[pipelineIndex].pipeline);
         vkCmdBindDescriptorSets(job->commandBuffer,
             VK_PIPELINE_BIND_POINT_COMPUTE,
             g_executorPipelines[pipelineIndex].pipelineLayout, 0, 1,
             &job->descriptorSets[pipelineIndex], 0, nullptr);
-        if (std::strcmp(pipeline.dispatch, "depth") == 0 ||
-            std::strcmp(pipeline.dispatch, "refine") == 0)
+        if (std::strcmp(dispatch, "depth") == 0 ||
+            std::strcmp(dispatch, "refine") == 0)
             vkCmdDispatch(job->commandBuffer, job->depthGroupsX,
                 job->depthGroupsY, 1);
-        else if (std::strcmp(pipeline.dispatch, "query") == 0)
+        else if (std::strcmp(dispatch, "recount_depth") == 0)
+            vkCmdDispatchIndirect(job->commandBuffer,
+                job->buffers[kResourceObservationDispatchArgs].buffer, 48u);
+        else if (std::strcmp(dispatch, "query") == 0)
             vkCmdDispatch(job->commandBuffer, job->queryGroups, 1, 1);
-        else if (std::strcmp(pipeline.dispatch, "certificate_local") == 0)
+        else if (std::strcmp(dispatch, "certificate_local") == 0)
             vkCmdDispatch(job->commandBuffer, 32, 32, 2);
-        else if (std::strcmp(pipeline.dispatch, "certificate_root") == 0)
+        else if (std::strcmp(dispatch, "certificate_root") == 0)
             vkCmdDispatch(job->commandBuffer, 1, 1, 2);
-        else if (std::strcmp(pipeline.dispatch, "flower_slots") == 0)
+        else if (std::strcmp(dispatch, "flower_slots") == 0)
             vkCmdDispatch(job->commandBuffer, kFlowerSlotGroupCount, 1, 1);
-        else if (std::strcmp(pipeline.dispatch, "flower_batch") == 0)
+        else if (std::strcmp(dispatch, "flower_batch") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceFlowerIndirectCommands].buffer, kFlowerBatchArgsOffset);
-        else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
+        else if (std::strcmp(dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);
-        else if (std::strcmp(pipeline.dispatch, "signal_items") == 0)
+        else if (std::strcmp(dispatch, "signal_items") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceFlowerSignalItems].buffer, 16u);
-        else if (std::strcmp(pipeline.dispatch, "flower_r1_changes") == 0 ||
-                 std::strcmp(pipeline.dispatch, "measured_flower_owners") == 0 ||
-                 std::strcmp(pipeline.dispatch, "changed_flower_tiles") == 0)
+        else if (std::strcmp(dispatch, "flower_r1_changes") == 0 ||
+                 std::strcmp(dispatch, "measured_flower_owners") == 0 ||
+                 std::strcmp(dispatch, "changed_flower_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceFlowerSignalItems].buffer,
-                std::strcmp(pipeline.dispatch, "changed_flower_tiles") == 0 ? 48u : 32u);
-        else if (std::strcmp(pipeline.dispatch, "allocation_gate") == 0 ||
-                 std::strcmp(pipeline.dispatch, "allocation_tiles") == 0)
+                std::strcmp(dispatch, "changed_flower_tiles") == 0 ? 48u : 32u);
+        else if (std::strcmp(dispatch, "allocation_gate") == 0 ||
+                 std::strcmp(dispatch, "allocation_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer,
-                std::strcmp(pipeline.dispatch, "allocation_gate") == 0 ? 16u : 32u);
+                std::strcmp(dispatch, "allocation_gate") == 0 ? 16u : 32u);
         else
             vkCmdDispatch(job->commandBuffer, 1, 1, 1);
     }
 
-    bool RecordTimedDispatch(ExecutorJob* job, uint32_t pipelineIndex)
+    bool RecordTimedDispatch(ExecutorJob* job, uint32_t pipelineIndex, const char* dispatch)
     {
         uint32_t ordinal = job->timingDispatchCount;
         if (ordinal >= job->timingPipelines.size() ||
@@ -1968,7 +1978,7 @@ namespace
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool,
             1u + ordinal * 2u);
-        RecordDispatch(job, pipelineIndex);
+        RecordDispatch(job, pipelineIndex, dispatch);
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool,
             2u + ordinal * 2u);
@@ -2079,7 +2089,7 @@ namespace
             if (pipelineIndex == kFlowerCullPipeline)
                 RecordFlowerCountReset(job->commandBuffer,
                     job->buffers[kResourceFlowerIndirectCommands].buffer);
-            if (!RecordTimedDispatch(job, pipelineIndex)) return false;
+            if (!RecordTimedDispatch(job, pipelineIndex, schedule.dispatchModes[ordinal])) return false;
             VkMemoryBarrier barrier = {};
             barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
             barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;

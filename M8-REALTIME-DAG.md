@@ -110,7 +110,7 @@ grouping pass; owner WGs load it without repeating spatial hash discovery.
 Two endpoint ranges use the unchanged metric/root/intersection predicates.
 Peer ranges must belong to the current stamped bin, including after NEW/OPEN.
 
-ABI=24, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
+ABI=25, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
 snapshot buffer reuses dense 32-byte R1 changes (capacity 1,044,350) before
 grouping, then holds record indices, stamped tile/owner ranges and skin items.
 Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
@@ -135,7 +135,7 @@ retains the wedge's possible support masks rather than suppressing RGB or
 manufacturing certainty. Actual seven-child complete-support predicates are
 unchanged. This is a snapshot work mask, not persistent subdivision/cursor.
 
-CURRENT CHANGE=ERASE now uses the shared R1 preparation/epoch cut, unique peer
+ERASE=uses the shared R1 preparation/epoch cut, unique peer
 invalidation and M8 publisher in one GPU job. The finalizer only dirties affected
 pages and retires the transient header. COLD peers enqueue existing SSD loads;
 unrelated resident brush targets proceed. No M8-first deletion, pending epoch
@@ -151,12 +151,24 @@ storage capacity maintenance now recognizes a retired one-shot observation,
 not the removed unfinished-observation condition. UI dirtiness is conservative
 after a retired mutation; it does not select geometry or schedule refinement.
 
-NEXT=RT2 conditional sparse allocation/recount and owner-local allocator outcomes.
-Start at ObservationBins.compute / ObservationBinsGpu and the native observation
-schedule; hot-resident snapshots still execute unconditional recount/setup.
-Parallel owner writers must not turn allocator contention into lost detail.
-Also close malformed-peer publication handling and remaining dual global gates.
-Do not redo grouping, required roots, footprint reach, ERASE or fence retirement.
+ALLOCATION=GPU-indirect publication/recount across the three fixed address
+dependencies Block -> Chunk -> Tile. Count's NEXT packet reuses words 0..2
+before Reserve; the active recount uses the existing words 12..14. HOT counts
+are retained, COLD-only requests do not reset them. Final storage claims are
+published before dual reuses their backing. No new shader, buffer or CPU work
+decision. Dual no longer vetoes the entire observation on one unresolved direct
+neighbour; complete-support/COLD decisions remain local.
+Native dispatch modes belong to schedule commands, not only pipeline names.
+The observation graph records 40 commands: 18 allocation/reset indirect,
+3 recount indirect and 19 other commands. Zero-work commands remain visible
+in accounting; no <=10-dispatch or speedup acceptance is claimed. C# timing
+capacity is codegen-checked against this complete schedule.
+
+NEXT=RT2 owner-local allocator outcomes: parallel owner writers must not turn
+global arena-lock contention into lost available detail. Close malformed-peer
+publication handling and verify complete THROUGH deletion against the current
+contract. Do not redo grouping, roots, footprint reach, ERASE, fence retirement
+or conditional allocation. RT3 remains next after these RT2 gaps.
 RT4 must cover exact reach, partial/COLD ERASE, epochs/peer invalidation, native
 schedule membership and no completion-readback-dependent scan decisions.
 
@@ -177,7 +189,14 @@ Targeted exact native shader compile/spirv-val PASS, not full audit:
 ERASE 67196 B / 3309 body / 124 B shared / 8 RW / 128 lanes;
 query 25924 B / 1050 body / 52 B shared / 5 RW / 64 lanes;
 finalizer 23516 B / 948 body / 8 B shared / 6 RW / 128 lanes.
-Native plugin/full embedded set is not rebuilt; ABI24 is compiled into the
+ALLOCATION COMPILE=Unity C#/Editor codegen PASS:
+/mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-allocation.log.
+Targeted exact native glslang/spirv-val PASS in
+/tmp/m8-rt2-allocation-i6kujr5d: Count 25068 B / 1127 body / 0 shared / 8 RW;
+Reset 7560 B / 242 / 12 / 5; Reserve 7816 B / 277 / 2060 / 4;
+Emit 25012 B / 1122 / 0 / 4; certificate Reduce 8180 B / 300 / 8196 / 6;
+dual 609132 B / 30721 / 112 / 8, still 64 lanes.
+Native plugin/full embedded set is not rebuilt; ABI25 is compiled into the
 final plugin/APK only in RT4. No APK, suite, device test or speedup claim.
 
 RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export

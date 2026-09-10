@@ -16,9 +16,8 @@ int3 _M8ScanCenterBlock;
 int _M8ScanBlockRadius;
 int _M8ScanBlockSide;
 
-// RUN 04's immutable joint-field ABI uses normal.w == 1 for an accepted
-// CERTAIN endpoint. This reader is not connected to the legacy confidence
-// field: the production switch depends on the stereo and R1 replacement cuts.
+// The SimpleScan sensor field distinguishes strict endpoints from bootstrap.
+// Integer routing never upgrades bootstrap confidence into accepted evidence.
 bool M8FlowerLoadAcceptedEndpoint(uint2 pixel, out int3 firstOwner)
 {
     firstOwner = 0;
@@ -49,9 +48,19 @@ bool M8FlowerLoadAcceptedEndpoint(uint2 pixel, out int3 firstOwner)
 [numthreads(8, 8, 1)]
 void CountObservationBins(uint3 id : SV_DispatchThreadID)
 {
+    // Dispatch dimensions have been consumed before its invocations start.
+    // Only the origin clears that retired packet; missing-address lanes write
+    // the disjoint NEXT packet, never the currently consumed dimensions.
+    if(all(id==0u))_M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS]=0u;
     int3 firstOwner;
-    if (M8FlowerLoadAcceptedEndpoint(id.xy, firstOwner))
-        M8FlowerCountObservationOwners(firstOwner);
+    if(!M8FlowerLoadAcceptedEndpoint(id.xy,firstOwner))return;
+    if(M8FlowerCountObservationOwners(firstOwner))
+    {
+        InterlockedMax(_M8ObservationDispatchArgs[M8_OBSERVATION_NEXT_COUNT_ARGS],
+            (gsDepthTexSize.x+7u)/8u);
+        InterlockedMax(_M8ObservationDispatchArgs[M8_OBSERVATION_NEXT_COUNT_ARGS+1u],
+            (gsDepthTexSize.y+7u)/8u);
+    }
 }
 
 [numthreads(8, 8, 1)]
@@ -168,8 +177,7 @@ void ResolveMissingSpatialNodes(uint lane : SV_GroupIndex)
         _M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] = 0u;
         _M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT] = 0u;
         _M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT] = 0u;
-        // Publishing a radix dependency is progress for the SAME held
-        // observation, even before a physical tile can be installed.
+        // This storage barrier may enable the same snapshot's recount.
         if (blocks != 0u || chunks != 0u) M8SignalResidencyChange();
     }
 }
@@ -378,8 +386,8 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
         GroupMemoryBarrierWithGroupSync();
     }
 
-    // Even an incomplete/failed attempt must retain its touched list so a
-    // retry can clear precisely those counts without scanning the world.
+    // Retain the exact touched list for this snapshot's final retirement,
+    // including local missing-support results. No retry world sweep exists.
     {
         uint2 prefix = m8ObservationPrefix[lane];
         [loop]
@@ -404,7 +412,7 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
         // The queue barrier between dispatches publishes spans and arguments.
         // Publication-only also schedules cleanup of already committed
         // sources after a later failure. FlowerCommit/evidence work keep
-        // their own failure guards; Drain must still retire epoch/peer ACKs.
+        // their own failure guards; finalization still retires touched stamps.
         _M8ObservationDispatchArgs[0] = publicationOnly || m8ObservationCanReserve != 0u ? touched : 0u;
         _M8ObservationDispatchArgs[1] = 1u;
         _M8ObservationDispatchArgs[2] = 1u;
@@ -415,13 +423,41 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
             // preserve that gate until the following allocation phase.
             _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS] = 0u;
             _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS] = 0u;
+            _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS] = 0u;
         }
         _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION] = 0u;
     }
 }
 
+groupshared uint2 m8ObservationRecountGroups;
+
 [numthreads(256, 1, 1)]
 void ResetObservationBins(uint lane : SV_GroupIndex)
 {
+    if(lane==0u)
+    {
+        m8ObservationBegins=_M8Counters[M8_COUNTER_OBSERVATION_TOKEN]!=_M8ObservationToken?1u:0u;
+        m8ObservationRecountGroups=uint2(
+            _M8ObservationDispatchArgs[M8_OBSERVATION_NEXT_COUNT_ARGS],
+            _M8ObservationDispatchArgs[M8_OBSERVATION_NEXT_COUNT_ARGS+1u]);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if(m8ObservationBegins==0u && m8ObservationRecountGroups.x==0u)
+    {
+        // COLD requests have been handed to residency. Preserve HOT counts
+        // and retire only the consumed allocation/install argument packets.
+        if(lane==0u)
+        {
+            _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS]=0u;
+            _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS]=0u;
+        }
+        return;
+    }
     M8FlowerResetObservationBins(lane);
+    if(lane==0u && m8ObservationBegins==0u)
+    {
+        _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS]=m8ObservationRecountGroups.x;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS+1u]=m8ObservationRecountGroups.y;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS+2u]=1u;
+    }
 }

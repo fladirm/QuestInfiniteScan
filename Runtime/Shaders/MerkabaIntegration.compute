@@ -583,8 +583,10 @@ void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         gDualBeginStatus=M8_DUAL_WRITE_RETRY;
         if (group.x == 0u) _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION]=1u;
         bool ready=_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
-            _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u;
+            _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u;
+        // A missing direct neighbour blocks only its own dependent update.
+        // The local certificate/dual readers preserve COLD as unresolved;
+        // it must not suppress excavation of every other resident support.
         if (ready && (_M8ObservationToken == 0u || _M8DualPublishingGeneration == 0u ||
             _M8DualPublishingGeneration > M8_DUAL_MAX_GENERATION ||
             _M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] != 0u ||

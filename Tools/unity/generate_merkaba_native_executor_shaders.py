@@ -47,7 +47,7 @@ PIPELINES = (
     Pipeline("ReduceDepthCertificate", "MerkabaDepthCertificate.compute",
              "ReduceDepthCertificate", "certificate_root"),
     Pipeline("ResetObservationBins", "MerkabaObservationBins.compute",
-             "ResetObservationBins", "one"),
+             "ResetObservationBins", "allocation_gate"),
     Pipeline("CountObservationBins", "MerkabaObservationBins.compute",
              "CountObservationBins", "depth"),
     Pipeline("ResolveMissingSpatialNodes", "MerkabaObservationBins.compute",
@@ -133,11 +133,14 @@ def command_schedules():
         # of certificate reduction.
         "StereoFlowerRefine", "BuildDepthCertificate", "ReduceDepthCertificate",
         # Counting discovers the owners whose tiles do not exist yet. The
-        # allocator creates them and the SAME snapshot counts again against a
-        # complete world - the round trip ObservationRetry used to perform as a
-        # second frame, done here as two barriers. Emit consumes that count.
-        "CountObservationBins", *allocation,
-        "ResetObservationBins", "CountObservationBins",
+        # allocator publishes them. Recount is GPU-indirect and stays zero for
+        # already-HOT or COLD-only input; those original counts remain valid.
+        "CountObservationBins",
+        # Fixed Block -> Chunk -> Tile publication dependencies. On a HOT
+        # snapshot every command in these three boundaries is GPU-indirect zero.
+        *([*allocation, "ResetObservationBins", "CountObservationBins"] * 3),
+        # Retire any final contended claims before dual reuses their backing.
+        *allocation,
         "ReserveObservationBins", "EmitObservationBins",
         # Excavate the complementary view, then reserve what its requests need.
         "UpdateObservationDual", "ReserveObservationBins",
@@ -160,6 +163,21 @@ def command_schedules():
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
         ("Observation", observation),
         ("FlowerReadout", flower), ("FineErase", fine)))
+
+
+def schedule_dispatch_modes(name, indices):
+    """A reused pipeline can have different fixed argument sources per command."""
+    counted = False
+    modes = []
+    for index in indices:
+        pipeline = PIPELINES[index]
+        mode = pipeline.dispatch
+        if name == "Observation" and pipeline.label == "CountObservationBins":
+            if counted:
+                mode = "recount_depth"
+            counted = True
+        modes.append(mode)
+    return tuple(modes)
 
 
 RESOURCE_NAMES = (
@@ -633,7 +651,13 @@ def c_string(value: str) -> str:
 
 
 def emit(output: Path, compiled) -> None:
-    # These three transient zero writes replace a scalar ERASE setup kernel.
+    schedules = command_schedules()
+    maximum_dispatches = max(len(indices) for _, indices in schedules)
+    managed = (ROOT / "Runtime/Telemetry/MerkabaNativeVulkanExecutor.cs").read_text(encoding="utf-8")
+    timing_capacity = re.search(r"MaximumDispatchTimingCount\s*=\s*(\d+)\s*;", managed)
+    if timing_capacity is None or int(timing_capacity[1]) != maximum_dispatches:
+        raise RuntimeError("Managed dispatch timing capacity must match the generated schedule")
+    # Transient counter clears replace the scalar ERASE setup kernel.
     # Derive their byte offsets from the actual counter ABI, not a second
     # handwritten native layout. No allocator/residency word is included.
     world = (SHADER_ROOT / "MerkabaWorld.hlsl").read_text(encoding="utf-8")
@@ -684,15 +708,18 @@ def emit(output: Path, compiled) -> None:
         "sizeof(kMerkabaExecutorPipelines) / sizeof(kMerkabaExecutorPipelines[0]);")
     for index, pipeline in enumerate(PIPELINES):
         lines.append(f"static constexpr uint32_t kPipeline{pipeline.label} = {index}u;")
-    schedules = command_schedules()
     for name, indices in schedules:
         lines.append(f"static const uint32_t kMerkaba{name}Dispatches[] = {{" +
                      ", ".join(f"{index}u" for index in indices) + "};")
+        lines.append(f"static const char* const kMerkaba{name}DispatchModes[] = {{" +
+                     ", ".join(c_string(mode) for mode in schedule_dispatch_modes(name, indices)) + "};")
     lines.append("static const MerkabaEmbeddedSchedule kMerkabaExecutorSchedules[] = {")
     for name, indices in schedules:
         lines.append(f"    {{{min(indices)}u, {max(indices) + 1}u, {len(indices)}u, "
-                     f"kMerkaba{name}Dispatches}},")
+                     f"kMerkaba{name}Dispatches, kMerkaba{name}DispatchModes}},")
     lines.append("};")
+    lines.append("static constexpr uint32_t kMerkabaExecutorMaximumDispatches = " +
+                 str(maximum_dispatches) + "u;")
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
 
@@ -719,7 +746,8 @@ def main() -> int:
                 "setup_transfer_fills": len(FINE_ERASE_RESET_COUNTERS) + 9 if name == "FineErase" else
                     1 if name == "FlowerReadout" else 7,
                 "commands": [{"pipeline": PIPELINES[index].label,
-                              "dispatch": PIPELINES[index].dispatch} for index in indices]})
+                              "dispatch": mode} for index, mode in
+                             zip(indices, schedule_dispatch_modes(name, indices))]})
         print(json.dumps({"authority": "native embedded command schedules",
             "normal_dispatch_target": 10, "schedules": schedules,
             "gpu_nonzero_work": "device measurement required; an indirect call may dispatch zero groups"},

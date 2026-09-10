@@ -15,10 +15,14 @@ RWStructuredBuffer<M8ObservationRecord> _M8ObservationRecords;
 RWStructuredBuffer<uint> _M8TouchedTileQueue;
 StructuredBuffer<uint> _M8TouchedTileQueueRead;
 RWStructuredBuffer<uint> _M8ObservationDispatchArgs;
-// Three uint4 packets in the existing indirect resource: tile work at 0,
-// allocation-publication gate at 16 B, physical installs at 32 B.
+// Four uint4 packets in the existing 64-byte indirect resource: tile work,
+// allocation publication, physical installs, and same-snapshot recount pixels.
 #define M8_OBSERVATION_ALLOCATION_ARGS 4u
 #define M8_OBSERVATION_INSTALL_ARGS 8u
+#define M8_OBSERVATION_RECOUNT_ARGS 12u
+// Before Reserve, the tile-work packet is free: Count writes the NEXT pixel
+// dimensions there. Reset moves them to the immutable next-dispatch packet.
+#define M8_OBSERVATION_NEXT_COUNT_ARGS 0u
 uint _M8ObservationToken;
 uint _M8ObservationHotSlotCount;
 uint _M8ObservationRecordCapacity;
@@ -196,6 +200,15 @@ void M8FlowerResetObservationBins(uint lane)
         _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS] = 0u;
         _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS+1u] = 1u;
         _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS+2u] = 1u;
+        // The first Count may request a recount for newly claimed addresses.
+        // Its dimensions survive the intervening touched-bin reset. COLD-only
+        // requests do not invalidate already-counted resident endpoints.
+        if(m8ObservationBegins!=0u)
+        {
+            _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS]=0u;
+            _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS+1u]=1u;
+            _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS+2u]=1u;
+        }
     }
 }
 

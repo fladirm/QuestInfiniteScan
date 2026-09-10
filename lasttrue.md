@@ -10098,3 +10098,34 @@ NEXT=RT2 conditional allocation/recount; owner-local allocator/contention;
   readout/export decode and V atlas remain. Do not redo this ERASE/retirement cut.
 TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set not rebuilt;
   final native build and integrated acceptance belong to RT4, not this checkpoint.
+
+## RT2 — GPU-conditional sparse publication and recount (after de79665)
+
+CHANGE=first HOT endpoint counts survive to Reserve/Emit unchanged. New sparse
+  addresses traverse the fixed Block -> Chunk -> Tile publication boundaries
+  inside the same snapshot; allocation/reset and recount use GPU indirect
+  arguments. The 64-byte existing argument buffer holds active recount at
+  byte 48 and NEXT dimensions in the unused pre-Reserve tile-work packet.
+  COLD-only requests keep resident counts and retire their allocation gate.
+  Final claims are published before dual reuses the claim queue. No new
+  entrypoint, buffer, CPU scan decision, readback or continuation state.
+  Removed UpdateObservationDual's observation-wide unresolved-direct veto;
+  local support/certificate/dual readers still enforce missing residency.
+  Native dispatch mode is per scheduled command, permitting the same Count
+  pipeline to be direct once and indirect only when missing addresses require
+  recount. Generated maximum timing count is checked against managed capacity.
+ABI=25; 31 pipelines, 44 resources; observation has 40 recorded commands:
+  18 allocation/reset indirect + 3 recount indirect + 19 others. HOT skips
+  the corresponding work through zero GPU arguments, not CPU filtering.
+  Recorded commands/barriers are not claimed removed or device-measured.
+COMPILE=Unity C#/Editor codegen PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-allocation.log.
+  Exact target glslang/spirv-val PASS in /tmp/m8-rt2-allocation-i6kujr5d:
+  Count 25068 B / 1127 body / 0 B shared / 8 RW;
+  Reset 7560 B / 242 / 12 / 5; Reserve 7816 B / 277 / 2060 / 4;
+  Emit 25012 B / 1122 / 0 / 4; Reduce 8180 B / 300 / 8196 / 6;
+  UpdateObservationDual 609132 B / 30721 / 112 / 8, 64 lanes.
+NEXT=RT2 OPEN: owner-local allocator contention, malformed-peer publication
+  and complete THROUGH policy. RT3 readout/export and RT4 still remain.
+TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set not rebuilt;
+  this is an implementation checkpoint, not full rewrite acceptance.

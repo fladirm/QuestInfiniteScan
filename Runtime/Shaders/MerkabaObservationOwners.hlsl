@@ -34,8 +34,9 @@ void M8FlowerRequestObservationTile(uint refIndex, uint currentRef)
 }
 
 void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
-    out uint physicalSlots[8], out uint readyOwners)
+    out uint physicalSlots[8], out uint readyOwners,out bool recount)
 {
+    recount=false;
     uint blocks[8];
     uint chunks[8];
     uint readyBlocks = 0u;
@@ -65,6 +66,7 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
         else
             ready = M8FindBlock(address.blockCoord, index);
         if (failure != 0u) M8FlowerBinFailure(failure);
+        if(requestMissing && !ready && failure==0u)recount=true;
         blocks[blockKey] = index;
         if (ready) readyBlocks |= 1u << blockKey;
     }
@@ -91,6 +93,7 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
                 index < MERKABA_M8_CHUNK_CAPACITY;
         }
         if (failure != 0u) M8FlowerBinFailure(failure);
+        if(requestMissing && !ready && failure==0u)recount=true;
         chunks[chunkKey] = index;
         if (ready) readyChunks |= 1u << chunkKey;
     }
@@ -110,7 +113,10 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
         if (M8IsHotRef(tileRef))
             physicalSlots[tileKey] = M8PhysicalSlot(tileRef);
         else if (requestMissing)
+        {
+            if(tileRef==MERKABA_REF_EMPTY || tileRef==MERKABA_REF_CLAIMED_NEW)recount=true;
             M8FlowerRequestObservationTile(refIndex, tileRef);
+        }
     }
     [unroll]
     for (uint owner = 0u; owner < 8u; owner++)
@@ -121,11 +127,12 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
     }
 }
 
-void M8FlowerCountObservationOwners(int3 firstOwner)
+bool M8FlowerCountObservationOwners(int3 firstOwner)
 {
     uint slots[8];
     uint ready;
-    M8FlowerResolveObservationOwners(firstOwner, true, slots, ready);
+    bool recount;
+    M8FlowerResolveObservationOwners(firstOwner, true, slots, ready,recount);
     [unroll]
     for (uint owner = 0u; owner < 8u; owner++)
         if ((ready & (1u << owner)) != 0u)
@@ -133,8 +140,15 @@ void M8FlowerCountObservationOwners(int3 firstOwner)
     if (ready != 0xffu)
     {
         M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
-        InterlockedOr(_M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS], 1u);
+        // A LOADING/COLD neighbour is not an allocation job by itself.
+        // Each winning claim observes its own queued request before setting
+        // the gate, so a concurrent claimant cannot lose real publication work.
+        if((_M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] |
+            _M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT] |
+            _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT])!=0u)
+            InterlockedOr(_M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS],1u);
     }
+    return recount;
 }
 
 void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
@@ -142,7 +156,8 @@ void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
 {
     uint slots[8];
     uint ready;
-    M8FlowerResolveObservationOwners(firstOwner, false, slots, ready);
+    bool ignoredRecount;
+    M8FlowerResolveObservationOwners(firstOwner, false, slots, ready,ignoredRecount);
     [unroll]
     for (uint owner = 0u; owner < 8u; owner++)
     {
