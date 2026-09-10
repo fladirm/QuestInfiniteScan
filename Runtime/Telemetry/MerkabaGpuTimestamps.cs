@@ -39,7 +39,7 @@ namespace Genesis.RoomScan
     internal static class MerkabaGpuTimestamps
     {
         internal const int RefineRadialBinCount = 3;
-        internal const int RefineMetricCount = 20;
+        internal const int RefineMetricCount = 8;
         internal const int RefineMetricValueCount =
             RefineRadialBinCount * RefineMetricCount;
 
@@ -1089,22 +1089,10 @@ namespace Genesis.RoomScan
                    ",noOppositeSupport=" + values[offset + 1] +
                    ",noRgbCoverage=" + values[offset + 2] +
                    ",noChromaticSupport=" + values[offset + 3] +
-                   ",flowerUnresolved=" + values[offset + 4] +
-                   ",acceptedWithoutR3=" + values[offset + 5] +
-                   ",acceptedWithR3=" + values[offset + 6] +
-                   ",accepted=" + values[offset + 7] +
-                   ",sourceDepthValid=" + values[offset + 8] +
-                   ",observationInvalid=" + values[offset + 9] +
-                   ",planeDepthSupportInvalid=" + values[offset + 10] +
-                   ",planeNormalDegenerate=" + values[offset + 11] +
-                   ",metricPriorAccepted=" + values[offset + 12] +
-                   ",metricCorrectionAccepted=" + values[offset + 13] +
-                   ",planeFacingUnresolved=" + values[offset + 14] +
-                   ",nonUniqueHypotheses=" + values[offset + 15] +
-                   ",ambiguousSingleHypothesis=" + values[offset + 16] +
-                   ",clipOrFineRejected=" + values[offset + 17] +
-                   ",zeroHypotheses=" + values[offset + 18] +
-                   ",hypothesisWidthInvalid=" + values[offset + 19] + "]";
+                   ",noPhotometricSupport=" + values[offset + 4] +
+                   ",measuredDepth=" + values[offset + 5] +
+                   ",rgbCorrection=" + values[offset + 6] +
+                   ",accepted=" + values[offset + 7] + "]";
         }
 
         private static void CancelFrame()

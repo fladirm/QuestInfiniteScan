@@ -36,15 +36,15 @@ namespace Genesis.RoomScan.Tests
         {
             var values = new uint[MerkabaGpuTimestamps.RefineMetricValueCount];
             int start = MerkabaGpuTimestamps.RefineMetricCount;
-            values[start + 8] = 64;
-            values[start + 12] = 7;
-            values[start + 13] = 2;
-            values[start + 15] = 3;
+            values[start] = 64;
+            values[start + 5] = 7;
+            values[start + 6] = 2;
+            values[start + 7] = 9;
             string result = MerkabaGpuTimestamps.FormatRefineBin(values, 1);
-            Assert.That(result, Does.Contain("sourceDepthValid=64"));
-            Assert.That(result, Does.Contain("metricPriorAccepted=7"));
-            Assert.That(result, Does.Contain("metricCorrectionAccepted=2"));
-            Assert.That(result, Does.Contain("nonUniqueHypotheses=3"));
+            Assert.That(result, Does.Contain("planeAccepted=64"));
+            Assert.That(result, Does.Contain("measuredDepth=7"));
+            Assert.That(result, Does.Contain("rgbCorrection=2"));
+            Assert.That(result, Does.Contain("accepted=9"));
         }
     }
 }

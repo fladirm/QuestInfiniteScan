@@ -9656,3 +9656,59 @@ CURSOR=LIVE_4, all native pipelines initialized; first scan observations startin
   (compact shader size) remains separate from this link-failure repair.
   PC builds SPIR-V; the actual Adreno driver still compiles device machine code.
   Never describe a Vulkan pipeline cache as a portable PC-compiled Quest binary.
+
+### 2026-09-10 SIMPLESCAN_SENSOR_RESTORE — explicit user sensor amendment
+
+BASE=897c176. USER_DIRECTIVE=stereo depth projection + stereo RGB refinement
+  must be the same realtime sensor operation as SimpleScan. L3-L5 are signal
+  detail on L2, not another geometric solve in sensor preprocessing. This
+  supersedes the earlier sensor-stage Flower-root/census-replacement rule,
+  not M8/Sphere-Flower geometry, incidence, dual, fine state or draw ontology.
+MEASURED=installed 6d00af92 APK links all 27 pipelines, but live stereo costs
+  1494.943 of 1497.249 ms in observation 9. HOT tiles grow to 41; occupancy and
+  drawn triangles remain zero. Do not infer a readback-only cause from this.
+IMPLEMENTED=the SimpleScan four-stream sensor algorithm replaces the per-pixel
+  interval/shell solve. Same SDK projections/crop, five distance hypotheses,
+  bounded stereo plane/RGB census tests, original-depth fallback/confidence.
+  Existing Flower consumers still require normal.w==1; low-confidence sensor
+  bootstrap is not relabelled as strict Flower evidence. No legacy surface,
+  carve, mesh or draw path is restored; no runtime algorithm switch exists.
+  Camera projection/sampling is shared with the actual Flower RGB consumer.
+  Sensor no longer needs Flower tables or world-grid matrices; metrics return
+  to 8 values per radial bin, with matching producer/consumer labels.
+PC_SENSOR=44208 B validated/reflected native SPIR-V, versus 451048 B installed.
+  Receipt=/mnt/kingston-unity/Builds/QuestMerkabaScan/stereo-restore-module.log
+READBACK_FINDING=SimpleScan also has storage/counter/attempt readbacks. Uniscan
+  additionally samples native stereo metrics and flushes dual state. Removing
+  readbacks has NOT been implemented or claimed; storage transport is distinct
+  from geometry authority. No readback is added by this sensor replacement.
+READOUT_MEASURED=installed APK CompactDirtyFlowerSymbols count+emit costs
+  36487.371 ms at revision 10091 and 54609.059 ms at revision 10092 while
+  occupancy remains zero. Receipt=evidence/scan-stutter-live.log. The growing
+  GPU cost is not explained by asynchronous CPU telemetry readback.
+READOUT_FIX=256 lanes select two owners each into a 16-word page-local bitmap.
+  Only strict occupied owners enter cooperative evidence packets, in the same
+  canonical order. Coverage selects the same bounded halo domain in 512-item
+  batches and preserves unresolved receipts. No empty-owner packet barriers,
+  no extra persistent topology, no change to Flower geometry/skin predicates.
+PC_COMPACT=1239200 B / 65650 body / 30088 B GS / 7 writable bindings, validated
+  and reflected using the exact native ID-only cleanup. OPEN-1 shader-size gate
+  remains open; fewer empty-owner barriers is a runtime repair, not a size PASS.
+  SHA256=9078315bdae421155f2586c05f431963f4c7e88ec6fb82d9a5ab23ab3cfda94d
+  Receipt=/mnt/kingston-unity/Builds/QuestMerkabaScan/readout-select-module.log
+TESTS=full EditMode 378/378 PASS after both production edits. The sole initial
+  failure was the FINE source assertion for the replaced sensor output name;
+  it now checks masking before selectedDepth publication. Behavioral FINE,
+  flat-wall/shared-knot and textureless/conflicting stereo fixtures remain.
+APK=full native + Unity Android/IL2CPP build PASS, 2026-09-10 18:30Z;
+  75379862 bytes, SHA256
+  03280202fc2270f38b1936f6b3fe6fdf67ce3ae82b73d6f9b775e91494940251.
+  Receipt=/mnt/kingston-unity/Builds/QuestMerkabaScan/stereo-restore-apk.log
+INSTALL=adb install -r SUCCESS on 340YC20G7X0QZ4; installed base.apk SHA256
+  verified equal to the build. Activity launch status=ok, PID=17385 at 18:31Z.
+  No app data or pipeline cache was cleared. USB/ADB disconnected immediately
+  afterwards (adb devices empty), before new pipeline/runtime timings arrived.
+CURSOR=SENSOR_3; installed and launched, DEVICE ACCEPTANCE PENDING. Reconnect
+  the headset and measure stereo/Compact dispatch times, occupied kernels and
+  emitted triangles. Neither runtime speedup nor a visible scan is yet proven
+  for this APK. Do not confuse the 44 kB stereo module with measured GPU time.

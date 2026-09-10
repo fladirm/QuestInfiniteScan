@@ -41,6 +41,7 @@ float4 _M8FlowerCullPlanes[12];
 float2 _M8FlowerPlaneErrorBounds;
 
 groupshared uint2 m8FlowerPageOwnerSpans[512];
+groupshared uint m8FlowerActiveOwners[16];
 groupshared uint m8FlowerCompileSlot;
 groupshared uint m8FlowerCompileGeneration;
 groupshared uint m8FlowerCompileSlotGeneration;
@@ -1139,14 +1140,19 @@ void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
         if(coverageOnly)
             itemCount=M8FlowerSupportPrepareNeighborCoverage(lane,256u)?
                 M8_FLOWER_COVERAGE_OWNER_COUNT:0u;
-        [loop]for(uint item=0u;item<itemCount;item++)
+        [loop]for(uint batch=0u;batch<itemCount;batch+=512u)
         {
-            // The page WG cooperates on this fixed owner domain. Only the
-            // actual HOT/occupied owners enter an evidence packet; coverage
-            // still excludes the 512 central owners already accumulated.
-            if(lane==0u)
+            // Select two owners per lane before entering cooperative packets.
+            // Empty pages pay one parallel mask build, not two WG barriers
+            // for each of 512 empty owners. Bits retain canonical owner order.
+            GroupMemoryBarrierWithGroupSync();
+            if(lane<16u)m8FlowerActiveOwners[lane]=0u;
+            GroupMemoryBarrierWithGroupSync();
+            [unroll]for(uint ownerHalf=0u;ownerHalf<2u;ownerHalf++)
             {
+                uint candidate=lane+ownerHalf*256u,item=batch+candidate;
                 uint ownerSlot=slot,local=item;
+                if(item>=itemCount)continue;
                 bool valid=true;
                 if(coverageOnly)valid=M8FlowerSupportResolveCoverageOwner(slot,item,ownerSlot,local);
                 if(valid)
@@ -1154,28 +1160,46 @@ void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
                     uint flags=M8LoadKernelStateRead(ownerSlot,local).flags;
                     uint required=M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID;
                     valid=(flags&(required|M8_FLOWER_SEED_FLAG))==required;
+                    if(valid)InterlockedOr(m8FlowerActiveOwners[candidate>>5u],1u<<(candidate&31u));
                 }
-                m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+20u]=
-                    valid?ownerSlot|(local<<15u):0xffffffffu;
             }
             GroupMemoryBarrierWithGroupSync();
-            uint address=m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+20u];
-            // Every lane must capture this owner's address before lane zero
-            // may replace it for an empty owner's next iteration.
-            GroupMemoryBarrierWithGroupSync();
-            if(address==0xffffffffu)continue;
-            uint ownerSlot=address&32767u,local=address>>15u;
-            uint2 first=0u;
-            if(phase==2u)first=m8FlowerPageOwnerSpans[local];
-            uint2 count=M8FlowerCompileOwner(ownerSlot,local,phase==2u,coverageOnly,build,first,lane);
-            if(lane==0u && phase==0u)m8FlowerPageOwnerSpans[local]=count;
-            else if(lane==0u && phase==2u)
+            [loop]for(uint word=0u;word<16u;word++)
             {
-                uint2 end=local==511u?m8FlowerCompileTotal:m8FlowerPageOwnerSpans[local+1u];
-                if(any(count!=end-first))
-                    InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
+                uint pending=m8FlowerActiveOwners[word];
+                [loop]while(pending!=0u)
+                {
+                    uint item=batch+word*32u+(uint)firstbitlow(pending);
+                    pending&=pending-1u;
+                    uint ownerSlot=slot,local=item;
+                    if(coverageOnly)
+                    {
+                        // Halo addresses cannot change during the page lease.
+                        // Resolve only selected owners; keep the bitmap small
+                        // instead of retaining 512 addresses in groupshared.
+                        if(lane==0u)
+                        {
+                            M8FlowerSupportResolveCoverageOwner(slot,item,ownerSlot,local);
+                            m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+20u]=ownerSlot|(local<<15u);
+                        }
+                        GroupMemoryBarrierWithGroupSync();
+                        uint address=m8FlowerSupportScratch[M8_FLOWER_PACKET_CONTROL+20u];
+                        ownerSlot=address&32767u;local=address>>15u;
+                        GroupMemoryBarrierWithGroupSync();
+                    }
+                    uint2 first=0u;
+                    if(phase==2u)first=m8FlowerPageOwnerSpans[local];
+                    uint2 count=M8FlowerCompileOwner(ownerSlot,local,phase==2u,coverageOnly,build,first,lane);
+                    if(lane==0u && phase==0u)m8FlowerPageOwnerSpans[local]=count;
+                    else if(lane==0u && phase==2u)
+                    {
+                        uint2 end=local==511u?m8FlowerCompileTotal:m8FlowerPageOwnerSpans[local+1u];
+                        if(any(count!=end-first))
+                            InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
+                    }
+                    GroupMemoryBarrierWithGroupSync();
+                }
             }
-            GroupMemoryBarrierWithGroupSync();
         }
         GroupMemoryBarrierWithGroupSync();
         if(phase==1u)

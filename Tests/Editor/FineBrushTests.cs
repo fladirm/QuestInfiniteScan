@@ -130,9 +130,9 @@ namespace Genesis.RoomScan.Tests
 
             int selectedWorld = refine.IndexOf("float3 selectedWorld",
                 StringComparison.Ordinal);
-            int mask = refine.IndexOf("if (_M8FineRefineActive != 0u)",
+            int mask = refine.IndexOf("if (finalAccepted && _M8FineRefineActive != 0u &&",
                 StringComparison.Ordinal);
-            int publish = refine.IndexOf("_DstDepth[id] = depth;",
+            int publish = refine.IndexOf("_DstDepth[id] = selectedDepth;",
                 StringComparison.Ordinal);
             Assert.That(selectedWorld, Is.GreaterThanOrEqualTo(0));
             Assert.That(mask, Is.GreaterThan(selectedWorld));

@@ -225,7 +225,7 @@ def resource_id(pipeline: Pipeline, shader_name: str) -> int:
 
 
 def descriptor_kind(name: str, type_code: str) -> int:
-    if name == "gsBilinearClampSampler":
+    if name in ("gsBilinearClampSampler", "m8CameraBilinearClampSampler"):
         return KIND_BILINEAR_SAMPLER
     if name == "gsPointClampSampler":
         return KIND_POINT_SAMPLER

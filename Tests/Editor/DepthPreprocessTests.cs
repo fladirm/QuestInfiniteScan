@@ -123,7 +123,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(consume, Does.Contain(
                 "_depthTex = _ownedRawDepth[_heldDepthSlot];"));
             Assert.That(consume, Does.Contain(
-                "ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush, gridToWorld);"));
+                "ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);"));
             Assert.That(consume, Does.Not.Contain("ComputeNormals(command);"));
             // Certificate recording moved to the integrator, which owns the
             // bins the certificate is reduced against. The invariant is
@@ -229,25 +229,19 @@ namespace Genesis.RoomScan.Tests
 
             string refine = RuntimeSource(
                 "Runtime/Shaders/StereoRgbdRefine.compute");
-            Assert.That(refine, Does.Contain("MerkabaTrySampleCameraRgb(eye,StereoMidpoint(world),captured)"));
-            Assert.That(refine, Does.Contain("StereoOppositePlane(support,opposite)"));
-            Assert.That(refine, Does.Contain("M8FlowerObservedLoopCentre("));
-            Assert.That(refine, Does.Contain("M8FlowerObservedRadiusAt("));
-            Assert.That(refine, Does.Contain("gStereoLoopAxes["));
-            Assert.That(refine, Does.Contain("M8FlowerSealBend("));
-            Assert.That(refine, Does.Contain("countbits(axes) < 2u"));
-            Assert.That(refine, Does.Contain("countbits(candidates) == 1u"));
-            Assert.That(refine, Does.Contain("certainCandidates == candidates"));
+            Assert.That(refine, Does.Contain("TryProjectedDepthPlane(RGBD_OPPOSITE_EYE"));
+            Assert.That(refine, Does.Contain("WorldPatchCensus(0u"));
+            Assert.That(refine, Does.Contain("WorldPatchCensus(1u"));
+            Assert.That(refine, Does.Contain("bestMismatch < secondMismatch"));
             Assert.That(refine, Does.Contain("_DstDepth[id] = 0.0;"));
-            Assert.That(refine, Does.Contain("_DstNormal[id] = 0.0.xxxx;"));
-            Assert.That(refine, Does.Contain("RGBD_HYPOTHESES 5u"));
-            Assert.That(refine, Does.Contain("StereoObservationValid()"));
-            Assert.That(refine, Does.Contain("!uniqueCorrection && metricPriorAccepted"));
-            Assert.That(refine, Does.Contain("StereoIntersects(residual,"));
-            Assert.That(refine, Does.Not.Contain("WorldPatchCensus"));
-            Assert.That(refine, Does.Not.Contain("JointTangentBasis"));
-            Assert.That(refine, Does.Not.Contain("RGBD_MAX_CENSUS_MISMATCH"));
-            Assert.That(refine, Does.Not.Contain("RGBD_MAX_METRIC_CORRECTION"));
+            Assert.That(refine, Does.Contain("_DstNormal[id] = 0.0;"));
+            Assert.That(refine, Does.Contain("RGBD_HYPOTHESIS_RADIUS 2"));
+            Assert.That(refine, Does.Contain("metricPriorDistance > 0.0"));
+            Assert.That(refine, Does.Contain("rightResidual > RGBD_MAX_METRIC_CORRECTION"));
+            Assert.That(refine, Does.Not.Contain("M8FlowerRootInterval"));
+            Assert.That(refine, Does.Not.Contain("M8FlowerSealBend"));
+            Assert.That(refine, Does.Not.Contain("M8FlowerInterval"));
+            Assert.That(refine, Does.Not.Contain("_M8FlowerTables"));
             Assert.That(refine, Does.Not.Contain(
                 "distance(worldPosition, observedWorld)"));
             Assert.That(refine, Does.Not.Contain("stereoMargin"));
@@ -255,7 +249,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(refine, Does.Not.Contain("same UV"));
             Assert.That(refine, Does.Contain("_DepthProjInv[eye]"));
             Assert.That(refine, Does.Contain("_DepthViewInv[eye]"));
-            Assert.That(refine, Does.Contain("_DepthProj[0]"));
+            Assert.That(refine, Does.Contain("_DepthProj[RGBD_REFERENCE_EYE]"));
             Assert.That(refine, Does.Contain(
                 "void StereoFlowerRefine(uint2 id"));
             Assert.That(refine, Does.Not.Contain("_DstDepth[id.z]"));
@@ -625,10 +619,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(joint, Does.Contain("RWTexture2D<float4> _DstNormal"));
             Assert.That(joint, Does.Contain(
                 "_DstNormal[id] = float4(selectedNormal,"));
-            Assert.That(joint, Does.Contain("float4(selectedNormal,1.0)"));
-            Assert.That(joint, Does.Not.Contain("selectedConfidence"));
-            Assert.That(joint, Does.Contain("StereoDepthPlane("));
-            Assert.That(joint, Does.Contain("StereoOppositePlane("));
+            Assert.That(joint, Does.Contain("selectedConfidence"));
+            Assert.That(joint, Does.Contain("TryDepthPlane("));
+            Assert.That(joint, Does.Contain("TryProjectedDepthPlane("));
         }
 
         // Includes cold Vulkan driver/pipeline compilation, not just the
@@ -641,8 +634,6 @@ namespace Genesis.RoomScan.Tests
             const int height = 15;
             ComputeShader compute = LoadCompute("StereoRgbdRefine.compute");
             int kernel = compute.FindKernel("StereoFlowerRefine");
-            using var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
-            compute.SetBuffer(kernel, MerkabaGrid.FlowerTablesId, flowerTables);
             Matrix4x4 projection = Matrix4x4.Perspective(90f,
                 width / (float)height, 0.1f, 10f);
             float sourceDepth = DepthNdc(projection, 1f);
@@ -676,7 +667,7 @@ namespace Genesis.RoomScan.Tests
                 compute.SetMatrixArray("_DepthProjInv", inverseProjections);
                 compute.SetMatrixArray("_DepthView", views);
                 compute.SetMatrixArray("_DepthViewInv", views);
-                BindSyntheticStereoBounds(compute);
+                compute.SetInt("_M8FineRefineActive", 0);
                 compute.SetBuffer(kernel, "_RefineMetrics", refineMetrics);
                 compute.SetInt("_RefineMetricsEnabled", 1);
                 compute.SetInt("_RefineMetricGroupsX", metricGroupsX);
@@ -706,14 +697,12 @@ namespace Genesis.RoomScan.Tests
                     MerkabaGpuTimestamps.RefineMetricValueCount];
                 for (int index = 0; index < metricValues.Length; index++)
                     radial[index % radial.Length] += metricValues[index];
-                uint measured = 0u, sourceValid = 0u, invalidObservation = 0u;
+                uint measured = 0u;
                 for (int bin = 0; bin <
                      MerkabaGpuTimestamps.RefineRadialBinCount; bin++)
                 {
                     int offset = bin * MerkabaGpuTimestamps.RefineMetricCount;
                     measured += radial[offset];
-                    sourceValid += radial[offset + 8];
-                    invalidObservation += radial[offset + 9];
                     uint rejected = radial[offset + 1] + radial[offset + 2] +
                                     radial[offset + 3] + radial[offset + 4];
                     Assert.That(radial[offset], Is.EqualTo(
@@ -721,8 +710,6 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(radial[offset + 7], Is.EqualTo(
                         radial[offset + 5] + radial[offset + 6]));
                 }
-                Assert.That(sourceValid, Is.EqualTo(width * height));
-                Assert.That(invalidObservation, Is.Zero);
                 Assert.That(measured, Is.GreaterThan(0u),
                     "Both cases must reach measured reference depth; only the opposite-eye support differs.");
             }
@@ -737,14 +724,12 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test, Timeout(120000)]
-        public void JointSolve_DisjointStereoChromaticIntervalsRejectTheEndpoint()
+        public void JointSolve_ChromaticConflictCannotProduceStrictFlowerInput()
         {
             const int width = 17;
             const int height = 15;
             ComputeShader compute = LoadCompute("StereoRgbdRefine.compute");
             int kernel = compute.FindKernel("StereoFlowerRefine");
-            using var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
-            compute.SetBuffer(kernel, MerkabaGrid.FlowerTablesId, flowerTables);
             Matrix4x4 projection = Matrix4x4.Perspective(90f,
                 width / (float)height, 0.1f, 10f);
             float sourceDepth = DepthNdc(projection, 1f);
@@ -779,7 +764,7 @@ namespace Genesis.RoomScan.Tests
                 compute.SetMatrixArray("_DepthProjInv", inverseProjections);
                 compute.SetMatrixArray("_DepthView", views);
                 compute.SetMatrixArray("_DepthViewInv", views);
-                BindSyntheticStereoBounds(compute);
+                compute.SetInt("_M8FineRefineActive", 0);
                 compute.SetBuffer(kernel, "_RefineMetrics", refineMetrics);
                 compute.SetInt("_RefineMetricsEnabled", 1);
                 compute.SetInt("_RefineMetricGroupsX", metricGroupsX);
@@ -793,18 +778,12 @@ namespace Genesis.RoomScan.Tests
                     .GetData<float>()[center];
                 float4 normal = Read2D(outputNormal, width, height)
                     .GetData<float4>()[center];
-                Assert.That(refined, Is.Zero,
-                    "Disjoint captured radiance intervals cannot become a lower-confidence R1 endpoint.");
-                AssertFinite(normal, "rejected joint normal");
-                Assert.That(normal, Is.EqualTo(float4.zero));
-                var metricValues = new uint[refineMetrics.count];
-                refineMetrics.GetData(metricValues);
-                uint chromaticRejections = 0u;
-                for (int index = 3; index < metricValues.Length;
-                     index += MerkabaGpuTimestamps.RefineMetricCount)
-                    chromaticRejections += metricValues[index];
-                Assert.That(chromaticRejections, Is.GreaterThan(0u),
-                    "The synthetic plane must reach both PCA projections and reject their disjoint color, not fail an earlier input gate.");
+                Assert.That(refined, Is.GreaterThan(0f),
+                    "SimpleScan retains the measured-depth bootstrap with its original confidence.");
+                AssertFinite(normal, "joint normal");
+                Assert.That(normal.w, Is.EqualTo(0.5f),
+                    "Both depth/PCA projections pass, but chromatic support does not. " +
+                    "The existing Flower input requires w==1 and cannot promote this bootstrap.");
             }
             finally
             {
@@ -954,22 +933,6 @@ namespace Genesis.RoomScan.Tests
                 new Vector2(width, height));
             compute.SetVector("_MerkabaCameraCurrentResolution" + suffix,
                 new Vector2(width, height));
-        }
-
-        private static void BindSyntheticStereoBounds(ComputeShader compute)
-        {
-            // Exercise the exact shipping observation policy, not a synthetic
-            // laboratory profile that the real device never supplies.
-            var depth = DepthCapture.ObservationDepthBounds;
-            var rgb = DepthCapture.ObservationRgbBounds;
-            compute.SetVectorArray("_M8DepthErrorBounds", new[] { depth, depth });
-            compute.SetVectorArray("_M8RgbErrorBounds", new[] { rgb, rgb });
-            compute.SetVector("_M8PlaneErrorBounds", DepthCapture.ObservationPlaneBounds);
-            // Avoid making all analytic roots exact sector-boundary cases.
-            Matrix4x4 grid = Matrix4x4.Translate(new Vector3(0.00575f, 0.00675f, 0.00775f));
-            compute.SetMatrix("_MerkabaGridToWorld", grid);
-            compute.SetMatrix("_MerkabaWorldToGrid", grid.inverse);
-            compute.SetInt("_M8FineRefineActive", 0);
         }
 
         private static AsyncGPUReadbackRequest ReadArrayLayer(

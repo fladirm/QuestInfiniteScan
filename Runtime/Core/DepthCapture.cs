@@ -189,9 +189,6 @@ namespace Genesis.RoomScan
         private ComputeKernelHelper _monoConvertKernel;
         private ComputeKernelHelper _fineSurfaceTargetKernel;
         private ComputeKernelHelper _stereoRgbdRefineKernel;
-        // Borrow the one grid-owned generated table buffer; depth capture does
-        // not allocate or release a second copy of the reconstruction lookup.
-        private MerkabaGrid _flowerTableOwner;
 
         private readonly RenderTexture[] _ownedRawDepth = new RenderTexture[2];
         private readonly Matrix4x4[,] _ownedProj = new Matrix4x4[2, 2];
@@ -321,7 +318,6 @@ namespace Genesis.RoomScan
         private void Awake()
         {
             Instance = this;
-            _flowerTableOwner = GetComponent<MerkabaGrid>();
         }
 
         private void Start()
@@ -993,7 +989,7 @@ namespace Genesis.RoomScan
             if (!cameraFrame.IsValid || !TryHoldLatestDepthFrame())
                 return false;
             FreezeDepthCertificateBounds();
-            ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush, gridToWorld);
+            ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);
             SetGlobalShaderProperties();
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
             _preprocessedFrameCount++;
@@ -1324,8 +1320,7 @@ namespace Genesis.RoomScan
         }
 
         private void ApplyStereoRgbdRefinement(CommandBuffer command,
-            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush,
-            Matrix4x4 gridToWorld)
+            StereoCameraFrame cameraFrame, FineBrushDescriptor fineBrush)
         {
             if (!cameraFrame.IsValid || _depthTex == null)
                 throw new InvalidOperationException(
@@ -1337,11 +1332,6 @@ namespace Genesis.RoomScan
             EnsureRefinementOutputs(w, h);
 
             ComputeShader shader = stereoRgbdRefineCompute;
-            ComputeBuffer flowerTables = _flowerTableOwner != null ? _flowerTableOwner.M8FlowerTables : null;
-            if (flowerTables == null)
-                throw new InvalidOperationException("Stereo refinement requires the grid's generated Flower tables.");
-            command.SetComputeBufferParam(shader, _stereoRgbdRefineKernel.KernelIndex,
-                MerkabaGrid.FlowerTablesId, flowerTables);
             int metricGroupsX = Mathf.CeilToInt(w / 8f);
             int metricGroupsY = Mathf.CeilToInt(h / 8f);
             EnsureRefineMetrics(metricGroupsX * metricGroupsY);
@@ -1360,11 +1350,6 @@ namespace Genesis.RoomScan
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewId, _view);
             command.SetComputeMatrixArrayParam(shader, RefineDepthViewInvId,
                 _viewInv);
-            command.SetComputeVectorArrayParam(shader, DepthErrorBoundsId, _frozenDepthErrorBounds);
-            command.SetComputeVectorParam(shader, PlaneErrorBoundsId, _frozenPlaneErrorBounds);
-            command.SetComputeVectorArrayParam(shader, RgbErrorBoundsId, _frozenRgbErrorBounds);
-            command.SetComputeMatrixParam(shader, "_MerkabaGridToWorld", gridToWorld);
-            command.SetComputeMatrixParam(shader, "_MerkabaWorldToGrid", gridToWorld.inverse);
             _stereoRgbdRefineKernel.Set(command, RefineMetricsId,
                 _refineMetrics);
             command.SetComputeIntParam(shader, RefineMetricsEnabledId,
