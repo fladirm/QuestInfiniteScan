@@ -1,8 +1,6 @@
 #pragma kernel FlowerCommit
-#pragma kernel InvalidateFlowerSources
-#pragma kernel InvalidateFlowerPeers
+#pragma kernel PublishStructuralChanges
 #pragma kernel PublishFlowerR1
-#pragma kernel PrepareFlowerOwners
 #pragma kernel IntegrateFlowerRoot
 #pragma kernel IntegrateFlowerChildren
 #pragma kernel ResolveFlowerCarriers
@@ -145,8 +143,8 @@ void M8MarkR1Active(uint physicalSlot, uint kernelLocal)
 #include "MerkabaFlowerOwnerCache.hlsl"
 #include "MerkabaFlowerRefinement.hlsl"
 #include "MerkabaFlowerPageInvalidation.hlsl"
-#include "MerkabaFlowerChanges.hlsl"
 #include "MerkabaFlowerObservedOwners.hlsl"
+#include "MerkabaFlowerChanges.hlsl"
 
 bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     bool scanRequest)
@@ -437,5 +435,5 @@ void FinalizeFineErase(uint lane:SV_GroupIndex)
             _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
     }
     // No pending epoch bits, descriptor retry or packet survives this job.
-    if(lane<16u)_M8FlowerSignalItems.Store(4u*lane,0u);
+    if(lane<M8_FLOWER_SIGNAL_HEADER_BYTES/4u)_M8FlowerSignalItems.Store(4u*lane,0u);
 }

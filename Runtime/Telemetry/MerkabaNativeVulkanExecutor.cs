@@ -15,12 +15,12 @@ namespace Genesis.RoomScan
     {
         private const float TimingLogIntervalSeconds = 5f;
         // ABI 32: binary-only pipeline delivery and startup without cache IO.
-        internal const int AbiVersion = 32;
+        internal const int AbiVersion = 33;
         internal const int ResourceCount = 41;
-        internal const int PipelineCount = 25;
+        internal const int PipelineCount = 23;
         // Native codegen verifies this against the longest complete schedule,
         // including indirect commands whose GPU work count may be zero.
-        internal const int MaximumDispatchTimingCount = 14;
+        internal const int MaximumDispatchTimingCount = 12;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -127,10 +127,8 @@ namespace Genesis.RoomScan
             "ReserveObservationBins",
             "EmitObservationBins",
             "FlowerCommit",
-            "InvalidateFlowerSources",
-            "InvalidateFlowerPeers",
+            "PublishStructuralChanges",
             "PublishFlowerR1",
-            "PrepareFlowerOwners",
             "IntegrateFlowerRoot",
             "IntegrateFlowerChildren",
             "ResolveFlowerCarriers",

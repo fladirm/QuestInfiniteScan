@@ -122,10 +122,10 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 25,
-        "M8 executor pipeline tables must be regenerated for ABI 32");
+    static_assert(kMerkabaExecutorPipelineCount == 23,
+        "M8 executor pipeline tables must be regenerated for ABI 33");
 
-    constexpr uint32_t kExecutorAbiVersion = 32;
+    constexpr uint32_t kExecutorAbiVersion = 33;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelineRebuildDirtyFlowerOwners;
     constexpr uint32_t kFlowerEmitPipeline = kPipelineApplyOwnerDrawDeltas;
@@ -1843,7 +1843,8 @@ namespace
                  std::strcmp(dispatch, "changed_flower_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceFlowerSignalItems].buffer,
-                std::strcmp(dispatch, "changed_flower_tiles") == 0 ? 48u : 32u);
+                std::strcmp(dispatch, "changed_flower_tiles") == 0 ? 48u :
+                std::strcmp(dispatch, "measured_flower_owners") == 0 ? 64u : 32u);
         else if (std::strcmp(dispatch, "allocation_gate") == 0 ||
                  std::strcmp(dispatch, "allocation_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
@@ -1916,7 +1917,9 @@ namespace
             vkCmdFillBuffer(job->commandBuffer, signals, 36u, 8u, 1u);
             vkCmdFillBuffer(job->commandBuffer, signals, 44u, 8u, 0u);
             vkCmdFillBuffer(job->commandBuffer, signals, 52u, 8u, 1u);
-            vkCmdFillBuffer(job->commandBuffer, signals, 60u, 4100u, 0u);
+            vkCmdFillBuffer(job->commandBuffer, signals, 60u, 8u, 0u);
+            vkCmdFillBuffer(job->commandBuffer, signals, 68u, 8u, 1u);
+            vkCmdFillBuffer(job->commandBuffer, signals, 76u, 4100u, 0u);
         }
         if (job->kind == kJobObservation)
         {
@@ -1958,11 +1961,10 @@ namespace
             const uint32_t pipelineIndex = schedule.pipelines[ordinal];
             if (!PipelineSelected(job, pipelineIndex)) continue;
             if (job->kind == kJobObservation &&
-                (std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "PrepareFlowerOwners") == 0 ||
-                 std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "ResolveFlowerCarriers") == 0))
+                std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "ResolveFlowerCarriers") == 0)
             {
-                // R1 has no readers after publication. Grouping reuses its
-                // indirect arguments; skin reuses the item counter later.
+                // R1 has no readers after publication. Skin reuses its item
+                // counter/payload; measured groups and arguments stay live.
                 VkMemoryBarrier reuse = {};
                 reuse.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
                 reuse.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
@@ -1972,12 +1974,7 @@ namespace
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                     VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &reuse, 0, nullptr, 0, nullptr);
                 VkBuffer scratch = job->buffers[kResourceFlowerSignalItems].buffer;
-                if (std::strcmp(kMerkabaExecutorPipelines[pipelineIndex].label, "PrepareFlowerOwners") == 0)
-                {
-                    vkCmdFillBuffer(job->commandBuffer, scratch, 28u, 8u, 0u);
-                    vkCmdFillBuffer(job->commandBuffer, scratch, 36u, 8u, 1u);
-                }
-                else vkCmdFillBuffer(job->commandBuffer, scratch, 0u, 12u, 0u);
+                vkCmdFillBuffer(job->commandBuffer, scratch, 0u, 12u, 0u);
                 reuse.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
                 reuse.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
                     VK_ACCESS_INDIRECT_COMMAND_READ_BIT;

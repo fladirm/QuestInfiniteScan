@@ -9,7 +9,7 @@ HOTPATH=GPU only; CPU oracle/codegen and frozen offline export are not live back
 
 ## C1 — snapshot execution and residency
 
-STATUS=SOURCE COMPLETE; host suite/device validation deferred to C4
+STATUS=execution source wired; HOT release closure OPEN; host/device gates in C4
 Count HOT owners once; missing/COLD queues address-only residency work. Move
 allocation outside Observation; remove recount/reset cycles. Service requests
 on the same serialized native queue without retaining camera evidence. Prove
@@ -75,21 +75,33 @@ the complete source units being changed. Update CURRENT/NEXT in place; commit
 each coherent cut. Do not accumulate competing historical handoff cursors here.
 
 NEXT=close the remaining C1/C2 HOT execution/performance gaps. C1 actual scan schedule
-remains 14, not the 9–11 target; HOT shaders above 20k remain release-blocked
+is now 12, not yet the 9–11 target; HOT shaders above 20k remain release-blocked
 without exact-hash Adreno zero-spill evidence. Finish these execution/performance
 gaps before C4's APK, do not claim them closed by a hard compile PASS.
 C2 source=scan-authored sparse owner cache + Apply/Publish/Cull; canonical rebuild
 only for cache miss/invalidation (including peer dependencies), separately timed.
 Readout has 5 command slots, Classify view-only and Rebuild GPU-indirect/conditional.
-ABI31, 25 pipelines, 41 resources, 14 timing slots. Necessary Unity/codegen and
-ARM64 compile PASS 2026-09-11 19:06 UTC; no suite/APK/device run.
+Current native ABI33, 23 pipelines, 41 resources, 12 timing slots.
+Structural source/peer invalidation and measured-owner grouping now share one
+receiver WG after immutable preflight. R1 bank writes retain their next boundary.
+RGB and V each use seven eight-lane footprint reductions; seven immutable sites
+are WG shared. Generated child spans eliminate sibling-footprint scans.
+Exact-zero phase removal and compatible R1 updates invalidate dependent caches.
+Necessary Unity/codegen + all 23 native entrypoints/ARM64 compile PASS
+2026-09-11 20:08 UTC; no suite/APK/device run.
+Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-hot-compile
+native-cooperative.log; unity-cooperative.log; skin-codegen.log.
+Skin=42547 instructions / 2420 B shared / 6 writable bindings: still REVIEW.
+C4 must compare eight-stripe RGB hull/stereo intersection and two-pass V
+intersection/encoding/full-cover results to the sequential oracle, including
+empty stripes/children, boundary cells and a rejection on any one lane.
 ApplyOwnerDrawDeltas=129340 B / 6984 body instructions / 4168 B groupshared.
 Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c2-compile-n04Xjc
 C3 source=CAPTURE/BINARY_ONLY intercepts native and Unity compute/graphics,
 exact global/PSO keys, immutable bundles, source/scene/shader fingerprint,
 GSC/request inventory, explicit signing and APK/native/bundle verification.
 Native ABI32; persistent ABI unchanged. Necessary Unity/C# and ARM64 compile
-PASS; no capture/APK/device claim. The final builder rejects 14 dispatches and
+PASS; no capture/APK/device claim. The final builder still rejects this 12-dispatch graph and
 unreviewed >20k HOT shaders. Production key remains externally supplied.
 Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c3-compile-A3muI8
 Manufacturing instructions=Tools/unity/MERKABA_PIPELINE_DELIVERY.md

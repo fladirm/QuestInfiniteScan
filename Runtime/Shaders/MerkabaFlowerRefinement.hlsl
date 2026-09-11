@@ -464,6 +464,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
                     _M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
                 if(status==M8_FLOWER_ARENA_OK)
                 {
+                    m8FineState|=M8_FLOWER_FINE_CHANGED;
                     M8MarkTileDirty(slot);
                     InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],4u);
                     M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);

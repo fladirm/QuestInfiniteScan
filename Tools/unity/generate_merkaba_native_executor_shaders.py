@@ -56,14 +56,10 @@ PIPELINES = (
              "EmitObservationBins", "depth"),
     Pipeline("FlowerCommit", "MerkabaIntegration.compute",
              "FlowerCommit", "observation_indirect"),
-    Pipeline("InvalidateFlowerSources", "MerkabaIntegration.compute",
-             "InvalidateFlowerSources", "flower_r1_changes"),
-    Pipeline("InvalidateFlowerPeers", "MerkabaIntegration.compute",
-             "InvalidateFlowerPeers", "changed_flower_tiles"),
+    Pipeline("PublishStructuralChanges", "MerkabaIntegration.compute",
+             "PublishStructuralChanges", "changed_flower_tiles"),
     Pipeline("PublishFlowerR1", "MerkabaIntegration.compute",
              "PublishFlowerR1", "flower_r1_changes"),
-    Pipeline("PrepareFlowerOwners", "MerkabaIntegration.compute",
-             "PrepareFlowerOwners", "observation_indirect"),
     Pipeline("IntegrateFlowerRoot", "MerkabaIntegration.compute",
              "IntegrateFlowerRoot", "measured_flower_owners"),
     Pipeline("IntegrateFlowerChildren", "MerkabaIntegration.compute",
@@ -115,8 +111,8 @@ def command_schedules():
     observation = [
         "StereoFlowerRefine", "CountObservationBins",
         "ReserveObservationBins", "EmitObservationBins",
-        "FlowerCommit", "InvalidateFlowerSources", "InvalidateFlowerPeers",
-        "PublishFlowerR1", "PrepareFlowerOwners",
+        "FlowerCommit", "PublishStructuralChanges",
+        "PublishFlowerR1",
         "IntegrateFlowerRoot", "IntegrateFlowerChildren",
         "ResolveFlowerCarriers", "IntegrateFlowerSkin",
         "FinalizeObservation",
@@ -125,7 +121,7 @@ def command_schedules():
                  "InitializeNewTiles"]
     flower = ["ClassifyHotFlowerPages", "RebuildDirtyFlowerOwners",
               "ApplyOwnerDrawDeltas", "PublishDirtyFlowerPages", "CullFlowerPages"]
-    fine = ("QueryFineEraseTiles", "EraseFineTiles", "InvalidateFlowerSources", "InvalidateFlowerPeers",
+    fine = ("QueryFineEraseTiles", "EraseFineTiles", "PublishStructuralChanges",
             "PublishFlowerR1", "FinalizeFineErase")
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
         ("Observation", observation),
@@ -718,10 +714,10 @@ def main() -> int:
                 "non_allocation_commands": len(indices) - allocation,
                 "between_dispatch_barriers": len(indices) - 1,
                 "optional_flower_passes": name == "FlowerReadout",
-                "setup_transfer_fills": len(FINE_ERASE_RESET_COUNTERS) + 9 if name == "FineErase" else
-                    1 if name == "FlowerReadout" else 9 + len(observation_reset_indices()) if name == "Observation" else 0,
-                "mid_graph_transfer_fills": 3 if name == "Observation" else 1 if name == "FlowerReadout" else 0,
-                "scratch_reuse_barriers": 4 if name == "Observation" else 2 if name == "FlowerReadout" else 0,
+                "setup_transfer_fills": len(FINE_ERASE_RESET_COUNTERS) + 11 if name == "FineErase" else
+                    1 if name == "FlowerReadout" else 11 + len(observation_reset_indices()) if name == "Observation" else 0,
+                "mid_graph_transfer_fills": 1 if name in ("Observation", "FlowerReadout") else 0,
+                "scratch_reuse_barriers": 2 if name in ("Observation", "FlowerReadout") else 0,
                 "commands": [{"pipeline": PIPELINES[index].label,
                               "dispatch": mode} for index, mode in
                              zip(indices, schedule_dispatch_modes(name, indices))]})

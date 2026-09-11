@@ -10626,3 +10626,41 @@ OPEN=14 HOT commands, Root/Children/Resolve/Skin >20k; live peer-cache rebuild
   into a new APK yet. No production-key availability or device support claim.
 NEXT=finish HOT graph/source performance before C4; then single complete
   validation/manufacturing/final APK pass. No per-cut APK/device iteration.
+
+## 2026-09-11 20:08 UTC — HOT structural and cooperative skin cut
+
+CURRENT=C1_C2_HOT_CLOSURE; goal ACTIVE, performance closure not claimed.
+IMPLEMENTED=immutable preflight permits source/peer fine invalidation in one
+  receiver WG; the same WG groups measured owners before the R1 publish barrier.
+  Measured dispatch args no longer alias R1 args; prepared R1 payload reuses only
+  the later signal region, never live measured-owner indices. Compatible R1
+  movement invalidates actual peer draw caches; exact-zero phase removal now
+  sets the same cache invalidation flag as a nonzero phase change.
+  RGB/V: seven children x eight pixel lanes inside the existing 64-lane WG.
+  Per-eye RGB hull is reduced before stereo intersection. V constraints are
+  intersected across all eight stripes, outward-encoded once, then the complete
+  encoded footprint is validated in the second cooperative pass. Any lane
+  rejection rejects that child's evidence. No epsilon/threshold change.
+  Seven world sites are shared, not private arrays. Codegen emits stable
+  per-child ranges over the existing clipped footprint rows; canonical thread,
+  child identities and each child's interval operation order are unchanged.
+  Measured finite interval novelty uses max(lower)>min(upper), equivalent to
+  the independent pairwise oracle. No runtime-only topology or saved field.
+ABI=33; 23 pipelines, 41 resources; persistent ABI UNCHANGED.
+SCHEDULE=12 Observation / 3 Residency / 5 Readout / 5 ERASE command slots.
+COMPILE=Unity C#/exact codegen PASS, generated child-span closure PASS;
+  all 23 native embedded entrypoints and ARM64 plugin PASS.
+  PublishStructuralChanges=5109 body instructions / 6340 B shared / 8 RW.
+  IntegrateFlowerSkin=42547 / 2420 B shared / 6 RW: still REVIEW, not a
+  performance PASS or measured speedup. No private seven-site array remains.
+  Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-hot-compile
+  skin-codegen.log; unity-cooperative.log; native-cooperative.log.
+OPEN=9–11 HOT graph target; FlowerCommit/Root/Children/Resolve/Skin >20k;
+  exact-hash Adreno zero-spill/GPR evidence or further source reduction;
+  peer-cache rebuild frequency and all C4 functional/device gates.
+C4_PROOFS=cooperative vs sequential RGB eye hulls and V two-pass coefficients,
+  empty stripe/child, any-lane failure, exact footprint support, interval
+  extrema novelty vs pairwise oracle, phase removal/compatible-plane peer
+  invalidation. Full suite NOT RUN; no APK, capture or device run.
+NEXT=continue remaining HOT source/performance closure, then C4 one full
+  validation/manufacturing/final APK pass. Do not restart completed cuts.

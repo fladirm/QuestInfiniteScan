@@ -34,18 +34,14 @@ void M8FlowerIntegrateSkin(uint3 group,uint lane,bool metric)
         if(!live || !any(reachedParents!=0u)){item=next;continue;}
         if(!M8FlowerCanonicalSplit(reachedParents))
         {if(lane==0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);item=next;continue;}
-        M8FlowerInterval3 sites[7];
         if(lane<7u)
         {
-            [loop]for(uint site=0u;site<7u;site++)
-            {
-                uint address=item+M8_FLOWER_SIGNAL_WORLD+24u*site;
-                float4 xy=asfloat(_M8FlowerSignalItemsRead.Load4(address));
-                float2 z=asfloat(_M8FlowerSignalItemsRead.Load2(address+16u));
-                sites[site].x=M8FlowerI(xy.x,xy.y);
-                sites[site].y=M8FlowerI(xy.z,xy.w);
-                sites[site].z=M8FlowerI(z.x,z.y);
-            }
+            uint address=item+M8_FLOWER_SIGNAL_WORLD+24u*lane;
+            float4 xy=asfloat(_M8FlowerSignalItemsRead.Load4(address));
+            float2 z=asfloat(_M8FlowerSignalItemsRead.Load2(address+16u));
+            m8SkinSites[lane].x=M8FlowerI(xy.x,xy.y);
+            m8SkinSites[lane].y=M8FlowerI(xy.z,xy.w);
+            m8SkinSites[lane].z=M8FlowerI(z.x,z.y);
         }
         if(lane==0u){m8SignalParents=uint2(reachedParents.x&1u,0u);m8SignalStatus=M8_FLOWER_ARENA_OK;}
         GroupMemoryBarrierWithGroupSync();
@@ -72,18 +68,20 @@ void M8FlowerIntegrateSkin(uint3 group,uint lane,bool metric)
                             symbol.x,parent,symbol.y,source.w,metric,m8SignalContext,classification);
                 }
                 GroupMemoryBarrierWithGroupSync();
-                if(lane<7u)
+                if(lane<7u){m8SignalValues[lane]=0u;m8SignalFlags[lane]=0u;}
+                if(m8SignalContext.Measure)
                 {
-                    uint4 words=0u;bool supported=false,certain=false;
-                    if(m8SignalContext.Measure)
+                    if(!metric)
                     {
-                    if (!metric)
-                    {
-                        M8ThreadColorInterval value;
-                        certain=M8FlowerMeasureRgbSkinChild(sites,parent,symbol.y,lane,
+                        M8ThreadColorInterval value;bool supported;
+                        bool certain=M8FlowerMeasureRgbSkinChildren(parent,symbol.y,
                             M8FlowerEndpointOwner(slot,local),source.w,errors.x,errors.y,
-                            m8SignalContext.Inherited,value,supported);
-                        words=uint4(value.LowerLinearRgba,value.UpperLinearRgba);
+                            m8SignalContext.Inherited,lane,value,supported);
+                        if(lane<56u && (lane&7u)==0u)
+                        {
+                            m8SignalValues[lane>>3u]=uint4(value.LowerLinearRgba,value.UpperLinearRgba);
+                            m8SignalFlags[lane>>3u]=(certain?1u:0u)|(supported?2u:0u);
+                        }
                     }
                     else
                     {
@@ -92,15 +90,16 @@ void M8FlowerIntegrateSkin(uint3 group,uint lane,bool metric)
                         run.SplitBitsLo=m8SignalContext.SplitBits.x;
                         run.SplitBitsHi=m8SignalContext.SplitBits.y;
                         run.ParentEpoch=m8SignalContext.Epoch;run.Reserved=m8SignalContext.Reserved;
-                        M8FlowerVInterval value;
-                        certain=M8FlowerMeasureMetricSkinChild(sites,parent,symbol.y,lane,
+                        M8FlowerVInterval value;bool supported;
+                        bool certain=M8FlowerMeasureMetricSkinChildren(parent,symbol.y,
                             M8FlowerEndpointOwner(slot,local),source.w,errors.x,errors.y,
-                            run,m8SignalContext.Existing,value,supported);
-                        words=uint4(asuint(value.Lower),asuint(value.Upper),0u,0u);
+                            run,m8SignalContext.Existing,lane,value,supported);
+                        if(lane<56u && (lane&7u)==0u)
+                        {
+                            m8SignalValues[lane>>3u]=uint4(asuint(value.Lower),asuint(value.Upper),0u,0u);
+                            m8SignalFlags[lane>>3u]=(certain?1u:0u)|(supported?2u:0u);
+                        }
                     }
-                    }
-                    m8SignalValues[lane]=words;
-                    m8SignalFlags[lane]=(certain?1u:0u)|(supported?2u:0u);
                 }
                 GroupMemoryBarrierWithGroupSync();
                 if(lane==0u && m8SignalContext.Measure)

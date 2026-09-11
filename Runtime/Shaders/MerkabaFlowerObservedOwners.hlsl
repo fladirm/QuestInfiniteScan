@@ -10,11 +10,8 @@ groupshared uint m8ObservedBase;
 groupshared uint m8ObservedCount;
 groupshared uint m8ObservedInvalid;
 
-[numthreads(128,1,1)]
-void PrepareFlowerOwners(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+void M8FlowerPrepareObservedOwners(uint slot,uint lane)
 {
-    if(group.x>=min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],32768u))return;
-    uint slot=_M8TouchedTileQueueRead[group.x];
     if(slot>=_M8ObservationHotSlotCount)return;
     uint tileAddress=M8_FLOWER_MEASURED_TILES_BASE+slot*M8_FLOWER_MEASURED_TILE_BYTES;
     if(lane==0u)_M8FlowerSignalItems.Store4(tileAddress,uint4(0u,0u,0u,0u));
@@ -23,9 +20,7 @@ void PrepareFlowerOwners(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     if(runtime.w==0u || bin.x!=_M8ObservationToken || bin.y==0u || bin.w!=bin.y ||
         bin.z>=min(_M8ObservationRecordCapacity,M8_FLOWER_RECORD_INDEX_CAPACITY) ||
         bin.y>min(_M8ObservationRecordCapacity,M8_FLOWER_RECORD_INDEX_CAPACITY)-bin.z)return;
-    // Resolve the canonical 27 addresses once per touched tile, not once
-    // per owner in each following level. No installs interleave these stages.
-    M8FlowerCacheTileHalo(slot,lane,true,true);
+    // The structural receiver has already published this tile's halo.
     if(lane==0u)m8ObservedInvalid=0u;
     if(lane<16u)m8ObservedMask[lane]=0u;
     [unroll]for(uint local=lane;local<512u;local+=128u)m8ObservedCounts[local]=0u;

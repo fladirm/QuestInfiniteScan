@@ -302,7 +302,7 @@ bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
         InterlockedOr(_M8TileBits[M8TileWordIndex(slot,local>>5u)].w,1u<<(local&31u));
         M8FlowerQueueChangedTile(slot);
         int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
-        [loop]for(uint node=6u;node<26u;node++)
+        [loop]for(uint node=0u;node<26u;node++)
         {
             uint peerSlot,peerLocal;
             if(M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,peerSlot,peerLocal,true,true))
@@ -370,6 +370,9 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
     if (lane == 0u) m8FlowerR1Changed=0u;
     M8FlowerCacheTileHalo(slot,lane,false,true,true);
     if (bin.y == 0u) return;
+    // The receiver pass also groups this bin's measured owners. Its union
+    // queue includes every touched tile plus actual structural peer targets.
+    if(lane==0u)M8FlowerQueueChangedTile(slot);
     for (uint local = lane; local < 512u; local += 128u)
     {
         m8FlowerOwnerSource[local] = 0xffffffffu;

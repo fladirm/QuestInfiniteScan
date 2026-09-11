@@ -51,16 +51,17 @@ namespace Genesis.RoomScan
         internal const int DetailBufferBytes = DetailDataBase + PersistentBytes;
         // GPU-only handoff inside one observation; not persistent Flower data.
         internal const int SignalBufferBytes = 32 * 1024 * 1024;
-        internal const int SignalHeaderBytes = 64;
+        internal const int SignalHeaderBytes = 80;
         internal const int SignalItemBytes = 224;
         internal const int SignalDispatchOffset = 16;
         internal const int ChangeDispatchOffset = 32;
         internal const int ChangeTileDispatchOffset = 48;
-        internal const int MeasuredOwnerDispatchOffset = ChangeDispatchOffset;
+        internal const int MeasuredOwnerDispatchOffset = 64;
         internal static uint[] CreateSignalInitialHeader()
         {
             var words = new uint[(SignalHeaderBytes + 4096) / 4];
-            words[5] = words[6] = words[9] = words[10] = words[13] = words[14] = 1u;
+            words[5] = words[6] = words[9] = words[10] = words[13] = words[14] =
+                words[17] = words[18] = 1u;
             return words;
         }
         internal const int ThreadArenaControl = 0;

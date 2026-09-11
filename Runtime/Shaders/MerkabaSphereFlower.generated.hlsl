@@ -299,10 +299,11 @@ uint M8FlowerSkinL5ChildRankAt(uint index) { return _M8FlowerTables[4680u+(index
 float2 M8FlowerSkinThirdAt(uint index) { return asfloat(_M8FlowerTables[4766u+index]).xy; }
 float4 M8FlowerSkinForwardRowAt(uint index) { return asfloat(_M8FlowerTables[4767u+index]); }
 uint4 M8FlowerSkinParentWorkAt(uint index) { return _M8FlowerTables[4785u+index]; }
-uint4 M8FlowerSkinFootprintWorkAt(uint index) { return _M8FlowerTables[4842u+index]; }
-float4 M8FlowerSkinFootprintChartAt(uint index) { return asfloat(_M8FlowerTables[6390u+index]); }
+uint2 M8FlowerSkinChildWorkAt(uint index) { return _M8FlowerTables[4842u+index].xy; }
+uint4 M8FlowerSkinFootprintWorkAt(uint index) { return _M8FlowerTables[5241u+index]; }
+float4 M8FlowerSkinFootprintChartAt(uint index) { return asfloat(_M8FlowerTables[6789u+index]); }
 float4 M8FlowerSectorBoundsAt(uint index) { return asfloat(_M8FlowerTables[index]); }
-float2 M8FlowerSectorUnitAt(uint index) { return asfloat(_M8FlowerTables[7938u+index]).xy; }
+float2 M8FlowerSectorUnitAt(uint index) { return asfloat(_M8FlowerTables[8337u+index]).xy; }
 int4 M8FlowerBoundaryRationalAt(uint index) { return asint(_M8FlowerTables[264u+index]); }
 int4 M8FlowerBoundaryIrrationalOwnerAt(uint index) { return asint(_M8FlowerTables[528u+index]); }
 
@@ -406,7 +407,7 @@ bool M8FlowerPlaneBoundarySector(uint level,int3 loopOffset,uint lineClass,
     return witness!=0u;
 }
 
-uint3 M8FlowerRadicalSectorPatternAt(uint index) { return _M8FlowerTables[8202u+index].xyz; }
+uint3 M8FlowerRadicalSectorPatternAt(uint index) { return _M8FlowerTables[8601u+index].xyz; }
 
 // Complete directed radical provenance of an already CERTAIN open sector.
 // x=incident planes, y=positive sides, z=negative sides; remaining incident
@@ -423,8 +424,8 @@ bool M8FlowerRadicalSectorSigns(uint node,uint sector,out uint3 signs)
     signs=M8FlowerRadicalSectorPatternAt(2u*(meta.y+sector)+(reversed?1u:0u));
     return true;
 }
-uint2 M8FlowerAnchorSectorPetalMaskAt(uint index) { return _M8FlowerTables[8730u+index].xy; }
-uint2 M8FlowerAnchorBoundaryPetalMaskAt(uint index) { return _M8FlowerTables[9258u+index].xy; }
+uint2 M8FlowerAnchorSectorPetalMaskAt(uint index) { return _M8FlowerTables[9129u+index].xy; }
+uint2 M8FlowerAnchorBoundaryPetalMaskAt(uint index) { return _M8FlowerTables[9657u+index].xy; }
 
 // Same-shell power order on the actual directed sphere anchor. An empty
 // higher-shell mask is a valid sector with no incident eligible flag; it is
@@ -484,23 +485,23 @@ bool M8FlowerR1SectorFlag(uint node,uint sector,out uint petal)
     return true;
 }
 static const float2 M8FlowerTetraUnitBounds = float2(0.577350259, 0.577350318);
-int4 M8FlowerTetraLineAt(uint index) { return asint(_M8FlowerTables[9786u+index]); }
-int4 M8FlowerTetraEtaAt(uint index) { return asint(_M8FlowerTables[9794u+index]); }
-int M8FlowerTetraChiralityAt(uint index) { return asint(_M8FlowerTables[9802u+(index>>2u)][index&3u]); }
-float3 M8FlowerTetraAxisAt(uint index) { return asfloat(_M8FlowerTables[9804u+index]).xyz; }
-uint2 M8FlowerJunctionRuleAt(uint index) { return _M8FlowerTables[9808u+index].xy; }
-float4 M8FlowerCoordinateFormAt(uint index) { return asfloat(_M8FlowerTables[9820u+index]); }
-uint4 M8FlowerChildLoopAddressAt(uint index) { return _M8FlowerTables[12292u+index]; }
-uint M8FlowerChildCreationAt(uint index) { return _M8FlowerTables[13732u+(index>>2u)][index&3u]; }
-uint4 M8FlowerR1WitnessLoopsAt(uint index) { return _M8FlowerTables[14092u+index]; }
-uint4 M8FlowerR1WitnessDirectionsAt(uint index) { return _M8FlowerTables[14146u+index]; }
-uint4 M8FlowerR1WitnessPeersAt(uint index) { return _M8FlowerTables[14152u+index]; }
-uint4 M8FlowerDecodePetalCarriersAt(uint index) { return _M8FlowerTables[14206u+index]; }
-uint4 M8FlowerDecodeCarrierPetalsAt(uint index) { return _M8FlowerTables[14254u+index]; }
-uint4 M8FlowerObservedRelationsAt(uint index) { return _M8FlowerTables[14382u+index]; }
-uint4 M8FlowerObservedRelationCellsAt(uint index) { return _M8FlowerTables[14854u+index]; }
-uint4 M8FlowerObservedRelationLevelsAt(uint index) { return _M8FlowerTables[15431u+index]; }
-uint M8FlowerObservedRelationReferencesAt(uint index) { return _M8FlowerTables[15434u+(index>>2u)][index&3u]; }
+int4 M8FlowerTetraLineAt(uint index) { return asint(_M8FlowerTables[10185u+index]); }
+int4 M8FlowerTetraEtaAt(uint index) { return asint(_M8FlowerTables[10193u+index]); }
+int M8FlowerTetraChiralityAt(uint index) { return asint(_M8FlowerTables[10201u+(index>>2u)][index&3u]); }
+float3 M8FlowerTetraAxisAt(uint index) { return asfloat(_M8FlowerTables[10203u+index]).xyz; }
+uint2 M8FlowerJunctionRuleAt(uint index) { return _M8FlowerTables[10207u+index].xy; }
+float4 M8FlowerCoordinateFormAt(uint index) { return asfloat(_M8FlowerTables[10219u+index]); }
+uint4 M8FlowerChildLoopAddressAt(uint index) { return _M8FlowerTables[12691u+index]; }
+uint M8FlowerChildCreationAt(uint index) { return _M8FlowerTables[14131u+(index>>2u)][index&3u]; }
+uint4 M8FlowerR1WitnessLoopsAt(uint index) { return _M8FlowerTables[14491u+index]; }
+uint4 M8FlowerR1WitnessDirectionsAt(uint index) { return _M8FlowerTables[14545u+index]; }
+uint4 M8FlowerR1WitnessPeersAt(uint index) { return _M8FlowerTables[14551u+index]; }
+uint4 M8FlowerDecodePetalCarriersAt(uint index) { return _M8FlowerTables[14605u+index]; }
+uint4 M8FlowerDecodeCarrierPetalsAt(uint index) { return _M8FlowerTables[14653u+index]; }
+uint4 M8FlowerObservedRelationsAt(uint index) { return _M8FlowerTables[14781u+index]; }
+uint4 M8FlowerObservedRelationCellsAt(uint index) { return _M8FlowerTables[15253u+index]; }
+uint4 M8FlowerObservedRelationLevelsAt(uint index) { return _M8FlowerTables[15830u+index]; }
+uint M8FlowerObservedRelationReferencesAt(uint index) { return _M8FlowerTables[15833u+(index>>2u)][index&3u]; }
 #define M8_FLOWER_OBSERVED_RELATION_WORDS 6u
 
 uint2 M8FlowerDecodeNodePetals(int node) { return M8FlowerNodeIncidentPetalsAt((uint)node); }
@@ -529,11 +530,11 @@ uint4 M8FlowerReachedCarriers(uint absentOriginalNodes)
     }
     return carriers;
 }
-float M8FlowerLoopLengthUpperAt(uint index) { return asfloat(_M8FlowerTables[16195u+(index>>2u)][index&3u]); }
-float2 M8FlowerObservedRadiusAt(uint index) { return asfloat(_M8FlowerTables[16416u+index]).xy; }
-uint M8FlowerNormalPrefixAt(uint index) { return _M8FlowerTables[16429u+(index>>2u)][index&3u]; }
-float3 M8FlowerNormalCodeAt(uint index) { return asfloat(_M8FlowerTables[16515u+index]).xyz; }
-float M8FlowerOffsetCodeAt(uint index) { return asfloat(_M8FlowerTables[104238u+(index>>2u)][index&3u]); }
+float M8FlowerLoopLengthUpperAt(uint index) { return asfloat(_M8FlowerTables[16594u+(index>>2u)][index&3u]); }
+float2 M8FlowerObservedRadiusAt(uint index) { return asfloat(_M8FlowerTables[16815u+index]).xy; }
+uint M8FlowerNormalPrefixAt(uint index) { return _M8FlowerTables[16828u+(index>>2u)][index&3u]; }
+float3 M8FlowerNormalCodeAt(uint index) { return asfloat(_M8FlowerTables[16914u+index]).xyz; }
+float M8FlowerOffsetCodeAt(uint index) { return asfloat(_M8FlowerTables[104637u+(index>>2u)][index&3u]); }
 
 
 // Selection, not control flow. Every interval operation inlines this pair,
@@ -2196,7 +2197,7 @@ float M8FlowerNestedV(float3 child3, float3 child4, float3 child5,
         amplitude.z*M8FlowerSkinBubble(child5);
 }
 
-uint4 M8FlowerPhaseDependentCarriersAt(uint index) { return _M8FlowerTables[104302u+index]; }
+uint4 M8FlowerPhaseDependentCarriersAt(uint index) { return _M8FlowerTables[104701u+index]; }
 
 // Same canonical creation-address inverse as TryPhaseDependencyIndex.
 // Sign/sector remain in the record key. The dependency proof visits both

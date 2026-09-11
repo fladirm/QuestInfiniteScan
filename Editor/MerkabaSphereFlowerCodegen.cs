@@ -2462,6 +2462,7 @@ float3 M8FlowerDirtGridPosition(int3 cell, uint face, uint halfFace, uint vertex
                 templateBase += countPerWedge;
             }
             var work = new List<uint4>(1548);
+            var childHeaders = new uint4[57 * 7];
             for (int parent = 0; parent < parents.Length; parent++)
             {
                 // Clipped-empty L4 footprints still have their full implicit
@@ -2476,11 +2477,24 @@ float3 M8FlowerDirtGridPosition(int3 cell, uint face, uint halfFace, uint vertex
                 }
                 headers[parent].x = (uint)work.Count;
                 headers[parent].y = (uint)parents[parent].Count;
-                work.AddRange(parents[parent]);
+                // Stable partition of the already proved chamber rows. Each
+                // child keeps exactly its previous evaluation order; runtime
+                // workers never scan their six siblings' footprint records.
+                for (int child = 0; child < 7; child++)
+                {
+                    int first = work.Count;
+                    foreach (var row in parents[parent])
+                        if (((row.x >> 3) & 7u) == child) work.Add(row);
+                    childHeaders[parent * 7 + child] = new uint4(
+                        (uint)first, (uint)(work.Count - first), 0u, 0u);
+                }
+                if (work.Count - headers[parent].x != headers[parent].y)
+                    throw new InvalidOperationException("Skin child spans do not cover their parent.");
             }
             if (work.Count != 36 + 216 + 1296 || chartRows.Count != 258 * 6)
                 throw new InvalidOperationException("The full clipped skin chamber domain was not emitted.");
             tables.AppendVectors(output, "M8FlowerSkinParentWork", "uint4", headers);
+            tables.AppendVectors(output, "M8FlowerSkinChildWork", "uint2", childHeaders);
             tables.AppendVectors(output, "M8FlowerSkinFootprintWork", "uint4", work.ToArray());
             tables.AppendVectors(output, "M8FlowerSkinFootprintChart", "float4", chartRows.ToArray());
         }

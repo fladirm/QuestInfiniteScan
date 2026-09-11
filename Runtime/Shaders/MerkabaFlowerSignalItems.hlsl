@@ -2,14 +2,12 @@
 #define GENESIS_MERKABA_FLOWER_SIGNAL_ITEMS
 
 // Observation-local handoff. These bytes are never FlowerDetail or session data.
-#define M8_FLOWER_SIGNAL_HEADER_BYTES 64u
+#define M8_FLOWER_SIGNAL_HEADER_BYTES 80u
 #define M8_FLOWER_SIGNAL_ITEM_BYTES 224u
 #define M8_FLOWER_SIGNAL_BUFFER_BYTES (32u * 1024u * 1024u)
 #define M8_FLOWER_CHANGE_TILE_BITS M8_FLOWER_SIGNAL_HEADER_BYTES
 #define M8_FLOWER_CHANGE_TILE_QUEUE (M8_FLOWER_CHANGE_TILE_BITS + 4096u)
 #define M8_FLOWER_MEASURED_TILES_BASE (M8_FLOWER_CHANGE_TILE_QUEUE + 32768u * 4u)
-#define M8_FLOWER_R1_CHANGES_BASE M8_FLOWER_MEASURED_TILES_BASE
-#define M8_FLOWER_R1_CHANGE_CAPACITY ((M8_FLOWER_SIGNAL_BUFFER_BYTES-M8_FLOWER_R1_CHANGES_BASE)/32u)
 // Per touched tile: stamped header, then 16 (owner mask, compact base) pairs.
 // Existing physical-slot addressing only; never another world index.
 #define M8_FLOWER_MEASURED_TILE_BYTES 144u
@@ -19,6 +17,10 @@
 #define M8_FLOWER_SIGNAL_CAPACITY ((M8_FLOWER_SIGNAL_BUFFER_BYTES - M8_FLOWER_MEASURED_OWNERS_BASE) / (M8_FLOWER_SIGNAL_ITEM_BYTES + 32u))
 #define M8_FLOWER_SIGNAL_OWNERS_BASE (M8_FLOWER_MEASURED_OWNERS_BASE + 16u * M8_FLOWER_SIGNAL_CAPACITY)
 #define M8_FLOWER_SIGNAL_ITEMS_BASE (M8_FLOWER_SIGNAL_OWNERS_BASE + 16u * M8_FLOWER_SIGNAL_CAPACITY)
+// Measured groups are produced before R1 publication. Prepared R1 therefore
+// aliases only the later signal payload, never these still-live group indices.
+#define M8_FLOWER_R1_CHANGES_BASE M8_FLOWER_SIGNAL_OWNERS_BASE
+#define M8_FLOWER_R1_CHANGE_CAPACITY ((M8_FLOWER_SIGNAL_BUFFER_BYTES-M8_FLOWER_R1_CHANGES_BASE)/32u)
 #define M8_FLOWER_SIGNAL_COUNT 0u
 #define M8_FLOWER_SIGNAL_OVERFLOW 4u
 #define M8_FLOWER_SIGNAL_OWNER_COUNT 8u
@@ -27,8 +29,7 @@
 #define M8_FLOWER_CHANGE_DISPATCH 32u
 #define M8_FLOWER_CHANGE_TILE_DISPATCH 48u
 #define M8_FLOWER_MEASURED_OWNER_COUNT 28u
-// Prepared R1 indirect arguments are dead before measured-owner grouping.
-#define M8_FLOWER_MEASURED_OWNER_DISPATCH M8_FLOWER_CHANGE_DISPATCH
+#define M8_FLOWER_MEASURED_OWNER_DISPATCH 64u
 #define M8_FLOWER_SIGNAL_SOURCE 0u
 #define M8_FLOWER_SIGNAL_SYMBOL 16u
 #define M8_FLOWER_SIGNAL_REACH 32u
@@ -127,8 +128,8 @@ bool M8FlowerReadSignalOwner(uint3 group, out uint4 owner)
     return owner.z!=0u && owner.z<=128u;
 }
 
-// The transient payload has disjoint lifetimes: dense 32-byte prepared R1,
-// then measured-owner record indices and compact 224-byte skin signals.
+// Prepared R1 and 224-byte skin items have disjoint lifetimes. Measured-owner
+// record indices have their own range and survive both phases.
 bool M8FlowerReserveR1Change(out uint address)
 {
     uint ordinal;
