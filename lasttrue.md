@@ -10234,3 +10234,30 @@ CURSOR=RT3 OPEN. Next: GPU actual-carrier decode without the large original-root
   stream/RGB-only/PBR fixture expectations remain to be reconciled in RT4.
 TESTS/APK/INSTALL/DEVICE=not run. This is a compile checkpoint, not parity proof,
   a portable-viewer visual result or completion of the full rewrite.
+
+## RT3 — reached DIRT coverage and lane fan-out (after b568f44)
+
+CHANGE=coverage's independent (cell, face, half) work is partitioned across
+  32 lanes per actual carrier, utilizing the existing 256-lane page WG. The
+  exact triangle/union/paired-edge predicates and OR publication are unchanged.
+  A remaining exposed face reaches only owners inside its integer corner box
+  expanded by the existing +/-2a knot bound. Generated corner lookup supplies
+  the CPU/HLSL bound; X-run bit unions build a 69-word neighbor-owner mask.
+  Central owners are excluded because their coverage already ran. Unrelated
+  halo endpoints are no longer queried merely because some face needs coverage.
+  Frozen CPU export uses the same per-face bound, memoizes only reached owners,
+  and tests cached footprints only against queries in their support domain.
+  COLD and exact union/completion semantics remain, with no CPU hotpath work,
+  new buffer, new dispatch or persistent geometry/work state.
+COMPILE=Unity C#/Editor codegen PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt3-coverage.log.
+  Exact glslang/spirv-val Compact compilation in /tmp/m8-rt3-coverage-vc4r4d_b:
+  1,268,260 B / 67,329 body instructions / 29,740 B groupshared / 256 lanes /
+  7 RW. SPIR-V hash 8765a5c0951642ad6f2d36a236babed0534c85d1b73f16089198f06d6519df40.
+  This is a compile check; the entrypoint STILL FAILS the production size gate.
+CURSOR=RT3 OPEN. Large original-root/site packet and bounded completion decode
+  replacement remain. Geometry.hlsl and Support.hlsl were read completely at
+  this cut; the main Readout packet/handlers/acquisition are understood, not an
+  invitation to repeat the old RT2 audit. RT4 must compare reached-neighbor
+  masks to complete coverage and scalar vs 32-lane OR, including boundary/COLD.
+TESTS/APK/INSTALL/DEVICE=not run. No runtime speedup or full closure claimed.

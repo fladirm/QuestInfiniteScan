@@ -27,6 +27,7 @@
 #define M8_FLOWER_COVERAGE_OWNER_MAX 10
 #define M8_FLOWER_COVERAGE_OWNER_SIDE 13u
 #define M8_FLOWER_COVERAGE_OWNER_COUNT 2197u
+#define M8_FLOWER_COVERAGE_OWNER_WORDS 69u
 // Transient query receipt only: bit31 is required ambiguity, low27 bits are
 // the actual cold contexts needed by that proof. Never persisted world state.
 #define M8_FLOWER_SUPPORT_REQUIRED 0x80000000u
@@ -53,6 +54,7 @@ groupshared int3 m8FlowerSupportOrigin;
 groupshared uint m8FlowerSupportOriginValid;
 groupshared uint m8FlowerSupportCoverageNeeded;
 groupshared uint m8FlowerSupportCoverageUnresolved;
+groupshared uint m8FlowerSupportCoverageOwners[M8_FLOWER_COVERAGE_OWNER_WORDS];
 
 bool M8FlowerSupportLeafResident(uint packed,uint chunk,uint tile,out uint slot)
 {
@@ -970,52 +972,76 @@ bool M8FlowerSupportResolveOuterPeer(uint slot,int3 owner,uint carrier,uint wedg
     return true;
 }
 
-// Called independently by owner lanes for actually admitted/emitted carrier
-// wedges (including a genuinely unique completion). Atomics only accumulate
-// proof bits; scheduling cannot erase another lane's complete-coverage proof.
+// Independent (cell, face, half) predicates share the lanes assigned to this
+// actual carrier. Atomics only accumulate proof bits; no lane can erase a
+// peer's complete-coverage proof or promote a partial union early.
 void M8FlowerSupportAccumulateCarrier(float3 positions[7],uint active,uint3 pairedEdges,
-    int3 carrierFirst,int3 carrierLast)
+    int3 carrierFirst,int3 carrierLast,uint lane,uint laneCount)
 {
-    [loop]for(uint face=0u;face<6u;face++)
+    if(any(carrierLast<carrierFirst))return;
+    uint3 size=(uint3)(carrierLast-carrierFirst+1);
+    uint cells=size.x*size.y*size.z;
+    [loop]for(uint item=lane;item<12u*cells;item+=laneCount)
     {
-        [loop]for(int z=carrierFirst.z;z<=carrierLast.z;z++)
-            [loop]for(int y=carrierFirst.y;y<=carrierLast.y;y++)
-                [loop]for(int x=carrierFirst.x;x<=carrierLast.x;x++)
-                    {
-                        uint local=(uint)(x+8*(y+8*z)),bit=1u<<(local&31u);
-                        uint faceWord=face*16u+(local>>5u);
-                        if((m8FlowerSupportFaces[faceWord]&bit)==0u)continue;
-                        int3 cell=m8FlowerSupportOrigin+int3(x,y,z);
-                        [loop]for(uint halfFace=0u;halfFace<2u;halfFace++)
-                        {
-                            uint proof=M8FlowerSupportCarrierCoverageProof(positions,active,pairedEdges[face>>1u],cell,face,halfFace);
-                            uint word=2u*faceWord+halfFace;
-                            // A local witness only proves the full union
-                            // after ALL contributors' remaining boundaries
-                            // were accumulated. Do not promote it early.
-                            if((proof&M8_FLOWER_COVERAGE_COMPLETE)!=0u)InterlockedOr(m8FlowerSupportOffsets[word],bit);
-                            if((proof&M8_FLOWER_COVERAGE_OVERLAP)!=0u)InterlockedOr(m8FlowerSupportPartialHalves[word],bit);
-                            if((proof&M8_FLOWER_COVERAGE_WITNESS)!=0u)InterlockedOr(m8FlowerSupportWitnessHalves[word],bit);
-                            if((proof&M8_FLOWER_COVERAGE_BOUNDARY)!=0u)InterlockedOr(m8FlowerSupportBoundaryHalves[word],bit);
-                        }
-                    }
+        uint index=item/12u,face=(item%12u)>>1u,halfFace=item&1u;
+        int3 relative=carrierFirst+(int3)uint3(index%size.x,(index/size.x)%size.y,index/(size.x*size.y));
+        uint local=(uint)(relative.x+8*(relative.y+8*relative.z)),bit=1u<<(local&31u);
+        uint faceWord=face*16u+(local>>5u);
+        if((m8FlowerSupportFaces[faceWord]&bit)==0u)continue;
+        uint proof=M8FlowerSupportCarrierCoverageProof(positions,active,pairedEdges[face>>1u],
+            m8FlowerSupportOrigin+relative,face,halfFace);
+        uint word=2u*faceWord+halfFace;
+        if((proof&M8_FLOWER_COVERAGE_COMPLETE)!=0u)InterlockedOr(m8FlowerSupportOffsets[word],bit);
+        if((proof&M8_FLOWER_COVERAGE_OVERLAP)!=0u)InterlockedOr(m8FlowerSupportPartialHalves[word],bit);
+        if((proof&M8_FLOWER_COVERAGE_WITNESS)!=0u)InterlockedOr(m8FlowerSupportWitnessHalves[word],bit);
+        if((proof&M8_FLOWER_COVERAGE_BOUNDARY)!=0u)InterlockedOr(m8FlowerSupportBoundaryHalves[word],bit);
     }
 }
 
-// Prepare coverage-only work for the SAME per-owner evaluator used by the
-// central count/emit passes. A separate nested PageCarrier call graph here
-// would duplicate all ordered interval arithmetic in the compiled shader.
+void M8FlowerSupportReachOwnerRow(int firstX,int lastX,int y,int z)
+{
+    if(firstX>lastX)return;
+    uint count=(uint)(lastX-firstX+1),bits=(1u<<count)-1u;
+    uint index=(uint)(firstX-M8_FLOWER_COVERAGE_OWNER_MIN)+M8_FLOWER_COVERAGE_OWNER_SIDE*
+        ((uint)(y-M8_FLOWER_COVERAGE_OWNER_MIN)+M8_FLOWER_COVERAGE_OWNER_SIDE*(uint)(z-M8_FLOWER_COVERAGE_OWNER_MIN));
+    uint word=index>>5u,shift=index&31u;
+    InterlockedOr(m8FlowerSupportCoverageOwners[word],bits<<shift);
+    if(shift+count>32u)InterlockedOr(m8FlowerSupportCoverageOwners[word+1u],bits>>(32u-shift));
+    InterlockedOr(m8FlowerSupportCoverageNeeded,1u);
+}
+
+// Only an actually uncovered elementary face reaches neighbor owners. Its
+// integer support bound is codegenerated from the same +/-2a knot bound as
+// the CPU frozen reader. X runs are six bits at most, not 180 scalar atomics.
 bool M8FlowerSupportPrepareNeighborCoverage(uint lane,uint laneCount)
 {
     GroupMemoryBarrierWithGroupSync();
     if(lane==0u)m8FlowerSupportCoverageNeeded=0u;
+    [loop]for(uint word=lane;word<M8_FLOWER_COVERAGE_OWNER_WORDS;word+=laneCount)
+        m8FlowerSupportCoverageOwners[word]=0u;
     GroupMemoryBarrierWithGroupSync();
     [loop]for(uint word=lane;word<M8_FLOWER_SUPPORT_FACE_WORDS;word+=laneCount)
     {
-        uint faces=m8FlowerSupportFaces[word];
-        if((faces&~m8FlowerSupportOffsets[2u*word])!=0u ||
-            (faces&~m8FlowerSupportOffsets[2u*word+1u])!=0u)
-            InterlockedOr(m8FlowerSupportCoverageNeeded,1u);
+        uint faces=m8FlowerSupportFaces[word]&
+            ~(m8FlowerSupportOffsets[2u*word]&m8FlowerSupportOffsets[2u*word+1u]);
+        [loop]while(faces!=0u)
+        {
+            uint local=32u*(word&15u)+(uint)firstbitlow(faces);
+            faces&=faces-1u;
+            int3 first,last;
+            M8FlowerDirtCoverageOwnerBounds(int3(local&7u,(local>>3u)&7u,local>>6u),word>>4u,first,last);
+            [loop]for(int z=first.z;z<=last.z;z++)
+                [loop]for(int y=first.y;y<=last.y;y++)
+                {
+                    if(y>=0 && y<8 && z>=0 && z<8)
+                    {
+                        // Central owners were already decoded for this page.
+                        M8FlowerSupportReachOwnerRow(first.x,min(last.x,-1),y,z);
+                        M8FlowerSupportReachOwnerRow(max(first.x,8),last.x,y,z);
+                    }
+                    else M8FlowerSupportReachOwnerRow(first.x,last.x,y,z);
+                }
+        }
     }
     GroupMemoryBarrierWithGroupSync();
     return m8FlowerSupportCoverageNeeded!=0u;
@@ -1026,6 +1052,7 @@ bool M8FlowerSupportResolveCoverageOwner(uint pageSlot,uint index,
 {
     slot=local=0u;
     if(index>=M8_FLOWER_COVERAGE_OWNER_COUNT || m8FlowerSupportCoverageNeeded==0u)return false;
+    if((m8FlowerSupportCoverageOwners[index>>5u]&(1u<<(index&31u)))==0u)return false;
     int3 relative=int3(index%M8_FLOWER_COVERAGE_OWNER_SIDE,
         (index/M8_FLOWER_COVERAGE_OWNER_SIDE)%M8_FLOWER_COVERAGE_OWNER_SIDE,
         index/(M8_FLOWER_COVERAGE_OWNER_SIDE*M8_FLOWER_COVERAGE_OWNER_SIDE))+M8_FLOWER_COVERAGE_OWNER_MIN;

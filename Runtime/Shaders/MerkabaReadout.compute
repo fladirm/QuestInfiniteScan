@@ -1201,9 +1201,9 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
             GroupMemoryBarrierWithGroupSync();
         }
 
-        if(stage==M8_FLOWER_PACKET_COVERAGE_STAGE && lane<8u)
+        if(stage==M8_FLOWER_PACKET_COVERAGE_STAGE)
         {
-            uint footprint=M8_FLOWER_PACKET_FOOTPRINTS+85u*lane;
+            uint footprint=M8_FLOWER_PACKET_FOOTPRINTS+85u*(lane>>5u);
             uint mask=m8FlowerSupportScratch[footprint+75u];
             if(mask!=0u)
             {
@@ -1213,7 +1213,7 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
                 M8FlowerSupportAccumulateCarrier(positions,mask,
                     M8FlowerPacketLoad3(footprint+82u),
                     asint(M8FlowerPacketLoad3(footprint+76u)),
-                    asint(M8FlowerPacketLoad3(footprint+79u)));
+                    asint(M8FlowerPacketLoad3(footprint+79u)),lane&31u,32u);
             }
         }
         GroupMemoryBarrierWithGroupSync();

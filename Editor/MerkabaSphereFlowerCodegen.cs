@@ -2253,6 +2253,12 @@ uint M8FlowerClassifyDirtFace(uint source, uint neighbor)
 
 int3 M8FlowerDirtFaceDirection(uint face) { return M8FlowerDirtDirectionAt(face); }
 
+void M8FlowerDirtCoverageOwnerBounds(int3 relativeCell, uint face, out int3 first, out int3 last)
+{
+    first = relativeCell + M8FlowerDirtCornerAt(4u * face) - 2;
+    last = relativeCell + M8FlowerDirtCornerAt(4u * face + 2u) + 2;
+}
+
 int3 M8FlowerDirtVertex(int3 cell, uint face, uint halfFace, uint vertex)
 {
     uint corner = vertex == 0u ? 0u : vertex + halfFace;

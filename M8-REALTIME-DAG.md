@@ -208,10 +208,23 @@ must verify union-only V, nested gradients, mirrored/wound UV frames, padding,
 paired PNG/resume and native-package accessor offsets; reconcile old NORMAL
 stream/RGB-only tests and the legacy PBR-only GLB validation fixture.
 
+COVERAGE=the existing exact (carrier, cell, face, half) predicate now occupies
+all 256 lanes: 32 lanes per actual carrier, not eight serial cell/face loops.
+Only still-uncovered DIRT faces reach neighbor owners via the generated face
+corner bounds and the existing +/-2a knot support. A 69-word transient mask
+replaces unconditional neighbor endpoint/geometry queries over all 13^3 slots.
+The CPU frozen reader uses identical per-face bounds and a visited bitmask;
+it caches only reached neighbor footprints and excludes unrelated cached ones.
+No coverage predicate, completion rule, counter, buffer or dispatch was added.
+Unity C#/codegen and the exact Compact target compilation passed. Compact is
+still 1,268,260 B / 67,329 body instructions, over the production size gate;
+29,740 B shared, 256 lanes, 7 RW. No speedup/parity/device acceptance claim.
+
 NEXT=RT3 shared actual-carrier decode in GPU readout and frozen offline export;
-completion from actual incident boundaries. The GPU's large root/site packet
-and CPU neighbor coverage traversal are still open; this atlas checkpoint
-does not close RT3 or move CPU decode into the live hotpath.
+completion from actual incident boundaries. The GPU's large original-root/site
+packet remains open. The coverage and atlas checkpoints do not close RT3 or
+move CPU decode into the live hotpath. RT4 must prove the reached-face owner
+mask omits no coverage contributor and 32-lane accumulation matches scalar OR.
 Do not add a spinning global lock, drop BUSY work as capacity, or retain a
 snapshot/cursor. Complete-through hysteresis already matches retained REV-C
 14.1; do not silently replace that explicit evidence rule during this execution

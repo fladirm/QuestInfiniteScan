@@ -56,10 +56,11 @@ namespace Genesis.RoomScan
         {
             internal readonly uint Active;
             internal readonly uint3 Paired;
+            internal readonly int3 RelativeOwner;
             private readonly float3 _h, _r0, _r1, _r2, _r3, _r4, _r5;
-            internal CoverageFootprint(uint active, uint3 paired, ReadOnlySpan<float3> positions)
+            internal CoverageFootprint(int3 relativeOwner, uint active, uint3 paired, ReadOnlySpan<float3> positions)
             {
-                Active = active; Paired = paired;
+                RelativeOwner = relativeOwner; Active = active; Paired = paired;
                 _h = positions[0]; _r0 = positions[1]; _r1 = positions[2]; _r2 = positions[3];
                 _r3 = positions[4]; _r4 = positions[5]; _r5 = positions[6];
             }
@@ -77,7 +78,8 @@ namespace Genesis.RoomScan
         private ulong _requiredSupportVersion;
         private CancellationToken _cancellationToken;
         private readonly List<CoverageFootprint> _neighborCoverage = new();
-        private bool _neighborCoverageReady, _neighborCoverageUnresolved;
+        private readonly uint[] _coverageOwnersVisited = new uint[(13 * 13 * 13 + 31) / 32];
+        private bool _neighborCoverageUnresolved;
 
         internal readonly List<KnotAddress> Knots = new();
         internal readonly List<float3> Positions = new();
@@ -228,27 +230,27 @@ namespace Genesis.RoomScan
             return paired;
         }
 
-        private void ReadNeighborCoverage()
+        private void ReadNeighborCoverage(int3 first, int3 last)
         {
             _cancellationToken.ThrowIfCancellationRequested();
-            if (_neighborCoverageReady) return;
             if (_coverageReader == null)
-            { _neighborCoverageUnresolved = true; _neighborCoverageReady = true; return; }
-            _neighborCoverage.Clear();
-            _neighborCoverageUnresolved = false;
+            { _neighborCoverageUnresolved = true; return; }
             int3 origin = MerkabaSpatial.Decode(Tile.BlockCoord, Tile.LocalAddress, 0);
             Span<MerkabaSphereFlowerAuthority.PhaseRootEvidence> roots =
                 stackalloc MerkabaSphereFlowerAuthority.PhaseRootEvidence[7];
             Span<float3> positions = stackalloc float3[7];
-            // Knot centre +/-a/2 plus maximum loop radius3a/2 bounds every
-            // actual footprint by owner +/-2a. This is only source exclusion;
-            // the shared exact metric/edge predicates still prove coverage.
-            for (int z = CoverageOwnerMin; z <= CoverageOwnerMax; z++)
-                for (int y = CoverageOwnerMin; y <= CoverageOwnerMax; y++)
-                    for (int x = CoverageOwnerMin; x <= CoverageOwnerMax; x++)
+            // The requested exposed face reaches this box, never the whole
+            // 13^3 halo. Repeated queries reuse decoded actual footprints.
+            for (int z = first.z; z <= last.z; z++)
+                for (int y = first.y; y <= last.y; y++)
+                    for (int x = first.x; x <= last.x; x++)
                     {
                         _cancellationToken.ThrowIfCancellationRequested();
                         if (x >= 0 && x <= 7 && y >= 0 && y <= 7 && z >= 0 && z <= 7) continue;
+                        int index = x + 2 + 13 * (y + 2 + 13 * (z + 2));
+                        uint bit = 1u << (index & 31);
+                        if ((_coverageOwnersVisited[index >> 5] & bit) != 0u) continue;
+                        _coverageOwnersVisited[index >> 5] |= bit;
                         long ox = (long)origin.x + x, oy = (long)origin.y + y, oz = (long)origin.z + z;
                         if (ox < int.MinValue || ox > int.MaxValue || oy < int.MinValue || oy > int.MaxValue ||
                             oz < int.MinValue || oz > int.MaxValue)
@@ -268,19 +270,24 @@ namespace Genesis.RoomScan
                             if (status != MerkabaSphereFlowerAuthority.ProofClassification.Certain) continue;
                             uint3 paired = PairedCoverageEdges(_coverageReader, origin, owner, carrier,
                                 symbol.ActiveWedgeMask, roots, positions, _coverageErrors);
-                            _neighborCoverage.Add(new CoverageFootprint(symbol.ActiveWedgeMask, paired, positions));
+                            _neighborCoverage.Add(new CoverageFootprint(new int3(x, y, z),
+                                symbol.ActiveWedgeMask, paired, positions));
                         }
                     }
-            _neighborCoverageReady = true;
         }
 
         internal MerkabaDirtFaceCoverage DirtCoverage(int3 cell, int face)
         {
             RequireResolvedSupport();
             uint2 proof = default;
+            int3 origin = MerkabaSpatial.Decode(Tile.BlockCoord, Tile.LocalAddress, 0);
+            int3 relative = new(checked(cell.x - origin.x), checked(cell.y - origin.y), checked(cell.z - origin.z));
+            MerkabaSphereFlowerAuthority.DirtCoverageOwnerBounds(relative, face, out int3 first, out int3 last);
             Span<float3> positions = stackalloc float3[7];
             foreach (Carrier carrier in Carriers)
             {
+                int3 relativeOwner = carrier.Owner - origin;
+                if (math.any(relativeOwner < first) || math.any(relativeOwner > last)) continue;
                 positions.Clear();
                 uint used = 1u;
                 for (int wedge = 0; wedge < 6; wedge++)
@@ -301,9 +308,10 @@ namespace Genesis.RoomScan
             if ((proof.x & MerkabaSphereFlowerAuthority.SupportCoverageComplete) == 0u ||
                 (proof.y & MerkabaSphereFlowerAuthority.SupportCoverageComplete) == 0u)
             {
-                ReadNeighborCoverage();
+                ReadNeighborCoverage(first, last);
                 foreach (CoverageFootprint footprint in _neighborCoverage)
                 {
+                    if (math.any(footprint.RelativeOwner < first) || math.any(footprint.RelativeOwner > last)) continue;
                     footprint.CopyTo(positions);
                     for (int half = 0; half < 2; half++)
                         if ((proof[half] & MerkabaSphereFlowerAuthority.SupportCoverageComplete) == 0u)

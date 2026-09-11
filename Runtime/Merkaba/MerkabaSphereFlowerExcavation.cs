@@ -77,6 +77,18 @@ namespace Genesis.RoomScan
             return offset;
         }
 
+        // Source exclusion only. Every Flower knot lies within owner +/-2a;
+        // a face can therefore receive coverage only from this integer box.
+        // The exact carrier/half-face predicate still decides coverage.
+        internal static void DirtCoverageOwnerBounds(int3 relativeCell, int face,
+            out int3 first, out int3 last)
+        {
+            if (math.any(relativeCell < 0) || math.any(relativeCell > 7) || (uint)face >= 6u)
+                throw new ArgumentOutOfRangeException(nameof(relativeCell));
+            first = relativeCell + DirtFaceCorner(face, 0) - 2;
+            last = relativeCell + DirtFaceCorner(face, 2) + 2;
+        }
+
         public static int3 DirtFaceVertex(int3 cell, int face, int half, int vertex)
         {
             if ((uint)half >= 2u || (uint)vertex >= 3u)
