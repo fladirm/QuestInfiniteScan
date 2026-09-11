@@ -10172,3 +10172,37 @@ NEXT=RT2 malformed-peer publication; then RT3 presentation/export rewrite.
   RT4 must prove concurrent allocation/creation/free/coalesce and stale hints.
 TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set not rebuilt.
   Compile is not a concurrency proof, runtime measurement or full RT2 closure.
+
+## RT2 — preflight before source/peer mutation (after fbdf6a8)
+
+CHANGE=FlowerCommit and ERASE validate the source and actual peer fine spans,
+  sorted keys and current phase intervals without changing epochs or rows.
+  Missing fine owner and malformed directory are distinct. Invalid local
+  writes increment failedWrites instead of masquerading as capacity/global
+  admission failure. Only fully preflighted changes enter the prepared list.
+  InvalidateFlowerSources cuts owner epochs/runs; the existing unique peer
+  pass cuts receivers; PublishFlowerR1 writes M8 after both GPU barriers.
+  Source pass is GPU-indirect over the same snapshot-local prepared records.
+  No CPU geometry, completion readback, new buffer, future cursor or retry.
+WHY=folding fine writes into the M8 publisher compiled with 9 writable bindings;
+  Quest limit is 8. That version was replaced, not accepted. A separate source
+  boundary also prevents peer preflight racing source epoch/count writes.
+ABI=27, 32 pipelines, 44 resources; native and Unity consumers connected.
+  Observation has 41 recorded commands, readout 7, ERASE 6. Timing capacity
+  matches the complete generated graph, including zero-work indirect commands.
+COMPILE=exact target glslang/spirv-val PASS in
+  /tmp/m8-rt2-peer-boundary-eps8j_uh:
+  FlowerCommit 835372 B / 44443 body / 24700 B shared / 8 RW;
+  Sources 68200 / 3580 / 0 / 6; Peers 55844 / 2746 / 120 / 5;
+  Publisher 12052 / 342 / 0 / 7; ERASE 74792 / 3732 / 124 / 8;
+  Resolver 938184 / 48491 / 15464 / 6. All use 128 lanes.
+  Unity C#/Editor codegen PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-peer-publication.log.
+CURSOR=RT2 implementation checkpoint; integrated acceptance belongs to RT4.
+  NEXT=RT3 GPU readout and offline frozen-export actual-carrier decode,
+  bounded incident completion, removal of exhaustive packets and RGB/V atlas.
+  Do not redo RT2 or resume historical numbered RUNs. CPU oracle/codegen stays
+  offline; it never produces live pages or scan evidence.
+TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set awaits RT4.
+  RT4 must prove malformed-peer rejection leaves source epoch/M8 unchanged,
+  concurrent adjacent sources, full THROUGH, ERASE and allocator concurrency.

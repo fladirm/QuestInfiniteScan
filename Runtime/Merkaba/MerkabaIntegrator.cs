@@ -25,6 +25,7 @@ namespace Genesis.RoomScan
         private int _observationRequestedFrame = -1;
         private bool _observationRequestedIsFine;
         private int _flowerCommitKernel;
+        private int _invalidateSourcesKernel;
         private int _invalidatePeersKernel;
         private int _publishR1Kernel;
         private int _prepareFlowerOwnersKernel;
@@ -279,6 +280,8 @@ namespace Genesis.RoomScan
                 _grid.M8ObservationRecords);
             _flowerCommitKernel = compute.FindProfiledKernel(
                 "FlowerCommit", MerkabaGpuStage.SurfaceIntegration);
+            _invalidateSourcesKernel = compute.FindProfiledKernel(
+                "InvalidateFlowerSources", MerkabaGpuStage.SurfaceIntegration);
             _invalidatePeersKernel = compute.FindProfiledKernel(
                 "InvalidateFlowerPeers", MerkabaGpuStage.SurfaceIntegration);
             _publishR1Kernel = compute.FindProfiledKernel(
@@ -312,7 +315,7 @@ namespace Genesis.RoomScan
                 "FinalizeFineErase", MerkabaGpuStage.SurfaceIntegration);
             foreach (int kernel in new[]
                      {
-                         _flowerCommitKernel, _invalidatePeersKernel, _publishR1Kernel, _prepareFlowerOwnersKernel,
+                         _flowerCommitKernel, _invalidateSourcesKernel, _invalidatePeersKernel, _publishR1Kernel, _prepareFlowerOwnersKernel,
                          _geometryRootKernel, _geometryL1Kernel, _geometryL2Kernel,
                          _resolveCarriersKernel,
                          _drainSkinRgbKernel, _drainSkinVKernel,
@@ -332,6 +335,10 @@ namespace Genesis.RoomScan
                 "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_finalizeFineEraseKernel,
                 "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_invalidateSourcesKernel,
+                "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_invalidateSourcesKernel,
+                "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_invalidatePeersKernel,
                 "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_publishR1Kernel,
@@ -552,6 +559,8 @@ namespace Genesis.RoomScan
                 DispatchFineEraseQuery(command, _fineEraseDescriptor);
                 command.DispatchComputeProfiled(compute,
                     _eraseFineTilesKernel, _grid.M8ObservationDispatchArgs);
+                command.DispatchComputeProfiled(compute, _invalidateSourcesKernel,
+                    _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.ChangeDispatchOffset);
                 command.DispatchComputeProfiled(compute, _invalidatePeersKernel,
                     _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.ChangeTileDispatchOffset);
                 command.DispatchComputeProfiled(compute, _publishR1Kernel,
@@ -763,6 +772,9 @@ namespace Genesis.RoomScan
                 DispatchObservationDual(command);
                 _bins.RecordTouchedPublication(command);
                 _bins.RecordCommit(command, compute, _flowerCommitKernel);
+                _bins.RecordBindConsumer(command, compute, _invalidateSourcesKernel);
+                command.DispatchComputeProfiled(compute, _invalidateSourcesKernel,
+                    _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.ChangeDispatchOffset);
                 _bins.RecordBindConsumer(command, compute, _invalidatePeersKernel);
                 command.DispatchComputeProfiled(compute, _invalidatePeersKernel,
                     _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.ChangeTileDispatchOffset);
@@ -1136,6 +1148,8 @@ namespace Genesis.RoomScan
             BindDepth(_flowerCommitKernel);
             BindCamera(_flowerCommitKernel);
             compute.SetBuffer(_flowerCommitKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_invalidateSourcesKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
+            compute.SetBuffer(_invalidateSourcesKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_invalidatePeersKernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_publishR1Kernel, "_M8FlowerSignalItemsRead", _grid.M8FlowerSignalItems);
             compute.SetBuffer(_prepareFlowerOwnersKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);

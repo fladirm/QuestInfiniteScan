@@ -3,7 +3,7 @@
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
 GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
-CURRENT=RT2
+CURRENT=RT3
 STATE=implementation
 HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
   not a runtime fallback. Frozen offline export remains outside that hotpath.
@@ -35,7 +35,7 @@ available; compile coherent; commit with receipt. No new surface authority.
 
 ## RT2 — snapshot-local scanner and skin
 
-Depends: RT1. Status: OPEN.
+Depends: RT1. Status: IMPLEMENTED; compile checkpoint, integrated acceptance in RT4.
 
 Files: MerkabaFlowerRefinement/DrainBody/Commit/Sidecar/SkinSignalBody,
 MerkabaIntegration.compute, ObservationBins, Integrator, native executor
@@ -110,7 +110,7 @@ grouping pass; owner WGs load it without repeating spatial hash discovery.
 Two endpoint ranges use the unchanged metric/root/intersection predicates.
 Peer ranges must belong to the current stamped bin, including after NEW/OPEN.
 
-ABI=26, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
+ABI=27, 32 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
 snapshot buffer reuses dense 32-byte R1 changes (capacity 1,044,350) before
 grouping, then holds record indices, stamped tile/owner ranges and skin items.
 Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
@@ -135,8 +135,8 @@ retains the wedge's possible support masks rather than suppressing RGB or
 manufacturing certainty. Actual seven-child complete-support predicates are
 unchanged. This is a snapshot work mask, not persistent subdivision/cursor.
 
-ERASE=uses the shared R1 preparation/epoch cut, unique peer
-invalidation and M8 publisher in one GPU job. The finalizer only dirties affected
+ERASE=uses shared read-only R1 preparation, source epoch cut, unique peer
+invalidation and M8 publication in one GPU job. The finalizer only dirties affected
 pages and retires the transient header. COLD peers enqueue existing SSD loads;
 unrelated resident brush targets proceed. No M8-first deletion, pending epoch
 finalizer, held ERASE retry or residency-epoch wait remains. Its token comes from
@@ -159,8 +159,8 @@ published before dual reuses their backing. No new shader, buffer or CPU work
 decision. Dual no longer vetoes the entire observation on one unresolved direct
 neighbour; complete-support/COLD decisions remain local.
 Native dispatch modes belong to schedule commands, not only pipeline names.
-The observation graph records 40 commands: 18 allocation/reset indirect,
-3 recount indirect and 19 other commands. Zero-work commands remain visible
+The observation graph records 41 commands: 18 allocation/reset indirect,
+3 recount indirect and 20 other commands. Zero-work commands remain visible
 in accounting; no <=10-dispatch or speedup acceptance is claimed. C# timing
 capacity is codegen-checked against this complete schedule.
 
@@ -182,12 +182,25 @@ page publication all use this allocator. Optical program references use atomic
 refcounts. BUSY now denotes unretired readers, not allocator contention. No
 new buffer, dispatch, CPU geometry, persistent workset or spin lock was added.
 
-NEXT=RT2 malformed-peer publication.
+R1 PUBLICATION=source and actual receiver fine directories, allocated span
+counts, sorted phase/run keys and live phase intervals are validated without
+mutating fine data in FlowerCommit/ERASE. An absent owner is distinct from a
+malformed directory. Local malformed input reports failedWrites, not capacity
+or a global scan veto. The next GPU boundary cuts source epochs/runs, then
+unique receivers cut dependent rows, then PublishFlowerR1 writes M8. The source
+pass is indirect over the existing prepared records, not a world sweep or
+cross-snapshot continuation. This additional real boundary is necessary for
+read-only preflight and <=8 writable bindings: combining fine and banked M8
+publication measured 9 RW and was removed. Native and Unity command consumers
+are both connected. Observation records 41 commands; ERASE records 6.
+
+NEXT=RT3 shared actual-carrier decode in GPU readout and frozen offline export;
+completion from actual incident boundaries, and RGB/V atlas preservation.
 Do not add a spinning global lock, drop BUSY work as capacity, or retain a
 snapshot/cursor. Complete-through hysteresis already matches retained REV-C
 14.1; do not silently replace that explicit evidence rule during this execution
 rewrite. Do not redo grouping, roots, footprint reach, ERASE, fence retirement,
-conditional allocation or existing-value updates. RT3 follows RT2 closure.
+conditional allocation, existing-value updates, atomic arenas or R1 preflight.
 RT4 must cover exact reach, partial/COLD ERASE, epochs/peer invalidation, native
 schedule membership and no completion-readback-dependent scan decisions.
 
@@ -215,7 +228,7 @@ Targeted exact native glslang/spirv-val PASS in
 Reset 7560 B / 242 / 12 / 5; Reserve 7816 B / 277 / 2060 / 4;
 Emit 25012 B / 1122 / 0 / 4; certificate Reduce 8180 B / 300 / 8196 / 6;
 dual 609132 B / 30721 / 112 / 8, still 64 lanes.
-Native plugin/full embedded set is not rebuilt; ABI26 is compiled into the
+Native plugin/full embedded set is not rebuilt; ABI27 is compiled into the
 final plugin/APK only in RT4. No APK, suite, device test or speedup claim.
 
 ARENA COMPILE=exact native glslang/spirv-val compiled all nine affected entries
@@ -229,8 +242,18 @@ ownership, stale hints, capacity and concurrent first-owner publication.
 Unity C#/Editor codegen PASS:
 /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-atomic-arena.log.
 
+R1 COMPILE=exact target glslang/spirv-val PASS in
+/tmp/m8-rt2-peer-boundary-eps8j_uh: FlowerCommit 835372 B / 44443 body /
+24700 B shared / 8 RW; InvalidateFlowerSources 68200 / 3580 / 0 / 6;
+InvalidateFlowerPeers 55844 / 2746 / 120 / 5; PublishFlowerR1 12052 / 342 / 0 / 7;
+ERASE 74792 / 3732 / 124 / 8; resolver 938184 / 48491 / 15464 / 6.
+All six use 128 lanes. RT4 must cover malformed receiver rejection before any
+epoch/M8 cut, concurrent adjacent sources, full THROUGH and explicit ERASE.
+Unity C#/Editor codegen PASS:
+/mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-peer-publication.log.
+
 RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export
 paths still need replacement; export V atlas remains. RT4 full tests, shader
 and command graph gates, Unity Quest APK, install and device acceptance have
 NOT run. Baseline tests/APK are not rewrite acceptance. Do not start RT4 or
-claim completed rewrite until RT2 and RT3 are fully connected.
+claim completed rewrite until RT3 is fully connected.

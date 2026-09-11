@@ -232,7 +232,7 @@ void M8FlowerRequestErasePeer(uint halo)
     M8QueueColdTileLoad(chunk*64u+address.tileLocal,chunk,address.tileLocal);
 }
 
-bool M8FlowerR1PeersWritable(uint local,bool erase)
+uint M8FlowerR1PeersStatus(uint local,bool erase)
 {
     int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
     [loop]for(uint node=6u;node<26u;node++)
@@ -246,14 +246,30 @@ bool M8FlowerR1PeersWritable(uint local,bool erase)
         {
             if(erase)M8FlowerRequestErasePeer(halo);
             else M8FlowerRequestSkinDependencies(1u<<halo);
-            return false;
+            return M8_FLOWER_ARENA_BUSY;
         }
         uint peerSlot,peerLocal;
-        if(state!=M8_FLOWER_HALO_HOT || !M8FlowerHaloKernel(relative,peerSlot,peerLocal,true))return false;
-        uint peer=M8FlowerFindOwner(peerSlot,peerLocal,_M8TileRecords[M8TileRuntimeIndex(peerSlot)].w);
-        if(peer!=0u && !M8FlowerOwnerWritable(peer,_M8DualPublishingGeneration,_M8DualRetiredGeneration))return false;
+        if(state!=M8_FLOWER_HALO_HOT || !M8FlowerHaloKernel(relative,peerSlot,peerLocal,true))
+            return M8_FLOWER_ARENA_INVALID;
+        uint peer,first,count,captured;
+        if(!M8FlowerTryFindOwner(peerSlot,peerLocal,_M8TileRecords[M8TileRuntimeIndex(peerSlot)].w,peer))
+            return M8_FLOWER_ARENA_INVALID;
+        uint status=M8FlowerValidatePhaseCut(peer,_M8DualPublishingGeneration,
+            _M8DualRetiredGeneration,first,count,captured);
+        if(status!=M8_FLOWER_ARENA_OK)return status;
     }
-    return true;
+    return M8_FLOWER_ARENA_OK;
+}
+
+bool M8FlowerR1CutAccepted(uint status)
+{
+    if(status==M8_FLOWER_ARENA_OK)return true;
+    if(status==M8_FLOWER_ARENA_BUSY || status==M8_FLOWER_SIDECAR_STALE_SLOT)
+        M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
+    else if(status==M8_FLOWER_ARENA_CAPACITY)
+        M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
+    else M8CounterIncrement(M8_COUNTER_FAILED_WRITES);
+    return false;
 }
 
 // One publication point for "this tile's direct evidence moved in this
@@ -269,23 +285,17 @@ bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
     bool structural,bool through,bool erase)
 {
     uint generation=_M8TileRecords[M8TileRuntimeIndex(slot)].w;
-    uint ownerRef=M8FlowerFindOwner(slot,local,generation);
-    if((structural||through) && !M8FlowerR1PeersWritable(local,erase))
-    {M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);return false;}
+    if(structural||through)
+    {
+        uint ownerRef,first,count,captured;
+        if(!M8FlowerTryFindOwner(slot,local,generation,ownerRef))
+            return M8FlowerR1CutAccepted(M8_FLOWER_ARENA_INVALID);
+        if(!M8FlowerR1CutAccepted(M8FlowerValidatePhaseCut(ownerRef,
+            _M8DualPublishingGeneration,_M8DualRetiredGeneration,first,count,captured)))return false;
+        if(!M8FlowerR1CutAccepted(M8FlowerR1PeersStatus(local,erase)))return false;
+    }
     uint address;
     if(!M8FlowerReserveR1Change(address))
-    {M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);return false;}
-    uint status=M8_FLOWER_ARENA_OK;
-    if(structural)
-        status=M8FlowerInvalidateOwner(slot,local,generation,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-    else if(through)
-    {
-        bool changed;
-        status=M8FlowerInvalidateDependentPhases(ownerRef,M8_FLOWER_INVALIDATION_ROOTS,true,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration,changed);
-    }
-    if(status!=M8_FLOWER_ARENA_OK)
     {M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);return false;}
     if(structural||through)
     {
@@ -299,12 +309,15 @@ bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
                 M8FlowerQueueChangedTile(peerSlot);
         }
     }
-    // Epoch/run invalidation, peer cut and this prepared M8 value are one
-    // serialized snapshot transaction. M8 publication follows the peer barrier;
-    // no persistent ACK, candidate cursor or future snapshot is involved.
+    // Preflight is read-only: a different WG can inspect this owner's fine
+    // rows without racing an epoch/count change. Source/peer invalidation
+    // and M8 publication follow global GPU barriers inside this snapshot;
+    // nothing is deferred to another frame.
     _M8FlowerSignalItems.Store4(address+16u,value);
     DeviceMemoryBarrier();
-    _M8FlowerSignalItems.Store4(address,uint4((slot<<9u)|local,generation,before.flags,1u));
+    uint flags=M8_FLOWER_R1_PREPARED | (structural?M8_FLOWER_R1_STRUCTURAL:0u) |
+        (through?M8_FLOWER_R1_THROUGH:0u);
+    _M8FlowerSignalItems.Store4(address,uint4((slot<<9u)|local,generation,before.flags,flags));
     M8MarkTileDirty(slot);
     InterlockedOr(m8FlowerR1Changed,1u);
     return true;

@@ -1,6 +1,49 @@
 #ifndef GENESIS_MERKABA_FLOWER_CHANGES
 #define GENESIS_MERKABA_FLOWER_CHANGES
 
+bool M8FlowerReadPreparedR1(uint index,out uint address,out uint4 source,out KernelState before)
+{
+    address=0u;source=0u.xxxx;before=(KernelState)0;
+    if(index>=min(_M8FlowerSignalItemsRead.Load(M8_FLOWER_SIGNAL_COUNT),M8_FLOWER_R1_CHANGE_CAPACITY))return false;
+    address=M8FlowerR1ChangeAddress(index);
+    source=_M8FlowerSignalItemsRead.Load4(address);
+    if((source.w&M8_FLOWER_R1_PREPARED)==0u)return false;
+    uint slot=source.x>>9u,local=source.x&511u;
+    if(slot>=32768u)return M8FlowerR1CutAccepted(M8_FLOWER_ARENA_INVALID);
+    uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)];
+    before=M8LoadKernelStateRead(slot,local);
+    if(runtime.w!=source.y || runtime.x!=_M8ObservationToken || before.flags!=source.z)
+        return M8FlowerR1CutAccepted(M8_FLOWER_ARENA_INVALID);
+    return true;
+}
+
+// The global preflight barrier has retired every source/peer read. This
+// pass writes fine state only; the M8 publisher needs four separate banks.
+// Combining their writes would require nine writable bindings on Quest.
+[numthreads(128,1,1)]
+void InvalidateFlowerSources(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+{
+    uint address;uint4 source;KernelState before;
+    if(!M8FlowerReadPreparedR1(128u*group.x+lane,address,source,before))return;
+    uint slot=source.x>>9u,local=source.x&511u,status=M8_FLOWER_ARENA_OK;
+    if((source.w&M8_FLOWER_R1_STRUCTURAL)!=0u)
+        status=M8FlowerInvalidateOwner(slot,local,source.y,
+            _M8DualPublishingGeneration,_M8DualRetiredGeneration);
+    else if((source.w&M8_FLOWER_R1_THROUGH)!=0u)
+    {
+        uint ownerRef;
+        bool changed;
+        if(!M8FlowerTryFindOwner(slot,local,source.y,ownerRef))status=M8_FLOWER_ARENA_INVALID;
+        else status=M8FlowerInvalidateDependentPhases(ownerRef,M8_FLOWER_INVALIDATION_ROOTS,true,
+            _M8DualPublishingGeneration,_M8DualRetiredGeneration,changed);
+    }
+    if(!M8FlowerR1CutAccepted(status))
+    {
+        _M8FlowerSignalItems.Store(address+12u,0u);
+        InterlockedAnd(_M8TileBits[M8TileWordIndex(slot,local>>5u)].w,~(1u<<(local&31u)));
+    }
+}
+
 // Pull the changed sources into each receiver once. The bitmap/queue belongs
 // to this snapshot, not to FlowerDetail. Missing/COLD sources cannot have a
 // prepared change; the source preflight already required every actual receiver.
@@ -45,23 +88,14 @@ void InvalidateFlowerPeers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     }
 }
 
-// Epochs and peer cuts have retired. This entrypoint only publishes the
-// already prepared M8 values; it performs no geometry or fine allocation.
+// Source epochs and peer cuts have retired. Publish only the prepared M8
+// values; no fine allocation or geometry is recomputed at this boundary.
 [numthreads(128,1,1)]
 void PublishFlowerR1(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
-    uint index=128u*group.x+lane;
-    if(index>=min(_M8FlowerSignalItemsRead.Load(M8_FLOWER_SIGNAL_COUNT),M8_FLOWER_R1_CHANGE_CAPACITY))return;
-    uint address=M8FlowerR1ChangeAddress(index);
-    uint4 source=_M8FlowerSignalItemsRead.Load4(address);
-    if(source.w==0u)return;
+    uint address;uint4 source;KernelState before;
+    if(!M8FlowerReadPreparedR1(128u*group.x+lane,address,source,before))return;
     uint slot=source.x>>9u,local=source.x&511u;
-    uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)];
-    if(runtime.w!=source.y || runtime.x!=_M8ObservationToken)
-    {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);return;}
-    KernelState before=M8LoadKernelState(slot,local);
-    if(before.flags!=source.z)
-    {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);return;}
     uint4 value=_M8FlowerSignalItemsRead.Load4(address+16u);
     KernelState after=before;
     UpdateOccupancy(slot,local,after,asint(value.x)-before.evidence);

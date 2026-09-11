@@ -14,13 +14,13 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 26: atomic buddy bitplanes replace the resident allocator lease.
-        internal const int AbiVersion = 26;
+        // ABI 27: source epoch cuts follow global read-only R1 preflight.
+        internal const int AbiVersion = 27;
         internal const int ResourceCount = 44;
-        internal const int PipelineCount = 31;
+        internal const int PipelineCount = 32;
         // Native codegen verifies this against the longest complete schedule,
         // including indirect commands whose GPU work count may be zero.
-        internal const int MaximumDispatchTimingCount = 40;
+        internal const int MaximumDispatchTimingCount = 41;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -133,6 +133,7 @@ namespace Genesis.RoomScan
             "EmitObservationBins",
             "UpdateObservationDual",
             "FlowerCommit",
+            "InvalidateFlowerSources",
             "InvalidateFlowerPeers",
             "PublishFlowerR1",
             "PrepareFlowerOwners",

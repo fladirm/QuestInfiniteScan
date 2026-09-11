@@ -64,6 +64,8 @@ PIPELINES = (
              "UpdateObservationDual", "query"),
     Pipeline("FlowerCommit", "MerkabaIntegration.compute",
              "FlowerCommit", "observation_indirect"),
+    Pipeline("InvalidateFlowerSources", "MerkabaIntegration.compute",
+             "InvalidateFlowerSources", "flower_r1_changes"),
     Pipeline("InvalidateFlowerPeers", "MerkabaIntegration.compute",
              "InvalidateFlowerPeers", "changed_flower_tiles"),
     Pipeline("PublishFlowerR1", "MerkabaIntegration.compute",
@@ -144,10 +146,10 @@ def command_schedules():
         "ReserveObservationBins", "EmitObservationBins",
         # Excavate the complementary view, then reserve what its requests need.
         "UpdateObservationDual", "ReserveObservationBins",
-        # Prepared R1/epoch changes -> unique receiver cuts -> M8 publication.
+        # Read-only R1 preflight -> source epochs -> unique receiver cuts -> M8.
         # Fixed level entrypoints encode true dependency barriers; no stage
         # counter, ACK program or one-thread advance dispatch exists.
-        "FlowerCommit", "InvalidateFlowerPeers", "PublishFlowerR1", "PrepareFlowerOwners",
+        "FlowerCommit", "InvalidateFlowerSources", "InvalidateFlowerPeers", "PublishFlowerR1", "PrepareFlowerOwners",
         "IntegrateFlowerRoot", "IntegrateFlowerL1", "IntegrateFlowerL2",
         "ResolveFlowerCarriers", "DrainFlowerSkinRgb", "DrainFlowerSkinV",
         # The drain may have requested residency for what it could not read.
@@ -158,7 +160,7 @@ def command_schedules():
     flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
-    fine = ("QueryFineEraseTiles", "EraseFineTiles", "InvalidateFlowerPeers",
+    fine = ("QueryFineEraseTiles", "EraseFineTiles", "InvalidateFlowerSources", "InvalidateFlowerPeers",
             "PublishFlowerR1", "FinalizeFineErase")
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
         ("Observation", observation),

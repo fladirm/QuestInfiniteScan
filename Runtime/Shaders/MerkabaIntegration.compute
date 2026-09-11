@@ -1,4 +1,5 @@
 #pragma kernel FlowerCommit
+#pragma kernel InvalidateFlowerSources
 #pragma kernel InvalidateFlowerPeers
 #pragma kernel PublishFlowerR1
 #pragma kernel PrepareFlowerOwners
@@ -954,8 +955,8 @@ void M8EraseFineKernel(uint slot,uint local)
         grid+=normal*offset;
     }
     if(!M8FineContains(mul(_MerkabaGridToWorld,float4(grid,1.0)).xyz))return;
-    // The explicit ERASE cuts the sparse epoch before preparing the zero M8
-    // value. A failed owner/peer preflight leaves that owner's M8 untouched.
+    // Prepare only: failed source/peer preflight changes neither M8 nor its
+    // epoch. The same GPU transaction cuts it before publishing zero M8.
     M8FlowerPrepareR1(slot,local,before,uint4(0u,0u,0u,0u),true,false,true);
 }
 

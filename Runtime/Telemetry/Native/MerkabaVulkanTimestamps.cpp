@@ -120,10 +120,10 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 31,
-        "M8 executor pipeline tables must be regenerated for ABI 26");
+    static_assert(kMerkabaExecutorPipelineCount == 32,
+        "M8 executor pipeline tables must be regenerated for ABI 27");
 
-    constexpr uint32_t kExecutorAbiVersion = 26;
+    constexpr uint32_t kExecutorAbiVersion = 27;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
