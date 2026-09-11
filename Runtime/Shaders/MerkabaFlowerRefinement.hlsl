@@ -217,7 +217,7 @@ void M8FlowerPrepareFineAlternatives(uint lane)
         uint available,uncertain,direct;
         m8FinePacketCollectEndpoints=true;m8FinePacketEndpointReceipt=0u;
         M8FlowerSourceAnchorAlternatives(slot,m8FineOwner,owner,m8FinePlane,
-            petal,lane%3u,m8FinePacketErrors,0xffffffffu,available,uncertain,direct);
+            petal,lane%3u,m8FinePacketErrors,available,uncertain,direct);
         m8FinePacketCollectEndpoints=false;
         m8FineAnchorAlternatives[lane]=available|(uncertain<<2u)|(direct<<4u);
         m8FineAnchorReceipts[lane]=m8FinePacketEndpointReceipt;
@@ -251,40 +251,26 @@ void M8FlowerPrepareFineAlternatives(uint lane)
 }
 
 void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,out uint2 certain,out uint2 uncertain,out uint2 direct)
+    out uint2 certain,out uint2 uncertain,out uint2 direct)
 {
     certain=uncertain=direct=0u;
     if(slot!=m8FinePacketSlot || local!=m8FinePacketLocal || carrier!=m8FinePacketCarrier ||
-        any(asuint(errors)!=asuint(m8FinePacketErrors)) || completion!=0xffffffffu)
+        any(asuint(errors)!=asuint(m8FinePacketErrors)))
     {InterlockedMax(m8FineWriteStatus,M8_FLOWER_ARENA_INVALID);return;}
     certain=m8FineCarrierTriples[0];uncertain=m8FineCarrierTriples[1];direct=m8FineCarrierTriples[2];
 }
 
-// Required COLD endpoint addresses reuse the already drained block-claim
-// prefix and the same frozen storage domain. This adds no coordinate index,
-// world scan, or semantic claim about the unresolved surface.
+// Missing direct peers use the existing SSD tile queue, without excavation.
 void M8FlowerRequestSkinDependencies(uint neededHalo)
 {
-    [loop]while(neededHalo!=0u)
+    [loop] while (neededHalo != 0u)
     {
-        uint halo=(uint)firstbitlow(neededHalo);neededHalo&=neededHalo-1u;
-        if(halo>=M8_FLOWER_HALO_COUNT)continue;
-        if((m8FlowerHalo[halo]>>30u)!=M8_FLOWER_HALO_COLD)
-        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
-        int3 tile=m8FlowerHaloTile+M8FlowerHaloDelta(halo);
-        if(any(tile< -268435456) || any(tile>268435455))
-        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
-        MerkabaM8Address address=MerkabaAddressOf(tile*8);
-        int3 relative=address.blockCoord-_M8ScanCenterBlock+_M8ScanBlockRadius;
-        if(_M8ScanBlockSide<=0 || any(relative<0) || any(relative>=_M8ScanBlockSide))
-        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
-        uint side=(uint)_M8ScanBlockSide;
-        uint ordinal=(uint)relative.x+side*((uint)relative.y+side*(uint)relative.z);
-        int3 decoded;
-        if(!M8ObservationBlockAddress(_M8ScanCenterBlock,_M8ScanBlockRadius,_M8ScanBlockSide,
-            ordinal,decoded) || any(decoded!=address.blockCoord))
-        {M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);continue;}
-        M8DualRequestStorage(ordinal,M8_DUAL_INTENT_TILE_COLD,address.chunkLocal,address.tileLocal);
+        uint halo=(uint)firstbitlow(neededHalo);
+        neededHalo &= neededHalo-1u;
+        if (halo >= M8_FLOWER_HALO_COUNT) continue;
+        if ((m8FlowerHalo[halo]>>30u) != M8_FLOWER_HALO_COLD)
+        { M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY); continue; }
+        M8FlowerRequestErasePeer(halo);
     }
 }
 
@@ -365,7 +351,7 @@ void M8FlowerReduceFineEndpoint(uint4 measured,uint lane,M8FlowerGeometryNode ta
     if(task.Level==0u && any(endpointLocal!=0))
     {
         int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
-        available=M8FlowerHaloKernel(origin+endpointLocal,sourceSlot,sourceLocal,true);
+        available=M8FlowerHaloKernel(origin+endpointLocal,sourceSlot,sourceLocal,true,true);
         if(available)
         {
             // Untouched slots have no evidence in this snapshot, even when a
@@ -470,7 +456,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
             if(M8FlowerFindPhase(ownerRef,key,epoch,previous))
             {
                 uint status=M8FlowerRemovePhase(ownerRef,key,
-                    _M8DualPublishingGeneration,_M8DualRetiredGeneration);
+                    _M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
                 if(status==M8_FLOWER_ARENA_OK)
                 {
                     M8MarkTileDirty(slot);
@@ -489,7 +475,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     if(ownerRef==0u)
     {
         status=M8FlowerEnsureOwner(slot,local,generation,m8FinePlane,
-            _M8DualPublishingGeneration,ownerRef);
+            _M8WorldPublishingGeneration,ownerRef);
         if(status!=M8_FLOWER_ARENA_OK)return status;
         M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
     }
@@ -526,7 +512,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     if(M8FlowerFindPhase(ownerRef,record.Key,epoch,previous) &&
         previous.Lower==record.Lower && previous.Upper==record.Upper)
         return M8_FLOWER_ARENA_OK;
-    status=M8FlowerCommitPhase(ownerRef,record,_M8DualPublishingGeneration,_M8DualRetiredGeneration);
+    status=M8FlowerCommitPhase(ownerRef,record,_M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
     if(status==M8_FLOWER_ARENA_OK)
     {
         m8FineState|=M8_FLOWER_FINE_NOVEL;

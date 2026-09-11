@@ -272,20 +272,6 @@ namespace Genesis.RoomScan.Tests
                 var halo = Upload(new uint[27], 4);
                 Bind("_M8TileHalo", halo);
                 Bind("_M8TileHaloRead", halo);
-                // The actual root-stage R3 reader and skin stage share the
-                // production dual hierarchy. Zero block metadata means the
-                // canonical unmaterialized FULL state; no leaf is invented.
-                foreach ((string name, int bytes) in new[]
-                {
-                    ("_M8DualBlockStateRead", MerkabaDualGpuLayout.BlockBufferBytes),
-                    ("_M8DualChunkStateRead", MerkabaDualGpuLayout.ChunkBufferBytes),
-                    ("_M8DualLeavesRead", MerkabaDualGpuLayout.LeafBufferBytes)
-                })
-                {
-                    var dual = Raw(bytes);
-                    dual.SetData(new uint[bytes / sizeof(uint)]);
-                    Bind(name, dual);
-                }
                 _tileRecords = Upload(new[] { new uint4(0, 0, 2, 0),
                     new uint4(ObservationToken, 0, 0, SlotGeneration) }, 16);
                 Bind("_M8TileRecords", _tileRecords);
@@ -315,6 +301,8 @@ namespace Genesis.RoomScan.Tests
                 counters[MerkabaGrid.CounterTouchedTileCount] = 1;
                 _counters = Upload(counters, 4);
                 Bind("_M8Counters", _counters);
+                Bind("_M8LoadRequestReadCount", Upload(new uint[1], 4));
+                Bind("_M8LoadRequests", Upload(new uint4[32], 16));
 
                 _details = Raw(MerkabaFlowerGpuLayout.DetailBufferBytes);
                 _details.SetData(new uint[MerkabaFlowerGpuLayout.DetailArenaControl / 4]);
@@ -400,8 +388,8 @@ namespace Genesis.RoomScan.Tests
                 _counters.SetData(new uint[1], 0, MerkabaGrid.CounterObservationCompleted, 1);
                 _counters.SetData(new uint[1], 0, MerkabaGrid.CounterObservationChangeMask, 1);
                 _counters.SetData(new[] { 1u }, 0, MerkabaGrid.CounterTouchedTileCount, 1);
-                _shader.SetInt("_M8DualRetiredGeneration", (int)_publishingGeneration);
-                _shader.SetInt("_M8DualPublishingGeneration", (int)++_publishingGeneration);
+                _shader.SetInt("_M8WorldRetiredGeneration", (int)_publishingGeneration);
+                _shader.SetInt("_M8WorldPublishingGeneration", (int)++_publishingGeneration);
                 _shader.SetInt("_M8AttemptToken", (int)_publishingGeneration);
                 _signals.SetData(MerkabaFlowerGpuLayout.CreateSignalInitialHeader());
                 _shader.Dispatch(_prepareOwnersKernel, 1, 1, 1);

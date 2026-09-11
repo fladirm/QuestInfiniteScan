@@ -21,7 +21,6 @@ namespace Genesis.RoomScan
         private readonly ComputeBuffer _tileBins;
         private readonly int _count, _reserve, _emit, _resolveNodes, _resolveTiles, _installTiles, _reset;
         private readonly int[] _size = new int[2];
-        private readonly int[] _dualCenterBlock = new int[3];
         private readonly Matrix4x4[] _projectionInverse = new Matrix4x4[2];
         private readonly Matrix4x4[] _viewInverse = new Matrix4x4[2];
         private Texture _depth, _normal;
@@ -140,7 +139,7 @@ namespace Genesis.RoomScan
                 RecordCount(command, recount: true);
             }
             // A contended final discovery may have queued storage-only work.
-            // Publish it before the dual reuses the same claim backing.
+            // Publish before the claim backing is reused.
             RecordTileRequestPublication(command);
             RecordReserveAndEmit(command);
         }
@@ -206,31 +205,6 @@ namespace Genesis.RoomScan
                 _grid.M8ObservationDispatchArgs, InstallDispatchOffset);
         }
 
-        internal void SetDualStorageDomain(CommandBuffer command,
-            Unity.Mathematics.int3 center, int radius, int side)
-        {
-            RequireObservation(command);
-            _dualCenterBlock[0] = center.x;
-            _dualCenterBlock[1] = center.y;
-            _dualCenterBlock[2] = center.z;
-            command.SetComputeIntParams(_shader, "_M8ScanCenterBlock", _dualCenterBlock);
-            command.SetComputeIntParam(_shader, "_M8ScanBlockRadius", radius);
-            command.SetComputeIntParam(_shader, "_M8ScanBlockSide", side);
-        }
-
-        internal void RecordTouchedPublication(CommandBuffer command)
-        {
-            RequireObservation(command);
-            if (!_reservationRecorded)
-                throw new InvalidOperationException("Publish dual touches only after the immutable record spans exist.");
-            // UpdateObservationDual selected publication-only mode on GPU.
-            // This invocation never reserves offsets or clears emit cursors.
-            BindCommon(command, _reserve);
-            Bind(command, _reserve, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
-            Bind(command, _reserve, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
-            command.DispatchCompute(_shader, _reserve, 1, 1, 1);
-        }
-
         private void RecordReserveAndEmit(CommandBuffer command)
         {
             RequireObservation(command);
@@ -260,7 +234,7 @@ namespace Genesis.RoomScan
             command.DispatchCompute(flowerCommit, kernel, _grid.M8ObservationDispatchArgs, 0);
         }
 
-        // Both dual preflight and R1 consume the exact same frozen bins.
+        // R1 and fine refinement consume the same frozen bins.
         // Binding is shared; it does not issue another workgroup or readback.
         internal void RecordBindConsumer(CommandBuffer command, ComputeShader flowerCommit, int kernel)
         {

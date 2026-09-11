@@ -456,33 +456,23 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void EmptyFrozenParent_RequiresCompleteSourcePassAndKeepsReceiptImmutable()
+        public void EmptyFrozenParent_HasNoReachedCarrierOrDerivedSurface()
         {
-            // Actual resolved absence in the captured index, not fabricated
-            // certain roots/supports. This is a NEGATIVE completion fixture.
-            var reader = new Flower.SnapshotReader(Array.Empty<MerkabaTileSnapshot>(), Array.Empty<MerkabaTileAddress>(),
-                _ => throw new InvalidOperationException("An empty frozen parent must not query dual support."));
+            var reader = new Flower.SnapshotReader(Array.Empty<MerkabaTileSnapshot>(),
+                Array.Empty<MerkabaTileAddress>());
             int3 owner = new(-257, -33, -9);
             var parent = reader.BeginFlowerDecode(owner, float2.zero);
-            Assert.Throws<InvalidOperationException>(() => parent.EvaluateCompletion(out _));
+            Assert.That(parent.ReachedCarriers, Is.EqualTo(uint4.zero));
             Span<Flower.PhaseRootEvidence> roots = stackalloc Flower.PhaseRootEvidence[7];
             Span<float3> positions = stackalloc float3[7];
             for (int carrier = 0; carrier < Flower.L2HubCount; carrier++)
-                Assert.That(reader.ClassifyPageCarrier(owner, carrier, float2.zero, out _, out _, out _,
-                    roots, positions, parent), Is.EqualTo(Flower.ProofClassification.Impossible));
-            parent.Complete();
-            Assert.That(parent.ConfirmedDirect, Is.Zero);
-            Assert.That(parent.EvaluateCompletion(out var receipt), Is.EqualTo(Flower.ProofClassification.Impossible));
-            Assert.That(receipt.Token, Is.EqualTo(uint.MaxValue));
-            Assert.That(receipt.Candidates, Is.Zero);
-            Assert.That(parent.ReadCarrier(0, receipt, out var symbol, out _, roots, positions),
-                Is.EqualTo(Flower.ProofClassification.Impossible));
-            Assert.That(symbol.CompletedWedgeMask, Is.Zero);
-            Assert.That(parent.EvaluateCompletion(out var repeated), Is.EqualTo(receipt.Classification));
-            Assert.That(repeated.Token, Is.EqualTo(receipt.Token));
-            Assert.That(repeated.Candidates, Is.EqualTo(receipt.Candidates));
-            Assert.That(parent.ConfirmedDirect, Is.Zero, "Readout/receipt evaluation cannot add derived donors to D.");
-            Assert.Throws<InvalidOperationException>(() => parent.RecordCarrier(0, 0, 0, 0, 0));
+            {
+                Assert.That(reader.ClassifyPageCarrier(owner, carrier, float2.zero,
+                    out var symbol, out _, out _, roots, positions, parent),
+                    Is.EqualTo(Flower.ProofClassification.Impossible));
+                Assert.That(symbol.ActiveWedgeMask, Is.Zero);
+                Assert.That(symbol.CompletedWedgeMask, Is.Zero);
+            }
         }
 
         [TestCase(3, 3, 3, true)]
@@ -539,9 +529,8 @@ namespace Genesis.RoomScan.Tests
                     }
                 }
             }
-            parent.Complete();
             TestContext.WriteLine($"owner={owner}, bounds={errors}, certain={certain}, ambiguous={ambiguous}, " +
-                $"active={activeWedges}, direct={directWedges}, sharedUses={sharedUses}, D=0x{parent.ConfirmedDirect:x12}");
+                $"active={activeWedges}, direct={directWedges}, sharedUses={sharedUses}");
             Assert.That(activeWedges, Is.GreaterThan(0),
                 "A captured planar wall must produce actual direct raster geometry at the mandatory sensor/codec bounds.");
             Assert.That(directWedges, Is.GreaterThan(0), "Provisional higher-shell presentation alone is not a direct proof.");
@@ -587,10 +576,8 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(unresolved, Is.Not.Zero, $"carrier={carrier} must preserve discrete unresolved evidence.");
                 unresolvedWedges |= unresolved;
             }
-            parent.Complete();
             Assert.That(ambiguousCarriers, Is.GreaterThan(0));
             Assert.That(unresolvedWedges, Is.Not.Zero);
-            Assert.That(parent.ConfirmedDirect, Is.Zero);
             TestContext.WriteLine($"Synthetic owner={owner}, bounds={errors}, R1 certain={certainRoots}, " +
                 $"R1 ambiguous={ambiguousRoots}, ambiguous carriers={ambiguousCarriers}, unresolved=0x{unresolvedWedges:x2}");
         }
@@ -630,23 +617,7 @@ namespace Genesis.RoomScan.Tests
                 Flower.FloatInterval.Enclose(2.0 * Math.Sqrt(18.0) / 1023.0).Upper,
                 Flower.FloatInterval.Enclose((double)MerkabaConstants.LatticeStep / (2.0 * 127.0)).Upper);
             var snapshot = new MerkabaTileSnapshot { Address = address, Generation = 1, States = states };
-            // FULL is read from the real unexcavated replay authority. The
-            // cell proof consumes all eight support addresses, as production
-            // storage does; no always-true geometry predicate is injected.
-            var dual = new MerkabaSphereFlowerReplayIndex();
-            return new Flower.SnapshotReader(new[] { snapshot }, new[] { address }, cell =>
-            {
-                Span<MerkabaDualReadResult> supports = stackalloc MerkabaDualReadResult[8];
-                for (int bit = 0; bit < supports.Length; bit++)
-                {
-                    int3 coord = new(checked(cell.x + (bit & 1)),
-                        checked(cell.y + ((bit >> 1) & 1)), checked(cell.z + ((bit >> 2) & 1)));
-                    var encoded = MerkabaSpatial.Encode(coord);
-                    supports[bit] = dual.ReadDual(
-                        new MerkabaTileAddress(encoded.BlockCoord, encoded.LocalAddress), encoded.KernelLocal);
-                }
-                return Flower.ClassifyFreeCell(supports);
-            });
+            return new Flower.SnapshotReader(new[] { snapshot }, new[] { address });
         }
 
         internal static uint BoundaryReferenceTag(int node, int boundary, bool plus)

@@ -32,17 +32,6 @@ namespace Genesis.RoomScan
             return _ssdStore.ReadFlowerContextAsync(ownerTile, capturedIndex, position, cancellationToken);
         }
 
-        internal Task<long> StreamStoredFlowerDirtAsync(float2 planeBounds,
-            MerkabaTileAddress[] capturedIndex, MerkabaStorageAppendPosition position,
-            Action<IReadOnlyList<MerkabaDirtTriangle>> consume,
-            CancellationToken cancellationToken = default)
-        {
-            EnsureStorage();
-            if (_storageReplacementPending)
-                throw new InvalidOperationException("Cannot export Flower DIRT while storage authority is changing.");
-            return _ssdStore.StreamFlowerDirtAsync(planeBounds, capturedIndex, position, consume, cancellationToken);
-        }
-
         internal MerkabaTileAddress[] CaptureStoredFlowerSource(out MerkabaStorageAppendPosition position)
         {
             EnsureStorage();

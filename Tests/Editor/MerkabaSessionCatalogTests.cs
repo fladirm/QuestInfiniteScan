@@ -257,15 +257,13 @@ namespace Genesis.RoomScan.Tests
             int readout = scanner.IndexOf(
                 "await _renderer.FinishCurrentReadoutAsync()", quiesce,
                 StringComparison.Ordinal);
-            int durable = scanner.IndexOf(
-                "await _grid.FinishObservationDurableCutAsync()", readout,
-                StringComparison.Ordinal);
             Assert.That(suspend, Is.GreaterThan(helper),
                 "new readout jobs must stop before the wait");
             Assert.That(quiesce, Is.GreaterThan(suspend));
             Assert.That(readout, Is.GreaterThan(quiesce),
                 "the in-flight readout job must be awaited, not preempted");
-            Assert.That(durable, Is.GreaterThan(readout));
+            Assert.That(scanner, Does.Not.Contain("FinishObservationDurableCutAsync"),
+                "A frozen operation waits for the real scan and page fences, not a retired dual drain.");
 
             // Every action that writes, replaces, reads out or receives the
             // world takes it frozen. Missing one is how the readout kept

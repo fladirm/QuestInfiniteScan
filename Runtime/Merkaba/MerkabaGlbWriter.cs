@@ -27,7 +27,7 @@ namespace Genesis.RoomScan
         }
     }
 
-    /// <summary>Bounded shared-position GLB preview; DIRT remains explicitly inferred.</summary>
+    /// <summary>Bounded shared-position GLB preview of direct M8 surface.</summary>
     internal static class MerkabaGlbWriter
     {
         private const uint GlbMagic = 0x46546C67u;
@@ -38,9 +38,8 @@ namespace Genesis.RoomScan
         private readonly struct PrimitiveRange
         {
             internal readonly int FirstIndex, IndexCount, Texture;
-            internal readonly bool Dirt, Completed;
-            internal PrimitiveRange(int first, int count, bool dirt, bool completed, int texture)
-            { FirstIndex = first; IndexCount = count; Dirt = dirt; Completed = completed; Texture = texture; }
+            internal PrimitiveRange(int first, int count, int texture)
+            { FirstIndex = first; IndexCount = count; Texture = texture; }
         }
 
         private readonly struct ImageRange
@@ -54,7 +53,6 @@ namespace Genesis.RoomScan
         internal sealed class ResumeState
         {
             public int vertices, indices, primitives, ranges;
-            public bool hasDirt;
             public Vector3 minimum, maximum;
             public MerkabaFlowerMaterialBake.ResumeState atlas;
         }
@@ -84,7 +82,7 @@ namespace Genesis.RoomScan
             private MerkabaNativePackage.Snapshot _nativePackage;
             private int _vertexCount, _indexCount, _primitiveCount, _rangeCount;
             private PrimitiveRange _pendingRange;
-            private bool _hasPendingRange, _hasDirt, _completed, _disposed, _failed;
+            private bool _hasPendingRange, _completed, _disposed, _failed;
             private Vector3 _minimum = new(float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity);
             private Vector3 _maximum = new(float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
 
@@ -121,11 +119,11 @@ namespace Genesis.RoomScan
                             resume.ranges < 0 || resume.indices != 3L * resume.primitives ||
                             _positions.Length != 12L * resume.vertices ||
                             _colors.Length != 4L * resume.vertices || _uvs.Length != 8L * resume.vertices ||
-                            _indices.Length != 4L * resume.indices || _ranges.Length != 16L * resume.ranges ||
+                            _indices.Length != 4L * resume.indices || _ranges.Length != 12L * resume.ranges ||
                             _images.Length != 0 || _imageRanges.Length != 0)
                             throw new InvalidDataException("GLB resume state differs from verified spool extents.");
                         _vertexCount = resume.vertices; _indexCount = resume.indices;
-                        _primitiveCount = resume.primitives; _rangeCount = resume.ranges; _hasDirt = resume.hasDirt;
+                        _primitiveCount = resume.primitives; _rangeCount = resume.ranges;
                         if (_vertexCount != 0) { _minimum = resume.minimum; _maximum = resume.maximum; }
                         foreach (FileStream file in new[] { _positions, _colors, _uvs, _indices, _ranges })
                             file.Position = file.Length;
@@ -148,7 +146,7 @@ namespace Genesis.RoomScan
                 return new ResumeState
                 {
                     vertices = _vertexCount, indices = _indexCount, primitives = _primitiveCount,
-                    ranges = _rangeCount, hasDirt = _hasDirt,
+                    ranges = _rangeCount,
                     minimum = _vertexCount == 0 ? Vector3.zero : _minimum,
                     maximum = _vertexCount == 0 ? Vector3.zero : _maximum,
                     atlas = _atlas.Checkpoint(cancellationToken)
@@ -211,8 +209,7 @@ namespace Genesis.RoomScan
                             if ((active & (1u << wedge)) == 0u) continue;
                             int3 sites = MerkabaSphereFlowerAuthority.L2CarrierTriangleIndices(wedge,
                                 (carrier.Symbol.ReverseWedgeMask & (1u << wedge)) != 0u);
-                            AppendRange(false, (carrier.Symbol.CompletedWedgeMask & (1u << wedge)) != 0u,
-                                textured ? cell.Page : -1);
+                            AppendRange(textured ? cell.Page : -1);
                             // The running index count is the exclusive active-
                             // wedge prefix. Reflect X exactly once for glTF.
                             WriteTriangle(vertexBase + (uint)sites.x, vertexBase + (uint)sites.z,
@@ -224,33 +221,6 @@ namespace Genesis.RoomScan
                     }
                     if (completed != presentation.TriangleCount)
                         throw new InvalidDataException("Flower presentation triangle receipt mismatch.");
-                }
-                catch { _failed = true; throw; }
-            }
-
-            internal void AppendDirt(IReadOnlyList<MerkabaDirtTriangle> triangles,
-                IProgress<OperationWorkProgress> progress = null, float3 localOrigin = default,
-                CancellationToken cancellationToken = default)
-            {
-                RequireMutable(cancellationToken);
-                if (triangles == null) throw new ArgumentNullException(nameof(triangles));
-                try
-                {
-                    for (int index = 0; index < triangles.Count; index++)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        MerkabaDirtTriangle triangle = triangles[index];
-                        uint first = checked((uint)_vertexCount);
-                        for (int vertex = 0; vertex < 3; vertex++)
-                            WriteVertex(MerkabaSphereFlowerAuthority.DirtFaceGridPosition(
-                                triangle.Cell, triangle.Face, triangle.Half, vertex) - localOrigin,
-                                uint.MaxValue, float2.zero);
-                        AppendRange(true, false, -1);
-                        WriteTriangle(first, first + 2u, first + 1u);
-                        if ((index & 255) == 255 || index + 1 == triangles.Count)
-                            Report(progress, ScanOperationStage.BuildingMerkabaGeometry, index + 1,
-                                triangles.Count, "Writing inferred DIRT faces");
-                    }
                 }
                 catch { _failed = true; throw; }
             }
@@ -278,19 +248,17 @@ namespace Genesis.RoomScan
                 _primitiveCount = checked(_primitiveCount + 1);
             }
 
-            private void AppendRange(bool dirt, bool completed, int texture)
+            private void AppendRange(int texture)
             {
-                _hasDirt |= dirt;
-                if (_hasPendingRange && _pendingRange.Dirt == dirt &&
-                    _pendingRange.Completed == completed && _pendingRange.Texture == texture &&
+                if (_hasPendingRange && _pendingRange.Texture == texture &&
                     checked(_pendingRange.FirstIndex + _pendingRange.IndexCount) == _indexCount)
                 {
                     _pendingRange = new PrimitiveRange(_pendingRange.FirstIndex,
-                        checked(_pendingRange.IndexCount + 3), dirt, completed, texture);
+                        checked(_pendingRange.IndexCount + 3), texture);
                     return;
                 }
                 FlushRange();
-                _pendingRange = new PrimitiveRange(_indexCount, 3, dirt, completed, texture);
+                _pendingRange = new PrimitiveRange(_indexCount, 3, texture);
                 _hasPendingRange = true;
             }
 
@@ -299,7 +267,6 @@ namespace Genesis.RoomScan
                 if (!_hasPendingRange) return;
                 _rangeWriter.Write(_pendingRange.FirstIndex); _rangeWriter.Write(_pendingRange.IndexCount);
                 _rangeWriter.Write(_pendingRange.Texture);
-                _rangeWriter.Write((_pendingRange.Dirt ? 1u : 0u) | (_pendingRange.Completed ? 2u : 0u));
                 _rangeCount = checked(_rangeCount + 1); _hasPendingRange = false;
             }
 
@@ -320,7 +287,7 @@ namespace Genesis.RoomScan
                     _indexWriter.Flush(); _uvWriter.Flush(); _rangeWriter.Flush();
                     if (_positions.Length != 12L * _vertexCount ||
                         _colors.Length != 4L * _vertexCount || _indices.Length != 4L * _indexCount ||
-                        _uvs.Length != 8L * _vertexCount || _ranges.Length != 16L * _rangeCount)
+                        _uvs.Length != 8L * _vertexCount || _ranges.Length != 12L * _rangeCount)
                         throw new InvalidDataException("Bounded GLB spool length mismatch.");
                     for (int page = 0; page < _atlas.PageCount; page++)
                     {
@@ -397,8 +364,7 @@ namespace Genesis.RoomScan
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     int first = reader.ReadInt32(), count = reader.ReadInt32(), texture = reader.ReadInt32();
-                    uint flags = reader.ReadUInt32();
-                    yield return new PrimitiveRange(first, count, (flags & 1u) != 0u, (flags & 2u) != 0u, texture);
+                    yield return new PrimitiveRange(first, count, texture);
                 }
             }
 
@@ -418,7 +384,7 @@ namespace Genesis.RoomScan
                 CancellationToken cancellationToken)
             {
                 int pageCount = _atlas.PageCount, imageCount = checked(2 * pageCount);
-                int textureMaterial = _hasDirt ? 2 : 1;
+                const int textureMaterial = 1;
                 int uvAccessor = checked(2 + _rangeCount);
                 json.Write("{\"asset\":{\"version\":\"2.0\",\"generator\":\"Quest Infinite Merkaba\"},");
                 json.Write("\"extensionsUsed\":[\"KHR_materials_unlit\"");
@@ -443,31 +409,19 @@ namespace Genesis.RoomScan
                     json.Write("{\"attributes\":{\"POSITION\":0,\"COLOR_0\":1");
                     if (range.Texture >= 0)
                     {
-                        if (range.Texture >= pageCount || range.Dirt)
+                        if (range.Texture >= pageCount)
                             throw new InvalidDataException("Flower primitive has no completed RGB/V atlas.");
                         json.Write(",\"TEXCOORD_0\":"); json.Write(uvAccessor);
                     }
                     json.Write("},\"indices\":"); json.Write(checked(2 + ordinal));
-                    json.Write(",\"material\":"); json.Write(range.Dirt ? 1 :
-                        range.Texture >= 0 ? checked(textureMaterial + range.Texture) : 0);
+                    json.Write(",\"material\":"); json.Write(range.Texture >= 0 ? checked(textureMaterial + range.Texture) : 0);
                     json.Write(",\"mode\":4,\"extras\":{\"m8Provenance\":\"");
-                    json.Write(range.Dirt ? "DIRT" : range.Completed ? "COMPLETED" : "CONFIRMED");
-                    json.Write("\",\"capturedRadiance\":"); json.Write(range.Dirt ? "false" : "true");
-                    if (range.Dirt) json.Write(",\"inferredSupport\":true");
+                    json.Write("CONFIRMED\",\"capturedRadiance\":true");
                     json.Write("}}"); ordinal++;
                 }
                 json.Write("]}],\"materials\":[{\"name\":\"M8 Captured Radiance\",");
                 json.Write("\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,1,1,1],\"metallicFactor\":0,\"roughnessFactor\":1},");
                 json.Write("\"doubleSided\":true,\"extensions\":{\"KHR_materials_unlit\":{}}}");
-                if (_hasDirt)
-                {
-                    float4 support = MerkabaSphereFlowerAuthority.DirtSupportLinearRgba;
-                    json.Write(",{\"name\":\"M8 DIRT Inferred Support\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[");
-                    json.Write(Number(support.x)); json.Write(','); json.Write(Number(support.y)); json.Write(',');
-                    json.Write(Number(support.z)); json.Write(','); json.Write(Number(support.w));
-                    json.Write("],\"metallicFactor\":0,\"roughnessFactor\":1},\"doubleSided\":false,");
-                    json.Write("\"extensions\":{\"KHR_materials_unlit\":{}},\"extras\":{\"m8Provenance\":\"DIRT\",\"capturedRadiance\":false,\"opticalValid\":false}}");
-                }
                 for (int page = 0; page < pageCount; page++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -574,17 +528,6 @@ namespace Genesis.RoomScan
             string spool = Path.Combine(Path.GetTempPath(), "m8-flower-glb-" + Guid.NewGuid().ToString("N"));
             using var session = new StreamingSession(spool);
             session.Append(presentation, progress, localOrigin, cancellationToken);
-            return session.Complete(destination, progress, cancellationToken, maximumByteLength);
-        }
-
-        internal static MerkabaGlbResult WriteDirt(Stream destination,
-            IReadOnlyList<MerkabaDirtTriangle> triangles, float3 localOrigin,
-            IProgress<OperationWorkProgress> progress = null, CancellationToken cancellationToken = default,
-            long maximumByteLength = uint.MaxValue)
-        {
-            string spool = Path.Combine(Path.GetTempPath(), "m8-flower-dirt-" + Guid.NewGuid().ToString("N"));
-            using var session = new StreamingSession(spool);
-            session.AppendDirt(triangles, progress, localOrigin, cancellationToken);
             return session.Complete(destination, progress, cancellationToken, maximumByteLength);
         }
 

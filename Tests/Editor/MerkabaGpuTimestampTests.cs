@@ -21,7 +21,6 @@ namespace Genesis.RoomScan.Tests
             {
                 "DepthPreprocess",
                 "SurfaceIntegration",
-                "DualIntegration",
                 "WorldQuery",
                 "FlowerClassify",
                 "FlowerCompact",
@@ -30,7 +29,7 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaDraw",
                 "Count"
             }));
-            Assert.That((int)MerkabaGpuStage.Count, Is.EqualTo(9));
+            Assert.That((int)MerkabaGpuStage.Count, Is.EqualTo(8));
         }
 
         [Test]
@@ -377,7 +376,7 @@ namespace Genesis.RoomScan.Tests
             AssertEndBeforeExecute(Source(
                     "Runtime/Merkaba/MerkabaGridRenderer.cs"),
                 "End(CaptureOwner.FlowerPages",
-                "_grid.SubmitDualMutation(command, generation)");
+                "_grid.SubmitWorldMutation(command, generation)");
 
             string renderer = Source(
                 "Runtime/Merkaba/MerkabaGridRenderer.cs");

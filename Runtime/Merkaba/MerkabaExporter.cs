@@ -85,7 +85,7 @@ namespace Genesis.RoomScan
                 if (journal.Current.nextTile > _exportTiles.Length ||
                     (journal.Current.stage != 0 && journal.Current.nextTile != _exportTiles.Length) ||
                     (journal.Current.glb == null && (journal.Current.stage != 0 ||
-                        journal.Current.nextTile != 0 || journal.Current.nextDirtPacket != 0)))
+                        journal.Current.nextTile != 0)))
                     throw new InvalidDataException("Export cursor does not belong to the frozen source index.");
                 await Task.Run(() =>
                 {
@@ -117,13 +117,6 @@ namespace Genesis.RoomScan
                                 metrics, 0, next, cancellationToken)));
                         await Task.Run(() => CheckpointGlb(journal, streamSession,
                             metrics, 1, _exportTiles.Length, cancellationToken));
-                    }
-                    if (journal.Current.stage == 1)
-                    {
-                        metrics.DirtTriangles = await AppendDirtToGlbAsync(streamSession,
-                            progress, cancellationToken, journal, metrics);
-                        await Task.Run(() => CheckpointGlb(journal, streamSession,
-                            metrics, 2, _exportTiles.Length, cancellationToken));
                     }
                     result = await Task.Run(() =>
                     {
@@ -158,7 +151,6 @@ namespace Genesis.RoomScan
                             $"confirmedL2={metrics.MeasuredPatchCount} " +
                             $"completedL2={metrics.InferredPatchCount} " +
                             $"unresolvedWedges={metrics.UnresolvedMeasuredPlaneCount} " +
-                            $"dirt={metrics.DirtTriangles} " +
                             $"vertices={result.VertexCount} " +
                             $"triangles={result.PrimitiveCount} bytes={result.ByteLength}");
                 SetStatus($"GLB: {result.PrimitiveCount} triangles, " +
@@ -356,8 +348,7 @@ namespace Genesis.RoomScan
 
         private static void CheckpointGlb(MerkabaExportJournal journal,
             MerkabaGlbWriter.StreamingSession stream, ExportMetrics metrics,
-            int stage, int nextTile, CancellationToken cancellationToken,
-            long? nextDirtPacket = null)
+            int stage, int nextTile, CancellationToken cancellationToken)
         {
             // Advance a detached cursor only after every corresponding spool
             // range and atlas cell is durable. The previous receipt remains
@@ -365,12 +356,10 @@ namespace Genesis.RoomScan
             var state = new MerkabaExportJournal.State
             {
                 stage = stage, nextTile = nextTile,
-                nextDirtPacket = nextDirtPacket ?? journal.Current.nextDirtPacket,
                 occupied = metrics.CanonicalOccupiedCount,
                 measured = metrics.MeasuredPatchCount,
                 completed = metrics.InferredPatchCount,
                 unresolved = metrics.UnresolvedMeasuredPlaneCount,
-                dirtTriangles = metrics.DirtTriangles,
                 status = "written", reason = "",
                 glb = stream.Checkpoint(cancellationToken)
             };
@@ -395,8 +384,7 @@ namespace Genesis.RoomScan
                 _scanner.IsScanning || _scanner.IsScanStarting ||
                 (_integrator != null && (_integrator.HasPendingObservation ||
                     _integrator.HasAttemptInFlight || _integrator.HasPendingFineErase ||
-                    _integrator.HasFineEraseAttemptInFlight)) ||
-                (_grid != null && _grid.HasObservationDurableCut))
+                    _integrator.HasFineEraseAttemptInFlight)))
                 throw new InvalidOperationException(
                     "Export requires the held, quiesced and durable RoomScanner transaction.");
         }
@@ -450,62 +438,9 @@ namespace Genesis.RoomScan
                     ScanOperationStage.WritingFile, groupIndex + 1, groupCount,
                     $"Streamed spatial leaf {groupIndex + 1}/{groupCount}"));
             }, progress, true, cancellationToken);
-            await AppendDirtToTilesetAsync(staging, leaves, progress, cancellationToken);
             return await Task.Run(() =>
                 MerkabaTilesetWriter.CompleteStreamingPackage(staging,
                     leaves, spatialBinding, cancellationToken, nativePackage));
-        }
-
-        // The same frozen source and shared direct/dual evaluator supplies
-        // coverage. No caller can substitute an owner box or an all-uncovered
-        // shortcut beside the final ordinary export path.
-        internal Task<long> AppendDirtToGlbAsync(
-            MerkabaGlbWriter.StreamingSession stream,
-            IProgress<OperationWorkProgress> progress = null,
-            CancellationToken cancellationToken = default) =>
-            AppendDirtToGlbAsync(stream, progress, cancellationToken, null, null);
-
-        private async Task<long> AppendDirtToGlbAsync(
-            MerkabaGlbWriter.StreamingSession stream,
-            IProgress<OperationWorkProgress> progress,
-            CancellationToken cancellationToken, MerkabaExportJournal journal,
-            ExportMetrics metrics)
-        {
-            if (stream == null) throw new ArgumentNullException(nameof(stream));
-            RequireQuiescedDirtExport();
-            long ordinal = 0, completedPackets = journal?.Current.nextDirtPacket ?? 0;
-            // The same bounded canonical DIRT traversal is replayed. Verified
-            // packets are not appended again; no second geometry cursor or
-            // world-sized list is introduced beside the shared evaluator.
-            long trianglesWritten = await _grid.StreamStoredFlowerDirtAsync(
-                _exportPlaneBounds, _exportTiles, _exportPosition, triangles =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    long packet = ordinal++;
-                    if (packet < completedPackets) return;
-                    stream.AppendDirt(triangles, progress, cancellationToken: cancellationToken);
-                    if (journal == null) return;
-                    metrics.DirtTriangles = checked(metrics.DirtTriangles + triangles.Count);
-                    CheckpointGlb(journal, stream, metrics, 1, _exportTiles.Length,
-                        cancellationToken, ordinal);
-                }, cancellationToken);
-            if (journal != null && (ordinal < completedPackets ||
-                journal.Current.dirtTriangles != trianglesWritten))
-                throw new InvalidDataException("DIRT cursor differs from the unchanged committed source.");
-            return trianglesWritten;
-        }
-
-        internal Task<long> AppendDirtToTilesetAsync(string staging,
-            IList<MerkabaTilesetLeaf> leaves,
-            IProgress<OperationWorkProgress> progress = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (leaves == null) throw new ArgumentNullException(nameof(leaves));
-            RequireQuiescedDirtExport();
-            return _grid.StreamStoredFlowerDirtAsync(_exportPlaneBounds, _exportTiles, _exportPosition, triangles =>
-                leaves.Add(MerkabaTilesetWriter.WriteStreamingDirtLeaf(staging,
-                    leaves.Count, triangles, progress,
-                    cancellationToken: cancellationToken)), cancellationToken);
         }
 
         private float2 ExportPlaneBounds() => _depthCapture != null &&
@@ -517,15 +452,6 @@ namespace Genesis.RoomScan
             RequireExportLease();
             _exportTiles = _grid.CaptureStoredFlowerSource(out _exportPosition);
             _exportPlaneBounds = ExportPlaneBounds();
-        }
-
-        private void RequireQuiescedDirtExport()
-        {
-            RequireExportLease();
-            if (!IsExporting || _grid == null || _exportTiles == null ||
-                (_integrator != null && _integrator.HasPendingObservation))
-                throw new InvalidOperationException(
-                    "DIRT export requires the active quiesced export transaction.");
         }
 
         private async Task<MerkabaSpatialBinding> CaptureSpatialBindingAsync()
@@ -604,7 +530,6 @@ namespace Genesis.RoomScan
             internal long MeasuredPatchCount;
             internal long InferredPatchCount;
             internal long UnresolvedMeasuredPlaneCount;
-            internal long DirtTriangles;
 
             internal ExportMetrics(MerkabaExportJournal.State state = null)
             {
@@ -613,7 +538,6 @@ namespace Genesis.RoomScan
                 MeasuredPatchCount = state.measured;
                 InferredPatchCount = state.completed;
                 UnresolvedMeasuredPlaneCount = state.unresolved;
-                DirtTriangles = state.dirtTriangles;
             }
 
             internal void Add(MerkabaFlowerPresentation result)

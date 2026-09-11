@@ -569,8 +569,6 @@ namespace Genesis.RoomScan
             if (!await QuiesceScanningAsync()) return false;
             if (!ReferenceEquals(_renderer, null))
                 await _renderer.FinishCurrentReadoutAsync();
-            if (!ReferenceEquals(_grid, null))
-                await _grid.FinishObservationDurableCutAsync();
             return true;
         }
 
@@ -1226,8 +1224,7 @@ namespace Genesis.RoomScan
                 return _quiesceTask;
             if (ScanLifecycle == ScanLifecycleState.Stopped &&
                 !IsScanning && !(_integrator?.HasPendingObservation ?? false) &&
-                !(_integrator?.HasPendingFineErase ?? false) &&
-                !(_grid?.HasObservationDurableCut ?? false))
+                !(_integrator?.HasPendingFineErase ?? false))
                 return Task.FromResult(true);
             _quiesceTask = QuiesceCoreAsync();
             return _quiesceTask;
@@ -1243,18 +1240,10 @@ namespace Genesis.RoomScan
             _integrator?.BeginObservationQuiesce();
             try
             {
-                // A pressure-triggered cut owns the canonical source until
-                // its existing drain finishes. Keep GPU submission available
-                // before asking the held observation to resume its work.
-                if (!ReferenceEquals(_grid, null))
-                    await _grid.FinishObservationDurableCutAsync();
                 if (!ReferenceEquals(_integrator, null))
                     await _integrator.FinishCurrentFineEraseAsync();
                 if (!ReferenceEquals(_integrator, null))
                     await _integrator.FinishCurrentObservationAsync();
-                // The retiring observation may itself have triggered a cut.
-                if (!ReferenceEquals(_grid, null))
-                    await _grid.FinishObservationDurableCutAsync();
                 Task depthRetirement = !ReferenceEquals(_depthCapture, null)
                     ? _depthCapture.RetireSubmittedDepthCopiesAsync()
                     : Task.CompletedTask;
@@ -1406,11 +1395,6 @@ namespace Genesis.RoomScan
                 if (!await QuiesceScanningAsync()) return;
                 if (!ReferenceEquals(_renderer, null))
                     await _renderer.FinishCurrentReadoutAsync();
-                // Storage remains able to submit its final bounded drain
-                // batches until this await completes; closing submission
-                // first would strand its GPU receipt/acknowledgement work.
-                if (!ReferenceEquals(_grid, null))
-                    await _grid.FinishObservationDurableCutAsync();
                 if (!_disableRequested && !_destroyed)
                 {
                     if (!_applicationPaused) _renderer?.ResumeGpuSubmission();

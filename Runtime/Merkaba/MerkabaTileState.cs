@@ -51,28 +51,9 @@ namespace Genesis.RoomScan
         internal ulong Generation;
         internal KernelState[] States;
         // Frozen with States by the same storage batch. These are the actual
-        // sparse dual / epoch / detail / thread records, never synthesized
+        // sparse epoch / detail / thread records, never synthesized
         // from the positive M8 states.
         internal MerkabaAppendRecord[] Sidecars = Array.Empty<MerkabaAppendRecord>();
-    }
-
-    // Sparse storage registration uses the existing signed M8 address. The
-    // kind limits how far allocation/rehydration descends; it is not an index.
-    internal readonly struct MerkabaDualStorageNode
-    {
-        internal readonly MerkabaRecordKind Kind;
-        internal readonly MerkabaTileAddress Address;
-
-        internal MerkabaDualStorageNode(MerkabaRecordKind kind,
-            MerkabaTileAddress address)
-        {
-            if (kind != MerkabaRecordKind.DualBlock &&
-                kind != MerkabaRecordKind.DualChunk &&
-                kind != MerkabaRecordKind.DualLeaf)
-                throw new ArgumentOutOfRangeException(nameof(kind));
-            Kind = kind;
-            Address = address;
-        }
     }
 
     internal readonly struct MerkabaKernelSnapshot

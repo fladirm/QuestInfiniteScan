@@ -148,10 +148,10 @@ void M8FlowerResetObservationBins(uint lane)
         bool zero=(lane>=M8_COUNTER_UNRESOLVED_SURFACE_TILES && lane<=M8_COUNTER_SCAN_COLD_MISSES) ||
             (lane>=M8_COUNTER_NEW_BLOCK_QUEUE_COUNT && lane<=M8_COUNTER_PENDING_NEW_TILE_COUNT) ||
             (lane>=M8_COUNTER_FINE_ERASE_TILE_COUNT && lane<=M8_COUNTER_OBSERVATION_COMPLETED) ||
-            lane==M8_COUNTER_DUAL_QUERY_BLOCKS || lane==M8_COUNTER_OBSERVATION_FAILURE ||
-            (lane>=M8_COUNTER_THROUGH_EVIDENCE_DECREMENTS && lane<=M8_COUNTER_UNRESOLVED_OBSERVATION_TILES) ||
+            lane==M8_COUNTER_OBSERVATION_FAILURE ||
+            lane==M8_COUNTER_UNRESOLVED_OBSERVATION_TILES ||
             (lane>=M8_COUNTER_CLEANUP_TOUCHED_COUNT && lane<=M8_COUNTER_CLEANUP_PENDING_COUNT) ||
-            (lane>=M8_COUNTER_DUAL_STORAGE_INTENT_COUNT && lane<=M8_COUNTER_REFINEMENT_UNRESOLVED);
+            (lane>=M8_COUNTER_REFINEMENT_PENDING_TILES && lane<=M8_COUNTER_REFINEMENT_UNRESOLVED);
         if(zero)_M8Counters[lane]=0u;
     }
     DeviceMemoryBarrierWithGroupSync();
@@ -190,7 +190,6 @@ void M8FlowerResetObservationBins(uint lane)
         _M8Counters[M8_COUNTER_REFINEMENT_WORK_PROGRESS] = 0u;
         _M8Counters[M8_COUNTER_REFINEMENT_BACKPRESSURE] = 0u;
         _M8Counters[M8_COUNTER_REFINEMENT_UNRESOLVED] = 0u;
-        _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION] = 0u;
         _M8ObservationDispatchArgs[0] = 0u;
         _M8ObservationDispatchArgs[1] = 1u;
         _M8ObservationDispatchArgs[2] = 1u;

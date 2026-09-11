@@ -24,12 +24,12 @@ namespace Genesis.RoomScan
         AmbiguousCold = 3
     }
 
-    internal readonly struct MerkabaDualGenerationAdvance
+    internal readonly struct MerkabaWorldGenerationAdvance
     {
         internal readonly uint Generation;
         internal readonly bool RequiresTransactionalRebase;
 
-        internal MerkabaDualGenerationAdvance(uint generation,
+        internal MerkabaWorldGenerationAdvance(uint generation,
             bool requiresTransactionalRebase)
         {
             Generation = generation;
@@ -37,22 +37,22 @@ namespace Genesis.RoomScan
         }
     }
 
-    internal static class MerkabaDualGeneration
+    internal static class MerkabaWorldGeneration
     {
-        internal static MerkabaDualGenerationAdvance AdvanceBlock(
+        internal static MerkabaWorldGenerationAdvance AdvanceBlock(
             uint current)
         {
             if (current > MerkabaDualBlockMeta.MaximumGeneration)
                 throw new ArgumentOutOfRangeException(nameof(current));
             return current == MerkabaDualBlockMeta.MaximumGeneration
-                ? new MerkabaDualGenerationAdvance(1u, true)
-                : new MerkabaDualGenerationAdvance(current + 1u, false);
+                ? new MerkabaWorldGenerationAdvance(1u, true)
+                : new MerkabaWorldGenerationAdvance(current + 1u, false);
         }
 
-        internal static MerkabaDualGenerationAdvance AdvanceChunk(
+        internal static MerkabaWorldGenerationAdvance AdvanceChunk(
             uint current) => current == uint.MaxValue
-            ? new MerkabaDualGenerationAdvance(1u, true)
-            : new MerkabaDualGenerationAdvance(current + 1u, false);
+            ? new MerkabaWorldGenerationAdvance(1u, true)
+            : new MerkabaWorldGenerationAdvance(current + 1u, false);
     }
 
     /// <summary>Eight-byte sparse block header; it reuses the M8 block key.</summary>

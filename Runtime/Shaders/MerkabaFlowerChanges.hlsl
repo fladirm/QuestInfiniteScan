@@ -30,15 +30,7 @@ void InvalidateFlowerSources(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     uint slot=source.x>>9u,local=source.x&511u,status=M8_FLOWER_ARENA_OK;
     if((source.w&M8_FLOWER_R1_STRUCTURAL)!=0u)
         status=M8FlowerInvalidateOwner(slot,local,source.y,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-    else if((source.w&M8_FLOWER_R1_THROUGH)!=0u)
-    {
-        uint ownerRef;
-        bool changed;
-        if(!M8FlowerTryFindOwner(slot,local,source.y,ownerRef))status=M8_FLOWER_ARENA_INVALID;
-        else status=M8FlowerInvalidateDependentPhases(ownerRef,M8_FLOWER_INVALIDATION_ROOTS,true,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration,changed);
-    }
+            _M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
     if(!M8FlowerR1CutAccepted(status))
     {
         _M8FlowerSignalItems.Store(address+12u,0u);
@@ -73,7 +65,7 @@ void InvalidateFlowerPeers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         if(roots==0u)continue;
         bool changed;
         uint status=M8FlowerInvalidateDependentPhases(ownerRef,roots,false,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration,changed);
+            _M8WorldPublishingGeneration,_M8WorldRetiredGeneration,changed);
         if(status!=M8_FLOWER_ARENA_OK)
         {
             // No pending transaction is created. Invalid resident data is an

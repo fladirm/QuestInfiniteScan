@@ -37,12 +37,48 @@ namespace Genesis.RoomScan.Tests
             Assert.That(restored.AnchorUuid, Is.EqualTo(Anchor));
             Assert.That(restored.CommitGeneration, Is.EqualTo(7ul));
             Assert.That(restored.ValidEnd(MerkabaStorageStream.ThreadAtlas),
-                Is.EqualTo(106L));
+                Is.EqualTo(104L));
 
             first[72] ^= 0x40;
             using var corrupt = new MemoryStream(first, false);
             Assert.Throws<InvalidDataException>(() =>
                 MerkabaSessionManifest.Read(corrupt));
+        }
+
+        [Test]
+        public void GreenfieldFormat_ContainsOnlyDirectStreamsAndRecordKinds()
+        {
+            Assert.That(Enum.GetNames(typeof(MerkabaStorageStream)), Is.EqualTo(new[]
+                { "M8Base", "M8Live", "FlowerDetail", "ThreadAtlas", "Count" }));
+            Assert.That(Enum.GetNames(typeof(MerkabaRecordKind)), Is.EqualTo(new[]
+                { "M8Tile", "FlowerOwnerEpoch", "FlowerDetail", "FlowerSkinMetricRun",
+                    "FlowerVGroup", "ThreadProgram", "ThreadRun", "ThreadColorGroup", "Tombstone" }));
+            Assert.That(MerkabaSessionManifest.ByteSize, Is.EqualTo(184));
+            Assert.That(MerkabaSessionManifest.Version, Is.EqualTo(5));
+            Assert.That(MerkabaRecordHeader.CurrentVersion, Is.EqualTo(6));
+        }
+
+        [Test]
+        public void GreenfieldFormat_RejectsPriorManifestAndRecordVersions()
+        {
+            byte[] manifest = WriteManifest(ManifestFixture());
+            MerkabaSphereFlowerPersistenceAbi.WriteUInt16(manifest, 4,
+                (ushort)(MerkabaSessionManifest.Version - 1));
+            Write32(manifest, MerkabaSessionManifest.CrcOffset,
+                MerkabaSphereFlowerPersistenceAbi.ComputeBytesCrc(
+                    manifest.AsSpan(0, MerkabaSessionManifest.CrcOffset)));
+            using var stream = new MemoryStream(manifest);
+            Assert.Throws<InvalidDataException>(() => MerkabaSessionManifest.Read(stream));
+
+            var tile = new MerkabaTileAddress(new int3(-2, 1, 3), 0u);
+            MerkabaAppendRecord record = OwnerEpoch(tile, 7, 1u);
+            MerkabaRecordHeader header = MerkabaRecordHeader.Create(
+                record.Kind, 1ul, record.Address, record.Payload);
+            header.Version--;
+            header.Crc32 = MerkabaSphereFlowerPersistenceAbi.ComputeCrc(
+                header, record.Address, record.Payload);
+            Assert.That(MerkabaSphereFlowerPersistenceAbi.ValidateRecord(
+                header, record.Address, record.Payload), Is.False);
         }
 
         [Test]
@@ -325,7 +361,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void M8DualDetailAndThread_CommitUnderOneManifest()
+        public void M8DetailAndThread_CommitWithoutExcavationStorage()
         {
             string directory = TemporaryRoot("m8-all-streams");
             var tile = new MerkabaTileAddress(new int3(-2, 1, -1), 0u);
@@ -347,14 +383,11 @@ namespace Genesis.RoomScan.Tests
                 foreach (MerkabaStorageStream stream in new[]
                          {
                              MerkabaStorageStream.M8Live,
-                             MerkabaStorageStream.ThroughLive,
                              MerkabaStorageStream.FlowerDetail,
                              MerkabaStorageStream.ThreadAtlas
                          })
                     Assert.That(open.Manifest.ValidEnd(stream),
                         Is.GreaterThan(0L), stream.ToString());
-                Assert.That(replay.ReadDual(tile, 5),
-                    Is.EqualTo(MerkabaDualReadResult.CertainThrough));
                 Assert.That(replay.ValidFlowerDetailCount, Is.EqualTo(1));
                 Assert.That(replay.ValidFlowerSkinMetricRunCount,
                     Is.EqualTo(1));
@@ -397,22 +430,15 @@ namespace Genesis.RoomScan.Tests
                     Is.EqualTo(committed.Generation));
                 Assert.That(compacted.Manifest.M8BaseGeneration,
                     Is.EqualTo(committed.Generation));
-                Assert.That(compacted.Manifest.ThroughBaseGeneration,
-                    Is.EqualTo(committed.Generation));
                 Assert.That(compacted.Manifest.ValidEnd(
                     MerkabaStorageStream.M8Base), Is.GreaterThan(0L));
                 Assert.That(compacted.Manifest.ValidEnd(
-                    MerkabaStorageStream.ThroughBase), Is.GreaterThan(0L));
-                Assert.That(compacted.Manifest.ValidEnd(
                     MerkabaStorageStream.M8Live), Is.Zero);
-                Assert.That(compacted.Manifest.ValidEnd(
-                    MerkabaStorageStream.ThroughLive), Is.Zero);
                 Assert.That(compacted.Manifest.ValidEnd(
                     MerkabaStorageStream.FlowerDetail), Is.EqualTo(fineEnd));
                 Assert.That(compacted.Manifest.ValidEnd(
                     MerkabaStorageStream.ThreadAtlas), Is.EqualTo(threadEnd));
                 Assert.That(new FileInfo(store.M8LivePath).Length, Is.Zero);
-                Assert.That(new FileInfo(store.ThroughLivePath).Length, Is.Zero);
                 Assert.That(store.CompactCommittedBases(), Is.False,
                     "A clean base-only generation has no compaction work.");
 
@@ -423,8 +449,6 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(open.Manifest.CommitGeneration,
                     Is.EqualTo(committed.Generation));
                 Assert.That(restored[0].States[11].IsOccupied, Is.True);
-                Assert.That(reopened.Subordinate.ReadDual(tile, 11),
-                    Is.EqualTo(MerkabaDualReadResult.CertainThrough));
                 Assert.That(reopened.Subordinate.ValidFlowerDetailCount,
                     Is.EqualTo(1));
                 Assert.That(reopened.Subordinate.ValidFlowerSkinMetricRunCount,
@@ -449,7 +473,6 @@ namespace Genesis.RoomScan.Tests
         [TestCase((int)MerkabaCompactionStage.AfterRecoveryManifestFlush, 0)]
         [TestCase((int)MerkabaCompactionStage.AfterRecoveryManifestPublish, 1)]
         [TestCase((int)MerkabaCompactionStage.AfterM8BasePublish, 1)]
-        [TestCase((int)MerkabaCompactionStage.AfterThroughBasePublish, 1)]
         [TestCase((int)MerkabaCompactionStage.AfterFinalManifestFlush, 1)]
         [TestCase((int)MerkabaCompactionStage.AfterFinalManifestPublish, 2)]
         public async Task IdleCompactionCrash_ReopensOldRecoveryOrFinalLayout(
@@ -464,16 +487,9 @@ namespace Genesis.RoomScan.Tests
                 {
                     Tile(tile, 9, new Color32(3, 4, 5, 255))
                 });
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(tile.BlockCoord,
-                        MerkabaDualNodeState.AllThrough, 1u)
-                });
                 store.Commit(Session, Anchor, AnchorPose, 2, 1);
                 long originalM8Live = store.CurrentCommittedState().Manifest
                     .ValidEnd(MerkabaStorageStream.M8Live);
-                long originalDualLive = store.CurrentCommittedState().Manifest
-                    .ValidEnd(MerkabaStorageStream.ThroughLive);
 
                 var stage = (MerkabaCompactionStage)stageValue;
                 Assert.Throws<IOException>(() => store.CompactCommittedBases(
@@ -491,32 +507,20 @@ namespace Genesis.RoomScan.Tests
                     Assert.That(open.Manifest.ValidEnd(
                         MerkabaStorageStream.M8Base), Is.GreaterThan(0L));
                     Assert.That(open.Manifest.ValidEnd(
-                        MerkabaStorageStream.ThroughBase), Is.GreaterThan(0L));
-                    Assert.That(open.Manifest.ValidEnd(
                         MerkabaStorageStream.M8Live), Is.Zero);
-                    Assert.That(open.Manifest.ValidEnd(
-                        MerkabaStorageStream.ThroughLive), Is.Zero);
                 }
                 else
                 {
                     Assert.That(open.Manifest.ValidEnd(
                         MerkabaStorageStream.M8Base), Is.Zero);
                     Assert.That(open.Manifest.ValidEnd(
-                        MerkabaStorageStream.ThroughBase), Is.Zero);
-                    Assert.That(open.Manifest.ValidEnd(
                             MerkabaStorageStream.M8Live), expectedLayout == 0
                         ? Is.EqualTo(originalM8Live)
                         : Is.GreaterThan(originalM8Live));
-                    Assert.That(open.Manifest.ValidEnd(
-                            MerkabaStorageStream.ThroughLive), expectedLayout == 0
-                        ? Is.EqualTo(originalDualLive)
-                        : Is.GreaterThan(originalDualLive));
                 }
                 MerkabaTileSnapshot[] restored = await reopened.ReadAsync(
                     new[] { tile });
                 Assert.That(restored[0].States[9].IsOccupied, Is.True);
-                Assert.That(reopened.Subordinate.ReadDual(tile, 9),
-                    Is.EqualTo(MerkabaDualReadResult.CertainThrough));
             }
             finally
             {
@@ -525,7 +529,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public async Task RecoveryManifest_PreservesDualTruthPreviouslyOnlyInBase()
+        public async Task RecoveryManifest_PreservesLatestDirectStateAfterBaseCompaction()
         {
             string directory = TemporaryRoot("m8-compaction-base-dual-recovery");
             var tile = new MerkabaTileAddress(new int3(-4, 3, -2), 6u);
@@ -536,19 +540,10 @@ namespace Genesis.RoomScan.Tests
                 {
                     Tile(tile, 5, new Color32(1, 2, 3, 255))
                 });
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(tile.BlockCoord,
-                        MerkabaDualNodeState.AllThrough, 1u)
-                });
                 store.Commit(Session, Anchor, AnchorPose, 1, 1);
                 Assert.That(store.CompactCommittedBases(), Is.True);
-                Assert.That(store.CurrentCommittedState().Manifest.ValidEnd(
-                    MerkabaStorageStream.ThroughLive), Is.Zero);
 
-                // Two later M8 records make only the M8 live history worth
-                // compacting. The dual truth still exists exclusively in the
-                // previously published dual base at compaction entry.
+                // A later M8 image must survive a crash while replacing the base.
                 store.AppendM8Tiles(new[]
                 {
                     Tile(tile, 6, new Color32(4, 5, 6, 255))
@@ -571,15 +566,9 @@ namespace Genesis.RoomScan.Tests
                 var reopened = new MerkabaSsdStore(directory);
                 MerkabaSessionOpenState open = reopened.OpenCommitted();
                 Assert.That(open.Manifest.CommitGeneration, Is.EqualTo(3ul));
-                Assert.That(open.Manifest.ValidEnd(
-                    MerkabaStorageStream.ThroughBase), Is.Zero);
-                Assert.That(open.Manifest.ValidEnd(
-                    MerkabaStorageStream.ThroughLive), Is.GreaterThan(0L));
                 MerkabaTileSnapshot[] restored = await reopened.ReadAsync(
                     new[] { tile });
                 Assert.That(restored[0].States[7].IsOccupied, Is.True);
-                Assert.That(reopened.Subordinate.ReadDual(tile, 7),
-                    Is.EqualTo(MerkabaDualReadResult.CertainThrough));
             }
             finally
             {
@@ -640,13 +629,6 @@ namespace Genesis.RoomScan.Tests
                     Tile(positive, 2, new Color32(2, 3, 4, 255)),
                     Tile(negative, 1, new Color32(1, 2, 3, 255))
                 });
-                first.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(positive.BlockCoord,
-                        MerkabaDualNodeState.AllThrough, 1u),
-                    DualBlock(negative.BlockCoord,
-                        MerkabaDualNodeState.AllThrough, 1u)
-                });
                 first.Commit(Session, Anchor, AnchorPose, 1, 2);
                 Assert.That(first.CompactCommittedBases(), Is.True);
 
@@ -656,20 +638,11 @@ namespace Genesis.RoomScan.Tests
                     Tile(negative, 1, new Color32(1, 2, 3, 255)),
                     Tile(positive, 2, new Color32(2, 3, 4, 255))
                 });
-                second.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(negative.BlockCoord,
-                        MerkabaDualNodeState.AllThrough, 1u),
-                    DualBlock(positive.BlockCoord,
-                        MerkabaDualNodeState.AllThrough, 1u)
-                });
                 second.Commit(Session, Anchor, AnchorPose, 1, 2);
                 Assert.That(second.CompactCommittedBases(), Is.True);
 
                 Assert.That(File.ReadAllBytes(second.M8BasePath),
                     Is.EqualTo(File.ReadAllBytes(first.M8BasePath)));
-                Assert.That(File.ReadAllBytes(second.ThroughBasePath),
-                    Is.EqualTo(File.ReadAllBytes(first.ThroughBasePath)));
             }
             finally
             {
@@ -690,26 +663,14 @@ namespace Genesis.RoomScan.Tests
                 {
                     Tile(tile, 3, new Color32(1, 2, 3, 255))
                 });
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(tile.BlockCoord,
-                        MerkabaDualNodeState.AllThrough, 1u)
-                });
                 store.Commit(Session, Anchor, AnchorPose, 1, 1);
                 Assert.That(store.CompactCommittedBases(), Is.True);
 
                 File.WriteAllBytes(store.M8LivePath,
                     new byte[] { 0xde, 0xad, 0xbe, 0xef });
-                File.WriteAllBytes(store.ThroughLivePath,
-                    new byte[] { 0xfa, 0x11, 0xed });
                 store.AppendM8Tiles(new[]
                 {
                     Tile(tile, 3, new Color32(9, 8, 7, 255))
-                });
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(tile.BlockCoord,
-                        MerkabaDualNodeState.AllFull, 2u)
                 });
                 store.Commit(Session, Anchor, AnchorPose, 2, 1);
 
@@ -718,39 +679,6 @@ namespace Genesis.RoomScan.Tests
                 MerkabaTileSnapshot[] restored = await reopened.ReadAsync(
                     new[] { tile });
                 Assert.That(restored[0].States[3].IsOccupied, Is.True);
-                Assert.That(reopened.Subordinate.ReadDual(tile, 3),
-                    Is.EqualTo(MerkabaDualReadResult.CertainFull));
-            }
-            finally
-            {
-                DeleteRoot(directory);
-            }
-        }
-
-        [Test]
-        public void Compaction_OmitsImplicitAllFullDualBlocks()
-        {
-            string directory = TemporaryRoot("m8-compact-implicit-full");
-            var tile = new MerkabaTileAddress(new int3(-7, 2, 4), 0u);
-            try
-            {
-                var store = new MerkabaSsdStore(directory);
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(tile.BlockCoord,
-                        MerkabaDualNodeState.AllFull, 1u)
-                });
-                store.Commit(Session, Anchor, AnchorPose, 1, 0);
-                Assert.That(store.CompactCommittedBases(), Is.True);
-                Assert.That(new FileInfo(store.ThroughBasePath).Length,
-                    Is.Zero);
-                Assert.That(new FileInfo(store.ThroughLivePath).Length,
-                    Is.Zero);
-
-                var reopened = new MerkabaSsdStore(directory);
-                reopened.OpenCommitted();
-                Assert.That(reopened.Subordinate.ReadDual(tile, 17),
-                    Is.EqualTo(MerkabaDualReadResult.CertainFull));
             }
             finally
             {
@@ -847,8 +775,6 @@ namespace Genesis.RoomScan.Tests
                 {
                     (source.M8BasePath, destination.M8BasePath),
                     (source.M8LivePath, destination.M8LivePath),
-                    (source.ThroughBasePath, destination.ThroughBasePath),
-                    (source.ThroughLivePath, destination.ThroughLivePath),
                     (source.FlowerDetailPath, destination.FlowerDetailPath),
                     (source.ThreadAtlasPath, destination.ThreadAtlasPath)
                 };
@@ -868,154 +794,6 @@ namespace Genesis.RoomScan.Tests
                 DeleteRoot(sourceDirectory);
                 DeleteRoot(destinationDirectory);
             }
-        }
-
-        [Test]
-        public void DualMixedMutation_PreservesUnchangedDescendantsAndUniformBarrier()
-        {
-            string directory = TemporaryRoot("m8-dual-generations");
-            int3 block = new(-3, 2, -1);
-            var tileA = new MerkabaTileAddress(block, (uint)(0 | (2 << 9)));
-            var tileB = new MerkabaTileAddress(block, (uint)(1 | (3 << 9)));
-            try
-            {
-                var store = new MerkabaSsdStore(directory);
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(block, MerkabaDualNodeState.Mixed, 1u),
-                    DualChildren(block, 0),
-                    DualChunk(tileA, 1u),
-                    DualLeaf(tileA, 5)
-                });
-                store.Commit(Session, Anchor, AnchorPose, 1, 0);
-
-                // The parent and child-state records advance, while the
-                // untouched chunk/leaf from generation one remain authoritative.
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(block, MerkabaDualNodeState.Mixed, 2u),
-                    DualChildren(block, 0, 1),
-                    DualChunk(tileB, 2u),
-                    DualLeaf(tileB, 9)
-                });
-                store.Commit(Session, Anchor, AnchorPose, 2, 0);
-
-                var generationTwo = new MerkabaSsdStore(directory);
-                generationTwo.OpenCommitted();
-                Assert.That(generationTwo.Subordinate.ReadDual(tileA, 5),
-                    Is.EqualTo(MerkabaDualReadResult.CertainThrough));
-                Assert.That(generationTwo.Subordinate.ReadDual(tileB, 9),
-                    Is.EqualTo(MerkabaDualReadResult.CertainThrough));
-
-                // A uniform ancestor is an exact descendant tombstone. A later
-                // expansion must start clean and cannot resurrect tile A.
-                generationTwo.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(block, MerkabaDualNodeState.AllThrough, 3u)
-                });
-                generationTwo.Commit(Session, Anchor, AnchorPose, 3, 0);
-                generationTwo.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(block, MerkabaDualNodeState.Mixed, 4u),
-                    DualChildren(block, 1),
-                    DualChunk(tileB, 4u),
-                    DualLeaf(tileB, 10)
-                });
-                generationTwo.Commit(Session, Anchor, AnchorPose, 4, 0);
-
-                var generationFour = new MerkabaSsdStore(directory);
-                generationFour.OpenCommitted();
-                Assert.That(generationFour.Subordinate.ReadDual(tileA, 5),
-                    Is.EqualTo(MerkabaDualReadResult.CertainFull));
-                Assert.That(generationFour.Subordinate.ReadDual(tileB, 9),
-                    Is.EqualTo(MerkabaDualReadResult.CertainFull));
-                Assert.That(generationFour.Subordinate.ReadDual(tileB, 10),
-                    Is.EqualTo(MerkabaDualReadResult.CertainThrough));
-            }
-            finally
-            {
-                DeleteRoot(directory);
-            }
-        }
-
-        [Test]
-        public void DualExpansionFloor_RejectsOutOfOrderStaleDescendants()
-        {
-            int3 block = new(-4, 3, -2);
-            var staleTile = new MerkabaTileAddress(block,
-                (uint)(0 | (1 << 9)));
-            var liveTile = new MerkabaTileAddress(block,
-                (uint)(0 | (2 << 9)));
-            var replay = new MerkabaSphereFlowerReplayIndex();
-            var generationSix = new MerkabaRecordVersion(6ul, 0ul);
-
-            replay.Apply(DualBlock(block, MerkabaDualNodeState.Mixed, 6u),
-                generationSix);
-            replay.Apply(DualChildren(block, 0),
-                new MerkabaRecordVersion(6ul, 1ul));
-            replay.Apply(DualChunk(liveTile, 6u),
-                new MerkabaRecordVersion(6ul, 2ul));
-            replay.Apply(DualLeaf(liveTile, 9),
-                new MerkabaRecordVersion(6ul, 3ul));
-
-            replay.Apply(DualLeaf(staleTile, 5),
-                new MerkabaRecordVersion(5ul, 99ul));
-            replay.ValidateClosedHierarchy(_ => false);
-
-            Assert.That(replay.ReadDual(staleTile, 5),
-                Is.EqualTo(MerkabaDualReadResult.CertainFull));
-            Assert.That(replay.ReadDual(liveTile, 9),
-                Is.EqualTo(MerkabaDualReadResult.CertainThrough));
-        }
-
-        [Test]
-        public void IncompleteMixedDualHierarchy_CannotPublishManifest()
-        {
-            string directory = TemporaryRoot("m8-dual-incomplete");
-            try
-            {
-                var store = new MerkabaSsdStore(directory);
-                store.AppendSphereFlowerRecords(new[]
-                {
-                    DualBlock(new int3(1, -2, 3),
-                        MerkabaDualNodeState.Mixed, 1u)
-                });
-                Assert.Throws<InvalidDataException>(() => store.Commit(Session,
-                    Anchor, AnchorPose, 1, 0));
-                Assert.That(File.Exists(store.ManifestPath), Is.False);
-            }
-            finally
-            {
-                DeleteRoot(directory);
-            }
-        }
-
-        [Test]
-        public void NonCollapsedUniformDualNodes_AreRejected()
-        {
-            int3 block = new(2, -3, 4);
-            var tile = new MerkabaTileAddress(block, 0u);
-
-            var uniformBlock = new MerkabaSphereFlowerReplayIndex();
-            uniformBlock.Apply(DualBlock(block,
-                    MerkabaDualNodeState.Mixed, 1u),
-                new MerkabaRecordVersion(1ul, 0ul));
-            uniformBlock.Apply(DualChildren(block),
-                new MerkabaRecordVersion(1ul, 1ul));
-            Assert.Throws<InvalidDataException>(() =>
-                uniformBlock.ValidateClosedHierarchy(_ => false));
-
-            var uniformChunk = new MerkabaSphereFlowerReplayIndex();
-            uniformChunk.Apply(DualBlock(block,
-                    MerkabaDualNodeState.Mixed, 1u),
-                new MerkabaRecordVersion(1ul, 0ul));
-            uniformChunk.Apply(DualChildren(block, 0),
-                new MerkabaRecordVersion(1ul, 1ul));
-            uniformChunk.Apply(DualUniformChunk(tile,
-                    MerkabaDualNodeState.AllFull, 1u),
-                new MerkabaRecordVersion(1ul, 2ul));
-            Assert.Throws<InvalidDataException>(() =>
-                uniformChunk.ValidateClosedHierarchy(_ => false));
         }
 
         [Test]
@@ -1587,45 +1365,6 @@ namespace Genesis.RoomScan.Tests
         private static IEnumerable<MerkabaAppendRecord> AllAuthorityRecords(
             MerkabaTileAddress tile, int kernel, uint epoch)
         {
-            int3 block = tile.BlockCoord;
-            byte[] blockAddress = new byte[
-                MerkabaSphereFlowerPersistenceAbi.BlockAddressBytes];
-            MerkabaSphereFlowerPersistenceAbi.WriteBlockAddress(blockAddress,
-                block);
-            byte[] blockPayload = new byte[MerkabaDualBlockMeta.ByteSize];
-            Write32(blockPayload, 0, (1u << 2) |
-                (uint)MerkabaDualNodeState.Mixed);
-            Write32(blockPayload, 4, 0u);
-            yield return new MerkabaAppendRecord(MerkabaRecordKind.DualBlock,
-                blockAddress, blockPayload);
-
-            byte[] children = new byte[MerkabaDualBlockChildren.ByteSize];
-            int childShift = (tile.ChunkLocal & 15) * 2;
-            int childWord = tile.ChunkLocal >> 4;
-            Write32(children, childWord * 4,
-                (uint)MerkabaDualNodeState.Mixed << childShift);
-            yield return new MerkabaAppendRecord(
-                MerkabaRecordKind.DualBlockChildren, blockAddress, children);
-
-            byte[] chunkAddress = new byte[
-                MerkabaSphereFlowerPersistenceAbi.ChunkAddressBytes];
-            MerkabaSphereFlowerPersistenceAbi.WriteChunkAddress(chunkAddress,
-                block, tile.ChunkLocal);
-            byte[] chunk = new byte[MerkabaDualChunkPayload.ByteSize];
-            ulong bit = 1ul << tile.TileLocal;
-            Write64(chunk, 0, bit);
-            Write64(chunk, 8, bit);
-            Write32(chunk, 16, 0u);
-            Write32(chunk, 20, 1u);
-            yield return new MerkabaAppendRecord(MerkabaRecordKind.DualChunk,
-                chunkAddress, chunk);
-
-            byte[] tileAddress = TileAddress(tile);
-            byte[] leaf = new byte[MerkabaDualLeaf.ByteSize];
-            Write32(leaf, (kernel >> 5) * 4, 1u << (kernel & 31));
-            yield return new MerkabaAppendRecord(MerkabaRecordKind.DualLeaf,
-                tileAddress, leaf);
-
             yield return OwnerEpoch(tile, kernel, epoch);
             MerkabaFlowerDetailKey detailKey = DetailKey();
             yield return Detail(tile, kernel, detailKey, epoch);
@@ -1694,94 +1433,6 @@ namespace Genesis.RoomScan.Tests
             MerkabaAppendRecord[] image = source.CaptureTile(tile);
             return MerkabaFlowerPageStorage.DecodeCaptureRecords(tile,
                 MerkabaFlowerPageStorage.EncodeLoadRecords(tile, image));
-        }
-
-        private static MerkabaAppendRecord DualBlock(int3 block,
-            MerkabaDualNodeState state, uint nodeGeneration)
-        {
-            byte[] address = new byte[
-                MerkabaSphereFlowerPersistenceAbi.BlockAddressBytes];
-            MerkabaSphereFlowerPersistenceAbi.WriteBlockAddress(address, block);
-            byte[] payload = new byte[MerkabaDualBlockMeta.ByteSize];
-            Write32(payload, 0, (nodeGeneration << 2) | (uint)state);
-            Write32(payload, 4, state == MerkabaDualNodeState.Mixed
-                ? 0u : MerkabaDualBlockMeta.NoPayload);
-            return new MerkabaAppendRecord(MerkabaRecordKind.DualBlock,
-                address, payload);
-        }
-
-        private static MerkabaAppendRecord DualChildren(int3 block,
-            params int[] mixedChunks)
-        {
-            byte[] address = new byte[
-                MerkabaSphereFlowerPersistenceAbi.BlockAddressBytes];
-            MerkabaSphereFlowerPersistenceAbi.WriteBlockAddress(address, block);
-            byte[] payload = new byte[MerkabaDualBlockChildren.ByteSize];
-            foreach (int chunk in mixedChunks)
-            {
-                int shift = (chunk & 15) * 2;
-                int offset = (chunk >> 4) * 4;
-                uint word = MerkabaSphereFlowerPersistenceAbi.ReadUInt32(
-                    payload, offset);
-                Write32(payload, offset, word |
-                    ((uint)MerkabaDualNodeState.Mixed << shift));
-            }
-            return new MerkabaAppendRecord(
-                MerkabaRecordKind.DualBlockChildren, address, payload);
-        }
-
-        private static MerkabaAppendRecord DualChunk(MerkabaTileAddress tile,
-            uint nodeGeneration)
-        {
-            byte[] address = new byte[
-                MerkabaSphereFlowerPersistenceAbi.ChunkAddressBytes];
-            MerkabaSphereFlowerPersistenceAbi.WriteChunkAddress(address,
-                tile.BlockCoord, tile.ChunkLocal);
-            byte[] payload = new byte[MerkabaDualChunkPayload.ByteSize];
-            ulong bit = 1ul << tile.TileLocal;
-            Write64(payload, 0, bit);
-            Write64(payload, 8, bit);
-            Write32(payload, 16, 0u);
-            Write32(payload, 20, nodeGeneration);
-            return new MerkabaAppendRecord(MerkabaRecordKind.DualChunk,
-                address, payload);
-        }
-
-        private static MerkabaAppendRecord DualUniformChunk(
-            MerkabaTileAddress tile, MerkabaDualNodeState state,
-            uint nodeGeneration)
-        {
-            byte[] address = new byte[
-                MerkabaSphereFlowerPersistenceAbi.ChunkAddressBytes];
-            MerkabaSphereFlowerPersistenceAbi.WriteChunkAddress(address,
-                tile.BlockCoord, tile.ChunkLocal);
-            byte[] payload = new byte[MerkabaDualChunkPayload.ByteSize];
-            if (state == MerkabaDualNodeState.AllThrough)
-            {
-                Write64(payload, 0, ulong.MaxValue);
-                Write64(payload, 8, 0ul);
-            }
-            else if (state != MerkabaDualNodeState.AllFull)
-                throw new ArgumentOutOfRangeException(nameof(state));
-            Write32(payload, 16, MerkabaDualBlockMeta.NoPayload);
-            Write32(payload, 20, nodeGeneration);
-            return new MerkabaAppendRecord(MerkabaRecordKind.DualChunk,
-                address, payload);
-        }
-
-        private static MerkabaAppendRecord DualLeaf(MerkabaTileAddress tile,
-            params int[] throughKernels)
-        {
-            byte[] payload = new byte[MerkabaDualLeaf.ByteSize];
-            foreach (int kernel in throughKernels)
-            {
-                int offset = (kernel >> 5) * 4;
-                uint word = MerkabaSphereFlowerPersistenceAbi.ReadUInt32(
-                    payload, offset);
-                Write32(payload, offset, word | (1u << (kernel & 31)));
-            }
-            return new MerkabaAppendRecord(MerkabaRecordKind.DualLeaf,
-                TileAddress(tile), payload);
         }
 
         private static MerkabaAppendRecord Tombstone(MerkabaTileAddress tile,
@@ -1870,8 +1521,7 @@ namespace Genesis.RoomScan.Tests
                 IntegrationCount = 47,
                 OccupiedKernelCount = 12u,
                 CanonicalTileCount = 2u,
-                M8BaseGeneration = 2ul,
-                ThroughBaseGeneration = 3ul
+                M8BaseGeneration = 2ul
             };
             for (int i = 0; i < result.ValidEnds.Length; i++)
                 result.ValidEnds[i] = 101L + i;

@@ -940,7 +940,7 @@ uint M8FlowerPrepareSkinGroup(uint slot,uint local,uint slotGeneration,uint flow
     if(slot>=32768u || local>=512u || parentOrdinal>=57u)return M8_FLOWER_ARENA_INVALID;
     uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)],meta=_M8TileRecords[M8TileMetaIndex(slot)];
     if(runtime.w!=slotGeneration || meta.x>=MERKABA_M8_CHUNK_CAPACITY || meta.y>=64u ||
-        _M8ChunkTileRefsRead[meta.x*64u+meta.y]!=slot+1u)return M8_FLOWER_SIDECAR_STALE_SLOT;
+        _M8ChunkTileRefs[meta.x*64u+meta.y]!=slot+1u)return M8_FLOWER_SIDECAR_STALE_SLOT;
     KernelState state=M8LoadKernelStateRead(slot,local);
     if((state.flags&(M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID|M8_FLOWER_SEED_FLAG))!=
         (M8_FLOWER_OCCUPIED_FLAG|M8_FLOWER_PLANE_VALID))return M8_FLOWER_ARENA_INVALID;
@@ -1017,14 +1017,14 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
     uint status=M8_FLOWER_ARENA_OK;
     if(ownerRef==0u)
     {
-        status=M8FlowerEnsureOwner(slot,local,slotGeneration,context.Flags,_M8DualPublishingGeneration,ownerRef);
+        status=M8FlowerEnsureOwner(slot,local,slotGeneration,context.Flags,_M8WorldPublishingGeneration,ownerRef);
         if(status!=M8_FLOWER_ARENA_OK)return status;
         // If the subsequent non-spinning group allocation yields, this
         // successful publication is still progress for the frozen workset.
         M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
     }
     status=M8FlowerCommitThreadGroup(ownerRef,flowerKey,parentOrdinal,thread,
-        _M8DualPublishingGeneration,_M8DualRetiredGeneration);
+        _M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
     if(status==M8_FLOWER_ARENA_OK)
     {
         changed=true;M8MarkTileDirty(slot);
@@ -1070,12 +1070,12 @@ uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint
     uint status=M8_FLOWER_ARENA_OK;
     if(ownerRef==0u)
     {
-        status=M8FlowerEnsureOwner(slot,local,slotGeneration,context.Flags,_M8DualPublishingGeneration,ownerRef);
+        status=M8FlowerEnsureOwner(slot,local,slotGeneration,context.Flags,_M8WorldPublishingGeneration,ownerRef);
         if(status!=M8_FLOWER_ARENA_OK)return status;
         M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
     }
     status=M8FlowerCommitMetricGroup(ownerRef,flowerKey,parentOrdinal,thread,
-        _M8DualPublishingGeneration,_M8DualRetiredGeneration);
+        _M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
     if(status==M8_FLOWER_ARENA_OK)
     {
         changed=true;M8MarkTileDirty(slot);

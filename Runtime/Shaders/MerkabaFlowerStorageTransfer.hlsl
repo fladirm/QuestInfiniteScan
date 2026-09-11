@@ -40,7 +40,7 @@ uint M8FlowerPublishImportedRun(uint first,uint publishing,uint retired)
 
 void M8InstallFlowerPacket(uint item)
 {
-    uint first=item*M8_LOAD_TILE_RECORDS+512u+M8_DUAL_PACKET_RECORDS;
+    uint first=item*M8_LOAD_TILE_RECORDS+512u;
     uint4 packet=_M8LoadStagingStatesWrite[first];
     if(packet.w==M8_FLOWER_LOAD_IMAGE_DONE)return;
     uint encoded=_M8LoadStagingAddressesRead[item].localAddress;
@@ -71,7 +71,7 @@ void M8InstallFlowerPacket(uint item)
         uint4 group=_M8LoadStagingStatesWrite[first+5u];
         if(owner.y!=0u && group.y==group.z)
         {
-            result=M8FlowerPublishImportedRun(first,_M8DualPublishingGeneration,_M8DualRetiredGeneration);
+            result=M8FlowerPublishImportedRun(first,_M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
             if(result!=M8_FLOWER_ARENA_OK)break;
             owner=_M8LoadStagingStatesWrite[first+2u];
         }
@@ -97,9 +97,9 @@ void M8InstallFlowerPacket(uint item)
             if(header.w!=8u || header.y>=512u || header.z!=0u || words[0]!=header.y ||
                 words[1]==0u || owner.y!=0u){invalid=true;break;}
             uint ownerRef;
-            result=M8FlowerEnsureOwnerStorage(slot,header.y,generation,_M8DualPublishingGeneration,ownerRef);
+            result=M8FlowerEnsureOwnerStorage(slot,header.y,generation,_M8WorldPublishingGeneration,ownerRef);
             if(result!=M8_FLOWER_ARENA_OK)break;
-            if(!M8FlowerRestoreOwnerEpoch(ownerRef,words[1],_M8DualPublishingGeneration))
+            if(!M8FlowerRestoreOwnerEpoch(ownerRef,words[1],_M8WorldPublishingGeneration))
             {invalid=true;break;}
             _M8LoadStagingStatesWrite[first+2u]=uint4(header.y,0u,words[1],ownerRef);
         }
@@ -130,7 +130,7 @@ void M8InstallFlowerPacket(uint item)
                 M8FlowerDetailRecord phase;
                 phase.Key=words[0];phase.Lower=asint(words[1]);phase.Upper=asint(words[2]);
                 phase.ParentEpoch=words[3];
-                result=M8FlowerCommitPhase(owner.w,phase,_M8DualPublishingGeneration,_M8DualRetiredGeneration);
+                result=M8FlowerCommitPhase(owner.w,phase,_M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
                 if(result!=M8_FLOWER_ARENA_OK)break;
             }
             else if(header.x==8u || header.x==11u)
@@ -184,7 +184,7 @@ void M8InstallFlowerPacket(uint item)
         uint4 owner=_M8LoadStagingStatesWrite[first+2u];
         uint4 group=_M8LoadStagingStatesWrite[first+5u];
         if(owner.y!=0u && group.y==group.z)
-            result=M8FlowerPublishImportedRun(first,_M8DualPublishingGeneration,_M8DualRetiredGeneration);
+            result=M8FlowerPublishImportedRun(first,_M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
         uint4 program=_M8LoadStagingStatesWrite[first+6u];
         if(result==M8_FLOWER_ARENA_OK && _M8LoadStagingStatesWrite[first+2u].y==0u &&
             program.w!=0u && _M8LoadStagingStatesWrite[first+7u].x!=0u)
@@ -212,7 +212,7 @@ void M8InstallFlowerPacket(uint item)
 
 void M8AcknowledgeFlowerCapture(uint item)
 {
-    uint first=item*M8_WRITEBACK_TILE_RECORDS+1u+512u+M8_DUAL_PACKET_RECORDS;
+    uint first=item*M8_WRITEBACK_TILE_RECORDS+1u+512u;
     uint4 packet=_M8WritebackStaging[first];
     if(packet.z==M8_FLOWER_CAPTURE_ACK_READY)return;
     uint2 queued=_M8WritebackQueueRead[item];
@@ -223,12 +223,7 @@ void M8AcknowledgeFlowerCapture(uint item)
     bool keepHot=(queued.y&M8_WRITEBACK_KEEP_HOT)!=0u || M8TilePinnedByObservation(slot);
     if(!keepHot)
     {
-        uint4 meta=M8LoadTileMetaRead(slot);
-        uint2 owner=M8LoadChunkOwnerRead(meta.x);
-        uint cold=M8DualMakeLeafCold(owner.x,owner.y,meta.y,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration,true);
-        if(cold>M8_DUAL_WRITE_COMMITTED)return;
-        if(M8FlowerRetireTile(slot,packet.w,_M8DualRetiredGeneration)!=M8_FLOWER_ARENA_OK)return;
+        if(M8FlowerRetireTile(slot,packet.w,_M8WorldRetiredGeneration)!=M8_FLOWER_ARENA_OK)return;
     }
     else
     {
@@ -251,7 +246,7 @@ void M8AcknowledgeFlowerCapture(uint item)
 
 void M8CancelFlowerPacket(uint item)
 {
-    uint first=item*M8_LOAD_TILE_RECORDS+512u+M8_DUAL_PACKET_RECORDS;
+    uint first=item*M8_LOAD_TILE_RECORDS+512u;
     uint4 packet=_M8LoadStagingStatesWrite[first];
     if(packet.w==M8_FLOWER_LOAD_CANCELLED)return;
     uint encoded=_M8LoadStagingAddressesRead[item].localAddress;
@@ -277,10 +272,7 @@ void M8CancelFlowerPacket(uint item)
             if(M8FlowerReleaseImportedProgram(program.y)!=M8_FLOWER_ARENA_OK)return;
             _M8LoadStagingStatesWrite[first+6u]=0u.xxxx;
         }
-        uint2 owner=M8LoadChunkOwnerRead(meta.x);
-        if(M8DualMakeLeafCold(owner.x,owner.y,meta.y,_M8DualPublishingGeneration,
-            _M8DualRetiredGeneration,true)>M8_DUAL_WRITE_COMMITTED)return;
-        if(M8FlowerRetireTile(slot,generation,_M8DualRetiredGeneration)!=M8_FLOWER_ARENA_OK)return;
+        if(M8FlowerRetireTile(slot,generation,_M8WorldRetiredGeneration)!=M8_FLOWER_ARENA_OK)return;
     }
     DeviceMemoryBarrier();
     _M8LoadStagingStatesWrite[first].w=M8_FLOWER_LOAD_CANCELLED;

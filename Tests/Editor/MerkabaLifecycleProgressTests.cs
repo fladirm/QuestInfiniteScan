@@ -245,13 +245,13 @@ namespace Genesis.RoomScan.Tests
             {
                 string body = Slice(storage, begin, end);
                 Assert.That(body.Contains("GpuSubmissionAllowed") ||
-                    body.Contains("DualMutationSubmissionAllowed"), Is.True, begin);
+                    body.Contains("WorldMutationSubmissionAllowed"), Is.True, begin);
             }
-            string dualGate = Slice(gpu,
-                "internal bool DualMutationSubmissionAllowed =>", ";");
-            Assert.That(dualGate, Does.Contain("GpuSubmissionAllowed &&"));
-            Assert.That(dualGate, Does.Contain("_dualMutationGeneration == 0u"));
-            Assert.That(dualGate, Does.Contain("!MerkabaNativeVulkanExecutor.HasJobInFlight"));
+            string worldGate = Slice(gpu,
+                "internal bool WorldMutationSubmissionAllowed =>", ";");
+            Assert.That(worldGate, Does.Contain("GpuSubmissionAllowed &&"));
+            Assert.That(worldGate, Does.Contain("_worldMutationGeneration == 0u"));
+            Assert.That(worldGate, Does.Contain("!MerkabaNativeVulkanExecutor.HasJobInFlight"));
             string cpuCompletion = Slice(storage,
                 "private void CompleteStorageCpuTasks()",
                 "private void PumpIdleBaseCompaction()");
@@ -300,14 +300,15 @@ namespace Genesis.RoomScan.Tests
                     ? gpu.Substring(start, next - start)
                     : gpu.Substring(start);
                 Assert.That(body.Contains("if (!GpuSubmissionAllowed) return;") ||
-                    body.Contains("if (!DualMutationSubmissionAllowed) return false;") ||
-                    body.Contains("return ExecuteDualWorldBatch("), Is.True, method);
+                    body.Contains("if (!WorldMutationSubmissionAllowed) return false;") ||
+                    body.Contains("return ExecuteWorldStorageBatch("), Is.True, method);
             }
-            string dualBatch = Slice(gpu, "private bool ExecuteDualWorldBatch(",
+            string storageBatch = Slice(gpu, "private bool ExecuteWorldStorageBatch(",
                 "internal void FailLoadedTiles");
-            Assert.That(dualBatch, Does.Contain("if (!DualMutationSubmissionAllowed) return false;"));
-            Assert.That(Source("Runtime/Merkaba/MerkabaGrid.DualStorage.cs"),
-                Does.Contain("GpuSubmissionAllowed"));
+            Assert.That(storageBatch, Does.Contain("if (!WorldMutationSubmissionAllowed) return false;"));
+            Assert.That(gpu, Does.Not.Contain("GatherDualWriteback"));
+            Assert.That(Source("Runtime/Merkaba/MerkabaGrid.WritebackRecords.cs"),
+                Does.Contain("CollectWritebackRecords"));
         }
 
         [Test]

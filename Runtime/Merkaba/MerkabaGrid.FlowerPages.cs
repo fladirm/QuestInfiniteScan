@@ -82,15 +82,14 @@ namespace Genesis.RoomScan
         internal const int DirtyBatchRecordBytes = 64;
         internal const int DirtyBatchEmitIndices = DirtyBatchBase + DirtyBatchCapacity * DirtyBatchRecordBytes;
         internal const int DirtyBatchScratchBase = DirtyBatchEmitIndices + DirtyBatchCapacity * sizeof(uint);
-        // Per-page execution proofs only: 512 uint2 exclusive prefixes,
-        // 512 completion tokens, 192 DIRT half-mask words. No world vertices.
-        internal const int DirtyBatchScratchBytes = 512 * 8 + 512 * 4 + 192 * 4;
+        // Per-page execution scratch: 512 uint2 exclusive prefixes. No world vertices.
+        internal const int DirtyBatchScratchBytes = 512 * 8;
         internal const int PageDirectoryBytes = DirtyBatchScratchBase + DirtyBatchCapacity * DirtyBatchScratchBytes;
         internal const int IndirectCommandBytes = 5 * sizeof(uint);
         internal const int IndirectCountOffset = TileCapacity * IndirectCommandBytes;
         internal const int DirtyBatchDispatchOffset = (IndirectCountOffset + sizeof(uint) + 15) & ~15;
         internal const int IndirectBytes = DirtyBatchDispatchOffset + 4 * sizeof(uint);
-        internal const int MaximumPageSymbols = 512 * 128 + 512 * 6 * 2;
+        internal const int MaximumPageSymbols = 512 * 128;
         internal const int VerticesPerSymbol = 7;
         internal const int IndicesPerSymbol = 18;
         internal const int StaticIndexCount = MaximumPageSymbols * IndicesPerSymbol;

@@ -8,8 +8,8 @@ using Unity.Mathematics;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// REV-B filesystem transport. Append tails are usable by the live process;
-    /// only the six byte ranges named by the atomically published manifest are
+    /// Direct M8 filesystem transport. Append tails are usable by the live process;
+    /// only the four byte ranges named by the atomically published manifest are
     /// durable session authority.
     /// </summary>
     internal sealed class MerkabaSsdStore
@@ -22,8 +22,6 @@ namespace Genesis.RoomScan
 
         internal const string M8BaseFileName = "merkaba-base.bin";
         internal const string M8LiveFileName = "merkaba-live.m8log";
-        internal const string ThroughBaseFileName = "through-base.bin";
-        internal const string ThroughLiveFileName = "through-live.tlog";
         internal const string FlowerDetailFileName = "flower-detail.flog";
         internal const string ThreadAtlasFileName = "thread-atlas.tlog";
         internal const string ManifestFileName = "session-manifest.bin";
@@ -37,7 +35,6 @@ namespace Genesis.RoomScan
             _indexedTilesByBlock = new();
         private readonly HashSet<MerkabaStorageStream> _dirtyStreams = new();
         private readonly HashSet<MerkabaTileAddress> _dirtyM8Tiles = new();
-        private readonly HashSet<int3> _dirtyDualBlocks = new();
         private readonly HashSet<MerkabaOwnerAddress> _dirtyFineOwners = new();
         private readonly MerkabaSphereFlowerReplayIndex _subordinate = new();
         private readonly string _directory;
@@ -96,10 +93,6 @@ namespace Genesis.RoomScan
             M8BaseFileName);
         internal string M8LivePath => Path.Combine(_directory,
             M8LiveFileName);
-        internal string ThroughBasePath => Path.Combine(_directory,
-            ThroughBaseFileName);
-        internal string ThroughLivePath => Path.Combine(_directory,
-            ThroughLiveFileName);
         internal string FlowerDetailPath => Path.Combine(_directory,
             FlowerDetailFileName);
         internal string ThreadAtlasPath => Path.Combine(_directory,
@@ -108,26 +101,6 @@ namespace Genesis.RoomScan
         internal int IndexedTileCount
         {
             get { lock (_gate) return _index.Count; }
-        }
-
-        internal Task<long> StreamDirtAsync(
-            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
-            Action<IReadOnlyList<MerkabaDirtTriangle>> consume)
-        {
-            if (directCoverage == null)
-                throw new ArgumentNullException(nameof(directCoverage));
-            if (consume == null) throw new ArgumentNullException(nameof(consume));
-            // Export is already quiesced. Hold the exact replay generation while
-            // synchronously consuming bounded batches; do not clone the world or
-            // let a later append change the FREE/FULL relation mid-file. Coverage
-            // is the prepared shared L2 evaluator, never an asynchronous readback.
-            return Task.Run(() =>
-            {
-                lock (_ioGate)
-                lock (_gate)
-                    return MerkabaDirtExtraction.Stream(_subordinate,
-                        directCoverage, consume);
-            });
         }
 
         internal Task<MerkabaSphereFlowerAuthority.SnapshotReader> ReadFlowerContextAsync(
@@ -176,126 +149,11 @@ namespace Genesis.RoomScan
                 snapshots[i] = ReadOne(context[i]);
                 snapshots[i].Sidecars = _subordinate.CaptureTile(context[i]);
             }
-            return new MerkabaSphereFlowerAuthority.SnapshotReader(snapshots, capturedIndex,
-                cell =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    return ReadFlowerCell(position, cell);
-                });
+            return new MerkabaSphereFlowerAuthority.SnapshotReader(snapshots, capturedIndex);
         }
-
-        private MerkabaSphereFlowerAuthority.ExcavationCellState ReadFlowerCell(
-            MerkabaStorageAppendPosition position, int3 cell)
-        {
-            lock (_gate)
-            {
-                RequireFlowerPosition(position);
-                Span<MerkabaDualReadResult> supports = stackalloc MerkabaDualReadResult[8];
-                for (int bit = 0; bit < 8; bit++)
-                {
-                    long x = (long)cell.x + (bit & 1), y = (long)cell.y + ((bit >> 1) & 1),
-                        z = (long)cell.z + ((bit >> 2) & 1);
-                    if (x > int.MaxValue || y > int.MaxValue || z > int.MaxValue)
-                        return MerkabaSphereFlowerAuthority.ExcavationCellState.Ambiguous;
-                    MerkabaSpatial.Address address = MerkabaSpatial.Encode(new int3((int)x, (int)y, (int)z));
-                    supports[bit] = _subordinate.ReadDual(new MerkabaTileAddress(address.BlockCoord,
-                        address.LocalAddress), address.KernelLocal);
-                }
-                return MerkabaSphereFlowerAuthority.ClassifyFreeCell(supports);
-            }
-        }
-
-        internal Task<long> StreamFlowerDirtAsync(float2 planeBounds,
-            MerkabaTileAddress[] index, MerkabaStorageAppendPosition position,
-            Action<IReadOnlyList<MerkabaDirtTriangle>> consume,
-            CancellationToken cancellationToken = default) => Task.Run(() =>
-        {
-            if (consume == null) throw new ArgumentNullException(nameof(consume));
-            lock (_ioGate)
-            lock (_gate)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (index == null) throw new ArgumentNullException(nameof(index));
-                RequireFlowerPosition(position);
-                MerkabaTileAddress previous = default;
-                MerkabaFlowerPresentation page = null;
-                MerkabaDirtFaceCoverage Coverage(int3 cell, int face)
-                {
-                    MerkabaSpatial.Address address = MerkabaSpatial.Encode(cell);
-                    var tile = new MerkabaTileAddress(address.BlockCoord, address.LocalAddress);
-                    if (page == null || !tile.Equals(previous))
-                    {
-                        previous = tile;
-                        var reader = ReadFlowerContext(tile, index, position, cancellationToken);
-                        page = MerkabaFlowerPresentation.Build(reader, tile, planeBounds, cancellationToken);
-                    }
-                    // This is the actual generated direct footprint of the
-                    // same FREE-side page used by live compaction. Unknown
-                    // direct evidence is not itself coverage or a DIRT veto.
-                    return page.DirtCoverage(cell, face);
-                }
-                return MerkabaDirtExtraction.Stream(_subordinate, Coverage, consume, cancellationToken);
-            }
-        });
 
         internal bool HasCommittedSession => File.Exists(ManifestPath);
         internal MerkabaSphereFlowerReplayIndex Subordinate => _subordinate;
-
-        internal MerkabaDualStorageNode[] SnapshotDualNodes(out uint maximumGeneration)
-        {
-            var nodes = new List<MerkabaDualStorageNode>();
-            maximumGeneration = 0u;
-            lock (_gate)
-            {
-                maximumGeneration = _subordinate.MaximumDualGeneration();
-                foreach (MerkabaAppendRecord record in _subordinate.CanonicalDualRecords())
-                {
-                    MerkabaTileAddress address;
-                    if (record.Kind == MerkabaRecordKind.DualBlock)
-                        address = new MerkabaTileAddress(
-                            MerkabaSphereFlowerPersistenceAbi.ReadBlockAddress(record.Address), 0u);
-                    else if (record.Kind == MerkabaRecordKind.DualChunk)
-                    {
-                        MerkabaSphereFlowerPersistenceAbi.ReadChunkAddress(record.Address,
-                            out int3 block, out int chunk);
-                        address = new MerkabaTileAddress(block, (uint)chunk);
-                    }
-                    else if (record.Kind == MerkabaRecordKind.DualLeaf)
-                        address = MerkabaSphereFlowerPersistenceAbi.ReadTileAddress(record.Address);
-                    else continue;
-                    nodes.Add(new MerkabaDualStorageNode(record.Kind, address));
-                }
-            }
-            nodes.Sort((left, right) =>
-            {
-                int kind = left.Kind.CompareTo(right.Kind);
-                return kind != 0 ? kind : left.Address.CompareTo(right.Address);
-            });
-            return nodes.ToArray();
-        }
-
-        internal Task<MerkabaTileSnapshot[]> ReadDualNodesAsync(
-            IReadOnlyList<MerkabaDualStorageNode> nodes)
-        {
-            if (nodes == null) throw new ArgumentNullException(nameof(nodes));
-            if (nodes.Count > MerkabaGrid.StreamBatchCapacity)
-                throw new InvalidDataException("Dual residency batch exceeds 32 nodes.");
-            var requested = new MerkabaDualStorageNode[nodes.Count];
-            for (int index = 0; index < requested.Length; index++) requested[index] = nodes[index];
-            return Task.Run(() =>
-            {
-                var result = new MerkabaTileSnapshot[requested.Length];
-                lock (_ioGate)
-                lock (_gate)
-                    for (int index = 0; index < result.Length; index++)
-                        result[index] = new MerkabaTileSnapshot
-                        {
-                            Address = requested[index].Address,
-                            Sidecars = _subordinate.CaptureDualNode(requested[index])
-                        };
-                return result;
-            });
-        }
 
         internal Task<MerkabaSessionOpenState> OpenCommittedAsync(
             IProgress<OperationWorkProgress> progress = null) =>
@@ -359,7 +217,6 @@ namespace Genesis.RoomScan
                     _indexedOccupiedKernelCount = occupiedKernelCount;
                     _dirtyStreams.Clear();
                     _dirtyM8Tiles.Clear();
-                    _dirtyDualBlocks.Clear();
                     _dirtyFineOwners.Clear();
                     _appendAuthority = new object();
                     _appendPublicationFailure = null;
@@ -417,7 +274,7 @@ namespace Genesis.RoomScan
             bool completeFineImages = false) =>
             Task.Run(() => AppendObservationBatch(tiles, sidecars, completeFineImages));
 
-        // One publication boundary for M8, sparse dual, owner epochs, metric
+        // One publication boundary for M8, owner epochs, metric
         // detail and ThreadAtlas. Consumers never observe M8 from this batch
         // without its corresponding structural invalidation / fine records.
         internal void AppendObservationBatch(
@@ -627,7 +484,7 @@ namespace Genesis.RoomScan
                         foreach (MerkabaStorageStream stream in priorLengths.Keys)
                             _dirtyStreams.Add(stream);
                         MerkabaSphereFlowerReplayIndex.AccumulateTouched(orderedSidecars,
-                            _dirtyDualBlocks, _dirtyFineOwners);
+                            _dirtyFineOwners);
                         _recordSequence = finalSequence;
                         _appendAuthority = publishedAuthority;
                     }
@@ -726,20 +583,16 @@ namespace Genesis.RoomScan
                 }
                 Directory.CreateDirectory(_directory);
                 MerkabaTileAddress[] dirtyM8Tiles;
-                int3[] dirtyDualBlocks;
                 MerkabaOwnerAddress[] dirtyFineOwners;
                 lock (_gate)
                 {
                     dirtyM8Tiles = new List<MerkabaTileAddress>(
                         _dirtyM8Tiles).ToArray();
-                    dirtyDualBlocks = new List<int3>(
-                        _dirtyDualBlocks).ToArray();
                     dirtyFineOwners = new List<MerkabaOwnerAddress>(
                         _dirtyFineOwners).ToArray();
                 }
                 var replayTileCache = new Dictionary<MerkabaTileAddress,
                     KernelState[]>();
-                _subordinate.ValidateDualBlocks(dirtyDualBlocks);
                 _subordinate.ValidateFineOwners(dirtyFineOwners,
                     owner => IsCanonicalR1Owner(owner, _index,
                         replayTileCache));
@@ -783,13 +636,13 @@ namespace Genesis.RoomScan
                     IntegrationCount = integrationCount,
                     OccupiedKernelCount = occupiedKernelCount,
                     CanonicalTileCount = checked((uint)IndexedTileCount),
-                    M8BaseGeneration = _manifest?.M8BaseGeneration ?? 0ul,
-                    ThroughBaseGeneration =
-                        _manifest?.ThroughBaseGeneration ?? 0ul
+                    M8BaseGeneration = _manifest?.M8BaseGeneration ?? 0ul
                 };
                 for (int i = 0; i < (int)MerkabaStorageStream.Count; i++)
-                    manifest.ValidEnds[i] = FileLength(PathFor(
-                        (MerkabaStorageStream)i));
+                {
+                    var stream = (MerkabaStorageStream)i;
+                    manifest.ValidEnds[i] = FileLength(PathFor(stream));
+                }
                 manifest.Validate();
                 ulong followingGeneration = NextGeneration(
                     manifest.CommitGeneration);
@@ -856,7 +709,6 @@ namespace Genesis.RoomScan
                 cancellationToken.ThrowIfCancellationRequested();
                 MerkabaSessionManifest committed;
                 MerkabaTileAddress[] addresses;
-                long canonicalDualBytes;
                 ulong sequenceBefore;
                 lock (_gate)
                 {
@@ -865,7 +717,6 @@ namespace Genesis.RoomScan
                         throw new InvalidOperationException(
                             "Only a committed session can be compacted.");
                     if (_dirtyStreams.Count != 0 || _dirtyM8Tiles.Count != 0 ||
-                        _dirtyDualBlocks.Count != 0 ||
                         _dirtyFineOwners.Count != 0)
                         throw new InvalidOperationException(
                             "Base compaction is permitted only for a clean " +
@@ -874,7 +725,6 @@ namespace Genesis.RoomScan
                         _manifest.SessionUuid);
                     addresses = new List<MerkabaTileAddress>(_index.Keys)
                         .ToArray();
-                    canonicalDualBytes = _subordinate.CanonicalDualRecordBytes;
                     sequenceBefore = _recordSequence;
                 }
                 Array.Sort(addresses);
@@ -886,26 +736,16 @@ namespace Genesis.RoomScan
                     EncodedM8RecordBytes);
                 long m8LiveBytes = committed.ValidEnd(
                     MerkabaStorageStream.M8Live);
-                long dualLiveBytes = committed.ValidEnd(
-                    MerkabaStorageStream.ThroughLive);
                 bool establishM8Base = committed.ValidEnd(
                     MerkabaStorageStream.M8Base) == 0L && committed.ValidEnd(
                     MerkabaStorageStream.M8Live) != 0L;
-                bool establishDualBase = committed.ValidEnd(
-                    MerkabaStorageStream.ThroughBase) == 0L && committed.ValidEnd(
-                    MerkabaStorageStream.ThroughLive) != 0L;
                 bool reduceM8History = m8LiveBytes > canonicalM8Bytes;
-                bool reduceDualHistory = dualLiveBytes > canonicalDualBytes;
-                if (!establishM8Base && !establishDualBase &&
-                    !reduceM8History && !reduceDualHistory)
+                if (!establishM8Base && !reduceM8History)
                     return false;
 
                 string m8Prepared = M8BasePath + ".tmp";
-                string dualPrepared = ThroughBasePath + ".tmp";
                 long originalM8Live = committed.ValidEnd(
                     MerkabaStorageStream.M8Live);
-                long originalDualLive = committed.ValidEnd(
-                    MerkabaStorageStream.ThroughLive);
                 ulong preparedSequence = sequenceBefore;
                 ulong recoverySequence = sequenceBefore;
                 Location[] preparedM8Locations = null;
@@ -917,11 +757,7 @@ namespace Genesis.RoomScan
                     preparedM8Locations = WriteCanonicalM8File(m8Prepared,
                         M8BasePath, addresses, committed.CommitGeneration,
                         ref preparedSequence, cancellationToken);
-                    WriteCanonicalDualFile(dualPrepared,
-                        committed.CommitGeneration, ref preparedSequence,
-                        cancellationToken);
-                    if (FileLength(m8Prepared) != canonicalM8Bytes ||
-                        FileLength(dualPrepared) != canonicalDualBytes)
+                    if (FileLength(m8Prepared) != canonicalM8Bytes)
                         throw new InvalidDataException(
                             "Canonical base image byte count is inconsistent.");
 
@@ -933,18 +769,8 @@ namespace Genesis.RoomScan
                             ref recoverySequence, cancellationToken);
                         m8Live.Flush();
                     }
-                    using (FileStream dualLive = OpenAppendAtExactEnd(
-                               ThroughLivePath, originalDualLive))
-                    {
-                        WriteCanonicalDualImage(dualLive,
-                            committed.CommitGeneration, ref recoverySequence,
-                            cancellationToken);
-                        dualLive.Flush();
-                    }
                     if (FileLength(M8LivePath) != checked(originalM8Live +
-                            canonicalM8Bytes) ||
-                        FileLength(ThroughLivePath) != checked(originalDualLive +
-                            canonicalDualBytes))
+                            canonicalM8Bytes))
                         throw new InvalidDataException(
                             "Recovery live image byte count is inconsistent.");
                     cancellationToken.ThrowIfCancellationRequested();
@@ -952,11 +778,8 @@ namespace Genesis.RoomScan
                         MerkabaCompactionStage.BeforeRecoveryDataFlush);
                     FlushFileDurable(m8Prepared);
                     cancellationToken.ThrowIfCancellationRequested();
-                    FlushFileDurable(dualPrepared);
-                    cancellationToken.ThrowIfCancellationRequested();
                     FlushFileDurable(M8LivePath);
                     cancellationToken.ThrowIfCancellationRequested();
-                    FlushFileDurable(ThroughLivePath);
                     crashProbe?.Invoke(
                         MerkabaCompactionStage.AfterRecoveryDataFlush);
                     cancellationToken.ThrowIfCancellationRequested();
@@ -964,13 +787,9 @@ namespace Genesis.RoomScan
                     MerkabaSessionManifest recovery = committed.CloneForSession(
                         committed.SessionUuid);
                     recovery.M8BaseGeneration = 0ul;
-                    recovery.ThroughBaseGeneration = 0ul;
                     recovery.ValidEnds[(int)MerkabaStorageStream.M8Base] = 0L;
-                    recovery.ValidEnds[(int)MerkabaStorageStream.ThroughBase] = 0L;
                     recovery.ValidEnds[(int)MerkabaStorageStream.M8Live] =
                         FileLength(M8LivePath);
-                    recovery.ValidEnds[(int)MerkabaStorageStream.ThroughLive] =
-                        FileLength(ThroughLivePath);
                     recovery.Validate();
                     WriteManifestTemporary(recovery);
                     crashProbe?.Invoke(
@@ -996,23 +815,16 @@ namespace Genesis.RoomScan
                         MerkabaCompactionStage.AfterRecoveryManifestPublish);
 
                     // From this point the published recovery manifest ignores
-                    // both base files. Replacing either file cannot invalidate it.
+                    // the M8 base file. Historical through files are left untouched.
                     MerkabaFilePublishing.Publish(m8Prepared, M8BasePath);
                     crashProbe?.Invoke(MerkabaCompactionStage.AfterM8BasePublish);
-                    MerkabaFilePublishing.Publish(dualPrepared, ThroughBasePath);
-                    crashProbe?.Invoke(
-                        MerkabaCompactionStage.AfterThroughBasePublish);
 
                     MerkabaSessionManifest compacted = recovery.CloneForSession(
                         recovery.SessionUuid);
                     compacted.M8BaseGeneration = committed.CommitGeneration;
-                    compacted.ThroughBaseGeneration = committed.CommitGeneration;
                     compacted.ValidEnds[(int)MerkabaStorageStream.M8Base] =
                         canonicalM8Bytes;
-                    compacted.ValidEnds[(int)MerkabaStorageStream.ThroughBase] =
-                        canonicalDualBytes;
                     compacted.ValidEnds[(int)MerkabaStorageStream.M8Live] = 0L;
-                    compacted.ValidEnds[(int)MerkabaStorageStream.ThroughLive] = 0L;
                     compacted.Validate();
                     WriteManifestTemporary(compacted);
                     crashProbe?.Invoke(
@@ -1039,7 +851,6 @@ namespace Genesis.RoomScan
                     // Logical authority already excludes these bytes. Failure to
                     // trim affects space only and OPEN retries the truncation.
                     TryTruncateIgnoredTail(M8LivePath);
-                    TryTruncateIgnoredTail(ThroughLivePath);
                     return true;
                 }
                 catch
@@ -1047,7 +858,6 @@ namespace Genesis.RoomScan
                     if (!recoveryPublished && !finalPublished)
                     {
                         TruncateFile(M8LivePath, originalM8Live);
-                        TruncateFile(ThroughLivePath, originalDualLive);
                     }
                     DeleteCompactionTemps();
                     throw;
@@ -1187,7 +997,6 @@ namespace Genesis.RoomScan
                     _subordinate.Clear();
                     _dirtyStreams.Clear();
                     _dirtyM8Tiles.Clear();
-                    _dirtyDualBlocks.Clear();
                     _dirtyFineOwners.Clear();
                     _manifest = null;
                     _pendingGeneration = 1ul;
@@ -1290,12 +1099,6 @@ namespace Genesis.RoomScan
             {
                 if (!_index.TryGetValue(address, out location))
                 {
-                    if (_subordinate.HasStoredDualLeaf(address))
-                        return new MerkabaTileSnapshot
-                        {
-                            Address = address,
-                            States = new KernelState[MerkabaSpatial.KernelsPerTile]
-                        };
                     throw new FileNotFoundException(
                         $"M8 tile {address.LocalAddress} at " +
                         $"{address.BlockCoord} is absent from storage.");
@@ -1411,31 +1214,6 @@ namespace Genesis.RoomScan
             return locations;
         }
 
-        private void WriteCanonicalDualFile(string temporaryPath,
-            ulong generation, ref ulong sequence,
-            CancellationToken cancellationToken)
-        {
-            using var stream = new FileStream(temporaryPath, FileMode.Create,
-                FileAccess.Write, FileShare.None, 256 * 1024,
-                FileOptions.SequentialScan);
-            WriteCanonicalDualImage(stream, generation, ref sequence,
-                cancellationToken);
-            stream.Flush();
-        }
-
-        private void WriteCanonicalDualImage(Stream destination,
-            ulong generation, ref ulong sequence,
-            CancellationToken cancellationToken)
-        {
-            foreach (MerkabaAppendRecord record in
-                     _subordinate.CanonicalDualRecords())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                WriteRecord(destination, record, generation);
-                sequence = checked(sequence + 1ul);
-            }
-        }
-
         private static FileStream OpenAppendAtExactEnd(string path, long validEnd)
         {
             var stream = new FileStream(path, FileMode.OpenOrCreate,
@@ -1490,7 +1268,6 @@ namespace Genesis.RoomScan
                 _pendingGeneration = followingGeneration;
                 _dirtyStreams.Clear();
                 _dirtyM8Tiles.Clear();
-                _dirtyDualBlocks.Clear();
                 _dirtyFineOwners.Clear();
             }
         }
@@ -1546,8 +1323,6 @@ namespace Genesis.RoomScan
             DeleteIfExists(ManifestPath + ".bak");
             DeleteIfExists(M8BasePath + ".tmp");
             DeleteIfExists(M8BasePath + ".bak");
-            DeleteIfExists(ThroughBasePath + ".tmp");
-            DeleteIfExists(ThroughBasePath + ".bak");
         }
 
         private static byte[] EncodeStates(KernelState[] states)
@@ -1638,10 +1413,6 @@ namespace Genesis.RoomScan
             {
                 MerkabaStorageStream.M8Base or MerkabaStorageStream.M8Live =>
                     record.Kind == MerkabaRecordKind.M8Tile,
-                MerkabaStorageStream.ThroughBase or
-                    MerkabaStorageStream.ThroughLive =>
-                    record.Kind >= MerkabaRecordKind.DualBlock &&
-                    record.Kind <= MerkabaRecordKind.DualLeaf,
                 MerkabaStorageStream.FlowerDetail =>
                     record.Kind == MerkabaRecordKind.FlowerOwnerEpoch ||
                     record.Kind == MerkabaRecordKind.FlowerDetail ||
@@ -1675,10 +1446,6 @@ namespace Genesis.RoomScan
                     generation <= manifest.M8BaseGeneration,
                 MerkabaStorageStream.M8Live =>
                     generation > manifest.M8BaseGeneration,
-                MerkabaStorageStream.ThroughBase =>
-                    generation <= manifest.ThroughBaseGeneration,
-                MerkabaStorageStream.ThroughLive =>
-                    generation > manifest.ThroughBaseGeneration,
                 _ => true
             };
             if (!valid)
@@ -1690,9 +1457,6 @@ namespace Genesis.RoomScan
         private static MerkabaStorageStream StreamFor(
             MerkabaAppendRecord record)
         {
-            if (record.Kind >= MerkabaRecordKind.DualBlock &&
-                record.Kind <= MerkabaRecordKind.DualLeaf)
-                return MerkabaStorageStream.ThroughLive;
             if (record.Kind == MerkabaRecordKind.FlowerOwnerEpoch ||
                 record.Kind == MerkabaRecordKind.FlowerDetail ||
                 record.Kind == MerkabaRecordKind.FlowerSkinMetricRun ||
@@ -1719,8 +1483,6 @@ namespace Genesis.RoomScan
             {
                 MerkabaStorageStream.M8Base => M8BaseFileName,
                 MerkabaStorageStream.M8Live => M8LiveFileName,
-                MerkabaStorageStream.ThroughBase => ThroughBaseFileName,
-                MerkabaStorageStream.ThroughLive => ThroughLiveFileName,
                 MerkabaStorageStream.FlowerDetail => FlowerDetailFileName,
                 MerkabaStorageStream.ThreadAtlas => ThreadAtlasFileName,
                 _ => throw new ArgumentOutOfRangeException(nameof(stream))
@@ -1850,7 +1612,6 @@ namespace Genesis.RoomScan
             foreach (string name in new[]
                      {
                          M8BaseFileName, M8LiveFileName,
-                         ThroughBaseFileName, ThroughLiveFileName,
                          FlowerDetailFileName, ThreadAtlasFileName,
                          ManifestFileName
                      })

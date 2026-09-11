@@ -28,7 +28,6 @@ namespace Genesis.RoomScan
         private static readonly string[] StoreNames =
         {
             MerkabaSsdStore.M8BaseFileName, MerkabaSsdStore.M8LiveFileName,
-            MerkabaSsdStore.ThroughBaseFileName, MerkabaSsdStore.ThroughLiveFileName,
             MerkabaSsdStore.FlowerDetailFileName, MerkabaSsdStore.ThreadAtlasFileName
         };
 

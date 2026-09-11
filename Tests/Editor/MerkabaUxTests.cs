@@ -322,8 +322,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("_Albedo"));
             Assert.That(source, Does.Not.Contain("ambientColor"));
             Assert.That(source, Does.Contain("M8FlowerCapturedColor(input.packedColor)"));
-            Assert.That(source, Does.Contain("color = M8FlowerDirtSupportLinearRgba.rgb;"),
-                "Derived DIRT presentation must not masquerade as captured RGB.");
+            Assert.That(source, Does.Not.Contain("M8FlowerDirtSupportLinearRgba"),
+                "Direct-only readout cannot synthesize an excavation boundary.");
 
             string renderer = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +

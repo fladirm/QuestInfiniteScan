@@ -54,7 +54,7 @@ namespace Genesis.RoomScan.Tests
                 Assert.DoesNotThrow(() => world.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
                      {
-                         "FlowerCommit", "UpdateObservationDual", "FinalizeObservation",
+                         "FlowerCommit", "FinalizeObservation",
                          "InvalidateFlowerSources", "InvalidateFlowerPeers", "PublishFlowerR1",
                          "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerL1",
                          "IntegrateFlowerL2", "ResolveFlowerCarriers",
@@ -117,17 +117,13 @@ namespace Genesis.RoomScan.Tests
             long[] buffers =
             {
                 stateBank, chunkRefs,
-                MerkabaDualGpuLayout.BlockBufferBytes,
-                MerkabaDualGpuLayout.ChunkBufferBytes,
-                MerkabaDualGpuLayout.LeafBufferBytes,
                 (long)MerkabaObservationRecord.Capacity * MerkabaObservationRecord.ByteSize,
                 (long)MerkabaSpatial.PhysicalTileCapacity * 27 * sizeof(uint)
             };
             Assert.That(buffers.Max(), Is.LessThanOrEqualTo(128L * 1024 * 1024));
             Assert.That((long)MerkabaObservationRecord.Capacity * MerkabaObservationRecord.ByteSize,
                 Is.EqualTo(32L * 1024 * 1024));
-            Assert.That((long)MerkabaDualGpuLayout.LeafCapacity * MerkabaDualLeaf.ByteSize,
-                Is.EqualTo(2L * 1024 * 1024));
+            Assert.That(Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"), Does.Not.Contain("_m8Dual"));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -394,7 +390,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ScanBroadPhaseUsesConservativeFrozenMutationCoverage()
+        public void ScanUsesMeasuredEndpointsAndLocalMutationScope()
         {
             string spatial = Source("Runtime/Shaders/MerkabaSpatial.hlsl");
             string scan = Source("Runtime/Shaders/MerkabaIntegration.compute");
@@ -402,13 +398,11 @@ namespace Genesis.RoomScan.Tests
             string integrator = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
             Assert.That(spatial, Does.Contain("MerkabaM8DistanceChildMask"));
-            Assert.That(scan, Does.Contain("M8ScanChildMask"));
-            Assert.That(scan, Does.Contain("MerkabaM8DistanceChildMask"));
-            Assert.That(scan, Does.Contain("MerkabaM8KernelPlaneChildMask"));
-            Assert.That(scan, Does.Contain("_M8ScanCoveragePlanes"));
-            Assert.That(scan, Does.Not.Contain("M8ScanEyeChildMask"));
-            Assert.That(integrator, Does.Contain(
-                "MerkabaMutationCoverage.WriteGridPlanes"));
+            Assert.That(scan, Does.Not.Contain("M8ScanChildMask"));
+            Assert.That(scan, Does.Not.Contain("UpdateObservationDual"));
+            Assert.That(integrator, Does.Not.Contain("MerkabaMutationCoverage.WriteGridPlanes"));
+            string owners = Source("Runtime/Shaders/MerkabaObservationBins.compute");
+            Assert.That(owners, Does.Contain("M8ObservationContains("));
             Assert.That(integrator, Does.Not.Contain(
                 "GeometryUtility.CalculateFrustumPlanes"));
             Assert.That(frame, Does.Not.Contain(
@@ -425,7 +419,6 @@ namespace Genesis.RoomScan.Tests
 
 
 
-        [TestCase("MerkabaIntegration.compute", "UpdateObservationDual", 64u)]
         [TestCase("MerkabaIntegration.compute", "FlowerCommit", 128u)]
         public void TileAndBlockKernels_UseBoundedCooperativeGroups(string asset,
             string entry, uint expectedX)
@@ -587,27 +580,11 @@ namespace Genesis.RoomScan.Tests
                 "_M8ChunkTileRefs[refIndex] = gLoadSlot + 1u"));
             Assert.That(address, Does.Contain("bool M8IsHotRef"));
 
-            // The current readers require both a HOT dual reference and the
-            // published M8 slot/generation. A staged LOADING leaf, COLD ref or
-            // reused slot therefore stays AMBIGUOUS, never empty/free.
-            string dual = Source("Runtime/Shaders/MerkabaDualHierarchy.hlsl");
-            string resident = Slice(dual, "bool M8DualLeafResident", "uint M8DualLeafReference");
-            Assert.That(resident, Does.Contain("(packed >> 30u) != 2u"));
-            Assert.That(resident, Does.Contain("generation != 0u && slotGeneration == generation"));
-            Assert.That(resident, Does.Contain("meta.x == chunk && meta.y == tile"));
-            Assert.That(resident, Does.Contain("_M8ChunkTileRefsRead[chunk*64u+tile] == slot+1u"));
-            string tileRead = Slice(dual, "uint M8DualReadTile", "uint M8DualReadKernelAt");
-            Assert.That(tileRead, Does.Contain("M8DualLeafResident("));
-            Assert.That(tileRead, Does.Contain("? M8_DUAL_MIXED : M8_DUAL_AMBIGUOUS"));
-            string supportSource = Source("Runtime/Shaders/MerkabaFlowerSupport.hlsl");
-            string support = Slice(supportSource,
-                "uint4 M8FlowerSupportResolveTile", "void M8FlowerSupportCacheTile");
-            Assert.That(support, Does.Contain("if (!M8FlowerSupportLeafResident("));
-            Assert.That(support, Does.Contain("context.x = M8_DUAL_AMBIGUOUS"));
-            string supportResident = Slice(supportSource,
-                "bool M8FlowerSupportLeafResident", "uint4 M8FlowerSupportResolveTile");
-            Assert.That(supportResident, Does.Contain("return M8DualLeafResident(packed,chunk,tile,slot,true)"));
-            Assert.That(supportResident, Does.Contain("return M8DualLeafResident(packed,chunk,tile,slot,false)"));
+            Assert.That(world, Does.Not.Contain("M8Dual"));
+            Assert.That(Source("Runtime/Shaders/MerkabaFlowerSupport.hlsl"),
+                Does.Not.Contain("M8Dual"));
+            Assert.That(Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),
+                Does.Not.Contain("_m8Dual"));
 
             string front = Slice(Source("Runtime/Shaders/MerkabaFlowerPages.hlsl"),
                 "bool M8FlowerFrontPage", "M8FlowerSymbolRecord M8FlowerLoadSymbol");
@@ -635,13 +612,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(requests, Does.Contain("uint installCount = min(freeCount, m8ObservationInstallCount)"));
             Assert.That(requests, Does.Contain("uint reservationBase = freeCount - installCount"));
             Assert.That(prepare, Does.Contain("gLoadReservationCount = min(gLoadNeedCount, freeCount)"));
-            Assert.That(prepare, Does.Contain("M8RestoreDualLeaf"));
-            Assert.That(prepare, Does.Contain("M8PushPhysicalTile"));
-            Assert.That(install, Does.Not.Contain("M8RestoreDualLeaf"));
+            Assert.That(prepare, Does.Contain("M8_COUNTER_FREE_TILE_COUNT"));
             Assert.That(install, Does.Not.Contain("M8PushPhysicalTile"));
             Assert.That(install, Does.Contain("_M8ChunkTileRefs[refIndex] = gLoadSlot + 1u"));
             Assert.That(Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),
-                Does.Contain("ExecuteDualWorldBatch(_installLoadedTilesKernel, count, true)"));
+                Does.Contain("ExecuteWorldStorageBatch(_installLoadedTilesKernel, count, true)"));
         }
 
         [Test]
@@ -657,8 +632,8 @@ namespace Genesis.RoomScan.Tests
                 "private void BeginLoadAddressReadback");
 
             Assert.That(address, Does.Contain(
-                "#define M8_COUNTER_RESIDENCY_EPOCH 44u"));
-            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(44));
+                "#define M8_COUNTER_RESIDENCY_EPOCH 41u"));
+            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(41));
             Assert.That(world, Does.Contain("M8SignalResidencyChange"));
             // The epoch is still the GPU-owned signal that a reference span was
             // reclaimed. It is no longer a reason to resubmit a frame: a
@@ -800,7 +775,7 @@ namespace Genesis.RoomScan.Tests
         // past 200 attempts with obs=1 stage=1 pendingTiles=1 frozen for 50 s
         // and zero triangles, while ~3000 newer depth frames went unread. The
         // corrected contract: one snapshot is one bounded synchronous scan
-        // transaction, the persistent M8/dual/FlowerDetail/ThreadAtlas world is
+        // transaction, the persistent M8/FlowerDetail/ThreadAtlas world is
         // the refinement memory, and a camera observation is evidence, not a
         // work queue.
         [Test]
@@ -878,9 +853,7 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(generator + drain + refinement + sidecar, Does.Not.Contain(forbidden));
             Assert.That(drain, Does.Contain("M8FlowerReadMeasuredGroup(group,measured)"));
             Assert.That(drain, Does.Contain("M8FlowerReachObservedRelations(stage,owner,world)"));
-            // A COLD dual chunk or a kernel the dual has not certified FULL is
-            // the normal state of a world whose default is UNKNOWN. Vetoing all
-            // refinement on it meant no tile ever refined at all.
+            // A missing endpoint is local; it cannot veto unrelated measured owners.
             Assert.That(drain, Does.Not.Contain(
                 "_M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]!=0u"));
             Assert.That(drain, Does.Not.Contain("M8_COUNTER_FINE_LEASE_BUSY"),

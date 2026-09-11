@@ -249,13 +249,13 @@ uint M8FlowerR1PeersStatus(uint local,bool erase)
             return M8_FLOWER_ARENA_BUSY;
         }
         uint peerSlot,peerLocal;
-        if(state!=M8_FLOWER_HALO_HOT || !M8FlowerHaloKernel(relative,peerSlot,peerLocal,true,erase))
+        if(state!=M8_FLOWER_HALO_HOT || !M8FlowerHaloKernel(relative,peerSlot,peerLocal,true,true))
             return M8_FLOWER_ARENA_INVALID;
         uint peer,first,count,captured;
         if(!M8FlowerTryFindOwner(peerSlot,peerLocal,_M8TileRecords[M8TileRuntimeIndex(peerSlot)].w,peer))
             return M8_FLOWER_ARENA_INVALID;
-        uint status=M8FlowerValidatePhaseCut(peer,_M8DualPublishingGeneration,
-            _M8DualRetiredGeneration,first,count,captured);
+        uint status=M8FlowerValidatePhaseCut(peer,_M8WorldPublishingGeneration,
+            _M8WorldRetiredGeneration,first,count,captured);
         if(status!=M8_FLOWER_ARENA_OK)return status;
     }
     return M8_FLOWER_ARENA_OK;
@@ -282,22 +282,22 @@ void M8FlowerPublishR1Change(uint slot)
 }
 
 bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
-    bool structural,bool through,bool erase)
+    bool structural,bool erase)
 {
     uint generation=_M8TileRecords[M8TileRuntimeIndex(slot)].w;
-    if(structural||through)
+    if(structural)
     {
         uint ownerRef,first,count,captured;
         if(!M8FlowerTryFindOwner(slot,local,generation,ownerRef))
             return M8FlowerR1CutAccepted(M8_FLOWER_ARENA_INVALID);
         if(!M8FlowerR1CutAccepted(M8FlowerValidatePhaseCut(ownerRef,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration,first,count,captured)))return false;
+            _M8WorldPublishingGeneration,_M8WorldRetiredGeneration,first,count,captured)))return false;
         if(!M8FlowerR1CutAccepted(M8FlowerR1PeersStatus(local,erase)))return false;
     }
     uint address;
     if(!M8FlowerReserveR1Change(address))
     {M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);return false;}
-    if(structural||through)
+    if(structural)
     {
         InterlockedOr(_M8TileBits[M8TileWordIndex(slot,local>>5u)].w,1u<<(local&31u));
         M8FlowerQueueChangedTile(slot);
@@ -305,7 +305,7 @@ bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
         [loop]for(uint node=6u;node<26u;node++)
         {
             uint peerSlot,peerLocal;
-            if(M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,peerSlot,peerLocal,true,erase))
+            if(M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,peerSlot,peerLocal,true,true))
                 M8FlowerQueueChangedTile(peerSlot);
         }
     }
@@ -315,49 +315,19 @@ bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
     // nothing is deferred to another frame.
     _M8FlowerSignalItems.Store4(address+16u,value);
     DeviceMemoryBarrier();
-    uint flags=M8_FLOWER_R1_PREPARED | (structural?M8_FLOWER_R1_STRUCTURAL:0u) |
-        (through?M8_FLOWER_R1_THROUGH:0u);
+    uint flags=M8_FLOWER_R1_PREPARED | (structural?M8_FLOWER_R1_STRUCTURAL:0u);
     _M8FlowerSignalItems.Store4(address,uint4((slot<<9u)|local,generation,before.flags,flags));
     M8MarkTileDirty(slot);
     InterlockedOr(m8FlowerR1Changed,1u);
     return true;
 }
 
-bool M8FlowerStoreR1(uint slot,uint local,KernelState before,uint4 value,bool through)
+bool M8FlowerStoreR1(uint slot,uint local,KernelState before,uint4 value)
 {
     if(all(value==uint4(asuint(before.evidence),before.packedColor,
         before.colorConfidence,before.flags)))return true;
     return M8FlowerPrepareR1(slot,local,before,value,
-        M8FlowerParentStructureChanged(before.flags,value.w),through,false);
-}
-
-// This branch applies certified free volume to measured R1 evidence. The
-// excavation boundary supplies DIRT during derived page evaluation, never a
-// measured plane here. Evidence changes once per immutable observation.
-void M8FlowerApplyDualVeto(uint slot, uint local, uint block, uint child, uint tile)
-{
-    uint word=M8TileWordIndex(slot,local >> 5u), bit=1u << (local & 31u);
-    if ((_M8TileBits[word].y & bit) == 0u || (_M8TileBits[word].z & bit) != 0u) return;
-    int3 owner=M8GlobalKernelCoord(slot,local);
-    float3 world=mul(_MerkabaGridToWorld,float4(float3(owner)*M8_FLOWER_LATTICE_STEP,1.0)).xyz;
-    if (!M8ObservationContains(world,gsDepthEyePos())) return;
-    if (M8DualReadKernelAt(block,child,tile,local,true,true) != M8_DUAL_THROUGH) return;
-    KernelState before=M8LoadKernelStateRead(slot,local);
-    if (!M8FlowerHasPlane(before.flags) && (before.flags & M8_FLOWER_OCCUPIED_FLAG) == 0u)
-    {
-        M8FlowerUnmarkR1Active(slot,local);
-        return;
-    }
-    // Full-support THROUGH invalidates dependent fine state even while a
-    // stable R1 remains above OFF. Direct endpoints were excluded above.
-    uint4 next=M8FlowerContradictR1(uint4(asuint(before.evidence),before.packedColor,
-        before.colorConfidence,before.flags));
-    if(!M8FlowerStoreR1(slot,local,before,next,true))return;
-    if (asint(next.x) < before.evidence)
-        M8CounterIncrement(M8_COUNTER_THROUGH_EVIDENCE_DECREMENTS);
-    if ((before.flags & M8_FLOWER_OCCUPIED_FLAG) != 0u &&
-        (next.w & M8_FLOWER_OCCUPIED_FLAG) == 0u)
-        M8CounterIncrement(M8_COUNTER_THROUGH_OCCUPIED_TO_FREE);
+        M8FlowerParentStructureChanged(before.flags,value.w),false);
 }
 
 // One workgroup owns every positive write in this tile. The four plane
@@ -388,7 +358,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
     if (runtime.x == _M8ObservationToken) return;
     uint4 tileMeta=_M8TileRecords[M8TileMetaIndex(slot)];
     if(runtime.w==0u || tileMeta.x>=MERKABA_M8_CHUNK_CAPACITY || tileMeta.y>=64u ||
-        _M8ChunkTileRefsRead[tileMeta.x*64u+tileMeta.y]!=slot+1u)
+        _M8ChunkTileRefs[tileMeta.x*64u+tileMeta.y]!=slot+1u)
     {
         if(lane==0u)
         {
@@ -397,21 +367,9 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         }
         return;
     }
-    uint2 chunkOwner=M8LoadChunkOwnerRead(tileMeta.x);
     if (lane == 0u) m8FlowerR1Changed=0u;
-    M8FlowerCacheTileHalo(slot,lane,false,true);
-    if (bin.y == 0u)
-    {
-        [loop] for (uint local=lane; local<512u; local+=128u)
-            M8FlowerApplyDualVeto(slot,local,chunkOwner.x,chunkOwner.y,tileMeta.y);
-        DeviceMemoryBarrierWithGroupSync();
-        if (lane == 0u)
-        {
-            M8FlowerPublishR1Change(slot);
-            _M8TileRecords[M8TileRuntimeIndex(slot)].x=_M8ObservationToken;
-        }
-        return;
-    }
+    M8FlowerCacheTileHalo(slot,lane,false,true,true);
+    if (bin.y == 0u) return;
     for (uint local = lane; local < 512u; local += 128u)
     {
         m8FlowerOwnerSource[local] = 0xffffffffu;
@@ -423,23 +381,6 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         M8_FLOWER_NORMAL_QUANTIZATION_UPPER);
     float offsetError = M8FlowerNext(_M8PlaneErrorBounds.y+
         M8_FLOWER_OFFSET_QUANTIZATION_UPPER);
-    // Every strict endpoint excludes negative mutation even when its owner
-    // is occupied by an incompatible sheet. Eligibility is derived from the
-    // same immutable plane at each existing own reader, never a mutable tag.
-    [loop] for (uint index = lane; index < bin.y; index += 128u)
-    {
-        M8ObservationRecord record = _M8ObservationRecordsRead[bin.z+index];
-        uint plane;
-        float3 normal;
-        float offset;
-        if (M8FlowerInputPlane(record,slot,plane,normal,offset))
-        {
-            uint local = record.TileAndKernel & 511u;
-            InterlockedOr(_M8TileBits[M8TileWordIndex(slot,local >> 5u)].z,
-                1u << (local & 31u));
-        }
-    }
-    DeviceMemoryBarrierWithGroupSync();
     [loop] for (uint component = 0u; component < 4u; ++component)
     {
         for (uint local = lane; local < 512u; local += 128u)
@@ -514,7 +455,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                 if (peerPass)
                 {
                     if (span!=0u && !M8FlowerHaloKernel(int3(4,4,4)+8*step,
-                            sourceSlot,ignoredLocal,true)) continue;
+                            sourceSlot,ignoredLocal,true,true)) continue;
                     sourceBin=_M8ObservationTileBinsRead[sourceSlot];
                     if (sourceBin.x!=_M8ObservationToken || sourceBin.y==0u ||
                         sourceBin.w!=sourceBin.y || sourceBin.z>=_M8ObservationRecordCapacity ||
@@ -668,20 +609,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
         uint source = m8FlowerOwnerSource[local];
         if (source == 0xffffffffu) continue;
         source &= M8_FLOWER_OBSERVATION_PIXEL_MASK;
-        // Direct support is excluded even if its competing positive symbols
-        // are unresolved. Dual is never a way to choose between them.
-        InterlockedOr(_M8TileBits[M8TileWordIndex(slot,local >> 5u)].z,
-            1u << (local & 31u));
         if (M8FlowerOwnerIsRejected(local)) continue;
-        // The strict endpoint must have restored its own support before
-        // positive publication. A COLD/failed dual write for another owner
-        // cannot discard this owner's evidence or this tile's negative work.
-        if (M8DualReadKernelAt(chunkOwner.x,chunkOwner.y,tileMeta.y,local,
-                true,true) != M8_DUAL_FULL)
-        {
-            M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-            continue;
-        }
         uint representative = m8FlowerOwnerPrecision[local];
         if (representative != 0xffffffffu)
             source = representative & M8_FLOWER_OBSERVATION_PIXEL_MASK;
@@ -705,11 +633,8 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
             M8FlowerR1FlagWitness(m8FlowerR1Witness[local],plane,normalError,offsetError));
         // This is one direct admission for the frozen observation. No
         // closure pass or new observation is implied by storing its seed.
-        M8FlowerStoreR1(slot,local,before,next,false);
+        M8FlowerStoreR1(slot,local,before,next);
     }
-    DeviceMemoryBarrierWithGroupSync();
-    [loop] for (uint local=lane; local<512u; local+=128u)
-        M8FlowerApplyDualVeto(slot,local,chunkOwner.x,chunkOwner.y,tileMeta.y);
     DeviceMemoryBarrierWithGroupSync();
     if (lane == 0u)
     {

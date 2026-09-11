@@ -696,13 +696,11 @@ M8FlowerInterval M8FlowerCarrierDot(int3 direction,M8FlowerInterval3 position)
 // interior. The actual source/path proves incidence; the retained tag still
 // belongs to the knot's original loop and keeps its canonical sector owner.
 uint M8FlowerSourceFlagContainment(uint petal,uint childPath,uint knot,
-    uint proofTag,M8FlowerInterval3 position)
+    uint proofTag,M8FlowerInterval3 position,M8FlowerGeometryNode original)
 {
     if(petal>=48u || childPath>=16u || knot>=386u)return 0u;
     uint wedge=M8FlowerL2WedgeIndex(petal,childPath);
     if(wedge>=768u || all(M8FlowerL2WedgeKnots(wedge/6u,wedge%6u)!=knot))return 0u;
-    M8FlowerGeometryNode original;
-    if(!M8FlowerL2GeometryNode(knot,((proofTag>>7u)&1u)!=0u,original))return 0u;
     if((proofTag&7u)!=original.Level || ((proofTag>>3u)&15u)!=original.Line ||
         ((proofTag>>17u)&7u)>5u)return 2u;
     uint sector=(proofTag>>8u)&31u;
@@ -750,6 +748,14 @@ uint M8FlowerCarrierWedgeOrientation(M8FlowerInterval3 a,M8FlowerInterval3 b,
     if(det.lo>0.0)return 1u;
     if(det.hi<0.0)return 0u;
     return 2u;
+}
+
+// A six-wedge mask owns the hub and both ends of each ring edge.
+uint M8FlowerCarrierUsedSites(uint active)
+{
+    active &= 63u;
+    uint ring=active|((active<<1u)&63u)|(active>>5u);
+    return (ring<<1u)|(active!=0u?1u:0u);
 }
 
 uint M8FlowerCarrierTriple(uint signs,uint wedge)
@@ -830,9 +836,7 @@ uint M8FlowerCombineCarrierCandidates(uint2 certain,uint2 uncertain,uint4 admiss
         if(all((surviving&~same)==0u))active|=bit;
     }
     unresolved=potential&~active;
-    uint used=0u;
-    [unroll]for(uint wedge=0u;wedge<6u;wedge++)if((active&(1u<<wedge))!=0u)
-        used|=1u|(1u<<(1u+wedge))|(1u<<(1u+(wedge+1u)%6u));
+    uint used=M8FlowerCarrierUsedSites(active);
     signs=first&used;
     return active!=0u?1u:2u;
 }
@@ -923,28 +927,27 @@ bool M8FlowerReadCarrierSite(uint slot,uint local,uint ownerRef,int3 owner,uint 
 // Two available signs are finite choices for joint carrier closure, not an
 // independent ambiguity and not a reason to intersect root-owner interiors.
 void M8FlowerSourceAnchorAlternatives(uint slot,uint ownerRef,int3 owner,uint flags,
-    uint petal,uint anchorIndex,float2 errors,uint completion,
+    uint petal,uint anchorIndex,float2 errors,
     out uint available,out uint uncertain,out uint nonprovisional)
 {
     available=uncertain=nonprovisional=0u;
     uint node=M8FlowerPetalNodesAt(petal)[anchorIndex];
-    bool completedSource=completion!=0xffffffffu && (completion&63u)==petal;
     [loop]for(uint sign=0u;sign<2u;sign++)
     {
-        if(completedSource && sign!=((completion>>(6u+anchorIndex))&1u))continue;
         M8FlowerPhaseRootEvidence root;
         bool provisional;
         uint status=M8FlowerReadOriginalShared(slot,ownerRef,owner,flags,node,sign!=0u,
             errors.x,errors.y,root,provisional);
         if(status==0u)continue;
-        uint2 allowed;uint sector;
-        if(status!=1u || !M8FlowerPhaseRootSector(root,sector) ||
-            !M8FlowerAnchorRootReferences(node,root.Tag,allowed))
+        // The shared-root producer already certified sector ownership after
+        // synthesis/closure. Admission consumes that exact tag; it does not
+        // solve the same interval-sector classification for each incident anchor.
+        uint2 allowed;
+        if(status!=1u || !M8FlowerAnchorRootReferences(node,root.Tag,allowed))
         {uncertain|=1u<<sign;continue;}
         if((allowed[petal>>5u]&(1u<<(petal&31u)))==0u)continue;
-        if(completedSource && provisional){uncertain|=1u<<sign;continue;}
         available|=1u<<sign;
-        if(!provisional && !completedSource)nonprovisional|=1u<<sign;
+        if(!provisional)nonprovisional|=1u<<sign;
     }
 }
 
@@ -953,10 +956,9 @@ bool M8FlowerSiteSupport(uint knot,M8FlowerPhaseRootEvidence root,bool read,
 {
     bounds=(M8FlowerInterval3)0;proofTag=0u;
     if(!read || !M8FlowerRootRelativeBounds(knot,root,bounds))return false;
-    proofTag=root.Tag&~M8_FLOWER_BOUNDARY_WITNESS_MASK;
-    uint sector;
-    if((root.Tag&M8_FLOWER_BOUNDARY_WITNESS_MASK)!=0u &&
-        M8FlowerPhaseRootSector(root,sector))proofTag=root.Tag;
+    // read is the completed shared-knot producer receipt. Keep its exact
+    // boundary witness unchanged, including the full metric enclosure.
+    proofTag=root.Tag;
     return true;
 }
 
@@ -1019,7 +1021,7 @@ uint M8FlowerClassifyCarrierTriple(uint slot,uint local,uint ownerRef,int3 owner
             direct=direct && (anchorDirect[anchor]&bit)!=0u;
         }
         if(!bounded)continue;
-        uint containment=M8FlowerSourceFlagContainment(petal,path,knot,tag,bounds);
+        uint containment=M8FlowerSourceFlagContainment(petal,path,knot,tag,bounds,original);
         if(containment==0u)return 0u;
         if(containment!=1u)resolved=false;
     }
@@ -1034,10 +1036,10 @@ uint M8FlowerClassifyCarrierTriple(uint slot,uint local,uint ownerRef,int3 owner
 
 #if defined(M8_FLOWER_CARRIER_BATCH_READ) || defined(M8_FLOWER_CARRIER_ALTERNATIVES_READ)
 void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,out uint2 certain,out uint2 uncertain,out uint2 direct);
+    out uint2 certain,out uint2 uncertain,out uint2 direct);
 #else
 void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,out uint2 certain,out uint2 uncertain,out uint2 direct)
+    out uint2 certain,out uint2 uncertain,out uint2 direct)
 {
     certain=uncertain=direct=0u;
     int3 owner=M8FlowerEndpointOwner(slot,local);
@@ -1051,7 +1053,7 @@ void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 er
         [loop]for(uint anchor=0u;anchor<3u;anchor++)
         {
             uint a,u,d;
-            M8FlowerSourceAnchorAlternatives(slot,ownerRef,owner,flags,petal,anchor,errors,completion,a,u,d);
+            M8FlowerSourceAnchorAlternatives(slot,ownerRef,owner,flags,petal,anchor,errors,a,u,d);
             available[anchor]=a;pending[anchor]=u;nonprovisional[anchor]=d;
             if((a|u)==0u)break;
         }
@@ -1076,7 +1078,7 @@ void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 er
 // selection = signs, active wedges, used sites, nonprovisional parents.
 // source = flags, sparse owner reference.
 uint M8FlowerSelectL2Carrier(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,out uint4 selection,out uint2 source,out uint unresolvedWedges)
+    out uint4 selection,out uint2 source,out uint unresolvedWedges)
 {
     selection=0u;source=0u;unresolvedWedges=0u;
     if(slot>=32768u || local>=512u || carrier>=128u)return 0u;
@@ -1087,46 +1089,42 @@ uint M8FlowerSelectL2Carrier(uint slot,uint local,uint carrier,float2 errors,
     uint ownerRef=M8FlowerFindOwner(slot,local,M8FlowerEndpointGeneration(slot));
     source=uint2(state.flags,ownerRef);
     uint2 certain=0u,uncertain=0u,directTriples=0u;
-    uint signs=0u,active=0u,used=0u,directParents=0u;
-    M8FlowerReadCarrierAlternatives(slot,local,carrier,errors,completion,certain,uncertain,directTriples);
+    uint signs=0u,active=0u,directParents=0u;
+    M8FlowerReadCarrierAlternatives(slot,local,carrier,errors,certain,uncertain,directTriples);
     uint result=M8FlowerCombineCarrierCandidates(certain,uncertain,
         M8FlowerL2CarrierBranchMasksAt(carrier),signs,active,unresolvedWedges);
     if(result!=1u)return result;
     [unroll]for(uint wedge=0u;wedge<6u;wedge++)if((active&(1u<<wedge))!=0u)
     {
-        used|=1u|(1u<<(1u+wedge))|(1u<<(1u+(wedge+1u)%6u));
         if((M8FlowerWedgeByte(directTriples,wedge)&(1u<<M8FlowerCarrierTriple(signs,wedge)))!=0u)
             directParents|=1u<<wedge;
     }
-    selection=uint4(signs,active,used,directParents);
+    selection=uint4(signs,active,M8FlowerCarrierUsedSites(active),directParents);
     return 1u;
 }
 
-bool M8FlowerFinishL2Carrier(uint local,uint carrier,uint completion,uint2 source,
+bool M8FlowerFinishL2Carrier(uint local,uint carrier,uint2 source,
     uint4 selection,uint hubTag,out M8FlowerSymbolRecord symbol,out uint directWedges)
 {
     directWedges=0u;
     bool reverse=M8FlowerPlaneFreeSide(source.x)<0;
-    uint completed=0u,active=selection.y;
-    [unroll]for(uint wedge=0u;wedge<6u;wedge++)
-        if(completion!=0xffffffffu && (M8FlowerL2WedgeAt(6u*carrier+wedge).y>>4u)==(completion&63u))
-            completed|=active&(1u<<wedge);
+    uint active=selection.y;
     if(!M8FlowerTryCreateCarrierSymbol(local,carrier,1u,reverse,false,active,selection.x,
-        (hubTag>>8u)&31u,completed,reverse?active:0u,source.y,0xffffffffu,symbol))return false;
+        (hubTag>>8u)&31u,0u,reverse?active:0u,source.y,0xffffffffu,symbol))return false;
     // Provisional R2/R3 remains lawful R1 presentation, never direct evidence.
-    directWedges=active&selection.w&~completed;
+    directWedges=active&selection.w;
     return true;
 }
 
 #if defined(M8_FLOWER_CARRIER_BATCH_READ)
 uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
+    out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
     out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7]);
 #else
 // Actual direct producer input under a fixed source lease. No fine mutation,
 // hole completion or dual boundary is admitted as measurement evidence.
 uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
+    out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
     out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
 {
     symbol=(M8FlowerSymbolRecord)0;symbol.ThreadRef=0xffffffffu;
@@ -1137,7 +1135,7 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
     positions[0]=0.0;positions[1]=0.0;positions[2]=0.0;
     positions[3]=0.0;positions[4]=0.0;positions[5]=0.0;positions[6]=0.0;
     uint4 selection;uint2 source;
-    uint result=M8FlowerSelectL2Carrier(slot,local,carrier,errors,completion,
+    uint result=M8FlowerSelectL2Carrier(slot,local,carrier,errors,
         selection,source,unresolvedWedges);
     if(result!=1u)return result;
     uint signs=selection.x,active=selection.y,used=selection.z;
@@ -1161,20 +1159,12 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
         else{roots[6]=root;positions[6]=position;}
         if(!read || !located){unresolvedWedges|=active;return 2u;}
     }
-    if(!M8FlowerFinishL2Carrier(local,carrier,completion,source,selection,roots[0].Tag,
+    if(!M8FlowerFinishL2Carrier(local,carrier,source,selection,roots[0].Tag,
         symbol,directWedges))
     {unresolvedWedges|=active;return 2u;}
     return 1u;
 }
 #endif
-
-uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
-    out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
-    out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
-{
-    return M8FlowerClassifyL2Carrier(slot,local,carrier,errors,0xffffffffu,
-        symbol,unresolvedWedges,directWedges,roots,positions);
-}
 
 uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
     out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,

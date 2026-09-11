@@ -55,20 +55,6 @@ bool M8FlowerReadGraphicsVertex(uint vertexId,uint pageSlot,
         M8_FLOWER_PAGE_AUX_BASE+32u*pageSlot+28u)!=slotGeneration)return false;
     result.Symbol=M8FlowerLoadSymbol(symbolIndex);
     result.Chart=M8FlowerCarrierChartSite(site);
-    if(M8FlowerDrawIsDirt(result.Symbol))
-    {
-        int3 cell;
-        if(!M8FlowerTryDirtCell(result.Symbol,page.LogicalTile,cell))return false;
-        // Only fan triangle 0=(H,R0,R1) is used by a DIRT half-face. The
-        // remaining shared sites equal H, making the other five fans degenerate.
-        uint corner=site<3u?site:0u;
-        uint face=M8FlowerDrawCarrierId(result.Symbol);
-        uint halfFace=result.Symbol.RootsAndWedges&1u;
-        int3 lattice;
-        if(!M8FlowerTryDirtVertex(cell,face,halfFace,corner,lattice))return false;
-        result.GridPosition=M8FlowerDirtGridPosition(cell,face,halfFace,corner);
-        return true;
-    }
     if(!M8FlowerIsCanonicalCarrierSymbol(result.Symbol) ||
         any(page.LogicalTile < -268435456) || any(page.LogicalTile > 268435455) ||
         !all(M8FlowerIsFinite(_M8FlowerPlaneErrorBounds)) ||

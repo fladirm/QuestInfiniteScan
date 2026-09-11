@@ -26,44 +26,6 @@ namespace Genesis.RoomScan
             }
         }
 
-        // Transient proof receipt tied to one frozen parent snapshot. The
-        // token is an address/sign selection, never new metric geometry.
-        internal readonly struct ParentCompletionSelection
-        {
-            internal readonly FlowerDecode Source;
-            internal readonly ProofClassification Classification;
-            internal readonly uint Token, JunctionClass;
-            internal readonly ulong Candidates;
-            internal int CompletedPetal => (int)(Token & 63u);
-            internal uint AnchorSigns => (Token >> 6) & 7u;
-
-            internal ParentCompletionSelection(FlowerDecode source, ProofClassification classification,
-                uint token, uint junctionClass, ulong candidates)
-            {
-                Source = source; Classification = classification; Token = token;
-                JunctionClass = junctionClass; Candidates = candidates;
-            }
-        }
-
-        // A failed REQUIRED presentation query, not absent geometry and not
-        // an I/O status. The exact symbolic region is enough to report which
-        // support needs evidence; this receipt stores no metric world state.
-        internal readonly struct RequiredSupportReceipt
-        {
-            internal readonly int3 Owner;
-            internal readonly int Carrier;
-            internal readonly uint WedgeMask;
-            internal readonly int JunctionPetal;
-            internal readonly uint RootAlternatives;
-
-            internal RequiredSupportReceipt(int3 owner, int carrier, uint wedgeMask,
-                int junctionPetal = -1, uint rootAlternatives = 0u)
-            {
-                Owner = owner; Carrier = carrier; WedgeMask = wedgeMask;
-                JunctionPetal = junctionPetal; RootAlternatives = rootAlternatives;
-            }
-        }
-
         // One owner's disposable decode over a frozen world. Generated source
         // incidence reaches the branches; metric reads are memoized only when
         // consumed. Neither a full root universe nor a program cursor is built.
@@ -76,32 +38,7 @@ namespace Genesis.RoomScan
             private readonly Dictionary<int, (PhaseRootEvidence Root, bool Provisional)> _original = new();
             private readonly Dictionary<int, (PhaseRootEvidence Root, bool Read)> _knots = new();
             private readonly Dictionary<int, DecodedCarrier> _directCarriers = new();
-            private readonly PhaseRootEvidence[] _directAnchors = new PhaseRootEvidence[3 * PetalClassCount];
-            private readonly ulong[] _directAnchorSeen = new ulong[3];
-            private ulong _directAnchorConflict;
-            private readonly PhaseRootEvidence[] _candidate = new PhaseRootEvidence[3 * PetalClassCount];
-            private readonly ProofClassification[] _candidateStatus = new ProofClassification[3 * PetalClassCount];
-            private uint4 _visited;
-            private ulong _failedDirect, _failedOrientation, _failedDualClear, _dualVeto;
-            private bool _completionEvaluated;
-            private ParentCompletionSelection _completion;
-            private FloatInterval[] _junctionQ;
-            private uint[] _junctionTags;
-            private uint4 _junctionMasks;
-            private ProofClassification _junctionStatus;
-
             internal uint4 ReachedCarriers { get; private set; }
-
-            internal bool IsComplete { get; private set; }
-            internal ulong ConfirmedDirect { get; private set; }
-            internal ulong UniqueRoots { get; private set; }
-            // Three original flag/root identities only. The separate finite
-            // R3 selector must still prove the candidate's junction class.
-            internal ulong UniqueSymbols { get; private set; }
-            internal ulong CertainOrientation { get; private set; }
-            internal ulong DualClear { get; private set; }
-            internal ulong DualVeto { get; private set; }
-            internal ulong DualAmbiguous { get; private set; }
 
             private sealed class DecodedCarrier
             {
@@ -192,324 +129,6 @@ namespace Genesis.RoomScan
                 return true;
             }
 
-            internal void RecordCarrier(int carrier, uint oriented, uint direct, uint dualClear, uint dualVeto,
-                ReadOnlySpan<PhaseRootEvidence> roots = default)
-            {
-                if (IsComplete || (uint)carrier >= L2HubCount ||
-                    ((oriented | direct | dualClear | dualVeto) & ~63u) != 0u ||
-                    ((direct | dualClear | dualVeto) & ~oriented) != 0u ||
-                    (direct & ~dualClear) != 0u || (dualClear & dualVeto) != 0u ||
-                    (direct != 0u && roots.Length != L2CarrierSiteCount))
-                    throw new InvalidOperationException("Invalid actual carrier proof in Flower decode.");
-                uint bit = 1u << (carrier & 31);
-                int word = carrier >> 5;
-                if ((_visited[word] & bit) != 0u)
-                    throw new InvalidOperationException("Flower source carrier was counted twice.");
-                _visited[word] |= bit;
-                for (int wedge = 0; wedge < 6; wedge++)
-                {
-                    int petal = CarrierData.Wedges[6 * carrier + wedge].Petal;
-                    ulong parent = 1UL << petal;
-                    uint child = 1u << wedge;
-                    if ((direct & child) == 0u) _failedDirect |= parent;
-                    if ((oriented & child) == 0u) _failedOrientation |= parent;
-                    if ((dualClear & child) == 0u) _failedDualClear |= parent;
-                    if ((dualVeto & child) != 0u) _dualVeto |= parent;
-                    if ((direct & child) == 0u) continue;
-                    int3 sites = L2CarrierTriangleIndices(wedge);
-                    for (int vertex = 0; vertex < 3; vertex++)
-                    {
-                        int site = sites[vertex], knot = L2CarrierKnotIndex(carrier, site);
-                        if (!TryGetL2KnotLoop(knot, out int level, out int3 offset, out int line) || level != 0)
-                            continue;
-                        for (int anchor = 0; anchor < 3; anchor++)
-                        {
-                            int node = PetalsValue[petal].Node(anchor);
-                            if (NodesValue[node].LineClass != line || math.any(NodesValue[node].Direction != offset))
-                                continue;
-                            PhaseRootEvidence selected = roots[site];
-                            bool plus = ((selected.Symbol.Tag >> 7) & 1u) != 0u;
-                            if (ReadOriginal(node, plus, out PhaseRootEvidence original, out bool provisional) !=
-                                    ProofClassification.Certain || provisional ||
-                                CloseSharedPhaseRoot(original, selected, out selected) != ProofClassification.Certain)
-                            { _directAnchorConflict |= parent; continue; }
-                            int index = 3 * petal + anchor;
-                            if ((_directAnchorSeen[anchor] & parent) != 0u &&
-                                CloseSharedPhaseRoot(_directAnchors[index], selected, out selected) !=
-                                    ProofClassification.Certain)
-                            { _directAnchorConflict |= parent; continue; }
-                            _directAnchors[index] = selected;
-                            _directAnchorSeen[anchor] |= parent;
-                        }
-                    }
-                }
-            }
-
-            internal void Complete()
-            {
-                if (IsComplete) return;
-                if (math.any((_visited & ReachedCarriers) != ReachedCarriers))
-                    throw new InvalidOperationException("Parent completion requires every reached carrier.");
-                // Unreached carriers have a proved absent source anchor, not
-                // an untested metric candidate. Account for their source
-                // incidence without evaluating any child loop or dual cover.
-                uint4 excluded = ~_visited;
-                while (TakeReachedCarrier(ref excluded, out int carrier))
-                {
-                    uint4 mask = DecodeCarrierPetals[carrier];
-                    ulong petals = mask.x | ((ulong)mask.y << 32);
-                    _failedDirect |= petals;
-                    _failedOrientation |= petals;
-                    _failedDualClear |= petals;
-                }
-                ConfirmedDirect = PetalMask & ~_failedDirect & ~_directAnchorConflict &
-                    _directAnchorSeen[0] & _directAnchorSeen[1] & _directAnchorSeen[2];
-                CertainOrientation = PetalMask & ~_failedOrientation;
-                DualClear = PetalMask & ~_failedDualClear;
-                DualVeto = PetalMask & _dualVeto;
-                DualAmbiguous = PetalMask & ~(DualClear | DualVeto);
-                // Only D supplies these anchors. Candidate roots are never
-                // fed back into this pass, even if a later completion is unique.
-                uint2 boundary = M8FlowerCompletionBoundaryCandidates(Mask(ConfirmedDirect));
-                ulong pending = boundary.x | ((ulong)boundary.y << 32);
-                while (pending != 0u)
-                {
-                    int petal = (uint)pending != 0u ? math.tzcnt((uint)pending) :
-                        32 + math.tzcnt((uint)(pending >> 32));
-                    pending &= pending - 1UL;
-                    bool rootsUnique = true, symbolsUnique = true;
-                    for (int anchor = 0; anchor < 3; anchor++)
-                    {
-                        ProofClassification status = ReadIncidentAnchor(petal, anchor,
-                            out PhaseRootEvidence root, out bool symbolUnique);
-                        _candidateStatus[3 * petal + anchor] = status;
-                        bool rootUnique = status == ProofClassification.Certain;
-                        rootsUnique &= rootUnique;
-                        symbolsUnique &= symbolUnique;
-                        if (rootUnique) _candidate[3 * petal + anchor] = root;
-                    }
-                    if (rootsUnique) UniqueRoots |= 1UL << petal;
-                    if (symbolsUnique) UniqueSymbols |= 1UL << petal;
-                }
-                IsComplete = true;
-            }
-
-            internal bool TryGetCandidateAnchor(int petal, int anchor, out PhaseRootEvidence root)
-            {
-                root = default;
-                if (!IsComplete || (uint)petal >= PetalClassCount || (uint)anchor >= 3u ||
-                    (UniqueRoots & (1UL << petal)) == 0u) return false;
-                root = _candidate[3 * petal + anchor];
-                return true;
-            }
-
-            internal bool TryGetCompletionToken(int petal, out uint token)
-            {
-                token = uint.MaxValue;
-                if (!IsComplete || (uint)petal >= PetalClassCount ||
-                    ((UniqueRoots & UniqueSymbols) & (1UL << petal)) == 0u) return false;
-                uint signs = 0u;
-                for (int anchor = 0; anchor < 3; anchor++)
-                    signs |= ((_candidate[3 * petal + anchor].Symbol.Tag >> 7) & 1u) << anchor;
-                token = (uint)petal | (signs << 6);
-                return true;
-            }
-
-            internal bool HasCompletionAnchors(uint token) => token < 512u &&
-                TryGetCompletionToken((int)(token & 63u), out uint actual) && actual == token;
-
-            // Disposable evidence from this owner's immutable source only.
-            // Candidate flags change the finite selector, not these eight
-            // metric/dual inputs. Nothing is allocated before a donor-backed
-            // candidate actually reaches the junction predicate.
-            internal JunctionSelection ReadJunction(int requiredPetal)
-            {
-                if (_junctionQ == null)
-                {
-                    var q = new FloatInterval[8];
-                    var tags = new uint[8];
-                    ProofClassification status = _reader.ReadR3JunctionEvidence(_owner, _errors,
-                        this, q, tags, out uint4 masks);
-                    _junctionTags = tags; _junctionMasks = masks; _junctionStatus = status;
-                    _junctionQ = q;
-                }
-                if (_junctionStatus != ProofClassification.Certain)
-                    return new JunctionSelection
-                    {
-                        Classification = _junctionStatus == ProofClassification.Impossible ?
-                            JunctionClassification.Impossible : JunctionClassification.Ambiguous,
-                        ClassIndex = uint.MaxValue, RootSigns = uint.MaxValue
-                    };
-                int parity = (_owner.x & 1) | ((_owner.y & 1) << 1) | ((_owner.z & 1) << 2);
-                return SelectR3Junction(parity, _junctionQ, _junctionTags, _junctionMasks.x,
-                    _junctionMasks.y, _junctionMasks.z, _junctionMasks.w, requiredPetal);
-            }
-
-            internal ProofClassification EvaluateCompletion(out ParentCompletionSelection selection)
-            {
-                if (!IsComplete) throw new InvalidOperationException("Completion requires the immutable full parent snapshot.");
-                if (_completionEvaluated) { selection = _completion; return selection.Classification; }
-                uint2 direct = Mask(ConfirmedDirect);
-                uint2 boundaryMask = M8FlowerCompletionBoundaryCandidates(direct);
-                ulong boundary = boundaryMask.x | ((ulong)boundaryMask.y << 32);
-                var classification = ProofClassification.Impossible;
-                uint selectedToken = uint.MaxValue, junctionClass = uint.MaxValue;
-                ulong candidates = 0u;
-                if (boundary != 0u)
-                {
-                    if (!_reader.TryReadOwner(_owner, out KernelState state, out _))
-                        classification = ProofClassification.Ambiguous;
-                    else
-                    {
-                        int parity = (_owner.x & 1) | ((_owner.y & 1) << 1) | ((_owner.z & 1) << 2);
-                        TetraFrameRule frame = TetraFramesValue[parity];
-                        M8FlowerUnpackPlane(state.Flags, out float3 normal, out _);
-                        Span<Interval3> bounds = stackalloc Interval3[3];
-                        ulong rootsCertain = 0u, symbolsCertain = 0u, shellsCertain = 0u, orientationCertain = 0u;
-                        bool ambiguous = false;
-                        for (int petal = 0; petal < PetalClassCount; petal++)
-                        {
-                            ulong bit = 1UL << petal;
-                            if ((boundary & bit) == 0u) continue;
-                            bool impossible = false, uncertain = false;
-                            uint token = (uint)petal;
-                            for (int anchor = 0; anchor < 3; anchor++)
-                            {
-                                ProofClassification status = _candidateStatus[3 * petal + anchor];
-                                if (status == ProofClassification.Impossible) { impossible = true; break; }
-                                if (status != ProofClassification.Certain) { uncertain = true; continue; }
-                                PhaseRootEvidence root = _candidate[3 * petal + anchor];
-                                uint sign = (root.Symbol.Tag >> 7) & 1u;
-                                token |= sign << (6 + anchor);
-                                NodeRule node = NodesValue[PetalsValue[petal].Node(anchor)];
-                                if (!RootRelativeBounds(0, node.Direction, node.LineClass, root, out bounds[anchor]))
-                                    uncertain = true;
-                            }
-                            if (impossible) continue;
-                            if (uncertain) { ambiguous = true; continue; }
-                            rootsCertain |= bit; symbolsCertain |= bit;
-                            // The candidate flag participates in class
-                            // filtering BEFORE uniqueness. Unrelated classes
-                            // neither certify nor veto this donor-backed flag.
-                            JunctionSelection junction = _reader.ReadR3Junction(_owner, _errors, this, petal);
-                            if (junction.Classification != JunctionClassification.CertainClosure)
-                            {
-                                _reader.RecordRequiredJunctionSupport(_owner, petal, junction.RequiredDualMask);
-                                if (junction.Classification != JunctionClassification.Impossible) ambiguous = true;
-                                continue;
-                            }
-                            JunctionRule rule = JunctionRules[(int)junction.ClassIndex];
-                            int junctionAxis = -1;
-                            for (int axis = 0; axis < 4; axis++)
-                                if (rule.Flag(frame.LineClasses[axis]) == petal &&
-                                    rule.Corner(frame.LineClasses[axis]) == PetalsValue[petal].CornerNode)
-                                    junctionAxis = axis;
-                            if (junctionAxis < 0 || ((token >> 8) & 1u) !=
-                                ((junction.RootSigns >> junctionAxis) & 1u)) continue;
-                            if (PetalsValue[petal].Orientation < 0)
-                            { Interval3 edge = bounds[1]; bounds[1] = bounds[2]; bounds[2] = edge; }
-                            ProofClassification orientation = CarrierWedgeOrientation(bounds[0], bounds[1], bounds[2],
-                                normal, _errors.x);
-                            if (orientation == ProofClassification.Impossible) continue;
-                            if (orientation != ProofClassification.Certain) { ambiguous = true; continue; }
-                            ProofClassification child = _reader.CompletionPetalProof(_owner, petal, token, _errors, this);
-                            if (child == ProofClassification.Impossible) continue;
-                            if (child != ProofClassification.Certain) { ambiguous = true; continue; }
-                            // These bits require all sixteen actual children
-                            // AND their complete dual supports, not one anchor
-                            // triangle or the pre-existing own-D admission.
-                            orientationCertain |= bit; shellsCertain |= bit;
-                            selectedToken = token;
-                            junctionClass = junction.ClassIndex;
-                        }
-                        uint2 mask = M8FlowerCompletionCandidates(direct, Mask(rootsCertain), Mask(symbolsCertain),
-                            Mask(shellsCertain), Mask(orientationCertain), default);
-                        candidates = mask.x | ((ulong)mask.y << 32);
-                        uint decision = M8FlowerUniqueCompletion(mask, out uint selected);
-                        classification = ambiguous || decision == 2u ? ProofClassification.Ambiguous :
-                            decision == 1u && selected == (selectedToken & 63u) ? ProofClassification.Certain :
-                            ProofClassification.Impossible;
-                    }
-                }
-                if (classification != ProofClassification.Certain) selectedToken = uint.MaxValue;
-                _completion = new ParentCompletionSelection(this, classification, selectedToken, junctionClass, candidates);
-                _completionEvaluated = true;
-                selection = _completion;
-                return classification;
-            }
-
-            internal ProofClassification ReadCarrier(int carrier, ParentCompletionSelection selection,
-                out MerkabaFlowerSymbolRecord symbol, out uint unresolved,
-                Span<PhaseRootEvidence> roots, Span<float3> positions)
-            {
-                if (!ReferenceEquals(selection.Source, this) || !_completionEvaluated ||
-                    selection.Token != _completion.Token || selection.Classification != _completion.Classification)
-                    throw new InvalidOperationException("Completion receipt does not belong to this frozen parent decision.");
-                uint completed = selection.Token & 63u;
-                bool changed = false;
-                if ((uint)carrier < L2HubCount && selection.Classification == ProofClassification.Certain)
-                    changed = (DecodeCarrierPetals[carrier][(int)(completed >> 5)] &
-                        (1u << (int)(completed & 31u))) != 0u;
-                if (!changed && TryReadDirectCarrier(carrier, out ProofClassification cached,
-                        out symbol, out unresolved, out _, roots, positions)) return cached;
-                return _reader.ClassifyPageCarrier(_owner, carrier, _errors, out symbol, out unresolved,
-                    out _, roots, positions, this,
-                    selection.Classification == ProofClassification.Certain ? selection.Token : uint.MaxValue);
-            }
-
-            private static uint2 Mask(ulong value) => new((uint)value, (uint)(value >> 32));
-
-            private bool TryDirectAnchor(int petal, int node, out PhaseRootEvidence selected)
-            {
-                selected = default;
-                ulong bit = 1UL << petal;
-                if ((ConfirmedDirect & bit) == 0u) return false;
-                for (int anchor = 0; anchor < 3; anchor++)
-                {
-                    if (PetalsValue[petal].Node(anchor) != node) continue;
-                    if ((_directAnchorSeen[anchor] & bit) == 0u || (_directAnchorConflict & bit) != 0u)
-                        return false;
-                    selected = _directAnchors[3 * petal + anchor];
-                    return ClassifyPhaseSector(selected, out _) == ProofClassification.Certain &&
-                        TryGetAnchorRootReferences(node, selected.Symbol.Tag, out ulong references) &&
-                        (references & bit) != 0u;
-                }
-                return false;
-            }
-
-            private ProofClassification ReadIncidentAnchor(int petal, int anchor, out PhaseRootEvidence root,
-                out bool uniqueSymbol)
-            {
-                root = default; uniqueSymbol = false;
-                int node = PetalsValue[petal].Node(anchor);
-                uint2 neighbourMask = M8FlowerCompletionNeighbours[petal];
-                ulong neighbours = neighbourMask.x | ((ulong)neighbourMask.y << 32);
-                // Bx cancels this candidate's actual shared edges. Their
-                // confirmed neighbours, not any petal merely touching this
-                // node, must agree on the SAME endpoint relation.
-                ulong donors = neighbours & NodeIncidentPetalsValue[node] & ConfirmedDirect;
-                bool found = false;
-                while (donors != 0u)
-                {
-                    int donor = (uint)donors != 0u ? math.tzcnt((uint)donors) :
-                        32 + math.tzcnt((uint)(donors >> 32));
-                    donors &= donors - 1UL;
-                    if (!TryDirectAnchor(donor, node, out PhaseRootEvidence candidate))
-                        return ProofClassification.Ambiguous;
-                    if (!TryGetAnchorRootReferences(node, candidate.Symbol.Tag, out ulong allowed))
-                        return ProofClassification.Ambiguous;
-                    if ((allowed & (1UL << petal)) == 0u)
-                    { uniqueSymbol = false; return ProofClassification.Impossible; }
-                    if (!found) { root = candidate; found = true; uniqueSymbol = true; continue; }
-                    if (math.any(root.Symbol.Junction != candidate.Symbol.Junction) ||
-                        (root.Symbol.Tag & 0x1fffu) != (candidate.Symbol.Tag & 0x1fffu))
-                    { uniqueSymbol = false; return ProofClassification.Impossible; }
-                    ProofClassification status = CloseSharedPhaseRoot(root, candidate, out PhaseRootEvidence closed);
-                    if (status != ProofClassification.Certain) return status;
-                    root = closed;
-                }
-                return found ? ProofClassification.Certain : ProofClassification.Impossible;
-            }
         }
 
         /// <summary>Read-only CPU view of the same frozen M8/sidecar tile
@@ -618,42 +237,14 @@ namespace Genesis.RoomScan
 
             private readonly MerkabaTileAddress[] _stored;
             private readonly Dictionary<MerkabaTileAddress, Tile> _tiles = new();
-            private readonly Func<int3, ExcavationCellState> _readCell;
-            private ulong _requiredSupportVersion;
-            private RequiredSupportReceipt _requiredSupportReceipt;
-
-            internal ulong RequiredSupportVersion => _requiredSupportVersion;
-
-            internal bool TryRequiredSupportSince(ulong version, out RequiredSupportReceipt receipt)
-            {
-                receipt = _requiredSupportReceipt;
-                return _requiredSupportVersion != version;
-            }
-
-            private void RecordRequiredSupport(int3 owner, int carrier, uint wedgeMask)
-            {
-                if (wedgeMask == 0u) return;
-                _requiredSupportReceipt = new RequiredSupportReceipt(owner, carrier, wedgeMask);
-                _requiredSupportVersion = checked(_requiredSupportVersion + 1UL);
-            }
-
-            internal void RecordRequiredJunctionSupport(int3 owner, int petal, uint rootAlternatives)
-            {
-                if (rootAlternatives == 0u) return;
-                _requiredSupportReceipt = new RequiredSupportReceipt(owner, -1, 0u, petal, rootAlternatives);
-                _requiredSupportVersion = checked(_requiredSupportVersion + 1UL);
-            }
-
             internal SnapshotReader(IEnumerable<MerkabaTileSnapshot> snapshots,
-                MerkabaTileAddress[] storedIndex, Func<int3, ExcavationCellState> readCell)
+                MerkabaTileAddress[] storedIndex)
             {
                 if (snapshots == null) throw new ArgumentNullException(nameof(snapshots));
                 if (storedIndex == null) throw new ArgumentNullException(nameof(storedIndex));
-                if (readCell == null) throw new ArgumentNullException(nameof(readCell));
                 // CaptureStoredTileIndex already returns the immutable sorted
                 // M8 index. Reuse it; do not build a second world address map.
                 _stored = storedIndex;
-                _readCell = readCell;
                 foreach (MerkabaTileSnapshot snapshot in snapshots)
                 {
                     if (snapshot == null || Array.BinarySearch(_stored, snapshot.Address) < 0 ||
@@ -730,32 +321,30 @@ namespace Genesis.RoomScan
 
             internal ProofClassification ClassifyPageCarrier(int3 owner, int carrier, float2 errors,
                 out MerkabaFlowerSymbolRecord symbol, out uint unresolved,
-                Span<PhaseRootEvidence> roots, Span<float3> positions, bool requiredSupport = true)
+                Span<PhaseRootEvidence> roots, Span<float3> positions)
                 => ClassifyPageCarrier(owner, carrier, errors, out symbol, out unresolved,
-                    out _, roots, positions, requiredSupport: requiredSupport);
+                    out _, roots, positions);
 
             internal ProofClassification ClassifyPageCarrier(int3 owner, int carrier, float2 errors,
                 out MerkabaFlowerSymbolRecord symbol, out uint unresolved, out uint directWedges,
                 Span<PhaseRootEvidence> roots, Span<float3> positions,
-                FlowerDecode parentSnapshot = null, uint completionToken = uint.MaxValue,
-                bool requiredSupport = true, bool recordParentDirect = true)
+                FlowerDecode parentSnapshot = null)
             {
                 if (roots.Length != L2CarrierSiteCount || positions.Length != L2CarrierSiteCount)
                     throw new ArgumentException("A Flower carrier has seven shared knot sites.");
                 parentSnapshot?.RequireSource(this, owner, errors);
-                bool recordParent = parentSnapshot != null && !parentSnapshot.IsComplete && recordParentDirect;
+                bool recordParent = parentSnapshot != null;
                 if (recordParent && parentSnapshot.TryReadDirectCarrier(carrier,
                         out ProofClassification cached, out symbol, out unresolved, out directWedges,
                         roots, positions)) return cached;
                 ProofClassification status = ClassifyL2Carrier(owner, carrier, errors,
-                    out symbol, out unresolved, out directWedges, roots, positions, parentSnapshot, completionToken);
+                    out symbol, out unresolved, out directWedges, roots, positions, parentSnapshot);
                 uint owned = 0u;
                 for (int wedge = 0; wedge < 6; wedge++)
                     if (L2OwnsWedge(carrier, wedge)) owned |= 1u << wedge;
                 unresolved &= owned;
                 if (status != ProofClassification.Certain)
                 {
-                    if (recordParent) parentSnapshot.RecordCarrier(carrier, 0u, 0u, 0u, 0u);
                     ProofClassification result = status == ProofClassification.Ambiguous && unresolved != 0u
                         ? ProofClassification.Ambiguous : ProofClassification.Impossible;
                     if (recordParent) parentSnapshot.StoreDirectCarrier(carrier, result, symbol, unresolved,
@@ -764,32 +353,6 @@ namespace Genesis.RoomScan
                 }
                 uint rawActive = symbol.ActiveWedgeMask;
                 uint active = rawActive & owned;
-                uint dualClear = 0u, dualVeto = 0u, requiredAmbiguous = 0u;
-                uint supportNeeded = recordParent ? rawActive : active | directWedges;
-                for (int wedge = 0; wedge < 6; wedge++)
-                {
-                    uint bit = 1u << wedge;
-                    if ((supportNeeded & bit) == 0u) continue;
-                    ProofClassification dual = SupportWedgeDual(owner, carrier, wedge, roots, _readCell);
-                    if (dual == ProofClassification.Impossible) dualClear |= bit;
-                    else
-                    {
-                        active &= ~bit;
-                        directWedges &= ~bit;
-                        if (dual == ProofClassification.Certain) dualVeto |= bit;
-                    }
-                    if (dual == ProofClassification.Ambiguous && (owned & bit) != 0u)
-                    {
-                        unresolved |= bit;
-                        requiredAmbiguous |= bit;
-                    }
-                }
-                // The finite classifier still reports its unchanged masks.
-                // A page transaction must ALSO observe this required-support
-                // receipt; returning a remaining active wedge is not closure.
-                // Optional pairing probes do not make an unused halo required.
-                if (requiredSupport) RecordRequiredSupport(owner, carrier, requiredAmbiguous);
-                if (recordParent) parentSnapshot.RecordCarrier(carrier, rawActive, directWedges, dualClear, dualVeto, roots);
                 symbol.OwnerAndCarrier = (symbol.OwnerAndCarrier &
                     ~(MerkabaFlowerSymbolRecord.WedgeMask << MerkabaFlowerSymbolRecord.ActiveWedgeShift)) |
                     (active << MerkabaFlowerSymbolRecord.ActiveWedgeShift);
@@ -799,7 +362,6 @@ namespace Genesis.RoomScan
                         used |= 1u | (1u << (1 + wedge)) | (1u << (1 + (wedge + 1) % 6));
                 symbol.RootsAndWedges = ((uint)symbol.HubSector << MerkabaFlowerSymbolRecord.HubSectorShift) |
                     (symbol.RootSigns & used) |
-                    ((symbol.CompletedWedgeMask & active) << MerkabaFlowerSymbolRecord.CompletedWedgeShift) |
                     ((symbol.ReverseWedgeMask & active) << MerkabaFlowerSymbolRecord.ReverseWedgeShift);
                 for (int site = 0; site < 7; site++)
                     if ((used & (1u << site)) == 0u) { roots[site] = default; positions[site] = default; }
@@ -808,45 +370,6 @@ namespace Genesis.RoomScan
                 if (recordParent) parentSnapshot.StoreDirectCarrier(carrier, status, symbol, unresolved,
                     directWedges, roots, positions);
                 return status;
-            }
-
-            internal ProofClassification CompletionPetalProof(int3 owner, int petal, uint token,
-                float2 errors, FlowerDecode snapshot)
-            {
-                Span<PhaseRootEvidence> roots = stackalloc PhaseRootEvidence[7];
-                Span<float3> positions = stackalloc float3[7];
-                bool ambiguous = false;
-                int requiredCarrier = -1;
-                uint requiredWedge = 0u;
-                // The inverse generated source permutation covers this
-                // WHOLE parent: all sixteen children, before owner emission
-                // ownership. There is no new/extrapolated candidate geometry.
-                for (int path = 0; path < 16; path++)
-                {
-                    int index = L2WedgeIndex(petal, path), carrier = index / 6, wedge = index % 6;
-                    ProofClassification status = ClassifyL2Carrier(owner, carrier, errors,
-                        out MerkabaFlowerSymbolRecord symbol, out uint unresolved, out _,
-                        roots, positions, snapshot, token);
-                    uint bit = 1u << wedge;
-                    if (status != ProofClassification.Certain || (symbol.ActiveWedgeMask & bit) == 0u)
-                    {
-                        if ((unresolved & bit) != 0u) { ambiguous = true; continue; }
-                        return ProofClassification.Impossible;
-                    }
-                    ProofClassification dual = SupportWedgeDual(owner, carrier, wedge, roots, _readCell);
-                    if (dual == ProofClassification.Certain) return ProofClassification.Impossible;
-                    if (dual != ProofClassification.Impossible)
-                    {
-                        ambiguous = true;
-                        requiredCarrier = carrier;
-                        requiredWedge = bit;
-                    }
-                }
-                // A later impossible child makes this entire candidate
-                // irrelevant. Only a still-possible completion can require
-                // resolving an earlier mixed/COLD child support.
-                if (requiredCarrier >= 0) RecordRequiredSupport(owner, requiredCarrier, requiredWedge);
-                return ambiguous ? ProofClassification.Ambiguous : ProofClassification.Certain;
             }
 
             private static void ResolveOwner(int3 owner, out MerkabaTileAddress tile, out int local)
@@ -1035,101 +558,6 @@ namespace Genesis.RoomScan
                 if (!exactIdentity && (TangentHalfAngle(predicted.Root, observed.Root, out q) != ProofClassification.Certain ||
                     !float.IsFinite(q.Lower) || !float.IsFinite(q.Upper))) return ProofClassification.Ambiguous;
                 if (TetraFramesValue[parity].Eta[axis] < 0) q = new FloatInterval(-q.Upper, -q.Lower);
-                return ProofClassification.Certain;
-            }
-
-            // The actual original R3 root interval, not its owner's box or a
-            // midpoint sample. Uses the same ordered bounds and dyadic cell
-            // cover as the full-wedge predicate above.
-            internal ProofClassification RootSupportDual(int3 owner, int nodeIndex, PhaseRootEvidence root)
-            {
-                if ((uint)nodeIndex >= NodeClassCount)
-                    return ProofClassification.Ambiguous;
-                NodeRule node = NodesValue[nodeIndex];
-                if (!TryOwnerJunction(owner, 0, node.Direction, out int3 junction) ||
-                    math.any(root.Symbol.Junction != junction) ||
-                    !RootRelativeBounds(0, node.Direction, node.LineClass, root, out Interval3 relative))
-                    return ProofClassification.Ambiguous;
-                int3 origin = (owner >> 3) << 3;
-                int3 relativeOwner = owner - origin;
-                FloatInterval step = FloatInterval.Singleton(LevelStep(0));
-                int3 first = default, last = default;
-                for (int axis = 0; axis < 3; axis++)
-                {
-                    FloatInterval translation = FloatInterval.Multiply(FloatInterval.Singleton(relativeOwner[axis]), step);
-                    FloatInterval cells = FloatInterval.Divide(FloatInterval.Add(relative[axis], translation), step);
-                    if (!float.IsFinite(cells.Lower) || !float.IsFinite(cells.Upper) ||
-                        cells.Lower < -8f || cells.Upper >= 15f)
-                        return ProofClassification.Ambiguous;
-                    first[axis] = (int)Math.Floor(cells.Lower);
-                    last[axis] = (int)Math.Floor(cells.Upper);
-                }
-                return ClassifySupportCellCover(origin, first, last, _readCell);
-            }
-
-            internal JunctionSelection ReadR3Junction(int3 owner, float2 errors,
-                FlowerDecode parentSnapshot = null, int requiredPetal = -1)
-            {
-                if (parentSnapshot != null)
-                {
-                    parentSnapshot.RequireSource(this, owner, errors);
-                    return parentSnapshot.ReadJunction(requiredPetal);
-                }
-                Span<FloatInterval> q = stackalloc FloatInterval[8];
-                Span<uint> tags = stackalloc uint[8];
-                ProofClassification status = ReadR3JunctionEvidence(owner, errors, null, q, tags, out uint4 masks);
-                var unresolved = new JunctionSelection { Classification = JunctionClassification.Ambiguous,
-                    ClassIndex = uint.MaxValue, RootSigns = uint.MaxValue };
-                if (status == ProofClassification.Ambiguous) return unresolved;
-                if (status == ProofClassification.Impossible)
-                { unresolved.Classification = JunctionClassification.Impossible; return unresolved; }
-                int parity = (owner.x & 1) | ((owner.y & 1) << 1) | ((owner.z & 1) << 2);
-                return SelectR3Junction(parity, q, tags, masks.x, masks.y, masks.z, masks.w, requiredPetal);
-            }
-
-            internal ProofClassification ReadR3JunctionEvidence(int3 owner, float2 errors,
-                FlowerDecode parentSnapshot, Span<FloatInterval> q, Span<uint> tags, out uint4 masks)
-            {
-                if (q.Length != 8 || tags.Length != 8)
-                    throw new ArgumentException("Eight junction alternatives are required.");
-                q.Clear(); tags.Clear(); masks = default;
-                if (!TryReadOwner(owner, out KernelState state, out _)) return ProofClassification.Ambiguous;
-                if (!StableR1(state.Flags)) return ProofClassification.Impossible;
-                parentSnapshot?.RequireSource(this, owner, errors);
-                int parity = (owner.x & 1) | ((owner.y & 1) << 1) | ((owner.z & 1) << 2);
-                TetraFrameRule frame = TetraFramesValue[parity];
-                uint known = 0u, ambiguous = 0u, allowed = 0u, veto = 0u;
-                for (int axis = 0; axis < 4; axis++)
-                for (int sign = 0; sign < 2; sign++)
-                {
-                    int index = 2 * axis + sign;
-                    uint bit = 1u << index;
-                    int line = frame.LineClasses[axis];
-                    int node = 2 * line + (frame.Eta[axis] < 0 ? 1 : 0);
-                    ProofClassification status = CarrierRootProof(owner, state.Flags, 0,
-                        NodesValue[node].Direction, line, sign != 0, errors.x, errors.y,
-                        out PhaseRootEvidence predicted);
-                    if (status != ProofClassification.Certain)
-                    { if (status != ProofClassification.Impossible) ambiguous |= bit; continue; }
-                    PhaseRootEvidence observed;
-                    bool provisional;
-                    status = parentSnapshot == null
-                        ? ReadOriginalShared(owner, node, sign != 0, errors.x, errors.y, out observed, out provisional)
-                        : parentSnapshot.ReadOriginal(node, sign != 0, out observed, out provisional);
-                    if (status != ProofClassification.Certain || provisional)
-                    { if (status != ProofClassification.Impossible) ambiguous |= bit; continue; }
-                    status = R3MetricResidual(predicted, observed, parity, axis, out q[index]);
-                    if (status != ProofClassification.Certain)
-                    { if (status != ProofClassification.Impossible) ambiguous |= bit; continue; }
-                    known |= bit;
-                    tags[index] = observed.Symbol.Tag;
-                    ProofClassification support = RootSupportDual(owner, node, observed);
-                    if (support == ProofClassification.Impossible) allowed |= bit;
-                    else if (support == ProofClassification.Certain) veto |= bit;
-                    // Mixed/COLD leaves a known metric with unresolved dual
-                    // permission. It never becomes an all-true shell mask.
-                }
-                masks = new uint4(known, ambiguous, allowed, veto);
                 return ProofClassification.Certain;
             }
 
@@ -1347,24 +775,13 @@ namespace Genesis.RoomScan
 
             private void SourceAnchorAlternatives(int3 owner, int petal, int anchor,
                 float2 errors, out uint available, out uint uncertain, out uint nonprovisional,
-                FlowerDecode parentSnapshot, uint completionToken)
+                FlowerDecode parentSnapshot)
             {
                 available = uncertain = nonprovisional = 0u;
                 int node = PetalsValue[petal].Node(anchor);
-                bool completed = completionToken != uint.MaxValue && (completionToken & 63u) == petal;
-                uint permitted = 3u;
-                PhaseRootEvidence donor = default;
-                if (completed)
-                {
-                    permitted = 1u << (int)((completionToken >> (6 + anchor)) & 1u);
-                    if (parentSnapshot == null || !parentSnapshot.HasCompletionAnchors(completionToken) ||
-                        !parentSnapshot.TryGetCandidateAnchor(petal, anchor, out donor))
-                    { uncertain = permitted; return; }
-                }
                 for (int sign = 0; sign < 2; sign++)
                 {
                     uint bit = 1u << sign;
-                    if ((permitted & bit) == 0u) continue;
                     PhaseRootEvidence root;
                     bool provisional;
                     ProofClassification status = parentSnapshot == null
@@ -1376,14 +793,8 @@ namespace Genesis.RoomScan
                         !TryGetAnchorRootReferences(node, root.Symbol.Tag, out ulong allowed))
                     { uncertain |= bit; continue; }
                     if ((allowed & (1UL << petal)) == 0u) continue;
-                    if (completed && (provisional ||
-                        CloseSharedPhaseRoot(root, donor, out _) != ProofClassification.Certain))
-                    {
-                        uncertain |= bit;
-                        continue;
-                    }
                     available |= bit;
-                    if (!provisional && !completed) nonprovisional |= bit;
+                    if (!provisional) nonprovisional |= bit;
                 }
             }
 
@@ -1396,7 +807,7 @@ namespace Genesis.RoomScan
             internal ProofClassification ClassifyL2Carrier(int3 owner, int carrier, float2 errors,
                 out MerkabaFlowerSymbolRecord symbol, out uint unresolvedWedges, out uint directWedges,
                 Span<PhaseRootEvidence> roots, Span<float3> positions,
-                FlowerDecode parentSnapshot = null, uint completionToken = uint.MaxValue)
+                FlowerDecode parentSnapshot = null)
             {
                 if (roots.Length != 7 || positions.Length != 7)
                     throw new ArgumentException("A Flower carrier has seven shared knot sites.");
@@ -1406,9 +817,6 @@ namespace Genesis.RoomScan
                 parentSnapshot?.RequireSource(this, owner, errors);
                 roots.Clear(); positions.Clear();
                 if ((uint)carrier >= L2HubCount) return ProofClassification.Impossible;
-                if (completionToken != uint.MaxValue &&
-                    (parentSnapshot == null || !parentSnapshot.HasCompletionAnchors(completionToken)))
-                { unresolvedWedges = 63u; return ProofClassification.Ambiguous; }
                 if (!TryReadOwner(owner, out KernelState state, out _))
                 { unresolvedWedges = 63u; return ProofClassification.Ambiguous; }
                 if (!StableR1(state.Flags)) return ProofClassification.Impossible;
@@ -1450,7 +858,7 @@ namespace Genesis.RoomScan
                     for (int anchor = 0; anchor < 3; anchor++)
                     {
                         SourceAnchorAlternatives(owner, petal, anchor, errors,
-                            out uint available, out uint pending, out uint direct, parentSnapshot, completionToken);
+                            out uint available, out uint pending, out uint direct, parentSnapshot);
                         anchorAvailable[anchor] = available;
                         anchorUncertain[anchor] = pending;
                         anchorDirect[anchor] = direct;
@@ -1530,20 +938,14 @@ namespace Genesis.RoomScan
                 }
                 ResolveOwner(owner, out _, out int local);
                 bool reverse = M8FlowerPlaneFreeSide(state.Flags) < 0;
-                uint completed = 0u;
-                if (completionToken != uint.MaxValue)
-                    for (int wedge = 0; wedge < 6; wedge++)
-                        if (CarrierData.Wedges[6 * carrier + wedge].Petal == (completionToken & 63u))
-                            completed |= active & (1u << wedge);
                 // CPU packet references are absent; all lookups remain the
                 // frozen owner/key/epoch above, never a fabricated GPU offset.
                 symbol = MerkabaFlowerSymbolRecord.CreateCarrier(local, carrier, 1, reverse, false,
-                    active, signs, (int)((roots[0].Symbol.Tag >> 8) & 31u), completed, reverse ? active : 0u);
+                    active, signs, (int)((roots[0].Symbol.Tag >> 8) & 31u), 0u, reverse ? active : 0u);
                 for (int wedge = 0; wedge < 6; wedge++)
                     if ((active & (1u << wedge)) != 0u &&
                         (directTriples[wedge] & (1u << (int)CarrierTriple(signs, wedge))) != 0u)
                         directWedges |= 1u << wedge;
-                directWedges &= ~completed;
                 return ProofClassification.Certain;
             }
 

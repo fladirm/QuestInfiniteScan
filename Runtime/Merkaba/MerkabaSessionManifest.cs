@@ -8,11 +8,9 @@ namespace Genesis.RoomScan
     {
         M8Base = 0,
         M8Live = 1,
-        ThroughBase = 2,
-        ThroughLive = 3,
-        FlowerDetail = 4,
-        ThreadAtlas = 5,
-        Count = 6
+        FlowerDetail = 2,
+        ThreadAtlas = 3,
+        Count = 4
     }
 
     internal enum MerkabaCommitStage : byte
@@ -30,21 +28,20 @@ namespace Genesis.RoomScan
         AfterRecoveryManifestFlush = 2,
         AfterRecoveryManifestPublish = 3,
         AfterM8BasePublish = 4,
-        AfterThroughBasePublish = 5,
-        AfterFinalManifestFlush = 6,
-        AfterFinalManifestPublish = 7
+        AfterFinalManifestFlush = 5,
+        AfterFinalManifestPublish = 6
     }
 
     /// <summary>
-    /// The only durable transaction boundary of one REV-B session. Stream
-    /// bytes beyond the six recorded end offsets are not part of the world.
+    /// The only durable transaction boundary of one direct M8 session. Stream
+    /// bytes beyond the four recorded end offsets are not part of the world.
     /// </summary>
     internal sealed class MerkabaSessionManifest
     {
         internal const uint Magic = 0x464d384du; // M8MF
-        internal const ushort Version = 4;
-        internal const int ByteSize = 208;
-        internal const int CrcOffset = 200;
+        internal const ushort Version = 5;
+        internal const int ByteSize = 184;
+        internal const int CrcOffset = 176;
 
         internal Guid SessionUuid;
         internal Guid AnchorUuid;
@@ -54,7 +51,6 @@ namespace Genesis.RoomScan
         internal uint OccupiedKernelCount;
         internal uint CanonicalTileCount;
         internal ulong M8BaseGeneration;
-        internal ulong ThroughBaseGeneration;
         internal readonly long[] ValidEnds = new long[(int)
             MerkabaStorageStream.Count];
 
@@ -72,8 +68,7 @@ namespace Genesis.RoomScan
                 IntegrationCount = IntegrationCount,
                 OccupiedKernelCount = OccupiedKernelCount,
                 CanonicalTileCount = CanonicalTileCount,
-                M8BaseGeneration = M8BaseGeneration,
-                ThroughBaseGeneration = ThroughBaseGeneration
+                M8BaseGeneration = M8BaseGeneration
             };
             Array.Copy(ValidEnds, result.ValidEnds, ValidEnds.Length);
             result.Validate();
@@ -88,8 +83,7 @@ namespace Genesis.RoomScan
             if (CommitGeneration == 0ul || IntegrationCount < 0)
                 throw new InvalidDataException(
                     "Session manifest generation/count is invalid.");
-            if (M8BaseGeneration > CommitGeneration ||
-                ThroughBaseGeneration > CommitGeneration)
+            if (M8BaseGeneration > CommitGeneration)
                 throw new InvalidDataException(
                     "A base generation cannot exceed the committed generation.");
             for (int i = 0; i < ValidEnds.Length; i++)
@@ -136,11 +130,9 @@ namespace Genesis.RoomScan
                 manifest.CanonicalTileCount);
             MerkabaSphereFlowerPersistenceAbi.WriteUInt64(bytes, 136,
                 manifest.M8BaseGeneration);
-            MerkabaSphereFlowerPersistenceAbi.WriteUInt64(bytes, 144,
-                manifest.ThroughBaseGeneration);
             for (int i = 0; i < manifest.ValidEnds.Length; i++)
                 MerkabaSphereFlowerPersistenceAbi.WriteUInt64(bytes,
-                    152 + i * 8, checked((ulong)manifest.ValidEnds[i]));
+                    144 + i * 8, checked((ulong)manifest.ValidEnds[i]));
             uint crc = MerkabaSphereFlowerPersistenceAbi.ComputeBytesCrc(
                 bytes.AsSpan(0, CrcOffset));
             MerkabaSphereFlowerPersistenceAbi.WriteUInt32(bytes, CrcOffset,
@@ -184,7 +176,7 @@ namespace Genesis.RoomScan
                 throw new InvalidDataException("Session manifest CRC mismatch.");
             if (MerkabaSphereFlowerPersistenceAbi.ReadUInt32(bytes, 12) != 0u ||
                 MerkabaSphereFlowerPersistenceAbi.ReadUInt32(bytes, 132) != 0u ||
-                MerkabaSphereFlowerPersistenceAbi.ReadUInt32(bytes, 204) != 0u)
+                MerkabaSphereFlowerPersistenceAbi.ReadUInt32(bytes, 180) != 0u)
                 throw new InvalidDataException(
                     "Session manifest reserved bits are nonzero.");
 
@@ -201,9 +193,7 @@ namespace Genesis.RoomScan
                 CanonicalTileCount =
                     MerkabaSphereFlowerPersistenceAbi.ReadUInt32(bytes, 128),
                 M8BaseGeneration =
-                    MerkabaSphereFlowerPersistenceAbi.ReadUInt64(bytes, 136),
-                ThroughBaseGeneration =
-                    MerkabaSphereFlowerPersistenceAbi.ReadUInt64(bytes, 144)
+                    MerkabaSphereFlowerPersistenceAbi.ReadUInt64(bytes, 136)
             };
             Matrix4x4 matrix = default;
             for (int i = 0; i < 16; i++)
@@ -214,7 +204,7 @@ namespace Genesis.RoomScan
             for (int i = 0; i < result.ValidEnds.Length; i++)
             {
                 ulong end = MerkabaSphereFlowerPersistenceAbi.ReadUInt64(bytes,
-                    152 + i * 8);
+                    144 + i * 8);
                 if (end > long.MaxValue)
                     throw new InvalidDataException(
                         "Session manifest stream end exceeds platform range.");

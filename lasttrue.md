@@ -10501,3 +10501,34 @@ CURSOR=RT4 device acceptance. Attach/authorize Quest, deploy this exact APK,
   occupied/triangle progression, sustained GPU timing, sleep/resume and the
   saved/reopened/exported scan. CPU remains outside the live geometry hotpath.
   DEVICE ACCEPTANCE PENDING; active goal is not complete. Do not redo RT1–RT3.
+
+## RT4 — direct-only greenfield source cut, 2026-09-11
+
+AUTHORITY=user overrides: remove dual completely; greenfield, no old scans;
+  build APK only after the completed scanner. Current cursor: M8-REALTIME-DAG.md.
+IMPLEMENTED=removed dual GPU job/resources, negative-volume admission/veto,
+  DIRT/completion production consumers, automatic dual durability drain, dual
+  storage streams and replay. No compatibility importer or inactive dual mode.
+  Direct R1/L0-L2, shared knots, fixed RGB/V skin, fine epochs and explicit
+  ERASE remain. Readout reuses certified shared-root receipts and cooperative
+  selected-site positions; no private seven-root copies for publication.
+  Session manifest v5 is 184 B with four streams; append records v6 have nine
+  kinds. SAVE/OPEN/crash/compaction/epoch replay remains transactional. GLB,
+  Tiles and export journal no longer have DIRT output or a DIRT progress stage.
+  Native ABI29 has 32 pipelines/41 resources/39 timing slots; counters=52.
+VALIDATION=Unity 385/385 PASS, zero skipped, 2026-09-11 17:43:21–17:44:06 UTC.
+  Retired dual-storage tests removed; current-format and prior-version rejection
+  tests added. All direct geometry/skin fixtures retained. Independent CRC vector
+  confirms record-version/kind change: f970503e -> d959c29f.
+  Exact shader audit 75/75 PASS (58 production/32 native/17 oracle), no relaxed
+  hard gates. Final ARM64 native build PASS; all 32 embedded SPIR-V payloads pass.
+  GLB direct seven-site fixture interoperability PASS. Evidence directory:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/direct-only-audit.
+DELIVERY=NO APK BUILD, NO INSTALL, NO DEVICE ACCEPTANCE for this cut. Source is
+  reversible through version control. No user scan files/app data were deleted.
+NEXT=all-shader precompiled delivery is unresolved: PC emits SPIR-V, not Adreno
+  driver machine code. Quest reports pipeline-binary/cache-control extensions;
+  that does not prove Unity feature enablement or cover every graphics variant.
+  Preparation-time Quest compilation permission is unanswered; do not run it.
+  Do not claim zero driver compilation or a completed scanner. The product goal
+  remains blocked. Continue from this receipt, not the historical RT4 APK above.

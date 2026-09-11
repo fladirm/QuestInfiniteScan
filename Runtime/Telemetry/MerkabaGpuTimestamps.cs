@@ -10,7 +10,6 @@ namespace Genesis.RoomScan
     {
         DepthPreprocess,
         SurfaceIntegration,
-        DualIntegration,
         WorldQuery,
         FlowerClassify,
         FlowerCompact,
@@ -105,19 +104,14 @@ namespace Genesis.RoomScan
             internal uint UnresolvedSurfaceTiles;
             internal uint SurfaceTilesAllocated;
             internal uint ScanColdMisses;
-            internal uint DualQueryBlocks;
             internal uint ObservationChangeMask;
             internal uint DirtyTileCount;
-            internal uint ThroughEvidenceDecrements;
-            internal uint ThroughOccupiedToFree;
             internal uint UnresolvedObservationTiles;
             internal uint LoadRequests;
             internal uint WritebackTiles;
             internal uint FailedReads;
             internal uint FailedWrites;
             internal uint StorageBackpressure;
-            internal uint DualStorageIntents;
-            internal uint DualTouchPublication;
             internal uint ObservationFailure;
             internal uint FailedObservations;
             internal readonly uint[] RefineRadial =
@@ -630,12 +624,6 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterFailedWrites];
                     sample.StorageBackpressure = values[
                         MerkabaGrid.CounterStorageBackpressure];
-                    sample.DualStorageIntents = values[
-                        MerkabaGrid.CounterDualStorageIntentCount];
-                    sample.DualTouchPublication = values[
-                        MerkabaGrid.CounterDualTouchPublication];
-                    sample.DualQueryBlocks = values[
-                        MerkabaGrid.CounterDualQueryBlocks];
                     sample.WritebackTiles = values[
                         MerkabaGrid.CounterWritebackTiles];
                     sample.ObservationFailure = values[
@@ -646,10 +634,6 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterObservationChangeMask];
                     sample.DirtyTileCount = values[
                         MerkabaGrid.CounterDirtyTileCount];
-                    sample.ThroughEvidenceDecrements = values[
-                        MerkabaGrid.CounterThroughEvidenceDecrements];
-                    sample.ThroughOccupiedToFree = values[
-                        MerkabaGrid.CounterThroughOccupiedToFree];
                     sample.UnresolvedObservationTiles = values[
                         MerkabaGrid.CounterUnresolvedObservationTiles];
                 }
@@ -775,7 +759,6 @@ namespace Genesis.RoomScan
                 $"hashFull={values[MerkabaGrid.CounterHashFull]} " +
                 $"failedReads={values[MerkabaGrid.CounterFailedReads]} " +
                 $"failedWrites={values[MerkabaGrid.CounterFailedWrites]} " +
-                $"dualQueryBlocks={values[MerkabaGrid.CounterDualQueryBlocks]} " +
                 $"changeMask=0x{values[MerkabaGrid.CounterObservationChangeMask]:x}");
         }
 
@@ -1049,9 +1032,6 @@ namespace Genesis.RoomScan
                         $"scanColdMisses={sample.ScanColdMisses}");
             Logger.Info($"Merkaba metrics-dual revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
-                        $"dualQueryBlocks={sample.DualQueryBlocks} " +
-                        $"throughEvidenceDecrements={sample.ThroughEvidenceDecrements} " +
-                        $"throughOccupiedToFreeTransitions={sample.ThroughOccupiedToFree} " +
                         $"unresolvedObservationTiles={sample.UnresolvedObservationTiles} " +
                         $"observationChangeMask={sample.ObservationChangeMask} " +
                         $"dirtyTileCount={sample.DirtyTileCount}");
@@ -1075,8 +1055,6 @@ namespace Genesis.RoomScan
                         $"failedWrites={sample.FailedWrites}");
             Logger.Info($"Merkaba metrics-observation-publication revision={sample.Revision} " +
                         $"valid={sample.ReadbackValid} " +
-                        $"dualStorageIntents={sample.DualStorageIntents} " +
-                        $"dualTouchPublication={sample.DualTouchPublication} " +
                         $"observationFailure=0x{sample.ObservationFailure:x} " +
                         $"failedObservations={sample.FailedObservations}");
         }

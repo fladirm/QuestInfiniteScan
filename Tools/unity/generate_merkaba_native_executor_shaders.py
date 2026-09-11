@@ -60,8 +60,6 @@ PIPELINES = (
              "ReserveObservationBins", "one"),
     Pipeline("EmitObservationBins", "MerkabaObservationBins.compute",
              "EmitObservationBins", "depth"),
-    Pipeline("UpdateObservationDual", "MerkabaIntegration.compute",
-             "UpdateObservationDual", "query"),
     Pipeline("FlowerCommit", "MerkabaIntegration.compute",
              "FlowerCommit", "observation_indirect"),
     Pipeline("InvalidateFlowerSources", "MerkabaIntegration.compute",
@@ -143,11 +141,9 @@ def command_schedules():
         # Fixed Block -> Chunk -> Tile publication dependencies. On a HOT
         # snapshot every command in these three boundaries is GPU-indirect zero.
         *([*allocation, "ResetObservationBins", "CountObservationBins"] * 3),
-        # Retire any final contended claims before dual reuses their backing.
+        # Retire any final contended claims before integration consumes the bins.
         *allocation,
         "ReserveObservationBins", "EmitObservationBins",
-        # Excavate the complementary view, then reserve what its requests need.
-        "UpdateObservationDual", "ReserveObservationBins",
         # Read-only R1 preflight -> source epochs -> unique receiver cuts -> M8.
         # Fixed level entrypoints encode true dependency barriers; no stage
         # counter, ACK program or one-thread advance dispatch exists.
@@ -194,7 +190,6 @@ RESOURCE_NAMES = (
     "TouchedTileQueue", "ObservationDispatchArgs", "AttemptCompletion",
     "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "CameraLeft", "CameraRight",
     "FrameDispatchArgs", "ObservationRecords", "ObservationTileBins", "TileHalo", "DepthCertificate",
-    "DualBlockState", "DualChunkState", "DualLeaves",
     "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands",
     "FlowerTables", "FlowerSignalItems",
 )
@@ -212,7 +207,6 @@ ALIASES = {
         "TouchedTileQueue", "ObservationDispatchArgs", "AttemptCompletion",
         "FrameDispatchArgs", "ObservationRecords",
         "ObservationTileBins", "TileHalo", "DepthCertificate",
-        "DualBlockState", "DualChunkState", "DualLeaves",
         "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands", "FlowerTables", "FlowerSignalItems")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",

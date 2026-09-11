@@ -170,56 +170,49 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 symbol.DetailRef = input.symbol.z;
                 symbol.ThreadRef = input.symbol.w;
                 float3 color;
-                if (M8FlowerDrawIsDirt(symbol))
+                uint wedge;
+                float3 barycentric, chartU, chartV;
+                if (!M8FlowerCarrierChartWedge(input.chart, wedge,
+                    barycentric, chartU, chartV)) clip(-1.0);
+                // The six index triangles share seven VS outputs. Only
+                // this per-fragment mask can reject an arbitrary subset
+                // without moving a shared boundary position.
+                if ((M8FlowerDrawActiveWedgeMask(symbol) & (1u << wedge)) == 0u)
+                    clip(-1.0);
+                float3 tangentU, tangentV, normal, barycentricU, barycentricV;
+                bool frameValid = M8FlowerGraphicsFrame(input.worldPosition,
+                    input.chart, wedge, dpdx, dpdy, duvdx, duvdy,
+                    tangentU, tangentV, normal, barycentricU, barycentricV);
+                if (!frameValid)
                 {
-                    color = M8FlowerDirtSupportLinearRgba.rgb;
+                    float3 parentNormal; float parentOffset;
+                    M8FlowerUnpackPlane(input.planeFlags, parentNormal, parentOffset);
+                    normal = normalize(mul(parentNormal,
+                        (float3x3)_MerkabaWorldToGrid));
+                    barycentricU = barycentricV = 0.0;
                 }
-                else
+                if ((M8FlowerDrawReverseWedgeMask(symbol) & (1u << wedge)) != 0u)
                 {
-                    uint wedge;
-                    float3 barycentric, chartU, chartV;
-                    if (!M8FlowerCarrierChartWedge(input.chart, wedge,
-                        barycentric, chartU, chartV)) clip(-1.0);
-                    // The six index triangles share seven VS outputs. Only
-                    // this per-fragment mask can reject an arbitrary subset
-                    // without moving a shared boundary position.
-                    if ((M8FlowerDrawActiveWedgeMask(symbol) & (1u << wedge)) == 0u)
-                        clip(-1.0);
-                    float3 tangentU, tangentV, normal, barycentricU, barycentricV;
-                    bool frameValid = M8FlowerGraphicsFrame(input.worldPosition,
-                        input.chart, wedge, dpdx, dpdy, duvdx, duvdy,
-                        tangentU, tangentV, normal, barycentricU, barycentricV);
-                    if (!frameValid)
-                    {
-                        float3 parentNormal; float parentOffset;
-                        M8FlowerUnpackPlane(input.planeFlags, parentNormal, parentOffset);
-                        normal = normalize(mul(parentNormal,
-                            (float3x3)_MerkabaWorldToGrid));
-                        barycentricU = barycentricV = 0.0;
-                    }
-                    if ((M8FlowerDrawReverseWedgeMask(symbol) & (1u << wedge)) != 0u)
-                    {
-                        normal = -normal;
-                        tangentV = -tangentV;
-                        barycentricV = -barycentricV;
-                    }
-                    M8FlowerSkinLocality locality = M8FlowerResolveSkinLocality(
-                        barycentric, wedge, barycentricU, barycentricV);
-                    M8FlowerSkinDrawSample sample;
-                    if (!M8FlowerReadGraphicsSkin(symbol, input.parentEpoch,
-                        wedge, locality, M8FlowerCapturedColor(input.packedColor), sample))
-                        clip(-1.0);
-                    float metricV = 0.0;
-                    float3 microNormal = normal;
-                    if (frameValid && _M8PresentationLight.w == 1.0 &&
-                        (sample.Flags & 1u) != 0u)
-                        microNormal = M8FlowerEvaluateSkinNormal(locality, sample,
-                            tangentU, tangentV, normal, metricV);
-                    // V-1 does not reinterpret capture as albedo. It is off
-                    // by default and cannot manufacture OPTICAL_VALID.
-                    color = M8FlowerRelativeDiffuse(sample.CapturedRgb,
-                        sample.Flags, normal, microNormal, _M8PresentationLight);
+                    normal = -normal;
+                    tangentV = -tangentV;
+                    barycentricV = -barycentricV;
                 }
+                M8FlowerSkinLocality locality = M8FlowerResolveSkinLocality(
+                    barycentric, wedge, barycentricU, barycentricV);
+                M8FlowerSkinDrawSample sample;
+                if (!M8FlowerReadGraphicsSkin(symbol, input.parentEpoch,
+                    wedge, locality, M8FlowerCapturedColor(input.packedColor), sample))
+                    clip(-1.0);
+                float metricV = 0.0;
+                float3 microNormal = normal;
+                if (frameValid && _M8PresentationLight.w == 1.0 &&
+                    (sample.Flags & 1u) != 0u)
+                    microNormal = M8FlowerEvaluateSkinNormal(locality, sample,
+                        tangentU, tangentV, normal, metricV);
+                // V-1 does not reinterpret capture as albedo. It is off
+                // by default and cannot manufacture OPTICAL_VALID.
+                color = M8FlowerRelativeDiffuse(sample.CapturedRgb,
+                    sample.Flags, normal, microNormal, _M8PresentationLight);
 #if defined(M8_CHECKER_READOUT)
                 float3 surfaceAxis = abs(cross(ddx(input.worldPosition),
                     ddy(input.worldPosition)));

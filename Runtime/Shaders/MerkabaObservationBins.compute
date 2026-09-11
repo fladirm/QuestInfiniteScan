@@ -12,9 +12,6 @@
 #include "MerkabaObservationScope.hlsl"
 
 float4x4 _MerkabaWorldToGrid;
-int3 _M8ScanCenterBlock;
-int _M8ScanBlockRadius;
-int _M8ScanBlockSide;
 
 // The SimpleScan sensor field distinguishes strict endpoints from bootstrap.
 // Integer routing never upgrades bootstrap confidence into accepted evidence.
@@ -76,80 +73,10 @@ void EmitObservationBins(uint3 id : SV_DispatchThreadID)
         pendingSymbol, sourcePixel);
 }
 
-// The dual producer appends address-only intents into the released BLOCK
-// span. Read a complete batch before any claim can overwrite that prefix.
-groupshared uint2 m8DualStorageIntents[256];
-
-void M8FlowerResolveDualStorageIntent(uint2 intent)
-{
-    int3 coordinate;
-    if ((intent.y >> 17u) != 0u || !M8ObservationBlockAddress(
-        _M8ScanCenterBlock,_M8ScanBlockRadius,_M8ScanBlockSide,intent.x,coordinate))
-    {
-        M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-        return;
-    }
-    uint kind=intent.y >> 15u, child=intent.y & 511u;
-    uint tile=(intent.y >> 9u) & 63u;
-    if ((kind == M8_DUAL_INTENT_BLOCK && (child != 0u || tile != 0u)) ||
-        (kind == M8_DUAL_INTENT_CHUNK && tile != 0u))
-    {
-        M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-        return;
-    }
-    uint block,chunk,failure;
-    if (!M8FindOrClaimBlock(coordinate,block,failure))
-    {
-        if (failure != 0u) M8FlowerBinFailure(failure);
-        return;
-    }
-    if (kind == M8_DUAL_INTENT_BLOCK) return;
-    if (!M8FindOrClaimChunk(block,child,chunk,failure))
-    {
-        if (failure != 0u) M8FlowerBinFailure(failure);
-        return;
-    }
-    if (kind == M8_DUAL_INTENT_CHUNK) return;
-    uint ticket;
-    InterlockedAdd(_M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT],1u,ticket);
-    if (ticket >= MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-    {
-        M8FlowerBinFailure(M8_OBSERVATION_FAILURE_PHYSICAL_CAPACITY);
-        return;
-    }
-    // Do not claim a physical/tile reference here: that belongs to the
-    // immediately following existing tile publication barrier.
-    _M8ClaimQueue[MERKABA_M8_CLAIM_TILE_OFFSET+ticket]=uint2(
-        chunk*MERKABA_M8_TILES_PER_CHUNK+tile,kind == M8_DUAL_INTENT_TILE_COLD ?
-        M8_DUAL_TILE_INTENT_COLD : M8_DUAL_TILE_INTENT_EMPTY);
-}
-
-// Publish Count claims or the dual's bounded address intents. No support,
-// plane, certificate, surface owner choice or root is evaluated here.
+// Publish this observation's direct address claims.
 [numthreads(256, 1, 1)]
 void ResolveMissingSpatialNodes(uint lane : SV_GroupIndex)
 {
-    uint intents=_M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT];
-    if (intents > MERKABA_M8_BLOCK_CAPACITY || (intents != 0u &&
-        (_M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] != 0u ||
-         _M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT] != 0u ||
-         _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT] != 0u)))
-    {
-        if (lane == 0u) M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-        return;
-    }
-    [loop] for (uint batch=0u; batch<intents; batch+=256u)
-    {
-        uint index=batch+lane;
-        if (index < intents)
-            m8DualStorageIntents[lane]=_M8ClaimQueue[MERKABA_M8_CLAIM_BLOCK_OFFSET+index];
-        GroupMemoryBarrierWithGroupSync();
-        if (index < intents) M8FlowerResolveDualStorageIntent(m8DualStorageIntents[lane]);
-        // At most one block claim per consumed intent. Its output index is
-        // therefore strictly below this batch's completely read input end;
-        // existing/duplicate/contended claims only decrease that prefix.
-        DeviceMemoryBarrierWithGroupSync();
-    }
     uint blocks = min(_M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT],
         MERKABA_M8_BLOCK_CAPACITY);
     for (uint i = lane; i < blocks; i += 256u)
@@ -176,7 +103,6 @@ void ResolveMissingSpatialNodes(uint lane : SV_GroupIndex)
     {
         _M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] = 0u;
         _M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT] = 0u;
-        _M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT] = 0u;
         // This storage barrier may enable the same snapshot's recount.
         if (blocks != 0u || chunks != 0u) M8SignalResidencyChange();
     }
@@ -227,16 +153,6 @@ void ResolveObservationTileRequests(uint lane : SV_GroupIndex)
         {
             M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
             continue;
-        }
-        if (item.y == M8_DUAL_TILE_INTENT_EMPTY || item.y == M8_DUAL_TILE_INTENT_COLD)
-        {
-            bool cold=item.y == M8_DUAL_TILE_INTENT_COLD;
-            uint expected=cold ? MERKABA_REF_COLD_ON_SSD : MERKABA_REF_EMPTY;
-            uint claimed=cold ? MERKABA_REF_LOADING : MERKABA_REF_CLAIMED_NEW;
-            uint previous;
-            InterlockedCompareExchange(_M8ChunkTileRefs[refIndex],expected,claimed,previous);
-            if (previous != expected) continue;
-            item.y=expected;
         }
         if (item.y == MERKABA_REF_COLD_ON_SSD)
         {
@@ -320,12 +236,12 @@ uint2 M8FlowerAddBinCounts(uint2 left, uint2 right)
         left.x + right.x), left.y + right.y);
 }
 
-uint2 M8FlowerBinCount(uint slot, bool publicationOnly)
+uint2 M8FlowerBinCount(uint slot)
 {
     uint stamp = _M8ObservationTileBins[slot].x;
     uint count = _M8ObservationTileBins[slot].y;
     uint2 result = uint2(0u, 0u);
-    if (stamp == _M8ObservationToken && (count != 0u || publicationOnly))
+    if (stamp == _M8ObservationToken && count != 0u)
         result = uint2(min(count, M8_FLOWER_OBSERVATION_RECORD_CAPACITY + 1u), 1u);
     return result;
 }
@@ -333,7 +249,6 @@ uint2 M8FlowerBinCount(uint slot, bool publicationOnly)
 [numthreads(256, 1, 1)]
 void ReserveObservationBins(uint lane : SV_GroupIndex)
 {
-    bool publicationOnly=_M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION] != 0u;
     uint slotCount = min(_M8ObservationHotSlotCount,
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     uint first = lane * M8_OBSERVATION_SLOTS_PER_LANE;
@@ -341,7 +256,7 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
     uint2 local = 0u.xx;
     [loop]
     for (uint readSlot = first; readSlot < end; readSlot++)
-        local = M8FlowerAddBinCounts(local, M8FlowerBinCount(readSlot,publicationOnly));
+        local = M8FlowerAddBinCounts(local, M8FlowerBinCount(readSlot));
     m8ObservationPrefix[lane] = local;
     GroupMemoryBarrierWithGroupSync();
 
@@ -393,9 +308,9 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
         [loop]
         for (uint writeSlot = first; writeSlot < end; writeSlot++)
         {
-            uint2 count = M8FlowerBinCount(writeSlot,publicationOnly);
+            uint2 count = M8FlowerBinCount(writeSlot);
             if (count.y == 0u) continue;
-            if (m8ObservationCanReserve != 0u && !publicationOnly)
+            if (m8ObservationCanReserve != 0u)
             {
                 _M8ObservationTileBins[writeSlot].z = prefix.x;
                 _M8ObservationTileBins[writeSlot].w = 0u;
@@ -410,22 +325,12 @@ void ReserveObservationBins(uint lane : SV_GroupIndex)
         _M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT] = touched;
         // Exactly one future FlowerCommit workgroup per touched tile.
         // The queue barrier between dispatches publishes spans and arguments.
-        // Publication-only also schedules cleanup of already committed
-        // sources after a later failure. FlowerCommit/evidence work keep
-        // their own failure guards; finalization still retires touched stamps.
-        _M8ObservationDispatchArgs[0] = publicationOnly || m8ObservationCanReserve != 0u ? touched : 0u;
+        _M8ObservationDispatchArgs[0] = m8ObservationCanReserve != 0u ? touched : 0u;
         _M8ObservationDispatchArgs[1] = 1u;
         _M8ObservationDispatchArgs[2] = 1u;
-        if (!publicationOnly)
-        {
-            // Count's allocation phase has retired. The dual may append a
-            // new address-only workset; the publication-only reserve MUST
-            // preserve that gate until the following allocation phase.
-            _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS] = 0u;
-            _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS] = 0u;
-            _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS] = 0u;
-        }
-        _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION] = 0u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS] = 0u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_INSTALL_ARGS] = 0u;
+        _M8ObservationDispatchArgs[M8_OBSERVATION_RECOUNT_ARGS] = 0u;
     }
 }
 

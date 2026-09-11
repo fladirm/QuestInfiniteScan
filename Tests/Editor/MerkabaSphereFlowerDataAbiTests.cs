@@ -174,16 +174,16 @@ namespace Genesis.RoomScan.Tests
                 MerkabaDualBlockMeta.Create(MerkabaDualNodeState.Invalid,
                     1u, MerkabaDualBlockMeta.NoPayload));
 
-            MerkabaDualGenerationAdvance ordinary =
-                MerkabaDualGeneration.AdvanceBlock(8u);
+            MerkabaWorldGenerationAdvance ordinary =
+                MerkabaWorldGeneration.AdvanceBlock(8u);
             Assert.That(ordinary.Generation, Is.EqualTo(9u));
             Assert.That(ordinary.RequiresTransactionalRebase, Is.False);
-            MerkabaDualGenerationAdvance rebase =
-                MerkabaDualGeneration.AdvanceBlock(
+            MerkabaWorldGenerationAdvance rebase =
+                MerkabaWorldGeneration.AdvanceBlock(
                     MerkabaDualBlockMeta.MaximumGeneration);
             Assert.That(rebase.Generation, Is.EqualTo(1u));
             Assert.That(rebase.RequiresTransactionalRebase, Is.True);
-            Assert.That(MerkabaDualGeneration.AdvanceChunk(uint.MaxValue)
+            Assert.That(MerkabaWorldGeneration.AdvanceChunk(uint.MaxValue)
                 .RequiresTransactionalRebase, Is.True);
         }
 
@@ -479,16 +479,16 @@ namespace Genesis.RoomScan.Tests
             MerkabaRecordHeader header = MerkabaRecordHeader.Create(
                 MerkabaRecordKind.FlowerDetail,
                 0x0102030405060708ul, address, payload);
-            Assert.That(header.Crc32, Is.EqualTo(0xf970503eu));
+            Assert.That(header.Crc32, Is.EqualTo(0xd959c29fu));
             byte[] bytes = new byte[MerkabaRecordHeader.ByteSize];
             MerkabaSphereFlowerPersistenceAbi.WriteHeader(bytes, header);
 
             CollectionAssert.AreEqual(new byte[]
             {
-                0x4d, 0x38, 0x53, 0x46, 0x05, 0x00, 0x07, 0x00,
+                0x4d, 0x38, 0x53, 0x46, 0x06, 0x00, 0x03, 0x00,
                 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
                 0x14, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
-                0x3e, 0x50, 0x70, 0xf9
+                0x9f, 0xc2, 0x59, 0xd9
             }, bytes);
             Assert.That(MerkabaSphereFlowerPersistenceAbi.TryReadHeader(bytes,
                 out var decoded), Is.True);
@@ -511,10 +511,6 @@ namespace Genesis.RoomScan.Tests
             var expected = new[]
             {
                 (MerkabaRecordKind.M8Tile, 16, 8192),
-                (MerkabaRecordKind.DualBlock, 12, 8),
-                (MerkabaRecordKind.DualBlockChildren, 12, 128),
-                (MerkabaRecordKind.DualChunk, 16, 32),
-                (MerkabaRecordKind.DualLeaf, 16, 64),
                 (MerkabaRecordKind.FlowerOwnerEpoch, 16, 8),
                 (MerkabaRecordKind.FlowerDetail, 20, 16),
                 (MerkabaRecordKind.FlowerSkinMetricRun, 20, 24),
@@ -538,7 +534,7 @@ namespace Genesis.RoomScan.Tests
                 MerkabaRecordKind.FlowerDetail, 0x12345678u);
             Assert.That(tombstone.IsCanonical, Is.True);
             Assert.Throws<ArgumentOutOfRangeException>(() =>
-                MerkabaTombstoneRecord.Create(MerkabaRecordKind.DualLeaf, 0u));
+                MerkabaTombstoneRecord.Create(MerkabaRecordKind.M8Tile, 0u));
         }
 
         [Test]

@@ -14,13 +14,13 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 28: specialize existing count/emit page passes; same command graph.
-        internal const int AbiVersion = 28;
-        internal const int ResourceCount = 44;
+        // ABI 29: direct-only resources; specialize existing count/emit page passes; same command graph.
+        internal const int AbiVersion = 29;
+        internal const int ResourceCount = 41;
         internal const int PipelineCount = 33;
         // Native codegen verifies this against the longest complete schedule,
         // including indirect commands whose GPU work count may be zero.
-        internal const int MaximumDispatchTimingCount = 41;
+        internal const int MaximumDispatchTimingCount = 39;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -79,9 +79,6 @@ namespace Genesis.RoomScan
             ObservationTileBins,
             TileHalo,
             DepthCertificate,
-            DualBlockState,
-            DualChunkState,
-            DualLeaves,
             FlowerDetailPages,
             ThreadAtlasPages,
             FlowerSymbolArena,
@@ -131,7 +128,6 @@ namespace Genesis.RoomScan
             "InitializeNewTiles",
             "ReserveObservationBins",
             "EmitObservationBins",
-            "UpdateObservationDual",
             "FlowerCommit",
             "InvalidateFlowerSources",
             "InvalidateFlowerPeers",

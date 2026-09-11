@@ -269,7 +269,7 @@ namespace Genesis.RoomScan.Tests
                 "M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u"),
                 "One COLD target must not veto the other resident brush targets.");
             Assert.That(erase, Does.Contain(
-                "M8FlowerPrepareR1(slot,local,before,uint4(0u,0u,0u,0u),true,false,true)"));
+                "M8FlowerPrepareR1(slot,local,before,uint4(0u,0u,0u,0u),true,true)"));
             Assert.That(erase, Does.Not.Contain("M8StoreKernelState("),
                 "ERASE preflight must not publish M8 before source/peer epoch cuts.");
             Assert.That(prepare, Does.Contain("M8FlowerValidatePhaseCut(ownerRef,"));

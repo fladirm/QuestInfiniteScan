@@ -149,39 +149,6 @@ namespace Genesis.RoomScan
                     cancellationToken, hardLeafBytes), hardLeafBytes, cancellationToken);
         }
 
-        internal static MerkabaTilesetLeaf WriteStreamingDirtLeaf(
-            string directory, int leafIndex,
-            IReadOnlyList<MerkabaDirtTriangle> triangles,
-            IProgress<OperationWorkProgress> progress = null,
-            long hardLeafBytes = DefaultHardLeafBytes,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (triangles == null) throw new ArgumentNullException(nameof(triangles));
-            if (triangles.Count == 0)
-                throw new InvalidDataException("3D Tiles DIRT leaf is empty.");
-            int3 minimum = triangles[0].Cell;
-            int3 maximum = minimum;
-            for (int index = 1; index < triangles.Count; index++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                minimum = math.min(minimum, triangles[index].Cell);
-                maximum = math.max(maximum, triangles[index].Cell);
-            }
-            int3 center = new(
-                (int)(((long)minimum.x + maximum.x) >> 1),
-                (int)(((long)minimum.y + maximum.y) >> 1),
-                (int)(((long)minimum.z + maximum.z) >> 1));
-            float3 origin = new(
-                MerkabaSphereFlowerAuthority.DirtGridCoordinate(center.x),
-                MerkabaSphereFlowerAuthority.DirtGridCoordinate(center.y),
-                MerkabaSphereFlowerAuthority.DirtGridCoordinate(center.z));
-            return WriteStreamingLeaf(directory, leafIndex, minimum, maximum,
-                origin, stream => MerkabaGlbWriter.WriteDirt(stream, triangles,
-                    origin, progress, cancellationToken, hardLeafBytes), hardLeafBytes,
-                cancellationToken);
-        }
-
         private static MerkabaTilesetLeaf WriteStreamingLeaf(
             string directory, int leafIndex, int3 minimum, int3 maximum,
             float3 localOrigin, Func<Stream, MerkabaGlbResult> write,

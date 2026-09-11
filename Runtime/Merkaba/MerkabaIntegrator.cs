@@ -35,7 +35,6 @@ namespace Genesis.RoomScan
         private int _resolveCarriersKernel;
         private int _drainSkinRgbKernel;
         private int _drainSkinVKernel;
-        private int _updateObservationDualKernel;
         private int _finalizeKernel;
         private int _queryFineEraseKernel;
         private int _eraseFineTilesKernel;
@@ -56,7 +55,7 @@ namespace Genesis.RoomScan
             _nativeAttemptJob;
         private bool _nativeAttemptIncludesPreprocess;
         private bool _nativeAttemptCapturesRefineMetrics;
-        private uint _nativeAttemptDualGeneration;
+        private uint _nativeAttemptWorldGeneration;
         private double _nativeAttemptSubmittedAt;
         private bool _fineErasePrepared;
         private bool _fineEraseAttemptInFlight;
@@ -65,7 +64,7 @@ namespace Genesis.RoomScan
         private FineBrushDescriptor _fineEraseDescriptor;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeFineEraseJob;
-        private uint _nativeFineEraseDualGeneration;
+        private uint _nativeFineEraseWorldGeneration;
 
         private const int CameraEyeCount = 2;
         private const int CameraObservationSlots = 2;
@@ -108,8 +107,6 @@ namespace Genesis.RoomScan
         private ulong _cameraCopyRetiredEpoch;
         private Task _cameraCopyRetirementTask = Task.CompletedTask;
         private readonly Vector4[] _exclusionPositions = new Vector4[64];
-        private readonly Vector4[] _scanCoveragePlanes =
-            new Vector4[MerkabaMutationCoverage.PlaneCount];
 
         public readonly List<Transform> ExclusionZones = new();
         public int IntegrationCount { get; private set; }
@@ -303,8 +300,6 @@ namespace Genesis.RoomScan
                 "DrainFlowerSkinRgb", MerkabaGpuStage.SurfaceIntegration);
             _drainSkinVKernel = compute.FindProfiledKernel(
                 "DrainFlowerSkinV", MerkabaGpuStage.SurfaceIntegration);
-            _updateObservationDualKernel = compute.FindProfiledKernel(
-                "UpdateObservationDual", MerkabaGpuStage.DualIntegration);
             _finalizeKernel = compute.FindProfiledKernel(
                 "FinalizeObservation", MerkabaGpuStage.SurfaceIntegration);
             _queryFineEraseKernel = compute.FindProfiledKernel(
@@ -319,7 +314,6 @@ namespace Genesis.RoomScan
                          _geometryRootKernel, _geometryL1Kernel, _geometryL2Kernel,
                          _resolveCarriersKernel,
                          _drainSkinRgbKernel, _drainSkinVKernel,
-                         _updateObservationDualKernel,
                          _finalizeKernel, _queryFineEraseKernel,
                          _eraseFineTilesKernel, _finalizeFineEraseKernel
                      })
@@ -442,9 +436,9 @@ namespace Genesis.RoomScan
             if (_nativeAttemptJob != null)
             {
                 if (!_nativeAttemptJob.Poll(out string error)) return false;
-                _grid.CompleteNativeDualMutation(_nativeAttemptDualGeneration,
+                _grid.CompleteNativeWorldMutation(_nativeAttemptWorldGeneration,
                     string.IsNullOrEmpty(error));
-                _nativeAttemptDualGeneration = 0u;
+                _nativeAttemptWorldGeneration = 0u;
                 _nativeAttemptJob.Dispose();
                 _nativeAttemptJob = null;
                 if (!string.IsNullOrEmpty(error))
@@ -497,9 +491,9 @@ namespace Genesis.RoomScan
             if (_nativeFineEraseJob != null)
             {
                 if (!_nativeFineEraseJob.Poll(out error)) return false;
-                _grid.CompleteNativeDualMutation(_nativeFineEraseDualGeneration,
+                _grid.CompleteNativeWorldMutation(_nativeFineEraseWorldGeneration,
                     string.IsNullOrEmpty(error));
-                _nativeFineEraseDualGeneration = 0u;
+                _nativeFineEraseWorldGeneration = 0u;
                 _nativeFineEraseJob.Dispose();
                 _nativeFineEraseJob = null;
             }
@@ -540,10 +534,10 @@ namespace Genesis.RoomScan
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba exact FINE erase");
             bool submitted = false;
-            uint dualGeneration = 0u;
+            uint worldGeneration = 0u;
             try
             {
-                dualGeneration = _grid.RecordDualMutation(command, compute);
+                worldGeneration = _grid.RecordWorldMutation(command, compute);
                 ConfigureFineErase(command, _fineEraseDescriptor);
                 command.SetComputeIntParam(compute, AttemptTokenId,
                     unchecked((int)_fineEraseAttemptToken));
@@ -569,14 +563,14 @@ namespace Genesis.RoomScan
                     _finalizeFineEraseKernel, 1, 1, 1);
                 _fineEraseFence = command.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation,
                     SynchronisationStageFlags.AllGPUOperations);
-                _grid.SubmitDualMutation(command, dualGeneration);
+                _grid.SubmitWorldMutation(command, worldGeneration);
                 submitted = true;
                 _fineEraseAttemptInFlight = true;
                 return true;
             }
             finally
             {
-                if (!submitted) _grid.CancelDualMutationBeforeSubmit(dualGeneration);
+                if (!submitted) _grid.CancelWorldMutationBeforeSubmit(worldGeneration);
                 CommandBufferPool.Release(command);
                 if (!submitted) _fineEraseAttemptToken = 0u;
             }
@@ -621,7 +615,7 @@ namespace Genesis.RoomScan
             uniforms.Int("_M8ScanBlockSide", side);
             uniforms.UInt("_M8AttemptToken", _fineEraseAttemptToken);
             uniforms.UInt("_M8ObservationToken", _fineEraseObservationToken);
-            _nativeFineEraseDualGeneration = _grid.BeginNativeDualMutation(uniforms);
+            _nativeFineEraseWorldGeneration = _grid.BeginNativeWorldMutation(uniforms);
             MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob;
             bool created;
             try
@@ -633,14 +627,14 @@ namespace Genesis.RoomScan
             }
             catch
             {
-                _grid.CancelDualMutationBeforeSubmit(_nativeFineEraseDualGeneration);
-                _nativeFineEraseDualGeneration = 0u;
+                _grid.CancelWorldMutationBeforeSubmit(_nativeFineEraseWorldGeneration);
+                _nativeFineEraseWorldGeneration = 0u;
                 throw;
             }
             if (!created)
             {
-                _grid.CancelDualMutationBeforeSubmit(_nativeFineEraseDualGeneration);
-                _nativeFineEraseDualGeneration = 0u;
+                _grid.CancelWorldMutationBeforeSubmit(_nativeFineEraseWorldGeneration);
+                _nativeFineEraseWorldGeneration = 0u;
                 return false;
             }
 
@@ -669,8 +663,8 @@ namespace Genesis.RoomScan
                 }
                 nativeJob.CancelBeforeExecution();
                 nativeJob.Dispose();
-                _grid.CancelDualMutationBeforeSubmit(_nativeFineEraseDualGeneration);
-                _nativeFineEraseDualGeneration = 0u;
+                _grid.CancelWorldMutationBeforeSubmit(_nativeFineEraseWorldGeneration);
+                _nativeFineEraseWorldGeneration = 0u;
                 _fineEraseAttemptToken = 0u;
                 return false;
             }
@@ -729,7 +723,7 @@ namespace Genesis.RoomScan
                 "Merkaba M8 observation");
             bool submitted = false;
             bool timedSubmission = false;
-            uint dualGeneration = 0u;
+            uint worldGeneration = 0u;
             try
             {
                 timedSubmission = MerkabaGpuTimestamps.TryAcquire(
@@ -758,7 +752,7 @@ namespace Genesis.RoomScan
                 }
 
                 _attemptToken = NextAttemptToken();
-                dualGeneration = _grid.RecordDualMutation(command, compute);
+                worldGeneration = _grid.RecordWorldMutation(command, compute);
                 command.SetComputeIntParam(compute, AttemptTokenId,
                     unchecked((int)_attemptToken));
                 // FINE/ERASE may have used this shader since the last
@@ -767,10 +761,6 @@ namespace Genesis.RoomScan
                 command.SetBufferData(_grid.M8FlowerSignalItems,
                     SignalInitialHeader, 0, 0, SignalInitialHeader.Length);
                 _bins.Record(command, reset: false);
-                // All required resident negative support is resolved before
-                // the one touched-tile workgroup can commit direct evidence.
-                DispatchObservationDual(command);
-                _bins.RecordTouchedPublication(command);
                 _bins.RecordCommit(command, compute, _flowerCommitKernel);
                 _bins.RecordBindConsumer(command, compute, _invalidateSourcesKernel);
                 command.DispatchComputeProfiled(compute, _invalidateSourcesKernel,
@@ -798,9 +788,7 @@ namespace Genesis.RoomScan
                 _bins.RecordBindConsumer(command, compute, _drainSkinVKernel);
                 command.DispatchComputeProfiled(compute, _drainSkinVKernel,
                     _grid.M8FlowerSignalItems, MerkabaFlowerGpuLayout.SignalDispatchOffset);
-                // Negative-volume claims are storage dependencies of this
-                // same frozen observation. Publish after commit: installation
-                // reuses its indirect argument buffer for tile counts.
+                // Publish any direct COLD peer storage requests before retirement.
                 _bins.RecordTileRequestPublication(command);
                 command.SetComputeBufferParam(compute, _finalizeKernel,
                     "_M8ObservationTileBins", _bins.TileBins);
@@ -811,7 +799,7 @@ namespace Genesis.RoomScan
                     timedSubmission);
                 _observationFence = command.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation,
                     SynchronisationStageFlags.AllGPUOperations);
-                _grid.SubmitDualMutation(command, dualGeneration);
+                _grid.SubmitWorldMutation(command, worldGeneration);
                 submitted = true;
                 if (timedSubmission)
                     MerkabaGpuTimestamps.CaptureM8Metrics(_grid);
@@ -824,7 +812,7 @@ namespace Genesis.RoomScan
             }
             finally
             {
-                if (!submitted) _grid.CancelDualMutationBeforeSubmit(dualGeneration);
+                if (!submitted) _grid.CancelWorldMutationBeforeSubmit(worldGeneration);
                 MerkabaGpuTimestamps.Complete(CaptureOwner.Observation,
                     timedSubmission, submitted);
                 CommandBufferPool.Release(command);
@@ -857,7 +845,7 @@ namespace Genesis.RoomScan
                 BuildNativeObservationUniforms(out int queryGroups);
             int depthGroupsX = Mathf.CeilToInt(_depthCapture.DepthTex.width / 8f);
             int depthGroupsY = Mathf.CeilToInt(_depthCapture.DepthTex.height / 8f);
-            _nativeAttemptDualGeneration = _grid.BeginNativeDualMutation(uniforms);
+            _nativeAttemptWorldGeneration = _grid.BeginNativeWorldMutation(uniforms);
             MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob;
             bool created;
             // The dual belongs to the observation token. One kind: acquire the
@@ -872,14 +860,14 @@ namespace Genesis.RoomScan
             }
             catch
             {
-                _grid.CancelDualMutationBeforeSubmit(_nativeAttemptDualGeneration);
-                _nativeAttemptDualGeneration = 0u;
+                _grid.CancelWorldMutationBeforeSubmit(_nativeAttemptWorldGeneration);
+                _nativeAttemptWorldGeneration = 0u;
                 throw;
             }
             if (!created)
             {
-                _grid.CancelDualMutationBeforeSubmit(_nativeAttemptDualGeneration);
-                _nativeAttemptDualGeneration = 0u;
+                _grid.CancelWorldMutationBeforeSubmit(_nativeAttemptWorldGeneration);
+                _nativeAttemptWorldGeneration = 0u;
                 ReleaseOwnedObservation();
                 _observationPrepared = false;
                 return false;
@@ -921,8 +909,8 @@ namespace Genesis.RoomScan
                 }
                 nativeJob.CancelBeforeExecution();
                 nativeJob.Dispose();
-                _grid.CancelDualMutationBeforeSubmit(_nativeAttemptDualGeneration);
-                _nativeAttemptDualGeneration = 0u;
+                _grid.CancelWorldMutationBeforeSubmit(_nativeAttemptWorldGeneration);
+                _nativeAttemptWorldGeneration = 0u;
                 ReleaseOwnedObservation();
                 _observationPrepared = false;
                 return false;
@@ -1028,17 +1016,10 @@ namespace Genesis.RoomScan
                 MerkabaSpatial.BlockWorldSize) + 1;
             int side = radius * 2 + 1;
             queryGroups = checked(side * side * side);
-            values.Vector3("_M8ScanCameraWorld", observationOrigin);
             values.Int3("_M8ScanCenterBlock", centerBlock.x,
                 centerBlock.y, centerBlock.z);
             values.Int("_M8ScanBlockRadius", radius);
             values.Int("_M8ScanBlockSide", side);
-            MerkabaMutationCoverage.WriteGridPlanes(_depthCapture.View,
-                _depthCapture.Proj, gridToWorld, _scanCoveragePlanes,
-                _heldFineBrush.IsRefine ? 1f :
-                    MerkabaConstants.MutationOuterRadius);
-            values.Vector4Array("_M8ScanCoveragePlanes",
-                _scanCoveragePlanes);
             return values;
         }
 #endif
@@ -1127,12 +1108,6 @@ namespace Genesis.RoomScan
             compute.SetMatrix(GridToWorldId, _observationGridToWorld);
             compute.SetMatrix(WorldToGridId, _observationWorldToGrid);
             compute.SetFloat(MaxDistanceId, _observationMaxUpdateDistance);
-            MerkabaMutationCoverage.WriteGridPlanes(_depthCapture.View,
-                _depthCapture.Proj, _observationGridToWorld,
-                _scanCoveragePlanes, _heldFineBrush.IsRefine
-                    ? 1f : MerkabaConstants.MutationOuterRadius);
-            compute.SetVectorArray("_M8ScanCoveragePlanes",
-                _scanCoveragePlanes);
             compute.SetInt(FineRefineActiveId,
                 _heldFineBrush.IsRefine ? 1 : 0);
             compute.SetVector(FineCursorPositionId,
@@ -1144,7 +1119,6 @@ namespace Genesis.RoomScan
             compute.SetInt(ExclusionCountId, _observationExclusionCount);
             compute.SetVectorArray(ExclusionHeadsId, _exclusionPositions);
 
-            BindDepth(_updateObservationDualKernel);
             BindDepth(_flowerCommitKernel);
             BindCamera(_flowerCommitKernel);
             compute.SetBuffer(_flowerCommitKernel, "_M8FlowerSignalItems", _grid.M8FlowerSignalItems);
@@ -1216,31 +1190,6 @@ namespace Genesis.RoomScan
                 compute.SetVector(CameraCurrentResolutionId[eye],
                     _cameraCurrentResolution[resource]);
             }
-        }
-
-        private void DispatchObservationDual(CommandBuffer command)
-        {
-            _bins.RecordBindConsumer(command, compute, _updateObservationDualKernel);
-            Vector3 leftOrigin = _depthCapture.ViewInv[0].GetColumn(3);
-            Vector3 rightOrigin = _depthCapture.ViewInv[1].GetColumn(3);
-            Vector3 observationOrigin = (leftOrigin + rightOrigin) * 0.5f;
-            Matrix4x4 worldToGrid = _observationWorldToGrid;
-            float3 gridCamera = (float3)worldToGrid.MultiplyPoint3x4(
-                observationOrigin) / MerkabaConstants.LatticeStep;
-            int3 globalKernel = (int3)math.floor(gridCamera);
-            int3 centerBlock = MerkabaSpatial.Encode(globalKernel).BlockCoord;
-            int radius = Mathf.CeilToInt(_observationMaxUpdateDistance /
-                MerkabaSpatial.BlockWorldSize) + 1;
-            int side = radius * 2 + 1;
-            _bins.SetDualStorageDomain(command, centerBlock, radius, side);
-            compute.SetInts("_M8ScanCenterBlock", centerBlock.x,
-                centerBlock.y, centerBlock.z);
-            compute.SetInt("_M8ScanBlockRadius", radius);
-            compute.SetInt("_M8ScanBlockSide", side);
-            compute.SetVector("_M8ScanCameraWorld", observationOrigin);
-
-            command.DispatchComputeProfiled(compute, _updateObservationDualKernel,
-                side * side * side, 1, 1);
         }
 
         private void ConfigureFineErase(CommandBuffer command,

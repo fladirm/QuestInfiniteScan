@@ -37,7 +37,6 @@ alias_bases=(
   M8KernelStates2 M8KernelStates3 M8TileBits M8TileRecords
   M8FreeTileStack M8Counters M8ClaimQueue M8PendingNewTileRefs
   M8WritebackQueue M8LoadStagingAddresses
-  M8DualBlockState M8DualChunkState M8DualLeaves
   M8ObservationTileBins M8TouchedTileQueue
   M8FlowerDetailPages M8ThreadAtlasPages
   M8FlowerSymbolArena M8FlowerPageDirectory M8FlowerIndirectCommands

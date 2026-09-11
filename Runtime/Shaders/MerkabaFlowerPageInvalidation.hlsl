@@ -1,14 +1,13 @@
 #ifndef GENESIS_MERKABA_FLOWER_PAGE_INVALIDATION_INCLUDED
 #define GENESIS_MERKABA_FLOWER_PAGE_INVALIDATION_INCLUDED
 
-#include "MerkabaDualHierarchy.hlsl"
 #include "MerkabaFlowerTileHalo.hlsl"
 #define M8_FLOWER_PAGE_WRITE
 #include "MerkabaFlowerPages.hlsl"
 
 bool M8FlowerPageSourceReady(uint generation)
 {
-    if (generation != 0u && generation <= M8_DUAL_MAX_GENERATION) return true;
+    if (generation != 0u && generation <= M8_WORLD_MAX_GENERATION) return true;
     uint ignored;
     InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_FAILURE],
         M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY, ignored);

@@ -59,9 +59,6 @@ namespace
         kResourceObservationTileBins,
         kResourceTileHalo,
         kResourceDepthCertificate,
-        kResourceDualBlockState,
-        kResourceDualChunkState,
-        kResourceDualLeaves,
         kResourceFlowerDetailPages,
         kResourceThreadAtlasPages,
         kResourceFlowerSymbolArena,
@@ -120,10 +117,10 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 33,
-        "M8 executor pipeline tables must be regenerated for ABI 28");
+    static_assert(kMerkabaExecutorPipelineCount == 32,
+        "M8 executor pipeline tables must be regenerated for ABI 29");
 
-    constexpr uint32_t kExecutorAbiVersion = 28;
+    constexpr uint32_t kExecutorAbiVersion = 29;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerEmitPipeline = kPipelineEmitDirtyFlowerSymbols;

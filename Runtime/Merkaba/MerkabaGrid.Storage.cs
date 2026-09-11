@@ -54,13 +54,10 @@ namespace Genesis.RoomScan
         private bool _fineLoadContinuePending;
         private Exception _fineLoadCancelFailure;
         private Task _writebackStorageTask;
-        private bool _writebackIsDual;
-        private bool _flushTilesDrained;
-        private uint _drainedDualGeneration;
+        private uint _drainedWorldGeneration;
         private uint _drainSourceGeneration;
         private uint _drainedOccupiedKernelCount;
         private bool _drainReceiptValid;
-        private ulong _dualWritebackBytes;
         private int _writebackBatchCount;
         private bool _writebackCompletionPending;
         private Exception _writebackStorageFailure;
@@ -127,7 +124,6 @@ namespace Genesis.RoomScan
                 throw new InvalidOperationException(
                     "M8 storage authority is already being replaced.");
 
-            await FinishObservationDurableCutAsync();
             _storageReplacementPending = true;
             if (_fineWritebackContinuePending)
             {
@@ -240,13 +236,10 @@ namespace Genesis.RoomScan
             _fineWritebackAckPending = _fineWritebackAckReady = false;
             ResetFineLoad();
             _writebackStorageTask = null;
-            _writebackIsDual = false;
-            _flushTilesDrained = false;
-            _drainedDualGeneration = 0u;
+            _drainedWorldGeneration = 0u;
             _drainSourceGeneration = 0u;
             _drainedOccupiedKernelCount = 0u;
             _drainReceiptValid = false;
-            _dualWritebackBytes = 0ul;
             _writebackBatchCount = 0;
             _writebackCompletionPending = false;
             _writebackStorageFailure = null;
@@ -282,14 +275,12 @@ namespace Genesis.RoomScan
         {
             if (_storageReplacementPending) return;
             CompleteStorageCpuTasks();
-            PumpObservationDurableCut();
             UpdateStorageRates();
             PumpIdleBaseCompaction();
             if (!GpuSubmissionAllowed ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight) return;
             SubmitDeferredStorageControl();
             CompleteStorageGpuWork();
-            PumpObservationDualCapacity();
             if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
                 return;
             _nextStreamPoll = Time.unscaledTime + 0.05f;
@@ -301,7 +292,7 @@ namespace Genesis.RoomScan
                 if (generation != _gpuGeneration || request.hasError) return;
                 var values = request.GetData<uint>();
                 ApplySampledCounters(values);
-                _observedLoadRequestCount = values[19];
+                _observedLoadRequestCount = values[CounterLoadRequests];
                 // Accounting above is CPU-only. A callback issued before
                 // quiesce must never enqueue readback/compute/upload work after
                 // the retirement marker.
@@ -312,7 +303,7 @@ namespace Genesis.RoomScan
                     !_loadInstallStatusPending && _fineLoadTiles==null &&
                     _loadRequestCursor != _observedLoadRequestCount)
                     BeginLoadAddressReadback();
-                uint rawWritebackCount = values[20];
+                uint rawWritebackCount = values[CounterWritebackCount];
                 uint writebackCount = Math.Min(rawWritebackCount,
                     (uint)StreamBatchCapacity);
                 if (writebackCount > 0u && !_writebackReadbackPending &&
@@ -336,14 +327,13 @@ namespace Genesis.RoomScan
                         _writebackStorageTask == null &&
                         !_writebackCompletionPending)
                     {
-                        _flushTilesDrained = true;
-                        BeginDualWritebackReadback();
+                        CompleteWorldDrain(values);
                     }
                 }
                 else if (!_writebackReadbackPending &&
                          _writebackStorageTask == null &&
                          !_writebackCompletionPending &&
-                         ((_flushAllDirty && !_flushTilesDrained) ||
+                         (_flushAllDirty ||
                           values[CounterEvictionNeeded] != 0u))
                 {
                     if (SelectEvictionVictims(_flushAllDirty))
@@ -352,9 +342,6 @@ namespace Genesis.RoomScan
                         _nextStreamPoll = 0f;
                     }
                 }
-                else if (!_writebackReadbackPending && _writebackStorageTask == null &&
-                         !_writebackCompletionPending && writebackCount == 0u)
-                    BeginDualWritebackReadback();
             });
         }
 
@@ -374,7 +361,6 @@ namespace Genesis.RoomScan
             M8HotTileCount = ToInt(hotTiles);
             M8ColdTileCount = ToInt(coldTiles);
             M8OccupiedKernelCount = ToInt(values[CounterOccupiedKernelCount]);
-            ObserveObservationDualCapacity(values);
         }
 
         internal void ObserveMutationRetirement(uint observationToken)
@@ -467,10 +453,10 @@ namespace Genesis.RoomScan
                         new IOException("M8 SSD writeback failed.");
                 else
                 {
-                    _writeBytesTotal += _writebackIsDual ? _dualWritebackBytes :
+                    _writeBytesTotal +=
                         (ulong)_writebackBatchCount * MerkabaSsdStore.TilePayloadBytes +
                         _fineWritebackBytes;
-                    if (_flushAllDirty && !_writebackIsDual)
+                    if (_flushAllDirty)
                     {
                         _flushCompletedTiles = checked(_flushCompletedTiles +
                             _writebackBatchCount);
@@ -522,7 +508,6 @@ namespace Genesis.RoomScan
         {
             RoomScanner scanner = RoomScanner.Instance;
             return !_storageReplacementPending && scanner != null &&
-                _observationDrainTask == null && _observationDurableTask == null &&
                 ReferenceEquals(scanner.Grid, this) && !scanner.IsScanning &&
                 scanner.ScanLifecycle == ScanLifecycleState.Stopped &&
                 !scanner.IsBusy && !_streamCounterPending &&
@@ -602,33 +587,27 @@ namespace Genesis.RoomScan
             if (!_writebackCompletionPending) return;
             int count = _completedWritebackBatchCount;
             Exception failure = _writebackStorageFailure;
-            if (failure == null && !(_writebackIsDual
-                    ? AcknowledgeDualWritebackBatch()
-                    : FinishFlowerWriteback(count))) return;
+            if (failure == null && !FinishFlowerWriteback(count)) return;
             _writebackCompletionPending = false;
             _completedWritebackBatchCount = 0;
             _writebackStorageFailure = null;
             if (failure != null)
             {
-                Logger.Error((_writebackIsDual
-                    ? "Dual SSD writeback failed; dirty node bits remain set: "
-                    : "M8 SSD writeback failed; canonical tiles returned HOT and remain dirty: ") +
+                Logger.Error("M8 SSD writeback failed; canonical tiles returned HOT and remain dirty: " +
                     failure.Message);
                 _flushCompletion?.TrySetException(failure);
                 _flushCompletion = null;
                 _flushAllDirty = false;
                 _flushProgress = null;
-                if (!_writebackIsDual) FailWritebackBatch(count);
+                FailWritebackBatch(count);
                 _nextStreamPoll = 0f;
             }
-            _writebackIsDual = false;
-            _dualWritebackBytes = 0ul;
             _fineWritebackBytes = 0ul;
         }
 
         private void SubmitLoadedTiles(MerkabaTileSnapshot[] tiles)
         {
-            if (!DualMutationSubmissionAllowed)
+            if (!WorldMutationSubmissionAllowed)
             {
                 if(_fineLoadTiles!=null)_fineLoadContinuePending=true;
                 else _loadStorageTask = Task.FromResult(tiles);
@@ -642,14 +621,12 @@ namespace Genesis.RoomScan
                 _fineLoadPacketEnd=new int[tiles.Length];
                 _fineLoadUploadPending=new bool[tiles.Length];
                 var addresses = new MerkabaTileAddress[tiles.Length];
-                var states = new KernelState[tiles.Length * MerkabaDualGpuLayout.LoadTileRecords];
+                var states = new KernelState[tiles.Length * MerkabaFlowerGpuStorageLayout.LoadTileRecords];
                 for (int item = 0; item < tiles.Length; item++)
                 {
                     addresses[item] = tiles[item].Address;
                     Array.Copy(tiles[item].States, 0, states,
-                        item * MerkabaDualGpuLayout.LoadTileRecords, MerkabaSpatial.KernelsPerTile);
-                    EncodeDualLoadPacket(tiles[item], states,
-                        item * MerkabaDualGpuLayout.LoadTileRecords + MerkabaSpatial.KernelsPerTile);
+                        item * MerkabaFlowerGpuStorageLayout.LoadTileRecords, MerkabaSpatial.KernelsPerTile);
                     _fineLoadRecords[item]=MerkabaFlowerPageStorage.EncodeLoadRecords(
                         tiles[item].Address,tiles[item].Sidecars);
                 }
@@ -671,7 +648,7 @@ namespace Genesis.RoomScan
             // One bounded storage status read, not per-owner readbacks and not
             // an input to geometry. Resident allocator/cursor words stay GPU-only.
             AsyncGPUReadback.Request(_m8LoadStagingStates,
-                tiles.Length * MerkabaDualGpuLayout.LoadTileRecords * 16,
+                tiles.Length * MerkabaFlowerGpuStorageLayout.LoadTileRecords * 16,
                 0, request =>
                 {
                     _loadInstallStatusPending = false;
@@ -735,8 +712,8 @@ namespace Genesis.RoomScan
                 });
         }
 
-        private static int FineLoadFirst(int item) => item*MerkabaDualGpuLayout.LoadTileRecords+
-            MerkabaSpatial.KernelsPerTile+MerkabaDualGpuLayout.StoragePacketRecords;
+        private static int FineLoadFirst(int item) => item*MerkabaFlowerGpuStorageLayout.LoadTileRecords+
+            MerkabaSpatial.KernelsPerTile;
 
         private void UploadFineLoadPacket(int item)
         {
@@ -746,7 +723,7 @@ namespace Genesis.RoomScan
             {
                 int count=checked(4+((int)words[end+3]+15)/16*4);
                 if(count>words.Length-end)throw new InvalidDataException("Truncated fine load image.");
-                if(end-begin+count>MerkabaDualGpuLayout.FineLoadBodyWords)break;
+                if(end-begin+count>MerkabaFlowerGpuStorageLayout.FineLoadBodyWords)break;
                 end+=count;
             }
             if(end==begin && end!=words.Length)
@@ -764,7 +741,7 @@ namespace Genesis.RoomScan
                 int word=begin+4*row;
                 payload[row]=new Raw16(words[word],words[word+1],words[word+2],words[word+3]);
             }
-            _m8LoadStagingStates.SetData(payload,0,first+MerkabaDualGpuLayout.FineLoadHeaderRecords,payload.Length);
+            _m8LoadStagingStates.SetData(payload,0,first+MerkabaFlowerGpuStorageLayout.FineLoadHeaderRecords,payload.Length);
         }
 
         private void ResetFineLoad()
@@ -819,7 +796,6 @@ namespace Genesis.RoomScan
         private void BeginWritebackReadback(int count, bool continuation = false)
         {
             if (_storageReplacementPending || !GpuSubmissionAllowed) return;
-            _writebackIsDual = false;
             _writebackReadbackPending = true;
             if (!continuation)
             {
@@ -829,7 +805,7 @@ namespace Genesis.RoomScan
                 _fineWritebackGenerations = new uint[count];
                 _fineWritebackBytes = 0ul;
             }
-            int rawCount = count * MerkabaDualGpuLayout.WritebackTileRecords;
+            int rawCount = count * MerkabaFlowerGpuStorageLayout.WritebackTileRecords;
             int generation = _gpuGeneration;
             AsyncGPUReadback.Request(_m8WritebackStaging, rawCount * 16, 0,
                 request =>
@@ -868,7 +844,7 @@ namespace Genesis.RoomScan
                         bool complete = true;
                         for (int item = 0; item < count; item++)
                         {
-                            int baseIndex = item * MerkabaDualGpuLayout.WritebackTileRecords;
+                            int baseIndex = item * MerkabaFlowerGpuStorageLayout.WritebackTileRecords;
                             Raw16 header = raw[baseIndex];
                             if (!continuation)
                             {
@@ -888,8 +864,6 @@ namespace Genesis.RoomScan
                                         unchecked((int)header.Z)), header.W),
                                     States = states
                                 };
-                                tile.Sidecars = DecodeDualWritebackPacket(raw,
-                                    baseIndex + 1 + MerkabaSpatial.KernelsPerTile, tile.Address);
                                 _fineWritebackTiles[item] = tile;
                                 _fineWritebackRecords[item] = new List<MerkabaAppendRecord>();
                             }
@@ -902,11 +876,10 @@ namespace Genesis.RoomScan
                                     header.W != address.LocalAddress)
                                     throw new InvalidDataException("Fine capture changed its frozen tile address.");
                             }
-                            int first = baseIndex + 1 + MerkabaSpatial.KernelsPerTile +
-                                MerkabaDualGpuLayout.StoragePacketRecords;
+                            int first = baseIndex + 1 + MerkabaSpatial.KernelsPerTile;
                             Raw16 capture = raw[first];
                             Raw16 cursor = raw[first + 1];
-                            if (capture.X > MerkabaDualGpuLayout.FineStorageBodyWords ||
+                            if (capture.X > MerkabaFlowerGpuStorageLayout.FineStorageBodyWords ||
                                 (capture.X & 3u) != 0u || capture.Y > 1u || capture.Z != 0u ||
                                 capture.W == 0u || cursor.X > 512u || cursor.Y > 3u ||
                                 (capture.Y != 0u) != (cursor.X == 512u) ||
@@ -1049,9 +1022,8 @@ namespace Genesis.RoomScan
                     "Cannot flush M8 tiles while GPU submission is quiesced."));
             if (_flushCompletion != null) return _flushCompletion.Task;
             _flushAllDirty = true;
-            _flushTilesDrained = false;
-            _drainedDualGeneration = 0u;
-            _drainSourceGeneration = _dualPublishedGeneration;
+            _drainedWorldGeneration = 0u;
+            _drainSourceGeneration = _worldPublishedGeneration;
             _drainedOccupiedKernelCount = 0u;
             _drainReceiptValid = false;
             _flushProgress = progress;
@@ -1063,6 +1035,25 @@ namespace Genesis.RoomScan
                 ScanOperationStage.FlushingTiles,
                 "Counting dirty canonical tiles"));
             return _flushCompletion.Task;
+        }
+
+        private void CompleteWorldDrain(Unity.Collections.NativeArray<uint> values)
+        {
+            // SAVE holds semantic mutation. This ordered counter read follows
+            // the empty eviction selection and all M8/fine append/ack batches.
+            if (values[CounterDirtyTileCount] != 0u ||
+                _writebackStorageTask != null || _writebackCompletionPending)
+                return;
+            _drainedWorldGeneration = _drainSourceGeneration;
+            _drainedOccupiedKernelCount = values[CounterOccupiedKernelCount];
+            _drainReceiptValid = true;
+            if (_flushTotalTiles < 0) _flushTotalTiles = _flushCompletedTiles;
+            ReportFlushProgress(true);
+            _flushAllDirty = false;
+            TaskCompletionSource<bool> completion = _flushCompletion;
+            _flushCompletion = null;
+            _flushProgress = null;
+            completion?.TrySetResult(true);
         }
 
         private void ReportFlushProgress(bool complete = false)
@@ -1112,17 +1103,6 @@ namespace Genesis.RoomScan
             return _ssdStore.ReadAsync(addresses);
         }
 
-        internal Task<long> StreamStoredDirtAsync(
-            Func<int3, int, MerkabaDirtFaceCoverage> directCoverage,
-            Action<IReadOnlyList<MerkabaDirtTriangle>> consume)
-        {
-            EnsureStorage();
-            if (_storageReplacementPending)
-                throw new InvalidOperationException(
-                    "Cannot export DIRT while storage authority is changing.");
-            return _ssdStore.StreamDirtAsync(directCoverage, consume);
-        }
-
         internal async Task<MerkabaStorageCommitResult> CommitStorageAsync(
             Guid sessionUuid, Guid anchorUuid, Matrix4x4 anchorAtSave,
             int integrationCount, uint occupiedKernelCount,
@@ -1132,11 +1112,10 @@ namespace Genesis.RoomScan
             if (_storageReplacementPending)
                 throw new InvalidOperationException(
                     "Cannot commit while storage authority is changing.");
-            await FinishObservationDurableCutAsync();
             if (!_drainReceiptValid || occupiedKernelCount != _drainedOccupiedKernelCount)
                 throw new InvalidDataException(
                     "Commit requires its complete GPU source drain receipt.");
-            uint sourceGeneration = _drainedDualGeneration;
+            uint sourceGeneration = _drainedWorldGeneration;
             int world = _gpuGeneration;
             MerkabaSsdStore store = _ssdStore;
             MerkabaStorageAppendPosition position = store.CaptureAppendPosition();
@@ -1148,7 +1127,7 @@ namespace Genesis.RoomScan
                     "Storage advanced beyond the captured source; drain again before committing.");
             if (world == _gpuGeneration && ReferenceEquals(store, _ssdStore) &&
                 sourceGeneration != 0u)
-                AcknowledgeDualDurableGeneration(sourceGeneration);
+                AcknowledgeWorldDurableGeneration(sourceGeneration);
             _baseCompactionRequested = true;
             return result;
         }
@@ -1198,14 +1177,7 @@ namespace Genesis.RoomScan
                 if (addresses.Length != openState.IndexedTileCount)
                     throw new InvalidDataException(
                         "Committed M8 index count changed during load.");
-                MerkabaDualStorageNode[] dualNodes =
-                    _ssdStore.SnapshotDualNodes(out uint maximumDualGeneration);
-                RestoreDualGenerationFloor(maximumDualGeneration);
-                await RegisterDualStorageNodesAsync(dualNodes, progress);
                 var registeredTiles = new HashSet<MerkabaTileAddress>(addresses);
-                foreach (MerkabaDualStorageNode node in dualNodes)
-                    if (node.Kind == MerkabaRecordKind.DualLeaf)
-                        registeredTiles.Add(node.Address);
                 int batches = DivideRoundUp(addresses.Length,
                     StreamBatchCapacity);
                 int completedBatches = 0;

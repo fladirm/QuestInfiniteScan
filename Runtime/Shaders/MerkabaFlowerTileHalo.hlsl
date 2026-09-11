@@ -182,14 +182,14 @@ uint M8FlowerReadEndpointWithReceipt(uint ownerSlot,int3 owner,int3 coordinate,
     const bool tileWriteView=false;
 #endif
     if(!M8FlowerValidateHaloKernel(origin,ownerTile,owner&7,
-        sourceSlot,sourceLocal,tileWriteView) || sourceSlot!=ownerSlot)
+        sourceSlot,sourceLocal,tileWriteView,tileWriteView) || sourceSlot!=ownerSlot)
     {
         receipt=1u<<sourceHalo;
         return 2u;
     }
     if((packed>>30u)==M8_FLOWER_HALO_MISSING)return 0u;
     if(!M8FlowerValidateHaloKernel(packed,targetTile,coordinate&7,
-        slot,kernelLocal,tileWriteView))
+        slot,kernelLocal,tileWriteView,tileWriteView))
     {
         receipt=1u<<halo;
         return 2u;

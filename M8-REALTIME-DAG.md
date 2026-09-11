@@ -2,10 +2,26 @@
 
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
-GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
+GOAL=product goal is blocked; it has not been marked complete. Current user
+  overrides (direct-only/greenfield/no intermediate APK) are the authority.
 CURRENT=RT4
-STATE=host gates and Unity APK PASS; deploy blocked (no authorized Quest);
-  DEVICE ACCEPTANCE PENDING
+STATE=RT4 direct-only greenfield source cut host-validated (2026-09-11).
+  Dual execution/storage/veto/DIRT/dependent completion removed. M8 geometry,
+  RGB/V and fine epochs retained. Four session streams, nine record kinds;
+  manifest v5/184 B, record v6; no migrations or historical dual replay.
+  Native ABI29: 32 pipelines, 41 resources, 39 timing slots. Unity 385/385,
+  exact shader audit 75/75, ARM64 native build and GLB interoperability PASS.
+  Gate logs: /mnt/kingston-unity/Builds/QuestMerkabaScan/direct-only-audit.
+  No new APK/install/device run. The last installed APK is obsolete and failed
+  device acceptance. APK only after the completed scanner; no intermediate build.
+NEXT=Resolve the user's all-shader/no-first-start-compile requirement before
+  final APK. PC HLSL->SPIR-V is implemented, not Adreno driver-binary compilation.
+  Connected Quest advertises VK_KHR_pipeline_binary and cache-control; Unity
+  feature enablement and portable build input are not established. Permission
+  for any preparation-time Quest compilation was asked, not granted. Do not
+  prewarm the headset or claim SPIR-V/cache alone guarantees no compilation.
+  Command graph remains 39/7/6 scheduled scan/readout/ERASE; no <=10 claim,
+  and no runtime/performance acceptance claim without the final device run.
 HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
   not a runtime fallback. Frozen offline export remains outside that hotpath.
 DELIVERY_GATE=No APK, install or Quest verification in RT1–RT3. Only RT4,
@@ -72,7 +88,8 @@ bounded frozen export/resume remains, compile; commit.
 
 ## RT4 — integrated acceptance and delivery
 
-Depends: RT1–RT3. Status: IN PROGRESS; host-validated APK built, device pending.
+Depends: RT1–RT3. Status: IN PROGRESS; direct-only greenfield host gates pass.
+No APK for this source cut. Final packaging and device gates remain open.
 
 Reconcile tests and execution consumers, then one full validation/fix pass:
 Tools/shaders/audit_merkaba_compute_spirv.sh

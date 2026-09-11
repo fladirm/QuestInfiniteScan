@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Unity.Mathematics;
 
 namespace Genesis.RoomScan
 {
@@ -83,30 +82,10 @@ namespace Genesis.RoomScan
 
     /// <summary>
     /// Replayed subordinate state. It is keyed only by existing M8 addresses;
-    /// invalid parent epochs and descendants hidden by uniform dual ancestors
-    /// are ignored rather than becoming orphan authorities.
+    /// descendants with invalid parent epochs are never orphan authorities.
     /// </summary>
     internal sealed class MerkabaSphereFlowerReplayIndex
     {
-        private readonly struct ChunkAddress : IEquatable<ChunkAddress>
-        {
-            internal readonly int3 Block;
-            internal readonly int Local;
-
-            internal ChunkAddress(int3 block, int local)
-            {
-                Block = block;
-                Local = local;
-            }
-
-            public bool Equals(ChunkAddress other) =>
-                math.all(Block == other.Block) && Local == other.Local;
-            public override bool Equals(object obj) =>
-                obj is ChunkAddress other && Equals(other);
-            public override int GetHashCode() => HashCode.Combine(Block.x,
-                Block.y, Block.z, Local);
-        }
-
         private readonly struct FineAddress : IEquatable<FineAddress>
         {
             internal readonly MerkabaOwnerAddress Owner;
@@ -144,22 +123,6 @@ namespace Genesis.RoomScan
             }
         }
 
-        private readonly Dictionary<int3, VersionedPayload> _dualBlocks = new();
-        private readonly Dictionary<int3, VersionedPayload> _dualChildren = new();
-        private readonly Dictionary<ChunkAddress, VersionedPayload> _dualChunks =
-            new();
-        private readonly Dictionary<MerkabaTileAddress, VersionedPayload>
-            _dualLeaves = new();
-        private readonly Dictionary<int3, MerkabaRecordVersion>
-            _blockDescendantFloors = new();
-        private readonly Dictionary<ChunkAddress, MerkabaRecordVersion>
-            _chunkDescendantFloors = new();
-        private readonly Dictionary<MerkabaTileAddress, MerkabaRecordVersion>
-            _leafFloors = new();
-        private readonly Dictionary<int3, HashSet<int>> _chunksByBlock = new();
-        private readonly Dictionary<ChunkAddress, HashSet<MerkabaTileAddress>>
-            _leavesByChunk = new();
-        private readonly Dictionary<int3, HashSet<int>> _leafChunksByBlock = new();
         private readonly Dictionary<MerkabaOwnerAddress, VersionedPayload>
             _epochs = new();
         private readonly Dictionary<MerkabaOwnerAddress, MerkabaRecordVersion>
@@ -185,43 +148,8 @@ namespace Genesis.RoomScan
             MerkabaRecordKind.ThreadColorGroup);
         internal int ThreadProgramCount => _programs.Count;
 
-        internal long CanonicalDualRecordBytes
-        {
-            get
-            {
-                int implicitFullBlocks = 0;
-                foreach (VersionedPayload block in _dualBlocks.Values)
-                    if (BlockState(block) == MerkabaDualNodeState.AllFull)
-                        implicitFullBlocks++;
-                return checked(
-                    (long)(_dualBlocks.Count - implicitFullBlocks) *
-                    EncodedRecordBytes(
-                        MerkabaSphereFlowerPersistenceAbi.BlockAddressBytes,
-                        MerkabaDualBlockMeta.ByteSize) +
-                    (long)_dualChildren.Count * EncodedRecordBytes(
-                        MerkabaSphereFlowerPersistenceAbi.BlockAddressBytes,
-                        MerkabaDualBlockChildren.ByteSize) +
-                    (long)_dualChunks.Count * EncodedRecordBytes(
-                        MerkabaSphereFlowerPersistenceAbi.ChunkAddressBytes,
-                        MerkabaDualChunkPayload.ByteSize) +
-                    (long)_dualLeaves.Count * EncodedRecordBytes(
-                        MerkabaSphereFlowerPersistenceAbi.TileAddressBytes,
-                        MerkabaDualLeaf.ByteSize));
-            }
-        }
-
         internal void Clear()
         {
-            _dualBlocks.Clear();
-            _dualChildren.Clear();
-            _dualChunks.Clear();
-            _dualLeaves.Clear();
-            _blockDescendantFloors.Clear();
-            _chunkDescendantFloors.Clear();
-            _leafFloors.Clear();
-            _chunksByBlock.Clear();
-            _leavesByChunk.Clear();
-            _leafChunksByBlock.Clear();
             _epochs.Clear();
             _ownerRebases.Clear();
             _rebaseTombstonesRequired.Clear();
@@ -236,17 +164,6 @@ namespace Genesis.RoomScan
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (ReferenceEquals(this, source)) return;
             Clear();
-            Copy(source._dualBlocks, _dualBlocks);
-            Copy(source._dualChildren, _dualChildren);
-            Copy(source._dualChunks, _dualChunks);
-            Copy(source._dualLeaves, _dualLeaves);
-            CopyVersions(source._blockDescendantFloors,
-                _blockDescendantFloors);
-            CopyVersions(source._chunkDescendantFloors,
-                _chunkDescendantFloors);
-            CopyVersions(source._leafFloors, _leafFloors);
-            foreach (ChunkAddress chunk in _dualChunks.Keys) IndexChunk(chunk);
-            foreach (MerkabaTileAddress leaf in _dualLeaves.Keys) IndexLeaf(leaf);
             Copy(source._epochs, _epochs);
             CopyVersions(source._ownerRebases, _ownerRebases);
             foreach (KeyValuePair<MerkabaOwnerAddress, HashSet<FineAddress>> pair
@@ -268,12 +185,6 @@ namespace Genesis.RoomScan
             if (isCanonicalR1Owner == null) throw new ArgumentNullException(
                 nameof(isCanonicalR1Owner));
 
-            var dualBlocks = new HashSet<int3>(_dualBlocks.Keys);
-            foreach (int3 block in _dualChildren.Keys) dualBlocks.Add(block);
-            foreach (int3 block in _chunksByBlock.Keys) dualBlocks.Add(block);
-            foreach (int3 block in _leafChunksByBlock.Keys) dualBlocks.Add(block);
-            foreach (int3 block in dualBlocks)
-                ValidateDualBlock(block);
             var fineOwners = new HashSet<MerkabaOwnerAddress>(_epochs.Keys);
             foreach (MerkabaOwnerAddress owner in _fineByOwner.Keys)
                 fineOwners.Add(owner);
@@ -282,91 +193,16 @@ namespace Genesis.RoomScan
             ValidateThreadProgramReferences();
         }
 
-        /// <summary>
-        /// Enumerates the one canonical sparse dual hierarchy in deterministic
-        /// signed-address order. Parent records always precede the exact children
-        /// whose MIXED bits require them. This is the base-compaction image of the
-        /// existing M8-addressed dual, not a second coordinate hierarchy.
-        /// </summary>
-        internal IEnumerable<MerkabaAppendRecord> CanonicalDualRecords()
-        {
-            var allBlocks = new HashSet<int3>(_dualBlocks.Keys);
-            foreach (int3 block in _dualChildren.Keys) allBlocks.Add(block);
-            foreach (ChunkAddress chunk in _dualChunks.Keys)
-                allBlocks.Add(chunk.Block);
-            foreach (MerkabaTileAddress leaf in _dualLeaves.Keys)
-                allBlocks.Add(leaf.BlockCoord);
-            var blocks = new List<int3>(allBlocks);
-            blocks.Sort(CompareBlock);
-
-            // Validate the complete image before yielding its first byte so a
-            // malformed hierarchy can never create a partial base segment.
-            foreach (int3 block in blocks) ValidateDualBlock(block);
-
-            foreach (int3 block in blocks)
-            {
-                VersionedPayload blockRecord = _dualBlocks[block];
-                if (BlockState(blockRecord) == MerkabaDualNodeState.AllFull)
-                    continue;
-                yield return DualRecord(MerkabaRecordKind.DualBlock, block,
-                    0, default, blockRecord.Payload);
-                if (BlockState(blockRecord) != MerkabaDualNodeState.Mixed)
-                    continue;
-
-                VersionedPayload children = _dualChildren[block];
-                yield return DualRecord(
-                    MerkabaRecordKind.DualBlockChildren, block, 0, default,
-                    children.Payload);
-                for (int chunkLocal = 0;
-                     chunkLocal < MerkabaSpatial.BlockChunkCount; chunkLocal++)
-                {
-                    if (PackedDualState(children.Payload, chunkLocal) !=
-                        MerkabaDualNodeState.Mixed) continue;
-                    var chunkAddress = new ChunkAddress(block, chunkLocal);
-                    VersionedPayload chunk = _dualChunks[chunkAddress];
-                    yield return DualRecord(MerkabaRecordKind.DualChunk, block,
-                        chunkLocal, default, chunk.Payload);
-
-                    ulong mixed = Read64(chunk.Payload, 8);
-                    for (int tileLocal = 0;
-                         tileLocal < MerkabaSpatial.TilesPerChunk; tileLocal++)
-                    {
-                        if ((mixed & (1ul << tileLocal)) == 0ul) continue;
-                        var tile = new MerkabaTileAddress(block,
-                            (uint)(chunkLocal | (tileLocal << 9)));
-                        yield return DualRecord(MerkabaRecordKind.DualLeaf,
-                            block, 0, tile, _dualLeaves[tile].Payload);
-                    }
-                }
-            }
-        }
-
         internal static void AccumulateTouched(
             IReadOnlyList<MerkabaAppendRecord> records,
-            ISet<int3> blocks, ISet<MerkabaOwnerAddress> owners)
+            ISet<MerkabaOwnerAddress> owners)
         {
             if (records == null) throw new ArgumentNullException(nameof(records));
-            if (blocks == null) throw new ArgumentNullException(nameof(blocks));
             if (owners == null) throw new ArgumentNullException(nameof(owners));
             foreach (MerkabaAppendRecord record in records)
             {
                 switch (record.Kind)
                 {
-                    case MerkabaRecordKind.DualBlock:
-                    case MerkabaRecordKind.DualBlockChildren:
-                        blocks.Add(
-                            MerkabaSphereFlowerPersistenceAbi.ReadBlockAddress(
-                                record.Address));
-                        break;
-                    case MerkabaRecordKind.DualChunk:
-                        MerkabaSphereFlowerPersistenceAbi.ReadChunkAddress(
-                            record.Address, out int3 chunkBlock, out _);
-                        blocks.Add(chunkBlock);
-                        break;
-                    case MerkabaRecordKind.DualLeaf:
-                        blocks.Add(MerkabaSphereFlowerPersistenceAbi
-                            .ReadTileAddress(record.Address).BlockCoord);
-                        break;
                     case MerkabaRecordKind.FlowerOwnerEpoch:
                         MerkabaTileAddress epochTile =
                             MerkabaSphereFlowerPersistenceAbi.ReadTileAddress(
@@ -394,12 +230,6 @@ namespace Genesis.RoomScan
                         break;
                 }
             }
-        }
-
-        internal void ValidateDualBlocks(IEnumerable<int3> blocks)
-        {
-            if (blocks == null) throw new ArgumentNullException(nameof(blocks));
-            foreach (int3 block in blocks) ValidateDualBlock(block);
         }
 
         internal void ValidateFineOwners(
@@ -437,18 +267,6 @@ namespace Genesis.RoomScan
             ValidatePayload(record);
             switch (record.Kind)
             {
-                case MerkabaRecordKind.DualBlock:
-                    ApplyDualBlock(record, version);
-                    return;
-                case MerkabaRecordKind.DualBlockChildren:
-                    ApplyDualChildren(record, version);
-                    return;
-                case MerkabaRecordKind.DualChunk:
-                    ApplyDualChunk(record, version);
-                    return;
-                case MerkabaRecordKind.DualLeaf:
-                    ApplyDualLeaf(record, version);
-                    return;
                 case MerkabaRecordKind.FlowerOwnerEpoch:
                     ApplyOwnerEpoch(record, version);
                     return;
@@ -486,9 +304,8 @@ namespace Genesis.RoomScan
             // transition. Copy those touched epochs, not the complete world,
             // and preflight the exact ordered batch before appending any byte.
             var staged = new MerkabaSphereFlowerReplayIndex();
-            var blocks = new HashSet<int3>();
             var owners = new HashSet<MerkabaOwnerAddress>();
-            AccumulateTouched(records, blocks, owners);
+            AccumulateTouched(records, owners);
             foreach (MerkabaOwnerAddress owner in owners)
                 if (_epochs.TryGetValue(owner, out VersionedPayload epoch))
                     staged._epochs.Add(owner, epoch);
@@ -511,12 +328,11 @@ namespace Genesis.RoomScan
             return false;
         }
 
-        // Bounded residency/export packet: only this tile, its exact dual
-        // ancestors and its live owner-local fine records. No whole-world copy
-        // and no reconstruction from positive M8 occupancy is performed.
+        // Bounded residency/export packet: this tile's live owner-local fine
+        // records. No whole-world copy or reconstruction is performed.
         internal MerkabaAppendRecord[] CaptureTile(MerkabaTileAddress tile)
         {
-            var records = CaptureDualPath(tile, MerkabaRecordKind.DualLeaf);
+            var records = new List<MerkabaAppendRecord>();
             CaptureFineTile(tile, records);
             return records.ToArray();
         }
@@ -554,71 +370,6 @@ namespace Genesis.RoomScan
                 MerkabaSphereFlowerPersistenceAbi.WriteUInt32(payload, 4, value.LocalKey);
                 records.Add(new MerkabaAppendRecord(MerkabaRecordKind.Tombstone, target, payload));
             }
-        }
-
-        internal MerkabaAppendRecord[] CaptureDualNode(MerkabaDualStorageNode node) =>
-            CaptureDualPath(node.Address, node.Kind).ToArray();
-
-        internal bool HasStoredDualLeaf(MerkabaTileAddress tile) =>
-            _dualLeaves.ContainsKey(tile);
-
-        internal uint MaximumDualGeneration()
-        {
-            uint maximum = 0u;
-            // Include explicit ALL_FULL tombstones, even though compaction
-            // need not allocate them in a newly cleared GPU world.
-            foreach (VersionedPayload block in _dualBlocks.Values)
-                maximum = Math.Max(maximum, Read32(block.Payload, 0) >> 2);
-            foreach (VersionedPayload chunk in _dualChunks.Values)
-                maximum = Math.Max(maximum, Read32(chunk.Payload, 20));
-            return maximum;
-        }
-
-        private List<MerkabaAppendRecord> CaptureDualPath(MerkabaTileAddress tile,
-            MerkabaRecordKind scope)
-        {
-            var records = new List<MerkabaAppendRecord>();
-            if (_dualBlocks.TryGetValue(tile.BlockCoord,
-                    out VersionedPayload block))
-            {
-                records.Add(DualRecord(MerkabaRecordKind.DualBlock,
-                    tile.BlockCoord, 0, default, block.Payload));
-                if (BlockState(block) == MerkabaDualNodeState.Mixed)
-                {
-                    if (!_dualChildren.TryGetValue(tile.BlockCoord,
-                            out VersionedPayload children))
-                        throw new InvalidDataException(
-                            "Resident dual block has no MIXED child payload.");
-                    records.Add(DualRecord(MerkabaRecordKind.DualBlockChildren,
-                        tile.BlockCoord, 0, default, children.Payload));
-                    if (scope != MerkabaRecordKind.DualBlock &&
-                        PackedDualState(children.Payload, tile.ChunkLocal) ==
-                        MerkabaDualNodeState.Mixed)
-                    {
-                        var key = new ChunkAddress(tile.BlockCoord,
-                            tile.ChunkLocal);
-                        if (!_dualChunks.TryGetValue(key,
-                                out VersionedPayload chunk))
-                            throw new InvalidDataException(
-                                "Resident dual chunk has no MIXED tile payload.");
-                        records.Add(DualRecord(MerkabaRecordKind.DualChunk,
-                            tile.BlockCoord, tile.ChunkLocal, default,
-                            chunk.Payload));
-                        if (scope == MerkabaRecordKind.DualLeaf &&
-                            (Read64(chunk.Payload, 8) &
-                             (1ul << tile.TileLocal)) != 0ul)
-                        {
-                            if (!_dualLeaves.TryGetValue(tile,
-                                    out VersionedPayload leaf))
-                                throw new InvalidDataException(
-                                    "Resident MIXED dual tile has no leaf.");
-                            records.Add(DualRecord(MerkabaRecordKind.DualLeaf,
-                                tile.BlockCoord, 0, tile, leaf.Payload));
-                        }
-                    }
-                }
-            }
-            return records;
         }
 
         private void CaptureFineTile(MerkabaTileAddress tile,
@@ -768,117 +519,6 @@ namespace Genesis.RoomScan
             return false;
         }
 
-        internal MerkabaDualReadResult ReadDual(MerkabaTileAddress tile,
-            int kernelLocal)
-        {
-            if ((uint)kernelLocal >= MerkabaSpatial.KernelsPerTile)
-                throw new ArgumentOutOfRangeException(nameof(kernelLocal));
-            if (!_dualBlocks.TryGetValue(tile.BlockCoord,
-                    out VersionedPayload blockRecord))
-                return MerkabaDualReadResult.CertainFull;
-            MerkabaDualNodeState blockState = BlockState(blockRecord);
-            if (blockState != MerkabaDualNodeState.Mixed)
-                return Result(blockState);
-            if (!_dualChildren.TryGetValue(tile.BlockCoord,
-                    out VersionedPayload children))
-                return MerkabaDualReadResult.AmbiguousCold;
-            MerkabaDualNodeState chunkState = PackedDualState(children.Payload,
-                tile.ChunkLocal);
-            if (chunkState != MerkabaDualNodeState.Mixed)
-                return Result(chunkState);
-            var chunkKey = new ChunkAddress(tile.BlockCoord, tile.ChunkLocal);
-            if (!_dualChunks.TryGetValue(chunkKey,
-                    out VersionedPayload chunk))
-                return MerkabaDualReadResult.AmbiguousCold;
-            ulong nonFull = Read64(chunk.Payload, 0);
-            ulong mixed = Read64(chunk.Payload, 8);
-            ulong tileBit = 1ul << tile.TileLocal;
-            MerkabaDualNodeState tileState = (nonFull & tileBit) == 0ul
-                ? MerkabaDualNodeState.AllFull
-                : (mixed & tileBit) == 0ul
-                    ? MerkabaDualNodeState.AllThrough
-                    : MerkabaDualNodeState.Mixed;
-            if (tileState != MerkabaDualNodeState.Mixed)
-                return Result(tileState);
-            if (!_dualLeaves.TryGetValue(tile, out VersionedPayload leaf))
-                return MerkabaDualReadResult.AmbiguousCold;
-            uint word = Read32(leaf.Payload, (kernelLocal >> 5) * 4);
-            return ((word >> (kernelLocal & 31)) & 1u) != 0u
-                ? MerkabaDualReadResult.CertainThrough
-                : MerkabaDualReadResult.CertainFull;
-        }
-
-        private void ValidateDualBlock(int3 block)
-        {
-            bool hasChildren = _dualChildren.TryGetValue(block,
-                out VersionedPayload children);
-            bool hasChunks = _chunksByBlock.TryGetValue(block,
-                out HashSet<int> chunkLocals) && chunkLocals.Count != 0;
-            bool hasLeaves = _leafChunksByBlock.TryGetValue(block,
-                out HashSet<int> leafChunks) && leafChunks.Count != 0;
-            if (!_dualBlocks.TryGetValue(block, out VersionedPayload blockRecord))
-            {
-                if (hasChildren || hasChunks || hasLeaves)
-                    throw new InvalidDataException(
-                        "Dual descendants exist without a block node.");
-                return;
-            }
-            if (BlockState(blockRecord) != MerkabaDualNodeState.Mixed)
-            {
-                if (hasChildren || hasChunks || hasLeaves)
-                    throw new InvalidDataException(
-                        "A uniform dual block retains descendant payloads.");
-                return;
-            }
-            if (!hasChildren)
-                throw new InvalidDataException(
-                    "A MIXED dual block has no child-state payload.");
-            bool everyChunkFull = true;
-            bool everyChunkThrough = true;
-            for (int child = 0;
-                 child < MerkabaSpatial.BlockChunkCount; child++)
-            {
-                var chunkAddress = new ChunkAddress(block, child);
-                MerkabaDualNodeState childState = PackedDualState(
-                    children.Payload, child);
-                everyChunkFull &= childState == MerkabaDualNodeState.AllFull;
-                everyChunkThrough &= childState ==
-                    MerkabaDualNodeState.AllThrough;
-                bool childIsMixed = childState == MerkabaDualNodeState.Mixed;
-                bool hasChunk = _dualChunks.TryGetValue(chunkAddress,
-                    out VersionedPayload chunk);
-                if (childIsMixed != hasChunk)
-                    throw new InvalidDataException(
-                        childIsMixed
-                            ? "A MIXED dual chunk has no tile-state payload."
-                            : "A uniform dual chunk retains a tile-state payload.");
-                if (!childIsMixed) continue;
-                ulong nonFull = Read64(chunk.Payload, 0);
-                ulong mixed = Read64(chunk.Payload, 8);
-                if (mixed == 0ul &&
-                    (nonFull == 0ul || nonFull == ulong.MaxValue))
-                    throw new InvalidDataException(
-                        "A uniform dual chunk was not collapsed into its " +
-                        "parent child-state payload.");
-                for (int tileLocal = 0;
-                     tileLocal < MerkabaSpatial.TilesPerChunk; tileLocal++)
-                {
-                    var tile = new MerkabaTileAddress(block,
-                        (uint)(child | (tileLocal << 9)));
-                    bool tileIsMixed = (mixed & (1ul << tileLocal)) != 0ul;
-                    if (tileIsMixed != _dualLeaves.ContainsKey(tile))
-                        throw new InvalidDataException(
-                            tileIsMixed
-                                ? "A MIXED dual tile has no SEE_THROUGH leaf."
-                                : "A uniform dual tile retains a leaf payload.");
-                }
-            }
-            if (everyChunkFull || everyChunkThrough)
-                throw new InvalidDataException(
-                    "A uniform dual block was not collapsed into its block " +
-                    "header.");
-        }
-
         private void ValidateFineOwner(MerkabaOwnerAddress owner,
             Func<MerkabaOwnerAddress, bool> isCanonicalR1Owner)
         {
@@ -964,202 +604,6 @@ namespace Genesis.RoomScan
                         "seven-child groups.");
             }
         }
-
-        private void ApplyDualBlock(MerkabaAppendRecord record,
-            MerkabaRecordVersion version)
-        {
-            int3 block = MerkabaSphereFlowerPersistenceAbi.ReadBlockAddress(
-                record.Address);
-            _dualBlocks.TryGetValue(block, out VersionedPayload prior);
-            if (prior != null && version.CompareTo(prior.Version) < 0) return;
-
-            MerkabaDualNodeState previousState = prior == null
-                ? MerkabaDualNodeState.AllFull : BlockState(prior);
-            Put(_dualBlocks, block, version, record.Payload);
-            MerkabaDualNodeState nextState = (MerkabaDualNodeState)(
-                Read32(record.Payload, 0) & 3u);
-
-            // A uniform ancestor is the exact tombstone for its complete
-            // descendant range. A later uniform->MIXED expansion starts with no
-            // children, so descendants hidden by the older uniform generation
-            // can never become visible again.
-            if (nextState != MerkabaDualNodeState.Mixed ||
-                previousState != MerkabaDualNodeState.Mixed)
-            {
-                RaiseFloor(_blockDescendantFloors, block, version);
-                RemoveBlockDescendants(block);
-            }
-        }
-
-        private void ApplyDualChildren(MerkabaAppendRecord record,
-            MerkabaRecordVersion version)
-        {
-            int3 block = MerkabaSphereFlowerPersistenceAbi.ReadBlockAddress(
-                record.Address);
-            if (IsBeforeFloor(_blockDescendantFloors, block, version)) return;
-            _dualChildren.TryGetValue(block, out VersionedPayload prior);
-            if (prior != null && version.CompareTo(prior.Version) < 0) return;
-            byte[] previous = prior?.Payload;
-            Put(_dualChildren, block, version, record.Payload);
-
-            for (int child = 0; child < MerkabaSpatial.BlockChunkCount; child++)
-            {
-                MerkabaDualNodeState oldState = previous == null
-                    ? MerkabaDualNodeState.AllFull
-                    : PackedDualState(previous, child);
-                MerkabaDualNodeState nextState = PackedDualState(record.Payload,
-                    child);
-                if (nextState != MerkabaDualNodeState.Mixed ||
-                    oldState != MerkabaDualNodeState.Mixed)
-                {
-                    RaiseFloor(_chunkDescendantFloors,
-                        new ChunkAddress(block, child), version);
-                    RemoveChunkDescendants(block, child);
-                }
-            }
-        }
-
-        private void ApplyDualChunk(MerkabaAppendRecord record,
-            MerkabaRecordVersion version)
-        {
-            MerkabaSphereFlowerPersistenceAbi.ReadChunkAddress(record.Address,
-                out int3 block, out int chunkLocal);
-            var key = new ChunkAddress(block, chunkLocal);
-            if (IsBeforeFloor(_chunkDescendantFloors, key, version)) return;
-            _dualChunks.TryGetValue(key, out VersionedPayload prior);
-            if (prior != null && version.CompareTo(prior.Version) < 0) return;
-            byte[] previous = prior?.Payload;
-            Put(_dualChunks, key, version, record.Payload);
-            if (_dualChunks.ContainsKey(key)) IndexChunk(key);
-
-            ulong nextMixed = Read64(record.Payload, 8);
-            ulong oldMixed = previous == null ? 0ul : Read64(previous, 8);
-            for (int tileLocal = 0;
-                 tileLocal < MerkabaSpatial.TilesPerChunk; tileLocal++)
-            {
-                ulong bit = 1ul << tileLocal;
-                bool oldWasMixed = (oldMixed & bit) != 0ul;
-                bool nextIsMixed = (nextMixed & bit) != 0ul;
-                if (!nextIsMixed || !oldWasMixed)
-                {
-                    var tile = new MerkabaTileAddress(block,
-                        (uint)(chunkLocal | (tileLocal << 9)));
-                    RaiseFloor(_leafFloors, tile, version);
-                    RemoveLeaf(tile);
-                }
-            }
-        }
-
-        private void ApplyDualLeaf(MerkabaAppendRecord record,
-            MerkabaRecordVersion version)
-        {
-            MerkabaTileAddress tile =
-                MerkabaSphereFlowerPersistenceAbi.ReadTileAddress(
-                    record.Address);
-            if (IsBeforeFloor(_leafFloors, tile, version)) return;
-            Put(_dualLeaves, tile, version, record.Payload);
-            if (_dualLeaves.ContainsKey(tile)) IndexLeaf(tile);
-        }
-
-        private void RemoveBlockDescendants(int3 block)
-        {
-            _dualChildren.Remove(block);
-            if (_chunksByBlock.TryGetValue(block, out HashSet<int> chunks))
-            {
-                int[] locals = new int[chunks.Count];
-                chunks.CopyTo(locals);
-                foreach (int chunkLocal in locals)
-                    RemoveChunkDescendants(block, chunkLocal);
-            }
-            if (_leafChunksByBlock.TryGetValue(block,
-                    out HashSet<int> leafChunks))
-            {
-                int[] locals = new int[leafChunks.Count];
-                leafChunks.CopyTo(locals);
-                foreach (int chunkLocal in locals)
-                    RemoveLeaves(new ChunkAddress(block, chunkLocal));
-            }
-            _chunksByBlock.Remove(block);
-        }
-
-        private void RemoveChunkDescendants(int3 block, int chunkLocal)
-        {
-            var chunk = new ChunkAddress(block, chunkLocal);
-            _dualChunks.Remove(chunk);
-            if (_chunksByBlock.TryGetValue(block, out HashSet<int> chunks))
-            {
-                chunks.Remove(chunkLocal);
-                if (chunks.Count == 0) _chunksByBlock.Remove(block);
-            }
-            RemoveLeaves(chunk);
-        }
-
-        private void RemoveLeaves(ChunkAddress chunk)
-        {
-            if (!_leavesByChunk.TryGetValue(chunk,
-                    out HashSet<MerkabaTileAddress> leaves)) return;
-            foreach (MerkabaTileAddress leaf in leaves) _dualLeaves.Remove(leaf);
-            _leavesByChunk.Remove(chunk);
-            if (_leafChunksByBlock.TryGetValue(chunk.Block,
-                    out HashSet<int> leafChunks))
-            {
-                leafChunks.Remove(chunk.Local);
-                if (leafChunks.Count == 0)
-                    _leafChunksByBlock.Remove(chunk.Block);
-            }
-        }
-
-        private void RemoveLeaf(MerkabaTileAddress tile)
-        {
-            if (!_dualLeaves.Remove(tile)) return;
-            var chunk = new ChunkAddress(tile.BlockCoord, tile.ChunkLocal);
-            if (!_leavesByChunk.TryGetValue(chunk,
-                    out HashSet<MerkabaTileAddress> leaves)) return;
-            leaves.Remove(tile);
-            if (leaves.Count != 0) return;
-            _leavesByChunk.Remove(chunk);
-            if (_leafChunksByBlock.TryGetValue(tile.BlockCoord,
-                    out HashSet<int> leafChunks))
-            {
-                leafChunks.Remove(tile.ChunkLocal);
-                if (leafChunks.Count == 0)
-                    _leafChunksByBlock.Remove(tile.BlockCoord);
-            }
-        }
-
-        private void IndexChunk(ChunkAddress chunk)
-        {
-            if (!_chunksByBlock.TryGetValue(chunk.Block,
-                    out HashSet<int> chunks))
-            {
-                chunks = new HashSet<int>();
-                _chunksByBlock.Add(chunk.Block, chunks);
-            }
-            chunks.Add(chunk.Local);
-        }
-
-        private void IndexLeaf(MerkabaTileAddress tile)
-        {
-            var chunk = new ChunkAddress(tile.BlockCoord, tile.ChunkLocal);
-            if (!_leavesByChunk.TryGetValue(chunk,
-                    out HashSet<MerkabaTileAddress> leaves))
-            {
-                leaves = new HashSet<MerkabaTileAddress>();
-                _leavesByChunk.Add(chunk, leaves);
-            }
-            leaves.Add(tile);
-            if (!_leafChunksByBlock.TryGetValue(tile.BlockCoord,
-                    out HashSet<int> leafChunks))
-            {
-                leafChunks = new HashSet<int>();
-                _leafChunksByBlock.Add(tile.BlockCoord, leafChunks);
-            }
-            leafChunks.Add(tile.ChunkLocal);
-        }
-
-        private static MerkabaDualNodeState BlockState(
-            VersionedPayload record) => (MerkabaDualNodeState)(
-            Read32(record.Payload, 0) & 3u);
 
         private void ApplyFine(MerkabaAppendRecord record,
             MerkabaRecordVersion version)
@@ -1289,72 +733,11 @@ namespace Genesis.RoomScan
             _ => 0u
         };
 
-        private static MerkabaDualReadResult Result(
-            MerkabaDualNodeState state) => state switch
-        {
-            MerkabaDualNodeState.AllFull =>
-                MerkabaDualReadResult.CertainFull,
-            MerkabaDualNodeState.AllThrough =>
-                MerkabaDualReadResult.CertainThrough,
-            _ => MerkabaDualReadResult.AmbiguousCold
-        };
-
-        private static MerkabaDualNodeState PackedDualState(byte[] payload,
-            int child)
-        {
-            uint word = Read32(payload, (child >> 4) * 4);
-            return (MerkabaDualNodeState)((word >> ((child & 15) * 2)) & 3u);
-        }
-
         private static void ValidatePayload(MerkabaAppendRecord record)
         {
             byte[] payload = record.Payload;
             switch (record.Kind)
             {
-                case MerkabaRecordKind.DualBlock:
-                    uint stateAndGeneration = Read32(payload, 0);
-                    var state = (MerkabaDualNodeState)(stateAndGeneration & 3u);
-                    uint generation = stateAndGeneration >> 2;
-                    uint payloadIndex = Read32(payload, 4);
-                    if (state == MerkabaDualNodeState.Invalid || generation == 0u ||
-                        ((state == MerkabaDualNodeState.Mixed) !=
-                         (payloadIndex != MerkabaDualBlockMeta.NoPayload)))
-                        throw new InvalidDataException(
-                            "Noncanonical dual block record.");
-                    break;
-                case MerkabaRecordKind.DualBlockChildren:
-                    for (int child = 0;
-                         child < MerkabaSpatial.BlockChunkCount; child++)
-                        if (PackedDualState(payload, child) ==
-                            MerkabaDualNodeState.Invalid)
-                            throw new InvalidDataException(
-                                "Noncanonical dual block children record.");
-                    break;
-                case MerkabaRecordKind.DualChunk:
-                    ulong nonFull = Read64(payload, 0);
-                    ulong mixed = Read64(payload, 8);
-                    uint leafRef = Read32(payload, 16);
-                    if ((mixed & ~nonFull) != 0ul || Read32(payload, 20) == 0u ||
-                        Read32(payload, 24) != 0u || Read32(payload, 28) != 0u ||
-                        ((mixed != 0ul) !=
-                         (leafRef != MerkabaDualBlockMeta.NoPayload)))
-                        throw new InvalidDataException(
-                            "Noncanonical dual chunk record.");
-                    break;
-                case MerkabaRecordKind.DualLeaf:
-                    bool anyThrough = false;
-                    bool anyFull = false;
-                    for (int word = 0; word < MerkabaSpatial.TileWordCount;
-                         word++)
-                    {
-                        uint bits = Read32(payload, word * 4);
-                        anyThrough |= bits != 0u;
-                        anyFull |= bits != uint.MaxValue;
-                    }
-                    if (!anyThrough || !anyFull)
-                        throw new InvalidDataException(
-                            "A persisted dual leaf must be MIXED.");
-                    break;
                 case MerkabaRecordKind.FlowerOwnerEpoch:
                     if (Read32(payload, 0) >= MerkabaSpatial.KernelsPerTile ||
                         Read32(payload, 4) == 0u)
@@ -1474,69 +857,6 @@ namespace Genesis.RoomScan
                 destination.Add(pair.Key, pair.Value);
         }
 
-        private static bool IsBeforeFloor<TKey>(
-            Dictionary<TKey, MerkabaRecordVersion> floors, TKey key,
-            MerkabaRecordVersion version) =>
-            floors.TryGetValue(key, out MerkabaRecordVersion floor) &&
-            version.CompareTo(floor) < 0;
-
-        private static void RaiseFloor<TKey>(
-            Dictionary<TKey, MerkabaRecordVersion> floors, TKey key,
-            MerkabaRecordVersion version)
-        {
-            if (!floors.TryGetValue(key, out MerkabaRecordVersion floor) ||
-                version.CompareTo(floor) > 0)
-                floors[key] = version;
-        }
-
-        private static int EncodedRecordBytes(int addressBytes,
-            int payloadBytes) => checked(MerkabaRecordHeader.ByteSize +
-                addressBytes + payloadBytes);
-
-        private static int CompareBlock(int3 left, int3 right)
-        {
-            int x = left.x.CompareTo(right.x);
-            if (x != 0) return x;
-            int y = left.y.CompareTo(right.y);
-            return y != 0 ? y : left.z.CompareTo(right.z);
-        }
-
-        private static MerkabaAppendRecord DualRecord(MerkabaRecordKind kind,
-            int3 block, int chunkLocal, MerkabaTileAddress tile,
-            byte[] payload)
-        {
-            int addressBytes = kind switch
-            {
-                MerkabaRecordKind.DualBlock or
-                    MerkabaRecordKind.DualBlockChildren =>
-                    MerkabaSphereFlowerPersistenceAbi.BlockAddressBytes,
-                MerkabaRecordKind.DualChunk =>
-                    MerkabaSphereFlowerPersistenceAbi.ChunkAddressBytes,
-                MerkabaRecordKind.DualLeaf =>
-                    MerkabaSphereFlowerPersistenceAbi.TileAddressBytes,
-                _ => throw new ArgumentOutOfRangeException(nameof(kind))
-            };
-            var address = new byte[addressBytes];
-            switch (kind)
-            {
-                case MerkabaRecordKind.DualBlock:
-                case MerkabaRecordKind.DualBlockChildren:
-                    MerkabaSphereFlowerPersistenceAbi.WriteBlockAddress(address,
-                        block);
-                    break;
-                case MerkabaRecordKind.DualChunk:
-                    MerkabaSphereFlowerPersistenceAbi.WriteChunkAddress(address,
-                        block, chunkLocal);
-                    break;
-                case MerkabaRecordKind.DualLeaf:
-                    MerkabaSphereFlowerPersistenceAbi.WriteTileAddress(address,
-                        tile);
-                    break;
-            }
-            return new MerkabaAppendRecord(kind, address,
-                (byte[])payload.Clone());
-        }
-
         private static ushort Read16(byte[] bytes, int offset) =>
             MerkabaSphereFlowerPersistenceAbi.ReadUInt16(bytes, offset);
 
@@ -1545,9 +865,6 @@ namespace Genesis.RoomScan
 
         private static int ReadInt32(byte[] bytes, int offset) =>
             MerkabaSphereFlowerPersistenceAbi.ReadInt32(bytes, offset);
-
-        private static ulong Read64(byte[] bytes, int offset) =>
-            MerkabaSphereFlowerPersistenceAbi.ReadUInt64(bytes, offset);
 
         private static bool AllHalfZero(byte[] bytes, int offset, int count)
         {

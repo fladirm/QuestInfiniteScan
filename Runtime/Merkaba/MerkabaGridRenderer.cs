@@ -324,7 +324,7 @@ namespace Genesis.RoomScan
             uniforms.Matrix("_MerkabaGridToWorld", _grid.GridToWorldMatrix);
             IntPtr[] resources = _nativePageResources;
             _grid.FillNativeExecutorWorldResources(resources);
-            uint generation = _grid.BeginNativeDualMutation(uniforms);
+            uint generation = _grid.BeginNativeWorldMutation(uniforms);
             uniforms.UInt("_M8FlowerGraphicsRetiredGeneration", _grid.FlowerGraphicsRetiredGeneration);
             var passes = MerkabaNativeVulkanExecutor.FlowerPasses.Compact |
                 MerkabaNativeVulkanExecutor.FlowerPasses.Publish;
@@ -337,7 +337,7 @@ namespace Genesis.RoomScan
                 if (!MerkabaNativeVulkanExecutor.TryCreateJob(MerkabaNativeVulkanExecutor.JobKind.FlowerReadout,
                     revision, resources, uniforms, 0, 0, 0, (int)passes, out job))
                 {
-                    _grid.CancelDualMutationBeforeSubmit(generation);
+                    _grid.CancelWorldMutationBeforeSubmit(generation);
                     return;
                 }
                 job.RecordPrepareAndSubmit(command);
@@ -355,9 +355,9 @@ namespace Genesis.RoomScan
                 {
                     job?.CancelBeforeExecution();
                     job?.Dispose();
-                    _grid.CancelDualMutationBeforeSubmit(generation);
+                    _grid.CancelWorldMutationBeforeSubmit(generation);
                 }
-                else _grid.CompleteNativeDualMutation(generation, false);
+                else _grid.CompleteNativeWorldMutation(generation, false);
                 Logger.Error("Flower page submission failed: " + exception.Message);
             }
             finally { CommandBufferPool.Release(command); }
@@ -368,7 +368,7 @@ namespace Genesis.RoomScan
             bool timed = false;
             try
             {
-                generation = _grid.RecordDualMutation(command, readoutCompute);
+                generation = _grid.RecordWorldMutation(command, readoutCompute);
                 timed = MerkabaGpuTimestamps.TryAcquire(CaptureOwner.FlowerPages, revision, command);
                 command.SetComputeIntParam(readoutCompute, GraphicsRetiredId,
                     checked((int)_grid.FlowerGraphicsRetiredGeneration));
@@ -397,7 +397,7 @@ namespace Genesis.RoomScan
                 _managedBuildFence = command.CreateGraphicsFence(
                     GraphicsFenceType.CPUSynchronisation,
                     SynchronisationStageFlags.AllGPUOperations);
-                _grid.SubmitDualMutation(command, generation);
+                _grid.SubmitWorldMutation(command, generation);
                 submitted = true;
                 MerkabaGpuTimestamps.Complete(CaptureOwner.FlowerPages, timed, true);
                 _managedBuildInFlight = true;
@@ -408,7 +408,7 @@ namespace Genesis.RoomScan
                 if (!submitted)
                 {
                     MerkabaGpuTimestamps.Complete(CaptureOwner.FlowerPages, timed, false);
-                    _grid.CancelDualMutationBeforeSubmit(generation);
+                    _grid.CancelWorldMutationBeforeSubmit(generation);
                 }
                 Logger.Error("Flower page submission failed: " + exception.Message);
             }
@@ -428,7 +428,7 @@ namespace Genesis.RoomScan
             if (_managedBuildInFlight && _managedBuildFence.passed) _managedBuildInFlight = false;
             if (_nativeReadoutJob == null || !_nativeReadoutJob.Poll(out string error)) return;
             bool succeeded = string.IsNullOrEmpty(error);
-            _grid.CompleteNativeDualMutation(_nativeGeneration, succeeded);
+            _grid.CompleteNativeWorldMutation(_nativeGeneration, succeeded);
             _nativeReadoutJob.Dispose();
             _nativeReadoutJob = null;
             _nativeGeneration = 0u;

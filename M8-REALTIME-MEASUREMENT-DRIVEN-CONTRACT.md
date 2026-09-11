@@ -4,6 +4,18 @@
 
 Base: `9ab1f687691f91fbefb62e46cc308f8fb5327a8a`.
 User-authorized rewrite, 2026-09-10. This is the current execution contract.
+User-authorized direct-only cut, 2026-09-11: remove the excavation dual from
+production, including its GPU jobs, allocations, persistence progression,
+veto, DIRT and dual-dependent completion. This supersedes all requirements
+below and in REV-C that require persistent negative volume. Do not synthesize
+FULL/THROUGH answers to keep a removed consumer alive. Direct M8, geometry
+L0-L2, RGB/V skin, epochs and explicit ERASE remain unchanged. This is a
+greenfield scanner: no old-scan import, migration, compatibility streams or
+retired record kinds. The session format contains M8 base/live, FlowerDetail
+and ThreadAtlas only; unsupported versions are rejected. Reversal is a
+version-control revert, not a second runtime mode or an inactive subsystem.
+Build the APK only after the complete scanner implementation and host gates
+are finished; intermediate cuts never produce a device-build checkpoint.
 It replaces the execution/refinement/readout/export model of
 `MERKABA_CLOSURE_CONTRACT.md`, the corresponding REV-C scheduling clauses,
 and their old RUN/CUT instructions. It is not an optional optimization path.
@@ -26,10 +38,10 @@ SENSOR (ephemeral)
     refined depth, normal/confidence, calibrated RGB correspondence
 
 WORLD (persistent)
-    M8 KernelState + sparse dual + FlowerDetail + ThreadAtlas
+    M8 KernelState + FlowerDetail + ThreadAtlas
 
 PRESENTATION (derived)
-    L2 carrier symbols, COMPLETED, DIRT, pages, draw, GLB/3D Tiles
+    direct L2 carrier symbols, pages, draw, GLB/3D Tiles
 ```
 
 Presentation MUST NOT write reconstruction evidence. Persistent refinement
@@ -60,9 +72,8 @@ and a second solver used by readout/export. Renaming these is not removal.
   samples use their hierarchical split union; the authorities do not merge.
 - Sparse parent epochs and structural invalidation remain. Compatible plane
   refinements retain epochs. No generation is added to every KernelState.
-- Missing dual blocks mean FULL, not measured matter. Current complete
-  THROUGH veto and direct endpoint precedence remain. New objects in former
-  FREE space must be admitted; FREE is not historically irreversible.
+- No persistent negative volume, excavation veto or inferred DIRT participates
+  in scan, readout or export. New direct measurements need no dual admission.
 - Session records, manifest transactions, anchors, paint/design data and
   resumable frozen export remain. Presentation is never loadable as M8 truth.
 
@@ -70,7 +81,7 @@ and a second solver used by readout/export. Renaming these is not removal.
 
 ```text
 capture N -> sensor once -> count/allocate-if-needed/reserve/emit
-          -> direct + dual -> reached L1 -> reached L2 -> reached skin
+          -> direct -> reached L1 -> reached L2 -> reached skin
           -> publish world changes + dirty bits -> Finalize -> release N
 ```
 
@@ -186,29 +197,25 @@ needed evidence. No 512-owner fixed receipt region in FlowerDetail; no cursor
 or deferred tiles on overflow. Count/reserve/emit and a bounded capacity result
 are storage mechanics, not another refinement ontology.
 
-## 7. Incremental dual
+## 7. Direct-only world
 
-New strict direct endpoints restore their complete support to FULL before
-same-snapshot excavation. Existing THROUGH without a new direct conflict is
-not re-certified. Newly visible FULL/MIXED support is classified coarse first;
-complete THROUGH collapses immediately, unresolved cover descends as needed.
-
-Use the existing signed hierarchy and cooperative certificate. Do not revert
-to a fixed camera-volume scan, a private per-lane tree stack, or filtering to
-only allocated positive blocks: unseen blocks may still need excavation.
-COLD requests storage without holding N. No claim of THROUGH on failed reads.
+No dual hierarchy is allocated, traversed, updated or serialized by production.
+Remove its jobs and bindings from both Unity and native command consumers.
+Depth/RGB sensor processing stays intact. Deleting the dual does not authorize
+weaker sensor admission, altered Flower geometry or a CPU reconstruction path.
+Remove consumers requiring excavation evidence; do not replace them with a
+constant predicate or an invented inferred surface. Existing session data is
+not deleted by this cut.
 
 ## 8. Derived readout and completion
 
 Dirty page -> occupied owner mask -> DecodeFlower -> actual L2 symbols ->
-bounded incident completion/dual coverage -> compact samples -> publish FRONT.
+compact samples -> publish FRONT.
 
 Readout takes canonical world state only. It has no camera input, sensor
 hypothesis solve, 52-original-root packet or exhaustive 128-carrier sweep.
-One-hop completion begins at actual direct boundary strands and generated
-incident candidates. Completed output never donates another completion.
-DIRT remains the existing derived excavation boundary; direct coverage uses
-actual decoded carriers and exact existing predicates, not a second solver.
+Only directly supported carriers are emitted. Dual-dependent completion and
+DIRT are removed along with their coverage/neighbor sweeps.
 
 Required COLD support preserves the old valid FRONT and requests a page retry.
 Local undecided completion/skin is not an application-wide 'coverage not
@@ -270,7 +277,7 @@ Required evidence:
 - uniform/partial/full skin shares geometry, masks are scan-authored, V only
   changes appearance, CPU/GPU skin and export normal atlas agree;
 - unknown/COLD/ambiguous updates do not block unrelated strict endpoints;
-  new object after THROUGH, hole completion and DIRT precedence still work;
+  new direct objects and explicit ERASE work without any dual dependency;
 - fresh frozen export carries RGB/V and reopens with ordinary readout;
 - exact embedded SPIR-V audit: <=1 MiB and <=50000 body instructions per
   production entrypoint; existing warnings and hardware checks remain;

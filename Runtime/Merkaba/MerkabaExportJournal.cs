@@ -16,7 +16,7 @@ namespace Genesis.RoomScan
         internal const string FileName = "export.journal";
         private const int MaximumRecordBytes = 64 * 1024;
         private const int PacketBytes = 64 * 1024;
-        private const string Policy = "M8-realtime-RT3/export-resume-v2/atlas2048-16-32-64-g2/rgb-v-pair/flat-L2-UV/unlit-capture";
+        private const string Policy = "M8-realtime-direct-only/export-resume-v4/atlas2048-16-32-64-g2/rgb-v-pair/flat-L2-UV/unlit-capture";
         private readonly string _directory;
         private readonly FileStream _log;
         private readonly Dictionary<string, long> _appendEnds = new(StringComparer.Ordinal);
@@ -36,9 +36,8 @@ namespace Genesis.RoomScan
         [Serializable]
         internal sealed class State
         {
-            // 0=original tiles, 1=DIRT packets, 2=final container assembly.
+            // 0=direct tiles, 1=final container assembly.
             public int stage, nextTile, nextLeaf;
-            public long nextDirtPacket, dirtTriangles;
             public long occupied, measured, completed, unresolved;
             public string status = "pending", reason = "";
             public MerkabaGlbWriter.ResumeState glb;
@@ -203,8 +202,8 @@ namespace Genesis.RoomScan
                         throw new InvalidDataException("Export journal checksum mismatch.");
                 Record record = JsonUtility.FromJson<Record>(Encoding.UTF8.GetString(payload));
                 if (record?.state == null || record.segments == null || record.segments.Length > 16 ||
-                    record.state.stage < 0 || record.state.stage > 2 || record.state.nextTile < 0 ||
-                    record.state.nextLeaf < 0 || record.state.nextDirtPacket < 0)
+                    record.state.stage < 0 || record.state.stage > 1 || record.state.nextTile < 0 ||
+                    record.state.nextLeaf < 0)
                     throw new InvalidDataException("Invalid export cursor receipt.");
                 foreach (Segment segment in record.segments)
                 {

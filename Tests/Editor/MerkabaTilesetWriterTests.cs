@@ -236,25 +236,6 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void QuestArtifactPreviewConsumesDirtFactorWithoutAllocatingTexture()
-        {
-            using var stream = new MemoryStream();
-            MerkabaGlbWriter.WriteDirt(stream, new[] { new MerkabaDirtTriangle(new int3(-8), 0, 0) }, float3.zero);
-            var parsed = MerkabaArtifactViewer.ParseGlbForPreview(stream.ToArray());
-            ParsedDirtAssertions(parsed);
-        }
-
-        private static void ParsedDirtAssertions(MerkabaArtifactViewer.ParsedGlb parsed)
-        {
-            Assert.That(parsed.Indices.Length, Is.EqualTo(3));
-            Assert.That(parsed.Images.All(value => value == null), Is.True);
-            var material = parsed.Materials[parsed.Primitives[0].Material];
-            Assert.That(material.Image, Is.EqualTo(-1));
-            float4 support = MerkabaSphereFlowerAuthority.DirtSupportLinearRgba;
-            Assert.That(material.ColorFactor, Is.EqualTo(new Color(support.x, support.y, support.z, support.w)));
-        }
-
-        [Test]
         public void QuestArtifactPreviewStreamsUnboundedPackageIntoBoundedCache()
         {
             string viewer = Source(
@@ -699,8 +680,8 @@ namespace Genesis.RoomScan.Tests
                          "occupiedOwners=", "carriers=", "triangles=", "unresolvedWedges="
                      })
                 Assert.That(exporter, Does.Contain(field), field);
-            Assert.That(exporter, Does.Contain("AppendDirtToTilesetAsync(staging, leaves, progress, cancellationToken)"));
-            Assert.That(exporter, Does.Contain("StreamStoredFlowerDirtAsync(_exportPlaneBounds, _exportTiles,"));
+            Assert.That(exporter, Does.Not.Contain("AppendDirtToTilesetAsync("));
+            Assert.That(exporter, Does.Not.Contain("StreamStoredFlowerDirtAsync("));
             Assert.That(exporter, Does.Not.Contain(
                 "CaptureStoredSnapshotAsync(anchorUuid"));
             int viewerExport = exporter.IndexOf(

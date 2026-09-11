@@ -7,18 +7,14 @@ namespace Genesis.RoomScan
     internal enum MerkabaRecordKind : ushort
     {
         M8Tile = 1,
-        DualBlock = 2,
-        DualBlockChildren = 3,
-        DualChunk = 4,
-        DualLeaf = 5,
-        FlowerOwnerEpoch = 6,
-        FlowerDetail = 7,
-        FlowerSkinMetricRun = 8,
-        FlowerVGroup = 9,
-        ThreadProgram = 10,
-        ThreadRun = 11,
-        ThreadColorGroup = 12,
-        Tombstone = 13
+        FlowerOwnerEpoch = 2,
+        FlowerDetail = 3,
+        FlowerSkinMetricRun = 4,
+        FlowerVGroup = 5,
+        ThreadProgram = 6,
+        ThreadRun = 7,
+        ThreadColorGroup = 8,
+        Tombstone = 9
     }
 
     /// <summary>
@@ -64,7 +60,7 @@ namespace Genesis.RoomScan
     {
         internal const int ByteSize = 28;
         internal const uint MagicValue = 0x4653384du; // bytes "M8SF"
-        internal const ushort CurrentVersion = 5;
+        internal const ushort CurrentVersion = 6;
 
         internal uint Magic;
         internal ushort Version;
@@ -142,22 +138,6 @@ namespace Genesis.RoomScan
                     expectedAddress = TileAddressBytes;
                     expectedPayload = MerkabaSpatial.KernelsPerTile *
                         KernelState.ByteSize;
-                    break;
-                case MerkabaRecordKind.DualBlock:
-                    expectedAddress = BlockAddressBytes;
-                    expectedPayload = MerkabaDualBlockMeta.ByteSize;
-                    break;
-                case MerkabaRecordKind.DualBlockChildren:
-                    expectedAddress = BlockAddressBytes;
-                    expectedPayload = MerkabaDualBlockChildren.ByteSize;
-                    break;
-                case MerkabaRecordKind.DualChunk:
-                    expectedAddress = ChunkAddressBytes;
-                    expectedPayload = MerkabaDualChunkPayload.ByteSize;
-                    break;
-                case MerkabaRecordKind.DualLeaf:
-                    expectedAddress = TileAddressBytes;
-                    expectedPayload = MerkabaDualLeaf.ByteSize;
                     break;
                 case MerkabaRecordKind.FlowerOwnerEpoch:
                     expectedAddress = TileAddressBytes;

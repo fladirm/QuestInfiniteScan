@@ -9,8 +9,6 @@
 #pragma kernel ResolveFlowerCarriers
 #pragma kernel DrainFlowerSkinRgb
 #pragma kernel DrainFlowerSkinV
-// Frozen stereo evidence -> touched-tile Flower commit and certified free support.
-#pragma kernel UpdateObservationDual
 #pragma kernel FinalizeObservation
 #pragma kernel QueryFineEraseTiles
 #pragma kernel EraseFineTiles
@@ -26,7 +24,6 @@
 #include "MerkabaObservationBins.hlsl"
 #include "MerkabaObservationOwners.hlsl"
 #include "MerkabaObservationScope.hlsl"
-#include "MerkabaDualHierarchy.hlsl"
 
 #define MERKABA_LATTICE_STEP 0.025
 #define MERKABA_SUPPORT_SIZE 0.050
@@ -42,14 +39,12 @@ float4x4 _MerkabaWorldToGrid;
 float4 _M8PlaneErrorBounds;
 
 uint _M8AttemptToken;
-uint _M8DualPublishingGeneration;
-uint _M8DualRetiredGeneration;
+uint _M8WorldPublishingGeneration;
+uint _M8WorldRetiredGeneration;
 
-float3 _M8ScanCameraWorld;
 int3 _M8ScanCenterBlock;
 int _M8ScanBlockRadius;
 int _M8ScanBlockSide;
-float4 _M8ScanCoveragePlanes[8];
 uint M8ObservationFailureReason()
 {
     return _M8Counters[M8_COUNTER_OBSERVATION_FAILURE];
@@ -94,55 +89,6 @@ bool M8SupportInsideMutationScope(M8FlowerInterval3 support)
     return radial.hi <= _M8FineRadiusSquared;
 }
 
-
-bool M8SupportThrough(int3 firstOwner, uint ownerSpan)
-{
-    if (!M8FlowerIsFinite(_MerkabaMaxUpdateDistance) ||
-        !(_MerkabaMaxUpdateDistance > 0.0) || ownerSpan == 0u ||
-        ownerSpan > MERKABA_M8_BLOCK_KERNEL_SPAN) return false;
-    // The union of n consecutive owner supports is [first-1, first+n]
-    // in each axis. Enclose that complete cube before projection; the same
-    // certificate is valid for a kernel, tile, chunk or block. Integer to
-    // float conversion is enclosed before adding the span, including at
-    // negative and large signed coordinates.
-    M8FlowerInterval3 gridSupport;
-    float3 centre = float3(firstOwner);
-    M8FlowerInterval extent = M8FlowerI(-1.0, (float)ownerSpan);
-    M8FlowerInterval step = M8FlowerI(M8_FLOWER_LATTICE_STEP, M8_FLOWER_LATTICE_STEP);
-    gridSupport.x = M8FlowerIMul(M8FlowerIAdd(M8FlowerI(
-        M8FlowerPrevious(centre.x), M8FlowerNext(centre.x)),
-        extent), step);
-    gridSupport.y = M8FlowerIMul(M8FlowerIAdd(M8FlowerI(
-        M8FlowerPrevious(centre.y), M8FlowerNext(centre.y)),
-        extent), step);
-    gridSupport.z = M8FlowerIMul(M8FlowerIAdd(M8FlowerI(
-        M8FlowerPrevious(centre.z), M8FlowerNext(centre.z)),
-        extent), step);
-    M8FlowerInterval3 support;
-    support.x = M8DepthIntervalRow(_MerkabaGridToWorld[0], gridSupport);
-    support.y = M8DepthIntervalRow(_MerkabaGridToWorld[1], gridSupport);
-    support.z = M8DepthIntervalRow(_MerkabaGridToWorld[2], gridSupport);
-    if (!M8SupportInsideMutationScope(support)) return false;
-    float3 minimum = float3(support.x.lo, support.y.lo, support.z.lo);
-    float3 maximum = float3(support.x.hi, support.y.hi, support.z.hi);
-    M8FlowerInterval rangeSquared = M8FlowerISquare(M8FlowerI(
-        _MerkabaMaxUpdateDistance, _MerkabaMaxUpdateDistance));
-    [unroll]
-    for (uint eye = 0u; eye < 2u; ++eye)
-    {
-        float3 origin = float3(gsDepthViewInv[eye][0][3],
-            gsDepthViewInv[eye][1][3], gsDepthViewInv[eye][2][3]);
-        M8FlowerInterval distanceSquared = M8FlowerIAdd(M8FlowerIAdd(
-            M8FlowerISquare(M8FlowerISub(support.x, M8FlowerI(origin.x,origin.x))),
-            M8FlowerISquare(M8FlowerISub(support.y, M8FlowerI(origin.y,origin.y)))),
-            M8FlowerISquare(M8FlowerISub(support.z, M8FlowerI(origin.z,origin.z))));
-        if (distanceSquared.hi > rangeSquared.lo) continue;
-        if (M8DepthCertificateEyeSupport(minimum, maximum, gsDepthView[eye],
-                gsDepthProj[eye], (int2)gsDepthTexSize, eye))
-            return true;
-    }
-    return false;
-}
 
 void UpdateOccupancy(uint physicalSlot, uint kernelLocal,
     inout KernelState state, int delta)
@@ -198,7 +144,6 @@ void M8MarkR1Active(uint physicalSlot, uint kernelLocal)
 }
 
 #include "MerkabaFlowerCommit.hlsl"
-void M8DualRequestStorage(uint blockOrdinal,uint kind,uint child,uint tile);
 #include "MerkabaFlowerRefinement.hlsl"
 #include "MerkabaFlowerPageInvalidation.hlsl"
 #include "MerkabaFlowerChanges.hlsl"
@@ -211,508 +156,6 @@ bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     if (scanRequest && queued)
         M8CounterIncrement(M8_COUNTER_SCAN_COLD_MISSES);
     return queued;
-}
-
-uint M8ScanChildMask(int3 parentMin, int parentSpan)
-{
-    uint support = MerkabaM8DistanceChildMask(parentMin, parentSpan,
-        _MerkabaMaxUpdateDistance, _M8ScanCameraWorld, _MerkabaGridToWorld,
-        _MerkabaWorldToGrid, MERKABA_LATTICE_STEP, MERKABA_HALF_SUPPORT);
-    [unroll]
-    for (uint plane = 0u; plane < 8u; plane++)
-        support &= MerkabaM8KernelPlaneChildMask(parentMin, parentSpan,
-            _M8ScanCoveragePlanes[plane]);
-    return support;
-}
-
-// One workgroup owns one existing signed M8 block. No second spatial
-// index exists: allocation requests use the same block/chunk/tile barriers.
-groupshared uint gScanBlockRef;
-groupshared uint gScanBlockOrdinal;
-groupshared int3 gScanBlockMin;
-groupshared uint gScanSupport4;
-groupshared uint gDualDirectChunks[16];
-groupshared uint gDualHasDirect;
-groupshared uint gDualBlockFinished;
-groupshared uint gDualWholeCertificate;
-groupshared uint gDualChanged;
-groupshared uint gDualBeginStatus;
-// The dual state this block had BEFORE this observation, read from the
-// read-only snapshot. Work selection needs to know what is already carved;
-// proving it again would write the word it already holds.
-groupshared uint gDualStoredBlockState;
-
-void M8DualObservationPending(uint status)
-{
-    if (status == M8_DUAL_WRITE_INVALID)
-        M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-    else
-    {
-        M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-        if (status == M8_DUAL_WRITE_RETRY)
-            _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
-    }
-}
-
-void M8DualRequestStorage(uint blockOrdinal, uint kind, uint child, uint tile)
-{
-    // Count's claims have already been published. No allocation or geometry
-    // is performed here; storage reconstructs this frozen domain address.
-    [loop] for (uint attempt=0u; attempt<4u; ++attempt)
-    {
-        uint count=_M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT];
-        if (count >= MERKABA_M8_BLOCK_CAPACITY) break;
-        uint previous;
-        InterlockedCompareExchange(_M8Counters[M8_COUNTER_DUAL_STORAGE_INTENT_COUNT],
-            count,count+1u,previous);
-        if (previous != count) continue;
-        _M8ClaimQueue[MERKABA_M8_CLAIM_BLOCK_OFFSET+count]=
-            uint2(blockOrdinal,(kind << 15u) | (tile << 9u) | child);
-        InterlockedOr(_M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS],1u);
-        return;
-    }
-    // Capacity is local to this request. The snapshot finalizes without
-    // inventing free space or retaining an unrecorded address as pending work.
-    _M8Counters[M8_COUNTER_STORAGE_BACKPRESSURE]=1u;
-    M8CounterIncrement(M8_COUNTER_UNRESOLVED_OBSERVATION_TILES);
-}
-
-void M8DualRequestStorage(uint kind, uint child, uint tile)
-{
-    M8DualRequestStorage(gScanBlockOrdinal,kind,child,tile);
-}
-
-// Emit has marked every accepted direct owner. Negative-only tiles only
-// stamp their bin; the existing Reserve kernel publishes the touched queue.
-void M8DualTouchObservationTile(uint slot)
-{
-    uint previous;
-    InterlockedExchange(_M8ObservationTileBins[slot].x,_M8ObservationToken,previous);
-    if (previous != _M8ObservationToken)
-    {
-        _M8ObservationTileBins[slot].y=0u;
-        _M8ObservationTileBins[slot].z=0u;
-        _M8ObservationTileBins[slot].w=0u;
-    }
-    _M8TileRecords[M8TileRuntimeIndex(slot)].z=_M8Counters[M8_COUNTER_FRAME_EPOCH];
-}
-
-bool M8DualChunkHasDirect(uint chunk)
-{
-    if (chunk >= MERKABA_M8_CHUNK_CAPACITY) return false;
-    [loop] for (uint tile=0u; tile<64u; ++tile)
-    {
-        uint reference=_M8ChunkTileRefsRead[chunk*64u+tile];
-        if (!M8IsHotRef(reference)) continue;
-        uint slot=M8PhysicalSlot(reference);
-        uint4 bin=_M8ObservationTileBins[slot];
-        if (bin.x == _M8ObservationToken && bin.y != 0u) return true;
-    }
-    return false;
-}
-
-void M8DualTouchResidentChunk(uint chunk)
-{
-    [loop] for (uint tile=0u; tile<64u; ++tile)
-    {
-        uint reference=_M8ChunkTileRefsRead[chunk*64u+tile];
-        if (!M8IsHotRef(reference)) continue;
-        uint slot=M8PhysicalSlot(reference);
-        if (_M8TileRecords[M8TileMetaIndex(slot)].w != 0u ||
-            _M8TileRecords[M8TileRuntimeIndex(slot)].x==_M8ObservationToken)
-            M8DualTouchObservationTile(slot);
-    }
-}
-
-void M8DualRequestChunkPayload(uint chunk, uint child)
-{
-    if (chunk >= MERKABA_M8_CHUNK_CAPACITY) return;
-    [loop] for (uint tile=0u; tile<64u; ++tile)
-    {
-        uint index=chunk*64u+tile;
-        if (_M8ChunkTileRefsRead[index] == MERKABA_REF_COLD_ON_SSD)
-            M8DualRequestStorage(M8_DUAL_INTENT_TILE_COLD,child,tile);
-    }
-}
-
-// What this chunk already was, before this observation touched anything. The
-// prepared per-chunk mask is only meaningful under a MIXED block, so a uniform
-// block answers for all of its children.
-uint M8DualStoredChunkState(uint block, uint child)
-{
-    return gDualStoredBlockState == M8_DUAL_MIXED
-        ? M8DualPreparedChunkState(block,child,false)
-        : gDualStoredBlockState;
-}
-
-void M8DualProcessObservationChunk(uint block, uint child, int3 minimum)
-{
-    bool hasDirect=(gDualDirectChunks[child >> 5u] & (1u << (child & 31u))) != 0u;
-    // Determine the change first, prove it second. Excavation is persistent:
-    // a chunk already stored as certified FREE, with no endpoint of THIS
-    // observation reaching into it, has nothing this snapshot could alter.
-    // Certifying it again costs a full dyadic cover to conclude THROUGH, and
-    // then writes the word it already holds. The steady state must be free.
-    uint stored=M8DualStoredChunkState(block,child);
-    if (!hasDirect && stored == M8_DUAL_THROUGH) return;
-    bool through=false;
-    if (!hasDirect)
-        through=gDualWholeCertificate != 0u || M8SupportThrough(minimum,32u);
-    uint chunk;
-    if (through)
-    {
-        uint result=M8DualWriteChunkUniform(block,child,M8_DUAL_THROUGH,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-        if (result <= M8_DUAL_WRITE_COMMITTED)
-        {
-            if (result == M8_DUAL_WRITE_COMMITTED) InterlockedOr(gDualChanged,1u);
-            if (M8DualResolveChunk(block,child,chunk)) M8DualTouchResidentChunk(chunk);
-            return;
-        }
-        if (result == M8_DUAL_WRITE_INVALID)
-        {
-            M8DualObservationPending(result);
-            return;
-        }
-        // A COLD child is not discarded even when the enclosing current
-        // certificate succeeds. Descend to request its exact stored support.
-    }
-
-    if (!M8DualResolveChunk(block,child,chunk))
-    {
-        // FULL is the default of the excavation model, not a stored record, so
-        // a chunk with no payload is already entirely FULL and correct. A
-        // failed parent certificate is a reason to test the children, never a
-        // reason to allocate: the children's addresses are arithmetic and need
-        // no payload. Descend logically, and ask storage for a payload only
-        // once some leaf is certified FREE - otherwise the implicit FULL stands
-        // and this observation owes nothing. Asking anyway also raised
-        // STORAGE_BACKPRESSURE, which reads as memory pressure and is not.
-        bool owed=hasDirect || through;
-        uint probeFirst=owed ? 0u : M8ScanChildMask(minimum,32);
-        [loop] while (probeFirst != 0u)
-        {
-            uint p1=(uint)firstbitlow(probeFirst);
-            probeFirst &= probeFirst-1u;
-            int3 probeMinimum=minimum+MerkabaM8OctantOffset(p1,16);
-            uint probeSecond=M8ScanChildMask(probeMinimum,16);
-            [loop] while (probeSecond != 0u)
-            {
-                uint p0=(uint)firstbitlow(probeSecond);
-                probeSecond &= probeSecond-1u;
-                if (M8SupportThrough(probeMinimum+MerkabaM8OctantOffset(p0,8),8u))
-                {
-                    owed=true;
-                    break;
-                }
-            }
-            if (owed) break;
-        }
-        if (!owed) return;
-        M8DualRequestStorage(M8_DUAL_INTENT_CHUNK,child,0u);
-        M8DualObservationPending(M8_DUAL_WRITE_RETRY);
-        return;
-    }
-    M8DualChunkPayload payload;
-    uint result=M8DualBeginChunk(block,child,_M8DualPublishingGeneration,
-        _M8DualRetiredGeneration,chunk,payload);
-    if (result > M8_DUAL_WRITE_COMMITTED)
-    {
-        M8DualRequestChunkPayload(chunk,child);
-        M8DualObservationPending(result);
-        return;
-    }
-
-    uint firstMask=through ? 255u : M8ScanChildMask(minimum,32);
-    [loop] while (firstMask != 0u)
-    {
-        uint d1=(uint)firstbitlow(firstMask);
-        firstMask &= firstMask-1u;
-        int3 firstMinimum=minimum+MerkabaM8OctantOffset(d1,16);
-        uint secondMask=through ? 255u : M8ScanChildMask(firstMinimum,16);
-        [loop] while (secondMask != 0u)
-        {
-            uint d0=(uint)firstbitlow(secondMask);
-            secondMask &= secondMask-1u;
-            uint tile=(d1 << 3u) | d0;
-            int3 tileMinimum=firstMinimum+MerkabaM8OctantOffset(d0,8);
-            uint referenceIndex=chunk*64u+tile;
-            uint reference=_M8ChunkTileRefsRead[referenceIndex];
-            bool hot=M8IsHotRef(reference);
-            uint slot=hot ? M8PhysicalSlot(reference) : M8_DUAL_NO_REF;
-            bool direct=false;
-            if (hot)
-            {
-                uint4 bin=_M8ObservationTileBins[slot];
-                direct=bin.x == _M8ObservationToken && bin.y != 0u;
-            }
-            uint words[16];
-            uint previous=M8DualReadPreparedTileWords(chunk,payload,tile,words);
-            // A COLD leaf is a residency dependency: enqueue the request and
-            // skip this tile. The snapshot does not wait for it - a later
-            // snapshot reads it once resident. Nothing here invents FULL, FREE
-            // or surface for a tile whose evidence has not arrived.
-            if (previous == M8_DUAL_READ_COLD ||
-                reference == MERKABA_REF_COLD_ON_SSD)
-            {
-                if (reference == MERKABA_REF_COLD_ON_SSD ||
-                    previous == M8_DUAL_READ_COLD)
-                    M8DualRequestStorage(M8_DUAL_INTENT_TILE_COLD,child,tile);
-                M8DualObservationPending(M8_DUAL_WRITE_COLD);
-                continue;
-            }
-            // A non-canonical chunk payload is structural: BeginChunk above
-            // should have prevented it, so it fails the transaction instead of
-            // waiting for evidence that will never arrive.
-            if (previous == M8_DUAL_AMBIGUOUS)
-            {
-                M8DualObservationPending(M8_DUAL_WRITE_INVALID);
-                continue;
-            }
-            // M8_DUAL_READ_STALE falls through deliberately. A HOT slot whose
-            // leaf ref no longer describes this tile carries zero words, so the
-            // volume below is recomputed and the write rebinds it. Treating that
-            // as COLD requested no load and pended the observation forever.
-            // Neither branch above retains the snapshot; both only skip.
-
-            bool entire=false;
-            if (!direct) entire=through || M8SupportThrough(tileMinimum,8u);
-            if (entire)
-            {
-                [unroll] for (uint word=0u; word<16u; ++word) words[word]=0xffffffffu;
-            }
-            else
-            {
-                [loop] for (uint word=0u; word<16u; ++word)
-                {
-                    // Restore all strict direct supports before any possible
-                    // canonical positive write, including incompatible owners.
-                    words[word] &= ~(direct ? _M8TileBitsRead[
-                        M8TileWordIndex(slot,word)].z : 0u);
-                }
-                // The certificate descent stopped at the tile and then proved
-                // all 512 kernels one at a time. M8SupportThrough encloses the
-                // union support [first-1, first+n], and a kernel's own cube
-                // [owner-1, owner+1] lies inside its span's cube, so a
-                // certified span proves every kernel in it and marking the span
-                // whole is bit-identical. Spans 4 and 2 carry the same
-                // certificate as every level above the tile.
-                //
-                // The span is a VARIABLE, so this reader is inlined once. Three
-                // constant-span calls inlined it three times and took the entry
-                // from 494 KB to 695 KB, and on this driver creation breaks on
-                // module size combined with indexed-array pressure.
-                [loop] for (uint level=0u; level<3u; ++level)
-                {
-                    uint span=4u >> level, side=8u >> (2u-level);
-                    [loop] for (uint cell=0u; cell<side*side*side; ++cell)
-                    {
-                        uint3 base=uint3(cell%side,(cell/side)%side,
-                            cell/(side*side))*span;
-                        // Every kernel already accounted for means no proof is
-                        // needed; at span one this is the original skip.
-                        uint pending=0u;
-                        [loop] for (uint row=0u; row<span*span; ++row)
-                        {
-                            uint local=((base.z+row/span) << 6u)|
-                                ((base.y+row%span) << 3u)|base.x;
-                            uint word=local >> 5u;
-                            uint endpoints=direct ? _M8TileBitsRead[
-                                M8TileWordIndex(slot,word)].z : 0u;
-                            uint run=((1u << span)-1u) << (local & 31u);
-                            if ((run & ~(words[word]|endpoints)) != 0u) pending=1u;
-                        }
-                        if (pending == 0u) continue;
-                        if (!M8SupportThrough(tileMinimum+(int3)base,span)) continue;
-                        [loop] for (uint row=0u; row<span*span; ++row)
-                        {
-                            uint local=((base.z+row/span) << 6u)|
-                                ((base.y+row%span) << 3u)|base.x;
-                            uint word=local >> 5u;
-                            uint endpoints=direct ? _M8TileBitsRead[
-                                M8TileWordIndex(slot,word)].z : 0u;
-                            words[word]|=(((1u << span)-1u) << (local & 31u))
-                                & ~endpoints;
-                        }
-                    }
-                }
-            }
-            uint anyValue=0u, allValues=0xffffffffu;
-            [unroll] for (uint word=0u; word<16u; ++word)
-            { anyValue |= words[word]; allValues &= words[word]; }
-            bool mixed=anyValue != 0u && allValues != 0xffffffffu;
-            if (mixed && !hot)
-            {
-                if (reference == MERKABA_REF_EMPTY || reference == MERKABA_REF_COLD_ON_SSD)
-                    M8DualRequestStorage(reference == MERKABA_REF_EMPTY ?
-                        M8_DUAL_INTENT_TILE_EMPTY : M8_DUAL_INTENT_TILE_COLD,child,tile);
-                M8DualObservationPending(M8_DUAL_WRITE_COLD);
-                continue;
-            }
-            result=M8DualWriteTileWords(block,child,chunk,tile,slot,
-                _M8DualPublishingGeneration,_M8DualRetiredGeneration,payload,words);
-            if (result > M8_DUAL_WRITE_COMMITTED)
-            {
-                M8DualObservationPending(result);
-                continue;
-            }
-            if (result == M8_DUAL_WRITE_COMMITTED)
-            {
-                InterlockedOr(gDualChanged,1u);
-                if (hot) M8MarkTileDirty(slot);
-            }
-            if (hot && (direct || _M8TileRecords[M8TileMetaIndex(slot)].w != 0u ||
-                _M8TileRecords[M8TileRuntimeIndex(slot)].x==_M8ObservationToken))
-                M8DualTouchObservationTile(slot);
-        }
-    }
-}
-
-[numthreads(64,1,1)]
-void UpdateObservationDual(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
-{
-    if (lane == 0u)
-    {
-        gScanBlockRef=0u;
-        gScanBlockOrdinal=group.x;
-        gDualStoredBlockState=M8_DUAL_FULL;
-        gScanSupport4=0u;
-        gDualHasDirect=0u;
-        gDualBlockFinished=0u;
-        gDualWholeCertificate=0u;
-        gDualChanged=0u;
-        gDualBeginStatus=M8_DUAL_WRITE_RETRY;
-        if (group.x == 0u) _M8Counters[M8_COUNTER_DUAL_TOUCH_PUBLICATION]=1u;
-        bool ready=_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
-            _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u;
-        // A missing direct neighbour blocks only its own dependent update.
-        // The local certificate/dual readers preserve COLD as unresolved;
-        // it must not suppress excavation of every other resident support.
-        if (ready && (_M8ObservationToken == 0u || _M8DualPublishingGeneration == 0u ||
-            _M8DualPublishingGeneration > M8_DUAL_MAX_GENERATION ||
-            _M8Counters[M8_COUNTER_NEW_BLOCK_QUEUE_COUNT] != 0u ||
-            _M8Counters[M8_COUNTER_NEW_CHUNK_QUEUE_COUNT] != 0u ||
-            _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT] != 0u))
-        {
-            M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-            ready=false;
-        }
-        int3 coordinate;
-        if (ready && !M8ObservationBlockAddress(_M8ScanCenterBlock,
-            _M8ScanBlockRadius,_M8ScanBlockSide,group.x,coordinate))
-        {
-            M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
-            ready=false;
-        }
-        if (ready)
-        {
-            gScanBlockMin=coordinate*MERKABA_M8_BLOCK_KERNEL_SPAN;
-            gScanSupport4=M8ScanChildMask(gScanBlockMin,256);
-            if (gScanSupport4 != 0u)
-            {
-                uint block;
-                if (M8FindBlock(coordinate,block))
-                {
-                    gScanBlockRef=block+1u;
-                    // Read through the writable binding this kernel already
-                    // holds; a read-only alias of the same buffer is refused by
-                    // the SPIR-V audit. One workgroup owns one block and this
-                    // runs before M8DualBeginBlock, so it is the pre-observation
-                    // state regardless.
-                    M8DualBlockMeta storedMeta;
-                    gDualStoredBlockState=M8DualReadBlock(block,storedMeta,false);
-                    M8CounterIncrement(M8_COUNTER_DUAL_QUERY_BLOCKS);
-                }
-                else
-                {
-                    M8DualRequestStorage(M8_DUAL_INTENT_BLOCK,0u,0u);
-                    M8DualObservationPending(M8_DUAL_WRITE_RETRY);
-                }
-            }
-        }
-    }
-    if (lane < 16u) gDualDirectChunks[lane]=0u;
-    GroupMemoryBarrierWithGroupSync();
-    if (gScanBlockRef == 0u) return;
-    uint block=gScanBlockRef-1u;
-
-    // Direct exclusion is explicit at every uniform ancestor fast path.
-    // Only existing M8 relations are inspected; an empty relation has no
-    // accepted positive bin because Emit completed before this dispatch.
-    [loop] for (uint child=lane; child<512u; child+=64u)
-    {
-        uint chunk;
-        if (!M8DualResolveChunk(block,child,chunk)) continue;
-        if (M8DualChunkHasDirect(chunk))
-        {
-            InterlockedOr(gDualDirectChunks[child >> 5u],1u << (child & 31u));
-            InterlockedOr(gDualHasDirect,1u);
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (lane == 0u)
-    {
-        if (gDualHasDirect == 0u)
-            gDualWholeCertificate=M8SupportThrough(gScanBlockMin,256u) ? 1u : 0u;
-        if (gDualWholeCertificate != 0u)
-        {
-            uint result=M8DualWriteBlockUniform(block,M8_DUAL_THROUGH,
-                _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-            if (result == M8_DUAL_WRITE_COMMITTED)
-                InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
-                    M8_OBSERVATION_CHANGED_DUAL);
-            if (result <= M8_DUAL_WRITE_COMMITTED) gDualBlockFinished=1u;
-            else if (result == M8_DUAL_WRITE_INVALID) M8DualObservationPending(result);
-        }
-        if (gDualBlockFinished == 0u)
-        {
-            gDualBeginStatus=M8DualBeginBlock(block,_M8DualPublishingGeneration,
-                _M8DualRetiredGeneration);
-            if (gDualBeginStatus > M8_DUAL_WRITE_COMMITTED)
-                M8DualObservationPending(gDualBeginStatus);
-        }
-    }
-    DeviceMemoryBarrierWithGroupSync();
-    if (gDualBlockFinished != 0u)
-    {
-        [loop] for (uint child=lane; child<512u; child+=64u)
-        {
-            uint chunk;
-            if (M8DualResolveChunk(block,child,chunk)) M8DualTouchResidentChunk(chunk);
-        }
-        return;
-    }
-    if (gDualBeginStatus > M8_DUAL_WRITE_COMMITTED) return;
-    uint d4=lane >> 3u, d3=lane & 7u;
-    if ((gScanSupport4 & (1u << d4)) != 0u)
-    {
-        int3 min4=gScanBlockMin+MerkabaM8OctantOffset(d4,128);
-        uint second=M8ScanChildMask(min4,128);
-        if ((second & (1u << d3)) != 0u)
-        {
-            int3 min3=min4+MerkabaM8OctantOffset(d3,64);
-            uint children=M8ScanChildMask(min3,64);
-            [loop] while (children != 0u)
-            {
-                uint d2=(uint)firstbitlow(children);
-                children &= children-1u;
-                M8DualProcessObservationChunk(block,(d4 << 6u) | (d3 << 3u) | d2,
-                    min3+MerkabaM8OctantOffset(d2,32));
-            }
-        }
-    }
-    DeviceMemoryBarrierWithGroupSync();
-    // Publish the certified changes. Unresolved supports are local skips;
-    // they do not hold this snapshot or unrelated positive evidence.
-    if (lane == 0u && gDualChanged != 0u)
-    {
-        uint result=M8DualEndBlock(block,_M8DualPublishingGeneration);
-        // Tile/chunk changes have already committed, even if a later
-        // allocation fails for another support in this observation.
-        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],
-            M8_OBSERVATION_CHANGED_DUAL);
-        if (result > M8_DUAL_WRITE_COMMITTED) M8DualObservationPending(result);
-    }
 }
 
 void M8FinalizeObservationCompletion()
@@ -738,9 +181,6 @@ void M8FinalizeObservationCompletion()
     uint pendingCount = completed != 0u && failure != 0u
         ? min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
-    // A uniform dual node can change without touching any HOT R1 tile.
-    // Report actual publication independently of successful observation
-    // completion: failed/pending attempts may retain certified dual progress.
     bool readoutChanged =
         _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u;
     _M8Counters[M8_COUNTER_CLEANUP_TOUCHED_COUNT] = touchedCount;
@@ -768,7 +208,7 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
 {
     if (lane == 0u)
     {
-        gFlowerFinalizeSourceReady = M8FlowerPageSourceReady(_M8DualPublishingGeneration) ? 1u : 0u;
+        gFlowerFinalizeSourceReady = M8FlowerPageSourceReady(_M8WorldPublishingGeneration) ? 1u : 0u;
         M8FinalizeObservationCompletion();
         // Every actual R1/R2/RGB/V change invalidates its consumers before
         // this snapshot's packets and touched stamps are retired.
@@ -785,7 +225,7 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
     {
         [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
             M8FlowerMarkTileNeighborhoodDirty(_M8TouchedTileQueueRead[index],
-                _M8DualPublishingGeneration, true, true);
+                _M8WorldPublishingGeneration, true, true);
         [loop] for (uint pending = lane; pending < gFlowerFinalizeNewTileCount; pending += 128u)
         {
             uint referenceIndex = _M8PendingNewTileRefsRead[pending];
@@ -793,7 +233,7 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
             uint reference = _M8ChunkTileRefs[referenceIndex];
             if (M8IsHotRef(reference))
                 M8FlowerMarkTileNeighborhoodDirty(M8PhysicalSlot(reference),
-                    _M8DualPublishingGeneration, true, true);
+                    _M8WorldPublishingGeneration, true, true);
         }
     }
     DeviceMemoryBarrierWithGroupSync();
@@ -957,7 +397,7 @@ void M8EraseFineKernel(uint slot,uint local)
     if(!M8FineContains(mul(_MerkabaGridToWorld,float4(grid,1.0)).xyz))return;
     // Prepare only: failed source/peer preflight changes neither M8 nor its
     // epoch. The same GPU transaction cuts it before publishing zero M8.
-    M8FlowerPrepareR1(slot,local,before,uint4(0u,0u,0u,0u),true,false,true);
+    M8FlowerPrepareR1(slot,local,before,uint4(0u,0u,0u,0u),true,true);
 }
 
 [numthreads(128,1,1)]
@@ -992,7 +432,7 @@ void FinalizeFineErase(uint lane:SV_GroupIndex)
 {
     if(lane==0u)
     {
-        gFlowerFinalizeSourceReady=M8FlowerPageSourceReady(_M8DualPublishingGeneration)?1u:0u;
+        gFlowerFinalizeSourceReady=M8FlowerPageSourceReady(_M8WorldPublishingGeneration)?1u:0u;
         gFlowerFinalizeTouchedCount=min(_M8FlowerSignalItems.Load(M8_FLOWER_CHANGE_TILE_COUNT),
             MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     }
@@ -1002,7 +442,7 @@ void FinalizeFineErase(uint lane:SV_GroupIndex)
         [loop]for(uint index=lane;index<gFlowerFinalizeTouchedCount;index+=128u)
         {
             uint slot=_M8FlowerSignalItems.Load(M8_FLOWER_CHANGE_TILE_QUEUE+4u*index);
-            M8FlowerMarkTileNeighborhoodDirty(slot,_M8DualPublishingGeneration,true,true);
+            M8FlowerMarkTileNeighborhoodDirty(slot,_M8WorldPublishingGeneration,true,true);
         }
     }
     DeviceMemoryBarrierWithGroupSync();

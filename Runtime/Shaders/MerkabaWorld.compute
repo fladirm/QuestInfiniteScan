@@ -15,8 +15,6 @@
 #pragma kernel SelectEvictionVictims
 #pragma kernel GatherWritebackBatch
 #pragma kernel TransferFlowerStorage
-#pragma kernel GatherDualWritebackBatch
-#pragma kernel AcknowledgeDualWritebackBatch
 #pragma kernel AcknowledgeWritebackBatch
 #pragma kernel FailWritebackBatch
 #pragma kernel PrepareLoadedTiles
@@ -29,7 +27,6 @@
 #pragma use_dxc vulkan
 
 #include "MerkabaWorld.hlsl"
-#include "MerkabaDualHierarchy.hlsl"
 #define M8_FLOWER_SIDECAR_WRITE 1
 #include "MerkabaFlowerStorage.hlsl"
 #include "MerkabaFlowerPageInvalidation.hlsl"
@@ -49,16 +46,12 @@ uint _M8LinearGroupsX;
 uint _M8StreamBatchCount;
 uint _M8EvictAllDirty;
 uint _M8SafeEpoch;
-uint _M8DualPublishingGeneration;
-uint _M8DualRetiredGeneration;
-uint _M8DualDurableGeneration;
-uint _M8DualReclaimCursor;
-uint _M8RegisterDualNodeKind;
+uint _M8WorldPublishingGeneration;
+uint _M8WorldRetiredGeneration;
 uint _M8DrainSourceGeneration;
 
-#define M8_DUAL_PACKET_RECORDS 16u
-#define M8_WRITEBACK_TILE_RECORDS (MERKABA_M8_KERNELS_PER_TILE+1u+M8_DUAL_PACKET_RECORDS+M8_FLOWER_STORAGE_PACKET_RECORDS)
-#define M8_LOAD_TILE_RECORDS (MERKABA_M8_KERNELS_PER_TILE+M8_DUAL_PACKET_RECORDS+M8_FLOWER_STORAGE_PACKET_RECORDS)
+#define M8_WRITEBACK_TILE_RECORDS (MERKABA_M8_KERNELS_PER_TILE+1u+M8_FLOWER_STORAGE_PACKET_RECORDS)
+#define M8_LOAD_TILE_RECORDS (MERKABA_M8_KERNELS_PER_TILE+M8_FLOWER_STORAGE_PACKET_RECORDS)
 #define M8_WRITEBACK_KEEP_HOT 0x80000000u
 #define M8_WRITEBACK_REF_MASK 0x7fffffffu
 
@@ -66,189 +59,6 @@ uint _M8DrainSourceGeneration;
 void ClearRawBuffer(uint id : SV_DispatchThreadID)
 {
     if (id < _M8ClearCount) _M8ClearRaw.Store(id*4u,0u);
-}
-
-void M8GatherDualPacket(uint item, uint physicalSlot)
-{
-    uint first=item*M8_WRITEBACK_TILE_RECORDS+1u+MERKABA_M8_KERNELS_PER_TILE;
-    [unroll] for (uint record=0u;record<M8_DUAL_PACKET_RECORDS;++record)
-        _M8WritebackStaging[first+record]=0u;
-    uint4 tile=M8LoadTileMetaRead(physicalSlot);
-    uint2 owner=M8LoadChunkOwnerRead(tile.x);
-    M8DualBlockMeta block;
-    uint state=M8DualReadBlock(owner.x,block), flags=0u;
-    if (state == M8_DUAL_AMBIGUOUS) { _M8WritebackStaging[first].x=16u; return; }
-    if (block.StateAndGeneration == 0u) return;
-    flags=1u;
-    _M8WritebackStaging[first+1u]=uint4(block.StateAndGeneration,block.PayloadIndex,0u,0u);
-    if (state == M8_DUAL_MIXED)
-    {
-        flags |= 2u;
-        [unroll] for (uint word=0u;word<8u;++word)
-            _M8WritebackStaging[first+2u+word]=
-                _M8DualBlockState.Load4(M8DualBlockMaskAddress(owner.x,word*4u));
-        uint chunkIndex;
-        M8DualChunkPayload chunk;
-        state=M8DualReadChunk(owner.x,owner.y,chunkIndex,chunk);
-        if (state == M8_DUAL_AMBIGUOUS) flags |= 16u;
-        else if (state == M8_DUAL_MIXED)
-        {
-            flags |= 4u;
-            _M8WritebackStaging[first+10u]=uint4(chunk.NonFullMaskLo,chunk.NonFullMaskHi,
-                chunk.MixedMaskLo,chunk.MixedMaskHi);
-            _M8WritebackStaging[first+11u]=uint4(chunk.LeafRefBase,chunk.Generation,0u,0u);
-            if (M8DualChunkTileState(chunk,tile.y) == M8_DUAL_MIXED)
-            {
-                uint packed=M8DualLeafReference(chunk,tile.y);
-                uint generation=(packed >> 15u) & M8_DUAL_SLOT_MASK;
-                // The M8 ref is deliberately EVICTING throughout this frozen
-                // packet. Validate the captured slot/generation, not HOT state.
-                if ((packed >> 30u) != 2u || (packed & M8_DUAL_SLOT_MASK) != physicalSlot ||
-                    generation == 0u || generation != M8LoadTileRuntimeRead(physicalSlot).w)
-                    flags |= 16u;
-                else
-                {
-                    flags |= 8u;
-                    [unroll] for (uint word=0u;word<4u;++word)
-                        _M8WritebackStaging[first+12u+word]=
-                            _M8DualLeaves.Load4(physicalSlot*64u+word*16u);
-                }
-            }
-        }
-    }
-    _M8WritebackStaging[first].x=flags;
-}
-
-bool M8NextDirtyDualNode(uint first, out uint node)
-{
-    node=M8_DUAL_NO_REF;
-    if (first >= M8_DUAL_DIRTY_NODE_COUNT) return false;
-    uint root=_M8DualBlockState.Load(M8_DUAL_DIRTY_ROOT_OFFSET) &
-        ~M8DualLowBits(first >> 15u);
-    [loop] while (root != 0u)
-    {
-        uint top=firstbitlow(root); root &= root-1u;
-        uint topBits=_M8DualBlockState.Load(M8_DUAL_DIRTY_TOP_OFFSET+top*4u);
-        if (top == (first >> 15u)) topBits &= ~M8DualLowBits((first >> 10u)&31u);
-        [loop] while (topBits != 0u)
-        {
-            uint summary=top*32u+firstbitlow(topBits); topBits &= topBits-1u;
-            uint summaryBits=_M8DualBlockState.Load(M8_DUAL_DIRTY_SUMMARY_OFFSET+summary*4u);
-            if (summary == (first >> 10u)) summaryBits &= ~M8DualLowBits((first >> 5u)&31u);
-            [loop] while (summaryBits != 0u)
-            {
-                uint word=summary*32u+firstbitlow(summaryBits); summaryBits &= summaryBits-1u;
-                uint bits=_M8DualBlockState.Load(M8_DUAL_DIRTY_BITS_OFFSET+word*4u);
-                if (word == (first >> 5u)) bits &= ~M8DualLowBits(first&31u);
-                if (bits == 0u) continue;
-                node=word*32u+firstbitlow(bits);
-                return node < M8_DUAL_DIRTY_NODE_COUNT;
-            }
-        }
-    }
-    return false;
-}
-
-void M8ClearDirtyDualNode(uint node)
-{
-    // Called only by the serialized storage ack after comparing the captured
-    // node generation. No semantic writer overlaps this queue lease.
-    uint word=node >> 5u, summary=word >> 5u, top=summary >> 5u;
-    uint value=_M8DualBlockState.Load(M8_DUAL_DIRTY_BITS_OFFSET+word*4u) & ~(1u<<(node&31u));
-    _M8DualBlockState.Store(M8_DUAL_DIRTY_BITS_OFFSET+word*4u,value);
-    if (value != 0u) return;
-    value=_M8DualBlockState.Load(M8_DUAL_DIRTY_SUMMARY_OFFSET+summary*4u) & ~(1u<<(word&31u));
-    _M8DualBlockState.Store(M8_DUAL_DIRTY_SUMMARY_OFFSET+summary*4u,value);
-    if (value != 0u) return;
-    value=_M8DualBlockState.Load(M8_DUAL_DIRTY_TOP_OFFSET+top*4u) & ~(1u<<(summary&31u));
-    _M8DualBlockState.Store(M8_DUAL_DIRTY_TOP_OFFSET+top*4u,value);
-    if (value != 0u) return;
-    value=_M8DualBlockState.Load(M8_DUAL_DIRTY_ROOT_OFFSET) & ~(1u<<top);
-    _M8DualBlockState.Store(M8_DUAL_DIRTY_ROOT_OFFSET,value);
-}
-
-bool M8GatherDualNodePacket(uint node, uint first)
-{
-    [unroll] for (uint row=0u;row<17u;++row) _M8WritebackStaging[first+row]=0u;
-    bool isBlock=node<MERKABA_M8_BLOCK_CAPACITY;
-    uint2 owner=isBlock ? uint2(node,0u) :
-        M8LoadChunkOwnerRead(node-MERKABA_M8_BLOCK_CAPACITY);
-    _M8WritebackStaging[first]=uint4(asuint(M8LoadBlockCoordRead(owner.x)),owner.y);
-    uint packet=first+1u;
-    M8DualBlockMeta block;
-    uint state=M8DualReadBlock(owner.x,block);
-    if (state == M8_DUAL_AMBIGUOUS || block.StateAndGeneration == 0u) return false;
-    uint flags=1u|(isBlock ? 32u : 64u);
-    _M8WritebackStaging[packet+1u]=uint4(block.StateAndGeneration,block.PayloadIndex,0u,0u);
-    if (state == M8_DUAL_MIXED)
-    {
-        flags |= 2u;
-        [unroll] for (uint word=0u;word<8u;++word)
-            _M8WritebackStaging[packet+2u+word]=
-                _M8DualBlockState.Load4(M8DualBlockMaskAddress(owner.x,word*4u));
-        if (!isBlock)
-        {
-            uint physical;
-            M8DualChunkPayload chunk;
-            state=M8DualReadChunk(owner.x,owner.y,physical,chunk);
-            if (state == M8_DUAL_AMBIGUOUS) return false;
-            if (state == M8_DUAL_MIXED)
-            {
-                flags |= 4u;
-                _M8WritebackStaging[packet+10u]=uint4(chunk.NonFullMaskLo,chunk.NonFullMaskHi,
-                    chunk.MixedMaskLo,chunk.MixedMaskHi);
-                _M8WritebackStaging[packet+11u]=uint4(chunk.LeafRefBase,chunk.Generation,0u,0u);
-            }
-        }
-    }
-    uint nodeGeneration=isBlock ? block.StateAndGeneration >> 2u :
-        M8DualLoadChunkPayload(node-MERKABA_M8_BLOCK_CAPACITY).Generation;
-    _M8WritebackStaging[packet]=uint4(flags,node,nodeGeneration,block.StateAndGeneration);
-    return true;
-}
-
-[numthreads(1,1,1)]
-void GatherDualWritebackBatch(uint id : SV_DispatchThreadID)
-{
-    uint first=0u, count=0u, error=0u, node;
-    [loop] while (count<32u && M8NextDirtyDualNode(first,node))
-    {
-        if (!M8GatherDualNodePacket(node,1u+count*17u)) { error=1u; break; }
-        count++; first=node+1u;
-    }
-    _M8WritebackStaging[0]=uint4(count,
-        _M8DualBlockState.Load(M8_DUAL_DIRTY_ROOT_OFFSET),_M8DrainSourceGeneration,error);
-    if (count == 0u)
-    {
-        // A whole-source receipt is possible only under the CPU's source-cut
-        // gate, after all selected append/ack batches have completed. Ordinary
-        // gathers pass source generation zero and cannot certify a source cut.
-        _M8WritebackStaging[1]=uint4(
-            _M8Counters[M8_COUNTER_OCCUPIED_KERNEL_COUNT],
-            _M8Counters[M8_COUNTER_DIRTY_TILE_COUNT],
-            _M8Counters[M8_COUNTER_OBSERVATION_TOKEN],
-            _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED]);
-    }
-}
-
-[numthreads(1,1,1)]
-void AcknowledgeDualWritebackBatch(uint id : SV_DispatchThreadID)
-{
-    uint count=min(_M8WritebackStaging[0].x,32u);
-    [loop] for (uint item=0u;item<count;++item)
-    {
-        uint4 captured=_M8WritebackStaging[2u+item*17u];
-        uint node=captured.y;
-        if (node >= M8_DUAL_DIRTY_NODE_COUNT) continue;
-        bool isBlock=node<MERKABA_M8_BLOCK_CAPACITY;
-        uint2 owner=isBlock ? uint2(node,0u) :
-            M8LoadChunkOwnerRead(node-MERKABA_M8_BLOCK_CAPACITY);
-        uint currentParent=_M8DualBlockState.Load(owner.x*8u);
-        uint generation=isBlock ? currentParent >> 2u :
-            M8DualLoadChunkPayload(node-MERKABA_M8_BLOCK_CAPACITY).Generation;
-        if (generation != captured.z || currentParent != captured.w) continue;
-        M8ClearDirtyDualNode(node);
-    }
 }
 
 uint M8LinearIndex(uint3 groupId, uint groupThread)
@@ -509,7 +319,7 @@ bool M8TileHasPendingFlowerEpoch(uint physicalSlot)
 [numthreads(256, 1, 1)]
 void SelectEvictionVictims(uint id : SV_DispatchThreadID)
 {
-    if (!M8FlowerPageSourceReady(_M8DualPublishingGeneration)) return;
+    if (!M8FlowerPageSourceReady(_M8WorldPublishingGeneration)) return;
     if (id >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
     uint cursor = _M8Counters[M8_COUNTER_EVICTION_CURSOR];
     uint physicalSlot = (cursor + id) &
@@ -545,15 +355,7 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
         InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex], expected,
             MERKABA_REF_COLD_ON_SSD, prior);
         if (prior != expected) return;
-        uint2 owner=M8LoadChunkOwnerRead(meta.x);
-        uint dualStatus=M8DualMakeLeafCold(owner.x,owner.y,meta.y,
-            _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-        if (dualStatus > M8_DUAL_WRITE_COMMITTED)
-        {
-            _M8ChunkTileRefs[tileRefIndex]=expected;
-            return;
-        }
-        M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8DualPublishingGeneration,
+        M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8WorldPublishingGeneration,
             false, true);
         DeviceMemoryBarrier();
         M8PushPhysicalTile(physicalSlot);
@@ -580,7 +382,7 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
     // residency. This transient queue bit is not persisted or added to M8.
     _M8WritebackQueue[queueIndex] = uint2(physicalSlot, tileRefIndex |
         (_M8EvictAllDirty != 0u ? M8_WRITEBACK_KEEP_HOT : 0u));
-    M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8DualPublishingGeneration,
+    M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8WorldPublishingGeneration,
         false, true);
     M8CounterIncrement(M8_COUNTER_WRITEBACK_TILES);
 }
@@ -599,9 +401,8 @@ void GatherWritebackBatch(uint3 groupId : SV_GroupID,
         M8TileAddress address = M8LogicalAddress(meta.x, meta.y);
         _M8WritebackStaging[item * M8_WRITEBACK_TILE_RECORDS] =
             uint4(asuint(address.blockCoord), address.localAddress);
-        M8GatherDualPacket(item, physicalSlot);
         M8CaptureFlowerTile(item*M8_WRITEBACK_TILE_RECORDS+1u+
-            MERKABA_M8_KERNELS_PER_TILE+M8_DUAL_PACKET_RECORDS,physicalSlot);
+            MERKABA_M8_KERNELS_PER_TILE,physicalSlot);
     }
     for (uint kernelLocal = thread; kernelLocal < MERKABA_M8_KERNELS_PER_TILE;
          kernelLocal += 64u)
@@ -617,13 +418,13 @@ groupshared uint gFlowerWritebackReady;
 [numthreads(32, 1, 1)]
 void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
 {
-    if (!M8FlowerPageSourceReady(_M8DualPublishingGeneration)) return;
+    if (!M8FlowerPageSourceReady(_M8WorldPublishingGeneration)) return;
     if(id==0u)
     {
         gFlowerWritebackReady=1u;
         [loop]for(uint item=0u;item<min(_M8StreamBatchCount,32u);item++)
         {
-            uint first=item*M8_WRITEBACK_TILE_RECORDS+1u+512u+M8_DUAL_PACKET_RECORDS;
+            uint first=item*M8_WRITEBACK_TILE_RECORDS+1u+512u;
             if(_M8WritebackStaging[first].z!=2u)gFlowerWritebackReady=0u;
         }
     }
@@ -641,7 +442,7 @@ void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
         MERKABA_REF_EVICTING,
         keepHot ? physicalSlot + 1u : MERKABA_REF_COLD_ON_SSD, prior);
     if (prior != MERKABA_REF_EVICTING) return;
-    M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8DualPublishingGeneration,
+    M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8WorldPublishingGeneration,
         true, true);
     if (keepHot)
     {
@@ -651,8 +452,8 @@ void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
         M8SignalResidencyChange();
         return;
     }
-    // TransferFlowerStorage has retired both fine arenas and made the dual
-    // leaf COLD before this final physical-slot publication barrier.
+    // TransferFlowerStorage has retired both fine arenas before this
+    // final physical-slot publication barrier.
     DeviceMemoryBarrier();
     M8ClearTileDirty(physicalSlot);
     M8PushPhysicalTile(physicalSlot);
@@ -665,7 +466,7 @@ void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
 [numthreads(32, 1, 1)]
 void FailWritebackBatch(uint id : SV_DispatchThreadID)
 {
-    if (!M8FlowerPageSourceReady(_M8DualPublishingGeneration)) return;
+    if (!M8FlowerPageSourceReady(_M8WorldPublishingGeneration)) return;
     uint count = min(_M8StreamBatchCount, 32u);
     if (id < count)
     {
@@ -676,7 +477,7 @@ void FailWritebackBatch(uint id : SV_DispatchThreadID)
             MERKABA_REF_EVICTING, queued.x + 1u, prior);
         if (prior == MERKABA_REF_EVICTING)
         {
-            M8FlowerMarkTileNeighborhoodDirty(queued.x, _M8DualPublishingGeneration,
+            M8FlowerMarkTileNeighborhoodDirty(queued.x, _M8WorldPublishingGeneration,
                 true, true);
             M8MarkTileDirty(queued.x);
             M8SignalResidencyChange();
@@ -699,134 +500,15 @@ void FailWritebackBatch(uint id : SV_DispatchThreadID)
 groupshared uint gLoadNeedCount;
 groupshared uint gLoadReservationBase;
 groupshared uint gLoadReservationCount;
-groupshared uint gLoadDualReady[32];
-
-uint4 M8DualLoadPacket(uint item, uint record)
-{
-    KernelState value=_M8LoadStagingStates[item*M8_LOAD_TILE_RECORDS+
-        MERKABA_M8_KERNELS_PER_TILE+record];
-    return uint4(asuint(value.evidence),value.packedColor,
-        value.colorConfidence,value.flags);
-}
-
-// At most 32 paths, imported serially once per batch. This prevents sibling
-// loads from independently allocating the same chunk's dense reference span.
-bool M8RestoreDualAncestors(uint item)
-{
-    uint flags=M8DualLoadPacket(item,0u).x;
-    if ((flags & 16u) != 0u) return false;
-    if ((flags & 1u) == 0u) return flags == 0u;
-    M8TileAddress address=_M8LoadStagingAddresses[item];
-    uint block;
-    if (!M8FindBlock(address.blockCoord,block)) return false;
-    uint4 meta=M8DualLoadPacket(item,1u);
-    M8DualBlockMeta incoming;
-    incoming.StateAndGeneration=meta.x; incoming.PayloadIndex=meta.y;
-    uint words[32];
-    [unroll] for (uint index=0u;index<8u;++index)
-    {
-        uint4 value=M8DualLoadPacket(item,2u+index);
-        words[4u*index]=value.x; words[4u*index+1u]=value.y;
-        words[4u*index+2u]=value.z; words[4u*index+3u]=value.w;
-    }
-    uint status=M8DualInstallBlock(block,incoming,words,
-        _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-    if (status > M8_DUAL_WRITE_COMMITTED) return false;
-    if (status == M8_DUAL_WRITE_COMMITTED)
-        M8FlowerMarkResidentBlockNeighborhoodDirty(block, _M8DualPublishingGeneration,
-            true, false);
-    if ((flags & 4u) == 0u) return true;
-    uint4 a=M8DualLoadPacket(item,10u), b=M8DualLoadPacket(item,11u);
-    M8DualChunkPayload chunk;
-    chunk.NonFullMaskLo=a.x; chunk.NonFullMaskHi=a.y;
-    chunk.MixedMaskLo=a.z; chunk.MixedMaskHi=a.w;
-    chunk.LeafRefBase=b.x; chunk.Generation=b.y;
-    chunk.Reserved0=b.z; chunk.Reserved1=b.w;
-    status=M8DualInstallChunk(block,address.localAddress & 0x1ffu,
-        incoming.StateAndGeneration >> 2u,chunk,
-        _M8DualPublishingGeneration,_M8DualRetiredGeneration);
-    if (status == M8_DUAL_WRITE_COMMITTED)
-    {
-        uint chunkReference = _M8BlockChunkRefsRead[block * MERKABA_M8_BLOCK_CHUNK_COUNT +
-            (address.localAddress & 0x1ffu)];
-        if (chunkReference != 0u && chunkReference - 1u < MERKABA_M8_CHUNK_CAPACITY)
-            M8FlowerMarkResidentChunkNeighborhoodDirty(chunkReference - 1u,
-                _M8DualPublishingGeneration, true, false);
-    }
-    if (status == M8_DUAL_WRITE_RETRY && (flags & 64u) != 0u)
-    {
-        // OPEN registers the complete sparse address hierarchy, not the whole
-        // SSD leaf set as HOT GPU memory. A capacity-limited chunk stays COLD.
-        uint physical;
-        M8DualChunkPayload current;
-        if (M8DualReadChunk(block,address.localAddress & 0x1ffu,
-            physical,current) == M8_DUAL_AMBIGUOUS) return true;
-    }
-    return status <= M8_DUAL_WRITE_COMMITTED;
-}
-
-bool M8RestoreDualLeaf(uint item, uint slot, bool prepared)
-{
-    M8TileAddress address=_M8LoadStagingAddresses[item];
-    uint block;
-    if (!M8FindBlock(address.blockCoord,block)) return false;
-    uint child=address.localAddress & 0x1ffu;
-    uint tile=(address.localAddress >> 9u) & 0x3fu;
-    uint flags=M8DualLoadPacket(item,0u).x;
-    if ((flags & 8u) != 0u)
-    {
-        uint words[16];
-        [unroll] for (uint index=0u;index<4u;++index)
-        {
-            uint4 value=M8DualLoadPacket(item,12u+index);
-            words[4u*index]=value.x; words[4u*index+1u]=value.y;
-            words[4u*index+2u]=value.z; words[4u*index+3u]=value.w;
-        }
-        uint status=M8DualInstallLeaf(block,child,tile,slot,
-            M8DualLoadPacket(item,11u).y,_M8DualPublishingGeneration,
-            _M8DualRetiredGeneration,words,prepared);
-        if (status > M8_DUAL_WRITE_COMMITTED) return false;
-        // All checks precede the leaf write. There is no fallible operation
-        // after its publication and therefore no staged HOT ref to roll back.
-        if (status == M8_DUAL_WRITE_COMMITTED) return true;
-    }
-    // An ignored older response is not proof that a newer MIXED leaf is HOT.
-    uint chunk;
-    M8DualChunkPayload payload;
-    uint state=M8DualReadChunk(block,child,chunk,payload);
-    if (state == M8_DUAL_MIXED) state=M8DualChunkTileState(payload,tile);
-    if (state != M8_DUAL_MIXED) return state != M8_DUAL_AMBIGUOUS;
-    uint resident;
-    return M8DualStorageLeafResident(M8DualLeafReference(payload,tile),
-        chunk,tile,prepared,resident) && resident == slot;
-}
-
 [numthreads(32, 1, 1)]
 void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
 {
-    if (!M8FlowerPageSourceReady(_M8DualPublishingGeneration)) return;
+    if (!M8FlowerPageSourceReady(_M8WorldPublishingGeneration)) return;
     if (id == 0u)
     {
         gLoadNeedCount = 0u;
         gLoadReservationBase = 0u;
         gLoadReservationCount = 0u;
-        uint chunks=min(_M8Counters[M8_COUNTER_CHUNK_COUNT],MERKABA_M8_CHUNK_CAPACITY);
-        uint reclaimCount=min(chunks,256u);
-        [loop] for (uint cursor=0u;cursor<reclaimCount;++cursor)
-        {
-            uint physical=(_M8DualReclaimCursor+cursor)%chunks;
-            uint2 owner=M8LoadChunkOwnerRead(physical);
-            uint reclaimed=M8DualMakeChunkCold(owner.x,owner.y,_M8DualPublishingGeneration,
-                _M8DualRetiredGeneration,_M8DualDurableGeneration);
-            if (reclaimed == M8_DUAL_WRITE_COMMITTED)
-            {
-                M8FlowerMarkResidentChunkNeighborhoodDirty(physical,
-                    _M8DualPublishingGeneration, true, false);
-                M8SignalResidencyChange();
-            }
-        }
-        [loop] for (uint item=0u;item<min(_M8StreamBatchCount,32u);++item)
-            gLoadDualReady[item]=M8RestoreDualAncestors(item) ? 1u : 0u;
     }
     DeviceMemoryBarrierWithGroupSync();
 
@@ -838,18 +520,11 @@ void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
     uint chunkIndex = 0u;
     uint tileLocal = 0u;
     bool needsSlot = false;
-    if (active && gLoadDualReady[id] != 0u)
+    if (active)
     {
         encodedAddress = localAddress;
-        // Scope bits are residency packets for sparse dual-only ancestors.
-        // They allocate no M8 tile and never fabricate positive states.
-        if ((M8DualLoadPacket(id,0u).x & 96u) != 0u)
-        {
-            _M8LoadStagingAddresses[id].localAddress=localAddress|M8_LOAD_READY_BIT;
-        }
         uint blockIndex;
-        if ((M8DualLoadPacket(id,0u).x & 96u) == 0u &&
-            M8FindBlock(address.blockCoord, blockIndex))
+        if (M8FindBlock(address.blockCoord, blockIndex))
         {
             uint chunkLocal = localAddress & 0x1ffu;
             tileLocal = (localAddress >> 9u) & 0x3fu;
@@ -867,11 +542,10 @@ void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
                     uint physicalSlot = M8PhysicalSlot(tileRef);
                     uint4 meta =
                         _M8TileRecords[M8TileMetaIndex(physicalSlot)];
-                    if (meta.x == chunkIndex && meta.y == tileLocal &&
-                        M8RestoreDualLeaf(id,physicalSlot,false))
+                    if (meta.x == chunkIndex && meta.y == tileLocal)
                     {
                         M8FlowerMarkTileNeighborhoodDirty(physicalSlot,
-                            _M8DualPublishingGeneration, true, false);
+                            _M8WorldPublishingGeneration, true, false);
                         encodedAddress |= M8_LOAD_READY_BIT;
                     }
                 }
@@ -912,11 +586,6 @@ void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
     uint reservedSlot = 0xffffffffu;
     if (needsSlot && needIndex < gLoadReservationCount)
         reservedSlot = _M8FreeTileStack[gLoadReservationBase + needIndex];
-    // A failed dual prepare returns its reserved slot to this same stack.
-    // Every lane must consume its reservation before any lane can overwrite
-    // the newly freed suffix with a rollback push.
-    GroupMemoryBarrierWithGroupSync();
-
     if (reservedSlot != 0xffffffffu)
     {
         uint physicalSlot = reservedSlot;
@@ -930,16 +599,13 @@ void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
         // This existing preparation stage has room for the page-directory
         // writer. InstallLoadedTiles uses all eight UAVs for M8 publication;
         // its LOADING slot and existing neighbours are already invalid here.
-        M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8DualPublishingGeneration,
+        M8FlowerMarkTileNeighborhoodDirty(physicalSlot, _M8WorldPublishingGeneration,
             true, false);
         DeviceMemoryBarrier();
-        if (M8RestoreDualLeaf(id,physicalSlot,true))
-            encodedAddress |= (physicalSlot << M8_LOAD_SLOT_SHIFT) |
-                M8_LOAD_INSTALL_BIT | M8_LOAD_READY_BIT;
-        else
-            M8PushPhysicalTile(physicalSlot);
+        encodedAddress |= (physicalSlot << M8_LOAD_SLOT_SHIFT) |
+            M8_LOAD_INSTALL_BIT | M8_LOAD_READY_BIT;
     }
-    if (active && (M8DualLoadPacket(id,0u).x & 96u) == 0u)
+    if (active)
         _M8LoadStagingAddresses[id].localAddress = encodedAddress;
 }
 
@@ -957,7 +623,7 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
     {
         uint encodedAddress =
             _M8LoadStagingAddressesRead[item].localAddress;
-        uint fineFirst=item*M8_LOAD_TILE_RECORDS+512u+M8_DUAL_PACKET_RECORDS;
+        uint fineFirst=item*M8_LOAD_TILE_RECORDS+512u;
         gLoadInstall = (encodedAddress & M8_LOAD_INSTALL_BIT) != 0u &&
             _M8LoadStagingStates[fineFirst].flags==2u ? 1u : 0u;
         gLoadSlot = (encodedAddress >> M8_LOAD_SLOT_SHIFT) & 0x7fffu;
@@ -1023,7 +689,7 @@ void FailLoadedTiles(uint id : SV_DispatchThreadID)
     if (id >= _M8StreamBatchCount) return;
     M8TileAddress address = _M8LoadStagingAddressesRead[id];
     bool prepared=(address.localAddress&M8_LOAD_INSTALL_BIT)!=0u;
-    uint fineFirst=id*M8_LOAD_TILE_RECORDS+512u+M8_DUAL_PACKET_RECORDS;
+    uint fineFirst=id*M8_LOAD_TILE_RECORDS+512u;
     if(prepared && _M8LoadStagingStates[fineFirst].flags!=5u)return;
     uint blockIndex;
     if (!M8FindBlock(address.blockCoord, blockIndex)) return;
@@ -1054,12 +720,10 @@ void RegisterLoadedTileAddresses(uint id : SV_DispatchThreadID)
     uint failureReason;
     if (!M8FindOrClaimBlock(address.blockCoord, blockIndex,
         failureReason)) return;
-    if (_M8RegisterDualNodeKind == 2u) return;
     uint chunkLocal = address.localAddress & 0x1ffu;
     uint chunkIndex;
     if (!M8FindOrClaimChunk(blockIndex, chunkLocal, chunkIndex,
         failureReason)) return;
-    if (_M8RegisterDualNodeKind == 4u) return;
     uint tileLocal = (address.localAddress >> 9u) & 0x3fu;
     uint refIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK + tileLocal;
     uint prior;
