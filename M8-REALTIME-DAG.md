@@ -4,7 +4,7 @@ AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
 GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
 CURRENT=RT4
-STATE=integrated-validation-and-repair
+STATE=shader-gate-repair; full-suite reconciliation PASS (389/389)
 HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
   not a runtime fallback. Frozen offline export remains outside that hotpath.
 DELIVERY_GATE=No APK, install or Quest verification in RT1–RT3. Only RT4,
@@ -88,6 +88,22 @@ Commit fixes, push, give commit/APK/evidence links. Goal completes only when
 the new contract is actually satisfied; otherwise record the exact open gap.
 
 ## Current handoff
+
+RT4 SUITE=389/389 PASS, no ignored/skipped cases; full Kingston EditMode run:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-reconcile/TestResults/
+  merkaba-results.xml and merkaba-tests.log. The first RT4 run was 368/383.
+  Reconciled removed cursor/global-lease/readback/NORMAL-stream expectations.
+  The positive nonzero-R2 test now exhausts the actual buddy arena, then proves
+  equal output after capacity returns; its geometry expectations were retained.
+  Six new atlas cases cover V-only L5 additive gradients, mirrored/wound L2
+  frames without displacement, and independent RGB/V receipt corruption.
+  HOT bin counts survive a no-recount reset; the real NEXT gate retires them.
+  Test runner limits Unity workers to two; the invocation was memory-scoped.
+  Compact remains 1,239,460 B / 65,745 instructions (FAIL), unchanged by tests.
+  Command graph: 41 observation / 7 readout / 6 ERASE scheduled dispatches;
+  actual nonzero device work has not been measured. APK/install/device NOT RUN.
+  Next: remove remaining redundant instruction paths from the page compiler,
+  preserve all predicates, run exact embedded-SPIR-V/full validation gates.
 
 RT1 generated selection/transport is an implementation checkpoint, not RT4
 acceptance. Its root ownership/incidence distinction, source/carrier masks,

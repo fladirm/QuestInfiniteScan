@@ -320,10 +320,8 @@ namespace Genesis.RoomScan.Tests
                 _details.SetData(new uint[MerkabaFlowerGpuLayout.DetailArenaControl / 4]);
                 InitializeArena(_details, MerkabaFlowerGpuLayout.DetailArenaControl);
                 Bind("_M8FlowerDetailPages", _details);
-                // The signal passes read the resolver's receipt through the
-                // read-only view, exactly as production binds it in
-                // BindFlowerPages. Without it those two kernels read unbound
-                // memory and the drain never reaches completion.
+                // Metric authority is read-only to the signal consumers;
+                // observation-local packets live in _signals, never here.
                 Bind("_M8FlowerDetailPagesRead", _details);
                 var threads = Raw(MerkabaFlowerGpuLayout.ThreadPersistentBufferBytes);
                 InitializeArena(threads, MerkabaFlowerGpuLayout.ThreadArenaControl);
@@ -343,14 +341,23 @@ namespace Genesis.RoomScan.Tests
             {
                 if (backpressure)
                 {
-                    _details.SetData(new uint[] { 1 }, 0,
-                        MerkabaFlowerGpuLayout.DetailArenaControl / 4, 1);
+                    // Exhaust the real atomic buddy arena. Control word zero
+                    // is NOT the removed global mutex and cannot block writes.
+                    // One allocated root owns the whole pool; every free bit
+                    // and availability hint is empty. No phase is preloaded.
+                    uint[] occupiedArena = MerkabaFlowerGpuLayout.CreateArenaInitialWords(
+                        MerkabaFlowerGpuLayout.PersistentOrder);
+                    Array.Clear(occupiedArena, 0, occupiedArena.Length);
+                    occupiedArena[1] = MerkabaFlowerGpuLayout.PersistentBytes;
+                    int bitmapWords = (1 << (MerkabaFlowerGpuLayout.PersistentOrder + 1)) >> 5;
+                    occupiedArena[MerkabaFlowerGpuLayout.ArenaHeaderBytes / 4 + bitmapWords] = 2u;
+                    _details.SetData(occupiedArena, 0,
+                        MerkabaFlowerGpuLayout.DetailArenaControl / 4, occupiedArena.Length);
                     uint[] blocked = Snapshot();
                     Assert.That(blocked[MerkabaGrid.CounterRefinementBackpressure], Is.GreaterThan(0u));
                     Assert.That(blocked[MerkabaGrid.CounterObservationCompleted], Is.Not.Zero);
                     Assert.That(CanonicalRecords(), Is.Empty);
-                    _details.SetData(new uint[] { 0 }, 0,
-                        MerkabaFlowerGpuLayout.DetailArenaControl / 4, 1);
+                    InitializeArena(_details, MerkabaFlowerGpuLayout.DetailArenaControl);
                 }
                 uint[] counters = Snapshot();
                 Assert.That(counters[MerkabaGrid.CounterObservationFailure], Is.Zero);

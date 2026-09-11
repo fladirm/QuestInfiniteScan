@@ -30,9 +30,10 @@ namespace Genesis.RoomScan.Tests
             string json = Encoding.UTF8.GetString(first, 20, jsonLength)
                 .TrimEnd(' ');
             Assert.That(json, Does.Contain("\"POSITION\":0"));
-            Assert.That(json, Does.Contain("\"NORMAL\":1"));
-            Assert.That(json, Does.Contain("\"COLOR_0\":2"));
-            Assert.That(json, Does.Contain("\"indices\":3"));
+            Assert.That(json, Does.Not.Contain("\"NORMAL\""));
+            Assert.That(json, Does.Not.Contain("\"TANGENT\""));
+            Assert.That(json, Does.Contain("\"COLOR_0\":1"));
+            Assert.That(json, Does.Contain("\"indices\":2"));
             Assert.That(json, Does.Contain(
                 "\"componentType\":5121,\"normalized\":true"));
             Assert.That(json, Does.Contain("\"doubleSided\":true"));
@@ -50,7 +51,7 @@ namespace Genesis.RoomScan.Tests
                 Is.LessThanOrEqualTo(firstResult.IndexCount));
 
             int binaryStart = binaryHeader + 8;
-            int indicesOffset = firstResult.VertexCount * (12 + 12 + 4);
+            int indicesOffset = firstResult.VertexCount * (12 + 4);
             Assert.That(ReadUInt32(first, binaryStart + indicesOffset),
                 Is.EqualTo(0u));
             Assert.That(ReadUInt32(first, binaryStart + indicesOffset + 4),
@@ -66,17 +67,18 @@ namespace Genesis.RoomScan.Tests
             byte[] bytes = Write(flower, out MerkabaGlbResult result);
             Assert.That(bytes, Is.Not.Empty);
             Assert.That(flower.Positions.Count, Is.EqualTo(7));
+            Assert.That(result.VertexCount, Is.EqualTo(7));
             Assert.That(result.PrimitiveCount, Is.EqualTo(6));
             Assert.That(result.IndexCount, Is.EqualTo(18));
             int jsonLength = checked((int)ReadUInt32(bytes, 12));
             int binaryStart = 20 + jsonLength + 8;
-            int normalsOffset = result.VertexCount * 12;
             for (int vertex = 0; vertex < result.VertexCount; vertex++)
             {
-                int offset = binaryStart + normalsOffset + vertex * 12;
-                Assert.That(Math.Abs(BitConverter.ToSingle(bytes, offset)), Is.EqualTo(1f));
-                Assert.That(BitConverter.ToSingle(bytes, offset + 4), Is.Zero);
-                Assert.That(BitConverter.ToSingle(bytes, offset + 8), Is.Zero);
+                int offset = binaryStart + vertex * 12;
+                float3 expected = flower.Positions[vertex];
+                Assert.That(BitConverter.ToSingle(bytes, offset), Is.EqualTo(-expected.x));
+                Assert.That(BitConverter.ToSingle(bytes, offset + 4), Is.EqualTo(expected.y));
+                Assert.That(BitConverter.ToSingle(bytes, offset + 8), Is.EqualTo(expected.z));
             }
         }
 
@@ -110,14 +112,23 @@ namespace Genesis.RoomScan.Tests
             Assert.That(reverse.PositionIndices, Is.EqualTo(first.PositionIndices));
             Assert.That(result.PrimitiveCount, Is.EqualTo(12));
             int binaryStart = 28 + checked((int)ReadUInt32(bytes, 12));
-            int normals = binaryStart + result.VertexCount * 12;
-            // Both carriers emit the same shared-site packet, so the reverse
-            // carrier begins exactly half way through the vertex stream. The
-            // stride follows the emitted packet; it is not a fixed 18.
-            Assert.That(result.VertexCount % 2, Is.Zero);
-            int perCarrier = result.VertexCount / 2;
-            Assert.That(BitConverter.ToSingle(bytes, normals),
-                Is.EqualTo(-BitConverter.ToSingle(bytes, normals + perCarrier * 12)));
+            Assert.That(result.VertexCount, Is.EqualTo(14));
+            // The same symbolic knots retain bit-identical positions under
+            // opposite winding. Normals belong to incident L2 frames, not knots.
+            CollectionAssert.AreEqual(bytes.Skip(binaryStart).Take(7 * 12),
+                bytes.Skip(binaryStart + 7 * 12).Take(7 * 12));
+            int indices = binaryStart + result.VertexCount * 16;
+            for (int wedge = 0; wedge < 6; wedge++)
+            {
+                int forward = indices + wedge * 12;
+                int backward = indices + (6 + wedge) * 12;
+                Assert.That(ReadUInt32(bytes, backward) - 7u, Is.EqualTo(ReadUInt32(bytes, forward)));
+                Assert.That(ReadUInt32(bytes, backward + 4) - 7u, Is.EqualTo(ReadUInt32(bytes, forward + 8)));
+                Assert.That(ReadUInt32(bytes, backward + 8) - 7u, Is.EqualTo(ReadUInt32(bytes, forward + 4)));
+            }
+            string json = Encoding.UTF8.GetString(bytes, 20, binaryStart - 28);
+            Assert.That(json, Does.Not.Contain("\"NORMAL\""));
+            Assert.That(json, Does.Not.Contain("\"TANGENT\""));
         }
 
         [Test]
@@ -155,11 +166,12 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(spooled, Is.Not.Empty);
                 foreach (string name in new[]
                          {
-                             "positions.bin", "normals.bin", "colors.bin",
+                             "positions.bin", "colors.bin",
                              "indices.bin", "ranges.bin"
                          })
                     Assert.That(spooled.Any(value =>
                         Path.GetFileName(value) == name), Is.True, name);
+                Assert.That(spooled.Any(value => Path.GetFileName(value) == "normals.bin"), Is.False);
                 Assert.That(spooled.Any(value =>
                     Path.GetFileName(value) == "document.json"), Is.False,
                     "The document is only written by Complete.");
@@ -177,6 +189,122 @@ namespace Genesis.RoomScan.Tests
             Assert.That(result.VertexCount, Is.EqualTo(14));
             Assert.That(result.IndexCount, Is.EqualTo(36));
             Assert.That(result.VertexCount, Is.LessThan(result.IndexCount));
+        }
+
+        [TestCase(false, false)]
+        [TestCase(false, true)]
+        [TestCase(true, false)]
+        [TestCase(true, true)]
+        public void VOnlyAtlasPreservesNestedMicroNormalsWithMirroredChartAndWinding(bool mirror, bool reverse)
+        {
+            MerkabaFlowerPresentation flower = MetricFixture(5, reverse);
+            var carrier = flower.Carriers[0];
+            for (int site = 0; site < 7; site++)
+            {
+                float2 c = MerkabaSphereFlowerAuthority.L2CarrierChartSite(site);
+                flower.Positions[site] = new float3(1f, -2f, 3f) + 0.0125f *
+                    (c.x * new float3(0.6f, 1f, 0.3f) + c.y * (mirror ? -1f : 1f) * new float3(0.1f, -0.2f, 0.9f));
+            }
+            float3[] positions = flower.Positions.ToArray();
+            Assert.That(carrier.RgbSplitBits, Is.EqualTo(uint2.zero));
+            Assert.That(MerkabaFlowerMaterialBake.CellSize(carrier), Is.EqualTo(64),
+                "V-only detail must allocate the union's L5 cell even with uniform captured RGB.");
+            string directory = Path.Combine(Path.GetTempPath(), "m8-v-atlas-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using var atlas = new MerkabaFlowerMaterialBake.Atlas(directory);
+                var cell = atlas.Append(flower, carrier, default);
+                using var pixels = File.OpenRead(Path.Combine(directory, "atlas-v-00000000.rgba"));
+                using var reader = new BinaryReader(pixels);
+                int observed = 0, relief = 0;
+                for (int y = 0; y < cell.Size; y++)
+                for (int x = 0; x < cell.Size; x++)
+                {
+                    float2 chart = new float2(
+                        (float)(2.0 * (x + 0.5 - 2) / (cell.Size - 4) - 1),
+                        (float)(2.0 * (y + 0.5 - 2) / (cell.Size - 4) - 1));
+                    if (!MerkabaSphereFlowerAuthority.TryL2CarrierChartWedge(chart, out int wedge,
+                            out float3 bc, out _, out _)) continue;
+                    flower.WedgeFrame(carrier, wedge, out float3 t1, out float3 t2, out float3 n,
+                        out float3 du, out float3 dv);
+                    if (reverse) { n = -n; t2 = -t2; dv = -dv; }
+                    var sample = MerkabaSphereFlowerAuthority.EvaluateSkinDrawSignal(carrier.SkinHeader,
+                        carrier.SkinSamples, wedge, bc, du, dv, out _, out _, out float2 gradient);
+                    Assert.That(sample.Amplitude3, Is.Not.Zero);
+                    Assert.That(sample.Amplitude4, Is.Not.Zero);
+                    Assert.That(sample.Amplitude5, Is.Not.Zero);
+                    float3 expected = MerkabaSphereFlowerAuthority.SkinMicroNormal(t1, t2, n, gradient);
+                    float2 a = MerkabaSphereFlowerAuthority.L2CarrierChartSite(1 + wedge);
+                    float2 b = MerkabaSphereFlowerAuthority.L2CarrierChartSite(1 + (wedge + 1) % 6);
+                    float3 e1 = flower.Position(carrier, 1 + wedge) - flower.Position(carrier, 0);
+                    float3 e2 = flower.Position(carrier, 1 + (wedge + 1) % 6) - flower.Position(carrier, 0);
+                    float3 u = math.normalize(e1 * b.y - e2 * a.y), v = math.cross(n, u);
+                    if (math.dot(v, e2 * a.x - e1 * b.x) < 0f) v = -v;
+                    pixels.Position = 4L * ((cell.Y + y) * MerkabaFlowerMaterialBake.Resolution + cell.X + x);
+                    float3 encoded = new float3(reader.ReadByte(), reader.ReadByte(), reader.ReadByte()) * (2f / 255f) - 1f;
+                    Assert.That(reader.ReadByte(), Is.EqualTo(255));
+                    float3 decoded = encoded.x * u + encoded.y * v + encoded.z * n;
+                    // Three signed UNORM8 components: each error <= 1/255.
+                    // A second such bound conservatively encloses FP32 frame arithmetic.
+                    Assert.That(math.distance(decoded, expected), Is.LessThanOrEqualTo(2f * math.sqrt(3f) / 255f));
+                    observed++;
+                    if (math.lengthsq(gradient) > 0f) relief++;
+                }
+                Assert.That(observed, Is.GreaterThan(0));
+                Assert.That(relief, Is.GreaterThan(0));
+                CollectionAssert.AreEqual(positions, flower.Positions, "Atlas generation cannot displace L2.");
+            }
+            finally { Directory.Delete(directory, true); }
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void AtlasResumeValidatesBothRgbAndVReceipts(bool corruptV)
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "m8-atlas-receipt-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var flower = MetricFixture(3, false);
+                MerkabaFlowerMaterialBake.ResumeState receipt;
+                using (var atlas = new MerkabaFlowerMaterialBake.Atlas(directory))
+                {
+                    Assert.That(atlas.Append(flower, flower.Carriers[0], default).Size, Is.EqualTo(16));
+                    receipt = atlas.Checkpoint(default);
+                }
+                using (var resumed = new MerkabaFlowerMaterialBake.Atlas(directory, receipt))
+                    Assert.That(resumed.PageCount, Is.EqualTo(1));
+                string path = Path.Combine(directory, corruptV ? "atlas-v-00000000.rgba" : "atlas-rgb-00000000.rgba");
+                using (var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite))
+                {
+                    int first = file.ReadByte(); file.Position = 0; file.WriteByte((byte)(first ^ 1));
+                }
+                Assert.Throws<InvalidDataException>(() =>
+                {
+                    using var rejected = new MerkabaFlowerMaterialBake.Atlas(directory, receipt);
+                });
+            }
+            finally { Directory.Delete(directory, true); }
+        }
+
+        private static MerkabaFlowerPresentation MetricFixture(int depth, bool reverse)
+        {
+            var flower = MerkabaFlowerWriterFixture.Create();
+            var carrier = flower.Carriers[0];
+            carrier.Symbol = MerkabaFlowerSymbolRecord.CreateCarrier(0, 0, 1, reverse, false, 63u,
+                0u, 0, 0u, reverse ? 63u : 0u);
+            uint low = depth == 3 ? 1u : depth == 4 ? 255u : uint.MaxValue;
+            uint high = depth == 5 ? 0x01ffffffu : 0u;
+            var run = new MerkabaFlowerSkinMetricRun { FlowerKey = MerkabaFlowerL2Key.Create(0, 0, false, 0).Value,
+                GroupBase = 0u, ParentEpoch = 1u, SplitBitsLo = low, SplitBitsHi = high };
+            var value = new MerkabaFlowerVInterval { Lower = 512, Upper = 512 };
+            var group = new MerkabaFlowerVGroup { Child0 = value, Child1 = value, Child2 = value,
+                Child3 = value, Child4 = value, Child5 = value, Child6 = value };
+            carrier.SkinSamples = MerkabaSphereFlowerAuthority.CompileSkinDrawSamples(
+                MerkabaFlowerWriterFixture.Captured, 1u, null, null, run,
+                Enumerable.Repeat(group, run.GroupCount).ToArray(), null, out carrier.SkinHeader);
+            return flower;
         }
 
         private static MerkabaFlowerPresentation Fixture() => MerkabaFlowerWriterFixture.Create(

@@ -34,7 +34,8 @@ namespace Genesis.RoomScan.Tests
                     streamed.Length);
 
             Assert.That(parsed.Positions.Length, Is.GreaterThan(0));
-            Assert.That(parsed.Normals.Length, Is.EqualTo(parsed.Positions.Length));
+            Assert.That(parsed.Normals, Is.Empty,
+                "Shared knots do not carry an arbitrary incident normal; the unlit preview needs none.");
             Assert.That(parsed.Colors.Length, Is.EqualTo(parsed.Positions.Length));
             Assert.That(parsed.Indices.Length % 3, Is.Zero);
             Assert.That(parsed.Indices.Length, Is.EqualTo(3 * flower.TriangleCount),
@@ -936,28 +937,47 @@ namespace Genesis.RoomScan.Tests
                     vertex = new Vector3(vertex.x, -vertex.z, vertex.y);
                 vertices[index] = vertex + translation;
             }
-            int indexOffset = binaryStart + vertexCount * 28;
+            var document = JsonUtility.FromJson<GlbStreams>(json);
             int indexCount = 0;
-            foreach (Match scalar in Regex.Matches(json,
-                         @"""componentType"":5125,""count"":(\d+),""type"":""SCALAR"""))
-                indexCount = checked(indexCount + int.Parse(scalar.Groups[1].Value,
-                    CultureInfo.InvariantCulture));
+            foreach (GlbAccessor scalar in document.accessors.Where(value =>
+                         value.componentType == 5125 && value.type == "SCALAR"))
+                indexCount = checked(indexCount + scalar.count);
             Assert.That(indexCount, Is.GreaterThan(0));
             Assert.That(indexCount % 3, Is.Zero);
             var triangles = new List<string>(indexCount / 3);
-            for (int index = 0; index < indexCount; index += 3)
+            foreach (GlbAccessor scalar in document.accessors.Where(value =>
+                         value.componentType == 5125 && value.type == "SCALAR"))
             {
-                Vector3 a = vertices[BitConverter.ToUInt32(glb,
-                    indexOffset + index * 4)];
-                Vector3 b = vertices[BitConverter.ToUInt32(glb,
-                    indexOffset + (index + 1) * 4)];
-                Vector3 c = vertices[BitConverter.ToUInt32(glb,
-                    indexOffset + (index + 2) * 4)];
-                triangles.Add(Key(a) + "|" + Key(b) + "|" + Key(c));
+                int indexOffset = binaryStart + document.bufferViews[scalar.bufferView].byteOffset + scalar.byteOffset;
+                Assert.That(scalar.count % 3, Is.Zero);
+                for (int index = 0; index < scalar.count; index += 3)
+                {
+                    Vector3 a = vertices[BitConverter.ToUInt32(glb, indexOffset + index * 4)];
+                    Vector3 b = vertices[BitConverter.ToUInt32(glb, indexOffset + (index + 1) * 4)];
+                    Vector3 c = vertices[BitConverter.ToUInt32(glb, indexOffset + (index + 2) * 4)];
+                    triangles.Add(Key(a) + "|" + Key(b) + "|" + Key(c));
+                }
             }
             triangles.Sort(StringComparer.Ordinal);
             return triangles;
         }
+
+        [Serializable]
+        private sealed class GlbStreams
+        {
+            public GlbAccessor[] accessors;
+            public GlbBufferView[] bufferViews;
+        }
+
+        [Serializable]
+        private sealed class GlbAccessor
+        {
+            public int bufferView, byteOffset, componentType, count;
+            public string type;
+        }
+
+        [Serializable]
+        private sealed class GlbBufferView { public int byteOffset; }
 
         private static string Key(Vector3 value) =>
             $"{Mathf.RoundToInt(value.x * 1_000_000f)}," +

@@ -80,7 +80,8 @@ namespace Genesis.RoomScan.Tests
             AssertCylinderPredicate(scope, "_M8FineCursorPosition",
                 "_M8FineBrushAxis", "_M8FineLength",
                 "_M8FineRadiusSquared");
-            Assert.That(integration, Does.Contain("M8FineContains(worldPosition)"));
+            Assert.That(scope, Does.Contain("_M8FineRefineActive == 0u || M8FineContains(worldPosition)"));
+            Assert.That(integration, Does.Contain("!M8FineContains(mul(_MerkabaGridToWorld,float4(grid,1.0)).xyz)"));
             Assert.That(integration, Does.Contain("axial.lo < 0.0 || axial.hi > _M8FineLength"),
                 "Destructive whole-support mutations must keep the entire interval inside the same cylinder.");
             Assert.That(integration, Does.Contain("radial.hi <= _M8FineRadiusSquared"));
@@ -137,8 +138,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(selectedWorld, Is.GreaterThanOrEqualTo(0));
             Assert.That(mask, Is.GreaterThan(selectedWorld));
             Assert.That(publish, Is.GreaterThan(mask));
-            Assert.That(integration, Does.Contain(
-                "!M8FineContains(worldPosition)"));
+            Assert.That(Source("Runtime/Shaders/MerkabaObservationScope.hlsl"), Does.Contain(
+                "_M8FineRefineActive == 0u || M8FineContains(worldPosition)"));
             Assert.That(commit, Does.Contain("M8ObservationContains(worldPosition,gsDepthEyePos())"));
             Assert.That(bins, Does.Contain("M8ObservationContains(world,gsDepthEyePos())"));
             Assert.That(commit, Does.Contain("M8FlowerAdmitR1("));
@@ -258,25 +259,37 @@ namespace Genesis.RoomScan.Tests
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string erase = Slice(integration, "void M8EraseFineKernel",
                 "void EraseFineTiles");
+            string changes = Source("Runtime/Shaders/MerkabaFlowerChanges.hlsl");
+            string prepare = Source("Runtime/Shaders/MerkabaFlowerCommit.hlsl");
+            string schedule = Source("Tools/unity/generate_merkaba_native_executor_shaders.py");
 
             Assert.That(integration, Does.Contain(
                 "#pragma kernel QueryFineEraseTiles"));
-            Assert.That(integration, Does.Contain(
-                "M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u"));
+            Assert.That(integration, Does.Not.Contain(
+                "M8_COUNTER_UNRESOLVED_OBSERVATION_TILES] == 0u"),
+                "One COLD target must not veto the other resident brush targets.");
             Assert.That(erase, Does.Contain(
-                "M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0)"));
-            Assert.That(erase, Does.Contain(
-                "InterlockedAnd(_M8TileBits[wordIndex].x, ~bit"));
-            Assert.That(erase, Does.Contain(
-                "InterlockedAnd(_M8TileBits[wordIndex].y, ~bit"));
-            Assert.That(erase, Does.Contain(
-                "InterlockedAnd(_M8TileBits[wordIndex].z, ~bit"));
-            Assert.That(erase, Does.Contain(
-                "gridPosition + normalGrid * signedOffset"));
+                "M8FlowerPrepareR1(slot,local,before,uint4(0u,0u,0u,0u),true,false,true)"));
+            Assert.That(erase, Does.Not.Contain("M8StoreKernelState("),
+                "ERASE preflight must not publish M8 before source/peer epoch cuts.");
+            Assert.That(prepare, Does.Contain("M8FlowerValidatePhaseCut(ownerRef,"));
+            Assert.That(prepare, Does.Contain("M8FlowerR1PeersStatus(local,erase)"));
+            Assert.That(changes, Does.Contain("M8FlowerInvalidateOwner(slot,local,source.y,"));
+            Assert.That(changes, Does.Contain("M8FlowerInvalidateDependentPhases(ownerRef,roots,false,"));
+            Assert.That(changes, Does.Contain("M8StoreKernelState(slot,local,after)"));
+            Assert.That(changes, Does.Contain("M8FlowerUnmarkR1Active(slot,local)"));
+            Assert.That(changes, Does.Contain("if(all(value==0u))"));
+            string fine = Slice(schedule, "fine = (", "return tuple(");
+            string[] ordered = { "EraseFineTiles", "InvalidateFlowerSources",
+                "InvalidateFlowerPeers", "PublishFlowerR1", "FinalizeFineErase" };
+            for (int i = 1; i < ordered.Length; i++)
+                Assert.That(fine.IndexOf(ordered[i], StringComparison.Ordinal),
+                    Is.GreaterThan(fine.IndexOf(ordered[i - 1], StringComparison.Ordinal)));
+            Assert.That(erase, Does.Contain("grid+=normal*offset"));
             Assert.That(erase, Does.Not.Contain("UpdateOccupancy"));
             Assert.That(erase, Does.Not.Contain("MERKABA_FREE_SCALE"));
-            Assert.That(integrator, Does.Contain(
-                "_grid.ResidencyEpoch == _fineEraseResidencyEpoch"));
+            Assert.That(integrator, Does.Not.Contain("_fineEraseResidencyEpoch"),
+                "No pending brush program may wait for another residency epoch.");
             Assert.That(scanner, Does.Contain("UpdateFineErase();"));
             Assert.That(scanner, Does.Contain(
                 "FinishCurrentFineEraseAsync()"));

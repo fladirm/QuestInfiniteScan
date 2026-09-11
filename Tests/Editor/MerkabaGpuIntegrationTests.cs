@@ -55,7 +55,9 @@ namespace Genesis.RoomScan.Tests
             foreach (string kernel in new[]
                      {
                          "FlowerCommit", "UpdateObservationDual", "FinalizeObservation",
-                         "DrainFlowerGeometry", "ResolveFlowerCarriers",
+                         "InvalidateFlowerSources", "InvalidateFlowerPeers", "PublishFlowerR1",
+                         "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerL1",
+                         "IntegrateFlowerL2", "ResolveFlowerCarriers",
                          "DrainFlowerSkinRgb", "DrainFlowerSkinV", "QueryFineEraseTiles",
                          "EraseFineTiles", "FinalizeFineErase"
                      })
@@ -612,8 +614,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(front, Does.Contain("source.y&M8_FLOWER_PAGE_SOURCE_INVALID"));
             Assert.That(front, Does.Contain("source.x!=directory.y"));
             Assert.That(front, Does.Contain("header.Generation==directory.y"));
-            Assert.That(integration, Does.Contain(
-                "M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u"));
+            Assert.That(integration, Does.Not.Contain(
+                "M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u"),
+                "COLD remains local; it cannot suppress all resident work in the snapshot.");
         }
 
 
@@ -670,7 +673,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void AttemptCompletion_UsesOneExactCpuOnlyRecord()
+        public void ObservationAndEraseRetireAtGpuFencesWithoutCpuGeometryReadback()
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
@@ -680,16 +683,12 @@ namespace Genesis.RoomScan.Tests
                 "\n}") + "\n}";
             string integrator = Source(
                 "Runtime/Merkaba/MerkabaIntegrator.cs");
-            string submit = Slice(integrator,
-                "internal bool TrySubmitObservationAttempt()",
-                "private bool TrySubmitNativeObservationAttempt()");
             string storage = Source(
                 "Runtime/Merkaba/MerkabaGrid.Storage.cs");
-            string pump = Slice(storage, "private void PumpStorage()",
-                "internal void PumpStorageForLifecycleRetirement()");
-            string exact = Slice(storage,
-                "internal void RequestAttemptCompletion(",
-                "private void PublishResidencyEpoch(");
+            string observation = Slice(integrator, "internal bool TryRetireObservationAttempt()",
+                "internal bool TryPrepareFineErase(");
+            string erase = Slice(integrator, "internal bool TryRetireFineEraseAttempt()",
+                "internal bool TrySubmitFineEraseAttempt()");
 
             Assert.That(finalize, Does.Contain("if (lane == 0u)"));
             Assert.That(finalize, Does.Contain("M8FinalizeObservationCompletion();"));
@@ -706,23 +705,18 @@ namespace Genesis.RoomScan.Tests
                 "M8_ATTEMPT_COMPLETION_READOUT_CHANGED"));
             Assert.That(integration, Does.Not.Contain(
                 "M8_COUNTER_ATTEMPT_COMPLETED_TOKEN"));
-            Assert.That(submit, Does.Contain(
-                "_grid.RequestAttemptCompletion(_attemptToken)"));
-            Assert.That(pump, Does.Not.Contain(
-                "_completedAttemptToken ="));
-            Assert.That(pump, Does.Not.Contain(
-                "_completedObservationToken ="));
-            Assert.That(exact, Does.Contain(
-                "expectedAttemptToken != _attemptCompletionExpectedToken"));
-            Assert.That(exact, Does.Contain(
-                "generation != _gpuGeneration"));
-            Assert.That(exact, Does.Contain(
-                "_completedAttemptToken = completion.X"));
-            Assert.That(exact, Does.Contain(
-                "_completedObservationChangedReadout"));
-            Assert.That(exact, Does.Not.Contain("SelectEvictionVictims"));
-            Assert.That(exact, Does.Not.Contain("InstallLoadedTiles"));
-            Assert.That(exact, Does.Not.Contain("Dispatch"));
+            Assert.That(observation, Does.Contain("_nativeAttemptJob.Poll(out string error)"));
+            Assert.That(observation, Does.Contain("else if (!_observationFence.passed) return false;"));
+            Assert.That(observation, Does.Contain("return FinishObservation(0u)"));
+            Assert.That(erase, Does.Contain("_nativeFineEraseJob.Poll(out error)"));
+            Assert.That(erase, Does.Contain("else if (!_fineEraseFence.passed) return false;"));
+            Assert.That(erase, Does.Contain("_fineEraseDescriptor = default;"));
+            foreach (string forbidden in new[] { "RequestAttemptCompletion", "_completedAttemptToken",
+                         "_completedObservationToken", "_completedObservationChangedReadout" })
+                Assert.That(integrator + storage, Does.Not.Contain(forbidden));
+            foreach (string forbidden in new[] { "AsyncGPUReadback", "RequestAsyncReadback", ".GetData(" })
+                Assert.That(integrator, Does.Not.Contain(forbidden),
+                    "Scan/ERASE retirement cannot wait for CPU interpretation of GPU geometry outcomes.");
         }
 
         [Test]
@@ -859,32 +853,38 @@ namespace Genesis.RoomScan.Tests
             Assert.That(observationEnd, Is.GreaterThan(observation));
             string schedule = generator.Substring(observation,
                 observationEnd - observation);
-            Assert.That(Regex.Matches(schedule, "\"DrainFlowerGeometry\"").Count,
-                Is.EqualTo(3), "root, L1 and L2 are three barriers of ONE graph");
-            Assert.That(Regex.Matches(schedule, "\"AdvanceRefinementStage\"").Count,
-                Is.EqualTo(3), "a workgroup may not publish its own dispatch stage");
-            Assert.That(Regex.Matches(schedule, "\"CountObservationBins\"").Count,
-                Is.EqualTo(2), "count, allocate, count again - inside one graph");
+            string[] ancestry = { "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerL1",
+                "IntegrateFlowerL2", "ResolveFlowerCarriers", "DrainFlowerSkinRgb", "DrainFlowerSkinV" };
+            for (int i = 0; i < ancestry.Length; i++)
+            {
+                Assert.That(Regex.Matches(schedule, "\"" + ancestry[i] + "\"").Count, Is.EqualTo(1));
+                if (i > 0) Assert.That(schedule.IndexOf(ancestry[i], StringComparison.Ordinal),
+                    Is.GreaterThan(schedule.IndexOf(ancestry[i - 1], StringComparison.Ordinal)));
+            }
+            Assert.That(schedule, Does.Contain("*([*allocation, \"ResetObservationBins\", \"CountObservationBins\"] * 3)"),
+                "Block/chunk/tile publication dependencies remain in this snapshot.");
+            Assert.That(generator, Does.Contain("mode = \"recount_depth\""),
+                "Recounts consume GPU-generated indirect arguments, never an unconditional depth sweep.");
             Assert.That(generator, Does.Contain("(\"Observation\", observation)"));
             Assert.That(generator, Does.Not.Contain("continuation = ["));
             Assert.That(generator, Does.Not.Contain("retry = "));
             Assert.That(generator, Does.Not.Contain("(\"ObservationRetry\","));
             Assert.That(generator, Does.Not.Contain("(\"ObservationContinue\","));
 
-            // The tile cursor is the world's refinement memory, not a workset
-            // the observation owns. Keyed by the observation it restarted at
-            // zero every snapshot, which is what forced the retention.
-            Assert.That(drain, Does.Contain(
-                "M8FlowerTileRefinementCursor(slot,runtime.w)"));
-            Assert.That(drain, Does.Not.Contain("M8FlowerTilePendingCursor"));
+            string refinement = Source("Runtime/Shaders/MerkabaFlowerRefinement.hlsl");
+            string sidecar = Source("Runtime/Shaders/MerkabaFlowerSidecar.hlsl");
+            foreach (string forbidden in new[] { "TileRefinementCursor", "TilePendingCursor", "PHASE_TASKS",
+                         "_M8RefinementQuantum", "AdvanceRefinementStage", "\"DrainFlowerGeometry\"" })
+                Assert.That(generator + drain + refinement + sidecar, Does.Not.Contain(forbidden));
+            Assert.That(drain, Does.Contain("M8FlowerReadMeasuredGroup(group,measured)"));
+            Assert.That(drain, Does.Contain("M8FlowerReachObservedRelations(stage,owner,world)"));
             // A COLD dual chunk or a kernel the dual has not certified FULL is
             // the normal state of a world whose default is UNKNOWN. Vetoing all
             // refinement on it meant no tile ever refined at all.
             Assert.That(drain, Does.Not.Contain(
                 "_M8Counters[M8_COUNTER_UNRESOLVED_OBSERVATION_TILES]!=0u"));
-            Assert.That(drain, Does.Contain(
-                "_M8Counters[M8_COUNTER_FINE_LEASE_BUSY]!=0u"),
-                "the R1 read lease is the one genuine cross-tile veto");
+            Assert.That(drain, Does.Not.Contain("M8_COUNTER_FINE_LEASE_BUSY"),
+                "No global allocator lease may veto unrelated measured-owner groups.");
         }
 
         // The managed and native ABI constants live in two files and are

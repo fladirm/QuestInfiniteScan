@@ -211,10 +211,19 @@ namespace Genesis.RoomScan.Tests
             using var world = new OwnerWorld(points);
             world.DispatchOwners("CountOwnersProbe");
             Assert.That(Read<uint>(world.Counters)[MerkabaGrid.CounterTouchedTileCount], Is.EqualTo(2u));
+            uint4[] counted = Read<uint4>(world.Bins);
+            world.ResetBins();
+            CollectionAssert.AreEqual(counted, Read<uint4>(world.Bins),
+                "A HOT snapshot without allocation work must retain its counted spans.");
+            Assert.That(Read<uint>(world.Counters)[MerkabaGrid.CounterTouchedTileCount], Is.EqualTo(2u));
             // The native command graph has NO Reserve between discovery and
-            // Reset. The discovery pass itself must publish its touched list.
+            // Reset. Model the GPU NEXT packet from a real allocation miss;
+            // only this gate permits a recount of the held observation.
+            world.Args.SetData(new uint[] { 8u, 1u, 1u }, 0, 0, 3);
             world.ResetBins();
             Assert.That(Read<uint4>(world.Bins).All(x => math.all(x == 0u)), Is.True);
+            CollectionAssert.AreEqual(new uint[] { 8u, 1u, 1u },
+                Read<uint>(world.Args).Skip((int)MerkabaObservationBinsGpu.RecountDispatchOffset / 4).Take(3));
             world.DispatchOwners("CountOwnersProbe");
             Reserve(world.Bins, world.Counters, world.Touched, world.Args, points.Length * 8);
             world.DispatchOwners("EmitOwnersProbe");

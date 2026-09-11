@@ -10417,3 +10417,26 @@ CURSOR=RT3 is an implemented compile checkpoint. All replacement presentation
   scalar/cooperative selection, invalid-site dependency prefixes, root identity,
   direct/completed ownership, wedge dual cache and scratch phase retirement.
 TESTS/APK/INSTALL/DEVICE=not yet run for the complete rewrite. Goal remains active.
+
+## RT4 — full-suite reconciliation and RGB/V atlas proofs (after bc744c1)
+
+CHANGE=tests now assert GPU-fence retirement without CPU geometry readback,
+  local COLD handling and same-snapshot source/peer/M8 publication. Removed
+  expected persistent cursor/global mutex and per-knot NORMAL stream; no
+  production fallback or admission predicate was added. The GPU nonzero-R2
+  fixture fills the actual buddy pool, observes local capacity failure, releases
+  it and retains the original exact-R2/idempotence/parity requirements. HOT
+  counts persist without NEXT; the gated recount still retires every old span.
+  Added six cases for V-only L5 atlas, all four mirror/winding combinations,
+  nested A3/A4/A5 and unchanged L2 positions; both RGB and V checksum corruption
+  must reject resume. GLB/Tiles tests read the current shared-position ABI.
+VALIDATION=first complete run 368/383 PASS (15 failures), followed by full
+  389/389 PASS after reconciliation, no skipped/ignored tests:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-reconcile/TestResults/
+  merkaba-results.xml; merkaba-tests.log. Unity used two workers and a user
+  scope with MemoryHigh=12G, MemoryMax=16G, MemorySwapMax=2G. No concurrent
+  native compilation. Command-graph audit reports 41 observation dispatches
+  (18 allocation indirect), 7 readout and 6 ERASE; no <=10 or speedup claim.
+CURSOR=RT4 shader-gate repair. Compact remains 1,239,460 B / 65,745 body
+  instructions, over the mandatory size gate. Full shader/GLB gates and
+  APK/install/Quest acceptance remain outstanding. Goal is active, not done.

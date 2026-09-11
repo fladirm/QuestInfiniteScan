@@ -13,6 +13,7 @@ mkdir -p "${RESULT_DIR}"
 
 "${QIS_UNITY_EXECUTABLE}" \
   -batchmode \
+  -job-worker-count 2 \
   -force-vulkan \
   -projectPath "${QIS_UNITY_HOST_PROJECT}" \
   -runTests \
