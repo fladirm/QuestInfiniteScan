@@ -1050,30 +1050,21 @@ void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 er
 }
 #endif
 
-// Actual direct producer input. The caller holds the page/observation source
-// lease and has cached its 27 tile refs. This function creates no fine state,
-// does not complete holes, and does not turn a dual boundary into evidence.
-uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
-    uint completion,
-    out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
-    out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
+// Common selection and publication predicates. Scalar observation consumers
+// and the cooperative page consumer differ only in where selected sites run.
+// selection = signs, active wedges, used sites, nonprovisional parents.
+// source = flags, sparse owner reference.
+uint M8FlowerSelectL2Carrier(uint slot,uint local,uint carrier,float2 errors,
+    uint completion,out uint4 selection,out uint2 source,out uint unresolvedWedges)
 {
-    symbol=(M8FlowerSymbolRecord)0;symbol.ThreadRef=0xffffffffu;
-    unresolvedWedges=directWedges=0u;
-    // glslang's HLSL front end does not honour [unroll] here, so the seven
-    // published slots are named. A dynamically indexed seven-entry root array
-    // is the same lane-private candidate carrier 4.5 rules out.
-    M8FlowerPhaseRootEvidence blank=(M8FlowerPhaseRootEvidence)0;
-    roots[0]=blank;roots[1]=blank;roots[2]=blank;roots[3]=blank;
-    roots[4]=blank;roots[5]=blank;roots[6]=blank;
-    positions[0]=0.0;positions[1]=0.0;positions[2]=0.0;
-    positions[3]=0.0;positions[4]=0.0;positions[5]=0.0;positions[6]=0.0;
+    selection=0u;source=0u;unresolvedWedges=0u;
     if(slot>=32768u || local>=512u || carrier>=128u)return 0u;
     int3 owner=M8FlowerEndpointOwner(slot,local);
     uint ownerSlot,ownerLocal;KernelState state;
     uint resident=M8FlowerReadEndpoint(slot,owner,owner,ownerSlot,ownerLocal,state);
     if(resident!=1u){unresolvedWedges=resident==2u?63u:0u;return resident;}
     uint ownerRef=M8FlowerFindOwner(slot,local,M8FlowerEndpointGeneration(slot));
+    source=uint2(state.flags,ownerRef);
     uint2 certain=0u,uncertain=0u,directTriples=0u;
     uint signs=0u,active=0u,used=0u,directParents=0u;
     M8FlowerReadCarrierAlternatives(slot,local,carrier,errors,completion,certain,uncertain,directTriples);
@@ -1086,13 +1077,57 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
         if((M8FlowerWedgeByte(directTriples,wedge)&(1u<<M8FlowerCarrierTriple(signs,wedge)))!=0u)
             directParents|=1u<<wedge;
     }
+    selection=uint4(signs,active,used,directParents);
+    return 1u;
+}
+
+bool M8FlowerFinishL2Carrier(uint local,uint carrier,uint completion,uint2 source,
+    uint4 selection,uint hubTag,out M8FlowerSymbolRecord symbol,out uint directWedges)
+{
+    directWedges=0u;
+    bool reverse=M8FlowerPlaneFreeSide(source.x)<0;
+    uint completed=0u,active=selection.y;
+    [unroll]for(uint wedge=0u;wedge<6u;wedge++)
+        if(completion!=0xffffffffu && (M8FlowerL2WedgeAt(6u*carrier+wedge).y>>4u)==(completion&63u))
+            completed|=active&(1u<<wedge);
+    if(!M8FlowerTryCreateCarrierSymbol(local,carrier,1u,reverse,false,active,selection.x,
+        (hubTag>>8u)&31u,completed,reverse?active:0u,source.y,0xffffffffu,symbol))return false;
+    // Provisional R2/R3 remains lawful R1 presentation, never direct evidence.
+    directWedges=active&selection.w&~completed;
+    return true;
+}
+
+#if defined(M8_FLOWER_CARRIER_BATCH_READ)
+uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
+    uint completion,out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
+    out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7]);
+#else
+// Actual direct producer input under a fixed source lease. No fine mutation,
+// hole completion or dual boundary is admitted as measurement evidence.
+uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
+    uint completion,out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,
+    out uint directWedges,out M8FlowerPhaseRootEvidence roots[7],out float3 positions[7])
+{
+    symbol=(M8FlowerSymbolRecord)0;symbol.ThreadRef=0xffffffffu;
+    unresolvedWedges=directWedges=0u;
+    M8FlowerPhaseRootEvidence blank=(M8FlowerPhaseRootEvidence)0;
+    roots[0]=blank;roots[1]=blank;roots[2]=blank;roots[3]=blank;
+    roots[4]=blank;roots[5]=blank;roots[6]=blank;
+    positions[0]=0.0;positions[1]=0.0;positions[2]=0.0;
+    positions[3]=0.0;positions[4]=0.0;positions[5]=0.0;positions[6]=0.0;
+    uint4 selection;uint2 source;
+    uint result=M8FlowerSelectL2Carrier(slot,local,carrier,errors,completion,
+        selection,source,unresolvedWedges);
+    if(result!=1u)return result;
+    uint signs=selection.x,active=selection.y,used=selection.z;
+    int3 owner=M8FlowerEndpointOwner(slot,local);
     // Only the selected seven sites are materialized, one root per site, at
     // the sign the combination actually chose.
     [loop]for(uint site=0u;site<7u;site++)
     {
         if((used&(1u<<site))==0u)continue;
         M8FlowerPhaseRootEvidence root;float3 position;
-        bool read=M8FlowerReadCarrierSite(slot,local,ownerRef,owner,state.flags,
+        bool read=M8FlowerReadCarrierSite(slot,local,source.y,owner,source.x,
             carrier,site,((signs>>site)&1u)!=0u,errors,root);
         bool located=M8FlowerRootGridPosition(root,position);
         // One reader call site; only the publication is named per slot.
@@ -1105,21 +1140,12 @@ uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
         else{roots[6]=root;positions[6]=position;}
         if(!read || !located){unresolvedWedges|=active;return 2u;}
     }
-    bool reverse=M8FlowerPlaneFreeSide(state.flags)<0;
-    uint completed=0u;
-    [unroll]for(uint wedge=0u;wedge<6u;wedge++)
-        if(completion!=0xffffffffu && (M8FlowerL2WedgeAt(6u*carrier+wedge).y>>4u)==(completion&63u))
-            completed|=active&(1u<<wedge);
-    // This direct stage proves R1 support. Higher-shell metric evaluation
-    // alone must not fabricate R3 branch closure or COMPLETED evidence.
-    if(!M8FlowerTryCreateCarrierSymbol(local,carrier,1u,reverse,false,active,signs,
-        (roots[0].Tag>>8u)&31u,completed,reverse?active:0u,ownerRef,0xffffffffu,symbol))
+    if(!M8FlowerFinishL2Carrier(local,carrier,completion,source,selection,roots[0].Tag,
+        symbol,directWedges))
     {unresolvedWedges|=active;return 2u;}
-    // Provisional R2/R3 is lawful R1 presentation but is never direct
-    // boundary evidence. Preserve that distinction without gating occupancy.
-    directWedges=active&directParents&~completed;
     return 1u;
 }
+#endif
 
 uint M8FlowerClassifyL2Carrier(uint slot,uint local,uint carrier,float2 errors,
     out M8FlowerSymbolRecord symbol,out uint unresolvedWedges,

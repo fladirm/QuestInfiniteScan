@@ -10388,3 +10388,32 @@ CURSOR=RT3 OPEN. Selected seven-site positions and six wedge dual queries still
   must compare cached/noncached bounds and dual receipts bit-for-bit including
   half-open roots, shared hubs/ring knots, negative coordinates and COLD halo.
 TESTS/APK/INSTALL/DEVICE=not run. The complete rewrite is not yet accepted.
+
+## RT3 — selected geometry on lanes; RT4 handoff (after f778a51)
+
+CHANGE=shared SelectL2Carrier/FinishL2Carrier predicates separate symbolic
+  choice from materialization without changing admission or winding. The
+  observation consumer retains their scalar application. Page compilation
+  uses 56 independent selected-site lanes and 48 independent wedge-dual lanes.
+  Metric results occupy the ancestor scratch after acquisition retires; shared
+  allocation stays unchanged. Ordered receipt reduction preserves the first
+  failed site's dependency prefix and partial root/position output. Dual still
+  uses the same three knot intervals, ordered cell traversal and COLD rules.
+  The page consumer copies results, not another geometry solver or fallback.
+COMPILE=exact native glslang/spirv-val PASS:
+  /tmp/m8-rt3-selected-batch-qm15wad2
+  Compact 1,239,460 B / 65,745 body / 26,556 B shared / 7 RW / 256 lanes /
+  80 barriers; sha256 82db3bc698e7c6b3b9cc067286bf6fc445791cf0c73648876dad69637df672bf.
+  /tmp/m8-rt3-selected-resolver-xrc1ov1w
+  resolver 938,760 B / 48,519 body / 15,464 B shared / 6 RW / 128 lanes;
+  sha256 37811dbfea8c437624debda15df70abdad51363d0b7c0d4e5909cbb72d0ffb4e.
+  The first resolver compile caught a reserved HLSL identifier in an adapter;
+  it was corrected before the successful compile. No tests were substituted.
+CURSOR=RT3 is an implemented compile checkpoint. All replacement presentation
+  consumers are connected; no acceptance or speedup is claimed. RT4 is now
+  active for complete-suite reconciliation/validation and shader/ABI repairs.
+  Compact STILL FAILS the production size budget; that remains mandatory repair
+  before the APK, not an exception. Preserve positive fixtures and validate
+  scalar/cooperative selection, invalid-site dependency prefixes, root identity,
+  direct/completed ownership, wedge dual cache and scratch phase retirement.
+TESTS/APK/INSTALL/DEVICE=not yet run for the complete rewrite. Goal remains active.

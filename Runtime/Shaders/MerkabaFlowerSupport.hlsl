@@ -340,7 +340,7 @@ bool M8FlowerSupportSiteBounds(uint carrier,uint site,M8FlowerPhaseRootEvidence 
 #endif
 
 bool M8FlowerSupportWedgeBounds(int3 owner,uint carrier,uint wedge,
-    M8FlowerPhaseRootEvidence roots[7],out M8FlowerInterval3 minimumMaximum[3],
+    M8FlowerPhaseRootEvidence roots[3],out M8FlowerInterval3 minimumMaximum[3],
     out int3 firstCell,out int3 lastCell)
 {
     firstCell=lastCell=0;
@@ -358,7 +358,7 @@ bool M8FlowerSupportWedgeBounds(int3 owner,uint carrier,uint wedge,
     {
         M8FlowerInterval3 relative;
         uint site=sites[vertex];
-        if(!M8FlowerSupportSiteBounds(carrier,site,roots[site],relative))return false;
+        if(!M8FlowerSupportSiteBounds(carrier,site,roots[vertex],relative))return false;
         minimumMaximum[vertex].x=M8FlowerIAdd(relative.x,translation.x);
         minimumMaximum[vertex].y=M8FlowerIAdd(relative.y,translation.y);
         minimumMaximum[vertex].z=M8FlowerIAdd(relative.z,translation.z);
@@ -395,14 +395,28 @@ uint M8FlowerSupportCoverDual(int3 first,int3 last,out uint coldHalo)
     return through?1u:0u;
 }
 
-uint M8FlowerSupportWedgeDual(int3 owner,uint carrier,uint wedge,
-    M8FlowerPhaseRootEvidence roots[7],out int3 first,out int3 last,out uint coldHalo)
+uint M8FlowerEvaluateWedgeDual(int3 owner,uint carrier,uint wedge,
+    M8FlowerPhaseRootEvidence roots[3],out int3 first,out int3 last,out uint coldHalo)
 {
     coldHalo=0u;
     M8FlowerInterval3 bounds[3];
     if(!M8FlowerSupportWedgeBounds(owner,carrier,wedge,roots,bounds,first,last))return 2u;
     return M8FlowerSupportCoverDual(first,last,coldHalo);
 }
+
+#if defined(M8_FLOWER_CARRIER_BATCH_READ)
+uint M8FlowerSupportWedgeDual(int3 owner,uint carrier,uint wedge,
+    M8FlowerPhaseRootEvidence roots[7],out int3 first,out int3 last,out uint coldHalo);
+#else
+uint M8FlowerSupportWedgeDual(int3 owner,uint carrier,uint wedge,
+    M8FlowerPhaseRootEvidence roots[7],out int3 first,out int3 last,out uint coldHalo)
+{
+    uint3 sites=M8FlowerL2CarrierTriangle(wedge,false);
+    M8FlowerPhaseRootEvidence knots[3];
+    knots[0]=roots[sites.x];knots[1]=roots[sites.y];knots[2]=roots[sites.z];
+    return M8FlowerEvaluateWedgeDual(owner,carrier,wedge,knots,first,last,coldHalo);
+}
+#endif
 
 uint M8FlowerSupportR3RootDual(int3 owner,uint nodeIndex,M8FlowerPhaseRootEvidence root,
     out uint coldHalo)

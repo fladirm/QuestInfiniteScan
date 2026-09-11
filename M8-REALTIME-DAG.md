@@ -3,8 +3,8 @@
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
 GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
-CURRENT=RT3
-STATE=implementation
+CURRENT=RT4
+STATE=integrated-validation-and-repair
 HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
   not a runtime fallback. Frozen offline export remains outside that hotpath.
 DELIVERY_GATE=No APK, install or Quest verification in RT1–RT3. Only RT4,
@@ -53,7 +53,7 @@ direct/dual precedence and reached refinement are implemented; compile; commit.
 
 ## RT3 — readout/export decode and V preservation
 
-Depends: RT1, RT2. Status: IN PROGRESS; not a closed cut.
+Depends: RT1, RT2. Status: IMPLEMENTED; compile checkpoint, integrated acceptance in RT4.
 
 Files: MerkabaReadout.compute, FlowerGeometry/Support/SkinReadout,
 MerkabaFlowerPresentation, SphereFlowerReader, MaterialBake, GlbWriter,
@@ -71,7 +71,7 @@ bounded frozen export/resume remains, compile; commit.
 
 ## RT4 — integrated acceptance and delivery
 
-Depends: RT1–RT3. Status: NOT STARTED.
+Depends: RT1–RT3. Status: IN PROGRESS; not accepted, APK/device not started.
 
 Reconcile tests and execution consumers, then one full validation/fix pass:
 Tools/shaders/audit_merkaba_compute_spirv.sh
@@ -273,15 +273,25 @@ ordered translation, cell cover, dual classifications and receipts are unchanged
 Exact Compact compile PASS: 1,227,068 B / 64,938 body / 26,556 B shared /
 7 RW / 256 lanes. Size gate STILL FAILS; no CPU or resource was added.
 
-NEXT=RT3 actual-carrier site/completion work, not another cursor audit.
-ClassifyL2Carrier still materializes its selected seven roots/positions on one
-of eight carrier lanes, then PageCarrier checks six wedges on that lane. The
-upstream site/sign and triple evidence is already cooperative and cached.
-Move the selected-site/wedge work onto those existing lanes without changing
-the shared decoder predicates or adding a second solver. Keep all required
-completion child proofs and COLD dependency ordering. Do not redo source-cache,
-ancestry, R3 evidence, skin emission or dual-bound reuse. The coverage and atlas
-checkpoints do not close RT3 or move CPU decode into the live hotpath. RT4 must
+SELECTED GEOMETRY=common SelectL2Carrier/FinishL2Carrier predicates now serve
+the scalar observation consumer and cooperative page materialization. Fifty-six
+lanes evaluate only selected seven-site positions; forty-eight evaluate the
+actual wedge dual covers. Ordered receipt reduction preserves the former
+first-failed-site dependency prefix and partial output. The dead ancestor-base
+scratch holds these results; no shared-memory growth or GPU dispatch was added.
+PageCarrier now copies these results instead of recalculating positions/covers.
+All child closure proofs and the dual cell traversal order remain unchanged.
+Exact compile PASS: Compact 1,239,460 B / 65,745 body / 26,556 B shared / 7 RW /
+256 lanes; resolver 938,760 B / 48,519 body / 15,464 B shared / 6 RW / 128 lanes.
+Compact size gate STILL FAILS; parallelization is not a device speedup claim.
+
+NEXT=RT4 integrated validation and repair. RT1–RT3 consumers are rewired and
+compile; this is not acceptance. Reconcile the retained positive fixtures and
+new measurement-driven interfaces, run the full suite and exact shader/ABI
+gates, fix failures, then build the Unity Quest APK only after those gates.
+Known Compact size failure is an RT4 repair obligation, not an exception or a
+closed performance gate. Do not resume historical runs or repeat source-cache,
+ancestry, R3, skin, selected-site/dual or allocation rewrites. RT4 must
 prove compact source-cache bit parity, reached-face owner
 mask omits no coverage contributor and 32-lane accumulation matches scalar OR.
 Do not add a spinning global lock, drop BUSY work as capacity, or retain a
@@ -340,9 +350,9 @@ epoch/M8 cut, concurrent adjacent sources, full THROUGH and explicit ERASE.
 Unity C#/Editor codegen PASS:
 /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-peer-publication.log.
 
-RT3 IN PROGRESS: paired RGB/V atlas, reached coverage, compact source cache,
-streamed ancestry, shared R3 evidence and cooperative skin emission compile.
-Remaining site/completion work and
-the production shader-size gate remain open as recorded above. RT4 full tests,
-command graph gates, Unity Quest APK, install and device acceptance have NOT
-run. Baseline tests/APK are not rewrite acceptance.
+RT3 IMPLEMENTED: paired RGB/V atlas, reached coverage, compact source cache,
+streamed ancestry, shared R3 evidence, cooperative skin and selected-site/dual
+materialization compile. RT4 now owns integrated proof/repair, including the
+known Compact size failure. No full tests, command-graph acceptance, Unity
+Quest APK, install or device acceptance have run for the complete rewrite.
+Baseline tests/APK are not rewrite acceptance.
