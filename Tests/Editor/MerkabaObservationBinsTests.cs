@@ -33,7 +33,7 @@ namespace Genesis.RoomScan.Tests
             const int count = 2048;
             var input = Enumerable.Range(0, count).Select(i => new uint4(
                 (uint)(((i % 5) * 8191 << 9) | (i & 511)), (uint)i,
-                0x150u, 0x80000000u | (uint)i)).ToArray();
+                0x150u, 0u)).ToArray();
             var initial = new uint4[Slots];
             initial[1] = new uint4(Generation - 1, 123, 456, 789);
             using var bins = new ComputeBuffer(Slots, 16);

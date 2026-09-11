@@ -910,7 +910,7 @@ bool M8FlowerMeasureRgbSkinChildren(uint parentOrdinal,uint activeWedgeMask,
 // certain supported child. For such intervals a disjoint pair exists iff
 // max(lower) > min(upper); extrema from the same child cannot satisfy it.
 // The generated pairwise classifier remains the independent oracle.
-uint M8FlowerClassifyMeasuredRgbSkin(M8ThreadColorInterval children[7],uint certain,uint supportMask)
+uint M8FlowerClassifyMeasuredSkin(uint4 children[7],uint certain,uint supportMask,bool metric)
 {
     if((supportMask&~127u)!=0u || (certain&supportMask)!=supportMask)
         return M8_FLOWER_SKIN_AMBIGUOUS;
@@ -918,25 +918,23 @@ uint M8FlowerClassifyMeasuredRgbSkin(M8ThreadColorInterval children[7],uint cert
     [loop]for(uint child=0u;child<7u;child++)
     {
         if((supportMask&(1u<<child))==0u)continue;
-        uint2 lo=children[child].LowerLinearRgba,hi=children[child].UpperLinearRgba;
-        lower=max(lower,float3(f16tof32(lo.x&65535u),f16tof32(lo.x>>16u),f16tof32(lo.y&65535u)));
-        upper=min(upper,float3(f16tof32(hi.x&65535u),f16tof32(hi.x>>16u),f16tof32(hi.y&65535u)));
+        uint4 words=children[child];
+        float3 lo,hi;
+        if(metric)
+        {
+            M8FlowerVInterval amplitude;
+            amplitude.Lower=asint(words.x);amplitude.Upper=asint(words.y);
+            M8FlowerInterval value=M8FlowerSkinDecodeAmplitude(amplitude);
+            lo=value.lo.xxx;hi=value.hi.xxx;
+        }
+        else
+        {
+            lo=float3(f16tof32(words.x&65535u),f16tof32(words.x>>16u),f16tof32(words.y&65535u));
+            hi=float3(f16tof32(words.z&65535u),f16tof32(words.z>>16u),f16tof32(words.w&65535u));
+        }
+        lower=max(lower,lo);upper=min(upper,hi);
     }
     return any(lower>upper)?M8_FLOWER_SKIN_SPLIT:M8_FLOWER_SKIN_UNIFORM;
-}
-
-uint M8FlowerClassifyMeasuredMetricSkin(M8FlowerVInterval children[7],uint certain,uint supportMask)
-{
-    if((supportMask&~127u)!=0u || (certain&supportMask)!=supportMask)
-        return M8_FLOWER_SKIN_AMBIGUOUS;
-    float lower=-asfloat(0x7f800000u),upper=asfloat(0x7f800000u);
-    [loop]for(uint child=0u;child<7u;child++)
-    {
-        if((supportMask&(1u<<child))==0u)continue;
-        M8FlowerInterval value=M8FlowerSkinDecodeAmplitude(children[child]);
-        lower=max(lower,value.lo);upper=min(upper,value.hi);
-    }
-    return lower>upper?M8_FLOWER_SKIN_SPLIT:M8_FLOWER_SKIN_UNIFORM;
 }
 
 // The unused member of a seven-value group inherits the existing signal of
@@ -1064,21 +1062,20 @@ uint M8FlowerPrepareSkinGroup(uint slot,uint local,uint slotGeneration,uint flow
 
 // The child values below are the complete parallel reduction of this exact
 // prepared group. Only the owner lane publishes after all children retire.
-uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint flowerKey,
-    uint parentOrdinal,M8FlowerSkinGroupContext context,M8ThreadColorInterval canonical[7],
-    uint classification,uint supportMask,out bool changed)
+uint M8FlowerCommitMeasuredSkinSplit(uint slot,uint local,uint slotGeneration,uint flowerKey,
+    uint parentOrdinal,M8FlowerSkinGroupContext context,uint4 canonical[7],
+    uint classification,uint supportMask,bool metric,out bool changed)
 {
     changed=false;
-    if(!context.Measure)return M8_FLOWER_ARENA_OK;
+    if(!context.Measure || supportMask==0u)return M8_FLOWER_ARENA_OK;
     uint ownerRef=context.OwnerRef;
     uint2 bits=context.SplitBits;
-    M8ThreadColorInterval thread[7];
-    if(supportMask==0u)return M8_FLOWER_ARENA_OK;
     bool replacing=context.Existing && (bits[parentOrdinal>>5u]&(1u<<(parentOrdinal&31u)))!=0u;
     if(classification==M8_FLOWER_SKIN_AMBIGUOUS ||
         (classification==M8_FLOWER_SKIN_UNIFORM && !replacing))return M8_FLOWER_ARENA_OK;
     uint depth,c3,c4;
     M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4);
+    uint4 thread[7];
     [loop]for(uint child=0u;child<7u;child++)
     {
         uint rank=depth==1u?M8FlowerSkinL3ChildRankAt(child):depth==2u?
@@ -1087,68 +1084,39 @@ uint M8FlowerCommitRgbSkinSplit(uint slot,uint local,uint slotGeneration,uint fl
     }
     if(replacing)
     {
-        uint address=112u*(context.GroupBase+M8FlowerSplitRank(bits,parentOrdinal));
-        if(!M8FlowerThreadRange(address,112u))return M8_FLOWER_ARENA_INVALID;
-        bool same=true;
-        [loop]for(uint child=0u;child<7u;child++)
-        {
-            uint4 value=_M8ThreadAtlasPages.Load4(address+16u*child);
-            same= same && all(value==uint4(thread[child].LowerLinearRgba,thread[child].UpperLinearRgba));
-        }
-        if(same)return M8_FLOWER_ARENA_OK;
-    }
-    uint status=M8_FLOWER_ARENA_OK;
-    if(ownerRef==0u)
-    {
-        status=M8FlowerEnsureOwner(slot,local,slotGeneration,context.Flags,_M8WorldPublishingGeneration,ownerRef);
-        if(status!=M8_FLOWER_ARENA_OK)return status;
-        // If the subsequent non-spinning group allocation yields, this
-        // successful publication is still progress for the frozen workset.
-        M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
-    }
-    status=M8FlowerCommitThreadGroup(ownerRef,flowerKey,parentOrdinal,thread,
-        _M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
-    if(status==M8_FLOWER_ARENA_OK)
-    {
-        changed=true;M8MarkTileDirty(slot);
-        InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],4u);
-    }
-    return status;
-}
-
-uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint flowerKey,
-    uint parentOrdinal,M8FlowerSkinGroupContext context,M8FlowerVInterval canonical[7],
-    uint classification,uint supportMask,out bool changed)
-{
-    changed=false;
-    if(!context.Measure)return M8_FLOWER_ARENA_OK;
-    uint ownerRef=context.OwnerRef;
-    uint2 bits=context.SplitBits;
-    M8FlowerVInterval thread[7];
-    if(supportMask==0u)return M8_FLOWER_ARENA_OK;
-    bool replacing=context.Existing && (bits[parentOrdinal>>5u]&(1u<<(parentOrdinal&31u)))!=0u;
-    if(classification==M8_FLOWER_SKIN_AMBIGUOUS ||
-        (classification==M8_FLOWER_SKIN_UNIFORM && !replacing))return M8_FLOWER_ARENA_OK;
-    uint depth,c3,c4;
-    M8FlowerSkinParentAddress(parentOrdinal,depth,c3,c4);
-    [loop]for(uint child=0u;child<7u;child++)
-    {
-        uint rank=depth==1u?M8FlowerSkinL3ChildRankAt(child):depth==2u?
-            M8FlowerSkinL4ChildRankAt(7u*c3+child):M8FlowerSkinL5ChildRankAt(49u*c3+7u*c4+child);
-        thread[rank]=canonical[child];
-    }
-    if(replacing)
-    {
+        uint stride=metric?56u:112u;
         uint group=context.GroupBase+M8FlowerSplitRank(bits,parentOrdinal);
-        if(group<context.GroupBase || group>0xffffffffu/56u || !M8FlowerDetailRange(group*56u,56u))
+        if(group<context.GroupBase || group>0xffffffffu/stride ||
+            (metric?!M8FlowerDetailRange(group*stride,stride):!M8FlowerThreadRange(group*stride,stride)))
             return M8_FLOWER_ARENA_INVALID;
         bool same=true;
         [loop]for(uint child=0u;child<7u;child++)
         {
-            uint2 previous=M8_FLOWER_DETAIL_SOURCE.Load2(group*56u+8u*child);
-            same=same && all(previous==uint2(asuint(thread[child].Lower),asuint(thread[child].Upper)));
+            if(metric)
+                same=same && all(M8_FLOWER_DETAIL_SOURCE.Load2(group*stride+8u*child)==thread[child].xy);
+            else
+                same=same && all(_M8ThreadAtlasPages.Load4(group*stride+16u*child)==thread[child]);
         }
         if(same)return M8_FLOWER_ARENA_OK;
+    }
+    // Validate the same seven records accepted by the typed storage writers.
+    // RGB and V share address mechanics, never evidence or backing storage.
+    [loop]for(uint child=0u;child<7u;child++)
+    {
+        uint4 value=thread[child];
+        if(metric)
+        {
+            if(asint(value.x)>asint(value.y))return M8_FLOWER_ARENA_INVALID;
+        }
+        else
+        {
+            float4 lo=float4(f16tof32(value.x&65535u),f16tof32(value.x>>16u),
+                f16tof32(value.y&65535u),f16tof32(value.y>>16u));
+            float4 hi=float4(f16tof32(value.z&65535u),f16tof32(value.z>>16u),
+                f16tof32(value.w&65535u),f16tof32(value.w>>16u));
+            if(!all(M8FlowerIsFinite(lo)) || !all(M8FlowerIsFinite(hi)) || any(lo>hi))
+                return M8_FLOWER_ARENA_INVALID;
+        }
     }
     uint status=M8_FLOWER_ARENA_OK;
     if(ownerRef==0u)
@@ -1157,8 +1125,16 @@ uint M8FlowerCommitMetricSkinSplit(uint slot,uint local,uint slotGeneration,uint
         if(status!=M8_FLOWER_ARENA_OK)return status;
         M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
     }
-    status=M8FlowerCommitMetricGroup(ownerRef,flowerKey,parentOrdinal,thread,
-        _M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
+    if(parentOrdinal>=57u || !M8FlowerL2KeyValid(flowerKey) ||
+        M8FlowerGetOwnerEpoch(ownerRef)==0u ||
+        !M8FlowerOwnerWritable(ownerRef,_M8WorldPublishingGeneration,_M8WorldRetiredGeneration))
+        return M8_FLOWER_ARENA_INVALID;
+    if(metric)
+        status=M8FlowerCommitSkinGroup(ownerRef,flowerKey,parentOrdinal,thread,false,
+            _M8WorldPublishingGeneration,_M8FlowerDetailPages,M8FlowerDetailArena());
+    else
+        status=M8FlowerCommitSkinGroup(ownerRef,flowerKey,parentOrdinal,thread,true,
+            _M8WorldPublishingGeneration,_M8ThreadAtlasPages,M8FlowerThreadArena());
     if(status==M8_FLOWER_ARENA_OK)
     {
         changed=true;M8MarkTileDirty(slot);

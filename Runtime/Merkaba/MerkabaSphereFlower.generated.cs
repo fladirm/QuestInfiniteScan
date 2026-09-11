@@ -20058,7 +20058,10 @@ internal static float M8FlowerRoundSqrt(float value)
     // |D-root^2| < 2^28. Its low word interpreted as signed is the EXACT
     // remainder even though D and the square separately have up to48 bits.
     int remainder=asint((mantissa<<shift)-root*root);
-    for(int correction=0;correction<5;++correction)
+    // Once the exact floor bracket holds, further corrections are identities.
+    // Keep one bounded body instead of expanding five copies in every root.
+    for(int correction=0;correction<5 &&
+        (remainder<0 || remainder>=(int)(2u*root+1u));++correction)
     {
         int down=remainder<0?1:0;
         int up=remainder>=(int)(2u*root+1u)?1:0;

@@ -53,7 +53,7 @@ void M8FlowerCountObservationOwner(uint physicalSlot)
 }
 
 bool M8FlowerEmitObservationOwner(uint physicalSlot, uint kernelLocal,
-    uint sourcePixel, uint symbolTag, uint precisionKey)
+uint sourcePixel, uint measuredPlane)
 {
     if (_M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u) return false;
     if (_M8ObservationToken == 0u ||
@@ -82,8 +82,8 @@ bool M8FlowerEmitObservationOwner(uint physicalSlot, uint kernelLocal,
     M8ObservationRecord record;
     record.TileAndKernel = (physicalSlot << 9u) | kernelLocal;
     record.SourcePixel = sourcePixel;
-    record.SymbolTag = symbolTag;
-    record.PrecisionKey = precisionKey;
+    record.MeasuredPlane = measuredPlane;
+    record.Reserved = 0u;
     _M8ObservationRecords[bin.z + ordinal] = record;
     return true;
 }

@@ -261,8 +261,8 @@ namespace Genesis.RoomScan
 
         internal uint TileAndKernel;
         internal uint SourcePixel;
-        internal uint SymbolTag;
-        internal uint PrecisionKey;
+        internal uint MeasuredPlane;
+        internal uint Reserved;
     }
 
     /// <summary>

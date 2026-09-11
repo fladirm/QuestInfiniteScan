@@ -46,7 +46,8 @@ namespace Genesis.RoomScan
         private readonly Matrix4x4[] _projectionInverse = new Matrix4x4[2];
         private readonly Matrix4x4[] _viewInverse = new Matrix4x4[2];
         private Texture _depth, _normal;
-        private Matrix4x4 _worldToGrid;
+        private Matrix4x4 _worldToGrid, _gridToWorld;
+        private Vector4 _planeErrorBounds;
         private float _maxDistance;
         private int _exclusionCount;
         private Vector4[] _exclusions;
@@ -99,7 +100,8 @@ namespace Genesis.RoomScan
         // endpoints separately from bootstrap; this recorder never chooses.
         internal void Begin(uint observation, Texture acceptedDepth, Texture acceptedNormal,
             in Matrix4x4 referenceProjectionInverse, in Matrix4x4 referenceViewInverse,
-            in Matrix4x4 worldToGrid, float maxDistance, int exclusionCount,
+            in Matrix4x4 worldToGrid, in Matrix4x4 gridToWorld, in Vector4 planeErrorBounds,
+            float maxDistance, int exclusionCount,
             Vector4[] exclusions, in FineBrushDescriptor fineBrush)
         {
             ThrowIfDisposed();
@@ -125,6 +127,8 @@ namespace Genesis.RoomScan
             _viewInverse[0] = referenceViewInverse;
             _viewInverse[1] = referenceViewInverse;
             _worldToGrid = worldToGrid;
+            _gridToWorld = gridToWorld;
+            _planeErrorBounds = planeErrorBounds;
             _maxDistance = maxDistance;
             _exclusionCount = exclusionCount;
             _exclusions = exclusions;
@@ -301,6 +305,8 @@ namespace Genesis.RoomScan
             command.SetComputeMatrixArrayParam(shader, "gsDepthProjInv", _projectionInverse);
             command.SetComputeMatrixArrayParam(shader, "gsDepthViewInv", _viewInverse);
             command.SetComputeMatrixParam(shader, "_MerkabaWorldToGrid", _worldToGrid);
+            command.SetComputeMatrixParam(shader, "_MerkabaGridToWorld", _gridToWorld);
+            command.SetComputeVectorParam(shader, "_M8PlaneErrorBounds", _planeErrorBounds);
             command.SetComputeFloatParam(shader, "_MerkabaMaxUpdateDistance", _maxDistance);
             command.SetComputeIntParam(shader, "_MerkabaExclusionCount", _exclusionCount);
             command.SetComputeVectorArrayParam(shader, "_MerkabaExclusionHeads", _exclusions);

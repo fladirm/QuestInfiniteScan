@@ -149,7 +149,7 @@ void EmitBinsProbe(uint id : SV_DispatchThreadID)
     if (id >= _ProbeRecordCount) return;
     uint4 item = _ProbeRecords[id];
     M8FlowerEmitObservationOwner(item.x >> 9u, item.x & 511u,
-        item.y, item.z, item.w);
+        item.y, item.z);
 }
 
 [numthreads(128, 1, 1)]

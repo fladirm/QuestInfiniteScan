@@ -694,8 +694,8 @@ namespace Genesis.RoomScan.Tests
             {
                 TileAndKernel = 83u,
                 SourcePixel = 89u,
-                SymbolTag = symbolTag.Value,
-                PrecisionKey = 97u
+                MeasuredPlane = symbolTag.Value,
+                Reserved = 97u
             };
 
             using var b0 = Buffer(block);

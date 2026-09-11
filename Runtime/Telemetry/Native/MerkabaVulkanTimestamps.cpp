@@ -125,7 +125,7 @@ namespace
     static_assert(kMerkabaExecutorPipelineCount == 23,
         "M8 executor pipeline tables must be regenerated for ABI 33");
 
-    constexpr uint32_t kExecutorAbiVersion = 33;
+    constexpr uint32_t kExecutorAbiVersion = 34;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelineRebuildDirtyFlowerOwners;
     constexpr uint32_t kFlowerEmitPipeline = kPipelineApplyOwnerDrawDeltas;

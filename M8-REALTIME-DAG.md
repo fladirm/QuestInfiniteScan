@@ -81,17 +81,26 @@ gaps before C4's APK, do not claim them closed by a hard compile PASS.
 C2 source=scan-authored sparse owner cache + Apply/Publish/Cull; canonical rebuild
 only for cache miss/invalidation (including peer dependencies), separately timed.
 Readout has 5 command slots, Classify view-only and Rebuild GPU-indirect/conditional.
-Current native ABI33, 23 pipelines, 41 resources, 12 timing slots.
+Current native ABI34, 23 pipelines, 41 resources, 12 timing slots.
 Structural source/peer invalidation and measured-owner grouping now share one
 receiver WG after immutable preflight. R1 bank writes retain their next boundary.
 RGB and V each use seven eight-lane footprint reductions; seven immutable sites
 are WG shared. Generated child spans eliminate sibling-footprint scans.
 Exact-zero phase removal and compatible R1 updates invalidate dependent caches.
+Emit now carries the once-encoded measured plane in the same 16-byte record.
+The root/child reducers no longer repeat sensor plane projection/packing.
+Invalid encoding retains a zero-plane reserved record; Count/Emit spans match.
+RGB/V share the split publication frontend and bounded span allocator calls;
+their authorities remain separate. Exact arithmetic corrections stop only
+when their integer floor bracket is already valid.
 Necessary Unity/codegen + all 23 native entrypoints/ARM64 compile PASS
-2026-09-11 20:08 UTC; no suite/APK/device run.
+2026-09-11 20:35 UTC; no suite/APK/device run.
 Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-hot-compile
-native-cooperative.log; unity-cooperative.log; skin-codegen.log.
-Skin=42547 instructions / 2420 B shared / 6 writable bindings: still REVIEW.
+native-measurement-final.log; measurement-final-unity.log; measurement-codegen.log.
+Skin=38437 instructions / 2420 B shared / 6 writable bindings: still REVIEW.
+Root=24295, Children=34580, Resolve=42763: still HOT release gaps.
+C4 also proves emitted plane bits against the original per-consumer encoder
+for every routed overlap owner, including failed encodings and frame transforms.
 C4 must compare eight-stripe RGB hull/stereo intersection and two-pass V
 intersection/encoding/full-cover results to the sequential oracle, including
 empty stripes/children, boundary cells and a rejection on any one lane.

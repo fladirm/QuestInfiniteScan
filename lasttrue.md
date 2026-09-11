@@ -10664,3 +10664,35 @@ C4_PROOFS=cooperative vs sequential RGB eye hulls and V two-pass coefficients,
   invalidation. Full suite NOT RUN; no APK, capture or device run.
 NEXT=continue remaining HOT source/performance closure, then C4 one full
   validation/manufacturing/final APK pass. Do not restart completed cuts.
+
+## 2026-09-11 20:38 UTC — immutable measured-plane and shared publication cut
+
+CURRENT=C1_C2_HOT_CLOSURE; goal ACTIVE; no release performance claim.
+IMPLEMENTED=Emit transforms the immutable sensor frame once, encodes each HOT
+  overlap owner's plane and stores it in the existing 16-byte observation
+  record. R1 and Root/Children reducers reuse those exact bits, not repeated
+  projection/plane packing. Invalid encoding retains a reserved zero-plane
+  record and cannot supply evidence; no extra buffer, dispatch or CPU solve.
+  The representative R1 publication uses the same shared encoder. Frozen
+  matrices/bounds are wired on native and managed paths; root admission stays
+  downstream. Observation fields are owner/pixel/MeasuredPlane/Reserved=0.
+  RGB/V share the measured split writer frontend and finite extrema predicate;
+  authority/backing remain distinct. Index/owner and group/directory allocation
+  pairs share bounded call sites; speculative losers still release allocation.
+  Exact integer divide/sqrt correction stops at a valid floor bracket rather
+  than executing the remaining identity corrections. No precision relaxation.
+ABI=34; 23 pipelines, 41 resources; persistent ABI UNCHANGED.
+SCHEDULE=12 Observation / 3 Residency / 5 Readout / 5 ERASE, unchanged.
+COMPILE=Unity C#/exact codegen PASS; all 23 native entrypoints/ARM64 PASS.
+  Emit=1536 instructions, 4 RW; FlowerCommit=28694; Root=24295;
+  Children=34580; Resolve=42763; Skin=38437 / 2420 B shared / 6 RW.
+  Five HOT shaders remain REVIEW/release-blocked, despite hard compile PASS.
+  Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-hot-compile
+  measurement-codegen.log; measurement-final-unity.log;
+  native-measurement-final.log. No measured device-speedup claim.
+C4_PROOFS=encoded-plane reuse vs per-consumer encoding, invalid encodings,
+  all eight overlap addresses and transformed scan frames; shared RGB/V writer,
+  allocator rollback and exact early-correction equivalence. Previous C4
+  cooperative-footprint/cache obligations remain open. Full suite NOT RUN.
+NEXT=remaining HOT code/graph closure, then one full C4 pass; no APK/capture
+  or device run was performed. Do not reopen completed C1/C2/C3 source cuts.

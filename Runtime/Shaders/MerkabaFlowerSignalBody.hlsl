@@ -111,27 +111,10 @@ void M8FlowerIntegrateSkin(uint3 group,uint lane,bool metric)
                         if((m8SignalFlags[child]&2u)!=0u)support|=1u<<child;
                     }
                     bool changed;
-                    if (!metric)
-                    {
-                    M8ThreadColorInterval children[7];
-                    [unroll]for(uint child=0u;child<7u;child++)
-                    {
-                        children[child].LowerLinearRgba=m8SignalValues[child].xy;
-                        children[child].UpperLinearRgba=m8SignalValues[child].zw;
-                    }
-                    if(certain==127u)classification=M8FlowerClassifyMeasuredRgbSkin(children,certain,support);
-                    m8SignalStatus=M8FlowerCommitRgbSkinSplit(slot,local,generation,symbol.x,parent,
-                        m8SignalContext,children,classification,support,changed);
-                    }
-                    else
-                    {
-                    M8FlowerVInterval children[7];
-                    [unroll]for(uint child=0u;child<7u;child++)
-                    {children[child].Lower=asint(m8SignalValues[child].x);children[child].Upper=asint(m8SignalValues[child].y);}
-                    if(certain==127u)classification=M8FlowerClassifyMeasuredMetricSkin(children,certain,support);
-                    m8SignalStatus=M8FlowerCommitMetricSkinSplit(slot,local,generation,symbol.x,parent,
-                        m8SignalContext,children,classification,support,changed);
-                    }
+                    if(certain==127u)
+                        classification=M8FlowerClassifyMeasuredSkin(m8SignalValues,certain,support,metric);
+                    m8SignalStatus=M8FlowerCommitMeasuredSkinSplit(slot,local,generation,symbol.x,parent,
+                        m8SignalContext,m8SignalValues,classification,support,metric,changed);
                     if(classification==M8_FLOWER_SKIN_AMBIGUOUS)M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
                     if(changed)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
                     if(m8SignalStatus!=M8_FLOWER_ARENA_OK)M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);

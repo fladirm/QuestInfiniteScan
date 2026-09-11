@@ -145,13 +145,13 @@ void M8FlowerCountObservationOwners(int3 firstOwner)
     }
 }
 
-void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
-    uint symbolTag, uint precisionKey)
+void M8FlowerEmitObservationOwners(int3 firstOwner,uint sourcePixel,
+    bool measured,float3 gridPosition,float3 gridNormal)
 {
     uint slots[8];
     uint ready;
     M8FlowerResolveObservationOwners(firstOwner, false, slots, ready);
-    [unroll]
+    [loop]
     for (uint owner = 0u; owner < 8u; owner++)
     {
         if ((ready & (1u << owner)) == 0u) continue;
@@ -163,8 +163,9 @@ void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
         int3 coordinate = firstOwner + M8FlowerOverlapDelta(owner);
         uint3 local = asuint(coordinate) & 7u;
         uint kernelLocal = local.x + 8u * (local.y + 8u * local.z);
-        if (M8FlowerEmitObservationOwner(slots[owner], kernelLocal,
-                sourcePixel, symbolTag, precisionKey))
+        uint plane=0u;
+        if(measured)M8FlowerPackMeasurement(coordinate,gridPosition,gridNormal,plane);
+        if (M8FlowerEmitObservationOwner(slots[owner], kernelLocal,sourcePixel,plane))
         {
             // The accepted endpoint footprint belongs to this snapshot only;
             // it is not positive occupancy or a drawable seed.

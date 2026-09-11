@@ -5,12 +5,13 @@
 #pragma kernel ResolveObservationTileRequests
 #pragma use_dxc vulkan
 
+#include "DepthKit.hlsl"
+#include "MerkabaFlowerMeasurement.hlsl"
 #include "MerkabaObservationOwners.hlsl"
 #include "MerkabaSphereFlower.generated.hlsl"
-#include "DepthKit.hlsl"
 #include "MerkabaObservationScope.hlsl"
 
-float4x4 _MerkabaWorldToGrid;
+// Measurement/world uniforms come from the shared frozen-frame encoder.
 
 // The SimpleScan sensor field distinguishes strict endpoints from bootstrap.
 // Integer routing never upgrades bootstrap confidence into accepted evidence.
@@ -63,11 +64,11 @@ void EmitObservationBins(uint3 id : SV_DispatchThreadID)
     int3 firstOwner;
     if (!M8FlowerLoadAcceptedEndpoint(id.xy, firstOwner)) return;
     uint sourcePixel = id.y * gsDepthTexSize.x + id.x;
-    // Root identity and precision-class/width bits are populated by the
-    // generated interval classifier in FlowerCommit, never by bin routing.
-    uint pendingSymbol = 4u << M8_FLOWER_SYMBOL_STATUS_SHIFT;
-    M8FlowerEmitObservationOwners(firstOwner, sourcePixel,
-        pendingSymbol, sourcePixel);
+    float3 world,grid,normal;
+    bool measured=M8FlowerMeasurementFrame(sourcePixel,world,grid,normal);
+    // Emit every reserved record even when plane encoding fails. Such a
+    // record carries MeasuredPlane=0 and cannot supply positive evidence.
+    M8FlowerEmitObservationOwners(firstOwner,sourcePixel,measured,grid,normal);
 }
 
 // Independent residency publication. No observation evidence is consumed.

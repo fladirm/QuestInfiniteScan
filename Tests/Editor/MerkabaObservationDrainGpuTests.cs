@@ -202,7 +202,15 @@ namespace Genesis.RoomScan.Tests
                         Assert.That(math.all(owner >= 0 & owner < 8), Is.True,
                             "Every emitted observation owner must fit this one-tile fixture.");
                         endpointIncluded |= math.all(owner == endpoint);
-                        records.Add(new uint4(Local(owner), (uint)pixel, 0, 0));
+                        // Match Emit's once-only owner-relative plane payload;
+                        // no root/phase solution is supplied to the GPU.
+                        float3 measuredNormal = (float3)normal;
+                        float3 normalSquare = measuredNormal * measuredNormal;
+                        measuredNormal /= math.sqrt((normalSquare.x + normalSquare.y) + normalSquare.z);
+                        float3 planeTerms = (world - (float3)owner * A.LatticeStep) * measuredNormal;
+                        uint measuredPlane = KernelState.SetSurfacePlane(0u, measuredNormal,
+                            (planeTerms.x + planeTerms.y) + planeTerms.z);
+                        records.Add(new uint4(Local(owner), (uint)pixel, measuredPlane, 0));
                     }
                     Assert.That(endpointIncluded, Is.True,
                         "The actual reprojected pixel must belong to its fixed relation endpoint.");

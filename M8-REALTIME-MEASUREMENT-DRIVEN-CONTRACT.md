@@ -137,6 +137,13 @@ R1 reduction continues to use the immutable per-tile observation bins. Seeds,
 same-observation evidence and repeated-observation confirmation remain the
 R1 policy; fine RGB/V does not become an existence prerequisite for a wall.
 
+Emit encodes the measured owner-relative plane once in the existing 16-byte
+observation record (owner, source pixel, MeasuredPlane, zero reserved word).
+R1/L1/L2 reductions reuse that immutable payload; they do not repeatedly pack
+the same sensor plane. A failed encoding emits an invalid-plane record so the
+reserved bin remains complete without manufacturing evidence. Root/sector
+classification remains a downstream world operation, never sensor processing.
+
 ## 5. Generated evidence-driven DecodeFlower
 
 Codegen supplies finite incidence, transport and candidate-address lookups.

@@ -1083,6 +1083,10 @@ namespace Genesis.RoomScan
             _observationBoundsVersion = version;
         }
 
+        internal Vector4 FrozenPlaneErrorBounds => HasFrozenObservationBounds
+            ? _frozenPlaneErrorBounds
+            : throw new InvalidOperationException("No immutable observation bounds are held.");
+
         internal void WriteObservationBounds(MerkabaNativeUniformTable values)
         {
             if (values == null) throw new ArgumentNullException(nameof(values));

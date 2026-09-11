@@ -62,7 +62,7 @@ struct M8ThreadColorGroup { M8ThreadColorInterval Child[7]; };
 struct M8ThreadProgramRecord { uint Flags; uint Reserved0; uint Reserved1; uint Reserved2; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };
 struct M8FlowerSymbolKey { int3 Junction; uint Tag; };
 struct M8FlowerSymbolRecord { uint OwnerAndCarrier; uint RootsAndWedges; uint DetailRef; uint ThreadRef; };
-struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint SymbolTag; uint PrecisionKey; };
+struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint MeasuredPlane; uint Reserved; };
 
 uint M8FlowerDrawKernelLocal(M8FlowerSymbolRecord value) { return value.OwnerAndCarrier & 511u; }
 uint M8FlowerDrawCarrierId(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_CARRIER_SHIFT) & M8_FLOWER_DRAW_CARRIER_MASK; }

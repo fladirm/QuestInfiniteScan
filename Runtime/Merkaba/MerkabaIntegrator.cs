@@ -1061,6 +1061,7 @@ namespace Genesis.RoomScan
         {
             _bins.Begin(_observationToken, _depthCapture.DepthTex, _depthCapture.NormTex,
                 _depthCapture.ProjInv[0], _depthCapture.ViewInv[0], _observationWorldToGrid,
+                _observationGridToWorld, _depthCapture.FrozenPlaneErrorBounds,
                 _observationMaxUpdateDistance, _observationExclusionCount,
                 _exclusionPositions, _heldFineBrush);
         }

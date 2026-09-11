@@ -889,7 +889,10 @@ internal static float M8FlowerRoundSqrt(float value)
     // |D-root^2| < 2^28. Its low word interpreted as signed is the EXACT
     // remainder even though D and the square separately have up to48 bits.
     int remainder=asint((mantissa<<shift)-root*root);
-    [unroll] for(int correction=0;correction<5;++correction)
+    // Once the exact floor bracket holds, further corrections are identities.
+    // Keep one bounded body instead of expanding five copies in every root.
+    [loop] for(int correction=0;correction<5 &&
+        (remainder<0 || remainder>=(int)(2u*root+1u));++correction)
     {
         int down=remainder<0?1:0;
         int up=remainder>=(int)(2u*root+1u)?1:0;
@@ -1005,7 +1008,7 @@ bool4 M8FlowerIsFinite(float4 value) { return (asuint(value) & 0x7f800000u) != 0
             o.AppendLine("struct M8ThreadProgramRecord { uint Flags; uint Reserved0; uint Reserved1; uint Reserved2; uint2 OpticalLower; uint2 OpticalUpper; uint2 CaptureViewLower; uint2 CaptureViewUpper; };");
             o.AppendLine("struct M8FlowerSymbolKey { int3 Junction; uint Tag; };");
             o.AppendLine("struct M8FlowerSymbolRecord { uint OwnerAndCarrier; uint RootsAndWedges; uint DetailRef; uint ThreadRef; };");
-            o.AppendLine("struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint SymbolTag; uint PrecisionKey; };");
+            o.AppendLine("struct M8ObservationRecord { uint TileAndKernel; uint SourcePixel; uint MeasuredPlane; uint Reserved; };");
             o.AppendLine(@"
 uint M8FlowerDrawKernelLocal(M8FlowerSymbolRecord value) { return value.OwnerAndCarrier & 511u; }
 uint M8FlowerDrawCarrierId(M8FlowerSymbolRecord value) { return (value.OwnerAndCarrier >> M8_FLOWER_DRAW_CARRIER_SHIFT) & M8_FLOWER_DRAW_CARRIER_MASK; }
@@ -3321,7 +3324,10 @@ bool M8FlowerDivideEnclosed(float numerator, float denominator,
         // The difference is <4*d<2^26, so signed low-word subtraction is
         // exact. No uint64, subnormal FP arithmetic or reciprocal authority.
         int remainder=asint((n<<fractionBits)-quotient*d);
-        [unroll] for(uint correction=0u;correction<3u;++correction)
+        // A valid exact remainder needs no correction. The same bounded
+        // integer body handles an inaccurate hint without three code copies.
+        [loop] for(uint correction=0u;correction<3u &&
+            (remainder<0 || remainder>=(int)d);++correction)
         {
             int down=remainder<0?1:0;
             int up=remainder>=(int)d?1:0;

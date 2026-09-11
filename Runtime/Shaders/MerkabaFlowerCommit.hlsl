@@ -34,58 +34,25 @@ void M8FlowerRejectOwner(uint local)
     m8FlowerR1Witness[local].x|=M8_FLOWER_OWNER_REJECTED;
 }
 
-bool M8FlowerMeasurement(uint sourcePixel, int3 owner, out uint plane,
-    out float3 worldPosition)
+bool M8FlowerReadMeasuredEndpoint(M8ObservationRecord record,out uint plane,out float3 world)
 {
-    plane = 0u;
-    worldPosition = 0.0.xxx;
-    if (sourcePixel >= gsDepthTexSize.x * gsDepthTexSize.y ||
-        _M8PlaneErrorBounds.w != 1.0 ||
-        !all(M8FlowerIsFinite(_M8PlaneErrorBounds)) ||
-        any(_M8PlaneErrorBounds.xy < 0.0) ||
-        !M8FlowerIsFinite(_MerkabaMaxUpdateDistance) ||
-        _MerkabaMaxUpdateDistance <= 0.0) return false;
-    uint2 pixel = uint2(sourcePixel % gsDepthTexSize.x,
-        sourcePixel / gsDepthTexSize.x);
-    float depth = gsDepthTex.Load(int3(pixel,0));
-    float4 measured = gsDepthNormalTex.Load(int3(pixel,0));
-    if (!(depth > 0.0 && depth < 1.0) || measured.w != 1.0 ||
-        !all(M8FlowerIsFinite(measured.xyz))) return false;
-    precise float2 uv = (float2(pixel)+0.5)/float2(gsDepthTexSize);
-    worldPosition = gsDepthNDCtoWorld(float3(uv,depth));
-    if (!M8ObservationContains(worldPosition,gsDepthEyePos())) return false;
-    precise float3 gridPosition = mul(_MerkabaWorldToGrid,
-        float4(worldPosition,1.0)).xyz;
-    // A plane normal is a covector. Even for the rigid scan frame use the
-    // canonical inverse-transpose transport, not position-vector transport.
-    precise float3 gridNormal = mul(transpose((float3x3)_MerkabaGridToWorld),
-        measured.xyz);
-    precise float3 normalSquare = gridNormal*gridNormal;
-    precise float normalSquareXY = normalSquare.x+normalSquare.y;
-    precise float normalLength = sqrt(normalSquareXY+normalSquare.z);
-    if (!(normalLength > 0.0) || !M8FlowerIsFinite(normalLength)) return false;
-    // The persisted offset is a metric signed distance. Compute it from
-    // the unit normal that plane packing will encode, not from a scaled
-    // world-to-grid normal (including ordinary binary32 rotation drift).
-    gridNormal /= normalLength;
-    precise float3 relative = gridPosition-float3(owner)*M8_FLOWER_LATTICE_STEP;
-    precise float3 terms = relative*gridNormal;
-    precise float xy = terms.x+terms.y;
-    precise float offset = xy+terms.z;
-    return M8FlowerTryPackPlane(0u,gridNormal,offset,plane);
+    plane=record.MeasuredPlane;world=0.0.xxx;
+    if(record.Reserved!=0u || !M8FlowerHasPlane(plane) ||
+        record.SourcePixel>=gsDepthTexSize.x*gsDepthTexSize.y)return false;
+    uint2 pixel=uint2(record.SourcePixel%gsDepthTexSize.x,record.SourcePixel/gsDepthTexSize.x);
+    float depth=gsDepthTex.Load(int3(pixel,0));
+    precise float2 uv=(float2(pixel)+0.5)/float2(gsDepthTexSize);
+    world=gsDepthNDCtoWorld(float3(uv,depth));
+    return true;
 }
 
-bool M8FlowerInputPlane(M8ObservationRecord record, uint slot,
-    out uint plane, out float3 normal, out float offset)
+bool M8FlowerInputPlane(M8ObservationRecord record,uint slot,
+    out uint plane,out float3 normal,out float offset)
 {
-    plane = 0u;
-    normal = 0.0.xxx;
-    offset = 0.0;
-    uint local = record.TileAndKernel & 511u;
-    if ((record.TileAndKernel >> 9u) != slot) return false;
-    float3 world;
-    if (!M8FlowerMeasurement(record.SourcePixel,
-            M8GlobalKernelCoord(slot,local),plane,world)) return false;
+    plane=record.MeasuredPlane;normal=0.0.xxx;offset=0.0;
+    if((record.TileAndKernel>>9u)!=slot || record.Reserved!=0u ||
+        record.SourcePixel>=gsDepthTexSize.x*gsDepthTexSize.y ||
+        !M8FlowerHasPlane(plane))return false;
     M8FlowerUnpackPlane(plane,normal,offset);
     return true;
 }
@@ -466,18 +433,7 @@ void FlowerCommit(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
                 }
                 [loop] for (uint index=lane; index<sourceBin.y; index+=128u)
                 {
-                    M8ObservationRecord record;
-                    if (peerPass)
-                    {
-                        record.TileAndKernel=_M8ObservationRecordsRead[sourceBin.z+index].TileAndKernel;
-                        record.SourcePixel=_M8ObservationRecordsRead[sourceBin.z+index].SourcePixel;
-                        record.SymbolTag=0u;
-                        record.PrecisionKey=0u;
-                    }
-                    else
-                    {
-                        record=_M8ObservationRecordsRead[sourceBin.z+index];
-                    }
+                    M8ObservationRecord record=_M8ObservationRecordsRead[sourceBin.z+index];
                     uint local=record.TileAndKernel&511u;
                     uint representative=0u;
                     if (peerPass)

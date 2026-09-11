@@ -86,7 +86,7 @@ void VerifySphereFlowerDataAbi(uint3 id : SV_DispatchThreadID)
     _DataAbiOutput[50] = asuint(symbol.Junction.x);
     _DataAbiOutput[51] = asuint(symbol.Junction.z);
     _DataAbiOutput[52] = symbol.Tag;
-    _DataAbiOutput[53] = _Observation[0].PrecisionKey;
+    _DataAbiOutput[53] = _Observation[0].Reserved;
     _DataAbiOutput[54] = M8FlowerPackDetailKey(2u, 15u, 47u, 12u,
         2u, true, 1u);
     _DataAbiOutput[55] = M8FlowerPackL2Key(15u, 47u, true, 31u);

@@ -14,6 +14,7 @@
 #define M8_FLOWER_ENDPOINT_TILE_WRITE_VIEW
 #include "DepthKit.hlsl"
 #include "MerkabaSphereFlower.generated.hlsl"
+#include "MerkabaFlowerMeasurement.hlsl"
 #include "MerkabaStereoCamera.hlsl"
 #include "MerkabaWorld.hlsl"
 #include "MerkabaObservationProjection.generated.hlsl"
@@ -30,9 +31,7 @@
 #define MERKABA_OCCUPIED_FLAG 1u
 RWStructuredBuffer<uint4> _M8AttemptCompletion;
 
-float4x4 _MerkabaGridToWorld;
-float4x4 _MerkabaWorldToGrid;
-float4 _M8PlaneErrorBounds;
+// Frozen measurement uniforms are shared with observation emission.
 
 uint _M8AttemptToken;
 uint _M8WorldPublishingGeneration;

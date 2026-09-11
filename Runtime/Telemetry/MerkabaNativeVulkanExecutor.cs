@@ -15,7 +15,7 @@ namespace Genesis.RoomScan
     {
         private const float TimingLogIntervalSeconds = 5f;
         // ABI 32: binary-only pipeline delivery and startup without cache IO.
-        internal const int AbiVersion = 33;
+        internal const int AbiVersion = 34;
         internal const int ResourceCount = 41;
         internal const int PipelineCount = 23;
         // Native codegen verifies this against the longest complete schedule,

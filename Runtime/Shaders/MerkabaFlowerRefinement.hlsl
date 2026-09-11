@@ -377,7 +377,7 @@ void M8FlowerReduceFineEndpoint(uint4 measured,uint lane,M8FlowerGeometryNode ta
             uint recordIndex=M8FlowerMeasuredRecordIndex(source.y,index);
             M8ObservationRecord record=_M8ObservationRecordsRead[recordIndex];
             uint plane;float3 world;
-            if(!M8FlowerMeasurement(record.SourcePixel,sourceOwner,plane,world))continue;
+            if(!M8FlowerReadMeasuredEndpoint(record,plane,world))continue;
             if((plane&M8_FLOWER_PLANE_FREE_SIDE)!=(m8FinePlane&M8_FLOWER_PLANE_FREE_SIDE))
             {InterlockedOr(m8FineState,8u<<M8_FLOWER_FINE_PRESENCE_SHIFT);continue;}
             if(task.Level!=0u)

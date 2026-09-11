@@ -26,7 +26,7 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane,uint stage)
         uint source=M8FlowerMeasuredRecordIndex(measured.y,index);
         M8ObservationRecord record=_M8ObservationRecordsRead[source];
         uint plane;float3 world;
-        if(!M8FlowerMeasurement(record.SourcePixel,owner,plane,world))continue;
+        if(!M8FlowerReadMeasuredEndpoint(record,plane,world))continue;
         uint state=M8_FLOWER_FINE_ACTIVE;
         if(((plane^flags)&M8_FLOWER_PLANE_STORAGE_MASK)!=0u ||
             (m8FineState&M8_FLOWER_FINE_HAS_PHASE)!=0u)state|=M8_FLOWER_FINE_NOVEL;
