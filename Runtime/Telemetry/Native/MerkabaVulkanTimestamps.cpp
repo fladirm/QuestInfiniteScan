@@ -2,6 +2,7 @@
 #include "IUnityGraphicsVulkan.h"
 #include "IUnityLog.h"
 #include "MerkabaSphereFlowerDataAbi.h"
+#include "MerkabaPipelineBinaryAbi.h"
 
 #include <algorithm>
 #include <array>
@@ -12,13 +13,17 @@
 #include <cstdint>
 #include <exception>
 #include <mutex>
+#include <memory>
+#include <cerrno>
 #include <string>
 #include <thread>
 #include <vector>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #if defined(__ANDROID__)
 #include <android/log.h>
+#include <jni.h>
 #endif
 
 namespace
@@ -118,9 +123,9 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
     static_assert(kMerkabaExecutorPipelineCount == 25,
-        "M8 executor pipeline tables must be regenerated for ABI 31");
+        "M8 executor pipeline tables must be regenerated for ABI 32");
 
-    constexpr uint32_t kExecutorAbiVersion = 31;
+    constexpr uint32_t kExecutorAbiVersion = 32;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelineRebuildDirtyFlowerOwners;
     constexpr uint32_t kFlowerEmitPipeline = kPipelineApplyOwnerDrawDeltas;
@@ -310,15 +315,12 @@ namespace
     std::atomic<bool> g_executorReady{false};
     std::atomic<bool> g_executorInitCancel{true};
     std::thread g_executorInitWorker;
-    // 0 waiting for device/path, 1 compiling, 2 ready, -1 failed.
+    // 0 waiting for device/bootstrap, 1 creating pipelines, 2 ready, -1 failed.
     std::atomic<int32_t> g_executorInitStatus{0};
     std::atomic<uint32_t> g_executorInitPipeline{UINT32_MAX};
     std::atomic<int32_t> g_executorInitError{VK_SUCCESS};
     bool g_executorInitConfigured = false; // protected by g_executorMutex
-    std::string g_executorCacheDirectory;
-    std::string g_executorCacheFile;
-    uint64_t g_executorShaderHash = 0;
-    VkPipelineCache g_executorPipelineCache = VK_NULL_HANDLE;
+    bool g_executorStartupRequested = false;
     thread_local bool g_onExecutorInitWorker = false;
     VkQueryPool g_queryPool = VK_NULL_HANDLE;
     std::atomic<int> g_state{kUnavailable};
@@ -377,6 +379,7 @@ namespace
     }
 
 #include "MerkabaFlowerDraw.h"
+#include "MerkabaPipelineBinary.h"
 
     bool QueryDeviceRequirements()
     {
@@ -742,6 +745,8 @@ namespace
                 M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES, VkPhysicalDeviceSynchronization2Features);
                 M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES, VkPhysicalDeviceDynamicRenderingFeatures);
                 M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES, VkPhysicalDeviceMaintenance4Features);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR, VkPhysicalDeviceMaintenance5FeaturesKHR);
+                M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_BINARY_FEATURES_KHR, VkPhysicalDevicePipelineBinaryFeaturesKHR);
                 M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT, VkPhysicalDeviceFragmentDensityMapFeaturesEXT);
                 M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_2_FEATURES_EXT, VkPhysicalDeviceFragmentDensityMap2FeaturesEXT);
                 M8_FEATURE_SIZE(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_QCOM, VkPhysicalDeviceFragmentDensityMapOffsetFeaturesQCOM);
@@ -868,6 +873,10 @@ namespace
             g_injectedQueueIndex = UINT32_MAX;
         }
 
+        VkPhysicalDevicePipelineBinaryFeaturesKHR binaryFeatures = {};
+        VkPhysicalDeviceMaintenance5FeaturesKHR maintenanceFeatures = {};
+        if (!PreparePipelineBinaryDevice(physicalDevice, modified, extensions, binaryFeatures, maintenanceFeatures))
+            return PipelineBinaryFailure("required pipeline-binary features/dependencies unavailable", VK_ERROR_FEATURE_NOT_PRESENT);
         VkResult result = nextCreateDevice(physicalDevice, &modified, allocator, device);
         g_queueInjected = result == VK_SUCCESS && inject;
         if (result != VK_SUCCESS && inject)
@@ -888,6 +897,14 @@ namespace
         g_enabledShaderFloat16 = result == VK_SUCCESS && enabledFloat16;
         g_enabledTimelineSemaphore = result == VK_SUCCESS && enabledTimeline;
         g_enabledSynchronization2 = result == VK_SUCCESS && enabledSync2;
+        if (result == VK_SUCCESS && !InitializePipelineBinaries(*device))
+        {
+            auto destroy = reinterpret_cast<PFN_vkDestroyDevice>(
+                g_nextGetInstanceProcAddr(g_interceptInstance, "vkDestroyDevice"));
+            if (destroy) destroy(*device, allocator);
+            *device = VK_NULL_HANDLE;
+            return PipelineBinaryFailure("pipeline-binary device initialization");
+        }
         if (g_log != nullptr)
         {
             char message[512] = {};
@@ -911,6 +928,9 @@ namespace
             g_interceptInstance = instance;
         if (name != nullptr && std::strcmp(name, "vkCreateDevice") == 0)
             return reinterpret_cast<PFN_vkVoidFunction>(InterceptCreateDevice);
+        if (name != nullptr && std::strcmp(name, "vkGetDeviceProcAddr") == 0)
+            return reinterpret_cast<PFN_vkVoidFunction>(InterceptGetDeviceProcAddr);
+        if (auto intercepted = PipelineBinaryIntercept(name)) return intercepted;
         return g_nextGetInstanceProcAddr == nullptr
             ? nullptr : g_nextGetInstanceProcAddr(instance, name);
     }
@@ -996,133 +1016,9 @@ namespace
         pipeline = {};
     }
 
-    uint64_t CacheHash(const void* data, size_t bytes, uint64_t hash = 14695981039346656037ull)
-    {
-        const auto* cursor = static_cast<const uint8_t*>(data);
-        for (size_t i = 0; i < bytes; ++i)
-            hash = (hash ^ cursor[i]) * 1099511628211ull;
-        return hash;
-    }
-
-    // This envelope only detects truncated/corrupted driver cache files; it
-    // never identifies geometry. Vulkan still owns all pipeline cache keys.
-    struct PipelineCacheReceipt
-    {
-        uint64_t bytes;
-        uint64_t checksum;
-        uint64_t shaderHash;
-        uint32_t abi;
-        uint32_t driver;
-    };
-    static_assert(sizeof(PipelineCacheReceipt) == 32, "cache receipt layout");
-    constexpr size_t kMaximumPipelineCacheBytes = 64u * 1024u * 1024u;
-
-    bool CreateExecutorPipelineCache()
-    {
-        uint64_t shaderHash = CacheHash(&kExecutorAbiVersion, sizeof(kExecutorAbiVersion));
-        for (const MerkabaEmbeddedPipeline& pipeline : kMerkabaExecutorPipelines)
-            shaderHash = CacheHash(pipeline.words,
-                pipeline.wordCount * sizeof(uint32_t), shaderHash);
-        g_executorShaderHash = shaderHash;
-        // One atomic-replaced file bounds SSD use across application updates.
-        // Shader/ABI hashes are provenance, not cache compatibility. Vulkan
-        // keys entries by SPIR-V, specialization and pipeline layout already;
-        // changing one shader must not discard every unchanged pipeline.
-        g_executorCacheFile = g_executorCacheDirectory + "/pipelines.bin";
-        std::vector<uint8_t> data;
-        FILE* file = std::fopen(g_executorCacheFile.c_str(), "rb");
-        if (file != nullptr)
-        {
-            PipelineCacheReceipt receipt = {};
-            if (std::fread(&receipt, sizeof(receipt), 1, file) == 1 &&
-                receipt.driver == g_deviceProperties.driverVersion &&
-                receipt.bytes >= 32u && receipt.bytes <= kMaximumPipelineCacheBytes)
-            {
-                data.resize(static_cast<size_t>(receipt.bytes));
-                if (std::fread(data.data(), 1, data.size(), file) != data.size() ||
-                    std::fgetc(file) != EOF || std::ferror(file) ||
-                    CacheHash(data.data(), data.size()) != receipt.checksum)
-                    data.clear();
-            }
-            std::fclose(file);
-            if (!data.empty())
-            {
-                // VkPipelineCacheHeaderVersionOne is explicitly little-endian
-                // and 32 bytes; decode it without relying on struct padding.
-                auto word = [&data](size_t offset) -> uint32_t {
-                    return uint32_t(data[offset]) | (uint32_t(data[offset + 1]) << 8) |
-                        (uint32_t(data[offset + 2]) << 16) | (uint32_t(data[offset + 3]) << 24);
-                };
-                if (word(0) != 32u || word(4) != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
-                    word(8) != g_deviceProperties.vendorID || word(12) != g_deviceProperties.deviceID ||
-                    std::memcmp(data.data() + 16, g_deviceProperties.pipelineCacheUUID, VK_UUID_SIZE) != 0)
-                    data.clear();
-            }
-        }
-        const size_t initialBytes = data.size();
-        VkPipelineCacheCreateInfo info = {};
-        info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-        info.initialDataSize = initialBytes;
-        info.pInitialData = data.empty() ? nullptr : data.data();
-        VkResult result = vkCreatePipelineCache(g_instance.device, &info, nullptr,
-            &g_executorPipelineCache);
-        char message[256] = {};
-        std::snprintf(message, sizeof(message),
-            "Merkaba pipeline cache: state=%s bytes=%zu shaderHash=%016llx result=%d",
-            initialBytes == 0 ? "cold" : "loaded", initialBytes,
-            static_cast<unsigned long long>(shaderHash), static_cast<int>(result));
-        Log(message);
-        if (result != VK_SUCCESS) LogError("vkCreatePipelineCache", result);
-        return result == VK_SUCCESS;
-    }
-
-    void PersistExecutorPipelineCache()
-    {
-        if (g_executorPipelineCache == VK_NULL_HANDLE) return;
-        size_t bytes = 0;
-        VkResult result = vkGetPipelineCacheData(g_instance.device, g_executorPipelineCache, &bytes, nullptr);
-        if (result != VK_SUCCESS || bytes < 32u || bytes > kMaximumPipelineCacheBytes)
-        {
-            Log("Merkaba pipeline cache: not persisted; driver size/query exceeds bounded cache.");
-            return;
-        }
-        std::vector<uint8_t> data(bytes);
-        result = vkGetPipelineCacheData(g_instance.device, g_executorPipelineCache, &bytes, data.data());
-        if (result != VK_SUCCESS)
-        {
-            Log("Merkaba pipeline cache: incomplete query; previous durable cache retained.");
-            return;
-        }
-        PipelineCacheReceipt receipt{bytes, CacheHash(data.data(), bytes),
-            g_executorShaderHash, kExecutorAbiVersion, g_deviceProperties.driverVersion};
-        const std::string temporary = g_executorCacheFile + ".tmp";
-        FILE* file = std::fopen(temporary.c_str(), "wb");
-        if (file == nullptr)
-        {
-            Log("Merkaba pipeline cache: cannot open private cache output.");
-            return;
-        }
-        bool saved = std::fwrite(&receipt, sizeof(receipt), 1, file) == 1 &&
-            std::fwrite(data.data(), 1, bytes, file) == bytes &&
-            std::fflush(file) == 0 && fsync(fileno(file)) == 0;
-        if (std::fclose(file) != 0) saved = false;
-        if (saved) saved = std::rename(temporary.c_str(), g_executorCacheFile.c_str()) == 0;
-        if (saved)
-        {
-            int directory = open(g_executorCacheDirectory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-            if (directory >= 0) { saved = fsync(directory) == 0; close(directory); }
-            else saved = false;
-        }
-        else std::remove(temporary.c_str());
-        char message[192] = {};
-        std::snprintf(message, sizeof(message),
-            "Merkaba pipeline cache: save=%s bytes=%zu", saved ? "durable" : "failed", bytes);
-        Log(message);
-    }
-
     bool CreateExecutorPipelines()
     {
-        if (!CreateExecutorPipelineCache()) return false;
+        if (g_binaryDevice != g_instance.device) return false;
         for (uint32_t index = 0; index < kMerkabaExecutorPipelineCount;
             ++index)
         {
@@ -1243,15 +1139,15 @@ namespace
             }
             char compileMessage[256] = {};
             std::snprintf(compileMessage, sizeof(compileMessage),
-                "Merkaba native pipeline compile begin: index=%u name=%s bytes=%zu",
+                "Merkaba native pipeline create begin: index=%u name=%s bytes=%zu",
                 index, embedded.label, embedded.wordCount * sizeof(uint32_t));
             Log(compileMessage);
             const uint64_t compileStart = MonotonicNs();
-            result = vkCreateComputePipelines(g_instance.device,
-                g_executorPipelineCache, 1, &pipelineInfo, nullptr,
+            result = InterceptCreateComputePipelines(g_instance.device,
+                VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
                 &g_executorPipelines[index].pipeline);
             std::snprintf(compileMessage, sizeof(compileMessage),
-                "Merkaba native pipeline compile end: index=%u name=%s ms=%.3f result=%d",
+                "Merkaba native pipeline create end: index=%u name=%s ms=%.3f result=%d",
                 index, embedded.label,
                 static_cast<double>(MonotonicNs() - compileStart) / 1.0e6,
                 static_cast<int>(result));
@@ -2342,14 +2238,6 @@ namespace
         {
             LogError("unexpected host compiler exception", VK_ERROR_INITIALIZATION_FAILED);
         }
-        if (!g_executorInitCancel.load(std::memory_order_acquire))
-        {
-            try { PersistExecutorPipelineCache(); }
-            catch (const std::exception& error) { WriteNativeLog(error.what(), true); }
-        }
-        if (g_executorPipelineCache != VK_NULL_HANDLE)
-            vkDestroyPipelineCache(g_instance.device, g_executorPipelineCache, nullptr);
-        g_executorPipelineCache = VK_NULL_HANDLE;
         {
             std::lock_guard<std::mutex> lock(g_executorMutex);
             const bool cancelled = g_executorInitCancel.load(std::memory_order_acquire);
@@ -2373,7 +2261,7 @@ namespace
     // managed app-private cache path have arrived, in either order.
     bool StartExecutorPipelinesWorker()
     {
-        if (!g_executorInitConfigured || g_executorCacheDirectory.empty() ||
+        if (!g_executorInitConfigured || !g_executorStartupRequested ||
             g_executorInitWorker.joinable()) return true;
         g_executorInitCancel.store(false, std::memory_order_release);
         g_executorInitPipeline.store(UINT32_MAX, std::memory_order_relaxed);
@@ -2388,7 +2276,7 @@ namespace
             WriteNativeLog(error.what(), true);
             return false;
         }
-        Log("Merkaba native scanner initializing: one host pipeline worker, cached driver data; no Unity wait.");
+        Log("Merkaba native scanner initializing: pipeline-binary delivery; no Unity wait.");
         return true;
     }
 
@@ -2749,16 +2637,56 @@ extern "C"
         return g_executorReady.load(std::memory_order_acquire) ? 1 : 0;
     }
 
-    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_ConfigureStartup(const char* cacheDirectory)
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_ConfigureStartup()
     {
-        if (cacheDirectory == nullptr || cacheDirectory[0] != '/' ||
-            std::strlen(cacheDirectory) > 3072u) return -1;
         std::lock_guard<std::mutex> lock(g_executorMutex);
-        if (!g_executorCacheDirectory.empty() && g_executorCacheDirectory != cacheDirectory)
-            return -1; // never change a worker's path while it owns cache IO
-        g_executorCacheDirectory = cacheDirectory;
+        g_executorStartupRequested = true;
         return StartExecutorPipelinesWorker() ? 0 : -1;
     }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaPipeline_GetMode()
+    { return kPipelineCaptureMode ? 1 : 2; }
+#if defined(__ANDROID__)
+    JNIEXPORT jboolean JNICALL Java_com_genesis_roomscan_MerkabaPipelineBootstrap_captureEnabled(JNIEnv*, jclass)
+    { return kPipelineCaptureMode ? JNI_TRUE : JNI_FALSE; }
+#endif
+    const char* UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaPipeline_GetCaptureDirectory()
+    { return g_pipelineCaptureDirectory.c_str(); }
+    const char* UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaPipeline_GetBuildId()
+    { return kPipelineBuildHex; }
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaPipeline_ReadStats(uint32_t* values, uint32_t count)
+    {
+        if (!values || count != 8u) return -1;
+        values[0] = kPipelineCaptureMode ? 1u : 2u;
+        values[1] = g_pipelinePack != nullptr ? 1u : 0u;
+        values[2] = g_pipelineBinaryHits.load(std::memory_order_relaxed);
+        values[3] = g_pipelineBinaryMisses.load(std::memory_order_relaxed);
+        values[4] = g_nonBinaryPipelineAttempts.load(std::memory_order_relaxed);
+        values[5] = 0u; // No compile fallback exists in BINARY_ONLY.
+        values[6] = g_pipelineCaptureWrites.load(std::memory_order_relaxed);
+        values[7] = g_executorInitStatus.load(std::memory_order_acquire) < 0 ? 1u : 0u;
+        return 0;
+    }
+
+#if defined(__ANDROID__)
+    JNIEXPORT jint JNICALL Java_com_genesis_roomscan_MerkabaPipelineBootstrap_configure(
+        JNIEnv* env, jclass, jstring path)
+    {
+        if (!path) return -1;
+        const char* utf = env->GetStringUTFChars(path, nullptr);
+        if (!utf) return -1;
+        const bool valid = utf[0] == '/' && std::strlen(utf) <= 3072u;
+        if (valid)
+        {
+            std::lock_guard<std::mutex> lock(g_pipelineCaptureMutex);
+            if (!g_pipelineCaptureDirectory.empty() && g_pipelineCaptureDirectory != utf)
+            { env->ReleaseStringUTFChars(path, utf); return -1; }
+            g_pipelineCaptureDirectory = utf;
+        }
+        env->ReleaseStringUTFChars(path, utf);
+        return valid ? 0 : -1;
+    }
+#endif
 
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_GetStartupStatus(uint32_t* pipeline, int32_t* error)
     {

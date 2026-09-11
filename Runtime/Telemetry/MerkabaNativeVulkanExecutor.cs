@@ -14,8 +14,8 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 31: scan-authored owner cache and separate conditional rebuild.
-        internal const int AbiVersion = 31;
+        // ABI 32: binary-only pipeline delivery and startup without cache IO.
+        internal const int AbiVersion = 32;
         internal const int ResourceCount = 41;
         internal const int PipelineCount = 25;
         // Native codegen verifies this against the longest complete schedule,
@@ -195,9 +195,8 @@ namespace Genesis.RoomScan
             {
                 if (Native.GetAbiVersion() != AbiVersion)
                     throw new InvalidOperationException("Native executor ABI does not match this application.");
-                string directory = Path.Combine(Application.persistentDataPath, "merkaba-pipeline-cache");
-                Directory.CreateDirectory(directory);
-                if (Native.ConfigureStartup(directory) != 0)
+                MerkabaPipelineCapture.Begin();
+                if (Native.ConfigureStartup() != 0)
                     throw new InvalidOperationException("Native pipeline startup configuration failed.");
             }
             catch (Exception error) when (error is DllNotFoundException ||
@@ -329,11 +328,12 @@ namespace Genesis.RoomScan
                         _startupLastState = startup;
                         _startupLastPipeline = pipeline;
                         _startupLastError = error;
-                        string name = pipeline < PipelineNames.Length ? PipelineNames[pipeline] : "device/cache setup";
+                        string name = pipeline < PipelineNames.Length ? PipelineNames[pipeline] : "device/binary bundle setup";
                         _startupSummary = startup < 0 ? $"Native startup FAILED: {name}, VkResult={error}"
                             : startup == 2 ? "Native pipelines: ready"
-                            : startup == 1 ? $"Native pipelines: compiling {name}"
-                            : "Native pipelines: waiting for device/cache path";
+                            : startup == 1 ? $"Native pipelines: creating {name}"
+                            : "Native pipelines: waiting for device/binary bundle";
+                        if (startup == 2 || startup < 0) MerkabaPipelineCapture.LogStats();
                     }
                     if (startup < 0)
                     {
@@ -503,7 +503,7 @@ namespace Genesis.RoomScan
             [DllImport(Library, EntryPoint = "MerkabaExecutor_IsAvailable")]
             internal static extern int IsAvailable();
             [DllImport(Library, EntryPoint = "MerkabaExecutor_ConfigureStartup")]
-            internal static extern int ConfigureStartup([MarshalAs(UnmanagedType.LPUTF8Str)] string directory);
+            internal static extern int ConfigureStartup();
             [DllImport(Library, EntryPoint = "MerkabaExecutor_GetStartupStatus")]
             internal static extern int GetStartupStatus(out uint pipeline, out int error);
             [DllImport(Library, EntryPoint = "MerkabaExecutor_GetAbiVersion")]

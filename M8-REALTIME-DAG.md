@@ -3,7 +3,7 @@
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=b1f59c7e77f2ba7dd431e59619d683de090e013c
 GOAL=active; complete the user's post-b1f59c7 execution/presentation/delivery closure
-CURRENT=C3
+CURRENT=C1_C2_HOT_CLOSURE
 STATE=implementation, no new APK or device run
 HOTPATH=GPU only; CPU oracle/codegen and frozen offline export are not live backends
 
@@ -37,7 +37,7 @@ CLOSE=live path fully switched, predecessor removed, compile, coherent commit
 
 ## C3 — complete pipeline-binary delivery
 
-DEPENDS=C1,C2; STATUS=PENDING
+DEPENDS=C1,C2; STATUS=SOURCE COMPLETE; capture/device validation deferred to C4
 CAPTURE/BINARY_ONLY modes; VK_KHR_pipeline_binary feature negotiation; intercept
 Unity and native graphics/compute creation and device proc lookup. Versioned
 bundle with exact global/pipeline keys, final device configuration and hashes.
@@ -74,8 +74,7 @@ After compaction read this cursor and the latest lasttrue.md receipt, then only
 the complete source units being changed. Update CURRENT/NEXT in place; commit
 each coherent cut. Do not accumulate competing historical handoff cursors here.
 
-NEXT=C3: negotiate/intercept all Vulkan pipeline creation, CAPTURE and BINARY_ONLY
-delivery with exact keys and no release SPIR-V fallback. C1 actual scan schedule
+NEXT=close the remaining C1/C2 HOT execution/performance gaps. C1 actual scan schedule
 remains 14, not the 9–11 target; HOT shaders above 20k remain release-blocked
 without exact-hash Adreno zero-spill evidence. Finish these execution/performance
 gaps before C4's APK, do not claim them closed by a hard compile PASS.
@@ -86,3 +85,11 @@ ABI31, 25 pipelines, 41 resources, 14 timing slots. Necessary Unity/codegen and
 ARM64 compile PASS 2026-09-11 19:06 UTC; no suite/APK/device run.
 ApplyOwnerDrawDeltas=129340 B / 6984 body instructions / 4168 B groupshared.
 Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c2-compile-n04Xjc
+C3 source=CAPTURE/BINARY_ONLY intercepts native and Unity compute/graphics,
+exact global/PSO keys, immutable bundles, source/scene/shader fingerprint,
+GSC/request inventory, explicit signing and APK/native/bundle verification.
+Native ABI32; persistent ABI unchanged. Necessary Unity/C# and ARM64 compile
+PASS; no capture/APK/device claim. The final builder rejects 14 dispatches and
+unreviewed >20k HOT shaders. Production key remains externally supplied.
+Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c3-compile-A3muI8
+Manufacturing instructions=Tools/unity/MERKABA_PIPELINE_DELIVERY.md

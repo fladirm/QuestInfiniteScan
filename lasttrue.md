@@ -10599,3 +10599,30 @@ OPEN=HOT observation still 14 rather than 9–11. Root/Children/Resolve/Skin
 VALIDATION=full suite NOT RUN, APK NOT BUILT, capture/device NOT RUN.
 NEXT=C3 all-PSO binary delivery, then close the remaining HOT source/performance
   gaps and C4 full validation/manufacturing/final APK/device pass. Goal ACTIVE.
+
+## 2026-09-11 19:35 UTC — direct-only C3 binary-delivery source cut
+
+CURRENT=C1_C2_HOT_CLOSURE; C3 source complete, goal ACTIVE.
+IMPLEMENTED=Vulkan pipeline-binary and maintenance5 feature negotiation;
+  device/compute/graphics proc interception for native and Unity PSOs.
+  CAPTURE writes driver-produced binaries and attempted-key inventory;
+  BINARY_ONLY selects exact global/PSO keys, never compiles from SPIR-V.
+  No pipeline-cache fallback. Capture bootstrap precedes Unity Vulkan setup;
+  GraphicsStateCollection records exercised graphics coverage, not delivery.
+  Pack fingerprint covers source, actual prepared Unity assets/config and
+  native SPIR-V hashes. Release reuses capture scene, checks input stability,
+  requires provided production signing key, verifies signature/alignment,
+  ARM64 ELF/native hash, embedded bundle manifest and APK SHA-256.
+  Explicit release gate rejects >11 HOT dispatches and >20k HOT modules
+  without exact-payload retained Adreno zero-spill/GPR/I-cache evidence.
+ABI=32; 25 pipelines, 41 resources; persistent ABI UNCHANGED.
+COMPILE=Unity C#/shader import/codegen PASS; native 25-entry embedding and
+  ARM64 plugin PASS. Shell/Python syntax checks PASS. NDK compatibility
+  header emits one known enum-extension switch warning, no compile error.
+  Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c3-compile-A3muI8
+  unity.log; native-final.log. No full suite or capture has run.
+OPEN=14 HOT commands, Root/Children/Resolve/Skin >20k; live peer-cache rebuild
+  frequency; all C4 host/device gates. Binaries are not captured or packaged
+  into a new APK yet. No production-key availability or device support claim.
+NEXT=finish HOT graph/source performance before C4; then single complete
+  validation/manufacturing/final APK pass. No per-cut APK/device iteration.

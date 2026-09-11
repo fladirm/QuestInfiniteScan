@@ -320,6 +320,9 @@ namespace Genesis.RoomScan.Editor
                 "android:installLocation=\"auto\">\n" +
                 "  <application android:label=\"@string/app_name\" " +
                 "android:icon=\"@mipmap/app_icon\" android:allowBackup=\"false\">\n" +
+                "    <provider android:name=\"com.genesis.roomscan.MerkabaPipelineBootstrap\" " +
+                "android:authorities=\"${applicationId}.merkaba.pipelines\" " +
+                "android:exported=\"false\" android:initOrder=\"100\" />\n" +
                 "    <activity android:name=\"com.unity3d.player.UnityPlayerActivity\" " +
                 "android:theme=\"@style/UnityThemeSelector\" " +
                 "android:launchMode=\"singleTask\" android:exported=\"true\" " +
