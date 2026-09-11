@@ -1539,6 +1539,97 @@ bool M8FlowerTryGetChildPhaseLoop(uint petalClass, uint parentContext, uint knot
     return true;
 }
 
+bool M8FlowerBeginChildTransport(int3 rootOwner,uint petalClass,uint parentContext,
+    uint knotSite,M8FlowerPhaseRootEvidence childBase,
+    out uint4 address,out M8FlowerPhaseRootEvidence current)
+{
+    address=0u;current=(M8FlowerPhaseRootEvidence)0;
+    uint level,lineClass,strand;int3 offset,junction;int endpoint,phase,inherited;
+    if(!M8FlowerTryGetChildPhaseLoop(petalClass,parentContext,knotSite,
+        level,offset,lineClass,strand,endpoint,phase,inherited) || inherited>=0 ||
+        level==0u || level>=M8_FLOWER_GEOMETRY_LEVEL_COUNT ||
+        !M8FlowerPhaseJunction(rootOwner,level+1u,offset,junction) ||
+        childBase.Classification!=1u || !M8FlowerPhaseIdentityValid(childBase) ||
+        (childBase.Tag&7u)!=level || ((childBase.Tag>>3u)&15u)!=lineClass ||
+        any(childBase.Junction!=junction))return false;
+    address=M8FlowerChildLoopAddressAt((petalClass*5u+parentContext)*6u+knotSite);
+    current=childBase;
+    current.Tag=(current.Tag&~(1u<<13u))|(endpoint<0?1u<<13u:0u);
+    return true;
+}
+
+// Validate one reached ancestor while it is live, then keep four integers.
+// The general oracle bridge below and the production decoder share this
+// exact predicate; no full-root array is needed by the runtime transport.
+bool M8FlowerReadTransportTerm(int3 rootOwner,uint4 childAddress,
+    uint parentContext,uint knotSite,uint previousLevel,
+    M8FlowerPhaseRootEvidence source,M8FlowerDetailRecord record,uint key,
+    uint epoch,out M8FlowerPhaseTransportTerm term)
+{
+    term=(M8FlowerPhaseTransportTerm)0;
+    uint level=childAddress.w&3u,lineClass=(childAddress.w>>2u)&15u;
+    uint strandClass=(childAddress.w>>6u)&127u;
+    if(level==0u || level>=M8_FLOWER_GEOMETRY_LEVEL_COUNT || lineClass>=13u || strandClass>=72u)
+        return false;
+    M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strandClass);
+    int4 sourceNode=M8FlowerNodeAt(family.RootNode);
+    uint4 strand=M8FlowerStrandAt(strandClass);
+    int lower,upper;
+    if(M8FlowerLineMetaAt((uint)sourceNode.w).x!=2u ||
+        !M8FlowerTryReadR2Phase(record,key,epoch,lower,upper))return false;
+    uint sourceLevel=key&3u;
+    uint keyChannel=(key>>M8_FLOWER_DETAIL_CHANNEL_SHIFT)&15u;
+    uint keySector=(key>>M8_FLOWER_DETAIL_SECTOR_SHIFT)&31u;
+    uint keyRoot=(key>>M8_FLOWER_DETAIL_ROOT_SHIFT)&1u;
+    uint keyPath=(key>>M8_FLOWER_DETAIL_CHILD_PATH_SHIFT)&15u;
+    uint keyPetal=(key>>M8_FLOWER_DETAIL_PETAL_SHIFT)&63u;
+    uint sourceSector;
+    if((previousLevel!=0xffffffffu && sourceLevel<=previousLevel) || sourceLevel>=level ||
+        !M8FlowerPhaseIdentityValid(source) || source.Classification!=1u ||
+        !M8FlowerPhaseRootSector(source,sourceSector) || sourceSector!=((source.Tag>>8u)&31u) ||
+        (source.Tag&7u)!=sourceLevel || ((source.Tag>>3u)&15u)!=lineClass ||
+        keyChannel!=lineClass || keySector!=((source.Tag>>8u)&31u) ||
+        keyRoot!=((source.Tag>>7u)&1u))return false;
+    int3 offset;int orientation;
+    if(sourceLevel==0u)
+    {
+        if(keyPath!=0u || (family.RootIncidentPetals[keyPetal>>5u]&(1u<<(keyPetal&31u)))==0u)
+            return false;
+        offset=sourceNode.xyz;orientation=(int)((childAddress.w>>14u)&3u)-1;
+    }
+    else
+    {
+        int path=keyPetal==(strand.w&255u)?(int)family.FinePath0:
+            keyPetal==((strand.w>>8u)&255u)?(int)family.FinePath1:-1;
+        if(path<0 || keyPath!=(uint)path || parentContext==0u || knotSite<3u)return false;
+        offset=M8FlowerNodeAt(strand.x).xyz+M8FlowerNodeAt(strand.y).xyz;
+        orientation=M8FlowerGetChildPhaseEdge(parentContext-1u,knotSite-3u).PhaseOrientation;
+    }
+    int3 junction;
+    if(!M8FlowerPhaseJunction(rootOwner,sourceLevel+1u,offset,junction) ||
+        any(source.Junction!=junction) || (orientation!=1 && orientation!=-1))return false;
+    term.Lower=lower;term.Upper=upper;term.Orientation=orientation;term.AncestorLevel=sourceLevel;
+    return true;
+}
+
+uint M8FlowerFinishChildTransport(M8FlowerPhaseRootEvidence childBase,
+    M8FlowerPhaseTransportTerm terms[2],uint count,out M8FlowerPhaseRootEvidence prediction)
+{
+    prediction=(M8FlowerPhaseRootEvidence)0;
+    if(count>2u)return 2u;
+    M8FlowerPhaseRootEvidence current=childBase;
+    [loop]for(uint i=0u;i<count;i++)
+    {
+        M8FlowerPhaseTransportTerm term=terms[i];
+        M8FlowerInterval turn=M8FlowerDecodePhaseInterval(term.Lower,term.Upper);
+        if(term.Orientation<0)turn=M8FlowerI(-turn.hi,-turn.lo);
+        M8FlowerPhaseRootEvidence rotated;
+        if(M8FlowerRotatePhaseEvidence(current,turn,rotated)!=1u)return 2u;
+        current=rotated;
+    }
+    prediction=current;return 1u;
+}
+
 uint M8FlowerTransportChildFromFamily(int3 rootOwner, uint petalClass,
     uint parentContext, uint knotSite, M8FlowerPhaseRootEvidence childBase,
     M8FlowerPhaseRootEvidence parentRoots[3], M8FlowerPhaseRootEvidence ancestorRoots[2],
@@ -1560,87 +1651,22 @@ uint M8FlowerTransportChildFromFamily(int3 rootOwner, uint petalClass,
         prediction=M8FlowerCopyInheritedPhase(source);
         return prediction.Classification;
     }
-    if (childBase.Classification!=1u || !M8FlowerPhaseIdentityValid(childBase) ||
-        (childBase.Tag&7u)!=level || ((childBase.Tag>>3u)&15u)!=lineClass ||
-        any(childBase.Junction!=junction) || ancestorCount>level ||
-        level==0u || level>=M8_FLOWER_GEOMETRY_LEVEL_COUNT ||
-        (ancestorCount!=0u && currentParentEpoch==0u)) return 2u;
-
-    M8FlowerPhaseFamilyRule family=M8FlowerGetPhaseFamily(strandClass);
-    int4 sourceNode=M8FlowerNodeAt(family.RootNode);
-    uint4 strand=M8FlowerStrandAt(strandClass);
-    if (M8FlowerLineMetaAt((uint)sourceNode.w).x!=2u && ancestorCount!=0u) return 2u;
+    uint4 address;M8FlowerPhaseRootEvidence current;
+    if(ancestorCount>level || (ancestorCount!=0u && currentParentEpoch==0u) ||
+        !M8FlowerBeginChildTransport(rootOwner,petalClass,parentContext,knotSite,
+            childBase,address,current))return 2u;
     M8FlowerPhaseTransportTerm terms[2];
     terms[0]=(M8FlowerPhaseTransportTerm)0;
     terms[1]=terms[0];
-    uint previousLevel=0u;
+    uint previousLevel=0xffffffffu;
     [loop] for (uint i=0u;i<2u;++i)
     {
         if (i>=ancestorCount) break;
-        uint key=ancestorKeys[i];
-        int lower,upper;
-        if (!M8FlowerTryReadR2Phase(ancestorRecords[i],key,currentParentEpoch,lower,upper))
-            return 2u;
-        uint sourceLevel=key&3u;
-        M8FlowerPhaseRootEvidence source=ancestorRoots[i];
-        uint keyChannel=(key>>M8_FLOWER_DETAIL_CHANNEL_SHIFT)&15u;
-        uint keySector=(key>>M8_FLOWER_DETAIL_SECTOR_SHIFT)&31u;
-        uint keyRoot=(key>>M8_FLOWER_DETAIL_ROOT_SHIFT)&1u;
-        uint keyPath=(key>>M8_FLOWER_DETAIL_CHILD_PATH_SHIFT)&15u;
-        uint keyPetal=(key>>M8_FLOWER_DETAIL_PETAL_SHIFT)&63u;
-        uint sourceSector;
-        if ((i!=0u && sourceLevel<=previousLevel) || sourceLevel>=level ||
-            !M8FlowerPhaseIdentityValid(source) || source.Classification!=1u ||
-            !M8FlowerPhaseRootSector(source,sourceSector) || sourceSector!=((source.Tag>>8u)&31u) ||
-            (source.Tag&7u)!=sourceLevel || ((source.Tag>>3u)&15u)!=lineClass ||
-            keyChannel!=lineClass || keySector!=((source.Tag>>8u)&31u) ||
-            keyRoot!=((source.Tag>>7u)&1u)) return 2u;
-        previousLevel=sourceLevel;
-        int3 sourceOffset;
-        int orientation;
-        if (sourceLevel==0u)
-        {
-            if (keyPath!=0u ||
-                (family.RootIncidentPetals[keyPetal>>5u]&(1u<<(keyPetal&31u)))==0u)
-                return 2u;
-            sourceOffset=sourceNode.xyz;
-            orientation=phase;
-        }
-        else
-        {
-            int path=keyPetal==(strand.w&255u) ? (int)family.FinePath0 :
-                keyPetal==((strand.w>>8u)&255u) ? (int)family.FinePath1 : -1;
-            if (path<0 || keyPath!=(uint)path) return 2u;
-            sourceOffset=M8FlowerNodeAt(strand.x).xyz+M8FlowerNodeAt(strand.y).xyz;
-            M8FlowerChildPhaseEdgeRule child=M8FlowerGetChildPhaseEdge(parentContext-1u,knotSite-3u);
-            orientation=child.PhaseOrientation;
-        }
-        int3 sourceJunction;
-        if (!M8FlowerPhaseJunction(rootOwner,sourceLevel+1u,sourceOffset,sourceJunction) ||
-            any(source.Junction!=sourceJunction) ||
-            (orientation!=1 && orientation!=-1)) return 2u;
-        terms[i].Lower=lower;
-        terms[i].Upper=upper;
-        terms[i].Orientation=orientation;
-        terms[i].AncestorLevel=sourceLevel;
+        if(!M8FlowerReadTransportTerm(rootOwner,address,parentContext,knotSite,previousLevel,
+            ancestorRoots[i],ancestorRecords[i],ancestorKeys[i],currentParentEpoch,terms[i]))return 2u;
+        previousLevel=terms[i].AncestorLevel;
     }
-    // The reader already evaluated this exact child carrier before reading
-    // ancestors. Keep its complete enclosure and boundary witness; transport
-    // changes only the generated endpoint orientation and phase innovations.
-    M8FlowerPhaseRootEvidence current=childBase;
-    current.Tag=(current.Tag&~(1u<<13u))|(endpoint<0?1u<<13u:0u);
-    [loop]for(uint i=0u;i<2u;i++)
-    {
-        if(i>=ancestorCount)break;
-        M8FlowerPhaseTransportTerm term=terms[i];
-        M8FlowerInterval turn=M8FlowerDecodePhaseInterval(term.Lower,term.Upper);
-        if(term.Orientation<0)turn=M8FlowerI(-turn.hi,-turn.lo);
-        M8FlowerPhaseRootEvidence rotated;
-        if(M8FlowerRotatePhaseEvidence(current,turn,rotated)!=1u)return 2u;
-        current=rotated;
-    }
-    prediction=current;
-    return 1u;
+    return M8FlowerFinishChildTransport(current,terms,ancestorCount,prediction);
 }
 
 bool M8FlowerPreparePhaseRecordSynthesis(M8FlowerPhaseRootEvidence prediction,

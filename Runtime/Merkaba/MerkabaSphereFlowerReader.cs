@@ -1170,11 +1170,10 @@ namespace Genesis.RoomScan
                 if (CarrierRootProof(owner, flags, task.Level, task.Offset, task.Line, task.Plus,
                     normalError, offsetError, out prediction) != ProofClassification.Certain) return false;
                 if (task.Level == 0) return true;
-                Span<PhaseRootEvidence> parents = stackalloc PhaseRootEvidence[3];
-                Span<PhaseRootEvidence> ancestors = stackalloc PhaseRootEvidence[2];
-                Span<MerkabaFlowerDetailRecord> records = stackalloc MerkabaFlowerDetailRecord[2];
-                Span<MerkabaFlowerDetailKey> keys = stackalloc MerkabaFlowerDetailKey[2];
-                parents.Clear(); ancestors.Clear(); records.Clear(); keys.Clear();
+                if (!BeginChildTransport(owner, task.Petal, task.ParentContext, task.KnotSite,
+                    prediction, out uint4 childAddress, out PhaseRootEvidence transportBase))
+                { prediction = default; return false; }
+                Span<PhaseTransportTerm> terms = stackalloc PhaseTransportTerm[2];
                 int count = 0;
                 PhaseFamilyRule family = PhaseFamiliesValue[task.Strand];
                 int sourcePetal = FirstPetal(family.RootIncidentPetals);
@@ -1194,7 +1193,10 @@ namespace Genesis.RoomScan
                         if (status != ProofClassification.Certain) return false;
                         // Shared source validates identity and closure, while
                         // rotations use the UNCHANGED endpoint-local integers.
-                        ancestors[count] = shared; records[count] = record; keys[count] = key; count++;
+                        if (!ReadTransportTerm(owner, childAddress, task.ParentContext, task.KnotSite,
+                            -1, shared, record, key, epoch, out terms[count]))
+                        { prediction = default; return false; }
+                        count++;
                     }
                 }
                 if (task.Level == 2)
@@ -1214,7 +1216,7 @@ namespace Genesis.RoomScan
                         {
                             if (count != 0)
                             {
-                                FloatInterval turn = DecodePhaseInterval(records[0].Lower, records[0].Upper);
+                                FloatInterval turn = DecodePhaseInterval(terms[0].Lower, terms[0].Upper);
                                 if (family.PhaseOrientation < 0) turn = new FloatInterval(-turn.Upper, -turn.Lower);
                                 if (RotatePhaseEvidence(source, turn, out PhaseRootEvidence transported) !=
                                     ProofClassification.Certain) return false;
@@ -1222,15 +1224,16 @@ namespace Genesis.RoomScan
                             }
                             if (SynthesizePhaseRecord(source, key, record, epoch,
                                 out PhaseRootEvidence synthesized) != ProofClassification.Certain) return false;
-                            ancestors[count] = synthesized; records[count] = record; keys[count] = key; count++;
+                            if (!ReadTransportTerm(owner, childAddress, task.ParentContext, task.KnotSite,
+                                count == 0 ? -1 : terms[count - 1].AncestorLevel, synthesized,
+                                record, key, epoch, out terms[count]))
+                            { prediction = default; return false; }
+                            count++;
                         }
                     }
                 }
-                M8FlowerUnpackPlane(flags, out float3 normal, out float delta);
-                return PredictChildFromFamily(owner, task.Petal, task.ParentContext, task.KnotSite,
-                    normal, delta, normalError, offsetError, (int)((prediction.Symbol.Tag >> 8) & 31u),
-                    task.Plus, parents, ancestors[..count], records[..count], keys[..count], epoch,
-                    out prediction) == ProofClassification.Certain;
+                return FinishChildTransport(transportBase, terms[..count], out prediction) ==
+                    ProofClassification.Certain;
             }
 
             private bool ReadL2Incidence(int3 owner, uint flags, uint epoch, uint source, bool plus,

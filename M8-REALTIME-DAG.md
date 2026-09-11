@@ -227,13 +227,26 @@ Raw/final bit-identical values share a slot. J is reconstructed exactly from
 owner plus generated offset, with an explicit empty-J bit. The two endpoint
 base restrictions stay private to their query lane until publication. Present
 L1 bases use rank of reached strands and implicit J, not 144 addressed roots.
-Compact now uses 26,556 B shared / 7 RW / 256 lanes. Its 1,287,540 B and
-68,454 body instructions STILL FAIL the size gate. This is not RT3 closure.
+The cache checkpoint uses 26,556 B shared / 7 RW / 256 lanes; subsequent
+transport compilation is recorded below. This is not RT3 closure.
+
+ANCESTRY=production GPU and frozen CPU decode now consume each actual source
+through the same generated Begin/ReadTerm/Finish transport predicates. Full
+parent/ancestor root and record/key arrays are removed from the production
+predictor. Two four-integer terms retain ordered fixed-point rotations; source
+validation, epoch/key/sector checks, half-open witness and orientation remain.
+The offline oracle bridge uses these same predicates. CPU frozen decode also
+reuses its already classified child base rather than recomputing its loop.
+Unity C#/codegen and five exact compute targets compiled. Compact is still
+1,285,712 B / 68,316 body instructions: FAIL. Resolver is 936,388 B / 48,353;
+Root 525,704 / 27,471; L1 739,632 / 38,702; L2 739,576 / 38,702. No new
+dispatch/resource/CPU hotpath or APK. Integrated parity remains RT4 work.
 
 NEXT=RT3 shared actual-carrier decode in GPU readout and frozen offline export;
-completion from actual incident boundaries. The eight-carrier site/ancestry
-and completion driver remains; remove its generic full-root transport arrays
-and repeated metric work, not merely shrink scratch. The coverage and atlas
+completion from actual incident boundaries. The eight-carrier site acquisition
+and completion driver remains; remove repeated metric work, not merely shrink
+scratch or inline fewer wrappers. Do not redo the compact source cache or
+streamed ancestry predicates. The coverage and atlas
 checkpoints do not close RT3 or move CPU decode into the live hotpath. RT4 must
 prove compact source-cache bit parity, reached-face owner
 mask omits no coverage contributor and 32-lane accumulation matches scalar OR.

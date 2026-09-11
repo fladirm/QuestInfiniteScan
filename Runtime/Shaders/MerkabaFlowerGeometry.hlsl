@@ -465,15 +465,11 @@ bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 ow
     out M8FlowerPhaseRootEvidence prediction)
 {
     prediction=(M8FlowerPhaseRootEvidence)0;prediction.Classification=2u;
-    M8FlowerPhaseRootEvidence parents[3],ancestors[2];
-    M8FlowerDetailRecord records[2];uint keys[2];
-    [unroll]for(uint parentIndex=0u;parentIndex<3u;parentIndex++)
-        parents[parentIndex]=(M8FlowerPhaseRootEvidence)0;
-    [unroll]for(uint ancestorIndex=0u;ancestorIndex<2u;ancestorIndex++)
-    {
-        ancestors[ancestorIndex]=(M8FlowerPhaseRootEvidence)0;
-        records[ancestorIndex]=(M8FlowerDetailRecord)0;keys[ancestorIndex]=0u;
-    }
+    M8FlowerPhaseTransportTerm terms[2];
+    terms[0]=(M8FlowerPhaseTransportTerm)0;terms[1]=terms[0];
+    M8FlowerPhaseRootEvidence transportBase=(M8FlowerPhaseRootEvidence)0;
+    uint4 childAddress=0u;
+    uint previousLevel=0xffffffffu;
     uint count=0u;
     M8FlowerPhaseFamilyRule family=(M8FlowerPhaseFamilyRule)0;
     uint4 strand=0u;uint sourcePetal=0u;
@@ -505,6 +501,9 @@ bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 ow
             prediction=source;
             if(!certain)return false;
             if(task.Level==0u)return true;
+            if(!M8FlowerBeginChildTransport(owner,task.Petal,task.ParentContext,task.KnotSite,
+                source,childAddress,transportBase))
+            {prediction=(M8FlowerPhaseRootEvidence)0;return false;}
             family=M8FlowerGetPhaseFamily(task.Strand);
             strand=M8FlowerStrandAt(task.Strand);
             sourcePetal=family.RootIncidentPetals.x!=0u?
@@ -532,7 +531,7 @@ bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 ow
             // stored innovation. Coarse phase is not halved or replaced.
             if(count!=0u)
             {
-                M8FlowerInterval turn=M8FlowerDecodePhaseInterval(records[0].Lower,records[0].Upper);
+                M8FlowerInterval turn=M8FlowerDecodePhaseInterval(terms[0].Lower,terms[0].Upper);
                 if(family.PhaseOrientation<0)turn=M8FlowerI(-turn.hi,-turn.lo);
                 M8FlowerPhaseRootEvidence transported;
                 if(M8FlowerRotatePhaseEvidence(source,turn,transported)!=1u)return false;
@@ -542,11 +541,15 @@ bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 ow
             if(M8FlowerSynthesizePhaseRecord(source,key,record,epoch,synthesized)!=1u)return false;
             source=synthesized;
         }
-        ancestors[count]=source;records[count]=record;keys[count]=key;count++;
+        // This reached source is no longer needed after validation. Keep
+        // its fixed-point innovation, not a private array of full roots.
+        M8FlowerPhaseTransportTerm term;
+        if(!M8FlowerReadTransportTerm(owner,childAddress,task.ParentContext,task.KnotSite,
+            previousLevel,source,record,key,epoch,term))
+        {prediction=(M8FlowerPhaseRootEvidence)0;return false;}
+        terms[count]=term;previousLevel=term.AncestorLevel;count++;
     }
-    M8FlowerPhaseRootEvidence childBase=prediction;
-    return M8FlowerTransportChildFromFamily(owner,task.Petal,task.ParentContext,task.KnotSite,
-        childBase,parents,ancestors,records,keys,count,epoch,prediction)==1u;
+    return M8FlowerFinishChildTransport(transportBase,terms,count,prediction)==1u;
 }
 #endif
 

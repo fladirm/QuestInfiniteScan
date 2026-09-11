@@ -10286,3 +10286,30 @@ CURSOR=RT3 OPEN. Next remove generic full-root ancestry transport arrays and
   Removed the obsolete RT3 NOT STARTED footer from DAG; its current cursor
   remains RT3, not RT4 or a historical numbered run.
 TESTS/APK/INSTALL/DEVICE=not run; no CPU geometry entered the hotpath.
+
+## RT3 — streamed generated ancestry transport (after 344d4eb)
+
+CHANGE=removed full parent/ancestor root arrays and record/key arrays from
+  production PredictGeometryNode. Each reached ancestor is consumed by the
+  shared generated ReadTransportTerm predicate while its source is live;
+  transport retains only two four-integer terms. Begin/Finish preserve the
+  exact generated child address, endpoint orientation, complete interval and
+  ordered rational rotations. Epoch/key/sector/source-incidence checks remain.
+  The general oracle bridge uses the same predicates, not a second formula.
+  Frozen CPU decode uses the identical term flow and no longer recomputes the
+  already classified child base. No live CPU evaluator or fallback was added.
+COMPILE=Unity C#/Editor codegen PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt3-transport-terms.log.
+  Exact native glslang/spirv-val, /tmp/m8-rt3-transport-terms-3ei4d6yw:
+    Compact 1,285,712 B / 68,316 body / 26,556 B shared / 7 RW / 256 lanes
+      sha256 1f234adb4fd9e2fdcde1246f8058dddc0df3de45db163e2762d55c3482d5eedd
+    Resolver 936,388 B / 48,353 body / 15,464 B shared / 6 RW / 128 lanes
+    Root     525,704 B / 27,471 body / 14,572 B shared / 5 RW / 128 lanes
+    L1       739,632 B / 38,702 body / 14,580 B shared / 5 RW / 128 lanes
+    L2       739,576 B / 38,702 body / 14,580 B shared / 5 RW / 128 lanes
+  Compact STILL FAILS the production size gate; compilation is not acceptance.
+CURSOR=RT3 OPEN. Next address repeated actual-carrier site acquisition and
+  completion work; do not repeat the source-cache or ancestry-array changes.
+  RT4 must prove no/coarse/L1/both-ancestor transport against the oracle,
+  signed/witness boundaries, incompatible/stale records and raw-base reuse.
+TESTS/APK/INSTALL/DEVICE=not run. No performance or full-rewrite PASS claimed.

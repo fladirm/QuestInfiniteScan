@@ -1541,6 +1541,96 @@ namespace Genesis.RoomScan
             return true;
         }
 
+        internal static bool BeginChildTransport(int3 rootOwner, int petalClass,
+            int parentContext, int knotSite, PhaseRootEvidence childBase,
+            out uint4 address, out PhaseRootEvidence current)
+        {
+            address = default; current = default;
+            if (!TryGetChildPhaseLoop(petalClass, parentContext, knotSite,
+                    out int level, out int3 offset, out int line, out _,
+                    out sbyte endpoint, out _, out int inherited) || inherited >= 0 ||
+                level <= 0 || level >= GeometryLevelCount ||
+                !TryOwnerJunction(rootOwner, level, offset, out int3 junction) ||
+                childBase.Classification != ProofClassification.Certain ||
+                !TryPhaseIdentity(childBase, out var tag) || tag.Level != level ||
+                tag.LineClass != line || math.any(childBase.Symbol.Junction != junction))
+                return false;
+            address = ChildLoopAddresses[(petalClass * 5 + parentContext) * 6 + knotSite];
+            var symbol = childBase.Symbol;
+            symbol.Tag = (symbol.Tag & ~(1u << 13)) | (endpoint < 0 ? 1u << 13 : 0u);
+            current = new PhaseRootEvidence(symbol, childBase.Root, childBase.Classification);
+            return true;
+        }
+
+        // Same finite address/identity predicate emitted to HLSL. Validate a
+        // reached source while it is live; transport retains only four ints.
+        internal static bool ReadTransportTerm(int3 rootOwner, uint4 childAddress,
+            int parentContext, int knotSite, int previousLevel, PhaseRootEvidence source,
+            MerkabaFlowerDetailRecord record, MerkabaFlowerDetailKey key, uint epoch,
+            out PhaseTransportTerm term)
+        {
+            term = default;
+            int level = (int)(childAddress.w & 3u), line = (int)((childAddress.w >> 2) & 15u);
+            int strandClass = (int)((childAddress.w >> 6) & 127u);
+            if (level <= 0 || level >= GeometryLevelCount || (uint)line >= 13u ||
+                (uint)strandClass >= 72u) return false;
+            PhaseFamilyRule family = PhaseFamiliesValue[strandClass];
+            NodeRule sourceNode = NodesValue[family.RootNode];
+            StrandRule strand = StrandsValue[strandClass];
+            int sourceLevel = key.GeometryLevel;
+            if (sourceNode.Shell != Shell.R2Shape ||
+                !record.TryReadR2Phase(key, epoch, out int lower, out int upper) ||
+                lower > upper || (lower <= 0 && upper >= 0 && (lower != 0 || upper != 0)) ||
+                sourceLevel <= previousLevel || sourceLevel >= level ||
+                !TryPhaseIdentity(source, out var tag) ||
+                source.Classification != ProofClassification.Certain ||
+                ClassifyPhaseSector(source, out int sector) != ProofClassification.Certain ||
+                sector != tag.Sector || tag.Level != sourceLevel || tag.LineClass != line ||
+                key.Channel != line || key.Sector != tag.Sector || key.RootSign != tag.RootSign)
+                return false;
+            int3 offset;
+            sbyte orientation;
+            if (sourceLevel == 0)
+            {
+                if (key.GeometryChildPath != 0 ||
+                    (family.RootIncidentPetals & (1UL << key.PetalClass)) == 0) return false;
+                offset = sourceNode.Direction;
+                orientation = (sbyte)(((childAddress.w >> 14) & 3u) - 1);
+            }
+            else
+            {
+                int path = key.PetalClass == strand.Petal0 ? family.FinePath0 :
+                    key.PetalClass == strand.Petal1 ? family.FinePath1 : -1;
+                if (path < 0 || key.GeometryChildPath != path || parentContext == 0 || knotSite < 3)
+                    return false;
+                offset = NodesValue[strand.Node0].Direction + NodesValue[strand.Node1].Direction;
+                orientation = ChildPhaseEdgesValue[(parentContext - 1) * 3 + knotSite - 3].PhaseOrientation;
+            }
+            if (!TryOwnerJunction(rootOwner, sourceLevel, offset, out int3 junction) ||
+                math.any(source.Symbol.Junction != junction) || (orientation != -1 && orientation != 1))
+                return false;
+            term = new PhaseTransportTerm(lower, upper, orientation, checked((byte)sourceLevel));
+            return true;
+        }
+
+        internal static ProofClassification FinishChildTransport(PhaseRootEvidence childBase,
+            ReadOnlySpan<PhaseTransportTerm> terms, out PhaseRootEvidence prediction)
+        {
+            prediction = default;
+            if (terms.Length > 2) return ProofClassification.Ambiguous;
+            PhaseRootEvidence current = childBase;
+            foreach (PhaseTransportTerm term in terms)
+            {
+                FloatInterval residual = DecodePhaseInterval(term.Lower, term.Upper);
+                if (term.Orientation < 0) residual = new FloatInterval(-residual.Upper, -residual.Lower);
+                if (RotatePhaseEvidence(current, residual, out PhaseRootEvidence rotated) !=
+                    ProofClassification.Certain) return ProofClassification.Ambiguous;
+                current = rotated;
+            }
+            prediction = current;
+            return ProofClassification.Certain;
+        }
+
         /// <summary>Production/oracle bridge: restrict the decoded canonical
         /// R1 plane to the ACTUAL child loop in owner-local coordinates, then
         /// consume only epoch-valid innovations from its whole-loop family.
@@ -1586,59 +1676,15 @@ namespace Genesis.RoomScan
                 (ancestorRecords.Length != 0 && currentParentEpoch == 0u))
                 return ProofClassification.Ambiguous;
 
-            PhaseFamilyRule family = PhaseFamiliesValue[strandClass];
-            NodeRule source = NodesValue[family.RootNode];
-            StrandRule strand = StrandsValue[strandClass];
-            if (source.Shell != Shell.R2Shape && ancestorRecords.Length != 0)
-                return ProofClassification.Ambiguous;
+            uint4 childAddress = ChildLoopAddresses[(petalClass * 5 + parentContext) * 6 + knotSite];
             Span<PhaseTransportTerm> terms = stackalloc PhaseTransportTerm[2];
             int previousLevel = -1;
             for (int i = 0; i < ancestorRecords.Length; i++)
             {
-                MerkabaFlowerDetailKey key = ancestorKeys[i];
-                int sourceLevel = key.GeometryLevel;
-                if (sourceLevel <= previousLevel || sourceLevel >= level ||
-                    !TryPhaseIdentity(ancestorRoots[i], out var sourceTag) ||
-                    ancestorRoots[i].Classification != ProofClassification.Certain ||
-                    ClassifyPhaseSector(ancestorRoots[i], out int sourceSector) !=
-                        ProofClassification.Certain || sourceSector != sourceTag.Sector ||
-                    sourceTag.Level != sourceLevel || sourceTag.LineClass != line ||
-                    key.Channel != line || key.Sector != sourceTag.Sector ||
-                    key.RootSign != sourceTag.RootSign)
+                if (!ReadTransportTerm(rootOwner, childAddress, parentContext, knotSite, previousLevel,
+                    ancestorRoots[i], ancestorRecords[i], ancestorKeys[i], currentParentEpoch, out terms[i]))
                     return ProofClassification.Ambiguous;
-                previousLevel = sourceLevel;
-                int3 sourceOffset;
-                sbyte orientation;
-                if (sourceLevel == 0)
-                {
-                    if (key.GeometryChildPath != 0 ||
-                        (family.RootIncidentPetals & (1UL << key.PetalClass)) == 0)
-                        return ProofClassification.Ambiguous;
-                    sourceOffset = source.Direction;
-                    orientation = phase;
-                }
-                else
-                {
-                    int path = key.PetalClass == strand.Petal0 ? family.FinePath0 :
-                        key.PetalClass == strand.Petal1 ? family.FinePath1 : -1;
-                    if (path < 0 || key.GeometryChildPath != path)
-                        return ProofClassification.Ambiguous;
-                    sourceOffset = NodesValue[strand.Node0].Direction +
-                        NodesValue[strand.Node1].Direction;
-                    orientation = ChildPhaseEdgesValue[(parentContext - 1) * 3 +
-                        knotSite - 3].PhaseOrientation;
-                }
-                if (!TryOwnerJunction(rootOwner, sourceLevel, sourceOffset,
-                        out int3 sourceJunction) ||
-                    math.any(ancestorRoots[i].Symbol.Junction != sourceJunction) ||
-                    !ancestorRecords[i].TryReadR2Phase(key, currentParentEpoch,
-                        out int lower, out int upper) ||
-                    lower > upper ||
-                    (lower <= 0 && upper >= 0 && (lower != 0 || upper != 0)) ||
-                    (orientation != -1 && orientation != 1))
-                    return ProofClassification.Ambiguous;
-                terms[i] = new PhaseTransportTerm(lower, upper, orientation,
-                    checked((byte)sourceLevel));
+                previousLevel = terms[i].AncestorLevel;
             }
             LoopFrame loop = EvaluateLoop(level,
                 new Long3(offset.x, offset.y, offset.z), line);
@@ -1661,19 +1707,7 @@ namespace Genesis.RoomScan
             var symbol = new MerkabaFlowerSymbolKey(junction, tag);
             symbol.Tag |= boundaryWitness;
             var current = new PhaseRootEvidence(symbol, root, ProofClassification.Certain);
-            for (int i = 0; i < ancestorRecords.Length; i++)
-            {
-                PhaseTransportTerm term = terms[i];
-                FloatInterval residual = DecodePhaseInterval(term.Lower, term.Upper);
-                if (term.Orientation < 0)
-                    residual = new FloatInterval(-residual.Upper, -residual.Lower);
-                if (RotatePhaseEvidence(current, residual, out PhaseRootEvidence rotated) !=
-                    ProofClassification.Certain)
-                    return ProofClassification.Ambiguous;
-                current = rotated;
-            }
-            prediction = current;
-            return ProofClassification.Certain;
+            return FinishChildTransport(current, terms[..ancestorRecords.Length], out prediction);
         }
 
 
