@@ -756,15 +756,18 @@ void ResolveFlowerCarriers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 }
 
 [numthreads(64,1,1)]
-void IntegrateFlowerSkin(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+void IntegrateFlowerSkinRgb(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
-    // Keep one writer per owner across both arenas; parallel RGB/V groups
-    // could race creation of their common sparse owner epoch.
-    [loop] for (uint signal=0u; signal<2u; ++signal)
-    {
-        M8FlowerIntegrateSkin(group,lane,signal!=0u);
-        DeviceMemoryBarrierWithGroupSync();
-    }
+    M8FlowerIntegrateSkin(group,lane,false);
+}
+
+// The dispatch barrier after RGB preserves the single-writer ordering of
+// the shared sparse owner epoch. Literal modes compile only one signal
+// evaluator into each pipeline; both consume the same resolved carriers.
+[numthreads(64,1,1)]
+void IntegrateFlowerSkinV(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+{
+    M8FlowerIntegrateSkin(group,lane,true);
 }
 
 #endif

@@ -14,11 +14,33 @@ fi
 source "${SCRIPT_DIR}/../storage/dev_environment.sh"
 : "${QIS_PIPELINE_MODE:?Choose CAPTURE or BINARY_ONLY; no implicit compiling APK mode}"
 case "$QIS_PIPELINE_MODE" in CAPTURE|BINARY_ONLY) ;; *) exit 1 ;; esac
-: "${QIS_RELEASE_KEYSTORE:?Provide the production keystore path}"
-: "${QIS_RELEASE_KEY_ALIAS:?Provide the production key alias}"
-: "${QIS_RELEASE_STORE_PASSWORD:?Provide keystore password through environment}"
-: "${QIS_RELEASE_KEY_PASSWORD:?Provide key password through environment}"
-test -f "$QIS_RELEASE_KEYSTORE"
+export QIS_APK_PURPOSE="${QIS_APK_PURPOSE:-RELEASE}"
+case "$QIS_APK_PURPOSE" in
+  FUNCTIONAL_TEST)
+    [[ "$QIS_PIPELINE_MODE" == CAPTURE ]] || {
+      echo "Functional testing permits CAPTURE only, never a weakened release" >&2; exit 1;
+    }
+    # Reuse the existing local Android debug identity; do not generate a key
+    # or impersonate a production signature for a diagnostic APK.
+    export QIS_APK_SIGN_KEYSTORE="${QIS_TEST_KEYSTORE:-${HOME}/.android/debug.keystore}"
+    export QIS_APK_SIGN_ALIAS="${QIS_TEST_KEY_ALIAS:-androiddebugkey}"
+    export QIS_APK_SIGN_STORE_PASSWORD="${QIS_TEST_STORE_PASSWORD:-android}"
+    export QIS_APK_SIGN_KEY_PASSWORD="${QIS_TEST_KEY_PASSWORD:-android}"
+    echo "FUNCTIONAL_TEST CAPTURE: performance acceptance deferred; development signature"
+    ;;
+  RELEASE)
+    : "${QIS_RELEASE_KEYSTORE:?Provide the production keystore path}"
+    : "${QIS_RELEASE_KEY_ALIAS:?Provide the production key alias}"
+    : "${QIS_RELEASE_STORE_PASSWORD:?Provide keystore password through environment}"
+    : "${QIS_RELEASE_KEY_PASSWORD:?Provide key password through environment}"
+    export QIS_APK_SIGN_KEYSTORE="$QIS_RELEASE_KEYSTORE"
+    export QIS_APK_SIGN_ALIAS="$QIS_RELEASE_KEY_ALIAS"
+    export QIS_APK_SIGN_STORE_PASSWORD="$QIS_RELEASE_STORE_PASSWORD"
+    export QIS_APK_SIGN_KEY_PASSWORD="$QIS_RELEASE_KEY_PASSWORD"
+    ;;
+  *) echo "Unknown QIS_APK_PURPOSE=$QIS_APK_PURPOSE" >&2; exit 1 ;;
+esac
+test -f "$QIS_APK_SIGN_KEYSTORE"
 export QIS_PIPELINE_COMPILE_ONLY=0
 export QIS_PIPELINE_MANIFEST="${QIS_MERKABA_BUILD_DIR}/pipeline-manifest.json"
 ulimit -n 65536
@@ -94,8 +116,8 @@ qis_build_tools="$(find "$QIS_ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdept
 test -x "$qis_build_tools/apksigner"
 test -x "$qis_build_tools/zipalign"
 "$qis_build_tools/zipalign" -P 16 -f 4 "$QIS_MERKABA_APK_PATH" "$QIS_MERKABA_APK_PATH.aligned"
-"$qis_build_tools/apksigner" sign --ks "$QIS_RELEASE_KEYSTORE" --ks-key-alias "$QIS_RELEASE_KEY_ALIAS" \
-  --ks-pass env:QIS_RELEASE_STORE_PASSWORD --key-pass env:QIS_RELEASE_KEY_PASSWORD \
+"$qis_build_tools/apksigner" sign --ks "$QIS_APK_SIGN_KEYSTORE" --ks-key-alias "$QIS_APK_SIGN_ALIAS" \
+  --ks-pass env:QIS_APK_SIGN_STORE_PASSWORD --key-pass env:QIS_APK_SIGN_KEY_PASSWORD \
   --out "$QIS_MERKABA_APK_PATH.signed" "$QIS_MERKABA_APK_PATH.aligned"
 mv -- "$QIS_MERKABA_APK_PATH.signed" "$QIS_MERKABA_APK_PATH"
 "${SCRIPT_DIR}/verify_merkaba_apk.sh" "$QIS_MERKABA_APK_PATH" "$QIS_PIPELINE_MANIFEST"

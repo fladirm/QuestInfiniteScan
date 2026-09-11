@@ -34,6 +34,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metrics", type=Path, required=True)
     parser.add_argument("--adreno-evidence", type=Path)
+    parser.add_argument("--functional-test", action="store_true",
+                        help="CAPTURE diagnostic only: report, but defer performance closure")
     args = parser.parse_args()
     reports = json.loads(args.metrics.read_text())
     by_name = {r["entrypoint"]: r for r in reports}
@@ -47,16 +49,24 @@ def main():
     evidence = json.loads(args.adreno_evidence.read_text()) if args.adreno_evidence else {}
     base = args.adreno_evidence.parent if args.adreno_evidence else Path.cwd()
     failures = []
+    performance = []
     if len(observation) > 11:
-        failures.append(f"HOT observation has {len(observation)} dispatches; target is 9–11")
+        performance.append(f"HOT observation has {len(observation)} dispatches; target is 9–11")
     for name, report in by_name.items():
         if report["metric_gate"] == "FAIL":
             failures.append(f"{name}: hard shader/ABI gate failed")
         if name in hot and report["function_body_instructions"] > 20000 and not approved(report, evidence, base):
-            failures.append(f"{name}: >20k HOT instructions without exact-hash Adreno zero-spill/GPR/I-cache evidence")
+            performance.append(f"{name}: >20k HOT instructions without exact-hash Adreno zero-spill/GPR/I-cache evidence")
+    if not args.functional_test:
+        failures.extend(performance)
     if failures:
-        raise SystemExit("RELEASE BLOCKED:\n" + "\n".join(failures))
-    print(f"HOT release gate PASS: {len(observation)} dispatches; {len(hot)} exact shader payloads")
+        raise SystemExit("BUILD BLOCKED:\n" + "\n".join(failures))
+    if args.functional_test:
+        print("FUNCTIONAL CAPTURE ONLY; release performance acceptance DEFERRED")
+        for pending in performance:
+            print(f"DEFERRED: {pending}")
+    else:
+        print(f"HOT release gate PASS: {len(observation)} dispatches; {len(hot)} exact shader payloads")
 
 
 if __name__ == "__main__":

@@ -52,7 +52,7 @@ namespace Genesis.RoomScan.Tests
                          "FlowerCommit", "FinalizeObservation",
                          "InvalidateFlowerSources", "InvalidateFlowerPeers", "PublishFlowerR1",
                          "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerChildren", "ResolveFlowerCarriers",
-                         "IntegrateFlowerSkin", "QueryFineEraseTiles",
+                         "IntegrateFlowerSkinRgb", "IntegrateFlowerSkinV", "QueryFineEraseTiles",
                          "EraseFineTiles", "FinalizeFineErase"
                      })
                 Assert.DoesNotThrow(() => integration.FindKernel(kernel), kernel);
@@ -820,7 +820,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(observationEnd, Is.GreaterThan(observation));
             string schedule = generator.Substring(observation,
                 observationEnd - observation);
-            string[] ancestry = { "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerChildren", "ResolveFlowerCarriers", "IntegrateFlowerSkin" };
+            string[] ancestry = { "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerChildren", "ResolveFlowerCarriers", "IntegrateFlowerSkinRgb", "IntegrateFlowerSkinV" };
             for (int i = 0; i < ancestry.Length; i++)
             {
                 Assert.That(Regex.Matches(schedule, "\"" + ancestry[i] + "\"").Count, Is.EqualTo(1));

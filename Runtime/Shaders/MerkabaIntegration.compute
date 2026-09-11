@@ -4,7 +4,8 @@
 #pragma kernel IntegrateFlowerRoot
 #pragma kernel IntegrateFlowerChildren
 #pragma kernel ResolveFlowerCarriers
-#pragma kernel IntegrateFlowerSkin
+#pragma kernel IntegrateFlowerSkinRgb
+#pragma kernel IntegrateFlowerSkinV
 #pragma kernel FinalizeObservation
 #pragma kernel QueryFineEraseTiles
 #pragma kernel EraseFineTiles

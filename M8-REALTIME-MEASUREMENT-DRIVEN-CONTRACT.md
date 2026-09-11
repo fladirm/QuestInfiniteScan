@@ -16,6 +16,13 @@ and ThreadAtlas only; unsupported versions are rejected. Reversal is a
 version-control revert, not a second runtime mode or an inactive subsystem.
 Build the APK only after the complete scanner implementation and host gates
 are finished; intermediate cuts never produce a device-build checkpoint.
+User exception, 2026-09-11: build a FUNCTIONAL_TEST CAPTURE APK now to verify
+actual scanning before further instruction-count/dispatch-count tuning.
+Only those performance gates are deferred for this diagnostic artifact;
+hard shader/ABI/compile checks remain. It uses an existing development key,
+does not claim release acceptance, and does not weaken BINARY_ONLY/no-JIT
+or production signing. The final validation and remaining performance work
+remain mandatory; this exception takes precedence over the delivery order.
 It replaces the execution/refinement/readout/export model of
 `MERKABA_CLOSURE_CONTRACT.md`, the corresponding REV-C scheduling clauses,
 and their old RUN/CUT instructions. It is not an optional optimization path.

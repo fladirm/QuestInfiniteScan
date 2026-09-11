@@ -3,8 +3,8 @@
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=b1f59c7e77f2ba7dd431e59619d683de090e013c
 GOAL=active; complete the user's post-b1f59c7 execution/presentation/delivery closure
-CURRENT=C1_C2_HOT_CLOSURE
-STATE=implementation, no new APK or device run
+CURRENT=C4_FUNCTIONAL_APK_USER_OVERRIDE
+STATE=RGB/V split APK built and package-verified; headset disconnected, installation pending
 HOTPATH=GPU only; CPU oracle/codegen and frozen offline export are not live backends
 
 ## C1 — snapshot execution and residency
@@ -74,14 +74,27 @@ After compaction read this cursor and the latest lasttrue.md receipt, then only
 the complete source units being changed. Update CURRENT/NEXT in place; commit
 each coherent cut. Do not accumulate competing historical handoff cursors here.
 
-NEXT=close the remaining C1/C2 HOT execution/performance gaps. C1 actual scan schedule
-is now 12, not yet the 9–11 target; HOT shaders above 20k remain release-blocked
+NEXT=install /mnt/kingston-unity/Builds/QuestMerkabaScan/functional-skin.vgb5S8/QuestMerkabaScan-functional.apk
+when headset 340YC20G7X0QZ4 reconnects; check actual driver creation and scan/draw.
+Installation attempt failed with device-not-found; neither USB nor ADB lists
+the headset. Do not rebuild the existing verified artifact just to install it.
+The clean-installed first functional
+APK failed at IntegrateFlowerSkin with Adreno "Failed to link shaders", VkResult=-13.
+Device evidence=Builds/QuestMerkabaScan/functional-7ce65be.bbnFVm/device-startup-complete.log
+(Kingston build root). This is not a scan or release acceptance PASS.
+Defer only instruction/dispatch performance gates, not compile/ABI checks;
+use the existing development key, not a release claim.
+Then close the remaining C1/C2 HOT execution/performance gaps. C1 actual scan schedule
+is now 13, not yet the 9–11 target; HOT shaders above 20k remain release-blocked
 without exact-hash Adreno zero-spill evidence. Finish these execution/performance
-gaps before C4's APK, do not claim them closed by a hard compile PASS.
+gaps before C4's final release APK, not before the user's functional test APK.
 C2 source=scan-authored sparse owner cache + Apply/Publish/Cull; canonical rebuild
 only for cache miss/invalidation (including peer dependencies), separately timed.
 Readout has 5 command slots, Classify view-only and Rebuild GPU-indirect/conditional.
-Current native ABI34, 23 pipelines, 41 resources, 12 timing slots.
+Current native ABI35, 24 pipelines, 41 resources, 13 timing slots.
+RGB/V entries specialize the same cooperative evaluator with literal modes.
+One global RGB->V dispatch barrier preserves common owner-epoch writer order.
+No geometry, skin identity, resolution or persistent format changes.
 Structural source/peer invalidation and measured-owner grouping now share one
 receiver WG after immutable preflight. R1 bank writes retain their next boundary.
 RGB and V each use seven eight-lane footprint reductions; seven immutable sites
@@ -97,7 +110,14 @@ Necessary Unity/codegen + all 23 native entrypoints/ARM64 compile PASS
 2026-09-11 20:35 UTC; no suite/APK/device run.
 Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-hot-compile
 native-measurement-final.log; measurement-final-unity.log; measurement-codegen.log.
-Skin=38437 instructions / 2420 B shared / 6 writable bindings: still REVIEW.
+Replacement skin: RGB=16299 instructions/314788 B; V=24989/487160 B;
+both 2420 B shared/6 writable bindings, same 64-lane cooperative body.
+All 24 native payloads/ARM64 and Unity APK compile PASS. Package verification
+PASS (signature/alignment/package/native/manifest); post-BuildPlayer prepared
+host fingerprint still changes and remains a FINAL delivery gap, not waived.
+APK SHA256=cce20a4154546182d16828e8c1730b4d42c0f739fbac94b3231c72b07a7ff180
+Evidence=functional-skin.vgb5S8/driver.log, build.log, package-verification.log.
+New device startup NOT RUN; do not claim the driver failure fixed yet.
 Root=22725, Children=33006, Resolve=42763: still HOT release gaps.
 The phase commit consumes AnalyzePhaseResidual.Synthesis instead of rotating
 the same persisted Q2.29 interval again. R2 record-key checks and final shared

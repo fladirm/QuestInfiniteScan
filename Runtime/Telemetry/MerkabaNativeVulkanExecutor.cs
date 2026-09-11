@@ -14,13 +14,13 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 32: binary-only pipeline delivery and startup without cache IO.
-        internal const int AbiVersion = 34;
+        // ABI 35: ordered RGB/V pipelines share the resolved signal items.
+        internal const int AbiVersion = 35;
         internal const int ResourceCount = 41;
-        internal const int PipelineCount = 23;
+        internal const int PipelineCount = 24;
         // Native codegen verifies this against the longest complete schedule,
         // including indirect commands whose GPU work count may be zero.
-        internal const int MaximumDispatchTimingCount = 12;
+        internal const int MaximumDispatchTimingCount = 13;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -132,7 +132,7 @@ namespace Genesis.RoomScan
             "IntegrateFlowerRoot",
             "IntegrateFlowerChildren",
             "ResolveFlowerCarriers",
-            "IntegrateFlowerSkin",
+            "IntegrateFlowerSkinRgb", "IntegrateFlowerSkinV",
             "FinalizeObservation",
             "ClassifyHotFlowerPages",
             "RebuildDirtyFlowerOwners",

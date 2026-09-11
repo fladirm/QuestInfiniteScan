@@ -10714,3 +10714,62 @@ C4_PROOF=reused analysis synthesis equals decode/persisted-rotation synthesis
   for R2 and both R3 eta signs, fixed-point endpoints and boundary/sector cases.
   Full suite, APK, capture and device NOT RUN. ABI/schedule/persistence unchanged.
 NEXT=remaining HOT source/graph gaps before C4, not a return to completed cuts.
+
+## 2026-09-11 21:20 UTC — functional APK and observed driver failure
+
+CURRENT=C4_FUNCTIONAL_APK_USER_OVERRIDE; goal ACTIVE. User permits the
+functional APK before instruction/dispatch closure and requested clean install.
+APK=/mnt/kingston-unity/Builds/QuestMerkabaScan/functional-7ce65be.bbnFVm/QuestMerkabaScan-functional.apk
+SHA256=8c61213aca2fe941975c5f9ac1083923822736d82563c02d425671ff21f91434
+MODE=CAPTURE, existing Android development signature; not a no-JIT release.
+PACKAGE=com.genesis.questmerkabascan; ARM64/IL2CPP; installed package hash checked.
+CLEAN_INSTALL=old scanner package/data uninstalled by explicit user request;
+no other application data removed. New package installed and launched.
+DEVICE=340YC20G7X0QZ4, reported Quest_3S/panther/Adreno740. Pipeline-binary
+extension present and native/Unity graphics captures observed, not full coverage.
+FAILURE=IntegrateFlowerSkin, 746128-byte SPIR-V, native index13: driver reports
+"Failed to link shaders", vkCreateComputePipelines=-13 after 24710.588 ms.
+ResolveFlowerCarriers immediately before it returned success. Native startup
+failed and disabled scanner. No successful scan/draw or performance acceptance.
+EVIDENCE=device-startup-complete.log in that artifact directory; initial
+device-startup.log ended before the failure and is not complete evidence.
+BUILD=Unity APK build succeeded; outer post-build source fingerprint gate
+failed because Unity/SDK rewrote prepared host assets/settings. Final release
+fingerprint closure remains OPEN. Packaged native bytes independently match
+the same NDK llvm-strip --strip-unneeded output exactly; development signature,
+zip alignment, package identity and installed APK hash verified separately.
+REPAIR=separate IntegrateFlowerSkinRgb/V entries over the same cooperative
+evaluator; literal modes strip the other evaluator, ordered dispatch preserves
+shared owner-epoch writes. Native ABI35, 24 pipelines/41 resources/13 timing
+slots. No persistent ABI or Flower geometry/skin identity change.
+Native builder now strips its output before stamping the manifest, matching
+the actual Gradle packaging transformation instead of comparing unlike bytes.
+NEXT=finish /mnt/kingston-unity/Builds/QuestMerkabaScan/functional-skin.vgb5S8,
+install and verify driver startup before calling the vk-13 repair successful.
+Full suite and final no-JIT/release/device acceptance remain PENDING.
+
+## 2026-09-11 — RGB/V split functional APK ready; device disconnected
+
+CURRENT=C4_FUNCTIONAL_APK_USER_OVERRIDE; goal ACTIVE.
+COMPILE=Unity C#/APK and all 24 exact embedded native entrypoints/ARM64 PASS.
+IntegrateFlowerSkinRgb=314788 B/16299 instructions; V=487160 B/24989;
+each 2420 B shared/6 writable bindings/64 lanes. V remains performance REVIEW.
+No device speedup or driver-link success is inferred from host compilation.
+APK=/mnt/kingston-unity/Builds/QuestMerkabaScan/functional-skin.vgb5S8/QuestMerkabaScan-functional.apk
+SHA256=cce20a4154546182d16828e8c1730b4d42c0f739fbac94b3231c72b07a7ff180
+SOURCE_FINGERPRINT=86e9d561d3838fbbd60252d868f55efc0636c8a6d828654bfd4dc3e755982846
+MODE=FUNCTIONAL_TEST/CAPTURE; existing Android development signature.
+PACKAGE_VERIFICATION=PASS: apksigner, 16KiB zipalign, package identity,
+ARM64-only ELF, native SHA, embedded source identifier and manifest equality.
+Pre-stripped native now matches the packaged binary without a manual transform.
+OUTER_BUILD_STATUS=post-BuildPlayer prepared-host fingerprint still fails;
+manual functional signing/package verification does not waive final delivery.
+Retained host-build-inputs.sha256 shows ProjectSettings.asset changed and
+Unity removed temporary performance/OpenXR build assets. No release/no-JIT claim.
+INSTALL=attempted adb install -r -g, failed before transfer: device not found.
+Repeated ADB list and lsusb confirm headset 340YC20G7X0QZ4 is disconnected.
+No second uninstall/data deletion. User asked to reconnect/wake headset.
+NEXT=install this artifact and verify both skin pipelines plus full native
+startup; do not rebuild or repeat completed work. Full suite/device acceptance
+remain NOT RUN. Exact logs are driver.log/build.log/package-verification.log
+in the artifact directory; previous vk-13 receipt remains the latest device evidence.

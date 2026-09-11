@@ -64,9 +64,9 @@ namespace Genesis.RoomScan.Tests
             private static readonly int3 SecondOwner = new(4, 3, 3);
             private readonly List<ComputeBuffer> _buffers = new();
             private readonly ComputeShader _shader;
-            private readonly int[] _geometryKernels;
+            private readonly int[] _geometryKernels, _skinKernels;
             private readonly int _prepareOwnersKernel, _resolveKernel,
-                _skinKernel, _finalizeKernel;
+                _finalizeKernel;
             private readonly ComputeBuffer _counters, _details, _tileRecords, _states, _signals;
             // What a completed snapshot's retirement clears, so the harness can
             // stand in for the acquisition side of the NEXT snapshot exactly as
@@ -86,7 +86,8 @@ namespace Genesis.RoomScan.Tests
                     _shader.FindKernel("IntegrateFlowerChildren") };
                 _prepareOwnersKernel = _shader.FindKernel("PrepareFlowerOwners");
                 _resolveKernel = _shader.FindKernel("ResolveFlowerCarriers");
-                _skinKernel = _shader.FindKernel("IntegrateFlowerSkin");
+                _skinKernels = new[] { _shader.FindKernel("IntegrateFlowerSkinRgb"),
+                    _shader.FindKernel("IntegrateFlowerSkinV") };
                 _finalizeKernel = _shader.FindKernel("FinalizeObservation");
                 var flowerTables = MerkabaGrid.CreateFlowerTableBuffer();
                 _buffers.Add(flowerTables);
@@ -136,8 +137,11 @@ namespace Genesis.RoomScan.Tests
                 }
                 _shader.SetTexture(_resolveKernel, "gsDepthTex", _depth);
                 _shader.SetTexture(_resolveKernel, "gsDepthNormalTex", _normals);
-                _shader.SetTexture(_skinKernel, "gsDepthTex", _depth);
-                _shader.SetTexture(_skinKernel, "gsDepthNormalTex", _normals);
+                foreach (int kernel in _skinKernels)
+                {
+                    _shader.SetTexture(kernel, "gsDepthTex", _depth);
+                    _shader.SetTexture(kernel, "gsDepthNormalTex", _normals);
+                }
                 _shader.SetInts("gsDepthTexSize", 2, 1);
                 _shader.SetMatrixArray("gsDepthProj", new[] { projection, projection });
                 _shader.SetMatrixArray("gsDepthProjInv", new[] { projection.inverse, projection.inverse });
@@ -161,7 +165,8 @@ namespace Genesis.RoomScan.Tests
                     foreach (int kernel in _geometryKernels)
                         _shader.SetTexture(kernel, "_MerkabaCameraRgb" + eyeName, _rgb);
                     _shader.SetTexture(_resolveKernel, "_MerkabaCameraRgb" + eyeName, _rgb);
-                    _shader.SetTexture(_skinKernel, "_MerkabaCameraRgb" + eyeName, _rgb);
+                    foreach (int kernel in _skinKernels)
+                        _shader.SetTexture(kernel, "_MerkabaCameraRgb" + eyeName, _rgb);
                     _shader.SetVector("_MerkabaCameraPosition" + eyeName, eye);
                     _shader.SetMatrix("_MerkabaCameraInverseRotation" + eyeName, rgbRotation.inverse);
                     _shader.SetVector("_MerkabaCameraFocalLength" + eyeName,
@@ -400,7 +405,8 @@ namespace Genesis.RoomScan.Tests
                 foreach (int kernel in _geometryKernels)
                     _shader.DispatchIndirect(kernel, _signals, MerkabaFlowerGpuLayout.MeasuredOwnerDispatchOffset);
                 _shader.DispatchIndirect(_resolveKernel, _signals, MerkabaFlowerGpuLayout.MeasuredOwnerDispatchOffset);
-                _shader.DispatchIndirect(_skinKernel, _signals, MerkabaFlowerGpuLayout.SignalDispatchOffset);
+                foreach (int kernel in _skinKernels)
+                    _shader.DispatchIndirect(kernel, _signals, MerkabaFlowerGpuLayout.SignalDispatchOffset);
                 _shader.Dispatch(_finalizeKernel, 1, 1, 1);
                 var counters = new uint[MerkabaGrid.CounterCount];
                 _counters.GetData(counters); // Test-only readback; also the true retirement boundary.
@@ -438,7 +444,7 @@ namespace Genesis.RoomScan.Tests
                 foreach (int kernel in _geometryKernels) _shader.SetBuffer(kernel, name, buffer);
                 _shader.SetBuffer(_prepareOwnersKernel, name, buffer);
                 _shader.SetBuffer(_resolveKernel, name, buffer);
-                _shader.SetBuffer(_skinKernel, name, buffer);
+                foreach (int kernel in _skinKernels) _shader.SetBuffer(kernel, name, buffer);
                 _shader.SetBuffer(_finalizeKernel, name, buffer);
             }
             private ComputeBuffer Upload<T>(T[] values, int stride) where T : struct
