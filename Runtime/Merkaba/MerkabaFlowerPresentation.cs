@@ -42,8 +42,8 @@ namespace Genesis.RoomScan
             internal readonly uint[] PositionIndices = new uint[7];
             internal MerkabaFlowerSkinDrawHeader SkinHeader;
             internal MerkabaFlowerSkinDrawSample[] SkinSamples;
-            // Explicit RGB topology only; V's independent splits must not
-            // inflate the export material's derived sampling allocation.
+            // Source RGB topology, separate from metric V. Presentation uses
+            // their already-compiled union in SkinHeader.
             internal uint2 RgbSplitBits;
             // Transient coverage certificate from the same frozen reader;
             // this is neither a persisted adjacency graph nor scan truth.

@@ -61,7 +61,7 @@ namespace Genesis.RoomScan
 
         internal static readonly string[] JournalFiles =
         {
-            "content/positions.bin", "content/normals.bin", "content/colors.bin",
+            "content/positions.bin", "content/colors.bin",
             "content/indices.bin", "content/uv.bin", "content/images.bin",
             "content/ranges.bin", "content/image-ranges.bin",
             "content/atlas-sizes.bin", "content/atlas-cells.bin"
@@ -75,9 +75,9 @@ namespace Genesis.RoomScan
         internal sealed class StreamingSession : IDisposable
         {
             private readonly string _directory;
-            private readonly FileStream _positions, _normals, _colors, _indices, _uvs, _images;
+            private readonly FileStream _positions, _colors, _indices, _uvs, _images;
             private readonly FileStream _ranges, _imageRanges;
-            private readonly BinaryWriter _positionWriter, _normalWriter, _colorWriter, _indexWriter, _uvWriter;
+            private readonly BinaryWriter _positionWriter, _colorWriter, _indexWriter, _uvWriter;
             private readonly BinaryWriter _rangeWriter, _imageRangeWriter;
             private readonly MerkabaFlowerMaterialBake.Atlas _atlas;
             private readonly bool _restoring, _preserveSpool;
@@ -103,13 +103,12 @@ namespace Genesis.RoomScan
                 Directory.CreateDirectory(directory);
                 try
                 {
-                    _positions = Open("positions.bin"); _normals = Open("normals.bin");
+                    _positions = Open("positions.bin");
                     _colors = Open("colors.bin"); _indices = Open("indices.bin");
                     _uvs = Open("uv.bin"); _images = Open("images.bin");
                     _ranges = Open("ranges.bin"); _imageRanges = Open("image-ranges.bin");
                     var encoding = new UTF8Encoding(false);
                     _positionWriter = new BinaryWriter(_positions, encoding, true);
-                    _normalWriter = new BinaryWriter(_normals, encoding, true);
                     _colorWriter = new BinaryWriter(_colors, encoding, true);
                     _indexWriter = new BinaryWriter(_indices, encoding, true);
                     _uvWriter = new BinaryWriter(_uvs, encoding, true);
@@ -120,7 +119,7 @@ namespace Genesis.RoomScan
                     {
                         if (resume.vertices < 0 || resume.indices < 0 || resume.primitives < 0 ||
                             resume.ranges < 0 || resume.indices != 3L * resume.primitives ||
-                            _positions.Length != 12L * resume.vertices || _normals.Length != 12L * resume.vertices ||
+                            _positions.Length != 12L * resume.vertices ||
                             _colors.Length != 4L * resume.vertices || _uvs.Length != 8L * resume.vertices ||
                             _indices.Length != 4L * resume.indices || _ranges.Length != 16L * resume.ranges ||
                             _images.Length != 0 || _imageRanges.Length != 0)
@@ -128,7 +127,7 @@ namespace Genesis.RoomScan
                         _vertexCount = resume.vertices; _indexCount = resume.indices;
                         _primitiveCount = resume.primitives; _rangeCount = resume.ranges; _hasDirt = resume.hasDirt;
                         if (_vertexCount != 0) { _minimum = resume.minimum; _maximum = resume.maximum; }
-                        foreach (FileStream file in new[] { _positions, _normals, _colors, _uvs, _indices, _ranges })
+                        foreach (FileStream file in new[] { _positions, _colors, _uvs, _indices, _ranges })
                             file.Position = file.Length;
                         string json = Path.Combine(directory, "document.json");
                         if (File.Exists(json)) File.Delete(json); // uncommitted final-container scratch only
@@ -141,9 +140,9 @@ namespace Genesis.RoomScan
             {
                 RequireMutable(cancellationToken);
                 FlushRange();
-                _positionWriter.Flush(); _normalWriter.Flush(); _colorWriter.Flush();
+                _positionWriter.Flush(); _colorWriter.Flush();
                 _indexWriter.Flush(); _uvWriter.Flush(); _rangeWriter.Flush(); _imageRangeWriter.Flush();
-                foreach (FileStream file in new[] { _positions, _normals, _colors, _indices,
+                foreach (FileStream file in new[] { _positions, _colors, _indices,
                              _uvs, _ranges, _images, _imageRanges })
                 { cancellationToken.ThrowIfCancellationRequested(); file.Flush(true); }
                 return new ResumeState
@@ -174,8 +173,6 @@ namespace Genesis.RoomScan
                 if (presentation == null) throw new ArgumentNullException(nameof(presentation));
                 try
                 {
-                    // Reused seven-site packet; no per-wedge vertex tuple.
-                    Span<float3> normals = stackalloc float3[7];
                     int completed = 0;
                     foreach (MerkabaFlowerPresentation.Carrier carrier in presentation.Carriers)
                     {
@@ -185,27 +182,19 @@ namespace Genesis.RoomScan
                             (carrier.Symbol.CompletedWedgeMask & ~active) != 0u ||
                             (carrier.Symbol.ReverseWedgeMask & ~active) != 0u)
                             throw new InvalidDataException("Noncanonical Flower presentation masks.");
-                        bool textured = MerkabaFlowerMaterialBake.HasChromaticDetail(carrier);
+                        bool textured = MerkabaFlowerMaterialBake.HasSignalDetail(carrier);
                         MerkabaFlowerMaterialBake.Cell cell = textured
-                            ? _atlas.Append(carrier, cancellationToken) : default;
-                        float3 rgb = textured ? new float3(1f) : carrier.SkinSamples[0].CapturedRgb;
+                            ? _atlas.Append(presentation, carrier, cancellationToken) : default;
+                        float3 rgb = textured ? new float3(1f) :
+                            carrier.SkinSamples[checked((int)carrier.SkinHeader.FirstSample)].CapturedRgb;
                         uint color = PackColor(rgb);
                         uint used = 0u;
                         for (int wedge = 0; wedge < 6; wedge++)
                         {
                             if ((active & (1u << wedge)) == 0u) continue;
-                            presentation.WedgeFrame(carrier, wedge, out _, out _, out float3 normal, out _, out _);
-                            if ((carrier.Symbol.ReverseWedgeMask & (1u << wedge)) != 0u) normal = -normal;
                             int3 sites = MerkabaSphereFlowerAuthority.L2CarrierTriangleIndices(wedge);
                             for (int corner = 0; corner < 3; corner++)
-                            {
-                                int site = sites[corner];
-                                // Unlit does not consume normals. Keep one actual
-                                // incident L2 frame per site for the existing
-                                // preview importer, never a V-normal/parity claim.
-                                if ((used & (1u << site)) == 0u) normals[site] = normal;
-                                used |= 1u << site;
-                            }
+                                used |= 1u << sites[corner];
                         }
                         uint vertexBase = checked((uint)_vertexCount);
                         float3 hub = presentation.Position(carrier, 0);
@@ -215,8 +204,7 @@ namespace Genesis.RoomScan
                             // Unproved inactive sites are never indexed. Their
                             // reserved tuple is inert H, not invented geometry.
                             float3 position = referenced ? presentation.Position(carrier, site) : hub;
-                            WriteVertex(position - localOrigin, referenced ? normals[site] : normals[0],
-                                color, textured ? cell.Uv(site) : float2.zero);
+                            WriteVertex(position - localOrigin, color, textured ? cell.Uv(site) : float2.zero);
                         }
                         for (int wedge = 0; wedge < 6; wedge++)
                         {
@@ -232,7 +220,7 @@ namespace Genesis.RoomScan
                             completed++;
                         }
                         Report(progress, ScanOperationStage.BuildingMerkabaGeometry, completed,
-                            presentation.TriangleCount, "Writing seven shared L2 sites and carrier RGB atlas cells");
+                            presentation.TriangleCount, "Writing seven shared L2 sites and carrier RGB/V atlas cells");
                     }
                     if (completed != presentation.TriangleCount)
                         throw new InvalidDataException("Flower presentation triangle receipt mismatch.");
@@ -252,12 +240,11 @@ namespace Genesis.RoomScan
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         MerkabaDirtTriangle triangle = triangles[index];
-                        float3 normal = -MerkabaSphereFlowerAuthority.DirtFaceDirection(triangle.Face);
                         uint first = checked((uint)_vertexCount);
                         for (int vertex = 0; vertex < 3; vertex++)
                             WriteVertex(MerkabaSphereFlowerAuthority.DirtFaceGridPosition(
                                 triangle.Cell, triangle.Face, triangle.Half, vertex) - localOrigin,
-                                normal, uint.MaxValue, float2.zero);
+                                uint.MaxValue, float2.zero);
                         AppendRange(true, false, -1);
                         WriteTriangle(first, first + 2u, first + 1u);
                         if ((index & 255) == 255 || index + 1 == triangles.Count)
@@ -268,14 +255,16 @@ namespace Genesis.RoomScan
                 catch { _failed = true; throw; }
             }
 
-            private void WriteVertex(float3 position, float3 normal, uint color, float2 uv)
+            private void WriteVertex(float3 position, uint color, float2 uv)
             {
-                if (!math.all(math.isfinite(position)) || !math.all(math.isfinite(normal)) ||
+                if (!math.all(math.isfinite(position)) ||
                     !math.all(math.isfinite(uv)))
                     throw new InvalidDataException("Nonfinite Flower presentation attribute.");
-                Vector3 converted = Convert(position), direction = Convert(normal);
+                // No interpolated NORMAL/TANGENT is attached to a shared knot.
+                // glTF without NORMAL requires the actual triangle's flat
+                // normal and a UV-derived tangent frame, matching the V bake.
+                Vector3 converted = Convert(position);
                 _positionWriter.Write(converted.x); _positionWriter.Write(converted.y); _positionWriter.Write(converted.z);
-                _normalWriter.Write(direction.x); _normalWriter.Write(direction.y); _normalWriter.Write(direction.z);
                 _colorWriter.Write(color); // little-endian RGBA8, linear COLOR_0
                 _uvWriter.Write(uv.x); _uvWriter.Write(uv.y);
                 _vertexCount = checked(_vertexCount + 1);
@@ -327,25 +316,27 @@ namespace Genesis.RoomScan
                 try
                 {
                     FlushRange();
-                    _positionWriter.Flush(); _normalWriter.Flush(); _colorWriter.Flush();
+                    _positionWriter.Flush(); _colorWriter.Flush();
                     _indexWriter.Flush(); _uvWriter.Flush(); _rangeWriter.Flush();
-                    if (_positions.Length != 12L * _vertexCount || _normals.Length != 12L * _vertexCount ||
+                    if (_positions.Length != 12L * _vertexCount ||
                         _colors.Length != 4L * _vertexCount || _indices.Length != 4L * _indexCount ||
                         _uvs.Length != 8L * _vertexCount || _ranges.Length != 16L * _rangeCount)
                         throw new InvalidDataException("Bounded GLB spool length mismatch.");
                     for (int page = 0; page < _atlas.PageCount; page++)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        long offset = _images.Position;
-                        long length = _atlas.WritePage(page, _images, cancellationToken);
-                        _imageRangeWriter.Write(offset); _imageRangeWriter.Write(checked((int)length));
-                        while ((_images.Position & 3L) != 0L) _images.WriteByte(0);
+                        for (int channel = 0; channel < 2; channel++)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            long offset = _images.Position;
+                            long length = _atlas.WritePage(page, channel != 0, _images, cancellationToken);
+                            _imageRangeWriter.Write(offset); _imageRangeWriter.Write(checked((int)length));
+                            while ((_images.Position & 3L) != 0L) _images.WriteByte(0);
+                        }
                         Report(progress, ScanOperationStage.BuildingMerkabaGeometry, page + 1,
-                            _atlas.PageCount, "Encoding bounded captured-RGB atlas pages");
+                            _atlas.PageCount, "Encoding bounded captured-RGB and linear V-normal atlas pages");
                     }
                     _imageRangeWriter.Flush(); _images.Flush();
-                    long positionsOffset = 0, normalsOffset = _positions.Length;
-                    long colorsOffset = checked(normalsOffset + _normals.Length);
+                    long positionsOffset = 0, colorsOffset = _positions.Length;
                     long indicesOffset = checked(colorsOffset + _colors.Length);
                     long uvsOffset = checked(indicesOffset + _indices.Length);
                     bool hasTextures = _atlas.PageCount != 0;
@@ -358,7 +349,7 @@ namespace Genesis.RoomScan
                     CheckLength(binaryLength, maximumByteLength);
                     using var json = Open("document.json");
                     using (var text = new StreamWriter(json, new UTF8Encoding(false), IoPacketBytes, true))
-                        WriteJson(text, binaryLength, positionsOffset, normalsOffset, colorsOffset,
+                        WriteJson(text, binaryLength, positionsOffset, colorsOffset,
                             indicesOffset, uvsOffset, imagesOffset, cancellationToken);
                     long paddedJsonLength = checked((json.Length + 3L) & ~3L);
                     long totalLength = checked(28L + paddedJsonLength + binaryLength);
@@ -375,7 +366,6 @@ namespace Genesis.RoomScan
                     for (long padding = json.Length; padding < paddedJsonLength; padding++) writer.Write((byte)0x20);
                     writer.Write((uint)binaryLength); writer.Write(BinaryChunkType); writer.Flush();
                     Copy(_positions, destination, packet, cancellationToken);
-                    Copy(_normals, destination, packet, cancellationToken);
                     Copy(_colors, destination, packet, cancellationToken);
                     Copy(_indices, destination, packet, cancellationToken);
                     if (hasTextures) Copy(_uvs, destination, packet, cancellationToken);
@@ -416,46 +406,48 @@ namespace Genesis.RoomScan
             {
                 _imageRanges.Position = 0;
                 using var reader = new BinaryReader(_imageRanges, Encoding.UTF8, true);
-                for (int index = 0; index < _atlas.PageCount; index++)
+                for (int index = 0; index < checked(2 * _atlas.PageCount); index++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     yield return new ImageRange(reader.ReadInt64(), reader.ReadInt32());
                 }
             }
 
-            private void WriteJson(TextWriter json, long binaryLength, long positionsOffset, long normalsOffset,
+            private void WriteJson(TextWriter json, long binaryLength, long positionsOffset,
                 long colorsOffset, long indicesOffset, long uvsOffset, long imagesOffset,
                 CancellationToken cancellationToken)
             {
-                int imageCount = _atlas.PageCount;
+                int pageCount = _atlas.PageCount, imageCount = checked(2 * pageCount);
                 int textureMaterial = _hasDirt ? 2 : 1;
-                int uvAccessor = checked(3 + _rangeCount);
+                int uvAccessor = checked(2 + _rangeCount);
                 json.Write("{\"asset\":{\"version\":\"2.0\",\"generator\":\"Quest Infinite Merkaba\"},");
                 json.Write("\"extensionsUsed\":[\"KHR_materials_unlit\"");
                 if (_nativePackage != null)
                 {
-                    int nativeView = checked(4 + (imageCount > 0 ? 1 : 0) + imageCount);
+                    int nativeView = checked(3 + (imageCount > 0 ? 1 : 0) + imageCount);
                     json.Write(",\"M8_flower_thread\"],\"extensions\":{\"M8_flower_thread\":{\"version\":");
                     json.Write(MerkabaNativePackage.Version);
                     json.Write(",\"manifest\":"); json.Write(nativeView);
                     json.Write(",\"payloads\":["); json.Write(checked(nativeView + 1)); json.Write("]}},");
                 }
                 else json.Write("],");
-                json.Write("\"extras\":{\"m8Preview\":\"captured-RGB\",\"proceduralRgbv\":false,\"normalBakeAvailable\":false,\"atlasSampling\":\"finite-presentation-approximation\"},");
+                json.Write("\"extras\":{\"m8Preview\":\"captured-RGB+V-normal\",\"proceduralRgbv\":false,\"normalBakeAvailable\":");
+                json.Write(imageCount > 0 ? "true" : "false");
+                json.Write(",\"normalTextureUse\":\"lit-fallback-only\",\"atlasSampling\":\"finite-presentation-approximation\"},");
                 json.Write("\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"name\":\"MerkabaGrid\",\"mesh\":0}],");
                 json.Write("\"meshes\":[{\"name\":\"M8 Presentation\",\"primitives\":[");
                 int ordinal = 0;
                 foreach (PrimitiveRange range in ReadRanges(cancellationToken))
                 {
                     if (ordinal != 0) json.Write(',');
-                    json.Write("{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"COLOR_0\":2");
+                    json.Write("{\"attributes\":{\"POSITION\":0,\"COLOR_0\":1");
                     if (range.Texture >= 0)
                     {
-                        if (range.Texture >= imageCount || range.Dirt)
-                            throw new InvalidDataException("Flower primitive has no completed RGB atlas.");
+                        if (range.Texture >= pageCount || range.Dirt)
+                            throw new InvalidDataException("Flower primitive has no completed RGB/V atlas.");
                         json.Write(",\"TEXCOORD_0\":"); json.Write(uvAccessor);
                     }
-                    json.Write("},\"indices\":"); json.Write(checked(3 + ordinal));
+                    json.Write("},\"indices\":"); json.Write(checked(2 + ordinal));
                     json.Write(",\"material\":"); json.Write(range.Dirt ? 1 :
                         range.Texture >= 0 ? checked(textureMaterial + range.Texture) : 0);
                     json.Write(",\"mode\":4,\"extras\":{\"m8Provenance\":\"");
@@ -476,18 +468,20 @@ namespace Genesis.RoomScan
                     json.Write("],\"metallicFactor\":0,\"roughnessFactor\":1},\"doubleSided\":false,");
                     json.Write("\"extensions\":{\"KHR_materials_unlit\":{}},\"extras\":{\"m8Provenance\":\"DIRT\",\"capturedRadiance\":false,\"opticalValid\":false}}");
                 }
-                for (int page = 0; page < imageCount; page++)
+                for (int page = 0; page < pageCount; page++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    json.Write(",{\"name\":\"M8 Captured RGB Atlas "); json.Write(page);
+                    json.Write(",{\"name\":\"M8 Captured RGB / V Atlas "); json.Write(page);
                     json.Write("\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[1,1,1,1],\"baseColorTexture\":{\"index\":");
-                    json.Write(page);
-                    json.Write("},\"metallicFactor\":0,\"roughnessFactor\":1},\"doubleSided\":true,\"extensions\":{\"KHR_materials_unlit\":{}},");
+                    json.Write(checked(2 * page));
+                    json.Write("},\"metallicFactor\":0,\"roughnessFactor\":1},\"normalTexture\":{\"index\":");
+                    json.Write(checked(2 * page + 1));
+                    json.Write(",\"texCoord\":0,\"scale\":1},\"doubleSided\":true,\"extensions\":{\"KHR_materials_unlit\":{}},");
                     json.Write("\"extras\":{\"capturedRadiance\":true,\"atlasWidth\":");
                     json.Write(MerkabaFlowerMaterialBake.Resolution);
                     json.Write(",\"atlasCell\":"); json.Write(_atlas.PageCellSize(page));
                     json.Write(",\"atlasGutter\":"); json.Write(MerkabaFlowerMaterialBake.Gutter);
-                    json.Write(",\"normalBakeAvailable\":false}}");
+                    json.Write(",\"normalBakeAvailable\":true,\"m8NormalTexture\":\"derived-V-lit-fallback\",\"normalFrame\":\"flat-L2-UV\"}}");
                 }
                 json.Write("],");
                 if (imageCount > 0)
@@ -504,14 +498,13 @@ namespace Genesis.RoomScan
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         if (page != 0) json.Write(',');
-                        json.Write("{\"bufferView\":"); json.Write(checked(5 + page));
+                        json.Write("{\"bufferView\":"); json.Write(checked(4 + page));
                         json.Write(",\"mimeType\":\"image/png\"}");
                     }
                     json.Write("],");
                 }
                 json.Write("\"buffers\":[{\"byteLength\":"); json.Write(binaryLength); json.Write("}],\"bufferViews\":[");
                 BufferView(json, positionsOffset, _positions.Length, 34962); json.Write(',');
-                BufferView(json, normalsOffset, _normals.Length, 34962); json.Write(',');
                 BufferView(json, colorsOffset, _colors.Length, 34962); json.Write(',');
                 BufferView(json, indicesOffset, _indices.Length, 34963);
                 if (imageCount > 0) { json.Write(','); BufferView(json, uvsOffset, _uvs.Length, 34962); }
@@ -527,8 +520,7 @@ namespace Genesis.RoomScan
                 json.Write("],\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":");
                 json.Write(_vertexCount); json.Write(",\"type\":\"VEC3\",\"min\":[");
                 VectorJson(json, _minimum); json.Write("],\"max\":["); VectorJson(json, _maximum);
-                json.Write("]},{\"bufferView\":1,\"componentType\":5126,\"count\":"); json.Write(_vertexCount);
-                json.Write(",\"type\":\"VEC3\"},{\"bufferView\":2,\"componentType\":5121,\"normalized\":true,\"count\":");
+                json.Write("]},{\"bufferView\":1,\"componentType\":5121,\"normalized\":true,\"count\":");
                 json.Write(_vertexCount); json.Write(",\"type\":\"VEC4\"}");
                 int covered = 0;
                 foreach (PrimitiveRange range in ReadRanges(cancellationToken))
@@ -536,14 +528,14 @@ namespace Genesis.RoomScan
                     if (range.FirstIndex != covered || range.IndexCount <= 0 || range.IndexCount % 3 != 0)
                         throw new InvalidDataException("GLB primitive ranges are not a contiguous triangle partition.");
                     covered = checked(covered + range.IndexCount);
-                    json.Write(",{\"bufferView\":3,\"byteOffset\":"); json.Write(checked(4L * range.FirstIndex));
+                    json.Write(",{\"bufferView\":2,\"byteOffset\":"); json.Write(checked(4L * range.FirstIndex));
                     json.Write(",\"componentType\":5125,\"count\":"); json.Write(range.IndexCount);
                     json.Write(",\"type\":\"SCALAR\"}");
                 }
                 if (covered != _indexCount) throw new InvalidDataException("GLB ranges do not cover the index buffer.");
                 if (imageCount > 0)
                 {
-                    json.Write(",{\"bufferView\":4,\"componentType\":5126,\"count\":"); json.Write(_vertexCount);
+                    json.Write(",{\"bufferView\":3,\"componentType\":5126,\"count\":"); json.Write(_vertexCount);
                     json.Write(",\"type\":\"VEC2\"}");
                 }
                 json.Write("]}");
@@ -553,9 +545,9 @@ namespace Genesis.RoomScan
             {
                 if (_disposed) return;
                 _disposed = true;
-                _positionWriter?.Dispose(); _normalWriter?.Dispose(); _colorWriter?.Dispose();
+                _positionWriter?.Dispose(); _colorWriter?.Dispose();
                 _indexWriter?.Dispose(); _uvWriter?.Dispose(); _rangeWriter?.Dispose(); _imageRangeWriter?.Dispose();
-                _positions?.Dispose(); _normals?.Dispose(); _colors?.Dispose(); _indices?.Dispose();
+                _positions?.Dispose(); _colors?.Dispose(); _indices?.Dispose();
                 _uvs?.Dispose(); _images?.Dispose(); _ranges?.Dispose(); _imageRanges?.Dispose(); _atlas?.Dispose();
                 // This directory was created exclusively by this session and
                 // never contains a published model or caller-owned records.

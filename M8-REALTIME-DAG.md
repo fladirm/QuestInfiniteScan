@@ -53,7 +53,7 @@ direct/dual precedence and reached refinement are implemented; compile; commit.
 
 ## RT3 — readout/export decode and V preservation
 
-Depends: RT1, RT2. Status: NOT STARTED.
+Depends: RT1, RT2. Status: IN PROGRESS; not a closed cut.
 
 Files: MerkabaReadout.compute, FlowerGeometry/Support/SkinReadout,
 MerkabaFlowerPresentation, SphereFlowerReader, MaterialBake, GlbWriter,
@@ -194,8 +194,24 @@ read-only preflight and <=8 writable bindings: combining fine and banked M8
 publication measured 9 RW and was removed. Native and Unity command consumers
 are both connected. Observation records 41 commands; ERASE records 6.
 
+RGB/V EXPORT=implemented paired RGB and linear V-normal atlas pages using the
+same EvaluateSkinDrawSignal and additive A3/A4/A5 gradients. Cell allocation
+uses the union masks, not RGB alone. Wedge frames come from evaluated positions;
+padding uses active chart support only. Shared positions/indices are unchanged.
+GLB omits per-knot NORMAL/TANGENT so its flat L2/UV frame is not replaced by an
+arbitrary incident normal. The unlit foreign preview accepts absent normals;
+normalTexture is explicitly a derived lit fallback, not albedo or displacement.
+Native records remain the exact RGB/V representation. Both pixel streams are
+flushed/checksummed under one export receipt; resume policy is versioned.
+Unity C#/codegen compiled; no tests, APK or device acceptance were run. RT4
+must verify union-only V, nested gradients, mirrored/wound UV frames, padding,
+paired PNG/resume and native-package accessor offsets; reconcile old NORMAL
+stream/RGB-only tests and the legacy PBR-only GLB validation fixture.
+
 NEXT=RT3 shared actual-carrier decode in GPU readout and frozen offline export;
-completion from actual incident boundaries, and RGB/V atlas preservation.
+completion from actual incident boundaries. The GPU's large root/site packet
+and CPU neighbor coverage traversal are still open; this atlas checkpoint
+does not close RT3 or move CPU decode into the live hotpath.
 Do not add a spinning global lock, drop BUSY work as capacity, or retain a
 snapshot/cursor. Complete-through hysteresis already matches retained REV-C
 14.1; do not silently replace that explicit evidence rule during this execution

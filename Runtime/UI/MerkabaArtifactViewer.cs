@@ -3588,16 +3588,17 @@ namespace Genesis.RoomScan.UI
             GlbAttributes attributes = primitives[0]?.attributes ??
                 throw new InvalidDataException("GLB primitive has no vertex attributes.");
             GlbAccessor position = ReadAccessor(document, attributes.POSITION);
-            GlbAccessor normal = ReadAccessor(document, attributes.NORMAL);
+            GlbAccessor normal = attributes.NORMAL == -1 ? null : ReadAccessor(document, attributes.NORMAL);
             GlbAccessor color = ReadAccessor(document, attributes.COLOR_0);
             if (position.componentType != 5126 || position.type != "VEC3" ||
-                normal.componentType != 5126 || normal.type != "VEC3" ||
+                (normal != null && (normal.componentType != 5126 || normal.type != "VEC3" ||
+                    position.count != normal.count || normal.byteOffset != 0)) ||
                 color.componentType != 5121 || color.type != "VEC4" ||
-                !color.normalized || position.count <= 0 || position.count != normal.count ||
-                position.count != color.count || position.byteOffset != 0 || normal.byteOffset != 0 || color.byteOffset != 0)
+                !color.normalized || position.count <= 0 ||
+                position.count != color.count || position.byteOffset != 0 || color.byteOffset != 0)
                 throw new InvalidDataException("Unsupported GLB accessor ABI.");
             GlbBufferView positionView = ReadView(document, position.bufferView);
-            GlbBufferView normalView = ReadView(document, normal.bufferView);
+            GlbBufferView normalView = normal == null ? null : ReadView(document, normal.bufferView);
             GlbBufferView colorView = ReadView(document, color.bufferView);
             GlbBufferView indexView = null;
             ParsedMaterial[] materials = ReadMaterials(document);
@@ -3630,7 +3631,7 @@ namespace Genesis.RoomScan.UI
                 indexCount = checked(indexCount + index.count);
             }
             ValidateView(positionView, position.count, 12, binaryLength);
-            ValidateView(normalView, normal.count, 12, binaryLength);
+            if (normal != null) ValidateView(normalView, normal.count, 12, binaryLength);
             ValidateView(colorView, color.count, 4, binaryLength);
             ValidateView(indexView, indexCount, 4, binaryLength);
             GlbBufferView uvView = null;
@@ -3644,7 +3645,8 @@ namespace Genesis.RoomScan.UI
                 ValidateView(uvView, uv.count, 8, binaryLength);
             }
             var requiredImages = new bool[document.images?.Length ?? 0];
-            long decodedBytes = checked((long)position.count * (28L + (uvView == null ? 0L : 8L)) +
+            long decodedBytes = checked((long)position.count *
+                (16L + (normal == null ? 0L : 12L) + (uvView == null ? 0L : 8L)) +
                 4L * indexCount);
             foreach (ParsedMaterial material in materials)
                 if (material.Image >= 0 && !requiredImages[material.Image])
@@ -3656,7 +3658,9 @@ namespace Genesis.RoomScan.UI
                 throw new InvalidDataException($"GLB preview needs {decodedBytes} decoded bytes, " +
                     $"above the {maximumDecodedBytes}-byte resident content budget.");
             var positions = new Vector3[position.count];
-            var normals = new Vector3[position.count];
+            // Foreign preview is unlit and consumes no normals. Native
+            // records bypass this mesh importer and use the GPU readout.
+            var normals = normal == null ? Array.Empty<Vector3>() : new Vector3[position.count];
             var colors = new Color32[position.count];
             var indices = new int[indexCount];
             long binaryCursor = 0L;
@@ -3679,25 +3683,25 @@ namespace Genesis.RoomScan.UI
                 vertexBase += batch;
             }
             binaryCursor += positionView.byteLength;
-            MoveToView(input, normalView, ref binaryCursor,
-                scratch);
-            for (int vertexBase = 0; vertexBase < normal.count;)
+            if (normal != null)
             {
-                int batch = Math.Min(normal.count - vertexBase,
-                    scratch.Length / 12);
-                ReadExactly(input, scratch, 0, batch * 12);
-                for (int local = 0; local < batch; local++)
+                MoveToView(input, normalView, ref binaryCursor, scratch);
+                for (int vertexBase = 0; vertexBase < normal.count;)
                 {
-                    int offset = local * 12;
-                    Vector3 glbNormal = new(ReadSingle(scratch, offset),
-                        ReadSingle(scratch, offset + 4),
-                        ReadSingle(scratch, offset + 8));
-                    normals[vertexBase + local] = new Vector3(-glbNormal.x,
-                        glbNormal.y, glbNormal.z).normalized;
+                    int batch = Math.Min(normal.count - vertexBase, scratch.Length / 12);
+                    ReadExactly(input, scratch, 0, batch * 12);
+                    for (int local = 0; local < batch; local++)
+                    {
+                        int offset = local * 12;
+                        Vector3 glbNormal = new(ReadSingle(scratch, offset),
+                            ReadSingle(scratch, offset + 4), ReadSingle(scratch, offset + 8));
+                        normals[vertexBase + local] = new Vector3(-glbNormal.x,
+                            glbNormal.y, glbNormal.z).normalized;
+                    }
+                    vertexBase += batch;
                 }
-                vertexBase += batch;
+                binaryCursor += normalView.byteLength;
             }
-            binaryCursor += normalView.byteLength;
             MoveToView(input, colorView, ref binaryCursor,
                 scratch);
             for (int vertexBase = 0; vertexBase < color.count;)

@@ -7,13 +7,48 @@ using Unity.Mathematics;
 
 namespace Genesis.RoomScan
 {
-    // Portable captured-RGB presentation only. The atlas preset never chooses
-    // scan detail, changes a knot, or claims to reproduce V in an unlit viewer.
+    // Frozen-export presentation of the shared RGB/V evaluator. Atlas sampling
+    // never chooses scan subdivision or changes a canonical L2 position.
     internal static class MerkabaFlowerMaterialBake
     {
         internal const int Resolution = 2048;
         internal const int Gutter = 2;
         internal const int MaximumCellSize = 64;
+        private const int ReceiptBytes = 12 + 2 * 32;
+
+        private readonly struct NormalFrame
+        {
+            internal readonly float3 Tangent1, Tangent2, Normal, Du, Dv, TextureU, TextureV;
+
+            internal NormalFrame(MerkabaFlowerPresentation presentation,
+                MerkabaFlowerPresentation.Carrier carrier, int wedge)
+            {
+                presentation.WedgeFrame(carrier, wedge, out float3 t1, out float3 t2,
+                    out float3 normal, out float3 du, out float3 dv);
+                if ((carrier.Symbol.ReverseWedgeMask & (1u << wedge)) != 0u)
+                { normal = -normal; t2 = -t2; dv = -dv; }
+                Tangent1 = t1; Tangent2 = t2; Normal = normal; Du = du; Dv = dv;
+                float2 a = MerkabaSphereFlowerAuthority.L2CarrierChartSite(1 + wedge);
+                float2 b = MerkabaSphereFlowerAuthority.L2CarrierChartSite(1 + (wedge + 1) % 6);
+                float3 e1 = presentation.Position(carrier, 1 + wedge) - presentation.Position(carrier, 0);
+                float3 e2 = presentation.Position(carrier, 1 + (wedge + 1) % 6) - presentation.Position(carrier, 0);
+                // The chart determinant is exactly +1 for every wedge. UV
+                // scale is positive and isotropic; it cancels on normalization.
+                TextureU = math.normalize(e1 * b.y - e2 * a.y);
+                float3 bitangent = math.cross(normal, TextureU);
+                TextureV = math.dot(bitangent, e2 * a.x - e1 * b.x) < 0f ? -bitangent : bitangent;
+            }
+
+            internal float3 Evaluate(float2 gradient)
+            {
+                float3 micro = MerkabaSphereFlowerAuthority.SkinMicroNormal(
+                    Tangent1, Tangent2, Normal, gradient);
+                // Reflecting X for glTF preserves these dot products. Its
+                // generated flat-normal/MikkTSpace frame has the same UV axes.
+                return new float3(math.dot(micro, TextureU), math.dot(micro, TextureV),
+                    math.dot(micro, Normal));
+            }
+        }
 
         [Serializable]
         internal sealed class ResumeState
@@ -40,8 +75,8 @@ namespace Genesis.RoomScan
                  (Size - 2 * Gutter)) / Resolution;
         }
 
-        // Three size-class cursors, not three resident pixel pages. Pixels,
-        // page sizes and final PNGs are spooled; only one <=64² cell and one
+        // Three size-class cursors, not three resident pixel pages. RGB/V,
+        // page sizes and final PNGs are spooled; only one <=64² cell pair and one
         // PNG row/IDAT packet are resident. No world-sized page/image list.
         internal sealed class Atlas : IDisposable
         {
@@ -51,6 +86,7 @@ namespace Genesis.RoomScan
             private readonly int[] _current = { -1, -1, -1 };
             private readonly int[] _used = new int[3];
             private readonly byte[] _cell = new byte[MaximumCellSize * MaximumCellSize * 4];
+            private readonly byte[] _normalCell = new byte[MaximumCellSize * MaximumCellSize * 4];
             private readonly int[] _durableCurrent = { -1, -1, -1 };
             private int _durablePages;
             internal int PageCount { get; private set; }
@@ -72,18 +108,23 @@ namespace Genesis.RoomScan
                 catch { _receipts?.Dispose(); _sizes.Dispose(); throw; }
             }
 
-            internal Cell Append(MerkabaFlowerPresentation.Carrier carrier,
+            internal Cell Append(MerkabaFlowerPresentation presentation, MerkabaFlowerPresentation.Carrier carrier,
                 CancellationToken cancellationToken)
             {
                 int size = CellSize(carrier);
+                Span<NormalFrame> frames = stackalloc NormalFrame[6];
+                for (int wedge = 0; wedge < 6; wedge++)
+                    if ((carrier.Symbol.ActiveWedgeMask & (1u << wedge)) != 0u)
+                        frames[wedge] = new NormalFrame(presentation, carrier, wedge);
                 int sizeClass = size == 16 ? 0 : size == 32 ? 1 : 2;
                 int perRow = Resolution / size;
                 if (_current[sizeClass] < 0 || _used[sizeClass] == perRow * perRow)
                 {
                     int page = PageCount;
-                    using (var pixels = new FileStream(PagePath(page), FileMode.CreateNew,
-                        FileAccess.Write, FileShare.None, 4096))
-                        pixels.SetLength(checked((long)Resolution * Resolution * 4));
+                    for (int channel = 0; channel < 2; channel++)
+                        using (var pixels = new FileStream(PagePath(page, channel != 0), FileMode.CreateNew,
+                            FileAccess.Write, FileShare.None, 4096))
+                            pixels.SetLength(checked((long)Resolution * Resolution * 4));
                     _sizes.Position = page;
                     _sizes.WriteByte((byte)size);
                     PageCount = checked(PageCount + 1);
@@ -102,25 +143,35 @@ namespace Genesis.RoomScan
                         float2 chart = new float2(
                             (float)(2.0 * (x + 0.5 - Gutter) / (size - 2 * Gutter) - 1.0),
                             (float)(2.0 * (y + 0.5 - Gutter) / (size - 2 * Gutter) - 1.0));
-                        ChartSample(chart, out int wedge, out float3 bc);
+                        ChartSample(chart, carrier.Symbol.ActiveWedgeMask, out int wedge, out float3 bc);
+                        NormalFrame frame = frames[wedge];
                         var sample = MerkabaSphereFlowerAuthority.EvaluateSkinDrawSignal(
                             carrier.SkinHeader, carrier.SkinSamples, wedge, bc,
-                            float3.zero, float3.zero, out _, out _, out _);
+                            frame.Du, frame.Dv, out _, out _, out float2 gradient);
+                        float3 normal = frame.Evaluate(gradient);
+                        if (!math.all(math.isfinite(normal)))
+                            throw new InvalidDataException("Nonfinite Flower V normal.");
                         int offset = 4 * (y * size + x);
                         _cell[offset] = Srgb(sample.CapturedRgb.x);
                         _cell[offset + 1] = Srgb(sample.CapturedRgb.y);
                         _cell[offset + 2] = Srgb(sample.CapturedRgb.z);
                         _cell[offset + 3] = 255;
+                        _normalCell[offset] = LinearByte(0.5f + 0.5f * normal.x);
+                        _normalCell[offset + 1] = LinearByte(0.5f + 0.5f * normal.y);
+                        _normalCell[offset + 2] = LinearByte(0.5f + 0.5f * normal.z);
+                        _normalCell[offset + 3] = 255;
                     }
                 }
-                using (var pixels = new FileStream(PagePath(cell.Page), FileMode.Open,
-                    FileAccess.Write, FileShare.None, 4096))
+                for (int channel = 0; channel < 2; channel++)
                 {
+                    byte[] bytes = channel == 0 ? _cell : _normalCell;
+                    using var pixels = new FileStream(PagePath(cell.Page, channel != 0), FileMode.Open,
+                        FileAccess.Write, FileShare.None, 4096);
                     for (int y = 0; y < size; y++)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         pixels.Position = checked(4L * ((long)(cell.Y + y) * Resolution + cell.X));
-                        pixels.Write(_cell, y * size * 4, size * 4);
+                        pixels.Write(bytes, y * size * 4, size * 4);
                     }
                 }
                 // Pixels are immutable within an allocated cell. This bounded
@@ -130,6 +181,7 @@ namespace Genesis.RoomScan
                 {
                     writer.Write(cell.Page); writer.Write(cell.Size); writer.Write(_used[sizeClass]);
                     writer.Write(sha.ComputeHash(_cell, 0, size * size * 4));
+                    writer.Write(sha.ComputeHash(_normalCell, 0, size * size * 4));
                     writer.Flush();
                 }
                 _used[sizeClass]++;
@@ -151,15 +203,19 @@ namespace Genesis.RoomScan
 
             private void FlushPage(int page, CancellationToken token)
             {
-                token.ThrowIfCancellationRequested();
-                using var file = new FileStream(PagePath(page), FileMode.Open, FileAccess.Write, FileShare.None, 4096);
-                file.Flush(true);
+                for (int channel = 0; channel < 2; channel++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    using var file = new FileStream(PagePath(page, channel != 0), FileMode.Open,
+                        FileAccess.Write, FileShare.None, 4096);
+                    file.Flush(true);
+                }
             }
 
             private void Restore(ResumeState state, CancellationToken token)
             {
                 if (state.pages < 0 || state.current?.Length != 3 || state.used?.Length != 3 ||
-                    state.receipts < 0 || state.receipts % 44 != 0 ||
+                    state.receipts < 0 || state.receipts % ReceiptBytes != 0 ||
                     _sizes.Length != state.pages || _receipts.Length != state.receipts)
                     throw new InvalidDataException("Invalid atlas resume receipt.");
                 PageCount = state.pages;
@@ -169,7 +225,7 @@ namespace Genesis.RoomScan
                 {
                     token.ThrowIfCancellationRequested();
                     int page = reader.ReadInt32(), size = reader.ReadInt32(), ordinal = reader.ReadInt32();
-                    byte[] expected = reader.ReadBytes(32);
+                    byte[] expectedRgb = reader.ReadBytes(32), expectedV = reader.ReadBytes(32);
                     if ((size != 16 && size != 32 && size != 64) || page < 0 || page >= PageCount ||
                         PageCellSize(page) != size) throw new InvalidDataException("Invalid atlas cell receipt.");
                     int sizeClass = size == 16 ? 0 : size == 32 ? 1 : 2;
@@ -182,23 +238,28 @@ namespace Genesis.RoomScan
                     if (page != _current[sizeClass] || ordinal != _used[sizeClass]++)
                         throw new InvalidDataException("Noncanonical atlas cell allocation.");
                     var cell = new Cell(page, size, ordinal);
-                    using var pixels = File.OpenRead(PagePath(page));
-                    if (pixels.Length != 4L * Resolution * Resolution)
-                        throw new InvalidDataException("Atlas pixel spool is truncated.");
-                    for (int row = 0; row < size; row++)
+                    for (int channel = 0; channel < 2; channel++)
                     {
-                        pixels.Position = 4L * ((cell.Y + row) * Resolution + cell.X);
-                        int remaining = size * 4, cursor = row * size * 4;
-                        while (remaining != 0)
+                        using var pixels = File.OpenRead(PagePath(page, channel != 0));
+                        if (pixels.Length != 4L * Resolution * Resolution)
+                            throw new InvalidDataException("Atlas pixel spool is truncated.");
+                        for (int row = 0; row < size; row++)
                         {
-                            int got = pixels.Read(_cell, cursor, remaining);
-                            if (got <= 0) throw new EndOfStreamException();
-                            remaining -= got; cursor += got;
+                            token.ThrowIfCancellationRequested();
+                            pixels.Position = 4L * ((cell.Y + row) * Resolution + cell.X);
+                            int remaining = size * 4, cursor = row * size * 4;
+                            while (remaining != 0)
+                            {
+                                int got = pixels.Read(_cell, cursor, remaining);
+                                if (got <= 0) throw new EndOfStreamException();
+                                remaining -= got; cursor += got;
+                            }
                         }
+                        using SHA256 sha = SHA256.Create();
+                        if (!sha.ComputeHash(_cell, 0, size * size * 4).AsSpan().SequenceEqual(
+                                channel == 0 ? expectedRgb : expectedV))
+                            throw new InvalidDataException("Completed RGB/V atlas cell checksum mismatch.");
                     }
-                    using SHA256 sha = SHA256.Create();
-                    if (!sha.ComputeHash(_cell, 0, size * size * 4).AsSpan().SequenceEqual(expected))
-                        throw new InvalidDataException("Completed atlas cell checksum mismatch.");
                 }
                 if (pages != PageCount) throw new InvalidDataException("Atlas page receipt is incomplete.");
                 for (int i = 0; i < 3; i++)
@@ -210,8 +271,11 @@ namespace Genesis.RoomScan
                 foreach (string path in Directory.EnumerateFiles(_directory, "atlas-*.rgba"))
                 {
                     string name = Path.GetFileNameWithoutExtension(path);
-                    if (!int.TryParse(name.AsSpan(6), out int page) || page < 0 ||
-                        Path.GetFileName(path) != Path.GetFileName(PagePath(page)))
+                    bool normal = name.StartsWith("atlas-v-", StringComparison.Ordinal);
+                    string prefix = normal ? "atlas-v-" : "atlas-rgb-";
+                    if (!name.StartsWith(prefix, StringComparison.Ordinal) ||
+                        !int.TryParse(name.AsSpan(prefix.Length), out int page) || page < 0 ||
+                        Path.GetFileName(path) != Path.GetFileName(PagePath(page, normal)))
                         throw new InvalidDataException("Unrecognized file in atlas staging.");
                     if (page >= PageCount) File.Delete(path); // never a completed page
                 }
@@ -223,16 +287,19 @@ namespace Genesis.RoomScan
             {
                 int perRow = Resolution / size, firstRow = used / perRow * size;
                 var zeros = new byte[Resolution * 4];
-                using var pixels = new FileStream(PagePath(page), FileMode.Open,
-                    FileAccess.Write, FileShare.None, 4096);
-                for (int y = firstRow; y < Resolution; y++)
+                for (int channel = 0; channel < 2; channel++)
                 {
-                    token.ThrowIfCancellationRequested();
-                    int x = y < firstRow + size ? (used % perRow) * size : 0;
-                    pixels.Position = 4L * (y * Resolution + x);
-                    pixels.Write(zeros, 0, 4 * (Resolution - x));
+                    using var pixels = new FileStream(PagePath(page, channel != 0), FileMode.Open,
+                        FileAccess.Write, FileShare.None, 4096);
+                    for (int y = firstRow; y < Resolution; y++)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        int x = y < firstRow + size ? (used % perRow) * size : 0;
+                        pixels.Position = 4L * (y * Resolution + x);
+                        pixels.Write(zeros, 0, 4 * (Resolution - x));
+                    }
+                    pixels.Flush(true);
                 }
-                pixels.Flush(true);
             }
 
             internal int PageCellSize(int page)
@@ -245,66 +312,70 @@ namespace Genesis.RoomScan
                 return size;
             }
 
-            internal long WritePage(int page, Stream destination, CancellationToken cancellationToken)
+            internal long WritePage(int page, bool normal, Stream destination, CancellationToken cancellationToken)
             {
                 PageCellSize(page);
-                using var pixels = new FileStream(PagePath(page), FileMode.Open,
+                using var pixels = new FileStream(PagePath(page, normal), FileMode.Open,
                     FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.SequentialScan);
-                return Png(destination, pixels, cancellationToken);
+                return Png(destination, pixels, normal, cancellationToken);
             }
 
-            private string PagePath(int page) => Path.Combine(_directory,
-                "atlas-" + page.ToString("D8", System.Globalization.CultureInfo.InvariantCulture) + ".rgba");
+            private string PagePath(int page, bool normal) => Path.Combine(_directory,
+                (normal ? "atlas-v-" : "atlas-rgb-") +
+                page.ToString("D8", System.Globalization.CultureInfo.InvariantCulture) + ".rgba");
 
             public void Dispose() { _receipts?.Dispose(); _sizes.Dispose(); }
         }
 
-        internal static bool HasChromaticDetail(MerkabaFlowerPresentation.Carrier carrier)
+        internal static bool HasSignalDetail(MerkabaFlowerPresentation.Carrier carrier)
         {
-            if (carrier.SkinSamples == null || carrier.SkinSamples.Length == 0)
-                throw new InvalidDataException("Flower captured-RGB sample receipt is empty.");
-            float3 root = carrier.SkinSamples[0].CapturedRgb;
-            foreach (var sample in carrier.SkinSamples)
-                if (math.any(math.asuint(sample.CapturedRgb) != math.asuint(root))) return true;
-            return false;
+            uint low = carrier.SkinHeader.SplitBitsLo, high = carrier.SkinHeader.SplitBitsHi;
+            int groups = MerkabaFlowerSkinSplitBits.GroupCount(low, high);
+            if (groups < 0 || carrier.SkinSamples == null ||
+                (ulong)carrier.SkinHeader.FirstSample + 1ul + 7ul * (uint)groups >
+                (ulong)carrier.SkinSamples.Length)
+                throw new InvalidDataException("Flower RGB/V draw signal receipt is incomplete.");
+            return MerkabaFlowerSkinSplitBits.SplitL2(low);
         }
 
         internal static int CellSize(MerkabaFlowerPresentation.Carrier carrier)
         {
-            uint low = carrier.RgbSplitBits.x, high = carrier.RgbSplitBits.y;
-            if (!MerkabaFlowerSkinSplitBits.IsCanonical(low, high) ||
-                !MerkabaFlowerSkinSplitBits.SplitL2(low) ||
-                (low & ~carrier.SkinHeader.SplitBitsLo) != 0u ||
-                (high & ~carrier.SkinHeader.SplitBitsHi) != 0u)
-                throw new InvalidDataException("A detailed RGB atlas needs actual scan-authored RGB splits.");
+            if (!HasSignalDetail(carrier))
+                throw new InvalidDataException("Uniform L2 signal needs no atlas cell.");
+            uint low = carrier.SkinHeader.SplitBitsLo, high = carrier.SkinHeader.SplitBitsHi;
             if (MerkabaFlowerSkinSplitBits.SplitL4Low(low, high) != 0u ||
                 MerkabaFlowerSkinSplitBits.SplitL4High(high) != 0u) return 64;
             return MerkabaFlowerSkinSplitBits.SplitL3Thread(low) != 0u ? 32 : 16;
         }
 
-        private static void ChartSample(float2 chart, out int wedge, out float3 bc)
+        private static void ChartSample(float2 chart, uint active, out int wedge, out float3 bc)
         {
             if (MerkabaSphereFlowerAuthority.TryL2CarrierChartWedge(chart, out wedge,
-                    out bc, out _, out _)) return;
-            // Gutter/outside-hex extension only: nearest point on one of the
-            // existing six chart edges, equal distances keep the first edge.
-            // This does not define a scan support or a world-space projection.
-            double best = double.PositiveInfinity, selectedT = 0.0;
+                    out bc, out _, out _) && (active & (1u << wedge)) != 0u) return;
+            // Extend only already active support into padding. Missing wedges
+            // have no evaluable world frame; never read their unproved sites.
+            double best = double.PositiveInfinity;
             wedge = -1;
-            for (int edge = 0; edge < 6; edge++)
+            for (int candidate = 0; candidate < 6; candidate++)
             {
-                float2 a = MerkabaSphereFlowerAuthority.L2CarrierChartSite(1 + edge);
-                float2 b = MerkabaSphereFlowerAuthority.L2CarrierChartSite(1 + (edge + 1) % 6);
-                double dx = b.x - a.x, dy = b.y - a.y;
-                double t = Math.Max(0.0, Math.Min(1.0,
-                    ((chart.x - a.x) * dx + (chart.y - a.y) * dy) / (dx * dx + dy * dy)));
-                double x = chart.x - (a.x + t * dx), y = chart.y - (a.y + t * dy);
-                double distance = x * x + y * y;
-                if (distance < best) { best = distance; selectedT = t; wedge = edge; }
+                if ((active & (1u << candidate)) == 0u) continue;
+                int3 sites = MerkabaSphereFlowerAuthority.L2CarrierTriangleIndices(candidate);
+                for (int edge = 0; edge < 3; edge++)
+                {
+                    int next = (edge + 1) % 3;
+                    float2 a = MerkabaSphereFlowerAuthority.L2CarrierChartSite(sites[edge]);
+                    float2 b = MerkabaSphereFlowerAuthority.L2CarrierChartSite(sites[next]);
+                    double dx = b.x - a.x, dy = b.y - a.y;
+                    double t = Math.Max(0.0, Math.Min(1.0,
+                        ((chart.x - a.x) * dx + (chart.y - a.y) * dy) / (dx * dx + dy * dy)));
+                    double x = chart.x - (a.x + t * dx), y = chart.y - (a.y + t * dy);
+                    double distance = x * x + y * y;
+                    if (distance >= best) continue;
+                    best = distance; wedge = candidate;
+                    bc = float3.zero; bc[edge] = 1f - (float)t; bc[next] = (float)t;
+                }
             }
             if (wedge < 0) throw new InvalidDataException("Nonfinite atlas chart coordinate.");
-            float fraction = (float)selectedT;
-            bc = new float3(0f, 1f - fraction, fraction);
         }
 
         internal static byte LinearByte(float linear) => checked((byte)Math.Round(
@@ -319,16 +390,16 @@ namespace Genesis.RoomScan
             return checked((byte)Math.Round(255.0 * encoded, MidpointRounding.ToEven));
         }
 
-        private static long Png(Stream destination, Stream pixels, CancellationToken cancellationToken)
+        private static long Png(Stream destination, Stream pixels, bool normal, CancellationToken cancellationToken)
         {
             if (!destination.CanSeek) throw new ArgumentException("Atlas image spool must be seekable.");
             long start = destination.Position;
             destination.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, 0, 8);
             var ihdr = new byte[13];
             BigEndian(ihdr, 0, Resolution); BigEndian(ihdr, 4, Resolution);
-            ihdr[8] = 8; ihdr[9] = 6; // opaque captured radiance, RGBA8
+            ihdr[8] = 8; ihdr[9] = 6; // RGBA8: sRGB radiance or linear normal data
             Chunk(destination, "IHDR", ihdr, ihdr.Length);
-            Chunk(destination, "sRGB", new byte[] { 0 }, 1);
+            if (!normal) Chunk(destination, "sRGB", new byte[] { 0 }, 1);
             using var idat = new IdatStream(destination, cancellationToken);
             idat.WriteByte(0x78); idat.WriteByte(0x01);
             uint a = 1, b = 0;

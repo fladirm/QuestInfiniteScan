@@ -16,7 +16,7 @@ namespace Genesis.RoomScan
         internal const string FileName = "export.journal";
         private const int MaximumRecordBytes = 64 * 1024;
         private const int PacketBytes = 64 * 1024;
-        private const string Policy = "MERKABA-closure-6.2-6.9/export-resume-v1/atlas2048-16-32-64-g2/unlit-capture";
+        private const string Policy = "M8-realtime-RT3/export-resume-v2/atlas2048-16-32-64-g2/rgb-v-pair/flat-L2-UV/unlit-capture";
         private readonly string _directory;
         private readonly FileStream _log;
         private readonly Dictionary<string, long> _appendEnds = new(StringComparer.Ordinal);

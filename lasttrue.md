@@ -10206,3 +10206,31 @@ CURSOR=RT2 implementation checkpoint; integrated acceptance belongs to RT4.
 TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set awaits RT4.
   RT4 must prove malformed-peer rejection leaves source epoch/M8 unchanged,
   concurrent adjacent sources, full THROUGH, ERASE and allocator concurrency.
+
+## RT3 — frozen RGB/V atlas consumer (after ce13930)
+
+CHANGE=atlas allocation reads the compiled RGB/V split union, including V-only
+  detail. One shared skin evaluation per texel produces captured RGB and the
+  additive A3/A4/A5 gradient in the evaluated L2 wedge frame. The paired normal
+  PNG contains linear tangent-space values, never sRGB-encoded normals. Atlas
+  padding projects only to active chart support, not unproved inactive sites.
+  GLB/3D Tiles share the same writer, seven positions and active wedge indices.
+  Removed the arbitrary first-incident per-knot NORMAL stream; flat L2/UV
+  normal generation remains presentation, not a knot identity or world field.
+  Base-color pixels remain absolute RGB with white COLOR_0 for textured sites.
+  normalTexture carries explicit derived/lit-fallback metadata; unlit does not
+  display it. Exact V intervals remain in the unchanged native record payload.
+  The foreign unlit preview accepts omitted NORMAL without CPU normal solving;
+  native records still reopen through GPU page compilation, not this importer.
+  Both atlas streams are flushed and hashed by the same 76-byte cell receipt;
+  versioned export policy rejects old RGB-only resume instead of mixing formats.
+COMPILE=Unity C#/Editor codegen PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt3-rgbv-atlas.log.
+  No scan shader, runtime queue, canonical field or CPU hotpath was added.
+CURSOR=RT3 OPEN. Next: GPU actual-carrier decode without the large original-root
+  packet, bounded incident completion/coverage and corresponding CPU frozen
+  decode. RT4 must check V-only/nested atlas, mirrored/wound tangent convention,
+  gutters, paired receipts/resume and GLB/native package offsets. Old NORMAL
+  stream/RGB-only/PBR fixture expectations remain to be reconciled in RT4.
+TESTS/APK/INSTALL/DEVICE=not run. This is a compile checkpoint, not parity proof,
+  a portable-viewer visual result or completion of the full rewrite.
