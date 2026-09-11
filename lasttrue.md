@@ -10696,3 +10696,21 @@ C4_PROOFS=encoded-plane reuse vs per-consumer encoding, invalid encodings,
   cooperative-footprint/cache obligations remain open. Full suite NOT RUN.
 NEXT=remaining HOT code/graph closure, then one full C4 pass; no APK/capture
   or device run was performed. Do not reopen completed C1/C2/C3 source cuts.
+
+## 2026-09-11 20:41 UTC — reuse the proved phase synthesis
+
+CURRENT=C1_C2_HOT_CLOSURE; goal ACTIVE.
+IMPLEMENTED=CommitObservedPhase consumes AnalyzePhaseResidual.Synthesis.
+  The analysis already rotates the exact persisted Q2.29 enclosure and proves
+  its sector before returning CERTAIN_NONZERO. R3 eta affects stored residual
+  orientation, not that physical result. Reconstruct the same non-boundary
+  synthesis identity; retain R2 record admission and shared-incidence closure.
+  Removed the second rational rotation, not a geometry/closure predicate.
+COMPILE=all 23 native embedded entrypoints and ARM64 plugin PASS.
+  Root=22725 instructions (was 24295); Children=33006 (was 34580).
+  Both remain REVIEW/release-blocked. No measured GPU-time claim.
+  Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-hot-compile/native-phase-reuse.log.
+C4_PROOF=reused analysis synthesis equals decode/persisted-rotation synthesis
+  for R2 and both R3 eta signs, fixed-point endpoints and boundary/sector cases.
+  Full suite, APK, capture and device NOT RUN. ABI/schedule/persistence unchanged.
+NEXT=remaining HOT source/graph gaps before C4, not a return to completed cuts.

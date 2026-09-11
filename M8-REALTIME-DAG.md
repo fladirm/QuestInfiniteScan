@@ -98,9 +98,15 @@ Necessary Unity/codegen + all 23 native entrypoints/ARM64 compile PASS
 Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-hot-compile
 native-measurement-final.log; measurement-final-unity.log; measurement-codegen.log.
 Skin=38437 instructions / 2420 B shared / 6 writable bindings: still REVIEW.
-Root=24295, Children=34580, Resolve=42763: still HOT release gaps.
+Root=22725, Children=33006, Resolve=42763: still HOT release gaps.
+The phase commit consumes AnalyzePhaseResidual.Synthesis instead of rotating
+the same persisted Q2.29 interval again. R2 record-key checks and final shared
+knot closure remain; R3 eta changes record orientation, not physical synthesis.
+All 23 native entrypoints/ARM64 compile PASS: native-phase-reuse.log.
 C4 also proves emitted plane bits against the original per-consumer encoder
 for every routed overlap owner, including failed encodings and frame transforms.
+C4 compares reused R2/R3 synthesis to record decode/rotation, including both
+R3 eta signs and exact fixed-point endpoint/sector/boundary cases.
 C4 must compare eight-stripe RGB hull/stereo intersection and two-pass V
 intersection/encoding/full-cover results to the sequential oracle, including
 empty stripes/children, boundary cells and a rejection on any one lane.

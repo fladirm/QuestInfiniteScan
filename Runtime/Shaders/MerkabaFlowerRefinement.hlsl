@@ -434,7 +434,6 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     M8FlowerPhaseRootEvidence predicted;
     if(!M8FlowerPredictGeometryNode(slot,ownerRef,epoch,owner,m8FinePlane,task,
         normalError,offsetError,predicted))return M8_FLOWER_ARENA_OK;
-    int r3Orientation=1;
     uint r3Parity=0u,r3Axis=4u;
     if(task.Kind==1u)
     {
@@ -449,7 +448,6 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     if(task.Kind==1u)
     {
         analysis=M8FlowerOrientR3PhaseResidual(analysis,(predicted.Tag>>3u)&15u,r3Parity,r3Axis);
-        r3Orientation=M8FlowerTetraEtaAt(r3Parity)[r3Axis];
     }
     uint key=M8FlowerPackDetailKey(task.Level,task.Path,task.Petal,task.Line,
         task.Kind,task.Plus,(predicted.Tag>>8u)&31u);
@@ -495,20 +493,15 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
         if(!M8FlowerPreparePhaseRecordSynthesis(predicted,record.Key,record,epoch,phase))
             return M8_FLOWER_ARENA_OK;
     }
-    else
-    {
-        // R3 stores eta*tau. Undo ONLY that generated orientation for the
-        // physical root synthesis. A measured metric record is not a
-        // declaration of a unique chirally valid junction/petal class.
-        phase=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
-        if(r3Orientation<0)phase=M8FlowerI(-phase.hi,-phase.lo);
-    }
-    // Record admission differs between R2 and R3, but their ordered metric
-    // rotation is identical. Keep it at one live call site, not two inlined
-    // evaluator copies. Preserve the R2-only finite postcondition verbatim.
-    M8FlowerPhaseRootEvidence synthesized,closedRoot;
-    if(M8FlowerRotatePhaseEvidence(predicted,phase,synthesized)!=1u ||
-        (task.Kind==0u && !M8FlowerFinitePhaseRoot(synthesized.Root)))
+    // CERTAIN_NONZERO analysis already rotated the exact persisted Q2.29
+    // enclosure and proved its sector. R3 orientation changes stored eta*tau,
+    // not this physical synthesis; decoding and undoing eta yields the same
+    // enclosure. Consume that result instead of evaluating the rotation twice.
+    M8FlowerPhaseRootEvidence synthesized=predicted,closedRoot;
+    synthesized.Tag&=~M8_FLOWER_BOUNDARY_WITNESS_MASK;
+    synthesized.Root=analysis.Synthesis;
+    synthesized.Classification=1u;
+    if(task.Kind==0u && !M8FlowerFinitePhaseRoot(synthesized.Root))
         return M8_FLOWER_ARENA_OK;
     if(M8FlowerCloseSharedPhaseRoot(synthesized,observed,closedRoot)!=1u)
         return M8_FLOWER_ARENA_OK;
