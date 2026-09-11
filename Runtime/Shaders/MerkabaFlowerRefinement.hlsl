@@ -15,6 +15,7 @@
 #define M8_FLOWER_FINE_ACTIVE 1u
 #define M8_FLOWER_FINE_NOVEL 2u
 #define M8_FLOWER_FINE_HAS_PHASE 4u
+#define M8_FLOWER_FINE_CHANGED 128u
 // Endpoint presence is transient and disjoint from the three owner flags.
 // The same owner-local reset/reduction barrier owns both fields.
 #define M8_FLOWER_FINE_PRESENCE_SHIFT 3u
@@ -31,6 +32,10 @@ groupshared uint m8FineSignalLast;
 groupshared uint m8FineSignalCount;
 groupshared uint m8FineSignalFailed;
 groupshared uint m8FineAbsentNodes;
+groupshared uint4 m8FineDrawMask;
+groupshared uint4 m8FineDrawSymbols[128];
+groupshared uint m8FineDrawComplete;
+groupshared uint m8FineDrawAddress;
 groupshared uint2 m8FineOriginalKnown;
 groupshared uint2 m8FineOriginalRequired;
 groupshared uint m8FineSourceNodes;
@@ -515,7 +520,7 @@ uint M8FlowerCommitObservedPhase(uint slot,uint local,uint generation,
     status=M8FlowerCommitPhase(ownerRef,record,_M8WorldPublishingGeneration,_M8WorldRetiredGeneration);
     if(status==M8_FLOWER_ARENA_OK)
     {
-        m8FineState|=M8_FLOWER_FINE_NOVEL;
+        m8FineState|=M8_FLOWER_FINE_NOVEL|M8_FLOWER_FINE_CHANGED;
         M8MarkTileDirty(slot);
         InterlockedOr(_M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK],4u);
         M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
@@ -636,6 +641,12 @@ void M8FlowerResolveSkinCarrier(uint4 measured,uint lane,uint carrier,
                 symbol,unresolved,roots,positions);
             if(classification==1u)
             {
+                if(_M8FlowerOwnerCacheEnabled!=0u)
+                {
+                    m8FineDrawSymbols[carrier]=uint4(symbol.OwnerAndCarrier,symbol.RootsAndWedges,
+                        symbol.DetailRef,0xffffffffu);
+                    m8FineDrawMask[carrier>>5u]|=1u<<(carrier&31u);
+                }
                 uint source=M8FlowerL2CarrierSource(carrier);
                 key=M8FlowerPackL2Key(source&15u,source>>4u,
                     (roots[0].Tag&(1u<<7u))!=0u,(roots[0].Tag>>8u)&31u);

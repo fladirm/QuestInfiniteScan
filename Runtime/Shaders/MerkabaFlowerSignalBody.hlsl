@@ -155,4 +155,8 @@ void M8FlowerIntegrateSkin(uint3 group,uint lane,bool metric)
         }
         item=next;
     }
+    if(lane==0u)
+        M8FlowerRetagOwnerSnapshot(slot,local,M8LoadKernelStateRead(slot,local).flags,
+            M8FlowerGetOwnerEpoch(M8FlowerFindOwner(slot,local,generation)));
+
 }

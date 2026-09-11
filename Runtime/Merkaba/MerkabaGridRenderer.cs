@@ -27,8 +27,7 @@ namespace Genesis.RoomScan
         private MerkabaIntegrator _integrator;
         private DepthCapture _depthCapture;
         private Material _material;
-        private int _classifyKernel, _prepareBatchKernel, _compactKernel, _emitKernel,
-            _reserveBatchKernel, _publishKernel, _cullKernel;
+        private int _classifyKernel, _rebuildKernel, _applyKernel, _publishKernel, _cullKernel;
         private bool _initialized;
         private volatile bool _gpuSubmissionSuspended;
         private uint _readoutRevision;
@@ -220,14 +219,11 @@ namespace Genesis.RoomScan
             }
             _grid.EnsureGpuResources();
             _classifyKernel = readoutCompute.FindProfiledKernel("ClassifyHotFlowerPages", MerkabaGpuStage.FlowerClassify);
-            _prepareBatchKernel = readoutCompute.FindProfiledKernel("PrepareDirtyFlowerBatch", MerkabaGpuStage.FlowerCompact);
-            _compactKernel = readoutCompute.FindProfiledKernel("CompactDirtyFlowerSymbols", MerkabaGpuStage.FlowerCompact);
-            _emitKernel = readoutCompute.FindProfiledKernel("EmitDirtyFlowerSymbols", MerkabaGpuStage.FlowerCompact);
-            _reserveBatchKernel = readoutCompute.FindProfiledKernel("ReserveDirtyFlowerBatch", MerkabaGpuStage.FlowerCompact);
+            _rebuildKernel = readoutCompute.FindProfiledKernel("RebuildDirtyFlowerOwners", MerkabaGpuStage.FlowerCompact);
+            _applyKernel = readoutCompute.FindProfiledKernel("ApplyOwnerDrawDeltas", MerkabaGpuStage.FlowerCompact);
             _publishKernel = readoutCompute.FindProfiledKernel("PublishDirtyFlowerPages", MerkabaGpuStage.FlowerPublish);
             _cullKernel = readoutCompute.FindProfiledKernel("CullFlowerPages", MerkabaGpuStage.FlowerCull);
-            foreach (int kernel in new[] { _classifyKernel, _prepareBatchKernel, _compactKernel, _emitKernel,
-                         _reserveBatchKernel, _publishKernel, _cullKernel })
+            foreach (int kernel in new[] { _classifyKernel, _rebuildKernel, _applyKernel, _publishKernel, _cullKernel })
                 _grid.BindWorldBuffers(readoutCompute, kernel);
             _material = new Material(renderShader)
             {
@@ -384,12 +380,12 @@ namespace Genesis.RoomScan
                 command.SetComputeMatrixParam(readoutCompute, GridToWorldId, _grid.GridToWorldMatrix);
                 if (_classificationPending)
                     command.DispatchComputeProfiled(readoutCompute, _classifyKernel, 256, 1, 1);
-                command.DispatchComputeProfiled(readoutCompute, _prepareBatchKernel, 1, 1, 1);
-                command.DispatchComputeProfiled(readoutCompute, _compactKernel,
+                command.DispatchComputeProfiled(readoutCompute, _rebuildKernel,
                     _grid.M8FlowerIndirectCommands, MerkabaFlowerGpuLayout.DirtyBatchDispatchOffset);
-                command.DispatchComputeProfiled(readoutCompute, _reserveBatchKernel, 1, 1, 1);
-                command.DispatchComputeProfiled(readoutCompute, _emitKernel,
-                    _grid.M8FlowerIndirectCommands, MerkabaFlowerGpuLayout.DirtyBatchDispatchOffset);
+                command.SetBufferData(_grid.M8FlowerIndirectCommands, new uint[] { 0u }, 0,
+                    MerkabaFlowerGpuLayout.DirtyBatchDispatchOffset / 4, 1);
+                command.DispatchComputeProfiled(readoutCompute, _applyKernel,
+                    MerkabaFlowerGpuLayout.DirtyBatchCapacity, 1, 1);
                 command.DispatchComputeProfiled(readoutCompute, _publishKernel, 1, 1, 1);
                 MerkabaGpuTimestamps.End(CaptureOwner.FlowerPages, command, timed);
                 // PollReadoutCompletion reads this on the CPU, so it must

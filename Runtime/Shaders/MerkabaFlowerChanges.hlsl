@@ -51,18 +51,22 @@ void InvalidateFlowerPeers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     [loop]for(uint local=lane;local<512u;local+=128u)
     {
         uint ownerRef=M8FlowerFindOwner(slot,local,runtime.w);
-        if(ownerRef==0u)continue;
         int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
-        uint roots=0u;
-        [loop]for(uint node=6u;node<26u;node++)
+        uint roots=0u;bool drawChanged=false;
+        [loop]for(uint node=0u;node<26u;node++)
         {
             uint sourceSlot,sourceLocal;
             if(!M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,sourceSlot,sourceLocal,true))continue;
             if(_M8TileRecords[M8TileRuntimeIndex(sourceSlot)].x!=_M8ObservationToken)continue;
             if((_M8TileBits[M8TileWordIndex(sourceSlot,sourceLocal>>5u)].w&
-                (1u<<(sourceLocal&31u)))!=0u)roots|=1u<<(node-6u);
+                (1u<<(sourceLocal&31u)))!=0u)
+            {
+                drawChanged=true;
+                if(node>=6u)roots|=1u<<(node-6u);
+            }
         }
-        if(roots==0u)continue;
+        if(drawChanged)M8FlowerInvalidateCachedOwner(slot,local);
+        if(roots==0u || ownerRef==0u)continue;
         bool changed;
         uint status=M8FlowerInvalidateDependentPhases(ownerRef,roots,false,
             _M8WorldPublishingGeneration,_M8WorldRetiredGeneration,changed);
@@ -95,6 +99,8 @@ void PublishFlowerR1(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     UpdateOccupancy(slot,local,after,asint(value.x)-before.evidence);
     after.evidence=asint(value.x);after.packedColor=value.y;
     after.colorConfidence=value.z;after.flags=value.w;
+    if(after.flags!=before.flags)M8FlowerInvalidateCachedOwner(slot,local);
+    if(all(value==0u))M8FlowerDropCachedOwner(slot,local);
     M8StoreKernelState(slot,local,after);
     if(M8FlowerHasPlane(after.flags)||(after.flags&M8_FLOWER_OCCUPIED_FLAG)!=0u)
         M8MarkR1Active(slot,local);

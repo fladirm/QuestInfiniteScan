@@ -4,6 +4,7 @@
 #include "MerkabaFlowerTileHalo.hlsl"
 #define M8_FLOWER_PAGE_WRITE
 #include "MerkabaFlowerPages.hlsl"
+#include "MerkabaFlowerOwnerCache.hlsl"
 
 bool M8FlowerPageSourceReady(uint generation)
 {
@@ -19,7 +20,8 @@ bool M8FlowerPageSourceReady(uint generation)
 // The retired/LOADING centre itself is invalidated before slot reuse; only
 // currently HOT, generation- and logical-identity-valid neighbours are added.
 void M8FlowerMarkTileNeighborhoodDirty(uint slot, uint generation,
-    bool tileMetadataWriteView = false, bool chunkRefsWriteView = false)
+    bool tileMetadataWriteView = false, bool chunkRefsWriteView = false,
+    bool invalidateOwnerCache = true)
 {
     if (slot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY || generation == 0u) return;
     uint4 meta = tileMetadataWriteView ? _M8TileRecords[M8TileMetaIndex(slot)] :
@@ -29,6 +31,7 @@ void M8FlowerMarkTileNeighborhoodDirty(uint slot, uint generation,
     if (meta.x >= MERKABA_M8_CHUNK_CAPACITY || meta.y >= MERKABA_M8_TILES_PER_CHUNK ||
         slotGeneration == 0u || slotGeneration > M8_FLOWER_HALO_SLOT_MASK) return;
     M8FlowerMarkPageDirty(slot, generation);
+    if(invalidateOwnerCache)M8FlowerInvalidateCachedTile(slot,generation);
     int3 tile = (tileMetadataWriteView ? M8GlobalKernelCoord(slot, 0u) :
         M8GlobalKernelCoordRead(slot, 0u)) >> 3;
     [loop] for (uint index = 0u; index < M8_FLOWER_HALO_COUNT; ++index)
@@ -54,6 +57,7 @@ void M8FlowerMarkTileNeighborhoodDirty(uint slot, uint generation,
             M8GlobalKernelCoordRead(neighbour, 0u)) >> 3;
         if (any(actualTile != neighbourTile)) continue;
         M8FlowerMarkPageDirty(neighbour, generation);
+        if(invalidateOwnerCache)M8FlowerInvalidateCachedTile(neighbour,generation);
     }
 }
 

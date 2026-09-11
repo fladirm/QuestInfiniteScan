@@ -272,6 +272,7 @@ namespace Genesis.RoomScan
                 _m8ObservationRecords);
             Set(MerkabaNativeVulkanExecutor.Resource.FlowerSignalItems,
                 _m8FlowerSignalItems);
+            Set(MerkabaNativeVulkanExecutor.Resource.FlowerOwnerCache, _m8FlowerOwnerCache);
             Set(MerkabaNativeVulkanExecutor.Resource.TouchedTileQueue,
                 _m8TouchedTileQueue);
             Set(MerkabaNativeVulkanExecutor.Resource.ObservationDispatchArgs,
@@ -674,6 +675,7 @@ namespace Genesis.RoomScan
             try
             {
                 uniforms.UInt("_M8WorldPublishingGeneration", generation);
+                uniforms.UInt("_M8FlowerOwnerCacheEnabled", _flowerReadoutConsumerRegistered ? 1u : 0u);
                 // SubmitExecutorJob waits graphicsReady after all preceding
                 // graphics work. No later raw reader can enter during this lease.
                 uniforms.UInt("_M8WorldRetiredGeneration", _worldPublishedGeneration);

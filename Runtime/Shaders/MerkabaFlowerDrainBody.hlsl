@@ -96,5 +96,16 @@ void M8FlowerDrainGeometryBody(uint3 group,uint lane,uint stage)
             M8CounterIncrement(M8_COUNTER_REFINEMENT_PENDING_TILES);
         }
         if(m8FineWriteStatus!=0u)M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
+        if((m8FineState&M8_FLOWER_FINE_CHANGED)!=0u)
+        {
+            M8FlowerInvalidateCachedOwner(slot,local);
+            int3 origin=int3(local&7u,(local>>3u)&7u,local>>6u);
+            [loop]for(uint node=0u;node<26u;node++)
+            {
+                uint peerSlot,peerLocal;
+                if(M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,peerSlot,peerLocal,true))
+                    M8FlowerInvalidateCachedOwner(peerSlot,peerLocal);
+            }
+        }
     }
 }

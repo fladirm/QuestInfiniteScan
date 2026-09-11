@@ -10566,3 +10566,36 @@ NEXT=C2 owner replacements: stop live readout from reacquiring geometry already
   peer dependencies, shared knots and exact RGB/V. Then C3 all-PSO binaries,
   C4 one full validation/manufacturing/final APK/device pass. Do not reopen
   dual/DIRT, persistent cursor or the old refinement-task machine.
+
+## C2 — scan-authored owner replacements, 2026-09-11 19:06 UTC
+
+IMPLEMENTED=derived GPU sparse owner cache, bound by slot generation, flags,
+  parent epoch, dependency revision and exact plane-error bounds. Existing
+  canonical ResolveFlowerCarriers writes its actual classified symbols once;
+  RGB/V publication retags the epoch. Structural/peer phase changes invalidate
+  dependents, ERASE emits empty owner state. No saved record or camera workset.
+  ApplyOwnerDrawDeltas copies actual symbols and compacts RGB/V; it contains
+  no geometry/root solver. 32 concurrent page WGs claim dirty bits, count/prefix,
+  allocate and emit in one pass. Publish retires each receipt independently.
+  Cache misses/invalidation use separately timed RebuildDirtyFlowerOwners;
+  OPEN/cold/peer dependencies preserve the same canonical decoder. Failed
+  allocation or COLD support never becomes canonical evidence or a partial page.
+  Empty/retired tile cache indices and owner allocations are reclaimed.
+REMOVED=Prepare/Compact/Reserve/Emit dirty-page dispatch chain; the old
+  M8FlowerCompileOwner path is not a live page publisher.
+ABI=31; 25 native pipelines; 41 resources; persistent ABI UNCHANGED.
+SCHEDULE=14 Observation / 3 Residency / 5 Readout / 6 ERASE command slots.
+  Classify runs on view-cell change; Rebuild is conditional GPU indirect.
+  Steady cached page work is Apply -> Publish -> Cull, not canonical solving.
+COMPILE=Unity C#/shader import + exact codegen PASS; all 25 native embedded
+  entrypoints and ARM64 plugin PASS. Apply=129340 B / 6984 body instructions /
+  4168 B shared. Rebuild=908200 B, separately REVIEW. No measured GPU-time claim.
+  Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c2-compile-n04Xjc
+  apply/metrics.json; native.log; unity.log.
+OPEN=HOT observation still 14 rather than 9–11. Root/Children/Resolve/Skin
+  exceed 20k instructions; hard compile PASS is not release performance approval.
+  Cache-miss/rebuild frequency under changing peer evidence requires final
+  device evidence. These are not hidden as closed execution/performance gates.
+VALIDATION=full suite NOT RUN, APK NOT BUILT, capture/device NOT RUN.
+NEXT=C3 all-PSO binary delivery, then close the remaining HOT source/performance
+  gaps and C4 full validation/manufacturing/final APK/device pass. Goal ACTIVE.

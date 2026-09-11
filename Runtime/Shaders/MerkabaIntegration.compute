@@ -142,6 +142,7 @@ void M8MarkR1Active(uint physicalSlot, uint kernelLocal)
 }
 
 #include "MerkabaFlowerCommit.hlsl"
+#include "MerkabaFlowerOwnerCache.hlsl"
 #include "MerkabaFlowerRefinement.hlsl"
 #include "MerkabaFlowerPageInvalidation.hlsl"
 #include "MerkabaFlowerChanges.hlsl"
@@ -214,7 +215,7 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
     {
         [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
             M8FlowerMarkTileNeighborhoodDirty(_M8TouchedTileQueueRead[index],
-                _M8WorldPublishingGeneration, true, true);
+                _M8WorldPublishingGeneration, true, true, false);
     }
     DeviceMemoryBarrierWithGroupSync();
     M8FlowerRetireObservation(lane,128u);
@@ -422,7 +423,7 @@ void FinalizeFineErase(uint lane:SV_GroupIndex)
         [loop]for(uint index=lane;index<gFlowerFinalizeTouchedCount;index+=128u)
         {
             uint slot=_M8FlowerSignalItems.Load(M8_FLOWER_CHANGE_TILE_QUEUE+4u*index);
-            M8FlowerMarkTileNeighborhoodDirty(slot,_M8WorldPublishingGeneration,true,true);
+            M8FlowerMarkTileNeighborhoodDirty(slot,_M8WorldPublishingGeneration,true,true,false);
         }
     }
     DeviceMemoryBarrierWithGroupSync();

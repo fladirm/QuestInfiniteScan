@@ -65,6 +65,7 @@ namespace
         kResourceFlowerIndirectCommands,
         kResourceFlowerTables,
         kResourceFlowerSignalItems,
+        kResourceFlowerOwnerCache,
         kResourceCount,
     };
 
@@ -116,13 +117,13 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 27,
-        "M8 executor pipeline tables must be regenerated for ABI 30");
+    static_assert(kMerkabaExecutorPipelineCount == 25,
+        "M8 executor pipeline tables must be regenerated for ABI 31");
 
-    constexpr uint32_t kExecutorAbiVersion = 30;
+    constexpr uint32_t kExecutorAbiVersion = 31;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
-    constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
-    constexpr uint32_t kFlowerEmitPipeline = kPipelineEmitDirtyFlowerSymbols;
+    constexpr uint32_t kFlowerPreparePipeline = kPipelineRebuildDirtyFlowerOwners;
+    constexpr uint32_t kFlowerEmitPipeline = kPipelineApplyOwnerDrawDeltas;
     constexpr uint32_t kFlowerPublishPipeline = kPipelinePublishDirtyFlowerPages;
     constexpr uint32_t kFlowerCullPipeline = kPipelineCullFlowerPages;
     // Existing draw commands/count remain at their original offsets. Count
@@ -1930,6 +1931,8 @@ namespace
             vkCmdDispatch(job->commandBuffer, job->queryGroups, 1, 1);
         else if (std::strcmp(dispatch, "flower_slots") == 0)
             vkCmdDispatch(job->commandBuffer, kFlowerSlotGroupCount, 1, 1);
+        else if (std::strcmp(dispatch, "flower_delta_slots") == 0)
+            vkCmdDispatch(job->commandBuffer, 32u, 1u, 1u);
         else if (std::strcmp(dispatch, "flower_batch") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceFlowerIndirectCommands].buffer, kFlowerBatchArgsOffset);
@@ -2085,6 +2088,23 @@ namespace
                 vkCmdPipelineBarrier(job->commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
                     0, 1, &reuse, 0, nullptr, 0, nullptr);
+            }
+            if (job->kind == kJobFlowerReadout && pipelineIndex == kPipelineApplyOwnerDrawDeltas)
+            {
+                VkMemoryBarrier reuse = {};
+                reuse.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+                reuse.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                    VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+                reuse.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                vkCmdPipelineBarrier(job->commandBuffer,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &reuse, 0, nullptr, 0, nullptr);
+                vkCmdFillBuffer(job->commandBuffer, job->buffers[kResourceFlowerIndirectCommands].buffer,
+                    kFlowerBatchArgsOffset, sizeof(uint32_t), 0u);
+                reuse.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                reuse.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+                vkCmdPipelineBarrier(job->commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &reuse, 0, nullptr, 0, nullptr);
             }
             if (pipelineIndex == kFlowerCullPipeline)
                 RecordFlowerCountReset(job->commandBuffer,

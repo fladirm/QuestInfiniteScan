@@ -16,6 +16,7 @@ void M8FlowerResolveCarriersBody(uint3 group,uint lane)
     {
         m8FinePlane=flags;m8FineState=0u;m8FineWriteStatus=0u;m8FineAbsentNodes=0u;
         m8FineSignalFirst=0u;m8FineSignalLast=0u;m8FineSignalCount=0u;m8FineSignalFailed=0u;
+        m8FineDrawMask=0u;m8FineDrawComplete=1u;m8FineDrawAddress=0u;
     }
     GroupMemoryBarrierWithGroupSync();
     [loop]for(uint index=lane;index<measured.z;index+=128u)
@@ -76,8 +77,12 @@ void M8FlowerResolveCarriersBody(uint3 group,uint lane)
                 else
                 {
                     M8FlowerResolveSkinCarrier(measured,lane,carrier,errors);
-                    if(lane==0u && m8FlowerHaloUnresolvedReads!=0u)
-                        M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
+                }
+                GroupMemoryBarrierWithGroupSync();
+                if(lane==0u && m8FlowerHaloUnresolvedReads!=0u)
+                {
+                    m8FineDrawComplete=0u;
+                    M8FlowerRequestSkinDependencies(m8FlowerHaloUnresolvedReads);
                 }
                 GroupMemoryBarrierWithGroupSync();
             }
@@ -89,7 +94,21 @@ void M8FlowerResolveCarriersBody(uint3 group,uint lane)
         if(m8FineSignalFailed==0u && m8FineWriteStatus==0u)
             M8FlowerPublishSignalOwner(measured.x,m8FineSignalFirst,m8FineSignalCount,runtime.w);
         else M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);
+        if(m8FineDrawComplete!=0u && m8FineWriteStatus==0u)
+            m8FineDrawAddress=M8FlowerBeginOwnerSnapshot(slot,local,runtime.w,flags,
+                M8FlowerGetOwnerEpoch(m8FineOwner),errors,m8FineDrawMask);
     }
+    GroupMemoryBarrierWithGroupSync();
+    if(m8FineDrawAddress!=0u && (m8FineDrawMask[lane>>5u]&(1u<<(lane&31u)))!=0u)
+    {
+        uint rank=0u;
+        [unroll]for(uint word=0u;word<4u;word++)
+            rank+=countbits(m8FineDrawMask[word]&(word<(lane>>5u)?0xffffffffu:
+                word==(lane>>5u)?((1u<<(lane&31u))-1u):0u));
+        _M8FlowerOwnerCache.Store4(m8FineDrawAddress+64u+16u*rank,m8FineDrawSymbols[lane]);
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    if(lane==0u)M8FlowerFinishOwnerSnapshot(slot,local,m8FineDrawAddress);
 }
 
 #endif

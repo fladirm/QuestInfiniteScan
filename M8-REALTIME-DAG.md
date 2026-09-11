@@ -3,7 +3,7 @@
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=b1f59c7e77f2ba7dd431e59619d683de090e013c
 GOAL=active; complete the user's post-b1f59c7 execution/presentation/delivery closure
-CURRENT=C2
+CURRENT=C3
 STATE=implementation, no new APK or device run
 HOTPATH=GPU only; CPU oracle/codegen and frozen offline export are not live backends
 
@@ -23,7 +23,7 @@ CLOSE=all consumers wired, necessary compile checks, coherent commit
 
 ## C2 — GPU owner replacements
 
-DEPENDS=C1; STATUS=PENDING
+DEPENDS=C1; STATUS=SOURCE COMPLETE; host suite/device validation deferred to C4
 Canonical commit emits derived OwnerDrawSnapshot replacements, including empty
 ERASE/structural-delete replacements. Live page compiler packs those results,
 does not redo root/carrier solving. One epoch/generation-bound replacement
@@ -74,11 +74,15 @@ After compaction read this cursor and the latest lasttrue.md receipt, then only
 the complete source units being changed. Update CURRENT/NEXT in place; commit
 each coherent cut. Do not accumulate competing historical handoff cursors here.
 
-NEXT=C2: emit complete owner replacements from canonical carrier resolution;
-consume those symbols during live compaction. Rebuild only missing/stale owner
-cache after OPEN/residency/dependency changes, not all owners on every dirty page.
-C1 actual schedule=14 observation / 3 independent residency / 7 readout / 6 ERASE;
-9–11 observation remains an engineering target, not an achieved performance gate.
-ABI30, 27 pipelines, 40 resources, 14 timing slots. Necessary Unity/codegen and
-ARM64 plugin compile PASS at 2026-09-11 18:44 UTC. No suite/APK/device run.
-Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-compile-qvkXvW
+NEXT=C3: negotiate/intercept all Vulkan pipeline creation, CAPTURE and BINARY_ONLY
+delivery with exact keys and no release SPIR-V fallback. C1 actual scan schedule
+remains 14, not the 9–11 target; HOT shaders above 20k remain release-blocked
+without exact-hash Adreno zero-spill evidence. Finish these execution/performance
+gaps before C4's APK, do not claim them closed by a hard compile PASS.
+C2 source=scan-authored sparse owner cache + Apply/Publish/Cull; canonical rebuild
+only for cache miss/invalidation (including peer dependencies), separately timed.
+Readout has 5 command slots, Classify view-only and Rebuild GPU-indirect/conditional.
+ABI31, 25 pipelines, 41 resources, 14 timing slots. Necessary Unity/codegen and
+ARM64 compile PASS 2026-09-11 19:06 UTC; no suite/APK/device run.
+ApplyOwnerDrawDeltas=129340 B / 6984 body instructions / 4168 B groupshared.
+Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c2-compile-n04Xjc

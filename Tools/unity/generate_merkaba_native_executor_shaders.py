@@ -76,14 +76,10 @@ PIPELINES = (
              "FinalizeObservation", "one"),
     Pipeline("ClassifyHotFlowerPages", "MerkabaReadout.compute",
              "ClassifyHotFlowerPages", "flower_slots"),
-    Pipeline("PrepareDirtyFlowerBatch", "MerkabaReadout.compute",
-             "PrepareDirtyFlowerBatch", "one"),
-    Pipeline("CompactDirtyFlowerSymbols", "MerkabaReadout.compute",
-             "CompactDirtyFlowerSymbols", "flower_batch"),
-    Pipeline("ReserveDirtyFlowerBatch", "MerkabaReadout.compute",
-             "ReserveDirtyFlowerBatch", "one"),
-    Pipeline("EmitDirtyFlowerSymbols", "MerkabaReadout.compute",
-             "EmitDirtyFlowerSymbols", "flower_batch"),
+    Pipeline("RebuildDirtyFlowerOwners", "MerkabaReadout.compute",
+             "RebuildDirtyFlowerOwners", "flower_batch"),
+    Pipeline("ApplyOwnerDrawDeltas", "MerkabaReadout.compute",
+             "ApplyOwnerDrawDeltas", "flower_delta_slots"),
     Pipeline("PublishDirtyFlowerPages", "MerkabaReadout.compute",
              "PublishDirtyFlowerPages", "one"),
     Pipeline("CullFlowerPages", "MerkabaReadout.compute",
@@ -127,9 +123,8 @@ def command_schedules():
     ]
     residency = ["ResolveMissingSpatialNodes", "ResolveObservationTileRequests",
                  "InitializeNewTiles"]
-    flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
-              "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
-              "EmitDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
+    flower = ["ClassifyHotFlowerPages", "RebuildDirtyFlowerOwners",
+              "ApplyOwnerDrawDeltas", "PublishDirtyFlowerPages", "CullFlowerPages"]
     fine = ("QueryFineEraseTiles", "EraseFineTiles", "InvalidateFlowerSources", "InvalidateFlowerPeers",
             "PublishFlowerR1", "FinalizeFineErase")
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
@@ -153,7 +148,7 @@ RESOURCE_NAMES = (
     "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "CameraLeft", "CameraRight",
     "FrameDispatchArgs", "ObservationRecords", "ObservationTileBins", "TileHalo",
     "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands",
-    "FlowerTables", "FlowerSignalItems",
+    "FlowerTables", "FlowerSignalItems", "FlowerOwnerCache",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -169,7 +164,7 @@ ALIASES = {
         "TouchedTileQueue", "ObservationDispatchArgs", "AttemptCompletion",
         "FrameDispatchArgs", "ObservationRecords",
         "ObservationTileBins", "TileHalo",
-        "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands", "FlowerTables", "FlowerSignalItems")},
+        "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands", "FlowerTables", "FlowerSignalItems", "FlowerOwnerCache")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",
@@ -725,8 +720,8 @@ def main() -> int:
                 "optional_flower_passes": name == "FlowerReadout",
                 "setup_transfer_fills": len(FINE_ERASE_RESET_COUNTERS) + 9 if name == "FineErase" else
                     1 if name == "FlowerReadout" else 9 + len(observation_reset_indices()) if name == "Observation" else 0,
-                "mid_graph_transfer_fills": 3 if name == "Observation" else 0,
-                "scratch_reuse_barriers": 4 if name == "Observation" else 0,
+                "mid_graph_transfer_fills": 3 if name == "Observation" else 1 if name == "FlowerReadout" else 0,
+                "scratch_reuse_barriers": 4 if name == "Observation" else 2 if name == "FlowerReadout" else 0,
                 "commands": [{"pipeline": PIPELINES[index].label,
                               "dispatch": mode} for index, mode in
                              zip(indices, schedule_dispatch_modes(name, indices))]})

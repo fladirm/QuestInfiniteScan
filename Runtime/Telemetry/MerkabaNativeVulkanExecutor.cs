@@ -14,10 +14,10 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 30: independent address residency; no depth-certificate resource.
-        internal const int AbiVersion = 30;
-        internal const int ResourceCount = 40;
-        internal const int PipelineCount = 27;
+        // ABI 31: scan-authored owner cache and separate conditional rebuild.
+        internal const int AbiVersion = 31;
+        internal const int ResourceCount = 41;
+        internal const int PipelineCount = 25;
         // Native codegen verifies this against the longest complete schedule,
         // including indirect commands whose GPU work count may be zero.
         internal const int MaximumDispatchTimingCount = 14;
@@ -86,6 +86,7 @@ namespace Genesis.RoomScan
             FlowerIndirectCommands,
             FlowerTables,
             FlowerSignalItems,
+            FlowerOwnerCache,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -136,10 +137,8 @@ namespace Genesis.RoomScan
             "IntegrateFlowerSkin",
             "FinalizeObservation",
             "ClassifyHotFlowerPages",
-            "PrepareDirtyFlowerBatch",
-            "CompactDirtyFlowerSymbols",
-            "ReserveDirtyFlowerBatch",
-            "EmitDirtyFlowerSymbols",
+            "RebuildDirtyFlowerOwners",
+            "ApplyOwnerDrawDeltas",
             "PublishDirtyFlowerPages",
             "CullFlowerPages",
             "QueryFineEraseTiles",

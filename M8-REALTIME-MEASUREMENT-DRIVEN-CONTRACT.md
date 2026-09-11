@@ -298,6 +298,10 @@ Required evidence:
 - fresh frozen export carries RGB/V and reopens with ordinary readout;
 - exact embedded SPIR-V audit: <=1 MiB and <=50000 body instructions per
   production entrypoint; existing warnings and hardware checks remain;
+- HOT entrypoints above 20000 body instructions are release-blocked unless a
+  recorded Adreno compiler/profile report proves acceptable instruction/GPR
+  pressure and zero spills for that exact shader hash. A hard size PASS alone
+  is not performance closure; thresholds MUST NOT be relaxed to ship;
 - command graph reports actual dispatches/barriers/work counts; 9–11 normal
   hot-resident dispatches is the engineering target, not a reason to omit a
   required dependency or hide a stage;

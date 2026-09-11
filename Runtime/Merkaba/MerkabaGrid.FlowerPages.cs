@@ -15,6 +15,10 @@ namespace Genesis.RoomScan
         internal const int DrawOrder = 18;
         internal const int PersistentBytes = 32 * 1024 * 1024;
         internal const int SymbolBytes = 64 * 1024 * 1024;
+        internal const int OwnerCacheControl = 64 + TileCapacity * 8;
+        internal const int OwnerCacheData = (OwnerCacheControl + ArenaHeaderBytes +
+            ((1 << (DrawOrder + 1)) - 1) * 4 + 255) & ~255;
+        internal const int OwnerCacheBytes = OwnerCacheData + SymbolBytes;
         internal const int DrawSampleBytes = 64 * 1024 * 1024;
         internal const int ArenaHeaderBytes = 32;
         internal static uint[] CreateArenaInitialWords(int order)
@@ -97,6 +101,7 @@ namespace Genesis.RoomScan
 
     public sealed partial class MerkabaGrid
     {
+        private ComputeBuffer _m8FlowerOwnerCache;
         private ComputeBuffer _m8FlowerDetailPages;
         private ComputeBuffer _m8ThreadAtlasPages;
         private ComputeBuffer _m8FlowerSymbolArena;
@@ -105,6 +110,8 @@ namespace Genesis.RoomScan
         private GraphicsBuffer _m8FlowerIndices;
         private bool _flowerReadoutConsumerRegistered;
 
+        internal ComputeBuffer M8FlowerOwnerCache => _m8FlowerOwnerCache;
+        internal bool FlowerOwnerCacheEnabled => _flowerReadoutConsumerRegistered;
         internal ComputeBuffer M8FlowerDetailPages => _m8FlowerDetailPages;
         internal ComputeBuffer M8ThreadAtlasPages => _m8ThreadAtlasPages;
         internal ComputeBuffer M8FlowerSymbolArena => _m8FlowerSymbolArena;
@@ -155,6 +162,9 @@ namespace Genesis.RoomScan
                 _m8FlowerIndirectCommands.name = "M8 Flower indirect commands";
                 AllocateFlowerIndices();
             }
+            _m8FlowerOwnerCache = Allocate((_flowerReadoutConsumerRegistered
+                ? MerkabaFlowerGpuLayout.OwnerCacheBytes : 64) / 4, 4, ComputeBufferType.Raw);
+            _m8FlowerOwnerCache.name = "M8 derived owner replacements";
             ResetFlowerPagesAfterRetirement();
         }
 
@@ -203,6 +213,12 @@ namespace Genesis.RoomScan
         private void ResetFlowerPagesAfterRetirement()
         {
             if (_m8FlowerDetailPages == null) return;
+            if (_flowerReadoutConsumerRegistered)
+            {
+                _m8FlowerOwnerCache.SetData(new uint[MerkabaFlowerGpuLayout.OwnerCacheControl / 4]);
+                InitializeFlowerArena(_m8FlowerOwnerCache, MerkabaFlowerGpuLayout.OwnerCacheControl,
+                    MerkabaFlowerGpuLayout.DrawOrder);
+            }
             _m8FlowerDetailPages.SetData(new uint[
                 MerkabaFlowerGpuLayout.DetailArenaControl / 4]);
             InitializeFlowerArena(_m8FlowerDetailPages,
@@ -234,6 +250,8 @@ namespace Genesis.RoomScan
         {
             if (_m8FlowerDetailPages == null)
                 throw new InvalidOperationException("Flower resources have not been allocated.");
+            shader.SetBuffer(kernel, "_M8FlowerOwnerCache", _m8FlowerOwnerCache);
+            shader.SetInt("_M8FlowerOwnerCacheEnabled", _flowerReadoutConsumerRegistered ? 1 : 0);
             shader.SetBuffer(kernel, "_M8FlowerDetailPages", _m8FlowerDetailPages);
             shader.SetBuffer(kernel, "_M8FlowerDetailPagesRead", _m8FlowerDetailPages);
             shader.SetBuffer(kernel, "_M8ThreadAtlasPages", _m8ThreadAtlasPages);
@@ -250,6 +268,7 @@ namespace Genesis.RoomScan
 
         private void ForgetFlowerPagesAfterRelease()
         {
+            _m8FlowerOwnerCache = null;
             _m8FlowerDetailPages = null;
             _m8ThreadAtlasPages = null;
             _m8FlowerSymbolArena = null;
