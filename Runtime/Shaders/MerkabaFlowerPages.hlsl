@@ -185,9 +185,9 @@ void M8FlowerSetBatchState(uint item,uint state)
     _M8FlowerPageDirectory.Store(M8FlowerBatchRecord(item)+12u,state);
 }
 
-// These three operations require the caller's one short lease of BOTH arena
-// metadata trees. Batch Reserve/Publish acquire once, never one CAS per WG.
-uint M8FlowerBeginPageLocked(uint slot,uint slotGeneration,uint sourceGeneration,
+// The page publisher owns its directory entry and the retired raw-reader
+// generation. Its two arenas reserve/free blocks independently with atomics.
+uint M8FlowerBeginPage(uint slot,uint slotGeneration,uint sourceGeneration,
     uint symbolCount,uint sampleBytes,out M8FlowerPageBuild build)
 {
     build=(M8FlowerPageBuild)0;
@@ -203,16 +203,16 @@ uint M8FlowerBeginPageLocked(uint slot,uint slotGeneration,uint sourceGeneration
     M8FlowerArena symbols=M8FlowerSymbolArena(),samples=M8FlowerDrawArena();
     uint result=M8_FLOWER_ARENA_OK;
     if(symbolCount!=0u)
-        result=M8FlowerArenaAllocateLocked(_M8FlowerPageDirectory,symbols,symbolCount*16u,
+        result=M8FlowerArenaAllocate(_M8FlowerPageDirectory,symbols,symbolCount*16u,
             build.SymbolAddress,build.SymbolCapacity);
     if(result==M8_FLOWER_ARENA_OK && sampleBytes!=0u)
     {
-        result=M8FlowerArenaAllocateLocked(_M8ThreadAtlasPages,samples,sampleBytes,
+        result=M8FlowerArenaAllocate(_M8ThreadAtlasPages,samples,sampleBytes,
             build.SampleAddress,build.SampleCapacity);
         if(result!=M8_FLOWER_ARENA_OK)
         {
             if(build.SymbolCapacity!=0u &&
-                !M8FlowerArenaFreeLocked(_M8FlowerPageDirectory,symbols,build.SymbolAddress,build.SymbolCapacity))
+                !M8FlowerArenaFree(_M8FlowerPageDirectory,symbols,build.SymbolAddress,build.SymbolCapacity))
                 return M8_FLOWER_ARENA_INVALID; // receipt retains this allocation
             build.SymbolAddress=0u;build.SymbolCapacity=0u;
         }
@@ -223,19 +223,19 @@ uint M8FlowerBeginPageLocked(uint slot,uint slotGeneration,uint sourceGeneration
 // A failed producer releases only its unpublished reservations. It never
 // changes FRONT. The caller persists every changed capacity before retiring
 // the receipt; a failed second free can never repeat the first successful free.
-uint M8FlowerAbortPageLocked(inout M8FlowerPageBuild build)
+uint M8FlowerAbortPage(inout M8FlowerPageBuild build)
 {
     M8FlowerArena symbols=M8FlowerSymbolArena(),samples=M8FlowerDrawArena();
     bool valid=true;
     if(build.SymbolCapacity!=0u)
     {
-        valid=M8FlowerArenaFreeLocked(_M8FlowerPageDirectory,symbols,
+        valid=M8FlowerArenaFree(_M8FlowerPageDirectory,symbols,
             build.SymbolAddress,build.SymbolCapacity);
         if(valid){build.SymbolAddress=0u;build.SymbolCapacity=0u;}
     }
     if(valid && build.SampleCapacity!=0u)
     {
-        valid=M8FlowerArenaFreeLocked(_M8ThreadAtlasPages,samples,
+        valid=M8FlowerArenaFree(_M8ThreadAtlasPages,samples,
             build.SampleAddress,build.SampleCapacity);
         if(valid){build.SampleAddress=0u;build.SampleCapacity=0u;}
     }
@@ -276,7 +276,7 @@ bool M8FlowerFinishPendingPage(M8FlowerPageBuild build,int3 logicalTile,
 // queue's graphics-acquire fence. Header.Generation alone is not a last-use
 // fence: a static page can be drawn in many later frames. No new raw reader
 // may bypass the nativeDone publication barrier while this lease is active.
-uint M8FlowerPublishPageLocked(uint slot,uint currentSlotGeneration,uint graphicsRetired)
+uint M8FlowerPublishPage(uint slot,uint currentSlotGeneration,uint graphicsRetired)
 {
     if(slot>=32768u)return M8_FLOWER_ARENA_INVALID;
     uint address=M8_FLOWER_PAGE_DIRECTORY_BASE+16u*slot;
@@ -297,7 +297,7 @@ uint M8FlowerPublishPageLocked(uint slot,uint currentSlotGeneration,uint graphic
         stale.SymbolCapacity=_M8FlowerPageDirectory.Load(aux+8u);
         stale.SampleAddress=pending.FirstDrawSample;
         stale.SampleCapacity=_M8FlowerPageDirectory.Load(aux+16u);
-        uint result=M8FlowerAbortPageLocked(stale);
+        uint result=M8FlowerAbortPage(stale);
         _M8FlowerPageDirectory.Store(aux+8u,stale.SymbolCapacity);
         _M8FlowerPageDirectory.Store(aux+16u,stale.SampleCapacity);
         if(result!=M8_FLOWER_ARENA_OK)return result;
@@ -315,13 +315,13 @@ uint M8FlowerPublishPageLocked(uint slot,uint currentSlotGeneration,uint graphic
         uint oldSamples=_M8FlowerPageDirectory.Load(aux+20u);
         if(oldSymbols!=0u)
         {
-            if(!M8FlowerArenaFreeLocked(_M8FlowerPageDirectory,symbols,old.FirstSymbol*16u,oldSymbols))
+            if(!M8FlowerArenaFree(_M8FlowerPageDirectory,symbols,old.FirstSymbol*16u,oldSymbols))
                 return M8_FLOWER_ARENA_INVALID;
             _M8FlowerPageDirectory.Store(aux+12u,0u);
         }
         if(oldSamples!=0u)
         {
-            if(!M8FlowerArenaFreeLocked(_M8ThreadAtlasPages,samples,old.FirstDrawSample,oldSamples))
+            if(!M8FlowerArenaFree(_M8ThreadAtlasPages,samples,old.FirstDrawSample,oldSamples))
                 return M8_FLOWER_ARENA_INVALID;
             _M8FlowerPageDirectory.Store(aux+20u,0u);
         }

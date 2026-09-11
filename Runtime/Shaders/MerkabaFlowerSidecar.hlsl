@@ -6,7 +6,7 @@
 
 // The matching C# constants are MerkabaFlowerGpuLayout. Only canonical epoch,
 // record, run and group payloads cross persistence; these resident indices,
-// capacities and locks are never serialized. There is no refinement cursor.
+// capacities and allocation bitmaps are never serialized. There is no refinement cursor.
 #define M8_FLOWER_TILE_DIRECTORY 64u
 #define M8_FLOWER_TILE_DIRECTORY_STRIDE 16u
 #define M8_FLOWER_OWNER_INDEX_BYTES 2048u
@@ -35,13 +35,13 @@
 ByteAddressBuffer _M8FlowerDetailPagesRead M8_FLOWER_SRV(t7);
 ByteAddressBuffer _M8ThreadAtlasPagesRead M8_FLOWER_SRV(t8);
 #if defined(M8_FLOWER_SIDECAR_WRITE)
-RWByteAddressBuffer _M8FlowerDetailPages;
+globallycoherent RWByteAddressBuffer _M8FlowerDetailPages;
 #define M8_FLOWER_DETAIL_SOURCE _M8FlowerDetailPages
 #else
 #define M8_FLOWER_DETAIL_SOURCE _M8FlowerDetailPagesRead
 #endif
 #if defined(M8_FLOWER_SIDECAR_WRITE) || defined(M8_FLOWER_THREAD_DRAW_WRITE)
-RWByteAddressBuffer _M8ThreadAtlasPages;
+globallycoherent RWByteAddressBuffer _M8ThreadAtlasPages;
 #define M8_FLOWER_THREAD_SOURCE _M8ThreadAtlasPages
 #else
 #define M8_FLOWER_THREAD_SOURCE _M8ThreadAtlasPagesRead
@@ -226,24 +226,31 @@ uint M8FlowerSplitRank(uint2 bits,uint ordinal)
 }
 
 #if defined(M8_FLOWER_SIDECAR_WRITE)
-bool M8FlowerRetainOpticalLocked(uint programRef)
+bool M8FlowerRetainOptical(uint programRef)
 {
     uint allocation;
     if(!M8FlowerOpticalAllocation(programRef,false,allocation))return false;
-    uint count=_M8ThreadAtlasPages.Load(allocation);
-    if(count==0u || count==0xffffffffu)return false;
-    _M8ThreadAtlasPages.Store(allocation,count+1u);
-    return true;
+    [loop]while(true)
+    {
+        uint count=M8FlowerArenaRead(_M8ThreadAtlasPages,allocation),previous;
+        if(count==0u || count==0xffffffffu)return false;
+        _M8ThreadAtlasPages.InterlockedCompareExchange(allocation,count,count+1u,previous);
+        if(previous==count)return true;
+    }
 }
-bool M8FlowerReleaseOpticalLocked(uint programRef)
+bool M8FlowerReleaseOptical(uint programRef)
 {
     uint allocation;
     if(!M8FlowerOpticalAllocation(programRef,false,allocation))return false;
-    uint count=_M8ThreadAtlasPages.Load(allocation);
-    if(count==0u)return false;
-    if(count>1u){_M8ThreadAtlasPages.Store(allocation,count-1u);return true;}
-    _M8ThreadAtlasPages.Store(allocation,0u);
-    return M8FlowerArenaFreeLocked(_M8ThreadAtlasPages,M8FlowerThreadArena(),allocation,256u);
+    [loop]while(true)
+    {
+        uint count=M8FlowerArenaRead(_M8ThreadAtlasPages,allocation),previous;
+        if(count==0u)return false;
+        _M8ThreadAtlasPages.InterlockedCompareExchange(allocation,count,count-1u,previous);
+        if(previous!=count)continue;
+        if(count>1u)return true;
+        return M8FlowerArenaFree(_M8ThreadAtlasPages,M8FlowerThreadArena(),allocation,256u);
+    }
 }
 
 // Storage may restore epoch history after R1 deletion. This allocates only an
@@ -254,48 +261,70 @@ uint M8FlowerEnsureOwnerStorage(uint slot,uint kernelLocal,uint slotGeneration,
     ownerRef=0u;
     if(slot>=32768u || kernelLocal>=512u || slotGeneration==0u || publishing==0u)
         return M8_FLOWER_ARENA_INVALID;
-    ownerRef=M8FlowerFindOwner(slot,kernelLocal,slotGeneration);
-    if(ownerRef!=0u)return M8_FLOWER_ARENA_OK;
+    uint directory=M8_FLOWER_TILE_DIRECTORY+16u*slot,previous;
+    // The slot cannot change generation while this raw-reader lease is held.
+    // Publish that stamp before the first index pointer, not a torn uint2.
+    _M8FlowerDetailPages.InterlockedCompareExchange(directory+4u,0u,slotGeneration,previous);
+    if(previous!=0u && previous!=slotGeneration)return M8_FLOWER_SIDECAR_STALE_SLOT;
     M8FlowerArena pool=M8FlowerDetailArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
-    uint directory=M8_FLOWER_TILE_DIRECTORY+16u*slot;
-    uint2 tile=_M8FlowerDetailPages.Load2(directory);
-    uint result=M8_FLOWER_ARENA_OK;
-    if(tile.x!=0u && tile.y!=slotGeneration)result=M8_FLOWER_SIDECAR_STALE_SLOT;
-    if(result==M8_FLOWER_ARENA_OK && tile.x==0u)
+    uint index=M8FlowerArenaRead(_M8FlowerDetailPages,directory);
+    if(index==0u)
     {
-        uint capacity;
-        result=M8FlowerArenaAllocateLocked(_M8FlowerDetailPages,pool,2048u,tile.x,capacity);
+        uint allocation,capacity;
+        uint result=M8FlowerArenaAllocate(_M8FlowerDetailPages,pool,2048u,allocation,capacity);
         if(result==M8_FLOWER_ARENA_OK)
         {
-            [loop]for(uint i=0u;i<512u;i++)_M8FlowerDetailPages.Store(tile.x+4u*i,0u);
-            tile.y=slotGeneration;
+            [loop]for(uint i=0u;i<512u;i++)_M8FlowerDetailPages.Store(allocation+4u*i,0u);
             DeviceMemoryBarrier();
-            _M8FlowerDetailPages.Store2(directory,tile);
-        }
-    }
-    if(result==M8_FLOWER_ARENA_OK)
-    {
-        ownerRef=_M8FlowerDetailPages.Load(tile.x+4u*kernelLocal);
-        if(ownerRef==0u)
-        {
-            uint capacity;
-            result=M8FlowerArenaAllocateLocked(_M8FlowerDetailPages,pool,64u,ownerRef,capacity);
-            if(result==M8_FLOWER_ARENA_OK)
+            _M8FlowerDetailPages.InterlockedCompareExchange(directory,0u,allocation,previous);
+            if(previous!=0u)
             {
-                [unroll]for(uint i=0u;i<16u;i++)_M8FlowerDetailPages.Store(ownerRef+4u*i,0u);
-                _M8FlowerDetailPages.Store2(ownerRef,uint2(kernelLocal,1u));
-                _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
-                _M8FlowerDetailPages.Store(ownerRef+56u,capacity);
-                DeviceMemoryBarrier();
-                _M8FlowerDetailPages.Store(tile.x+4u*kernelLocal,ownerRef);
+                if(!M8FlowerArenaFree(_M8FlowerDetailPages,pool,allocation,capacity))
+                    return M8_FLOWER_ARENA_INVALID;
+                index=previous;
             }
-            else ownerRef=0u;
+            else index=allocation;
+        }
+        else
+        {
+            index=M8FlowerArenaRead(_M8FlowerDetailPages,directory);
+            if(index==0u)return result;
         }
     }
-    M8FlowerArenaRelease(_M8FlowerDetailPages,pool);
-    return result;
+    if(!M8FlowerDetailRange(index,2048u))return M8_FLOWER_ARENA_INVALID;
+    uint entry=index+4u*kernelLocal;
+    ownerRef=M8FlowerArenaRead(_M8FlowerDetailPages,entry);
+    if(ownerRef==0u)
+    {
+        uint allocation,capacity;
+        uint result=M8FlowerArenaAllocate(_M8FlowerDetailPages,pool,64u,allocation,capacity);
+        if(result==M8_FLOWER_ARENA_OK)
+        {
+            [unroll]for(uint i=0u;i<16u;i++)_M8FlowerDetailPages.Store(allocation+4u*i,0u);
+            _M8FlowerDetailPages.Store2(allocation,uint2(kernelLocal,1u));
+            _M8FlowerDetailPages.Store(allocation+44u,publishing);
+            _M8FlowerDetailPages.Store(allocation+56u,capacity);
+            DeviceMemoryBarrier();
+            _M8FlowerDetailPages.InterlockedCompareExchange(entry,0u,allocation,previous);
+            if(previous!=0u)
+            {
+                if(!M8FlowerArenaFree(_M8FlowerDetailPages,pool,allocation,capacity))
+                    return M8_FLOWER_ARENA_INVALID;
+                ownerRef=previous;
+            }
+            else ownerRef=allocation;
+        }
+        else
+        {
+            ownerRef=M8FlowerArenaRead(_M8FlowerDetailPages,entry);
+            if(ownerRef==0u)return result;
+        }
+    }
+    return M8FlowerDetailRange(ownerRef,64u) &&
+        _M8FlowerDetailPages.Load(ownerRef)==kernelLocal &&
+        M8FlowerGetOwnerEpoch(ownerRef)!=0u ? M8_FLOWER_ARENA_OK:M8_FLOWER_ARENA_INVALID;
 }
+
 uint M8FlowerEnsureOwner(uint slot,uint kernelLocal,uint slotGeneration,
     uint canonicalFlags,uint publishing,out uint ownerRef)
 {
@@ -489,19 +518,17 @@ uint M8FlowerCommitPhase(uint ownerRef,M8FlowerDetailRecord record,
     if(result==M8_FLOWER_ARENA_OK && required>capacity)
     {
         // The measured-owner WG is the only writer of this sorted phase span.
-        // Lease the shared allocator only when its allocation actually grows;
+        // Reserve another block only when its allocation actually grows;
         // replacing/inserting into existing capacity is owner-local work.
-        if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,pool))return M8_FLOWER_ARENA_BUSY;
         uint replacement,newCapacity;
-        result=M8FlowerArenaAllocateLocked(_M8FlowerDetailPages,pool,required,replacement,newCapacity);
+        result=M8FlowerArenaAllocate(_M8FlowerDetailPages,pool,required,replacement,newCapacity);
         if(result==M8_FLOWER_ARENA_OK)
         {
             [loop]for(uint i=0u;i<count;i++)
                 _M8FlowerDetailPages.Store4(replacement+16u*i,_M8FlowerDetailPages.Load4(first+16u*i));
-            if(capacity!=0u)M8FlowerArenaFreeLocked(_M8FlowerDetailPages,pool,first,capacity);
+            if(capacity!=0u)M8FlowerArenaFree(_M8FlowerDetailPages,pool,first,capacity);
             first=replacement;capacity=newCapacity;
         }
-        M8FlowerArenaRelease(_M8FlowerDetailPages,pool);
     }
     if(result==M8_FLOWER_ARENA_OK)
     {
@@ -586,20 +613,18 @@ uint M8FlowerCommitSkinGroup(uint ownerRef,uint flowerKey,
         // needs only its seven replacement values, not a new allocation or
         // a copy of every unrelated group. Raw-reader retirement is checked
         // by the caller before either path may mutate this owner.
-        if(!M8FlowerArenaAcquire(payload,pool))return M8_FLOWER_ARENA_BUSY;
-        result=M8FlowerArenaAllocateLocked(payload,pool,groups*groupBytes+groupBytes-1u,
+        result=M8FlowerArenaAllocate(payload,pool,groups*groupBytes+groupBytes-1u,
             allocation,allocationCapacity);
         if(result!=M8_FLOWER_ARENA_OK)
-        {M8FlowerArenaRelease(payload,pool);return result;}
+        return result;
         groupBase=(allocation+groupBytes-1u)/groupBytes;
     }
     if(required>capacity)
     {
-        result=M8FlowerArenaAllocateLocked(payload,pool,required,newFirst,newCapacity);
+        result=M8FlowerArenaAllocate(payload,pool,required,newFirst,newCapacity);
         if(result!=M8_FLOWER_ARENA_OK)
         {
-            M8FlowerArenaFreeLocked(payload,pool,allocation,allocationCapacity);
-            M8FlowerArenaRelease(payload,pool);
+            M8FlowerArenaFree(payload,pool,allocation,allocationCapacity);
             return result;
         }
         [loop]for(uint item=0u;item<count;item++)
@@ -652,11 +677,10 @@ uint M8FlowerCommitSkinGroup(uint ownerRef,uint flowerKey,
     uint history=_M8FlowerDetailPages.Load(ownerRef+60u);
     _M8FlowerDetailPages.Store(ownerRef+60u,history|1u);
     if(newFirst!=first && capacity!=0u)
-        M8FlowerArenaFreeLocked(payload,pool,first,capacity);
+        M8FlowerArenaFree(payload,pool,first,capacity);
     if(!replacing && oldAllocation.y!=0u)
-        M8FlowerArenaFreeLocked(payload,pool,oldAllocation.x,oldAllocation.y);
-    if(staleProgram!=0xffffffffu)M8FlowerReleaseOpticalLocked(staleProgram);
-    if(!replacing)M8FlowerArenaRelease(payload,pool);
+        M8FlowerArenaFree(payload,pool,oldAllocation.x,oldAllocation.y);
+    if(staleProgram!=0xffffffffu)M8FlowerReleaseOptical(staleProgram);
     return M8_FLOWER_ARENA_OK;
 }
 
@@ -698,11 +722,11 @@ uint M8FlowerCommitThreadGroup(uint ownerRef,uint flowerKey,uint parentOrdinal,
         words,true,publishing,_M8ThreadAtlasPages,M8FlowerThreadArena());
 }
 
-void M8FlowerFreeOwnerPayloadLocked(uint ownerRef)
+void M8FlowerFreeOwnerPayload(uint ownerRef)
 {
     M8FlowerArena detail=M8FlowerDetailArena(),thread=M8FlowerThreadArena();
     uint3 phases=_M8FlowerDetailPages.Load3(ownerRef+8u);
-    if(phases.z!=0u)M8FlowerArenaFreeLocked(_M8FlowerDetailPages,detail,phases.x,phases.z);
+    if(phases.z!=0u)M8FlowerArenaFree(_M8FlowerDetailPages,detail,phases.x,phases.z);
     [unroll]for(uint kind=0u;kind<2u;kind++)
     {
         uint offset=kind==0u?20u:32u;
@@ -715,16 +739,16 @@ void M8FlowerFreeOwnerPayloadLocked(uint ownerRef)
             {
                 allocation=_M8ThreadAtlasPages.Load2(runs.x+32u*index+24u);
                 uint program=_M8ThreadAtlasPages.Load(runs.x+32u*index+4u);
-                if(program!=0xffffffffu)M8FlowerReleaseOpticalLocked(program);
+                if(program!=0xffffffffu)M8FlowerReleaseOptical(program);
             }
             if(allocation.y==0u)continue;
-            if(kind==0u)M8FlowerArenaFreeLocked(_M8FlowerDetailPages,detail,allocation.x,allocation.y);
-            else M8FlowerArenaFreeLocked(_M8ThreadAtlasPages,thread,allocation.x,allocation.y);
+            if(kind==0u)M8FlowerArenaFree(_M8FlowerDetailPages,detail,allocation.x,allocation.y);
+            else M8FlowerArenaFree(_M8ThreadAtlasPages,thread,allocation.x,allocation.y);
         }
         if(runs.z!=0u)
         {
-            if(kind==0u)M8FlowerArenaFreeLocked(_M8FlowerDetailPages,detail,runs.x,runs.z);
-            else M8FlowerArenaFreeLocked(_M8ThreadAtlasPages,thread,runs.x,runs.z);
+            if(kind==0u)M8FlowerArenaFree(_M8FlowerDetailPages,detail,runs.x,runs.z);
+            else M8FlowerArenaFree(_M8ThreadAtlasPages,thread,runs.x,runs.z);
         }
     }
     _M8FlowerDetailPages.Store3(ownerRef+8u,uint3(0u,0u,0u));
@@ -755,28 +779,18 @@ uint M8FlowerInvalidateOwner(uint slot,uint kernelLocal,uint slotGeneration,
         _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
         return M8_FLOWER_ARENA_OK;
     }
-    M8FlowerArena detail=M8FlowerDetailArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,detail))return M8_FLOWER_ARENA_BUSY;
     if(epoch==0xffffffffu)
     {
-        M8FlowerArena thread=M8FlowerThreadArena();
-        if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,thread))
-        {
-            M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
-            return M8_FLOWER_ARENA_BUSY;
-        }
         // Rebase is the exceptional bounded owner transaction. No descendant
         // with an ancient epoch1 survives physically. The complete-image SSD
         // transaction also purges historical descendants before publishing1.
-        M8FlowerFreeOwnerPayloadLocked(ownerRef);
+        M8FlowerFreeOwnerPayload(ownerRef);
         uint history=_M8FlowerDetailPages.Load(ownerRef+60u);
         _M8FlowerDetailPages.Store(ownerRef+60u,history|2u);
-        M8FlowerArenaRelease(_M8ThreadAtlasPages,thread);
         epoch=1u;
     }
     _M8FlowerDetailPages.Store(ownerRef+4u,epoch);
     _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
-    M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
     return M8_FLOWER_ARENA_OK;
 }
 
@@ -817,7 +831,12 @@ uint M8FlowerRetireTile(uint slot,uint slotGeneration,uint retired)
     if(slot>=32768u)return M8_FLOWER_ARENA_INVALID;
     uint address=M8_FLOWER_TILE_DIRECTORY+16u*slot;
     uint2 tile=_M8FlowerDetailPages.Load2(address);
-    if(tile.x==0u)return M8_FLOWER_ARENA_OK;
+    if(tile.x==0u)
+    {
+        if(tile.y!=0u && tile.y!=slotGeneration)return M8_FLOWER_SIDECAR_STALE_SLOT;
+        _M8FlowerDetailPages.Store4(address,0u.xxxx);
+        return M8_FLOWER_ARENA_OK;
+    }
     if(tile.y!=slotGeneration)return M8_FLOWER_SIDECAR_STALE_SLOT;
     [loop]for(uint local=0u;local<512u;local++)
     {
@@ -825,25 +844,17 @@ uint M8FlowerRetireTile(uint slot,uint slotGeneration,uint retired)
         if(owner!=0u && _M8FlowerDetailPages.Load(owner+44u)>retired)
             return M8_FLOWER_ARENA_BUSY;
     }
-    M8FlowerArena detail=M8FlowerDetailArena(),thread=M8FlowerThreadArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,detail))return M8_FLOWER_ARENA_BUSY;
-    if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,thread))
-    {
-        M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
-        return M8_FLOWER_ARENA_BUSY;
-    }
+    M8FlowerArena detail=M8FlowerDetailArena();
     [loop]for(uint local=0u;local<512u;local++)
     {
         uint owner=_M8FlowerDetailPages.Load(tile.x+4u*local);
         if(owner==0u)continue;
-        M8FlowerFreeOwnerPayloadLocked(owner);
-        M8FlowerArenaFreeLocked(_M8FlowerDetailPages,detail,owner,
+        M8FlowerFreeOwnerPayload(owner);
+        M8FlowerArenaFree(_M8FlowerDetailPages,detail,owner,
             _M8FlowerDetailPages.Load(owner+56u));
     }
-    M8FlowerArenaFreeLocked(_M8FlowerDetailPages,detail,tile.x,2048u);
+    M8FlowerArenaFree(_M8FlowerDetailPages,detail,tile.x,2048u);
     _M8FlowerDetailPages.Store4(address,uint4(0u,0u,0u,0u));
-    M8FlowerArenaRelease(_M8ThreadAtlasPages,thread);
-    M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
     return M8_FLOWER_ARENA_OK;
 }
 
@@ -896,27 +907,13 @@ bool M8FlowerStoreImportedGroup(bool thread,uint groupBase,uint groupCount,uint 
 
 uint M8FlowerCancelImportedGroups(bool thread,uint allocation,uint capacity)
 {
-    M8FlowerArena pool;
-    if(thread)pool=M8FlowerThreadArena();else pool=M8FlowerDetailArena();
-    bool acquired;
-    if(thread)acquired=M8FlowerArenaAcquire(_M8ThreadAtlasPages,pool);
-    else acquired=M8FlowerArenaAcquire(_M8FlowerDetailPages,pool);
-    if(!acquired)return M8_FLOWER_ARENA_BUSY;
     bool result;
-    if(thread)
-    {
-        result=M8FlowerArenaFreeLocked(_M8ThreadAtlasPages,pool,allocation,capacity);
-        M8FlowerArenaRelease(_M8ThreadAtlasPages,pool);
-    }
-    else
-    {
-        result=M8FlowerArenaFreeLocked(_M8FlowerDetailPages,pool,allocation,capacity);
-        M8FlowerArenaRelease(_M8FlowerDetailPages,pool);
-    }
+    if(thread)result=M8FlowerArenaFree(_M8ThreadAtlasPages,M8FlowerThreadArena(),allocation,capacity);
+    else result=M8FlowerArenaFree(_M8FlowerDetailPages,M8FlowerDetailArena(),allocation,capacity);
     return result?M8_FLOWER_ARENA_OK:M8_FLOWER_ARENA_INVALID;
 }
 
-uint M8FlowerInstallImportedRunLocked(uint ownerRef,uint canonical[6],bool thread,
+uint M8FlowerStoreImportedRun(uint ownerRef,uint canonical[6],bool thread,
     uint allocation,uint allocationCapacity,uint publishing,
     RWByteAddressBuffer payload,M8FlowerArena pool)
 {
@@ -930,7 +927,7 @@ uint M8FlowerInstallImportedRunLocked(uint ownerRef,uint canonical[6],bool threa
     uint replacement=first,newCapacity=capacity;
     if((count+1u)*32u>capacity)
     {
-        uint result=M8FlowerArenaAllocateLocked(payload,pool,(count+1u)*32u,replacement,newCapacity);
+        uint result=M8FlowerArenaAllocate(payload,pool,(count+1u)*32u,replacement,newCapacity);
         if(result!=M8_FLOWER_ARENA_OK)return result;
         [loop]for(uint item=0u;item<count;item++)
         {
@@ -938,9 +935,9 @@ uint M8FlowerInstallImportedRunLocked(uint ownerRef,uint canonical[6],bool threa
             payload.Store4(replacement+32u*item+16u,payload.Load4(first+32u*item+16u));
         }
     }
-    if(thread && canonical[1]!=0xffffffffu && !M8FlowerRetainOpticalLocked(canonical[1]))
+    if(thread && canonical[1]!=0xffffffffu && !M8FlowerRetainOptical(canonical[1]))
     {
-        if(replacement!=first)M8FlowerArenaFreeLocked(payload,pool,replacement,newCapacity);
+        if(replacement!=first)M8FlowerArenaFree(payload,pool,replacement,newCapacity);
         return M8_FLOWER_ARENA_INVALID;
     }
     [loop]for(uint item=count;item>index;item--)
@@ -956,7 +953,7 @@ uint M8FlowerInstallImportedRunLocked(uint ownerRef,uint canonical[6],bool threa
     _M8FlowerDetailPages.Store(ownerRef+44u,publishing);
     uint history=_M8FlowerDetailPages.Load(ownerRef+60u);
     _M8FlowerDetailPages.Store(ownerRef+60u,history|1u);
-    if(replacement!=first && capacity!=0u)M8FlowerArenaFreeLocked(payload,pool,first,capacity);
+    if(replacement!=first && capacity!=0u)M8FlowerArenaFree(payload,pool,first,capacity);
     return M8_FLOWER_ARENA_OK;
 }
 
@@ -989,23 +986,15 @@ uint M8FlowerInstallImportedRun(uint ownerRef,uint canonical[6],bool thread,
             !M8FlowerDetailRange(allocation,allocationCapacity)))return M8_FLOWER_ARENA_INVALID;
     if(!thread && canonical[5]!=0u)return M8_FLOWER_ARENA_INVALID;
     M8FlowerArena detail=M8FlowerDetailArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerDetailPages,detail))return M8_FLOWER_ARENA_BUSY;
     uint result;
     if(thread)
     {
         M8FlowerArena pool=M8FlowerThreadArena();
-        if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,pool))
-        {
-            M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
-            return M8_FLOWER_ARENA_BUSY;
-        }
-        result=M8FlowerInstallImportedRunLocked(ownerRef,canonical,true,allocation,
+        result=M8FlowerStoreImportedRun(ownerRef,canonical,true,allocation,
             allocationCapacity,publishing,_M8ThreadAtlasPages,pool);
-        M8FlowerArenaRelease(_M8ThreadAtlasPages,pool);
     }
-    else result=M8FlowerInstallImportedRunLocked(ownerRef,canonical,false,allocation,
+    else result=M8FlowerStoreImportedRun(ownerRef,canonical,false,allocation,
         allocationCapacity,publishing,_M8FlowerDetailPages,detail);
-    M8FlowerArenaRelease(_M8FlowerDetailPages,detail);
     return result;
 }
 
@@ -1047,12 +1036,9 @@ uint M8FlowerInstallOpticalProgram(M8ThreadProgramRecord program,uint logicalPro
 // was published or cancelled. Run retirement releases its own reference.
 uint M8FlowerReleaseImportedProgram(uint programRef)
 {
-    M8FlowerArena pool=M8FlowerThreadArena();
-    if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,pool))return M8_FLOWER_ARENA_BUSY;
-    bool result=M8FlowerReleaseOpticalLocked(programRef);
-    M8FlowerArenaRelease(_M8ThreadAtlasPages,pool);
-    return result?M8_FLOWER_ARENA_OK:M8_FLOWER_ARENA_INVALID;
+    return M8FlowerReleaseOptical(programRef)?M8_FLOWER_ARENA_OK:M8_FLOWER_ARENA_INVALID;
 }
+
 #endif
 
 #endif

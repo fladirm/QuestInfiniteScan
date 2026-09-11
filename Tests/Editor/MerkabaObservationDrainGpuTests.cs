@@ -456,7 +456,7 @@ namespace Genesis.RoomScan.Tests
             }
             private static void InitializeArena(ComputeBuffer buffer, int control)
             {
-                var words = new uint[9]; words[8] = MerkabaFlowerGpuLayout.PersistentOrder + 1u;
+                uint[] words = MerkabaFlowerGpuLayout.CreateArenaInitialWords(MerkabaFlowerGpuLayout.PersistentOrder);
                 buffer.SetData(words, 0, control / 4, words.Length);
             }
             private static uint[] ReadWords(ComputeBuffer buffer, int byteOffset, int count)

@@ -110,7 +110,7 @@ grouping pass; owner WGs load it without repeating spatial hash discovery.
 Two endpoint ranges use the unchanged metric/root/intersection predicates.
 Peer ranges must belong to the current stamped bin, including after NEW/OPEN.
 
-ABI=25, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
+ABI=26, 31 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
 snapshot buffer reuses dense 32-byte R1 changes (capacity 1,044,350) before
 grouping, then holds record indices, stamped tile/owner ranges and skin items.
 Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
@@ -168,11 +168,21 @@ OWNER UPDATES=existing owner lookup, phase replacement/insertion within its
 allocation and phase removal no longer acquire the global buddy lease. Existing
 RGB/V split replacement writes exactly seven values in place, preserving the
 allocation, other groups, masks and program. RGB uses uint4, V uint2 transfers.
-Only actual skin growth leases its payload arena; RGB no longer leases the
+Actual growth now uses the atomic buddy bitplanes below; RGB never leases the
 unrelated detail arena. Exclusive measured-owner WGs and raw-reader retirement
-remain required. Actual allocation/epoch-wrap contention is still OPEN.
+remain required.
 
-NEXT=RT2 actual-growth allocator contention and malformed-peer publication.
+ARENAS=free/allocated buddy bitplanes plus three availability summaries replace
+the global allocator lease, inside the existing metadata reservation. Atomic
+bit removal owns a block; pair CAS coalesces retired free buddies. Summary
+misses fall back to the real bitmap before returning capacity. Owner/index
+creation uses initialized-then-CAS publication; losing speculative allocations
+are reclaimed immediately. Phase/RGB/V growth, epoch wrap, storage import and
+page publication all use this allocator. Optical program references use atomic
+refcounts. BUSY now denotes unretired readers, not allocator contention. No
+new buffer, dispatch, CPU geometry, persistent workset or spin lock was added.
+
+NEXT=RT2 malformed-peer publication.
 Do not add a spinning global lock, drop BUSY work as capacity, or retain a
 snapshot/cursor. Complete-through hysteresis already matches retained REV-C
 14.1; do not silently replace that explicit evidence rule during this execution
@@ -205,8 +215,19 @@ Targeted exact native glslang/spirv-val PASS in
 Reset 7560 B / 242 / 12 / 5; Reserve 7816 B / 277 / 2060 / 4;
 Emit 25012 B / 1122 / 0 / 4; certificate Reduce 8180 B / 300 / 8196 / 6;
 dual 609132 B / 30721 / 112 / 8, still 64 lanes.
-Native plugin/full embedded set is not rebuilt; ABI25 is compiled into the
+Native plugin/full embedded set is not rebuilt; ABI26 is compiled into the
 final plugin/APK only in RT4. No APK, suite, device test or speedup claim.
+
+ARENA COMPILE=exact native glslang/spirv-val compiled all nine affected entries
+in /tmp/m8-rt2-atomic-arena-f_l4ao4d. Root 541576 B / 28307 body;
+L1 739032 / 38711; L2 738976 / 38711; RGB 353136 / 18314; V 548368 / 28002;
+FlowerCommit 906224 / 48574 / 24700 B shared / 8 RW; ERASE 80840 / 4086;
+ReserveDirty 29264 / 1539; PublishDirty 37936 / 1991. These are compile
+checks, not allocator concurrency proofs or runtime performance acceptance.
+RT4 must additionally cover parallel allocate/free/coalesce, exact allocation
+ownership, stale hints, capacity and concurrent first-owner publication.
+Unity C#/Editor codegen PASS:
+/mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-atomic-arena.log.
 
 RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export
 paths still need replacement; export V atlas remains. RT4 full tests, shader

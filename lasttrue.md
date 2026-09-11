@@ -10149,3 +10149,26 @@ NEXT=RT2 actual allocation/growth and epoch-wrap contention remain, as does
   Retained REV-C14.1 explicitly uses R1 hysteresis under full THROUGH; no
   evidence-policy change was made while removing execution gates. RT3 and
   integrated RT4 remain. TESTS/APK/INSTALL/DEVICE=not run.
+
+## RT2 — contention-free arena publication (after 18d3bd2)
+
+CHANGE=global buddy leases replaced by free/allocated bitplanes and three
+  availability summaries within the existing metadata reservation. Atomic
+  claims own blocks; pair CAS coalesces retired buddies. Real-bitmap fallback
+  prevents stale hints alone from reporting capacity. First index/owner uses
+  initialized-then-CAS publication, reclaiming losing allocations. All phase,
+  RGB/V growth, epoch-wrap, storage import and page consumers are rewired;
+  optical refcounts are atomic. BUSY denotes an unretired reader only. No CPU
+  geometry, dispatch, buffer, persistent workset or global spin lock added.
+ABI=26, resident metadata only; persistent record formats/addressing unchanged.
+COMPILE=Unity C#/Editor codegen PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-atomic-arena.log.
+  Exact target glslang/spirv-val compiled nine entries in
+  /tmp/m8-rt2-atomic-arena-f_l4ao4d: Root 541576 B / 28307 body;
+  L1 739032 / 38711; L2 738976 / 38711; RGB 353136 / 18314; V 548368 / 28002;
+  FlowerCommit 906224 / 48574 / 24700 B shared / 8 RW; ERASE 80840 / 4086;
+  ReserveDirty 29264 / 1539; PublishDirty 37936 / 1991.
+NEXT=RT2 malformed-peer publication; then RT3 presentation/export rewrite.
+  RT4 must prove concurrent allocation/creation/free/coalesce and stale hints.
+TESTS/APK/INSTALL/DEVICE=not run. Native plugin/full embedded set not rebuilt.
+  Compile is not a concurrency proof, runtime measurement or full RT2 closure.

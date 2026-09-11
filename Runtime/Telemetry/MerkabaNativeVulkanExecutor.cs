@@ -14,8 +14,8 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 25: per-command indirect modes include conditional sparse recount.
-        internal const int AbiVersion = 25;
+        // ABI 26: atomic buddy bitplanes replace the resident allocator lease.
+        internal const int AbiVersion = 26;
         internal const int ResourceCount = 44;
         internal const int PipelineCount = 31;
         // Native codegen verifies this against the longest complete schedule,

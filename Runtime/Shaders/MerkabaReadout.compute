@@ -1534,19 +1534,13 @@ void CompactDirtyFlowerSymbols(uint3 groupId:SV_GroupID,uint lane:SV_GroupIndex)
     }
 }
 
-// Count is complete across ALL page WGs before this entry. The only writer of
-// allocation metadata in this stage holds both trees once for the batch. This
-// makes multiple successful page reservations possible without CAS losers.
+// Count is complete across all page WGs. This entry orders the batch receipts;
+// atomic buddy allocation itself needs no global metadata lease.
 [numthreads(1,1,1)]
 void ReserveDirtyFlowerBatch(uint lane:SV_GroupIndex)
 {
     if(_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_PHASE)!=0u)return;
     uint count=min(_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_COUNT),M8_FLOWER_BATCH_CAPACITY);
-    M8FlowerArena symbols=M8FlowerSymbolArena(),samples=M8FlowerDrawArena();
-    bool symbolLease=false;
-    if(count!=0u)symbolLease=M8FlowerArenaAcquire(_M8FlowerPageDirectory,symbols);
-    bool sampleLease=false;
-    if(symbolLease)sampleLease=M8FlowerArenaAcquire(_M8ThreadAtlasPages,samples);
     uint emitCount=0u;
     [loop]for(uint item=0u;item<count;item++)
     {
@@ -1562,15 +1556,11 @@ void ReserveDirtyFlowerBatch(uint lane:SV_GroupIndex)
             continue;
         }
         uint4 amounts=_M8FlowerPageDirectory.Load4(address+16u);
-        uint result=M8_FLOWER_ARENA_BUSY;
+        uint result=M8_FLOWER_ARENA_INVALID;
         M8FlowerPageBuild build=(M8FlowerPageBuild)0;
-        if(sampleLease)
-        {
-            result=M8_FLOWER_ARENA_INVALID;
-            if(identity.x<32768u && identity.y!=0u && M8LoadTileRuntimeRead(identity.x).w==identity.y)
-                result=M8FlowerBeginPageLocked(identity.x,identity.y,identity.z,
-                    amounts.x+amounts.z,amounts.y,build);
-        }
+        if(identity.x<32768u && identity.y!=0u && M8LoadTileRuntimeRead(identity.x).w==identity.y)
+            result=M8FlowerBeginPage(identity.x,identity.y,identity.z,
+                amounts.x+amounts.z,amounts.y,build);
         // Persist before publishing either success OR failure. Even a failed
         // rollback owns any capacity it could not return; Publish will retry.
         M8FlowerStoreBatchBuild(item,build);
@@ -1588,8 +1578,6 @@ void ReserveDirtyFlowerBatch(uint lane:SV_GroupIndex)
             M8FlowerSetBatchState(item,M8_FLOWER_BATCH_ITEM_ABORT);
         }
     }
-    if(sampleLease)M8FlowerArenaRelease(_M8ThreadAtlasPages,samples);
-    if(symbolLease)M8FlowerArenaRelease(_M8FlowerPageDirectory,symbols);
     _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_RESERVED,emitCount);
     _M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_PHASE,1u);
     DeviceMemoryBarrier();
@@ -1620,10 +1608,6 @@ void PublishDirtyFlowerPages(uint lane:SV_GroupIndex)
 {
     uint count=min(_M8FlowerPageDirectory.Load(M8_FLOWER_BATCH_COUNT),M8_FLOWER_BATCH_CAPACITY);
     if(count==0u)return;
-    M8FlowerArena symbols=M8FlowerSymbolArena(),samples=M8FlowerDrawArena();
-    if(!M8FlowerArenaAcquire(_M8FlowerPageDirectory,symbols))return;
-    if(!M8FlowerArenaAcquire(_M8ThreadAtlasPages,samples))
-    {M8FlowerArenaRelease(_M8FlowerPageDirectory,symbols);return;}
     uint remaining=0u;
     [loop]for(uint item=0u;item<count;item++)
     {
@@ -1638,7 +1622,7 @@ void PublishDirtyFlowerPages(uint lane:SV_GroupIndex)
             uint2 pending=_M8FlowerPageDirectory.Load2(directory+8u);
             if(pending.x==build.Header && pending.y==build.SourceGeneration)
             {
-                result=M8FlowerPublishPageLocked(identity.x,M8LoadTileRuntimeRead(identity.x).w,
+                result=M8FlowerPublishPage(identity.x,M8LoadTileRuntimeRead(identity.x).w,
                     _M8FlowerGraphicsRetiredGeneration);
                 if(result==M8_FLOWER_ARENA_OK)
                 {
@@ -1650,7 +1634,7 @@ void PublishDirtyFlowerPages(uint lane:SV_GroupIndex)
                 }
             }
         }
-        else result=M8FlowerAbortPageLocked(build);
+        else result=M8FlowerAbortPage(build);
         M8FlowerStoreBatchBuild(item,build);
         if(result!=M8_FLOWER_ARENA_OK)
         {
@@ -1677,8 +1661,6 @@ void PublishDirtyFlowerPages(uint lane:SV_GroupIndex)
         }
         M8FlowerSetBatchState(item,M8_FLOWER_BATCH_ITEM_RETIRED);
     }
-    M8FlowerArenaRelease(_M8ThreadAtlasPages,samples);
-    M8FlowerArenaRelease(_M8FlowerPageDirectory,symbols);
     // BUSY/failure receipts keep the original queue span and all addresses.
     // Prepare will run retirement-only until each receipt is retired once.
     if(remaining==0u)_M8FlowerPageDirectory.Store(M8_FLOWER_BATCH_COUNT,0u);

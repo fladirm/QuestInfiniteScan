@@ -17,6 +17,29 @@ namespace Genesis.RoomScan
         internal const int SymbolBytes = 64 * 1024 * 1024;
         internal const int DrawSampleBytes = 64 * 1024 * 1024;
         internal const int ArenaHeaderBytes = 32;
+        internal static uint[] CreateArenaInitialWords(int order)
+        {
+            if (order < 5 || order > DrawOrder) throw new ArgumentOutOfRangeException(nameof(order));
+            int leaves = (1 << (order + 1)) >> 5;
+            int length = ArenaHeaderBytes / 4 + 2 * leaves;
+            int count = leaves;
+            for (int level = 1; level < 4; ++level)
+            {
+                count = (count + 31) >> 5;
+                length += count;
+            }
+            var words = new uint[length];
+            words[ArenaHeaderBytes / 4] = 2u; // free heap node 1 = whole arena
+            int first = ArenaHeaderBytes / 4 + 2 * leaves;
+            count = leaves;
+            for (int level = 1; level < 4; ++level)
+            {
+                words[first] = 1u;
+                count = (count + 31) >> 5;
+                first += count;
+            }
+            return words;
+        }
         internal const int DetailArenaControl = TileDirectoryBase +
             TileCapacity * TileDirectoryStride;
         internal const int DetailDataBase = (DetailArenaControl +
@@ -177,7 +200,7 @@ namespace Genesis.RoomScan
 
         // World clear/OPEN may call this only after retiring prior GPU users.
         // Payloads need no clearing: allocation is unpublished until completely
-        // initialized. Lazy buddy metadata similarly initializes only on split.
+        // initialized. Reset only the compact free/allocated bitmaps and hints.
         private void ResetFlowerPagesAfterRetirement()
         {
             if (_m8FlowerDetailPages == null) return;
@@ -204,8 +227,7 @@ namespace Genesis.RoomScan
 
         private static void InitializeFlowerArena(ComputeBuffer buffer, int control, int order)
         {
-            var initial = new uint[9];
-            initial[8] = checked((uint)order + 1u);
+            uint[] initial = MerkabaFlowerGpuLayout.CreateArenaInitialWords(order);
             buffer.SetData(initial, 0, control / 4, initial.Length);
         }
 
