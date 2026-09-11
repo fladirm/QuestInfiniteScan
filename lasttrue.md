@@ -10342,3 +10342,28 @@ CURSOR=RT3 OPEN. Next parallelize actual skin-sample materialization in the
   per-flag junction filtering, contradictory/ambiguous orientation precedence,
   COLD receipt union and cache retirement between owners.
 TESTS/APK/INSTALL/DEVICE=not run; the goal and RT3 remain open.
+
+## RT3 — cooperative actual-signal emission (after ee7ca25)
+
+CHANGE=FINAL emission uses all 256 GPU lanes, thirty-two per actual carrier.
+  Only its persisted union samples are visited. Compact group rank is inverted
+  with five bounded integer selections and the existing generated thread map;
+  root and child samples share one CompileSkinRegion call site. The resident
+  RGB/metric layouts are fetched once, stored in twenty existing footprint
+  scratch words and consumed by the cooperating lanes. No new scratch capacity,
+  buffer, dispatch, CPU work or persistent program cursor. Root RGB replacement,
+  additive A3/A4/A5 and certified optical fields retain their evaluator.
+  All writes complete before the header. A malformed sample rejects the page,
+  and M8-only uniform carriers still allocate zero skin bytes. Removed the
+  scalar CompileSkinDrawProgram/CompileCarrierSkin production path.
+COMPILE=exact native glslang/spirv-val PASS:
+  /tmp/m8-rt3-skin-lanes-gy2skyge
+  Compact 1,232,316 B / 65,201 body / 26,556 B shared / 7 RW / 256 lanes /
+  76 barriers; sha256 c349d9b2df838d65aeaccb74d180b9e3619d2ace5d0d5909da06b559afc6fc0e.
+  Size gate STILL FAILS; no runtime speedup or integrated parity claim.
+CURSOR=RT3 OPEN. Next reuse already computed site intervals in dual wedge
+  support, then remaining actual-carrier/site work. Do not repeat skin or R3
+  changes. RT4 must cover sparse/dense split select, both split words, union-only
+  RGB/V, optical-only root, stale/malformed runs, capacity checks, header/write
+  ordering and exact shader/CPU sample bytes. Necessary shader compile only;
+  TESTS/APK/INSTALL/DEVICE=not run.

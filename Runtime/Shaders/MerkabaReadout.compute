@@ -1176,6 +1176,58 @@ void M8FlowerPrepareCompletionBatch(uint packed,uint lane)
     GroupMemoryBarrierWithGroupSync();
 }
 
+// During emission coverage is already decided. Reuse its twenty-word prefix
+// per actual carrier for the resident signal layout, not another allocation.
+void M8FlowerPacketStoreSkin(uint address,M8ThreadRun rgb,
+    M8FlowerSkinMetricRun metric,uint4 signal,uint key,uint sampleCount)
+{
+    M8FlowerPacketStore2(address,signal.xy);
+    M8FlowerPacketStore2(address+2u,signal.zw);
+    M8FlowerPacketStore2(address+4u,uint2(rgb.FlowerKey,rgb.ProgramRef));
+    M8FlowerPacketStore2(address+6u,uint2(rgb.GroupBase,rgb.SplitBitsLo));
+    M8FlowerPacketStore2(address+8u,uint2(rgb.SplitBitsHi,rgb.ParentEpoch));
+    M8FlowerPacketStore2(address+10u,uint2(metric.FlowerKey,metric.GroupBase));
+    M8FlowerPacketStore2(address+12u,uint2(metric.SplitBitsLo,metric.SplitBitsHi));
+    M8FlowerPacketStore2(address+14u,uint2(metric.ParentEpoch,metric.Reserved));
+    M8FlowerPacketStore2(address+18u,uint2(key,sampleCount));
+}
+
+void M8FlowerPacketEmitSkin(uint lane)
+{
+    uint address=M8_FLOWER_PACKET_FOOTPRINTS+85u*(lane>>5u);
+    uint count=m8FlowerSupportScratch[address+19u];
+    if(count==0u)return;
+    uint2 split=M8FlowerPacketLoad2(address);
+    uint epoch=m8FlowerSupportScratch[address+2u],present=m8FlowerSupportScratch[address+3u];
+    M8ThreadRun rgb;
+    rgb.FlowerKey=m8FlowerSupportScratch[address+4u];
+    rgb.ProgramRef=m8FlowerSupportScratch[address+5u];
+    rgb.GroupBase=m8FlowerSupportScratch[address+6u];
+    rgb.SplitBitsLo=m8FlowerSupportScratch[address+7u];
+    rgb.SplitBitsHi=m8FlowerSupportScratch[address+8u];
+    rgb.ParentEpoch=m8FlowerSupportScratch[address+9u];
+    M8FlowerSkinMetricRun metric;
+    metric.FlowerKey=m8FlowerSupportScratch[address+10u];
+    metric.GroupBase=m8FlowerSupportScratch[address+11u];
+    metric.SplitBitsLo=m8FlowerSupportScratch[address+12u];
+    metric.SplitBitsHi=m8FlowerSupportScratch[address+13u];
+    metric.ParentEpoch=m8FlowerSupportScratch[address+14u];
+    metric.Reserved=m8FlowerSupportScratch[address+15u];
+    uint firstSample=m8FlowerSupportScratch[address+16u]+64u;
+    uint color=m8FlowerSupportScratch[address+17u],key=m8FlowerSupportScratch[address+18u];
+    float3 captured=float3(color&255u,(color>>8u)&255u,(color>>16u)&255u)*(1.0/255.0);
+    [loop]for(uint index=lane&31u;index<count;index+=32u)
+    {
+        uint level;uint3 child;
+        M8FlowerSkinSampleLocality(split,index,level,child);
+        M8FlowerSkinDrawSample sample;
+        if(M8FlowerCompileSkinRegion(captured,epoch,key,level,child,
+            rgb,(present&1u)!=0u,metric,(present&2u)!=0u,sample))
+            M8FlowerStoreSkinDrawSample(firstSample+64u*index,sample);
+        else InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
+    }
+}
+
 // All lanes cooperate on an occupied owner. Generated source incidence
 // requests only reached roots; shared values are reused by later batches.
 // Unknown anchors cannot exclude a carrier.
@@ -1246,7 +1298,10 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
         // A reached batch may contain fewer than eight carriers. Empty slots
         // cannot retain a previous batch's coverage or peer requests.
         if(stage==M8_FLOWER_PACKET_FINAL_STAGE && lane<8u)
+        {
             m8FlowerSupportScratch[M8_FLOWER_PACKET_FOOTPRINTS+85u*lane+75u]=0u;
+            if(emit)m8FlowerSupportScratch[M8_FLOWER_PACKET_FOOTPRINTS+85u*lane+19u]=0u;
+        }
         M8FlowerSymbolRecord symbol=(M8FlowerSymbolRecord)0;
         uint status=0u,bytes=0u,active=0u;
         if(lane<8u && (m8PacketValid&(1u<<lane))!=0u)
@@ -1297,10 +1352,14 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
                     }
                     if(!coverageOnly)
                     {
-                        if(!M8FlowerCarrierSkinBytes(symbol.DetailRef,carrier,active,
-                            M8FlowerDrawRootSigns(symbol),M8FlowerDrawHubSector(symbol),bytes))
+                        M8ThreadRun rgb;M8FlowerSkinMetricRun metric;uint4 signal;
+                        uint signs=M8FlowerDrawRootSigns(symbol),sector=M8FlowerDrawHubSector(symbol);
+                        if(!M8FlowerPrepareCarrierSkin(symbol.DetailRef,carrier,active,
+                            signs,sector,bytes,rgb,metric,signal))
                         {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);status=0u;}
                         else if(!emit)InterlockedAdd(m8FlowerCompileTriangles,countbits(active));
+                        else if(bytes!=0u)M8FlowerPacketStoreSkin(footprint,rgb,metric,signal,
+                            M8FlowerCarrierSkinKey(carrier,signs,sector),(bytes-64u)/64u);
                     }
                 }
             }
@@ -1343,28 +1402,43 @@ uint2 M8FlowerCompileOwner(uint slot,uint local,bool emit,bool coverageOnly,
                 if(lane<8u)M8FlowerPacketStore2(M8_FLOWER_PACKET_PREFIX+2u*lane,sum);
                 GroupMemoryBarrierWithGroupSync();
             }
-            if(emit && lane<8u && status==1u)
+            if(emit)
             {
-                uint2 prefix=lane==0u?uint2(0u,0u):M8FlowerPacketLoad2(M8_FLOWER_PACKET_PREFIX+2u*(lane-1u));
-                uint2 address=first+M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+14u)+prefix;
-                if(address.x>=build.SymbolCapacity/16u || address.y>build.SampleCapacity ||
-                    bytes>build.SampleCapacity-address.y)
-                    InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
-                else
+                uint2 address=0u;
+                uint skin=M8_FLOWER_PACKET_FOOTPRINTS+85u*lane;
+                if(lane<8u && status==1u)
                 {
-                    KernelState state=M8LoadKernelStateRead(slot,local);
-                    float3 captured=float3(state.packedColor&255u,(state.packedColor>>8u)&255u,
-                        (state.packedColor>>16u)&255u)*(1.0/255.0);
-                    uint threadRef,carrier=m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*lane];
-                    if(!M8FlowerCompileCarrierSkin(symbol.DetailRef,carrier,active,
-                        M8FlowerDrawRootSigns(symbol),M8FlowerDrawHubSector(symbol),captured,
-                        build.SampleAddress+address.y,bytes,threadRef))
+                    uint2 prefix=lane==0u?uint2(0u,0u):M8FlowerPacketLoad2(M8_FLOWER_PACKET_PREFIX+2u*(lane-1u));
+                    address=first+M8FlowerPacketLoad2(M8_FLOWER_PACKET_CONTROL+14u)+prefix;
+                    uint drawAddress=build.SampleAddress+address.y;
+                    bool valid=address.x<build.SymbolCapacity/16u && address.y<=build.SampleCapacity &&
+                        bytes<=build.SampleCapacity-address.y;
+                    if(bytes!=0u)valid=valid && drawAddress>=build.SampleAddress &&
+                        (drawAddress&63u)==0u && drawAddress>=M8_FLOWER_DRAW_DATA &&
+                        bytes<=67108864u && drawAddress-M8_FLOWER_DRAW_DATA<=67108864u-bytes;
+                    if(!valid)
+                    {
                         InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);
+                        m8FlowerSupportScratch[skin+19u]=0u;
+                    }
                     else
                     {
-                        symbol.ThreadRef=threadRef;
-                        M8FlowerStoreSymbol(build.SymbolAddress,address.x,symbol);
+                        M8FlowerPacketStore2(skin+16u,
+                            uint2(drawAddress,M8LoadKernelStateRead(slot,local).packedColor));
+                        symbol.ThreadRef=bytes==0u?0xffffffffu:drawAddress;
                     }
+                }
+                GroupMemoryBarrierWithGroupSync();
+                M8FlowerPacketEmitSkin(lane);
+                // All seven-child values precede their header. Nothing is
+                // visible through FRONT until the whole page is published.
+                AllMemoryBarrierWithGroupSync();
+                if(lane<8u && status==1u && m8FlowerCompileStatus==M8_FLOWER_ARENA_OK)
+                {
+                    if(bytes!=0u)_M8ThreadAtlasPages.Store4(symbol.ThreadRef,
+                        uint4(M8FlowerPacketLoad2(skin),(symbol.ThreadRef+64u)/64u,
+                            m8FlowerSupportScratch[skin+2u]));
+                    M8FlowerStoreSymbol(build.SymbolAddress,address.x,symbol);
                 }
             }
             GroupMemoryBarrierWithGroupSync();

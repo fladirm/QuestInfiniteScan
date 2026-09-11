@@ -254,15 +254,23 @@ uses the same evidence collector. Unity C#/codegen and exact Compact compile
 PASS; 1,291,628 B / 68,638 body / 26,556 B shared / 7 RW / 256 lanes / 75
 barriers. Size gate STILL FAILS. No runtime speedup or parity claim.
 
-NEXT=RT3 actual-carrier site/skin/completion work, not another cursor audit.
-SkinReadout.hlsl was read completely: CompileCarrierSkin currently emits root
-then every set union group's seven values serially on one lane. The existing
-FINAL emit phase has 256 lanes for eight actual carriers; its footprint scratch
-is unused during emit (coverage is count-only). Use that lifetime for cooperative
-actual-sample emission, 32 lanes/carrier, with one CompileSkinRegion call site,
-the same reserved spans and no extra dispatch/CPU geometry. Then address
-remaining repeated site/completion acquisition. Do not redo source-cache,
-ancestry or R3 evidence changes. The coverage and atlas
+SKIN EMISSION=32 lanes per actual carrier now materialize its root and stored
+union groups through one CompileSkinRegion call site. A five-step integer
+bit selection plus the existing generated inverse maps compact sample indices
+to locality; absent groups are never visited. The resident RGB/metric layouts
+are acquired once and shared in twenty existing footprint-scratch words.
+All sample writes precede the header; malformed samples abort page publication.
+Uniform M8-only carriers still allocate no skin bytes. The scalar program and
+its duplicate region evaluator calls are removed, not retained as a fallback.
+Exact Compact compilation PASS: 1,232,316 B / 65,201 body / 26,556 B shared /
+7 RW / 256 lanes. Size gate STILL FAILS. No CPU path or dispatch was added.
+
+NEXT=RT3 actual-carrier site/completion work, not another cursor audit.
+SupportWedgeBounds still recomputes selected RootRelativeBounds for every
+incident wedge, although DecodeCarrierBatch already computed exactly these
+intervals on independent site lanes. Reuse that same batch cache under the
+existing source lease. Then address remaining carrier/site acquisition.
+Do not redo source-cache, ancestry, R3 evidence or skin emission. The coverage and atlas
 checkpoints do not close RT3 or move CPU decode into the live hotpath. RT4 must
 prove compact source-cache bit parity, reached-face owner
 mask omits no coverage contributor and 32-lane accumulation matches scalar OR.
@@ -322,8 +330,9 @@ epoch/M8 cut, concurrent adjacent sources, full THROUGH and explicit ERASE.
 Unity C#/Editor codegen PASS:
 /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-peer-publication.log.
 
-RT3 IN PROGRESS: paired RGB/V atlas and reached coverage are implemented;
-the compact source cache is compiled, but site/ancestry/completion work and
+RT3 IN PROGRESS: paired RGB/V atlas, reached coverage, compact source cache,
+streamed ancestry, shared R3 evidence and cooperative skin emission compile.
+Remaining site/completion work and
 the production shader-size gate remain open as recorded above. RT4 full tests,
 command graph gates, Unity Quest APK, install and device acceptance have NOT
 run. Baseline tests/APK are not rewrite acceptance.

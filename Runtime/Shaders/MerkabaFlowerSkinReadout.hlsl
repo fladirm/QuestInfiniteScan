@@ -357,50 +357,25 @@ void M8FlowerStoreSkinDrawSample(uint address,M8FlowerSkinDrawSample sample)
     _M8ThreadAtlasPages.Store4(address+48u,asuint(sample.CaptureView));
 }
 
-// Count/allocation happens at page scope; this emits only the exact union's
-// explicit groups into a caller-reserved unpublished range of the draw pool.
-bool M8FlowerCompileSkinDrawProgram(uint ownerRef,uint flowerKey,float3 rootRgb,
-    uint headerAddress,uint firstSampleAddress,uint sampleCapacity,
-    out uint sampleCount)
+// Invert the actual compact sample address. Five bounded integer selections
+// find a set split bit; the generated inverse supplies its Flower locality.
+// This never enumerates the logical 399-position domain or absent groups.
+void M8FlowerSkinSampleLocality(uint2 split,uint sampleIndex,
+    out uint level,out uint3 child)
 {
-    sampleCount=0u;
-    M8ThreadRun rgb;M8FlowerSkinMetricRun metric;
-    bool rgbPresent,metricPresent;uint epoch;uint2 split;
-    if(!M8FlowerSkinResidentLayout(ownerRef,flowerKey,rgb,rgbPresent,metric,
-        metricPresent,epoch,split,sampleCount) || sampleCount>sampleCapacity ||
-        (firstSampleAddress&63u)!=0u || headerAddress<M8_FLOWER_DRAW_DATA ||
-        firstSampleAddress<M8_FLOWER_DRAW_DATA ||
-        headerAddress-M8_FLOWER_DRAW_DATA>67108864u-16u ||
-        sampleCount>67108864u/64u ||
-        firstSampleAddress-M8_FLOWER_DRAW_DATA>67108864u-sampleCount*64u)return false;
-    M8FlowerSkinDrawSample sample;
-    if(!M8FlowerCompileSkinRegion(rootRgb,epoch,flowerKey,2u,uint3(0u,0u,0u),
-        rgb,rgbPresent,metric,metricPresent,sample))return false;
-    M8FlowerStoreSkinDrawSample(firstSampleAddress,sample);
-    [loop]for(uint word=0u;word<2u;word++)
+    level=2u;child=0u;
+    if(sampleIndex==0u)return;
+    uint rank=(sampleIndex-1u)/7u;
+    uint lowCount=countbits(split.x),bits=split.x,ordinal=0u;
+    if(rank>=lowCount){rank-=lowCount;bits=split.y;ordinal=32u;}
+    [unroll]for(uint shift=16u;shift!=0u;shift>>=1u)
     {
-        uint bits=split[word];
-        [loop]while(bits!=0u)
-        {
-            uint bit=(uint)firstbitlow(bits);
-            uint ordinal=word*32u+bit;
-            uint level=ordinal==0u?3u:(ordinal<8u?4u:5u);
-            uint parent=ordinal==0u?0u:(ordinal<8u?ordinal-1u:ordinal-8u);
-            uint group=M8FlowerSplitRank(split,ordinal);
-            [loop]for(uint rank=0u;rank<7u;rank++)
-            {
-                uint3 child=M8FlowerSkinGroupChild(level,parent,rank);
-                if(!M8FlowerCompileSkinRegion(rootRgb,epoch,flowerKey,level,child,
-                    rgb,rgbPresent,metric,metricPresent,sample))return false;
-                M8FlowerStoreSkinDrawSample(firstSampleAddress+(1u+7u*group+rank)*64u,sample);
-            }
-            bits&=bits-1u;
-        }
+        uint count=countbits(bits&((1u<<shift)-1u));
+        if(rank>=count){rank-=count;bits>>=shift;ordinal+=shift;}
     }
-    DeviceMemoryBarrier();
-    _M8ThreadAtlasPages.Store4(headerAddress,
-        uint4(split,firstSampleAddress/64u,epoch));
-    return true;
+    level=ordinal==0u?3u:(ordinal<8u?4u:5u);
+    uint parent=ordinal==0u?0u:(ordinal<8u?ordinal-1u:ordinal-8u);
+    child=M8FlowerSkinGroupChild(level,parent,(sampleIndex-1u)%7u);
 }
 
 // All six source wedges address the same generated seven-site carrier and
@@ -413,40 +388,23 @@ uint M8FlowerCarrierSkinKey(uint carrier,uint rootSigns,uint hubSector)
         (hubSector<<M8_FLOWER_L2_KEY_SECTOR_SHIFT);
 }
 
-bool M8FlowerCarrierSkinBytes(uint ownerRef,uint carrier,uint activeWedges,
-    uint rootSigns,uint hubSector,out uint bytes)
+bool M8FlowerPrepareCarrierSkin(uint ownerRef,uint carrier,uint activeWedges,
+    uint rootSigns,uint hubSector,out uint bytes,out M8ThreadRun rgb,
+    out M8FlowerSkinMetricRun metric,out uint4 signal)
 {
     bytes=0u;
+    rgb=(M8ThreadRun)0;metric=(M8FlowerSkinMetricRun)0;signal=0u;
     if(carrier>=128u || activeWedges==0u || activeWedges>=64u ||
         hubSector>=32u)return false;
     if(ownerRef==0u)return true;
-    M8ThreadRun rgb;M8FlowerSkinMetricRun metric;
     bool rgbPresent,metricPresent;uint epoch;uint2 split;uint count;
     uint key=M8FlowerCarrierSkinKey(carrier,rootSigns,hubSector);
     if(!M8FlowerSkinResidentLayout(ownerRef,key,rgb,rgbPresent,metric,
         metricPresent,epoch,split,count))return false;
+    signal=uint4(split,epoch,(rgbPresent?1u:0u)|(metricPresent?2u:0u));
     // One 16B header in a 64B-aligned prefix, followed by one compact union
     // signal. Uniform M8-only carriers allocate no derived skin data.
     if(epoch!=0u && (rgbPresent || metricPresent))bytes=64u+64u*count;
-    return true;
-}
-
-bool M8FlowerCompileCarrierSkin(uint ownerRef,uint carrier,uint activeWedges,
-    uint rootSigns,uint hubSector,float3 capturedRgb,uint address,uint byteCount,
-    out uint threadRef)
-{
-    threadRef=0xffffffffu;
-    uint required;
-    if(!M8FlowerCarrierSkinBytes(ownerRef,carrier,activeWedges,rootSigns,
-        hubSector,required) || required!=byteCount)return false;
-    if(required==0u)return true;
-    if((address&63u)!=0u || address<M8_FLOWER_DRAW_DATA ||
-        byteCount>67108864u || address-M8_FLOWER_DRAW_DATA>67108864u-byteCount)return false;
-    uint count=(byteCount-64u)/64u,written;
-    uint key=M8FlowerCarrierSkinKey(carrier,rootSigns,hubSector);
-    if(!M8FlowerCompileSkinDrawProgram(ownerRef,key,capturedRgb,address,
-        address+64u,count,written) || written!=count)return false;
-    threadRef=address;
     return true;
 }
 #endif
