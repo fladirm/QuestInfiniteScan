@@ -10475,3 +10475,29 @@ VALIDATION=complete exact native audit 78/78 PASS (61 production, 33 native,
 CURSOR=RT4 host gates passed; coherent commit then Unity APK/push. No rewrite APK has
   been built or installed. ADB currently lists no connected device; runtime
   speed, visible scan and sleep/resume remain DEVICE ACCEPTANCE PENDING.
+
+## RT4 — Unity APK delivery (source 5762d74)
+
+SOURCE=5762d74817af8e34d0cb8746b8dca6cf8d98ad88, committed and pushed to
+  origin/refactor/m8-dual-sphere-flower-rev-b. No production edits during build.
+BUILD=Tools/unity/build_merkaba_apk.sh PASS, Kingston Unity 6000.5.9f1,
+  Android ARM64/IL2CPP; native ABI28/33 pipelines. Two host CPUs, 16 GiB memory
+  limit; no OOM. Prepare and build success markers present, no C#/shader errors.
+APK=/mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-apk/QuestMerkabaScan-release.apk
+  bytes=74471044
+  sha256=91a9d02b277cfad60dad70a9c5b83a71cf9d6c5707caca42f758887095e5c7fb
+  buildGUID=0890ba043d32468ca0dbd1bf960638c4
+  package=com.genesis.questmerkabascan; versionCode=8; minSDK=32; targetSDK=36.
+  apksigner v2 PASS. Packaged AArch64 libMerkabaVulkanTimestamps.so is 7,134,944 B,
+  sha256=dec74b332af584e01f904a781cc7b8d7222d9ae156991c1b8ae6c338c2def363.
+  Every one of the 33 native audit payloads is present byte-for-byte in that
+  packaged library. Logs: realtime-rt4-apk/prepare.log and build.log.
+GATES=391/391 Unity tests, 78/78 exact shader audit, GLB interoperability PASS;
+  see preceding receipt. Shader budgets are not device performance evidence.
+DEPLOY=script returned 2 (no authorized Quest attached); no Quest in USB list.
+  No application data changed. This APK has NOT been installed or run.
+CURSOR=RT4 device acceptance. Attach/authorize Quest, deploy this exact APK,
+  verify installed hash/GUID, pipeline initialization, visible strict/touched/
+  occupied/triangle progression, sustained GPU timing, sleep/resume and the
+  saved/reopened/exported scan. CPU remains outside the live geometry hotpath.
+  DEVICE ACCEPTANCE PENDING; active goal is not complete. Do not redo RT1–RT3.

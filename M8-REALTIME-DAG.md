@@ -4,7 +4,8 @@ AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
 GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
 CURRENT=RT4
-STATE=host gates PASS; ready for Unity APK; DEVICE ACCEPTANCE PENDING
+STATE=host gates and Unity APK PASS; deploy blocked (no authorized Quest);
+  DEVICE ACCEPTANCE PENDING
 HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
   not a runtime fallback. Frozen offline export remains outside that hotpath.
 DELIVERY_GATE=No APK, install or Quest verification in RT1–RT3. Only RT4,
@@ -71,7 +72,7 @@ bounded frozen export/resume remains, compile; commit.
 
 ## RT4 — integrated acceptance and delivery
 
-Depends: RT1–RT3. Status: IN PROGRESS; not accepted, APK/device not started.
+Depends: RT1–RT3. Status: IN PROGRESS; host-validated APK built, device pending.
 
 Reconcile tests and execution consumers, then one full validation/fix pass:
 Tools/shaders/audit_merkaba_compute_spirv.sh
@@ -110,10 +111,19 @@ RT4 SUITE=391/391 PASS, no ignored/skipped/inconclusive cases; full Kingston
   NodeIO load; merkaba-fixture.glb.validation.json in the same TestResults.
   This fixture is untextured DIRT; paired RGB/V coverage is in the full suite.
   Command graph: 41 observation / 7 readout / 6 ERASE scheduled dispatches;
-  actual nonzero device work has not been measured. APK/install/device NOT RUN.
-  Next: commit this coherent host-validated cut, build the Unity APK, then
-  install/measure when ADB has a device. Do not redo shader replacements or
-  claim Quest acceptance from host compilation. No device currently connected.
+  actual nonzero device work has not been measured.
+  APK PASS from pushed source 5762d74817af8e34d0cb8746b8dca6cf8d98ad88:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-apk/QuestMerkabaScan-release.apk
+  74,471,044 B; SHA256 91a9d02b277cfad60dad70a9c5b83a71cf9d6c5707caca42f758887095e5c7fb.
+  Unity build GUID 0890ba043d32468ca0dbd1bf960638c4; v2 signature verified.
+  All 33 exact audited SPIR-V payloads occur byte-for-byte in the packaged
+  AArch64 native plugin. Prepare/build logs are beside the APK. No shader/C#
+  errors; no build OOM. This is an APK, not only a native plugin checkpoint.
+  Deploy script returned 2: no authorized Quest attached; USB also lists none.
+  Next: attach/authorize Quest, install this APK and perform device acceptance.
+  Do not rebuild/rewrite already validated source merely to resume the cursor.
+  Visible scan, sustained timings, sleep/resume and session/export round trips
+  remain unverified on the device. The goal is active, not complete.
 
 ## Implementation receipts (historical compile results)
 
