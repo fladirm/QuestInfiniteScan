@@ -85,6 +85,10 @@ namespace Genesis.RoomScan
             private ulong _failedDirect, _failedOrientation, _failedDualClear, _dualVeto;
             private bool _completionEvaluated;
             private ParentCompletionSelection _completion;
+            private FloatInterval[] _junctionQ;
+            private uint[] _junctionTags;
+            private uint4 _junctionMasks;
+            private ProofClassification _junctionStatus;
 
             internal uint4 ReachedCarriers { get; private set; }
 
@@ -313,6 +317,33 @@ namespace Genesis.RoomScan
 
             internal bool HasCompletionAnchors(uint token) => token < 512u &&
                 TryGetCompletionToken((int)(token & 63u), out uint actual) && actual == token;
+
+            // Disposable evidence from this owner's immutable source only.
+            // Candidate flags change the finite selector, not these eight
+            // metric/dual inputs. Nothing is allocated before a donor-backed
+            // candidate actually reaches the junction predicate.
+            internal JunctionSelection ReadJunction(int requiredPetal)
+            {
+                if (_junctionQ == null)
+                {
+                    var q = new FloatInterval[8];
+                    var tags = new uint[8];
+                    ProofClassification status = _reader.ReadR3JunctionEvidence(_owner, _errors,
+                        this, q, tags, out uint4 masks);
+                    _junctionTags = tags; _junctionMasks = masks; _junctionStatus = status;
+                    _junctionQ = q;
+                }
+                if (_junctionStatus != ProofClassification.Certain)
+                    return new JunctionSelection
+                    {
+                        Classification = _junctionStatus == ProofClassification.Impossible ?
+                            JunctionClassification.Impossible : JunctionClassification.Ambiguous,
+                        ClassIndex = uint.MaxValue, RootSigns = uint.MaxValue
+                    };
+                int parity = (_owner.x & 1) | ((_owner.y & 1) << 1) | ((_owner.z & 1) << 2);
+                return SelectR3Junction(parity, _junctionQ, _junctionTags, _junctionMasks.x,
+                    _junctionMasks.y, _junctionMasks.z, _junctionMasks.w, requiredPetal);
+            }
 
             internal ProofClassification EvaluateCompletion(out ParentCompletionSelection selection)
             {
@@ -1039,17 +1070,34 @@ namespace Genesis.RoomScan
             internal JunctionSelection ReadR3Junction(int3 owner, float2 errors,
                 FlowerDecode parentSnapshot = null, int requiredPetal = -1)
             {
+                if (parentSnapshot != null)
+                {
+                    parentSnapshot.RequireSource(this, owner, errors);
+                    return parentSnapshot.ReadJunction(requiredPetal);
+                }
+                Span<FloatInterval> q = stackalloc FloatInterval[8];
+                Span<uint> tags = stackalloc uint[8];
+                ProofClassification status = ReadR3JunctionEvidence(owner, errors, null, q, tags, out uint4 masks);
                 var unresolved = new JunctionSelection { Classification = JunctionClassification.Ambiguous,
                     ClassIndex = uint.MaxValue, RootSigns = uint.MaxValue };
-                if (!TryReadOwner(owner, out KernelState state, out _)) return unresolved;
-                if (!StableR1(state.Flags))
+                if (status == ProofClassification.Ambiguous) return unresolved;
+                if (status == ProofClassification.Impossible)
                 { unresolved.Classification = JunctionClassification.Impossible; return unresolved; }
+                int parity = (owner.x & 1) | ((owner.y & 1) << 1) | ((owner.z & 1) << 2);
+                return SelectR3Junction(parity, q, tags, masks.x, masks.y, masks.z, masks.w, requiredPetal);
+            }
+
+            internal ProofClassification ReadR3JunctionEvidence(int3 owner, float2 errors,
+                FlowerDecode parentSnapshot, Span<FloatInterval> q, Span<uint> tags, out uint4 masks)
+            {
+                if (q.Length != 8 || tags.Length != 8)
+                    throw new ArgumentException("Eight junction alternatives are required.");
+                q.Clear(); tags.Clear(); masks = default;
+                if (!TryReadOwner(owner, out KernelState state, out _)) return ProofClassification.Ambiguous;
+                if (!StableR1(state.Flags)) return ProofClassification.Impossible;
                 parentSnapshot?.RequireSource(this, owner, errors);
                 int parity = (owner.x & 1) | ((owner.y & 1) << 1) | ((owner.z & 1) << 2);
                 TetraFrameRule frame = TetraFramesValue[parity];
-                Span<FloatInterval> q = stackalloc FloatInterval[8];
-                Span<uint> tags = stackalloc uint[8];
-                q.Clear(); tags.Clear();
                 uint known = 0u, ambiguous = 0u, allowed = 0u, veto = 0u;
                 for (int axis = 0; axis < 4; axis++)
                 for (int sign = 0; sign < 2; sign++)
@@ -1081,7 +1129,8 @@ namespace Genesis.RoomScan
                     // Mixed/COLD leaves a known metric with unresolved dual
                     // permission. It never becomes an all-true shell mask.
                 }
-                return SelectR3Junction(parity, q, tags, known, ambiguous, allowed, veto, requiredPetal);
+                masks = new uint4(known, ambiguous, allowed, veto);
+                return ProofClassification.Certain;
             }
 
             internal ProofClassification ReadR3MetricBundle(int3 owner, uint rootSigns, float2 errors,

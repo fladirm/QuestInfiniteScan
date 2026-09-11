@@ -242,11 +242,27 @@ Unity C#/codegen and five exact compute targets compiled. Compact is still
 Root 525,704 / 27,471; L1 739,632 / 38,702; L2 739,576 / 38,702. No new
 dispatch/resource/CPU hotpath or APK. Integrated parity remains RT4 work.
 
-NEXT=RT3 shared actual-carrier decode in GPU readout and frozen offline export;
-completion from actual incident boundaries. The eight-carrier site acquisition
-and completion driver remains; remove repeated metric work, not merely shrink
-scratch or inline fewer wrappers. Do not redo the compact source cache or
-streamed ancestry predicates. The coverage and atlas
+JUNCTION=completion's ordered donor preflight requests eight independent R3
+alternatives only after an actual candidate has certain anchors. Eight GPU
+lanes evaluate them once per frozen owner. The 40-word q/tag/dual receipt cache
+uses the existing control-scratch gap, survives only this owner compilation,
+and serves every reached candidate batch. Junction precedence, per-candidate
+required dual receipts, sign/orientation checks and all sixteen child proofs
+remain. The old serial ReadR3Junction/PrepareCompletionPetal path is removed.
+Frozen CPU decode lazily caches the same eight inputs; its uncached oracle
+uses the same evidence collector. Unity C#/codegen and exact Compact compile
+PASS; 1,291,628 B / 68,638 body / 26,556 B shared / 7 RW / 256 lanes / 75
+barriers. Size gate STILL FAILS. No runtime speedup or parity claim.
+
+NEXT=RT3 actual-carrier site/skin/completion work, not another cursor audit.
+SkinReadout.hlsl was read completely: CompileCarrierSkin currently emits root
+then every set union group's seven values serially on one lane. The existing
+FINAL emit phase has 256 lanes for eight actual carriers; its footprint scratch
+is unused during emit (coverage is count-only). Use that lifetime for cooperative
+actual-sample emission, 32 lanes/carrier, with one CompileSkinRegion call site,
+the same reserved spans and no extra dispatch/CPU geometry. Then address
+remaining repeated site/completion acquisition. Do not redo source-cache,
+ancestry or R3 evidence changes. The coverage and atlas
 checkpoints do not close RT3 or move CPU decode into the live hotpath. RT4 must
 prove compact source-cache bit parity, reached-face owner
 mask omits no coverage contributor and 32-lane accumulation matches scalar OR.

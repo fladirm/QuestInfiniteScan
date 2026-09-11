@@ -411,51 +411,23 @@ uint M8FlowerSupportR3RootDual(int3 owner,uint nodeIndex,M8FlowerPhaseRootEviden
     return M8FlowerSupportCoverDual(first,last,coldHalo);
 }
 
-// Reuse the source lease and its 27-tile dual cache. Only eight root graphs
-// are evaluated, one at a time. The finite selector consumes compact q/tag
-// evidence, never a fabricated all-allowed mask or a cache of world positions.
-M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
-    uint flags,float2 errors,uint requiredPetal,out uint supportReceipt)
+// One independent R3 alternative. The page WG evaluates the eight values
+// once, on eight lanes, then shares them between reached completion flags.
+// Result bits are known/ambiguous/dual-allowed/dual-veto, not authority state.
+uint M8FlowerReadJunctionAlternative(uint slot,uint ownerRef,int3 owner,uint flags,
+    float2 errors,uint alternative,out M8FlowerInterval q,out uint tag,out uint cold)
 {
-    M8FlowerInterval q[8];uint tags[8],cold[8];supportReceipt=0u;
-    uint known=0u,ambiguous=0u,allowed=0u,veto=0u;
+    q=M8FlowerI(0,0);tag=0u;cold=0u;
+    uint axis=alternative>>1u;
+    M8FlowerPhaseRootEvidence observed;
+    uint status=M8FlowerReadR3Alternative(slot,ownerRef,owner,flags,axis,
+        (alternative&1u)!=0u,errors,q,observed);
+    if(status!=1u)return status==0u?0u:2u;
+    tag=observed.Tag;
     uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
-    [loop]for(uint i=0u;i<8u;i++)
-    {
-        q[i]=M8FlowerI(0,0);tags[i]=0u;cold[i]=0u;
-        uint axis=i>>1u,bit=1u<<i;
-        M8FlowerPhaseRootEvidence observed;
-        uint status=M8FlowerReadR3Alternative(slot,ownerRef,owner,flags,axis,(i&1u)!=0u,
-            errors,q[i],observed);
-        if(status!=1u){if(status!=0u)ambiguous|=bit;continue;}
-        known|=bit;tags[i]=observed.Tag;
-        uint node=2u*(uint)M8FlowerTetraLineAt(parity)[axis]+(M8FlowerTetraEtaAt(parity)[axis]<0?1u:0u);
-        uint dual=M8FlowerSupportR3RootDual(owner,node,observed,cold[i]);
-        if(dual==0u)allowed|=bit;
-        else if(dual==1u)veto|=bit;
-    }
-    M8FlowerJunctionSelection result=M8FlowerSelectR3Junction(parity,q,tags,known,ambiguous,
-        allowed,veto,requiredPetal);
-    if(result.RequiredDualMask!=0u)
-    {
-        supportReceipt=M8_FLOWER_SUPPORT_REQUIRED;
-        [loop]for(uint alternative=0u;alternative<8u;alternative++)
-            if((result.RequiredDualMask&(1u<<alternative))!=0u)supportReceipt|=cold[alternative];
-    }
-    return result;
-}
-
-M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
-    uint flags,float2 errors,uint requiredPetal)
-{
-    uint supportReceipt;
-    return M8FlowerReadR3Junction(slot,ownerRef,owner,flags,errors,requiredPetal,supportReceipt);
-}
-
-M8FlowerJunctionSelection M8FlowerReadR3Junction(uint slot,uint ownerRef,int3 owner,
-    uint flags,float2 errors)
-{
-    return M8FlowerReadR3Junction(slot,ownerRef,owner,flags,errors,0xffffffffu);
+    uint node=2u*(uint)M8FlowerTetraLineAt(parity)[axis]+(M8FlowerTetraEtaAt(parity)[axis]<0?1u:0u);
+    uint dual=M8FlowerSupportR3RootDual(owner,node,observed,cold);
+    return 1u|(dual==0u?4u:dual==1u?8u:0u);
 }
 
 // Same invocation in the count and emit passes; the caller's source lease
@@ -661,17 +633,15 @@ uint M8FlowerCompletionDonor(uint slot,uint ownerRef,int3 owner,uint flags,
     return found?1u:0u;
 }
 
-// Prove the three existing anchors and this flag's R3/orientation context.
-// The caller MUST still consume all sixteen children at its one shared
-// carrier-evaluation call site before admitting this token as COMPLETED.
-uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
-    uint2 direct,uint petal,M8FlowerDirectAnchors receipt,out uint token,out uint supportReceipt)
+// Donor order and its endpoint receipts remain local to one actual flag.
+// A failed donor set does not request the shared R3 alternative evaluation.
+uint M8FlowerPrepareCompletionAnchors(uint slot,uint local,float2 errors,
+    uint2 direct,uint petal,M8FlowerDirectAnchors receipt,out uint token,out uint orientation)
 {
-    token=petal;supportReceipt=0u;
+    token=petal;orientation=2u;
     KernelState state=M8LoadKernelStateRead(slot,local);
     int3 owner=M8FlowerEndpointOwner(slot,local);
     uint ownerRef=M8FlowerFindOwner(slot,local,M8FlowerEndpointGeneration(slot));
-    uint parity=((uint)owner.x&1u)|(((uint)owner.y&1u)<<1u)|(((uint)owner.z&1u)<<2u);
     float3 normal;float delta;M8FlowerUnpackPlane(state.flags,normal,delta);
     bool uncertain=false;M8FlowerInterval3 bounds[3];
     [loop]for(uint anchor=0u;anchor<3u;anchor++)
@@ -686,9 +656,20 @@ uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
         if(!M8FlowerRootNodeRelativeBounds(nodeIndex,root,bounds[anchor]))uncertain=true;
     }
     if(uncertain)return 2u;
-    M8FlowerJunctionSelection junction=M8FlowerReadR3Junction(slot,ownerRef,owner,
-        state.flags,errors,petal,supportReceipt);
+    if(M8FlowerPetalNodesAt(petal).w==0u)
+    {M8FlowerInterval3 swap=bounds[1];bounds[1]=bounds[2];bounds[2]=swap;}
+    orientation=M8FlowerCarrierWedgeOrientation(bounds[0],bounds[1],bounds[2],normal,errors.x);
+    return 1u;
+}
+
+// Junction precedence is unchanged: an unresolved junction is not replaced
+// by a precomputed orientation result. All sixteen child proofs are still
+// required by the caller before a prepared token can become COMPLETED.
+uint M8FlowerFinishCompletionPetal(uint token,uint parity,uint orientation,
+    M8FlowerJunctionSelection junction)
+{
     if(junction.Classification!=1u)return junction.Classification==0u?0u:2u;
+    uint petal=token&63u;
     uint junctionAxis=4u;uint2 rule=M8FlowerJunctionRuleAt(junction.ClassIndex);
     [unroll]for(uint axis=0u;axis<4u;axis++)
     {
@@ -696,9 +677,7 @@ uint M8FlowerPrepareCompletionPetal(uint slot,uint local,float2 errors,
         if(((rule.y>>(6u*(lineClass-9u)))&63u)==petal)junctionAxis=axis;
     }
     if(junctionAxis==4u || ((token>>8u)&1u)!=((junction.RootSigns>>junctionAxis)&1u))return 0u;
-    if(M8FlowerPetalNodesAt(petal).w==0u)
-    {M8FlowerInterval3 swap=bounds[1];bounds[1]=bounds[2];bounds[2]=swap;}
-    return M8FlowerCarrierWedgeOrientation(bounds[0],bounds[1],bounds[2],normal,errors.x);
+    return orientation;
 }
 
 M8FlowerInterval M8FlowerSupportDifference(float a,float b)

@@ -10313,3 +10313,32 @@ CURSOR=RT3 OPEN. Next address repeated actual-carrier site acquisition and
   RT4 must prove no/coarse/L1/both-ancestor transport against the oracle,
   signed/witness boundaries, incompatible/stale records and raw-base reuse.
 TESTS/APK/INSTALL/DEVICE=not run. No performance or full-rewrite PASS claimed.
+
+## RT3 — shared completion junction evidence (after 98cd3ff)
+
+CHANGE=ordered donor preflight remains per actual candidate. Only a certain
+  donor set requests the eight R3 metric/dual alternatives; eight GPU lanes
+  compute those independently once per frozen owner, not per candidate.
+  Their 40-word q/tag/cold/status cache occupies existing control scratch and
+  survives candidate batches only, never a GPU job/observation or saved world.
+  Each candidate still uses its own generated junction filter and required
+  dual receipt. Precomputed orientation cannot override an unresolved junction;
+  all sixteen child proofs remain mandatory. Removed the former serial
+  ReadR3Junction and monolithic PrepareCompletionPetal shader helpers.
+  Frozen CPU FlowerDecode lazily caches the same evidence. The uncached oracle
+  and cached path share the collector; no CPU hotpath backend was introduced.
+COMPILE=Unity C#/Editor codegen PASS:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt3-junction-evidence.log.
+  Exact native glslang/spirv-val, /tmp/m8-rt3-junction-lanes-rdg2sko_:
+  Compact 1,291,628 B / 68,638 body / 26,556 B shared / 7 RW / 256 lanes /
+  75 barriers; sha256 8d7106e257b0990ea6b9578e91dd0bf10b748a2799a1399b630ad2b8e5208dc8.
+  Size gate STILL FAILS; this does not establish a device speedup.
+CURSOR=RT3 OPEN. Next parallelize actual skin-sample materialization in the
+  existing 256-lane FINAL emit phase: eight carriers x32 lanes, one region
+  evaluator call site, existing reserved spans and the unused emission-phase
+  footprint scratch. SkinReadout.hlsl was read completely. No new dispatch
+  or CPU fallback is needed. Repeated carrier/site acquisition remains after it.
+  RT4 must cover zero donor-backed candidates, multiple candidate batches,
+  per-flag junction filtering, contradictory/ambiguous orientation precedence,
+  COLD receipt union and cache retirement between owners.
+TESTS/APK/INSTALL/DEVICE=not run; the goal and RT3 remain open.
