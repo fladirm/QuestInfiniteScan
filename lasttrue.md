@@ -10261,3 +10261,28 @@ CURSOR=RT3 OPEN. Large original-root/site packet and bounded completion decode
   invitation to repeat the old RT2 audit. RT4 must compare reached-neighbor
   masks to complete coverage and scalar vs 32-lane OR, including boundary/COLD.
 TESTS/APK/INSTALL/DEVICE=not run. No runtime speedup or full closure claimed.
+
+## RT3 — compact reached source intervals (after 9e156d2)
+
+CHANGE=removed the fixed 52 x 19-word full-original-root packet from readout.
+  Generated node/sign addresses retain only status, receipt and value handles;
+  reached nonempty Tag/four-endpoint payloads occupy compact scratch slots.
+  Bit-identical raw/final payloads reuse a slot. Implicit J and the explicit
+  empty-J marker preserve failed/ambiguous evidence as well as certain roots.
+  Endpoint-local pure restrictions stay on their own query lane; no peer raw
+  root is staged through the carrier-site buffer. Only present L1 ancestors
+  occupy rank-addressed six-word metric entries; J comes from generated strand
+  offsets. No canonical record, GPU resource, dispatch or CPU path was added.
+COMPILE=exact native target glslang/spirv-val PASS:
+  /tmp/m8-rt3-source-cache-1db28ywd
+  Compact 1,287,540 B / 68,454 body instructions / 26,556 B shared / 256 lanes /
+  7 RW. SHA256 1690a0ee6aa263b03247cb59545ef7090795abc8388422fd8c039c5b4dc9df86.
+  Shared memory fell 3,184 B, but code grew; the size gate STILL FAILS.
+CURSOR=RT3 OPEN. Next remove generic full-root ancestry transport arrays and
+  repeated site/completion evaluation. Do not confuse a compact cache with
+  completion of the actual-carrier decoder or a measured runtime speedup.
+  RT4 must cover absent/provisional/ambiguous/boundary roots, exact raw-vs-final
+  payload identity, empty J, signed limits, owner-cache reset and COLD receipts.
+  Removed the obsolete RT3 NOT STARTED footer from DAG; its current cursor
+  remains RT3, not RT4 or a historical numbered run.
+TESTS/APK/INSTALL/DEVICE=not run; no CPU geometry entered the hotpath.

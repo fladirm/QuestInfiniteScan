@@ -220,10 +220,22 @@ Unity C#/codegen and the exact Compact target compilation passed. Compact is
 still 1,268,260 B / 67,329 body instructions, over the production size gate;
 29,740 B shared, 256 lanes, 7 RW. No speedup/parity/device acceptance claim.
 
+SOURCE CACHE=the fixed 52*(root + raw root + receipt) readout packet is gone.
+The generated node/sign directory retains classification and endpoint receipts;
+only reached nonempty Tag/interval values allocate compact scratch slots.
+Raw/final bit-identical values share a slot. J is reconstructed exactly from
+owner plus generated offset, with an explicit empty-J bit. The two endpoint
+base restrictions stay private to their query lane until publication. Present
+L1 bases use rank of reached strands and implicit J, not 144 addressed roots.
+Compact now uses 26,556 B shared / 7 RW / 256 lanes. Its 1,287,540 B and
+68,454 body instructions STILL FAIL the size gate. This is not RT3 closure.
+
 NEXT=RT3 shared actual-carrier decode in GPU readout and frozen offline export;
-completion from actual incident boundaries. The GPU's large original-root/site
-packet remains open. The coverage and atlas checkpoints do not close RT3 or
-move CPU decode into the live hotpath. RT4 must prove the reached-face owner
+completion from actual incident boundaries. The eight-carrier site/ancestry
+and completion driver remains; remove its generic full-root transport arrays
+and repeated metric work, not merely shrink scratch. The coverage and atlas
+checkpoints do not close RT3 or move CPU decode into the live hotpath. RT4 must
+prove compact source-cache bit parity, reached-face owner
 mask omits no coverage contributor and 32-lane accumulation matches scalar OR.
 Do not add a spinning global lock, drop BUSY work as capacity, or retain a
 snapshot/cursor. Complete-through hysteresis already matches retained REV-C
@@ -281,8 +293,8 @@ epoch/M8 cut, concurrent adjacent sources, full THROUGH and explicit ERASE.
 Unity C#/Editor codegen PASS:
 /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt2-peer-publication.log.
 
-RT3 NOT STARTED: presentation packet and exhaustive completion/readout/export
-paths still need replacement; export V atlas remains. RT4 full tests, shader
-and command graph gates, Unity Quest APK, install and device acceptance have
-NOT run. Baseline tests/APK are not rewrite acceptance. Do not start RT4 or
-claim completed rewrite until RT3 is fully connected.
+RT3 IN PROGRESS: paired RGB/V atlas and reached coverage are implemented;
+the compact source cache is compiled, but site/ancestry/completion work and
+the production shader-size gate remain open as recorded above. RT4 full tests,
+command graph gates, Unity Quest APK, install and device acceptance have NOT
+run. Baseline tests/APK are not rewrite acceptance.
