@@ -22,6 +22,7 @@ else
   "${QIS_UNITY_EXECUTABLE}" \
     -batchmode \
     -nographics \
+    -job-worker-count 2 \
     -projectPath "${QIS_UNITY_HOST_PROJECT}" \
     -executeMethod Genesis.RoomScan.Editor.MerkabaGlbFixtureBuilder.BuildMerkabaGlbFixture \
     -quit \

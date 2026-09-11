@@ -4,7 +4,7 @@ AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=9ab1f687691f91fbefb62e46cc308f8fb5327a8a
 GOAL=active, created 2026-09-10; replaces the retired 'stop' goal
 CURRENT=RT4
-STATE=shader-gate-repair; full-suite reconciliation PASS (389/389)
+STATE=host gates PASS; ready for Unity APK; DEVICE ACCEPTANCE PENDING
 HOTPATH=GPU-only sensor/scan/live page compiler/draw. CPU codegen/oracle is
   not a runtime fallback. Frozen offline export remains outside that hotpath.
 DELIVERY_GATE=No APK, install or Quest verification in RT1–RT3. Only RT4,
@@ -89,21 +89,36 @@ the new contract is actually satisfied; otherwise record the exact open gap.
 
 ## Current handoff
 
-RT4 SUITE=389/389 PASS, no ignored/skipped cases; full Kingston EditMode run:
-  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-reconcile/TestResults/
-  merkaba-results.xml and merkaba-tests.log. The first RT4 run was 368/383.
-  Reconciled removed cursor/global-lease/readback/NORMAL-stream expectations.
-  The positive nonzero-R2 test now exhausts the actual buddy arena, then proves
-  equal output after capacity returns; its geometry expectations were retained.
-  Six new atlas cases cover V-only L5 additive gradients, mirrored/wound L2
-  frames without displacement, and independent RGB/V receipt corruption.
-  HOT bin counts survive a no-recount reset; the real NEXT gate retires them.
-  Test runner limits Unity workers to two; the invocation was memory-scoped.
-  Compact remains 1,239,460 B / 65,745 instructions (FAIL), unchanged by tests.
+RT4 SUITE=391/391 PASS, no ignored/skipped/inconclusive cases; full Kingston
+  EditMode run 2026-09-11 03:32:13Z..03:33:40Z:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-unity-fixed/TestResults/
+  merkaba-results.xml and merkaba-tests.log. Includes the retained positive
+  geometry fixtures, paired RGB/V atlas and two new IEEE rounding comparisons.
+  Unity rejected three struct-valued conditional expressions in the first
+  run (378/391); explicit branches/numeric component selection fixed them.
+  The full suite then passed, without weakening predicates or expectations.
+  Full exact native audit 78/78 PASS: production=61, native=33, oracle=17;
+  all production size/body, shared-memory and descriptor hard gates pass.
+  Compact: 930,876 B / 49,915 instructions / 26,552 B shared / 6 RW / 256 lanes.
+  Emit: 647,240 B / 34,579 instructions. No budget was relaxed.
+  Count/emit are distinct compiled entrypoints in the SAME seven-command
+  readout schedule. Shared coverage, rotation and halo results replace repeated
+  metric bodies; no predicate, source authority or CPU backend was introduced.
+  Native ABI is 28 (33 pipelines, 44 resources, still 41 timing slots).
+  Evidence: realtime-rt4-gates/spirv-unity-fixed.log and per-entry metrics.
+  GLB interoperability PASS: zero Khronos errors/warnings and independent
+  NodeIO load; merkaba-fixture.glb.validation.json in the same TestResults.
+  This fixture is untextured DIRT; paired RGB/V coverage is in the full suite.
   Command graph: 41 observation / 7 readout / 6 ERASE scheduled dispatches;
   actual nonzero device work has not been measured. APK/install/device NOT RUN.
-  Next: remove remaining redundant instruction paths from the page compiler,
-  preserve all predicates, run exact embedded-SPIR-V/full validation gates.
+  Next: commit this coherent host-validated cut, build the Unity APK, then
+  install/measure when ADB has a device. Do not redo shader replacements or
+  claim Quest acceptance from host compilation. No device currently connected.
+
+## Implementation receipts (historical compile results)
+
+The metrics below record their individual cut, not the current validation
+state. Current handoff above and the latest lasttrue.md receipt take precedence.
 
 RT1 generated selection/transport is an implementation checkpoint, not RT4
 acceptance. Its root ownership/incidence distinction, source/carrier masks,
@@ -126,7 +141,7 @@ grouping pass; owner WGs load it without repeating spatial hash discovery.
 Two endpoint ranges use the unchanged metric/root/intersection predicates.
 Peer ranges must belong to the current stamped bin, including after NEW/OPEN.
 
-ABI=27, 32 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
+ABI=28, 33 pipelines, 44 resources. No buffer added or enlarged. The 32 MiB
 snapshot buffer reuses dense 32-byte R1 changes (capacity 1,044,350) before
 grouping, then holds record indices, stamped tile/owner ranges and skin items.
 Measured-owner and skin capacities are 79,343 each; overflow is explicit, a
@@ -301,12 +316,9 @@ Exact compile PASS: Compact 1,239,460 B / 65,745 body / 26,556 B shared / 7 RW /
 256 lanes; resolver 938,760 B / 48,519 body / 15,464 B shared / 6 RW / 128 lanes.
 Compact size gate STILL FAILS; parallelization is not a device speedup claim.
 
-NEXT=RT4 integrated validation and repair. RT1–RT3 consumers are rewired and
-compile; this is not acceptance. Reconcile the retained positive fixtures and
-new measurement-driven interfaces, run the full suite and exact shader/ABI
-gates, fix failures, then build the Unity Quest APK only after those gates.
-Known Compact size failure is an RT4 repair obligation, not an exception or a
-closed performance gate. Do not resume historical runs or repeat source-cache,
+RT4 HANDOFF REQUIREMENTS (now covered by the host gates above, device pending):
+RT1–RT3 consumers are rewired. Compact size failure is repaired, not exempted.
+Do not resume historical runs or repeat source-cache,
 ancestry, R3, skin, selected-site/dual or allocation rewrites. RT4 must
 prove compact source-cache bit parity, reached-face owner
 mask omits no coverage contributor and 32-lane accumulation matches scalar OR.

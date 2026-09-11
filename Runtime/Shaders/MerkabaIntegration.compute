@@ -970,13 +970,13 @@ void EraseFineTiles(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)];
     uint4 meta=_M8TileRecords[M8TileMetaIndex(slot)];
     if(runtime.w==0u || meta.x>=MERKABA_M8_CHUNK_CAPACITY || meta.y>=64u ||
-        _M8ChunkTileRefsRead[meta.x*64u+meta.y]!=slot+1u)
+        _M8ChunkTileRefs[meta.x*64u+meta.y]!=slot+1u)
     {
         if(lane==0u)M8FlowerBinFailure(M8_OBSERVATION_FAILURE_MEASUREMENT_IDENTITY);
         return;
     }
     if(lane==0u)m8FlowerR1Changed=0u;
-    M8FlowerCacheTileHalo(slot,lane,false,true);
+    M8FlowerCacheTileHalo(slot,lane,false,true,true);
     // COLD query results do not veto unrelated resident brush targets.
     [loop]for(uint local=lane;local<512u;local+=128u)M8EraseFineKernel(slot,local);
     DeviceMemoryBarrierWithGroupSync();

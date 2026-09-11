@@ -120,13 +120,13 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 32,
-        "M8 executor pipeline tables must be regenerated for ABI 27");
+    static_assert(kMerkabaExecutorPipelineCount == 33,
+        "M8 executor pipeline tables must be regenerated for ABI 28");
 
-    constexpr uint32_t kExecutorAbiVersion = 27;
+    constexpr uint32_t kExecutorAbiVersion = 28;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
-    constexpr uint32_t kFlowerReservePipeline = kPipelineReserveDirtyFlowerBatch;
+    constexpr uint32_t kFlowerEmitPipeline = kPipelineEmitDirtyFlowerSymbols;
     constexpr uint32_t kFlowerPublishPipeline = kPipelinePublishDirtyFlowerPages;
     constexpr uint32_t kFlowerCullPipeline = kPipelineCullFlowerPages;
     // Existing draw commands/count remain at their original offsets. Count
@@ -1319,7 +1319,7 @@ namespace
             present |= schedule.pipelines[ordinal] == pipeline;
         if (!present || job->kind != kJobFlowerReadout) return present;
         uint32_t pass = pipeline == kFlowerPipelineBegin ? 1u :
-            pipeline >= kFlowerPreparePipeline && pipeline <= kFlowerReservePipeline ? 2u :
+            pipeline >= kFlowerPreparePipeline && pipeline <= kFlowerEmitPipeline ? 2u :
             pipeline == kFlowerPublishPipeline ? 4u :
             pipeline == kFlowerCullPipeline ? 8u : 0u;
         return (job->flowerPassMask & pass) != 0u;

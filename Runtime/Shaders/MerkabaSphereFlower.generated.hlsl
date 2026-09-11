@@ -562,6 +562,18 @@ M8FlowerInterval M8FlowerI(float lo, float hi)
     M8FlowerInterval r; r.lo = lo; r.hi = hi; return r;
 }
 
+// The lower predecessor and upper successor are independent uint operations.
+// Pack them together; each component is bit-identical to Previous/Next,
+// including signed zero, subnormals, infinities and NaN payloads.
+M8FlowerInterval M8FlowerOutward(float lo, float hi)
+{
+    uint2 b = asuint(float2(lo,hi));
+    uint2 step = b + ((b & 0x80000000u) == uint2(0x80000000u,0u) ? 1u : 0xffffffffu);
+    step = b == uint2(0xff800000u,0x7f800000u) ? b : step;
+    float2 value = asfloat((b & 0x7fffffffu) == 0u ? uint2(0x80000001u,1u) : step);
+    return M8FlowerI(value.x,value.y);
+}
+
 // Exact algebraic identities preserve zero without manufacturing denormal
 // endpoints that a mobile arithmetic unit can flush before the next op.
 // Inspect bits: a nonzero subnormal is NOT the exact zero interval.
@@ -578,7 +590,7 @@ M8FlowerInterval M8FlowerIAdd(M8FlowerInterval a, M8FlowerInterval b)
 {
     precise float lo = a.lo+b.lo;
     precise float hi = a.hi+b.hi;
-    M8FlowerInterval r = M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
+    M8FlowerInterval r = M8FlowerOutward(lo,hi);
     bool za = M8FlowerIZero(a), zb = M8FlowerIZero(b);
     r.lo = za ? b.lo : (zb ? a.lo : r.lo);
     r.hi = za ? b.hi : (zb ? a.hi : r.hi);
@@ -589,7 +601,7 @@ M8FlowerInterval M8FlowerISub(M8FlowerInterval a, M8FlowerInterval b)
 {
     precise float lo = a.lo-b.hi;
     precise float hi = a.hi-b.lo;
-    M8FlowerInterval r = M8FlowerI(M8FlowerPrevious(lo),M8FlowerNext(hi));
+    M8FlowerInterval r = M8FlowerOutward(lo,hi);
     bool za = M8FlowerIZero(a), zb = M8FlowerIZero(b);
     r.lo = zb ? a.lo : (za ? -b.hi : r.lo);
     r.hi = zb ? a.hi : (za ? -b.lo : r.hi);
@@ -603,8 +615,8 @@ M8FlowerInterval M8FlowerIMul(M8FlowerInterval a, M8FlowerInterval b)
         (M8FlowerIZero(b) && all((asuint(float2(a.lo,a.hi)) & 0x7f800000u) != 0x7f800000u));
     precise float4 p = float4(a.lo * b.lo, a.lo * b.hi,
         a.hi * b.lo, a.hi * b.hi);
-    M8FlowerInterval r = M8FlowerI(M8FlowerPrevious(min(min(p.x,p.y),min(p.z,p.w))),
-        M8FlowerNext(max(max(p.x,p.y),max(p.z,p.w))));
+    M8FlowerInterval r = M8FlowerOutward(min(min(p.x,p.y),min(p.z,p.w)),
+        max(max(p.x,p.y),max(p.z,p.w)));
     r.lo = exact ? 0.0 : r.lo;
     r.hi = exact ? 0.0 : r.hi;
     return r;
@@ -930,7 +942,7 @@ M8FlowerInterval M8FlowerCenterRadius(float center, float radius)
 {
     precise float lo = center - radius;
     precise float hi = center + radius;
-    return M8FlowerI(M8FlowerPrevious(lo), M8FlowerNext(hi));
+    return M8FlowerOutward(lo,hi);
 }
 
 // Section 5: the caller supplies the frozen calibrated + quantization

@@ -249,7 +249,7 @@ uint M8FlowerR1PeersStatus(uint local,bool erase)
             return M8_FLOWER_ARENA_BUSY;
         }
         uint peerSlot,peerLocal;
-        if(state!=M8_FLOWER_HALO_HOT || !M8FlowerHaloKernel(relative,peerSlot,peerLocal,true))
+        if(state!=M8_FLOWER_HALO_HOT || !M8FlowerHaloKernel(relative,peerSlot,peerLocal,true,erase))
             return M8_FLOWER_ARENA_INVALID;
         uint peer,first,count,captured;
         if(!M8FlowerTryFindOwner(peerSlot,peerLocal,_M8TileRecords[M8TileRuntimeIndex(peerSlot)].w,peer))
@@ -305,7 +305,7 @@ bool M8FlowerPrepareR1(uint slot,uint local,KernelState before,uint4 value,
         [loop]for(uint node=6u;node<26u;node++)
         {
             uint peerSlot,peerLocal;
-            if(M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,peerSlot,peerLocal,false))
+            if(M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,peerSlot,peerLocal,true,erase))
                 M8FlowerQueueChangedTile(peerSlot);
         }
     }

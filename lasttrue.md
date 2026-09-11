@@ -10440,3 +10440,38 @@ VALIDATION=first complete run 368/383 PASS (15 failures), followed by full
 CURSOR=RT4 shader-gate repair. Compact remains 1,239,460 B / 65,745 body
   instructions, over the mandatory size gate. Full shader/GLB gates and
   APK/install/Quest acceptance remain outstanding. Goal is active, not done.
+
+## RT4 — GPU shader closure and coherent resource views (after 96f6a14)
+
+CHANGE=existing count/reserve/emit page schedule now compiles count and emit
+  as separate entrypoints over one recipe. Seven readout commands remain;
+  ABI28 has 33 pipelines, 44 resources and 41 timing slots. Eight reached
+  carrier tasks use eight lanes with deterministic mask rank. Coverage reuses
+  exact cell/halo receipts and proved wedge winding; its ordered segment,
+  orientation and witness arithmetic share bodies. R2/R3 rotation and child
+  ancestry retain their original operation/failure order. Generated outward
+  rounding pairs predecessor/successor bit operations, not geometric inputs.
+  CPU remains offline oracle/codegen/export only; no live CPU producer or
+  scan-decision readback was added. No tolerance, geometry or admission change.
+RESOURCE FIX=FlowerCommit and peer invalidation now use the same TileRecords
+  view throughout; PublishFlowerR1 reads/writes the same four M8 bank views;
+  ERASE halo validation uses its writable chunk-reference descriptor. Targeted
+  native reflection validates all four entries with <=8 writable bindings.
+VALIDATION=complete exact native audit 78/78 PASS (61 production, 33 native,
+  17 oracle), including all size/body, shared-memory and RO/RW alias gates:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-gates/spirv-unity-fixed.
+  Compact 930,876 B / 49,915 body / 26,552 B shared / 6 RW / 256 lanes;
+  Emit 647,240 B / 34,579 body / 26,272 B shared / 7 RW / 256 lanes.
+  No hard budget exemptions; occupancy warnings remain, not device acceptance.
+  First Unity run 378/391 caught three struct-valued ternary expressions DXC
+  rejects. Explicit branches/numeric component selection fixed them; full
+  rerun 391/391 PASS, zero skipped/ignored/inconclusive, 86.56 s:
+  /mnt/kingston-unity/Builds/QuestMerkabaScan/realtime-rt4-unity-fixed/TestResults.
+  Includes two direct GPU/scalar IEEE rounding/ordered interval comparisons.
+  Codegen/C# PASS; GLB interoperability PASS (0 Khronos errors/warnings, NodeIO
+  opens the untextured DIRT fixture). Paired RGB/V atlas is covered by the suite.
+  Command graph still reports 41/7/6 scheduled observation/readout/ERASE calls;
+  actual nonzero work requires device measurement, no <=10 or speedup claim.
+CURSOR=RT4 host gates passed; coherent commit then Unity APK/push. No rewrite APK has
+  been built or installed. ADB currently lists no connected device; runtime
+  speed, visible scan and sleep/resume remain DEVICE ACCEPTANCE PENDING.

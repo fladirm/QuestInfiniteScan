@@ -35,6 +35,59 @@ namespace Genesis.RoomScan.Tests
         };
 
         [Test, Timeout(60000)]
+        public void PairedOutwardRounding_PreservesScalarBitsAtEveryExponentAndIeeeBoundary()
+        {
+            var cases = new List<OracleCase>();
+            uint[] mantissas = { 0u, 1u, 2u, 0x3fffffu, 0x400000u, 0x7ffffeu, 0x7fffffu };
+            for (uint sign = 0; sign < 2; sign++)
+            for (uint exponent = 0; exponent < 256; exponent++)
+            foreach (uint mantissa in mantissas)
+            {
+                uint bits = (sign << 31) | (exponent << 23) | mantissa;
+                foreach (uint other in new[] { bits, bits ^ 0x80000000u, unchecked(bits * 747796405u + 2891336453u) })
+                    cases.Add(new OracleCase(32)
+                    { Control = new int4(32, unchecked((int)bits), unchecked((int)other), 0) });
+            }
+            OracleCase[] actual = Dispatch(cases);
+            for (int i = 0; i < cases.Count; i++)
+            {
+                uint lower = unchecked((uint)cases[i].Control.y), upper = unchecked((uint)cases[i].Control.z);
+                uint previous = (lower & 0x7fffffffu) == 0u ? 0x80000001u :
+                    lower == 0xff800000u ? lower : (lower & 0x80000000u) == 0u ? lower - 1u : lower + 1u;
+                uint next = (upper & 0x7fffffffu) == 0u ? 1u :
+                    upper == 0x7f800000u ? upper : (upper & 0x80000000u) == 0u ? upper + 1u : upper - 1u;
+                Assert.That(math.asuint(actual[i].Control), Is.EqualTo(new uint4(previous, next, previous, next)),
+                    $"paired/scalar IEEE bits {lower:x8}/{upper:x8}");
+            }
+        }
+
+        [Test, Timeout(60000)]
+        public void PairedIntervalOperations_PreserveOrderedScalarBits()
+        {
+            var intervals = new List<float2> { new(0f), math.asfloat(new uint2(0x80000000u)) };
+            for (uint exponent = 0; exponent < 255; exponent += 7)
+            foreach (uint mantissa in new[] { 0u, 1u, 0x3fffffu, 0x7fffffu })
+            {
+                float value = math.asfloat((exponent << 23) | mantissa);
+                intervals.Add(new float2(value));
+                intervals.Add(new float2(-value));
+                intervals.Add(new float2(-value, value));
+            }
+            var cases = new List<OracleCase>();
+            for (int i = 0; i < intervals.Count; i++)
+            foreach (int peer in new[] { 0, 1, i, (i * 37 + 11) % intervals.Count })
+                cases.Add(new OracleCase(33) { A = new float4(intervals[i], 0f, 0f),
+                    B = new float4(intervals[peer], 0f, 0f) });
+            OracleCase[] actual = Dispatch(cases);
+            for (int i = 0; i < actual.Length; i++)
+            {
+                Assert.That(math.asuint(actual[i].A.xy), Is.EqualTo(math.asuint(actual[i].A.zw)), $"add {i}");
+                Assert.That(math.asuint(actual[i].B.xy), Is.EqualTo(math.asuint(actual[i].B.zw)), $"sub {i}");
+                Assert.That(math.asuint(actual[i].C.xy), Is.EqualTo(math.asuint(actual[i].C.zw)), $"mul {i}");
+            }
+        }
+
+        [Test, Timeout(60000)]
         public void GeneratedHlsl_IsBitIdenticalAndMatchesCpuOracle()
         {
             var cases = new List<OracleCase>(4096);

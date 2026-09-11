@@ -63,7 +63,7 @@ uint M8FlowerResolveHaloRef(int3 tile, bool tileMetadataWriteView = false,
 // 27 canonical lookups are cooperative and outside the kernel/root loops.
 // No residency install/eviction can interleave this serialized GPU job.
 void M8FlowerCacheTileHalo(uint ownerSlot, uint lane, bool publish = true,
-    bool tileMetadataWriteView = false)
+    bool tileMetadataWriteView = false, bool chunkRefsWriteView = false)
 {
     if (lane == 0u)
     {
@@ -76,7 +76,7 @@ void M8FlowerCacheTileHalo(uint ownerSlot, uint lane, bool publish = true,
     if (lane < M8_FLOWER_HALO_COUNT)
     {
         uint packed = M8FlowerResolveHaloRef(
-            m8FlowerHaloTile + M8FlowerHaloDelta(lane),tileMetadataWriteView);
+            m8FlowerHaloTile + M8FlowerHaloDelta(lane),tileMetadataWriteView,chunkRefsWriteView);
         m8FlowerHalo[lane] = packed;
         if (publish) _M8TileHalo[ownerSlot * M8_FLOWER_HALO_COUNT + lane] = packed;
     }
@@ -85,7 +85,7 @@ void M8FlowerCacheTileHalo(uint ownerSlot, uint lane, bool publish = true,
 #endif
 
 bool M8FlowerValidateHaloKernel(uint packed,int3 expectedTile,int3 relativeKernel,out uint slot,
-    out uint kernelLocal, bool tileMetadataWriteView = false)
+    out uint kernelLocal, bool tileMetadataWriteView = false, bool chunkRefsWriteView = false)
 {
     slot = 0u;
     kernelLocal = 0u;
@@ -100,8 +100,9 @@ bool M8FlowerValidateHaloKernel(uint packed,int3 expectedTile,int3 relativeKerne
         M8LoadTileMetaRead(slot);
     if (meta.x >= MERKABA_M8_CHUNK_CAPACITY ||
         meta.y >= MERKABA_M8_TILES_PER_CHUNK) return false;
-    if (_M8ChunkTileRefsRead[meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y]
-        != slot + 1u) return false;
+    uint refIndex=meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
+    uint tileRef=chunkRefsWriteView ? _M8ChunkTileRefs[refIndex] : _M8ChunkTileRefsRead[refIndex];
+    if (tileRef != slot + 1u) return false;
     int3 actualTile = (tileMetadataWriteView ? M8GlobalKernelCoord(slot,0u) :
         M8GlobalKernelCoordRead(slot,0u)) >> 3;
     if (any(actualTile != expectedTile)) return false;
@@ -112,7 +113,7 @@ bool M8FlowerValidateHaloKernel(uint packed,int3 expectedTile,int3 relativeKerne
 
 #if !defined(M8_FLOWER_HALO_READ_ONLY)
 bool M8FlowerHaloKernel(int3 relativeKernel,out uint slot,
-    out uint kernelLocal,bool tileMetadataWriteView = false)
+    out uint kernelLocal,bool tileMetadataWriteView = false,bool chunkRefsWriteView = false)
 {
     slot=kernelLocal=0u;
     int3 delta=relativeKernel>>3;
@@ -120,7 +121,7 @@ bool M8FlowerHaloKernel(int3 relativeKernel,out uint slot,
     uint3 index=uint3(delta+1);
     uint packed=m8FlowerHalo[index.x+3u*(index.y+3u*index.z)];
     return M8FlowerValidateHaloKernel(packed,m8FlowerHaloTile+delta,
-        relativeKernel,slot,kernelLocal,tileMetadataWriteView);
+        relativeKernel,slot,kernelLocal,tileMetadataWriteView,chunkRefsWriteView);
 }
 #endif
 

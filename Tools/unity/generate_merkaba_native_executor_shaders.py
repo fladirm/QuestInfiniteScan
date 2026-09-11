@@ -94,6 +94,8 @@ PIPELINES = (
              "CompactDirtyFlowerSymbols", "flower_batch"),
     Pipeline("ReserveDirtyFlowerBatch", "MerkabaReadout.compute",
              "ReserveDirtyFlowerBatch", "one"),
+    Pipeline("EmitDirtyFlowerSymbols", "MerkabaReadout.compute",
+             "EmitDirtyFlowerSymbols", "flower_batch"),
     Pipeline("PublishDirtyFlowerPages", "MerkabaReadout.compute",
              "PublishDirtyFlowerPages", "one"),
     Pipeline("CullFlowerPages", "MerkabaReadout.compute",
@@ -159,7 +161,7 @@ def command_schedules():
     ]
     flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
-              "CompactDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
+              "EmitDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
     fine = ("QueryFineEraseTiles", "EraseFineTiles", "InvalidateFlowerSources", "InvalidateFlowerPeers",
             "PublishFlowerR1", "FinalizeFineErase")
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (

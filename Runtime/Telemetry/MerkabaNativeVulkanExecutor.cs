@@ -14,10 +14,10 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 27: source epoch cuts follow global read-only R1 preflight.
-        internal const int AbiVersion = 27;
+        // ABI 28: specialize existing count/emit page passes; same command graph.
+        internal const int AbiVersion = 28;
         internal const int ResourceCount = 44;
-        internal const int PipelineCount = 32;
+        internal const int PipelineCount = 33;
         // Native codegen verifies this against the longest complete schedule,
         // including indirect commands whose GPU work count may be zero.
         internal const int MaximumDispatchTimingCount = 41;
@@ -148,6 +148,7 @@ namespace Genesis.RoomScan
             "PrepareDirtyFlowerBatch",
             "CompactDirtyFlowerSymbols",
             "ReserveDirtyFlowerBatch",
+            "EmitDirtyFlowerSymbols",
             "PublishDirtyFlowerPages",
             "CullFlowerPages",
             "QueryFineEraseTiles",

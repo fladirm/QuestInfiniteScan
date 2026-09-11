@@ -349,6 +349,32 @@ void SphereFlowerOracle(uint3 dispatchId : SV_DispatchThreadID)
         result.Control=int4((int)status,(int)signs,(int)active,(int)unresolved);
         result.A=asfloat(ancestry);
     }
+    else if(operation==32)
+    {
+        float lower=asfloat(input.Control.y),upper=asfloat(input.Control.z);
+        M8FlowerInterval bounds=M8FlowerOutward(lower,upper);
+        result.Control=asint(float4(bounds.lo,bounds.hi,
+            M8FlowerPrevious(lower),M8FlowerNext(upper)));
+    }
+    else if(operation==33)
+    {
+        M8FlowerInterval a=M8FlowerI(input.A.x,input.A.y),b=M8FlowerI(input.B.x,input.B.y);
+        M8FlowerInterval add=M8FlowerIAdd(a,b),sub=M8FlowerISub(a,b),product=M8FlowerIMul(a,b);
+        // Independent pre-vectorization scalar arithmetic and guard order.
+        precise float addLo=a.lo+b.lo,addHi=a.hi+b.hi,subLo=a.lo-b.hi,subHi=a.hi-b.lo;
+        precise float p0=a.lo*b.lo,p1=a.lo*b.hi,p2=a.hi*b.lo,p3=a.hi*b.hi;
+        bool za=((asuint(a.lo)|asuint(a.hi))&0x7fffffffu)==0u;
+        bool zb=((asuint(b.lo)|asuint(b.hi))&0x7fffffffu)==0u;
+        bool exact=(za && all((asuint(float2(b.lo,b.hi))&0x7f800000u)!=0x7f800000u)) ||
+            (zb && all((asuint(float2(a.lo,a.hi))&0x7f800000u)!=0x7f800000u));
+        result.A=float4(add.lo,add.hi,
+            za?b.lo:(zb?a.lo:M8FlowerPrevious(addLo)),za?b.hi:(zb?a.hi:M8FlowerNext(addHi)));
+        result.B=float4(sub.lo,sub.hi,
+            zb?a.lo:(za?-b.hi:M8FlowerPrevious(subLo)),zb?a.hi:(za?-b.lo:M8FlowerNext(subHi)));
+        result.C=float4(product.lo,product.hi,
+            exact?0.0:M8FlowerPrevious(min(min(p0,p1),min(p2,p3))),
+            exact?0.0:M8FlowerNext(max(max(p0,p1),max(p2,p3))));
+    }
     _SphereFlowerOracleResults[id] = result;
 }
 

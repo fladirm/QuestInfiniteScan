@@ -239,25 +239,31 @@ bool M8FlowerApplyGeometryDetail(uint ownerRef,uint epoch,int3 owner,
             node.Petal,node.Line,node.Plus))return true;
         root.Classification=2u;return false;
     }
+    M8FlowerInterval turn;
     if(node.Kind==0u)
     {
-        M8FlowerPhaseRootEvidence synthesized;
-        uint status=M8FlowerSynthesizePhaseRecord(root,key,record,epoch,synthesized);
-        root=synthesized;root.Classification=status;
-        return status==1u;
+        if(!M8FlowerPreparePhaseRecordSynthesis(root,key,record,epoch,turn))
+        {root.Classification=2u;return false;}
     }
-    // R3 stores eta*tau. Eta belongs to THIS endpoint's level-local frame.
-    uint parity;
-    if(!M8FlowerGeometryTetraParity(owner,node,parity))
-    {root.Classification=2u;return false;}
-    int eta=0;
-    [unroll]for(uint axis=0u;axis<4u;axis++)
-        if(M8FlowerTetraLineAt(parity)[axis]==(int)node.Line)eta=M8FlowerTetraEtaAt(parity)[axis];
-    if(eta==0){root.Classification=2u;return false;}
-    M8FlowerInterval turn=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
-    if(eta<0)turn=M8FlowerI(-turn.hi,-turn.lo);
+    else
+    {
+        // R3 stores eta*tau. Eta belongs to THIS endpoint's level-local frame.
+        uint parity;
+        if(!M8FlowerGeometryTetraParity(owner,node,parity))
+        {root.Classification=2u;return false;}
+        int eta=0;
+        [unroll]for(uint axis=0u;axis<4u;axis++)
+            if(M8FlowerTetraLineAt(parity)[axis]==(int)node.Line)eta=M8FlowerTetraEtaAt(parity)[axis];
+        if(eta==0){root.Classification=2u;return false;}
+        turn=M8FlowerDecodePhaseInterval(record.Lower,record.Upper);
+        if(eta<0)turn=M8FlowerI(-turn.hi,-turn.lo);
+    }
+    // Both kinds use the same rational rotation. R2 keeps the predictor on
+    // failure; R3 retains the rotation's partial result, as before.
     M8FlowerPhaseRootEvidence rotated;
     uint status=M8FlowerRotatePhaseEvidence(root,turn,rotated);
+    if(node.Kind==0u && (status!=1u || !M8FlowerFinitePhaseRoot(rotated.Root)))
+    {root.Classification=2u;return false;}
     root=rotated;root.Classification=status;
     return status==1u;
 }
@@ -529,17 +535,21 @@ bool M8FlowerPredictGeometryNode(uint ownerSlot,uint ownerRef,uint epoch,int3 ow
         {
             // Reconstruct L1 on its own exact loop before validating that
             // stored innovation. Coarse phase is not halved or replaced.
-            if(count!=0u)
+            [loop]for(uint pass=0u;pass<2u;pass++)
             {
-                M8FlowerInterval turn=M8FlowerDecodePhaseInterval(terms[0].Lower,terms[0].Upper);
-                if(family.PhaseOrientation<0)turn=M8FlowerI(-turn.hi,-turn.lo);
+                M8FlowerInterval turn;
+                if(pass==0u)
+                {
+                    if(count==0u)continue;
+                    turn=M8FlowerDecodePhaseInterval(terms[0].Lower,terms[0].Upper);
+                    if(family.PhaseOrientation<0)turn=M8FlowerI(-turn.hi,-turn.lo);
+                }
+                else if(!M8FlowerPreparePhaseRecordSynthesis(source,key,record,epoch,turn))return false;
                 M8FlowerPhaseRootEvidence transported;
-                if(M8FlowerRotatePhaseEvidence(source,turn,transported)!=1u)return false;
+                if(M8FlowerRotatePhaseEvidence(source,turn,transported)!=1u ||
+                    (pass==1u && !M8FlowerFinitePhaseRoot(transported.Root)))return false;
                 source=transported;
             }
-            M8FlowerPhaseRootEvidence synthesized;
-            if(M8FlowerSynthesizePhaseRecord(source,key,record,epoch,synthesized)!=1u)return false;
-            source=synthesized;
         }
         // This reached source is no longer needed after validation. Keep
         // its fixed-point innovation, not a private array of full roots.
@@ -712,17 +722,28 @@ uint M8FlowerCarrierWedgeOrientation(M8FlowerInterval3 a,M8FlowerInterval3 b,
     M8FlowerInterval3 c,float3 normal,float normalError)
 {
     if(!all(M8FlowerIsFinite(normal)) || !M8FlowerIsFinite(normalError) || normalError<0.0)return 2u;
-    M8FlowerInterval3 u,v;
-    u.x=M8FlowerISub(b.x,a.x);u.y=M8FlowerISub(b.y,a.y);u.z=M8FlowerISub(b.z,a.z);
-    v.x=M8FlowerISub(c.x,a.x);v.y=M8FlowerISub(c.y,a.y);v.z=M8FlowerISub(c.z,a.z);
-    M8FlowerInterval3 area;
-    area.x=M8FlowerISub(M8FlowerIMul(u.y,v.z),M8FlowerIMul(u.z,v.y));
-    area.y=M8FlowerISub(M8FlowerIMul(u.z,v.x),M8FlowerIMul(u.x,v.z));
-    area.z=M8FlowerISub(M8FlowerIMul(u.x,v.y),M8FlowerIMul(u.y,v.x));
-    M8FlowerInterval det=M8FlowerIAdd(M8FlowerIAdd(
-        M8FlowerIMul(area.x,M8FlowerCenterRadius(normal.x,normalError)),
-        M8FlowerIMul(area.y,M8FlowerCenterRadius(normal.y,normalError))),
-        M8FlowerIMul(area.z,M8FlowerCenterRadius(normal.z,normalError)));
+    M8FlowerInterval u[3],v[3];
+    float3 alo=float3(a.x.lo,a.y.lo,a.z.lo),ahi=float3(a.x.hi,a.y.hi,a.z.hi);
+    float3 blo=float3(b.x.lo,b.y.lo,b.z.lo),bhi=float3(b.x.hi,b.y.hi,b.z.hi);
+    float3 clo=float3(c.x.lo,c.y.lo,c.z.lo),chi=float3(c.x.hi,c.y.hi,c.z.hi);
+    [loop]for(uint axis=0u;axis<3u;axis++)
+    {
+        M8FlowerInterval origin=M8FlowerI(alo[axis],ahi[axis]);
+        M8FlowerInterval first=M8FlowerI(blo[axis],bhi[axis]);
+        M8FlowerInterval second=M8FlowerI(clo[axis],chi[axis]);
+        u[axis]=M8FlowerISub(first,origin);
+        v[axis]=M8FlowerISub(second,origin);
+    }
+    // Triples already occupy independent lanes. Reuse one component body
+    // inside each triple, retaining the exact x -> y -> z dot-product order.
+    M8FlowerInterval det=(M8FlowerInterval)0;
+    [loop]for(uint axis=0u;axis<3u;axis++)
+    {
+        uint next=(axis+1u)%3u,last=(axis+2u)%3u;
+        M8FlowerInterval area=M8FlowerISub(M8FlowerIMul(u[next],v[last]),M8FlowerIMul(u[last],v[next]));
+        M8FlowerInterval term=M8FlowerIMul(area,M8FlowerCenterRadius(normal[axis],normalError));
+        if(axis==0u)det=term;else det=M8FlowerIAdd(det,term);
+    }
     if(!all(M8FlowerIsFinite(float2(det.lo,det.hi))))return 2u;
     // L2 ring generation already applies flag orientation. There is no
     // normal-driven geometry flip; directFreeSide determines presentation.

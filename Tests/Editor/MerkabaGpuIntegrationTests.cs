@@ -71,7 +71,7 @@ namespace Genesis.RoomScan.Tests
                 Assert.DoesNotThrow(() => bins.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
                      {
-                         "ClassifyHotFlowerPages", "CompactDirtyFlowerSymbols",
+                         "ClassifyHotFlowerPages", "CompactDirtyFlowerSymbols", "EmitDirtyFlowerSymbols",
                          "PublishDirtyFlowerPages", "CullFlowerPages"
                      })
                 Assert.DoesNotThrow(() => frame.FindKernel(kernel), kernel);

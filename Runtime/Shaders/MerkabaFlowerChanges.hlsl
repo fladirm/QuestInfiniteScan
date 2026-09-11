@@ -1,7 +1,8 @@
 #ifndef GENESIS_MERKABA_FLOWER_CHANGES
 #define GENESIS_MERKABA_FLOWER_CHANGES
 
-bool M8FlowerReadPreparedR1(uint index,out uint address,out uint4 source,out KernelState before)
+bool M8FlowerReadPreparedR1(uint index,bool kernelWriteView,
+    out uint address,out uint4 source,out KernelState before)
 {
     address=0u;source=0u.xxxx;before=(KernelState)0;
     if(index>=min(_M8FlowerSignalItemsRead.Load(M8_FLOWER_SIGNAL_COUNT),M8_FLOWER_R1_CHANGE_CAPACITY))return false;
@@ -11,7 +12,8 @@ bool M8FlowerReadPreparedR1(uint index,out uint address,out uint4 source,out Ker
     uint slot=source.x>>9u,local=source.x&511u;
     if(slot>=32768u)return M8FlowerR1CutAccepted(M8_FLOWER_ARENA_INVALID);
     uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)];
-    before=M8LoadKernelStateRead(slot,local);
+    if(kernelWriteView)before=M8LoadKernelState(slot,local);
+    else before=M8LoadKernelStateRead(slot,local);
     if(runtime.w!=source.y || runtime.x!=_M8ObservationToken || before.flags!=source.z)
         return M8FlowerR1CutAccepted(M8_FLOWER_ARENA_INVALID);
     return true;
@@ -24,7 +26,7 @@ bool M8FlowerReadPreparedR1(uint index,out uint address,out uint4 source,out Ker
 void InvalidateFlowerSources(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
     uint address;uint4 source;KernelState before;
-    if(!M8FlowerReadPreparedR1(128u*group.x+lane,address,source,before))return;
+    if(!M8FlowerReadPreparedR1(128u*group.x+lane,false,address,source,before))return;
     uint slot=source.x>>9u,local=source.x&511u,status=M8_FLOWER_ARENA_OK;
     if((source.w&M8_FLOWER_R1_STRUCTURAL)!=0u)
         status=M8FlowerInvalidateOwner(slot,local,source.y,
@@ -63,7 +65,7 @@ void InvalidateFlowerPeers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
         [loop]for(uint node=6u;node<26u;node++)
         {
             uint sourceSlot,sourceLocal;
-            if(!M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,sourceSlot,sourceLocal,false))continue;
+            if(!M8FlowerHaloKernel(origin+M8FlowerNodeAt(node).xyz,sourceSlot,sourceLocal,true))continue;
             if(_M8TileRecords[M8TileRuntimeIndex(sourceSlot)].x!=_M8ObservationToken)continue;
             if((_M8TileBits[M8TileWordIndex(sourceSlot,sourceLocal>>5u)].w&
                 (1u<<(sourceLocal&31u)))!=0u)roots|=1u<<(node-6u);
@@ -94,7 +96,7 @@ void InvalidateFlowerPeers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 void PublishFlowerR1(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
     uint address;uint4 source;KernelState before;
-    if(!M8FlowerReadPreparedR1(128u*group.x+lane,address,source,before))return;
+    if(!M8FlowerReadPreparedR1(128u*group.x+lane,true,address,source,before))return;
     uint slot=source.x>>9u,local=source.x&511u;
     uint4 value=_M8FlowerSignalItemsRead.Load4(address+16u);
     KernelState after=before;

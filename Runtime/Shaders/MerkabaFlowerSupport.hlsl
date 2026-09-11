@@ -205,7 +205,9 @@ uint M8FlowerSupportOwnerState(int3 relativeOwner,out uint coldHalo)
 uint M8FlowerSupportFreeCell(int3 relativeCell,out uint coldHalo)
 {
     uint packed = 0u;coldHalo=0u;
-    [unroll] for (uint corner = 0u; corner < 8u; ++corner)
+    // Cells/wedges already occupy independent lanes. Keep their eight
+    // fixed support gathers in one body, not eight copies of halo decoding.
+    [loop] for (uint corner = 0u; corner < 8u; ++corner)
     {
         int3 offset = int3(corner & 1u, (corner >> 1u) & 1u,
             (corner >> 2u) & 1u);
@@ -249,7 +251,11 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
     {
         int3 cell = int3(index % 10u, (index / 10u) % 10u,
             index / 100u) - 1;
-        m8FlowerSupportScratch[index] = M8FlowerSupportFreeCell(cell);
+        uint cold;
+        uint state=M8FlowerSupportFreeCell(cell,cold);
+        // Two state bits and the exact 27-halo dependency fit the existing
+        // cell word. Both adjacent faces consume this same frozen result.
+        m8FlowerSupportScratch[index] = state | (cold << 2u);
     }
     [loop] for (uint faceWord = lane;
         faceWord < M8_FLOWER_SUPPORT_FACE_WORDS; faceWord += laneCount)
@@ -267,7 +273,7 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
         int3 direction = M8FlowerDirtFaceDirection(face);
         uint own = m8FlowerSupportScratch[M8FlowerSupportCellIndex(cell)];
         uint next = m8FlowerSupportScratch[M8FlowerSupportCellIndex(cell + direction)];
-        uint boundary = M8FlowerClassifyDirtFace(own, next);
+        uint boundary = M8FlowerClassifyDirtFace(own & 3u, next & 3u);
         if (boundary == 1u)
         {
             bool representable = m8FlowerSupportOriginValid != 0u;
@@ -282,10 +288,7 @@ void M8FlowerSupportBuildFaces(uint lane, uint laneCount)
         {
             InterlockedOr(m8FlowerSupportUnresolved, bit);
             // Only a required undecidable face may request a cold context.
-            uint ownCold, nextCold;
-            M8FlowerSupportFreeCell(cell, ownCold);
-            M8FlowerSupportFreeCell(cell + direction, nextCold);
-            InterlockedOr(m8FlowerSupportColdHalo, ownCold | nextCold);
+            InterlockedOr(m8FlowerSupportColdHalo, (own | next) >> 2u);
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -713,9 +716,11 @@ M8FlowerInterval M8FlowerSupportDifference(float a,float b)
 
 M8FlowerInterval M8FlowerSupportOrient2(float2 a,float2 b,float2 p)
 {
-    return M8FlowerISub(
-        M8FlowerIMul(M8FlowerSupportDifference(b.x,a.x),M8FlowerSupportDifference(p.y,a.y)),
-        M8FlowerIMul(M8FlowerSupportDifference(b.y,a.y),M8FlowerSupportDifference(p.x,a.x)));
+    M8FlowerInterval products[2];
+    [loop]for(uint axis=0u;axis<2u;axis++)
+        products[axis]=M8FlowerIMul(M8FlowerSupportDifference(b[axis],a[axis]),
+            M8FlowerSupportDifference(p[1u-axis],a[1u-axis]));
+    return M8FlowerISub(products[0],products[1]);
 }
 
 // Final binary32 draw positions are exact inputs here, not refitted metric
@@ -729,41 +734,38 @@ uint M8FlowerSupportTriangleCoverage(float3 directVertices[3],int3 cell,uint fac
     [unroll]for(uint i=0u;i<3u;i++)halfVertices[i]=M8FlowerDirtGridPosition(cell,face,halfFace,i);
     float plane=halfVertices[0][axis];
     if(directVertices[0][axis]!=plane || directVertices[1][axis]!=plane || directVertices[2][axis]!=plane)return 0u;
-    float2 direct[3],halfTriangle[3];
+    float2 vertices[6];
     [unroll]for(uint i=0u;i<3u;i++)
-    {direct[i]=float2(directVertices[i][u],directVertices[i][v]);halfTriangle[i]=float2(halfVertices[i][u],halfVertices[i][v]);}
-    M8FlowerInterval orientation=M8FlowerSupportOrient2(direct[0],direct[1],direct[2]);
-    int winding=orientation.lo>0.0?1:orientation.hi<0.0?-1:0;
-    if(winding==0)return 2u;
-    bool covered=true;
-    [unroll]for(uint edge=0u;edge<3u;edge++)
     {
-        bool outside=true;
-        [unroll]for(uint sampleIndex=0u;sampleIndex<3u;sampleIndex++)
-        {
-            M8FlowerInterval side=M8FlowerSupportOrient2(direct[edge],direct[(edge+1u)%3u],halfTriangle[sampleIndex]);
-            if(winding<0)side=M8FlowerI(-side.hi,-side.lo);
-            covered=covered && side.lo>=0.0;
-            outside=outside && side.hi<0.0;
-        }
-        if(outside)return 0u;
+        vertices[i]=float2(directVertices[i][u],directVertices[i][v]);
+        vertices[3u+i]=float2(halfVertices[i][u],halfVertices[i][v]);
     }
-    if(covered)return 1u;
-    // The other triangle's three separating axes are also required before
-    // a non-containing pair may be called disjoint.
-    M8FlowerInterval halfOrientation=M8FlowerSupportOrient2(halfTriangle[0],halfTriangle[1],halfTriangle[2]);
-    int halfWinding=halfOrientation.lo>0.0?1:halfOrientation.hi<0.0?-1:0;
-    if(halfWinding==0)return 2u;
-    [unroll]for(uint edge=0u;edge<3u;edge++)
+    // Independent face/half queries already occupy distinct GPU lanes.
+    // Both triangles' ordered separating axes use this one interval call
+    // site; do not expand eighteen copies of its outward arithmetic.
+    [loop]for(uint side=0u;side<2u;side++)
     {
-        bool outside=true;
-        [unroll]for(uint sampleIndex=0u;sampleIndex<3u;sampleIndex++)
+        uint first=3u*side,other=3u-first;
+        M8FlowerInterval orientation=M8FlowerSupportOrient2(vertices[first],vertices[first+1u],vertices[first+2u]);
+        int winding=orientation.lo>0.0?1:orientation.hi<0.0?-1:0;
+        if(winding==0)return 2u;
+        bool covered=true;
+        [loop]for(uint edge=0u;edge<3u;edge++)
         {
-            M8FlowerInterval side=M8FlowerSupportOrient2(halfTriangle[edge],halfTriangle[(edge+1u)%3u],direct[sampleIndex]);
-            if(halfWinding<0)side=M8FlowerI(-side.hi,-side.lo);
-            outside=outside && side.hi<0.0;
+            bool outside=true;
+            [loop]for(uint sampleIndex=0u;sampleIndex<3u;sampleIndex++)
+            {
+                M8FlowerInterval distance=M8FlowerSupportOrient2(vertices[first+edge],
+                    vertices[first+(edge+1u)%3u],vertices[other+sampleIndex]);
+                if(winding<0)distance=M8FlowerI(-distance.hi,-distance.lo);
+                covered=covered && distance.lo>=0.0;
+                outside=outside && distance.hi<0.0;
+            }
+            if(outside)return 0u;
         }
-        if(outside)return 0u;
+        // Only direct containment certifies coverage. The converse merely
+        // excludes disjointness; it never turns the DIRT half into a donor.
+        if(side==0u && covered)return 1u;
     }
     return 2u;
 }
@@ -774,41 +776,37 @@ uint M8FlowerSupportTriangleCoverage(float3 directVertices[3],int3 cell,uint fac
 bool M8FlowerSupportSegmentMayEnter(float2 first,float2 last,float2 halfVertices[3],int winding)
 {
     float lower=0.0,upper=1.0;
-    [unroll]for(uint edge=0u;edge<3u;edge++)
+    [loop]for(uint edge=0u;edge<3u;edge++)
     {
-        M8FlowerInterval a=M8FlowerSupportOrient2(halfVertices[edge],halfVertices[(edge+1u)%3u],first);
-        M8FlowerInterval b=M8FlowerSupportOrient2(halfVertices[edge],halfVertices[(edge+1u)%3u],last);
-        if(winding<0){a=M8FlowerI(-a.hi,-a.lo);b=M8FlowerI(-b.hi,-b.lo);}
+        M8FlowerInterval endpoint[2];
+        [loop]for(uint side=0u;side<2u;side++)
+        {
+            M8FlowerInterval value=M8FlowerSupportOrient2(halfVertices[edge],
+                halfVertices[(edge+1u)%3u],side==0u?first:last);
+            if(winding<0)value=M8FlowerI(-value.hi,-value.lo);
+            endpoint[side]=value;
+        }
+        M8FlowerInterval a=endpoint[0],b=endpoint[1];
         // s(t) <= (1-t)*a.hi+t*b.hi on the entire segment.
         if(a.hi<=0.0 && b.hi<=0.0)return false;
         if(a.hi>0.0 && b.hi>0.0)continue;
-        M8FlowerInterval numerator,denominator,limit;
-        if(a.hi<=0.0)
-        {
-            numerator=M8FlowerI(-a.hi,-a.hi);
-            denominator=M8FlowerISub(M8FlowerI(b.hi,b.hi),M8FlowerI(a.hi,a.hi));
-            if(!M8FlowerIDivPositive(numerator,denominator,limit))return true;
-            lower=max(lower,limit.lo);
-        }
-        else
-        {
-            numerator=M8FlowerI(a.hi,a.hi);
-            denominator=M8FlowerISub(M8FlowerI(a.hi,a.hi),M8FlowerI(b.hi,b.hi));
-            if(!M8FlowerIDivPositive(numerator,denominator,limit))return true;
-            upper=min(upper,limit.hi);
-        }
+        bool entering=a.hi<=0.0;
+        float numerator=entering?-a.hi:a.hi;
+        float head=entering?b.hi:a.hi,tail=entering?a.hi:b.hi;
+        M8FlowerInterval denominator=M8FlowerISub(M8FlowerI(head,head),M8FlowerI(tail,tail)),limit;
+        if(!M8FlowerIDivPositive(M8FlowerI(numerator,numerator),denominator,limit))return true;
+        if(entering)lower=max(lower,limit.lo);
+        else upper=min(upper,limit.hi);
         if(lower>=upper)return false;
     }
     return lower<upper;
 }
 
-bool M8FlowerSupportContainsWitness(float2 a,float2 b,float2 c,M8FlowerInterval2 witness)
+bool M8FlowerSupportContainsWitness(float2 a,float2 b,float2 c,M8FlowerInterval2 witness,int winding)
 {
-    M8FlowerInterval orientation=M8FlowerSupportOrient2(a,b,c);
-    int winding=orientation.lo>0.0?1:orientation.hi<0.0?-1:0;
     if(winding==0)return false;
     float2 vertices[3];vertices[0]=a;vertices[1]=b;vertices[2]=c;
-    [unroll]for(uint edge=0u;edge<3u;edge++)
+    [loop]for(uint edge=0u;edge<3u;edge++)
     {
         float2 first=vertices[edge],last=vertices[(edge+1u)%3u];
         M8FlowerInterval x=M8FlowerISub(witness.x,M8FlowerI(first.x,first.x));
@@ -840,13 +838,18 @@ uint M8FlowerSupportPairAxes(M8FlowerPhaseRootEvidence firstRoot,M8FlowerPhaseRo
     if(!M8FlowerSupportSameRoot(firstRoot,peerFirst) ||
         !M8FlowerSupportSameRoot(lastRoot,peerLast))return 0u;
     uint axes=0u;
-    [unroll]for(uint axis=0u;axis<3u;axis++)
+    [loop]for(uint axis=0u;axis<3u;axis++)
     {
         if(first[axis]!=last[axis] || first[axis]!=ownThird[axis] || first[axis]!=peerThird[axis])continue;
         uint u=(axis+1u)%3u,v=(axis+2u)%3u;
         float2 a=float2(first[u],first[v]),b=float2(last[u],last[v]);
-        M8FlowerInterval own=M8FlowerSupportOrient2(a,b,float2(ownThird[u],ownThird[v]));
-        M8FlowerInterval peer=M8FlowerSupportOrient2(a,b,float2(peerThird[u],peerThird[v]));
+        M8FlowerInterval side[2];
+        [loop]for(uint endpoint=0u;endpoint<2u;endpoint++)
+        {
+            float3 third=endpoint==0u?ownThird:peerThird;
+            side[endpoint]=M8FlowerSupportOrient2(a,b,float2(third[u],third[v]));
+        }
+        M8FlowerInterval own=side[0],peer=side[1];
         // Coincident edges on the SAME side do not cancel a union boundary.
         if((own.lo>0.0 && peer.hi<0.0) || (own.hi<0.0 && peer.lo>0.0))axes|=1u<<axis;
     }
@@ -903,33 +906,42 @@ uint M8FlowerSupportCarrierCoverageProof(float3 positions[7],uint active,uint pa
     {
         if((coplanar&(1u<<wedge))==0u)continue;
         uint first=1u+wedge,last=1u+(wedge+1u)%6u;
-        if(M8FlowerSupportSegmentMayEnter(sites2d[first],sites2d[last],halfVertices,winding))
+        // Outer edge, entering spoke, leaving spoke: preserve the original
+        // predicate order with one clip evaluator, not three inlined copies.
+        [loop]for(uint boundary=0u;boundary<3u;boundary++)
         {
-            ownBoundary=true;
-            if((pairedOuterEdges&(1u<<wedge))==0u)proof|=M8_FLOWER_COVERAGE_BOUNDARY;
+            uint a=first,b=last;
+            bool paired=(pairedOuterEdges&(1u<<wedge))!=0u;
+            if(boundary==1u)
+            {
+                if((coplanar&(1u<<((wedge+5u)%6u)))!=0u)continue;
+                a=0u;b=first;paired=false;
+            }
+            else if(boundary==2u)
+            {
+                if((coplanar&(1u<<((wedge+1u)%6u)))!=0u)continue;
+                a=last;b=0u;paired=false;
+            }
+            if(M8FlowerSupportSegmentMayEnter(sites2d[a],sites2d[b],halfVertices,winding))
+            {
+                ownBoundary=true;
+                if(!paired)proof|=M8_FLOWER_COVERAGE_BOUNDARY;
+            }
         }
-        if((coplanar&(1u<<((wedge+5u)%6u)))==0u &&
-            M8FlowerSupportSegmentMayEnter(sites2d[0],sites2d[first],halfVertices,winding))
-        {ownBoundary=true;proof|=M8_FLOWER_COVERAGE_BOUNDARY;}
-        if((coplanar&(1u<<((wedge+1u)%6u)))==0u &&
-            M8FlowerSupportSegmentMayEnter(sites2d[last],sites2d[0],halfVertices,winding))
-        {ownBoundary=true;proof|=M8_FLOWER_COVERAGE_BOUNDARY;}
     }
     // A strictly interior dyadic barycentric witness. If no possible union
     // boundary enters the connected open half and this point is covered,
     // the complete closed half belongs to the finite closed triangle union.
-    M8FlowerInterval2 witness;
-    witness.x=M8FlowerIMul(M8FlowerIAdd(M8FlowerIAdd(
-        M8FlowerIMul(M8FlowerI(halfVertices[0].x,halfVertices[0].x),M8FlowerI(2.0,2.0)),
-        M8FlowerI(halfVertices[1].x,halfVertices[1].x)),M8FlowerI(halfVertices[2].x,halfVertices[2].x)),
-        M8FlowerI(0.25,0.25));
-    witness.y=M8FlowerIMul(M8FlowerIAdd(M8FlowerIAdd(
-        M8FlowerIMul(M8FlowerI(halfVertices[0].y,halfVertices[0].y),M8FlowerI(2.0,2.0)),
-        M8FlowerI(halfVertices[1].y,halfVertices[1].y)),M8FlowerI(halfVertices[2].y,halfVertices[2].y)),
-        M8FlowerI(0.25,0.25));
+    M8FlowerInterval coordinates[2];
+    [loop]for(uint coordinate=0u;coordinate<2u;coordinate++)
+        coordinates[coordinate]=M8FlowerIMul(M8FlowerIAdd(M8FlowerIAdd(
+            M8FlowerIMul(M8FlowerI(halfVertices[0][coordinate],halfVertices[0][coordinate]),M8FlowerI(2.0,2.0)),
+            M8FlowerI(halfVertices[1][coordinate],halfVertices[1][coordinate])),
+            M8FlowerI(halfVertices[2][coordinate],halfVertices[2][coordinate])),M8FlowerI(0.25,0.25));
+    M8FlowerInterval2 witness;witness.x=coordinates[0];witness.y=coordinates[1];
     [loop]for(uint wedge=0u;wedge<6u;wedge++)
         if((coplanar&(1u<<wedge))!=0u && M8FlowerSupportContainsWitness(sites2d[0],
-            sites2d[1u+wedge],sites2d[1u+(wedge+1u)%6u],witness))proof|=M8_FLOWER_COVERAGE_WITNESS;
+            sites2d[1u+wedge],sites2d[1u+(wedge+1u)%6u],witness,commonWinding))proof|=M8_FLOWER_COVERAGE_WITNESS;
     if(!ownBoundary && (proof&M8_FLOWER_COVERAGE_WITNESS)!=0u)proof|=M8_FLOWER_COVERAGE_COMPLETE;
     return proof;
 }
