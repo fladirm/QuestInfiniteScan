@@ -1244,6 +1244,8 @@ namespace Genesis.RoomScan
                     await _integrator.FinishCurrentFineEraseAsync();
                 if (!ReferenceEquals(_integrator, null))
                     await _integrator.FinishCurrentObservationAsync();
+                if (!ReferenceEquals(_grid, null))
+                    await _grid.RetireSubmittedResidencyAsync();
                 Task depthRetirement = !ReferenceEquals(_depthCapture, null)
                     ? _depthCapture.RetireSubmittedDepthCopiesAsync()
                     : Task.CompletedTask;

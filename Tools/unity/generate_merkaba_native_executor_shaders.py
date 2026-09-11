@@ -42,18 +42,12 @@ class Pipeline:
 PIPELINES = (
     Pipeline("StereoFlowerRefine", "StereoRgbdRefine.compute",
              "StereoFlowerRefine", "refine"),
-    Pipeline("BuildDepthCertificate", "MerkabaDepthCertificate.compute",
-             "BuildDepthCertificate", "certificate_local"),
-    Pipeline("ReduceDepthCertificate", "MerkabaDepthCertificate.compute",
-             "ReduceDepthCertificate", "certificate_root"),
-    Pipeline("ResetObservationBins", "MerkabaObservationBins.compute",
-             "ResetObservationBins", "allocation_gate"),
     Pipeline("CountObservationBins", "MerkabaObservationBins.compute",
              "CountObservationBins", "depth"),
     Pipeline("ResolveMissingSpatialNodes", "MerkabaObservationBins.compute",
              "ResolveMissingSpatialNodes", "allocation_gate"),
     Pipeline("ResolveObservationTileRequests", "MerkabaObservationBins.compute",
-             "ResolveObservationTileRequests", "allocation_gate"),
+             "ResolveObservationTileRequests", "one"),
     Pipeline("InitializeNewTiles", "MerkabaWorld.compute",
              "InitializeNewTiles", "allocation_tiles"),
     Pipeline("ReserveObservationBins", "MerkabaObservationBins.compute",
@@ -72,16 +66,12 @@ PIPELINES = (
              "PrepareFlowerOwners", "observation_indirect"),
     Pipeline("IntegrateFlowerRoot", "MerkabaIntegration.compute",
              "IntegrateFlowerRoot", "measured_flower_owners"),
-    Pipeline("IntegrateFlowerL1", "MerkabaIntegration.compute",
-             "IntegrateFlowerL1", "measured_flower_owners"),
-    Pipeline("IntegrateFlowerL2", "MerkabaIntegration.compute",
-             "IntegrateFlowerL2", "measured_flower_owners"),
+    Pipeline("IntegrateFlowerChildren", "MerkabaIntegration.compute",
+             "IntegrateFlowerChildren", "measured_flower_owners"),
     Pipeline("ResolveFlowerCarriers", "MerkabaIntegration.compute",
              "ResolveFlowerCarriers", "measured_flower_owners"),
-    Pipeline("DrainFlowerSkinRgb", "MerkabaIntegration.compute",
-             "DrainFlowerSkinRgb", "signal_items"),
-    Pipeline("DrainFlowerSkinV", "MerkabaIntegration.compute",
-             "DrainFlowerSkinV", "signal_items"),
+    Pipeline("IntegrateFlowerSkin", "MerkabaIntegration.compute",
+             "IntegrateFlowerSkin", "signal_items"),
     Pipeline("FinalizeObservation", "MerkabaIntegration.compute",
              "FinalizeObservation", "one"),
     Pipeline("ClassifyHotFlowerPages", "MerkabaReadout.compute",
@@ -124,37 +114,19 @@ def command_schedules():
     index = {label: ordinal for ordinal, label in enumerate(labels)}
     if len(index) != len(labels):
         raise RuntimeError("duplicate native pipeline identity")
-    allocation = labels[index["ResolveMissingSpatialNodes"]:index["ReserveObservationBins"]]
-    # One snapshot is one bounded synchronous scan transaction. Everything the
-    # snapshot owes is a barrier INSIDE this one graph: there is no second
-    # attempt at the same frame, no retry, no continuation and no workset that
-    # outlives FinalizeObservation. The order is written out rather than
-    # filtered out of the pipeline list, because the order IS the contract.
+    # A camera snapshot never replays Count after storage publication.
+    # Residency is an independent address-only job on the same serialized queue.
     observation = [
-        # Acquire the evidence. A new observation resets the bins in eye zero
-        # of certificate reduction.
-        "StereoFlowerRefine", "BuildDepthCertificate", "ReduceDepthCertificate",
-        # Counting discovers the owners whose tiles do not exist yet. The
-        # allocator publishes them. Recount is GPU-indirect and stays zero for
-        # already-HOT or COLD-only input; those original counts remain valid.
-        "CountObservationBins",
-        # Fixed Block -> Chunk -> Tile publication dependencies. On a HOT
-        # snapshot every command in these three boundaries is GPU-indirect zero.
-        *([*allocation, "ResetObservationBins", "CountObservationBins"] * 3),
-        # Retire any final contended claims before integration consumes the bins.
-        *allocation,
+        "StereoFlowerRefine", "CountObservationBins",
         "ReserveObservationBins", "EmitObservationBins",
-        # Read-only R1 preflight -> source epochs -> unique receiver cuts -> M8.
-        # Fixed level entrypoints encode true dependency barriers; no stage
-        # counter, ACK program or one-thread advance dispatch exists.
-        "FlowerCommit", "InvalidateFlowerSources", "InvalidateFlowerPeers", "PublishFlowerR1", "PrepareFlowerOwners",
-        "IntegrateFlowerRoot", "IntegrateFlowerL1", "IntegrateFlowerL2",
-        "ResolveFlowerCarriers", "DrainFlowerSkinRgb", "DrainFlowerSkinV",
-        # The drain may have requested residency for what it could not read.
-        *allocation,
-        # Publish the canonical generation, mark the dirty pages, RELEASE.
+        "FlowerCommit", "InvalidateFlowerSources", "InvalidateFlowerPeers",
+        "PublishFlowerR1", "PrepareFlowerOwners",
+        "IntegrateFlowerRoot", "IntegrateFlowerChildren",
+        "ResolveFlowerCarriers", "IntegrateFlowerSkin",
         "FinalizeObservation",
     ]
+    residency = ["ResolveMissingSpatialNodes", "ResolveObservationTileRequests",
+                 "InitializeNewTiles"]
     flower = ["ClassifyHotFlowerPages", "PrepareDirtyFlowerBatch",
               "CompactDirtyFlowerSymbols", "ReserveDirtyFlowerBatch",
               "EmitDirtyFlowerSymbols", "PublishDirtyFlowerPages", "CullFlowerPages"]
@@ -162,22 +134,12 @@ def command_schedules():
             "PublishFlowerR1", "FinalizeFineErase")
     return tuple((name, tuple(index[label] for label in schedule)) for name, schedule in (
         ("Observation", observation),
-        ("FlowerReadout", flower), ("FineErase", fine)))
+        ("FlowerReadout", flower), ("FineErase", fine), ("Residency", residency)))
 
 
 def schedule_dispatch_modes(name, indices):
-    """A reused pipeline can have different fixed argument sources per command."""
-    counted = False
-    modes = []
-    for index in indices:
-        pipeline = PIPELINES[index]
-        mode = pipeline.dispatch
-        if name == "Observation" and pipeline.label == "CountObservationBins":
-            if counted:
-                mode = "recount_depth"
-            counted = True
-        modes.append(mode)
-    return tuple(modes)
+    """The declared mode is used once; there is no pixel recount mode."""
+    return tuple(PIPELINES[index].dispatch for index in indices)
 
 
 RESOURCE_NAMES = (
@@ -189,7 +151,7 @@ RESOURCE_NAMES = (
     "LoadRequestReadCount",
     "TouchedTileQueue", "ObservationDispatchArgs", "AttemptCompletion",
     "RefineMetrics", "RawDepth", "RefinedDepth", "Normals", "CameraLeft", "CameraRight",
-    "FrameDispatchArgs", "ObservationRecords", "ObservationTileBins", "TileHalo", "DepthCertificate",
+    "FrameDispatchArgs", "ObservationRecords", "ObservationTileBins", "TileHalo",
     "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands",
     "FlowerTables", "FlowerSignalItems",
 )
@@ -206,7 +168,7 @@ ALIASES = {
         "LoadRequestReadCount",
         "TouchedTileQueue", "ObservationDispatchArgs", "AttemptCompletion",
         "FrameDispatchArgs", "ObservationRecords",
-        "ObservationTileBins", "TileHalo", "DepthCertificate",
+        "ObservationTileBins", "TileHalo",
         "FlowerDetailPages", "ThreadAtlasPages", "FlowerSymbolArena", "FlowerPageDirectory", "FlowerIndirectCommands", "FlowerTables", "FlowerSignalItems")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
@@ -648,6 +610,23 @@ def c_string(value: str) -> str:
     return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
+def observation_reset_indices():
+    setup_source = (ROOT / "Runtime/Merkaba/MerkabaObservationBinsGpu.cs").read_text(encoding="utf-8")
+    setup_match = re.search(r"SnapshotResetCounterIndices\s*=\s*\{([^}]+)\}", setup_source, re.S)
+    grid_source = (ROOT / "Runtime/Merkaba/MerkabaGrid.Gpu.cs").read_text(encoding="utf-8")
+    if setup_match is None:
+        raise RuntimeError("Missing shared snapshot counter reset list")
+    reset_indices = []
+    for name in re.findall(r"MerkabaGrid\.(Counter\w+)", setup_match[1]):
+        declaration = re.search(r"const int " + name + r"\s*=\s*(\d+)\s*;", grid_source)
+        if declaration is None:
+            raise RuntimeError("Missing snapshot setup counter " + name)
+        reset_indices.append(int(declaration[1]))
+    if len(reset_indices) != len(set(reset_indices)) or not reset_indices:
+        raise RuntimeError("Invalid snapshot counter setup")
+    return reset_indices
+
+
 def emit(output: Path, compiled) -> None:
     schedules = command_schedules()
     maximum_dispatches = max(len(indices) for _, indices in schedules)
@@ -665,9 +644,12 @@ def emit(output: Path, compiled) -> None:
         if len(matches) != 1:
             raise RuntimeError(f"missing/ambiguous native ERASE setup counter: {name}")
         fine_reset_offsets.append(4 * int(matches[0]))
+    reset_indices = observation_reset_indices()
     lines = [
         "// Generated at native-plugin build time. Do not commit this file.",
         f"static constexpr uint32_t kMerkabaExecutorResourceCount = {len(RESOURCE_NAMES)}u;",
+        "static constexpr uint32_t kMerkabaObservationCounterResetOffsets[] = {" +
+        ", ".join(f"{4 * index}u" for index in reset_indices) + "};",
         "static constexpr uint32_t kMerkabaFineEraseCounterResetOffsets[] = {" +
         ", ".join(f"{offset}u" for offset in fine_reset_offsets) + "};",
         "",
@@ -742,12 +724,14 @@ def main() -> int:
                 "between_dispatch_barriers": len(indices) - 1,
                 "optional_flower_passes": name == "FlowerReadout",
                 "setup_transfer_fills": len(FINE_ERASE_RESET_COUNTERS) + 9 if name == "FineErase" else
-                    1 if name == "FlowerReadout" else 7,
+                    1 if name == "FlowerReadout" else 9 + len(observation_reset_indices()) if name == "Observation" else 0,
+                "mid_graph_transfer_fills": 3 if name == "Observation" else 0,
+                "scratch_reuse_barriers": 4 if name == "Observation" else 0,
                 "commands": [{"pipeline": PIPELINES[index].label,
                               "dispatch": mode} for index, mode in
                              zip(indices, schedule_dispatch_modes(name, indices))]})
         print(json.dumps({"authority": "native embedded command schedules",
-            "normal_dispatch_target": 10, "schedules": schedules,
+            "normal_dispatch_target": [9, 11], "schedules": schedules,
             "gpu_nonzero_work": "device measurement required; an indirect call may dispatch zero groups"},
             indent=2))
         return 0

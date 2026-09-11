@@ -273,12 +273,14 @@ namespace Genesis.RoomScan
 
         private void PumpStorage()
         {
+            RetireObservationResidency();
             if (_storageReplacementPending) return;
             CompleteStorageCpuTasks();
             UpdateStorageRates();
             PumpIdleBaseCompaction();
             if (!GpuSubmissionAllowed ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight) return;
+            if (SubmitObservationResidency()) return;
             SubmitDeferredStorageControl();
             CompleteStorageGpuWork();
             if (_streamCounterPending || Time.unscaledTime < _nextStreamPoll)
@@ -370,6 +372,7 @@ namespace Genesis.RoomScan
             // CPU storage bookkeeping after the GPU fence, not a reconstruction
             // result. Actual dirty records/epochs remain selected on the GPU.
             _retiredObservationToken = observationToken;
+            _residencyRequested = true;
         }
 
         private void PublishResidencyEpoch(uint candidate)

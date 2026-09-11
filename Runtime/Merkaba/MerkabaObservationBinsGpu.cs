@@ -11,15 +11,37 @@ namespace Genesis.RoomScan
     /// </summary>
     internal sealed class MerkabaObservationBinsGpu : IDisposable
     {
-        internal const int DispatchArgumentWords = 16;
+        internal const int DispatchArgumentWords = 12;
         internal const uint AllocationDispatchOffset = 16;
         internal const uint InstallDispatchOffset = 32;
-        internal const uint RecountDispatchOffset = 48;
+        // The native generator reads this exact list for vkCmdFillBuffer.
+        // No world/residency counter may be included.
+        internal static readonly int[] SnapshotResetCounterIndices =
+        {
+            MerkabaGrid.CounterUnresolvedSurfaceTiles,
+            MerkabaGrid.CounterSurfaceTilesAllocated,
+            MerkabaGrid.CounterScanColdMisses,
+            MerkabaGrid.CounterTouchedTileCount,
+            MerkabaGrid.CounterStorageBackpressure,
+            MerkabaGrid.CounterFineEraseTileCount,
+            MerkabaGrid.CounterObservationCompleted,
+            MerkabaGrid.CounterObservationFailure,
+            MerkabaGrid.CounterObservationChangeMask,
+            MerkabaGrid.CounterUnresolvedObservationTiles,
+            MerkabaGrid.CounterCleanupTouchedCount,
+            MerkabaGrid.CounterCleanupPendingCount,
+            MerkabaGrid.CounterRefinementPendingTiles,
+            MerkabaGrid.CounterRefinementWorkProgress,
+            MerkabaGrid.CounterRefinementBackpressure,
+            MerkabaGrid.CounterRefinementUnresolved,
+        };
+        private static readonly uint[] ZeroCounter = { 0u };
+        private static readonly uint[] InitialTileArguments = { 0u, 1u, 1u };
         private readonly ComputeShader _shader;
         private readonly MerkabaGrid _grid;
         private readonly ComputeBuffer _records;
         private readonly ComputeBuffer _tileBins;
-        private readonly int _count, _reserve, _emit, _resolveNodes, _resolveTiles, _installTiles, _reset;
+        private readonly int _count, _reserve, _emit, _resolveNodes, _resolveTiles, _installTiles;
         private readonly int[] _size = new int[2];
         private readonly Matrix4x4[] _projectionInverse = new Matrix4x4[2];
         private readonly Matrix4x4[] _viewInverse = new Matrix4x4[2];
@@ -57,7 +79,6 @@ namespace Genesis.RoomScan
             _resolveNodes = shader.FindKernel("ResolveMissingSpatialNodes");
             _resolveTiles = shader.FindKernel("ResolveObservationTileRequests");
             _installTiles = grid.WorldCompute.FindKernel("InitializeNewTiles");
-            _reset = shader.FindKernel("ResetObservationBins");
             MerkabaGrid.ValidateGpuBufferAllocation(MerkabaSpatial.PhysicalTileCapacity, 16);
             _tileBins = new ComputeBuffer(MerkabaSpatial.PhysicalTileCapacity, 16);
             try
@@ -65,6 +86,7 @@ namespace Genesis.RoomScan
                 // One-time 512 KiB initialization; subsequent resets touch only
                 // the previous attempt's recorded physical tiles.
                 _tileBins.SetData(new Unity.Mathematics.uint4[MerkabaSpatial.PhysicalTileCapacity]);
+                _grid.ConfigureObservationResidency(RecordResidency);
             }
             catch
             {
@@ -120,35 +142,11 @@ namespace Genesis.RoomScan
                 _tileBins.GetNativeBufferPtr();
         }
 
-        // The editor/graphics backend records the identical complete storage
-        // sequence as the native job. Callers cannot accidentally reserve a
-        // partial count or skip its allocation publication barrier.
-        internal void Record(CommandBuffer command, bool reset)
+        // Same once-only Count/Reserve/Emit sequence as the native observation.
+        internal void Record(CommandBuffer command)
         {
             RequireObservation(command);
-            if (reset) RecordReset(command);
-            // Existing HOT counts survive unchanged. Only actual sparse claims
-            // dispatch publication/reset; only new addresses dispatch recount.
-            RecordCount(command);
-            // Three address dependencies: block, chunk, tile. The kernels are
-            // reused; each absent request records zero indirect work.
-            for (int level = 0; level < 3; ++level)
-            {
-                RecordTileRequestPublication(command);
-                RecordReset(command, recount: true);
-                RecordCount(command, recount: true);
-            }
-            // A contended final discovery may have queued storage-only work.
-            // Publish before the claim backing is reused.
-            RecordTileRequestPublication(command);
-            RecordReserveAndEmit(command);
-        }
-
-        private void RecordCount(CommandBuffer command, bool recount = false)
-        {
-            RequireObservation(command);
-            if (_countRecorded)
-                throw new InvalidOperationException("Retire the preceding bin reservation before recounting.");
+            RecordReset(command);
             BindCommon(command, _count);
             BindInput(command, _shader, _count);
             Bind(command, _count, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
@@ -157,18 +155,17 @@ namespace Genesis.RoomScan
             Bind(command, _count, "_M8BlockChunkRefs", _grid.M8BlockChunkRefs);
             Bind(command, _count, "_M8ChunkTileRefs", _grid.M8ChunkTileRefs);
             Bind(command, _count, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
-            if (recount)
-                command.DispatchCompute(_shader, _count, _grid.M8ObservationDispatchArgs, RecountDispatchOffset);
-            else
-                command.DispatchCompute(_shader, _count, (_size[0] + 7) / 8, (_size[1] + 7) / 8, 1);
+            command.DispatchCompute(_shader, _count, (_size[0] + 7) / 8, (_size[1] + 7) / 8, 1);
             _countRecorded = true;
+            RecordReserveAndEmit(command);
         }
 
-        internal void RecordTileRequestPublication(CommandBuffer command)
+        internal void RecordResidency(CommandBuffer command)
         {
-            RequireObservation(command);
-            if (!_countRecorded)
-                throw new InvalidOperationException("Tile requests must originate in this observation's count pass.");
+            ThrowIfDisposed();
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            if (_observation != 0u)
+                throw new InvalidOperationException("Residency must not replay a held observation.");
             Bind(command, _resolveNodes, "_M8Counters", _grid.M8Counters);
             Bind(command, _resolveNodes, "_M8ClaimQueue", _grid.M8ClaimQueue);
             Bind(command, _resolveNodes, "_M8OwnerRecords", _grid.M8OwnerRecords);
@@ -188,8 +185,7 @@ namespace Genesis.RoomScan
             Bind(command, _resolveTiles, "_M8LoadRequests", _grid.M8LoadRequests);
             Bind(command, _resolveTiles, "_M8LoadRequestReadCount", _grid.M8LoadRequestReadCount);
             Bind(command, _resolveTiles, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
-            command.DispatchCompute(_shader, _resolveTiles,
-                _grid.M8ObservationDispatchArgs, AllocationDispatchOffset);
+            command.DispatchCompute(_shader, _resolveTiles, 1, 1, 1);
             ComputeShader world = _grid.WorldCompute;
             command.SetComputeBufferParam(world, _installTiles, "_M8ClaimQueueRead", _grid.M8ClaimQueue);
             command.SetComputeBufferParam(world, _installTiles, "_M8Counters", _grid.M8Counters);
@@ -262,30 +258,14 @@ namespace Genesis.RoomScan
             BindInput(command, flowerCommit, kernel);
         }
 
-        // Initial reset or a same-snapshot sparse-allocation recount boundary.
-        internal void RecordReset(CommandBuffer command, bool recount = false)
+        private void RecordReset(CommandBuffer command)
         {
             RequireObservation(command);
-            BindReset(command, _shader, _reset);
-            if (recount)
-                command.DispatchCompute(_shader, _reset, _grid.M8ObservationDispatchArgs, AllocationDispatchOffset);
-            else
-                command.DispatchCompute(_shader, _reset, 1, 1, 1);
+            foreach (int index in SnapshotResetCounterIndices)
+                command.SetBufferData(_grid.M8Counters, ZeroCounter, 0, index, 1);
+            command.SetBufferData(_grid.M8ObservationDispatchArgs, InitialTileArguments, 0, 0, 3);
             _countRecorded = false;
             _reservationRecorded = false;
-        }
-
-        internal void BindReset(CommandBuffer command, ComputeShader shader, int kernel)
-        {
-            RequireObservation(command);
-            command.SetComputeIntParam(shader, "_M8ObservationToken", unchecked((int)_observation));
-            command.SetComputeIntParam(shader, "_M8ObservationHotSlotCount", MerkabaSpatial.PhysicalTileCapacity);
-            command.SetComputeBufferParam(shader, kernel, "_M8Counters", _grid.M8Counters);
-            command.SetComputeBufferParam(shader, kernel, "_M8ObservationTileBins", _tileBins);
-            command.SetComputeBufferParam(shader, kernel, "_M8TouchedTileQueue", _grid.M8TouchedTileQueue);
-            command.SetComputeBufferParam(shader, kernel, "_M8TileBits", _grid.M8TileBits);
-            command.SetComputeBufferParam(shader, kernel, "_M8TileRecordsRead", _grid.M8TileRecords);
-            command.SetComputeBufferParam(shader, kernel, "_M8ObservationDispatchArgs", _grid.M8ObservationDispatchArgs);
         }
 
         // A fence proves only resource retirement, not refinement exhaustion.
@@ -351,6 +331,7 @@ namespace Genesis.RoomScan
             if (_disposed) return;
             if (_observation != 0u)
                 throw new InvalidOperationException("Finalize and retire the observation before releasing its buffers.");
+            _grid.ConfigureObservationResidency(null);
             _tileBins.Dispose();
             _disposed = true;
         }

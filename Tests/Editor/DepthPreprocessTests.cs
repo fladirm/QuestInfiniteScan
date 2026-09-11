@@ -125,15 +125,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(consume, Does.Contain(
                 "ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);"));
             Assert.That(consume, Does.Not.Contain("ComputeNormals(command);"));
-            // Certificate recording moved to the integrator, which owns the
-            // bins the certificate is reduced against. The invariant is
-            // unchanged: it happens on the observation path, never in the
-            // producer callback, and DepthCapture still exposes only that one
-            // recording entry point.
-            Assert.That(source, Does.Contain(
-                "internal void RecordDepthCertificate(CommandBuffer command, MerkabaObservationBinsGpu bins)"));
-            Assert.That(RuntimeSource("Runtime/Merkaba/MerkabaIntegrator.cs"),
-                Does.Contain("_depthCapture.RecordDepthCertificate(command, _bins);"));
+            // Direct-only scan retains frozen calibrated projection bounds,
+            // not the orphaned free-volume certificate hierarchy.
+            Assert.That(source, Does.Contain("FreezeObservationBounds();"));
+            Assert.That(source, Does.Contain("internal void BindObservationBounds("));
+            Assert.That(source, Does.Not.Contain("internal void RecordDepthCertificate("));
             Assert.That(consume, Does.Contain("_heldDepthSlot = _readyDepthSlot;"));
             Assert.That(consume, Does.Not.Contain("_heldDepthSlot = -1;"),
                 "A must remain owned until the integration token completes.");
@@ -542,10 +538,10 @@ namespace Genesis.RoomScan.Tests
                 "private uint NextAttemptToken()");
             string certificate = Slice(
                 RuntimeSource("Runtime/Core/DepthCapture.cs"),
-                "internal void WriteDepthCertificateUniforms(",
-                "internal void BindDepthCertificate(");
+                "internal void WriteObservationBounds(",
+                "internal void BindObservationBounds(");
             Assert.That(integrator, Does.Contain(
-                    "_depthCapture.WriteDepthCertificateUniforms(values)"),
+                    "_depthCapture.WriteObservationBounds(values)"),
                 "the certificate set is written into the same table");
 
             var names = new List<string>();

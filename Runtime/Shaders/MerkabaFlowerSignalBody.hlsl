@@ -1,5 +1,6 @@
-// Included for RGB and V independently. RGB capacity/ambiguity never vetoes V.
-void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
+// One shared program; each owner executes RGB then V with a WG barrier.
+// Separate authority/outcomes remain: RGB ambiguity/capacity never vetoes V.
+void M8FlowerIntegrateSkin(uint3 group,uint lane,bool metric)
 {
     if(_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED]!=0u)return;
     uint4 ownerWork;
@@ -8,7 +9,6 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
     if(slot>=_M8ObservationHotSlotCount)return;
     uint4 runtime=_M8TileRecords[M8TileRuntimeIndex(slot)];
     if(runtime.w!=generation || runtime.x!=_M8ObservationToken)return;
-    const bool metric=M8_SKIN_SIGNAL!=0;
     float2 errors=float2(M8FlowerNext(_M8PlaneErrorBounds.x+M8_FLOWER_NORMAL_QUANTIZATION_UPPER),
         M8FlowerNext(_M8PlaneErrorBounds.y+M8_FLOWER_OFFSET_QUANTIZATION_UPPER));
     uint item=ownerWork.y;
@@ -77,13 +77,16 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
                     uint4 words=0u;bool supported=false,certain=false;
                     if(m8SignalContext.Measure)
                     {
-#if M8_SKIN_SIGNAL==0
+                    if (!metric)
+                    {
                         M8ThreadColorInterval value;
                         certain=M8FlowerMeasureRgbSkinChild(sites,parent,symbol.y,lane,
                             M8FlowerEndpointOwner(slot,local),source.w,errors.x,errors.y,
                             m8SignalContext.Inherited,value,supported);
                         words=uint4(value.LowerLinearRgba,value.UpperLinearRgba);
-#else
+                    }
+                    else
+                    {
                         M8FlowerSkinMetricRun run;
                         run.FlowerKey=symbol.x;run.GroupBase=m8SignalContext.GroupBase;
                         run.SplitBitsLo=m8SignalContext.SplitBits.x;
@@ -94,7 +97,7 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
                             M8FlowerEndpointOwner(slot,local),source.w,errors.x,errors.y,
                             run,m8SignalContext.Existing,value,supported);
                         words=uint4(asuint(value.Lower),asuint(value.Upper),0u,0u);
-#endif
+                    }
                     }
                     m8SignalValues[lane]=words;
                     m8SignalFlags[lane]=(certain?1u:0u)|(supported?2u:0u);
@@ -109,7 +112,8 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
                         if((m8SignalFlags[child]&2u)!=0u)support|=1u<<child;
                     }
                     bool changed;
-#if M8_SKIN_SIGNAL==0
+                    if (!metric)
+                    {
                     M8ThreadColorInterval children[7];
                     [unroll]for(uint child=0u;child<7u;child++)
                     {
@@ -119,14 +123,16 @@ void M8_SKIN_PACKET_NAME(uint3 group,uint lane)
                     if(certain==127u)classification=M8FlowerClassifyMeasuredRgbSkin(children,certain,support);
                     m8SignalStatus=M8FlowerCommitRgbSkinSplit(slot,local,generation,symbol.x,parent,
                         m8SignalContext,children,classification,support,changed);
-#else
+                    }
+                    else
+                    {
                     M8FlowerVInterval children[7];
                     [unroll]for(uint child=0u;child<7u;child++)
                     {children[child].Lower=asint(m8SignalValues[child].x);children[child].Upper=asint(m8SignalValues[child].y);}
                     if(certain==127u)classification=M8FlowerClassifyMeasuredMetricSkin(children,certain,support);
                     m8SignalStatus=M8FlowerCommitMetricSkinSplit(slot,local,generation,symbol.x,parent,
                         m8SignalContext,children,classification,support,changed);
-#endif
+                    }
                     if(classification==M8_FLOWER_SKIN_AMBIGUOUS)M8CounterIncrement(M8_COUNTER_REFINEMENT_UNRESOLVED);
                     if(changed)M8CounterIncrement(M8_COUNTER_REFINEMENT_WORK_PROGRESS);
                     if(m8SignalStatus!=M8_FLOWER_ARENA_OK)M8CounterIncrement(M8_COUNTER_REFINEMENT_BACKPRESSURE);

@@ -80,7 +80,7 @@ and a second solver used by readout/export. Renaming these is not removal.
 ## 3. One snapshot, one transaction
 
 ```text
-capture N -> sensor once -> count/allocate-if-needed/reserve/emit
+capture N -> sensor once -> count HOT / request missing -> reserve/emit
           -> direct -> reached L1 -> reached L2 -> reached skin
           -> publish world changes + dirty bits -> Finalize -> release N
 ```
@@ -90,10 +90,16 @@ general stage machine that advances an ordinal through all possible geometry.
 Separate finite L1/L2 dispatches are permissible when different touched tiles
 share ancestors; removing a necessary global barrier is not an optimization.
 
-New sparse addresses may need allocation and a recount of the SAME snapshot.
-Hot-resident observations MUST NOT redo discovery/allocation unconditionally.
-GPU counts/indirect arguments decide this, not a CPU readback. A zero indirect
-dispatch is accounted separately from actual executed work, not hidden.
+Missing addresses enqueue storage claims only. A separate serialized residency
+job publishes Block/Chunk/Tile storage for subsequent snapshots. Observation N
+MUST NOT allocate, recount, or replay its evidence after residency changes.
+HOT owners continue independently. Storage requests are addresses, not pending
+sensor evidence. GPU counts/indirect arguments decide work, not CPU readbacks.
+Scheduled dispatches and actual nonzero work are reported separately.
+
+DepthCertificate has no role without a real direct-world consumer. Remove its
+production hierarchy, dispatches and resources once the complete consumer chain
+is shown to be orphaned; retain independent mathematical oracles where useful.
 
 Every resident consequence reached by the current observation is evaluated
 through L2 and all three skin steps inside this transaction. No observation
@@ -207,10 +213,21 @@ Remove consumers requiring excavation evidence; do not replace them with a
 constant predicate or an invented inferred surface. Existing session data is
 not deleted by this cut.
 
-## 8. Derived readout and completion
+## 8. Derived owner replacements and readout
 
-Dirty page -> occupied owner mask -> DecodeFlower -> actual L2 symbols ->
-compact samples -> publish FRONT.
+Successful GPU canonical update -> OwnerDrawSnapshot replacement -> owner
+segment replacement in a derived page -> atomic FRONT publication.
+
+The replacement contains owner identity, parent epoch, actual carrier mask,
+symbols and skin references/results. It is derived cache, never canonical world
+truth or a saved record kind. It contains no observation cursor or unfinished
+evidence. Structural deletion and ERASE publish an explicit empty replacement.
+Retire stale epoch/generation replacements instead of reviving old geometry.
+
+Live readout MUST NOT solve the same roots/carriers again. It packs completed
+owner replacements. Canonical DecodeFlower is used for OPEN, cold/evicted page
+rebuild and frozen offline export, with the same generated evaluation recipe.
+Rebuild is bounded and separately accounted, not a hidden live reconstruction.
 
 Readout takes canonical world state only. It has no camera input, sensor
 hypothesis solve, 52-original-root packet or exhaustive 128-carrier sweep.
@@ -263,9 +280,9 @@ in §9 is offline, never a producer of live pages or scan evidence.
 
 Commit each coherent replacement with consumers rewired and its predecessor
 removed. Do not leave a compile-broken checkpoint labelled a closed cut.
-During RT1–RT3 use only necessary compile/codegen checks: MUST NOT build an
+During source cuts use only necessary compile/codegen checks: MUST NOT build an
 APK, install to the headset or run device acceptance after an individual cut.
-Only after the ENTIRE rewrite is wired, RT4 runs the complete test/validation
+Only after the ENTIRE rewrite is wired, delivery runs the complete test/validation
 and repair pass, then the APK build/install/device acceptance. Positive scan
 fixtures must not be removed merely to obtain green results.
 
@@ -281,7 +298,7 @@ Required evidence:
 - fresh frozen export carries RGB/V and reopens with ordinary readout;
 - exact embedded SPIR-V audit: <=1 MiB and <=50000 body instructions per
   production entrypoint; existing warnings and hardware checks remain;
-- command graph reports actual dispatches/barriers/work counts; <=10 normal
+- command graph reports actual dispatches/barriers/work counts; 9–11 normal
   hot-resident dispatches is the engineering target, not a reason to omit a
   required dependency or hide a stage;
 - full tests, Unity APK build, install/hash, pipeline initialization and live
@@ -290,3 +307,31 @@ Required evidence:
 Final means a working visible realtime scan, persistent/reopened/exported
 data and accepted shader/runtime behavior. An APK or a green oracle alone is
 not completion. Disconnected device means DEVICE ACCEPTANCE PENDING.
+
+## 11. Driver binaries and final packaging
+
+CAPTURE is a build-preparation mode on a compatible golden Quest. It captures
+driver-produced VK_KHR_pipeline_binary payloads for all native compute AND
+Unity graphics/compute PSOs. PC SPIR-V compilation, ordinary pipeline cache
+and Unity WarmUp alone are not precompiled release delivery.
+
+BINARY_ONLY is the release mode. Negotiate/query the required Vulkan features,
+validate the global pipeline key and per-pipeline identity against the actual
+device-create configuration, and create pipelines only from matching binaries.
+Missing binary or incompatible key is an explicit initialization error. There
+is no SPIR-V/JIT fallback. Intercept Unity device-proc lookup and both graphics
+and compute pipeline creation; native-only coverage is insufficient. Do not
+combine binary pipeline creation with FAIL_ON_PIPELINE_COMPILE_REQUIRED flags.
+
+The user authorizes golden-device capture AFTER the complete source rewrite.
+Capture final source/configuration, generate a versioned hashed binary bundle,
+then package the final ARM64/IL2CPP release APK. Sign using an explicitly
+provided production keystore from environment/secret storage; never invent a
+release key or expose secrets. Verify signature, zip alignment, package ID,
+ARM64 libraries, binary bundle hash and complete APK SHA-256.
+
+Final device evidence includes cold install/cache-empty startup with zero
+pipeline binary misses and zero runtime compile fallbacks; strict endpoint,
+touched, occupied and triangle counts; visible scan from START; 10–20 minutes
+at 72 Hz; head rotation, sleep/wake, STOP/START, SAVE/kill/OPEN/anchor, FINE/ERASE
+and frozen RGB/V export. Capture success is not release device acceptance.

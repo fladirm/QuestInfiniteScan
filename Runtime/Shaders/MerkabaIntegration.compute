@@ -4,11 +4,9 @@
 #pragma kernel PublishFlowerR1
 #pragma kernel PrepareFlowerOwners
 #pragma kernel IntegrateFlowerRoot
-#pragma kernel IntegrateFlowerL1
-#pragma kernel IntegrateFlowerL2
+#pragma kernel IntegrateFlowerChildren
 #pragma kernel ResolveFlowerCarriers
-#pragma kernel DrainFlowerSkinRgb
-#pragma kernel DrainFlowerSkinV
+#pragma kernel IntegrateFlowerSkin
 #pragma kernel FinalizeObservation
 #pragma kernel QueryFineEraseTiles
 #pragma kernel EraseFineTiles
@@ -20,7 +18,7 @@
 #include "MerkabaSphereFlower.generated.hlsl"
 #include "MerkabaStereoCamera.hlsl"
 #include "MerkabaWorld.hlsl"
-#include "MerkabaDepthCertificate.generated.hlsl"
+#include "MerkabaObservationProjection.generated.hlsl"
 #include "MerkabaObservationBins.hlsl"
 #include "MerkabaObservationOwners.hlsl"
 #include "MerkabaObservationScope.hlsl"
@@ -178,14 +176,11 @@ void M8FinalizeObservationCompletion()
     uint touchedCount = completed != 0u
         ? min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
-    uint pendingCount = completed != 0u && failure != 0u
-        ? min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
-            MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
     bool readoutChanged =
         _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u;
     _M8Counters[M8_COUNTER_CLEANUP_TOUCHED_COUNT] = touchedCount;
-    _M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT] = pendingCount;
-    _M8ObservationDispatchArgs[0] = max(touchedCount, pendingCount);
+    _M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT] = 0u;
+    _M8ObservationDispatchArgs[0] = touchedCount;
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
     _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
@@ -201,7 +196,6 @@ void M8FinalizeObservationCompletion()
 
 groupshared uint gFlowerFinalizeSourceReady;
 groupshared uint gFlowerFinalizeTouchedCount;
-groupshared uint gFlowerFinalizeNewTileCount;
 
 [numthreads(128, 1, 1)]
 void FinalizeObservation(uint lane : SV_GroupIndex)
@@ -214,11 +208,6 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
         // this snapshot's packets and touched stamps are retired.
         gFlowerFinalizeTouchedCount = _M8Counters[M8_COUNTER_OBSERVATION_CHANGE_MASK] != 0u ?
             min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT], MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
-        // InitializeNewTiles already needs eight writable bindings. Its real
-        // installed addresses remain in this existing bounded pending list
-        // until the immediately following retirement barrier; no ninth UAV.
-        gFlowerFinalizeNewTileCount = min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
-            MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     }
     GroupMemoryBarrierWithGroupSync();
     if (gFlowerFinalizeSourceReady != 0u)
@@ -226,15 +215,6 @@ void FinalizeObservation(uint lane : SV_GroupIndex)
         [loop] for (uint index = lane; index < gFlowerFinalizeTouchedCount; index += 128u)
             M8FlowerMarkTileNeighborhoodDirty(_M8TouchedTileQueueRead[index],
                 _M8WorldPublishingGeneration, true, true);
-        [loop] for (uint pending = lane; pending < gFlowerFinalizeNewTileCount; pending += 128u)
-        {
-            uint referenceIndex = _M8PendingNewTileRefsRead[pending];
-            if (referenceIndex >= MERKABA_M8_CHUNK_CAPACITY * MERKABA_M8_TILES_PER_CHUNK) continue;
-            uint reference = _M8ChunkTileRefs[referenceIndex];
-            if (M8IsHotRef(reference))
-                M8FlowerMarkTileNeighborhoodDirty(M8PhysicalSlot(reference),
-                    _M8WorldPublishingGeneration, true, true);
-        }
     }
     DeviceMemoryBarrierWithGroupSync();
     M8FlowerRetireObservation(lane,128u);

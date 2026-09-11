@@ -48,7 +48,6 @@ shaders=(
   "$shader_dir/MerkabaObservationBins.compute"
   "$shader_dir/MerkabaReadout.compute"
   "$shader_dir/DepthNormals.compute"
-  "$shader_dir/MerkabaDepthCertificate.compute"
   "$shader_dir/StereoRgbdRefine.compute"
   "$repo_root/Tests/Editor/MerkabaSphereFlowerOracle.compute"
   "$repo_root/Tests/Editor/MerkabaSphereFlowerDataAbi.compute"

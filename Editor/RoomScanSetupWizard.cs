@@ -227,8 +227,6 @@ namespace Genesis.RoomScan.Editor
                 "Packages/com.genesis.roomscan/Runtime/Shaders/DepthNormals.compute");
             AssignAsset(depth, "stereoRgbdRefineCompute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/StereoRgbdRefine.compute");
-            AssignAsset(depth, "depthCertificateCompute",
-                "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaDepthCertificate.compute");
             AssignAsset(integrator, "compute",
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaIntegration.compute");
             AssignAsset(integrator, "observationBins",

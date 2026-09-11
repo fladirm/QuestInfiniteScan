@@ -25,7 +25,6 @@ namespace Genesis.RoomScan
 
         [SerializeField] private ComputeShader depthNormalCompute;
         [SerializeField] private ComputeShader stereoRgbdRefineCompute;
-        [SerializeField] private ComputeShader depthCertificateCompute;
         [SerializeField] private bool dynamicOcclusionEnabled = true;
 
         // Bounds describe the representation of an accepted digital measurement,
@@ -212,19 +211,13 @@ namespace Genesis.RoomScan
         public RenderTexture NormTex => _normTex;
 
         private RenderTexture _refinedDepthTex;
-        private ComputeBuffer _depthCertificate;
-        private ComputeKernelHelper _buildDepthCertificateKernel;
-        private ComputeKernelHelper _reduceDepthCertificateKernel;
         private readonly Vector4[] _frozenDepthErrorBounds = new Vector4[2];
         private readonly Vector4[] _frozenRgbErrorBounds = new Vector4[2];
         private Vector4 _frozenPlaneErrorBounds;
-        private int _depthCertificateObservationVersion;
-        internal static readonly int DepthCertificateId = Shader.PropertyToID("_M8DepthCertificate");
+        private int _observationBoundsVersion;
         private static readonly int DepthErrorBoundsId = Shader.PropertyToID("_M8DepthErrorBounds");
         private static readonly int PlaneErrorBoundsId = Shader.PropertyToID("_M8PlaneErrorBounds");
         private static readonly int RgbErrorBoundsId = Shader.PropertyToID("_M8RgbErrorBounds");
-        private static readonly int CertificateWidthId = Shader.PropertyToID("_DepthWidth");
-        private static readonly int CertificateHeightId = Shader.PropertyToID("_DepthHeight");
         private ComputeBuffer _refineMetrics;
         private int _refineMetricValueCount;
         private uint _refineMetricsRevision;
@@ -292,9 +285,8 @@ namespace Genesis.RoomScan
             ? _ownedRawDepth[_readyDepthSlot]
             : _heldDepthSlot >= 0 ? _ownedRawDepth[_heldDepthSlot] : null;
         internal ComputeBuffer RefineMetrics => _refineMetrics;
-        internal ComputeBuffer DepthCertificate => _heldDepthSlot >= 0 &&
-            _depthCertificateObservationVersion == _ownedVersions[_heldDepthSlot]
-                ? _depthCertificate : null;
+        internal bool HasFrozenObservationBounds => _heldDepthSlot >= 0 &&
+            _observationBoundsVersion == _ownedVersions[_heldDepthSlot];
         internal bool FineSurfaceTargetReadbackPending =>
             _fineSurfaceTargetReadbackPending;
         internal uint FineSurfaceTargetIssuedSequence =>
@@ -347,14 +339,6 @@ namespace Genesis.RoomScan
                 _projectionDepthCopyKernel.KernelIndex,
                 MerkabaGpuStage.DepthPreprocess,
                 "CopyProjectionDepthArray");
-            if (depthCertificateCompute == null)
-                throw new Exception("[RoomScan] DepthCertificate compute is required");
-            _buildDepthCertificateKernel = new ComputeKernelHelper(depthCertificateCompute, "BuildDepthCertificate");
-            _reduceDepthCertificateKernel = new ComputeKernelHelper(depthCertificateCompute, "ReduceDepthCertificate");
-            MerkabaGpuTimestamps.RegisterKernel(depthCertificateCompute,
-                _buildDepthCertificateKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess, "BuildDepthCertificate");
-            MerkabaGpuTimestamps.RegisterKernel(depthCertificateCompute,
-                _reduceDepthCertificateKernel.KernelIndex, MerkabaGpuStage.DepthPreprocess, "ReduceDepthCertificate");
             if (stereoRgbdRefineCompute == null)
                 throw new Exception("[RoomScan] StereoFlowerRefine compute is required");
             _stereoRgbdRefineKernel = new ComputeKernelHelper(
@@ -756,9 +740,7 @@ namespace Genesis.RoomScan
                 _refineMetrics.Release();
                 _refineMetrics = null;
             }
-            _depthCertificate?.Release();
-            _depthCertificate = null;
-            _depthCertificateObservationVersion = 0;
+            _observationBoundsVersion = 0;
             if (_fineSurfaceTarget != null)
             {
                 _fineSurfaceTarget.Release();
@@ -795,7 +777,6 @@ namespace Genesis.RoomScan
             };
             ComputeBuffer capturedRefineMetrics = _refineMetrics;
             ComputeBuffer capturedFineTarget = _fineSurfaceTarget;
-            ComputeBuffer capturedCertificate = _depthCertificate;
             bool released = false;
             return () =>
             {
@@ -810,7 +791,6 @@ namespace Genesis.RoomScan
                     if (resource != null) UnityEngine.Object.Destroy(resource);
                 capturedRefineMetrics?.Release();
                 capturedFineTarget?.Release();
-                capturedCertificate?.Release();
             };
         }
 
@@ -988,7 +968,7 @@ namespace Genesis.RoomScan
             if (command == null) throw new ArgumentNullException(nameof(command));
             if (!cameraFrame.IsValid || !TryHoldLatestDepthFrame())
                 return false;
-            FreezeDepthCertificateBounds();
+            FreezeObservationBounds();
             ApplyStereoRgbdRefinement(command, cameraFrame, fineBrush);
             SetGlobalShaderProperties();
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
@@ -1007,7 +987,7 @@ namespace Genesis.RoomScan
             EnsureRefinementOutputs(width, height);
             EnsureRefineMetrics(Mathf.CeilToInt(width / 8f) *
                 Mathf.CeilToInt(height / 8f));
-            FreezeDepthCertificateBounds();
+            FreezeObservationBounds();
             _depthTex = _refinedDepthTex;
             _processedRawFrameVersion = _ownedVersions[_heldDepthSlot];
             return true;
@@ -1042,8 +1022,6 @@ namespace Genesis.RoomScan
                 TexturePtr(_refinedDepthTex);
             resources[(int)MerkabaNativeVulkanExecutor.Resource.Normals] =
                 TexturePtr(_normTex);
-            resources[(int)MerkabaNativeVulkanExecutor.Resource.DepthCertificate] =
-                DepthCertificate != null ? DepthCertificate.GetNativeBufferPtr() : IntPtr.Zero;
         }
 
         private bool TryHoldLatestDepthFrame()
@@ -1071,71 +1049,45 @@ namespace Genesis.RoomScan
         public void ReleaseConsumedObservation()
         {
             _heldDepthSlot = -1;
-            _depthCertificateObservationVersion = 0;
+            _observationBoundsVersion = 0;
         }
 
         // Freeze the realtime observation policy with its four captured streams.
         // FP32 operations are enclosed by the generated interval evaluator;
-        // free-volume clearance is independent of endpoint/skin resolution.
-        private void FreezeDepthCertificateBounds()
+        // these are projection/skin inputs, not a visibility hierarchy.
+        private void FreezeObservationBounds()
         {
             Vector4 left = ObservationDepthBounds;
             Vector4 right = ObservationDepthBounds;
             if (_heldDepthSlot < 0 || _ownedRawDepth[_heldDepthSlot] == null)
-                throw new InvalidOperationException("Certificate requires the held immutable stereo depth frame.");
+                throw new InvalidOperationException("Observation bounds require the held immutable stereo depth frame.");
             int version = _ownedVersions[_heldDepthSlot];
-            if (_depthCertificateObservationVersion != 0)
+            if (_observationBoundsVersion != 0)
             {
-                if (_depthCertificateObservationVersion != version ||
+                if (_observationBoundsVersion != version ||
                     !_frozenDepthErrorBounds[0].Equals(left) || !_frozenDepthErrorBounds[1].Equals(right) ||
                     !_frozenPlaneErrorBounds.Equals(ObservationPlaneBounds) ||
                     !_frozenRgbErrorBounds[0].Equals(ObservationRgbBounds) ||
                     !_frozenRgbErrorBounds[1].Equals(ObservationRgbBounds))
-                    throw new InvalidOperationException("A held observation's certificate bounds cannot change.");
+                    throw new InvalidOperationException("A held observation's bounds cannot change.");
                 return;
             }
             RenderTexture source = _ownedRawDepth[_heldDepthSlot];
             if (source.width <= 0 || source.height <= 0 || source.width > 512 || source.height > 512)
                 throw new InvalidOperationException("Frozen observation exceeds the 512-square contract capacity.");
-            if (_depthCertificate == null)
-            {
-                MerkabaGrid.ValidateGpuBufferAllocation(
-                    MerkabaSphereFlowerAuthority.DepthCertificateNodeCount, 2 * sizeof(uint));
-                _depthCertificate = new ComputeBuffer(MerkabaSphereFlowerAuthority.DepthCertificateNodeCount,
-                    2 * sizeof(uint), ComputeBufferType.Structured) { name = "M8 stereo depth certificate" };
-            }
             _frozenDepthErrorBounds[0] = left;
             _frozenDepthErrorBounds[1] = right;
             _frozenPlaneErrorBounds = ObservationPlaneBounds;
             _frozenRgbErrorBounds[0] = ObservationRgbBounds;
             _frozenRgbErrorBounds[1] = ObservationRgbBounds;
-            _depthCertificateObservationVersion = version;
+            _observationBoundsVersion = version;
         }
 
-        internal void RecordDepthCertificate(CommandBuffer command, MerkabaObservationBinsGpu bins)
-        {
-            if (command == null) throw new ArgumentNullException(nameof(command));
-            if (bins == null) throw new ArgumentNullException(nameof(bins));
-            if (DepthCertificate == null || depthCertificateCompute == null)
-                throw new InvalidOperationException("Certificate recording requires frozen bounds and its production shader.");
-            RenderTexture source = _ownedRawDepth[_heldDepthSlot];
-            command.SetComputeIntParam(depthCertificateCompute, CertificateWidthId, source.width);
-            command.SetComputeIntParam(depthCertificateCompute, CertificateHeightId, source.height);
-            command.SetComputeMatrixArrayParam(depthCertificateCompute, RefineDepthProjInvId, _projInv);
-            command.SetComputeVectorArrayParam(depthCertificateCompute, DepthErrorBoundsId, _frozenDepthErrorBounds);
-            _buildDepthCertificateKernel.Set(command, RefineSrcDepthId, source);
-            _buildDepthCertificateKernel.Set(command, DepthCertificateId, _depthCertificate);
-            _reduceDepthCertificateKernel.Set(command, DepthCertificateId, _depthCertificate);
-            bins.BindReset(command, depthCertificateCompute, _reduceDepthCertificateKernel.KernelIndex);
-            command.DispatchCompute(depthCertificateCompute, _buildDepthCertificateKernel.KernelIndex, 32, 32, 2);
-            command.DispatchCompute(depthCertificateCompute, _reduceDepthCertificateKernel.KernelIndex, 1, 1, 2);
-        }
-
-        internal void WriteDepthCertificateUniforms(MerkabaNativeUniformTable values)
+        internal void WriteObservationBounds(MerkabaNativeUniformTable values)
         {
             if (values == null) throw new ArgumentNullException(nameof(values));
-            if (DepthCertificate == null)
-                throw new InvalidOperationException("Native certificate requires this held observation's frozen bounds.");
+            if (!HasFrozenObservationBounds)
+                throw new InvalidOperationException("Native projection requires this held observation's frozen bounds.");
             RenderTexture source = _ownedRawDepth[_heldDepthSlot];
             values.Int("_DepthWidth", source.width);
             values.Int("_DepthHeight", source.height);
@@ -1145,11 +1097,10 @@ namespace Genesis.RoomScan
             values.Vector4Array("_M8RgbErrorBounds", _frozenRgbErrorBounds);
         }
 
-        internal void BindDepthCertificate(ComputeShader shader, int kernel)
+        internal void BindObservationBounds(ComputeShader shader, int kernel)
         {
-            if (DepthCertificate == null)
-                throw new InvalidOperationException("Certificate must belong to the held observation.");
-            shader.SetBuffer(kernel, DepthCertificateId, _depthCertificate);
+            if (!HasFrozenObservationBounds)
+                throw new InvalidOperationException("Bounds must belong to the held observation.");
             shader.SetVectorArray(DepthErrorBoundsId, _frozenDepthErrorBounds);
             shader.SetVector(PlaneErrorBoundsId, _frozenPlaneErrorBounds);
             shader.SetVectorArray(RgbErrorBoundsId, _frozenRgbErrorBounds);

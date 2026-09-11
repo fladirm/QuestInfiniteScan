@@ -5,7 +5,7 @@
 #pragma target 5.0
 #pragma use_dxc vulkan
 
-#include "../../Runtime/Shaders/MerkabaDepthCertificate.generated.hlsl"
+#include "MerkabaDepthCertificate.generated.hlsl"
 
 struct DepthSource
 {

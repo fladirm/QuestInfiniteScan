@@ -71,6 +71,8 @@ namespace Genesis.RoomScan
         internal const int CounterTouchedTileCount = 13;
         internal const int CounterLoadRequests = 14;
         internal const int CounterWritebackCount = 15;
+        internal const int CounterNewBlockQueueCount = 17;
+        internal const int CounterNewChunkQueueCount = 18;
         internal const int CounterNewTileQueueCount = 19;
         internal const int CounterPendingNewTileCount = 20;
         internal const int CounterHashFull = 21;
@@ -92,6 +94,8 @@ namespace Genesis.RoomScan
         internal const int CounterUnresolvedObservationTiles = 40;
         internal const int CounterResidencyEpoch = 41;
         internal const int CounterReadoutUnresolved = 32;
+        internal const int CounterCleanupTouchedCount = 44;
+        internal const int CounterCleanupPendingCount = 45;
         internal const int CounterReadoutEmittedTriangles = 46;
         internal const int CounterReadoutEmittedVertices = 47;
         internal const int CounterRefinementPendingTiles = 48;
@@ -1021,6 +1025,7 @@ namespace Genesis.RoomScan
 
         private void ResetWorldGpuLifecycle()
         {
+            _residencyRequested = false;
             _worldGenerationSequence = _worldPublishedGeneration =
                 _worldRetiredGeneration = _worldDurableGeneration =
                 _worldMutationGeneration = _worldRetirementFenceGeneration = 0u;

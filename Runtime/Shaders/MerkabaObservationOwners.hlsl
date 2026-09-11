@@ -34,9 +34,8 @@ void M8FlowerRequestObservationTile(uint refIndex, uint currentRef)
 }
 
 void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
-    out uint physicalSlots[8], out uint readyOwners,out bool recount)
+    out uint physicalSlots[8], out uint readyOwners)
 {
-    recount=false;
     uint blocks[8];
     uint chunks[8];
     uint readyBlocks = 0u;
@@ -66,7 +65,6 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
         else
             ready = M8FindBlock(address.blockCoord, index);
         if (failure != 0u) M8FlowerBinFailure(failure);
-        if(requestMissing && !ready && failure==0u)recount=true;
         blocks[blockKey] = index;
         if (ready) readyBlocks |= 1u << blockKey;
     }
@@ -93,7 +91,6 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
                 index < MERKABA_M8_CHUNK_CAPACITY;
         }
         if (failure != 0u) M8FlowerBinFailure(failure);
-        if(requestMissing && !ready && failure==0u)recount=true;
         chunks[chunkKey] = index;
         if (ready) readyChunks |= 1u << chunkKey;
     }
@@ -114,7 +111,6 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
             physicalSlots[tileKey] = M8PhysicalSlot(tileRef);
         else if (requestMissing)
         {
-            if(tileRef==MERKABA_REF_EMPTY || tileRef==MERKABA_REF_CLAIMED_NEW)recount=true;
             M8FlowerRequestObservationTile(refIndex, tileRef);
         }
     }
@@ -127,12 +123,11 @@ void M8FlowerResolveObservationOwners(int3 firstOwner, bool requestMissing,
     }
 }
 
-bool M8FlowerCountObservationOwners(int3 firstOwner)
+void M8FlowerCountObservationOwners(int3 firstOwner)
 {
     uint slots[8];
     uint ready;
-    bool recount;
-    M8FlowerResolveObservationOwners(firstOwner, true, slots, ready,recount);
+    M8FlowerResolveObservationOwners(firstOwner, true, slots, ready);
     [unroll]
     for (uint owner = 0u; owner < 8u; owner++)
         if ((ready & (1u << owner)) != 0u)
@@ -148,7 +143,6 @@ bool M8FlowerCountObservationOwners(int3 firstOwner)
             _M8Counters[M8_COUNTER_NEW_TILE_QUEUE_COUNT])!=0u)
             InterlockedOr(_M8ObservationDispatchArgs[M8_OBSERVATION_ALLOCATION_ARGS],1u);
     }
-    return recount;
 }
 
 void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
@@ -156,8 +150,7 @@ void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
 {
     uint slots[8];
     uint ready;
-    bool ignoredRecount;
-    M8FlowerResolveObservationOwners(firstOwner, false, slots, ready,ignoredRecount);
+    M8FlowerResolveObservationOwners(firstOwner, false, slots, ready);
     [unroll]
     for (uint owner = 0u; owner < 8u; owner++)
     {
@@ -173,10 +166,8 @@ void M8FlowerEmitObservationOwners(int3 firstOwner, uint sourcePixel,
         if (M8FlowerEmitObservationOwner(slots[owner], kernelLocal,
                 sourcePixel, symbolTag, precisionKey))
         {
-            // Publish endpoint support before the dual pass. The immutable
-            // joint field has already accepted this endpoint; no existing
-            // sheet or parent prediction may erase its support. This bit is
-            // attempt scratch, not positive occupancy or a drawable seed.
+            // The accepted endpoint footprint belongs to this snapshot only;
+            // it is not positive occupancy or a drawable seed.
             InterlockedOr(_M8TileBits[M8TileWordIndex(slots[owner],
                 kernelLocal >> 5u)].z, 1u << (kernelLocal & 31u));
         }

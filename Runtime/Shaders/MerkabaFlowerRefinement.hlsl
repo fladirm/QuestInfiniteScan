@@ -718,18 +718,7 @@ groupshared uint m8SignalFlags[7];
 groupshared uint2 m8SignalParents;
 groupshared uint m8SignalStatus;
 
-#define M8_SKIN_PACKET_NAME M8FlowerDrainSkinRgb
-#define M8_SKIN_SIGNAL 0
 #include "MerkabaFlowerSignalBody.hlsl"
-#undef M8_SKIN_PACKET_NAME
-#undef M8_SKIN_SIGNAL
-
-#define M8_SKIN_PACKET_NAME M8FlowerDrainSkinV
-#define M8_SKIN_SIGNAL 1
-#include "MerkabaFlowerSignalBody.hlsl"
-#undef M8_SKIN_PACKET_NAME
-#undef M8_SKIN_SIGNAL
-
 
 #include "MerkabaFlowerDrainBody.hlsl"
 
@@ -741,16 +730,18 @@ void IntegrateFlowerRoot(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
     M8FlowerDrainGeometryBody(group,lane,0u);
 }
 
+// Original shared roots read the peer's L0 phase, hence the preceding global
+// Root barrier is required. Child transport reads only this owner's L1/L2
+// records (M8FlowerApplyGeometryDetail); peer acquisition reads Level=0.
+// Consequently the L1 -> L2 edge is owner-local, not a global dispatch edge.
 [numthreads(128,1,1)]
-void IntegrateFlowerL1(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+void IntegrateFlowerChildren(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
-    M8FlowerDrainGeometryBody(group,lane,1u);
-}
-
-[numthreads(128,1,1)]
-void IntegrateFlowerL2(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
-{
-    M8FlowerDrainGeometryBody(group,lane,2u);
+    [loop] for (uint level=1u; level<=2u; ++level)
+    {
+        M8FlowerDrainGeometryBody(group,lane,level);
+        DeviceMemoryBarrierWithGroupSync();
+    }
 }
 
 [numthreads(128,1,1)]
@@ -760,15 +751,15 @@ void ResolveFlowerCarriers(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 }
 
 [numthreads(64,1,1)]
-void DrainFlowerSkinRgb(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
+void IntegrateFlowerSkin(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
 {
-    M8FlowerDrainSkinRgb(group,lane);
-}
-
-[numthreads(64,1,1)]
-void DrainFlowerSkinV(uint3 group:SV_GroupID,uint lane:SV_GroupIndex)
-{
-    M8FlowerDrainSkinV(group,lane);
+    // Keep one writer per owner across both arenas; parallel RGB/V groups
+    // could race creation of their common sparse owner epoch.
+    [loop] for (uint signal=0u; signal<2u; ++signal)
+    {
+        M8FlowerIntegrateSkin(group,lane,signal!=0u);
+        DeviceMemoryBarrierWithGroupSync();
+    }
 }
 
 #endif

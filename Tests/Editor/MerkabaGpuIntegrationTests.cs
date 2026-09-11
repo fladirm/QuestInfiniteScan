@@ -27,18 +27,13 @@ namespace Genesis.RoomScan.Tests
                 Package + "Runtime/Shaders/StereoRgbdRefine.compute");
             ComputeShader bins = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 Package + "Runtime/Shaders/MerkabaObservationBins.compute");
-            ComputeShader certificate = AssetDatabase.LoadAssetAtPath<ComputeShader>(
-                Package + "Runtime/Shaders/MerkabaDepthCertificate.compute");
             Assert.That(world, Is.Not.Null);
             Assert.That(integration, Is.Not.Null);
             Assert.That(frame, Is.Not.Null);
             Assert.That(stereoRgbd, Is.Not.Null);
             Assert.That(bins, Is.Not.Null);
-            Assert.That(certificate, Is.Not.Null);
             Assert.DoesNotThrow(() => stereoRgbd.FindKernel(
                 "StereoFlowerRefine"));
-            Assert.DoesNotThrow(() => certificate.FindKernel("BuildDepthCertificate"));
-            Assert.DoesNotThrow(() => certificate.FindKernel("ReduceDepthCertificate"));
             foreach (string kernel in new[]
                      {
                          "PublishNewBlocks", "PublishNewChunks",
@@ -56,17 +51,15 @@ namespace Genesis.RoomScan.Tests
                      {
                          "FlowerCommit", "FinalizeObservation",
                          "InvalidateFlowerSources", "InvalidateFlowerPeers", "PublishFlowerR1",
-                         "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerL1",
-                         "IntegrateFlowerL2", "ResolveFlowerCarriers",
-                         "DrainFlowerSkinRgb", "DrainFlowerSkinV", "QueryFineEraseTiles",
+                         "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerChildren", "ResolveFlowerCarriers",
+                         "IntegrateFlowerSkin", "QueryFineEraseTiles",
                          "EraseFineTiles", "FinalizeFineErase"
                      })
                 Assert.DoesNotThrow(() => integration.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
                      {
                          "CountObservationBins", "ReserveObservationBins", "EmitObservationBins",
-                         "ResolveMissingSpatialNodes", "ResolveObservationTileRequests",
-                         "ResetObservationBins"
+                         "ResolveMissingSpatialNodes", "ResolveObservationTileRequests"
                      })
                 Assert.DoesNotThrow(() => bins.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
@@ -436,8 +429,6 @@ namespace Genesis.RoomScan.Tests
         [TestCase("DepthNormals.compute", "CopyProjectionDepthArray", 8u, 8u)]
         [TestCase("DepthNormals.compute", "MonoRawDepthToStereo", 8u, 8u)]
         [TestCase("DepthNormals.compute", "FineSurfaceTarget", 128u, 1u)]
-        [TestCase("MerkabaDepthCertificate.compute", "BuildDepthCertificate", 16u, 16u)]
-        [TestCase("MerkabaDepthCertificate.compute", "ReduceDepthCertificate", 16u, 16u)]
         [TestCase("StereoRgbdRefine.compute", "StereoFlowerRefine", 8u, 8u)]
         public void Quest3DepthKernels_UseBoundedWorkgroups(string asset,
             string entry, uint expectedX, uint expectedY)
@@ -459,7 +450,7 @@ namespace Genesis.RoomScan.Tests
             string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
             string grid = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
-            Assert.That(integrator, Does.Contain("_bins.Record(command, reset: false)"));
+            Assert.That(integrator, Does.Contain("_bins.Record(command)"));
             Assert.That(integrator, Does.Not.Contain(
                 "MerkabaSpatial.PhysicalTileCapacity / 64"));
             Assert.That(grid, Does.Contain(
@@ -536,7 +527,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("RW/read alias pair"));
             Assert.That(audit, Does.Contain("kernel_count != expected_kernel_count"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
-            Assert.That(audit, Does.Contain("MerkabaDepthCertificate.compute"));
+            Assert.That(audit, Does.Not.Contain("Runtime/Shaders/MerkabaDepthCertificate.compute"));
+            Assert.That(audit, Does.Contain("MerkabaDepthCertificateProbe.compute"));
             Assert.That(audit, Does.Contain("MerkabaObservationBins.compute"));
             Assert.That(audit, Does.Not.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));
@@ -807,7 +799,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(executor, Does.Not.Contain("ObservationContinue"));
             Assert.That(native, Does.Not.Contain("kJobObservationRetry"));
             Assert.That(native, Does.Not.Contain("kJobObservationContinue"));
-            Assert.That(native, Does.Contain("kJobKindCount = 3,"));
+            Assert.That(native, Does.Contain("kJobKindCount = 4,"));
 
             // Finalize publishes and releases; it schedules nothing.
             Assert.That(completion, Does.Contain(
@@ -818,8 +810,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(completion, Does.Not.Contain("M8_COUNTER_REFINEMENT_STAGE"),
                 "the stage is a barrier index inside the graph, not a life stage");
 
-            // The stage barriers are dispatches of this one graph, and the
-            // allocation round trip that used to need a retry is a barrier too.
+            // Only evidence dependencies stay inside the snapshot. Address
+            // residency is independent and cannot replay the measured pixels.
             int observation = generator.IndexOf("observation = [",
                 StringComparison.Ordinal);
             int observationEnd = generator.IndexOf("\"FinalizeObservation\",",
@@ -828,18 +820,19 @@ namespace Genesis.RoomScan.Tests
             Assert.That(observationEnd, Is.GreaterThan(observation));
             string schedule = generator.Substring(observation,
                 observationEnd - observation);
-            string[] ancestry = { "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerL1",
-                "IntegrateFlowerL2", "ResolveFlowerCarriers", "DrainFlowerSkinRgb", "DrainFlowerSkinV" };
+            string[] ancestry = { "PrepareFlowerOwners", "IntegrateFlowerRoot", "IntegrateFlowerChildren", "ResolveFlowerCarriers", "IntegrateFlowerSkin" };
             for (int i = 0; i < ancestry.Length; i++)
             {
                 Assert.That(Regex.Matches(schedule, "\"" + ancestry[i] + "\"").Count, Is.EqualTo(1));
                 if (i > 0) Assert.That(schedule.IndexOf(ancestry[i], StringComparison.Ordinal),
                     Is.GreaterThan(schedule.IndexOf(ancestry[i - 1], StringComparison.Ordinal)));
             }
-            Assert.That(schedule, Does.Contain("*([*allocation, \"ResetObservationBins\", \"CountObservationBins\"] * 3)"),
-                "Block/chunk/tile publication dependencies remain in this snapshot.");
-            Assert.That(generator, Does.Contain("mode = \"recount_depth\""),
-                "Recounts consume GPU-generated indirect arguments, never an unconditional depth sweep.");
+            Assert.That(Regex.Matches(schedule, Regex.Escape("\"CountObservationBins\"")).Count, Is.EqualTo(1));
+            foreach (string storage in new[] { "ResolveMissingSpatialNodes",
+                         "ResolveObservationTileRequests", "InitializeNewTiles" })
+                Assert.That(schedule, Does.Not.Contain(storage));
+            Assert.That(generator, Does.Contain("(\"Residency\", residency)"));
+            Assert.That(generator, Does.Not.Contain("recount_depth"));
             Assert.That(generator, Does.Contain("(\"Observation\", observation)"));
             Assert.That(generator, Does.Not.Contain("continuation = ["));
             Assert.That(generator, Does.Not.Contain("retry = "));

@@ -18,9 +18,9 @@ namespace Genesis.RoomScan.Tests
             AssetDatabase.LoadAssetAtPath<ComputeShader>(Root + path);
 
         private static void Bind(ComputeShader shader, int kernel,
-            ComputeBuffer bins, ComputeBuffer counters, int capacity)
+            ComputeBuffer bins, ComputeBuffer counters, int capacity, int token = Generation)
         {
-            shader.SetInt("_M8ObservationToken", Generation);
+            shader.SetInt("_M8ObservationToken", token);
             shader.SetInt("_M8ObservationHotSlotCount", Slots);
             shader.SetInt("_M8ObservationRecordCapacity", capacity);
             shader.SetBuffer(kernel, "_M8ObservationTileBins", bins);
@@ -116,11 +116,11 @@ namespace Genesis.RoomScan.Tests
         }
 
         private static void Reserve(ComputeBuffer bins, ComputeBuffer counters,
-            ComputeBuffer touched, ComputeBuffer args, int capacity)
+            ComputeBuffer touched, ComputeBuffer args, int capacity, int token = Generation)
         {
             ComputeShader shader = Shader("Runtime/Shaders/MerkabaObservationBins.compute");
             int kernel = shader.FindKernel("ReserveObservationBins");
-            Bind(shader, kernel, bins, counters, capacity);
+            Bind(shader, kernel, bins, counters, capacity, token);
             shader.SetBuffer(kernel, "_M8TouchedTileQueue", touched);
             shader.SetBuffer(kernel, "_M8ObservationDispatchArgs", args);
             shader.Dispatch(kernel, 1, 1, 1);
@@ -136,7 +136,7 @@ namespace Genesis.RoomScan.Tests
                 new int3(2, 3, x) }).ToArray();
             using var world = new OwnerWorld(points);
             world.DispatchOwners("CountOwnersProbe");
-            Reserve(world.Bins, world.Counters, world.Touched, world.Args, points.Length * 8);
+            Reserve(world.Bins, world.Counters, world.Touched, world.Args, points.Length * 8, world.Token);
             world.DispatchOwners("EmitOwnersProbe");
             CollectionAssert.AreEqual(world.Expected.OrderBy(x => x.y).ThenBy(x => x.x),
                 Read<uint4>(world.Records).OrderBy(x => x.y).ThenBy(x => x.x));
@@ -151,10 +151,10 @@ namespace Genesis.RoomScan.Tests
         [TestCase(MerkabaSpatial.LoadingRef)]
         [TestCase(MerkabaSpatial.EvictingRef)]
         [Timeout(30000)]
-        public void MissingOwner_DoesNotVetoResidentOwnersAndRecountDoesNotDoubleCount(uint missing)
+        public void MissingOwner_IsLocalAndInstalledOwnersJoinOnlyTheNextSnapshot(uint missing)
         {
             // The two x tiles share one chunk. Every lane requests the same
-            // missing tile; its HOT neighbour is counted before the retry.
+            // missing tile; its HOT neighbour completes in snapshot N.
             int3[] points = Enumerable.Repeat(new int3(7, 0, 0), 64).ToArray();
             using var world = new OwnerWorld(points);
             uint[] refs = Read<uint>(world.TileRefs);
@@ -186,7 +186,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(counters[MerkabaGrid.CounterLoadRequests],
                 Is.EqualTo(missing == MerkabaSpatial.ColdOnSsdRef ? 1u : 0u));
             world.ResetBins();
-            refs[missingIndex] = 2u; // completed storage install, same observation
+            world.BeginNextSnapshot();
+            refs[missingIndex] = 2u; // independent storage job, visible in N+1
             world.TileRefs.SetData(refs);
             world.DispatchOwners("CountOwnersProbe");
             Reserve(world.Bins, world.Counters, world.Touched, world.Args, points.Length * 8);
@@ -205,33 +206,27 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test, Timeout(30000)]
-        public void AllocationDiscovery_RecountRetiresCountsWithoutPriorReserve()
+        public void SnapshotReset_PreservesAddressClaimsWithoutRecountPacket()
         {
-            int3[] points = Enumerable.Repeat(new int3(7, 0, 0), 64).ToArray();
-            using var world = new OwnerWorld(points);
-            world.DispatchOwners("CountOwnersProbe");
-            Assert.That(Read<uint>(world.Counters)[MerkabaGrid.CounterTouchedTileCount], Is.EqualTo(2u));
-            uint4[] counted = Read<uint4>(world.Bins);
+            using var world = new OwnerWorld(new[] { new int3(7, 0, 0) });
+            uint[] counts = Read<uint>(world.Counters);
+            counts[MerkabaGrid.CounterNewBlockQueueCount] = 2u;
+            counts[MerkabaGrid.CounterNewChunkQueueCount] = 3u;
+            counts[MerkabaGrid.CounterNewTileQueueCount] = 4u;
+            counts[MerkabaGrid.CounterPendingNewTileCount] = 5u;
+            world.Counters.SetData(counts);
+            world.Args.SetData(new uint[] { 1u, 1u, 1u }, 0,
+                (int)MerkabaObservationBinsGpu.AllocationDispatchOffset / 4, 3);
             world.ResetBins();
-            CollectionAssert.AreEqual(counted, Read<uint4>(world.Bins),
-                "A HOT snapshot without allocation work must retain its counted spans.");
-            Assert.That(Read<uint>(world.Counters)[MerkabaGrid.CounterTouchedTileCount], Is.EqualTo(2u));
-            // The native command graph has NO Reserve between discovery and
-            // Reset. Model the GPU NEXT packet from a real allocation miss;
-            // only this gate permits a recount of the held observation.
-            world.Args.SetData(new uint[] { 8u, 1u, 1u }, 0, 0, 3);
-            world.ResetBins();
-            Assert.That(Read<uint4>(world.Bins).All(x => math.all(x == 0u)), Is.True);
-            CollectionAssert.AreEqual(new uint[] { 8u, 1u, 1u },
-                Read<uint>(world.Args).Skip((int)MerkabaObservationBinsGpu.RecountDispatchOffset / 4).Take(3));
-            world.DispatchOwners("CountOwnersProbe");
-            Reserve(world.Bins, world.Counters, world.Touched, world.Args, points.Length * 8);
-            world.DispatchOwners("EmitOwnersProbe");
-            CollectionAssert.AreEqual(world.Expected.OrderBy(x => x.y).ThenBy(x => x.x),
-                Read<uint4>(world.Records).OrderBy(x => x.y).ThenBy(x => x.x));
-            foreach (uint4 bin in Read<uint4>(world.Bins).Where(x => x.x == Generation))
-                Assert.That(bin.w, Is.EqualTo(bin.y));
-            Assert.That(Read<uint>(world.Counters)[MerkabaGrid.CounterObservationFailure], Is.Zero);
+            uint[] after = Read<uint>(world.Counters);
+            Assert.That(after[MerkabaGrid.CounterNewBlockQueueCount], Is.EqualTo(2u));
+            Assert.That(after[MerkabaGrid.CounterNewChunkQueueCount], Is.EqualTo(3u));
+            Assert.That(after[MerkabaGrid.CounterNewTileQueueCount], Is.EqualTo(4u));
+            Assert.That(after[MerkabaGrid.CounterPendingNewTileCount], Is.EqualTo(5u));
+            CollectionAssert.AreEqual(new uint[] { 1u, 1u, 1u },
+                Read<uint>(world.Args).Skip((int)MerkabaObservationBinsGpu.AllocationDispatchOffset / 4).Take(3));
+            Assert.That(MerkabaObservationBinsGpu.DispatchArgumentWords, Is.EqualTo(12),
+                "Only tile work, address publication and installs remain; no recount packet.");
         }
 
         [Test, Timeout(30000)]
@@ -571,6 +566,13 @@ namespace Genesis.RoomScan.Tests
             private readonly ComputeBuffer _tileBits, _tileRecords;
             public readonly uint4[] Expected;
             private readonly int _pointCount;
+            public int Token { get; private set; } = Generation;
+
+            public void BeginNextSnapshot()
+            {
+                Token++;
+                Counters.SetData(new uint[] { (uint)Token }, 0, MerkabaGrid.CounterObservationToken, 1);
+            }
 
             public OwnerWorld(int3[] points)
             {
@@ -661,7 +663,7 @@ namespace Genesis.RoomScan.Tests
             {
                 ComputeShader shader = Shader("Tests/Editor/MerkabaObservationBinsProbe.compute");
                 int kernel = shader.FindKernel(name);
-                Bind(shader, kernel, Bins, Counters, Expected.Length);
+                Bind(shader, kernel, Bins, Counters, Expected.Length, Token);
                 shader.SetInt("_ProbeRecordCount", _pointCount);
                 shader.SetBuffer(kernel, "_ProbeRecords", _sources);
                 shader.SetBuffer(kernel, "_M8ObservationDispatchArgs", Args);
@@ -692,7 +694,7 @@ namespace Genesis.RoomScan.Tests
                         expected[record.x >> 5] |= 1u << (int)(record.x & 31u);
                 uint4[] actual = Read<uint4>(_tileBits);
                 CollectionAssert.AreEqual(expected, actual.Select(word => word.z),
-                    "Only emitted frozen endpoints may exclude their support from THROUGH.");
+                    "Only emitted frozen endpoints may mark this snapshot's touched support.");
             }
 
             public void ServiceTileRequests()
@@ -713,9 +715,9 @@ namespace Genesis.RoomScan.Tests
 
             public void ResetBins()
             {
-                ComputeShader shader = Shader("Runtime/Shaders/MerkabaObservationBins.compute");
+                ComputeShader shader = Shader("Tests/Editor/MerkabaObservationBinsProbe.compute");
                 int kernel = shader.FindKernel("ResetObservationBins");
-                Bind(shader, kernel, Bins, Counters, Expected.Length);
+                Bind(shader, kernel, Bins, Counters, Expected.Length, Token);
                 shader.SetBuffer(kernel, "_M8TouchedTileQueue", Touched);
                 shader.SetBuffer(kernel, "_M8ObservationDispatchArgs", Args);
                 shader.SetBuffer(kernel, "_M8TileBits", _tileBits);

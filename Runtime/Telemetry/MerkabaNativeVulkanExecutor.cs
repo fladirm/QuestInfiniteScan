@@ -14,13 +14,13 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        // ABI 29: direct-only resources; specialize existing count/emit page passes; same command graph.
-        internal const int AbiVersion = 29;
-        internal const int ResourceCount = 41;
-        internal const int PipelineCount = 33;
+        // ABI 30: independent address residency; no depth-certificate resource.
+        internal const int AbiVersion = 30;
+        internal const int ResourceCount = 40;
+        internal const int PipelineCount = 27;
         // Native codegen verifies this against the longest complete schedule,
         // including indirect commands whose GPU work count may be zero.
-        internal const int MaximumDispatchTimingCount = 39;
+        internal const int MaximumDispatchTimingCount = 14;
         internal const int MaximumTimestampCount = MaximumDispatchTimingCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -31,6 +31,7 @@ namespace Genesis.RoomScan
             Observation = 0,
             FlowerReadout = 1,
             FineErase = 2,
+            Residency = 3,
         }
 
         [Flags]
@@ -78,7 +79,6 @@ namespace Genesis.RoomScan
             ObservationRecords,
             ObservationTileBins,
             TileHalo,
-            DepthCertificate,
             FlowerDetailPages,
             ThreadAtlasPages,
             FlowerSymbolArena,
@@ -119,9 +119,6 @@ namespace Genesis.RoomScan
         private static readonly string[] PipelineNames =
         {
             "StereoFlowerRefine",
-            "BuildDepthCertificate",
-            "ReduceDepthCertificate",
-            "ResetObservationBins",
             "CountObservationBins",
             "ResolveMissingSpatialNodes",
             "ResolveObservationTileRequests",
@@ -134,11 +131,9 @@ namespace Genesis.RoomScan
             "PublishFlowerR1",
             "PrepareFlowerOwners",
             "IntegrateFlowerRoot",
-            "IntegrateFlowerL1",
-            "IntegrateFlowerL2",
+            "IntegrateFlowerChildren",
             "ResolveFlowerCarriers",
-            "DrainFlowerSkinRgb",
-            "DrainFlowerSkinV",
+            "IntegrateFlowerSkin",
             "FinalizeObservation",
             "ClassifyHotFlowerPages",
             "PrepareDirtyFlowerBatch",

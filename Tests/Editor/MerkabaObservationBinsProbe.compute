@@ -1,3 +1,4 @@
+#pragma kernel ResetObservationBins
 #pragma kernel CountBinsProbe
 #pragma kernel EmitBinsProbe
 #pragma kernel ReduceBinsProbe
@@ -181,4 +182,10 @@ void ReduceBinsProbe(uint lane : SV_GroupIndex)
             uint4(identity, asuint(lower), asuint(upper), pixel) :
             0xffffffffu.xxxx;
     }
+}
+
+[numthreads(256, 1, 1)]
+void ResetObservationBins(uint lane : SV_GroupIndex)
+{
+    M8FlowerResetObservationBins(lane);
 }

@@ -10532,3 +10532,37 @@ NEXT=all-shader precompiled delivery is unresolved: PC emits SPIR-V, not Adreno
   Preparation-time Quest compilation permission is unanswered; do not run it.
   Do not claim zero driver compilation or a completed scanner. The product goal
   remains blocked. Continue from this receipt, not the historical RT4 APK above.
+
+## C1 — once-only snapshot execution, 2026-09-11 18:44 UTC
+
+AUTHORITY=post-b1f59c7 user closure; M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
+  updated in place. Goal ACTIVE. Manufacturing capture on a compatible Quest
+  is now explicitly authorized, but only after complete source implementation.
+IMPLEMENTED=HOT Count/Reserve/Emit once. Missing/COLD publishes address-only
+  requests; independent Residency job installs for later snapshots. No recount,
+  camera lease or snapshot-semantic retry. Pending uninstalled addresses survive
+  finalization; submitted residency retires before lifecycle shutdown.
+  DepthCertificate hierarchy has no direct-only production consumer: removed
+  its Build/Reduce pipelines, buffer and scene binding. Exact measured-plane
+  and bounded skin projection helpers remain in generated ObservationProjection;
+  certificate oracle moved to Tests/Editor, using that shared projection code.
+  Scalar snapshot reset replaced by GPU transfer fills generated from the C#
+  counter list. Owner-local L1/L2 share IntegrateFlowerChildren, with the required
+  shared-L0-root global barrier retained. RGB/V execute sequentially in one
+  IntegrateFlowerSkin WG per owner, retaining separate persistent authorities.
+  Native ABI30: 27 pipelines, 40 resources, 14 maximum timing slots.
+SCHEDULE=14 Observation / 3 independent Residency / 7 Readout / 6 ERASE.
+  Original 39-observation schedule removed. Target 9–11 is NOT yet achieved;
+  no performance claim or artificial barrier removal to hit a number.
+COMPILE=Unity 6000.5.9f1 C#/shader import + exact codegen PASS; ARM64 plugin
+  including all 27 embedded entrypoints PASS. Children 679996 B / 35579 body
+  instructions / 14580 B shared; Skin 822156 B / 42496 instructions / 204 B shared.
+  Both REVIEW below unchanged hard gates; not a device occupancy/perf result.
+  Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c1-compile-qvkXvW
+  unity-c1-final.log; native-c1-final.log; children/; skin/.
+VALIDATION=full suite NOT RUN, APK NOT BUILT, device/capture NOT RUN.
+NEXT=C2 owner replacements: stop live readout from reacquiring geometry already
+  resolved by canonical commit. Preserve cold/OPEN canonical reconstruction,
+  peer dependencies, shared knots and exact RGB/V. Then C3 all-PSO binaries,
+  C4 one full validation/manufacturing/final APK/device pass. Do not reopen
+  dual/DIRT, persistent cursor or the old refinement-task machine.

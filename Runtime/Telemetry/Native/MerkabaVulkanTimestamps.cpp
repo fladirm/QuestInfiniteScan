@@ -58,7 +58,6 @@ namespace
         kResourceObservationRecords,
         kResourceObservationTileBins,
         kResourceTileHalo,
-        kResourceDepthCertificate,
         kResourceFlowerDetailPages,
         kResourceThreadAtlasPages,
         kResourceFlowerSymbolArena,
@@ -117,10 +116,10 @@ namespace
 
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
-    static_assert(kMerkabaExecutorPipelineCount == 32,
-        "M8 executor pipeline tables must be regenerated for ABI 29");
+    static_assert(kMerkabaExecutorPipelineCount == 27,
+        "M8 executor pipeline tables must be regenerated for ABI 30");
 
-    constexpr uint32_t kExecutorAbiVersion = 29;
+    constexpr uint32_t kExecutorAbiVersion = 30;
     constexpr uint32_t kFlowerPipelineBegin = kPipelineClassifyHotFlowerPages;
     constexpr uint32_t kFlowerPreparePipeline = kPipelinePrepareDirtyFlowerBatch;
     constexpr uint32_t kFlowerEmitPipeline = kPipelineEmitDirtyFlowerSymbols;
@@ -142,7 +141,8 @@ namespace
         kJobObservation = 0,
         kJobFlowerReadout = 1,
         kJobFineErase = 2,
-        kJobKindCount = 3,
+        kJobResidency = 3,
+        kJobKindCount = 4,
     };
 
     struct MerkabaUniformValue
@@ -1926,15 +1926,8 @@ namespace
             std::strcmp(dispatch, "refine") == 0)
             vkCmdDispatch(job->commandBuffer, job->depthGroupsX,
                 job->depthGroupsY, 1);
-        else if (std::strcmp(dispatch, "recount_depth") == 0)
-            vkCmdDispatchIndirect(job->commandBuffer,
-                job->buffers[kResourceObservationDispatchArgs].buffer, 48u);
         else if (std::strcmp(dispatch, "query") == 0)
             vkCmdDispatch(job->commandBuffer, job->queryGroups, 1, 1);
-        else if (std::strcmp(dispatch, "certificate_local") == 0)
-            vkCmdDispatch(job->commandBuffer, 32, 32, 2);
-        else if (std::strcmp(dispatch, "certificate_root") == 0)
-            vkCmdDispatch(job->commandBuffer, 1, 1, 2);
         else if (std::strcmp(dispatch, "flower_slots") == 0)
             vkCmdDispatch(job->commandBuffer, kFlowerSlotGroupCount, 1, 1);
         else if (std::strcmp(dispatch, "flower_batch") == 0)
@@ -2025,6 +2018,16 @@ namespace
             vkCmdFillBuffer(job->commandBuffer, signals, 44u, 8u, 0u);
             vkCmdFillBuffer(job->commandBuffer, signals, 52u, 8u, 1u);
             vkCmdFillBuffer(job->commandBuffer, signals, 60u, 4100u, 0u);
+        }
+        if (job->kind == kJobObservation)
+        {
+            for (uint32_t offset : kMerkabaObservationCounterResetOffsets)
+                vkCmdFillBuffer(job->commandBuffer,
+                    job->buffers[kResourceCounters].buffer, offset, sizeof(uint32_t), 0u);
+            VkBuffer arguments = job->buffers[kResourceObservationDispatchArgs].buffer;
+            vkCmdFillBuffer(job->commandBuffer, arguments, 0u, sizeof(uint32_t), 0u);
+            vkCmdFillBuffer(job->commandBuffer, arguments, sizeof(uint32_t),
+                2u * sizeof(uint32_t), 1u);
         }
         if (job->kind == kJobFineErase)
         {
