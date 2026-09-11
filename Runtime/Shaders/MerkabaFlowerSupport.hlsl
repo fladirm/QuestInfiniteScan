@@ -328,6 +328,17 @@ bool M8FlowerSupportCoverCells(M8FlowerInterval3 bounds,out int3 firstCell,out i
     return true;
 }
 
+#if defined(M8_FLOWER_CARRIER_BATCH_READ)
+bool M8FlowerSupportSiteBounds(uint carrier,uint site,M8FlowerPhaseRootEvidence root,
+    out M8FlowerInterval3 bounds);
+#else
+bool M8FlowerSupportSiteBounds(uint carrier,uint site,M8FlowerPhaseRootEvidence root,
+    out M8FlowerInterval3 bounds)
+{
+    return M8FlowerRootRelativeBounds(M8FlowerL2CarrierKnot(carrier,site),root,bounds);
+}
+#endif
+
 bool M8FlowerSupportWedgeBounds(int3 owner,uint carrier,uint wedge,
     M8FlowerPhaseRootEvidence roots[7],out M8FlowerInterval3 minimumMaximum[3],
     out int3 firstCell,out int3 lastCell)
@@ -347,7 +358,7 @@ bool M8FlowerSupportWedgeBounds(int3 owner,uint carrier,uint wedge,
     {
         M8FlowerInterval3 relative;
         uint site=sites[vertex];
-        if(!M8FlowerRootRelativeBounds(M8FlowerL2CarrierKnot(carrier,site),roots[site],relative))return false;
+        if(!M8FlowerSupportSiteBounds(carrier,site,roots[site],relative))return false;
         minimumMaximum[vertex].x=M8FlowerIAdd(relative.x,translation.x);
         minimumMaximum[vertex].y=M8FlowerIAdd(relative.y,translation.y);
         minimumMaximum[vertex].z=M8FlowerIAdd(relative.z,translation.z);

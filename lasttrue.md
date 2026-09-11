@@ -10367,3 +10367,24 @@ CURSOR=RT3 OPEN. Next reuse already computed site intervals in dual wedge
   RGB/V, optical-only root, stale/malformed runs, capacity checks, header/write
   ordering and exact shader/CPU sample bytes. Necessary shader compile only;
   TESTS/APK/INSTALL/DEVICE=not run.
+
+## RT3 — reuse selected knot bounds for dual admission (after b3fc153)
+
+CHANGE=SupportWedgeBounds reads the exact coordinate enclosure already computed
+  by the cooperative site stage. It validates the batch owner/carrier/site and
+  full root tag/J/interval identity before using the cache; no fit, midpoint
+  enclosure, clamp or recomputation. The shared hub/ring interval is not rebuilt
+  per incident wedge. Translation, floor/cell range, dual predicate and required
+  COLD receipts remain unchanged. The scalar non-batch consumer retains the
+  same RootRelativeBounds formula, not a production readout fallback.
+COMPILE=exact native glslang/spirv-val PASS:
+  /tmp/m8-rt3-shared-support-vlpg9b4x
+  Compact 1,227,068 B / 64,938 body / 26,556 B shared / 7 RW / 256 lanes /
+  76 barriers; sha256 a0c169d134dc7e4ccfe4b9c8675778892f7d824e90ce3e2d4170c29b3f1a1274.
+  Size gate STILL FAILS. No new scratch, dispatch, CPU hotpath or device claim.
+CURSOR=RT3 OPEN. Selected seven-site positions and six wedge dual queries still
+  run on eight carrier lanes despite cooperative upstream evidence. Continue
+  that bounded fan-out; do not repeat source/ancestry/junction/skin work. RT4
+  must compare cached/noncached bounds and dual receipts bit-for-bit including
+  half-open roots, shared hubs/ring knots, negative coordinates and COLD halo.
+TESTS/APK/INSTALL/DEVICE=not run. The complete rewrite is not yet accepted.

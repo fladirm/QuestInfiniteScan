@@ -616,6 +616,15 @@ void M8FlowerReadCarrierAlternatives(uint slot,uint local,uint carrier,float2 er
     direct=uint2(m8FlowerDecodeTriples[first+4u],m8FlowerDecodeTriples[first+5u]);
 }
 
+void M8FlowerPacketSiteBounds(uint index,out M8FlowerInterval3 bounds)
+{
+    uint2 x=m8FlowerPageOwnerSpans[3u*index],y=m8FlowerPageOwnerSpans[3u*index+1u],
+        z=m8FlowerPageOwnerSpans[3u*index+2u];
+    bounds.x=M8FlowerI(asfloat(x.x),asfloat(x.y));
+    bounds.y=M8FlowerI(asfloat(y.x),asfloat(y.y));
+    bounds.z=M8FlowerI(asfloat(z.x),asfloat(z.y));
+}
+
 bool M8FlowerReadCarrierSiteSupport(uint slot,uint local,uint ownerRef,int3 owner,uint flags,
     uint carrier,uint site,bool plus,float2 errors,out M8FlowerInterval3 bounds,
     out uint proofTag,out uint classification)
@@ -628,12 +637,33 @@ bool M8FlowerReadCarrierSiteSupport(uint slot,uint local,uint ownerRef,int3 owne
     if(!read)return false;
     uint index=14u*m8FlowerPacketTask+2u*site+(plus?1u:0u);
     if((m8FlowerSupportScratch[M8_FLOWER_PACKET_SITES+10u*index+9u]&0x40000000u)==0u)return false;
-    uint2 x=m8FlowerPageOwnerSpans[3u*index],y=m8FlowerPageOwnerSpans[3u*index+1u],
-        z=m8FlowerPageOwnerSpans[3u*index+2u];
-    bounds.x=M8FlowerI(asfloat(x.x),asfloat(x.y));
-    bounds.y=M8FlowerI(asfloat(y.x),asfloat(y.y));
-    bounds.z=M8FlowerI(asfloat(z.x),asfloat(z.y));
+    M8FlowerPacketSiteBounds(index,bounds);
     proofTag=m8FlowerDecodeProofTags[index];
+    return true;
+}
+
+// Dual admission consumes the very same metric enclosure as source incidence.
+// The selected knot is an exact copy of this batch's site; no new plane/root
+// calculation is needed for its second incident wedge or the hub's six uses.
+bool M8FlowerSupportSiteBounds(uint carrier,uint site,M8FlowerPhaseRootEvidence root,
+    out M8FlowerInterval3 bounds)
+{
+    bounds=(M8FlowerInterval3)0;
+    uint task=m8FlowerPacketTask;
+    if(task>=8u || site>=7u || (m8PacketValid&(1u<<task))==0u ||
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_TASKS+4u*task]!=carrier ||
+        m8FlowerSupportScratch[M8_FLOWER_PACKET_CACHE]!=m8PacketTarget)
+    {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return false;}
+    uint index=14u*task+2u*site+((root.Tag>>7u)&1u);
+    uint address=M8_FLOWER_PACKET_SITES+10u*index;
+    M8FlowerPhaseRootEvidence cached;uint receipt;
+    bool read=M8FlowerPacketReadSite(address,cached,receipt);
+    if(!read || (m8FlowerSupportScratch[address+9u]&0x40000000u)==0u)return false;
+    if(root.Classification!=1u || cached.Classification!=1u ||
+        root.Tag!=cached.Tag || any(root.Junction!=cached.Junction) ||
+        any(M8FlowerSourceMetricBits(root)!=M8FlowerSourceMetricBits(cached)))
+    {InterlockedOr(m8FlowerCompileStatus,M8_FLOWER_ARENA_INVALID);return false;}
+    M8FlowerPacketSiteBounds(index,bounds);
     return true;
 }
 

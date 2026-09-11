@@ -265,12 +265,22 @@ its duplicate region evaluator calls are removed, not retained as a fallback.
 Exact Compact compilation PASS: 1,232,316 B / 65,201 body / 26,556 B shared /
 7 RW / 256 lanes. Size gate STILL FAILS. No CPU path or dispatch was added.
 
+DUAL SUPPORT=selected wedge knots now reuse the exact site enclosures already
+computed by DecodeCarrierBatch. The callback validates the source/task and full
+symbolic/interval identity before reading the same cached bounds. The hub and
+ring no longer recompute coordinate intervals for each incident wedge. The
+ordered translation, cell cover, dual classifications and receipts are unchanged.
+Exact Compact compile PASS: 1,227,068 B / 64,938 body / 26,556 B shared /
+7 RW / 256 lanes. Size gate STILL FAILS; no CPU or resource was added.
+
 NEXT=RT3 actual-carrier site/completion work, not another cursor audit.
-SupportWedgeBounds still recomputes selected RootRelativeBounds for every
-incident wedge, although DecodeCarrierBatch already computed exactly these
-intervals on independent site lanes. Reuse that same batch cache under the
-existing source lease. Then address remaining carrier/site acquisition.
-Do not redo source-cache, ancestry, R3 evidence or skin emission. The coverage and atlas
+ClassifyL2Carrier still materializes its selected seven roots/positions on one
+of eight carrier lanes, then PageCarrier checks six wedges on that lane. The
+upstream site/sign and triple evidence is already cooperative and cached.
+Move the selected-site/wedge work onto those existing lanes without changing
+the shared decoder predicates or adding a second solver. Keep all required
+completion child proofs and COLD dependency ordering. Do not redo source-cache,
+ancestry, R3 evidence, skin emission or dual-bound reuse. The coverage and atlas
 checkpoints do not close RT3 or move CPU decode into the live hotpath. RT4 must
 prove compact source-cache bit parity, reached-face owner
 mask omits no coverage contributor and 32-lane accumulation matches scalar OR.
