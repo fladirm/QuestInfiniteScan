@@ -643,7 +643,10 @@ namespace Genesis.RoomScan.Tests
                 {
                     long value = SigmaNumericDomain.QAdd(
                         SigmaNumericDomain.Half,
-                        SigmaNumericDomain.QShiftRight(target[permutation[leaf]], 3));
+                        SigmaNumericDomain.QAdd(
+                            SigmaNumericDomain.QShiftRight(
+                                target[permutation[leaf]], 3),
+                            SigmaNumericDomain.One >> 5));
                     code[leaf] = new SigmaQ48Interval(value, value);
                 }
                 var footprint = new SigmaInstrumentFootprint(ray,
@@ -714,6 +717,16 @@ namespace Genesis.RoomScan.Tests
                         : SigmaNumericDomain.QNegate(query.Measured[leaf].Lower);
                 }
                 CollectionAssert.AreEqual(target, pulledBack);
+                int commonSign = query.Rows[0].First(value => value != 0L) > 0L
+                    ? 1 : -1;
+                long pulledCommon = commonSign > 0
+                    ? query.CommonMode.Lower
+                    : SigmaNumericDomain.QNegate(query.CommonMode.Upper);
+                Assert.That(query.CommonMode.Lower,
+                    Is.EqualTo(query.CommonMode.Upper));
+                Assert.That(pulledCommon,
+                    Is.EqualTo(SigmaNumericDomain.One >> 2),
+                    "Permutation leaves q invariant and row sign is covariant.");
                 Assert.That(query.MetricDirectOrder,
                     Is.EqualTo(new SigmaQ48Interval(
                         SigmaNumericDomain.FromInteger(2),
@@ -732,7 +745,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode()
+        public void FreshCompleteLiftRetainsAbsoluteSensorCodeCommonMode()
         {
             long step = SigmaNumericDomain.One >> 4;
             long[] codeA =
@@ -760,13 +773,111 @@ namespace Genesis.RoomScan.Tests
             CollectionAssert.AreEqual(tangentA, tangentB,
                 "The generated four-I-minus-all-ones tangent intentionally " +
                 "annihilates a common code offset.");
-            Assert.That(SigmaGeneratedMerkabaProgram.LiftMerkabaShadow(tangentA),
-                Is.EqualTo(SigmaGeneratedMerkabaProgram.LiftMerkabaShadow(
-                    tangentB)),
-                "The accepted fresh S16 lift cannot distinguish the two codes.");
+            static long Common(IReadOnlyList<long> code) => code
+                .Select(value => SigmaNumericDomain.QSub(
+                    SigmaNumericDomain.QShiftLeft(value, 1),
+                    SigmaNumericDomain.One))
+                .Aggregate(0L, SigmaNumericDomain.QAdd);
+            long commonA = Common(codeA);
+            long commonB = Common(codeB);
+            Assert.That(commonA, Is.Not.EqualTo(commonB));
+            SigmaS16 stateA = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaComplete(tangentA, commonA);
+            SigmaS16 stateB = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaComplete(tangentB, commonB);
+            Assert.That(stateA, Is.Not.EqualTo(stateB),
+                "The full S16 must retain the distinguished common fibre.");
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .EvaluateMerkabaCommonMode(stateA), Is.EqualTo(commonA));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .EvaluateMerkabaCommonMode(stateB), Is.EqualTo(commonB));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .TryRecoverMerkabaCentredLeaves(stateA, out long[] leavesA),
+                Is.True);
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .TryRecoverMerkabaCentredLeaves(stateB, out long[] leavesB),
+                Is.True);
+            long[] recoveredA = leavesA.Select(value =>
+                SigmaNumericDomain.QShiftRight(SigmaNumericDomain.QAdd(
+                    value, SigmaNumericDomain.One), 1)).ToArray();
+            long[] recoveredB = leavesB.Select(value =>
+                SigmaNumericDomain.QShiftRight(SigmaNumericDomain.QAdd(
+                    value, SigmaNumericDomain.One), 1)).ToArray();
+            CollectionAssert.AreEqual(codeA, recoveredA);
+            CollectionAssert.AreEqual(codeB, recoveredB);
             Assert.That(codeA[0], Is.Not.EqualTo(codeB[0]),
-                "The corresponding absolute depth/order code is nevertheless " +
-                "different and cannot be reconstructed from that S16 value.");
+                "The absolute depth/order collision fixture must remain real.");
+        }
+
+        [Test]
+        public void MerkabaCommonDualIsShadowNullAndPreservesTangentLift()
+        {
+            long quantum = SigmaNumericDomain.One >> 8;
+            long[] tangent = { quantum, -quantum, quantum, -quantum };
+            long common = 3L * quantum;
+            SigmaS16 tangentState = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaShadow(tangent);
+            SigmaS16 commonState = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaCommonMode(common);
+            CollectionAssert.AreEqual(new long[4],
+                SigmaGeneratedMerkabaProgram.EvaluateMerkabaShadow(commonState));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .EvaluateMerkabaCommonMode(tangentState), Is.Zero);
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .EvaluateMerkabaCommonMode(commonState), Is.EqualTo(common));
+            SigmaS16 complete = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaComplete(tangent, common);
+            CollectionAssert.AreEqual(tangent,
+                SigmaGeneratedMerkabaProgram.EvaluateMerkabaShadow(complete));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .EvaluateMerkabaCommonMode(complete), Is.EqualTo(common));
+            Assert.That(SigmaGeneratedMerkabaProgram.LiftMerkabaComplete(
+                    tangent, 0L),
+                Is.EqualTo(tangentState),
+                "The established tangent result is byte-identical when q=0.");
+            Assert.That(SigmaGeneratedMerkabaProgram.LiftMerkabaComplete(
+                    new long[4], 0L).IsZero,
+                Is.True, "ZEmpty remains ZEmpty exactly at (t,q)=(0,0).");
+        }
+
+        [Test]
+        public void PriorCompleteCorrectionPreservesUnrelatedHiddenS16Mode()
+        {
+            long quantum = SigmaNumericDomain.One >> 8;
+            long[] priorT = { quantum, -quantum, quantum, -quantum };
+            long[] selectedT = { 2L * quantum, -quantum, 0L, -quantum };
+            long priorQ = 3L * quantum;
+            long selectedQ = 5L * quantum;
+            long hidden = 7L * quantum;
+
+            long[] prior = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaComplete(priorT, priorQ).ToArray();
+            prior[0] = SigmaNumericDomain.QAdd(prior[0], hidden);
+            prior[15] = SigmaNumericDomain.QAdd(prior[15], hidden);
+            long[] deltaT = selectedT.Zip(priorT,
+                SigmaNumericDomain.QSub).ToArray();
+            SigmaS16 tangentCorrection = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaShadow(deltaT);
+            SigmaS16 commonCorrection = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaCommonMode(SigmaNumericDomain.QSub(
+                    selectedQ, priorQ));
+            long[] corrected = prior.Select((value, lane) =>
+                SigmaNumericDomain.QAdd(value, SigmaNumericDomain.QAdd(
+                    tangentCorrection[lane], commonCorrection[lane]))).ToArray();
+            long[] selectedBase = SigmaGeneratedMerkabaProgram
+                .LiftMerkabaComplete(selectedT, selectedQ).ToArray();
+            long[] residual = corrected.Select((value, lane) =>
+                SigmaNumericDomain.QSub(value, selectedBase[lane])).ToArray();
+
+            Assert.That(residual[0], Is.EqualTo(hidden));
+            Assert.That(residual[15], Is.EqualTo(hidden));
+            Assert.That(residual.Where((_, lane) => lane != 0 && lane != 15),
+                Is.All.EqualTo(0L));
+            CollectionAssert.AreEqual(selectedT,
+                SigmaGeneratedMerkabaProgram.EvaluateMerkabaShadow(
+                    SigmaS16.FromArray(corrected)));
+            Assert.That(SigmaGeneratedMerkabaProgram.EvaluateMerkabaCommonMode(
+                SigmaS16.FromArray(corrected)), Is.EqualTo(selectedQ));
         }
 
         [Test]
@@ -1106,7 +1217,8 @@ namespace Genesis.RoomScan.Tests
             };
             SigmaQ48Interval[] exact = target.Select(value =>
                 new SigmaQ48Interval(value, value)).ToArray();
-            var branch = new SigmaFreshShadowBranch(exact, 3u, true,
+            var branch = new SigmaFreshShadowBranch(exact,
+                new SigmaQ48Interval(0L, 0L), 3u, true,
                 "left+right");
             Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
                 new[] { branch, branch }, out SigmaFreshBaseAdmission admission),
@@ -1134,15 +1246,24 @@ namespace Genesis.RoomScan.Tests
                 -SigmaNumericDomain.Half,
             };
             var other = new SigmaFreshShadowBranch(otherTarget.Select(value =>
-                new SigmaQ48Interval(value, value)), 3u, true, "other");
+                new SigmaQ48Interval(value, value)),
+                new SigmaQ48Interval(0L, 0L), 3u, true, "other");
             Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
                 new[] { branch, other }, out _), Is.False,
                 "Non-equivalent reverse branches must remain unresolved.");
+            var differentCommon = new SigmaFreshShadowBranch(exact,
+                new SigmaQ48Interval(SigmaNumericDomain.Half,
+                    SigmaNumericDomain.Half), 3u, true, "different-q");
             Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
-                new[] { new SigmaFreshShadowBranch(exact, 1u, true, "left-only") },
+                new[] { branch, differentCommon }, out _), Is.False,
+                "Inconsistent coherent q branches must remain unresolved.");
+            Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
+                new[] { new SigmaFreshShadowBranch(exact,
+                    new SigmaQ48Interval(0L, 0L), 1u, true, "left-only") },
                 out _), Is.False, "One eye cannot mint the coherent stereo base case.");
             Assert.That(SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
-                new[] { new SigmaFreshShadowBranch(exact, 3u, false,
+                new[] { new SigmaFreshShadowBranch(exact,
+                    new SigmaQ48Interval(0L, 0L), 3u, false,
                     "incoherent") }, out _), Is.False);
             Assert.That(SigmaGeneratedMerkabaProgram.EvaluateFreshBoundaryRelation(
                     SigmaS16.Zero),
@@ -1427,8 +1548,8 @@ namespace Genesis.RoomScan.Tests
             var matrices = new UInt4[16 * 16];
             var ir = new UInt4[SigmaGeneratedMerkabaProgram.IrNodeCount * 2];
             var actions = new UInt4[4];
-            var fresh = new UInt4[23];
-            var instrument = new UInt4[8];
+            var fresh = new UInt4[24];
+            var instrument = new UInt4[9];
             var gauge = new UInt4[40];
             var stitch = new UInt4[47];
             using var resultBuffer = Buffer(results.Length);
@@ -1581,7 +1702,8 @@ namespace Genesis.RoomScan.Tests
                 SigmaNumericDomain.Half, -SigmaNumericDomain.Half,
             };
             SigmaS16 expectedState = SigmaGeneratedMerkabaProgram
-                .LiftMerkabaShadow(expectedShadow);
+                .LiftMerkabaComplete(expectedShadow,
+                    SigmaNumericDomain.Half);
             for (int axis = 0; axis < 4; ++axis)
             {
                 Assert.That(Join(fresh[axis].X, fresh[axis].Y),
@@ -1608,6 +1730,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(fresh[22].X,
                 Is.EqualTo((uint)SigmaMerkabaRelationClass.NoRelation));
             Assert.That(fresh[22].Y, Is.EqualTo(1u));
+            Assert.That(Join(fresh[23].X, fresh[23].Y),
+                Is.EqualTo(SigmaNumericDomain.Half));
+            Assert.That(Join(fresh[23].Z, fresh[23].W),
+                Is.EqualTo(SigmaNumericDomain.Half));
 
             long[] instrumentRay =
             {
@@ -1643,6 +1769,13 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(Join(instrument[4 + leaf].Z,
                     instrument[4 + leaf].W), Is.EqualTo(expected));
             }
+            long expectedCommon = SigmaNumericDomain.Half;
+            if (expectedSign < 0)
+                expectedCommon = SigmaNumericDomain.QNegate(expectedCommon);
+            Assert.That(Join(instrument[8].X, instrument[8].Y),
+                Is.EqualTo(expectedCommon));
+            Assert.That(Join(instrument[8].Z, instrument[8].W),
+                Is.EqualTo(expectedCommon));
             SigmaGaugeCell[] expectedChildren =
                 SigmaGeneratedMerkabaProgram.SplitGaugeCell(
                     new SigmaGaugeCell(5L, -3L, 0, "gauge-parity"));

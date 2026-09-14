@@ -15,6 +15,7 @@ namespace Genesis.RoomScan.UI
         private Button _toggleScan;
         private Button _renderMode;
         private Button _clear;
+        private Slider _readoutOpacity;
         private Label _scanState;
         private Label _renderState;
         private Label _pipeline;
@@ -95,6 +96,7 @@ namespace Genesis.RoomScan.UI
             _toggleScan = _root.Q<Button>("btn-toggle-scan");
             _renderMode = _root.Q<Button>("btn-render-mode");
             _clear = _root.Q<Button>("btn-clear-all");
+            _readoutOpacity = _root.Q<Slider>("readout-opacity");
             _scanState = _root.Q<Label>("val-scanning");
             _renderState = _root.Q<Label>("val-render");
             _pipeline = _root.Q<Label>("val-pipeline");
@@ -115,6 +117,12 @@ namespace Genesis.RoomScan.UI
                 RoomScanner.Instance?.CycleRenderMode());
             _clear?.RegisterCallback<ClickEvent>(_ =>
                 RoomScanner.Instance?.ClearAllDataAsync());
+            _readoutOpacity?.RegisterValueChangedCallback(change =>
+            {
+                SigmaRenderer renderer = RoomScanner.Instance?.SigmaRenderer;
+                if (renderer != null)
+                    renderer.ReadoutOpacity = change.newValue;
+            });
         }
 
         private void RefreshStatus()
@@ -122,6 +130,9 @@ namespace Genesis.RoomScan.UI
             RoomScanner scanner = RoomScanner.Instance;
             if (scanner == null)
                 return;
+            if (scanner.SigmaRenderer != null)
+                _readoutOpacity?.SetValueWithoutNotify(
+                    scanner.SigmaRenderer.ReadoutOpacity);
 
             string lifecycle = scanner.ScanLifecycle switch
             {

@@ -1,0 +1,4 @@
+#pragma kernel BuildPureEyeReadout
+#pragma target 5.0
+
+#include "../../../Runtime/Resources/SigmaPrism/SigmaForwardReadout.hlsl"

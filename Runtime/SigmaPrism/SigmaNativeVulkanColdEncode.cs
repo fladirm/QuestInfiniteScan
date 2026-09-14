@@ -64,7 +64,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 nameof(exactGate));
             if (_activeJob != null ||
                 SigmaNativeVulkanExecutor.HasJobInFlight ||
-                SigmaNativeVulkanColdUpload.HasJobInFlight)
+                SigmaNativeVulkanColdUpload.HasJobInFlight ||
+                SigmaNativeVulkanReadout.HasJobInFlight)
                 throw new InvalidOperationException(
                     "Cold durable encode requires exclusive scanner-bank " +
                     "ownership; XR FRONT remains independent.");

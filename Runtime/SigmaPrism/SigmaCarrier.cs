@@ -243,7 +243,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _pager.Activity != SigmaPagerActivity.Idle ||
                 SigmaNativeVulkanExecutor.HasJobInFlight ||
                 SigmaNativeVulkanColdEncode.HasJobInFlight ||
-                SigmaNativeVulkanColdUpload.HasJobInFlight)
+                SigmaNativeVulkanColdUpload.HasJobInFlight ||
+                SigmaNativeVulkanReadout.HasJobInFlight)
                 throw new InvalidOperationException(
                     "Explicit clear is blocked by an unfinished GPU/durable " +
                     "owner.");
@@ -550,7 +551,8 @@ namespace Genesis.RoomScan.SigmaPrism
                             SigmaPagerActivity.Idle) ||
                         SigmaNativeVulkanExecutor.HasJobInFlight ||
                         SigmaNativeVulkanColdEncode.HasJobInFlight ||
-                        SigmaNativeVulkanColdUpload.HasJobInFlight)
+                        SigmaNativeVulkanColdUpload.HasJobInFlight ||
+                        SigmaNativeVulkanReadout.HasJobInFlight)
                     {
                         error = null;
                         return SigmaGpuCompletionStatus.Pending;

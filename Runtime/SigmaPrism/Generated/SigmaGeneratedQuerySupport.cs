@@ -10,10 +10,10 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string LocalContribution =
             "SENSOR_FORWARD_WITNESS";
         internal const string Reductions = "DIRECT_ORDER,FIRST_HIT,OCCLUSION";
-        internal const string ProgramFingerprint = "09564b2e81bb16313af6e80bc42845e47111d354d0f347e2fedd242eca0eab33";
+        internal const string ProgramFingerprint = "02c6e62eef58aedd99f7ff4433dd7dead8de2fc6d2ea80ace3e0d0039661fafa";
         internal const string PlanDescriptor =
-            "PREDICTION_SUPPORT|FULL_FIELD_PLUS_SENSOR_QUERY|SENSOR_FORWARD_WITNESS|DIRECT_ORDER,FIRST_HIT,OCCLUSION|EXACT_GEOMETRY_READOUT_Q48_AABB|FINITE_CONTACT_FOOTPRINT_OUTWARD|MISSING_STALE_CORRUPT_INCLUDE|PROGRAM=09564b2e81bb16313af6e80bc42845e47111d354d0f347e2fedd242eca0eab33";
-        internal const string PlanFingerprint = "baec9798eff47cc63f73b37af5c0f3972bea57d58710f571ceb9c2c1f2dc7b31";
+            "PREDICTION_SUPPORT|FULL_FIELD_PLUS_SENSOR_QUERY|SENSOR_FORWARD_WITNESS|DIRECT_ORDER,FIRST_HIT,OCCLUSION|EXACT_GEOMETRY_READOUT_Q48_AABB|FINITE_CONTACT_FOOTPRINT_OUTWARD|MISSING_STALE_CORRUPT_INCLUDE|PROGRAM=02c6e62eef58aedd99f7ff4433dd7dead8de2fc6d2ea80ace3e0d0039661fafa";
+        internal const string PlanFingerprint = "17e19114cfd394f6ebd90bba3e976879f9ed708267e6b51a347c199535b66691";
         internal const bool MissingStaleCorruptMustInclude = true;
         internal const int FalseNegativeAllowance = 0;
     }

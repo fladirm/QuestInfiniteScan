@@ -181,7 +181,9 @@ namespace Genesis.RoomScan.SigmaPrism
             int predictionPageRequestScratchOffset,
             int predictionPageRequestCapacity)
         {
-            if (_activeJob != null || SigmaNativeVulkanColdUpload.HasJobInFlight)
+            if (_activeJob != null || SigmaNativeVulkanColdUpload.HasJobInFlight ||
+                SigmaNativeVulkanColdEncode.HasJobInFlight ||
+                SigmaNativeVulkanReadout.HasJobInFlight)
                 throw new InvalidOperationException(
                     "A Sigma native or cold-upload Vulkan job is already in flight.");
             if (revision == 0u)

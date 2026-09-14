@@ -117,11 +117,13 @@
 static const uint2 SIGMA_STITCH_GENERATED_BRACKET_FINGERPRINT =
     uint2(0x212b1e76u, 0x6094d138u);
 
-static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x09564b2eu, 0x81bb1631u, 0x3af6e80bu, 0xc42845e4u, 0x7111d354u, 0xd0f347e2u, 0xfedd242eu, 0xca0eab33u };
+static const uint SIGMA_MERKABA_PROGRAM_FINGERPRINT[8] = { 0x02c6e62eu, 0xef58aeddu, 0x99f7ff44u, 0x33dd7deau, 0xd8de2fc6u, 0xd2ea80acu, 0xe3e0d003u, 0x9661fafau };
 static const int SIGMA_MERKABA_DIFFRACTION[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 8, 0, 0, -12, 4, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 0, 8, 0, 0, 0, 4, 0, -12, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 4, 4, 4, 0, 0, 0, -8, 0, 0, 8, 0, 0, 4, 0, 4, 0, -12, 0, 4, 0, -8, 0, 0, 0, -8, 0, 8, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, -8, 0, 0, 0, -8, 0, 0, 0, 4, 4, 0, 0, 4, -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, -4, 0, -4, -4, 0, 0, 0, 4, 4, 4, -4, 4, 4, 0, -4, 12, 0, 0, 0, -4, -4, 0, -4, 0, 4, 4, 4, -4, 4, 0, 0, -4, 12, 0, -4, 0, -4, 0, -4, -4, 0, 4, 4, 4, -4, 0, -4, -4, -4, 12, 0, 0, 0, 0, -4, -4, -4, 0, 4, 4, 4, 0, 0, -4, 0, -4, 12, -4, 0, 0, 4, -4, -4, -4, 0, 4, 4, 0, 0, 0, -4, -4, 0, 12, -4, 0, -4, 4, -4, -4, -4, 0, 4, 0, -4, 0, 0, -4, -4, 0, 12, 0, -4, -4, 4, -4, -4, -4, 0 };
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 640, -64, -64, -64, -64, -64, -192, 0, -32, 96, 256, 32, -192, 256, 32, 0, -64, 512, -64, -64, -64, 64, -64, 0, -64, 32, 96, 96, 32, -256, 256, 0, -64, -64, 640, -64, -64, -64, -64, 0, -288, -64, -32, 160, 320, 32, -192, 0, -64, -64, -64, 384, -64, -64, -64, 0, -64, -64, -64, 96, 160, 96, 32, 0, -64, -64, -64, -64, 640, -64, -192, 0, 160, -128, -352, -64, -32, 320, 96, 0, -64, 64, -64, -64, -64, 768, -64, 0, -224, 96, -128, -64, -288, -96, 320, 0, -192, -64, -64, -64, -192, -64, 640, 0, 64, -224, 160, -64, 0, -288, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -64, -288, -64, 160, -224, 64, 0, 576, -32, -96, -96, -96, -32, -96, 0, 96, 32, -64, -64, -128, 96, -224, 0, -32, 576, -32, -32, -160, -96, -32, 0, 256, 96, -32, -64, -352, -128, 160, 0, -96, -32, 576, 32, -96, -160, -96, 0, 32, 96, 160, 96, -64, -64, -64, 0, -96, -32, 32, 576, 32, -32, -96, 0, -192, 32, 320, 160, -32, -288, 0, 0, -96, -160, -96, 32, 576, -32, -96, 0, 256, -256, 32, 96, 320, -96, -288, 0, -32, -96, -160, -32, -32, 576, -32, 0, 32, 256, -192, 32, 96, 320, -32, 0, -96, -32, -96, -96, -96, -32, 576 };
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = { -1, -3, -7, -15 };
 static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = { 0, 0, 0, 0, -6, 2, 2, 2, 2, -6, 2, 2, -4, -4, 4, 4, 2, 2, -6, 2, -4, 4, -4, 4, 4, -4, -4, 4, -2, -2, -2, 6, 2, 2, 2, -6, -4, 4, 4, -4, 4, -4, 4, -4, -2, -2, 6, -2, 4, 4, -4, -4, -2, 6, -2, -2, 6, -2, -2, -2, 0, 0, 0, 0 };
+static const int SIGMA_MERKABA_COMMON_CHARACTER[16] = { 2, 1, 1, 0, 1, 0, 0, -1, 1, 0, 0, -1, 0, -1, -1, -2 };
+static const uint SIGMA_MERKABA_EYE_CHARACTER_ROWS[4] = { 1u, 2u, 4u, 8u };
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 48, -16, 32, -16, 32, -32, 16, -16, 32, -32, 16, -32, 16, -48, 0, 0, -16, 48, 32, -16, -32, 32, 16, -16, -32, 32, 16, -32, -48, 16, 0, 0, 32, 32, 64, -32, 0, 0, 32, -32, 0, 0, 32, -64, -32, -32, 0, 0, -16, -16, -32, 48, 32, 32, 16, -16, -32, -32, -48, 32, 16, 16, 0, 0, 32, -32, 0, 32, 64, 0, 32, -32, 0, -64, -32, 0, 32, -32, 0, 0, -32, 32, 0, 32, 0, 64, 32, -32, -64, 0, -32, 0, -32, 32, 0, 0, 16, 16, 32, 16, 32, 32, 48, -48, -32, -32, -16, -32, -16, -16, 0, 0, -16, -16, -32, -16, -32, -32, -48, 48, 32, 32, 16, 32, 16, 16, 0, 0, 32, -32, 0, -32, 0, -64, -32, 32, 64, 0, 32, 0, 32, -32, 0, 0, -32, 32, 0, -32, -64, 0, -32, 32, 0, 64, 32, 0, -32, 32, 0, 0, 16, 16, 32, -48, -32, -32, -16, 16, 32, 32, 48, -32, -16, -16, 0, 0, -32, -32, -64, 32, 0, 0, -32, 32, 0, 0, -32, 64, 32, 32, 0, 0, 16, -48, -32, 16, 32, -32, -16, 16, 32, -32, -16, 32, 48, -16, 0, 0, -48, 16, -32, 16, -32, 32, -16, 16, -32, 32, -16, 32, -16, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 static const uint4 SIGMA_MERKABA_IR_NODE_A[61] = {
     uint4(0u, 0u, 1u, 0u),
@@ -496,6 +498,88 @@ void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
     }
 }
 
+int SigmaMerkabaCommonCharacterCoefficient(uint address)
+{
+    return SIGMA_MERKABA_COMMON_CHARACTER[min(address, 15u)];
+}
+
+uint2 SigmaMerkabaScaleCommonCharacter(uint2 value, int coefficient,
+    inout uint valid)
+{
+    valid &= coefficient >= -2 && coefficient <= 2 ? 1u : 0u;
+    if (coefficient == 0 || all(value == 0u))
+        return uint2(0u, 0u);
+    uint2 scaled = abs(coefficient) == 2
+        ? SigmaQ48ShiftLeftChecked(value, 1u, valid) : value;
+    return coefficient < 0 ? SigmaQ48NegateChecked(scaled, valid) : scaled;
+}
+
+uint2 SigmaMerkabaLiftCommonModeLane(uint2 commonMode, uint address,
+    inout uint valid)
+{
+    return SigmaMerkabaScaleCommonCharacter(commonMode,
+        SigmaMerkabaCommonCharacterCoefficient(address), valid);
+}
+
+uint2 SigmaMerkabaEvaluateCommonMode(uint2 state[16], inout uint valid)
+{
+    uint2 numerator = uint2(0u, 0u);
+    [unroll]
+    for (uint address = 0u; address < 16u; ++address)
+        numerator = SigmaQ48AddChecked(numerator,
+            SigmaMerkabaScaleCommonCharacter(state[address],
+                SigmaMerkabaCommonCharacterCoefficient(address), valid), valid);
+    return SigmaQ48ShiftRightNearestEven(numerator, 4u, valid);
+}
+
+bool SigmaMerkabaRecoverCentredLeaves(uint2 state[16],
+    out uint2 leaves[4], inout uint valid)
+{
+    uint2 tangent[4];
+    SigmaMerkabaEvaluateShadow(state, tangent, valid);
+    uint2 commonMode = SigmaMerkabaEvaluateCommonMode(state, valid);
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {
+        uint2 numerator = SigmaQ48AddChecked(tangent[axis], commonMode, valid);
+        valid &= (numerator.x & 3u) == 0u ? 1u : 0u;
+        leaves[axis] = SigmaQ48ShiftRightNearestEven(numerator, 2u, valid);
+    }
+    return valid != 0u;
+}
+
+// Generated pure-query projective seed from the complete tangent/common K16
+// character frame. It is a disposable readout coordinate; neither this
+// quotient nor its float lowering can mutate canonical state.
+bool SigmaMerkabaEvaluateEyeCharacterSeed(uint2 state[16],
+    out uint2 projectiveSeed[3], inout uint valid)
+{
+    uint2 leaves[4];
+    SigmaMerkabaRecoverCentredLeaves(state, leaves, valid);
+    valid &= !SigmaU64Equal(leaves[0], SIGMA_Q48_ZERO) ? 1u : 0u;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+        projectiveSeed[axis] = valid != 0u
+            ? SigmaQ48DivNearestEven(leaves[axis + 1u], leaves[0], valid)
+            : SIGMA_Q48_ZERO;
+    return valid != 0u;
+}
+
+bool SigmaMerkabaRecoverUnitCode(uint2 tangent, uint2 commonMode,
+    out uint2 code, inout uint valid)
+{
+    uint2 centredNumerator = SigmaQ48AddChecked(tangent, commonMode, valid);
+    valid &= (centredNumerator.x & 3u) == 0u ? 1u : 0u;
+    uint2 centred = SigmaQ48ShiftRightNearestEven(
+        centredNumerator, 2u, valid);
+    uint2 codeNumerator = SigmaQ48AddChecked(centred, SIGMA_Q48_ONE, valid);
+    valid &= (codeNumerator.x & 1u) == 0u ? 1u : 0u;
+    code = SigmaQ48ShiftRightNearestEven(codeNumerator, 1u, valid);
+    valid &= !SigmaI64Less(code, SIGMA_Q48_ZERO) &&
+        !SigmaI64Less(SIGMA_Q48_ONE, code) ? 1u : 0u;
+    return valid != 0u;
+}
+
 void SigmaMerkabaInstrumentCompareSwap(inout uint left, inout uint right,
     uint2 pullback[4])
 {
@@ -552,7 +636,8 @@ bool SigmaMerkabaBuildInstrumentRowPermutation(uint2 roomRay[3],
 
 void SigmaMerkabaAssembleInstrumentTangent(uint2 codeLower[4],
     uint2 codeUpper[4], int globalSign, out uint2 measuredLower[4],
-    out uint2 measuredUpper[4], inout uint valid)
+    out uint2 measuredUpper[4], out uint2 commonLower,
+    out uint2 commonUpper, inout uint valid)
 {
     uint2 centredLower[4];
     uint2 centredUpper[4];
@@ -590,6 +675,188 @@ void SigmaMerkabaAssembleInstrumentTangent(uint2 codeLower[4],
         measuredUpper[outputLeaf] = globalSign > 0
             ? upper : SigmaQ48NegateChecked(lower, valid);
     }
+    commonLower = globalSign > 0
+        ? totalLower : SigmaQ48NegateChecked(totalUpper, valid);
+    commonUpper = globalSign > 0
+        ? totalUpper : SigmaQ48NegateChecked(totalLower, valid);
+}
+
+// Exact integer projection of the four-leaf cell. These divisions operate on
+// packed Q48 storage integers, not rounded Q48 point division.
+uint2 SigmaMerkabaIntegerFloor(uint2 value, uint divisor, inout uint valid)
+{
+    uint2 magnitude = SigmaU64AbsSigned(value);
+    uint2 quotient = 0u;
+    uint remainder = 0u;
+    [unroll]
+    for (int limb = 3; limb >= 0; --limb)
+    {
+        uint word = limb >= 2 ? magnitude.y : magnitude.x;
+        uint shift = ((uint)limb & 1u) * 16u;
+        uint part = (remainder << 16u) | ((word >> shift) & 65535u);
+        uint digit = part / divisor;
+        remainder = part - digit * divisor;
+        if (limb >= 2) quotient.y |= digit << shift;
+        else quotient.x |= digit << shift;
+    }
+    if ((value.y & 0x80000000u) != 0u)
+    {
+        quotient = SigmaQ48NegateChecked(quotient, valid);
+        if (remainder != 0u)
+            quotient = SigmaQ48SubChecked(quotient, uint2(1u, 0u), valid);
+    }
+    return quotient;
+}
+
+uint2 SigmaMerkabaIntegerCeil(uint2 value, uint divisor, inout uint valid)
+{
+    return SigmaQ48NegateChecked(SigmaMerkabaIntegerFloor(
+        SigmaQ48NegateChecked(value, valid), divisor, valid), valid);
+}
+
+uint2 SigmaMerkabaCeilEighth(uint2 value, inout uint valid)
+{
+    return SigmaQ48AddChecked(SigmaI64ShiftRightRaw(value, 3u),
+        uint2((value.x & 7u) != 0u ? 1u : 0u, 0u), valid);
+}
+
+bool SigmaMerkabaSelectAtCommon(uint2 lower[4], uint2 upper[4],
+    uint2 codeLower[4], uint2 codeUpper[4], uint2 common,
+    out uint2 selected[4], inout uint valid)
+{
+    uint2 four = uint2(0u, 0x00040000u);
+    uint2 totalNumerator = SigmaQ48AddChecked(common, four, valid);
+    uint2 target = SigmaI64ShiftRightRaw(totalNumerator, 1u);
+    uint2 preferred = SigmaQ48AddChecked(
+        SigmaI64ShiftRightRaw(totalNumerator, 3u),
+        uint2((totalNumerator.x & 7u) > 4u ? 1u : 0u, 0u), valid);
+    uint2 lo[4];
+    uint2 hi[4];
+    uint2 sum = 0u;
+    bool feasible = (common.x & 1u) == 0u;
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {
+        lo[axis] = SigmaQ48Max(codeLower[axis], SigmaMerkabaCeilEighth(
+            SigmaQ48AddChecked(lower[axis], totalNumerator, valid), valid));
+        hi[axis] = SigmaQ48Min(codeUpper[axis], SigmaI64ShiftRightRaw(
+            SigmaQ48AddChecked(upper[axis], totalNumerator, valid), 3u));
+        feasible = feasible && !SigmaI64Less(hi[axis], lo[axis]);
+        selected[axis] = SigmaQ48Min(hi[axis], SigmaQ48Max(lo[axis], preferred));
+        sum = SigmaQ48AddChecked(sum, selected[axis], valid);
+    }
+    if (!feasible || valid == 0u) return false;
+    uint2 residual = SigmaQ48SubChecked(sum, target, valid);
+    bool positive = !SigmaI64Less(residual, SIGMA_Q48_ZERO);
+    uint2 remaining = SigmaU64AbsSigned(residual);
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {
+        uint2 capacity = positive
+            ? SigmaQ48SubChecked(selected[axis], lo[axis], valid)
+            : SigmaQ48SubChecked(hi[axis], selected[axis], valid);
+        uint2 adjustment = SigmaQ48Min(capacity, remaining);
+        selected[axis] = positive
+            ? SigmaQ48SubChecked(selected[axis], adjustment, valid)
+            : SigmaQ48AddChecked(selected[axis], adjustment, valid);
+        remaining = SigmaQ48SubChecked(remaining, adjustment, valid);
+        selected[axis] = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(selected[axis], 3u, valid),
+            totalNumerator, valid);
+    }
+    return valid != 0u && all(remaining == 0u);
+}
+
+bool SigmaMerkabaSelectFreshComplete(uint2 lower[4], uint2 upper[4],
+    uint2 commonLower, uint2 commonUpper, uint2 codeLower[4],
+    uint2 codeUpper[4], uint2 referenceCommon, out uint2 selected[4],
+    out uint2 selectedCommon, inout uint valid)
+{
+    selectedCommon = SigmaQ48Min(commonUpper,
+        SigmaQ48Max(commonLower, referenceCommon));
+    valid &= !SigmaI64Less(commonUpper, commonLower) ? 1u : 0u;
+    // Ordinary fresh cells finish here: condition the tangent cell on q AND
+    // every original absolute leaf, rather than selecting two unrelated boxes.
+    if (SigmaMerkabaSelectAtCommon(lower, upper, codeLower, codeUpper,
+        selectedCommon, selected, valid)) return true;
+    if (valid == 0u) return false;
+
+    bool found = false;
+    uint2 bestDistance = uint2(0xffffffffu, 0xffffffffu);
+    // q is even, and t_i+q is divisible by eight. Each of the four residue
+    // classes has one exact integer interval projection, not a sampled search.
+    [loop]
+    for (uint residue = 0u; residue < 8u; residue += 2u)
+    {
+        uint2 r = uint2(residue, 0u);
+        uint2 h = uint2(residue / 2u, 0u);
+        uint2 kLower = SigmaMerkabaCeilEighth(
+            SigmaQ48SubChecked(commonLower, r, valid), valid);
+        uint2 kUpper = SigmaI64ShiftRightRaw(
+            SigmaQ48SubChecked(commonUpper, r, valid), 3u);
+        uint2 zLower[4]; uint2 zUpper[4];
+        uint2 xLower[4]; uint2 xUpper[4];
+        uint2 sumLower = 0u; uint2 sumUpper = 0u;
+        [unroll]
+        for (uint axis = 0u; axis < 4u; ++axis)
+        {
+            zLower[axis] = SigmaMerkabaCeilEighth(
+                SigmaQ48AddChecked(lower[axis], r, valid), valid);
+            zUpper[axis] = SigmaI64ShiftRightRaw(
+                SigmaQ48AddChecked(upper[axis], r, valid), 3u);
+            xLower[axis] = SigmaQ48SubChecked(codeLower[axis],
+                uint2(0u, 0x00008000u), valid);
+            xUpper[axis] = SigmaQ48SubChecked(codeUpper[axis],
+                uint2(0u, 0x00008000u), valid);
+            kLower = SigmaQ48Max(kLower,
+                SigmaQ48SubChecked(xLower[axis], zUpper[axis], valid));
+            kUpper = SigmaQ48Min(kUpper,
+                SigmaQ48SubChecked(xUpper[axis], zLower[axis], valid));
+            sumLower = SigmaQ48AddChecked(sumLower, zLower[axis], valid);
+            sumUpper = SigmaQ48AddChecked(sumUpper, zUpper[axis], valid);
+        }
+        if (SigmaI64Less(h, sumLower) || SigmaI64Less(sumUpper, h)) continue;
+        // Sum max(lower_i) <= h <= sum min(upper_i) is equivalent to
+        // these fifteen subset inequalities. Full keys/bytes never use a mask.
+        [loop]
+        for (uint subset = 1u; subset < 16u; ++subset)
+        {
+            uint2 a = SigmaQ48SubChecked(sumLower, h, valid);
+            uint2 b = SigmaQ48SubChecked(sumUpper, h, valid);
+            [unroll]
+            for (uint axis = 0u; axis < 4u; ++axis)
+                if ((subset & (1u << axis)) != 0u)
+                {
+                    a = SigmaQ48AddChecked(a, SigmaQ48SubChecked(
+                        xLower[axis], zLower[axis], valid), valid);
+                    b = SigmaQ48AddChecked(b, SigmaQ48SubChecked(
+                        xUpper[axis], zUpper[axis], valid), valid);
+                }
+            uint count = countbits(subset);
+            kLower = SigmaQ48Max(kLower,
+                SigmaMerkabaIntegerCeil(a, count, valid));
+            kUpper = SigmaQ48Min(kUpper,
+                SigmaMerkabaIntegerFloor(b, count, valid));
+        }
+        if (SigmaI64Less(kUpper, kLower)) continue;
+        uint2 delta = SigmaQ48SubChecked(referenceCommon, r, valid);
+        uint2 nearest = SigmaQ48AddChecked(SigmaI64ShiftRightRaw(delta, 3u),
+            uint2((delta.x & 7u) > 4u ? 1u : 0u, 0u), valid);
+        uint2 k = SigmaQ48Min(kUpper, SigmaQ48Max(kLower, nearest));
+        uint2 q = SigmaQ48AddChecked(SigmaQ48ShiftLeftChecked(k, 3u, valid),
+            r, valid);
+        uint2 distance = SigmaU64AbsSigned(
+            SigmaQ48SubChecked(q, referenceCommon, valid));
+        if (!found || SigmaU64Less(distance, bestDistance) ||
+            (all(distance == bestDistance) && SigmaI64Less(q, selectedCommon)))
+        {
+            selectedCommon = q;
+            bestDistance = distance;
+            found = true;
+        }
+    }
+    return found && SigmaMerkabaSelectAtCommon(lower, upper,
+        codeLower, codeUpper, selectedCommon, selected, valid);
 }
 
 bool SigmaMerkabaSelectFreshTangent(uint2 lower[4], uint2 upper[4],
@@ -676,7 +943,8 @@ uint SigmaMerkabaEvaluateFreshBoundaryRelation(uint2 state[16],
 }
 
 bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
-    uint firstHitEyeMask, uint coherent, out uint2 state[16],
+    uint2 commonLower, uint2 commonUpper, uint firstHitEyeMask, uint coherent,
+    out uint2 state[16],
     out uint2 selectedShadow[4], out uint boundaryRelation, inout uint valid)
 {
     boundaryRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
@@ -684,8 +952,17 @@ bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
         (firstHitEyeMask & (SIGMA_FRESH_FIRST_HIT_LEFT |
             SIGMA_FRESH_FIRST_HIT_RIGHT)) ==
             (SIGMA_FRESH_FIRST_HIT_LEFT | SIGMA_FRESH_FIRST_HIT_RIGHT);
-    if (!rolesValid ||
-        !SigmaMerkabaSelectFreshTangent(lower, upper, selectedShadow, valid))
+    uint2 codeLower[4]; uint2 codeUpper[4];
+    [unroll]
+    for (uint leaf = 0u; leaf < 4u; ++leaf)
+    {
+        codeLower[leaf] = SIGMA_Q48_ZERO;
+        codeUpper[leaf] = SIGMA_Q48_ONE;
+    }
+    uint2 selectedCommon;
+    if (!rolesValid || !SigmaMerkabaSelectFreshComplete(lower, upper,
+        commonLower, commonUpper, codeLower, codeUpper, SIGMA_Q48_ZERO,
+        selectedShadow, selectedCommon, valid))
     {
         valid = 0u;
         [unroll]
@@ -693,7 +970,14 @@ bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
             state[lane] = uint2(0u, 0u);
         return false;
     }
+    if (SigmaI64Less(commonUpper, commonLower))
+        valid = 0u;
     SigmaMerkabaLiftShadow(selectedShadow, state, valid);
+    [unroll]
+    for (uint commonLane = 0u; commonLane < 16u; ++commonLane)
+        state[commonLane] = SigmaQ48AddChecked(state[commonLane],
+            SigmaMerkabaLiftCommonModeLane(selectedCommon, commonLane, valid),
+            valid);
     uint nonzero = 0u;
     [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
@@ -706,11 +990,17 @@ bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
         return false;
     uint2 forward[4];
     SigmaMerkabaEvaluateShadow(state, forward, valid);
+    uint2 forwardCommon = SigmaMerkabaEvaluateCommonMode(state, valid);
     [unroll]
     for (uint axis = 0u; axis < 4u; ++axis)
         if (SigmaI64Less(forward[axis], lower[axis]) ||
             SigmaI64Less(upper[axis], forward[axis]))
             valid = 0u;
+    if (SigmaI64Less(forwardCommon, commonLower) ||
+        SigmaI64Less(commonUpper, forwardCommon))
+        valid = 0u;
+    uint2 recoveredLeaves[4];
+    SigmaMerkabaRecoverCentredLeaves(state, recoveredLeaves, valid);
     return valid != 0u;
 }
 

@@ -208,13 +208,19 @@ namespace Genesis.RoomScan.Tests
             Assert.That(rendererSource, Does.Contain(
                 "ReadoutGeneration front = cache.Front"));
             Assert.That(rendererSource, Does.Contain(
-                "ReadoutGeneration back = cache.Back"));
+                "ReadoutGeneration back0 = _segmentCaches[0].Back"));
+            Assert.That(rendererSource, Does.Contain(
+                "ReadoutGeneration back1 = _segmentCaches[1].Back"));
             Assert.That(rendererSource, Does.Contain(
                 "generation.RenderPageMetadata"));
             Assert.That(rendererSource, Does.Not.Contain(
                 "_properties.SetBuffer(PageMetadataId, batch.Metadata)"));
-            Assert.That(rendererSource, Does.Not.Contain(
-                "Graphics.ExecuteCommandBuffer("));
+            Assert.That(rendererSource, Does.Contain(
+                "SigmaNativeVulkanReadout.Create("));
+            Assert.That(rendererSource, Does.Contain("_readoutJob.Record(command)"));
+            Assert.That(rendererSource, Does.Not.Contain("DispatchCompute"));
+            Assert.That(rendererSource, Does.Not.Contain("WaitForCompletion"));
+            Assert.That(rendererSource, Does.Not.Contain("AsyncGPUReadback"));
             Assert.That(rendererSource, Does.Contain(
                 "SigmaNativeVulkanExecutor.HasJobInFlight"));
             Assert.That(executorSource, Does.Contain(
@@ -3163,6 +3169,37 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void LocalityCertificateMeetsCommonModeWithoutOverwritingRelation()
+        {
+            SigmaFrameUInt4Gpu[] left = (SigmaFrameUInt4Gpu[])
+                CertifiedConstraintRecord(1u, -8L, 8L, 1u, 2u)
+                    .CertificateWords.Clone();
+            SigmaFrameUInt4Gpu[] right = (SigmaFrameUInt4Gpu[])
+                CertifiedConstraintRecord(2u, -8L, 8L, 1u, 2u)
+                    .CertificateWords.Clone();
+            left[11] = Q4(-6L, 7L);
+            right[11] = Q4(-3L, 5L);
+
+            Assert.That(SigmaGeneratedFrame.TryMeetLocalityCertificates(
+                left, right, out SigmaFrameUInt4Gpu[] merged), Is.True);
+            Assert.That(merged[3].X, Is.EqualTo(left[3].X));
+            Assert.That(merged[3].Y, Is.EqualTo(left[3].Y));
+            Assert.That(merged[3].Z, Is.EqualTo(left[3].Z));
+            Assert.That(merged[3].W, Is.EqualTo(left[3].W));
+            Assert.That(merged[11].X, Is.EqualTo(Q2(-3L).X));
+            Assert.That(merged[11].Y, Is.EqualTo(Q2(-3L).Y));
+            Assert.That(merged[11].Z, Is.EqualTo(Q2(5L).X));
+            Assert.That(merged[11].W, Is.EqualTo(Q2(5L).Y));
+            Assert.That(merged[10].Z, Is.EqualTo(2u),
+                "Word 10 remains derived width axis2.");
+
+            right[11] = Q4(20L, 30L);
+            Assert.That(SigmaGeneratedFrame.TryMeetLocalityCertificates(
+                left, right, out _), Is.False,
+                "An empty historical q interval must fail closed.");
+        }
+
+        [Test]
         public void CompletionTransferBatchesWithoutBecomingIngressOwnership()
         {
             using var transfer = new SigmaNativeCompletionTransfer();
@@ -4402,9 +4439,11 @@ namespace Genesis.RoomScan.Tests
             {
                 certificate[4 + axis] = Q4(lower, upper);
                 ulong width = unchecked((ulong)upper - (ulong)lower);
-                certificate[8 + axis] = U4(unchecked((uint)width),
-                    unchecked((uint)(width >> 32)), (uint)axis, 3u);
+                if (axis < 3)
+                    certificate[8 + axis] = U4(unchecked((uint)width),
+                        unchecked((uint)(width >> 32)), (uint)axis, 3u);
             }
+            certificate[11] = Q4(lower, upper);
             certificate[12] = U4(7u, 0x7fu, 0u, 0u);
             certificate[13] = U4(0u, 0u, 7u, programFingerprint);
             certificate[14] = DirectionModeMask(leftMode, rightMode);

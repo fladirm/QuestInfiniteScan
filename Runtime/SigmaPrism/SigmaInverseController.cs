@@ -175,6 +175,8 @@ namespace Genesis.RoomScan.SigmaPrism
             !_startupRestorePending &&
             _supportPrefetchPhase == SupportPrefetchPhase.None &&
             !SigmaNativeVulkanExecutor.HasJobInFlight &&
+            !SigmaNativeVulkanReadout.HasJobInFlight &&
+            (_renderer == null || !_renderer.HasPendingReadout) &&
             (_carrier == null ||
                 (!_carrier.Persistence.IsBusy &&
                  _carrier.Persistence.Activity !=
@@ -273,7 +275,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 _carrier.Pager.Activity != SigmaPagerActivity.Idle ||
                 SigmaNativeVulkanExecutor.HasJobInFlight ||
                 SigmaNativeVulkanColdEncode.HasJobInFlight ||
-                SigmaNativeVulkanColdUpload.HasJobInFlight)
+                SigmaNativeVulkanColdUpload.HasJobInFlight ||
+                SigmaNativeVulkanReadout.HasJobInFlight)
                 await Task.Yield();
 
             ulong revision = Math.Max(_pool.DurableRevision + 1UL,

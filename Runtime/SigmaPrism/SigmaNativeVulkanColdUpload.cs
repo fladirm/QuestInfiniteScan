@@ -182,7 +182,9 @@ namespace Genesis.RoomScan.SigmaPrism
         internal static ColdUploadJob Create(SigmaCarrierReadBatch target,
             SigmaColdDecodedBatch batch)
         {
-            if (_activeJob != null || SigmaNativeVulkanExecutor.HasJobInFlight)
+            if (_activeJob != null || SigmaNativeVulkanExecutor.HasJobInFlight ||
+                SigmaNativeVulkanColdEncode.HasJobInFlight ||
+                SigmaNativeVulkanReadout.HasJobInFlight)
                 throw new InvalidOperationException(
                     "Cold upload and NativeClose cannot share the carrier bank.");
             if (batch == null) throw new ArgumentNullException(nameof(batch));

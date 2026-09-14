@@ -236,6 +236,12 @@ def merkaba_shadow_numerator(address: int) -> tuple[int, int, int, int]:
     return tuple(4 * sign - total for sign in signs)
 
 
+def merkaba_common_character(address: int) -> int:
+    """Primitive integral t_OR character coordinate at one K16 address."""
+    signs = [1 if ((address >> bit) & 1) == 0 else -1 for bit in range(4)]
+    return sum(signs) // 2
+
+
 def signed_morton(left: int, right: int) -> int:
     """Stable unbounded Morton key after signed-to-unsigned zig-zag mapping."""
     def zig_zag(value: int) -> int:
@@ -988,13 +994,27 @@ def certificate_minimizer_proof() -> dict:
                             if item[0][:6] == duplicate[:6])
     if duplicate_record[1] != 10000 or len(minimized) != 3:
         raise RuntimeError("certificate storage does not follow new information")
+    certificate_layout = {
+        "identity": 0,
+        "context": 1,
+        "independence": 2,
+        "relation": 3,
+        "tangentIntervals": [4, 5, 6, 7],
+        "derivedTangentWidths": [8, 9, 10],
+        "commonModeInterval": 11,
+        "receipts": [12, 13, 14, 15],
+    }
     return {
         "duplicateFixtureCount": 10000,
         "minimizedFactorCount": len(minimized),
         "duplicateMultiplicity": duplicate_record[1],
         "coupledFactorCount": 2,
         "feasibleAssignmentCount": 18,
-        "fingerprint": sha256(minimized),
+        "layout": certificate_layout,
+        "fingerprint": sha256({
+            "minimized": minimized,
+            "layout": certificate_layout,
+        }),
     }
 
 
@@ -1148,7 +1168,10 @@ def fresh_base_admission_proof() -> dict:
             residual = -deficit
         return tuple(selected) if residual == 0 else None
 
-    def lift(shadow_value: tuple[int, ...]) -> tuple[int, ...]:
+    common_character = tuple(merkaba_common_character(address)
+                             for address in range(LANES))
+
+    def lift_tangent(shadow_value: tuple[int, ...]) -> tuple[int, ...]:
         state = []
         for address in range(LANES):
             value = 0
@@ -1160,6 +1183,21 @@ def fresh_base_admission_proof() -> dict:
                 raise OverflowError("fresh admission lift overflow")
             state.append(value)
         return tuple(state)
+
+    def lift_common(common_value: int) -> tuple[int, ...]:
+        state = tuple(coefficient * common_value
+                      for coefficient in common_character)
+        if any(not -(1 << 63) <= value < (1 << 63) for value in state):
+            raise OverflowError("fresh common-mode lift overflow")
+        return state
+
+    def lift(shadow_value: tuple[int, ...], common_value: int) -> tuple[int, ...]:
+        tangent = lift_tangent(shadow_value)
+        common = lift_common(common_value)
+        state = tuple(left + right for left, right in zip(tangent, common))
+        if any(not -(1 << 63) <= value < (1 << 63) for value in state):
+            raise OverflowError("fresh complete lift overflow")
+        return state
 
     def forward(state: tuple[int, ...]) -> tuple[int, ...]:
         shadow_value = []
@@ -1173,6 +1211,21 @@ def fresh_base_admission_proof() -> dict:
                 raise OverflowError("fresh admission forward overflow")
             shadow_value.append(value)
         return tuple(shadow_value)
+
+    def common_mode(state: tuple[int, ...]) -> int:
+        numerator = sum(coefficient * value
+                        for coefficient, value in zip(common_character, state))
+        value = nearest_even(numerator, 16)
+        if not -(1 << 63) <= value < (1 << 63):
+            raise OverflowError("fresh common-mode evaluation overflow")
+        return value
+
+    def recover_leaves(shadow_value: tuple[int, ...],
+                       common_value: int) -> tuple[int, ...]:
+        numerators = tuple(value + common_value for value in shadow_value)
+        if any(value & 3 for value in numerators):
+            raise RuntimeError("fresh complete leaf recovery is not exact")
+        return tuple(value // 4 for value in numerators)
 
     def fresh_boundary_relation(state: tuple[int, ...]) -> str:
         """Specialize the generated native relation to state/ZEmpty/ZEmpty.
@@ -1213,16 +1266,25 @@ def fresh_base_admission_proof() -> dict:
         selected = select_tangent(bounds)
         if selected != target:
             raise RuntimeError("fresh tangent selector lost singleton preimage")
-        state = lift(selected)
+        common_value = (first - second + third) * quantum
+        state = lift(selected, common_value)
         projected = forward(state)
         if projected != target:
             raise RuntimeError("dual-frame lift failed exact generated round trip")
+        recovered_common = common_mode(state)
+        if recovered_common != common_value:
+            raise RuntimeError("common-mode lift failed exact generated round trip")
+        recovered_leaves = recover_leaves(projected, recovered_common)
+        expected_leaves = tuple((value + common_value) // 4 for value in target)
+        if recovered_leaves != expected_leaves:
+            raise RuntimeError("complete character-frame leaf recovery failed")
         boundary_relation = fresh_boundary_relation(state)
         admitted = any(state) and boundary_relation != "UNRESOLVED"
         if admitted != any(target):
             raise RuntimeError("fresh support admitted ZEmpty or lost support")
-        fixture_records.append((target, state, projected, boundary_relation,
-                                admitted))
+        fixture_records.append((target, common_value, state, projected,
+                                recovered_common, recovered_leaves,
+                                boundary_relation, admitted))
 
     broad_bounds = ((-2 * quantum, 4 * quantum),
                     (quantum, 5 * quantum),
@@ -1231,7 +1293,8 @@ def fresh_base_admission_proof() -> dict:
     broad_selected = select_tangent(broad_bounds)
     if broad_selected is None or sum(broad_selected) != 0:
         raise RuntimeError("fresh minimum-change selector lost feasible tangent cell")
-    broad_state = lift(broad_selected)
+    broad_common = 2 * quantum
+    broad_state = lift(broad_selected, broad_common)
     broad_forward = forward(broad_state)
     if any(not lower <= value <= upper
            for value, (lower, upper) in zip(broad_forward, broad_bounds)):
@@ -1244,11 +1307,21 @@ def fresh_base_admission_proof() -> dict:
     if select_tangent(impossible) is not None:
         raise RuntimeError("fresh selector admitted a non-tangent shadow cell")
 
-    nonzero = [record for record in fixture_records if record[4]]
-    common_state = nonzero[0][1]
+    if common_mode(broad_state) != broad_common:
+        raise RuntimeError("fresh broad fixture lost common mode")
+
+    tangent_only = lift_tangent((quantum, -quantum, quantum, -quantum))
+    if common_mode(tangent_only) != 0:
+        raise RuntimeError("tangent dual lift leaked into common mode")
+    common_only = lift_common(3 * quantum)
+    if any(forward(common_only)) or common_mode(common_only) != 3 * quantum:
+        raise RuntimeError("generated common dual is not the exact shadow kernel")
+
+    nonzero = [record for record in fixture_records if record[7]]
+    common_state = nonzero[0][2]
     if any(value != common_state for value in (common_state, common_state)):
         raise RuntimeError("complete-union common fresh result changed")
-    different_state = nonzero[-1][1]
+    different_state = nonzero[-1][2]
     if different_state == common_state:
         raise RuntimeError("fresh ambiguity fixture did not differ")
     branch_orders = ((common_state, common_state),
@@ -1266,7 +1339,7 @@ def fresh_base_admission_proof() -> dict:
         raise RuntimeError("exact one-LSB defect aliased algebraic zero")
     if fresh_boundary_relation((0,) * LANES) != "DEFAULT_SAT":
         raise RuntimeError("fresh boundary lost all-default DEFAULT_SAT")
-    if any(record[3] != "NO_RELATION" for record in nonzero):
+    if any(record[6] != "NO_RELATION" for record in nonzero):
         raise RuntimeError("fresh lifted support lost resolved termination relation")
 
     return {
@@ -1281,12 +1354,15 @@ def fresh_base_admission_proof() -> dict:
         "basePattern": [[0, 0, 0]],
         "fingerprint": sha256({
             "fixtures": fixture_records,
-            "broad": (broad_bounds, broad_selected, broad_state, broad_forward,
-                      broad_relation),
+            "broad": (broad_bounds, broad_selected, broad_common, broad_state,
+                      broad_forward, broad_relation),
             "impossible": impossible,
             "kernelProbe": kernel_probe,
             "oneLsbProbe": one_lsb_probe,
             "common": common_serializations,
+            "commonCharacter": common_character,
+            "tangentOnly": tangent_only,
+            "commonOnly": common_only,
         }),
     }
 
@@ -1663,6 +1739,8 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         raise RuntimeError("K16 shell recurrence does not reach -15I")
 
     shadow = [merkaba_shadow_numerator(address) for address in range(LANES)]
+    common_character = [merkaba_common_character(address)
+                        for address in range(LANES)]
     frame_numerator = [[sum(shadow[address][row] * shadow[address][column]
                             for address in range(LANES))
                         for column in range(4)] for row in range(4)]
@@ -1673,6 +1751,12 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
                 raise RuntimeError("Merkaba shadow frame is not 16*P_t")
     if any(sum(value) != 0 for value in shadow):
         raise RuntimeError("Merkaba shadow escaped t_OR complement")
+    if sum(value * value for value in common_character) != 16:
+        raise RuntimeError("Merkaba common character has the wrong exact norm")
+    for axis in range(4):
+        if sum(common_character[address] * shadow[address][axis]
+               for address in range(LANES)) != 0:
+            raise RuntimeError("Merkaba common character escaped shadow kernel")
 
     # P_visible = S^T S / 16 = (n^T n) / 256 because p=n/4.
     visible_numerator = [[sum(shadow[left][axis] * shadow[right][axis]
@@ -1713,6 +1797,16 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             ROOT / ".codex" / "S4-08.6_NATIVE_CLOSURE_PLAN.md"),
         "algebraCore": algebra["fingerprints"]["nativeCore"],
     }
+    pure_eye_readout = i_q["pureEyeReadout"]
+    character_rows = [1 << axis for axis in range(4)]
+    if (pure_eye_readout["characterFrameRows"] != character_rows or
+            pure_eye_readout["historicalEvidenceInput"] or
+            pure_eye_readout["certificateAsPhysicalInput"] or
+            pure_eye_readout["sigma2CoordinateAsGeometry"] or
+            pure_eye_readout["pageCoordinateAsGeometry"] or
+            pure_eye_readout["floatDecidesCanonicalMutation"]):
+        raise RuntimeError("pure eye readout escaped the complete K16 query")
+
     descriptor = {
         "version": MERKABA_PROGRAM_VERSION,
         "numericDomain": NUMERIC_ID,
@@ -1729,6 +1823,7 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         "queryFamilies": i_q["queryFamilies"],
         "captureBoundary": i_q["captureBoundary"],
         "sceneReduction": i_q["sceneReduction"],
+        "pureEyeReadout": pure_eye_readout,
         "photometricNuisance": i_q["photometricNuisance"],
         "querySupportSummary": i_q["querySupportSummary"],
         "certificate": i_q["certificate"],
@@ -1739,6 +1834,8 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
         "informationMetric": [value for row in metric for value in row],
         "shellSquareByRank": shell_square_by_rank,
         "shadowNumerator4": [value for row in shadow for value in row],
+        "commonCharacter": common_character,
+        "eyeCharacterRows": character_rows,
         "visibleProjectorNumerator256": [value for row in visible_numerator
                                           for value in row],
         "proofs": {
@@ -1749,6 +1846,8 @@ def build_merkaba_descriptor(algebra: dict) -> dict:
             "independentClosureWeights": 0,
             "shellSquare": "-15I16",
             "shadowFrame": "16P_t",
+            "commonCharacterNorm": 16,
+            "commonCharacterShadowKernel": True,
             "shadowKernelDecouplingProof": shadow_kernel_decoupling_proof,
             "negativeHolonomy": negative_holonomy,
             "e22InventoryCount": 0,
@@ -3110,6 +3209,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaAssembledSensorEye(string side,
             IReadOnlyList<IReadOnlyList<long>> rows,
             IReadOnlyList<SigmaQ48Interval> measured,
+            SigmaQ48Interval commonMode,
             SigmaQ48Interval metricDirectOrder,
             SigmaInstrumentFootprint footprint, bool firstHit,
             string provenanceFingerprint)
@@ -3122,6 +3222,7 @@ namespace Genesis.RoomScan.SigmaPrism
             Side = side;
             Rows = rows.Select(row => row.ToArray()).ToArray();
             Measured = measured.ToArray();
+            CommonMode = commonMode;
             MetricDirectOrder = metricDirectOrder;
             Footprint = footprint;
             FirstHit = firstHit;
@@ -3130,6 +3231,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal string Side {{ get; }}
         internal long[][] Rows {{ get; }}
         internal SigmaQ48Interval[] Measured {{ get; }}
+        internal SigmaQ48Interval CommonMode {{ get; }}
         internal SigmaQ48Interval MetricDirectOrder {{ get; }}
         internal SigmaInstrumentFootprint Footprint {{ get; }}
         internal bool FirstHit {{ get; }}
@@ -3139,19 +3241,31 @@ namespace Genesis.RoomScan.SigmaPrism
     internal readonly struct SigmaFreshShadowBranch
     {{
         internal SigmaFreshShadowBranch(IEnumerable<SigmaQ48Interval> shadowAxes,
-            uint firstHitEyeMask, bool coherent, string provenanceFingerprint)
+            SigmaQ48Interval commonMode, uint firstHitEyeMask, bool coherent,
+            string provenanceFingerprint,
+            IEnumerable<SigmaQ48Interval> absoluteCodes = null)
         {{
             if (shadowAxes == null) throw new ArgumentNullException(nameof(shadowAxes));
             ShadowAxes = shadowAxes.ToArray();
             if (ShadowAxes.Length != 4)
                 throw new ArgumentException("A Merkaba shadow has four axes.",
                     nameof(shadowAxes));
+            if (commonMode.IsEmpty)
+                throw new ArgumentException("A common-mode interval is required.",
+                    nameof(commonMode));
+            CommonMode = commonMode;
+            AbsoluteCodes = absoluteCodes?.ToArray() ?? Enumerable.Repeat(
+                new SigmaQ48Interval(0L, SigmaNumericDomain.One), 4).ToArray();
+            if (AbsoluteCodes.Length != 4)
+                throw new ArgumentException("Four absolute code bounds required.");
             FirstHitEyeMask = firstHitEyeMask;
             Coherent = coherent;
             ProvenanceFingerprint = provenanceFingerprint ??
                 throw new ArgumentNullException(nameof(provenanceFingerprint));
         }}
         internal SigmaQ48Interval[] ShadowAxes {{ get; }}
+        internal SigmaQ48Interval[] AbsoluteCodes {{ get; }}
+        internal SigmaQ48Interval CommonMode {{ get; }}
         internal uint FirstHitEyeMask {{ get; }}
         internal bool Coherent {{ get; }}
         internal string ProvenanceFingerprint {{ get; }}
@@ -3327,6 +3441,12 @@ namespace Genesis.RoomScan.SigmaPrism
         // p(address) = ShadowNumerator4 / 4.
 {cs_array('ShadowNumerator4', 'sbyte', descriptor['shadowNumerator4'])}
 
+        // Primitive integral coordinate of the distinguished t_OR character.
+{cs_array('CommonCharacter', 'sbyte', descriptor['commonCharacter'], 16)}
+
+        // Complete K16 character frame used by the generated pure eye query.
+{cs_array('EyeCharacterRows', 'byte', descriptor['eyeCharacterRows'], 4)}
+
         // P_visible = VisibleProjectorNumerator256 / 256.
 {cs_array('VisibleProjectorNumerator256', 'sbyte', descriptor['visibleProjectorNumerator256'])}
 
@@ -3494,6 +3614,12 @@ namespace Genesis.RoomScan.SigmaPrism
             return ShadowNumerator4[(address << 2) + axis];
         }}
 
+        internal static int CommonCharacterCoefficient(int address)
+        {{
+            RequireAddress(address);
+            return CommonCharacter[address];
+        }}
+
         // Exact generated lowering for the only coefficients in the Merkaba
         // shadow/dual frames: 0,+/-2,+/-4,+/-6 divided by 4 or 64.  Quotient and
         // remainder are formed before the factor of three, so this has exactly
@@ -3571,6 +3697,118 @@ namespace Genesis.RoomScan.SigmaPrism
                 lanes[address] = sum;
             }}
             return SigmaS16.FromArray(lanes);
+        }}
+
+        internal static SigmaS16 LiftMerkabaCommonMode(long commonMode)
+        {{
+            var lanes = new long[16];
+            for (int address = 0; address < lanes.Length; ++address)
+            {{
+                int coefficient = CommonCharacterCoefficient(address);
+                lanes[address] = coefficient switch
+                {{
+                    -2 => SigmaNumericDomain.QNegate(
+                        SigmaNumericDomain.QShiftLeft(commonMode, 1)),
+                    -1 => SigmaNumericDomain.QNegate(commonMode),
+                    0 => 0L,
+                    1 => commonMode,
+                    2 => SigmaNumericDomain.QShiftLeft(commonMode, 1),
+                    _ => throw new InvalidOperationException(
+                        "Generated common character escaped its exact range."),
+                }};
+            }}
+            return SigmaS16.FromArray(lanes);
+        }}
+
+        internal static SigmaS16 LiftMerkabaComplete(
+            IReadOnlyList<long> shadow, long commonMode)
+        {{
+            SigmaS16 tangent = LiftMerkabaShadow(shadow);
+            SigmaS16 common = LiftMerkabaCommonMode(commonMode);
+            var lanes = new long[16];
+            for (int address = 0; address < lanes.Length; ++address)
+                lanes[address] = SigmaNumericDomain.QAdd(
+                    tangent[address], common[address]);
+            return SigmaS16.FromArray(lanes);
+        }}
+
+        internal static long EvaluateMerkabaCommonMode(SigmaS16 state)
+        {{
+            long numerator = 0L;
+            for (int address = 0; address < 16; ++address)
+            {{
+                int coefficient = CommonCharacterCoefficient(address);
+                long term = coefficient switch
+                {{
+                    -2 => SigmaNumericDomain.QNegate(
+                        SigmaNumericDomain.QShiftLeft(state[address], 1)),
+                    -1 => SigmaNumericDomain.QNegate(state[address]),
+                    0 => 0L,
+                    1 => state[address],
+                    2 => SigmaNumericDomain.QShiftLeft(state[address], 1),
+                    _ => throw new InvalidOperationException(
+                        "Generated common character escaped its exact range."),
+                }};
+                numerator = SigmaNumericDomain.QAdd(numerator, term);
+            }}
+            return SigmaNumericDomain.QShiftRight(numerator, 4);
+        }}
+
+        internal static bool TryRecoverMerkabaCentredLeaves(SigmaS16 state,
+            out long[] leaves)
+        {{
+            long[] tangent = EvaluateMerkabaShadow(state);
+            long commonMode = EvaluateMerkabaCommonMode(state);
+            leaves = new long[4];
+            try
+            {{
+                for (int axis = 0; axis < leaves.Length; ++axis)
+                {{
+                    long numerator = SigmaNumericDomain.QAdd(
+                        tangent[axis], commonMode);
+                    if ((unchecked((ulong)numerator) & 3UL) != 0UL)
+                    {{
+                        leaves = Array.Empty<long>();
+                        return false;
+                    }}
+                    leaves[axis] = SigmaNumericDomain.QShiftRight(numerator, 2);
+                }}
+                return true;
+            }}
+            catch (OverflowException)
+            {{
+                leaves = Array.Empty<long>();
+                return false;
+            }}
+        }}
+
+        internal static bool TryEvaluateMerkabaEyeCharacterSeed(
+            SigmaS16 state, out long[] projectiveSeed)
+        {{
+            projectiveSeed = Array.Empty<long>();
+            if (!TryRecoverMerkabaCentredLeaves(state, out long[] leaves) ||
+                leaves[0] == 0L)
+                return false;
+            try
+            {{
+                projectiveSeed = new[]
+                {{
+                    SigmaNumericDomain.QDiv(leaves[1], leaves[0]),
+                    SigmaNumericDomain.QDiv(leaves[2], leaves[0]),
+                    SigmaNumericDomain.QDiv(leaves[3], leaves[0]),
+                }};
+                return true;
+            }}
+            catch (OverflowException)
+            {{
+                projectiveSeed = Array.Empty<long>();
+                return false;
+            }}
+            catch (DivideByZeroException)
+            {{
+                projectiveSeed = Array.Empty<long>();
+                return false;
+            }}
         }}
 
         internal static int ComposeChartD4(int outer, int inner)
@@ -3653,8 +3891,10 @@ namespace Genesis.RoomScan.SigmaPrism
                         ? tangent[leaf]
                         : NegateOutward(tangent[leaf]);
                 }}
+                SigmaQ48Interval commonMode = globalSign > 0
+                    ? total : NegateOutward(total);
                 assembled = new SigmaAssembledSensorEye(source.Side, rows,
-                    measured, source.MetricDirectOrder, source.Footprint,
+                    measured, commonMode, source.MetricDirectOrder, source.Footprint,
                     source.FirstHit, source.ProvenanceFingerprint);
                 return true;
             }}
@@ -3789,20 +4029,34 @@ namespace Genesis.RoomScan.SigmaPrism
             admission = UnresolvedFreshAdmission();
             if (!branch.Coherent || (branch.FirstHitEyeMask & 3u) != 3u ||
                 string.IsNullOrEmpty(branch.ProvenanceFingerprint) ||
-                branch.ShadowAxes == null || branch.ShadowAxes.Length != 4)
+                branch.ShadowAxes == null || branch.ShadowAxes.Length != 4 ||
+                branch.CommonMode.IsEmpty)
                 return false;
             try
             {{
-                if (!TrySelectTangentMinimumChange(branch.ShadowAxes,
-                    out long[] selected))
+                if (!TrySelectFreshComplete(branch.ShadowAxes, branch.CommonMode,
+                    branch.AbsoluteCodes, 0L, out long[] selected,
+                    out long selectedCommon))
                     return false;
-                SigmaS16 state = LiftMerkabaShadow(selected);
+                SigmaS16 state = LiftMerkabaComplete(selected, selectedCommon);
                 if (state.IsZero)
                     return false;
                 long[] forward = EvaluateMerkabaShadow(state);
+                long forwardCommon = EvaluateMerkabaCommonMode(state);
                 for (int axis = 0; axis < 4; ++axis)
                     if (!branch.ShadowAxes[axis].Contains(forward[axis]))
                         return false;
+                if (!branch.CommonMode.Contains(forwardCommon) ||
+                    !TryRecoverMerkabaCentredLeaves(state, out _))
+                    return false;
+                for (int axis = 0; axis < 4; ++axis)
+                {{
+                    long numerator = checked(forward[axis] + forwardCommon +
+                        4L * SigmaNumericDomain.One);
+                    if ((numerator & 7L) != 0L ||
+                        !branch.AbsoluteCodes[axis].Contains(numerator / 8L))
+                        return false;
+                }}
                 SigmaMerkabaRelationClass boundaryRelation =
                     EvaluateFreshBoundaryRelation(state);
                 if (boundaryRelation == SigmaMerkabaRelationClass.Unresolved ||
@@ -3829,6 +4083,116 @@ namespace Genesis.RoomScan.SigmaPrism
             {{
                 return false;
             }}
+        }}
+
+        private static long IntegerFloor(long value, int divisor) =>
+            value / divisor - (value % divisor < 0L ? 1L : 0L);
+
+        private static long IntegerCeil(long value, int divisor) =>
+            value / divisor + (value % divisor > 0L ? 1L : 0L);
+
+        private static bool TrySelectAtCommon(
+            IReadOnlyList<SigmaQ48Interval> tangent,
+            IReadOnlyList<SigmaQ48Interval> codes, long common,
+            out long[] selected)
+        {{
+            selected = new long[4];
+            if ((common & 1L) != 0L) return false;
+            long numerator = checked(common + 4L * SigmaNumericDomain.One);
+            long target = numerator / 2L;
+            long preferred = IntegerFloor(numerator, 8) +
+                ((numerator & 7L) > 4L ? 1L : 0L);
+            var lo = new long[4]; var hi = new long[4];
+            long sum = 0L;
+            for (int axis = 0; axis < 4; ++axis)
+            {{
+                lo[axis] = Math.Max(codes[axis].Lower,
+                    IntegerCeil(checked(tangent[axis].Lower + numerator), 8));
+                hi[axis] = Math.Min(codes[axis].Upper,
+                    IntegerFloor(checked(tangent[axis].Upper + numerator), 8));
+                if (lo[axis] > hi[axis]) return false;
+                selected[axis] = Math.Min(hi[axis], Math.Max(lo[axis], preferred));
+                sum = checked(sum + selected[axis]);
+            }}
+            long residual = checked(sum - target);
+            bool positive = residual >= 0L;
+            long remaining = Math.Abs(residual);
+            for (int axis = 0; axis < 4; ++axis)
+            {{
+                long capacity = positive ? selected[axis] - lo[axis] :
+                    hi[axis] - selected[axis];
+                long adjustment = Math.Min(capacity, remaining);
+                selected[axis] += positive ? -adjustment : adjustment;
+                remaining -= adjustment;
+                selected[axis] = checked(8L * selected[axis] - numerator);
+            }}
+            return remaining == 0L;
+        }}
+
+        internal static bool TrySelectFreshComplete(
+            IReadOnlyList<SigmaQ48Interval> tangent, SigmaQ48Interval common,
+            IReadOnlyList<SigmaQ48Interval> codes, long reference,
+            out long[] selected, out long selectedCommon)
+        {{
+            selected = new long[4]; selectedCommon = 0L;
+            if (tangent == null || tangent.Count != 4 ||
+                codes == null || codes.Count != 4 || common.IsEmpty ||
+                tangent.Any(value => value.IsEmpty) ||
+                codes.Any(value => value.IsEmpty)) return false;
+            selectedCommon = Math.Min(common.Upper, Math.Max(common.Lower, reference));
+            if (TrySelectAtCommon(tangent, codes, selectedCommon, out selected))
+                return true;
+            bool found = false;
+            BigInteger bestDistance = BigInteger.Zero;
+            for (int residue = 0; residue < 8; residue += 2)
+            {{
+                long h = residue / 2;
+                long kLower = IntegerCeil(checked(common.Lower - residue), 8);
+                long kUpper = IntegerFloor(checked(common.Upper - residue), 8);
+                var zl = new long[4]; var zu = new long[4];
+                var xl = new long[4]; var xu = new long[4];
+                long sumLower = 0L, sumUpper = 0L;
+                for (int axis = 0; axis < 4; ++axis)
+                {{
+                    zl[axis] = IntegerCeil(checked(tangent[axis].Lower + residue), 8);
+                    zu[axis] = IntegerFloor(checked(tangent[axis].Upper + residue), 8);
+                    xl[axis] = codes[axis].Lower - SigmaNumericDomain.One / 2L;
+                    xu[axis] = codes[axis].Upper - SigmaNumericDomain.One / 2L;
+                    kLower = Math.Max(kLower, checked(xl[axis] - zu[axis]));
+                    kUpper = Math.Min(kUpper, checked(xu[axis] - zl[axis]));
+                    sumLower = checked(sumLower + zl[axis]);
+                    sumUpper = checked(sumUpper + zu[axis]);
+                }}
+                if (sumLower > h || sumUpper < h) continue;
+                for (int subset = 1; subset < 16; ++subset)
+                {{
+                    long a = checked(sumLower - h), b = checked(sumUpper - h);
+                    int count = 0;
+                    for (int axis = 0; axis < 4; ++axis)
+                        if ((subset & (1 << axis)) != 0)
+                        {{
+                            a = checked(a + xl[axis] - zl[axis]);
+                            b = checked(b + xu[axis] - zu[axis]);
+                            ++count;
+                        }}
+                    kLower = Math.Max(kLower, IntegerCeil(a, count));
+                    kUpper = Math.Min(kUpper, IntegerFloor(b, count));
+                }}
+                if (kLower > kUpper) continue;
+                long delta = checked(reference - residue);
+                long nearest = IntegerFloor(delta, 8) +
+                    ((delta & 7L) > 4L ? 1L : 0L);
+                long k = Math.Min(kUpper, Math.Max(kLower, nearest));
+                long q = checked(8L * k + residue);
+                BigInteger distance = BigInteger.Abs((BigInteger)q - reference);
+                if (!found || distance < bestDistance ||
+                    (distance == bestDistance && q < selectedCommon))
+                {{
+                    found = true; bestDistance = distance; selectedCommon = q;
+                }}
+            }}
+            return found && TrySelectAtCommon(tangent, codes, selectedCommon,
+                out selected);
         }}
 
         private static bool TrySelectTangentMinimumChange(
@@ -5267,6 +5631,7 @@ namespace Genesis.RoomScan.SigmaPrism
             const int relation = 3;
             const int axis0 = 4;
             const int information0 = 8;
+            const int commonMode = information0 + 3;
             const int receipts0 = 12;
             result = null;
             if (left == null || right == null || left.Count != wordCount ||
@@ -5309,7 +5674,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 ulong width = unchecked((ulong)upper - (ulong)lower);
                 long boundedWidth = width <= long.MaxValue
                     ? (long)width : long.MaxValue;
-                result[information0 + axis] = new SigmaFrameUInt4Gpu
+                if (axis < 3)
+                    result[information0 + axis] = new SigmaFrameUInt4Gpu
                 {{
                     X = unchecked((uint)boundedWidth),
                     Y = unchecked((uint)(boundedWidth >> 32)),
@@ -5317,6 +5683,24 @@ namespace Genesis.RoomScan.SigmaPrism
                     W = 3u,
                 }};
             }}
+            long leftCommonLower = FrameRaw(left[commonMode].X,
+                left[commonMode].Y);
+            long rightCommonLower = FrameRaw(right[commonMode].X,
+                right[commonMode].Y);
+            long leftCommonUpper = FrameRaw(left[commonMode].Z,
+                left[commonMode].W);
+            long rightCommonUpper = FrameRaw(right[commonMode].Z,
+                right[commonMode].W);
+            long commonLower = leftCommonLower >= rightCommonLower
+                ? leftCommonLower : rightCommonLower;
+            long commonUpper = leftCommonUpper <= rightCommonUpper
+                ? leftCommonUpper : rightCommonUpper;
+            if (commonLower > commonUpper)
+            {{
+                result = null;
+                return false;
+            }}
+            result[commonMode] = FrameInterval(commonLower, commonUpper);
             result[receipts0 + 2] = new SigmaFrameUInt4Gpu
             {{
                 X = left[receipts0 + 2].X | right[receipts0 + 2].X,
@@ -5582,6 +5966,7 @@ def render_merkaba_hlsl(descriptor: dict, include_prefix: str =
     diffraction = ", ".join(str(value) for value in descriptor["diffractionMatrix"])
     metric = ", ".join(str(value) for value in descriptor["informationMetric"])
     shadow = ", ".join(str(value) for value in descriptor["shadowNumerator4"])
+    common = ", ".join(str(value) for value in descriptor["commonCharacter"])
     visible = ", ".join(
         str(value) for value in descriptor["visibleProjectorNumerator256"])
     words = ", ".join(
@@ -5708,6 +6093,8 @@ static const int SIGMA_MERKABA_DIFFRACTION[256] = {{ {diffraction} }};
 static const int SIGMA_MERKABA_INFORMATION_METRIC[256] = {{ {metric} }};
 static const int SIGMA_MERKABA_SHELL_SQUARE_BY_RANK[4] = {{ -1, -3, -7, -15 }};
 static const int SIGMA_MERKABA_SHADOW_NUMERATOR4[64] = {{ {shadow} }};
+static const int SIGMA_MERKABA_COMMON_CHARACTER[16] = {{ {common} }};
+static const uint SIGMA_MERKABA_EYE_CHARACTER_ROWS[4] = {{ 1u, 2u, 4u, 8u }};
 static const int SIGMA_MERKABA_VISIBLE_PROJECTOR_NUMERATOR256[256] = {{ {visible} }};
 static const uint4 SIGMA_MERKABA_IR_NODE_A[{len(ir['nodes'])}] = {{
     {node_a}
@@ -5924,6 +6311,88 @@ void SigmaMerkabaLiftShadow(uint2 shadow[4], out uint2 state[16],
     }}
 }}
 
+int SigmaMerkabaCommonCharacterCoefficient(uint address)
+{{
+    return SIGMA_MERKABA_COMMON_CHARACTER[min(address, 15u)];
+}}
+
+uint2 SigmaMerkabaScaleCommonCharacter(uint2 value, int coefficient,
+    inout uint valid)
+{{
+    valid &= coefficient >= -2 && coefficient <= 2 ? 1u : 0u;
+    if (coefficient == 0 || all(value == 0u))
+        return uint2(0u, 0u);
+    uint2 scaled = abs(coefficient) == 2
+        ? SigmaQ48ShiftLeftChecked(value, 1u, valid) : value;
+    return coefficient < 0 ? SigmaQ48NegateChecked(scaled, valid) : scaled;
+}}
+
+uint2 SigmaMerkabaLiftCommonModeLane(uint2 commonMode, uint address,
+    inout uint valid)
+{{
+    return SigmaMerkabaScaleCommonCharacter(commonMode,
+        SigmaMerkabaCommonCharacterCoefficient(address), valid);
+}}
+
+uint2 SigmaMerkabaEvaluateCommonMode(uint2 state[16], inout uint valid)
+{{
+    uint2 numerator = uint2(0u, 0u);
+    [unroll]
+    for (uint address = 0u; address < 16u; ++address)
+        numerator = SigmaQ48AddChecked(numerator,
+            SigmaMerkabaScaleCommonCharacter(state[address],
+                SigmaMerkabaCommonCharacterCoefficient(address), valid), valid);
+    return SigmaQ48ShiftRightNearestEven(numerator, 4u, valid);
+}}
+
+bool SigmaMerkabaRecoverCentredLeaves(uint2 state[16],
+    out uint2 leaves[4], inout uint valid)
+{{
+    uint2 tangent[4];
+    SigmaMerkabaEvaluateShadow(state, tangent, valid);
+    uint2 commonMode = SigmaMerkabaEvaluateCommonMode(state, valid);
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {{
+        uint2 numerator = SigmaQ48AddChecked(tangent[axis], commonMode, valid);
+        valid &= (numerator.x & 3u) == 0u ? 1u : 0u;
+        leaves[axis] = SigmaQ48ShiftRightNearestEven(numerator, 2u, valid);
+    }}
+    return valid != 0u;
+}}
+
+// Generated pure-query projective seed from the complete tangent/common K16
+// character frame. It is a disposable readout coordinate; neither this
+// quotient nor its float lowering can mutate canonical state.
+bool SigmaMerkabaEvaluateEyeCharacterSeed(uint2 state[16],
+    out uint2 projectiveSeed[3], inout uint valid)
+{{
+    uint2 leaves[4];
+    SigmaMerkabaRecoverCentredLeaves(state, leaves, valid);
+    valid &= !SigmaU64Equal(leaves[0], SIGMA_Q48_ZERO) ? 1u : 0u;
+    [unroll]
+    for (uint axis = 0u; axis < 3u; ++axis)
+        projectiveSeed[axis] = valid != 0u
+            ? SigmaQ48DivNearestEven(leaves[axis + 1u], leaves[0], valid)
+            : SIGMA_Q48_ZERO;
+    return valid != 0u;
+}}
+
+bool SigmaMerkabaRecoverUnitCode(uint2 tangent, uint2 commonMode,
+    out uint2 code, inout uint valid)
+{{
+    uint2 centredNumerator = SigmaQ48AddChecked(tangent, commonMode, valid);
+    valid &= (centredNumerator.x & 3u) == 0u ? 1u : 0u;
+    uint2 centred = SigmaQ48ShiftRightNearestEven(
+        centredNumerator, 2u, valid);
+    uint2 codeNumerator = SigmaQ48AddChecked(centred, SIGMA_Q48_ONE, valid);
+    valid &= (codeNumerator.x & 1u) == 0u ? 1u : 0u;
+    code = SigmaQ48ShiftRightNearestEven(codeNumerator, 1u, valid);
+    valid &= !SigmaI64Less(code, SIGMA_Q48_ZERO) &&
+        !SigmaI64Less(SIGMA_Q48_ONE, code) ? 1u : 0u;
+    return valid != 0u;
+}}
+
 void SigmaMerkabaInstrumentCompareSwap(inout uint left, inout uint right,
     uint2 pullback[4])
 {{
@@ -5980,7 +6449,8 @@ bool SigmaMerkabaBuildInstrumentRowPermutation(uint2 roomRay[3],
 
 void SigmaMerkabaAssembleInstrumentTangent(uint2 codeLower[4],
     uint2 codeUpper[4], int globalSign, out uint2 measuredLower[4],
-    out uint2 measuredUpper[4], inout uint valid)
+    out uint2 measuredUpper[4], out uint2 commonLower,
+    out uint2 commonUpper, inout uint valid)
 {{
     uint2 centredLower[4];
     uint2 centredUpper[4];
@@ -6018,6 +6488,188 @@ void SigmaMerkabaAssembleInstrumentTangent(uint2 codeLower[4],
         measuredUpper[outputLeaf] = globalSign > 0
             ? upper : SigmaQ48NegateChecked(lower, valid);
     }}
+    commonLower = globalSign > 0
+        ? totalLower : SigmaQ48NegateChecked(totalUpper, valid);
+    commonUpper = globalSign > 0
+        ? totalUpper : SigmaQ48NegateChecked(totalLower, valid);
+}}
+
+// Exact integer projection of the four-leaf cell. These divisions operate on
+// packed Q48 storage integers, not rounded Q48 point division.
+uint2 SigmaMerkabaIntegerFloor(uint2 value, uint divisor, inout uint valid)
+{{
+    uint2 magnitude = SigmaU64AbsSigned(value);
+    uint2 quotient = 0u;
+    uint remainder = 0u;
+    [unroll]
+    for (int limb = 3; limb >= 0; --limb)
+    {{
+        uint word = limb >= 2 ? magnitude.y : magnitude.x;
+        uint shift = ((uint)limb & 1u) * 16u;
+        uint part = (remainder << 16u) | ((word >> shift) & 65535u);
+        uint digit = part / divisor;
+        remainder = part - digit * divisor;
+        if (limb >= 2) quotient.y |= digit << shift;
+        else quotient.x |= digit << shift;
+    }}
+    if ((value.y & 0x80000000u) != 0u)
+    {{
+        quotient = SigmaQ48NegateChecked(quotient, valid);
+        if (remainder != 0u)
+            quotient = SigmaQ48SubChecked(quotient, uint2(1u, 0u), valid);
+    }}
+    return quotient;
+}}
+
+uint2 SigmaMerkabaIntegerCeil(uint2 value, uint divisor, inout uint valid)
+{{
+    return SigmaQ48NegateChecked(SigmaMerkabaIntegerFloor(
+        SigmaQ48NegateChecked(value, valid), divisor, valid), valid);
+}}
+
+uint2 SigmaMerkabaCeilEighth(uint2 value, inout uint valid)
+{{
+    return SigmaQ48AddChecked(SigmaI64ShiftRightRaw(value, 3u),
+        uint2((value.x & 7u) != 0u ? 1u : 0u, 0u), valid);
+}}
+
+bool SigmaMerkabaSelectAtCommon(uint2 lower[4], uint2 upper[4],
+    uint2 codeLower[4], uint2 codeUpper[4], uint2 common,
+    out uint2 selected[4], inout uint valid)
+{{
+    uint2 four = uint2(0u, 0x00040000u);
+    uint2 totalNumerator = SigmaQ48AddChecked(common, four, valid);
+    uint2 target = SigmaI64ShiftRightRaw(totalNumerator, 1u);
+    uint2 preferred = SigmaQ48AddChecked(
+        SigmaI64ShiftRightRaw(totalNumerator, 3u),
+        uint2((totalNumerator.x & 7u) > 4u ? 1u : 0u, 0u), valid);
+    uint2 lo[4];
+    uint2 hi[4];
+    uint2 sum = 0u;
+    bool feasible = (common.x & 1u) == 0u;
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {{
+        lo[axis] = SigmaQ48Max(codeLower[axis], SigmaMerkabaCeilEighth(
+            SigmaQ48AddChecked(lower[axis], totalNumerator, valid), valid));
+        hi[axis] = SigmaQ48Min(codeUpper[axis], SigmaI64ShiftRightRaw(
+            SigmaQ48AddChecked(upper[axis], totalNumerator, valid), 3u));
+        feasible = feasible && !SigmaI64Less(hi[axis], lo[axis]);
+        selected[axis] = SigmaQ48Min(hi[axis], SigmaQ48Max(lo[axis], preferred));
+        sum = SigmaQ48AddChecked(sum, selected[axis], valid);
+    }}
+    if (!feasible || valid == 0u) return false;
+    uint2 residual = SigmaQ48SubChecked(sum, target, valid);
+    bool positive = !SigmaI64Less(residual, SIGMA_Q48_ZERO);
+    uint2 remaining = SigmaU64AbsSigned(residual);
+    [unroll]
+    for (uint axis = 0u; axis < 4u; ++axis)
+    {{
+        uint2 capacity = positive
+            ? SigmaQ48SubChecked(selected[axis], lo[axis], valid)
+            : SigmaQ48SubChecked(hi[axis], selected[axis], valid);
+        uint2 adjustment = SigmaQ48Min(capacity, remaining);
+        selected[axis] = positive
+            ? SigmaQ48SubChecked(selected[axis], adjustment, valid)
+            : SigmaQ48AddChecked(selected[axis], adjustment, valid);
+        remaining = SigmaQ48SubChecked(remaining, adjustment, valid);
+        selected[axis] = SigmaQ48SubChecked(
+            SigmaQ48ShiftLeftChecked(selected[axis], 3u, valid),
+            totalNumerator, valid);
+    }}
+    return valid != 0u && all(remaining == 0u);
+}}
+
+bool SigmaMerkabaSelectFreshComplete(uint2 lower[4], uint2 upper[4],
+    uint2 commonLower, uint2 commonUpper, uint2 codeLower[4],
+    uint2 codeUpper[4], uint2 referenceCommon, out uint2 selected[4],
+    out uint2 selectedCommon, inout uint valid)
+{{
+    selectedCommon = SigmaQ48Min(commonUpper,
+        SigmaQ48Max(commonLower, referenceCommon));
+    valid &= !SigmaI64Less(commonUpper, commonLower) ? 1u : 0u;
+    // Ordinary fresh cells finish here: condition the tangent cell on q AND
+    // every original absolute leaf, rather than selecting two unrelated boxes.
+    if (SigmaMerkabaSelectAtCommon(lower, upper, codeLower, codeUpper,
+        selectedCommon, selected, valid)) return true;
+    if (valid == 0u) return false;
+
+    bool found = false;
+    uint2 bestDistance = uint2(0xffffffffu, 0xffffffffu);
+    // q is even, and t_i+q is divisible by eight. Each of the four residue
+    // classes has one exact integer interval projection, not a sampled search.
+    [loop]
+    for (uint residue = 0u; residue < 8u; residue += 2u)
+    {{
+        uint2 r = uint2(residue, 0u);
+        uint2 h = uint2(residue / 2u, 0u);
+        uint2 kLower = SigmaMerkabaCeilEighth(
+            SigmaQ48SubChecked(commonLower, r, valid), valid);
+        uint2 kUpper = SigmaI64ShiftRightRaw(
+            SigmaQ48SubChecked(commonUpper, r, valid), 3u);
+        uint2 zLower[4]; uint2 zUpper[4];
+        uint2 xLower[4]; uint2 xUpper[4];
+        uint2 sumLower = 0u; uint2 sumUpper = 0u;
+        [unroll]
+        for (uint axis = 0u; axis < 4u; ++axis)
+        {{
+            zLower[axis] = SigmaMerkabaCeilEighth(
+                SigmaQ48AddChecked(lower[axis], r, valid), valid);
+            zUpper[axis] = SigmaI64ShiftRightRaw(
+                SigmaQ48AddChecked(upper[axis], r, valid), 3u);
+            xLower[axis] = SigmaQ48SubChecked(codeLower[axis],
+                uint2(0u, 0x00008000u), valid);
+            xUpper[axis] = SigmaQ48SubChecked(codeUpper[axis],
+                uint2(0u, 0x00008000u), valid);
+            kLower = SigmaQ48Max(kLower,
+                SigmaQ48SubChecked(xLower[axis], zUpper[axis], valid));
+            kUpper = SigmaQ48Min(kUpper,
+                SigmaQ48SubChecked(xUpper[axis], zLower[axis], valid));
+            sumLower = SigmaQ48AddChecked(sumLower, zLower[axis], valid);
+            sumUpper = SigmaQ48AddChecked(sumUpper, zUpper[axis], valid);
+        }}
+        if (SigmaI64Less(h, sumLower) || SigmaI64Less(sumUpper, h)) continue;
+        // Sum max(lower_i) <= h <= sum min(upper_i) is equivalent to
+        // these fifteen subset inequalities. Full keys/bytes never use a mask.
+        [loop]
+        for (uint subset = 1u; subset < 16u; ++subset)
+        {{
+            uint2 a = SigmaQ48SubChecked(sumLower, h, valid);
+            uint2 b = SigmaQ48SubChecked(sumUpper, h, valid);
+            [unroll]
+            for (uint axis = 0u; axis < 4u; ++axis)
+                if ((subset & (1u << axis)) != 0u)
+                {{
+                    a = SigmaQ48AddChecked(a, SigmaQ48SubChecked(
+                        xLower[axis], zLower[axis], valid), valid);
+                    b = SigmaQ48AddChecked(b, SigmaQ48SubChecked(
+                        xUpper[axis], zUpper[axis], valid), valid);
+                }}
+            uint count = countbits(subset);
+            kLower = SigmaQ48Max(kLower,
+                SigmaMerkabaIntegerCeil(a, count, valid));
+            kUpper = SigmaQ48Min(kUpper,
+                SigmaMerkabaIntegerFloor(b, count, valid));
+        }}
+        if (SigmaI64Less(kUpper, kLower)) continue;
+        uint2 delta = SigmaQ48SubChecked(referenceCommon, r, valid);
+        uint2 nearest = SigmaQ48AddChecked(SigmaI64ShiftRightRaw(delta, 3u),
+            uint2((delta.x & 7u) > 4u ? 1u : 0u, 0u), valid);
+        uint2 k = SigmaQ48Min(kUpper, SigmaQ48Max(kLower, nearest));
+        uint2 q = SigmaQ48AddChecked(SigmaQ48ShiftLeftChecked(k, 3u, valid),
+            r, valid);
+        uint2 distance = SigmaU64AbsSigned(
+            SigmaQ48SubChecked(q, referenceCommon, valid));
+        if (!found || SigmaU64Less(distance, bestDistance) ||
+            (all(distance == bestDistance) && SigmaI64Less(q, selectedCommon)))
+        {{
+            selectedCommon = q;
+            bestDistance = distance;
+            found = true;
+        }}
+    }}
+    return found && SigmaMerkabaSelectAtCommon(lower, upper,
+        codeLower, codeUpper, selectedCommon, selected, valid);
 }}
 
 bool SigmaMerkabaSelectFreshTangent(uint2 lower[4], uint2 upper[4],
@@ -6104,7 +6756,8 @@ uint SigmaMerkabaEvaluateFreshBoundaryRelation(uint2 state[16],
 }}
 
 bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
-    uint firstHitEyeMask, uint coherent, out uint2 state[16],
+    uint2 commonLower, uint2 commonUpper, uint firstHitEyeMask, uint coherent,
+    out uint2 state[16],
     out uint2 selectedShadow[4], out uint boundaryRelation, inout uint valid)
 {{
     boundaryRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
@@ -6112,8 +6765,17 @@ bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
         (firstHitEyeMask & (SIGMA_FRESH_FIRST_HIT_LEFT |
             SIGMA_FRESH_FIRST_HIT_RIGHT)) ==
             (SIGMA_FRESH_FIRST_HIT_LEFT | SIGMA_FRESH_FIRST_HIT_RIGHT);
-    if (!rolesValid ||
-        !SigmaMerkabaSelectFreshTangent(lower, upper, selectedShadow, valid))
+    uint2 codeLower[4]; uint2 codeUpper[4];
+    [unroll]
+    for (uint leaf = 0u; leaf < 4u; ++leaf)
+    {{
+        codeLower[leaf] = SIGMA_Q48_ZERO;
+        codeUpper[leaf] = SIGMA_Q48_ONE;
+    }}
+    uint2 selectedCommon;
+    if (!rolesValid || !SigmaMerkabaSelectFreshComplete(lower, upper,
+        commonLower, commonUpper, codeLower, codeUpper, SIGMA_Q48_ZERO,
+        selectedShadow, selectedCommon, valid))
     {{
         valid = 0u;
         [unroll]
@@ -6121,7 +6783,14 @@ bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
             state[lane] = uint2(0u, 0u);
         return false;
     }}
+    if (SigmaI64Less(commonUpper, commonLower))
+        valid = 0u;
     SigmaMerkabaLiftShadow(selectedShadow, state, valid);
+    [unroll]
+    for (uint commonLane = 0u; commonLane < 16u; ++commonLane)
+        state[commonLane] = SigmaQ48AddChecked(state[commonLane],
+            SigmaMerkabaLiftCommonModeLane(selectedCommon, commonLane, valid),
+            valid);
     uint nonzero = 0u;
     [unroll]
     for (uint lane = 0u; lane < 16u; ++lane)
@@ -6134,11 +6803,17 @@ bool SigmaMerkabaResolveFreshBranch(uint2 lower[4], uint2 upper[4],
         return false;
     uint2 forward[4];
     SigmaMerkabaEvaluateShadow(state, forward, valid);
+    uint2 forwardCommon = SigmaMerkabaEvaluateCommonMode(state, valid);
     [unroll]
     for (uint axis = 0u; axis < 4u; ++axis)
         if (SigmaI64Less(forward[axis], lower[axis]) ||
             SigmaI64Less(upper[axis], forward[axis]))
             valid = 0u;
+    if (SigmaI64Less(forwardCommon, commonLower) ||
+        SigmaI64Less(commonUpper, forwardCommon))
+        valid = 0u;
+    uint2 recoveredLeaves[4];
+    SigmaMerkabaRecoverCentredLeaves(state, recoveredLeaves, valid);
     return valid != 0u;
 }}
 
@@ -6961,10 +7636,12 @@ void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
     uint2 selected[4];
     uint boundaryRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
     bool admitted = SigmaMerkabaResolveFreshBranch(lower, upper,
+        half, half,
         SIGMA_FRESH_FIRST_HIT_LEFT | SIGMA_FRESH_FIRST_HIT_RIGHT, 1u,
         state, selected, boundaryRelation, valid);
     uint2 forward[4];
     SigmaMerkabaEvaluateShadow(state, forward, valid);
+    uint2 forwardCommon = SigmaMerkabaEvaluateCommonMode(state, valid);
     [unroll]
     for (uint axis = 0u; axis < 4u; ++axis)
         _MerkabaFreshResults[axis] = uint4(selected[axis], forward[axis]);
@@ -6992,6 +7669,7 @@ void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
     uint tinyRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(
         kernelState, tinyValid);
     _MerkabaFreshResults[22] = uint4(tinyRelation, tinyValid, 0u, 0u);
+    _MerkabaFreshResults[23] = uint4(forwardCommon, half);
 }}
 
 [numthreads(1, 1, 1)]
@@ -7008,14 +7686,19 @@ void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
         permutation, globalSign, valid);
     uint2 codeLower[4];
     uint2 codeUpper[4];
-    codeLower[0] = codeUpper[0] = uint2(0u, 0x0000a000u);
-    codeLower[1] = codeUpper[1] = uint2(0u, 0x00006000u);
-    codeLower[2] = codeUpper[2] = uint2(0u, 0x00009000u);
-    codeLower[3] = codeUpper[3] = uint2(0u, 0x00007000u);
+    // Add the same 1/16 code offset to the established tangent fixture. The
+    // four-I-minus-all-ones shadow is unchanged while q becomes exactly 1/2.
+    codeLower[0] = codeUpper[0] = uint2(0u, 0x0000b000u);
+    codeLower[1] = codeUpper[1] = uint2(0u, 0x00007000u);
+    codeLower[2] = codeUpper[2] = uint2(0u, 0x0000a000u);
+    codeLower[3] = codeUpper[3] = uint2(0u, 0x00008000u);
     uint2 measuredLower[4];
     uint2 measuredUpper[4];
+    uint2 commonLower;
+    uint2 commonUpper;
     SigmaMerkabaAssembleInstrumentTangent(codeLower, codeUpper,
-        globalSign, measuredLower, measuredUpper, valid);
+        globalSign, measuredLower, measuredUpper, commonLower, commonUpper,
+        valid);
     _MerkabaInstrumentResults[0] = uint4(permutation.x,
         asuint(globalSign), routed ? 1u : 0u, valid);
     _MerkabaInstrumentResults[1] = uint4(permutation.y,
@@ -7028,6 +7711,7 @@ void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
     for (uint leaf = 0u; leaf < 4u; ++leaf)
         _MerkabaInstrumentResults[4u + leaf] = uint4(
             measuredLower[leaf], measuredUpper[leaf]);
+    _MerkabaInstrumentResults[8] = uint4(commonLower, commonUpper);
 }}
 
 [numthreads(16, 1, 1)]
@@ -7427,6 +8111,7 @@ namespace Genesis.RoomScan.SigmaPrism
             const int relation = 3;
             const int axis0 = 4;
             const int information0 = 8;
+            const int commonMode = information0 + 3;
             const int receipts0 = 12;
             result = null;
             if (left == null || right == null || left.Length != wordCount ||
@@ -7473,7 +8158,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 ulong width = unchecked((ulong)upper - (ulong)lower);
                 long boundedWidth = width <= long.MaxValue
                     ? (long)width : long.MaxValue;
-                result[information0 + axis] = new SigmaFrameUInt4Gpu
+                if (axis < 3)
+                    result[information0 + axis] = new SigmaFrameUInt4Gpu
                 {{
                     X = unchecked((uint)boundedWidth),
                     Y = unchecked((uint)(boundedWidth >> 32)),
@@ -7481,6 +8167,24 @@ namespace Genesis.RoomScan.SigmaPrism
                     W = 3u,
                 }};
             }}
+            long leftCommonLower = CertificateRaw(left[commonMode].X,
+                left[commonMode].Y);
+            long rightCommonLower = CertificateRaw(right[commonMode].X,
+                right[commonMode].Y);
+            long leftCommonUpper = CertificateRaw(left[commonMode].Z,
+                left[commonMode].W);
+            long rightCommonUpper = CertificateRaw(right[commonMode].Z,
+                right[commonMode].W);
+            long commonLower = leftCommonLower >= rightCommonLower
+                ? leftCommonLower : rightCommonLower;
+            long commonUpper = leftCommonUpper <= rightCommonUpper
+                ? leftCommonUpper : rightCommonUpper;
+            if (commonLower > commonUpper)
+            {{
+                result = null;
+                return false;
+            }}
+            result[commonMode] = CertificateInterval(commonLower, commonUpper);
             result[receipts0 + 2] = new SigmaFrameUInt4Gpu
             {{
                 X = left[receipts0 + 2].X | right[receipts0 + 2].X,

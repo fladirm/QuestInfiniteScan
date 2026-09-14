@@ -1,24 +1,40 @@
-# Session tail
+# Session tail — 2026-09-14
 
 ## Exchange 1 — user
 
-Implement N6R exactly according to its frozen contract, with no alternative design.
-After the complete N6 build, commit and push it, provide the link and install the
-same APK.
+Relaunch the app and take a screenshot: a growing point cloud/star appears in
+the viewing direction, not an aligned world scan. Wants connected triangles on
+valid field relations instead of point markers; notes readout is unnecessarily slow.
 
-## Exchange 1 — assistant
+## Exchange 1 — assistant / actual source
 
-N6 was activated only as a pure generated readout from immutable `Psi`; N4/N5,
-algebra, pager, persistence, aperture and queue topology remain frozen. The full
-shader/ABI/binding/test review was completed before production editing.
+Exact Sigma package relaunched ok/COLD with data retained. Capture60582:
+/mnt/kingston-unity/Builds/QuestInfiniteScan/logs/n6-cloud-relaunch.s2AeSw/logcat.txt.
+Restore1581/294926/73 pages completed, roots continue, BACK/FRONT now actually
+complete. Headset screenshot quest-cloud.png confirms the unaligned point cloud.
+Current EvaluateEyeCharacterSeed uses recovered centred code ratios, not a proved
+room-space point; EvaluateEye rescales relative to the current eye. This fails
+world alignment despite exact (t,q) code roundtrip. Do not triangulate that wrong
+mapping or patch it using page layout, arbitrary XYZ or certificate physics.
 
-## Exchange 2 — evidence
+## Exchange 2 — user
 
-The review proved that the accepted fresh representation erases an exact sensor
-common mode: `4I-J` gives identical four-axis tangents, and therefore identical
-fresh S16 lifts, for two code vectors with different absolute depth/order. The
-minimized certificate retains tangent intervals and direction modes but not that
-missing coordinate. The new focused regression test passes with the complete
-Unity/Vulkan corpus at 171/171. Exact N6 prediction/order cannot be produced from
-the current immutable `Psi` without reopening pre-N6 representation authority;
-building or committing a heuristic readout would violate the frozen contract.
+Commit/push and provide link. Save star screenshot in Downloads. Does it slow
+down over time?
+
+## Exchange 2 — assistant / current action
+
+Preparing user-requested WIP review checkpoint, NOT N6 acceptance. Latest installed
+APK remains QuestInfiniteScan-n6-draw-repair.apk SHA256
+de0c18ae1da490a5df1d82bacf8146b8ac901234831451ad6e89fdca597329b1, built from the
+pre-commit candidate. Screenshot copied byte-identically to:
+/home/wraith/Stažené/Sigma-N6-hvezda-2026-09-14-2315.png.
+Screenshot SHA256 c07c1facc0cd6bcf4e6e0fb1cc5c7527ab4e53a338b91006befa839140060bdf.
+N6 readout through23:18:33: n255,p50=34.250ms,p95=37.459ms. Exact32-completion
+windows1..32,224..255,595..626: p50=24.017,35.108,28.603ms and p95=26.102,37.938,
+29.625ms. It grew slower but not monotonically; logical extent/working set also
+changes, so no time-only leak proven. Both-bank grid launches917504 threads and
+writes56MiB each generation; radius rejection occurs late and shadow/common is
+evaluated twice. No new source optimization in this review step. Remote checked
+at base2cebaab before committing. Preserve untracked Logs.meta/evidence.meta/evidence.
+No subagents. Full Unity retest unfinished; N6 alignment/latency FAIL; S4-09 unopened.

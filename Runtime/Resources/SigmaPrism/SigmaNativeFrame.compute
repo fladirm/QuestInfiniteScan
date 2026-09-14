@@ -1476,15 +1476,16 @@ bool SigmaN4PublishMeetParentCertificateCore(uint footprint, uint sourceSlot,
             merged = uint4(left.x | right.x, left.y, 1u, 0u);
         else if (word == SIGMA_CERTIFICATE_INDEPENDENCE)
             merged = 0u;
-        else if (word >= SIGMA_CERTIFICATE_AXIS0 &&
-            word < SIGMA_CERTIFICATE_INFORMATION0)
+        else if ((word >= SIGMA_CERTIFICATE_AXIS0 &&
+            word < SIGMA_CERTIFICATE_INFORMATION0) ||
+            word == SIGMA_CERTIFICATE_COMMON_MODE)
         {
             merged = uint4(SigmaQ48Max(left.xy, right.xy),
                 SigmaQ48Min(left.zw, right.zw));
             valid &= !SigmaI64Less(merged.zw, merged.xy) ? 1u : 0u;
         }
         else if (word >= SIGMA_CERTIFICATE_INFORMATION0 &&
-            word < SIGMA_CERTIFICATE_RECEIPTS0)
+            word < SIGMA_CERTIFICATE_COMMON_MODE)
         {
             uint axis = word - SIGMA_CERTIFICATE_INFORMATION0;
             uint4 interval = uint4(SigmaQ48Max(
@@ -1529,15 +1530,16 @@ uint4 SigmaN4PublishParentCertificateMeetWord(uint parent, uint fresh,
         merged = uint4(left.x | right.x, left.y, 1u, 0u);
     else if (word == SIGMA_CERTIFICATE_INDEPENDENCE)
         merged = 0u;
-    else if (word >= SIGMA_CERTIFICATE_AXIS0 &&
-        word < SIGMA_CERTIFICATE_INFORMATION0)
+    else if ((word >= SIGMA_CERTIFICATE_AXIS0 &&
+        word < SIGMA_CERTIFICATE_INFORMATION0) ||
+        word == SIGMA_CERTIFICATE_COMMON_MODE)
     {
         merged = uint4(SigmaQ48Max(left.xy, right.xy),
             SigmaQ48Min(left.zw, right.zw));
         valid &= !SigmaI64Less(merged.zw, merged.xy) ? 1u : 0u;
     }
     else if (word >= SIGMA_CERTIFICATE_INFORMATION0 &&
-        word < SIGMA_CERTIFICATE_RECEIPTS0)
+        word < SIGMA_CERTIFICATE_COMMON_MODE)
     {
         uint axis = word - SIGMA_CERTIFICATE_INFORMATION0;
         uint4 interval = uint4(SigmaQ48Max(

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
@@ -103,6 +104,8 @@ namespace
         "C#/native NativeCloseCommit resource ABI mismatch");
     static_assert(kSigmaColdEncoderResourceCount == 12u,
         "C#/native cold durable encoder resource ABI mismatch");
+    static_assert(kSigmaReadoutResourceCount == 14u,
+        "C#/native N6 readout resource ABI mismatch");
 
     constexpr uint32_t kExecutorAbiVersion = 6;
     constexpr uint32_t kExecutorDispatchCount = 16;
@@ -139,6 +142,10 @@ namespace
     constexpr uint32_t kColdEncodeUnityResourceCount = 6;
     constexpr uint32_t kColdEncodeResourceCount = 12;
     constexpr uint32_t kColdEncodeMaximumPages = 8;
+    constexpr uint32_t kReadoutAbiVersion = 1;
+    constexpr uint32_t kReadoutResourceCount = 14;
+    constexpr uint32_t kReadoutUniformBytes = 11 * 4 * sizeof(uint32_t);
+    constexpr uint32_t kReadoutSampleBytes = 16 * sizeof(float);
     constexpr uint32_t kCodecBlocksPerPage = 64;
     constexpr VkDeviceSize kCodecDescriptorBytes = 4ull * sizeof(uint32_t);
     constexpr VkDeviceSize kCodecScratchBytes = 8192ull;
@@ -225,6 +232,19 @@ namespace
         uint64_t representationWordCapacity;
         uint32_t* metadata;
         uint64_t metadataWordCapacity;
+    };
+
+    struct SigmaReadoutDescriptor
+    {
+        uint32_t structSize;
+        uint32_t abiVersion;
+        uint32_t revision;
+        uint32_t resourceCount;
+        void* const* resources;
+        const uint8_t* constants;
+        uint32_t constantsSize;
+        uint32_t pageCapacity0;
+        uint32_t pageCapacity1;
     };
 
     enum ExecutorJobState : int
@@ -329,6 +349,33 @@ namespace
         VkFence acquireFence = VK_NULL_HANDLE;
         VkResult error = VK_SUCCESS;
         bool graphicsSubmitted = false;
+    };
+
+    struct ReadoutJob
+    {
+        std::atomic<int> state{kColdCreated};
+        uint32_t revision = 0;
+        uint32_t pageCapacity0 = 0;
+        uint32_t pageCapacity1 = 0;
+        std::array<void*, kReadoutResourceCount> nativeResources = {};
+        std::array<UnityVulkanBuffer, kReadoutResourceCount> buffers = {};
+        std::vector<uint8_t> constants;
+        VkBuffer uniformBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory uniformMemory = VK_NULL_HANDLE;
+        VkMemoryPropertyFlags uniformMemoryFlags = 0;
+        VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+        VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        VkSemaphore graphicsReady = VK_NULL_HANDLE;
+        VkSemaphore nativeDone = VK_NULL_HANDLE;
+        VkFence graphicsFence = VK_NULL_HANDLE;
+        VkFence nativeFence = VK_NULL_HANDLE;
+        VkFence acquireFence = VK_NULL_HANDLE;
+        VkQueryPool queryPool = VK_NULL_HANDLE;
+        std::array<uint64_t, 2> timestamps = {};
+        VkResult error = VK_SUCCESS;
+        bool graphicsSubmitted = false;
+        bool timingsReady = false;
     };
 
     enum ColdEncodeState : int
@@ -437,15 +484,18 @@ namespace
     VkPhysicalDeviceProperties g_deviceProperties = {};
     std::array<ExecutorPipeline, kExecutorDispatchCount> g_executorPipelines = {};
     std::array<ExecutorPipeline, 3> g_coldEncoderPipelines = {};
+    std::array<ExecutorPipeline, 1> g_readoutPipelines = {};
     std::mutex g_executorMutex;
     std::mutex g_sigmaQueueMutex;
     std::vector<ExecutorJob*> g_executorJobs;
     std::vector<ColdUploadJob*> g_coldUploadJobs;
     std::vector<ColdEncodeJob*> g_coldEncodeJobs;
+    std::vector<ReadoutJob*> g_readoutJobs;
     int g_executorEventBase = 0;
     bool g_executorEventsReserved = false;
     int g_coldUploadEventBase = 0;
     int g_coldEncodeEventBase = 0;
+    int g_readoutEventBase = 0;
     bool g_executorReady = false;
     VkQueryPool g_queryPool = VK_NULL_HANDLE;
     std::atomic<int> g_state{kUnavailable};
@@ -708,8 +758,28 @@ namespace
         pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
         pipelineInfo.stage = stage;
         pipelineInfo.layout = target->pipelineLayout;
+        if (g_log != nullptr)
+        {
+            char message[256] = {};
+            std::snprintf(message, sizeof(message),
+                "Sigma pipeline create begin: stage=%s spirvBytes=%u "
+                "sourceCompile=offline appPipelineCache=0",
+                embedded.label, embedded.wordCount * 4u);
+            UNITY_LOG(g_log, message);
+        }
+        const auto pipelineStart = std::chrono::steady_clock::now();
         result = vkCreateComputePipelines(g_instance.device, VK_NULL_HANDLE,
             1, &pipelineInfo, nullptr, &target->pipeline);
+        if (g_log != nullptr)
+        {
+            const double milliseconds = std::chrono::duration<double,
+                std::milli>(std::chrono::steady_clock::now() - pipelineStart).count();
+            char message[256] = {};
+            std::snprintf(message, sizeof(message),
+                "Sigma pipeline create end: stage=%s driverCreateMs=%.3f result=%d",
+                embedded.label, milliseconds, static_cast<int>(result));
+            UNITY_LOG(g_log, message);
+        }
         vkDestroyShaderModule(g_instance.device, module, nullptr);
         if (result != VK_SUCCESS)
         {
@@ -729,6 +799,9 @@ namespace
             if (!CreateEmbeddedPipeline(kSigmaColdEncoderPipelines[index],
                     &g_coldEncoderPipelines[index]))
                 return false;
+        if (!CreateEmbeddedPipeline(kSigmaReadoutPipelines[0],
+                &g_readoutPipelines[0]))
+            return false;
         return true;
     }
 
@@ -1190,6 +1263,425 @@ namespace
             !CreateColdUploadSync(job))
             return false;
         return true;
+    }
+
+    void FailReadout(ReadoutJob* job, VkResult result,
+        const char* operation, bool graphicsCompletionRequired)
+    {
+        if (job == nullptr)
+            return;
+        job->error = result;
+        job->state.store(graphicsCompletionRequired
+                ? kColdFailedNeedsGraphicsCompletion : kColdFailedSafe,
+            std::memory_order_release);
+        LogExecutorError(operation, result);
+    }
+
+    void DestroyReadoutObjects(ReadoutJob* job)
+    {
+        if (job == nullptr || g_instance.device == VK_NULL_HANDLE)
+            return;
+        if (job->queryPool != VK_NULL_HANDLE)
+            vkDestroyQueryPool(g_instance.device, job->queryPool, nullptr);
+        if (job->descriptorPool != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(g_instance.device, job->descriptorPool,
+                nullptr);
+        if (job->uniformBuffer != VK_NULL_HANDLE)
+            vkDestroyBuffer(g_instance.device, job->uniformBuffer, nullptr);
+        if (job->uniformMemory != VK_NULL_HANDLE)
+            vkFreeMemory(g_instance.device, job->uniformMemory, nullptr);
+        if (job->graphicsReady != VK_NULL_HANDLE)
+            vkDestroySemaphore(g_instance.device, job->graphicsReady, nullptr);
+        if (job->nativeDone != VK_NULL_HANDLE)
+            vkDestroySemaphore(g_instance.device, job->nativeDone, nullptr);
+        if (job->graphicsFence != VK_NULL_HANDLE)
+            vkDestroyFence(g_instance.device, job->graphicsFence, nullptr);
+        if (job->nativeFence != VK_NULL_HANDLE)
+            vkDestroyFence(g_instance.device, job->nativeFence, nullptr);
+        if (job->acquireFence != VK_NULL_HANDLE)
+            vkDestroyFence(g_instance.device, job->acquireFence, nullptr);
+        if (job->commandBuffer != VK_NULL_HANDLE &&
+            g_executorCommandPool != VK_NULL_HANDLE)
+            vkFreeCommandBuffers(g_instance.device, g_executorCommandPool, 1,
+                &job->commandBuffer);
+        job->queryPool = VK_NULL_HANDLE;
+        job->descriptorPool = VK_NULL_HANDLE;
+        job->descriptorSet = VK_NULL_HANDLE;
+        job->uniformBuffer = VK_NULL_HANDLE;
+        job->uniformMemory = VK_NULL_HANDLE;
+        job->graphicsReady = VK_NULL_HANDLE;
+        job->nativeDone = VK_NULL_HANDLE;
+        job->graphicsFence = VK_NULL_HANDLE;
+        job->nativeFence = VK_NULL_HANDLE;
+        job->acquireFence = VK_NULL_HANDLE;
+        job->commandBuffer = VK_NULL_HANDLE;
+    }
+
+    bool AccessReadoutResources(ReadoutJob* job)
+    {
+        for (uint32_t resource = 0; resource < kReadoutResourceCount;
+            ++resource)
+        {
+            const bool output = resource >= 6u;
+            const bool arguments = resource >= 12u;
+            VkPipelineStageFlags stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            VkAccessFlags access = output ? VK_ACCESS_SHADER_WRITE_BIT :
+                VK_ACCESS_SHADER_READ_BIT;
+            if (arguments)
+            {
+                stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+                access |= VK_ACCESS_TRANSFER_WRITE_BIT;
+            }
+            if (job->nativeResources[resource] == nullptr ||
+                !g_vulkan->AccessBuffer(job->nativeResources[resource], stages,
+                    access, kUnityVulkanResourceAccess_PipelineBarrier,
+                    &job->buffers[resource]))
+            {
+                FailReadout(job, VK_ERROR_INITIALIZATION_FAILED,
+                    "IUnityGraphicsVulkan::AccessBuffer(N6 readout)", false);
+                return false;
+            }
+            if ((job->buffers[resource].usage &
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) == 0)
+            {
+                FailReadout(job, VK_ERROR_FORMAT_NOT_SUPPORTED,
+                    "N6 readout resource missing STORAGE_BUFFER", false);
+                return false;
+            }
+        }
+        const std::array<VkDeviceSize, kReadoutResourceCount> minimum = {
+            sizeof(uint32_t),
+            kCarrierPageStateBytes * job->pageCapacity0,
+            kCarrierPageStateBytes * job->pageCapacity1,
+            kCarrierPageMetadataBytes * job->pageCapacity0,
+            kCarrierPageMetadataBytes * job->pageCapacity1,
+            sizeof(uint32_t),
+            VkDeviceSize(kReadoutSampleBytes) * 4096ull * job->pageCapacity0,
+            VkDeviceSize(kReadoutSampleBytes) * 4096ull * job->pageCapacity1,
+            sizeof(uint32_t) * job->pageCapacity0,
+            sizeof(uint32_t) * job->pageCapacity1,
+            kCarrierPageMetadataBytes * job->pageCapacity0,
+            kCarrierPageMetadataBytes * job->pageCapacity1,
+            sizeof(uint32_t) * 4ull,
+            sizeof(uint32_t) * 4ull};
+        for (uint32_t resource = 0; resource < kReadoutResourceCount;
+            ++resource)
+            if (job->buffers[resource].sizeInBytes < minimum[resource])
+            {
+                FailReadout(job, VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                    "N6 readout resource range", false);
+                return false;
+            }
+        for (uint32_t resource = 12u; resource < 14u; ++resource)
+            if ((job->buffers[resource].usage &
+                    VK_BUFFER_USAGE_TRANSFER_DST_BIT) == 0 ||
+                (job->buffers[resource].usage &
+                    VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) == 0)
+            {
+                FailReadout(job, VK_ERROR_FORMAT_NOT_SUPPORTED,
+                    "N6 readout args missing TRANSFER_DST/INDIRECT", false);
+                return false;
+            }
+        return true;
+    }
+
+    bool CreateReadoutUniform(ReadoutJob* job)
+    {
+        const SigmaEmbeddedPipeline& embedded = kSigmaReadoutPipelines[0];
+        if (embedded.globalSize != kReadoutUniformBytes ||
+            job->constants.size() != kReadoutUniformBytes)
+        {
+            FailReadout(job, VK_ERROR_INITIALIZATION_FAILED,
+                "N6 readout uniform ABI", false);
+            return false;
+        }
+        VkBufferCreateInfo bufferInfo = {};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = embedded.globalSize;
+        bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkResult result = vkCreateBuffer(g_instance.device, &bufferInfo,
+            nullptr, &job->uniformBuffer);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result, "vkCreateBuffer(N6 uniform)", false);
+            return false;
+        }
+        VkMemoryRequirements requirements = {};
+        vkGetBufferMemoryRequirements(g_instance.device, job->uniformBuffer,
+            &requirements);
+        uint32_t memoryType = 0;
+        if (!FindMemoryType(requirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &memoryType,
+                &job->uniformMemoryFlags))
+        {
+            FailReadout(job, VK_ERROR_FEATURE_NOT_PRESENT,
+                "host-visible N6 uniform", false);
+            return false;
+        }
+        VkMemoryAllocateInfo allocation = {};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.allocationSize = requirements.size;
+        allocation.memoryTypeIndex = memoryType;
+        result = vkAllocateMemory(g_instance.device, &allocation, nullptr,
+            &job->uniformMemory);
+        if (result == VK_SUCCESS)
+            result = vkBindBufferMemory(g_instance.device,
+                job->uniformBuffer, job->uniformMemory, 0);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result, "N6 uniform memory", false);
+            return false;
+        }
+        void* mapped = nullptr;
+        result = vkMapMemory(g_instance.device, job->uniformMemory, 0,
+            requirements.size, 0, &mapped);
+        if (result != VK_SUCCESS || mapped == nullptr)
+        {
+            FailReadout(job, result, "vkMapMemory(N6 uniform)", false);
+            return false;
+        }
+        std::memcpy(mapped, job->constants.data(), job->constants.size());
+        if ((job->uniformMemoryFlags &
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0)
+        {
+            VkMappedMemoryRange range = {};
+            range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+            range.memory = job->uniformMemory;
+            range.offset = 0;
+            range.size = VK_WHOLE_SIZE;
+            result = vkFlushMappedMemoryRanges(g_instance.device, 1, &range);
+        }
+        vkUnmapMemory(g_instance.device, job->uniformMemory);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkFlushMappedMemoryRanges(N6 uniform)", false);
+            return false;
+        }
+        return true;
+    }
+
+    bool CreateReadoutDescriptors(ReadoutJob* job)
+    {
+        const SigmaEmbeddedPipeline& embedded = kSigmaReadoutPipelines[0];
+        std::array<VkDescriptorPoolSize, 2> sizes = {};
+        sizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            kReadoutResourceCount};
+        sizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1u};
+        VkDescriptorPoolCreateInfo poolInfo = {};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets = 1u;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(sizes.size());
+        poolInfo.pPoolSizes = sizes.data();
+        VkResult result = vkCreateDescriptorPool(g_instance.device, &poolInfo,
+            nullptr, &job->descriptorPool);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkCreateDescriptorPool(N6 readout)", false);
+            return false;
+        }
+        VkDescriptorSetAllocateInfo allocate = {};
+        allocate.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocate.descriptorPool = job->descriptorPool;
+        allocate.descriptorSetCount = 1u;
+        allocate.pSetLayouts = &g_readoutPipelines[0].descriptorSetLayout;
+        result = vkAllocateDescriptorSets(g_instance.device, &allocate,
+            &job->descriptorSet);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkAllocateDescriptorSets(N6 readout)", false);
+            return false;
+        }
+        std::vector<VkDescriptorBufferInfo> infos(embedded.descriptorCount);
+        std::vector<VkWriteDescriptorSet> writes(embedded.descriptorCount);
+        for (uint32_t index = 0; index < embedded.descriptorCount; ++index)
+        {
+            const SigmaEmbeddedDescriptor& descriptor =
+                embedded.descriptors[index];
+            VkDescriptorBufferInfo& info = infos[index];
+            if (descriptor.kind == kEmbeddedUniformBuffer)
+            {
+                info.buffer = job->uniformBuffer;
+                info.offset = 0;
+                info.range = embedded.globalSize;
+            }
+            else if (descriptor.resource >= 0 &&
+                static_cast<uint32_t>(descriptor.resource) <
+                    kReadoutResourceCount)
+            {
+                info.buffer = job->buffers[descriptor.resource].buffer;
+                info.offset = 0;
+                info.range = job->buffers[descriptor.resource].sizeInBytes;
+            }
+            else
+            {
+                FailReadout(job, VK_ERROR_INITIALIZATION_FAILED,
+                    "N6 readout descriptor resource", false);
+                return false;
+            }
+            VkWriteDescriptorSet& write = writes[index];
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = job->descriptorSet;
+            write.dstBinding = descriptor.binding;
+            write.descriptorCount = 1u;
+            write.descriptorType = descriptor.kind == kEmbeddedUniformBuffer
+                ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.pBufferInfo = &info;
+        }
+        vkUpdateDescriptorSets(g_instance.device,
+            static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        return true;
+    }
+
+    bool RecordReadoutCommands(ReadoutJob* job)
+    {
+        VkCommandBufferAllocateInfo allocate = {};
+        allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocate.commandPool = g_executorCommandPool;
+        allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate.commandBufferCount = 1u;
+        VkResult result = vkAllocateCommandBuffers(g_instance.device,
+            &allocate, &job->commandBuffer);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkAllocateCommandBuffers(N6 readout)", false);
+            return false;
+        }
+        if (g_timestampValidBits != 0u)
+        {
+            VkQueryPoolCreateInfo query = {};
+            query.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+            query.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            query.queryCount = 2u;
+            result = vkCreateQueryPool(g_instance.device, &query, nullptr,
+                &job->queryPool);
+            if (result != VK_SUCCESS)
+            {
+                FailReadout(job, result,
+                    "vkCreateQueryPool(N6 readout)", false);
+                return false;
+            }
+        }
+        VkCommandBufferBeginInfo begin = {};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        result = vkBeginCommandBuffer(job->commandBuffer, &begin);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkBeginCommandBuffer(N6 readout)", false);
+            return false;
+        }
+        vkCmdFillBuffer(job->commandBuffer, job->buffers[12].buffer,
+            0, sizeof(uint32_t) * 4ull, 0u);
+        vkCmdFillBuffer(job->commandBuffer, job->buffers[13].buffer,
+            0, sizeof(uint32_t) * 4ull, 0u);
+        std::array<VkBufferMemoryBarrier, 2> argumentBarriers = {};
+        for (uint32_t index = 0; index < 2u; ++index)
+        {
+            VkBufferMemoryBarrier& barrier = argumentBarriers[index];
+            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.buffer = job->buffers[12u + index].buffer;
+            barrier.offset = 0;
+            barrier.size = sizeof(uint32_t) * 4ull;
+        }
+        vkCmdPipelineBarrier(job->commandBuffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+            static_cast<uint32_t>(argumentBarriers.size()),
+            argumentBarriers.data(), 0, nullptr);
+        if (job->queryPool != VK_NULL_HANDLE)
+        {
+            vkCmdResetQueryPool(job->commandBuffer, job->queryPool, 0, 2);
+            vkCmdWriteTimestamp(job->commandBuffer,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, job->queryPool, 0);
+        }
+        vkCmdBindPipeline(job->commandBuffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE, g_readoutPipelines[0].pipeline);
+        vkCmdBindDescriptorSets(job->commandBuffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            g_readoutPipelines[0].pipelineLayout, 0, 1,
+            &job->descriptorSet, 0, nullptr);
+        vkCmdDispatch(job->commandBuffer,
+            std::max(job->pageCapacity0, job->pageCapacity1), 64u, 2u);
+        if (job->queryPool != VK_NULL_HANDLE)
+            vkCmdWriteTimestamp(job->commandBuffer,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, job->queryPool, 1);
+        std::array<VkBufferMemoryBarrier, 8> outputBarriers = {};
+        for (uint32_t index = 0; index < 8u; ++index)
+        {
+            const uint32_t resource = 6u + index;
+            VkBufferMemoryBarrier& barrier = outputBarriers[index];
+            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = resource >= 12u
+                ? VK_ACCESS_INDIRECT_COMMAND_READ_BIT
+                : VK_ACCESS_SHADER_READ_BIT;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.buffer = job->buffers[resource].buffer;
+            barrier.offset = 0;
+            barrier.size = job->buffers[resource].sizeInBytes;
+        }
+        vkCmdPipelineBarrier(job->commandBuffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+            0, 0, nullptr, static_cast<uint32_t>(outputBarriers.size()),
+            outputBarriers.data(), 0, nullptr);
+        result = vkEndCommandBuffer(job->commandBuffer);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkEndCommandBuffer(N6 readout)", false);
+            return false;
+        }
+        return true;
+    }
+
+    bool CreateReadoutSync(ReadoutJob* job)
+    {
+        VkSemaphoreCreateInfo semaphore = {};
+        semaphore.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        VkResult result = vkCreateSemaphore(g_instance.device, &semaphore,
+            nullptr, &job->graphicsReady);
+        if (result == VK_SUCCESS)
+            result = vkCreateSemaphore(g_instance.device, &semaphore, nullptr,
+                &job->nativeDone);
+        VkFenceCreateInfo fence = {};
+        fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        if (result == VK_SUCCESS)
+            result = vkCreateFence(g_instance.device, &fence, nullptr,
+                &job->graphicsFence);
+        if (result == VK_SUCCESS)
+            result = vkCreateFence(g_instance.device, &fence, nullptr,
+                &job->nativeFence);
+        if (result == VK_SUCCESS)
+            result = vkCreateFence(g_instance.device, &fence, nullptr,
+                &job->acquireFence);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result, "N6 readout semaphore/fence", false);
+            return false;
+        }
+        return true;
+    }
+
+    bool PrepareReadout(ReadoutJob* job)
+    {
+        return AccessReadoutResources(job) && CreateReadoutUniform(job) &&
+            CreateReadoutDescriptors(job) && RecordReadoutCommands(job) &&
+            CreateReadoutSync(job);
     }
 
     void FailColdEncode(ColdEncodeJob* job, VkResult result,
@@ -2804,6 +3296,120 @@ namespace
             AcquireColdUploadEvent(job);
     }
 
+    void PrepareReadoutEvent(ReadoutJob* job)
+    {
+        if (job == nullptr || !g_executorReady)
+            return;
+        int expected = kColdCreated;
+        if (!job->state.compare_exchange_strong(expected, kColdPreparing,
+                std::memory_order_acq_rel))
+            return;
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        if (PrepareReadout(job))
+        {
+            job->state.store(kColdPrepared, std::memory_order_release);
+            return;
+        }
+        job->state.store(kColdFailedNeedsGraphicsCompletion,
+            std::memory_order_release);
+    }
+
+    void SubmitReadoutEvent(ReadoutJob* job)
+    {
+        if (job == nullptr || g_sigmaQueue == VK_NULL_HANDLE ||
+            g_instance.graphicsQueue == VK_NULL_HANDLE)
+            return;
+        int state = job->state.load(std::memory_order_acquire);
+        if (state != kColdPrepared &&
+            state != kColdFailedNeedsGraphicsCompletion)
+            return;
+        VkSubmitInfo graphicsSubmit = {};
+        graphicsSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        if (state == kColdPrepared)
+        {
+            graphicsSubmit.signalSemaphoreCount = 1;
+            graphicsSubmit.pSignalSemaphores = &job->graphicsReady;
+        }
+        VkResult result = QueueSubmitDirect(g_instance.graphicsQueue, 1,
+            &graphicsSubmit, job->graphicsFence);
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkQueueSubmit(N6 graphicsReady)", false);
+            return;
+        }
+        job->graphicsSubmitted = true;
+        if (state != kColdPrepared)
+            return;
+        VkPipelineStageFlags waitStage =
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        VkSubmitInfo nativeSubmit = {};
+        nativeSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        nativeSubmit.waitSemaphoreCount = 1;
+        nativeSubmit.pWaitSemaphores = &job->graphicsReady;
+        nativeSubmit.pWaitDstStageMask = &waitStage;
+        nativeSubmit.commandBufferCount = 1;
+        nativeSubmit.pCommandBuffers = &job->commandBuffer;
+        nativeSubmit.signalSemaphoreCount = 1;
+        nativeSubmit.pSignalSemaphores = &job->nativeDone;
+        {
+            std::lock_guard<std::mutex> queueLock(g_sigmaQueueMutex);
+            result = QueueSubmitDirect(g_sigmaQueue, 1, &nativeSubmit,
+                job->nativeFence);
+        }
+        if (result != VK_SUCCESS)
+        {
+            FailReadout(job, result,
+                "vkQueueSubmit(N6 pure eye readout)", true);
+            return;
+        }
+        job->state.store(kColdSubmitted, std::memory_order_release);
+        if (g_log != nullptr)
+        {
+            char message[320] = {};
+            std::snprintf(message, sizeof(message),
+                "Sigma N6 pure readout submit: revision=%u pages=%u+%u "
+                "family=%u queue=%u dispatches=1 graphicsReadyWait=1 "
+                "nativeDoneSignal=1 queue0WaitBeforeSignal=0",
+                job->revision, job->pageCapacity0, job->pageCapacity1,
+                g_injectedQueueFamily, g_injectedQueueIndex);
+            UNITY_LOG(g_log, message);
+        }
+    }
+
+    void AcquireReadoutEvent(ReadoutJob* job)
+    {
+        if (job == nullptr)
+            return;
+        int expected = kColdNativeComplete;
+        if (!job->state.compare_exchange_strong(expected, kColdAcquiring,
+                std::memory_order_acq_rel))
+            return;
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        VkSubmitInfo acquire = {};
+        acquire.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        acquire.waitSemaphoreCount = 1;
+        acquire.pWaitSemaphores = &job->nativeDone;
+        acquire.pWaitDstStageMask = &waitStage;
+        VkResult result = QueueSubmitDirect(g_instance.graphicsQueue, 1,
+            &acquire, job->acquireFence);
+        if (result != VK_SUCCESS)
+            FailReadout(job, result,
+                "vkQueueSubmit(N6 post-signal acquire)", true);
+    }
+
+    void UNITY_INTERFACE_API OnReadoutEvent(int eventId, void* data)
+    {
+        ReadoutJob* job = static_cast<ReadoutJob*>(data);
+        int event = eventId - g_readoutEventBase;
+        if (event == 0)
+            PrepareReadoutEvent(job);
+        else if (event == 1)
+            SubmitReadoutEvent(job);
+        else if (event == 2)
+            AcquireReadoutEvent(job);
+    }
+
     void PrepareColdEncodeEvent(ColdEncodeJob* job)
     {
         if (job == nullptr || !g_executorReady)
@@ -3034,6 +3640,12 @@ namespace
             return;
         vkDeviceWaitIdle(g_instance.device);
         std::lock_guard<std::mutex> lock(g_executorMutex);
+        for (ReadoutJob* job : g_readoutJobs)
+        {
+            DestroyReadoutObjects(job);
+            delete job;
+        }
+        g_readoutJobs.clear();
         for (ColdEncodeJob* job : g_coldEncodeJobs)
         {
             DestroyColdEncodeObjects(job);
@@ -3055,6 +3667,8 @@ namespace
         for (ExecutorPipeline& pipeline : g_executorPipelines)
             DestroyExecutorPipeline(pipeline);
         for (ExecutorPipeline& pipeline : g_coldEncoderPipelines)
+            DestroyExecutorPipeline(pipeline);
+        for (ExecutorPipeline& pipeline : g_readoutPipelines)
             DestroyExecutorPipeline(pipeline);
         if (g_executorCommandPool != VK_NULL_HANDLE)
             vkDestroyCommandPool(g_instance.device, g_executorCommandPool,
@@ -3101,9 +3715,10 @@ namespace
 
         if (!g_executorEventsReserved)
         {
-            g_executorEventBase = g_graphics->ReserveEventIDRange(9);
+            g_executorEventBase = g_graphics->ReserveEventIDRange(12);
             g_coldUploadEventBase = g_executorEventBase + 3;
             g_coldEncodeEventBase = g_executorEventBase + 6;
+            g_readoutEventBase = g_executorEventBase + 9;
             g_executorEventsReserved = true;
         }
         UnityVulkanPluginEventConfig prepareConfig = {};
@@ -3117,6 +3732,7 @@ namespace
         g_vulkan->ConfigureEvent(g_executorEventBase, &prepareConfig);
         g_vulkan->ConfigureEvent(g_coldUploadEventBase, &prepareConfig);
         g_vulkan->ConfigureEvent(g_coldEncodeEventBase, &prepareConfig);
+        g_vulkan->ConfigureEvent(g_readoutEventBase, &prepareConfig);
 
         UnityVulkanPluginEventConfig submitConfig = {};
         submitConfig.renderPassPrecondition =
@@ -3132,6 +3748,8 @@ namespace
         g_vulkan->ConfigureEvent(g_coldUploadEventBase + 2, &submitConfig);
         g_vulkan->ConfigureEvent(g_coldEncodeEventBase + 1, &submitConfig);
         g_vulkan->ConfigureEvent(g_coldEncodeEventBase + 2, &submitConfig);
+        g_vulkan->ConfigureEvent(g_readoutEventBase + 1, &submitConfig);
+        g_vulkan->ConfigureEvent(g_readoutEventBase + 2, &submitConfig);
         g_executorReady = true;
         if (g_log != nullptr)
         {
@@ -3877,6 +4495,200 @@ extern "C"
             return 0;
         g_coldUploadJobs.erase(found);
         DestroyColdUploadObjects(job);
+        delete job;
+        return 1;
+    }
+
+    uint32_t UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+        SigmaReadout_GetAbiVersion()
+    {
+        return kReadoutAbiVersion;
+    }
+
+    void* UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+        SigmaReadout_CreateJob(const SigmaReadoutDescriptor* descriptor)
+    {
+        if (!g_executorReady || descriptor == nullptr ||
+            descriptor->structSize != sizeof(SigmaReadoutDescriptor) ||
+            descriptor->abiVersion != kReadoutAbiVersion ||
+            descriptor->revision == 0u ||
+            descriptor->resourceCount != kReadoutResourceCount ||
+            descriptor->resources == nullptr ||
+            descriptor->constants == nullptr ||
+            descriptor->constantsSize != kReadoutUniformBytes ||
+            descriptor->pageCapacity0 == 0u ||
+            descriptor->pageCapacity1 == 0u ||
+            descriptor->pageCapacity0 > 65535u ||
+            descriptor->pageCapacity1 > 65535u)
+            return nullptr;
+        for (uint32_t resource = 0; resource < kReadoutResourceCount;
+            ++resource)
+            if (descriptor->resources[resource] == nullptr)
+                return nullptr;
+        ReadoutJob* job = new ReadoutJob();
+        job->revision = descriptor->revision;
+        job->pageCapacity0 = descriptor->pageCapacity0;
+        job->pageCapacity1 = descriptor->pageCapacity1;
+        std::copy(descriptor->resources,
+            descriptor->resources + kReadoutResourceCount,
+            job->nativeResources.begin());
+        job->constants.assign(descriptor->constants,
+            descriptor->constants + descriptor->constantsSize);
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        g_readoutJobs.push_back(job);
+        return job;
+    }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+        SigmaReadout_CancelJob(void* handle)
+    {
+        ReadoutJob* job = static_cast<ReadoutJob*>(handle);
+        if (job == nullptr ||
+            job->state.load(std::memory_order_acquire) != kColdCreated)
+            return 0;
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        auto found = std::find(g_readoutJobs.begin(), g_readoutJobs.end(),
+            job);
+        if (found == g_readoutJobs.end())
+            return 0;
+        g_readoutJobs.erase(found);
+        delete job;
+        return 1;
+    }
+
+    UnityRenderingEventAndData UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+        SigmaReadout_GetRenderEventFunc()
+    {
+        return OnReadoutEvent;
+    }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+        SigmaReadout_GetEventId(int offset)
+    {
+        return g_executorReady && offset >= 0 && offset < 3
+            ? g_readoutEventBase + offset : 0;
+    }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+        SigmaReadout_PollJob(void* handle, int* error)
+    {
+        ReadoutJob* job = static_cast<ReadoutJob*>(handle);
+        if (job == nullptr || error == nullptr)
+            return -1;
+        int state = job->state.load(std::memory_order_acquire);
+        if (state == kColdSubmitted)
+        {
+            VkResult result = vkGetFenceStatus(g_instance.device,
+                job->nativeFence);
+            if (result == VK_SUCCESS)
+            {
+                if (job->queryPool != VK_NULL_HANDLE && !job->timingsReady)
+                {
+                    result = vkGetQueryPoolResults(g_instance.device,
+                        job->queryPool, 0, 2, sizeof(job->timestamps),
+                        job->timestamps.data(), sizeof(uint64_t),
+                        VK_QUERY_RESULT_64_BIT);
+                    job->timingsReady = result == VK_SUCCESS;
+                    if (result != VK_SUCCESS)
+                    {
+                        job->error = result;
+                        job->state.store(kColdFailedSafe,
+                            std::memory_order_release);
+                        state = kColdFailedSafe;
+                    }
+                }
+                if (state != kColdFailedSafe)
+                {
+                    job->state.store(kColdNativeComplete,
+                        std::memory_order_release);
+                    state = kColdNativeComplete;
+                    if (g_log != nullptr)
+                    {
+                        double milliseconds = 0.0;
+                        if (job->timingsReady)
+                        {
+                            uint64_t mask = g_timestampValidBits >= 64u
+                                ? UINT64_MAX
+                                : ((uint64_t(1) << g_timestampValidBits) - 1u);
+                            milliseconds = ((job->timestamps[1] -
+                                job->timestamps[0]) & mask) *
+                                g_deviceProperties.limits.timestampPeriod /
+                                1000000.0;
+                        }
+                        char message[256] = {};
+                        std::snprintf(message, sizeof(message),
+                            "Sigma N6 pure readout native complete: "
+                            "revision=%u gpu=%.3fms dispatches=1",
+                            job->revision, milliseconds);
+                        UNITY_LOG(g_log, message);
+                    }
+                }
+            }
+            else if (result != VK_NOT_READY)
+            {
+                job->error = result;
+                job->state.store(kColdFailedSafe,
+                    std::memory_order_release);
+                state = kColdFailedSafe;
+            }
+        }
+        else if (state == kColdAcquiring)
+        {
+            VkResult result = vkGetFenceStatus(g_instance.device,
+                job->acquireFence);
+            if (result == VK_SUCCESS)
+            {
+                job->state.store(kColdComplete, std::memory_order_release);
+                state = kColdComplete;
+            }
+            else if (result != VK_NOT_READY)
+            {
+                job->error = result;
+                job->state.store(kColdFailedSafe,
+                    std::memory_order_release);
+                state = kColdFailedSafe;
+            }
+        }
+        else if (state == kColdFailedNeedsGraphicsCompletion &&
+            job->graphicsSubmitted)
+        {
+            VkResult result = vkGetFenceStatus(g_instance.device,
+                job->graphicsFence);
+            if (result == VK_SUCCESS || result != VK_NOT_READY)
+            {
+                if (result != VK_SUCCESS)
+                    job->error = result;
+                job->state.store(kColdFailedSafe,
+                    std::memory_order_release);
+                state = kColdFailedSafe;
+            }
+        }
+        *error = static_cast<int>(job->error);
+        if (state == kColdComplete)
+            return 1;
+        if (state == kColdNativeComplete)
+            return 2;
+        if (state == kColdFailedSafe)
+            return -1;
+        return 0;
+    }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+        SigmaReadout_DestroyJob(void* handle)
+    {
+        ReadoutJob* job = static_cast<ReadoutJob*>(handle);
+        if (job == nullptr)
+            return 0;
+        int state = job->state.load(std::memory_order_acquire);
+        if (state != kColdComplete && state != kColdFailedSafe)
+            return 0;
+        std::lock_guard<std::mutex> lock(g_executorMutex);
+        auto found = std::find(g_readoutJobs.begin(), g_readoutJobs.end(),
+            job);
+        if (found == g_readoutJobs.end())
+            return 0;
+        g_readoutJobs.erase(found);
+        DestroyReadoutObjects(job);
         delete job;
         return 1;
     }

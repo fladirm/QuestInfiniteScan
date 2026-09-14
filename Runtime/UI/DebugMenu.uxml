@@ -37,6 +37,9 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
+        <ui:Slider name="readout-opacity" label="Readout opacity"
+            low-value="0" high-value="1" value="0.35" />
+
         <ui:Label text="EXACT PIPELINE" class="section-title" />
         <ui:VisualElement class="status-card">
             <ui:VisualElement class="status-row">

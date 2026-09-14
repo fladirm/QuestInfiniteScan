@@ -753,6 +753,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal SigmaAssembledSensorEye(string side,
             IReadOnlyList<IReadOnlyList<long>> rows,
             IReadOnlyList<SigmaQ48Interval> measured,
+            SigmaQ48Interval commonMode,
             SigmaQ48Interval metricDirectOrder,
             SigmaInstrumentFootprint footprint, bool firstHit,
             string provenanceFingerprint)
@@ -765,6 +766,7 @@ namespace Genesis.RoomScan.SigmaPrism
             Side = side;
             Rows = rows.Select(row => row.ToArray()).ToArray();
             Measured = measured.ToArray();
+            CommonMode = commonMode;
             MetricDirectOrder = metricDirectOrder;
             Footprint = footprint;
             FirstHit = firstHit;
@@ -773,6 +775,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal string Side { get; }
         internal long[][] Rows { get; }
         internal SigmaQ48Interval[] Measured { get; }
+        internal SigmaQ48Interval CommonMode { get; }
         internal SigmaQ48Interval MetricDirectOrder { get; }
         internal SigmaInstrumentFootprint Footprint { get; }
         internal bool FirstHit { get; }
@@ -782,19 +785,31 @@ namespace Genesis.RoomScan.SigmaPrism
     internal readonly struct SigmaFreshShadowBranch
     {
         internal SigmaFreshShadowBranch(IEnumerable<SigmaQ48Interval> shadowAxes,
-            uint firstHitEyeMask, bool coherent, string provenanceFingerprint)
+            SigmaQ48Interval commonMode, uint firstHitEyeMask, bool coherent,
+            string provenanceFingerprint,
+            IEnumerable<SigmaQ48Interval> absoluteCodes = null)
         {
             if (shadowAxes == null) throw new ArgumentNullException(nameof(shadowAxes));
             ShadowAxes = shadowAxes.ToArray();
             if (ShadowAxes.Length != 4)
                 throw new ArgumentException("A Merkaba shadow has four axes.",
                     nameof(shadowAxes));
+            if (commonMode.IsEmpty)
+                throw new ArgumentException("A common-mode interval is required.",
+                    nameof(commonMode));
+            CommonMode = commonMode;
+            AbsoluteCodes = absoluteCodes?.ToArray() ?? Enumerable.Repeat(
+                new SigmaQ48Interval(0L, SigmaNumericDomain.One), 4).ToArray();
+            if (AbsoluteCodes.Length != 4)
+                throw new ArgumentException("Four absolute code bounds required.");
             FirstHitEyeMask = firstHitEyeMask;
             Coherent = coherent;
             ProvenanceFingerprint = provenanceFingerprint ??
                 throw new ArgumentNullException(nameof(provenanceFingerprint));
         }
         internal SigmaQ48Interval[] ShadowAxes { get; }
+        internal SigmaQ48Interval[] AbsoluteCodes { get; }
+        internal SigmaQ48Interval CommonMode { get; }
         internal uint FirstHitEyeMask { get; }
         internal bool Coherent { get; }
         internal string ProvenanceFingerprint { get; }
@@ -822,16 +837,16 @@ namespace Genesis.RoomScan.SigmaPrism
     {
         internal const string ProgramVersion = "CPQ4-S16-MERKABA-N1R-8";
         internal const string NumericDomainId = "num.fixed.q16_48.checked.nearest_even";
-        internal const string ProgramFingerprint = "09564b2e81bb16313af6e80bc42845e47111d354d0f347e2fedd242eca0eab33";
+        internal const string ProgramFingerprint = "02c6e62eef58aedd99f7ff4433dd7dead8de2fc6d2ea80ace3e0d0039661fafa";
         internal const string CaptureBoundaryFingerprint =
             "2b492bf2deba23077ff873275f8672a3949e460a2b1ec2429c199fcd62691ba2";
         internal const int CaptureBoundaryLeafCount =
             8;
         internal const string DeclaredToeUpstreamFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string GeneratorSourceInputFingerprint = "fe781409c8046dc8db2b6ac9332bb00104c9487465e18c194bfc0008af06962c";
+        internal const string GeneratorSourceInputFingerprint = "383735fed3aadff4a59689720130a36de66d15cd51dd9b22a6495040773b6c0c";
         internal const string ToeCapsuleInputFingerprint = "9cdc8b1f3bfecfa3a49805be82ea786cdbf681ee8ffbdab0733d18dc24cfffef";
         internal const string ToeUpstreamDeclaredInputFingerprint = "9d2e3604846305cfe5244a4ef49f169632c60582cf895256fadc36426dc5786f";
-        internal const string IQInputFingerprint = "4c811586dc37d02991815629990c9410da3840364d35373008fdba4c2afdeb68";
+        internal const string IQInputFingerprint = "0719f4850ab118f433316993895ef15b1a2187c8144967e33049d610a15b9e94";
         internal const string IRepresentationInputFingerprint = "b27e74a9b05902741bde4be11cbc3345e0eb3b8a71aa456a14c1c7e0aeeaf5b7";
         internal const string CanonicalSpecInputFingerprint = "e716e5a2f86a2b3116fd23c6421b9b1c60233dc0bebb46b4dede778031833b3c";
         internal const string ClosurePlanInputFingerprint = "44e829a993734ba9c14346ecb36a076de33446d32e587999f23e36d8963c428d";
@@ -901,7 +916,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const int FreshAdmissionExternalRelationTruthInputCount = 0;
         internal const int FreshAdmissionCommonPermutationCount = 2;
         internal const string FreshAdmissionProofFingerprint =
-            "94fec47737ba70e20132ef51f08ec2cdbd81f5c25aac2e6ead1b4c52dce5f17a";
+            "78b8c51ee425410cf6e85c04d8b1cef0d36624437df546869a57e1965a040fce";
         internal const int ConstructiveStitchExternalSemanticTruthInputCount =
             0;
         internal const int ConstructiveStitchCallerLoopTruthInputCount =
@@ -943,7 +958,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string CanonicalSerializationFingerprint =
             "1859b980a60ffc87df4fecac9647a8e475727c7618f76aacdb929976061e795d";
         internal const string CertificateProofFingerprint =
-            "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3";
+            "c5d69c36cd0849d55021eacf72c9e5ba31e194f047c8fcc58e29aa197e9174df";
 
         internal static readonly string[] ExpressionFingerprints =
         {
@@ -1118,6 +1133,18 @@ namespace Genesis.RoomScan.SigmaPrism
             2, 2, -6, 2, -4, 4, -4, 4, 4, -4, -4, 4, -2, -2, -2, 6,
             2, 2, 2, -6, -4, 4, 4, -4, 4, -4, 4, -4, -2, -2, 6, -2,
             4, 4, -4, -4, -2, 6, -2, -2, 6, -2, -2, -2, 0, 0, 0, 0,
+        };
+
+        // Primitive integral coordinate of the distinguished t_OR character.
+        internal static readonly sbyte[] CommonCharacter =
+        {
+            2, 1, 1, 0, 1, 0, 0, -1, 1, 0, 0, -1, 0, -1, -1, -2,
+        };
+
+        // Complete K16 character frame used by the generated pure eye query.
+        internal static readonly byte[] EyeCharacterRows =
+        {
+            1, 2, 4, 8,
         };
 
         // P_visible = VisibleProjectorNumerator256 / 256.
@@ -1312,6 +1339,12 @@ namespace Genesis.RoomScan.SigmaPrism
             return ShadowNumerator4[(address << 2) + axis];
         }
 
+        internal static int CommonCharacterCoefficient(int address)
+        {
+            RequireAddress(address);
+            return CommonCharacter[address];
+        }
+
         // Exact generated lowering for the only coefficients in the Merkaba
         // shadow/dual frames: 0,+/-2,+/-4,+/-6 divided by 4 or 64.  Quotient and
         // remainder are formed before the factor of three, so this has exactly
@@ -1389,6 +1422,118 @@ namespace Genesis.RoomScan.SigmaPrism
                 lanes[address] = sum;
             }
             return SigmaS16.FromArray(lanes);
+        }
+
+        internal static SigmaS16 LiftMerkabaCommonMode(long commonMode)
+        {
+            var lanes = new long[16];
+            for (int address = 0; address < lanes.Length; ++address)
+            {
+                int coefficient = CommonCharacterCoefficient(address);
+                lanes[address] = coefficient switch
+                {
+                    -2 => SigmaNumericDomain.QNegate(
+                        SigmaNumericDomain.QShiftLeft(commonMode, 1)),
+                    -1 => SigmaNumericDomain.QNegate(commonMode),
+                    0 => 0L,
+                    1 => commonMode,
+                    2 => SigmaNumericDomain.QShiftLeft(commonMode, 1),
+                    _ => throw new InvalidOperationException(
+                        "Generated common character escaped its exact range."),
+                };
+            }
+            return SigmaS16.FromArray(lanes);
+        }
+
+        internal static SigmaS16 LiftMerkabaComplete(
+            IReadOnlyList<long> shadow, long commonMode)
+        {
+            SigmaS16 tangent = LiftMerkabaShadow(shadow);
+            SigmaS16 common = LiftMerkabaCommonMode(commonMode);
+            var lanes = new long[16];
+            for (int address = 0; address < lanes.Length; ++address)
+                lanes[address] = SigmaNumericDomain.QAdd(
+                    tangent[address], common[address]);
+            return SigmaS16.FromArray(lanes);
+        }
+
+        internal static long EvaluateMerkabaCommonMode(SigmaS16 state)
+        {
+            long numerator = 0L;
+            for (int address = 0; address < 16; ++address)
+            {
+                int coefficient = CommonCharacterCoefficient(address);
+                long term = coefficient switch
+                {
+                    -2 => SigmaNumericDomain.QNegate(
+                        SigmaNumericDomain.QShiftLeft(state[address], 1)),
+                    -1 => SigmaNumericDomain.QNegate(state[address]),
+                    0 => 0L,
+                    1 => state[address],
+                    2 => SigmaNumericDomain.QShiftLeft(state[address], 1),
+                    _ => throw new InvalidOperationException(
+                        "Generated common character escaped its exact range."),
+                };
+                numerator = SigmaNumericDomain.QAdd(numerator, term);
+            }
+            return SigmaNumericDomain.QShiftRight(numerator, 4);
+        }
+
+        internal static bool TryRecoverMerkabaCentredLeaves(SigmaS16 state,
+            out long[] leaves)
+        {
+            long[] tangent = EvaluateMerkabaShadow(state);
+            long commonMode = EvaluateMerkabaCommonMode(state);
+            leaves = new long[4];
+            try
+            {
+                for (int axis = 0; axis < leaves.Length; ++axis)
+                {
+                    long numerator = SigmaNumericDomain.QAdd(
+                        tangent[axis], commonMode);
+                    if ((unchecked((ulong)numerator) & 3UL) != 0UL)
+                    {
+                        leaves = Array.Empty<long>();
+                        return false;
+                    }
+                    leaves[axis] = SigmaNumericDomain.QShiftRight(numerator, 2);
+                }
+                return true;
+            }
+            catch (OverflowException)
+            {
+                leaves = Array.Empty<long>();
+                return false;
+            }
+        }
+
+        internal static bool TryEvaluateMerkabaEyeCharacterSeed(
+            SigmaS16 state, out long[] projectiveSeed)
+        {
+            projectiveSeed = Array.Empty<long>();
+            if (!TryRecoverMerkabaCentredLeaves(state, out long[] leaves) ||
+                leaves[0] == 0L)
+                return false;
+            try
+            {
+                projectiveSeed = new[]
+                {
+                    SigmaNumericDomain.QDiv(leaves[1], leaves[0]),
+                    SigmaNumericDomain.QDiv(leaves[2], leaves[0]),
+                    SigmaNumericDomain.QDiv(leaves[3], leaves[0]),
+                };
+                return true;
+            }
+            catch (OverflowException)
+            {
+                projectiveSeed = Array.Empty<long>();
+                return false;
+            }
+            catch (DivideByZeroException)
+            {
+                projectiveSeed = Array.Empty<long>();
+                return false;
+            }
         }
 
         internal static int ComposeChartD4(int outer, int inner)
@@ -1471,8 +1616,10 @@ namespace Genesis.RoomScan.SigmaPrism
                         ? tangent[leaf]
                         : NegateOutward(tangent[leaf]);
                 }
+                SigmaQ48Interval commonMode = globalSign > 0
+                    ? total : NegateOutward(total);
                 assembled = new SigmaAssembledSensorEye(source.Side, rows,
-                    measured, source.MetricDirectOrder, source.Footprint,
+                    measured, commonMode, source.MetricDirectOrder, source.Footprint,
                     source.FirstHit, source.ProvenanceFingerprint);
                 return true;
             }
@@ -1607,20 +1754,34 @@ namespace Genesis.RoomScan.SigmaPrism
             admission = UnresolvedFreshAdmission();
             if (!branch.Coherent || (branch.FirstHitEyeMask & 3u) != 3u ||
                 string.IsNullOrEmpty(branch.ProvenanceFingerprint) ||
-                branch.ShadowAxes == null || branch.ShadowAxes.Length != 4)
+                branch.ShadowAxes == null || branch.ShadowAxes.Length != 4 ||
+                branch.CommonMode.IsEmpty)
                 return false;
             try
             {
-                if (!TrySelectTangentMinimumChange(branch.ShadowAxes,
-                    out long[] selected))
+                if (!TrySelectFreshComplete(branch.ShadowAxes, branch.CommonMode,
+                    branch.AbsoluteCodes, 0L, out long[] selected,
+                    out long selectedCommon))
                     return false;
-                SigmaS16 state = LiftMerkabaShadow(selected);
+                SigmaS16 state = LiftMerkabaComplete(selected, selectedCommon);
                 if (state.IsZero)
                     return false;
                 long[] forward = EvaluateMerkabaShadow(state);
+                long forwardCommon = EvaluateMerkabaCommonMode(state);
                 for (int axis = 0; axis < 4; ++axis)
                     if (!branch.ShadowAxes[axis].Contains(forward[axis]))
                         return false;
+                if (!branch.CommonMode.Contains(forwardCommon) ||
+                    !TryRecoverMerkabaCentredLeaves(state, out _))
+                    return false;
+                for (int axis = 0; axis < 4; ++axis)
+                {
+                    long numerator = checked(forward[axis] + forwardCommon +
+                        4L * SigmaNumericDomain.One);
+                    if ((numerator & 7L) != 0L ||
+                        !branch.AbsoluteCodes[axis].Contains(numerator / 8L))
+                        return false;
+                }
                 SigmaMerkabaRelationClass boundaryRelation =
                     EvaluateFreshBoundaryRelation(state);
                 if (boundaryRelation == SigmaMerkabaRelationClass.Unresolved ||
@@ -1647,6 +1808,116 @@ namespace Genesis.RoomScan.SigmaPrism
             {
                 return false;
             }
+        }
+
+        private static long IntegerFloor(long value, int divisor) =>
+            value / divisor - (value % divisor < 0L ? 1L : 0L);
+
+        private static long IntegerCeil(long value, int divisor) =>
+            value / divisor + (value % divisor > 0L ? 1L : 0L);
+
+        private static bool TrySelectAtCommon(
+            IReadOnlyList<SigmaQ48Interval> tangent,
+            IReadOnlyList<SigmaQ48Interval> codes, long common,
+            out long[] selected)
+        {
+            selected = new long[4];
+            if ((common & 1L) != 0L) return false;
+            long numerator = checked(common + 4L * SigmaNumericDomain.One);
+            long target = numerator / 2L;
+            long preferred = IntegerFloor(numerator, 8) +
+                ((numerator & 7L) > 4L ? 1L : 0L);
+            var lo = new long[4]; var hi = new long[4];
+            long sum = 0L;
+            for (int axis = 0; axis < 4; ++axis)
+            {
+                lo[axis] = Math.Max(codes[axis].Lower,
+                    IntegerCeil(checked(tangent[axis].Lower + numerator), 8));
+                hi[axis] = Math.Min(codes[axis].Upper,
+                    IntegerFloor(checked(tangent[axis].Upper + numerator), 8));
+                if (lo[axis] > hi[axis]) return false;
+                selected[axis] = Math.Min(hi[axis], Math.Max(lo[axis], preferred));
+                sum = checked(sum + selected[axis]);
+            }
+            long residual = checked(sum - target);
+            bool positive = residual >= 0L;
+            long remaining = Math.Abs(residual);
+            for (int axis = 0; axis < 4; ++axis)
+            {
+                long capacity = positive ? selected[axis] - lo[axis] :
+                    hi[axis] - selected[axis];
+                long adjustment = Math.Min(capacity, remaining);
+                selected[axis] += positive ? -adjustment : adjustment;
+                remaining -= adjustment;
+                selected[axis] = checked(8L * selected[axis] - numerator);
+            }
+            return remaining == 0L;
+        }
+
+        internal static bool TrySelectFreshComplete(
+            IReadOnlyList<SigmaQ48Interval> tangent, SigmaQ48Interval common,
+            IReadOnlyList<SigmaQ48Interval> codes, long reference,
+            out long[] selected, out long selectedCommon)
+        {
+            selected = new long[4]; selectedCommon = 0L;
+            if (tangent == null || tangent.Count != 4 ||
+                codes == null || codes.Count != 4 || common.IsEmpty ||
+                tangent.Any(value => value.IsEmpty) ||
+                codes.Any(value => value.IsEmpty)) return false;
+            selectedCommon = Math.Min(common.Upper, Math.Max(common.Lower, reference));
+            if (TrySelectAtCommon(tangent, codes, selectedCommon, out selected))
+                return true;
+            bool found = false;
+            BigInteger bestDistance = BigInteger.Zero;
+            for (int residue = 0; residue < 8; residue += 2)
+            {
+                long h = residue / 2;
+                long kLower = IntegerCeil(checked(common.Lower - residue), 8);
+                long kUpper = IntegerFloor(checked(common.Upper - residue), 8);
+                var zl = new long[4]; var zu = new long[4];
+                var xl = new long[4]; var xu = new long[4];
+                long sumLower = 0L, sumUpper = 0L;
+                for (int axis = 0; axis < 4; ++axis)
+                {
+                    zl[axis] = IntegerCeil(checked(tangent[axis].Lower + residue), 8);
+                    zu[axis] = IntegerFloor(checked(tangent[axis].Upper + residue), 8);
+                    xl[axis] = codes[axis].Lower - SigmaNumericDomain.One / 2L;
+                    xu[axis] = codes[axis].Upper - SigmaNumericDomain.One / 2L;
+                    kLower = Math.Max(kLower, checked(xl[axis] - zu[axis]));
+                    kUpper = Math.Min(kUpper, checked(xu[axis] - zl[axis]));
+                    sumLower = checked(sumLower + zl[axis]);
+                    sumUpper = checked(sumUpper + zu[axis]);
+                }
+                if (sumLower > h || sumUpper < h) continue;
+                for (int subset = 1; subset < 16; ++subset)
+                {
+                    long a = checked(sumLower - h), b = checked(sumUpper - h);
+                    int count = 0;
+                    for (int axis = 0; axis < 4; ++axis)
+                        if ((subset & (1 << axis)) != 0)
+                        {
+                            a = checked(a + xl[axis] - zl[axis]);
+                            b = checked(b + xu[axis] - zu[axis]);
+                            ++count;
+                        }
+                    kLower = Math.Max(kLower, IntegerCeil(a, count));
+                    kUpper = Math.Min(kUpper, IntegerFloor(b, count));
+                }
+                if (kLower > kUpper) continue;
+                long delta = checked(reference - residue);
+                long nearest = IntegerFloor(delta, 8) +
+                    ((delta & 7L) > 4L ? 1L : 0L);
+                long k = Math.Min(kUpper, Math.Max(kLower, nearest));
+                long q = checked(8L * k + residue);
+                BigInteger distance = BigInteger.Abs((BigInteger)q - reference);
+                if (!found || distance < bestDistance ||
+                    (distance == bestDistance && q < selectedCommon))
+                {
+                    found = true; bestDistance = distance; selectedCommon = q;
+                }
+            }
+            return found && TrySelectAtCommon(tangent, codes, selectedCommon,
+                out selected);
         }
 
         private static bool TrySelectTangentMinimumChange(
@@ -3085,6 +3356,7 @@ namespace Genesis.RoomScan.SigmaPrism
             const int relation = 3;
             const int axis0 = 4;
             const int information0 = 8;
+            const int commonMode = information0 + 3;
             const int receipts0 = 12;
             result = null;
             if (left == null || right == null || left.Count != wordCount ||
@@ -3127,7 +3399,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 ulong width = unchecked((ulong)upper - (ulong)lower);
                 long boundedWidth = width <= long.MaxValue
                     ? (long)width : long.MaxValue;
-                result[information0 + axis] = new SigmaFrameUInt4Gpu
+                if (axis < 3)
+                    result[information0 + axis] = new SigmaFrameUInt4Gpu
                 {
                     X = unchecked((uint)boundedWidth),
                     Y = unchecked((uint)(boundedWidth >> 32)),
@@ -3135,6 +3408,24 @@ namespace Genesis.RoomScan.SigmaPrism
                     W = 3u,
                 };
             }
+            long leftCommonLower = FrameRaw(left[commonMode].X,
+                left[commonMode].Y);
+            long rightCommonLower = FrameRaw(right[commonMode].X,
+                right[commonMode].Y);
+            long leftCommonUpper = FrameRaw(left[commonMode].Z,
+                left[commonMode].W);
+            long rightCommonUpper = FrameRaw(right[commonMode].Z,
+                right[commonMode].W);
+            long commonLower = leftCommonLower >= rightCommonLower
+                ? leftCommonLower : rightCommonLower;
+            long commonUpper = leftCommonUpper <= rightCommonUpper
+                ? leftCommonUpper : rightCommonUpper;
+            if (commonLower > commonUpper)
+            {
+                result = null;
+                return false;
+            }
+            result[commonMode] = FrameInterval(commonLower, commonUpper);
             result[receipts0 + 2] = new SigmaFrameUInt4Gpu
             {
                 X = left[receipts0 + 2].X | right[receipts0 + 2].X,

@@ -4,6 +4,7 @@
 #pragma kernel ContractNativeQuery SIGMA_NATIVE_FRESH_MATH
 #pragma multi_compile_local _ SIGMA_N4_TILE_CLOSE_VARIANT
 #pragma target 5.0
+#pragma use_dxc vulkan
 
 #include "SigmaFrameAbi.hlsl"
 #include "Generated/SigmaGeneratedMerkabaProgram.hlsl"
@@ -152,6 +153,8 @@ groupshared uint2 SigmaNativeFreshLeafLower[64];
 groupshared uint2 SigmaNativeFreshLeafUpper[64];
 groupshared uint4 SigmaNativeFreshEyePermutation[16];
 groupshared int SigmaNativeFreshEyeSign[16];
+groupshared uint2 SigmaNativeFreshEyeCommonLower[16];
+groupshared uint2 SigmaNativeFreshEyeCommonUpper[16];
 groupshared uint2 SigmaNativeFreshInstrumentLower[64];
 groupshared uint2 SigmaNativeFreshInstrumentUpper[64];
 groupshared uint2 SigmaNativeFreshAxisLower[32];
@@ -160,6 +163,11 @@ groupshared uint2 SigmaNativeFreshSelected[32];
 groupshared uint2 SigmaNativeFreshState[128];
 groupshared uint2 SigmaNativeFreshForward[32];
 groupshared uint2 SigmaNativeFreshPriorForward[32];
+groupshared uint2 SigmaNativeFreshCommonLower[8];
+groupshared uint2 SigmaNativeFreshCommonUpper[8];
+groupshared uint2 SigmaNativeFreshSelectedCommon[8];
+groupshared uint2 SigmaNativeFreshPriorCommon[8];
+groupshared uint2 SigmaNativeFreshForwardCommon[8];
 groupshared uint2 SigmaNativeFreshPriorState[128];
 groupshared uint4 SigmaNativeFreshPriorCertificate[128];
 groupshared uint SigmaNativeFreshTeamPhaseValid[8];
@@ -382,6 +390,8 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
         int globalSign = 0;
         uint2 measuredLower[4];
         uint2 measuredUpper[4];
+        uint2 measuredCommonLower = uint2(0u, 0u);
+        uint2 measuredCommonUpper = uint2(0u, 0u);
         [unroll]
         for (uint initializeLeaf = 0u; initializeLeaf < 4u;
              ++initializeLeaf)
@@ -413,10 +423,13 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
                     sourceIndex, codeWord + 1u);
             }
             SigmaMerkabaAssembleInstrumentTangent(codeLower, codeUpper,
-                globalSign, measuredLower, measuredUpper, valid);
+                globalSign, measuredLower, measuredUpper,
+                measuredCommonLower, measuredCommonUpper, valid);
         }
         SigmaNativeFreshEyePermutation[eyeBase + eye] = permutation;
         SigmaNativeFreshEyeSign[eyeBase + eye] = globalSign;
+        SigmaNativeFreshEyeCommonLower[eyeBase + eye] = measuredCommonLower;
+        SigmaNativeFreshEyeCommonUpper[eyeBase + eye] = measuredCommonUpper;
         [unroll]
         for (uint measuredLeaf = 0u; measuredLeaf < 4u; ++measuredLeaf)
         {
@@ -473,28 +486,59 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (teamLane < 4u)
+    if (teamLane < 5u)
     {
         uint2 lower = uint2(0u, 0x80000000u);
         uint2 upper = uint2(0xffffffffu, 0x7fffffffu);
-        uint eyeMask = 0u;
         uint axisValid = contextValid ? 1u : 0u;
-        [unroll]
-        for (uint sourceLeaf = 0u; sourceLeaf < 8u; ++sourceLeaf)
+        if (teamLane < 4u)
         {
-            if (SigmaNativeFreshLeafAxis[leafBase + sourceLeaf] == teamLane)
+            uint eyeMask = 0u;
+            [unroll]
+            for (uint sourceLeaf = 0u; sourceLeaf < 8u; ++sourceLeaf)
             {
-                axisValid &= SigmaNativeFreshScratch[
-                    SigmaNativeFreshTeamLaneAddress(team, sourceLeaf)];
-                lower = SigmaQ48Max(lower,
-                    SigmaNativeFreshLeafLower[leafBase + sourceLeaf]);
-                upper = SigmaQ48Min(upper,
-                    SigmaNativeFreshLeafUpper[leafBase + sourceLeaf]);
-                eyeMask |= 1u <<
-                    SigmaNativeFreshLeafEye[leafBase + sourceLeaf];
+                if (SigmaNativeFreshLeafAxis[leafBase + sourceLeaf] == teamLane)
+                {
+                    axisValid &= SigmaNativeFreshScratch[
+                        SigmaNativeFreshTeamLaneAddress(team, sourceLeaf)];
+                    lower = SigmaQ48Max(lower,
+                        SigmaNativeFreshLeafLower[leafBase + sourceLeaf]);
+                    upper = SigmaQ48Min(upper,
+                        SigmaNativeFreshLeafUpper[leafBase + sourceLeaf]);
+                    eyeMask |= 1u <<
+                        SigmaNativeFreshLeafEye[leafBase + sourceLeaf];
+                }
             }
+            axisValid &= (eyeMask == 3u && !SigmaI64Less(upper, lower))
+                ? 1u : 0u;
         }
-        axisValid &= (eyeMask == 3u && !SigmaI64Less(upper, lower)) ? 1u : 0u;
+        else
+        {
+            [unroll]
+            for (uint eye = 0u; eye < 2u; ++eye)
+            {
+                int sign = SigmaNativeFreshEyeSign[eyeBase + eye];
+                uint2 measuredLower =
+                    SigmaNativeFreshEyeCommonLower[eyeBase + eye];
+                uint2 measuredUpper =
+                    SigmaNativeFreshEyeCommonUpper[eyeBase + eye];
+                uint pullValid = sign != 0 &&
+                    !SigmaI64Less(measuredUpper, measuredLower) ? 1u : 0u;
+                uint2 pulledLower = measuredLower;
+                uint2 pulledUpper = measuredUpper;
+                if (sign < 0)
+                {
+                    pulledLower = SigmaQ48NegateChecked(measuredUpper,
+                        pullValid);
+                    pulledUpper = SigmaQ48NegateChecked(measuredLower,
+                        pullValid);
+                }
+                axisValid &= pullValid;
+                lower = SigmaQ48Max(lower, pulledLower);
+                upper = SigmaQ48Min(upper, pulledUpper);
+            }
+            axisValid &= !SigmaI64Less(upper, lower) ? 1u : 0u;
+        }
         uint4 priorIdentity = SigmaNativeFreshPriorCertificate[
             SigmaNativeFreshTeamLaneAddress(team,
                 SIGMA_CERTIFICATE_IDENTITY)];
@@ -502,13 +546,22 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
         {
             uint4 priorAxis = SigmaNativeFreshPriorCertificate[
                 SigmaNativeFreshTeamLaneAddress(team,
-                    SIGMA_CERTIFICATE_AXIS0 + teamLane)];
+                    teamLane < 4u ? SIGMA_CERTIFICATE_AXIS0 + teamLane :
+                        SIGMA_CERTIFICATE_COMMON_MODE)];
             lower = SigmaQ48Max(lower, priorAxis.xy);
             upper = SigmaQ48Min(upper, priorAxis.zw);
             axisValid &= !SigmaI64Less(upper, lower) ? 1u : 0u;
         }
-        SigmaNativeFreshAxisLower[axisBase + teamLane] = lower;
-        SigmaNativeFreshAxisUpper[axisBase + teamLane] = upper;
+        if (teamLane < 4u)
+        {
+            SigmaNativeFreshAxisLower[axisBase + teamLane] = lower;
+            SigmaNativeFreshAxisUpper[axisBase + teamLane] = upper;
+        }
+        else
+        {
+            SigmaNativeFreshCommonLower[team] = lower;
+            SigmaNativeFreshCommonUpper[team] = upper;
+        }
         SigmaNativeFreshScratch[laneAddress] = axisValid;
     }
     else
@@ -521,7 +574,8 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
         axisPhaseValid = SigmaNativeFreshScratch[axisPhaseBase] &
             SigmaNativeFreshScratch[axisPhaseBase + 1u] &
             SigmaNativeFreshScratch[axisPhaseBase + 2u] &
-            SigmaNativeFreshScratch[axisPhaseBase + 3u];
+            SigmaNativeFreshScratch[axisPhaseBase + 3u] &
+            SigmaNativeFreshScratch[axisPhaseBase + 4u];
     }
 
     // If the complete current S16 representative already satisfies both raw
@@ -544,28 +598,46 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
         SigmaNativeFreshScratch[priorNonzeroBase] = aggregate;
     }
     GroupMemoryBarrierWithGroupSync();
-    uint priorNonzero = teamLane < 4u
+    uint priorNonzero = teamLane < 5u
         ? SigmaNativeFreshScratch[priorNonzeroBase] : 0u;
-    if (teamLane < 4u)
+    if (teamLane < 5u)
     {
         uint priorValid = contextValid && priorRequested &&
             priorNonzero != 0u ? 1u : 0u;
         uint2 sum = uint2(0u, 0u);
         if (priorValid != 0u)
         {
-            [unroll]
-            for (uint priorLane = 1u; priorLane < 15u; ++priorLane)
+            if (teamLane < 4u)
             {
-                sum = SigmaQ48AddChecked(sum,
-                    SigmaMerkabaMultiplyDyadic(
-                        SigmaNativeFreshPriorState[
-                            SigmaNativeFreshTeamLaneAddress(team, priorLane)],
-                        SIGMA_MERKABA_SHADOW_NUMERATOR4[
-                            priorLane * 4u + teamLane], 2u,
-                        priorValid), priorValid);
+                [unroll]
+                for (uint priorLane = 1u; priorLane < 15u; ++priorLane)
+                {
+                    sum = SigmaQ48AddChecked(sum,
+                        SigmaMerkabaMultiplyDyadic(
+                            SigmaNativeFreshPriorState[
+                                SigmaNativeFreshTeamLaneAddress(team, priorLane)],
+                            SIGMA_MERKABA_SHADOW_NUMERATOR4[
+                                priorLane * 4u + teamLane], 2u,
+                            priorValid), priorValid);
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint priorLane = 0u; priorLane < 16u; ++priorLane)
+                    sum = SigmaQ48AddChecked(sum,
+                        SigmaMerkabaScaleCommonCharacter(
+                            SigmaNativeFreshPriorState[
+                                SigmaNativeFreshTeamLaneAddress(team, priorLane)],
+                            SigmaMerkabaCommonCharacterCoefficient(priorLane),
+                            priorValid), priorValid);
+                sum = SigmaQ48ShiftRightNearestEven(sum, 4u, priorValid);
             }
         }
-        SigmaNativeFreshPriorForward[axisBase + teamLane] = sum;
+        if (teamLane < 4u)
+            SigmaNativeFreshPriorForward[axisBase + teamLane] = sum;
+        else
+            SigmaNativeFreshPriorCommon[team] = sum;
         SigmaNativeFreshScratch[laneAddress] = priorValid;
     }
     else
@@ -578,7 +650,8 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
             SigmaNativeFreshScratch[priorForwardBase] &
             SigmaNativeFreshScratch[priorForwardBase + 1u] &
             SigmaNativeFreshScratch[priorForwardBase + 2u] &
-            SigmaNativeFreshScratch[priorForwardBase + 3u];
+            SigmaNativeFreshScratch[priorForwardBase + 3u] &
+            SigmaNativeFreshScratch[priorForwardBase + 4u];
     }
     GroupMemoryBarrierWithGroupSync();
     uint priorForwardValid = teamLane < 8u
@@ -597,12 +670,16 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
         {
             uint preHitValid = priorForwardValid;
             uint axis = SigmaNativeFreshPermutationAxis(team, eye, leaf);
-            uint2 predicted = SigmaNativeFreshPriorForward[axisBase + axis];
-            if (SigmaNativeFreshEyeSign[eyeBase + eye] < 0)
-                predicted = SigmaQ48NegateChecked(predicted, preHitValid);
+            preHitValid &= axis < 4u ? 1u : 0u;
+            uint2 predicted = uint2(0u, 0u);
+            SigmaMerkabaRecoverUnitCode(
+                SigmaNativeFreshPriorForward[axisBase + min(axis, 3u)],
+                SigmaNativeFreshPriorCommon[team], predicted, preHitValid);
+            uint rawWord = codeLeafWord + eye * 8u + leaf * 2u;
+            uint2 rawLower = SigmaNativeFreshLoad2(sourceKind, sourceIndex,
+                rawWord);
             SigmaNativeFreshScratch[laneAddress] = preHitValid != 0u &&
-                SigmaI64Less(predicted,
-                    SigmaNativeFreshInstrumentLower[leafBase + teamLane])
+                SigmaI64Less(predicted, rawLower)
                     ? 1u : 0u;
         }
     }
@@ -634,12 +711,18 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
         uint leaf = teamLane & 3u;
         uint priorLeafValid = priorForwardValid;
         uint axis = SigmaNativeFreshPermutationAxis(team, eye, leaf);
-        uint2 predicted = SigmaNativeFreshPriorForward[axisBase + axis];
-        if (SigmaNativeFreshEyeSign[eyeBase + eye] < 0)
-            predicted = SigmaQ48NegateChecked(predicted, priorLeafValid);
+        priorLeafValid &= axis < 4u ? 1u : 0u;
+        uint2 predicted = uint2(0u, 0u);
+        SigmaMerkabaRecoverUnitCode(
+            SigmaNativeFreshPriorForward[axisBase + min(axis, 3u)],
+            SigmaNativeFreshPriorCommon[team], predicted, priorLeafValid);
+        uint rawWord = codeLeafWord + eye * 8u + leaf * 2u;
+        uint2 rawLower = SigmaNativeFreshLoad2(sourceKind, sourceIndex,
+            rawWord);
+        uint2 rawUpper = SigmaNativeFreshLoad2(sourceKind, sourceIndex,
+            rawWord + 1u);
         priorLeafValid &= SigmaNativePointInInterval(predicted,
-            SigmaNativeFreshInstrumentLower[leafBase + teamLane],
-            SigmaNativeFreshInstrumentUpper[leafBase + teamLane]) ? 1u : 0u;
+            rawLower, rawUpper) ? 1u : 0u;
         SigmaNativeFreshScratch[laneAddress] = priorLeafValid;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -663,17 +746,21 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
             priorRawValid != 0u ? 1u : 0u;
         uint selectorValid = axisPhaseValid;
         bool selectedValid = SigmaNativeFreshTeamUsePrior[team] != 0u;
+        uint2 selectedCommon = uint2(0u, 0u);
         if (SigmaNativeFreshTeamUsePrior[team] != 0u)
         {
             [unroll]
             for (uint priorAxis = 0u; priorAxis < 4u; ++priorAxis)
                 SigmaNativeFreshSelected[axisBase + priorAxis] =
                     SigmaNativeFreshPriorForward[axisBase + priorAxis];
+            selectedCommon = SigmaNativeFreshPriorCommon[team];
         }
         else if (contextValid)
         {
             uint2 lower[4];
             uint2 upper[4];
+            uint2 codeLower[4];
+            uint2 codeUpper[4];
             uint2 selected[4];
             [unroll]
             for (uint axisCopy = 0u; axisCopy < 4u; ++axisCopy)
@@ -682,10 +769,31 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
                     SigmaNativeFreshAxisLower[axisBase + axisCopy];
                 upper[axisCopy] =
                     SigmaNativeFreshAxisUpper[axisBase + axisCopy];
+                codeLower[axisCopy] = SIGMA_Q48_ZERO;
+                codeUpper[axisCopy] = SIGMA_Q48_ONE;
                 selected[axisCopy] = uint2(0u, 0u);
             }
-            selectedValid = SigmaMerkabaSelectFreshTangent(lower, upper,
-                selected, selectorValid);
+            // Pull back the ORIGINAL absolute leaves, not just their tangent
+            // envelope. Reload immutable evidence; no extra shared arena.
+            [unroll]
+            for (uint sourceLeaf = 0u; sourceLeaf < 8u; ++sourceLeaf)
+            {
+                uint eye = sourceLeaf >> 2u;
+                uint leaf = sourceLeaf & 3u;
+                uint axis = SigmaNativeFreshPermutationAxis(team, eye, leaf);
+                uint word = codeLeafWord + eye * 8u + leaf * 2u;
+                codeLower[axis] = SigmaQ48Max(codeLower[axis],
+                    SigmaNativeFreshLoad2(sourceKind, sourceIndex, word));
+                codeUpper[axis] = SigmaQ48Min(codeUpper[axis],
+                    SigmaNativeFreshLoad2(sourceKind, sourceIndex, word + 1u));
+            }
+            uint2 commonReference = SigmaNativeFreshTeamHasPrior[team] != 0u
+                ? SigmaNativeFreshPriorCommon[team] : SIGMA_Q48_ZERO;
+            uint2 commonLower = SigmaNativeFreshCommonLower[team];
+            uint2 commonUpper = SigmaNativeFreshCommonUpper[team];
+            selectedValid = SigmaMerkabaSelectFreshComplete(lower, upper,
+                commonLower, commonUpper, codeLower, codeUpper,
+                commonReference, selected, selectedCommon, selectorValid);
             [unroll]
             for (uint selectedAxis = 0u; selectedAxis < 4u; ++selectedAxis)
                 SigmaNativeFreshSelected[axisBase + selectedAxis] =
@@ -698,6 +806,7 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
                 SigmaNativeFreshSelected[axisBase + selectedAxis] =
                     uint2(0u, 0u);
         }
+        SigmaNativeFreshSelectedCommon[team] = selectedCommon;
         SigmaNativeFreshTeamPhaseValid[team] =
             selectedValid && selectorValid != 0u
             ? 1u : 0u;
@@ -712,24 +821,33 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
             ? SigmaNativeFreshPriorState[laneAddress]
             : uint2(0u, 0u);
         if (SigmaNativeFreshTeamPhaseValid[team] != 0u &&
-            SigmaNativeFreshTeamUsePrior[team] == 0u &&
-            teamLane > 0u && teamLane < 15u)
+            SigmaNativeFreshTeamUsePrior[team] == 0u)
         {
-            [unroll]
-            for (uint liftAxis = 0u; liftAxis < 4u; ++liftAxis)
+            if (teamLane > 0u && teamLane < 15u)
             {
-                uint2 correction =
-                    SigmaNativeFreshSelected[axisBase + liftAxis];
-                if (SigmaNativeFreshTeamHasPrior[team] != 0u)
-                    correction = SigmaQ48SubChecked(correction,
-                        SigmaNativeFreshPriorForward[axisBase + liftAxis],
-                        laneValid);
-                laneValue = SigmaQ48AddChecked(laneValue,
-                    SigmaMerkabaMultiplyDyadic(correction,
-                        SIGMA_MERKABA_SHADOW_NUMERATOR4[
-                            teamLane * 4u + liftAxis], 6u,
-                        laneValid), laneValid);
+                [unroll]
+                for (uint liftAxis = 0u; liftAxis < 4u; ++liftAxis)
+                {
+                    uint2 correction =
+                        SigmaNativeFreshSelected[axisBase + liftAxis];
+                    if (SigmaNativeFreshTeamHasPrior[team] != 0u)
+                        correction = SigmaQ48SubChecked(correction,
+                            SigmaNativeFreshPriorForward[axisBase + liftAxis],
+                            laneValid);
+                    laneValue = SigmaQ48AddChecked(laneValue,
+                        SigmaMerkabaMultiplyDyadic(correction,
+                            SIGMA_MERKABA_SHADOW_NUMERATOR4[
+                                teamLane * 4u + liftAxis], 6u,
+                            laneValid), laneValid);
+                }
             }
+            uint2 commonCorrection = SigmaNativeFreshSelectedCommon[team];
+            if (SigmaNativeFreshTeamHasPrior[team] != 0u)
+                commonCorrection = SigmaQ48SubChecked(commonCorrection,
+                    SigmaNativeFreshPriorCommon[team], laneValid);
+            laneValue = SigmaQ48AddChecked(laneValue,
+                SigmaMerkabaLiftCommonModeLane(commonCorrection, teamLane,
+                    laneValid), laneValid);
         }
         SigmaNativeFreshState[laneAddress] = laneValue;
         if (teamActive)
@@ -764,28 +882,48 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (teamLane < 4u)
+    if (teamLane < 5u)
     {
         uint forwardValid = SigmaNativeFreshTeamPhaseValid[team];
-        uint2 sum = SigmaNativeFreshTeamUsePrior[team] != 0u
-            ? SigmaNativeFreshPriorForward[axisBase + teamLane]
-            : uint2(0u, 0u);
+        uint2 sum = uint2(0u, 0u);
+        if (SigmaNativeFreshTeamUsePrior[team] != 0u)
+            sum = teamLane < 4u
+                ? SigmaNativeFreshPriorForward[axisBase + teamLane]
+                : SigmaNativeFreshPriorCommon[team];
         if (SigmaNativeFreshTeamPhaseValid[team] != 0u &&
             SigmaNativeFreshTeamUsePrior[team] == 0u)
         {
-            [unroll]
-            for (uint forwardLane = 1u; forwardLane < 15u; ++forwardLane)
+            if (teamLane < 4u)
             {
-                sum = SigmaQ48AddChecked(sum,
-                    SigmaMerkabaMultiplyDyadic(
-                        SigmaNativeFreshState[
-                            SigmaNativeFreshTeamLaneAddress(team, forwardLane)],
-                        SIGMA_MERKABA_SHADOW_NUMERATOR4[
-                            forwardLane * 4u + teamLane], 2u,
-                        forwardValid), forwardValid);
+                [unroll]
+                for (uint forwardLane = 1u; forwardLane < 15u; ++forwardLane)
+                {
+                    sum = SigmaQ48AddChecked(sum,
+                        SigmaMerkabaMultiplyDyadic(
+                            SigmaNativeFreshState[
+                                SigmaNativeFreshTeamLaneAddress(team, forwardLane)],
+                            SIGMA_MERKABA_SHADOW_NUMERATOR4[
+                                forwardLane * 4u + teamLane], 2u,
+                            forwardValid), forwardValid);
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint forwardLane = 0u; forwardLane < 16u; ++forwardLane)
+                    sum = SigmaQ48AddChecked(sum,
+                        SigmaMerkabaScaleCommonCharacter(
+                            SigmaNativeFreshState[
+                                SigmaNativeFreshTeamLaneAddress(team, forwardLane)],
+                            SigmaMerkabaCommonCharacterCoefficient(forwardLane),
+                            forwardValid), forwardValid);
+                sum = SigmaQ48ShiftRightNearestEven(sum, 4u, forwardValid);
             }
         }
-        SigmaNativeFreshForward[axisBase + teamLane] = sum;
+        if (teamLane < 4u)
+            SigmaNativeFreshForward[axisBase + teamLane] = sum;
+        else
+            SigmaNativeFreshForwardCommon[team] = sum;
         SigmaNativeFreshScratch[laneAddress] = forwardValid;
     }
     else
@@ -798,7 +936,8 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
             SigmaNativeFreshScratch[forwardPhaseBase] &
             SigmaNativeFreshScratch[forwardPhaseBase + 1u] &
             SigmaNativeFreshScratch[forwardPhaseBase + 2u] &
-            SigmaNativeFreshScratch[forwardPhaseBase + 3u];
+            SigmaNativeFreshScratch[forwardPhaseBase + 3u] &
+            SigmaNativeFreshScratch[forwardPhaseBase + 4u];
     }
     GroupMemoryBarrierWithGroupSync();
     uint forwardPhaseValid = teamLane < 8u
@@ -811,12 +950,19 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
         uint leaf = teamLane & 3u;
         uint leafForwardValid = forwardPhaseValid;
         uint axis = SigmaNativeFreshPermutationAxis(team, eye, leaf);
-        uint2 predicted = SigmaNativeFreshForward[axisBase + axis];
-        if (SigmaNativeFreshEyeSign[eyeBase + eye] < 0)
-            predicted = SigmaQ48NegateChecked(predicted, leafForwardValid);
+        leafForwardValid &= axis < 4u ? 1u : 0u;
+        uint2 predicted = uint2(0u, 0u);
+        SigmaMerkabaRecoverUnitCode(
+            SigmaNativeFreshForward[axisBase + min(axis, 3u)],
+            SigmaNativeFreshForwardCommon[team], predicted,
+            leafForwardValid);
+        uint rawWord = codeLeafWord + eye * 8u + leaf * 2u;
+        uint2 rawLower = SigmaNativeFreshLoad2(sourceKind, sourceIndex,
+            rawWord);
+        uint2 rawUpper = SigmaNativeFreshLoad2(sourceKind, sourceIndex,
+            rawWord + 1u);
         leafForwardValid &= SigmaNativePointInInterval(predicted,
-            SigmaNativeFreshInstrumentLower[leafBase + teamLane],
-            SigmaNativeFreshInstrumentUpper[leafBase + teamLane]) ? 1u : 0u;
+            rawLower, rawUpper) ? 1u : 0u;
         SigmaNativeFreshScratch[laneAddress] = leafForwardValid;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -880,7 +1026,7 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
                 SigmaNativeFreshAxisUpper[axisBase + axis]);
         }
         else if (teamLane >= SIGMA_CERTIFICATE_INFORMATION0 &&
-            teamLane < SIGMA_CERTIFICATE_RECEIPTS0)
+            teamLane < SIGMA_CERTIFICATE_COMMON_MODE)
         {
             uint axis = teamLane - SIGMA_CERTIFICATE_INFORMATION0;
             uint widthValid = SigmaNativeFreshTeamPhaseValid[team];
@@ -890,6 +1036,9 @@ void SigmaNativeFreshLiftSource(uint sourceKind, uint sourceIndex,
             certificateWord = widthValid != 0u
                 ? uint4(width, axis, 3u) : 0u;
         }
+        else if (teamLane == SIGMA_CERTIFICATE_COMMON_MODE)
+            certificateWord = uint4(SigmaNativeFreshCommonLower[team],
+                SigmaNativeFreshCommonUpper[team]);
         else if (teamLane == SIGMA_CERTIFICATE_RECEIPTS0)
             certificateWord = uint4(header.z,
                 header.x & ~SIGMA_NATIVE_OBSERVATION_PRIOR_SUPPORT,
@@ -1348,8 +1497,9 @@ uint4 SigmaN4TileCertificateReduce(uint word, uint4 left, uint4 right)
     uint4 result = left | right;
     if (word == SIGMA_CERTIFICATE_IDENTITY)
         result = uint4(left.x | right.x, left.y, 1u, 0u);
-    else if (word >= SIGMA_CERTIFICATE_AXIS0 &&
-        word < SIGMA_CERTIFICATE_INFORMATION0)
+    else if ((word >= SIGMA_CERTIFICATE_AXIS0 &&
+        word < SIGMA_CERTIFICATE_INFORMATION0) ||
+        word == SIGMA_CERTIFICATE_COMMON_MODE)
         result = uint4(SigmaQ48Max(left.xy, right.xy),
             SigmaQ48Min(left.zw, right.zw));
     return result;
@@ -1448,21 +1598,22 @@ void SigmaN4TileMeetSupports(uint tile, uint local)
     _NativeCloseScratch[footprintReceipt] = uint2(leaderLocal, summary);
     GroupMemoryBarrierWithGroupSync();
 
-    // Six certificate words are independent. Distribute (summary,word) tasks
+    // Seven certificate words are independent. Distribute (summary,word) tasks
     // over all 256 lanes and scan only that locator's exact sorted segment.
     // No lane ever serially merges a complete certificate and no member cap is
     // introduced: the mathematical maximum remains all 256 tile footprints.
     uint summaryCount = SigmaN4TileSupportSummaryCount;
-    uint taskCount = summaryCount * 6u;
+    uint taskCount = summaryCount * 7u;
     [loop]
     for (uint task = local; task < taskCount;
          task += SIGMA_N4_TILE_FOOTPRINT_CAPACITY)
     {
-        uint taskSummary = task / 6u;
-        uint mergeIndex = task - taskSummary * 6u;
+        uint taskSummary = task / 7u;
+        uint mergeIndex = task - taskSummary * 7u;
         uint word = mergeIndex == 0u ? SIGMA_CERTIFICATE_IDENTITY :
             (mergeIndex < 5u ? SIGMA_CERTIFICATE_AXIS0 + mergeIndex - 1u :
-                SIGMA_CERTIFICATE_RECEIPTS0 + 2u);
+            (mergeIndex == 5u ? SIGMA_CERTIFICATE_COMMON_MODE :
+                SIGMA_CERTIFICATE_RECEIPTS0 + 2u));
         uint2 bounds = SigmaN4TileLabel[taskSummary];
         uint firstLocal = SigmaN4TileSort[bounds.x].y;
         uint firstFootprint = SigmaN4TileGlobalFootprint(tile, firstLocal);
@@ -1499,7 +1650,7 @@ void SigmaN4TileMeetSupports(uint tile, uint local)
         SigmaN4TileStoreCertificate(summaryFootprint,
             SIGMA_CERTIFICATE_INDEPENDENCE, 0u);
         [unroll]
-        for (uint axis = 0u; axis < 4u; ++axis)
+        for (uint axis = 0u; axis < 3u; ++axis)
         {
             uint4 interval = SigmaN4TileCertificate(summaryFootprint,
                 SIGMA_CERTIFICATE_AXIS0 + axis);
@@ -1512,6 +1663,9 @@ void SigmaN4TileMeetSupports(uint tile, uint local)
                 SIGMA_CERTIFICATE_INFORMATION0 + axis,
                 valid != 0u ? uint4(width, axis, 3u) : 0u);
         }
+        uint4 commonMode = SigmaN4TileCertificate(summaryFootprint,
+            SIGMA_CERTIFICATE_COMMON_MODE);
+        valid &= !SigmaI64Less(commonMode.zw, commonMode.xy) ? 1u : 0u;
         uint count = end - first;
         _NativeCloseScratch[SigmaN4TileSupportAddress(tile, local, 0u)] =
             uint2(summaryKey, summaryFootprint);

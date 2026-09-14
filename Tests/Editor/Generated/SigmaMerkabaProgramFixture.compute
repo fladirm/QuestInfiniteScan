@@ -225,10 +225,12 @@ void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
     uint2 selected[4];
     uint boundaryRelation = SIGMA_MERKABA_RELATION_UNRESOLVED;
     bool admitted = SigmaMerkabaResolveFreshBranch(lower, upper,
+        half, half,
         SIGMA_FRESH_FIRST_HIT_LEFT | SIGMA_FRESH_FIRST_HIT_RIGHT, 1u,
         state, selected, boundaryRelation, valid);
     uint2 forward[4];
     SigmaMerkabaEvaluateShadow(state, forward, valid);
+    uint2 forwardCommon = SigmaMerkabaEvaluateCommonMode(state, valid);
     [unroll]
     for (uint axis = 0u; axis < 4u; ++axis)
         _MerkabaFreshResults[axis] = uint4(selected[axis], forward[axis]);
@@ -256,6 +258,7 @@ void MerkabaFreshAdmissionParity(uint3 id : SV_DispatchThreadID)
     uint tinyRelation = SigmaMerkabaEvaluateFreshBoundaryRelation(
         kernelState, tinyValid);
     _MerkabaFreshResults[22] = uint4(tinyRelation, tinyValid, 0u, 0u);
+    _MerkabaFreshResults[23] = uint4(forwardCommon, half);
 }
 
 [numthreads(1, 1, 1)]
@@ -272,14 +275,19 @@ void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
         permutation, globalSign, valid);
     uint2 codeLower[4];
     uint2 codeUpper[4];
-    codeLower[0] = codeUpper[0] = uint2(0u, 0x0000a000u);
-    codeLower[1] = codeUpper[1] = uint2(0u, 0x00006000u);
-    codeLower[2] = codeUpper[2] = uint2(0u, 0x00009000u);
-    codeLower[3] = codeUpper[3] = uint2(0u, 0x00007000u);
+    // Add the same 1/16 code offset to the established tangent fixture. The
+    // four-I-minus-all-ones shadow is unchanged while q becomes exactly 1/2.
+    codeLower[0] = codeUpper[0] = uint2(0u, 0x0000b000u);
+    codeLower[1] = codeUpper[1] = uint2(0u, 0x00007000u);
+    codeLower[2] = codeUpper[2] = uint2(0u, 0x0000a000u);
+    codeLower[3] = codeUpper[3] = uint2(0u, 0x00008000u);
     uint2 measuredLower[4];
     uint2 measuredUpper[4];
+    uint2 commonLower;
+    uint2 commonUpper;
     SigmaMerkabaAssembleInstrumentTangent(codeLower, codeUpper,
-        globalSign, measuredLower, measuredUpper, valid);
+        globalSign, measuredLower, measuredUpper, commonLower, commonUpper,
+        valid);
     _MerkabaInstrumentResults[0] = uint4(permutation.x,
         asuint(globalSign), routed ? 1u : 0u, valid);
     _MerkabaInstrumentResults[1] = uint4(permutation.y,
@@ -292,6 +300,7 @@ void MerkabaInstrumentBoundaryParity(uint3 id : SV_DispatchThreadID)
     for (uint leaf = 0u; leaf < 4u; ++leaf)
         _MerkabaInstrumentResults[4u + leaf] = uint4(
             measuredLower[leaf], measuredUpper[leaf]);
+    _MerkabaInstrumentResults[8] = uint4(commonLower, commonUpper);
 }
 
 [numthreads(16, 1, 1)]

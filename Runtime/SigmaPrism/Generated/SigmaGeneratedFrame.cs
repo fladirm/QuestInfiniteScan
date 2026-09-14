@@ -185,7 +185,7 @@ namespace Genesis.RoomScan.SigmaPrism
     internal static class SigmaGeneratedFrame
     {
         internal const string AbiVersion = "CPQ4-S16-NATIVE-FRAME-3";
-        internal const string AbiFingerprint = "1d739963f1012734d37e99fb4a9fdbe60ee104a8cd4d90606fbc724bc67ff701";
+        internal const string AbiFingerprint = "685e95547da67e48b3806552f2c59077b53f85dbc90527e14f8cfa7ce6c56c60";
         internal const int SensorSideCount = 2;
         internal const int LeafCount = 4;
         internal const int LaneCount = 16;
@@ -210,7 +210,7 @@ namespace Genesis.RoomScan.SigmaPrism
         internal const string RepresentationFingerprint = "b27e74a9b05902741bde4be11cbc3345e0eb3b8a71aa456a14c1c7e0aeeaf5b7";
         internal const string ChiFingerprint = "68d0869ad458143b7e73366bf286245eefb0dec8f681d3bd32a3e7cddc6edd25";
         internal const string KappaFingerprint = "08f90f9c72d0ae1e9055eafaf65f315354fc429bae3bb6e9ca1bb64eb9037e93";
-        internal const string CertificateFingerprint = "0b0317cf6c99954e32819303ebb6e400101a7a3d75b2d1b858f22f0fbb006cd3";
+        internal const string CertificateFingerprint = "c5d69c36cd0849d55021eacf72c9e5ba31e194f047c8fcc58e29aa197e9174df";
         internal const int CompletionFrame = 0;
         internal const int CompletionRoot = 8;
         internal const int CompletionUnresolved = 10;
@@ -235,6 +235,7 @@ namespace Genesis.RoomScan.SigmaPrism
             const int relation = 3;
             const int axis0 = 4;
             const int information0 = 8;
+            const int commonMode = information0 + 3;
             const int receipts0 = 12;
             result = null;
             if (left == null || right == null || left.Length != wordCount ||
@@ -281,7 +282,8 @@ namespace Genesis.RoomScan.SigmaPrism
                 ulong width = unchecked((ulong)upper - (ulong)lower);
                 long boundedWidth = width <= long.MaxValue
                     ? (long)width : long.MaxValue;
-                result[information0 + axis] = new SigmaFrameUInt4Gpu
+                if (axis < 3)
+                    result[information0 + axis] = new SigmaFrameUInt4Gpu
                 {
                     X = unchecked((uint)boundedWidth),
                     Y = unchecked((uint)(boundedWidth >> 32)),
@@ -289,6 +291,24 @@ namespace Genesis.RoomScan.SigmaPrism
                     W = 3u,
                 };
             }
+            long leftCommonLower = CertificateRaw(left[commonMode].X,
+                left[commonMode].Y);
+            long rightCommonLower = CertificateRaw(right[commonMode].X,
+                right[commonMode].Y);
+            long leftCommonUpper = CertificateRaw(left[commonMode].Z,
+                left[commonMode].W);
+            long rightCommonUpper = CertificateRaw(right[commonMode].Z,
+                right[commonMode].W);
+            long commonLower = leftCommonLower >= rightCommonLower
+                ? leftCommonLower : rightCommonLower;
+            long commonUpper = leftCommonUpper <= rightCommonUpper
+                ? leftCommonUpper : rightCommonUpper;
+            if (commonLower > commonUpper)
+            {
+                result = null;
+                return false;
+            }
+            result[commonMode] = CertificateInterval(commonLower, commonUpper);
             result[receipts0 + 2] = new SigmaFrameUInt4Gpu
             {
                 X = left[receipts0 + 2].X | right[receipts0 + 2].X,

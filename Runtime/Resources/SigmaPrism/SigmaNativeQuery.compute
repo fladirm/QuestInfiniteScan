@@ -622,8 +622,9 @@ uint4 SigmaN4GlobalCertificateReduce(uint word, uint4 left, uint4 right)
     uint4 result = left;
     if (word == SIGMA_CERTIFICATE_IDENTITY)
         result = uint4(left.x | right.x, left.y, 1u, 0u);
-    else if (word >= SIGMA_CERTIFICATE_AXIS0 &&
-        word < SIGMA_CERTIFICATE_INFORMATION0)
+    else if ((word >= SIGMA_CERTIFICATE_AXIS0 &&
+        word < SIGMA_CERTIFICATE_INFORMATION0) ||
+        word == SIGMA_CERTIFICATE_COMMON_MODE)
         result = uint4(SigmaQ48Max(left.xy, right.xy),
             SigmaQ48Min(left.zw, right.zw));
     else if (word == SIGMA_CERTIFICATE_RECEIPTS0 + 2u)
@@ -741,7 +742,7 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
         uint4 meta = SigmaN4LoadGlobalMeta(word);
         uint4 value = SigmaN4GlobalCertificate[word];
         if (word >= SIGMA_CERTIFICATE_INFORMATION0 &&
-            word < SIGMA_CERTIFICATE_RECEIPTS0)
+            word < SIGMA_CERTIFICATE_COMMON_MODE)
         {
             uint axis = word - SIGMA_CERTIFICATE_INFORMATION0;
             uint4 interval = SigmaN4GlobalCertificate[
@@ -753,6 +754,8 @@ void SigmaN4ReduceActiveSupport(uint activeIndex, uint threadIndex)
             meta.z &= widthValid;
             value = meta.z != 0u ? uint4(width, axis, 3u) : 0u;
         }
+        else if (word == SIGMA_CERTIFICATE_COMMON_MODE)
+            meta.z &= !SigmaI64Less(value.zw, value.xy) ? 1u : 0u;
         if (meta.w != 0u && meta.x < _NativeFootprintCount)
             _NativeLocalityCertificateWords[
                 _NativeFootprintCertificateOffset +

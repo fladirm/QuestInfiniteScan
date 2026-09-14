@@ -140,7 +140,7 @@ namespace Genesis.RoomScan.SigmaPrism
         // repeated here as interpretation pins so N5 cannot silently follow a
         // different generated program or canonical-default proof.
         internal const string ProgramFingerprint =
-            "09564b2e81bb16313af6e80bc42845e47111d354d0f347e2fedd242eca0eab33";
+            "793abea691dd0dc4347fac5f71f6b8c5fca8546517a51574184cb651b22ea38e";
         internal const string DefaultFingerprint =
             "4aa45c31a02ec4da9713f0dc8d5daa2cedf855ca16cb55d605a5c864f52779d6";
 

@@ -11,11 +11,7 @@ namespace Genesis.RoomScan.Tests
     public sealed class SigmaForwardReadoutTests
     {
         private const int PageSize = 64;
-        private const int ReadoutExtent = 65;
-        private const int ReadoutSampleCount = ReadoutExtent * ReadoutExtent;
         private const int VerticesPerPage = PageSize * PageSize * 6;
-        private const int PreviewSamplesPerPage = PageSize * PageSize / 2;
-        private const int PreviewVerticesPerPage = PreviewSamplesPerPage * 6;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct UInt2
@@ -72,237 +68,189 @@ namespace Genesis.RoomScan.Tests
                 SigmaS16Operators.NullState, out _), Is.False);
         }
 
-        [Test]
-        public void GpuReadoutAndPredictionExposeSupportedFoldAndNullStaysEmpty()
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PureReadout
         {
-            ComputeShader readout = Resources.Load<ComputeShader>(
-                "SigmaPrism/SigmaForwardReadout");
-            Shader predictionShader = Resources.Load<Shader>(
-                "SigmaPrism/SigmaPredict");
+            public Vector4 LeftPosition;
+            public Vector4 LeftColourOrder;
+            public Vector4 RightPosition;
+            public Vector4 RightColourOrder;
+        }
+
+        [Test]
+        public void GpuPureReadoutPreservesFullCodeNullMetadataAndFirstHit()
+        {
+            ComputeShader readout = UnityEditor.AssetDatabase.LoadAssetAtPath<ComputeShader>(
+                "Packages/com.genesis.roomscan/Tests/Editor/Generated/SigmaPureEyeReadoutFixture.compute");
+            Shader predictionShader = Resources.Load<Shader>("SigmaPrism/SigmaPredict");
             Assert.That(readout, Is.Not.Null);
             Assert.That(predictionShader, Is.Not.Null);
-
-            SigmaS16[] page = BuildFoldedPage();
+            int kernel = readout.FindKernel("BuildPureEyeReadout");
+            var page = new SigmaS16[PageSize * PageSize];
+            for (int i = 0; i < page.Length; ++i)
+                page[i] = SigmaS16Operators.NullState;
+            page[10] = CompleteCodeState(0.75, 0.0, 0.0, 0.375);
+            page[40] = CompleteCodeState(0.5, 0.0, 0.0, 0.25);
             UInt2[] packed = Pack(page);
-            var metadata = new[]
+            var metadata = new PageMeta
             {
-                new PageMeta
-                {
-                    PageXLo = unchecked((uint)-3),
-                    PageXHi = uint.MaxValue,
-                    PageYLo = 7u,
-                    PageYHi = 0u,
-                    Generation = 9u,
-                    Revision = 17u,
-                    Flags = 3u
-                }
+                PageXLo = unchecked((uint)-3), PageXHi = uint.MaxValue,
+                PageYLo = 7u, Generation = 9u, Revision = 17u,
+                Flags = 3u, ActiveSampleCount = 4096u,
             };
-
             using SigmaExactBackendGate gate = SigmaExactBackendGate.Dispatch();
             using var state = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 packed.Length, Marshal.SizeOf<UInt2>());
             using var meta = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, Marshal.SizeOf<PageMeta>());
-            using var renderMeta = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 1,
-                Marshal.SizeOf<PageMeta>());
-            using var publicationRoot = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 1, sizeof(uint));
-            using var readoutDirty = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 1, sizeof(uint));
-            using var vertices = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-                ReadoutSampleCount, sizeof(float) * 4);
-            using var activeSlots = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+            using var renderMeta = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                1, Marshal.SizeOf<PageMeta>());
+            using var root = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint));
-            using var dirtySlots = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+            using var samples = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                PageSize * PageSize, Marshal.SizeOf<PureReadout>());
+            using var slots = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
                 1, sizeof(uint));
-            using var poseResult = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured, 4, sizeof(uint) * 4);
-            using var arguments = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured |
+            using var args = new GraphicsBuffer(GraphicsBuffer.Target.Structured |
                 GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint));
-            using var previewArguments = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured |
-                GraphicsBuffer.Target.IndirectArguments, 4, sizeof(uint));
-            using var buildArguments = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured |
-                GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
-            using var haloArguments = new GraphicsBuffer(
-                GraphicsBuffer.Target.Structured |
-                GraphicsBuffer.Target.IndirectArguments, 3, sizeof(uint));
+            using var poseResult = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                4, sizeof(uint) * 4);
             state.SetData(packed);
-            meta.SetData(metadata);
-            publicationRoot.SetData(new uint[] { 17u });
-            readoutDirty.SetData(new uint[] { 1u });
-            arguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
-            previewArguments.SetData(new uint[] { 0u, 1u, 0u, 0u });
-            buildArguments.SetData(new uint[] { 64u, 0u, 1u });
-            haloArguments.SetData(new uint[] { 1u, 0u, 1u });
+            meta.SetData(new[] { metadata });
+            root.SetData(new uint[] { 17u });
+            args.SetData(new uint[4]);
             poseResult.SetData(new UInt4[4]);
-
-            int build = readout.FindKernel("BuildCarrierReadout");
-            int compact = readout.FindKernel("CompactCurrentPages");
-            int resolveHalo = readout.FindKernel("ResolveCarrierHalos");
-            readout.SetInt("_PageCapacity", 1);
-            readout.SetInt("_ReadoutRebuildAll", 0);
-            readout.SetBuffer(compact, "_PageMetadata", meta);
-            readout.SetBuffer(compact, "_RenderPageMetadata", renderMeta);
-            readout.SetBuffer(compact, "_PublishedRevisionRoot",
-                publicationRoot);
-            readout.SetBuffer(compact, "_ReadoutDirtyFlags", readoutDirty);
-            readout.SetBuffer(compact, "_CurrentPageSlots", activeSlots);
-            readout.SetBuffer(compact, "_ReadoutDrawArguments", arguments);
-            readout.SetBuffer(compact, "_PreviewDrawArguments",
-                previewArguments);
-            readout.SetBuffer(compact, "_ReadoutDirtyPageSlots", dirtySlots);
-            readout.SetBuffer(compact, "_ReadoutBuildArguments", buildArguments);
-            readout.SetBuffer(compact, "_ReadoutHaloArguments", haloArguments);
-            readout.Dispatch(compact, 1, 1, 1);
-
-            var capturedMetadata = new PageMeta[1];
-            renderMeta.GetData(capturedMetadata);
-            Assert.That(capturedMetadata[0].PageXLo,
-                Is.EqualTo(metadata[0].PageXLo));
-            Assert.That(capturedMetadata[0].PageXHi,
-                Is.EqualTo(metadata[0].PageXHi));
-            Assert.That(capturedMetadata[0].PageYLo,
-                Is.EqualTo(metadata[0].PageYLo));
-            Assert.That(capturedMetadata[0].PageYHi,
-                Is.EqualTo(metadata[0].PageYHi));
-            Assert.That(capturedMetadata[0].Generation,
-                Is.EqualTo(metadata[0].Generation));
-            Assert.That(capturedMetadata[0].Revision,
-                Is.EqualTo(metadata[0].Revision));
-
-            var fullDraw = new uint[4];
-            var previewDraw = new uint[4];
-            arguments.GetData(fullDraw);
-            previewArguments.GetData(previewDraw);
-            Assert.That(fullDraw, Is.EqualTo(new uint[]
+            gate.Bind(readout, kernel);
+            for (int bank = 0; bank < 2; ++bank)
             {
-                VerticesPerPage, 1u, 0u, 0u
-            }));
-            Assert.That(previewDraw, Is.EqualTo(new uint[]
+                readout.SetBuffer(kernel, "_CarrierState" + bank, state);
+                readout.SetBuffer(kernel, "_PageMetadata" + bank, meta);
+                readout.SetBuffer(kernel, "_ReadoutSamples" + bank, samples);
+                readout.SetBuffer(kernel, "_CurrentPageSlots" + bank, slots);
+                readout.SetBuffer(kernel, "_RenderPageMetadata" + bank, renderMeta);
+                readout.SetBuffer(kernel, "_ReadoutDrawArguments" + bank, args);
+            }
+            readout.SetBuffer(kernel, "_PublishedRevisionRoot", root);
+            // Exactly the 176-byte no-matrix production uniform ABI.
+            var constants = new int[44];
+            void SetQ(int word, double value)
             {
-                PreviewVerticesPerPage, 1u, 0u, 0u
-            }));
+                long raw = SigmaNumericDomain.Quantize(value);
+                constants[word] = unchecked((int)raw);
+                constants[word + 1] = unchecked((int)(raw >> 32));
+            }
+            for (int eye = 0; eye < 2; ++eye)
+            {
+                SetQ(5 * 4 + eye * 2, 1.0);
+                SetQ(6 * 4 + eye * 2, 0.1);
+                SetQ(7 * 4 + eye * 2, 2.0);
+            }
+            SetQ(9 * 4 + 2, 6.0);
+            constants[40] = 1;
+            constants[41] = 1;
+            constants[42] = 1;
+            readout.SetInts("_N6ReadoutConstants", constants);
+            // Only bank 0 executes; alias bindings supply the unused bank ABI.
+            readout.Dispatch(kernel, 1, 64, 1);
+            var gpu = new PureReadout[4096];
+            samples.GetData(gpu);
+            float expectedNear = ExactProjectionZ(0.75);
+            float expectedFar = ExactProjectionZ(0.875);
+            Assert.That(gpu[40].LeftPosition.z, Is.EqualTo(expectedNear).Within(1e-6));
+            Assert.That(gpu[10].LeftPosition.z, Is.EqualTo(expectedFar).Within(1e-6));
+            Assert.That(gpu[40].LeftPosition.w, Is.EqualTo(1f));
+            Assert.That(gpu[40].RightPosition, Is.EqualTo(gpu[40].LeftPosition));
+            Assert.That(gpu[40].LeftColourOrder.x, Is.EqualTo(0.625f));
+            Assert.That(gpu[40].LeftColourOrder.y, Is.EqualTo(0.5f));
+            Assert.That(gpu[40].LeftColourOrder.z, Is.EqualTo(0.5f));
+            Assert.That(gpu[40].LeftColourOrder.w,
+                Is.EqualTo(expectedNear).Within(1e-6));
+            Assert.That(gpu[28].LeftPosition, Is.EqualTo(Vector4.zero));
+            Assert.That(gpu[28].RightPosition, Is.EqualTo(Vector4.zero));
+            var captured = new PageMeta[1];
+            renderMeta.GetData(captured);
+            Assert.That(captured[0].PageXLo, Is.EqualTo(metadata.PageXLo));
+            Assert.That(captured[0].PageXHi, Is.EqualTo(metadata.PageXHi));
+            Assert.That(captured[0].PageYLo, Is.EqualTo(metadata.PageYLo));
+            Assert.That(captured[0].Generation, Is.EqualTo(metadata.Generation));
+            Assert.That(captured[0].Revision, Is.EqualTo(metadata.Revision));
+            var draw = new uint[4];
+            args.GetData(draw);
+            Assert.That(draw, Is.EqualTo(new uint[] { VerticesPerPage, 1u, 0u, 0u }));
+            var unchanged = new UInt2[packed.Length];
+            state.GetData(unchanged);
+            Assert.That(unchanged, Is.EqualTo(packed), "readout must not mutate Psi");
 
-            gate.Bind(readout, build);
-            readout.SetBuffer(build, "_CarrierState", state);
-            readout.SetBuffer(build, "_PageMetadata", renderMeta);
-            readout.SetBuffer(build, "_PublishedRevisionRoot",
-                publicationRoot);
-            readout.SetBuffer(build, "_ReadoutDirtyFlags", readoutDirty);
-            readout.SetBuffer(build, "_ReadoutDirtyPageSlots", dirtySlots);
-            readout.SetBuffer(build, "_ReadoutVertices", vertices);
-            readout.DispatchIndirect(build, buildArguments);
-            readout.SetBuffer(resolveHalo, "_PageMetadata", renderMeta);
-            readout.SetBuffer(resolveHalo, "_PublishedRevisionRoot",
-                publicationRoot);
-            readout.SetBuffer(resolveHalo, "_CurrentPageSlots", activeSlots);
-            readout.SetBuffer(resolveHalo, "_ReadoutVertices", vertices);
-            readout.DispatchIndirect(resolveHalo, haloArguments);
-
-            var gpuReadout = new Vector4[ReadoutSampleCount];
-            vertices.GetData(gpuReadout);
-            Vector4 farSample = gpuReadout[10 * ReadoutExtent + 10];
-            Vector4 nearSample = gpuReadout[40 * ReadoutExtent + 40];
-            Vector4 nullSample = gpuReadout[28 * ReadoutExtent + 28];
-            Assert.That(farSample.w, Is.EqualTo(8f).Within(1e-4f));
-            Assert.That(farSample.z, Is.EqualTo(0.6f).Within(1e-4f));
-            Assert.That(nearSample.w, Is.EqualTo(8f).Within(1e-4f));
-            Assert.That(nearSample.z, Is.EqualTo(0.3f).Within(1e-4f));
-            Assert.That(nullSample, Is.EqualTo(Vector4.zero));
-
-            const int targetSize = 96;
-            RenderTexture depthSupport = CreateColor(targetSize,
-                GraphicsFormat.R32G32_SFloat);
-            RenderTexture carrierPage = CreateColor(targetSize,
-                GraphicsFormat.R32G32B32A32_UInt);
-            RenderTexture carrierUvNormal = CreateColor(targetSize,
-                GraphicsFormat.R32G32B32A32_SFloat);
-            RenderTexture stateKey = CreateColor(targetSize,
-                GraphicsFormat.R32G32B32A32_UInt);
-            RenderTexture hardwareDepth = CreateDepth(targetSize);
+            const int size = 96;
+            RenderTexture depth = CreateColor(size, GraphicsFormat.R32G32_SFloat);
+            RenderTexture carrierPage = CreateColor(size, GraphicsFormat.R32G32B32A32_UInt);
+            RenderTexture uv = CreateColor(size, GraphicsFormat.R32G32B32A32_SFloat);
+            RenderTexture key = CreateColor(size, GraphicsFormat.R32G32B32A32_UInt);
+            RenderTexture hardwareDepth = CreateDepth(size);
             var material = new Material(predictionShader);
-            var properties = new MaterialPropertyBlock();
             try
             {
+                var properties = new MaterialPropertyBlock();
                 Matrix4x4 projection = GL.GetGPUProjectionMatrix(
                     Matrix4x4.Perspective(90f, 1f, 0.1f, 2f), true);
-                Matrix4x4 graphicsFromOptical = Matrix4x4.Scale(
-                    new Vector3(1f, 1f, -1f));
-                properties.SetMatrix("_ClipFromWorld",
-                    projection * graphicsFromOptical);
+                properties.SetMatrix("_ClipFromWorld", projection *
+                    Matrix4x4.Scale(new Vector3(1f, 1f, -1f)));
                 properties.SetMatrix("_OpticalFromWorld", Matrix4x4.identity);
+                properties.SetMatrix("_PoseConsumeReferenceFromWorld", Matrix4x4.identity);
+                properties.SetMatrix("_PoseConsumeWorldFromReference", Matrix4x4.identity);
+                properties.SetInt("_ReadoutEye", 0);
                 properties.SetInt("_SegmentIndex", 5);
-                properties.SetBuffer("_ReadoutVertices", vertices);
-                properties.SetBuffer("_CurrentPageSlots", activeSlots);
+                properties.SetFloat("_ContactFootprintPixels", 2f);
+                properties.SetBuffer("_ReadoutSamples", samples);
+                properties.SetBuffer("_CurrentPageSlots", slots);
                 properties.SetBuffer("_PageMetadata", renderMeta);
                 properties.SetBuffer("_PoseResult", poseResult);
-                properties.SetMatrix("_PoseConsumeReferenceFromWorld",
-                    Matrix4x4.identity);
-                properties.SetMatrix("_PoseConsumeWorldFromReference",
-                    Matrix4x4.identity);
-                DrawPrediction(material, arguments, properties, depthSupport,
-                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
+                DrawPrediction(material, args, properties, depth, carrierPage, uv,
+                    key, hardwareDepth);
+                Assert.That(MinPositiveDepth(Readback<float>(depth)),
+                    Is.EqualTo(expectedNear).Within(1e-5),
+                    "hardware Z must select the nearer complete query contribution");
+                uint[] keys = Readback<uint>(key);
+                int hit = Array.FindIndex(keys, value => value == 9u);
+                Assert.That(hit, Is.GreaterThanOrEqualTo(0));
+                Assert.That(keys[hit + 1], Is.EqualTo(17u));
+                Assert.That(keys[hit + 2], Is.EqualTo(5u));
 
-                int pixel = 50 * targetSize + 52;
-                float[] depth = Readback<float>(depthSupport);
-                float[] uvNormal = Readback<float>(carrierUvNormal);
-                float identityMinDepth = MinPositiveDepth(depth);
-                Assert.That(depth[pixel * 2], Is.InRange(0.28f, 0.40f),
-                    "hardware Z must select the near folded carrier branch");
-                Assert.That(depth[pixel * 2 + 1], Is.EqualTo(8f).Within(1e-3f));
-                Assert.That(uvNormal[pixel * 4], Is.GreaterThan(38f),
-                    "CarrierUV must identify the near branch, not the far branch");
-
-                long gaugeZ = SigmaNumericDomain.Quantize(0.05);
-                poseResult.SetData(new[]
-                {
-                    new UInt4 { X = 1u },
-                    new UInt4(),
-                    new UInt4
-                    {
-                        X = unchecked((uint)gaugeZ),
-                        Y = unchecked((uint)(gaugeZ >> 32))
-                    },
-                    new UInt4()
-                });
-                DrawPrediction(material, arguments, properties, depthSupport,
-                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
-                depth = Readback<float>(depthSupport);
-                float correctedMinDepth = MinPositiveDepth(depth);
-                const float nearSurfaceZ = 0.3f;
-                const float correctedSurfaceZ = nearSurfaceZ - 0.05f;
-                float expectedCorrectedRange = Mathf.Sqrt(Mathf.Max(0f,
-                    identityMinDepth * identityMinDepth -
-                    nearSurfaceZ * nearSurfaceZ +
-                    correctedSurfaceZ * correctedSurfaceZ));
-                Assert.That(correctedMinDepth,
-                    Is.EqualTo(expectedCorrectedRange).Within(0.004f),
-                    "a nonzero exact pose result must rerasterize the same " +
-                    "carrier frame through the inverse rigid gauge while " +
-                    "reporting Euclidean optical range");
-                poseResult.SetData(new UInt4[4]);
-
-                properties.SetFloat("_ContactFootprintPixels", 1.35f);
-                DrawPrediction(material, arguments, properties, depthSupport,
-                    carrierPage, carrierUvNormal, stateKey, hardwareDepth);
-                depth = Readback<float>(depthSupport);
-                Assert.That(MinPositiveDepth(depth), Is.InRange(0.28f, 0.70f),
-                    "disposable contact footprints must expose supported Psi " +
-                    "without creating a second geometry world");
+                // A deleted/rebuilt disposable cache reproduces identical bytes.
+                args.SetData(new uint[4]);
+                readout.Dispatch(kernel, 1, 64, 1);
+                var rebuilt = new PureReadout[4096];
+                samples.GetData(rebuilt);
+                Assert.That(rebuilt, Is.EqualTo(gpu));
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(material);
-                Destroy(depthSupport);
-                Destroy(carrierPage);
-                Destroy(carrierUvNormal);
-                Destroy(stateKey);
-                Destroy(hardwareDepth);
+                Destroy(depth); Destroy(carrierPage); Destroy(uv);
+                Destroy(key); Destroy(hardwareDepth);
             }
+        }
+
+        private static SigmaS16 CompleteCodeState(params double[] values)
+        {
+            long[] leaves = Array.ConvertAll(values, SigmaNumericDomain.Quantize);
+            long common = 0;
+            foreach (long value in leaves)
+                common = SigmaNumericDomain.QAdd(common, value);
+            long[] tangent = Array.ConvertAll(leaves, value =>
+                SigmaNumericDomain.QSub(SigmaNumericDomain.QMul(
+                    value, SigmaNumericDomain.FromInteger(4)), common));
+            return SigmaGeneratedMerkabaProgram.LiftMerkabaComplete(tangent, common);
+        }
+
+        private static float ExactProjectionZ(double code)
+        {
+            long near = SigmaNumericDomain.Quantize(0.1);
+            long far = SigmaNumericDomain.Quantize(2.0);
+            long denominator = SigmaNumericDomain.QSub(far, SigmaNumericDomain.QMul(
+                SigmaNumericDomain.Quantize(code), SigmaNumericDomain.QSub(far, near)));
+            return (float)SigmaNumericDomain.ToDouble(SigmaNumericDomain.QDiv(
+                SigmaNumericDomain.QMul(near, far), denominator));
         }
 
         [Test]
@@ -336,74 +284,16 @@ namespace Genesis.RoomScan.Tests
             Assert.That(cache.GenerationCount, Is.EqualTo(2));
             Assert.That(cache.FrontIndex, Is.Zero);
             Assert.That(cache.BackIndex, Is.EqualTo(1));
-            Assert.That(cache.Front.Vertices, Is.Not.SameAs(cache.Back.Vertices));
+            Assert.That(cache.Front.Samples, Is.Not.SameAs(cache.Back.Samples));
+            Assert.That(cache.Front.Samples.stride, Is.EqualTo(64));
             Assert.That(cache.Front.CurrentPageSlots,
                 Is.Not.SameAs(cache.Back.CurrentPageSlots));
             Assert.That(cache.Front.DrawArguments,
                 Is.Not.SameAs(cache.Back.DrawArguments));
-            Assert.That(cache.Front.PreviewDrawArguments,
-                Is.Not.SameAs(cache.Back.PreviewDrawArguments));
             Assert.That(cache.Front.RenderPageMetadata,
                 Is.Not.SameAs(cache.Back.RenderPageMetadata));
-            Assert.That(cache.DirtyPageSlots, Is.Not.Null);
-            Assert.That(cache.BuildDispatchArguments, Is.Not.Null);
-            Assert.That(cache.HaloDispatchArguments, Is.Not.Null);
         }
 
-        [Test]
-        public void CompactPreviewOrdinalEnumeratesOriginalCheckerboardExactly()
-        {
-            var seen = new bool[PageSize * PageSize];
-            for (int sparse = 0; sparse < PreviewSamplesPerPage; ++sparse)
-            {
-                int y = sparse >> 5;
-                int col = sparse & 31;
-                int x = col * 2 + (y & 1);
-                int sample = y * PageSize + x;
-                Assert.That((x ^ y) & 1, Is.Zero);
-                Assert.That(seen[sample], Is.False,
-                    $"checkerboard sample {sample} was emitted twice");
-                seen[sample] = true;
-            }
-
-            for (int y = 0; y < PageSize; ++y)
-            {
-                for (int x = 0; x < PageSize; ++x)
-                {
-                    Assert.That(seen[y * PageSize + x],
-                        Is.EqualTo(((x ^ y) & 1) == 0),
-                        $"checkerboard membership differs at ({x},{y})");
-                }
-            }
-        }
-
-        private static SigmaS16[] BuildFoldedPage()
-        {
-            var page = new SigmaS16[PageSize * PageSize];
-            for (int index = 0; index < page.Length; ++index)
-                page[index] = SigmaS16Operators.NullState;
-            FillPatch(page, 2, 2, 18, 0.6);
-            FillPatch(page, 32, 32, 48, 0.3);
-            return page;
-        }
-
-        private static void FillPatch(SigmaS16[] page, int minX, int minY,
-            int maxExclusive, double z)
-        {
-            long mass = SigmaNumericDomain.FromInteger(8);
-            for (int y = minY; y < maxExclusive; ++y)
-            {
-                for (int x = minX; x < maxExclusive; ++x)
-                {
-                    double nx = ((x - minX) / 15.0 - 0.5) * 0.2;
-                    double ny = ((y - minY) / 15.0 - 0.5) * 0.2;
-                    page[y * PageSize + x] = SigmaGeometryReadout.LiftFixture(
-                        mass, SigmaNumericDomain.Quantize(nx),
-                        SigmaNumericDomain.Quantize(ny),
-                        SigmaNumericDomain.Quantize(z));
-                }
-            }
-        }
 
         private static UInt2[] Pack(SigmaS16[] page)
         {

@@ -365,6 +365,26 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void FreshAbsoluteIntervalBoxRetainsItsFeasibleCompletePreimageOnGpu()
+        {
+            // Both eyes admit this exact non-point box. Its midpoint has q=0
+            // and tangent (9/4,-7/4,-3/4,1/4), so emptiness is not an option.
+            var raw = new[]
+            {
+                new SigmaQ48Interval(Raw(3, 4), Raw(13, 16)),
+                new SigmaQ48Interval(Raw(1, 4), Raw(5, 16)),
+                new SigmaQ48Interval(Raw(3, 8), Raw(7, 16)),
+                new SigmaQ48Interval(Raw(1, 2), Raw(9, 16)),
+            };
+            long[] tangent = { Raw(9, 4), Raw(-7, 4), Raw(-3, 4), Raw(1, 4) };
+            SigmaNativeFreshObservationBranch observed = FreshObservation(
+                tangent, 404UL, 91, canonicalCodes: raw);
+            Assert.That(RunGpuFreshAdmission(new[] { observed }).Admitted, Is.True,
+                "An independently chosen tangent/q box corner is not a proof " +
+                "that this exact coherent absolute-leaf preimage is empty.");
+        }
+
+        [Test]
         public void DirectionalMouldCorrectsNearSupportAndNeverActsBehindHit()
         {
             SigmaS16 nearState = State(14, 1);
@@ -432,56 +452,25 @@ namespace Genesis.RoomScan.Tests
                  {
                      Raw(x0, 2), Raw(x1, 2), Raw(x2, 2), Raw(x3, 2),
                  }).ToArray();
-            SigmaNativeFreshObservationBranch? measured = null;
-            long[] measuredTarget = null;
-            SigmaS16 prior = SigmaS16.Zero;
-            for (int measuredIndex = 0;
-                !measured.HasValue && measuredIndex < targets.Length;
-                ++measuredIndex)
-            {
-                SigmaNativeFreshObservationBranch probe = FreshObservation(
-                    targets[measuredIndex], 70UL, 500 + measuredIndex);
-                Assert.That(probe.TryAssembleQueries(
-                    out SigmaNativeOracleQuery left,
-                    out SigmaNativeOracleQuery right), Is.True);
-                for (int lane = 0; lane < SigmaS16.LaneCount; ++lane)
-                {
-                    foreach (int sign in new[] { -1, 1 })
-                    {
-                        SigmaS16 candidate = StateRaw(
-                            (lane, Raw(sign, 64)));
-                        long[] shadow = SigmaMerkabaSemanticOracle
-                            .EvaluateMerkabaShadow(candidate);
-                        long leftOrder = Enumerable.Range(0, 4).Aggregate(0L,
-                            (sum, axis) => SigmaNumericDomain.QAdd(sum,
-                                SigmaNumericDomain.QMul(shadow[axis],
-                                    left.OrderRow[axis])));
-                        long rightOrder = Enumerable.Range(0, 4).Aggregate(0L,
-                            (sum, axis) => SigmaNumericDomain.QAdd(sum,
-                                SigmaNumericDomain.QMul(shadow[axis],
-                                    right.OrderRow[axis])));
-                        if (leftOrder < left.MeasuredOrder.Lower &&
-                            rightOrder < right.MeasuredOrder.Lower)
-                        {
-                            measured = probe;
-                            measuredTarget = targets[measuredIndex];
-                            prior = candidate;
-                            break;
-                        }
-                    }
-                    if (measured.HasValue)
-                        break;
-                }
-            }
-            Assert.That(measured.HasValue, Is.True,
-                "Bounded tangent corpus must contain a stereo pre-hit pair.");
+            long[] measuredTarget = targets[0];
+            SigmaNativeFreshObservationBranch measured = FreshObservation(
+                measuredTarget, 70UL, 500);
+            SigmaS16 prior = SigmaGeneratedMerkabaProgram.LiftMerkabaComplete(
+                new long[4], SigmaNumericDomain.QNegate(
+                    SigmaNumericDomain.FromInteger(4)));
+            Assert.That(SigmaGeneratedMerkabaProgram
+                .TryRecoverMerkabaCentredLeaves(prior, out long[] priorLeaves),
+                Is.True);
+            Assert.That(priorLeaves, Is.All.EqualTo(
+                SigmaNumericDomain.QNegate(SigmaNumericDomain.One)),
+                "The exact full-S16 prior represents unit code zero in all leaves.");
 
             GpuFreshAdmission exclusion = RunGpuFreshAdmission(
-                new[] { measured.Value }, prior);
+                new[] { measured }, prior);
             Assert.That(exclusion.Admitted, Is.True);
             Assert.That(exclusion.ColdReason,
                 Is.EqualTo((uint)SigmaNativeColdReason.StaticExclusion));
-            Assert.That(RunGpuFreshAdmission(new[] { measured.Value }).ColdReason,
+            Assert.That(RunGpuFreshAdmission(new[] { measured }).ColdReason,
                 Is.Zero, "No current support means there is nothing to retire.");
 
             SigmaNativeFreshObservationBranch oneEye = FreshObservation(
@@ -1961,6 +1950,9 @@ namespace Genesis.RoomScan.Tests
             shader.SetBuffer(kernel, "_NativeSourceCarrierState", scratch.States);
             shader.SetBuffer(kernel, "_NativeSourceCarrierRepresentation",
                 scratch.LocalityCertificateWords);
+            shader.SetBuffer(kernel, "_NativeSourceCarrierState1", scratch.States);
+            shader.SetBuffer(kernel, "_NativeSourceCarrierRepresentation1",
+                scratch.LocalityCertificateWords);
             shader.SetBuffer(kernel, "_NativeCloseScratch", scratch.CloseScratch);
             shader.SetBuffer(kernel, "_NativeBranchHeaders",
                 scratch.BranchHeaders);
@@ -3018,7 +3010,8 @@ namespace Genesis.RoomScan.Tests
             IReadOnlyList<long> target, ulong revision, int provenanceOrdinal,
             bool leftBroad = false, bool rightFirstHit = true,
             bool evidence = true, bool negateRightRows = false,
-            bool unsupportedOptical = false)
+            bool unsupportedOptical = false,
+            IReadOnlyList<SigmaQ48Interval> canonicalCodes = null)
         {
             Assert.That(target.Count, Is.EqualTo(4));
             Assert.That(target.Aggregate(0L, SigmaNumericDomain.QAdd), Is.Zero,
@@ -3058,7 +3051,8 @@ namespace Genesis.RoomScan.Tests
                         SigmaNumericDomain.Half,
                         SigmaNumericDomain.QShiftRight(
                             target[permutation[leaf]], 3));
-                    exactCodes[leaf] = Point(code);
+                    exactCodes[leaf] = canonicalCodes == null ? Point(code) :
+                        canonicalCodes[permutation[leaf]];
                 }
                 SigmaQ48Interval[] codes = broad
                     ? Enumerable.Repeat(new SigmaQ48Interval(0L,

@@ -5,7 +5,7 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
         Tags { "RenderPipeline"="UniversalPipeline" }
         Pass
         {
-            Name "SigmaContactFootprintPrediction"
+            Name "SigmaPureEyePrediction"
             Cull Off
             ZWrite On
             ZTest LEqual
@@ -18,26 +18,20 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "SigmaCarrierAbi.hlsl"
+            #include "SigmaGeometryReadout.hlsl"
             #include "SigmaPoseConsume.hlsl"
 
-            StructuredBuffer<float4> _ReadoutVertices;
+            StructuredBuffer<SigmaPureEyeReadoutGpu> _ReadoutSamples;
             StructuredBuffer<uint> _CurrentPageSlots;
             StructuredBuffer<SigmaCarrierPageMetaGpu> _PageMetadata;
             float4x4 _ClipFromWorld;
             float4x4 _OpticalFromWorld;
             uint _SegmentIndex;
+            uint _ReadoutEye;
             float _ContactFootprintPixels;
 
-            #define SIGMA_READOUT_EXTENT 65u
-            #define SIGMA_READOUT_SAMPLES 4225u
             #define SIGMA_READOUT_VERTICES_PER_PAGE 24576u
             #define SIGMA_CONTACT_VERTICES_PER_SAMPLE 6u
-
-            uint SigmaReadoutIndex(uint pageSlot, uint x, uint y)
-            {
-                return pageSlot * SIGMA_READOUT_SAMPLES +
-                    y * SIGMA_READOUT_EXTENT + x;
-            }
 
             float2 SigmaBillboardCorner(uint corner)
             {
@@ -65,60 +59,33 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
             {
                 float4 positionCS : SV_POSITION;
                 float3 positionOptical : TEXCOORD0;
-                float3 normalOptical : TEXCOORD1;
-                float2 carrierLocal : TEXCOORD2;
-                nointerpolation float support : TEXCOORD3;
-                nointerpolation uint4 pageCoordinate : TEXCOORD4;
-                nointerpolation uint4 stateKey : TEXCOORD5;
+                float2 carrierLocal : TEXCOORD1;
+                nointerpolation float2 orderSupport : TEXCOORD2;
+                nointerpolation uint4 pageCoordinate : TEXCOORD3;
+                nointerpolation uint4 stateKey : TEXCOORD4;
             };
-
-            PredictionVaryings SigmaEmptyPrediction()
-            {
-                PredictionVaryings output;
-                output.positionCS = float4(0.0, 0.0, 2.0, 1.0);
-                output.positionOptical = 0.0;
-                output.normalOptical = float3(0.0, 0.0, 1.0);
-                output.carrierLocal = 0.0;
-                output.support = 0.0;
-                output.pageCoordinate = 0u;
-                output.stateKey = 0u;
-                return output;
-            }
-
-            float3 SigmaContactNormal(uint pageSlot, uint x, uint y,
-                float3 centreWorld, float3 centreOptical)
-            {
-                float4 horizontal = _ReadoutVertices[SigmaReadoutIndex(pageSlot,
-                    x + 1u, y)];
-                float4 vertical = _ReadoutVertices[SigmaReadoutIndex(pageSlot,
-                    x, y + 1u)];
-                float3 normal = cross(horizontal.xyz - centreWorld,
-                    vertical.xyz - centreWorld);
-                float lengthSquared = dot(normal, normal);
-                if (horizontal.w > 0.0 && vertical.w > 0.0 &&
-                    lengthSquared > 1e-20)
-                {
-                    normal *= rsqrt(lengthSquared);
-                    return normalize(mul((float3x3)_OpticalFromWorld,
-                        SigmaPoseUnapplyVectorWorld(normal)));
-                }
-                return normalize(-centreOptical);
-            }
 
             PredictionVaryings ContactVert(uint vertexId : SV_VertexID)
             {
-                PredictionVaryings output = SigmaEmptyPrediction();
+                PredictionVaryings output = (PredictionVaryings)0;
+                output.positionCS = float4(0.0, 0.0, 2.0, 1.0);
                 uint activePage = vertexId / SIGMA_READOUT_VERTICES_PER_PAGE;
                 uint pageVertex = vertexId -
                     activePage * SIGMA_READOUT_VERTICES_PER_PAGE;
                 uint pageSlot = _CurrentPageSlots[activePage];
                 uint sample = pageVertex / SIGMA_CONTACT_VERTICES_PER_SAMPLE;
                 uint corner = pageVertex - sample * SIGMA_CONTACT_VERTICES_PER_SAMPLE;
-                uint x = sample & 63u;
-                uint y = sample >> 6u;
-                float4 readout = _ReadoutVertices[SigmaReadoutIndex(pageSlot, x, y)];
-                bool valid = sample < SIGMA_PAGE_SAMPLE_COUNT && readout.w > 0.0;
-                float3 position = SigmaPoseUnapplyWorld(readout.xyz);
+                SigmaPureEyeReadoutGpu readout = _ReadoutSamples[
+                    pageSlot * SIGMA_PAGE_SAMPLE_COUNT + sample];
+                float4 positionSupport = _ReadoutEye == 0u
+                    ? readout.leftPositionSupport
+                    : readout.rightPositionSupport;
+                float4 colourOrder = _ReadoutEye == 0u
+                    ? readout.leftColourOrder
+                    : readout.rightColourOrder;
+                bool valid = sample < SIGMA_PAGE_SAMPLE_COUNT &&
+                    positionSupport.w > 0.0 && colourOrder.w > 0.0;
+                float3 position = SigmaPoseUnapplyWorld(positionSupport.xyz);
                 float3 optical = mul(_OpticalFromWorld,
                     float4(position, 1.0)).xyz;
                 float4 clip = valid
@@ -127,14 +94,12 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
                 float2 screen = max(_ScreenParams.xy, float2(1.0, 1.0));
                 clip.xy += SigmaBillboardCorner(corner) *
                     (2.0 * max(_ContactFootprintPixels, 0.75) / screen) * clip.w;
-
                 SigmaCarrierPageMetaGpu metadata = _PageMetadata[pageSlot];
                 output.positionCS = clip;
                 output.positionOptical = optical;
-                output.normalOptical = SigmaContactNormal(pageSlot, x, y,
-                    readout.xyz, optical);
-                output.carrierLocal = float2(x, y);
-                output.support = valid ? readout.w : 0.0;
+                output.carrierLocal = float2(sample & 63u, sample >> 6u);
+                output.orderSupport = valid
+                    ? float2(colourOrder.w, positionSupport.w) : 0.0;
                 output.pageCoordinate = uint4(metadata.pageXLo, metadata.pageXHi,
                     metadata.pageYLo, metadata.pageYHi);
                 output.stateKey = uint4(metadata.generation, metadata.revision,
@@ -152,14 +117,13 @@ Shader "Hidden/Genesis/SigmaPrism/Predict"
 
             PredictionOutput PredictionFrag(PredictionVaryings input)
             {
-                if (input.support <= 0.0)
+                if (input.orderSupport.y <= 0.0)
                     discard;
                 PredictionOutput output;
-                output.depthSupport = float2(length(input.positionOptical),
-                    input.support);
+                output.depthSupport = input.orderSupport;
                 output.carrierPage = input.pageCoordinate;
                 output.carrierUvNormal = float4(input.carrierLocal,
-                    SigmaEncodeOctahedral(normalize(input.normalOptical)));
+                    SigmaEncodeOctahedral(normalize(-input.positionOptical)));
                 output.stateKey = input.stateKey;
                 return output;
             }

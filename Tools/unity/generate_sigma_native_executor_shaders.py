@@ -29,6 +29,7 @@ class Pipeline:
     entry: str
     defines: tuple[str, ...] = ()
     cold: bool = False
+    readout: bool = False
 
 
 # This order is the fixed 16-dispatch NativeCloseCommit graph.
@@ -81,6 +82,11 @@ COLD_PIPELINES = (
              "EncodeDirtyPageBlocks", cold=True),
     Pipeline("COLD_DURABLE_STAGE", "SigmaCarrierCodec.compute",
              "StageDirtyPageRepresentation", cold=True),
+)
+
+READOUT_PIPELINES = (
+    Pipeline("N6_PURE_EYE_READOUT", "SigmaForwardReadout.hlsl",
+             "BuildPureEyeReadout", readout=True),
 )
 
 
@@ -165,6 +171,23 @@ COLD_RESOURCE_IDS = {
     "_StagedMetadata": 11,
 }
 COLD_RESOURCE_COUNT = 12
+READOUT_RESOURCE_IDS = {
+    "_SigmaExactBackendGate": 0,
+    "_CarrierState0": 1,
+    "_CarrierState1": 2,
+    "_PageMetadata0": 3,
+    "_PageMetadata1": 4,
+    "_PublishedRevisionRoot": 5,
+    "_ReadoutSamples0": 6,
+    "_ReadoutSamples1": 7,
+    "_CurrentPageSlots0": 8,
+    "_CurrentPageSlots1": 9,
+    "_RenderPageMetadata0": 10,
+    "_RenderPageMetadata1": 11,
+    "_ReadoutDrawArguments0": 12,
+    "_ReadoutDrawArguments1": 13,
+}
+READOUT_RESOURCE_COUNT = 14
 KIND_STORAGE = 0
 KIND_SAMPLED_IMAGE = 1
 KIND_UNIFORM = 2
@@ -184,6 +207,13 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def resource_id(pipeline: Pipeline, name: str) -> int:
+    if pipeline.readout:
+        try:
+            return READOUT_RESOURCE_IDS[name]
+        except KeyError as exception:
+            raise RuntimeError(
+                f"unmapped N6 readout resource {pipeline.label}: {name}") \
+                from exception
     if pipeline.cold:
         try:
             return COLD_RESOURCE_IDS[name]
@@ -322,15 +352,17 @@ def emit_pipeline_family(lines, compiled, symbol: str) -> None:
     lines.append("")
 
 
-def emit(output: Path, compiled, cold_compiled) -> None:
+def emit(output: Path, compiled, cold_compiled, readout_compiled) -> None:
     lines = [
         "// Generated at native-plugin build time. Do not commit this file.",
         f"static constexpr uint32_t kSigmaExecutorResourceCount = {RESOURCE_COUNT}u;",
         f"static constexpr uint32_t kSigmaColdEncoderResourceCount = {COLD_RESOURCE_COUNT}u;",
+        f"static constexpr uint32_t kSigmaReadoutResourceCount = {READOUT_RESOURCE_COUNT}u;",
         "",
     ]
     emit_pipeline_family(lines, compiled, "Executor")
     emit_pipeline_family(lines, cold_compiled, "ColdEncoder")
+    emit_pipeline_family(lines, readout_compiled, "Readout")
     lines.append(
         "static constexpr uint32_t kSigmaExecutorPipelineCount = "
         "sizeof(kSigmaExecutorPipelines) / sizeof(kSigmaExecutorPipelines[0]);")
@@ -342,6 +374,11 @@ def emit(output: Path, compiled, cold_compiled) -> None:
         "sizeof(kSigmaColdEncoderPipelines[0]);")
     lines.append("static_assert(kSigmaColdEncoderPipelineCount == 3u, "
                  '"N5 durable staging owns exactly three cold pipelines");')
+    lines.append(
+        "static constexpr uint32_t kSigmaReadoutPipelineCount = "
+        "sizeof(kSigmaReadoutPipelines) / sizeof(kSigmaReadoutPipelines[0]);")
+    lines.append("static_assert(kSigmaReadoutPipelineCount == 1u, "
+                 '"N6 pure eye readout owns exactly one pipeline");')
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
 
@@ -370,10 +407,20 @@ def main() -> int:
             cold_compiled.append((pipeline, words, descriptors, global_size))
             print(f"PASS {pipeline.label}: {len(words) * 4} bytes, "
                   f"descriptors={len(descriptors)}, globals={global_size}")
+        readout_compiled = []
+        for index, pipeline in enumerate(READOUT_PIPELINES):
+            words, descriptors, global_size = compile_pipeline(
+                glslang, spirv_val, spirv_dis, temporary,
+                len(PIPELINES) + len(COLD_PIPELINES) + index, pipeline)
+            readout_compiled.append(
+                (pipeline, words, descriptors, global_size))
+            print(f"PASS {pipeline.label}: {len(words) * 4} bytes, "
+                  f"descriptors={len(descriptors)}, globals={global_size}")
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        emit(args.output, compiled, cold_compiled)
-    print(f"Embedded {len(compiled)}/16 hot + {len(cold_compiled)}/3 cold "
-          f"executor pipelines: {args.output}")
+        emit(args.output, compiled, cold_compiled, readout_compiled)
+    print(f"Embedded {len(compiled)}/16 hot + {len(cold_compiled)}/3 cold + "
+          f"{len(readout_compiled)}/1 N6 readout executor pipelines: "
+          f"{args.output}")
     return 0
 
 

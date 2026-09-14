@@ -868,8 +868,8 @@ namespace Genesis.RoomScan.SigmaPrism
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             var generatedBranches = new List<SigmaFreshShadowBranch>();
-            var retained = new List<(SigmaNativeOracleQuery Left,
-                SigmaNativeOracleQuery Right)>();
+            var retained = new List<(SigmaInstrumentEyeBoundary Left,
+                SigmaInstrumentEyeBoundary Right)>();
             try
             {
                 foreach (SigmaNativeFreshObservationBranch branch in source)
@@ -883,7 +883,8 @@ namespace Genesis.RoomScan.SigmaPrism
                             .TryResolveFreshBaseAdmission(
                                 Array.Empty<SigmaFreshShadowBranch>(), out admission);
                     }
-                    retained.Add((left, right));
+                    retained.Add((branch.InstrumentLeft,
+                        branch.InstrumentRight));
                     generatedBranches.Add(generated);
                 }
                 if (!SigmaGeneratedMerkabaProgram.TryResolveFreshBaseAdmission(
@@ -895,8 +896,10 @@ namespace Genesis.RoomScan.SigmaPrism
                 // than in the intermediate four-axis cell.
                 SigmaS16 selectedState = admission.State;
                 if (retained.Any(branch =>
-                        !FreshStateSatisfiesQuery(selectedState, branch.Left) ||
-                        !FreshStateSatisfiesQuery(selectedState, branch.Right)))
+                        !FreshStateSatisfiesInstrumentEye(selectedState,
+                            branch.Left) ||
+                        !FreshStateSatisfiesInstrumentEye(selectedState,
+                            branch.Right)))
                 {
                     return SigmaGeneratedMerkabaProgram
                         .TryResolveFreshBaseAdmission(
@@ -923,6 +926,10 @@ namespace Genesis.RoomScan.SigmaPrism
             if (!source.LeftFirstHit || !source.RightFirstHit ||
                 source.CoherentContext.ObservationRevision == 0 ||
                 !source.TryAssembleQueries(out left, out right) ||
+                !SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(
+                    source.InstrumentLeft, out SigmaAssembledSensorEye assembledLeft) ||
+                !SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(
+                    source.InstrumentRight, out SigmaAssembledSensorEye assembledRight) ||
                 !IsExactIdentityFreshOpticalLaw(left.PhotometricLaw) ||
                 !IsExactIdentityFreshOpticalLaw(right.PhotometricLaw))
                 return false;
@@ -932,8 +939,33 @@ namespace Genesis.RoomScan.SigmaPrism
                 !TryPullBackFreshQuery(right, axes, ref seenAxes) ||
                 seenAxes != 15 || axes.Any(value => value.IsEmpty))
                 return false;
-            branch = new SigmaFreshShadowBranch(axes, 3u, true,
-                source.ProvenanceFingerprint);
+            if (!TrySignedAxisRow(assembledLeft.Rows[0],
+                    assembledLeft.CommonMode, out _,
+                    out SigmaQ48Interval leftCommon) ||
+                !TrySignedAxisRow(assembledRight.Rows[0],
+                    assembledRight.CommonMode, out _,
+                    out SigmaQ48Interval rightCommon))
+                return false;
+            SigmaQ48Interval commonMode = leftCommon.Intersect(rightCommon);
+            if (commonMode.IsEmpty)
+                return false;
+            var codes = Enumerable.Repeat(new SigmaQ48Interval(0L,
+                SigmaNumericDomain.One), 4).ToArray();
+            foreach (SigmaInstrumentEyeBoundary eye in new[]
+                { source.InstrumentLeft, source.InstrumentRight })
+            {
+                if (!SigmaGeneratedMerkabaProgram.TryBuildCalibratedRowPermutation(
+                    eye.Footprint.Ray, out int[] permutation, out _)) return false;
+                for (int leaf = 0; leaf < 4; ++leaf)
+                {
+                    SigmaQ48Interval code = leaf == 0 ? eye.ProjectionDepth01 :
+                        eye.OpticalCode[leaf - 1];
+                    codes[permutation[leaf]] = codes[permutation[leaf]].Intersect(code);
+                    if (codes[permutation[leaf]].IsEmpty) return false;
+                }
+            }
+            branch = new SigmaFreshShadowBranch(axes, commonMode, 3u, true,
+                source.ProvenanceFingerprint, codes);
             return true;
         }
 
@@ -1010,20 +1042,28 @@ namespace Genesis.RoomScan.SigmaPrism
                     segment.Offset == 0L));
         }
 
-        private static bool FreshStateSatisfiesQuery(SigmaS16 state,
-            SigmaNativeOracleQuery query)
+        private static bool FreshStateSatisfiesInstrumentEye(SigmaS16 state,
+            SigmaInstrumentEyeBoundary source)
         {
-            long[] shadow = EvaluateMerkabaShadow(state);
-            if (!query.MeasuredOrder.Contains(DotPoint(shadow, query.OrderRow)))
+            if (!SigmaGeneratedMerkabaProgram.TryAssembleSensorEye(source,
+                    out SigmaAssembledSensorEye assembled) ||
+                !SigmaGeneratedMerkabaProgram.TryRecoverMerkabaCentredLeaves(
+                    state, out long[] canonicalLeaves))
                 return false;
-            for (int channel = 0; channel <
-                    SigmaNativePhotometricLaw.ChannelCount; ++channel)
+            for (int leaf = 0; leaf < 4; ++leaf)
             {
-                SigmaQ48Interval native = Point(DotPoint(shadow,
-                    query.OpticalRows[channel]));
-                if (!query.PhotometricLaw.TryApply(channel, native,
-                        out SigmaQ48Interval observed) ||
-                    observed.Intersect(query.MeasuredOptical[channel]).IsEmpty)
+                int axis = Array.FindIndex(assembled.Rows[leaf],
+                    coefficient => coefficient != 0L);
+                if (axis < 0)
+                    return false;
+                long codeNumerator = SigmaNumericDomain.QAdd(
+                    canonicalLeaves[axis], SigmaNumericDomain.One);
+                if ((unchecked((ulong)codeNumerator) & 1UL) != 0UL)
+                    return false;
+                long code = SigmaNumericDomain.QShiftRight(codeNumerator, 1);
+                SigmaQ48Interval expected = leaf == 0
+                    ? source.ProjectionDepth01 : source.OpticalCode[leaf - 1];
+                if (!expected.Contains(code))
                     return false;
             }
             return true;

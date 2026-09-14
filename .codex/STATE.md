@@ -1,6 +1,6 @@
 # Sigma‑PRISM‑16 implementation state
 
-Updated: 2026-09-02 (Europe/Prague)
+Updated: 2026-09-14 (Europe/Prague)
 
 ## Authority
 
@@ -45,6 +45,82 @@ now the sole active execution cut and must replace, not optimize, the temporary
 mesh/halo presentation with pure generated queries over one immutable `Psi` root.
 
 ## Active N6R pure-query readout replacement
+
+Review checkpoint status (2026-09-14): the user explicitly requests commit/push
+of the current candidate, NOT acceptance. APK de0c18ae physically executes BACK
+and publishes FRONT, but the headset shows a star-shaped unaligned point cloud.
+Current capture60582 logs/n6-cloud-relaunch.s2AeSw/logcat.txt restored root1581,
+extent294926/73 pages and continued publication. Screenshot copied to the user's
+Downloads as Sigma-N6-hvezda-2026-09-14-2315.png; no room capture enters Git.
+N6 readout255 completions through23:18:33: p50=34.250ms/p95=37.459ms. Windows of32
+completions at generations1..32,224..255,595..626 have p50=24.017,35.108,28.603ms;
+this does not establish a time-only leak because extent/residency also changes.
+Current readout traverses both full resident banks, writes56MiB each build, and
+checks the radius after expensive sample evaluation. The generated projective
+seed incorrectly treats recovered depth/RGB code ratios as a spatial direction;
+its current-eye rescaling has no proved sensor/eye world-alignment identity.
+Do not claim algebraic code roundtrip proves geometry. User now wants triangles
+on proven field connectivity, not a buffer-order grid or XYZ-neighbour welding.
+World-aligned forward readout must be established before changing raster output.
+No new shader/algebra edit or completed semantic test occurs in this review step.
+
+Current APK cursor (supersedes the historical blocked paragraph below): the user
+authorized generated full-(t,q) retention in existing S16, with certificate q in
+word11 and relation word3 preserved. The candidate replaces the halo readout with
+one plugin-owned queue-1 BuildPureEyeReadout pipeline and wires SigmaRenderer to
+64-byte stereo BACK samples, immutable FRONT raster, terminal poll/acquire and a
+bounded mailbox. Opacity is exposed in the existing operator panel. Exact world
+alignment, moving-query behavior, support-summary compatibility and physical N6
+timing are NOT accepted yet.
+
+Current evidence: C# compilation passes; generator/check, UAV<=8, graph14/16 and
+hot Quest SPIR-V/spirv-val16/16 pass. Native build embeds16 hot +3 cold +1 readout.
+The first full Vulkan corpus was explicitly stopped on user direction to
+prioritize APK build/install. Its three stale fingerprint/readout-source fixture
+failures were repaired, but the revised corpus has not run and must not be marked
+PASS. Release APK built errors=0/warnings=1114, SHA256
+d945bef9fe20f831b00931afc67591b6f02df82d5649322d2e20ea5376e982d5.
+User-requested uninstall/data deletion and fresh install both returned Success;
+user-requested launch returned Status: ok. Startup capture is active at
+/mnt/kingston-unity/Builds/QuestInfiniteScan/logs/n6-launch.lHev8C/logcat.txt.
+The duplicate unused Unity readout ComputeShader import was removed in favour of
+one offline-native HLSL source plus Editor fixture; device driver creation timing
+is logged independently. This is a dirty-source candidate, not same-SHA final
+acceptance. N6 and joint N5/N6 physical gates remain open; S4-09 is unopened.
+Initial startup capture created all20 native pipelines with result0; N6 driver
+creation took3842.237ms. Receipts through submitted revision374 are NO_CHANGE,
+root1/targetExtent0/fault0/unresolved0, so no nonempty-world readout is proved.
+Follow-up diagnosis proves a pre-N6 selector regression: independent t/q box
+selection rejects feasible original absolute-leaf intervals. The new focused
+Vulkan test FreshAbsoluteIntervalBoxRetainsItsFeasibleCompletePreimageOnGpu fails
+expected True/actual False; n6-interval-regression.xml records the reproduction.
+The coupled selector repair is now implemented in generated CPU/HLSL and the
+native fresh path: retain the original calibrated absolute-leaf cell, condition
+tangent selection on feasible q, and enforce the exact integer leaf lattice.
+No raw forward check is removed. Native compile/spirv-val16hot+3cold+1readout and
+UAV<=8 passed. The focused Unity retest was stopped during FXC compilation on
+renewed user instruction to deliver APK first; it has NO completed test result.
+Readout now runs one sample/thread with grid(pageCapacity,64,2), same one dispatch,
+same math/buffers, rather than64 sequential samples/thread. Complete affected
+shader/helper/ABI/native-binding/fixture review was performed before the edits.
+Build12632 finished Release errors0/warnings1199, size1326282832. APK hash
+9dd42c5ec4f17385a7edada10a2a173ebb96e270c4f375e81062f34d34450841 was clean
+installed and launched Status ok/COLD. Capture37476 logs/n6-repair.ePJuYr/logcat.txt
+now proves root2 through127 with actual deltas/durable HEAD, fault0/unresolved0.
+User confirms scan runs but no visible draw. ZERO N6 readout submissions explain
+empty FRONT: next scan Update can starve pending readout LateUpdate forever.
+New C#-only fairness repair holds new admission for HasPendingReadout, preserving
+all existing lifetime guards; BACK/FRONT logs added. Build81393 completed Release
+errors0/warnings1199; QuestInfiniteScan-n6-draw-repair.apk SHA256
+de0c18ae1da490a5df1d82bacf8146b8ac901234831451ad6e89fdca597329b1 installed
+Success with data retained, launched ok/COLD. Capture45149 restored741, then
+explicit Clear selected742 and Start admitted743; app exited cleanly during
+slice1/7. User-requested relaunch succeeded, exact Sigma package foreground.
+Previous capture87905 logs/n6-draw-relaunch.DzinNX/logcat.txt restored empty742;
+subsequent Start completed hundreds of BACK/FRONT generations. Current decisive
+capture and the physical world-alignment/performance FAIL are recorded above.
+The 1704-frame empty-result capture has FOOTPRINT p50/p95=33.048/40.758ms, not a
+warm informative performance acceptance. Root remains1 while depth/capture run.
 
 The mandatory coherent pre-edit review is complete. The complete production
 sources `SigmaRenderer.cs`, `SigmaForwardReadout.compute`,
