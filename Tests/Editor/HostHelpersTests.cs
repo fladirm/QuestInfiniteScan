@@ -142,6 +142,24 @@ namespace FinalScan.Tests
         }
 
         [Test]
+        public void ScanPanelFollower_PlacesPanelAboveControllerTowardView()
+        {
+            Vector3 p = FinalScan.UI.ScanPanelFollower.ControllerPanelPosition(new Vector3(1, 1, 1), Vector3.up * 3f, Vector3.forward * 2f, 0.18f, 0.04f);
+            Assert.AreEqual(new Vector3(1f, 1.18f, 1.04f).ToString("F4"), p.ToString("F4"));
+        }
+
+        [Test]
+        public void ScanGate_RefusesTicksWhileStopped()
+        {
+            FinalScanHostNative.ScanRequestsEnabled = false;
+            long before = FinalScanHostNative.ScanTicksGated;
+            Assert.AreEqual(FinalScanHostNative.ResultBusy, FinalScanHostNative.RequestScanTick(7));
+            Assert.AreEqual(before + 1, FinalScanHostNative.ScanTicksGated);
+            FinalScanHostNative.ScanRequestsEnabled = true;
+            Assert.AreNotEqual(FinalScanHostNative.ResultBusy, FinalScanHostNative.RequestScanTick(8));
+        }
+
+        [Test]
         public void ResidencyPrediction_HasNoOrientationInput()
         {
             // Position-only by construction (§12.1): the API surface takes Vector3 position/velocity only.

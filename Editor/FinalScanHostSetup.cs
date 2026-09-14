@@ -20,7 +20,10 @@ using UnityEngine.XR.ARFoundation;
 using FinalScan.Host;
 using FinalScan.Render;
 using FinalScan.Residency;
+using FinalScan.UI;
 using UnityEditor.Rendering;
+using UnityEngine.EventSystems;
+using UnityEngine.UIElements;
 
 namespace FinalScan.Editor
 {
@@ -39,6 +42,11 @@ namespace FinalScan.Editor
         const string AttachProbeEnv = "FS_ATTACH_PROBE";
         public const string SurfelShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanSurfel.shader";
         public const string DepthCopyShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanDepthCopy.shader";
+        public const string ControllerRayShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanControllerRay.shader";
+        public const string ScanPanelUxmlPath = "Packages/eu.monle.finalscan/Runtime/UI/ScanPanel.uxml";
+        public const string PanelSettingsPath = "Assets/Settings/FinalScanPanelSettings.asset";
+        const string RuntimeThemePath = "Assets/UI Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss";
+        const string PanelObjectName = "[FinalScan Panel]";
         public const string ValidateSuccessMarker = "[FinalScan] ValidateGraphics Succeeded:";
         const string ApkPathEnv = "FS_APK_PATH";
         const string DefaultApkName = "FinalScan-release.apk";
@@ -169,6 +177,7 @@ namespace FinalScan.Editor
             await FinalScanBuildingBlocks.EnsureAsync();
             EnsureRig();
             EnsureFinalScanRoot();
+            EnsureControllerMenu();
             EnsurePermissionManifest();
 
             if (!AssetDatabase.IsValidFolder("Assets/Scenes")) AssetDatabase.CreateFolder("Assets", "Scenes");
@@ -277,7 +286,8 @@ namespace FinalScan.Editor
             AssignShader(renderer, "surfelShader", SurfelShaderPath);
             if (root.GetComponent<ResidencyDriver>() == null) root.AddComponent<ResidencyDriver>();
             if (root.GetComponent<HostHud>() == null) root.AddComponent<HostHud>();
-            Debug.Log($"{Tag} Attached FinalScanHost, SurfelRenderer, ResidencyDriver, HostHud to {RootObjectName}.");
+            if (root.GetComponent<InputMap>() == null) root.AddComponent<InputMap>();
+            Debug.Log($"{Tag} Attached FinalScanHost, SurfelRenderer, ResidencyDriver, HostHud (fallback), InputMap to {RootObjectName}.");
 
             // C03 sensor authority (another agent) by reflection: attached when the type exists.
             AttachByTypeName(root, SensorAuthorityTypeName, attach: true);
@@ -285,6 +295,75 @@ namespace FinalScan.Editor
             // C01 probe host only on request (FS_ATTACH_PROBE=1); otherwise removed so it never shares the device with the host.
             bool attachProbe = Environment.GetEnvironmentVariable(AttachProbeEnv) == "1";
             AttachByTypeName(root, ProbeHostTypeName, attachProbe);
+        }
+
+        // -- C22 UI shell (donor EnsureControllerMenu port) ------------------------
+
+        /// <summary>EventSystem + OVRInputModule + PanelInputConfiguration + VRDocumentRaycaster + ControllerRayDriver, and the world-space scan panel document.</summary>
+        static void EnsureControllerMenu()
+        {
+            EventSystem eventSystem = FindAny<EventSystem>();
+            if (eventSystem == null) eventSystem = new GameObject("EventSystem").AddComponent<EventSystem>();
+            StandaloneInputModule standalone = eventSystem.GetComponent<StandaloneInputModule>();
+            if (standalone != null) UnityEngine.Object.DestroyImmediate(standalone);
+            GetOrAdd<OVRInputModule>(eventSystem.gameObject);
+            PanelInputConfiguration input = GetOrAdd<PanelInputConfiguration>(eventSystem.gameObject);
+            SetSerializedBool(input, "m_DefaultEventCameraIsMainCamera", true);
+            SetSerializedBool(input, "m_AutoCreatePanelComponents", true);
+            GetOrAdd<VRDocumentRaycaster>(eventSystem.gameObject);
+            ControllerRayDriver ray = GetOrAdd<ControllerRayDriver>(eventSystem.gameObject);
+            AssignShader(ray, "overlayShader", ControllerRayShaderPath);
+
+            GameObject menu = FindByName(PanelObjectName) ?? new GameObject(PanelObjectName);
+            int uiLayer = LayerMask.NameToLayer("UI");
+            if (uiLayer >= 0) menu.layer = uiLayer;
+            UIDocument document = GetOrAdd<UIDocument>(menu);
+            GetOrAdd<ScanPanelFollower>(menu);
+            GetOrAdd<ScanPanelController>(menu);
+            var tree = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(ScanPanelUxmlPath);
+            if (tree == null) throw new FileNotFoundException("scan panel document missing", ScanPanelUxmlPath);
+            document.visualTreeAsset = tree;
+            document.panelSettings = FindOrCreatePanelSettings();
+            document.worldSpaceSizeMode = WorldSpaceSizeMode.Dynamic;
+            document.pivot = Pivot.Center;
+            document.pivotReferenceSize = PivotReferenceSize.Layout;
+            menu.transform.localScale = Vector3.one * 0.08f;
+            menu.transform.position = new Vector3(0f, 1.3f, 0.5f);
+            EditorUtility.SetDirty(document);
+            Debug.Log($"{Tag} UI shell: EventSystem(OVRInputModule, VRDocumentRaycaster, ControllerRayDriver), {PanelObjectName} (UIDocument world space, {PanelSettingsPath}).");
+        }
+
+        /// <summary>Assets/Settings/FinalScanPanelSettings.asset: world-space PanelSettings (m_RenderMode 1, trigger collider) with the default runtime theme.</summary>
+        static PanelSettings FindOrCreatePanelSettings()
+        {
+            PanelSettings panel = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelSettingsPath);
+            if (panel == null)
+            {
+                if (!AssetDatabase.IsValidFolder("Assets/Settings")) AssetDatabase.CreateFolder("Assets", "Settings");
+                panel = ScriptableObject.CreateInstance<PanelSettings>();
+                AssetDatabase.CreateAsset(panel, PanelSettingsPath);
+            }
+            var serialized = new SerializedObject(panel);
+            SerializedProperty mode = serialized.FindProperty("m_RenderMode");
+            if (mode != null) mode.intValue = 1;                   // PanelRenderMode.WorldSpace
+            SerializedProperty trigger = serialized.FindProperty("m_ColliderIsTrigger");
+            if (trigger != null) trigger.boolValue = true;
+            SerializedProperty theme = serialized.FindProperty("themeUss");
+            if (theme != null && theme.objectReferenceValue == null)
+            {
+                var tss = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(RuntimeThemePath);
+                if (tss != null) theme.objectReferenceValue = tss;
+                else Debug.LogWarning($"{Tag} {RuntimeThemePath} not found; panel uses the built-in default theme.");
+            }
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(panel);
+            return panel;
+        }
+
+        static T GetOrAdd<T>(GameObject go) where T : Component
+        {
+            T c = go.GetComponent<T>();
+            return c != null ? c : go.AddComponent<T>();
         }
 
         static void AttachByTypeName(GameObject root, string typeName, bool attach)
@@ -337,7 +416,7 @@ namespace FinalScan.Editor
         {
             var report = new System.Text.StringBuilder();
             int variants = 0;
-            foreach (string path in new[] { SurfelShaderPath, DepthCopyShaderPath })
+            foreach (string path in new[] { SurfelShaderPath, DepthCopyShaderPath, ControllerRayShaderPath })
             {
                 Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
                 if (shader == null) throw new FileNotFoundException("shader asset missing", path);

@@ -1,0 +1,55 @@
+.workspace {
+    width: 520px;
+    min-height: 0;
+    padding: 12px;
+    flex-direction: column;
+    background-color: rgba(14, 17, 22, 0.84);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.14);
+    border-radius: 18px;
+    color: rgb(236, 238, 241);
+}
+.top-bar {
+    min-height: 54px;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding-left: 4px;
+    padding-right: 4px;
+    padding-bottom: 8px;
+}
+.session-heading { flex-direction: column; }
+.session-name { font-size: 17px; -unity-font-style: bold; color: white; }
+.session-state { margin-top: 2px; font-size: 11px; color: rgb(126, 220, 188); }
+.save-state { font-size: 11px; -unity-text-align: middle-right; color: rgb(177, 183, 191); }
+.button-row { flex-direction: row; margin-top: 8px; }
+.compact-row { margin-top: 5px; }
+.button-last { margin-right: 0; }
+.mode-panel--hidden { display: none; }
+.primary-action, .secondary-action, .quiet-action, .danger-action {
+    min-height: 48px;
+    flex-grow: 1;
+    margin-right: 7px;
+    border-width: 1px;
+    border-radius: 11px;
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+.primary-action { min-height: 54px; margin-right: 0; background-color: rgb(39, 130, 106); border-color: rgba(151, 245, 219, 0.48); color: white; }
+.primary-action--stop { background-color: rgba(151, 48, 55, 0.92); border-color: rgba(245, 115, 122, 0.45); }
+.secondary-action { background-color: rgba(52, 57, 65, 0.96); border-color: rgba(255, 255, 255, 0.12); color: rgb(233, 235, 238); }
+.quiet-action { min-height: 44px; background-color: rgba(38, 41, 47, 0.88); border-color: rgba(255, 255, 255, 0.08); color: rgb(191, 196, 203); }
+.quiet-action--selected { background-color: rgba(80, 91, 107, 0.88); color: white; }
+.danger-action { min-height: 44px; background-color: rgba(104, 36, 42, 0.82); border-color: rgba(245, 115, 122, 0.35); color: rgb(255, 220, 222); }
+.primary-action:hover, .secondary-action:hover, .quiet-action:hover, .danger-action:hover { border-color: rgba(176, 239, 222, 0.72); }
+.primary-action:active, .secondary-action:active, .quiet-action:active, .danger-action:active { scale: 0.98; }
+.primary-action:disabled, .secondary-action:disabled, .quiet-action:disabled, .danger-action:disabled { opacity: 0.34; }
+.proximity { margin-top: 7px; -unity-text-align: middle-center; font-size: 11px; color: rgb(245, 197, 93); }
+.help-text { margin-top: 7px; white-space: normal; -unity-text-align: middle-center; font-size: 10px; color: rgb(159, 166, 176); }
+.diagnostics { margin-top: 11px; padding-top: 7px; border-top-width: 1px; border-top-color: rgba(255, 255, 255, 0.08); font-size: 10px; color: rgb(139, 145, 154); }
+.diagnostic-grid { margin-top: 5px; flex-direction: row; flex-wrap: wrap; }
+.diagnostic-key { width: 300px; min-height: 24px; color: rgb(137, 143, 152); }
+.diagnostic-value { width: 190px; min-height: 24px; -unity-text-align: middle-right; color: rgb(213, 217, 222); }
+.status-val--good { color: rgb(112, 226, 183); }
+.status-val--warning { color: rgb(244, 197, 91); }
+.status-val--error { color: rgb(247, 112, 120); }

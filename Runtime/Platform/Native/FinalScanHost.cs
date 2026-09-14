@@ -155,7 +155,11 @@ namespace FinalScan.Platform.Native
             if (items == null || count <= 0) return ResultInvalid;
             fixed (FsSurfaceMeasurement* p = items) return FsMeas_Push(p, Math.Min(count, items.Length), anchorId);
         }
-        public static int RequestScanTick(uint observationId) => FsScan_RequestTick(observationId);
+        public static int RequestScanTick(uint observationId)
+        {
+            if (!ScanRequestsEnabled) { ScanTicksGated++; return ResultBusy; }
+            return FsScan_RequestTick(observationId);
+        }
 
         public static int CreateSyntheticWorld(SyntheticKind kind, float extentM, float surfelSpacingM, uint seed) => FsWorld_CreateSynthetic((int)kind, extentM, surfelSpacingM, seed);
         public static int GetPageCount(out int resident, out int logical) => FsWorld_GetPageCount(out resident, out logical);
@@ -214,7 +218,7 @@ namespace FinalScan.Platform.Native
         public static int GetClassStats(JobClass cls, long[] out8) => ResultUnavailable;
         public static unsafe int PushMeasurements(FsSurfaceMeasurement* items, int count, int anchorId) => ResultUnavailable;
         public static int PushMeasurements(FsSurfaceMeasurement[] items, int count, int anchorId) => ResultUnavailable;
-        public static int RequestScanTick(uint observationId) => ResultUnavailable;
+        public static int RequestScanTick(uint observationId) { if (!ScanRequestsEnabled) { ScanTicksGated++; return ResultBusy; } return ResultUnavailable; }
         public static int CreateSyntheticWorld(SyntheticKind kind, float extentM, float surfelSpacingM, uint seed) => ResultUnavailable;
         public static int GetPageCount(out int resident, out int logical) { resident = 0; logical = 0; return ResultUnavailable; }
         public static int GetSurfelCount(out long frontTotal, out long backTotal) { frontTotal = 0; backTotal = 0; return ResultUnavailable; }
@@ -235,6 +239,14 @@ namespace FinalScan.Platform.Native
         public static bool MeasEnvDepthSupported => false;
         public static int SetMeasEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs) => ResultUnavailable;
 #endif
+
+        /// <summary>
+        /// START/STOP SCAN gate (C22): while false every FsScan_RequestTick is refused with <see cref="ResultBusy"/> and
+        /// counted in <see cref="ScanTicksGated"/>, whichever caller (sensor authority sink by reflection, tests) issues it.
+        /// Owned by FinalScan.Host.FinalScanHost.ScanEnabled. Defaults to true so a host without UI scans as before.
+        /// </summary>
+        public static bool ScanRequestsEnabled { get; set; } = true;
+        public static long ScanTicksGated { get; private set; }
 
         delegate int JsonGetter(byte[] buf, int cap);
         static byte[] s_jsonBuf = new byte[16384];

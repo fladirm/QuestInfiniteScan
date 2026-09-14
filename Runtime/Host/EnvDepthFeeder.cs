@@ -136,9 +136,12 @@ namespace FinalScan.Host
             catch (Exception e) { if (_errors++ < 3) Debug.LogWarning("[FinalScan] Env Depth frame failed: " + e.Message); }
         }
 
+        public long PausedFrames { get; private set; }
+
         void Push(Texture tex, Pose pl, Pose pr, float near, float far, long xrTimeNs)
         {
             if (!_host.NativeAvailable) return;
+            if (!FinalScanHost.ScanEnabled) { PausedFrames++; return; }   // STOP SCAN: no new measurement priors
             IntPtr ptr = tex.GetNativeTexturePtr();
             if (ptr == IntPtr.Zero) return;
             HostMath.ToColumnMajor(Matrix4x4.TRS(pl.position, pl.rotation, Vector3.one), _poseL);

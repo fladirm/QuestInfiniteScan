@@ -125,6 +125,53 @@ namespace FinalScan.Host
         public long[] CullStats => _cull;
         public bool GetClassStats(FinalScanHostNative.JobClass cls, long[] out8) => _native && FinalScanHostNative.GetClassStats(cls, out8) == FinalScanHostNative.ResultOk;
 
+        // ---- scan gate (C22 START / STOP SCAN) ----------------------------------------------------------------------
+        static bool s_scanEnabled = true;
+        /// <summary>Raised on the main thread when <see cref="ScanEnabled"/> changes (sensor authority / feeders subscribe).</summary>
+        public static event Action<bool> ScanEnabledChanged;
+        /// <summary>
+        /// True while scan ticks are requested. Static so any module can read it by reflection
+        /// (<c>FinalScan.Host.FinalScanHost.ScanEnabled</c>); also enforced in FinalScanHostNative.RequestScanTick and by
+        /// EnvDepthFeeder (measurement priors pause while stopped). Rendering, residency and publication never stop.
+        /// </summary>
+        public static bool ScanEnabled
+        {
+            get => s_scanEnabled;
+            set
+            {
+                if (s_scanEnabled == value) return;
+                s_scanEnabled = value;
+                FinalScanHostNative.ScanRequestsEnabled = value;
+                Debug.Log("[FinalScan] scan " + (value ? "START" : "STOP"));
+                try { ScanEnabledChanged?.Invoke(value); } catch (Exception e) { Debug.LogException(e); }
+            }
+        }
+        public bool Scanning { get => ScanEnabled; set => ScanEnabled = value; }
+        public void ToggleScanning() => ScanEnabled = !ScanEnabled;
+        public void CycleMode() { renderMode = (RenderMode)(((int)renderMode + 1) % 3); ModeSource = "ui"; _modeSent = false; }
+        public string LastResetResult { get; private set; } = "none";
+
+        /// <summary>
+        /// RESET WORLD (C22): FsHost_Shutdown + FsHost_Init with the same config (there is no dedicated native reset
+        /// export in ABI 2; if one appears it should replace this). Render buffers re-register on the next frame;
+        /// synthetic fixture and LOD/mode hand-offs replay when the executor reaches READY again.
+        /// </summary>
+        public bool ResetWorld()
+        {
+            if (!_native) { LastResetResult = "native absent"; Debug.Log("[FinalScan] reset skipped: " + LastResetResult); return false; }
+            int down = FinalScanHostNative.Shutdown();
+            var cfg = BuildConfig();
+            _initResult = FinalScanHostNative.Init(ref cfg);
+            _renderEventFunc = FinalScanHostNative.RenderEventFunc;
+            _syntheticRequested = false; _lodPolicySent = false; _modeSent = false; _prevDepthFrame = -1;
+            _status = FinalScanHostNative.Status; _lastLoggedStatus = (FinalScanHostNative.HostStatus)(-1);
+            SurfelRenderer.Current?.InvalidateRegistration();
+            LastResetResult = $"shutdown rc={down} init rc={_initResult}";
+            Debug.Log("[FinalScan] RESET WORLD: " + LastResetResult);
+            _log?.Emit(TelemetryPrefix, "{\"event\":\"reset\",\"shutdownRc\":" + down + ",\"initRc\":" + _initResult + "}");
+            return _initResult == FinalScanHostNative.ResultOk;
+        }
+
         // ---- IRenderFrameHost ---------------------------------------------------------------------------------------
         public IntPtr RenderEventFunc => _renderEventFunc;
 
@@ -366,6 +413,7 @@ namespace FinalScan.Host
              .Prop("frontSurfels", FrontSurfels).Prop("backSurfels", BackSurfels).Prop("frontGeneration", (long)FrontGeneration)
              .Prop("measurementsPerSec", MeasurementsPerSec).Prop("measurements", MeasurementsTotal).Prop("measurementsDropped", MeasurementsDropped)
              .Prop("synthetic", SyntheticWorldEnabled).Prop("syntheticKind", syntheticKind)
+             .Prop("scanEnabled", ScanEnabled).Prop("scanTicksGated", FinalScanHostNative.ScanTicksGated)
              .Prop("visibleSurfels", VisibleSurfels).Prop("drawRecords", DrawRecords).Prop("cullGpuUs", CullGpuUs)
              .Prop("orientationRequests", _zone[4]).Prop("requestsThisFrame", _zone[3])
              .Prop("buffersRegistered", SurfelRenderer.Current != null && SurfelRenderer.Current.Registered)

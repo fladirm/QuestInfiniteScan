@@ -1,0 +1,59 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+    xsi="http://www.w3.org/2001/XMLSchema-instance"
+    engine="UnityEngine.UIElements"
+    noNamespaceSchemaLocation="../../UIElementsSchema/UIElements.xsd"
+    editor-extension-mode="False">
+    <Style src="ScanPanel.uss" />
+    <ui:VisualElement name="panel-root" class="workspace">
+        <ui:VisualElement class="top-bar">
+            <ui:VisualElement class="session-heading">
+                <ui:Label name="val-title" text="FinalScan" class="session-name" />
+                <ui:Label name="val-status" text="UNINITIALIZED" class="session-state" />
+            </ui:VisualElement>
+            <ui:Label name="val-scanning" text="Stopped" class="save-state" />
+        </ui:VisualElement>
+
+        <ui:Button name="btn-scan" text="START SCAN" class="primary-action" />
+        <ui:Label name="val-guidance" text="" class="proximity" />
+
+        <ui:VisualElement class="button-row">
+            <ui:Button name="btn-mode" text="MODE: SCAN" class="secondary-action" />
+            <ui:Button name="btn-spin" text="SPIN TEST" class="secondary-action" />
+            <ui:Button name="btn-reset" text="RESET WORLD" class="danger-action button-last" />
+        </ui:VisualElement>
+
+        <ui:VisualElement class="button-row compact-row">
+            <ui:Button name="btn-diagnostics" text="DIAGNOSTICS" class="quiet-action button-last" />
+        </ui:VisualElement>
+
+        <ui:VisualElement name="diagnostics" class="diagnostics mode-panel--hidden">
+            <ui:VisualElement class="diagnostic-grid">
+                <ui:Label text="Measurements / s" class="diagnostic-key" />
+                <ui:Label name="val-meas" text="--" class="diagnostic-value" />
+                <ui:Label text="Surfels (FRONT)" class="diagnostic-key" />
+                <ui:Label name="val-surfels" text="--" class="diagnostic-value" />
+                <ui:Label text="Pages resident / logical" class="diagnostic-key" />
+                <ui:Label name="val-pages" text="--" class="diagnostic-value" />
+                <ui:Label text="Visible surfels" class="diagnostic-key" />
+                <ui:Label name="val-visible" text="--" class="diagnostic-value" />
+                <ui:Label text="Publish generation" class="diagnostic-key" />
+                <ui:Label name="val-generation" text="--" class="diagnostic-value" />
+                <ui:Label text="Frame ms" class="diagnostic-key" />
+                <ui:Label name="val-frame" text="--" class="diagnostic-value" />
+                <ui:Label text="GPU headroom ms" class="diagnostic-key" />
+                <ui:Label name="val-headroom" text="--" class="diagnostic-value" />
+                <ui:Label text="Orientation requests" class="diagnostic-key" />
+                <ui:Label name="val-orient" text="--" class="diagnostic-value" />
+                <ui:Label text="Env depth" class="diagnostic-key" />
+                <ui:Label name="val-envdepth" text="--" class="diagnostic-value" />
+                <ui:Label text="Pointer" class="diagnostic-key" />
+                <ui:Label name="val-pointer" text="--" class="diagnostic-value" />
+                <ui:Label text="Spin" class="diagnostic-key" />
+                <ui:Label name="val-spin" text="--" class="diagnostic-value" />
+                <ui:Label text="Reset" class="diagnostic-key" />
+                <ui:Label name="val-reset" text="--" class="diagnostic-value" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:Label name="val-help" text="Left stick click: menu · Right trigger: select" class="help-text" />
+    </ui:VisualElement>
+</ui:UXML>

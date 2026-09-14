@@ -164,6 +164,9 @@ namespace FinalScan.Render
             UpdateMaterial();
         }
 
+        /// <summary>After FsHost_Shutdown/Init the plugin lost its imports: register again on the next Update.</summary>
+        public void InvalidateRegistration() { _registered = false; _nextRegisterTime = 0f; }
+
         /// <summary>
         /// FsRender_RegisterBuffers with the native VkBuffer handles (GetNativeBufferPtr). Called once per buffer
         /// generation; the plugin imports lazily on its render thread. Retried every second until FS_OK.
