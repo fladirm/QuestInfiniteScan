@@ -236,6 +236,7 @@ void SchedThread() {
     pthread_setname_np(pthread_self(), "fs-sched");
     Executor& x = X();
     std::vector<RetiredJob> retiredJobs;
+    std::vector<GarbageItem> retiredGarbage;
     std::vector<std::function<void(uint32_t)>> ticks;
     while (true) {
         bool frameEnd = false; uint32_t retired = 0; bool runTicks = false;
@@ -252,11 +253,16 @@ void SchedThread() {
                 retired = RetireLocked(x, retiredJobs);
                 for (auto& pf : x.pendingFailed) retiredJobs.push_back({std::move(pf.first), false, 0, 0, pf.second});
                 x.pendingFailed.clear();
-                CollectGarbageLocked(x, false);
+                CollectGarbageLocked(x, false, retiredGarbage);
                 if (frameEnd) x.core.BeginFrame(x.frameIndex.load(std::memory_order_relaxed));
             }
             runTicks = (frameEnd || retired > 0) && x.status.load(std::memory_order_acquire) == FS_HOST_READY && x.core.AcceptingSubmits();
         }
+        // Never call module callbacks while Executor::mutex is held. World retirement callbacks take World::m_,
+        // while FRAME_BEGIN / telemetry legitimately call executor APIs while holding World::m_. Running a
+        // callback above creates the x.mutex -> world.m_ half of an ABBA deadlock (device run 00:55:51).
+        for (GarbageItem& g : retiredGarbage) DestroyGarbageItem(x, g);
+        retiredGarbage.clear();
         for (RetiredJob& j : retiredJobs) if (j.cb) j.cb(j.success, j.start, j.end);
         retiredJobs.clear();
         if (runTicks) {
@@ -408,7 +414,21 @@ void VkTeardown(Executor& x) {
         for (ClassVk& cv : x.classes) for (SlotVk& s : cv.slots) if (s.onRetired) { failed.emplace_back(std::move(s.onRetired), s.name); s.onRetired = nullptr; }
         for (auto& pf : x.pendingFailed) failed.push_back(std::move(pf));
         x.pendingFailed.clear();
-        CollectGarbageLocked(x, true);
+    }
+    // The device is idle and still valid here. Drain garbage outside x.mutex so arbitrary module callbacks can
+    // take their own locks or call back into the executor. Repeat because a callback is allowed to retire another
+    // object while teardown is draining.
+    for (;;) {
+        std::vector<GarbageItem> garbage;
+        {
+            std::lock_guard<std::mutex> lock(x.mutex);
+            CollectGarbageLocked(x, true, garbage);
+        }
+        if (garbage.empty()) break;
+        for (GarbageItem& g : garbage) DestroyGarbageItem(x, g);
+    }
+    {
+        std::lock_guard<std::mutex> lock(x.mutex);
         ResourcesShutdown(x);
         DestroyRingsLocked(x);
         x.vkReady.store(false, std::memory_order_release);
@@ -695,7 +715,7 @@ uint64_t PushGarbageLocked(Executor& x, const GarbageItem& item) {
     return token;
 }
 
-void CollectGarbageLocked(Executor& x, bool everything) {
+void CollectGarbageLocked(Executor& x, bool everything, std::vector<GarbageItem>& out) {
     std::vector<uint64_t> freed;
     if (everything) x.garbage.TakeAll(freed);
     else {
@@ -706,7 +726,8 @@ void CollectGarbageLocked(Executor& x, bool everything) {
     for (uint64_t t : freed) {
         auto it = x.garbageItems.find(t);
         if (it == x.garbageItems.end()) continue;
-        DestroyGarbageItem(x, it->second);
+        // Only transfer ownership while x.mutex is held. The caller must destroy/run callbacks after unlocking.
+        out.emplace_back(std::move(it->second));
         x.garbageItems.erase(it);
     }
 }
@@ -976,10 +997,19 @@ void RegisterWarmupStep(const char* name, std::function<bool()> step) {
 bool TakeScanRequest(uint32_t& observationId) { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); return x.scanRequests.Take(observationId); }
 uint64_t RetireLater(std::function<void()> onRetired) {
     Executor& x = X();
-    std::lock_guard<std::mutex> lock(x.mutex);
-    if (!x.vkReady.load(std::memory_order_acquire)) { if (onRetired) onRetired(); return 0; }
-    exec::GarbageItem g; g.onRetired = std::move(onRetired);
-    return exec::PushGarbageLocked(x, g);
+    uint64_t token = 0;
+    bool runNow = false;
+    {
+        std::lock_guard<std::mutex> lock(x.mutex);
+        if (!x.vkReady.load(std::memory_order_acquire)) runNow = true;
+        else {
+            exec::GarbageItem g; g.onRetired = std::move(onRetired);
+            token = exec::PushGarbageLocked(x, g);
+        }
+    }
+    // The old immediate path also invoked arbitrary module code while x.mutex was held.
+    if (runNow && onRetired) onRetired();
+    return token;
 }
 size_t RetirementBacklog() { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); return x.garbage.Pending(); }
 bool ExecClassStats(FsJobClass cls, int64_t out[8]) { return exec::HostGetClassStats((int32_t)cls, out); }

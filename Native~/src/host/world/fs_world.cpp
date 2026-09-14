@@ -712,10 +712,13 @@ public:
         return (int32_t)n;
     }
     std::string TelemetryJson() {
+        // Do not hold World::m_ while acquiring Executor::mutex. The value is diagnostic and may be one scheduling
+        // instant older than the rest of the snapshot; lock-order correctness is more important than atomic telemetry.
+        const uint64_t retirementBacklog = (uint64_t)RetirementBacklog();
         std::lock_guard<std::recursive_mutex> g(m_);
         JsonWriter w; w.BeginObject();
         w.KV("epochs", stats_.epochs); w.KV("tick", tick_); w.KV("fuseGpuUsLast", stats_.fuseUs); w.KV("publishGpuUsLast", stats_.publishUs);
-        w.KV("idBase", idBase_); w.KV("rootsPublished", rootsPublished_); w.KV("pendingBatches", (uint64_t)toPublish_.size()); w.KV("retireBacklogIds", retireBacklogIds_); w.KV("retirementBacklog", (uint64_t)RetirementBacklog());
+        w.KV("idBase", idBase_); w.KV("rootsPublished", rootsPublished_); w.KV("pendingBatches", (uint64_t)toPublish_.size()); w.KV("retireBacklogIds", retireBacklogIds_); w.KV("retirementBacklog", retirementBacklog);
         int32_t active = 0, releasing = 0; for (const PageState& s : pages_) { if (s.life == PAGE_ACTIVE) active++; if (s.life == PAGE_RELEASING) releasing++; }
         w.KV("pagesActive", active); w.KV("pagesReleasing", releasing); w.KV("pagesLogical", (uint64_t)logical_.size()); w.KV("pagesCreated", pagesCreated_); w.KV("pagesReleased", pagesReleased_);
         w.KV("shortfallTotal", shortfallTotal_); w.KV("slabStalls", slabStalls_); w.KV("resets", resets_);

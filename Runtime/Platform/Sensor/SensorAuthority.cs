@@ -91,7 +91,7 @@ namespace FinalScan.Platform.Sensor
             Pipeline = new SensorPipeline(Sink, initialProfile);
             Pipeline.Log += Debug.Log;
             ResolveTrackingSpace();
-            _depth = new EnvDepthSource(OvrNowSeconds, ToWorld, Debug.Log, depthCopyCompute);
+            _depth = new EnvDepthSource(OvrNowSeconds, Debug.Log, depthCopyCompute);
         }
 
         void OnEnable()

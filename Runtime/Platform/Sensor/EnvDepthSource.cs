@@ -54,7 +54,6 @@ namespace FinalScan.Platform.Sensor
         readonly bool[] _free = new bool[PoolSize];
         readonly Func<double> _ovrNowSeconds;
         readonly Action<string> _log;
-        Func<Pose, Pose> _toWorld;
         long _nextId = 1, _lastTs;
         int _restartAtFrame = -1;
         bool _handRemovalTried;
@@ -79,9 +78,9 @@ namespace FinalScan.Platform.Sensor
 
         /// <param name="copyCompute">Shaders/FinalScanDepthCopy.compute (kernel CopyDepthArray): the only copy path. The external
         /// depth attachment has no colour GraphicsFormat; Graphics.Blit per slice returned wrong values on device (run 22:40, raw 0.2-0.6).</param>
-        public EnvDepthSource(Func<double> ovrNowSeconds, Func<Pose, Pose> toWorld, Action<string> log, ComputeShader copyCompute)
+        public EnvDepthSource(Func<double> ovrNowSeconds, Action<string> log, ComputeShader copyCompute)
         {
-            _ovrNowSeconds = ovrNowSeconds; _toWorld = toWorld; _log = log;
+            _ovrNowSeconds = ovrNowSeconds; _log = log;
             _copyCompute = copyCompute;
             _copyKernel = copyCompute != null ? copyCompute.FindKernel("CopyDepthArray") : -1;
             if (copyCompute == null) _log?.Invoke("FS-SENSOR depth: FinalScanDepthCopy.compute not assigned; every depth frame will be dropped (CopyErrors)");
@@ -204,8 +203,10 @@ namespace FinalScan.Platform.Sensor
                 f.posesValid = true;
                 for (int e = 0; e < 2; e++)
                 {
+                    // ARFoundation XROcclusionFrame/AROcclusionFrameEventArgs.TryGetPoses is already in Unity
+                    // world space. Transforming it through OVRCameraRig.trackingSpace again makes the canonical
+                    // measurement frame move with / offset from the headset rig.
                     Pose p = poses[Math.Min(e, poses.Count - 1)];
-                    if (_toWorld != null) p = _toWorld(p);
                     f.poses[e] = p; f.poseMatrices[e] = SensorMath.Trs(p);
                 }
             }

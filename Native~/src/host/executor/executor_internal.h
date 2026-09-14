@@ -195,7 +195,7 @@ Executor& X();
 bool   RunOneWarmupStep(Executor& x, bool& completed);
 void   FinishWarmup(Executor& x);
 void   Quarantine(Executor& x, const char* reason, VkResult r);       // caller holds x.mutex
-void   CollectGarbageLocked(Executor& x, bool everything);            // caller holds x.mutex; everything = after WaitIdle
+void   CollectGarbageLocked(Executor& x, bool everything, std::vector<GarbageItem>& out); // caller holds x.mutex; moves due items only; callbacks/destruction run unlocked
 uint64_t PushGarbageLocked(Executor& x, const GarbageItem& item);     // caller holds x.mutex
 void   RefreshRecordingState(Executor& x);                            // render thread: re-query Unity recording state
 bool   HostInit(const FsHostConfig* cfg);
