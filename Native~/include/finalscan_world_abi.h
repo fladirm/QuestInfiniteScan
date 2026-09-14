@@ -4,7 +4,7 @@
 #pragma once
 #include <stdint.h>
 
-#define FS_WORLD_ABI_VERSION 1
+#define FS_WORLD_ABI_VERSION 2
 
 // ---- Surfel (32 B, contract §8.1) --------------------------------------------------------------
 // Positions are page-local fixed point: units of 0.25 mm, int16 → ±8.19 m around the page origin.
@@ -30,30 +30,71 @@ typedef struct FsSurfel {
     uint32_t appearanceHandle;  // atlas tile handle or 0
 } FsSurfel;                     // 32 B
 
-// ---- Page (contract §9.1, §11) -----------------------------------------------------------------
-typedef struct FsPageKey { int32_t anchorId; int32_t x, y, z; } FsPageKey;   // logical page coordinate
-
-typedef struct FsPageHeader {
-    FsPageKey key;
-    uint32_t  slot;               // resident slot (physical; never persisted as identity)
-    uint32_t  generation;         // bumped on every publish; 0 = empty slot
-    uint32_t  frontOffset;        // surfel index of FRONT range in the surfel arena
-    uint32_t  frontCount;
-    uint32_t  backOffset;         // BACK range (scan writes here)
-    uint32_t  backCount;
-    uint32_t  capacity;           // surfels reserved per range
-    uint32_t  dirty;              // 1 = BACK has unpublished changes
-    uint32_t  cellIndexOffset;    // offset into the cell-index arena (page-local index, §9.2)
-    uint32_t  freeSpaceOffset;    // offset into free-space arena (coarse, §8.6)
-    uint32_t  lastTouchedFrame;
-    uint32_t  nodeBase;           // first FsClusterNode of the published FRONT parity (derived ClusterTree, §13.4)
-    uint32_t  nodeCount;          // nodes of that tree (0 = no tree yet)
-} FsPageHeader;                   // 68 B
-
-// Page-local index (default variant A: fixed bucket grid, benchmarked in C08 against B/C/D).
-// One u32 head per cell → linked list through FsSurfelLink.next; 0xFFFFFFFF = end.
 #define FS_INDEX_NONE 0xFFFFFFFFu
-typedef struct FsSurfelLink { uint32_t next; } FsSurfelLink;   // parallel array to surfel arena
+
+typedef struct FsPageKey { int32_t anchorId; int32_t x, y, z; } FsPageKey;   // logical page coordinate (§9.1)
+
+// ---- Segmented canonical pools (C09R, contract §1.0, §9, §11) --------------------------------------
+// Canonical surfels exist once, in one global arena addressed by a 32-bit surfel handle
+// (handle = slab * FS_SLAB_SURFELS + i). A logical page owns an ordered list of slabs (its slab directory);
+// page-local index k*FS_SLAB_SURFELS+i maps to the handle through that directory. Growth = one more slab.
+#define FS_SLAB_SURFELS     256      // surfels per slab (8 KiB of FsSurfel, 2 KiB of evidence)
+#define FS_PAGE_MAX_SLABS   4096     // 1,048,576 surfels per page ceiling (pool-bounded, not slot-bounded)
+#define FS_PAGE_FLAG_DIRTY  1u       // canonical changes not yet published
+#define FS_PAGE_FLAG_ERASE  2u       // an erase touched the page this epoch
+
+typedef struct FsPageDesc {          // resident page descriptor = page table entry (twin of the GLSL block)
+    FsPageKey key;
+    uint32_t  generation;            // slot generation (lease protection, §9.3); 0 = empty slot
+    uint32_t  slabCount;             // valid entries of the slab directory
+    uint32_t  surfelCount;           // allocation cursor: page-local indices < surfelCount are allocated
+    uint32_t  shortfall;             // new candidates refused this epoch because no slab was free (CPU tops up)
+    uint32_t  cellDirBase;           // u32 index of the page's 32^3 cell directory in the index arena
+    uint32_t  freeSpaceBase;         // u8 offset of the page's free-space stamps
+    uint32_t  renderRoot;            // published render root node (written only on the graphics stream) or FS_INDEX_NONE
+    uint32_t  renderCount;           // surfels represented by the published root (telemetry)
+    uint32_t  pendingRoot;           // scanner-built root awaiting graphics publication or FS_INDEX_NONE
+    uint32_t  pendingCount;
+    uint32_t  flags;                 // FS_PAGE_FLAG_*
+    uint32_t  lastTouchedTick;
+} FsPageDesc;                        // 64 B
+
+// ---- Adaptive page-local index (contract §9.2): 32^3 direct cell directory, leaf buckets, 2x2x2 nodes ---
+// Directory / node child entry: 0 = empty, bit 31 = leaf id (bits 0..30), bit 30 = node id (bits 0..29).
+#define FS_INDEX_ENTRY_LEAF  0x80000000u
+#define FS_INDEX_ENTRY_NODE  0x40000000u
+#define FS_INDEX_ENTRY_ID    0x3FFFFFFFu
+#define FS_INDEX_LEAF_CAP    14      // handles per leaf bucket
+#define FS_INDEX_MAX_DEPTH   3       // 12.5 cm cell -> 6.25 -> 3.125 -> 1.5625 cm micro cells
+#define FS_INDEX_CHAIN_MAX   4       // at max depth a leaf may chain (56 surfels in a 1.56 cm cell), never beyond
+
+typedef struct FsIndexLeaf {
+    uint32_t count;
+    uint32_t next;                   // chained leaf (only at max depth) or FS_INDEX_NONE
+    uint32_t handles[FS_INDEX_LEAF_CAP];
+} FsIndexLeaf;                       // 64 B
+
+typedef struct FsIndexNode { uint32_t child[8]; } FsIndexNode;   // 32 B, octant order x | y<<1 | z<<2
+
+// ---- Staged fusion (C09R, contract §8.5): association records sorted by key, reduced per segment ------
+// key: matched = surfel handle; unmatched = FS_ASSOC_KEY_UNMATCHED | pageSlot << 15 | cell (owner cell).
+#define FS_ASSOC_KEY_UNMATCHED 0x80000000u
+#define FS_ASSOC_KEY_NONE      0xFFFFFFFFu   // measurement rejected (no page, out of range)
+typedef struct FsAssociation {
+    uint32_t key;
+    uint32_t meas;                   // measurement index in the tick's ring slot
+    float    score;                  // Mahalanobis score of the match (matched) / 0
+    uint32_t pageSlot;               // owner page slot (matched and unmatched)
+} FsAssociation;                     // 16 B
+
+// ---- Publication (C09R, contract §11): the scanner builds complete immutable render generations; the
+// graphics stream applies the root descriptors at FRAME_BEGIN after the scanner timeline was acquired -----
+typedef struct FsPendingPublish {
+    uint32_t pageSlot;
+    uint32_t root;                   // new render root node or FS_INDEX_NONE (page becomes empty / evicted)
+    uint32_t count;                  // surfels represented
+    uint32_t generation;             // page generation the root belongs to
+} FsPendingPublish;                  // 16 B
 
 // ---- Page hash (contract §9.1): open addressing, robin-hood, generation protected ----------------
 typedef struct FsPageHashEntry {
@@ -114,10 +155,11 @@ typedef struct FsSurfelEvidence {
     uint16_t lastSeenFrame;       // low 16 bits of the scan tick index
 } FsSurfelEvidence;               // 8 B
 
-// ---- Derived ClusterTree (contract §13.4, C05b): disposable, rebuilt from FRONT after publish -----
-// Per page: a node array; node 0 is the page root. Leaves reference a FRONT surfel range.
-#define FS_CLUSTER_LEAF_MAX_SURFELS 64
-#define FS_CLUSTER_MAX_NODES_PER_PAGE 4096
+// ---- Derived render tree (contract §13.4, C09R): persistent COW octree of immutable render leaf blocks.
+// Nodes and blocks live in global pools; unchanged subtrees are shared between generations. A leaf node
+// references one render block of <= FS_RENDER_BLOCK_SURFELS surfel copies.
+#define FS_RENDER_BLOCK_SURFELS 64
+#define FS_RENDER_CHILDREN 8
 typedef struct FsClusterNode {
     float    bmin[3];             // page-local metres
     float    bmax[3];
@@ -129,9 +171,9 @@ typedef struct FsClusterNode {
     uint32_t repColorOrHandle;    // RGBA8 preview / appearance handle
     uint16_t coverage;            // 0..65535 → fill ratio of the aggregate footprint (gaps preserved)
     uint16_t surfelCount;         // surfels under this node (saturating)
-    uint32_t firstChildOrSurfel;  // child node index (internal) or FRONT surfel offset (leaf)
+    uint32_t firstChildOrSurfel;  // internal: index of its 8-entry child table in the render child pool; leaf: render block id
     uint16_t childCount;          // 0 = leaf
-    uint16_t leafSurfelCount;     // valid when leaf
+    uint16_t leafSurfelCount;     // valid when leaf (surfels in the block)
     uint32_t footprint;           // footprint ellipse semi-axes (log16 a | log16 b << 16) in the canonical tangent frame
 } FsClusterNode;                  // 80 B
 
@@ -145,6 +187,15 @@ typedef struct FsClusterError {
     float ownError;
     float parentError;
 } FsClusterError;                 // 8 B
+
+// (C09R) Render tree node record: cluster node + LOD errors + child table in one pool entry so a COW rebuild
+// allocates one id per node. Internal nodes: child[k] = node id of octant k or FS_INDEX_NONE; leaf nodes
+// (node.childCount == 0): node.firstChildOrSurfel = render block id, child[] unused.
+typedef struct FsRenderNode {
+    FsClusterNode  node;
+    FsClusterError err;
+    uint32_t       child[8];
+} FsRenderNode;                   // 120 B
 
 // Draw record flags (FsDrawRecord.flags): bit 0 detail, bit 1 selected, bit 2 erased-preview,
 // bit 3 aggregate (coverage LOD; low 16 bits of colorOrHandle alpha carry coverage), bit 4 transient.

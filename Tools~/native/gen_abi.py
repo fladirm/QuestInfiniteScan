@@ -52,7 +52,8 @@ def parse(text):
             for n in [x.strip() for x in names.split(",")]:
                 am = re.match(r"(\w+)\[(\w+)\]$", n)
                 if am:
-                    fields.append(Field(ctype, am.group(1), int(am.group(2))))
+                    cnt = am.group(2)
+                    fields.append(Field(ctype, am.group(1), int(cnt) if cnt.isdigit() else cnt))   # symbolic counts resolved after the defines
                 else:
                     fields.append(Field(ctype, n, None))
         # declared size from the trailer comment on the closing line in the original text
@@ -233,6 +234,10 @@ def main():
     env = {}
     for n, v in defines:
         env[n] = eval_define(v, env)
+    for name in order:
+        for f in structs[name].fields:
+            if isinstance(f.count, str):
+                f.count = int(env[f.count])
     for name in order:
         size, _, _ = c_layout(structs, name)
         d = structs[name].declared_size

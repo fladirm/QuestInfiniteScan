@@ -11,19 +11,15 @@
 #define FS_SIGMA_BASE_M  0.0001
 #define FS_PAGE_HASH_MAX_PROBE 32u
 
-// ---- per-slot static layout (twin: fs::world::FsSlotLayout) --------------------------------------
-struct FsSlotLayout {
-    uint surfelBase; uint capacity; uint linkBase; uint cellBase;
-    uint microBase; uint nodeBase; uint nodesPerSlot; uint freeSpaceBase;
-};  // 32 B
-uint fsFrontOffset(FsSlotLayout l, uint parity) { return l.surfelBase + l.capacity * (1u + parity); }
-
-// ---- root word ----------------------------------------------------------------------------------------
-uint fsRootCount(uint w) { return w & FS_ROOT_COUNT_MASK; }
-bool fsRootPublished(uint w) { return (w & FS_ROOT_PUBLISHED) != 0u; }
-uint fsRootParity(uint w) { return (w & FS_ROOT_PARITY) != 0u ? 1u : 0u; }
-bool fsRootTreeValid(uint w) { return (w & FS_ROOT_TREE_VALID) != 0u; }
-uint fsRootLeafShift(uint w) { return (w & FS_ROOT_LEAF_MASK) >> FS_ROOT_LEAF_SHIFT; }
+// ---- surfel handles (twin: fs::world::HandleOf / SlabOf) ----------------------------------------------
+uint fsHandleSlab(uint h) { return h / uint(FS_SLAB_SURFELS); }
+uint fsHandleIndex(uint h) { return h % uint(FS_SLAB_SURFELS); }
+// index directory entries
+bool fsEntryIsLeaf(uint e) { return (e & FS_INDEX_ENTRY_LEAF) != 0u; }
+bool fsEntryIsNode(uint e) { return (e & FS_INDEX_ENTRY_NODE) != 0u && (e & FS_INDEX_ENTRY_LEAF) == 0u; }
+uint fsEntryId(uint e) { return e & FS_INDEX_ENTRY_ID; }
+uint fsLeafEntry(uint id) { return FS_INDEX_ENTRY_LEAF | id; }
+uint fsNodeEntry(uint id) { return FS_INDEX_ENTRY_NODE | id; }
 
 // ---- fixed point / oct / log encodings ------------------------------------------------------------------
 int fsEncodePos(float metres) { return int(clamp(round(metres / FS_SURFEL_POS_UNIT_M), -32768.0, 32767.0)); }
@@ -106,24 +102,6 @@ void fsCellBounds(uint cell, out vec3 bmin, out vec3 bmax) {
     bmin = c * FS_CELL_EXTENT_M - vec3(halfE); bmax = bmin + vec3(FS_CELL_EXTENT_M);
 }
 
-// ---- cluster layout (twin: ComputeClusterLayout) -----------------------------------------------------
-struct FsClusterLayout { uint levels; uint total; uint leafSize; uint count[FS_CLUSTER_MAX_LEVELS]; uint offset[FS_CLUSTER_MAX_LEVELS]; };
-FsClusterLayout fsClusterLayout(uint n, uint leafShift) {
-    FsClusterLayout L; L.leafSize = 64u << leafShift; L.levels = 0u; L.total = 0u;
-    for (uint i = 0u; i < uint(FS_CLUSTER_MAX_LEVELS); ++i) { L.count[i] = 0u; L.offset[i] = 0u; }
-    if (n == 0u) return L;
-    uint c = (n + L.leafSize - 1u) / L.leafSize, lv = 0u;
-    for (uint it = 0u; it < uint(FS_CLUSTER_MAX_LEVELS); ++it) {
-        L.count[lv] = c; lv++;
-        if (c == 1u || lv >= uint(FS_CLUSTER_MAX_LEVELS)) break;
-        c = (c + uint(FS_CLUSTER_FANOUT) - 1u) / uint(FS_CLUSTER_FANOUT);
-    }
-    L.levels = lv;
-    uint off = 0u;
-    for (int i = int(lv) - 1; i >= 0; --i) { L.offset[i] = off; off += L.count[i]; }
-    L.total = off;
-    return L;
-}
 // ---- canonical tangent frame + footprint ellipse (twins: TangentFrame / FootprintOfAabb / PackFootprint) --
 void fsTangentFrame(vec3 n, out vec3 t1, out vec3 t2) {
     vec3 up = abs(n.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -147,4 +125,12 @@ bool fsCoverageCellInside(uint cx, uint cy) {
     return u * u + v * v <= 1.0;
 }
 
+// Micro-cell refinement (index depth d): octant of `l` inside the box [bmin, bmax) and the child box.
+uint fsOctantOf(vec3 l, vec3 bmin, vec3 bmax, out vec3 cmin, out vec3 cmax) {
+    vec3 mid = 0.5 * (bmin + bmax);
+    uint o = (l.x >= mid.x ? 1u : 0u) | (l.y >= mid.y ? 2u : 0u) | (l.z >= mid.z ? 4u : 0u);
+    cmin = vec3((o & 1u) != 0u ? mid.x : bmin.x, (o & 2u) != 0u ? mid.y : bmin.y, (o & 4u) != 0u ? mid.z : bmin.z);
+    cmax = vec3((o & 1u) != 0u ? bmax.x : mid.x, (o & 2u) != 0u ? bmax.y : mid.y, (o & 4u) != 0u ? bmax.z : mid.z);
+    return o;
+}
 #endif // FS_WORLD_COMMON_GLSL

@@ -14,8 +14,11 @@ namespace world {
 
 static_assert(sizeof(FsSurfel) == 32, "FsSurfel must be 32 B (contract §8.1)");
 static_assert(sizeof(FsPageKey) == 16, "FsPageKey layout");
-// FsPageHeader is 68 B (16 + 13*4): the header trailer, gen_abi.py (GLSL + C#) and this assert agree.
-static_assert(sizeof(FsPageHeader) == 68, "FsPageHeader layout");
+static_assert(sizeof(FsPageDesc) == 64, "FsPageDesc layout");
+static_assert(sizeof(FsIndexLeaf) == 64, "FsIndexLeaf layout");
+static_assert(sizeof(FsIndexNode) == 32, "FsIndexNode layout");
+static_assert(sizeof(FsAssociation) == 16, "FsAssociation layout");
+static_assert(sizeof(FsPendingPublish) == 16, "FsPendingPublish layout");
 static_assert(sizeof(FsPageHashEntry) == 32, "FsPageHashEntry layout");
 static_assert(sizeof(FsSurfaceMeasurement) == 48, "FsSurfaceMeasurement layout");
 static_assert(sizeof(FsDrawRecord) == 32, "FsDrawRecord layout");
@@ -206,66 +209,25 @@ inline uint32_t EncodeRadius8(float metres) {
 inline float DecodeRadius8(uint32_t v) { return kRadiusBaseM * exp2f((float)v / 16.f); }
 inline uint32_t Radius8FromLog16(uint16_t v) { uint32_t r = ((uint32_t)v + 128u) >> 8; return r > 255u ? 255u : r; }   // 4096/16 = 256
 
-// ---- root word (fs_world_params.h): the one u32 the cull reads per slot -----------------------------
-struct RootWord {
-    uint32_t frontCount = 0; bool published = false; uint32_t parity = 0; bool treeValid = false; uint32_t leafShift = 0; uint32_t generation = 0;
-};
-inline uint32_t PackRoot(const RootWord& r) {
-    uint32_t c = r.frontCount > FS_MAX_FRONT_COUNT ? FS_MAX_FRONT_COUNT : r.frontCount;
-    return c | (r.published ? FS_ROOT_PUBLISHED : 0u) | (r.parity ? FS_ROOT_PARITY : 0u) | (r.treeValid ? FS_ROOT_TREE_VALID : 0u) |
-           ((r.leafShift & 7u) << FS_ROOT_LEAF_SHIFT) | ((r.generation & 0xFFu) << FS_ROOT_GEN_SHIFT);
+// ---- surfel handles / index entries (twins in fs_world_common.glsl) ----------------------------------------
+inline uint32_t HandleOf(uint32_t slab, uint32_t i) { return slab * FS_SLAB_SURFELS + i; }
+inline uint32_t SlabOf(uint32_t handle) { return handle / FS_SLAB_SURFELS; }
+inline bool EntryIsLeaf(uint32_t e) { return (e & FS_INDEX_ENTRY_LEAF) != 0; }
+inline bool EntryIsNode(uint32_t e) { return (e & FS_INDEX_ENTRY_NODE) != 0 && (e & FS_INDEX_ENTRY_LEAF) == 0; }
+inline uint32_t EntryId(uint32_t e) { return e & FS_INDEX_ENTRY_ID; }
+inline uint32_t LeafEntry(uint32_t id) { return FS_INDEX_ENTRY_LEAF | id; }
+inline uint32_t NodeEntry(uint32_t id) { return FS_INDEX_ENTRY_NODE | id; }
+// Cell AABB (page-local metres) and octant refinement (twin: fsCellBounds / fsOctantOf).
+inline void CellBounds(uint32_t cell, float bmin[3], float bmax[3]) {
+    const float half = FS_PAGE_EXTENT_M * 0.5f;
+    float c[3] = {(float)(cell & 31u), (float)((cell >> 5) & 31u), (float)((cell >> 10) & 31u)};
+    for (int a = 0; a < 3; ++a) { bmin[a] = c[a] * FS_CELL_EXTENT_M - half; bmax[a] = bmin[a] + FS_CELL_EXTENT_M; }
 }
-inline RootWord UnpackRoot(uint32_t w) {
-    RootWord r; r.frontCount = w & FS_ROOT_COUNT_MASK; r.published = (w & FS_ROOT_PUBLISHED) != 0; r.parity = (w & FS_ROOT_PARITY) ? 1u : 0u;
-    r.treeValid = (w & FS_ROOT_TREE_VALID) != 0; r.leafShift = (w & FS_ROOT_LEAF_MASK) >> FS_ROOT_LEAF_SHIFT; r.generation = w >> FS_ROOT_GEN_SHIFT;
-    return r;
-}
-
-// ---- static per-slot layout (device table; twin: FsSlotLayout in fs_world_common.glsl) ---------------
-struct FsSlotLayout {
-    uint32_t surfelBase;      // first surfel of the slot: BACK = [base, base+cap), FRONT p = base + cap*(1+p)
-    uint32_t capacity;        // surfels per range
-    uint32_t linkBase;        // link/count index of BACK surfel i = linkBase + (i - surfelBase)
-    uint32_t cellBase;        // cell head index = cellBase + cell
-    uint32_t microBase;       // micro head index = microBase + block*8 + octant
-    uint32_t nodeBase;        // cluster node index of parity p = nodeBase + p*nodesPerSlot
-    uint32_t nodesPerSlot;
-    uint32_t freeSpaceBase;   // u8 offset (stub)
-};
-static_assert(sizeof(FsSlotLayout) == 32, "FsSlotLayout layout");
-inline uint32_t FrontOffsetOf(const FsSlotLayout& l, uint32_t parity) { return l.surfelBase + l.capacity * (1u + parity); }
-
-// ---- cluster tree layout (§13.4): root at node 0, then levels top-down; leaves last. Twin: fsClusterLayout.
-struct ClusterLayout {
-    uint32_t levels = 0;                          // 0 when n == 0
-    uint32_t count[FS_CLUSTER_MAX_LEVELS] = {};   // count[0] = leaves ... count[levels-1] = 1 (root)
-    uint32_t offset[FS_CLUSTER_MAX_LEVELS] = {};  // node index of the first node of each level
-    uint32_t total = 0;
-    uint32_t leafSize = 64;
-};
-inline ClusterLayout ComputeClusterLayout(uint32_t n, uint32_t leafShift) {
-    ClusterLayout L; L.leafSize = 64u << leafShift;
-    if (n == 0) return L;
-    uint32_t c = (n + L.leafSize - 1) / L.leafSize, lv = 0;
-    for (;;) {
-        L.count[lv++] = c;
-        if (c == 1 || lv >= FS_CLUSTER_MAX_LEVELS) break;
-        c = (c + FS_CLUSTER_FANOUT - 1) / FS_CLUSTER_FANOUT;
-    }
-    L.levels = lv;
-    uint32_t off = 0;
-    for (int i = (int)lv - 1; i >= 0; --i) { L.offset[i] = off; off += L.count[i]; }
-    L.total = off;
-    return L;
-}
-// Smallest leaf shift whose node total fits nodeCapacity (coarser leaves on overflow, counted by caller).
-inline uint32_t ChooseLeafShift(uint32_t n, uint32_t nodeCapacity) {
-    for (uint32_t s = 0; s <= FS_CLUSTER_MAX_LEAF_SHIFT; ++s) if (ComputeClusterLayout(n, s).total <= nodeCapacity) return s;
-    return FS_CLUSTER_MAX_LEAF_SHIFT;
-}
-inline uint32_t NodesPerSlotFor(uint32_t capacity) {
-    uint32_t t = ComputeClusterLayout(capacity, 0).total;
-    return t > FS_CLUSTER_MAX_NODES_PER_PAGE ? FS_CLUSTER_MAX_NODES_PER_PAGE : (t < 8u ? 8u : t);
+inline uint32_t OctantOfBox(const float l[3], float bmin[3], float bmax[3]) {   // refines the box in place
+    float mid[3] = {0.5f * (bmin[0] + bmax[0]), 0.5f * (bmin[1] + bmax[1]), 0.5f * (bmin[2] + bmax[2])};
+    uint32_t o = (l[0] >= mid[0] ? 1u : 0u) | (l[1] >= mid[1] ? 2u : 0u) | (l[2] >= mid[2] ? 4u : 0u);
+    for (int a = 0; a < 3; ++a) { if (o & (1u << a)) bmin[a] = mid[a]; else bmax[a] = mid[a]; }
+    return o;
 }
 
 } // namespace world

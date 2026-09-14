@@ -4,15 +4,27 @@
 #ifndef FS_ABI_GLSL
 #define FS_ABI_GLSL
 
-#define FS_WORLD_ABI_VERSION 1
+#define FS_WORLD_ABI_VERSION 2
 #define FS_SURFEL_POS_UNIT_M 0.00025
 #define FS_PAGE_EXTENT_M 4.0
 #define FS_CELL_EXTENT_M 0.125
 #define FS_CELLS_PER_AXIS 32
 #define FS_CELLS_PER_PAGE 32768
 #define FS_INDEX_NONE 4294967295u
-#define FS_CLUSTER_LEAF_MAX_SURFELS 64
-#define FS_CLUSTER_MAX_NODES_PER_PAGE 4096
+#define FS_SLAB_SURFELS 256
+#define FS_PAGE_MAX_SLABS 4096
+#define FS_PAGE_FLAG_DIRTY 1u
+#define FS_PAGE_FLAG_ERASE 2u
+#define FS_INDEX_ENTRY_LEAF 2147483648u
+#define FS_INDEX_ENTRY_NODE 1073741824u
+#define FS_INDEX_ENTRY_ID 1073741823u
+#define FS_INDEX_LEAF_CAP 14
+#define FS_INDEX_MAX_DEPTH 3
+#define FS_INDEX_CHAIN_MAX 4
+#define FS_ASSOC_KEY_UNMATCHED 2147483648u
+#define FS_ASSOC_KEY_NONE 4294967295u
+#define FS_RENDER_BLOCK_SURFELS 64
+#define FS_RENDER_CHILDREN 8
 #define FS_CLUSTER_ERROR_INF 1e+30
 #define FS_DRAW_FLAG_AGGREGATE 8
 #define FS_DRAW_FLAG_TRANSIENT 16
@@ -92,28 +104,50 @@ struct FsPageKey {
 };  // 16 B
 #define FS_ABI_FSPAGEKEY_BYTES 16
 
-struct FsPageHeader {
+struct FsPageDesc {
     FsPageKey key;
-    uint slot;
     uint generation;
-    uint frontOffset;
-    uint frontCount;
-    uint backOffset;
-    uint backCount;
-    uint capacity;
-    uint dirty;
-    uint cellIndexOffset;
-    uint freeSpaceOffset;
-    uint lastTouchedFrame;
-    uint nodeBase;
-    uint nodeCount;
-};  // 68 B
-#define FS_ABI_FSPAGEHEADER_BYTES 68
+    uint slabCount;
+    uint surfelCount;
+    uint shortfall;
+    uint cellDirBase;
+    uint freeSpaceBase;
+    uint renderRoot;
+    uint renderCount;
+    uint pendingRoot;
+    uint pendingCount;
+    uint flags;
+    uint lastTouchedTick;
+};  // 64 B
+#define FS_ABI_FSPAGEDESC_BYTES 64
 
-struct FsSurfelLink {
+struct FsIndexLeaf {
+    uint count;
     uint next;
-};  // 4 B
-#define FS_ABI_FSSURFELLINK_BYTES 4
+    uint handles[14];
+};  // 64 B
+#define FS_ABI_FSINDEXLEAF_BYTES 64
+
+struct FsIndexNode {
+    uint child[8];
+};  // 32 B
+#define FS_ABI_FSINDEXNODE_BYTES 32
+
+struct FsAssociation {
+    uint key;
+    uint meas;
+    float score;
+    uint pageSlot;
+};  // 16 B
+#define FS_ABI_FSASSOCIATION_BYTES 16
+
+struct FsPendingPublish {
+    uint pageSlot;
+    uint root;
+    uint count;
+    uint generation;
+};  // 16 B
+#define FS_ABI_FSPENDINGPUBLISH_BYTES 16
 
 struct FsPageHashEntry {
     FsPageKey key;
@@ -203,5 +237,12 @@ struct FsClusterError {
     float parentError;
 };  // 8 B
 #define FS_ABI_FSCLUSTERERROR_BYTES 8
+
+struct FsRenderNode {
+    FsClusterNode node;
+    FsClusterError err;
+    uint child[8];
+};  // 120 B
+#define FS_ABI_FSRENDERNODE_BYTES 120
 
 #endif // FS_ABI_GLSL

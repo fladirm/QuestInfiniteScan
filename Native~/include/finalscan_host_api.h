@@ -6,7 +6,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define FS_HOST_ABI_VERSION 2
+#define FS_HOST_ABI_VERSION 3
 
 enum FsHostStatus { FS_HOST_UNINITIALIZED = 0, FS_HOST_WARMING_UP = 1, FS_HOST_READY = 2,
                     FS_HOST_DEVICE_LOST = 3, FS_HOST_QUARANTINED = 4, FS_HOST_SHUTDOWN = 5 };
@@ -15,17 +15,21 @@ enum FsJobClass { FS_JOB_PUBLISH = 0, FS_JOB_SCAN = 1, FS_JOB_INNER_RESIDENCY = 
 
 typedef struct FsHostConfig {
     uint32_t structSize;
-    uint32_t residentPageSlots;      // provisional 256 (4 m pages → 64 m^3 inner+warm coverage)
-    uint32_t surfelsPerPage;         // provisional 16384 (FRONT+BACK each)
+    uint32_t residentPages;          // page table entries (resident logical pages), provisional 256
+    uint32_t canonicalSurfels;       // canonical surfel pool (slabs of FS_SLAB_SURFELS), provisional 4 M = 128 MiB + 32 MiB evidence
     uint32_t pageHashCapacity;       // power of two, provisional 4096
-    uint32_t measurementRingCapacity;// provisional 1<<18
+    uint32_t measurementRingCapacity;// unused (the epoch takes FS_TICK_MEAS_MAX records); kept for layout
     uint32_t drawRecordCapacity;     // provisional 1<<20
     uint32_t frameBudgetUs;          // scan GPU budget per frame, from C01 (provisional 2500)
     uint32_t inFlightMax[FS_JOB_CLASS_COUNT];
     uint32_t quantumUs[FS_JOB_CLASS_COUNT];
     uint32_t useScannerQueue;        // 1 = use injected queue when present
-    uint32_t enableSyntheticWorld;   // C04: create synthetic pages at init
-    uint32_t reserved[6];
+    uint32_t enableSyntheticWorld;   // acceptance fixture only
+    uint32_t indexLeaves;            // adaptive index leaf pool (64 B each), provisional 1 M
+    uint32_t indexNodes;             // adaptive index node pool (32 B each), provisional 256 k
+    uint32_t renderBlocks;           // immutable render leaf blocks (64 surfels), provisional 64 k
+    uint32_t renderNodes;            // persistent render tree nodes (120 B), provisional 512 k
+    uint32_t reserved[2];
 } FsHostConfig;
 
 // Lifecycle. Init may be called before Vulkan is ready; the executor completes warm-up on the render
@@ -63,6 +67,15 @@ int32_t FsWorld_GetSurfelCount(int64_t* frontTotal, int64_t* backTotal);
 uint32_t FsWorld_GetFrontGeneration(void);                  // sum/xor of published page generations for telemetry
 int32_t FsWorld_SetAnchorTransform(int32_t anchorId, const float worldFromAnchor[16]);   // column-major
 int32_t FsWorld_Erase(const float center[3], float radius, int32_t anchorId);            // marks removed (C23 finalizes)
+// (ABI 3, C09R) Dedicated world reset transaction: stops observations, publishes empty roots through the graphics
+// path, frees every world allocation after retirement, resets the page map / ids. Executor, pipelines, sensors
+// and renderer stay alive (no device teardown). Returns FS_OK when the transaction was queued.
+int32_t FsWorld_Reset(void);
+// (ABI 3) World telemetry JSON (fusion / index / publication / memory counters, contract §20).
+int32_t FsWorld_GetTelemetryJson(char* buf, int32_t cap);
+// (ABI 3, C09R-D) Render telemetry JSON: per-dispatch device stage times (hzb.scatter/combine/mips,
+// cull.pages/expand/blocks/compact) and the last cut statistics. Returns the required capacity (incl. NUL).
+int32_t FsRender_GetTelemetryJson(char* buf, int32_t cap);
 
 // Residency (contract §12): position-driven only. Orientation must never reach these calls.
 int32_t FsResidency_SetCenter(const float predictedPos[3], float innerRadius, float warmRadius, float prefetchRadius);

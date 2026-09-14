@@ -36,30 +36,58 @@ namespace FinalScan.World
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct FsPageHeader  // 68 B
+    public struct FsPageDesc  // 64 B
     {
         public FsPageKey key;
-        public uint slot;
         public uint generation;
-        public uint frontOffset;
-        public uint frontCount;
-        public uint backOffset;
-        public uint backCount;
-        public uint capacity;
-        public uint dirty;
-        public uint cellIndexOffset;
-        public uint freeSpaceOffset;
-        public uint lastTouchedFrame;
-        public uint nodeBase;
-        public uint nodeCount;
-        public const int SizeBytes = 68;
+        public uint slabCount;
+        public uint surfelCount;
+        public uint shortfall;
+        public uint cellDirBase;
+        public uint freeSpaceBase;
+        public uint renderRoot;
+        public uint renderCount;
+        public uint pendingRoot;
+        public uint pendingCount;
+        public uint flags;
+        public uint lastTouchedTick;
+        public const int SizeBytes = 64;
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct FsSurfelLink  // 4 B
+    public unsafe struct FsIndexLeaf  // 64 B
     {
+        public uint count;
         public uint next;
-        public const int SizeBytes = 4;
+        public fixed uint handles[14];
+        public const int SizeBytes = 64;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public unsafe struct FsIndexNode  // 32 B
+    {
+        public fixed uint child[8];
+        public const int SizeBytes = 32;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct FsAssociation  // 16 B
+    {
+        public uint key;
+        public uint meas;
+        public float score;
+        public uint pageSlot;
+        public const int SizeBytes = 16;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct FsPendingPublish  // 16 B
+    {
+        public uint pageSlot;
+        public uint root;
+        public uint count;
+        public uint generation;
+        public const int SizeBytes = 16;
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -153,6 +181,15 @@ namespace FinalScan.World
         public const int SizeBytes = 8;
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public unsafe struct FsRenderNode  // 120 B
+    {
+        public FsClusterNode node;
+        public FsClusterError err;
+        public fixed uint child[8];
+        public const int SizeBytes = 120;
+    }
+
     public enum FsCounter
     {
         PcaFramesL = 0,
@@ -189,15 +226,27 @@ namespace FinalScan.World
 
     public static class WorldAbi
     {
-        public const int WorldAbiVersion = 1;
+        public const int WorldAbiVersion = 2;
         public const float SurfelPosUnitM = 0.00025f;
         public const float PageExtentM = 4.0f;
         public const float CellExtentM = 0.125f;
         public const int CellsPerAxis = 32;
         public const int CellsPerPage = 32768;
         public const uint IndexNone = 4294967295u;
-        public const int ClusterLeafMaxSurfels = 64;
-        public const int ClusterMaxNodesPerPage = 4096;
+        public const int SlabSurfels = 256;
+        public const int PageMaxSlabs = 4096;
+        public const uint PageFlagDirty = 1u;
+        public const uint PageFlagErase = 2u;
+        public const uint IndexEntryLeaf = 2147483648u;
+        public const uint IndexEntryNode = 1073741824u;
+        public const uint IndexEntryId = 1073741823u;
+        public const int IndexLeafCap = 14;
+        public const int IndexMaxDepth = 3;
+        public const int IndexChainMax = 4;
+        public const uint AssocKeyUnmatched = 2147483648u;
+        public const uint AssocKeyNone = 4294967295u;
+        public const int RenderBlockSurfels = 64;
+        public const int RenderChildren = 8;
         public const float ClusterErrorInf = 1e+30f;
         public const int DrawFlagAggregate = 8;
         public const int DrawFlagTransient = 16;
@@ -207,8 +256,11 @@ namespace FinalScan.World
         {
             Check(Marshal.SizeOf<FsSurfel>(), FsSurfel.SizeBytes, "FsSurfel");
             Check(Marshal.SizeOf<FsPageKey>(), FsPageKey.SizeBytes, "FsPageKey");
-            Check(Marshal.SizeOf<FsPageHeader>(), FsPageHeader.SizeBytes, "FsPageHeader");
-            Check(Marshal.SizeOf<FsSurfelLink>(), FsSurfelLink.SizeBytes, "FsSurfelLink");
+            Check(Marshal.SizeOf<FsPageDesc>(), FsPageDesc.SizeBytes, "FsPageDesc");
+            Check(Marshal.SizeOf<FsIndexLeaf>(), FsIndexLeaf.SizeBytes, "FsIndexLeaf");
+            Check(Marshal.SizeOf<FsIndexNode>(), FsIndexNode.SizeBytes, "FsIndexNode");
+            Check(Marshal.SizeOf<FsAssociation>(), FsAssociation.SizeBytes, "FsAssociation");
+            Check(Marshal.SizeOf<FsPendingPublish>(), FsPendingPublish.SizeBytes, "FsPendingPublish");
             Check(Marshal.SizeOf<FsPageHashEntry>(), FsPageHashEntry.SizeBytes, "FsPageHashEntry");
             Check(Marshal.SizeOf<FsSurfaceMeasurement>(), FsSurfaceMeasurement.SizeBytes, "FsSurfaceMeasurement");
             Check(Marshal.SizeOf<FsDrawRecord>(), FsDrawRecord.SizeBytes, "FsDrawRecord");
@@ -216,6 +268,7 @@ namespace FinalScan.World
             Check(Marshal.SizeOf<FsSurfelEvidence>(), FsSurfelEvidence.SizeBytes, "FsSurfelEvidence");
             Check(Marshal.SizeOf<FsClusterNode>(), FsClusterNode.SizeBytes, "FsClusterNode");
             Check(Marshal.SizeOf<FsClusterError>(), FsClusterError.SizeBytes, "FsClusterError");
+            Check(Marshal.SizeOf<FsRenderNode>(), FsRenderNode.SizeBytes, "FsRenderNode");
         }
 
         static void Check(int actual, int expected, string name)

@@ -90,7 +90,7 @@ for comp in "${fs_kernels[@]}"; do
     mirror="$(fs_mirror_dir "$comp")/${stem}_spirv.inc"
     if [[ -n "$fs_compiler" ]]; then
         case "$(basename -- "$fs_compiler")" in
-            glslangValidator*) "$fs_compiler" -V --target-env vulkan1.1 "${fs_glsl_inc[@]}" -o "$spv" "$comp" >/dev/null ;;
+            glslangValidator*) "$fs_compiler" -V --target-env vulkan1.1 "${fs_glsl_inc[@]}" -o "$spv" "$comp" > "$fs_gen/glslang.log" || { cat "$fs_gen/glslang.log" >&2; echo "kernel $comp failed to compile" >&2; exit 1; } ;;
             *) "$fs_compiler" -fshader-stage=compute --target-env=vulkan1.1 -O "${fs_glsl_inc[@]}" -o "$spv" "$comp" ;;
         esac
         [[ -z "$fs_spirv_val" ]] || "$fs_spirv_val" --target-env vulkan1.1 "$spv"
