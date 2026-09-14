@@ -1,0 +1,19 @@
+{
+  "name": "FinalScan.Runtime",
+  "rootNamespace": "FinalScan",
+  "references": [
+    "Oculus.VR", "Meta.XR.MRUtilityKit", "Unity.XR.OpenXR", "Unity.XR.Management",
+    "Unity.XR.ARFoundation", "Unity.XR.ARSubsystems", "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Core.Runtime", "Unity.InputSystem", "Unity.Mathematics",
+    "Unity.Collections", "Unity.Burst", "UnityEngine.UI"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": true,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

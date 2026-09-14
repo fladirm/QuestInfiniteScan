@@ -1,0 +1,18 @@
+# Unity host artifacts never live in this package repo
+Library/
+Temp/
+Logs/
+obj/
+Build/
+Builds/
+*.apk
+*.so
+*.spv
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.tmp
+mono_crash*

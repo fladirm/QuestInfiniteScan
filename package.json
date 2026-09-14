@@ -1,0 +1,22 @@
+{
+  "name": "eu.monle.finalscan",
+  "version": "0.1.0",
+  "displayName": "FinalScan",
+  "description": "Quest 3 native realtime metric surfel scanner. Clean implementation per FINALSCAN_V4_CONTRACT.md.",
+  "unity": "6000.5",
+  "author": { "name": "monle", "email": "monle@monle.eu" },
+  "dependencies": {
+    "com.meta.xr.sdk.core": "205.0.0",
+    "com.meta.xr.mrutilitykit": "205.0.0",
+    "com.unity.xr.openxr": "1.17.1",
+    "com.unity.xr.meta-openxr": "2.5.1",
+    "com.unity.xr.arfoundation": "6.5.0",
+    "com.unity.xr.management": "4.5.4",
+    "com.unity.render-pipelines.universal": "17.5.0",
+    "com.unity.inputsystem": "1.20.0",
+    "com.unity.mathematics": "1.4.0",
+    "com.unity.collections": "6.5.0",
+    "com.unity.burst": "1.8.30",
+    "com.unity.test-framework": "1.7.0"
+  }
+}
