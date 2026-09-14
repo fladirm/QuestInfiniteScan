@@ -71,6 +71,8 @@ namespace FinalScan.Platform.Sensor
         readonly CameraIntrinsicsData[] _intr = new CameraIntrinsicsData[2];
         readonly bool[] _intrLogged = new bool[2];
         EnvDepthSource _depth;
+        [Tooltip("Shaders/FinalScanDepthCopy.compute; assigned by the editor setup (the only Environment Depth copy path).")]
+        [SerializeField] ComputeShader depthCopyCompute;
         Transform _trackingSpace;
         Camera _mainCamera;
         Coroutine _boot, _apply;
@@ -89,7 +91,7 @@ namespace FinalScan.Platform.Sensor
             Pipeline = new SensorPipeline(Sink, initialProfile);
             Pipeline.Log += Debug.Log;
             ResolveTrackingSpace();
-            _depth = new EnvDepthSource(OvrNowSeconds, ToWorld, Debug.Log);
+            _depth = new EnvDepthSource(OvrNowSeconds, ToWorld, Debug.Log, depthCopyCompute);
         }
 
         void OnEnable()

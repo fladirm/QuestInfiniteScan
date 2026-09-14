@@ -1,0 +1,16 @@
+// FinalScan Environment Depth materialisation (donor: uniscan DepthNormals.compute CopyProjectionDepthArray).
+// Quest Environment Depth arrives as an external depth attachment (Tex2DArray, no portable colour GraphicsFormat);
+// it is valid only while the AR frame is current, so it is loaded texel-for-texel into scanner-owned R32 stereo
+// storage from a command buffer executed inside the frameReceived callback. No sampler, no blit, no conversion:
+// the value stays the OpenGL-style [0,1] projected depth the native measurement kernel linearises with near/far.
+#pragma kernel CopyDepthArray
+Texture2DArray<float> fsSrcDepth;
+RWTexture2DArray<float> fsDstDepth;
+[numthreads(8, 8, 1)]
+void CopyDepthArray(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height, slices;
+    fsSrcDepth.GetDimensions(width, height, slices);
+    if (id.x >= width || id.y >= height || id.z >= min(slices, 2u)) return;
+    fsDstDepth[id] = fsSrcDepth[id];
+}

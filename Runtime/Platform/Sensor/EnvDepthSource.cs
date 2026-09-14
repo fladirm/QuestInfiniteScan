@@ -58,7 +58,7 @@ namespace FinalScan.Platform.Sensor
         long _nextId = 1, _lastTs;
         int _restartAtFrame = -1;
         bool _handRemovalTried;
-        bool _copyModeDecided, _copyByCopyTexture;
+        readonly ComputeShader _copyCompute; readonly int _copyKernel; bool _sourceLogged;
         readonly CadenceMeter _cadence = new CadenceMeter(40_000_000);
 
         public DepthFrame LatestDepth { get; private set; }
@@ -72,14 +72,19 @@ namespace FinalScan.Platform.Sensor
         public long LastAgeNs { get; private set; }
         public double AgeMeanNs { get; private set; }
         public string HandRemoval { get; private set; } = "untried";
-        public string CopyMode => !_copyModeDecided ? "undecided" : _copyByCopyTexture ? "CopyTexture" : "BlitPerSlice(RFloat)";
+        public string CopyMode => _copyCompute != null ? "ComputeCopy(R32)" : "none";
         public bool Running => _occ != null && _occ.enabled && _subscribed;
         public double Fps(long nowXrNs) => _cadence.DeliveredFps(nowXrNs);
         public event Action<DepthFrame> DepthReceived;
 
-        public EnvDepthSource(Func<double> ovrNowSeconds, Func<Pose, Pose> toWorld, Action<string> log)
+        /// <param name="copyCompute">Shaders/FinalScanDepthCopy.compute (kernel CopyDepthArray): the only copy path. The external
+        /// depth attachment has no colour GraphicsFormat; Graphics.Blit per slice returned wrong values on device (run 22:40, raw 0.2-0.6).</param>
+        public EnvDepthSource(Func<double> ovrNowSeconds, Func<Pose, Pose> toWorld, Action<string> log, ComputeShader copyCompute)
         {
             _ovrNowSeconds = ovrNowSeconds; _toWorld = toWorld; _log = log;
+            _copyCompute = copyCompute;
+            _copyKernel = copyCompute != null ? copyCompute.FindKernel("CopyDepthArray") : -1;
+            if (copyCompute == null) _log?.Invoke("FS-SENSOR depth: FinalScanDepthCopy.compute not assigned; every depth frame will be dropped (CopyErrors)");
             for (int i = 0; i < PoolSize; i++) _free[i] = true;
         }
 
@@ -223,30 +228,39 @@ namespace FinalScan.Platform.Sensor
         RenderTexture EnsureSlot(int slot, Texture src)
         {
             int slices = src is Texture2DArray arr ? arr.depth : src is RenderTexture srt ? Math.Max(1, srt.volumeDepth) : 1;
-            if (!_copyModeDecided)
+            if (!_sourceLogged)
             {
-                _copyModeDecided = true;
-                bool color = src.graphicsFormat != GraphicsFormat.None && !GraphicsFormatUtility.IsDepthFormat(src.graphicsFormat) && !GraphicsFormatUtility.IsStencilFormat(src.graphicsFormat);
-                _copyByCopyTexture = color && SystemInfo.copyTextureSupport != UnityEngine.Rendering.CopyTextureSupport.None;
+                _sourceLogged = true;
                 _log?.Invoke("FS-SENSOR depth: source " + src.width + "x" + src.height + "x" + slices + " fmt=" + src.graphicsFormat + " dim=" + src.dimension + " copy=" + CopyMode);
             }
+            if (src.dimension != UnityEngine.Rendering.TextureDimension.Tex2DArray || _copyCompute == null) return null;
+            slices = Math.Min(slices, 2);
             var rt = _pool[slot];
             if (rt != null && (rt.width != src.width || rt.height != src.height || rt.volumeDepth != slices)) { rt.Release(); UnityEngine.Object.Destroy(rt); rt = null; }
             if (rt == null)
             {
-                var fmt = _copyByCopyTexture ? src.graphicsFormat : GraphicsFormat.R32_SFloat;
-                rt = new RenderTexture(src.width, src.height, 0, fmt) { dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray, volumeDepth = slices, enableRandomWrite = false, useMipMap = false, name = "FS depth slot " + slot };
+                rt = new RenderTexture(src.width, src.height, 0, GraphicsFormat.R32_SFloat) { dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray, volumeDepth = slices, enableRandomWrite = true, useMipMap = false, filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, name = "FS depth slot " + slot };
                 if (!rt.Create()) { UnityEngine.Object.Destroy(rt); return null; }
                 _pool[slot] = rt;
             }
             return rt;
         }
 
+        static readonly int SrcId = Shader.PropertyToID("fsSrcDepth"), DstId = Shader.PropertyToID("fsDstDepth");
+        /// <summary>Donor path: compute load of the external depth attachment into the owned R32 array, executed immediately (the attachment is valid only inside the frame callback).</summary>
         bool Copy(Texture src, RenderTexture dst)
         {
-            if (_copyByCopyTexture) { Graphics.CopyTexture(src, dst); return true; }
-            for (int s = 0; s < dst.volumeDepth; s++) Graphics.Blit(src, dst, s, s);
-            return true;
+            var cb = UnityEngine.Rendering.CommandBufferPool.Get("FS env depth copy");
+            try
+            {
+                cb.SetComputeTextureParam(_copyCompute, _copyKernel, SrcId, src);
+                cb.SetComputeTextureParam(_copyCompute, _copyKernel, DstId, dst);
+                cb.DispatchCompute(_copyCompute, _copyKernel, (dst.width + 7) / 8, (dst.height + 7) / 8, dst.volumeDepth);
+                Graphics.ExecuteCommandBuffer(cb);
+                return true;
+            }
+            catch (Exception e) { _log?.Invoke("FS-SENSOR depth copy failed: " + e.GetType().Name + ": " + e.Message); return false; }
+            finally { UnityEngine.Rendering.CommandBufferPool.Release(cb); }
         }
 
         void Free(DepthFrame f) { if (f.poolSlot >= 0) _free[f.poolSlot] = true; f.poolSlot = -1; f.texture = null; }

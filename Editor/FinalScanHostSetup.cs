@@ -43,6 +43,7 @@ namespace FinalScan.Editor
         public const string SurfelShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanSurfel.shader";
         public const string DepthCopyShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanDepthCopy.shader";
         public const string ControllerRayShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanControllerRay.shader";
+        public const string DepthCopyComputePath = "Packages/eu.monle.finalscan/Shaders/FinalScanDepthCopy.compute";
         public const string ScanPanelUxmlPath = "Packages/eu.monle.finalscan/Runtime/UI/ScanPanel.uxml";
         public const string PanelSettingsPath = "Assets/Settings/FinalScanPanelSettings.asset";
         const string RuntimeThemePath = "Assets/UI Toolkit/UnityThemes/UnityDefaultRuntimeTheme.tss";
@@ -289,6 +290,7 @@ namespace FinalScan.Editor
             if (root.GetComponent<InputMap>() == null) root.AddComponent<InputMap>();
             // C03 sensor authority: the single owner of PCA, Environment Depth, pose ring and recording.
             if (root.GetComponent<SensorAuthority>() == null) root.AddComponent<SensorAuthority>();
+            AssignAsset<ComputeShader>(root.GetComponent<SensorAuthority>(), "depthCopyCompute", DepthCopyComputePath);
             Debug.Log($"{Tag} Attached FinalScanHost, SensorAuthority, SurfelRenderer, ResidencyDriver, HostHud, InputMap to {RootObjectName}.");
 
             // C01 probe host only on request (FS_ATTACH_PROBE=1); otherwise removed so it never shares the device with the host.
@@ -368,6 +370,20 @@ namespace FinalScan.Editor
         }
 
         /// <summary>Assigns a package shader to a serialized field so the shader is referenced by the scene and survives build stripping.</summary>
+        internal static void AssignAsset<T>(UnityEngine.Object target, string field, string assetPath) where T : UnityEngine.Object
+        {
+            T asset = AssetDatabase.LoadAssetAtPath<T>(assetPath);
+            if (asset == null) throw new FileNotFoundException("FinalScan asset missing", assetPath);
+            var serialized = new SerializedObject(target);
+            SerializedProperty property = serialized.FindProperty(field);
+            if (property == null) throw new MissingFieldException(target.GetType().Name, field);
+            if (property.objectReferenceValue != asset)
+            {
+                property.objectReferenceValue = asset;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(target);
+            }
+        }
         internal static void AssignShader(UnityEngine.Object target, string field, string shaderPath)
         {
             Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
