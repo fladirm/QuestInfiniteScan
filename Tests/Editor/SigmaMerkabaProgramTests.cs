@@ -732,6 +732,44 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode()
+        {
+            long step = SigmaNumericDomain.One >> 4;
+            long[] codeA =
+            {
+                SigmaNumericDomain.One >> 2,
+                SigmaNumericDomain.FromRatio(3, 8),
+                SigmaNumericDomain.Half,
+                SigmaNumericDomain.FromRatio(5, 8),
+            };
+            long[] codeB = codeA.Select(value =>
+                SigmaNumericDomain.QAdd(value, step)).ToArray();
+
+            static long[] Tangent(IReadOnlyList<long> code)
+            {
+                long[] centred = code.Select(value => SigmaNumericDomain.QSub(
+                    SigmaNumericDomain.QShiftLeft(value, 1),
+                    SigmaNumericDomain.One)).ToArray();
+                long total = centred.Aggregate(0L, SigmaNumericDomain.QAdd);
+                return centred.Select(value => SigmaNumericDomain.QSub(
+                    SigmaNumericDomain.QShiftLeft(value, 2), total)).ToArray();
+            }
+
+            long[] tangentA = Tangent(codeA);
+            long[] tangentB = Tangent(codeB);
+            CollectionAssert.AreEqual(tangentA, tangentB,
+                "The generated four-I-minus-all-ones tangent intentionally " +
+                "annihilates a common code offset.");
+            Assert.That(SigmaGeneratedMerkabaProgram.LiftMerkabaShadow(tangentA),
+                Is.EqualTo(SigmaGeneratedMerkabaProgram.LiftMerkabaShadow(
+                    tangentB)),
+                "The accepted fresh S16 lift cannot distinguish the two codes.");
+            Assert.That(codeA[0], Is.Not.EqualTo(codeB[0]),
+                "The corresponding absolute depth/order code is nevertheless " +
+                "different and cannot be reconstructed from that S16 value.");
+        }
+
+        [Test]
         public void SignedXorAssociatorDiffractionMetricAndHolonomyAreExact()
         {
             int nonzeroAssociators = 0;

@@ -2,26 +2,23 @@
 
 ## Exchange 1 — user
 
-After Clear and immediate Start the scanner again stopped, and no carrier pixel was
-visible. N5R must be completed without postponing basic output to N6R.
+Implement N6R exactly according to its frozen contract, with no alternative design.
+After the complete N6 build, commit and push it, provide the link and install the
+same APK.
 
 ## Exchange 1 — assistant
 
-The captured run selected empty HEAD 613 and published roots 614 through 702, then
-support prefetch evicted the exact partial append tail `(116,0)` and subsequent
-admission failed closed. Separately, Clear set presentation to `None` permanently
-and two concurrent Clear calls raced on revision 613. The active narrow correction
-protects/rehydrates append tail, coalesces Clear, makes Start await it and restores
-the prior readout mode; N4 and durable canonical bytes are unchanged.
+N6 was activated only as a pure generated readout from immutable `Psi`; N4/N5,
+algebra, pager, persistence, aperture and queue topology remain frozen. The full
+shader/ABI/binding/test review was completed before production editing.
 
-## Exchange 2 — user
+## Exchange 2 — evidence
 
-The application is being stopped. Finish the repair and prove visible output and
-continued scanning on Quest.
-
-## Exchange 2 — assistant
-
-Stopping is safe; the decisive log is retained. Unity Vulkan is 170/170 and all
-static Quest gates pass. Next is generated control/code-graph validation, an exact-
-SHA Release APK and physical clear/start, append-tail, cold-revisit, sleep/restart
-closure with immutable FRONT visibly retained.
+The review proved that the accepted fresh representation erases an exact sensor
+common mode: `4I-J` gives identical four-axis tangents, and therefore identical
+fresh S16 lifts, for two code vectors with different absolute depth/order. The
+minimized certificate retains tangent intervals and direction modes but not that
+missing coordinate. The new focused regression test passes with the complete
+Unity/Vulkan corpus at 171/171. Exact N6 prediction/order cannot be produced from
+the current immutable `Psi` without reopening pre-N6 representation authority;
+building or committing a heuristic readout would violate the frozen contract.

@@ -823,3 +823,19 @@ branch/chart decisions remain in Git history only.
 - Disposable FRONT is not drawn while the anchor epoch is unverified. No canonical
   resource is changed or waited upon; after stable tracking the same immutable FRONT
   is rendered through the live room-to-world transform.
+
+## ADR-S464 — N5 conditionally hands one immutable `Psi` root to frozen N6 readouts
+
+- Exact-SHA `c6498c0` physical evidence accepts the N5 durable object graph,
+  bounded two-bank residency and former-capacity continuation as the singular
+  backing implementation. N5 is conditional rather than final only because its
+  restart/sleep/clear/cold-revisit lifecycle corpus will be repeated with N6.
+- N6 consumes one immutable published `Psi` root and mutates nothing. It replaces
+  the temporary mesh/page-halo presentation; it does not patch, persist or promote
+  that readout into physical authority. Readout caches remain disposable.
+- Generated eye, prediction, relation/debug and export query plans share the one
+  Merkaba program fingerprint. No XYZ weld, persistent seam graph, evidence-backed
+  texture truth, second world or canonical readout identity is permitted.
+- N4's algebra, fixed aperture, five-hertz admission, sixteen logical dispatches,
+  seven queue slices and N5's durable/resident topology stay frozen. S4-09 remains
+  unopened until joint N5+N6 physical acceptance.

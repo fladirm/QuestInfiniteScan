@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_digest": "04e0a1afd746fde0961217dede3b438fb05db5975bd1299d74435d3862f8ae43",
+  "source_digest": "b3dc7449f0cfd0f225aff45b5288521862f5f3b488d51b54a8f10258cec4b0d7",
   "scope": [
     "Runtime/**/*.cs",
     "Runtime/Resources/SigmaPrism/**/*.*",
@@ -11,8 +11,8 @@
   ],
   "summary": {
     "files": 118,
-    "symbols": 2827,
-    "methods_and_functions": 2384,
+    "symbols": 2829,
+    "methods_and_functions": 2386,
     "gpu_kernels": 45,
     "event_links": 6
   },
@@ -16759,18 +16759,18 @@
       "line": 25
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Buffer",
       "kind": "method",
-      "line": 1751
+      "line": 1789
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@954",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@992",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "CertificateMinimizerIsExactBoundedAndCouplingAware",
       "kind": "method",
-      "line": 954
+      "line": 992
     },
     {
       "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::CompleteAssociatorBasisProfileReconstructsEveryS16Context@152",
@@ -16794,116 +16794,123 @@
       "line": 230
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@891",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@929",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "DirectionalActionCarriesIntervalsAndStopsAtFirstHit",
       "kind": "method",
-      "line": 891
+      "line": 929
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1127",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1165",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "ExactZeroDivisorAndOneLsbResidualDoNotAlias",
       "kind": "method",
-      "line": 1127
+      "line": 1165
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Factor@1722",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Factor@1760",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Factor",
       "kind": "method",
-      "line": 1722
+      "line": 1760
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1060",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1098",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState",
       "kind": "method",
-      "line": 1060
+      "line": 1098
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeLess@1692",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode@735",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode",
+      "kind": "method",
+      "line": 735
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeLess@1730",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GaugeLess",
       "kind": "method",
-      "line": 1692
+      "line": 1730
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@984",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@1022",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GaugeSplitTransportCollapseAndNormalizationAreConstructive",
       "kind": "method",
-      "line": 984
+      "line": 1022
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference",
       "kind": "method",
-      "line": 1152
+      "line": 1190
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GeneratedHlslMatchesCpuTablesIrAndDirectionalAction",
       "kind": "method",
-      "line": 1372
+      "line": 1410
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@918",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@956",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction",
       "kind": "method",
-      "line": 918
+      "line": 956
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@1689",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Join@1727",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Join",
       "kind": "method",
-      "line": 1689
+      "line": 1727
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::NativeSectorChartOrbit@1646",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::NativeSectorChartOrbit@1684",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "NativeSectorChartOrbit",
       "kind": "method",
-      "line": 1646
+      "line": 1684
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@1728",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@1766",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Permutations",
       "kind": "method",
-      "line": 1728
+      "line": 1766
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@1736",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@1774",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "Permute",
       "kind": "method",
-      "line": 1736
+      "line": 1774
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::QuerySupportSummaryMatchesIndependentExhaustiveEvaluation@857",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::QuerySupportSummaryMatchesIndependentExhaustiveEvaluation@895",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "QuerySupportSummaryMatchesIndependentExhaustiveEvaluation",
       "kind": "method",
-      "line": 857
+      "line": 895
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ResolveAdjacentFrameReference@1653",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ResolveAdjacentFrameReference@1691",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "ResolveAdjacentFrameReference",
       "kind": "method",
-      "line": 1653
+      "line": 1691
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@803",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@841",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "ShadowKernelDefaultAndExactFactorClassesFailClosed",
       "kind": "method",
-      "line": 803
+      "line": 841
     },
     {
       "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SigmaMerkabaProgramTests",
@@ -16913,18 +16920,25 @@
       "line": 13
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedMorton@1702",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedMorton@1740",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "SignedMorton",
       "kind": "method",
-      "line": 1702
+      "line": 1740
     },
     {
-      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@735",
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@773",
       "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
       "name": "SignedXorAssociatorDiffractionMetricAndHolonomyAreExact",
       "kind": "method",
-      "line": 735
+      "line": 773
+    },
+    {
+      "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::Tangent@747",
+      "file": "Tests/Editor/SigmaMerkabaProgramTests.cs",
+      "name": "Tangent",
+      "kind": "method",
+      "line": 747
     },
     {
       "id": "Tests/Editor/SigmaMerkabaProgramTests.cs::UInt4",
@@ -35481,7 +35495,7 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@954",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::CertificateMinimizerIsExactBoundedAndCouplingAware@992",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@4023",
       "kind": "calls"
     },
@@ -35626,183 +35640,228 @@
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@891",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::DirectionalActionCarriesIntervalsAndStopsAtFirstHit@929",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1127",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1165",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::DenseReferenceMultiply@260",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1127",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1165",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1127",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1165",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::GetZeroDivisorEntry@372",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1127",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ExactZeroDivisorAndOneLsbResidualDoNotAlias@1165",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::ToS16@170",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1060",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1098",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1060",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1098",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1060",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1098",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@846",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1060",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1098",
       "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::TryResolveFreshBaseAdmission@864",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1060",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshAdmissionIsGeneratedFromShadowPreimageNotProposedState@1098",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaFreshShadowBranch",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@984",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@1728",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode@735",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Aggregate",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@984",
-      "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
-      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode@735",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@217",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode@735",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
-      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode@735",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QShiftLeft@99",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode@735",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QSub@30",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::NativeSectorChartOrbit@1646",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode@735",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Tangent@747",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::ResolveAdjacentFrameReference@1653",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@1022",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@1766",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1152",
-      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@846",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
-      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
-      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@217",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
-      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QNegate@40",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
-      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Sign@154",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeLess@1692",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
-      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@4023",
-      "kind": "calls"
-    },
-    {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1372",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeSplitTransportCollapseAndNormalizationAreConstructive@1022",
       "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@918",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@217",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QAdd@28",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Runtime/SigmaPrism/SigmaS16.cs::FromArray@82",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::NativeSectorChartOrbit@1684",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::ResolveAdjacentFrameReference@1691",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedFiniteDyadicAndD4LoweringsMatchSemanticReference@1190",
+      "target": "Tests/Editor/SigmaMerkabaSemanticOracle.cs::EvaluateMerkabaShadow@846",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
+      "target": "Runtime/SigmaPrism/SigmaExactBackendGate.cs::Dispatch@45",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::FromRatio@217",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QNegate@40",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
+      "target": "Runtime/SigmaPrism/SigmaOperatorPlan.cs::Sign@154",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::GaugeLess@1730",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
       "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@4023",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@1728",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@1736",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedHlslMatchesCpuTablesIrAndDirectionalAction@1410",
+      "target": "Tools/sigma/generate_sigma_operators.py::SigmaGaugeCell",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ResolveAdjacentFrameReference@1653",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::NativeSectorChartOrbit@1646",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::GeneratedReverseDescriptorsRetainZeroBranchesAndSceneDisjunction@956",
+      "target": "Tests/Editor/SigmaNativeFrameTests.cs::Count@4023",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@803",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permutations@1766",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Permute@1774",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ResolveAdjacentFrameReference@1691",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::NativeSectorChartOrbit@1684",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@841",
       "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::SigmaQ48Interval",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@803",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::ShadowKernelDefaultAndExactFactorClassesFailClosed@841",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@735",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@773",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Associator@341",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@735",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@773",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::Basis@95",
       "kind": "calls"
     },
     {
-      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@735",
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::SignedXorAssociatorDiffractionMetricAndHolonomyAreExact@773",
       "target": "Runtime/SigmaPrism/SigmaS16.cs::BasisProductSign@239",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Tangent@747",
+      "target": "Runtime/SigmaPrism/SigmaGpuKernelTelemetry.cs::Aggregate",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Tangent@747",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QShiftLeft@99",
+      "kind": "calls"
+    },
+    {
+      "source": "Tests/Editor/SigmaMerkabaProgramTests.cs::Tangent@747",
+      "target": "Runtime/SigmaPrism/SigmaNumericDomain.cs::QSub@30",
       "kind": "calls"
     },
     {
@@ -37577,7 +37636,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::AssertGpuRelationsMatchCpu@2578",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {
@@ -37992,7 +38051,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuContractOverflow@2262",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {
@@ -38067,7 +38126,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFootprintLift@1883",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {
@@ -38102,7 +38161,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuFreshAdmission@2027",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {
@@ -38142,7 +38201,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::RunGpuQuerySet@2725",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {
@@ -38257,7 +38316,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanConstructiveStitchSetMatchesGeneratedCpuAuthority@813",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {
@@ -38402,7 +38461,7 @@
     },
     {
       "source": "Tests/Editor/SigmaNativeOracleTests.cs::VulkanQueryContractOverflowAndWindowingMatchCpuOracle@1409",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {
@@ -38632,7 +38691,7 @@
     },
     {
       "source": "Tests/Editor/SigmaPoseGaugeTests.cs::VulkanPoseKernelsSolveAndCorrectTheSameRigGauge@124",
-      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1751",
+      "target": "Tests/Editor/SigmaMerkabaProgramTests.cs::Buffer@1789",
       "kind": "calls"
     },
     {

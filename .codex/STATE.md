@@ -12,10 +12,12 @@ Updated: 2026-09-02 (Europe/Prague)
   complete 24-assignment representation-only `Z² semidirect D4` chart theorem.
   Corrective N2R-7 proves the same set operation on CPU and Vulkan with
   Runtime/Resources `+0/-0`; N3R remains the accepted live bootstrap and the N4.2R
-  XR execution/lifecycle cut is physically accepted. N5R A--E is now the active
-  representation-aware durable-backing cut; its two-binding-bank static candidate
-  is green and final physical Quest continuation/restart/clear evidence is still
-  pending. S4-09 is unopened.
+  XR execution/lifecycle cut is physically accepted. N5R A--E is conditionally
+  accepted as the singular durable/resident backing implementation: it has crossed
+  the former resident limit repeatedly and continued exact publication without a
+  fault. The user has explicitly activated frozen N6R pure query readouts; the
+  remaining N5 restart/sleep/clear gates will be rerun jointly with N6. S4-09 is
+  unopened.
 - Active repair: S4‑08.6 one-medium native closure.
 - Frozen plan: `.codex/S4-08.6_NATIVE_CLOSURE_PLAN.md`.
 - Sole routine cursor: `.codex/S4-08.6_RESUME.md`.
@@ -23,6 +25,64 @@ Updated: 2026-09-02 (Europe/Prague)
 - S4‑09 remains pending/unopened.
 
 ## Active N5R durable-backing device candidate
+
+The exact `c6498c0` Quest run is the conditional N5 handoff into N6. It restored
+durable HEAD 702 / extent 476998 off the Unity thread, then published 81/81
+transactions from root 712 through 792 and extent 59776 through 557858. Fifty-five
+former-capacity receipts became bounded `COLD_CONTINUATION`, all 46 requested
+support rehydrates completed, and every receipt ended with `fault=0` and
+`unresolved=0`. No KGSL, MMU, device-lost, fence-timeout, revision-mismatch or
+root-regression event occurred. XR samples held p50 71 FPS and p95 73 FPS. At the
+last view, 113 exact conservative canonical-page generations (85 support, 27
+readout-neighbour residency, one partial append tail) exceeded 112 decoded page
+pairs and correctly backpressured without losing the durable world. FRONT/BACK
+readout remains disposable and none of these counts is a persisted readout page.
+
+N5 is therefore conditionally closed for architecture and long-scan continuation,
+not finally accepted: same-anchor sleep/wake, restart, explicit clear and a natural
+evicted-supported-page revisit will be repeated against the N6 checkpoint. N6 is
+now the sole active execution cut and must replace, not optimize, the temporary
+mesh/halo presentation with pure generated queries over one immutable `Psi` root.
+
+## Active N6R pure-query readout replacement
+
+The mandatory coherent pre-edit review is complete. The complete production
+sources `SigmaRenderer.cs`, `SigmaForwardReadout.compute`,
+`SigmaGeometryReadout.hlsl`, `SigmaPredict.shader`,
+`SigmaDirectCarrierPreview.shader` and `SigmaNativeQuery.compute` were read with
+all kernel entry points and resources. Their direct ABI/includes
+`SigmaFrameAbi.hlsl`, `SigmaCarrierAbi.hlsl`, `SigmaOperatorPlan.hlsl`,
+`SigmaNativeMath.hlsl` and the complete generated
+`SigmaGeneratedMerkabaProgram.hlsl` were reviewed together with C# bindings in
+`SigmaInverseController.cs`, `SigmaPredictionFrame.cs` and `SigmaCarrier.cs`.
+The directly affected `SigmaForwardReadoutTests`, native-frame/oracle tests,
+generated semantic oracle, query/representation manifests and generator query-plan
+assembly were also reviewed.
+
+The replacement boundary is exact: retain the accepted two-generation immutable
+FRONT/BACK lifetime shell, but delete its legacy XYZ/page-halo payload and every
+live `SigmaGeometryReadoutPlan` consumer. Populate and consume disposable generated
+eye/prediction query products from one pinned immutable published `Psi` revision.
+Intrinsic relation/debug and export remain generated pure queries; export buffers
+are on-demand only. No N4/N5 canonical byte, algebra, pager, aperture, cadence,
+native dispatch or seven-slice queue topology is in this edit domain.
+
+Implementation is currently stopped at a proved pre-N6 representation mismatch,
+not at a shader-design choice. `SigmaMerkabaAssembleInstrumentTangent` maps the four
+absolute sensor codes through `4I-J`; adding the same exact dyadic offset to depth
+and all three optical codes therefore leaves all four tangent coordinates
+identical. The accepted fresh path stores only that tangent through
+`SigmaMerkabaSelectFreshTangent` and `SigmaMerkabaLiftShadow`; its minimized
+certificate stores tangent intervals, widths, context and 48-mode direction masks,
+but no absolute metric direct-order/common-mode coordinate. Two distinct exact
+depth codes consequently produce byte-identical fresh S16. The focused
+`FreshTangentLiftDoesNotRetainAbsoluteSensorCodeCommonMode` gate proves this and the
+complete Unity/Vulkan corpus passes 171/171. Because N6 requires predicted
+order/depth from immutable `Psi` while forbidding any N4/canonical change, XYZ
+heuristic or evidence-journal readout, no exact N6 lowering exists from the current
+published representation. A Release APK or N6 checkpoint would be knowingly
+nonconforming until the frozen authority explicitly permits retaining the missing
+query coordinate before the tangent quotient.
 
 N5R retains the accepted N4.2R algebra, sixteen logical dispatches, seven queue-1
 slices, immutable FRONT readout, 5 Hz admission and fixed sensor aperture. The
