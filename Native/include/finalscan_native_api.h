@@ -15,7 +15,10 @@ enum FsRenderEvent {
     FS_EVT_PROBE_OVERLAP_START= 3,   // start long bounded compute job stream on scanner queue
     FS_EVT_PROBE_OVERLAP_STOP = 4,   // stop it; results in probe json
     FS_EVT_PROBE_PIPELINE_BIN = 5,   // create trivial compute pipeline, query pipeline key / binary support
-    FS_EVT_PROBE_FRAME_MARK   = 6    // write a graphics-queue timestamp for frame correlation
+    FS_EVT_PROBE_FRAME_MARK   = 6,   // write a graphics-queue timestamp for frame correlation
+    FS_EVT_PROBE_OVERLAP_PUMP = 7    // (ABI 1 additive) fallback when no scanner queue exists: submits one
+                                     // bounded compute job on the Unity graphics queue per event while the
+                                     // overlap stream is active; no-op when the scanner queue is available
 };
 int32_t FsNative_GetAbiVersion(void);
 int32_t FsNative_IsVulkanReady(void);
@@ -40,6 +43,9 @@ int32_t FsNative_CameraProbeStop(void);
 int32_t FsNative_CameraProbeReportJson(char* buf, int32_t cap);
 // AHardwareBuffer -> VkImage import probe (needs Vulkan ready). Result in device report "ahbImport".
 int32_t FsNative_AhbImportProbe(void);
+// (ABI 1 additive) Scanner queue identity: FS_OK with family/index of the injected second queue,
+// FS_ERR_UNAVAILABLE (family/index = -1) when probes fall back to the Unity graphics queue.
+int32_t FsNative_GetScannerQueueInfo(int32_t* family, int32_t* index);
 #ifdef __cplusplus
 }
 #endif

@@ -2,7 +2,7 @@
   "name": "FinalScan.Editor",
   "rootNamespace": "FinalScan.Editor",
   "references": [
-    "FinalScan.Runtime", "Oculus.VR", "Oculus.VR.Editor", "Meta.XR.MRUtilityKit",
+    "FinalScan.Runtime", "Oculus.VR", "Oculus.VR.Editor", "meta.xr.mrutilitykit",
     "Meta.XR.BuildingBlocks", "Meta.XR.BuildingBlocks.Editor", "Unity.XR.OpenXR",
     "Unity.XR.OpenXR.Editor", "Unity.XR.Management", "Unity.XR.Management.Editor",
     "Unity.XR.ARFoundation", "Unity.RenderPipelines.Universal.Runtime",
