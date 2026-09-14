@@ -16,7 +16,8 @@ layout(std430, set = 0, binding = FS_RB_DRAW) writeonly buffer AggScratchBlock {
 layout(local_size_x = FS_WG_SMALL) in;
 layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; } pc;
 
-bool fsProjectAabb(FsCullFrame F, vec3 wmin, vec3 wmax, out float nearest, out vec2 ndcMin, out vec2 ndcMax) {
+#define F frames[pc.frameSlot]
+bool fsProjectAabb(vec3 wmin, vec3 wmax, out float nearest, out vec2 ndcMin, out vec2 ndcMax) {
     nearest = 1e30; ndcMin = vec2(1e30); ndcMax = vec2(-1e30);
     for (int i = 0; i < 8; ++i) {
         vec3 c = vec3((i & 1) != 0 ? wmax.x : wmin.x, (i & 2) != 0 ? wmax.y : wmin.y, (i & 4) != 0 ? wmax.z : wmin.z);
@@ -57,7 +58,6 @@ void main() {
     if (i >= work[FS_WK_EXPAND_ARGS + 4u * parity + 3u]) return;
     uint node = work[fsFrontierWord(parity, i) + 0u], slot = work[fsFrontierWord(parity, i) + 1u];
     if (node == FS_INDEX_NONE) return;
-    FsCullFrame F = frames[pc.frameSlot];
     FsPageDesc d = pages[slot];
     mat4 A = F.anchors[min(uint(max(d.key.anchorId, 0)), uint(FS_MAX_ANCHORS - 1))];
     vec3 origin = fsPageOrigin3(d.key);
@@ -80,7 +80,7 @@ void main() {
         if (dot(axisW, normalize(toHead)) < -(sinHalf + slack)) { atomicAdd(work[FS_WK_STAT + FS_CSTAT_NODES_CONE], 1u); return; }
     }
     float nearest; vec2 ndcMin, ndcMax;
-    bool projected = fsProjectAabb(F, wmin, wmax, nearest, ndcMin, ndcMax);
+    bool projected = fsProjectAabb(wmin, wmax, nearest, ndcMin, ndcMax);
     if (projected && F.misc.x == uint(FS_RENDER_MODE_SCAN)) {                 // HZB band test, fail-open
         vec2 tMin = clamp((ndcMin * 0.5 + 0.5) * float(FS_HZB_SIZE), vec2(0.0), vec2(FS_HZB_SIZE - 1));
         vec2 tMax = clamp((ndcMax * 0.5 + 0.5) * float(FS_HZB_SIZE), vec2(0.0), vec2(FS_HZB_SIZE - 1));

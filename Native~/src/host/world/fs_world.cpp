@@ -721,7 +721,7 @@ public:
         w.KV("shortfallTotal", shortfallTotal_); w.KV("slabStalls", slabStalls_); w.KV("resets", resets_);
         w.KV("epochMeasCap", epochMeasCap_); w.KV("epochDirtyCap", epochDirtyCap_); w.KV("slices", slices_); w.KV("capHalvings", capHalvings_);
         w.Key("fusion"); w.BeginObject();
-        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","_28","_29","nextSurfaceId","_31"};
+        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","_29","nextSurfaceId","_31"};
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (names[i][0] != '_') w.KV(names[i], gctrTotal_[i]);
         w.EndObject();
         w.Key("memory"); w.BeginObject();

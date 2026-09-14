@@ -15,7 +15,8 @@ void main() {
     if (slot >= pc.pageCount) return;
     FsPageDesc d = pages[slot];
     if (d.generation == 0u || d.renderRoot == FS_INDEX_NONE) return;
-    FsCullFrame F = frames[pc.frameSlot];
+    // No by-value copy of the 4.7 KB frame block (64 anchors): every field is read in place from the SSBO (C09R closure defect R).
+#define F frames[pc.frameSlot]
     atomicAdd(work[FS_WK_STAT + FS_CSTAT_PAGES_TESTED], 1u);
     if (F.misc.z == 1u && work[FS_WK_CACHE_ROOT + slot] == d.renderRoot && work[FS_WK_CACHE_STATE + slot] == FS_PAGE_STATE_OUTSIDE) {
         atomicAdd(work[FS_WK_STAT + FS_CSTAT_PAGES_REUSED], 1u); atomicAdd(work[FS_WK_STAT + FS_CSTAT_PAGES_CULLED], 1u); return;

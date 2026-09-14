@@ -30,7 +30,8 @@ void main() {
     uint node = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 0u], slot = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 1u];
     uint dst = base + lane;
     if (dst >= pc.opaqueCapacity) return;                                       // over budget: counted by the compact pass
-    FsCullFrame F = frames[pc.frameSlot];
+    // No by-value copy of the 4.7 KB frame block (64 anchors): every field is read in place from the SSBO (C09R closure defect R).
+#define F frames[pc.frameSlot]
     FsPageDesc d = pages[slot];
     mat4 A = F.anchors[min(uint(max(d.key.anchorId, 0)), uint(FS_MAX_ANCHORS - 1))];
     uint block = rnodes[node].node.firstChildOrSurfel;

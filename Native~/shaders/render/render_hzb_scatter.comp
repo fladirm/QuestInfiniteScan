@@ -24,7 +24,8 @@ shared uint sOcc[FS_HZB_WIN * FS_HZB_WIN];
 shared uint sGrad[FS_HZB_WIN * FS_HZB_WIN];
 void main() {
     uint source = gl_WorkGroupID.z >> 1u, eye = gl_WorkGroupID.z & 1u;
-    FsCullFrame F = frames[pc.frameSlot];
+    // No by-value copy of the 4.7 KB frame block (64 anchors): every field is read in place from the SSBO (C09R closure defect R).
+#define F frames[pc.frameSlot]
     if ((F.misc.w & (1u << source)) == 0u) return;                                  // uniform per workgroup
     vec4 dims = source == 0u ? F.srcDepth : F.envDepth;
     if (eye >= uint(dims.z)) return;                                                // uniform per workgroup
