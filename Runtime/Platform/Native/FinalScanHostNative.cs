@@ -13,7 +13,7 @@ namespace FinalScan.Platform.Native
     /// </summary>
     public static class FinalScanHostNative
     {
-        public const int AbiVersion = 2;
+        public const int AbiVersion = 3;
         const string Lib = "FinalScanNative";
 
         // FsResult (finalscan_native_api.h)
@@ -37,13 +37,13 @@ namespace FinalScan.Platform.Native
         /// <summary>FsRender_SetMode values (contract §13.5 render modes).</summary>
         public enum RenderModeId { Scan = 0, XRay = 1, Plan = 2 }
 
-        /// <summary>Byte-identical mirror of FsHostConfig (100 B). Fill through <see cref="HostConfig.Create"/>.</summary>
+        /// <summary>Byte-identical mirror of FsHostConfig (ABI 3, 100 B). Fill through <see cref="HostConfig.Create"/>.</summary>
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         public unsafe struct HostConfig
         {
             public uint structSize;
-            public uint residentPageSlots;
-            public uint surfelsPerPage;
+            public uint residentPages;
+            public uint canonicalSurfels;
             public uint pageHashCapacity;
             public uint measurementRingCapacity;
             public uint drawRecordCapacity;
@@ -52,9 +52,13 @@ namespace FinalScan.Platform.Native
             public fixed uint quantumUs[JobClassCount];
             public uint useScannerQueue;
             public uint enableSyntheticWorld;
-            public fixed uint reserved[6];
+            public uint indexLeaves;
+            public uint indexNodes;
+            public uint renderBlocks;
+            public uint renderNodes;
+            public fixed uint reserved[2];
 
-            public const int SizeBytes = 4 * (7 + JobClassCount + JobClassCount + 2 + 6);
+            public const int SizeBytes = 4 * (7 + JobClassCount + JobClassCount + 2 + 4 + 2);
 
             public static HostConfig Create()
             {
@@ -98,10 +102,13 @@ namespace FinalScan.Platform.Native
         [DllImport(Lib)] static extern uint FsWorld_GetFrontGeneration();
         [DllImport(Lib)] static extern int FsWorld_SetAnchorTransform(int anchorId, float[] worldFromAnchor16);
         [DllImport(Lib)] static extern int FsWorld_Erase(float[] center3, float radius, int anchorId);
+        [DllImport(Lib)] static extern int FsWorld_Reset();
+        [DllImport(Lib)] static extern int FsWorld_GetTelemetryJson(byte[] buf, int cap);
 
         [DllImport(Lib)] static extern int FsResidency_SetCenter(float[] predictedPos3, float innerRadius, float warmRadius, float prefetchRadius);
         [DllImport(Lib)] static extern int FsResidency_GetZoneStats(long[] out8);
 
+        [DllImport(Lib)] static extern int FsRender_GetTelemetryJson(byte[] buf, int cap);
         [DllImport(Lib)] static extern int FsRender_RegisterBuffers(IntPtr unityDrawRecordBuffer, uint drawRecordBytes, IntPtr unityIndirectArgsBuffer);
         [DllImport(Lib)] static extern int FsRender_SetView(float[] viewL16, float[] projL16, float[] viewR16, float[] projR16, float[] headPos3);
         [DllImport(Lib)] static extern int FsRender_GetLastCullStats(long[] out4);
@@ -166,6 +173,11 @@ namespace FinalScan.Platform.Native
         public static uint FrontGeneration => FsWorld_GetFrontGeneration();
         public static int SetAnchorTransform(int anchorId, float[] worldFromAnchorColumnMajor16) => FsWorld_SetAnchorTransform(anchorId, worldFromAnchorColumnMajor16);
         public static int Erase(float[] center3, float radius, int anchorId) => FsWorld_Erase(center3, radius, anchorId);
+        /// <summary>FsWorld_Reset: the dedicated world reset transaction (executor and sensors stay alive).</summary>
+        public static int ResetWorld() => FsWorld_Reset();
+        public static string WorldTelemetryJson() => ReadJson(FsWorld_GetTelemetryJson);
+        /// <summary>FsRender_GetTelemetryJson: per-dispatch device stage times of the last cut (C09R §31).</summary>
+        public static string RenderTelemetryJson() => ReadJson(FsRender_GetTelemetryJson);
 
         public static int SetResidencyCenter(float[] predictedPos3, float innerRadius, float warmRadius, float prefetchRadius) => FsResidency_SetCenter(predictedPos3, innerRadius, warmRadius, prefetchRadius);
         public static int GetZoneStats(long[] out8) => FsResidency_GetZoneStats(out8);
@@ -207,6 +219,9 @@ namespace FinalScan.Platform.Native
         public static uint FrontGeneration => 0;
         public static int SetAnchorTransform(int anchorId, float[] worldFromAnchorColumnMajor16) => ResultUnavailable;
         public static int Erase(float[] center3, float radius, int anchorId) => ResultUnavailable;
+        public static int ResetWorld() => ResultUnavailable;
+        public static string WorldTelemetryJson() => "{}";
+        public static string RenderTelemetryJson() => "{}";
         public static int SetResidencyCenter(float[] predictedPos3, float innerRadius, float warmRadius, float prefetchRadius) => ResultUnavailable;
         public static int GetZoneStats(long[] out8) => ResultUnavailable;
         public static int RegisterRenderBuffers(IntPtr drawRecordBuffer, uint drawRecordBytes, IntPtr indirectArgsBuffer) => ResultUnavailable;

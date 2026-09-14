@@ -25,8 +25,13 @@ namespace FinalScan.Host
         public static FinalScanHost Current { get; private set; }
 
         [Header("FsHostConfig (provisional, contract §15 / finalscan_host_api.h)")]
-        [SerializeField] uint residentPageSlots = 256;
-        [SerializeField] uint surfelsPerPage = 16384;
+        [SerializeField] uint residentPages = 256;
+        [Tooltip("Canonical surfel pool (slabs of 256). 4 M = 128 MiB surfels + 32 MiB evidence.")]
+        [SerializeField] uint canonicalSurfels = 4194304;
+        [SerializeField] uint indexLeaves = 1048576;
+        [SerializeField] uint indexNodes = 262144;
+        [SerializeField] uint renderBlocks = 65536;
+        [SerializeField] uint renderNodes = 524288;
         [SerializeField] uint pageHashCapacity = 4096;
         [SerializeField] uint measurementRingCapacity = 1 << 18;
         [SerializeField] uint drawRecordCapacity = 1 << 20;
@@ -153,24 +158,19 @@ namespace FinalScan.Host
         public string LastResetResult { get; private set; } = "none";
 
         /// <summary>
-        /// RESET WORLD (C22): FsHost_Shutdown + FsHost_Init with the same config (there is no dedicated native reset
-        /// export in ABI 2; if one appears it should replace this). Render buffers re-register on the next frame;
-        /// synthetic fixture and LOD/mode hand-offs replay when the executor reaches READY again.
+        /// RESET WORLD (C22 / C09R §25): the dedicated native world reset transaction (FsWorld_Reset). Observations stop,
+        /// empty roots are published through the graphics path, allocations are freed after retirement, the page map and
+        /// ids reset. The executor, its warmed pipelines, the sensor authority and the renderer stay alive.
         /// </summary>
         public bool ResetWorld()
         {
             if (!_native) { LastResetResult = "native absent"; Debug.Log("[FinalScan] reset skipped: " + LastResetResult); return false; }
-            int down = FinalScanHostNative.Shutdown();
-            var cfg = BuildConfig();
-            _initResult = FinalScanHostNative.Init(ref cfg);
-            _renderEventFunc = FinalScanHostNative.RenderEventFunc;
-            _syntheticRequested = false; _lodPolicySent = false; _modeSent = false; _prevDepthFrame = -1;
-            _status = FinalScanHostNative.Status; _lastLoggedStatus = (FinalScanHostNative.HostStatus)(-1);
-            SurfelRenderer.Current?.InvalidateRegistration();
-            LastResetResult = $"shutdown rc={down} init rc={_initResult}";
+            int rc = FinalScanHostNative.ResetWorld();
+            _syntheticRequested = false;
+            LastResetResult = $"FsWorld_Reset rc={rc}";
             Debug.Log("[FinalScan] RESET WORLD: " + LastResetResult);
-            _log?.Emit(TelemetryPrefix, "{\"event\":\"reset\",\"shutdownRc\":" + down + ",\"initRc\":" + _initResult + "}");
-            return _initResult == FinalScanHostNative.ResultOk;
+            _log?.Emit(TelemetryPrefix, "{\"event\":\"reset\",\"rc\":" + rc + "}");
+            return rc == FinalScanHostNative.ResultOk;
         }
 
         // ---- IRenderFrameHost ---------------------------------------------------------------------------------------
@@ -242,8 +242,9 @@ namespace FinalScan.Host
         public FinalScanHostNative.HostConfig BuildConfig()
         {
             var c = FinalScanHostNative.HostConfig.Create();
-            c.residentPageSlots = residentPageSlots;
-            c.surfelsPerPage = surfelsPerPage;
+            c.residentPages = residentPages;
+            c.canonicalSurfels = canonicalSurfels;
+            c.indexLeaves = indexLeaves; c.indexNodes = indexNodes; c.renderBlocks = renderBlocks; c.renderNodes = renderNodes;
             c.pageHashCapacity = pageHashCapacity;
             c.measurementRingCapacity = measurementRingCapacity;
             c.drawRecordCapacity = drawRecordCapacity;
@@ -394,8 +395,10 @@ namespace FinalScan.Host
         {
             if (Time.unscaledTime < _nextTelemetry) return;
             _nextTelemetry = Time.unscaledTime + Mathf.Max(0.5f, telemetryIntervalSec);
-            string native = "{}";
+            string native = "{}", world = "{}", render = "{}";
             try { native = FinalScanHostNative.TelemetryJson(); } catch (Exception e) { native = "{\"error\":" + JsonWriter.Escape(e.Message) + "}"; }
+            try { world = FinalScanHostNative.WorldTelemetryJson(); } catch (Exception e) { world = "{\"error\":" + JsonWriter.Escape(e.Message) + "}"; }
+            try { render = FinalScanHostNative.RenderTelemetryJson(); } catch (Exception e) { render = "{\"error\":" + JsonWriter.Escape(e.Message) + "}"; }
             var w = new JsonWriter(1024);
             w.BeginObject()
              .Prop("t", Time.realtimeSinceStartupAsDouble)
@@ -420,6 +423,8 @@ namespace FinalScan.Host
              .Prop("envDepthSource", _envDepth != null ? _envDepth.Source : "none")
              .Prop("syntheticRc", _syntheticResult)
              .PropRaw("native", native)
+             .PropRaw("world", world)
+             .PropRaw("render", render)
              .EndObject();
             _log.Emit(TelemetryPrefix, w.ToString());
             _telemetryLines++;

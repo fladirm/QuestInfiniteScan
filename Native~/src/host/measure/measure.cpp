@@ -169,7 +169,7 @@ public:
         Mat4 anchorFromWorld; if (!Invert(worldFromAnchor, anchorFromWorld)) anchorFromWorld = Identity();
         const uint32_t w = importedW_ ? importedW_ : input_.width, h = importedH_ ? importedH_ : input_.height;
         const uint32_t layers = importedLayers_ >= 2 ? 2u : 1u;
-        const uint32_t obsId = (uint32_t)(uint64_t)input_.xrTimeNs;
+        const uint32_t obsId = (uint32_t)(++observationSeq_ & 0x7FFFFFFFull);   // identity = monotonic sequence (time stays XrTime), wraps at 2^31
         // frame block (host-coherent, written before submit): counters reset + per-eye anchorFromEye / fov
         FrameBlock& blk = *slot.blk;
         memset(blk.ctr, 0, sizeof blk.ctr);
@@ -273,7 +273,7 @@ private:
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
     Pipeline pipe_;
     RingSlot slots_[FS_MEAS_GPU_RING_SLOTS];
-    bool jobInFlight_ = false; uint64_t handoffSeq_ = 0, binds_ = 0;
+    bool jobInFlight_ = false; uint64_t handoffSeq_ = 0, binds_ = 0, observationSeq_ = 0;
     int64_t framesSeen_ = 0, framesSubmitted_ = 0, framesSuperseded_ = 0, lastCount_ = 0, lastOverflow_ = 0, lastGpuUs_ = 0, importFailures_ = 0, lastEdge_ = 0;
 };
 
