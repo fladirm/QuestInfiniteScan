@@ -16,7 +16,8 @@ constexpr uint32_t kDefaultFrameBudgetUs = 2500;        // contract §15.4 / FsH
 constexpr uint32_t kFallbackQuantumCapUs = 1000;        // graphics-queue fallback: quantum <= 1 ms (design §3)
 constexpr uint32_t kMaxDispatchesPerJob = 32;           // query pool sizing: 2 per dispatch + 2 per job
 extern const uint32_t kDefaultInFlight[kClassCount];    // PUBLISH 4, SCAN 2, INNER_RESIDENCY 2, APPEARANCE 1, COLD 1
-extern const uint32_t kDefaultQuantumUs[kClassCount];   // PUBLISH 500, SCAN 3000, RESIDENCY 2000, APPEARANCE 1500, COLD 1000
+extern const uint32_t kDefaultQuantumUs[kClassCount];   // PUBLISH 500, SCAN 2000, RESIDENCY 2000, APPEARANCE 1500, COLD 1000
+                                                        // (C01: GPU interleaves scanner jobs with frames at job granularity; 2 ms jobs kept 72 Hz)
 const char* ClassName(uint32_t cls);
 
 struct CoreConfig {
@@ -90,12 +91,12 @@ private:
 };
 
 struct ClassStats {
-    int64_t submitted = 0, retired = 0, deferredRing = 0, deferredBudget = 0, failed = 0, droppedLease = 0;
+    int64_t submitted = 0, retired = 0, deferredRing = 0, deferredBudget = 0, deferredDependency = 0, failed = 0, droppedLease = 0;
     int64_t gpuUsTotal = 0, gpuUsLast = 0;
-    int64_t Deferred() const { return deferredRing + deferredBudget; }
+    int64_t Deferred() const { return deferredRing + deferredBudget + deferredDependency; }
 };
 
-enum class SubmitOutcome { Accepted = 0, DeferredRing, DeferredBudget, DroppedLease, Refused };
+enum class SubmitOutcome { Accepted = 0, DeferredRing, DeferredBudget, DroppedLease, Refused, DeferredDependency };
 struct SubmitDecision {
     SubmitOutcome outcome = SubmitOutcome::Refused;
     uint32_t slot = 0;
@@ -121,8 +122,10 @@ public:
 
     uint32_t EffectiveQuantumUs(FsJobClass cls, uint32_t requested) const;
     // Ring/budget/lease decision. Accepted → the slot is in flight and a timeline value is allocated.
+    // waitClass/waitValue: dependency on another class timeline; a value not yet allocated (job not submitted)
+    // defers (DeferredDependency) so a GPU wait can never dangle. waitValue 0 = none.
     SubmitDecision TrySubmit(FsJobClass cls, uint32_t requestedQuantumUs, uint32_t leaseSlot, uint32_t leaseGeneration,
-                             const LeaseValidator* validator, int64_t nowNs);
+                             const LeaseValidator* validator, int64_t nowNs, FsJobClass waitClass = FS_JOB_SCAN, uint64_t waitValue = 0);
     void Retire(FsJobClass cls, uint32_t slot, bool success, double gpuUs);
     // Quarantine: releases every in-flight slot as failed; returns the released states (caller runs callbacks).
     void FailAllInFlight(std::vector<std::pair<FsJobClass, SlotState>>& out);

@@ -7,7 +7,7 @@ namespace fs {
 namespace sched {
 
 const uint32_t kDefaultInFlight[kClassCount] = { 4, 2, 2, 1, 1 };
-const uint32_t kDefaultQuantumUs[kClassCount] = { 500, 3000, 2000, 1500, 1000 };
+const uint32_t kDefaultQuantumUs[kClassCount] = { 500, 2000, 2000, 1500, 1000 };
 
 const char* ClassName(uint32_t cls) {
     static const char* names[kClassCount] = { "PUBLISH", "SCAN", "INNER_RESIDENCY", "APPEARANCE", "COLD" };
@@ -120,13 +120,17 @@ uint32_t SchedulerCore::EffectiveQuantumUs(FsJobClass cls, uint32_t requested) c
 }
 
 SubmitDecision SchedulerCore::TrySubmit(FsJobClass cls, uint32_t requestedQuantumUs, uint32_t leaseSlot, uint32_t leaseGeneration,
-                                        const LeaseValidator* validator, int64_t nowNs) {
+                                        const LeaseValidator* validator, int64_t nowNs, FsJobClass waitClass, uint64_t waitValue) {
     SubmitDecision d;
     if (cls < 0 || static_cast<uint32_t>(cls) >= kClassCount || !accepting_) { d.outcome = SubmitOutcome::Refused; return d; }
     ClassStats& st = stats_[cls];
     d.quantumUs = EffectiveQuantumUs(cls, requestedQuantumUs);
     if (leaseSlot != FS_INDEX_NONE && validator != nullptr && *validator && !(*validator)(leaseSlot, leaseGeneration)) {
         ++st.droppedLease; d.outcome = SubmitOutcome::DroppedLease; return d;
+    }
+    if (waitValue != 0) {
+        if (waitClass < 0 || static_cast<uint32_t>(waitClass) >= kClassCount) { d.outcome = SubmitOutcome::Refused; return d; }
+        if (waitValue > timelines_[waitClass].LastAllocated()) { ++st.deferredDependency; d.outcome = SubmitOutcome::DeferredDependency; return d; }
     }
     ClassRing& ring = rings_[cls];
     if (ring.Full()) { ++st.deferredRing; d.outcome = SubmitOutcome::DeferredRing; return d; }

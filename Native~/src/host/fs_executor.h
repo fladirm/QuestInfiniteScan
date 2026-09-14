@@ -124,4 +124,34 @@ void     FsHostExecutorOnDeviceInit();              // after fs::Device() is rea
 void     FsHostExecutorOnDeviceShutdown();          // before fs::Device() tears down (Shutdown/BeforeReset); vkDeviceWaitIdle allowed
 bool     FsHostExecutorRenderEvent(int eventId);    // returns true when the id is an FS_HEVT_* event it handled
 
+// ---- C02 additive extensions, second set (executor/*.cpp) ---------------------------------------------
+// Unity texture import (depth priors, contract §13.5): AccessTexture(WholeImage, SHADER_READ_ONLY_OPTIMAL,
+// COMPUTE_SHADER, SHADER_READ, PipelineBarrier) on every call (Unity may re-transition the image between
+// frames), image view cached per native pointer and recreated only when the VkImage changes (old view
+// destroyed after retirement). Only callable inside a render event that is not queue-access configured.
+bool     ImportUnityTexture(void* unityNativeTexturePtr, VkImage& image, VkImageView& view, VkFormat& fmt,
+                            uint32_t& w, uint32_t& h, uint32_t& layers);
+// Persistent image descriptor for an imported view. The binding must have been declared at
+// CreateComputePipeline (STORAGE_IMAGE / SAMPLED_IMAGE / COMBINED_IMAGE_SAMPLER); sampler only for the
+// latter (ExecSampler(...) provides shared samplers). Same lifetime rule as BindBuffer: update before the
+// pipeline's jobs are submitted or after they retired.
+bool     BindImage(Pipeline& p, uint32_t binding, VkImageView view, VkImageLayout layout, VkSampler sampler = VK_NULL_HANDLE);
+VkSampler ExecSampler(bool linear);                 // executor-owned nearest/linear clamp samplers (destroyed at shutdown)
+// Scheduler ticks bound to a job class run in class order PUBLISH -> SCAN -> INNER_RESIDENCY -> APPEARANCE
+// -> COLD before the generic RegisterSchedulerTick ticks (registration order). Each receives the remaining
+// frame budget in µs; SubmitJob consumes the budget.
+void     RegisterClassSchedulerTick(FsJobClass cls, std::function<void(uint32_t budgetUs)> tick);
+// Additional render event ids (additive to FsHostRenderEvent): C# may issue them; none is required.
+enum FsHostRenderEventExt {
+    FS_HEVT_QUEUE_ACCESS = 103    // internal id for AccessQueue callbacks (frame timeline wait / graphics-queue pump)
+};
+// Timeline support actually in use (false = binary-semaphore + fence fallback, in-order queue).
+bool     ExecTimelineSemaphores();
+// Timeline value a submitted job signals (for JobDesc::waitTimelineValue of a dependent job). Returns false
+// once the job retired (its value is then <= ClassTimelineValue(cls): no wait needed) or the id is unknown.
+bool     JobTimelineValue(uint64_t jobId, FsJobClass& cls, uint64_t& value);
+uint64_t ClassTimelineAllocated(FsJobClass cls);   // value of the most recently submitted job of the class
+// Unity's currentFrameNumber from the last recording state (0 until the first frame event).
+uint64_t UnityCurrentFrameNumber();
+
 } // namespace fs

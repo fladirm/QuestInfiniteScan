@@ -3,6 +3,7 @@
 #include "json_writer.h"
 #include "log.h"
 #include "../include/finalscan_native_api.h"
+#include "host/fs_executor.h"
 #include <time.h>
 #include <cstring>
 
@@ -129,12 +130,14 @@ void InitializeDevice() {
     d.initError.clear();
     d.ready.store(true, std::memory_order_release);
     LogJson("device-report", BuildDeviceReportJson());
+    FsHostExecutorOnDeviceInit();   // C02 executor objects (when FsHost_Init already ran) + FS_HEVT_* event configs
 }
 
 void ShutdownDevice() {
     DeviceState& d = Device();
     if (!d.ready.load(std::memory_order_acquire)) return;
     d.ready.store(false, std::memory_order_release);
+    FsHostExecutorOnDeviceShutdown();   // joins fs-sched/fs-warmup, vkDeviceWaitIdle, destroys executor objects
     ProbesShutdown();   // joins workers; vkDeviceWaitIdle is allowed here (Unity device shutdown/reset)
     if (d.instance.device != VK_NULL_HANDLE) vkDeviceWaitIdle(d.instance.device);
     if (d.commandPool != VK_NULL_HANDLE) { vkDestroyCommandPool(d.instance.device, d.commandPool, nullptr); d.commandPool = VK_NULL_HANDLE; }
@@ -153,6 +156,7 @@ void UNITY_INTERFACE_API OnRenderEvent(int eventId) {
         InitializeDevice();
         if (!Device().ready.load(std::memory_order_acquire)) return;
     }
+    if (FsHostExecutorRenderEvent(eventId)) return;   // FS_HEVT_* (host executor)
     ProbesHandleRenderEvent(eventId);
 }
 

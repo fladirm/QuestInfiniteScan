@@ -133,6 +133,17 @@ typedef struct FsClusterNode {
     uint32_t reserved;
 } FsClusterNode;                  // 80 B
 
+// (additive, C05b refinement, contract §13.4) Parallel per-node LOD errors: ownError = metric error of
+// replacing the node's subtree by its representative (bounds half-diagonal, monotone up the tree),
+// parentError = ownError of the parent (root: FS_CLUSTER_ERROR_INF). The cut is selected by ONE bounded
+// dispatch over all nodes of visible pages: emit when projected(parentError) > tau >= projected(ownError);
+// a leaf whose own projected error exceeds tau emits its surfels. No dependent traversal on the GPU.
+#define FS_CLUSTER_ERROR_INF 1.0e30f
+typedef struct FsClusterError {
+    float ownError;
+    float parentError;
+} FsClusterError;                 // 8 B
+
 // Draw record flags (FsDrawRecord.flags): bit 0 detail, bit 1 selected, bit 2 erased-preview,
 // bit 3 aggregate (coverage LOD; low 16 bits of colorOrHandle alpha carry coverage), bit 4 transient.
 #define FS_DRAW_FLAG_AGGREGATE (1u << 3)

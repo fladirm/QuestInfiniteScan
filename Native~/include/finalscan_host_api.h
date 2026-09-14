@@ -84,6 +84,13 @@ int32_t FsRender_SetEnvDepth(void* unityDepthTextureArray, uint32_t width, uint3
                              float nearZ, float farZ, int64_t xrTimeNs);
 int32_t FsRender_SetLodPolicy(float fovealErrorPx, float peripheralErrorPx, float predictionMarginDeg, uint32_t screenWorkBudget);
 int32_t FsRender_SetGpuHeadroomUs(int32_t headroomUs);       // from frame timestamps; negative = over budget → raise error threshold
+// (ABI 2 additive, contract §13.5 render modes) 0 SCAN (band occlusion + LOD), 1 XRAY/RADAR (no depth-prior cull),
+// 2 PLAN (no backface cone). Changes only the cull policy, never residency or canonical data.
+int32_t FsRender_SetMode(int32_t mode);
+// (ABI 2 additive) Draw list layout: records [0, opaqueCapacity) are opaque leaf surfels (args[0]),
+// records [aggregateBase, aggregateBase + aggregateCapacity) are coverage aggregates (args[1], second
+// FsIndirectDrawArgs in the registered args buffer; startInstance = aggregateBase). Two draws per frame.
+int32_t FsRender_GetDrawLayout(uint32_t* opaqueCapacity, uint32_t* aggregateBase, uint32_t* aggregateCapacity);
 
 #ifdef __cplusplus
 }
