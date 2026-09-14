@@ -233,8 +233,8 @@ namespace
         uint32_t firstPipeline = 0;
         uint32_t lastPipeline = 0;
         uint32_t queryCount = 0;
-        VkResult error = VK_SUCCESS;
-        bool graphicsSubmitted = false;
+        std::atomic<VkResult> error{VK_SUCCESS};
+        std::atomic<bool> graphicsSubmitted{false};
         bool timingsReady = false;
         bool terminalLogged = false;
         uint64_t createdNs = 0;
@@ -1225,9 +1225,12 @@ namespace
         if (job == nullptr)
             return;
         job->error = result;
-        job->state.store(graphicsCompletionRequired
-                ? kJobFailedNeedsGraphicsCompletion : kJobFailedSafe,
-            std::memory_order_release);
+        // Prepare owns the job until its final publication. A helper failure
+        // must not briefly expose FailedSafe while prepare still uses it.
+        if (job->state.load(std::memory_order_acquire) != kJobPreparing)
+            job->state.store(graphicsCompletionRequired
+                    ? kJobFailedNeedsGraphicsCompletion : kJobFailedSafe,
+                std::memory_order_release);
         LogError(operation, result);
     }
 
@@ -1364,10 +1367,10 @@ namespace
                 }
                 if (resource == kResourceObservationDispatchArgs &&
                     ((buffer.usage & VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) == 0u ||
-                     buffer.sizeInBytes < 64u))
+                     buffer.sizeInBytes < kMerkabaObservationArgumentBytes))
                 {
                     FailJob(job, VK_ERROR_INITIALIZATION_FAILED,
-                        "Observation arguments require four aligned indirect packets", false);
+                        "Observation arguments do not match the generated indirect-buffer ABI", false);
                     return false;
                 }
                 if (job->kind == kJobFineErase &&
@@ -1849,7 +1852,8 @@ namespace
                  std::strcmp(dispatch, "allocation_tiles") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer,
-                std::strcmp(dispatch, "allocation_gate") == 0 ? 16u : 32u);
+                std::strcmp(dispatch, "allocation_gate") == 0
+                    ? kMerkabaAllocationDispatchOffset : kMerkabaInstallDispatchOffset);
         else
             vkCmdDispatch(job->commandBuffer, 1, 1, 1);
     }
@@ -2053,8 +2057,11 @@ namespace
                 std::memory_order_acq_rel))
             return;
         job->prepareStartNs = MonotonicNs();
-        bool complete = AccessJobResources(job) && CreateJobUniforms(job) &&
-            CreateJobDescriptors(job) && CreateJobCommandObjects(job) &&
+        // AccessBuffer/AccessTexture may record Unity barriers even if a later
+        // resource fails validation. Create retirement fences before any such
+        // access so the failed job can wait for those graphics references.
+        bool complete = CreateJobCommandObjects(job) && AccessJobResources(job) &&
+            CreateJobUniforms(job) && CreateJobDescriptors(job) &&
             RecordJobCommand(job);
         if (complete)
         {
@@ -2074,6 +2081,16 @@ namespace
         if (state != kJobPrepared &&
             state != kJobFailedNeedsGraphicsCompletion)
             return;
+        if (job->graphicsFence == VK_NULL_HANDLE)
+        {
+            // Command-object creation failed before any Unity resource access.
+            // This submit callback is the last queued reference to the job;
+            // no graphics work needs retirement and no null fence may be polled.
+            VkResult failure = job->error.load(std::memory_order_relaxed);
+            FailJob(job, failure != VK_SUCCESS ? failure : VK_ERROR_INITIALIZATION_FAILED,
+                "job preparation did not create a graphics retirement fence", false);
+            return;
+        }
         VkSubmitInfo graphicsSubmit = {};
         graphicsSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         if (state == kJobPrepared)
@@ -2850,7 +2867,7 @@ extern "C"
                 state = kJobFailedSafe;
             }
         }
-        *error = static_cast<int>(job->error);
+        *error = static_cast<int>(job->error.load(std::memory_order_relaxed));
         if ((state == kJobComplete || state == kJobFailedSafe) &&
             !job->terminalLogged && g_log != nullptr)
         {
@@ -2880,7 +2897,7 @@ extern "C"
                 "acquireFenceMs=%.3f lifetimeMs=%.3f error=%d",
                 job->revision, job->kind, state, prepareWaitMs, prepareCpuMs,
                 queueMs, acquireMs, lifetimeMs,
-                static_cast<int>(job->error));
+                static_cast<int>(job->error.load(std::memory_order_relaxed)));
             UNITY_LOG(g_log, message);
         }
         if (state == kJobComplete)

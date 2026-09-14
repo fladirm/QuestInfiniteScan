@@ -620,6 +620,27 @@ def observation_reset_indices():
     return reset_indices
 
 
+def observation_argument_layout():
+    source = (ROOT / "Runtime/Merkaba/MerkabaObservationBinsGpu.cs").read_text(encoding="utf-8")
+    layout = {}
+    for name in ("DispatchArgumentWords", "AllocationDispatchOffset", "InstallDispatchOffset"):
+        matches = re.findall(r"const\s+(?:int|uint)\s+" + name + r"\s*=\s*(\d+)\s*;", source)
+        if len(matches) != 1:
+            raise RuntimeError("Missing/ambiguous observation argument layout: " + name)
+        layout[name] = int(matches[0])
+    size = 4 * layout["DispatchArgumentWords"]
+    offsets = (0, layout["AllocationDispatchOffset"], layout["InstallDispatchOffset"])
+    if size % 16 or len(set(offsets)) != len(offsets) or any(
+            offset % 16 or offset + 12 > size for offset in offsets):
+        raise RuntimeError("Observation indirect packets must fit their shared aligned buffer ABI")
+    shader = (SHADER_ROOT / "MerkabaObservationBins.hlsl").read_text(encoding="utf-8")
+    for name, offset in zip(("M8_OBSERVATION_ALLOCATION_ARGS", "M8_OBSERVATION_INSTALL_ARGS"), offsets[1:]):
+        matches = re.findall(r"^#define\s+" + name + r"\s+(\d+)u\s*$", shader, re.M)
+        if len(matches) != 1 or 4 * int(matches[0]) != offset:
+            raise RuntimeError("C#/HLSL observation argument offset mismatch: " + name)
+    return size, offsets[1], offsets[2]
+
+
 def emit(output: Path, compiled) -> None:
     schedules = command_schedules()
     maximum_dispatches = max(len(indices) for _, indices in schedules)
@@ -638,9 +659,13 @@ def emit(output: Path, compiled) -> None:
             raise RuntimeError(f"missing/ambiguous native ERASE setup counter: {name}")
         fine_reset_offsets.append(4 * int(matches[0]))
     reset_indices = observation_reset_indices()
+    argument_bytes, allocation_offset, install_offset = observation_argument_layout()
     lines = [
         "// Generated at native-plugin build time. Do not commit this file.",
         f"static constexpr uint32_t kMerkabaExecutorResourceCount = {len(RESOURCE_NAMES)}u;",
+        f"static constexpr uint32_t kMerkabaObservationArgumentBytes = {argument_bytes}u;",
+        f"static constexpr uint32_t kMerkabaAllocationDispatchOffset = {allocation_offset}u;",
+        f"static constexpr uint32_t kMerkabaInstallDispatchOffset = {install_offset}u;",
         "static constexpr uint32_t kMerkabaObservationCounterResetOffsets[] = {" +
         ", ".join(f"{4 * index}u" for index in reset_indices) + "};",
         "static constexpr uint32_t kMerkabaFineEraseCounterResetOffsets[] = {" +

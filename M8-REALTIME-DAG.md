@@ -3,8 +3,8 @@
 AUTHORITY=M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md
 BASE=b1f59c7e77f2ba7dd431e59619d683de090e013c
 GOAL=active; complete the user's post-b1f59c7 execution/presentation/delivery closure
-CURRENT=C4_FUNCTIONAL_APK_USER_OVERRIDE
-STATE=RGB/V split APK built and package-verified; headset disconnected, installation pending
+CURRENT=C4_FUNCTIONAL_RUNTIME_STALL
+STATE=START repair built/installed; ~0.5 FPS, ~10-second stalls and no visible scanned surface; causes not yet measured
 HOTPATH=GPU only; CPU oracle/codegen and frozen offline export are not live backends
 
 ## C1 — snapshot execution and residency
@@ -74,10 +74,29 @@ After compaction read this cursor and the latest lasttrue.md receipt, then only
 the complete source units being changed. Update CURRENT/NEXT in place; commit
 each coherent cut. Do not accumulate competing historical handoff cursors here.
 
-NEXT=install /mnt/kingston-unity/Builds/QuestMerkabaScan/functional-skin.vgb5S8/QuestMerkabaScan-functional.apk
-when headset 340YC20G7X0QZ4 reconnects; check actual driver creation and scan/draw.
-Installation attempt failed with device-not-found; neither USB nor ADB lists
-the headset. Do not rebuild the existing verified artifact just to install it.
+NEXT=verify the currently installed package/build hash, then capture fresh
+per-kernel timestamps and sensor admission -> touched/occupied world -> owner
+replacement -> page publication -> active draw counters. Diagnose both stalls
+and absent scanned output; neither proves the other's cause.
+The last APK installed and hash-verified by this agent is
+/mnt/kingston-unity/Builds/QuestMerkabaScan/functional-start.CEs7JG/QuestMerkabaScan-functional.apk
+(SHA256=4e8bde80cf8458091742e243e04a0bf4af0c4d3ee7c216daa162a9bf432c872a).
+The user's 2026-09-13 report supersedes the prior asleep/waiting-for-START
+cursor: observation runs at about 0.5 FPS with repeated ten-second freezes.
+On 2026-09-14 the user also confirms no scanned surface is visible. Current
+endpoint/world/page/triangle counts are unmeasured, not assumed to be zero.
+No post-report GPU trace has been collected; do not name a bottleneck from
+old traces or treat pipeline startup success as scan/performance acceptance.
+PID14648 and the 2026-09-11 capture handle are historical, not live monitors.
+Do not rebuild/reinstall the preceding functional-skin artifact.
+The RGB/V split APK was installed and its installed
+hash verified; all 24 pipelines created successfully on device. START reached
+the first depth snapshot but failed the obsolete 64-byte argument check:
+C#/HLSL allocate three aligned packets, 48 bytes. Prepare then exposed a
+graphics-completion state without creating its fence; Poll called Vulkan with
+NULL and crashed. New native constants derive/verify C#/HLSL offsets; command
+objects precede Unity resource access, and preparation cannot publish a
+transient terminal state. Record the next actual device result before closure.
 The clean-installed first functional
 APK failed at IntegrateFlowerSkin with Adreno "Failed to link shaders", VkResult=-13.
 Device evidence=Builds/QuestMerkabaScan/functional-7ce65be.bbnFVm/device-startup-complete.log
@@ -117,7 +136,8 @@ PASS (signature/alignment/package/native/manifest); post-BuildPlayer prepared
 host fingerprint still changes and remains a FINAL delivery gap, not waived.
 APK SHA256=cce20a4154546182d16828e8c1730b4d42c0f739fbac94b3231c72b07a7ff180
 Evidence=functional-skin.vgb5S8/driver.log, build.log, package-verification.log.
-New device startup NOT RUN; do not claim the driver failure fixed yet.
+Device startup PASS: all 24 pipelines result=0; RGB/V driver failure resolved.
+START then SIGSEGV in vkGetFenceStatus (separate native job-lifetime bug above).
 Root=22725, Children=33006, Resolve=42763: still HOT release gaps.
 The phase commit consumes AnalyzePhaseResidual.Synthesis instead of rotating
 the same persisted Q2.29 interval again. R2 record-key checks and final shared
@@ -135,8 +155,10 @@ Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c2-compile-n04Xjc
 C3 source=CAPTURE/BINARY_ONLY intercepts native and Unity compute/graphics,
 exact global/PSO keys, immutable bundles, source/scene/shader fingerprint,
 GSC/request inventory, explicit signing and APK/native/bundle verification.
-Native ABI32; persistent ABI unchanged. Necessary Unity/C# and ARM64 compile
-PASS; no capture/APK/device claim. The final builder still rejects this 12-dispatch graph and
-unreviewed >20k HOT shaders. Production key remains externally supplied.
+Historical C3 receipt used native ABI32; current ABI35 is recorded above.
+Persistent ABI unchanged. Necessary Unity/C# and ARM64 compile PASS for that
+receipt; it was not capture/APK/device acceptance. Final delivery still needs
+closure of the current 13-dispatch graph and unreviewed >20k HOT shaders.
+Production key remains externally supplied.
 Evidence=/mnt/kingston-unity/Builds/QuestMerkabaScan/c3-compile-A3muI8
 Manufacturing instructions=Tools/unity/MERKABA_PIPELINE_DELIVERY.md

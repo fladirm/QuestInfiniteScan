@@ -10773,3 +10773,63 @@ NEXT=install this artifact and verify both skin pipelines plus full native
 startup; do not rebuild or repeat completed work. Full suite/device acceptance
 remain NOT RUN. Exact logs are driver.log/build.log/package-verification.log
 in the artifact directory; previous vk-13 receipt remains the latest device evidence.
+
+## 2026-09-11 21:31 UTC — installed RGB/V fix; START crash isolated
+
+INSTALL=SUCCESS after reconnect, package SHA matches cce20a4154... above; PID13636.
+DRIVER=all 24 pipelines returned success; native startup ready in 119322.918 ms.
+RGB=4677.354 ms, V=19268.031 ms pipeline creation, both result=0. The previous
+IntegrateFlowerSkin vk-13 is resolved on this device, not merely host-compiled.
+START=first owned depth snapshot version1 arrived, but observation1 failed:
+"Observation arguments require four aligned indirect packets", VkResult=-3.
+Then SIGSEGV at Adreno vkGetFenceStatus, caller MerkabaExecutor_PollJob.
+CAUSE=C#/HLSL use 12 words/48 B at byte offsets0/16/32; stale native guard
+required64 B. Prepare failed before CreateJobCommandObjects, yet submitted
+graphics completion with a NULL fence and Poll queried that NULL handle.
+REPAIR=derive native buffer size/offsets from C# and verify against HLSL;
+create command/fence objects before Unity AccessBuffer/AccessTexture; preserve
+Preparing until the outer outcome publication. A no-fence object-creation
+failure retires only at its queued submit callback, without resource access.
+Cross-thread error/graphics-submitted publication is atomic. No geometry,
+sensor, persistent ABI, shader payload or dispatch count changes.
+EVIDENCE=functional-skin.vgb5S8/device-startup-complete.log includes driver
+success and the crash backtrace. C#/HLSL/native layout check=(48,16,32).
+BUILD=all 24 native payloads/ARM64 and Unity APK compile PASS; the 24 shader
+hashes are byte-identical to the previous functional-skin manifest. Native only
+repair, no shader change. Package signing/alignment/native/manifest verification
+PASS; existing post-BuildPlayer prepared-host fingerprint gap still OPEN.
+APK=/mnt/kingston-unity/Builds/QuestMerkabaScan/functional-start.CEs7JG/QuestMerkabaScan-functional.apk
+SHA256=4e8bde80cf8458091742e243e04a0bf4af0c4d3ee7c216daa162a9bf432c872a
+INSTALL=SUCCESS, installed base.apk SHA verified; launched PID14648.
+DEVICE_WAIT=power service reports Asleep. Unity graphics has not initialized;
+do not confuse the paused startup with a new shader failure. User asked to
+wake and press START. Capture handle71190 writes this artifact's device-startup.log.
+NEXT=verify START without rebuilding, then commit and push the crash repair.
+
+## 2026-09-14 — checkpoint and Claude handoff; realtime stall OPEN
+
+REQUEST=checkpoint the pending native START repair and hand over current work;
+no new implementation, build or device profiling in this handoff.
+SOURCE=observation indirect ABI is generated/checked as 48 bytes at 0/16/32;
+job preparation creates retirement fences before Unity resource access and
+cannot publish a temporary terminal state. Cross-thread error/submission
+flags are atomic. Build/install evidence is the preceding receipt, not a
+fresh acceptance run. Shaders, geometry and persistent records are unchanged.
+LATEST_USER_EVIDENCE=2026-09-13: observations at approximately 0.5 FPS with
+repeated approximately ten-second stalls. This supersedes the historical
+asleep/waiting-for-START cursor. The cause has NOT been measured or fixed.
+LATEST_USER_ADDITION=2026-09-14: no scanned surface is visible either. Do not
+infer zero endpoints or zero triangles without counters from this build.
+NEXT=verify the actual installed build/hash, then capture per-kernel GPU
+timings and sensor admission -> touched/occupied -> owner replacements ->
+published pages -> active draw counters before changing code. Treat missing
+visible output and long stalls as separate symptoms until evidence links them.
+Last installed artifact and exact SHA are in M8-REALTIME-DAG.md; old PID14648
+and capture handle71190 must not be treated as live monitoring.
+AUTHORITY=AGENTS.md -> M8-REALTIME-MEASUREMENT-DRIVEN-CONTRACT.md -> current DAG;
+REV-C only where retained. CLAUDE.md now points to these same authorities,
+replacing its stale contr.md/OverlapShell instructions. Historical .claude/
+ledgers and old RUNs are not a second cursor and are not part of this cut.
+OPEN=runtime stall, full current validation/performance gates, final prepared-
+host fingerprint stability, complete driver-binary capture/coverage, production
+signing and final no-JIT/device acceptance. No closure PASS is claimed.
