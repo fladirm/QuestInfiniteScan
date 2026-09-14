@@ -18,6 +18,7 @@
 #include "world_cluster_commit_spirv.inc"
 #include "world_erase_collect_spirv.inc"
 #include "world_erase_spirv.inc"
+#include "world_scan_args_spirv.inc"
 
 namespace fs {
 namespace world {
@@ -29,12 +30,13 @@ struct PushCollect   { uint32_t slotCount, phase, maxCapGroups; };
 struct PushIntegrate { uint32_t ringBase, count, ringMask, hashMask; int32_t anchorId; uint32_t tick; };
 struct PushCommit    { uint32_t frame; };
 struct PushLevel     { uint32_t level; };
+struct PushScanArgs  { uint32_t maxCount; };
 struct PushErase     { uint32_t slotCount; int32_t anchorId; float cx, cy, cz, radius; uint32_t maxCapGroups; };
 
 enum WorldKernel : uint32_t {
     K_MAINT_COLLECT = 0, K_INDEX_REBUILD, K_INDEX_COUNT, K_INDEX_SUBDIVIDE, K_INDEX_INSERT, K_INTEGRATE,
     K_PUBLISH_COUNT, K_PUBLISH_SCAN, K_PUBLISH_COPY, K_PUBLISH_COMMIT, K_CLUSTER_LEAVES, K_CLUSTER_INTERNAL, K_CLUSTER_COMMIT,
-    K_ERASE_COLLECT, K_ERASE, K_COUNT
+    K_ERASE_COLLECT, K_ERASE, K_SCAN_ARGS, K_COUNT
 };
 struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t pushBytes; uint32_t bindings[8]; uint32_t bindingCount; };
 #define FS_KS(sym) sym, sizeof(sym) / 4
@@ -54,6 +56,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"world_cluster_commit",  FS_KS(kWorldClusterCommitSpirv),  0,                     {B_SLOTS, B_GCTR}, 2},
     {"world_erase_collect",   FS_KS(kWorldEraseCollectSpirv),   sizeof(PushErase),     {B_SLOTS, B_GCTR}, 2},
     {"world_erase",           FS_KS(kWorldEraseSpirv),          sizeof(PushErase),     {B_SLOTS, B_SURFELS, B_GCTR}, 3},
+    {"world_scan_args",       FS_KS(kWorldScanArgsSpirv),       sizeof(PushScanArgs),  {B_HASH, B_GCTR}, 2},   // B_HASH slot = C09 counters
 };
 #undef FS_KS
 

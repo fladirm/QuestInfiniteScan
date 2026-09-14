@@ -1,0 +1,15 @@
+#version 450
+// Live scan args (C09 -> world): converts the measurement front-end's device-written record count
+// (fs::meas FrameBlock ctr[0] = reserved, capped by maxCount = min(maxOut, ring capacity)) into the
+// indirect dispatch args of world_integrate_stub.comp and the count word it bounds by. No CPU readback.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#include "fs_world_blocks.glsl"
+layout(std430, set = 0, binding = FS_B_HASH) readonly buffer MeasCounters { uint measCtr[]; };   // C09 frame block, per ring slot
+layout(local_size_x = 1) in;
+layout(push_constant) uniform Push { uint maxCount; } pc;
+void main() {
+    uint n = min(measCtr[0], pc.maxCount);
+    gctr[FS_G_SCAN_COUNT] = n;
+    gctr[FS_G_SCAN_ARGS + 0] = (n + uint(FS_WG_SMALL) - 1u) / uint(FS_WG_SMALL); gctr[FS_G_SCAN_ARGS + 1] = 1u; gctr[FS_G_SCAN_ARGS + 2] = 1u;
+}

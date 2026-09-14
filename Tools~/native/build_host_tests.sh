@@ -47,6 +47,3 @@ for test in "$fs_native"/tests/host_tests_*.cpp; do
 done
 if [[ $fs_failed -ne 0 ]]; then echo "host tests: FAILED"; exit 1; fi
 echo "host tests: all suites passed"
-
-# World/render module tests (pure headers), added by the world module.
-"$fs_script_dir/build_host_tests_world.sh"

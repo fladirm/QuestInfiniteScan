@@ -153,5 +153,7 @@ bool     JobTimelineValue(uint64_t jobId, FsJobClass& cls, uint64_t& value);
 uint64_t ClassTimelineAllocated(FsJobClass cls);   // value of the most recently submitted job of the class
 // Unity's currentFrameNumber from the last recording state (0 until the first frame event).
 uint64_t UnityCurrentFrameNumber();
+// (additive, world module) The FsHostConfig FsHost_Init received (normalised copy); null before FsHost_Init.
+const FsHostConfig* ExecConfig();
 
 } // namespace fs

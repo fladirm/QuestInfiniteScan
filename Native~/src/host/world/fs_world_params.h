@@ -98,7 +98,10 @@
 #define FS_G_ERASE_COUNT          1680
 #define FS_G_ERASE_ARGS           1684        // {ceil(maxCap/64), n, 1, 0}
 #define FS_G_ERASE_LIST           1688        // [.., +32)
-#define FS_G_WORDS                1728
+#define FS_G_SCAN_COUNT           1728        // live (C09) scan: record count written by world_scan_args.comp
+#define FS_G_SCAN_ARGS            1732        // {ceil(count/64), 1, 1, 0} indirect args of the integrate dispatch
+#define FS_G_WORDS                1744
+#define FS_INTEGRATE_COUNT_FROM_GCTR 0xFFFFFFFFu  // PushIntegrate.count sentinel: bound by gctr[FS_G_SCAN_COUNT]
 #define FS_PUBLISH_MIN_FRAME_GAP  3           // frames between maintenance jobs: a FRONT parity that stopped being
                                               // root stays untouched at least this long (in-flight culls read it)
 

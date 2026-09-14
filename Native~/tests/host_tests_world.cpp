@@ -1,4 +1,5 @@
 // Host (linux x86_64) unit tests for the world/render modules: pure headers only (no Vulkan, no executor).
+// HOST_TEST_SOURCES: host/world/fs_synthetic.cpp
 // Covers: page hash (insert/lookup/erase/robin-hood/overflow), fixed-point/oct/log encodings, Morton and
 // root word packing, cluster layout, synthetic page counts, residency sphere-cube math and orientation
 // independence, HZB band rule, cluster build CPU reference invariants, coverage preserving gaps (foliage).

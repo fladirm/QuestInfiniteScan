@@ -30,7 +30,8 @@ bool fsPageHashLookup(FsPageKey key, out uint slot) {
 
 void main() {
     uint t = gl_GlobalInvocationID.x;
-    if (t >= pc.count) return;
+    uint count = pc.count == FS_INTEGRATE_COUNT_FROM_GCTR ? gctr[FS_G_SCAN_COUNT] : pc.count;   // live C09 frames: GPU-written count
+    if (t >= count) return;
     FsSurfaceMeasurement m = meas[(pc.ringBase + t) & pc.ringMask];
     vec3 p = vec3(m.px, m.py, m.pz);
     vec3 n = normalize(vec3(m.nx, m.ny, m.nz));
@@ -38,6 +39,7 @@ void main() {
     atomicAdd(gctr[FS_GCTR_PAGE_LOOKUPS], 1u);
     uint slot;
     if (!fsPageHashLookup(key, slot)) { atomicAdd(gctr[FS_GCTR_PAGE_MISSES], 1u); return; }
+    if ((gctr[FS_G_FLAGS + slot] & FS_SLOT_FLAG_REBUILD) != 0u) { atomicAdd(gctr[FS_GCTR_PAGE_MISSES], 1u); return; }   // index not built yet (fresh slot)
     FsSlotLayout l = layouts[slot];
     vec3 local = p - fsPageOrigin3(key);
     if (any(greaterThan(abs(local), vec3(FS_PAGE_EXTENT_M * 0.5 + 0.001)))) { atomicAdd(gctr[FS_GCTR_MEAS_OUT_OF_RANGE], 1u); return; }

@@ -21,6 +21,7 @@
 #include "fs_residency_math.h"
 #include "fs_synthetic.h"
 #include "fs_cluster_build.h"
+#include "../measure/fs_meas_gpu.h"
 #include "../../log.h"
 #include <algorithm>
 #include <atomic>
@@ -31,12 +32,6 @@
 #include <vector>
 
 #define FS_API extern "C" __attribute__((visibility("default")))
-
-namespace fs {
-// Additive executor need (reported): the FsHostConfig FsHost_Init received. Weak so the module links and
-// falls back to the provisional defaults when the executor does not provide it.
-const FsHostConfig* ExecConfig() __attribute__((weak));
-}
 
 namespace fs {
 namespace world {
@@ -69,7 +64,7 @@ public:
         std::lock_guard<std::recursive_mutex> g(m_);
         if (inited_) return;
         inited_ = true;
-        const FsHostConfig* cfg = (&ExecConfig != nullptr) ? ExecConfig() : nullptr;
+        const FsHostConfig* cfg = ExecConfig();
         stdSlots_ = cfg && cfg->residentPageSlots ? cfg->residentPageSlots : FS_DEFAULT_RESIDENT_SLOTS;
         stdCap_   = cfg && cfg->surfelsPerPage ? cfg->surfelsPerPage : FS_DEFAULT_SURFELS_PER_PAGE;
         hashCap_  = Pow2(cfg && cfg->pageHashCapacity ? cfg->pageHashCapacity : FS_DEFAULT_PAGE_HASH_CAPACITY);
@@ -142,7 +137,7 @@ public:
         hashMirror_ = (FsPageHashEntry*)buf_.hash.mapped;
         hash_.Init(hashCap_); memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false;
         ring_.Init(ringCap_); ring_.Attach((FsSurfaceMeasurement*)buf_.meas.mapped);
-        scanInFlight_ = maintenanceInFlight_ = eraseInFlight_ = 0; maintenanceWanted_ = false; lastMaintFrame_ = 0;
+        scanInFlight_ = maintenanceInFlight_ = eraseInFlight_ = 0; maintenanceWanted_ = false; lastMaintFrame_ = 0; liveBound_ = false; liveLease_ = 0;
         Log("FS-WORLD arenas: surfels=%u (%.1f MB) nodes=%u index=%.1f MB", surfelCursor, surfelCursor * 40.0 / 1e6, nodeCursor, indexCursor * 4.0 / 1e6);
         return true;
     }
@@ -161,9 +156,33 @@ public:
             for (uint32_t i = 0; i < ks.bindingCount; ++i) { b[i].binding = ks.bindings[i]; b[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; }
             if (!CreateComputePipeline(pipes_[k], ks.spirv, ks.words, ks.pushBytes, b, ks.bindingCount, ks.name)) { LogError("FS-WORLD pipeline %s failed", ks.name); return false; }
         }
-        pipesReady_ = true; bound_ = false;
+        for (uint32_t r = 0; r < kLiveSlots; ++r) {
+            for (uint32_t k : {(uint32_t)K_INTEGRATE, (uint32_t)K_SCAN_ARGS}) {
+                const KernelSpec& ks = kWorldKernels[k];
+                VkDescriptorSetLayoutBinding b[8] = {};
+                for (uint32_t i = 0; i < ks.bindingCount; ++i) { b[i].binding = ks.bindings[i]; b[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; }
+                Pipeline& p = k == K_INTEGRATE ? liveIntegrate_[r] : liveArgs_[r];
+                if (!CreateComputePipeline(p, ks.spirv, ks.words, ks.pushBytes, b, ks.bindingCount, ks.name)) { LogError("FS-WORLD live pipeline %s[%u] failed", ks.name, r); return false; }
+            }
+        }
+        pipesReady_ = true; bound_ = false; liveBound_ = false;
         EnsureBound();
         return true;
+    }
+    // Live (C09) instances: same SPIR-V, B_MEAS = the ring slot's records, B_HASH of the args kernel = its counters. Bound once.
+    void EnsureLiveBound() {
+        if (liveBound_ || !bound_) return;
+        for (uint32_t r = 0; r < kLiveSlots; ++r) {
+            const meas::MeasGpuRing* ring = r < meas::MeasGpu_RingSlots() ? meas::MeasGpu_Ring(r) : nullptr;
+            if (!ring || ring->records.buffer == VK_NULL_HANDLE) return;
+            const KernelSpec& ki = kWorldKernels[K_INTEGRATE];
+            for (uint32_t i = 0; i < ki.bindingCount; ++i) {
+                const Buffer* b = ki.bindings[i] == B_MEAS ? &ring->records : BufferFor(K_INTEGRATE, ki.bindings[i]);
+                if (!b || !BindBuffer(liveIntegrate_[r], ki.bindings[i], *b)) { LogError("FS-WORLD live bind integrate[%u]:%u failed", r, ki.bindings[i]); return; }
+            }
+            if (!BindBuffer(liveArgs_[r], B_HASH, ring->counters) || !BindBuffer(liveArgs_[r], B_GCTR, buf_.gctr)) { LogError("FS-WORLD live bind args[%u] failed", r); return; }
+        }
+        liveBound_ = true;
     }
     const Buffer* BufferFor(uint32_t kernel, uint32_t binding) {
         switch (binding) {
@@ -182,6 +201,7 @@ public:
                 if (!b || !BindBuffer(pipes_[k], kWorldKernels[k].bindings[i], *b)) { LogError("FS-WORLD bind %s:%u failed", kWorldKernels[k].name, kWorldKernels[k].bindings[i]); return; }
             }
         bound_ = true;
+        EnsureLiveBound();
     }
     bool Ready() const { return deviceUp_ && pipesReady_ && bound_ && ExecReady(); }
     bool GpuIdle() const { return scanInFlight_ == 0 && maintenanceInFlight_ == 0 && eraseInFlight_ == 0; }
@@ -353,6 +373,32 @@ public:
         CounterAdd(FS_CTR_SCAN_TICK, 1);
         return true;
     }
+    // Live scan job (C09 device ring): [scan_args: count -> indirect args] -> [integrate, indirect]. No CPU pass
+    // over records; pages come from residency (INNER pages are created empty ahead of the scan).
+    bool SubmitLiveScan() {
+        const meas::MeasGpuFrame& f = liveFrame_;
+        if (f.slot >= kLiveSlots || !f.ring) return false;
+        if (hashDirty_) { memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false; }
+        scanAnchor_ = f.anchorId;
+        auto js = std::make_shared<JobStorage>();
+        PushScanArgs pa{std::min(f.ring->capacity, std::max(f.count, 1u))};
+        PushIntegrate pi{0, FS_INTEGRATE_COUNT_FROM_GCTR, f.ring->capacity - 1, hashCap_ - 1, f.anchorId, ++tick_};
+        AddDispatch(*js, liveArgs_[f.slot], 1, &pa, sizeof pa);
+        AddDispatch(*js, liveIntegrate_[f.slot], 1, &pi, sizeof pi, &buf_.gctr, FS_G_SCAN_ARGS);
+        FixPushPointers(*js);
+        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.integrateLive"; jd.dispatches = js->d.data(); jd.dispatchCount = 2;
+        uint64_t seq = f.sequence;
+        jd.onRetired = [this, js, seq](bool ok, uint64_t, uint64_t) {
+            std::lock_guard<std::recursive_mutex> g(m_);
+            scanInFlight_--; meas::MeasGpu_ReleaseFrame(seq); if (liveLease_ == seq) liveLease_ = 0;
+            if (ok) maintenanceWanted_ = true;
+            FoldGpuCounters();
+        };
+        if (!SubmitJob(jd)) return false;
+        scanInFlight_++;
+        CounterAdd(FS_CTR_SCAN_TICK, 1);
+        return true;
+    }
     void FoldGpuCounters() {
         if (!gctr_) return;
         static const FsCounter map[FS_GCTR_COUNT] = { FS_CTR_PAGE_LOOKUPS, FS_CTR_PAGE_MISSES, FS_CTR_CELL_LOOKUPS, FS_CTR_SURFEL_CREATE, FS_CTR_SURFEL_UPDATE,
@@ -374,10 +420,19 @@ public:
         inner_ = warm_ = prefetch_ = 0; requestsThisFrame_ = 0;
         for (SlotState& s : slots_) s.zone = ZONE_OUTSIDE;
         for (auto& kv : pages_) kv.second.zone = ZONE_OUTSIDE;
-        uint32_t loads = 0;
+        uint32_t loads = 0, created = 0;
         for (const ZonePage& zp : zonePages_) {
             auto it = pages_.find(zp.key);
-            if (it == pages_.end()) continue;                         // unknown logical page: nothing to load (C14 store later)
+            if (it == pages_.end()) {
+                // unknown page: INNER pages are created empty (bounded per tick) so live scans have a target;
+                // WARM/PREFETCH pages wait for the C14 store
+                if (zp.zone != ZONE_INNER || created >= kUploadsPerTick) continue;
+                uint32_t slot = AllocSlot(false, true);
+                if (slot == FS_INDEX_NONE) { stalls_++; continue; }
+                LogicalPage& np = PageFor(zp.key); np.hasCold = true; np.cold = ColdPage{}; np.zone = zp.zone;
+                LoadIntoSlot(np, slot); slots_[slot].zone = zp.zone; created++; inner_++;
+                continue;
+            }
             LogicalPage& p = it->second; p.zone = zp.zone;
             if (zp.zone == ZONE_INNER) inner_++; else if (zp.zone == ZONE_WARM) warm_++; else prefetch_++;
             if (p.slot != FS_INDEX_NONE) { slots_[p.slot].zone = zp.zone; slots_[p.slot].lastTouched = FrameIndex(); continue; }
@@ -421,8 +476,14 @@ public:
         for (; eraseQueue_.size() && GpuIdle();) { EraseReq r = eraseQueue_.front(); eraseQueue_.erase(eraseQueue_.begin()); if (!SubmitErase(r.c, r.r, r.anchor)) break; }
         uint32_t obs;
         if (TakeScanRequest(obs)) { scanPending_ = true; scanObs_ = obs; }
-        if (scanPending_ && ring_.Pending() > 0 && maintenanceInFlight_ == 0 && eraseInFlight_ == 0 && scanInFlight_ < 2 && budgetUs > 0) SubmitScan();
-        else if (scanPending_ && ring_.Pending() == 0) scanPending_ = false;
+        if (meas::MeasGpu_ReadyFrames() > 0) scanPending_ = true;              // C09 requests ticks on retirement; ready frames are pending work
+        bool gpuFree = maintenanceInFlight_ == 0 && eraseInFlight_ == 0 && scanInFlight_ < 2 && budgetUs > 0;
+        if (liveBound_ && liveLease_ == 0 && gpuFree && meas::MeasGpu_PeekFrame(liveFrame_)) {
+            liveLease_ = liveFrame_.sequence;
+            if (!SubmitLiveScan()) { meas::MeasGpu_ReleaseFrame(liveLease_); liveLease_ = 0; }
+        }
+        if (scanPending_ && ring_.Pending() > 0 && gpuFree && scanInFlight_ < 2) SubmitScan();
+        else if (scanPending_ && ring_.Pending() == 0 && meas::MeasGpu_ReadyFrames() == 0) scanPending_ = false;
     }
     void FeedSynthetic() {
         if (feedCursor_ >= feed_.size()) { if (!feed_.empty()) { feed_.clear(); feed_.shrink_to_fit(); feedCursor_ = 0; } return; }
@@ -535,6 +596,9 @@ private:
     FsSurfel* surfels_ = nullptr; FsSurfelEvidence* evidence_ = nullptr; FsClusterNode* nodes_ = nullptr; FsClusterError* errors_ = nullptr;
     uint32_t* gctr_ = nullptr; uint32_t gctrLast_[FS_GCTR_COUNT] = {};
     WorldBuffers buf_; Pipeline pipes_[K_COUNT];
+    static constexpr uint32_t kLiveSlots = FS_MEAS_GPU_RING_SLOTS;
+    Pipeline liveIntegrate_[kLiveSlots], liveArgs_[kLiveSlots]; bool liveBound_ = false;
+    meas::MeasGpuFrame liveFrame_; uint64_t liveLease_ = 0;
     float anchors_[FS_MAX_ANCHORS][16]; uint64_t anchorSeq_ = 1;
     bool centerValid_ = false; float center_[3] = {0, 0, 0}; float radii_[3] = {3, 6, 10}; uint64_t centerSeq_ = 0, appliedSeq_ = 0;
     std::vector<ZonePage> zonePages_;

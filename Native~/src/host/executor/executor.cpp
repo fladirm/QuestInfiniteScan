@@ -821,6 +821,7 @@ bool     ExecHasScannerQueue() { Executor& x = X(); return x.vkReady.load(std::m
 bool     ExecTimelineSemaphores() { return X().timelineOk; }
 int32_t  ExecStatus() { return X().status.load(std::memory_order_acquire); }
 uint32_t ExecFrameBudgetUs() { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); return x.core.Config().frameBudgetUs; }
+const FsHostConfig* ExecConfig() { Executor& x = X(); return x.hostInitialized ? &x.cfg : nullptr; }
 void     ExecQuarantine(const char* reason, VkResult result) { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); exec::Quarantine(x, reason, result); }
 std::string StorageDir() { Executor& x = X(); std::lock_guard<std::mutex> lock(x.storageMutex); return x.storageRoot.empty() ? std::string() : x.storageRoot + "/finalscan"; }
 
