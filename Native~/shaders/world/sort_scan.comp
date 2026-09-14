@@ -1,0 +1,30 @@
+#version 450
+// F1b radix pass scan (one workgroup): per bin the exclusive prefix over blocks (written in place over the
+// histogram) and the global exclusive prefix over bins; block b of bin d scatters to BINSUM[d] + HIST[b][d].
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#define FS_USE_SORT
+#include "fs_world_blocks.glsl"
+layout(local_size_x = 256) in;
+shared uint sTot[256];
+void main() {
+    uint d = gl_LocalInvocationID.x;
+    uint blocks = FS_TK(FS_T_ARGS_SORTBLK + 0);
+    uint run = 0u;
+    for (uint b = 0u; b < uint(FS_SORT_BLOCKS_MAX); ++b) {
+        if (b >= blocks) break;
+        uint c = sortw[FS_SORT_HIST + b * 256u + d];
+        sortw[FS_SORT_HIST + b * 256u + d] = run;
+        run += c;
+    }
+    sTot[d] = run;
+    barrier();
+    // exclusive prefix over the 256 bins (Hillis-Steele in shared memory)
+    for (uint o = 1u; o < 256u; o <<= 1u) {
+        uint v = d >= o ? sTot[d - o] : 0u;
+        barrier();
+        sTot[d] += v;
+        barrier();
+    }
+    sortw[FS_SORT_BINSUM + d] = sTot[d] - run;   // inclusive -> exclusive
+}

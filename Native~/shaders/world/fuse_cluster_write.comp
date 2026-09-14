@@ -1,0 +1,67 @@
+#version 450
+// F3b: per unmatched cell segment, recompute the (identical) clusters, allocate page-local slots from the
+// page cursor (slab headroom reserved by the CPU; shortfall counted, never truncated silently), assign
+// deterministic SurfaceIDs = idBase + prefix, write the new TRANSIENT surfels + evidence, insert them into the
+// owner cell subtree (single owner per cell) and mark the cell dirty for publication.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_MEAS
+#define FS_USE_PAGES
+#define FS_USE_SURFELS
+#define FS_USE_EVIDENCE
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#define FS_USE_ASSOC_A_RO
+#define FS_USE_SORT_RO
+#define FS_USE_POOLS
+#define FS_USE_DIRTY
+#define FS_USE_RETIRE
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_cluster.glsl"
+#include "fs_index.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint count = FS_TK(FS_T_COUNT);
+    if (i >= count) return;
+    uint key = assocA[i].key;
+    if ((key & FS_ASSOC_KEY_UNMATCHED) == 0u || key == FS_ASSOC_KEY_NONE) return;
+    if (i > 0u && assocA[i - 1u].key == key) return;
+    uint page = assocA[i].pageSlot;
+    uint cell = key & 0x7FFFu;
+    vec3 origin = fsPageOrigin3(pages[page].key);
+    FsCand cands[FS_CELL_NEW_MAX]; uint ov;
+    uint n = fsClusterSegment(i, count, key, origin, cands, ov);
+    if (n == 0u) return;
+    uint prefix = sortw[FS_SORT_PREFIX + i] + sortw[FS_SORT_BLOCKSUM + i / 256u];
+    uint idBase = FS_TK(FS_T_ID_BASE) + prefix;
+    uint capacity = pages[page].slabCount * uint(FS_SLAB_SURFELS);
+    uint local0 = atomicAdd(pages[page].surfelCount, n);
+    uint tick16 = FS_TK(FS_T_TICK) & 0xFFFFu;
+    uint written = 0u;
+    for (uint c = 0u; c < uint(FS_CELL_NEW_MAX); ++c) {
+        if (c >= n) break;
+        uint local = local0 + c;
+        if (local >= capacity) { atomicAdd(pages[page].shortfall, 1u); continue; }
+        uint h = slabDir[page * uint(FS_PAGE_MAX_SLABS) + (local / uint(FS_SLAB_SURFELS))] * uint(FS_SLAB_SURFELS) + (local % uint(FS_SLAB_SURFELS));
+        FsCand q = cands[c];
+        vec3 nn = normalize(q.nSum);
+        float mxx = q.mxx / float(q.cnt), myy = q.myy / float(q.cnt), mxy = q.mxy / float(q.cnt);
+        float rM, rm, ang; fsMomentToEllipse(mxx, myy, mxy, rM, rm, ang);
+        rM = clamp(max(rM, q.fp), FS_RADIUS_MIN_M, FS_RADIUS_MAX_M); rm = clamp(max(rm, FS_RADIUS_MIN_M), FS_RADIUS_MIN_M, rM);
+        FsPatch pt; pt.p = q.p; pt.n = nn; pt.angle = ang; pt.rM = rM; pt.rm = rm; pt.sigmaN = q.sigmaN; pt.sigmaT = q.sigmaT;
+        pt.flags = min(q.cnt, uint(FS_EVIDENCE_COUNT_MAX)) | FS_FLAG_TRANSIENT | FS_FLAG_SIDED_A;
+        if (q.cnt >= uint(FS_PROMOTE_STATIC)) pt.flags = (pt.flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
+        pt.surfaceId = idBase + c; pt.appearance = fsPreviewColorFromNormal(nn);
+        // keep inside the owner cell (the cluster mean lies in it by construction; guard the fixed-point rounding)
+        vec3 bmin, bmax; fsCellBounds(cell, bmin, bmax);
+        pt.p = clamp(pt.p, bmin + vec3(0.0005), bmax - vec3(0.0005));
+        surfels[h] = fsPack(pt);
+        FsSurfelEvidence ev; ev.staticEvidence_motionEvidence = min(q.cnt, 65535u); ev.varianceQ_lastSeenFrame = (tick16 << 16) | fsEncodeLog(q.d2 / float(q.cnt), FS_SIGMA_BASE_M * FS_SIGMA_BASE_M);
+        evidence[h] = ev;
+        if (fsIndexInsert(page, cell, pt.p, h)) written++;
+        else { FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, pt.flags | FS_FLAG_REMOVED); surfels[h] = dead; }
+    }
+    if (written != 0u) { atomicAdd(gctr[FS_GCTR_NEW_SURFELS], written); fsMarkDirtyCell(page, cell); }
+    if (ov != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
+}

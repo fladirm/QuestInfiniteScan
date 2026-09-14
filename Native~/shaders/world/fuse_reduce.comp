@@ -1,0 +1,85 @@
+#version 450
+// F2 segmented fusion reduce (contract §8.2, §8.5, §8.6; C09R-B): one invocation per matched segment of the
+// sorted association records = one existing surfel. Folds every contribution of the epoch (bounded by
+// FS_SEG_REDUCE_MAX, the rest counted) into ONE precision-weighted update and writes the surfel and its
+// evidence exactly once. Deterministic for a given sorted stream. The fused centre stays inside the surfel's
+// index cell (an update never moves a surfel across a cell boundary; a persistent residual triggers a split).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_MEAS
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS
+#define FS_USE_EVIDENCE
+#define FS_USE_GCTR
+#define FS_USE_ASSOC_A_RO
+#define FS_USE_DIRTY
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint count = FS_TK(FS_T_COUNT);
+    if (i >= count) return;
+    uint key = assocA[i].key;
+    if ((key & (FS_ASSOC_KEY_UNMATCHED | 0x40000000u)) != 0u) return;              // unmatched / rejected
+    if (i > 0u && assocA[i - 1u].key == key) return;                                 // not a segment start
+    uint h = key;
+    FsSurfel s = surfels[h];
+    FsPatch q = fsUnpack(s);
+    if ((q.flags & FS_FLAG_REMOVED) != 0u) return;
+    uint page = assocA[i].pageSlot;
+    vec3 origin = fsPageOrigin3(pages[page].key);
+    vec3 t1, t2; fsTangentFrame(q.n, t1, t2);
+    FsAccum acc = fsAccumInit();
+    uint overflow = 0u;
+    for (uint k = 0u; k < uint(FS_SEG_REDUCE_MAX) + 1u; ++k) {
+        uint j = i + k;
+        if (j >= count || assocA[j].key != key) break;
+        if (k == uint(FS_SEG_REDUCE_MAX)) { overflow = 1u; break; }
+        FsSurfaceMeasurement m = meas[assocA[j].meas];
+        vec3 pm = vec3(m.px, m.py, m.pz) - origin;
+        vec3 nm = normalize(vec3(m.nx, m.ny, m.nz));
+        fsAccumAdd(acc, q, t1, t2, pm, nm, max(m.sigmaN, FS_SIGMA_N_FLOOR_M), max(m.sigmaT, FS_SIGMA_T_FLOOR_M), clamp(m.footprint, FS_RADIUS_MIN_M, FS_RADIUS_MAX_M));
+    }
+    if (acc.n == 0u) return;
+    if (overflow != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
+    // ---- fuse
+    float wNs = 1.0 / (q.sigmaN * q.sigmaN), wTs = 1.0 / (q.sigmaT * q.sigmaT);
+    float aN = acc.wN / (wNs + acc.wN), aT = acc.wT / (wTs + acc.wT);
+    float dMean = acc.dN / acc.wN;
+    vec2 tMean = acc.tMean / acc.wT;
+    vec3 np = q.p + q.n * (dMean * aN) + (t1 * tMean.x + t2 * tMean.y) * aT;
+    vec3 nn = normalize(q.n * wNs + acc.nSum);
+    float newSigmaN = max(sqrt(1.0 / (wNs + acc.wN)), FS_SIGMA_N_FLOOR_M);
+    float newSigmaT = max(sqrt(1.0 / (wTs + acc.wT)), FS_SIGMA_T_FLOOR_M);
+    // tangent ellipse: prior moment (support count as weight) + measured moments (about the fused centre)
+    uint cnt = q.flags & FS_EVIDENCE_COUNT_MASK;
+    float ma, mb, mc; fsPatchMoment(q, ma, mb, mc);
+    float wPrior = float(max(cnt, 1u)), wMeas = float(acc.n);
+    float mxx = acc.mxx / acc.wT - tMean.x * tMean.x * aT, myy = acc.myy / acc.wT - tMean.y * tMean.y * aT, mxy = acc.mxy / acc.wT - tMean.x * tMean.y * aT;
+    float fa = (ma * wPrior + mxx * wMeas) / (wPrior + wMeas), fb = (mb * wPrior + myy * wMeas) / (wPrior + wMeas), fc = (mc * wPrior + mxy * wMeas) / (wPrior + wMeas);
+    float rM, rm, ang; fsMomentToEllipse(fa, fb, fc, rM, rm, ang);
+    rM = clamp(max(rM, acc.fp), FS_RADIUS_MIN_M, FS_RADIUS_MAX_M); rm = clamp(max(rm, FS_RADIUS_MIN_M), FS_RADIUS_MIN_M, rM);
+    // keep the centre inside the surfel's index cell (owner invariant)
+    uint cell = fsCellOf(q.p);
+    vec3 bmin, bmax; fsCellBounds(cell, bmin, bmax);
+    np = clamp(np, bmin + vec3(0.0005), bmax - vec3(0.0005));
+    // evidence
+    FsSurfelEvidence ev = evidence[h];
+    float var = fsDecodeLog(fsGet_FsSurfelEvidence_varianceQ(ev), FS_SIGMA_BASE_M * FS_SIGMA_BASE_M);
+    float meanD2 = acc.d2 / float(acc.n);
+    var += (meanD2 - var) * (float(acc.n) / float(cnt + acc.n));
+    uint stat = min(fsGet_FsSurfelEvidence_staticEvidence(ev) + acc.n, 65535u);
+    uint flags = q.flags;
+    cnt = min(cnt + acc.n, uint(FS_EVIDENCE_COUNT_MAX));
+    if ((flags & FS_FLAG_TRANSIENT) != 0u && stat >= uint(FS_PROMOTE_STATIC)) flags = (flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
+    q.p = np; q.n = nn; q.angle = ang; q.rM = rM; q.rm = rm; q.sigmaN = newSigmaN; q.sigmaT = newSigmaT;
+    q.flags = (flags & ~FS_EVIDENCE_COUNT_MASK) | cnt;
+    surfels[h] = fsPack(q);
+    fsSet_FsSurfelEvidence_staticEvidence(ev, stat);
+    fsSet_FsSurfelEvidence_varianceQ(ev, fsEncodeLog(var, FS_SIGMA_BASE_M * FS_SIGMA_BASE_M));
+    fsSet_FsSurfelEvidence_lastSeenFrame(ev, FS_TK(FS_T_TICK) & 0xFFFFu);
+    evidence[h] = ev;
+    atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u);
+    atomicAdd(gctr[FS_GCTR_CONTRIBUTIONS], acc.n);
+    fsMarkDirtyCell(page, cell);
+}

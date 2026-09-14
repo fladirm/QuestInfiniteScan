@@ -1,0 +1,18 @@
+#version 450
+// Exclusive prefix over SEGNEW (FS_TICK_MEAS_MAX entries): block-local scan (256 per workgroup) into PREFIX and
+// the block total into BLOCKSUM. fuse_prefix_carry.comp turns BLOCKSUM into exclusive block offsets.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#define FS_USE_SORT
+#include "fs_world_blocks.glsl"
+layout(local_size_x = 256) in;
+shared uint sV[256];
+void main() {
+    uint t = gl_LocalInvocationID.x, b = gl_WorkGroupID.x, i = b * 256u + t;
+    uint v = sortw[FS_SORT_SEGNEW + i];
+    sV[t] = v;
+    barrier();
+    for (uint o = 1u; o < 256u; o <<= 1u) { uint u = t >= o ? sV[t - o] : 0u; barrier(); sV[t] += u; barrier(); }
+    sortw[FS_SORT_PREFIX + i] = sV[t] - v;
+    if (t == 255u) sortw[FS_SORT_BLOCKSUM + b] = sV[255];
+}

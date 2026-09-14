@@ -1,0 +1,32 @@
+#version 450
+// F3a: per unmatched cell segment (sorted records), the number of justified new candidates after clustering
+// / dedupe (bounded). Written at the segment start index of SEGNEW; the exclusive prefix over these gives
+// deterministic SurfaceIDs and the epoch total.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_MEAS
+#define FS_USE_PAGES_RO
+#define FS_USE_GCTR
+#define FS_USE_ASSOC_A_RO
+#define FS_USE_SORT
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_cluster.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(FS_TICK_MEAS_MAX)) return;
+    uint count = FS_TK(FS_T_COUNT);
+    uint n = 0u;
+    if (i < count) {
+        uint key = assocA[i].key;
+        if ((key & FS_ASSOC_KEY_UNMATCHED) != 0u && key != FS_ASSOC_KEY_NONE && (i == 0u || assocA[i - 1u].key != key)) {
+            uint page = assocA[i].pageSlot;
+            vec3 origin = fsPageOrigin3(pages[page].key);
+            FsCand cands[FS_CELL_NEW_MAX]; uint ov;
+            n = fsClusterSegment(i, count, key, origin, cands, ov);
+            if (ov != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
+            atomicAdd(gctr[FS_GCTR_SEGMENTS_UNMATCHED], 1u);
+        }
+    }
+    sortw[FS_SORT_SEGNEW + i] = n;
+}

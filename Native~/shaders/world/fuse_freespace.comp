@@ -1,0 +1,66 @@
+#version 450
+// F0b free-space evidence (contract §8.6; C09R §22): page-aware DDA from the eye to the measured point across
+// logical pages. Cells crossed before the hit receive the epoch stamp (1 + tick % 255, never 0). Writes are
+// idempotent (every writer of the epoch writes the same value), so the result is order-independent: one
+// deterministic evidence value per cell per tick. Bounded by FS_FREE_WALK_MAX steps and FS_FREE_MAX_RANGE_M.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_MEAS
+#define FS_USE_HASH
+#define FS_USE_PAGES_RO
+#define FS_USE_GCTR
+#define FS_USE_FREESPACE
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint hashMask; int anchorId; uint flags; uint pad; vec4 eye0; vec4 eye1; } pc;
+
+bool fsPageHashLookup(FsPageKey key, out uint slot) {
+    uint i = fsHashPageKey(key) & pc.hashMask;
+    for (uint d = 0u; d < FS_PAGE_HASH_MAX_PROBE; ++d) {
+        FsPageHashEntry e = hash[i];
+        if (e.slot == FS_INDEX_NONE) return false;
+        if (e.probeDistance < d) return false;
+        if (fsKeyEq(e.key, key)) { slot = e.slot; return true; }
+        i = (i + 1u) & pc.hashMask;
+    }
+    return false;
+}
+void fsStamp(uint slot, uint cell, uint stamp) {
+    uint byteIndex = pages[slot].freeSpaceBase + cell;
+    uint word = byteIndex >> 2u, shift = (byteIndex & 3u) * 8u;
+    uint cur = (freeSpace[word] >> shift) & 0xFFu;
+    if (cur == stamp) return;
+    atomicAnd(freeSpace[word], ~(0xFFu << shift));
+    atomicOr(freeSpace[word], stamp << shift);
+}
+void main() {
+    if ((pc.flags & FS_FUSE_FLAG_FREE_SPACE) == 0u) return;
+    uint t = gl_GlobalInvocationID.x;
+    if (t >= FS_TK(FS_T_COUNT)) return;
+    FsSurfaceMeasurement m = meas[t];
+    vec3 p = vec3(m.px, m.py, m.pz);
+    vec3 eye = (m.sourceFlags & 0x10000u) != 0u ? pc.eye1.xyz : pc.eye0.xyz;
+    vec3 dir = p - eye; float len = length(dir);
+    if (len < FS_FREE_STEP_M * 2.0 || len > FS_FREE_MAX_RANGE_M) return;
+    dir /= len;
+    uint stamp = 1u + (FS_TK(FS_T_TICK) % 255u);
+    float tEnd = len - FS_FREE_STEP_M;
+    FsPageKey key; key.anchorId = pc.anchorId; key.x = 0x7FFFFFFF; key.y = 0; key.z = 0;
+    uint slot = FS_INDEX_NONE; bool haveSlot = false; uint lastCell = 0xFFFFFFFFu; uint stamped = 0u, hops = 0u;
+    for (uint i = 0u; i < uint(FS_FREE_WALK_MAX); ++i) {
+        float tt = (float(i) + 0.5) * FS_FREE_STEP_M;
+        if (tt >= tEnd) break;
+        vec3 q = eye + dir * tt;
+        int kx = fsPageCoord(q.x), ky = fsPageCoord(q.y), kz = fsPageCoord(q.z);
+        if (kx != key.x || ky != key.y || kz != key.z) {
+            if (hops >= uint(FS_FREE_PAGE_HOPS_MAX)) { atomicAdd(gctr[FS_GCTR_FREE_HOP_OVERFLOW], 1u); break; }   // hard bound (§22)
+            hops++;
+            key.x = kx; key.y = ky; key.z = kz;
+            haveSlot = fsPageHashLookup(key, slot);
+            lastCell = 0xFFFFFFFFu;
+        }
+        if (!haveSlot) continue;                                          // non-resident page: no evidence (C14 streams it)
+        uint cell = fsCellOf(q - fsPageOrigin3(key));
+        if (cell != lastCell) { fsStamp(slot, cell, stamp); lastCell = cell; stamped++; }
+    }
+    if (stamped != 0u) atomicAdd(gctr[FS_GCTR_FREE_STAMPS], stamped);
+}

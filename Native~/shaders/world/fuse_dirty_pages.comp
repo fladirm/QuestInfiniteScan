@@ -1,0 +1,18 @@
+#version 450
+// Dirty-cell compaction 1/3 (deterministic order): per page (one workgroup), count the set bits of its cell
+// mask and store the page total at DIRTY_LIST(6)[page] (level-6 list region doubles as the page prefix scratch).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#define FS_USE_DIRTY
+#include "fs_world_blocks.glsl"
+layout(local_size_x = 256) in;
+shared uint sSum[256];
+void main() {
+    uint page = gl_WorkGroupID.x, t = gl_LocalInvocationID.x;
+    uint s = 0u;
+    for (uint w = t; w < uint(FS_DIRTY_CELL_WORDS); w += 256u) s += bitCount(dirty[FS_DIRTY_CELLMASK(page) + w]);
+    sSum[t] = s;
+    barrier();
+    for (uint o = 1u; o < 256u; o <<= 1u) { uint u = t >= o ? sSum[t - o] : 0u; barrier(); sSum[t] += u; barrier(); }
+    if (t == 255u) dirty[FS_DIRTY_LIST(6) + page] = sSum[255];
+}

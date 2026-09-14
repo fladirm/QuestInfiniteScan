@@ -1,0 +1,17 @@
+#version 450
+// Exclusive prefix over the FS_SORT_BLOCKS_MAX block totals (in place) and the epoch total of new candidates.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#define FS_USE_SORT
+#include "fs_world_blocks.glsl"
+layout(local_size_x = 256) in;
+shared uint sV[256];
+void main() {
+    uint t = gl_LocalInvocationID.x;
+    uint v = sortw[FS_SORT_BLOCKSUM + t];
+    sV[t] = v;
+    barrier();
+    for (uint o = 1u; o < 256u; o <<= 1u) { uint u = t >= o ? sV[t - o] : 0u; barrier(); sV[t] += u; barrier(); }
+    sortw[FS_SORT_BLOCKSUM + t] = sV[t] - v;
+    if (t == 255u) FS_TK(FS_T_NEW_TOTAL) = sV[255];
+}

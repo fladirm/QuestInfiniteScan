@@ -1,0 +1,20 @@
+#version 450
+// F1a stable LSD radix sort, pass histogram: per 256-key block, count the digit (8 bits at `shift`) of every key.
+// Input = assocA (even passes) or assocB (odd passes): the pipeline instance is bound accordingly.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#define FS_USE_ASSOC_A_RO
+#define FS_USE_SORT
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_SORT_BLOCK) in;
+layout(push_constant) uniform Push { uint shift; } pc;
+shared uint sHist[256];
+void main() {
+    uint t = gl_LocalInvocationID.x, b = gl_WorkGroupID.x;
+    sHist[t] = 0u;
+    barrier();
+    uint i = b * uint(FS_SORT_BLOCK) + t;
+    if (i < FS_TK(FS_T_COUNT)) atomicAdd(sHist[(assocA[i].key >> pc.shift) & 255u], 1u);
+    barrier();
+    sortw[FS_SORT_HIST + b * 256u + t] = sHist[t];
+}

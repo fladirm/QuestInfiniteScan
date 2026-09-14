@@ -1,0 +1,39 @@
+#version 450
+// F1c radix pass scatter: stable within the block (ranks computed sequentially by lane 0, deterministic),
+// dst = BINSUM[digit] + HIST[block][digit] + rank. Reads assocA, writes assocB (instances swap buffers).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#define FS_USE_ASSOC_A_RO
+#define FS_USE_ASSOC_B
+#define FS_USE_SORT
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_SORT_BLOCK) in;
+layout(push_constant) uniform Push { uint shift; } pc;
+shared uint sDigit[256];
+shared uint sRank[256];
+shared uint sCount[256];
+void main() {
+    uint t = gl_LocalInvocationID.x, b = gl_WorkGroupID.x;
+    uint count = FS_TK(FS_T_COUNT);
+    uint i = b * uint(FS_SORT_BLOCK) + t;
+    bool valid = i < count;
+    FsAssociation a; a.key = 0u; a.meas = 0u; a.score = 0.0; a.pageSlot = 0u;
+    if (valid) a = assocA[i];
+    sDigit[t] = valid ? ((a.key >> pc.shift) & 255u) : 0xFFFFFFFFu;
+    sCount[t] = 0u;
+    barrier();
+    if (t == 0u) {
+        uint n = min(uint(FS_SORT_BLOCK), count - min(count, b * uint(FS_SORT_BLOCK)));
+        for (uint k = 0u; k < uint(FS_SORT_BLOCK); ++k) {
+            if (k >= n) break;
+            uint dg = sDigit[k];
+            sRank[k] = sCount[dg];
+            sCount[dg] = sCount[dg] + 1u;
+        }
+    }
+    barrier();
+    if (!valid) return;
+    uint dg = sDigit[t];
+    uint dst = sortw[FS_SORT_BINSUM + dg] + sortw[FS_SORT_HIST + b * 256u + dg] + sRank[t];
+    assocB[dst] = a;
+}
