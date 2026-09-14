@@ -1,0 +1,14 @@
+{
+  "name": "FinalScan.Tests.Runtime",
+  "rootNamespace": "FinalScan.Tests",
+  "references": ["FinalScan.Runtime", "UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.Mathematics", "Unity.Collections"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

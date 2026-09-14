@@ -8,6 +8,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using FinalScan.Render;
 
 namespace FinalScan.Editor
 {
@@ -41,8 +42,42 @@ namespace FinalScan.Editor
                 Debug.Log($"{Tag} GraphicsSettings.defaultRenderPipeline = {PipelinePath}");
             }
             AssignToAllQualityLevels(pipeline);
+            EnsureRenderFeature();
             AssetDatabase.SaveAssets();
             return pipeline;
+        }
+
+        /// <summary>
+        /// Adds FinalScanRenderFeature to URP-Renderer.asset as a sub-asset (the same SerializedObject path the URP
+        /// renderer inspector uses: m_RendererFeatures + m_RendererFeatureMap local ids) and assigns its depth-copy shader.
+        /// </summary>
+        public static FinalScanRenderFeature EnsureRenderFeature()
+        {
+            var rendererData = AssetDatabase.LoadAssetAtPath<UniversalRendererData>(RendererPath);
+            if (rendererData == null) throw new InvalidOperationException(RendererPath + " is not a UniversalRendererData");
+            FinalScanRenderFeature feature = null;
+            foreach (ScriptableRendererFeature f in rendererData.rendererFeatures)
+                if (f is FinalScanRenderFeature existing) { feature = existing; break; }
+            if (feature == null)
+            {
+                feature = ScriptableObject.CreateInstance<FinalScanRenderFeature>();
+                feature.name = nameof(FinalScanRenderFeature);
+                AssetDatabase.AddObjectToAsset(feature, rendererData);
+                AssetDatabase.TryGetGUIDAndLocalFileIdentifier(feature, out _, out long localId);
+                var serialized = new SerializedObject(rendererData);
+                SerializedProperty features = serialized.FindProperty("m_RendererFeatures");
+                SerializedProperty map = serialized.FindProperty("m_RendererFeatureMap");
+                features.arraySize++;
+                features.GetArrayElementAtIndex(features.arraySize - 1).objectReferenceValue = feature;
+                map.arraySize++;
+                map.GetArrayElementAtIndex(map.arraySize - 1).longValue = localId;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(rendererData);
+                Debug.Log($"{Tag} Added FinalScanRenderFeature to {RendererPath}.");
+            }
+            FinalScanHostSetup.AssignShader(feature, "depthCopyShader", FinalScanHostSetup.DepthCopyShaderPath);
+            EditorUtility.SetDirty(feature);
+            return feature;
         }
 
         static UniversalRenderPipelineAsset CreatePipelineAsset()

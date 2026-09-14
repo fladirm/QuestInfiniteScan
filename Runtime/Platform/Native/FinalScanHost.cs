@@ -31,8 +31,11 @@ namespace FinalScan.Platform.Native
         /// <summary>FsHostRenderEvent: ids passed to CommandBuffer.IssuePluginEvent(RenderEventFunc, id).</summary>
         public enum RenderEvent { FrameBegin = 100, FrameEnd = 101, WarmupStep = 102 }
 
-        /// <summary>FsWorld_CreateSynthetic kinds.</summary>
-        public enum SyntheticKind { RoomBox = 0, Corridor = 1, Stairs = 2, ThinWall = 3 }
+        /// <summary>FsWorld_CreateSynthetic kinds (header: 0 room box, 1 corridor, 2 stairs, 3 thin wall; 4 reserved for the dense flower-shop benchmark).</summary>
+        public enum SyntheticKind { RoomBox = 0, Corridor = 1, Stairs = 2, ThinWall = 3, Dense = 4 }
+
+        /// <summary>FsRender_SetMode values (contract §13.5 render modes). The entry point is ABI 2 additive and may be absent.</summary>
+        public enum RenderModeId { Scan = 0, XRay = 1, Plan = 2 }
 
         /// <summary>Byte-identical mirror of FsHostConfig (100 B). Fill through <see cref="HostConfig.Create"/>.</summary>
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -102,6 +105,14 @@ namespace FinalScan.Platform.Native
         [DllImport(Lib)] static extern int FsRender_RegisterBuffers(IntPtr unityDrawRecordBuffer, uint drawRecordBytes, IntPtr unityIndirectArgsBuffer);
         [DllImport(Lib)] static extern int FsRender_SetView(float[] viewL16, float[] projL16, float[] viewR16, float[] projR16, float[] headPos3);
         [DllImport(Lib)] static extern int FsRender_GetLastCullStats(long[] out4);
+        [DllImport(Lib)] static extern int FsRender_SetPrevDepth(IntPtr unityDepthTexture, uint width, uint height, uint layers, float[] viewL16, float[] projL16, float[] viewR16, float[] projR16);
+        [DllImport(Lib)] static extern int FsRender_SetEnvDepth(IntPtr unityDepthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs);
+        [DllImport(Lib)] static extern int FsRender_SetLodPolicy(float fovealErrorPx, float peripheralErrorPx, float predictionMarginDeg, uint screenWorkBudget);
+        [DllImport(Lib)] static extern int FsRender_SetGpuHeadroomUs(int headroomUs);
+        // Optional (a native agent may add it); guarded by EntryPointNotFoundException in SetMode.
+        [DllImport(Lib)] static extern int FsRender_SetMode(int mode);
+        // Optional twin of FsRender_SetEnvDepth exported by the C09 measurement module (same signature); guarded in SetMeasEnvDepth.
+        [DllImport(Lib)] static extern int FsMeas_SetEnvDepth(IntPtr unityDepthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs);
 
         static int s_abi = int.MinValue;
         /// <summary>True when the plugin loads and reports ABI 2. Cached after the first successful probe.</summary>
@@ -159,6 +170,35 @@ namespace FinalScan.Platform.Native
         public static int RegisterRenderBuffers(IntPtr drawRecordBuffer, uint drawRecordBytes, IntPtr indirectArgsBuffer) => FsRender_RegisterBuffers(drawRecordBuffer, drawRecordBytes, indirectArgsBuffer);
         public static int SetView(float[] viewL16, float[] projL16, float[] viewR16, float[] projR16, float[] headPos3) => FsRender_SetView(viewL16, projL16, viewR16, projR16, headPos3);
         public static int GetLastCullStats(long[] out4) => FsRender_GetLastCullStats(out4);
+        public static int SetPrevDepth(IntPtr depthTexture, uint width, uint height, uint layers, float[] viewL16, float[] projL16, float[] viewR16, float[] projR16)
+            => FsRender_SetPrevDepth(depthTexture, width, height, layers, viewL16, projL16, viewR16, projR16);
+        public static int SetEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs)
+            => FsRender_SetEnvDepth(depthTextureArray, width, height, poseL16, poseR16, fovL4, fovR4, nearZ, farZ, xrTimeNs);
+        public static int SetLodPolicy(float fovealErrorPx, float peripheralErrorPx, float predictionMarginDeg, uint screenWorkBudget)
+            => FsRender_SetLodPolicy(fovealErrorPx, peripheralErrorPx, predictionMarginDeg, screenWorkBudget);
+        public static int SetGpuHeadroomUs(int headroomUs) => FsRender_SetGpuHeadroomUs(headroomUs);
+
+        static bool s_measEnvDepthMissing;
+        /// <summary>True until FsMeas_SetEnvDepth is found missing in the loaded plugin.</summary>
+        public static bool MeasEnvDepthSupported => !s_measEnvDepthMissing;
+        /// <summary>Calls the measurement module's FsMeas_SetEnvDepth when exported (C09); ResultUnavailable otherwise.</summary>
+        public static int SetMeasEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs)
+        {
+            if (s_measEnvDepthMissing) return ResultUnavailable;
+            try { return FsMeas_SetEnvDepth(depthTextureArray, width, height, poseL16, poseR16, fovL4, fovR4, nearZ, farZ, xrTimeNs); }
+            catch (EntryPointNotFoundException) { s_measEnvDepthMissing = true; return ResultUnavailable; }
+        }
+
+        static bool s_setModeMissing;
+        /// <summary>True until FsRender_SetMode is found missing in the loaded plugin.</summary>
+        public static bool SetModeSupported => !s_setModeMissing;
+        /// <summary>Calls FsRender_SetMode when the plugin exports it; returns <see cref="ResultUnavailable"/> (once logged by the caller) otherwise.</summary>
+        public static int SetMode(RenderModeId mode)
+        {
+            if (s_setModeMissing) return ResultUnavailable;
+            try { return FsRender_SetMode((int)mode); }
+            catch (EntryPointNotFoundException) { s_setModeMissing = true; return ResultUnavailable; }
+        }
 #else
         public static bool Available => false;
         public static int ReportedAbiVersion => 0;
@@ -186,6 +226,14 @@ namespace FinalScan.Platform.Native
         public static int RegisterRenderBuffers(IntPtr drawRecordBuffer, uint drawRecordBytes, IntPtr indirectArgsBuffer) => ResultUnavailable;
         public static int SetView(float[] viewL16, float[] projL16, float[] viewR16, float[] projR16, float[] headPos3) => ResultUnavailable;
         public static int GetLastCullStats(long[] out4) => ResultUnavailable;
+        public static int SetPrevDepth(IntPtr depthTexture, uint width, uint height, uint layers, float[] viewL16, float[] projL16, float[] viewR16, float[] projR16) => ResultUnavailable;
+        public static int SetEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs) => ResultUnavailable;
+        public static int SetLodPolicy(float fovealErrorPx, float peripheralErrorPx, float predictionMarginDeg, uint screenWorkBudget) => ResultUnavailable;
+        public static int SetGpuHeadroomUs(int headroomUs) => ResultUnavailable;
+        public static bool SetModeSupported => false;
+        public static int SetMode(RenderModeId mode) => ResultUnavailable;
+        public static bool MeasEnvDepthSupported => false;
+        public static int SetMeasEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs) => ResultUnavailable;
 #endif
 
         delegate int JsonGetter(byte[] buf, int cap);

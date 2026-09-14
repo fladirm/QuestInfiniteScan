@@ -17,6 +17,10 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARFoundation;
+using FinalScan.Host;
+using FinalScan.Render;
+using FinalScan.Residency;
+using UnityEditor.Rendering;
 
 namespace FinalScan.Editor
 {
@@ -31,6 +35,11 @@ namespace FinalScan.Editor
         const string ApplicationId = "eu.monle.finalscan";
         const string RootObjectName = "[FinalScan]";
         const string ProbeHostTypeName = "FinalScan.Platform.Probe.DeviceProbeHost";
+        const string SensorAuthorityTypeName = "FinalScan.Platform.Sensor.SensorAuthority";
+        const string AttachProbeEnv = "FS_ATTACH_PROBE";
+        public const string SurfelShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanSurfel.shader";
+        public const string DepthCopyShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanDepthCopy.shader";
+        public const string ValidateSuccessMarker = "[FinalScan] ValidateGraphics Succeeded:";
         const string ApkPathEnv = "FS_APK_PATH";
         const string DefaultApkName = "FinalScan-release.apk";
 
@@ -108,6 +117,26 @@ namespace FinalScan.Editor
             }
         }
 
+        /// <summary>
+        /// Batch entry point: compiles both FinalScan shaders for Vulkan/Android through ShaderData.CompileVariant
+        /// (every pass, vertex + fragment, with and without STEREO_INSTANCING_ON) and fails on any error.
+        /// </summary>
+        public static void ValidateGraphics()
+        {
+            try
+            {
+                string report = ValidateGraphicsCore();
+                Debug.Log($"{ValidateSuccessMarker} {report}");
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"{Tag} ValidateGraphics Failed: {exception}");
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                throw;
+            }
+        }
+
         public static void BuildApk()
         {
             try
@@ -167,7 +196,9 @@ namespace FinalScan.Editor
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.Android.textureCompressionFormats = new[] { TextureCompressionFormat.ASTC };
             EditorUserBuildSettings.buildAppBundle = false;
-            Debug.Log($"{Tag} Player settings: {CompanyName}/{ProductName} {ApplicationId} IL2CPP ARM64 minSdk32 Vulkan SPI ASTC GameActivity");
+            // C01 measured FrameTimingManager off; the host derives GPU headroom (FsRender_SetGpuHeadroomUs) from it.
+            PlayerSettings.enableFrameTimingStats = true;
+            Debug.Log($"{Tag} Player settings: {CompanyName}/{ProductName} {ApplicationId} IL2CPP ARM64 minSdk32 Vulkan SPI ASTC GameActivity FrameTimingStats");
         }
 
         static void ConfigureSystemKeyboard()
@@ -239,21 +270,116 @@ namespace FinalScan.Editor
             root.transform.localScale = Vector3.one;
             if (root.GetComponent<FinalScanBootstrap>() == null) root.AddComponent<FinalScanBootstrap>();
 
-            Type probeHost = AppDomain.CurrentDomain.GetAssemblies()
-                .Select(assembly => assembly.GetType(ProbeHostTypeName, false))
-                .FirstOrDefault(type => type != null);
-            if (probeHost == null)
+            // C02..C07 host components (Runtime/Host, Runtime/Render, Runtime/Residency).
+            if (root.GetComponent<FinalScanHost>() == null) root.AddComponent<FinalScanHost>();
+            SurfelRenderer renderer = root.GetComponent<SurfelRenderer>();
+            if (renderer == null) renderer = root.AddComponent<SurfelRenderer>();
+            AssignShader(renderer, "surfelShader", SurfelShaderPath);
+            if (root.GetComponent<ResidencyDriver>() == null) root.AddComponent<ResidencyDriver>();
+            if (root.GetComponent<HostHud>() == null) root.AddComponent<HostHud>();
+            Debug.Log($"{Tag} Attached FinalScanHost, SurfelRenderer, ResidencyDriver, HostHud to {RootObjectName}.");
+
+            // C03 sensor authority (another agent) by reflection: attached when the type exists.
+            AttachByTypeName(root, SensorAuthorityTypeName, attach: true);
+
+            // C01 probe host only on request (FS_ATTACH_PROBE=1); otherwise removed so it never shares the device with the host.
+            bool attachProbe = Environment.GetEnvironmentVariable(AttachProbeEnv) == "1";
+            AttachByTypeName(root, ProbeHostTypeName, attachProbe);
+        }
+
+        static void AttachByTypeName(GameObject root, string typeName, bool attach)
+        {
+            Type type = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType(typeName, false))
+                .FirstOrDefault(t => t != null);
+            if (type == null)
             {
-                Debug.Log($"{Tag} {ProbeHostTypeName} not present; root has FinalScanBootstrap only.");
+                Debug.Log($"{Tag} {typeName} not present; skipped.");
                 return;
             }
-            if (!typeof(Component).IsAssignableFrom(probeHost))
+            if (!typeof(Component).IsAssignableFrom(type))
             {
-                Debug.LogWarning($"{Tag} {ProbeHostTypeName} exists but is not a Component; skipped.");
+                Debug.LogWarning($"{Tag} {typeName} exists but is not a Component; skipped.");
                 return;
             }
-            if (root.GetComponent(probeHost) == null) root.AddComponent(probeHost);
-            Debug.Log($"{Tag} Attached {ProbeHostTypeName} to {RootObjectName}.");
+            Component existing = root.GetComponent(type);
+            if (attach)
+            {
+                if (existing == null) root.AddComponent(type);
+                Debug.Log($"{Tag} Attached {typeName} to {RootObjectName}.");
+            }
+            else if (existing != null)
+            {
+                UnityEngine.Object.DestroyImmediate(existing);
+                Debug.Log($"{Tag} Removed {typeName} from {RootObjectName} (set {AttachProbeEnv}=1 to attach).");
+            }
+        }
+
+        /// <summary>Assigns a package shader to a serialized field so the shader is referenced by the scene and survives build stripping.</summary>
+        internal static void AssignShader(UnityEngine.Object target, string field, string shaderPath)
+        {
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
+            if (shader == null) throw new FileNotFoundException("FinalScan shader missing", shaderPath);
+            var serialized = new SerializedObject(target);
+            SerializedProperty property = serialized.FindProperty(field);
+            if (property == null) throw new MissingFieldException(target.GetType().Name, field);
+            if (property.objectReferenceValue != shader)
+            {
+                property.objectReferenceValue = shader;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(target);
+            }
+        }
+
+        // -- Graphics validation ------------------------------------------------
+
+        static string ValidateGraphicsCore()
+        {
+            var report = new System.Text.StringBuilder();
+            int variants = 0;
+            foreach (string path in new[] { SurfelShaderPath, DepthCopyShaderPath })
+            {
+                Shader shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
+                if (shader == null) throw new FileNotFoundException("shader asset missing", path);
+                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+                if (ShaderUtil.ShaderHasError(shader))
+                {
+                    var messages = ShaderUtil.GetShaderMessages(shader);
+                    throw new InvalidOperationException(path + ": " + string.Join(" | ", messages.Select(m => $"{m.severity} {m.file}:{m.line} {m.message}")));
+                }
+                ShaderData data = ShaderUtil.GetShaderData(shader);
+                if (data == null || data.SubshaderCount == 0) throw new InvalidOperationException(path + ": no subshaders");
+                ShaderData.Subshader sub = data.GetSubshader(0);
+                var keywordSets = new[] { new string[0], new[] { "STEREO_INSTANCING_ON" }, new[] { "STEREO_INSTANCING_ON", "FS_POLYGON" }, new[] { "FS_POLYGON" }, new[] { "STEREO_INSTANCING_ON", "FS_ANALYTIC_DEPTH" } };
+                for (int p = 0; p < sub.PassCount; p++)
+                {
+                    ShaderData.Pass pass = sub.GetPass(p);
+                    // Only keywords the pass declares (FS_* are shader_feature_local per pass); STEREO_INSTANCING_ON is the engine's SPI keyword.
+                    var passId = new PassIdentifier(0u, (uint)p);
+                    var declared = new System.Collections.Generic.HashSet<string>(ShaderUtil.GetPassKeywords(shader, in passId).Select(k => k.name)) { "STEREO_INSTANCING_ON" };
+                    var seen = new System.Collections.Generic.HashSet<string>();
+                    foreach (string[] candidate in keywordSets)
+                    {
+                        string[] keywords = candidate.Where(declared.Contains).ToArray();
+                        if (!seen.Add(string.Join(",", keywords))) continue;
+                        foreach (ShaderType stage in new[] { ShaderType.Vertex, ShaderType.Fragment })
+                        {
+                            ShaderData.VariantCompileInfo info = pass.CompileVariant(stage, keywords, ShaderCompilerPlatform.Vulkan, BuildTarget.Android);
+                            variants++;
+                            if (!info.Success)
+                            {
+                                string msgs = info.Messages == null ? "" : string.Join(" | ", info.Messages.Select(m => $"{m.severity} {m.line}: {m.message}"));
+                                throw new InvalidOperationException($"{path} pass {p} ({pass.Name}) {stage} [{string.Join(",", keywords)}]: {msgs}");
+                            }
+                            foreach (var m in info.Messages ?? Array.Empty<ShaderMessage>())
+                                if (m.severity == ShaderCompilerMessageSeverity.Warning) report.Append($"warn {shader.name} pass {p} {stage} [{string.Join(",", keywords)}] {m.message}; ");
+                        }
+                    }
+                }
+                report.Append($"{shader.name}: {sub.PassCount} pass(es) ok; ");
+            }
+            report.Append($"{variants} Vulkan/Android variants compiled");
+            return report.ToString();
         }
 
         static void EnsurePermissionManifest()
