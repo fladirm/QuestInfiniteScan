@@ -20,6 +20,10 @@ echo "[run_probe] app=$FS_APP_ID activity=$FS_ACTIVITY duration=${DURATION}s ser
 
 "${ADB[@]}" wait-for-device
 "${ADB[@]}" shell input keyevent KEYCODE_WAKEUP || true
+# Quest keeps the app paused unless it believes it is worn: disable the proximity automation and
+# fake a proximity-close so headless runs render (donor evidence: runs blocked by mWakefulness=Asleep).
+"${ADB[@]}" shell am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null 2>&1 || true
+"${ADB[@]}" shell am broadcast -a com.oculus.vrpowermanager.prox_close >/dev/null 2>&1 || true
 "${ADB[@]}" shell am force-stop "$FS_APP_ID" || true
 "${ADB[@]}" shell rm -rf "/sdcard/Android/data/$FS_APP_ID/files/probe" || true
 "${ADB[@]}" logcat -c || true

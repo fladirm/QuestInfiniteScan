@@ -59,6 +59,16 @@ FinalScan musí současně poskytovat:
 
 Neimplementuj MVP.
 
+## 1.0 Tvrdý invariant hustoty
+
+**Canonical density may grow arbitrarily; realtime cost may not.**
+
+Květinářství (miliony malých listových surfelů, tenké stonky, pohybující se listy, sklo, celofán) a prázdná
+místnost jsou jeden systém. Růst scény smí způsobit jen: víc dat na SSD, víc canonical surfelů, větší lokální
+hustotu. Nesmí způsobit: nižší XR FPS úměrně velikosti mapy. 72Hz workload je omezen viewportem, render
+budgetem, INNER working setem a screen-space LOD (§13.4). 20Hz scanner je omezen počtem vybraných
+measurements (§7.6), bounded candidate search (§9.2) a GPU quantem (§15.4). Nikdy ne počtem surfelů ve světě.
+
 ## 1.1 Feature parity seed (measured z SimpleScan stromu)
 
 | Oblast | Funkce |
@@ -66,7 +76,7 @@ Neimplementuj MVP.
 | Scan | START/STOP; FINE (trigger) / ERASE (grip) brush s válcem podél controller ray; cursor z depth hitu; opacity slider; occlusion toggle |
 | Sessions | NEW/OPEN/SAVE/SAVE AS/RENAME/DELETE; journal recovery („Recovered Scan“); session ↔ spatial anchor; fail-closed při anchor mismatch |
 | Export | GLB přes SAF picker; 3D Tiles ZIP (128/256 MB leaves); Three.js web viewer |
-| Artifact viewer | open GLB/ZIP; plan view; opacity; World Lock; ALIGN 1:1; 6DoF grab; two-hand rotate/scale; anotace point/line/plane/note; měření |
+| Artifact viewer | open GLB/ZIP; plan view; opacity; World Lock; ALIGN 1:1; XRAY/RADAR zobrazení celého modelu i za zdmi (§13.5 módy); 6DoF grab; two-hand rotate/scale; anotace point/line/plane/note; měření |
 | Paint | brush/surface/3D/spray/line/eraser/eyedropper; HSV wheel; swatches; undo/redo |
 | Object library | import GLB (content-addressed); place, select, duplicate, hide, lock, snap |
 | Input | levý thumbstick click = menu; pravý trigger = select; hands jako pose source; world-space UI panel; controller ray |
@@ -291,6 +301,23 @@ Fusion (C12) dostává ověřený measurement interface a neřeší chyby stereo
 
 ---
 
+## 7.6 Information-driven measurement compaction (invariant)
+
+PCA 1280×1280 má ~1,64 M pixelů. Scanner nikdy neposílá všechny pixely × 20 Hz do mapy. Front-end
+vybírá bounded počet nejhodnotnějších measurements per tick (provisional 16–64 k), hodnocení:
+
+```
+HIGH VALUE: depth discontinuity, vysoká nejistota vůči canonical prediction, nově viděná oblast,
+            vysoká curvature, tenký povrch, DETAIL request
+LOW VALUE:  konvergovaná rovná plocha, duplicitní observation stejného surfelu ze stejného úhlu
+```
+
+Hodnota je funkce canonical predikce (reprojekce FRONT do kamery): kde predikce sedí v rámci σ, pixel
+nenese informaci. Tím dostane květinářství víc budgetu než hotová stěna při stejné ceně ticku.
+Scan cost tedy závisí na počtu vybraných measurements, ne na počtu surfelů v mapě.
+
+---
+
 # 8. CANONICAL WORLD — METRIC SURFELS
 
 Canonical geometry není TSDF, voxel occupancy, mesh, 3D Gaussian cloud, alpha splats ani neural field. Canonical primitive je **adaptive metric 2D surfel**: orientovaný, anizotropní metrický surface patch.
@@ -344,6 +371,31 @@ Při dostatečně odlišné hypotéze: nevynucuj merge, vytvoř druhý sheet.
 
 Lehká free-space evidence oddělená od surfelů, coarse page-local. Ray camera→surface dává free evidence před povrchem. Použití: ghost removal, moved objects, stale geometry, ERASE confirmation. Tenký povrch není odstraněn jedním smoothed-depth miss. Nový kandidát je transientní; promotion až po temporal/static evidence (lidé, ruce, pohybující se objekty se nevypálí).
 
+Husté organické scény vyžadují silnější temporal gating. Každý surfel nese oddělené evidence:
+
+```
+staticEvidence     souhlasná pozorování v rámci σ napříč časem
+motionEvidence     pozorování mimo σ, konzistentní s pohybem (ne šumem)
+geometryVariance   běžný rozptyl residuálů
+```
+
+Pravidla: konzistentní → canonical static; nekonzistentní/pohyblivé → transient (renderuje se jen jako
+transient overlay, nikdy se nefúzuje do statické geometrie, nevstupuje do exportu); uklidněný list se
+později canonicalizuje. Platí pro listy, závěsy, lidi, ruce.
+
+## 8.7 Průhledné, lesklé a kontradiktorní povrchy
+
+Scanner nesmí vymýšlet geometrii. Sklo, celofán, lesklé listy, silná okluze:
+
+```
+silná stereo/temporal evidence           → metrická geometrie
+slabá / kontradiktorní hloubka           → vysoká nejistota, žádný promoted surfel
+pouze appearance evidence                → appearance vrstva, žádný fake surface
+```
+
+Environment Depth na skle není authority (§6). Free-space evidence skrz sklo se nezapisuje, dokud stereo
+neprokáže průhlednost (kontradikce depth prior vs. stereo → obě strany nejisté).
+
 ---
 
 # 9. ADDRESSING: TWO-LEVEL, NE TWO HASHMAPS
@@ -368,6 +420,12 @@ D) robin-hood local hash
 ```
 
 a vybere nejlevnější pro association + multi-sheet lookup + create/update. Cuckoo je vyloučen pro page-local index (lookup fan-out).
+
+**Adaptivní lokální subdivize (invariant):** bucket nikdy nesmí být „cell → 300 surfelů → prohledat vše“.
+Při překročení prahu (provisional 32 surfelů) se bucket lokálně subdivideuje (2×2×2, rekurzivně, max
+3 úrovně → 1,5 cm) na micro-buckets; řídké oblasti zůstávají v hrubém bucketu. Je to jen acceleration
+index, ne voxelová geometrie; lze kdykoli přestavět z canonical surfelů. Candidate set per measurement je
+bounded (provisional ≤ 16 kandidátů; overflow počítán, nikdy tichý).
 
 Renderer tyto struktury per-pixel neprochází; používá compact draw listy (§13).
 
@@ -453,6 +511,89 @@ sphere resident pages → frustum cull → optional occlusion → distance LOD �
 ```
 
 Velikost světa na disku není parametr frame cost.
+
+## 13.4 Derived ClusterTree a screen-space LOD (invariant, před fusion)
+
+72Hz renderer nesmí být lineárně závislý na počtu canonical surfelů. Každá resident page udržuje
+**derived, disposable** hierarchii nad FRONT surfely:
+
+```
+PAGE → cluster → cluster → … → leaf surfel range
+```
+
+Cluster node nese jen: bounds (AABB), normal cone (osa + cos úhlu), depth/radius range, coverage
+(odhad plochy a plnosti), child range nebo leaf surfel range, representative LOD handle (agregovaný
+surfel: střed, normála, poloměr, coverage, barva/appearance). Není to canonical geometrie: lze ji kdykoli
+zahodit a přestavět z FRONT (build je bounded PUBLISH/COLD job po publikaci page, ne per frame).
+
+Readout cesta:
+
+```
+INNER pages → page cull → cluster traversal (frustum, normal cone, projected screen error)
+→ uzel pod prahem chyby: emit representative (coverage LOD)
+→ uzel nad prahem: sestup k dětem, leaf: emit skutečné surfely
+→ compact visible draw list (bounded: fixed screen-work budget, ne world-element budget)
+→ ONE indirect XR draw
+```
+
+* Řízení **projected screen error**, ne pevnou vzdáleností: přiblížení hlavy otevře cluster → listy →
+  jednotlivé surfely bez disk requestu (vše je v INNER residentní), mění se jen draw list.
+* Traversal je GPU-driven (persistent/indirect dispatch), bez CPU sync a bez per-frame rebuildu.
+* Budget: provisional 200 k leaf surfelů + několik tisíc agregátů per frame; skutečné číslo určí C05 benchmark.
+* Přechod mezi úrovněmi: krátký crossfade coverage nebo hysterezní práh, aby nevznikal pop.
+
+**Coverage-preserving far LOD:** agregát nikdy nenahradí keř neprůhledným diskem. Representative nese
+coverage (plnost 0–1) a ve far field se renderuje jako bounded coverage LOD (alpha-to-coverage / hashed
+alpha, MSAA), aby zůstaly mezery mezi listy. Near field = skutečné opaque depth-writing surfely. Coverage
+agregace se používá jen tam, kde je footprint uzlu malý (provisional < 2 px). Žádný 3DGS overdraw.
+
+Stejné clustery slouží merge/LOD logice a coplanar chart kandidátům (§14).
+
+## 13.5 Headset-aware readout (invariant): využij hloubku a tracking, ne obecný LOD
+
+FinalScan není point-cloud viewer. Je to headset s hloubkou každý frame a s predikovanou pozicí hlavy.
+Readout to musí využít:
+
+1. **Occlusion cull proti depth prioru — pouze „prokazatelně za“ (invariant).** Sken se kreslí přes
+   passthrough a musí být vidět na místě reálného povrchu: pohled na zeď musí ukázat naskenovanou zeď.
+   Depth prior proto **nikdy** nekulluje uzel, který leží v hloubkovém pásu pozorovaného povrchu.
+   Pravidlo: uzel se zahodí jen když `nearestDepth(node) > occluderDepth + margin`, kde
+   `margin = max(σ_node, 10 cm provisional) + k·|∇depth|`. Co se tím vyhodí: geometrie místností za
+   zdí, zadní strany regálů, listy hluboko za bližšími listy. Co se tím nikdy nevyhodí: surfely na
+   pozorovaném povrchu ±margin, ani dvě strany tenké příčky. Zdroje occluderu: (a) vlastní depth buffer
+   skenu z minulého framu reprojektovaný do predikované pose (chová se jako early-Z), (b) Environment
+   Depth (25 Hz, vlastní pose/fov, §6) reprojektované do obou očí, konzervativně (max v dlaždici, ne
+   průměr), s marginem rostoucím s gradientem hloubky a s confidence. Env Depth s nízkou confidence
+   (sklo, hrany, ruce) není occluder. HZB (hierarchický Z-buffer) se staví z obou zdrojů; test je vždy
+   proti pásu, ne proti přesné hloubce. V květinářství je většina surfelů zakrytá bližšími listy o víc než
+   margin; tohle je hlavní redukce, ne distance LOD.
+2. **Foveace.** Práh screen-space chyby je funkce excentricity v eye bufferu (stejně jako FFR snižuje
+   shading v periferii): centrum ~1 px, periferie ~3–4 px (provisional). Geometrický detail v periferii
+   nikdo nevidí; budget se soustředí do fovey.
+3. **Predikovaná pose + temporální reuse.** Cull běží pro predikovanou display pose s úhlovým marginem
+   (provisional 5°). Viditelná množina se mění pomalu: traversal je inkrementální (re-evaluace uzlů na
+   hranici frusta / po překročení prahu pohybu), jinak se draw list z minulého framu použije znovu.
+4. **Adaptivní screen-work budget.** Z frame timestampů (Phase Sync headroom) se každý frame odvodí
+   LOD bias: když GPU headroom klesá, práh chyby roste (méně listů, víc agregátů), nikdy ne vynechaný
+   frame. Analogie dynamic resolution, ale pro geometrii.
+5. **Jeden cull pro obě oči.** Sjednocené frustum + sdílený draw list (instancing ×2), ne dva traversaly.
+6. **Depth prior i pro scanner.** Stejný reprojektovaný canonical depth + Env Depth řídí §7.6: pixel, kde
+   predikce sedí v rámci σ, se neintegruje.
+
+**Render módy (invariant):** occlusion podle depth prioru je vlastnost módu, ne světa.
+
+```
+SCAN (live)        band-occlusion podle §13.5.1, LOD, sken viditelný na místě reálného povrchu
+XRAY / RADAR       žádný depth-prior cull: celý residentní svět v INNER/WARM včetně místností za zdmi,
+                   opacity slider, depth test jen mezi surfely; stejná cesta pro zobrazení otevřeného
+                   nebo exportovaného modelu ALIGN 1:1 na svět (donor artifact viewer: World Lock,
+                   opacity, occlusion toggle) — uživatel musí vidět komplet skenu skrz zdi jako radar
+PLAN               půdorys/řez (viewer parity)
+```
+
+Přepnutí módu mění jen cull policy a shader, nikdy residency ani canonical data.
+
+Zakázáno: čistý distance-LOD bez occlusion v SCAN módu; occlusion test proti přesné hloubce bez pásu (sken by zmizel na místě reálného povrchu); Env Depth jako occluder bez confidence a marginu; per-eye duplicitní traversal; LOD bez foveace na zařízení s FFR.
 
 ---
 
@@ -600,6 +741,10 @@ Sleep/wake, tracking loss, reopen: Env Depth restart po resume, single acquire p
 3. **Scan cadence**: ~20 Hz kde workload dovolí; no backlog; latest observation; render nikdy nečeká.
 4. **Geometry s ground truth**: scény flat wall, 90° roh, doorway, thin partition obě strany, schody, šikmá zeď, křivý objekt, textured, white wall, relief DETAIL. Pravda: laserový dálkoměr, kalibrační box, tištěný planární target, opakovaný průchod A/B stejnou trajektorií. Metriky: repeat-pass consistency, thickness, plane RMS, edge position, false double surfaces, residual uncertainty.
 5. **Large world**: více místností/pater, disk >> resident budget, frame cost neroste s velikostí.
+5b. **Dense scene (květinářství)**: syntetický i reálný test s ≥ 3 M canonical surfelů v INNER; frame cost
+   roste jen s viditelným screen-work budgetem, ne s počtem surfelů; přiblížení otevírá detail bez disk
+   requestu; far LOD zachovává mezery (coverage vs. ground-truth siluety); pohybující se listy nevytvoří
+   „kaši“ (transient, ne statická fúze); sklo/celofán bez fake surface.
 6. **Memory**: 1 h run, bounded steady regime; žádný GPU cache leak, decoded image leak, staging leak, tombstone explosion, allocator high-water bez reclamation.
 7. **GPU**: graphics / scan / transfer měřeno odděleně; druhá queue přijata jen s prokázaným benefitem.
 8. **Turn vs move**: `orientationResidencyRequests == 0`.
@@ -609,7 +754,7 @@ Sleep/wake, tracking loss, reopen: Env Depth restart po resume, single acquire p
 
 # 22. ZAKÁZANÉ CESTY
 
-camera receive-time pose; tiché „exact“ camera→XrTime bez gate; unlimited camera backlog; reconfigure kamery při každém pohybu; frustum-driven INNER residency; disk load při otočení; page-wide rebuild; render mesh jako canonical authority; TSDF; marching cubes live; alpha 3DGS overdraw; nativní draw uvnitř Unity render passu jako default; PyTorch/CUDA/neural MVS v hot path; global DETAIL; full-world RAM load; synchronní readback/disk; `vkQueueWaitIdle`/`vkDeviceWaitIdle` v runtime; jeden globální job slot; C# dispatch zoo; runtime pipeline compile spike; force extensions při device creation; SPIR-V nad gate; silent hash overflow; stale physical-slot handles; hardcoded baseline/extrinsics; FP16 canonical center; druhá page-local hashmapa bez benchmarku; source-text testy jako jediná verifikace; dva agenti v jednom checkoutu.
+camera receive-time pose; tiché „exact“ camera→XrTime bez gate; unlimited camera backlog; reconfigure kamery při každém pohybu; frustum-driven INNER residency; disk load při otočení; page-wide rebuild; render mesh jako canonical authority; TSDF; marching cubes live; alpha 3DGS overdraw; nativní draw uvnitř Unity render passu jako default; PyTorch/CUDA/neural MVS v hot path; global DETAIL; full-world RAM load; synchronní readback/disk; `vkQueueWaitIdle`/`vkDeviceWaitIdle` v runtime; jeden globální job slot; C# dispatch zoo; runtime pipeline compile spike; force extensions při device creation; SPIR-V nad gate; silent hash overflow; renderer lineárně závislý na počtu canonical surfelů; per-frame rebuild cluster hierarchie; far LOD jako neprůhledný agregát bez coverage; stale physical-slot handles; hardcoded baseline/extrinsics; FP16 canonical center; druhá page-local hashmapa bez benchmarku; source-text testy jako jediná verifikace; dva agenti v jednom checkoutu.
 
 ---
 
@@ -639,15 +784,18 @@ C04   feat(geometry)      surfel candidate ABI (32 vs 48 B benchmark), page seri
                           syntetický world generátor
 C05   feat(render)        Unity-issued indirect draw nativních draw listů, ellipse raster pass 1,
                           MSAA, SPI, LOD skeleton; měřeno na syntetickém světě
-C06   feat(render)        immutable page publication FRONT/BACK, root-last publish
+C05b  feat(render)        derived ClusterTree per page, screen-space error traversal, coverage far LOD,
+                          HZB occlusion (prev depth + Env Depth), foveated error threshold, temporal reuse,
+                          adaptive budget from GPU headroom; dense synthetic world benchmark (≥ 3 M surfelů)
+C06   feat(render)        immutable page publication FRONT/BACK, root-last publish (+ cluster rebuild job)
 C07   feat(residency)     INNER/WARM/PREFETCH na syntetických pages, movement, spin test → zero turn pop
-C08   feat(addressing)    PageHash + page-local index benchmark A–D, generations, overflow, host testy
+C08   feat(addressing)    PageHash + page-local index benchmark A–D, adaptive bucket subdivision, generations, overflow, host testy
 C09   feat(measurement)   Env Depth prior: vlastní čas/pose/fov, reprojekce, bias charakterizace
-C10   feat(measurement)   rektifikace + instantaneous narrow-band stereo + subpixel + covariance
+C10   feat(measurement)   rektifikace + instantaneous narrow-band stereo + subpixel + covariance + information-driven compaction (§7.6)
 C11   feat(measurement)   temporal baseline + planar low-texture path
 C11b  feat(measurement)   measurement oracle: recorded sequence → CPU reference → Vulkan parity
 C12   feat(mapping)       surfel fusion: association, create/update, split/merge, multi-sheet
-C13   feat(mapping)       free space + transient gating
+C13   feat(mapping)       free space + static/motion evidence + transient gating + transparency rules (§8.6–8.7)
 C14   feat(residency)     disk-backed streaming, journal, COW pages
 C15   feat(memory)        governor na naměřených watermarkách
 C16   feat(appearance)    keyframe authority

@@ -26,6 +26,10 @@ done
 
 # Wake the headset; a sleeping or dialog-blocked device silently drops am start.
 "${ADB[@]}" shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+# Quest keeps the app paused unless it believes it is worn: disable the proximity automation and
+# fake a proximity-close so headless runs render (donor evidence: runs blocked by mWakefulness=Asleep).
+"${ADB[@]}" shell am broadcast -a com.oculus.vrpowermanager.automation_disable >/dev/null 2>&1 || true
+"${ADB[@]}" shell am broadcast -a com.oculus.vrpowermanager.prox_close >/dev/null 2>&1 || true
 sleep 1
 
 # Launch activity from the APK itself (aapt badging), never from an assumption.
