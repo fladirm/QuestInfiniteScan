@@ -3,6 +3,7 @@
 #   Native~/tests/host_tests.cpp           json_writer + pure vkCreateDevice create-info patching
 #   Native~/tests/host_tests_executor.cpp  scheduler core (rings, budget, deferral, leases, root-last
 #                                          publish, timelines), pipeline store files, telemetry/clock fit
+#   Native~/tests/host_tests_measure.cpp   C09 measurement front-end math (depth back-projection twin; header-only)
 #   Native~/tests/host_tests_<name>.cpp    any further suite; its sources come from a line
 #                                          "// HOST_TEST_SOURCES: a.cpp b.cpp" (paths relative to Native~/src)
 # Each suite is one executable; a failing suite fails the script. FS_HOST_TEST_FILTER=<name> runs one suite.
@@ -46,3 +47,6 @@ for test in "$fs_native"/tests/host_tests_*.cpp; do
 done
 if [[ $fs_failed -ne 0 ]]; then echo "host tests: FAILED"; exit 1; fi
 echo "host tests: all suites passed"
+
+# World/render module tests (pure headers), added by the world module.
+"$fs_script_dir/build_host_tests_world.sh"
