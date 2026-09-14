@@ -1,0 +1,33 @@
+#version 450
+// Page load (cold copy -> resident, C14 streams the same records from disk): the CPU wrote the page's surfels
+// sorted by cell into the page's slabs and the per-cell start offsets (32769 words) into the sort scratch. One
+// thread per cell inserts its contiguous range into the index (single owner per cell) and marks the cell dirty;
+// the following publish job builds the render subtree. Bounded per cell by FS_LOAD_CELL_MAX.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#define FS_USE_SORT_RO
+#define FS_USE_POOLS
+#define FS_USE_DIRTY
+#define FS_USE_RETIRE
+#include "fs_world_blocks.glsl"
+#include "fs_index.glsl"
+#define FS_LOAD_CELL_MAX 4096
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint page; } pc;
+void main() {
+    uint cell = gl_GlobalInvocationID.x;
+    if (cell >= uint(FS_CELLS_PER_PAGE)) return;
+    uint page = pc.page;
+    uint start = sortw[cell], end = min(sortw[cell + 1u], start + uint(FS_LOAD_CELL_MAX));
+    if (end <= start) return;
+    for (uint local = start; local < end; ++local) {
+        uint h = slabDir[page * uint(FS_PAGE_MAX_SLABS) + (local / uint(FS_SLAB_SURFELS))] * uint(FS_SLAB_SURFELS) + (local % uint(FS_SLAB_SURFELS));
+        FsSurfel s = surfels[h];
+        if ((fsGet_FsSurfel_evidenceFlags(s) & FS_FLAG_REMOVED) != 0u) continue;
+        fsIndexInsert(page, cell, fsSurfelLocalPos(s), h);
+    }
+    fsMarkDirtyCell(page, cell);
+}

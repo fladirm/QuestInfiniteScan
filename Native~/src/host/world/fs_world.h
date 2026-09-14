@@ -1,6 +1,6 @@
-// World module internal interface (native only): what render/ needs from world/ (arenas to bind, slot
-// count, anchor transforms) and the module init entry every export goes through. The public C ABI
-// (FsWorld_*, FsResidency_*, FsMeas_*) is implemented in fs_world.cpp. Contract §8, §9, §11, §12.
+// World module internal interface (native only, C09R): what render/ needs from world/ (pools to bind, page
+// table, anchors) and the module init entry every export goes through. The public C ABI (FsWorld_*,
+// FsResidency_*, FsMeas_*) is implemented in fs_world.cpp. Contract §8, §9, §11, §12.
 #pragma once
 #include <stdint.h>
 #include "../fs_executor.h"
@@ -9,39 +9,33 @@
 namespace fs {
 namespace world {
 
-// Host mirror of the GLSL SlotBlock (one binding, three regions). Host-visible; the CPU writes layouts
-// (once), roots (root-last publish) and headers (slot assignment / publish); SCAN kernels atomically
-// bump headers[].backCount and set headers[].dirty.
-struct SlotTable {
-    FsSlotLayout layouts[FS_MAX_SLOTS];
-    uint32_t     roots[FS_MAX_SLOTS];
-    FsPageHeader headers[FS_MAX_SLOTS];
-};
-
 struct WorldBuffers {          // valid while DeviceUp(); all fs::Buffer (§15.3 persistent resources)
-    Buffer slotTable;          // SlotTable, host-visible
-    Buffer surfels;            // FsSurfel[totalSurfels], host-visible (UMA; CPU uploads/evictions memcpy)
-    Buffer evidence;           // FsSurfelEvidence[totalSurfels], host-visible
-    Buffer index;              // u32 arena (heads, counts, micro heads, links), device-local
-    Buffer gctr;               // u32[16 + FS_MAX_SLOTS], host-visible (GPU counters + per-slot flags)
-    Buffer nodes;              // FsClusterNode[totalNodes], host-visible (CPU tree upload for synthetic pages)
-    Buffer errors;             // FsClusterError[totalNodes], host-visible
-    Buffer hash;               // FsPageHashEntry[capacity] mirror, host-visible (CPU authority)
-    Buffer meas;               // FsSurfaceMeasurement ring, host-visible
-    Buffer scratch;            // publish scratch ring, host-visible
-    Buffer freeSpace;          // u8 per cell per slot (stub), device-local
-    uint32_t slotCount = 0;    // resident slots (standard + big)
-    uint32_t totalSurfels = 0, totalNodes = 0;
+    Buffer pages;              // FsPageDesc[FS_MAX_PAGES] + slab directory (host-visible; CPU owns slabs, GPU owns cursors)
+    Buffer surfels;            // canonical FsSurfel pool (host-visible: cold copies / receipts after retirement)
+    Buffer evidence;           // canonical FsSurfelEvidence pool
+    Buffer index;              // adaptive index arena (host-visible: page creation clears its directory region)
+    Buffer gctr;               // counters + epoch words + indirect args (host-visible)
+    Buffer meas;               // epoch measurement copy
+    Buffer assocA, assocB;     // association records (sort ping-pong)
+    Buffer sort;               // sort / prefix scratch
+    Buffer freeSpace;          // u8 stamps
+    Buffer pools;              // free-id rings (host-visible)
+    Buffer dirty;              // dirty masks + per-level lists
+    Buffer render;             // FsRenderNode pool
+    Buffer rblocks;            // render block pool (FsSurfel copies)
+    Buffer rdir;               // per page render directory (host-visible: page creation fills NONE)
+    Buffer retire;             // released ids (host-visible)
+    Buffer pending;            // FsPendingPublish[FS_MAX_PAGES] (host-visible)
+    Buffer publishRing;        // FS_CULL_FRAME_RING x FS_MAX_PAGES pending entries applied at FRAME_BEGIN
+    Buffer hash;               // FsPageHashEntry mirror
+    uint32_t pageCount = 0;
 };
 
 void          EnsureInit();                // idempotent, thread-safe; called by every export
-bool          DeviceUp();                  // arenas exist
+bool          DeviceUp();                  // pools exist
 const WorldBuffers* Buffers();             // null until DeviceUp()
-uint32_t      SlotCount();
-// Copies the current worldFromAnchor matrices (column-major, FS_MAX_ANCHORS x 16 floats); returns a
-// change sequence (bumped by FsWorld_SetAnchorTransform).
-uint64_t      CopyAnchors(float* out16xN);
-uint32_t      RenderModeHint();            // reserved
+uint32_t      PageCount();                 // page table entries
+uint64_t      CopyAnchors(float* out16xN); // worldFromAnchor matrices (column-major, FS_MAX_ANCHORS x 16); returns a change sequence
 
 } // namespace world
 } // namespace fs

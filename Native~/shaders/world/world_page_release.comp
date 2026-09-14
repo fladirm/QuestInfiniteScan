@@ -1,0 +1,59 @@
+#version 450
+// Page release (eviction / reset): one thread per cell of the page frees the cell's index subtree (leaf/node
+// ids to the retire list, directory entry cleared) and retires the cell's render subtree; threads below the
+// internal-level count also retire the rdir internal entries. Canonical slabs are freed by the CPU after this
+// job retired (the cold copy was taken before submission). The page's empty root publication goes through the
+// normal graphics path (pending root = FS_INDEX_NONE queued by the CPU).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#define FS_USE_RENDER_RO
+#define FS_USE_RDIR
+#define FS_USE_RETIRE
+#include "fs_world_blocks.glsl"
+#define FS_RETIRE_KIND_ILEAF 2u
+#define FS_RETIRE_KIND_INODE 3u
+#define FS_MAINT_STACK 32
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint page; } pc;
+void fsRetire(uint kind, uint id) { uint k = atomicAdd(FS_TK(FS_T_RETIRE_COUNT), 1u); if (k < uint(FS_RETIRE_MAX)) retire[k] = (kind << 30u) | id; }
+void fsRetireIndexSubtree(uint e0) {
+    uint stack[FS_MAINT_STACK]; uint sp = 0u;
+    if (e0 != 0u) stack[sp++] = e0;
+    for (uint it = 0u; it < 512u; ++it) {
+        if (sp == 0u) break;
+        uint e = stack[--sp];
+        if (fsEntryIsLeaf(e)) { uint leaf = fsEntryId(e); for (uint c = 0u; c < uint(FS_INDEX_CHAIN_MAX); ++c) { if (leaf == FS_INDEX_NONE) break; uint nx = idx[fsIdxLeafWord(leaf, 1u)]; fsRetire(FS_RETIRE_KIND_ILEAF, leaf); leaf = nx; } }
+        else if (fsEntryIsNode(e)) { uint node = fsEntryId(e); for (uint k = 0u; k < 8u; ++k) { uint ce = idx[fsIdxNodeWord(node, k)]; if (ce != 0u && sp < uint(FS_MAINT_STACK)) stack[sp++] = ce; } fsRetire(FS_RETIRE_KIND_INODE, node); }
+    }
+}
+void fsRetireRenderSubtree(uint root) {
+    if (root == FS_INDEX_NONE) return;
+    FsRenderNode r = rnodes[root];
+    if (fsGet_FsClusterNode_childCount(r.node) == 0u) { fsRetire(FS_RETIRE_KIND_RBLOCK, r.node.firstChildOrSurfel); fsRetire(FS_RETIRE_KIND_RNODE, root); return; }
+    for (uint k = 0u; k < 8u; ++k) {
+        uint c = r.child[k]; if (c == FS_INDEX_NONE) continue;
+        FsRenderNode cn = rnodes[c];
+        if (fsGet_FsClusterNode_childCount(cn.node) == 0u) fsRetire(FS_RETIRE_KIND_RBLOCK, cn.node.firstChildOrSurfel);
+        else for (uint j = 0u; j < 8u; ++j) { uint g = cn.child[j]; if (g == FS_INDEX_NONE) continue; fsRetire(FS_RETIRE_KIND_RBLOCK, rnodes[g].node.firstChildOrSurfel); fsRetire(FS_RETIRE_KIND_RNODE, g); }
+        fsRetire(FS_RETIRE_KIND_RNODE, c);
+    }
+    fsRetire(FS_RETIRE_KIND_RNODE, root);
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint page = pc.page;
+    if (i < uint(FS_CELLS_PER_PAGE)) {
+        uint w = fsIdxDirWord(page, i);
+        fsRetireIndexSubtree(idx[w]); idx[w] = 0u;
+        uint rw = page * FS_RDIR_WORDS + i;
+        fsRetireRenderSubtree(rdir[rw]); rdir[rw] = FS_INDEX_NONE;
+    }
+    if (i < FS_RDIR_WORDS - uint(FS_CELLS_PER_PAGE)) {
+        uint rw = page * FS_RDIR_WORDS + uint(FS_CELLS_PER_PAGE) + i;
+        uint id = rdir[rw];
+        if (id != FS_INDEX_NONE) fsRetire(FS_RETIRE_KIND_RNODE, id);
+        rdir[rw] = FS_INDEX_NONE;
+    }
+}

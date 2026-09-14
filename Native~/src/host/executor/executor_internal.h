@@ -70,6 +70,7 @@ struct GarbageItem {
     VkPipeline pipeline = VK_NULL_HANDLE; VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE; VkDescriptorSet set = VK_NULL_HANDLE;
     VkShaderModule module = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE;
+    std::function<void()> onRetired;   // world allocations (render blocks/nodes, page slabs): freed by the module
 };
 
 struct ImportedBuffer { UnityVulkanBuffer unity = {}; uint64_t frame = 0; uint64_t imports = 0; };
@@ -191,6 +192,8 @@ struct Executor {
 Executor& X();
 
 // executor.cpp
+bool   RunOneWarmupStep(Executor& x, bool& completed);
+void   FinishWarmup(Executor& x);
 void   Quarantine(Executor& x, const char* reason, VkResult r);       // caller holds x.mutex
 void   CollectGarbageLocked(Executor& x, bool everything);            // caller holds x.mutex; everything = after WaitIdle
 uint64_t PushGarbageLocked(Executor& x, const GarbageItem& item);     // caller holds x.mutex

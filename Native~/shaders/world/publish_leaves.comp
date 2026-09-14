@@ -1,0 +1,124 @@
+#version 450
+// C09R-C publication 1/2: per dirty cell (owner), build the cell's new immutable render subtree: live surfels
+// of the cell subtree (deterministic order) copied into render blocks (<= 64 each), one leaf node per block,
+// internal nodes over 8 blocks (<= 2 levels). The old cell subtree is retired (freed after graphics
+// retirement). The cell's level-1 parent is marked dirty for publish_level. Unchanged cells keep their nodes.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SURFELS_RO
+#define FS_USE_INDEX_RO
+#define FS_USE_GCTR
+#define FS_USE_POOLS
+#define FS_USE_DIRTY
+#define FS_USE_RENDER
+#define FS_USE_RBLOCKS
+#define FS_USE_RDIR
+#define FS_USE_RETIRE
+#include "fs_world_blocks.glsl"
+#include "fs_render_agg.glsl"
+#define FS_MAINT_LEAVES_MAX 64
+#define FS_MAINT_STACK 32
+layout(local_size_x = FS_WG_SMALL) in;
+
+uint fsCollectLeaves(uint page, uint cell, out uint leaves[FS_MAINT_LEAVES_MAX]) {
+    uint n = 0u; uint stack[FS_MAINT_STACK]; uint sp = 0u;
+    uint e = idx[fsIdxDirWord(page, cell)];
+    if (e == 0u) return 0u;
+    stack[sp++] = e;
+    for (uint it = 0u; it < 256u; ++it) {
+        if (sp == 0u) break;
+        e = stack[--sp];
+        if (fsEntryIsLeaf(e)) {
+            uint leaf = fsEntryId(e);
+            for (uint c = 0u; c < uint(FS_INDEX_CHAIN_MAX); ++c) { if (leaf == FS_INDEX_NONE || n >= uint(FS_MAINT_LEAVES_MAX)) break; leaves[n++] = leaf; leaf = idx[fsIdxLeafWord(leaf, 1u)]; }
+        } else if (fsEntryIsNode(e)) {
+            for (int k = 7; k >= 0; --k) { uint ce = idx[fsIdxNodeWord(fsEntryId(e), uint(k))]; if (ce != 0u && sp < uint(FS_MAINT_STACK)) stack[sp++] = ce; }
+        }
+    }
+    return n;
+}
+void fsRetire(uint kind, uint id) { uint k = atomicAdd(FS_TK(FS_T_RETIRE_COUNT), 1u); if (k < uint(FS_RETIRE_MAX)) retire[k] = (kind << 30u) | id; }
+// Retires an old cell subtree: node -> (children -> blocks). Bounded: <= 1 + 8 + 64 nodes.
+void fsRetireSubtree(uint root) {
+    if (root == FS_INDEX_NONE) return;
+    FsRenderNode r = rnodes[root];
+    if (fsGet_FsClusterNode_childCount(r.node) == 0u) { fsRetire(FS_RETIRE_KIND_RBLOCK, r.node.firstChildOrSurfel); fsRetire(FS_RETIRE_KIND_RNODE, root); return; }
+    for (uint k = 0u; k < 8u; ++k) {
+        uint c = r.child[k]; if (c == FS_INDEX_NONE) continue;
+        FsRenderNode cn = rnodes[c];
+        if (fsGet_FsClusterNode_childCount(cn.node) == 0u) { fsRetire(FS_RETIRE_KIND_RBLOCK, cn.node.firstChildOrSurfel); }
+        else for (uint j = 0u; j < 8u; ++j) { uint g = cn.child[j]; if (g == FS_INDEX_NONE) continue; fsRetire(FS_RETIRE_KIND_RBLOCK, rnodes[g].node.firstChildOrSurfel); fsRetire(FS_RETIRE_KIND_RNODE, g); }
+        fsRetire(FS_RETIRE_KIND_RNODE, c);
+    }
+    fsRetire(FS_RETIRE_KIND_RNODE, root);
+}
+// Allocates a leaf node over block `b` holding `n` surfels; FS_INDEX_NONE on pool exhaustion.
+uint fsMakeLeafNode(uint b, uint n) {
+    uint id = fsPoolAlloc(FS_POOL_RNODE);
+    if (id == FS_INDEX_NONE) { atomicAdd(gctr[FS_GCTR_POOL_RNODE_EMPTY], 1u); return FS_INDEX_NONE; }
+    FsRenderNode r; fsAggInit(r); fsAggLeaf(b * uint(FS_RENDER_BLOCK_SURFELS), n, b, r);
+    rnodes[id] = r; return id;
+}
+uint fsMakeInternal(uint children[8]) {
+    uint id = fsPoolAlloc(FS_POOL_RNODE);
+    if (id == FS_INDEX_NONE) { atomicAdd(gctr[FS_GCTR_POOL_RNODE_EMPTY], 1u); return FS_INDEX_NONE; }
+    FsRenderNode r; fsAggInit(r);
+    for (uint k = 0u; k < 8u; ++k) r.child[k] = children[k];
+    fsAggInternal(r);
+    rnodes[id] = r; return id;
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= FS_TK(FS_T_DIRTY_COUNT)) return;
+    uint entry = dirty[FS_DIRTY_LIST(0) + i];
+    uint page = entry >> 15, cell = entry & 0x7FFFu;
+    uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(page, cell, leaves);
+    // ---- copy live surfels into blocks
+    uint blocks[FS_CELL_RENDER_MAX / FS_RENDER_BLOCK_SURFELS]; uint nb = 0u;
+    uint curBlock = FS_INDEX_NONE, fill = 0u, total = 0u, overflow = 0u;
+    for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
+        if (l >= nl) break;
+        uint cnt = min(idx[fsIdxLeafWord(leaves[l], 0u)], uint(FS_INDEX_LEAF_CAP));
+        for (uint k = 0u; k < uint(FS_INDEX_LEAF_CAP); ++k) {
+            if (k >= cnt) break;
+            uint h = idx[fsIdxLeafWord(leaves[l], 2u + k)];
+            FsSurfel s = surfels[h];
+            if ((fsGet_FsSurfel_evidenceFlags(s) & FS_FLAG_REMOVED) != 0u) continue;
+            if (total >= uint(FS_CELL_RENDER_MAX)) { overflow++; continue; }
+            if (curBlock == FS_INDEX_NONE || fill == uint(FS_RENDER_BLOCK_SURFELS)) {
+                if (curBlock != FS_INDEX_NONE) { uint ln = fsMakeLeafNode(curBlock, fill); if (ln == FS_INDEX_NONE) break; blocks[nb++] = ln; }
+                curBlock = fsPoolAlloc(FS_POOL_RBLOCK); fill = 0u;
+                if (curBlock == FS_INDEX_NONE) { atomicAdd(gctr[FS_GCTR_POOL_RBLOCK_EMPTY], 1u); break; }
+            }
+            rsurfels[curBlock * uint(FS_RENDER_BLOCK_SURFELS) + fill] = s; fill++; total++;
+        }
+    }
+    if (curBlock != FS_INDEX_NONE && fill != 0u) { uint ln = fsMakeLeafNode(curBlock, fill); if (ln != FS_INDEX_NONE) blocks[nb++] = ln; }
+    if (overflow != 0u) atomicAdd(gctr[FS_GCTR_DIRTY_OVERFLOW], overflow);
+    // ---- cell node: one leaf, or internal levels over 8 leaves
+    uint cellNode = FS_INDEX_NONE;
+    if (nb == 1u) cellNode = blocks[0];
+    else if (nb > 1u && nb <= 8u) { uint ch[8]; for (uint k = 0u; k < 8u; ++k) ch[k] = k < nb ? blocks[k] : FS_INDEX_NONE; cellNode = fsMakeInternal(ch); }
+    else if (nb > 8u) {
+        uint groups[8]; uint ng = 0u;
+        for (uint g = 0u; g < 8u; ++g) {
+            uint ch[8]; bool any = false;
+            for (uint k = 0u; k < 8u; ++k) { uint bi = g * 8u + k; ch[k] = bi < nb ? blocks[bi] : FS_INDEX_NONE; any = any || bi < nb; }
+            groups[g] = any ? fsMakeInternal(ch) : FS_INDEX_NONE; if (any) ng++;
+        }
+        cellNode = fsMakeInternal(groups);
+    }
+    uint dirWord = page * FS_RDIR_WORDS + cell;
+    uint old = rdir[dirWord];
+    rdir[dirWord] = cellNode;
+    fsRetireSubtree(old);
+    atomicAdd(gctr[FS_GCTR_RENDER_BLOCKS], nb);
+    // ---- mark the level-1 parent dirty (dedupe by bit, list append + indirect args)
+    uint cx = cell & 31u, cy = (cell >> 5) & 31u, cz = (cell >> 10) & 31u;
+    uint pidx = (cx >> 1) | ((cy >> 1) << 4) | ((cz >> 1) << 8);        // level 1: 16^3
+    uint bit = pidx;                                                       // level 1 occupies bits [0, 4096)
+    uint prev = atomicOr(dirty[FS_DIRTY_RNODEMASK(page) + (bit >> 5u)], 1u << (bit & 31u));
+    if ((prev & (1u << (bit & 31u))) == 0u) {
+        uint k = atomicAdd(FS_TK(FS_T_LEVEL_ARGS + 4 * 1 + 3), 1u);
+        if (k < uint(FS_DIRTY_NODES_MAX)) { dirty[FS_DIRTY_LIST(1) + k] = (page << 15) | pidx; atomicMax(FS_TK(FS_T_LEVEL_ARGS + 4 * 1 + 0), (k + uint(FS_WG_SMALL)) / uint(FS_WG_SMALL)); }
+    }
+}

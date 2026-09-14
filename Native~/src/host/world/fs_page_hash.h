@@ -1,5 +1,5 @@
 // Host-side page hash (contract §9.1): open addressing, robin-hood, generation protected, bounded probe
-// count, explicit overflow. The CPU is the only mutator; the GPU only looks up (world_integrate_stub.comp,
+// count, explicit overflow. The CPU is the only mutator; the GPU only looks up (fuse_associate.comp / fuse_freespace.comp,
 // fsPageHashLookup in fs_world_common.glsl) through a byte-identical mirror synced at safe points (no
 // SCAN job in flight, see fs_world.cpp). Erase uses backward-shift deletion so the invariant
 // "entry.probeDistance >= distance-so-far, else the key is absent" holds and lookups can exit early.

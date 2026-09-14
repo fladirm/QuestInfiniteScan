@@ -160,6 +160,13 @@ uint64_t ClassTimelineAllocated(FsJobClass cls);   // value of the most recently
 uint64_t UnityCurrentFrameNumber();
 // Frame-end timeline (§15.3): value = executor frame index whose FRAME_END was ordered on the graphics queue.
 uint64_t FrameEndSignalled();
+// Retirement-safe release (contract §11, C09R §15): `onRetired` runs (fs-sched thread) once every job submitted
+// before this call retired AND Unity's safeFrameNumber passed the current frame. Modules free render blocks,
+// tree nodes and page slabs through it; a generation is logically obsolete at once, physically reusable only then.
+uint64_t RetireLater(std::function<void()> onRetired);
+size_t   RetirementBacklog();
+// FsSched_GetClassStats layout: submitted, retired, deferred, failed, gpuUsTotal, gpuUsLast, inFlight, quantumUs.
+bool     ExecClassStats(FsJobClass cls, int64_t out[8]);
 
 // ---- Frame-hook GPU stages (contract §15.8 / §20 device receipt rule) -----------------------------------
 // Work recorded by frame-begin hooks into the frame command buffer carries device timestamps like executor jobs:

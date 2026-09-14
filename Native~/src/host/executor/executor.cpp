@@ -104,6 +104,7 @@ VkResult SubmitScanner(Executor& x, const VkSubmitInfo& si, VkFence fence) {
 }
 
 void DestroyGarbageItem(Executor& x, const GarbageItem& g) {
+    if (g.onRetired) g.onRetired();
     if (g.set) vkFreeDescriptorSets(x.device, x.descPool, 1, &g.set);
     if (g.pipeline) vkDestroyPipeline(x.device, g.pipeline, nullptr);
     if (g.layout) vkDestroyPipelineLayout(x.device, g.layout, nullptr);
@@ -113,6 +114,8 @@ void DestroyGarbageItem(Executor& x, const GarbageItem& g) {
     if (g.buffer) vkDestroyBuffer(x.device, g.buffer, nullptr);
     if (g.memory) vkFreeMemory(x.device, g.memory, nullptr);
 }
+
+} // namespace (executor helpers continue below)
 
 // ---- warm-up ---------------------------------------------------------------------------------------
 // Runs one pending step (any thread). Returns false when nothing was pending; sets `completed` when the
@@ -151,6 +154,8 @@ void FinishWarmup(Executor& x) {
     SavePipelineCache(x);
     x.cv.notify_all();
 }
+
+namespace {
 
 // FS_HEVT_WARMUP_STEP: drives warm-up when the worker thread is unavailable (or finished with failures):
 // re-arms one failed step per event and runs one pending step on the render thread.
@@ -314,7 +319,11 @@ bool VkInitLocked(Executor& x) {
     x.getSemaphoreCounterValue = DeviceProc<PFN_vkGetSemaphoreCounterValue>("vkGetSemaphoreCounterValue", "vkGetSemaphoreCounterValueKHR");
     x.getBufferDeviceAddress = DeviceProc<PFN_vkGetBufferDeviceAddress>("vkGetBufferDeviceAddress", "vkGetBufferDeviceAddressKHR");
     x.resetQueryPool = d.resetQueryPool;
-    if (x.timelineOk && x.getSemaphoreCounterValue == nullptr) { x.timelineOk = false; Log("executor: timeline semaphore feature enabled but vkGetSemaphoreCounterValue missing; using binary fallback"); }
+    if (x.timelineOk && x.getSemaphoreCounterValue == nullptr) { x.timelineOk = false; Log("executor: timeline semaphore feature enabled but vkGetSemaphoreCounterValue missing"); }
+    // Fail closed (C09R §26): cross-queue ordering (class timelines, frame-end timeline) is only proven with timeline
+    // semaphores. Without them the separate scanner queue is disabled and every job runs in order on the graphics
+    // queue through the AccessQueue pump (quantum <= 1 ms); never a second queue synchronised by CPU bookkeeping.
+    if (!x.timelineOk && x.scannerQueue != VK_NULL_HANDLE) { x.scannerQueue = VK_NULL_HANDLE; x.queueFallback = true; Log("executor: no timeline semaphores -> scanner queue disabled, ordered graphics-queue fallback"); }
 
     const sched::CoreConfig cc = sched::NormalizeConfig(&x.cfg, x.queueFallback);
     x.core.Init(cc);
@@ -944,25 +953,36 @@ void RegisterDeviceHook(std::function<void(bool)> hook) {
 }
 void RegisterWarmupStep(const char* name, std::function<bool()> step) {
     Executor& x = X();
-    bool runNow = false;
+    bool late = false;
     {
         std::lock_guard<std::mutex> lock(x.hooksMutex);
         exec::WarmupStep s; s.name = name ? name : ""; s.step = step;
-        runNow = x.warmupComplete.load(std::memory_order_acquire) && x.vkReady.load(std::memory_order_acquire);
-        if (runNow) { s.done = true; }
+        late = x.warmupComplete.load(std::memory_order_acquire) && x.vkReady.load(std::memory_order_acquire);
         x.warmup.push_back(s);
+        if (late) x.warmupComplete.store(false, std::memory_order_release);
     }
-    if (runNow) {
-        const int64_t t0 = MonotonicNs();
-        const bool ok = step ? step() : false;
-        const double ms = static_cast<double>(MonotonicNs() - t0) / 1e6;
-        std::lock_guard<std::mutex> lock(x.hooksMutex);
-        x.warmup.back().failed = !ok; x.warmup.back().ms = ms; x.warmupTotalMs += ms; if (!ok) ++x.warmupFailed;
-        Log("late warm-up step %s: %s in %.2f ms (registered after warm-up completed)", name ? name : "", ok ? "ok" : "FAILED", ms);
+    if (late) {
+        // Mandatory step after READY (C09R §27): the host is not READY until it compiled. Status drops to WARMING_UP,
+        // scan requests are refused meanwhile, FS_HEVT_WARMUP_STEP (or the warm-up thread when still running) completes it.
+        int32_t expected = FS_HOST_READY;
+        x.status.compare_exchange_strong(expected, FS_HOST_WARMING_UP);
+        Log("warm-up step %s registered after READY: host back to WARMING_UP until it completes (no scan-time compile)", name ? name : "");
+        bool completed = false;
+        while (exec::RunOneWarmupStep(x, completed)) {}
+        if (completed) exec::FinishWarmup(x);
     }
 }
 
 bool TakeScanRequest(uint32_t& observationId) { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); return x.scanRequests.Take(observationId); }
+uint64_t RetireLater(std::function<void()> onRetired) {
+    Executor& x = X();
+    std::lock_guard<std::mutex> lock(x.mutex);
+    if (!x.vkReady.load(std::memory_order_acquire)) { if (onRetired) onRetired(); return 0; }
+    exec::GarbageItem g; g.onRetired = std::move(onRetired);
+    return exec::PushGarbageLocked(x, g);
+}
+size_t RetirementBacklog() { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); return x.garbage.Pending(); }
+bool ExecClassStats(FsJobClass cls, int64_t out[8]) { return exec::HostGetClassStats((int32_t)cls, out); }
 bool GetFrameHint(FrameHint& out) { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); if (!x.hintValid) return false; out = x.hint; return true; }
 
 uint64_t SubmitJob(const JobDesc& desc) {
