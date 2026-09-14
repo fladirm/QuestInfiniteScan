@@ -267,7 +267,12 @@ public:
 private:
     std::mutex m_;
     bool inited_ = false, deviceUp_ = false, pipeReady_ = false;
-    uint32_t decimK_ = FS_MEAS_DEFAULT_DECIM_K, maxOut_ = FS_MEAS_DEFAULT_MAX_OUT, flags_ = 0;
+    // XR_META_environment_depth / OpenGL depth image convention: texel row 0 is the LOWER (tanDown) edge (the Meta
+    // reference sample projects NDC to depth UV as xy * 0.5 + 0.5 with no Y flip; the donor's FineLoadWorld maps texel
+    // y = 0 to NDC y = -1). The owned R32 copy preserves texel addressing verbatim, so the default is FLIP_Y.
+    // Device receipt without it (run 23:22, 5e339b9): eye at y = 1.87 m, back-projected bbox up to y = 5.55 m, 15 %
+    // matched associations, canonical growing linearly (correct range, mirrored ray direction).
+    uint32_t decimK_ = FS_MEAS_DEFAULT_DECIM_K, maxOut_ = FS_MEAS_DEFAULT_MAX_OUT, flags_ = FS_MEAS_FLAG_FLIP_Y;
     EnvDepthInput input_;
     uint64_t imported_ = 0, submitted_ = 0; uint32_t importedFrame_ = 0, importedW_ = 0, importedH_ = 0, importedLayers_ = 0; bool pendingSubmit_ = false;
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;

@@ -83,6 +83,18 @@ static void TestRays() {
     CHECK_NEAR(Footprint(2.f, kFov, W, H), 2.f * 1.8f / W, 1e-6);           // horizontal texel angle is the larger one here
 }
 
+// Non-negotiable regression (C09R-E1): the Environment Depth image convention is row 0 = bottom (tanDown). With the
+// default flags and the measured Quest 3S fov tangents, texel y = 0 must look DOWN and y = h - 1 UP; x = 0 left.
+static void TestDepthImageConvention() {
+    const float fov[4] = {-1.15f, 1.00f, 1.11f, -1.19f};
+    const uint32_t W = 320, H = 320, flags = FS_MEAS_FLAG_FLIP_Y;    // FS_MEAS_FLAG_FLIP_Y is the Measure default
+    float tx, ty;
+    RayTangents(0, 0, W, H, fov, flags, tx, ty);         CHECK_NEAR(ty, -1.19f + (1.11f + 1.19f) * 0.5f / H, 1e-5); CHECK_NEAR(tx, -1.15f + 2.15f * 0.5f / W, 1e-5);
+    RayTangents(0, H - 1, W, H, fov, flags, tx, ty);     CHECK_NEAR(ty, 1.11f - (1.11f + 1.19f) * 0.5f / H, 1e-5);
+    RayTangents(W - 1, 0, W, H, fov, flags, tx, ty);     CHECK_NEAR(tx, 1.00f - 2.15f * 0.5f / W, 1e-5);
+    RayTangents(0, 0, W, H, fov, 0, tx, ty);             CHECK(ty > 1.0f);                                            // the legacy "row 0 = top" reading is the mirrored one
+}
+
 static void TestSigmaModel() {
     CHECK_NEAR(SigmaN(0.f), 0.01, 1e-7);
     CHECK_NEAR(SigmaN(1.f), 0.03, 1e-7);
@@ -305,7 +317,7 @@ static void TestPushLayout() {
 }
 
 int main() {
-    TestPushLayout(); TestLinearizeDepth(); TestRays(); TestSigmaModel(); TestEdgeAndFlat(); TestNormals(); TestDecimation(); TestReservation();
+    TestPushLayout(); TestLinearizeDepth(); TestRays(); TestDepthImageConvention(); TestSigmaModel(); TestEdgeAndFlat(); TestNormals(); TestDecimation(); TestReservation();
     TestFrontoParallelPlane(); TestTiltedPlaneNormalsAndFinitFar(); TestEdgeRejectionAndDetail(); TestDecimationAndCap(); TestAnchorTransform(); TestFlipY();
     if (g_failures) { std::printf("host_tests_measure: %d failure(s)\n", g_failures); return 1; }
     std::printf("host_tests_measure: all passed\n");
