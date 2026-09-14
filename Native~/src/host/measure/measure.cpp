@@ -20,29 +20,24 @@
 #include "fs_meas_gpu.h"
 #include "fs_meas_api.h"
 #include "../fs_executor.h"
+#include "../world/fs_world.h"
 #include "../../log.h"
 #include "../../../include/finalscan_native_api.h"
 #include "spirv/measure_depth_backproject_spirv.inc"
+#include <algorithm>
 #include <atomic>
+#include <math.h>
 #include <mutex>
 #include <string.h>
 
 #define FS_API extern "C" __attribute__((visibility("default")))
 
 namespace fs {
-namespace world {
-// Additive need from the world module (fs_world.h): current worldFromAnchor matrices. Weak so this module links
-// (and the host tests build) without world/**; identity anchors are used when it is absent.
-uint64_t CopyAnchors(float* out16xN) __attribute__((weak));
-}
-}
-
-namespace fs {
 namespace meas {
 namespace {
 
 constexpr uint32_t kLogEveryFrames = 250;        // ~10 s at 25 Hz
-constexpr int32_t  kAnchorId = 0;                // TODO(C10): anchor selection per observation; anchor 0 for now
+constexpr int32_t  kAnchorId = 0;                // one anchor until the AnchorGraph cut (C19) assigns observations to anchors
 
 struct EnvDepthInput {
     void* texture = nullptr; uint32_t width = 0, height = 0;
@@ -72,7 +67,7 @@ public:
     void OnDevice(bool up) {
         std::lock_guard<std::mutex> g(m_);
         if (up == deviceUp_) return;
-        if (!up) { DestroyRings(); deviceUp_ = false; imported_ = 0; view_ = VK_NULL_HANDLE; jobInFlight_ = false; return; }
+        if (!up) { DestroyRings(); deviceUp_ = false; imported_ = 0; submitted_ = 0; pendingSubmit_ = false; view_ = VK_NULL_HANDLE; jobInFlight_ = false; pipe_ = Pipeline{}; pipeReady_ = false; return; }   // the executor destroyed every pipeline at teardown
         if (!CreateRings()) { LogError("FS-MEAS ring creation failed; measurement front-end inactive"); DestroyRings(); return; }
         deviceUp_ = true;
     }
@@ -144,8 +139,8 @@ public:
         if (!ImportUnityTexture(input_.texture, image, view, fmt, w, h, layers)) { importFailures_++; return; }
         if (view != view_ || fmt != fmt_) {
             if (!BindImage(pipe_, FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) { importFailures_++; return; }
-            view_ = view; fmt_ = fmt;
-            Log("FS-MEAS depth image bound: %ux%u layers=%u format=%d", w, h, layers, (int)fmt);
+            view_ = view; fmt_ = fmt; ++binds_;
+            if (binds_ <= 4 || (binds_ % 500) == 0) Log("FS-MEAS depth image bound #%llu: %ux%u layers=%u format=%d", (unsigned long long)binds_, w, h, layers, (int)fmt);
         }
         importedW_ = w; importedH_ = h; importedLayers_ = layers; imported_ = input_.seq; importedFrame_ = frame;
         pendingSubmit_ = true;
@@ -168,9 +163,9 @@ public:
             framesSuperseded_++; v.state = SLOT_FREE;
         }
         RingSlot& slot = slots_[pick];
-        // anchor-local transform: anchorFromWorld * worldFromEye (anchor 0; identity when the world module is absent)
+        // anchor-local transform: anchorFromWorld * worldFromEye (anchor 0)
         Mat4 worldFromAnchor = Identity();
-        if (&fs::world::CopyAnchors != nullptr) { static float anchors[64 * 16]; fs::world::CopyAnchors(anchors); memcpy(worldFromAnchor.m, anchors + kAnchorId * 16, 64); }
+        { static float anchors[64 * 16]; fs::world::CopyAnchors(anchors); memcpy(worldFromAnchor.m, anchors + kAnchorId * 16, 64); }
         Mat4 anchorFromWorld; if (!Invert(worldFromAnchor, anchorFromWorld)) anchorFromWorld = Identity();
         const uint32_t w = importedW_ ? importedW_ : input_.width, h = importedH_ ? importedH_ : input_.height;
         const uint32_t layers = importedLayers_ >= 2 ? 2u : 1u;
@@ -193,9 +188,17 @@ public:
         if (!BindBuffer(pipe_, FS_MEAS_B_RECORDS, slot.ring.records) || !BindBuffer(pipe_, FS_MEAS_B_COUNTERS, slot.ring.counters)) { LogError("FS-MEAS bind ring slot %d failed", pick); return; }
         slot.frame = MeasGpuFrame{}; slot.frame.ring = &slot.ring; slot.frame.slot = (uint32_t)pick;
         slot.frame.observationId = obsId; slot.frame.anchorId = kAnchorId; slot.frame.xrTimeNs = input_.xrTimeNs; slot.frame.frameIndex = FrameIndex();
+        slot.frame.importFrameEnd = importedFrame_;
+        for (uint32_t eye = 0; eye < 2; ++eye) {
+            const float* pose = eye == 0 ? input_.poseL : input_.poseR;
+            Vec3 o = MulPoint(anchorFromWorld, V3(pose[12], pose[13], pose[14]));
+            slot.frame.eyeOrigin[eye][0] = o.x; slot.frame.eyeOrigin[eye][1] = o.y; slot.frame.eyeOrigin[eye][2] = o.z;
+        }
+        slot.frame.eyeOriginValid = true;
         slot.frame.sequence = ++handoffSeq_;
         const uint64_t seq = input_.seq; const uint32_t maxOut = maxOut_;
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "depth_backproject"; jd.dispatches = &d; jd.dispatchCount = 1;
+        jd.waitFrameEndValue = importedFrame_;   // Unity's layout transition of the imported depth image precedes this job (§15.3)
         jd.onRetired = [this, pick, seq, maxOut](bool ok, uint64_t gpuStart, uint64_t gpuEnd) { OnRetired((uint32_t)pick, seq, maxOut, ok, gpuStart, gpuEnd); };
         if (!SubmitJob(jd)) return;                                      // deferred (ring / budget): retried next tick
         slot.state = SLOT_IN_FLIGHT; jobInFlight_ = true; submitted_ = imported_; pendingSubmit_ = false; framesSubmitted_++;
@@ -218,9 +221,26 @@ public:
             if (slot.frame.overflow) CounterAdd(FS_CTR_MEASUREMENTS_DROPPED, (int64_t)slot.frame.overflow);
             if (slot.frame.count) { slot.state = SLOT_READY; obs = slot.frame.observationId; request = true; }
             else slot.state = SLOT_FREE;
-            if ((seq % kLogEveryFrames) == 0)
+            if (seq <= 3 || (seq % kLogEveryFrames) == 0) {
                 Log("FS-MEAS depth #%llu: %u records (reserved %u, overflow %u, edge %u, lowTex %u, invalid %u, decimated %u, groups %u) gpu %lld us", (unsigned long long)seq,
                     slot.frame.count, reserved, slot.frame.overflow, ctr[FS_MEAS_CTR_EDGE], ctr[FS_MEAS_CTR_LOWTEX], ctr[FS_MEAS_CTR_INVALID], ctr[FS_MEAS_CTR_DECIMATED], ctr[FS_MEAS_CTR_GROUPS], (long long)lastGpuUs_);
+                // Receipt (§20): where the records are. Host-visible ring, read after the fence retired.
+                const FsSurfaceMeasurement* rec = (const FsSurfaceMeasurement*)slot.ring.records.mapped;
+                const uint32_t n = slot.frame.count, step = n > 512 ? n / 512 : 1;
+                float dmin = 1e30f, dmax = 0.f, dsum = 0.f; uint32_t ns = 0, inRange = 0;
+                float bmin[3] = {1e30f, 1e30f, 1e30f}, bmax[3] = {-1e30f, -1e30f, -1e30f};
+                for (uint32_t i = 0; i < n; i += step) {
+                    const FsSurfaceMeasurement& m = rec[i];
+                    const float* e = slot.frame.eyeOrigin[(m.sourceFlags >> FS_MEAS_SRC_EYE_SHIFT) & 1u];
+                    const float dx = m.px - e[0], dy = m.py - e[1], dz = m.pz - e[2], d = sqrtf(dx * dx + dy * dy + dz * dz);
+                    dmin = std::min(dmin, d); dmax = std::max(dmax, d); dsum += d; ++ns; if (d > 0.2f && d < 6.f) ++inRange;
+                    bmin[0] = std::min(bmin[0], m.px); bmin[1] = std::min(bmin[1], m.py); bmin[2] = std::min(bmin[2], m.pz);
+                    bmax[0] = std::max(bmax[0], m.px); bmax[1] = std::max(bmax[1], m.py); bmax[2] = std::max(bmax[2], m.pz);
+                }
+                if (ns) Log("FS-MEAS receipt #%llu: eyeL=(%.2f %.2f %.2f) eyeR=(%.2f %.2f %.2f) sampled=%u dist min/mean/max=%.2f/%.2f/%.2f m inRange=%u bbox=(%.2f %.2f %.2f)-(%.2f %.2f %.2f) fov0=(%.2f %.2f %.2f %.2f) near=%.2f far=%.2f",
+                    (unsigned long long)seq, slot.frame.eyeOrigin[0][0], slot.frame.eyeOrigin[0][1], slot.frame.eyeOrigin[0][2], slot.frame.eyeOrigin[1][0], slot.frame.eyeOrigin[1][1], slot.frame.eyeOrigin[1][2],
+                    ns, dmin, dsum / ns, dmax, inRange, bmin[0], bmin[1], bmin[2], bmax[0], bmax[1], bmax[2], input_.fovL[0], input_.fovL[1], input_.fovL[2], input_.fovL[3], input_.nearZ, input_.farZ);
+            }
         }
         // Outside the module lock (takes the executor lock): the world SCAN tick runs next with this observation.
         if (request) FsScan_RequestTick(obs);
@@ -253,7 +273,7 @@ private:
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
     Pipeline pipe_;
     RingSlot slots_[FS_MEAS_GPU_RING_SLOTS];
-    bool jobInFlight_ = false; uint64_t handoffSeq_ = 0;
+    bool jobInFlight_ = false; uint64_t handoffSeq_ = 0, binds_ = 0;
     int64_t framesSeen_ = 0, framesSubmitted_ = 0, framesSuperseded_ = 0, lastCount_ = 0, lastOverflow_ = 0, lastGpuUs_ = 0, importFailures_ = 0, lastEdge_ = 0;
 };
 

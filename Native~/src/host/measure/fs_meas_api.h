@@ -1,6 +1,5 @@
-// C ABI of the measurement front-end (C09, additive to finalscan_host_api.h ABI 2). Implemented in
-// measure.cpp; C# mirror: Runtime/Platform/Native/FinalScanHost.cs (SetMeasEnvDepth, guarded by
-// EntryPointNotFoundException so older plugins keep working). Main-thread safe.
+// C ABI of the measurement front-end (C09, part of finalscan_host_api.h ABI 2). Implemented in
+// measure.cpp; C# mirror: Runtime/Platform/Native/FinalScanHostNative.cs (SetMeasEnvDepth). Main-thread safe.
 #pragma once
 #include <stdint.h>
 #ifdef __cplusplus

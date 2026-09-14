@@ -186,7 +186,7 @@ static void TestClusterBuildAndCoverage() {
     // the area-weighted combination saturates the root (README: cell-aligned leaves are the follow-up)
     CHECK(leafCovAvg > 0.6f);
     CHECK(nodes[0].coverage / 65535.f > 0.9f);
-    CHECK(FootprintA(nodes[L.offset[0]].reserved) > 0.f && FootprintB(nodes[L.offset[0]].reserved) > 0.f);
+    CHECK(FootprintA(nodes[L.offset[0]].footprint) > 0.f && FootprintB(nodes[L.offset[0]].footprint) > 0.f);
     // cone: a wall leaf has a tight cone (single normal) -> coneCos ~ 1
     CHECK(nodes[L.offset[0]].coneCos > 0.99f);
     // single-node tree

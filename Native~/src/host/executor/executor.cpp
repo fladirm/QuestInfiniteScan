@@ -298,6 +298,8 @@ void DestroyRingsLocked(Executor& x) {
     if (x.framePool) { vkDestroyCommandPool(x.device, x.framePool, nullptr); x.framePool = VK_NULL_HANDLE; }
     if (x.frameTimeline) { vkDestroySemaphore(x.device, x.frameTimeline, nullptr); x.frameTimeline = VK_NULL_HANDLE; }
     if (x.frameMarkPool) { vkDestroyQueryPool(x.device, x.frameMarkPool, nullptr); x.frameMarkPool = VK_NULL_HANDLE; }
+    if (x.frameStagePool) { vkDestroyQueryPool(x.device, x.frameStagePool, nullptr); x.frameStagePool = VK_NULL_HANDLE; }
+    if (x.frameEndTimeline) { vkDestroySemaphore(x.device, x.frameEndTimeline, nullptr); x.frameEndTimeline = VK_NULL_HANDLE; }
 }
 
 // Creates every executor Vulkan object. Caller holds x.mutex; Device() is ready; host initialized.
@@ -341,6 +343,11 @@ bool VkInitLocked(Executor& x) {
     }
     x.frameMarkPool = MakeTimestampPool(x.device, kFrameMarkRing * 2);
     x.markCpu.assign(kFrameMarkRing, {0, 0}); x.markWrite = x.markRead = 0; x.markPoolReset = false;
+    x.frameStagePool = MakeTimestampPool(x.device, kFrameStageRing * 2);
+    x.stageRecs.assign(kFrameStageRing, FrameStageRec{}); x.stageWrite = x.stageRead = 0; x.stagePoolReset = false;
+    x.frameStagesCollected = x.frameStagesDropped = 0;
+    x.frameEndTimeline = x.timelineOk ? MakeTimelineSemaphore(x.device) : VK_NULL_HANDLE;
+    x.frameEndRequested = x.frameEndSignalled = 0; x.deferredFrameEnd = 0;
     if (!ResourcesInit(x)) return false;
     for (uint32_t c = 0; c < sched::kClassCount; ++c) x.lastAcquiredRetired[c] = 0;
     x.acquireSubmits = 0; x.frameBeginSeen = false; x.haveRecordingState = false;
@@ -490,6 +497,16 @@ void UNITY_INTERFACE_API QueueAccessCallback(int eventId, void* data) {
         r = vkQueueSubmit(gq, 1, &s3, VK_NULL_HANDLE);
         if (r == VK_SUCCESS) ++x.acquireSubmits;
     }
+    // (4) frame-end timeline: everything Unity submitted up to this FRAME_END (flush) precedes the signal
+    if (r == VK_SUCCESS && x.frameEndTimeline != VK_NULL_HANDLE && x.frameEndRequested > x.frameEndSignalled) {
+        const uint64_t v = x.frameEndRequested;
+        VkTimelineSemaphoreSubmitInfo tsi = {}; tsi.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO; tsi.signalSemaphoreValueCount = 1; tsi.pSignalSemaphoreValues = &v;
+        VkSubmitInfo s4 = {}; s4.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; s4.pNext = &tsi; s4.signalSemaphoreCount = 1; s4.pSignalSemaphores = &x.frameEndTimeline;
+        r = vkQueueSubmit(gq, 1, &s4, VK_NULL_HANDLE);
+        if (r == VK_SUCCESS) x.frameEndSignalled = v;
+    } else if (r == VK_SUCCESS && x.frameEndTimeline == VK_NULL_HANDLE && x.frameEndRequested > x.frameEndSignalled) {
+        x.frameEndSignalled = x.frameEndRequested;   // fallback: jobs are pumped on this queue after the flush, in order
+    }
     if (r == VK_ERROR_DEVICE_LOST) Quarantine(x, "vkQueueSubmit(graphics access)", r);
     else if (r != VK_SUCCESS) { Tele().Error((std::string("queue access submit ") + VkResultName(r)).c_str()); LogError("executor: queue access submit %s", VkResultName(r)); }
     x.cv.notify_all();
@@ -579,6 +596,26 @@ void CollectFrameMarks(Executor& x) {
     }
 }
 
+void CollectFrameStages(Executor& x) {
+    if (x.frameStagePool == VK_NULL_HANDLE) return;
+    std::vector<FrameStageSink> sinks;
+    bool sinksCopied = false;
+    while (x.stageRead < x.stageWrite) {
+        const uint32_t idx = x.stageRead % kFrameStageRing;
+        FrameStageRec& rec = x.stageRecs[idx];
+        if (!rec.ended) { ++x.stageRead; ++x.frameStagesDropped; continue; }   // never ended (hook error): consume without waiting
+        uint64_t data[4] = {};
+        const VkResult r = vkGetQueryPoolResults(x.device, x.frameStagePool, idx * 2, 2, sizeof data, data, 2 * sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        if (r != VK_SUCCESS && r != VK_NOT_READY) { if (r == VK_ERROR_DEVICE_LOST) { std::lock_guard<std::mutex> lock(x.mutex); Quarantine(x, "vkGetQueryPoolResults(frame stages)", r); } return; }
+        if (data[1] == 0 || data[3] == 0) return;                                  // oldest not ready: keep order, retry next frame
+        const uint64_t start = static_cast<uint64_t>(TicksToNs(data[0])), end = static_cast<uint64_t>(TicksToNs(data[2]));
+        Tele().Stage(static_cast<FsJobClass>(FS_JOB_CLASS_COUNT), rec.name, start, end, rec.frame);
+        if (!sinksCopied) { std::lock_guard<std::mutex> lock(x.hooksMutex); sinks = x.stageSinks; sinksCopied = true; }
+        for (auto& sk : sinks) if (sk) sk(rec.name, start, end, rec.frame);
+        ++x.stageRead; ++x.frameStagesCollected;
+    }
+}
+
 void FrameEnd(Executor& x) {
     x.inRenderEvent.store(true, std::memory_order_release);
     ++x.frameEnds;
@@ -603,17 +640,21 @@ void FrameEnd(Executor& x) {
             ++x.markWrite;
         }
         CollectFrameMarks(x);
+        CollectFrameStages(x);
     }
-    // graphics-queue fallback: submit jobs recorded since the last pump
-    bool pump = false;
+    // graphics-queue fallback: submit jobs recorded since the last pump. Frame-end ordering: every frame end is
+    // signalled on the graphics queue after Unity's command buffers of this frame were flushed (jobs that imported
+    // a Unity resource this frame wait on it, JobDesc::waitFrameEndValue).
+    bool pump = false, signalFrameEnd = false;
     {
         std::lock_guard<std::mutex> lock(x.mutex);
         if (x.queueFallback && accepting)
             for (uint32_t c = 0; c < sched::kClassCount && !pump; ++c)
                 for (SlotVk& s : x.classes[c].slots) if (s.recorded && !s.submitted) { pump = true; break; }
+        if (accepting && x.haveRecordingState) { x.frameEndRequested = x.frameIndex.load(std::memory_order_relaxed); signalFrameEnd = x.frameEndRequested > x.frameEndSignalled; }
         ++x.frameEndSeq;
     }
-    if (pump) AccessQueue(QueueAccessCallback, nullptr, false);
+    if (pump || signalFrameEnd) AccessQueue(QueueAccessCallback, nullptr, true);
     x.cv.notify_all();
     x.inRenderEvent.store(false, std::memory_order_release);
 }
@@ -768,6 +809,8 @@ std::string HostTelemetryJson(bool includeStages) {
         w.KV("skippedRingFull", x.frameSkippedRing); w.KV("hooks", x.frameHookCount); w.KV("marksCollected", x.frameMarksCollected);
         w.KV("unityFrame", x.unityCurrentFrame.load()); w.KV("unitySafeFrame", x.unitySafeFrame.load());
         w.KV("acquireSubmits", x.acquireSubmits); w.KV("fallbackPumps", x.fallbackPumps); w.KV("fallbackPumpedJobs", x.fallbackPumpedJobs);
+        w.KV("frameEndSignalled", x.frameEndSignalled); w.KV("deferredFrameEnd", x.deferredFrameEnd);
+        w.KV("frameStagesCollected", x.frameStagesCollected); w.KV("frameStagesDropped", x.frameStagesDropped);
         w.EndObject();
         w.Key("sched"); w.BeginObject();
         w.KV("frameBudgetUs", x.core.Budget().FrameBudget()); w.KV("usedUs", x.core.Budget().Used()); w.KV("remainingUs", x.core.Budget().Remaining());
@@ -858,6 +901,33 @@ VkCommandBuffer FrameCommandBuffer() { return X().frameCb; }
 bool     InRenderEvent() { return X().inRenderEvent.load(std::memory_order_acquire); }
 uint64_t UnitySafeFrameNumber() { return X().unitySafeFrame.load(std::memory_order_relaxed); }
 uint64_t UnityCurrentFrameNumber() { return X().unityCurrentFrame.load(std::memory_order_relaxed); }
+uint64_t FrameEndSignalled() { Executor& x = X(); std::lock_guard<std::mutex> lock(x.mutex); return x.frameEndSignalled; }
+
+uint32_t FrameStageBegin(VkCommandBuffer cmd, const char* name) {
+    Executor& x = X();
+    if (cmd == VK_NULL_HANDLE || x.frameStagePool == VK_NULL_HANDLE || !x.inRenderEvent.load(std::memory_order_acquire)) return UINT32_MAX;
+    if (x.stageWrite - x.stageRead >= exec::kFrameStageRing) { ++x.frameStagesDropped; return UINT32_MAX; }
+    if (!x.stagePoolReset) {
+        if (Device().hostQueryResetEnabled && x.resetQueryPool) x.resetQueryPool(x.device, x.frameStagePool, 0, exec::kFrameStageRing * 2);
+        else vkCmdResetQueryPool(cmd, x.frameStagePool, 0, exec::kFrameStageRing * 2);
+        x.stagePoolReset = true;
+    }
+    const uint32_t handle = x.stageWrite++, idx = handle % exec::kFrameStageRing;
+    exec::FrameStageRec& rec = x.stageRecs[idx];
+    std::strncpy(rec.name, name ? name : "", exec::kFrameStageNameChars); rec.name[exec::kFrameStageNameChars] = '\0';
+    rec.frame = x.frameIndex.load(std::memory_order_relaxed); rec.ended = false;
+    vkCmdResetQueryPool(cmd, x.frameStagePool, idx * 2, 2);   // frame-begin events are configured EnsureOutsideRenderPass
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, x.frameStagePool, idx * 2);
+    return handle;
+}
+void FrameStageEnd(VkCommandBuffer cmd, uint32_t handle) {
+    Executor& x = X();
+    if (handle == UINT32_MAX || cmd == VK_NULL_HANDLE || x.frameStagePool == VK_NULL_HANDLE) return;
+    const uint32_t idx = handle % exec::kFrameStageRing;
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, x.frameStagePool, idx * 2 + 1);
+    x.stageRecs[idx].ended = true;
+}
+void RegisterFrameStageSink(FrameStageSink sink) { Executor& x = X(); std::lock_guard<std::mutex> lock(x.hooksMutex); x.stageSinks.push_back(std::move(sink)); }
 
 void RegisterFrameBeginHook(FrameHook hook) { Executor& x = X(); std::lock_guard<std::mutex> lock(x.hooksMutex); x.frameBeginHooks.push_back(std::move(hook)); }
 void RegisterSchedulerTick(std::function<void(uint32_t)> tick) { Executor& x = X(); std::lock_guard<std::mutex> lock(x.hooksMutex); x.genericTicks.push_back(std::move(tick)); }
@@ -907,6 +977,9 @@ uint64_t SubmitJob(const JobDesc& desc) {
     }
     std::lock_guard<std::mutex> lock(x.mutex);
     if (!x.vkReady.load(std::memory_order_acquire) || !x.core.AcceptingSubmits()) return 0;
+    if (desc.waitFrameEndValue != 0 && desc.waitFrameEndValue > x.frameEndSignalled) {   // that frame end is not on the graphics queue yet
+        ++x.deferredFrameEnd; Tele().CounterAdd(FS_CTR_DEFERRED_PUBLISH + static_cast<int32_t>(desc.cls), 1); return 0;
+    }
     const sched::SubmitDecision d = x.core.TrySubmit(desc.cls, desc.maxQuantumUs, desc.leaseSlot, desc.leaseGeneration, &x.leaseValidator, MonotonicNs(),
                                                      desc.waitClass, desc.waitTimelineValue);
     if (d.outcome != sched::SubmitOutcome::Accepted) {
@@ -956,14 +1029,13 @@ uint64_t SubmitJob(const JobDesc& desc) {
     if (!x.queueFallback) {
         VkTimelineSemaphoreSubmitInfo tsi = {}; tsi.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
         VkSubmitInfo si = {}; si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; si.commandBufferCount = 1; si.pCommandBuffers = &sv.cb;
-        VkSemaphore waitSem = VK_NULL_HANDLE, signalSem = cv.timeline; uint64_t waitVal = desc.waitTimelineValue, signalVal = d.timelineValue;
-        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+        VkSemaphore waitSems[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; uint64_t waitVals[2] = {0, 0}; uint32_t waits = 0;
+        VkSemaphore signalSem = cv.timeline; uint64_t signalVal = d.timelineValue;
+        const VkPipelineStageFlags waitStages[2] = {VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT};
         if (x.timelineOk) {
-            if (desc.waitTimelineValue != 0 && x.classes[desc.waitClass].timeline != VK_NULL_HANDLE) {
-                waitSem = x.classes[desc.waitClass].timeline;
-                si.waitSemaphoreCount = 1; si.pWaitSemaphores = &waitSem; si.pWaitDstStageMask = &waitStage;
-                tsi.waitSemaphoreValueCount = 1; tsi.pWaitSemaphoreValues = &waitVal;
-            }
+            if (desc.waitTimelineValue != 0 && x.classes[desc.waitClass].timeline != VK_NULL_HANDLE) { waitSems[waits] = x.classes[desc.waitClass].timeline; waitVals[waits] = desc.waitTimelineValue; ++waits; }
+            if (desc.waitFrameEndValue != 0 && x.frameEndTimeline != VK_NULL_HANDLE) { waitSems[waits] = x.frameEndTimeline; waitVals[waits] = desc.waitFrameEndValue; ++waits; }
+            if (waits) { si.waitSemaphoreCount = waits; si.pWaitSemaphores = waitSems; si.pWaitDstStageMask = waitStages; tsi.waitSemaphoreValueCount = waits; tsi.pWaitSemaphoreValues = waitVals; }
             si.signalSemaphoreCount = 1; si.pSignalSemaphores = &signalSem;
             tsi.signalSemaphoreValueCount = 1; tsi.pSignalSemaphoreValues = &signalVal;
             si.pNext = &tsi;

@@ -7,12 +7,14 @@ C05/C08 device benchmarks land; numbers live in `fs_world_params.h` (one header,
 ## Division of labour (hard rule)
 * **GPU selects page work.** The CPU never enumerates pages to submit jobs. It sets per-slot flags in the
   host-visible `gctr` buffer (`FS_SLOT_FLAG_REBUILD`, `FS_SLOT_FLAG_DIRTY`) and submits ONE maintenance job:
-  `maint_collect(rebuild)` → `index_rebuild/count/subdivide/insert` (2D indirect, y = list index) →
-  `maint_collect(publish)` → `publish_count/scan/copy` → `publish_commit` (GPU root-last) →
-  `cluster_leaves` + 7 × `cluster_internal` (indirect per level, batched over all published pages) →
-  `cluster_commit`. 19 bounded dispatches, ≤ `FS_MAINT_MAX_PAGES` (32) pages per list; leftovers keep their
+  `maint_collect(publish)` → `evidence` (free-space contradictions, ghost removal, §8.6) → `merge` (§8.4) →
+  `publish_count/scan/copy` → `publish_commit` (GPU root-last) → `publish_back` (BACK := new FRONT, compact,
+  flags REBUILD) → `maint_collect(rebuild)` → `index_rebuild/count/subdivide/insert` (2D indirect, y = list
+  index) → `cluster_leaves` + 7 × `cluster_internal` (indirect per level, batched over all published pages) →
+  `cluster_commit`. 22 bounded dispatches, ≤ `FS_MAINT_MAX_PAGES` (32) pages per list; leftovers keep their
   flag and are picked up by the next job (`maintenanceWanted_` is re-derived from the host-visible flags
-  after the fence, never from a blocking readback).
+  after the fence, never from a blocking readback). Published pages get their index rebuilt in the same job,
+  so no scan tick ever sees a stale index, and BACK never accumulates REMOVED entries.
 * **Zero readback.** Every value the CPU consumes (counters, flags, page headers) is read from host-visible
   memory after the executor reported the fence retired. Page generations and root words are GPU authority
   (`world_publish_commit.comp`); the host mirror is telemetry.
@@ -44,12 +46,24 @@ and the integrate kernel sets `FS_SLOT_FLAG_REBUILD` so the next maintenance job
 persists"). Candidate scans are bounded (`FS_CANDIDATE_MAX` 16, overflow counted); publish walks are
 bounded (`FS_CELL_WALK_MAX` 2048 per cell, counted).
 
-## Integrate stub (`world_integrate_stub.comp`; the real fusion is C12)
+## Fusion (`world_integrate.comp`, contract §8.2, §8.3, §8.5, §8.6, §8.7)
 measurement → page hash (GPU mirror, robin-hood early exit, 32 probes) → cell (+ micro bucket) → ≤ 16
-candidates: within 2 cm and normal dot > 0.8 → count-weighted update, else allocate in BACK (atomic
-per page, capacity-bounded, `FS_GCTR_BACK_OVERFLOW`). New candidates are transient (§8.6). Known stub
-races: two measurements of one job creating the same surfel may duplicate; read-modify-write updates are
-not atomic. Stable surface ids come from a global counter (`FS_GCTR_NEXT_SURFACE_ID`), never a slot.
+candidates. Compatibility is tested in the surfel frame: |signed plane distance| ≤ 3·√(σn_s² + σn_m²),
+normal dot ≥ 0.8 (an opposite-facing surfel is never compatible: the other side of a thin wall gets its own
+sheet), tangent distance ≤ radius_s + footprint_m. The best candidate (Mahalanobis) is updated
+precision-weighted along the normal and in the tangent plane, its normal blended by precision, its support
+radius pulled toward the measured footprint (§8.2), residual variance kept Welford-style, support count and
+staticEvidence incremented; a transient becomes promoted after `FS_PROMOTE_STATIC` consistent
+observations. A compatible surfel just outside its gate (within `FS_MOTION_BAND_M`) receives motionEvidence.
+No match → a new TRANSIENT candidate (second sheet allowed); a duplicate created by another lane in the same
+tick is retired at once (bounded re-scan of the list head). A surfel already updated in this tick is not
+updated twice (`FS_CTR_DUPLICATE_OBSERVATIONS`). Free space: with a known eye origin the ray eye → point stamps
+the cells it crosses inside the page (u8 stamp = 1 + tick % 255, bounded walk); `world_evidence.comp` turns
+"seen through in the latest tick but not observed" into motionEvidence and removes ghosts after
+`FS_GHOST_MOTION_MIN + static / FS_GHOST_STATIC_K` contradictions. `world_merge.comp` merges coplanar,
+overlapping, promoted surfels of one list (pairs among the first 16) locally; split is implicit (a
+measurement outside the gate creates its own sheet, the adaptive radius shrinks the original). Stable
+surface ids come from a global counter (`FS_GCTR_NEXT_SURFACE_ID`), never a slot.
 
 ## ClusterTree (§13.4) and coverage
 Layout: root first, levels top-down, leaves last; leaves = consecutive runs of `64 << leafShift` surfels of
@@ -89,17 +103,18 @@ records, last workgroup writes both `FsIndirectDrawArgs` {24, opaque×2, 0, 0} {
 stats ring and resets). The cut is recomputed every 2 frames or when the head moves beyond the prediction
 margin; otherwise the previous draw list/args stay. Temporal page cache: pages cached OUTSIDE are skipped
 when the head moved less than the margin. Modes: SCAN (band test), XRAY (no depth-prior cull), PLAN (no
-cone). `cullGpuUs` in `FsRender_GetLastCullStats` is 0 (frame-hook work carries no executor timestamps).
+cone). Both frame-hook stages carry device timestamps (`FrameStageBegin/End`, stages `render.hzb` and
+`render.cull` in the telemetry stage ring); `cullGpuUs` in `FsRender_GetLastCullStats` is their last sum.
 
 Depth-prior assumptions to validate on device: prev depth uses the GPU projection it was rendered with
 (generic inverse, reversed-Z fine, 0/1 = no data); Environment Depth is treated as standard [0,1]
 perspective depth from XrFovf tangents + near/far; `flipY` bit unused.
 
-## Additive executor / host-API needs
-* `const FsHostConfig* ExecConfig()` — weak in `fs_world.cpp`; without it the provisional defaults apply.
-* Header additions (done): `FsClusterError` (ABI), `FsRender_SetMode`, `FsRender_GetDrawLayout`.
-* Unity shader contract: aggregates start at `opaqueArgs.instanceCount / 2`; canonical tangent frame as
-  in `TangentFrame()`; opaque draw = 24 verts (8-gon), aggregate draw = 6 verts.
+## Lifecycle
+World and render register with the executor at library load (static init), so their pipelines are created by
+the warm-up thread before `FS_HOST_READY`; arena sizes come from `FsHostConfig` in the device hook.
+Unity shader contract: aggregates start at `opaqueArgs.instanceCount / 2`; canonical tangent frame as in
+`TangentFrame()`; opaque draw = 24 verts (8-gon), aggregate draw = 6 verts.
 
 ## Tests
 `Tools~/native/build_host_tests_world.sh` (hooked from `build_host_tests.sh`): page hash, encodings,

@@ -25,7 +25,7 @@ struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint3
 static const KernelSpec kRenderKernels[R_COUNT] = {
     {"render_hzb_scatter", FS_KS(kRenderHzbScatterSpirv), sizeof(PushFrame), {RB_FRAME, RB_HZB, RB_DEPTH_PREV, RB_DEPTH_ENV}, 4, 2},
     {"render_hzb_combine", FS_KS(kRenderHzbCombineSpirv), 0,                 {RB_HZB}, 1, 0},
-    {"render_hzb_mips",    FS_KS(kRenderHzbMipsSpirv),    0,                 {RB_HZB}, 1, 0},
+    {"render_hzb_mips",    FS_KS(kRenderHzbMipsSpirv),    0,                 {RB_WORK, RB_HZB}, 2, 0},
     {"render_cull_pages",  FS_KS(kRenderCullPagesSpirv),  sizeof(PushPages), {RB_FRAME, RB_SLOTS, RB_WORK}, 3, 0},
     {"render_cull_nodes",  FS_KS(kRenderCullNodesSpirv),  sizeof(PushCull),  {RB_FRAME, RB_SLOTS, RB_NODES, RB_ERRORS, RB_WORK, RB_DRAW, RB_HZB}, 7, 0},
     {"render_cull_emit",   FS_KS(kRenderCullEmitSpirv),   sizeof(PushCull),  {RB_FRAME, RB_SLOTS, RB_SURFELS, RB_WORK, RB_DRAW}, 5, 0},

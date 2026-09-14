@@ -36,7 +36,7 @@ namespace FinalScan.World
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public unsafe struct FsPageHeader  // 68 B
+    public struct FsPageHeader  // 68 B
     {
         public FsPageKey key;
         public uint slot;
@@ -50,7 +50,8 @@ namespace FinalScan.World
         public uint cellIndexOffset;
         public uint freeSpaceOffset;
         public uint lastTouchedFrame;
-        public fixed uint reserved[2];
+        public uint nodeBase;
+        public uint nodeCount;
         public const int SizeBytes = 68;
     }
 
@@ -140,7 +141,7 @@ namespace FinalScan.World
         public uint firstChildOrSurfel;
         public ushort childCount;
         public ushort leafSurfelCount;
-        public uint reserved;
+        public uint footprint;
         public const int SizeBytes = 80;
     }
 
@@ -182,7 +183,8 @@ namespace FinalScan.World
         DeferredAppearance = 25,
         DeferredCold = 26,
         TimestampNonmono = 27,
-        Count = 28,
+        DuplicateObservations = 28,
+        Count = 29,
     }
 
     public static class WorldAbi

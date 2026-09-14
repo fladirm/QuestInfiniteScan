@@ -44,6 +44,11 @@ struct JobDesc {
     FsJobClass waitClass = FS_JOB_SCAN;
     std::function<void(bool success, uint64_t gpuStartNs, uint64_t gpuEndNs)> onRetired; // called on fs-sched thread
     uint32_t leaseSlot = FS_INDEX_NONE; uint32_t leaseGeneration = 0;   // dropped if page generation moved
+    // Frame-end ordering (contract §15.3, cross-queue hazard): the job waits until Unity's graphics queue passed the
+    // FRAME_END of executor frame `waitFrameEndValue` (its command buffers, including the barriers recorded by
+    // ImportUnityTexture/ImportUnityBuffer in that frame, are submitted and ordered before the job). 0 = none. A value
+    // whose frame end has not been signalled yet defers the job (counted), never a dangling wait.
+    uint64_t waitFrameEndValue = 0;
 };
 
 // Executor API. All functions thread-safe unless noted.
@@ -153,6 +158,19 @@ bool     JobTimelineValue(uint64_t jobId, FsJobClass& cls, uint64_t& value);
 uint64_t ClassTimelineAllocated(FsJobClass cls);   // value of the most recently submitted job of the class
 // Unity's currentFrameNumber from the last recording state (0 until the first frame event).
 uint64_t UnityCurrentFrameNumber();
+// Frame-end timeline (§15.3): value = executor frame index whose FRAME_END was ordered on the graphics queue.
+uint64_t FrameEndSignalled();
+
+// ---- Frame-hook GPU stages (contract §15.8 / §20 device receipt rule) -----------------------------------
+// Work recorded by frame-begin hooks into the frame command buffer carries device timestamps like executor jobs:
+// FrameStageBegin/End bracket a stage (TOP_OF_PIPE before, BOTTOM_OF_PIPE after) in a per-frame query ring; the
+// results are collected without waiting at later FRAME_ENDs, reported to Telemetry (class FS_JOB_CLASS_COUNT =
+// "frame") and to every registered sink. Only callable inside a frame-begin hook. Returns UINT32_MAX when the ring
+// is full (the stage is then simply unmeasured this frame, never blocked).
+uint32_t FrameStageBegin(VkCommandBuffer cmd, const char* name);
+void     FrameStageEnd(VkCommandBuffer cmd, uint32_t handle);
+using FrameStageSink = std::function<void(const char* name, uint64_t gpuStartNs, uint64_t gpuEndNs, uint32_t frameIndex)>;
+void     RegisterFrameStageSink(FrameStageSink sink);   // called on the render thread when a stage's timestamps arrived
 // (additive, world module) The FsHostConfig FsHost_Init received (normalised copy); null before FsHost_Init.
 const FsHostConfig* ExecConfig();
 

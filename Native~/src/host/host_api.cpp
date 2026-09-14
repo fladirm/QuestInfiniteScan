@@ -1,5 +1,5 @@
 // C ABI exports of finalscan_host_api.h owned by the executor (ABI 2): FsHost_*, FsSched_*, FsScan_RequestTick.
-// FsWorld_/FsResidency_/FsMeas_/FsRender_ live in world/ and render/ (weak defaults in weak_defaults.cpp).
+// FsWorld_/FsResidency_/FsMeas_ live in world/ and measure/, FsRender_ in render/ (strong definitions; the plugin does not link without them).
 #include "executor/executor_internal.h"
 #include "../json_writer.h"
 #include "../log.h"

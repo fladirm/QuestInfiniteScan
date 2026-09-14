@@ -1,0 +1,25 @@
+#version 450
+// Publish step 5 (batched, surfel-parallel, y = publish list index): BACK compaction. After the FRONT snapshot
+// was committed, BACK becomes a copy of the new FRONT (live surfels in Morton order, no REMOVED entries):
+// BACK[base + i] = FRONT(parity)[i] for i < total, backCount = total. The page-local index refers to BACK
+// positions, so the page is flagged REBUILD; the rebuild passes of the same maintenance job pick it up
+// (the collect(rebuild) dispatch runs after this one). No scan job runs while a maintenance job is in flight.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SLOTS
+#define FS_USE_SURFELS
+#define FS_USE_EVIDENCE
+#define FS_USE_GCTR
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint k = gl_WorkGroupID.y; if (k >= gctr[FS_G_PUBLISH_COUNT]) return;
+    uint info = uint(FS_G_PUBLISH_INFO) + k * uint(FS_G_INFO_WORDS);
+    uint slot = gctr[info + 0], total = gctr[info + 1], parity = gctr[info + 3];
+    FsSlotLayout l = layouts[slot];
+    uint i = gl_GlobalInvocationID.x;
+    if (i == 0u) { headers[slot].backCount = total; atomicOr(gctr[FS_G_FLAGS + slot], FS_SLOT_FLAG_REBUILD); }
+    if (i >= total || i >= l.capacity) return;
+    uint src = fsFrontOffset(l, parity) + i, dst = l.surfelBase + i;
+    surfels[dst] = surfels[src];
+    evidence[dst] = evidence[src];
+}

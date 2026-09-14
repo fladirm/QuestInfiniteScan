@@ -35,7 +35,7 @@ void main() {
         csum += vec3(c.repCenter[0], c.repCenter[1], c.repCenter[2]) * w;
         asum += vec3(c.coneAxis[0], c.coneAxis[1], c.coneAxis[2]) * w;
         colsum += vec3(float(c.repColorOrHandle & 0xFFu), float((c.repColorOrHandle >> 8) & 0xFFu), float((c.repColorOrHandle >> 16) & 0xFFu)) * w;
-        areaSum += float(fsGet_FsClusterNode_coverage(c)) / 65535.0 * fsFootprintA(c.reserved) * fsFootprintB(c.reserved);   // covered footprint area / pi
+        areaSum += float(fsGet_FsClusterNode_coverage(c)) / 65535.0 * fsFootprintA(c.footprint) * fsFootprintB(c.footprint);   // covered footprint area / pi
         wsum += w; count += fsGet_FsClusterNode_surfelCount(c);
         if (c.coneCos <= -1.0) anyDir = true;
     }
@@ -69,7 +69,7 @@ void main() {
     nd.firstChildOrSurfel = firstChild;
     nd.childCount_leafSurfelCount = 0u;
     fsSet_FsClusterNode_childCount(nd, cc); fsSet_FsClusterNode_leafSurfelCount(nd, 0u);
-    nd.reserved = fsPackFootprint(fa, fb);
+    nd.footprint = fsPackFootprint(fa, fb);
     uint ni = nb + L.offset[pc.level] + j;
     nodes[ni] = nd;
     FsClusterError e; e.ownError = nd.repRadius; e.parentError = (pc.level + 1u == L.levels) ? FS_CLUSTER_ERROR_INF : 0.0;

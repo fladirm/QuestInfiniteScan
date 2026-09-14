@@ -18,6 +18,8 @@ using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARFoundation;
 using FinalScan.Host;
+using FinalScan.Platform.Probe;
+using FinalScan.Platform.Sensor;
 using FinalScan.Render;
 using FinalScan.Residency;
 using FinalScan.UI;
@@ -37,8 +39,6 @@ namespace FinalScan.Editor
         const string ProductName = "FinalScan";
         const string ApplicationId = "eu.monle.finalscan";
         const string RootObjectName = "[FinalScan]";
-        const string ProbeHostTypeName = "FinalScan.Platform.Probe.DeviceProbeHost";
-        const string SensorAuthorityTypeName = "FinalScan.Platform.Sensor.SensorAuthority";
         const string AttachProbeEnv = "FS_ATTACH_PROBE";
         public const string SurfelShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanSurfel.shader";
         public const string DepthCopyShaderPath = "Packages/eu.monle.finalscan/Shaders/FinalScanDepthCopy.shader";
@@ -287,14 +287,15 @@ namespace FinalScan.Editor
             if (root.GetComponent<ResidencyDriver>() == null) root.AddComponent<ResidencyDriver>();
             if (root.GetComponent<HostHud>() == null) root.AddComponent<HostHud>();
             if (root.GetComponent<InputMap>() == null) root.AddComponent<InputMap>();
-            Debug.Log($"{Tag} Attached FinalScanHost, SurfelRenderer, ResidencyDriver, HostHud (fallback), InputMap to {RootObjectName}.");
-
-            // C03 sensor authority (another agent) by reflection: attached when the type exists.
-            AttachByTypeName(root, SensorAuthorityTypeName, attach: true);
+            // C03 sensor authority: the single owner of PCA, Environment Depth, pose ring and recording.
+            if (root.GetComponent<SensorAuthority>() == null) root.AddComponent<SensorAuthority>();
+            Debug.Log($"{Tag} Attached FinalScanHost, SensorAuthority, SurfelRenderer, ResidencyDriver, HostHud, InputMap to {RootObjectName}.");
 
             // C01 probe host only on request (FS_ATTACH_PROBE=1); otherwise removed so it never shares the device with the host.
             bool attachProbe = Environment.GetEnvironmentVariable(AttachProbeEnv) == "1";
-            AttachByTypeName(root, ProbeHostTypeName, attachProbe);
+            DeviceProbeHost probe = root.GetComponent<DeviceProbeHost>();
+            if (attachProbe && probe == null) { root.AddComponent<DeviceProbeHost>(); Debug.Log($"{Tag} Attached DeviceProbeHost ({AttachProbeEnv}=1)."); }
+            else if (!attachProbe && probe != null) { UnityEngine.Object.DestroyImmediate(probe); Debug.Log($"{Tag} Removed DeviceProbeHost (set {AttachProbeEnv}=1 to attach)."); }
         }
 
         // -- C22 UI shell (donor EnsureControllerMenu port) ------------------------
@@ -364,34 +365,6 @@ namespace FinalScan.Editor
         {
             T c = go.GetComponent<T>();
             return c != null ? c : go.AddComponent<T>();
-        }
-
-        static void AttachByTypeName(GameObject root, string typeName, bool attach)
-        {
-            Type type = AppDomain.CurrentDomain.GetAssemblies()
-                .Select(assembly => assembly.GetType(typeName, false))
-                .FirstOrDefault(t => t != null);
-            if (type == null)
-            {
-                Debug.Log($"{Tag} {typeName} not present; skipped.");
-                return;
-            }
-            if (!typeof(Component).IsAssignableFrom(type))
-            {
-                Debug.LogWarning($"{Tag} {typeName} exists but is not a Component; skipped.");
-                return;
-            }
-            Component existing = root.GetComponent(type);
-            if (attach)
-            {
-                if (existing == null) root.AddComponent(type);
-                Debug.Log($"{Tag} Attached {typeName} to {RootObjectName}.");
-            }
-            else if (existing != null)
-            {
-                UnityEngine.Object.DestroyImmediate(existing);
-                Debug.Log($"{Tag} Removed {typeName} from {RootObjectName} (set {AttachProbeEnv}=1 to attach).");
-            }
         }
 
         /// <summary>Assigns a package shader to a serialized field so the shader is referenced by the scene and survives build stripping.</summary>

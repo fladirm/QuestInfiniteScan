@@ -79,7 +79,7 @@ void main() {
     nd.firstChildOrSurfel = front + first;
     nd.childCount_leafSurfelCount = 0u;
     fsSet_FsClusterNode_childCount(nd, 0u); fsSet_FsClusterNode_leafSurfelCount(nd, min(cnt, 65535u));
-    nd.reserved = fsPackFootprint(fa, fb);
+    nd.footprint = fsPackFootprint(fa, fb);
     uint ni = l.nodeBase + parity * l.nodesPerSlot + L.offset[0] + j;
     nodes[ni] = nd;
     FsClusterError e; e.ownError = nd.repRadius; e.parentError = (L.levels == 1u) ? FS_CLUSTER_ERROR_INF : 0.0;

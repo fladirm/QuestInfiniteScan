@@ -1,0 +1,83 @@
+#version 450
+// Merge pass (contract §8.4, batched over the publish list, one thread per cell): coplanar, compatible
+// surfels whose supports overlap are merged locally (never page-wide). Pairs among the first
+// FS_MERGE_LIST_MAX live surfels of each list (coarse cell or its 8 micro buckets): normals within
+// FS_MERGE_MIN_DOT, plane distance inside the sigma gate, centres closer than FS_MERGE_OVERLAP_K * (rA + rB),
+// both promoted (transients never merge). The better supported surfel absorbs the other: precision-weighted
+// centre/normal, radius covering both supports, evidence summed; the other is REMOVED (retired at publish).
+// Split (§8.4) is implicit: a measurement outside the gate creates its own sheet and the adaptive radius of
+// the original shrinks toward the measured footprint.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SLOTS
+#define FS_USE_SURFELS
+#define FS_USE_EVIDENCE
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint k = gl_WorkGroupID.y; if (k >= gctr[FS_G_PUBLISH_COUNT]) return;
+    uint slot = gctr[FS_G_PUBLISH_LIST + k];
+    uint cell = gl_GlobalInvocationID.x;
+    if (cell >= uint(FS_CELLS_PER_PAGE)) return;
+    FsSlotLayout l = layouts[slot];
+    uint h = idx[fsHeadIndex(l, cell)];
+    uint lists = 1u, base = fsHeadIndex(l, cell);
+    if ((h & FS_CELL_HEAD_SUBDIV_BIT) != 0u) { lists = 8u; base = fsMicroIndex(l, h & ~FS_CELL_HEAD_SUBDIV_BIT, 0u); }
+    for (uint li = 0u; li < 8u; ++li) {
+        if (li >= lists) break;
+        uint items[FS_MERGE_LIST_MAX]; uint n = 0u;
+        uint cur = idx[base + li];
+        for (uint w = 0u; w < uint(FS_MERGE_LIST_MAX); ++w) {
+            if (cur == FS_INDEX_NONE || cur < l.surfelBase || cur >= l.surfelBase + l.capacity) break;
+            uint f = fsGet_FsSurfel_evidenceFlags(surfels[cur]);
+            if ((f & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) == 0u && (f & FS_FLAG_PROMOTED) != 0u) { items[n] = cur; n++; }
+            cur = idx[fsLinkIndex(l, cur)];
+        }
+        for (uint a = 0u; a < uint(FS_MERGE_LIST_MAX); ++a) {
+            if (a >= n) break;
+            FsSurfel sa = surfels[items[a]];
+            if ((fsGet_FsSurfel_evidenceFlags(sa) & FS_FLAG_REMOVED) != 0u) continue;
+            vec3 pa = fsSurfelLocalPos(sa); vec3 na = fsSurfelNormal(sa);
+            float ra = fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(sa));
+            float sna = fsDecodeLogSigma(fsGet_FsSurfel_sigmaN(sa));
+            for (uint b = a + 1u; b < uint(FS_MERGE_LIST_MAX); ++b) {
+                if (b >= n) break;
+                FsSurfel sb = surfels[items[b]];
+                uint fb = fsGet_FsSurfel_evidenceFlags(sb);
+                if ((fb & FS_FLAG_REMOVED) != 0u) continue;
+                vec3 pb = fsSurfelLocalPos(sb); vec3 nb = fsSurfelNormal(sb);
+                if (dot(na, nb) < FS_MERGE_MIN_DOT) continue;
+                float rb = fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(sb));
+                float snb = fsDecodeLogSigma(fsGet_FsSurfel_sigmaN(sb));
+                vec3 delta = pb - pa;
+                float d = dot(na, delta);
+                if (abs(d) > FS_ASSOC_SIGMA_GATE * sqrt(sna * sna + snb * snb)) continue;
+                float tdist = length(delta - d * na);
+                if (tdist > FS_MERGE_OVERLAP_K * (ra + rb)) continue;
+                // merge b into a (a is the earlier, better supported entry by list order after publish sorting)
+                uint ca = fsGet_FsSurfel_evidenceFlags(sa) & FS_EVIDENCE_COUNT_MASK, cb = fb & FS_EVIDENCE_COUNT_MASK;
+                float wa = 1.0 / (sna * sna), wb = 1.0 / (snb * snb);
+                vec3 np = mix(pa, pb, wb / (wa + wb));
+                vec3 nn = normalize(na * wa + nb * wb);
+                float cover = max(ra, rb) + 0.5 * tdist;                                     // covers both supports
+                FsSurfelEvidence ea = evidence[items[a]], eb = evidence[items[b]];
+                fsSet_FsSurfel_px(sa, fsEncodePos(np.x)); fsSet_FsSurfel_py(sa, fsEncodePos(np.y)); fsSet_FsSurfel_pz(sa, fsEncodePos(np.z));
+                uint o, oh; fsSplitOct32(fsEncodeOct32(nn), o, oh);
+                fsSet_FsSurfel_normalOct(sa, o); fsSet_FsSurfel_normalOctHi(sa, oh);
+                fsSet_FsSurfel_radiusMajor(sa, fsEncodeLogRadius(min(cover, FS_RADIUS_MAX_M)));
+                fsSet_FsSurfel_radiusMinor(sa, fsEncodeLogRadius(min(max(fsDecodeLogRadius(fsGet_FsSurfel_radiusMinor(sa)), fsDecodeLogRadius(fsGet_FsSurfel_radiusMinor(sb))), cover)));
+                fsSet_FsSurfel_sigmaN(sa, fsEncodeLogSigma(max(sqrt(1.0 / (wa + wb)), FS_SIGMA_N_FLOOR_M)));
+                fsSet_FsSurfel_evidenceFlags(sa, (fsGet_FsSurfel_evidenceFlags(sa) & ~FS_EVIDENCE_COUNT_MASK) | min(ca + cb, uint(FS_EVIDENCE_COUNT_MAX)));
+                fsSet_FsSurfelEvidence_staticEvidence(ea, min(fsGet_FsSurfelEvidence_staticEvidence(ea) + fsGet_FsSurfelEvidence_staticEvidence(eb), 65535u));
+                fsSet_FsSurfelEvidence_lastSeenFrame(ea, max(fsGet_FsSurfelEvidence_lastSeenFrame(ea), fsGet_FsSurfelEvidence_lastSeenFrame(eb)));
+                evidence[items[a]] = ea;
+                fsSet_FsSurfel_evidenceFlags(sb, fb | FS_FLAG_REMOVED);
+                surfels[items[b]] = sb;
+                pa = np; na = nn; ra = cover; sna = fsDecodeLogSigma(fsGet_FsSurfel_sigmaN(sa));
+                atomicAdd(gctr[FS_GCTR_SURFEL_DELETE], 1u);
+            }
+            surfels[items[a]] = sa;
+        }
+    }
+}

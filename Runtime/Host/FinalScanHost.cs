@@ -1,5 +1,6 @@
 using System;
 using FinalScan.Platform.Native;
+using FinalScan.Platform.Sensor;
 using FinalScan.Render;
 using FinalScan.Telemetry;
 using FinalScan.World;
@@ -69,7 +70,6 @@ namespace FinalScan.Host
         uint _lodBudgetSent;
         bool _modeSent;
         RenderMode _modeSentValue;
-        bool _modeUnsupportedLogged;
         IntPtr _renderEventFunc;
         float _nextTelemetry, _nextPropPoll;
         readonly FrameTiming[] _frameTiming = new FrameTiming[1];
@@ -84,6 +84,7 @@ namespace FinalScan.Host
         readonly long[] _cull = new long[FinalScanHostNative.CullStatsCount];
         readonly long[] _cls = new long[FinalScanHostNative.ClassStatsCount];
         EnvDepthFeeder _envDepth;
+        SensorAuthority _sensor;
 
         // ---- state exposed to HUD / residency / spin test -------------------------------------------------------
         public bool NativeAvailable => _native;
@@ -130,9 +131,9 @@ namespace FinalScan.Host
         /// <summary>Raised on the main thread when <see cref="ScanEnabled"/> changes (sensor authority / feeders subscribe).</summary>
         public static event Action<bool> ScanEnabledChanged;
         /// <summary>
-        /// True while scan ticks are requested. Static so any module can read it by reflection
-        /// (<c>FinalScan.Host.FinalScanHost.ScanEnabled</c>); also enforced in FinalScanHostNative.RequestScanTick and by
-        /// EnvDepthFeeder (measurement priors pause while stopped). Rendering, residency and publication never stop.
+        /// True while scan ticks are requested. Enforced in FinalScanHostNative.RequestScanTick and by EnvDepthFeeder
+        /// (measurement priors pause while stopped); SensorAuthority follows it with its capture profile governor.
+        /// Rendering, residency and publication never stop.
         /// </summary>
         public static bool ScanEnabled
         {
@@ -220,14 +221,14 @@ namespace FinalScan.Host
         void OnEnable()
         {
             FinalScanRenderFeature.Host = this;
-            if (_envDepth == null) _envDepth = new EnvDepthFeeder(this);
-            _envDepth.Start();
+            _sensor = GetComponent<SensorAuthority>();
+            if (_sensor == null) Debug.LogError("[FinalScan] SensorAuthority missing on " + name + ": no PCA / Environment Depth ingest (the editor setup attaches it).");
+            _envDepth ??= new EnvDepthFeeder(this, _sensor);
         }
 
         void OnDisable()
         {
             if (ReferenceEquals(FinalScanRenderFeature.Host, this)) FinalScanRenderFeature.Host = null;
-            _envDepth?.Stop();
         }
 
         void OnDestroy()
@@ -355,11 +356,7 @@ namespace FinalScan.Host
             if (_modeSent && _modeSentValue == renderMode) return;
             int rc = FinalScanHostNative.SetMode((FinalScanHostNative.RenderModeId)(int)renderMode);
             if (rc == FinalScanHostNative.ResultOk) { _modeSent = true; _modeSentValue = renderMode; Debug.Log($"[FinalScan] FsRender_SetMode {renderMode} ({ModeSource})"); }
-            else if (!FinalScanHostNative.SetModeSupported && !_modeUnsupportedLogged)
-            {
-                _modeUnsupportedLogged = true; _modeSent = true; _modeSentValue = renderMode;
-                Debug.Log("[FinalScan] FsRender_SetMode not exported by the plugin; mode applies to the shader only.");
-            }
+            else Debug.LogWarning($"[FinalScan] FsRender_SetMode {renderMode} rc={rc}");
         }
 
         void PollProps()

@@ -14,9 +14,8 @@ namespace world {
 
 static_assert(sizeof(FsSurfel) == 32, "FsSurfel must be 32 B (contract §8.1)");
 static_assert(sizeof(FsPageKey) == 16, "FsPageKey layout");
-// NOTE: the header trailer comment says 64 B but the natural layout is 68 B (16 + 11*4 + 8). All three
-// consumers (C++, GLSL via gen_abi.py, C#) use the compiler-true 68 B. Reported to the header owner.
-static_assert(sizeof(FsPageHeader) == 68, "FsPageHeader layout (see note)");
+// FsPageHeader is 68 B (16 + 13*4): the header trailer, gen_abi.py (GLSL + C#) and this assert agree.
+static_assert(sizeof(FsPageHeader) == 68, "FsPageHeader layout");
 static_assert(sizeof(FsPageHashEntry) == 32, "FsPageHashEntry layout");
 static_assert(sizeof(FsSurfaceMeasurement) == 48, "FsSurfaceMeasurement layout");
 static_assert(sizeof(FsDrawRecord) == 32, "FsDrawRecord layout");

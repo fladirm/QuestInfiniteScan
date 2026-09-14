@@ -21,6 +21,8 @@ namespace exec {
 constexpr uint32_t kQueriesPerSlot = 2 + 2 * sched::kMaxDispatchesPerJob;   // job pair + per-dispatch pairs
 constexpr uint32_t kFrameRingSize = 4;                                       // scanner-mode frame command buffers
 constexpr uint32_t kFrameMarkRing = 1024;                                    // FRAME_END timestamp pairs
+constexpr uint32_t kFrameStageRing = 512;                                    // frame-hook stage timestamp pairs (~8 stages x 64 frames)
+constexpr uint32_t kFrameStageNameChars = 31;
 constexpr uint32_t kMaxPushBytes = 128;
 constexpr int64_t  kLogPeriodNs = 5000000000LL;                              // FS-HOST log line every 5 s
 constexpr uint64_t kShutdownFenceTimeoutNs = 2000000000ull;
@@ -74,6 +76,7 @@ struct ImportedBuffer { UnityVulkanBuffer unity = {}; uint64_t frame = 0; uint64
 struct ImportedTexture { UnityVulkanImage unity = {}; VkImageView view = VK_NULL_HANDLE; uint64_t frame = 0; uint64_t imports = 0; };
 
 struct WarmupStep { std::string name; std::function<bool()> step; bool done = false; bool failed = false; double ms = 0.0; };
+struct FrameStageRec { char name[kFrameStageNameChars + 1] = {}; uint32_t frame = 0; bool ended = false; };
 
 struct Executor {
     std::mutex mutex;
@@ -114,6 +117,17 @@ struct Executor {
     uint32_t markWrite = 0, markRead = 0;       // render thread only
     bool markPoolReset = false;
     std::vector<std::pair<int64_t, uint64_t>> markCpu;   // cpuNs, unity frame per ring entry
+    // frame-hook stages (FrameStageBegin/End)
+    VkQueryPool frameStagePool = VK_NULL_HANDLE;
+    uint32_t stageWrite = 0, stageRead = 0;     // render thread only
+    bool stagePoolReset = false;
+    std::vector<FrameStageRec> stageRecs;
+    uint64_t frameStagesCollected = 0, frameStagesDropped = 0;
+    // frame-end timeline: signalled on the graphics queue after each FRAME_END (value = executor frame index)
+    VkSemaphore frameEndTimeline = VK_NULL_HANDLE;
+    uint64_t frameEndRequested = 0;             // set by FRAME_END before AccessQueue
+    uint64_t frameEndSignalled = 0;             // last value whose signal was submitted (mutex)
+    int64_t  deferredFrameEnd = 0;
     // device procs
     PFN_vkGetSemaphoreCounterValue getSemaphoreCounterValue = nullptr;
     PFN_vkGetBufferDeviceAddress getBufferDeviceAddress = nullptr;
@@ -147,6 +161,7 @@ struct Executor {
     std::vector<std::function<void(uint32_t)>> classTicks[sched::kClassCount];
     LeaseValidator leaseValidator;              // under Executor::mutex (called inside SubmitJob)
     std::vector<std::function<void(bool)>> deviceHooks;
+    std::vector<FrameStageSink> stageSinks;
 
     // ---- pipelines / imports (mutex)
     std::unordered_map<VkPipeline, PipelineRecord> pipelines;

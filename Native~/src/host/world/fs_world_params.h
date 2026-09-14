@@ -16,7 +16,8 @@
 #define FS_DEFAULT_MEAS_RING_CAPACITY 262144
 #define FS_DEFAULT_DRAW_CAPACITY      1048576
 #define FS_BIG_SLOT_FACTOR            16      // big slots hold surfelsPerPage * factor surfels (dense pages, §21.5b)
-#define FS_BIG_SLOTS                  8
+#define FS_BIG_SLOTS                  16
+#define FS_MIGRATE_FILL               0.85    // a standard slot this full migrates its page to a big slot
 #define FS_RANGES_PER_SLOT            3       // BACK, FRONT parity 0, FRONT parity 1 (immutable publication, §11)
 #define FS_MAX_ANCHORS                64
 #define FS_MAX_SLOTS                  1024    // FsSlotLayout table bound
@@ -29,11 +30,26 @@
 #define FS_CELL_WALK_MAX           2048       // bounded list walk (publish count/copy); overflow counted
 #define FS_CANDIDATE_MAX           16         // bounded candidate scan per measurement (§9.2)
 
-// ---- integrate stub (C12 replaces the fusion rule) ---------------------------------------------------
+// ---- fusion (world_integrate.comp; contract §8.2, §8.3, §8.5, §8.6, §8.7) -------------------------------
 #define FS_INTEGRATE_MAX_MEAS 16384           // measurements per SCAN job
-#define FS_ASSOC_DIST_M       0.02            // existing surfel within 2 cm ...
-#define FS_ASSOC_MIN_DOT      0.8             // ... and normal dot > 0.8 -> weighted update, else allocate in BACK
+#define FS_ASSOC_SIGMA_GATE   3.0             // |signed plane distance| <= gate * sqrt(sigmaN_s^2 + sigmaN_m^2) -> same sheet
+#define FS_ASSOC_MIN_DOT      0.8             // normal compatibility (cos 37 deg); opposite-facing = the other side of a thin wall
+#define FS_ASSOC_TANGENT_K    1.0             // tangent distance <= k * (surfel radius + measurement footprint) -> overlap
+#define FS_MOTION_BAND_M      0.05            // outside the sigma gate but within this band: motion evidence (§8.6)
+#define FS_PROMOTE_STATIC     3               // consistent observations before a transient candidate becomes canonical
+#define FS_GHOST_MOTION_MIN   3               // free-space contradictions before a candidate/weak surfel is removed
+#define FS_GHOST_STATIC_K     2               // ... a surfel with staticEvidence S needs >= GHOST_MOTION_MIN + S / K contradictions
+#define FS_SIGMA_N_FLOOR_M    0.0003          // precision saturates at 0.3 mm along the normal (fixed point is 0.25 mm)
+#define FS_SIGMA_T_FLOOR_M    0.001
+#define FS_RADIUS_MIN_M       0.003           // 3 mm: smallest support the front-end can justify
+#define FS_RADIUS_MAX_M       0.25
+#define FS_FREE_STEP_M        0.0625          // free-space ray walk step (half a cell)
+#define FS_FREE_WALK_MAX      128             // bounded walk: 4 m * sqrt(3) / 0.0625 = 111 steps max inside one page
+#define FS_MERGE_LIST_MAX     16              // merge pass: pairs among the first 16 live surfels of a list (120 pairs)
+#define FS_MERGE_MIN_DOT      0.98            // coplanar: normals within ~11 deg ...
+#define FS_MERGE_OVERLAP_K    0.75            // ... and centres closer than k * (rA + rB) with plane distance inside the sigma gate
 #define FS_EVIDENCE_COUNT_MAX 1023
+#define FS_INTEGRATE_FLAG_FREE_SPACE 1u       // PushIntegrate.flags: eye origins valid -> write free-space evidence
 
 // ---- cluster tree (§13.4) -----------------------------------------------------------------------------
 #define FS_CLUSTER_FANOUT         8
@@ -100,7 +116,8 @@
 #define FS_G_ERASE_LIST           1688        // [.., +32)
 #define FS_G_SCAN_COUNT           1728        // live (C09) scan: record count written by world_scan_args.comp
 #define FS_G_SCAN_ARGS            1732        // {ceil(count/64), 1, 1, 0} indirect args of the integrate dispatch
-#define FS_G_WORDS                1744
+#define FS_G_PUBLISH_ARGS_SURF    1744        // {ceil(maxCap/64), n, 1, 0} surfel-parallel dispatches over the publish list
+#define FS_G_WORDS                1760
 #define FS_INTEGRATE_COUNT_FROM_GCTR 0xFFFFFFFFu  // PushIntegrate.count sentinel: bound by gctr[FS_G_SCAN_COUNT]
 #define FS_PUBLISH_MIN_FRAME_GAP  3           // frames between maintenance jobs: a FRONT parity that stopped being
                                               // root stays untouched at least this long (in-flight culls read it)
@@ -120,6 +137,7 @@
 #define FS_GCTR_MEAS_OUT_OF_RANGE 11
 #define FS_GCTR_PUBLISH           12
 #define FS_GCTR_SURFEL_DELETE     13
+#define FS_GCTR_DUPLICATE_OBS     14      // same surfel observed twice in one tick (second observation carries no information, §7.6)
 #define FS_GCTR_NEXT_SURFACE_ID   15
 #define FS_GCTR_COUNT             16
 
@@ -139,5 +157,6 @@
 #define FS_CSTAT_BUDGET_DROPPED   12
 #define FS_CSTAT_QUEUE_OVERFLOW   13
 #define FS_CSTAT_VISIBLE_SURFELS  14
+#define FS_CSTAT_HZB_TILES        15      // level-0 tiles with a combined occluder this frame (HZB receipt)
 
 #endif // FS_WORLD_PARAMS_H

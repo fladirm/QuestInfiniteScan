@@ -48,41 +48,13 @@ every 250 frames carries the full counter set (`FS_MEAS_CTR_*`).
 | `../../../shaders/measure/fs_meas_common.glsl` | GLSL twin of `fs_meas_math.h` |
 | `../../../shaders/measure/measure_depth_backproject.comp` | the kernel (29,388 B SPIR-V, wg 64, 2 writable bindings + 1 sampler, 24 B shared, no loops, gate pass) |
 
-## Integration point (world module, `world/fs_world.cpp` — owned by the world agent)
+## Integration (world module, `world/fs_world.cpp`)
 
-`fs_world.cpp` exists, so the consumer was NOT implemented here. What `World::Tick` needs (SCAN section), in
-addition to its own `ring_`:
-
-```cpp
-#include "../measure/fs_meas_gpu.h"
-// 1. Pipeline instances: the integrate kernel is bound once per GPU ring slot (persistent descriptors; the
-//    B_MEAS binding must not be rewritten while an integrate job is in flight). Same SPIR-V, same bindings:
-//    pipesGpu_[s] = CreateComputePipeline(K_INTEGRATE spec); BindBuffer(pipesGpu_[s], B_MEAS,
-//    fs::meas::MeasGpu_Ring(s)->records); other bindings as for pipes_[K_INTEGRATE]. (Bind after the device
-//    hook created the arenas and MeasGpu_Ring(s) != nullptr.)
-// 2. Tick: after TakeScanRequest(obs):
-fs::meas::MeasGpuFrame f;
-if (gpuLease_ == 0 && fs::meas::MeasGpu_PeekFrame(f)) { gpuFrame_ = f; gpuLease_ = f.sequence; gpuCursor_ = 0; scanAnchor_ = f.anchorId; }
-if (gpuLease_ && scanInFlight_ < 2 && maintenanceInFlight_ == 0 && budgetUs > 0) {
-    // CPU pre-pass exactly like SubmitScan: positions from ((const FsSurfaceMeasurement*)gpuFrame_.ring->records.mapped)
-    // [gpuCursor_, gpuCursor_ + n) with n = min(FS_INTEGRATE_MAX_MEAS, gpuFrame_.count - gpuCursor_);
-    // page creation / index guards / hash mirror as today, then:
-    PushIntegrate pi{gpuCursor_, n, gpuFrame_.ring->capacity - 1, hashCap_ - 1, scanAnchor_, ++tick_};
-    // dispatch pipesGpu_[gpuFrame_.slot], Groups(n); onRetired: the usual slot bookkeeping, then
-    //   gpuCursor_ += n; if (gpuCursor_ >= gpuFrame_.count) { fs::meas::MeasGpu_ReleaseFrame(gpuLease_); gpuLease_ = 0; }
-}
-// 3. The `scanPending_ && ring_.Pending() == 0 -> scanPending_ = false` branch must also consider
-//    fs::meas::MeasGpu_ReadyFrames() > 0 (the request came from this module's retirement).
-```
-
-Rules the consumer must keep: never rebind `B_MEAS` while a job using that pipeline is in flight; release the
-lease only after the LAST integrate job that read the slot retired (the producer may then overwrite the slot);
-a leased slot is never overwritten by the producer, an unleased READY slot may be superseded by a newer frame
-(latest-only, counted in `FS_CTR_MEASUREMENTS_DROPPED` and `FS_CTR_SCAN_TICK_SKIPPED`).
-
-TODO (world module, additive accessor request): `fs::world::CopyAnchors(float*)` is used weakly here to build
-`anchorFromEye` for anchor 0; a per-observation anchor id (`FsMeas_Push` semantics, `scanAnchor_`) should come
-with C10. Until then `MeasGpuFrame::anchorId == 0`.
+`World::Tick` leases the newest READY slot (`MeasGpu_PeekFrame`), submits ONE SCAN job (`world_scan_args` →
+`world_integrate`, indirect, per-slot pipeline instances bound once) with the frame's anchor-local eye origins
+(free-space rays) and `JobDesc::waitFrameEndValue = importFrameEnd` so the scanner-queue job is ordered after
+Unity's layout transition of the imported depth image, then releases the slot when the job retired. Older READY
+frames are superseded (latest-only, counted).
 
 ## Provisional / assumptions (verify on device, C09 receipt)
 
@@ -106,12 +78,10 @@ with C10. Until then `MeasGpuFrame::anchorId == 0`.
 * GPU time: 204,800 threads × 5 texel fetches + ~150 flops; expected well under 1 ms on Adreno 740 — measured by the
   executor's stage timestamps (`depth_backproject`); the job is class SCAN with the 2 ms class quantum. If the
   device receipt shows > 2 ms, split by `layers` into two dispatches (the push block already carries `layers`).
-* Cross-queue hazard (documented, not solved here): the texture layout transition recorded by
-  `ImportUnityTexture` lands in Unity's graphics command stream of the frame; the backproject job runs on the
-  scanner queue without a semaphore on that frame. Mitigation: import happens in FRAME_BEGIN and the job is
-  submitted from the following scheduler wake; a proper fix is a `JobDesc` wait on the executor's frame timeline
-  (executor owner).
-* Anchor: anchor 0 only (`worldFromAnchor` from `fs::world::CopyAnchors`, identity when absent).
+* Cross-queue ordering: the layout transition recorded by `ImportUnityTexture` lands in Unity's graphics command
+  stream of the frame; the backproject job waits on the executor's frame-end timeline for that frame
+  (`JobDesc::waitFrameEndValue`), so it never reads the image before the transition executed.
+* Anchor: anchor 0 until the AnchorGraph cut (C19).
 
 ## Tests
 

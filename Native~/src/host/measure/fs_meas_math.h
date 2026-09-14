@@ -189,7 +189,7 @@ inline TexelResult BackprojectTexel(const PushBackproject& pc, const FrameBlock&
     out.sigmaN = SigmaN(z);
     out.footprint = Footprint(z, fov, w, h);
     out.sigmaT = out.footprint;
-    out.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (edge ? FS_MEAS_SRC_EDGE : 0u) | (flat ? FS_MEAS_SRC_LOW_TEXTURE : 0u);
+    out.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (edge ? FS_MEAS_SRC_EDGE : 0u) | (flat ? FS_MEAS_SRC_LOW_TEXTURE : 0u) | (layer << FS_MEAS_SRC_EYE_SHIFT);
     out.observationId = pc.obsId;
     out.reserved = 0u;
     return TEXEL_WRITTEN;

@@ -45,7 +45,8 @@
 #define FS_CTR_DEFERRED_APPEARANCE 25
 #define FS_CTR_DEFERRED_COLD 26
 #define FS_CTR_TIMESTAMP_NONMONO 27
-#define FS_CTR_COUNT 28
+#define FS_CTR_DUPLICATE_OBSERVATIONS 28
+#define FS_CTR_COUNT 29
 
 struct FsSurfel {
     uint px_py;
@@ -104,7 +105,8 @@ struct FsPageHeader {
     uint cellIndexOffset;
     uint freeSpaceOffset;
     uint lastTouchedFrame;
-    uint reserved[2];
+    uint nodeBase;
+    uint nodeCount;
 };  // 68 B
 #define FS_ABI_FSPAGEHEADER_BYTES 68
 
@@ -184,7 +186,7 @@ struct FsClusterNode {
     uint coverage_surfelCount;
     uint firstChildOrSurfel;
     uint childCount_leafSurfelCount;
-    uint reserved;
+    uint footprint;
 };  // 80 B
 #define FS_ABI_FSCLUSTERNODE_BYTES 80
 uint fsGet_FsClusterNode_coverage(FsClusterNode s) { return bitfieldExtract(s.coverage_surfelCount, 0, 16); }

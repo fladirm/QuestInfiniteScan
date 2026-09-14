@@ -16,7 +16,7 @@ const char* CounterName(int32_t c) {
         "surfelSplit", "surfelMerge", "publish", "residentDrawn",
         "visibleSurfels", "scanTick", "scanTickSkipped", "orientationResidencyRequests",
         "pageHashOverflow", "indexOverflow", "deferredPublish", "deferredScan",
-        "deferredResidency", "deferredAppearance", "deferredCold", "timestampNonMonotonic" };
+        "deferredResidency", "deferredAppearance", "deferredCold", "timestampNonMonotonic", "duplicateObservations" };
     return (c >= 0 && c < FS_CTR_COUNT) ? names[c] : "?";
 }
 

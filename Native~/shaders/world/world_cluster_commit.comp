@@ -11,7 +11,7 @@ void main() {
     if (k >= min(gctr[FS_G_PUBLISH_COUNT], uint(FS_MAINT_MAX_PAGES))) return;
     uint info = uint(FS_G_PUBLISH_INFO) + k * uint(FS_G_INFO_WORDS);
     uint slot = gctr[info + 0];
-    headers[slot].reserved[1] = gctr[info + 5];
+    headers[slot].nodeCount = gctr[info + 5];
     memoryBarrierBuffer();
     if (gctr[info + 1] > 0u) roots[slot] |= FS_ROOT_TREE_VALID;
 }

@@ -60,10 +60,23 @@ inline uint32_t AtomicLoadU32(const uint32_t* p) { return __atomic_load_n(p, __A
 
 class World {
 public:
+    // Registration with the executor happens at library load (static AutoInit below) so the world pipelines are
+    // part of the regular warm-up before FS_HOST_READY (contract §15.7: never a compile spike after READY). The
+    // arena sizes come from FsHostConfig, which exists only after FsHost_Init: Configure() runs in the device hook.
     void Init() {
         std::lock_guard<std::recursive_mutex> g(m_);
         if (inited_) return;
         inited_ = true;
+        for (int a = 0; a < FS_MAX_ANCHORS; ++a) { memset(anchors_[a], 0, sizeof anchors_[a]); anchors_[a][0] = anchors_[a][5] = anchors_[a][10] = anchors_[a][15] = 1.f; }
+        RegisterDeviceHook([this](bool up) { OnDevice(up); });
+        RegisterWarmupStep("world.pipelines", [this]() { return CreatePipelines(); });
+        RegisterSchedulerTick([this](uint32_t budgetUs) { Tick(budgetUs); });
+        RegisterLeaseValidator([this](uint32_t slot, uint32_t gen) { return slot < slots_.size() && slots_[slot].generation == gen; });
+        if (ExecReady()) OnDevice(true);
+    }
+    void Configure() {
+        if (configured_) return;
+        configured_ = true;
         const FsHostConfig* cfg = ExecConfig();
         stdSlots_ = cfg && cfg->residentPageSlots ? cfg->residentPageSlots : FS_DEFAULT_RESIDENT_SLOTS;
         stdCap_   = cfg && cfg->surfelsPerPage ? cfg->surfelsPerPage : FS_DEFAULT_SURFELS_PER_PAGE;
@@ -74,13 +87,7 @@ public:
         hash_.Init(hashCap_); ring_.Init(ringCap_);
         slots_.assign(stdSlots_ + bigSlots_, SlotState{});
         for (uint32_t i = stdSlots_; i < slots_.size(); ++i) slots_[i].big = true;
-        for (int a = 0; a < FS_MAX_ANCHORS; ++a) { memset(anchors_[a], 0, sizeof anchors_[a]); anchors_[a][0] = anchors_[a][5] = anchors_[a][10] = anchors_[a][15] = 1.f; }
-        RegisterDeviceHook([this](bool up) { OnDevice(up); });
-        RegisterWarmupStep("world.pipelines", [this]() { return CreatePipelines(); });
-        RegisterSchedulerTick([this](uint32_t budgetUs) { Tick(budgetUs); });
-        RegisterLeaseValidator([this](uint32_t slot, uint32_t gen) { return slot < slots_.size() && slots_[slot].generation == gen; });
-        if (ExecReady()) OnDevice(true);
-        Log("FS-WORLD init: slots=%u(+%u big) cap=%u/%u hash=%u ring=%u", stdSlots_, bigSlots_, stdCap_, bigCap_, hashCap_, ringCap_);
+        Log("FS-WORLD configured: slots=%u(+%u big) cap=%u/%u hash=%u ring=%u", stdSlots_, bigSlots_, stdCap_, bigCap_, hashCap_, ringCap_);
     }
     static uint32_t Pow2(uint32_t v) { uint32_t p = 1; while (p < v && p < (1u << 30)) p <<= 1; return p; }
 
@@ -88,7 +95,12 @@ public:
     void OnDevice(bool up) {
         std::lock_guard<std::recursive_mutex> g(m_);
         if (up == deviceUp_) return;
-        if (!up) { DestroyArenas(); deviceUp_ = false; bound_ = false; return; }
+        if (!up) {
+            DestroyArenas(); deviceUp_ = false; bound_ = false; liveBound_ = false;
+            pipesReady_ = false; for (Pipeline& p : pipes_) p = Pipeline{}; for (Pipeline& p : liveIntegrate_) p = Pipeline{}; for (Pipeline& p : liveArgs_) p = Pipeline{};   // died with the device objects
+            return;
+        }
+        Configure();
         if (!CreateArenas()) { LogError("FS-WORLD arena creation failed; world stays inactive"); DestroyArenas(); return; }
         deviceUp_ = true;
         EnsureBound();
@@ -125,8 +137,10 @@ public:
         ok &= CreateBuffer(buf_.hash, (VkDeviceSize)hashCap_ * sizeof(FsPageHashEntry), use, true, "world.hash");
         ok &= CreateBuffer(buf_.meas, (VkDeviceSize)ringCap_ * sizeof(FsSurfaceMeasurement), use, true, "world.meas");
         ok &= CreateBuffer(buf_.scratch, (VkDeviceSize)FS_MAINT_MAX_PAGES * (FS_CELLS_PER_PAGE + 16) * 4, use, false, "world.scratch");
-        ok &= CreateBuffer(buf_.freeSpace, (VkDeviceSize)freeCursor, use, false, "world.freeSpace");
+        ok &= CreateBuffer(buf_.freeSpace, (VkDeviceSize)freeCursor, use, true, "world.freeSpace");   // u8 stamps, must start at 0 (never seen through)
         if (!ok) return false;
+        if (!buf_.freeSpace.mapped) { LogError("FS-WORLD free-space arena not mapped"); return false; }
+        memset(buf_.freeSpace.mapped, 0, freeCursor);
         if (!buf_.slotTable.mapped || !buf_.surfels.mapped || !buf_.evidence.mapped || !buf_.gctr.mapped || !buf_.nodes.mapped ||
             !buf_.errors.mapped || !buf_.hash.mapped || !buf_.meas.mapped) { LogError("FS-WORLD host-visible buffer not mapped"); return false; }
         tableGpu_ = (SlotTable*)buf_.slotTable.mapped; memcpy(tableGpu_, table_.get(), sizeof(SlotTable));
@@ -138,6 +152,7 @@ public:
         hash_.Init(hashCap_); memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false;
         ring_.Init(ringCap_); ring_.Attach((FsSurfaceMeasurement*)buf_.meas.mapped);
         scanInFlight_ = maintenanceInFlight_ = eraseInFlight_ = 0; maintenanceWanted_ = false; lastMaintFrame_ = 0; liveBound_ = false; liveLease_ = 0;
+        lastScanTick_ = evidenceTickDone_ = 0;
         Log("FS-WORLD arenas: surfels=%u (%.1f MB) nodes=%u index=%.1f MB", surfelCursor, surfelCursor * 40.0 / 1e6, nodeCursor, indexCursor * 4.0 / 1e6);
         return true;
     }
@@ -189,7 +204,10 @@ public:
         case B_MEAS: return &buf_.meas; case B_HASH: return &buf_.hash; case B_SLOTS: return &buf_.slotTable; case B_SURFELS: return &buf_.surfels;
         case B_EVIDENCE: return (kernel == K_CLUSTER_LEAVES || kernel == K_CLUSTER_INTERNAL) ? &buf_.errors : &buf_.evidence;
         case B_INDEX: return &buf_.index; case B_GCTR: return &buf_.gctr;
-        case B_NODES: return (kernel == K_PUBLISH_COUNT || kernel == K_PUBLISH_SCAN || kernel == K_PUBLISH_COPY || kernel == K_PUBLISH_COMMIT) ? &buf_.scratch : &buf_.nodes;
+        case B_NODES:
+            if (kernel == K_PUBLISH_COUNT || kernel == K_PUBLISH_SCAN || kernel == K_PUBLISH_COPY || kernel == K_PUBLISH_COMMIT) return &buf_.scratch;
+            if (kernel == K_INTEGRATE || kernel == K_EVIDENCE) return &buf_.freeSpace;   // B_FREESPACE
+            return &buf_.nodes;
         default: return nullptr;
         }
     }
@@ -223,7 +241,7 @@ public:
         const FsSlotLayout& l = table_->layouts[slot];
         FsPageHeader h{}; h.key = key; h.slot = slot; h.generation = generation; h.frontOffset = FrontOffsetOf(l, parity); h.frontCount = frontCount;
         h.backOffset = l.surfelBase; h.backCount = backCount; h.capacity = l.capacity; h.dirty = 0; h.cellIndexOffset = l.cellBase; h.freeSpaceOffset = l.freeSpaceBase;
-        h.lastTouchedFrame = FrameIndex(); h.reserved[0] = l.nodeBase + parity * l.nodesPerSlot; h.reserved[1] = nodeCount;
+        h.lastTouchedFrame = FrameIndex(); h.nodeBase = l.nodeBase + parity * l.nodesPerSlot; h.nodeCount = nodeCount;
         tableGpu_->headers[slot] = h;
     }
     // Places a logical page into `slot`: BACK <- cold surfels (SSD stand-in). A sorted, prebuilt snapshot
@@ -274,6 +292,60 @@ public:
         uint32_t gen = s.generation + 1; bool big = s.big; s = SlotState{}; s.big = big; s.generation = gen;
         evictions_++;
     }
+    // A standard slot whose BACK is FS_MIGRATE_FILL full moves its page into a big slot (16x capacity): BACK, the
+    // published FRONT parity, its tree (leaf offsets rebased) and the root word are copied on the CPU (host-visible
+    // UMA memory, GPU idle), the hash points at the new slot, the old slot is released. Canonical density may grow
+    // (§1.0); nothing is dropped, nothing pops (the FRONT stays published through the move).
+    bool MigrateToBig(uint32_t oldSlot) {
+        SlotState& so = slots_[oldSlot];
+        uint32_t ns = AllocSlot(true, true);
+        if (ns == FS_INDEX_NONE) { migrationStalls_++; return false; }
+        auto it = pages_.find(so.key); if (it == pages_.end()) return false;
+        LogicalPage& p = it->second;
+        const FsSlotLayout& lo = table_->layouts[oldSlot]; const FsSlotLayout& ln = table_->layouts[ns];
+        const FsPageHeader ho = tableGpu_->headers[oldSlot];
+        const RootWord ro = UnpackRoot(AtomicLoadU32(&tableGpu_->roots[oldSlot]));
+        uint32_t back = std::min(ho.backCount, lo.capacity), front = ro.published ? std::min(ro.frontCount, lo.capacity) : 0u;
+        SlotState& sn = slots_[ns];
+        sn.used = true; sn.key = so.key; sn.generation++; sn.lastTouched = FrameIndex(); sn.zone = so.zone;
+        AtomicStoreU32(&tableGpu_->roots[ns], 0);
+        memcpy(surfels_ + ln.surfelBase, surfels_ + lo.surfelBase, back * sizeof(FsSurfel));
+        memcpy(evidence_ + ln.surfelBase, evidence_ + lo.surfelBase, back * sizeof(FsSurfelEvidence));
+        uint32_t nodeCount = 0;
+        if (front) {
+            const uint32_t oldFront = FrontOffsetOf(lo, ro.parity), newFront = FrontOffsetOf(ln, 0);
+            memcpy(surfels_ + newFront, surfels_ + oldFront, front * sizeof(FsSurfel));
+            memcpy(evidence_ + newFront, evidence_ + oldFront, front * sizeof(FsSurfelEvidence));
+            nodeCount = ro.treeValid ? std::min(ho.nodeCount, std::min(lo.nodesPerSlot, ln.nodesPerSlot)) : 0u;
+            for (uint32_t i = 0; i < nodeCount; ++i) {
+                FsClusterNode nd = nodes_[ho.nodeBase + i];
+                if (nd.childCount == 0) nd.firstChildOrSurfel = nd.firstChildOrSurfel - oldFront + newFront;
+                nodes_[ln.nodeBase + i] = nd; errors_[ln.nodeBase + i] = errors_[ho.nodeBase + i];
+            }
+        }
+        WriteHeader(ns, so.key, back, front, 0, ho.generation, nodeCount);
+        std::atomic_thread_fence(std::memory_order_release);
+        if (front) { RootWord r = ro; r.parity = 0; r.treeValid = ro.treeValid && nodeCount == ho.nodeCount; AtomicStoreU32(&tableGpu_->roots[ns], PackRoot(r)); }
+        AtomicStoreU32(&gctr_[FS_G_FLAGS + ns], FS_SLOT_FLAG_REBUILD | (ho.dirty || (AtomicLoadU32(&gctr_[FS_G_FLAGS + oldSlot]) & FS_SLOT_FLAG_DIRTY) ? FS_SLOT_FLAG_DIRTY : 0u));
+        if (!hash_.Insert(so.key, ns, sn.generation)) CounterAdd(FS_CTR_PAGE_HASH_OVERFLOW, 1);
+        hashDirty_ = true; maintenanceWanted_ = true;
+        p.slot = ns;
+        // release the old slot without a cold copy (the page lives on in the big slot)
+        AtomicStoreU32(&tableGpu_->roots[oldSlot], 0); AtomicStoreU32(&gctr_[FS_G_FLAGS + oldSlot], 0);
+        memset(&tableGpu_->headers[oldSlot], 0, sizeof(FsPageHeader));
+        uint32_t gen = so.generation + 1; bool big = so.big; so = SlotState{}; so.big = big; so.generation = gen;
+        migrations_++;
+        Log("FS-WORLD page (%d,%d,%d) migrated slot %u -> big slot %u: back=%u front=%u nodes=%u", sn.key.x, sn.key.y, sn.key.z, oldSlot, ns, back, front, nodeCount);
+        return true;
+    }
+    void MigrateFullPages() {
+        if (!GpuIdle()) return;
+        for (uint32_t i = 0; i < stdSlots_; ++i) {
+            if (!slots_[i].used) continue;
+            const FsSlotLayout& l = table_->layouts[i];
+            if ((float)AtomicLoadU32(&tableGpu_->headers[i].backCount) >= FS_MIGRATE_FILL * (float)l.capacity) { if (!MigrateToBig(i)) return; }
+        }
+    }
     LogicalPage& PageFor(const FsPageKey& key) {
         auto it = pages_.find(key);
         if (it == pages_.end()) { LogicalPage p; p.key = key; it = pages_.emplace(key, p).first; }
@@ -298,23 +370,30 @@ public:
     static void FixPushPointers(JobStorage& js) { for (Dispatch& d : js.d) if (d.pushBytes) d.push = js.push.data() + (uintptr_t)d.push; }
     static uint32_t Groups(uint32_t n) { return n ? (n + FS_WG_SMALL - 1) / FS_WG_SMALL : 1; }
 
-    // ONE job: [collect rebuild] -> 4 batched index passes -> [collect publish] -> count/scan/copy -> GPU
-    // root-last commit -> leaves + 7 levels -> tree commit. 19 bounded dispatches, all page work indirect.
+    // ONE job, 22 bounded dispatches, every page item indirect (the GPU selects the pages):
+    //   [collect publish] -> evidence (free-space contradictions, ghost removal) -> merge (§8.4)
+    //   -> publish count/scan/copy -> GPU root-last commit -> BACK compaction (flags REBUILD)
+    //   -> [collect rebuild] -> 4 batched index passes -> cluster leaves + 7 levels -> tree commit.
+    // Pages published in this job get their index rebuilt in the same job: no scan tick sees a stale index.
     bool SubmitMaintenance() {
         auto js = std::make_shared<JobStorage>();
         const Buffer* G = &buf_.gctr;
         PushCollect c0{(uint32_t)slots_.size(), 0, maxCapGroups_}, c1{(uint32_t)slots_.size(), 1, maxCapGroups_};
         PushCommit pcm{FrameIndex()};
+        PushEvidence pev{lastScanTick_ != evidenceTickDone_ ? lastScanTick_ : 0u};   // 0 = no scan tick since the last pass
+        AddDispatch(*js, pipes_[K_MAINT_COLLECT], 1, &c1, sizeof c1);
+        AddDispatch(*js, pipes_[K_EVIDENCE], 1, &pev, sizeof pev, G, FS_G_PUBLISH_ARGS_SURF);
+        AddDispatch(*js, pipes_[K_MERGE], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_CELLS);
+        AddDispatch(*js, pipes_[K_PUBLISH_COUNT], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_CELLS);
+        AddDispatch(*js, pipes_[K_PUBLISH_SCAN], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_SCAN);
+        AddDispatch(*js, pipes_[K_PUBLISH_COPY], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_CELLS);
+        AddDispatch(*js, pipes_[K_PUBLISH_COMMIT], 1, &pcm, sizeof pcm);
+        AddDispatch(*js, pipes_[K_PUBLISH_BACK], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_SURF);
         AddDispatch(*js, pipes_[K_MAINT_COLLECT], 1, &c0, sizeof c0);
         AddDispatch(*js, pipes_[K_INDEX_REBUILD], 1, nullptr, 0, G, FS_G_REBUILD_ARGS_CELLS);
         AddDispatch(*js, pipes_[K_INDEX_COUNT], 1, nullptr, 0, G, FS_G_REBUILD_ARGS_SURF);
         AddDispatch(*js, pipes_[K_INDEX_SUBDIVIDE], 1, nullptr, 0, G, FS_G_REBUILD_ARGS_CELLS);
         AddDispatch(*js, pipes_[K_INDEX_INSERT], 1, nullptr, 0, G, FS_G_REBUILD_ARGS_SURF);
-        AddDispatch(*js, pipes_[K_MAINT_COLLECT], 1, &c1, sizeof c1);
-        AddDispatch(*js, pipes_[K_PUBLISH_COUNT], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_CELLS);
-        AddDispatch(*js, pipes_[K_PUBLISH_SCAN], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_SCAN);
-        AddDispatch(*js, pipes_[K_PUBLISH_COPY], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_CELLS);
-        AddDispatch(*js, pipes_[K_PUBLISH_COMMIT], 1, &pcm, sizeof pcm);
         AddDispatch(*js, pipes_[K_CLUSTER_LEAVES], 1, nullptr, 0, G, FS_G_PUBLISH_ARGS_LEAVES);
         for (uint32_t lv = 1; lv < FS_CLUSTER_MAX_LEVELS; ++lv) { PushLevel pl{lv}; AddDispatch(*js, pipes_[K_CLUSTER_INTERNAL], 1, &pl, sizeof pl, G, FS_G_PUBLISH_ARGS_LEVEL + 4 * lv); }
         AddDispatch(*js, pipes_[K_CLUSTER_COMMIT], 1, nullptr, 0);
@@ -325,12 +404,14 @@ public:
             maintenanceInFlight_--;
             if (!gctr_) return;
             FoldGpuCounters();
+            maintenanceJobs_++;
+            if (maintenanceJobs_ <= 3 || (maintenanceJobs_ % 100) == 0) LogFrontReceipt();
             bool remaining = false;                              // host-visible flags after the fence: leftovers beyond the batch cap
             for (uint32_t i = 0; i < slots_.size(); ++i) if (slots_[i].used && AtomicLoadU32(&gctr_[FS_G_FLAGS + i])) { remaining = true; break; }
             maintenanceWanted_ = remaining || !ok;
         };
         if (!SubmitJob(jd)) return false;
-        maintenanceInFlight_++; maintenanceWanted_ = false; lastMaintFrame_ = FrameIndex();
+        maintenanceInFlight_++; maintenanceWanted_ = false; lastMaintFrame_ = FrameIndex(); evidenceTickDone_ = lastScanTick_;
         return true;
     }
     bool SubmitErase(const float c[3], float radius, int32_t anchorId) {
@@ -364,10 +445,11 @@ public:
         if (created || blocked) { maintenanceWanted_ = true; return false; }   // index first (next maintenance job), slice stays in the ring
         if (hashDirty_) { memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false; }
         auto js = std::make_shared<JobStorage>();
-        PushIntegrate pi{base, n, ringCap_ - 1, hashCap_ - 1, scanAnchor_, ++tick_};
+        PushIntegrate pi{base, n, ringCap_ - 1, hashCap_ - 1, scanAnchor_, ++tick_, 0u, 0u, {0, 0, 0, 0}, {0, 0, 0, 0}};   // ring measurements carry no eye origin: no free-space evidence
         AddDispatch(*js, pipes_[K_INTEGRATE], Groups(n), &pi, sizeof pi); FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.integrate"; jd.dispatches = js->d.data(); jd.dispatchCount = 1;
-        jd.onRetired = [this, js](bool ok, uint64_t, uint64_t) { std::lock_guard<std::recursive_mutex> g(m_); scanInFlight_--; if (ok) maintenanceWanted_ = true; FoldGpuCounters(); };
+        const uint32_t tick = tick_;
+        jd.onRetired = [this, js, tick](bool ok, uint64_t, uint64_t) { std::lock_guard<std::recursive_mutex> g(m_); scanInFlight_--; if (ok) { maintenanceWanted_ = true; lastScanTick_ = tick; } FoldGpuCounters(); };
         if (!SubmitJob(jd)) return false;
         ring_.Advance(n); scanInFlight_++; scanPending_ = false;
         CounterAdd(FS_CTR_SCAN_TICK, 1);
@@ -382,16 +464,19 @@ public:
         scanAnchor_ = f.anchorId;
         auto js = std::make_shared<JobStorage>();
         PushScanArgs pa{std::min(f.ring->capacity, std::max(f.count, 1u))};
-        PushIntegrate pi{0, FS_INTEGRATE_COUNT_FROM_GCTR, f.ring->capacity - 1, hashCap_ - 1, f.anchorId, ++tick_};
+        PushIntegrate pi{0, FS_INTEGRATE_COUNT_FROM_GCTR, f.ring->capacity - 1, hashCap_ - 1, f.anchorId, ++tick_,
+                         f.eyeOriginValid ? FS_INTEGRATE_FLAG_FREE_SPACE : 0u, 0u,
+                         {f.eyeOrigin[0][0], f.eyeOrigin[0][1], f.eyeOrigin[0][2], 0.f}, {f.eyeOrigin[1][0], f.eyeOrigin[1][1], f.eyeOrigin[1][2], 0.f}};
         AddDispatch(*js, liveArgs_[f.slot], 1, &pa, sizeof pa);
         AddDispatch(*js, liveIntegrate_[f.slot], 1, &pi, sizeof pi, &buf_.gctr, FS_G_SCAN_ARGS);
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.integrateLive"; jd.dispatches = js->d.data(); jd.dispatchCount = 2;
-        uint64_t seq = f.sequence;
-        jd.onRetired = [this, js, seq](bool ok, uint64_t, uint64_t) {
+        jd.waitFrameEndValue = f.importFrameEnd;          // the depth image barrier of that frame precedes this job (cross-queue, §15.3)
+        uint64_t seq = f.sequence; const uint32_t tick = tick_;
+        jd.onRetired = [this, js, seq, tick](bool ok, uint64_t, uint64_t) {
             std::lock_guard<std::recursive_mutex> g(m_);
             scanInFlight_--; meas::MeasGpu_ReleaseFrame(seq); if (liveLease_ == seq) liveLease_ = 0;
-            if (ok) maintenanceWanted_ = true;
+            if (ok) { maintenanceWanted_ = true; lastScanTick_ = tick; }
             FoldGpuCounters();
         };
         if (!SubmitJob(jd)) return false;
@@ -403,7 +488,7 @@ public:
         if (!gctr_) return;
         static const FsCounter map[FS_GCTR_COUNT] = { FS_CTR_PAGE_LOOKUPS, FS_CTR_PAGE_MISSES, FS_CTR_CELL_LOOKUPS, FS_CTR_SURFEL_CREATE, FS_CTR_SURFEL_UPDATE,
             FS_CTR_MEASUREMENTS_DROPPED, FS_CTR_INDEX_OVERFLOW, FS_CTR_INDEX_OVERFLOW, FS_CTR_COUNT, FS_CTR_COUNT, FS_CTR_INDEX_OVERFLOW, FS_CTR_MEASUREMENTS_DROPPED,
-            FS_CTR_PUBLISH, FS_CTR_SURFEL_DELETE, FS_CTR_COUNT, FS_CTR_COUNT };
+            FS_CTR_PUBLISH, FS_CTR_SURFEL_DELETE, FS_CTR_DUPLICATE_OBSERVATIONS, FS_CTR_COUNT };
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) {
             uint32_t v = AtomicLoadU32(&gctr_[i]); uint32_t d = v - gctrLast_[i]; gctrLast_[i] = v;
             if (d && map[i] != FS_CTR_COUNT) CounterAdd(map[i], (int64_t)d);
@@ -470,6 +555,7 @@ public:
         FoldGpuCounters();
         UploadPending();
         ApplyResidency();
+        MigrateFullPages();
         FeedSynthetic();
         uint32_t frame = FrameIndex();
         if (maintenanceWanted_ && GpuIdle() && frame >= lastMaintFrame_ + FS_PUBLISH_MIN_FRAME_GAP) SubmitMaintenance();
@@ -556,6 +642,32 @@ public:
         std::lock_guard<std::recursive_mutex> g(m_); memcpy(anchors_[id], m, 64); anchorSeq_++; return kResultOk;
     }
     uint64_t CopyAnchors(float* out) { std::lock_guard<std::recursive_mutex> g(m_); memcpy(out, anchors_, sizeof anchors_); return anchorSeq_; }
+    // Receipt (§20): where the published FRONT surfels are (host-visible mirror, after the fence).
+    void LogFrontReceipt() {
+        if (!tableGpu_) return;
+        uint32_t pagesWithFront = 0, sampled = 0; int64_t frontTotal = 0, backTotal = 0;
+        float bmin[3] = {1e30f, 1e30f, 1e30f}, bmax[3] = {-1e30f, -1e30f, -1e30f}; double rsum = 0.0; uint32_t transient = 0, removed = 0;
+        for (uint32_t i = 0; i < slots_.size(); ++i) {
+            if (!slots_[i].used) continue;
+            const RootWord r = UnpackRoot(AtomicLoadU32(&tableGpu_->roots[i]));
+            backTotal += std::min(AtomicLoadU32(&tableGpu_->headers[i].backCount), table_->layouts[i].capacity);
+            if (!r.published || r.frontCount == 0) continue;
+            pagesWithFront++; frontTotal += r.frontCount;
+            const FsSlotLayout& l = table_->layouts[i];
+            const FsPageKey& k = slots_[i].key;
+            const uint32_t base = FrontOffsetOf(l, r.parity), n = std::min(r.frontCount, l.capacity), step = n > 128 ? n / 128 : 1;
+            for (uint32_t j = 0; j < n; j += step) {
+                const FsSurfel& s = surfels_[base + j];
+                float w[3] = {DecodePos(s.px) + PageOrigin(k.x), DecodePos(s.py) + PageOrigin(k.y), DecodePos(s.pz) + PageOrigin(k.z)};
+                for (int a = 0; a < 3; ++a) { bmin[a] = std::min(bmin[a], w[a]); bmax[a] = std::max(bmax[a], w[a]); }
+                rsum += DecodeLogRadius(s.radiusMajor); ++sampled;
+                if (s.evidenceFlags & kFlagTransient) ++transient; if (s.evidenceFlags & kFlagRemoved) ++removed;
+            }
+        }
+        Log("FS-WORLD receipt: maint #%llu pagesFront=%u front=%lld back=%lld sampled=%u bbox=(%.2f %.2f %.2f)-(%.2f %.2f %.2f) radiusMean=%.4f m transient=%u removed=%u migrations=%llu stalls=%llu",
+            (unsigned long long)maintenanceJobs_, pagesWithFront, (long long)frontTotal, (long long)backTotal, sampled, bmin[0], bmin[1], bmin[2], bmax[0], bmax[1], bmax[2],
+            sampled ? rsum / sampled : 0.0, transient, removed, (unsigned long long)migrations_, (unsigned long long)migrationStalls_);
+    }
     int32_t Erase(const float c[3], float radius, int32_t anchorId) {
         std::lock_guard<std::recursive_mutex> g(m_);
         if (!deviceUp_) return kResultUnavailable;
@@ -586,7 +698,7 @@ public:
 private:
     struct EraseReq { float c[3]; float r; int32_t anchor; };
     std::recursive_mutex m_;
-    bool inited_ = false, deviceUp_ = false, pipesReady_ = false, bound_ = false;
+    bool inited_ = false, configured_ = false, deviceUp_ = false, pipesReady_ = false, bound_ = false;
     uint32_t stdSlots_ = 0, stdCap_ = 0, bigSlots_ = 0, bigCap_ = 0, hashCap_ = 0, ringCap_ = 0, maxCapGroups_ = 1;
     PageHash hash_; bool hashDirty_ = false; FsPageHashEntry* hashMirror_ = nullptr;
     MeasRing ring_;
@@ -604,17 +716,21 @@ private:
     std::vector<ZonePage> zonePages_;
     int64_t inner_ = 0, warm_ = 0, prefetch_ = 0, requestsThisFrame_ = 0, evictions_ = 0, loads_ = 0, stalls_ = 0;
     uint32_t scanInFlight_ = 0, maintenanceInFlight_ = 0, eraseInFlight_ = 0, lastMaintFrame_ = 0;
-    bool maintenanceWanted_ = false, scanPending_ = false; uint32_t scanObs_ = 0, tick_ = 0; int32_t scanAnchor_ = 0;
+    uint64_t maintenanceJobs_ = 0, migrations_ = 0, migrationStalls_ = 0;
+    bool maintenanceWanted_ = false, scanPending_ = false; uint32_t scanObs_ = 0, tick_ = 0, lastScanTick_ = 0, evidenceTickDone_ = 0; int32_t scanAnchor_ = 0;
     std::vector<EraseReq> eraseQueue_;
     std::vector<FsSurfaceMeasurement> feed_; size_t feedCursor_ = 0; uint32_t feedObs_ = 0;
 };
 
 World& W() { static World w; return w; }
 std::once_flag g_once;
+void EnsureInitImpl() { std::call_once(g_once, []() { W().Init(); }); }
+// Register with the executor at library load: warm-up creates the world pipelines before FS_HOST_READY.
+struct AutoInit { AutoInit() { EnsureInitImpl(); } } g_autoInit;
 
 } // namespace
 
-void EnsureInit() { std::call_once(g_once, []() { W().Init(); }); }
+void EnsureInit() { EnsureInitImpl(); }
 bool DeviceUp() { return W().IsDeviceUp(); }
 const WorldBuffers* Buffers() { return W().BuffersIf(); }
 uint32_t SlotCount() { return W().Slots(); }

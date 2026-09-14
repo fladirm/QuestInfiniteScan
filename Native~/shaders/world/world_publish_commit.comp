@@ -34,7 +34,7 @@ void main() {
         uint gen = headers[slot].generation + 1u;
         headers[slot].frontOffset = fsFrontOffset(l, parity); headers[slot].frontCount = total; headers[slot].generation = gen;
         headers[slot].dirty = 0u; headers[slot].lastTouchedFrame = pc.frame;
-        headers[slot].reserved[0] = l.nodeBase + parity * l.nodesPerSlot; headers[slot].reserved[1] = 0u;
+        headers[slot].nodeBase = l.nodeBase + parity * l.nodesPerSlot; headers[slot].nodeCount = 0u;
         memoryBarrierBuffer();
         roots[slot] = total | FS_ROOT_PUBLISHED | (parity != 0u ? FS_ROOT_PARITY : 0u) | ((shift & 7u) << FS_ROOT_LEAF_SHIFT) | ((gen & 0xFFu) << FS_ROOT_GEN_SHIFT);
         gctr[info + 0] = slot; gctr[info + 1] = total; gctr[info + 2] = shift; gctr[info + 3] = parity; gctr[info + 4] = L.levels; gctr[info + 5] = L.total; gctr[info + 14] = gen;

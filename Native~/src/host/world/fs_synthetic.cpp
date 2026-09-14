@@ -82,7 +82,8 @@ struct Builder {
         float V[3] = {cy * sp * sr - sy * cr, sy * sp * sr + cy * cr, cp * sr};
         float W[3] = {cy * sp * cr + sy * sr, sy * sp * cr - cy * sr, cp * cr};
         int nu = (int)(6.2831853f * a / spacing) + 1, nv = (int)(3.1415926f * b / spacing) + 1;
-        if (nu > 64) nu = 64; if (nv > 32) nv = 32;
+        if (nu > 64) nu = 64;
+        if (nv > 32) nv = 32;
         float h0 = rng.Next() * 0.6f + 0.2f, h1 = h0 + 0.15f, g0 = rng.Next() * 0.6f + 0.2f, g1 = g0 + 0.2f;
         uint32_t leafSeed = rng.s;
         for (int j = 1; j < nv; ++j)
@@ -135,7 +136,8 @@ struct Builder {
 
 void GenerateSynthetic(int32_t kind, float extentM, float spacing, uint32_t seed, int32_t anchorId, SyntheticScene& out) {
     out = SyntheticScene{};
-    if (spacing < 0.005f) spacing = 0.005f; if (spacing > 1.f) spacing = 1.f;
+    if (spacing < 0.005f) spacing = 0.005f;
+    if (spacing > 1.f) spacing = 1.f;
     if (extentM < 1.f) extentM = 1.f;
     Builder b(out, spacing, seed);
     const float H = kSyntheticRoomHeightM, E = extentM, h = extentM * 0.5f;

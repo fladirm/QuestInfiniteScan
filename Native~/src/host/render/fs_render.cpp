@@ -39,12 +39,11 @@ public:
         std::lock_guard<std::recursive_mutex> g(m_);
         if (inited_) return;
         inited_ = true;
-        const FsHostConfig* cfg = nullptr;   // draw capacity: from the registered buffer size or the fallback default
-        (void)cfg;
         world::EnsureInit();
         RegisterDeviceHook([this](bool up) { OnDevice(up); });
         RegisterWarmupStep("render.pipelines", [this]() { return CreatePipelines(); });
         RegisterFrameBeginHook([this](VkCommandBuffer cmd, uint32_t frame) { OnFrameBegin(cmd, frame); });
+        RegisterFrameStageSink([this](const char* name, uint64_t start, uint64_t end, uint32_t frame) { OnStage(name, start, end, frame); });
         viewL_ = viewR_ = Identity(); projL_ = projR_ = Identity();
         if (ExecReady()) OnDevice(true);
     }
@@ -52,7 +51,7 @@ public:
     void OnDevice(bool up) {
         std::lock_guard<std::recursive_mutex> g(m_);
         if (up == deviceUp_) return;
-        if (!up) { Destroy(); deviceUp_ = false; bound_ = false; return; }
+        if (!up) { Destroy(); deviceUp_ = false; bound_ = false; pipesReady_ = false; for (Pipeline& p : pipes_) p = Pipeline{}; return; }   // pipelines died with the device objects
         const VkBufferUsageFlags use = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         bool ok = true;
         ok &= CreateBuffer(frameRing_, (VkDeviceSize)FS_CULL_FRAME_RING * sizeof(CullFrame), use, true, "render.frameRing");
@@ -186,12 +185,30 @@ public:
         uint32_t slot = frame % FS_CULL_FRAME_RING;
         CullFrame& F = ((CullFrame*)frameRing_.mapped)[slot];
         FillFrame(F, frame, !moved && !forceRecut_, prevOk, envOk);
-        if (hzbWanted) RecordHzb(cmd, slot);
-        RecordCull(cmd, slot);
+        if (hzbWanted) { uint32_t st = FrameStageBegin(cmd, "render.hzb"); RecordHzb(cmd, slot); FrameStageEnd(cmd, st); }
+        { uint32_t st = FrameStageBegin(cmd, "render.cull"); RecordCull(cmd, slot); FrameStageEnd(cmd, st); }
+        recuts_++;
         lastCutFrame_ = frame; memcpy(lastHead_, head, sizeof lastHead_); memcpy(lastFwd_, fwd, sizeof lastFwd_); lastAnchorSeq_ = anchorSeq_; forceRecut_ = false;
         if (hzbWanted) hzbBuiltVersion_ = DepthVersion();
     }
     uint64_t DepthVersion() const { return prev_.version * 1000003ull + env_.version; }
+    // Device timestamps of the frame-hook stages (§15.8): the receipt behind FsRender_GetLastCullStats.cullGpuUs.
+    void OnStage(const char* name, uint64_t start, uint64_t end, uint32_t frame) {
+        std::lock_guard<std::recursive_mutex> g(m_);
+        const int64_t us = end > start ? (int64_t)((end - start) / 1000ull) : 0;
+        if (std::strcmp(name, "render.cull") == 0) {
+            lastCullUs_ = us; cullUsTotal_ += us; cullStages_++; lastStageFrame_ = frame;
+            if (cullStages_ <= 3 || (cullStages_ % 250) == 0) {
+                const uint32_t* st = statsRing_.mapped ? (const uint32_t*)statsRing_.mapped + (frame % FS_CULL_FRAME_RING) * FS_CULL_STATS_WORDS : nullptr;
+                Log("FS-RENDER receipt: cull %lld us (avg %lld) hzb %lld us (avg %lld, %llu builds) frame %u tested=%u culled=%u nodes=%u frustum=%u cone=%u hzbRej=%u inBand=%u leaves=%u agg=%u records=%u dropped=%u hzbTiles=%u mode=%d",
+                    (long long)us, (long long)(cullUsTotal_ / cullStages_), (long long)lastHzbUs_, (long long)(hzbStages_ ? hzbUsTotal_ / (int64_t)hzbStages_ : 0), (unsigned long long)hzbStages_, frame,
+                    st ? st[FS_CSTAT_PAGES_TESTED] : 0, st ? st[FS_CSTAT_PAGES_CULLED] : 0, st ? st[FS_CSTAT_NODES_VISITED] : 0, st ? st[FS_CSTAT_NODES_FRUSTUM] : 0, st ? st[FS_CSTAT_NODES_CONE] : 0,
+                    st ? st[FS_CSTAT_NODES_HZB] : 0, st ? st[FS_CSTAT_NODES_IN_BAND] : 0, st ? st[FS_CSTAT_LEAVES] : 0, st ? st[FS_CSTAT_AGGREGATES] : 0, st ? st[FS_CSTAT_DRAW_RECORDS] : 0,
+                    st ? st[FS_CSTAT_BUDGET_DROPPED] : 0, st ? st[FS_CSTAT_HZB_TILES] : 0, renderMode_);
+            }
+        }
+        else if (std::strcmp(name, "render.hzb") == 0) { lastHzbUs_ = us; hzbUsTotal_ += us; hzbStages_++; }
+    }
     void FillFrame(CullFrame& F, uint32_t frame, bool reuse, bool prevOk, bool envOk) {
         memset(&F, 0, sizeof F);
         Mat4 vpL = Mul(projL_, viewL_), vpR = Mul(projR_, viewR_);
@@ -308,7 +325,7 @@ public:
         for (uint32_t i = 0; i < FS_CULL_FRAME_RING; ++i) { uint32_t f = __atomic_load_n(&s[i * FS_CULL_STATS_WORDS + FS_CSTAT_FRAME], __ATOMIC_ACQUIRE); if (f && f <= lastCutFrame_ && (best < 0 || f > bestFrame)) { best = (int)i; bestFrame = f; } }
         if (best < 0) return 0;
         const uint32_t* e = s + best * FS_CULL_STATS_WORDS;
-        out[0] = e[FS_CSTAT_PAGES_CULLED]; out[1] = e[FS_CSTAT_VISIBLE_SURFELS]; out[2] = e[FS_CSTAT_DRAW_RECORDS]; out[3] = 0;   // GPU us: frame-hook work carries no timestamps (executor stages only)
+        out[0] = e[FS_CSTAT_PAGES_CULLED]; out[1] = e[FS_CSTAT_VISIBLE_SURFELS]; out[2] = e[FS_CSTAT_DRAW_RECORDS]; out[3] = lastCullUs_ + lastHzbUs_;
         if (bestFrame != lastStatsFrame_) {
             lastStatsFrame_ = bestFrame;
             CounterAdd(FS_CTR_VISIBLE_SURFELS, (int64_t)e[FS_CSTAT_VISIBLE_SURFELS]);
@@ -327,14 +344,18 @@ private:
     DepthSource prev_, env_; uint64_t hzbBuiltVersion_ = 0;
     float fovealPx_ = 1.f, peripheralPx_ = 3.5f, marginDeg_ = 5.f; int32_t headroomUs_ = 0; int32_t renderMode_ = FS_RENDER_MODE_SCAN;
     uint32_t lastCutFrame_ = 0, lastStatsFrame_ = 0; float lastHead_[3] = {0, 0, 0}, lastFwd_[3] = {0, 0, -1}; uint64_t anchorSeq_ = 0, lastAnchorSeq_ = 0;
+    int64_t lastCullUs_ = 0, lastHzbUs_ = 0, cullUsTotal_ = 0, hzbUsTotal_ = 0; uint64_t cullStages_ = 0, hzbStages_ = 0, recuts_ = 0; uint32_t lastStageFrame_ = 0;
 };
 
 Render& R() { static Render r; return r; }
 std::once_flag g_once;
+void EnsureInitImpl() { std::call_once(g_once, []() { R().Init(); }); }
+// Register with the executor at library load: the render pipelines are created by the warm-up thread before READY.
+struct AutoInit { AutoInit() { EnsureInitImpl(); } } g_autoInit;
 
 } // namespace
 
-void EnsureInit() { std::call_once(g_once, []() { R().Init(); }); }
+void EnsureInit() { EnsureInitImpl(); }
 
 } // namespace render
 } // namespace fs

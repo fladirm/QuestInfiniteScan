@@ -2,10 +2,14 @@
 // HZB 1/3 (contract §13.5.1): ONE 3D dispatch reprojects both depth sources for both eyes
 // (z = source*2 + eye; source 0 = own previous-frame depth, 1 = Environment Depth) from their own per-eye
 // views into the predicted centre view. Each thread folds a FS_HZB_SRC_BLOCK^2 block: the FARTHEST sample
-// is scattered with atomicMax (conservative: a tile is only as near as its farthest observed sample; holes
-// stay "no occluder"), the block's depth range is the gradient term. Env-depth blocks with a large range
-// (edges, hands, glass) are low confidence and excluded. The scatter regions were cleared by the previous
-// frame's render_hzb_mips.comp (no clear pass).
+// is scattered (conservative: a tile is only as near as its farthest observed sample; holes stay "no
+// occluder"), the block's depth range is the gradient term. Env-depth blocks with a large range (edges, hands,
+// glass) are low confidence and excluded. The scatter regions were cleared by the previous frame's
+// render_hzb_mips.comp (no clear pass).
+// Contention rule (Adreno atomics serialise per address): the 8x8 workgroup first reduces into a 16x16 tile
+// window in shared memory (one thread block covers a compact tile neighbourhood) and only the window's
+// occupied entries reach the global buffer; a degenerate reprojection can therefore never funnel every
+// thread of the dispatch into one global atomic.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_FRAME
 #define FS_USE_HZB
@@ -14,42 +18,75 @@ layout(set = 0, binding = FS_RB_DEPTH) uniform sampler2DArray srcPrev;       // 
 layout(set = 0, binding = FS_RB_DEPTH + 1) uniform sampler2DArray srcEnv;    // binding 3
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(push_constant) uniform Push { uint frameSlot; } pc;
+#define FS_HZB_WIN 16
+shared uint sMinX, sMinY;
+shared uint sOcc[FS_HZB_WIN * FS_HZB_WIN];
+shared uint sGrad[FS_HZB_WIN * FS_HZB_WIN];
 void main() {
     uint source = gl_WorkGroupID.z >> 1u, eye = gl_WorkGroupID.z & 1u;
     FsCullFrame F = frames[pc.frameSlot];
-    if ((F.misc.w & (1u << source)) == 0u) return;                                  // source not registered
+    if ((F.misc.w & (1u << source)) == 0u) return;                                  // uniform per workgroup
     vec4 dims = source == 0u ? F.srcDepth : F.envDepth;
-    if (eye >= uint(dims.z)) return;
+    if (eye >= uint(dims.z)) return;                                                // uniform per workgroup
+    uint lane = gl_LocalInvocationIndex;
+    if (lane == 0u) { sMinX = 0xFFFFu; sMinY = 0xFFFFu; }
+    for (uint i = lane; i < uint(FS_HZB_WIN * FS_HZB_WIN); i += 64u) { sOcc[i] = 0u; sGrad[i] = 0u; }
+    barrier();
     mat4 inv = source == 0u ? F.srcInvViewProj[eye] : F.envInvViewProj[eye];
     bool flipY = (F.misc.w & 4u) != 0u;
     ivec2 base = ivec2(gl_GlobalInvocationID.xy) * FS_HZB_SRC_BLOCK;
-    if (base.x >= int(dims.x) || base.y >= int(dims.y)) return;
+    bool valid = base.x < int(dims.x) && base.y < int(dims.y);
     float dmax = -1.0, dmin = 1e30; vec3 wmax = vec3(0.0); bool hit = false;
-    for (int y = 0; y < FS_HZB_SRC_BLOCK; ++y)
-        for (int x = 0; x < FS_HZB_SRC_BLOCK; ++x) {
-            ivec2 px = base + ivec2(x, y);
-            if (px.x >= int(dims.x) || px.y >= int(dims.y)) continue;
-            float d = source == 0u ? texelFetch(srcPrev, ivec3(px, int(eye)), 0).r : texelFetch(srcEnv, ivec3(px, int(eye)), 0).r;
-            if (d <= 0.0 || d >= 1.0) continue;                                     // no data
-            vec2 uv = (vec2(px) + vec2(0.5)) / dims.xy;
-            if (flipY) uv.y = 1.0 - uv.y;
-            vec4 w = inv * vec4(uv * 2.0 - 1.0, d, 1.0);
-            if (abs(w.w) < 1e-12) continue;
-            vec3 wp = w.xyz / w.w;
-            float vz = -(F.centerView * vec4(wp, 1.0)).z;                            // view-space depth (metres)
-            if (vz <= 0.0) continue;
-            if (vz > dmax) { dmax = vz; wmax = wp; }
-            dmin = min(dmin, vz); hit = true;
+    if (valid) {
+        for (int y = 0; y < FS_HZB_SRC_BLOCK; ++y)
+            for (int x = 0; x < FS_HZB_SRC_BLOCK; ++x) {
+                ivec2 px = base + ivec2(x, y);
+                if (px.x >= int(dims.x) || px.y >= int(dims.y)) continue;
+                float d = source == 0u ? texelFetch(srcPrev, ivec3(px, int(eye)), 0).r : texelFetch(srcEnv, ivec3(px, int(eye)), 0).r;
+                if (d <= 0.0 || d >= 1.0) continue;                                 // no data
+                vec2 uv = (vec2(px) + vec2(0.5)) / dims.xy;
+                if (flipY) uv.y = 1.0 - uv.y;
+                vec4 w = inv * vec4(uv * 2.0 - 1.0, d, 1.0);
+                if (abs(w.w) < 1e-12) continue;
+                vec3 wp = w.xyz / w.w;
+                float vz = -(F.centerView * vec4(wp, 1.0)).z;                        // view-space depth (metres)
+                if (vz <= 0.0) continue;
+                if (vz > dmax) { dmax = vz; wmax = wp; }
+                dmin = min(dmin, vz); hit = true;
+            }
+    }
+    float grad = hit ? dmax - dmin : 0.0;
+    if (hit && source == 1u && grad > FS_HZB_LOWCONF_RANGE_M) hit = false;          // low-confidence env tile excluded
+    ivec2 tile = ivec2(-1);
+    if (hit) {
+        vec4 c = F.centerViewProj * vec4(wmax, 1.0);
+        if (c.w > 0.0) {
+            vec2 ndc = c.xy / c.w;
+            if (all(lessThanEqual(abs(ndc), vec2(1.0)))) tile = clamp(ivec2((ndc * 0.5 + 0.5) * float(FS_HZB_SIZE)), ivec2(0), ivec2(FS_HZB_SIZE - 1));
         }
-    if (!hit) return;
-    float grad = dmax - dmin;
-    if (source == 1u && grad > FS_HZB_LOWCONF_RANGE_M) return;                     // low-confidence env tile excluded
-    vec4 c = F.centerViewProj * vec4(wmax, 1.0);
-    if (c.w <= 0.0) return;
-    vec2 ndc = c.xy / c.w;
-    if (any(greaterThan(abs(ndc), vec2(1.0)))) return;
-    ivec2 tile = clamp(ivec2((ndc * 0.5 + 0.5) * float(FS_HZB_SIZE)), ivec2(0), ivec2(FS_HZB_SIZE - 1));
-    uint t = uint(tile.y) * uint(FS_HZB_SIZE) + uint(tile.x);
-    atomicMax(hzb[(source == 0u ? uint(FS_HZB_OFF_PREV) : uint(FS_HZB_OFF_ENV)) + t], floatBitsToUint(dmax));
-    atomicMax(hzb[uint(FS_HZB_OFF_GRAD) + t], floatBitsToUint(grad));
+    }
+    if (tile.x >= 0) { atomicMin(sMinX, uint(tile.x)); atomicMin(sMinY, uint(tile.y)); }
+    barrier();
+    uint regionBase = source == 0u ? uint(FS_HZB_OFF_PREV) : uint(FS_HZB_OFF_ENV);
+    if (tile.x >= 0) {
+        uint lx = uint(tile.x) - sMinX, ly = uint(tile.y) - sMinY;
+        if (lx < uint(FS_HZB_WIN) && ly < uint(FS_HZB_WIN)) {
+            atomicMax(sOcc[ly * uint(FS_HZB_WIN) + lx], floatBitsToUint(dmax));
+            atomicMax(sGrad[ly * uint(FS_HZB_WIN) + lx], floatBitsToUint(grad));
+        } else {                                                                     // outside the window: rare, direct
+            uint t = uint(tile.y) * uint(FS_HZB_SIZE) + uint(tile.x);
+            atomicMax(hzb[regionBase + t], floatBitsToUint(dmax));
+            atomicMax(hzb[uint(FS_HZB_OFF_GRAD) + t], floatBitsToUint(grad));
+        }
+    }
+    barrier();
+    for (uint i = lane; i < uint(FS_HZB_WIN * FS_HZB_WIN); i += 64u) {
+        uint o = sOcc[i];
+        if (o == 0u) continue;
+        uint tx = sMinX + (i % uint(FS_HZB_WIN)), ty = sMinY + (i / uint(FS_HZB_WIN));
+        if (tx >= uint(FS_HZB_SIZE) || ty >= uint(FS_HZB_SIZE)) continue;
+        uint t = ty * uint(FS_HZB_SIZE) + tx;
+        atomicMax(hzb[regionBase + t], o);
+        atomicMax(hzb[uint(FS_HZB_OFF_GRAD) + t], sGrad[i]);
+    }
 }

@@ -8,7 +8,7 @@
 #include "world_index_count_spirv.inc"
 #include "world_index_subdivide_spirv.inc"
 #include "world_index_insert_spirv.inc"
-#include "world_integrate_stub_spirv.inc"
+#include "world_integrate_spirv.inc"
 #include "world_publish_count_spirv.inc"
 #include "world_publish_scan_spirv.inc"
 #include "world_publish_copy_spirv.inc"
@@ -19,15 +19,20 @@
 #include "world_erase_collect_spirv.inc"
 #include "world_erase_spirv.inc"
 #include "world_scan_args_spirv.inc"
+#include "world_publish_back_spirv.inc"
+#include "world_evidence_spirv.inc"
+#include "world_merge_spirv.inc"
 
 namespace fs {
 namespace world {
 
-// Binding numbers (fs_world_bindings.glsl). B_ERRORS aliases binding 4 (cluster kernels), B_SCRATCH aliases 7 (publish kernels).
-enum : uint32_t { B_MEAS = 0, B_HASH = 1, B_SLOTS = 2, B_SURFELS = 3, B_EVIDENCE = 4, B_INDEX = 5, B_GCTR = 6, B_NODES = 7, B_SCRATCH = 7, B_ERRORS = 4 };
+// Binding numbers (fs_world_bindings.glsl). B_ERRORS aliases binding 4 (cluster kernels), B_SCRATCH aliases 7 (publish
+// kernels), B_FREESPACE aliases 7 (integrate / evidence kernels: the u8 free-space stamp arena).
+enum : uint32_t { B_MEAS = 0, B_HASH = 1, B_SLOTS = 2, B_SURFELS = 3, B_EVIDENCE = 4, B_INDEX = 5, B_GCTR = 6, B_NODES = 7, B_SCRATCH = 7, B_ERRORS = 4, B_FREESPACE = 7 };
 
 struct PushCollect   { uint32_t slotCount, phase, maxCapGroups; };
-struct PushIntegrate { uint32_t ringBase, count, ringMask, hashMask; int32_t anchorId; uint32_t tick; };
+struct PushIntegrate { uint32_t ringBase, count, ringMask, hashMask; int32_t anchorId; uint32_t tick, flags, pad; float eye0[4], eye1[4]; };   // 64 B
+struct PushEvidence  { uint32_t tick; };
 struct PushCommit    { uint32_t frame; };
 struct PushLevel     { uint32_t level; };
 struct PushScanArgs  { uint32_t maxCount; };
@@ -36,7 +41,7 @@ struct PushErase     { uint32_t slotCount; int32_t anchorId; float cx, cy, cz, r
 enum WorldKernel : uint32_t {
     K_MAINT_COLLECT = 0, K_INDEX_REBUILD, K_INDEX_COUNT, K_INDEX_SUBDIVIDE, K_INDEX_INSERT, K_INTEGRATE,
     K_PUBLISH_COUNT, K_PUBLISH_SCAN, K_PUBLISH_COPY, K_PUBLISH_COMMIT, K_CLUSTER_LEAVES, K_CLUSTER_INTERNAL, K_CLUSTER_COMMIT,
-    K_ERASE_COLLECT, K_ERASE, K_SCAN_ARGS, K_COUNT
+    K_ERASE_COLLECT, K_ERASE, K_SCAN_ARGS, K_PUBLISH_BACK, K_EVIDENCE, K_MERGE, K_COUNT
 };
 struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t pushBytes; uint32_t bindings[8]; uint32_t bindingCount; };
 #define FS_KS(sym) sym, sizeof(sym) / 4
@@ -46,7 +51,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"world_index_count",     FS_KS(kWorldIndexCountSpirv),     0,                     {B_SLOTS, B_SURFELS, B_INDEX, B_GCTR}, 4},
     {"world_index_subdivide", FS_KS(kWorldIndexSubdivideSpirv), 0,                     {B_SLOTS, B_INDEX, B_GCTR}, 3},
     {"world_index_insert",    FS_KS(kWorldIndexInsertSpirv),    0,                     {B_SLOTS, B_SURFELS, B_INDEX, B_GCTR}, 4},
-    {"world_integrate_stub",  FS_KS(kWorldIntegrateStubSpirv),  sizeof(PushIntegrate), {B_MEAS, B_HASH, B_SLOTS, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR}, 7},
+    {"world_integrate",       FS_KS(kWorldIntegrateSpirv),      sizeof(PushIntegrate), {B_MEAS, B_HASH, B_SLOTS, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_FREESPACE}, 8},
     {"world_publish_count",   FS_KS(kWorldPublishCountSpirv),   0,                     {B_SLOTS, B_SURFELS, B_INDEX, B_GCTR, B_SCRATCH}, 5},
     {"world_publish_scan",    FS_KS(kWorldPublishScanSpirv),    0,                     {B_GCTR, B_SCRATCH}, 2},
     {"world_publish_copy",    FS_KS(kWorldPublishCopySpirv),    0,                     {B_SLOTS, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_SCRATCH}, 6},
@@ -57,6 +62,9 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"world_erase_collect",   FS_KS(kWorldEraseCollectSpirv),   sizeof(PushErase),     {B_SLOTS, B_GCTR}, 2},
     {"world_erase",           FS_KS(kWorldEraseSpirv),          sizeof(PushErase),     {B_SLOTS, B_SURFELS, B_GCTR}, 3},
     {"world_scan_args",       FS_KS(kWorldScanArgsSpirv),       sizeof(PushScanArgs),  {B_HASH, B_GCTR}, 2},   // B_HASH slot = C09 counters
+    {"world_publish_back",    FS_KS(kWorldPublishBackSpirv),    0,                     {B_SLOTS, B_SURFELS, B_EVIDENCE, B_GCTR}, 4},
+    {"world_evidence",        FS_KS(kWorldEvidenceSpirv),       sizeof(PushEvidence),  {B_SLOTS, B_SURFELS, B_EVIDENCE, B_GCTR, B_FREESPACE}, 5},
+    {"world_merge",           FS_KS(kWorldMergeSpirv),          0,                     {B_SLOTS, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR}, 5},
 };
 #undef FS_KS
 

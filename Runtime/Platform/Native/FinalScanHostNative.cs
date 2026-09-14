@@ -34,7 +34,7 @@ namespace FinalScan.Platform.Native
         /// <summary>FsWorld_CreateSynthetic kinds (header: 0 room box, 1 corridor, 2 stairs, 3 thin wall; 4 reserved for the dense flower-shop benchmark).</summary>
         public enum SyntheticKind { RoomBox = 0, Corridor = 1, Stairs = 2, ThinWall = 3, Dense = 4 }
 
-        /// <summary>FsRender_SetMode values (contract §13.5 render modes). The entry point is ABI 2 additive and may be absent.</summary>
+        /// <summary>FsRender_SetMode values (contract §13.5 render modes).</summary>
         public enum RenderModeId { Scan = 0, XRay = 1, Plan = 2 }
 
         /// <summary>Byte-identical mirror of FsHostConfig (100 B). Fill through <see cref="HostConfig.Create"/>.</summary>
@@ -109,9 +109,8 @@ namespace FinalScan.Platform.Native
         [DllImport(Lib)] static extern int FsRender_SetEnvDepth(IntPtr unityDepthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs);
         [DllImport(Lib)] static extern int FsRender_SetLodPolicy(float fovealErrorPx, float peripheralErrorPx, float predictionMarginDeg, uint screenWorkBudget);
         [DllImport(Lib)] static extern int FsRender_SetGpuHeadroomUs(int headroomUs);
-        // Optional (a native agent may add it); guarded by EntryPointNotFoundException in SetMode.
         [DllImport(Lib)] static extern int FsRender_SetMode(int mode);
-        // Optional twin of FsRender_SetEnvDepth exported by the C09 measurement module (same signature); guarded in SetMeasEnvDepth.
+        // Twin of FsRender_SetEnvDepth exported by the measurement module (same signature, same frame, same handle).
         [DllImport(Lib)] static extern int FsMeas_SetEnvDepth(IntPtr unityDepthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs);
 
         static int s_abi = int.MinValue;
@@ -182,27 +181,10 @@ namespace FinalScan.Platform.Native
             => FsRender_SetLodPolicy(fovealErrorPx, peripheralErrorPx, predictionMarginDeg, screenWorkBudget);
         public static int SetGpuHeadroomUs(int headroomUs) => FsRender_SetGpuHeadroomUs(headroomUs);
 
-        static bool s_measEnvDepthMissing;
-        /// <summary>True until FsMeas_SetEnvDepth is found missing in the loaded plugin.</summary>
-        public static bool MeasEnvDepthSupported => !s_measEnvDepthMissing;
-        /// <summary>Calls the measurement module's FsMeas_SetEnvDepth when exported (C09); ResultUnavailable otherwise.</summary>
+        /// <summary>Measurement front-end twin of <see cref="SetEnvDepth"/> (FsMeas_SetEnvDepth).</summary>
         public static int SetMeasEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs)
-        {
-            if (s_measEnvDepthMissing) return ResultUnavailable;
-            try { return FsMeas_SetEnvDepth(depthTextureArray, width, height, poseL16, poseR16, fovL4, fovR4, nearZ, farZ, xrTimeNs); }
-            catch (EntryPointNotFoundException) { s_measEnvDepthMissing = true; return ResultUnavailable; }
-        }
-
-        static bool s_setModeMissing;
-        /// <summary>True until FsRender_SetMode is found missing in the loaded plugin.</summary>
-        public static bool SetModeSupported => !s_setModeMissing;
-        /// <summary>Calls FsRender_SetMode when the plugin exports it; returns <see cref="ResultUnavailable"/> (once logged by the caller) otherwise.</summary>
-        public static int SetMode(RenderModeId mode)
-        {
-            if (s_setModeMissing) return ResultUnavailable;
-            try { return FsRender_SetMode((int)mode); }
-            catch (EntryPointNotFoundException) { s_setModeMissing = true; return ResultUnavailable; }
-        }
+            => FsMeas_SetEnvDepth(depthTextureArray, width, height, poseL16, poseR16, fovL4, fovR4, nearZ, farZ, xrTimeNs);
+        public static int SetMode(RenderModeId mode) => FsRender_SetMode((int)mode);
 #else
         public static bool Available => false;
         public static int ReportedAbiVersion => 0;
@@ -234,15 +216,13 @@ namespace FinalScan.Platform.Native
         public static int SetEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs) => ResultUnavailable;
         public static int SetLodPolicy(float fovealErrorPx, float peripheralErrorPx, float predictionMarginDeg, uint screenWorkBudget) => ResultUnavailable;
         public static int SetGpuHeadroomUs(int headroomUs) => ResultUnavailable;
-        public static bool SetModeSupported => false;
         public static int SetMode(RenderModeId mode) => ResultUnavailable;
-        public static bool MeasEnvDepthSupported => false;
         public static int SetMeasEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs) => ResultUnavailable;
 #endif
 
         /// <summary>
         /// START/STOP SCAN gate (C22): while false every FsScan_RequestTick is refused with <see cref="ResultBusy"/> and
-        /// counted in <see cref="ScanTicksGated"/>, whichever caller (sensor authority sink by reflection, tests) issues it.
+        /// counted in <see cref="ScanTicksGated"/>, whichever caller (sensor sink, tests) issues it.
         /// Owned by FinalScan.Host.FinalScanHost.ScanEnabled. Defaults to true so a host without UI scans as before.
         /// </summary>
         public static bool ScanRequestsEnabled { get; set; } = true;

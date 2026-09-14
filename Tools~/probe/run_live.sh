@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "${SCRIPT_DIR}/../dev_environment.sh"
 DURATION="${1:-120}"; INSTALL=1; [[ "${2:-}" == "--no-install" ]] && INSTALL=0
 ADB=("${FS_ADB}" -s "${FS_DEVICE_SERIAL}")
+# Canonical run: no debug property may survive from an earlier session (mode/spin/synthetic overrides).
+for prop in debug.finalscan.mode debug.finalscan.spintest debug.finalscan.synthetic; do "${ADB[@]}" shell setprop "$prop" '""' >/dev/null 2>&1 || true; done
 OUT="${FS_EVIDENCE_DIR}/live-$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$OUT/meminfo" "$OUT/screens"
 echo "[run_live] evidence: $OUT"
 if [[ $INSTALL == 1 ]]; then bash "${SCRIPT_DIR}/../unity/deploy_apk.sh" 2>&1 | grep -vE 'restricted method|loadLibrary|enable-native' | tee "$OUT/deploy.txt"; else

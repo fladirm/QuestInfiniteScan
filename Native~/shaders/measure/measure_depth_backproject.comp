@@ -76,7 +76,7 @@ void main() {
                         m.sigmaN = fsMeasSigmaN(z);
                         m.footprint = fsMeasFootprint(z, fov, w, h);
                         m.sigmaT = m.footprint;
-                        m.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (edge ? FS_MEAS_SRC_EDGE : 0u) | (lowTex ? FS_MEAS_SRC_LOW_TEXTURE : 0u);
+                        m.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (edge ? FS_MEAS_SRC_EDGE : 0u) | (lowTex ? FS_MEAS_SRC_LOW_TEXTURE : 0u) | (layer << FS_MEAS_SRC_EYE_SHIFT);
                         m.observationId = pc.b.x;
                         m.reserved = 0u;
                         status = 3;

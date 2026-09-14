@@ -54,7 +54,7 @@ void fsEmitAggregate(mat4 A, vec3 origin, FsClusterNode nd) {
     if (i >= pc.aggCapacity) { atomicAdd(work[FS_WK_STAT + FS_CSTAT_BUDGET_DROPPED], 1u); return; }
     vec3 w = (A * vec4(origin + vec3(nd.repCenter[0], nd.repCenter[1], nd.repCenter[2]), 1.0)).xyz;
     vec3 n = normalize(mat3(A) * fsDecodeOct32(nd.repNormalOct32));
-    uint ra = fsRadius8FromLog16(nd.reserved & 0xFFFFu), rb = fsRadius8FromLog16(nd.reserved >> 16);   // footprint ellipse (canonical tangent frame)
+    uint ra = fsRadius8FromLog16(nd.footprint & 0xFFFFu), rb = fsRadius8FromLog16(nd.footprint >> 16);   // footprint ellipse (canonical tangent frame)
     FsDrawRecord r;
     r.cx = w.x; r.cy = w.y; r.cz = w.z;
     r.normalOct32 = fsEncodeOct32(n);

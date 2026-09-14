@@ -37,5 +37,6 @@ void main() {
         gctr[FS_G_PUBLISH_COUNT] = n;
         gctr[FS_G_PUBLISH_ARGS_CELLS + 0] = uint(FS_CELLS_PER_PAGE / FS_WG_SMALL); gctr[FS_G_PUBLISH_ARGS_CELLS + 1] = n; gctr[FS_G_PUBLISH_ARGS_CELLS + 2] = 1u;
         gctr[FS_G_PUBLISH_ARGS_SCAN + 0] = n; gctr[FS_G_PUBLISH_ARGS_SCAN + 1] = 1u; gctr[FS_G_PUBLISH_ARGS_SCAN + 2] = 1u;
+        gctr[FS_G_PUBLISH_ARGS_SURF + 0] = pc.maxCapGroups; gctr[FS_G_PUBLISH_ARGS_SURF + 1] = n; gctr[FS_G_PUBLISH_ARGS_SURF + 2] = 1u;
     }
 }

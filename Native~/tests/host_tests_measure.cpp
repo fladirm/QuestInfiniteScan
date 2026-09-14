@@ -157,7 +157,7 @@ static void TestFrontoParallelPlane() {
     for (uint32_t i = 0; i < stored; ++i) {
         const FsSurfaceMeasurement& m = rec[i];
         maxErr = std::fmax(maxErr, std::fabs(m.pz - 2.0)); maxErr = std::fmax(maxErr, std::fabs(m.nz + 1.0)); maxErr = std::fmax(maxErr, std::fabs(m.nx)); maxErr = std::fmax(maxErr, std::fabs(m.ny));
-        if (m.sourceFlags != (FS_MEAS_SRC_DEPTH_PRIOR | FS_MEAS_SRC_LOW_TEXTURE) || m.observationId != 0xC09u || m.reserved != 0) flagsOk = false;
+        if ((m.sourceFlags & 0xFFFFu) != (FS_MEAS_SRC_DEPTH_PRIOR | FS_MEAS_SRC_LOW_TEXTURE) || m.observationId != 0xC09u || m.reserved != 0) flagsOk = false;
         if (std::fabs(m.sigmaN - SigmaN(2.f)) > 1e-4f || std::fabs(m.footprint - Footprint(2.f, kFov, W, H)) > 1e-5f || m.sigmaT != m.footprint) flagsOk = false;
     }
     CHECK(maxErr < 2e-3);                                    // float depth round trip through the projection

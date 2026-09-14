@@ -39,6 +39,9 @@ struct MeasGpuFrame {
     int64_t  xrTimeNs = 0;        // depth frame time
     uint64_t gpuStartNs = 0, gpuEndNs = 0;   // backproject job timestamps (executor clock)
     uint32_t frameIndex = 0;      // executor FrameIndex() at submit
+    uint64_t importFrameEnd = 0;  // executor frame whose FRAME_END ordered the depth image barrier (JobDesc::waitFrameEndValue)
+    float    eyeOrigin[2][3] = {{0, 0, 0}, {0, 0, 0}};   // anchor-local eye origins (sourceFlags bit 16 selects the eye)
+    bool     eyeOriginValid = false;
 };
 
 // Leases the newest READY slot (older READY slots are dropped, counted). False when nothing is ready.

@@ -37,6 +37,7 @@
 #define FS_MEAS_SRC_DEPTH_PRIOR      4u        // bit 2
 #define FS_MEAS_SRC_EDGE             256u      // bit 8
 #define FS_MEAS_SRC_LOW_TEXTURE      512u      // bit 9
+#define FS_MEAS_SRC_EYE_SHIFT        16        // bit 16: eye (0 left, 1 right) the record was back-projected from (free-space ray origin)
 
 // ---- frame block (per ring slot, host-visible): u32 counters (reset by the CPU before each job) followed by the
 // per-eye parameters the CPU writes before submit (twin: fs::meas::FrameBlock / GLSL FrameBlock) -------------

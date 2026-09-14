@@ -85,7 +85,7 @@ namespace FinalScan.Platform.Sensor
         // ------------------------------------------------------------------ lifecycle
         void Awake()
         {
-            Sink ??= new ReflectionSensorSink(Debug.Log);
+            Sink ??= new NativeSensorSink();
             Pipeline = new SensorPipeline(Sink, initialProfile);
             Pipeline.Log += Debug.Log;
             ResolveTrackingSpace();
@@ -94,13 +94,19 @@ namespace FinalScan.Platform.Sensor
 
         void OnEnable()
         {
+            FinalScan.Host.FinalScanHost.ScanEnabledChanged += OnScanEnabledChanged;
+            OnScanEnabledChanged(FinalScan.Host.FinalScanHost.ScanEnabled);
             _log = HostLog.Open(System.IO.Path.Combine(Application.persistentDataPath, "sensor"));
             if (Replayer != null) { Replayer.Attach(Pipeline, Debug.Log); Debug.Log(TelemetryPrefix + " replay: " + Replayer.Directory); return; }
             _boot = StartCoroutine(Boot());
         }
 
+        /// <summary>START/STOP SCAN (C22): the capture profile governor follows the host gate (Idle keeps NORMAL_30, Active allows NORMAL_60).</summary>
+        void OnScanEnabledChanged(bool enabled) { if (scanMode != ScanMode.Detail) scanMode = enabled ? ScanMode.Active : ScanMode.Idle; }
+
         void OnDisable()
         {
+            FinalScan.Host.FinalScanHost.ScanEnabledChanged -= OnScanEnabledChanged;
             if (_boot != null) StopCoroutine(_boot); if (_apply != null) StopCoroutine(_apply);
             _boot = _apply = null; _applying = false;
             StopCameras();

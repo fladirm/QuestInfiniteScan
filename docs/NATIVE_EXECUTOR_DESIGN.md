@@ -85,6 +85,12 @@ SCAN jobs are built from the *latest coherent observation* only (§3.3): the sen
 * Frame correlation: graphics-queue timestamp per frame (`FS_EVT_FRAME_MARK`) + CPU monotonic at
   submit; offset estimated by least squares (`ClockDomains` fit), re-fit every 5 s.
 * Every stage reports `{cls, stage, gpuStartNs, gpuEndNs, frameIndex}` into a telemetry ring read by C#.
+* Frame-hook work (cull, HZB recorded into Unity's command buffer at FRAME_BEGIN) is bracketed by
+  `FrameStageBegin/End` timestamps in a per-frame query ring, collected without waiting at FRAME_END and
+  reported as class "frame" stages plus per-module sinks (`FsRender_GetLastCullStats.cullGpuUs`).
+* Frame-end timeline: every FRAME_END flushes Unity's command buffers and signals a timeline value equal to the
+  executor frame index on the graphics queue; a job that imported a Unity resource in frame N waits on value N
+  (`JobDesc::waitFrameEndValue`), which orders Unity's layout transitions before the scanner-queue job.
 
 ## 8. Kernel envelope gate (§15.6)
 

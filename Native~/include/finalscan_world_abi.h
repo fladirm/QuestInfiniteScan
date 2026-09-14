@@ -46,8 +46,9 @@ typedef struct FsPageHeader {
     uint32_t  cellIndexOffset;    // offset into the cell-index arena (page-local index, §9.2)
     uint32_t  freeSpaceOffset;    // offset into free-space arena (coarse, §8.6)
     uint32_t  lastTouchedFrame;
-    uint32_t  reserved[2];
-} FsPageHeader;                   // 64 B
+    uint32_t  nodeBase;           // first FsClusterNode of the published FRONT parity (derived ClusterTree, §13.4)
+    uint32_t  nodeCount;          // nodes of that tree (0 = no tree yet)
+} FsPageHeader;                   // 68 B
 
 // Page-local index (default variant A: fixed bucket grid, benchmarked in C08 against B/C/D).
 // One u32 head per cell → linked list through FsSurfelLink.next; 0xFFFFFFFF = end.
@@ -101,6 +102,7 @@ enum FsCounter {
     FS_CTR_VISIBLE_SURFELS, FS_CTR_SCAN_TICK, FS_CTR_SCAN_TICK_SKIPPED, FS_CTR_ORIENTATION_RESIDENCY_REQUESTS,
     FS_CTR_PAGE_HASH_OVERFLOW, FS_CTR_INDEX_OVERFLOW, FS_CTR_DEFERRED_PUBLISH, FS_CTR_DEFERRED_SCAN,
     FS_CTR_DEFERRED_RESIDENCY, FS_CTR_DEFERRED_APPEARANCE, FS_CTR_DEFERRED_COLD, FS_CTR_TIMESTAMP_NONMONO,
+    FS_CTR_DUPLICATE_OBSERVATIONS,   // same surfel observed twice in one scan tick (no information, §7.6)
     FS_CTR_COUNT
 };
 
@@ -130,7 +132,7 @@ typedef struct FsClusterNode {
     uint32_t firstChildOrSurfel;  // child node index (internal) or FRONT surfel offset (leaf)
     uint16_t childCount;          // 0 = leaf
     uint16_t leafSurfelCount;     // valid when leaf
-    uint32_t reserved;
+    uint32_t footprint;           // footprint ellipse semi-axes (log16 a | log16 b << 16) in the canonical tangent frame
 } FsClusterNode;                  // 80 B
 
 // (additive, C05b refinement, contract §13.4) Parallel per-node LOD errors: ownError = metric error of

@@ -1,5 +1,5 @@
 // FinalScan native host C ABI (ABI 2 = C02..C08). Additive to finalscan_native_api.h (ABI 1 probes).
-// C# mirror: Runtime/Platform/Native/FinalScanHost.cs. Main-thread safe unless noted.
+// C# mirror: Runtime/Platform/Native/FinalScanHostNative.cs. Main-thread safe unless noted.
 #pragma once
 #include <stdint.h>
 #include "finalscan_world_abi.h"
@@ -73,7 +73,7 @@ int32_t FsResidency_GetZoneStats(int64_t out[8]);          // innerPages, warmPa
 // C# side (GraphicsBuffer created by Unity, imported here with AccessBuffer once; see C05 notes).
 int32_t FsRender_RegisterBuffers(void* unityDrawRecordBuffer, uint32_t drawRecordBytes, void* unityIndirectArgsBuffer);
 int32_t FsRender_SetView(const float viewL[16], const float projL[16], const float viewR[16], const float projR[16], const float headPos[3]);
-int32_t FsRender_GetLastCullStats(int64_t out[4]);          // culledPages, visibleSurfels, drawRecords, cullGpuUs
+int32_t FsRender_GetLastCullStats(int64_t out[4]);          // culledPages, visibleSurfels, drawRecords, cullGpuUs (device timestamps of the last cull + HZB frame stages)
 // (ABI 2 additive, contract §13.5) Depth priors for occlusion culling. Unity textures imported once per handle.
 // prevDepth: the app's own depth buffer of the previous frame (per eye array or two textures), with the view/proj it was rendered with.
 // envDepth : Environment Depth texture array (2 layers) with its own per-eye pose/fov and XrTime; may be older than the frame.

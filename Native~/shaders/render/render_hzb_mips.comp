@@ -4,10 +4,19 @@
 // (replaces a separate clear pass).
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_HZB
+#define FS_USE_WORK
 #include "fs_render_common.glsl"
 layout(local_size_x = FS_WG_SCAN) in;
+shared uint sTiles;
 void main() {
     uint t = gl_LocalInvocationID.x;
+    if (t == 0u) sTiles = 0u;
+    barrier();
+    uint mine = 0u;
+    for (uint i = t; i < uint(FS_HZB_L0_TEXELS); i += uint(FS_WG_SCAN)) if (hzb[uint(FS_HZB_OFF_COMB) + i] != 0u) mine++;
+    atomicAdd(sTiles, mine);
+    barrier();
+    if (t == 0u) work[FS_WK_STAT + FS_CSTAT_HZB_TILES] = sTiles;
     for (uint lv = 2u; lv < uint(FS_HZB_LEVELS); ++lv) {
         uint size = uint(FS_HZB_SIZE) >> lv, srcSize = size * 2u;
         uint so = fsHzbLevelOffset(lv - 1u), dO = fsHzbLevelOffset(lv);

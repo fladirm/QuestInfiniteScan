@@ -22,7 +22,7 @@ constexpr float kPi = 3.14159265358979f;
 
 // Coverage (contract §13.4 coverage-preserving far LOD): the node's footprint is the ellipse inscribed in
 // its bounds projected along the cone axis (semi-axes a, b in the canonical tangent frame, packed into
-// FsClusterNode.reserved as two log16 radii). A leaf's coverage is the fraction of FS_COVERAGE_GRID^2
+// FsClusterNode.footprint as two log16 radii). A leaf's coverage is the fraction of FS_COVERAGE_GRID^2
 // grid cells inside that ellipse that contain at least one projected surfel centre (gaps stay gaps,
 // overlapping discs do not count twice); an internal node combines its children area-weighted:
 // sum(cov_i * a_i * b_i) / (a * b), clamped. A multi-layer volume (dense bush) therefore saturates to 1
@@ -86,7 +86,7 @@ inline FsClusterNode BuildLeaf(const FsSurfel* front, uint32_t first, uint32_t c
     n.coverage = (uint16_t)(cov * 65535.f + 0.5f);
     n.surfelCount = (uint16_t)(used > 65535u ? 65535u : used);
     n.firstChildOrSurfel = globalFirst; n.childCount = 0; n.leafSurfelCount = (uint16_t)(count > 65535u ? 65535u : count);
-    n.reserved = PackFootprint(fa, fb);
+    n.footprint = PackFootprint(fa, fb);
     (void)areaSum;
     return n;
 }
@@ -102,7 +102,7 @@ inline FsClusterNode BuildInternal(const FsClusterNode* nodes, uint32_t firstChi
         float w = (float)c.surfelCount; if (w < 1.f) w = 1.f;
         for (int a = 0; a < 3; ++a) { bmin[a] = fminf(bmin[a], c.bmin[a]); bmax[a] = fmaxf(bmax[a], c.bmax[a]); csum[a] += c.repCenter[a] * w; asum[a] += c.coneAxis[a] * w; }
         colsum[0] += (float)(c.repColorOrHandle & 0xFFu) * w; colsum[1] += (float)((c.repColorOrHandle >> 8) & 0xFFu) * w; colsum[2] += (float)((c.repColorOrHandle >> 16) & 0xFFu) * w;
-        areaSum += (float)c.coverage / 65535.f * FootprintA(c.reserved) * FootprintB(c.reserved);   // covered footprint area / pi
+        areaSum += (float)c.coverage / 65535.f * FootprintA(c.footprint) * FootprintB(c.footprint);   // covered footprint area / pi
         wsum += w; count += c.surfelCount; if (c.coneCos <= -1.f) anyDir = true;
     }
     float inv = wsum > 0.f ? 1.f / wsum : 0.f;
@@ -134,7 +134,7 @@ inline FsClusterNode BuildInternal(const FsClusterNode* nodes, uint32_t firstChi
     n.coverage = (uint16_t)(cov * 65535.f + 0.5f);
     n.surfelCount = (uint16_t)(count > 65535u ? 65535u : count);
     n.firstChildOrSurfel = firstChild; n.childCount = (uint16_t)childCount; n.leafSurfelCount = 0;
-    n.reserved = PackFootprint(fa, fb);
+    n.footprint = PackFootprint(fa, fb);
     return n;
 }
 
