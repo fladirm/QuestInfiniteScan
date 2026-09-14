@@ -1,12 +1,15 @@
 #version 450
-// HZB 2/3: combined occluder = min(own previous depth, ERODED env depth) per level-0 tile (erosion =
-// 3x3 max: thin/near env occluders are pushed back, conservative; a missing source is ignored). Each
-// thread produces a 2x2 level-0 block and its level-1 texel (2x2 max), so the wide pass also builds level 1.
+// HZB 2/3 (contract §13.5.1, C09R §21 fail-open): the previous rendered scan depth is the primary occluder.
+// Environment Depth (3x3-eroded, conservative) may only contribute where it AGREES with the scan depth within
+// K x margin; where the sources disagree the tile is marked UNCERTAIN (kept by the cull); where only Environment
+// Depth exists the tile is uncertain as well (a scan surface may not have been rendered there yet). Each thread
+// produces a 2x2 level-0 block and its level-1 texel (max occluder = conservative, uncertain propagates).
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_HZB
 #include "fs_render_common.glsl"
 layout(local_size_x = 8, local_size_y = 8) in;
-void fsCombineTile(ivec2 t, out float occ, out float grad) {
+#define FS_HZB_UNCERTAIN_BIT 0x00000001u   // low mantissa bit of the combined float: uncertain tile
+void fsCombineTile(ivec2 t, out float occ, out float grad, out bool uncertain) {
     uint ti = uint(t.y) * uint(FS_HZB_SIZE) + uint(t.x);
     float prev = uintBitsToFloat(hzb[uint(FS_HZB_OFF_PREV) + ti]);
     float envE = 0.0; grad = 0.0;
@@ -17,23 +20,30 @@ void fsCombineTile(ivec2 t, out float occ, out float grad) {
             envE = max(envE, uintBitsToFloat(hzb[uint(FS_HZB_OFF_ENV) + qi]));
             grad = max(grad, uintBitsToFloat(hzb[uint(FS_HZB_OFF_GRAD) + qi]));
         }
-    occ = (prev > 0.0 && envE > 0.0) ? min(prev, envE) : max(prev, envE);
+    uncertain = false;
+    if (prev > 0.0 && envE > 0.0) {
+        float margin = FS_HZB_AGREE_K * fsHzbMargin(0.0, grad);
+        if (abs(prev - envE) <= margin) occ = max(prev, envE);       // agreement: the farther (conservative) value
+        else { occ = max(prev, envE); uncertain = true; }             // disagreement: KEEP whatever falls in between
+    } else if (prev > 0.0) occ = prev;
+    else if (envE > 0.0) { occ = envE; uncertain = true; }            // no scan history here yet: never hide scan geometry
+    else occ = 0.0;
 }
 void main() {
     ivec2 t1 = ivec2(gl_GlobalInvocationID.xy);
     int size1 = FS_HZB_SIZE / 2;
     if (t1.x >= size1 || t1.y >= size1) return;
-    float occ1 = 0.0, grad1 = 0.0;
+    float occ1 = 0.0, grad1 = 0.0; bool unc1 = false;
     for (int dy = 0; dy < 2; ++dy)
         for (int dx = 0; dx < 2; ++dx) {
             ivec2 t0 = t1 * 2 + ivec2(dx, dy);
-            float occ, grad; fsCombineTile(t0, occ, grad);
+            float occ, grad; bool unc; fsCombineTile(t0, occ, grad, unc);
             uint ti = uint(t0.y) * uint(FS_HZB_SIZE) + uint(t0.x);
-            hzb[uint(FS_HZB_OFF_COMB) + ti] = floatBitsToUint(occ);
+            hzb[uint(FS_HZB_OFF_COMB) + ti] = (floatBitsToUint(occ) & ~FS_HZB_UNCERTAIN_BIT) | (unc ? FS_HZB_UNCERTAIN_BIT : 0u);
             hzb[uint(FS_HZB_OFF_CGRAD) + ti] = floatBitsToUint(grad);
-            occ1 = max(occ1, occ); grad1 = max(grad1, grad);
+            occ1 = max(occ1, occ); grad1 = max(grad1, grad); unc1 = unc1 || unc;
         }
     uint o1 = fsHzbLevelOffset(1u) + uint(t1.y) * uint(size1) + uint(t1.x);
-    hzb[uint(FS_HZB_OFF_COMB) + o1] = floatBitsToUint(occ1);
+    hzb[uint(FS_HZB_OFF_COMB) + o1] = (floatBitsToUint(occ1) & ~FS_HZB_UNCERTAIN_BIT) | (unc1 ? FS_HZB_UNCERTAIN_BIT : 0u);
     hzb[uint(FS_HZB_OFF_CGRAD) + o1] = floatBitsToUint(grad1);
 }

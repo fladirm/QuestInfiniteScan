@@ -1,10 +1,8 @@
 #version 450
-// Cull 4/4: ONE indirect 64-wide dispatch over the aggregates (x = ceil(aggregates/64), >= 1) copies them
-// from the native scratch to the Unity draw buffer right behind the opaque records
-// ([opaqueCount, opaqueCount + aggCount)), so Unity derives their base as opaqueArgs.instanceCount / 2.
-// The LAST workgroup to finish (atomic completion counter) writes the two FsIndirectDrawArgs
-// ({24, opaque*2, 0, 0} and {6, agg*2, 0, 0}), the host-visible stats ring entry, and resets the work
-// counters for the next cut. No CPU sync, no readback.
+// Cull 4/4: ONE indirect 64-wide dispatch over the aggregates copies them from the native scratch to the Unity
+// draw buffer right behind the opaque records; the LAST workgroup (atomic completion counter) writes the two
+// FsIndirectDrawArgs ({24, opaque*2, 0, 0} and {6, agg*2, 0, 0}), the host-visible stats ring entry and resets
+// the work counters (frontier args, block list, stats) for the next cut. No CPU sync, no readback.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_FRAME
 #define FS_USE_WORK
@@ -14,11 +12,11 @@ layout(std430, set = 0, binding = FS_RB_AGGSRC) readonly buffer AggScratchBlock 
 layout(std430, set = 0, binding = FS_RB_ARGS) writeonly buffer ArgsBlock { FsIndirectDrawArgs args[2]; };
 layout(std430, set = 0, binding = FS_RB_STATS) writeonly buffer StatsBlock { uint stats[]; };
 layout(local_size_x = FS_WG_SMALL) in;
-layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; } pc;
+layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; } pc;
 shared uint sDone;
 void main() {
     uint lane = gl_LocalInvocationID.x;
-    uint total = work[FS_WK_COMPACT_ARGS];                                // workgroups of this dispatch (stable)
+    uint total = work[FS_WK_COMPACT_ARGS];
     uint opaque = min(work[FS_WK_OPAQUE], pc.opaqueCapacity);
     uint agg = min(work[FS_WK_AGG], pc.aggCapacity);
     uint i = gl_GlobalInvocationID.x;
@@ -38,9 +36,8 @@ void main() {
     stats[ring + FS_CSTAT_AGGREGATES] = agg;
     stats[ring + FS_CSTAT_BUDGET_DROPPED] = work[FS_WK_STAT + FS_CSTAT_BUDGET_DROPPED] + (work[FS_WK_OPAQUE] > pc.opaqueCapacity ? work[FS_WK_OPAQUE] - pc.opaqueCapacity : 0u);
     stats[ring + FS_CSTAT_FRAME] = frame;
-    // reset for the next cut (page cache is kept for temporal reuse)
-    work[FS_WK_OPAQUE] = 0u; work[FS_WK_AGG] = 0u; work[FS_WK_FINISHED] = 0u;
-    work[FS_WK_NODE_ARGS + 0] = uint(FS_CULL_NODE_GROUPS); work[FS_WK_NODE_ARGS + 1] = 0u; work[FS_WK_NODE_ARGS + 2] = 1u;
+    work[FS_WK_OPAQUE] = 0u; work[FS_WK_AGG] = 0u; work[FS_WK_FINISHED] = 0u; work[FS_WK_BLOCKS] = 0u;
+    for (uint p = 0u; p < 2u; ++p) { work[FS_WK_EXPAND_ARGS + 4u * p + 0u] = 0u; work[FS_WK_EXPAND_ARGS + 4u * p + 1u] = 1u; work[FS_WK_EXPAND_ARGS + 4u * p + 2u] = 1u; work[FS_WK_EXPAND_ARGS + 4u * p + 3u] = 0u; }
     work[FS_WK_EMIT_ARGS + 0] = 0u; work[FS_WK_EMIT_ARGS + 1] = 1u; work[FS_WK_EMIT_ARGS + 2] = 1u;
     work[FS_WK_COMPACT_ARGS + 0] = 1u; work[FS_WK_COMPACT_ARGS + 1] = 1u; work[FS_WK_COMPACT_ARGS + 2] = 1u;
     for (uint k = 0u; k < uint(FS_CULL_STATS_WORDS); ++k) work[FS_WK_STAT + k] = 0u;

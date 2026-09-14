@@ -23,14 +23,15 @@ void main() {
         uint n = size * size;
         for (uint i = t; i < n; i += uint(FS_WG_SCAN)) {
             uint x = i % size, y = i / size;
-            float occ = 0.0, grad = 0.0;
+            float occ = 0.0, grad = 0.0; uint unc = 0u;
             for (uint dy = 0u; dy < 2u; ++dy)
                 for (uint dx = 0u; dx < 2u; ++dx) {
                     uint si = (y * 2u + dy) * srcSize + x * 2u + dx;
-                    occ = max(occ, uintBitsToFloat(hzb[uint(FS_HZB_OFF_COMB) + so + si]));
+                    uint cw = hzb[uint(FS_HZB_OFF_COMB) + so + si];
+                    occ = max(occ, uintBitsToFloat(cw & ~1u)); unc |= cw & 1u;
                     grad = max(grad, uintBitsToFloat(hzb[uint(FS_HZB_OFF_CGRAD) + so + si]));
                 }
-            hzb[uint(FS_HZB_OFF_COMB) + dO + i] = floatBitsToUint(occ);
+            hzb[uint(FS_HZB_OFF_COMB) + dO + i] = (floatBitsToUint(occ) & ~1u) | unc;
             hzb[uint(FS_HZB_OFF_CGRAD) + dO + i] = floatBitsToUint(grad);
         }
         memoryBarrierBuffer(); barrier();

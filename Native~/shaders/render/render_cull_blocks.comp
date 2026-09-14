@@ -1,0 +1,38 @@
+#version 450
+// Cull 3/4: ONE indirect dispatch, one 64-lane workgroup per emitted leaf block: lane 0 reserves the block's
+// records with a single atomic, lanes copy the immutable render surfels as world-space draw records
+// (transient evidence -> FS_DRAW_FLAG_TRANSIENT). Records beyond the opaque budget are dropped and counted.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_FRAME
+#define FS_USE_RPAGES
+#define FS_USE_RBLOCKS_R
+#define FS_USE_RNODES_R
+#define FS_USE_WORK
+#define FS_USE_DRAW
+#include "fs_render_common.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; } pc;
+shared uint sBase; shared uint sCount;
+void main() {
+    uint g = gl_WorkGroupID.x, lane = gl_LocalInvocationID.x;
+    uint total = work[FS_WK_BLOCKS];
+    if (lane == 0u) {
+        sCount = 0u; sBase = 0u;
+        if (g < total && g < uint(FS_CULL_BLOCK_LIST_CAP)) {
+            uint node = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 0u];
+            sCount = fsGet_FsClusterNode_leafSurfelCount(rnodes[node].node);
+            sBase = atomicAdd(work[FS_WK_OPAQUE], sCount);
+        }
+    }
+    barrier();
+    uint count = sCount, base = sBase;
+    if (count == 0u || lane >= count) return;
+    uint node = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 0u], slot = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 1u];
+    uint dst = base + lane;
+    if (dst >= pc.opaqueCapacity) return;                                       // over budget: counted by the compact pass
+    FsCullFrame F = frames[pc.frameSlot];
+    FsPageDesc d = pages[slot];
+    mat4 A = F.anchors[min(uint(max(d.key.anchorId, 0)), uint(FS_MAX_ANCHORS - 1))];
+    uint block = rnodes[node].node.firstChildOrSurfel;
+    draws[dst] = fsDrawRecordOf(rsurfels[block * uint(FS_RENDER_BLOCK_SURFELS) + lane], A, fsPageOrigin3(d.key));
+}

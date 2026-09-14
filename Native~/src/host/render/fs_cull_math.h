@@ -1,6 +1,6 @@
 // Pure cull math (contract §13.4/§13.5): column-major 4x4 helpers, frustum planes, AABB tests,
 // foveated screen-error threshold and GPU-headroom bias. Byte-for-byte twins of the GLSL in
-// Native~/shaders/render/render_cull_nodes.comp; the host tests pin these. No Vulkan.
+// Native~/shaders/render/render_cull_expand.comp; the host tests pin these. No Vulkan.
 #pragma once
 #include <stdint.h>
 #include <math.h>

@@ -1,11 +1,15 @@
-// FinalScan render module (C05/C05b cull, contract §13.1, §13.4, §13.5): the frame-begin hook records,
-// into the executor's frame command buffer, at most 3 HZB dispatches (only when a new depth prior arrived)
-// and 4 cull dispatches (pages -> nodes -> emit -> compact+finish), all page/node/leaf work indirect and
-// GPU-generated; no CPU decisions between dispatches, no readback. The cut is recomputed at most every
-// 2 frames or when the head moved beyond the prediction margin; otherwise the previous draw list and args
-// stay (the Unity draw reads them unchanged). Outputs (Unity-final layout): draw records [opaque leaf
+// FinalScan render module (C09R-D; contract §13.1, §13.4, §13.5): the frame-begin hook records, into the
+// executor's frame command buffer, at most 3 HZB dispatches (only when a new depth prior arrived) and the
+// bounded hierarchical cut: pages -> FS_CULL_LEVELS frontier expansions (one indirect dispatch per level,
+// ping-pong queues) -> leaf blocks -> compact+finish. Every node visited belongs to the frontier of a visible
+// page: hidden or coarse branches never enumerate their subtree. The world's published render roots
+// (FsPageDesc.renderRoot, graphics stream) are the only entry; the render tree/blocks are immutable COW pools.
+// No CPU decisions between dispatches, no readback; the cut is recomputed at most every 2 frames or when the
+// head moved beyond the prediction margin. Outputs (Unity-final layout): draw records [opaque leaf
 // surfels][aggregates] contiguous; args = two FsIndirectDrawArgs {24, opaque*2, 0, 0} {6, agg*2, 0, 0}.
-// Render modes (§13.5): SCAN (band occlusion + LOD), XRAY (no depth-prior cull), PLAN (no backface cone).
+// Every dispatch group is bracketed by a frame-stage timestamp pair (§15.8 receipts: hzb.scatter/combine/mips,
+// cull.pages/expand/blocks/compact). Render modes (§13.5): SCAN (band occlusion + LOD, HZB fails open), XRAY
+// (no depth-prior cull), PLAN (no backface cone).
 #include "fs_render.h"
 #include "fs_render_kernels.h"
 #include "fs_cull_math.h"
@@ -16,6 +20,8 @@
 #include <math.h>
 #include <mutex>
 #include <string.h>
+#include <stdio.h>
+#include <algorithm>
 
 #define FS_API extern "C" __attribute__((visibility("default")))
 
@@ -63,13 +69,18 @@ public:
         ok &= CreateBuffer(fallbackArgs_, 2 * sizeof(FsIndirectDrawArgs), use | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, "render.fallbackArgs");
         if (!ok || !frameRing_.mapped || !work_.mapped || !statsRing_.mapped) { LogError("FS-RENDER buffer creation failed"); Destroy(); return; }
         uint32_t* w = (uint32_t*)work_.mapped; memset(w, 0, WorkWords() * 4);
-        w[4] = FS_CULL_NODE_GROUPS; w[5] = 0; w[6] = 1; w[8] = 0; w[9] = 1; w[10] = 1; w[12] = 1; w[13] = 1; w[14] = 1;
+        InitWorkArgs(w);
         memset(statsRing_.mapped, 0, FS_CULL_FRAME_RING * FS_CULL_STATS_WORDS * 4);
         memset(fallbackArgs_.mapped, 0, 2 * sizeof(FsIndirectDrawArgs));
         deviceUp_ = true; drawImported_ = false; lastCutFrame_ = 0; hzbBuiltVersion_ = 0;
         EnsureBound();
     }
-    static uint32_t WorkWords() { return 32 + 4 * FS_MAX_SLOTS + 4 * FS_CULL_LEAF_LIST_CAPACITY; }
+    static uint32_t WorkWords() { return WK_WORDS; }
+    static void InitWorkArgs(uint32_t* w) {                      // twin of the compact pass's reset
+        for (uint32_t p = 0; p < 2; ++p) { w[WK_EXPAND_ARGS + 4 * p + 0] = 0; w[WK_EXPAND_ARGS + 4 * p + 1] = 1; w[WK_EXPAND_ARGS + 4 * p + 2] = 1; w[WK_EXPAND_ARGS + 4 * p + 3] = 0; }
+        w[WK_EMIT_ARGS + 0] = 0; w[WK_EMIT_ARGS + 1] = 1; w[WK_EMIT_ARGS + 2] = 1; w[WK_EMIT_ARGS + 3] = 0;
+        w[WK_COMPACT_ARGS + 0] = 1; w[WK_COMPACT_ARGS + 1] = 1; w[WK_COMPACT_ARGS + 2] = 1; w[WK_COMPACT_ARGS + 3] = 0;
+    }
     static uint32_t HzbWords() { return 3 * FS_HZB_SIZE * FS_HZB_SIZE + 2 * HzbTotalTexels(); }
     void Destroy() {
         Buffer* all[] = {&frameRing_, &work_, &hzb_, &aggScratch_, &statsRing_, &fallbackDraw_, &fallbackArgs_};
@@ -101,17 +112,16 @@ public:
             if (binding == RB_ARGS) return ArgsBuffer();
             if (binding == RB_STATS) return &statsRing_;
             break;
-        case R_CULL_NODES:
+        case R_CULL_EXPAND:
             if (binding == RB_DRAW) return &aggScratch_;
             break;
         default: break;
         }
         switch (binding) {
         case RB_FRAME: return &frameRing_;
-        case RB_SLOTS: return wb ? &wb->slotTable : nullptr;
-        case RB_SURFELS: return wb ? &wb->surfels : nullptr;
-        case RB_NODES: return wb ? &wb->nodes : nullptr;
-        case RB_ERRORS: return wb ? &wb->errors : nullptr;
+        case RB_PAGES: return wb ? &wb->pages : nullptr;
+        case RB_RBLOCKS: return wb ? &wb->rblocks : nullptr;
+        case RB_RNODES: return wb ? &wb->render : nullptr;
         case RB_WORK: return &work_;
         case RB_DRAW: return DrawBuffer();
         case RB_HZB: return &hzb_;
@@ -155,7 +165,7 @@ public:
             if (ImportUnityBuffer(regDraw_, d) && ImportUnityBuffer(regArgs_, a)) {
                 unityDraw_ = d; unityArgs_ = a; drawImported_ = true; importedDrawVersion_ = regDrawVersion_;
                 UpdateDrawLayout();
-                BindBuffer(pipes_[R_CULL_EMIT], RB_DRAW, unityDraw_); BindBuffer(pipes_[R_CULL_COMPACT], RB_DRAW, unityDraw_); BindBuffer(pipes_[R_CULL_COMPACT], RB_ARGS, unityArgs_);
+                BindBuffer(pipes_[R_CULL_BLOCKS], RB_DRAW, unityDraw_); BindBuffer(pipes_[R_CULL_COMPACT], RB_DRAW, unityDraw_); BindBuffer(pipes_[R_CULL_COMPACT], RB_ARGS, unityArgs_);
                 Log("FS-RENDER Unity draw buffers imported (%u records, opaque %u + agg %u)", (uint32_t)(unityDrawBytes_ / 32), opaqueCapacity_, aggCapacity_);
             } else LogError("FS-RENDER ImportUnityBuffer failed; native fallback buffers stay bound");
             cmd = FrameCommandBuffer();
@@ -185,29 +195,39 @@ public:
         uint32_t slot = frame % FS_CULL_FRAME_RING;
         CullFrame& F = ((CullFrame*)frameRing_.mapped)[slot];
         FillFrame(F, frame, !moved && !forceRecut_, prevOk, envOk);
-        if (hzbWanted) { uint32_t st = FrameStageBegin(cmd, "render.hzb"); RecordHzb(cmd, slot); FrameStageEnd(cmd, st); }
-        { uint32_t st = FrameStageBegin(cmd, "render.cull"); RecordCull(cmd, slot); FrameStageEnd(cmd, st); }
+        if (hzbWanted) RecordHzb(cmd, slot);
+        RecordCull(cmd, slot);
         recuts_++;
         lastCutFrame_ = frame; memcpy(lastHead_, head, sizeof lastHead_); memcpy(lastFwd_, fwd, sizeof lastFwd_); lastAnchorSeq_ = anchorSeq_; forceRecut_ = false;
         if (hzbWanted) hzbBuiltVersion_ = DepthVersion();
     }
     uint64_t DepthVersion() const { return prev_.version * 1000003ull + env_.version; }
-    // Device timestamps of the frame-hook stages (§15.8): the receipt behind FsRender_GetLastCullStats.cullGpuUs.
+    // Device timestamps of the frame-hook stages (§15.8): the receipt behind FsRender_GetLastCullStats.cullGpuUs and
+    // the per-dispatch breakdown in the receipt log / telemetry (the 075e371 3 fps defect hid inside one "render.hzb" bracket).
+    enum Stage : uint32_t { S_HZB_SCATTER = 0, S_HZB_COMBINE, S_HZB_MIPS, S_CULL_PAGES, S_CULL_EXPAND, S_CULL_BLOCKS, S_CULL_COMPACT, S_COUNT };
+    static constexpr const char* kStageNames[S_COUNT] = {"render.hzb.scatter", "render.hzb.combine", "render.hzb.mips", "render.cull.pages", "render.cull.expand", "render.cull.blocks", "render.cull.compact"};
+    struct StageStat { int64_t lastUs = 0, totalUs = 0, maxUs = 0; uint64_t count = 0; };
     void OnStage(const char* name, uint64_t start, uint64_t end, uint32_t frame) {
         std::lock_guard<std::recursive_mutex> g(m_);
         const int64_t us = end > start ? (int64_t)((end - start) / 1000ull) : 0;
-        if (std::strcmp(name, "render.cull") == 0) {
-            lastCullUs_ = us; cullUsTotal_ += us; cullStages_++; lastStageFrame_ = frame;
+        uint32_t k = S_COUNT;
+        for (uint32_t i = 0; i < S_COUNT; ++i) if (std::strcmp(name, kStageNames[i]) == 0) { k = i; break; }
+        if (k == S_COUNT) return;
+        StageStat& st = stages_[k]; st.lastUs = us; st.totalUs += us; st.count++; if (us > st.maxUs) st.maxUs = us;
+        if (k == S_CULL_COMPACT) {                                   // last stage of a cut: fold the cut receipt
+            lastCullUs_ = stages_[S_CULL_PAGES].lastUs + stages_[S_CULL_EXPAND].lastUs + stages_[S_CULL_BLOCKS].lastUs + stages_[S_CULL_COMPACT].lastUs;
+            cullUsTotal_ += lastCullUs_; cullStages_++; lastStageFrame_ = frame;
             if (cullStages_ <= 3 || (cullStages_ % 250) == 0) {
-                const uint32_t* st = statsRing_.mapped ? (const uint32_t*)statsRing_.mapped + (frame % FS_CULL_FRAME_RING) * FS_CULL_STATS_WORDS : nullptr;
-                Log("FS-RENDER receipt: cull %lld us (avg %lld) hzb %lld us (avg %lld, %llu builds) frame %u tested=%u culled=%u nodes=%u frustum=%u cone=%u hzbRej=%u inBand=%u leaves=%u agg=%u records=%u dropped=%u hzbTiles=%u mode=%d",
-                    (long long)us, (long long)(cullUsTotal_ / cullStages_), (long long)lastHzbUs_, (long long)(hzbStages_ ? hzbUsTotal_ / (int64_t)hzbStages_ : 0), (unsigned long long)hzbStages_, frame,
-                    st ? st[FS_CSTAT_PAGES_TESTED] : 0, st ? st[FS_CSTAT_PAGES_CULLED] : 0, st ? st[FS_CSTAT_NODES_VISITED] : 0, st ? st[FS_CSTAT_NODES_FRUSTUM] : 0, st ? st[FS_CSTAT_NODES_CONE] : 0,
-                    st ? st[FS_CSTAT_NODES_HZB] : 0, st ? st[FS_CSTAT_NODES_IN_BAND] : 0, st ? st[FS_CSTAT_LEAVES] : 0, st ? st[FS_CSTAT_AGGREGATES] : 0, st ? st[FS_CSTAT_DRAW_RECORDS] : 0,
-                    st ? st[FS_CSTAT_BUDGET_DROPPED] : 0, st ? st[FS_CSTAT_HZB_TILES] : 0, renderMode_);
+                const uint32_t* c = statsRing_.mapped ? (const uint32_t*)statsRing_.mapped + (frame % FS_CULL_FRAME_RING) * FS_CULL_STATS_WORDS : nullptr;
+                Log("FS-RENDER receipt: cull %lld us (avg %lld; pages %lld expand %lld blocks %lld compact %lld) hzb %lld us (scatter %lld combine %lld mips %lld, %llu builds) frame %u tested=%u culled=%u reused=%u roots=%u frontier=%u frustum=%u cone=%u hzbRej=%u inBand=%u uncertain=%u blocks=%u agg=%u records=%u represented=%u dropped=%u overflow=%u hzbTiles=%u mode=%d",
+                    (long long)lastCullUs_, (long long)(cullUsTotal_ / (int64_t)cullStages_), (long long)stages_[S_CULL_PAGES].lastUs, (long long)stages_[S_CULL_EXPAND].lastUs, (long long)stages_[S_CULL_BLOCKS].lastUs, (long long)stages_[S_CULL_COMPACT].lastUs,
+                    (long long)lastHzbUs_, (long long)stages_[S_HZB_SCATTER].lastUs, (long long)stages_[S_HZB_COMBINE].lastUs, (long long)stages_[S_HZB_MIPS].lastUs, (unsigned long long)stages_[S_HZB_MIPS].count, frame,
+                    c ? c[FS_CSTAT_PAGES_TESTED] : 0, c ? c[FS_CSTAT_PAGES_CULLED] : 0, c ? c[FS_CSTAT_PAGES_REUSED] : 0, c ? c[FS_CSTAT_ROOTS_VISITED] : 0, c ? c[FS_CSTAT_FRONTIER_NODES] : 0,
+                    c ? c[FS_CSTAT_NODES_FRUSTUM] : 0, c ? c[FS_CSTAT_NODES_CONE] : 0, c ? c[FS_CSTAT_NODES_HZB] : 0, c ? c[FS_CSTAT_NODES_IN_BAND] : 0, c ? c[FS_CSTAT_HZB_UNCERTAIN] : 0,
+                    c ? c[FS_CSTAT_BLOCKS] : 0, c ? c[FS_CSTAT_AGGREGATES] : 0, c ? c[FS_CSTAT_DRAW_RECORDS] : 0, c ? c[FS_CSTAT_REPRESENTED] : 0, c ? c[FS_CSTAT_BUDGET_DROPPED] : 0,
+                    c ? c[FS_CSTAT_FRONTIER_OVERFLOW] : 0, c ? c[FS_CSTAT_HZB_TILES] : 0, renderMode_);
             }
-        }
-        else if (std::strcmp(name, "render.hzb") == 0) { lastHzbUs_ = us; hzbUsTotal_ += us; hzbStages_++; }
+        } else if (k == S_HZB_MIPS) { lastHzbUs_ = stages_[S_HZB_SCATTER].lastUs + stages_[S_HZB_COMBINE].lastUs + stages_[S_HZB_MIPS].lastUs; hzbUsTotal_ += lastHzbUs_; hzbStages_++; }
     }
     void FillFrame(CullFrame& F, uint32_t frame, bool reuse, bool prevOk, bool envOk) {
         memset(&F, 0, sizeof F);
@@ -249,6 +269,18 @@ public:
         mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
     }
+    // Resets the consumed frontier level's indirect args ({0,1,1,0}) between two expansions: level L read parity p,
+    // level L+1 writes parity p. A 16-byte transfer write ordered after the reads and before the next dispatch.
+    void ResetFrontierArgs(VkCommandBuffer cmd, uint32_t parity) {
+        static const uint32_t zero[4] = {0, 1, 1, 0};
+        VkMemoryBarrier toTransfer = {}; toTransfer.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        toTransfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT; toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &toTransfer, 0, nullptr, 0, nullptr);
+        vkCmdUpdateBuffer(cmd, work_.buffer, (VkDeviceSize)(WK_EXPAND_ARGS + 4 * parity) * 4, sizeof zero, zero);
+        VkMemoryBarrier fromTransfer = {}; fromTransfer.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        fromTransfer.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; fromTransfer.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1, &fromTransfer, 0, nullptr, 0, nullptr);
+    }
     void Bind(VkCommandBuffer cmd, uint32_t k, const void* push, uint32_t pushBytes) {
         Pipeline& p = pipes_[k];
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p.pipeline);
@@ -259,17 +291,52 @@ public:
         PushFrame pf{slot};
         uint32_t bw = std::max(prev_.valid ? prev_.width : 0u, env_.valid ? env_.width : 0u), bh = std::max(prev_.valid ? prev_.height : 0u, env_.valid ? env_.height : 0u);
         uint32_t gx = ((bw + FS_HZB_SRC_BLOCK - 1) / FS_HZB_SRC_BLOCK + 7) / 8, gy = ((bh + FS_HZB_SRC_BLOCK - 1) / FS_HZB_SRC_BLOCK + 7) / 8;
+        uint32_t st = FrameStageBegin(cmd, kStageNames[S_HZB_SCATTER]);
         Bind(cmd, R_HZB_SCATTER, &pf, sizeof pf); vkCmdDispatch(cmd, std::max(gx, 1u), std::max(gy, 1u), 4); Barrier(cmd);
+        FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_HZB_COMBINE]);
         Bind(cmd, R_HZB_COMBINE, nullptr, 0); vkCmdDispatch(cmd, FS_HZB_SIZE / 16, FS_HZB_SIZE / 16, 1); Barrier(cmd);
+        FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_HZB_MIPS]);
         Bind(cmd, R_HZB_MIPS, nullptr, 0); vkCmdDispatch(cmd, 1, 1, 1); Barrier(cmd);
+        FrameStageEnd(cmd, st);
     }
     void RecordCull(VkCommandBuffer cmd, uint32_t slot) {
-        uint32_t slots = world::SlotCount();
-        PushPages pp{slot, slots}; PushCull pc{slot, aggBase_, aggCapacity_, opaqueCapacity_};
-        Bind(cmd, R_CULL_PAGES, &pp, sizeof pp); vkCmdDispatch(cmd, (slots + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, 1); Barrier(cmd);
-        Bind(cmd, R_CULL_NODES, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, 16); Barrier(cmd);
-        Bind(cmd, R_CULL_EMIT, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, 32); Barrier(cmd);
-        Bind(cmd, R_CULL_COMPACT, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, 48); Barrier(cmd);
+        const uint32_t pages = world::PageCount();
+        PushPages pp{slot, pages};
+        uint32_t st = FrameStageBegin(cmd, kStageNames[S_CULL_PAGES]);
+        Bind(cmd, R_CULL_PAGES, &pp, sizeof pp); vkCmdDispatch(cmd, std::max(1u, (pages + FS_WG_SMALL - 1) / FS_WG_SMALL), 1, 1); Barrier(cmd);
+        FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_CULL_EXPAND]);
+        for (uint32_t level = 0; level < FS_CULL_LEVELS; ++level) {          // bounded frontier walk: root .. leaf blocks
+            const uint32_t parity = level & 1u;
+            PushCull pc{slot, aggBase_, aggCapacity_, opaqueCapacity_, parity};
+            Bind(cmd, R_CULL_EXPAND, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, (VkDeviceSize)(WK_EXPAND_ARGS + 4 * parity) * 4); Barrier(cmd);
+            ResetFrontierArgs(cmd, parity);
+        }
+        FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_CULL_BLOCKS]);
+        PushCull pc{slot, aggBase_, aggCapacity_, opaqueCapacity_, 0};
+        Bind(cmd, R_CULL_BLOCKS, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, (VkDeviceSize)WK_EMIT_ARGS * 4); Barrier(cmd);
+        FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_CULL_COMPACT]);
+        Bind(cmd, R_CULL_COMPACT, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, (VkDeviceSize)WK_COMPACT_ARGS * 4); Barrier(cmd);
+        FrameStageEnd(cmd, st);
+    }
+    // Telemetry (C09R §31): per-stage device times of the last cut and the cut statistics the GPU wrote.
+    int32_t TelemetryJson(char* out, int32_t cap) {
+        std::lock_guard<std::recursive_mutex> g(m_);
+        char buf[2048]; int n = 0;
+        n += snprintf(buf + n, sizeof buf - n, "{\"recuts\":%llu,\"cuts\":%llu,\"hzbBuilds\":%llu,\"lastCullUs\":%lld,\"lastHzbUs\":%lld,\"stages\":{",
+                      (unsigned long long)recuts_, (unsigned long long)cullStages_, (unsigned long long)hzbStages_, (long long)lastCullUs_, (long long)lastHzbUs_);
+        for (uint32_t k = 0; k < S_COUNT && n < (int)sizeof buf; ++k)
+            n += snprintf(buf + n, sizeof buf - n, "%s\"%s\":{\"lastUs\":%lld,\"avgUs\":%lld,\"maxUs\":%lld,\"count\":%llu}", k ? "," : "", kStageNames[k] + 7,
+                          (long long)stages_[k].lastUs, (long long)(stages_[k].count ? stages_[k].totalUs / (int64_t)stages_[k].count : 0), (long long)stages_[k].maxUs, (unsigned long long)stages_[k].count);
+        const uint32_t* c = nullptr; uint32_t bestFrame = 0;
+        if (statsRing_.mapped) { const uint32_t* sr = (const uint32_t*)statsRing_.mapped; for (uint32_t i = 0; i < FS_CULL_FRAME_RING; ++i) { uint32_t f = __atomic_load_n(&sr[i * FS_CULL_STATS_WORDS + FS_CSTAT_FRAME], __ATOMIC_ACQUIRE); if (f && f >= bestFrame) { bestFrame = f; c = sr + i * FS_CULL_STATS_WORDS; } } }
+        n += snprintf(buf + n, sizeof buf - n, "},\"cut\":{\"frame\":%u,\"pagesTested\":%u,\"pagesCulled\":%u,\"frontierNodes\":%u,\"hzbRejected\":%u,\"hzbUncertain\":%u,\"blocks\":%u,\"aggregates\":%u,\"drawRecords\":%u,\"represented\":%u,\"dropped\":%u,\"frontierOverflow\":%u,\"hzbTiles\":%u},\"mode\":%d,\"opaqueCapacity\":%u,\"aggCapacity\":%u}",
+                      c ? c[FS_CSTAT_FRAME] : 0, c ? c[FS_CSTAT_PAGES_TESTED] : 0, c ? c[FS_CSTAT_PAGES_CULLED] : 0, c ? c[FS_CSTAT_FRONTIER_NODES] : 0, c ? c[FS_CSTAT_NODES_HZB] : 0, c ? c[FS_CSTAT_HZB_UNCERTAIN] : 0,
+                      c ? c[FS_CSTAT_BLOCKS] : 0, c ? c[FS_CSTAT_AGGREGATES] : 0, c ? c[FS_CSTAT_DRAW_RECORDS] : 0, c ? c[FS_CSTAT_REPRESENTED] : 0, c ? c[FS_CSTAT_BUDGET_DROPPED] : 0, c ? c[FS_CSTAT_FRONTIER_OVERFLOW] : 0, c ? c[FS_CSTAT_HZB_TILES] : 0,
+                      renderMode_, opaqueCapacity_, aggCapacity_);
+        if (n < 0) return 3;
+        if (!out || cap <= 0) return n + 1;
+        int copy = std::min(n, cap - 1); memcpy(out, buf, copy); out[copy] = 0;
+        return n + 1;
     }
 
     // ---- exports ------------------------------------------------------------------------------------
@@ -345,6 +412,7 @@ private:
     float fovealPx_ = 1.f, peripheralPx_ = 3.5f, marginDeg_ = 5.f; int32_t headroomUs_ = 0; int32_t renderMode_ = FS_RENDER_MODE_SCAN;
     uint32_t lastCutFrame_ = 0, lastStatsFrame_ = 0; float lastHead_[3] = {0, 0, 0}, lastFwd_[3] = {0, 0, -1}; uint64_t anchorSeq_ = 0, lastAnchorSeq_ = 0;
     int64_t lastCullUs_ = 0, lastHzbUs_ = 0, cullUsTotal_ = 0, hzbUsTotal_ = 0; uint64_t cullStages_ = 0, hzbStages_ = 0, recuts_ = 0; uint32_t lastStageFrame_ = 0;
+    StageStat stages_[S_COUNT];
 };
 
 Render& R() { static Render r; return r; }
@@ -372,4 +440,5 @@ FS_API int32_t FsRender_SetEnvDepth(void* unityDepthTextureArray, uint32_t width
 FS_API int32_t FsRender_SetLodPolicy(float fovealErrorPx, float peripheralErrorPx, float predictionMarginDeg, uint32_t screenWorkBudget) { EnsureInit(); return R().SetLodPolicy(fovealErrorPx, peripheralErrorPx, predictionMarginDeg, screenWorkBudget); }
 FS_API int32_t FsRender_SetGpuHeadroomUs(int32_t headroomUs) { EnsureInit(); return R().SetHeadroom(headroomUs); }
 FS_API int32_t FsRender_SetMode(int32_t mode) { EnsureInit(); return R().SetMode(mode); }
+FS_API int32_t FsRender_GetTelemetryJson(char* out, int32_t capacity) { EnsureInit(); return R().TelemetryJson(out, capacity); }
 FS_API int32_t FsRender_GetDrawLayout(uint32_t* opaqueCapacity, uint32_t* aggregateBase, uint32_t* aggregateCapacity) { EnsureInit(); return R().GetDrawLayout(opaqueCapacity, aggregateBase, aggregateCapacity); }

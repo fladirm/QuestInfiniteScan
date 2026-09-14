@@ -40,46 +40,53 @@ struct FsCullFrame {
 #ifdef FS_USE_FRAME
 layout(std430, set = 0, binding = FS_RB_FRAME) readonly buffer FrameBlock { FsCullFrame frames[FS_CULL_FRAME_RING]; };
 #endif
-#ifdef FS_USE_RSLOTS
-layout(std430, set = 0, binding = FS_RB_SLOTS) readonly buffer SlotBlock {
-    FsSlotLayout layouts[FS_MAX_SLOTS];
-    uint         roots[FS_MAX_SLOTS];
-    FsPageHeader headers[FS_MAX_SLOTS];
-};
+#ifdef FS_USE_RPAGES
+layout(std430, set = 0, binding = FS_RB_SLOTS) readonly buffer PageBlockR { FsPageDesc pages[FS_MAX_PAGES]; uint slabDirR[FS_MAX_PAGES * FS_PAGE_MAX_SLABS]; };
 #endif
-#ifdef FS_USE_RSURFELS
-layout(std430, set = 0, binding = FS_RB_SURFELS) readonly buffer SurfelBlock { FsSurfel surfels[]; };
+#ifdef FS_USE_RBLOCKS_R
+layout(std430, set = 0, binding = FS_RB_SURFELS) readonly buffer RenderSurfelBlockR { FsSurfel rsurfels[]; };   // block b = [b*64, b*64+64)
 #endif
-#ifdef FS_USE_RNODES
-layout(std430, set = 0, binding = FS_RB_NODES) readonly buffer NodeBlock { FsClusterNode nodes[]; };
+#ifdef FS_USE_RNODES_R
+layout(std430, set = 0, binding = FS_RB_NODES) readonly buffer RenderNodeBlockR { FsRenderNode rnodes[]; };
 #endif
-#ifdef FS_USE_RERRORS
-layout(std430, set = 0, binding = FS_RB_ERRORS) readonly buffer ErrorBlock { FsClusterError errors[]; };
-#endif
-// ---- work buffer (u32 words, host-visible UMA, STORAGE|INDIRECT): counters, indirect args, stats,
-// visible page list, temporal page cache, leaf-range list. Reset by the emit pass's last workgroup.
+// ---- work buffer (u32 words, host-visible UMA, STORAGE|INDIRECT): counters, indirect args, stats, page cache,
+// frontier queues (ping-pong, bounded), emitted block list. Reset by the compact pass's last workgroup.
 #define FS_WK_OPAQUE       0
 #define FS_WK_AGG          1
-#define FS_WK_FINISHED     2     // compact pass completion counter (last workgroup writes args/stats/reset)
-#define FS_WK_NODE_ARGS    4     // {FS_CULL_NODE_GROUPS, visiblePages, 1, 0}: byte offset 16 (y = visible page count)
-#define FS_WK_EMIT_ARGS    8     // {leafRanges, 1, 1, 0}: byte offset 32 (x = leaf range count)
-#define FS_WK_COMPACT_ARGS 12    // {ceil(aggregates/64) >= 1, 1, 1, 0}: byte offset 48
-#define FS_WK_STAT         16    // FS_CSTAT_* words live at FS_WK_STAT + k
-#define FS_WK_VIS_SLOT     32
-#define FS_WK_VIS_ITEMS    (FS_WK_VIS_SLOT + FS_MAX_SLOTS)
-#define FS_WK_CACHE_ROOT   (FS_WK_VIS_ITEMS + FS_MAX_SLOTS)
-#define FS_WK_CACHE_STATE  (FS_WK_CACHE_ROOT + FS_MAX_SLOTS)
-#define FS_WK_LEAF_LIST    (FS_WK_CACHE_STATE + FS_MAX_SLOTS)   // uvec4 {firstSurfel, count, slot, flags} x capacity
-#define FS_WK_WORDS        (FS_WK_LEAF_LIST + 4 * FS_CULL_LEAF_LIST_CAPACITY)
-#define FS_WK_RAW_BIT      0x80000000u
+#define FS_WK_FINISHED     2
+#define FS_WK_BLOCKS       3     // emitted leaf blocks (uvec2 {node, slot})
+#define FS_WK_EXPAND_ARGS  4     // 2 x {groups, 1, 1, count}: frontier level args (ping-pong by level parity), byte offsets 16 / 32
+#define FS_WK_EMIT_ARGS    12    // {blocks, 1, 1, 0}: byte offset 48
+#define FS_WK_COMPACT_ARGS 16    // {ceil(agg/64) >= 1, 1, 1, 0}: byte offset 64
+#define FS_WK_STAT         32    // FS_CSTAT_* words live at FS_WK_STAT + k
+#define FS_WK_CACHE_ROOT   64    // per page: last root tested
+#define FS_WK_CACHE_STATE  (FS_WK_CACHE_ROOT + FS_MAX_PAGES)
+#define FS_WK_FRONTIER     (FS_WK_CACHE_STATE + FS_MAX_PAGES)          // 2 x FS_CULL_FRONTIER_CAP x uvec2 {node, slot}
+#define FS_WK_BLOCK_LIST   (FS_WK_FRONTIER + 2 * 2 * FS_CULL_FRONTIER_CAP) // FS_CULL_BLOCK_LIST_CAP x uvec2 {node, slot}
+#define FS_WK_WORDS        (FS_WK_BLOCK_LIST + 2 * FS_CULL_BLOCK_LIST_CAP)
 #define FS_PAGE_STATE_OUTSIDE 1u
 #define FS_PAGE_STATE_VISIBLE 2u
+uint fsFrontierWord(uint parity, uint i) { return uint(FS_WK_FRONTIER) + (parity * uint(FS_CULL_FRONTIER_CAP) + i) * 2u; }
 #ifdef FS_USE_WORK
 layout(std430, set = 0, binding = FS_RB_WORK) buffer WorkBlock { uint work[]; };
 #endif
 #ifdef FS_USE_DRAW
 layout(std430, set = 0, binding = FS_RB_DRAW) writeonly buffer DrawBlock { FsDrawRecord draws[]; };
 #endif
+// Emits one page-local render surfel copy as a world-space draw record.
+FsDrawRecord fsDrawRecordOf(FsSurfel s, mat4 A, vec3 origin) {
+    FsDrawRecord r;
+    uint flags = fsGet_FsSurfel_evidenceFlags(s);
+    vec3 w = (A * vec4(origin + fsSurfelLocalPos(s), 1.0)).xyz;
+    vec3 n = normalize(mat3(A) * fsSurfelNormal(s));
+    r.cx = w.x; r.cy = w.y; r.cz = w.z;
+    r.normalOct32 = fsEncodeOct32(n);
+    r.tangentAndRadii = fsGet_FsSurfel_tangentAngle(s) | (fsRadius8FromLog16(fsGet_FsSurfel_radiusMajor(s)) << 16) | (fsRadius8FromLog16(fsGet_FsSurfel_radiusMinor(s)) << 24);
+    r.colorOrHandle = (s.appearanceHandle & 0x00FFFFFFu) | 0xFF000000u;
+    r.surfaceId = s.surfaceId;
+    r.flags = ((flags & FS_FLAG_DETAIL) != 0u ? 1u : 0u) | ((flags & FS_FLAG_TRANSIENT) != 0u ? uint(FS_DRAW_FLAG_TRANSIENT) : 0u);
+    return r;
+}
 // ---- HZB buffer (u32 words: float bits; 0 = no occluder) -----------------------------------------------
 #define FS_HZB_L0_TEXELS   (FS_HZB_SIZE * FS_HZB_SIZE)
 #define FS_HZB_TOTAL       87381   // 256^2 + 128^2 + ... + 1 (twin: HzbTotalTexels)
@@ -119,10 +126,12 @@ float fsFoveatedThresholdPx(float fovealPx, float peripheralPx, float eccDeg, fl
 float fsProjectedPx(float diameterM, float depthM, float focalPx) { return diameterM * focalPx / max(depthM, 0.05); }
 float fsEccentricityDeg(vec3 fwd, vec3 dir) { float l = length(dir); if (l < 1e-9) return 0.0; return degrees(acos(clamp(dot(fwd, dir) / l, -1.0, 1.0))); }
 float fsHzbMargin(float sigmaM, float gradM) { return max(sigmaM, FS_HZB_MARGIN_MIN_M) + FS_HZB_GRAD_K * abs(gradM); }
-// 0 keep, 1 keep-in-band, 2 reject (twin: HzbTest)
-uint fsHzbTest(float nearestDepth, float occ, float sigmaM, float gradM, uint mode) {
+// 0 keep, 1 keep-in-band, 2 reject, 3 keep-uncertain (twin: HzbTest). Fails open: no occluder, an uncertain
+// tile (uncertain flag from the combine pass) or a disagreement between the sources keeps the node.
+uint fsHzbTest(float nearestDepth, float occ, bool uncertain, float sigmaM, float gradM, uint mode) {
     if (mode == uint(FS_RENDER_MODE_XRAY)) return 0u;
     if (occ <= 0.0) return 0u;
+    if (uncertain) return 3u;
     float margin = fsHzbMargin(sigmaM, gradM);
     if (nearestDepth > occ + margin) return 2u;
     if (nearestDepth > occ) return 1u;
