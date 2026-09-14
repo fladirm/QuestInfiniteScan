@@ -272,6 +272,7 @@ namespace FinalScan.Host
                 Debug.Log($"[FinalScan] host status {_lastLoggedStatus} -> {_status}");
                 _lastLoggedStatus = _status;
             }
+            PollScheduledReset();
             if (_status == FinalScanHostNative.HostStatus.Ready)
             {
                 if (enableSyntheticWorld != 0 && syntheticKind >= 0 && !_syntheticRequested)
@@ -370,6 +371,19 @@ namespace FinalScan.Host
                 _modeSent = false;
             }
             SpinTestRequestedByProp = AndroidSystemProps.IsTruthy(AndroidSystemProps.Get(AndroidSystemProps.SpinTestProp));
+            if (_resetAtSec < 0f && float.TryParse(AndroidSystemProps.Get(AndroidSystemProps.ResetAtProp), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float at) && at > 0f)
+            {
+                _resetAtSec = at; Debug.Log($"[FinalScan] acceptance RESET WORLD scheduled {at:0.#} s after READY ({AndroidSystemProps.ResetAtProp})");
+            }
+        }
+        float _resetAtSec = -1f, _readyAt = -1f; bool _resetFired;
+        void PollScheduledReset()
+        {
+            if (_status != FinalScanHostNative.HostStatus.Ready) return;
+            if (_readyAt < 0f) _readyAt = Time.unscaledTime;
+            if (_resetFired || _resetAtSec <= 0f || Time.unscaledTime - _readyAt < _resetAtSec) return;
+            _resetFired = true;
+            ResetWorld();
         }
 
         void RefreshStats()

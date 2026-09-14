@@ -14,6 +14,8 @@ namespace FinalScan.Host
         public const string SpinTestProp = "debug.finalscan.spintest";
         /// <summary>Acceptance/test fixture only (C04/C07): value = synthetic kind + 1 (1 room box .. 5 dense); unset/0 = live path.</summary>
         public const string SyntheticProp = "debug.finalscan.synthetic";
+        /// <summary>Headless acceptance only (C09R §41): seconds after READY at which RESET WORLD fires once (same path as the panel button). Unset/0 = never.</summary>
+        public const string ResetAtProp = "debug.finalscan.resetat";
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         static AndroidJavaClass s_class;
