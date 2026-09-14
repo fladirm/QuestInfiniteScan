@@ -1,0 +1,30 @@
+#version 450
+// HZB 3/3: levels 2..8 of the combined occluder / gradient (2x2 max) in ONE workgroup (5461 outputs, 256
+// threads, barrier per level), then clears the three level-0 scatter regions for the next frame's scatter
+// (replaces a separate clear pass).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_HZB
+#include "fs_render_common.glsl"
+layout(local_size_x = FS_WG_SCAN) in;
+void main() {
+    uint t = gl_LocalInvocationID.x;
+    for (uint lv = 2u; lv < uint(FS_HZB_LEVELS); ++lv) {
+        uint size = uint(FS_HZB_SIZE) >> lv, srcSize = size * 2u;
+        uint so = fsHzbLevelOffset(lv - 1u), dO = fsHzbLevelOffset(lv);
+        uint n = size * size;
+        for (uint i = t; i < n; i += uint(FS_WG_SCAN)) {
+            uint x = i % size, y = i / size;
+            float occ = 0.0, grad = 0.0;
+            for (uint dy = 0u; dy < 2u; ++dy)
+                for (uint dx = 0u; dx < 2u; ++dx) {
+                    uint si = (y * 2u + dy) * srcSize + x * 2u + dx;
+                    occ = max(occ, uintBitsToFloat(hzb[uint(FS_HZB_OFF_COMB) + so + si]));
+                    grad = max(grad, uintBitsToFloat(hzb[uint(FS_HZB_OFF_CGRAD) + so + si]));
+                }
+            hzb[uint(FS_HZB_OFF_COMB) + dO + i] = floatBitsToUint(occ);
+            hzb[uint(FS_HZB_OFF_CGRAD) + dO + i] = floatBitsToUint(grad);
+        }
+        memoryBarrierBuffer(); barrier();
+    }
+    for (uint i = t; i < 3u * uint(FS_HZB_L0_TEXELS); i += uint(FS_WG_SCAN)) hzb[i] = 0u;   // prev, env, grad regions
+}

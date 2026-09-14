@@ -1,0 +1,51 @@
+#version 450
+// Cull 3/3: ONE indirect dispatch, one 64-lane workgroup per leaf range appended by the node pass. Lane 0
+// reserves the whole range with a single atomicAdd on the opaque counter; lanes stride over the range and
+// write draw records contiguously from record 0 (transient evidence -> FS_DRAW_FLAG_TRANSIENT).
+// render_cull_compact.comp then appends the aggregates and writes the args. No CPU sync, no readback.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_FRAME
+#define FS_USE_RSLOTS
+#define FS_USE_RSURFELS
+#define FS_USE_WORK
+#define FS_USE_DRAW
+#include "fs_render_common.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; } pc;
+shared uint sBase;
+void main() {
+    uint g = gl_WorkGroupID.x, lane = gl_LocalInvocationID.x;
+    uint total = work[FS_WK_EMIT_ARGS];                                  // stable during this dispatch
+    uint first = work[FS_WK_LEAF_LIST + 4u * g + 0], count = work[FS_WK_LEAF_LIST + 4u * g + 1], slot = work[FS_WK_LEAF_LIST + 4u * g + 2];
+    if (g >= uint(FS_CULL_LEAF_LIST_CAPACITY)) count = 0u;
+    if (lane == 0u) sBase = count > 0u ? atomicAdd(work[FS_WK_OPAQUE], count) : 0u;
+    barrier();
+    uint base = sBase;
+    if (count > 0u) {
+        FsCullFrame F = frames[pc.frameSlot];
+        FsPageHeader h = headers[slot];
+        mat4 A = F.anchors[min(uint(max(h.key.anchorId, 0)), uint(FS_MAX_ANCHORS - 1))];
+        vec3 origin = fsPageOrigin3(h.key);
+        for (uint i = lane; i < count; i += uint(FS_WG_SMALL)) {           // <= FS_CULL_LEAF_LOOP_MAX / 64 iterations
+            if (i >= uint(FS_CULL_LEAF_LOOP_MAX)) break;
+            uint dst = base + i;
+            if (dst >= pc.opaqueCapacity) break;                            // over budget: counted by the compact pass
+            FsSurfel s = surfels[first + i];
+            uint flags = fsGet_FsSurfel_evidenceFlags(s);
+            FsDrawRecord r;
+            if ((flags & FS_FLAG_REMOVED) != 0u) {                           // keep the range contiguous: degenerate record
+                r.cx = 0.0; r.cy = 0.0; r.cz = 0.0; r.normalOct32 = 0u; r.tangentAndRadii = 0u; r.colorOrHandle = 0u; r.surfaceId = 0u; r.flags = 4u;
+            } else {
+                vec3 w = (A * vec4(origin + fsSurfelLocalPos(s), 1.0)).xyz;
+                vec3 n = normalize(mat3(A) * fsSurfelNormal(s));
+                r.cx = w.x; r.cy = w.y; r.cz = w.z;
+                r.normalOct32 = fsEncodeOct32(n);
+                r.tangentAndRadii = fsGet_FsSurfel_tangentAngle(s) | (fsRadius8FromLog16(fsGet_FsSurfel_radiusMajor(s)) << 16) | (fsRadius8FromLog16(fsGet_FsSurfel_radiusMinor(s)) << 24);
+                r.colorOrHandle = (s.appearanceHandle & 0x00FFFFFFu) | 0xFF000000u;
+                r.surfaceId = s.surfaceId;
+                r.flags = ((flags & FS_FLAG_DETAIL) != 0u ? 1u : 0u) | ((flags & FS_FLAG_TRANSIENT) != 0u ? uint(FS_DRAW_FLAG_TRANSIENT) : 0u);
+            }
+            draws[dst] = r;
+        }
+    }
+}

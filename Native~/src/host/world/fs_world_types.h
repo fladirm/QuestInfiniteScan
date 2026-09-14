@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string.h>
 #include "../../../include/finalscan_world_abi.h"
+#include "fs_world_params.h"
 
 namespace fs {
 namespace world {
@@ -44,7 +45,8 @@ inline void EncodeNormalOct32(const float n[3], uint16_t& oct, uint16_t& octHi) 
     }
     uint32_t ux = (uint32_t)roundf((x * 0.5f + 0.5f) * 65535.f);
     uint32_t uy = (uint32_t)roundf((y * 0.5f + 0.5f) * 65535.f);
-    if (ux > 65535u) ux = 65535u; if (uy > 65535u) uy = 65535u;
+    if (ux > 65535u) ux = 65535u;
+    if (uy > 65535u) uy = 65535u;
     oct   = (uint16_t)((ux >> 8) | ((uy >> 8) << 8));
     octHi = (uint16_t)((ux & 0xFFu) | ((uy & 0xFFu) << 8));
 }
@@ -148,6 +150,123 @@ inline FsSurfel MakeSurfel(const SurfelSample& s, const FsPageKey& page) {
     r.surfaceId = s.surfaceId;
     r.appearanceHandle = PreviewColorFromNormal(s.n);
     return r;
+}
+
+// ---- Morton key over cell coordinates (15 bits; twin: fsMorton in GLSL) --------------------------
+inline uint32_t Part1By2(uint32_t v) {                    // 5 bits -> every third bit
+    v &= 0x1Fu; v = (v | (v << 8)) & 0x100F00Fu; v = (v | (v << 4)) & 0x10C30C3u; v = (v | (v << 2)) & 0x1249249u;
+    return v;
+}
+inline uint32_t MortonOfCell(uint32_t cell) {
+    uint32_t cx = cell & 31u, cy = (cell >> 5) & 31u, cz = (cell >> 10) & 31u;
+    return Part1By2(cx) | (Part1By2(cy) << 1) | (Part1By2(cz) << 2);
+}
+inline uint32_t CellOfMorton(uint32_t m) {                // inverse (twin: fsCellOfMorton)
+    uint32_t cx = 0, cy = 0, cz = 0;
+    for (uint32_t b = 0; b < 5; ++b) { cx |= ((m >> (3 * b)) & 1u) << b; cy |= ((m >> (3 * b + 1)) & 1u) << b; cz |= ((m >> (3 * b + 2)) & 1u) << b; }
+    return cx | (cy << 5) | (cz << 10);
+}
+inline uint32_t CellOfSurfel(const FsSurfel& s) { return CellOf(DecodePos(s.px), DecodePos(s.py), DecodePos(s.pz)); }
+// Octant inside a cell (micro-bucket, 2x2x2 -> 6.25 cm), twin: fsOctant.
+inline uint32_t OctantOf(float lx, float ly, float lz) {
+    const float half = FS_PAGE_EXTENT_M * 0.5f, e = FS_CELL_EXTENT_M;
+    float fx = (lx + half) / e, fy = (ly + half) / e, fz = (lz + half) / e;
+    uint32_t ox = (fx - floorf(fx)) >= 0.5f ? 1u : 0u, oy = (fy - floorf(fy)) >= 0.5f ? 1u : 0u, oz = (fz - floorf(fz)) >= 0.5f ? 1u : 0u;
+    return ox | (oy << 1) | (oz << 2);
+}
+
+// ---- canonical tangent frame of a normal (twin: fsTangentFrame; the Unity surfel shader must build the same)
+inline void TangentFrame(const float n[3], float t1[3], float t2[3]) {
+    float up[3] = {0.f, 1.f, 0.f}; if (fabsf(n[1]) > 0.99f) { up[0] = 1.f; up[1] = 0.f; }
+    t1[0] = n[1] * up[2] - n[2] * up[1]; t1[1] = n[2] * up[0] - n[0] * up[2]; t1[2] = n[0] * up[1] - n[1] * up[0];
+    float l = sqrtf(t1[0] * t1[0] + t1[1] * t1[1] + t1[2] * t1[2]); if (l < 1e-9f) { t1[0] = 1.f; t1[1] = 0.f; t1[2] = 0.f; l = 1.f; }
+    t1[0] /= l; t1[1] /= l; t1[2] /= l;
+    t2[0] = n[1] * t1[2] - n[2] * t1[1]; t2[1] = n[2] * t1[0] - n[0] * t1[2]; t2[2] = n[0] * t1[1] - n[1] * t1[0];
+}
+// Footprint ellipse of an AABB seen along `axis`: semi-axes (a, b) along the canonical tangent frame and the
+// 2D centre; the aggregate is drawn as this ellipse (radiusMajor = a, radiusMinor = b, tangentAngle = 0).
+inline void FootprintOfAabb(const float bmin[3], const float bmax[3], const float t1[3], const float t2[3], float& a, float& b, float& cx, float& cy) {
+    float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f;
+    for (int i = 0; i < 8; ++i) {
+        float c[3] = {(i & 1) ? bmax[0] : bmin[0], (i & 2) ? bmax[1] : bmin[1], (i & 4) ? bmax[2] : bmin[2]};
+        float x = c[0] * t1[0] + c[1] * t1[1] + c[2] * t1[2], y = c[0] * t2[0] + c[1] * t2[1] + c[2] * t2[2];
+        x0 = fminf(x0, x); x1 = fmaxf(x1, x); y0 = fminf(y0, y); y1 = fmaxf(y1, y);
+    }
+    a = 0.5f * (x1 - x0); b = 0.5f * (y1 - y0); cx = 0.5f * (x0 + x1); cy = 0.5f * (y0 + y1);
+}
+inline uint32_t PackFootprint(float a, float b) { return (uint32_t)EncodeLogRadius(a) | ((uint32_t)EncodeLogRadius(b) << 16); }
+inline float FootprintA(uint32_t packed) { return DecodeLogRadius((uint16_t)(packed & 0xFFFFu)); }
+inline float FootprintB(uint32_t packed) { return DecodeLogRadius((uint16_t)(packed >> 16)); }
+
+// ---- draw record radius byte: r = 0.5 mm * 2^(v/16) (0.5 mm .. 32 m); twin: fsEncodeRadius8 ------
+inline uint32_t EncodeRadius8(float metres) {
+    if (metres <= kRadiusBaseM) return 0;
+    float v = roundf(log2f(metres / kRadiusBaseM) * 16.f);
+    return v > 255.f ? 255u : (uint32_t)v;
+}
+inline float DecodeRadius8(uint32_t v) { return kRadiusBaseM * exp2f((float)v / 16.f); }
+inline uint32_t Radius8FromLog16(uint16_t v) { uint32_t r = ((uint32_t)v + 128u) >> 8; return r > 255u ? 255u : r; }   // 4096/16 = 256
+
+// ---- root word (fs_world_params.h): the one u32 the cull reads per slot -----------------------------
+struct RootWord {
+    uint32_t frontCount = 0; bool published = false; uint32_t parity = 0; bool treeValid = false; uint32_t leafShift = 0; uint32_t generation = 0;
+};
+inline uint32_t PackRoot(const RootWord& r) {
+    uint32_t c = r.frontCount > FS_MAX_FRONT_COUNT ? FS_MAX_FRONT_COUNT : r.frontCount;
+    return c | (r.published ? FS_ROOT_PUBLISHED : 0u) | (r.parity ? FS_ROOT_PARITY : 0u) | (r.treeValid ? FS_ROOT_TREE_VALID : 0u) |
+           ((r.leafShift & 7u) << FS_ROOT_LEAF_SHIFT) | ((r.generation & 0xFFu) << FS_ROOT_GEN_SHIFT);
+}
+inline RootWord UnpackRoot(uint32_t w) {
+    RootWord r; r.frontCount = w & FS_ROOT_COUNT_MASK; r.published = (w & FS_ROOT_PUBLISHED) != 0; r.parity = (w & FS_ROOT_PARITY) ? 1u : 0u;
+    r.treeValid = (w & FS_ROOT_TREE_VALID) != 0; r.leafShift = (w & FS_ROOT_LEAF_MASK) >> FS_ROOT_LEAF_SHIFT; r.generation = w >> FS_ROOT_GEN_SHIFT;
+    return r;
+}
+
+// ---- static per-slot layout (device table; twin: FsSlotLayout in fs_world_common.glsl) ---------------
+struct FsSlotLayout {
+    uint32_t surfelBase;      // first surfel of the slot: BACK = [base, base+cap), FRONT p = base + cap*(1+p)
+    uint32_t capacity;        // surfels per range
+    uint32_t linkBase;        // link/count index of BACK surfel i = linkBase + (i - surfelBase)
+    uint32_t cellBase;        // cell head index = cellBase + cell
+    uint32_t microBase;       // micro head index = microBase + block*8 + octant
+    uint32_t nodeBase;        // cluster node index of parity p = nodeBase + p*nodesPerSlot
+    uint32_t nodesPerSlot;
+    uint32_t freeSpaceBase;   // u8 offset (stub)
+};
+static_assert(sizeof(FsSlotLayout) == 32, "FsSlotLayout layout");
+inline uint32_t FrontOffsetOf(const FsSlotLayout& l, uint32_t parity) { return l.surfelBase + l.capacity * (1u + parity); }
+
+// ---- cluster tree layout (§13.4): root at node 0, then levels top-down; leaves last. Twin: fsClusterLayout.
+struct ClusterLayout {
+    uint32_t levels = 0;                          // 0 when n == 0
+    uint32_t count[FS_CLUSTER_MAX_LEVELS] = {};   // count[0] = leaves ... count[levels-1] = 1 (root)
+    uint32_t offset[FS_CLUSTER_MAX_LEVELS] = {};  // node index of the first node of each level
+    uint32_t total = 0;
+    uint32_t leafSize = 64;
+};
+inline ClusterLayout ComputeClusterLayout(uint32_t n, uint32_t leafShift) {
+    ClusterLayout L; L.leafSize = 64u << leafShift;
+    if (n == 0) return L;
+    uint32_t c = (n + L.leafSize - 1) / L.leafSize, lv = 0;
+    for (;;) {
+        L.count[lv++] = c;
+        if (c == 1 || lv >= FS_CLUSTER_MAX_LEVELS) break;
+        c = (c + FS_CLUSTER_FANOUT - 1) / FS_CLUSTER_FANOUT;
+    }
+    L.levels = lv;
+    uint32_t off = 0;
+    for (int i = (int)lv - 1; i >= 0; --i) { L.offset[i] = off; off += L.count[i]; }
+    L.total = off;
+    return L;
+}
+// Smallest leaf shift whose node total fits nodeCapacity (coarser leaves on overflow, counted by caller).
+inline uint32_t ChooseLeafShift(uint32_t n, uint32_t nodeCapacity) {
+    for (uint32_t s = 0; s <= FS_CLUSTER_MAX_LEAF_SHIFT; ++s) if (ComputeClusterLayout(n, s).total <= nodeCapacity) return s;
+    return FS_CLUSTER_MAX_LEAF_SHIFT;
+}
+inline uint32_t NodesPerSlotFor(uint32_t capacity) {
+    uint32_t t = ComputeClusterLayout(capacity, 0).total;
+    return t > FS_CLUSTER_MAX_NODES_PER_PAGE ? FS_CLUSTER_MAX_NODES_PER_PAGE : (t < 8u ? 8u : t);
 }
 
 } // namespace world

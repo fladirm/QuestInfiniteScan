@@ -1,0 +1,32 @@
+#version 450
+// ERASE 1/2: one workgroup lists resident slots whose page cube intersects the erase sphere
+// (anchor-local) and writes the indirect args of world_erase.comp. No CPU page enumeration.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SLOTS
+#define FS_USE_GCTR
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SCAN) in;
+layout(push_constant) uniform Push { uint slotCount; int anchorId; float cx; float cy; float cz; float radius; uint maxCapGroups; } pc;
+shared uint sCount;
+void main() {
+    uint t = gl_LocalInvocationID.x;
+    if (t == 0u) sCount = 0u;
+    barrier();
+    for (uint i = 0u; i < uint(FS_MAX_SLOTS / FS_WG_SCAN); ++i) {
+        uint slot = t + i * uint(FS_WG_SCAN);
+        if (slot >= pc.slotCount) break;
+        if (!fsRootPublished(roots[slot]) && headers[slot].backCount == 0u) continue;
+        FsPageHeader h = headers[slot];
+        if (h.key.anchorId != pc.anchorId) continue;
+        vec3 o = fsPageOrigin3(h.key), c = vec3(pc.cx, pc.cy, pc.cz);
+        vec3 q = clamp(c, o - vec3(FS_PAGE_EXTENT_M * 0.5), o + vec3(FS_PAGE_EXTENT_M * 0.5));
+        if (distance(q, c) > pc.radius) continue;
+        uint k = atomicAdd(sCount, 1u);
+        if (k < uint(FS_MAINT_MAX_PAGES)) gctr[FS_G_ERASE_LIST + k] = slot;
+    }
+    barrier();
+    if (t != 0u) return;
+    uint n = min(sCount, uint(FS_MAINT_MAX_PAGES));
+    gctr[FS_G_ERASE_COUNT] = n;
+    gctr[FS_G_ERASE_ARGS + 0] = pc.maxCapGroups; gctr[FS_G_ERASE_ARGS + 1] = n; gctr[FS_G_ERASE_ARGS + 2] = 1u;
+}

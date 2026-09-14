@@ -1,0 +1,56 @@
+#version 450
+// Publish step 4/4: GPU-side root-last commit for every page of the publish list (one workgroup, one lane
+// per page): new FRONT count from the scan total, parity flip, leaf shift (coarser leaves when the node
+// budget overflows, counted), generation bump in the DEVICE page header (authority; the host mirror is
+// telemetry), then the single-word root (treeValid = 0 until world_cluster_commit). Also lays out the
+// batched cluster build: per-page level bases (prefix over pages) + indirect args per level.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SLOTS
+#define FS_USE_GCTR
+#define FS_USE_SCRATCH
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint frame; } pc;
+shared uint sCount[FS_MAINT_MAX_PAGES * FS_CLUSTER_MAX_LEVELS];
+shared uint sTotal[FS_MAINT_MAX_PAGES];
+uint fsChooseLeafShift(uint n, uint nodeCapacity) {
+    for (uint s = 0u; s <= uint(FS_CLUSTER_MAX_LEAF_SHIFT); ++s) if (fsClusterLayout(n, s).total <= nodeCapacity) return s;
+    return uint(FS_CLUSTER_MAX_LEAF_SHIFT);
+}
+void main() {
+    uint k = gl_LocalInvocationID.x;
+    uint n = min(gctr[FS_G_PUBLISH_COUNT], uint(FS_MAINT_MAX_PAGES));
+    uint info = uint(FS_G_PUBLISH_INFO) + k * uint(FS_G_INFO_WORDS);
+    FsClusterLayout L;
+    if (k < n) {
+        uint slot = gctr[FS_G_PUBLISH_LIST + k];
+        FsSlotLayout l = layouts[slot];
+        uint total = min(scratch[k * uint(FS_SCRATCH_STRIDE) + uint(FS_CELLS_PER_PAGE)], min(l.capacity, uint(FS_MAX_FRONT_COUNT)));
+        uint root = roots[slot];
+        uint parity = fsRootParity(root) ^ 1u;
+        uint shift = fsChooseLeafShift(total, l.nodesPerSlot);
+        if (shift > 0u) atomicAdd(gctr[FS_GCTR_CLUSTER_OVERFLOW], 1u);
+        L = fsClusterLayout(total, shift);
+        uint gen = headers[slot].generation + 1u;
+        headers[slot].frontOffset = fsFrontOffset(l, parity); headers[slot].frontCount = total; headers[slot].generation = gen;
+        headers[slot].dirty = 0u; headers[slot].lastTouchedFrame = pc.frame;
+        headers[slot].reserved[0] = l.nodeBase + parity * l.nodesPerSlot; headers[slot].reserved[1] = 0u;
+        memoryBarrierBuffer();
+        roots[slot] = total | FS_ROOT_PUBLISHED | (parity != 0u ? FS_ROOT_PARITY : 0u) | ((shift & 7u) << FS_ROOT_LEAF_SHIFT) | ((gen & 0xFFu) << FS_ROOT_GEN_SHIFT);
+        gctr[info + 0] = slot; gctr[info + 1] = total; gctr[info + 2] = shift; gctr[info + 3] = parity; gctr[info + 4] = L.levels; gctr[info + 5] = L.total; gctr[info + 14] = gen;
+        for (uint lv = 0u; lv < uint(FS_CLUSTER_MAX_LEVELS); ++lv) sCount[k * uint(FS_CLUSTER_MAX_LEVELS) + lv] = L.count[lv];
+        atomicAdd(gctr[FS_GCTR_PUBLISH], 1u);
+    }
+    barrier();
+    if (k >= uint(FS_CLUSTER_MAX_LEVELS)) return;
+    // lane k = level k: exclusive prefix over pages (<= 32 iterations) + indirect args for that level
+    uint lv = k, run = 0u;
+    for (uint p = 0u; p < uint(FS_MAINT_MAX_PAGES); ++p) {
+        if (p >= n) break;
+        gctr[uint(FS_G_PUBLISH_INFO) + p * uint(FS_G_INFO_WORDS) + 6u + lv] = run;
+        run += sCount[p * uint(FS_CLUSTER_MAX_LEVELS) + lv];
+    }
+    uint groups = (run + uint(FS_WG_SMALL) - 1u) / uint(FS_WG_SMALL);
+    uint argBase = lv == 0u ? uint(FS_G_PUBLISH_ARGS_LEAVES) : uint(FS_G_PUBLISH_ARGS_LEVEL) + 4u * lv;
+    gctr[argBase + 0] = groups; gctr[argBase + 1] = 1u; gctr[argBase + 2] = 1u;
+}

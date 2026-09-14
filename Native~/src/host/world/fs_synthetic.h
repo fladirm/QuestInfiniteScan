@@ -9,10 +9,16 @@
 namespace fs {
 namespace world {
 
-enum SyntheticKind : int32_t { SYN_ROOM_BOX = 0, SYN_CORRIDOR = 1, SYN_STAIRCASE = 2, SYN_THIN_WALL = 3 };
+enum SyntheticKind : int32_t { SYN_ROOM_BOX = 0, SYN_CORRIDOR = 1, SYN_STAIRCASE = 2, SYN_THIN_WALL = 3, SYN_DENSE_FOLIAGE = 4 };
 constexpr int32_t kSyntheticViaRingFlag = 0x100;
 constexpr float   kSyntheticRoomHeightM = 2.6f;
 constexpr float   kSyntheticThinWallGapM = 0.03f;
+// Dense foliage benchmark (contract §21.5b): shelves of plants, every leaf a random ellipsoid sampled at
+// <= 1 cm with spatially coherent gaps (2 cm blocks + a hole per leaf) so far-LOD coverage stays well below 1.
+constexpr float   kFoliageLeafSpacingM = 0.01f;
+constexpr float   kFoliageGapFraction = 0.5f;
+constexpr float   kFoliageGapBlockM = 0.02f;
+constexpr uint64_t kFoliageTargetSurfels = 3000000;   // generator adds plants until this is reached (bounded by extent)
 
 struct SyntheticPage { FsPageKey key; std::vector<FsSurfel> surfels; };
 struct SyntheticScene {
@@ -22,7 +28,7 @@ struct SyntheticScene {
     uint64_t sampleCount = 0;
 };
 
-// Generates the scene. surfelSpacingM is clamped to [0.005, 1]; radius = spacing * 0.75; sigmaN 1 mm
+// Generates the scene. surfelSpacingM is clamped to [0.005, 1] (foliage: <= 1 cm); radius = spacing * 0.75; sigmaN 1 mm
 // (+ tiny jitter from seed), sigmaT 2 mm; colour by normal; surfaceId per plane (1-based).
 void GenerateSynthetic(int32_t kind, float extentM, float surfelSpacingM, uint32_t seed, int32_t anchorId, SyntheticScene& out);
 

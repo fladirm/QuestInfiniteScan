@@ -144,6 +144,14 @@ namespace FinalScan.World
         public const int SizeBytes = 80;
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct FsClusterError  // 8 B
+    {
+        public float ownError;
+        public float parentError;
+        public const int SizeBytes = 8;
+    }
+
     public enum FsCounter
     {
         PcaFramesL = 0,
@@ -188,6 +196,7 @@ namespace FinalScan.World
         public const uint IndexNone = 4294967295u;
         public const int ClusterLeafMaxSurfels = 64;
         public const int ClusterMaxNodesPerPage = 4096;
+        public const float ClusterErrorInf = 1e+30f;
         public const int DrawFlagAggregate = 8;
         public const int DrawFlagTransient = 16;
 
@@ -204,6 +213,7 @@ namespace FinalScan.World
             Check(Marshal.SizeOf<FsIndirectDrawArgs>(), FsIndirectDrawArgs.SizeBytes, "FsIndirectDrawArgs");
             Check(Marshal.SizeOf<FsSurfelEvidence>(), FsSurfelEvidence.SizeBytes, "FsSurfelEvidence");
             Check(Marshal.SizeOf<FsClusterNode>(), FsClusterNode.SizeBytes, "FsClusterNode");
+            Check(Marshal.SizeOf<FsClusterError>(), FsClusterError.SizeBytes, "FsClusterError");
         }
 
         static void Check(int actual, int expected, string name)

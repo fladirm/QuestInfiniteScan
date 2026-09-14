@@ -13,6 +13,7 @@
 #define FS_INDEX_NONE 4294967295u
 #define FS_CLUSTER_LEAF_MAX_SURFELS 64
 #define FS_CLUSTER_MAX_NODES_PER_PAGE 4096
+#define FS_CLUSTER_ERROR_INF 1e+30
 #define FS_DRAW_FLAG_AGGREGATE 8
 #define FS_DRAW_FLAG_TRANSIENT 16
 
@@ -194,5 +195,11 @@ uint fsGet_FsClusterNode_childCount(FsClusterNode s) { return bitfieldExtract(s.
 void fsSet_FsClusterNode_childCount(inout FsClusterNode s, uint v) { s.childCount_leafSurfelCount = bitfieldInsert(s.childCount_leafSurfelCount, uint(v), 0, 16); }
 uint fsGet_FsClusterNode_leafSurfelCount(FsClusterNode s) { return bitfieldExtract(s.childCount_leafSurfelCount, 16, 16); }
 void fsSet_FsClusterNode_leafSurfelCount(inout FsClusterNode s, uint v) { s.childCount_leafSurfelCount = bitfieldInsert(s.childCount_leafSurfelCount, uint(v), 16, 16); }
+
+struct FsClusterError {
+    float ownError;
+    float parentError;
+};  // 8 B
+#define FS_ABI_FSCLUSTERERROR_BYTES 8
 
 #endif // FS_ABI_GLSL

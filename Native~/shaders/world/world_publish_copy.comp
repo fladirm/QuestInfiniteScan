@@ -1,0 +1,41 @@
+#version 450
+// Publish step 3/4 (batched): per cell, copy its live surfels (and evidence) in list order into the
+// INACTIVE FRONT parity (root parity ^ 1) at the Morton offset. The root word switches only in
+// world_publish_commit.comp after this pass (root-last, §11); the renderer keeps reading the other parity.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SLOTS
+#define FS_USE_SURFELS
+#define FS_USE_EVIDENCE
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#define FS_USE_SCRATCH
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint k = gl_WorkGroupID.y; if (k >= gctr[FS_G_PUBLISH_COUNT]) return;
+    uint slot = gctr[FS_G_PUBLISH_LIST + k];
+    uint cell = gl_GlobalInvocationID.x;
+    if (cell >= uint(FS_CELLS_PER_PAGE)) return;
+    FsSlotLayout l = layouts[slot];
+    uint parity = fsRootParity(roots[slot]) ^ 1u;
+    uint dst = fsFrontOffset(l, parity) + scratch[k * uint(FS_SCRATCH_STRIDE) + fsMortonOfCell(cell)];
+    uint dstEnd = fsFrontOffset(l, parity) + l.capacity;
+    uint h = idx[fsHeadIndex(l, cell)];
+    uint lists = 1u, base = fsHeadIndex(l, cell);
+    if ((h & FS_CELL_HEAD_SUBDIV_BIT) != 0u) { lists = 8u; base = fsMicroIndex(l, h & ~FS_CELL_HEAD_SUBDIV_BIT, 0u); }
+    uint walked = 0u;
+    for (uint li = 0u; li < 8u; ++li) {
+        if (li >= lists) break;
+        uint cur = idx[base + li];
+        for (uint w = 0u; w < uint(FS_CELL_WALK_MAX); ++w) {
+            if (cur == FS_INDEX_NONE) break;
+            if (cur < l.surfelBase || cur >= l.surfelBase + l.capacity) break;
+            FsSurfel s = surfels[cur];
+            if ((fsGet_FsSurfel_evidenceFlags(s) & FS_FLAG_REMOVED) == 0u && dst < dstEnd) { surfels[dst] = s; evidence[dst] = evidence[cur]; dst++; }
+            cur = idx[fsLinkIndex(l, cur)];
+            walked++;
+            if (walked >= uint(FS_CELL_WALK_MAX)) break;
+        }
+        if (walked >= uint(FS_CELL_WALK_MAX)) break;
+    }
+}

@@ -48,19 +48,21 @@ public:
         return count;
     }
 
-    // Consumer: takes up to maxCount committed items; returns count and the ring base index.
-    // Drops the oldest when the producers overran the consumer by more than capacity (counted).
-    uint32_t Take(uint32_t maxCount, uint32_t* baseIndex, uint64_t* droppedOut) {
+    // Consumer (single thread): Peek reports up to maxCount committed items (and the ring base index)
+    // without consuming; Advance(n) consumes them once the job that reads them was accepted. Drops the
+    // oldest when the producers overran the consumer by more than capacity (counted).
+    uint32_t Peek(uint32_t maxCount, uint32_t* baseIndex, uint64_t* droppedOut) {
         uint64_t c = commit_.load(std::memory_order_acquire);
         uint64_t dropped = droppedPreAttach_; droppedPreAttach_ = 0;
         if (c - read_ > capacity_) { uint64_t nr = c - capacity_; dropped += nr - read_; read_ = nr; }
         uint64_t avail = c - read_;
         uint32_t n = avail > maxCount ? maxCount : (uint32_t)avail;
         *baseIndex = (uint32_t)(read_ & mask_);
-        read_ += n;
         *droppedOut = dropped;
         return n;
     }
+    void Advance(uint32_t n) { read_ += n; }
+    uint32_t Take(uint32_t maxCount, uint32_t* baseIndex, uint64_t* droppedOut) { uint32_t n = Peek(maxCount, baseIndex, droppedOut); Advance(n); return n; }
     uint64_t Pending() const { uint64_t c = commit_.load(std::memory_order_acquire); return c - read_; }
 
 private:

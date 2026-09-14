@@ -1,0 +1,47 @@
+#version 450
+// Cull 1/3 (contract §13.5.3/§13.5.5): per resident slot with a published root, page AABB (anchor
+// transform applied) vs the union of both eye frusta, widened by the prediction margin. Temporal reuse:
+// when the head moved less than the margin (misc.z == 1) and the root word is unchanged, a page cached as
+// OUTSIDE is skipped without re-evaluation. Visible pages append {slot, itemCount} directly into the node
+// pass's indirect y (no scan pass); thread 0 appends the dummy leaf range that guarantees the emit pass
+// has a workgroup to run its finish step.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_FRAME
+#define FS_USE_RSLOTS
+#define FS_USE_WORK
+#include "fs_render_common.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint frameSlot; uint slotCount; } pc;
+void main() {
+    uint slot = gl_GlobalInvocationID.x;
+    if (slot == 0u) {
+        uint k0 = atomicAdd(work[FS_WK_EMIT_ARGS], 1u);                   // dummy range: count 0
+        work[FS_WK_LEAF_LIST + 4u * k0 + 0] = 0u; work[FS_WK_LEAF_LIST + 4u * k0 + 1] = 0u; work[FS_WK_LEAF_LIST + 4u * k0 + 2] = 0u; work[FS_WK_LEAF_LIST + 4u * k0 + 3] = 0u;
+    }
+    if (slot >= pc.slotCount) return;
+    uint root = roots[slot];
+    if (!fsRootPublished(root) || fsRootCount(root) == 0u) return;
+    FsCullFrame F = frames[pc.frameSlot];
+    atomicAdd(work[FS_WK_STAT + FS_CSTAT_PAGES_TESTED], 1u);
+    if (F.misc.z == 1u && work[FS_WK_CACHE_ROOT + slot] == root && work[FS_WK_CACHE_STATE + slot] == FS_PAGE_STATE_OUTSIDE) {
+        atomicAdd(work[FS_WK_STAT + FS_CSTAT_PAGES_REUSED], 1u); atomicAdd(work[FS_WK_STAT + FS_CSTAT_PAGES_CULLED], 1u); return;
+    }
+    FsPageHeader h = headers[slot];
+    mat4 A = F.anchors[min(uint(max(h.key.anchorId, 0)), uint(FS_MAX_ANCHORS - 1))];
+    vec3 o = fsPageOrigin3(h.key);
+    vec3 wmin, wmax; fsTransformAabb(A, o - vec3(FS_PAGE_EXTENT_M * 0.5), o + vec3(FS_PAGE_EXTENT_M * 0.5), wmin, wmax);
+    float dist = length(0.5 * (wmin + wmax) - F.headPos_focal.xyz);
+    float margin = dist * F.fwd_tanMargin.w;
+    bool vis = fsAabbInFrustum6(F.planesL[0], F.planesL[1], F.planesL[2], F.planesL[3], F.planesL[4], F.planesL[5], wmin, wmax, margin) ||
+               fsAabbInFrustum6(F.planesR[0], F.planesR[1], F.planesR[2], F.planesR[3], F.planesR[4], F.planesR[5], wmin, wmax, margin);
+    work[FS_WK_CACHE_ROOT + slot] = root;
+    work[FS_WK_CACHE_STATE + slot] = vis ? FS_PAGE_STATE_VISIBLE : FS_PAGE_STATE_OUTSIDE;
+    if (!vis) { atomicAdd(work[FS_WK_STAT + FS_CSTAT_PAGES_CULLED], 1u); return; }
+    uint items;
+    if (fsRootTreeValid(root)) items = fsClusterLayout(fsRootCount(root), fsRootLeafShift(root)).total;
+    else items = min((fsRootCount(root) + uint(FS_CULL_RAW_CHUNK) - 1u) / uint(FS_CULL_RAW_CHUNK), uint(FS_CULL_RAW_CHUNKS_MAX)) | FS_WK_RAW_BIT;
+    uint k = atomicAdd(work[FS_WK_NODE_ARGS + 1], 1u);                    // indirect y of the node pass
+    if (k >= uint(FS_MAX_SLOTS)) return;
+    work[FS_WK_VIS_SLOT + k] = slot;
+    work[FS_WK_VIS_ITEMS + k] = items;
+}

@@ -1,0 +1,29 @@
+#version 450
+// Publish step 2/4: exclusive prefix sum over a page's 32768 Morton-ordered cell counts. One workgroup
+// (256 threads x 128 entries) per published page (x = list index); wave-level subgroupExclusiveAdd
+// (wave64 on Adreno) + one tiny shared pass over the subgroup totals. Total at [FS_CELLS_PER_PAGE].
+#extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#define FS_USE_GCTR
+#define FS_USE_SCRATCH
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SCAN) in;
+shared uint waveSum[FS_WG_SCAN];
+#define FS_SCAN_PER_THREAD (FS_CELLS_PER_PAGE / FS_WG_SCAN)
+void main() {
+    uint k = gl_WorkGroupID.x; if (k >= gctr[FS_G_PUBLISH_COUNT]) return;
+    uint t = gl_LocalInvocationID.x;
+    uint base = k * uint(FS_SCRATCH_STRIDE) + t * uint(FS_SCAN_PER_THREAD);
+    uint local = 0u;
+    for (uint i = 0u; i < uint(FS_SCAN_PER_THREAD); ++i) local += scratch[base + i];
+    uint inWave = subgroupExclusiveAdd(local);
+    uint waveTotal = subgroupAdd(local);
+    if (subgroupElect()) waveSum[gl_SubgroupID] = waveTotal;
+    barrier();
+    uint before = 0u, total = 0u;
+    for (uint w = 0u; w < gl_NumSubgroups; ++w) { uint v = waveSum[w]; if (w < gl_SubgroupID) before += v; total += v; }   // <= 8 waves
+    uint run = before + inWave;
+    for (uint i = 0u; i < uint(FS_SCAN_PER_THREAD); ++i) { uint c = scratch[base + i]; scratch[base + i] = run; run += c; }
+    if (t == 0u) scratch[k * uint(FS_SCRATCH_STRIDE) + uint(FS_CELLS_PER_PAGE)] = total;
+}

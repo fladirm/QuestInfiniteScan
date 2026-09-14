@@ -1,0 +1,39 @@
+#version 450
+// HZB 2/3: combined occluder = min(own previous depth, ERODED env depth) per level-0 tile (erosion =
+// 3x3 max: thin/near env occluders are pushed back, conservative; a missing source is ignored). Each
+// thread produces a 2x2 level-0 block and its level-1 texel (2x2 max), so the wide pass also builds level 1.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_HZB
+#include "fs_render_common.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+void fsCombineTile(ivec2 t, out float occ, out float grad) {
+    uint ti = uint(t.y) * uint(FS_HZB_SIZE) + uint(t.x);
+    float prev = uintBitsToFloat(hzb[uint(FS_HZB_OFF_PREV) + ti]);
+    float envE = 0.0; grad = 0.0;
+    for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec2 q = clamp(t + ivec2(dx, dy), ivec2(0), ivec2(FS_HZB_SIZE - 1));
+            uint qi = uint(q.y) * uint(FS_HZB_SIZE) + uint(q.x);
+            envE = max(envE, uintBitsToFloat(hzb[uint(FS_HZB_OFF_ENV) + qi]));
+            grad = max(grad, uintBitsToFloat(hzb[uint(FS_HZB_OFF_GRAD) + qi]));
+        }
+    occ = (prev > 0.0 && envE > 0.0) ? min(prev, envE) : max(prev, envE);
+}
+void main() {
+    ivec2 t1 = ivec2(gl_GlobalInvocationID.xy);
+    int size1 = FS_HZB_SIZE / 2;
+    if (t1.x >= size1 || t1.y >= size1) return;
+    float occ1 = 0.0, grad1 = 0.0;
+    for (int dy = 0; dy < 2; ++dy)
+        for (int dx = 0; dx < 2; ++dx) {
+            ivec2 t0 = t1 * 2 + ivec2(dx, dy);
+            float occ, grad; fsCombineTile(t0, occ, grad);
+            uint ti = uint(t0.y) * uint(FS_HZB_SIZE) + uint(t0.x);
+            hzb[uint(FS_HZB_OFF_COMB) + ti] = floatBitsToUint(occ);
+            hzb[uint(FS_HZB_OFF_CGRAD) + ti] = floatBitsToUint(grad);
+            occ1 = max(occ1, occ); grad1 = max(grad1, grad);
+        }
+    uint o1 = fsHzbLevelOffset(1u) + uint(t1.y) * uint(size1) + uint(t1.x);
+    hzb[uint(FS_HZB_OFF_COMB) + o1] = floatBitsToUint(occ1);
+    hzb[uint(FS_HZB_OFF_CGRAD) + o1] = floatBitsToUint(grad1);
+}

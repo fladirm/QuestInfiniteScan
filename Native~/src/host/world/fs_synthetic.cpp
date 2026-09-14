@@ -72,6 +72,50 @@ struct Builder {
         Wall(x0, z0, x0, z1, 0, H, nPx, doorPerWall[2], doorPerWall[2] ? 1 : 0);   // -x wall faces +x
         Wall(x1, z0, x1, z1, 0, H, nNx, doorPerWall[3], doorPerWall[3] ? 1 : 0);   // +x wall faces -x
     }
+    // Ellipsoid leaf: centre c, semi-axes (a,b,t) in a random frame; parametric sampling at `spacing`
+    // with kFoliageGapFraction random drop-out and one rectangular hole; normal = ellipsoid gradient.
+    void Leaf(const float c[3], float a, float b, float t, uint32_t surface) {
+        float yaw = rng.Next() * 6.2831853f, pitch = (rng.Next() - 0.5f) * 2.4f, roll = rng.Next() * 6.2831853f;
+        float cy = cosf(yaw), sy = sinf(yaw), cp = cosf(pitch), sp = sinf(pitch), cr = cosf(roll), sr = sinf(roll);
+        // frame axes (rows of R = Rz(yaw) Ry(pitch) Rx(roll))
+        float U[3] = {cy * cp, sy * cp, -sp};
+        float V[3] = {cy * sp * sr - sy * cr, sy * sp * sr + cy * cr, cp * sr};
+        float W[3] = {cy * sp * cr + sy * sr, sy * sp * cr - cy * sr, cp * cr};
+        int nu = (int)(6.2831853f * a / spacing) + 1, nv = (int)(3.1415926f * b / spacing) + 1;
+        if (nu > 64) nu = 64; if (nv > 32) nv = 32;
+        float h0 = rng.Next() * 0.6f + 0.2f, h1 = h0 + 0.15f, g0 = rng.Next() * 0.6f + 0.2f, g1 = g0 + 0.2f;
+        uint32_t leafSeed = rng.s;
+        for (int j = 1; j < nv; ++j)
+            for (int i = 0; i < nu; ++i) {
+                float u = (float)i / (float)nu, v = (float)j / (float)nv;
+                if (u > h0 && u < h1 && v > g0 && v < g1) continue;                     // hole
+                float phi = u * 6.2831853f, th = v * 3.1415926f;
+                float lx = a * sinf(th) * cosf(phi), ly = b * sinf(th) * sinf(phi), lz = t * cosf(th);
+                // spatially coherent gaps (2 cm blocks in the leaf's projected x/y so front and back sides
+                // share them): far-LOD coverage must see real holes, not per-sample noise
+                uint32_t bx = (uint32_t)(int32_t)floorf(lx / kFoliageGapBlockM), by = (uint32_t)(int32_t)floorf(ly / kFoliageGapBlockM);
+                uint32_t hsh = (bx * 0x9E3779B1u) ^ (by * 0x85EBCA77u) ^ leafSeed; hsh ^= hsh >> 15; hsh *= 0x2C1B3C6Du; hsh ^= hsh >> 12;
+                if ((float)(hsh & 0xFFFFu) / 65536.f < kFoliageGapFraction) continue;
+                float gx = lx / (a * a), gy = ly / (b * b), gz = lz / (t * t);
+                float gl = sqrtf(gx * gx + gy * gy + gz * gz); if (gl < 1e-9f) gl = 1.f;
+                gx /= gl; gy /= gl; gz /= gl;
+                SurfelSample s;
+                for (int k = 0; k < 3; ++k) { s.p[k] = c[k] + U[k] * lx + V[k] * ly + W[k] * lz; s.n[k] = U[k] * gx + V[k] * gy + W[k] * gz; }
+                s.radius = spacing * 0.75f; s.sigmaN = 0.002f; s.sigmaT = 0.003f; s.surfaceId = surface;
+                out.samples.push_back(s);
+            }
+    }
+    // Plant: leaves on random positions inside a sphere of radius R around c.
+    void Plant(const float c[3], float R, int leaves) {
+        uint32_t surface = nextSurface++;
+        for (int l = 0; l < leaves; ++l) {
+            float d[3] = {rng.Next() * 2.f - 1.f, rng.Next() * 2.f - 1.f, rng.Next() * 2.f - 1.f};
+            float lc[3] = {c[0] + d[0] * R, c[1] + d[1] * R, c[2] + d[2] * R};
+            float a = 0.03f + rng.Next() * 0.05f, b = a * (0.4f + rng.Next() * 0.4f), t = 0.002f + rng.Next() * 0.004f;
+            Leaf(lc, a, b, t, surface);
+        }
+        out.planeCount++;
+    }
     void Finish(int32_t anchorId) {
         out.sampleCount = out.samples.size();
         for (const SurfelSample& s : out.samples) {
@@ -128,6 +172,26 @@ void GenerateSynthetic(int32_t kind, float extentM, float spacing, uint32_t seed
             b.Wall(-W * 0.5f, z0, W * 0.5f, z0, (float)s * rise, y, nNz);    // riser faces -z (toward climber)
             b.Horizontal(-W * 0.5f, z0, W * 0.5f, z0 + run, y, 1.f);       // tread faces up
         }
+        break;
+    }
+    case SYN_DENSE_FOLIAGE: {
+        // Room with 3 shelf levels along both long walls; plants placed until kFoliageTargetSurfels or
+        // the shelves are full. Leaf spacing <= 1 cm regardless of the requested spacing.
+        b.spacing = spacing < kFoliageLeafSpacingM ? spacing : kFoliageLeafSpacingM;
+        b.Room(-h, -h, h, h, H, none);
+        const float shelfY[3] = {0.4f, 1.1f, 1.8f}, R = 0.22f;
+        const float rowZ[2] = {-h + 0.35f, h - 0.35f};
+        int perRow = (int)(E / 0.45f); if (perRow < 1) perRow = 1;
+        bool done = false;
+        for (int pass = 0; pass < 4 && !done; ++pass)          // several plants per shelf position when needed
+            for (int lvl = 0; lvl < 3 && !done; ++lvl)
+                for (int row = 0; row < 2 && !done; ++row)
+                    for (int i = 0; i < perRow && !done; ++i) {
+                        float c[3] = {-h + 0.25f + (float)i * 0.45f + (b.rng.Next() - 0.5f) * 0.1f,
+                                      shelfY[lvl] + R + (float)pass * 0.02f, rowZ[row] + (b.rng.Next() - 0.5f) * 0.1f};
+                        b.Plant(c, R, 180);
+                        if (out.samples.size() >= kFoliageTargetSurfels) done = true;
+                    }
         break;
     }
     case SYN_THIN_WALL:

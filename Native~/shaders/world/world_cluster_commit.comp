@@ -1,0 +1,17 @@
+#version 450
+// ClusterTree build 3/3: per published page, mark the tree of the new parity valid (root bit + node count
+// in the device header). Until here the cull draws the page as raw 64-surfel chunks. One workgroup.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SLOTS
+#define FS_USE_GCTR
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint k = gl_LocalInvocationID.x;
+    if (k >= min(gctr[FS_G_PUBLISH_COUNT], uint(FS_MAINT_MAX_PAGES))) return;
+    uint info = uint(FS_G_PUBLISH_INFO) + k * uint(FS_G_INFO_WORDS);
+    uint slot = gctr[info + 0];
+    headers[slot].reserved[1] = gctr[info + 5];
+    memoryBarrierBuffer();
+    if (gctr[info + 1] > 0u) roots[slot] |= FS_ROOT_TREE_VALID;
+}

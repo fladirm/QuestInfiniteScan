@@ -1,0 +1,37 @@
+#version 450
+// Publish step 1/4 (contract §11), batched over the publish list (y = list index): per cell, count live
+// BACK surfels reachable from the cell's list(s) into the page's scratch histogram in Morton order
+// (bounded walk FS_CELL_WALK_MAX, overflow counted).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_SLOTS
+#define FS_USE_SURFELS
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#define FS_USE_SCRATCH
+#include "fs_world_blocks.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint k = gl_WorkGroupID.y; if (k >= gctr[FS_G_PUBLISH_COUNT]) return;
+    uint slot = gctr[FS_G_PUBLISH_LIST + k];
+    uint cell = gl_GlobalInvocationID.x;
+    if (cell >= uint(FS_CELLS_PER_PAGE)) return;
+    FsSlotLayout l = layouts[slot];
+    uint h = idx[fsHeadIndex(l, cell)];
+    uint lists = 1u, base = fsHeadIndex(l, cell);
+    if ((h & FS_CELL_HEAD_SUBDIV_BIT) != 0u) { lists = 8u; base = fsMicroIndex(l, h & ~FS_CELL_HEAD_SUBDIV_BIT, 0u); }
+    uint n = 0u, walked = 0u;
+    for (uint li = 0u; li < 8u; ++li) {
+        if (li >= lists) break;
+        uint cur = idx[base + li];
+        for (uint w = 0u; w < uint(FS_CELL_WALK_MAX); ++w) {
+            if (cur == FS_INDEX_NONE) break;
+            if (cur < l.surfelBase || cur >= l.surfelBase + l.capacity) break;
+            if ((fsGet_FsSurfel_evidenceFlags(surfels[cur]) & FS_FLAG_REMOVED) == 0u) n++;
+            cur = idx[fsLinkIndex(l, cur)];
+            walked++;
+            if (walked >= uint(FS_CELL_WALK_MAX)) { atomicAdd(gctr[FS_GCTR_CELL_WALK_OVERFLOW], 1u); break; }
+        }
+        if (walked >= uint(FS_CELL_WALK_MAX)) break;
+    }
+    scratch[k * uint(FS_SCRATCH_STRIDE) + fsMortonOfCell(cell)] = n;
+}
