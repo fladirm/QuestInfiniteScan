@@ -96,6 +96,19 @@ namespace FinalScan.Platform.Sensor
         /// <summary>Pose of <paramref name="b"/> expressed in the frame of <paramref name="a"/> (a^-1 * b).</summary>
         public static Pose Relative(in Pose a, in Pose b) => Mul(InversePose(a), b);
 
+        /// <summary>localToWorld matrix of a pose (managed; Matrix4x4.TRS is engine-native and unusable in host replay).</summary>
+        public static Matrix4x4 Trs(in Pose p)
+        {
+            Quaternion q = Normalize(p.rotation);
+            float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z, xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z, wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
+            var m = new Matrix4x4();
+            m.m00 = 1f - 2f * (yy + zz); m.m01 = 2f * (xy - wz);      m.m02 = 2f * (xz + wy);      m.m03 = p.position.x;
+            m.m10 = 2f * (xy + wz);      m.m11 = 1f - 2f * (xx + zz); m.m12 = 2f * (yz - wx);      m.m13 = p.position.y;
+            m.m20 = 2f * (xz - wy);      m.m21 = 2f * (yz + wx);      m.m22 = 1f - 2f * (xx + yy); m.m23 = p.position.z;
+            m.m30 = 0f; m.m31 = 0f; m.m32 = 0f; m.m33 = 1f;
+            return m;
+        }
+
         public static bool IsFinite(in Pose p)
             => IsFinite(p.position) && !float.IsNaN(p.rotation.x) && !float.IsNaN(p.rotation.y) && !float.IsNaN(p.rotation.z) && !float.IsNaN(p.rotation.w)
                && Mathf.Abs(Dot(p.rotation, p.rotation) - 1f) < 1e-2f;
