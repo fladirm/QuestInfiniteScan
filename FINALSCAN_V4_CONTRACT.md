@@ -379,7 +379,8 @@ motionEvidence     pozorování mimo σ, konzistentní s pohybem (ne šumem)
 geometryVariance   běžný rozptyl residuálů
 ```
 
-Pravidla: konzistentní → canonical static; nekonzistentní/pohyblivé → transient (renderuje se jen jako
+Prahy (StaticFusion/ReFusion, docs/SOTA_DENSE_SCENES_2026.md F): residual gate c = 0,5·průměrný residuál,
+nový surfel má viability váhu → 0 dokud není potvrzen, free-space veto. Pravidla: konzistentní → canonical static; nekonzistentní/pohyblivé → transient (renderuje se jen jako
 transient overlay, nikdy se nefúzuje do statické geometrie, nevstupuje do exportu); uklidněný list se
 později canonicalizuje. Platí pro listy, závěsy, lidi, ruce.
 
@@ -425,7 +426,9 @@ a vybere nejlevnější pro association + multi-sheet lookup + create/update. Cu
 Při překročení prahu (provisional 32 surfelů) se bucket lokálně subdivideuje (2×2×2, rekurzivně, max
 3 úrovně → 1,5 cm) na micro-buckets; řídké oblasti zůstávají v hrubém bucketu. Je to jen acceleration
 index, ne voxelová geometrie; lze kdykoli přestavět z canonical surfelů. Candidate set per measurement je
-bounded (provisional ≤ 16 kandidátů; overflow počítán, nikdy tichý).
+bounded (provisional ≤ 16 kandidátů; overflow počítán, nikdy tichý). Referenční design: MrHash (TOG 2025):
+plochý hash s úrovní v záznamu, buckety 10 + overflow 7, per-level merge s Welford variancí; Hive (2025)
+pro růst bez stallu (batched linear hashing, 95 % load).
 
 Renderer tyto struktury per-pixel neprochází; používá compact draw listy (§13).
 
@@ -541,6 +544,14 @@ INNER pages → page cull → cluster traversal (frustum, normal cone, projected
 * Traversal je GPU-driven (persistent/indirect dispatch), bez CPU sync a bez per-frame rebuildu.
 * Budget: provisional 200 k leaf surfelů + několik tisíc agregátů per frame; skutečné číslo určí C05 benchmark.
 * Přechod mezi úrovněmi: krátký crossfade coverage nebo hysterezní práh, aby nevznikal pop.
+* **Lokální LOD test (Nanite/H3DGS pravidlo, docs/SOTA_DENSE_SCENES_2026.md A):** každý uzel nese vlastní
+  chybu i chybu rodiče (sjednocenou per sourozenecká skupina); výběr úrovně je test na uzlu
+  (`parentError > τ ≥ ownError`), ne závislý průchod stromem → celý výběr je jeden bounded dispatch nad
+  všemi uzly viditelných pages. Cut se aktualizuje asynchronně (každé 2 framy), mezi tím se draw list
+  reuse (>99 % překryv cutů frame-to-frame). τ není konstanta: fixed-load výběr podle měřeného budgetu.
+* **Adreno LRZ:** `discard`/alpha-to-coverage vypíná LRZ příspěvek při binningu. Proto dva buckety:
+  opaque leaf surfely (bez discard kde lze: kruhový footprint přes MSAA coverage z geometrie) a
+  agregáty s hashed coverage v odděleném draw bucketu za nimi. Měřit v C05.
 
 **Coverage-preserving far LOD:** agregát nikdy nenahradí keř neprůhledným diskem. Representative nese
 coverage (plnost 0–1) a ve far field se renderuje jako bounded coverage LOD (alpha-to-coverage / hashed
@@ -564,8 +575,9 @@ Readout to musí využít:
    skenu z minulého framu reprojektovaný do predikované pose (chová se jako early-Z), (b) Environment
    Depth (25 Hz, vlastní pose/fov, §6) reprojektované do obou očí, konzervativně (max v dlaždici, ne
    průměr), s marginem rostoucím s gradientem hloubky a s confidence. Env Depth s nízkou confidence
-   (sklo, hrany, ruce) není occluder. HZB (hierarchický Z-buffer) se staví z obou zdrojů; test je vždy
-   proti pásu, ne proti přesné hloubce. V květinářství je většina surfelů zakrytá bližšími listy o víc než
+   (sklo, hrany, ruce) není occluder. HZB (hierarchický Z-buffer) se staví z obou zdrojů:
+   `occluder = min(vlastní reprojektovaná hloubka, erodovaná Env Depth)`, dlaždice = max (konzervativní);
+   test je vždy proti pásu, ne proti přesné hloubce. V květinářství je většina surfelů zakrytá bližšími listy o víc než
    margin; tohle je hlavní redukce, ne distance LOD.
 2. **Foveace.** Práh screen-space chyby je funkce excentricity v eye bufferu (stejně jako FFR snižuje
    shading v periferii): centrum ~1 px, periferie ~3–4 px (provisional). Geometrický detail v periferii
