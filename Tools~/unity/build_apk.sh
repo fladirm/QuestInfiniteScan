@@ -27,7 +27,7 @@ set -a; source "${KEYS_ENV}"; set +a
 : "${FS_RELEASE_STORE_PASSWORD:?${KEYS_ENV} must define FS_RELEASE_STORE_PASSWORD}"
 : "${FS_RELEASE_KEY_PASSWORD:?${KEYS_ENV} must define FS_RELEASE_KEY_PASSWORD}"
 
-# Native plugin (libFinalScanNative.so into the host Assets/Plugins/Android). Owned by Tools/native.
+# Native plugin (libFinalScanNative.so into the host Assets/Plugins/Android). Owned by Tools~/native.
 NATIVE_BUILD="${SCRIPT_DIR}/../native/build_native.sh"
 if [[ -f "${NATIVE_BUILD}" ]]; then
   bash "${NATIVE_BUILD}"

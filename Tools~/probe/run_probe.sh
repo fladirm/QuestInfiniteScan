@@ -2,7 +2,7 @@
 # FinalScan C01 device probe runner.
 # Launches the probe build on the headset, samples dumpsys meminfo every 5 s, records logcat, pulls the jsonl,
 # takes a screencap and grabs SurfaceFlinger/VrApi lines. Output: $FS_EVIDENCE_DIR/<utc>/.
-# Usage: Tools/probe/run_probe.sh [duration_seconds]   (default 240; env FS_ACTIVITY overrides the launch activity)
+# Usage: Tools~/probe/run_probe.sh [duration_seconds]   (default 240; env FS_ACTIVITY overrides the launch activity)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=../dev_environment.sh

@@ -33,7 +33,7 @@ Invariants (contract §15.5):
 2. State is published once by the phase owner; helpers only record error codes.
 3. A job that imported a Unity resource retires only after the graphics-queue fence proves retirement.
 4. Cross-thread fields are `std::atomic` or mutex-protected.
-5. Argument/indirect layouts come from one generator (`Tools/native/gen_abi.py`) shared by C#, GLSL and C++.
+5. Argument/indirect layouts come from one generator (`Tools~/native/gen_abi.py`) shared by C#, GLSL and C++.
 6. `VK_ERROR_DEVICE_LOST` → executor enters `Quarantined`: no further submits, all leases released,
    C# receives `FsHost_Status == DEVICE_LOST`, host reinitialises on next `kUnityGfxDeviceEventInitialize`.
 
@@ -88,9 +88,9 @@ SCAN jobs are built from the *latest coherent observation* only (§3.3): the sen
 
 ## 8. Kernel envelope gate (§15.6)
 
-`Tools/native/build_native.sh` compiles GLSL → SPIR-V (glslang) and fails the build when any pipeline
+`Tools~/native/build_native.sh` compiles GLSL → SPIR-V (glslang) and fails the build when any pipeline
 exceeds 128 KiB SPIR-V, > 8 storage bindings, > 16 KiB shared, > 256 threads, or contains a dynamic
-vector component index (spirv-val + a small SPIR-V scanner in `Tools/native/spv_gate.py`).
+vector component index (spirv-val + a small SPIR-V scanner in `Tools~/native/spv_gate.py`).
 
 ## 9. Pipeline delivery (§15.7)
 

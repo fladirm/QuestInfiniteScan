@@ -1,5 +1,5 @@
 // FinalScan host project setup: player settings, URP, XR bootstrap, scene, permission manifest, APK build.
-// Batch entry points (Tools/unity/build_apk.sh):
+// Batch entry points (Tools~/unity/build_apk.sh):
 //   FinalScan.Editor.FinalScanHostSetup.PrepareHostProject
 //   FinalScan.Editor.FinalScanHostSetup.BuildApk
 // Port (renamed, cleaned, minimized) of the donor setup wizard; MIGRATION_LEDGER §1, §2.
