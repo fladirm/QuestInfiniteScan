@@ -593,6 +593,34 @@ static void TestCostModel() {
     CHECK_NEAR(w.Quantile(0.5f), 51, 1.01); CHECK_NEAR(w.Quantile(0.95f), 95, 1.01);
 }
 
+static void TestSchedulerNoStarvation() {
+    // E6R: FUSE / PUBLISH / TOPOLOGY always runnable, continuous arrivals (a new observation every 50 ms, dirty cells and graph marks after
+    // every job); one job per 14 ms tick. Every class must keep being served and its lateness must stay bounded.
+    const float deadline[3] = {60, 75, 200}; const double share[3] = {0.6, 0.25, 0.15}; const int64_t cost[3] = {2500, 600, 1800};
+    double deficit[3] = {0, 0, 0}; float oldest[3] = {0, 0, 0}; uint64_t jobs[3] = {0, 0, 0}; float maxLate[3] = {0, 0, 0};
+    float now = 0; float lastObs = 0;
+    for (int tick = 0; tick < 20000; ++tick) {
+        now += 14.f;
+        const float ages[3] = {now - oldest[0], now - oldest[1], now - oldest[2]};
+        const bool runnable[3] = {true, true, true};
+        int k = fs::PickStage(runnable, ages, deadline, deficit);
+        CHECK(k >= 0);
+        for (int c = 0; c < 3; ++c) maxLate[c] = std::max(maxLate[c], ages[c] / deadline[c]);
+        jobs[k]++;
+        for (int c = 0; c < 3; ++c) deficit[c] = std::min(deficit[c] + share[c] * (double)cost[k], 20000.0);
+        deficit[k] -= (double)cost[k];
+        // serving a class resets its oldest pending element to the newest arrival
+        if (k == 0) { oldest[0] = std::max(lastObs, now - 50.f); if (now - lastObs >= 50.f) lastObs = now; }
+        else oldest[k] = now;
+    }
+    std::printf("scheduler: jobs fuse %llu publish %llu topology %llu, max lateness %.2f %.2f %.2f\n", (unsigned long long)jobs[0], (unsigned long long)jobs[1], (unsigned long long)jobs[2], maxLate[0], maxLate[1], maxLate[2]);
+    for (int c = 0; c < 3; ++c) { CHECK(jobs[c] > 1000); CHECK(maxLate[c] < 3.0f); }
+    // the E5R loop: a class whose clock froze (age reported ever older) cannot lock the others out forever when the others age too
+    const bool run[3] = {true, true, false}; const float ages2[3] = {70, 1000, 0}; double def2[3] = {0, 0, 0};
+    CHECK(fs::PickStage(run, ages2, deadline, def2) == 1);
+    const float ages3[3] = {1000, 1000, 0}; CHECK(fs::PickStage(run, ages3, deadline, def2) == 0);   // fuse 16.7x late beats publish 13.3x
+}
+
 static void TestSparseUpdate() {
     // C09R-E5R: a change enqueues its cell once; the publication consumes the ring in change order; no page mask is ever rescanned
     DirtyRing r; r.Init(4, 64);
@@ -687,7 +715,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestSchedulerNoStarvation(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

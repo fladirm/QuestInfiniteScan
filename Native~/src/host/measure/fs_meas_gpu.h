@@ -42,6 +42,7 @@ struct MeasGpuFrame {
     uint64_t importFrameEnd = 0;  // executor frame whose FRAME_END ordered the depth image barrier (JobDesc::waitFrameEndValue)
     float    eyeOrigin[2][3] = {{0, 0, 0}, {0, 0, 0}};   // anchor-local eye origins (sourceFlags bit 16 selects the eye)
     bool     eyeOriginValid = false;
+    int64_t  readyMonoNs = 0;     // E6R: steady-clock ns when the frame became READY (fusion deadline age)
 };
 
 // Leases the newest READY slot (older READY slots are dropped, counted). False when nothing is ready.
@@ -54,6 +55,9 @@ uint32_t           MeasGpu_RingSlots();
 const MeasGpuRing* MeasGpu_Ring(uint32_t slot);
 // Number of READY (unconsumed) frames right now; telemetry / tests.
 uint32_t MeasGpu_ReadyFrames();
+// E6R: steady ns of the newest READY frame (0 = none); totals of frames made READY and superseded before fusion.
+int64_t  MeasGpu_NewestReadyNs();
+void     MeasGpu_FrameTotals(uint64_t& ready, uint64_t& superseded);
 
 } // namespace meas
 } // namespace fs

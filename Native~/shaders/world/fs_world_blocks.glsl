@@ -113,7 +113,7 @@ bool fsMarkDirtyCell(uint page, uint cell) {
     uint t = atomicAdd(FS_TK(FS_T_DIRTY_TAIL), 1u);
     if (t - FS_TK(FS_T_DIRTY_HEAD) >= uint(FS_DIRTY_RING_CAP)) { atomicAnd(dirty[mw], ~bit); atomicAdd(gctr[FS_GCTR_DIRTY_RING_DROP], 1u); return false; }
     uint r = FS_DIRTY_RING + 2u * (t & (uint(FS_DIRTY_RING_CAP) - 1u));
-    dirty[r] = (page << 15) | cell; dirty[r + 1u] = FS_TK(FS_T_TICK);
+    dirty[r] = (page << 15) | cell; dirty[r + 1u] = FS_TK(FS_T_WORK_SERIAL);   // E6R: enqueue work serial (not the fusion tick)
     return true;
 }
 // C09R-E4 index relocation (the index follows the geometry): a surfel whose fused centre left its index cell keeps its
@@ -155,7 +155,7 @@ void fsSheetMark(uint page, uint h) {
     uint t = atomicAdd(FS_TK(FS_T_SHEET_TAIL), 1u);
     if (t - FS_TK(FS_T_SHEET_HEAD) >= uint(FS_SHEET_RING_CAP)) { atomicAnd(sheet[mw], ~bit); atomicAdd(gctr[FS_GCTR_SHEET_FRONTIER_DROP], 1u); return; }
     sheet[FS_TK(FS_T_SHEET_RING_BASE) + (t & (uint(FS_SHEET_RING_CAP) - 1u))] = fsSheetPack(page, h);
-    sheet[fsSheetTickWord(t)] = FS_TK(FS_T_TICK);
+    sheet[fsSheetTickWord(t)] = FS_TK(FS_T_WORK_SERIAL);
 }
 bool fsSheetMarked(uint h) { return (sheet[FS_TK(FS_T_SHEET_MASK_BASE) + (h >> 5u)] & (1u << (h & 31u))) != 0u; }
 #endif

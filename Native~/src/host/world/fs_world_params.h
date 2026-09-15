@@ -103,13 +103,15 @@
 #define FS_FREE_PAGE_HOPS_MAX 4         // page transitions (hash lookups) per ray; a 6 m ray crosses <= 3 page boundaries
 #define FS_EPOCH_MEAS_MIN     512       // slicing floor (C09R-E5: 1-3 ms scanner quanta; stride slices of one depth frame)
 // ---- C09R-E5R deadline / deficit scheduler and cost-model floors ------------------------------------------------------------------
+#define FS_SCHED_FUSE_DEADLINE_MS    60    // E6R: newest usable depth observation waiting longer than this: fusion is overdue (15-20 fused observations/s)
 #define FS_SCHED_PUBLISH_DEADLINE_MS 75    // oldest pending dirty cell older than this: publication work is overdue (acceptance p95 < 100 ms)
 #define FS_SCHED_SHEET_DEADLINE_MS   200   // oldest pending SurfaceGraph node older than this: sheet work is overdue (acceptance p95 < 250 ms)
 #define FS_SCHED_SHARE_FUSE          0.60  // GPU-time shares of the deficit round robin when nothing is overdue
 #define FS_SCHED_SHARE_PUBLISH       0.25
 #define FS_SCHED_SHARE_SHEET         0.15
 #define FS_SCHED_DEFICIT_CAP_US      20000 // an idle stage cannot bank more than this
-#define FS_SCHED_AGE_UNKNOWN_MS      1000  // enqueue tick outside the tick-time window (or before the first fuse): treated as this old
+#define FS_SCHED_AGE_UNKNOWN_MS      1000  // enqueue serial outside the host serial-time window: treated as this old
+#define FS_SCHED_SERIAL_WINDOW       65536 // host ring work serial -> steady-clock ns (power of two)
 #define FS_PUB_DIRTY_MIN      16        // C09R-E5 publication chain floors: dirty cells per maintenance job,
 #define FS_PUB_LEAVES_MIN     16        //   dirty cells per leaves chunk (PUBLISH class quantum, sub-ms)
 #define FS_SHEET_BATCH_MIN    256       // C09R-E5 surface complex batch floor (own job, quantum gated)
@@ -219,6 +221,7 @@
 #define FS_T_SHEET_MASK_BASE 14         // word offsets inside the sheet buffer (CPU-written, depend on the surfel capacity)
 #define FS_T_SHEET_RING_BASE 15
 #define FS_T_DIRTY_HEAD      78         // C09R-E5R persistent dirty-cell ring: consumer head (CPU, publication maintenance take)
+#define FS_T_WORK_SERIAL     80         // E6R scheduler clock: serial of the world job being recorded (any class); rings store it, the host maps serial -> steady ns
 #define FS_T_DIRTY_TAIL      79         //   producer tail (atomic, fsMarkDirtyCell)
 #define FS_T_REFINE_BIRTHS   77         // E4.1C refinement births of the epoch (deterministic ids after the candidates)
 #define FS_T_RELOC_COUNT     9          // relocation records (written by fuse_reduce / fuse_maint_apply, consumed and zeroed by world_relocate)

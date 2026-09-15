@@ -38,6 +38,7 @@
 #include "../fs_cost_model.h"
 #include <algorithm>
 #include <cstdlib>
+#include <chrono>
 #include <atomic>
 #include <math.h>
 #include <mutex>
@@ -435,7 +436,7 @@ public:
             CounterAdd(FS_CTR_MEASUREMENTS, (int64_t)slot.frame.count);
             for (uint32_t k = 0; k < 32; ++k) stereoTotals_[k] += ctr[FS_MEAS_CTR_STEREO_TESTED + k];
             if (slot.frame.overflow) CounterAdd(FS_CTR_MEASUREMENTS_DROPPED, (int64_t)slot.frame.overflow);
-            if (slot.frame.count) { slot.state = SLOT_READY; obs = slot.frame.observationId; request = true; }
+            if (slot.frame.count) { slot.state = SLOT_READY; obs = slot.frame.observationId; request = true; slot.frame.readyMonoNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); framesReady_++; }
             else slot.state = SLOT_FREE;
             if (seq <= 3 || (seq % kLogEveryFrames) == 0) {
                 Log("FS-MEAS depth #%llu: %u records (valid %u, rejected %u, threshold %u frac %.2f, predicted %u consistent %u (alt convention %u) new %u, edge %u, lowTex %u, invalid %u, overflow %u, groups %u, pred %ux%ux%u valid=%u, cam %ux%u mask=%u used=%llu/%llu) gpu %lld us", (unsigned long long)seq,
@@ -534,6 +535,8 @@ public:
     }
     const MeasGpuRing* Ring(uint32_t slot) { std::lock_guard<std::mutex> g(m_); return deviceUp_ && slot < FS_MEAS_GPU_RING_SLOTS ? &slots_[slot].ring : nullptr; }
     uint32_t ReadyFrames() { std::lock_guard<std::mutex> g(m_); uint32_t n = 0; for (RingSlot& r : slots_) if (r.state == SLOT_READY) n++; return n; }
+    int64_t NewestReadyNs() { std::lock_guard<std::mutex> g(m_); int64_t t = 0; uint64_t best = 0; for (RingSlot& r : slots_) if (r.state == SLOT_READY && r.frame.sequence > best) { best = r.frame.sequence; t = r.frame.readyMonoNs; } return t; }
+    void FrameTotals(uint64_t& ready, uint64_t& superseded) { std::lock_guard<std::mutex> g(m_); ready = framesReady_; superseded = (uint64_t)framesSuperseded_; }
 
 private:
     std::mutex m_;
@@ -549,6 +552,7 @@ private:
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
     VkImageView predView_ = VK_NULL_HANDLE; fs::render::PredictionInfo pred_; bool predValid_ = false; uint64_t predBinds_ = 0;
     CameraInput cam_[2]; StereoPairInput pair_; uint64_t stereoFrames_ = 0; uint64_t stereoTotals_[32] = {};
+    uint64_t framesReady_ = 0;
     Buffer tiles_; CostModel refineCost_; AgeWindow refineFrameUs_; uint64_t refineJobs_ = 0, pairsGeometryRejected_ = 0; int64_t lastRefineUs_ = 0;
     CameraInput key_[FS_MEAS_KEYFRAMES]; int32_t keySel_ = -1; uint64_t keySelSeq_ = 0; bool keyImported_ = false; VkImageView keyView_ = VK_NULL_HANDLE; uint64_t keyframesSet_ = 0, keyFramesUsed_ = 0; VkImageView camView_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; bool camImported_[2] = {false, false}; uint32_t camImportedW_[2] = {0, 0}, camImportedH_[2] = {0, 0}; uint64_t camFrames_ = 0, camFramesUsed_ = 0;
     Pipeline pipes_[K_COUNT_]; Buffer score_, select_; bool scratchBound_ = false;
@@ -572,6 +576,8 @@ void MeasGpu_ReleaseFrame(uint64_t sequence) { EnsureInit(); M().ReleaseFrame(se
 uint32_t MeasGpu_RingSlots() { return FS_MEAS_GPU_RING_SLOTS; }
 const MeasGpuRing* MeasGpu_Ring(uint32_t slot) { EnsureInit(); return M().Ring(slot); }
 uint32_t MeasGpu_ReadyFrames() { EnsureInit(); return M().ReadyFrames(); }
+int64_t MeasGpu_NewestReadyNs() { EnsureInit(); return M().NewestReadyNs(); }
+void MeasGpu_FrameTotals(uint64_t& ready, uint64_t& superseded) { EnsureInit(); M().FrameTotals(ready, superseded); }
 
 } // namespace meas
 } // namespace fs

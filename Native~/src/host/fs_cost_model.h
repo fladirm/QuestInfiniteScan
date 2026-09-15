@@ -16,7 +16,8 @@ struct CostModel {
     double w = 0, sn = 0, st = 0, snn = 0, snt = 0;
     uint64_t samples = 0, skipped = 0;
     double fixedUs = 0, perItemUs = 0;    // last fit
-    bool fitted = false, structural = false;
+    bool fitted = false, structural = false, identifiable = false;
+    uint32_t probeCalls = 0; uint64_t probes = 0;
 
     void Add(uint32_t items, int64_t gpuUs) {
         if (items < minLearnItems || gpuUs <= 0) { skipped++; return; }
@@ -28,7 +29,8 @@ struct CostModel {
     void Fit() {
         if (w <= 0) { fitted = false; return; }
         const double mn = sn / w, mt = st / w, var = snn / w - mn * mn, cov = snt / w - mn * mt;
-        if (var > 0.01 * mn * mn && cov > 0) {                          // identifiable: slope + intercept
+        identifiable = var > 0.01 * mn * mn && cov > 0;
+        if (identifiable) {                                             // slope + intercept
             perItemUs = cov / var; fixedUs = std::max(0.0, mt - perItemUs * mn);
         } else {                                                        // one batch size so far: attribute everything to the items (conservative)
             perItemUs = mn > 0 ? mt / mn : 0; fixedUs = 0;
@@ -41,16 +43,32 @@ struct CostModel {
         if (!fitted) { structural = false; return std::min(std::max(initial, minItems), maxItems); }
         structural = fixedUs >= targetUs;
         const double variable = structural ? targetUs : targetUs - fixedUs;
-        const double n = variable / perItemUs;
+        double n = variable / perItemUs;
+        // E6R probing: with one batch size only the split into fixed / per item is unknown (everything was charged to the items, so the
+        // batch can stick at the floor); every 4th call proposes twice the observed mean batch so the model becomes identifiable
+        if (!identifiable && w > 0 && (++probeCalls % 4u) == 0u) { n = std::max(n, 2.0 * sn / w); probes++; }
         return (uint32_t)std::min<double>(std::max<double>(n, (double)minItems), (double)maxItems);
     }
 };
+
+// E6R scheduler decision (twin of World::Tick): normalized lateness = age / deadline; any runnable class with lateness > 1 -> the largest
+// lateness wins; otherwise the runnable class with the largest GPU-time deficit. Returns -1 when nothing is runnable.
+inline int PickStage(const bool runnable[3], const float ageMs[3], const float deadlineMs[3], const double deficit[3], bool* overdueOut = nullptr) {
+    int pick = -1; float bestLate = 1.f;
+    for (int k = 0; k < 3; ++k) if (runnable[k] && deadlineMs[k] > 0 && ageMs[k] / deadlineMs[k] > bestLate) { bestLate = ageMs[k] / deadlineMs[k]; pick = k; }
+    if (overdueOut) *overdueOut = pick >= 0;
+    if (pick >= 0) return pick;
+    double best = -1e300;
+    for (int k = 0; k < 3; ++k) if (runnable[k] && deficit[k] > best) { best = deficit[k]; pick = k; }
+    return pick;
+}
 
 // Rolling p50 / p95 of a bounded sample window (ages in ms).
 struct AgeWindow {
     static constexpr uint32_t kCap = 512;
     float v[kCap] = {}; uint32_t n = 0, next = 0; uint64_t total = 0;
     void Add(float ms) { v[next] = ms; next = (next + 1) % kCap; n = std::min(n + 1, kCap); total++; }
+    float Max() const { float m = 0; for (uint32_t i = 0; i < n; ++i) m = std::max(m, v[i]); return m; }
     float Quantile(float q) const {
         if (!n) return 0;
         float tmp[kCap]; std::copy(v, v + n, tmp); const uint32_t k = std::min<uint32_t>(n - 1, (uint32_t)(q * (float)(n - 1) + 0.5f));

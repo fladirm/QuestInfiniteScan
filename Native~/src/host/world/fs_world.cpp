@@ -379,7 +379,6 @@ public:
         auto js = std::make_shared<JobStorage>();
         const Buffer* G = &buf_.gctr;
         const uint32_t tick = ++tick_;
-        tickTimeNs_[tick & (kTickTimes - 1)] = NowNs(); tickTimeTick_[tick & (kTickTimes - 1)] = tick;
         PushIngest pin{maxCount, tick, idBase_, idxLeafBase_, idxNodeBase_, phase, pageCount_, stride};
         PushAssoc pa{hashCap_ - 1, anchorId};
         PushFreeSpace pf{hashCap_ - 1, anchorId, freeSpace ? FS_FUSE_FLAG_FREE_SPACE : 0u, 0, {eye0[0], eye0[1], eye0[2], 0}, {eye1[0], eye1[1], eye1[2], 0}};
@@ -419,7 +418,7 @@ public:
             }
             onDone(ok);
         };
-        if (!SubmitJob(jd)) { tick_--; return false; }
+        if (!SubmitWorldJob(jd)) { tick_--; return false; }
         fuseInFlight_++;
         return true;
     }
@@ -473,7 +472,7 @@ public:
             pubStage_ = pubTotal_ ? PUB_LEAVES : PUB_IDLE;
             if (!pubTotal_) FinishPublication();
         };
-        if (!SubmitJob(jd)) { AtomicStoreU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_HEAD, head); return false; }
+        if (!SubmitWorldJob(jd)) { AtomicStoreU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_HEAD, head); return false; }
         publishInFlight_++; pubStage_ = PUB_LEAVES; pubTotal_ = 0; pubDone_ = 0; pubStartNs_ = NowNs();
         for (auto& l : loads) pages_[l.first].loadPending = false;
         return true;
@@ -495,7 +494,7 @@ public:
             pubDone_ += count; pubChunks_++; lastLeavesChunk_ = count;
             if (pubDone_ >= pubTotal_) pubStage_ = PUB_LEVELS;
         };
-        if (!SubmitJob(jd)) return false;
+        if (!SubmitWorldJob(jd)) return false;
         publishInFlight_++;
         return true;
     }
@@ -514,7 +513,7 @@ public:
             Charge(ST_PUB, stats_.publishLevelsUs);
             FinishPublication();
         };
-        if (!SubmitJob(jd)) return false;
+        if (!SubmitWorldJob(jd)) return false;
         publishInFlight_++;
         return true;
     }
@@ -523,7 +522,7 @@ public:
         AfterJob(true);
         pubStage_ = PUB_IDLE;
         const int64_t now = NowNs();
-        for (uint32_t t : pubAgeTicks_) pubAge_.Add(TickAgeMs(t, now));        // change -> FRONT commit request (graphics publishes at its next frame)
+        for (uint32_t t : pubAgeTicks_) { const float a = WorkAgeMs(t, now); pubAge_.Add(a); if (a > (float)FS_SCHED_PUBLISH_DEADLINE_MS) deadlineMiss_[ST_PUB]++; }        // change -> FRONT commit request (graphics publishes at its next frame)
         pubAgeTicks_.clear();
         pubChainMs_.Add((float)((now - pubStartNs_) / 1e6));
     }
@@ -555,11 +554,11 @@ public:
             sheetCost_.Add(items, stats_.sheetUs); Charge(ST_SHEET, stats_.sheetUs);
             FoldGpuCounters();
             const int64_t now = NowNs();
-            for (uint32_t t : sheetAgeTicks_) sheetAge_.Add(TickAgeMs(t, now));
+            for (uint32_t t : sheetAgeTicks_) { const float a = WorkAgeMs(t, now); sheetAge_.Add(a); if (a > (float)FS_SCHED_SHEET_DEADLINE_MS) deadlineMiss_[ST_SHEET]++; }
             sheetAgeTicks_.clear();
             sheetJobs_++; lastSheetBatch_ = items;
         };
-        if (!SubmitJob(jd)) return false;
+        if (!SubmitWorldJob(jd)) return false;
         sheetInFlight_++;
         return true;
     }
@@ -571,10 +570,19 @@ public:
     // ---- C09R-E5R deadline / deficit scheduler bookkeeping -----------------------------------------------------------------------
     enum SchedStage : uint32_t { ST_FUSE = 0, ST_PUB, ST_SHEET, ST_COUNT };
     static int64_t NowNs() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
-    float TickAgeMs(uint32_t tick, int64_t now) const {
-        const uint32_t k = tick & (kTickTimes - 1);
-        if (tickTimeTick_[k] != tick || tickTimeNs_[k] == 0) return (float)FS_SCHED_AGE_UNKNOWN_MS;   // older than the tick window
-        return (float)((now - tickTimeNs_[k]) / 1e6);
+    // E6R scheduler clock: every world job (any class) takes the next work serial; the GPU rings store the serial of the job that
+    // enqueued an element and the host maps serial -> steady-clock ns. The fusion tick is no clock authority any more.
+    bool SubmitWorldJob(JobDesc& jd) {
+        const uint32_t serial = ++workSerial_;
+        AtomicStoreU32(gctr_ + FS_GCTR_COUNT + FS_T_WORK_SERIAL, serial);
+        std::atomic_thread_fence(std::memory_order_release);
+        workTimeNs_[serial & (FS_SCHED_SERIAL_WINDOW - 1u)] = NowNs(); workTimeSerial_[serial & (FS_SCHED_SERIAL_WINDOW - 1u)] = serial;
+        return SubmitJob(jd);
+    }
+    float WorkAgeMs(uint32_t serial, int64_t now) const {
+        const uint32_t k = serial & (FS_SCHED_SERIAL_WINDOW - 1u);
+        if (workTimeSerial_[k] != serial || workTimeNs_[k] == 0) return (float)FS_SCHED_AGE_UNKNOWN_MS;
+        return (float)((now - workTimeNs_[k]) / 1e6);
     }
     uint32_t ClassQuantumUs(FsJobClass cls) { int64_t st[8]; return ExecClassStats(cls, st) && st[7] > 0 ? (uint32_t)st[7] : 2000u; }
     // deficit round robin over GPU time: every charged job credits all stages by their share and debits the stage that ran
@@ -598,7 +606,7 @@ public:
             for (uint32_t slot : *captured) { FsPendingPublish pp; pp.pageSlot = slot; pp.root = FS_INDEX_NONE; pp.count = 0; pp.generation = pages_[slot].generation; batch.entries.push_back(pp); batch.releasedPages.push_back(slot); }
             toPublish_.push_back(std::move(batch));
         };
-        if (!SubmitJob(jd)) return false;
+        if (!SubmitWorldJob(jd)) return false;
         releaseInFlight_++;
         return true;
     }
@@ -609,7 +617,7 @@ public:
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.erase"; jd.dispatches = js->d.data(); jd.dispatchCount = 1;
         jd.onRetired = [this, js](bool, uint64_t, uint64_t) { std::lock_guard<std::recursive_mutex> g(m_); releaseInFlight_--; publishWanted_ = true; };
-        if (!SubmitJob(jd)) return false;
+        if (!SubmitWorldJob(jd)) return false;
         releaseInFlight_++;
         return true;
     }
@@ -777,13 +785,12 @@ public:
         const bool pubRunnable = pubStage_ != PUB_IDLE || dirtyPending != 0 || !pendingLoads_.empty();
         const bool sheetRunnable = sheetPending != 0;
         float pubAge = 0, sheetAge = 0;
-        if (pubStage_ != PUB_IDLE) pubAge = (float)((now - pubStartNs_) / 1e6) + (pubAgeTicks_.empty() ? 0.f : TickAgeMs(pubAgeTicks_.front(), pubStartNs_));
-        else if (dirtyPending) pubAge = TickAgeMs(DirtyEntryTick(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_HEAD)), now);
+        if (pubStage_ != PUB_IDLE) pubAge = (float)((now - pubStartNs_) / 1e6) + (pubAgeTicks_.empty() ? 0.f : WorkAgeMs(pubAgeTicks_.front(), pubStartNs_));
+        else if (dirtyPending) pubAge = WorkAgeMs(DirtyEntryTick(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_HEAD)), now);
         if (!pendingLoads_.empty()) pubAge = std::max(pubAge, (float)FS_SCHED_PUBLISH_DEADLINE_MS);
-        if (sheetRunnable) sheetAge = TickAgeMs(SheetEntryTick(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD)), now);
+        if (sheetRunnable) sheetAge = WorkAgeMs(SheetEntryTick(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD)), now);
         pubPendingAgeMs_ = pubAge; sheetPendingAgeMs_ = sheetAge;
         const float pubOver = pubRunnable ? pubAge / (float)FS_SCHED_PUBLISH_DEADLINE_MS : 0.f, sheetOver = sheetRunnable ? sheetAge / (float)FS_SCHED_SHEET_DEADLINE_MS : 0.f;
-        const bool overdue = pubOver > 1.f || sheetOver > 1.f;
         // drop older observations, never display frames: a newer depth frame supersedes the rest of the current one (stride slices)
         if (slice_.count != 0 && slice_.live && slice_.phase > 0 && slice_.phase < slice_.stride && meas::MeasGpu_ReadyFrames() > 0) {
             const uint32_t left = slice_.stride - slice_.phase;
@@ -793,15 +800,21 @@ public:
             slice_.count = 0;
         }
         const bool fuseRunnable = slice_.count != 0 || (liveBound_ && meas::MeasGpu_ReadyFrames() > 0) || cpuSlotReady_;
-        SchedStage pick = ST_COUNT;
-        if (overdue) pick = (pubRunnable && pubOver >= sheetOver) ? ST_PUB : ST_SHEET;
-        else {
-            double best = -1e300;
-            if (fuseRunnable && deficit_[ST_FUSE] > best) { best = deficit_[ST_FUSE]; pick = ST_FUSE; }
-            if (pubRunnable && deficit_[ST_PUB] > best) { best = deficit_[ST_PUB]; pick = ST_PUB; }
-            if (sheetRunnable && deficit_[ST_SHEET] > best) { best = deficit_[ST_SHEET]; pick = ST_SHEET; }
-        }
-        if (overdue) schedOverdue_[pick == ST_PUB ? 0 : 1]++;
+        // FUSE age: the observation being sliced, else the newest READY one (a CPU synthetic slot counts as fresh)
+        float fuseAge = 0;
+        if (slice_.count != 0 && slice_.readyNs) fuseAge = (float)((now - slice_.readyNs) / 1e6);
+        else if (liveBound_) { const int64_t r = meas::MeasGpu_NewestReadyNs(); if (r) fuseAge = (float)((now - r) / 1e6); }
+        fusePendingAgeMs_ = fuseAge;
+        const float fuseOver = fuseRunnable ? fuseAge / (float)FS_SCHED_FUSE_DEADLINE_MS : 0.f;
+        // E6R: overdue = normalized lateness > 1; the most late runnable class wins; otherwise the weighted deficit decides. No class can
+        // starve: every class ages while it waits and eventually carries the largest lateness.
+        (void)fuseOver; (void)pubOver; (void)sheetOver;
+        const bool runnable[3] = {fuseRunnable, pubRunnable, sheetRunnable};
+        const float ages[3] = {fuseAge, pubAge, sheetAge}, deadlines[3] = {(float)FS_SCHED_FUSE_DEADLINE_MS, (float)FS_SCHED_PUBLISH_DEADLINE_MS, (float)FS_SCHED_SHEET_DEADLINE_MS};
+        bool overdue = false;
+        const int picked = PickStage(runnable, ages, deadlines, deficit_, &overdue);
+        SchedStage pick = picked < 0 ? ST_COUNT : (SchedStage)picked;
+        if (overdue && pick < ST_COUNT) schedOverdue_[pick]++;
         if (pick == ST_PUB) {
             if (pubStage_ == PUB_LEAVES && pubTotal_ != 0) SubmitPubLeaves();
             else if (pubStage_ == PUB_LEVELS) SubmitPubLevels();
@@ -813,7 +826,8 @@ public:
         if (slice_.count == 0) {
             meas::MeasGpuFrame f;
             bool live = liveBound_ && meas::MeasGpu_PeekFrame(f);
-            if (live) { slice_ = SliceState{}; slice_.live = true; slice_.seq = f.sequence; slice_.slot = f.slot; slice_.count = std::min(f.ring->capacity, std::max(f.count, 1u)); slice_.anchor = f.anchorId; slice_.eyeValid = f.eyeOriginValid; memcpy(slice_.eye, f.eyeOrigin, sizeof slice_.eye); slice_.importFrameEnd = f.importFrameEnd; scanAnchor_ = f.anchorId; }
+            if (live) { slice_ = SliceState{}; slice_.live = true; slice_.readyNs = f.readyMonoNs; slice_.seq = f.sequence;
+                        fuseAge_.Add((float)((now - f.readyMonoNs) / 1e6)); if ((float)((now - f.readyMonoNs) / 1e6) > (float)FS_SCHED_FUSE_DEADLINE_MS) deadlineMiss_[ST_FUSE]++; observationsLeased_++; slice_.slot = f.slot; slice_.count = std::min(f.ring->capacity, std::max(f.count, 1u)); slice_.anchor = f.anchorId; slice_.eyeValid = f.eyeOriginValid; memcpy(slice_.eye, f.eyeOrigin, sizeof slice_.eye); slice_.importFrameEnd = f.importFrameEnd; scanAnchor_ = f.anchorId; }
             else if (cpuSlotReady_) { slice_ = SliceState{}; slice_.live = false; slice_.count = std::max(cpuCtr_[0], 1u); slice_.anchor = scanAnchor_; slice_.eyeValid = cpuEyeValid_; memcpy(slice_.eye, cpuEye_, sizeof slice_.eye); cpuSlotBusy_ = true; cpuSlotReady_ = false; }
             if (slice_.count) slice_.stride = std::max<uint32_t>(1u, (slice_.count + epochMeasCap_ - 1) / epochMeasCap_);
         }
@@ -825,7 +839,7 @@ public:
                              [this, live, seq, last](bool) { if (!last) return; if (live) meas::MeasGpu_ReleaseFrame(seq); else cpuSlotBusy_ = false; });
         if (!ok) return;                                   // deferred by the executor (ring/budget): retried next tick, same slice
         slice_.phase++; slices_++;
-        if (last) slice_.count = 0;
+        if (last) { slice_.count = 0; observationsFused_++; }
         CounterAdd(FS_CTR_SCAN_TICK, 1);
     }
     void TakeLoads(std::vector<std::pair<uint32_t, bool>>& loads) {
@@ -937,7 +951,14 @@ public:
         w.KV("sheetAgeP50Ms", sheetAge_.Quantile(0.5f)); w.KV("sheetAgeP95Ms", sheetAge_.Quantile(0.95f)); w.KV("sheetAgeSamples", sheetAge_.total);
         w.KV("pendingPublicationAgeMs", pubPendingAgeMs_); w.KV("pendingSheetAgeMs", sheetPendingAgeMs_);
         w.KV("schedFuseJobs", schedJobs_[ST_FUSE]); w.KV("schedPublishJobs", schedJobs_[ST_PUB]); w.KV("schedSheetJobs", schedJobs_[ST_SHEET]);
-        w.KV("schedOverduePublish", schedOverdue_[0]); w.KV("schedOverdueSheet", schedOverdue_[1]);
+        w.KV("fuseOverduePicks", schedOverdue_[ST_FUSE]); w.KV("publishOverduePicks", schedOverdue_[ST_PUB]); w.KV("topologyOverduePicks", schedOverdue_[ST_SHEET]);
+        w.KV("fuseJobs", schedJobs_[ST_FUSE]); w.KV("publishJobs", schedJobs_[ST_PUB]); w.KV("topologyJobs", schedJobs_[ST_SHEET]);
+        w.KV("fuseDeadlineMisses", deadlineMiss_[ST_FUSE]); w.KV("publishDeadlineMisses", deadlineMiss_[ST_PUB]); w.KV("topologyDeadlineMisses", deadlineMiss_[ST_SHEET]);
+        w.KV("fuseAgeP50Ms", fuseAge_.Quantile(0.5f)); w.KV("fuseAgeP95Ms", fuseAge_.Quantile(0.95f)); w.KV("fuseAgeMaxMs", fuseAge_.Max());
+        w.KV("publishAgeMaxMs", pubAge_.Max()); w.KV("topologyAgeP50Ms", sheetAge_.Quantile(0.5f)); w.KV("topologyAgeP95Ms", sheetAge_.Quantile(0.95f)); w.KV("topologyAgeMaxMs", sheetAge_.Max());
+        w.KV("pendingFuseAgeMs", fusePendingAgeMs_);
+        { uint64_t ready = 0, sup = 0; meas::MeasGpu_FrameTotals(ready, sup); w.KV("observationsReceived", ready); w.KV("observationsSuperseded", sup + framesAbandoned_); }
+        w.KV("observationsLeased", observationsLeased_); w.KV("observationsFused", observationsFused_); w.KV("workSerial", (uint64_t)workSerial_);
         w.KV("promotedLive", (int64_t)gctrTotal_[FS_GCTR_PROMOTIONS] - (int64_t)gctrTotal_[FS_GCTR_PROMOTED_REMOVED]);
         auto cm = [&](const char* name, const CostModel& c) { w.KV((std::string(name) + "FixedUs").c_str(), (int64_t)c.fixedUs); w.KV((std::string(name) + "PerItemUs1000").c_str(), (int64_t)(c.perItemUs * 1000.0)); w.KV((std::string(name) + "Structural").c_str(), c.structural); w.KV((std::string(name) + "Learned").c_str(), c.samples); w.KV((std::string(name) + "Skipped").c_str(), c.skipped); };
         cm("costFuse", fuseCost_); cm("costMaint", maintCost_); cm("costLeaves", leavesCost_); cm("costSheet", sheetCost_);
@@ -985,17 +1006,17 @@ private:
     uint32_t fuseInFlight_ = 0, publishInFlight_ = 0, releaseInFlight_ = 0, sheetInFlight_ = 0;
     uint32_t pubStage_ = 0, pubTotal_ = 0, pubDone_ = 0, lastLeavesChunk_ = 0, lastSheetBatch_ = 0;
     CostModel fuseCost_, maintCost_, leavesCost_, sheetCost_;
-    static constexpr uint32_t kTickTimes = 4096;
-    int64_t tickTimeNs_[kTickTimes] = {}; uint32_t tickTimeTick_[kTickTimes] = {}; int64_t pubStartNs_ = 0;
+    uint32_t workSerial_ = 0; std::vector<int64_t> workTimeNs_ = std::vector<int64_t>(FS_SCHED_SERIAL_WINDOW, 0); std::vector<uint32_t> workTimeSerial_ = std::vector<uint32_t>(FS_SCHED_SERIAL_WINDOW, 0u); int64_t pubStartNs_ = 0;
+    AgeWindow fuseAge_; float fusePendingAgeMs_ = 0; uint64_t deadlineMiss_[3] = {0, 0, 0}, observationsLeased_ = 0, observationsFused_ = 0;
     std::vector<uint32_t> pubAgeTicks_, sheetAgeTicks_; AgeWindow pubAge_, sheetAge_, pubChainMs_;
-    double deficit_[3] = {0, 0, 0}; uint64_t schedJobs_[3] = {0, 0, 0}, schedOverdue_[2] = {0, 0}; float pubPendingAgeMs_ = 0, sheetPendingAgeMs_ = 0;
+    double deficit_[3] = {0, 0, 0}; uint64_t schedJobs_[3] = {0, 0, 0}, schedOverdue_[3] = {0, 0, 0}; float pubPendingAgeMs_ = 0, sheetPendingAgeMs_ = 0;
     uint64_t pubChunks_ = 0, sheetJobs_ = 0, framesAbandoned_ = 0, measAbandoned_ = 0; std::vector<uint32_t> chainRenderRetire_;
     bool publishWanted_ = false, resetPending_ = false, resetDraining_ = false;
     uint32_t tick_ = 0, idBase_ = kSurfaceIdBase; int32_t scanAnchor_ = 0;
     // Quantum gate (C09R review gap 1): epoch caps adapt to the measured job GPU time vs the class quantum; a frame
     // larger than the cap is processed in slices (offset walks the frame), dirty cells beyond the cap stay dirty.
     uint32_t epochMeasCap_ = FS_TICK_MEAS_MAX, epochDirtyCap_ = FS_DIRTY_CELLS_MAX; uint64_t slices_ = 0, capHalvings_ = 0;
-    struct SliceState { bool live = false; uint64_t seq = 0; uint32_t slot = 0, phase = 0, stride = 1, count = 0; int32_t anchor = 0; bool eyeValid = false; float eye[2][3] = {}; uint64_t importFrameEnd = 0; } slice_;
+    struct SliceState { bool live = false; uint64_t seq = 0; uint32_t slot = 0, phase = 0, stride = 1, count = 0; int32_t anchor = 0; bool eyeValid = false; float eye[2][3] = {}; uint64_t importFrameEnd = 0; int64_t readyNs = 0; } slice_;
     std::vector<uint32_t> releaseQueue_; std::vector<std::pair<uint32_t, uint32_t>> pendingLoads_;
     std::deque<PublishBatch> toPublish_;
     std::vector<EraseReq> eraseQueue_;
