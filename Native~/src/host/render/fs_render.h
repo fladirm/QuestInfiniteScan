@@ -28,5 +28,10 @@ static_assert(sizeof(CullFrame) % 16 == 0, "CullFrame std430 array stride");
 
 void EnsureInit();                       // idempotent; every FsRender_* export calls it
 
+// Canonical prediction for the measurement front-end (contract §7.6): the previous rendered depth (FRONT reprojected
+// into the eye views) with its per-eye world->clip and clip->world matrices. False when no capture is registered.
+struct PredictionInfo { void* unityPtr = nullptr; uint32_t width = 0, height = 0, layers = 0; float viewProj[2][16]; float invViewProj[2][16]; uint64_t version = 0; };
+bool GetPrediction(PredictionInfo& out);
+
 } // namespace render
 } // namespace fs

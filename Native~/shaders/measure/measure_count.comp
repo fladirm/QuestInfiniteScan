@@ -1,0 +1,20 @@
+#version 450
+// C09R-E2 compaction 3/5: per workgroup of 64 texel threads, count the selected texels (score above the threshold,
+// or in the threshold bin and chosen by the deterministic hash fraction) -> wgCount[g]. No atomics on records.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#include "fs_meas_frame.glsl"
+layout(local_size_x = FS_MEAS_WG) in;
+layout(std430, set = 0, binding = FS_MEAS_B_SCORE) readonly buffer ScoreBlock { uint score[]; };
+layout(std430, set = 0, binding = FS_MEAS_B_SELECT) buffer SelectBlock { uint sel[]; };
+shared uint s_count;
+void main() {
+    if (gl_LocalInvocationIndex == 0u) s_count = 0u;
+    barrier();
+    const uint w = pc.b.z, h = pc.b.w, layers = pc.a.x;
+    uint t = gl_GlobalInvocationID.x;
+    if (t < w * h * layers && fsMeasSelected(score[t], t, pc.b.y, blk.ctr[FS_MEAS_CTR_THRESHOLD], blk.ctr[FS_MEAS_CTR_FRACTION])) atomicAdd(s_count, 1u);
+    barrier();
+    if (gl_LocalInvocationIndex == 0u) { sel[FS_MEAS_SEL_WGCOUNT + gl_WorkGroupID.x] = s_count; atomicAdd(blk.ctr[FS_MEAS_CTR_GROUPS], 1u); }
+}

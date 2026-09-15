@@ -1,0 +1,63 @@
+#version 450
+// C09R-E2 compaction 5/5: selected texels are back-projected (same gates and math as before: central-difference
+// normal, provisional sigma, footprint, anchor-local transform at the depth's own XrTime pose) and written at
+// wgBase[g] + lane rank (shared-memory scan): deterministic order, no global atomics on the records.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#define FS_MEAS_USE_DEPTH
+#include "fs_meas_frame.glsl"
+layout(local_size_x = FS_MEAS_WG) in;
+layout(std430, set = 0, binding = FS_MEAS_B_RECORDS) writeonly buffer Records { FsSurfaceMeasurement rec[]; };
+layout(std430, set = 0, binding = FS_MEAS_B_SCORE) readonly buffer ScoreBlock { uint score[]; };
+layout(std430, set = 0, binding = FS_MEAS_B_SELECT) readonly buffer SelectBlock { uint sel[]; };
+shared uint s_rank[FS_MEAS_WG];
+shared uint s_lowtex;
+void main() {
+    const uint lane = gl_LocalInvocationIndex;
+    if (lane == 0u) s_lowtex = 0u;
+    const uint w = pc.b.z, h = pc.b.w, layers = pc.a.x, flags = pc.a.w;
+    uint t = gl_GlobalInvocationID.x;
+    bool selected = t < w * h * layers && fsMeasSelected(score[t], t, pc.b.y, blk.ctr[FS_MEAS_CTR_THRESHOLD], blk.ctr[FS_MEAS_CTR_FRACTION]);
+    FsSurfaceMeasurement m;
+    m.px = 0.0; m.py = 0.0; m.pz = 0.0; m.nx = 0.0; m.ny = 0.0; m.nz = 0.0;
+    m.sigmaN = 0.0; m.sigmaT = 0.0; m.footprint = 0.0; m.sourceFlags = 0u; m.observationId = 0u; m.reserved = 0u;
+    bool write = false;
+    if (selected) {
+        uint layer, x, y; fsMeasThreadToTexel(t, layers, w, h, pc.b.y, layer, x, y);
+        FsTexelGeometry g;
+        if (fsMeasClassify(layer, x, y, g) == 3) {
+            vec4 fov = layer == 0u ? blk.fov[0] : blk.fov[1];
+            vec2 tc = fsMeasRayTangents(x, y, w, h, fov, flags);
+            vec2 txm = fsMeasRayTangents(x - 1u, y, w, h, fov, flags);
+            vec2 txp = fsMeasRayTangents(x + 1u, y, w, h, fov, flags);
+            vec2 tym = fsMeasRayTangents(x, y - 1u, w, h, fov, flags);
+            vec2 typ = fsMeasRayTangents(x, y + 1u, w, h, fov, flags);
+            vec3 p = fsMeasEyePoint(tc, g.z);
+            vec3 n = fsMeasNormal(p, fsMeasEyePoint(vec2(txm.x, tc.y), g.zxm), fsMeasEyePoint(vec2(txp.x, tc.y), g.zxp),
+                                     fsMeasEyePoint(vec2(tc.x, tym.y), g.zym), fsMeasEyePoint(vec2(tc.x, typ.y), g.zyp));
+            mat4 M = layer == 0u ? blk.anchorFromEye[0] : blk.anchorFromEye[1];
+            vec3 pa = (M * vec4(p, 1.0)).xyz;
+            vec3 na = mat3(M) * n;
+            float nl = length(na); na = nl < 1e-20 ? vec3(0.0) : na / nl;
+            m.px = pa.x; m.py = pa.y; m.pz = pa.z;
+            m.nx = na.x; m.ny = na.y; m.nz = na.z;
+            m.sigmaN = fsMeasSigmaN(g.z);
+            m.footprint = fsMeasFootprint(g.z, fov, w, h);
+            m.sigmaT = m.footprint;
+            m.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (g.edge ? FS_MEAS_SRC_EDGE : 0u) | (g.isFlat ? FS_MEAS_SRC_LOW_TEXTURE : 0u) | (layer << FS_MEAS_SRC_EYE_SHIFT);
+            m.observationId = pc.b.x;
+            m.reserved = 0u;
+            write = true;
+        }
+    }
+    s_rank[lane] = write ? 1u : 0u;
+    barrier();
+    for (uint o = 1u; o < uint(FS_MEAS_WG); o <<= 1u) { uint v = lane >= o ? s_rank[lane - o] : 0u; barrier(); s_rank[lane] += v; barrier(); }
+    if (write) {
+        uint i = sel[FS_MEAS_SEL_WGBASE + gl_WorkGroupID.x] + s_rank[lane] - 1u;
+        if (i < pc.a.z) { rec[i] = m; if ((m.sourceFlags & FS_MEAS_SRC_LOW_TEXTURE) != 0u) atomicAdd(s_lowtex, 1u); }
+    }
+    barrier();
+    if (lane == 0u && s_lowtex != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_LOWTEX], s_lowtex);
+}

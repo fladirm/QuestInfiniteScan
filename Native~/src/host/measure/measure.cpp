@@ -11,9 +11,10 @@
 //   C# EnvDepthFeeder -> FsMeas_SetEnvDepth(tex, poses, fovs, near, far, XrTime)     [main thread, latest only]
 //   FS_HEVT_FRAME_BEGIN hook: ImportUnityTexture(tex) + BindImage (only while no backproject job reads the
 //        previous image)                                                              [render thread]
-//   SCAN tick: pick a FREE (or unleased READY) ring slot, reset its counters + write the per-eye parameters into
-//        its frame block, BindBuffer records/frame block, submit ONE job with ONE dispatch (both layers,
-//        3200 workgroups of 64)                                                                    [fs-sched]
+//   SCAN tick: pick a FREE (or unleased READY) ring slot, reset its counters + write the per-eye and prediction
+//        parameters into its frame block, BindBuffer records/frame block, submit ONE job with FIVE dispatches
+//        (C09R-E2, contract §7.6): score (both layers, 3200 workgroups of 64) -> select (1 workgroup: histogram
+//        threshold) -> count (per workgroup) -> prefix (1 workgroup) -> emit (selected texels, deterministic order)  [fs-sched]
 //   onRetired: slot -> READY, counters -> FS_CTR_MEASUREMENTS / _DROPPED, FsScan_RequestTick(obsId)
 //   world SCAN tick: MeasGpu_PeekFrame -> integrate jobs -> MeasGpu_ReleaseFrame
 #include "fs_meas_math.h"
@@ -23,7 +24,12 @@
 #include "../world/fs_world.h"
 #include "../../log.h"
 #include "../../../include/finalscan_native_api.h"
-#include "spirv/measure_depth_backproject_spirv.inc"
+#include "../render/fs_render.h"
+#include "measure_score_spirv.inc"
+#include "measure_select_spirv.inc"
+#include "measure_count_spirv.inc"
+#include "measure_prefix_spirv.inc"
+#include "measure_emit_spirv.inc"
 #include <algorithm>
 #include <atomic>
 #include <math.h>
@@ -37,6 +43,18 @@ namespace meas {
 namespace {
 
 constexpr uint32_t kLogEveryFrames = 250;        // ~10 s at 25 Hz
+constexpr uint32_t kMaxThreads = FS_MEAS_DEPTH_W * FS_MEAS_DEPTH_H * FS_MEAS_DEPTH_LAYERS;   // score scratch (larger images are refused, logged)
+enum MeasKernel : uint32_t { K_SCORE = 0, K_SELECT, K_COUNT, K_PREFIX, K_EMIT, K_COUNT_ };
+struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t bindings[6]; uint32_t bindingCount; uint32_t samplers; };
+#define FS_KS(sym) sym, sizeof(sym) / 4
+static const KernelSpec kKernels[K_COUNT_] = {     // sampler bindings come LAST in each list
+    {"measure_score",  FS_KS(kMeasureScoreSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_PRED}, 5, 2},
+    {"measure_select", FS_KS(kMeasureSelectSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
+    {"measure_count",  FS_KS(kMeasureCountSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT}, 3, 0},
+    {"measure_prefix", FS_KS(kMeasurePrefixSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
+    {"measure_emit",   FS_KS(kMeasureEmitSpirv),   {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH}, 5, 1},
+};
+#undef FS_KS
 constexpr int32_t  kAnchorId = 0;                // one anchor until the AnchorGraph cut (C19) assigns observations to anchors
 
 struct EnvDepthInput {
@@ -60,16 +78,30 @@ public:
         RegisterWarmupStep("measure.pipelines", [this]() { return CreatePipeline(); });
         RegisterFrameBeginHook([this](VkCommandBuffer, uint32_t frame) { FrameBegin(frame); });
         RegisterClassSchedulerTick(FS_JOB_SCAN, [this](uint32_t budgetUs) { Tick(budgetUs); });
-        Log("FS-MEAS init: ring %u x %u records, decimK=%u maxOut=%u flags=0x%x", (unsigned)FS_MEAS_GPU_RING_SLOTS, (unsigned)FS_MEAS_GPU_RING_CAPACITY, decimK_, maxOut_, flags_);
+        Log("FS-MEAS init: ring %u x %u records, budget=%u maxOut=%u flags=0x%x", (unsigned)FS_MEAS_GPU_RING_SLOTS, (unsigned)FS_MEAS_GPU_RING_CAPACITY, budget_, maxOut_, flags_);
     }
 
     // ---- device lifecycle (render thread) ------------------------------------------------------------
     void OnDevice(bool up) {
         std::lock_guard<std::mutex> g(m_);
         if (up == deviceUp_) return;
-        if (!up) { DestroyRings(); deviceUp_ = false; imported_ = 0; submitted_ = 0; pendingSubmit_ = false; view_ = VK_NULL_HANDLE; jobInFlight_ = false; pipe_ = Pipeline{}; pipeReady_ = false; return; }   // the executor destroyed every pipeline at teardown
+        if (!up) { DestroyRings(); deviceUp_ = false; imported_ = 0; submitted_ = 0; pendingSubmit_ = false; view_ = VK_NULL_HANDLE; predView_ = VK_NULL_HANDLE; jobInFlight_ = false; for (Pipeline& p : pipes_) p = Pipeline{}; pipeReady_ = false; scratchBound_ = false; return; }   // the executor destroyed every pipeline at teardown
         if (!CreateRings()) { LogError("FS-MEAS ring creation failed; measurement front-end inactive"); DestroyRings(); return; }
         deviceUp_ = true;
+        BindScratch();
+    }
+    // Score / select scratch: one job in flight at a time, so a single copy serves every ring slot.
+    void BindScratch() {
+        if (scratchBound_ || !deviceUp_ || !pipeReady_) return;
+        for (uint32_t k = 0; k < K_COUNT_; ++k) {
+            const KernelSpec& ks = kKernels[k];
+            for (uint32_t i = 0; i < ks.bindingCount - ks.samplers; ++i) {
+                const uint32_t b = ks.bindings[i];
+                const Buffer* buf = b == FS_MEAS_B_SCORE ? &score_ : b == FS_MEAS_B_SELECT ? &select_ : nullptr;
+                if (buf && !BindBuffer(pipes_[k], b, *buf)) { LogError("FS-MEAS bind scratch %s:%u failed", ks.name, b); return; }
+            }
+        }
+        scratchBound_ = true;
     }
     bool CreateRings() {
         const VkBufferUsageFlags use = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -84,6 +116,9 @@ public:
             r.blk = (FrameBlock*)r.ring.counters.mapped; memset(r.blk, 0, sizeof(FrameBlock));
             r.state = SLOT_FREE; r.frame = MeasGpuFrame{}; r.frame.ring = &r.ring; r.frame.slot = s;
         }
+        if (!CreateBuffer(score_, (VkDeviceSize)kMaxThreads * 4, use, false, "meas.score")) return false;
+        if (!CreateBuffer(select_, (VkDeviceSize)FS_MEAS_SEL_WORDS * 4, use, true, "meas.select") || !select_.mapped) return false;
+        memset(select_.mapped, 0, FS_MEAS_SEL_WORDS * 4);
         Log("FS-MEAS rings: %u x %u records (%.1f MB)", (unsigned)FS_MEAS_GPU_RING_SLOTS, (unsigned)FS_MEAS_GPU_RING_CAPACITY, FS_MEAS_GPU_RING_SLOTS * FS_MEAS_GPU_RING_CAPACITY * 48.0 / 1e6);
         return true;
     }
@@ -93,18 +128,24 @@ public:
             if (r.ring.counters.buffer != VK_NULL_HANDLE) DestroyBuffer(r.ring.counters);
             r.blk = nullptr; r.state = SLOT_FREE; r.ring.capacity = 0;
         }
+        if (score_.buffer != VK_NULL_HANDLE) DestroyBuffer(score_);
+        if (select_.buffer != VK_NULL_HANDLE) DestroyBuffer(select_);
+        scratchBound_ = false;
     }
     bool CreatePipeline() {                        // warm-up step (fs-warmup thread)
         std::lock_guard<std::mutex> g(m_);
         if (pipeReady_) return true;
-        VkDescriptorSetLayoutBinding b[3] = {};
-        b[0].binding = FS_MEAS_B_DEPTH;    b[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; b[0].descriptorCount = 1; b[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        b[1].binding = FS_MEAS_B_RECORDS;  b[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         b[1].descriptorCount = 1; b[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        b[2].binding = FS_MEAS_B_COUNTERS; b[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         b[2].descriptorCount = 1; b[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        if (!CreateComputePipeline(pipe_, kMeasureDepthBackprojectSpirv, sizeof(kMeasureDepthBackprojectSpirv) / 4, sizeof(PushBackproject), b, 3, "measure_depth_backproject")) {
-            LogError("FS-MEAS pipeline measure_depth_backproject failed"); return false;
+        for (uint32_t k = 0; k < K_COUNT_; ++k) {
+            const KernelSpec& ks = kKernels[k];
+            VkDescriptorSetLayoutBinding b[6] = {};
+            for (uint32_t i = 0; i < ks.bindingCount; ++i) {
+                b[i].binding = ks.bindings[i]; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                b[i].descriptorType = i >= ks.bindingCount - ks.samplers ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            }
+            if (!CreateComputePipeline(pipes_[k], ks.spirv, ks.words, sizeof(PushCompact), b, ks.bindingCount, ks.name)) { LogError("FS-MEAS pipeline %s failed", ks.name); return false; }
         }
         pipeReady_ = true;
+        BindScratch();
         return true;
     }
 
@@ -119,15 +160,18 @@ public:
         input_.seq++; framesSeen_++;
         return FS_OK;
     }
-    int32_t SetParams(uint32_t decimK, uint32_t maxOut, uint32_t flags) {
+    int32_t SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags) {
         std::lock_guard<std::mutex> g(m_);
-        decimK_ = decimK; maxOut_ = maxOut == 0 ? FS_MEAS_DEFAULT_MAX_OUT : (maxOut > FS_MEAS_GPU_RING_CAPACITY ? FS_MEAS_GPU_RING_CAPACITY : maxOut); flags_ = flags;
-        Log("FS-MEAS params: decimK=%u maxOut=%u flags=0x%x", decimK_, maxOut_, flags_);
+        maxOut_ = maxOut == 0 ? FS_MEAS_DEFAULT_MAX_OUT : (maxOut > FS_MEAS_GPU_RING_CAPACITY ? FS_MEAS_GPU_RING_CAPACITY : maxOut);
+        budget_ = budget == 0 ? FS_MEAS_DEFAULT_BUDGET : (budget > maxOut_ ? maxOut_ : budget);
+        if (budget_ > 32768u) budget_ = 32768u;                        // select kernel: (budget << 16) fits 32 bits
+        flags_ = flags;
+        Log("FS-MEAS params: budget=%u maxOut=%u flags=0x%x", budget_, maxOut_, flags_);
         return FS_OK;
     }
     void Stats(int64_t out[8]) {
         std::lock_guard<std::mutex> g(m_);
-        out[0] = framesSeen_; out[1] = framesSubmitted_; out[2] = framesSuperseded_; out[3] = lastCount_; out[4] = lastOverflow_; out[5] = lastGpuUs_; out[6] = importFailures_; out[7] = lastEdge_;
+        out[0] = framesSeen_; out[1] = framesSubmitted_; out[2] = framesSuperseded_; out[3] = lastCount_; out[4] = lastRejected_; out[5] = lastGpuUs_; out[6] = importFailures_; out[7] = lastThreshold_;
     }
 
     // ---- frame-begin hook (render thread): import the latest depth texture, bind it once per image --------
@@ -137,11 +181,25 @@ public:
         if (jobInFlight_) return;                                        // a job still reads the bound view: retry next frame
         VkImage image; VkImageView view; VkFormat fmt; uint32_t w, h, layers;
         if (!ImportUnityTexture(input_.texture, image, view, fmt, w, h, layers)) { importFailures_++; return; }
+        if (w * h * (layers >= 2 ? 2u : 1u) > kMaxThreads) { if (importFailures_++ == 0) LogError("FS-MEAS depth image %ux%ux%u exceeds the score scratch (%u texels)", w, h, layers, kMaxThreads); return; }
         if (view != view_ || fmt != fmt_) {
-            if (!BindImage(pipe_, FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) { importFailures_++; return; }
+            if (!BindImage(pipes_[K_SCORE], FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false)) ||
+                !BindImage(pipes_[K_EMIT], FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) { importFailures_++; return; }
             view_ = view; fmt_ = fmt; ++binds_;
             if (binds_ <= 4 || (binds_ % 500) == 0) Log("FS-MEAS depth image bound #%llu: %ux%u layers=%u format=%d", (unsigned long long)binds_, w, h, layers, (int)fmt);
         }
+        // Canonical prediction (§7.6): the previous rendered depth. Import every frame (Unity re-transitions it); the
+        // descriptor of binding 3 must always be valid, so without a prediction the depth view stands in and predInfo.valid = 0.
+        pred_ = fs::render::PredictionInfo{}; predValid_ = false;
+        fs::render::PredictionInfo pi;
+        if (fs::render::GetPrediction(pi) && pi.unityPtr) {
+            VkImage pimg; VkImageView pview; VkFormat pfmt; uint32_t pw, ph, pl;
+            if (ImportUnityTexture(pi.unityPtr, pimg, pview, pfmt, pw, ph, pl)) {
+                if (pview != predView_) { if (!BindImage(pipes_[K_SCORE], FS_MEAS_B_PRED, pview, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) { importFailures_++; return; } predView_ = pview; ++predBinds_; }
+                pred_ = pi; pred_.width = pw; pred_.height = ph; pred_.layers = pl; predValid_ = true;
+            }
+        }
+        if (!predValid_ && predView_ != view) { if (BindImage(pipes_[K_SCORE], FS_MEAS_B_PRED, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) predView_ = view; }
         importedW_ = w; importedH_ = h; importedLayers_ = layers; imported_ = input_.seq; importedFrame_ = frame;
         pendingSubmit_ = true;
     }
@@ -178,14 +236,26 @@ public:
             const Mat4 anchorFromEye = Mul(anchorFromWorld, worldFromEye);
             memcpy(blk.anchorFromEye[eye], anchorFromEye.m, 64);
             memcpy(blk.fov[eye], eye == 0 ? input_.fovL : input_.fovR, 16);
+            memcpy(blk.worldFromEye[eye], worldFromEye.m, 64);
+            memcpy(blk.predViewProj[eye], pred_.viewProj[eye], 64);
+            memcpy(blk.predInvViewProj[eye], pred_.invViewProj[eye], 64);
         }
-        PushBackproject p;
+        blk.predInfo[0] = pred_.width; blk.predInfo[1] = pred_.height; blk.predInfo[2] = pred_.layers; blk.predInfo[3] = predValid_ && pred_.width && pred_.height ? 1u : 0u;
+        memset(select_.mapped, 0, FS_MEAS_SCORE_BINS * 4);            // histogram reset (host-coherent, before submit)
+        if (!scratchBound_) BindScratch();
+        if (!scratchBound_) return;
+        static PushCompact p;                                         // referenced by the dispatches until the executor recorded them (SubmitJob records synchronously)
         p.nearZ = input_.nearZ; p.farZ = input_.farZ; p.maxDepthM = (float)FS_MEAS_MAX_DEPTH_M; p.pad0 = 0.f;
-        p.layers = layers; p.decimK = decimK_; p.maxOut = maxOut_; p.flags = flags_;
+        p.layers = layers; p.budget = budget_; p.maxOut = maxOut_; p.flags = flags_;
         p.obsId = obsId; p.frame = (uint32_t)input_.seq; p.width = w; p.height = h;
-        Dispatch d; d.pipeline = &pipe_; d.gx = (w * h * layers + FS_MEAS_WG - 1) / FS_MEAS_WG; d.push = &p; d.pushBytes = sizeof p;
-        // persistent descriptors: no job of this pipeline is in flight, so the ring slot may be re-bound now
-        if (!BindBuffer(pipe_, FS_MEAS_B_RECORDS, slot.ring.records) || !BindBuffer(pipe_, FS_MEAS_B_COUNTERS, slot.ring.counters)) { LogError("FS-MEAS bind ring slot %d failed", pick); return; }
+        const uint32_t groups = (w * h * layers + FS_MEAS_WG - 1) / FS_MEAS_WG;
+        Dispatch d[5];
+        for (uint32_t k = 0; k < 5; ++k) { d[k].pipeline = &pipes_[k]; d[k].push = &p; d[k].pushBytes = sizeof p; d[k].gx = (k == K_SELECT || k == K_PREFIX) ? 1u : groups; }
+        // persistent descriptors: no job of these pipelines is in flight, so the ring slot may be re-bound now
+        for (uint32_t k = 0; k < K_COUNT_; ++k) {
+            if (!BindBuffer(pipes_[k], FS_MEAS_B_COUNTERS, slot.ring.counters)) { LogError("FS-MEAS bind ring slot %d failed", pick); return; }
+        }
+        if (!BindBuffer(pipes_[K_EMIT], FS_MEAS_B_RECORDS, slot.ring.records)) { LogError("FS-MEAS bind ring slot %d records failed", pick); return; }
         slot.frame = MeasGpuFrame{}; slot.frame.ring = &slot.ring; slot.frame.slot = (uint32_t)pick;
         slot.frame.observationId = obsId; slot.frame.anchorId = kAnchorId; slot.frame.xrTimeNs = input_.xrTimeNs; slot.frame.frameIndex = FrameIndex();
         slot.frame.importFrameEnd = importedFrame_;
@@ -197,7 +267,7 @@ public:
         slot.frame.eyeOriginValid = true;
         slot.frame.sequence = ++handoffSeq_;
         const uint64_t seq = input_.seq; const uint32_t maxOut = maxOut_;
-        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "depth_backproject"; jd.dispatches = &d; jd.dispatchCount = 1;
+        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "depth_compact"; jd.dispatches = d; jd.dispatchCount = 5;
         jd.waitFrameEndValue = importedFrame_;   // Unity's layout transition of the imported depth image precedes this job (§15.3)
         jd.onRetired = [this, pick, seq, maxOut](bool ok, uint64_t gpuStart, uint64_t gpuEnd) { OnRetired((uint32_t)pick, seq, maxOut, ok, gpuStart, gpuEnd); };
         if (!SubmitJob(jd)) return;                                      // deferred (ring / budget): retried next tick
@@ -215,15 +285,16 @@ public:
             slot.frame.count = StoredCount(reserved, maxOut);
             slot.frame.overflow = ctr[FS_MEAS_CTR_OVERFLOW];
             slot.frame.gpuStartNs = gpuStart; slot.frame.gpuEndNs = gpuEnd;
-            lastCount_ = slot.frame.count; lastOverflow_ = slot.frame.overflow; lastEdge_ = ctr[FS_MEAS_CTR_EDGE];
+            lastCount_ = slot.frame.count; lastOverflow_ = slot.frame.overflow; lastEdge_ = ctr[FS_MEAS_CTR_EDGE]; lastRejected_ = ctr[FS_MEAS_CTR_REJECTED]; lastThreshold_ = ctr[FS_MEAS_CTR_THRESHOLD];
             lastGpuUs_ = gpuEnd > gpuStart ? (int64_t)((gpuEnd - gpuStart) / 1000ull) : 0;
             CounterAdd(FS_CTR_MEASUREMENTS, (int64_t)slot.frame.count);
             if (slot.frame.overflow) CounterAdd(FS_CTR_MEASUREMENTS_DROPPED, (int64_t)slot.frame.overflow);
             if (slot.frame.count) { slot.state = SLOT_READY; obs = slot.frame.observationId; request = true; }
             else slot.state = SLOT_FREE;
             if (seq <= 3 || (seq % kLogEveryFrames) == 0) {
-                Log("FS-MEAS depth #%llu: %u records (reserved %u, overflow %u, edge %u, lowTex %u, invalid %u, decimated %u, groups %u) gpu %lld us", (unsigned long long)seq,
-                    slot.frame.count, reserved, slot.frame.overflow, ctr[FS_MEAS_CTR_EDGE], ctr[FS_MEAS_CTR_LOWTEX], ctr[FS_MEAS_CTR_INVALID], ctr[FS_MEAS_CTR_DECIMATED], ctr[FS_MEAS_CTR_GROUPS], (long long)lastGpuUs_);
+                Log("FS-MEAS depth #%llu: %u records (valid %u, rejected %u, threshold %u frac %.2f, predicted %u consistent %u new %u, edge %u, lowTex %u, invalid %u, overflow %u, groups %u, pred %ux%ux%u valid=%u) gpu %lld us", (unsigned long long)seq,
+                    slot.frame.count, ctr[FS_MEAS_CTR_VALID], ctr[FS_MEAS_CTR_REJECTED], ctr[FS_MEAS_CTR_THRESHOLD], ctr[FS_MEAS_CTR_FRACTION] / 65536.0, ctr[FS_MEAS_CTR_PREDICTED], ctr[FS_MEAS_CTR_CONSISTENT], ctr[FS_MEAS_CTR_NEW],
+                    ctr[FS_MEAS_CTR_EDGE], ctr[FS_MEAS_CTR_LOWTEX], ctr[FS_MEAS_CTR_INVALID], slot.frame.overflow, ctr[FS_MEAS_CTR_GROUPS], slot.blk->predInfo[0], slot.blk->predInfo[1], slot.blk->predInfo[2], slot.blk->predInfo[3], (long long)lastGpuUs_);
                 // Receipt (§20): where the records are. Host-visible ring, read after the fence retired.
                 const FsSurfaceMeasurement* rec = (const FsSurfaceMeasurement*)slot.ring.records.mapped;
                 const uint32_t n = slot.frame.count, step = n > 512 ? n / 512 : 1;
@@ -272,14 +343,15 @@ private:
     // y = 0 to NDC y = -1). The owned R32 copy preserves texel addressing verbatim, so the default is FLIP_Y.
     // Device receipt without it (run 23:22, 5e339b9): eye at y = 1.87 m, back-projected bbox up to y = 5.55 m, 15 %
     // matched associations, canonical growing linearly (correct range, mirrored ray direction).
-    uint32_t decimK_ = FS_MEAS_DEFAULT_DECIM_K, maxOut_ = FS_MEAS_DEFAULT_MAX_OUT, flags_ = FS_MEAS_FLAG_FLIP_Y;
+    uint32_t budget_ = FS_MEAS_DEFAULT_BUDGET, maxOut_ = FS_MEAS_DEFAULT_MAX_OUT, flags_ = FS_MEAS_FLAG_FLIP_Y;
     EnvDepthInput input_;
     uint64_t imported_ = 0, submitted_ = 0; uint32_t importedFrame_ = 0, importedW_ = 0, importedH_ = 0, importedLayers_ = 0; bool pendingSubmit_ = false;
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
-    Pipeline pipe_;
+    VkImageView predView_ = VK_NULL_HANDLE; fs::render::PredictionInfo pred_; bool predValid_ = false; uint64_t predBinds_ = 0;
+    Pipeline pipes_[K_COUNT_]; Buffer score_, select_; bool scratchBound_ = false;
     RingSlot slots_[FS_MEAS_GPU_RING_SLOTS];
     bool jobInFlight_ = false; uint64_t handoffSeq_ = 0, binds_ = 0, observationSeq_ = 0;
-    int64_t framesSeen_ = 0, framesSubmitted_ = 0, framesSuperseded_ = 0, lastCount_ = 0, lastOverflow_ = 0, lastGpuUs_ = 0, importFailures_ = 0, lastEdge_ = 0;
+    int64_t framesSeen_ = 0, framesSubmitted_ = 0, framesSuperseded_ = 0, lastCount_ = 0, lastOverflow_ = 0, lastGpuUs_ = 0, importFailures_ = 0, lastEdge_ = 0, lastRejected_ = 0, lastThreshold_ = 0;
 };
 
 Measure& M() { static Measure m; return m; }
@@ -306,5 +378,5 @@ using fs::meas::M; using fs::meas::EnsureInit;
 FS_API int32_t FsMeas_SetEnvDepth(void* unityDepthTextureArray, uint32_t width, uint32_t height, const float poseL[16], const float poseR[16], const float fovL[4], const float fovR[4], float nearZ, float farZ, int64_t xrTimeNs) {
     EnsureInit(); return M().SetEnvDepth(unityDepthTextureArray, width, height, poseL, poseR, fovL, fovR, nearZ, farZ, xrTimeNs);
 }
-FS_API int32_t FsMeas_SetParams(uint32_t decimK, uint32_t maxOut, uint32_t flags) { EnsureInit(); return M().SetParams(decimK, maxOut, flags); }
+FS_API int32_t FsMeas_SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags) { EnsureInit(); return M().SetParams(budget, maxOut, flags); }
 FS_API int32_t FsMeas_GetStats(int64_t out[8]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().Stats(out); return FS_OK; }

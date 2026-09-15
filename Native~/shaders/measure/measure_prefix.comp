@@ -1,0 +1,28 @@
+#version 450
+// C09R-E2 compaction 4/5: ONE workgroup, exclusive prefix over the per-workgroup selected counts (<= FS_MEAS_MAX_GROUPS,
+// 16 per thread) -> wgBase[g]; the total becomes ctr[RESERVED] (clamped to maxOut, the rest counted as overflow) and
+// ctr[REJECTED] = valid - total. The record order is therefore a pure function of the inputs.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#include "fs_meas_frame.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = FS_MEAS_B_SELECT) buffer SelectBlock { uint sel[]; };
+shared uint s_sum[256];
+void main() {
+    const uint i = gl_LocalInvocationID.x, per = uint(FS_MEAS_MAX_GROUPS) / 256u;
+    const uint groups = (pc.b.z * pc.b.w * pc.a.x + uint(FS_MEAS_WG) - 1u) / uint(FS_MEAS_WG);
+    uint local = 0u;
+    for (uint k = 0u; k < per; ++k) { uint g = i * per + k; if (g < groups) local += sel[FS_MEAS_SEL_WGCOUNT + g]; }
+    s_sum[i] = local;
+    barrier();
+    for (uint o = 1u; o < 256u; o <<= 1u) { uint v = i >= o ? s_sum[i - o] : 0u; barrier(); s_sum[i] += v; barrier(); }
+    uint base = s_sum[i] - local;                                 // exclusive
+    for (uint k = 0u; k < per; ++k) { uint g = i * per + k; if (g < groups) { sel[FS_MEAS_SEL_WGBASE + g] = base; base += sel[FS_MEAS_SEL_WGCOUNT + g]; } }
+    if (i == 255u) {
+        uint total = s_sum[255];
+        blk.ctr[FS_MEAS_CTR_RESERVED] = min(total, pc.a.z);
+        if (total > pc.a.z) atomicAdd(blk.ctr[FS_MEAS_CTR_OVERFLOW], total - pc.a.z);
+        blk.ctr[FS_MEAS_CTR_REJECTED] = blk.ctr[FS_MEAS_CTR_VALID] - total;
+    }
+}

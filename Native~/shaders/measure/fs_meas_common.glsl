@@ -38,7 +38,38 @@ float fsMeasFootprint(float d, vec4 fov, uint w, uint h) {
     float ax = (fov.y - fov.x) / float(w), ay = (fov.z - fov.w) / float(h);
     return d * max(ax, ay);
 }
-bool fsMeasKeepDecimated(uint x, uint y, uint frame, uint k) { return k <= 1u || ((x + y + frame) % k) == 0u; }
+// ---- information score (contract §7.6, C09R-E2; twins: IsSteep / ScoreOf / HashTexel / Selected) ----------------
+bool fsMeasIsSteep(float d, float dxm, float dxp, float dym, float dyp) {
+    float t = float(FS_MEAS_STEEP_RATIO) * d;
+    return abs(dxm - d) > t || abs(dxp - d) > t || abs(dym - d) > t || abs(dyp - d) > t;
+}
+uint fsMeasScore(bool predicted, float residualSigma, bool isFlat, bool steep, bool detail) {
+    uint s;
+    if (!predicted) s = uint(FS_MEAS_SCORE_NEW);
+    else if (residualSigma > 3.0) { uint e = uint(residualSigma * 4.0); s = uint(FS_MEAS_SCORE_FAR_BASE) + min(e, 63u); }
+    else if (residualSigma > 1.0) s = uint(FS_MEAS_SCORE_BAND_BASE) + uint((residualSigma - 1.0) * 48.0);
+    else s = uint(FS_MEAS_SCORE_CONVERGED_BASE) + uint(residualSigma * 32.0);
+    if (!isFlat) s += uint(FS_MEAS_SCORE_CURVATURE);
+    if (steep) s += uint(FS_MEAS_SCORE_STEEP);
+    if (detail && s < uint(FS_MEAS_SCORE_DETAIL_MIN)) s = uint(FS_MEAS_SCORE_DETAIL_MIN);
+    return clamp(s, 1u, 255u);
+}
+uint fsMeasHash(uint t, uint frame) {
+    uint h = t * 2654435761u ^ (frame * 0x9E3779B9u);
+    h = (h ^ 61u) ^ (h >> 16); h *= 9u; h ^= h >> 4; h *= 0x27d4eb2du; h ^= h >> 15;
+    return h;
+}
+bool fsMeasSelected(uint score, uint t, uint frame, uint threshold, uint fraction16) {
+    if (score == 0u || score < threshold) return false;
+    if (score > threshold) return true;
+    return (fsMeasHash(t, frame) >> 16) < fraction16;
+}
+// Shared thread -> (layer, texel) mapping (twin: ThreadToTexel).
+void fsMeasThreadToTexel(uint t, uint layers, uint w, uint h, uint frame, out uint layer, out uint x, out uint y) {
+    layer = t % layers;
+    uint texel = (t / layers + ((frame * uint(FS_MEAS_ROW_PHASE_STRIDE)) % h) * w) % (w * h);
+    x = texel % w; y = texel / w;
+}
 // Central-difference normal oriented towards the camera (eye origin).
 vec3 fsMeasNormal(vec3 p, vec3 pxm, vec3 pxp, vec3 pym, vec3 pyp) {
     vec3 c = cross(pxp - pxm, pyp - pym);

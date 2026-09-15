@@ -1,0 +1,77 @@
+#version 450
+// C09R-E2 compaction 1/5 (contract §7.6): ONE thread per Environment Depth texel of both eye layers. Gates as before
+// (near / far / holes / border / edge), then the canonical prediction: the measured eye point is projected into the
+// previous rendered eye view of the same layer (FRONT reprojected into the camera); the rendered depth is
+// unprojected and compared along the eye ray in sigma units. Score = f(prediction, residual, curvature, steepness,
+// DETAIL) (fsMeasScore); 0 = never emitted. Writes score[t] and a 256-bin histogram (shared-memory histogram,
+// only the non-empty bins reach the global counters).
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#define FS_MEAS_USE_DEPTH
+#include "fs_meas_frame.glsl"
+layout(local_size_x = FS_MEAS_WG) in;
+layout(set = 0, binding = FS_MEAS_B_PRED) uniform sampler2DArray predTex;
+layout(std430, set = 0, binding = FS_MEAS_B_SCORE) writeonly buffer ScoreBlock { uint score[]; };
+layout(std430, set = 0, binding = FS_MEAS_B_SELECT) buffer SelectBlock { uint sel[]; };
+shared uint s_hist[FS_MEAS_SCORE_BINS];
+shared uint s_valid, s_edge, s_invalid, s_pred, s_cons, s_new;
+
+bool fsPredict(uint layer, vec3 pEye, float z, out float residualSigma) {
+    residualSigma = 0.0;
+    if (blk.predInfo.w == 0u || layer >= blk.predInfo.z) return false;
+    mat4 W = blk.worldFromEye[layer];
+    vec3 pw = (W * vec4(pEye, 1.0)).xyz;
+    vec4 c = blk.predViewProj[layer] * vec4(pw, 1.0);
+    if (c.w <= 1e-6) return false;
+    vec2 ndc = c.xy / c.w;
+    if (any(lessThan(ndc, vec2(-1.0))) || any(greaterThan(ndc, vec2(1.0)))) return false;
+    vec2 uv = ndc * 0.5 + 0.5;
+    if ((pc.a.w & FS_MEAS_FLAG_PRED_FLIP_Y) != 0u) uv.y = 1.0 - uv.y;
+    uvec2 dims = blk.predInfo.xy;
+    uvec2 px = min(uvec2(uv * vec2(dims)), dims - uvec2(1u));
+    float d = texelFetch(predTex, ivec3(ivec2(px), int(layer)), 0).r;
+    if (isnan(d) || d <= 0.0 || d >= 1.0) return false;
+    vec2 n = (vec2(px) + vec2(0.5)) / vec2(dims) * 2.0 - 1.0;
+    if ((pc.a.w & FS_MEAS_FLAG_PRED_FLIP_Y) != 0u) n.y = -n.y;
+    vec4 hw = blk.predInvViewProj[layer] * vec4(n, d, 1.0);
+    if (abs(hw.w) < 1e-12) return false;
+    vec3 wp = hw.xyz / hw.w;
+    vec3 eye = W[3].xyz;
+    residualSigma = abs(length(pw - eye) - length(wp - eye)) / fsMeasSigmaN(z);
+    return true;
+}
+void main() {
+    const uint lane = gl_LocalInvocationIndex;
+    for (uint i = lane; i < uint(FS_MEAS_SCORE_BINS); i += uint(FS_MEAS_WG)) s_hist[i] = 0u;
+    if (lane == 0u) { s_valid = 0u; s_edge = 0u; s_invalid = 0u; s_pred = 0u; s_cons = 0u; s_new = 0u; }
+    barrier();
+    const uint w = pc.b.z, h = pc.b.w, layers = pc.a.x, flags = pc.a.w;
+    uint t = gl_GlobalInvocationID.x;
+    uint s = 0u;
+    if (t < w * h * layers) {
+        uint layer, x, y; fsMeasThreadToTexel(t, layers, w, h, pc.b.y, layer, x, y);
+        FsTexelGeometry g; int cls = fsMeasClassify(layer, x, y, g);
+        if (g.edge) atomicAdd(s_edge, 1u);
+        if (cls == 0) atomicAdd(s_invalid, 1u);
+        else if (cls == 3) {
+            vec4 fov = layer == 0u ? blk.fov[0] : blk.fov[1];
+            vec2 tc = fsMeasRayTangents(x, y, w, h, fov, flags);
+            float r; bool predicted = fsPredict(layer, fsMeasEyePoint(tc, g.z), g.z, r);
+            s = fsMeasScore(predicted, r, g.isFlat, g.steep, (flags & FS_MEAS_FLAG_DETAIL) != 0u);
+            atomicAdd(s_hist[s], 1u); atomicAdd(s_valid, 1u);
+            if (predicted) { atomicAdd(s_pred, 1u); if (r <= 1.0) atomicAdd(s_cons, 1u); } else atomicAdd(s_new, 1u);
+        }
+        score[t] = s;
+    }
+    barrier();
+    for (uint i = lane; i < uint(FS_MEAS_SCORE_BINS); i += uint(FS_MEAS_WG)) { uint c = s_hist[i]; if (c != 0u) atomicAdd(sel[FS_MEAS_SEL_HIST + i], c); }
+    if (lane == 0u) {
+        if (s_valid != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_VALID], s_valid);
+        if (s_edge != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_EDGE], s_edge);
+        if (s_invalid != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_INVALID], s_invalid);
+        if (s_pred != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_PREDICTED], s_pred);
+        if (s_cons != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_CONSISTENT], s_cons);
+        if (s_new != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_NEW], s_new);
+    }
+}

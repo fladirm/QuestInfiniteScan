@@ -35,7 +35,7 @@ constexpr float    kCenterNear = 0.05f, kCenterFar = 200.f;
 
 struct DepthSource {
     void* unityPtr = nullptr; uint32_t width = 0, height = 0, layers = 0;
-    Mat4 invViewProj[2]; bool valid = false; uint64_t version = 0;
+    Mat4 invViewProj[2]; Mat4 viewProj[2]; bool valid = false; uint64_t version = 0;
     float nearZ = 0.f, farZ = 0.f;
 };
 
@@ -355,7 +355,7 @@ public:
         std::lock_guard<std::recursive_mutex> g(m_);
         if (!tex) { prev_.valid = false; return 0; }
         Mat4 v[2], p[2]; memcpy(v[0].m, vl, 64); memcpy(p[0].m, pl, 64); memcpy(v[1].m, vr, 64); memcpy(p[1].m, pr, 64);
-        for (int e = 0; e < 2; ++e) if (!Invert(Mul(p[e], v[e]), prev_.invViewProj[e])) return 2;
+        for (int e = 0; e < 2; ++e) { prev_.viewProj[e] = Mul(p[e], v[e]); if (!Invert(prev_.viewProj[e], prev_.invViewProj[e])) return 2; }
         prev_.unityPtr = tex; prev_.width = w; prev_.height = h; prev_.layers = layers; prev_.valid = true; prev_.version++;
         return 0;
     }
@@ -375,6 +375,13 @@ public:
         }
         env_.unityPtr = tex; env_.width = w; env_.height = h; env_.layers = 2; env_.nearZ = nearZ; env_.farZ = farZ; env_.valid = true; env_.version++;
         return 0;
+    }
+    bool Prediction(PredictionInfo& out) {
+        std::lock_guard<std::recursive_mutex> g(m_);
+        if (!prev_.valid || !prev_.unityPtr) return false;
+        out.unityPtr = prev_.unityPtr; out.width = prev_.width; out.height = prev_.height; out.layers = prev_.layers; out.version = prev_.version;
+        for (int e = 0; e < 2; ++e) { memcpy(out.viewProj[e], prev_.viewProj[e].m, 64); memcpy(out.invViewProj[e], prev_.invViewProj[e].m, 64); }
+        return true;
     }
     int32_t SetLodPolicy(float fov, float per, float marginDeg, uint32_t budget) {
         std::lock_guard<std::recursive_mutex> g(m_);
@@ -424,6 +431,7 @@ struct AutoInit { AutoInit() { EnsureInitImpl(); } } g_autoInit;
 } // namespace
 
 void EnsureInit() { EnsureInitImpl(); }
+bool GetPrediction(PredictionInfo& out) { EnsureInitImpl(); return R().Prediction(out); }
 
 } // namespace render
 } // namespace fs

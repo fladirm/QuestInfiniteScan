@@ -6,12 +6,16 @@
 //   * fov = [tan left, tan right, tan up, tan down] with provider signs (left/down negative);
 //   * texel value = projected depth in [0,1] (OpenGL-style, XR_META_environment_depth near/far), or metres
 //     when FS_MEAS_FLAG_LINEAR_DEPTH is set; farZ <= 0 or infinite = unbounded far plane;
-//   * row 0 = top (tan up) edge unless FS_MEAS_FLAG_FLIP_Y.
-// Contract §6 (depth = prior), §7.4 (uncertainty), §7.6 (compaction placeholder: decimation + hard cap).
+//   * row 0 = top (tan up) edge unless FS_MEAS_FLAG_FLIP_Y (the Measure default: XR_META_environment_depth row 0 = bottom).
+// Contract §6 (depth = prior), §7.4 (uncertainty), §7.6 (information-driven compaction, C09R-E2): every valid
+// texel gets an information score from the canonical prediction (the previous rendered depth = FRONT reprojected
+// into the camera); a score histogram yields the threshold that keeps `budget` texels; the emitted records are
+// ordered by (workgroup, lane) through a prefix sum, so the measurement stream is a pure function of the inputs.
 #pragma once
 #include <stdint.h>
 #include <math.h>
 #include <string.h>
+#include <vector>
 #include "../../../include/finalscan_world_abi.h"
 #include "fs_meas_params.h"
 
@@ -73,20 +77,25 @@ inline bool Invert(const Mat4& in, Mat4& out) {
     return true;
 }
 
-// ---- push constants / frame block: byte-identical to measure_depth_backproject.comp ------------------------------
-struct PushBackproject {                 // 48 B (contract §15.3: <= 128 B)
+// ---- push constants / frame block: byte-identical to the measure_*.comp kernels -------------------------------------
+struct PushCompact {                     // 48 B (contract §15.3: <= 128 B)
     float    nearZ, farZ;                // farZ <= 0 = unbounded
     float    maxDepthM, pad0;
-    uint32_t layers, decimK, maxOut, flags;
+    uint32_t layers, budget, maxOut, flags;
     uint32_t obsId, frame, width, height;
 };
-static_assert(sizeof(PushBackproject) == 48, "push block layout");
-// Per ring slot, host-visible (binding FS_MEAS_B_COUNTERS): the CPU resets ctr[] and writes the per-eye
-// parameters before submit; the kernel atomically bumps ctr[] (std430 twin: uint[16], mat4[2], vec4[2]).
+static_assert(sizeof(PushCompact) == 48, "push block layout");
+// Per ring slot, host-visible (binding FS_MEAS_B_COUNTERS): the CPU resets ctr[] and writes the per-eye and
+// prediction parameters before submit; the kernels atomically bump ctr[] and the select kernel writes the
+// threshold words (std430 twin: uint[16], mat4[2], vec4[2], mat4[2], mat4[2], mat4[2], uvec4).
 struct FrameBlock {
     uint32_t ctr[FS_MEAS_CTR_WORDS];
     float    anchorFromEye[2][16];       // column-major: anchor-local <- depth eye pose (at the depth's own XrTime)
     float    fov[2][4];                  // tan left, right, up, down per eye
+    float    worldFromEye[2][16];        // depth eye pose (world): prediction lives in world space
+    float    predViewProj[2][16];        // canonical prediction: world -> clip of the previous rendered eye views
+    float    predInvViewProj[2][16];     // clip (ndc xy, depth01) -> world
+    uint32_t predInfo[4];                // width, height, layers, valid (0 = no prediction this frame: every valid texel is NEW)
 };
 static_assert(sizeof(FrameBlock) == FS_MEAS_FB_BYTES, "frame block layout");
 
@@ -134,8 +143,85 @@ inline float Footprint(float d, const float fov[4], uint32_t w, uint32_t h) {
     float ax = (fov[1] - fov[0]) / (float)w, ay = (fov[2] - fov[3]) / (float)h;
     return d * (ax > ay ? ax : ay);
 }
-// Contract §7.6 placeholder: keep texels on a frame-shifted lattice; k <= 1 keeps everything.
-inline bool KeepDecimated(uint32_t x, uint32_t y, uint32_t frame, uint32_t k) { return k <= 1u || ((x + y + frame) % k) == 0u; }
+// ---- information score (contract §7.6, C09R-E2; twins: fsMeasScore / fsMeasHash / fsMeasSelected) --------------------
+// steep = a neighbour step above half the edge ratio (thin / oblique surface, next to a discontinuity).
+inline bool IsSteep(float d, float dxm, float dxp, float dym, float dyp) {
+    float t = (float)FS_MEAS_STEEP_RATIO * d;
+    return fabsf(dxm - d) > t || fabsf(dxp - d) > t || fabsf(dym - d) > t || fabsf(dyp - d) > t;
+}
+inline uint32_t ScoreOf(bool predicted, float residualSigma, bool flat, bool steep, bool detail) {
+    uint32_t s;
+    if (!predicted) s = FS_MEAS_SCORE_NEW;
+    else if (residualSigma > 3.f) { uint32_t e = (uint32_t)(residualSigma * 4.f); s = FS_MEAS_SCORE_FAR_BASE + (e > 63u ? 63u : e); }
+    else if (residualSigma > 1.f) s = FS_MEAS_SCORE_BAND_BASE + (uint32_t)((residualSigma - 1.f) * 48.f);
+    else s = FS_MEAS_SCORE_CONVERGED_BASE + (uint32_t)(residualSigma * 32.f);
+    if (!flat) s += FS_MEAS_SCORE_CURVATURE;
+    if (steep) s += FS_MEAS_SCORE_STEEP;
+    if (detail && s < FS_MEAS_SCORE_DETAIL_MIN) s = FS_MEAS_SCORE_DETAIL_MIN;
+    return s < 1u ? 1u : (s > 255u ? 255u : s);
+}
+// Deterministic per-texel hash (Wang) of the thread index and the frame: ties inside the threshold bin.
+inline uint32_t HashTexel(uint32_t t, uint32_t frame) {
+    uint32_t h = t * 2654435761u ^ (frame * 0x9E3779B9u);
+    h = (h ^ 61u) ^ (h >> 16); h *= 9u; h ^= h >> 4; h *= 0x27d4eb2du; h ^= h >> 15;
+    return h;
+}
+// Threshold of the score histogram: the largest T with count(score >= T) >= budget; `fraction16` (16.16) keeps
+// exactly the missing part of bin T on average. All valid texels are kept when they fit the budget.
+inline void SelectThreshold(const uint32_t hist[FS_MEAS_SCORE_BINS], uint32_t budget, uint32_t& threshold, uint32_t& fraction16) {
+    uint32_t above = 0;                                       // count(score > T)
+    for (int32_t t = FS_MEAS_SCORE_BINS - 1; t >= 1; --t) {
+        const uint32_t cum = above + hist[t];
+        if (cum >= budget) {
+            threshold = (uint32_t)t;
+            fraction16 = hist[t] ? (uint32_t)(((uint64_t)(budget - above) << 16) / hist[t]) : 65536u;
+            if (fraction16 > 65536u) fraction16 = 65536u;
+            return;
+        }
+        above = cum;
+    }
+    threshold = 1u; fraction16 = 65536u;
+}
+inline bool Selected(uint32_t score, uint32_t t, uint32_t frame, uint32_t threshold, uint32_t fraction16) {
+    if (score == 0u || score < threshold) return false;
+    if (score > threshold) return true;
+    return (HashTexel(t, frame) >> 16) < fraction16;
+}
+// Canonical prediction lookup (twin of the score kernel): the measured eye point is projected into the previous
+// rendered eye view of the same layer; the rendered depth is unprojected and compared along the eye ray.
+// `pred(layer, px, py)` returns the raw rendered depth (0 / 1 = nothing rendered). Returns false = no prediction.
+template <class PredFn>
+inline bool PredictResidual(const FrameBlock& blk, uint32_t layer, Vec3 pEye, float z, uint32_t flags, PredFn pred, float& residualSigma) {
+    if (blk.predInfo[3] == 0u || layer >= blk.predInfo[2]) return false;
+    Mat4 W; memcpy(W.m, blk.worldFromEye[layer], 64);
+    Mat4 VP; memcpy(VP.m, blk.predViewProj[layer], 64);
+    Mat4 IVP; memcpy(IVP.m, blk.predInvViewProj[layer], 64);
+    const Vec3 pw = MulPoint(W, pEye);
+    const float cw = VP.m[3] * pw.x + VP.m[7] * pw.y + VP.m[11] * pw.z + VP.m[15];
+    if (cw <= 1e-6f) return false;
+    const float cx = (VP.m[0] * pw.x + VP.m[4] * pw.y + VP.m[8] * pw.z + VP.m[12]) / cw;
+    const float cy = (VP.m[1] * pw.x + VP.m[5] * pw.y + VP.m[9] * pw.z + VP.m[13]) / cw;
+    if (cx < -1.f || cx > 1.f || cy < -1.f || cy > 1.f) return false;
+    float u = cx * 0.5f + 0.5f, v = cy * 0.5f + 0.5f;
+    if (flags & FS_MEAS_FLAG_PRED_FLIP_Y) v = 1.f - v;
+    const uint32_t pw_ = blk.predInfo[0], ph_ = blk.predInfo[1];
+    uint32_t px = (uint32_t)(u * (float)pw_), py = (uint32_t)(v * (float)ph_);
+    if (px >= pw_) px = pw_ - 1u; if (py >= ph_) py = ph_ - 1u;
+    const float d = pred(layer, px, py);
+    if (!(d == d) || d <= 0.f || d >= 1.f) return false;
+    // unproject the rendered sample at the texel centre it was fetched from
+    const float nx = ((float)px + 0.5f) / (float)pw_ * 2.f - 1.f;
+    float ny = ((float)py + 0.5f) / (float)ph_ * 2.f - 1.f; if (flags & FS_MEAS_FLAG_PRED_FLIP_Y) ny = -ny;
+    const float hw = IVP.m[3] * nx + IVP.m[7] * ny + IVP.m[11] * d + IVP.m[15];
+    if (fabsf(hw) < 1e-12f) return false;
+    const Vec3 wp = V3((IVP.m[0] * nx + IVP.m[4] * ny + IVP.m[8] * d + IVP.m[12]) / hw,
+                       (IVP.m[1] * nx + IVP.m[5] * ny + IVP.m[9] * d + IVP.m[13]) / hw,
+                       (IVP.m[2] * nx + IVP.m[6] * ny + IVP.m[10] * d + IVP.m[14]) / hw);
+    const Vec3 eye = V3(W.m[12], W.m[13], W.m[14]);
+    const float dm = Length(Sub(pw, eye)), dp = Length(Sub(wp, eye));
+    residualSigma = fabsf(dm - dp) / SigmaN(z);
+    return true;
+}
 // Central-difference normal from the four neighbour points (eye space), oriented towards the camera (origin).
 inline Vec3 NormalFromNeighbours(Vec3 p, Vec3 pxm, Vec3 pxp, Vec3 pym, Vec3 pyp) {
     Vec3 n = Normalize(Cross(Sub(pxp, pxm), Sub(pyp, pym)));
@@ -150,79 +236,115 @@ inline uint32_t ReserveGroup(uint32_t& reserved, uint32_t n, uint32_t cap, uint3
 }
 inline uint32_t StoredCount(uint32_t reserved, uint32_t cap) { return reserved < cap ? reserved : cap; }
 
-// ---- per-texel reference: exactly the kernel's per-thread body -------------------------------------------------
-enum TexelResult { TEXEL_INVALID = 0, TEXEL_EDGE = 1, TEXEL_DECIMATED = 2, TEXEL_WRITTEN = 3 };
-// `depth(x, y)` returns the raw texel of `layer`. `edge` reports the discontinuity flag for
-// every result that got that far (TEXEL_EDGE, or TEXEL_WRITTEN in DETAIL mode).
+// ---- per-texel reference: exactly the kernels' per-thread bodies -------------------------------------------------
+enum TexelResult { TEXEL_INVALID = 0, TEXEL_EDGE = 1, TEXEL_WRITTEN = 3 };
+// Shared classification (score kernel and emit kernel run the identical gates). `depth(x, y)` = raw texel of `layer`.
+struct TexelGeometry { float z, zxm, zxp, zym, zyp; bool edge, flat, steep; };
 template <class DepthFn>
-inline TexelResult BackprojectTexel(const PushBackproject& pc, const FrameBlock& blk, uint32_t layer, uint32_t x, uint32_t y, DepthFn depth, FsSurfaceMeasurement& out, bool& edge) {
-    edge = false;
+inline TexelResult ClassifyTexel(const PushCompact& pc, uint32_t x, uint32_t y, DepthFn depth, TexelGeometry& g) {
     const uint32_t w = pc.width, h = pc.height;
-    const float* fov = blk.fov[layer & 1u];
+    g.edge = g.flat = g.steep = false;
     if (x >= w || y >= h) return TEXEL_INVALID;
     if (x == 0u || y == 0u || x + 1u >= w || y + 1u >= h) return TEXEL_INVALID;      // no central differences at the border
-    const float z = LinearizeDepth(depth(x, y), pc.nearZ, pc.farZ, pc.flags);
-    if (!DepthUsable(z, pc.nearZ, pc.maxDepthM)) return TEXEL_INVALID;
-    const float zxm = LinearizeDepth(depth(x - 1u, y), pc.nearZ, pc.farZ, pc.flags);
-    const float zxp = LinearizeDepth(depth(x + 1u, y), pc.nearZ, pc.farZ, pc.flags);
-    const float zym = LinearizeDepth(depth(x, y - 1u), pc.nearZ, pc.farZ, pc.flags);
-    const float zyp = LinearizeDepth(depth(x, y + 1u), pc.nearZ, pc.farZ, pc.flags);
-    if (!DepthUsable(zxm, pc.nearZ, pc.maxDepthM) || !DepthUsable(zxp, pc.nearZ, pc.maxDepthM) ||
-        !DepthUsable(zym, pc.nearZ, pc.maxDepthM) || !DepthUsable(zyp, pc.nearZ, pc.maxDepthM)) return TEXEL_INVALID;   // hole next to us
-    edge = IsEdge(z, zxm, zxp, zym, zyp);
-    if (edge && !(pc.flags & FS_MEAS_FLAG_DETAIL)) return TEXEL_EDGE;
-    if (!(pc.flags & FS_MEAS_FLAG_NO_DECIMATION) && !KeepDecimated(x, y, pc.frame, pc.decimK)) return TEXEL_DECIMATED;
+    g.z = LinearizeDepth(depth(x, y), pc.nearZ, pc.farZ, pc.flags);
+    if (!DepthUsable(g.z, pc.nearZ, pc.maxDepthM)) return TEXEL_INVALID;
+    g.zxm = LinearizeDepth(depth(x - 1u, y), pc.nearZ, pc.farZ, pc.flags);
+    g.zxp = LinearizeDepth(depth(x + 1u, y), pc.nearZ, pc.farZ, pc.flags);
+    g.zym = LinearizeDepth(depth(x, y - 1u), pc.nearZ, pc.farZ, pc.flags);
+    g.zyp = LinearizeDepth(depth(x, y + 1u), pc.nearZ, pc.farZ, pc.flags);
+    if (!DepthUsable(g.zxm, pc.nearZ, pc.maxDepthM) || !DepthUsable(g.zxp, pc.nearZ, pc.maxDepthM) ||
+        !DepthUsable(g.zym, pc.nearZ, pc.maxDepthM) || !DepthUsable(g.zyp, pc.nearZ, pc.maxDepthM)) return TEXEL_INVALID;   // hole next to us
+    g.edge = IsEdge(g.z, g.zxm, g.zxp, g.zym, g.zyp);
+    if (g.edge && !(pc.flags & FS_MEAS_FLAG_DETAIL)) return TEXEL_EDGE;
+    g.flat = IsFlat(g.z, g.zxm, g.zxp, g.zym, g.zyp);
+    g.steep = IsSteep(g.z, g.zxm, g.zxp, g.zym, g.zyp);
+    return TEXEL_WRITTEN;
+}
+// Score kernel body: 0 for invalid / edge texels, else the information score. Counters: predicted / consistent / new.
+template <class DepthFn, class PredFn>
+inline uint32_t ScoreTexel(const PushCompact& pc, const FrameBlock& blk, uint32_t layer, uint32_t x, uint32_t y, DepthFn depth, PredFn pred, bool& predicted, bool& consistent) {
+    TexelGeometry g; predicted = consistent = false;
+    if (ClassifyTexel(pc, x, y, depth, g) != TEXEL_WRITTEN) return 0u;
+    float tx, ty; RayTangents(x, y, pc.width, pc.height, blk.fov[layer & 1u], pc.flags, tx, ty);
+    float r = 0.f;
+    predicted = PredictResidual(blk, layer & 1u, EyePoint(tx, ty, g.z), g.z, pc.flags, pred, r);
+    consistent = predicted && r <= 1.f;
+    return ScoreOf(predicted, r, g.flat, g.steep, (pc.flags & FS_MEAS_FLAG_DETAIL) != 0u);
+}
+// Emit kernel body: the full back-projection of a selected texel.
+template <class DepthFn>
+inline TexelResult BackprojectTexel(const PushCompact& pc, const FrameBlock& blk, uint32_t layer, uint32_t x, uint32_t y, DepthFn depth, FsSurfaceMeasurement& out, bool& edge) {
+    TexelGeometry g; const TexelResult r = ClassifyTexel(pc, x, y, depth, g); edge = g.edge;
+    if (r != TEXEL_WRITTEN) return r;
+    const uint32_t w = pc.width, h = pc.height; const float* fov = blk.fov[layer & 1u];
     float tx, ty; RayTangents(x, y, w, h, fov, pc.flags, tx, ty);
     float txm, tym, txp, typ, t2;
     RayTangents(x - 1u, y, w, h, fov, pc.flags, txm, t2);
     RayTangents(x + 1u, y, w, h, fov, pc.flags, txp, t2);
     RayTangents(x, y - 1u, w, h, fov, pc.flags, t2, tym);
     RayTangents(x, y + 1u, w, h, fov, pc.flags, t2, typ);
-    const Vec3 p = EyePoint(tx, ty, z);
-    const Vec3 n = NormalFromNeighbours(p, EyePoint(txm, ty, zxm), EyePoint(txp, ty, zxp), EyePoint(tx, tym, zym), EyePoint(tx, typ, zyp));
+    const Vec3 p = EyePoint(tx, ty, g.z);
+    const Vec3 n = NormalFromNeighbours(p, EyePoint(txm, ty, g.zxm), EyePoint(txp, ty, g.zxp), EyePoint(tx, tym, g.zym), EyePoint(tx, typ, g.zyp));
     Mat4 M; memcpy(M.m, blk.anchorFromEye[layer & 1u], sizeof M.m);
     const Vec3 pa = MulPoint(M, p);
     const Vec3 na = Normalize(MulDir(M, n));
-    const bool flat = IsFlat(z, zxm, zxp, zym, zyp);
     out.px = pa.x; out.py = pa.y; out.pz = pa.z;
     out.nx = na.x; out.ny = na.y; out.nz = na.z;
-    out.sigmaN = SigmaN(z);
-    out.footprint = Footprint(z, fov, w, h);
+    out.sigmaN = SigmaN(g.z);
+    out.footprint = Footprint(g.z, fov, w, h);
     out.sigmaT = out.footprint;
-    out.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (edge ? FS_MEAS_SRC_EDGE : 0u) | (flat ? FS_MEAS_SRC_LOW_TEXTURE : 0u) | (layer << FS_MEAS_SRC_EYE_SHIFT);
+    out.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (edge ? FS_MEAS_SRC_EDGE : 0u) | (g.flat ? FS_MEAS_SRC_LOW_TEXTURE : 0u) | (layer << FS_MEAS_SRC_EYE_SHIFT);
     out.observationId = pc.obsId;
     out.reserved = 0u;
     return TEXEL_WRITTEN;
 }
 
-// ---- whole-dispatch reference: workgroups of FS_MEAS_WG consecutive threads, one reservation per group ---------
-// `depth(layer, x, y)` returns the raw texel. Record order inside a group is lane order; the GPU's group order
-// differs, so tests compare counts and sets. Counters accumulate into blk.ctr like the kernel does.
-template <class DepthFn>
-inline void BackprojectDispatchReference(const PushBackproject& pc, FrameBlock& blk, DepthFn depth, FsSurfaceMeasurement* records) {
+// ---- whole-job reference (score -> select -> count -> prefix -> emit): deterministic record order -------------------
+// `depth(layer, x, y)` = raw Environment Depth texel; `pred(layer, px, py)` = raw rendered depth. Counters accumulate
+// into blk.ctr exactly like the kernels; `hist` is the select scratch. Records land at wgBase[g] + lane rank.
+template <class DepthFn, class PredFn>
+inline uint32_t CompactDispatchReference(const PushCompact& pc, FrameBlock& blk, DepthFn depth, PredFn pred, FsSurfaceMeasurement* records, uint32_t* scoresOut = nullptr) {
     uint32_t* ctr = blk.ctr;
     const uint32_t threads = pc.width * pc.height * pc.layers;
     const uint32_t groups = (threads + FS_MEAS_WG - 1u) / FS_MEAS_WG;
-    FsSurfaceMeasurement local[FS_MEAS_WG];
-    for (uint32_t g = 0; g < groups; ++g) {
-        uint32_t n = 0, edges = 0, invalid = 0, decimated = 0, lowtex = 0;
+    std::vector<uint32_t> score(threads, 0u);
+    uint32_t hist[FS_MEAS_SCORE_BINS] = {};
+    for (uint32_t t = 0; t < threads; ++t) {                                                   // score
+        uint32_t layer, x, y; ThreadToTexel(t, pc.layers, pc.width, pc.height, pc.frame, layer, x, y);
+        bool predicted = false, consistent = false; TexelGeometry g;
+        const TexelResult cls = ClassifyTexel(pc, x, y, [&](uint32_t xx, uint32_t yy) { return depth(layer, xx, yy); }, g);
+        if (g.edge) ctr[FS_MEAS_CTR_EDGE]++;
+        if (cls == TEXEL_INVALID) { ctr[FS_MEAS_CTR_INVALID]++; continue; }
+        if (cls == TEXEL_EDGE) continue;
+        const uint32_t s = ScoreTexel(pc, blk, layer, x, y, [&](uint32_t xx, uint32_t yy) { return depth(layer, xx, yy); }, pred, predicted, consistent);
+        score[t] = s; hist[s]++; ctr[FS_MEAS_CTR_VALID]++;
+        if (predicted) { ctr[FS_MEAS_CTR_PREDICTED]++; if (consistent) ctr[FS_MEAS_CTR_CONSISTENT]++; } else ctr[FS_MEAS_CTR_NEW]++;
+    }
+    uint32_t T = 1, f16 = 65536; SelectThreshold(hist, pc.budget, T, f16);                    // select
+    ctr[FS_MEAS_CTR_THRESHOLD] = T; ctr[FS_MEAS_CTR_FRACTION] = f16;
+    std::vector<uint32_t> wgCount(groups, 0u), wgBase(groups, 0u);
+    for (uint32_t g = 0; g < groups; ++g) {                                                    // count
+        for (uint32_t lane = 0; lane < FS_MEAS_WG; ++lane) { const uint32_t t = g * FS_MEAS_WG + lane; if (t < threads && Selected(score[t], t, pc.frame, T, f16)) wgCount[g]++; }
+        ctr[FS_MEAS_CTR_GROUPS]++;
+    }
+    uint32_t total = 0; for (uint32_t g = 0; g < groups; ++g) { wgBase[g] = total; total += wgCount[g]; }   // prefix
+    ctr[FS_MEAS_CTR_RESERVED] = total < pc.maxOut ? total : pc.maxOut;
+    if (total > pc.maxOut) ctr[FS_MEAS_CTR_OVERFLOW] += total - pc.maxOut;
+    ctr[FS_MEAS_CTR_REJECTED] = ctr[FS_MEAS_CTR_VALID] - total;
+    for (uint32_t g = 0; g < groups; ++g) {                                                    // emit
+        uint32_t rank = 0;
         for (uint32_t lane = 0; lane < FS_MEAS_WG; ++lane) {
             const uint32_t t = g * FS_MEAS_WG + lane;
-            if (t >= threads) continue;
+            if (t >= threads || !Selected(score[t], t, pc.frame, T, f16)) continue;
             uint32_t layer, x, y; ThreadToTexel(t, pc.layers, pc.width, pc.height, pc.frame, layer, x, y);
-            bool edge = false;
-            const TexelResult r = BackprojectTexel(pc, blk, layer, x, y, [&](uint32_t xx, uint32_t yy) { return depth(layer, xx, yy); }, local[n], edge);
-            if (edge) ++edges;
-            if (r == TEXEL_WRITTEN) { if (local[n].sourceFlags & FS_MEAS_SRC_LOW_TEXTURE) ++lowtex; ++n; }
-            else if (r == TEXEL_INVALID) ++invalid;
-            else if (r == TEXEL_DECIMATED) ++decimated;
+            FsSurfaceMeasurement m; bool edge = false;
+            if (BackprojectTexel(pc, blk, layer, x, y, [&](uint32_t xx, uint32_t yy) { return depth(layer, xx, yy); }, m, edge) != TEXEL_WRITTEN) continue;
+            const uint32_t idx = wgBase[g] + rank++;
+            if (idx < pc.maxOut) { records[idx] = m; if (m.sourceFlags & FS_MEAS_SRC_LOW_TEXTURE) ctr[FS_MEAS_CTR_LOWTEX]++; }
         }
-        uint32_t base = 0;
-        if (n) { base = ReserveGroup(ctr[FS_MEAS_CTR_RESERVED], n, pc.maxOut, ctr[FS_MEAS_CTR_OVERFLOW]); ctr[FS_MEAS_CTR_VALID] += n; }
-        ctr[FS_MEAS_CTR_EDGE] += edges; ctr[FS_MEAS_CTR_INVALID] += invalid; ctr[FS_MEAS_CTR_DECIMATED] += decimated; ctr[FS_MEAS_CTR_LOWTEX] += lowtex;
-        ctr[FS_MEAS_CTR_GROUPS] += 1u;
-        for (uint32_t i = 0; i < n; ++i) { const uint32_t idx = base + i; if (idx < pc.maxOut) records[idx] = local[i]; }
     }
+    if (scoresOut) memcpy(scoresOut, score.data(), threads * sizeof(uint32_t));
+    return ctr[FS_MEAS_CTR_RESERVED];
 }
 
 } // namespace meas

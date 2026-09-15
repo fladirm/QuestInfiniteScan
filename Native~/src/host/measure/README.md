@@ -11,26 +11,22 @@ C# Runtime/Host/EnvDepthFeeder.cs        every NEW depth frame (deduped by XrTim
    └─ FsMeas_SetEnvDepth(...)            fs_meas_api.h — same signature, same texture handle, same poses/fovs/near/far/XrTime
                                           [main thread] latest frame only; repeats ignored
 FS_HEVT_FRAME_BEGIN hook                  [render thread] ImportUnityTexture(handle) (AccessTexture barrier to SHADER_READ_ONLY,
-                                          view cached per handle) + BindImage on the backproject pipeline; only while no
-                                          backproject job is in flight (persistent descriptors, §15.3)
-SCAN-class scheduler tick                 [fs-sched] one job "depth_backproject", ONE dispatch: 320x320x2 = 204,800 threads =
-                                          3,200 workgroups of 64, lanes alternate eyes; frame block (host-visible) carries
-                                          anchorFromEye[2] + fov[2] + the counters; push constants 48 B
-measure_depth_backproject.comp            per texel: z = linearize(texel) → gates → central-difference normal → edge/flat
-                                          tests → sigma/footprint → anchor-local → decimation lattice → ONE atomicAdd per
-                                          workgroup reserves the group's records in the device ring slot (cap maxOut,
-                                          overflow counted)
-onRetired                                 [fs-sched] slot → READY, FS_CTR_MEASUREMENTS += stored, FS_CTR_MEASUREMENTS_DROPPED
-                                          += overflow (+ superseded frames), FsScan_RequestTick(observationId = XrTime low 32)
-world SCAN tick (integration point below) MeasGpu_PeekFrame → integrate jobs read the slot's records → MeasGpu_ReleaseFrame
-```
-
-No CPU readback, no `FsMeas_Push`: records are written by the kernel into `fs::meas::MeasGpuRing::records`
-(host-visible UMA memory, like `world.meas`), so the world module's CPU pre-pass (page creation from measurement
-positions) reads `records.mapped` exactly as it reads its own ring after the job retired.
-
-Telemetry: the executor emits the per-job GPU stage `depth_backproject` (job name) and the per-dispatch stage
-`measure_depth_backproject` (pipeline name) from device timestamps (§15.8) — no duplicate `TelemetryStage`
+                                          view cached per handle) + BindImage on the score/emit pipelines (+ the canonical
+                                          prediction = previous rendered depth from the render module); only while no
+                                          compaction job is in flight (persistent descriptors, §15.3)
+SCAN-class scheduler tick                 [fs-sched] one job "depth_compact", FIVE dispatches (C09R-E2, contract §7.6):
+measure_score.comp                        per texel (204,800 threads, both eyes): z = linearize(texel) → gates → edge/flat/steep
+                                          → canonical prediction (project the eye point into the previous rendered eye view,
+                                          unproject the rendered depth, residual along the ray in sigma units) → score
+                                          (fsMeasScore: NEW 224, > 3 sigma 192+, 1-3 sigma 96+, converged 16+, +24 curvature,
+                                          +40 steep, DETAIL >= 200) → score[t] + 256-bin histogram
+measure_select.comp                       1 workgroup: threshold T = largest score with count(score >= T) >= budget + the 16.16
+                                          fraction of bin T (twin: SelectThreshold)
+measure_count.comp / measure_prefix.comp  per-workgroup selected counts → exclusive prefix (deterministic record order)
+measure_emit.comp                         selected texels: central-difference normal → sigma/footprint → anchor-local record at
+                                          wgBase[g] + lane rank (no global atomics on the records)
+Telemetry: the executor emits the per-job GPU stage `depth_compact` (job name) and the per-dispatch stages
+`measure_score` .. `measure_emit` (pipeline names) from device timestamps (§15.8) — no duplicate `TelemetryStage`
 call from this module. `FsMeas_GetStats(out[8])` reports framesSeen / framesSubmitted / framesSuperseded /
 lastCount / lastOverflow / lastGpuUs / importFailures / lastEdgeTexels; a `FS-MEAS depth #N: ...` log line
 every 250 frames carries the full counter set (`FS_MEAS_CTR_*`).
@@ -42,11 +38,11 @@ every 250 frames carries the full counter set (`FS_MEAS_CTR_*`).
 | `fs_meas_params.h` | preprocessor constants shared by C++ and GLSL (gates, sigma model, ring size, flags, counter words, bindings) |
 | `fs_meas_math.h` | pure C++ twin of the kernel: `LinearizeDepth`, `RayTangents`, `NormalFromNeighbours`, `IsEdge`, `IsFlat`, `SigmaN`, `Footprint`, `KeepDecimated`, `ReserveGroup`/`Overflow`, `ThreadToTexel`, `BackprojectTexel`, `BackprojectDispatchReference`; `PushBackproject` (48 B) and `FrameBlock` (224 B) layouts |
 | `fs_meas_gpu.h` | `MeasGpuRing {records, counters(frame block), capacity}` + consumer handoff `MeasGpu_PeekFrame / MeasGpu_ReleaseFrame / MeasGpu_Ring` |
-| `fs_meas_api.h` | C exports `FsMeas_SetEnvDepth` (twin of `FsRender_SetEnvDepth`), `FsMeas_SetParams(decimK, maxOut, flags)`, `FsMeas_GetStats` |
+| `fs_meas_api.h` | C exports `FsMeas_SetEnvDepth` (twin of `FsRender_SetEnvDepth`), `FsMeas_SetParams(budget, maxOut, flags)`, `FsMeas_GetStats` |
 | `measure.cpp` | module: warm-up pipeline creation, device hook (rings), frame-begin import, SCAN tick, retirement, handoff state machine |
-| `spirv/measure_depth_backproject_spirv.inc` | committed SPIR-V fallback (regenerated by `build_native.sh`) |
+| `../../spirv/measure_*_spirv.inc` | committed SPIR-V fallbacks (regenerated by `build_native.sh`) |
 | `../../../shaders/measure/fs_meas_common.glsl` | GLSL twin of `fs_meas_math.h` |
-| `../../../shaders/measure/measure_depth_backproject.comp` | the kernel (29,388 B SPIR-V, wg 64, 2 writable bindings + 1 sampler, 24 B shared, no loops, gate pass) |
+| `../../../shaders/measure/measure_{score,select,count,prefix,emit}.comp`, `fs_meas_frame.glsl` | the kernels (wg 64 / 256, <= 5 storage bindings + <= 2 samplers, <= 1.1 KB shared) |
 
 ## Integration (world module, `world/fs_world.cpp`)
 
@@ -69,17 +65,17 @@ frames are superseded (latest-only, counted).
   until C01 bias characterisation and C10 replace it). Gates: `near < z ≤ 6 m`, image border and hole neighbours
   are invalid, discontinuity `> 10 %` of depth = edge (bit 8, skipped unless `FS_MEAS_FLAG_DETAIL`), Laplacian
   `< 0.5 %` of depth = lowTexture (bit 9). `planarFit` (bit 3) is not set here (that is the planar path, C10).
-* Compaction (§7.6): `(x + y + frame) % k == 0` with k = 2 default (≈ 101 k of a fully covered 320×320×2 frame)
-  AND a hard cap `maxOut` = 65,536 = ring slot capacity (overflow counted, never written). The thread → texel
-  order rotates by 97 rows per frame so the cap cuts a different band every frame (no permanently unscanned
-  floor). A real information score (canonical prediction residual) comes in C10/C12. Note the consumer budget:
-  `FS_INTEGRATE_MAX_MEAS` = 16,384 per 2 ms SCAN job, so a full frame at k = 2 is 4 integrate jobs; frames the
-  world does not consume in time are superseded (latest-only), never queued.
+* Compaction (§7.6, C09R-E2): information score per texel from the canonical prediction (the previous rendered
+  depth = FRONT reprojected into the camera; `FS_MEAS_FLAG_PRED_FLIP_Y` selects the prediction row convention,
+  receipt: `predicted`/`consistent` counters in the FS-MEAS log line), budget `FS_MEAS_DEFAULT_BUDGET` = 16,384
+  selected texels per depth frame (histogram threshold, hash fraction of the tie bin; deterministic), hard cap
+  `maxOut` = 32,768. A converged flat surface costs nothing; new areas, residuals, curvature, steep patches and
+  DETAIL spend the budget first. Scan cost follows the selected measurements, not the pixels.
 * GPU time: 204,800 threads × 5 texel fetches + ~150 flops; expected well under 1 ms on Adreno 740 — measured by the
-  executor's stage timestamps (`depth_backproject`); the job is class SCAN with the 2 ms class quantum. If the
+  executor's stage timestamps (`depth_compact`); the job is class SCAN with the 2 ms class quantum. If the
   device receipt shows > 2 ms, split by `layers` into two dispatches (the push block already carries `layers`).
 * Cross-queue ordering: the layout transition recorded by `ImportUnityTexture` lands in Unity's graphics command
-  stream of the frame; the backproject job waits on the executor's frame-end timeline for that frame
+  stream of the frame; the compaction job waits on the executor's frame-end timeline for that frame
   (`JobDesc::waitFrameEndValue`), so it never reads the image before the transition executed.
 * Anchor: anchor 0 until the AnchorGraph cut (C19).
 
@@ -87,7 +83,7 @@ frames are superseded (latest-only, counted).
 
 `bash Tools~/native/build_host_tests.sh` (suite `host_tests_measure`, header-only): depth linearisation both far
 conventions, rays / flipY, sigma model, edge / flat tests, central-difference normals (fronto-parallel, 45°,
-degenerate), decimation counts (exact checkerboard, frame parity complement), group reservation / overflow
+degenerate), budget selection (count, determinism, tie lattice per frame, cap), score and prediction twins (converged / off-prediction / new / half-new job), group reservation / overflow
 identities, whole-dispatch reference on synthetic planes (fronto-parallel, tilted with finite far), edge
 rejection + DETAIL + holes, cap accounting, two-eye interleaving shares, rotating row phase, anchor
 transform, push / frame block layouts.

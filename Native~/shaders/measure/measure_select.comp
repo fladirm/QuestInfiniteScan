@@ -1,0 +1,27 @@
+#version 450
+// C09R-E2 compaction 2/5: ONE workgroup turns the score histogram into the selection threshold: the largest T with
+// count(score >= T) >= budget, plus the 16.16 fraction of bin T that fills the budget (twin: SelectThreshold).
+// Every valid texel is kept when they fit the budget. Writes ctr[THRESHOLD] / ctr[FRACTION].
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#include "fs_meas_frame.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = FS_MEAS_B_SELECT) buffer SelectBlock { uint sel[]; };
+shared uint s_cum[256];
+void main() {
+    const uint i = gl_LocalInvocationID.x;                        // score bin
+    uint c = i == 0u ? 0u : sel[FS_MEAS_SEL_HIST + i];
+    s_cum[255u - i] = c;                                          // reversed so the inclusive scan gives count(score >= bin)
+    barrier();
+    for (uint o = 1u; o < 256u; o <<= 1u) { uint v = (255u - i) >= o ? s_cum[255u - i - o] : 0u; barrier(); s_cum[255u - i] += v; barrier(); }
+    // s_cum[255 - i] = sum of hist[i..255]
+    const uint budget = pc.a.y;
+    uint cumHere = s_cum[255u - i];
+    uint cumAbove = i == 255u ? 0u : s_cum[255u - i - 1u];        // count(score > i)
+    if (i >= 1u && cumHere >= budget && cumAbove < budget) {       // exactly one bin satisfies this (or none)
+        uint f = c == 0u ? 65536u : ((budget - cumAbove) << 16) / c;   // budget <= 32768: no overflow
+        blk.ctr[FS_MEAS_CTR_THRESHOLD] = i; blk.ctr[FS_MEAS_CTR_FRACTION] = min(f, 65536u);
+    }
+    if (i == 1u && s_cum[254u] < budget) { blk.ctr[FS_MEAS_CTR_THRESHOLD] = 1u; blk.ctr[FS_MEAS_CTR_FRACTION] = 65536u; }
+}
