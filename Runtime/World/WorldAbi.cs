@@ -253,6 +253,7 @@ namespace FinalScan.World
         public const float ClusterErrorInf = 1e+30f;
         public const int DrawFlagAggregate = 8;
         public const int DrawFlagTransient = 16;
+        public const int DrawFlagNoAppearance = 32;
 
         /// <summary>Throws when the managed layouts drift from the native header (call once at startup).</summary>
         public static void AssertLayout()

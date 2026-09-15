@@ -420,6 +420,55 @@ inline bool Mergeable(const Patch& a, const Patch& b) {
     return Len(delta - a.n * d) <= (float)FS_MERGE_OVERLAP_K * (a.rM + b.rM);
 }
 
+// ---- C09R-E4.1 surface sheet closure (twin: fs_sheet.glsl + the per-surfel body of fuse_sheet.comp) -----------------
+inline bool SheetEdge(const Patch& a, const Patch& b, float& td, float& d) {
+    td = 0.f; d = 0.f;
+    if (Dot(a.n, b.n) < (float)FS_SHEET_MIN_DOT) return false;
+    V3 nm = Norm(a.n + b.n);
+    V3 delta = b.p - a.p; d = Dot(nm, delta);
+    float planeTol = fminf((float)FS_ASSOC_SIGMA_GATE * sqrtf(a.sigmaN * a.sigmaN + b.sigmaN * b.sigmaN), (float)FS_SHEET_PLANE_MAX_M);
+    if (fabsf(d) > planeTol) return false;
+    td = Len(delta - nm * d);
+    if (td > (float)FS_SHEET_REACH_MAX_M) return false;
+    return td <= a.rM + b.rM + (float)FS_SHEET_GAP_MAX_M;
+}
+struct SheetResult { Patch out; uint32_t edges = 0; bool smoothed = false, grown = false, collapsed = false; };
+// `nb` = promoted neighbours (any cell); evidence parallel for the survivor rule. Same order of operations as the kernel.
+inline SheetResult SheetUpdate(const Patch& a, const FsSurfelEvidence& ea, const std::vector<Patch>& nb, const std::vector<FsSurfelEvidence>& nbEv) {
+    SheetResult res; res.out = a;
+    std::vector<std::pair<float, size_t>> ring;
+    for (size_t i = 0; i < nb.size(); ++i) {
+        if (nb[i].flags & kFlagRemoved) continue;
+        float td, d; if (!SheetEdge(a, nb[i], td, d)) continue;
+        ring.push_back({td, i});
+    }
+    std::stable_sort(ring.begin(), ring.end(), [](const std::pair<float, size_t>& x, const std::pair<float, size_t>& y) { return x.first < y.first; });
+    if (ring.size() > FS_SHEET_RING) ring.resize(FS_SHEET_RING);
+    res.edges = (uint32_t)ring.size();
+    if (ring.size() < 2) return res;
+    for (auto& r : ring) { const Patch& b = nb[r.second]; if (r.first < (float)FS_SHEET_REDUNDANT_K * fminf(a.rM, b.rM) && Survives(b, nbEv[r.second], a, ea)) { res.collapsed = true; res.out.flags |= kFlagRemoved; return res; } }
+    float wA = 1.f / (a.sigmaN * a.sigmaN);
+    V3 cSum = a.p * wA, nSum = a.n * wA; float wSum = wA, s2Sum = wA * a.sigmaN * a.sigmaN;
+    auto wOf = [&](const Patch& b, float td) { return (1.f / (b.sigmaN * b.sigmaN)) / (1.f + (td * td) / fmaxf((a.rM + b.rM) * (a.rM + b.rM), 1e-8f)); };
+    for (auto& r : ring) { const Patch& b = nb[r.second]; float w = wOf(b, r.first); cSum = cSum + b.p * w; nSum = nSum + b.n * w; wSum += w; s2Sum += w * b.sigmaN * b.sigmaN; }
+    V3 cFit = cSum * (1.f / wSum), nFit = Norm(nSum);
+    float res2 = wA * Dot(nFit, a.p - cFit) * Dot(nFit, a.p - cFit);
+    for (auto& r : ring) { const Patch& b = nb[r.second]; float w = wOf(b, r.first); float e = Dot(nFit, b.p - cFit); res2 += w * e * e; }
+    bool flat = sqrtf(res2 / wSum) <= (float)FS_SHEET_FLAT_K * sqrtf(s2Sum / wSum);
+    Patch o = a;
+    if (flat) { o.p = a.p + nFit * (Dot(nFit, cFit - a.p) * (float)FS_SHEET_BLEND); o.n = Norm(a.n * (1.f - (float)FS_SHEET_BLEND) + nFit * (float)FS_SHEET_BLEND); res.smoothed = true; }
+    if (ring.size() >= 3) {
+        V3 t1, t2; Frame(o.n, t1, t2);
+        float gxx = 0, gyy = 0, gxy = 0;
+        for (auto& r : ring) { V3 dv = nb[r.second].p - o.p; dv = dv - o.n * Dot(dv, o.n); float hx = 0.5f * Dot(dv, t1), hy = 0.5f * Dot(dv, t2); gxx += hx * hx; gyy += hy * hy; gxy += hx * hy; }
+        float inv = 2.f / (float)ring.size();
+        float gM, gm, gAng; MomentToEllipse(gxx * inv, gyy * inv, gxy * inv, gM, gm, gAng);
+        if (gM > o.rM * 1.02f) { float nM = fminf(fmaxf(o.rM, gM), (float)FS_SHEET_RADIUS_MAX_M), nm = fminf(fmaxf(o.rm, gm), nM); o.angle = gAng; o.rM = nM; o.rm = nm; res.grown = true; }
+    }
+    res.out = o;
+    return res;
+}
+
 // ---- dirty list (twin: fuse_dirty_pages / prefix / emit) ------------------------------------------------
 // Deterministic order: pages ascending, cells ascending; entries beyond `cap` stay set in the mask (sliced).
 inline std::vector<uint32_t> DirtyListEmit(std::vector<std::vector<uint32_t>>& masks, uint32_t cap) {

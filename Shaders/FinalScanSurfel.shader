@@ -24,7 +24,7 @@
 // Record encodings mirror Runtime/Render/SurfelDrawAbi.cs exactly (tests pin the managed side):
 //   normalOct32       oct u16|u16 → [-1,1]; tangentAndRadii angle u16 | rMajor u8 log | rMinor u8 log (r = 0.5 mm * 2^(v/16));
 //   colorOrHandle     RGBA8 (R low byte); alpha byte = coverage when FS_DRAW_FLAG_AGGREGATE (bit 3);
-//   flags             bit0 detail, bit1 selected, bit2 erased-preview, bit3 aggregate, bit4 transient.
+//   flags             bit0 detail, bit1 selected, bit2 erased-preview, bit3 aggregate, bit4 transient, bit5 no measured appearance.
 Shader "FinalScan/Surfel"
 {
     Properties
@@ -68,6 +68,7 @@ Shader "FinalScan/Surfel"
     #define FS_FLAG_ERASED     4u
     #define FS_FLAG_AGGREGATE  8u
     #define FS_FLAG_TRANSIENT  16u
+    #define FS_FLAG_NO_APPEARANCE 32u   // E4.2: geometry without measured appearance (XRAY / PLAN only): neutral grey, never normal pseudo-colour
 
     #define FS_RADIUS_BASE_M   0.0005
     #define FS_TWO_PI          6.28318530718
@@ -236,7 +237,7 @@ Shader "FinalScan/Surfel"
         float3 v = normalize(GetCameraPositionWS() - i.positionWS);
         if (dot(n, v) < 0.0) n = -n;
         float ndl = saturate(dot(n, normalize(_LightDir.xyz)));
-        float3 col = i.color.rgb * (0.35 + 0.65 * ndl);
+        float3 col = ((flags & FS_FLAG_NO_APPEARANCE) != 0u ? float3(0.55, 0.55, 0.55) : i.color.rgb) * (0.35 + 0.65 * ndl);
 
         if ((flags & FS_FLAG_TRANSIENT) != 0u)
         {

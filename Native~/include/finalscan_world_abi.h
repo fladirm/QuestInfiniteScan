@@ -204,3 +204,4 @@ typedef struct FsRenderNode {
 // bit 3 aggregate (coverage LOD; low 16 bits of colorOrHandle alpha carry coverage), bit 4 transient.
 #define FS_DRAW_FLAG_AGGREGATE (1u << 3)
 #define FS_DRAW_FLAG_TRANSIENT (1u << 4)
+#define FS_DRAW_FLAG_NO_APPEARANCE (1u << 5)   // geometry without a measured appearance: never in SCAN; XRAY / PLAN draw it neutral grey (E4.2)

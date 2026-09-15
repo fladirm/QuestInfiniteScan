@@ -400,7 +400,8 @@ public:
         AddDispatch(*js, pipes_[K_PREFIX], FS_TICK_MEAS_MAX / 256, 1, nullptr, 0);
         AddDispatch(*js, pipes_[K_PREFIX_CARRY], 1, 1, nullptr, 0);
         AddDispatch(*js, pipes_[K_MAINT_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
-        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // C09R-E4: index follows geometry (records from reduce, cluster write, maintenance)
+        for (uint32_t parity = 0; parity < 8; ++parity) { PushParity pp{parity}; AddDispatch(*js, pipes_[K_SHEET], 1, 1, &pp, sizeof pp, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY); }   // C09R-E4.1 surface sheet closure
+        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // C09R-E4: index follows geometry (records from reduce, cluster write, maintenance, sheet)
         AddDispatch(*js, pipes_[K_PUBLISH_LEAVES], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
         for (uint32_t lv = 1; lv <= FS_RENDER_TREE_DEPTH; ++lv) { PushLevel pl{lv}; AddDispatch(*js, pipes_[K_PUBLISH_LEVEL], 1, 1, &pl, sizeof pl, G, FS_GCTR_COUNT + FS_T_LEVEL_ARGS + 4 * lv); }
         FixPushPointers(*js);
@@ -478,7 +479,7 @@ public:
         if (!gctr_) return;
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) { uint32_t v = AtomicLoadU32(&gctr_[i]); gctrTotal_[i] += (uint64_t)(v - gctrLast_[i]); gctrLast_[i] = v; }
         static const int32_t map[FS_GCTR_COUNT] = { FS_CTR_PAGE_LOOKUPS, FS_CTR_PAGE_MISSES, -1, -1, -1, FS_CTR_SURFEL_UPDATE, -1, -1, FS_CTR_SURFEL_CREATE, -1,
-            FS_CTR_SURFEL_SPLIT, FS_CTR_SURFEL_MERGE, FS_CTR_SURFEL_DELETE, -1, -1, FS_CTR_INDEX_OVERFLOW, -1, -1, -1, FS_CTR_PUBLISH, FS_CTR_MEASUREMENTS_DROPPED, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+            FS_CTR_SURFEL_SPLIT, FS_CTR_SURFEL_MERGE, FS_CTR_SURFEL_DELETE, -1, -1, FS_CTR_INDEX_OVERFLOW, -1, -1, -1, FS_CTR_PUBLISH, FS_CTR_MEASUREMENTS_DROPPED, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (map[i] >= 0 && gctrTotal_[i] != gctrFolded_[i]) { CounterAdd((FsCounter)map[i], (int64_t)(gctrTotal_[i] - gctrFolded_[i])); gctrFolded_[i] = gctrTotal_[i]; }
     }
 
@@ -725,7 +726,7 @@ public:
         w.KV("shortfallTotal", shortfallTotal_); w.KV("slabStalls", slabStalls_); w.KV("resets", resets_);
         w.KV("epochMeasCap", epochMeasCap_); w.KV("epochDirtyCap", epochDirtyCap_); w.KV("slices", slices_); w.KV("capHalvings", capHalvings_);
         w.Key("fusion"); w.BeginObject();
-        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred"};
+        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetSmoothed","sheetGrown","sheetCollapsed"};
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (names[i][0] != '_') w.KV(names[i], gctrTotal_[i]);
         w.EndObject();
         w.Key("memory"); w.BeginObject();

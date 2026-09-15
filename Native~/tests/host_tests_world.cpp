@@ -339,6 +339,50 @@ static void TestAppearanceFusion() {
     CHECK(ColorPack(ColorOf(0x123456u)) == 0x123456u);
 }
 
+// C09R-E4.1 surface sheet closure: a flat wall of sparse surfels becomes one coherent sheet (normals unified, centres on
+// the plane, supports grown to close the gaps); a 90 deg corner never connects; a gap wider than FS_SHEET_GAP_MAX_M stays
+// open (foliage); a redundant surfel inside a stronger neighbour collapses.
+static Patch SheetPatch(V3 p, V3 n, float r, float sigma) { Patch q; q.p = p; q.n = Norm(n); q.rM = q.rm = r; q.sigmaN = sigma; q.sigmaT = 0.004f; q.flags = kFlagPromoted | 5; q.angle = 0.f; return q; }
+static void TestSurfaceSheet() {
+    std::vector<Patch> wall; std::vector<FsSurfelEvidence> wallEv;
+    std::mt19937 rng(5); std::normal_distribution<float> tilt(0.f, 0.08f), off(0.f, 0.003f);
+    for (int y = -2; y <= 2; ++y) for (int x = -2; x <= 2; ++x) {                               // 3.5 cm grid, 5 mm supports: 2.5 cm gaps
+        if (x == 0 && y == 0) continue;
+        wall.push_back(SheetPatch(v3(0.035f * x, 0.035f * y, off(rng)), v3(tilt(rng), tilt(rng), 1.f), 0.005f, 0.004f));
+        FsSurfelEvidence e{}; e.staticEvidence = 5; wallEv.push_back(e);
+    }
+    Patch a = SheetPatch(v3(0, 0, 0.008f), v3(0.15f, -0.1f, 1.f), 0.005f, 0.004f); FsSurfelEvidence ea{}; ea.staticEvidence = 5;
+    SheetResult r = SheetUpdate(a, ea, wall, wallEv);
+    CHECK(r.edges >= 4 && !r.collapsed && r.smoothed && r.grown);                                 // the 4-neighbourhood (diagonal gaps 3.95 cm stay open)
+    CHECK(fabsf(r.out.p.z) < fabsf(a.p.z));                                                           // pulled toward the common plane
+    CHECK(Dot(r.out.n, v3(0, 0, 1)) > Dot(a.n, v3(0, 0, 1)));                                         // normal toward the sheet normal
+    CHECK(fabsf(r.out.p.x) < 5e-4f && fabsf(r.out.p.y) < 5e-4f);                                      // moves along the fitted normal only (no tangential drift beyond its tilt)
+    CHECK(r.out.rM >= 0.016f && r.out.rM <= (float)FS_SHEET_RADIUS_MAX_M);                            // support grows to ~half the 3.5 cm spacing
+    // 90 deg corner: the other wall never becomes an edge
+    std::vector<Patch> corner; std::vector<FsSurfelEvidence> cEv;
+    for (int k = 1; k <= 6; ++k) { corner.push_back(SheetPatch(v3(0.01f, 0.03f * k - 0.09f, 0.01f), v3(1, 0, 0), 0.005f, 0.004f)); cEv.push_back(wallEv[0]); }
+    SheetResult rc = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.005f, 0.004f), ea, corner, cEv);
+    CHECK(rc.edges == 0 && !rc.grown && !rc.smoothed);
+    // gap wider than FS_SHEET_GAP_MAX_M (leaves 6 cm apart, 5 mm supports): no edge, no growth
+    std::vector<Patch> sparse; std::vector<FsSurfelEvidence> sEv;
+    for (int k = 0; k < 6; ++k) { float ang = 6.2831853f * (float)k / 6.f; sparse.push_back(SheetPatch(v3(0.06f * cosf(ang), 0.06f * sinf(ang), 0), v3(0, 0, 1), 0.005f, 0.004f)); sEv.push_back(wallEv[0]); }
+    SheetResult rs = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.005f, 0.004f), ea, sparse, sEv);
+    CHECK(rs.edges == 0 && !rs.grown);
+    // a 2 cm step (depth discontinuity) is not the same sheet
+    std::vector<Patch> step; for (int k = 0; k < 4; ++k) step.push_back(SheetPatch(v3(0.02f * (k - 1.5f), 0.02f, 0.025f), v3(0, 0, 1), 0.005f, 0.002f));
+    SheetResult rst = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.005f, 0.002f), ea, step, std::vector<FsSurfelEvidence>(4, wallEv[0]));
+    CHECK(rst.edges == 0);
+    // curved surface (sphere of radius 5 cm): no plane smoothing (curvature preserved), coverage still closes
+    std::vector<Patch> sph; for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); float z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); p.z = z; sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - z), 0.006f, 0.0005f)); }
+    SheetResult rsp = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.006f, 0.0005f), ea, sph, std::vector<FsSurfelEvidence>(8, wallEv[0]));
+    CHECK(rsp.edges == 8 && !rsp.smoothed && rsp.grown);
+    // redundant: a weaker surfel 1 mm from a stronger same-sheet neighbour collapses
+    std::vector<Patch> dup{SheetPatch(v3(0.001f, 0, 0), v3(0, 0, 1), 0.01f, 0.004f), SheetPatch(v3(0.03f, 0, 0), v3(0, 0, 1), 0.01f, 0.004f)};
+    FsSurfelEvidence strong{}; strong.staticEvidence = 20; FsSurfelEvidence weak{}; weak.staticEvidence = 3;
+    CHECK(SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.004f), weak, dup, {strong, strong}).collapsed);
+    CHECK(!SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.004f), strong, dup, {weak, weak}).collapsed);
+}
+
 static void TestConcurrentCandidates() {
     V3 origin = v3(0, 0, 0); Cand c[FS_CELL_NEW_MAX]; bool over = false;
     std::vector<FsSurfaceMeasurement> seg;
@@ -524,7 +568,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceSheet(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

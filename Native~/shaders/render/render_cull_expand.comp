@@ -29,6 +29,8 @@ bool fsProjectAabb(vec3 wmin, vec3 wmax, out float nearest, out vec2 ndcMin, out
     return true;
 }
 void fsEmitAggregate(mat4 A, vec3 origin, FsClusterNode nd) {
+    bool measured = (nd.repColorOrHandle >> 24) != 0u;
+    if (!measured && frames[pc.frameSlot].misc.x == uint(FS_RENDER_MODE_SCAN)) return;   // SCAN shows measured photometry only (E4.2)
     uint i = atomicAdd(work[FS_WK_AGG], 1u);
     if (i >= pc.aggCapacity) { atomicAdd(work[FS_WK_STAT + FS_CSTAT_BUDGET_DROPPED], 1u); return; }
     vec3 w = (A * vec4(origin + vec3(nd.repCenter[0], nd.repCenter[1], nd.repCenter[2]), 1.0)).xyz;
@@ -40,7 +42,7 @@ void fsEmitAggregate(mat4 A, vec3 origin, FsClusterNode nd) {
     r.tangentAndRadii = (ra << 16) | (rb << 24);
     r.colorOrHandle = (nd.repColorOrHandle & 0x00FFFFFFu) | ((fsGet_FsClusterNode_coverage(nd) >> 8) << 24);
     r.surfaceId = 0u;
-    r.flags = uint(FS_DRAW_FLAG_AGGREGATE);
+    r.flags = uint(FS_DRAW_FLAG_AGGREGATE) | (measured ? 0u : uint(FS_DRAW_FLAG_NO_APPEARANCE));
     aggScratch[i] = r;
     atomicMax(work[FS_WK_COMPACT_ARGS], i / uint(FS_WG_SMALL) + 1u);
     atomicAdd(work[FS_WK_STAT + FS_CSTAT_AGGREGATES], 1u);

@@ -1,0 +1,132 @@
+#version 450
+// C09R-E4.1 surface sheet closure, one dispatch per parity class (push: parity = x&1 | y&1<<1 | z&1<<2 of the cell).
+// An invocation owns its dirty cell: it READS promoted surfels of the 27-cell neighbourhood and WRITES only its own cell's
+// surfels. Two cells of the same parity class are never neighbours, so no invocation reads what another one writes in
+// the same dispatch; the 8 classes run in a fixed order, so the result is deterministic. The index is not mutated here
+// (a centre moved across its cell emits a relocation record; world_relocate runs after this stage).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS
+#define FS_USE_EVIDENCE_RO
+#define FS_USE_INDEX_RO
+#define FS_USE_GCTR
+#define FS_USE_DIRTY
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_index.glsl"
+#include "fs_maint.glsl"
+#include "fs_sheet.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint parity; } pc;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= FS_TK(FS_T_DIRTY_COUNT)) return;
+    uint entry = dirty[FS_DIRTY_LIST(0) + i];
+    uint page = entry >> 15, cell = entry & 0x7FFFu;
+    ivec3 c0 = ivec3(int(cell & 31u), int((cell >> 5) & 31u), int((cell >> 10) & 31u));
+    if (uint((c0.x & 1) | ((c0.y & 1) << 1) | ((c0.z & 1) << 2)) != pc.parity) return;
+    // ---- gather promoted surfels of the neighbourhood (own cell first, deterministic cell / leaf / slot order)
+    uint nbH[FS_SHEET_NEIGH_MAX]; uint nN = 0u, nOwn = 0u;
+    for (uint k = 0u; k < 27u; ++k) {
+        uint kk = (k + 13u) % 27u;                                          // start with the centre cell (13 = 0,0,0)
+        ivec3 c = c0 + ivec3(int(kk % 3u) - 1, int((kk / 3u) % 3u) - 1, int(kk / 9u) - 1);
+        if (any(lessThan(c, ivec3(0))) || any(greaterThan(c, ivec3(31)))) continue;
+        uint nc = uint(c.x) | (uint(c.y) << 5) | (uint(c.z) << 10);
+        uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(page, nc, leaves);
+        for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
+            if (l >= nl || nN >= uint(FS_SHEET_NEIGH_MAX)) break;
+            uint cnt = min(idx[fsIdxLeafWord(leaves[l], 0u)], uint(FS_INDEX_LEAF_CAP));
+            for (uint s = 0u; s < uint(FS_INDEX_LEAF_CAP); ++s) {
+                if (s >= cnt || nN >= uint(FS_SHEET_NEIGH_MAX)) break;
+                uint h = idx[fsIdxLeafWord(leaves[l], 2u + s)];
+                uint fl = fsGet_FsSurfel_evidenceFlags(surfels[h]);
+                if ((fl & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u || (fl & FS_FLAG_PROMOTED) == 0u) continue;
+                if (k == 0u && nOwn >= uint(FS_SHEET_OWN_MAX)) continue;
+                nbH[nN++] = h; if (k == 0u) nOwn++;
+            }
+        }
+    }
+    if (nOwn == 0u || nN < 2u) return;
+    uint edges = 0u, smoothed = 0u, grown = 0u, collapsed = 0u;
+    for (uint ia = 0u; ia < uint(FS_SHEET_OWN_MAX); ++ia) {
+        if (ia >= nOwn) break;
+        uint ha = nbH[ia];
+        FsSurfel sa = surfels[ha];
+        FsPatch a = fsUnpack(sa);
+        if ((a.flags & FS_FLAG_REMOVED) != 0u) continue;
+        // ---- 1-ring: nearest compatible neighbours by tangential distance
+        uint ringH[FS_SHEET_RING]; float ringTd[FS_SHEET_RING]; uint nr = 0u;
+        for (uint ib = 0u; ib < uint(FS_SHEET_NEIGH_MAX); ++ib) {
+            if (ib >= nN) break;
+            if (ib == ia) continue;
+            FsPatch b = fsUnpack(surfels[nbH[ib]]);
+            if ((b.flags & FS_FLAG_REMOVED) != 0u) continue;
+            float td, d; if (!fsSheetEdge(a, b, td, d)) continue;
+            uint pos = min(nr, uint(FS_SHEET_RING) - 1u);
+            if (nr == uint(FS_SHEET_RING) && td >= ringTd[pos]) continue;
+            for (uint m = pos; m > 0u; --m) { if (ringTd[m - 1u] <= td) break; ringTd[m] = ringTd[m - 1u]; ringH[m] = ringH[m - 1u]; pos = m - 1u; }
+            ringTd[pos] = td; ringH[pos] = nbH[ib]; if (nr < uint(FS_SHEET_RING)) nr++;
+        }
+        edges += nr;
+        if (nr < 2u) continue;
+        // ---- redundant collapse: a stronger same-sheet neighbour already covers this centre
+        bool dead = false;
+        for (uint r = 0u; r < uint(FS_SHEET_RING); ++r) {
+            if (r >= nr) break;
+            FsPatch b = fsUnpack(surfels[ringH[r]]);
+            if (ringTd[r] < FS_SHEET_REDUNDANT_K * min(a.rM, b.rM) && fsSurvives(b, evidence[ringH[r]], a, evidence[ha])) { dead = true; break; }
+        }
+        if (dead) { fsSet_FsSurfel_evidenceFlags(sa, a.flags | FS_FLAG_REMOVED); surfels[ha] = sa; collapsed++; continue; }
+        // ---- local plane fit over {a} + ring (precision x distance weights)
+        float wA = 1.0 / (a.sigmaN * a.sigmaN);
+        vec3 cSum = a.p * wA, nSum = a.n * wA; float wSum = wA, s2Sum = wA * a.sigmaN * a.sigmaN;
+        for (uint r = 0u; r < uint(FS_SHEET_RING); ++r) {
+            if (r >= nr) break;
+            FsPatch b = fsUnpack(surfels[ringH[r]]);
+            float w = (1.0 / (b.sigmaN * b.sigmaN)) / (1.0 + (ringTd[r] * ringTd[r]) / max((a.rM + b.rM) * (a.rM + b.rM), 1e-8));
+            cSum += b.p * w; nSum += b.n * w; wSum += w; s2Sum += w * b.sigmaN * b.sigmaN;
+        }
+        vec3 cFit = cSum / wSum; vec3 nFit = normalize(nSum);
+        float res2 = wA * pow(dot(nFit, a.p - cFit), 2.0);
+        for (uint r = 0u; r < uint(FS_SHEET_RING); ++r) {
+            if (r >= nr) break;
+            FsPatch b = fsUnpack(surfels[ringH[r]]);
+            float w = (1.0 / (b.sigmaN * b.sigmaN)) / (1.0 + (ringTd[r] * ringTd[r]) / max((a.rM + b.rM) * (a.rM + b.rM), 1e-8));
+            res2 += w * pow(dot(nFit, b.p - cFit), 2.0);
+        }
+        bool isFlat = sqrt(res2 / wSum) <= FS_SHEET_FLAT_K * sqrt(s2Sum / wSum);
+        FsPatch o = a;
+        if (isFlat) {
+            o.p = a.p + nFit * (dot(nFit, cFit - a.p) * FS_SHEET_BLEND);         // along the normal only: no tangential drift
+            o.n = normalize(mix(a.n, nFit, FS_SHEET_BLEND));
+            smoothed++;
+        }
+        // ---- coverage closure: the ellipse through the neighbours' half-distance points (needs >= 3 edges)
+        if (nr >= 3u) {
+            vec3 t1, t2; fsTangentFrame(o.n, t1, t2);
+            float gxx = 0.0, gyy = 0.0, gxy = 0.0;
+            for (uint r = 0u; r < uint(FS_SHEET_RING); ++r) {
+                if (r >= nr) break;
+                FsPatch b = fsUnpack(surfels[ringH[r]]);
+                vec3 dv = b.p - o.p; dv -= dot(dv, o.n) * o.n;
+                float hx = 0.5 * dot(dv, t1), hy = 0.5 * dot(dv, t2);
+                gxx += hx * hx; gyy += hy * hy; gxy += hx * hy;
+            }
+            float inv = 2.0 / float(nr);                                        // points on a circle of radius R -> R exactly
+            float gM, gm, gAng; fsMomentToEllipse(gxx * inv, gyy * inv, gxy * inv, gM, gm, gAng);
+            if (gM > o.rM * 1.02) {
+                float nM = min(max(o.rM, gM), FS_SHEET_RADIUS_MAX_M), nm = min(max(o.rm, gm), nM);
+                o.angle = gAng; o.rM = nM; o.rm = nm; grown++;
+            }
+        }
+        if (!isFlat && o.rM == a.rM) continue;
+        o.p = fsPageRangeGuard(o.p);
+        uint newCell = fsCellOf(o.p);
+        if (newCell != cell && !fsPushRelocation(ha, page, cell, newCell, sa)) o.p = a.p;
+        surfels[ha] = fsPack(o);
+    }
+    if (edges != 0u) atomicAdd(gctr[FS_GCTR_SHEET_EDGES], edges);
+    if (smoothed != 0u) atomicAdd(gctr[FS_GCTR_SHEET_SMOOTHED], smoothed);
+    if (grown != 0u) atomicAdd(gctr[FS_GCTR_SHEET_GROWN], grown);
+    if (collapsed != 0u) atomicAdd(gctr[FS_GCTR_SHEET_COLLAPSED], collapsed);
+}

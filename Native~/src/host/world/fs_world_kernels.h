@@ -26,6 +26,7 @@
 #include "world_page_release_spirv.inc"
 #include "world_page_load_spirv.inc"
 #include "world_relocate_spirv.inc"
+#include "fuse_sheet_spirv.inc"
 
 namespace fs {
 namespace world {
@@ -44,11 +45,12 @@ struct PushLevel     { uint32_t level; };
 struct PushPublish   { uint32_t frameSlot, count; };
 struct PushErase     { int32_t anchorId; float cx, cy, cz, radius; };
 struct PushPage      { uint32_t page; };
+struct PushParity    { uint32_t parity; };
 
 enum WorldKernel : uint32_t {
     K_INGEST = 0, K_ASSOC, K_FREESPACE, K_SORT_HIST, K_SORT_SCAN, K_SORT_SCATTER, K_REDUCE, K_CLUSTER_COUNT, K_PREFIX, K_PREFIX_CARRY,
     K_CLUSTER_WRITE, K_DIRTY_PAGES, K_DIRTY_PREFIX, K_DIRTY_EMIT, K_MAINT_COUNT, K_MAINT_APPLY, K_PUBLISH_LEAVES, K_PUBLISH_LEVEL,
-    K_PUBLISH_ROOTS, K_ERASE, K_PAGE_RELEASE, K_PAGE_LOAD, K_RELOCATE, K_COUNT
+    K_PUBLISH_ROOTS, K_ERASE, K_PAGE_RELEASE, K_PAGE_LOAD, K_RELOCATE, K_SHEET, K_COUNT
 };
 struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t pushBytes; uint32_t bindings[12]; uint32_t bindingCount; };
 #define FS_KS(sym) sym, sizeof(sym) / 4
@@ -76,6 +78,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"world_page_release",   FS_KS(kWorldPageReleaseSpirv),   sizeof(PushPage),      {B_PAGES, B_INDEX, B_GCTR, B_RENDER, B_RDIR, B_RETIRE}, 6},
     {"world_page_load",      FS_KS(kWorldPageLoadSpirv),      sizeof(PushPage),      {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_SORT, B_POOLS, B_DIRTY, B_RETIRE}, 8},
     {"world_relocate",       FS_KS(kWorldRelocateSpirv),      0,                     {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE}, 7},
+    {"fuse_sheet",           FS_KS(kFuseSheetSpirv),          sizeof(PushParity),    {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_DIRTY}, 6},
 };
 #undef FS_KS
 
