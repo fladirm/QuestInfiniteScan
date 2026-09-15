@@ -65,6 +65,11 @@ frames are superseded (latest-only, counted).
   until C01 bias characterisation and C10 replace it). Gates: `near < z ≤ 6 m`, image border and hole neighbours
   are invalid, discontinuity `> 10 %` of depth = edge (bit 8, skipped unless `FS_MEAS_FLAG_DETAIL`), Laplacian
   `< 0.5 %` of depth = lowTexture (bit 9). `planarFit` (bit 3) is not set here (that is the planar path, C10).
+* Appearance sample (§14, C16a): `FsMeas_SetCameraFrame` delivers the newest PCA frame lease per eye (owned copy, pose at
+  capture time through the lens offset, MRUK sensor-resolution intrinsics mapped to the delivered centre crop, capture
+  XrTime); `measure_emit` projects each selected measurement into the camera of its eye when the frame lies within
+  `FS_MEAS_CAM_MAX_AGE_NS` of the depth time and writes RGB8 | `FS_MEAS_COLOR_VALID` into `reserved`. Row order of the copy
+  comes from the C# copy path (Blit = RT row 0 top). Fusion blends it into `appearanceHandle` (`FS_APPEARANCE_MEASURED`).
 * Compaction (§7.6, C09R-E2): information score per texel from the canonical prediction (the previous rendered
   depth = FRONT reprojected into the camera; `FS_MEAS_FLAG_PRED_FLIP_Y` selects the prediction row convention,
   receipt: `predicted`/`consistent` counters in the FS-MEAS log line), budget `FS_MEAS_DEFAULT_BUDGET` = 16,384
