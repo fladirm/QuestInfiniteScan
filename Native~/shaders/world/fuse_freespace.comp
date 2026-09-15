@@ -43,7 +43,9 @@ void main() {
     if (len < FS_FREE_STEP_M * 2.0 || len > FS_FREE_MAX_RANGE_M) return;
     dir /= len;
     uint stamp = 1u + (FS_TK(FS_T_TICK) % 255u);
-    float tEnd = len - FS_FREE_STEP_M;
+    float tEnd = len - FS_FREE_END_CLEARANCE_M;                       // donor clearance rule: no evidence within 15 cm of the hit
+    uint hitCell = 0xFFFFFFFFu; int hitPageX = fsPageCoord(p.x), hitPageY = fsPageCoord(p.y), hitPageZ = fsPageCoord(p.z);
+    { FsPageKey hk; hk.anchorId = pc.anchorId; hk.x = hitPageX; hk.y = hitPageY; hk.z = hitPageZ; hitCell = fsCellOf(p - fsPageOrigin3(hk)); }
     FsPageKey key; key.anchorId = pc.anchorId; key.x = 0x7FFFFFFF; key.y = 0; key.z = 0;
     uint slot = FS_INDEX_NONE; bool haveSlot = false; uint lastCell = 0xFFFFFFFFu; uint stamped = 0u, hops = 0u;
     for (uint i = 0u; i < uint(FS_FREE_WALK_MAX); ++i) {
@@ -60,7 +62,11 @@ void main() {
         }
         if (!haveSlot) continue;                                          // non-resident page: no evidence (C14 streams it)
         uint cell = fsCellOf(q - fsPageOrigin3(key));
-        if (cell != lastCell) { fsStamp(slot, cell, stamp); lastCell = cell; stamped++; }
+        if (cell != lastCell) {
+            lastCell = cell;
+            if (cell == hitCell && kx == hitPageX && ky == hitPageY && kz == hitPageZ) continue;   // the surface cell itself is never "seen through"
+            fsStamp(slot, cell, stamp); stamped++;
+        }
     }
     if (stamped != 0u) atomicAdd(gctr[FS_GCTR_FREE_STAMPS], stamped);
 }

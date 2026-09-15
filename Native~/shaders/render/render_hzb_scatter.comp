@@ -34,7 +34,7 @@ void main() {
     for (uint i = lane; i < uint(FS_HZB_WIN * FS_HZB_WIN); i += 64u) { sOcc[i] = 0u; sGrad[i] = 0u; }
     barrier();
     mat4 inv = source == 0u ? F.srcInvViewProj[eye] : F.envInvViewProj[eye];
-    bool flipY = (F.misc.w & 4u) != 0u;
+    bool flipY = source == 0u && (F.misc.w & 4u) != 0u;              // only the rendered depth stores row 0 at the top; Environment Depth row 0 = bottom
     ivec2 base = ivec2(gl_GlobalInvocationID.xy) * FS_HZB_SRC_BLOCK;
     bool valid = base.x < int(dims.x) && base.y < int(dims.y);
     float dmax = -1.0, dmin = 1e30; vec3 wmax = vec3(0.0); bool hit = false;

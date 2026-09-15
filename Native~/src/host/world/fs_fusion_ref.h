@@ -89,7 +89,7 @@ inline bool AssocCompatible(const FsSurfel& s, V3 local, V3 n, float sigmaNm, fl
     float gate = (float)FS_ASSOC_SIGMA_GATE * sqrtf(sigmaNs * sigmaNs + sigmaNm * sigmaNm);
     if (fabsf(d) > gate) return false;
     V3 tv = delta - sn * d;
-    float reach = (float)FS_ASSOC_TANGENT_K * (DecodeLogRadius(s.radiusMajor) + footprint);
+    float reach = fmaxf((float)FS_ASSOC_TANGENT_K * (DecodeLogRadius(s.radiusMajor) + footprint), (float)FS_ASSOC_REACH_MIN_M);
     float t2 = Dot(tv, tv);
     if (t2 > reach * reach) return false;
     score = (d * d) / fmaxf(gate * gate, 1e-12f) + t2 / fmaxf(reach * reach, 1e-12f);
@@ -239,8 +239,11 @@ inline FreeWalk FreeSpaceWalk(V3 eye, V3 p, int32_t anchorId, uint32_t tick, con
     V3 dir = p - eye; float len = Len(dir);
     if (len < (float)FS_FREE_STEP_M * 2.f || len > (float)FS_FREE_MAX_RANGE_M) { w.skipped = true; return w; }
     dir = dir * (1.f / len);
-    float tEnd = len - (float)FS_FREE_STEP_M;
+    float tEnd = len - (float)FS_FREE_END_CLEARANCE_M;
     FsPageKey key; key.anchorId = anchorId; key.x = 0x7FFFFFFF; key.y = 0; key.z = 0;
+    const int32_t hpx = PageCoord(p.x), hpy = PageCoord(p.y), hpz = PageCoord(p.z);
+    FsPageKey hk; hk.anchorId = anchorId; hk.x = hpx; hk.y = hpy; hk.z = hpz;
+    const uint32_t hitCell = CellOfV(p - PageOrigin3(hk));
     uint32_t slot = FS_INDEX_NONE; bool haveSlot = false; uint32_t lastCell = 0xFFFFFFFFu;
     for (uint32_t i = 0; i < FS_FREE_WALK_MAX; ++i) {
         float tt = ((float)i + 0.5f) * (float)FS_FREE_STEP_M;
@@ -254,7 +257,11 @@ inline FreeWalk FreeSpaceWalk(V3 eye, V3 p, int32_t anchorId, uint32_t tick, con
         }
         if (!haveSlot) continue;
         uint32_t cell = CellOfV(q - PageOrigin3(key));
-        if (cell != lastCell) { w.stamped.push_back({slot, cell}); lastCell = cell; }
+        if (cell != lastCell) {
+            lastCell = cell;
+            if (cell == hitCell && kx == hpx && ky == hpy && kz == hpz) continue;
+            w.stamped.push_back({slot, cell});
+        }
     }
     return w;
 }

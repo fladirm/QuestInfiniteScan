@@ -32,7 +32,7 @@ struct FsCullFrame {
     vec4 headPos_focal;         // xyz head position (world), w focal length px
     vec4 fwd_tanMargin;         // xyz view forward (world), w tan(prediction margin)
     vec4 lod;                   // fovealPx, peripheralPx, headroom bias, screenWorkBudget (as float)
-    uvec4 misc;                 // renderMode, frameIndex, reuseFlag, srcFlags (bit0 prev valid, bit1 env valid, bit2 flipY)
+    uvec4 misc;                 // renderMode, frameIndex, reuseFlag, srcFlags (bit0 prev valid, bit1 env valid, bit2 prev depth row 0 = top)
     vec4 srcDepth;              // prev width, height, layers, unused
     vec4 envDepth;              // env width, height, nearZ, farZ
     mat4 anchors[FS_MAX_ANCHORS];

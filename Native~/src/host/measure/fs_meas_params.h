@@ -68,6 +68,7 @@
 #define FS_MEAS_CTR_NEW              10        // valid texels without a prediction (newly seen)
 #define FS_MEAS_CTR_THRESHOLD        11        // selection threshold score of this frame
 #define FS_MEAS_CTR_FRACTION         12        // 16.16 fraction of the threshold bin kept
+#define FS_MEAS_CTR_CONSISTENT_ALT   13        // predicted texels within 1 sigma under the OTHER prediction row convention (receipt)
 #define FS_MEAS_CTR_WORDS            16        // counters region (words 13..15 reserved)
 #define FS_MEAS_FB_BYTES             624       // 64 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo
 #define FS_MEAS_SCORE_BINS           256

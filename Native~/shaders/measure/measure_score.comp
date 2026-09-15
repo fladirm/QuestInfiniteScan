@@ -15,9 +15,9 @@ layout(set = 0, binding = FS_MEAS_B_PRED) uniform sampler2DArray predTex;
 layout(std430, set = 0, binding = FS_MEAS_B_SCORE) writeonly buffer ScoreBlock { uint score[]; };
 layout(std430, set = 0, binding = FS_MEAS_B_SELECT) buffer SelectBlock { uint sel[]; };
 shared uint s_hist[FS_MEAS_SCORE_BINS];
-shared uint s_valid, s_edge, s_invalid, s_pred, s_cons, s_new;
+shared uint s_valid, s_edge, s_invalid, s_pred, s_cons, s_new, s_consAlt;
 
-bool fsPredict(uint layer, vec3 pEye, float z, out float residualSigma) {
+bool fsPredict(uint layer, vec3 pEye, float z, uint flags, out float residualSigma) {
     residualSigma = 0.0;
     if (blk.predInfo.w == 0u || layer >= blk.predInfo.z) return false;
     mat4 W = blk.worldFromEye[layer];
@@ -27,13 +27,13 @@ bool fsPredict(uint layer, vec3 pEye, float z, out float residualSigma) {
     vec2 ndc = c.xy / c.w;
     if (any(lessThan(ndc, vec2(-1.0))) || any(greaterThan(ndc, vec2(1.0)))) return false;
     vec2 uv = ndc * 0.5 + 0.5;
-    if ((pc.a.w & FS_MEAS_FLAG_PRED_FLIP_Y) != 0u) uv.y = 1.0 - uv.y;
+    if ((flags & FS_MEAS_FLAG_PRED_FLIP_Y) != 0u) uv.y = 1.0 - uv.y;
     uvec2 dims = blk.predInfo.xy;
     uvec2 px = min(uvec2(uv * vec2(dims)), dims - uvec2(1u));
     float d = texelFetch(predTex, ivec3(ivec2(px), int(layer)), 0).r;
     if (isnan(d) || d <= 0.0 || d >= 1.0) return false;
     vec2 n = (vec2(px) + vec2(0.5)) / vec2(dims) * 2.0 - 1.0;
-    if ((pc.a.w & FS_MEAS_FLAG_PRED_FLIP_Y) != 0u) n.y = -n.y;
+    if ((flags & FS_MEAS_FLAG_PRED_FLIP_Y) != 0u) n.y = -n.y;
     vec4 hw = blk.predInvViewProj[layer] * vec4(n, d, 1.0);
     if (abs(hw.w) < 1e-12) return false;
     vec3 wp = hw.xyz / hw.w;
@@ -44,7 +44,7 @@ bool fsPredict(uint layer, vec3 pEye, float z, out float residualSigma) {
 void main() {
     const uint lane = gl_LocalInvocationIndex;
     for (uint i = lane; i < uint(FS_MEAS_SCORE_BINS); i += uint(FS_MEAS_WG)) s_hist[i] = 0u;
-    if (lane == 0u) { s_valid = 0u; s_edge = 0u; s_invalid = 0u; s_pred = 0u; s_cons = 0u; s_new = 0u; }
+    if (lane == 0u) { s_valid = 0u; s_edge = 0u; s_invalid = 0u; s_pred = 0u; s_cons = 0u; s_new = 0u; s_consAlt = 0u; }
     barrier();
     const uint w = pc.b.z, h = pc.b.w, layers = pc.a.x, flags = pc.a.w;
     uint t = gl_GlobalInvocationID.x;
@@ -57,7 +57,9 @@ void main() {
         else if (cls == 3) {
             vec4 fov = layer == 0u ? blk.fov[0] : blk.fov[1];
             vec2 tc = fsMeasRayTangents(x, y, w, h, fov, flags);
-            float r; bool predicted = fsPredict(layer, fsMeasEyePoint(tc, g.z), g.z, r);
+            vec3 pEye = fsMeasEyePoint(tc, g.z);
+            float r; bool predicted = fsPredict(layer, pEye, g.z, flags, r);
+            float rAlt; if (fsPredict(layer, pEye, g.z, flags ^ FS_MEAS_FLAG_PRED_FLIP_Y, rAlt) && rAlt <= 1.0) atomicAdd(s_consAlt, 1u);   // receipt: the other row convention
             s = fsMeasScore(predicted, r, g.isFlat, g.steep, (flags & FS_MEAS_FLAG_DETAIL) != 0u);
             atomicAdd(s_hist[s], 1u); atomicAdd(s_valid, 1u);
             if (predicted) { atomicAdd(s_pred, 1u); if (r <= 1.0) atomicAdd(s_cons, 1u); } else atomicAdd(s_new, 1u);
@@ -73,5 +75,6 @@ void main() {
         if (s_pred != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_PREDICTED], s_pred);
         if (s_cons != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_CONSISTENT], s_cons);
         if (s_new != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_NEW], s_new);
+        if (s_consAlt != 0u) atomicAdd(blk.ctr[FS_MEAS_CTR_CONSISTENT_ALT], s_consAlt);
     }
 }

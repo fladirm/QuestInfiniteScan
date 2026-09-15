@@ -41,6 +41,10 @@ void main() {
             FsSurfel s = surfels[h]; uint flags = fsGet_FsSurfel_evidenceFlags(s);
             if ((flags & FS_FLAG_REMOVED) != 0u) continue;
             FsSurfelEvidence ev = evidence[h];
+            // E3: an unpromoted candidate in this re-observed cell that no measurement supported for FS_TRANSIENT_TTL ticks expires
+            if ((flags & FS_FLAG_PROMOTED) == 0u && ((tick16 - fsGet_FsSurfelEvidence_lastSeenFrame(ev)) & 0xFFFFu) > uint(FS_TRANSIENT_TTL)) {
+                fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; continue;
+            }
             if (!seenThrough || fsGet_FsSurfelEvidence_lastSeenFrame(ev) == tick16) continue;
             uint motion = min(fsGet_FsSurfelEvidence_motionEvidence(ev) + 1u, 65535u);
             fsSet_FsSurfelEvidence_motionEvidence(ev, motion);

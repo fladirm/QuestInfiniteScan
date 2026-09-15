@@ -40,7 +40,14 @@
 #define FS_CELL_NEW_MAX       8         // candidates created per cell per epoch (dedupe bound)
 #define FS_ASSOC_SIGMA_GATE   3.0       // |signed plane distance| <= gate * sqrt(sigmaN_s^2 + sigmaN_m^2) -> same sheet
 #define FS_ASSOC_MIN_DOT      0.8       // normal compatibility; opposite-facing = the other side of a thin wall
-#define FS_ASSOC_TANGENT_K    1.0       // tangent distance <= k * (surfel radius + measurement footprint)
+#define FS_ASSOC_TANGENT_K    2.0       // tangent distance <= max(k * (surfel radius + measurement footprint), FS_ASSOC_REACH_MIN_M)
+#define FS_ASSOC_REACH_MIN_M  0.03      // C09R-E3: association tube (donor: kernel half support, not the pixel footprint); a re-observation
+                                        // landing between 1 cm surfels refines the nearest one instead of seeding a new candidate
+#define FS_TRANSIENT_TTL      64        // C09R-E3: an unpromoted candidate in a re-observed (dirty) cell without support for this many ticks is removed
+#define FS_FREE_END_CLEARANCE_M 0.15    // C09R-E3 (donor MERKABA_FREE_FULL_CLEARANCE): free-space rays stop this far before the measured point;
+                                        // the cell holding the hit is never stamped (run 23:52: ghosts = 55 % of new surfels = churn)
+#define FS_PRED_ROW0_TOP      1         // C09R-E2: the previous rendered depth (Unity RT, GPU projection) stores row 0 at the TOP: prediction and
+                                        // HZB scatter flip v; receipt: FS-MEAS consistent vs consistentAlt (the other convention)
 #define FS_MOTION_BAND_M      0.05      // outside the sigma gate but within this band: motion evidence
 #define FS_PROMOTE_STATIC     3         // consistent observations before a transient candidate becomes canonical
 #define FS_GHOST_MOTION_MIN   3         // free-space contradictions before a candidate / weak surfel is removed

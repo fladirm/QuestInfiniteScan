@@ -248,7 +248,7 @@ public:
         float fwd[3] = {-viewL_.m[2], -viewL_.m[6], -viewL_.m[10]}; float fl = sqrtf(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]); if (fl < 1e-9f) fl = 1.f;
         F.fwd_tanMargin[0] = fwd[0] / fl; F.fwd_tanMargin[1] = fwd[1] / fl; F.fwd_tanMargin[2] = fwd[2] / fl; F.fwd_tanMargin[3] = tanf(marginDeg_ * 0.0174533f);
         F.lod[0] = fovealPx_; F.lod[1] = peripheralPx_; F.lod[2] = HeadroomBias(headroomUs_); F.lod[3] = (float)opaqueCapacity_;
-        F.misc[0] = (uint32_t)renderMode_; F.misc[1] = frame; F.misc[2] = reuse ? 1u : 0u; F.misc[3] = (prevOk ? 1u : 0u) | (envOk ? 2u : 0u);
+        F.misc[0] = (uint32_t)renderMode_; F.misc[1] = frame; F.misc[2] = reuse ? 1u : 0u; F.misc[3] = (prevOk ? 1u : 0u) | (envOk ? 2u : 0u) | (FS_PRED_ROW0_TOP ? 4u : 0u);   // bit2: prev depth row 0 = top (flip v); env depth row 0 = bottom
         F.srcDepth[0] = (float)prev_.width; F.srcDepth[1] = (float)prev_.height; F.srcDepth[2] = (float)prev_.layers;
         F.envDepth[0] = (float)env_.width; F.envDepth[1] = (float)env_.height; F.envDepth[2] = env_.nearZ; F.envDepth[3] = env_.farZ;
         anchorSeq_ = world::CopyAnchors(&F.anchors[0][0]);

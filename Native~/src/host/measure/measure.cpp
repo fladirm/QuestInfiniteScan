@@ -25,6 +25,7 @@
 #include "../../log.h"
 #include "../../../include/finalscan_native_api.h"
 #include "../render/fs_render.h"
+#include "../world/fs_world_params.h"
 #include "measure_score_spirv.inc"
 #include "measure_select_spirv.inc"
 #include "measure_count_spirv.inc"
@@ -292,8 +293,8 @@ public:
             if (slot.frame.count) { slot.state = SLOT_READY; obs = slot.frame.observationId; request = true; }
             else slot.state = SLOT_FREE;
             if (seq <= 3 || (seq % kLogEveryFrames) == 0) {
-                Log("FS-MEAS depth #%llu: %u records (valid %u, rejected %u, threshold %u frac %.2f, predicted %u consistent %u new %u, edge %u, lowTex %u, invalid %u, overflow %u, groups %u, pred %ux%ux%u valid=%u) gpu %lld us", (unsigned long long)seq,
-                    slot.frame.count, ctr[FS_MEAS_CTR_VALID], ctr[FS_MEAS_CTR_REJECTED], ctr[FS_MEAS_CTR_THRESHOLD], ctr[FS_MEAS_CTR_FRACTION] / 65536.0, ctr[FS_MEAS_CTR_PREDICTED], ctr[FS_MEAS_CTR_CONSISTENT], ctr[FS_MEAS_CTR_NEW],
+                Log("FS-MEAS depth #%llu: %u records (valid %u, rejected %u, threshold %u frac %.2f, predicted %u consistent %u (alt convention %u) new %u, edge %u, lowTex %u, invalid %u, overflow %u, groups %u, pred %ux%ux%u valid=%u) gpu %lld us", (unsigned long long)seq,
+                    slot.frame.count, ctr[FS_MEAS_CTR_VALID], ctr[FS_MEAS_CTR_REJECTED], ctr[FS_MEAS_CTR_THRESHOLD], ctr[FS_MEAS_CTR_FRACTION] / 65536.0, ctr[FS_MEAS_CTR_PREDICTED], ctr[FS_MEAS_CTR_CONSISTENT], ctr[FS_MEAS_CTR_CONSISTENT_ALT], ctr[FS_MEAS_CTR_NEW],
                     ctr[FS_MEAS_CTR_EDGE], ctr[FS_MEAS_CTR_LOWTEX], ctr[FS_MEAS_CTR_INVALID], slot.frame.overflow, ctr[FS_MEAS_CTR_GROUPS], slot.blk->predInfo[0], slot.blk->predInfo[1], slot.blk->predInfo[2], slot.blk->predInfo[3], (long long)lastGpuUs_);
                 // Receipt (§20): where the records are. Host-visible ring, read after the fence retired.
                 const FsSurfaceMeasurement* rec = (const FsSurfaceMeasurement*)slot.ring.records.mapped;
@@ -343,7 +344,7 @@ private:
     // y = 0 to NDC y = -1). The owned R32 copy preserves texel addressing verbatim, so the default is FLIP_Y.
     // Device receipt without it (run 23:22, 5e339b9): eye at y = 1.87 m, back-projected bbox up to y = 5.55 m, 15 %
     // matched associations, canonical growing linearly (correct range, mirrored ray direction).
-    uint32_t budget_ = FS_MEAS_DEFAULT_BUDGET, maxOut_ = FS_MEAS_DEFAULT_MAX_OUT, flags_ = FS_MEAS_FLAG_FLIP_Y;
+    uint32_t budget_ = FS_MEAS_DEFAULT_BUDGET, maxOut_ = FS_MEAS_DEFAULT_MAX_OUT, flags_ = FS_MEAS_FLAG_FLIP_Y | (FS_PRED_ROW0_TOP ? FS_MEAS_FLAG_PRED_FLIP_Y : 0u);
     EnvDepthInput input_;
     uint64_t imported_ = 0, submitted_ = 0; uint32_t importedFrame_ = 0, importedW_ = 0, importedH_ = 0, importedLayers_ = 0; bool pendingSubmit_ = false;
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;

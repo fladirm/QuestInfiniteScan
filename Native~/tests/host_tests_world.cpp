@@ -401,8 +401,8 @@ static void TestCrossPageFreeRay() {
     // hop bound (review gap 6): a diagonal ray crossing > FS_FREE_PAGE_HOPS_MAX pages stops with the overflow counted
     std::map<int, uint32_t> line; for (int x = 0; x < 8; ++x) line[x] = 20 + (uint32_t)x;
     auto lookupLine = [&](const FsPageKey& k, uint32_t& slot) { if (k.z != 0) return false; auto it = line.find(k.x); if (it == line.end()) return false; slot = it->second + (uint32_t)(k.y & 1) * 8; return true; };
-    const float s2 = 5.98f / sqrtf(2.f);
-    FreeWalk w3 = FreeSpaceWalk(v3(3.97f, 3.9f, 0.5f), v3(3.97f + s2, 3.9f + s2, 0.5f), 0, 7, lookupLine);   // x@4, y@4, x@8, y@8 at distinct steps: 5 logical pages
+    const float nrm = sqrtf(1.f + 0.09f + 0.09f), L = 5.5f;                                                   // direction (1, 0.3, 0.3): x@4, y@4, z@4, x@8 at distinct steps = 5 logical pages
+    FreeWalk w3 = FreeSpaceWalk(v3(3.97f, 3.95f, 3.9f), v3(3.97f + L / nrm, 3.95f + 0.3f * L / nrm, 3.9f + 0.3f * L / nrm), 0, 7, lookupLine);
     CHECK(w3.hopOverflow && w3.hops == FS_FREE_PAGE_HOPS_MAX);
     // range/step gates
     CHECK(FreeSpaceWalk(v3(0, 0, 0), v3(0.05f, 0, 0), 0, 1, lookup).skipped);
