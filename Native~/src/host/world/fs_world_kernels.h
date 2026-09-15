@@ -40,7 +40,7 @@ enum : uint32_t { B_MEAS = 0, B_HASH = 1, B_PAGES = 2, B_SURFELS = 3, B_EVIDENCE
                   B_SORT = 9, B_FREESPACE = 10, B_POOLS = 11, B_DIRTY = 12, B_RENDER = 13, B_RBLOCKS = 14, B_RDIR = 15, B_RETIRE = 16,
                   B_PENDING = 17, B_MEAS_RING = 18, B_MEAS_CTR = 19, B_SHEET = 20 };
 
-struct PushIngest    { uint32_t maxCount, tick, idBase, leafBase, nodeBase, offset, pageCount; };
+struct PushIngest    { uint32_t maxCount, tick, idBase, leafBase, nodeBase, phase, pageCount, stride; };
 struct PushAssoc     { uint32_t hashMask; int32_t anchorId; };
 struct PushFreeSpace { uint32_t hashMask; int32_t anchorId; uint32_t flags, pad; float eye0[4], eye1[4]; };
 struct PushShift     { uint32_t shift; };
@@ -50,6 +50,8 @@ struct PushPublish   { uint32_t frameSlot, count; };
 struct PushErase     { int32_t anchorId; float cx, cy, cz, radius; };
 struct PushPage      { uint32_t page; };
 struct PushHash      { uint32_t hashMask; };
+struct PushRange     { uint32_t offset, count; };
+struct PushBatch     { uint32_t batchCap; };
 
 enum WorldKernel : uint32_t {
     K_INGEST = 0, K_ASSOC, K_FREESPACE, K_SORT_HIST, K_SORT_SCAN, K_SORT_SCATTER, K_REDUCE, K_CLUSTER_COUNT, K_PREFIX, K_PREFIX_CARRY,
@@ -74,14 +76,14 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"fuse_dirty_prefix",    FS_KS(kFuseDirtyPrefixSpirv),    sizeof(PushPageCount), {B_GCTR, B_DIRTY}, 2},
     {"fuse_dirty_emit",      FS_KS(kFuseDirtyEmitSpirv),      0,                     {B_GCTR, B_DIRTY}, 2},
     {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_FREESPACE, B_POOLS, B_DIRTY, B_RETIRE}, 9},
-    {"publish_leaves",       FS_KS(kPublishLeavesSpirv),      0,                     {B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RBLOCKS, B_RDIR, B_RETIRE, B_SHEET}, 10},
+    {"publish_leaves",       FS_KS(kPublishLeavesSpirv),      sizeof(PushRange),                    {B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RBLOCKS, B_RDIR, B_RETIRE, B_SHEET}, 10},
     {"publish_level",        FS_KS(kPublishLevelSpirv),       sizeof(PushLevel),     {B_PAGES, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RDIR, B_RETIRE, B_PENDING}, 8},
     {"render_publish_roots", FS_KS(kRenderPublishRootsSpirv), sizeof(PushPublish),   {B_PAGES, B_PENDING}, 2},
     {"world_erase",          FS_KS(kWorldEraseSpirv),         sizeof(PushErase),     {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_DIRTY}, 5},
     {"world_page_release",   FS_KS(kWorldPageReleaseSpirv),   sizeof(PushPage),      {B_PAGES, B_INDEX, B_GCTR, B_RENDER, B_RDIR, B_RETIRE}, 6},
     {"world_page_load",      FS_KS(kWorldPageLoadSpirv),      sizeof(PushPage),      {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_SORT, B_POOLS, B_DIRTY, B_RETIRE}, 8},
     {"world_relocate",       FS_KS(kWorldRelocateSpirv),      0,                     {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE}, 7},
-    {"sheet_begin",          FS_KS(kSheetBeginSpirv),         0,                     {B_GCTR}, 1},
+    {"sheet_begin",          FS_KS(kSheetBeginSpirv),         sizeof(PushBatch),                    {B_GCTR}, 1},
     {"sheet_graph",          FS_KS(kSheetGraphSpirv),         sizeof(PushHash),      {B_PAGES, B_SURFELS, B_INDEX, B_HASH, B_FREESPACE, B_GCTR, B_SHEET}, 7},
     {"sheet_fit",            FS_KS(kSheetFitSpirv),           0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET}, 5},
     {"sheet_apply",          FS_KS(kSheetApplySpirv),         0,                     {B_PAGES, B_SURFELS, B_GCTR, B_SHEET, B_DIRTY}, 5},

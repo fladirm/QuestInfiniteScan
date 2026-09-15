@@ -101,7 +101,11 @@
 #define FS_FREE_WALK_MAX      128       // 8 m at half-cell steps; bounded by the measurement range
 #define FS_FREE_MAX_RANGE_M   6.0
 #define FS_FREE_PAGE_HOPS_MAX 4         // page transitions (hash lookups) per ray; a 6 m ray crosses <= 3 page boundaries
-#define FS_EPOCH_MEAS_MIN     4096      // slicing floor: an epoch never processes fewer than this many records
+#define FS_EPOCH_MEAS_MIN     512       // slicing floor (C09R-E5: 1-3 ms scanner quanta; stride slices of one depth frame)
+#define FS_PUB_DIRTY_MIN      16        // C09R-E5 publication chain floors: dirty cells per maintenance job,
+#define FS_PUB_LEAVES_MIN     16        //   dirty cells per leaves chunk (PUBLISH class quantum, sub-ms)
+#define FS_SHEET_BATCH_MIN    256       // C09R-E5 surface complex batch floor (own job, quantum gated)
+#define FS_SHEET_PERIOD_EPOCHS 4        // C09R-E5 the surface complex runs at most every N fuse epochs (lower cadence than fusion)
 #define FS_EPOCH_OVER_K       1.25      // measured job GPU time > K x class quantum -> halve the epoch cap (slice)
 #define FS_EPOCH_UNDER_K      0.5       // measured job GPU time < K x class quantum -> double the epoch cap
 #define FS_EVIDENCE_COUNT_MAX 1023

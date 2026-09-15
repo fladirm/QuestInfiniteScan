@@ -29,7 +29,6 @@ namespace fs {
 namespace render {
 namespace {
 
-constexpr uint32_t kRecutFrameInterval = 2;
 constexpr uint32_t kAggregateCapacityMax = 65536;
 constexpr float    kCenterNear = 0.05f, kCenterFar = 200.f;
 
@@ -174,6 +173,19 @@ public:
             cmd = FrameCommandBuffer();
         }
         // Depth priors: import + bind every frame we (re)build the HZB (Unity may re-transition the image)
+        // C09R-E5 draw-list temporal reuse: the cut is recomputed only when the pose moved beyond the margin, the FRONT
+        // published new roots, the anchors changed or the mode / draw buffers changed; otherwise the previous draw list and
+        // args stay bound (no periodic recut, no HZB rebuild for an unchanged cut)
+        float head[3]; memcpy(head, headPos_, sizeof head);
+        float fwd[3] = {-viewL_.m[2], -viewL_.m[6], -viewL_.m[10]};
+        float dp[3] = {head[0] - lastHead_[0], head[1] - lastHead_[1], head[2] - lastHead_[2]};
+        float movedM = sqrtf(dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2]);
+        float turnDeg = EccentricityDeg(lastFwd_, fwd);
+        bool moved = movedM > tanf(marginDeg_ * 0.0174533f) || turnDeg > marginDeg_;
+        const uint64_t frontSeq = world::FrontSequence();
+        float anchorProbe[FS_MAX_ANCHORS * 16]; const uint64_t anchorSeqNow = world::CopyAnchors(anchorProbe);
+        bool recut = forceRecut_ || moved || lastCutFrame_ == 0 || frontSeq != lastFrontSeq_ || anchorSeqNow != lastAnchorSeq_;
+        if (!recut) { reusedCuts_++; return; }
         bool hzbWanted = false, prevOk = false, envOk = false;
         if ((renderMode_ == FS_RENDER_MODE_SCAN || renderMode_ == FS_RENDER_MODE_GEOMETRY) && (prev_.valid || env_.valid) && hzbBuiltVersion_ != DepthVersion()) {
             VkImage img; VkImageView viewPrev = VK_NULL_HANDLE, viewEnv = VK_NULL_HANDLE; VkFormat fmt; uint32_t w, h, layers;
@@ -186,22 +198,13 @@ public:
                     BindImage(pipes_[R_HZB_SCATTER], RB_DEPTH_ENV, ve, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) hzbWanted = true;
             }
         }
-        // Recut decision (§13.5.3): every kRecutFrameInterval frames or when the head moved beyond the margin
-        float head[3]; memcpy(head, headPos_, sizeof head);
-        float fwd[3] = {-viewL_.m[2], -viewL_.m[6], -viewL_.m[10]};
-        float dp[3] = {head[0] - lastHead_[0], head[1] - lastHead_[1], head[2] - lastHead_[2]};
-        float movedM = sqrtf(dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2]);
-        float turnDeg = EccentricityDeg(lastFwd_, fwd);
-        bool moved = movedM > tanf(marginDeg_ * 0.0174533f) || turnDeg > marginDeg_;
-        bool recut = forceRecut_ || moved || hzbWanted || lastCutFrame_ == 0 || frame - lastCutFrame_ >= kRecutFrameInterval || anchorSeq_ != lastAnchorSeq_;
-        if (!recut) return;
         uint32_t slot = frame % FS_CULL_FRAME_RING;
         CullFrame& F = ((CullFrame*)frameRing_.mapped)[slot];
         FillFrame(F, frame, !moved && !forceRecut_, prevOk, envOk);
         if (hzbWanted) RecordHzb(cmd, slot);
         RecordCull(cmd, slot);
         recuts_++;
-        lastCutFrame_ = frame; memcpy(lastHead_, head, sizeof lastHead_); memcpy(lastFwd_, fwd, sizeof lastFwd_); lastAnchorSeq_ = anchorSeq_; forceRecut_ = false;
+        lastCutFrame_ = frame; memcpy(lastHead_, head, sizeof lastHead_); memcpy(lastFwd_, fwd, sizeof lastFwd_); lastAnchorSeq_ = anchorSeq_; lastFrontSeq_ = frontSeq; forceRecut_ = false;
         if (hzbWanted) hzbBuiltVersion_ = DepthVersion();
     }
     uint64_t DepthVersion() const { return prev_.version * 1000003ull + env_.version; }
@@ -325,8 +328,8 @@ public:
     int32_t TelemetryJson(char* out, int32_t cap) {
         std::lock_guard<std::recursive_mutex> g(m_);
         char buf[2048]; int n = 0;
-        n += snprintf(buf + n, sizeof buf - n, "{\"recuts\":%llu,\"cuts\":%llu,\"hzbBuilds\":%llu,\"lastCullUs\":%lld,\"lastHzbUs\":%lld,\"stages\":{",
-                      (unsigned long long)recuts_, (unsigned long long)cullStages_, (unsigned long long)hzbStages_, (long long)lastCullUs_, (long long)lastHzbUs_);
+        n += snprintf(buf + n, sizeof buf - n, "{\"recuts\":%llu,\"reusedCuts\":%llu,\"cuts\":%llu,\"hzbBuilds\":%llu,\"lastCullUs\":%lld,\"lastHzbUs\":%lld,\"stages\":{",
+                      (unsigned long long)recuts_, (unsigned long long)reusedCuts_, (unsigned long long)cullStages_, (unsigned long long)hzbStages_, (long long)lastCullUs_, (long long)lastHzbUs_);
         for (uint32_t k = 0; k < S_COUNT && n < (int)sizeof buf; ++k)
             n += snprintf(buf + n, sizeof buf - n, "%s\"%s\":{\"lastUs\":%lld,\"avgUs\":%lld,\"maxUs\":%lld,\"count\":%llu}", k ? "," : "", kStageNames[k] + 7,
                           (long long)stages_[k].lastUs, (long long)(stages_[k].count ? stages_[k].totalUs / (int64_t)stages_[k].count : 0), (long long)stages_[k].maxUs, (unsigned long long)stages_[k].count);
@@ -420,7 +423,7 @@ private:
     Mat4 viewL_, viewR_, projL_, projR_; float headPos_[3] = {0, 0, 0};
     DepthSource prev_, env_; uint64_t hzbBuiltVersion_ = 0;
     float fovealPx_ = 1.f, peripheralPx_ = 3.5f, marginDeg_ = 5.f; int32_t headroomUs_ = 0; int32_t renderMode_ = FS_RENDER_MODE_SCAN;
-    uint32_t lastCutFrame_ = 0, lastStatsFrame_ = 0; float lastHead_[3] = {0, 0, 0}, lastFwd_[3] = {0, 0, -1}; uint64_t anchorSeq_ = 0, lastAnchorSeq_ = 0;
+    uint32_t lastCutFrame_ = 0, lastStatsFrame_ = 0; float lastHead_[3] = {0, 0, 0}, lastFwd_[3] = {0, 0, -1}; uint64_t anchorSeq_ = 0, lastAnchorSeq_ = 0, lastFrontSeq_ = 0, reusedCuts_ = 0;
     int64_t lastCullUs_ = 0, lastHzbUs_ = 0, cullUsTotal_ = 0, hzbUsTotal_ = 0; uint64_t cullStages_ = 0, hzbStages_ = 0, recuts_ = 0; uint32_t lastStageFrame_ = 0;
     StageStat stages_[S_COUNT];
 };

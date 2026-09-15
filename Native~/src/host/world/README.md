@@ -98,3 +98,22 @@ synthetic scenes (busiest foliage cell reported), residency math, HZB fail-open 
 cull math, and the C09R §32 suite: fusion determinism, concurrent candidates, dense bucket, deterministic merge,
 pools/retirement, sparse dirty list, cross-page free ray + hop bound, index generation (split/chain/overflow/
 pool exhaustion/reset).
+
+## C09R-E5 bounded GPU / executor closure
+- **One bounded job per scheduler tick.** Fuse slices are stride subsamples of one depth frame
+  (`phase + k·stride`, stride from `epochMeasCap`, floor `FS_EPOCH_MEAS_MIN` 512) so the SCAN quantum gate can
+  reach 1–3 ms; the fuse epoch applies its own relocations.
+- **Drop older observations, never display frames.** When a newer depth frame is READY, the rest of the current
+  frame's slices is abandoned (`framesAbandoned`, `measurementsAbandoned`, counted as dropped measurements).
+- **Publication continuation chain** (FRONT immutable until its last job): `world.publish.maint` (dirty compaction ≤
+  `epochDirtyCap`, maintenance, relocation) → `world.publish.leaves` chunks over `[offset, offset + leavesChunk)` →
+  `world.publish.levels` (levels 1..5, pending roots → graphics-owned publication). Every stage has its own quantum
+  gate on the PUBLISH class quantum; fuse slices alternate with chain stages. Render ids retired by leaves chunks are
+  held until the chain's FRONT publication.
+- **Surface complex at a lower cadence:** `world.sheet` (graph, fit, apply, contraction, relocation) runs only between
+  publications, at most every `FS_SHEET_PERIOD_EPOCHS` fuse epochs, with a quantum-gated batch (`sheetBatch`); the
+  graph prefilters candidates by flags and position before decoding.
+- **Draw-list temporal reuse** (`fs_render.cpp`): the cut and the HZB are rebuilt only when the pose moved beyond the
+  margin, the FRONT published roots (`world::FrontSequence`), the anchors, mode or draw buffers changed
+  (`reusedCuts` receipt); no periodic recut.
+

@@ -52,7 +52,7 @@ enum PageLife : uint8_t { PAGE_FREE = 0, PAGE_ACTIVE = 1, PAGE_RELEASING = 2 };
 struct PageState { PageLife life = PAGE_FREE; FsPageKey key{}; uint32_t generation = 0, lastTouched = 0; uint8_t zone = ZONE_OUTSIDE; std::vector<uint32_t> slabs; bool loadPending = false; };
 struct JobStorage { std::vector<Dispatch> d; std::vector<uint8_t> push; };
 struct PublishBatch { std::vector<FsPendingPublish> entries; std::vector<uint32_t> renderRetire; std::vector<uint32_t> releasedPages; };
-struct EpochStats { int64_t fuseUs = 0, publishUs = 0; uint64_t epochs = 0; };
+struct EpochStats { int64_t fuseUs = 0, publishUs = 0, publishMaintUs = 0, publishLeavesUs = 0, publishLevelsUs = 0, sheetUs = 0; uint64_t epochs = 0; };
 
 inline void AtomicStoreU32(uint32_t* p, uint32_t v) { __atomic_store_n(p, v, __ATOMIC_RELEASE); }
 inline uint32_t AtomicLoadU32(const uint32_t* p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
@@ -166,7 +166,7 @@ public:
         const uint32_t caps[4] = {leafCap_, nodeCap_, rblockCap_, rnodeCap_};
         for (uint32_t p = 0; p < 4; ++p) { rings_[p].Init(caps[p], pools + p * FS_POOL_HEADER_WORDS, pools + ringBase, ringBase); ringBase += caps[p]; }
         cpuRec_ = (FsSurfaceMeasurement*)cpuRecords_.mapped; cpuCtr_ = (uint32_t*)cpuCounters_.mapped; memset(cpuCtr_, 0, 64);
-        fuseInFlight_ = publishInFlight_ = releaseInFlight_ = 0; publishWanted_ = false; cpuSlotReady_ = false; cpuSlotBusy_ = false; liveLease_ = 0;
+        fuseInFlight_ = publishInFlight_ = releaseInFlight_ = sheetInFlight_ = 0; pubStage_ = PUB_IDLE; publishWanted_ = false; cpuSlotReady_ = false; cpuSlotBusy_ = false; liveLease_ = 0;
         idBase_ = kSurfaceIdBase; tick_ = 0; toPublish_.clear(); publishSeq_ = 0;
         Log("FS-WORLD pools: %.1f MiB total (surfels %.1f, evidence %.1f, index %.1f, render nodes %.1f, render blocks %.1f, rdir %.1f)",
             bytesTotal_ / 1048576.0, buf_.surfels.size / 1048576.0, buf_.evidence.size / 1048576.0, buf_.index.size / 1048576.0, buf_.render.size / 1048576.0, buf_.rblocks.size / 1048576.0, buf_.rdir.size / 1048576.0);
@@ -242,7 +242,7 @@ public:
         liveBound_ = true;
     }
     bool Ready() const { return deviceUp_ && pipesReady_ && bound_ && ExecReady(); }
-    bool JobsIdle() const { return fuseInFlight_ == 0 && publishInFlight_ == 0 && releaseInFlight_ == 0; }
+    bool JobsIdle() const { return fuseInFlight_ == 0 && publishInFlight_ == 0 && releaseInFlight_ == 0 && sheetInFlight_ == 0; }
 
     // ---- pages (residency: the CPU's job) ----------------------------------------------------------
     uint32_t AllocPageSlot() { for (uint32_t i = 0; i < pages_.size(); ++i) if (pages_[i].life == PAGE_FREE) return i; return FS_INDEX_NONE; }
@@ -371,15 +371,15 @@ public:
         std::atomic_thread_fence(std::memory_order_release);
     }
     // Fuse job: ingest -> associate -> free space -> 4 x (hist, scan, scatter) -> reduce -> cluster count -> prefix -> carry -> cluster write -> refinement sites.
-    bool SubmitFuse(const Pipeline& ingest, uint32_t offset, uint32_t maxCount, int32_t anchorId, bool freeSpace, const float eye0[3], const float eye1[3], uint64_t waitFrameEnd, std::function<void(bool)> onDone) {
+    bool SubmitFuse(const Pipeline& ingest, uint32_t phase, uint32_t stride, uint32_t maxCount, int32_t anchorId, bool freeSpace, const float eye0[3], const float eye1[3], uint64_t waitFrameEnd, std::function<void(bool)> onDone) {
         auto js = std::make_shared<JobStorage>();
         const Buffer* G = &buf_.gctr;
         const uint32_t tick = ++tick_;
-        PushIngest pin{maxCount, tick, idBase_, idxLeafBase_, idxNodeBase_, offset, pageCount_};
+        PushIngest pin{maxCount, tick, idBase_, idxLeafBase_, idxNodeBase_, phase, pageCount_, stride};
         PushAssoc pa{hashCap_ - 1, anchorId};
         PushFreeSpace pf{hashCap_ - 1, anchorId, freeSpace ? FS_FUSE_FLAG_FREE_SPACE : 0u, 0, {eye0[0], eye0[1], eye0[2], 0}, {eye1[0], eye1[1], eye1[2], 0}};
         PushShift sh[4] = {{0}, {8}, {16}, {24}};
-        AddDispatch(*js, ingest, (FS_TICK_MEAS_MAX + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pin, sizeof pin);
+        AddDispatch(*js, ingest, (std::min<uint32_t>(maxCount, FS_TICK_MEAS_MAX) + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pin, sizeof pin);
         AddDispatch(*js, pipes_[K_ASSOC], 1, 1, &pa, sizeof pa, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
         AddDispatch(*js, pipes_[K_FREESPACE], 1, 1, &pf, sizeof pf, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
         for (uint32_t p = 0; p < 4; ++p) {
@@ -394,20 +394,36 @@ public:
         AddDispatch(*js, pipes_[K_PREFIX_CARRY], 1, 1, nullptr, 0);
         AddDispatch(*js, pipes_[K_CLUSTER_WRITE], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
         AddDispatch(*js, pipes_[K_SHEET_REFINE], 1, 1, nullptr, 0);     // E4.1C refine: site insertion at the maximum residual
+        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // C09R-E5: the fuse epoch's own relocations (a publication chain may be mid-way)
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.fuse"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size(); jd.waitFrameEndValue = waitFrameEnd;
         jd.onRetired = [this, js, onDone](bool ok, uint64_t s, uint64_t e) {
             std::lock_guard<std::recursive_mutex> g(m_);
             fuseInFlight_--;
-            if (ok) { stats_.fuseUs = e > s ? (int64_t)((e - s) / 1000) : 0; AfterJob(false); QuantumGate(stats_.fuseUs, FS_JOB_SCAN, epochMeasCap_, FS_EPOCH_MEAS_MIN, FS_TICK_MEAS_MAX); }
+            if (ok) { stats_.fuseUs = e > s ? (int64_t)((e - s) / 1000) : 0; AfterJob(false); QuantumGate(stats_.fuseUs, FS_JOB_SCAN, epochMeasCap_, FS_EPOCH_MEAS_MIN, FS_TICK_MEAS_MAX); publishWanted_ = true; }
             onDone(ok);
         };
         if (!SubmitJob(jd)) { tick_--; return false; }
         fuseInFlight_++;
         return true;
     }
-    // Publish job: dirty compaction -> maintenance -> surface complex (graph, fit, apply, contraction) -> relocation -> leaves -> levels 1..5. Waits on the SCAN timeline.
-    bool SubmitPublish(uint64_t waitScanValue, std::vector<std::pair<uint32_t, bool>> loads) {
+    // C09R-E5 publication chain (CPU-driven continuation, one bounded job per scheduler tick, FRONT immutable until the last):
+    //   MAINT  : [page load] -> dirty compaction (<= epochDirtyCap cells) -> maintenance -> relocation
+    //   LEAVES : publish_leaves over [offset, offset + leavesChunk) of the dirty list, repeated until the list is done
+    //   LEVELS : render levels 1..5 -> pending roots -> graphics-owned FRONT publication (AfterJob)
+    // Fuse epochs may run between chain jobs (they never touch the dirty list, the level lists or the pending list).
+    // Each stage's measured GPU time feeds its own quantum gate (PUBLISH class quantum).
+    enum PubStage : uint32_t { PUB_IDLE = 0, PUB_LEAVES, PUB_LEVELS };
+    void PreparePublicationWords() {
+        uint32_t* T = gctr_ + FS_GCTR_COUNT;
+        T[FS_T_DIRTY_COUNT] = 0; T[FS_T_ARGS_DIRTY] = 0; T[FS_T_ARGS_DIRTY + 1] = 1; T[FS_T_ARGS_DIRTY + 2] = 1; T[FS_T_COW_COUNT] = 0;
+        T[FS_T_ARGS_COW] = 0; T[FS_T_ARGS_COW + 1] = 1; T[FS_T_ARGS_COW + 2] = 1; T[FS_T_ARGS_PENDING] = 0; T[FS_T_ARGS_PENDING + 1] = 1; T[FS_T_ARGS_PENDING + 2] = 1;
+        for (uint32_t l = 0; l < 6; ++l) { T[FS_T_LEVEL_ARGS + 4 * l] = 0; T[FS_T_LEVEL_ARGS + 4 * l + 1] = 1; T[FS_T_LEVEL_ARGS + 4 * l + 2] = 1; T[FS_T_LEVEL_ARGS + 4 * l + 3] = 0; }
+        T[FS_T_IDX_LEAF_BASE] = idxLeafBase_; T[FS_T_IDX_NODE_BASE] = idxNodeBase_; T[FS_T_PAGE_COUNT] = pageCount_;
+        std::atomic_thread_fence(std::memory_order_release);
+    }
+    bool SubmitPubMaint(std::vector<std::pair<uint32_t, bool>> loads) {
+        PreparePublicationWords();
         auto js = std::make_shared<JobStorage>();
         const Buffer* G = &buf_.gctr;
         PushPageCount ppc{pageCount_, epochDirtyCap_};
@@ -416,30 +432,97 @@ public:
         AddDispatch(*js, pipes_[K_DIRTY_PREFIX], 1, 1, &ppc, sizeof ppc);
         AddDispatch(*js, pipes_[K_DIRTY_EMIT], pageCount_, 1, nullptr, 0);
         AddDispatch(*js, pipes_[K_MAINT_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
-        {   // C09R-E4.1R surface complex: bounded changed-frontier batch -> neighbour graph -> immutable fit -> apply (no parity classes)
-            PushHash ph{hashCap_ - 1};
-            AddDispatch(*js, pipes_[K_SHEET_BEGIN], 1, 1, nullptr, 0);
-            AddDispatch(*js, pipes_[K_SHEET_GRAPH], 1, 1, &ph, sizeof ph, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
-            AddDispatch(*js, pipes_[K_SHEET_FIT], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
-            AddDispatch(*js, pipes_[K_SHEET_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
-            AddDispatch(*js, pipes_[K_SHEET_CONTRACT], 1, 1, nullptr, 0);   // E4.1C coarsen: sequential edge contraction of the batch
-        }
-        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // C09R-E4: index follows geometry (records from reduce, cluster write, maintenance, sheet apply)
-        AddDispatch(*js, pipes_[K_PUBLISH_LEAVES], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
-        for (uint32_t lv = 1; lv <= FS_RENDER_TREE_DEPTH; ++lv) { PushLevel pl{lv}; AddDispatch(*js, pipes_[K_PUBLISH_LEVEL], 1, 1, &pl, sizeof pl, G, FS_GCTR_COUNT + FS_T_LEVEL_ARGS + 4 * lv); }
+        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // C09R-E4: index follows geometry (maintenance merges) before the leaves read it
         FixPushPointers(*js);
-        JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
-        if (waitScanValue) { jd.waitClass = FS_JOB_SCAN; jd.waitTimelineValue = waitScanValue; }
+        JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish.maint"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
         jd.onRetired = [this, js](bool ok, uint64_t s, uint64_t e) {
             std::lock_guard<std::recursive_mutex> g(m_);
             publishInFlight_--;
-            if (ok) { stats_.publishUs = e > s ? (int64_t)((e - s) / 1000) : 0; stats_.epochs++; AfterJob(true); QuantumGate(stats_.publishUs, FS_JOB_PUBLISH, epochDirtyCap_, 1024u, FS_DIRTY_CELLS_MAX); if (AtomicLoadU32(&gctr_[FS_GCTR_DIRTY_OVERFLOW]) != dirtyOverflowSeen_) { dirtyOverflowSeen_ = AtomicLoadU32(&gctr_[FS_GCTR_DIRTY_OVERFLOW]); publishWanted_ = true; } }
+            if (!ok) { pubStage_ = PUB_IDLE; publishWanted_ = true; return; }
+            stats_.publishMaintUs = e > s ? (int64_t)((e - s) / 1000) : 0;
+            QuantumGate(stats_.publishMaintUs, FS_JOB_PUBLISH, epochDirtyCap_, FS_PUB_DIRTY_MIN, FS_DIRTY_CELLS_MAX);
+            if (AtomicLoadU32(&gctr_[FS_GCTR_DIRTY_OVERFLOW]) != dirtyOverflowSeen_) { dirtyOverflowSeen_ = AtomicLoadU32(&gctr_[FS_GCTR_DIRTY_OVERFLOW]); publishWanted_ = true; }
+            pubTotal_ = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_COUNT); pubDone_ = 0;
+            FoldGpuCounters();
+            pubStage_ = pubTotal_ ? PUB_LEAVES : PUB_IDLE;
+            if (!pubTotal_) FinishPublication();
         };
         if (!SubmitJob(jd)) return false;
         publishInFlight_++; publishWanted_ = false;
         for (auto& l : loads) pages_[l.first].loadPending = false;
         return true;
     }
+    bool SubmitPubLeaves() {
+        auto js = std::make_shared<JobStorage>();
+        const uint32_t count = std::min<uint32_t>(leavesChunk_, pubTotal_ - pubDone_);
+        PushRange pr{pubDone_, count};
+        AddDispatch(*js, pipes_[K_PUBLISH_LEAVES], (count + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pr, sizeof pr);
+        FixPushPointers(*js);
+        JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish.leaves"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
+        jd.onRetired = [this, js, count](bool ok, uint64_t s, uint64_t e) {
+            std::lock_guard<std::recursive_mutex> g(m_);
+            publishInFlight_--;
+            if (!ok) return;                                                     // same chunk again next tick
+            stats_.publishLeavesUs = e > s ? (int64_t)((e - s) / 1000) : 0;
+            QuantumGate(stats_.publishLeavesUs, FS_JOB_PUBLISH, leavesChunk_, FS_PUB_LEAVES_MIN, FS_DIRTY_CELLS_MAX);
+            pubDone_ += count; pubChunks_++;
+            if (pubDone_ >= pubTotal_) pubStage_ = PUB_LEVELS;
+        };
+        if (!SubmitJob(jd)) return false;
+        publishInFlight_++;
+        return true;
+    }
+    bool SubmitPubLevels() {
+        auto js = std::make_shared<JobStorage>();
+        const Buffer* G = &buf_.gctr;
+        for (uint32_t lv = 1; lv <= FS_RENDER_TREE_DEPTH; ++lv) { PushLevel pl{lv}; AddDispatch(*js, pipes_[K_PUBLISH_LEVEL], 1, 1, &pl, sizeof pl, G, FS_GCTR_COUNT + FS_T_LEVEL_ARGS + 4 * lv); }
+        FixPushPointers(*js);
+        JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish.levels"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
+        jd.onRetired = [this, js](bool ok, uint64_t s, uint64_t e) {
+            std::lock_guard<std::recursive_mutex> g(m_);
+            publishInFlight_--;
+            if (!ok) return;                                                     // levels again next tick
+            stats_.publishLevelsUs = e > s ? (int64_t)((e - s) / 1000) : 0;
+            stats_.publishUs = stats_.publishMaintUs + stats_.publishLeavesUs + stats_.publishLevelsUs;
+            FinishPublication();
+        };
+        if (!SubmitJob(jd)) return false;
+        publishInFlight_++;
+        return true;
+    }
+    void FinishPublication() {
+        stats_.epochs++;
+        AfterJob(true);
+        pubStage_ = PUB_IDLE;
+    }
+    // C09R-E5 surface complex at a lower cadence: its own bounded job (graph -> fit -> apply -> contraction -> relocation), only
+    // between publications, at most every FS_SHEET_PERIOD_EPOCHS fuse epochs, batch from its quantum gate (SCAN class quantum).
+    bool SubmitSheet() {
+        auto js = std::make_shared<JobStorage>();
+        const Buffer* G = &buf_.gctr;
+        PushHash ph{hashCap_ - 1}; PushBatch pb{sheetBatch_};
+        AddDispatch(*js, pipes_[K_SHEET_BEGIN], 1, 1, &pb, sizeof pb);
+        AddDispatch(*js, pipes_[K_SHEET_GRAPH], 1, 1, &ph, sizeof ph, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
+        AddDispatch(*js, pipes_[K_SHEET_FIT], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
+        AddDispatch(*js, pipes_[K_SHEET_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
+        AddDispatch(*js, pipes_[K_SHEET_CONTRACT], 1, 1, nullptr, 0);   // E4.1C coarsen: sequential edge contraction of the batch
+        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);
+        FixPushPointers(*js);
+        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.sheet"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
+        jd.onRetired = [this, js](bool ok, uint64_t s, uint64_t e) {
+            std::lock_guard<std::recursive_mutex> g(m_);
+            sheetInFlight_--;
+            if (!ok) return;
+            stats_.sheetUs = e > s ? (int64_t)((e - s) / 1000) : 0;
+            QuantumGate(stats_.sheetUs, FS_JOB_SCAN, sheetBatch_, FS_SHEET_BATCH_MIN, FS_SHEET_BATCH_MAX);
+            FoldGpuCounters();
+            sheetJobs_++; epochsSinceSheet_ = 0; publishWanted_ = true;           // applied moves / contractions / cells marked cells dirty
+        };
+        if (!SubmitJob(jd)) return false;
+        sheetInFlight_++;
+        return true;
+    }
+    bool SheetPending() const { return AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_TAIL) != AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD); }
     bool SubmitRelease(const std::vector<uint32_t>& slots) {
         auto js = std::make_shared<JobStorage>();
         for (uint32_t slot : slots) { PushPage pp{slot}; AddDispatch(*js, pipes_[K_PAGE_RELEASE], FS_CELLS_PER_PAGE / FS_WG_SMALL, 1, &pp, sizeof pp); }
@@ -482,8 +565,17 @@ public:
     void AfterJob(bool publish) {                    // fs-sched, after the fence: bookkeeping only from host-visible memory
         for (IdRing& r : rings_) r.SyncHead();
         FoldGpuCounters();
-        if (!publish) { idBase_ += AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_NEW_TOTAL) + AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_REFINE_BIRTHS); return; }
+        if (!publish) {
+            idBase_ += AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_NEW_TOTAL) + AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_REFINE_BIRTHS);
+            // index ids retired by the epoch's inserts go back now; render ids (leaves chunks of a chain in progress) wait for the
+            // chain's FRONT publication: the current FRONT still references them
+            std::vector<uint32_t> render; CollectRetire(render);
+            chainRenderRetire_.insert(chainRenderRetire_.end(), render.begin(), render.end());
+            epochsSinceSheet_++;
+            return;
+        }
         PublishBatch batch;
+        batch.renderRetire.swap(chainRenderRetire_);
         CollectRetire(batch.renderRetire);
         uint32_t n = std::min<uint32_t>(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_PENDING_COUNT), FS_PENDING_PUBLISH_MAX);
         for (uint32_t i = 0; i < n; ++i) batch.entries.push_back(pending_[i]);
@@ -532,7 +624,7 @@ public:
             vkCmdDispatch(cmd, (count + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, 1);
             VkMemoryBarrier mb = {}; mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER; mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
-            rootsPublished_ += count;
+            rootsPublished_ += count; frontSeq_.fetch_add(1, std::memory_order_relaxed);
         }
         // Physical reuse only after scanner + graphics retirement of this frame (executor ledger).
         std::vector<std::pair<uint32_t, uint32_t>> releaseGen; for (uint32_t s : released) releaseGen.push_back({s, pages_[s].generation});
@@ -613,39 +705,53 @@ public:
         FeedSynthetic();
         MergeCpuPush();
         BeforeJobs();
-        // page releases (eviction / reset) go first: they need no measurements
-        if (!releaseQueue_.empty()) {
+        // page releases (eviction / reset) and erases go first, but never inside a publication chain (they reset the epoch words)
+        if (pubStage_ == PUB_IDLE && !releaseQueue_.empty()) {
             std::vector<uint32_t> batch; while (!releaseQueue_.empty() && batch.size() < kReleasesPerJob) { batch.push_back(releaseQueue_.front()); releaseQueue_.erase(releaseQueue_.begin()); }
             PrepareEpochWords(tick_);
             if (!SubmitRelease(batch)) for (uint32_t s : batch) releaseQueue_.push_back(s);
             return;
         }
-        for (; eraseQueue_.size();) { EraseReq r = eraseQueue_.front(); eraseQueue_.erase(eraseQueue_.begin()); PrepareEpochWords(tick_); if (!SubmitErase(r.c, r.r, r.anchor)) break; return; }
+        for (; pubStage_ == PUB_IDLE && eraseQueue_.size();) { EraseReq r = eraseQueue_.front(); eraseQueue_.erase(eraseQueue_.begin()); PrepareEpochWords(tick_); if (!SubmitErase(r.c, r.r, r.anchor)) break; return; }
         if (budgetUs == 0) return;
-        // a measurement frame (sliced by the epoch cap): the current slice state, a live ring slot (latest only) or the CPU slot
-        if (slice_.count == 0 || slice_.offset >= slice_.count) {
+        // C09R-E5 drop older observations, never display frames: a newer depth frame supersedes the rest of the current one
+        // (the slices are stride subsamples, so what was fused is spatially uniform)
+        if (slice_.count != 0 && slice_.live && slice_.phase > 0 && slice_.phase < slice_.stride && meas::MeasGpu_ReadyFrames() > 0) {
+            const uint32_t left = slice_.stride - slice_.phase;
+            framesAbandoned_++; measAbandoned_ += (uint64_t)slice_.count * left / slice_.stride;
+            CounterAdd(FS_CTR_MEASUREMENTS_DROPPED, (int64_t)((uint64_t)slice_.count * left / slice_.stride));
+            meas::MeasGpu_ReleaseFrame(slice_.seq);
+            slice_.count = 0;
+        }
+        const bool chainActive = pubStage_ != PUB_IDLE;
+        if (slice_.count == 0 && (!chainActive || lastWasChain_)) {
             meas::MeasGpuFrame f;
             bool live = liveBound_ && meas::MeasGpu_PeekFrame(f);
             if (live) { slice_ = SliceState{}; slice_.live = true; slice_.seq = f.sequence; slice_.slot = f.slot; slice_.count = std::min(f.ring->capacity, std::max(f.count, 1u)); slice_.anchor = f.anchorId; slice_.eyeValid = f.eyeOriginValid; memcpy(slice_.eye, f.eyeOrigin, sizeof slice_.eye); slice_.importFrameEnd = f.importFrameEnd; scanAnchor_ = f.anchorId; }
             else if (cpuSlotReady_) { slice_ = SliceState{}; slice_.live = false; slice_.count = std::max(cpuCtr_[0], 1u); slice_.anchor = scanAnchor_; slice_.eyeValid = cpuEyeValid_; memcpy(slice_.eye, cpuEye_, sizeof slice_.eye); cpuSlotBusy_ = true; cpuSlotReady_ = false; }
-            else slice_.count = 0;
+            if (slice_.count) slice_.stride = std::max<uint32_t>(1u, (slice_.count + epochMeasCap_ - 1) / epochMeasCap_);
         }
-        if (slice_.count != 0 && slice_.offset < slice_.count) {
-            const uint32_t n = std::min<uint32_t>(epochMeasCap_, slice_.count - slice_.offset);
-            const bool last = slice_.offset + n >= slice_.count;
+        // alternate: a pending publication stage and a pending fuse slice take turns
+        if (slice_.count != 0 && (!chainActive || lastWasChain_)) {
+            const uint32_t n = (slice_.count - slice_.phase + slice_.stride - 1) / slice_.stride;
+            const bool last = slice_.phase + 1 >= slice_.stride;
             const bool live = slice_.live; const uint64_t seq = slice_.seq;
-            bool ok = SubmitFuse(live ? ingestLive_[slice_.slot] : ingestCpu_, slice_.offset, n, slice_.anchor, slice_.eyeValid, slice_.eye[0], slice_.eye[1], live ? slice_.importFrameEnd : 0,
+            bool ok = SubmitFuse(live ? ingestLive_[slice_.slot] : ingestCpu_, slice_.phase, slice_.stride, n, slice_.anchor, slice_.eyeValid, slice_.eye[0], slice_.eye[1], live ? slice_.importFrameEnd : 0,
                                  [this, live, seq, last](bool) { if (!last) return; if (live) meas::MeasGpu_ReleaseFrame(seq); else cpuSlotBusy_ = false; });
             if (!ok) return;                                   // deferred by the executor (ring/budget): retried next tick, same slice
-            slice_.offset += n; slices_++;
+            slice_.phase++; slices_++;
             if (last) slice_.count = 0;
             CounterAdd(FS_CTR_SCAN_TICK, 1);
-            uint64_t v = ClassTimelineAllocated(FS_JOB_SCAN);
-            std::vector<std::pair<uint32_t, bool>> loads; TakeLoads(loads);
-            if (!SubmitPublish(v, loads)) publishWanted_ = true;
+            lastWasChain_ = false;
             return;
         }
-        if (publishWanted_ || !pendingLoads_.empty()) { PrepareEpochWords(tick_); std::vector<std::pair<uint32_t, bool>> loads; TakeLoads(loads); SubmitPublish(0, loads); }
+        if (chainActive) {
+            lastWasChain_ = true;
+            if (pubStage_ == PUB_LEAVES) SubmitPubLeaves(); else if (pubStage_ == PUB_LEVELS) SubmitPubLevels();
+            return;
+        }
+        if (publishWanted_ || !pendingLoads_.empty()) { std::vector<std::pair<uint32_t, bool>> loads; TakeLoads(loads); if (SubmitPubMaint(loads)) lastWasChain_ = true; return; }
+        if (SheetPending() && epochsSinceSheet_ >= FS_SHEET_PERIOD_EPOCHS) SubmitSheet();
     }
     void TakeLoads(std::vector<std::pair<uint32_t, bool>>& loads) {
         if (pendingLoads_.empty()) return;
@@ -707,6 +813,8 @@ public:
     uint32_t FrontGeneration() { std::lock_guard<std::recursive_mutex> g(m_); return (uint32_t)rootsPublished_; }
     int32_t SetAnchor(int32_t id, const float m[16]) { if (id < 0 || id >= FS_MAX_ANCHORS || !m) return kResultInvalid; std::lock_guard<std::recursive_mutex> g(m_); memcpy(anchors_[id], m, 64); anchorSeq_++; return kResultOk; }
     uint64_t CopyAnchors(float* out) { std::lock_guard<std::recursive_mutex> g(m_); memcpy(out, anchors_, sizeof anchors_); return anchorSeq_; }
+    uint64_t FrontSequence() const { return frontSeq_.load(std::memory_order_relaxed); }   // lock-free: render recut trigger
+    std::atomic<uint64_t> frontSeq_{0};
     int32_t Erase(const float c[3], float radius, int32_t anchorId) {
         std::lock_guard<std::recursive_mutex> g(m_);
         if (!deviceUp_) return kResultUnavailable;
@@ -747,6 +855,9 @@ public:
         w.KV("pagesActive", active); w.KV("pagesReleasing", releasing); w.KV("pagesLogical", (uint64_t)logical_.size()); w.KV("pagesCreated", pagesCreated_); w.KV("pagesReleased", pagesReleased_);
         w.KV("shortfallTotal", shortfallTotal_); w.KV("slabStalls", slabStalls_); w.KV("resets", resets_);
         w.KV("epochMeasCap", epochMeasCap_); w.KV("epochDirtyCap", epochDirtyCap_); w.KV("slices", slices_); w.KV("capHalvings", capHalvings_);
+        w.KV("leavesChunk", leavesChunk_); w.KV("publishChunks", pubChunks_); w.KV("sheetBatch", sheetBatch_); w.KV("sheetJobs", sheetJobs_);
+        w.KV("sheetGpuUsLast", stats_.sheetUs); w.KV("publishMaintUsLast", stats_.publishMaintUs); w.KV("publishLeavesUsLast", stats_.publishLeavesUs); w.KV("publishLevelsUsLast", stats_.publishLevelsUs);
+        w.KV("framesAbandoned", framesAbandoned_); w.KV("measurementsAbandoned", measAbandoned_);
         w.Key("fusion"); w.BeginObject();
         static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetNodes","crossPageEdges","coverageOverlapMm2","coverageHoleMm2","planeRmsUmSum","normalRmsMdegSum","sheetFrontierDropped","sheetSmoothed","edgeContractions","refinementBirths","sheetCandOverflow"};
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (names[i][0] != '_') w.KV(names[i], gctrTotal_[i]);
@@ -786,13 +897,15 @@ private:
     std::vector<ZonePage> zonePages_;
     int64_t inner_ = 0, warm_ = 0, prefetch_ = 0, requestsThisFrame_ = 0, evictions_ = 0, loads_ = 0, stalls_ = 0;
     uint64_t slabStalls_ = 0, shortfallTotal_ = 0, pagesCreated_ = 0, pagesReleased_ = 0, rootsPublished_ = 0, retireBacklogIds_ = 0, resets_ = 0, publishSeq_ = 0;
-    uint32_t fuseInFlight_ = 0, publishInFlight_ = 0, releaseInFlight_ = 0;
+    uint32_t fuseInFlight_ = 0, publishInFlight_ = 0, releaseInFlight_ = 0, sheetInFlight_ = 0;
+    uint32_t pubStage_ = 0, pubTotal_ = 0, pubDone_ = 0, leavesChunk_ = FS_DIRTY_CELLS_MAX, sheetBatch_ = FS_SHEET_BATCH_MAX, epochsSinceSheet_ = 0; bool lastWasChain_ = false;
+    uint64_t pubChunks_ = 0, sheetJobs_ = 0, framesAbandoned_ = 0, measAbandoned_ = 0; std::vector<uint32_t> chainRenderRetire_;
     bool publishWanted_ = false, resetPending_ = false, resetDraining_ = false;
     uint32_t tick_ = 0, idBase_ = kSurfaceIdBase; int32_t scanAnchor_ = 0;
     // Quantum gate (C09R review gap 1): epoch caps adapt to the measured job GPU time vs the class quantum; a frame
     // larger than the cap is processed in slices (offset walks the frame), dirty cells beyond the cap stay dirty.
     uint32_t epochMeasCap_ = FS_TICK_MEAS_MAX, epochDirtyCap_ = FS_DIRTY_CELLS_MAX; uint64_t slices_ = 0, capHalvings_ = 0;
-    struct SliceState { bool live = false; uint64_t seq = 0; uint32_t slot = 0, offset = 0, count = 0; int32_t anchor = 0; bool eyeValid = false; float eye[2][3] = {}; uint64_t importFrameEnd = 0; } slice_;
+    struct SliceState { bool live = false; uint64_t seq = 0; uint32_t slot = 0, phase = 0, stride = 1, count = 0; int32_t anchor = 0; bool eyeValid = false; float eye[2][3] = {}; uint64_t importFrameEnd = 0; } slice_;
     std::vector<uint32_t> releaseQueue_; std::vector<std::pair<uint32_t, uint32_t>> pendingLoads_;
     std::deque<PublishBatch> toPublish_;
     std::vector<EraseReq> eraseQueue_;
@@ -812,6 +925,7 @@ bool DeviceUp() { return W().IsDeviceUp(); }
 const WorldBuffers* Buffers() { return W().BuffersIf(); }
 uint32_t PageCount() { return W().Pages(); }
 uint64_t CopyAnchors(float* out) { return W().CopyAnchors(out); }
+uint64_t FrontSequence() { return W().FrontSequence(); }
 
 } // namespace world
 } // namespace fs

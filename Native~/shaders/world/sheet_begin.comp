@@ -5,9 +5,10 @@
 #define FS_USE_GCTR
 #include "fs_world_blocks.glsl"
 layout(local_size_x = 1) in;
+layout(push_constant) uniform Push { uint batchCap; } pc;   // C09R-E5: batch bounded by the quantum gate (<= FS_SHEET_BATCH_MAX)
 void main() {
     uint head = FS_TK(FS_T_SHEET_HEAD), tail = FS_TK(FS_T_SHEET_TAIL);
-    uint n = min(tail - head, uint(FS_SHEET_BATCH_MAX));
+    uint n = min(tail - head, min(max(pc.batchCap, 1u), uint(FS_SHEET_BATCH_MAX)));
     FS_TK(FS_T_SHEET_BEGIN) = head; FS_TK(FS_T_SHEET_COUNT) = n; FS_TK(FS_T_SHEET_HEAD) = head + n;
     FS_TK(FS_T_ARGS_SHEET + 0) = (n + uint(FS_WG_SMALL) - 1u) / uint(FS_WG_SMALL); FS_TK(FS_T_ARGS_SHEET + 1) = 1u; FS_TK(FS_T_ARGS_SHEET + 2) = 1u; FS_TK(FS_T_ARGS_SHEET + 3) = n;
 }

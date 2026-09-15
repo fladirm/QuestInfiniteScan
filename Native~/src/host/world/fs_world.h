@@ -37,6 +37,7 @@ bool          DeviceUp();                  // pools exist
 const WorldBuffers* Buffers();             // null until DeviceUp()
 uint32_t      PageCount();                 // page table entries
 uint64_t      CopyAnchors(float* out16xN); // worldFromAnchor matrices (column-major, FS_MAX_ANCHORS x 16); returns a change sequence
+uint64_t      FrontSequence();             // C09R-E5: advances once per graphics-owned FRONT root publication (lock-free)
 
 } // namespace world
 } // namespace fs

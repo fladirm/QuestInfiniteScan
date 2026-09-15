@@ -69,11 +69,16 @@ void main() {
                     if (s >= cnt) break;
                     uint hb = idx[fsIdxLeafWord(leaves[l], 2u + s)];
                     if (hb == h) continue;
+                    // C09R-E5 cheap prefilter before the full decode: live promoted sites inside the ball only (flags + position bits)
+                    FsSurfel sb = surfels[hb];
+                    uint fb = fsGet_FsSurfel_evidenceFlags(sb);
+                    if ((fb & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u || (fb & FS_FLAG_PROMOTED) == 0u) continue;
+                    vec3 pb = origin + fsSurfelLocalPos(sb);
+                    vec3 dd = pb - pa;
+                    if (dot(dd, dd) > FS_SHEET_LINK_R_M * FS_SHEET_LINK_R_M) continue;
                     if (examined >= uint(FS_SHEET_CAND_MAX)) { over = true; break; }
                     examined++;
-                    FsPatch b = fsUnpack(surfels[hb]);
-                    if ((b.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u || (b.flags & FS_FLAG_PROMOTED) == 0u) continue;
-                    vec3 pb = origin + b.p;
+                    FsPatch b = fsUnpack(sb);
                     float dist; if (!fsSheetEdge(a, pa, b, pb, dist)) continue;
                     // free-space separator: the midpoint was seen through by this or the previous observation
                     vec3 mid = 0.5 * (pa + pb); uint ms, mc;

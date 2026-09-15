@@ -19,6 +19,8 @@
 #define FS_MAINT_LEAVES_MAX 64
 #define FS_MAINT_STACK 32
 layout(local_size_x = FS_WG_SMALL) in;
+// C09R-E5 continuation: one chunk [offset, offset + count) of the publication's dirty-cell list per job (FRONT stays immutable until the levels job)
+layout(push_constant) uniform Push { uint offset; uint count; } pc;
 
 uint fsCollectLeaves(uint page, uint cell, out uint leaves[FS_MAINT_LEAVES_MAX]) {
     uint n = 0u; uint stack[FS_MAINT_STACK]; uint sp = 0u;
@@ -68,7 +70,8 @@ uint fsMakeInternal(uint children[8]) {
     rnodes[id] = r; return id;
 }
 void main() {
-    uint i = gl_GlobalInvocationID.x;
+    if (gl_GlobalInvocationID.x >= pc.count) return;
+    uint i = pc.offset + gl_GlobalInvocationID.x;
     if (i >= FS_TK(FS_T_DIRTY_COUNT)) return;
     uint entry = dirty[FS_DIRTY_LIST(0) + i];
     uint page = entry >> 15, cell = entry & 0x7FFFu;

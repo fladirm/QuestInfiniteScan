@@ -1,8 +1,10 @@
 #version 450
-// F-1 ingest: copies the ring slot's records into the epoch's measurement buffer (the ring slot is released at
-// job retirement), writes the epoch count, the indirect args of the per-measurement / per-block stages and the
-// epoch words (tick, deterministic id base). One dispatch of ceil(capacity/64) groups; count from the ring's
-// frame block (GPU-written by the front-end, no CPU readback).
+// F-1 ingest: copies one stride slice of the ring slot's records into the epoch's measurement buffer (the ring slot is
+// released at job retirement), writes the epoch count, the indirect args of the per-measurement / per-block stages and
+// the epoch words (tick, deterministic id base). C09R-E5: slice j of a frame = records phase + k x stride, so every slice
+// is a spatially uniform subsample and a frame superseded mid-way loses no region wholesale; the publication words
+// (dirty list, render levels, retire / pending lists) belong to the publication chain and are not touched here.
+// One dispatch of ceil(maxCount/64) groups; count from the ring's frame block (GPU-written, no CPU readback).
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_MEAS_W
 #define FS_USE_GCTR
@@ -10,24 +12,20 @@
 layout(std430, set = 0, binding = FS_B_MEAS_RING) readonly buffer RingBlock { FsSurfaceMeasurement ring[]; };
 layout(std430, set = 0, binding = FS_B_MEAS_CTR) readonly buffer RingCtr { uint ringCtr[]; };
 layout(local_size_x = FS_WG_SMALL) in;
-layout(push_constant) uniform Push { uint maxCount; uint tick; uint idBase; uint leafBase; uint nodeBase; uint offset; uint pageCount; } pc;
+layout(push_constant) uniform Push { uint maxCount; uint tick; uint idBase; uint leafBase; uint nodeBase; uint phase; uint pageCount; uint stride; } pc;
 void main() {
-    // slice [offset, offset + maxCount) of the frame's records (epoch cap from the quantum gate; the CPU walks slices)
-    uint avail = ringCtr[0] > pc.offset ? ringCtr[0] - pc.offset : 0u;
+    // stride slice {phase + k x stride} of the frame's records (stride from the epoch cap; the CPU walks the phases)
+    uint stride = max(pc.stride, 1u);
+    uint avail = ringCtr[0] > pc.phase ? (ringCtr[0] - pc.phase + stride - 1u) / stride : 0u;
     uint n = min(avail, min(pc.maxCount, uint(FS_TICK_MEAS_MAX)));
     uint i = gl_GlobalInvocationID.x;
-    if (i < n) measW[i] = ring[pc.offset + i];
+    if (i < n) measW[i] = ring[pc.phase + i * stride];
     if (i != 0u) return;
     FS_TK(FS_T_COUNT) = n; FS_TK(FS_T_SORTED) = n;
     FS_TK(FS_T_SEG_MATCHED) = 0u; FS_TK(FS_T_SEG_UNMATCHED) = 0u; FS_TK(FS_T_NEW_TOTAL) = 0u;
-    FS_TK(FS_T_DIRTY_COUNT) = 0u; FS_TK(FS_T_RETIRE_COUNT) = 0u; FS_TK(FS_T_PENDING_COUNT) = 0u; FS_TK(FS_T_COW_COUNT) = 0u;
     FS_TK(FS_T_TICK) = pc.tick; FS_TK(FS_T_ID_BASE) = pc.idBase;
     FS_TK(FS_T_IDX_LEAF_BASE) = pc.leafBase; FS_TK(FS_T_IDX_NODE_BASE) = pc.nodeBase; FS_TK(FS_T_PAGE_COUNT) = pc.pageCount;
     FS_TK(FS_T_ARGS_MEAS + 0) = (n + uint(FS_WG_SMALL) - 1u) / uint(FS_WG_SMALL); FS_TK(FS_T_ARGS_MEAS + 1) = 1u; FS_TK(FS_T_ARGS_MEAS + 2) = 1u;
     uint blocks = (n + uint(FS_SORT_BLOCK) - 1u) / uint(FS_SORT_BLOCK);
     FS_TK(FS_T_ARGS_SORTBLK + 0) = max(blocks, 1u); FS_TK(FS_T_ARGS_SORTBLK + 1) = 1u; FS_TK(FS_T_ARGS_SORTBLK + 2) = 1u;
-    FS_TK(FS_T_ARGS_DIRTY + 0) = 0u; FS_TK(FS_T_ARGS_DIRTY + 1) = 1u; FS_TK(FS_T_ARGS_DIRTY + 2) = 1u;
-    FS_TK(FS_T_ARGS_COW + 0) = 0u; FS_TK(FS_T_ARGS_COW + 1) = 1u; FS_TK(FS_T_ARGS_COW + 2) = 1u;
-    FS_TK(FS_T_ARGS_PENDING + 0) = 0u; FS_TK(FS_T_ARGS_PENDING + 1) = 1u; FS_TK(FS_T_ARGS_PENDING + 2) = 1u;
-    for (uint l = 0u; l < 6u; ++l) { FS_TK(FS_T_LEVEL_ARGS + 4u * l + 0u) = 0u; FS_TK(FS_T_LEVEL_ARGS + 4u * l + 1u) = 1u; FS_TK(FS_T_LEVEL_ARGS + 4u * l + 2u) = 1u; FS_TK(FS_T_LEVEL_ARGS + 4u * l + 3u) = 0u; }
 }
