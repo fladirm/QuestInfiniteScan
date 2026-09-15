@@ -25,24 +25,52 @@ namespace FinalScan.Host
 
         public PcaFrameFeeder(FinalScanHost host, SensorAuthority authority) { _host = host; _authority = authority; }
 
-        /// <summary>Main thread, once per host frame.</summary>
+        public long PairsPushed { get; private set; }
+        public int LastPairResult { get; private set; }
+        uint _lastPairId;
+        /// <summary>A committed pair keeps the camera slots this long after its later capture (2 x the 30 Hz period + settle).</summary>
+        public const long PairHoldNs = 100_000_000;
+
+        /// <summary>Main thread, once per host frame. C10: a newly committed StereoPairer observation with live textures is pushed as
+        /// BOTH camera slots plus FsMeas_SetStereoPair (capture-timestamp pairing); otherwise the newest frame of each eye is pushed
+        /// for the appearance sample only (no stereo: the slots do not match a committed pair).</summary>
         public void Update()
         {
             if (_authority == null || _authority.Pipeline == null || !_host.NativeAvailable) return;
             if (!FinalScanHost.ScanEnabled) return;
+            StereoObservation pair = _authority.Pipeline.Pairer.Latest;
+            if (pair != null && pair.observationId != _lastPairId && pair.HasTextures && pair.skew != SkewClass.Reject)
+            {
+                if (Push(0, pair.leaseL) && Push(1, pair.leaseR))
+                {
+                    _lastPairId = pair.observationId;
+                    LastPairResult = FinalScanHostNative.SetStereoPair(pair.observationId, pair.xrTimeNsL, pair.xrTimeNsR, (uint)pair.skew);
+                    if (LastPairResult == FinalScanHostNative.ResultOk) PairsPushed++;
+                }
+                return;
+            }
+            // while the pairer is producing (a committed pair within PairHoldNs of the newest frame) the slots keep the pair:
+            // an unpaired newer frame would break the pair the next depth frame solves with
             for (int e = 0; e < 2; e++)
             {
                 PcaFrameRing ring = e == 0 ? _authority.Pipeline.RingL : _authority.Pipeline.RingR;
-                CameraFrameLease lease = ring.Newest;
-                if (lease == null || lease.frameId == _lastFrameId[e] || lease.texture == null || !lease.poseValid || !lease.intrinsics.valid) continue;
-                _lastFrameId[e] = lease.frameId;
-                IntPtr ptr = lease.texture.GetNativeTexturePtr();
-                if (ptr == IntPtr.Zero) continue;
-                HostMath.ToColumnMajor(Matrix4x4.TRS(lease.cameraPose.position, lease.cameraPose.rotation, Vector3.one), _m);
-                var k = lease.intrinsics;
-                LastResult = FinalScanHostNative.SetCameraFrame(e, ptr, (uint)lease.texture.width, (uint)lease.texture.height, (uint)k.sensorWidth, (uint)k.sensorHeight, _m, k.fx, k.fy, k.cx, k.cy, _authority.PcaCopyUsesBlit, lease.xrTimeNs);
-                if (LastResult == FinalScanHostNative.ResultOk) { Pushed++; LastXrTimeNs = lease.xrTimeNs; }
+                CameraFrameLease newest = ring.Newest;
+                if (newest != null && pair != null && newest.xrTimeNs - pair.createdXrTimeNs < PairHoldNs) continue;
+                Push(e, newest);
             }
+        }
+
+        bool Push(int e, CameraFrameLease lease)
+        {
+            if (lease == null || lease.frameId == _lastFrameId[e] || lease.texture == null || !lease.poseValid || !lease.intrinsics.valid) return lease != null && lease.frameId == _lastFrameId[e];
+            IntPtr ptr = lease.texture.GetNativeTexturePtr();
+            if (ptr == IntPtr.Zero) return false;
+            _lastFrameId[e] = lease.frameId;
+            HostMath.ToColumnMajor(Matrix4x4.TRS(lease.cameraPose.position, lease.cameraPose.rotation, Vector3.one), _m);
+            var k = lease.intrinsics;
+            LastResult = FinalScanHostNative.SetCameraFrame(e, ptr, (uint)lease.texture.width, (uint)lease.texture.height, (uint)k.sensorWidth, (uint)k.sensorHeight, _m, k.fx, k.fy, k.cx, k.cy, _authority.PcaCopyUsesBlit, lease.xrTimeNs);
+            if (LastResult == FinalScanHostNative.ResultOk) { Pushed++; LastXrTimeNs = lease.xrTimeNs; return true; }
+            return false;
         }
     }
 }

@@ -98,7 +98,9 @@ struct FrameBlock {
     uint32_t predInfo[4];                // width, height, layers, valid (0 = no prediction this frame: every valid texel is NEW)
     float    camFromWorld[2][16];        // PCA camera pose inverse per eye (Unity camera space: +X right, +Y up, +Z forward)
     float    camIntrinsics[2][4];        // fx, fy, cx, cy (pixels, origin bottom-left as MRUK reports)
-    uint32_t camInfo[4];                 // width, height, validMask (bit e = eye e usable this frame), rowFlip (1 = row 0 top)
+    uint32_t camInfo[4];                 // width, height, validMask (bit e = eye e usable, bit 2 = coherent L/R stereo pair), rowFlip (1 = row 0 top)
+    float    anchorFromWorld[16];        // C10: stereo endpoints are solved in world space
+    uint32_t stereoInfo[4];              // pair observation id, skew class, 0, 0
 };
 static_assert(sizeof(FrameBlock) == FS_MEAS_FB_BYTES, "frame block layout");
 
@@ -299,6 +301,85 @@ inline uint32_t SampleColor(const FrameBlock& blk, uint32_t eye, Vec3 pWorld, Ca
     uint32_t px = (uint32_t)u, py = (uint32_t)v;
     if (blk.camInfo[3]) py = blk.camInfo[1] - 1u - py;
     return FS_MEAS_COLOR_VALID | (cam(eye, px, py) & 0x00FFFFFFu);
+}
+// ---- C10 PCA L/R stereo solve (twin: fs_meas_stereo.glsl) --------------------------------------------------------------
+enum StereoStatus : uint32_t { STEREO_OK = 0, STEREO_LOWTEX = 1, STEREO_AMBIG = 2, STEREO_EDGE = 3, STEREO_NOCOVER = 4, STEREO_SKIP = 5 };
+inline Vec3 Add3(Vec3 a, Vec3 b) { return V3(a.x + b.x, a.y + b.y, a.z + b.z); }
+inline Vec3 Scale3(Vec3 a, float s) { return V3(a.x * s, a.y * s, a.z * s); }
+inline Vec3 TransposeMulDir(const Mat4& A, Vec3 d) {     // R^T d of a rigid camFromWorld
+    return V3(A.m[0] * d.x + A.m[1] * d.y + A.m[2] * d.z, A.m[4] * d.x + A.m[5] * d.y + A.m[6] * d.z, A.m[8] * d.x + A.m[9] * d.y + A.m[10] * d.z);
+}
+inline Vec3 CamCentre(const FrameBlock& blk, uint32_t e) { Mat4 M; memcpy(M.m, blk.camFromWorld[e], 64); return Scale3(TransposeMulDir(M, V3(M.m[12], M.m[13], M.m[14])), -1.f); }
+// `bilinear(eye, u, t)` = bilinear luma at continuous texture coordinates (u right, t = texture row coordinate), 0..1.
+template <class LumaFn>
+inline bool CamLuma(const FrameBlock& blk, uint32_t e, Vec3 pw, LumaFn bilinear, float& luma) {
+    luma = 0.f;
+    Mat4 M; memcpy(M.m, blk.camFromWorld[e], 64);
+    const Vec3 pc = MulPoint(M, pw);
+    if (pc.z <= 0.05f) return false;
+    const float* k = blk.camIntrinsics[e];
+    const float u = k[2] + k[0] * pc.x / pc.z, v = k[3] + k[1] * pc.y / pc.z;
+    const float W = (float)blk.camInfo[0], H = (float)blk.camInfo[1];
+    if (u < 1.f || v < 1.f || u > W - 1.f || v > H - 1.f) return false;
+    luma = bilinear(e, u, blk.camInfo[3] ? H - v : v);
+    return true;
+}
+// Disparity band of the prior: centre d0 = f b / z0, half band = max(K sigma f b / z0^2, (HYPS-1)/2 x step floor).
+inline void StereoBand(float z0, float sigmaEnv, float fx, float b, float& d0, float& step) {
+    const int half = (FS_STEREO_HYPS - 1) / 2;
+    d0 = fx * b / z0;
+    const float halfBand = fminf(fmaxf((float)FS_STEREO_BAND_K * sigmaEnv * fx * b / (z0 * z0), (float)half * (float)FS_STEREO_STEP_MIN_PX), (float)FS_STEREO_BAND_MAX_PX);
+    step = halfBand / (float)half;
+}
+inline float SubpixelParabola(float cm, float c0, float cp) { const float den = cm - 2.f * c0 + cp; return den > 1e-6f ? fminf(fmaxf(0.5f * (cm - cp) / den, -0.5f), 0.5f) : 0.f; }
+inline float StereoSigmaZ(float z, float fx, float b, float zncc) { return z * z * ((float)FS_STEREO_SIGMA_D_PX / (zncc * zncc)) / (fx * b); }
+template <class LumaFn>
+inline StereoStatus StereoSolve(const FrameBlock& blk, Vec3 pEnv, Vec3 nEnv, float sigmaEnv, LumaFn bilinear, Vec3& pOut, float& sigmaOut, float& znccOut) {
+    pOut = pEnv; sigmaOut = sigmaEnv; znccOut = 0.f;
+    const Vec3 cL = CamCentre(blk, 0), cR = CamCentre(blk, 1);
+    const float b = Length(Sub(cR, cL)), fx = blk.camIntrinsics[0][0];
+    Mat4 ML; memcpy(ML.m, blk.camFromWorld[0], 64);
+    const Vec3 pcL = MulPoint(ML, pEnv);
+    if (pcL.z <= 0.1f || b < 0.01f) return STEREO_SKIP;
+    const Vec3 rayW = TransposeMulDir(ML, Scale3(pcL, 1.f / pcL.z));
+    const float z0 = pcL.z; float d0, step; StereoBand(z0, sigmaEnv, fx, b, d0, step);   // band capped: a prior far off stays EDGE / AMBIG
+    const int half = (FS_STEREO_HYPS - 1) / 2;
+    const Vec3 up = fabsf(nEnv.y) > 0.99f ? V3(1, 0, 0) : V3(0, 1, 0);
+    const Vec3 t1 = Normalize(Cross(nEnv, up)), t2 = Cross(nEnv, t1);
+    float cost[FS_STEREO_HYPS]; bool lowTexCentre = false;
+    for (int k = 0; k < FS_STEREO_HYPS; ++k) {
+        cost[k] = 1.f;
+        const float d = d0 + (float)(k - half) * step;
+        if (d <= 0.5f) continue;
+        const float z = fx * b / d;
+        const Vec3 X = Add3(cL, Scale3(rayW, z));
+        const float sp = (float)FS_STEREO_PATCH_PX * z / fx;
+        float a[9], r[9], ma = 0.f, mr = 0.f;
+        for (int j = 0; j < 9; ++j) {
+            const Vec3 q = Add3(X, Add3(Scale3(t1, (float)(j % 3 - 1) * sp), Scale3(t2, (float)(j / 3 - 1) * sp)));
+            if (!CamLuma(blk, 0, q, bilinear, a[j]) || !CamLuma(blk, 1, q, bilinear, r[j])) return STEREO_NOCOVER;
+            ma += a[j]; mr += r[j];
+        }
+        ma /= 9.f; mr /= 9.f;
+        float saa = 0.f, srr = 0.f, sar = 0.f;
+        for (int j = 0; j < 9; ++j) { const float da = a[j] - ma, dr = r[j] - mr; saa += da * da; srr += dr * dr; sar += da * dr; }
+        const float sa = sqrtf(saa / 9.f), sr = sqrtf(srr / 9.f);
+        if (k == half && (sa < (float)FS_STEREO_MIN_STD || sr < (float)FS_STEREO_MIN_STD)) lowTexCentre = true;
+        if (sa < (float)FS_STEREO_MIN_STD || sr < (float)FS_STEREO_MIN_STD) continue;
+        cost[k] = 1.f - sar / sqrtf(saa * srr);
+    }
+    if (lowTexCentre) return STEREO_LOWTEX;
+    int kb = 0; for (int k = 1; k < FS_STEREO_HYPS; ++k) if (cost[k] < cost[kb]) kb = k;
+    float c2 = 2.f; for (int k = 0; k < FS_STEREO_HYPS; ++k) if (abs(k - kb) >= 2) c2 = fminf(c2, cost[k]);
+    const float zncc = 1.f - cost[kb];
+    if (zncc < (float)FS_STEREO_MIN_ZNCC || c2 < cost[kb] + (float)FS_STEREO_UNIQ_MARGIN) return STEREO_AMBIG;
+    if (kb == 0 || kb == FS_STEREO_HYPS - 1) return STEREO_EDGE;
+    const float delta = SubpixelParabola(cost[kb - 1], cost[kb], cost[kb + 1]);
+    const float zStar = fx * b / (d0 + ((float)(kb - half) + delta) * step);
+    pOut = Add3(cL, Scale3(rayW, zStar));
+    sigmaOut = StereoSigmaZ(zStar, fx, b, zncc);
+    znccOut = zncc;
+    return STEREO_OK;
 }
 // Emit kernel body: the full back-projection of a selected texel.
 template <class DepthFn>

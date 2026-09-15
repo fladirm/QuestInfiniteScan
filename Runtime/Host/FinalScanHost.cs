@@ -408,6 +408,15 @@ namespace FinalScan.Host
         }
         double _measWindowStart = -1; long _measWindowBase;
 
+        readonly long[] _stereoStats = new long[17];
+        string StereoJson()
+        {
+            if (!NativeAvailable || FinalScanHostNative.GetStereoStats(_stereoStats) != FinalScanHostNative.ResultOk) return "null";
+            var s = _stereoStats;
+            return "{\"tested\":" + s[0] + ",\"valid\":" + s[1] + ",\"lowTex\":" + s[2] + ",\"ambiguous\":" + s[3] + ",\"bandEdge\":" + s[4] + ",\"noCover\":" + s[5]
+                + ",\"binN\":[" + s[6] + "," + s[7] + "," + s[8] + "," + s[9] + "],\"binResidual0p1mm\":[" + s[10] + "," + s[11] + "," + s[12] + "," + s[13] + "]"
+                + ",\"sigmaUm\":" + s[14] + ",\"envSigmaUm\":" + s[15] + ",\"framesWithPair\":" + s[16] + "}";
+        }
         void EmitTelemetry()
         {
             if (Time.unscaledTime < _nextTelemetry) return;
@@ -440,6 +449,8 @@ namespace FinalScan.Host
              .Prop("envDepthSource", _envDepth != null ? _envDepth.Source : "none")
              .Prop("pcaFramesPushed", _pcaFrames != null ? _pcaFrames.Pushed : 0).Prop("pcaFrameRc", _pcaFrames != null ? _pcaFrames.LastResult : -1)
              .Prop("envDepthGated", _envDepth != null ? _envDepth.GatedFrames : 0).Prop("envDepthAngularDegPerSec", _envDepth != null ? _envDepth.LastAngularDegPerSec : 0f)
+             .Prop("stereoPairsPushed", _pcaFrames != null ? _pcaFrames.PairsPushed : 0).Prop("stereoPairRc", _pcaFrames != null ? _pcaFrames.LastPairResult : -1)
+             .PropRaw("stereo", StereoJson())
              .Prop("syntheticRc", _syntheticResult)
              .PropRaw("native", native)
              .PropRaw("world", world)

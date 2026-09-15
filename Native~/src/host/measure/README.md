@@ -92,3 +92,24 @@ degenerate), budget selection (count, determinism, tie lattice per frame, cap), 
 identities, whole-dispatch reference on synthetic planes (fronto-parallel, tilted with finite far), edge
 rejection + DETAIL + holes, cap accounting, two-eye interleaving shares, rotating row phase, anchor
 transform, push / frame block layouts.
+
+## C10 PCA L/R stereo measurement
+- **Pairing by capture timestamps:** the managed `StereoPairer` commits L/R pairs (minimal |tL − tR| inside 1.5 periods,
+  skew classes Direct / MotionCompensate / LowConfidence / Reject). `PcaFrameFeeder` pushes both frames of a new pair
+  into the camera slots and calls `FsMeas_SetStereoPair`; a depth frame solves stereo only when both slots still hold
+  exactly the pair's capture times, sizes and row convention, and the pair is within `FS_STEREO_MAX_AGE_NS`.
+- **Rectification:** each world hypothesis is projected through each camera's own located pose and calibrated pinhole
+  intrinsics (delivered-crop mapping). The C01 Camera2 probe reports no lens distortion for the PCA streams
+  (`ACAMERA_LENS_DISTORTION = []`, ids 50/51), so no resampled rectified images are built.
+- **Env Depth is a prior only:** hypotheses are spaced in disparity around the Env Depth point (band =
+  `FS_STEREO_BAND_K` × its sigma, capped at `FS_STEREO_BAND_MAX_PX`); each is scored by ZNCC of a 3×3 world patch on the
+  prior's tangent plane (homologous samples in both images). Textureless → the Env Depth record stands (`lowTex`);
+  weak / non-unique → `ambiguous`; best on the band edge → `bandEdge`.
+- **Own measurement:** a valid match replaces the record's geometry with the stereo endpoint along the left PCA ray,
+  `sigmaN = z² σ_d / (f b)` with `σ_d = FS_STEREO_SIGMA_D_PX / ZNCC²`, source bit `FS_MEAS_SRC_STEREO` (no depth-prior
+  floor), colour from the left PCA frame at the endpoint.
+- **Receipts:** `FS-MEAS stereo` log line and `stereo` telemetry: tested / valid / reasons, and per prior-distance bin
+  (<0.75, <1.5, <2.5, ≥2.5 m for the 0.5 / 1 / 2 / 3 m targets) the mean |z_stereo − z_envdepth| and the mean stereo vs
+  Env Depth sigma. Host twin `StereoSolve` (`TestStereoSolve`: synthetic Quest 3S rig, textured plane at 0.5–3 m within
+  3σ, textureless keeps the prior, a prior outside the band never pulls a wrong match).
+

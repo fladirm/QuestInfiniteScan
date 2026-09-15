@@ -48,6 +48,7 @@
 #define FS_MEAS_FLAG_PRED_FLIP_Y     8u        // prediction texture row 0 is the bottom edge (Unity RT convention on device: receipt-driven)
 
 // ---- FsSurfaceMeasurement.sourceFlags bits written here ----------------------------------------------------
+#define FS_MEAS_SRC_STEREO           1u        // bit 0: C10 PCA L/R stereo measurement (geometry authority = stereo, sigma from disparity)
 #define FS_MEAS_SRC_DEPTH_PRIOR      4u        // bit 2
 #define FS_MEAS_SRC_EDGE             256u      // bit 8
 #define FS_MEAS_SRC_LOW_TEXTURE      512u      // bit 9
@@ -70,13 +71,39 @@
 #define FS_MEAS_CTR_THRESHOLD        11        // selection threshold score of this frame
 #define FS_MEAS_CTR_FRACTION         12        // 16.16 fraction of the threshold bin kept
 #define FS_MEAS_CTR_CONSISTENT_ALT   13        // predicted texels within 1 sigma under the OTHER prediction row convention (receipt)
-#define FS_MEAS_CTR_WORDS            16        // counters region (words 13..15 reserved)
-#define FS_MEAS_FB_BYTES             800       // 64 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo
+// C10 stereo receipts (emit kernel, per selected texel with an Env Depth prior closer than FS_STEREO_MAX_DEPTH_M)
+#define FS_MEAS_CTR_STEREO_TESTED    16        // texels the stereo solve ran on (pair valid, prior in range)
+#define FS_MEAS_CTR_STEREO_VALID     17        // stereo measurements emitted (geometry from the L/R match)
+#define FS_MEAS_CTR_STEREO_LOWTEX    18        // left/right world patch below FS_STEREO_MIN_STD: Env Depth record kept
+#define FS_MEAS_CTR_STEREO_AMBIG     19        // ZNCC below FS_STEREO_MIN_ZNCC or not unique: Env Depth record kept
+#define FS_MEAS_CTR_STEREO_EDGEBAND  20        // best hypothesis on the band edge (prior disagrees beyond the band): Env Depth record kept
+#define FS_MEAS_CTR_STEREO_NOCOVER   21        // a patch sample left a camera image
+#define FS_MEAS_CTR_STEREO_BIN_N     22        // 4 words: valid stereo count per prior distance bin [<0.75, <1.5, <2.5, >=2.5 m] (targets 0.5/1/2/3 m)
+#define FS_MEAS_CTR_STEREO_BIN_RES   26        // 4 words: sum |z_stereo - z_envdepth| per bin (0.1 mm units): EnvDepth-only vs stereo residual
+#define FS_MEAS_CTR_STEREO_SIGMA_UM  30        // sum of the stereo sigma of valid records (um)
+#define FS_MEAS_CTR_ENV_SIGMA_UM     31        // sum of the Env Depth sigma of the same records (um)
+#define FS_MEAS_CTR_WORDS            32        // counters region
+#define FS_MEAS_FB_BYTES             944       // 128 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo + mat4 anchorFromWorld + uvec4 stereoInfo
 // ---- appearance sample (C16a, contract §14 keyframe authority = the PCA frame lease at its own pose/time): the emit kernel
 // projects the measured point into the PCA camera of the same eye captured closest to the depth time and stores RGB8 in
 // FsSurfaceMeasurement.reserved with FS_MEAS_COLOR_VALID; fusion blends it precision-weighted into appearanceHandle.
 #define FS_MEAS_CAM_MAX_AGE_NS       120000000  // |depth time - camera time| above this: no colour sample (the frame is not the same moment)
 #define FS_MEAS_SCORE_BINS           256
+// ---- C10 PCA L/R stereo (contract §6: Env Depth only as disparity prior + free space). The pair is committed by the managed
+// StereoPairer by capture timestamps; the solve projects world-space hypotheses along the left PCA ray through each camera's
+// own located pose and calibrated pinhole intrinsics (Camera2 reports no lens distortion for the PCA streams: C01 probe,
+// ACAMERA_LENS_DISTORTION = [] for ids 50/51, images are delivered rectilinear), so no image resampling is needed.
+#define FS_STEREO_MAX_DEPTH_M        3.5       // beyond: disparity < ~16 px, stereo sigma no better than the prior
+#define FS_STEREO_MAX_AGE_NS         120000000 // |depth time - pair time| above this: no stereo for this depth frame
+#define FS_STEREO_HYPS               13        // disparity hypotheses (odd; centre = Env Depth prior)
+#define FS_STEREO_STEP_MIN_PX        0.5       // hypothesis spacing floor (pixels of disparity)
+#define FS_STEREO_BAND_MAX_PX        6.0       // band half-width cap (pixels): spacing stays <= 1 px so the subpixel parabola is sampled
+#define FS_STEREO_BAND_K             3.0       // band half-width = K x Env Depth sigma, in disparity, at least (HYPS-1)/2 x step
+#define FS_STEREO_PATCH_PX           4.0       // world patch spacing = this many left-camera pixels at the hypothesis depth (3x3 samples, 8 px span: aperture)
+#define FS_STEREO_MIN_STD            0.015     // luma std of each 3x3 patch (0..1) below this = textureless
+#define FS_STEREO_MIN_ZNCC           0.85      // best hypothesis must correlate at least this well
+#define FS_STEREO_UNIQ_MARGIN        0.05      // best cost + margin < best non-neighbour cost (unique minimum)
+#define FS_STEREO_SIGMA_D_PX         0.25      // subpixel disparity sigma at ZNCC 1 (divided by ZNCC^2)
 
 // ---- bindings ----------------------------------------------------------------------------------------------
 #define FS_MEAS_B_DEPTH              0         // combined image sampler, sampler2DArray (nearest): Environment Depth

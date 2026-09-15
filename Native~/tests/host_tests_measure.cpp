@@ -375,17 +375,68 @@ static void TestFlipY() {
     CHECK_NEAR(m.py, -1.5f, 0.01); CHECK_NEAR(m.ny, 1.f, 1e-3);    // camera-facing normal of a floor below the eye points up
 }
 
+// C10: synthetic rig = Quest 3S PCA intrinsics (871.8 px at 1280, baseline 63.4 mm); a textured plane at a known depth; the
+// Env Depth prior is displaced inside its band -> the solve recovers the true depth within its own sigma; a textureless
+// plane keeps the prior (LOWTEX); a prior beyond the band ends on the band edge; a repetitive stripe period is ambiguous.
+static void TestStereoSolve() {
+    FrameBlock blk{}; blk.camInfo[0] = 1280; blk.camInfo[1] = 960; blk.camInfo[2] = 7; blk.camInfo[3] = 0;
+    const float fx = 871.8f, cx = 640.f, cy = 480.f, b = 0.0634f;
+    for (int e = 0; e < 2; ++e) {
+        Mat4 cfw = Identity(); cfw.m[12] = e == 0 ? b * 0.5f : -b * 0.5f;          // camera centres at x = -b/2 (L), +b/2 (R); +Z forward, +Y up
+        memcpy(blk.camFromWorld[e], cfw.m, 64);
+        blk.camIntrinsics[e][0] = fx; blk.camIntrinsics[e][1] = fx; blk.camIntrinsics[e][2] = cx; blk.camIntrinsics[e][3] = cy;
+    }
+    CHECK_NEAR(Length(Sub(CamCentre(blk, 1), CamCentre(blk, 0))), b, 1e-6);
+    float planeZ = 1.0f; int texture = 1; float stripePeriod = 0.f;
+    auto albedo = [&](float X, float Y) -> float {
+        if (texture == 0) return 0.5f;
+        if (stripePeriod > 0.f) return 0.5f + 0.4f * sinf(6.2831853f * X / stripePeriod);
+        // value noise on 3 mm cells (a matte textured surface), bilinear between cell values
+        const float cs = 0.003f, gx = X / cs + 1000.f, gy = Y / cs + 1000.f; const int ix = (int)floorf(gx), iy = (int)floorf(gy); const float fxr = gx - ix, fyr = gy - iy;
+        auto h = [](int x, int y) { uint32_t k = (uint32_t)x * 73856093u ^ (uint32_t)y * 19349663u; k ^= k >> 13; k *= 0x5bd1e995u; k ^= k >> 15; return (float)(k & 1023u) / 1023.f; };
+        const float top = h(ix, iy) + (h(ix + 1, iy) - h(ix, iy)) * fxr, bot = h(ix, iy + 1) + (h(ix + 1, iy + 1) - h(ix, iy + 1)) * fxr;
+        return 0.2f + 0.6f * (top + (bot - top) * fyr);
+    };
+    // image formation: ray through pixel (u, v) of camera e hits the plane z = planeZ (bilinear = exact ray cast, continuous)
+    auto bilinear = [&](uint32_t e, float u, float t) -> float {
+        const float v = t;                                                             // rowFlip 0: row coordinate = v
+        const float xc = (u - cx) / fx, yc = (v - cy) / fx;
+        const float camX = e == 0 ? -b * 0.5f : b * 0.5f;
+        return albedo(camX + xc * planeZ, yc * planeZ);
+    };
+    auto run = [&](float zTrue, float zPrior, Vec3& pOut, float& sigma, float& zn) {
+        planeZ = zTrue;
+        const Vec3 pPrior = V3(-b * 0.5f + 0.05f * zPrior, 0.03f * zPrior, zPrior);
+        return StereoSolve(blk, pPrior, V3(0, 0, -1), 0.02f * zPrior * zPrior + 0.01f, bilinear, pOut, sigma, zn);
+    };
+    Vec3 p; float sg, zn;
+    for (float z : {0.5f, 1.0f, 2.0f, 3.0f}) {
+        StereoStatus st = run(z, z * 1.02f + 0.004f, p, sg, zn);
+        const float expect = StereoSigmaZ(z, fx, b, 1.f);
+        std::printf("stereo z=%.1f: status %u z* %.4f err %.2f mm sigma %.2f mm (prior sigma %.1f mm) zncc %.3f\n", z, (unsigned)st, p.z, (p.z - z) * 1e3f, sg * 1e3f, (0.02f * z * z + 0.01f) * 1e3f, zn);
+        CHECK(st == STEREO_OK);
+        CHECK(fabsf(p.z - z) <= 3.f * sg + 0.1f * expect);
+        CHECK(sg < 0.02f * z * z + 0.01f);                                              // better than the Env Depth model at these ranges
+    }
+    texture = 0; CHECK(run(1.0f, 1.01f, p, sg, zn) == STEREO_LOWTEX); texture = 1;         // textureless: the prior stands
+    CHECK(run(1.0f, 1.35f, p, sg, zn) == STEREO_EDGE || run(1.0f, 1.35f, p, sg, zn) == STEREO_AMBIG);   // truth outside the band: never pulled to a wrong match
+    stripePeriod = 0.004f; StereoStatus rep = run(1.0f, 1.0f, p, sg, zn); stripePeriod = 0.f;
+    CHECK(rep != STEREO_OK || fabsf(p.z - 1.0f) <= 3.f * sg);                              // periodic texture: ambiguous or correct, never confidently wrong
+    CHECK_NEAR(SubpixelParabola(1.f, 0.f, 1.f), 0.0, 1e-6); CHECK_NEAR(SubpixelParabola(0.5f, 0.f, 1.f), -1.0 / 6.0, 1e-6);
+    { float d0, step; StereoBand(1.f, 0.03f, fx, b, d0, step); CHECK_NEAR(d0, fx * b, 1e-3); CHECK(step >= (float)FS_STEREO_STEP_MIN_PX - 1e-5f); }
+}
+
 static void TestPushLayout() {
     CHECK_EQ(sizeof(PushCompact), 48u);
     CHECK_EQ(offsetof(PushCompact, layers), 16u); CHECK_EQ(offsetof(PushCompact, budget), 20u); CHECK_EQ(offsetof(PushCompact, obsId), 32u);
-    CHECK_EQ(sizeof(FrameBlock), (size_t)FS_MEAS_FB_BYTES); CHECK_EQ(offsetof(FrameBlock, anchorFromEye), 64u); CHECK_EQ(offsetof(FrameBlock, fov), 192u);
-    CHECK_EQ(offsetof(FrameBlock, worldFromEye), 224u); CHECK_EQ(offsetof(FrameBlock, predViewProj), 352u); CHECK_EQ(offsetof(FrameBlock, predInvViewProj), 480u); CHECK_EQ(offsetof(FrameBlock, predInfo), 608u);
+    CHECK_EQ(sizeof(FrameBlock), (size_t)FS_MEAS_FB_BYTES); CHECK_EQ(offsetof(FrameBlock, anchorFromEye), 128u); CHECK_EQ(offsetof(FrameBlock, fov), 256u);
+    CHECK_EQ(offsetof(FrameBlock, worldFromEye), 288u); CHECK_EQ(offsetof(FrameBlock, predViewProj), 416u); CHECK_EQ(offsetof(FrameBlock, predInvViewProj), 544u); CHECK_EQ(offsetof(FrameBlock, predInfo), 672u);
     { float k[4]; DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 1280, 960, k);                  // Quest 3S: 1280x960 delivered = centre crop of the 1280x1280 sensor frame
       CHECK_NEAR(k[0], 871.8, 1e-3); CHECK_NEAR(k[1], 871.8, 1e-3); CHECK_NEAR(k[2], 642.3, 1e-3); CHECK_NEAR(k[3], 644.0 - 160.0, 1e-3);
       DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 640, 480, k);                              // half resolution: scaled + cropped
       CHECK_NEAR(k[0], 435.9, 1e-3); CHECK_NEAR(k[2], 321.15, 1e-3); CHECK_NEAR(k[3], (644.0 - 160.0) * 0.5, 1e-3);
       DeliveredIntrinsics(800.f, 800.f, 400.f, 300.f, 0, 0, 800, 600, k); CHECK_NEAR(k[2], 400.0, 1e-6); }         // unknown sensor: pass-through
-    CHECK_EQ(offsetof(FrameBlock, camFromWorld), 624u); CHECK_EQ(offsetof(FrameBlock, camIntrinsics), 752u); CHECK_EQ(offsetof(FrameBlock, camInfo), 784u);
+    CHECK_EQ(offsetof(FrameBlock, camFromWorld), 688u); CHECK_EQ(offsetof(FrameBlock, camIntrinsics), 816u); CHECK_EQ(offsetof(FrameBlock, camInfo), 848u); CHECK_EQ(offsetof(FrameBlock, anchorFromWorld), 864u); CHECK_EQ(offsetof(FrameBlock, stereoInfo), 928u);
     CHECK((size_t)FS_MEAS_SEL_WORDS * 4 < 65536); CHECK(FS_MEAS_DEFAULT_BUDGET <= FS_MEAS_DEFAULT_MAX_OUT);
     CHECK_EQ(sizeof(FsSurfaceMeasurement), 48u);
     CHECK_EQ((uint32_t)FS_MEAS_SRC_DEPTH_PRIOR, 1u << 2); CHECK_EQ((uint32_t)FS_MEAS_SRC_EDGE, 1u << 8); CHECK_EQ((uint32_t)FS_MEAS_SRC_LOW_TEXTURE, 1u << 9);
@@ -394,7 +445,7 @@ static void TestPushLayout() {
 }
 
 int main() {
-    TestPushLayout(); TestLinearizeDepth(); TestRays(); TestDepthImageConvention(); TestSigmaModel(); TestEdgeAndFlat(); TestNormals(); TestReservation();
+    TestPushLayout(); TestStereoSolve(); TestLinearizeDepth(); TestRays(); TestDepthImageConvention(); TestSigmaModel(); TestEdgeAndFlat(); TestNormals(); TestReservation();
     TestFrontoParallelPlane(); TestTiltedPlaneNormalsAndFinitFar(); TestEdgeRejectionAndDetail(); TestBudgetSelection(); TestScoreAndPrediction(); TestAnchorTransform(); TestFlipY();
     if (g_failures) { std::printf("host_tests_measure: %d failure(s)\n", g_failures); return 1; }
     std::printf("host_tests_measure: all passed\n");

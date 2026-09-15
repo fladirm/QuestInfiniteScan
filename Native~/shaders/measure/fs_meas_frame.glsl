@@ -4,7 +4,7 @@
 #define FS_MEAS_FRAME_GLSL
 layout(std430, set = 0, binding = FS_MEAS_B_COUNTERS) buffer FrameBlock {
     uint ctr[FS_MEAS_CTR_WORDS]; mat4 anchorFromEye[2]; vec4 fov[2]; mat4 worldFromEye[2]; mat4 predViewProj[2]; mat4 predInvViewProj[2]; uvec4 predInfo;
-    mat4 camFromWorld[2]; vec4 camIntrinsics[2]; uvec4 camInfo;
+    mat4 camFromWorld[2]; vec4 camIntrinsics[2]; uvec4 camInfo; mat4 anchorFromWorld; uvec4 stereoInfo;
 } blk;
 // Twin: fs::meas::PushCompact (48 B). zp = (nearZ, farZ, maxDepthM, minDepthM); a = (layers, budget, maxOut, flags); b = (obsId, frame, width, height).
 layout(push_constant) uniform Push { vec4 zp; uvec4 a; uvec4 b; } pc;
