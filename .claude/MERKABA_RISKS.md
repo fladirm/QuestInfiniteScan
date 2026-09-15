@@ -112,14 +112,28 @@ with everything ever observed.
 `MerkabaRenderFeature` runs CullReadoutVisibility every XR frame, one lane per patch,
 rewriting FRONT indices + DrawArgs in place. No per-tile AABB coarse cull.
 
-## RISK-10 — residency: no tile reclamation; LRU epoch advances only on readout builds [OPEN]
+## RISK-10 — residency: no tile reclamation; LRU epoch advances only on readout builds [PARTLY FIXED IN CODE]
+
+Correction: eviction does exist (clean HOT -> COLD, dirty via EVICTING writeback). Fixed:
+work epoch advances on observation/erase finalize; readout no longer refreshes warm tiles;
+eviction pins tiles by distance to the user (warm radius) via `SetResidencyFocus`; native
+lease is released at the GPU fence (completion records are per job kind:
+`_M8AttemptCompletion[0]` scan, `[1]` readout); `StorageControlReady` preempts native
+submission for one frame so install/ack never starve. GPU tests: `MerkabaResidencyGpuTests`.
+
 `M8_COUNTER_FRAME_EPOCH` increments only in ResetReadoutBuild; eviction refuses
 tiles touched within SafeEpoch=3 builds. Nothing returns a live tile ref to EMPTY.
 PumpStorage exits whenever the native job is in flight; 32-tile batches, 50 ms poll,
 per-batch fsync (`MerkabaSsdStore` WriteThrough + Flush(true)), bitwise CRC.
 FinalizeReadout skips publication if any dependency tile is COLD.
 
-## RISK-11 — export: flush evicts world + chunk-window max-flow + 26x patch rebuilds [OPEN]
+## RISK-11 — export: flush evicts world + chunk-window max-flow + 26x patch rebuilds [PARTLY FIXED IN CODE]
+
+Fixed: SAVE/EXPORT flush is `Persist` (dirty HOT -> PERSISTING -> clean, tile stays HOT);
+batches 128 tiles, chained without the 50 ms idle poll, one fsync per batch (no
+WriteThrough), table CRC, reads through one handle per file in offset order.
+Still open: ownership-first membrane solve, patch cache, seam-stable partition.
+
 `FlushAllDirtyTilesAsync` rides the same 50 ms/32-tile pump and AcknowledgeWritebackBatch
 moves every flushed tile to COLD (export is not residency-neutral). Per owner chunk the
 exporter reads a 26-tile ring (2.3-3.4x context), runs Shell+Membrane+Dinic partition on

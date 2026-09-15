@@ -1018,7 +1018,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Contain(
                 "if (status == 3u)"));
             Assert.That(renderer, Does.Contain(
-                "AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint)"));
+                "AsyncGPUReadback.Request(_grid.M8AttemptCompletion, 16, 16"));
             Assert.That(renderer, Does.Contain(
                 "ticket.LifecycleGeneration !="));
             Assert.That(renderer, Does.Not.Contain(
@@ -1328,25 +1328,6 @@ namespace Genesis.RoomScan.Tests
             Assert.That(storage, Does.Contain(
                 "_loadRequestCursor & LoadRequestMask"));
             Assert.That(storage, Does.Contain("AcknowledgeLoadRequests"));
-        }
-
-        [Test]
-        public void FailedWriteback_ReturnsCanonicalTileHotDirtyWithoutFreeingIt()
-        {
-            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
-            string failure = Slice(world, "void FailWritebackBatch",
-                "groupshared uint gLoadSlot");
-            Assert.That(failure, Does.Contain("M8_COUNTER_FAILED_WRITES"));
-            Assert.That(failure, Does.Contain("M8_COUNTER_STORAGE_BACKPRESSURE"));
-            Assert.That(failure, Does.Contain("MERKABA_REF_EVICTING"));
-            Assert.That(failure, Does.Contain("queued.x + 1u"));
-            Assert.That(failure, Does.Contain(
-                "_M8TileRecords[M8TileRuntimeIndex(queued.x)].y = 1u"));
-            Assert.That(failure, Does.Not.Contain("M8PushPhysicalTile"));
-            Assert.That(failure, Does.Not.Contain("MERKABA_REF_COLD_ON_SSD"));
-            string storage = Source("Runtime/Merkaba/MerkabaGrid.Storage.cs");
-            Assert.That(storage, Does.Not.Contain("_storageWriteDisabled"));
-            Assert.That(storage, Does.Contain("FailWritebackBatch"));
         }
 
         [Test]
@@ -1928,37 +1909,11 @@ namespace Genesis.RoomScan.Tests
                 "_M8Counters[M8_COUNTER_EVICTION_NEEDED] = 1u"));
             Assert.That(eviction, Does.Contain(
                 "_M8Counters[M8_COUNTER_EVICTION_NEEDED] = 0u"));
-            Assert.That(pump.IndexOf("SelectEvictionVictims",
+            Assert.That(pump.IndexOf("SelectWritebackBatch",
                     StringComparison.Ordinal),
                 Is.GreaterThan(pump.IndexOf("request.GetData<uint>()",
                     StringComparison.Ordinal)));
             Assert.That(pump, Does.Contain("CounterEvictionNeeded"));
-        }
-
-        [Test]
-        public void EvictionRefillsOnlyTheMeasuredFreeSlotDeficit()
-        {
-            string compute = Source("Runtime/Shaders/MerkabaWorld.compute");
-            string grid = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
-            string prepare = Slice(compute, "void PrepareEvictionSelection",
-                "void SelectEvictionVictims");
-            string select = Slice(compute, "void SelectEvictionVictims",
-                "void GatherWritebackBatch");
-            Assert.That(prepare, Does.Contain(
-                "256u - freeCount : 0u"));
-            Assert.That(prepare, Does.Contain(
-                "M8_COUNTER_EVICTION_CLEAN_TICKET] = 0u"));
-            Assert.That(select, Does.Contain(
-                "M8_COUNTER_EVICTION_CLEAN_TICKET"));
-            Assert.That(select, Does.Contain(
-                "M8_COUNTER_EVICTION_CLEAN_BUDGET"));
-            Assert.That(compute, Does.Not.Contain(
-                "M8TryReserveCleanEviction"));
-            Assert.That(select, Does.Contain("if (queueIndex >= 32u)"));
-            Assert.That(select, Does.Contain(
-                "MERKABA_REF_EVICTING, expected"));
-            Assert.That(grid, Does.Contain(
-                "_prepareEvictionSelectionKernel, 1, 1, 1"));
         }
 
         [Test]
@@ -2424,7 +2379,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integrator, Does.Contain("JobKind.ObservationRetry"));
             Assert.That(integrator, Does.Contain("JobKind.FineErase"));
             Assert.That(renderer, Does.Contain("JobKind.Readout"));
-            Assert.That(renderer, Does.Contain("CompleteNativeReadoutBuild"));
+            Assert.That(renderer, Does.Contain("RequestReadoutCompletion"));
             Assert.That(generator, Does.Contain("StereoRgbdRefine"));
             Assert.That(generator, Does.Contain("FinalizeObservation"));
             Assert.That(generator, Does.Contain("FinalizeReadout"));

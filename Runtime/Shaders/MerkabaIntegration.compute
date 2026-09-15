@@ -2119,6 +2119,8 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
     _M8ObservationDispatchArgs[0] = max(touchedCount, pendingCount);
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
+    // One monotonic work epoch ages residency for scan and readout alike.
+    _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
     _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
         completed != 0u ?
             _M8Counters[M8_COUNTER_OBSERVATION_TOKEN] : 0u,
@@ -2359,6 +2361,7 @@ void FinalizeFineErase(uint id : SV_DispatchThreadID)
 {
     uint completed =
         _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u ? 1u : 0u;
+    _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
     _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
         completed != 0u ? _M8AttemptToken : 0u, 0u,
         _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);

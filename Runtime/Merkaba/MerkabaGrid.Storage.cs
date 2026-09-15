@@ -37,7 +37,10 @@ namespace Genesis.RoomScan
         private bool _writebackReadbackPending;
         private Task _writebackStorageTask;
         private int _writebackBatchCount;
+        private bool _writebackBatchPersist;
+        private bool _selectionPersist;
         private int _deferredWritebackFailureCount;
+        private bool _deferredWritebackFailurePersist;
         private bool _flushAllDirty;
         private TaskCompletionSource<bool> _flushCompletion;
         private IProgress<OperationWorkProgress> _flushProgress;
@@ -71,6 +74,17 @@ namespace Genesis.RoomScan
             _loadRequestCursor != _observedLoadRequestCount ||
             _loadAddressReadbackPending || _loadStorageTask != null ||
             _loadInstallStatusPending;
+
+        /// <summary>
+        /// Completed storage I/O whose small GPU install/acknowledge step must
+        /// run before the next native job takes the shared M8 buffers.
+        /// Residency progress is never starved by back-to-back scanner jobs.
+        /// </summary>
+        internal bool StorageControlReady => GpuSubmissionAllowed &&
+            !_storageReplacementPending &&
+            (_loadStorageTask != null && _loadStorageTask.IsCompleted ||
+             _writebackStorageTask != null && _writebackStorageTask.IsCompleted ||
+             _loadAcknowledgePending || _deferredWritebackFailureCount > 0);
 
         internal uint CompletedObservationToken => _completedObservationToken;
         internal uint CompletedObservationFailure =>
@@ -186,7 +200,10 @@ namespace Genesis.RoomScan
             _writebackReadbackPending = false;
             _writebackStorageTask = null;
             _writebackBatchCount = 0;
+            _writebackBatchPersist = false;
+            _selectionPersist = false;
             _deferredWritebackFailureCount = 0;
+            _deferredWritebackFailurePersist = false;
             _flushAllDirty = false;
             _flushCompletion = null;
             _flushProgress = null;
@@ -239,7 +256,7 @@ namespace Genesis.RoomScan
                     BeginLoadAddressReadback();
                 uint rawWritebackCount = values[20];
                 uint writebackCount = Math.Min(rawWritebackCount,
-                    (uint)StreamBatchCapacity);
+                    (uint)WritebackBatchCapacity);
                 if (writebackCount > 0u && !_writebackReadbackPending &&
                     _writebackStorageTask == null)
                 {
@@ -250,7 +267,8 @@ namespace Genesis.RoomScan
                         ReportFlushProgress();
                     }
                     _evictionSelectionPendingSample = false;
-                    BeginWritebackReadback((int)writebackCount);
+                    BeginWritebackReadback((int)writebackCount,
+                        _selectionPersist);
                 }
                 else if (_evictionSelectionPendingSample &&
                          writebackCount == 0u)
@@ -273,7 +291,8 @@ namespace Genesis.RoomScan
                          (_flushAllDirty ||
                           values[CounterEvictionNeeded] != 0u))
                 {
-                    SelectEvictionVictims(_flushAllDirty);
+                    _selectionPersist = _flushAllDirty;
+                    SelectWritebackBatch(_selectionPersist);
                     _evictionSelectionPendingSample = true;
                     _nextStreamPoll = 0f;
                 }
@@ -312,7 +331,7 @@ namespace Genesis.RoomScan
             _attemptCompletionReadbackPending = true;
             _attemptCompletionExpectedToken = expectedAttemptToken;
             int generation = _gpuGeneration;
-            AsyncGPUReadback.Request(_m8AttemptCompletion, request =>
+            AsyncGPUReadback.Request(_m8AttemptCompletion, 16, 0, request =>
             {
                 // A stale callback must not clear or publish a newer request.
                 if (generation != _gpuGeneration ||
@@ -438,8 +457,8 @@ namespace Genesis.RoomScan
                     _flushCompletion = null;
                     _flushAllDirty = false;
                     _flushProgress = null;
-                    FailWritebackBatch(_writebackBatchCount);
-                    _nextStreamPoll = 0f;
+                    FailWritebackBatch(_writebackBatchCount,
+                        _writebackBatchPersist);
                 }
                 else
                 {
@@ -451,9 +470,13 @@ namespace Genesis.RoomScan
                             _writebackBatchCount);
                         ReportFlushProgress();
                     }
-                    AcknowledgeWritebackBatch(_writebackBatchCount);
+                    AcknowledgeWritebackBatch(_writebackBatchCount,
+                        _writebackBatchPersist);
                 }
                 _writebackBatchCount = 0;
+                // Chain the next batch immediately; the idle poll interval
+                // only paces an empty queue.
+                _nextStreamPoll = 0f;
             }
         }
 
@@ -498,6 +521,7 @@ namespace Genesis.RoomScan
                         _loadRequestCursor += (uint)tiles.Length;
                         AcknowledgeLoadRequests();
                         _loadAddresses = null;
+                        _nextStreamPoll = 0f;
                     }
                     else
                     {
@@ -526,7 +550,7 @@ namespace Genesis.RoomScan
             _loadAcknowledgePending = false;
         }
 
-        private void BeginWritebackReadback(int count)
+        private void BeginWritebackReadback(int count, bool persistOnly)
         {
             if (_storageReplacementPending || !GpuSubmissionAllowed) return;
             _writebackReadbackPending = true;
@@ -551,10 +575,13 @@ namespace Genesis.RoomScan
                             _flushAllDirty = false;
                             _flushProgress = null;
                             if (GpuSubmissionAllowed)
-                                FailWritebackBatch(count);
+                                FailWritebackBatch(count, persistOnly);
                             else
+                            {
                                 _deferredWritebackFailureCount = Math.Max(
                                     _deferredWritebackFailureCount, count);
+                                _deferredWritebackFailurePersist = persistOnly;
+                            }
                             _nextStreamPoll = 0f;
                         }
                         return;
@@ -587,6 +614,7 @@ namespace Genesis.RoomScan
                     }
                     EnsureStorage();
                     _writebackBatchCount = count;
+                    _writebackBatchPersist = persistOnly;
                     _writeIoStartedAt = Time.realtimeSinceStartupAsDouble;
                     _writebackStorageTask = _ssdStore.AppendAsync(tiles);
                 });
@@ -599,7 +627,7 @@ namespace Genesis.RoomScan
             if (_deferredWritebackFailureCount <= 0) return;
             int count = _deferredWritebackFailureCount;
             _deferredWritebackFailureCount = 0;
-            FailWritebackBatch(count);
+            FailWritebackBatch(count, _deferredWritebackFailurePersist);
         }
 
         internal void CaptureStorageMetrics(out float loadBytesPerSecond,

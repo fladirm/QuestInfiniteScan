@@ -38,9 +38,21 @@ uint _M8LinearGroupsX;
 
 StructuredBuffer<uint> _M8TouchedTileQueue;
 uint _M8StreamBatchCount;
-uint _M8EvictAllDirty;
+// Persist writes dirty HOT tiles to storage and leaves them HOT. Evict frees
+// clean or written-back tiles outside the residency focus. The two are never
+// the same operation: SAVE/EXPORT must not change the live working set.
+uint _M8PersistDirty;
 uint _M8SafeEpoch;
+float3 _M8ResidencyFocusGrid;
+float _M8ResidencyPinRadius;
 uint _M8ObservationToken;
+
+#define M8_WRITEBACK_BATCH_CAPACITY 128u
+#define M8_WORLD_LATTICE_STEP 0.025
+#define M8_TILE_KERNEL_SPAN 8.0
+#define M8_RUNTIME_CLEAN 0u
+#define M8_RUNTIME_DIRTY 1u
+#define M8_RUNTIME_PERSISTING 2u
 
 uint M8LinearIndex(uint3 groupId, uint groupThread)
 {
@@ -348,12 +360,25 @@ void PrepareEvictionSelection(uint id : SV_DispatchThreadID)
     uint freeCount = min(_M8Counters[M8_COUNTER_FREE_TILE_COUNT],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     _M8Counters[M8_COUNTER_EVICTION_CLEAN_BUDGET] =
-        _M8EvictAllDirty == 0u && freeCount < 256u ? 256u - freeCount : 0u;
+        _M8PersistDirty == 0u && freeCount < 256u ? 256u - freeCount : 0u;
     _M8Counters[M8_COUNTER_EVICTION_CLEAN_TICKET] = 0u;
     _M8Counters[M8_COUNTER_EVICTION_NEEDED] = 0u;
     uint cursor = _M8Counters[M8_COUNTER_EVICTION_CURSOR];
     _M8Counters[M8_COUNTER_EVICTION_CURSOR] =
         (cursor + 256u) & (MERKABA_M8_PHYSICAL_TILE_CAPACITY - 1u);
+}
+
+bool M8TileInsideResidencyFocus(uint physicalSlot)
+{
+    // Residency heat comes from the user's position, never from which tiles a
+    // readout happened to read. A tile whose nearest point lies within the
+    // warm focus radius stays HOT.
+    float3 origin = (float3)M8GlobalKernelCoord(physicalSlot, 0u) *
+        M8_WORLD_LATTICE_STEP;
+    float3 extent = M8_TILE_KERNEL_SPAN * M8_WORLD_LATTICE_STEP;
+    float3 nearest = clamp(_M8ResidencyFocusGrid, origin, origin + extent);
+    float3 delta = nearest - _M8ResidencyFocusGrid;
+    return dot(delta, delta) <= _M8ResidencyPinRadius * _M8ResidencyPinRadius;
 }
 
 [numthreads(256, 1, 1)]
@@ -368,18 +393,39 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
     uint tileRefIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
     uint expected = physicalSlot + 1u;
     if (_M8ChunkTileRefs[tileRefIndex] != expected) return;
-    if (_M8EvictAllDirty == 0u &&
-        _M8Counters[M8_COUNTER_FRAME_EPOCH] - runtime.z <= _M8SafeEpoch)
+
+    uint prior;
+    uint queueIndex;
+    if (_M8PersistDirty != 0u)
+    {
+        InterlockedCompareExchange(
+            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y,
+            M8_RUNTIME_DIRTY, M8_RUNTIME_PERSISTING, prior);
+        if (prior != M8_RUNTIME_DIRTY) return;
+        InterlockedAdd(_M8Counters[M8_COUNTER_WRITEBACK_COUNT], 1u,
+            queueIndex);
+        if (queueIndex >= M8_WRITEBACK_BATCH_CAPACITY)
+        {
+            InterlockedCompareExchange(
+                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y,
+                M8_RUNTIME_PERSISTING, M8_RUNTIME_DIRTY, prior);
+            return;
+        }
+        _M8WritebackQueue[queueIndex] = uint2(physicalSlot, tileRefIndex);
+        M8CounterIncrement(M8_COUNTER_WRITEBACK_TILES);
+        return;
+    }
+
+    if (_M8Counters[M8_COUNTER_FRAME_EPOCH] - runtime.z <= _M8SafeEpoch ||
+        M8TileInsideResidencyFocus(physicalSlot))
         return;
 
-    if (runtime.y == 0u)
+    if (runtime.y == M8_RUNTIME_CLEAN)
     {
-        if (_M8EvictAllDirty != 0u) return;
         uint ticket;
         InterlockedAdd(_M8Counters[M8_COUNTER_EVICTION_CLEAN_TICKET], 1u,
             ticket);
         if (ticket >= _M8Counters[M8_COUNTER_EVICTION_CLEAN_BUDGET]) return;
-        uint prior;
         InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex], expected,
             MERKABA_REF_COLD_ON_SSD, prior);
         if (prior != expected) return;
@@ -390,14 +436,13 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
         InterlockedAdd(_M8Counters[M8_COUNTER_COLD_TILE_COUNT], 1u, ignored);
         return;
     }
+    if (runtime.y != M8_RUNTIME_DIRTY) return;
 
-    uint prior;
     InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex], expected,
         MERKABA_REF_EVICTING, prior);
     if (prior != expected) return;
-    uint queueIndex;
     InterlockedAdd(_M8Counters[M8_COUNTER_WRITEBACK_COUNT], 1u, queueIndex);
-    if (queueIndex >= 32u)
+    if (queueIndex >= M8_WRITEBACK_BATCH_CAPACITY)
     {
         InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex],
             MERKABA_REF_EVICTING, expected, prior);
@@ -412,7 +457,8 @@ void GatherWritebackBatch(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
     uint item = groupId.x;
-    uint count = min(_M8CountersRead[M8_COUNTER_WRITEBACK_COUNT], 32u);
+    uint count = min(_M8CountersRead[M8_COUNTER_WRITEBACK_COUNT],
+        M8_WRITEBACK_BATCH_CAPACITY);
     if (item >= count) return;
     uint physicalSlot = _M8WritebackQueueRead[item].x;
     if (thread == 0u)
@@ -432,18 +478,26 @@ void GatherWritebackBatch(uint3 groupId : SV_GroupID,
     }
 }
 
-[numthreads(32, 1, 1)]
+[numthreads(128, 1, 1)]
 void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
 {
-    if (id >= _M8StreamBatchCount) return;
     if (id == 0u) _M8Counters[M8_COUNTER_WRITEBACK_COUNT] = 0u;
+    if (id >= min(_M8StreamBatchCount, M8_WRITEBACK_BATCH_CAPACITY)) return;
     uint2 queued = _M8WritebackQueueRead[id];
     uint physicalSlot = queued.x;
     uint prior;
+    if (_M8PersistDirty != 0u)
+    {
+        // A mutation after gather set DIRTY again; that tile stays dirty.
+        InterlockedCompareExchange(
+            _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y,
+            M8_RUNTIME_PERSISTING, M8_RUNTIME_CLEAN, prior);
+        return;
+    }
     InterlockedCompareExchange(_M8ChunkTileRefs[queued.y],
         MERKABA_REF_EVICTING, MERKABA_REF_COLD_ON_SSD, prior);
     if (prior != MERKABA_REF_EVICTING) return;
-    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 0u;
+    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = M8_RUNTIME_CLEAN;
     M8PushPhysicalTile(physicalSlot);
     uint ignored;
     InterlockedAdd(_M8Counters[M8_COUNTER_HOT_TILE_COUNT], 0xffffffffu,
@@ -451,20 +505,28 @@ void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
     InterlockedAdd(_M8Counters[M8_COUNTER_COLD_TILE_COUNT], 1u, ignored);
 }
 
-[numthreads(32, 1, 1)]
+[numthreads(128, 1, 1)]
 void FailWritebackBatch(uint id : SV_DispatchThreadID)
 {
-    uint count = min(_M8StreamBatchCount, 32u);
+    uint count = min(_M8StreamBatchCount, M8_WRITEBACK_BATCH_CAPACITY);
     if (id < count)
     {
         uint2 queued = _M8WritebackQueueRead[id];
         uint prior;
-        InterlockedCompareExchange(_M8ChunkTileRefs[queued.y],
-            MERKABA_REF_EVICTING, queued.x + 1u, prior);
-        if (prior == MERKABA_REF_EVICTING)
+        if (_M8PersistDirty != 0u)
+            InterlockedCompareExchange(
+                _M8TileRecords[M8TileRuntimeIndex(queued.x)].y,
+                M8_RUNTIME_PERSISTING, M8_RUNTIME_DIRTY, prior);
+        else
         {
-            _M8TileRecords[M8TileRuntimeIndex(queued.x)].y = 1u;
-            M8SignalResidencyChange();
+            InterlockedCompareExchange(_M8ChunkTileRefs[queued.y],
+                MERKABA_REF_EVICTING, queued.x + 1u, prior);
+            if (prior == MERKABA_REF_EVICTING)
+            {
+                _M8TileRecords[M8TileRuntimeIndex(queued.x)].y =
+                    M8_RUNTIME_DIRTY;
+                M8SignalResidencyChange();
+            }
         }
     }
     if (id == 0u)

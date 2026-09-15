@@ -263,6 +263,28 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void TileCrcMatchesTheFrozenBitwiseDefinition()
+        {
+            KernelState[] states = Fixture().Tiles[0].States;
+            uint reference = 0xffffffffu;
+            foreach (KernelState state in states)
+                foreach (uint value in new[]
+                         {
+                             unchecked((uint)state.OccupancyEvidence),
+                             state.PackedColor, state.ColorConfidence,
+                             state.Flags
+                         })
+                    for (int octet = 0; octet < 4; octet++)
+                    {
+                        reference ^= (byte)(value >> (octet * 8));
+                        for (int bit = 0; bit < 8; bit++)
+                            reference = (reference >> 1) ^
+                                ((reference & 1u) != 0u ? 0xedb88320u : 0u);
+                    }
+            Assert.That(MerkabaSsdStore.Crc32(states), Is.EqualTo(~reference));
+        }
+
+        [Test]
         public void NonRigidSpatialFrameIsRejected()
         {
             MerkabaSessionSnapshot source = Fixture();

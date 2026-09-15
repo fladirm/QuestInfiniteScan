@@ -54,8 +54,6 @@ namespace Genesis.RoomScan
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeAttemptJob;
         private bool _nativeAttemptIncludesPreprocess;
-        private bool _nativeAttemptGpuComplete;
-        private bool _nativeAttemptCompletionRequested;
         private double _nativeAttemptSubmittedAt;
         private double _nativeAttemptGpuCompleteAt;
         private bool _fineErasePrepared;
@@ -66,8 +64,6 @@ namespace Genesis.RoomScan
         private FineBrushDescriptor _fineEraseDescriptor;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeFineEraseJob;
-        private bool _nativeFineEraseGpuComplete;
-        private bool _nativeFineEraseCompletionRequested;
         // One immutable observation owns the room frame it was captured in.
         // Retries never re-read a moved grid; a changed coordinate authority
         // aborts the observation without canonical mutation.
@@ -441,49 +437,42 @@ namespace Genesis.RoomScan
 
             if (_nativeAttemptJob != null)
             {
-                if (!_nativeAttemptGpuComplete)
+                if (!_nativeAttemptJob.Poll(out string nativeError))
+                    return false;
+                if (!string.IsNullOrEmpty(nativeError))
                 {
-                    if (!_nativeAttemptJob.Poll(out string nativeError))
-                        return false;
-                    if (!string.IsNullOrEmpty(nativeError))
-                    {
-                        _nativeAttemptJob.Dispose();
-                        _nativeAttemptJob = null;
-                        _nativeAttemptIncludesPreprocess = false;
-                        Logger.Error(nativeError);
-                        _attemptInFlight = false;
-                        _nativeAttemptCompletionRequested = false;
-                        ReleaseOwnedObservation();
-                        _observationPrepared = false;
-                        return false;
-                    }
-                    if (_nativeAttemptIncludesPreprocess)
-                        _depthCapture.CompleteNativeDepthPreprocess();
+                    _nativeAttemptJob.Dispose();
+                    _nativeAttemptJob = null;
                     _nativeAttemptIncludesPreprocess = false;
-                    _nativeAttemptGpuComplete = true;
-                    _nativeAttemptGpuCompleteAt = Time.realtimeSinceStartupAsDouble;
-                }
-                if (!_nativeAttemptCompletionRequested)
-                {
-                    _grid.RequestAttemptCompletion(_attemptToken);
-                    _nativeAttemptCompletionRequested = true;
+                    Logger.Error(nativeError);
+                    _attemptInFlight = false;
+                    ReleaseOwnedObservation();
+                    _observationPrepared = false;
                     return false;
                 }
+                if (_nativeAttemptIncludesPreprocess)
+                    _depthCapture.CompleteNativeDepthPreprocess();
+                _nativeAttemptIncludesPreprocess = false;
+                // The GPU fence is terminal: release the serial native lane
+                // now. Completion is CPU accounting read from a record no
+                // other job kind writes, so it never holds scanner, readout
+                // or storage work behind a readback.
+                _nativeAttemptJob.Dispose();
+                _nativeAttemptJob = null;
+                _nativeAttemptGpuCompleteAt = Time.realtimeSinceStartupAsDouble;
+                _grid.RequestAttemptCompletion(_attemptToken);
+                return false;
             }
 
             if (_grid.CompletedAttemptToken != _attemptToken)
                 return false;
 
-            _nativeAttemptJob?.Dispose();
-            _nativeAttemptJob = null;
-            _nativeAttemptGpuComplete = false;
             double nativeAttemptRetiredAt = Time.realtimeSinceStartupAsDouble;
             Logger.Info("Merkaba native observation publication " +
                 $"attempt={_attemptToken} " +
                 $"totalMs={(nativeAttemptRetiredAt - _nativeAttemptSubmittedAt) * 1000.0:F3} " +
                 $"completionReadbackMs={(nativeAttemptRetiredAt - _nativeAttemptGpuCompleteAt) * 1000.0:F3}");
             _attemptInFlight = false;
-            _nativeAttemptCompletionRequested = false;
             if (_grid.CompletedObservationToken == _observationToken)
             {
                 Logger.Info("Merkaba observation complete " +
@@ -528,36 +517,23 @@ namespace Genesis.RoomScan
 
             if (_nativeFineEraseJob != null)
             {
-                if (!_nativeFineEraseGpuComplete)
+                if (!_nativeFineEraseJob.Poll(out string nativeError))
+                    return false;
+                _nativeFineEraseJob.Dispose();
+                _nativeFineEraseJob = null;
+                if (!string.IsNullOrEmpty(nativeError))
                 {
-                    if (!_nativeFineEraseJob.Poll(out string nativeError))
-                        return false;
-                    if (!string.IsNullOrEmpty(nativeError))
-                    {
-                        _nativeFineEraseJob.Dispose();
-                        _nativeFineEraseJob = null;
-                        _nativeFineEraseGpuComplete = false;
-                        _fineEraseAttemptInFlight = false;
-                        Logger.Error(nativeError);
-                        return false;
-                    }
-                    _nativeFineEraseGpuComplete = true;
-                }
-                if (!_nativeFineEraseCompletionRequested)
-                {
-                    _grid.RequestAttemptCompletion(_fineEraseAttemptToken);
-                    _nativeFineEraseCompletionRequested = true;
+                    _fineEraseAttemptInFlight = false;
+                    Logger.Error(nativeError);
                     return false;
                 }
+                _grid.RequestAttemptCompletion(_fineEraseAttemptToken);
+                return false;
             }
 
             if (_grid.CompletedAttemptToken != _fineEraseAttemptToken)
                 return false;
 
-            _nativeFineEraseJob?.Dispose();
-            _nativeFineEraseJob = null;
-            _nativeFineEraseGpuComplete = false;
-            _nativeFineEraseCompletionRequested = false;
             _fineEraseAttemptInFlight = false;
             if (_grid.CompletedObservationToken == _fineEraseAttemptToken)
             {
@@ -579,7 +555,7 @@ namespace Genesis.RoomScan
             if (!_fineErasePrepared || _fineEraseAttemptInFlight ||
                 _observationPrepared || _attemptInFlight ||
                 _grid == null || _grid.GpuSubmissionSuspended ||
-                !Initialize()) return false;
+                _grid.StorageControlReady || !Initialize()) return false;
             if (_fineEraseAuthorityGeneration != CurrentAuthorityGeneration())
             {
                 // ERASE is idempotent canonical reset: work already applied
@@ -685,8 +661,6 @@ namespace Genesis.RoomScan
                 recorded = true;
                 Graphics.ExecuteCommandBuffer(command);
                 _nativeFineEraseJob = nativeJob;
-                _nativeFineEraseGpuComplete = false;
-                _nativeFineEraseCompletionRequested = false;
                 _fineEraseAttemptInFlight = true;
                 _fineEraseWaitingForDependency = false;
                 return true;
@@ -696,8 +670,6 @@ namespace Genesis.RoomScan
                 if (recorded)
                 {
                     _nativeFineEraseJob = nativeJob;
-                    _nativeFineEraseGpuComplete = false;
-                    _nativeFineEraseCompletionRequested = false;
                     _fineEraseAttemptInFlight = true;
                     Logger.Error("Merkaba native FINE erase submission " +
                         "became uncertain; resources remain quarantined: " +
@@ -719,6 +691,7 @@ namespace Genesis.RoomScan
         internal bool TrySubmitObservationAttempt()
         {
             if (_grid == null || _grid.GpuSubmissionSuspended ||
+                _grid.StorageControlReady ||
                 !Initialize() || _attemptInFlight || _fineErasePrepared ||
                 _fineEraseAttemptInFlight)
                 return false;
@@ -913,8 +886,6 @@ namespace Genesis.RoomScan
                 Graphics.ExecuteCommandBuffer(command);
                 _nativeAttemptJob = nativeJob;
                 _nativeAttemptIncludesPreprocess = newObservation;
-                _nativeAttemptGpuComplete = false;
-                _nativeAttemptCompletionRequested = false;
                 _nativeAttemptSubmittedAt = Time.realtimeSinceStartupAsDouble;
                 _nativeAttemptGpuCompleteAt = 0.0;
                 _attemptInFlight = true;
@@ -934,7 +905,6 @@ namespace Genesis.RoomScan
                     // terminal; never recycle sensor/world resources here.
                     _nativeAttemptJob = nativeJob;
                     _nativeAttemptIncludesPreprocess = newObservation;
-                    _nativeAttemptGpuComplete = false;
                     _nativeAttemptSubmittedAt = Time.realtimeSinceStartupAsDouble;
                     _nativeAttemptGpuCompleteAt = 0.0;
                     _attemptInFlight = true;

@@ -52,7 +52,6 @@ namespace Genesis.RoomScan
         private ReadoutBuildTicket _pendingBuild;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeReadoutJob;
-        private bool _nativeReadoutGpuComplete;
         private double _nativeReadoutSubmittedAt;
         private double _nativeReadoutGpuCompleteAt;
         private bool _buildBlocked;
@@ -173,6 +172,10 @@ namespace Genesis.RoomScan
         private static readonly int FrameDispatchArgsId =
             Shader.PropertyToID("_M8FrameDispatchArgs");
         private static readonly int DrawArgsId = Shader.PropertyToID("_M8DrawArgs");
+        private static readonly int ReadoutRevisionId =
+            Shader.PropertyToID("_M8ReadoutRevision");
+        private static readonly int AttemptCompletionId =
+            Shader.PropertyToID("_M8AttemptCompletion");
         private static readonly int MeshEnabledId =
             Shader.PropertyToID("_M8MeshReadoutEnabled");
         private static readonly int MeshDepthId = Shader.PropertyToID("_SrcDepth");
@@ -400,6 +403,8 @@ namespace Genesis.RoomScan
                 readoutCompute.SetBuffer(kernel, FrameDispatchArgsId,
                     _grid.M8FrameDispatchArgs);
             }
+            readoutCompute.SetBuffer(_finalizeKernel, AttemptCompletionId,
+                _grid.M8AttemptCompletion);
             for (int slot = 0; slot < 2; slot++)
             {
                 _materials[slot] = new Material(renderShader)
@@ -432,6 +437,10 @@ namespace Genesis.RoomScan
             for (int slot = 0; slot < 2; slot++)
                 _materials[slot].SetMatrix(GridToWorldId,
                     _grid.GridToWorldMatrix);
+            float coverageDistance = renderDistance + readoutTranslationGuard;
+            _grid.SetResidencyFocus(_grid.GridToWorldMatrix.inverse
+                .MultiplyPoint3x4(camera.transform.position),
+                coverageDistance + MerkabaSpatial.BlockWorldSize);
             bool coverageDirty = !_hasPublishedCoverage;
             bool residencyChanged = _awaitingResidencyChange &&
                 _grid.ResidencyEpoch != _buildResidencyEpoch;
@@ -442,7 +451,7 @@ namespace Genesis.RoomScan
                  _integrator.HasFineEraseAttemptInFlight);
             bool scanQueueBusy = _buildInFlight || scannerWork ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight ||
-                _nativeReadoutJob != null;
+                _nativeReadoutJob != null || _grid.StorageControlReady;
             bool buildRequested = _canonicalDirty || coverageDirty || residencyChanged;
             if (_buildBlocked && !HasBuildReasonChanged())
                 buildRequested = false;
@@ -494,6 +503,8 @@ namespace Genesis.RoomScan
                     ReadoutIndicesId, _grid.GetM8ReadoutIndices(backSlot));
                 command.SetComputeBufferParam(readoutCompute, _finalizeKernel,
                     DrawArgsId, _grid.GetM8DrawArgs(backSlot));
+                command.SetComputeIntParam(readoutCompute, ReadoutRevisionId,
+                    unchecked((int)ticket.Revision));
                 ConfigureMeshReadoutCommand(command, ticket);
                 command.DispatchComputeProfiled(readoutCompute,
                     _resetKernel, ticket.MeshReadout ? 1 :
@@ -553,9 +564,7 @@ namespace Genesis.RoomScan
                 1f / Mathf.Max(1f, readoutBuildHz);
             try
             {
-                AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint),
-                    MerkabaGrid.CounterReadoutBuildStatus * sizeof(uint),
-                    request => CompleteReadoutBuild(ticket, request));
+                RequestReadoutCompletion(ticket);
             }
             catch (Exception exception)
             {
@@ -572,46 +581,48 @@ namespace Genesis.RoomScan
         private void PollNativeReadoutBuild()
         {
             if (_nativeReadoutJob == null) return;
-            if (_nativeReadoutGpuComplete) return;
             if (!_nativeReadoutJob.Poll(out string error)) return;
             ReadoutBuildTicket ticket = _pendingBuild;
-            bool succeeded = string.IsNullOrEmpty(error);
-            if (!succeeded)
+            // Release the serial native lane at its GPU fence. Publication is
+            // decided from the readout's own completion record.
+            _nativeReadoutJob.Dispose();
+            _nativeReadoutJob = null;
+            _nativeReadoutGpuCompleteAt = Time.realtimeSinceStartupAsDouble;
+            if (!string.IsNullOrEmpty(error))
             {
                 ReleaseDepthLease(ticket);
-                _nativeReadoutJob.Dispose();
-                _nativeReadoutJob = null;
-                _nativeReadoutGpuComplete = false;
                 _buildInFlight = false;
                 _pendingBuild = default;
                 _canonicalDirty = true;
                 Logger.Error(error);
                 return;
             }
-            _nativeReadoutGpuComplete = true;
-            _nativeReadoutGpuCompleteAt = Time.realtimeSinceStartupAsDouble;
-            MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob =
-                _nativeReadoutJob;
             try
             {
-                AsyncGPUReadback.Request(_grid.M8Counters, sizeof(uint),
-                    MerkabaGrid.CounterReadoutBuildStatus * sizeof(uint),
-                    request => CompleteNativeReadoutBuild(ticket, nativeJob,
-                        request));
+                RequestReadoutCompletion(ticket);
             }
             catch (Exception exception)
             {
                 ReleaseDepthLease(ticket);
-                nativeJob.Dispose();
-                if (ReferenceEquals(_nativeReadoutJob, nativeJob))
-                    _nativeReadoutJob = null;
-                _nativeReadoutGpuComplete = false;
                 _buildInFlight = false;
                 _pendingBuild = default;
                 _canonicalDirty = true;
                 Logger.Warning("Merkaba readout completion request failed: " +
                     exception.Message);
             }
+        }
+
+        private void RequestReadoutCompletion(ReadoutBuildTicket ticket)
+        {
+            AsyncGPUReadback.Request(_grid.M8AttemptCompletion, 16, 16,
+                request =>
+                {
+                    Logger.Info("Merkaba readout publication " +
+                        $"revision={ticket.Revision} slot={ticket.Slot} " +
+                        "completionReadbackMs=" +
+                        $"{(Time.realtimeSinceStartupAsDouble - _nativeReadoutGpuCompleteAt) * 1000.0:F3}");
+                    CompleteReadoutBuild(ticket, request);
+                });
         }
 
 #if !UNITY_EDITOR && UNITY_ANDROID
@@ -662,7 +673,6 @@ namespace Genesis.RoomScan
                 recorded = true;
                 Graphics.ExecuteCommandBuffer(command);
                 _nativeReadoutJob = nativeJob;
-                _nativeReadoutGpuComplete = false;
                 _nativeReadoutSubmittedAt = Time.realtimeSinceStartupAsDouble;
                 _nativeReadoutGpuCompleteAt = 0.0;
                 if (_sourceGeneration == ticket.SourceGeneration)
@@ -675,7 +685,6 @@ namespace Genesis.RoomScan
                 if (recorded)
                 {
                     _nativeReadoutJob = nativeJob;
-                    _nativeReadoutGpuComplete = false;
                     _nativeReadoutSubmittedAt = Time.realtimeSinceStartupAsDouble;
                     _nativeReadoutGpuCompleteAt = 0.0;
                     Logger.Error("Merkaba native readout submission became " +
@@ -734,6 +743,7 @@ namespace Genesis.RoomScan
             values.Int("_M8QueryBlockSide", side);
             values.UInt("_M8MeshReadoutEnabled",
                 ticket.MeshReadout ? 1u : 0u);
+            values.UInt("_M8ReadoutRevision", ticket.Revision);
             values.Matrix("_MerkabaGridToWorld", ticket.GridToWorld);
             values.Matrix("_MerkabaWorldToGrid", ticket.GridToWorld.inverse);
             if (ticket.MeshReadout)
@@ -834,25 +844,6 @@ namespace Genesis.RoomScan
             ApplyCheckerReadoutState(material);
         }
 
-        private void CompleteNativeReadoutBuild(ReadoutBuildTicket ticket,
-            MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob nativeJob,
-            AsyncGPUReadbackRequest request)
-        {
-            nativeJob?.Dispose();
-            if (ReferenceEquals(_nativeReadoutJob, nativeJob))
-                _nativeReadoutJob = null;
-            _nativeReadoutGpuComplete = false;
-            double retiredAt = Time.realtimeSinceStartupAsDouble;
-            uint status = request.hasError ? uint.MaxValue :
-                request.GetData<uint>()[0];
-            Logger.Info("Merkaba native readout publication " +
-                $"revision={ticket.Revision} slot={ticket.Slot} " +
-                $"totalMs={(retiredAt - _nativeReadoutSubmittedAt) * 1000.0:F3} " +
-                $"completionReadbackMs={(retiredAt - _nativeReadoutGpuCompleteAt) * 1000.0:F3} " +
-                $"status={status}");
-            CompleteReadoutBuild(ticket, request);
-        }
-
         private void CompleteReadoutBuild(ReadoutBuildTicket ticket,
             AsyncGPUReadbackRequest request)
         {
@@ -872,7 +863,14 @@ namespace Genesis.RoomScan
                 return;
             }
 
-            uint status = request.GetData<uint>()[0];
+            Unity.Collections.NativeArray<uint> record =
+                request.GetData<uint>();
+            if (record.Length != 4 || record[0] != ticket.Revision)
+            {
+                _canonicalDirty = true;
+                return;
+            }
+            uint status = record[1];
             if (status == 3u)
             {
                 _frontReadout = ticket.Slot;

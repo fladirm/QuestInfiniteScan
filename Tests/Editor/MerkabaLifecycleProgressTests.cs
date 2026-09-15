@@ -258,7 +258,7 @@ namespace Genesis.RoomScan.Tests
                      {
                          "BeginLoadAddressReadback()",
                          "BeginWritebackReadback(",
-                         "SelectEvictionVictims("
+                         "SelectWritebackBatch("
                      })
             {
                 Assert.That(pump.IndexOf(submission, StringComparison.Ordinal),
@@ -298,7 +298,7 @@ namespace Genesis.RoomScan.Tests
                 "_gpuSubmissionSuspended = true"));
             foreach (string method in new[]
                      {
-                         "internal void SelectEvictionVictims",
+                         "internal void SelectWritebackBatch",
                          "internal void AcknowledgeWritebackBatch",
                          "internal void FailWritebackBatch",
                          "internal void InstallLoadedTiles",

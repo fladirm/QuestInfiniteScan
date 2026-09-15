@@ -67,6 +67,8 @@ float4x4 _M8MeshDepthView1;
 float4x4 _M8MeshDepthViewInv0;
 float4x4 _M8MeshDepthViewInv1;
 float4 _M8CullGridPlanes[12];
+uint _M8ReadoutRevision;
+RWStructuredBuffer<uint4> _M8AttemptCompletion;
 
 #define M8_READOUT_VERTEX_STRIDE 16u
 
@@ -330,8 +332,6 @@ void QueryM8Readout(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                     continue;
                 }
                 uint physicalSlot = M8PhysicalSlot(tileRef);
-                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =
-                    _M8Counters[M8_COUNTER_FRAME_EPOCH];
                 if (!inDraw ||
                     _M8TileRecords[M8TileMetaIndex(physicalSlot)].z == 0u)
                     continue;
@@ -1165,8 +1165,17 @@ void BuildReadoutMesh(uint3 id : SV_DispatchThreadID)
     M8BuildMeshEye(1u, id.xy, outputVertex);
 }
 
-[numthreads(1, 1, 1)]
-void FinalizeReadout(uint id : SV_DispatchThreadID)
+void M8PublishReadoutCompletion()
+{
+    // The CPU publication decision reads only this record. Counters remain
+    // diagnostics that a later scanner job may reset.
+    _M8AttemptCompletion[1] = uint4(_M8ReadoutRevision,
+        _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS],
+        _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES],
+        _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT]);
+}
+
+void FinalizeReadoutStatus()
 {
     uint status = _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS];
     if (status == MERKABA_READOUT_SKIPPED ||
@@ -1208,6 +1217,13 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
     _M8DrawArgs[8] = 1u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
         MERKABA_READOUT_PUBLISHED;
+}
+
+[numthreads(1, 1, 1)]
+void FinalizeReadout(uint id : SV_DispatchThreadID)
+{
+    FinalizeReadoutStatus();
+    M8PublishReadoutCompletion();
 }
 
 bool M8SphereOutsideFrustum(float3 center, float radius, uint planeBase)

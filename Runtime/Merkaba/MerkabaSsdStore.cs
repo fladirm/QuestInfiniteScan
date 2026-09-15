@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Unity.Mathematics;
@@ -151,8 +152,9 @@ namespace Genesis.RoomScan
         {
             if (tiles == null) throw new ArgumentNullException(nameof(tiles));
             if (tiles.Count == 0) return;
-            if (tiles.Count > MerkabaGrid.StreamBatchCapacity)
-                throw new InvalidDataException("M8 writeback batch exceeds 32 tiles.");
+            if (tiles.Count > MerkabaGrid.WritebackBatchCapacity)
+                throw new InvalidDataException(
+                    "M8 writeback batch exceeds its GPU staging capacity.");
             Directory.CreateDirectory(_directory);
             bool newFile = !File.Exists(OverlayPath) ||
                            new FileInfo(OverlayPath).Length == 0;
@@ -160,9 +162,11 @@ namespace Genesis.RoomScan
             var pending = new List<PendingIndexUpdate>(tiles.Count);
             try
             {
+                // One durable sync per batch. WriteThrough would sync every
+                // buffered write of the same batch.
                 using var stream = new FileStream(OverlayPath, FileMode.Append,
-                    FileAccess.Write, FileShare.Read, 256 * 1024,
-                    FileOptions.WriteThrough);
+                    FileAccess.Write, FileShare.Read, 1024 * 1024,
+                    FileOptions.None);
                 using var writer = new BinaryWriter(stream,
                     new UTF8Encoding(false), true);
                 if (newFile)
@@ -228,13 +232,75 @@ namespace Genesis.RoomScan
             IReadOnlyList<MerkabaTileAddress> addresses) => Task.Run(() =>
         {
             if (addresses == null) throw new ArgumentNullException(nameof(addresses));
-            if (addresses.Count > MerkabaGrid.StreamBatchCapacity)
-                throw new InvalidDataException("M8 load batch exceeds 32 tiles.");
-            var result = new MerkabaTileSnapshot[addresses.Count];
-            for (int index = 0; index < addresses.Count; index++)
-                result[index] = ReadOne(addresses[index]);
-            return result;
+            return ReadMany(addresses);
         });
+
+        /// <summary>
+        /// Reads tiles through one open handle per backing file, in file-offset
+        /// order, decoding each 8192-byte payload in a single copy.
+        /// </summary>
+        internal MerkabaTileSnapshot[] ReadMany(
+            IReadOnlyList<MerkabaTileAddress> addresses,
+            Action<int> reportCompleted = null)
+        {
+            var result = new MerkabaTileSnapshot[addresses.Count];
+            var order = new (Location Location, int Index)[addresses.Count];
+            lock (_gate)
+            {
+                for (int index = 0; index < addresses.Count; index++)
+                {
+                    if (!_index.TryGetValue(addresses[index],
+                            out Location location))
+                        throw new FileNotFoundException(
+                            $"M8 tile {addresses[index].LocalAddress} at " +
+                            $"{addresses[index].BlockCoord} is absent from storage.");
+                    order[index] = (location, index);
+                }
+            }
+            Array.Sort(order, (left, right) =>
+            {
+                int path = string.CompareOrdinal(left.Location.Path,
+                    right.Location.Path);
+                return path != 0 ? path :
+                    left.Location.PayloadOffset.CompareTo(
+                        right.Location.PayloadOffset);
+            });
+            byte[] payload = new byte[TilePayloadBytes];
+            FileStream stream = null;
+            string openPath = null;
+            try
+            {
+                for (int item = 0; item < order.Length; item++)
+                {
+                    Location location = order[item].Location;
+                    if (!string.Equals(openPath, location.Path,
+                            StringComparison.Ordinal))
+                    {
+                        stream?.Dispose();
+                        stream = new FileStream(location.Path, FileMode.Open,
+                            FileAccess.Read, FileShare.ReadWrite, 256 * 1024,
+                            FileOptions.RandomAccess);
+                        openPath = location.Path;
+                    }
+                    if (stream.Position != location.PayloadOffset)
+                        stream.Position = location.PayloadOffset;
+                    ReadExact(stream, payload);
+                    int addressIndex = order[item].Index;
+                    result[addressIndex] = new MerkabaTileSnapshot
+                    {
+                        Address = addresses[addressIndex],
+                        Generation = location.Generation,
+                        States = DecodeStates(payload)
+                    };
+                    reportCompleted?.Invoke(item + 1);
+                }
+            }
+            finally
+            {
+                stream?.Dispose();
+            }
+            return result;
+        }
 
         internal MerkabaTileAddress[] SnapshotSortedAddresses()
         {
@@ -357,17 +423,16 @@ namespace Genesis.RoomScan
                 List<MerkabaTileAddress> addresses;
                 lock (_gate) addresses = new List<MerkabaTileAddress>(_index.Keys);
                 addresses.Sort();
-                for (int index = 0; index < addresses.Count; index++)
+                int total = addresses.Count;
+                MerkabaTileSnapshot[] tiles = ReadMany(addresses, completed =>
                 {
-                    MerkabaTileAddress address = addresses[index];
-                    snapshot.Tiles.Add(ReadOne(address));
-                    if (ShouldReport(index + 1, addresses.Count, 32))
+                    if (ShouldReport(completed, total, 256))
                         progress?.Report(new OperationWorkProgress(
-                            ScanOperationStage.CapturingState, index + 1,
-                            addresses.Count,
-                            $"Captured {index + 1}/{addresses.Count} canonical tiles"));
-                }
-                if (addresses.Count == 0)
+                            ScanOperationStage.CapturingState, completed, total,
+                            $"Captured {completed}/{total} canonical tiles"));
+                });
+                snapshot.Tiles.AddRange(tiles);
+                if (total == 0)
                     progress?.Report(new OperationWorkProgress(
                         ScanOperationStage.CapturingState, 0, 0,
                         "Canonical snapshot is empty"));
@@ -515,29 +580,6 @@ namespace Genesis.RoomScan
             return snapshot;
         }
 
-        private MerkabaTileSnapshot ReadOne(MerkabaTileAddress address)
-        {
-            Location location;
-            lock (_gate)
-            {
-                if (!_index.TryGetValue(address, out location))
-                    throw new FileNotFoundException($"M8 tile {address.LocalAddress} " +
-                        $"at {address.BlockCoord} is absent from storage.");
-            }
-            using var stream = new FileStream(location.Path, FileMode.Open,
-                FileAccess.Read, FileShare.ReadWrite, 16 * 1024,
-                FileOptions.RandomAccess);
-            stream.Position = location.PayloadOffset;
-            using var reader = new BinaryReader(stream, Encoding.UTF8, true);
-            KernelState[] states = ReadStates(reader);
-            return new MerkabaTileSnapshot
-            {
-                Address = address,
-                Generation = location.Generation,
-                States = states
-            };
-        }
-
         private static void ScanCheckpoint(string path,
             IDictionary<MerkabaTileAddress, Location> index,
             Action<long> reportBytes = null)
@@ -645,52 +687,56 @@ namespace Genesis.RoomScan
             new int3(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32()),
             reader.ReadUInt32());
 
-        private static void WriteStates(BinaryWriter writer, KernelState[] states)
+        private static void WriteStates(BinaryWriter writer, KernelState[] states) =>
+            writer.Write(MemoryMarshal.AsBytes(states.AsSpan()));
+
+        private static KernelState[] ReadStates(BinaryReader reader) =>
+            DecodeStates(ReadExact(reader, TilePayloadBytes));
+
+        private static readonly uint[] CrcTable = BuildCrcTable();
+
+        private static uint[] BuildCrcTable()
         {
-            foreach (KernelState state in states)
+            var table = new uint[256];
+            for (uint value = 0u; value < 256u; value++)
             {
-                writer.Write(state.OccupancyEvidence);
-                writer.Write(state.PackedColor);
-                writer.Write(state.ColorConfidence);
-                writer.Write(state.Flags);
+                uint crc = value;
+                for (int bit = 0; bit < 8; bit++)
+                    crc = (crc >> 1) ^ ((crc & 1u) != 0u ? 0xedb88320u : 0u);
+                table[value] = crc;
             }
+            return table;
         }
 
-        private static KernelState[] ReadStates(BinaryReader reader)
+        /// <summary>Reflected CRC-32 of the little-endian 16-byte states.</summary>
+        internal static uint Crc32(KernelState[] states)
         {
-            var states = new KernelState[MerkabaSpatial.KernelsPerTile];
-            for (int index = 0; index < states.Length; index++)
-            {
-                states[index].OccupancyEvidence = reader.ReadInt32();
-                states[index].PackedColor = reader.ReadUInt32();
-                states[index].ColorConfidence = reader.ReadUInt32();
-                states[index].Flags = reader.ReadUInt32();
-                Validate(states[index]);
-            }
-            return states;
-        }
-
-        private static uint Crc32(KernelState[] states)
-        {
+            ReadOnlySpan<byte> bytes = MemoryMarshal.AsBytes(
+                states.AsSpan());
             uint crc = 0xffffffffu;
-            foreach (KernelState state in states)
-            {
-                UpdateCrc(ref crc, unchecked((uint)state.OccupancyEvidence));
-                UpdateCrc(ref crc, state.PackedColor);
-                UpdateCrc(ref crc, state.ColorConfidence);
-                UpdateCrc(ref crc, state.Flags);
-            }
+            for (int index = 0; index < bytes.Length; index++)
+                crc = CrcTable[(crc ^ bytes[index]) & 0xffu] ^ (crc >> 8);
             return ~crc;
         }
 
-        private static void UpdateCrc(ref uint crc, uint value)
+        private static KernelState[] DecodeStates(byte[] payload)
         {
-            for (int octet = 0; octet < 4; octet++)
+            var states = new KernelState[MerkabaSpatial.KernelsPerTile];
+            MemoryMarshal.Cast<byte, KernelState>(
+                payload.AsSpan(0, TilePayloadBytes)).CopyTo(states);
+            foreach (KernelState state in states) Validate(state);
+            return states;
+        }
+
+        private static void ReadExact(Stream stream, byte[] buffer)
+        {
+            int offset = 0;
+            while (offset < buffer.Length)
             {
-                crc ^= (byte)(value >> (octet * 8));
-                for (int bit = 0; bit < 8; bit++)
-                    crc = (crc >> 1) ^ ((crc & 1u) != 0u
-                        ? 0xedb88320u : 0u);
+                int read = stream.Read(buffer, offset, buffer.Length - offset);
+                if (read <= 0) throw new EndOfStreamException(
+                    "M8 tile payload is truncated.");
+                offset += read;
             }
         }
 

@@ -20,6 +20,8 @@ namespace Genesis.RoomScan
         internal const int LoadRequestCapacity = 262144;
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
+        internal const int WritebackBatchCapacity = 128;
+        internal const uint ResidencySafeEpochs = 3u;
         internal const int ReadoutTriangleCapacity = 4_194_304;
         internal const int ReadoutPatchCapacity = ReadoutTriangleCapacity /
             MerkabaOverlapShell.TrianglesPerPatch;
@@ -330,9 +332,15 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8LinearGroupsX");
         private static readonly int StreamBatchCountId =
             Shader.PropertyToID("_M8StreamBatchCount");
-        private static readonly int EvictAllDirtyId =
-            Shader.PropertyToID("_M8EvictAllDirty");
+        private static readonly int PersistDirtyId =
+            Shader.PropertyToID("_M8PersistDirty");
         private static readonly int SafeEpochId = Shader.PropertyToID("_M8SafeEpoch");
+        private static readonly int ResidencyFocusGridId =
+            Shader.PropertyToID("_M8ResidencyFocusGrid");
+        private static readonly int ResidencyPinRadiusId =
+            Shader.PropertyToID("_M8ResidencyPinRadius");
+        private Vector3 _residencyFocusGrid;
+        private float _residencyPinRadius = float.PositiveInfinity;
         private static readonly int ObservationTokenId =
             Shader.PropertyToID("_M8ObservationToken");
         private static readonly int ClearBlockArgsId =
@@ -380,7 +388,9 @@ namespace Genesis.RoomScan
                 _m8FreeTileStack = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
-                _m8AttemptCompletion = Allocate(1, sizeof(uint) * 4);
+                // [0] observation/erase attempt, [1] readout publication.
+                // Each job kind writes only its own record.
+                _m8AttemptCompletion = Allocate(2, sizeof(uint) * 4);
 
                 _m8ClaimQueue = Allocate(MerkabaSpatial.ClaimRecordCount,
                     sizeof(uint) * 2);
@@ -414,9 +424,9 @@ namespace Genesis.RoomScan
                     ComputeBufferType.IndirectArguments);
                 _m8ObservationDispatchArgs = Allocate(3, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
-                _m8WritebackQueue = Allocate(StreamBatchCapacity,
+                _m8WritebackQueue = Allocate(WritebackBatchCapacity,
                     sizeof(uint) * 2);
-                _m8WritebackStaging = Allocate(StreamBatchCapacity *
+                _m8WritebackStaging = Allocate(WritebackBatchCapacity *
                     (MerkabaSpatial.KernelsPerTile + 1), 16);
                 _m8LoadStagingAddresses = Allocate(StreamBatchCapacity, 16);
                 _m8LoadStagingStates = Allocate(StreamBatchCapacity *
@@ -630,29 +640,50 @@ namespace Genesis.RoomScan
                 _m8LoadStagingStates);
         }
 
-        internal void SelectEvictionVictims(bool allDirty)
+        /// <summary>
+        /// The user's position in grid metres and the warm radius that the
+        /// readout requires resident. Eviction never selects a tile inside it.
+        /// </summary>
+        internal void SetResidencyFocus(Vector3 gridMeters, float pinRadius)
+        {
+            _residencyFocusGrid = gridMeters;
+            _residencyPinRadius = Mathf.Max(0f, pinRadius);
+        }
+
+        /// <summary>
+        /// Selects one writeback batch. <paramref name="persistOnly"/> writes
+        /// dirty HOT tiles and keeps them HOT; otherwise clean tiles outside
+        /// the residency focus are freed and dirty ones are written then freed.
+        /// </summary>
+        internal void SelectWritebackBatch(bool persistOnly)
         {
             if (!GpuSubmissionAllowed) return;
-            worldCompute.SetInt(EvictAllDirtyId, allDirty ? 1 : 0);
-            worldCompute.SetInt(SafeEpochId, 3);
+            worldCompute.SetInt(PersistDirtyId, persistOnly ? 1 : 0);
+            worldCompute.SetInt(SafeEpochId, (int)ResidencySafeEpochs);
+            worldCompute.SetVector(ResidencyFocusGridId, _residencyFocusGrid);
+            worldCompute.SetFloat(ResidencyPinRadiusId,
+                float.IsFinite(_residencyPinRadius) ? _residencyPinRadius :
+                    float.MaxValue);
             worldCompute.Dispatch(_prepareEvictionSelectionKernel, 1, 1, 1);
             worldCompute.Dispatch(_selectEvictionVictimsKernel,
                 DivideRoundUp(MerkabaSpatial.PhysicalTileCapacity, 256), 1, 1);
             worldCompute.Dispatch(_gatherWritebackBatchKernel,
-                StreamBatchCapacity, 1, 1);
+                WritebackBatchCapacity, 1, 1);
         }
 
-        internal void AcknowledgeWritebackBatch(int count)
+        internal void AcknowledgeWritebackBatch(int count, bool persistOnly)
         {
             if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
+            worldCompute.SetInt(PersistDirtyId, persistOnly ? 1 : 0);
             worldCompute.Dispatch(_acknowledgeWritebackBatchKernel, 1, 1, 1);
         }
 
-        internal void FailWritebackBatch(int count)
+        internal void FailWritebackBatch(int count, bool persistOnly)
         {
             if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(StreamBatchCountId, count);
+            worldCompute.SetInt(PersistDirtyId, persistOnly ? 1 : 0);
             worldCompute.Dispatch(_failWritebackBatchKernel, 1, 1, 1);
         }
 
@@ -1006,8 +1037,11 @@ namespace Genesis.RoomScan
             {
                 vertices[slot]?.Dispose();
                 indices[slot]?.Dispose();
-                if (meshes[slot] != null)
+                if (meshes[slot] == null) continue;
+                if (Application.isPlaying)
                     UnityEngine.Object.Destroy(meshes[slot]);
+                else
+                    UnityEngine.Object.DestroyImmediate(meshes[slot]);
             }
         }
 
